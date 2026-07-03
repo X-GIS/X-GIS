@@ -31,7 +31,10 @@
 // authoring helpers to build the unpack4x8unorm(compute_out_X[fid])
 // call as a real DSL Node.
 import {
-  arrayIndex, varRefArrayU32, unpack4x8unormVec4, inputFeatIdRef,
+  arrayIndex,
+  varRefArrayU32,
+  unpack4x8unormVec4,
+  inputFeatIdRef,
 } from './_util/node-builders'
 import { arrayT, u32T, type BindingDecl } from '@xgis/shader-dsl'
 
@@ -82,10 +85,7 @@ export function buildComputeOutputBindingDecl(spec: ComputeOutputBindingSpec): B
  *  The output is a `vec4<f32>` matching the legacy fillExpr/
  *  strokeExpr contract, so callers can drop it into
  *  `out.color = …` directly. */
-export function emitComputeOutputReadExpr(
-  spec: ComputeOutputBindingSpec,
-  fidExpr: string,
-): string {
+export function emitComputeOutputReadExpr(spec: ComputeOutputBindingSpec, fidExpr: string): string {
   const name = varNameFor(spec.paintAxis)
   return `unpack4x8unorm(${name}[${fidExpr}])`
 }

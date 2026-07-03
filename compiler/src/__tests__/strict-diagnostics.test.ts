@@ -26,12 +26,12 @@ describe('X-GIS0001: deprecated z<N>: zoom modifier', () => {
     `)
     expect(scene.diagnostics).toBeDefined()
     expect(scene.diagnostics!.length).toBeGreaterThan(0)
-    const d = scene.diagnostics!.find(d => d.code === 'X-GIS0001')
+    const d = scene.diagnostics!.find((d) => d.code === 'X-GIS0001')
     expect(d).toBeDefined()
     expect(d!.severity).toBe('warn')
     expect(d!.message).toContain('z8:')
     expect(d!.message).toContain('interpolate(zoom')
-    expect(d!.message).toContain('interpolate(zoom, 8, 40)')  // suggested replacement
+    expect(d!.message).toContain('interpolate(zoom, 8, 40)') // suggested replacement
   })
 
   it('warns once per `z<N>:` modifier instance', () => {
@@ -43,9 +43,9 @@ describe('X-GIS0001: deprecated z<N>: zoom modifier', () => {
         | z2:opacity-30 z5:opacity-60 z8:opacity-90
       }
     `)
-    const zd = scene.diagnostics!.filter(d => d.code === 'X-GIS0001')
+    const zd = scene.diagnostics!.filter((d) => d.code === 'X-GIS0001')
     expect(zd.length).toBe(3)
-    expect(zd.map(d => d.message).every(m => m.includes('interpolate(zoom'))).toBe(true)
+    expect(zd.map((d) => d.message).every((m) => m.includes('interpolate(zoom'))).toBe(true)
   })
 
   it('correct interpolate(zoom, …) syntax produces NO diagnostic', () => {
@@ -57,7 +57,7 @@ describe('X-GIS0001: deprecated z<N>: zoom modifier', () => {
         | opacity-[interpolate(zoom, 8, 40, 14, 100)]
       }
     `)
-    const zd = (scene.diagnostics ?? []).filter(d => d.code === 'X-GIS0001')
+    const zd = (scene.diagnostics ?? []).filter((d) => d.code === 'X-GIS0001')
     expect(zd.length).toBe(0)
   })
 
@@ -72,7 +72,7 @@ describe('X-GIS0001: deprecated z<N>: zoom modifier', () => {
         | priority:fill-red-500 highway:stroke-2
       }
     `)
-    const zd = (scene.diagnostics ?? []).filter(d => d.code === 'X-GIS0001')
+    const zd = (scene.diagnostics ?? []).filter((d) => d.code === 'X-GIS0001')
     expect(zd.length).toBe(0)
   })
 })
@@ -82,7 +82,7 @@ describe('X-GIS0002 / 0003: missing or unknown source reference', () => {
     const scene = lowerSrc(`
       layer y { | fill-red-500 }
     `)
-    const d = scene.diagnostics!.find(d => d.code === 'X-GIS0002')
+    const d = scene.diagnostics!.find((d) => d.code === 'X-GIS0002')
     expect(d).toBeDefined()
     expect(d!.severity).toBe('warn')
     expect(d!.message).toContain('"y"')
@@ -94,10 +94,10 @@ describe('X-GIS0002 / 0003: missing or unknown source reference', () => {
       source places { type: geojson, url: "x.geojson" }
       layer y { source: plces, | fill-red-500 }
     `)
-    const d = scene.diagnostics!.find(d => d.code === 'X-GIS0003')
+    const d = scene.diagnostics!.find((d) => d.code === 'X-GIS0003')
     expect(d).toBeDefined()
     expect(d!.message).toContain('"plces"')
-    expect(d!.message).toContain('"places"')   // suggests the known one
+    expect(d!.message).toContain('"places"') // suggests the known one
   })
 
   it('valid source reference produces NO X-GIS0003 diagnostic', () => {
@@ -105,7 +105,7 @@ describe('X-GIS0002 / 0003: missing or unknown source reference', () => {
       source places { type: geojson, url: "x.geojson" }
       layer y { source: places, | fill-red-500 }
     `)
-    const d = (scene.diagnostics ?? []).filter(d => d.code === 'X-GIS0003')
+    const d = (scene.diagnostics ?? []).filter((d) => d.code === 'X-GIS0003')
     expect(d.length).toBe(0)
   })
 })

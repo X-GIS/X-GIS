@@ -56,8 +56,8 @@ export function generateEarthSurfaceFillMesh(
   if (widthSegments < 32 || heightSegments < 16) {
     throw new Error(
       `earth-surface-fill: density below the Phase 2 spec minimum 32x16 ` +
-      `(got ${widthSegments}x${heightSegments}); sphere projections will ` +
-      `under-tessellate and the bg quad will look planar`,
+        `(got ${widthSegments}x${heightSegments}); sphere projections will ` +
+        `under-tessellate and the bg quad will look planar`,
     )
   }
   const [latMin, latMax] = bandLatRange(band)

@@ -33,13 +33,23 @@ const POLY = {
   properties: {},
   geometry: {
     type: 'Polygon' as const,
-    coordinates: [[[170, -10], [180, -10], [180, 10], [170, 10], [170, -10]]],
+    coordinates: [
+      [
+        [170, -10],
+        [180, -10],
+        [180, 10],
+        [170, 10],
+        [170, -10],
+      ],
+    ],
   },
 }
 
 describe('antimeridian outline seam', () => {
   it('outline of a polygon with an edge ALONG lon=180 does not stroke the antimeridian', () => {
-    const z = 0, x = 0, y = 0
+    const z = 0,
+      x = 0,
+      y = 0
     const parts = decomposeFeatures([POLY])
     const tile = compileSingleTile(parts, z, x, y, 7)
     expect(tile, 'tile compiles').not.toBeNull()

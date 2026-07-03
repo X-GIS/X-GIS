@@ -29,7 +29,7 @@ describe('GlyphPbfCache', () => {
   it('substitutes URL template tokens correctly', async () => {
     const urls: string[] = []
     const cache = new GlyphPbfCache({ glyphsUrl: URL_TEMPLATE, fetch: mockFetchOK(urls) })
-    await new Promise<void>(resolve => {
+    await new Promise<void>((resolve) => {
       cache.ensure('Open Sans Semibold', 0x41, resolve)
     })
     expect(urls).toHaveLength(1)
@@ -40,7 +40,7 @@ describe('GlyphPbfCache', () => {
   it('hits cache and serves get() synchronously after load', async () => {
     const urls: string[] = []
     const cache = new GlyphPbfCache({ glyphsUrl: URL_TEMPLATE, fetch: mockFetchOK(urls) })
-    await new Promise<void>(resolve => cache.ensure('Open Sans Semibold', 0x41, resolve))
+    await new Promise<void>((resolve) => cache.ensure('Open Sans Semibold', 0x41, resolve))
     const g = cache.get('Open Sans Semibold', 0x41)
     expect(g).toBeDefined()
     expect(g!.id).toBe(0x41)
@@ -50,8 +50,11 @@ describe('GlyphPbfCache', () => {
     const urls: string[] = []
     const cache = new GlyphPbfCache({ glyphsUrl: URL_TEMPLATE, fetch: mockFetchOK(urls) })
     let count = 0
-    const wait = new Promise<void>(resolve => {
-      const tick = () => { count += 1; if (count === 3) resolve() }
+    const wait = new Promise<void>((resolve) => {
+      const tick = () => {
+        count += 1
+        if (count === 3) resolve()
+      }
       cache.ensure('Open Sans Semibold', 0x41, tick)
       cache.ensure('Open Sans Semibold', 0x42, tick)
       cache.ensure('Open Sans Semibold', 0x43, tick)
@@ -65,8 +68,11 @@ describe('GlyphPbfCache', () => {
     const urls: string[] = []
     const cache = new GlyphPbfCache({ glyphsUrl: URL_TEMPLATE, fetch: mockFetchFail(urls) })
     let called = 0
-    await new Promise<void>(resolve => {
-      cache.ensure('X', 0x41, () => { called += 1; resolve() })
+    await new Promise<void>((resolve) => {
+      cache.ensure('X', 0x41, () => {
+        called += 1
+        resolve()
+      })
       // Failures resolve via the promise's catch path; we wait via a
       // microtask race.
       queueMicrotask(() => queueMicrotask(() => queueMicrotask(resolve)))
@@ -74,30 +80,35 @@ describe('GlyphPbfCache', () => {
     // After settling, the failed-range second call should NOT issue a
     // fetch nor invoke the callback.
     let secondCalled = false
-    cache.ensure('X', 0x41, () => { secondCalled = true })
-    expect(urls).toHaveLength(1)  // only the first attempt
+    cache.ensure('X', 0x41, () => {
+      secondCalled = true
+    })
+    expect(urls).toHaveLength(1) // only the first attempt
     expect(secondCalled).toBe(false)
-    expect(called).toBe(0)        // failure → silent (callback not fired)
+    expect(called).toBe(0) // failure → silent (callback not fired)
   })
 
   it('isResolved returns true for loaded and failed, false for loading and pristine', async () => {
     const cache = new GlyphPbfCache({ glyphsUrl: URL_TEMPLATE, fetch: mockFetchOK([]) })
-    expect(cache.isResolved('X', 0x41)).toBe(false)  // pristine
+    expect(cache.isResolved('X', 0x41)).toBe(false) // pristine
     cache.ensure('X', 0x41, () => {})
-    expect(cache.isResolved('X', 0x41)).toBe(false)  // still loading
-    await new Promise<void>(resolve => cache.ensure('X', 0x42, resolve))
-    expect(cache.isResolved('X', 0x41)).toBe(true)   // loaded
+    expect(cache.isResolved('X', 0x41)).toBe(false) // still loading
+    await new Promise<void>((resolve) => cache.ensure('X', 0x42, resolve))
+    expect(cache.isResolved('X', 0x41)).toBe(true) // loaded
   })
 
   it('separates ranges by 256-codepoint boundary', async () => {
     const urls: string[] = []
     const cache = new GlyphPbfCache({ glyphsUrl: URL_TEMPLATE, fetch: mockFetchOK(urls) })
-    await new Promise<void>(resolve => cache.ensure('X', 0x41, resolve))
+    await new Promise<void>((resolve) => cache.ensure('X', 0x41, resolve))
     // Codepoint 0x141 is in range 256-511 — different range, new fetch.
     let secondFired = false
-    await new Promise<void>(resolve => cache.ensure('X', 0x141, () => {
-      secondFired = true; resolve()
-    }))
+    await new Promise<void>((resolve) =>
+      cache.ensure('X', 0x141, () => {
+        secondFired = true
+        resolve()
+      }),
+    )
     expect(secondFired).toBe(true)
     expect(urls).toHaveLength(2)
     expect(urls[0]).toContain('/0-255.pbf')

@@ -41,13 +41,11 @@ interface FrameSample {
 
 async function setupIdleScene(page: Page, hash: string, style: string): Promise<void> {
   await page.setViewportSize({ width: 1280, height: 800 })
-  await page.goto(
-    `/compare.html?style=${style}${hash}`,
-    { waitUntil: 'domcontentloaded' },
-  )
+  await page.goto(`/compare.html?style=${style}${hash}`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
   // Settle past cold-start tile cascade. 4 seconds is sufficient for
   // OFM Bright z=14 Seoul to fully drain its upload queue.
@@ -66,15 +64,20 @@ async function sampleAllocProfile(page: Page, frames: number): Promise<Record<st
     }
     const api = (window as unknown as { __xgisAllocProfile?: API }).__xgisAllocProfile
     if (!api) return {}
-    interface M { invalidate: () => void }
+    interface M {
+      invalidate: () => void
+    }
     const map = (window as unknown as { __xgisMap?: M }).__xgisMap
     if (!map) return {}
     api.setEnabled(true)
-    api.snapshotAllocProfile()  // discard pre-sample baseline
-    await new Promise<void>(r => {
+    api.snapshotAllocProfile() // discard pre-sample baseline
+    await new Promise<void>((r) => {
       let i = 0
       const tick = () => {
-        if (i >= n) { r(); return }
+        if (i >= n) {
+          r()
+          return
+        }
         map.invalidate()
         i++
         requestAnimationFrame(tick)
@@ -103,11 +106,22 @@ async function sampleSteadyState(page: Page, frameCount: number): Promise<FrameS
     }
     const map = (window as unknown as { __xgisMap?: M }).__xgisMap
     if (!map) throw new Error('__xgisMap missing')
-    const samples: { drawCalls: number; triangles: number; vertices: number; tilesVisible: number; bundleReplays: number; frameTime: number; heapDeltaAvg: number }[] = []
-    return await new Promise<typeof samples>(resolve => {
+    const samples: {
+      drawCalls: number
+      triangles: number
+      vertices: number
+      tilesVisible: number
+      bundleReplays: number
+      frameTime: number
+      heapDeltaAvg: number
+    }[] = []
+    return await new Promise<typeof samples>((resolve) => {
       let frames = 0
       const tick = () => {
-        if (frames >= n) { resolve(samples); return }
+        if (frames >= n) {
+          resolve(samples)
+          return
+        }
         const s = map.stats
         samples.push({
           drawCalls: s.drawCalls,
@@ -182,11 +196,11 @@ test.describe('Phase RB.C — pre-bundle baseline harness', () => {
       const samples = await sampleSteadyState(page, FRAMES)
       // Drop the first 5 frames (still-settling tile uploads).
       const stable = samples.slice(5)
-      const drawCalls = stable.map(s => s.drawCalls)
-      const tilesVisible = stable.map(s => s.tilesVisible)
-      const bundleReplays = stable.map(s => s.bundleReplays)
-      const frameTimes = stable.map(s => s.frameTime)
-      const heapDeltas = stable.map(s => s.heapDeltaAvg).filter(v => v >= 0)
+      const drawCalls = stable.map((s) => s.drawCalls)
+      const tilesVisible = stable.map((s) => s.tilesVisible)
+      const bundleReplays = stable.map((s) => s.bundleReplays)
+      const frameTimes = stable.map((s) => s.frameTime)
+      const heapDeltas = stable.map((s) => s.heapDeltaAvg).filter((v) => v >= 0)
       const m = median(drawCalls)
       const mt = median(tilesVisible)
       const mbr = median(bundleReplays)
@@ -201,7 +215,8 @@ test.describe('Phase RB.C — pre-bundle baseline harness', () => {
       // only (Firefox / Safari report -1 sentinel; we skip-log
       // those). The C.1 baseline is informational on first ship;
       // Phase A iters will lock against the median observed.
-      const heapKb = mhd >= 0 ? `heapDeltaAvg.median=${(mhd / 1024).toFixed(1)}KB` : 'heapDeltaAvg=n/a'
+      const heapKb =
+        mhd >= 0 ? `heapDeltaAvg.median=${(mhd / 1024).toFixed(1)}KB` : 'heapDeltaAvg=n/a'
       // eslint-disable-next-line no-console
       console.log(
         `[baseline ${fx.name}] drawCalls median=${m} min=${min} max=${max} tilesVisible.median=${mt} bundleReplays.median=${mbr} ratio=${mbr > 0 ? (m / mbr).toFixed(1) : 'n/a'}× frameTime median=${mft.toFixed(2)}ms min=${ftMin.toFixed(2)} max=${ftMax.toFixed(2)} ${heapKb}`,
@@ -231,7 +246,7 @@ test.describe('Phase RB.C — pre-bundle baseline harness', () => {
         // eslint-disable-next-line no-console
         console.warn(
           `[baseline ${fx.name}] drawCall variance ${(variance * 100).toFixed(1)}% — ` +
-          `idle frames should be steady. Pre-RB.B baseline likely unstable.`,
+            `idle frames should be steady. Pre-RB.B baseline likely unstable.`,
         )
       }
 
@@ -254,8 +269,10 @@ test.describe('Phase RB.C — pre-bundle baseline harness', () => {
       // pre-bundle worktrees for before/after timing comparison.
       // Default: gate active (HEAD behavior).
       if (!process.env.PERF_BASELINE_NO_BUNDLE_GATE) {
-        expect(mbr, `bundle path should fire (median bundleReplays > 0); idle had 0 ⇒ wrap inactive`)
-          .toBeGreaterThan(0)
+        expect(
+          mbr,
+          `bundle path should fire (median bundleReplays > 0); idle had 0 ⇒ wrap inactive`,
+        ).toBeGreaterThan(0)
       }
     })
   }

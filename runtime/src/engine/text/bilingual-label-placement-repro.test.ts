@@ -22,17 +22,18 @@ import { wrapForTesting, mlVerticalLayout } from '@xgis/map'
 import { greedyPlaceBboxes, type CollisionItem } from '@xgis/map'
 
 const TEXT = 'Seoul\n서울특별시'
-const CODE = [...TEXT].map(c => c.codePointAt(0)!)   // 11 incl \n=10
+const CODE = [...TEXT].map((c) => c.codePointAt(0)!) // 11 incl \n=10
 
 function shape() {
-  const host = new GlyphAtlasHost(
-    { slotSize: 32, pageSize: 256 }, new MockRasterizer(), { fontSize: 16, sdfRadius: 6 },
-  )
+  const host = new GlyphAtlasHost({ slotSize: 32, pageSize: 256 }, new MockRasterizer(), {
+    fontSize: 16,
+    sdfRadius: 6,
+  })
   const glyphs = host.ensureString('noto', TEXT)
   return {
     glyphs,
-    codepoints: glyphs.map(g => g.codepoint),
-    advances: glyphs.map(g => g.advanceWidth),
+    codepoints: glyphs.map((g) => g.codepoint),
+    advances: glyphs.map((g) => g.advanceWidth),
   }
 }
 
@@ -43,7 +44,7 @@ describe('iter-325 Seoul bilingual label — CPU placement repro', () => {
     // → CJK-break corruption.
     const { codepoints, glyphs } = shape()
     expect(codepoints).toContain(10)
-    expect(glyphs.length).toBe(CODE.length)  // 11
+    expect(glyphs.length).toBe(CODE.length) // 11
     expect(codepoints).toEqual(CODE)
   })
 
@@ -51,8 +52,8 @@ describe('iter-325 Seoul bilingual label — CPU placement repro', () => {
     const { codepoints, advances } = shape()
     const lines = wrapForTesting(codepoints, advances, Infinity)
     expect(lines.length).toBe(2)
-    expect(lines[0]).toMatchObject({ start: 0, end: 5 })   // Seoul
-    expect(lines[1]).toMatchObject({ start: 6, end: 11 })  // 서울특별시
+    expect(lines[0]).toMatchObject({ start: 0, end: 5 }) // Seoul
+    expect(lines[1]).toMatchObject({ start: 6, end: 11 }) // 서울특별시
   })
 
   it('C: composition positions every NON-newline glyph exactly once', () => {
@@ -94,8 +95,10 @@ describe('iter-325 Seoul bilingual label — CPU placement repro', () => {
     // Latin glyphs 0..4 (Seoul) vs CJK glyphs 6..10 (서울특별시).
     for (let cjk = 6; cjk <= 10; cjk++) {
       for (let lat = 0; lat <= 4; lat++) {
-        expect(glyphY[cjk]! > glyphY[lat]!,
-          `CJK glyph ${cjk} (y=${glyphY[cjk]}) not below Latin ${lat} (y=${glyphY[lat]})`).toBe(true)
+        expect(
+          glyphY[cjk]! > glyphY[lat]!,
+          `CJK glyph ${cjk} (y=${glyphY[cjk]}) not below Latin ${lat} (y=${glyphY[lat]})`,
+        ).toBe(true)
       }
     }
   })
@@ -124,7 +127,9 @@ describe('iter-325 Seoul bilingual label — CPU placement repro', () => {
         expect(positioned.has(gi), 'newline unexpectedly positioned').toBe(false)
       } else {
         // Drawn → must be positioned (no stale-offset stamp).
-        expect(positioned.has(gi), `drawn glyph ${gi} (cp ${codepoints[gi]}) UNPOSITIONED`).toBe(true)
+        expect(positioned.has(gi), `drawn glyph ${gi} (cp ${codepoints[gi]}) UNPOSITIONED`).toBe(
+          true,
+        )
       }
     }
   })
@@ -135,7 +140,10 @@ describe('iter-325 Seoul bilingual label — CPU placement repro', () => {
     // text-renderer.ts relocated to @xgis/map (P3 Batch B7); `here` is
     // runtime/src/engine/text → up 4 to repo root, then into map/src/text.
     const here = dirname(fileURLToPath(import.meta.url))
-    const src = readFileSync(join(here, '..', '..', '..', '..', 'map', 'src', 'text', 'text-renderer.ts'), 'utf8')
+    const src = readFileSync(
+      join(here, '..', '..', '..', '..', 'map', 'src', 'text', 'text-renderer.ts'),
+      'utf8',
+    )
     // The skip must appear inside the per-glyph draw loop.
     expect(src).toMatch(/if\s*\(\s*g\.codepoint\s*===\s*10\s*\)\s*continue/)
   })
@@ -170,11 +178,11 @@ describe('iter-325 cross-check — overlapping duplicate Seoul labels dedup', ()
 
   it('two overlapping same-anchor labels → exactly ONE placed (no ghost)', () => {
     const items: CollisionItem[] = [
-      { bboxes: [{ ...overlapBbox }] },                 // label A "Seoul\n서울"
+      { bboxes: [{ ...overlapBbox }] }, // label A "Seoul\n서울"
       { bboxes: [{ minX: -38, minY: -18, maxX: 42, maxY: 22 }] }, // label B "서울특별시" (overlaps A)
     ]
     const placed = greedyPlaceBboxes(items)
-    const placedCount = placed.filter(p => p.placed).length
+    const placedCount = placed.filter((p) => p.placed).length
     expect(placedCount, 'overlapping duplicate labels must dedup to one').toBe(1)
   })
 
@@ -187,15 +195,15 @@ describe('iter-325 cross-check — overlapping duplicate Seoul labels dedup', ()
       { bboxes: [{ ...overlapBbox }], allowOverlap: true },
     ]
     const placed = greedyPlaceBboxes(items)
-    expect(placed.filter(p => p.placed).length).toBe(2)
+    expect(placed.filter((p) => p.placed).length).toBe(2)
   })
 
   it('non-overlapping same-feature labels both place (different anchors)', () => {
     const items: CollisionItem[] = [
       { bboxes: [{ minX: -40, minY: -20, maxX: 40, maxY: 20 }] },
-      { bboxes: [{ minX: 100, minY: 100, maxX: 180, maxY: 140 }] },  // far away
+      { bboxes: [{ minX: 100, minY: 100, maxX: 180, maxY: 140 }] }, // far away
     ]
     const placed = greedyPlaceBboxes(items)
-    expect(placed.filter(p => p.placed).length).toBe(2)
+    expect(placed.filter((p) => p.placed).length).toBe(2)
   })
 })

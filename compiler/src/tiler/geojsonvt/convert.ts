@@ -5,14 +5,9 @@
 
 import { simplify } from './simplify'
 import { createFeature } from './feature'
-import type {
-  GeoJSONInput, GeoJSONVTOptions, FlatLine, ProjectedFeature,
-} from './types'
+import type { GeoJSONInput, GeoJSONVTOptions, FlatLine, ProjectedFeature } from './types'
 
-export function convert(
-  data: GeoJSONInput,
-  options: GeoJSONVTOptions,
-): ProjectedFeature[] {
+export function convert(data: GeoJSONInput, options: GeoJSONVTOptions): ProjectedFeature[] {
   const features: ProjectedFeature[] = []
   if (data.type === 'FeatureCollection') {
     const feats = data.features ?? []
@@ -23,7 +18,11 @@ export function convert(
     convertFeature(features, data, options)
   } else {
     // Single geometry or a geometry collection
-    convertFeature(features, { geometry: data as unknown as GeoJSONInput['geometry'] } as GeoJSONInput, options)
+    convertFeature(
+      features,
+      { geometry: data as unknown as GeoJSONInput['geometry'] } as GeoJSONInput,
+      options,
+    )
   }
 
   return features
@@ -67,14 +66,19 @@ function convertFeature(
       convertLines(polygon, newPolygon, tolerance, true)
       ;(geometry as FlatLine[][]).push(newPolygon)
     }
-  } else if (type as string === 'GeometryCollection') {
+  } else if ((type as string) === 'GeometryCollection') {
     const geometries = (geojson.geometry as { geometries?: unknown[] }).geometries ?? []
     for (const singleGeometry of geometries) {
-      convertFeature(features, {
-        id,
-        geometry: singleGeometry as GeoJSONInput['geometry'],
-        properties: geojson.properties,
-      } as GeoJSONInput, options, index)
+      convertFeature(
+        features,
+        {
+          id,
+          geometry: singleGeometry as GeoJSONInput['geometry'],
+          properties: geojson.properties,
+        } as GeoJSONInput,
+        options,
+        index,
+      )
     }
     return
   } else {
@@ -88,13 +92,9 @@ function convertPoint(coords: number[], out: FlatLine): void {
   out.push(projectX(coords[0]), projectY(coords[1]), 0)
 }
 
-function convertLine(
-  ring: number[][],
-  out: FlatLine,
-  tolerance: number,
-  isPolygon: boolean,
-): void {
-  let x0 = 0, y0 = 0
+function convertLine(ring: number[][], out: FlatLine, tolerance: number, isPolygon: boolean): void {
+  let x0 = 0,
+    y0 = 0
   let size = 0
 
   for (let j = 0; j < ring.length; j++) {
@@ -142,7 +142,7 @@ function projectX(x: number): number {
 }
 
 function projectY(y: number): number {
-  const sin = Math.sin(y * Math.PI / 180)
-  const y2 = 0.5 - 0.25 * Math.log((1 + sin) / (1 - sin)) / Math.PI
+  const sin = Math.sin((y * Math.PI) / 180)
+  const y2 = 0.5 - (0.25 * Math.log((1 + sin) / (1 - sin))) / Math.PI
   return y2 < 0 ? 0 : y2 > 1 ? 1 : y2
 }

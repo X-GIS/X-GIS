@@ -13,27 +13,45 @@
 import { describe, expect, it } from 'vitest'
 import { canonicalExpr, exprEqual } from './cse-hash'
 import type {
-  Expr, BinaryExpr, ColorLiteral, FieldAccess, FnCall, Identifier,
-  MatchBlock, NumberLiteral, StringLiteral,
+  Expr,
+  BinaryExpr,
+  ColorLiteral,
+  FieldAccess,
+  FnCall,
+  Identifier,
+  MatchBlock,
+  NumberLiteral,
+  StringLiteral,
 } from '../parser/ast'
 
 const num = (value: number, unit: string | null = null): NumberLiteral => ({
-  kind: 'NumberLiteral', value, unit,
+  kind: 'NumberLiteral',
+  value,
+  unit,
 })
 const str = (value: string): StringLiteral => ({ kind: 'StringLiteral', value })
 const color = (value: string): ColorLiteral => ({ kind: 'ColorLiteral', value })
 const ident = (name: string): Identifier => ({ kind: 'Identifier', name })
 const field = (f: string, obj: Expr | null = null): FieldAccess => ({
-  kind: 'FieldAccess', field: f, object: obj,
+  kind: 'FieldAccess',
+  field: f,
+  object: obj,
 })
 const fn = (callee: Expr, args: Expr[], matchBlock?: MatchBlock): FnCall => ({
-  kind: 'FnCall', callee, args, matchBlock,
+  kind: 'FnCall',
+  callee,
+  args,
+  matchBlock,
 })
 const bin = (op: string, l: Expr, r: Expr): BinaryExpr => ({
-  kind: 'BinaryExpr', op, left: l, right: r,
+  kind: 'BinaryExpr',
+  op,
+  left: l,
+  right: r,
 })
 const matchBlock = (arms: Array<{ pattern: string; value: Expr }>): MatchBlock => ({
-  kind: 'MatchBlock', arms,
+  kind: 'MatchBlock',
+  arms,
 })
 
 describe('canonicalExpr — basic kinds', () => {
@@ -77,15 +95,14 @@ describe('canonicalExpr — basic kinds', () => {
 
 describe('canonicalExpr — function / binary / unary / pipe / conditional', () => {
   it('FnCall with two args + no matchBlock', () => {
-    expect(canonicalExpr(fn(ident('clamp'), [num(0), num(10)])))
-      .toBe('Fn(I(clamp);[N(0),N(10)];~)')
+    expect(canonicalExpr(fn(ident('clamp'), [num(0), num(10)]))).toBe('Fn(I(clamp);[N(0),N(10)];~)')
   })
 
   it('FnCall with matchBlock', () => {
     const mb = matchBlock([
-      { pattern: 'school',   value: color('#f0e8f8') },
+      { pattern: 'school', value: color('#f0e8f8') },
       { pattern: 'hospital', value: color('#f5deb3') },
-      { pattern: '_',        value: color('#cccccc') },
+      { pattern: '_', value: color('#cccccc') },
     ])
     const out = canonicalExpr(fn(ident('match'), [field('class')], mb))
     expect(out).toContain('Fn(I(match);[F(class;~)];M(')
@@ -107,34 +124,39 @@ describe('canonicalExpr — function / binary / unary / pipe / conditional', () 
   })
 
   it('UnaryExpr', () => {
-    expect(canonicalExpr({ kind: 'UnaryExpr', op: '-', operand: ident('a') }))
-      .toBe('Un(-;I(a))')
+    expect(canonicalExpr({ kind: 'UnaryExpr', op: '-', operand: ident('a') })).toBe('Un(-;I(a))')
   })
 
   it('ConditionalExpr', () => {
-    expect(canonicalExpr({
-      kind: 'ConditionalExpr',
-      condition: bin('>', ident('zoom'), num(10)),
-      thenExpr: color('#ff0000'),
-      elseExpr: color('#0000ff'),
-    })).toBe('Cond(Bin(>;I(zoom);N(10));C(#ff0000);C(#0000ff))')
+    expect(
+      canonicalExpr({
+        kind: 'ConditionalExpr',
+        condition: bin('>', ident('zoom'), num(10)),
+        thenExpr: color('#ff0000'),
+        elseExpr: color('#0000ff'),
+      }),
+    ).toBe('Cond(Bin(>;I(zoom);N(10));C(#ff0000);C(#0000ff))')
   })
 })
 
 describe('canonicalExpr — arrays + match + pipe', () => {
   it('ArrayLiteral preserves element order', () => {
-    expect(canonicalExpr({ kind: 'ArrayLiteral', elements: [num(1), num(2)] }))
-      .toBe('Arr([N(1),N(2)])')
-    expect(canonicalExpr({ kind: 'ArrayLiteral', elements: [num(2), num(1)] }))
-      .not.toBe(canonicalExpr({ kind: 'ArrayLiteral', elements: [num(1), num(2)] }))
+    expect(canonicalExpr({ kind: 'ArrayLiteral', elements: [num(1), num(2)] })).toBe(
+      'Arr([N(1),N(2)])',
+    )
+    expect(canonicalExpr({ kind: 'ArrayLiteral', elements: [num(2), num(1)] })).not.toBe(
+      canonicalExpr({ kind: 'ArrayLiteral', elements: [num(1), num(2)] }),
+    )
   })
 
   it('ArrayAccess', () => {
-    expect(canonicalExpr({
-      kind: 'ArrayAccess',
-      array: ident('xs'),
-      index: num(0),
-    })).toBe('Idx(I(xs);N(0))')
+    expect(
+      canonicalExpr({
+        kind: 'ArrayAccess',
+        array: ident('xs'),
+        index: num(0),
+      }),
+    ).toBe('Idx(I(xs);N(0))')
   })
 
   it('MatchBlock arms are canonical-sorted when SAFE (unique patterns, default at tail)', () => {
@@ -195,11 +217,13 @@ describe('canonicalExpr — arrays + match + pipe', () => {
   })
 
   it('PipeExpr captures the transform order', () => {
-    expect(canonicalExpr({
-      kind: 'PipeExpr',
-      input: ident('a'),
-      transforms: [fn(ident('round'), []), fn(ident('clamp'), [num(0), num(1)])],
-    })).toBe('Pipe(I(a);[Fn(I(round);[];~),Fn(I(clamp);[N(0),N(1)];~)])')
+    expect(
+      canonicalExpr({
+        kind: 'PipeExpr',
+        input: ident('a'),
+        transforms: [fn(ident('round'), []), fn(ident('clamp'), [num(0), num(1)])],
+      }),
+    ).toBe('Pipe(I(a);[Fn(I(round);[];~),Fn(I(clamp);[N(0),N(1)];~)])')
   })
 })
 
@@ -218,9 +242,7 @@ describe('exprEqual', () => {
 
   it('returns false when one side has a matchBlock and the other does not', () => {
     const a = fn(ident('match'), [field('class')])
-    const b = fn(ident('match'), [field('class')], matchBlock([
-      { pattern: 'x', value: num(1) },
-    ]))
+    const b = fn(ident('match'), [field('class')], matchBlock([{ pattern: 'x', value: num(1) }]))
     expect(exprEqual(a, b)).toBe(false)
   })
 
@@ -233,14 +255,22 @@ describe('exprEqual', () => {
     // disambiguates two compound layers with the same field but
     // different arm-to-colour mappings. canonicalExpr generalises
     // that disambiguation.
-    const a = fn(ident('match'), [field('class')], matchBlock([
-      { pattern: 'school',   value: color('#f0e8f8') },
-      { pattern: 'hospital', value: color('#f5deb3') },
-    ]))
-    const b = fn(ident('match'), [field('class')], matchBlock([
-      { pattern: 'school',   value: color('#f0e8f8') },
-      { pattern: 'hospital', value: color('#ffffff') },  // ← differs
-    ]))
+    const a = fn(
+      ident('match'),
+      [field('class')],
+      matchBlock([
+        { pattern: 'school', value: color('#f0e8f8') },
+        { pattern: 'hospital', value: color('#f5deb3') },
+      ]),
+    )
+    const b = fn(
+      ident('match'),
+      [field('class')],
+      matchBlock([
+        { pattern: 'school', value: color('#f0e8f8') },
+        { pattern: 'hospital', value: color('#ffffff') }, // ← differs
+      ]),
+    )
     expect(exprEqual(a, b)).toBe(false)
   })
 

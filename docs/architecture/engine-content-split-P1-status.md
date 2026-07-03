@@ -39,20 +39,20 @@ finish is dedicated work — do it in this order, each gated on real-GPU DC=0 + 
 ## What P1 means + the gate
 
 P1 routes EVERY primitive's draw through the RHI `Material`/`DrawItem`/`executeItems` core so
-`@xgis/engine` is backend-agnostic *in fact* — the prerequisite for the P2 carve. Each renderer
+`@xgis/engine` is backend-agnostic _in fact_ — the prerequisite for the P2 carve. Each renderer
 increment is gated on a **real-GPU pixel-diff DC=0** (CLAUDE.md §5): render the same scene the raw
 way and the RHI-routed way and confirm byte-identical output. Strict `tsc --build` + full suite green.
 
 ## Status (commits on this branch)
 
-| Renderer | Status | Verification |
-|---|---|---|
-| **Point — tile** (P1.1a, `3f66c086`) | ✅ flipped, raw deleted | DC=0/304200, real GPU |
-| **Point — GeoJSON/render()** (P1.2, `4853ef64`) | ✅ flipped, raw pipelines deleted (+ flat variant) | DC=0, 3 fixtures |
-| **Heatmap — accum** (P1.3, `133af74e`) | ✅ flipped, raw deleted | within run-to-run noise (r16float accum is non-deterministic) |
-| **Raster — render()** (P1.4, `829d5249`+`9896074b`+`0dcb3b53`) | ✅ flipped, raw deleted (+ resampling + pick MRT Materials) | DC=0, offline checker fixture |
-| **Line — draws** (P1.5, `e1d399df`) | ✅ flipped, **raw deleted** (flag + raw pipelines/composite removed; LineDraper unconditional) | DC=0, fixture_translucent_stroke |
-| **VTR fill** (P1.6, …`cc715b45`+`ab3466f2`) | ◐ every COMMON fill path routed; flag **flipped DEFAULT-ON** (`ab3466f2`) — Material seam is the production default, raw is the `__xgisVtrFillViaRhi=false` kill-switch. Raw-delete remains (blocked on residuals) | DC=0 default-vs-killswitch (fixture_extrude_local); 7-fixture mechanism DC=0; CI green |
+| Renderer                                                       | Status                                                                                                                                                                                                             | Verification                                                                           |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| **Point — tile** (P1.1a, `3f66c086`)                           | ✅ flipped, raw deleted                                                                                                                                                                                            | DC=0/304200, real GPU                                                                  |
+| **Point — GeoJSON/render()** (P1.2, `4853ef64`)                | ✅ flipped, raw pipelines deleted (+ flat variant)                                                                                                                                                                 | DC=0, 3 fixtures                                                                       |
+| **Heatmap — accum** (P1.3, `133af74e`)                         | ✅ flipped, raw deleted                                                                                                                                                                                            | within run-to-run noise (r16float accum is non-deterministic)                          |
+| **Raster — render()** (P1.4, `829d5249`+`9896074b`+`0dcb3b53`) | ✅ flipped, raw deleted (+ resampling + pick MRT Materials)                                                                                                                                                        | DC=0, offline checker fixture                                                          |
+| **Line — draws** (P1.5, `e1d399df`)                            | ✅ flipped, **raw deleted** (flag + raw pipelines/composite removed; LineDraper unconditional)                                                                                                                     | DC=0, fixture_translucent_stroke                                                       |
+| **VTR fill** (P1.6, …`cc715b45`+`ab3466f2`)                    | ◐ every COMMON fill path routed; flag **flipped DEFAULT-ON** (`ab3466f2`) — Material seam is the production default, raw is the `__xgisVtrFillViaRhi=false` kill-switch. Raw-delete remains (blocked on residuals) | DC=0 default-vs-killswitch (fixture_extrude_local); 7-fixture mechanism DC=0; CI green |
 
 Adjacent shipped on `feat/shader-dsl-glsl-compute-gpgpu` (M1–M5): shader-codegen SRP (compiler emits
 neutral IR; shader-dsl is the sole emitter) + WebGL2 compute→fragment-GPGPU, with 3 real bugs the
@@ -64,8 +64,8 @@ real-GPU gate caught (the GLSL switch `break` fall-through fixed every `match()`
 - `RhiTextureFormat`/blend `'max'` (P1.5 — the translucent-line offscreen MAX accumulation).
 - `setIndexBuffer(offset, size)` (P1.6 — the index sub-range for the VTR arena; CLOSED).
 - `Material`/`PipelineVariant` gained `cullMode`, `vsEntry`, per-variant `stencil`, per-target `blend 'max'`
-  + `writeMask`; `DrawItem` gained `vertexOffset/Size`, `vertex1` (slot 1), `index.offset/size`;
-  `executeItems` forwards the vertex/index sub-ranges (P1.6 — the fill/extrude draw needs them).
+  - `writeMask`; `DrawItem` gained `vertexOffset/Size`, `vertex1` (slot 1), `index.offset/size`;
+    `executeItems` forwards the vertex/index sub-ranges (P1.6 — the fill/extrude draw needs them).
 
 ## ⭐ Verification methodology bank (hard-won — applies to ALL real-GPU render verification here)
 
@@ -93,15 +93,16 @@ Materials live in that content module; `PipelineFactory` builds them behind `__x
 `recordFillDraw` matches the native pipeline ref the VTR selected → routes through the Material seam
 (`executeItems`, arena vertex/index sub-ranges, pick MRT). Routed + verified (real-GPU, behind the flag):
 
-| Fill path | Material | Verify (flag on vs off) |
-|---|---|---|
-| flat default-shader (constant fills) | `buildFlatFillMaterials` flat/ground (`pipes`) | fixture_stress 38 draws **DC=0** |
-| per-style (data-driven `match()`) | live `_fillPerStyle` map (per variant, `registerFillMaterials`) | fixture_categorical 16 draws **DC=0** |
-| opaque 3D extrude | `buildExtrudeMaterial` (`extrude` slot) | fixture_extrude_local 32 draws **DC=0** |
-| no-pick (pointer-events:none, picking on) | `pickWriteMask:0` twins → `_fillPerStyle` + `extrude.*NoPick` | extrude **DC=0** (28); flat within-noise + by-composition |
-| broad sweep | — | multi_layer 72 / filter_complex 28 DC=0 / mercator_clip 12, all maxdelta ≤ 3 |
+| Fill path                                 | Material                                                        | Verify (flag on vs off)                                                      |
+| ----------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| flat default-shader (constant fills)      | `buildFlatFillMaterials` flat/ground (`pipes`)                  | fixture_stress 38 draws **DC=0**                                             |
+| per-style (data-driven `match()`)         | live `_fillPerStyle` map (per variant, `registerFillMaterials`) | fixture_categorical 16 draws **DC=0**                                        |
+| opaque 3D extrude                         | `buildExtrudeMaterial` (`extrude` slot)                         | fixture_extrude_local 32 draws **DC=0**                                      |
+| no-pick (pointer-events:none, picking on) | `pickWriteMask:0` twins → `_fillPerStyle` + `extrude.*NoPick`   | extrude **DC=0** (28); flat within-noise + by-composition                    |
+| broad sweep                               | —                                                               | multi_layer 72 / filter_complex 28 DC=0 / mercator_clip 12, all maxdelta ≤ 3 |
 
 Key findings (save the next session the debugging):
+
 - **Extrude height rides the POLYGON_EXTRUDED vertex (slot 0), NOT a slot-1 z-buffer** — the z-buffer is
   null for extrude (the raw path binds it null); the extrude Material is 1 vertex buffer, no `vertex1`.
 - **Data-driven extrude heights ALSO use the base `fillPipelineExtruded`** (height baked into the vertex
@@ -113,6 +114,7 @@ Key findings (save the next session the debugging):
   `__xgisVtrFillRhiDraws` counter, not just pixels.
 
 **Unrouted residuals (the flip's blockers):**
+
 - **Fill patterns** (`fs_fill_pattern`, `fillPipelinePattern{Ground,Extruded}*`) — a REAL path but NO local
   `.xgis` fixture exercises it (`fixture_pattern_multi` is a STROKE pattern; `fill-pattern-*` is OFM-Liberty
   network-only). `buildPatternGroundMaterial` was built then REVERTED (verify-before-ship — unverifiable
@@ -147,6 +149,7 @@ can't serve both without an unwrap shim (the non-byte-identical mixed state to a
 
 **Renderer §4-seam-readiness gate (checked 2026-06-30) — a renderer can migrate its CREATION side only
 when it has NO raw-fallback draw (else the raw draw needs `GPUBuffer`):**
+
 - **heatmap** ✅ sole-RHI → §4 unit 1 DONE (`0e6adeda`).
 - **text** ✅ flipped (`86af80fb`) → raw deleted + creation-side migrated, §4 unit 2 DONE (`7d37889d`).
   Added `wrapWebGpuSampler` (text BG carries a sampler + atlas-view; heatmap's was buffers-only).
@@ -158,6 +161,7 @@ when it has NO raw-fallback draw (else the raw draw needs `GPUBuffer`):**
   creation side + deletes the raw kill-switches, renderer by renderer.
 
 Migration units (the buffer-bearing ones), in order:
+
 1. **Heatmap-accum (DONE, `0e6adeda`).** Sole RHI path already (no raw accum draw),
    accum buffers + BG are private. Establishes `RhiDevice.destroyBuffer` at minimum risk. Files:
    rhi.ts (+`destroyBuffer`), rhi-webgpu.ts + rhi-webgl2.ts (impl), heatmap-renderer.ts (accum
@@ -173,7 +177,7 @@ Migration units (the buffer-bearing ones), in order:
    Deeply shared; highest blast radius. Needs RHI CONTRACT EXPANSION beyond `destroyBuffer`: the arena
    buffer is `VERTEX|COPY_DST|COPY_SRC` but `RhiBufferUsage` has no `copy-src` + `bufUsage` only ORs
    COPY_DST → add `copySrc?: boolean` to `RhiBufferDesc` (additive, default false) + `RhiCommandEncoder.
-   copyBufferToBuffer` (for `gpu-arena.ts` compaction) BEFORE flipping the arena, else compaction throws
+copyBufferToBuffer` (for `gpu-arena.ts` compaction) BEFORE flipping the arena, else compaction throws
    a validation error (latent — only under memory pressure / many tiles; verify on globe z10-11).
 
 ## After P1: P2 carve `@xgis/engine` → P3 extract `@xgis/map` → P4 runtime thin shell

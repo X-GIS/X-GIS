@@ -24,14 +24,18 @@ describe('merge-layers: zoom-range invariant', () => {
       layers: [
         {
           id: 'landuse_park',
-          type: 'fill', source: 'v', 'source-layer': 'landuse',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'landuse',
           minzoom: 8,
           filter: ['==', ['get', 'class'], 'park'],
           paint: { 'fill-color': '#0a0' },
         },
         {
           id: 'landuse_forest',
-          type: 'fill', source: 'v', 'source-layer': 'landuse',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'landuse',
           minzoom: 8,
           filter: ['==', ['get', 'class'], 'forest'],
           paint: { 'fill-color': '#080' },
@@ -54,14 +58,18 @@ describe('merge-layers: zoom-range invariant', () => {
       layers: [
         {
           id: 'landuse_park',
-          type: 'fill', source: 'v', 'source-layer': 'landuse',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'landuse',
           minzoom: 8,
           filter: ['==', ['get', 'class'], 'park'],
           paint: { 'fill-color': '#0a0' },
         },
         {
           id: 'landuse_residential',
-          type: 'fill', source: 'v', 'source-layer': 'landuse',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'landuse',
           minzoom: 10,
           filter: ['==', ['get', 'class'], 'residential'],
           paint: { 'fill-color': '#aaa' },
@@ -86,13 +94,17 @@ describe('merge-layers: zoom-range invariant', () => {
       layers: [
         {
           id: 'road_primary',
-          type: 'line', source: 'v', 'source-layer': 'transportation',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
           filter: ['==', ['get', 'class'], 'primary'],
           paint: { 'line-color': '#000', 'line-width': 2, 'line-blur': 0 },
         },
         {
           id: 'road_secondary',
-          type: 'line', source: 'v', 'source-layer': 'transportation',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
           filter: ['==', ['get', 'class'], 'secondary'],
           paint: { 'line-color': '#000', 'line-width': 2, 'line-blur': 4 },
         },
@@ -108,14 +120,18 @@ describe('merge-layers: zoom-range invariant', () => {
       layers: [
         {
           id: 'landuse_park',
-          type: 'fill', source: 'v', 'source-layer': 'landuse',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'landuse',
           maxzoom: 14,
           filter: ['==', ['get', 'class'], 'park'],
           paint: { 'fill-color': '#0a0' },
         },
         {
           id: 'landuse_forest',
-          type: 'fill', source: 'v', 'source-layer': 'landuse',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'landuse',
           maxzoom: 18,
           filter: ['==', ['get', 'class'], 'forest'],
           paint: { 'fill-color': '#080' },

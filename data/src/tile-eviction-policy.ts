@@ -99,10 +99,7 @@ export class TileEvictionPolicy {
     // as a frame-protected drop — single failure mode, single
     // diagnostic.
     const _protectedPresent = _inv
-      ? new Set(
-          [...protectedKeys, ...this._skeletonKeys]
-            .filter(k => cache.has(k)),
-        )
+      ? new Set([...protectedKeys, ...this._skeletonKeys].filter((k) => cache.has(k)))
       : null
     // Two caps: byte-based (tight, accurate) and count-based
     // (loose safety net). Either tripping is enough to trigger
@@ -117,14 +114,15 @@ export class TileEvictionPolicy {
     for (const [k, exp] of this._evictShield) {
       if (exp <= _now) this._evictShield.delete(k)
     }
-    if (cache.size <= MAX_CACHED_TILES
-        && cache.cachedBytes <= _byteCap) {
+    if (cache.size <= MAX_CACHED_TILES && cache.cachedBytes <= _byteCap) {
       // Nothing to do — but still verify the protected set wasn't
       // accidentally dropped by some prior code path.
       if (_inv && _protectedPresent) {
         for (const k of _protectedPresent) {
           if (!cache.has(k)) {
-            throw new Error(`[XGIS INVARIANT] protected key ${k} missing from catalog at evictTiles entry — replacement invariant violated by a prior code path`)
+            throw new Error(
+              `[XGIS INVARIANT] protected key ${k} missing from catalog at evictTiles entry — replacement invariant violated by a prior code path`,
+            )
           }
         }
       }
@@ -157,18 +155,16 @@ export class TileEvictionPolicy {
     // (regression: _zoom-transition-blank-tiles.spec.ts).
     // Skeleton keys (Cesium-style permanent base layer) are
     // unconditionally protected — see `_skeletonKeys` doc.
-    const entries = [...cache.entries()]
-      .filter(([key]) => !protectedKeys.has(key)
-                      && !this._evictShield.has(key)
-                      && !this._skeletonKeys.has(key))
+    const entries = [...cache.entries()].filter(
+      ([key]) =>
+        !protectedKeys.has(key) && !this._evictShield.has(key) && !this._skeletonKeys.has(key),
+    )
 
     // Insertion order ≈ LRU (Map iteration order is insertion order;
     // re-inserts on access would yield true LRU but cacheTileData
     // / setSlice doesn't re-insert).
     let i = 0
-    while (i < entries.length
-           && (cache.size > MAX_CACHED_TILES
-               || cache.cachedBytes > _byteCap)) {
+    while (i < entries.length && (cache.size > MAX_CACHED_TILES || cache.cachedBytes > _byteCap)) {
       cache.deleteCacheEntry(entries[i][0])
       i++
     }
@@ -183,9 +179,9 @@ export class TileEvictionPolicy {
       for (const k of _protectedPresent) {
         if (!cache.has(k)) {
           throw new Error(
-            `[XGIS INVARIANT] protected key ${k} was evicted despite being in `
-            + `protectedKeys — replacement invariant violated. The eviction `
-            + `filter at evictTiles must skip every key in protectedKeys.`,
+            `[XGIS INVARIANT] protected key ${k} was evicted despite being in ` +
+              `protectedKeys — replacement invariant violated. The eviction ` +
+              `filter at evictTiles must skip every key in protectedKeys.`,
           )
         }
       }

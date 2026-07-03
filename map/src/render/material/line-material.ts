@@ -27,7 +27,7 @@ export interface LineBatch {
 }
 
 export class LineDraper {
-  private readonly material: Material  // non-pick: single colour target, fs_line / fs_line_pattern
+  private readonly material: Material // non-pick: single colour target, fs_line / fs_line_pattern
   // pick pass: colour + rg32uint pick MRT. The line pick fragment writes vec2u(0,0) — lines are
   // not pickable; the target exists only for opaque-pass MRT compatibility when picking is on (so
   // no per-target writeMask is needed, the shader masks itself). LAZY so the non-pick path never
@@ -49,15 +49,30 @@ export class LineDraper {
 
   private buildMaterial(pick: boolean): Material {
     return new Material(this.rhi, {
-      shader: emitLineWgsl(pick), vsEntry: 'vs_line', fsEntry: 'fs_line',
-      format: this.format as 'bgra8unorm', sampleCount: this.sampleCount,
-      groups: [wrapWebGpuBindGroupLayout(this.tileLayout), wrapWebGpuBindGroupLayout(this.layerLayout)],
+      shader: emitLineWgsl(pick),
+      vsEntry: 'vs_line',
+      fsEntry: 'fs_line',
+      format: this.format as 'bgra8unorm',
+      sampleCount: this.sampleCount,
+      groups: [
+        wrapWebGpuBindGroupLayout(this.tileLayout),
+        wrapWebGpuBindGroupLayout(this.layerLayout),
+      ],
       colorTargets: pick
         ? [{ format: this.format as 'bgra8unorm', blend: 'alpha' }, { format: 'rg32uint' }]
         : [{ format: this.format as 'bgra8unorm', blend: 'alpha' }],
       variants: [
-        { depthWrite: false, depthCompare: 'less-equal', label: pick ? 'line-pipeline-pick-rhi' : 'line-pipeline-rhi' },
-        { depthWrite: false, depthCompare: 'less-equal', fsEntry: 'fs_line_pattern', label: pick ? 'line-pipeline-pattern-pick-rhi' : 'line-pipeline-pattern-rhi' },
+        {
+          depthWrite: false,
+          depthCompare: 'less-equal',
+          label: pick ? 'line-pipeline-pick-rhi' : 'line-pipeline-rhi',
+        },
+        {
+          depthWrite: false,
+          depthCompare: 'less-equal',
+          fsEntry: 'fs_line_pattern',
+          label: pick ? 'line-pipeline-pattern-pick-rhi' : 'line-pipeline-pattern-rhi',
+        },
       ],
     })
   }
@@ -66,25 +81,36 @@ export class LineDraper {
    *  offscreen RT (BLEND_MAX, no depth). One fragment variant (no pattern). LAZY. */
   private maxMat(): Material {
     return (this._maxMaterial ??= new Material(this.rhi, {
-      shader: emitLineWgsl(false), vsEntry: 'vs_line', fsEntry: 'fs_line_max',
-      format: this.format as 'bgra8unorm', sampleCount: 1,
-      groups: [wrapWebGpuBindGroupLayout(this.tileLayout), wrapWebGpuBindGroupLayout(this.layerLayout)],
+      shader: emitLineWgsl(false),
+      vsEntry: 'vs_line',
+      fsEntry: 'fs_line_max',
+      format: this.format as 'bgra8unorm',
+      sampleCount: 1,
+      groups: [
+        wrapWebGpuBindGroupLayout(this.tileLayout),
+        wrapWebGpuBindGroupLayout(this.layerLayout),
+      ],
       colorTargets: [{ format: this.format as 'bgra8unorm', blend: 'max' }],
       variants: [{ label: 'line-pipeline-max-rhi' }], // no depth-stencil (offscreen accum)
     }))
   }
 
   draw(pass: RhiRenderPass, b: LineBatch, mode: 'opaque' | 'pick' | 'max' = 'opaque'): void {
-    const material = mode === 'pick' ? (this._pickMaterial ??= this.buildMaterial(true))
-      : mode === 'max' ? this.maxMat()
-      : this.material
-    executeItems(material, pass, [{
-      variant: mode === 'max' ? 0 : (b.pattern ? 1 : 0), // the MAX material has a single variant
-      bindGroups: [b.tileBG, b.layerBG],
-      dynamicOffsets: [[b.tileOffset], [b.layerOffset]],
-      count: 6,
-      indexed: false,
-      instanceCount: b.segmentCount,
-    }])
+    const material =
+      mode === 'pick'
+        ? (this._pickMaterial ??= this.buildMaterial(true))
+        : mode === 'max'
+          ? this.maxMat()
+          : this.material
+    executeItems(material, pass, [
+      {
+        variant: mode === 'max' ? 0 : b.pattern ? 1 : 0, // the MAX material has a single variant
+        bindGroups: [b.tileBG, b.layerBG],
+        dynamicOffsets: [[b.tileOffset], [b.layerOffset]],
+        count: 6,
+        indexed: false,
+        instanceCount: b.segmentCount,
+      },
+    ])
   }
 }

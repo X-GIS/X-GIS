@@ -4,15 +4,15 @@ import { describe, expect, it } from 'vitest'
 // Goal: predict what the user would see for a real coastline segment.
 
 interface Seg {
-  p0: [number, number]  // tile-local meters
+  p0: [number, number] // tile-local meters
   p1: [number, number]
-  arcStart: number      // global meters from feature start
+  arcStart: number // global meters from feature start
 }
 
 interface LayerUniform {
   widthPx: number
   mpp: number
-  dashArrayPx: number[]  // IN PIXELS — before mpp conversion
+  dashArrayPx: number[] // IN PIXELS — before mpp conversion
 }
 
 /** Simulates shading a fragment at tile-local point p against one segment. */
@@ -39,7 +39,7 @@ function shadeFragment(seg: Seg, p: [number, number], u: LayerUniform): 'visible
   const arcPos = seg.arcStart + tAlong
 
   // Dash array in meters
-  const dashArrayM = u.dashArrayPx.map(v => v * u.mpp)
+  const dashArrayM = u.dashArrayPx.map((v) => v * u.mpp)
   const cycleM = dashArrayM.reduce((a, b) => a + b, 0)
   if (cycleM <= 1e-6) return 'visible'
 
@@ -59,7 +59,7 @@ function shadeFragment(seg: Seg, p: [number, number], u: LayerUniform): 'visible
 
 describe('dash shader simulation', () => {
   function mppAt(zoom: number): number {
-    return (40075016.686 / 256) / Math.pow(2, zoom)
+    return 40075016.686 / 256 / Math.pow(2, zoom)
   }
 
   it('at zoom 3, a 500 km segment shows multiple dash transitions', () => {
@@ -73,7 +73,7 @@ describe('dash shader simulation', () => {
     const u: LayerUniform = { widthPx: 2, mpp, dashArrayPx: [20, 10] }
 
     // Sample 20 points across the segment's screen pixels
-    const segPx = 500_000 / mpp  // ~25.6 px at z=3
+    const segPx = 500_000 / mpp // ~25.6 px at z=3
     const transitions: ('visible' | 'discarded')[] = []
     for (let px = 0; px <= Math.floor(segPx); px++) {
       const mAlong = px * mpp
@@ -94,7 +94,7 @@ describe('dash shader simulation', () => {
   })
 
   it('at zoom 3, a SHORT 5 km segment covers < 1 pixel and appears solid (no dashes possible)', () => {
-    const mpp = mppAt(3)  // ~19568 m/px
+    const mpp = mppAt(3) // ~19568 m/px
     const seg: Seg = {
       p0: [0, 0],
       p1: [5_000, 0],
@@ -102,18 +102,18 @@ describe('dash shader simulation', () => {
     }
     const u: LayerUniform = { widthPx: 2, mpp, dashArrayPx: [20, 10] }
 
-    const segPx = 5_000 / mpp  // 0.25 px
+    const segPx = 5_000 / mpp // 0.25 px
     expect(segPx).toBeLessThan(1)
     // At sub-pixel scale the test is degenerate, but the single fragment
     // should still make a determined visible/discarded call — it just
     // can't show a pattern within itself. This matches the visual
     // observation that very short segments appear as single dots.
-    const decision = shadeFragment(seg, [segPx * mpp / 2, 0], u)
+    const decision = shadeFragment(seg, [(segPx * mpp) / 2, 0], u)
     expect(['visible', 'discarded']).toContain(decision)
   })
 
   it('at zoom 5, a 100 km segment spans multiple dash cycles', () => {
-    const mpp = mppAt(5)  // ~4892 m/px
+    const mpp = mppAt(5) // ~4892 m/px
     // Dash cycle = 30 * 4892 = 146760 m
     // 100 km segment covers 100000 / 146760 ≈ 0.68 cycles
     const seg: Seg = {
@@ -123,7 +123,7 @@ describe('dash shader simulation', () => {
     }
     const u: LayerUniform = { widthPx: 2, mpp, dashArrayPx: [20, 10] }
 
-    const segPx = 100_000 / mpp  // ~20.4 px
+    const segPx = 100_000 / mpp // ~20.4 px
     const decisions: string[] = []
     for (let px = 0; px <= segPx; px++) {
       const mAlong = px * mpp
@@ -131,7 +131,7 @@ describe('dash shader simulation', () => {
     }
     // First 20 pixels should be visible (dash range [0, 20 * mpp))
     // Pixel 20 starts the gap
-    const firstDiscardedPx = decisions.findIndex(d => d === 'discarded')
+    const firstDiscardedPx = decisions.findIndex((d) => d === 'discarded')
     expect(firstDiscardedPx).toBeGreaterThan(0)
     expect(firstDiscardedPx).toBeLessThanOrEqual(21) // accept off-by-one at boundary
   })
@@ -139,7 +139,7 @@ describe('dash shader simulation', () => {
   it('arc_start offset shifts the dash phase', () => {
     const mpp = mppAt(5)
     const dashCycleM = 30 * mpp
-    const segLen = dashCycleM * 2  // two full cycles
+    const segLen = dashCycleM * 2 // two full cycles
     // Same segment, but with arcStart = half a cycle → opposite phase
     const segA: Seg = { p0: [0, 0], p1: [segLen, 0], arcStart: 0 }
     const segB: Seg = { p0: [0, 0], p1: [segLen, 0], arcStart: dashCycleM / 2 }

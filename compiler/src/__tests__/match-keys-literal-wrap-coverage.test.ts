@@ -13,9 +13,13 @@ describe('match keys-array literal-wrap unwrap', () => {
   it('main match handler unwraps ["literal", [k1, k2]] keys', () => {
     const w: string[] = []
     const out = exprToXgis(
-      ['match', ['get', 'class'],
-        ['literal', ['primary', 'trunk']], '#f00',
-        'tertiary', '#0f0',
+      [
+        'match',
+        ['get', 'class'],
+        ['literal', ['primary', 'trunk']],
+        '#f00',
+        'tertiary',
+        '#0f0',
         '#000',
       ],
       w,
@@ -28,13 +32,7 @@ describe('match keys-array literal-wrap unwrap', () => {
 
   it('match handler still accepts bare-array keys (regression guard)', () => {
     const w: string[] = []
-    const out = exprToXgis(
-      ['match', ['get', 'class'],
-        ['primary', 'trunk'], '#f00',
-        '#000',
-      ],
-      w,
-    )
+    const out = exprToXgis(['match', ['get', 'class'], ['primary', 'trunk'], '#f00', '#000'], w)
     expect(out).toContain('"primary" -> "#f00"')
     expect(out).toContain('"trunk" -> "#f00"')
   })
@@ -47,8 +45,11 @@ describe('match keys-array literal-wrap unwrap', () => {
     // generic match() path and lost its boolean-fast-path role.
     const w: string[] = []
     const out = filterToXgis(
-      ['match', ['get', 'class'],
-        ['literal', ['park', 'forest']], ['literal', true],
+      [
+        'match',
+        ['get', 'class'],
+        ['literal', ['park', 'forest']],
+        ['literal', true],
         ['literal', false],
       ],
       w,
@@ -62,10 +63,7 @@ describe('match keys-array literal-wrap unwrap', () => {
     // wrapped key array.
     const w: string[] = []
     const out = filterToXgis(
-      ['match', ['get', 'kind'],
-        ['literal', ['park', 'forest', 'wood']], true,
-        false,
-      ],
+      ['match', ['get', 'kind'], ['literal', ['park', 'forest', 'wood']], true, false],
       w,
     )
     expect(out).toContain('.kind == "park"')
@@ -83,8 +81,17 @@ describe('match keys-array literal-wrap unwrap', () => {
     // matched.
     const w: string[] = []
     const out = exprToXgis(
-      ['match', ['get', 'class'],
-        ['literal', [['literal', 'primary'], ['literal', 'trunk']]], '#f00',
+      [
+        'match',
+        ['get', 'class'],
+        [
+          'literal',
+          [
+            ['literal', 'primary'],
+            ['literal', 'trunk'],
+          ],
+        ],
+        '#f00',
         '#000',
       ],
       w,
@@ -98,10 +105,7 @@ describe('match keys-array literal-wrap unwrap', () => {
     // Match on a non-field-access input forces matchToTernary path.
     const w: string[] = []
     const out = exprToXgis(
-      ['match', ['concat', ['get', 'a'], ['get', 'b']],
-        ['literal', ['x', 'y']], 1,
-        0,
-      ],
+      ['match', ['concat', ['get', 'a'], ['get', 'b']], ['literal', ['x', 'y']], 1, 0],
       w,
     )
     expect(out).toContain('== "x"')

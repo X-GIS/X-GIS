@@ -94,7 +94,7 @@ describe('line feature tiling with arc-length', () => {
 
     // Even after simplification, vertices must have non-zero arc values
     // (the first one inside the tile might be zero if it's the feature start).
-    const hasNonZeroArc = arcs.some(a => a > 0)
+    const hasNonZeroArc = arcs.some((a) => a > 0)
     expect(hasNonZeroArc).toBe(true)
   })
 

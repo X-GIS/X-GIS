@@ -10,14 +10,16 @@ function emit(symbol: Record<string, unknown>): string {
   return convertMapboxStyle({
     version: 8,
     sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-    layers: [{
-      id: 'l',
-      type: 'symbol',
-      source: 'v',
-      'source-layer': 'place',
-      layout: { 'text-field': '{name}', ...(symbol.layout as object ?? {}) },
-      paint: (symbol.paint as object) ?? {},
-    }],
+    layers: [
+      {
+        id: 'l',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 'place',
+        layout: { 'text-field': '{name}', ...((symbol.layout as object) ?? {}) },
+        paint: (symbol.paint as object) ?? {},
+      },
+    ],
   } as never)
 }
 

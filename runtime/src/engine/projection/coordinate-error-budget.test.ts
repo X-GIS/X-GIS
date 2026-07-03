@@ -66,7 +66,10 @@ function tileLonBand(lon: number, z: number): { west: number; span: number } {
   return { west, span: 360 / n }
 }
 
-interface Cell { label: string; lon: number }
+interface Cell {
+  label: string
+  lon: number
+}
 const CELLS: Cell[] = [
   { label: 'seoul', lon: 126.87814 },
   { label: 'near-antimeridian', lon: 178.42 }, // larger |merc_x| → larger f32 grain

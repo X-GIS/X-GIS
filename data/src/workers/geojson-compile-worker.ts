@@ -106,9 +106,10 @@ export function resolveIdResolver(mode: IdResolverMode) {
 /** Run the compile + part-decomposition end-to-end. Returns a serializable
  *  response shape plus the transferable ArrayBuffer list. Shared by the
  *  worker entry point and the sync fallback in the pool. */
-export function runCompile(
-  req: GeoJSONCompileRequest,
-): { response: GeoJSONCompileResponse; transferables: ArrayBuffer[] } {
+export function runCompile(req: GeoJSONCompileRequest): {
+  response: GeoJSONCompileResponse
+  transferables: ArrayBuffer[]
+} {
   const idResolver = resolveIdResolver(req.idResolverMode)
   // Runtime's GeoJSONFeature is strictly wider than the compiler's
   // (RFC 7946 §3.2 nullable geometry + GeometryCollection variant
@@ -120,19 +121,25 @@ export function runCompile(
     req.geojson.features as unknown as Parameters<typeof decomposeFeatures>[0],
     idResolver,
   )
-  const set = compileGeoJSONToTiles(req.geojson as unknown as Parameters<typeof compileGeoJSONToTiles>[0], {
-    minZoom: req.minZoom,
-    maxZoom: req.maxZoom,
-    idResolver,
-  })
+  const set = compileGeoJSONToTiles(
+    req.geojson as unknown as Parameters<typeof compileGeoJSONToTiles>[0],
+    {
+      minZoom: req.minZoom,
+      maxZoom: req.maxZoom,
+      idResolver,
+    },
+  )
 
   const transferables: ArrayBuffer[] = []
   const serializedLevels: SerializedTileLevel[] = set.levels.map((level) => {
     const tiles: [number, SerializedTile][] = []
     level.tiles.forEach((tile: CompiledTile, key: number) => {
       const s: SerializedTile = {
-        z: tile.z, x: tile.x, y: tile.y,
-        tileWest: tile.tileWest, tileSouth: tile.tileSouth,
+        z: tile.z,
+        x: tile.x,
+        y: tile.y,
+        tileWest: tile.tileWest,
+        tileSouth: tile.tileSouth,
         vertices: tile.vertices.buffer as ArrayBuffer,
         dequantScale: tile.dequantScale,
         dequantHalf: tile.dequantHalf,
@@ -186,8 +193,10 @@ if (isWorkerScope) {
     if (msg.kind !== 'compile') return
     try {
       const { response, transferables } = runCompile(msg)
-      ;(self as unknown as { postMessage: (m: OutMsg, t?: Transferable[]) => void })
-        .postMessage(response, transferables)
+      ;(self as unknown as { postMessage: (m: OutMsg, t?: Transferable[]) => void }).postMessage(
+        response,
+        transferables,
+      )
     } catch (err) {
       const e = err as Error
       const response: GeoJSONCompileError = {

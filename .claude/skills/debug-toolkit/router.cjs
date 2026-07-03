@@ -8,24 +8,62 @@
 'use strict'
 
 let input = ''
-process.stdin.on('data', (d) => { input += d })
+process.stdin.on('data', (d) => {
+  input += d
+})
 process.stdin.on('end', () => {
   let prompt = ''
-  try { prompt = String(JSON.parse(input).prompt || '') } catch { prompt = input }
+  try {
+    prompt = String(JSON.parse(input).prompt || '')
+  } catch {
+    prompt = input
+  }
   const p = prompt.toLowerCase()
 
   // Localization-intent triggers (KR + EN). Narrow on purpose — NOT bare
   // "debug"/"디버그" (too common); require a where/which/diverge signal.
   const TRIGGERS = [
-    'watchpoint', 'watch point', 'cross-path', 'call hierarchy', 'call tree',
-    'call sequence', 'call order', 'devassert', 'devwatch', 'readback parity',
-    'where does it diverge', 'where it diverges', 'where the value', 'gets corrupted',
-    'fill is offset', 'draws offset', 'outline offset', 'which path is',
-    'localize the', 'localise the', 'step debugger',
-    '어디서 갈리', '어디서 틀', '어디서 어긋', '어디서 깨', '값이 어디', '어디서 망가',
-    '순차적으로 호출', '호출 순서', '호출순서', '콜 시퀀스', '콜 트리',
-    '두 경로', '같아야', '왜 다르게', '왜 작게', '너무 가늘', '너무 작게', '오프셋',
-    '워치포인트', '감시점',
+    'watchpoint',
+    'watch point',
+    'cross-path',
+    'call hierarchy',
+    'call tree',
+    'call sequence',
+    'call order',
+    'devassert',
+    'devwatch',
+    'readback parity',
+    'where does it diverge',
+    'where it diverges',
+    'where the value',
+    'gets corrupted',
+    'fill is offset',
+    'draws offset',
+    'outline offset',
+    'which path is',
+    'localize the',
+    'localise the',
+    'step debugger',
+    '어디서 갈리',
+    '어디서 틀',
+    '어디서 어긋',
+    '어디서 깨',
+    '값이 어디',
+    '어디서 망가',
+    '순차적으로 호출',
+    '호출 순서',
+    '호출순서',
+    '콜 시퀀스',
+    '콜 트리',
+    '두 경로',
+    '같아야',
+    '왜 다르게',
+    '왜 작게',
+    '너무 가늘',
+    '너무 작게',
+    '오프셋',
+    '워치포인트',
+    '감시점',
   ]
 
   if (!TRIGGERS.some((k) => p.includes(k))) return
@@ -33,7 +71,7 @@ process.stdin.on('end', () => {
   const ctx = [
     '[MAGIC KEYWORD: DEBUG-TOOLKIT] This turn LOCALIZES a divergence whose',
     'symptom is a wrong pixel / wrong value many boundaries downstream of its',
-    'cause. X-GIS\'s dominant archetype is two SIBLING paths that must agree',
+    "cause. X-GIS's dominant archetype is two SIBLING paths that must agree",
     '(fill vs outline, CPU vs GPU projection, polygon vs line shader) silently',
     'diverging — sub-pixel until an over-zoom/pitch/projection axis amplifies',
     'it. Do NOT ship a cause reasoned from a static read (those are repeatedly',
@@ -53,7 +91,9 @@ process.stdin.on('end', () => {
     'Full method: .claude/skills/debug-toolkit/SKILL.md',
   ].join(' ')
 
-  process.stdout.write(JSON.stringify({
-    hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: ctx },
-  }))
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: ctx },
+    }),
+  )
 })

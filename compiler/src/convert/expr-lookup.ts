@@ -23,7 +23,9 @@ export const getHandler: ExprHandler = (v, warnings, recurse) => {
   const obj = v[2]
   if (obj !== undefined) {
     const fieldStr = typeof field === 'string' ? field : JSON.stringify(field).slice(0, 60)
-    warnings.push(`["get", "${fieldStr}", <obj>] with explicit object — converted as plain field access; verify scope.`)
+    warnings.push(
+      `["get", "${fieldStr}", <obj>] with explicit object — converted as plain field access; verify scope.`,
+    )
   }
   // Mapbox v8 wraps the constant string in `["literal", "name"]`.
   // Unwrap eagerly so the identifier-shape detection below still
@@ -108,7 +110,9 @@ export const atHandler: ExprHandler = (v, warnings, recurse) => {
   // Mapbox `["at", index, array]` — array indexing. xgis has
   // ArrayAccess via `arr[idx]` syntax (parsed as a postfix).
   if (v.length !== 3) {
-    warnings.push(`Malformed ["at"] expression: expected 2 arguments (index, array), got ${v.length - 1}.`)
+    warnings.push(
+      `Malformed ["at"] expression: expected 2 arguments (index, array), got ${v.length - 1}.`,
+    )
     return null
   }
   const idx = recurse(v[1], warnings)
@@ -142,7 +146,9 @@ export const zoomHandler: ExprHandler = (v, warnings) => {
   // a malformed `["zoom", 1]` instead of having the operand
   // silently dropped.
   if (v.length !== 1) {
-    warnings.push(`Malformed ["zoom"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`)
+    warnings.push(
+      `Malformed ["zoom"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`,
+    )
   }
   return 'zoom'
 }
@@ -155,7 +161,9 @@ export const pitchHandler: ExprHandler = (v, warnings) => {
   // path above. Render-path eval sites (filter / paint) inject it;
   // worker / tile-decode sites leave it null (no camera).
   if (v.length !== 1) {
-    warnings.push(`Malformed ["pitch"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`)
+    warnings.push(
+      `Malformed ["pitch"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`,
+    )
   }
   return 'pitch'
 }
@@ -173,7 +181,9 @@ export const propertiesHandler: ExprHandler = (v, warnings) => {
   // existence-style tests. Zero-arg accessor — surface extra args so a
   // malformed `["properties", 1]` isn't silently dropped.
   if (v.length !== 1) {
-    warnings.push(`Malformed ["properties"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`)
+    warnings.push(
+      `Malformed ["properties"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`,
+    )
   }
   return 'properties()'
 }
@@ -195,7 +205,9 @@ export const isSupportedScriptHandler: ExprHandler = (v, warnings) => {
   // (`["is-supported-script"]` with no string) so it isn't silently
   // treated as a recognised accessor.
   if (v.length !== 2) {
-    warnings.push(`Malformed ["is-supported-script"] expression: expected 1 string argument, got ${v.length - 1}.`)
+    warnings.push(
+      `Malformed ["is-supported-script"] expression: expected 1 string argument, got ${v.length - 1}.`,
+    )
   }
   return 'true'
 }
@@ -214,7 +226,9 @@ export const geometryTypeHandler: ExprHandler = (v, warnings) => {
   // the sibling Point layer on shared OMT centroids near the
   // antimeridian.
   if (v.length !== 1) {
-    warnings.push(`Malformed ["geometry-type"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`)
+    warnings.push(
+      `Malformed ["geometry-type"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`,
+    )
   }
   return 'get("$geometryType")'
 }
@@ -226,7 +240,9 @@ export const idHandler: ExprHandler = (v, warnings) => {
   // `$featureId` into the props bag at evaluation time so the
   // ["==", ["id"], 42] / ["match", ["id"], …] filters work.
   if (v.length !== 1) {
-    warnings.push(`Malformed ["id"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`)
+    warnings.push(
+      `Malformed ["id"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`,
+    )
   }
   return 'get("$featureId")'
 }
@@ -255,8 +271,14 @@ function emitCoords(node: unknown): string | null {
 function collectPolygons(geo: unknown, out: unknown[]): void {
   if (!geo || typeof geo !== 'object') return
   const g = geo as { type?: unknown; coordinates?: unknown; geometry?: unknown }
-  if (g.type === 'Feature') { collectPolygons(g.geometry, out); return }
-  if (g.type === 'Polygon' && Array.isArray(g.coordinates)) { out.push(g.coordinates); return }
+  if (g.type === 'Feature') {
+    collectPolygons(g.geometry, out)
+    return
+  }
+  if (g.type === 'Polygon' && Array.isArray(g.coordinates)) {
+    out.push(g.coordinates)
+    return
+  }
   if (g.type === 'MultiPolygon' && Array.isArray(g.coordinates)) {
     for (const poly of g.coordinates) out.push(poly)
   }
@@ -271,19 +293,28 @@ export const withinHandler: ExprHandler = (v, warnings) => {
   // MultiPolygon array literal. The containment test is a pure CPU
   // predicate (eval/within.ts) — no runtime/GPU dependency.
   if (v.length !== 2) {
-    warnings.push(`Malformed ["within"] expression: expected exactly 1 geometry argument, got ${v.length - 1}.`)
+    warnings.push(
+      `Malformed ["within"] expression: expected exactly 1 geometry argument, got ${v.length - 1}.`,
+    )
     return null
   }
   const arg = v[1]
   const polygons: unknown[] = []
   const fc = arg as { type?: unknown; features?: unknown }
-  if (fc && typeof fc === 'object' && fc.type === 'FeatureCollection' && Array.isArray(fc.features)) {
+  if (
+    fc &&
+    typeof fc === 'object' &&
+    fc.type === 'FeatureCollection' &&
+    Array.isArray(fc.features)
+  ) {
     for (const f of fc.features) collectPolygons(f, polygons)
   } else {
     collectPolygons(arg, polygons)
   }
   if (polygons.length === 0) {
-    warnings.push(`["within"] argument is not a Polygon/MultiPolygon GeoJSON (or contains none); predicate dropped.`)
+    warnings.push(
+      `["within"] argument is not a Polygon/MultiPolygon GeoJSON (or contains none); predicate dropped.`,
+    )
     return null
   }
   const coords = emitCoords(polygons)
@@ -313,14 +344,21 @@ function pushSegments(line: unknown, out: unknown[]): void {
 function decomposeTarget(geo: unknown, out: TargetPrimitives): void {
   if (!geo || typeof geo !== 'object') return
   const g = geo as {
-    type?: unknown; coordinates?: unknown; geometry?: unknown; geometries?: unknown; features?: unknown
+    type?: unknown
+    coordinates?: unknown
+    geometry?: unknown
+    geometries?: unknown
+    features?: unknown
   }
   // if/else (not a switch) on the GeoJSON type tag — a switch arm keyed on
   // a capitalised geometry name would trip the spec-coverage drift detector,
   // which reads switch arms as Mapbox op references (mirror of within's
   // collectPolygons).
   const t = g.type
-  if (t === 'Feature') { decomposeTarget(g.geometry, out); return }
+  if (t === 'Feature') {
+    decomposeTarget(g.geometry, out)
+    return
+  }
   if (t === 'FeatureCollection') {
     if (Array.isArray(g.features)) for (const f of g.features) decomposeTarget(f, out)
     return
@@ -337,7 +375,10 @@ function decomposeTarget(geo: unknown, out: TargetPrimitives): void {
     if (Array.isArray(g.coordinates)) for (const p of g.coordinates) out.points.push(p)
     return
   }
-  if (t === 'LineString') { pushSegments(g.coordinates, out.segments); return }
+  if (t === 'LineString') {
+    pushSegments(g.coordinates, out.segments)
+    return
+  }
   if (t === 'MultiLineString') {
     if (Array.isArray(g.coordinates)) for (const ln of g.coordinates) pushSegments(ln, out.segments)
     return
@@ -350,10 +391,11 @@ function decomposeTarget(geo: unknown, out: TargetPrimitives): void {
     return
   }
   if (t === 'MultiPolygon') {
-    if (Array.isArray(g.coordinates)) for (const poly of g.coordinates) {
-      out.polygons.push(poly)
-      for (const ring of poly) pushSegments(ring, out.segments)
-    }
+    if (Array.isArray(g.coordinates))
+      for (const poly of g.coordinates) {
+        out.polygons.push(poly)
+        for (const ring of poly) pushSegments(ring, out.segments)
+      }
   }
 }
 
@@ -363,13 +405,17 @@ export const distanceHandler: ExprHandler = (v, warnings) => {
   // geometry from `$geometry` plus the target decomposed (at compile time)
   // into points / segments / polygons array literals. See eval/distance.ts.
   if (v.length !== 2) {
-    warnings.push(`Malformed ["distance"] expression: expected exactly 1 geometry argument, got ${v.length - 1}.`)
+    warnings.push(
+      `Malformed ["distance"] expression: expected exactly 1 geometry argument, got ${v.length - 1}.`,
+    )
     return null
   }
   const prims: TargetPrimitives = { points: [], segments: [], polygons: [] }
   decomposeTarget(v[1], prims)
   if (prims.points.length === 0 && prims.segments.length === 0 && prims.polygons.length === 0) {
-    warnings.push(`["distance"] argument is not a usable GeoJSON geometry (or contains none); predicate dropped.`)
+    warnings.push(
+      `["distance"] argument is not a usable GeoJSON geometry (or contains none); predicate dropped.`,
+    )
     return null
   }
   const pts = emitCoords(prims.points)
@@ -387,12 +433,16 @@ export const resolvedLocaleHandler: ExprHandler = (v, warnings) => {
   // collator resolves to. Lowered to the CPU `resolved_locale("<locale>")`
   // builtin (eval/collator.ts). Requires a constant collator locale.
   if (v.length !== 2) {
-    warnings.push(`Malformed ["resolved-locale"] expression: expected 1 collator argument, got ${v.length - 1}.`)
+    warnings.push(
+      `Malformed ["resolved-locale"] expression: expected 1 collator argument, got ${v.length - 1}.`,
+    )
     return null
   }
   const opts = extractCollatorOpts(v[1])
   if (opts === null) {
-    warnings.push(`["resolved-locale"] argument must be a ["collator", …] with constant options; dropped.`)
+    warnings.push(
+      `["resolved-locale"] argument must be a ["collator", …] with constant options; dropped.`,
+    )
     return null
   }
   return `resolved_locale(${JSON.stringify(opts.locale)})`
@@ -405,8 +455,12 @@ export const inHandler: ExprHandler = (v, warnings, recurse) => {
   // Peel wrapped field name (legacy form) mirror of the legacy
   // comparison fix 8013bc3.
   let field: unknown = v[1]
-  while (Array.isArray(field) && field.length === 2 && field[0] === 'literal'
-      && typeof field[1] === 'string') {
+  while (
+    Array.isArray(field) &&
+    field.length === 2 &&
+    field[0] === 'literal' &&
+    typeof field[1] === 'string'
+  ) {
     field = field[1]
   }
   let list = v[2]
@@ -414,14 +468,17 @@ export const inHandler: ExprHandler = (v, warnings, recurse) => {
   // (`["literal", ["literal", [...]]]`) from preprocessor chains
   // still hit the expression-form path. Mirror of colorToXgis
   // loop unwrap (921d5ad).
-  while (Array.isArray(list) && list.length === 2 && list[0] === 'literal'
-      && Array.isArray(list[1]) && list[1][0] === 'literal') {
+  while (
+    Array.isArray(list) &&
+    list.length === 2 &&
+    list[0] === 'literal' &&
+    Array.isArray(list[1]) &&
+    list[1][0] === 'literal'
+  ) {
     list = list[1]
   }
   if (Array.isArray(list) && list[0] === 'literal' && Array.isArray(list[1])) {
-    const fxg = typeof field === 'string'
-      ? `.${field}`
-      : recurse(field, warnings)
+    const fxg = typeof field === 'string' ? `.${field}` : recurse(field, warnings)
     if (fxg === null) return null
     // Empty values list — `["in", x, ["literal", []]]` means "x
     // is never in this set" per Mapbox spec → constant `false`.
@@ -446,7 +503,9 @@ export const inHandler: ExprHandler = (v, warnings, recurse) => {
       eqs.push(`${fxg} == ${typeof k === 'string' ? JSON.stringify(k) : k}`)
     }
     if (invalidKeys > 0) {
-      warnings.push(`["in"] dropped ${invalidKeys} key(s) that are not literal string/number/boolean; Mapbox spec requires literal keys.`)
+      warnings.push(
+        `["in"] dropped ${invalidKeys} key(s) that are not literal string/number/boolean; Mapbox spec requires literal keys.`,
+      )
     }
     if (eqs.length === 0) return 'false'
     return eqs.join(' || ')
@@ -465,7 +524,9 @@ export const inHandler: ExprHandler = (v, warnings, recurse) => {
       eqsLegacy.push(`.${field} == ${typeof k === 'string' ? JSON.stringify(k) : k}`)
     }
     if (invalidKeysLegacy > 0) {
-      warnings.push(`["in"] (legacy form) dropped ${invalidKeysLegacy} key(s) that are not literal string/number/boolean.`)
+      warnings.push(
+        `["in"] (legacy form) dropped ${invalidKeysLegacy} key(s) that are not literal string/number/boolean.`,
+      )
     }
     if (eqsLegacy.length === 0) return 'false'
     return eqsLegacy.join(' || ')

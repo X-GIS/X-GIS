@@ -9,9 +9,15 @@
 
 import type { Camera } from '@xgis/engine'
 import {
-  ListenerRegistry, MapEventRegistry, XGISMapEvent, isMapEventType,
-  type XGISFeatureEvent, type XGISFeatureEventType, type XGISFeatureListener,
-  type XGISMapEventType, type XGISMapListener,
+  ListenerRegistry,
+  MapEventRegistry,
+  XGISMapEvent,
+  isMapEventType,
+  type XGISFeatureEvent,
+  type XGISFeatureEventType,
+  type XGISFeatureListener,
+  type XGISMapEventType,
+  type XGISMapListener,
 } from './layer'
 
 /** Host hooks the event bus needs to read shared map state. */
@@ -83,20 +89,33 @@ export class MapEventBus {
     const zoomChanged = c.zoom !== this._evtSigZoom
     // First tick: seed the signature without firing (NaN !== anything).
     const seeded = Number.isFinite(this._evtSigCX)
-    const moved = seeded && (cxChanged || cyChanged || bearingChanged || pitchChanged || zoomChanged)
+    const moved =
+      seeded && (cxChanged || cyChanged || bearingChanged || pitchChanged || zoomChanged)
 
     if (moved) {
       // Zoom start/continue (zoom is also a move in MapLibre).
       if (zoomChanged) {
-        if (!this._zoomActive) { this._zoomActive = true; this._fireMapEvent('zoomstart') }
+        if (!this._zoomActive) {
+          this._zoomActive = true
+          this._fireMapEvent('zoomstart')
+        }
       }
-      if (!this._moveActive) { this._moveActive = true; this._fireMapEvent('movestart') }
+      if (!this._moveActive) {
+        this._moveActive = true
+        this._fireMapEvent('movestart')
+      }
       if (zoomChanged) this._fireMapEvent('zoom')
       this._fireMapEvent('move')
     } else {
       // Camera at rest this tick — close out any open move/zoom.
-      if (this._zoomActive) { this._zoomActive = false; this._fireMapEvent('zoomend') }
-      if (this._moveActive) { this._moveActive = false; this._fireMapEvent('moveend') }
+      if (this._zoomActive) {
+        this._zoomActive = false
+        this._fireMapEvent('zoomend')
+      }
+      if (this._moveActive) {
+        this._moveActive = false
+        this._fireMapEvent('moveend')
+      }
     }
 
     // Update the emitted-signature snapshot.
@@ -111,7 +130,10 @@ export class MapEventBus {
     // _sceneHasAnimation, hasPendingSourceWork, and the camera/size diff.
     const idleNow = !this._moveActive && !this._zoomActive && !this.host.shouldRenderThisFrame()
     if (idleNow) {
-      if (!this._wasIdle) { this._wasIdle = true; this._fireMapEvent('idle') }
+      if (!this._wasIdle) {
+        this._wasIdle = true
+        this._fireMapEvent('idle')
+      }
     } else {
       this._wasIdle = false
     }
@@ -124,14 +146,16 @@ export class MapEventBus {
   _fireMapEvent(type: XGISMapEventType): void {
     if (!this.mapEventListeners.has(type)) return
     const cam = this.host.getCameraState()
-    this.mapEventListeners.dispatch(new XGISMapEvent({
-      type,
-      target: this.host.target,
-      center: cam.center,
-      zoom: cam.zoom,
-      bearing: cam.bearing,
-      pitch: cam.pitch,
-    }))
+    this.mapEventListeners.dispatch(
+      new XGISMapEvent({
+        type,
+        target: this.host.target,
+        center: cam.center,
+        zoom: cam.zoom,
+        bearing: cam.bearing,
+        pitch: cam.pitch,
+      }),
+    )
   }
 
   /** Fire `load` exactly once, after the map has entered the render loop. */
@@ -175,22 +199,32 @@ export class MapEventBus {
    *  Unknown names warn once at the feature registry (layer.ts, P0-4). */
   on(type: XGISMapEventType, listener: XGISMapListener): void
   on(type: XGISFeatureEventType, listener: XGISFeatureListener): void
-  on(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
+  on(
+    type: XGISFeatureEventType | XGISMapEventType,
+    listener: XGISFeatureListener | XGISMapListener,
+  ): void {
     if (isMapEventType(type)) this.mapEventListeners.add(type, listener as XGISMapListener)
     else this.mapListeners.add(type, listener as XGISFeatureListener)
   }
 
   off(type: XGISMapEventType, listener: XGISMapListener): void
   off(type: XGISFeatureEventType, listener: XGISFeatureListener): void
-  off(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
+  off(
+    type: XGISFeatureEventType | XGISMapEventType,
+    listener: XGISFeatureListener | XGISMapListener,
+  ): void {
     if (isMapEventType(type)) this.mapEventListeners.remove(type, listener as XGISMapListener)
     else this.mapListeners.remove(type, listener as XGISFeatureListener)
   }
 
   once(type: XGISMapEventType, listener: XGISMapListener): void
   once(type: XGISFeatureEventType, listener: XGISFeatureListener): void
-  once(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
-    if (isMapEventType(type)) this.mapEventListeners.add(type, listener as XGISMapListener, { once: true })
+  once(
+    type: XGISFeatureEventType | XGISMapEventType,
+    listener: XGISFeatureListener | XGISMapListener,
+  ): void {
+    if (isMapEventType(type))
+      this.mapEventListeners.add(type, listener as XGISMapListener, { once: true })
     else this.mapListeners.add(type, listener as XGISFeatureListener, { once: true })
   }
 }

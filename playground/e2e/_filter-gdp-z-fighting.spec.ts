@@ -20,7 +20,8 @@ import { test, expect, type Page } from '@playwright/test'
 async function waitForXgisReady(page: Page) {
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
 }
 
@@ -28,14 +29,14 @@ test('filter_gdp pitch=46.5: no slate-bg pixels through colored fills', async ({
   test.setTimeout(45_000)
   await page.setViewportSize({ width: 1920, height: 1040 })
   const consoleLogs: string[] = []
-  page.on('console', m => consoleLogs.push(`[${m.type()}] ${m.text()}`))
-  page.on('pageerror', e => consoleLogs.push(`[PAGEERR] ${e.message}`))
-  await page.goto(
-    '/demo.html?id=filter_gdp#4.40/44.04442/99.93433/345.0/46.5',
-    { waitUntil: 'domcontentloaded' },
-  )
-  try { await waitForXgisReady(page) }
-  catch (e) {
+  page.on('console', (m) => consoleLogs.push(`[${m.type()}] ${m.text()}`))
+  page.on('pageerror', (e) => consoleLogs.push(`[PAGEERR] ${e.message}`))
+  await page.goto('/demo.html?id=filter_gdp#4.40/44.04442/99.93433/345.0/46.5', {
+    waitUntil: 'domcontentloaded',
+  })
+  try {
+    await waitForXgisReady(page)
+  } catch (e) {
     console.log('[CONSOLE]')
     for (const l of consoleLogs.slice(0, 20)) console.log('  ' + l)
     throw e
@@ -51,18 +52,21 @@ test('filter_gdp pitch=46.5: no slate-bg pixels through colored fills', async ({
   // area as the z-fight signal.
   const stats = await page.evaluate(async () => {
     const canvas = document.querySelector('canvas') as HTMLCanvasElement
-    const png = await new Promise<Blob>(r => canvas.toBlob(b => r(b!), 'image/png'))
+    const png = await new Promise<Blob>((r) => canvas.toBlob((b) => r(b!), 'image/png'))
     const url = URL.createObjectURL(png)
     const img = new Image()
-    await new Promise<void>(r => { img.onload = () => r(); img.src = url })
+    await new Promise<void>((r) => {
+      img.onload = () => r()
+      img.src = url
+    })
     const off = new OffscreenCanvas(img.width, img.height)
     const ctx = off.getContext('2d')!
     ctx.drawImage(img, 0, 0)
     URL.revokeObjectURL(url)
     // China-center sampling box (yellow fill in this view)
-    const x0 = Math.floor(img.width * 0.30)
+    const x0 = Math.floor(img.width * 0.3)
     const y0 = Math.floor(img.height * 0.45)
-    const x1 = Math.floor(img.width * 0.50)
+    const x1 = Math.floor(img.width * 0.5)
     const y1 = Math.floor(img.height * 0.78)
     const w = x1 - x0
     const data = ctx.getImageData(x0, y0, w, y1 - y0).data
@@ -93,7 +97,9 @@ test('filter_gdp pitch=46.5: no slate-bg pixels through colored fills', async ({
     const flipsPerRow = scannedRows > 0 ? stripeFlips / scannedRows : 0
     return { region: [x0, y0, x1, y1], scannedRows, stripeFlips, flipsPerRow }
   })
-  console.log(`[filter-gdp-pitch] z-fight stripe flips: ${stats.stripeFlips} across ${stats.scannedRows} rows (${stats.flipsPerRow.toFixed(2)}/row)`)
+  console.log(
+    `[filter-gdp-pitch] z-fight stripe flips: ${stats.stripeFlips} across ${stats.scannedRows} rows (${stats.flipsPerRow.toFixed(2)}/row)`,
+  )
   // Pre-fix: ~15-25 flips/row (broken). Post-fix: <2/row (only natural
   // country borders crossing the sampling box).
   expect(stats.flipsPerRow, 'z-fight stripe flips per scanline').toBeLessThan(3)

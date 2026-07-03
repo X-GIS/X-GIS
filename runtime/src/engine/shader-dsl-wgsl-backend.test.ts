@@ -46,7 +46,9 @@ describe('shader-dsl WGSL backend — projection module', () => {
     // project() forward dispatch — thresholds at projType+0.5, table-ordered.
     const flat = PROJECTIONS.filter((p) => !p.isGlobe)
     for (let i = 0; i < flat.length - 1; i++) {
-      expect(wgsl, `dispatch arm t < ${flat[i].projType + 0.5}`).toContain(`< ${flat[i].projType + 0.5})`)
+      expect(wgsl, `dispatch arm t < ${flat[i].projType + 0.5}`).toContain(
+        `< ${flat[i].projType + 0.5})`,
+      )
     }
     // calls each projection's forward
     expect(wgsl).toContain('proj_mercator(lon_deg, lat_deg)')

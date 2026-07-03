@@ -23,9 +23,15 @@ describe('PriorityQueue', () => {
     const q = makeSyncQueue<string>()
     q.maxJobs = 1
     const log: string[] = []
-    const a = q.add('a', () => { log.push('a') })
-    const b = q.add('b', () => { log.push('b') })
-    const c = q.add('c', () => { log.push('c') })
+    const a = q.add('a', () => {
+      log.push('a')
+    })
+    const b = q.add('b', () => {
+      log.push('b')
+    })
+    const c = q.add('c', () => {
+      log.push('c')
+    })
     await Promise.all([a, b, c])
     expect(log).toEqual(['a', 'b', 'c'])
   })
@@ -39,9 +45,11 @@ describe('PriorityQueue', () => {
     // a is higher priority (sorts a last → popped first).
     q.priorityCallback = (a, b) => a.pri - b.pri
     const log: string[] = []
-    const cb = (item: { id: string }): void => { log.push(item.id) }
-    const p1 = q.add({ id: 'low',    pri: 1 }, cb)
-    const p2 = q.add({ id: 'high',   pri: 10 }, cb)
+    const cb = (item: { id: string }): void => {
+      log.push(item.id)
+    }
+    const p1 = q.add({ id: 'low', pri: 1 }, cb)
+    const p2 = q.add({ id: 'high', pri: 10 }, cb)
     const p3 = q.add({ id: 'medium', pri: 5 }, cb)
     await Promise.all([p1, p2, p3])
     expect(log).toEqual(['high', 'medium', 'low'])
@@ -83,7 +91,9 @@ describe('PriorityQueue', () => {
     q.autoUpdate = false // hold off dispatch so we can remove first
     const a = q.add('a', () => 1)
     let caught: unknown = null
-    const rejection = a.catch((err) => { caught = err })
+    const rejection = a.catch((err) => {
+      caught = err
+    })
     q.remove('a')
     await rejection
     expect(caught).toBeInstanceOf(PriorityQueueItemRemovedError)
@@ -108,7 +118,13 @@ describe('PriorityQueue', () => {
     q.maxJobs = 1
     expect(q.running).toBe(false)
     let release!: () => void
-    const job = q.add(1, () => new Promise<void>((res) => { release = res }))
+    const job = q.add(
+      1,
+      () =>
+        new Promise<void>((res) => {
+          release = res
+        }),
+    )
     expect(q.running).toBe(true)
     release()
     await job
@@ -119,9 +135,11 @@ describe('PriorityQueue', () => {
   it('callback throwing synchronously rejects without leaking the slot', async () => {
     const q = makeSyncQueue<string>()
     q.maxJobs = 1
-    const failed = q.add('boom', () => {
-      throw new Error('intentional')
-    }).catch((e) => (e as Error).message)
+    const failed = q
+      .add('boom', () => {
+        throw new Error('intentional')
+      })
+      .catch((e) => (e as Error).message)
     const ok = q.add('ok', () => 'done')
     const [errMsg, okVal] = await Promise.all([failed, ok])
     expect(errMsg).toBe('intentional')

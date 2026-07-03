@@ -14,17 +14,19 @@ describe('symbol-placement step expansion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'highway-shield',
-        type: 'symbol',
-        source: 'v',
-        'source-layer': 'transportation_name',
-        layout: {
-          'text-field': ['get', 'ref'],
-          'symbol-placement': ['step', ['zoom'], 'point', 11, 'line'],
+      layers: [
+        {
+          id: 'highway-shield',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'transportation_name',
+          layout: {
+            'text-field': ['get', 'ref'],
+            'symbol-placement': ['step', ['zoom'], 'point', 11, 'line'],
+          },
+          paint: { 'text-color': '#000' },
         },
-        paint: { 'text-color': '#000' },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toMatch(/layer highway_shield_0\s*{[^}]*maxzoom: 11/)
@@ -41,17 +43,19 @@ describe('symbol-placement step expansion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'us-interstate',
-        type: 'symbol',
-        source: 'v',
-        'source-layer': 'transportation_name',
-        layout: {
-          'text-field': ['get', 'ref'],
-          'symbol-placement': ['step', ['zoom'], 'point', 7, 'line', 8, 'line'],
+      layers: [
+        {
+          id: 'us-interstate',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'transportation_name',
+          layout: {
+            'text-field': ['get', 'ref'],
+            'symbol-placement': ['step', ['zoom'], 'point', 7, 'line', 8, 'line'],
+          },
+          paint: { 'text-color': '#000' },
         },
-        paint: { 'text-color': '#000' },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     const matches = xgis.match(/layer us_interstate_\d+ \{/g) ?? []
@@ -64,19 +68,21 @@ describe('symbol-placement step expansion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'bounded-shield',
-        type: 'symbol',
-        source: 'v',
-        'source-layer': 'transportation_name',
-        minzoom: 9,
-        maxzoom: 18,
-        layout: {
-          'text-field': ['get', 'ref'],
-          'symbol-placement': ['step', ['zoom'], 'point', 11, 'line'],
+      layers: [
+        {
+          id: 'bounded-shield',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'transportation_name',
+          minzoom: 9,
+          maxzoom: 18,
+          layout: {
+            'text-field': ['get', 'ref'],
+            'symbol-placement': ['step', ['zoom'], 'point', 11, 'line'],
+          },
+          paint: { 'text-color': '#000' },
         },
-        paint: { 'text-color': '#000' },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     // Segment 0 (..11 default "point") should clamp minzoom to 9 (layer),
@@ -90,17 +96,19 @@ describe('symbol-placement step expansion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'road-name',
-        type: 'symbol',
-        source: 'v',
-        'source-layer': 'transportation_name',
-        layout: {
-          'text-field': ['get', 'name'],
-          'symbol-placement': 'line',
+      layers: [
+        {
+          id: 'road-name',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'transportation_name',
+          layout: {
+            'text-field': ['get', 'name'],
+            'symbol-placement': 'line',
+          },
+          paint: { 'text-color': '#000' },
         },
-        paint: { 'text-color': '#000' },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toMatch(/layer road_name\s*{/)
@@ -116,17 +124,19 @@ describe('symbol-placement step expansion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'odd',
-        type: 'symbol',
-        source: 'v',
-        'source-layer': 'X',
-        layout: {
-          'text-field': ['get', 'name'],
-          'symbol-placement': ['step', ['get', 'rank'], 'point', 3, 'line'],
+      layers: [
+        {
+          id: 'odd',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'X',
+          layout: {
+            'text-field': ['get', 'name'],
+            'symbol-placement': ['step', ['get', 'rank'], 'point', 3, 'line'],
+          },
+          paint: { 'text-color': '#000' },
         },
-        paint: { 'text-color': '#000' },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toMatch(/layer odd\s*{/)

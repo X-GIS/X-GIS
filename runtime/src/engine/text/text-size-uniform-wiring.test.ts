@@ -35,14 +35,19 @@ const FONT_SIZE_PX_SLOT = 14
 const baseGlyph = {
   codepoint: 65,
   slot: { page: 0, cellX: 0, cellY: 0, pxX: 0, pxY: 0, size: 64 },
-  advanceWidth: 16, bearingX: 0, bearingY: 16, width: 16, height: 20,
+  advanceWidth: 16,
+  bearingX: 0,
+  bearingY: 16,
+  width: 16,
+  height: 20,
   pbf: true,
 }
 
 /** A minimal opaque (no-halo) text draw at the given display text-size. */
 function makeDraw(fontSize: number): TextDraw {
   return {
-    anchorX: 0, anchorY: 0,
+    anchorX: 0,
+    anchorY: 0,
     glyphs: [baseGlyph],
     fontSize,
     rasterFontSize: 32,

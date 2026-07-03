@@ -73,7 +73,10 @@ export function analyzeCSE(scene: Scene): CSEReport {
     totalNodes++
     const key = canonicalExpr(e)
     let arr = buckets.get(key)
-    if (!arr) { arr = []; buckets.set(key, arr) }
+    if (!arr) {
+      arr = []
+      buckets.set(key, arr)
+    }
     arr.push(e)
     visitChildren(e)
   }
@@ -89,24 +92,35 @@ export function analyzeCSE(scene: Scene): CSEReport {
         if (e.matchBlock) for (const arm of e.matchBlock.arms) visit(arm.value)
         return
       case 'BinaryExpr':
-        visit(e.left); visit(e.right); return
+        visit(e.left)
+        visit(e.right)
+        return
       case 'UnaryExpr':
-        visit(e.operand); return
+        visit(e.operand)
+        return
       case 'PipeExpr':
         visit(e.input)
         for (const t of e.transforms) visit(t)
         return
       case 'ConditionalExpr':
-        visit(e.condition); visit(e.thenExpr); visit(e.elseExpr); return
+        visit(e.condition)
+        visit(e.thenExpr)
+        visit(e.elseExpr)
+        return
       case 'ArrayLiteral':
-        for (const el of e.elements) visit(el); return
+        for (const el of e.elements) visit(el)
+        return
       case 'ArrayAccess':
-        visit(e.array); visit(e.index); return
+        visit(e.array)
+        visit(e.index)
+        return
       case 'MatchBlock':
-        for (const arm of e.arms) visit(arm.value); return
+        for (const arm of e.arms) visit(arm.value)
+        return
       // Leaf kinds: NumberLiteral, StringLiteral, ColorLiteral,
       // BoolLiteral, Identifier — no children to visit.
-      default: return
+      default:
+        return
     }
   }
 
@@ -123,7 +137,8 @@ export function analyzeCSE(scene: Scene): CSEReport {
       case 'time-interpolated':
         return
       case 'data-driven':
-        visitDataExpr(v.expr); return
+        visitDataExpr(v.expr)
+        return
       case 'conditional':
         for (const br of v.branches as ConditionalBranch<ColorValue>[]) {
           visitColorValue(br.value)
@@ -163,7 +178,7 @@ export function analyzeCSE(scene: Scene): CSEReport {
   // Sort descending by count so the largest dedup opportunities
   // surface first in diagnostics.
   entries.sort((a, b) => b.count - a.count)
-  const duplicates = entries.filter(e => e.count > 1)
+  const duplicates = entries.filter((e) => e.count > 1)
 
   return { entries, duplicates, totalNodes }
 }

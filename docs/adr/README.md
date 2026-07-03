@@ -1,7 +1,7 @@
 # Architecture Decision Records
 
 This directory holds X-GIS's **Architecture Decision Records (ADRs)** — short
-notes that capture *why* a structural decision was made, the alternatives that
+notes that capture _why_ a structural decision was made, the alternatives that
 were rejected, and what the decision costs us going forward.
 
 ## Why ADRs (vs AGENTS.md)
@@ -30,17 +30,17 @@ to `Superseded by ADR-NNNN`. The trail of superseded records is the point.
 
 ## Index
 
-| ADR | Title | Status | One-line |
-|-----|-------|--------|----------|
-| [0001](0001-ecef-tile-pipeline.md) | ECEF tile pipeline — single MVP, ellipsoid vertices | Accepted | Tiles pack WGS84-ellipsoid ECEF metres (quantized double-u16 about a per-tile RTC anchor) drawn with one `u.mvp`; the legacy dual Mercator/ECEF MVP was retired (polygon stride 256→192 B). |
-| [0002](0002-geoid-sphere-camera-ellipsoid-vertex.md) | Geoid split — ellipsoid vertices, sphere camera basis | Accepted | Vertices/bg/walls use the WGS84 ellipsoid; the flat-MVP camera basis stays a sphere (`#189` pins the ≤1.5 px gap). Gotcha: the globe RTC `cam_ecef_off` must use the *same* ellipsoid or the ~21 km gap scales with zoom (bug #208). |
-| [0003](0003-shader-dsl-single-emit.md) | Shader DSL single-emit + `PROJECTIONS` table SoT | Accepted | One TS DSL emits both WGSL and the CPU-f64 mirror (byte-drift gate forbids divergence); `projections-table.ts` is the single authority for per-`projType` data. |
-| [0004](0004-verification-gate-strategy.md) | Two-tier verification — no-GPU CI vs real-GPU local | Accepted | GitHub CI (no GPU) runs only pure-compute/compile WGSL gates under SwiftShader; render-correctness (pixel-match, globe render, eyeball) runs local/pre-push on real GPU. |
-| [0005](0005-synthetic-earth-surface-background.md) | Background fill as a synthetic earth-surface tile | Accepted (clear-value → 0007) | The style background renders via a synthetic z=0 ShowCommand through the polygon pipeline (BackgroundRenderer deleted) so bg shares one geoid + projection + world-copy logic with real tiles. |
-| [0006](0006-world-copy-rendering.md) | Per-`projType` world-copy enumeration | Accepted | Mercator derives a tight on-screen copy range; periodic flat (1/2/6) use a static ±2 set gated by `WORLD_COPY_MAX_ZOOM`; azimuthal/globe collapse to `[0]`. The flat-Merc fill arm must re-add `world_off_m` (bug #212). |
-| [0007](0007-defined-coverage-background-pass.md) | Defined coverage — background pass + reversal of black-outside-world | Accepted | A first-running background pass owns the whole-viewport clear, projType-aware: flat/cylindrical fill the outside-band with the style bg (no black void — the user requirement), disc/globe keep defined black space. Deliberately reverses the iter-196 MapLibre black-parity for CORE/SHOWCASE. Gate: `_coverage-black-ratio.spec.ts` (flat ≤2% pure-black). Supersedes 0005's clear-value. |
-| [0008](0008-external-renderer-interop-contracts.md) | External-renderer (three.js) interop contracts | Accepted | Documents the three seams an integrator hits — fused RTC MVP (no separable view/proj), logarithmic per-pixel depth, split-float ECEF-RTC geometry on a sphere-vs-ellipsoid geoid. Interop is adapter-not-drop-in; accessors/readback are additive + deferred. |
-| [0009](0009-frame-invariant-uniform-block.md) | Frame-invariant uniform block written once by a shared producer | Accepted (partial) | The group(0) uniform is hand-packed by 6 CPU writers; #600's `globe_eye` field was wired into 3 and silently missing from the vector path (back-face leak #663). Split the struct by cadence — a frame-invariant block (`mvp`/`proj_params`/`globe_eye`/`log_depth_fc`/`zoom`) written ONCE by a shared producer, vs a per-draw block — so writer-completeness drift becomes unrepresentable and the stop-gap completeness guard can be deleted. Staged, not big-bang. |
+| ADR                                                  | Title                                                                | Status                        | One-line                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [0001](0001-ecef-tile-pipeline.md)                   | ECEF tile pipeline — single MVP, ellipsoid vertices                  | Accepted                      | Tiles pack WGS84-ellipsoid ECEF metres (quantized double-u16 about a per-tile RTC anchor) drawn with one `u.mvp`; the legacy dual Mercator/ECEF MVP was retired (polygon stride 256→192 B).                                                                                                                                                                                                                                                                            |
+| [0002](0002-geoid-sphere-camera-ellipsoid-vertex.md) | Geoid split — ellipsoid vertices, sphere camera basis                | Accepted                      | Vertices/bg/walls use the WGS84 ellipsoid; the flat-MVP camera basis stays a sphere (`#189` pins the ≤1.5 px gap). Gotcha: the globe RTC `cam_ecef_off` must use the _same_ ellipsoid or the ~21 km gap scales with zoom (bug #208).                                                                                                                                                                                                                                   |
+| [0003](0003-shader-dsl-single-emit.md)               | Shader DSL single-emit + `PROJECTIONS` table SoT                     | Accepted                      | One TS DSL emits both WGSL and the CPU-f64 mirror (byte-drift gate forbids divergence); `projections-table.ts` is the single authority for per-`projType` data.                                                                                                                                                                                                                                                                                                        |
+| [0004](0004-verification-gate-strategy.md)           | Two-tier verification — no-GPU CI vs real-GPU local                  | Accepted                      | GitHub CI (no GPU) runs only pure-compute/compile WGSL gates under SwiftShader; render-correctness (pixel-match, globe render, eyeball) runs local/pre-push on real GPU.                                                                                                                                                                                                                                                                                               |
+| [0005](0005-synthetic-earth-surface-background.md)   | Background fill as a synthetic earth-surface tile                    | Accepted (clear-value → 0007) | The style background renders via a synthetic z=0 ShowCommand through the polygon pipeline (BackgroundRenderer deleted) so bg shares one geoid + projection + world-copy logic with real tiles.                                                                                                                                                                                                                                                                         |
+| [0006](0006-world-copy-rendering.md)                 | Per-`projType` world-copy enumeration                                | Accepted                      | Mercator derives a tight on-screen copy range; periodic flat (1/2/6) use a static ±2 set gated by `WORLD_COPY_MAX_ZOOM`; azimuthal/globe collapse to `[0]`. The flat-Merc fill arm must re-add `world_off_m` (bug #212).                                                                                                                                                                                                                                               |
+| [0007](0007-defined-coverage-background-pass.md)     | Defined coverage — background pass + reversal of black-outside-world | Accepted                      | A first-running background pass owns the whole-viewport clear, projType-aware: flat/cylindrical fill the outside-band with the style bg (no black void — the user requirement), disc/globe keep defined black space. Deliberately reverses the iter-196 MapLibre black-parity for CORE/SHOWCASE. Gate: `_coverage-black-ratio.spec.ts` (flat ≤2% pure-black). Supersedes 0005's clear-value.                                                                           |
+| [0008](0008-external-renderer-interop-contracts.md)  | External-renderer (three.js) interop contracts                       | Accepted                      | Documents the three seams an integrator hits — fused RTC MVP (no separable view/proj), logarithmic per-pixel depth, split-float ECEF-RTC geometry on a sphere-vs-ellipsoid geoid. Interop is adapter-not-drop-in; accessors/readback are additive + deferred.                                                                                                                                                                                                          |
+| [0009](0009-frame-invariant-uniform-block.md)        | Frame-invariant uniform block written once by a shared producer      | Accepted (partial)            | The group(0) uniform is hand-packed by 6 CPU writers; #600's `globe_eye` field was wired into 3 and silently missing from the vector path (back-face leak #663). Split the struct by cadence — a frame-invariant block (`mvp`/`proj_params`/`globe_eye`/`log_depth_fc`/`zoom`) written ONCE by a shared producer, vs a per-draw block — so writer-completeness drift becomes unrepresentable and the stop-gap completeness guard can be deleted. Staged, not big-bang. |
 
 > The rendering backend is **WebGPU-only**. When `navigator.gpu` or a GPU
 > adapter is absent, `initGPU` throws `WebGPUUnavailableError`
@@ -77,17 +77,17 @@ which file owns it, which test pins it.
 ## Consequences
 
 What gets easier, what gets harder, what we now have to keep honoring. Include
-the *cost* — the thing a future contributor will be tempted to "simplify" and
+the _cost_ — the thing a future contributor will be tempted to "simplify" and
 must not. Link the gate test that fails if they try.
 ```
 
 ### Status values
 
-| Status | Meaning |
-|--------|---------|
-| `Proposed` | Written down, not yet agreed. |
-| `Accepted` | In force; code reflects it. |
-| `Deprecated` | No longer recommended, but not yet replaced. |
+| Status                   | Meaning                                       |
+| ------------------------ | --------------------------------------------- |
+| `Proposed`               | Written down, not yet agreed.                 |
+| `Accepted`               | In force; code reflects it.                   |
+| `Deprecated`             | No longer recommended, but not yet replaced.  |
 | `Superseded by ADR-MMMM` | Replaced by a newer record; kept for history. |
 
 ## Conventions
@@ -105,7 +105,7 @@ must not. Link the gate test that fails if they try.
 
 - [`docs/COORDINATES.md`](../COORDINATES.md) — the canonical coordinate-space
   contract (LL / MM / DLM / SP) and its five cross-path invariants. ADR-0001
-  records *why* that contract exists; COORDINATES.md *is* the contract.
+  records _why_ that contract exists; COORDINATES.md _is_ the contract.
 - [`docs/AGENTS.md`](../AGENTS.md) — index of the internal engineering docs.
 - Root [`README.md`](../../README.md) — language overview, architecture diagram,
   vector-tile pipeline.

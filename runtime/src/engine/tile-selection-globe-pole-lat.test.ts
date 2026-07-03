@@ -41,13 +41,15 @@ const ZOOM = 5
 const CURRENT_Z = 4
 const MAX_SUB_TILE_Z = 22
 
-const MERC_SAT_LAT = 85.051129   // mercatorYToLat saturation ceiling (degrees)
-const TRUE_LAT = 89               // pole-ward centre latitude
+const MERC_SAT_LAT = 85.051129 // mercatorYToLat saturation ceiling (degrees)
+const TRUE_LAT = 89 // pole-ward centre latitude
 
 function makeController(cam: Camera): CameraController {
   const deps: CameraControllerDeps = {
     invalidate: () => {},
-    getCanvas: () => { throw new Error('not used') },
+    getCanvas: () => {
+      throw new Error('not used')
+    },
     getCtxCanvas: () => undefined,
   }
   return new CameraController(cam, deps)
@@ -69,13 +71,13 @@ function makeGlobeCameraAtPole(): Camera {
 /** Compute the set of tileKeys that globeVisibleTiles returns for a given lat. */
 function tileKeysForLat(lat: number): Set<number> {
   const tiles = globeVisibleTiles(0, lat, ZOOM, CURRENT_Z + 1, W / DPR, H / DPR)
-  return new Set(tiles.map(t => tileKey(t.z, t.x, t.y)))
+  return new Set(tiles.map((t) => tileKey(t.z, t.x, t.y)))
 }
 
 // ─── Pre-condition: the two latitudes actually produce different tile sets ────
 
 it('pre-condition: globeVisibleTiles differs between lat=85.05 (saturated) and lat=89 (true pole) at zoom=5', () => {
-  const keysAtSat  = tileKeysForLat(MERC_SAT_LAT)
+  const keysAtSat = tileKeysForLat(MERC_SAT_LAT)
   const keysAtTrue = tileKeysForLat(TRUE_LAT)
 
   // Both must be non-empty (otherwise the zoom is wrong).
@@ -84,8 +86,17 @@ it('pre-condition: globeVisibleTiles differs between lat=85.05 (saturated) and l
 
   // The sets must differ — otherwise the fix is unobservable at this zoom.
   let anyDiff = false
-  for (const k of keysAtTrue) if (!keysAtSat.has(k)) { anyDiff = true; break }
-  if (!anyDiff) for (const k of keysAtSat) if (!keysAtTrue.has(k)) { anyDiff = true; break }
+  for (const k of keysAtTrue)
+    if (!keysAtSat.has(k)) {
+      anyDiff = true
+      break
+    }
+  if (!anyDiff)
+    for (const k of keysAtSat)
+      if (!keysAtTrue.has(k)) {
+        anyDiff = true
+        break
+      }
   expect(anyDiff, 'globeVisibleTiles must differ between lat 85.05 and lat 89 at zoom=5').toBe(true)
 })
 
@@ -106,7 +117,7 @@ describe('globe pole-lat: prefetch selector uses true centerLatDeg (not saturate
   it('prefetch key set matches globeVisibleTiles(lat=89), not globeVisibleTiles(lat=85.05)', () => {
     const cam = makeGlobeCameraAtPole()
 
-    const keysAtSat  = tileKeysForLat(MERC_SAT_LAT)
+    const keysAtSat = tileKeysForLat(MERC_SAT_LAT)
     const keysAtTrue = tileKeysForLat(TRUE_LAT)
 
     const got = computeZoomDirectionPrefetchKeys({
@@ -131,15 +142,18 @@ describe('globe pole-lat: prefetch selector uses true centerLatDeg (not saturate
 
     // Count overlap with each ground-truth set.
     let overlapTrue = 0
-    let overlapSat  = 0
+    let overlapSat = 0
     for (const k of gotSet) {
       if (keysAtTrue.has(k)) overlapTrue++
-      if (keysAtSat.has(k))  overlapSat++
+      if (keysAtSat.has(k)) overlapSat++
     }
 
     // The result must include tiles from the true-lat (89°) selection.
     // Before the fix the function feeds lat≈85.05, so overlapTrue=0 → FAILS here.
-    expect(overlapTrue, 'prefetch result must include tiles from the true-lat (89°) selection').toBeGreaterThan(0)
+    expect(
+      overlapTrue,
+      'prefetch result must include tiles from the true-lat (89°) selection',
+    ).toBeGreaterThan(0)
 
     // The result must be at least as close to the true-lat set as to the saturated-lat set.
     expect(

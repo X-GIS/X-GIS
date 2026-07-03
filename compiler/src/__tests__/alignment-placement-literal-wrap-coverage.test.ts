@@ -11,37 +11,41 @@ function emit(layout: Record<string, unknown>): string {
   return convertMapboxStyle({
     version: 8,
     sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-    layers: [{
-      id: 'l',
-      type: 'symbol',
-      source: 'v',
-      'source-layer': 'place',
-      layout: { 'text-field': '{name}', ...layout },
-    }],
+    layers: [
+      {
+        id: 'l',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 'place',
+        layout: { 'text-field': '{name}', ...layout },
+      },
+    ],
   } as never)
 }
 
 describe('text-rotation-alignment literal-wrap unwrap', () => {
   it('bare "viewport" emits label-rotation-alignment-viewport', () => {
-    expect(emit({ 'text-rotation-alignment': 'viewport' }))
-      .toContain('label-rotation-alignment-viewport')
+    expect(emit({ 'text-rotation-alignment': 'viewport' })).toContain(
+      'label-rotation-alignment-viewport',
+    )
   })
 
   it('wrapped ["literal", "map"] emits label-rotation-alignment-map', () => {
-    expect(emit({ 'text-rotation-alignment': ['literal', 'map'] }))
-      .toContain('label-rotation-alignment-map')
+    expect(emit({ 'text-rotation-alignment': ['literal', 'map'] })).toContain(
+      'label-rotation-alignment-map',
+    )
   })
 })
 
 describe('text-pitch-alignment literal-wrap unwrap', () => {
   it('bare "map" emits label-pitch-alignment-map', () => {
-    expect(emit({ 'text-pitch-alignment': 'map' }))
-      .toContain('label-pitch-alignment-map')
+    expect(emit({ 'text-pitch-alignment': 'map' })).toContain('label-pitch-alignment-map')
   })
 
   it('wrapped ["literal", "auto"] emits label-pitch-alignment-auto', () => {
-    expect(emit({ 'text-pitch-alignment': ['literal', 'auto'] }))
-      .toContain('label-pitch-alignment-auto')
+    expect(emit({ 'text-pitch-alignment': ['literal', 'auto'] })).toContain(
+      'label-pitch-alignment-auto',
+    )
   })
 })
 
@@ -54,13 +58,11 @@ describe('symbol-placement literal-wrap unwrap', () => {
     // Pre-fix the wrap defeated the === 'line' check and the layer
     // fell to point placement (default), so road / waterway labels
     // anchored at a single tile-centre instead of following the line.
-    expect(emit({ 'symbol-placement': ['literal', 'line'] }))
-      .toContain('label-along-path')
+    expect(emit({ 'symbol-placement': ['literal', 'line'] })).toContain('label-along-path')
   })
 
   it('wrapped ["literal", "line-center"] emits label-line-center', () => {
-    expect(emit({ 'symbol-placement': ['literal', 'line-center'] }))
-      .toContain('label-line-center')
+    expect(emit({ 'symbol-placement': ['literal', 'line-center'] })).toContain('label-line-center')
   })
 
   it('wrapped ["literal", "line"] also gates text-max-width default off', () => {

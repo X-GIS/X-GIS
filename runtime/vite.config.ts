@@ -46,8 +46,7 @@ export default defineConfig({
       // consumer resolves them from their own node_modules. Everything else
       // — including the @xgis/* workspace source and the worker chunks — is
       // bundled into dist.
-      external: (id) =>
-        EXTERNAL.includes(id) || EXTERNAL.some((d) => id.startsWith(d + '/')),
+      external: (id) => EXTERNAL.includes(id) || EXTERNAL.some((d) => id.startsWith(d + '/')),
       output: {
         // Keep worker chunks as stable sibling files in dist so they resolve
         // for ESM consumers and re-bundlers alike.
@@ -62,8 +61,7 @@ export default defineConfig({
   worker: {
     format: 'es',
     rollupOptions: {
-      external: (id) =>
-        EXTERNAL.includes(id) || EXTERNAL.some((d) => id.startsWith(d + '/')),
+      external: (id) => EXTERNAL.includes(id) || EXTERNAL.some((d) => id.startsWith(d + '/')),
     },
   },
 })

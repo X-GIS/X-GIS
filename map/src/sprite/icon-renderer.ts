@@ -14,7 +14,12 @@
 // stage just converts viewport-px → NDC.
 
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
-import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '@xgis/engine'
+import {
+  wrapWebGpuPass,
+  wrapWebGpuBindGroupLayout,
+  wrapWebGpuTextureView,
+  wrapWebGpuSampler,
+} from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { IconDraper } from '../render/material/icon-material'
 import type { SpriteInfo } from './sprite-atlas-host'
@@ -56,19 +61,26 @@ export interface IconDraw {
 }
 
 export type IconAnchor =
-  | 'center' | 'top' | 'bottom' | 'left' | 'right'
-  | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+  | 'center'
+  | 'top'
+  | 'bottom'
+  | 'left'
+  | 'right'
+  | 'top-left'
+  | 'top-right'
+  | 'bottom-left'
+  | 'bottom-right'
 
 const VERTS_PER_QUAD = 6
 // Derived from the single-source ICON_FORMAT spec so the packer cannot drift
 // from the GPUVertexBufferLayout / icon `vs` @location.
 // pos.x, pos.y, uv.x, uv.y, opacity, tint.r, tint.g, tint.b, sdf
-const FLOATS_PER_VERT = ICON_FORMAT.stride / 4                      // 9
-const ICON_PX_SLOT = vertexField(ICON_FORMAT, 'pos_px').offset / 4  // 0 (x,y = 0,1)
-const ICON_UV_SLOT = vertexField(ICON_FORMAT, 'uv').offset / 4      // 2 (u,v = 2,3)
+const FLOATS_PER_VERT = ICON_FORMAT.stride / 4 // 9
+const ICON_PX_SLOT = vertexField(ICON_FORMAT, 'pos_px').offset / 4 // 0 (x,y = 0,1)
+const ICON_UV_SLOT = vertexField(ICON_FORMAT, 'uv').offset / 4 // 2 (u,v = 2,3)
 const ICON_OPACITY_SLOT = vertexField(ICON_FORMAT, 'opacity').offset / 4 // 4
-const ICON_TINT_SLOT = vertexField(ICON_FORMAT, 'tint').offset / 4  // 5 (r,g,b = 5,6,7)
-const ICON_SDF_SLOT = vertexField(ICON_FORMAT, 'sdf').offset / 4    // 8
+const ICON_TINT_SLOT = vertexField(ICON_FORMAT, 'tint').offset / 4 // 5 (r,g,b = 5,6,7)
+const ICON_SDF_SLOT = vertexField(ICON_FORMAT, 'sdf').offset / 4 // 8
 const FLOATS_PER_QUAD = VERTS_PER_QUAD * FLOATS_PER_VERT
 
 // The icon shader (px→NDC quad + SDF/raster textured fragment) is EMITTED from the
@@ -130,7 +142,9 @@ export class IconRenderer {
    *  false; flip via setBBoxDiagnostic(true) when the inspector
    *  panel actually consumes `lastVertexBBox`. */
   private bboxDiagnosticEnabled = false
-  setBBoxDiagnostic(on: boolean): void { this.bboxDiagnosticEnabled = on }
+  setBBoxDiagnostic(on: boolean): void {
+    this.bboxDiagnosticEnabled = on
+  }
   /** Bind group lazily built once the atlas texture exists, then held
    *  for the life of the renderer. `map.setSpriteUrl` only stores a
    *  URL for the not-yet-built stage — atlas hot-swap is NOT supported
@@ -149,16 +163,31 @@ export class IconRenderer {
   private ensureIconDraper(): void {
     if (this._iconDraper) return
     const vbl = toVertexBufferLayout(ICON_FORMAT)
-    const vertexBuffers = [{
-      stride: vbl.arrayStride,
-      attributes: [...vbl.attributes].map((a) => ({ location: a.shaderLocation, offset: a.offset, format: a.format as string })),
-    }]
-    this._iconDraper = new IconDraper(this.rhi, this._iconFmt, this._iconSamples, this.bgLayout, vertexBuffers)
+    const vertexBuffers = [
+      {
+        stride: vbl.arrayStride,
+        attributes: [...vbl.attributes].map((a) => ({
+          location: a.shaderLocation,
+          offset: a.offset,
+          format: a.format as string,
+        })),
+      },
+    ]
+    this._iconDraper = new IconDraper(
+      this.rhi,
+      this._iconFmt,
+      this._iconSamples,
+      this.bgLayout,
+      vertexBuffers,
+    )
   }
 
   constructor(
-    device: GPUDevice, rhi: RhiDevice, atlas: SpriteAtlasGPU,
-    presentationFormat: GPUTextureFormat, sampleCount: number = 1,
+    device: GPUDevice,
+    rhi: RhiDevice,
+    atlas: SpriteAtlasGPU,
+    presentationFormat: GPUTextureFormat,
+    sampleCount: number = 1,
   ) {
     this.rhi = rhi
     this.atlas = atlas
@@ -177,7 +206,8 @@ export class IconRenderer {
     // Uniform — UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
     this.uniformBuf = this.rhi.createBuffer({
       size: 16, // vec2 viewport + 2 floats pad
-      usage: 'uniform', writable: true,
+      usage: 'uniform',
+      writable: true,
       label: 'icon-uniform',
     })
   }
@@ -187,10 +217,18 @@ export class IconRenderer {
    *  loaded state — draws referencing not-yet-loaded sprites would
    *  produce undefined UVs. */
   setDraws(draws: IconDraw[]): void {
-    if (draws.length === 0) { this.vertexCount = 0; this.firstVertexSample = null; return }
+    if (draws.length === 0) {
+      this.vertexCount = 0
+      this.firstVertexSample = null
+      return
+    }
     const atlasSize = this.atlas.size()
     this.lastAtlasSize = { width: atlasSize.width, height: atlasSize.height }
-    if (atlasSize.width === 0) { this.vertexCount = 0; this.firstVertexSample = null; return }
+    if (atlasSize.width === 0) {
+      this.vertexCount = 0
+      this.firstVertexSample = null
+      return
+    }
 
     // iter-234 — scratch-buffer pool. Grow-but-never-shrink; the
     // capacity tracks the high-water mark of icon count over the
@@ -233,16 +271,25 @@ export class IconRenderer {
       const v1 = (d.sprite.y + d.sprite.height) / atlasSize.height
 
       // Optional rotation around the quad centre.
-      let tlx = x0, tly = y0, blx = x0, bly = y1
-      let brx = x1, bry = y1, trx = x1, try_ = y0
+      let tlx = x0,
+        tly = y0,
+        blx = x0,
+        bly = y1
+      let brx = x1,
+        bry = y1,
+        trx = x1,
+        try_ = y0
       if (rot !== 0) {
-        const cx = (x0 + x1) * 0.5, cy = (y0 + y1) * 0.5
-        const c = Math.cos(rot), s = Math.sin(rot)
+        const cx = (x0 + x1) * 0.5,
+          cy = (y0 + y1) * 0.5
+        const c = Math.cos(rot),
+          s = Math.sin(rot)
         const rotate = (x: number, y: number): [number, number] => {
-          const dx = x - cx, dy = y - cy
+          const dx = x - cx,
+            dy = y - cy
           return [cx + dx * c - dy * s, cy + dx * s + dy * c]
-        };
-        [tlx, tly] = rotate(x0, y0)
+        }
+        ;[tlx, tly] = rotate(x0, y0)
         ;[blx, bly] = rotate(x0, y1)
         ;[brx, bry] = rotate(x1, y1)
         ;[trx, try_] = rotate(x1, y0)
@@ -258,19 +305,25 @@ export class IconRenderer {
       // for them. Default white = identity (matches the prior
       // untinted behaviour byte-for-byte for raster icons).
       const t = d.tint
-      const tr = t ? t[0] : 1, tg = t ? t[1] : 1, tb = t ? t[2] : 1
+      const tr = t ? t[0] : 1,
+        tg = t ? t[1] : 1,
+        tb = t ? t[2] : 1
       const sdf = d.sprite.sdf ? 1 : 0
       // Per-vertex: pos.xy, uv.xy, opacity, tint.rgb, sdf (9 floats).
       const W = (o: number, x: number, y: number, uu: number, vv: number): void => {
-        data[o + ICON_PX_SLOT] = x; data[o + ICON_PX_SLOT + 1] = y
-        data[o + ICON_UV_SLOT] = uu; data[o + ICON_UV_SLOT + 1] = vv
+        data[o + ICON_PX_SLOT] = x
+        data[o + ICON_PX_SLOT + 1] = y
+        data[o + ICON_UV_SLOT] = uu
+        data[o + ICON_UV_SLOT + 1] = vv
         data[o + ICON_OPACITY_SLOT] = op
-        data[o + ICON_TINT_SLOT] = tr; data[o + ICON_TINT_SLOT + 1] = tg; data[o + ICON_TINT_SLOT + 2] = tb
+        data[o + ICON_TINT_SLOT] = tr
+        data[o + ICON_TINT_SLOT + 1] = tg
+        data[o + ICON_TINT_SLOT + 2] = tb
         data[o + ICON_SDF_SLOT] = sdf
       }
       // tri 1: TL, BL, BR
-      W(off +  0, tlx, tly, u0, v0)
-      W(off +  9, blx, bly, u0, v1)
+      W(off + 0, tlx, tly, u0, v0)
+      W(off + 9, blx, bly, u0, v1)
       W(off + 18, brx, bry, u1, v1)
       // tri 2: TL, BR, TR
       W(off + 27, tlx, tly, u0, v0)
@@ -285,17 +338,19 @@ export class IconRenderer {
     // wrote is `[0, need * 4)`.
     const needBytes = need * 4
     // Iter 534 diagnostic — stash the FIRST vertex (TL of quad 0).
-    this.firstVertexSample = need >= 5
-      ? [data[0]!, data[1]!, data[2]!, data[3]!, data[4]!]
-      : null
+    this.firstVertexSample = need >= 5 ? [data[0]!, data[1]!, data[2]!, data[3]!, data[4]!] : null
     // Iter 537 — bbox over all written vertex positions. iter-234
     // gates the O(vertexCount) loop behind `bboxDiagnosticEnabled`
     // (default off) — runtime perf doesn't pay for an unread
     // diagnostic. Inspector panel flips the flag on when shown.
     if (this.bboxDiagnosticEnabled && need >= 2) {
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+      let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity
       for (let i = 0; i < need; i += FLOATS_PER_VERT) {
-        const x = data[i]!, y = data[i + 1]!
+        const x = data[i]!,
+          y = data[i + 1]!
         if (x < minX) minX = x
         if (x > maxX) maxX = x
         if (y < minY) minY = y
@@ -321,7 +376,12 @@ export class IconRenderer {
       if (this.vertexBuf !== null) this.rhi.destroyBuffer(this.vertexBuf)
       const size = Math.max(1024, grown)
       // Vertex — VERTEX|COPY_DST, byte-identical via bufUsage('vertex', writable:true).
-      this.vertexBuf = this.rhi.createBuffer({ size, usage: 'vertex', writable: true, label: 'icon-vertex' })
+      this.vertexBuf = this.rhi.createBuffer({
+        size,
+        usage: 'vertex',
+        writable: true,
+        label: 'icon-vertex',
+      })
       this.vertexBufCapacityBytes = size
     }
     // iter-234 — writeBuffer only the filled prefix (`need` floats = `needBytes`
@@ -353,7 +413,8 @@ export class IconRenderer {
     // frame is dwarfed by the vertex scratch, but eliminating it
     // is free + completes the no-per-frame-alloc invariant.
     const u = this.uniformScratch
-    u[0] = viewport.width; u[1] = viewport.height
+    u[0] = viewport.width
+    u[1] = viewport.height
     this.rhi.writeBuffer(this.uniformBuf, 0, u.buffer)
     // Iter 538 — capture for the diagnostic.
     this.lastDrawViewport = { width: viewport.width, height: viewport.height }
@@ -361,7 +422,11 @@ export class IconRenderer {
     // path. (The raw kill-switch branch + the standalone native pipeline were
     // deleted in the §4 seam migration.)
     this.ensureIconDraper()
-    this._iconDraper!.draw(wrapWebGpuPass(pass), { bindGroup: this.bindGroup, vertexBuf: this.vertexBuf, vertexCount: this.vertexCount })
+    this._iconDraper!.draw(wrapWebGpuPass(pass), {
+      bindGroup: this.bindGroup,
+      vertexBuf: this.vertexBuf,
+      vertexCount: this.vertexCount,
+    })
   }
 
   destroy(): void {
@@ -373,14 +438,23 @@ export class IconRenderer {
 
 function anchorOffset(anchor: IconAnchor, w: number, h: number): [number, number] {
   switch (anchor) {
-    case 'center':       return [-w * 0.5, -h * 0.5]
-    case 'top':          return [-w * 0.5, 0]
-    case 'bottom':       return [-w * 0.5, -h]
-    case 'left':         return [0, -h * 0.5]
-    case 'right':        return [-w, -h * 0.5]
-    case 'top-left':     return [0, 0]
-    case 'top-right':    return [-w, 0]
-    case 'bottom-left':  return [0, -h]
-    case 'bottom-right': return [-w, -h]
+    case 'center':
+      return [-w * 0.5, -h * 0.5]
+    case 'top':
+      return [-w * 0.5, 0]
+    case 'bottom':
+      return [-w * 0.5, -h]
+    case 'left':
+      return [0, -h * 0.5]
+    case 'right':
+      return [-w, -h * 0.5]
+    case 'top-left':
+      return [0, 0]
+    case 'top-right':
+      return [-w, 0]
+    case 'bottom-left':
+      return [0, -h]
+    case 'bottom-right':
+      return [-w, -h]
   }
 }

@@ -13,7 +13,12 @@ import { describe, expect, it } from 'vitest'
 import { emitModule } from '@xgis/shader-dsl' // compiler returns IR; emit WGSL in-test (ruling i)
 import { emitCommands } from '../ir/emit-commands'
 import type {
-  ColorValue, DataExpr, RenderNode, Scene, SizeValue, StrokeValue,
+  ColorValue,
+  DataExpr,
+  RenderNode,
+  Scene,
+  SizeValue,
+  StrokeValue,
 } from '../ir/render-node'
 import type { PropertyShape, RGBA } from '../ir/property-types'
 import { nodeToWgslString } from '../codegen/node-to-wgsl'
@@ -33,7 +38,7 @@ function matchExpr(field: string, arms: { pattern: string; hex: string }[]): Dat
       args: [fieldAccess(field)],
       matchBlock: {
         kind: 'MatchBlock',
-        arms: arms.map(a => ({
+        arms: arms.map((a) => ({
           pattern: a.pattern,
           value: { kind: 'ColorLiteral' as const, value: a.hex },
         })),
@@ -44,7 +49,9 @@ function matchExpr(field: string, arms: { pattern: string; hex: string }[]): Dat
 
 function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
   return {
-    name: 'a', sourceRef: 's', zOrder: 0,
+    name: 'a',
+    sourceRef: 's',
+    zOrder: 0,
     fill: { kind: 'none' },
     stroke: {
       color: { kind: 'none' },
@@ -54,8 +61,12 @@ function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
     size: { kind: 'none' } as SizeValue,
     extrude: { kind: 'none' } as never,
     extrudeBase: { kind: 'none' } as never,
-    projection: 'mercator', visible: true, pointerEvents: 'auto',
-    filter: null, geometry: null, billboard: true,
+    projection: 'mercator',
+    visible: true,
+    pointerEvents: 'auto',
+    filter: null,
+    geometry: null,
+    billboard: true,
     shape: { kind: 'named', name: 'circle' } as never,
     ...overrides,
   }
@@ -67,9 +78,7 @@ function makeScene(nodes: RenderNode[]): Scene {
 
 describe('emitCommands — computePlan emission', () => {
   it('all-constant scene → computePlan field omitted', () => {
-    const scene = makeScene([
-      makeNode({ fill: { kind: 'constant', rgba: RED } }),
-    ])
+    const scene = makeScene([makeNode({ fill: { kind: 'constant', rgba: RED } })])
     const cmds = emitCommands(scene)
     expect(cmds.computePlan).toBeUndefined()
   })
@@ -80,9 +89,9 @@ describe('emitCommands — computePlan emission', () => {
         fill: {
           kind: 'data-driven',
           expr: matchExpr('class', [
-            { pattern: 'school',   hex: '#f0e8f8' },
+            { pattern: 'school', hex: '#f0e8f8' },
             { pattern: 'hospital', hex: '#f5deb3' },
-            { pattern: '_',        hex: '#888888' },
+            { pattern: '_', hex: '#888888' },
           ]),
         },
       }),
@@ -115,16 +124,16 @@ describe('emitCommands — computePlan emission', () => {
 
   it('multi-show scene: only data-driven shows appear in plan with correct indices', () => {
     const scene = makeScene([
-      makeNode({ fill: { kind: 'constant', rgba: RED } }),  // index 0
+      makeNode({ fill: { kind: 'constant', rgba: RED } }), // index 0
       makeNode({
         fill: {
           kind: 'data-driven',
           expr: matchExpr('kind', [
             { pattern: 'motorway', hex: '#ffaa00' },
-            { pattern: '_',        hex: '#888888' },
+            { pattern: '_', hex: '#888888' },
           ]),
         },
-      }),                                                    // index 1
+      }), // index 1
     ])
     const cmds = emitCommands(scene)
     expect(cmds.computePlan!.length).toBe(1)
@@ -137,7 +146,10 @@ describe('emitCommands — computePlan emission', () => {
       makeNode({
         fill: {
           kind: 'zoom-interpolated',
-          stops: [{ zoom: 0, value: RED }, { zoom: 20, value: BLUE }],
+          stops: [
+            { zoom: 0, value: RED },
+            { zoom: 20, value: BLUE },
+          ],
         } as ColorValue,
       }),
     ])
@@ -193,7 +205,9 @@ describe('emitCommands — computePlan emission', () => {
     const variant = cmds.shows[0]!.shaderVariant!
     expect(variant.computeBindings).toBeDefined()
     expect(variant.computeBindings!.length).toBe(1)
-    expect(variant.fillExpr ? nodeToWgslString(variant.fillExpr) : '').toContain('unpack4x8unorm(compute_out_fill')
+    expect(variant.fillExpr ? nodeToWgslString(variant.fillExpr) : '').toContain(
+      'unpack4x8unorm(compute_out_fill',
+    )
     // Default base binding = 16 (avoids existing slot collisions).
     expect(variant.computeBindings![0]!.binding).toBe(16)
   })
@@ -218,14 +232,14 @@ describe('emitCommands — computePlan emission', () => {
     const variant = cmds.shows[0]!.shaderVariant!
     expect(variant.computeBindings![0]!.bindGroup).toBe(3)
     expect(variant.computeBindings![0]!.binding).toBe(7)
-    expect(variant.preamble.bindings).toEqual(expect.arrayContaining([
-      expect.objectContaining({ group: 3, binding: 7 }),
-    ]))
+    expect(variant.preamble.bindings).toEqual(
+      expect.arrayContaining([expect.objectContaining({ group: 3, binding: 7 })]),
+    )
   })
 
   it('enableComputePath ON but no entry for this show: variant remains the legacy reference', () => {
     const scene = makeScene([
-      makeNode({ fill: { kind: 'constant', rgba: RED } }),  // constant — no compute
+      makeNode({ fill: { kind: 'constant', rgba: RED } }), // constant — no compute
       makeNode({
         fill: {
           kind: 'data-driven',

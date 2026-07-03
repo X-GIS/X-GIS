@@ -16,20 +16,27 @@ test('XGISLayer .style mutates show + reset restores defaults', async ({ page })
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(800)
 
   const result = await page.evaluate(() => {
-    const m = (window as { __xgisMap?: { getLayer(name: string): unknown; getLayers(): unknown[] } }).__xgisMap
+    const m = (
+      window as { __xgisMap?: { getLayer(name: string): unknown; getLayers(): unknown[] } }
+    ).__xgisMap
     if (!m) return { error: 'no map' }
 
     const fill = m.getLayer('fill') as null | {
       name: string
       id: number
       style: {
-        opacity: number; fill: string | null; stroke: string | null
-        strokeWidth: number; visible: boolean; pointerEvents: 'auto' | 'none'
+        opacity: number
+        fill: string | null
+        stroke: string | null
+        strokeWidth: number
+        visible: boolean
+        pointerEvents: 'auto' | 'none'
       }
       addEventListener: (t: string, f: () => void) => void
       hasListeners?: (t: string) => boolean
@@ -61,8 +68,11 @@ test('XGISLayer .style mutates show + reset restores defaults', async ({ page })
 
     // pointerEvents accepts 'none' / 'auto' and rejects bad values.
     let bad: string | null = null
-    try { (fill.style as { pointerEvents: string }).pointerEvents = 'banana' }
-    catch (e) { bad = (e as Error).message }
+    try {
+      ;(fill.style as { pointerEvents: string }).pointerEvents = 'banana'
+    } catch (e) {
+      bad = (e as Error).message
+    }
     fill.style.pointerEvents = 'none'
     const peNone = fill.style.pointerEvents
     fill.style.pointerEvents = 'auto'

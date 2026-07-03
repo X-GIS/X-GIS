@@ -54,7 +54,7 @@ export const BindTier = {
   Feature: 3,
 } as const
 
-export type BindTierValue = typeof BindTier[keyof typeof BindTier]
+export type BindTierValue = (typeof BindTier)[keyof typeof BindTier]
 
 /** Lightweight descriptor for one binding slot. The visibility +
  *  resourceType fields map onto WebGPU's `GPUBindGroupLayoutEntry`
@@ -75,7 +75,7 @@ export interface TierSlot {
    *  texture{} / sampler{} field on the WebGPU layout entry. */
   resourceType:
     | 'uniform'
-    | 'uniform-dynamic'         // hasDynamicOffset = true
+    | 'uniform-dynamic' // hasDynamicOffset = true
     | 'storage-readonly'
     | 'texture-float-2d'
     | 'texture-uint-2d'
@@ -98,9 +98,7 @@ export interface PlannedTiers {
   hasTier: Map<BindTierValue, boolean>
 }
 
-function resourceFieldFor(
-  type: TierSlot['resourceType'],
-): Partial<GPUBindGroupLayoutEntry> {
+function resourceFieldFor(type: TierSlot['resourceType']): Partial<GPUBindGroupLayoutEntry> {
   switch (type) {
     case 'uniform':
       return { buffer: { type: 'uniform' } }
@@ -127,7 +125,7 @@ function resourceFieldFor(
 export function planTierLayout(slots: readonly TierSlot[]): PlannedTiers {
   const entries = new Map<BindTierValue, GPUBindGroupLayoutEntry[]>()
   const hasTier = new Map<BindTierValue, boolean>()
-  const seen = new Map<string, string>()  // "tier:binding" → label
+  const seen = new Map<string, string>() // "tier:binding" → label
   for (const t of Object.values(BindTier)) {
     entries.set(t as BindTierValue, [])
     hasTier.set(t as BindTierValue, false)
@@ -137,10 +135,10 @@ export function planTierLayout(slots: readonly TierSlot[]): PlannedTiers {
     const prior = seen.get(key)
     if (prior !== undefined) {
       throw new Error(
-        `[bind-tiers] tier ${slot.tier} @binding(${slot.binding}) collision: `
-        + `"${prior}" vs "${slot.label ?? '<unlabeled>'}". `
-        + `Each tier owns a distinct binding space; if these slots are `
-        + `meant to coexist, move one to a different tier.`,
+        `[bind-tiers] tier ${slot.tier} @binding(${slot.binding}) collision: ` +
+          `"${prior}" vs "${slot.label ?? '<unlabeled>'}". ` +
+          `Each tier owns a distinct binding space; if these slots are ` +
+          `meant to coexist, move one to a different tier.`,
       )
     }
     seen.set(key, slot.label ?? '<unlabeled>')
@@ -222,7 +220,7 @@ export class BindTierRegistry {
    *  empty tiers). Wraps `tierLayoutOrder` with the registry's own
    *  `getLayout` so callers don't have to thread a resolver. */
   pipelineLayoutOrder(): GPUBindGroupLayout[] {
-    return tierLayoutOrder(this.planned, t => this.getLayout(t)!)
+    return tierLayoutOrder(this.planned, (t) => this.getLayout(t)!)
   }
 
   /** Read-only access to the underlying plan — useful for tests +

@@ -34,7 +34,10 @@ describe('diagnose / formatReport', () => {
   })
 
   it('formatReport renders a code + severity + footer; empty report is "no diagnostics"', () => {
-    const clean = diagnose(module({ funcs: [fn('ok', { x: f32T }, f32T, ({ x }) => x.add(f32(1)))] }), { rules: 'core' })
+    const clean = diagnose(
+      module({ funcs: [fn('ok', { x: f32T }, f32T, ({ x }) => x.add(f32(1)))] }),
+      { rules: 'core' },
+    )
     expect(formatReport(clean)).toBe('no diagnostics')
 
     const m = module({ funcs: [fn('cs', {}, () => {}, { stage: 'compute' })] })

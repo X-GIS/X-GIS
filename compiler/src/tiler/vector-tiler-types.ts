@@ -30,8 +30,8 @@ export interface CompiledTile {
   z: number
   x: number
   y: number
-  tileWest: number   // tile origin longitude (f64 precision in JS)
-  tileSouth: number  // tile origin latitude (f64 precision in JS)
+  tileWest: number // tile origin longitude (f64 precision in JS)
+  tileSouth: number // tile origin latitude (f64 precision in JS)
   /** Polygon fill vertices in the quantized ECEF layout (Phase 2 PR 2f):
    *  stride 24 bytes = uint16×6 position (32-bit fixed point per axis) +
    *  f32 fid + f32 abs_lon + f32 abs_lat. Backed by a Float32Array view
@@ -81,9 +81,12 @@ export interface GeometryPart {
   type: 'polygon' | 'line' | 'point'
   rings?: number[][][]
   coords?: number[][]
-  point?: number[]           // [lon, lat] for Point geometry
+  point?: number[] // [lon, lat] for Point geometry
   featureIndex: number
-  minLon: number; minLat: number; maxLon: number; maxLat: number
+  minLon: number
+  minLat: number
+  maxLon: number
+  maxLat: number
 }
 
 /** Resolver mapping a feature + its index to a stable u32 id used as
@@ -97,7 +100,11 @@ export interface TilerOptions {
   minZoom?: number
   maxZoom?: number
   /** Called after each zoom level is compiled — enables progressive rendering */
-  onLevel?: (level: TileLevel, bounds: [number, number, number, number], propertyTable: PropertyTable) => void
+  onLevel?: (
+    level: TileLevel,
+    bounds: [number, number, number, number],
+    propertyTable: PropertyTable,
+  ) => void
   /** If true, yield to the event loop between zoom levels (browser only) */
   async?: boolean
   /** Optional resolver for stable feature ids. Defaults to array index. */

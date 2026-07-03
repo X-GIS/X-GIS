@@ -39,7 +39,9 @@ describe('MISRA single-exit — shader static analysis', () => {
     const bad = module({
       funcs: [
         fn('bad', { x: f32T }, f32T, ({ x }, b) => {
-          b.if(x.gt(f32(0)), (c) => { c.ret(x) }) // early return, no deviation
+          b.if(x.gt(f32(0)), (c) => {
+            c.ret(x)
+          }) // early return, no deviation
           b.ret(f32(0))
         }),
       ],
@@ -52,10 +54,18 @@ describe('MISRA single-exit — shader static analysis', () => {
   it('the same fn with a documented deviation has no single-exit diagnostic', () => {
     const ok = module({
       funcs: [
-        fn('ok', { x: f32T }, f32T, ({ x }, b) => {
-          b.if(x.gt(f32(0)), (c) => { c.ret(x) })
-          b.ret(f32(0))
-        }, { allowEarlyReturn: true }),
+        fn(
+          'ok',
+          { x: f32T },
+          f32T,
+          ({ x }, b) => {
+            b.if(x.gt(f32(0)), (c) => {
+              c.ret(x)
+            })
+            b.ret(f32(0))
+          },
+          { allowEarlyReturn: true },
+        ),
       ],
     })
     expect(lintModule(ok).filter((d) => d.ruleId === 'single-exit')).toEqual([])

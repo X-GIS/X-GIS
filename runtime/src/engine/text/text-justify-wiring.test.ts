@@ -42,11 +42,23 @@ import type { TextDraw } from '@xgis/map'
 const g = globalThis as Record<string, unknown>
 g.GPUShaderStage ??= { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 }
 g.GPUBufferUsage ??= {
-  MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8, INDEX: 16,
-  VERTEX: 32, UNIFORM: 64, STORAGE: 128, INDIRECT: 256, QUERY_RESOLVE: 512,
+  MAP_READ: 1,
+  MAP_WRITE: 2,
+  COPY_SRC: 4,
+  COPY_DST: 8,
+  INDEX: 16,
+  VERTEX: 32,
+  UNIFORM: 64,
+  STORAGE: 128,
+  INDIRECT: 256,
+  QUERY_RESOLVE: 512,
 }
 g.GPUTextureUsage ??= {
-  COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8, RENDER_ATTACHMENT: 16,
+  COPY_SRC: 1,
+  COPY_DST: 2,
+  TEXTURE_BINDING: 4,
+  STORAGE_BINDING: 8,
+  RENDER_ATTACHMENT: 16,
 }
 g.GPUColorWrite ??= { RED: 1, GREEN: 2, BLUE: 4, ALPHA: 8, ALL: 15 }
 
@@ -54,16 +66,23 @@ g.GPUColorWrite ??= { RED: 1, GREEN: 2, BLUE: 4, ALPHA: 8, ALL: 15 }
 // returns the same stub; numeric-ish props return a number so the GPU
 // classes' constructors don't choke on `.size` / `.width`.
 function stubDevice(): GPUDevice {
-  const stub: unknown = new Proxy(function () { return stub }, {
-    get(_t, p) {
-      if (p === 'size') return 1 << 22
-      if (p === 'width' || p === 'height') return 4096
-      if (p === 'limits') return { maxTextureDimension2D: 8192 }
-      if (p === Symbol.toPrimitive) return () => 0
+  const stub: unknown = new Proxy(
+    function () {
       return stub
     },
-    apply() { return stub },
-  })
+    {
+      get(_t, p) {
+        if (p === 'size') return 1 << 22
+        if (p === 'width' || p === 'height') return 4096
+        if (p === 'limits') return { maxTextureDimension2D: 8192 }
+        if (p === Symbol.toPrimitive) return () => 0
+        return stub
+      },
+      apply() {
+        return stub
+      },
+    },
+  )
   return stub as GPUDevice
 }
 
@@ -73,10 +92,15 @@ function litValue(s: string): TextValue {
 
 /** Build a stage, spy on its renderer.setDraws to capture draws. */
 function makeStage() {
-  const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', { rasterizer: new MockRasterizer() })
+  const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', {
+    rasterizer: new MockRasterizer(),
+  })
   const captured: TextDraw[][] = []
-  ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws =
-    (d: TextDraw[]) => { captured.push(d) }
+  ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws = (
+    d: TextDraw[],
+  ) => {
+    captured.push(d)
+  }
   return { stage, captured }
 }
 
@@ -86,7 +110,7 @@ function makeStage() {
 //   A(0) B(1) \n(2) C(3) D(4) E(5) F(6)
 // wrap → line0 [0,2) "AB" (shorter), line1 [3,7) "CDEF" (= totalAdvance).
 const TEXT = 'AB\nCDEF'
-const CP_A = 0x41   // first glyph of line-0
+const CP_A = 0x41 // first glyph of line-0
 
 /** anchor=center + EXPLICIT justify so the 'auto' per-anchor resolution
  *  is bypassed and the asserted lineX is purely the justify branch. */
@@ -94,7 +118,7 @@ function defOf(justify: 'left' | 'center' | 'right'): LabelDef {
   return {
     text: litValue(''),
     size: 15,
-    maxWidth: 25,            // wide enough that only the hard \n breaks
+    maxWidth: 25, // wide enough that only the hard \n breaks
     font: ['Noto Sans'],
     anchor: 'center',
     justify,
@@ -110,9 +134,9 @@ function lineZeroFirstGlyphX(justify: 'left' | 'center' | 'right'): number {
   stage.addLabel(litValue(TEXT), {}, 400, 300, defOf(justify))
   stage.prepare()
   expect(captured.length, `${justify}: no setDraws`).toBe(1)
-  const draw = captured[0]!.find(d => d.glyphs.some(gl => gl.codepoint === CP_A))
+  const draw = captured[0]!.find((d) => d.glyphs.some((gl) => gl.codepoint === CP_A))
   expect(draw, `${justify}: draw missing`).toBeDefined()
-  const gi = draw!.glyphs.findIndex(gl => gl.codepoint === CP_A)
+  const gi = draw!.glyphs.findIndex((gl) => gl.codepoint === CP_A)
   const x = draw!.glyphOffsets![gi * 2]!
   expect(Number.isFinite(x), `${justify}: non-finite X (${x})`).toBe(true)
   return x

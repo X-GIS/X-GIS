@@ -1,6 +1,6 @@
 # A1 — Structure / Coupling / God-Files / SOLID
 
-**Axis verdict (5yr sustainability): 2 / 5.** The dependency *direction* is genuinely sound (acyclic at the package level, verified). Everything else is the problem: a 5,440-line renderer with a 2,054-line method, a "decomposition" that relocated code without decoupling it (proven by a real `map ↔ render-loop` import cycle), and a single-source-of-truth that the doc itself admits is only half-flipped — capability knowledge is still hand-encoded across camera/VTR.
+**Axis verdict (5yr sustainability): 2 / 5.** The dependency _direction_ is genuinely sound (acyclic at the package level, verified). Everything else is the problem: a 5,440-line renderer with a 2,054-line method, a "decomposition" that relocated code without decoupling it (proven by a real `map ↔ render-loop` import cycle), and a single-source-of-truth that the doc itself admits is only half-flipped — capability knowledge is still hand-encoded across camera/VTR.
 
 Every claim below is `file:line` verified. FACT = read in code this session. INFERENCE = reasoned from FACT, labeled.
 
@@ -8,16 +8,16 @@ Every claim below is `file:line` verified. FACT = read in code this session. INF
 
 ## 1. God-file census (exact `wc -l`, this session)
 
-| File | LOC (verified) | Doc-claimed | Biggest single method | SRP verdict |
-|------|---------------|-------------|----------------------|-------------|
-| `runtime/src/engine/render/vector-tile-renderer.ts` | **5,440** | 5,440/5,608/5,298 (drifting) | `render()` ~**2,054 LOC** (2526→4580) | catastrophic |
-| `runtime/src/engine/map.ts` | **3,431** | 3,431/2,956/2,827 | `run()` ~527 LOC (1674→2201) | catastrophic |
-| `compiler/src/ir/lower.ts` | **2,184** | 2,184 | (not opened) | known monolith |
-| `runtime/src/engine/text/text-stage.ts` | **2,040** | 2,040/1,967/1,942 | `prepare()` ~**903 LOC** (1114→2017) | severe |
-| `compiler/src/tiler/vector-tiler.ts` | **2,015** | 2,015 | (not opened) | known monolith |
-| `runtime/src/engine/render/renderer.ts` | **1,947** | 1,947 | `initPipelines()` ~482 (600→1082) | severe |
-| `runtime/src/data/tile-catalog.ts` | **1,388** | 1,388 | (not opened) | severe |
-| `runtime/src/engine/projection/camera.ts` | **1,087** | 1,087/1,210/1,051 | — | moderate |
+| File                                                | LOC (verified) | Doc-claimed                  | Biggest single method                 | SRP verdict    |
+| --------------------------------------------------- | -------------- | ---------------------------- | ------------------------------------- | -------------- |
+| `runtime/src/engine/render/vector-tile-renderer.ts` | **5,440**      | 5,440/5,608/5,298 (drifting) | `render()` ~**2,054 LOC** (2526→4580) | catastrophic   |
+| `runtime/src/engine/map.ts`                         | **3,431**      | 3,431/2,956/2,827            | `run()` ~527 LOC (1674→2201)          | catastrophic   |
+| `compiler/src/ir/lower.ts`                          | **2,184**      | 2,184                        | (not opened)                          | known monolith |
+| `runtime/src/engine/text/text-stage.ts`             | **2,040**      | 2,040/1,967/1,942            | `prepare()` ~**903 LOC** (1114→2017)  | severe         |
+| `compiler/src/tiler/vector-tiler.ts`                | **2,015**      | 2,015                        | (not opened)                          | known monolith |
+| `runtime/src/engine/render/renderer.ts`             | **1,947**      | 1,947                        | `initPipelines()` ~482 (600→1082)     | severe         |
+| `runtime/src/data/tile-catalog.ts`                  | **1,388**      | 1,388                        | (not opened)                          | severe         |
+| `runtime/src/engine/projection/camera.ts`           | **1,087**      | 1,087/1,210/1,051            | —                                     | moderate       |
 
 **The LOC numbers in the three governing docs disagree with each other and with reality** (VTR cited as 5,440, 5,608, and 5,298 across MODULES.md / sustainability-doc / its own table). FACT. INFERENCE: the docs are snapshots taken at different commits and there is no CI LOC-budget gate, so the god-files drift freely — nothing blocks growth. The sustainability doc's own Phase 5 admits this ("structure without enforcement decays").
 
@@ -74,7 +74,7 @@ The "render redesign" that supposedly extracted the frame loop did **not** break
 - `map.ts:27` → `import { RenderLoop } from './render-loop'`
 - `render-loop.ts:36` → `import { XGISMap } from './map'`
 
-This is a **bidirectional module import cycle.** `render-loop.ts:37` defines its `host` type as `Pick<XGISMap, …>` — it cannot exist without the god-object's type. The header is honest about it (`render-loop.ts:3-8`): *"This is a RELOCATION, not a decoupling… the ONLY mechanical change is `this.X` → `this.host.X`."*
+This is a **bidirectional module import cycle.** `render-loop.ts:37` defines its `host` type as `Pick<XGISMap, …>` — it cannot exist without the god-object's type. The header is honest about it (`render-loop.ts:3-8`): _"This is a RELOCATION, not a decoupling… the ONLY mechanical change is `this.X` → `this.host.X`."_
 
 **Quantified blast:** render-loop reaches **43 distinct `host.<field>` accessors** (grep), of which ~20 are private `_`-prefixed map internals (`host._needsRender`, `host._interacting`, `host._flickerLog`, `host._lastSigBearing`, `host._scratchEmittedTextNames`, …). FACT. The encapsulation boundary between "the map" and "the render loop" is fiction — they share private state through a typed view. INFERENCE: you cannot unit-test the render loop without constructing (or mocking ~43 fields of) the entire 3,431-line XGISMap.
 
@@ -82,22 +82,22 @@ This is a **bidirectional module import cycle.** `render-loop.ts:37` defines its
 
 The sustainability doc ranks this **#1 debt**. Status as of this session is more nuanced than "broken":
 
-**Genuinely good (say it once, with evidence):** the world-copy / sphere-routing predicates HAVE been flipped — `worldCopiesFor` / `enumerateWorldCopies` / `routeToSphereSelector` are now **defined in** `projections-table.ts` and `gpu-shared.ts:306-308` merely *re-exports* them. **13 files import directly from `projections-table`** (grep list incl. camera, globe, tile-select, label-pass, render-loop, shader-dsl). That slice of the flip is done and pinned by `projections-table.test.ts` + `projection-threshold-drift.test.ts`. The header (`projections-table.ts:15-21`) documents it accurately.
+**Genuinely good (say it once, with evidence):** the world-copy / sphere-routing predicates HAVE been flipped — `worldCopiesFor` / `enumerateWorldCopies` / `routeToSphereSelector` are now **defined in** `projections-table.ts` and `gpu-shared.ts:306-308` merely _re-exports_ them. **13 files import directly from `projections-table`** (grep list incl. camera, globe, tile-select, label-pass, render-loop, shader-dsl). That slice of the flip is done and pinned by `projections-table.test.ts` + `projection-threshold-drift.test.ts`. The header (`projections-table.ts:15-21`) documents it accurately.
 
-**Still inverted (the debt is not closed):** capability *predicates* are still hand-encoded as integer-literal comparisons at the call site instead of deriving from the table:
+**Still inverted (the debt is not closed):** capability _predicates_ are still hand-encoded as integer-literal comparisons at the call site instead of deriving from the table:
 
 - `camera.ts:982` and `camera.ts:1064` — `if (this.projType === 1 || this.projType === 2 || this.projType === 6)` — this is the **cylindrical/periodic family** open-coded twice in one file. There is no `isCylindricalProj(projType)` helper; the set membership lives as a literal triple. FACT.
 - `camera.ts:917` — `if (this.projType === 3 && !this.globeMode)` — the ortho z0 special-case, a magic `3`. FACT.
 - `camera.ts:733` — `if (this.projType !== 0)` — "is mercator" open-coded. FACT.
 - `vector-tile-renderer.ts:2715` — `(projType >= 1 && projType <= 6)` — "flat non-globe" as a numeric range. FACT.
 
-`camera.ts` contains **48** projType-literal/proj-knowledge hits (grep count); VTR contains **22**. INFERENCE: the header's own "Scope note (H1a)" admits the lossy capability collapses were deferred to a future "H1b (EffectiveProjection)" that has not landed — so the table is the SoT for *world-copy enumeration* but NOT yet for *isCylindrical / isFlat / isOrtho* membership. The doc's Phase-1 helpers (`isCylindricalProj/isFlatProj/needsBackfaceCull`) are **not exported** — verified by their absence from the grep of table imports. The #1 debt is ~40% closed.
+`camera.ts` contains **48** projType-literal/proj-knowledge hits (grep count); VTR contains **22**. INFERENCE: the header's own "Scope note (H1a)" admits the lossy capability collapses were deferred to a future "H1b (EffectiveProjection)" that has not landed — so the table is the SoT for _world-copy enumeration_ but NOT yet for _isCylindrical / isFlat / isOrtho_ membership. The doc's Phase-1 helpers (`isCylindricalProj/isFlatProj/needsBackfaceCull`) are **not exported** — verified by their absence from the grep of table imports. The #1 debt is ~40% closed.
 
 ---
 
 ## 4. Change blast-radius — two concrete change types
 
-**(a) Add a new projection (e.g. projType 8 = "conic"):** **37 files** match the projection-knowledge fingerprint (`projType` / `PROJECTION_NAME_TO_TYPE` / `SELECTOR_PROJ_NAMES` / `projections-table` / `setProjection` / `getViewForProjection`), grep-counted. The *ideal* is 1 (add a table row). Of those 37, the table flip removed world-copy/routing edits, but you still must hand-touch `camera.ts` (the `=== 1 || === 2 || === 6` family literals at 982/1064, plus the `=== 3`/`!== 0` cases), `vector-tile-renderer.ts:2715` (the 1..6 range), and the WGSL `shaders/projections.ts` emit. **Realistic blast: ~6–10 files of genuine logic edits, ~37 files in the dependency cone.** FACT (file count) + INFERENCE (logic subset).
+**(a) Add a new projection (e.g. projType 8 = "conic"):** **37 files** match the projection-knowledge fingerprint (`projType` / `PROJECTION_NAME_TO_TYPE` / `SELECTOR_PROJ_NAMES` / `projections-table` / `setProjection` / `getViewForProjection`), grep-counted. The _ideal_ is 1 (add a table row). Of those 37, the table flip removed world-copy/routing edits, but you still must hand-touch `camera.ts` (the `=== 1 || === 2 || === 6` family literals at 982/1064, plus the `=== 3`/`!== 0` cases), `vector-tile-renderer.ts:2715` (the 1..6 range), and the WGSL `shaders/projections.ts` emit. **Realistic blast: ~6–10 files of genuine logic edits, ~37 files in the dependency cone.** FACT (file count) + INFERENCE (logic subset).
 
 **(b) Add a new layer/paint type:** **27 files** match `ShowCommand` / `renderer-types` / `classifyVectorTileShows` / `LayerDrawPhase`. The sustainability doc confirms the root cause: `ShowCommand` carries **untyped flat fields** and the renderer "infers type by field presence" — there is no `LayerType` enum, no paint union, no `LayerCapabilities` table (sustainability-doc line 18). INFERENCE: adding a paint type means editing the flat struct + every presence-sniffing branch across those 27 files, with no compiler-enforced exhaustiveness — the exact shape that produces silent "this layer renders wrong" bugs.
 
@@ -107,7 +107,7 @@ The sustainability doc ranks this **#1 debt**. Status as of this session is more
 
 **Package layering is acyclic and correctly directed. FACT:**
 
-- `compiler/src` imports `@xgis/runtime`: **0 times** (grep). The only mention is a comment at `node-to-wgsl.ts:20` explaining *why* the edge is forbidden ("would create a cycle"). The compiler keeps a self-contained WGSL `emit` copy to avoid the back-edge.
+- `compiler/src` imports `@xgis/runtime`: **0 times** (grep). The only mention is a comment at `node-to-wgsl.ts:20` explaining _why_ the edge is forbidden ("would create a cycle"). The compiler keeps a self-contained WGSL `emit` copy to avoid the back-edge.
 - `runtime/src` imports `@xgis/compiler`: **52 non-test files** (grep). One-directional `runtime → compiler`.
 - `@xgis/shared` (ecef.ts) is a true leaf imported by both — the shared-kernel pattern is correctly applied.
 

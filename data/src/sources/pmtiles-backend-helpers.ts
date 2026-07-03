@@ -4,10 +4,7 @@
 // effects beyond reading the environment). Behaviour-preserving
 // structural split only; no logic or symbol renames.
 
-import {
-  evaluate, makeEvalProps,
-  type GeoJSONFeature,
-} from '@xgis/compiler'
+import { evaluate, makeEvalProps, type GeoJSONFeature } from '@xgis/compiler'
 import { evalExtrudeExpr } from '../eval/extrude-eval'
 
 /** Same height extractor as the worker (mvt-worker.ts). The inline
@@ -56,12 +53,15 @@ export function extractFeatureWidths(
     // Per-feature throw isolation — mirror of applyFilter (566ab36).
     let v: unknown
     try {
-      v = evaluate(expr as never, makeEvalProps({
-        props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
-        cameraZoom: tileZoom,
-        geometryType: f.geometry?.type,
-        featureId: (f as { id?: string | number }).id,
-      }))
+      v = evaluate(
+        expr as never,
+        makeEvalProps({
+          props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
+          cameraZoom: tileZoom,
+          geometryType: f.geometry?.type,
+          featureId: (f as { id?: string | number }).id,
+        }),
+      )
     } catch {
       continue
     }
@@ -86,17 +86,23 @@ export function extractFeatureColors(
     // Per-feature throw isolation — mirror of applyFilter (566ab36).
     let v: unknown
     try {
-      v = evaluate(expr as never, makeEvalProps({
-        props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
-        cameraZoom: tileZoom,
-        geometryType: f.geometry?.type,
-        featureId: (f as { id?: string | number }).id,
-      }))
+      v = evaluate(
+        expr as never,
+        makeEvalProps({
+          props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
+          cameraZoom: tileZoom,
+          geometryType: f.geometry?.type,
+          featureId: (f as { id?: string | number }).id,
+        }),
+      )
     } catch {
       continue
     }
-    if (typeof v === 'string' && v.startsWith('#')
-        && (v.length === 4 || v.length === 5 || v.length === 7 || v.length === 9)) {
+    if (
+      typeof v === 'string' &&
+      v.startsWith('#') &&
+      (v.length === 4 || v.length === 5 || v.length === 7 || v.length === 9)
+    ) {
       // Accept all four CSS hex forms. Mirror of the mvt-worker fix —
       // short forms previously fell through the length gate and the
       // per-feature colour baking emitted nothing.
@@ -186,14 +192,16 @@ export function tileSizeMerc(z: number, y: number): { widthMerc: number; heightM
   }
   const latNorth = yToLat(y)
   const latSouth = yToLat(y + 1)
-  const myNorth = Math.log(Math.tan(Math.PI / 4 + clamp(latNorth) * DEG2RAD / 2)) * R
-  const mySouth = Math.log(Math.tan(Math.PI / 4 + clamp(latSouth) * DEG2RAD / 2)) * R
+  const myNorth = Math.log(Math.tan(Math.PI / 4 + (clamp(latNorth) * DEG2RAD) / 2)) * R
+  const mySouth = Math.log(Math.tan(Math.PI / 4 + (clamp(latSouth) * DEG2RAD) / 2)) * R
   return { widthMerc, heightMerc: myNorth - mySouth }
 }
 
 /** True if Web-Mercator tile (z, x, y) overlaps the given lon/lat bounds. */
 export function tileIntersectsBounds(
-  z: number, x: number, y: number,
+  z: number,
+  x: number,
+  y: number,
   bounds: [number, number, number, number],
 ): boolean {
   const n = 1 << z
@@ -205,6 +213,10 @@ export function tileIntersectsBounds(
   }
   const tileNorth = yToLat(y)
   const tileSouth = yToLat(y + 1)
-  return !(tileEast < bounds[0] || tileWest > bounds[2] ||
-           tileNorth < bounds[1] || tileSouth > bounds[3])
+  return !(
+    tileEast < bounds[0] ||
+    tileWest > bounds[2] ||
+    tileNorth < bounds[1] ||
+    tileSouth > bounds[3]
+  )
 }

@@ -3,92 +3,290 @@
 
 const PALETTE: Record<string, Record<number, string>> = {
   slate: {
-    50: '#f8fafc', 100: '#f1f5f9', 200: '#e2e8f0', 300: '#cbd5e1', 400: '#94a3b8',
-    500: '#64748b', 600: '#475569', 700: '#334155', 800: '#1e293b', 900: '#0f172a', 950: '#020617',
+    50: '#f8fafc',
+    100: '#f1f5f9',
+    200: '#e2e8f0',
+    300: '#cbd5e1',
+    400: '#94a3b8',
+    500: '#64748b',
+    600: '#475569',
+    700: '#334155',
+    800: '#1e293b',
+    900: '#0f172a',
+    950: '#020617',
   },
   gray: {
-    50: '#f9fafb', 100: '#f3f4f6', 200: '#e5e7eb', 300: '#d1d5db', 400: '#9ca3af',
-    500: '#6b7280', 600: '#4b5563', 700: '#374151', 800: '#1f2937', 900: '#111827', 950: '#030712',
+    50: '#f9fafb',
+    100: '#f3f4f6',
+    200: '#e5e7eb',
+    300: '#d1d5db',
+    400: '#9ca3af',
+    500: '#6b7280',
+    600: '#4b5563',
+    700: '#374151',
+    800: '#1f2937',
+    900: '#111827',
+    950: '#030712',
   },
   zinc: {
-    50: '#fafafa', 100: '#f4f4f5', 200: '#e4e4e7', 300: '#d4d4d8', 400: '#a1a1aa',
-    500: '#71717a', 600: '#52525b', 700: '#3f3f46', 800: '#27272a', 900: '#18181b', 950: '#09090b',
+    50: '#fafafa',
+    100: '#f4f4f5',
+    200: '#e4e4e7',
+    300: '#d4d4d8',
+    400: '#a1a1aa',
+    500: '#71717a',
+    600: '#52525b',
+    700: '#3f3f46',
+    800: '#27272a',
+    900: '#18181b',
+    950: '#09090b',
   },
   neutral: {
-    50: '#fafafa', 100: '#f5f5f5', 200: '#e5e5e5', 300: '#d4d4d4', 400: '#a3a3a3',
-    500: '#737373', 600: '#525252', 700: '#404040', 800: '#262626', 900: '#171717', 950: '#0a0a0a',
+    50: '#fafafa',
+    100: '#f5f5f5',
+    200: '#e5e5e5',
+    300: '#d4d4d4',
+    400: '#a3a3a3',
+    500: '#737373',
+    600: '#525252',
+    700: '#404040',
+    800: '#262626',
+    900: '#171717',
+    950: '#0a0a0a',
   },
   stone: {
-    50: '#fafaf9', 100: '#f5f5f4', 200: '#e7e5e4', 300: '#d6d3d1', 400: '#a8a29e',
-    500: '#78716c', 600: '#57534e', 700: '#44403c', 800: '#292524', 900: '#1c1917', 950: '#0c0a09',
+    50: '#fafaf9',
+    100: '#f5f5f4',
+    200: '#e7e5e4',
+    300: '#d6d3d1',
+    400: '#a8a29e',
+    500: '#78716c',
+    600: '#57534e',
+    700: '#44403c',
+    800: '#292524',
+    900: '#1c1917',
+    950: '#0c0a09',
   },
   red: {
-    50: '#fef2f2', 100: '#fee2e2', 200: '#fecaca', 300: '#fca5a5', 400: '#f87171',
-    500: '#ef4444', 600: '#dc2626', 700: '#b91c1c', 800: '#991b1b', 900: '#7f1d1d', 950: '#450a0a',
+    50: '#fef2f2',
+    100: '#fee2e2',
+    200: '#fecaca',
+    300: '#fca5a5',
+    400: '#f87171',
+    500: '#ef4444',
+    600: '#dc2626',
+    700: '#b91c1c',
+    800: '#991b1b',
+    900: '#7f1d1d',
+    950: '#450a0a',
   },
   orange: {
-    50: '#fff7ed', 100: '#ffedd5', 200: '#fed7aa', 300: '#fdba74', 400: '#fb923c',
-    500: '#f97316', 600: '#ea580c', 700: '#c2410c', 800: '#9a3412', 900: '#7c2d12', 950: '#431407',
+    50: '#fff7ed',
+    100: '#ffedd5',
+    200: '#fed7aa',
+    300: '#fdba74',
+    400: '#fb923c',
+    500: '#f97316',
+    600: '#ea580c',
+    700: '#c2410c',
+    800: '#9a3412',
+    900: '#7c2d12',
+    950: '#431407',
   },
   amber: {
-    50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a', 300: '#fcd34d', 400: '#fbbf24',
-    500: '#f59e0b', 600: '#d97706', 700: '#b45309', 800: '#92400e', 900: '#78350f', 950: '#451a03',
+    50: '#fffbeb',
+    100: '#fef3c7',
+    200: '#fde68a',
+    300: '#fcd34d',
+    400: '#fbbf24',
+    500: '#f59e0b',
+    600: '#d97706',
+    700: '#b45309',
+    800: '#92400e',
+    900: '#78350f',
+    950: '#451a03',
   },
   yellow: {
-    50: '#fefce8', 100: '#fef9c3', 200: '#fef08a', 300: '#fde047', 400: '#facc15',
-    500: '#eab308', 600: '#ca8a04', 700: '#a16207', 800: '#854d0e', 900: '#713f12', 950: '#422006',
+    50: '#fefce8',
+    100: '#fef9c3',
+    200: '#fef08a',
+    300: '#fde047',
+    400: '#facc15',
+    500: '#eab308',
+    600: '#ca8a04',
+    700: '#a16207',
+    800: '#854d0e',
+    900: '#713f12',
+    950: '#422006',
   },
   lime: {
-    50: '#f7fee7', 100: '#ecfccb', 200: '#d9f99d', 300: '#bef264', 400: '#a3e635',
-    500: '#84cc16', 600: '#65a30d', 700: '#4d7c0f', 800: '#3f6212', 900: '#365314', 950: '#1a2e05',
+    50: '#f7fee7',
+    100: '#ecfccb',
+    200: '#d9f99d',
+    300: '#bef264',
+    400: '#a3e635',
+    500: '#84cc16',
+    600: '#65a30d',
+    700: '#4d7c0f',
+    800: '#3f6212',
+    900: '#365314',
+    950: '#1a2e05',
   },
   green: {
-    50: '#f0fdf4', 100: '#dcfce7', 200: '#bbf7d0', 300: '#86efac', 400: '#4ade80',
-    500: '#22c55e', 600: '#16a34a', 700: '#15803d', 800: '#166534', 900: '#14532d', 950: '#052e16',
+    50: '#f0fdf4',
+    100: '#dcfce7',
+    200: '#bbf7d0',
+    300: '#86efac',
+    400: '#4ade80',
+    500: '#22c55e',
+    600: '#16a34a',
+    700: '#15803d',
+    800: '#166534',
+    900: '#14532d',
+    950: '#052e16',
   },
   emerald: {
-    50: '#ecfdf5', 100: '#d1fae5', 200: '#a7f3d0', 300: '#6ee7b7', 400: '#34d399',
-    500: '#10b981', 600: '#059669', 700: '#047857', 800: '#065f46', 900: '#064e3b', 950: '#022c22',
+    50: '#ecfdf5',
+    100: '#d1fae5',
+    200: '#a7f3d0',
+    300: '#6ee7b7',
+    400: '#34d399',
+    500: '#10b981',
+    600: '#059669',
+    700: '#047857',
+    800: '#065f46',
+    900: '#064e3b',
+    950: '#022c22',
   },
   teal: {
-    50: '#f0fdfa', 100: '#ccfbf1', 200: '#99f6e4', 300: '#5eead4', 400: '#2dd4bf',
-    500: '#14b8a6', 600: '#0d9488', 700: '#0f766e', 800: '#115e59', 900: '#134e4a', 950: '#042f2e',
+    50: '#f0fdfa',
+    100: '#ccfbf1',
+    200: '#99f6e4',
+    300: '#5eead4',
+    400: '#2dd4bf',
+    500: '#14b8a6',
+    600: '#0d9488',
+    700: '#0f766e',
+    800: '#115e59',
+    900: '#134e4a',
+    950: '#042f2e',
   },
   cyan: {
-    50: '#ecfeff', 100: '#cffafe', 200: '#a5f3fc', 300: '#67e8f9', 400: '#22d3ee',
-    500: '#06b6d4', 600: '#0891b2', 700: '#0e7490', 800: '#155e75', 900: '#164e63', 950: '#083344',
+    50: '#ecfeff',
+    100: '#cffafe',
+    200: '#a5f3fc',
+    300: '#67e8f9',
+    400: '#22d3ee',
+    500: '#06b6d4',
+    600: '#0891b2',
+    700: '#0e7490',
+    800: '#155e75',
+    900: '#164e63',
+    950: '#083344',
   },
   sky: {
-    50: '#f0f9ff', 100: '#e0f2fe', 200: '#bae6fd', 300: '#7dd3fc', 400: '#38bdf8',
-    500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1', 800: '#075985', 900: '#0c4a6e', 950: '#082f49',
+    50: '#f0f9ff',
+    100: '#e0f2fe',
+    200: '#bae6fd',
+    300: '#7dd3fc',
+    400: '#38bdf8',
+    500: '#0ea5e9',
+    600: '#0284c7',
+    700: '#0369a1',
+    800: '#075985',
+    900: '#0c4a6e',
+    950: '#082f49',
   },
   blue: {
-    50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd', 400: '#60a5fa',
-    500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 800: '#1e40af', 900: '#1e3a8a', 950: '#172554',
+    50: '#eff6ff',
+    100: '#dbeafe',
+    200: '#bfdbfe',
+    300: '#93c5fd',
+    400: '#60a5fa',
+    500: '#3b82f6',
+    600: '#2563eb',
+    700: '#1d4ed8',
+    800: '#1e40af',
+    900: '#1e3a8a',
+    950: '#172554',
   },
   indigo: {
-    50: '#eef2ff', 100: '#e0e7ff', 200: '#c7d2fe', 300: '#a5b4fc', 400: '#818cf8',
-    500: '#6366f1', 600: '#4f46e5', 700: '#4338ca', 800: '#3730a3', 900: '#312e81', 950: '#1e1b4b',
+    50: '#eef2ff',
+    100: '#e0e7ff',
+    200: '#c7d2fe',
+    300: '#a5b4fc',
+    400: '#818cf8',
+    500: '#6366f1',
+    600: '#4f46e5',
+    700: '#4338ca',
+    800: '#3730a3',
+    900: '#312e81',
+    950: '#1e1b4b',
   },
   violet: {
-    50: '#f5f3ff', 100: '#ede9fe', 200: '#ddd6fe', 300: '#c4b5fd', 400: '#a78bfa',
-    500: '#8b5cf6', 600: '#7c3aed', 700: '#6d28d9', 800: '#5b21b6', 900: '#4c1d95', 950: '#2e1065',
+    50: '#f5f3ff',
+    100: '#ede9fe',
+    200: '#ddd6fe',
+    300: '#c4b5fd',
+    400: '#a78bfa',
+    500: '#8b5cf6',
+    600: '#7c3aed',
+    700: '#6d28d9',
+    800: '#5b21b6',
+    900: '#4c1d95',
+    950: '#2e1065',
   },
   purple: {
-    50: '#faf5ff', 100: '#f3e8ff', 200: '#e9d5ff', 300: '#d8b4fe', 400: '#c084fc',
-    500: '#a855f7', 600: '#9333ea', 700: '#7e22ce', 800: '#6b21a8', 900: '#581c87', 950: '#3b0764',
+    50: '#faf5ff',
+    100: '#f3e8ff',
+    200: '#e9d5ff',
+    300: '#d8b4fe',
+    400: '#c084fc',
+    500: '#a855f7',
+    600: '#9333ea',
+    700: '#7e22ce',
+    800: '#6b21a8',
+    900: '#581c87',
+    950: '#3b0764',
   },
   fuchsia: {
-    50: '#fdf4ff', 100: '#fae8ff', 200: '#f5d0fe', 300: '#f0abfc', 400: '#e879f9',
-    500: '#d946ef', 600: '#c026d3', 700: '#a21caf', 800: '#86198f', 900: '#701a75', 950: '#4a044e',
+    50: '#fdf4ff',
+    100: '#fae8ff',
+    200: '#f5d0fe',
+    300: '#f0abfc',
+    400: '#e879f9',
+    500: '#d946ef',
+    600: '#c026d3',
+    700: '#a21caf',
+    800: '#86198f',
+    900: '#701a75',
+    950: '#4a044e',
   },
   pink: {
-    50: '#fdf2f8', 100: '#fce7f3', 200: '#fbcfe8', 300: '#f9a8d4', 400: '#f472b6',
-    500: '#ec4899', 600: '#db2777', 700: '#be185d', 800: '#9d174d', 900: '#831843', 950: '#500724',
+    50: '#fdf2f8',
+    100: '#fce7f3',
+    200: '#fbcfe8',
+    300: '#f9a8d4',
+    400: '#f472b6',
+    500: '#ec4899',
+    600: '#db2777',
+    700: '#be185d',
+    800: '#9d174d',
+    900: '#831843',
+    950: '#500724',
   },
   rose: {
-    50: '#fff1f2', 100: '#ffe4e6', 200: '#fecdd3', 300: '#fda4af', 400: '#fb7185',
-    500: '#f43f5e', 600: '#e11d48', 700: '#be123c', 800: '#9f1239', 900: '#881337', 950: '#4c0519',
+    50: '#fff1f2',
+    100: '#ffe4e6',
+    200: '#fecdd3',
+    300: '#fda4af',
+    400: '#fb7185',
+    500: '#f43f5e',
+    600: '#e11d48',
+    700: '#be123c',
+    800: '#9f1239',
+    900: '#881337',
+    950: '#4c0519',
   },
 }
 
@@ -110,165 +308,165 @@ const PALETTE: Record<string, Record<number, string>> = {
 // ─────────────────────────────────────────────────────────────────
 const NAMED_COLORS: Record<string, string> = {
   // Special
-  transparent:          '#00000000',
+  transparent: '#00000000',
   // Greyscale + neutrals
-  white:                '#ffffff',
-  black:                '#000000',
-  silver:               '#c0c0c0',
-  gray:                 '#808080',
-  grey:                 '#808080',
-  dimgray:              '#696969',
-  dimgrey:              '#696969',
-  lightgray:            '#d3d3d3',
-  lightgrey:            '#d3d3d3',
-  darkgray:             '#a9a9a9',
-  darkgrey:             '#a9a9a9',
-  slategray:            '#708090',
-  slategrey:            '#708090',
-  lightslategray:       '#778899',
-  lightslategrey:       '#778899',
-  darkslategray:        '#2f4f4f',
-  darkslategrey:        '#2f4f4f',
-  gainsboro:            '#dcdcdc',
+  white: '#ffffff',
+  black: '#000000',
+  silver: '#c0c0c0',
+  gray: '#808080',
+  grey: '#808080',
+  dimgray: '#696969',
+  dimgrey: '#696969',
+  lightgray: '#d3d3d3',
+  lightgrey: '#d3d3d3',
+  darkgray: '#a9a9a9',
+  darkgrey: '#a9a9a9',
+  slategray: '#708090',
+  slategrey: '#708090',
+  lightslategray: '#778899',
+  lightslategrey: '#778899',
+  darkslategray: '#2f4f4f',
+  darkslategrey: '#2f4f4f',
+  gainsboro: '#dcdcdc',
   // Reds + pinks
-  red:                  '#ff0000',
-  darkred:              '#8b0000',
-  firebrick:            '#b22222',
-  crimson:              '#dc143c',
-  indianred:            '#cd5c5c',
-  lightcoral:           '#f08080',
-  salmon:               '#fa8072',
-  darksalmon:           '#e9967a',
-  lightsalmon:          '#ffa07a',
-  pink:                 '#ffc0cb',
-  lightpink:            '#ffb6c1',
-  hotpink:              '#ff69b4',
-  deeppink:             '#ff1493',
-  palevioletred:        '#db7093',
-  mediumvioletred:      '#c71585',
+  red: '#ff0000',
+  darkred: '#8b0000',
+  firebrick: '#b22222',
+  crimson: '#dc143c',
+  indianred: '#cd5c5c',
+  lightcoral: '#f08080',
+  salmon: '#fa8072',
+  darksalmon: '#e9967a',
+  lightsalmon: '#ffa07a',
+  pink: '#ffc0cb',
+  lightpink: '#ffb6c1',
+  hotpink: '#ff69b4',
+  deeppink: '#ff1493',
+  palevioletred: '#db7093',
+  mediumvioletred: '#c71585',
   // Oranges + browns
-  tomato:               '#ff6347',
-  orangered:            '#ff4500',
-  coral:                '#ff7f50',
-  orange:               '#ffa500',
-  darkorange:           '#ff8c00',
-  brown:                '#a52a2a',
-  saddlebrown:          '#8b4513',
-  sienna:               '#a0522d',
-  chocolate:            '#d2691e',
-  peru:                 '#cd853f',
-  rosybrown:            '#bc8f8f',
-  sandybrown:           '#f4a460',
-  goldenrod:            '#daa520',
-  darkgoldenrod:        '#b8860b',
-  tan:                  '#d2b48c',
-  burlywood:            '#deb887',
+  tomato: '#ff6347',
+  orangered: '#ff4500',
+  coral: '#ff7f50',
+  orange: '#ffa500',
+  darkorange: '#ff8c00',
+  brown: '#a52a2a',
+  saddlebrown: '#8b4513',
+  sienna: '#a0522d',
+  chocolate: '#d2691e',
+  peru: '#cd853f',
+  rosybrown: '#bc8f8f',
+  sandybrown: '#f4a460',
+  goldenrod: '#daa520',
+  darkgoldenrod: '#b8860b',
+  tan: '#d2b48c',
+  burlywood: '#deb887',
   // Yellows
-  gold:                 '#ffd700',
-  yellow:               '#ffff00',
-  lightyellow:          '#ffffe0',
-  lemonchiffon:         '#fffacd',
+  gold: '#ffd700',
+  yellow: '#ffff00',
+  lightyellow: '#ffffe0',
+  lemonchiffon: '#fffacd',
   lightgoldenrodyellow: '#fafad2',
-  papayawhip:           '#ffefd5',
-  moccasin:             '#ffe4b5',
-  peachpuff:            '#ffdab9',
-  palegoldenrod:        '#eee8aa',
-  khaki:                '#f0e68c',
-  darkkhaki:            '#bdb76b',
+  papayawhip: '#ffefd5',
+  moccasin: '#ffe4b5',
+  peachpuff: '#ffdab9',
+  palegoldenrod: '#eee8aa',
+  khaki: '#f0e68c',
+  darkkhaki: '#bdb76b',
   // Greens
-  greenyellow:          '#adff2f',
-  chartreuse:           '#7fff00',
-  lawngreen:            '#7cfc00',
-  lime:                 '#00ff00',
-  limegreen:            '#32cd32',
-  yellowgreen:          '#9acd32',
-  olive:                '#808000',
-  darkolivegreen:       '#556b2f',
-  olivedrab:            '#6b8e23',
-  darkseagreen:         '#8fbc8f',
-  palegreen:            '#98fb98',
-  lightgreen:           '#90ee90',
-  forestgreen:          '#228b22',
-  green:                '#008000',
-  darkgreen:            '#006400',
-  mediumseagreen:       '#3cb371',
-  seagreen:             '#2e8b57',
-  springgreen:          '#00ff7f',
-  mediumspringgreen:    '#00fa9a',
-  mediumaquamarine:     '#66cdaa',
-  aquamarine:           '#7fffd4',
+  greenyellow: '#adff2f',
+  chartreuse: '#7fff00',
+  lawngreen: '#7cfc00',
+  lime: '#00ff00',
+  limegreen: '#32cd32',
+  yellowgreen: '#9acd32',
+  olive: '#808000',
+  darkolivegreen: '#556b2f',
+  olivedrab: '#6b8e23',
+  darkseagreen: '#8fbc8f',
+  palegreen: '#98fb98',
+  lightgreen: '#90ee90',
+  forestgreen: '#228b22',
+  green: '#008000',
+  darkgreen: '#006400',
+  mediumseagreen: '#3cb371',
+  seagreen: '#2e8b57',
+  springgreen: '#00ff7f',
+  mediumspringgreen: '#00fa9a',
+  mediumaquamarine: '#66cdaa',
+  aquamarine: '#7fffd4',
   // Cyans / teals
-  aqua:                 '#00ffff',
-  cyan:                 '#00ffff',
-  lightcyan:            '#e0ffff',
-  paleturquoise:        '#afeeee',
-  turquoise:            '#40e0d0',
-  mediumturquoise:      '#48d1cc',
-  darkturquoise:        '#00ced1',
-  darkcyan:             '#008b8b',
-  teal:                 '#008080',
-  cadetblue:            '#5f9ea0',
-  lightseagreen:        '#20b2aa',
+  aqua: '#00ffff',
+  cyan: '#00ffff',
+  lightcyan: '#e0ffff',
+  paleturquoise: '#afeeee',
+  turquoise: '#40e0d0',
+  mediumturquoise: '#48d1cc',
+  darkturquoise: '#00ced1',
+  darkcyan: '#008b8b',
+  teal: '#008080',
+  cadetblue: '#5f9ea0',
+  lightseagreen: '#20b2aa',
   // Blues
-  steelblue:            '#4682b4',
-  lightsteelblue:       '#b0c4de',
-  powderblue:           '#b0e0e6',
-  lightblue:            '#add8e6',
-  skyblue:              '#87ceeb',
-  lightskyblue:         '#87cefa',
-  deepskyblue:          '#00bfff',
-  dodgerblue:           '#1e90ff',
-  cornflowerblue:       '#6495ed',
-  royalblue:            '#4169e1',
-  blue:                 '#0000ff',
-  mediumblue:           '#0000cd',
-  darkblue:             '#00008b',
-  navy:                 '#000080',
-  midnightblue:         '#191970',
+  steelblue: '#4682b4',
+  lightsteelblue: '#b0c4de',
+  powderblue: '#b0e0e6',
+  lightblue: '#add8e6',
+  skyblue: '#87ceeb',
+  lightskyblue: '#87cefa',
+  deepskyblue: '#00bfff',
+  dodgerblue: '#1e90ff',
+  cornflowerblue: '#6495ed',
+  royalblue: '#4169e1',
+  blue: '#0000ff',
+  mediumblue: '#0000cd',
+  darkblue: '#00008b',
+  navy: '#000080',
+  midnightblue: '#191970',
   // Purples
-  blueviolet:           '#8a2be2',
-  indigo:               '#4b0082',
-  darkslateblue:        '#483d8b',
-  slateblue:            '#6a5acd',
-  mediumslateblue:      '#7b68ee',
-  mediumpurple:         '#9370db',
-  rebeccapurple:        '#663399',
-  purple:               '#800080',
-  darkmagenta:          '#8b008b',
-  darkviolet:           '#9400d3',
-  darkorchid:           '#9932cc',
-  mediumorchid:         '#ba55d3',
-  thistle:              '#d8bfd8',
-  plum:                 '#dda0dd',
-  violet:               '#ee82ee',
-  magenta:              '#ff00ff',
-  fuchsia:              '#ff00ff',
-  orchid:               '#da70d6',
-  maroon:               '#800000',
+  blueviolet: '#8a2be2',
+  indigo: '#4b0082',
+  darkslateblue: '#483d8b',
+  slateblue: '#6a5acd',
+  mediumslateblue: '#7b68ee',
+  mediumpurple: '#9370db',
+  rebeccapurple: '#663399',
+  purple: '#800080',
+  darkmagenta: '#8b008b',
+  darkviolet: '#9400d3',
+  darkorchid: '#9932cc',
+  mediumorchid: '#ba55d3',
+  thistle: '#d8bfd8',
+  plum: '#dda0dd',
+  violet: '#ee82ee',
+  magenta: '#ff00ff',
+  fuchsia: '#ff00ff',
+  orchid: '#da70d6',
+  maroon: '#800000',
   // Off-whites
-  ivory:                '#fffff0',
-  snow:                 '#fffafa',
-  floralwhite:          '#fffaf0',
-  ghostwhite:           '#f8f8ff',
-  seashell:             '#fff5ee',
-  oldlace:              '#fdf5e6',
-  beige:                '#f5f5dc',
-  whitesmoke:           '#f5f5f5',
-  linen:                '#faf0e6',
-  antiquewhite:         '#faebd7',
-  bisque:               '#ffe4c4',
-  blanchedalmond:       '#ffebcd',
-  wheat:                '#f5deb3',
-  cornsilk:             '#fff8dc',
-  honeydew:             '#f0fff0',
-  azure:                '#f0ffff',
-  aliceblue:            '#f0f8ff',
-  lavender:             '#e6e6fa',
-  lavenderblush:        '#fff0f5',
-  mistyrose:            '#ffe4e1',
-  mintcream:            '#f5fffa',
+  ivory: '#fffff0',
+  snow: '#fffafa',
+  floralwhite: '#fffaf0',
+  ghostwhite: '#f8f8ff',
+  seashell: '#fff5ee',
+  oldlace: '#fdf5e6',
+  beige: '#f5f5dc',
+  whitesmoke: '#f5f5f5',
+  linen: '#faf0e6',
+  antiquewhite: '#faebd7',
+  bisque: '#ffe4c4',
+  blanchedalmond: '#ffebcd',
+  wheat: '#f5deb3',
+  cornsilk: '#fff8dc',
+  honeydew: '#f0fff0',
+  azure: '#f0ffff',
+  aliceblue: '#f0f8ff',
+  lavender: '#e6e6fa',
+  lavenderblush: '#fff0f5',
+  mistyrose: '#ffe4e1',
+  mintcream: '#f5fffa',
   // Misc
-  navajowhite:          '#ffdead',
+  navajowhite: '#ffdead',
 }
 
 /**
@@ -336,7 +534,7 @@ function parseCssColorFn(input: string): string | null {
   // Accept comma OR whitespace separation; the CSS-modern alpha
   // separator is `/` (e.g. `rgb(255 0 0 / 0.5)`).
   const inner = m[2].replace(/\//g, ',')
-  const parts = inner.split(/[,\s]+/).filter(p => p.length > 0)
+  const parts = inner.split(/[,\s]+/).filter((p) => p.length > 0)
   if (parts.length < 3 || parts.length > 4) return null
 
   if (fn === 'lab' || fn === 'oklab') {
@@ -362,7 +560,7 @@ function parseCssColorFn(input: string): string | null {
     const alpha = parts.length === 4 ? parseAlpha(parts[3]) : 1
     if (alpha === null) return null
     // LCH → Lab: a = C * cos(H), b = C * sin(H)
-    const hrad = H * Math.PI / 180
+    const hrad = (H * Math.PI) / 180
     const a = C * Math.cos(hrad)
     const b = C * Math.sin(hrad)
     const [rr, gg, bb] = fn === 'oklch' ? oklabToSrgb(L, a, b) : labToSrgb(L, a, b)
@@ -535,7 +733,7 @@ function parseLabAB(p: string, _isOk: boolean): number | null {
   const v = parseFloat(p.endsWith('%') ? p.slice(0, -1) : p)
   if (!Number.isFinite(v)) return null
   // Percent: 100% maps to lab=125 or ok=0.4 per spec.
-  if (p.endsWith('%')) return _isOk ? v / 100 * 0.4 : v / 100 * 125
+  if (p.endsWith('%')) return _isOk ? (v / 100) * 0.4 : (v / 100) * 125
   return v
 }
 
@@ -549,7 +747,7 @@ function parseLchC(p: string, isOk: boolean): number | null {
   // is non-negative; the spec clamps to [0, ∞).
   const v = parseFloat(p.endsWith('%') ? p.slice(0, -1) : p)
   if (!Number.isFinite(v)) return null
-  if (p.endsWith('%')) return isOk ? v / 100 * 0.4 : v / 100 * 150
+  if (p.endsWith('%')) return isOk ? (v / 100) * 0.4 : (v / 100) * 150
   return v
 }
 
@@ -566,16 +764,20 @@ function labToSrgb(L: number, a: number, b: number): [number, number, number] {
   const yr = L > k * e ? fy ** 3 : L / k
   const zr = fz ** 3 > e ? fz ** 3 : (116 * fz - 16) / k
   // D50 white point reference
-  const Xn = 0.96422, Yn = 1.0, Zn = 0.82521
-  const X50 = xr * Xn, Y50 = yr * Yn, Z50 = zr * Zn
+  const Xn = 0.96422,
+    Yn = 1.0,
+    Zn = 0.82521
+  const X50 = xr * Xn,
+    Y50 = yr * Yn,
+    Z50 = zr * Zn
   // Bradford D50 → D65 chromatic adaptation (W3C CSS Color 4 Appendix B)
-  const X65 =  0.9555766 * X50 + -0.0230393 * Y50 +  0.0631636 * Z50
-  const Y65 = -0.0282895 * X50 +  1.0099416 * Y50 +  0.0210077 * Z50
-  const Z65 =  0.0122982 * X50 + -0.0204830 * Y50 +  1.3299098 * Z50
+  const X65 = 0.9555766 * X50 + -0.0230393 * Y50 + 0.0631636 * Z50
+  const Y65 = -0.0282895 * X50 + 1.0099416 * Y50 + 0.0210077 * Z50
+  const Z65 = 0.0122982 * X50 + -0.020483 * Y50 + 1.3299098 * Z50
   // XYZ(D65) → linear sRGB
-  const rL =  3.2404542 * X65 + -1.5371385 * Y65 + -0.4985314 * Z65
-  const gL = -0.9692660 * X65 +  1.8760108 * Y65 +  0.0415560 * Z65
-  const bL =  0.0556434 * X65 + -0.2040259 * Y65 +  1.0572252 * Z65
+  const rL = 3.2404542 * X65 + -1.5371385 * Y65 + -0.4985314 * Z65
+  const gL = -0.969266 * X65 + 1.8760108 * Y65 + 0.041556 * Z65
+  const bL = 0.0556434 * X65 + -0.2040259 * Y65 + 1.0572252 * Z65
   return [linearToSrgb(rL), linearToSrgb(gL), linearToSrgb(bL)]
 }
 
@@ -583,13 +785,13 @@ function labToSrgb(L: number, a: number, b: number): [number, number, number] {
 function oklabToSrgb(L: number, a: number, b: number): [number, number, number] {
   const l_ = L + 0.3963377774 * a + 0.2158037573 * b
   const m_ = L - 0.1055613458 * a - 0.0638541728 * b
-  const s_ = L - 0.0894841775 * a - 1.2914855480 * b
+  const s_ = L - 0.0894841775 * a - 1.291485548 * b
   const l = l_ ** 3
   const m = m_ ** 3
   const s = s_ ** 3
-  const rL =  4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+  const rL = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
   const gL = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
-  const bL = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+  const bL = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
   return [linearToSrgb(rL), linearToSrgb(gL), linearToSrgb(bL)]
 }
 
@@ -633,17 +835,21 @@ export function parseSrgbHex(hex: string): [number, number, number] | null {
 
 /** sRGB (gamma-encoded, 0..1 per channel) → CIE Lab (D50). */
 export function srgbToLab(r: number, g: number, b: number): [number, number, number] {
-  const rL = srgbToLinear(r), gL = srgbToLinear(g), bL = srgbToLinear(b)
+  const rL = srgbToLinear(r),
+    gL = srgbToLinear(g),
+    bL = srgbToLinear(b)
   // linear sRGB → XYZ(D65). Inverse of the D65 matrix in labToSrgb.
   const X65 = 0.4124564 * rL + 0.3575761 * gL + 0.1804375 * bL
-  const Y65 = 0.2126729 * rL + 0.7151522 * gL + 0.0721750 * bL
-  const Z65 = 0.0193339 * rL + 0.1191920 * gL + 0.9503041 * bL
+  const Y65 = 0.2126729 * rL + 0.7151522 * gL + 0.072175 * bL
+  const Z65 = 0.0193339 * rL + 0.119192 * gL + 0.9503041 * bL
   // D65 → D50 (inverse Bradford CAT from W3C CSS Color 4 App B).
-  const X50 =  1.0478112 * X65 +  0.0228866 * Y65 + -0.0501270 * Z65
-  const Y50 =  0.0295424 * X65 +  0.9904844 * Y65 + -0.0170491 * Z65
-  const Z50 = -0.0092345 * X65 +  0.0150436 * Y65 +  0.7521316 * Z65
+  const X50 = 1.0478112 * X65 + 0.0228866 * Y65 + -0.050127 * Z65
+  const Y50 = 0.0295424 * X65 + 0.9904844 * Y65 + -0.0170491 * Z65
+  const Z50 = -0.0092345 * X65 + 0.0150436 * Y65 + 0.7521316 * Z65
   // XYZ(D50) → Lab(D50). D50 reference white from labToSrgb.
-  const Xn = 0.96422, Yn = 1.0, Zn = 0.82521
+  const Xn = 0.96422,
+    Yn = 1.0,
+    Zn = 0.82521
   const e = 216 / 24389
   const k = 24389 / 27
   const fx_ = X50 / Xn
@@ -668,23 +874,26 @@ export function labToHex(L: number, a: number, b: number): string {
   const r8 = Math.max(0, Math.min(255, Math.round(rr * 255)))
   const g8 = Math.max(0, Math.min(255, Math.round(gg * 255)))
   const b8 = Math.max(0, Math.min(255, Math.round(bb * 255)))
-  return '#' + r8.toString(16).padStart(2, '0')
-    + g8.toString(16).padStart(2, '0')
-    + b8.toString(16).padStart(2, '0')
+  return (
+    '#' +
+    r8.toString(16).padStart(2, '0') +
+    g8.toString(16).padStart(2, '0') +
+    b8.toString(16).padStart(2, '0')
+  )
 }
 
 /** Lab → polar LCh (CIE LCh, used by Mapbox's `interpolate-hcl`).
  *  hue in degrees [0, 360). */
 export function labToLch(L: number, a: number, b: number): [number, number, number] {
   const C = Math.hypot(a, b)
-  let h = Math.atan2(b, a) * 180 / Math.PI
+  let h = (Math.atan2(b, a) * 180) / Math.PI
   if (h < 0) h += 360
   return [L, C, h]
 }
 
 /** LCh → Lab. Inverse of `labToLch`. hue in degrees. */
 export function lchToLab(L: number, C: number, h: number): [number, number, number] {
-  const hr = h * Math.PI / 180
+  const hr = (h * Math.PI) / 180
   return [L, C * Math.cos(hr), C * Math.sin(hr)]
 }
 
@@ -698,7 +907,10 @@ export function lchToLab(L: number, C: number, h: number): [number, number, numb
  */
 export function resolveColorToRgba(hex: string): [number, number, number, number] {
   const resolved = hex.startsWith('#') ? hex : (resolveColor(hex) ?? hex)
-  let r = 0, g = 0, b = 0, a = 1
+  let r = 0,
+    g = 0,
+    b = 0,
+    a = 1
   if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(resolved)) {
     return [0, 0, 0, 1]
   }

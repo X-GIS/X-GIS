@@ -11,13 +11,18 @@ test('inline-data geojson demo renders', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/demo.html?id=inline_data&e2e=1', { waitUntil: 'domcontentloaded' })
-  await page.waitForFunction(() => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true, null, { timeout: 15_000 })
+  await page.waitForFunction(
+    () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
+    null,
+    { timeout: 15_000 },
+  )
   await page.waitForTimeout(2500)
 
   const state = await page.evaluate(() => {
     const m = (window as unknown as { __xgisMap?: Record<string, unknown> }).__xgisMap
     if (!m) return { noMap: true }
-    const raw = m.rawDatasets as Map<string, { features?: unknown[]; _vectorTile?: boolean }> | undefined
+    const raw = m.rawDatasets as
+      Map<string, { features?: unknown[]; _vectorTile?: boolean }> | undefined
     const vt = m.vtSources as Map<string, unknown> | undefined
     const s = raw?.get('inline_pts')
     return {
@@ -26,7 +31,13 @@ test('inline-data geojson demo renders', async ({ page }) => {
       vtKeys: vt ? [...vt.keys()] : 'none',
     }
   })
-  console.log('INLINE_STATE:', JSON.stringify(state), 'errors=', errors.length, errors.slice(0, 2).join('|'))
+  console.log(
+    'INLINE_STATE:',
+    JSON.stringify(state),
+    'errors=',
+    errors.length,
+    errors.slice(0, 2).join('|'),
+  )
 
   const png = await page.locator('#map').screenshot()
   writeFileSync(join(HERE, '__render-verify__', 'inline-data.png'), png)
@@ -37,6 +48,8 @@ test('inline-data geojson demo renders', async ({ page }) => {
   // points render. CI render-gate runs this under SwiftShader.
   expect.soft(state.rawKeys, 'inline source registered').toContain('inline_pts')
   expect.soft(state.vtKeys, 'inline source tiled (VirtualPMTilesBackend)').toContain('inline_pts')
-  expect.soft(state.inlineFeatures, 'inline source went through the tiling path').toBe('tiled-marker')
+  expect
+    .soft(state.inlineFeatures, 'inline source went through the tiling path')
+    .toBe('tiled-marker')
   expect.soft(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0)
 })

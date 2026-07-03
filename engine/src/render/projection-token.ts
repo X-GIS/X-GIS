@@ -47,7 +47,9 @@ interface MutableProjection {
 
 /** Allocate the reused projection token (once, alongside the FrameContext). */
 export function makeProjectionToken(
-  projType: number, centerLon: number, centerLat: number,
+  projType: number,
+  centerLon: number,
+  centerLat: number,
 ): ProjectionToken {
   return { projType, centerLon, centerLat } as unknown as ProjectionToken
 }
@@ -55,7 +57,10 @@ export function makeProjectionToken(
 /** Repopulate the reused token in place — the 60 Hz loop reuses one instance
  *  rather than allocating a fresh token per frame. */
 export function setProjectionToken(
-  token: ProjectionToken, projType: number, centerLon: number, centerLat: number,
+  token: ProjectionToken,
+  projType: number,
+  centerLon: number,
+  centerLat: number,
 ): void {
   const m = token as unknown as MutableProjection
   m.projType = projType

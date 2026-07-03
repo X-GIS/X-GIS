@@ -26,7 +26,9 @@ import type { GlyphProvider } from '@xgis/map'
 import type { GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult } from '@xgis/map'
 import type { PbfGlyph } from '@xgis/map'
 
-const SLOT = 64, SDF_R = 8, FONT_SIZE = 32
+const SLOT = 64,
+  SDF_R = 8,
+  FONT_SIZE = 32
 
 // Stub provider returning one fixed PBF glyph (the anomalous metrics
 // observed live). PbfRasterizer derives the fontstack from the fontKey;
@@ -42,12 +44,15 @@ function provider(byCp: Map<number, PbfGlyph>): GlyphProvider {
 function fallback(ascentAtFontSize: number): GlyphRasterizer {
   return {
     rasterize: (req: GlyphRasterRequest): GlyphRasterResult => ({
-      fontKey: req.fontKey, codepoint: req.codepoint, sdfRadius: req.sdfRadius,
+      fontKey: req.fontKey,
+      codepoint: req.codepoint,
+      sdfRadius: req.sdfRadius,
       sdf: new Uint8Array(req.slotSize * req.slotSize),
       advanceWidth: req.fontSize * 0.5,
       bearingX: 0,
       bearingY: ascentAtFontSize,
-      width: 10, height: 12,
+      width: 10,
+      height: 12,
       rasterFontSize: req.fontSize,
     }),
   }
@@ -55,8 +60,14 @@ function fallback(ascentAtFontSize: number): GlyphRasterizer {
 
 function pbfGlyph(over: Partial<PbfGlyph>): PbfGlyph {
   return {
-    id: 70, bitmap: new Uint8Array(24 * 24), width: 12, height: 17,
-    left: 0, top: 0, advance: 12, ...over,
+    id: 70,
+    bitmap: new Uint8Array(24 * 24),
+    width: 12,
+    height: 17,
+    left: 0,
+    top: 0,
+    advance: 12,
+    ...over,
   } as PbfGlyph
 }
 
@@ -67,7 +78,13 @@ function rasterizeOne(g: PbfGlyph, fallbackAscent: number): GlyphRasterResult {
     providers: [provider(byCp)],
     onLanded: () => {},
   })
-  return ras.rasterize({ fontKey: 'Noto Sans', fontSize: FONT_SIZE, codepoint: g.id, sdfRadius: SDF_R, slotSize: SLOT })
+  return ras.rasterize({
+    fontKey: 'Noto Sans',
+    fontSize: FONT_SIZE,
+    codepoint: g.id,
+    sdfRadius: SDF_R,
+    slotSize: SLOT,
+  })
 }
 
 describe('iter-333 PBF latin bearingY convention fix (bilingual collapse)', () => {
@@ -82,12 +99,15 @@ describe('iter-333 PBF latin bearingY convention fix (bilingual collapse)', () =
 
   it('CJK glyph with POSITIVE PBF top → UNCHANGED (already baseline-relative)', () => {
     // 复: top=+20 (valid ascent) → must not be touched (no fallback call).
-    const r = rasterizeOne(pbfGlyph({ id: 0x590d, top: 20, height: 22, width: 22 }), 99 /*never used*/)
+    const r = rasterizeOne(
+      pbfGlyph({ id: 0x590d, top: 20, height: 22, width: 22 }),
+      99 /*never used*/,
+    )
     expect(r.bearingY).toBe(20)
   })
 
   it('latin vs CJK ascent COMPARABLE after fix → no cross-line collapse', () => {
-    const f = rasterizeOne(pbfGlyph({ id: 70, top: -9, height: 17 }), 32 * 0.71)       // → ~17
+    const f = rasterizeOne(pbfGlyph({ id: 70, top: -9, height: 17 }), 32 * 0.71) // → ~17
     const cjk = rasterizeOne(pbfGlyph({ id: 0x590d, top: 20, height: 22, width: 22 }), 99) // 20
     // Pre-fix gap was |−9 − 20| = 29 (≈ one line height at scale 1.6 →
     // exact collapse). Post-fix gap is a few px → baseline spacing holds.
@@ -95,7 +115,10 @@ describe('iter-333 PBF latin bearingY convention fix (bilingual collapse)', () =
   })
 
   it('fix is PBF-tagged (halo normalisation path preserved)', () => {
-    const r = rasterizeOne(pbfGlyph({ id: 70, top: -9, height: 17 }), 32 * 0.71) as GlyphRasterResult & { pbf?: boolean }
+    const r = rasterizeOne(
+      pbfGlyph({ id: 70, top: -9, height: 17 }),
+      32 * 0.71,
+    ) as GlyphRasterResult & { pbf?: boolean }
     expect(r.pbf).toBe(true)
   })
 })

@@ -33,11 +33,7 @@ describe('["zoom"] accessor lowering', () => {
   it('["zoom"] inside ["case"] works as a condition input', () => {
     const w: string[] = []
     const out = exprToXgis(
-      ['case',
-        ['<', ['zoom'], 10], '#aaa',
-        ['<', ['zoom'], 14], '#bbb',
-        '#ccc',
-      ],
+      ['case', ['<', ['zoom'], 10], '#aaa', ['<', ['zoom'], 14], '#bbb', '#ccc'],
       w,
     )
     expect(out).toContain('zoom <')

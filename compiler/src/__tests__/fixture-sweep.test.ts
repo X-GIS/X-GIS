@@ -21,8 +21,7 @@ import { lower } from '../ir/lower'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const EXAMPLES_DIR = join(HERE, '..', '..', '..', 'playground', 'src', 'examples')
 
-const xgisFiles = readdirSync(EXAMPLES_DIR)
-  .filter(f => f.endsWith('.xgis') || f.endsWith('.xgs'))
+const xgisFiles = readdirSync(EXAMPLES_DIR).filter((f) => f.endsWith('.xgis') || f.endsWith('.xgs'))
 
 describe('playground fixture sweep — every example lex+parse+lowers', () => {
   for (const file of xgisFiles) {
@@ -50,9 +49,10 @@ describe('regression: no deprecated z<N>: modifier in fixtures', () => {
       // V, …)]`. Whitespace before the `z` ensures we don't match
       // accidental occurrences inside identifier names.
       const matches = src.match(/(?<=\s|\|)z\d+:[a-z]/gi)
-      expect(matches,
+      expect(
+        matches,
         `${file} uses deprecated z<N>: modifier. Replace with ` +
-        `\`<utility>-[interpolate(zoom, …)]\` (commit f2f8929).`,
+          `\`<utility>-[interpolate(zoom, …)]\` (commit f2f8929).`,
       ).toBeNull()
     })
   }

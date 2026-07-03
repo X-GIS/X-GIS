@@ -26,9 +26,15 @@ import type { GPUContext } from '@xgis/engine'
 // WebGPU globals don't exist under happy-dom — stub the few the LineRenderer
 // ctor touches (createBindGroupLayout's visibility flags + createBuffer's usage
 // map). Mirrors line-renderer-layer-ring / line-translate-wiring tests.
-;(globalThis as unknown as { GPUShaderStage: { VERTEX: number; FRAGMENT: number } }).GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 }
+;(
+  globalThis as unknown as { GPUShaderStage: { VERTEX: number; FRAGMENT: number } }
+).GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 }
 ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
-  UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16,
+  UNIFORM: 1,
+  COPY_DST: 2,
+  STORAGE: 4,
+  VERTEX: 8,
+  INDEX: 16,
 }
 
 /** Minimal fake GPU context — the LineRenderer ctor only needs createBuffer /

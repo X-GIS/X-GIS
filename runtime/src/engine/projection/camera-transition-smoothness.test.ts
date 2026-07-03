@@ -31,10 +31,7 @@ function maxDelta(a: Float32Array, b: Float32Array): number {
 
 // Sample matrix at N+1 frames for a linear sweep between start/end
 // states. Returns the per-frame max-element-delta sequence.
-function sweepDeltas(
-  modifyFn: (cam: Camera, t: number) => void,
-  steps: number,
-): number[] {
+function sweepDeltas(modifyFn: (cam: Camera, t: number) => void, steps: number): number[] {
   const cam = new Camera()
   modifyFn(cam, 0)
   let prev = new Float32Array(cam.getRTCMatrix(VIEWPORT_W, VIEWPORT_H, 1))
@@ -57,8 +54,10 @@ describe('camera transition smoothness invariants', () => {
     const sorted = [...deltas].sort((a, b) => a - b)
     const median = sorted[Math.floor(sorted.length / 2)]!
     const worst = sorted[sorted.length - 1]!
-    expect(worst, `pitch sweep worst-delta ${worst.toFixed(3)} vs median ${median.toFixed(3)}`)
-      .toBeLessThan(median * 50)
+    expect(
+      worst,
+      `pitch sweep worst-delta ${worst.toFixed(3)} vs median ${median.toFixed(3)}`,
+    ).toBeLessThan(median * 50)
   })
 
   it('bearing 0→360° sweep does not produce a jump near 180° (wrap discontinuity)', () => {
@@ -70,8 +69,10 @@ describe('camera transition smoothness invariants', () => {
     // Bearing wrap at exactly 360° → 0° is allowed; check that
     // the median-vs-worst ratio is still bounded.
     const worst = sorted[sorted.length - 1]!
-    expect(worst, `bearing sweep worst-delta ${worst.toFixed(3)} vs median ${median.toFixed(3)}`)
-      .toBeLessThan(median * 100)
+    expect(
+      worst,
+      `bearing sweep worst-delta ${worst.toFixed(3)} vs median ${median.toFixed(3)}`,
+    ).toBeLessThan(median * 100)
   })
 
   it('zoom 5→15 sweep keeps matrix changes bounded across LOD boundaries', () => {
@@ -115,9 +116,10 @@ describe('camera transition smoothness invariants', () => {
       const dPrev = Math.abs(dets[i - 1]! - dets[i - 2]!)
       const dCur = Math.abs(dets[i]! - dets[i - 1]!)
       if (dPrev > 1e-6) {
-        expect(dCur / dPrev,
-          `pitch=${i}° trace-jump ratio ${(dCur / dPrev).toFixed(2)}`)
-          .toBeLessThan(100)
+        expect(
+          dCur / dPrev,
+          `pitch=${i}° trace-jump ratio ${(dCur / dPrev).toFixed(2)}`,
+        ).toBeLessThan(100)
       }
     }
   })

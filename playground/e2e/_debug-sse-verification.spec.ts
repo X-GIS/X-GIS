@@ -31,29 +31,42 @@ interface Stats {
   worstMs: number
 }
 
-async function measureScene(page: import('@playwright/test').Page, demoId: string, hash: string): Promise<Stats> {
+async function measureScene(
+  page: import('@playwright/test').Page,
+  demoId: string,
+  hash: string,
+): Promise<Stats> {
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto(`/demo.html?id=${demoId}${hash}`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
-  await page.waitForFunction(() => {
-    const map = (window as unknown as { __xgisMap?: { vtSources: Map<string, unknown> } }).__xgisMap
-    if (!map?.vtSources) return false
-    let v = 0
-    for (const entry of map.vtSources.values()) {
-      const r = entry as { renderer?: { getDrawStats?: () => { tilesVisible: number } } }
-      v += r.renderer?.getDrawStats?.().tilesVisible ?? 0
-    }
-    return v > 0
-  }, null, { timeout: 60_000 })
+  await page.waitForFunction(
+    () => {
+      const map = (window as unknown as { __xgisMap?: { vtSources: Map<string, unknown> } })
+        .__xgisMap
+      if (!map?.vtSources) return false
+      let v = 0
+      for (const entry of map.vtSources.values()) {
+        const r = entry as { renderer?: { getDrawStats?: () => { tilesVisible: number } } }
+        v += r.renderer?.getDrawStats?.().tilesVisible ?? 0
+      }
+      return v > 0
+    },
+    null,
+    { timeout: 60_000 },
+  )
   await page.waitForTimeout(3500)
 
   const stats = await page.evaluate(async (durationMs: number) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const map = (window as any).__xgisMap
-    let tilesVis = 0, drawCalls = 0, triangles = 0, lines = 0
+    let tilesVis = 0,
+      drawCalls = 0,
+      triangles = 0,
+      lines = 0
     for (const entry of map.vtSources.values()) {
       const ds = entry.renderer.getDrawStats?.() ?? {}
       tilesVis += ds.tilesVisible ?? 0
@@ -69,7 +82,10 @@ async function measureScene(page: import('@playwright/test').Page, demoId: strin
         const now = performance.now()
         frames.push(now - last)
         last = now
-        if (now - t0 >= durationMs) { res(); return }
+        if (now - t0 >= durationMs) {
+          res()
+          return
+        }
         map.invalidate()
         requestAnimationFrame(tick)
       }
@@ -91,10 +107,13 @@ test('1. Stability — 3 runs of user URL', async ({ page }) => {
   for (let i = 0; i < 3; i++) {
     const s = await measureScene(page, 'osm_style', URL_HASH)
     runs.push(s)
-    console.log(`  [run ${i + 1}] tiles=${s.tilesVis} draws=${s.drawCalls} tris=${s.triangles} median=${s.medianMs.toFixed(1)}ms worst=${s.worstMs.toFixed(0)}ms`)
+    console.log(
+      `  [run ${i + 1}] tiles=${s.tilesVis} draws=${s.drawCalls} tris=${s.triangles} median=${s.medianMs.toFixed(1)}ms worst=${s.worstMs.toFixed(0)}ms`,
+    )
     await page.goto('about:blank')
   }
-  const tilesVar = Math.max(...runs.map(r => r.tilesVis)) - Math.min(...runs.map(r => r.tilesVis))
+  const tilesVar =
+    Math.max(...runs.map((r) => r.tilesVis)) - Math.min(...runs.map((r) => r.tilesVis))
   console.log(`  [stability] tilesVis variance across 3 runs: ${tilesVar}`)
   writeFileSync(join(OUT, 'stability.json'), JSON.stringify(runs, null, 2))
 })
@@ -107,7 +126,9 @@ test('2. Pitch boundary sweep — osm_style Manhattan z=16', async ({ page }) =>
     const hash = `#16/40.76/-73.98/0/${p}`
     const s = await measureScene(page, 'osm_style', hash)
     results[p] = s
-    console.log(`  [pitch=${p}°] tiles=${s.tilesVis} draws=${s.drawCalls} tris=${s.triangles} median=${s.medianMs.toFixed(1)}ms`)
+    console.log(
+      `  [pitch=${p}°] tiles=${s.tilesVis} draws=${s.drawCalls} tris=${s.triangles} median=${s.medianMs.toFixed(1)}ms`,
+    )
     const png = await page.locator('#map').screenshot()
     writeFileSync(join(OUT, `pitch-${p}.png`), png)
     await page.goto('about:blank')
@@ -128,7 +149,9 @@ test('3. Other demos — filter_gdp + continent_match', async ({ page }) => {
   for (const c of cases) {
     const s = await measureScene(page, c.demo, c.hash)
     results[c.label] = s
-    console.log(`  [${c.label}] tiles=${s.tilesVis} draws=${s.drawCalls} tris=${s.triangles} median=${s.medianMs.toFixed(1)}ms`)
+    console.log(
+      `  [${c.label}] tiles=${s.tilesVis} draws=${s.drawCalls} tris=${s.triangles} median=${s.medianMs.toFixed(1)}ms`,
+    )
     const png = await page.locator('#map').screenshot()
     writeFileSync(join(OUT, `demo-${c.label.replace(/[^a-zA-Z0-9]/g, '_')}.png`), png)
     await page.goto('about:blank')
@@ -150,7 +173,9 @@ test('5. Heavy-style stress — Bright (93 layers) at high pitch', async ({ page
   // it a longer settle. Use a Manhattan-like URL hash similar to the
   // user case so the layer count + camera both stress the renderer.
   const stats = await measureScene(page, 'openfreemap_bright', '#16/40.76/-73.98/0/77')
-  console.log(`  [Bright pitch=77 z=16] tiles=${stats.tilesVis} draws=${stats.drawCalls} tris=${stats.triangles} median=${stats.medianMs.toFixed(1)}ms`)
+  console.log(
+    `  [Bright pitch=77 z=16] tiles=${stats.tilesVis} draws=${stats.drawCalls} tris=${stats.triangles} median=${stats.medianMs.toFixed(1)}ms`,
+  )
   const png = await page.locator('#map').screenshot()
   writeFileSync(join(OUT, 'bright-high-pitch.png'), png)
 })

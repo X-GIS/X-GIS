@@ -51,9 +51,7 @@ function capturedClearValue(
   let captured: CapturedClear | undefined
 
   const encoder = {
-    beginRenderPass: (desc: {
-      colorAttachments: Array<{ clearValue: CapturedClear }>
-    }) => {
+    beginRenderPass: (desc: { colorAttachments: Array<{ clearValue: CapturedClear }> }) => {
       captured = desc.colorAttachments[0]!.clearValue
       return { end: () => {} } as unknown as GPURenderPassEncoder
     },

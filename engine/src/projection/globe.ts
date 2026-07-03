@@ -60,11 +60,7 @@ export function globeForward(lon: number, lat: number): Vec3 {
   const lam = lon * DEG2RAD
   const phi = lat * DEG2RAD
   const cphi = Math.cos(phi)
-  return [
-    EARTH_R * cphi * Math.cos(lam),
-    EARTH_R * cphi * Math.sin(lam),
-    EARTH_R * Math.sin(phi),
-  ]
+  return [EARTH_R * cphi * Math.cos(lam), EARTH_R * cphi * Math.sin(lam), EARTH_R * Math.sin(phi)]
 }
 
 /** Sphere point → (lon,lat)°. Inverse of globeForward (radius-agnostic:
@@ -80,8 +76,10 @@ export function globeInverse(x: number, y: number, z: number): [number, number] 
 function localFrame(lon: number, lat: number): { up: Vec3; east: Vec3; north: Vec3 } {
   const lam = lon * DEG2RAD
   const phi = lat * DEG2RAD
-  const slam = Math.sin(lam), clam = Math.cos(lam)
-  const sphi = Math.sin(phi), cphi = Math.cos(phi)
+  const slam = Math.sin(lam),
+    clam = Math.cos(lam)
+  const sphi = Math.sin(phi),
+    cphi = Math.cos(phi)
   return {
     up: [cphi * clam, cphi * slam, sphi], // radial (surface normal)
     east: [-slam, clam, 0],
@@ -109,18 +107,19 @@ const FOV_RAD = 0.6435011087932844 // == Camera.FOV, MapLibre default
  *  telephoto silhouette radius equal the flat-disc altitude at every zoom,
  *  so pitch>0 only tilts the SAME-scale disc. */
 export function globeAltitude(
-  zoom: number, cssHeightPx: number, ortho = false, projType = GLOBE_PROJ_TYPE,
+  zoom: number,
+  cssHeightPx: number,
+  ortho = false,
+  projType = GLOBE_PROJ_TYPE,
 ): number {
-  const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, zoom)
+  const metersPerPixel = WORLD_MERC / TILE_PX / Math.pow(2, zoom)
   const rawViewHeightMeters = cssHeightPx * metersPerPixel
   if (ortho) {
     // Azimuthal-promoted disc: drive altitude from the flat-path cap so
     // it is CONTINUOUS with the flat 2D disc at pitch=0. 2·EARTH_R for
     // ortho (3), WORLD_MERC for azi_eq/stereo (4/5) — single source of
     // truth shared with the flat MVP (flatViewHeightCapM).
-    const viewHeightMeters = Math.min(
-      rawViewHeightMeters, flatViewHeightCapM(projType, WORLD_MERC),
-    )
+    const viewHeightMeters = Math.min(rawViewHeightMeters, flatViewHeightCapM(projType, WORLD_MERC))
     return viewHeightMeters / 2 / Math.tan(FOV_RAD / 2)
   }
   // #450: NO z<1 cap. The perspective globe follows MapLibre's mercator pixel
@@ -177,10 +176,15 @@ export interface GlobeView {
  *             set; the true `globe` leaves this false (perspective).
  */
 export function buildGlobeMatrix(
-  centerLon: number, centerLat: number,
-  zoom: number, pitchDeg: number, bearingDeg: number,
-  cssWidthPx: number, cssHeightPx: number,
-  ortho = false, projType = GLOBE_PROJ_TYPE,
+  centerLon: number,
+  centerLat: number,
+  zoom: number,
+  pitchDeg: number,
+  bearingDeg: number,
+  cssWidthPx: number,
+  cssHeightPx: number,
+  ortho = false,
+  projType = GLOBE_PROJ_TYPE,
 ): GlobeView {
   const target = globeForward(centerLon, centerLat)
   const { up: n, east, north } = localFrame(centerLon, centerLat)
@@ -230,10 +234,22 @@ export function buildGlobeMatrix(
   const s = norm(cross(fwd, upHint)) // right
   const u = cross(s, fwd) // true up
   const view = [
-    s[0], u[0], -fwd[0], 0,
-    s[1], u[1], -fwd[1], 0,
-    s[2], u[2], -fwd[2], 0,
-    -dot(s, eye), -dot(u, eye), dot(fwd, eye), 1,
+    s[0],
+    u[0],
+    -fwd[0],
+    0,
+    s[1],
+    u[1],
+    -fwd[1],
+    0,
+    s[2],
+    u[2],
+    -fwd[2],
+    0,
+    -dot(s, eye),
+    -dot(u, eye),
+    dot(fwd, eye),
+    1,
   ]
 
   const aspect = cssWidthPx / cssHeightPx
@@ -264,28 +280,67 @@ export function buildGlobeMatrix(
   // target by the same vector, so this is the exact RTC of `matrix`.
   const eyeR = sub(eye, target)
   const rtcView = [
-    s[0], u[0], -fwd[0], 0,
-    s[1], u[1], -fwd[1], 0,
-    s[2], u[2], -fwd[2], 0,
-    -dot(s, eyeR), -dot(u, eyeR), dot(fwd, eyeR), 1,
+    s[0],
+    u[0],
+    -fwd[0],
+    0,
+    s[1],
+    u[1],
+    -fwd[1],
+    0,
+    s[2],
+    u[2],
+    -fwd[2],
+    0,
+    -dot(s, eyeR),
+    -dot(u, eyeR),
+    dot(fwd, eyeR),
+    1,
   ]
   const rtcOut = new Array(16)
   mul4(rtcOut, P, rtcView)
 
-  return { matrix: new Float32Array(out), rtcMatrix: new Float32Array(rtcOut), eye, target, near, far }
+  return {
+    matrix: new Float32Array(out),
+    rtcMatrix: new Float32Array(rtcOut),
+    eye,
+    target,
+    near,
+    far,
+  }
 }
 
 /** Invert a column-major 4×4 (mirror of camera.ts invert4x4 — kept
  *  local so this module stays standalone / independently testable). */
 function invert4x4(m: ArrayLike<number>): Float32Array | null {
-  const a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3]
-  const a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7]
-  const a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11]
-  const a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15]
-  const b00 = a00 * a11 - a01 * a10, b01 = a00 * a12 - a02 * a10, b02 = a00 * a13 - a03 * a10
-  const b03 = a01 * a12 - a02 * a11, b04 = a01 * a13 - a03 * a11, b05 = a02 * a13 - a03 * a12
-  const b06 = a20 * a31 - a21 * a30, b07 = a20 * a32 - a22 * a30, b08 = a20 * a33 - a23 * a30
-  const b09 = a21 * a32 - a22 * a31, b10 = a21 * a33 - a23 * a31, b11 = a22 * a33 - a23 * a32
+  const a00 = m[0],
+    a01 = m[1],
+    a02 = m[2],
+    a03 = m[3]
+  const a10 = m[4],
+    a11 = m[5],
+    a12 = m[6],
+    a13 = m[7]
+  const a20 = m[8],
+    a21 = m[9],
+    a22 = m[10],
+    a23 = m[11]
+  const a30 = m[12],
+    a31 = m[13],
+    a32 = m[14],
+    a33 = m[15]
+  const b00 = a00 * a11 - a01 * a10,
+    b01 = a00 * a12 - a02 * a10,
+    b02 = a00 * a13 - a03 * a10
+  const b03 = a01 * a12 - a02 * a11,
+    b04 = a01 * a13 - a03 * a11,
+    b05 = a02 * a13 - a03 * a12
+  const b06 = a20 * a31 - a21 * a30,
+    b07 = a20 * a32 - a22 * a30,
+    b08 = a20 * a33 - a23 * a30
+  const b09 = a21 * a32 - a22 * a31,
+    b10 = a21 * a33 - a23 * a31,
+    b11 = a22 * a33 - a23 * a32
   let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06
   if (Math.abs(det) < 1e-15) return null
   det = 1 / det
@@ -309,7 +364,10 @@ function invert4x4(m: ArrayLike<number>): Float32Array | null {
   return o
 }
 
-function mulVec4(m: ArrayLike<number>, v: [number, number, number, number]): [number, number, number, number] {
+function mulVec4(
+  m: ArrayLike<number>,
+  v: [number, number, number, number],
+): [number, number, number, number] {
   return [
     m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12] * v[3],
     m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13] * v[3],
@@ -326,8 +384,10 @@ function mulVec4(m: ArrayLike<number>, v: [number, number, number, number]): [nu
  *  here. `screenX/Y` and `w/h` are in the same pixel basis (device or
  *  CSS — consistent with the matrix's aspect). */
 export function unprojectGlobe(
-  screenX: number, screenY: number,
-  w: number, h: number,
+  screenX: number,
+  screenY: number,
+  w: number,
+  h: number,
   view: GlobeView,
 ): [number, number] | null {
   const inv = invert4x4(view.matrix)
@@ -336,10 +396,18 @@ export function unprojectGlobe(
   const ndcY = 1 - (screenY / h) * 2
   const n4 = mulVec4(inv, [ndcX, ndcY, -1, 1])
   const f4 = mulVec4(inv, [ndcX, ndcY, 1, 1])
-  const nx = n4[0] / n4[3], ny = n4[1] / n4[3], nz = n4[2] / n4[3]
-  const fx = f4[0] / f4[3], fy = f4[1] / f4[3], fz = f4[2] / f4[3]
-  const ox = nx, oy = ny, oz = nz
-  const dx = fx - nx, dy = fy - ny, dz = fz - nz
+  const nx = n4[0] / n4[3],
+    ny = n4[1] / n4[3],
+    nz = n4[2] / n4[3]
+  const fx = f4[0] / f4[3],
+    fy = f4[1] / f4[3],
+    fz = f4[2] / f4[3]
+  const ox = nx,
+    oy = ny,
+    oz = nz
+  const dx = fx - nx,
+    dy = fy - ny,
+    dz = fz - nz
   // Solve |o + t·d|² = R²
   const a = dx * dx + dy * dy + dz * dz
   const b = 2 * (ox * dx + oy * dy + oz * dz)
@@ -362,7 +430,12 @@ export function unprojectGlobe(
  *  declared locally so this module has no import cycle with the data
  *  layer. The globe renders a single world (no Mercator world copies)
  *  so `ox === x` always. */
-export interface GlobeTile { z: number; x: number; y: number; ox: number }
+export interface GlobeTile {
+  z: number
+  x: number
+  y: number
+  ox: number
+}
 
 /** Visible-cap tile selection for the globe.
  *
@@ -388,10 +461,14 @@ let _globeTilesCacheKey: string | null = null
 let _globeTilesCacheResult: GlobeTile[] = []
 
 export function globeVisibleTiles(
-  centerLon: number, centerLat: number,
-  zoom: number, maxZ: number,
-  cssWidthPx: number, cssHeightPx: number,
-  pitchDeg = 0, bearingDeg = 0,
+  centerLon: number,
+  centerLat: number,
+  zoom: number,
+  maxZ: number,
+  cssWidthPx: number,
+  cssHeightPx: number,
+  pitchDeg = 0,
+  bearingDeg = 0,
 ): GlobeTile[] {
   // Memo lookup. String key is round-tripped through toFixed(4) so
   // micro-jitter (1e-9 lon drift after a re-projection) doesn't blow
@@ -400,7 +477,13 @@ export function globeVisibleTiles(
   const key = `${centerLon.toFixed(4)}|${centerLat.toFixed(4)}|${zoom.toFixed(3)}|${maxZ}|${cssWidthPx.toFixed(0)}|${cssHeightPx.toFixed(0)}|${pitchDeg.toFixed(2)}|${bearingDeg.toFixed(2)}`
   if (key === _globeTilesCacheKey) return _globeTilesCacheResult
   const view = buildGlobeMatrix(
-    centerLon, centerLat, zoom, pitchDeg, bearingDeg, cssWidthPx, cssHeightPx,
+    centerLon,
+    centerLat,
+    zoom,
+    pitchDeg,
+    bearingDeg,
+    cssWidthPx,
+    cssHeightPx,
   )
   const mvp = view.matrix
   const eye = view.eye
@@ -439,19 +522,30 @@ export function globeVisibleTiles(
   // path. Deterministic; output bounded by the (tiny, at overzoom)
   // footprint → no recursion, structurally cannot explode.
   if (zoom > maxZ + 1e-3) {
-    const W = cssWidthPx, H = cssHeightPx
+    const W = cssWidthPx,
+      H = cssHeightPx
     const probes: ReadonlyArray<readonly [number, number]> = [
-      [0, 0], [W, 0], [0, H], [W, H], [W * 0.5, H * 0.5],
-      [W * 0.5, 0], [W * 0.5, H], [0, H * 0.5], [W, H * 0.5],
+      [0, 0],
+      [W, 0],
+      [0, H],
+      [W, H],
+      [W * 0.5, H * 0.5],
+      [W * 0.5, 0],
+      [W * 0.5, H],
+      [0, H * 0.5],
+      [W, H * 0.5],
     ]
-    let lonMin = Infinity, lonMax = -Infinity
-    let latMin = Infinity, latMax = -Infinity
+    let lonMin = Infinity,
+      lonMax = -Infinity
+    let latMin = Infinity,
+      latMax = -Infinity
     let hits = 0
     for (const [sx, sy] of probes) {
       const ll = unprojectGlobe(sx, sy, W, H, view)
       if (!ll) continue
       hits++
-      const lo = ll[0], la = ll[1]
+      const lo = ll[0],
+        la = ll[1]
       if (lo < lonMin) lonMin = lo
       if (lo > lonMax) lonMax = lo
       if (la < latMin) latMin = la
@@ -463,8 +557,7 @@ export function globeVisibleTiles(
     if (hits > 0 && lonMax - lonMin <= 170 && latMax - latMin <= 170) {
       const tileN = (1 << maxZ) | 0
       const lonToX = (lo: number): number =>
-        Math.min(tileN - 1, Math.max(0,
-          Math.floor(((lo + 180) / 360) * tileN)))
+        Math.min(tileN - 1, Math.max(0, Math.floor(((lo + 180) / 360) * tileN)))
       const latToY = (la: number): number => {
         // iter-312 (A-2) — was a coarse ±85.05 literal that disagreed
         // with MERCATOR_LAT_LIMIT (±85.051129) used by every other
@@ -520,21 +613,31 @@ export function globeVisibleTiles(
   const maxYEmit = cssHeightPx + emitPadY
   // Matrix elements as locals (avoids index-into-typed-array on every
   // mvp[i] read inside the hot loop).
-  const m0 = mvp[0]!, m1 = mvp[1]!, m3 = mvp[3]!
-  const m4 = mvp[4]!, m5 = mvp[5]!, m7 = mvp[7]!
-  const m8 = mvp[8]!, m9 = mvp[9]!, m11 = mvp[11]!
-  const m12 = mvp[12]!, m13 = mvp[13]!, m15 = mvp[15]!
+  const m0 = mvp[0]!,
+    m1 = mvp[1]!,
+    m3 = mvp[3]!
+  const m4 = mvp[4]!,
+    m5 = mvp[5]!,
+    m7 = mvp[7]!
+  const m8 = mvp[8]!,
+    m9 = mvp[9]!,
+    m11 = mvp[11]!
+  const m12 = mvp[12]!,
+    m13 = mvp[13]!,
+    m15 = mvp[15]!
   const pn = 1 / EARTH_R
-  const eyeN0 = eyeN[0], eyeN1 = eyeN[1], eyeN2 = eyeN[2]
+  const eyeN0 = eyeN[0],
+    eyeN1 = eyeN[1],
+    eyeN2 = eyeN[2]
   // Eye position in world coords + distance from eye to camera target
   // (the focal point) — basis for the SSE-style distance LOD: a tile
   // 2× farther than the target gets `desiredZ = zoom - 1`. Memory
   // project_non_merc_z14_pitch_over_select.
-  const eye0 = eye[0], eye1 = eye[1], eye2 = eye[2]
+  const eye0 = eye[0],
+    eye1 = eye[1],
+    eye2 = eye[2]
   const distEyeToTarget = Math.sqrt(
-    (view.target[0] - eye0) ** 2
-    + (view.target[1] - eye1) ** 2
-    + (view.target[2] - eye2) ** 2,
+    (view.target[0] - eye0) ** 2 + (view.target[1] - eye1) ** 2 + (view.target[2] - eye2) ** 2,
   )
 
   // (`out` hoisted above the overzoom branch.)
@@ -562,23 +665,31 @@ export function globeVisibleTiles(
     // on V8 (no float coercion + IEEE handling). tz is guaranteed
     // 0..22 (camera maxZoom) so int32 doesn't overflow.
     const tileN = (1 << tz) | 0
-    const lonW = tx / tileN * 360 - 180
-    const lonE = (tx + 1) / tileN * 360 - 180
-    const latN = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / tileN))) * RAD2DEG
-    const latS = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tileN))) * RAD2DEG
+    const lonW = (tx / tileN) * 360 - 180
+    const lonE = ((tx + 1) / tileN) * 360 - 180
+    const latN = Math.atan(Math.sinh(Math.PI * (1 - (2 * ty) / tileN))) * RAD2DEG
+    const latS = Math.atan(Math.sinh(Math.PI * (1 - (2 * (ty + 1)) / tileN))) * RAD2DEG
     const lonM = (lonW + lonE) / 2
     const latM = (latN + latS) / 2
     // 5 sample lon/lat pairs — flat scalar form (no allocation).
-    const ll0L = lonW, ll0A = latN
-    const ll1L = lonE, ll1A = latN
-    const ll2L = lonW, ll2A = latS
-    const ll3L = lonE, ll3A = latS
-    const ll4L = lonM, ll4A = latM
+    const ll0L = lonW,
+      ll0A = latN
+    const ll1L = lonE,
+      ll1A = latN
+    const ll2L = lonW,
+      ll2A = latS
+    const ll3L = lonE,
+      ll3A = latS
+    const ll4L = lonM,
+      ll4A = latM
 
     let anyFront = false
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-    let anyInFront = 0  // count of samples with valid clip.w (in front of near plane)
-    let distCenter = 0  // 3D Euclidean dist from eye to centre sample
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity
+    let anyInFront = 0 // count of samples with valid clip.w (in front of near plane)
+    let distCenter = 0 // 3D Euclidean dist from eye to centre sample
     // Unroll the 5-sample loop. Inline globeForward + mulVec4 + toScreen
     // so the hot path has zero array allocations per node.
     for (let si = 0; si < 5; si++) {
@@ -624,9 +735,8 @@ export function globeVisibleTiles(
     // pitch ≥ 60°). Descent path (`tooBig`/`forceDescend`) is
     // independent so children of edge-straddling tiles are still
     // visited.
-    const anyOnScreenEmit = anyInFront > 0
-      && maxX >= minXEmit && minX <= maxXEmit
-      && maxY >= minYEmit && minY <= maxYEmit
+    const anyOnScreenEmit =
+      anyInFront > 0 && maxX >= minXEmit && minX <= maxXEmit && maxY >= minYEmit && minY <= maxYEmit
     // Sub-pixel cull (mirrors tiles-sse.ts MIN_TILE_SCREEN_AREA_PX_SQ).
     // At pitch ≥ 60° horizon tiles project to AABBs of 1-2 px per side,
     // paying full draw-call cost for ~zero visible detail. 4 px² = 2×2
@@ -634,9 +744,10 @@ export function globeVisibleTiles(
     // tile contains the camera target (forceDescend / centre-of-view
     // tile must always pass regardless of how its samples project at
     // extreme pitch).
-    const screenAreaPx = isFinite(maxX - minX) && isFinite(maxY - minY)
-      ? Math.max(0, maxX - minX) * Math.max(0, maxY - minY)
-      : 0
+    const screenAreaPx =
+      isFinite(maxX - minX) && isFinite(maxY - minY)
+        ? Math.max(0, maxX - minX) * Math.max(0, maxY - minY)
+        : 0
 
     // Low-zoom tiles span too much sphere for a 5-sample point test to
     // judge (a tile can straddle the visible cap while all 5 samples
@@ -663,8 +774,7 @@ export function globeVisibleTiles(
     // byte-unchanged). Robust at any zoom: pure bbox containment,
     // no sample reliability assumption.
     const containsTarget =
-      centerLon >= lonW && centerLon <= lonE
-      && centerLat >= latS && centerLat <= latN
+      centerLon >= lonW && centerLon <= lonE && centerLat >= latS && centerLat <= latN
     const forceDescend = tz < maxZ && (tz <= 2 || containsTarget)
     // Whole tile on the far hemisphere → cull (this is what makes the
     // globe show only the front side; it is NOT the dateline bug — the
@@ -695,9 +805,7 @@ export function globeVisibleTiles(
     // the perspective matrix's sign is irrelevant to the perceptual
     // zoom level.
     const useDistLOD = distCenter > 0 && distEyeToTarget > 0
-    const desiredZ = useDistLOD
-      ? zoom + Math.log2(distEyeToTarget / distCenter)
-      : Infinity
+    const desiredZ = useDistLOD ? zoom + Math.log2(distEyeToTarget / distCenter) : Infinity
     // Descent rule: descend if EITHER the tile spans too many on-
     // screen pixels (foreground subdivision — preserves the pre-fix
     // behaviour for the camera-side branch) AND it's at or below the
@@ -708,7 +816,9 @@ export function globeVisibleTiles(
     // for the horizon strip" behaviour expressed inside the spherical
     // quadtree.
     if (tz < maxZ && (forceDescend || (tooBig && tz < Math.floor(desiredZ)))) {
-      const cz = tz + 1, cx0 = tx * 2, cy0 = ty * 2
+      const cz = tz + 1,
+        cx0 = tx * 2,
+        cy0 = ty * 2
       // 4 children pushed via parallel arrays (no object literal).
       stackZ.push(cz, cz, cz, cz)
       stackX.push(cx0, cx0 + 1, cx0, cx0 + 1)
@@ -730,8 +840,10 @@ export function globeVisibleTiles(
     // force-descends, so this adds at most the focal column — one tile
     // generically, up to four when the camera centre lands exactly on a tile
     // corner (inclusive bbox test; e.g. lon0/lat0) — all genuinely covering it.
-    if (containsTarget
-      || (anyFront && anyOnScreenEmit && screenAreaPx >= MIN_TILE_SCREEN_AREA_PX_SQ)) {
+    if (
+      containsTarget ||
+      (anyFront && anyOnScreenEmit && screenAreaPx >= MIN_TILE_SCREEN_AREA_PX_SQ)
+    ) {
       out.push({ z: tz, x: tx, y: ty, ox: tx })
     }
   }

@@ -21,27 +21,57 @@ const DEG2RAD = Math.PI / 180
 // the line/polygon cull SIGNS this file pins still agree with cosC. The pitched
 // eye is exercised in back-face-cull-comprehensive's #600 discriminating block.
 function nadirEye(clon: number, clat: number): readonly [number, number, number] {
-  const lam = clon * DEG2RAD, phi = clat * DEG2RAD, c = Math.cos(phi)
+  const lam = clon * DEG2RAD,
+    phi = clat * DEG2RAD,
+    c = Math.cos(phi)
   const s = EARTH_R * 1e6
   return [s * c * Math.cos(lam), s * c * Math.sin(lam), s * Math.sin(phi)]
 }
 
 // Polygon path: abs_merc_x/y forwarded as varying.
-function polygonCull(absMercX: number, absMercY: number, pt: number, clon: number, clat: number): number {
+function polygonCull(
+  absMercX: number,
+  absMercY: number,
+  pt: number,
+  clon: number,
+  clat: number,
+): number {
   const absLon = absMercX / (DEG2RAD * EARTH_R)
   const latRad = 2 * Math.atan(Math.exp(absMercY / EARTH_R)) - Math.PI / 2
   const absLat = latRad / DEG2RAD
-  return needsBackfaceCullWgsl(pt, absLon, absLat, clon, clat, globeEyeUniform(nadirEye(clon, clat)) as [number, number, number, number])
+  return needsBackfaceCullWgsl(
+    pt,
+    absLon,
+    absLat,
+    clon,
+    clat,
+    globeEyeUniform(nadirEye(clon, clat)) as [number, number, number, number],
+  )
 }
 
 // Line path: tile-local world plus tile origin.
-function lineCull(worldLocalX: number, worldLocalY: number, tileOriginX: number, tileOriginY: number, pt: number, clon: number, clat: number): number {
+function lineCull(
+  worldLocalX: number,
+  worldLocalY: number,
+  tileOriginX: number,
+  tileOriginY: number,
+  pt: number,
+  clon: number,
+  clat: number,
+): number {
   const absMercX = worldLocalX + tileOriginX
   const absMercY = worldLocalY + tileOriginY
   const absLon = absMercX / (DEG2RAD * EARTH_R)
   const latRad = 2 * Math.atan(Math.exp(absMercY / EARTH_R)) - Math.PI / 2
   const absLat = latRad / DEG2RAD
-  return needsBackfaceCullWgsl(pt, absLon, absLat, clon, clat, globeEyeUniform(nadirEye(clon, clat)) as [number, number, number, number])
+  return needsBackfaceCullWgsl(
+    pt,
+    absLon,
+    absLat,
+    clon,
+    clat,
+    globeEyeUniform(nadirEye(clon, clat)) as [number, number, number, number],
+  )
 }
 
 function lonLatToMerc(lon: number, lat: number): [number, number] {
@@ -53,7 +83,8 @@ function lonLatToMerc(lon: number, lat: number): [number, number] {
 
 describe('line vs polygon fragment-cull parity (workflow #2)', () => {
   it('globe (projType=7): line + polygon culls agree at every grid point', () => {
-    const clon = 0, clat = 30
+    const clon = 0,
+      clat = 30
     // Sample tile origin = arbitrary non-zero (mid-Europe z=4 tile).
     const tileOriginX = 1.5e6
     const tileOriginY = 5e6
@@ -68,9 +99,13 @@ describe('line vs polygon fragment-cull parity (workflow #2)', () => {
           absMercY - tileOriginY,
           tileOriginX,
           tileOriginY,
-          7, clon, clat,
+          7,
+          clon,
+          clat,
         )
-        expect(Math.sign(lineResult), `line/poly mismatch at lon=${lon} lat=${lat}`).toBe(Math.sign(polyResult))
+        expect(Math.sign(lineResult), `line/poly mismatch at lon=${lon} lat=${lat}`).toBe(
+          Math.sign(polyResult),
+        )
         // Also both must match the lon/lat cosC ground truth on globe.
         expect(Math.sign(polyResult)).toBe(Math.sign(cosC(lon, lat, clon, clat)))
       }
@@ -78,7 +113,8 @@ describe('line vs polygon fragment-cull parity (workflow #2)', () => {
   })
 
   it('orthographic (projType=3): line + polygon culls agree', () => {
-    const clon = 127, clat = 37
+    const clon = 127,
+      clat = 37
     const tileOriginX = 1.4e7
     const tileOriginY = 4.4e6
     for (let i = 0; i < 10; i++) {
@@ -92,7 +128,9 @@ describe('line vs polygon fragment-cull parity (workflow #2)', () => {
           absMercY - tileOriginY,
           tileOriginX,
           tileOriginY,
-          3, clon, clat,
+          3,
+          clon,
+          clat,
         )
         expect(lineResult).toBeCloseTo(polyResult, 4)
       }
@@ -100,7 +138,8 @@ describe('line vs polygon fragment-cull parity (workflow #2)', () => {
   })
 
   it('flat projections — both paths return ≥1 everywhere (no cull)', () => {
-    const clon = 0, clat = 0
+    const clon = 0,
+      clat = 0
     for (const pt of [0, 1, 2, 6]) {
       for (let i = 0; i < 6; i++) {
         for (let j = 0; j < 6; j++) {

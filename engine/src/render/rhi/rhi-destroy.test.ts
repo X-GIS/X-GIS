@@ -20,26 +20,52 @@ import type { RhiTexture, RhiSampler, RhiPipeline } from './rhi'
 // A fake WebGL2 context supporting the create + destroy paths of texture / sampler /
 // pipeline. Every create* returns a UNIQUE sentinel so a round-trip test can assert
 // the exact object flows into the matching delete*. `deleted` records each delete.
-function fakeGl(): { gl: WebGL2RenderingContext; deleted: { textures: unknown[]; samplers: unknown[]; programs: unknown[] } } {
-  const deleted = { textures: [] as unknown[], samplers: [] as unknown[], programs: [] as unknown[] }
+function fakeGl(): {
+  gl: WebGL2RenderingContext
+  deleted: { textures: unknown[]; samplers: unknown[]; programs: unknown[] }
+} {
+  const deleted = {
+    textures: [] as unknown[],
+    samplers: [] as unknown[],
+    programs: [] as unknown[],
+  }
   const gl = {
     // enum constants the create/reflect paths read (arbitrary distinct values)
-    SAMPLER_2D: 0x8b5e, SAMPLER_CUBE: 0x8b60, SAMPLER_3D: 0x8b5f, SAMPLER_2D_ARRAY: 0x8dc1,
-    TEXTURE_2D: 0x0de1, RGBA8: 0x8058, RGBA: 0x1908, UNSIGNED_BYTE: 0x1401,
-    TEXTURE_MIN_FILTER: 0x2801, TEXTURE_MAG_FILTER: 0x2800, TEXTURE_WRAP_S: 0x2802, TEXTURE_WRAP_T: 0x2803,
-    NEAREST: 0x2600, LINEAR: 0x2601, CLAMP_TO_EDGE: 0x812f,
-    VERTEX_SHADER: 0x8b31, FRAGMENT_SHADER: 0x8b30,
-    COMPILE_STATUS: 0x8b81, LINK_STATUS: 0x8b82, ACTIVE_UNIFORM_BLOCKS: 0x8a36, ACTIVE_UNIFORMS: 0x8b86,
+    SAMPLER_2D: 0x8b5e,
+    SAMPLER_CUBE: 0x8b60,
+    SAMPLER_3D: 0x8b5f,
+    SAMPLER_2D_ARRAY: 0x8dc1,
+    TEXTURE_2D: 0x0de1,
+    RGBA8: 0x8058,
+    RGBA: 0x1908,
+    UNSIGNED_BYTE: 0x1401,
+    TEXTURE_MIN_FILTER: 0x2801,
+    TEXTURE_MAG_FILTER: 0x2800,
+    TEXTURE_WRAP_S: 0x2802,
+    TEXTURE_WRAP_T: 0x2803,
+    NEAREST: 0x2600,
+    LINEAR: 0x2601,
+    CLAMP_TO_EDGE: 0x812f,
+    VERTEX_SHADER: 0x8b31,
+    FRAGMENT_SHADER: 0x8b30,
+    COMPILE_STATUS: 0x8b81,
+    LINK_STATUS: 0x8b82,
+    ACTIVE_UNIFORM_BLOCKS: 0x8a36,
+    ACTIVE_UNIFORMS: 0x8b86,
     // texture create/destroy
     createTexture: () => ({ id: 'tex' }),
     bindTexture: () => {},
     texImage2D: () => {},
     texParameteri: () => {},
-    deleteTexture: (t: unknown) => { deleted.textures.push(t) },
+    deleteTexture: (t: unknown) => {
+      deleted.textures.push(t)
+    },
     // sampler create/destroy
     createSampler: () => ({ id: 'samp' }),
     samplerParameteri: () => {},
-    deleteSampler: (s: unknown) => { deleted.samplers.push(s) },
+    deleteSampler: (s: unknown) => {
+      deleted.samplers.push(s)
+    },
     // pipeline (program) create/destroy
     createShader: () => ({ id: 'shader' }),
     shaderSource: () => {},
@@ -58,7 +84,9 @@ function fakeGl(): { gl: WebGL2RenderingContext; deleted: { textures: unknown[];
     getActiveUniform: () => null,
     getUniformLocation: () => null,
     uniform1i: () => {},
-    deleteProgram: (p: unknown) => { deleted.programs.push(p) },
+    deleteProgram: (p: unknown) => {
+      deleted.programs.push(p)
+    },
   } as unknown as WebGL2RenderingContext
   return { gl, deleted }
 }
@@ -67,7 +95,12 @@ describe('RHI create/destroy symmetry — WebGL2 (#782)', () => {
   it('destroyTexture deletes the exact GL texture the create returned', () => {
     const { gl, deleted } = fakeGl()
     const dev = new WebGl2Device(gl)
-    const tex = dev.createTexture({ width: 4, height: 4, format: 'rgba8unorm', usage: ['sample', 'copy-dst'] })
+    const tex = dev.createTexture({
+      width: 4,
+      height: 4,
+      format: 'rgba8unorm',
+      usage: ['sample', 'copy-dst'],
+    })
     dev.destroyTexture(tex)
     expect(deleted.textures).toHaveLength(1)
     expect(deleted.textures[0]).toEqual({ id: 'tex' })
@@ -86,8 +119,13 @@ describe('RHI create/destroy symmetry — WebGL2 (#782)', () => {
     const { gl, deleted } = fakeGl()
     const dev = new WebGl2Device(gl)
     const pipe = dev.createPipeline({
-      code: '', vsEntry: 'vs', fsEntry: 'fs', vsCode: '#version 300 es\nvoid main(){}', fsCode: '#version 300 es\nvoid main(){}',
-      bindGroupLayouts: [], colorTargets: [{ format: 'rgba8unorm' }],
+      code: '',
+      vsEntry: 'vs',
+      fsEntry: 'fs',
+      vsCode: '#version 300 es\nvoid main(){}',
+      fsCode: '#version 300 es\nvoid main(){}',
+      bindGroupLayouts: [],
+      colorTargets: [{ format: 'rgba8unorm' }],
     })
     dev.destroyPipeline(pipe)
     expect(deleted.programs).toHaveLength(1)
@@ -99,7 +137,13 @@ describe('RHI create/destroy symmetry — WebGPU (#782)', () => {
   it('destroyTexture calls the native GPUTexture.destroy()', () => {
     let destroyed = 0
     const dev = new WebGpuDevice({} as GPUDevice)
-    const handle = { native: { destroy: () => { destroyed++ } } } as unknown as RhiTexture
+    const handle = {
+      native: {
+        destroy: () => {
+          destroyed++
+        },
+      },
+    } as unknown as RhiTexture
     dev.destroyTexture(handle)
     expect(destroyed).toBe(1)
   })
@@ -107,7 +151,13 @@ describe('RHI create/destroy symmetry — WebGPU (#782)', () => {
   it('destroySampler is a no-op — a GPUSampler is GC-owned (must not reach behind the handle)', () => {
     let touched = 0
     const dev = new WebGpuDevice({} as GPUDevice)
-    const handle = { native: { destroy: () => { touched++ } } } as unknown as RhiSampler
+    const handle = {
+      native: {
+        destroy: () => {
+          touched++
+        },
+      },
+    } as unknown as RhiSampler
     expect(() => dev.destroySampler(handle)).not.toThrow()
     expect(touched).toBe(0)
   })
@@ -115,7 +165,13 @@ describe('RHI create/destroy symmetry — WebGPU (#782)', () => {
   it('destroyPipeline is a no-op — a GPURenderPipeline is GC-owned (must not reach behind the handle)', () => {
     let touched = 0
     const dev = new WebGpuDevice({} as GPUDevice)
-    const handle = { native: { destroy: () => { touched++ } } } as unknown as RhiPipeline
+    const handle = {
+      native: {
+        destroy: () => {
+          touched++
+        },
+      },
+    } as unknown as RhiPipeline
     expect(() => dev.destroyPipeline(handle)).not.toThrow()
     expect(touched).toBe(0)
   })

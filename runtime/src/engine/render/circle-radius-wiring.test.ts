@@ -38,13 +38,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<GPUContext> {
   const canvas = { width: 1024, height: 768 } as unknown as HTMLCanvasElement
@@ -63,13 +68,17 @@ const H = 768
 
 const STRIDE = 24
 const FEAT_BYTES = STRIDE * 4 // 96 — one point
-const RADIUS_SLOT = 0          // feat_data slot 0 = radius_px
+const RADIUS_SLOT = 0 // feat_data slot 0 = radius_px
 
 /** Add a single opaque circle layer with the given circle-radius, run render()
  *  once, and return feat_data slot 0 from the per-feature buffer the renderer
  *  actually uploads. */
 function capturedRadiusSlot(ctx: GPUContext, radiusPx: number): number {
-  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
+  const renderer = new PointRenderer({
+    device: ctx.device,
+    format: ctx.format,
+    rhi: new WebGpuDevice(ctx.device),
+  })
   // addLayer positional head: features, fill, stroke, strokeWidth, radiusPx, opacity.
   renderer.addLayer(FEATURES as never, FILL, null, 1, radiusPx, 1)
 
@@ -77,19 +86,30 @@ function capturedRadiusSlot(ctx: GPUContext, radiusPx: number): number {
   const device = ctx.device as unknown as {
     queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer) => void }
   }
-  device.queue.writeBuffer = (buf: unknown, _off: number, data: ArrayBufferView | ArrayBuffer): void => {
+  device.queue.writeBuffer = (
+    buf: unknown,
+    _off: number,
+    data: ArrayBufferView | ArrayBuffer,
+  ): void => {
     if ((buf as { size?: number })?.size !== FEAT_BYTES) return
-    const f32 = data instanceof ArrayBuffer
-      ? new Float32Array(data)
-      : new Float32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset, STRIDE)
+    const f32 =
+      data instanceof ArrayBuffer
+        ? new Float32Array(data)
+        : new Float32Array(
+            (data as ArrayBufferView).buffer,
+            (data as ArrayBufferView).byteOffset,
+            STRIDE,
+          )
     slot0 = f32[RADIUS_SLOT]
   }
 
   const camera = new Camera(10, 20, 8)
   camera.projType = 0
-  const encoder = (ctx.device as unknown as {
-    createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
-  }).createCommandEncoder()
+  const encoder = (
+    ctx.device as unknown as {
+      createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
+    }
+  ).createCommandEncoder()
   const pass = encoder.beginRenderPass()
   renderer.render(pass, camera, 0, 10, 20, W, H, 1)
 

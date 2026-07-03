@@ -23,10 +23,7 @@
 //  back so the main-thread pool can route the response without
 //  re-deriving the key from (z, x, y).
 
-import {
-  geojsonvt, encodeMVT,
-  type GeoJSONVT, type GeoJSONVTOptions,
-} from '@xgis/compiler'
+import { geojsonvt, encodeMVT, type GeoJSONVT, type GeoJSONVTOptions } from '@xgis/compiler'
 
 interface SetSourceIn {
   kind: 'set-source'
@@ -102,8 +99,10 @@ type OutMsg = SetSourceDoneOut | SetSourceErrOut | TileOut | TileErrOut
 const indexes = new Map<string, GeoJSONVT>()
 
 function post(msg: OutMsg, transfer?: Transferable[]): void {
-  ;(self as unknown as { postMessage: (m: OutMsg, t?: Transferable[]) => void })
-    .postMessage(msg, transfer)
+  ;(self as unknown as { postMessage: (m: OutMsg, t?: Transferable[]) => void }).postMessage(
+    msg,
+    transfer,
+  )
 }
 
 self.addEventListener('message', (ev: MessageEvent) => {
@@ -126,13 +125,18 @@ self.addEventListener('message', (ev: MessageEvent) => {
     if (msg.kind === 'get-tile') {
       const idx = indexes.get(msg.indexKey)
       if (!idx) {
-        post({ kind: 'tile-error', taskId: msg.taskId, message: `unknown source: ${msg.sourceName}` })
+        post({
+          kind: 'tile-error',
+          taskId: msg.taskId,
+          message: `unknown source: ${msg.sourceName}`,
+        })
         return
       }
       const tile = idx.getTile(msg.z, msg.x, msg.y)
-      const bytes = (tile && tile.features.length > 0)
-        ? encodeMVT([{ name: msg.sourceName, tile }])
-        : new Uint8Array(0)
+      const bytes =
+        tile && tile.features.length > 0
+          ? encodeMVT([{ name: msg.sourceName, tile }])
+          : new Uint8Array(0)
       post(
         { kind: 'tile', taskId: msg.taskId, sourceName: msg.sourceName, key: msg.key, bytes },
         bytes.byteLength > 0 ? [bytes.buffer] : [],
@@ -153,6 +157,13 @@ self.addEventListener('message', (ev: MessageEvent) => {
 })
 
 export type {
-  SetSourceIn, GetTileIn, DropSourceIn, InMsg,
-  SetSourceDoneOut, SetSourceErrOut, TileOut, TileErrOut, OutMsg,
+  SetSourceIn,
+  GetTileIn,
+  DropSourceIn,
+  InMsg,
+  SetSourceDoneOut,
+  SetSourceErrOut,
+  TileOut,
+  TileErrOut,
+  OutMsg,
 }

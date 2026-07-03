@@ -33,21 +33,45 @@ import type { TextDraw } from '@xgis/map'
 // WebGPU bitflag globals the GPU classes touch at construction.
 const G = globalThis as Record<string, unknown>
 G.GPUShaderStage ??= { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 }
-G.GPUBufferUsage ??= { MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8, INDEX: 16, VERTEX: 32, UNIFORM: 64, STORAGE: 128, INDIRECT: 256, QUERY_RESOLVE: 512 }
-G.GPUTextureUsage ??= { COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8, RENDER_ATTACHMENT: 16 }
+G.GPUBufferUsage ??= {
+  MAP_READ: 1,
+  MAP_WRITE: 2,
+  COPY_SRC: 4,
+  COPY_DST: 8,
+  INDEX: 16,
+  VERTEX: 32,
+  UNIFORM: 64,
+  STORAGE: 128,
+  INDIRECT: 256,
+  QUERY_RESOLVE: 512,
+}
+G.GPUTextureUsage ??= {
+  COPY_SRC: 1,
+  COPY_DST: 2,
+  TEXTURE_BINDING: 4,
+  STORAGE_BINDING: 8,
+  RENDER_ATTACHMENT: 16,
+}
 G.GPUColorWrite ??= { RED: 1, GREEN: 2, BLUE: 4, ALPHA: 8, ALL: 15 }
 
 function stubDevice(): GPUDevice {
-  const stub: unknown = new Proxy(function () { return stub }, {
-    get(_t, p) {
-      if (p === 'size') return 1 << 22
-      if (p === 'width' || p === 'height') return 4096
-      if (p === 'limits') return { maxTextureDimension2D: 8192 }
-      if (p === Symbol.toPrimitive) return () => 0
+  const stub: unknown = new Proxy(
+    function () {
       return stub
     },
-    apply() { return stub },
-  })
+    {
+      get(_t, p) {
+        if (p === 'size') return 1 << 22
+        if (p === 'width' || p === 'height') return 4096
+        if (p === 'limits') return { maxTextureDimension2D: 8192 }
+        if (p === Symbol.toPrimitive) return () => 0
+        return stub
+      },
+      apply() {
+        return stub
+      },
+    },
+  )
   return stub as GPUDevice
 }
 
@@ -63,20 +87,34 @@ class LatinMetricsRasterizer implements GlyphRasterizer {
     let bearingY = 0.74 * fontSize // default cap-ish
     let height = 0.74 * fontSize
     if (/[a-z]/.test(ch)) {
-      if ('gjpqy'.includes(ch)) { bearingY = 0.52 * fontSize; height = 0.72 * fontSize } // x-height + descender
-      else { bearingY = 0.52 * fontSize; height = 0.52 * fontSize } // x-height, no descender
+      if ('gjpqy'.includes(ch)) {
+        bearingY = 0.52 * fontSize
+        height = 0.72 * fontSize
+      } // x-height + descender
+      else {
+        bearingY = 0.52 * fontSize
+        height = 0.52 * fontSize
+      } // x-height, no descender
     }
     // Minimal non-empty SDF so the glyph isn't culled as blank.
     const alpha = new Uint8Array(slotSize * slotSize)
-    const cx = slotSize / 2, cy = slotSize / 2, r = slotSize / 5
+    const cx = slotSize / 2,
+      cy = slotSize / 2,
+      r = slotSize / 5
     for (let y = 0; y < slotSize; y++)
       for (let x = 0; x < slotSize; x++)
         if (Math.hypot(x - cx, y - cy) < r) alpha[y * slotSize + x] = 255
     return {
-      fontKey, codepoint, sdfRadius,
+      fontKey,
+      codepoint,
+      sdfRadius,
       sdf: computeSDF(alpha, slotSize, slotSize, sdfRadius),
-      advanceWidth: fontSize * 0.6, bearingX: 0,
-      bearingY, width: fontSize * 0.55, height, rasterFontSize: fontSize,
+      advanceWidth: fontSize * 0.6,
+      bearingX: 0,
+      bearingY,
+      width: fontSize * 0.55,
+      height,
+      rasterFontSize: fontSize,
     }
   }
 }
@@ -93,19 +131,34 @@ function defOf(size: number, anchor: string): LabelDef {
  *  marks the label icon-paired (a shield) — #608-scope routes that through the
  *  box-centred ink recentre instead of the standalone hang-below. */
 function inkCentroidRel(text: string, size: number, anchor: string, pairKey?: string): number {
-  const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', { rasterizer: new LatinMetricsRasterizer() })
+  const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', {
+    rasterizer: new LatinMetricsRasterizer(),
+  })
   const captured: TextDraw[][] = []
-  ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws =
-    (d: TextDraw[]) => { captured.push(d) }
+  ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws = (
+    d: TextDraw[],
+  ) => {
+    captured.push(d)
+  }
   stage.setCameraZoom(12)
   stage.beginFrame()
-  stage.addLabel(litValue(text), {}, 400, 300, defOf(size, anchor), undefined, 'highway-shield', pairKey)
+  stage.addLabel(
+    litValue(text),
+    {},
+    400,
+    300,
+    defOf(size, anchor),
+    undefined,
+    'highway-shield',
+    pairKey,
+  )
   stage.prepare()
   const draws = captured[0]!
-  const d = draws.find(dd => dd.glyphs.some(g => g.codepoint !== 10 && g.codepoint !== 32))
+  const d = draws.find((dd) => dd.glyphs.some((g) => g.codepoint !== 10 && g.codepoint !== 32))
   expect(d, `draw for "${text}" missing`).toBeDefined()
   const off = d!.glyphOffsets!
-  let minTop = Infinity, maxBot = -Infinity
+  let minTop = Infinity,
+    maxBot = -Infinity
   for (let i = 0; i < d!.glyphs.length; i++) {
     const g = d!.glyphs[i]!
     if (g.codepoint === 10 || g.codepoint === 32) continue

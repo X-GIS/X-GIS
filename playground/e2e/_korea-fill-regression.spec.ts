@@ -27,7 +27,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const OUT = join(HERE, '__korea-fill-regression__')
 mkdirSync(OUT, { recursive: true })
 
-const FILL_RGB: [number, number, number] = [225, 29, 72]   // #e11d48 rose-600
+const FILL_RGB: [number, number, number] = [225, 29, 72] // #e11d48 rose-600
 const TOL = 35
 
 test('Korea polygon fills at z=5 — multi-visible-tile dedup regression', async ({ page }) => {
@@ -52,24 +52,56 @@ test('Korea polygon fills at z=5 — multi-visible-tile dedup regression', async
             data: {
               type: 'FeatureCollection',
               features: [
-                { type: 'Feature', properties: { id: 'korea-box' },
-                  geometry: { type: 'Polygon', coordinates: [[
-                    [125.5, 37.0], [128.5, 37.0], [128.5, 39.0], [125.5, 39.0], [125.5, 37.0],
-                  ]] } },
-                { type: 'Feature', properties: { id: 'tokyo-box' },
-                  geometry: { type: 'Polygon', coordinates: [[
-                    [139.5, 35.5], [140.0, 35.5], [140.0, 36.0], [139.5, 36.0], [139.5, 35.5],
-                  ]] } },
+                {
+                  type: 'Feature',
+                  properties: { id: 'korea-box' },
+                  geometry: {
+                    type: 'Polygon',
+                    coordinates: [
+                      [
+                        [125.5, 37.0],
+                        [128.5, 37.0],
+                        [128.5, 39.0],
+                        [125.5, 39.0],
+                        [125.5, 37.0],
+                      ],
+                    ],
+                  },
+                },
+                {
+                  type: 'Feature',
+                  properties: { id: 'tokyo-box' },
+                  geometry: {
+                    type: 'Polygon',
+                    coordinates: [
+                      [
+                        [139.5, 35.5],
+                        [140.0, 35.5],
+                        [140.0, 36.0],
+                        [139.5, 36.0],
+                        [139.5, 35.5],
+                      ],
+                    ],
+                  },
+                },
               ],
             },
           },
         },
         layers: [
           { id: 'background', type: 'background', paint: { 'background-color': '#0f172a' } },
-          { id: 'annotation-fill', type: 'fill', source: 'annotations',
-            paint: { 'fill-color': '#e11d48', 'fill-opacity': 0.85 } },
-          { id: 'annotation-stroke', type: 'line', source: 'annotations',
-            paint: { 'line-color': '#fef3c7', 'line-width': 2 } },
+          {
+            id: 'annotation-fill',
+            type: 'fill',
+            source: 'annotations',
+            paint: { 'fill-color': '#e11d48', 'fill-opacity': 0.85 },
+          },
+          {
+            id: 'annotation-stroke',
+            type: 'line',
+            source: 'annotations',
+            paint: { 'line-color': '#fef3c7', 'line-width': 2 },
+          },
         ],
       }),
     })
@@ -80,41 +112,61 @@ test('Korea polygon fills at z=5 — multi-visible-tile dedup regression', async
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
-  await page.waitForFunction(() => {
-    const map = (window as unknown as { __xgisMap?: { vtSources: Map<string, unknown> } }).__xgisMap
-    if (!map?.vtSources) return false
-    for (const entry of map.vtSources.values()) {
-      const r = entry as { renderer?: { getCacheSize?: () => number } }
-      if ((r.renderer?.getCacheSize?.() ?? 0) > 0) return true
-    }
-    return false
-  }, null, { timeout: 10_000 })
-  await page.evaluate(() => new Promise<void>((r) => {
-    let n = 0
-    const loop = () => { if (++n >= 8) r(); else requestAnimationFrame(loop) }
-    requestAnimationFrame(loop)
-  }))
+  await page.waitForFunction(
+    () => {
+      const map = (window as unknown as { __xgisMap?: { vtSources: Map<string, unknown> } })
+        .__xgisMap
+      if (!map?.vtSources) return false
+      for (const entry of map.vtSources.values()) {
+        const r = entry as { renderer?: { getCacheSize?: () => number } }
+        if ((r.renderer?.getCacheSize?.() ?? 0) > 0) return true
+      }
+      return false
+    },
+    null,
+    { timeout: 10_000 },
+  )
+  await page.evaluate(
+    () =>
+      new Promise<void>((r) => {
+        let n = 0
+        const loop = () => {
+          if (++n >= 8) r()
+          else requestAnimationFrame(loop)
+        }
+        requestAnimationFrame(loop)
+      }),
+  )
 
-  const result = await page.evaluate(async ({ fill, tol }) => {
-    const canvas = document.getElementById('map') as HTMLCanvasElement
-    const blob = await new Promise<Blob | null>((res) => canvas.toBlob((b) => res(b), 'image/png'))
-    if (!blob) return { error: 'canvas.toBlob null' }
-    const bitmap = await createImageBitmap(blob)
-    const off = new OffscreenCanvas(bitmap.width, bitmap.height)
-    const ctx = off.getContext('2d')!
-    ctx.drawImage(bitmap, 0, 0)
-    const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data
-    const total = data.length / 4
-    let fillCount = 0
-    for (let i = 0; i < data.length; i += 4) {
-      if (Math.abs(data[i] - fill[0]) <= tol &&
+  const result = await page.evaluate(
+    async ({ fill, tol }) => {
+      const canvas = document.getElementById('map') as HTMLCanvasElement
+      const blob = await new Promise<Blob | null>((res) =>
+        canvas.toBlob((b) => res(b), 'image/png'),
+      )
+      if (!blob) return { error: 'canvas.toBlob null' }
+      const bitmap = await createImageBitmap(blob)
+      const off = new OffscreenCanvas(bitmap.width, bitmap.height)
+      const ctx = off.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0)
+      const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data
+      const total = data.length / 4
+      let fillCount = 0
+      for (let i = 0; i < data.length; i += 4) {
+        if (
+          Math.abs(data[i] - fill[0]) <= tol &&
           Math.abs(data[i + 1] - fill[1]) <= tol &&
-          Math.abs(data[i + 2] - fill[2]) <= tol) fillCount++
-    }
-    return { fillFraction: fillCount / total, width: bitmap.width, height: bitmap.height }
-  }, { fill: FILL_RGB, tol: TOL })
+          Math.abs(data[i + 2] - fill[2]) <= tol
+        )
+          fillCount++
+      }
+      return { fillFraction: fillCount / total, width: bitmap.width, height: bitmap.height }
+    },
+    { fill: FILL_RGB, tol: TOL },
+  )
 
   if ('error' in result) throw new Error(result.error as string)
 
@@ -125,10 +177,11 @@ test('Korea polygon fills at z=5 — multi-visible-tile dedup regression', async
   // After fix: Korea+Tokyo together fill ~0.6 % of the viewport at
   // this zoom (mostly Korea). Before fix Korea was hollow → ~0.06 %
   // from Tokyo alone. The 10× gap gives a clean threshold at 0.3 %.
-  expect(result.fillFraction,
+  expect(
+    result.fillFraction,
     `Korea fill missing — fillFraction=${(result.fillFraction * 100).toFixed(2)}% (expected > 0.3 %). ` +
-    `Likely a regression in renderTileKeys' renderedDraws dedup: when multiple visible tiles ` +
-    `share a parent fallback, each needs its own dispatch with its own clip_bounds, so the ` +
-    `dedup key must include visibleKey (not just parent + worldOff).`,
+      `Likely a regression in renderTileKeys' renderedDraws dedup: when multiple visible tiles ` +
+      `share a parent fallback, each needs its own dispatch with its own clip_bounds, so the ` +
+      `dedup key must include visibleKey (not just parent + worldOff).`,
   ).toBeGreaterThan(0.003)
 })

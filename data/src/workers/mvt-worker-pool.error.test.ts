@@ -80,7 +80,7 @@ describe('MvtWorkerPool — per-worker error isolation', () => {
     vi.unstubAllGlobals()
   })
 
-  it('rejects ONLY the crashed worker\'s job and keeps the survivor in flight', async () => {
+  it("rejects ONLY the crashed worker's job and keeps the survivor in flight", async () => {
     const pool = new MvtWorkerPool()
 
     // Two compiles round-robin: job A -> worker0, job B -> worker1.
@@ -89,10 +89,8 @@ describe('MvtWorkerPool — per-worker error isolation', () => {
     expect(pendingSize(pool)).toBe(2)
 
     // Identify which fake worker received which job by the posted taskId.
-    const worker0 = FakeWorker.instances.find(w => w.postedMessages.length > 0)!
-    const worker1 = FakeWorker.instances.find(
-      w => w.postedMessages.length > 0 && w !== worker0,
-    )!
+    const worker0 = FakeWorker.instances.find((w) => w.postedMessages.length > 0)!
+    const worker1 = FakeWorker.instances.find((w) => w.postedMessages.length > 0 && w !== worker0)!
     expect(worker0).toBeDefined()
     expect(worker1).toBeDefined()
     const taskIdA = worker0.postedMessages[0].taskId!
@@ -101,7 +99,12 @@ describe('MvtWorkerPool — per-worker error isolation', () => {
 
     // Surviving worker1's job must NOT reject when worker0 crashes — track it.
     let bRejected = false
-    void b.then(() => {}, () => { bRejected = true })
+    void b.then(
+      () => {},
+      () => {
+        bRejected = true
+      },
+    )
 
     // Crash ONLY worker0.
     worker0.emit('error', { message: 'worker0 crashed' })

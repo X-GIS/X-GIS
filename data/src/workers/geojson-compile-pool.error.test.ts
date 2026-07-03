@@ -65,11 +65,13 @@ import type { GeoJSONFeatureCollection } from '../geojson-types'
 function makeFC(): GeoJSONFeatureCollection {
   return {
     type: 'FeatureCollection',
-    features: [{
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [0, 0] },
-      properties: {},
-    }],
+    features: [
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [0, 0] },
+        properties: {},
+      },
+    ],
   }
 }
 
@@ -95,7 +97,7 @@ describe('GeoJSONCompilePool — worker error handling', () => {
     expect(pendingSize(pool)).toBe(1)
 
     // The job was dispatched to one of the round-robin workers.
-    const target = FakeWorker.instances.find(w => w.postedMessages.length > 0)
+    const target = FakeWorker.instances.find((w) => w.postedMessages.length > 0)
     expect(target).toBeDefined()
 
     // Fire a synthetic worker 'error' event (e.g. worker module-load failure

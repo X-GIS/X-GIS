@@ -9,7 +9,7 @@ describe('synthesizePolarCaps', () => {
     const fc = synthesizePolarCaps()
     expect(fc.type).toBe('FeatureCollection')
     expect(fc.features.length).toBe(2)
-    expect(fc.features.map(f => f.properties.pole).sort()).toEqual(['north', 'south'])
+    expect(fc.features.map((f) => f.properties.pole).sort()).toEqual(['north', 'south'])
   })
 
   it('emits only one pole when poles=north or poles=south', () => {
@@ -73,7 +73,7 @@ describe('synthesizePolarCaps', () => {
 
   it('uses stable ids for cap features', () => {
     const fc = synthesizePolarCaps()
-    const ids = fc.features.map(f => f.id)
+    const ids = fc.features.map((f) => f.id)
     expect(ids).toContain('__xgis_polar_cap_north__')
     expect(ids).toContain('__xgis_polar_cap_south__')
   })

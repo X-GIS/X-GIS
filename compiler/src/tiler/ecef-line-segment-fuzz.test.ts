@@ -29,18 +29,20 @@ import { describe, it, expect } from 'vitest'
 import { packECEFLineSegments } from './ecef-packing'
 
 // ── WGS84 constants (mirrors runtime/src/engine/projection/ecef.ts) ─────────
-const A = 6378137               // semi-major axis (m)
+const A = 6378137 // semi-major axis (m)
 const F = 1 / 298.257223563
-const E2 = F * (2 - F)          // first eccentricity squared
+const E2 = F * (2 - F) // first eccentricity squared
 const DEG2RAD = Math.PI / 180
 
 // ── Deterministic LCG RNG (same shape as ecef-precision-fuzz.test.ts) ───────
 function makeRng(seed: number): () => number {
   let s = seed | 0
   return () => {
-    s ^= s << 13; s |= 0
+    s ^= s << 13
+    s |= 0
     s ^= s >>> 17
-    s ^= s << 5;  s |= 0
+    s ^= s << 5
+    s |= 0
     return (s >>> 0) / 0x1_0000_0000
   }
 }
@@ -57,11 +59,7 @@ function lonLatRadToECEF(lon: number, lat: number): [number, number, number] {
   const sinLat = Math.sin(lat)
   const cosLat = Math.cos(lat)
   const N = A / Math.sqrt(1 - E2 * sinLat * sinLat)
-  return [
-    N * cosLat * Math.cos(lon),
-    N * cosLat * Math.sin(lon),
-    N * (1 - E2) * sinLat,
-  ]
+  return [N * cosLat * Math.cos(lon), N * cosLat * Math.sin(lon), N * (1 - E2) * sinLat]
 }
 
 /** WGS84 ECEF (m) → lon (rad), lat (rad) via Bowring iteration (4 iters) */
@@ -76,7 +74,10 @@ function ecefToLonLatRad(x: number, y: number, z: number): [number, number] {
     N = A / Math.sqrt(1 - E2 * sinLat * sinLat)
     height = p / Math.cos(lat) - N
     const newLat = Math.atan2(z, p * (1 - (E2 * N) / (N + height)))
-    if (Math.abs(newLat - lat) < 1e-12) { lat = newLat; break }
+    if (Math.abs(newLat - lat) < 1e-12) {
+      lat = newLat
+      break
+    }
     lat = newLat
   }
   return [lon, lat]
@@ -107,9 +108,7 @@ function buildScratch(mx: number, my: number): number[] {
 // ── Build a stride-8 scratch entry WITH a Mercator-frame outgoing tangent ───
 // Used by the PR 2d.1B ENU bake tests. `(tx, ty)` is the outgoing tangent
 // in tile-local Mercator-frame meters (sec(lat)-stretched on y).
-function buildScratchWithTangent(
-  mx: number, my: number, tx: number, ty: number,
-): number[] {
+function buildScratchWithTangent(mx: number, my: number, tx: number, ty: number): number[] {
   return [mx, my, 0, 0, 0, 0, tx, ty]
 }
 
@@ -140,17 +139,13 @@ function roundTripError(
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('PR 2d.1 Spike 1 — packECEFLineSegments precision round-trip', () => {
-
   it('stride-11 output: shape matches one entry per endpoint', () => {
     const [lon_rad, lat_rad] = mercatorToLonLatRad(0, 0)
     const center = lonLatRadToECEF(lon_rad, lat_rad)
     // Two endpoints, each stride 8 in.
-    const scratch = [
-      ...buildScratch(0, 0),
-      ...buildScratch(1000, 1000),
-    ]
+    const scratch = [...buildScratch(0, 0), ...buildScratch(1000, 1000)]
     const packed = packECEFLineSegments(scratch, center)
-    expect(packed.length).toBe(22)  // 2 endpoints × stride 11 (PR 2d.1B)
+    expect(packed.length).toBe(22) // 2 endpoints × stride 11 (PR 2d.1B)
   })
 
   it('single known endpoint: Tokyo at z=15, reconstruction ≤ 1 mm', () => {
@@ -166,7 +161,7 @@ describe('PR 2d.1 Spike 1 — packECEFLineSegments precision round-trip', () => 
     const center = lonLatRadToECEF(tLon, tLat)
 
     const err = roundTripError(mx, my, center)
-    expect(err).toBeLessThan(1e-3)  // 1 mm
+    expect(err).toBeLessThan(1e-3) // 1 mm
   })
 
   it('1e4 random endpoints — z=22: worst-case ≤ 1 mm', () => {
@@ -190,7 +185,7 @@ describe('PR 2d.1 Spike 1 — packECEFLineSegments precision round-trip', () => 
     }
 
     console.log(`[z=22] worst reconstruction error: ${(worst * 1000).toFixed(6)} mm`)
-    expect(worst).toBeLessThan(1e-3)   // 1 mm
+    expect(worst).toBeLessThan(1e-3) // 1 mm
   })
 
   it('1e4 random endpoints — z=15: worst-case ≤ 1 mm', () => {
@@ -214,7 +209,7 @@ describe('PR 2d.1 Spike 1 — packECEFLineSegments precision round-trip', () => 
     }
 
     console.log(`[z=15] worst reconstruction error: ${(worst * 1000).toFixed(6)} mm`)
-    expect(worst).toBeLessThan(1e-3)   // 1 mm
+    expect(worst).toBeLessThan(1e-3) // 1 mm
   })
 
   it('1e4 random endpoints — z=8: worst-case ≤ 1 cm', () => {
@@ -238,7 +233,7 @@ describe('PR 2d.1 Spike 1 — packECEFLineSegments precision round-trip', () => 
     }
 
     console.log(`[z=8] worst reconstruction error: ${(worst * 1000).toFixed(6)} mm`)
-    expect(worst).toBeLessThan(1e-2)   // 1 cm
+    expect(worst).toBeLessThan(1e-2) // 1 cm
   })
 
   it('1e4 random endpoints — z=0: worst-case ≤ 1 cm', () => {
@@ -251,10 +246,8 @@ describe('PR 2d.1 Spike 1 — packECEFLineSegments precision round-trip', () => 
     for (let i = 0; i < 10_000; i++) {
       const baseMx = (rng() * 2 - 1) * MX_MAX * 0.5
       const baseMy = (rng() * 2 - 1) * MY_MAX * 0.5
-      const mx = Math.max(-MX_MAX, Math.min(MX_MAX,
-        baseMx + (rng() * 2 - 1) * HALF))
-      const my = Math.max(-MY_MAX, Math.min(MY_MAX,
-        baseMy + (rng() * 2 - 1) * HALF))
+      const mx = Math.max(-MX_MAX, Math.min(MX_MAX, baseMx + (rng() * 2 - 1) * HALF))
+      const my = Math.max(-MY_MAX, Math.min(MY_MAX, baseMy + (rng() * 2 - 1) * HALF))
 
       const [tLon, tLat] = mercatorToLonLatRad(baseMx, baseMy)
       const center = lonLatRadToECEF(tLon, tLat)
@@ -264,7 +257,7 @@ describe('PR 2d.1 Spike 1 — packECEFLineSegments precision round-trip', () => 
     }
 
     console.log(`[z=0] worst reconstruction error: ${(worst * 1000).toFixed(6)} mm`)
-    expect(worst).toBeLessThan(1e-2)   // 1 cm
+    expect(worst).toBeLessThan(1e-2) // 1 cm
   })
 
   it('abs_lon/abs_lat passthrough: 1e4 endpoints match Mercator inverse to < 1e-5 degrees', () => {
@@ -305,7 +298,9 @@ describe('PR 2d.1 Spike 1 — packECEFLineSegments precision round-trip', () => 
       expect(packed_lat_deg).toBeLessThanOrEqual(85.0511)
     }
 
-    console.log(`[abs_lon/abs_lat] worst delta: lon=${worstLon.toExponential(3)}°  lat=${worstLat.toExponential(3)}°`)
+    console.log(
+      `[abs_lon/abs_lat] worst delta: lon=${worstLon.toExponential(3)}°  lat=${worstLat.toExponential(3)}°`,
+    )
     expect(worstLon).toBeLessThan(1e-5)
     expect(worstLat).toBeLessThan(1e-5)
   })
@@ -332,7 +327,7 @@ describe('PR 2d.1 Spike 1 — packECEFLineSegments precision round-trip', () => 
       ref.push([mx, my])
     }
     const packed = packECEFLineSegments(scratch, center)
-    expect(packed.length).toBe(N * 11)  // PR 2d.1B stride 11
+    expect(packed.length).toBe(N * 11) // PR 2d.1B stride 11
 
     let worst = 0
     for (let i = 0; i < N; i++) {
@@ -346,7 +341,7 @@ describe('PR 2d.1 Spike 1 — packECEFLineSegments precision round-trip', () => 
       const err = arcLengthM(srcLon, srcLat, recLon, recLat)
       if (err > worst) worst = err
     }
-    expect(worst).toBeLessThan(1e-3)  // 1 mm at z=15
+    expect(worst).toBeLessThan(1e-3) // 1 mm at z=15
   })
 })
 
@@ -371,8 +366,8 @@ describe('PR 2d.1B — packECEFLineSegments per-endpoint ENU offset slots', () =
     for (let i = 0; i < 1000; i++) {
       const mx = (rng() * 2 - 1) * MX_MAX
       const my = (rng() * 2 - 1) * MY_MAX
-      const tx = (rng() * 2 - 1)
-      const ty = (rng() * 2 - 1)
+      const tx = rng() * 2 - 1
+      const ty = rng() * 2 - 1
       const [tLon, tLat] = mercatorToLonLatRad(0, 0)
       const center = lonLatRadToECEF(tLon, tLat)
       const packed = packECEFLineSegments(buildScratchWithTangent(mx, my, tx, ty), center)
@@ -386,9 +381,9 @@ describe('PR 2d.1B — packECEFLineSegments per-endpoint ENU offset slots', () =
     // At equator, Mercator y == ENU north metres → no rescaling; the
     // baked ENU vec3 should equal the input tangent normalised.
     const mx = 0
-    const my = 0  // equator
+    const my = 0 // equator
     const tx = 0.6
-    const ty = 0.8  // pre-normalised
+    const ty = 0.8 // pre-normalised
     const [tLon, tLat] = mercatorToLonLatRad(0, 0)
     const center = lonLatRadToECEF(tLon, tLat)
     const packed = packECEFLineSegments(buildScratchWithTangent(mx, my, tx, ty), center)
@@ -409,7 +404,7 @@ describe('PR 2d.1B — packECEFLineSegments per-endpoint ENU offset slots', () =
     const my = A * Math.log(Math.tan(Math.PI / 4 + lat85 / 2))
     const mx = 0
     const tx = 1.0
-    const ty = 1.0  // mixed direction so cos(lat) actually matters
+    const ty = 1.0 // mixed direction so cos(lat) actually matters
     const [tLon, tLat] = mercatorToLonLatRad(0, 0)
     const center = lonLatRadToECEF(tLon, tLat)
     const packed = packECEFLineSegments(buildScratchWithTangent(mx, my, tx, ty), center)

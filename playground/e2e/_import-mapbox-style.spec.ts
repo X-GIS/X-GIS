@@ -19,7 +19,9 @@ test('import "mapbox-style-url" loads + renders without compile errors', async (
   await page.setViewportSize({ width: 1280, height: 800 })
 
   const errors: string[] = []
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(m.text())
+  })
   page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`))
 
   await page.goto('/demo.html?id=import_mapbox_style#1.5/0/0/0/0', {
@@ -27,7 +29,8 @@ test('import "mapbox-style-url" loads + renders without compile errors', async (
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // Tiles fetch over the network — give them time.
   await page.waitForTimeout(5_000)
@@ -41,14 +44,13 @@ test('import "mapbox-style-url" loads + renders without compile errors', async (
   // painted (or pure white from the canvas default).
   const stats = await page.evaluate(async () => {
     const canvas = document.getElementById('map') as HTMLCanvasElement
-    const blob = await new Promise<Blob | null>((res) =>
-      canvas.toBlob((b) => res(b), 'image/png'),
-    )
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob((b) => res(b), 'image/png'))
     if (!blob) return { error: 'no blob' }
     const url = URL.createObjectURL(blob)
     const img = await new Promise<HTMLImageElement>((res, rej) => {
       const i = new Image()
-      i.onload = () => res(i); i.onerror = () => rej(new Error('decode'))
+      i.onload = () => res(i)
+      i.onerror = () => rej(new Error('decode'))
       i.src = url
     })
     const off = new OffscreenCanvas(img.width, img.height)
@@ -74,16 +76,18 @@ test('import "mapbox-style-url" loads + renders without compile errors', async (
   // Most pixels should be non-black — the bg color alone fills 100%
   // of pixels with #f8f4f0. The threshold 90% accommodates any
   // text/road geometry that hasn't drawn yet at this zoom.
-  expect(stats.nonBlack / stats.total,
+  expect(
+    stats.nonBlack / stats.total,
     `expected mostly non-black canvas (Bright bg); got ${stats.nonBlack}/${stats.total}`,
   ).toBeGreaterThan(0.9)
 
   // No compile errors — the original user-bug shape would surface as
   // "Unexpected character: '-'" or similar at the top of the console.
-  const compileErrors = errors.filter(e =>
-    e.includes('Unexpected character') ||
-    e.includes('Expected utility name') ||
-    e.includes('parse error'),
+  const compileErrors = errors.filter(
+    (e) =>
+      e.includes('Unexpected character') ||
+      e.includes('Expected utility name') ||
+      e.includes('parse error'),
   )
   expect(compileErrors, 'no compile errors from imported Mapbox style').toEqual([])
 })

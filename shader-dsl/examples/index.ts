@@ -18,9 +18,29 @@ import { computeReduction } from './compute-reduction.ts'
 import type { ShaderExample } from './_shared.ts'
 
 export type { ShaderExample, Control } from './_shared.ts'
-export { graticule, hillshade, colorRamp, plasma, voronoi, julia, fbmClouds, raymarchSphere, gradient, computeReduction }
+export {
+  graticule,
+  hillshade,
+  colorRamp,
+  plasma,
+  voronoi,
+  julia,
+  fbmClouds,
+  raymarchSphere,
+  gradient,
+  computeReduction,
+}
 
 /** All examples, cartographic first (they belong on a map site), then generic, then compute. */
 export const examples: readonly ShaderExample[] = [
-  graticule, hillshade, colorRamp, plasma, voronoi, julia, fbmClouds, raymarchSphere, gradient, computeReduction,
+  graticule,
+  hillshade,
+  colorRamp,
+  plasma,
+  voronoi,
+  julia,
+  fbmClouds,
+  raymarchSphere,
+  gradient,
+  computeReduction,
 ]

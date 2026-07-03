@@ -40,8 +40,8 @@ function topHotFunctions(profile: CpuProfile, topN = 30) {
     const dt = deltas[i] ?? 0
     selfMicros.set(id, (selfMicros.get(id) ?? 0) + dt)
   }
-  const totalMicros = (profile.endTime - profile.startTime)
-  const rows = profile.nodes.map(n => ({
+  const totalMicros = profile.endTime - profile.startTime
+  const rows = profile.nodes.map((n) => ({
     name: n.callFrame.functionName || '(anonymous)',
     url: n.callFrame.url || '',
     line: n.callFrame.lineNumber,
@@ -52,12 +52,16 @@ function topHotFunctions(profile: CpuProfile, topN = 30) {
   return rows.slice(0, topN)
 }
 
-async function recordProfile(cdp: CDPSession, durationMs: number, animationFn: () => Promise<void>) {
+async function recordProfile(
+  cdp: CDPSession,
+  durationMs: number,
+  animationFn: () => Promise<void>,
+) {
   await cdp.send('Profiler.enable')
-  await cdp.send('Profiler.setSamplingInterval', { interval: 100 })  // 10 kHz
+  await cdp.send('Profiler.setSamplingInterval', { interval: 100 }) // 10 kHz
   await cdp.send('Profiler.start')
   await animationFn()
-  const stopped = await cdp.send('Profiler.stop') as { profile: CpuProfile }
+  const stopped = (await cdp.send('Profiler.stop')) as { profile: CpuProfile }
   await cdp.send('Profiler.disable')
   return stopped.profile
 }
@@ -65,7 +69,8 @@ async function recordProfile(cdp: CDPSession, durationMs: number, animationFn: (
 async function waitForXgisReady(page: Page) {
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
 }
 
@@ -79,24 +84,31 @@ test('Bright zoom-transition profile (z=10→14 in 4 s)', async ({ page, context
   }, xgis)
   await page.goto('/demo.html?id=__import#10/35.68/139.76/0/0', { waitUntil: 'domcontentloaded' })
   await waitForXgisReady(page)
-  await page.waitForTimeout(5_000)  // settle initial cascade
+  await page.waitForTimeout(5_000) // settle initial cascade
 
   const cdp = await context.newCDPSession(page)
   const PROFILE_MS = 4000
 
   const profile = await recordProfile(cdp, PROFILE_MS, async () => {
     await page.evaluate(async (durationMs: number) => {
-      const map = (window as unknown as { __xgisMap?: {
-        getCamera: () => { zoom: number };
-        invalidate: () => void;
-      } }).__xgisMap!
+      const map = (
+        window as unknown as {
+          __xgisMap?: {
+            getCamera: () => { zoom: number }
+            invalidate: () => void
+          }
+        }
+      ).__xgisMap!
       const cam = map.getCamera()
       const start = performance.now()
       return await new Promise<void>((res) => {
         const tick = () => {
           const now = performance.now()
           const elapsed = now - start
-          if (elapsed >= durationMs) { res(); return }
+          if (elapsed >= durationMs) {
+            res()
+            return
+          }
           // Linear zoom 10 → 14 over the duration
           cam.zoom = 10 + (elapsed / durationMs) * 4
           map.invalidate()
@@ -117,9 +129,11 @@ test('Bright zoom-transition profile (z=10→14 in 4 s)', async ({ page, context
   console.log(`\n[hot] top 30 by self time over ${PROFILE_MS}ms zoom transition:`)
   const hot = topHotFunctions(profile, 30)
   for (const r of hot) {
-    if (r.selfMs < 5) continue  // floor: noise threshold
+    if (r.selfMs < 5) continue // floor: noise threshold
     const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
     // eslint-disable-next-line no-console
-    console.log(`  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(40)} ${url}:${r.line}`)
+    console.log(
+      `  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(40)} ${url}:${r.line}`,
+    )
   }
 })

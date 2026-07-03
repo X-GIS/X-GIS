@@ -126,7 +126,7 @@ raster tier, so push stays fast (`precheck.ts:1-21`).
 ### Sub-decision: pixel-match is non-gating for labels
 
 The labels pixel-match survey **cannot** gate label fidelity. A multi-threshold
-A/B proved that adding *correctly-placed* labels *lowers* the X-GIS↔MapLibre
+A/B proved that adding _correctly-placed_ labels _lowers_ the X-GIS↔MapLibre
 pixel-match at every tolerance (through Δ≤128): the two engines render
 different label sets and different font/halo, so label ink never pixel-aligns
 (`_label-anchor-parity.spec.ts:5-18`). Label fidelity is therefore gated on
@@ -134,7 +134,7 @@ different label sets and different font/halo, so label ink never pixel-aligns
 
 - `_label-anchor-parity` — matches X-GIS placed anchors to MapLibre point
   symbols by text and asserts the vertical residual `ry = xgis.anchorY -
-  ml.project(lonlat).y` is sub-pixel. (Horizontal is intentionally not
+ml.project(lonlat).y` is sub-pixel. (Horizontal is intentionally not
   asserted: X-GIS reports the glyph-run left edge, MapLibre the center.)
 - `_projection-label-onscreen` — asserts anchors stay on screen across all 8
   projections.
@@ -171,7 +171,7 @@ clip and dequant kernels match their CPU mirrors, the projection/tiling CPU
 math matches the independent Python standards, and the full vitest logic suite
 (camera math, slice-key invariants, filter routing) is green. A projection-math
 or WGSL regression fails CI, not just a human eyeball — which was deep-dive
-finding #1 on 2026-05-25: *the unit suite never executes a shader*
+finding #1 on 2026-05-25: _the unit suite never executes a shader_
 (`test.yml:40-43`).
 
 **What CI does NOT guarantee — by design.** Anything that needs a correct
@@ -179,7 +179,7 @@ raster: pixel parity with MapLibre, globe/non-Mercator disc coverage, label
 placement, seam/flicker artifacts, paint-ratio. These are caught by the
 real-GPU local / pre-push tier, the autonomous screenshot-eyeball loop, and
 human review. This is a **deliberate split, not a coverage gap**: SwiftShader
-*cannot* validate them (false-positive diffs) and *cannot even initialize* the
+_cannot_ validate them (false-positive diffs) and _cannot even initialize_ the
 specs that would try (pipeline-init timeout). Putting them in CI would add red
 noise, not signal.
 

@@ -39,7 +39,11 @@ export interface CapturedValidationError {
  */
 export async function getValidationErrors(page: Page): Promise<CapturedValidationError[]> {
   return await page.evaluate(() => {
-    const m = (window as unknown as { __xgisMap?: { ctx?: { _validationErrors?: CapturedValidationError[] } } }).__xgisMap
+    const m = (
+      window as unknown as {
+        __xgisMap?: { ctx?: { _validationErrors?: CapturedValidationError[] } }
+      }
+    ).__xgisMap
     return [...(m?.ctx?._validationErrors ?? [])]
   })
 }
@@ -50,7 +54,11 @@ export async function getValidationErrors(page: Page): Promise<CapturedValidatio
  */
 export async function clearValidationErrors(page: Page): Promise<void> {
   await page.evaluate(() => {
-    const m = (window as unknown as { __xgisMap?: { ctx?: { _validationErrors?: CapturedValidationError[] } } }).__xgisMap
+    const m = (
+      window as unknown as {
+        __xgisMap?: { ctx?: { _validationErrors?: CapturedValidationError[] } }
+      }
+    ).__xgisMap
     if (m?.ctx?._validationErrors) m.ctx._validationErrors.length = 0
   })
 }
@@ -73,10 +81,7 @@ export async function clearValidationErrors(page: Page): Promise<void> {
  * them into a single multi-line error message so the failure
  * report shows every validation failure, not just the first.
  */
-export async function withValidationCapture<T>(
-  page: Page,
-  fn: () => Promise<T>,
-): Promise<T> {
+export async function withValidationCapture<T>(page: Page, fn: () => Promise<T>): Promise<T> {
   // Wait until __xgisMap is on window before clearing — otherwise
   // we'd reset a missing queue and then the new map's queue would
   // start fresh anyway, but it's cleaner to ensure the queue

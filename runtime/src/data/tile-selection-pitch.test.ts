@@ -32,7 +32,7 @@ describe('visibleTilesFrustum at low pitch', () => {
     expect(tiles.length).toBeGreaterThan(0)
     // At zoom 5, we expect ~4-16 tiles at z=5 near the center.
     // None should be at z > 5 (maxZ).
-    const maxZoom = Math.max(...tiles.map(t => t.z))
+    const maxZoom = Math.max(...tiles.map((t) => t.z))
     expect(maxZoom).toBeLessThanOrEqual(5)
   })
 
@@ -92,10 +92,14 @@ describe('visibleTilesFrustum at low pitch', () => {
     logTiles('pitch=15 zoom=5', tiles)
 
     // Look specifically for tiles in far world copies (ox negative and large)
-    const farLeft = tiles.filter(t => (t.ox ?? t.x) < -40)
-    const farRight = tiles.filter(t => (t.ox ?? t.x) > 60)
+    const farLeft = tiles.filter((t) => (t.ox ?? t.x) < -40)
+    const farRight = tiles.filter((t) => (t.ox ?? t.x) > 60)
     // eslint-disable-next-line no-console
-    console.log('far tiles:', { farLeft: farLeft.length, farRight: farRight.length, sampleLeft: farLeft.slice(0, 3) })
+    console.log('far tiles:', {
+      farLeft: farLeft.length,
+      farRight: farRight.length,
+      sampleLeft: farLeft.slice(0, 3),
+    })
 
     // At pitch 15° with camera at equator, tiles in world copies 2+ away
     // should be culled — they're far off-screen.
@@ -162,8 +166,8 @@ describe('visibleTilesFrustum at low pitch', () => {
     const cam15 = makeCam(4, 15)
     const tiles0 = visibleTilesFrustum(cam0, mercator, 4, W, H)
     const tiles15 = visibleTilesFrustum(cam15, mercator, 4, W, H)
-    const keys15 = new Set(tiles15.map(t => `${t.z}/${t.x}/${t.y}/${t.ox}`))
-    const missingInPitch15 = tiles0.filter(t => !keys15.has(`${t.z}/${t.x}/${t.y}/${t.ox}`))
+    const keys15 = new Set(tiles15.map((t) => `${t.z}/${t.x}/${t.y}/${t.ox}`))
+    const missingInPitch15 = tiles0.filter((t) => !keys15.has(`${t.z}/${t.x}/${t.y}/${t.ox}`))
     // eslint-disable-next-line no-console
     console.log('pitch 0 vs 15 overlap:', {
       pitch0: tiles0.length,
@@ -221,7 +225,7 @@ describe('visibleTilesFrustum at low pitch', () => {
   it('BUG HUNT: specific pitch×bearing at various camera positions', () => {
     // Spot-check combinations to find a failing cell
     const cases: { lon: number; lat: number; zoom: number }[] = [
-      { lon: 0, lat: 0, zoom: 1 },   // world fit
+      { lon: 0, lat: 0, zoom: 1 }, // world fit
       { lon: 0, lat: 0, zoom: 3 },
       { lon: 0, lat: 0, zoom: 5 },
       { lon: 10, lat: 50, zoom: 4 }, // Europe
@@ -295,7 +299,7 @@ describe('visibleTilesFrustum at low pitch', () => {
 
   it('GeoJSON fit bounds: camera.zoom = 0.5 (very zoomed out) at pitch 0', () => {
     const cam = makeCam(0.5, 0)
-    const tiles = visibleTilesFrustum(cam, mercator, 1, W, H)  // round(0.5) = 1? or 0?
+    const tiles = visibleTilesFrustum(cam, mercator, 1, W, H) // round(0.5) = 1? or 0?
     logTiles('geojson-fit zoom=0.5 pitch=0', tiles)
     expect(tiles.length).toBeGreaterThan(0)
   })
@@ -347,9 +351,9 @@ describe('visibleTilesFrustum at low pitch', () => {
     const widened = visibleTilesFrustum(cam, mercator, 8, W, H, /* extraMarginPx */ 400)
     expect(widened.length).toBeGreaterThanOrEqual(baseline.length)
     // Defense-in-depth: no tile lost by widening the envelope.
-    const baseKeys = new Set(baseline.map(t => `${t.z}/${t.x}/${t.y}/${t.ox ?? t.x}`))
+    const baseKeys = new Set(baseline.map((t) => `${t.z}/${t.x}/${t.y}/${t.ox ?? t.x}`))
     for (const k of baseKeys) {
-      expect(widened.some(t => `${t.z}/${t.x}/${t.y}/${t.ox ?? t.x}` === k)).toBe(true)
+      expect(widened.some((t) => `${t.z}/${t.x}/${t.y}/${t.ox ?? t.x}` === k)).toBe(true)
     }
   })
 

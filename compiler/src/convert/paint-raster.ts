@@ -3,11 +3,7 @@
 // in the exact same order. Shared emitters (addOpacity /
 // surfaceIgnoredPaint) live in paint-helpers.
 import type { MapboxLayer } from './types'
-import {
-  addOpacity,
-  surfaceIgnoredPaint,
-  unwrapLiteralNumeric,
-} from './paint-helpers'
+import { addOpacity, surfaceIgnoredPaint, unwrapLiteralNumeric } from './paint-helpers'
 
 /** Unwrap a `["literal", v]` scalar wrapper (string/enum forms). */
 function unwrapScalar(v: unknown): unknown {
@@ -22,7 +18,13 @@ function unwrapScalar(v: unknown): unknown {
  *  un-authored property is byte-identical to today. Non-constant
  *  (zoom-interp / data-driven) raster colour forms are rare and warn. */
 function addRasterScalar(
-  out: string[], util: string, raw: unknown, def: number, layerId: string, prop: string, warnings: string[],
+  out: string[],
+  util: string,
+  raw: unknown,
+  def: number,
+  layerId: string,
+  prop: string,
+  warnings: string[],
 ): void {
   if (raw === undefined || raw === null) return
   const v = unwrapLiteralNumeric(raw)
@@ -31,7 +33,9 @@ function addRasterScalar(
     out.push(v < 0 ? `${util}-[${v}]` : `${util}-${v}`)
     return
   }
-  warnings.push(`Layer "${layerId}" — paint.${prop}: non-constant form not yet supported for raster colour adjustments — value dropped: ${JSON.stringify(raw).slice(0, 60)}`)
+  warnings.push(
+    `Layer "${layerId}" — paint.${prop}: non-constant form not yet supported for raster colour adjustments — value dropped: ${JSON.stringify(raw).slice(0, 60)}`,
+  )
 }
 
 export function emitRasterPaint(
@@ -53,11 +57,51 @@ export function emitRasterPaint(
   // shader applies in RGB↔HSL (hue-rotate / brightness remap / saturation /
   // contrast). Spec defaults (0 / 0 / 1 / 0 / 0) are a hard no-op and emit
   // nothing, so an un-authored raster show renders byte-identically.
-  addRasterScalar(out, 'raster-hue-rotate', p['raster-hue-rotate'], 0, layer.id, 'raster-hue-rotate', warnings)
-  addRasterScalar(out, 'raster-brightness-min', p['raster-brightness-min'], 0, layer.id, 'raster-brightness-min', warnings)
-  addRasterScalar(out, 'raster-brightness-max', p['raster-brightness-max'], 1, layer.id, 'raster-brightness-max', warnings)
-  addRasterScalar(out, 'raster-saturation', p['raster-saturation'], 0, layer.id, 'raster-saturation', warnings)
-  addRasterScalar(out, 'raster-contrast', p['raster-contrast'], 0, layer.id, 'raster-contrast', warnings)
+  addRasterScalar(
+    out,
+    'raster-hue-rotate',
+    p['raster-hue-rotate'],
+    0,
+    layer.id,
+    'raster-hue-rotate',
+    warnings,
+  )
+  addRasterScalar(
+    out,
+    'raster-brightness-min',
+    p['raster-brightness-min'],
+    0,
+    layer.id,
+    'raster-brightness-min',
+    warnings,
+  )
+  addRasterScalar(
+    out,
+    'raster-brightness-max',
+    p['raster-brightness-max'],
+    1,
+    layer.id,
+    'raster-brightness-max',
+    warnings,
+  )
+  addRasterScalar(
+    out,
+    'raster-saturation',
+    p['raster-saturation'],
+    0,
+    layer.id,
+    'raster-saturation',
+    warnings,
+  )
+  addRasterScalar(
+    out,
+    'raster-contrast',
+    p['raster-contrast'],
+    0,
+    layer.id,
+    'raster-contrast',
+    warnings,
+  )
 
   // raster-resampling (+ MapLibre v3 alias `resampling`): 'linear' (default)
   // matches X-GIS' default sampler; 'nearest' selects a nearest-filtered
@@ -67,10 +111,10 @@ export function emitRasterPaint(
   if (rs === 'nearest') {
     out.push('raster-resampling-nearest')
   } else if (rs !== undefined && rs !== null && rs !== 'linear') {
-    warnings.push(`Layer "${layer.id}" — raster-resampling: ${JSON.stringify(rs)} unrecognised; Mapbox spec allows only "linear" | "nearest". Treated as linear.`)
+    warnings.push(
+      `Layer "${layer.id}" — raster-resampling: ${JSON.stringify(rs)} unrecognised; Mapbox spec allows only "linear" | "nearest". Treated as linear.`,
+    )
   }
 
-  surfaceIgnoredPaint(layer.id, p, warnings, [
-    'raster-fade-duration',
-  ])
+  surfaceIgnoredPaint(layer.id, p, warnings, ['raster-fade-duration'])
 }

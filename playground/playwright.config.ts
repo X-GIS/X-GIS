@@ -70,18 +70,16 @@ export default defineConfig({
       // parity is a pure compute pass). The full raster pipeline / pixel
       // survey do NOT render correctly under SwiftShader, so they stay on
       // the hardware-GPU (headed) path and are not run in this mode.
-      args: process.env.XGIS_SOFTWARE_GPU === '1'
-        ? [
-            '--enable-unsafe-webgpu',
-            '--enable-unsafe-swiftshader',
-            '--use-angle=swiftshader',
-            '--use-vulkan=swiftshader',
-            '--enable-features=Vulkan',
-          ]
-        : [
-            '--enable-unsafe-webgpu',
-            '--enable-features=Vulkan',
-          ],
+      args:
+        process.env.XGIS_SOFTWARE_GPU === '1'
+          ? [
+              '--enable-unsafe-webgpu',
+              '--enable-unsafe-swiftshader',
+              '--use-angle=swiftshader',
+              '--use-vulkan=swiftshader',
+              '--enable-features=Vulkan',
+            ]
+          : ['--enable-unsafe-webgpu', '--enable-features=Vulkan'],
     },
   },
   projects: [

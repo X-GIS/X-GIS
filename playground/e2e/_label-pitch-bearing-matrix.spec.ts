@@ -19,10 +19,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const fixture = readFileSync(
-  resolve(__dirname, '__convert-fixtures', 'bright.json'),
-  'utf8',
-)
+const fixture = readFileSync(resolve(__dirname, '__convert-fixtures', 'bright.json'), 'utf8')
 
 const OUT_DIR = resolve(__dirname, '__label-pitch-bearing-matrix__')
 mkdirSync(OUT_DIR, { recursive: true })
@@ -43,17 +40,20 @@ const BEARINGS = [0, 90, 180, 270] as const
 
 async function setupPage(page: Page, projection: string) {
   const xgis = convertMapboxStyle(fixture)
-  await page.addInitScript((args) => {
-    sessionStorage.setItem('__xgisImportSource', args.src)
-    sessionStorage.setItem('__xgisImportLabel', `Bright label-pitch-bearing (proj=${args.proj})`)
-  }, { src: xgis, proj: projection })
-  await page.goto(
-    `/demo.html?id=__import&proj=${projection}#12/35.68/139.76/0/0`,
-    { waitUntil: 'domcontentloaded' },
+  await page.addInitScript(
+    (args) => {
+      sessionStorage.setItem('__xgisImportSource', args.src)
+      sessionStorage.setItem('__xgisImportLabel', `Bright label-pitch-bearing (proj=${args.proj})`)
+    },
+    { src: xgis, proj: projection },
   )
+  await page.goto(`/demo.html?id=__import&proj=${projection}#12/35.68/139.76/0/0`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
 }
 
@@ -65,17 +65,24 @@ test.describe('label-pitch-bearing matrix', () => {
       for (const bearing of BEARINGS) {
         test(`${proj} pitch=${pitch} bearing=${bearing}`, async ({ page }) => {
           await setupPage(page, proj)
-          await page.evaluate(({ p, b }) => {
-            const m = (window as unknown as { __xgisMap?: {
-              setPitch: (v: number) => void;
-              setBearing: (v: number) => void;
-              invalidate: () => void;
-            } }).__xgisMap
-            if (!m) throw new Error('__xgisMap not exposed')
-            m.setPitch(p)
-            m.setBearing(b)
-            m.invalidate()
-          }, { p: pitch, b: bearing })
+          await page.evaluate(
+            ({ p, b }) => {
+              const m = (
+                window as unknown as {
+                  __xgisMap?: {
+                    setPitch: (v: number) => void
+                    setBearing: (v: number) => void
+                    invalidate: () => void
+                  }
+                }
+              ).__xgisMap
+              if (!m) throw new Error('__xgisMap not exposed')
+              m.setPitch(p)
+              m.setBearing(b)
+              m.invalidate()
+            },
+            { p: pitch, b: bearing },
+          )
           // Wait for label collision pass + glyph atlas catch-up.
           // Labels can take 2-3 frames to settle after a pitch /
           // bearing change while the placement worker reroutes.
@@ -84,9 +91,13 @@ test.describe('label-pitch-bearing matrix', () => {
           await page.screenshot({ path: out, fullPage: false })
           // Smoke gate: snapshot exists + camera state actually applied.
           const cam = await page.evaluate(() => {
-            const m = (window as unknown as { __xgisMap?: {
-              getCamera: () => { pitch: number; bearing: number };
-            } }).__xgisMap
+            const m = (
+              window as unknown as {
+                __xgisMap?: {
+                  getCamera: () => { pitch: number; bearing: number }
+                }
+              }
+            ).__xgisMap
             return m?.getCamera() ?? { pitch: -1, bearing: -1 }
           })
           // Camera should have honoured the setters (or rejected with a

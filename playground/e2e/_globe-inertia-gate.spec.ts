@@ -17,22 +17,34 @@ test('globe drag inertia is bounded (#582)', async ({ page }) => {
   await page.evaluate(() => (window as any).__xgisMap.setProjection('globe'))
   await page.waitForTimeout(700)
 
-  const lon0 = await page.evaluate(() => ((window as any).__xgisMap.camera.centerX / 6378137) * (180 / Math.PI))
+  const lon0 = await page.evaluate(
+    () => ((window as any).__xgisMap.camera.centerX / 6378137) * (180 / Math.PI),
+  )
   const box = (await page.locator('canvas').first().boundingBox())!
-  const gx = box.x + box.width / 2 - 20, gy = box.y + box.height / 2
+  const gx = box.x + box.width / 2 - 20,
+    gy = box.y + box.height / 2
 
   await page.mouse.move(gx, gy)
   await page.mouse.down()
   for (let i = 1; i <= 4; i++) await page.mouse.move(gx + i * 5, gy, { steps: 1 })
   await page.mouse.up()
-  const atRelease = await page.evaluate(() => ((window as any).__xgisMap.camera.centerX / 6378137) * (180 / Math.PI))
+  const atRelease = await page.evaluate(
+    () => ((window as any).__xgisMap.camera.centerX / 6378137) * (180 / Math.PI),
+  )
   await page.waitForTimeout(450)
-  const afterInertia = await page.evaluate(() => ((window as any).__xgisMap.camera.centerX / 6378137) * (180 / Math.PI))
+  const afterInertia = await page.evaluate(
+    () => ((window as any).__xgisMap.camera.centerX / 6378137) * (180 / Math.PI),
+  )
 
   const drag = Math.abs(atRelease - lon0)
   const glide = Math.abs(afterInertia - atRelease)
   // Pre-fix this 20px drag produced ~30° at release + ~52° of inertia (~82° total).
   // The drag itself is the grab-anchor (correct); the GLIDE is what regressed.
-  expect(glide, `inertia glide ${glide.toFixed(1)}° must be a small fraction of the drag ${drag.toFixed(1)}°`).toBeLessThan(drag + 5)
-  expect(Math.abs(afterInertia - lon0), 'total globe pan for a 20px drag is bounded').toBeLessThan(45)
+  expect(
+    glide,
+    `inertia glide ${glide.toFixed(1)}° must be a small fraction of the drag ${drag.toFixed(1)}°`,
+  ).toBeLessThan(drag + 5)
+  expect(Math.abs(afterInertia - lon0), 'total globe pan for a 20px drag is bounded').toBeLessThan(
+    45,
+  )
 })

@@ -52,7 +52,12 @@ const R = 6378137 // same radius the helpers + projection.ts hardcode
 
 // Projection centres (degrees): equator, mid-lat, high-lat (75/85), southern.
 const CENTRES: Array<[number, number]> = [
-  [0, 0], [0, 20], [120, 45], [-60, 75], [10, 85], [-170, -60],
+  [0, 0],
+  [0, 20],
+  [120, 45],
+  [-60, 75],
+  [10, 85],
+  [-170, -60],
 ]
 
 // Geographic offsets (degrees) from each centre — near-origin (but past the
@@ -61,13 +66,24 @@ const CENTRES: Array<[number, number]> = [
 // angular distances c > 2 rad (the near-limb regime the anti-vacuous guard
 // below requires).
 const OFFSETS: Array<[number, number]> = [
-  [0.05, 0.05], [5, 3], [-10, 8], [20, -15], [45, 25], [-60, -30],
-  [90, 10], [-120, 20], [150, -5], [0, 40], [0, -50],
+  [0.05, 0.05],
+  [5, 3],
+  [-10, 8],
+  [20, -15],
+  [45, 25],
+  [-60, -30],
+  [90, 10],
+  [-120, 20],
+  [150, -5],
+  [0, 40],
+  [0, -50],
 ]
 
 /** Angular distance c (radians) between two lon/lat points (degrees). */
 function angularDist(lon0: number, lat0: number, lon: number, lat: number): number {
-  const p0 = lat0 * DEG2RAD, p1 = lat * DEG2RAD, dl = (lon - lon0) * DEG2RAD
+  const p0 = lat0 * DEG2RAD,
+    p1 = lat * DEG2RAD,
+    dl = (lon - lon0) * DEG2RAD
   const cosC = Math.sin(p0) * Math.sin(p1) + Math.cos(p0) * Math.cos(p1) * Math.cos(dl)
   return Math.acos(Math.max(-1, Math.min(1, cosC)))
 }
@@ -107,7 +123,8 @@ describe('disc inverse round-trip pins (invAzimuthalEquidistant / invStereograph
       let nearLimb = 0
       for (const [lon0, lat0] of CENTRES) {
         const proj = getProjection(name, lon0, lat0)
-        const lam0 = lon0 * DEG2RAD, phi0 = lat0 * DEG2RAD
+        const lam0 = lon0 * DEG2RAD,
+          phi0 = lat0 * DEG2RAD
         for (const [dLon, dLat] of OFFSETS) {
           const lon = lon0 + dLon
           const lat = Math.max(-89.9, Math.min(89.9, lat0 + dLat))
@@ -119,16 +136,28 @@ describe('disc inverse round-trip pins (invAzimuthalEquidistant / invStereograph
           const [x, y] = proj.forward(lon, lat)
           if (!Number.isFinite(x) || !Number.isFinite(y)) continue
           const [lonR, latR] = inv(x, y, lam0, phi0)
-          expect(Number.isFinite(lonR), `${name} lon non-finite @centre(${lon0},${lat0}) pt(${lon},${lat})`).toBe(true)
-          expect(Number.isFinite(latR), `${name} lat non-finite @centre(${lon0},${lat0}) pt(${lon},${lat})`).toBe(true)
+          expect(
+            Number.isFinite(lonR),
+            `${name} lon non-finite @centre(${lon0},${lat0}) pt(${lon},${lat})`,
+          ).toBe(true)
+          expect(
+            Number.isFinite(latR),
+            `${name} lat non-finite @centre(${lon0},${lat0}) pt(${lon},${lat})`,
+          ).toBe(true)
           const dLat2 = Math.abs(latR - lat * DEG2RAD)
-          expect(dLat2, `${name} lat drift ${dLat2} rad @centre(${lon0},${lat0}) pt(${lon},${lat})`).toBeLessThan(GEO_TOL_RAD)
+          expect(
+            dLat2,
+            `${name} lat drift ${dLat2} rad @centre(${lon0},${lat0}) pt(${lon},${lat})`,
+          ).toBeLessThan(GEO_TOL_RAD)
           // Longitude degenerates at the poles (every meridian collapses) —
           // assert it away from ±89.9° only, wrapped to (−π, π].
           if (Math.abs(lat) < 89.5) {
             let dl = lonR - lon * DEG2RAD
-            dl = ((dl + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI
-            expect(Math.abs(dl), `${name} lon drift ${Math.abs(dl)} rad @centre(${lon0},${lat0}) pt(${lon},${lat})`).toBeLessThan(GEO_TOL_RAD)
+            dl = ((((dl + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI
+            expect(
+              Math.abs(dl),
+              `${name} lon drift ${Math.abs(dl)} rad @centre(${lon0},${lat0}) pt(${lon},${lat})`,
+            ).toBeLessThan(GEO_TOL_RAD)
           }
           tested++
           if (c > 2) nearLimb++
@@ -144,21 +173,28 @@ describe('disc inverse round-trip pins (invAzimuthalEquidistant / invStereograph
       let tested = 0
       for (const [lon0, lat0] of CENTRES) {
         const proj = getProjection(name, lon0, lat0)
-        const lam0 = lon0 * DEG2RAD, phi0 = lat0 * DEG2RAD
+        const lam0 = lon0 * DEG2RAD,
+          phi0 = lat0 * DEG2RAD
         for (const c of planeCs) {
           // ρ from c through THIS projection's radial map (aeqd: R·c;
           // stereo: 2R·tan(c/2)) so both walk comparable angular reach.
           const rho = name === 'stereographic' ? 2 * R * Math.tan(c / 2) : R * c
           for (const thetaDeg of [0, 30, 90, 135, 210, 300]) {
             const t = thetaDeg * DEG2RAD
-            const x = rho * Math.cos(t), y = rho * Math.sin(t)
+            const x = rho * Math.cos(t),
+              y = rho * Math.sin(t)
             const [lonR, latR] = inv(x, y, lam0, phi0)
             const [x2, y2] = proj.forward(lonR * RAD2DEG, latR * RAD2DEG)
             if (!Number.isFinite(x2) || !Number.isFinite(y2)) {
-              throw new Error(`${name}: forward culled the recovered point @centre(${lon0},${lat0}) c=${c} θ=${thetaDeg}`)
+              throw new Error(
+                `${name}: forward culled the recovered point @centre(${lon0},${lat0}) c=${c} θ=${thetaDeg}`,
+              )
             }
             const d = Math.hypot(x2 - x, y2 - y)
-            expect(d, `${name} plane drift ${d} m @centre(${lon0},${lat0}) c=${c} θ=${thetaDeg}`).toBeLessThan(PLANE_TOL_M)
+            expect(
+              d,
+              `${name} plane drift ${d} m @centre(${lon0},${lat0}) c=${c} θ=${thetaDeg}`,
+            ).toBeLessThan(PLANE_TOL_M)
             tested++
           }
         }

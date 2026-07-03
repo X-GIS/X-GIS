@@ -36,7 +36,11 @@ import type {
   CachedTileJSON,
   RawTileJSON,
 } from './vector-tile-loader-types'
-import { detectVectorTileFormat, memoizeOpen, normalizeVectorLayers } from './vector-tile-loader-helpers'
+import {
+  detectVectorTileFormat,
+  memoizeOpen,
+  normalizeVectorLayers,
+} from './vector-tile-loader-helpers'
 
 // Re-export public types + format-detection helpers to preserve every prior
 // import path.
@@ -116,7 +120,9 @@ const MAX_TILEJSON_BYTES = 4 * 1024 * 1024
  *
  *  Backoff: 300 ms, then 900 ms (max 2 retries → 3 attempts total). */
 async function fetchTileWithRetry(
-  url: string, tileLabel: string, signal: AbortSignal,
+  url: string,
+  tileLabel: string,
+  signal: AbortSignal,
 ): Promise<Uint8Array | null | 'failed'> {
   if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
   // Defensive: empty URL would hit the current document URL via
@@ -205,11 +211,11 @@ async function fetchTileWithRetry(
     tileFetchLogThrottle.set(urlKey, now)
     xlog.warn(
       `[X-GIS] ${tileLabel} fetch failed after ${backoffsMs.length + 1} attempts ` +
-      `(${lastErr?.message ?? 'unknown error'}). ` +
-      `Caching as missing for ${NEGATIVE_CACHE_TTL_MS / 60_000} min — that area will render empty. ` +
-      `If this is a 5xx from a tile server, it's likely an upstream data-build issue ` +
-      `for this specific (z, x, y); the rest of the map continues to load normally. ` +
-      `(Further failures matching ${urlKey} suppressed for ${TILE_FETCH_LOG_INTERVAL_MS / 1000}s.)`,
+        `(${lastErr?.message ?? 'unknown error'}). ` +
+        `Caching as missing for ${NEGATIVE_CACHE_TTL_MS / 60_000} min — that area will render empty. ` +
+        `If this is a 5xx from a tile server, it's likely an upstream data-build issue ` +
+        `for this specific (z, x, y); the rest of the map continues to load normally. ` +
+        `(Further failures matching ${urlKey} suppressed for ${TILE_FETCH_LOG_INTERVAL_MS / 1000}s.)`,
     )
   }
   return 'failed'
@@ -239,44 +245,47 @@ export abstract class VectorTileSource {
    *  Polymorphic — XGVT-binary overrides since it bypasses PMTilesBackend. */
   async attachTo(catalog: TileCatalog, opts: PMTilesSourceOptions): Promise<void> {
     const meta = await this.resolve()
-    if (!meta) return  // soft-fail: catalog stays empty, demo still loads
+    if (!meta) return // soft-fail: catalog stays empty, demo still loads
 
     const formatName = meta.format === 'pmtiles' ? 'PMTiles' : 'TileJSON'
-    const layerSummary = meta.vectorLayers.length > 0
-      ? ` | layers: ${meta.vectorLayers.map(l => `${l.id}(z${l.minzoom}-${l.maxzoom})`).join(', ')}`
-      : ''
-    const boundsStr = meta.bounds.map(v => v.toFixed(4)).join(', ')
+    const layerSummary =
+      meta.vectorLayers.length > 0
+        ? ` | layers: ${meta.vectorLayers.map((l) => `${l.id}(z${l.minzoom}-${l.maxzoom})`).join(', ')}`
+        : ''
+    const boundsStr = meta.bounds.map((v) => v.toFixed(4)).join(', ')
     console.log(
       `[X-GIS] ${formatName} attached${meta.name ? ` "${meta.name}"` : ''}: ` +
-      `z=${meta.minZoom}..${meta.maxZoom}, bounds=[${boundsStr}], ` +
-      `${meta.logDetail}${layerSummary}`,
+        `z=${meta.minZoom}..${meta.maxZoom}, bounds=[${boundsStr}], ` +
+        `${meta.logDetail}${layerSummary}`,
     )
     if (meta.attribution) console.log(`[X-GIS] ${formatName} attribution: ${meta.attribution}`)
     if (opts.layers && meta.vectorLayers.length > 0) {
-      const known = new Set(meta.vectorLayers.map(l => l.id))
+      const known = new Set(meta.vectorLayers.map((l) => l.id))
       for (const lname of opts.layers) {
         if (!known.has(lname)) {
           xlog.warn(
             `[X-GIS] ${formatName}: requested layer "${lname}" is not in ` +
-            `vector_layers. Known: [${meta.vectorLayers.map(l => l.id).join(', ')}].`,
+              `vector_layers. Known: [${meta.vectorLayers.map((l) => l.id).join(', ')}].`,
           )
         }
       }
     }
 
-    catalog.attachBackend(new PMTilesBackend({
-      minZoom: meta.minZoom,
-      maxZoom: meta.maxZoom,
-      bounds: meta.bounds,
-      layers: opts.layers,
-      vectorLayers: meta.vectorLayers,
-      extrudeExprs: opts.extrudeExprs,
-      extrudeBaseExprs: opts.extrudeBaseExprs,
-      showSlices: opts.showSlices,
-      strokeWidthExprs: opts.strokeWidthExprs,
-      strokeColorExprs: opts.strokeColorExprs,
-      fetcher: meta.fetcher,
-    }))
+    catalog.attachBackend(
+      new PMTilesBackend({
+        minZoom: meta.minZoom,
+        maxZoom: meta.maxZoom,
+        bounds: meta.bounds,
+        layers: opts.layers,
+        vectorLayers: meta.vectorLayers,
+        extrudeExprs: opts.extrudeExprs,
+        extrudeBaseExprs: opts.extrudeBaseExprs,
+        showSlices: opts.showSlices,
+        strokeWidthExprs: opts.strokeWidthExprs,
+        strokeColorExprs: opts.strokeColorExprs,
+        fetcher: meta.fetcher,
+      }),
+    )
     catalog.prewarmSkeleton({
       depth: opts.prewarmSkeletonDepth,
       minzoom: meta.minZoom,
@@ -288,22 +297,26 @@ export abstract class VectorTileSource {
 export class PMTilesArchiveSource extends VectorTileSource {
   readonly format = 'pmtiles' as const
 
-  constructor(url: string, private readonly loader: VectorTileLoader) {
+  constructor(
+    url: string,
+    private readonly loader: VectorTileLoader,
+  ) {
     super(url)
   }
 
   async resolve(): Promise<ResolvedSource | null> {
     let cached: CachedArchive
-    try { cached = await this.loader.openArchive(this.url) }
-    catch (e) {
+    try {
+      cached = await this.loader.openArchive(this.url)
+    } catch (e) {
       const msg = (e as Error)?.message ?? String(e)
       xlog.error(
         `[X-GIS] PMTiles attach failed for ${this.url}\n` +
-        `  ${msg}\n` +
-        `  If this is "Failed to fetch", the archive's origin likely\n` +
-        `  doesn't set Access-Control-Allow-Origin. Use a CORS-enabled\n` +
-        `  host (e.g. pmtiles.io) or proxy the archive through your dev\n` +
-        `  server (vite.config.ts proxy entry).`,
+          `  ${msg}\n` +
+          `  If this is "Failed to fetch", the archive's origin likely\n` +
+          `  doesn't set Access-Control-Allow-Origin. Use a CORS-enabled\n` +
+          `  host (e.g. pmtiles.io) or proxy the archive through your dev\n` +
+          `  server (vite.config.ts proxy entry).`,
       )
       return null
     }
@@ -339,7 +352,7 @@ export class PMTilesArchiveSource extends VectorTileSource {
         if (resp.data.byteLength > MAX_TILE_BYTES) {
           xlog.warn(
             `[X-GIS] PMTiles tile ${z}/${x}/${y}: decoded ${resp.data.byteLength} bytes ` +
-            `exceeds the ${MAX_TILE_BYTES}-byte cap (decompression-bomb guard) — skipping.`,
+              `exceeds the ${MAX_TILE_BYTES}-byte cap (decompression-bomb guard) — skipping.`,
           )
           return null
         }
@@ -356,21 +369,25 @@ export class PMTilesArchiveSource extends VectorTileSource {
 export class TileJSONSource extends VectorTileSource {
   readonly format = 'tilejson' as const
 
-  constructor(url: string, private readonly loader: VectorTileLoader) {
+  constructor(
+    url: string,
+    private readonly loader: VectorTileLoader,
+  ) {
     super(url)
   }
 
   async resolve(): Promise<ResolvedSource | null> {
     let tj: CachedTileJSON
-    try { tj = await this.loader.openTileJSON(this.url) }
-    catch (e) {
+    try {
+      tj = await this.loader.openTileJSON(this.url)
+    } catch (e) {
       const msg = (e as Error)?.message ?? String(e)
       xlog.error(
         `[X-GIS] TileJSON attach failed for ${this.url}\n` +
-        `  ${msg}\n` +
-        `  If this is "Failed to fetch", the manifest's origin lacks\n` +
-        `  Access-Control-Allow-Origin for your origin. Use a host\n` +
-        `  that allows your origin in its CORS settings.`,
+          `  ${msg}\n` +
+          `  If this is "Failed to fetch", the manifest's origin lacks\n` +
+          `  Access-Control-Allow-Origin for your origin. Use a host\n` +
+          `  that allows your origin in its CORS settings.`,
       )
       return null
     }
@@ -435,9 +452,12 @@ export class VectorTileLoader {
     // circuits cleanly.
     if (!url || typeof url !== 'string') return null
     switch (detectVectorTileFormat(url, kind)) {
-      case 'pmtiles':  return new PMTilesArchiveSource(url, this)
-      case 'tilejson': return new TileJSONSource(url, this)
-      default:         return null
+      case 'pmtiles':
+        return new PMTilesArchiveSource(url, this)
+      case 'tilejson':
+        return new TileJSONSource(url, this)
+      default:
+        return null
     }
   }
 
@@ -466,7 +486,9 @@ export class VectorTileLoader {
 
   /** Per-source-layer field schema from PMTiles metadata. Returns null
    *  when the archive has no vector_layers metadata or the fetch fails. */
-  async fetchVectorLayerSchema(url: string): Promise<Record<string, Record<string, string>> | null> {
+  async fetchVectorLayerSchema(
+    url: string,
+  ): Promise<Record<string, Record<string, string>> | null> {
     try {
       const cached = await this.openArchive(url)
       const out: Record<string, Record<string, string>> = {}
@@ -510,7 +532,9 @@ export class VectorTileLoader {
     // bytes ("Wrong magic number"). Mirror of openTileJSON +
     // fetchTileWithRetry + loadImageTexture empty-URL guards.
     if (!url || typeof url !== 'string') {
-      return Promise.reject(new Error(`[X-GIS] openArchive: invalid URL ${JSON.stringify(url).slice(0, 60)}`))
+      return Promise.reject(
+        new Error(`[X-GIS] openArchive: invalid URL ${JSON.stringify(url).slice(0, 60)}`),
+      )
     }
     // Strip Protomaps `pmtiles://` prefix before the PMTiles library
     // sees it. Mirror of the detectVectorTileFormat strip (a5fd65a).
@@ -532,16 +556,23 @@ export class VectorTileLoader {
       const archive = new PMTiles(cleanUrl)
       const header = await archive.getHeader()
       if (header.tileType !== TileType.Mvt) {
-        throw new Error(`[vector-tile-loader] tileType ${header.tileType} not supported — only MVT (1)`)
+        throw new Error(
+          `[vector-tile-loader] tileType ${header.tileType} not supported — only MVT (1)`,
+        )
       }
       let vectorLayers: VectorLayerInfo[] = []
       let archiveName: string | undefined
       let attribution: string | undefined
       try {
-        const meta = await archive.getMetadata() as {
+        const meta = (await archive.getMetadata()) as {
           name?: string
           attribution?: string
-          vector_layers?: Array<{ id: string; minzoom?: number; maxzoom?: number; fields?: Record<string, string> }>
+          vector_layers?: Array<{
+            id: string
+            minzoom?: number
+            maxzoom?: number
+            fields?: Record<string, string>
+          }>
         } | null
         if (meta) {
           archiveName = meta.name
@@ -549,7 +580,9 @@ export class VectorTileLoader {
           vectorLayers = normalizeVectorLayers(meta.vector_layers, header.minZoom, header.maxZoom)
         }
       } catch (e) {
-        xlog.warn(`[X-GIS] PMTiles metadata fetch failed (non-fatal): ${(e as Error)?.message ?? e}`)
+        xlog.warn(
+          `[X-GIS] PMTiles metadata fetch failed (non-fatal): ${(e as Error)?.message ?? e}`,
+        )
       }
       return { archive, header, vectorLayers, archiveName, attribution }
     })
@@ -561,7 +594,9 @@ export class VectorTileLoader {
     // URL on fetch and `.json()` would throw on HTML payload. Mirror
     // of fetchTileWithRetry + loadImageTexture empty-URL guards.
     if (!url || typeof url !== 'string') {
-      return Promise.reject(new Error(`[X-GIS] openTileJSON: invalid URL ${JSON.stringify(url).slice(0, 60)}`))
+      return Promise.reject(
+        new Error(`[X-GIS] openTileJSON: invalid URL ${JSON.stringify(url).slice(0, 60)}`),
+      )
     }
     return memoizeOpen(this.tileJsonCache, url, async () => {
       // Mapbox-style sources can carry `tiles: ["…/{z}/{x}/{y}.mvt"]`
@@ -605,7 +640,8 @@ export class VectorTileLoader {
       return {
         tilesTemplate: tj.tiles[0],
         bounds: tj.bounds ?? [-180, -85.0511287, 180, 85.0511287],
-        minzoom, maxzoom,
+        minzoom,
+        maxzoom,
         vectorLayers: normalizeVectorLayers(tj.vector_layers, minzoom, maxzoom),
         name: tj.name,
         attribution: tj.attribution,
@@ -621,7 +657,8 @@ export class VectorTileLoader {
 const defaultLoader = new VectorTileLoader()
 
 export function attachPMTilesSource(
-  source: TileCatalog, opts: PMTilesSourceOptions,
+  source: TileCatalog,
+  opts: PMTilesSourceOptions,
 ): Promise<void> {
   return defaultLoader.attach(source, opts)
 }
@@ -630,13 +667,13 @@ export function loadPMTilesSource(opts: PMTilesSourceOptions): Promise<TileCatal
   return defaultLoader.load(opts)
 }
 
-export function prewarmVectorTileSource(
-  url: string, kind?: VectorTileFormat | 'auto',
-): void {
+export function prewarmVectorTileSource(url: string, kind?: VectorTileFormat | 'auto'): void {
   defaultLoader.prewarm(url, kind)
 }
 
-export function fetchPMTilesVectorLayerSchema(url: string): Promise<Record<string, Record<string, string>> | null> {
+export function fetchPMTilesVectorLayerSchema(
+  url: string,
+): Promise<Record<string, Record<string, string>> | null> {
   return defaultLoader.fetchVectorLayerSchema(url)
 }
 

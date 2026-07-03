@@ -17,32 +17,39 @@ import { test, expect, type Page } from '@playwright/test'
 async function waitForXgisReady(page: Page) {
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
 }
 
 async function countAmber(page: Page): Promise<number> {
   const shot = await page.screenshot({ type: 'png' })
-  return await page.evaluate(async ({ pngBytes }) => {
-    const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' })
-    const url = URL.createObjectURL(blob)
-    const img = new Image()
-    await new Promise<void>((res, rej) => {
-      img.onload = () => res(); img.onerror = () => rej(new Error('img'))
-      img.src = url
-    })
-    const off = new OffscreenCanvas(img.width, img.height)
-    const ctx = off.getContext('2d')!
-    ctx.drawImage(img, 0, 0)
-    const data = ctx.getImageData(0, 0, img.width, img.height).data
-    let hits = 0
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i], g = data[i + 1], b = data[i + 2]
-      if (r > 180 && g > 130 && g < 200 && b < 100) hits++
-    }
-    URL.revokeObjectURL(url)
-    return hits
-  }, { pngBytes: Array.from(shot) })
+  return await page.evaluate(
+    async ({ pngBytes }) => {
+      const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' })
+      const url = URL.createObjectURL(blob)
+      const img = new Image()
+      await new Promise<void>((res, rej) => {
+        img.onload = () => res()
+        img.onerror = () => rej(new Error('img'))
+        img.src = url
+      })
+      const off = new OffscreenCanvas(img.width, img.height)
+      const ctx = off.getContext('2d')!
+      ctx.drawImage(img, 0, 0)
+      const data = ctx.getImageData(0, 0, img.width, img.height).data
+      let hits = 0
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i],
+          g = data[i + 1],
+          b = data[i + 2]
+        if (r > 180 && g > 130 && g < 200 && b < 100) hits++
+      }
+      URL.revokeObjectURL(url)
+      return hits
+    },
+    { pngBytes: Array.from(shot) },
+  )
 }
 
 // fixture-line.geojson sits at ~lon=-50..-20 / lat=-20..20.
@@ -72,10 +79,9 @@ for (const pitch of PITCHES) {
   test(`ortho pitch=${pitch}: front line remains visible`, async ({ page }) => {
     test.setTimeout(45_000)
     await page.setViewportSize({ width: 1280, height: 720 })
-    await page.goto(
-      `/demo.html?id=reftest_stroke_static&safe=1&proj=orthographic${FRONT(pitch)}`,
-      { waitUntil: 'domcontentloaded' },
-    )
+    await page.goto(`/demo.html?id=reftest_stroke_static&safe=1&proj=orthographic${FRONT(pitch)}`, {
+      waitUntil: 'domcontentloaded',
+    })
     await waitForXgisReady(page)
     await page.waitForTimeout(2500)
     const amber = await countAmber(page)
@@ -112,10 +118,9 @@ for (const pitch of PITCHES) {
 test('ortho pitch=0: antipode line culled (sanity)', async ({ page }) => {
   test.setTimeout(45_000)
   await page.setViewportSize({ width: 1280, height: 720 })
-  await page.goto(
-    `/demo.html?id=reftest_stroke_static&safe=1&proj=orthographic${ANTIPODE(0)}`,
-    { waitUntil: 'domcontentloaded' },
-  )
+  await page.goto(`/demo.html?id=reftest_stroke_static&safe=1&proj=orthographic${ANTIPODE(0)}`, {
+    waitUntil: 'domcontentloaded',
+  })
   await waitForXgisReady(page)
   await page.waitForTimeout(2500)
   const amber = await countAmber(page)

@@ -26,25 +26,44 @@ const PBF_BYTES = readFileSync(FIXTURE)
 const g = globalThis as Record<string, unknown>
 g.GPUShaderStage ??= { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 }
 g.GPUBufferUsage ??= {
-  MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8, INDEX: 16,
-  VERTEX: 32, UNIFORM: 64, STORAGE: 128, INDIRECT: 256, QUERY_RESOLVE: 512,
+  MAP_READ: 1,
+  MAP_WRITE: 2,
+  COPY_SRC: 4,
+  COPY_DST: 8,
+  INDEX: 16,
+  VERTEX: 32,
+  UNIFORM: 64,
+  STORAGE: 128,
+  INDIRECT: 256,
+  QUERY_RESOLVE: 512,
 }
 g.GPUTextureUsage ??= {
-  COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8, RENDER_ATTACHMENT: 16,
+  COPY_SRC: 1,
+  COPY_DST: 2,
+  TEXTURE_BINDING: 4,
+  STORAGE_BINDING: 8,
+  RENDER_ATTACHMENT: 16,
 }
 g.GPUColorWrite ??= { RED: 1, GREEN: 2, BLUE: 4, ALPHA: 8, ALL: 15 }
 
 function stubDevice(): GPUDevice {
-  const stub: unknown = new Proxy(function () { return stub }, {
-    get(_t, p) {
-      if (p === 'size') return 1 << 22
-      if (p === 'width' || p === 'height') return 4096
-      if (p === 'limits') return { maxTextureDimension2D: 8192 }
-      if (p === Symbol.toPrimitive) return () => 0
+  const stub: unknown = new Proxy(
+    function () {
       return stub
     },
-    apply() { return stub },
-  })
+    {
+      get(_t, p) {
+        if (p === 'size') return 1 << 22
+        if (p === 'width' || p === 'height') return 4096
+        if (p === 'limits') return { maxTextureDimension2D: 8192 }
+        if (p === Symbol.toPrimitive) return () => 0
+        return stub
+      },
+      apply() {
+        return stub
+      },
+    },
+  )
   return stub as GPUDevice
 }
 
@@ -56,7 +75,10 @@ describe('TextStage onLanded → onResourceLanded forward (Audit ① B1)', () =>
   it('rings onResourceLanded when a PBF glyph range lands async', async () => {
     const onResourceLanded = vi.fn()
     const fetchOK = () => Promise.resolve(new Response(PBF_BYTES, { status: 200 }))
-    const cache = new GlyphPbfCache({ glyphsUrl: 'https://x/{fontstack}/{range}.pbf', fetch: fetchOK })
+    const cache = new GlyphPbfCache({
+      glyphsUrl: 'https://x/{fontstack}/{range}.pbf',
+      fetch: fetchOK,
+    })
 
     const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', {
       glyphProviders: [cache],
@@ -93,10 +115,14 @@ describe('TextStage onLanded → onResourceLanded forward (Audit ① B1)', () =>
     // render-kick (markLabelDirty, textStage null there); this pins the
     // invalidate half — the generation bump that breaks the stringInfoCache
     // short-circuit so a Canvas2D fallback glyph re-rasters once the WOFF lands.
-    const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', { rasterizer: new MockRasterizer() })
+    const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', {
+      rasterizer: new MockRasterizer(),
+    })
     stage.host.ensureString(fontKeyOf('normal', 400, 'X'), 'A') // populate one glyph
     const g0 = stage.host.getGeneration()
     stage.invalidateAllGlyphs()
-    expect(stage.host.getGeneration(), 'invalidateAllGlyphs must bump the atlas generation').toBe(g0 + 1)
+    expect(stage.host.getGeneration(), 'invalidateAllGlyphs must bump the atlas generation').toBe(
+      g0 + 1,
+    )
   })
 })

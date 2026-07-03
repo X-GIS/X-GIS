@@ -43,15 +43,14 @@ export type {
  *  (e.g. BackgroundPassHost); the generic `RenderPass.execute` declares
  *  the composed PassHost so the RenderLoop can drive any pass uniformly.
  *  Same member set the loop hands in — a pure TYPE re-grouping. */
-export type PassHost =
-  & BackgroundPassHost
-  & OpaquePassHost
-  & OitPassHost
-  & TranslucentPassHost
-  & PointsPassHost
-  & LabelPassHost
-  & OverdrawComposePassHost
-  & HeatmapPassHost
+export type PassHost = BackgroundPassHost &
+  OpaquePassHost &
+  OitPassHost &
+  TranslucentPassHost &
+  PointsPassHost &
+  LabelPassHost &
+  OverdrawComposePassHost &
+  HeatmapPassHost
 
 /** One stage of the fixed render-pass chain. */
 export interface RenderPass {

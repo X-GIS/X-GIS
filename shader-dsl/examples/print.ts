@@ -24,7 +24,9 @@ for (const ex of selected) {
   console.log('\n=== WGSL ===\n' + emitModule(ex.module))
   if (ex.renderable) {
     console.log('\n=== GLSL ES 3.00 — VERTEX (WebGL2) ===\n' + emitGlslModule(ex.module, 'vertex'))
-    console.log('\n=== GLSL ES 3.00 — FRAGMENT (WebGL2) ===\n' + emitGlslModule(ex.module, 'fragment'))
+    console.log(
+      '\n=== GLSL ES 3.00 — FRAGMENT (WebGL2) ===\n' + emitGlslModule(ex.module, 'fragment'),
+    )
   }
   console.log('\n=== Reflection ===\n' + JSON.stringify(reflect(ex.module), null, 2))
 }

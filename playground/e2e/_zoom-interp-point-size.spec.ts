@@ -24,13 +24,16 @@ test('fixture_size_zoom paints a rose-coloured point (zoom-interp size)', async 
   await page.goto('/demo.html?id=fixture_size_zoom', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(1500)
 
   // Camera-finite sanity (Infinity-zoom fix from earlier session).
-  const zoom = await page.evaluate(() =>
-    (window as unknown as { __xgisMap?: { camera: { zoom: number } } }).__xgisMap?.camera.zoom)
+  const zoom = await page.evaluate(
+    () =>
+      (window as unknown as { __xgisMap?: { camera: { zoom: number } } }).__xgisMap?.camera.zoom,
+  )
   expect(Number.isFinite(zoom!)).toBe(true)
 
   // The actual contract: at the bounds-fit zoom (z=4 for a single
@@ -43,21 +46,27 @@ test('fixture_size_zoom paints a rose-coloured point (zoom-interp size)', async 
     const url = URL.createObjectURL(blob)
     const img = new Image()
     await new Promise<void>((res, rej) => {
-      img.onload = () => res(); img.onerror = () => rej(new Error('img'))
+      img.onload = () => res()
+      img.onerror = () => rej(new Error('img'))
       img.src = url
     })
     const off = new OffscreenCanvas(img.width, img.height)
     const ctx = off.getContext('2d')!
     ctx.drawImage(img, 0, 0)
-    const w = img.width, h = img.height
-    const xMin = Math.floor(w * 0.35), xMax = Math.floor(w * 0.65)
-    const yMin = Math.floor(h * 0.35), yMax = Math.floor(h * 0.65)
+    const w = img.width,
+      h = img.height
+    const xMin = Math.floor(w * 0.35),
+      xMax = Math.floor(w * 0.65)
+    const yMin = Math.floor(h * 0.35),
+      yMax = Math.floor(h * 0.65)
     const data = ctx.getImageData(0, 0, w, h).data
     let n = 0
     for (let y = yMin; y < yMax; y++) {
       for (let x = xMin; x < xMax; x++) {
         const i = (y * w + x) * 4
-        const r = data[i], g = data[i + 1], b = data[i + 2]
+        const r = data[i],
+          g = data[i + 1],
+          b = data[i + 2]
         if (r > 180 && g < 130 && b > 50 && b < 160) n++
       }
     }

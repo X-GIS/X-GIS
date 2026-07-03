@@ -11,11 +11,13 @@ let sink: LogSink = (level, message, ...args) => {
 }
 /** Replace the engine log sink. Pass null to restore the console default. */
 export function setLogSink(s: LogSink | null): void {
-  sink = s ?? ((level, message, ...args) => {
-    if (level === 'error') console.error(message, ...args)
-    else if (level === 'warn') console.warn(message, ...args)
-    else console.debug(message, ...args)
-  })
+  sink =
+    s ??
+    ((level, message, ...args) => {
+      if (level === 'error') console.error(message, ...args)
+      else if (level === 'warn') console.warn(message, ...args)
+      else console.debug(message, ...args)
+    })
 }
 export const xlog = {
   debug: (message: string, ...args: unknown[]) => sink('debug', message, ...args),

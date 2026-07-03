@@ -50,9 +50,11 @@ function summarise(frames: number[]): Sample {
 
 function reportRow(name: string, s: Sample): string {
   const fps = s.median > 0 ? (1000 / s.median).toFixed(0) : '---'
-  return `  ${name.padEnd(28)}  ${s.median.toFixed(1).padStart(6)} ms (${fps.padStart(3)} fps)`
-    + `  p95=${s.p95.toFixed(1).padStart(6)}  p99=${s.p99.toFixed(1).padStart(6)}  worst=${s.worst.toFixed(0).padStart(5)}`
-    + `  frames=${s.frames}`
+  return (
+    `  ${name.padEnd(28)}  ${s.median.toFixed(1).padStart(6)} ms (${fps.padStart(3)} fps)` +
+    `  p95=${s.p95.toFixed(1).padStart(6)}  p99=${s.p99.toFixed(1).padStart(6)}  worst=${s.worst.toFixed(0).padStart(5)}` +
+    `  frames=${s.frames}`
+  )
 }
 
 async function setupPage(page: Page) {
@@ -64,7 +66,8 @@ async function setupPage(page: Page) {
   await page.goto('/demo.html?id=__import#10/35.68/139.76/0/0', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // Settle initial cascade so we're measuring the animation itself,
   // not cold-start tile decode + upload.
@@ -78,76 +81,116 @@ async function setupPage(page: Page) {
 async function runAnimation(
   page: Page,
   durationMs: number,
-  updateFn: string,  // a serialisable JS body that takes (t: number, cam, map)
+  updateFn: string, // a serialisable JS body that takes (t: number, cam, map)
 ): Promise<number[]> {
-  return await page.evaluate(async ({ ms, body }) => {
-    const map = (window as unknown as { __xgisMap?: {
-      getCamera: () => { zoom: number; centerX: number; centerY: number; pitch: number; bearing: number };
-      invalidate: () => void;
-    } }).__xgisMap
-    if (!map) throw new Error('__xgisMap not exposed')
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
-    const update = new Function('t', 'cam', 'map', body) as (t: number, c: unknown, m: unknown) => void
+  return await page.evaluate(
+    async ({ ms, body }) => {
+      const map = (
+        window as unknown as {
+          __xgisMap?: {
+            getCamera: () => {
+              zoom: number
+              centerX: number
+              centerY: number
+              pitch: number
+              bearing: number
+            }
+            invalidate: () => void
+          }
+        }
+      ).__xgisMap
+      if (!map) throw new Error('__xgisMap not exposed')
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+      const update = new Function('t', 'cam', 'map', body) as (
+        t: number,
+        c: unknown,
+        m: unknown,
+      ) => void
 
-    const cam = map.getCamera()
-    const frames: number[] = []
-    return await new Promise<number[]>((resolve) => {
-      const start = performance.now()
-      let last = start
-      const tick = () => {
-        const now = performance.now()
-        frames.push(now - last)
-        last = now
-        const elapsed = now - start
-        if (elapsed >= ms) { resolve(frames); return }
-        const t = elapsed / ms
-        update(t, cam, map)
-        map.invalidate()
+      const cam = map.getCamera()
+      const frames: number[] = []
+      return await new Promise<number[]>((resolve) => {
+        const start = performance.now()
+        let last = start
+        const tick = () => {
+          const now = performance.now()
+          frames.push(now - last)
+          last = now
+          const elapsed = now - start
+          if (elapsed >= ms) {
+            resolve(frames)
+            return
+          }
+          const t = elapsed / ms
+          update(t, cam, map)
+          map.invalidate()
+          requestAnimationFrame(tick)
+        }
         requestAnimationFrame(tick)
-      }
-      requestAnimationFrame(tick)
-    })
-  }, { ms: durationMs, body: updateFn })
+      })
+    },
+    { ms: durationMs, body: updateFn },
+  )
 }
 
 // iter-240 — drive the alloc-counter during a representative
 // interactive scenario. Logs the top per-site counts. The drag
 // path re-runs label collision + shape per frame, so sites that
 // cache-out at idle WILL fire here.
-async function captureAllocProfile(page: Page, body: string, ms: number = 3000): Promise<Record<string, number>> {
-  return await page.evaluate(async ({ src, dur }) => {
-    interface API {
-      setEnabled: (on: boolean) => void
-      snapshotAllocProfile: () => Record<string, number>
-    }
-    const api = (window as unknown as { __xgisAllocProfile?: API }).__xgisAllocProfile
-    if (!api) return {}
-    interface M {
-      getCamera: () => { zoom: number; centerX: number; centerY: number; pitch: number; bearing: number }
-      invalidate: () => void
-    }
-    const map = (window as unknown as { __xgisMap?: M }).__xgisMap
-    if (!map) return {}
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
-    const update = new Function('t', 'cam', 'map', src) as (t: number, c: unknown, m: unknown) => void
-    const cam = map.getCamera()
-    api.setEnabled(true)
-    api.snapshotAllocProfile()  // discard pre-window state
-    await new Promise<void>(resolve => {
-      const start = performance.now()
-      const tick = () => {
-        const elapsed = performance.now() - start
-        if (elapsed >= dur) { resolve(); return }
-        update(elapsed / dur, cam, map)
-        map.invalidate()
-        requestAnimationFrame(tick)
+async function captureAllocProfile(
+  page: Page,
+  body: string,
+  ms: number = 3000,
+): Promise<Record<string, number>> {
+  return await page.evaluate(
+    async ({ src, dur }) => {
+      interface API {
+        setEnabled: (on: boolean) => void
+        snapshotAllocProfile: () => Record<string, number>
       }
-      requestAnimationFrame(tick)
-    })
-    const delta = api.snapshotAllocProfile()
-    api.setEnabled(false)
-    return delta
-  }, { src: body, dur: ms })
+      const api = (window as unknown as { __xgisAllocProfile?: API }).__xgisAllocProfile
+      if (!api) return {}
+      interface M {
+        getCamera: () => {
+          zoom: number
+          centerX: number
+          centerY: number
+          pitch: number
+          bearing: number
+        }
+        invalidate: () => void
+      }
+      const map = (window as unknown as { __xgisMap?: M }).__xgisMap
+      if (!map) return {}
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+      const update = new Function('t', 'cam', 'map', src) as (
+        t: number,
+        c: unknown,
+        m: unknown,
+      ) => void
+      const cam = map.getCamera()
+      api.setEnabled(true)
+      api.snapshotAllocProfile() // discard pre-window state
+      await new Promise<void>((resolve) => {
+        const start = performance.now()
+        const tick = () => {
+          const elapsed = performance.now() - start
+          if (elapsed >= dur) {
+            resolve()
+            return
+          }
+          update(elapsed / dur, cam, map)
+          map.invalidate()
+          requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
+      })
+      const delta = api.snapshotAllocProfile()
+      api.setEnabled(false)
+      return delta
+    },
+    { src: body, dur: ms },
+  )
 }
 
 test('Bright interactive perf — 3 scenarios', async ({ page }) => {
@@ -157,21 +200,31 @@ test('Bright interactive perf — 3 scenarios', async ({ page }) => {
 
   // Capture initial Mercator center for relative pan animations.
   const baseCam = await page.evaluate(() => {
-    const m = (window as unknown as { __xgisMap?: { getCamera: () => { centerX: number; centerY: number; zoom: number } } }).__xgisMap!
+    const m = (
+      window as unknown as {
+        __xgisMap?: { getCamera: () => { centerX: number; centerY: number; zoom: number } }
+      }
+    ).__xgisMap!
     const c = m.getCamera()
     return { x: c.centerX, y: c.centerY, z: c.zoom }
   })
   // eslint-disable-next-line no-console
-  console.log(`\n[setup] Tokyo z=${baseCam.z} centerX=${baseCam.x.toFixed(0)} centerY=${baseCam.y.toFixed(0)}`)
+  console.log(
+    `\n[setup] Tokyo z=${baseCam.z} centerX=${baseCam.x.toFixed(0)} centerY=${baseCam.y.toFixed(0)}`,
+  )
 
   // ── Scenario 1: smooth zoom in → out ──
   // Triangle wave 10 → 16 → 10 over 6 s. Each LOD jump triggers a tile
   // selection / fetch / decode / upload cascade — this captures the
   // stutter during fast zoom.
-  const z1 = await runAnimation(page, 6000, `
+  const z1 = await runAnimation(
+    page,
+    6000,
+    `
     const phase = t < 0.5 ? t * 2 : (1 - t) * 2;  // 0..1..0
     cam.zoom = 10 + phase * 6;                     // 10..16..10
-  `)
+  `,
+  )
   const s1 = summarise(z1)
 
   // ── Scenario 2: pan + zoom in/out ──
@@ -179,20 +232,28 @@ test('Bright interactive perf — 3 scenarios', async ({ page }) => {
   // Tests fetch priority and sub-tile decode pacing under combined
   // motion (camera fetches MUST cancel stale tiles outside the new
   // visible set or they pile up and stall).
-  const z2 = await runAnimation(page, 6000, `
+  const z2 = await runAnimation(
+    page,
+    6000,
+    `
     const phase = t < 0.5 ? t * 2 : (1 - t) * 2;  // 0..1..0
     cam.zoom = 10 + phase * 4;
     cam.centerX = ${baseCam.x} + phase * 200000;  // 200 km east
-  `)
+  `,
+  )
   const s2 = summarise(z2)
 
   // ── Scenario 3: pitch sweep 0 → 80 → 0 ──
   // Where the SSE selector + horizon cull earn their keep. Without
   // them the user-reported "1 fps freeze" lived here.
-  const z3 = await runAnimation(page, 6000, `
+  const z3 = await runAnimation(
+    page,
+    6000,
+    `
     const phase = t < 0.5 ? t * 2 : (1 - t) * 2;  // 0..1..0
     cam.pitch = phase * 80;
-  `)
+  `,
+  )
   const s3 = summarise(z3)
 
   // eslint-disable-next-line no-console
@@ -202,22 +263,26 @@ test('Bright interactive perf — 3 scenarios', async ({ page }) => {
   // eslint-disable-next-line no-console
   console.log('  ' + '─'.repeat(95))
   // eslint-disable-next-line no-console
-  console.log(reportRow('1. zoom 10→16→10',         s1))
+  console.log(reportRow('1. zoom 10→16→10', s1))
   // eslint-disable-next-line no-console
-  console.log(reportRow('2. zoom 10→14→10 + pan',    s2))
+  console.log(reportRow('2. zoom 10→14→10 + pan', s2))
   // eslint-disable-next-line no-console
-  console.log(reportRow('3. pitch 0→80→0',           s3))
+  console.log(reportRow('3. pitch 0→80→0', s3))
 
   // iter-261 (Plan L.1.1) — label-dispatch cache hit-rate. Tells
   // us whether to invest in the full L.1 snapshot/replay refactor.
   const labelStats = await page.evaluate(() => {
-    interface M { getLabelDispatchStats: () => { hits: number; misses: number; hitRate: number } }
+    interface M {
+      getLabelDispatchStats: () => { hits: number; misses: number; hitRate: number }
+    }
     const map = (window as unknown as { __xgisMap?: M }).__xgisMap
     return map?.getLabelDispatchStats?.() ?? null
   })
   if (labelStats !== null) {
     // eslint-disable-next-line no-console
-    console.log(`\n=== Label-dispatch sig cache (L.1 hit-rate diagnostic) ===\n  hits=${labelStats.hits} misses=${labelStats.misses} rate=${(labelStats.hitRate * 100).toFixed(1)}%`)
+    console.log(
+      `\n=== Label-dispatch sig cache (L.1 hit-rate diagnostic) ===\n  hits=${labelStats.hits} misses=${labelStats.misses} rate=${(labelStats.hitRate * 100).toFixed(1)}%`,
+    )
   }
 
   // iter-266 — content-keyed layout cache hit-rate inside
@@ -227,20 +292,36 @@ test('Bright interactive perf — 3 scenarios', async ({ page }) => {
   // camera-dependent term (offset or padding bucket drift); high
   // hit-rate ⇒ the candidates loop is the right place to attack.
   const layoutStats = await page.evaluate(() => {
-    interface M { getLayoutCacheStats: () => { hits: number; misses: number; hitRate: number; entries: number } | null }
+    interface M {
+      getLayoutCacheStats: () => {
+        hits: number
+        misses: number
+        hitRate: number
+        entries: number
+      } | null
+    }
     const map = (window as unknown as { __xgisMap?: M }).__xgisMap
     return map?.getLayoutCacheStats?.() ?? null
   })
   if (layoutStats !== null) {
     // eslint-disable-next-line no-console
-    console.log(`\n=== TextStage layout cache (iter-266 diagnostic) ===\n  hits=${layoutStats.hits} misses=${layoutStats.misses} rate=${(layoutStats.hitRate * 100).toFixed(1)}% entries=${layoutStats.entries}`)
+    console.log(
+      `\n=== TextStage layout cache (iter-266 diagnostic) ===\n  hits=${layoutStats.hits} misses=${layoutStats.misses} rate=${(layoutStats.hitRate * 100).toFixed(1)}% entries=${layoutStats.entries}`,
+    )
   }
 
   // iter-256 (Plan AAA C.3) — phase timing breakdown. Identifies
   // CPU bottleneck (frame.prep vs frame.encode vs frame.submit)
   // so the NEXT perf attack is data-driven, not a guess.
   const phaseProfile = await page.evaluate(() => {
-    interface API { getPhaseAverages: () => Array<{ name: string; meanMs: number; perFrameMs: number; samples: number }> }
+    interface API {
+      getPhaseAverages: () => Array<{
+        name: string
+        meanMs: number
+        perFrameMs: number
+        samples: number
+      }>
+    }
     const api = (window as unknown as { __xgisPerfPhases?: API }).__xgisPerfPhases
     return api?.getPhaseAverages() ?? []
   })
@@ -251,18 +332,24 @@ test('Bright interactive perf — 3 scenarios', async ({ page }) => {
     console.log('  per-frame  per-call   phase')
     for (const p of phaseProfile) {
       // eslint-disable-next-line no-console
-      console.log(`  ${p.perFrameMs.toFixed(2).padStart(7)}    ${p.meanMs.toFixed(2).padStart(6)}    ${p.name}`)
+      console.log(
+        `  ${p.perFrameMs.toFixed(2).padStart(7)}    ${p.meanMs.toFixed(2).padStart(6)}    ${p.name}`,
+      )
     }
   }
 
   // iter-240 (Plan AAA C.2) — alloc profile during interactive
   // path. Drag/zoom drives re-shape + re-collision per frame, so
   // sites that cache-out at idle fire here.
-  const profile = await captureAllocProfile(page, `
+  const profile = await captureAllocProfile(
+    page,
+    `
     const phase = t < 0.5 ? t * 2 : (1 - t) * 2;
     cam.zoom = 10 + phase * 4;
     cam.centerX = ${baseCam.x} + phase * 200000;
-  `, 3000)
+  `,
+    3000,
+  )
   const sorted = Object.entries(profile).sort((a, b) => b[1] - a[1])
   if (sorted.length > 0) {
     // eslint-disable-next-line no-console

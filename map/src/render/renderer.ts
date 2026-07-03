@@ -45,7 +45,10 @@ export type { ShaderVariantInfo, CachedPipeline, Easing, ShowCommand } from './r
 // Re-export the extracted pure interpolators (external consumers + tests
 // import these from './renderer').
 export {
-  interpolateZoom, interpolateZoomRgba, interpolateTime, interpolateTimeColor,
+  interpolateZoom,
+  interpolateZoomRgba,
+  interpolateTime,
+  interpolateTimeColor,
 } from './renderer-helpers'
 
 // ═══ Show command (parsed from AST) ═══
@@ -174,58 +177,140 @@ export class MapRendererContent {
   //    passes read off `renderer` MUST stay readable on the object map.ts
   //    constructs. Thin delegations to the engine half — byte-identical
   //    external API, ZERO call-site changes. ──
-  get fillPipeline(): GPURenderPipeline { return this.engine.fillPipeline }
-  fillRhiState(): import('./material/polygon-fill-material').FillRhiState | null { return this.engine.fillRhiState() }
-  get fillPipelineGround(): GPURenderPipeline { return this.engine.fillPipelineGround }
-  get fillPipelineExtruded(): GPURenderPipeline { return this.engine.fillPipelineExtruded }
-  get fillPipelineExtrudedOIT(): GPURenderPipeline { return this.engine.fillPipelineExtrudedOIT }
-  get oitComposePipeline(): GPURenderPipeline { return this.engine.oitComposePipeline }
-  get oitComposeBindGroupLayout(): GPUBindGroupLayout { return this.engine.oitComposeBindGroupLayout }
-  get overdrawComposePipeline(): GPURenderPipeline | null { return this.engine.overdrawComposePipeline }
-  get overdrawComposeBindGroupLayout(): GPUBindGroupLayout { return this.engine.overdrawComposeBindGroupLayout }
-  get heatmapBlurBindGroupLayout(): GPUBindGroupLayout { return this.engine.heatmapBlurBindGroupLayout }
-  get heatmapComposeBindGroupLayout(): GPUBindGroupLayout { return this.engine.heatmapComposeBindGroupLayout }
-  get fillPipelineOverdraw(): GPURenderPipeline | null { return this.engine.fillPipelineOverdraw }
-  get fillPipelineOverdrawFeature(): GPURenderPipeline | null { return this.engine.fillPipelineOverdrawFeature }
-  get linePipelineOverdraw(): GPURenderPipeline | null { return this.engine.linePipelineOverdraw }
-  get linePipeline(): GPURenderPipeline { return this.engine.linePipeline }
-  get fillPipelineFallback(): GPURenderPipeline { return this.engine.fillPipelineFallback }
-  get fillPipelineGroundFallback(): GPURenderPipeline { return this.engine.fillPipelineGroundFallback }
-  get fillPipelineExtrudedFallback(): GPURenderPipeline { return this.engine.fillPipelineExtrudedFallback }
-  get fillPipelinePatternGround(): GPURenderPipeline { return this.engine.fillPipelinePatternGround }
-  get fillPipelinePatternGroundFallback(): GPURenderPipeline { return this.engine.fillPipelinePatternGroundFallback }
-  get fillPipelinePatternExtruded(): GPURenderPipeline { return this.engine.fillPipelinePatternExtruded }
-  get fillPipelinePatternExtrudedFallback(): GPURenderPipeline { return this.engine.fillPipelinePatternExtrudedFallback }
-  get linePipelineFallback(): GPURenderPipeline { return this.engine.linePipelineFallback }
-  get fillPipelineNoPick(): GPURenderPipeline { return this.engine.fillPipelineNoPick }
-  get fillPipelineGroundNoPick(): GPURenderPipeline { return this.engine.fillPipelineGroundNoPick }
-  get fillPipelineExtrudedNoPick(): GPURenderPipeline { return this.engine.fillPipelineExtrudedNoPick }
-  get linePipelineNoPick(): GPURenderPipeline { return this.engine.linePipelineNoPick }
-  get fillPipelineFallbackNoPick(): GPURenderPipeline { return this.engine.fillPipelineFallbackNoPick }
-  get fillPipelineGroundFallbackNoPick(): GPURenderPipeline { return this.engine.fillPipelineGroundFallbackNoPick }
-  get fillPipelineExtrudedFallbackNoPick(): GPURenderPipeline { return this.engine.fillPipelineExtrudedFallbackNoPick }
-  get linePipelineFallbackNoPick(): GPURenderPipeline { return this.engine.linePipelineFallbackNoPick }
-  get bindGroupLayout(): GPUBindGroupLayout { return this.engine.bindGroupLayout }
-  get featureBindGroupLayout(): GPUBindGroupLayout { return this.engine.featureBindGroupLayout }
+  get fillPipeline(): GPURenderPipeline {
+    return this.engine.fillPipeline
+  }
+  fillRhiState(): import('./material/polygon-fill-material').FillRhiState | null {
+    return this.engine.fillRhiState()
+  }
+  get fillPipelineGround(): GPURenderPipeline {
+    return this.engine.fillPipelineGround
+  }
+  get fillPipelineExtruded(): GPURenderPipeline {
+    return this.engine.fillPipelineExtruded
+  }
+  get fillPipelineExtrudedOIT(): GPURenderPipeline {
+    return this.engine.fillPipelineExtrudedOIT
+  }
+  get oitComposePipeline(): GPURenderPipeline {
+    return this.engine.oitComposePipeline
+  }
+  get oitComposeBindGroupLayout(): GPUBindGroupLayout {
+    return this.engine.oitComposeBindGroupLayout
+  }
+  get overdrawComposePipeline(): GPURenderPipeline | null {
+    return this.engine.overdrawComposePipeline
+  }
+  get overdrawComposeBindGroupLayout(): GPUBindGroupLayout {
+    return this.engine.overdrawComposeBindGroupLayout
+  }
+  get heatmapBlurBindGroupLayout(): GPUBindGroupLayout {
+    return this.engine.heatmapBlurBindGroupLayout
+  }
+  get heatmapComposeBindGroupLayout(): GPUBindGroupLayout {
+    return this.engine.heatmapComposeBindGroupLayout
+  }
+  get fillPipelineOverdraw(): GPURenderPipeline | null {
+    return this.engine.fillPipelineOverdraw
+  }
+  get fillPipelineOverdrawFeature(): GPURenderPipeline | null {
+    return this.engine.fillPipelineOverdrawFeature
+  }
+  get linePipelineOverdraw(): GPURenderPipeline | null {
+    return this.engine.linePipelineOverdraw
+  }
+  get linePipeline(): GPURenderPipeline {
+    return this.engine.linePipeline
+  }
+  get fillPipelineFallback(): GPURenderPipeline {
+    return this.engine.fillPipelineFallback
+  }
+  get fillPipelineGroundFallback(): GPURenderPipeline {
+    return this.engine.fillPipelineGroundFallback
+  }
+  get fillPipelineExtrudedFallback(): GPURenderPipeline {
+    return this.engine.fillPipelineExtrudedFallback
+  }
+  get fillPipelinePatternGround(): GPURenderPipeline {
+    return this.engine.fillPipelinePatternGround
+  }
+  get fillPipelinePatternGroundFallback(): GPURenderPipeline {
+    return this.engine.fillPipelinePatternGroundFallback
+  }
+  get fillPipelinePatternExtruded(): GPURenderPipeline {
+    return this.engine.fillPipelinePatternExtruded
+  }
+  get fillPipelinePatternExtrudedFallback(): GPURenderPipeline {
+    return this.engine.fillPipelinePatternExtrudedFallback
+  }
+  get linePipelineFallback(): GPURenderPipeline {
+    return this.engine.linePipelineFallback
+  }
+  get fillPipelineNoPick(): GPURenderPipeline {
+    return this.engine.fillPipelineNoPick
+  }
+  get fillPipelineGroundNoPick(): GPURenderPipeline {
+    return this.engine.fillPipelineGroundNoPick
+  }
+  get fillPipelineExtrudedNoPick(): GPURenderPipeline {
+    return this.engine.fillPipelineExtrudedNoPick
+  }
+  get linePipelineNoPick(): GPURenderPipeline {
+    return this.engine.linePipelineNoPick
+  }
+  get fillPipelineFallbackNoPick(): GPURenderPipeline {
+    return this.engine.fillPipelineFallbackNoPick
+  }
+  get fillPipelineGroundFallbackNoPick(): GPURenderPipeline {
+    return this.engine.fillPipelineGroundFallbackNoPick
+  }
+  get fillPipelineExtrudedFallbackNoPick(): GPURenderPipeline {
+    return this.engine.fillPipelineExtrudedFallbackNoPick
+  }
+  get linePipelineFallbackNoPick(): GPURenderPipeline {
+    return this.engine.linePipelineFallbackNoPick
+  }
+  get bindGroupLayout(): GPUBindGroupLayout {
+    return this.engine.bindGroupLayout
+  }
+  get featureBindGroupLayout(): GPUBindGroupLayout {
+    return this.engine.featureBindGroupLayout
+  }
   /** Palette/sprite sampler — owned by the engine's factory (shared by both
    *  atlases at bindings 4 + 6). In the external read contract
    *  (map.ts:557 / source-manager.ts). */
-  get paletteSampler(): GPUSampler { return this.engine.paletteSampler }
+  get paletteSampler(): GPUSampler {
+    return this.engine.paletteSampler
+  }
   /** Live uniform ring buffer — read by the OIT / opaque / translucent
    *  passes via `host.renderer.uniformBuffer`. */
-  get uniformBuffer(): GPUBuffer { return this.engine.uniformBuffer }
+  get uniformBuffer(): GPUBuffer {
+    return this.engine.uniformBuffer
+  }
   /** Rebuild all pipelines + invalidate shader variant cache (map.setQuality). */
-  rebuildForQuality(): void { this.engine.rebuildForQuality() }
+  rebuildForQuality(): void {
+    this.engine.rebuildForQuality()
+  }
   /** Lazy-build the `?debug=overdraw` final compose pipeline. */
-  ensureOverdrawCompose(): GPURenderPipeline { return this.engine.ensureOverdrawCompose() }
+  ensureOverdrawCompose(): GPURenderPipeline {
+    return this.engine.ensureOverdrawCompose()
+  }
   /** Lazy-build the heatmap blur pipeline (Phase R). */
-  ensureHeatmapBlur(): GPURenderPipeline { return this.engine.ensureHeatmapBlur() }
+  ensureHeatmapBlur(): GPURenderPipeline {
+    return this.engine.ensureHeatmapBlur()
+  }
   /** Lazy-build the heatmap compose pipeline (Phase R). */
-  ensureHeatmapCompose(): GPURenderPipeline { return this.engine.ensureHeatmapCompose() }
+  ensureHeatmapCompose(): GPURenderPipeline {
+    return this.engine.ensureHeatmapCompose()
+  }
   /** Reset the ring-buffer slot cursor. Call once per frame before any draws. */
-  beginFrame(): void { this.engine.beginFrame() }
+  beginFrame(): void {
+    this.engine.beginFrame()
+  }
   /** Flush the staged uniform bytes before queue.submit(). */
-  endFrame(): void { this.engine.endFrame() }
+  endFrame(): void {
+    this.engine.endFrame()
+  }
   /** Run every attached compute kernel onto the encoder (once per frame). */
   dispatchComputePass(
     encoder: GPUCommandEncoder,
@@ -262,7 +347,10 @@ export class MapRendererContent {
 
   /** Get rendering stats for all layers */
   getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number } {
-    let drawCalls = 0, vertices = 0, triangles = 0, lines = 0
+    let drawCalls = 0,
+      vertices = 0,
+      triangles = 0,
+      lines = 0
     for (const layer of this.layers) {
       if (layer.polygonIndexCount > 0) {
         drawCalls++
@@ -294,7 +382,10 @@ export class MapRendererContent {
     this.bindGroup = device.createBindGroup({
       layout: this.bindGroupLayout,
       entries: [
-        { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() } },
+        {
+          binding: 0,
+          resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() },
+        },
         { binding: 2, resource: this.paletteColorAtlasView },
         { binding: 4, resource: this.paletteSampler },
         { binding: 5, resource: this.spriteAtlasView },
@@ -306,12 +397,15 @@ export class MapRendererContent {
         layer.perLayerBindGroup = device.createBindGroup({
           layout: this.featureBindGroupLayout,
           entries: [
-            { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() } },
+            {
+              binding: 0,
+              resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() },
+            },
             { binding: 1, resource: { buffer: layer.featureDataBuffer } },
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
             { binding: 5, resource: this.spriteAtlasView },
-        { binding: 6, resource: this.paletteSampler },
+            { binding: 6, resource: this.paletteSampler },
           ],
         })
       }
@@ -349,7 +443,9 @@ export class MapRendererContent {
         const pipelines = this.engine.cacheVariantPipelines(variant)
         layerFillPipeline = pipelines.fillPipeline
         layerLinePipeline = pipelines.linePipeline
-        console.log(`[X-GIS] Specialized shader for layer "${show.targetName}" (key: ${variant.key})`)
+        console.log(
+          `[X-GIS] Specialized shader for layer "${show.targetName}" (key: ${variant.key})`,
+        )
       }
     }
 
@@ -448,17 +544,22 @@ export class MapRendererContent {
         layer.perLayerBindGroup = device.createBindGroup({
           layout: this.getOrBuildVariantLayout(variant),
           entries: [
-            { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() } },
+            {
+              binding: 0,
+              resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() },
+            },
             { binding: 1, resource: { buffer: layer.featureDataBuffer } },
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
             { binding: 5, resource: this.spriteAtlasView },
-        { binding: 6, resource: this.paletteSampler },
+            { binding: 6, resource: this.paletteSampler },
             ...extraComputeEntries,
           ],
         })
 
-        console.log(`[X-GIS] Feature data buffer: ${featureCount} features × ${fieldCount} fields for "${show.targetName}"`)
+        console.log(
+          `[X-GIS] Feature data buffer: ${featureCount} features × ${fieldCount} fields for "${show.targetName}"`,
+        )
       }
     }
 
@@ -516,11 +617,14 @@ export class MapRendererContent {
       this.bindGroup = this.ctx.device.createBindGroup({
         layout: this.bindGroupLayout,
         entries: [
-          { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() } },
+          {
+            binding: 0,
+            resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() },
+          },
           { binding: 2, resource: this.paletteColorAtlasView },
           { binding: 4, resource: this.paletteSampler },
           { binding: 5, resource: this.spriteAtlasView },
-        { binding: 6, resource: this.paletteSampler },
+          { binding: 6, resource: this.paletteSampler },
         ],
       })
     }
@@ -538,12 +642,15 @@ export class MapRendererContent {
         layer.perLayerBindGroup = this.ctx.device.createBindGroup({
           layout: variant ? this.getOrBuildVariantLayout(variant) : this.featureBindGroupLayout,
           entries: [
-            { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() } },
+            {
+              binding: 0,
+              resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() },
+            },
             { binding: 1, resource: { buffer: layer.featureDataBuffer } },
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
             { binding: 5, resource: this.spriteAtlasView },
-        { binding: 6, resource: this.paletteSampler },
+            { binding: 6, resource: this.paletteSampler },
             ...computeEntries,
           ],
         })
@@ -564,11 +671,14 @@ export class MapRendererContent {
       this.bindGroup = this.ctx.device.createBindGroup({
         layout: this.bindGroupLayout,
         entries: [
-          { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() } },
+          {
+            binding: 0,
+            resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() },
+          },
           { binding: 2, resource: this.paletteColorAtlasView },
           { binding: 4, resource: this.paletteSampler },
           { binding: 5, resource: this.spriteAtlasView },
-        { binding: 6, resource: this.paletteSampler },
+          { binding: 6, resource: this.paletteSampler },
         ],
       })
     }
@@ -581,12 +691,15 @@ export class MapRendererContent {
         layer.perLayerBindGroup = this.ctx.device.createBindGroup({
           layout: variant ? this.getOrBuildVariantLayout(variant) : this.featureBindGroupLayout,
           entries: [
-            { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() } },
+            {
+              binding: 0,
+              resource: { buffer: this.uniformBuffer, offset: 0, size: polygonUniformBytes() },
+            },
             { binding: 1, resource: { buffer: layer.featureDataBuffer } },
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
             { binding: 5, resource: this.spriteAtlasView },
-        { binding: 6, resource: this.paletteSampler },
+            { binding: 6, resource: this.paletteSampler },
             ...computeEntries,
           ],
         })
@@ -624,7 +737,14 @@ export class MapRendererContent {
   }
 
   /** Render all layers into an existing render pass (RTC projection) */
-  renderToPass(pass: GPURenderPassEncoder, camera: Camera, projType = 0, projCenterLon = 0, projCenterLat = 20, elapsedMs = 0): void {
+  renderToPass(
+    pass: GPURenderPassEncoder,
+    camera: Camera,
+    projType = 0,
+    projCenterLon = 0,
+    projCenterLat = 20,
+    elapsedMs = 0,
+  ): void {
     // Overdraw-debug v1: legacy MapRenderer layers (graticule, etc.)
     // bake their pipeline against the swapchain format. The pass
     // attachment in debug mode is r16float — formats mismatch. Skip
@@ -652,9 +772,10 @@ export class MapRendererContent {
       // working at runtime; for the four animated kinds the resolver
       // takes precedence.
       const ps = layer.show.paintShapes
-      const opacity = ps.common.opacity.kind === 'constant'
-        ? layer.props.getNumber('opacity', 1.0)
-        : resolveNumberShape(ps.common.opacity, camera.zoom, elapsedMs).value
+      const opacity =
+        ps.common.opacity.kind === 'constant'
+          ? layer.props.getNumber('opacity', 1.0)
+          : resolveNumberShape(ps.common.opacity, camera.zoom, elapsedMs).value
 
       let fillRaw = layer.props.getColor('fill')
       let strokeRaw = layer.props.getColor('stroke')
@@ -666,10 +787,12 @@ export class MapRendererContent {
         const r = resolveColorShape(ps.line.stroke, camera.zoom, elapsedMs)
         if (r !== null) strokeRaw = [r.value[0], r.value[1], r.value[2], r.value[3]]
       }
-      const fillColor: readonly [number, number, number, number] =
-        fillRaw ? [fillRaw[0], fillRaw[1], fillRaw[2], fillRaw[3] * opacity] : [0, 0, 0, 0]
-      const strokeColor: readonly [number, number, number, number] =
-        strokeRaw ? [strokeRaw[0], strokeRaw[1], strokeRaw[2], strokeRaw[3] * opacity] : [0, 0, 0, 0]
+      const fillColor: readonly [number, number, number, number] = fillRaw
+        ? [fillRaw[0], fillRaw[1], fillRaw[2], fillRaw[3] * opacity]
+        : [0, 0, 0, 0]
+      const strokeColor: readonly [number, number, number, number] = strokeRaw
+        ? [strokeRaw[0], strokeRaw[1], strokeRaw[2], strokeRaw[3] * opacity]
+        : [0, 0, 0, 0]
 
       // Non-tiled layer: vertices are stored in absolute Mercator meters
       // (DSFUN stride 5/6) so tile_origin_merc = (0, 0) and
@@ -678,9 +801,15 @@ export class MapRendererContent {
       const DEG2RAD = Math.PI / 180
       const R = activeBody().sphereR
       const cx = projCenterLon * DEG2RAD * R
-      const cy = projType < 0.5
-        ? Math.log(Math.tan(Math.PI / 4 + Math.max(-85.051129, Math.min(85.051129, projCenterLat)) * DEG2RAD / 2)) * R  // Mercator
-        : projCenterLat * DEG2RAD * R  // Equirectangular fallback (non-Mercator rebuilds lon/lat in the shader)
+      const cy =
+        projType < 0.5
+          ? Math.log(
+              Math.tan(
+                Math.PI / 4 +
+                  (Math.max(-85.051129, Math.min(85.051129, projCenterLat)) * DEG2RAD) / 2,
+              ),
+            ) * R // Mercator
+          : projCenterLat * DEG2RAD * R // Equirectangular fallback (non-Mercator rebuilds lon/lat in the shader)
       const cxH = Math.fround(cx)
       const cxL = Math.fround(cx - cxH)
       const cyH = Math.fround(cy)
@@ -704,16 +833,26 @@ export class MapRendererContent {
         fill_color: fillColor,
         stroke_color: strokeColor,
         proj_params: [projType, projCenterLon, projCenterLat, 0],
-        cam_h: [cxH, cyH], cam_l: [cxL, cyL],
+        cam_h: [cxH, cyH],
+        cam_l: [cxL, cyL],
         tile_origin_merc: [0, 0],
         opacity,
         log_depth_fc: frame.logDepthFc,
-        pick_id: layer.pickId, layer_depth_offset: 0, tile_extent_m: 0, extrude_height_m: 0,
+        pick_id: layer.pickId,
+        layer_depth_offset: 0,
+        tile_extent_m: 0,
+        extrude_height_m: 0,
         clip_bounds: [-1e30, 0, 0, 0],
-        zoom: camera.zoom, extrude_base_m: 0, fill_translate_x: 0, fill_translate_y: 0,
-        tile_dequant_scale: 0, tile_dequant_half: 0,
-        light_color_packed: 0, _pad_light_align: 0,
-        cam_ecef_off_h: [0, 0, 0, 0], cam_ecef_off_l: [0, 0, 0, 0],
+        zoom: camera.zoom,
+        extrude_base_m: 0,
+        fill_translate_x: 0,
+        fill_translate_y: 0,
+        tile_dequant_scale: 0,
+        tile_dequant_half: 0,
+        light_color_packed: 0,
+        _pad_light_align: 0,
+        cam_ecef_off_h: [0, 0, 0, 0],
+        cam_ecef_off_l: [0, 0, 0, 0],
         light_dir_ecef: [0, 0, 0, 0],
         globe_eye: [ge[0], ge[1], ge[2], ge[3]],
       })
@@ -756,15 +895,21 @@ export class MapRendererContent {
     // point in the frame (after the layer draws). The collaborator borrows
     // the layer path's linePipeline + base bindGroup + uniformRing and
     // reuses the SAME 192-byte uniform offsets (passed in, not re-derived).
-    this._graticule.renderFrame(pass, this.linePipeline, this.bindGroup, this.engine.uniformRingHandle, {
-      mvp,
-      logDepthFc: frame.logDepthFc,
-      projType,
-      projCenterLon,
-      projCenterLat,
-      zoom: camera.zoom,
-      eye: frame.eye, // #600 globe_eye for the graticule's globe(7) cull
-    })
+    this._graticule.renderFrame(
+      pass,
+      this.linePipeline,
+      this.bindGroup,
+      this.engine.uniformRingHandle,
+      {
+        mvp,
+        logDepthFc: frame.logDepthFc,
+        projType,
+        projCenterLon,
+        projCenterLat,
+        zoom: camera.zoom,
+        eye: frame.eye, // #600 globe_eye for the graticule's globe(7) cull
+      },
+    )
 
     // pass.end() and submit() are handled by caller
   }

@@ -34,13 +34,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<GPUContext> {
   const canvas = { width: 1024, height: 768 } as unknown as HTMLCanvasElement
@@ -55,7 +60,11 @@ function makeTileBindGroupLayout(ctx: GPUContext): GPUBindGroupLayout {
   return ctx.device.createBindGroupLayout({
     label: 'test-tile-bgl',
     entries: [
-      { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true } },
+      {
+        binding: 0,
+        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+        buffer: { type: 'uniform', hasDynamicOffset: true },
+      },
     ],
   })
 }
@@ -84,24 +93,29 @@ function captureLayerWrite(ctx: GPUContext, patterns: PatternSlot[]): Captured {
   const device = ctx.device as unknown as {
     queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer) => void }
   }
-  device.queue.writeBuffer = (buf: unknown, _off: number, data: ArrayBufferView | ArrayBuffer): void => {
+  device.queue.writeBuffer = (
+    buf: unknown,
+    _off: number,
+    data: ArrayBufferView | ArrayBuffer,
+  ): void => {
     if ((buf as { size?: number })?.size !== LAYER_RING_BYTES) return
     // The flush covers the dirty range starting at slot-0 byte 0, so the
     // captured view begins at pattern-slot-0 / flags within slot 0.
-    const u32 = data instanceof ArrayBuffer
-      ? new Uint32Array(data)
-      : new Uint32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset,
-          (data as ArrayBufferView).byteLength / 4)
+    const u32 =
+      data instanceof ArrayBuffer
+        ? new Uint32Array(data)
+        : new Uint32Array(
+            (data as ArrayBufferView).buffer,
+            (data as ArrayBufferView).byteOffset,
+            (data as ArrayBufferView).byteLength / 4,
+          )
     captured.shapeId = u32[PATTERN0_SHAPEID]
     captured.flags = u32[FLAGS_WORD]
   }
 
   // writeLayerSlot positional tail: (color, widthPx, opacity, mpp, cap, join,
   // miterLimit, dash, patterns, …). patterns is the 9th argument.
-  renderer.writeLayerSlot(
-    [1, 1, 1, 1], 4, 1, 1000,
-    undefined, undefined, undefined, null, patterns,
-  )
+  renderer.writeLayerSlot([1, 1, 1, 1], 4, 1, 1000, undefined, undefined, undefined, null, patterns)
   renderer.endFrame()
 
   return captured

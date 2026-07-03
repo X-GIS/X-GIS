@@ -61,7 +61,12 @@ export function varRefVec4(name: string): NodeLike<'vec4<f32>'> {
 
 /** vec4<f32>(r, g, b, a) literal. Used by the constant-fill arm and the
  *  buildFillExpr composition target. */
-export function vec4f(r: NodeLike<'f32'>, g: NodeLike<'f32'>, b: NodeLike<'f32'>, a: NodeLike<'f32'>): NodeLike<'vec4<f32>'> {
+export function vec4f(
+  r: NodeLike<'f32'>,
+  g: NodeLike<'f32'>,
+  b: NodeLike<'f32'>,
+  a: NodeLike<'f32'>,
+): NodeLike<'vec4<f32>'> {
   return {
     expr: {
       op: 'construct',
@@ -73,7 +78,9 @@ export function vec4f(r: NodeLike<'f32'>, g: NodeLike<'f32'>, b: NodeLike<'f32'>
 
 /** vec4<f32> literal from an RGBA tuple — convenience for the constant-fill
  *  path which receives `value.rgba` directly. */
-export function vec4fFromRgba(rgba: readonly [number, number, number, number]): NodeLike<'vec4<f32>'> {
+export function vec4fFromRgba(
+  rgba: readonly [number, number, number, number],
+): NodeLike<'vec4<f32>'> {
   return vec4f(f32Lit(rgba[0]), f32Lit(rgba[1]), f32Lit(rgba[2]), f32Lit(rgba[3]))
 }
 
@@ -112,7 +119,10 @@ export function refF32(name: string): NodeLike<'f32'> {
  *  target. WGSL accepts `vec4<f32>(vec3<f32>, f32)` directly, so the
  *  emitted form is byte-identical to the legacy string-emit shape
  *  the snapshot baselines were captured against. */
-export function composeFillVec4(color: NodeLike<'vec4<f32>'>, opacity: NodeLike<'f32'>): NodeLike<'vec4<f32>'> {
+export function composeFillVec4(
+  color: NodeLike<'vec4<f32>'>,
+  opacity: NodeLike<'f32'>,
+): NodeLike<'vec4<f32>'> {
   const VEC3F_T = { kind: 'vec', n: 3, elem: 'f32' } as const
   const rgb = { op: 'member', type: VEC3F_T, base: color.expr, field: 'rgb' } as const
   const aChan = { op: 'member', type: F32_T, base: color.expr, field: 'a' } as const
@@ -140,12 +150,20 @@ export function toI32(x: NodeLike<string>): NodeLike<'i32'> {
 }
 
 /** f32 binop helper — produces `(a <bop> b)` as a Node. */
-function f32Binop(bop: '+' | '-' | '*' | '/' | '%', a: NodeLike<'f32'>, b: NodeLike<'f32'>): NodeLike<'f32'> {
+function f32Binop(
+  bop: '+' | '-' | '*' | '/' | '%',
+  a: NodeLike<'f32'>,
+  b: NodeLike<'f32'>,
+): NodeLike<'f32'> {
   return { expr: { op: 'binop', type: F32_T, bop, a: a.expr, b: b.expr } } as NodeLike<'f32'>
 }
 
 /** u32 binop helper. */
-function u32Binop(bop: '+' | '-' | '*' | '/' | '%', a: NodeLike<'u32'>, b: NodeLike<'u32'>): NodeLike<'u32'> {
+function u32Binop(
+  bop: '+' | '-' | '*' | '/' | '%',
+  a: NodeLike<'u32'>,
+  b: NodeLike<'u32'>,
+): NodeLike<'u32'> {
   return { expr: { op: 'binop', type: U32_T, bop, a: a.expr, b: b.expr } } as NodeLike<'u32'>
 }
 
@@ -204,7 +222,13 @@ export function selectF32(
   cond: NodeLike<'bool'>,
 ): NodeLike<'f32'> {
   return {
-    expr: { op: 'select', type: F32_T, cond: cond.expr, ifTrue: ifTrue.expr, ifFalse: ifFalse.expr },
+    expr: {
+      op: 'select',
+      type: F32_T,
+      cond: cond.expr,
+      ifTrue: ifTrue.expr,
+      ifFalse: ifFalse.expr,
+    },
   } as NodeLike<'f32'>
 }
 
@@ -213,7 +237,11 @@ export function selectF32(
  *  the user-fn inliner, which historically embedded comparison/logical operators
  *  verbatim (NOT through the f32 select() bridge). The `type` is annotated f32
  *  because emit ignores the type for these ops — the spelling is `(a op b)`. */
-export function binaryVerbatimF32(a: NodeLike<'f32'>, op: string, b: NodeLike<'f32'>): NodeLike<'f32'> {
+export function binaryVerbatimF32(
+  a: NodeLike<'f32'>,
+  op: string,
+  b: NodeLike<'f32'>,
+): NodeLike<'f32'> {
   // `%` routes through the floored-modulo expression (portable across the three
   // backends); the raw `%` BinOp is never emitted for f32.
   if (op === '%') return f32Mod(a, b)
@@ -221,10 +249,14 @@ export function binaryVerbatimF32(a: NodeLike<'f32'>, op: string, b: NodeLike<'f
     return { expr: { op: 'binop', type: F32_T, bop: op, a: a.expr, b: b.expr } } as NodeLike<'f32'>
   }
   if (op === '<' || op === '>' || op === '<=' || op === '>=' || op === '==' || op === '!=') {
-    return { expr: { op: 'compare', type: F32_T, cop: op, a: a.expr, b: b.expr } } as NodeLike<'f32'>
+    return {
+      expr: { op: 'compare', type: F32_T, cop: op, a: a.expr, b: b.expr },
+    } as NodeLike<'f32'>
   }
   if (op === '&&' || op === '||') {
-    return { expr: { op: 'logical', type: F32_T, lop: op, a: a.expr, b: b.expr } } as NodeLike<'f32'>
+    return {
+      expr: { op: 'logical', type: F32_T, lop: op, a: a.expr, b: b.expr },
+    } as NodeLike<'f32'>
   }
   throw new Error(`binaryVerbatimF32: unsupported operator ${op}`)
 }
@@ -232,17 +264,24 @@ export function binaryVerbatimF32(a: NodeLike<'f32'>, op: string, b: NodeLike<'f
 /** Array index access (`base[idx]`). Returns a Node of the elemKey
  *  generic. The elemKey is opaque to the compiler-side helper — the
  *  caller annotates the result type. */
-export function arrayIndex<E extends string>(base: NodeLike<string>, idx: NodeLike<'u32'> | NodeLike<'i32'>, elemTypeKey: E): NodeLike<E> {
+export function arrayIndex<E extends string>(
+  base: NodeLike<string>,
+  idx: NodeLike<'u32'> | NodeLike<'i32'>,
+  elemTypeKey: E,
+): NodeLike<E> {
   // Synthesize a minimal ShaderType for the element. Use vec4f as
   // the default for the palette / categorical color array case;
   // u32 / i32 for the compute output / feat_data lookup cases;
   // f32 otherwise. Runtime emit cares about index op shape, not
   // the elem type, so the simplification is safe.
   const elemT =
-    elemTypeKey === 'vec4<f32>' ? VEC4F_T :
-    elemTypeKey === 'u32' ? U32_T :
-    elemTypeKey === 'i32' ? I32_T :
-    F32_T
+    elemTypeKey === 'vec4<f32>'
+      ? VEC4F_T
+      : elemTypeKey === 'u32'
+        ? U32_T
+        : elemTypeKey === 'i32'
+          ? I32_T
+          : F32_T
   return { expr: { op: 'index', type: elemT, base: base.expr, idx: idx.expr } } as NodeLike<E>
 }
 
@@ -273,7 +312,10 @@ export function inputFeatIdRef(): NodeLike<'u32'> {
 
 /** Construct the feat_data[input.feat_id * STRIDE + offset] f32 lookup
  *  Node for a single field — mirrors exprToWGSL's FieldAccess emit. */
-export function featDataField(fieldName: string, fieldMap: Map<string, number>): NodeLike<'f32'> | null {
+export function featDataField(
+  fieldName: string,
+  fieldMap: Map<string, number>,
+): NodeLike<'f32'> | null {
   const offset = fieldMap.get(fieldName)
   if (offset === undefined) return null
   const stride = fieldMap.size
@@ -284,14 +326,22 @@ export function featDataField(fieldName: string, fieldMap: Map<string, number>):
 // ── mix / clamp builtins (gradient + scale idioms) ──
 
 /** mix(low, high, t) for vec4<f32> args + scalar t. */
-export function mix4(low: NodeLike<'vec4<f32>'>, high: NodeLike<'vec4<f32>'>, t: NodeLike<'f32'>): NodeLike<'vec4<f32>'> {
+export function mix4(
+  low: NodeLike<'vec4<f32>'>,
+  high: NodeLike<'vec4<f32>'>,
+  t: NodeLike<'f32'>,
+): NodeLike<'vec4<f32>'> {
   return {
     expr: { op: 'call', type: VEC4F_T, fn: 'mix', args: [low.expr, high.expr, t.expr] },
   } as NodeLike<'vec4<f32>'>
 }
 
 /** clamp(x, lo, hi) for f32 scalars. */
-export function clampF32(x: NodeLike<'f32'>, lo: NodeLike<'f32'>, hi: NodeLike<'f32'>): NodeLike<'f32'> {
+export function clampF32(
+  x: NodeLike<'f32'>,
+  lo: NodeLike<'f32'>,
+  hi: NodeLike<'f32'>,
+): NodeLike<'f32'> {
   return {
     expr: { op: 'call', type: F32_T, fn: 'clamp', args: [x.expr, lo.expr, hi.expr] },
   } as NodeLike<'f32'>
@@ -330,7 +380,12 @@ export function textureSampleLevelVec4(
   lod: NodeLike<'f32'>,
 ): NodeLike<'vec4<f32>'> {
   return {
-    expr: { op: 'call', type: VEC4F_T, fn: 'textureSampleLevel', args: [tex.expr, sampler.expr, uv.expr, lod.expr] },
+    expr: {
+      op: 'call',
+      type: VEC4F_T,
+      fn: 'textureSampleLevel',
+      args: [tex.expr, sampler.expr, uv.expr, lod.expr],
+    },
   } as NodeLike<'vec4<f32>'>
 }
 

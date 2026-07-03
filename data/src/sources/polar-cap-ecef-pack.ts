@@ -102,10 +102,12 @@ export function packECEFWithPolarCaps(
     const ax = ex - ecefTileCenter[0]
     const ay = ey - ecefTileCenter[1]
     const az = ez - ecefTileCenter[2]
-    rx[i] = ax; ry[i] = ay; rz[i] = az
+    rx[i] = ax
+    ry[i] = ay
+    rz[i] = az
     // Tile-local Mercator (clamped lat) — absolute merc minus the tile origin.
     localMx[i] = lon * DEG2RAD * A - originMerc[0]
-    localMy[i] = Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) * A - originMerc[1]
+    localMy[i] = Math.log(Math.tan(Math.PI / 4 + (clampedLat * DEG2RAD) / 2)) * A - originMerc[1]
     const m = Math.max(Math.abs(ax), Math.abs(ay), Math.abs(az))
     if (m > maxAbs) maxAbs = m
   }
@@ -113,8 +115,8 @@ export function packECEFWithPolarCaps(
   // Symmetric half-range + dequant params — mirrors the kernel exactly.
   const halfRange = maxAbs + 1e-6
   const span = 2 * halfRange
-  const dequantScale = span / 0xFFFFFFFF
-  const invSpan = 0xFFFFFFFF / span
+  const dequantScale = span / 0xffffffff
+  const invSpan = 0xffffffff / span
 
   const out = new Float32Array(vertexCount * FILL_FLOATS_PER_VERT)
   const u16 = new Uint16Array(out.buffer)
@@ -123,14 +125,14 @@ export function packECEFWithPolarCaps(
     const [yh, yl] = quantizeAxis(ry[i], halfRange, invSpan)
     const [zh, zl] = quantizeAxis(rz[i], halfRange, invSpan)
     const u = i * FILL_U16_PER_VERT
-    u16[u]     = xh
+    u16[u] = xh
     u16[u + 1] = xl
     u16[u + 2] = yh
     u16[u + 3] = yl
     u16[u + 4] = zh
     u16[u + 5] = zl
     const f = i * FILL_FLOATS_PER_VERT
-    out[f + FILL_FID_FLOAT] = 0   // single synthetic feature
+    out[f + FILL_FID_FLOAT] = 0 // single synthetic feature
     out[f + FILL_LON_FLOAT] = localMx[i]
     out[f + FILL_LAT_FLOAT] = localMy[i]
     // true_lat (#398) = the UNCLAMPED latitude (±90 at the pole). The disc

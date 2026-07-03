@@ -16,7 +16,7 @@ function convert(mapbox: unknown): { result: string | null; warnings: string[] }
 function evalSrc(src: string, props: Record<string, unknown> = {}): unknown {
   const tokens = new Lexer(`let __t = ${src}`).tokenize()
   const ast = new Parser(tokens).parse() as { body: Array<{ kind: string; value?: unknown }> }
-  const stmt = ast.body.find(s => s.kind === 'LetStatement') as { value?: unknown } | undefined
+  const stmt = ast.body.find((s) => s.kind === 'LetStatement') as { value?: unknown } | undefined
   return evaluate(stmt!.value as never, props)
 }
 
@@ -30,16 +30,24 @@ describe('collator comparison converter', () => {
   })
 
   it('case + diacritic flags are threaded through', () => {
-    const { result } = convert(['<', ['get', 'a'], ['get', 'b'],
-      ['collator', { 'case-sensitive': true, 'diacritic-sensitive': true }]])
+    const { result } = convert([
+      '<',
+      ['get', 'a'],
+      ['get', 'b'],
+      ['collator', { 'case-sensitive': true, 'diacritic-sensitive': true }],
+    ])
     expect(result).toBe('collator_cmp("<", .a, .b, "", true, true)')
   })
 
   it('non-constant collator option → fall back to byte-exact + warning', () => {
-    const { result, warnings } = convert(['==', ['get', 'a'], 'x',
-      ['collator', { 'case-sensitive': ['get', 'flag'] }]])
+    const { result, warnings } = convert([
+      '==',
+      ['get', 'a'],
+      'x',
+      ['collator', { 'case-sensitive': ['get', 'flag'] }],
+    ])
     expect(result).toBe('.a == "x"')
-    expect(warnings.some(w => /non-constant options/.test(w))).toBe(true)
+    expect(warnings.some((w) => /non-constant options/.test(w))).toBe(true)
   })
 
   it('end-to-end: case-insensitive match evaluates true', () => {
@@ -59,6 +67,6 @@ describe('resolved-locale converter', () => {
   it('malformed arity → drops with a warning', () => {
     const { result, warnings } = convert(['resolved-locale'])
     expect(result).toBeNull()
-    expect(warnings.some(w => /resolved-locale/.test(w))).toBe(true)
+    expect(warnings.some((w) => /resolved-locale/.test(w))).toBe(true)
   })
 })

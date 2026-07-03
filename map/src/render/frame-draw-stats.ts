@@ -17,7 +17,10 @@
 
 export class FrameDrawStats {
   // Per-frame draw stats
-  private renderedDraws = new Map<number | string, { polyCount: number; lineCount: number; vertexCount: number }>()
+  private renderedDraws = new Map<
+    number | string,
+    { polyCount: number; lineCount: number; vertexCount: number }
+  >()
   // DIAG: filled in by render() at the start of each show, read by
   // renderTileKeys when pushing per-tile drawIndexed entries into the
   // trace. Both fields are flag-gated and zero-cost when the trace
@@ -98,14 +101,24 @@ export class FrameDrawStats {
     vertexCount: number,
     tz: number | undefined,
   ): void {
-    this.renderedDraws.set(key, { polyCount: polyIndexCount, lineCount: lineIndexCount, vertexCount })
+    this.renderedDraws.set(key, {
+      polyCount: polyIndexCount,
+      lineCount: lineIndexCount,
+      vertexCount,
+    })
     // Frame-scoped accumulators (sum across all render() calls
     // within one frame so getDrawStats() reflects the FRAME total
     // for sliced sources rather than the last layer's stats).
     this._frameTilesVisible++
     this._frameVertices += vertexCount
-    if (polyIndexCount > 0) { this._frameDrawCalls++; this._frameTriangles += Math.floor(polyIndexCount / 3) }
-    if (lineIndexCount > 0) { this._frameDrawCalls++; this._frameLines += Math.floor(lineIndexCount / 2) }
+    if (polyIndexCount > 0) {
+      this._frameDrawCalls++
+      this._frameTriangles += Math.floor(polyIndexCount / 3)
+    }
+    if (lineIndexCount > 0) {
+      this._frameDrawCalls++
+      this._frameLines += Math.floor(lineIndexCount / 2)
+    }
     if (typeof tz === 'number') {
       this._frameDrawnByZoom.set(tz, (this._frameDrawnByZoom.get(tz) ?? 0) + 1)
     }
@@ -169,7 +182,15 @@ export class FrameDrawStats {
     return this._missedTiles
   }
 
-  getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number; tilesVisible: number; missedTiles: number; globeTilesSelected: number } {
+  getDrawStats(): {
+    drawCalls: number
+    vertices: number
+    triangles: number
+    lines: number
+    tilesVisible: number
+    missedTiles: number
+    globeTilesSelected: number
+  } {
     return {
       drawCalls: this._frameDrawCalls,
       vertices: this._frameVertices,

@@ -15,8 +15,16 @@ beforeAll(() => {
   // bufUsage reads the GPUBufferUsage globals (absent under node/vitest).
   const g = globalThis as { GPUBufferUsage?: unknown }
   g.GPUBufferUsage ??= {
-    MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8,
-    INDEX: 16, VERTEX: 32, UNIFORM: 64, STORAGE: 128, INDIRECT: 256, QUERY_RESOLVE: 512,
+    MAP_READ: 1,
+    MAP_WRITE: 2,
+    COPY_SRC: 4,
+    COPY_DST: 8,
+    INDEX: 16,
+    VERTEX: 32,
+    UNIFORM: 64,
+    STORAGE: 128,
+    INDIRECT: 256,
+    QUERY_RESOLVE: 512,
   }
 })
 
@@ -25,7 +33,12 @@ const U = () => globalThis.GPUBufferUsage
 describe('RhiBufferDesc.copySrc — WebGPU usage-flag byte-identity', () => {
   function recordingDevice() {
     const descs: GPUBufferDescriptor[] = []
-    const device = { createBuffer: (d: GPUBufferDescriptor) => { descs.push(d); return {} as GPUBuffer } } as unknown as GPUDevice
+    const device = {
+      createBuffer: (d: GPUBufferDescriptor) => {
+        descs.push(d)
+        return {} as GPUBuffer
+      },
+    } as unknown as GPUDevice
     return { dev: new WebGpuDevice(device), descs }
   }
 
@@ -51,11 +64,20 @@ describe('RhiBufferDesc.copySrc — WebGPU usage-flag byte-identity', () => {
 describe('WebGpuCommandEncoder.copyBufferToBuffer — unwrap + 1:1 forward', () => {
   it('forwards the unwrapped native GPUBuffers + offsets/size to the raw encoder', () => {
     const calls: unknown[][] = []
-    const rawEnc = { copyBufferToBuffer: (...a: unknown[]) => { calls.push(a) }, finish: () => ({}) }
+    const rawEnc = {
+      copyBufferToBuffer: (...a: unknown[]) => {
+        calls.push(a)
+      },
+      finish: () => ({}),
+    }
     const submitted: unknown[] = []
     const device = {
       createCommandEncoder: () => rawEnc,
-      queue: { submit: (b: unknown) => { submitted.push(b) } },
+      queue: {
+        submit: (b: unknown) => {
+          submitted.push(b)
+        },
+      },
     } as unknown as GPUDevice
     const dev = new WebGpuDevice(device)
 
@@ -76,17 +98,31 @@ describe('WebGpuCommandEncoder.copyBufferToBuffer — unwrap + 1:1 forward', () 
 // (no real GPU in vitest). Models the subset WebGl2Device's vertex/index path
 // + the copy encoder touch: createBuffer/bindBuffer/bufferData/bufferSubData/
 // copyBufferSubData, plus the SAMPLER_* + texture stubs the ctor reads.
-interface FakeBuf { bytes: Uint8Array }
+interface FakeBuf {
+  bytes: Uint8Array
+}
 function fakeGl(): WebGL2RenderingContext {
-  const ARRAY_BUFFER = 0x8892, ELEMENT_ARRAY_BUFFER = 0x8893, UNIFORM_BUFFER = 0x8a11
-  const COPY_READ_BUFFER = 0x8f36, COPY_WRITE_BUFFER = 0x8f37
+  const ARRAY_BUFFER = 0x8892,
+    ELEMENT_ARRAY_BUFFER = 0x8893,
+    UNIFORM_BUFFER = 0x8a11
+  const COPY_READ_BUFFER = 0x8f36,
+    COPY_WRITE_BUFFER = 0x8f37
   const bound = new Map<number, FakeBuf | null>()
   const gl = {
-    ARRAY_BUFFER, ELEMENT_ARRAY_BUFFER, UNIFORM_BUFFER, COPY_READ_BUFFER, COPY_WRITE_BUFFER,
+    ARRAY_BUFFER,
+    ELEMENT_ARRAY_BUFFER,
+    UNIFORM_BUFFER,
+    COPY_READ_BUFFER,
+    COPY_WRITE_BUFFER,
     DYNAMIC_DRAW: 0x88e8,
-    SAMPLER_2D: 0x8b5e, SAMPLER_CUBE: 0x8b60, SAMPLER_3D: 0x8b5f, SAMPLER_2D_ARRAY: 0x8dc1,
+    SAMPLER_2D: 0x8b5e,
+    SAMPLER_CUBE: 0x8b60,
+    SAMPLER_3D: 0x8b5f,
+    SAMPLER_2D_ARRAY: 0x8dc1,
     createBuffer: (): FakeBuf => ({ bytes: new Uint8Array(0) }),
-    bindBuffer: (target: number, buf: FakeBuf | null) => { bound.set(target, buf) },
+    bindBuffer: (target: number, buf: FakeBuf | null) => {
+      bound.set(target, buf)
+    },
     bufferData: (target: number, size: number) => {
       const b = bound.get(target) as FakeBuf
       b.bytes = new Uint8Array(size)
@@ -95,13 +131,20 @@ function fakeGl(): WebGL2RenderingContext {
       const b = bound.get(target) as FakeBuf
       b.bytes.set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), offset)
     },
-    copyBufferSubData: (readT: number, writeT: number, srcOff: number, dstOff: number, size: number) => {
+    copyBufferSubData: (
+      readT: number,
+      writeT: number,
+      srcOff: number,
+      dstOff: number,
+      size: number,
+    ) => {
       const s = bound.get(readT) as FakeBuf
       const d = bound.get(writeT) as FakeBuf
       d.bytes.set(s.bytes.subarray(srcOff, srcOff + size), dstOff)
     },
     // texture stubs the storage-buffer path would touch (unused here).
-    createTexture: () => ({}), bindTexture: () => {},
+    createTexture: () => ({}),
+    bindTexture: () => {},
   }
   return gl as unknown as WebGL2RenderingContext
 }
@@ -130,7 +173,8 @@ describe('WebGl2 copyBufferToBuffer — gl.copyBufferSubData byte round-trip', (
 
   it('beginRenderPass on the copy encoder still fail-CLOSES (MRT = full-frame phase)', () => {
     const enc = new WebGl2Device(fakeGl()).createCommandEncoder()
-    expect(() => enc.beginRenderPass({ colorAttachments: [] }))
-      .toThrow(/beginRenderPass.*not yet supported|full-frame phase/)
+    expect(() => enc.beginRenderPass({ colorAttachments: [] })).toThrow(
+      /beginRenderPass.*not yet supported|full-frame phase/,
+    )
   })
 })

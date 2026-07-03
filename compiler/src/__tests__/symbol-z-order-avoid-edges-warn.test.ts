@@ -19,59 +19,56 @@ function buildSymbol(layout: Record<string, unknown>): unknown {
   return {
     version: 8,
     sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-    layers: [{
-      id: 'lbl',
-      type: 'symbol',
-      source: 'v',
-      'source-layer': 'a',
-      layout: { 'text-field': '{name}', ...layout },
-      paint: { 'text-color': '#000' },
-    }],
+    layers: [
+      {
+        id: 'lbl',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 'a',
+        layout: { 'text-field': '{name}', ...layout },
+        paint: { 'text-color': '#000' },
+      },
+    ],
   }
 }
 
 describe('symbol-z-order + symbol-avoid-edges warning surface', () => {
   it('symbol-z-order: "viewport-y" (now implemented) does NOT warn', () => {
     const w = warningsOf(buildSymbol({ 'symbol-z-order': 'viewport-y' }))
-    expect(w.some(s => s.includes('symbol-z-order'))).toBe(false)
+    expect(w.some((s) => s.includes('symbol-z-order'))).toBe(false)
   })
 
   it('symbol-z-order: "source" (now implemented) does NOT warn', () => {
     const w = warningsOf(buildSymbol({ 'symbol-z-order': 'source' }))
-    expect(w.some(s => s.includes('symbol-z-order'))).toBe(false)
+    expect(w.some((s) => s.includes('symbol-z-order'))).toBe(false)
   })
 
   it('symbol-z-order: "auto" (default) does NOT warn', () => {
     const w = warningsOf(buildSymbol({ 'symbol-z-order': 'auto' }))
-    expect(w.some(s => s.includes('symbol-z-order'))).toBe(false)
+    expect(w.some((s) => s.includes('symbol-z-order'))).toBe(false)
   })
 
   it('symbol-z-order: invalid enum → enum-validation warn', () => {
     const w = warningsOf(buildSymbol({ 'symbol-z-order': 'sideways' }))
-    expect(w.some(s =>
-      s.includes('symbol-z-order')
-      && s.includes('not a valid enum'),
-    )).toBe(true)
+    expect(w.some((s) => s.includes('symbol-z-order') && s.includes('not a valid enum'))).toBe(true)
   })
 
   it('symbol-avoid-edges: true → specific warn (moot for cross-tile collision)', () => {
     const w = warningsOf(buildSymbol({ 'symbol-avoid-edges': true }))
-    expect(w.some(s =>
-      s.includes('symbol-avoid-edges')
-      && s.includes('cross-tile collision'),
-    )).toBe(true)
+    expect(
+      w.some((s) => s.includes('symbol-avoid-edges') && s.includes('cross-tile collision')),
+    ).toBe(true)
   })
 
   it('symbol-avoid-edges: false (default) does NOT warn', () => {
     const w = warningsOf(buildSymbol({ 'symbol-avoid-edges': false }))
-    expect(w.some(s => s.includes('symbol-avoid-edges'))).toBe(false)
+    expect(w.some((s) => s.includes('symbol-avoid-edges'))).toBe(false)
   })
 
   it('layer without these properties does NOT warn', () => {
     const w = warningsOf(buildSymbol({}))
-    expect(w.some(s =>
-      s.includes('symbol-z-order')
-      || s.includes('symbol-avoid-edges'),
-    )).toBe(false)
+    expect(w.some((s) => s.includes('symbol-z-order') || s.includes('symbol-avoid-edges'))).toBe(
+      false,
+    )
   })
 })

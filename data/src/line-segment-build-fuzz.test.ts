@@ -63,10 +63,7 @@ describe('iter-297 buildLineSegments fuzz', () => {
 
   it('stride=10 (DSFUN with tangents) decodes', () => {
     // [mx_h, my_h, mx_l, my_l, feat_id, arc_start, tan0, tan1, tan2, tan3]
-    const v = new Float32Array([
-      0, 0, 0, 0, 0, 0, 1, 0, 1, 0,
-      100, 0, 0, 0, 0, 100, 1, 0, 1, 0,
-    ])
+    const v = new Float32Array([0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 100, 0, 0, 0, 0, 100, 1, 0, 1, 0])
     expect(() => buildLineSegments(v, idx(0, 1), 10)).not.toThrow()
   })
 
@@ -82,7 +79,7 @@ describe('iter-297 buildLineSegments fuzz', () => {
     for (let k = 0; k < N; k++) {
       v[k * 6] = k * 10
       v[k * 6 + 1] = k * 10
-      v[k * 6 + 5] = k * 10  // arc_start
+      v[k * 6 + 5] = k * 10 // arc_start
     }
     for (let k = 0; k < N - 1; k++) {
       i[k * 2] = k
@@ -99,9 +96,9 @@ describe('iter-297 buildLineSegments fuzz', () => {
 
   it('heights map with no matching featId falls back to defaultHeight', () => {
     const v = v6([0, 0, 0, 0, 99, 0], [100, 0, 0, 0, 99, 100])
-    const heights = new Map<number, number>([[42, 50]])  // 99 absent
+    const heights = new Map<number, number>([[42, 50]]) // 99 absent
     const r = buildLineSegments(v, idx(0, 1), 6, 0, 0, heights, undefined, undefined, 0)
-    expect(r[16]).toBe(0)  // z_lift_m at offset 16
+    expect(r[16]).toBe(0) // z_lift_m at offset 16
   })
 
   it('heights map with matching featId writes z_lift_m', () => {
@@ -138,7 +135,9 @@ describe('iter-297 buildLineSegments fuzz', () => {
     // safe but worth pinning.
     const v = v6([0, 0, 0, 0, NaN, 0], [100, 0, 0, 0, NaN, 100])
     const heights = new Map<number, number>([[42, 50]])
-    expect(() => buildLineSegments(v, idx(0, 1), 6, 0, 0, heights, undefined, undefined, 0)).not.toThrow()
+    expect(() =>
+      buildLineSegments(v, idx(0, 1), 6, 0, 0, heights, undefined, undefined, 0),
+    ).not.toThrow()
   })
 
   it('output buffer size is exactly segCount × LINE_SEGMENT_STRIDE_F32', () => {
@@ -169,10 +168,12 @@ describe('iter-297 buildLineSegments fuzz', () => {
     function makeRng(seed: number): () => number {
       let s = seed | 0
       return () => {
-        s ^= s << 13; s |= 0
+        s ^= s << 13
+        s |= 0
         s ^= s >>> 17
-        s ^= s << 5; s |= 0
-        return ((s >>> 0) / 0x1_0000_0000)
+        s ^= s << 5
+        s |= 0
+        return (s >>> 0) / 0x1_0000_0000
       }
     }
 
@@ -217,7 +218,9 @@ describe('iter-297 buildLineSegments fuzz', () => {
         }
         const v = v6(...rows)
         const ix: number[] = []
-        for (let k = 0; k < n - 1; k++) { ix.push(k, k + 1) }
+        for (let k = 0; k < n - 1; k++) {
+          ix.push(k, k + 1)
+        }
         const r = buildLineSegments(v, idx(...ix), 6, 1000, 1000)
         assertAllFinite(r, `rand-${trial}`)
       }
@@ -227,8 +230,9 @@ describe('iter-297 buildLineSegments fuzz', () => {
       // Chain ending exactly on the tile boundary triggers the
       // virtual-join (no-cap) path. Width/height set so detection
       // fires.
-      const W = 1000, H = 1000
-      const v = v6([0, 500, 0, 0, 0, 0], [W, 500, 0, 0, 0, W])  // ends on east edge
+      const W = 1000,
+        H = 1000
+      const v = v6([0, 500, 0, 0, 0, 0], [W, 500, 0, 0, 0, W]) // ends on east edge
       const r = buildLineSegments(v, idx(0, 1), 6, W, H)
       assertAllFinite(r, 'boundary-join')
     })

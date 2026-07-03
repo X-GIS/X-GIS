@@ -46,7 +46,9 @@ export class PbfReader {
       if ((b & 0x80) === 0) return result >>> 0
       shift += 7
       if (shift >= 32) {
-        while (this.pos < this.len && (this.buf[this.pos++]! & 0x80) !== 0) { /* drain */ }
+        while (this.pos < this.len && (this.buf[this.pos++]! & 0x80) !== 0) {
+          /* drain */
+        }
         return result >>> 0
       }
     }
@@ -72,11 +74,22 @@ export class PbfReader {
 
   skip(wire: number): void {
     switch (wire) {
-      case 0: this.readVarint(); return
-      case 1: this.pos += 8; return
-      case 2: { const len = this.readVarint(); this.pos += len; return }
-      case 5: this.pos += 4; return
-      default: throw new Error(`PbfReader: unknown wire type ${wire}`)
+      case 0:
+        this.readVarint()
+        return
+      case 1:
+        this.pos += 8
+        return
+      case 2: {
+        const len = this.readVarint()
+        this.pos += len
+        return
+      }
+      case 5:
+        this.pos += 4
+        return
+      default:
+        throw new Error(`PbfReader: unknown wire type ${wire}`)
     }
   }
 

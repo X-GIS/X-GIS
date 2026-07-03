@@ -10,16 +10,17 @@ import { evaluate } from './evaluator'
 import { CAMERA_ZOOM_KEY } from './reserved-keys'
 import type * as AST from '../parser/ast'
 
-const num = (value: number): AST.Expr => ({ kind: 'NumberLiteral', value } as AST.Expr)
-const str = (value: string): AST.Expr => ({ kind: 'StringLiteral', value } as AST.Expr)
-const bool = (value: boolean): AST.Expr => ({ kind: 'BoolLiteral', value } as AST.Expr)
-const field = (name: string): AST.Expr => ({ kind: 'FieldAccess', object: null, field: name } as AST.Expr)
-const id = (name: string): AST.Expr => ({ kind: 'Identifier', name } as AST.Expr)
+const num = (value: number): AST.Expr => ({ kind: 'NumberLiteral', value }) as AST.Expr
+const str = (value: string): AST.Expr => ({ kind: 'StringLiteral', value }) as AST.Expr
+const bool = (value: boolean): AST.Expr => ({ kind: 'BoolLiteral', value }) as AST.Expr
+const field = (name: string): AST.Expr =>
+  ({ kind: 'FieldAccess', object: null, field: name }) as AST.Expr
+const id = (name: string): AST.Expr => ({ kind: 'Identifier', name }) as AST.Expr
 const call = (name: string, ...args: AST.Expr[]): AST.Expr =>
-  ({ kind: 'FnCall', callee: { kind: 'Identifier', name }, args } as AST.Expr)
-const arr = (...elements: AST.Expr[]): AST.Expr => ({ kind: 'ArrayLiteral', elements } as AST.Expr)
+  ({ kind: 'FnCall', callee: { kind: 'Identifier', name }, args }) as AST.Expr
+const arr = (...elements: AST.Expr[]): AST.Expr => ({ kind: 'ArrayLiteral', elements }) as AST.Expr
 const cond = (c: AST.Expr, t: AST.Expr, e: AST.Expr): AST.Expr =>
-  ({ kind: 'ConditionalExpr', condition: c, thenExpr: t, elseExpr: e } as AST.Expr)
+  ({ kind: 'ConditionalExpr', condition: c, thenExpr: t, elseExpr: e }) as AST.Expr
 
 describe('iter-310 evaluator builtins — exact output pins', () => {
   it('clamp', () => {
@@ -99,11 +100,11 @@ describe('iter-310 evaluator builtins — exact output pins', () => {
   it('step — Mapbox N-stop (numeric stops)', () => {
     // step(input, def, stop1, val1, stop2, val2)
     const e = call('step', num(7), str('def'), num(5), str('a'), num(10), str('b'))
-    expect(evaluate(e, {})).toBe('a')   // 7 ≥ 5, < 10
+    expect(evaluate(e, {})).toBe('a') // 7 ≥ 5, < 10
     const e2 = call('step', num(11), str('def'), num(5), str('a'), num(10), str('b'))
     expect(evaluate(e2, {})).toBe('b')
     const e3 = call('step', num(3), str('def'), num(5), str('a'), num(10), str('b'))
-    expect(evaluate(e3, {})).toBe('def')  // below first stop
+    expect(evaluate(e3, {})).toBe('def') // below first stop
   })
 
   it('interpolate — linear between stops', () => {
@@ -143,9 +144,9 @@ describe('iter-310 evaluator AST kinds', () => {
   })
 
   it('ConditionalExpr — truthiness of condition', () => {
-    expect(evaluate(cond(num(0), str('t'), str('f')), {})).toBe('f')  // 0 falsy
+    expect(evaluate(cond(num(0), str('t'), str('f')), {})).toBe('f') // 0 falsy
     expect(evaluate(cond(num(1), str('t'), str('f')), {})).toBe('t')
-    expect(evaluate(cond(str(''), str('t'), str('f')), {})).toBe('f')  // '' falsy
+    expect(evaluate(cond(str(''), str('t'), str('f')), {})).toBe('f') // '' falsy
   })
 
   it('ArrayLiteral — element evaluation', () => {
@@ -155,7 +156,9 @@ describe('iter-310 evaluator AST kinds', () => {
 
   it('ArrayAccess — valid index', () => {
     const access: AST.Expr = {
-      kind: 'ArrayAccess', array: arr(num(10), num(20), num(30)), index: num(1),
+      kind: 'ArrayAccess',
+      array: arr(num(10), num(20), num(30)),
+      index: num(1),
     } as AST.Expr
     expect(evaluate(access, {})).toBe(20)
   })
@@ -200,7 +203,7 @@ describe('iter-310 evaluator AST kinds', () => {
     } as AST.Expr
     expect(evaluate(matchExpr, { class: 'road' })).toBe('R')
     expect(evaluate(matchExpr, { class: 'water' })).toBe('W')
-    expect(evaluate(matchExpr, { class: 'park' })).toBe('?')   // default
-    expect(evaluate(matchExpr, {})).toBe('?')                  // missing → default
+    expect(evaluate(matchExpr, { class: 'park' })).toBe('?') // default
+    expect(evaluate(matchExpr, {})).toBe('?') // missing → default
   })
 })

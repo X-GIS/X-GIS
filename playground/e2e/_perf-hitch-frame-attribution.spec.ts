@@ -41,7 +41,7 @@ interface ProfileNode {
 
 interface CpuProfile {
   nodes: ProfileNode[]
-  startTime: number   // μs since some V8 epoch
+  startTime: number // μs since some V8 epoch
   endTime: number
   samples?: number[]
   timeDeltas?: number[]
@@ -65,23 +65,27 @@ async function setupBright(page: Page) {
   await page.goto('/demo.html?id=__import#10/35.68/139.76/0/0', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
-  await page.waitForTimeout(6_000)  // settle cold-start cascade
+  await page.waitForTimeout(6_000) // settle cold-start cascade
 }
 
 /** Run S1 (zoom 10→16→10 over 6 s) while collecting per-frame deltas
  *  AND a CDP CPU profile concurrently. The profile's start/end times
  *  are recorded vs performance.now() so we can map sample microseconds
  *  back onto frame windows. */
-async function recordS1WithProfile(page: Page, cdp: CDPSession): Promise<{
+async function recordS1WithProfile(
+  page: Page,
+  cdp: CDPSession,
+): Promise<{
   profile: CpuProfile
   frames: FrameTiming[]
   /** performance.now() at the instant Profiler.start returned. */
   perfNowAtProfileStart: number
 }> {
   await cdp.send('Profiler.enable')
-  await cdp.send('Profiler.setSamplingInterval', { interval: 100 })  // 10 kHz
+  await cdp.send('Profiler.setSamplingInterval', { interval: 100 }) // 10 kHz
   await cdp.send('Profiler.start')
 
   // Capture page-side performance.now() RIGHT after start so we can
@@ -91,10 +95,14 @@ async function recordS1WithProfile(page: Page, cdp: CDPSession): Promise<{
   const perfNowAtProfileStart = await page.evaluate(() => performance.now())
 
   const frames = await page.evaluate(async (durationMs: number) => {
-    const map = (window as unknown as { __xgisMap?: {
-      getCamera: () => { zoom: number };
-      invalidate: () => void;
-    } }).__xgisMap
+    const map = (
+      window as unknown as {
+        __xgisMap?: {
+          getCamera: () => { zoom: number }
+          invalidate: () => void
+        }
+      }
+    ).__xgisMap
     if (!map) throw new Error('__xgisMap missing')
     const cam = map.getCamera()
     const startCamZoom = 10
@@ -108,7 +116,10 @@ async function recordS1WithProfile(page: Page, cdp: CDPSession): Promise<{
         const elapsed = now - t0
         out.push({ ts: now, dt: now - last, elapsed })
         last = now
-        if (elapsed >= durationMs) { res(out); return }
+        if (elapsed >= durationMs) {
+          res(out)
+          return
+        }
         // Triangle wave 10 → 16 → 10 (matches S1 in
         // _perf-bright-interactive.spec.ts).
         const phase = elapsed / durationMs
@@ -121,7 +132,7 @@ async function recordS1WithProfile(page: Page, cdp: CDPSession): Promise<{
     })
   }, 6000)
 
-  const stopped = await cdp.send('Profiler.stop') as { profile: CpuProfile }
+  const stopped = (await cdp.send('Profiler.stop')) as { profile: CpuProfile }
   await cdp.send('Profiler.disable')
   return { profile: stopped.profile, frames, perfNowAtProfileStart }
 }
@@ -223,13 +234,16 @@ test('S1 hitch-frame attribution', async ({ page, context }) => {
   // spec's summarise().
   const settled = frames.slice(2)
   const sorted = [...settled].sort((a, b) => b.dt - a.dt)
-  const median = settled.length > 0
-    ? [...settled].sort((a, b) => a.dt - b.dt)[Math.floor(settled.length / 2)].dt
-    : 0
+  const median =
+    settled.length > 0
+      ? [...settled].sort((a, b) => a.dt - b.dt)[Math.floor(settled.length / 2)].dt
+      : 0
   const worst = sorted[0]
   const top5Worst = sorted.slice(0, 5)
   // eslint-disable-next-line no-console
-  console.log(`\n[S1 frames] count=${settled.length} median=${median.toFixed(1)}ms worst=${worst.dt.toFixed(0)}ms`)
+  console.log(
+    `\n[S1 frames] count=${settled.length} median=${median.toFixed(1)}ms worst=${worst.dt.toFixed(0)}ms`,
+  )
   // eslint-disable-next-line no-console
   console.log('[S1 top-5 worst frames] (dt ms @ elapsed s):')
   for (const f of top5Worst) {
@@ -241,21 +255,22 @@ test('S1 hitch-frame attribution', async ({ page, context }) => {
   // perfNowAtProfileStart ≈ profile.startTime / 1000 (both ms-anchored,
   // profile in μs). The shift is small (μs to ms float) but offset is
   // real — we anchor on perfNowAtProfileStart and convert deltas.
-  const worstWindowStartMs = worst.ts - worst.dt   // performance.now() at frame start
-  const worstWindowEndMs = worst.ts                // at frame end
+  const worstWindowStartMs = worst.ts - worst.dt // performance.now() at frame start
+  const worstWindowEndMs = worst.ts // at frame end
   // profile.startTime is in μs, at the moment Profiler.start STARTED
   // sampling. perfNowAtProfileStart was captured after Profiler.start
   // returned — the gap is tiny but present. Treat profile.startTime as
   // the μs anchor for perfNowAtProfileStart.
   const profileToMs = (micros: number) =>
     perfNowAtProfileStart + (micros - profile.startTime) / 1000
-  const msToProfile = (ms: number) =>
-    profile.startTime + (ms - perfNowAtProfileStart) * 1000
+  const msToProfile = (ms: number) => profile.startTime + (ms - perfNowAtProfileStart) * 1000
 
   const winStart = msToProfile(worstWindowStartMs)
   const winEnd = msToProfile(worstWindowEndMs)
   // eslint-disable-next-line no-console
-  console.log(`\n[hitch window] [${(winStart / 1000).toFixed(0)} μs..${(winEnd / 1000).toFixed(0)} μs] = ${((winEnd - winStart) / 1000).toFixed(1)} ms`)
+  console.log(
+    `\n[hitch window] [${(winStart / 1000).toFixed(0)} μs..${(winEnd / 1000).toFixed(0)} μs] = ${((winEnd - winStart) / 1000).toFixed(1)} ms`,
+  )
 
   const top = attributeWindow(profile, winStart, winEnd, 25)
   // eslint-disable-next-line no-console
@@ -286,24 +301,31 @@ test('S1 hitch-frame attribution', async ({ page, context }) => {
 
   // Persist machine-readable artifact.
   const attribOut = path.resolve('test-results', 'hitch-frame-attribution.json')
-  fs.writeFileSync(attribOut, JSON.stringify({
-    settledFrameCount: settled.length,
-    medianMs: median,
-    worstFrame: { dt: worst.dt, elapsed: worst.elapsed },
-    top5WorstFrames: top5Worst.map(f => ({ dt: f.dt, elapsed: f.elapsed })),
-    hitchWindow: {
-      startPerfNowMs: worstWindowStartMs,
-      endPerfNowMs: worstWindowEndMs,
-      durationMs: worst.dt,
-      profileStartMicros: winStart,
-      profileEndMicros: winEnd,
-    },
-    profileTotalMs: (profile.endTime - profile.startTime) / 1000,
-    perfNowAtProfileStart,
-    profileStartTime: profile.startTime,
-    hitchTopContributors: top,
-    aggregateTopContributors: totalRows,
-  }, null, 2))
+  fs.writeFileSync(
+    attribOut,
+    JSON.stringify(
+      {
+        settledFrameCount: settled.length,
+        medianMs: median,
+        worstFrame: { dt: worst.dt, elapsed: worst.elapsed },
+        top5WorstFrames: top5Worst.map((f) => ({ dt: f.dt, elapsed: f.elapsed })),
+        hitchWindow: {
+          startPerfNowMs: worstWindowStartMs,
+          endPerfNowMs: worstWindowEndMs,
+          durationMs: worst.dt,
+          profileStartMicros: winStart,
+          profileEndMicros: winEnd,
+        },
+        profileTotalMs: (profile.endTime - profile.startTime) / 1000,
+        perfNowAtProfileStart,
+        profileStartTime: profile.startTime,
+        hitchTopContributors: top,
+        aggregateTopContributors: totalRows,
+      },
+      null,
+      2,
+    ),
+  )
   // eslint-disable-next-line no-console
   console.log(`\n[saved] ${profileOut}\n[saved] ${attribOut}`)
 })

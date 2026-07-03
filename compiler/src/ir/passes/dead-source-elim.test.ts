@@ -35,12 +35,9 @@ function mkScene(sources: SourceDef[], nodes: RenderNode[]): Scene {
 
 describe('Phase A — dead-source-elim', () => {
   it('drops sources with zero RenderNode references', () => {
-    const scene = mkScene(
-      [mkSource('used'), mkSource('unused')],
-      [mkNode('layer1', 'used')],
-    )
+    const scene = mkScene([mkSource('used'), mkSource('unused')], [mkNode('layer1', 'used')])
     const out = deadSourceElimPass.run(scene)
-    expect(out.sources.map(s => s.name)).toEqual(['used'])
+    expect(out.sources.map((s) => s.name)).toEqual(['used'])
     expect(out.renderNodes).toHaveLength(1)
   })
 
@@ -62,11 +59,11 @@ describe('Phase A — dead-source-elim', () => {
     // same source. Source MUST be kept.
     const scene = mkScene(
       [mkSource('osm')],
-      [mkNode('compound-roads', 'osm')],  // single survivor refs osm
+      [mkNode('compound-roads', 'osm')], // single survivor refs osm
     )
     const out = deadSourceElimPass.run(scene)
     expect(out).toBe(scene)
-    expect(out.sources.map(s => s.name)).toEqual(['osm'])
+    expect(out.sources.map((s) => s.name)).toEqual(['osm'])
   })
 
   it('drops orphan source even when it is a raster type', () => {
@@ -79,7 +76,7 @@ describe('Phase A — dead-source-elim', () => {
       [mkNode('vec-layer', 'used')],
     )
     const out = deadSourceElimPass.run(scene)
-    expect(out.sources.map(s => s.name)).toEqual(['used'])
+    expect(out.sources.map((s) => s.name)).toEqual(['used'])
   })
 
   it('declared after dead-layer-elim in the dependency chain', () => {

@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  colorValueToShape,
-  sizeValueToShape,
-} from './to-property-shape'
+import { colorValueToShape, sizeValueToShape } from './to-property-shape'
 import type { ColorValue, SizeValue } from './render-node'
 
 describe('RenderNode → PropertyShape conversion', () => {
@@ -79,14 +76,18 @@ describe('RenderNode → PropertyShape conversion', () => {
 
   it('SizeValue { constant } → Static (drops unit)', () => {
     expect(sizeValueToShape({ kind: 'constant', value: 12, unit: 'px' })).toEqual({
-      kind: 'constant', value: 12,
+      kind: 'constant',
+      value: 12,
     })
   })
 
   it('SizeValue { zoom-interpolated } → ZoomOnly', () => {
     const v: SizeValue = {
       kind: 'zoom-interpolated',
-      stops: [{ zoom: 0, value: 10 }, { zoom: 8, value: 14 }],
+      stops: [
+        { zoom: 0, value: 10 },
+        { zoom: 8, value: 14 },
+      ],
     }
     expect(sizeValueToShape(v)).toMatchObject({ kind: 'zoom-interpolated' })
   })

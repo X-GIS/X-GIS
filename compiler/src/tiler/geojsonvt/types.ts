@@ -25,9 +25,12 @@ export interface FlatLine extends Array<number> {
 
 /** GeoJSON geometry types we accept on input. */
 export type InputGeometryType =
-  | 'Point' | 'MultiPoint'
-  | 'LineString' | 'MultiLineString'
-  | 'Polygon' | 'MultiPolygon'
+  | 'Point'
+  | 'MultiPoint'
+  | 'LineString'
+  | 'MultiLineString'
+  | 'Polygon'
+  | 'MultiPolygon'
   | 'GeometryCollection'
 
 /** Internal projected feature — what convert() produces. */
@@ -126,7 +129,16 @@ export interface GeoJSONVTOptions {
 }
 
 export interface GeoJSONInput {
-  type: 'FeatureCollection' | 'Feature' | 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon' | 'GeometryCollection'
+  type:
+    | 'FeatureCollection'
+    | 'Feature'
+    | 'Point'
+    | 'MultiPoint'
+    | 'LineString'
+    | 'MultiLineString'
+    | 'Polygon'
+    | 'MultiPolygon'
+    | 'GeometryCollection'
   features?: GeoJSONFeature[]
   geometry?: { type: InputGeometryType; coordinates: unknown; geometries?: unknown[] }
   properties?: Record<string, unknown>

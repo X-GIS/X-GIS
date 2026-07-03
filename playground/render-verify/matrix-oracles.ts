@@ -75,10 +75,7 @@ const FAMILY_TOL: Record<InkFamilyName, number> = {
 // first; if it throws (non-flat projection), the oracle is `skipped` — the
 // runner reports it, never trusts it.
 
-async function referenceIsAvailable(
-  page: Page,
-  cell: MatrixCell,
-): Promise<boolean> {
+async function referenceIsAvailable(page: Page, cell: MatrixCell): Promise<boolean> {
   return await page.evaluate(
     async ({ proj, center, zoom }) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -121,9 +118,13 @@ async function runNumericForward(
       const viteImport = (u: string): Promise<any> => import(/* @vite-ignore */ u)
       const dpr = window.devicePixelRatio || 1
       const cam = await viteImport('/render-verify/camera-map.ts')
-      const m = (window as unknown as {
-        __xgisMap: { getCameraDebugSnapshot(w: number, h: number, dpr: number): { matrix: number[] } }
-      }).__xgisMap
+      const m = (
+        window as unknown as {
+          __xgisMap: {
+            getCameraDebugSnapshot(w: number, h: number, dpr: number): { matrix: number[] }
+          }
+        }
+      ).__xgisMap
       const mapBox = document.querySelector('#map')!.getBoundingClientRect()
       const Wcss = Math.round(mapBox.width)
       const Hcss = Math.round(mapBox.height)
@@ -137,7 +138,10 @@ async function runNumericForward(
       const LAT_CLAMP = 85.0511287798066
       const lonLatToMercator = (lon: number, lat: number): [number, number] => {
         const cl = Math.max(-LAT_CLAMP, Math.min(LAT_CLAMP, lat))
-        return [lon * DEG2RAD * EARTH_R, Math.log(Math.tan(Math.PI / 4 + (cl * DEG2RAD) / 2)) * EARTH_R]
+        return [
+          lon * DEG2RAD * EARTH_R,
+          Math.log(Math.tan(Math.PI / 4 + (cl * DEG2RAD) / 2)) * EARTH_R,
+        ]
       }
       const wrapLonDelta = (d: number): number => {
         if (d > 180) return d - Math.ceil((d - 180) / 360) * 360
@@ -150,16 +154,23 @@ async function runNumericForward(
       ]
       const projNaturalEarthD = (lonRel: number, lat: number): [number, number] => {
         const phi = lat * DEG2RAD
-        const phi2 = phi * phi, phi4 = phi2 * phi2, phi6 = phi2 * phi4
+        const phi2 = phi * phi,
+          phi4 = phi2 * phi2,
+          phi6 = phi2 * phi4
         const xScale = 0.8707 - 0.131979 * phi2 + 0.013791 * phi4 - 0.0081435 * phi6
-        const yVal = phi * (1.007226 + phi2 * (0.015085 + phi2 * (-0.044475 + 0.028874 * phi2 - 0.005916 * phi4)))
+        const yVal =
+          phi *
+          (1.007226 + phi2 * (0.015085 + phi2 * (-0.044475 + 0.028874 * phi2 - 0.005916 * phi4)))
         return [lonRel * DEG2RAD * xScale * EARTH_R, yVal * EARTH_R]
       }
-      const clon = center[0], clat = center[1]
+      const clon = center[0],
+        clat = center[1]
       const projGeom = (lon: number, lat: number): [number, number] => {
         if (proj === 'mercator') return lonLatToMercator(lon, lat)
         const lonRel = wrapLonDelta(lon - clon)
-        return proj === 'natural_earth' ? projNaturalEarthD(lonRel, lat) : projEquirectD(lonRel, lat)
+        return proj === 'natural_earth'
+          ? projNaturalEarthD(lonRel, lat)
+          : projEquirectD(lonRel, lat)
       }
       const projCenter = (): [number, number] => {
         if (proj === 'mercator') return lonLatToMercator(clon, clat)
@@ -168,11 +179,12 @@ async function runNumericForward(
       const [cMX, cMY] = projCenter()
       const xgisScreen = (lon: number, lat: number): [number, number] => {
         const [mx, my] = projGeom(lon, lat)
-        const rx = mx - cMX, ry = my - cMY
+        const rx = mx - cMX,
+          ry = my - cMY
         const cx = M[0] * rx + M[4] * ry + M[12]
         const cy = M[1] * rx + M[5] * ry + M[13]
         const cw = M[3] * rx + M[7] * ry + M[15]
-        return [((cx / cw) + 1) / 2 * Wcss, (1 - (cy / cw)) / 2 * Hcss]
+        return [((cx / cw + 1) / 2) * Wcss, ((1 - cy / cw) / 2) * Hcss]
       }
       const projection = cam.xgisCameraToD3(proj, center, zoom, Wcss, Hcss)
       const lons = [-40, -20, 0, 20, 40].map((d) => center[0] + d)
@@ -180,16 +192,20 @@ async function runNumericForward(
       const worldW = 512 * Math.pow(2, zoom)
       let maxErr = 0
       let sawNonFinite = false
-      for (const lon of lons) for (const lat of lats) {
-        const [sx, sy] = xgisScreen(lon, lat)
-        const d3 = projection([lon, lat]) as [number, number] | null
-        if (!d3) continue
-        let dx = sx - d3[0]
-        dx -= Math.round(dx / worldW) * worldW
-        const e = Math.hypot(dx, sy - d3[1])
-        if (!Number.isFinite(e)) { sawNonFinite = true; continue }
-        if (e > maxErr) maxErr = e
-      }
+      for (const lon of lons)
+        for (const lat of lats) {
+          const [sx, sy] = xgisScreen(lon, lat)
+          const d3 = projection([lon, lat]) as [number, number] | null
+          if (!d3) continue
+          let dx = sx - d3[0]
+          dx -= Math.round(dx / worldW) * worldW
+          const e = Math.hypot(dx, sy - d3[1])
+          if (!Number.isFinite(e)) {
+            sawNonFinite = true
+            continue
+          }
+          if (e > maxErr) maxErr = e
+        }
       return sawNonFinite ? NaN : maxErr
     },
     { proj: cell.projection, center: cell.camera.center, zoom: cell.zoom },
@@ -235,9 +251,11 @@ async function runPixelRef(
       // Decode the GPU frame + read its true pixel dims and background colour.
       const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())
       const bmp = await createImageBitmap(blob)
-      const W = bmp.width, H = bmp.height
+      const W = bmp.width,
+        H = bmp.height
       const gc = document.createElement('canvas')
-      gc.width = W; gc.height = H
+      gc.width = W
+      gc.height = H
       const gx = gc.getContext('2d')!
       gx.drawImage(bmp, 0, 0)
       const gData = gx.getImageData(0, 0, W, H).data
@@ -253,25 +271,42 @@ async function runPixelRef(
       const ref = await viteImport('/render-verify/d3-reference.ts')
       const fx = await viteImport('/render-verify/fixtures.ts')
       const rc = document.createElement('canvas')
-      rc.width = W; rc.height = H
+      rc.width = W
+      rc.height = H
       const rx = rc.getContext('2d')!
       rx.fillStyle = `rgba(${bg[0]},${bg[1]},${bg[2]},${bg[3] / 255})`
       rx.fillRect(0, 0, W, H)
       rx.scale(W / Wcss, H / Hcss)
       const projection = cam.xgisCameraToD3(proj, center, zoom, Wcss, Hcss)
-      ref.renderReferenceToCanvas(rx, {
-        graticule: fx.GRATICULE, polys: fx.POLYS, lines: fx.LINES, points: fx.POINTS,
-      }, projection)
+      ref.renderReferenceToCanvas(
+        rx,
+        {
+          graticule: fx.GRATICULE,
+          polys: fx.POLYS,
+          lines: fx.LINES,
+          points: fx.POINTS,
+        },
+        projection,
+      )
       const rData = rx.getImageData(0, 0, W, H).data
 
       const pm = (await viteImport('/render-verify/pixelmatch-browser.ts')).pixelmatch as (
-        a: Uint8ClampedArray, b: Uint8ClampedArray, out: Uint8ClampedArray | null,
-        w: number, h: number, opts?: { threshold?: number },
+        a: Uint8ClampedArray,
+        b: Uint8ClampedArray,
+        out: Uint8ClampedArray | null,
+        w: number,
+        h: number,
+        opts?: { threshold?: number },
       ) => number
       const mismatched = pm(gData, rData, null, W, H, { threshold: 0.1 })
       return mismatched / (W * H)
     },
-    { b64: png.toString('base64'), proj: cell.projection, center: cell.camera.center, zoom: cell.zoom },
+    {
+      b64: png.toString('base64'),
+      proj: cell.projection,
+      center: cell.camera.center,
+      zoom: cell.zoom,
+    },
   )
   return {
     kind: 'pixel_ref',
@@ -286,11 +321,7 @@ async function runPixelRef(
 /** ink_family — every required family must clear its min pixel ratio. Uses the
  *  shared colorHistogram helper. A dropped thin/sparse layer (which the pixel
  *  oracle is blind to) fails here. */
-async function runInkFamily(
-  page: Page,
-  o: OracleSpec,
-  png: Buffer,
-): Promise<OracleResult> {
+async function runInkFamily(page: Page, o: OracleSpec, png: Buffer): Promise<OracleResult> {
   const families = o.families ?? []
   const buckets = families.map((f) => ({
     name: f.name,
@@ -313,40 +344,39 @@ async function runInkFamily(
     status: 'ok',
     measured: minMeasured,
     threshold: Math.min(...families.map((f) => f.minRatio), 1),
-    detail: fails.length === 0
-      ? `all families inked (${families.map((f) => `${f.name}=${((ratios[f.name] ?? 0) * 100).toFixed(2)}%`).join(', ')})`
-      : `NO ink: ${fails.join(', ')}`,
+    detail:
+      fails.length === 0
+        ? `all families inked (${families.map((f) => `${f.name}=${((ratios[f.name] ?? 0) * 100).toFixed(2)}%`).join(', ')})`
+        : `NO ink: ${fails.join(', ')}`,
   }
 }
 
 /** disc_fraction — fraction of canvas covered by the synthetic disc fill
  *  (#4488cc). Compared to `expected ± max`. A presence/framing tripwire. */
-async function runDiscFraction(
-  page: Page,
-  o: OracleSpec,
-  png: Buffer,
-): Promise<OracleResult> {
+async function runDiscFraction(page: Page, o: OracleSpec, png: Buffer): Promise<OracleResult> {
   const expected = o.expected ?? 0.45
   const tol = o.max ?? 0.25
-  const fraction = await page.evaluate(
-    async (b64: string) => {
-      const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())
-      const bmp = await createImageBitmap(blob)
-      const c = document.createElement('canvas')
-      c.width = bmp.width; c.height = bmp.height
-      const ctx = c.getContext('2d')!
-      ctx.drawImage(bmp, 0, 0)
-      const d = ctx.getImageData(0, 0, bmp.width, bmp.height).data
-      // Fill #4488cc = (68,136,204), tol 40 (matches the synth-bg spec).
-      const FR = 68, FG = 136, FB = 204, T = 40
-      let fill = 0
-      for (let i = 0; i < d.length; i += 4) {
-        if (Math.abs(d[i] - FR) <= T && Math.abs(d[i + 1] - FG) <= T && Math.abs(d[i + 2] - FB) <= T) fill++
-      }
-      return fill / (bmp.width * bmp.height)
-    },
-    png.toString('base64'),
-  )
+  const fraction = await page.evaluate(async (b64: string) => {
+    const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())
+    const bmp = await createImageBitmap(blob)
+    const c = document.createElement('canvas')
+    c.width = bmp.width
+    c.height = bmp.height
+    const ctx = c.getContext('2d')!
+    ctx.drawImage(bmp, 0, 0)
+    const d = ctx.getImageData(0, 0, bmp.width, bmp.height).data
+    // Fill #4488cc = (68,136,204), tol 40 (matches the synth-bg spec).
+    const FR = 68,
+      FG = 136,
+      FB = 204,
+      T = 40
+    let fill = 0
+    for (let i = 0; i < d.length; i += 4) {
+      if (Math.abs(d[i] - FR) <= T && Math.abs(d[i + 1] - FG) <= T && Math.abs(d[i + 2] - FB) <= T)
+        fill++
+    }
+    return fill / (bmp.width * bmp.height)
+  }, png.toString('base64'))
   const drift = Math.abs(fraction - expected)
   return {
     kind: 'disc_fraction',
@@ -361,29 +391,23 @@ async function runDiscFraction(
 /** black_ratio — fraction of PURE-black pixels. Every pixel must have a
  *  defined source (sky, basemap, fill); a black void above the horizon at
  *  high pitch, or an undrawn region, is the failure this catches. */
-async function runBlackRatio(
-  page: Page,
-  o: OracleSpec,
-  png: Buffer,
-): Promise<OracleResult> {
+async function runBlackRatio(page: Page, o: OracleSpec, png: Buffer): Promise<OracleResult> {
   const threshold = o.max ?? 0.02
-  const ratio = await page.evaluate(
-    async (b64: string) => {
-      const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())
-      const bmp = await createImageBitmap(blob)
-      const c = document.createElement('canvas')
-      c.width = bmp.width; c.height = bmp.height
-      const ctx = c.getContext('2d')!
-      ctx.drawImage(bmp, 0, 0)
-      const d = ctx.getImageData(0, 0, bmp.width, bmp.height).data
-      let black = 0
-      for (let i = 0; i < d.length; i += 4) {
-        if (d[i] <= 4 && d[i + 1] <= 4 && d[i + 2] <= 4) black++
-      }
-      return black / (bmp.width * bmp.height)
-    },
-    png.toString('base64'),
-  )
+  const ratio = await page.evaluate(async (b64: string) => {
+    const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())
+    const bmp = await createImageBitmap(blob)
+    const c = document.createElement('canvas')
+    c.width = bmp.width
+    c.height = bmp.height
+    const ctx = c.getContext('2d')!
+    ctx.drawImage(bmp, 0, 0)
+    const d = ctx.getImageData(0, 0, bmp.width, bmp.height).data
+    let black = 0
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i] <= 4 && d[i + 1] <= 4 && d[i + 2] <= 4) black++
+    }
+    return black / (bmp.width * bmp.height)
+  }, png.toString('base64'))
   return {
     kind: 'black_ratio',
     pass: ratio <= threshold,
@@ -433,10 +457,7 @@ async function runScreenshotDiff(
  *  margin (400 CSS px) tolerates labels whose anchor is just off-frame but
  *  whose glyphs still partly show; a gross mis-dispatch (projection-blind
  *  layer placing anchors a world away) blows past `max`. */
-async function runLabelOnscreen(
-  page: Page,
-  o: OracleSpec,
-): Promise<OracleResult> {
+async function runLabelOnscreen(page: Page, o: OracleSpec): Promise<OracleResult> {
   const maxOff = o.max ?? 3
   const MARGIN = 400
   const { offCount, total } = await page.evaluate((margin) => {
@@ -445,7 +466,8 @@ async function runLabelOnscreen(
     }
     const dpr = window.devicePixelRatio || 1
     const mapBox = document.querySelector('#map')!.getBoundingClientRect()
-    const Wcss = mapBox.width, Hcss = mapBox.height
+    const Wcss = mapBox.width,
+      Hcss = mapBox.height
     const anchors = w.__xgisMatrixLabelAnchors ?? []
     let off = 0
     for (const a of anchors) {
@@ -478,9 +500,13 @@ async function runLabelOnscreen(
  *  globe cells where xgisCameraToD3 throws. */
 async function runFiniteMvp(page: Page): Promise<OracleResult> {
   const result = await page.evaluate(() => {
-    const m = (window as unknown as {
-      __xgisMap: { getCameraDebugSnapshot(w: number, h: number, dpr: number): { matrix: number[] } }
-    }).__xgisMap
+    const m = (
+      window as unknown as {
+        __xgisMap: {
+          getCameraDebugSnapshot(w: number, h: number, dpr: number): { matrix: number[] }
+        }
+      }
+    ).__xgisMap
     const mapBox = document.querySelector('#map')!.getBoundingClientRect()
     const W = Math.round(mapBox.width)
     const H = Math.round(mapBox.height)
@@ -495,9 +521,10 @@ async function runFiniteMvp(page: Page): Promise<OracleResult> {
     status: 'ok',
     measured: result.badCount,
     threshold: 0,
-    detail: result.badCount === 0
-      ? `all ${result.total} MVP floats finite`
-      : `${result.badCount}/${result.total} non-finite entries (NaN or Inf) in camera MVP`,
+    detail:
+      result.badCount === 0
+        ? `all ${result.total} MVP floats finite`
+        : `${result.badCount}/${result.total} non-finite entries (NaN or Inf) in camera MVP`,
   }
 }
 
@@ -513,11 +540,7 @@ async function runFiniteMvp(page: Page): Promise<OracleResult> {
  *  2 rAF ticks). The re-capture here uses the same call form so both frames
  *  are at comparably-settled clock — no animation-elapsed offset is added,
  *  which is correct for the static `synthetic_disc` cells this oracle targets. */
-async function runFrameStability(
-  page: Page,
-  png: Buffer,
-  o: OracleSpec,
-): Promise<OracleResult> {
+async function runFrameStability(page: Page, png: Buffer, o: OracleSpec): Promise<OracleResult> {
   const threshold = o.max ?? 0.005
   // Re-capture frame N+1 of the same static scene using the same settle
   // semantics as the runner's first capture (hasPendingSourceWork idle + 2 rAF).
@@ -569,9 +592,11 @@ async function runPostChange(
   // measures LESS. min sits well below it (see manifest).
   const ZOOM_DELTA = 1
   await page.evaluate((z) => {
-    const m = (window as unknown as {
-      __xgisMap: { jumpTo(o: { zoom?: number }): void; invalidate?(): void }
-    }).__xgisMap
+    const m = (
+      window as unknown as {
+        __xgisMap: { jumpTo(o: { zoom?: number }): void; invalidate?(): void }
+      }
+    ).__xgisMap
     m.jumpTo({ zoom: z })
     m.invalidate?.()
   }, cell.zoom + ZOOM_DELTA)
@@ -579,18 +604,28 @@ async function runPostChange(
   const ratio = await pixelDiffRatio(page, png, pngChanged, 12)
   // Restore the cell's EXACT camera so downstream oracles / re-captures observe
   // the original frame (deterministic renderer ⇒ byte-identical to `png`).
-  await page.evaluate(({ center, zoom, pitch, bearing }) => {
-    const m = (window as unknown as {
-      __xgisMap: {
-        jumpTo(o: { center?: [number, number]; zoom?: number; pitch?: number; bearing?: number }): void
-        markCameraPositioned(): void
-        invalidate?(): void
-      }
-    }).__xgisMap
-    m.jumpTo({ center, zoom, pitch, bearing })
-    m.markCameraPositioned()
-    m.invalidate?.()
-  }, { center: cell.camera.center, zoom: cell.zoom, pitch: cell.pitch, bearing: cell.bearing })
+  await page.evaluate(
+    ({ center, zoom, pitch, bearing }) => {
+      const m = (
+        window as unknown as {
+          __xgisMap: {
+            jumpTo(o: {
+              center?: [number, number]
+              zoom?: number
+              pitch?: number
+              bearing?: number
+            }): void
+            markCameraPositioned(): void
+            invalidate?(): void
+          }
+        }
+      ).__xgisMap
+      m.jumpTo({ center, zoom, pitch, bearing })
+      m.markCameraPositioned()
+      m.invalidate?.()
+    },
+    { center: cell.camera.center, zoom: cell.zoom, pitch: cell.pitch, bearing: cell.bearing },
+  )
   await captureCanvas(page) // re-settle the restored frame before returning
   return {
     kind: 'post_change',
@@ -612,16 +647,26 @@ export async function runOracle(
 ): Promise<OracleResult> {
   try {
     switch (o.kind) {
-      case 'numeric_forward': return await runNumericForward(page, cell, o)
-      case 'pixel_ref': return await runPixelRef(page, cell, o, png)
-      case 'ink_family': return await runInkFamily(page, o, png)
-      case 'disc_fraction': return await runDiscFraction(page, o, png)
-      case 'black_ratio': return await runBlackRatio(page, o, png)
-      case 'screenshot_diff': return await runScreenshotDiff(page, cell, o, png)
-      case 'label_onscreen': return await runLabelOnscreen(page, o)
-      case 'finite_mvp': return await runFiniteMvp(page)
-      case 'frame_stability': return await runFrameStability(page, png, o)
-      case 'post_change': return await runPostChange(page, png, cell, o)
+      case 'numeric_forward':
+        return await runNumericForward(page, cell, o)
+      case 'pixel_ref':
+        return await runPixelRef(page, cell, o, png)
+      case 'ink_family':
+        return await runInkFamily(page, o, png)
+      case 'disc_fraction':
+        return await runDiscFraction(page, o, png)
+      case 'black_ratio':
+        return await runBlackRatio(page, o, png)
+      case 'screenshot_diff':
+        return await runScreenshotDiff(page, cell, o, png)
+      case 'label_onscreen':
+        return await runLabelOnscreen(page, o)
+      case 'finite_mvp':
+        return await runFiniteMvp(page)
+      case 'frame_stability':
+        return await runFrameStability(page, png, o)
+      case 'post_change':
+        return await runPostChange(page, png, cell, o)
       default:
         return {
           kind: String(o.kind),

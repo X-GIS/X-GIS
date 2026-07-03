@@ -9,8 +9,11 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
-  bumpAlloc, getAllocProfile, resetAllocProfile,
-  snapshotAllocProfile, _setEnabled,
+  bumpAlloc,
+  getAllocProfile,
+  resetAllocProfile,
+  snapshotAllocProfile,
+  _setEnabled,
 } from './alloc-counter'
 
 beforeEach(() => {

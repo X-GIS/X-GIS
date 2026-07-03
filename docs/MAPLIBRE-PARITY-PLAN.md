@@ -3,13 +3,13 @@
 Status snapshot (source of truth: `compiler/src/convert/spec-coverage.ts` +
 `runtime/src/capabilities.ts`, both guarded by drift/freshness tests):
 
-| Status | Count |
-|---|---:|
-| supported | 138 |
-| partial | 28 |
-| unsupported | 69 |
-| na (no X-GIS equivalent / no plan) | 7 |
-| **total spec entries** | **242** |
+| Status                             |   Count |
+| ---------------------------------- | ------: |
+| supported                          |     138 |
+| partial                            |      28 |
+| unsupported                        |      69 |
+| na (no X-GIS equivalent / no plan) |       7 |
+| **total spec entries**             | **242** |
 
 Plus **17 runtime value-form gaps** — properties the converter marks `supported`
 but where the runtime drops a specific `zoom-interp` / `data-driven` form
@@ -34,24 +34,24 @@ exercises the property, per the `compare-parity-pixeldiff` skill).
 
 ## Workstream leverage map (what unblocks the most)
 
-| WS | Mechanism | # spec items closed | Tier |
-|---|---|---:|---|
-| WS-1 | Per-frame PropertyShape uniform (zoom-interp) | ~8 | M |
-| WS-2 | Per-feature worker bake (data-driven) | ~7 | M–L |
-| WS-3 | Sprite-atlas Batch 2 finish (icons/patterns) | ~12 | L |
-| WS-4 | Map-space anchors + pitch-alignment (3D labels) | ~10 | L–XL |
-| WS-5 | Heatmap renderer (Batch 3) | 6 | L |
-| WS-6 | raster-dem → hillshade → terrain (Batch 4) | ~12 | XL |
-| WS-7 | Raster color-adjust fragment pass | 8 | M |
-| WS-8 | Style-spec `projection` field + globe transition | 1 (high leverage) | S–M |
-| WS-9 | `light` keyword parsing | 1 | S |
-| WS-10 | line-gradient (tiler arc-length) | 1 | L |
-| WS-11 | Color/interpolate/format expression fidelity | ~5 | M–L |
-| WS-12 | Per-feature sort keys / draw order | 5 | M |
-| WS-13 | Text-layout extras (CJK vertical, max-angle…) | ~5 | M |
-| WS-14 | Spatial + locale expressions | 7 | L |
-| WS-15 | fill-extrusion ambient occlusion | 2 | M |
-| WS-16 | Misc top-level / sources (fog, sky, image, video, imports, transition) | ~6 | M–L |
+| WS    | Mechanism                                                              | # spec items closed | Tier |
+| ----- | ---------------------------------------------------------------------- | ------------------: | ---- |
+| WS-1  | Per-frame PropertyShape uniform (zoom-interp)                          |                  ~8 | M    |
+| WS-2  | Per-feature worker bake (data-driven)                                  |                  ~7 | M–L  |
+| WS-3  | Sprite-atlas Batch 2 finish (icons/patterns)                           |                 ~12 | L    |
+| WS-4  | Map-space anchors + pitch-alignment (3D labels)                        |                 ~10 | L–XL |
+| WS-5  | Heatmap renderer (Batch 3)                                             |                   6 | L    |
+| WS-6  | raster-dem → hillshade → terrain (Batch 4)                             |                 ~12 | XL   |
+| WS-7  | Raster color-adjust fragment pass                                      |                   8 | M    |
+| WS-8  | Style-spec `projection` field + globe transition                       |   1 (high leverage) | S–M  |
+| WS-9  | `light` keyword parsing                                                |                   1 | S    |
+| WS-10 | line-gradient (tiler arc-length)                                       |                   1 | L    |
+| WS-11 | Color/interpolate/format expression fidelity                           |                  ~5 | M–L  |
+| WS-12 | Per-feature sort keys / draw order                                     |                   5 | M    |
+| WS-13 | Text-layout extras (CJK vertical, max-angle…)                          |                  ~5 | M    |
+| WS-14 | Spatial + locale expressions                                           |                   7 | L    |
+| WS-15 | fill-extrusion ambient occlusion                                       |                   2 | M    |
+| WS-16 | Misc top-level / sources (fog, sky, image, video, imports, transition) |                  ~6 | M–L  |
 
 ---
 
@@ -74,6 +74,7 @@ fold their value at convert time** instead of carrying a `PropertyShape` that th
 runtime resolves each frame.
 
 **Approach.**
+
 1. Add dedicated `PropertyShape<number>` axes to the paint IR for: `strokeOpacity`
    (circle), `backgroundOpacity`, and promote the `*-translate` X/Y slots from
    scalar to `PropertyShape`. (`compiler/src/ir/lower.ts`, `to-property-shape.ts`).
@@ -110,9 +111,10 @@ feature per tile and **bakes the result into a vertex/instance slot** (color pac
 RGBA8→u32 at segment offset 18). The shader reads the baked value; alpha=0 means
 "fall through to layer uniform." `text-color` data-driven works this way;
 `text-opacity` does not because **no `extractFeatureOpacities()` exists** and
-opacity is a *multiplicative* axis, not a replacement.
+opacity is a _multiplicative_ axis, not a replacement.
 
 **Approach.**
+
 1. **Polygon/line opacity:** add `extractFeatureOpacities()` in the worker (parallel
    to colors), bake a per-vertex `feat_opacity` (u8 in a spare lane), multiply in the
    fragment stage (`shader-dsl/shaders/polygon.ts` `fs_fill`, `line.ts` `fs_line`).
@@ -222,6 +224,7 @@ plane and a `map`-anchored translate moves with the world, not the screen.
 / `-opacity` (5 props).
 
 **Approach** (integration seams from the render-architecture survey):
+
 1. New `HeatmapRenderer` (sibling of `PointRenderer`/`RasterRenderer`), registered on
    `XGISMap` and added to the `RenderLoopHost`.
 2. New `heatmap-pass.ts` implementing `RenderPass` (`render/passes/pass.ts:24`),
@@ -327,7 +330,8 @@ shading changes vs the default-light baseline.
 **Prerequisite (the bulk of the work).** `geojson-vt` clipping **drops `lineMetrics`**
 (`compiler/src/tiler/geojsonvt/index.ts:14`; `clip.ts` Sutherland-Hodgman). A line
 spanning tiles loses the link to its original arc-length, so `line-progress` (0..1
-over the *original* feature) can't be computed. Fix:
+over the _original_ feature) can't be computed. Fix:
+
 1. Tiler: preserve original-feature arc-length through clipping; emit per-clipped-
    segment `[progressStart, progressEnd]`.
 2. `runtime/src/core/line-segment-build.ts:12` already carries `arc_start`/`arcTotal`
@@ -434,15 +438,15 @@ already exists (`vs_main_ecef_extruded`).
 
 ## WS-16 — Misc top-level / sources · M–L
 
-| Item | Status today | Plan | Tier |
-|---|---|---|---|
-| `fog` | unsupported (low) | Depth-based post-process mix pass | M |
-| `sky` | unsupported (low) | Sky dome (`sky-color`/`-atmosphere`/`-type`); pairs with globe atmosphere | M |
-| `image` source | unsupported (low) | Single-image draped on a quad in the loader | S |
-| `video` source | unsupported (low) | `<video>` → texture per frame; reuse image-source quad | M |
-| `imports` | unsupported | Parse Mapbox v3 style-import & merge before convert | M |
-| `transition` | unsupported (low) | Per-property fade-in (global + per-paint) | M |
-| `metadata` | unsupported (low) | Informational — keep dropping (no-op) | — |
+| Item           | Status today      | Plan                                                                      | Tier |
+| -------------- | ----------------- | ------------------------------------------------------------------------- | ---- |
+| `fog`          | unsupported (low) | Depth-based post-process mix pass                                         | M    |
+| `sky`          | unsupported (low) | Sky dome (`sky-color`/`-atmosphere`/`-type`); pairs with globe atmosphere | M    |
+| `image` source | unsupported (low) | Single-image draped on a quad in the loader                               | S    |
+| `video` source | unsupported (low) | `<video>` → texture per frame; reuse image-source quad                    | M    |
+| `imports`      | unsupported       | Parse Mapbox v3 style-import & merge before convert                       | M    |
+| `transition`   | unsupported (low) | Per-property fade-in (global + per-paint)                                 | M    |
+| `metadata`     | unsupported (low) | Informational — keep dropping (no-op)                                     | —    |
 
 ---
 

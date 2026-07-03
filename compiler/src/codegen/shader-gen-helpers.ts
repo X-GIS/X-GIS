@@ -54,7 +54,9 @@ function toHashInput(v: string | { readonly expr: unknown } | undefined): string
 }
 
 /** Resolve a color from an AST node (Identifier like "green-100") */
-export function resolveColorFromAST(node: import('../parser/ast').Expr): [number, number, number, number] | null {
+export function resolveColorFromAST(
+  node: import('../parser/ast').Expr,
+): [number, number, number, number] | null {
   if (node.kind === 'Identifier') {
     const hex = resolveColor(node.name)
     if (hex) return hexToRgba(hex)
@@ -77,9 +79,12 @@ export function resolveColorFromAST(node: import('../parser/ast').Expr): [number
     }
   }
   // Hyphenated color names parsed as subtraction: sky-300 → Identifier("sky") - NumberLiteral(300)
-  if (node.kind === 'BinaryExpr' && node.op === '-'
-      && node.left.kind === 'Identifier'
-      && node.right.kind === 'NumberLiteral') {
+  if (
+    node.kind === 'BinaryExpr' &&
+    node.op === '-' &&
+    node.left.kind === 'Identifier' &&
+    node.right.kind === 'NumberLiteral'
+  ) {
     const colorName = `${node.left.name}-${node.right.value}`
     const hex = resolveColor(colorName)
     if (hex) return hexToRgba(hex)
@@ -104,7 +109,10 @@ export function resolveColorFromAST(node: import('../parser/ast').Expr): [number
  *  0)" or "hsl(120deg, 50%, 50%)") from a parsed FnCall AST. Numeric
  *  literals and identifiers are emitted verbatim; anything else
  *  yields null so resolveColorFromAST falls through. */
-function reconstructCssFnCall(call: { callee: import('../parser/ast').Expr; args: import('../parser/ast').Expr[] }): string | null {
+function reconstructCssFnCall(call: {
+  callee: import('../parser/ast').Expr
+  args: import('../parser/ast').Expr[]
+}): string | null {
   if (call.callee.kind !== 'Identifier') return null
   const parts: string[] = []
   for (const a of call.args) {

@@ -26,11 +26,23 @@ import type { TextDraw } from '@xgis/map'
 const g = globalThis as Record<string, unknown>
 g.GPUShaderStage ??= { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 }
 g.GPUBufferUsage ??= {
-  MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8, INDEX: 16,
-  VERTEX: 32, UNIFORM: 64, STORAGE: 128, INDIRECT: 256, QUERY_RESOLVE: 512,
+  MAP_READ: 1,
+  MAP_WRITE: 2,
+  COPY_SRC: 4,
+  COPY_DST: 8,
+  INDEX: 16,
+  VERTEX: 32,
+  UNIFORM: 64,
+  STORAGE: 128,
+  INDIRECT: 256,
+  QUERY_RESOLVE: 512,
 }
 g.GPUTextureUsage ??= {
-  COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8, RENDER_ATTACHMENT: 16,
+  COPY_SRC: 1,
+  COPY_DST: 2,
+  TEXTURE_BINDING: 4,
+  STORAGE_BINDING: 8,
+  RENDER_ATTACHMENT: 16,
 }
 g.GPUColorWrite ??= { RED: 1, GREEN: 2, BLUE: 4, ALPHA: 8, ALL: 15 }
 
@@ -38,16 +50,23 @@ g.GPUColorWrite ??= { RED: 1, GREEN: 2, BLUE: 4, ALPHA: 8, ALL: 15 }
 // returns the same stub; numeric-ish props return a number so the GPU
 // classes' constructors don't choke on `.size` / `.width`.
 function stubDevice(): GPUDevice {
-  const stub: unknown = new Proxy(function () { return stub }, {
-    get(_t, p) {
-      if (p === 'size') return 1 << 22
-      if (p === 'width' || p === 'height') return 4096
-      if (p === 'limits') return { maxTextureDimension2D: 8192 }
-      if (p === Symbol.toPrimitive) return () => 0
+  const stub: unknown = new Proxy(
+    function () {
       return stub
     },
-    apply() { return stub },
-  })
+    {
+      get(_t, p) {
+        if (p === 'size') return 1 << 22
+        if (p === 'width' || p === 'height') return 4096
+        if (p === 'limits') return { maxTextureDimension2D: 8192 }
+        if (p === Symbol.toPrimitive) return () => 0
+        return stub
+      },
+      apply() {
+        return stub
+      },
+    },
+  )
   return stub as GPUDevice
 }
 
@@ -69,12 +88,15 @@ function defOf(size: number, maxWidth: number, anchor: string = 'bottom'): Label
  *  `small` forces a tiny atlas to provoke overflow + eviction. */
 function makeStage(small = false) {
   const opts = small
-    ? { rasterizer: new MockRasterizer(), slotSize: 32, pageSize: 128 }  // 16 slots
+    ? { rasterizer: new MockRasterizer(), slotSize: 32, pageSize: 128 } // 16 slots
     : { rasterizer: new MockRasterizer() }
   const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', opts)
   const captured: TextDraw[][] = []
-  ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws =
-    (d: TextDraw[]) => { captured.push(d) }
+  ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws = (
+    d: TextDraw[],
+  ) => {
+    captured.push(d)
+  }
   return { stage, captured }
 }
 
@@ -89,10 +111,12 @@ function assertNoScatter(draw: TextDraw, ctx: string): void {
   let prevY = NaN
   let prevX = -Infinity
   for (let gi = 0; gi < glyphs.length; gi++) {
-    if (glyphs[gi]!.codepoint === 10) continue  // \n: not positioned (iter-325)
+    if (glyphs[gi]!.codepoint === 10) continue // \n: not positioned (iter-325)
     const x = off![gi * 2]!
     const y = off![gi * 2 + 1]!
-    expect(Number.isFinite(x) && Number.isFinite(y), `${ctx} g${gi} non-finite (${x},${y})`).toBe(true)
+    expect(Number.isFinite(x) && Number.isFinite(y), `${ctx} g${gi} non-finite (${x},${y})`).toBe(
+      true,
+    )
     const yKey = Math.round(y * 100) / 100
     if (yKey !== Math.round(prevY * 100) / 100) {
       // New line: x resets (allowed to go back). Record the line.
@@ -100,7 +124,10 @@ function assertNoScatter(draw: TextDraw, ctx: string): void {
       prevX = -Infinity
     }
     // Within a line, x must strictly increase (no overlap / scatter).
-    expect(x > prevX, `${ctx} g${gi} x not increasing within line (x=${x} prev=${prevX} y=${y})`).toBe(true)
+    expect(
+      x > prevX,
+      `${ctx} g${gi} x not increasing within line (x=${x} prev=${prevX} y=${y})`,
+    ).toBe(true)
     prevX = x
     prevY = y
   }
@@ -108,10 +135,10 @@ function assertNoScatter(draw: TextDraw, ctx: string): void {
 
 /** Find the draw whose glyph codepoints contain the given CJK char. */
 function findDrawWithText(draws: TextDraw[], cp: number): TextDraw | undefined {
-  return draws.find(d => d.glyphs.some(g => g.codepoint === cp))
+  return draws.find((d) => d.glyphs.some((g) => g.codepoint === cp))
 }
 
-const SEOUL = 'Seoul\n서울특별시'   // label_city_capital text-field result
+const SEOUL = 'Seoul\n서울특별시' // label_city_capital text-field result
 
 describe('iter-327 bilingual prepare() scatter — real TextStage, stub GPU', () => {
   it('single Seoul label: line-2 glyphs share baseline, x monotonic (no scatter)', () => {
@@ -122,7 +149,7 @@ describe('iter-327 bilingual prepare() scatter — real TextStage, stub GPU', ()
     stage.prepare()
     expect(captured.length).toBe(1)
     const draws = captured[0]!
-    const seoul = findDrawWithText(draws, 0xc11c)  // 서
+    const seoul = findDrawWithText(draws, 0xc11c) // 서
     expect(seoul, 'Seoul draw missing').toBeDefined()
     assertNoScatter(seoul!, 'single-seoul')
   })
@@ -133,14 +160,14 @@ describe('iter-327 bilingual prepare() scatter — real TextStage, stub GPU', ()
     // frame 2+ hit → returns cached glyphs+glyphOffsets). If a hash
     // collision serves the wrong layout, some label scatters.
     const cities: [string, number][] = [
-      ['Seoul\n서울특별시', 0xc11c],   // 서
-      ['Busan\n부산광역시', 0xbd80],   // 부
+      ['Seoul\n서울특별시', 0xc11c], // 서
+      ['Busan\n부산광역시', 0xbd80], // 부
       ['Incheon\n인천광역시', 0xc778], // 인
-      ['Daegu\n대구광역시', 0xb300],   // 대
-      ['Tokyo\n東京都', 0x6771],       // 東
-      ['Osaka\n大阪市', 0x5927],       // 大
-      ['Beijing\n北京市', 0x5317],     // 北
-      ['Pyongyang\n평양시', 0xd3c9],   // 평
+      ['Daegu\n대구광역시', 0xb300], // 대
+      ['Tokyo\n東京都', 0x6771], // 東
+      ['Osaka\n大阪市', 0x5927], // 大
+      ['Beijing\n北京市', 0x5317], // 北
+      ['Pyongyang\n평양시', 0xd3c9], // 평
     ]
     const { stage, captured } = makeStage()
     stage.setCameraZoom(10)
@@ -188,7 +215,7 @@ describe('iter-327 bilingual prepare() scatter — real TextStage, stub GPU', ()
     // Every emitted draw (non-empty) must be coherent — no scatter.
     for (const d of lastDraws) {
       if (d.glyphs.length === 0) continue
-      assertNoScatter(d, `overflow-draw-${d.glyphs.map(g => g.codepoint).join(',')}`)
+      assertNoScatter(d, `overflow-draw-${d.glyphs.map((g) => g.codepoint).join(',')}`)
     }
   })
 
@@ -204,7 +231,7 @@ describe('iter-327 bilingual prepare() scatter — real TextStage, stub GPU', ()
     stage.addLabel(litValue('South Korea\n대한민국'), {}, 400, 300, defOf(15, 6.25, 'center'))
     stage.prepare()
     const draws = captured[0]!
-    const draw = findDrawWithText(draws, 0xb300)  // 대
+    const draw = findDrawWithText(draws, 0xb300) // 대
     expect(draw, 'country draw missing').toBeDefined()
     // Collect y per non-newline glyph; CJK (대한민국, 0xAC00-0xD7A3) must
     // all sit BELOW the Latin glyphs (South Korea).
@@ -225,7 +252,9 @@ describe('iter-327 bilingual prepare() scatter — real TextStage, stub GPU', ()
     const minCjkY = Math.min(...cjkYs)
     // Every CJK glyph's baseline must be strictly below every Latin one
     // (screen-down +y). Overlap = minCjkY <= maxLatinY → the bug.
-    expect(minCjkY > maxLatinY,
-      `대한민국 overlaps South Korea: minCjkY=${minCjkY} maxLatinY=${maxLatinY}`).toBe(true)
+    expect(
+      minCjkY > maxLatinY,
+      `대한민국 overlaps South Korea: minCjkY=${minCjkY} maxLatinY=${maxLatinY}`,
+    ).toBe(true)
   })
 })

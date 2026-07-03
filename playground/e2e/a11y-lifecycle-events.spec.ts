@@ -25,7 +25,8 @@ async function gotoReady(page: Page): Promise<void> {
   await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
 }
 
@@ -34,7 +35,9 @@ test.describe('P0-8 lifecycle/camera events + P0-7 keyboard a11y (live GPU)', ()
     await page.setViewportSize({ width: 1200, height: 800 })
   })
 
-  test('load/move*/zoom*/idle fire; ArrowRight moves camera; a11y attrs present', async ({ page }) => {
+  test('load/move*/zoom*/idle fire; ArrowRight moves camera; a11y attrs present', async ({
+    page,
+  }) => {
     test.setTimeout(60_000)
     await gotoReady(page)
 
@@ -52,7 +55,9 @@ test.describe('P0-8 lifecycle/camera events + P0-7 keyboard a11y (live GPU)', ()
       }
       const map = w.__xgisMap
       const counts: Record<string, number> = {}
-      const bump = (t: string) => () => { counts[t] = (counts[t] ?? 0) + 1 }
+      const bump = (t: string) => () => {
+        counts[t] = (counts[t] ?? 0) + 1
+      }
       for (const t of ['movestart', 'move', 'moveend', 'zoomstart', 'zoom', 'zoomend', 'idle']) {
         map.on(t, bump(t))
       }
@@ -73,17 +78,22 @@ test.describe('P0-8 lifecycle/camera events + P0-7 keyboard a11y (live GPU)', ()
     //    scene converges (no perpetual tile-fetch / flicker), letting
     //    `idle` re-arm afterwards. (z=0 → z=2 makes zoom* fire too.)
     await page.evaluate(() => {
-      ;(window as unknown as { __xgisMap: { jumpTo(o: { center: [number, number]; zoom: number }) : void } })
-        .__xgisMap.jumpTo({ center: [0, 0], zoom: 2 })
+      ;(
+        window as unknown as {
+          __xgisMap: { jumpTo(o: { center: [number, number]; zoom: number }): void }
+        }
+      ).__xgisMap.jumpTo({ center: [0, 0], zoom: 2 })
     })
     // Wait until the busy→idle transition fires AGAIN (idle count climbs
     // past the initial-load idle). This both (a) proves moveend/zoomend
     // closed out and (b) proves idle re-arms after a move. Generous
     // timeout: the scene must actually converge, which depends on the GPU.
     await page.waitForFunction(
-      () => ((window as unknown as { __evt: Record<string, number> }).__evt.moveend ?? 0) >= 1
-         && ((window as unknown as { __evt: Record<string, number> }).__evt.idle ?? 0) >= 1,
-      null, { timeout: 25_000 },
+      () =>
+        ((window as unknown as { __evt: Record<string, number> }).__evt.moveend ?? 0) >= 1 &&
+        ((window as unknown as { __evt: Record<string, number> }).__evt.idle ?? 0) >= 1,
+      null,
+      { timeout: 25_000 },
     )
 
     const counts = await page.evaluate(
@@ -103,9 +113,11 @@ test.describe('P0-8 lifecycle/camera events + P0-7 keyboard a11y (live GPU)', ()
 
     // ── P0-7 a11y attributes on the live DOM canvas.
     const a11y = await page.evaluate(() => {
-      const map = (window as unknown as {
-        __xgisMap: { getCanvas(): HTMLCanvasElement }
-      }).__xgisMap
+      const map = (
+        window as unknown as {
+          __xgisMap: { getCanvas(): HTMLCanvasElement }
+        }
+      ).__xgisMap
       const c = map.getCanvas()
       return {
         tabindex: c.getAttribute('tabindex'),
@@ -122,23 +134,30 @@ test.describe('P0-8 lifecycle/camera events + P0-7 keyboard a11y (live GPU)', ()
     // ── P0-7 keyboard pan: focus the canvas, dispatch ArrowRight, assert
     //    the center CHANGED. We read center before/after around a real
     //    keydown delivered through the DOM (page.keyboard requires focus).
-    const before = await page.evaluate(
-      () => (window as unknown as { __xgisMap: { getCenter(): [number, number] } }).__xgisMap.getCenter(),
+    const before = await page.evaluate(() =>
+      (window as unknown as { __xgisMap: { getCenter(): [number, number] } }).__xgisMap.getCenter(),
     )
     // Focus the canvas element (it is focusable via tabindex=0).
     await page.evaluate(() => {
-      (window as unknown as { __xgisMap: { getCanvas(): HTMLCanvasElement } }).__xgisMap.getCanvas().focus()
+      ;(window as unknown as { __xgisMap: { getCanvas(): HTMLCanvasElement } }).__xgisMap
+        .getCanvas()
+        .focus()
     })
     await page.keyboard.press('ArrowRight')
     await page.waitForTimeout(500)
-    const after = await page.evaluate(
-      () => (window as unknown as { __xgisMap: { getCenter(): [number, number] } }).__xgisMap.getCenter(),
+    const after = await page.evaluate(() =>
+      (window as unknown as { __xgisMap: { getCenter(): [number, number] } }).__xgisMap.getCenter(),
     )
     const moved = Math.abs(after[0] - before[0]) > 1e-9 || Math.abs(after[1] - before[1]) > 1e-9
-    expect(moved, `ArrowRight changed center: before=${JSON.stringify(before)} after=${JSON.stringify(after)}`).toBe(true)
+    expect(
+      moved,
+      `ArrowRight changed center: before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
+    ).toBe(true)
   })
 
-  test('load fires once, delivered to a listener attached at construction time', async ({ page }) => {
+  test('load fires once, delivered to a listener attached at construction time', async ({
+    page,
+  }) => {
     test.setTimeout(60_000)
     // Attach the `load` listener as early as possible: poll for __xgisMap
     // existence (set synchronously in the ctor, BEFORE run()/load) and
@@ -153,20 +172,25 @@ test.describe('P0-8 lifecycle/camera events + P0-7 keyboard a11y (live GPU)', ()
       w.__loadCount = 0
       const tryAttach = () => {
         if (w.__xgisMap) {
-          w.__xgisMap.on('load', () => { w.__loadCount = (w.__loadCount ?? 0) + 1 })
+          w.__xgisMap.on('load', () => {
+            w.__loadCount = (w.__loadCount ?? 0) + 1
+          })
           return true
         }
         return false
       }
       if (!tryAttach()) {
-        const iv = setInterval(() => { if (tryAttach()) clearInterval(iv) }, 5)
+        const iv = setInterval(() => {
+          if (tryAttach()) clearInterval(iv)
+        }, 5)
         // Safety stop.
         setTimeout(() => clearInterval(iv), 20_000)
       }
     })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 30_000 },
+      null,
+      { timeout: 30_000 },
     )
     await page.waitForTimeout(1000)
     const loadCount = await page.evaluate(

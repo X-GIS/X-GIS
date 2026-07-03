@@ -38,14 +38,16 @@ export const DEMOS_DATA_DRIVEN: Record<string, Demo> = {
   gradient_points: {
     name: 'Gradient Points',
     tag: 'point',
-    description: 'Population tiers — blue (small), amber (medium), rose (mega) with data-driven sizes',
+    description:
+      'Population tiers — blue (small), amber (medium), rose (mega) with data-driven sizes',
     source: load('gradient-points.xgis'),
   },
 
   heatmap: {
     name: 'Population Heatmap',
     tag: 'point',
-    description: 'Density heatmap over populated places — Phase R 3-pass GPU (accum Gaussian splat → separable blur → density→colour compose)',
+    description:
+      'Density heatmap over populated places — Phase R 3-pass GPU (accum Gaussian splat → separable blur → density→colour compose)',
     source: load('heatmap.xgis'),
   },
 
@@ -59,7 +61,8 @@ export const DEMOS_DATA_DRIVEN: Record<string, Demo> = {
   custom_shapes: {
     name: 'Custom Shapes',
     tag: 'point',
-    description: 'Built-in SDF shapes (star, diamond, etc.) via GPU storage buffer — real-time distance field',
+    description:
+      'Built-in SDF shapes (star, diamond, etc.) via GPU storage buffer — real-time distance field',
     source: load('custom-shapes.xgis'),
   },
 

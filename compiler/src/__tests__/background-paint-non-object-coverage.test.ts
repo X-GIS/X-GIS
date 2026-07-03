@@ -11,9 +11,7 @@ describe('background.paint non-object coercion', () => {
     const style = {
       version: 8,
       sources: {},
-      layers: [
-        { id: 'bg', type: 'background', paint: 'oops' as unknown },
-      ],
+      layers: [{ id: 'bg', type: 'background', paint: 'oops' as unknown }],
     }
     expect(() => convertMapboxStyle(style as never)).not.toThrow()
   })
@@ -22,9 +20,7 @@ describe('background.paint non-object coercion', () => {
     const style = {
       version: 8,
       sources: {},
-      layers: [
-        { id: 'bg', type: 'background', paint: ['oops'] as unknown },
-      ],
+      layers: [{ id: 'bg', type: 'background', paint: ['oops'] as unknown }],
     }
     expect(() => convertMapboxStyle(style as never)).not.toThrow()
   })
@@ -33,9 +29,7 @@ describe('background.paint non-object coercion', () => {
     const style = {
       version: 8,
       sources: {},
-      layers: [
-        { id: 'bg', type: 'background', paint: { 'background-color': '#abc' } },
-      ],
+      layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#abc' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toContain('background { fill: #abc }')

@@ -11,8 +11,11 @@ import { emitOverdrawFsWgsl } from './shaders/dsl/overdraw-fs'
 
 function readDebugFlag(): string | null {
   if (typeof window === 'undefined') return null
-  try { return new URL(window.location.href).searchParams.get('debug') }
-  catch { return null }
+  try {
+    return new URL(window.location.href).searchParams.get('debug')
+  } catch {
+    return null
+  }
 }
 
 const FLAG = readDebugFlag()
@@ -29,7 +32,9 @@ const FLAG = readDebugFlag()
 export const DEBUG_OVERDRAW: boolean = FLAG === 'overdraw'
 
 if (DEBUG_OVERDRAW && typeof window !== 'undefined') {
-  console.info('[X-GIS] debug=overdraw active — picking + MSAA forced off, scene replaced with fragment-count heatmap')
+  console.info(
+    '[X-GIS] debug=overdraw active — picking + MSAA forced off, scene replaced with fragment-count heatmap',
+  )
 }
 
 /** Format of the overdraw accumulator render target. r16float lets

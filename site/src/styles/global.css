@@ -3,10 +3,10 @@
  *                negative tracking at display sizes is applied per-element).
  *   Geist Mono — uppercase tracked eyebrows / labels / code.
  */
-@import "@fontsource-variable/inter";
-@import "@fontsource-variable/geist-mono";
-@import "tailwindcss";
-@import "tw-animate-css";
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/geist-mono';
+@import 'tailwindcss';
+@import 'tw-animate-css';
 
 /* ═══ Palette — "Drafting Table" ══════════════════════════════════════
  * The previous palette failed: a 68%-saturated navy ground reads muddy,
@@ -39,26 +39,26 @@
    * is white-on-near-black, so emphasis is carried by shape (pill) + weight, not hue. The
    * muted sunset/dusk/twilight/breeze palette below is illustrative-only (real renders /
    * diagrams), never chrome. Use x.ai as-is — no improvised accent. */
-  --ink:      #0a0a0a;   /* canvas (near-black) */
-  --ink-2:    #1a1c20;   /* canvas-soft (hover / tooltip) */
-  --ink-3:    #191919;   /* canvas-card */
-  --ink-4:    #363a3f;   /* canvas-mid (nested) */
-  --paper:    #ffffff;   /* ink — primary text */
-  --paper-2:  #dadbdf;   /* body */
-  --paper-3:  #7d8187;   /* body-mid / mute */
-  --paper-4:  #5a5f66;   /* faint */
-  --hair:     #212327;   /* xAI hairline (solid) — the elevation device */
-  --hair-2:   #2c2f34;   /* hairline-strong / focus */
-  --sienna:        #ffffff;   /* accent = xAI primary (white). Brand is white-on-near-black; emphasis is shape (pill) + weight, NOT hue. */
-  --sienna-hover:  #fafaf7;
-  --sienna-press:  #e8e8e6;
-  --sienna-deep:   #d8d8d6;
-  --on-sienna:     #0a0a0a;   /* text on the white accent / primary pill */
+  --ink: #0a0a0a; /* canvas (near-black) */
+  --ink-2: #1a1c20; /* canvas-soft (hover / tooltip) */
+  --ink-3: #191919; /* canvas-card */
+  --ink-4: #363a3f; /* canvas-mid (nested) */
+  --paper: #ffffff; /* ink — primary text */
+  --paper-2: #dadbdf; /* body */
+  --paper-3: #7d8187; /* body-mid / mute */
+  --paper-4: #5a5f66; /* faint */
+  --hair: #212327; /* xAI hairline (solid) — the elevation device */
+  --hair-2: #2c2f34; /* hairline-strong / focus */
+  --sienna: #ffffff; /* accent = xAI primary (white). Brand is white-on-near-black; emphasis is shape (pill) + weight, NOT hue. */
+  --sienna-hover: #fafaf7;
+  --sienna-press: #e8e8e6;
+  --sienna-deep: #d8d8d6;
+  --on-sienna: #0a0a0a; /* text on the white accent / primary pill */
   /* xAI muted accent palette — illustrative ONLY (real renders / diagrams / icons), never chrome. */
-  --accent-sunset:   #ff7a17;
-  --accent-dusk:     #7c3aed;
+  --accent-sunset: #ff7a17;
+  --accent-dusk: #7c3aed;
   --accent-twilight: #c4b5fd;
-  --accent-breeze:   #a0c3ec;
+  --accent-breeze: #a0c3ec;
 
   /* shadcn semantic tokens */
   --background: var(--ink);
@@ -135,19 +135,23 @@
   --color-vermilion: var(--sienna-deep);
   --color-vermilion-dim: #7e3c20;
 
-  --font-display: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-sans: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "Geist Mono Variable", "Geist Mono", "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  --font-display:
+    'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-sans: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono:
+    'Geist Mono Variable', 'Geist Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
 }
 
 @layer base {
-  * { border-color: var(--border); }
+  * {
+    border-color: var(--border);
+  }
 
   html {
     background: var(--color-bg);
     color: var(--color-fg);
     font-family: var(--font-sans);
-    font-feature-settings: "ss01", "cv01", "kern";
+    font-feature-settings: 'ss01', 'cv01', 'kern';
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     scroll-behavior: smooth;
@@ -165,9 +169,15 @@
     font-variant-numeric: tabular-nums;
   }
 
-  ::selection { background: var(--color-accent); color: var(--on-sienna); }
+  ::selection {
+    background: var(--color-accent);
+    color: var(--on-sienna);
+  }
 
-  a { color: inherit; text-decoration: none; }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 
   :focus-visible {
     outline: 2px solid var(--color-accent);
@@ -177,43 +187,148 @@
 }
 
 /* ═══ Motion ═══ */
-@keyframes fade-up   { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes fade-in   { from { opacity: 0; } to { opacity: 1; } }
-@keyframes scale-fade{ from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
-@keyframes draw-grid { from { opacity: 0; } to { opacity: 1; } }
-@keyframes marker-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes scale-fade {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes draw-grid {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes marker-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
 
-@utility fade-up   { animation: fade-up 1s cubic-bezier(0.16, 0.84, 0.32, 1) both; }
-@utility fade-in   { animation: fade-in 1.3s ease-out both; }
-@utility scale-fade{ animation: scale-fade 1.3s cubic-bezier(0.16, 0.84, 0.32, 1) both; }
-@utility draw-grid { animation: draw-grid 1.8s ease-out both; }
-@utility marker-pulse { animation: marker-pulse 2.4s ease-in-out infinite; }
+@utility fade-up {
+  animation: fade-up 1s cubic-bezier(0.16, 0.84, 0.32, 1) both;
+}
+@utility fade-in {
+  animation: fade-in 1.3s ease-out both;
+}
+@utility scale-fade {
+  animation: scale-fade 1.3s cubic-bezier(0.16, 0.84, 0.32, 1) both;
+}
+@utility draw-grid {
+  animation: draw-grid 1.8s ease-out both;
+}
+@utility marker-pulse {
+  animation: marker-pulse 2.4s ease-in-out infinite;
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .fade-up, .fade-in, .scale-fade, .draw-grid, .marker-pulse { animation: none; }
-  html { scroll-behavior: auto; }
+  .fade-up,
+  .fade-in,
+  .scale-fade,
+  .draw-grid,
+  .marker-pulse {
+    animation: none;
+  }
+  html {
+    scroll-behavior: auto;
+  }
 }
 
 /* ═══ Graticule mesh ═══ */
 @utility graticule-field {
   background-image:
-    repeating-linear-gradient(to right,  var(--color-graticule) 0 1px, transparent 1px var(--grid-step, 88px)),
-    repeating-linear-gradient(to bottom, var(--color-graticule) 0 1px, transparent 1px var(--grid-step, 88px));
+    repeating-linear-gradient(
+      to right,
+      var(--color-graticule) 0 1px,
+      transparent 1px var(--grid-step, 88px)
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      var(--color-graticule) 0 1px,
+      transparent 1px var(--grid-step, 88px)
+    );
 }
 
 /* ═══ Shader-DSL shared bits ═══ */
-.sd-code .expressive-code pre { max-height: 520px; }
-.no-scrollbar { scrollbar-width: none; }
-.no-scrollbar::-webkit-scrollbar { display: none; }
-.line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.sd-code .expressive-code pre {
+  max-height: 520px;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
-[role="tab"] { color: var(--color-fg-mute); cursor: pointer; }
-[role="tab"]:hover { color: var(--color-fg-dim); }
-[role="tab"][aria-selected="true"] {
+[role='tab'] {
+  color: var(--color-fg-mute);
+  cursor: pointer;
+}
+[role='tab']:hover {
+  color: var(--color-fg-dim);
+}
+[role='tab'][aria-selected='true'] {
   color: var(--color-accent);
   background: color-mix(in srgb, var(--color-accent) 14%, transparent);
 }
 
-.shader-range { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 999px; background: var(--color-line-strong); outline: none; }
-.shader-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border-radius: 50%; background: var(--color-accent); cursor: pointer; border: 3px solid var(--color-bg-card); }
-.shader-range::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--color-accent); cursor: pointer; border: 3px solid var(--color-bg-card); }
+.shader-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-line-strong);
+  outline: none;
+}
+.shader-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  cursor: pointer;
+  border: 3px solid var(--color-bg-card);
+}
+.shader-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  cursor: pointer;
+  border: 3px solid var(--color-bg-card);
+}

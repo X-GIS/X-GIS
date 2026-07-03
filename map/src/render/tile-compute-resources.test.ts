@@ -14,15 +14,15 @@ import {
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {
     ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
-      MAP_READ:      0x0001,
-      MAP_WRITE:     0x0002,
-      COPY_SRC:      0x0004,
-      COPY_DST:      0x0008,
-      INDEX:         0x0010,
-      VERTEX:        0x0020,
-      UNIFORM:       0x0040,
-      STORAGE:       0x0080,
-      INDIRECT:      0x0100,
+      MAP_READ: 0x0001,
+      MAP_WRITE: 0x0002,
+      COPY_SRC: 0x0004,
+      COPY_DST: 0x0008,
+      INDEX: 0x0010,
+      VERTEX: 0x0020,
+      UNIFORM: 0x0040,
+      STORAGE: 0x0080,
+      INDIRECT: 0x0100,
       QUERY_RESOLVE: 0x0200,
     }
   }
@@ -64,8 +64,12 @@ function makeFakeContext() {
       buffers.push(rec)
       return {
         _rec: rec,
-        get size() { return rec.size },
-        destroy() { rec.destroyed = true },
+        get size() {
+          return rec.size
+        },
+        destroy() {
+          rec.destroyed = true
+        },
       } as unknown as GPUBuffer
     },
     queue: {
@@ -89,9 +93,15 @@ function makeFakeContext() {
       let pipe: { _entryPoint: string } | null = null
       let dispatched = 0
       return {
-        setPipeline(p: GPUComputePipeline) { pipe = p as unknown as { _entryPoint: string } },
-        setBindGroup() { /* no-op */ },
-        dispatchWorkgroups(x: number) { dispatched = x },
+        setPipeline(p: GPUComputePipeline) {
+          pipe = p as unknown as { _entryPoint: string }
+        },
+        setBindGroup() {
+          /* no-op */
+        },
+        dispatchWorkgroups(x: number) {
+          dispatched = x
+        },
         end() {
           if (pipe) dispatches.push({ entryPoint: pipe._entryPoint, workgroups: dispatched })
         },
@@ -153,7 +163,7 @@ describe('TileComputeResources — construction', () => {
     const { dispatcher, buffers } = makeFakeContext()
     new TileComputeResources(dispatcher, [makeMatchPlanEntry('class')])
     expect(buffers).toHaveLength(3)
-    expect(buffers.map(b => b.label).sort()).toEqual([
+    expect(buffers.map((b) => b.label).sort()).toEqual([
       'tile-count:eval_match',
       'tile-feat:eval_match',
       'tile-out:eval_match',
@@ -167,7 +177,7 @@ describe('TileComputeResources — construction', () => {
       makeTernaryPlanEntry('flag'),
     ])
     expect(buffers).toHaveLength(6)
-    const labels = buffers.map(b => b.label).sort()
+    const labels = buffers.map((b) => b.label).sort()
     expect(labels).toContain('tile-feat:eval_match')
     expect(labels).toContain('tile-feat:eval_case')
   })
@@ -186,8 +196,8 @@ describe('TileComputeResources — getOutBuffer', () => {
   it('returns the matching entry by (renderNodeIndex, paintAxis)', () => {
     const { dispatcher } = makeFakeContext()
     const r = new TileComputeResources(dispatcher, [
-      makeMatchPlanEntry('class', 0),       // (0, fill)
-      makeTernaryPlanEntry('flag', 1),      // (1, stroke-color)
+      makeMatchPlanEntry('class', 0), // (0, fill)
+      makeTernaryPlanEntry('flag', 1), // (1, stroke-color)
     ])
     const fill = r.getOutBuffer(0, 'fill')
     const stroke = r.getOutBuffer(1, 'stroke-color')
@@ -208,7 +218,7 @@ describe('TileComputeResources — uploadFromProps', () => {
   it('packs + uploads feature data per entry', () => {
     const { dispatcher, writes } = makeFakeContext()
     const r = new TileComputeResources(dispatcher, [makeMatchPlanEntry('class')])
-    const props = (fid: number) => fid === 0 ? { class: 'a' } : { class: 'b' }
+    const props = (fid: number) => (fid === 0 ? { class: 'a' } : { class: 'b' })
     r.uploadFromProps(props, 2)
     // Two writes per entry: feat data + count.
     expect(writes).toHaveLength(2)
@@ -222,7 +232,7 @@ describe('TileComputeResources — uploadFromProps', () => {
     // Reallocation: 2 buffers destroyed + 2 created (feat + out).
     // Count buffer reused.
     expect(buffers.length).toBeGreaterThan(init)
-    const destroyed = buffers.filter(b => b.destroyed).length
+    const destroyed = buffers.filter((b) => b.destroyed).length
     expect(destroyed).toBeGreaterThanOrEqual(2)
   })
 
@@ -237,7 +247,7 @@ describe('TileComputeResources — uploadFromProps', () => {
     r.uploadFromProps(() => ({ class: 'a', flag: 1 }), 10)
     // 2 entries × (1 feat-data write + 1 count write) = 4 writes.
     expect(writes).toHaveLength(4)
-    const countWrites = writes.filter(w => w.bytes === 4)
+    const countWrites = writes.filter((w) => w.bytes === 4)
     expect(countWrites).toHaveLength(2)
   })
 
@@ -262,7 +272,7 @@ describe('TileComputeResources — dispatch', () => {
     r.uploadFromProps(() => ({ class: 'a', flag: 1 }), 5)
     r.dispatch(encoder)
     expect(dispatches).toHaveLength(2)
-    expect(dispatches.map(d => d.entryPoint).sort()).toEqual(['eval_case', 'eval_match'])
+    expect(dispatches.map((d) => d.entryPoint).sort()).toEqual(['eval_case', 'eval_match'])
   })
 
   it('dispatchWorkgroups uses kernel.dispatchSize(featureCount)', () => {
@@ -295,8 +305,8 @@ describe('TileComputeResources — forEachOutput / destroy', () => {
       seen.push({ index: idx, axis, entry: kernel.entryPoint })
     })
     expect(seen).toEqual([
-      { index: 7,  axis: 'fill',          entry: 'eval_match' },
-      { index: 11, axis: 'stroke-color',  entry: 'eval_case' },
+      { index: 7, axis: 'fill', entry: 'eval_match' },
+      { index: 11, axis: 'stroke-color', entry: 'eval_case' },
     ])
   })
 
@@ -307,7 +317,7 @@ describe('TileComputeResources — forEachOutput / destroy', () => {
       makeTernaryPlanEntry('flag'),
     ])
     r.destroy()
-    expect(buffers.filter(b => !b.destroyed)).toHaveLength(0)
+    expect(buffers.filter((b) => !b.destroyed)).toHaveLength(0)
     expect(r.entryCount).toBe(0)
   })
 
@@ -333,12 +343,18 @@ describe('TileComputeResources — kernel dedup (P4-6 runtime half)', () => {
     })
     return [
       {
-        renderNodeIndex: 0, paintAxis: 'fill', kernel,
-        fieldOrder: kernel.fieldOrder, categoryOrder: kernel.categoryOrder ?? {},
+        renderNodeIndex: 0,
+        paintAxis: 'fill',
+        kernel,
+        fieldOrder: kernel.fieldOrder,
+        categoryOrder: kernel.categoryOrder ?? {},
       },
       {
-        renderNodeIndex: 0, paintAxis: 'stroke-color', kernel, // SAME kernel reference
-        fieldOrder: kernel.fieldOrder, categoryOrder: kernel.categoryOrder ?? {},
+        renderNodeIndex: 0,
+        paintAxis: 'stroke-color',
+        kernel, // SAME kernel reference
+        fieldOrder: kernel.fieldOrder,
+        categoryOrder: kernel.categoryOrder ?? {},
       },
     ]
   }
@@ -388,7 +404,9 @@ describe('TileComputeResources — kernel dedup (P4-6 runtime half)', () => {
     const { dispatcher } = makeFakeContext()
     const r = new TileComputeResources(dispatcher, makeSharedKernelEntries())
     const seen: { axis: string; buf: GPUBuffer }[] = []
-    r.forEachOutput((_k, out, _i, axis) => { seen.push({ axis, buf: out }) })
+    r.forEachOutput((_k, out, _i, axis) => {
+      seen.push({ axis, buf: out })
+    })
     expect(seen).toHaveLength(2)
     expect(seen[0]!.buf).toBe(seen[1]!.buf) // same shared buffer
   })
@@ -399,7 +417,7 @@ describe('TileComputeResources — kernel dedup (P4-6 runtime half)', () => {
     r.destroy()
     // 3 buffers from one kernel, all destroyed.
     expect(buffers).toHaveLength(3)
-    expect(buffers.every(b => b.destroyed)).toBe(true)
+    expect(buffers.every((b) => b.destroyed)).toBe(true)
   })
 
   it('three entries with shared kernel + one distinct → 6 buffers total', () => {
@@ -415,14 +433,34 @@ describe('TileComputeResources — kernel dedup (P4-6 runtime half)', () => {
       defaultColorHex: '#000000',
     })
     new TileComputeResources(dispatcher, [
-      { renderNodeIndex: 0, paintAxis: 'fill', kernel: sharedKernel,
-        fieldOrder: sharedKernel.fieldOrder, categoryOrder: sharedKernel.categoryOrder ?? {} },
-      { renderNodeIndex: 0, paintAxis: 'stroke-color', kernel: sharedKernel,
-        fieldOrder: sharedKernel.fieldOrder, categoryOrder: sharedKernel.categoryOrder ?? {} },
-      { renderNodeIndex: 1, paintAxis: 'fill', kernel: sharedKernel,
-        fieldOrder: sharedKernel.fieldOrder, categoryOrder: sharedKernel.categoryOrder ?? {} },
-      { renderNodeIndex: 2, paintAxis: 'fill', kernel: distinctKernel,
-        fieldOrder: distinctKernel.fieldOrder, categoryOrder: distinctKernel.categoryOrder ?? {} },
+      {
+        renderNodeIndex: 0,
+        paintAxis: 'fill',
+        kernel: sharedKernel,
+        fieldOrder: sharedKernel.fieldOrder,
+        categoryOrder: sharedKernel.categoryOrder ?? {},
+      },
+      {
+        renderNodeIndex: 0,
+        paintAxis: 'stroke-color',
+        kernel: sharedKernel,
+        fieldOrder: sharedKernel.fieldOrder,
+        categoryOrder: sharedKernel.categoryOrder ?? {},
+      },
+      {
+        renderNodeIndex: 1,
+        paintAxis: 'fill',
+        kernel: sharedKernel,
+        fieldOrder: sharedKernel.fieldOrder,
+        categoryOrder: sharedKernel.categoryOrder ?? {},
+      },
+      {
+        renderNodeIndex: 2,
+        paintAxis: 'fill',
+        kernel: distinctKernel,
+        fieldOrder: distinctKernel.fieldOrder,
+        categoryOrder: distinctKernel.categoryOrder ?? {},
+      },
     ])
     // 2 unique kernels × 3 buffers = 6 (was 12 pre-dedup).
     expect(buffers).toHaveLength(6)

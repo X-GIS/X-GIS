@@ -20,7 +20,8 @@ interface Timings {
 }
 
 async function measureColdStart(
-  page: import('@playwright/test').Page, demoId: string,
+  page: import('@playwright/test').Page,
+  demoId: string,
 ): Promise<Timings> {
   // Hard navigate (no caching of prior runs).
   const navStart = Date.now()
@@ -28,7 +29,8 @@ async function measureColdStart(
   const domContentLoaded = Date.now()
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   const xgisReady = Date.now()
   return { navStart, domContentLoaded, xgisReady }
@@ -41,7 +43,9 @@ test.describe('cold-start perf budgets', () => {
     const dclMs = t.domContentLoaded - t.navStart
     const xgisOnlyMs = t.xgisReady - t.domContentLoaded
     // eslint-disable-next-line no-console
-    console.log(`[cold-start minimal] nav→dcl=${dclMs}ms, dcl→xgisReady=${xgisOnlyMs}ms, total=${totalMs}ms`)
+    console.log(
+      `[cold-start minimal] nav→dcl=${dclMs}ms, dcl→xgisReady=${xgisOnlyMs}ms, total=${totalMs}ms`,
+    )
     // Generous budget — local dev can be slow + Astro+Vite dev server
     // adds module-graph traversal on first request.
     expect(totalMs, `cold start to xgisReady should be < 6s (got ${totalMs}ms)`).toBeLessThan(6000)

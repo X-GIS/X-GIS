@@ -21,7 +21,10 @@ import { emitModule } from '@xgis/shader-dsl' // compiler returns IR; emit WGSL 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
-  Lexer, Parser, lower, emitCommands,
+  Lexer,
+  Parser,
+  lower,
+  emitCommands,
   nodeToWgslString,
   type ComputePlanEntry,
 } from '@xgis/compiler'
@@ -32,17 +35,21 @@ import { extendBindGroupLayoutEntriesForCompute } from '@xgis/engine'
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {
     ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
-      MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8,
-      INDEX: 16, VERTEX: 32, UNIFORM: 64, STORAGE: 128,
-      INDIRECT: 256, QUERY_RESOLVE: 512,
+      MAP_READ: 1,
+      MAP_WRITE: 2,
+      COPY_SRC: 4,
+      COPY_DST: 8,
+      INDEX: 16,
+      VERTEX: 32,
+      UNIFORM: 64,
+      STORAGE: 128,
+      INDIRECT: 256,
+      QUERY_RESOLVE: 512,
     }
   }
 })
 
-const FIXTURE_PATH = resolve(
-  process.cwd(),
-  'playground/src/examples/continent-match.xgis',
-)
+const FIXTURE_PATH = resolve(process.cwd(), 'playground/src/examples/continent-match.xgis')
 
 function compileFixture(enableComputePath: boolean) {
   const src = readFileSync(FIXTURE_PATH, 'utf8')
@@ -68,12 +75,14 @@ function makeFakeContext() {
       const ep = (d.compute as { entryPoint: string }).entryPoint
       return {
         _ep: ep,
-        getBindGroupLayout() { return { _l: ep } as unknown as GPUBindGroupLayout },
+        getBindGroupLayout() {
+          return { _l: ep } as unknown as GPUBindGroupLayout
+        },
       } as unknown as GPUComputePipeline
     },
     createBindGroup(d: GPUBindGroupDescriptor) {
       const entries = d.entries as GPUBindGroupEntry[]
-      bindGroupsCreated.push({ entryBindings: entries.map(e => e.binding) })
+      bindGroupsCreated.push({ entryBindings: entries.map((e) => e.binding) })
       return { _stub: true } as unknown as GPUBindGroup
     },
     createBindGroupLayout(_d: GPUBindGroupLayoutDescriptor) {
@@ -83,11 +92,19 @@ function makeFakeContext() {
       const rec = { label: d.label ?? '<unlabeled>', size: d.size, destroyed: false }
       buffers.push(rec)
       return {
-        get size() { return rec.size },
-        destroy() { rec.destroyed = true },
+        get size() {
+          return rec.size
+        },
+        destroy() {
+          rec.destroyed = true
+        },
       } as unknown as GPUBuffer
     },
-    queue: { writeBuffer() { /* no-op */ } },
+    queue: {
+      writeBuffer() {
+        /* no-op */
+      },
+    },
   } as unknown as GPUDevice
 
   const encoder = {
@@ -95,10 +112,18 @@ function makeFakeContext() {
       let ep = ''
       let workgroups = 0
       return {
-        setPipeline(p: GPUComputePipeline) { ep = (p as unknown as { _ep: string })._ep },
-        setBindGroup() { /* no-op */ },
-        dispatchWorkgroups(n: number) { workgroups = n },
-        end() { dispatches.push({ entryPoint: ep, workgroups }) },
+        setPipeline(p: GPUComputePipeline) {
+          ep = (p as unknown as { _ep: string })._ep
+        },
+        setBindGroup() {
+          /* no-op */
+        },
+        dispatchWorkgroups(n: number) {
+          workgroups = n
+        },
+        end() {
+          dispatches.push({ entryPoint: ep, workgroups })
+        },
       } as unknown as GPUComputePassEncoder
     },
   } as unknown as GPUCommandEncoder
@@ -106,7 +131,10 @@ function makeFakeContext() {
   return {
     device,
     dispatcher: new ComputeDispatcher({ device } as never),
-    encoder, buffers, dispatches, bindGroupsCreated,
+    encoder,
+    buffers,
+    dispatches,
+    bindGroupsCreated,
   }
 }
 
@@ -126,7 +154,7 @@ describe('continent-match.xgis — compute path opt-in', () => {
     expect(cmds.shows.length).toBeGreaterThan(0)
     // The continents layer's fill is `match(.CONTINENT) { 7 arms + default }`
     // → router classifies as compute-feature → variant gets a binding.
-    const continents = cmds.shows.find(s => s.layerName === 'continents')
+    const continents = cmds.shows.find((s) => s.layerName === 'continents')
     expect(continents).toBeDefined()
     const variant = continents!.shaderVariant!
     expect(variant.computeBindings).toBeDefined()
@@ -136,9 +164,9 @@ describe('continent-match.xgis — compute path opt-in', () => {
 
   it('merged variant fillExpr reads from compute_out_fill', () => {
     const cmds = compileFixture(true)
-    const continents = cmds.shows.find(s => s.layerName === 'continents')!
+    const continents = cmds.shows.find((s) => s.layerName === 'continents')!
     const v = continents.shaderVariant!
-    expect((v.preamble.bindings ?? []).some(b => b.name === 'compute_out_fill')).toBe(true)
+    expect((v.preamble.bindings ?? []).some((b) => b.name === 'compute_out_fill')).toBe(true)
     // Phase 2.5 US-004 — fillExpr now NodeLike|null.
     const fillStr = v.fillExpr ? nodeToWgslString(v.fillExpr) : ''
     expect(fillStr).toContain('compute_out_fill')
@@ -174,14 +202,18 @@ describe('continent-match.xgis — compute path opt-in', () => {
 describe('continent-match.xgis — renderer wire-up against fake GPU', () => {
   it('Registry attach → handle dispatches one eval_match pass per frame', () => {
     const cmds = compileFixture(true)
-    const continents = cmds.shows.find(s => s.layerName === 'continents')!
+    const continents = cmds.shows.find((s) => s.layerName === 'continents')!
     const variant = continents.shaderVariant!
     const plan: readonly ComputePlanEntry[] = cmds.computePlan!
 
-    const { dispatcher, encoder, dispatches, buffers, bindGroupsCreated, device } = makeFakeContext()
+    const { dispatcher, encoder, dispatches, buffers, bindGroupsCreated, device } =
+      makeFakeContext()
     const registry = new ComputeLayerRegistry(dispatcher)
     const handle = registry.attach(
-      continents.targetName, variant, plan, continents.renderNodeIndex ?? 0,
+      continents.targetName,
+      variant,
+      plan,
+      continents.renderNodeIndex ?? 0,
     )
     expect(handle).not.toBeNull()
     // 1 kernel × (feat / out / count) = 3 buffers.
@@ -190,7 +222,17 @@ describe('continent-match.xgis — renderer wire-up against fake GPU', () => {
     // Simulate per-tile property upload. continent-match's source is
     // ne_110m_countries.geojson — ~177 countries; mock as 200 features.
     handle!.uploadFromProps(
-      (fid) => ({ CONTINENT: ['Africa', 'Asia', 'Europe', 'North America', 'South America', 'Oceania', 'Antarctica'][fid % 7] }),
+      (fid) => ({
+        CONTINENT: [
+          'Africa',
+          'Asia',
+          'Europe',
+          'North America',
+          'South America',
+          'Oceania',
+          'Antarctica',
+        ][fid % 7],
+      }),
       200,
     )
 
@@ -215,12 +257,14 @@ describe('continent-match.xgis — renderer wire-up against fake GPU', () => {
     expect(extended[4]!.binding).toBe(16)
 
     const layout = device.createBindGroupLayout({
-      label: 'e2e', entries: extended as GPUBindGroupLayoutEntry[],
+      label: 'e2e',
+      entries: extended as GPUBindGroupLayoutEntry[],
     })
     const compEntries = handle!.getBindGroupEntries()
     expect(compEntries).not.toBeNull()
     device.createBindGroup({
-      label: 'e2e-bg', layout,
+      label: 'e2e-bg',
+      layout,
       entries: [
         { binding: 0, resource: { buffer: {} as GPUBuffer, offset: 0, size: 192 } },
         { binding: 1, resource: { buffer: {} as GPUBuffer } },
@@ -234,6 +278,6 @@ describe('continent-match.xgis — renderer wire-up against fake GPU', () => {
 
     // Cleanup.
     registry.detach(continents.targetName)
-    expect(buffers.filter(b => !b.destroyed)).toHaveLength(0)
+    expect(buffers.filter((b) => !b.destroyed)).toHaveLength(0)
   })
 })

@@ -5,26 +5,39 @@ export { MapRendererContent } from '@xgis/map'
 export { FrameRenderer } from '@xgis/map'
 export { loadGeoJSON, lonLatToMercator } from '@xgis/data'
 export {
-  injectPolarCaps, findClampBoundarySpans, synthesizeCapRing, vertexOnClampBoundary,
+  injectPolarCaps,
+  findClampBoundarySpans,
+  synthesizeCapRing,
+  vertexOnClampBoundary,
   type CapSpan,
 } from '@xgis/data'
 export {
-  synthesizePolarCaps, projectionNeedsPolarCaps,
-  type PolarCapOptions, type PolarCapFeatureCollection,
+  synthesizePolarCaps,
+  projectionNeedsPolarCaps,
+  type PolarCapOptions,
+  type PolarCapFeatureCollection,
 } from '@xgis/data'
 export {
-  RUNTIME_CAPABILITIES, runtimeCapability, runtimeGaps,
+  RUNTIME_CAPABILITIES,
+  runtimeCapability,
+  runtimeGaps,
   type RuntimeCapability,
 } from './capabilities'
 export {
   // Function-style API (back-compat with prior versions)
-  loadPMTilesSource, attachPMTilesSource,
-  fetchPMTilesVectorLayerFields, fetchPMTilesVectorLayerSchema,
+  loadPMTilesSource,
+  attachPMTilesSource,
+  fetchPMTilesVectorLayerFields,
+  fetchPMTilesVectorLayerSchema,
   // Class-based API
-  VectorTileLoader, VectorTileSource,
-  PMTilesArchiveSource, TileJSONSource,
+  VectorTileLoader,
+  VectorTileSource,
+  PMTilesArchiveSource,
+  TileJSONSource,
   // Types
-  type PMTilesSourceOptions, type VectorLayerInfo, type VectorTileFormat,
+  type PMTilesSourceOptions,
+  type VectorLayerInfo,
+  type VectorTileFormat,
 } from '@xgis/data'
 export { XGISMapElement, registerXGISElement } from './web/component'
 export { mercator, equirectangular, naturalEarth, orthographic, getProjection } from '@xgis/engine'

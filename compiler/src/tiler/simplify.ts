@@ -10,7 +10,11 @@
  *                 Used to preserve tile boundary vertices for seamless adjacency.
  * @returns Simplified coordinate array (always preserves first and last point)
  */
-export function simplify(ring: number[][], tolerance: number, isLocked?: (coord: number[]) => boolean): number[][] {
+export function simplify(
+  ring: number[][],
+  tolerance: number,
+  isLocked?: (coord: number[]) => boolean,
+): number[][] {
   if (ring.length <= 2) return ring
   if (tolerance <= 0) return ring
 
@@ -99,8 +103,10 @@ function dpStep(
 
 /** Squared distance from point p to line segment a-b */
 function sqDistToSegment(p: number[], a: number[], b: number[]): number {
-  let x = a[0], y = a[1]
-  let dx = b[0] - x, dy = b[1] - y
+  let x = a[0],
+    y = a[1]
+  let dx = b[0] - x,
+    dy = b[1] - y
 
   if (dx !== 0 || dy !== 0) {
     const t = ((p[0] - x) * dx + (p[1] - y) * dy) / (dx * dx + dy * dy)
@@ -136,7 +142,12 @@ export function toleranceForZoom(zoom: number): number {
  * Preserves ring closure and minimum vertex count.
  * @param isLocked Predicate to lock tile-boundary vertices from removal
  */
-export function simplifyPolygon(rings: number[][][], zoom: number, isLocked?: (coord: number[]) => boolean, toleranceOverride?: number): number[][][] {
+export function simplifyPolygon(
+  rings: number[][][],
+  zoom: number,
+  isLocked?: (coord: number[]) => boolean,
+  toleranceOverride?: number,
+): number[][][] {
   // `toleranceOverride` is mandatory whenever rings are in Mercator
   // meters (industry-standard pipeline since 5ee001c). Pass
   // `mercatorToleranceForZoom(z)`. Omitting the override falls back
@@ -177,7 +188,12 @@ export function simplifyPolygon(rings: number[][][], zoom: number, isLocked?: (c
  * Simplify a linestring for a given zoom level.
  * @param isLocked Predicate to lock tile-boundary vertices from removal
  */
-export function simplifyLine(coords: number[][], zoom: number, isLocked?: (coord: number[]) => boolean, toleranceOverride?: number): number[][] {
+export function simplifyLine(
+  coords: number[][],
+  zoom: number,
+  isLocked?: (coord: number[]) => boolean,
+  toleranceOverride?: number,
+): number[][] {
   const tolerance = toleranceOverride ?? toleranceForZoom(zoom)
   const result = simplify(coords, tolerance, isLocked)
   return result.length >= 2 ? result : coords // preserve at least 2 points
@@ -188,5 +204,5 @@ export function mercatorToleranceForZoom(zoom: number): number {
   // At zoom z, one pixel ≈ 2π * R / (TILE_PX * 2^z) meters with the
   // 512-px convention. Using 1/16 pixel to match toleranceForZoom's
   // ratio (1/16 * 512 = 32; 2πR/8192/2^z = 2πR / 32 / 256 / 2^z).
-  return 2 * Math.PI * 6378137 / (8192 * Math.pow(2, zoom))
+  return (2 * Math.PI * 6378137) / (8192 * Math.pow(2, zoom))
 }

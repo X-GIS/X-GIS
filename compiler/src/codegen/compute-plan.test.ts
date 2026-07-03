@@ -5,14 +5,20 @@
 import { describe, expect, it } from 'vitest'
 import { planComputeKernels } from './compute-plan'
 import type {
-  ColorValue, DataExpr, RenderNode, Scene, SizeValue, StrokeValue, ZoomStop,
+  ColorValue,
+  DataExpr,
+  RenderNode,
+  Scene,
+  SizeValue,
+  StrokeValue,
+  ZoomStop,
 } from '../ir/render-node'
 import type { PropertyShape, RGBA } from '../ir/property-types'
 
 const RED: RGBA = [1, 0, 0, 1]
 const GREEN: RGBA = [0, 1, 0, 1]
 const BLUE: RGBA = [0, 0, 1, 1]
-const zs = <T,>(zoom: number, value: T): ZoomStop<T> => ({ zoom, value })
+const zs = <T>(zoom: number, value: T): ZoomStop<T> => ({ zoom, value })
 
 function fieldAccess(name: string) {
   return { kind: 'FieldAccess' as const, object: null, field: name }
@@ -26,7 +32,7 @@ function matchAst(field: string, arms: { pattern: string; hex: string }[]): Data
       args: [fieldAccess(field)],
       matchBlock: {
         kind: 'MatchBlock',
-        arms: arms.map(a => ({
+        arms: arms.map((a) => ({
           pattern: a.pattern,
           value: { kind: 'ColorLiteral' as const, value: a.hex },
         })),
@@ -37,7 +43,9 @@ function matchAst(field: string, arms: { pattern: string; hex: string }[]): Data
 
 function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
   return {
-    name: 'a', sourceRef: 's', zOrder: 0,
+    name: 'a',
+    sourceRef: 's',
+    zOrder: 0,
     fill: { kind: 'none' },
     stroke: {
       color: { kind: 'none' },
@@ -47,8 +55,12 @@ function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
     size: { kind: 'none' } as SizeValue,
     extrude: { kind: 'none' } as never,
     extrudeBase: { kind: 'none' } as never,
-    projection: 'mercator', visible: true, pointerEvents: 'auto',
-    filter: null, geometry: null, billboard: true,
+    projection: 'mercator',
+    visible: true,
+    pointerEvents: 'auto',
+    filter: null,
+    geometry: null,
+    billboard: true,
     shape: { kind: 'named', name: 'circle' } as never,
     ...overrides,
   }
@@ -64,9 +76,7 @@ describe('planComputeKernels', () => {
   })
 
   it('all-constant scene → empty plan (no FEATURE deps)', () => {
-    const scene = makeScene([
-      makeNode({ fill: { kind: 'constant', rgba: RED } }),
-    ])
+    const scene = makeScene([makeNode({ fill: { kind: 'constant', rgba: RED } })])
     expect(planComputeKernels(scene)).toEqual([])
   })
 
@@ -97,7 +107,7 @@ describe('planComputeKernels', () => {
       kind: 'data-driven',
       expr: matchAst('class', [
         { pattern: 'school', hex: '#f0e8f8' },
-        { pattern: '_',      hex: '#888888' },
+        { pattern: '_', hex: '#888888' },
       ]),
     }
     const plan = planComputeKernels(makeScene([makeNode({ fill })]))
@@ -112,14 +122,16 @@ describe('planComputeKernels', () => {
       kind: 'data-driven',
       expr: matchAst('rank', [{ pattern: 'a', hex: '#ff0000' }]),
     }
-    const plan = planComputeKernels(makeScene([
-      makeNode({
-        stroke: {
-          color: strokeColor,
-          width: { kind: 'constant', value: 1 } as PropertyShape<number>,
-        } as StrokeValue,
-      }),
-    ]))
+    const plan = planComputeKernels(
+      makeScene([
+        makeNode({
+          stroke: {
+            color: strokeColor,
+            width: { kind: 'constant', value: 1 } as PropertyShape<number>,
+          } as StrokeValue,
+        }),
+      ]),
+    )
     expect(plan).toHaveLength(1)
     expect(plan[0]!.paintAxis).toBe('stroke-color')
   })
@@ -159,10 +171,9 @@ describe('planComputeKernels', () => {
       branches: [{ field: 'x', value: { kind: 'constant', rgba: RED } }],
       fallback: { kind: 'constant', rgba: BLUE },
     }
-    const plan = planComputeKernels(makeScene([
-      makeNode({ fill: fillA }),
-      makeNode({ fill: fillB }),
-    ]))
+    const plan = planComputeKernels(
+      makeScene([makeNode({ fill: fillA }), makeNode({ fill: fillB })]),
+    )
     expect(plan).toHaveLength(2)
     expect(plan[0]!.renderNodeIndex).toBe(0)
     expect(plan[0]!.kernel.entryPoint).toBe('eval_match')
@@ -228,10 +239,10 @@ describe('planComputeKernels', () => {
     const fill: ColorValue = {
       kind: 'data-driven',
       expr: matchAst('class', [
-        { pattern: 'school',   hex: '#aaaaaa' },
+        { pattern: 'school', hex: '#aaaaaa' },
         { pattern: 'cemetery', hex: '#bbbbbb' },
         { pattern: 'hospital', hex: '#cccccc' },
-        { pattern: '_',        hex: '#000000' },
+        { pattern: '_', hex: '#000000' },
       ]),
     }
     const plan = planComputeKernels(makeScene([makeNode({ fill })]))
@@ -259,18 +270,20 @@ describe('planComputeKernels — kernel dedup', () => {
       kind: 'data-driven',
       expr: matchAst('class', [
         { pattern: 'school', hex: '#aaaaaa' },
-        { pattern: '_',      hex: '#000000' },
+        { pattern: '_', hex: '#000000' },
       ]),
     })
-    const plan = planComputeKernels(makeScene([
-      makeNode({
-        fill: sameMatch(),
-        stroke: {
-          color: sameMatch(),
-          width: { kind: 'constant', value: 1 } as PropertyShape<number>,
-        } as StrokeValue,
-      }),
-    ]))
+    const plan = planComputeKernels(
+      makeScene([
+        makeNode({
+          fill: sameMatch(),
+          stroke: {
+            color: sameMatch(),
+            width: { kind: 'constant', value: 1 } as PropertyShape<number>,
+          } as StrokeValue,
+        }),
+      ]),
+    )
     expect(plan).toHaveLength(2)
     expect(plan[0]!.kernel).toBe(plan[1]!.kernel) // reference equality
   })
@@ -284,10 +297,9 @@ describe('planComputeKernels — kernel dedup', () => {
       kind: 'data-driven',
       expr: matchAst('class', [{ pattern: 'a', hex: '#ff0000' }]),
     }
-    const plan = planComputeKernels(makeScene([
-      makeNode({ fill: fillA }),
-      makeNode({ fill: fillB }),
-    ]))
+    const plan = planComputeKernels(
+      makeScene([makeNode({ fill: fillA }), makeNode({ fill: fillB })]),
+    )
     expect(plan).toHaveLength(2)
     expect(plan[0]!.kernel).toBe(plan[1]!.kernel)
     expect(plan[0]!.renderNodeIndex).toBe(0)
@@ -303,10 +315,9 @@ describe('planComputeKernels — kernel dedup', () => {
       kind: 'data-driven',
       expr: matchAst('class', [{ pattern: 'hospital', hex: '#bbbbbb' }]),
     }
-    const plan = planComputeKernels(makeScene([
-      makeNode({ fill: fillA }),
-      makeNode({ fill: fillB }),
-    ]))
+    const plan = planComputeKernels(
+      makeScene([makeNode({ fill: fillA }), makeNode({ fill: fillB })]),
+    )
     expect(plan).toHaveLength(2)
     expect(plan[0]!.kernel).not.toBe(plan[1]!.kernel)
   })
@@ -320,10 +331,9 @@ describe('planComputeKernels — kernel dedup', () => {
       kind: 'data-driven',
       expr: matchAst('rank', [{ pattern: 'a', hex: '#ff0000' }]),
     }
-    const plan = planComputeKernels(makeScene([
-      makeNode({ fill: fillA }),
-      makeNode({ fill: fillB }),
-    ]))
+    const plan = planComputeKernels(
+      makeScene([makeNode({ fill: fillA }), makeNode({ fill: fillB })]),
+    )
     expect(plan).toHaveLength(2)
     expect(plan[0]!.kernel).not.toBe(plan[1]!.kernel)
   })
@@ -346,10 +356,9 @@ describe('planComputeKernels — kernel dedup', () => {
         { pattern: 'a', hex: '#aaaaaa' },
       ]),
     }
-    const plan = planComputeKernels(makeScene([
-      makeNode({ fill: fillForward }),
-      makeNode({ fill: fillReversed }),
-    ]))
+    const plan = planComputeKernels(
+      makeScene([makeNode({ fill: fillForward }), makeNode({ fill: fillReversed })]),
+    )
     expect(plan).toHaveLength(2)
     expect(plan[0]!.kernel).toBe(plan[1]!.kernel)
   })
@@ -367,10 +376,9 @@ describe('planComputeKernels — kernel dedup', () => {
       kind: 'data-driven',
       expr: matchAst('class', [{ pattern: 'a', hex: '#ff0000' }]),
     }
-    const plan = planComputeKernels(makeScene([
-      makeNode({ fill: fillCond }),
-      makeNode({ fill: fillMatch }),
-    ]))
+    const plan = planComputeKernels(
+      makeScene([makeNode({ fill: fillCond }), makeNode({ fill: fillMatch })]),
+    )
     expect(plan).toHaveLength(2)
     expect(plan[0]!.kernel.entryPoint).toBe('eval_case')
     expect(plan[1]!.kernel.entryPoint).toBe('eval_match')
@@ -382,19 +390,21 @@ describe('planComputeKernels — kernel dedup', () => {
       kind: 'data-driven',
       expr: matchAst('class', [
         { pattern: 'school', hex: '#aaaaaa' },
-        { pattern: '_',      hex: '#000000' },
+        { pattern: '_', hex: '#000000' },
       ]),
     })
-    const plan = planComputeKernels(makeScene([
-      makeNode({
-        fill: same(),
-        stroke: {
-          color: same(),
-          width: { kind: 'constant', value: 1 } as PropertyShape<number>,
-        } as StrokeValue,
-      }),
-      makeNode({ fill: same() }),
-    ]))
+    const plan = planComputeKernels(
+      makeScene([
+        makeNode({
+          fill: same(),
+          stroke: {
+            color: same(),
+            width: { kind: 'constant', value: 1 } as PropertyShape<number>,
+          } as StrokeValue,
+        }),
+        makeNode({ fill: same() }),
+      ]),
+    )
     expect(plan).toHaveLength(3)
     expect(plan[0]!.kernel).toBe(plan[1]!.kernel)
     expect(plan[1]!.kernel).toBe(plan[2]!.kernel)
@@ -411,11 +421,11 @@ describe('planComputeKernels — Phase C.2 cseId-keyed dedup', () => {
     // same plan (shadow-mode invariant).
     const exprA: DataExpr = matchAst('class', [
       { pattern: 'school', hex: '#aaaaaa' },
-      { pattern: '_',      hex: '#000000' },
+      { pattern: '_', hex: '#000000' },
     ])
     const exprB: DataExpr = matchAst('class', [
       { pattern: 'school', hex: '#aaaaaa' },
-      { pattern: '_',      hex: '#000000' },
+      { pattern: '_', hex: '#000000' },
     ])
     const fillA: ColorValue = { kind: 'data-driven', expr: exprA }
     const fillB: ColorValue = { kind: 'data-driven', expr: exprB }
@@ -433,7 +443,8 @@ describe('planComputeKernels — Phase C.2 cseId-keyed dedup', () => {
       totalNodes: 2,
     }
     const scene: Scene = {
-      sources: [], symbols: [],
+      sources: [],
+      symbols: [],
       renderNodes: [makeNode({ fill: fillA }), makeNode({ fill: fillB })],
       cseAnnotation: annotation,
     } as Scene
@@ -460,7 +471,8 @@ describe('planComputeKernels — Phase C.2 cseId-keyed dedup', () => {
     const fillB = sameMatch()
     // Path 1: no annotation (existing WGSL fingerprint dedup).
     const planNoAnnot = planComputeKernels({
-      sources: [], symbols: [],
+      sources: [],
+      symbols: [],
       renderNodes: [makeNode({ fill: fillA }), makeNode({ fill: fillB })],
     } as Scene)
     expect(planNoAnnot).toHaveLength(2)
@@ -474,11 +486,14 @@ describe('planComputeKernels — Phase C.2 cseId-keyed dedup', () => {
     cseIdByExpr.set((fillA as { kind: 'data-driven'; expr: DataExpr }).expr.ast, 1)
     cseIdByExpr.set((fillB as { kind: 'data-driven'; expr: DataExpr }).expr.ast, 1)
     const planWithAnnot = planComputeKernels({
-      sources: [], symbols: [],
+      sources: [],
+      symbols: [],
       renderNodes: [makeNode({ fill: fillA }), makeNode({ fill: fillB })],
       cseAnnotation: {
-        cseIdByExpr, canonicalById: new Map([[1, 'k']]),
-        uniqueCount: 1, totalNodes: 2,
+        cseIdByExpr,
+        canonicalById: new Map([[1, 'k']]),
+        uniqueCount: 1,
+        totalNodes: 2,
       },
     } as Scene)
     expect(planWithAnnot).toHaveLength(2)
@@ -495,9 +510,7 @@ describe('planComputeKernels — Phase C.2 cseId-keyed dedup', () => {
     // post-pipeline by a test or a runtime adjustment). When
     // cseIdByExpr.get(ast) is undefined, planComputeKernels MUST
     // still dedup via the existing WGSL fingerprint cache.
-    const sharedExpr = matchAst('class', [
-      { pattern: 'a', hex: '#aabbcc' },
-    ])
+    const sharedExpr = matchAst('class', [{ pattern: 'a', hex: '#aabbcc' }])
     const fillA: ColorValue = { kind: 'data-driven', expr: sharedExpr }
     const fillB: ColorValue = {
       kind: 'data-driven',
@@ -513,7 +526,8 @@ describe('planComputeKernels — Phase C.2 cseId-keyed dedup', () => {
       totalNodes: 0,
     }
     const plan = planComputeKernels({
-      sources: [], symbols: [],
+      sources: [],
+      symbols: [],
       renderNodes: [makeNode({ fill: fillA }), makeNode({ fill: fillB })],
       cseAnnotation: emptyAnnotation,
     } as Scene)

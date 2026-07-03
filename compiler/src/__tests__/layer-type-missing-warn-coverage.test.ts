@@ -12,9 +12,7 @@ describe('layer type validation modes', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
-      layers: [
-        { id: 'l', source: 's', paint: { 'fill-color': '#abc' } } as unknown,
-      ],
+      layers: [{ id: 'l', source: 's', paint: { 'fill-color': '#abc' } } as unknown],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toMatch(/missing the required type field/)
@@ -24,9 +22,7 @@ describe('layer type validation modes', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
-      layers: [
-        { id: 'l', type: null, source: 's' } as unknown,
-      ],
+      layers: [{ id: 'l', type: null, source: 's' } as unknown],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toMatch(/missing the required type field/)
@@ -36,9 +32,7 @@ describe('layer type validation modes', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
-      layers: [
-        { id: 'l', type: 42, source: 's' } as unknown,
-      ],
+      layers: [{ id: 'l', type: 42, source: 's' } as unknown],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toMatch(/type field must be a string \(got number\)/)
@@ -48,9 +42,7 @@ describe('layer type validation modes', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
-      layers: [
-        { id: 'l', type: 'polygon', source: 's' } as unknown,
-      ],
+      layers: [{ id: 'l', type: 'polygon', source: 's' } as unknown],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toMatch(/unknown type "polygon"/)
@@ -60,9 +52,7 @@ describe('layer type validation modes', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
-      layers: [
-        { id: 'l', type: 'fill', source: 's', paint: { 'fill-color': '#abc' } },
-      ],
+      layers: [{ id: 'l', type: 'fill', source: 's', paint: { 'fill-color': '#abc' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).not.toMatch(/missing the required type field/)

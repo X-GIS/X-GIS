@@ -41,7 +41,8 @@ interface CpuProfile {
 async function waitForXgisReady(page: Page) {
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
 }
 
@@ -60,8 +61,8 @@ function topHotFunctions(profile: CpuProfile, topN = 20) {
     const dt = deltas[i] ?? 0
     selfMicros.set(id, (selfMicros.get(id) ?? 0) + dt)
   }
-  const totalMicros = (profile.endTime - profile.startTime)
-  const rows = profile.nodes.map(n => {
+  const totalMicros = profile.endTime - profile.startTime
+  const rows = profile.nodes.map((n) => {
     const self = selfMicros.get(n.id) ?? 0
     return {
       name: n.callFrame.functionName || '(anonymous)',
@@ -87,20 +88,27 @@ async function recordProfile(cdp: CDPSession, durationMs: number): Promise<CpuPr
   // 100us interval = 10 kHz sampling. Default is 1ms = 1 kHz.
   await cdp.send('Profiler.setSamplingInterval', { interval: 100 })
   await cdp.send('Profiler.start')
-  await new Promise(r => setTimeout(r, durationMs))
-  const stopped = await cdp.send('Profiler.stop') as { profile: CpuProfile }
+  await new Promise((r) => setTimeout(r, durationMs))
+  const stopped = (await cdp.send('Profiler.stop')) as { profile: CpuProfile }
   await cdp.send('Profiler.disable')
   return stopped.profile
 }
 
 /** Run an in-page rAF loop, recording per-frame deltas for `durationMs`.
  *  Returns timing summary. */
-async function measureFrames(page: Page, durationMs: number): Promise<{
-  frames: number; ms: number; fps: number;
-  p50: number; p95: number; p99: number;
+async function measureFrames(
+  page: Page,
+  durationMs: number,
+): Promise<{
+  frames: number
+  ms: number
+  fps: number
+  p50: number
+  p95: number
+  p99: number
 }> {
   const result = await page.evaluate(async (durationMs: number) => {
-    return await new Promise<{ times: number[] }>(resolve => {
+    return await new Promise<{ times: number[] }>((resolve) => {
       const times: number[] = []
       const t0 = performance.now()
       let last = t0
@@ -131,7 +139,9 @@ test('PMTiles v4 perf: load + warmup at Tokyo z=10', async ({ page, context }) =
   await page.setViewportSize({ width: 1280, height: 720 })
 
   const consoleErrors: string[] = []
-  page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()) })
+  page.on('console', (m) => {
+    if (m.type() === 'error') consoleErrors.push(m.text())
+  })
 
   await page.goto('/demo.html?id=pmtiles_v4#10/35.68/139.76', { waitUntil: 'domcontentloaded' })
   await waitForXgisReady(page)
@@ -154,22 +164,29 @@ test('PMTiles v4 perf: load + warmup at Tokyo z=10', async ({ page, context }) =
 
   // Frame-time summary.
   console.log(`\n[frames] ${frames.frames} frames in ${frames.ms.toFixed(0)} ms`)
-  console.log(`[frames] FPS=${frames.fps.toFixed(1)}  p50=${frames.p50.toFixed(1)}ms  p95=${frames.p95.toFixed(1)}ms  p99=${frames.p99.toFixed(1)}ms`)
+  console.log(
+    `[frames] FPS=${frames.fps.toFixed(1)}  p50=${frames.p50.toFixed(1)}ms  p95=${frames.p95.toFixed(1)}ms  p99=${frames.p99.toFixed(1)}ms`,
+  )
 
   // Hot-function breakdown.
   console.log(`\n[hot] top 20 by self time:`)
   const hot = topHotFunctions(profile, 20)
   for (const r of hot) {
     const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
-    console.log(`  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} ${url}:${r.line}`)
+    console.log(
+      `  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} ${url}:${r.line}`,
+    )
   }
 
   // Catalog state at end.
   const cat = await page.evaluate(() => {
     type Cat = { maxLevel: number; getCacheSize(): number; getPendingLoadCount(): number }
-    const m = (window as unknown as { __xgisMap?: { vtSources?: Map<string, { source: Cat }> } }).__xgisMap
+    const m = (window as unknown as { __xgisMap?: { vtSources?: Map<string, { source: Cat }> } })
+      .__xgisMap
     const e = m?.vtSources?.get('pm')
-    return e ? { cacheSize: e.source.getCacheSize(), pending: e.source.getPendingLoadCount() } : null
+    return e
+      ? { cacheSize: e.source.getCacheSize(), pending: e.source.getPendingLoadCount() }
+      : null
   })
   console.log(`\n[catalog] ${JSON.stringify(cat)}`)
 
@@ -178,7 +195,9 @@ test('PMTiles v4 perf: load + warmup at Tokyo z=10', async ({ page, context }) =
   // Soft-assert: warn (don't fail) if FPS is below 30. The number is
   // a moving target until worker offload lands.
   if (frames.fps < 30) {
-    console.warn(`\n[perf-warn] FPS ${frames.fps.toFixed(1)} < 30 target — frame-bound work too heavy.`)
+    console.warn(
+      `\n[perf-warn] FPS ${frames.fps.toFixed(1)} < 30 target — frame-bound work too heavy.`,
+    )
   }
 })
 
@@ -223,19 +242,26 @@ test('PMTiles v4 perf: zoom-in over Seoul (z=8 → z=14)', async ({ page, contex
   fs.writeFileSync(outPath, JSON.stringify(profile))
   console.log(`\n[profile] saved: ${outPath}`)
   console.log(`[frames] ${frames.frames} frames in ${frames.ms.toFixed(0)} ms`)
-  console.log(`[frames] FPS=${frames.fps.toFixed(1)}  p50=${frames.p50.toFixed(1)}ms  p95=${frames.p95.toFixed(1)}ms  p99=${frames.p99.toFixed(1)}ms`)
+  console.log(
+    `[frames] FPS=${frames.fps.toFixed(1)}  p50=${frames.p50.toFixed(1)}ms  p95=${frames.p95.toFixed(1)}ms  p99=${frames.p99.toFixed(1)}ms`,
+  )
   const hot = topHotFunctions(profile, 20)
   console.log(`\n[hot] top 20 (Seoul zoom z=8→14):`)
   for (const r of hot) {
     const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
-    console.log(`  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} ${url}:${r.line}`)
+    console.log(
+      `  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} ${url}:${r.line}`,
+    )
   }
 
   const cat = await page.evaluate(() => {
     type Cat = { maxLevel: number; getCacheSize(): number; getPendingLoadCount(): number }
-    const m = (window as unknown as { __xgisMap?: { vtSources?: Map<string, { source: Cat }> } }).__xgisMap
+    const m = (window as unknown as { __xgisMap?: { vtSources?: Map<string, { source: Cat }> } })
+      .__xgisMap
     const e = m?.vtSources?.get('pm')
-    return e ? { cacheSize: e.source.getCacheSize(), pending: e.source.getPendingLoadCount() } : null
+    return e
+      ? { cacheSize: e.source.getCacheSize(), pending: e.source.getPendingLoadCount() }
+      : null
   })
   console.log(`\n[catalog] ${JSON.stringify(cat)}`)
 })
@@ -274,18 +300,25 @@ test('PMTiles v4 perf: zoom-in over Beijing (z=8 → z=14)', async ({ page, cont
   fs.writeFileSync(outPath, JSON.stringify(profile))
   console.log(`\n[profile] saved: ${outPath}`)
   console.log(`[frames] ${frames.frames} frames in ${frames.ms.toFixed(0)} ms`)
-  console.log(`[frames] FPS=${frames.fps.toFixed(1)}  p50=${frames.p50.toFixed(1)}ms  p95=${frames.p95.toFixed(1)}ms  p99=${frames.p99.toFixed(1)}ms`)
+  console.log(
+    `[frames] FPS=${frames.fps.toFixed(1)}  p50=${frames.p50.toFixed(1)}ms  p95=${frames.p95.toFixed(1)}ms  p99=${frames.p99.toFixed(1)}ms`,
+  )
   const hot = topHotFunctions(profile, 15)
   console.log(`\n[hot] top 15 (Beijing zoom z=8→14):`)
   for (const r of hot) {
     const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
-    console.log(`  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} ${url}:${r.line}`)
+    console.log(
+      `  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} ${url}:${r.line}`,
+    )
   }
   const cat = await page.evaluate(() => {
     type Cat = { maxLevel: number; getCacheSize(): number; getPendingLoadCount(): number }
-    const m = (window as unknown as { __xgisMap?: { vtSources?: Map<string, { source: Cat }> } }).__xgisMap
+    const m = (window as unknown as { __xgisMap?: { vtSources?: Map<string, { source: Cat }> } })
+      .__xgisMap
     const e = m?.vtSources?.get('pm')
-    return e ? { cacheSize: e.source.getCacheSize(), pending: e.source.getPendingLoadCount() } : null
+    return e
+      ? { cacheSize: e.source.getCacheSize(), pending: e.source.getPendingLoadCount() }
+      : null
   })
   console.log(`\n[catalog] ${JSON.stringify(cat)}`)
 })
@@ -309,12 +342,15 @@ test('PMTiles v4 perf: programmatic pan stress', async ({ page, context }) => {
     let i = 0
     while (Date.now() - start < PROFILE_MS) {
       // Slow circular pan around Tokyo center to force tile turnover.
-      const angle = (i++ * 0.05)
+      const angle = i++ * 0.05
       const lat = 35.68 + Math.sin(angle) * 0.1
       const lon = 139.76 + Math.cos(angle) * 0.15
-      await page.evaluate(({ lat, lon }) => {
-        location.hash = `#10/${lat.toFixed(5)}/${lon.toFixed(5)}`
-      }, { lat, lon })
+      await page.evaluate(
+        ({ lat, lon }) => {
+          location.hash = `#10/${lat.toFixed(5)}/${lon.toFixed(5)}`
+        },
+        { lat, lon },
+      )
       await page.waitForTimeout(100) // ~10 Hz pan updates
     }
   })()
@@ -330,11 +366,15 @@ test('PMTiles v4 perf: programmatic pan stress', async ({ page, context }) => {
   fs.writeFileSync(outPath, JSON.stringify(profile))
   console.log(`\n[profile] saved: ${outPath}`)
   console.log(`[frames] ${frames.frames} frames in ${frames.ms.toFixed(0)} ms`)
-  console.log(`[frames] FPS=${frames.fps.toFixed(1)}  p50=${frames.p50.toFixed(1)}ms  p95=${frames.p95.toFixed(1)}ms  p99=${frames.p99.toFixed(1)}ms`)
+  console.log(
+    `[frames] FPS=${frames.fps.toFixed(1)}  p50=${frames.p50.toFixed(1)}ms  p95=${frames.p95.toFixed(1)}ms  p99=${frames.p99.toFixed(1)}ms`,
+  )
   const hot = topHotFunctions(profile, 15)
   console.log(`\n[hot] top 15:`)
   for (const r of hot) {
     const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
-    console.log(`  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} ${url}:${r.line}`)
+    console.log(
+      `  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} ${url}:${r.line}`,
+    )
   }
 })

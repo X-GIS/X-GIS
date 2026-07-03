@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
 // WebGPU globals don't exist under happy-dom — stub the few constants
 // LineRenderer touches in its constructor.
-;(globalThis as unknown as { GPUShaderStage: { VERTEX: number; FRAGMENT: number } }).GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 }
+;(
+  globalThis as unknown as { GPUShaderStage: { VERTEX: number; FRAGMENT: number } }
+).GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 }
 ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
-  UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16,
+  UNIFORM: 1,
+  COPY_DST: 2,
+  STORAGE: 4,
+  VERTEX: 8,
+  INDEX: 16,
 }
 import { LineRenderer, lineUniformSize, packLineLayerUniform } from './line-renderer'
 import { WebGpuDevice } from '@xgis/engine'
@@ -36,18 +42,26 @@ describe('LineRenderer layer uniform ring', () => {
       createTexture: () => ({ createView: () => ({}) }) as unknown as GPUTexture,
       queue: {
         writeBuffer: (
-          _buf: GPUBuffer, offset: number, data: ArrayBufferView | ArrayBuffer,
-          _dataOffset?: number, size?: number,
+          _buf: GPUBuffer,
+          offset: number,
+          data: ArrayBufferView | ArrayBuffer,
+          _dataOffset?: number,
+          size?: number,
         ) => {
-          const byteLen = size ?? (
-            'byteLength' in (data as object) ? (data as ArrayBuffer).byteLength : 0
-          )
+          const byteLen =
+            size ?? ('byteLength' in (data as object) ? (data as ArrayBuffer).byteLength : 0)
           writes.push({ offset, byteLen })
         },
       },
     }
     const lr = new LineRenderer(
-      { device: fakeDevice as unknown as GPUDevice, format: 'bgra8unorm', canvas: {} as HTMLCanvasElement, context: {} as GPUCanvasContext, rhi: new WebGpuDevice(fakeDevice as unknown as GPUDevice) } as unknown as GPUContext,
+      {
+        device: fakeDevice as unknown as GPUDevice,
+        format: 'bgra8unorm',
+        canvas: {} as HTMLCanvasElement,
+        context: {} as GPUCanvasContext,
+        rhi: new WebGpuDevice(fakeDevice as unknown as GPUDevice),
+      } as unknown as GPUContext,
       {} as GPUBindGroupLayout,
     )
 

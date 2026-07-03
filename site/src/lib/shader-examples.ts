@@ -13,7 +13,9 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 
 const rawSources = import.meta.glob('../../../shader-dsl/examples/*.ts', {
-  query: '?raw', import: 'default', eager: true,
+  query: '?raw',
+  import: 'default',
+  eager: true,
 }) as Record<string, string>
 const sourceByFile = Object.fromEntries(
   Object.entries(rawSources).map(([p, src]) => [p.split('/').pop()!, src]),
@@ -91,7 +93,9 @@ for (const c of shaderCards) {
   if (!c.renderable) continue
   const file = path.join(process.cwd(), 'public', 'shader', `${c.id}.jpg`)
   if (!existsSync(file)) {
-    throw new Error(`[shader-dsl] missing thumbnail for renderable example '${c.id}' (site/public/shader/${c.id}.jpg) — run: npx tsx playground/capture-shader-thumbnails.mts`)
+    throw new Error(
+      `[shader-dsl] missing thumbnail for renderable example '${c.id}' (site/public/shader/${c.id}.jpg) — run: npx tsx playground/capture-shader-thumbnails.mts`,
+    )
   }
 }
 

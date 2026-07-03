@@ -11,11 +11,11 @@ mkdirSync(OUT, { recursive: true })
 // wrong color and halo missing, plus text-baseline sits above line
 // instead of on it. Capture compare panes + zoom range probe.
 for (const cfg of [
-  { name: 'z1.5',  hash: '#1.5/20/0' },
-  { name: 'z2',    hash: '#2.0/20/0' },
-  { name: 'z3',    hash: '#3.0/22/0' },
-  { name: 'z5',    hash: '#5.0/22/-30' },
-  { name: 'z6',    hash: '#6.0/22/-30' },
+  { name: 'z1.5', hash: '#1.5/20/0' },
+  { name: 'z2', hash: '#2.0/20/0' },
+  { name: 'z3', hash: '#3.0/22/0' },
+  { name: 'z5', hash: '#5.0/22/-30' },
+  { name: 'z6', hash: '#6.0/22/-30' },
 ]) {
   test(`geolines ${cfg.name}`, async ({ page }) => {
     test.setTimeout(60_000)
@@ -24,10 +24,11 @@ for (const cfg of [
       waitUntil: 'domcontentloaded',
     })
     await page.waitForFunction(
-      () => (window as unknown as { __xgisReady?: boolean; __mlReady?: boolean })
-        .__xgisReady === true
-        && (window as unknown as { __mlReady?: boolean }).__mlReady === true,
-      null, { timeout: 30_000 },
+      () =>
+        (window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }).__xgisReady ===
+          true && (window as unknown as { __mlReady?: boolean }).__mlReady === true,
+      null,
+      { timeout: 30_000 },
     )
     await page.waitForTimeout(8_000)
     const panes = page.locator('#panes .pane')

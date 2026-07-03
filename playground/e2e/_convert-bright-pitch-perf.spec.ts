@@ -34,14 +34,25 @@ test('bright style: frame-time profile across pitches at z=14 Tokyo', async ({ p
     sessionStorage.setItem('__xgisImportLabel', 'Bright (OpenFreeMap)')
   }, xgis)
 
-  const results: { pitch: number; medianFrameMs: number; p95FrameMs: number; sampledFrames: number; tilesAtEnd: number; uploadsAtEnd: number; drawCallsAtEnd: number }[] = []
+  const results: {
+    pitch: number
+    medianFrameMs: number
+    p95FrameMs: number
+    sampledFrames: number
+    tilesAtEnd: number
+    uploadsAtEnd: number
+    drawCallsAtEnd: number
+  }[] = []
 
   for (const pitch of PITCHES) {
     // Hash format from camera.ts: zoom/lat/lon/bearing/pitch
-    await page.goto(`/demo.html?id=__import#14/35.68/139.76/0/${pitch}`, { waitUntil: 'domcontentloaded' })
+    await page.goto(`/demo.html?id=__import#14/35.68/139.76/0/${pitch}`, {
+      waitUntil: 'domcontentloaded',
+    })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 30_000 },
+      null,
+      { timeout: 30_000 },
     )
     // Let initial tiles converge before measuring.
     await page.waitForTimeout(5_000)
@@ -51,7 +62,11 @@ test('bright style: frame-time profile across pitches at z=14 Tokyo', async ({ p
     // explicitly invalidates per-frame to keep animations alive (and
     // for our purposes, sampling steady-state).
     const sample = await page.evaluate(async () => {
-      return await new Promise<{ frames: number[]; pipeline: unknown; byZoom: Record<number, number> }>((res) => {
+      return await new Promise<{
+        frames: number[]
+        pipeline: unknown
+        byZoom: Record<number, number>
+      }>((res) => {
         const frames: number[] = []
         let last = performance.now()
         const start = last
@@ -61,12 +76,17 @@ test('bright style: frame-time profile across pitches at z=14 Tokyo', async ({ p
           last = now
           if (now - start < 3000) requestAnimationFrame(tick)
           else {
-            const map = (window as unknown as {
-              __xgisMap?: {
-                inspectPipeline?: () => unknown
-                vtSources?: Map<string, { renderer?: { _frameDrawnByZoom?: Map<number, number> } }>
+            const map = (
+              window as unknown as {
+                __xgisMap?: {
+                  inspectPipeline?: () => unknown
+                  vtSources?: Map<
+                    string,
+                    { renderer?: { _frameDrawnByZoom?: Map<number, number> } }
+                  >
+                }
               }
-            }).__xgisMap
+            ).__xgisMap
             const pipeline = map?.inspectPipeline ? map.inspectPipeline() : null
             const vtsource = map?.vtSources?.get?.('openmaptiles')
             const byZoomMap = vtsource?.renderer?._frameDrawnByZoom
@@ -84,7 +104,25 @@ test('bright style: frame-time profile across pitches at z=14 Tokyo', async ({ p
     const sorted = [...sample.frames].sort((a, b) => a - b)
     const median = sorted[Math.floor(sorted.length / 2)]
     const p95 = sorted[Math.floor(sorted.length * 0.95)]
-    const pipeline = sample.pipeline as { sources?: Array<{ name: string; cache: { gpuLayers: number; pendingUploads: number; subTileBudgetUsed: number; compileBudgetUsed: number; hasData: boolean }; frame: { drawCalls: number; tilesVisible: number; missedTiles: number; triangles: number; lines: number } }> } | null
+    const pipeline = sample.pipeline as {
+      sources?: Array<{
+        name: string
+        cache: {
+          gpuLayers: number
+          pendingUploads: number
+          subTileBudgetUsed: number
+          compileBudgetUsed: number
+          hasData: boolean
+        }
+        frame: {
+          drawCalls: number
+          tilesVisible: number
+          missedTiles: number
+          triangles: number
+          lines: number
+        }
+      }>
+    } | null
     const sourceFrame = pipeline?.sources?.[0]?.frame
     const sourceCache = pipeline?.sources?.[0]?.cache
     results.push({
@@ -109,10 +147,10 @@ test('bright style: frame-time profile across pitches at z=14 Tokyo', async ({ p
     // eslint-disable-next-line no-console
     console.log(
       `  pitch=${r.pitch.toString().padStart(2)}°: ` +
-      `median=${r.medianFrameMs.toFixed(1)}ms (${(1000 / r.medianFrameMs).toFixed(0)} fps) ` +
-      `p95=${r.p95FrameMs.toFixed(1)}ms ` +
-      `frames=${r.sampledFrames} ` +
-      `tiles=${r.tilesAtEnd} uploads=${r.uploadsAtEnd} drawCalls=${r.drawCallsAtEnd}`,
+        `median=${r.medianFrameMs.toFixed(1)}ms (${(1000 / r.medianFrameMs).toFixed(0)} fps) ` +
+        `p95=${r.p95FrameMs.toFixed(1)}ms ` +
+        `frames=${r.sampledFrames} ` +
+        `tiles=${r.tilesAtEnd} uploads=${r.uploadsAtEnd} drawCalls=${r.drawCallsAtEnd}`,
     )
   }
 

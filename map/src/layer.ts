@@ -30,9 +30,7 @@ import { QUALITY } from '@xgis/engine'
 /** Wrapper that returns `null` on parse failure so the setters can
  *  short-circuit without touching paintShapes when given a malformed
  *  hex. The raw helper throws / returns garbage on bad input. */
-function parseHexColor(
-  hex: string,
-): readonly [number, number, number, number] | null {
+function parseHexColor(hex: string): readonly [number, number, number, number] | null {
   if (typeof hex !== 'string' || hex.length === 0) return null
   // Reject non-hex shapes (e.g. CSS name 'red', empty, malformed
   // length). parseHexColorRaw silently returns [0,0,0,1] for anything
@@ -125,8 +123,14 @@ export type PointerEvents = 'auto' | 'none'
 /** Public (CSS-like) style property names. Excludes private accessor
  *  fields on `XGISLayerStyle`. */
 export type XGISLayerStyleKey =
-  | 'opacity' | 'fill' | 'stroke' | 'strokeWidth'
-  | 'visible' | 'pointerEvents' | 'extrude' | 'extrudeBase'
+  | 'opacity'
+  | 'fill'
+  | 'stroke'
+  | 'strokeWidth'
+  | 'visible'
+  | 'pointerEvents'
+  | 'extrude'
+  | 'extrudeBase'
 
 export interface XGISFeatureEventInit {
   // Phase 4 will populate this with click / mouseenter / mouseleave /
@@ -151,7 +155,9 @@ export class XGISLayerStyle {
     if (!(key in this._defaults)) this._defaults[key] = current
   }
 
-  get opacity(): number { return this.host.show.opacity ?? 1 }
+  get opacity(): number {
+    return this.host.show.opacity ?? 1
+  }
   set opacity(v: number) {
     // Mapbox spec: opacity ∈ [0, 1]; reject NaN/Infinity. Mirror of
     // setPaintProperty clamp (62dfd1e). Pre-fix a direct
@@ -169,7 +175,9 @@ export class XGISLayerStyle {
     this.host.invalidate()
   }
 
-  get fill(): string | null { return this.host.show.fill }
+  get fill(): string | null {
+    return this.host.show.fill
+  }
   set fill(v: string | null) {
     // Validate BEFORE the snapshot+write: if hex parse fails, keep the
     // previous state so show.fill and paintShapes.fill stay in sync.
@@ -191,7 +199,9 @@ export class XGISLayerStyle {
     this.host.invalidate()
   }
 
-  get stroke(): string | null { return this.host.show.stroke }
+  get stroke(): string | null {
+    return this.host.show.stroke
+  }
   set stroke(v: string | null) {
     // Mirror of the fill setter — validate first to keep show.stroke +
     // paintShapes.stroke in sync.
@@ -207,7 +217,9 @@ export class XGISLayerStyle {
     this.host.invalidate()
   }
 
-  get strokeWidth(): number { return this.host.show.strokeWidth }
+  get strokeWidth(): number {
+    return this.host.show.strokeWidth
+  }
   set strokeWidth(v: number) {
     // Mapbox spec: line-width >= 0; reject NaN/Infinity.
     if (typeof v !== 'number' || !Number.isFinite(v)) return
@@ -218,7 +230,9 @@ export class XGISLayerStyle {
     this.host.invalidate()
   }
 
-  get visible(): boolean { return this.host.show.visible }
+  get visible(): boolean {
+    return this.host.show.visible
+  }
   set visible(v: boolean) {
     this.snapshot('visible', this.host.show.visible)
     this.host.show.visible = v
@@ -294,14 +308,13 @@ export class XGISLayerStyle {
       delete this._defaults[k]
     }
     if (key) restore(key)
-    else for (const k of Object.keys(this._defaults) as (XGISLayerStyleKey)[]) restore(k)
+    else for (const k of Object.keys(this._defaults) as XGISLayerStyleKey[]) restore(k)
     this.host.invalidate()
   }
 }
 
 export type XGISFeatureEventType =
-  | 'click' | 'mouseenter' | 'mouseleave' | 'mousemove'
-  | 'pointerdown' | 'pointerup' | 'wheel'
+  'click' | 'mouseenter' | 'mouseleave' | 'mousemove' | 'pointerdown' | 'pointerup' | 'wheel'
 
 /** Lightweight feature snapshot delivered to event listeners. `geometry`
  *  is intentionally not surfaced in Phase 4 — pickAt only returns IDs,
@@ -357,15 +370,21 @@ export class XGISFeatureEvent {
     this.timeStamp = init.originalEvent.timeStamp
   }
 
-  get defaultPrevented(): boolean { return this._defaultPrevented }
+  get defaultPrevented(): boolean {
+    return this._defaultPrevented
+  }
 
   /** Stop further listeners on this layer from firing for this event.
    *  Phase 5 will extend this to stop fall-through to lower layers when
    *  bubbling lands. */
-  preventDefault(): void { this._defaultPrevented = true }
+  preventDefault(): void {
+    this._defaultPrevented = true
+  }
 
   /** DOM-style alias for `preventDefault` — same effect today. */
-  stopPropagation(): void { this._defaultPrevented = true }
+  stopPropagation(): void {
+    this._defaultPrevented = true
+  }
 }
 
 export type XGISFeatureListener = (event: XGISFeatureEvent) => void
@@ -384,12 +403,25 @@ export type XGISFeatureListener = (event: XGISFeatureEvent) => void
 
 /** Canonical feature/pointer event names (mirrors XGISFeatureEventType). */
 const FEATURE_EVENT_TYPES: ReadonlySet<string> = new Set([
-  'click', 'mouseenter', 'mouseleave', 'mousemove', 'pointerdown', 'pointerup', 'wheel',
+  'click',
+  'mouseenter',
+  'mouseleave',
+  'mousemove',
+  'pointerdown',
+  'pointerup',
+  'wheel',
 ])
 /** Canonical lifecycle/camera event names (mirrors XGISMapEventType below).
  *  XGISMap.on/off/once route through this membership test. */
 const MAP_EVENT_TYPES: ReadonlySet<string> = new Set([
-  'load', 'idle', 'movestart', 'move', 'moveend', 'zoomstart', 'zoom', 'zoomend',
+  'load',
+  'idle',
+  'movestart',
+  'move',
+  'moveend',
+  'zoomstart',
+  'zoom',
+  'zoomend',
 ])
 export function isMapEventType(type: string): type is XGISMapEventType {
   return MAP_EVENT_TYPES.has(type)
@@ -413,14 +445,14 @@ function warnOnListenerRegistration(type: string): void {
       // map/layer addEventListener (map.on/off/once route it correctly).
       xlog.warn(
         `[X-GIS] '${type}' is a map lifecycle event — it never fires from a ` +
-        `feature/layer listener registry. Register it with map.on('${type}', …).`,
+          `feature/layer listener registry. Register it with map.on('${type}', …).`,
       )
       return
     }
     xlog.warn(
       `[X-GIS] Unknown event type '${type}' — this listener will never fire. ` +
-      `Supported map events: ${[...MAP_EVENT_TYPES].join(', ')}. ` +
-      `Supported feature events: ${[...FEATURE_EVENT_TYPES].join(', ')}.`,
+        `Supported map events: ${[...MAP_EVENT_TYPES].join(', ')}. ` +
+        `Supported feature events: ${[...FEATURE_EVENT_TYPES].join(', ')}.`,
     )
   } else if (!QUALITY.picking && !_warnedPickingOff) {
     // Once globally. Warn-only (NOT auto-enable): flipping picking on
@@ -429,9 +461,9 @@ function warnOnListenerRegistration(type: string): void {
     _warnedPickingOff = true
     xlog.warn(
       `[X-GIS] A '${type}' listener was registered but GPU picking is disabled ` +
-      `(every quality preset defaults picking:false), so feature events never fire. ` +
-      `Enable with map.setQuality({ picking: true }) or the ?picking=1 URL flag ` +
-      `(note: picking forces MSAA off).`,
+        `(every quality preset defaults picking:false), so feature events never fire. ` +
+        `Enable with map.setQuality({ picking: true }) or the ?picking=1 URL flag ` +
+        `(note: picking forces MSAA off).`,
     )
   }
 }
@@ -453,10 +485,16 @@ export class ListenerRegistry {
     warnOnListenerRegistration(type)
     if (options?.signal?.aborted) return
     let typeMap = this.map.get(type)
-    if (!typeMap) { typeMap = new Map(); this.map.set(type, typeMap) }
+    if (!typeMap) {
+      typeMap = new Map()
+      this.map.set(type, typeMap)
+    }
     if (typeMap.has(listener)) return
     const wrapped: XGISFeatureListener = options?.once
-      ? (e) => { typeMap!.delete(listener); listener(e) }
+      ? (e) => {
+          typeMap!.delete(listener)
+          listener(e)
+        }
       : listener
     typeMap.set(listener, wrapped)
     options?.signal?.addEventListener('abort', () => typeMap!.delete(listener), { once: true })
@@ -480,8 +518,11 @@ export class ListenerRegistry {
     const typeMap = this.map.get(event.type)
     if (!typeMap || typeMap.size === 0) return
     for (const wrapped of [...typeMap.values()]) {
-      try { wrapped(event) }
-      catch (e) { xlog.error(`[X-GIS] '${event.type}' listener on ${label}:`, e) }
+      try {
+        wrapped(event)
+      } catch (e) {
+        xlog.error(`[X-GIS] '${event.type}' listener on ${label}:`, e)
+      }
       if (event.defaultPrevented) break
     }
   }
@@ -503,9 +544,7 @@ export class ListenerRegistry {
 //   - zoomend     — zoom came to rest.
 //   - idle        — no pending tile/label work AND camera at rest.
 export type XGISMapEventType =
-  | 'load' | 'idle'
-  | 'movestart' | 'move' | 'moveend'
-  | 'zoomstart' | 'zoom' | 'zoomend'
+  'load' | 'idle' | 'movestart' | 'move' | 'moveend' | 'zoomstart' | 'zoom' | 'zoomend'
 
 /** Payload delivered to map-level lifecycle / camera listeners. Carries
  *  the current camera state (center [lon, lat], zoom, bearing, pitch) so
@@ -560,10 +599,16 @@ export class MapEventRegistry {
   ): void {
     if (options?.signal?.aborted) return
     let typeMap = this.map.get(type)
-    if (!typeMap) { typeMap = new Map(); this.map.set(type, typeMap) }
+    if (!typeMap) {
+      typeMap = new Map()
+      this.map.set(type, typeMap)
+    }
     if (typeMap.has(listener)) return
     const wrapped: XGISMapListener = options?.once
-      ? (e) => { typeMap!.delete(listener); listener(e) }
+      ? (e) => {
+          typeMap!.delete(listener)
+          listener(e)
+        }
       : listener
     typeMap.set(listener, wrapped)
     options?.signal?.addEventListener('abort', () => typeMap!.delete(listener), { once: true })
@@ -582,8 +627,11 @@ export class MapEventRegistry {
     const typeMap = this.map.get(event.type)
     if (!typeMap || typeMap.size === 0) return
     for (const wrapped of [...typeMap.values()]) {
-      try { wrapped(event) }
-      catch (e) { xlog.error(`[X-GIS] '${event.type}' map listener:`, e) }
+      try {
+        wrapped(event)
+      } catch (e) {
+        xlog.error(`[X-GIS] '${event.type}' map listener:`, e)
+      }
     }
   }
 }

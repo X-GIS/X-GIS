@@ -6,15 +6,19 @@
 import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/engine'
 
-const W = 800, H = 800, DPR = 1
+const W = 800,
+  H = 800,
+  DPR = 1
 
 function makeRng(seed: number): () => number {
   let s = seed | 0
   return () => {
-    s ^= s << 13; s |= 0
+    s ^= s << 13
+    s |= 0
     s ^= s >>> 17
-    s ^= s << 5; s |= 0
-    return ((s >>> 0) / 0x1_0000_0000)
+    s ^= s << 5
+    s |= 0
+    return (s >>> 0) / 0x1_0000_0000
   }
 }
 
@@ -29,11 +33,11 @@ describe('iter-293 Camera fuzz — random valid inputs', () => {
   it('matrix elements all finite across random (zoom, pitch, bearing, lon, lat)', () => {
     const rng = makeRng(0xc001)
     for (let trial = 0; trial < 2000; trial++) {
-      const lon = (rng() * 360) - 180
-      const lat = (rng() * 170) - 85       // mercator-safe band
+      const lon = rng() * 360 - 180
+      const lat = rng() * 170 - 85 // mercator-safe band
       const zoom = rng() * 22
       const pitch = rng() * 85
-      const bearing = (rng() * 720) - 360   // include wraparound
+      const bearing = rng() * 720 - 360 // include wraparound
       const cam = new Camera(lon, lat, zoom)
       cam.pitch = pitch
       cam.bearing = bearing
@@ -41,8 +45,8 @@ describe('iter-293 Camera fuzz — random valid inputs', () => {
       if (!allFinite(m)) {
         // Surface the failure with full state.
         throw new Error(
-          `non-finite matrix at lon=${lon} lat=${lat} zoom=${zoom} `
-          + `pitch=${pitch} bearing=${bearing}: ${Array.from(m)}`,
+          `non-finite matrix at lon=${lon} lat=${lat} zoom=${zoom} ` +
+            `pitch=${pitch} bearing=${bearing}: ${Array.from(m)}`,
         )
       }
     }
@@ -57,9 +61,9 @@ describe('iter-293 Camera fuzz — random valid inputs', () => {
     cam.bearing = 45
     for (let trial = 0; trial < 500; trial++) {
       const sx = rng() * W
-      const sy = rng() * (H * 0.5)        // upper half avoids horizon clip
+      const sy = rng() * (H * 0.5) // upper half avoids horizon clip
       const world = cam.unprojectToZ0(sx, sy, W, H, DPR)
-      if (!world) continue                // legitimately above horizon
+      if (!world) continue // legitimately above horizon
       expect(Number.isFinite(world[0])).toBe(true)
       expect(Number.isFinite(world[1])).toBe(true)
     }

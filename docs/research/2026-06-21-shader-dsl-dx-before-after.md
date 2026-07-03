@@ -1,7 +1,7 @@
 # `@xgis/shader-dsl` — developer experience: how the code actually looks (before → after)
 
 Companion to `2026-06-21-shader-dsl-backend-agnostic-redesign.md`. This is the part that matters to
-the person *using* the DSL: what you type to author a shader, what you call to get a target, and how
+the person _using_ the DSL: what you type to author a shader, what you call to get a target, and how
 it feels when something can't run on your backend. Every "before" snippet is real current code.
 
 ---
@@ -9,6 +9,7 @@ it feels when something can't run on your backend. Every "before" snippet is rea
 ## A. Authoring a shared math function
 
 ### Before (today — real, `shaders/log-depth.ts`)
+
 ```ts
 import { fn, f32, vec4, max, log2, f32T, vec4fT } from '../core/ir'
 import { emitFunc } from '../core/backends/wgsl'            // ← reaches into the WGSL backend
@@ -21,11 +22,13 @@ const apply_log_depth = fn('apply_log_depth', { pos: vec4fT, fc: f32T }, vec4fT,
 // single target, hand-assembled, WGSL baked into the export NAME:
 export const LOG_DEPTH_WGSL_FNS = `${[apply_log_depth, ...].map(emitFunc).join('\n\n')}\n`
 ```
-**Pain:** the author imports `emitFunc` from the *WGSL backend* and string-concats; the export is
+
+**Pain:** the author imports `emitFunc` from the _WGSL backend_ and string-concats; the export is
 literally named `*_WGSL_*`. There is no "give me GLSL" — you'd hand-write a parallel `*_GLSL_*`. And
 the type parameters that flow through (`Node<'vec4<f32>'>` in `node.ts:141`) spell WGSL.
 
 ### After
+
 ```ts
 import { fn, f32, vec4, max, log2 } from '@xgis/shader-dsl'
 import { F32, Vec4f } from '@xgis/shader-dsl/types'         // ← neutral aliases, no '<f32>' spelling
@@ -37,6 +40,7 @@ const applyLogDepth = fn('apply_log_depth', { pos: Vec4f, fc: F32 }, Vec4f, (b, 
 
 export const logDepth = module({ funcs: [applyLogDepth, ...] })   // a target-NEUTRAL artifact
 ```
+
 The body is unchanged (the math layer was always fine). What changes: you export a **neutral
 module**, not a WGSL string. Targets come from the consumer (§C). No backend import at author time.
 
@@ -47,6 +51,7 @@ module**, not a WGSL string. Targets come from the consumer (§C). No backend im
 This is where WGSL leaks most today: IO and resources are **raw WGSL attribute strings**.
 
 ### Before (today — the shape in `polygon.ts` / `point.ts`)
+
 ```ts
 // IO carried as WGSL syntax strings; bindings hardcode @group/@binding:
 { name: 'pos', type: vec4fT, attr: '@builtin(position)' }
@@ -55,19 +60,28 @@ bindingRef('feat_data', { space: 'storage', access: 'read', group: 0, binding: 3
 ```
 
 ### After
+
 ```ts
 import { entry, Stage, builtin, location, flat } from '@xgis/shader-dsl'
 
-const vsPolygon = entry('vs_polygon', Stage.Vertex, {
-  inputs:  [ location(0, 'q_xy', Vec4u) ],
-  outputs: [ builtin('position', Vec4f), location(0, 'uv', Vec2f, { interp: flat }) ],
-}, (b, io) => { /* … */ })
+const vsPolygon = entry(
+  'vs_polygon',
+  Stage.Vertex,
+  {
+    inputs: [location(0, 'q_xy', Vec4u)],
+    outputs: [builtin('position', Vec4f), location(0, 'uv', Vec2f, { interp: flat })],
+  },
+  (b, io) => {
+    /* … */
+  },
+)
 
 // resources are LOGICAL — a string tag, the slot is assigned by the backend:
 const featData = featureBuffer('feat_data', F32, { group: 'per-tile' })
-const v = featData.at(i)        // unchanged accessor — the lowering differs per backend
+const v = featData.at(i) // unchanged accessor — the lowering differs per backend
 ```
-You describe *intent* (`builtin('position')`, `location(0)`, `featureBuffer`), never WGSL syntax. The
+
+You describe _intent_ (`builtin('position')`, `location(0)`, `featureBuffer`), never WGSL syntax. The
 WGSL backend renders `@builtin(position)` / `@group(0) @binding(3)`; the GLSL backend renders
 `gl_Position` / a `std140` UBO or a data-texture — and you wrote it **once**.
 
@@ -76,25 +90,28 @@ WGSL backend renders `@builtin(position)` / `@group(0) @binding(3)`; the GLSL ba
 ## C. Consuming — one source, any target
 
 ### Before (today)
+
 ```ts
 // runtime/src/engine/render/vector-tile-renderer.ts
-const code = emitPolygonWgsl(variant, pickEnabled)         // WGSL-only, name says so
+const code = emitPolygonWgsl(variant, pickEnabled) // WGSL-only, name says so
 device.createShaderModule({ code })
 ```
 
 ### After
+
 ```ts
 import { compile, wgsl, glslES300 } from '@xgis/shader-dsl'
 
-const out = compile(polygon, wgsl)            // → { code: string, layout: LayoutPlan, caps }
+const out = compile(polygon, wgsl) // → { code: string, layout: LayoutPlan, caps }
 device.createShaderModule({ code: out.code })
 // LayoutPlan is the SINGLE source binding writeBuffer offsets ↔ the shader struct:
 device.queue.writeBuffer(buf, out.layout.offsetOf('fill_color'), rgba)
 
 // same authored graph, different target — no parallel shader to maintain:
-const gl = compile(raster, glslES300)         // → '#version 300 es …'
+const gl = compile(raster, glslES300) // → '#version 300 es …'
 webgl2.shaderSource(fragShader, gl.code)
 ```
+
 One module → WGSL **or** GLSL. The `LayoutPlan` kills the repo's #1 bug class (the 256-byte
 `Uniforms` offsets and the `writeBuffer` calls now read from one object instead of two hand-synced
 sites).
@@ -104,18 +121,23 @@ sites).
 ## D. The payoff, concretely — one source → two targets
 
 Authoring (once):
+
 ```ts
-const toLinear = fn('to_linear', { c: Vec3f }, Vec3f, (b, { c }) =>
-  b.ret(pow(c, vec3(f32(2.2)))))
+const toLinear = fn('to_linear', { c: Vec3f }, Vec3f, (b, { c }) => b.ret(pow(c, vec3(f32(2.2)))))
 ```
+
 `compile(mod, wgsl)`:
+
 ```wgsl
 fn to_linear(c: vec3<f32>) -> vec3<f32> { return pow(c, vec3<f32>(2.2)); }
 ```
+
 `compile(mod, glslES300)`:
+
 ```glsl
 vec3 to_linear(vec3 c) { return pow(c, vec3(2.2)); }
 ```
+
 Same graph; the writer owns `vec3<f32>`↔`vec3`. For an intrinsic that differs, the registry handles
 it — author writes `cond.select(a, b)` once and gets WGSL `select(b, a, cond)` vs GLSL `(cond ? a : b)`.
 
@@ -135,29 +157,33 @@ const out = compile(continentMatch, glslES300)
 //     • storage read   `feat_data: array<f32>`      → needs WebGPU, or the data-texture path (R5)
 //   Backends that support this shader: ['wgsl']
 ```
-…and the capability is *queryable* so a renderer can pick a path instead of crashing:
+
+…and the capability is _queryable_ so a renderer can pick a path instead of crashing:
+
 ```ts
 if (glslES300.caps.covers(polygon.requires)) useWebGL2(compile(polygon, glslES300))
-else                                          useWebGPU(compile(polygon, wgsl))
+else useWebGPU(compile(polygon, wgsl))
 ```
+
 And the CPU oracle is reachable the same uniform way (for parity tests / headless math):
+
 ```ts
-const f = evalCpu(projections)            // f.project(lon, lat, …) → exact f64
+const f = evalCpu(projections) // f.project(lon, lat, …) → exact f64
 ```
 
 ---
 
 ## F. Why this is "good to use" (the scorecard)
 
-| Dimension | Before | After |
-|---|---|---|
-| Author a shader | typed graph, but spells `Node<'vec4<f32>'>`, imports the WGSL backend, hand-concats strings | typed graph, neutral aliases (`Vec4f`), exports a neutral `module` |
-| IO / bindings | raw WGSL attribute strings, hardcoded `@group/@binding` | `builtin()/location()/featureBuffer()` intent; backend assigns slots |
-| Get a target | `emitPolygonWgsl()` — WGSL only | `compile(mod, wgsl | glslES300)` — one source, any target |
-| Buffer ↔ shader sync | offsets split across VTR constants + struct order (drift = bugs) | one `LayoutPlan` SoT |
-| WebGL2 honesty | n/a (no GLSL) | typed `UnsupportedFeatureError` + queryable `caps.covers()` |
-| Math correctness | CPU oracle exists | unchanged — same oracle, now reachable via `evalCpu()` |
-| Adding a 3rd target (SPIR-V/MSL) | rewrite a parallel emitter | implement one `Backend` |
+| Dimension                        | Before                                                                                      | After                                                                |
+| -------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Author a shader                  | typed graph, but spells `Node<'vec4<f32>'>`, imports the WGSL backend, hand-concats strings | typed graph, neutral aliases (`Vec4f`), exports a neutral `module`   |
+| IO / bindings                    | raw WGSL attribute strings, hardcoded `@group/@binding`                                     | `builtin()/location()/featureBuffer()` intent; backend assigns slots |
+| Get a target                     | `emitPolygonWgsl()` — WGSL only                                                             | `compile(mod, wgsl                                                   | glslES300)` — one source, any target |
+| Buffer ↔ shader sync             | offsets split across VTR constants + struct order (drift = bugs)                            | one `LayoutPlan` SoT                                                 |
+| WebGL2 honesty                   | n/a (no GLSL)                                                                               | typed `UnsupportedFeatureError` + queryable `caps.covers()`          |
+| Math correctness                 | CPU oracle exists                                                                           | unchanged — same oracle, now reachable via `evalCpu()`               |
+| Adding a 3rd target (SPIR-V/MSL) | rewrite a parallel emitter                                                                  | implement one `Backend`                                              |
 
 **Net:** the author writes plainer, target-free TypeScript; the consumer makes one `compile()` call
 and either gets valid code for their backend or a precise reason why not. That is the difference
@@ -166,6 +192,7 @@ between "a WGSL generator" and "a shader IR you'd put your name on."
 ---
 
 ## G. Honest caveats (so the UX promise is real)
+
 - The nice `compile(mod, glslES300)` returns valid code **only for what WebGL2 can do** (T0/T1
   shaders today; T2 after the R5 data-texture work). For T3 (compute/MSAA) it raises §E — by design.
 - `Vec4f`-style aliases + neutral `KeyOf` is the one change that touches the compile-time safety gate

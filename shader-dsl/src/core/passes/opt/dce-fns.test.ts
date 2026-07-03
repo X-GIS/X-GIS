@@ -13,8 +13,17 @@ import { emitModule } from '../../backends/wgsl'
 
 const lit = (v: number): Expr => ({ op: 'lit', type: f32T, value: v })
 const call = (name: string, ...args: Expr[]): Expr => ({ op: 'call', type: f32T, fn: name, args })
-const helper = (name: string, ret: Expr): FuncDecl => ({ name, params: [], ret: f32T, body: [{ s: 'return', expr: ret }] })
-const entry = (name: string, ret: Expr): FuncDecl => ({ ...helper(name, ret), attrs: ['@fragment'], retAttr: '@location(0)' })
+const helper = (name: string, ret: Expr): FuncDecl => ({
+  name,
+  params: [],
+  ret: f32T,
+  body: [{ s: 'return', expr: ret }],
+})
+const entry = (name: string, ret: Expr): FuncDecl => ({
+  ...helper(name, ret),
+  attrs: ['@fragment'],
+  retAttr: '@location(0)',
+})
 const mod = (funcs: FuncDecl[]): ModuleDecl => ({ consts: [], structs: [], bindings: [], funcs })
 const names = (m: ModuleDecl): string[] => m.funcs.map((f) => f.name)
 
@@ -70,9 +79,21 @@ describe('optimize — dead-function elimination (tree-shaking)', () => {
     // (called by the `main` entry point) and `main` survive + still emit.
     const m = module({
       funcs: [
-        fn('used', { x: f32T }, f32T, ({ x }, b) => { b.ret(x.mul(2)) }),
-        fn('unused', { x: f32T }, f32T, ({ x }, b) => { b.ret(x.add(f32(99))) }),
-        fn('main', { x: f32T }, f32T, ({ x }, b) => { b.ret(callFn('used', f32T, x)) }, { stage: 'fragment', retAttr: '@location(0)' }),
+        fn('used', { x: f32T }, f32T, ({ x }, b) => {
+          b.ret(x.mul(2))
+        }),
+        fn('unused', { x: f32T }, f32T, ({ x }, b) => {
+          b.ret(x.add(f32(99)))
+        }),
+        fn(
+          'main',
+          { x: f32T },
+          f32T,
+          ({ x }, b) => {
+            b.ret(callFn('used', f32T, x))
+          },
+          { stage: 'fragment', retAttr: '@location(0)' },
+        ),
       ],
     })
     const wgsl = emitModule(deadFnElim(m))

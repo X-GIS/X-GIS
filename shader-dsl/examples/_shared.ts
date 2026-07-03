@@ -12,8 +12,8 @@ import type { ModuleDecl } from '../src/index.ts'
 
 /** How a host fills one uniform-struct field each frame. */
 export type Control =
-  | { readonly kind: 'time' }                      // elapsed seconds → an f32 field
-  | { readonly kind: 'resolution' }                // canvas size in px → a vec2<f32> field
+  | { readonly kind: 'time' } // elapsed seconds → an f32 field
+  | { readonly kind: 'resolution' } // canvas size in px → a vec2<f32> field
   | { readonly kind: 'const'; readonly value: readonly number[] } // fixed scalar / vec value
   | {
       readonly kind: 'slider'

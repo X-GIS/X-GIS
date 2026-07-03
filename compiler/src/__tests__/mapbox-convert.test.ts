@@ -67,11 +67,16 @@ describe('Mapbox → xgis converter', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'parks', type: 'fill', source: 's', 'source-layer': 'landuse',
-        filter: ['==', 'kind', 'park'],
-        paint: { 'fill-color': '#cfe7c1' },
-      }],
+      layers: [
+        {
+          id: 'parks',
+          type: 'fill',
+          source: 's',
+          'source-layer': 'landuse',
+          filter: ['==', 'kind', 'park'],
+          paint: { 'fill-color': '#cfe7c1' },
+        },
+      ],
     })
     expect(out).toContain('layer parks {')
     expect(out).toContain('source: s')
@@ -85,11 +90,16 @@ describe('Mapbox → xgis converter', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'rail', type: 'line', source: 's', 'source-layer': 'roads',
-        filter: ['==', 'kind', 'rail'],
-        paint: { 'line-color': '#888', 'line-width': 1.5, 'line-dasharray': [4, 2] },
-      }],
+      layers: [
+        {
+          id: 'rail',
+          type: 'line',
+          source: 's',
+          'source-layer': 'roads',
+          filter: ['==', 'kind', 'rail'],
+          paint: { 'line-color': '#888', 'line-width': 1.5, 'line-dasharray': [4, 2] },
+        },
+      ],
     })
     expect(out).toContain('stroke-#888')
     expect(out).toContain('stroke-1.5')
@@ -100,14 +110,19 @@ describe('Mapbox → xgis converter', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'b', type: 'fill-extrusion', source: 's', 'source-layer': 'buildings',
-        paint: {
-          'fill-extrusion-color': '#ddd',
-          'fill-extrusion-height': ['get', 'height'],
-          'fill-extrusion-base': ['get', 'min_height'],
+      layers: [
+        {
+          id: 'b',
+          type: 'fill-extrusion',
+          source: 's',
+          'source-layer': 'buildings',
+          paint: {
+            'fill-extrusion-color': '#ddd',
+            'fill-extrusion-height': ['get', 'height'],
+            'fill-extrusion-base': ['get', 'min_height'],
+          },
         },
-      }],
+      ],
     })
     expect(out).toContain('fill-extrusion-height-[.height]')
     expect(out).toContain('fill-extrusion-base-[.min_height]')
@@ -117,12 +132,17 @@ describe('Mapbox → xgis converter', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'b', type: 'fill-extrusion', source: 's', 'source-layer': 'buildings',
-        paint: {
-          'fill-extrusion-height': ['coalesce', ['get', 'height'], 50],
+      layers: [
+        {
+          id: 'b',
+          type: 'fill-extrusion',
+          source: 's',
+          'source-layer': 'buildings',
+          paint: {
+            'fill-extrusion-height': ['coalesce', ['get', 'height'], 50],
+          },
         },
-      }],
+      ],
     })
     expect(out).toContain('fill-extrusion-height-[.height ?? 50]')
   })
@@ -131,16 +151,25 @@ describe('Mapbox → xgis converter', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'land', type: 'fill', source: 's', 'source-layer': 'landuse',
-        paint: {
-          'fill-color': ['match', ['get', 'kind'],
-            'park', '#cfe7c1',
-            'water', '#a4c8d5',
-            '#dadada',
-          ],
+      layers: [
+        {
+          id: 'land',
+          type: 'fill',
+          source: 's',
+          'source-layer': 'landuse',
+          paint: {
+            'fill-color': [
+              'match',
+              ['get', 'kind'],
+              'park',
+              '#cfe7c1',
+              'water',
+              '#a4c8d5',
+              '#dadada',
+            ],
+          },
         },
-      }],
+      ],
     })
     // expand-color-match preprocessor splits the match into 3
     // sublayers — one per unique colour — each with a value-set
@@ -173,14 +202,19 @@ describe('Mapbox → xgis converter', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'roads', type: 'line', source: 's', 'source-layer': 'roads',
-        filter: ['all', ['==', '$type', 'LineString'], ['==', 'kind', 'highway']],
-        paint: { 'line-color': '#888' },
-      }],
+      layers: [
+        {
+          id: 'roads',
+          type: 'line',
+          source: 's',
+          'source-layer': 'roads',
+          filter: ['all', ['==', '$type', 'LineString'], ['==', 'kind', 'highway']],
+          paint: { 'line-color': '#888' },
+        },
+      ],
     })
     // $type only allowed inside the trailing /* Conversion notes */ block.
-    const filterLine = out.split('\n').find(l => l.trim().startsWith('filter:')) ?? ''
+    const filterLine = out.split('\n').find((l) => l.trim().startsWith('filter:')) ?? ''
     expect(filterLine).not.toContain('$type')
     expect(out).toContain('.kind == "highway"')
     expect(parses(out)).toBe(true)
@@ -190,16 +224,18 @@ describe('Mapbox → xgis converter', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'water', type: 'fill', source: 's', 'source-layer': 'water',
-        filter: ['all',
-          ['==', ['geometry-type'], 'Polygon'],
-          ['==', ['get', 'kind'], 'lake'],
-        ],
-        paint: { 'fill-color': '#a4c8d5' },
-      }],
+      layers: [
+        {
+          id: 'water',
+          type: 'fill',
+          source: 's',
+          'source-layer': 'water',
+          filter: ['all', ['==', ['geometry-type'], 'Polygon'], ['==', ['get', 'kind'], 'lake']],
+          paint: { 'fill-color': '#a4c8d5' },
+        },
+      ],
     })
-    const filterLine = out.split('\n').find(l => l.trim().startsWith('filter:')) ?? ''
+    const filterLine = out.split('\n').find((l) => l.trim().startsWith('filter:')) ?? ''
     expect(filterLine).not.toContain('geometry-type')
     expect(out).toContain('.kind == "lake"')
     expect(parses(out)).toBe(true)
@@ -209,11 +245,16 @@ describe('Mapbox → xgis converter', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'misc', type: 'fill', source: 's', 'source-layer': 'landuse',
-        filter: ['!in', 'kind', 'park', 'forest'],
-        paint: { 'fill-color': '#eee' },
-      }],
+      layers: [
+        {
+          id: 'misc',
+          type: 'fill',
+          source: 's',
+          'source-layer': 'landuse',
+          filter: ['!in', 'kind', 'park', 'forest'],
+          paint: { 'fill-color': '#eee' },
+        },
+      ],
     })
     expect(out).toContain('.kind != "park"')
     expect(out).toContain('.kind != "forest"')
@@ -224,15 +265,17 @@ describe('Mapbox → xgis converter', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'land', type: 'fill', source: 's', 'source-layer': 'landuse',
-        // Standard "is one of" idiom: match returns boolean.
-        filter: ['match', ['get', 'class'],
-          ['neighbourhood', 'residential'], true,
-          false,
-        ],
-        paint: { 'fill-color': '#eee' },
-      }],
+      layers: [
+        {
+          id: 'land',
+          type: 'fill',
+          source: 's',
+          'source-layer': 'landuse',
+          // Standard "is one of" idiom: match returns boolean.
+          filter: ['match', ['get', 'class'], ['neighbourhood', 'residential'], true, false],
+          paint: { 'fill-color': '#eee' },
+        },
+      ],
     })
     expect(out).toContain('.class == "neighbourhood" || .class == "residential"')
     expect(out).not.toContain('match(.class)')
@@ -243,11 +286,16 @@ describe('Mapbox → xgis converter', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'r', type: 'fill', source: 's', 'source-layer': 'roads',
-        filter: ['match', ['get', 'kind'], 'rail', false, true],
-        paint: { 'fill-color': '#eee' },
-      }],
+      layers: [
+        {
+          id: 'r',
+          type: 'fill',
+          source: 's',
+          'source-layer': 'roads',
+          filter: ['match', ['get', 'kind'], 'rail', false, true],
+          paint: { 'fill-color': '#eee' },
+        },
+      ],
     })
     expect(out).toContain('.kind != "rail"')
     expect(parses(out)).toBe(true)
@@ -257,10 +305,15 @@ describe('Mapbox → xgis converter', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'commercial', type: 'fill', source: 's', 'source-layer': 'landuse',
-        paint: { 'fill-color': 'hsla(0,60%,87%,0.23)' },
-      }],
+      layers: [
+        {
+          id: 'commercial',
+          type: 'fill',
+          source: 's',
+          'source-layer': 'landuse',
+          paint: { 'fill-color': 'hsla(0,60%,87%,0.23)' },
+        },
+      ],
     })
     // Should not contain the raw `fill-hsla(...)` form (parens are
     // not valid in xgis utility names).
@@ -273,13 +326,18 @@ describe('Mapbox → xgis converter', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'rd', type: 'line', source: 's', 'source-layer': 'roads',
-        paint: {
-          'line-color': '#888',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 11, 1, 19, 2.5],
+      layers: [
+        {
+          id: 'rd',
+          type: 'line',
+          source: 's',
+          'source-layer': 'roads',
+          paint: {
+            'line-color': '#888',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 11, 1, 19, 2.5],
+          },
         },
-      }],
+      ],
     })
     expect(out).toContain('stroke-[interpolate(zoom, 11, 1, 19, 2.5)]')
     expect(parses(out)).toBe(true)
@@ -289,12 +347,17 @@ describe('Mapbox → xgis converter', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'b', type: 'fill', source: 's', 'source-layer': 'building',
-        paint: {
-          'fill-color': ['interpolate', ['linear'], ['zoom'], 15, '#f2eae2', 16, '#dfdbd7'],
+      layers: [
+        {
+          id: 'b',
+          type: 'fill',
+          source: 's',
+          'source-layer': 'building',
+          paint: {
+            'fill-color': ['interpolate', ['linear'], ['zoom'], 15, '#f2eae2', 16, '#dfdbd7'],
+          },
         },
-      }],
+      ],
     })
     expect(out).toContain('fill-[interpolate(zoom, 15, #f2eae2, 16, #dfdbd7)]')
     expect(parses(out)).toBe(true)
@@ -306,12 +369,17 @@ describe('Mapbox → xgis converter', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'b', type: 'fill', source: 's', 'source-layer': 'building',
-        paint: {
-          'fill-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0, 15.5, 1],
+      layers: [
+        {
+          id: 'b',
+          type: 'fill',
+          source: 's',
+          'source-layer': 'building',
+          paint: {
+            'fill-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0, 15.5, 1],
+          },
         },
-      }],
+      ],
     })
     expect(out).toContain('opacity-[interpolate(zoom, 13, 0, 15.5, 100)]')
     expect(parses(out)).toBe(true)
@@ -321,12 +389,25 @@ describe('Mapbox → xgis converter', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'b', type: 'fill-extrusion', source: 's', 'source-layer': 'building',
-        paint: {
-          'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 14, 0, 14.5, ['get', 'render_height']],
+      layers: [
+        {
+          id: 'b',
+          type: 'fill-extrusion',
+          source: 's',
+          'source-layer': 'building',
+          paint: {
+            'fill-extrusion-height': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              14,
+              0,
+              14.5,
+              ['get', 'render_height'],
+            ],
+          },
         },
-      }],
+      ],
     })
     expect(out).toContain('fill-extrusion-height-[interpolate(zoom, 14, 0, 14.5, .render_height)]')
     expect(parses(out)).toBe(true)
@@ -338,11 +419,16 @@ describe('Mapbox → xgis converter', () => {
       const out = convertMapboxStyle({
         version: 8,
         sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'h', type: 'fill', source: 'x', 'source-layer': 'water',
-          layout: { visibility: 'none' },
-          paint: { 'fill-color': '#0000ff' },
-        }],
+        layers: [
+          {
+            id: 'h',
+            type: 'fill',
+            source: 'x',
+            'source-layer': 'water',
+            layout: { visibility: 'none' },
+            paint: { 'fill-color': '#0000ff' },
+          },
+        ],
       })
       expect(out).toContain('visible: false')
       expect(parses(out)).toBe(true)
@@ -352,11 +438,16 @@ describe('Mapbox → xgis converter', () => {
       const out = convertMapboxStyle({
         version: 8,
         sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'r', type: 'line', source: 'x', 'source-layer': 'roads',
-          layout: { 'line-cap': 'round', 'line-join': 'bevel', 'line-miter-limit': 4 },
-          paint: { 'line-color': '#000', 'line-width': 1 },
-        }],
+        layers: [
+          {
+            id: 'r',
+            type: 'line',
+            source: 'x',
+            'source-layer': 'roads',
+            layout: { 'line-cap': 'round', 'line-join': 'bevel', 'line-miter-limit': 4 },
+            paint: { 'line-color': '#000', 'line-width': 1 },
+          },
+        ],
       })
       expect(out).toContain('stroke-round-cap')
       expect(out).toContain('stroke-bevel-join')
@@ -368,11 +459,16 @@ describe('Mapbox → xgis converter', () => {
       const out = convertMapboxStyle({
         version: 8,
         sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'f', type: 'fill', source: 'x', 'source-layer': 'water',
-          layout: { 'line-cap': 'round' },
-          paint: { 'fill-color': '#a4c8d5' },
-        }],
+        layers: [
+          {
+            id: 'f',
+            type: 'fill',
+            source: 'x',
+            'source-layer': 'water',
+            layout: { 'line-cap': 'round' },
+            paint: { 'fill-color': '#a4c8d5' },
+          },
+        ],
       })
       expect(out).not.toContain('stroke-round-cap')
       expect(out).not.toContain('stroke-butt-cap')
@@ -400,7 +496,13 @@ describe('Mapbox → xgis converter', () => {
     it('captures inline GeoJSON data into options.inlineGeoJSON map (importer auto-push path)', () => {
       const fc = {
         type: 'FeatureCollection',
-        features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: { name: 'origin' } }],
+        features: [
+          {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [0, 0] },
+            properties: { name: 'origin' },
+          },
+        ],
       }
       const inlineGeoJSON = new Map<string, unknown>()
       const out = convertMapboxStyle(
@@ -461,8 +563,16 @@ describe('Mapbox → xgis converter', () => {
       const out = convertMapboxStyle({
         version: 8,
         sources: {
-          aerial: { type: 'image', url: 'https://x.example/a.png',
-            coordinates: [[0, 0], [1, 0], [1, 1], [0, 1]] } as never,
+          aerial: {
+            type: 'image',
+            url: 'https://x.example/a.png',
+            coordinates: [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 1],
+            ],
+          } as never,
         },
         layers: [],
       })
@@ -476,7 +586,8 @@ describe('Mapbox → xgis converter', () => {
   describe('Phase R — heatmap layer conversion', () => {
     it('heatmap layer emits a heatmap layer body (no longer SKIPPED)', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: {},
+        version: 8,
+        sources: {},
         layers: [{ id: 'h', type: 'heatmap', source: 'x' } as never],
       })
       expect(out).toContain('layer h {')
@@ -490,11 +601,17 @@ describe('Mapbox → xgis converter', () => {
   describe('Batch 1b — symbol layer text labels', () => {
     it('emits label-[.name] for token form text-field', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'place_labels', type: 'symbol', source: 'x', 'source-layer': 'places',
-          layout: { 'text-field': '{name}' } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'place_labels',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'places',
+            layout: { 'text-field': '{name}' } as never,
+          },
+        ],
       })
       expect(out).toContain('layer place_labels')
       expect(out).toContain('label-[.name]')
@@ -503,11 +620,17 @@ describe('Mapbox → xgis converter', () => {
 
     it('emits label-["Hello"] for plain string text-field', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'lit', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': 'Hello' } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'lit',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: { 'text-field': 'Hello' } as never,
+          },
+        ],
       })
       expect(out).toContain('label-["Hello"]')
       expect(parses(out)).toBe(true)
@@ -515,12 +638,18 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-color paint property maps to label-color utility', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'col', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}' } as never,
-          paint: { 'text-color': '#333' },
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'col',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: { 'text-field': '{name}' } as never,
+            paint: { 'text-color': '#333' },
+          },
+        ],
       })
       expect(out).toContain('label-[.name]')
       // Batch 1c-8g: text-color → label-color-X (was fill-X under 1b).
@@ -533,12 +662,18 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-color → label-color-X (Batch 1c-8g)', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'col2', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}' } as never,
-          paint: { 'text-color': '#f0f' },
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'col2',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: { 'text-field': '{name}' } as never,
+            paint: { 'text-color': '#f0f' },
+          },
+        ],
       })
       // colorToXgis preserves Mapbox short-hex form (#f0f), the
       // utility resolver expands when looking up the colour.
@@ -548,11 +683,17 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-size → label-size-N', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 's', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}', 'text-size': 18 } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 's',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: { 'text-field': '{name}', 'text-size': 18 } as never,
+          },
+        ],
       })
       expect(out).toContain('label-size-18')
       expect(parses(out)).toBe(true)
@@ -560,12 +701,18 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-halo-width + text-halo-color → label-halo + label-halo-color', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'h', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}' } as never,
-          paint: { 'text-halo-width': 2, 'text-halo-color': '#000' },
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'h',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: { 'text-field': '{name}' } as never,
+            paint: { 'text-halo-width': 2, 'text-halo-color': '#000' },
+          },
+        ],
       })
       expect(out).toContain('label-halo-2')
       expect(out).toContain('label-halo-color-#000')
@@ -579,11 +726,17 @@ describe('Mapbox → xgis converter', () => {
       // IR's LabelDef.anchor type (render-node.ts:244-246).
       for (const a of ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const) {
         const out = convertMapboxStyle({
-          version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-          layers: [{
-            id: 'a', type: 'symbol', source: 'x', 'source-layer': 'pts',
-            layout: { 'text-field': '{name}', 'text-anchor': a } as never,
-          }],
+          version: 8,
+          sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+          layers: [
+            {
+              id: 'a',
+              type: 'symbol',
+              source: 'x',
+              'source-layer': 'pts',
+              layout: { 'text-field': '{name}', 'text-anchor': a } as never,
+            },
+          ],
         })
         expect(out).toContain(`label-anchor-${a}`)
         expect(parses(out)).toBe(true)
@@ -596,14 +749,20 @@ describe('Mapbox → xgis converter', () => {
       // every real Mapbox style (place / POI labels universally use
       // zoom-interpolated sizes).
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 's', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: {
-            'text-field': '{name}',
-            'text-size': ['interpolate', ['linear'], ['zoom'], 8, 12, 14, 22],
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 's',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: {
+              'text-field': '{name}',
+              'text-size': ['interpolate', ['linear'], ['zoom'], 8, 12, 14, 22],
+            } as never,
+          },
+        ],
       })
       expect(out).toContain('label-size-[interpolate(zoom, 8, 12, 14, 22)]')
       expect(parses(out)).toBe(true)
@@ -611,14 +770,20 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-color interpolate-by-zoom → label-color-[interpolate(zoom, …)]', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'c', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}' } as never,
-          paint: {
-            'text-color': ['interpolate', ['linear'], ['zoom'], 5, '#666', 14, '#000'],
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'c',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: { 'text-field': '{name}' } as never,
+            paint: {
+              'text-color': ['interpolate', ['linear'], ['zoom'], 5, '#666', 14, '#000'],
+            } as never,
+          },
+        ],
       })
       expect(out).toContain('label-color-[interpolate(zoom, 5, #666, 14, #000)]')
       expect(parses(out)).toBe(true)
@@ -634,11 +799,17 @@ describe('Mapbox → xgis converter', () => {
       // these down at the source level so the IR + runtime stay
       // unchanged for hand-authored xgis.
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'bare', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}' } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'bare',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: { 'text-field': '{name}' } as never,
+          },
+        ],
       })
       expect(out).toContain('label-color-#000')
       expect(out).toContain('label-size-16')
@@ -650,11 +821,17 @@ describe('Mapbox → xgis converter', () => {
       // Mapbox spec: "text-max-width is unused by symbol-placement: line".
       // Mirror that here so road labels don't wrap mid-name.
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'road', type: 'symbol', source: 'x', 'source-layer': 'roads',
-          layout: { 'text-field': '{name}', 'symbol-placement': 'line' } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'road',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'roads',
+            layout: { 'text-field': '{name}', 'symbol-placement': 'line' } as never,
+          },
+        ],
       })
       expect(out).not.toContain('label-max-width')
       expect(out).toContain('label-along-path')
@@ -668,11 +845,17 @@ describe('Mapbox → xgis converter', () => {
       // it through parseTextTemplate so each `{field}` interpolates per
       // feature. Verify both the parse path and end-to-end resolution.
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'hwy', type: 'symbol', source: 'x', 'source-layer': 'transportation',
-          layout: { 'text-field': '{name} ({ref})' } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'hwy',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'transportation',
+            layout: { 'text-field': '{name} ({ref})' } as never,
+          },
+        ],
       })
       expect(out).toContain('label-["{name} ({ref})"]')
       expect(parses(out)).toBe(true)
@@ -684,11 +867,17 @@ describe('Mapbox → xgis converter', () => {
       // coalesce → `??`; locale variants with ":" drop with a warning so
       // the fallback operand takes over. Confirm the wiring.
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'place_label', type: 'symbol', source: 'x', 'source-layer': 'place',
-          layout: { 'text-field': ['coalesce', ['get', 'name'], ['get', 'name_en']] } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'place_label',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'place',
+            layout: { 'text-field': ['coalesce', ['get', 'name'], ['get', 'name_en']] } as never,
+          },
+        ],
       })
       expect(out).toContain('label-[.name ?? .name_en]')
       expect(parses(out)).toBe(true)
@@ -702,11 +891,17 @@ describe('Mapbox → xgis converter', () => {
       // for international basemaps — without it, Korean / Japanese /
       // Hebrew labels silently fall back to English.
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'place_label', type: 'symbol', source: 'x', 'source-layer': 'place',
-          layout: { 'text-field': ['coalesce', ['get', 'name:ko'], ['get', 'name']] } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'place_label',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'place',
+            layout: { 'text-field': ['coalesce', ['get', 'name:ko'], ['get', 'name']] } as never,
+          },
+        ],
       })
       expect(out).toContain('label-[get("name:ko") ?? .name]')
       expect(parses(out)).toBe(true)
@@ -719,11 +914,17 @@ describe('Mapbox → xgis converter', () => {
       // would fail to parse — visible as "Open in Playground" failure
       // for any converted basemap that touches a place-typed source.
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'place', type: 'symbol', source: 'x', 'source-layer': 'place',
-          layout: { 'text-field': '{name}' } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'place',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'place',
+            layout: { 'text-field': '{name}' } as never,
+          },
+        ],
       })
       expect(out).toContain('layer place_ {')
       expect(parses(out)).toBe(true)
@@ -734,33 +935,55 @@ describe('Mapbox → xgis converter', () => {
       // intervals (default 250). Without this every long highway gets
       // a single label which Mapbox would render as a chain.
       const explicit = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'hwy', type: 'symbol', source: 'x', 'source-layer': 'roads',
-          layout: { 'text-field': '{name}', 'symbol-placement': 'line', 'symbol-spacing': 500 } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'hwy',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'roads',
+            layout: {
+              'text-field': '{name}',
+              'symbol-placement': 'line',
+              'symbol-spacing': 500,
+            } as never,
+          },
+        ],
       })
       expect(explicit).toContain('label-spacing-500')
       expect(parses(explicit)).toBe(true)
 
       // Default 250 emitted when symbol-spacing is unset on line placement.
       const dflt = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'hwy', type: 'symbol', source: 'x', 'source-layer': 'roads',
-          layout: { 'text-field': '{name}', 'symbol-placement': 'line' } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'hwy',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'roads',
+            layout: { 'text-field': '{name}', 'symbol-placement': 'line' } as never,
+          },
+        ],
       })
       expect(dflt).toContain('label-spacing-250')
       expect(parses(dflt)).toBe(true)
 
       // No spacing emitted for point placement (Mapbox: it's meaningless).
       const pt = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'pt', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}' } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'pt',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: { 'text-field': '{name}' } as never,
+          },
+        ],
       })
       expect(pt).not.toContain('label-spacing')
       expect(parses(pt)).toBe(true)
@@ -772,12 +995,18 @@ describe('Mapbox → xgis converter', () => {
       // shader's halo edge stays sharp regardless of the source style
       // — visibly different from Mapbox.
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'h', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}' } as never,
-          paint: { 'text-halo-width': 2, 'text-halo-blur': 1, 'text-halo-color': '#fff' },
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'h',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: { 'text-field': '{name}' } as never,
+            paint: { 'text-halo-width': 2, 'text-halo-blur': 1, 'text-halo-color': '#fff' },
+          },
+        ],
       })
       expect(out).toContain('label-halo-blur-1')
       expect(parses(out)).toBe(true)
@@ -790,14 +1019,20 @@ describe('Mapbox → xgis converter', () => {
       // lower.ts stores it as LabelDef.sizeExpr; the runtime evaluates
       // per feature.
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 's', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: {
-            'text-field': '{name}',
-            'text-size': ['case', ['==', ['get', 'class'], 'city'], 14, 10],
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 's',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: {
+              'text-field': '{name}',
+              'text-size': ['case', ['==', ['get', 'class'], 'city'], 14, 10],
+            } as never,
+          },
+        ],
       })
       expect(out).toContain('label-size-[')
       expect(out).toContain('"city" ? 14 : 10')
@@ -806,14 +1041,20 @@ describe('Mapbox → xgis converter', () => {
 
     it('data-driven text-color (case) → label-color-[<expr>] + colorExpr in IR', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'c', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}' } as never,
-          paint: {
-            'text-color': ['case', ['==', ['get', 'kind'], 'major'], '#000', '#666'],
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'c',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: { 'text-field': '{name}' } as never,
+            paint: {
+              'text-color': ['case', ['==', ['get', 'kind'], 'major'], '#000', '#666'],
+            } as never,
+          },
+        ],
       })
       expect(out).toContain('label-color-[')
       expect(parses(out)).toBe(true)
@@ -821,12 +1062,18 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-translate (paint) → label-translate-{x,y}-N (px-space offset)', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 't', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}' } as never,
-          paint: { 'text-translate': [-2, -8] } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 't',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: { 'text-field': '{name}' } as never,
+            paint: { 'text-translate': [-2, -8] } as never,
+          },
+        ],
       })
       expect(out).toContain('label-translate-x-[-2]')
       expect(out).toContain('label-translate-y-[-8]')
@@ -840,44 +1087,69 @@ describe('Mapbox → xgis converter', () => {
       // = full list. Runtime tries each on collision (text-stage +
       // text-collision); first non-overlapping wins.
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'a', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}', 'text-anchor': ['top', 'bottom', 'top-left'] } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'a',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: {
+              'text-field': '{name}',
+              'text-anchor': ['top', 'bottom', 'top-left'],
+            } as never,
+          },
+        ],
       })
       expect(out).toContain('label-anchor-top ')
       expect(out).toContain('label-anchor-bottom')
       expect(out).toContain('label-anchor-top-left')
       // Order is preserved (priority).
-      const utilLine = out.split('\n').find(l => l.includes('label-anchor'))!
-      expect(utilLine.indexOf('label-anchor-top ') < utilLine.indexOf('label-anchor-bottom')).toBe(true)
-      expect(utilLine.indexOf('label-anchor-bottom') < utilLine.indexOf('label-anchor-top-left')).toBe(true)
+      const utilLine = out.split('\n').find((l) => l.includes('label-anchor'))!
+      expect(utilLine.indexOf('label-anchor-top ') < utilLine.indexOf('label-anchor-bottom')).toBe(
+        true,
+      )
+      expect(
+        utilLine.indexOf('label-anchor-bottom') < utilLine.indexOf('label-anchor-top-left'),
+      ).toBe(true)
       expect(parses(out)).toBe(true)
     })
 
     it('text-keep-upright = false plumbed (default true is implicit)', () => {
       const explicitFalse = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'k', type: 'symbol', source: 'x', 'source-layer': 'roads',
-          layout: {
-            'text-field': '{name}',
-            'symbol-placement': 'line',
-            'text-keep-upright': false,
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'k',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'roads',
+            layout: {
+              'text-field': '{name}',
+              'symbol-placement': 'line',
+              'text-keep-upright': false,
+            } as never,
+          },
+        ],
       })
       expect(explicitFalse).toContain('label-keep-upright-false')
       expect(parses(explicitFalse)).toBe(true)
 
       // Default: don't emit anything (runtime defaults to true).
       const dflt = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'k', type: 'symbol', source: 'x', 'source-layer': 'roads',
-          layout: { 'text-field': '{name}', 'symbol-placement': 'line' } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'k',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'roads',
+            layout: { 'text-field': '{name}', 'symbol-placement': 'line' } as never,
+          },
+        ],
       })
       expect(dflt).not.toContain('label-keep-upright')
       expect(parses(dflt)).toBe(true)
@@ -885,15 +1157,21 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-rotation-alignment / text-pitch-alignment plumbed through', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'r', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: {
-            'text-field': '{name}',
-            'text-rotation-alignment': 'map',
-            'text-pitch-alignment': 'viewport',
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'r',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: {
+              'text-field': '{name}',
+              'text-rotation-alignment': 'map',
+              'text-pitch-alignment': 'viewport',
+            } as never,
+          },
+        ],
       })
       expect(out).toContain('label-rotation-alignment-map')
       expect(out).toContain('label-pitch-alignment-viewport')
@@ -902,15 +1180,21 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-letter-spacing / text-padding interpolate-by-zoom', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'pad', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: {
-            'text-field': '{name}',
-            'text-letter-spacing': ['interpolate', ['linear'], ['zoom'], 5, 0.05, 14, 0.15],
-            'text-padding': ['interpolate', ['linear'], ['zoom'], 5, 1, 14, 4],
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'pad',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: {
+              'text-field': '{name}',
+              'text-letter-spacing': ['interpolate', ['linear'], ['zoom'], 5, 0.05, 14, 0.15],
+              'text-padding': ['interpolate', ['linear'], ['zoom'], 5, 1, 14, 4],
+            } as never,
+          },
+        ],
       })
       expect(out).toContain('label-letter-spacing-[interpolate(zoom, 5, 0.05, 14, 0.15)]')
       expect(out).toContain('label-padding-[interpolate(zoom, 5, 1, 14, 4)]')
@@ -919,15 +1203,21 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-halo-width / text-halo-color interpolate-by-zoom', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'h', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}' } as never,
-          paint: {
-            'text-halo-width': ['interpolate', ['linear'], ['zoom'], 5, 1, 14, 2],
-            'text-halo-color': ['interpolate', ['linear'], ['zoom'], 5, '#fff', 14, '#eee'],
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'h',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: { 'text-field': '{name}' } as never,
+            paint: {
+              'text-halo-width': ['interpolate', ['linear'], ['zoom'], 5, 1, 14, 2],
+              'text-halo-color': ['interpolate', ['linear'], ['zoom'], 5, '#fff', 14, '#eee'],
+            } as never,
+          },
+        ],
       })
       expect(out).toContain('label-halo-[interpolate(zoom, 5, 1, 14, 2)]')
       expect(out).toContain('label-halo-color-[interpolate(zoom, 5, #fff, 14, #eee)]')
@@ -936,14 +1226,20 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-font stack → one label-font-FAMILY utility per entry with weight stripped', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'f', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: {
-            'text-field': '{name}',
-            'text-font': ['Noto Sans Regular', 'Noto Sans CJK Regular'],
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'f',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: {
+              'text-field': '{name}',
+              'text-font': ['Noto Sans Regular', 'Noto Sans CJK Regular'],
+            } as never,
+          },
+        ],
       })
       // Family-only utilities (the "Regular" suffix is parsed into
       // a separate weight value — 400 = CSS default, so nothing else
@@ -961,14 +1257,20 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-font Bold suffix → label-font-weight-700 alongside family-only utility', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'f', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: {
-            'text-field': '{name}',
-            'text-font': ['Noto Sans Bold'],
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'f',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: {
+              'text-field': '{name}',
+              'text-font': ['Noto Sans Bold'],
+            } as never,
+          },
+        ],
       })
       // Family stripped of its weight word — browser can now match
       // "Noto Sans" as a real family name and apply weight 700 via
@@ -984,14 +1286,20 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-font Italic suffix → label-italic boolean utility', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'f', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: {
-            'text-field': '{name}',
-            'text-font': ['Noto Sans Italic'],
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'f',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: {
+              'text-field': '{name}',
+              'text-font': ['Noto Sans Italic'],
+            } as never,
+          },
+        ],
       })
       expect(out).toContain('label-font-Noto-Sans')
       expect(out).toContain('label-italic')
@@ -1008,14 +1316,20 @@ describe('Mapbox → xgis converter', () => {
       // single 600/800 weight or the family ends up with "Semi Bold"
       // stuck onto its name.
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'f', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: {
-            'text-field': '{name}',
-            'text-font': ['Noto Sans Semi Bold'],
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'f',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: {
+              'text-field': '{name}',
+              'text-font': ['Noto Sans Semi Bold'],
+            } as never,
+          },
+        ],
       })
       expect(out).toContain('label-font-Noto-Sans')
       expect(out).toContain('label-font-weight-600')
@@ -1024,14 +1338,20 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-offset [dx, dy] → label-offset-x-N + label-offset-y-N', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'o', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}', 'text-offset': [0, 1.5] } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'o',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: { 'text-field': '{name}', 'text-offset': [0, 1.5] } as never,
+          },
+        ],
       })
       expect(out).toContain('label-offset-y-1.5')
-      expect(out).not.toContain('label-offset-x-0')  // zero dx omitted
+      expect(out).not.toContain('label-offset-x-0') // zero dx omitted
       expect(parses(out)).toBe(true)
     })
 
@@ -1043,11 +1363,17 @@ describe('Mapbox → xgis converter', () => {
       // error on "Open in Playground" for any converted style with
       // negative offsets.
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'o', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}', 'text-offset': [-0.5, -0.2] } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'o',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: { 'text-field': '{name}', 'text-offset': [-0.5, -0.2] } as never,
+          },
+        ],
       })
       expect(out).toContain('label-offset-x-[-0.5]')
       expect(out).toContain('label-offset-y-[-0.2]')
@@ -1057,15 +1383,21 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-rotate / text-letter-spacing negatives use bracket form', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'r', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: {
-            'text-field': '{name}',
-            'text-rotate': -45,
-            'text-letter-spacing': -0.1,
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'r',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: {
+              'text-field': '{name}',
+              'text-rotate': -45,
+              'text-letter-spacing': -0.1,
+            } as never,
+          },
+        ],
       })
       expect(out).toContain('label-rotate-[-45]')
       expect(out).toContain('label-letter-spacing-[-0.1]')
@@ -1074,11 +1406,17 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-transform → label-uppercase', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 't', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}', 'text-transform': 'uppercase' } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 't',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: { 'text-field': '{name}', 'text-transform': 'uppercase' } as never,
+          },
+        ],
       })
       expect(out).toContain('label-uppercase')
       expect(parses(out)).toBe(true)
@@ -1086,15 +1424,21 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-rotate + text-letter-spacing → label-rotate-N + label-letter-spacing-N', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'r', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: {
-            'text-field': '{name}',
-            'text-rotate': 30,
-            'text-letter-spacing': 0.05,
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'r',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: {
+              'text-field': '{name}',
+              'text-rotate': 30,
+              'text-letter-spacing': 0.05,
+            } as never,
+          },
+        ],
       })
       expect(out).toContain('label-rotate-30')
       expect(out).toContain('label-letter-spacing-0.05')
@@ -1103,16 +1447,22 @@ describe('Mapbox → xgis converter', () => {
 
     it('text-max-width + text-line-height + text-justify → multiline trio', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'm', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: {
-            'text-field': '{name}',
-            'text-max-width': 7,
-            'text-line-height': 1.1,
-            'text-justify': 'right',
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'm',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: {
+              'text-field': '{name}',
+              'text-max-width': 7,
+              'text-line-height': 1.1,
+              'text-justify': 'right',
+            } as never,
+          },
+        ],
       })
       expect(out).toContain('label-max-width-7')
       expect(out).toContain('label-line-height-1.1')
@@ -1126,14 +1476,20 @@ describe('Mapbox → xgis converter', () => {
       // emit because point-anchor placement on a linestring picks an
       // unhelpful centroid.
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'road-name', type: 'symbol', source: 'x', 'source-layer': 'road',
-          layout: {
-            'text-field': '{name}',
-            'symbol-placement': 'line',
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'road-name',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'road',
+            layout: {
+              'text-field': '{name}',
+              'symbol-placement': 'line',
+            } as never,
+          },
+        ],
       })
       expect(out).toContain('label-along-path')
       expect(parses(out)).toBe(true)
@@ -1141,14 +1497,20 @@ describe('Mapbox → xgis converter', () => {
 
     it('symbol-placement: line-center → label-line-center utility', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'l', type: 'symbol', source: 'x', 'source-layer': 'lines',
-          layout: {
-            'text-field': '{name}',
-            'symbol-placement': 'line-center',
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'l',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'lines',
+            layout: {
+              'text-field': '{name}',
+              'symbol-placement': 'line-center',
+            } as never,
+          },
+        ],
       })
       expect(out).toContain('label-line-center')
       expect(parses(out)).toBe(true)
@@ -1159,27 +1521,39 @@ describe('Mapbox → xgis converter', () => {
       // listed `symbol-placement` in its ignored-keys warning. After
       // wiring, the warning shouldn't mention it.
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'r', type: 'symbol', source: 'x', 'source-layer': 'road',
-          layout: { 'text-field': '{name}', 'symbol-placement': 'line' } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'r',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'road',
+            layout: { 'text-field': '{name}', 'symbol-placement': 'line' } as never,
+          },
+        ],
       })
       expect(out).not.toMatch(/ignored properties.*symbol-placement/)
     })
 
     it('text-allow-overlap / text-ignore-placement / text-padding → collision opt-outs', () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'c', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: {
-            'text-field': '{name}',
-            'text-allow-overlap': true,
-            'text-ignore-placement': true,
-            'text-padding': 4,
-          } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'c',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'pts',
+            layout: {
+              'text-field': '{name}',
+              'text-allow-overlap': true,
+              'text-ignore-placement': true,
+              'text-padding': 4,
+            } as never,
+          },
+        ],
       })
       expect(out).toContain('label-allow-overlap')
       expect(out).toContain('label-ignore-placement')
@@ -1195,11 +1569,17 @@ describe('Mapbox → xgis converter', () => {
       // whose label carries the icon-image utility — the renderer
       // resolves it against the sprite atlas at draw time.
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'poi_icon', type: 'symbol', source: 'x', 'source-layer': 'poi',
-          layout: { 'icon-image': 'cafe-15' } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'poi_icon',
+            type: 'symbol',
+            source: 'x',
+            'source-layer': 'poi',
+            layout: { 'icon-image': 'cafe-15' } as never,
+          },
+        ],
       })
       expect(out).toContain('layer poi_icon')
       expect(out).toContain('label-icon-image-cafe-15')
@@ -1215,16 +1595,25 @@ describe('Mapbox → xgis converter', () => {
       layers: [
         { id: 'bg', type: 'background', paint: { 'background-color': '#fafafa' } },
         {
-          id: 'water', type: 'fill', source: 'osm', 'source-layer': 'water',
+          id: 'water',
+          type: 'fill',
+          source: 'osm',
+          'source-layer': 'water',
           paint: { 'fill-color': '#a4c8d5' },
         },
         {
-          id: 'roads', type: 'line', source: 'osm', 'source-layer': 'roads',
+          id: 'roads',
+          type: 'line',
+          source: 'osm',
+          'source-layer': 'roads',
           filter: ['==', 'kind', 'highway'],
           paint: { 'line-color': '#cc8800', 'line-width': 2 },
         },
         {
-          id: 'b', type: 'fill-extrusion', source: 'osm', 'source-layer': 'buildings',
+          id: 'b',
+          type: 'fill-extrusion',
+          source: 'osm',
+          'source-layer': 'buildings',
           paint: {
             'fill-extrusion-color': '#dddddd',
             'fill-extrusion-height': ['coalesce', ['get', 'height'], 50],

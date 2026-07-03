@@ -59,7 +59,10 @@ describe('fold-trivial-stops — opacity', () => {
     const opacity = {
       kind: 'zoom-interpolated' as const,
       base: 1,
-      stops: [{ zoom: 0, value: 0 }, { zoom: 10, value: 1 }],
+      stops: [
+        { zoom: 0, value: 0 },
+        { zoom: 10, value: 1 },
+      ],
     }
     const node = makeNode({ opacity })
     const out = foldTrivialStopsPass.run(sceneOf([node]))
@@ -89,7 +92,7 @@ describe('fold-trivial-stops — fill colour', () => {
       base: 1,
       stops: [
         { zoom: 0, value: [1, 0, 0, 1] as [number, number, number, number] },
-        { zoom: 10, value: [0.999, 0, 0, 1] as [number, number, number, number] },  // <1e-9 diff
+        { zoom: 10, value: [0.999, 0, 0, 1] as [number, number, number, number] }, // <1e-9 diff
       ],
     }
     const node = makeNode({ fill })
@@ -103,7 +106,13 @@ describe('fold-trivial-stops — stroke', () => {
     const node = makeNode({
       stroke: {
         color: { kind: 'constant', rgba: [0, 0, 0, 1] },
-        width: { kind: 'zoom-interpolated', stops: [{ zoom: 0, value: 2 }, { zoom: 10, value: 2 }] },
+        width: {
+          kind: 'zoom-interpolated',
+          stops: [
+            { zoom: 0, value: 2 },
+            { zoom: 10, value: 2 },
+          ],
+        },
       },
     })
     const out = foldTrivialStopsPass.run(sceneOf([node]))
@@ -114,10 +123,20 @@ describe('fold-trivial-stops — stroke', () => {
     const node = makeNode({
       stroke: {
         color: {
-          kind: 'zoom-interpolated', base: 1,
-          stops: [{ zoom: 0, value: [1, 1, 1, 1] }, { zoom: 5, value: [1, 1, 1, 1] }],
+          kind: 'zoom-interpolated',
+          base: 1,
+          stops: [
+            { zoom: 0, value: [1, 1, 1, 1] },
+            { zoom: 5, value: [1, 1, 1, 1] },
+          ],
         },
-        width: { kind: 'zoom-interpolated', stops: [{ zoom: 0, value: 3 }, { zoom: 5, value: 3 }] },
+        width: {
+          kind: 'zoom-interpolated',
+          stops: [
+            { zoom: 0, value: 3 },
+            { zoom: 5, value: 3 },
+          ],
+        },
       },
     })
     const out = foldTrivialStopsPass.run(sceneOf([node]))
@@ -130,8 +149,12 @@ describe('fold-trivial-stops — size', () => {
   it('folds zoom-interpolated size with all-equal stops', () => {
     const node = makeNode({
       size: {
-        kind: 'zoom-interpolated', base: 1,
-        stops: [{ zoom: 0, value: 12 }, { zoom: 10, value: 12 }],
+        kind: 'zoom-interpolated',
+        base: 1,
+        stops: [
+          { zoom: 0, value: 12 },
+          { zoom: 10, value: 12 },
+        ],
       },
     })
     const out = foldTrivialStopsPass.run(sceneOf([node]))
@@ -154,13 +177,17 @@ describe('fold-trivial-stops — identity preservation', () => {
     const constNode = makeNode()
     const animNode = makeNode({
       opacity: {
-        kind: 'zoom-interpolated', base: 1,
-        stops: [{ zoom: 0, value: 0.7 }, { zoom: 10, value: 0.7 }],
+        kind: 'zoom-interpolated',
+        base: 1,
+        stops: [
+          { zoom: 0, value: 0.7 },
+          { zoom: 10, value: 0.7 },
+        ],
       },
     })
     const out = foldTrivialStopsPass.run(sceneOf([constNode, animNode]))
-    expect(out.renderNodes[0]).toBe(constNode)  // untouched
-    expect(out.renderNodes[1]).not.toBe(animNode)  // folded
+    expect(out.renderNodes[0]).toBe(constNode) // untouched
+    expect(out.renderNodes[1]).not.toBe(animNode) // folded
   })
 })
 

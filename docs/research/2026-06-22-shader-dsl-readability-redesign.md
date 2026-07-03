@@ -21,14 +21,15 @@ builder-ergonomics) + synthesis + adversarial critic, adjudicated by prove-or-re
 
 ## Verdict (prove-or-refute adjudicated): SHIP C2 · CUT C1 · helpers for #2 · DROP the transpiler
 
-| Change | Fixes | Byte-identity | Verdict |
-|---|---|---|---|
-| **C2 — ambient current-builder stack** | killer 3 + the bug | **YES** (same Stmt[] order; routing-only change) | **SHIP** |
-| C1 — auto-named locals | killer 1 | **NO — breaks it** (proven) | **CUT** (optional later golden-rebake PR) |
-| Named composite helpers (`madd`, `outsideRange`…) | killer 2 (the line that reads worst) | YES (just more builder calls) | **ADOPT** |
-| Approach-1 TS→WGSL transpiler | all 3 | only if it byte-matches the builder's exact lift/promote quirks | **DROP** (multi-month trap) |
+| Change                                            | Fixes                                | Byte-identity                                                   | Verdict                                   |
+| ------------------------------------------------- | ------------------------------------ | --------------------------------------------------------------- | ----------------------------------------- |
+| **C2 — ambient current-builder stack**            | killer 3 + the bug                   | **YES** (same Stmt[] order; routing-only change)                | **SHIP**                                  |
+| C1 — auto-named locals                            | killer 1                             | **NO — breaks it** (proven)                                     | **CUT** (optional later golden-rebake PR) |
+| Named composite helpers (`madd`, `outsideRange`…) | killer 2 (the line that reads worst) | YES (just more builder calls)                                   | **ADOPT**                                 |
+| Approach-1 TS→WGSL transpiler                     | all 3                                | only if it byte-matches the builder's exact lift/promote quirks | **DROP** (multi-month trap)               |
 
 ### Proof — C1 breaks byte-identity (∃, by construction)
+
 `emit.ts:42` emits `be.localLet(s.name, …)` → the WGSL local identifier IS the literal `s.name`. The polygon snapshots
 are content-hash-keyed full-WGSL goldens with **622 `.let` names baked in verbatim**. Witness: `cb.let('off_m', e)`
 emits `let off_m = …`; C1 auto-naming emits `let _v37 = …`. `off_m ≠ _v37` ⇒ golden mismatch ⇒ guard RED. ∎
@@ -39,6 +40,7 @@ its cost the highest (loses debug-name fidelity — reading 25KB goldens during 
 activity here). → CUT now; revisit as an explicit rebake PR only if wanted.
 
 ### Proof — C2 is byte-identical (∀, 귀류법)
+
 Assume C2 changes the emit. Emit is a pure function of the Stmt[] tree. C2 changes only the statement SINK (an ambient
 push/pop stack vs a passed `Builder` param) — the same `b.let`/`If`/`assign` calls in the author's closure push the same
 statements in the same order to the innermost pushed scope, exactly as the passed builder did. So Stmt[] is identical ⇒
@@ -48,34 +50,50 @@ so an authoring-time throw mid-`If` body cannot leak the stack into the next sha
 ## Before / after — the anchor (line.ts:704-727), C2 only
 
 **BEFORE** — `cb`/`d`/`cb2`/`e` proliferation, string names:
+
 ```ts
 cb.if(anchor.eq(u32(0)), (d) => {
   const kCenter = d.let('k_center', floor(arcPos.sub(startM).div(spacingM).add(0.5)))
-  d.forRange('dk', i32(-1), (idk) => idk.le(i32(1)), (cb2, dk) => {
-    const arcOnSegK = cb2.let('arc_on_seg_k', /* … */)
-    cb2.if(arcOnSegK.lt(halfS.mul(-2)).or(arcOnSegK.gt(segLen.add(halfS.mul(2)))), (e) => { e.continue() })
-    cb2.assign(patDm, min(patDm, /* … */))
-  })
+  d.forRange(
+    'dk',
+    i32(-1),
+    (idk) => idk.le(i32(1)),
+    (cb2, dk) => {
+      const arcOnSegK = cb2.let('arc_on_seg_k' /* … */)
+      cb2.if(arcOnSegK.lt(halfS.mul(-2)).or(arcOnSegK.gt(segLen.add(halfS.mul(2)))), (e) => {
+        e.continue()
+      })
+      cb2.assign(patDm, min(patDm /* … */))
+    },
+  )
   d.continue()
 })
 ```
+
 **AFTER** — ambient `b`; `If`/`Loop`/`Continue`/`assign` are free functions over the current scope; no builder params:
+
 ```ts
 If(anchor.eq(u32(0)), () => {
   const kCenter = b.let('k_center', floor(arcPos.sub(startM).div(spacingM).add(0.5)))
-  Loop(i32(-1), (dk) => dk.le(i32(1)), () => {
-    const arcOnSegK = b.let('arc_on_seg_k', /* … */)
-    If(arcOnSegK.lt(halfS.mul(-2)).or(arcOnSegK.gt(segLen.add(halfS.mul(2)))), () => Continue())
-    assign(patDm, min(patDm, /* … */))
-  })
+  Loop(
+    i32(-1),
+    (dk) => dk.le(i32(1)),
+    () => {
+      const arcOnSegK = b.let('arc_on_seg_k' /* … */)
+      If(arcOnSegK.lt(halfS.mul(-2)).or(arcOnSegK.gt(segLen.add(halfS.mul(2)))), () => Continue())
+      assign(patDm, min(patDm /* … */))
+    },
+  )
   Continue()
 })
 ```
+
 Gone: every `cb`/`d`/`cb2`/`e` param; `Continue()` unambiguously targets the innermost loop — the line.ts:721-726 bug is
 **unrepresentable** (no second builder to address). String names kept (C1 cut) so the emit stays byte-identical. The
 arithmetic chains remain — addressed by composite helpers (`outsideRange(arc, -2*half, segLen + 2*half)`), not a transpiler.
 
 ## Migration — additive, byte-identity-guarded (no big-bang)
+
 1. Land C2 in builder.ts ADDITIVELY (ambient stack + free `If`/`Loop`/`Continue`/`Break`/`assign`); keep the old
    `cb.let('name',…)` + `(b)=>…` callbacks working (both push the same Stmt[]). Exception-safe push/pop + a test that a
    throw mid-`If` leaves the stack clean. **Byte-identity guard stays green (no shader changed yet).**

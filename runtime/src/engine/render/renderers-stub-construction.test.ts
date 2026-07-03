@@ -23,13 +23,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<Awaited<ReturnType<typeof initGPU>>> {
   const canvas = { width: 1024, height: 720 } as unknown as HTMLCanvasElement
@@ -50,9 +55,10 @@ describe('renderer construction smoke (stub)', () => {
     // LineRenderer compiles its own SDF + dash variants — at least one
     // shader module + one pipeline should be emitted by the
     // constructor.
-    expect(stub.callCounts.createShaderModule ?? 0,
-      'LineRenderer ctor should compile shader modules')
-      .toBeGreaterThan(0)
+    expect(
+      stub.callCounts.createShaderModule ?? 0,
+      'LineRenderer ctor should compile shader modules',
+    ).toBeGreaterThan(0)
   })
 
   it('RasterRenderer constructs without throwing', async () => {
@@ -62,7 +68,14 @@ describe('renderer construction smoke (stub)', () => {
 
   it('PointRenderer constructs without throwing', async () => {
     const ctx = await makeCtx()
-    expect(() => new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })).not.toThrow()
+    expect(
+      () =>
+        new PointRenderer({
+          device: ctx.device,
+          format: ctx.format,
+          rhi: new WebGpuDevice(ctx.device),
+        }),
+    ).not.toThrow()
   })
 
   it('all renderers construct in the same order map.ts uses', async () => {
@@ -76,7 +89,11 @@ describe('renderer construction smoke (stub)', () => {
     const mr = new MapRendererContent(ctx)
     const vtr = new VectorTileRenderer(ctx)
     vtr.setBindGroupLayout(mr.bindGroupLayout)
-    const pr = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
+    const pr = new PointRenderer({
+      device: ctx.device,
+      format: ctx.format,
+      rhi: new WebGpuDevice(ctx.device),
+    })
     const lr = new LineRenderer(ctx, mr.bindGroupLayout)
     const rr = new RasterRenderer(ctx)
     expect([mr, vtr, pr, lr, rr].every(Boolean)).toBe(true)

@@ -3,7 +3,7 @@
   "description": "Smooth zoom in over Seoul z=8→16 with pan toward city centre",
   "projection": "mercator",
   "startCamera": { "lon": 126.97, "lat": 37.57, "zoom": 8, "pitch": 0, "bearing": 0 },
-  "endCamera":   { "lon": 126.97, "lat": 37.57, "zoom": 16, "pitch": 0, "bearing": 0 },
+  "endCamera": { "lon": 126.97, "lat": 37.57, "zoom": 16, "pitch": 0, "bearing": 0 },
   "durationMs": 6000,
   "easing": "ease-in-out-cubic"
 }

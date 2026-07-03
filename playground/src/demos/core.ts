@@ -45,7 +45,8 @@ export const DEMOS_CORE: Record<string, Demo> = {
   picking_demo: {
     name: 'Picking + Events',
     tag: 'event',
-    description: 'Hover (desktop) or tap (mobile) a country to see its name, coordinate, and feature ID. Demonstrates layer.addEventListener.',
+    description:
+      'Hover (desktop) or tap (mobile) a country to see its name, coordinate, and feature ID. Demonstrates layer.addEventListener.',
     source: load('picking-demo.xgis'),
     picking: true,
   },
@@ -74,42 +75,48 @@ export const DEMOS_CORE: Record<string, Demo> = {
   pmtiles_labels: {
     name: 'PMTiles labels',
     tag: 'vector-tiles',
-    description: 'SDF text labels from MVT places — `label-["{.name}"]` on a vector-tile source-layer',
+    description:
+      'SDF text labels from MVT places — `label-["{.name}"]` on a vector-tile source-layer',
     source: load('pmtiles-labels.xgis'),
   },
 
   import_mapbox_style: {
     name: 'import "mapbox-style-url"',
     tag: 'vector-tiles',
-    description: 'One-line splice import: runtime fetches OpenFreeMap Bright style.json, runs convertMapboxStyle, prepends the converted xgis. Zero JS glue.',
+    description:
+      'One-line splice import: runtime fetches OpenFreeMap Bright style.json, runs convertMapboxStyle, prepends the converted xgis. Zero JS glue.',
     source: load('import-mapbox-style.xgis'),
   },
 
   import_mapbox_inline_geojson: {
     name: 'import "mapbox-style" — inline GeoJSON',
     tag: 'vector-tiles',
-    description: 'Mapbox style.json with an inline FeatureCollection in source.data. The importer captures the data via the inlineGeoJSON collector and auto-pushes it via setSourceData after run() — no host glue. Two red boxes (Korea + Tokyo) confirm the features rendered. Open #3.5/37/132 to frame both.',
+    description:
+      'Mapbox style.json with an inline FeatureCollection in source.data. The importer captures the data via the inlineGeoJSON collector and auto-pushes it via setSourceData after run() — no host glue. Two red boxes (Korea + Tokyo) confirm the features rendered. Open #3.5/37/132 to frame both.',
     source: load('import-mapbox-inline-geojson.xgis'),
   },
 
   import_maplibre_demo: {
     name: 'import "maplibre-demo-style"',
     tag: 'vector-tiles',
-    description: 'Canonical MapLibre demo style (https://demotiles.maplibre.org/style.json). Mapbox v8 schema, ~33 layers, vector tiles via TileJSON. Verifies X-GIS imports the wider MapLibre ecosystem (Versatiles, OpenFreeMap Liberty/Positron/Dark, MapTiler open styles) which all share this shape.',
+    description:
+      'Canonical MapLibre demo style (https://demotiles.maplibre.org/style.json). Mapbox v8 schema, ~33 layers, vector tiles via TileJSON. Verifies X-GIS imports the wider MapLibre ecosystem (Versatiles, OpenFreeMap Liberty/Positron/Dark, MapTiler open styles) which all share this shape.',
     source: load('import-maplibre-demo.xgis'),
   },
 
   along_path_roads: {
     name: 'Along-path road labels',
     tag: 'vector-tiles',
-    description: 'symbol-placement: line — label-along-path rotates each road name to match its segment tangent, so streets read along their geometry instead of horizontally.',
+    description:
+      'symbol-placement: line — label-along-path rotates each road name to match its segment tangent, so streets read along their geometry instead of horizontally.',
     source: load('along-path-roads.xgis'),
   },
 
   step_and_concat: {
     name: 'step + concat (Batch 6)',
     tag: 'basic',
-    description: 'N-stop step expression sizes / colors city dots into 4 population tiers; concat composes "City, Country (NNN k)" labels with round() for rounded thousands. Demonstrates the full Mapbox math + string operator surface.',
+    description:
+      'N-stop step expression sizes / colors city dots into 4 population tiers; concat composes "City, Country (NNN k)" labels with round() for rounded thousands. Demonstrates the full Mapbox math + string operator surface.',
     source: load('step-and-concat.xgis'),
   },
 
@@ -130,28 +137,32 @@ export const DEMOS_CORE: Record<string, Demo> = {
   pmtiles_layered: {
     name: 'PMTiles — per-layer styling',
     tag: 'vector-tiles',
-    description: 'Same v4 archive split into water/landuse/roads/buildings, each styled independently. Navigate to a city: #14/35.68/139.76 (Tokyo)',
+    description:
+      'Same v4 archive split into water/landuse/roads/buildings, each styled independently. Navigate to a city: #14/35.68/139.76 (Tokyo)',
     source: load('pmtiles-layered.xgis'),
   },
 
   openfreemap_bright: {
     name: 'OpenFreeMap — Bright (live import)',
     tag: 'vector-tiles',
-    description: 'Live one-line `import "…/styles/bright"` — the runtime fetches the OpenFreeMap "bright" Mapbox style and converts it in full, including the place/POI/road-name/shield labels (the old static snapshot dropped every symbol layer). OpenMapTiles schema. Use this to stress-test pitched / panned views against a real-world style. Navigate to a city: #14/35.68/139.76 (Tokyo), #14/40.78/-73.97 (Manhattan).',
+    description:
+      'Live one-line `import "…/styles/bright"` — the runtime fetches the OpenFreeMap "bright" Mapbox style and converts it in full, including the place/POI/road-name/shield labels (the old static snapshot dropped every symbol layer). OpenMapTiles schema. Use this to stress-test pitched / panned views against a real-world style. Navigate to a city: #14/35.68/139.76 (Tokyo), #14/40.78/-73.97 (Manhattan).',
     source: load('openfreemap-bright.xgis'),
   },
 
   pmtiles_only_landuse: {
     name: 'PMTiles — landuse only (diag)',
     tag: 'vector-tiles',
-    description: 'Diagnostic — single MVT layer (landuse) rendered alone in green. Used to isolate stripe artefacts.',
+    description:
+      'Diagnostic — single MVT layer (landuse) rendered alone in green. Used to isolate stripe artefacts.',
     source: load('pmtiles-only-landuse.xgis'),
   },
 
   osm_style: {
     name: 'OSM-style cartography',
     tag: 'vector-tiles',
-    description: 'Richer cartographic rendering on protomaps v4: per-kind landuse + road hierarchy (minor/secondary/primary/highway/rail) + buildings. Navigate to a city: #14/35.68/139.76 (Tokyo), #14/40.78/-73.97 (Manhattan).',
+    description:
+      'Richer cartographic rendering on protomaps v4: per-kind landuse + road hierarchy (minor/secondary/primary/highway/rail) + buildings. Navigate to a city: #14/35.68/139.76 (Tokyo), #14/40.78/-73.97 (Manhattan).',
     source: load('osm-style.xgis'),
   },
 }

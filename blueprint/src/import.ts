@@ -184,7 +184,12 @@ export function xgisToGraph(src: string): BPGraph {
       nodes.push(
         mk('symbol', {
           name,
-          path: pathLine ? pathLine.slice(5).trim().replace(/^"(.*)"$/, '$1') : '',
+          path: pathLine
+            ? pathLine
+                .slice(5)
+                .trim()
+                .replace(/^"(.*)"$/, '$1')
+            : '',
           anchor: prop(lines, 'anchor') || 'center',
         }),
       )
@@ -197,7 +202,11 @@ export function xgisToGraph(src: string): BPGraph {
         nodes.push(
           mk('import', {
             mode: 'named',
-            names: named[1].split(',').map((s) => s.trim()).filter(Boolean).join(', '),
+            names: named[1]
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
+              .join(', '),
             path: named[2],
           }),
         )
@@ -234,7 +243,11 @@ export function xgisToGraph(src: string): BPGraph {
   nodes.push(map)
   for (const { node, src: s, style: st } of layers) {
     if (s && sourceByName.has(s))
-      edges.push({ id: uid('e'), from: { node: sourceByName.get(s)!, pin: 'out' }, to: { node: node.id, pin: 'source' } })
+      edges.push({
+        id: uid('e'),
+        from: { node: sourceByName.get(s)!, pin: 'out' },
+        to: { node: node.id, pin: 'source' },
+      })
     else if (s)
       // Source isn't a local node — typically a splice `import "url"`
       // brings it in (e.g. `openmaptiles`), so there's nothing to wire
@@ -243,13 +256,21 @@ export function xgisToGraph(src: string): BPGraph {
       // emits it as a fallback when no source node is wired.
       node.data.source = s
     if (st && styleByName.has(st))
-      edges.push({ id: uid('e'), from: { node: styleByName.get(st)!, pin: 'out' }, to: { node: node.id, pin: 'style' } })
+      edges.push({
+        id: uid('e'),
+        from: { node: styleByName.get(st)!, pin: 'out' },
+        to: { node: node.id, pin: 'style' },
+      })
     else if (st)
       // Same as the source fallback above: a `style:` ref to a
       // splice-imported style has no local node to wire to. Keep the
       // bare name so codegen can re-emit `style:` rather than drop it.
       node.data.style = st
-    edges.push({ id: uid('e'), from: { node: node.id, pin: 'out' }, to: { node: map.id, pin: 'layers' } })
+    edges.push({
+      id: uid('e'),
+      from: { node: node.id, pin: 'out' },
+      to: { node: map.id, pin: 'layers' },
+    })
   }
 
   if (skippedSources.size)
@@ -265,14 +286,7 @@ export function xgisToGraph(src: string): BPGraph {
 /** Columns by role; layers wrap so a 100-layer basemap stays
  *  pannable rather than one impossibly tall stack. */
 function autoLayout(nodes: BPNode[]) {
-  const col = (t: NodeType) =>
-    t === 'source'
-      ? 1
-      : t === 'layer'
-        ? 2
-        : t === 'map'
-          ? 3
-          : 0 // import/fn/symbol/style/preset/background
+  const col = (t: NodeType) => (t === 'source' ? 1 : t === 'layer' ? 2 : t === 'map' ? 3 : 0) // import/fn/symbol/style/preset/background
   const yByCol = new Map<number, number>()
   const xByCol = [40, 340, 660, 0]
   const layerCount = nodes.filter((n) => n.type === 'layer').length

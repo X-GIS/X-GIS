@@ -96,9 +96,7 @@ export interface PassRunResult {
 }
 
 /** A pipeline step — either a single pass or a fixpoint group. */
-type PipelineStep =
-  | { kind: 'pass', pass: IRPass }
-  | { kind: 'group', group: PassGroup }
+type PipelineStep = { kind: 'pass'; pass: IRPass } | { kind: 'group'; group: PassGroup }
 
 /** Topologically-ordered IR transform pipeline. Register passes via
  *  {@link register}, groups via {@link registerGroup}, then run them
@@ -143,7 +141,9 @@ export class PassManager {
       throw new Error(`[PassManager] group "${group.name}" has no passes — at least one required.`)
     }
     if (group.maxIterations < 1) {
-      throw new Error(`[PassManager] group "${group.name}" maxIterations must be >= 1 (got ${group.maxIterations})`)
+      throw new Error(
+        `[PassManager] group "${group.name}" maxIterations must be >= 1 (got ${group.maxIterations})`,
+      )
     }
     this.steps.set(group.name, { kind: 'group', group })
   }
@@ -151,8 +151,8 @@ export class PassManager {
   /** Get the registered passes in the order they would execute. */
   order(): readonly IRPass[] {
     return topoSortSteps(this.steps)
-      .filter(s => s.kind === 'pass')
-      .map(s => (s as { kind: 'pass', pass: IRPass }).pass)
+      .filter((s) => s.kind === 'pass')
+      .map((s) => (s as { kind: 'pass'; pass: IRPass }).pass)
   }
 
   /** Run every registered pass / group on `scene` in topological
@@ -205,8 +205,8 @@ function runFixpoint(group: PassGroup, scene: Scene): PassRunResult {
   // author can spot which pass keeps changing the scene.
   throw new Error(
     `[PassManager] group "${group.name}" did not reach a fixpoint within ` +
-    `maxIterations=${group.maxIterations}. Check the passes in the group ` +
-    `for a non-monotonic pass that creates work on later iterations.`,
+      `maxIterations=${group.maxIterations}. Check the passes in the group ` +
+      `for a non-monotonic pass that creates work on later iterations.`,
   )
 }
 
@@ -215,7 +215,7 @@ function runFixpoint(group: PassGroup, scene: Scene): PassRunResult {
  *  mistake — typo in `dependencies`) and when a cycle exists. */
 function topoSortSteps(steps: Map<string, PipelineStep>): PipelineStep[] {
   const inDegree = new Map<string, number>()
-  const dependents = new Map<string, string[]>()  // dep → [steps that need it]
+  const dependents = new Map<string, string[]>() // dep → [steps that need it]
 
   for (const step of steps.values()) {
     const name = step.kind === 'pass' ? step.pass.name : step.group.name
@@ -225,11 +225,14 @@ function topoSortSteps(steps: Map<string, PipelineStep>): PipelineStep[] {
       if (!steps.has(dep)) {
         throw new Error(
           `[PassManager] step "${name}" depends on "${dep}", ` +
-          `which is not registered. Did you forget to register("${dep}")?`,
+            `which is not registered. Did you forget to register("${dep}")?`,
         )
       }
       let list = dependents.get(dep)
-      if (!list) { list = []; dependents.set(dep, list) }
+      if (!list) {
+        list = []
+        dependents.set(dep, list)
+      }
       list.push(name)
     }
   }
@@ -254,11 +257,11 @@ function topoSortSteps(steps: Map<string, PipelineStep>): PipelineStep[] {
 
   if (out.length !== steps.size) {
     const unresolved = [...steps.keys()].filter(
-      n => !out.some(s => (s.kind === 'pass' ? s.pass.name : s.group.name) === n),
+      (n) => !out.some((s) => (s.kind === 'pass' ? s.pass.name : s.group.name) === n),
     )
     throw new Error(
       `[PassManager] dependency cycle involving: ${unresolved.join(', ')}. ` +
-      `Each step's dependencies must form a DAG.`,
+        `Each step's dependencies must form a DAG.`,
     )
   }
   return out

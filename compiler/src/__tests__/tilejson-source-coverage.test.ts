@@ -13,13 +13,15 @@ describe('explicit "type": "tilejson" source', () => {
       sources: {
         osm: { type: 'tilejson', url: 'https://example.com/manifest.json' } as never,
       },
-      layers: [{
-        id: 'l',
-        type: 'fill',
-        source: 'osm',
-        'source-layer': 'water',
-        paint: { 'fill-color': '#a4c8d5' },
-      }],
+      layers: [
+        {
+          id: 'l',
+          type: 'fill',
+          source: 'osm',
+          'source-layer': 'water',
+          paint: { 'fill-color': '#a4c8d5' },
+        },
+      ],
     } as never)
     expect(out).toMatch(/source osm \{[\s\S]*type:\s*tilejson/)
     expect(out).toContain('"https://example.com/manifest.json"')

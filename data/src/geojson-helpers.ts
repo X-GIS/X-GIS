@@ -21,7 +21,7 @@ export { lonLatToMercator } from '@xgis/engine'
 // 큰 삼각형을 세분화하여 프로젝션 곡선을 근사
 
 export const MAX_EDGE_DEGREES = 3 // 링 변 세분화 기준
-export const MAX_TRI_DEGREES = 2  // 삼각형 세분화 기준 (이보다 큰 변이 있으면 4분할)
+export const MAX_TRI_DEGREES = 2 // 삼각형 세분화 기준 (이보다 큰 변이 있으면 4분할)
 
 /** Subdivide a ring by inserting midpoints along long edges.
  *  Falls back to linear interpolation when lon exceeds ±180° (antimeridian
@@ -67,7 +67,8 @@ function detectsAntiMeridianCross(ring: number[][]): boolean {
     if (Math.abs(ring[i][0] - ring[i + 1][0]) > 180) return true
   }
   // World-wrapping polygons (Antarctica spans -180° to +180°)
-  let minLon = Infinity, maxLon = -Infinity
+  let minLon = Infinity,
+    maxLon = -Infinity
   for (const [lon] of ring) {
     if (lon < minLon) minLon = lon
     if (lon > maxLon) maxLon = lon
@@ -77,7 +78,12 @@ function detectsAntiMeridianCross(ring: number[][]): boolean {
 
 /** Clip a ring at a cut line using Sutherland-Hodgman algorithm.
  *  axis: 0 = longitude (x), 1 = latitude (y) */
-function clipRingAtLine(ring: number[][], cutVal: number, keepLess: boolean, axis: 0 | 1): number[][] {
+function clipRingAtLine(
+  ring: number[][],
+  cutVal: number,
+  keepLess: boolean,
+  axis: 0 | 1,
+): number[][] {
   const result: number[][] = []
   const n = ring.length
   const len = ring[n - 1][0] === ring[0][0] && ring[n - 1][1] === ring[0][1] ? n - 1 : n
@@ -103,7 +109,8 @@ function clipRingAtLine(ring: number[][], cutVal: number, keepLess: boolean, axi
   }
 
   if (result.length > 0) {
-    const first = result[0], last = result[result.length - 1]
+    const first = result[0],
+      last = result[result.length - 1]
     if (first[0] !== last[0] || first[1] !== last[1]) {
       result.push([first[0], first[1]])
     }
@@ -120,7 +127,11 @@ function _clipRingAtLon(ring: number[][], cutLon: number, keepLess: boolean): nu
 const MAX_PIECE_WIDTH = 20
 
 /** Clip a set of rings (outer + holes) at a line, returning low/high halves */
-function clipRingsAtLine(rings: number[][][], cutVal: number, axis: 0 | 1): { low: number[][][] | null, high: number[][][] | null } {
+function clipRingsAtLine(
+  rings: number[][][],
+  cutVal: number,
+  axis: 0 | 1,
+): { low: number[][][] | null; high: number[][][] | null } {
   const lowOuter = clipRingAtLine(rings[0], cutVal, true, axis)
   const highOuter = clipRingAtLine(rings[0], cutVal, false, axis)
 
@@ -137,7 +148,10 @@ function clipRingsAtLine(rings: number[][][], cutVal: number, axis: 0 | 1): { lo
   return { low: buildPart(lowOuter, true), high: buildPart(highOuter, false) }
 }
 
-function clipRingsAtLon(rings: number[][][], cutLon: number): { west: number[][][] | null, east: number[][][] | null } {
+function clipRingsAtLon(
+  rings: number[][][],
+  cutLon: number,
+): { west: number[][][] | null; east: number[][][] | null } {
   const { low, high } = clipRingsAtLine(rings, cutLon, 0)
   return { west: low, east: high }
 }
@@ -153,12 +167,15 @@ export function splitWidePolygon(rings: number[][][]): number[][][][] {
   // Step 1: Anti-meridian — shift to continuous coordinate space
   if (detectsAntiMeridianCross(rings[0])) {
     const shift = (ring: number[][]): number[][] =>
-      ring.map(([lon, lat]) => lon < -90 ? [lon + 360, lat] : [lon, lat])
+      ring.map(([lon, lat]) => (lon < -90 ? [lon + 360, lat] : [lon, lat]))
     processedRings = rings.map(shift)
   }
 
   // Step 2: Determine extent
-  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity
+  let minLon = Infinity,
+    maxLon = -Infinity,
+    minLat = Infinity,
+    maxLat = -Infinity
   for (const [lon, lat] of processedRings[0]) {
     if (lon < minLon) minLon = lon
     if (lon > maxLon) maxLon = lon
@@ -180,16 +197,12 @@ export function splitWidePolygon(rings: number[][][]): number[][][][] {
     if (west) westParts.push(west)
     if (east) {
       // Shift east coordinates back to standard range
-      const shifted = east.map(ring =>
-        ring.map(([lon, lat]) => [lon - 360, lat])
-      )
+      const shifted = east.map((ring) => ring.map(([lon, lat]) => [lon - 360, lat]))
       eastParts.push(shifted)
     }
   } else if (maxLon > 180) {
     // Entirely east of 180° — shift back
-    eastParts.push(processedRings.map(ring =>
-      ring.map(([lon, lat]) => [lon - 360, lat])
-    ))
+    eastParts.push(processedRings.map((ring) => ring.map(([lon, lat]) => [lon - 360, lat])))
   } else {
     westParts.push(processedRings)
   }
@@ -198,7 +211,8 @@ export function splitWidePolygon(rings: number[][][]): number[][][][] {
   const splitOnAxis = (parts: number[][][][], axis: 0 | 1): number[][][][] => {
     const result: number[][][][] = []
     for (const partRings of parts) {
-      let pMin = Infinity, pMax = -Infinity
+      let pMin = Infinity,
+        pMax = -Infinity
       for (const coord of partRings[0]) {
         const v = coord[axis]
         if (v < pMin) pMin = v
@@ -244,7 +258,10 @@ export function splitLineAtAntiMeridian(coords: number[][]): number[][][] {
 
   let needsSplit = false
   for (let i = 0; i < coords.length - 1; i++) {
-    if (Math.abs(coords[i + 1][0] - coords[i][0]) > 180) { needsSplit = true; break }
+    if (Math.abs(coords[i + 1][0] - coords[i][0]) > 180) {
+      needsSplit = true
+      break
+    }
   }
   if (!needsSplit) return [coords]
 
@@ -252,7 +269,8 @@ export function splitLineAtAntiMeridian(coords: number[][]): number[][][] {
   let current: number[][] = [coords[0]]
 
   for (let i = 0; i < coords.length - 1; i++) {
-    const a = coords[i], b = coords[i + 1]
+    const a = coords[i],
+      b = coords[i + 1]
     const dlon = b[0] - a[0]
 
     if (Math.abs(dlon) > 180) {

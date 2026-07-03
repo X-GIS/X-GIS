@@ -35,16 +35,22 @@ function mockDevice(): GPUArenaDevice {
         copySrc: desc.copySrc,
         label: desc.label,
         destroyed: false,
-        destroy() { b.destroyed = true },
+        destroy() {
+          b.destroyed = true
+        },
       }
       return { native: b } as unknown as RhiBuffer
     },
-    destroyBuffer(h) { unwrap(h).destroy() },
-    unwrapBuffer(h) { return unwrap(h) as unknown as GPUBuffer },
+    destroyBuffer(h) {
+      unwrap(h).destroy()
+    },
+    unwrapBuffer(h) {
+      return unwrap(h) as unknown as GPUBuffer
+    },
   }
 }
 
-const VERTEX_USAGE = 'vertex'  // RhiBufferUsage role (was GPUBufferUsage.VERTEX | COPY_DST)
+const VERTEX_USAGE = 'vertex' // RhiBufferUsage role (was GPUBufferUsage.VERTEX | COPY_DST)
 
 describe('GPUArena — construction', () => {
   it('allocates the underlying GPU buffer at requested capacity', () => {
@@ -79,9 +85,9 @@ describe('GPUArena — alloc bump pointer', () => {
 
   it('advances by ALIGNED bytes (rounds up to 4)', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 1024, usage: VERTEX_USAGE })
-    expect(a.alloc(10)).toBe(0)      // 10 → 12 aligned
+    expect(a.alloc(10)).toBe(0) // 10 → 12 aligned
     expect(a.alloc(8)).toBe(12)
-    expect(a.alloc(5)).toBe(20)      // 5 → 8 aligned
+    expect(a.alloc(5)).toBe(20) // 5 → 8 aligned
     expect(a.alloc(4)).toBe(28)
   })
 
@@ -112,10 +118,10 @@ describe('GPUArena — free + reuse', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 1024, usage: VERTEX_USAGE })
     const o1 = a.alloc(12)
     const o2 = a.alloc(12)
-    expect(o2).toBeGreaterThan(o1)  // bump-pointer progress
+    expect(o2).toBeGreaterThan(o1) // bump-pointer progress
     a.free(o1, 12)
     const o3 = a.alloc(12)
-    expect(o3).toBe(o1)  // reuse the freed slot, not extend bump
+    expect(o3).toBe(o1) // reuse the freed slot, not extend bump
     expect(a.getStats().reuseHits).toBe(1)
   })
 
@@ -167,7 +173,7 @@ describe('GPUArena — exact-align4 free-list reuse', () => {
 
   it('17-byte (align4 20) only reuses for an align4-20 request', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 1024, usage: VERTEX_USAGE })
-    const o1 = a.alloc(17)  // align4 20
+    const o1 = a.alloc(17) // align4 20
     a.free(o1, 17)
     // 32-byte request (align4 32 ≠ 20) does NOT reuse (the old bucket
     // scheme would have — and would have overrun the 20 B slot).
@@ -179,7 +185,7 @@ describe('GPUArena — exact-align4 free-list reuse', () => {
 
   it('tiny allocs reuse only at their own exact align4 footprint', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 1024, usage: VERTEX_USAGE })
-    const o1 = a.alloc(1)  // align4 4
+    const o1 = a.alloc(1) // align4 4
     a.free(o1, 1)
     // 8-byte request (align4 8 ≠ 4) does NOT reuse
     const o2 = a.alloc(8)
@@ -236,7 +242,7 @@ describe('GPUArena — stats accounting', () => {
     expect(a.getStats().reuseHits).toBe(0)
     const o = a.alloc(16)
     a.free(o, 16)
-    a.alloc(16)  // reuses o
+    a.alloc(16) // reuses o
     expect(a.getStats().reuseHits).toBe(1)
   })
 
@@ -244,8 +250,8 @@ describe('GPUArena — stats accounting', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 1024, usage: VERTEX_USAGE })
     const o1 = a.alloc(12)
     const o2 = a.alloc(12)
-    a.free(o1, 12)  // align4 12
-    a.free(o2, 12)  // align4 12
+    a.free(o1, 12) // align4 12
+    a.free(o2, 12) // align4 12
     // 2 entries × align4 12 → freeBytes = 24 (exact, not bucket-inflated)
     expect(a.getStats().freeBytes).toBe(24)
   })
@@ -279,14 +285,14 @@ describe('GPUArena — byte-pressure getters (Lane A signals)', () => {
   it('usedBytes equals bumpPtr: rises on alloc, does NOT fall on free', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 1024, usage: VERTEX_USAGE })
     expect(a.highWaterBytes).toBe(0)
-    a.alloc(64)  // bumpPtr → 64
+    a.alloc(64) // bumpPtr → 64
     expect(a.highWaterBytes).toBe(64)
-    a.alloc(32)  // bumpPtr → 96
+    a.alloc(32) // bumpPtr → 96
     expect(a.highWaterBytes).toBe(96)
-    const o = a.alloc(128)  // bumpPtr → 224
+    const o = a.alloc(128) // bumpPtr → 224
     expect(a.highWaterBytes).toBe(224)
-    a.free(o, 128)           // liveBytes falls, but bumpPtr/usedBytes stays at 224
-    expect(a.highWaterBytes).toBe(224)  // MONOTONIC — this is the OOM trigger signal
+    a.free(o, 128) // liveBytes falls, but bumpPtr/usedBytes stays at 224
+    expect(a.highWaterBytes).toBe(224) // MONOTONIC — this is the OOM trigger signal
   })
 
   it('liveUsedBytes equals net in-flight bytes: rises on alloc, falls on free', () => {
@@ -297,7 +303,7 @@ describe('GPUArena — byte-pressure getters (Lane A signals)', () => {
     const o2 = a.alloc(32)
     expect(a.liveUsedBytes).toBe(96)
     a.free(o1, 64)
-    expect(a.liveUsedBytes).toBe(32)   // falls — this is the eviction loop signal
+    expect(a.liveUsedBytes).toBe(32) // falls — this is the eviction loop signal
     a.free(o2, 32)
     expect(a.liveUsedBytes).toBe(0)
   })
@@ -338,12 +344,12 @@ describe('GPUArena — byte-pressure getters (Lane A signals)', () => {
     const HIGH_WATER = 0.75
     const a = new GPUArena(mockDevice(), { capacityBytes: cap, usage: VERTEX_USAGE })
     // Alloc 80% then free half → usedBytes=80%, liveUsedBytes=40%
-    const off1 = a.alloc(512)  // align4(512)=512
-    const off2 = a.alloc(308)  // align4(308)=308; bumpPtr=820 ≈ 80%
-    a.free(off1, 512)           // liveBytes=308, bumpPtr=820
-    expect(a.highWaterBytes / cap).toBeGreaterThan(HIGH_WATER)   // trigger fires ✓
-    expect(a.liveUsedBytes / cap).toBeLessThan(HIGH_WATER)  // loop signal correct ✓
-    void off2  // suppress unused warning
+    const off1 = a.alloc(512) // align4(512)=512
+    const off2 = a.alloc(308) // align4(308)=308; bumpPtr=820 ≈ 80%
+    a.free(off1, 512) // liveBytes=308, bumpPtr=820
+    expect(a.highWaterBytes / cap).toBeGreaterThan(HIGH_WATER) // trigger fires ✓
+    expect(a.liveUsedBytes / cap).toBeLessThan(HIGH_WATER) // loop signal correct ✓
+    void off2 // suppress unused warning
   })
 
   it('reclaimIfDrained resets bumpPtr to 0 when liveBytes is zero', () => {
@@ -354,10 +360,10 @@ describe('GPUArena — byte-pressure getters (Lane A signals)', () => {
     a.free(o1, 256)
     a.free(o2, 256)
     expect(a.liveUsedBytes).toBe(0)
-    expect(a.highWaterBytes).toBe(512)  // bumpPtr pinned until reclaim
+    expect(a.highWaterBytes).toBe(512) // bumpPtr pinned until reclaim
     const reclaimed = a.reclaimIfDrained()
     expect(reclaimed).toBe(true)
-    expect(a.highWaterBytes).toBe(0)    // bumpPtr reset — next alloc starts fresh
+    expect(a.highWaterBytes).toBe(0) // bumpPtr reset — next alloc starts fresh
     expect(a.liveUsedBytes).toBe(0)
     // Arena is usable again from the top
     expect(a.alloc(256)).toBe(0)
@@ -366,37 +372,37 @@ describe('GPUArena — byte-pressure getters (Lane A signals)', () => {
   it('reclaimIfDrained is a no-op when live allocations remain', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 1024, usage: VERTEX_USAGE })
     const o1 = a.alloc(256)
-    a.alloc(128)        // second alloc NOT freed — still live
+    a.alloc(128) // second alloc NOT freed — still live
     a.free(o1, 256)
     expect(a.liveUsedBytes).toBe(128)
     const reclaimed = a.reclaimIfDrained()
-    expect(reclaimed).toBe(false)  // refused: live allocs would dangle
-    expect(a.highWaterBytes).toBe(384)  // bumpPtr unchanged
+    expect(reclaimed).toBe(false) // refused: live allocs would dangle
+    expect(a.highWaterBytes).toBe(384) // bumpPtr unchanged
   })
 })
 
 describe('GPUArena — canServe (exact O(1) serviceability probe)', () => {
   it('true via bump headroom when nothing is free yet', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 100, usage: VERTEX_USAGE })
-    expect(a.canServe(80)).toBe(true)   // 80 ≤ 100 bump headroom
-    expect(a.canServe(100)).toBe(true)  // exact fit
+    expect(a.canServe(80)).toBe(true) // 80 ≤ 100 bump headroom
+    expect(a.canServe(100)).toBe(true) // exact fit
     expect(a.canServe(101)).toBe(false) // beyond capacity
   })
 
   it('false once bump headroom is exhausted and no matching free slot exists', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 100, usage: VERTEX_USAGE })
-    a.alloc(80)                         // bumpPtr = 80, 20 left
-    expect(a.canServe(20)).toBe(true)   // exactly fits remaining bump
-    expect(a.canServe(24)).toBe(false)  // no bump room, no free slot
+    a.alloc(80) // bumpPtr = 80, 20 left
+    expect(a.canServe(20)).toBe(true) // exactly fits remaining bump
+    expect(a.canServe(24)).toBe(false) // no bump room, no free slot
   })
 
   it('true via exact-align4 free-list slot even when bump headroom is gone', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 100, usage: VERTEX_USAGE })
-    const o = a.alloc(40)               // bumpPtr = 40
-    a.alloc(60)                         // bumpPtr = 100, fully bumped out
-    expect(a.canServe(40)).toBe(false)  // no free slot yet, no bump room
-    a.free(o, 40)                       // push a 40 B slot to the free-list
-    expect(a.canServe(40)).toBe(true)   // matching free-list footprint
+    const o = a.alloc(40) // bumpPtr = 40
+    a.alloc(60) // bumpPtr = 100, fully bumped out
+    expect(a.canServe(40)).toBe(false) // no free slot yet, no bump room
+    a.free(o, 40) // push a 40 B slot to the free-list
+    expect(a.canServe(40)).toBe(true) // matching free-list footprint
   })
 
   it('NOT fooled by fragmentation: summed free bytes ≠ a serviceable footprint', () => {
@@ -405,14 +411,14 @@ describe('GPUArena — canServe (exact O(1) serviceability probe)', () => {
     // slot can serve a 28 B request — canServe must say false while the old
     // `freeBytes >= needed` check would have falsely said true.
     const a = new GPUArena(mockDevice(), { capacityBytes: 32, usage: VERTEX_USAGE })
-    const o1 = a.alloc(12)              // align4 12
-    const o2 = a.alloc(20)             // align4 20; bumpPtr = 32 (full)
+    const o1 = a.alloc(12) // align4 12
+    const o2 = a.alloc(20) // align4 20; bumpPtr = 32 (full)
     a.free(o1, 12)
     a.free(o2, 20)
-    expect(a.getStats().freeBytes).toBe(32)  // SUM across mismatched keys
-    expect(a.canServe(28)).toBe(false)       // but no 28 B (align4 28) slot
-    expect(a.canServe(20)).toBe(true)        // exact 20 B slot is reusable
-    expect(a.canServe(12)).toBe(true)        // exact 12 B slot is reusable
+    expect(a.getStats().freeBytes).toBe(32) // SUM across mismatched keys
+    expect(a.canServe(28)).toBe(false) // but no 28 B (align4 28) slot
+    expect(a.canServe(20)).toBe(true) // exact 20 B slot is reusable
+    expect(a.canServe(12)).toBe(true) // exact 12 B slot is reusable
   })
 })
 
@@ -428,7 +434,7 @@ describe('GPUArena — steady-state simulation', () => {
     for (let i = 0; i < FRAMES; i++) {
       const off = a.alloc(128)
       if (i === 0) lastOffset = off
-      else expect(off).toBe(lastOffset)  // same slot reused every frame
+      else expect(off).toBe(lastOffset) // same slot reused every frame
       a.free(off, 128)
     }
     // BumpPtr advanced exactly once (the first alloc).
@@ -463,8 +469,11 @@ function recordingEncoder() {
     // MockBuffer so the source/destination identity assertions compare against
     // `a.buffer` (which the arena exposes already-unwrapped).
     copyBufferToBuffer(
-      source: RhiBuffer, sourceOffset: number,
-      destination: RhiBuffer, destinationOffset: number, size: number,
+      source: RhiBuffer,
+      sourceOffset: number,
+      destination: RhiBuffer,
+      destinationOffset: number,
+      size: number,
     ): void {
       copies.push({
         source: unwrap(source) as unknown as GPUBuffer,
@@ -485,16 +494,16 @@ describe('GPUArena — compaction (defrag relocation)', () => {
     // liveBytes is tiny. Compaction must drop bumpPtr back to the packed
     // live total.
     const a = new GPUArena(mockDevice(), { capacityBytes: 1024, usage: VERTEX_USAGE })
-    const o1 = a.alloc(100)   // align4 100
-    const o2 = a.alloc(40)    // align4 40
-    const o3 = a.alloc(200)   // align4 200
+    const o1 = a.alloc(100) // align4 100
+    const o2 = a.alloc(40) // align4 40
+    const o3 = a.alloc(200) // align4 200
     // Free the middle one — strands a 40 B slot that won't match the next
     // (differently-sized) request.
     a.free(o2, 40)
-    a.alloc(300)              // bumpPtr climbs further (no 300 B slot free)
+    a.alloc(300) // bumpPtr climbs further (no 300 B slot free)
     const before = a.getStats()
     expect(before.totalAllocatedBytes).toBe(100 + 40 + 200 + 300) // 640 bump
-    expect(before.liveBytes).toBe(100 + 200 + 300)                // 600 live
+    expect(before.liveBytes).toBe(100 + 200 + 300) // 600 live
 
     // Live set = o1(100), o3(200), and the last 300 B alloc. Caller passes
     // exactly the live slots.
@@ -525,25 +534,40 @@ describe('GPUArena — compaction (defrag relocation)', () => {
     // NEW buffer at the packed offset, aligned size.
     expect(copies).toHaveLength(3)
     expect(copies[0]).toMatchObject({
-      source: oldBuffer, sourceOffset: o1, destination: a.buffer,
-      destinationOffset: 0, size: 100,
+      source: oldBuffer,
+      sourceOffset: o1,
+      destination: a.buffer,
+      destinationOffset: 0,
+      size: 100,
     })
     expect(copies[1]).toMatchObject({
-      source: oldBuffer, sourceOffset: o3, destination: a.buffer,
-      destinationOffset: 100, size: 200,
+      source: oldBuffer,
+      sourceOffset: o3,
+      destination: a.buffer,
+      destinationOffset: 100,
+      size: 200,
     })
     expect(copies[2]).toMatchObject({
-      source: oldBuffer, sourceOffset: 340, destination: a.buffer,
-      destinationOffset: 300, size: 300,
+      source: oldBuffer,
+      sourceOffset: 340,
+      destination: a.buffer,
+      destinationOffset: 300,
+      size: 300,
     })
   })
 
   it('every copy size is 4-byte aligned (copyBufferToBuffer requirement)', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 1024, usage: VERTEX_USAGE })
-    const o1 = a.alloc(13)  // align4 16
-    const o2 = a.alloc(17)  // align4 20
+    const o1 = a.alloc(13) // align4 16
+    const o2 = a.alloc(17) // align4 20
     const { enc, copies } = recordingEncoder()
-    a.compact([{ oldOffset: o1, bytes: 13 }, { oldOffset: o2, bytes: 17 }], enc)
+    a.compact(
+      [
+        { oldOffset: o1, bytes: 13 },
+        { oldOffset: o2, bytes: 17 },
+      ],
+      enc,
+    )
     for (const c of copies) expect(c.size % 4).toBe(0)
     expect(copies[0].size).toBe(16)
     expect(copies[1].size).toBe(20)
@@ -554,8 +578,8 @@ describe('GPUArena — compaction (defrag relocation)', () => {
   it('post-compaction arena is immediately allocatable from the packed top', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 512, usage: VERTEX_USAGE })
     const o1 = a.alloc(64)
-    a.alloc(64)              // bumpPtr = 128
-    a.free(o1, 64)           // strand a 64 B slot
+    a.alloc(64) // bumpPtr = 128
+    a.free(o1, 64) // strand a 64 B slot
     const { enc } = recordingEncoder()
     // Only the second alloc is live (offset 64).
     a.compact([{ oldOffset: 64, bytes: 64 }], enc)
@@ -568,7 +592,7 @@ describe('GPUArena — compaction (defrag relocation)', () => {
   it('compacting an empty live set yields a fresh empty buffer', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 256, usage: VERTEX_USAGE })
     const o1 = a.alloc(64)
-    a.free(o1, 64)           // nothing live, bumpPtr still 64
+    a.free(o1, 64) // nothing live, bumpPtr still 64
     const oldBuffer = a.buffer
     const { enc, copies } = recordingEncoder()
     const result = a.compact([], enc)
@@ -593,7 +617,9 @@ describe('GPUArena — compaction (defrag relocation)', () => {
 
   it('the new buffer carries the same usage + label as the original', () => {
     const a = new GPUArena(mockDevice(), {
-      capacityBytes: 256, usage: VERTEX_USAGE, label: 'poly-vertex-arena',
+      capacityBytes: 256,
+      usage: VERTEX_USAGE,
+      label: 'poly-vertex-arena',
     })
     a.alloc(32)
     const { enc } = recordingEncoder()

@@ -13,7 +13,8 @@ test('mouseenter / mouseleave / mousemove fire correctly', async ({ page }) => {
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(1500)
 
@@ -21,7 +22,9 @@ test('mouseenter / mouseleave / mousemove fire correctly', async ({ page }) => {
   // tracking with feature ids is the actual contract — each transition
   // between features in the SAME layer should fire leave-then-enter.
   await page.evaluate(() => {
-    type Map = { getLayer(n: string): { addEventListener(t: string, h: (e: unknown) => void): void } | null }
+    type Map = {
+      getLayer(n: string): { addEventListener(t: string, h: (e: unknown) => void): void } | null
+    }
     const m = (window as { __xgisMap?: Map }).__xgisMap!
     ;(window as { __log?: Array<{ type: string; id: number }> }).__log = []
     const log = (window as { __log?: Array<{ type: string; id: number }> }).__log!
@@ -59,16 +62,18 @@ test('mouseenter / mouseleave / mousemove fire correctly', async ({ page }) => {
   await page.mouse.move(rect.left + rect.width - 5, rect.top + 5)
   await page.waitForTimeout(400)
 
-  const log = await page.evaluate(() => (window as { __log?: Array<{ type: string; id: number }> }).__log ?? [])
+  const log = await page.evaluate(
+    () => (window as { __log?: Array<{ type: string; id: number }> }).__log ?? [],
+  )
   console.log('[layer-events-hover]', JSON.stringify(log))
 
   // Concrete contract:
   //  - At least one mouseenter (entry into the first feature).
   //  - At least one mouseleave (exit at the end of the sequence).
   //  - mouseenter and mouseleave counts balance per feature visit.
-  const enters = log.filter(e => e.type === 'enter')
-  const leaves = log.filter(e => e.type === 'leave')
-  const moves = log.filter(e => e.type === 'move')
+  const enters = log.filter((e) => e.type === 'enter')
+  const leaves = log.filter((e) => e.type === 'leave')
+  const moves = log.filter((e) => e.type === 'move')
 
   expect(enters.length).toBeGreaterThan(0)
   expect(leaves.length).toBeGreaterThan(0)
@@ -101,12 +106,15 @@ test('preventDefault stops further listeners on the same layer', async ({ page }
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(1500)
 
   await page.evaluate(() => {
-    type Map = { getLayer(n: string): { addEventListener(t: string, h: (e: unknown) => void): void } | null }
+    type Map = {
+      getLayer(n: string): { addEventListener(t: string, h: (e: unknown) => void): void } | null
+    }
     const m = (window as { __xgisMap?: Map }).__xgisMap!
     ;(window as { __pdLog?: string[] }).__pdLog = []
     const log = (window as { __pdLog?: string[] }).__pdLog!
@@ -115,7 +123,9 @@ test('preventDefault stops further listeners on the same layer', async ({ page }
       log.push('first')
       ;(e as { preventDefault(): void }).preventDefault()
     })
-    fill.addEventListener('click', () => { log.push('second') })
+    fill.addEventListener('click', () => {
+      log.push('second')
+    })
   })
 
   // Known land sample at world view zoom 1.5 (matches the click spec).

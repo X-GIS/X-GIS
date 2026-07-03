@@ -37,19 +37,23 @@ function buildStyle(c: Case): Record<string, unknown> {
     paint: { [c.property]: c.value },
   }
   if (c.layerType === 'line') {
-    layer.source = 'v'; layer['source-layer'] = 'r'
+    layer.source = 'v'
+    layer['source-layer'] = 'r'
     ;(layer.paint as Record<string, unknown>)['line-color'] = '#fff'
     ;(layer.paint as Record<string, unknown>)['line-width'] = 1
   } else if (c.layerType === 'fill-extrusion') {
-    layer.source = 'v'; layer['source-layer'] = 'b'
+    layer.source = 'v'
+    layer['source-layer'] = 'b'
     ;(layer.paint as Record<string, unknown>)['fill-extrusion-color'] = '#aaa'
     ;(layer.paint as Record<string, unknown>)['fill-extrusion-height'] = 10
   } else if (c.layerType === 'circle') {
-    layer.source = 'v'; layer['source-layer'] = 'p'
+    layer.source = 'v'
+    layer['source-layer'] = 'p'
     ;(layer.paint as Record<string, unknown>)['circle-radius'] = 3
     ;(layer.paint as Record<string, unknown>)['circle-color'] = '#fff'
   } else if (c.layerType === 'symbol') {
-    layer.source = 'v'; layer['source-layer'] = 'p'
+    layer.source = 'v'
+    layer['source-layer'] = 'p'
     layer.layout = { 'text-field': '{name}', 'icon-image': 'marker' }
     ;(layer.paint as Record<string, unknown>)['text-color'] = '#fff'
   }
@@ -63,21 +67,31 @@ function buildStyle(c: Case): Record<string, unknown> {
 describe('fill-extrusion-translate Stage 1 — emits utility, no warning', () => {
   it('routes through addFillTranslate; no Plan §4 gap warning', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
-    convertMapboxStyle({
-      version: 8,
-      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'b', type: 'fill-extrusion', source: 'v', 'source-layer': 'b',
-        paint: {
-          'fill-extrusion-color': '#aaa',
-          'fill-extrusion-height': 10,
-          'fill-extrusion-translate': [3, 4],
-        },
-      }],
-    } as never, { coverage })
-    const stale = coverage.warnings.find(w =>
-      w.includes('fill-extrusion-translate')
-      && (w.includes('no per-frame translate') || w.includes('Plan §4 deferred')))
+    convertMapboxStyle(
+      {
+        version: 8,
+        sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+        layers: [
+          {
+            id: 'b',
+            type: 'fill-extrusion',
+            source: 'v',
+            'source-layer': 'b',
+            paint: {
+              'fill-extrusion-color': '#aaa',
+              'fill-extrusion-height': 10,
+              'fill-extrusion-translate': [3, 4],
+            },
+          },
+        ],
+      } as never,
+      { coverage },
+    )
+    const stale = coverage.warnings.find(
+      (w) =>
+        w.includes('fill-extrusion-translate') &&
+        (w.includes('no per-frame translate') || w.includes('Plan §4 deferred')),
+    )
     expect(stale, `unexpected legacy gap warning: ${stale}`).toBeUndefined()
   })
 })
@@ -94,12 +108,13 @@ describe('translate-property gap warning specificity', () => {
     it(`${c.property} → specific warning naming the missing uniform`, () => {
       const coverage = { sources: [], layers: [], warnings: [] as string[] }
       convertMapboxStyle(buildStyle(c) as never, { coverage })
-      const w = coverage.warnings.find(w => w.includes(c.property) && w.includes(c.expectIn))
+      const w = coverage.warnings.find((w) => w.includes(c.property) && w.includes(c.expectIn))
       expect(w, `expected warning containing "${c.expectIn}" for ${c.property}`).toBeDefined()
       // Must NOT also surface via the generic ignored-properties blob.
       const genericHit = coverage.warnings.find(
-        w => (w.includes('ignored paint properties') || w.includes('ignored properties:'))
-          && w.includes(c.property),
+        (w) =>
+          (w.includes('ignored paint properties') || w.includes('ignored properties:')) &&
+          w.includes(c.property),
       )
       expect(
         genericHit,

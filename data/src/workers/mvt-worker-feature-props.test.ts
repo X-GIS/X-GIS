@@ -17,7 +17,11 @@ import { buildFeatureProps } from './mvt-worker'
 import type { GeoJSONFeature } from '@xgis/compiler'
 
 const feat = (properties: Record<string, unknown>): GeoJSONFeature =>
-  ({ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties } as GeoJSONFeature)
+  ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [0, 0] },
+    properties,
+  }) as GeoJSONFeature
 
 describe('buildFeatureProps — field filtering', () => {
   it('keeps ONLY the requested keys, dropping the rest', () => {

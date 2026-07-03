@@ -23,25 +23,44 @@ import type { TextDraw } from '@xgis/map'
 const g = globalThis as Record<string, unknown>
 g.GPUShaderStage ??= { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 }
 g.GPUBufferUsage ??= {
-  MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8, INDEX: 16,
-  VERTEX: 32, UNIFORM: 64, STORAGE: 128, INDIRECT: 256, QUERY_RESOLVE: 512,
+  MAP_READ: 1,
+  MAP_WRITE: 2,
+  COPY_SRC: 4,
+  COPY_DST: 8,
+  INDEX: 16,
+  VERTEX: 32,
+  UNIFORM: 64,
+  STORAGE: 128,
+  INDIRECT: 256,
+  QUERY_RESOLVE: 512,
 }
 g.GPUTextureUsage ??= {
-  COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8, RENDER_ATTACHMENT: 16,
+  COPY_SRC: 1,
+  COPY_DST: 2,
+  TEXTURE_BINDING: 4,
+  STORAGE_BINDING: 8,
+  RENDER_ATTACHMENT: 16,
 }
 g.GPUColorWrite ??= { RED: 1, GREEN: 2, BLUE: 4, ALPHA: 8, ALL: 15 }
 
 function stubDevice(): GPUDevice {
-  const stub: unknown = new Proxy(function () { return stub }, {
-    get(_t, p) {
-      if (p === 'size') return 1 << 22
-      if (p === 'width' || p === 'height') return 4096
-      if (p === 'limits') return { maxTextureDimension2D: 8192 }
-      if (p === Symbol.toPrimitive) return () => 0
+  const stub: unknown = new Proxy(
+    function () {
       return stub
     },
-    apply() { return stub },
-  })
+    {
+      get(_t, p) {
+        if (p === 'size') return 1 << 22
+        if (p === 'width' || p === 'height') return 4096
+        if (p === 'limits') return { maxTextureDimension2D: 8192 }
+        if (p === Symbol.toPrimitive) return () => 0
+        return stub
+      },
+      apply() {
+        return stub
+      },
+    },
+  )
   return stub as GPUDevice
 }
 
@@ -61,10 +80,15 @@ function pointDef(extra: Partial<LabelDef> = {}): LabelDef {
 }
 
 function makeStage() {
-  const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', { rasterizer: new MockRasterizer() })
+  const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', {
+    rasterizer: new MockRasterizer(),
+  })
   const captured: TextDraw[][] = []
-  ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws =
-    (d: TextDraw[]) => { captured.push(d) }
+  ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws = (
+    d: TextDraw[],
+  ) => {
+    captured.push(d)
+  }
   return { stage, captured }
 }
 
@@ -87,7 +111,10 @@ describe('symbol-z-order ordering pass (TextStage.prepare)', () => {
     const draws = captured[0]!
     expect(draws.length).toBe(1)
     expect(atAnchor(draws[0]!, 100, 108), 'south (larger Y) wins under viewport-y').toBe(true)
-    expect(draws.some(d => atAnchor(d, 100, 100)), 'north dropped').toBe(false)
+    expect(
+      draws.some((d) => atAnchor(d, 100, 100)),
+      'north dropped',
+    ).toBe(false)
   })
 
   it('viewport-y: draw (painter) order is bottom-on-top (south emitted last)', () => {
@@ -100,8 +127,8 @@ describe('symbol-z-order ordering pass (TextStage.prepare)', () => {
     stage.prepare()
     const draws = captured[0]!
     expect(draws.length).toBe(2)
-    const idxN = draws.findIndex(d => atAnchor(d, 100, 100))
-    const idxS = draws.findIndex(d => atAnchor(d, 600, 500))
+    const idxN = draws.findIndex((d) => atAnchor(d, 100, 100))
+    const idxS = draws.findIndex((d) => atAnchor(d, 600, 500))
     expect(idxN).toBeLessThan(idxS) // south (larger Y) drawn last = on top
   })
 

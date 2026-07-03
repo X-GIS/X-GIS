@@ -26,8 +26,13 @@ const VIEW_HASH = '#9.45/32.14379/119.97235'
 const TIMEOUT = 60_000
 
 interface Buckets {
-  eq0: number; le8: number; le16: number; le32: number
-  le64: number; le128: number; gt128: number
+  eq0: number
+  le8: number
+  le16: number
+  le32: number
+  le64: number
+  le128: number
+  gt128: number
 }
 
 function diffBuckets(a: PNG, b: PNG): { buckets: Buckets; total: number; w: number; h: number } {
@@ -40,8 +45,8 @@ function diffBuckets(a: PNG, b: PNG): { buckets: Buckets; total: number; w: numb
       const bi = (y * b.width + x) * 4
       const m = Math.max(
         Math.abs(a.data[ai]! - b.data[bi]!),
-        Math.abs(a.data[ai+1]! - b.data[bi+1]!),
-        Math.abs(a.data[ai+2]! - b.data[bi+2]!),
+        Math.abs(a.data[ai + 1]! - b.data[bi + 1]!),
+        Math.abs(a.data[ai + 2]! - b.data[bi + 2]!),
       )
       if (m === 0) buckets.eq0++
       else if (m <= 8) buckets.le8++
@@ -64,18 +69,20 @@ function buildDiffHeatmap(a: PNG, b: PNG, w: number, h: number): PNG {
       const oi = (y * w + x) * 4
       const m = Math.max(
         Math.abs(a.data[ai]! - b.data[bi]!),
-        Math.abs(a.data[ai+1]! - b.data[bi+1]!),
-        Math.abs(a.data[ai+2]! - b.data[bi+2]!),
+        Math.abs(a.data[ai + 1]! - b.data[bi + 1]!),
+        Math.abs(a.data[ai + 2]! - b.data[bi + 2]!),
       )
       if (m === 0) {
-        out.data[oi] = 0; out.data[oi+1] = 0; out.data[oi+2] = 0
+        out.data[oi] = 0
+        out.data[oi + 1] = 0
+        out.data[oi + 2] = 0
       } else {
         const intensity = Math.min(255, m * 2)
         out.data[oi] = intensity
-        out.data[oi+1] = 64 - Math.min(64, m/2)
-        out.data[oi+2] = 64 - Math.min(64, m/2)
+        out.data[oi + 1] = 64 - Math.min(64, m / 2)
+        out.data[oi + 2] = 64 - Math.min(64, m / 2)
       }
-      out.data[oi+3] = 255
+      out.data[oi + 3] = 255
     }
   }
   return out
@@ -91,7 +98,8 @@ async function loadAndCapture(page: import('@playwright/test').Page, compute: 0 
       const w = window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }
       return w.__xgisReady === true && w.__mlReady === true
     },
-    null, { timeout: TIMEOUT },
+    null,
+    { timeout: TIMEOUT },
   )
 
   // Hide ML symbol layers
@@ -108,8 +116,14 @@ async function loadAndCapture(page: import('@playwright/test').Page, compute: 0 
   })
   // Hide X-GIS labels/icons
   await page.evaluate(() => {
-    interface XGISShow { label?: unknown; visible?: boolean }
-    interface XGISLayer { name?: string; style?: { visible?: boolean } }
+    interface XGISShow {
+      label?: unknown
+      visible?: boolean
+    }
+    interface XGISLayer {
+      name?: string
+      style?: { visible?: boolean }
+    }
     interface XGISMap {
       vectorTileShows?: Array<{ show: XGISShow }>
       getLayers?(): readonly XGISLayer[]
@@ -129,8 +143,9 @@ async function loadAndCapture(page: import('@playwright/test').Page, compute: 0 
   })
 
   await page.waitForTimeout(4_000)
-  await page.evaluate(() => new Promise<void>(r =>
-    requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+  await page.evaluate(
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+  )
 
   const mlBuf = await page.locator('#ml-map canvas').first().screenshot()
   const xgBuf = await page.locator('#xg-canv').screenshot()
@@ -153,14 +168,38 @@ for (const compute of [0, 1] as const) {
     writeFileSync(join(OUT, `${tag}-ml.png`), PNG.sync.write(ml))
     writeFileSync(join(OUT, `${tag}-xg.png`), PNG.sync.write(xg))
     writeFileSync(join(OUT, `${tag}-diff.png`), PNG.sync.write(buildDiffHeatmap(ml, xg, w, h)))
-    writeFileSync(join(OUT, `${tag}-buckets.json`), JSON.stringify({
-      compute, total, w, h, buckets,
-      cumulative: {
-        identical: ((buckets.eq0 / total) * 100).toFixed(2) + '%',
-        le32:      (((buckets.eq0 + buckets.le8 + buckets.le16 + buckets.le32) / total) * 100).toFixed(2) + '%',
-        le128:     (((buckets.eq0 + buckets.le8 + buckets.le16 + buckets.le32 + buckets.le64 + buckets.le128) / total) * 100).toFixed(2) + '%',
-      },
-    }, null, 2))
+    writeFileSync(
+      join(OUT, `${tag}-buckets.json`),
+      JSON.stringify(
+        {
+          compute,
+          total,
+          w,
+          h,
+          buckets,
+          cumulative: {
+            identical: ((buckets.eq0 / total) * 100).toFixed(2) + '%',
+            le32:
+              (((buckets.eq0 + buckets.le8 + buckets.le16 + buckets.le32) / total) * 100).toFixed(
+                2,
+              ) + '%',
+            le128:
+              (
+                ((buckets.eq0 +
+                  buckets.le8 +
+                  buckets.le16 +
+                  buckets.le32 +
+                  buckets.le64 +
+                  buckets.le128) /
+                  total) *
+                100
+              ).toFixed(2) + '%',
+          },
+        },
+        null,
+        2,
+      ),
+    )
     // eslint-disable-next-line no-console
     console.log(`[demotiles user compute=${compute}] ${w}×${h}  ${fmt(buckets, total)}`)
   })

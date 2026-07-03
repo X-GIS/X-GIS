@@ -62,8 +62,12 @@ export function convertTextPaintProperties(
   // axis (deferred).
   const textOpacity = unwrapLiteralScalar(paint['text-opacity'])
   const textOpacityConst =
-    typeof textOpacity === 'number' && Number.isFinite(textOpacity) && textOpacity >= 0 && textOpacity <= 1
-      ? textOpacity : null
+    typeof textOpacity === 'number' &&
+    Number.isFinite(textOpacity) &&
+    textOpacity >= 0 &&
+    textOpacity <= 1
+      ? textOpacity
+      : null
   if (!isOmittedValue(textColor)) {
     const interp = interpolateZoomCall(textColor, warnings, (val, w) => colorToXgis(val, w))
     if (interp !== null) {
@@ -99,15 +103,20 @@ export function convertTextPaintProperties(
   // (PropertyShape data-driven). Runtime resolves per frame and
   // multiplies into resolvedColor.a + resolvedHalo.color.a.
   if (textOpacity !== undefined && textOpacity !== null && textOpacityConst === null) {
-    const interp = interpolateZoomCall(paint['text-opacity'], warnings,
-      (val) => typeof val === 'number' && Number.isFinite(val)
-        ? String(Math.max(0, Math.min(1, val))) : null)
+    const interp = interpolateZoomCall(paint['text-opacity'], warnings, (val) =>
+      typeof val === 'number' && Number.isFinite(val)
+        ? String(Math.max(0, Math.min(1, val)))
+        : null,
+    )
     if (interp !== null) {
       utils.push(`label-opacity-[${interp}]`)
     } else {
       const expr = exprToXgis(paint['text-opacity'], warnings)
       if (expr !== null) utils.push(`label-opacity-[${expr}]`)
-      else warnings.push(`Symbol layer "${layer.id}" — text-opacity non-constant form could not be converted.`)
+      else
+        warnings.push(
+          `Symbol layer "${layer.id}" — text-opacity non-constant form could not be converted.`,
+        )
     }
   }
 
@@ -124,12 +133,15 @@ export function convertTextPaintProperties(
     // === 'number' is true; Math.max(0, NaN) = NaN emits invalid
     // `label-size-NaN`).
     if (textSize < 0) {
-      warnings.push(`Symbol layer "${layer.id}" — text-size ${textSize} is negative; Mapbox spec requires >= 0. Clamped to 0 (labels won't render at this zoom).`)
+      warnings.push(
+        `Symbol layer "${layer.id}" — text-size ${textSize} is negative; Mapbox spec requires >= 0. Clamped to 0 (labels won't render at this zoom).`,
+      )
     }
     utils.push(`label-size-${Math.max(0, textSize)}`)
   } else if (textSize !== undefined && textSize !== null) {
-    const interp = interpolateZoomCall(textSize, warnings,
-      (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
+    const interp = interpolateZoomCall(textSize, warnings, (val) =>
+      typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null,
+    )
     if (interp !== null) {
       utils.push(`label-size-[${interp}]`)
     } else {
@@ -140,7 +152,9 @@ export function convertTextPaintProperties(
       if (expr !== null) {
         utils.push(`label-size-[${expr}]`)
       } else {
-        warnings.push(`Symbol layer "${layer.id}" — text-size expression form not converted: ${JSON.stringify(textSize).slice(0, 80)}`)
+        warnings.push(
+          `Symbol layer "${layer.id}" — text-size expression form not converted: ${JSON.stringify(textSize).slice(0, 80)}`,
+        )
         utils.push('label-size-16')
       }
     }
@@ -160,14 +174,17 @@ export function convertTextPaintProperties(
     // guard a negative literal fell through to the else-if interp
     // path and emitted label-halo-[-N] as a bracket binding.
     if (haloWidth < 0) {
-      warnings.push(`Symbol layer "${layer.id}" — text-halo-width ${haloWidth} is negative; Mapbox spec requires >= 0. Skipped (no halo).`)
+      warnings.push(
+        `Symbol layer "${layer.id}" — text-halo-width ${haloWidth} is negative; Mapbox spec requires >= 0. Skipped (no halo).`,
+      )
     }
     if (haloWidth > 0) utils.push(`label-halo-${haloWidth}`)
   } else if (haloWidth !== undefined && haloWidth !== null) {
     // Same negative-clamp guard as text-size — Mapbox spec
     // text-halo-width >= 0.
-    const interp = interpolateZoomCall(haloWidth, warnings,
-      (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
+    const interp = interpolateZoomCall(haloWidth, warnings, (val) =>
+      typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null,
+    )
     if (interp !== null) {
       utils.push(`label-halo-[${interp}]`)
     } else {
@@ -207,11 +224,12 @@ export function convertTextPaintProperties(
   const haloBlur = unwrapLiteralScalar(paint['text-halo-blur'])
   if (typeof haloBlur === 'number' && Number.isFinite(haloBlur)) {
     if (haloBlur < 0) {
-      warnings.push(`Symbol layer "${layer.id}" — text-halo-blur ${haloBlur} is negative; Mapbox spec requires >= 0. Skipped (no halo blur).`)
+      warnings.push(
+        `Symbol layer "${layer.id}" — text-halo-blur ${haloBlur} is negative; Mapbox spec requires >= 0. Skipped (no halo blur).`,
+      )
     }
     if (haloBlur > 0) utils.push(`label-halo-blur-${haloBlur}`)
   }
-
 }
 
 /** ICON pass — icon-image / icon-size / icon-anchor / icon-offset / icon-rotate /
@@ -243,7 +261,9 @@ export function convertIconProperties(
     if (expr !== null) {
       utils.push(`label-icon-image-[${expr}]`)
     } else {
-      warnings.push(`Symbol layer "${layer.id}" — icon-image expression could not be converted: ${JSON.stringify(iconImage).slice(0, 80)}`)
+      warnings.push(
+        `Symbol layer "${layer.id}" — icon-image expression could not be converted: ${JSON.stringify(iconImage).slice(0, 80)}`,
+      )
     }
   }
   // icon-size — Mapbox spec: >= 0, default 1. Pre-fix the typeof
@@ -259,20 +279,22 @@ export function convertIconProperties(
   const iconSize = unwrapLiteralScalar(layout['icon-size'])
   if (typeof iconSize === 'number' && Number.isFinite(iconSize)) {
     if (iconSize < 0) {
-      warnings.push(`Symbol layer "${layer.id}" — icon-size ${iconSize} is negative; Mapbox spec requires >= 0. Clamped to 0 (icon hidden).`)
+      warnings.push(
+        `Symbol layer "${layer.id}" — icon-size ${iconSize} is negative; Mapbox spec requires >= 0. Clamped to 0 (icon hidden).`,
+      )
     }
     const clamped = Math.max(0, iconSize)
     if (clamped !== 1) utils.push(`label-icon-size-${fmtSigned(clamped)}`)
-  } else if (iconSize !== undefined && iconSize !== null
-      && typeof iconSize !== 'number') {
+  } else if (iconSize !== undefined && iconSize !== null && typeof iconSize !== 'number') {
     // Non-constant icon-size — zoom-interp emits the bracket binding
     // form `label-icon-size-[interpolate(zoom, …)]` which lower.ts
     // (iter 523 arm) accumulates into LabelDef.shapes.iconSize as a
     // ZoomStop list. Per-frame resolve at map.ts dispatchIcon. Data-
     // driven (case / match / get) doesn't yet have a path through the
     // labelIconSize accumulator; falls through to the warning.
-    const interp = interpolateZoomCall(iconSize, warnings,
-      (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
+    const interp = interpolateZoomCall(iconSize, warnings, (val) =>
+      typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null,
+    )
     if (interp !== null) {
       utils.push(`label-icon-size-[${interp}]`)
     } else {
@@ -288,24 +310,39 @@ export function convertIconProperties(
     // diagnostic. Warn at convert-time on enum mismatch — mirror
     // of the symbol-placement / text-transform enum validators
     // earlier in this function.
-    const validIconAnchors = ['center', 'top', 'bottom', 'left', 'right',
-      'top-left', 'top-right', 'bottom-left', 'bottom-right']
+    const validIconAnchors = [
+      'center',
+      'top',
+      'bottom',
+      'left',
+      'right',
+      'top-left',
+      'top-right',
+      'bottom-left',
+      'bottom-right',
+    ]
     if (!validIconAnchors.includes(iconAnchor)) {
-      warnings.push(`Symbol layer "${layer.id}" — icon-anchor "${iconAnchor.slice(0, 40)}" is not a valid enum value; expected one of: ${validIconAnchors.join(', ')}.`)
+      warnings.push(
+        `Symbol layer "${layer.id}" — icon-anchor "${iconAnchor.slice(0, 40)}" is not a valid enum value; expected one of: ${validIconAnchors.join(', ')}.`,
+      )
     } else if (iconAnchor !== 'center') {
       utils.push(`label-icon-anchor-${iconAnchor}`)
     }
   }
   // Per-element v8 literal-wrap unwrap (mirror of text-offset / text-translate).
   const iconOffsetRaw = unwrapLiteralTuple(layout['icon-offset'])
-  const iconOffset = Array.isArray(iconOffsetRaw) && iconOffsetRaw.length === 2
-    ? iconOffsetRaw.map(c => {
-        while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
-        return c
-      })
-    : null
-  if (iconOffset !== null
-      && typeof iconOffset[0] === 'number' && typeof iconOffset[1] === 'number') {
+  const iconOffset =
+    Array.isArray(iconOffsetRaw) && iconOffsetRaw.length === 2
+      ? iconOffsetRaw.map((c) => {
+          while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
+          return c
+        })
+      : null
+  if (
+    iconOffset !== null &&
+    typeof iconOffset[0] === 'number' &&
+    typeof iconOffset[1] === 'number'
+  ) {
     // Two utilities so the xgis-utility-name grammar (`-` is the
     // segment separator) can carry signed numbers without a custom
     // string-comma syntax. Mirrors the `label-offset-x-N` /
@@ -328,13 +365,18 @@ export function convertIconProperties(
   const iconRotAlign = unwrapLiteralScalar(layout['icon-rotation-alignment'])
   if (iconRotAlign === 'map') {
     utils.push('label-icon-rotation-alignment-map')
-  } else if (typeof iconRotAlign === 'string'
-      && iconRotAlign !== 'viewport' && iconRotAlign !== 'auto') {
+  } else if (
+    typeof iconRotAlign === 'string' &&
+    iconRotAlign !== 'viewport' &&
+    iconRotAlign !== 'auto'
+  ) {
     // Mapbox spec: icon-rotation-alignment enum is one of
     // map / viewport / auto. Unknown values (typos like "MAP" /
     // "screen") would silently fall through to X-GIS' default
     // (viewport-aligned icons) without diagnostic.
-    warnings.push(`Symbol layer "${layer.id}" — icon-rotation-alignment "${iconRotAlign.slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport' | 'auto'.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — icon-rotation-alignment "${iconRotAlign.slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport' | 'auto'.`,
+    )
   }
 
   // icon-opacity (paint property) — Mapbox alpha multiplier on icon
@@ -347,15 +389,20 @@ export function convertIconProperties(
   if (typeof iconOpacity === 'number' && Number.isFinite(iconOpacity) && iconOpacity !== 1) {
     utils.push(`label-icon-opacity-${Math.max(0, Math.min(1, iconOpacity))}`)
   } else if (iconOpacity !== undefined && iconOpacity !== null && typeof iconOpacity !== 'number') {
-    const interp = interpolateZoomCall(paint['icon-opacity'], warnings,
-      (val) => typeof val === 'number' && Number.isFinite(val)
-        ? String(Math.max(0, Math.min(1, val))) : null)
+    const interp = interpolateZoomCall(paint['icon-opacity'], warnings, (val) =>
+      typeof val === 'number' && Number.isFinite(val)
+        ? String(Math.max(0, Math.min(1, val)))
+        : null,
+    )
     if (interp !== null) {
       utils.push(`label-icon-opacity-[${interp}]`)
     } else {
       const expr = exprToXgis(paint['icon-opacity'], warnings)
       if (expr !== null) utils.push(`label-icon-opacity-[${expr}]`)
-      else warnings.push(`Symbol layer "${layer.id}" — icon-opacity non-constant form could not be converted.`)
+      else
+        warnings.push(
+          `Symbol layer "${layer.id}" — icon-opacity non-constant form could not be converted.`,
+        )
     }
   }
 
@@ -379,7 +426,10 @@ export function convertIconProperties(
       } else {
         const expr = exprToXgis(iconColor, warnings)
         if (expr !== null) utils.push(`label-icon-color-[${expr}]`)
-        else warnings.push(`Symbol layer "${layer.id}" — icon-color non-constant form could not be converted.`)
+        else
+          warnings.push(
+            `Symbol layer "${layer.id}" — icon-color non-constant form could not be converted.`,
+          )
       }
     }
   }
@@ -389,13 +439,19 @@ export function convertIconProperties(
   // and need an SDF icon path. Surface specific gap warnings rather
   // than burying in the generic ignoredText blob.
   if (paint['icon-halo-color'] !== undefined && paint['icon-halo-color'] !== null) {
-    warnings.push(`Symbol layer "${layer.id}" — icon-halo-color set but X-GIS' IconStage doesn't yet support SDF icon halos (Plan §4 deferred — needs an SDF icon rendering path; PNG sprites can't carry a halo).`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — icon-halo-color set but X-GIS' IconStage doesn't yet support SDF icon halos (Plan §4 deferred — needs an SDF icon rendering path; PNG sprites can't carry a halo).`,
+    )
   }
   if (paint['icon-halo-width'] !== undefined && paint['icon-halo-width'] !== null) {
-    warnings.push(`Symbol layer "${layer.id}" — icon-halo-width set but X-GIS' IconStage has no SDF icon halo path (Plan §4 — see icon-halo-color).`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — icon-halo-width set but X-GIS' IconStage has no SDF icon halo path (Plan §4 — see icon-halo-color).`,
+    )
   }
   if (paint['icon-halo-blur'] !== undefined && paint['icon-halo-blur'] !== null) {
-    warnings.push(`Symbol layer "${layer.id}" — icon-halo-blur set but X-GIS' IconStage has no SDF icon halo path (Plan §4 — see icon-halo-color).`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — icon-halo-blur set but X-GIS' IconStage has no SDF icon halo path (Plan §4 — see icon-halo-color).`,
+    )
   }
   // icon-text-fit: stretch icon to fit text bbox per Mapbox spec
   // (`none` / `width` / `height` / `both`). X-GIS' IconStage emits
@@ -403,9 +459,10 @@ export function convertIconProperties(
   // a different vertex placement pipeline (Plan §4).
   const iconTextFitRaw = unwrapLiteralScalar(layout['icon-text-fit'])
   if (typeof iconTextFitRaw === 'string' && iconTextFitRaw !== 'none') {
-    warnings.push(`Symbol layer "${layer.id}" — icon-text-fit "${iconTextFitRaw}" set but X-GIS' IconStage doesn't stretch icons to text bbox yet (Plan §4 deferred — needs per-label-bbox quad placement). Icon renders at its native icon-size.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — icon-text-fit "${iconTextFitRaw}" set but X-GIS' IconStage doesn't stretch icons to text bbox yet (Plan §4 deferred — needs per-label-bbox quad placement). Icon renders at its native icon-size.`,
+    )
   }
-
 }
 
 /** GAP-WARNINGS pass — deferred specific-gap notes (text-writing-mode,
@@ -422,9 +479,14 @@ export function convertGapWarnings(
   // advances horizontally only; vertical text needs a per-glyph
   // rotation + advance flip path. Surface specific gap.
   const writingModeRaw = unwrapLiteralTuple(layout['text-writing-mode'])
-  if (Array.isArray(writingModeRaw) && writingModeRaw.length > 0
-      && !(writingModeRaw.length === 1 && writingModeRaw[0] === 'horizontal')) {
-    warnings.push(`Symbol layer "${layer.id}" — text-writing-mode set but X-GIS' TextStage walks glyph advances horizontally only; CJK / Arabic vertical text needs per-glyph rotation + advance flip (Plan §4 deferred).`)
+  if (
+    Array.isArray(writingModeRaw) &&
+    writingModeRaw.length > 0 &&
+    !(writingModeRaw.length === 1 && writingModeRaw[0] === 'horizontal')
+  ) {
+    warnings.push(
+      `Symbol layer "${layer.id}" — text-writing-mode set but X-GIS' TextStage walks glyph advances horizontally only; CJK / Arabic vertical text needs per-glyph rotation + advance flip (Plan §4 deferred).`,
+    )
   }
   // text-max-angle is now threaded end-to-end (label-max-angle-N →
   // LabelDef.maxAngle → curved-label angular gate). Emit handled in
@@ -438,7 +500,9 @@ export function convertGapWarnings(
   // reflected. Surface so the author knows the knob doesn't apply.
   const avoidEdgesRaw = unwrapLiteralScalar(layout['symbol-avoid-edges'])
   if (avoidEdgesRaw === true) {
-    warnings.push(`Symbol layer "${layer.id}" — symbol-avoid-edges: true set but X-GIS uses cross-tile collision so labels at tile seams aren't double-rendered. The avoid-edges knob is moot for this rendering model — no effect.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — symbol-avoid-edges: true set but X-GIS uses cross-tile collision so labels at tile seams aren't double-rendered. The avoid-edges knob is moot for this rendering model — no effect.`,
+    )
   }
 
   const ignoredText: string[] = []
@@ -498,9 +562,10 @@ export function convertGapWarnings(
     }
   }
   if (ignoredText.length > 0) {
-    warnings.push(`Symbol layer "${layer.id}" — ignored properties (Batch 1d/1e+): ${ignoredText.join(', ')}`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — ignored properties (Batch 1d/1e+): ${ignoredText.join(', ')}`,
+    )
   }
-
 }
 
 /** TEXT-LAYOUT pass - text-anchor / variable-anchor[-offset] / text-transform /
@@ -588,7 +653,9 @@ export function convertTextLayoutProperties(
   }
   if (invalidAnchors.length > 0) {
     const valid = [...VALID_ANCHORS].join(', ')
-    warnings.push(`Symbol layer "${layer.id}" — text-anchor / text-variable-anchor contains invalid enum value(s): ${invalidAnchors.map(s => `"${s}"`).join(', ')}; expected one of: ${valid}.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — text-anchor / text-variable-anchor contains invalid enum value(s): ${invalidAnchors.map((s) => `"${s}"`).join(', ')}; expected one of: ${valid}.`,
+    )
   }
 
   // text-transform → label-uppercase / lowercase / none.
@@ -601,7 +668,9 @@ export function convertTextLayoutProperties(
     // — expression-shaped values (objects/arrays from interpolate /
     // case / etc.) are valid data-driven inputs even though X-GIS
     // doesn't lower them yet.
-    warnings.push(`Symbol layer "${layer.id}" — text-transform "${transform.slice(0, 40)}" is not a valid enum; expected 'none' | 'uppercase' | 'lowercase'.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — text-transform "${transform.slice(0, 40)}" is not a valid enum; expected 'none' | 'uppercase' | 'lowercase'.`,
+    )
   }
 
   // text-offset → label-offset-x-N + label-offset-y-N (em-units).
@@ -611,9 +680,13 @@ export function convertTextLayoutProperties(
   // utility-name grammar treats `-` as a segment separator — emitting
   // `label-offset-y--0.2` would lex as a malformed double-dash name.
   const offset = unwrapPairScalars(unwrapLiteralTuple(layout['text-offset']))
-  if (offset !== null
-      && typeof offset[0] === 'number' && Number.isFinite(offset[0])
-      && typeof offset[1] === 'number' && Number.isFinite(offset[1])) {
+  if (
+    offset !== null &&
+    typeof offset[0] === 'number' &&
+    Number.isFinite(offset[0]) &&
+    typeof offset[1] === 'number' &&
+    Number.isFinite(offset[1])
+  ) {
     if (offset[0] !== 0) utils.push(`label-offset-x-${fmtSigned(offset[0])}`)
     if (offset[1] !== 0) utils.push(`label-offset-y-${fmtSigned(offset[1])}`)
   }
@@ -623,9 +696,13 @@ export function convertTextLayoutProperties(
   // an 8-px upward shift). Negatives ride the bracket form like
   // text-offset.
   const translate = unwrapPairScalars(unwrapLiteralTuple(paint['text-translate']))
-  if (translate !== null
-      && typeof translate[0] === 'number' && Number.isFinite(translate[0])
-      && typeof translate[1] === 'number' && Number.isFinite(translate[1])) {
+  if (
+    translate !== null &&
+    typeof translate[0] === 'number' &&
+    Number.isFinite(translate[0]) &&
+    typeof translate[1] === 'number' &&
+    Number.isFinite(translate[1])
+  ) {
     if (translate[0] !== 0) utils.push(`label-translate-x-${fmtSigned(translate[0])}`)
     if (translate[1] !== 0) utils.push(`label-translate-y-${fmtSigned(translate[1])}`)
   }
@@ -635,8 +712,11 @@ export function convertTextLayoutProperties(
   // the map bearing (mirror of fill/line Phase S Batch 2). No-op without
   // a parent text-translate, so only emit the flag when both are present.
   const textTranslateAnchor = unwrapLiteralScalar(paint['text-translate-anchor'])
-  if (textTranslateAnchor === 'map'
-      && paint['text-translate'] !== undefined && paint['text-translate'] !== null) {
+  if (
+    textTranslateAnchor === 'map' &&
+    paint['text-translate'] !== undefined &&
+    paint['text-translate'] !== null
+  ) {
     utils.push('label-translate-anchor-map')
   }
   // icon-translate (paint) — CSS-px viewport offset that applies ONLY
@@ -649,19 +729,26 @@ export function convertTextLayoutProperties(
   // icon-translate-anchor: viewport (default) is the honoured mode; a
   // map-space anchor would shift in world coords (not implemented).
   const iconTranslateRaw = unwrapLiteralTuple(paint['icon-translate'])
-  const iconTranslate = Array.isArray(iconTranslateRaw) && iconTranslateRaw.length === 2
-    ? iconTranslateRaw.map(c => {
-        while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
-        return c
-      })
-    : null
-  if (iconTranslate !== null
-      && typeof iconTranslate[0] === 'number' && Number.isFinite(iconTranslate[0])
-      && typeof iconTranslate[1] === 'number' && Number.isFinite(iconTranslate[1])) {
+  const iconTranslate =
+    Array.isArray(iconTranslateRaw) && iconTranslateRaw.length === 2
+      ? iconTranslateRaw.map((c) => {
+          while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
+          return c
+        })
+      : null
+  if (
+    iconTranslate !== null &&
+    typeof iconTranslate[0] === 'number' &&
+    Number.isFinite(iconTranslate[0]) &&
+    typeof iconTranslate[1] === 'number' &&
+    Number.isFinite(iconTranslate[1])
+  ) {
     if (iconTranslate[0] !== 0) utils.push(`label-icon-translate-x-${fmtSigned(iconTranslate[0])}`)
     if (iconTranslate[1] !== 0) utils.push(`label-icon-translate-y-${fmtSigned(iconTranslate[1])}`)
   } else if (paint['icon-translate'] !== undefined && paint['icon-translate'] !== null) {
-    warnings.push(`Symbol layer "${layer.id}" — icon-translate non-constant form (expression / interpolate) not yet supported; the constant [dx, dy] form is. Offset dropped.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — icon-translate non-constant form (expression / interpolate) not yet supported; the constant [dx, dy] form is. Offset dropped.`,
+    )
   }
   // icon-translate-anchor: viewport (default) keeps icon-translate in
   // screen space (byte-identical) — emit nothing. "map" anchors the
@@ -669,8 +756,11 @@ export function convertTextLayoutProperties(
   // bearing before the anchor add (mirror of text-translate-anchor /
   // fill/line Phase S Batch 2). No-op without a parent icon-translate.
   const iconTranslateAnchor = unwrapLiteralScalar(paint['icon-translate-anchor'])
-  if (iconTranslateAnchor === 'map'
-      && paint['icon-translate'] !== undefined && paint['icon-translate'] !== null) {
+  if (
+    iconTranslateAnchor === 'map' &&
+    paint['icon-translate'] !== undefined &&
+    paint['icon-translate'] !== null
+  ) {
     utils.push('label-icon-translate-anchor-map')
   }
   // text-radial-offset (em) → label-radial-offset-N. Only meaningful
@@ -703,16 +793,22 @@ export function convertTextLayoutProperties(
       const offRaw = unwrapLiteralTuple(variableAnchorOffset![i + 1])
       // Per-element scalar wrap unwrap so `[["literal", 0], ["literal", -1]]`
       // resolves correctly. Mirror of text-offset / icon-offset.
-      const off = Array.isArray(offRaw) && offRaw.length === 2
-        ? offRaw.map(c => {
-            while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
-            return c
-          })
-        : null
-      if (typeof a === 'string' && VALID_ANCHORS.has(a)
-          && off !== null
-          && typeof off[0] === 'number' && Number.isFinite(off[0])
-          && typeof off[1] === 'number' && Number.isFinite(off[1])) {
+      const off =
+        Array.isArray(offRaw) && offRaw.length === 2
+          ? offRaw.map((c) => {
+              while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
+              return c
+            })
+          : null
+      if (
+        typeof a === 'string' &&
+        VALID_ANCHORS.has(a) &&
+        off !== null &&
+        typeof off[0] === 'number' &&
+        Number.isFinite(off[0]) &&
+        typeof off[1] === 'number' &&
+        Number.isFinite(off[1])
+      ) {
         utils.push(`label-anchor-${a}`)
         if (off[0] !== 0) utils.push(`label-vao-${idx}-x-${fmtSigned(off[0])}`)
         if (off[1] !== 0) utils.push(`label-vao-${idx}-y-${fmtSigned(off[1])}`)
@@ -746,11 +842,15 @@ export function convertTextLayoutProperties(
     utils.push('label-allow-overlap')
   } else if (textOverlap === 'cooperative') {
     utils.push('label-allow-overlap')
-    warnings.push(`Symbol layer "${layer.id}" — text-overlap: "cooperative" approximated as "always" (priority-aware collision pending).`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — text-overlap: "cooperative" approximated as "always" (priority-aware collision pending).`,
+    )
   } else if (textOverlap === 'never') {
     // Default — no utility needed.
   } else if (textOverlap !== undefined && textOverlap !== null) {
-    warnings.push(`Symbol layer "${layer.id}" — unrecognised text-overlap value ${JSON.stringify(textOverlap)}; ignored.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — unrecognised text-overlap value ${JSON.stringify(textOverlap)}; ignored.`,
+    )
   } else if (textAllowOverlap === true) {
     // Legacy fallback only when the new property is absent.
     utils.push('label-allow-overlap')
@@ -765,7 +865,9 @@ export function convertTextLayoutProperties(
   if (typeof sortKey === 'number' && Number.isFinite(sortKey)) {
     utils.push(`label-sort-key-${fmtSigned(sortKey)}`)
   } else if (sortKey !== undefined && sortKey !== null) {
-    warnings.push(`Symbol layer "${layer.id}" — symbol-sort-key expression form not supported yet; flattened to 0.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — symbol-sort-key expression form not supported yet; flattened to 0.`,
+    )
   }
   // icon-overlap / icon-allow-overlap / icon-ignore-placement —
   // icon-side collision policy (Phase S Batch 4). Icon and text
@@ -797,18 +899,29 @@ export function convertTextLayoutProperties(
   // icon collision queue.
   const iconOverlap = unwrapLiteralScalar(layout['icon-overlap'])
   const iconAllowOverlap = unwrapLiteralScalar(layout['icon-allow-overlap'])
-  if (iconOverlap !== undefined && iconOverlap !== null
-      && iconOverlap !== 'always' && iconOverlap !== 'never' && iconOverlap !== 'cooperative') {
-    warnings.push(`Symbol layer "${layer.id}" — unrecognised icon-overlap value ${JSON.stringify(iconOverlap)}; ignored.`)
+  if (
+    iconOverlap !== undefined &&
+    iconOverlap !== null &&
+    iconOverlap !== 'always' &&
+    iconOverlap !== 'never' &&
+    iconOverlap !== 'cooperative'
+  ) {
+    warnings.push(
+      `Symbol layer "${layer.id}" — unrecognised icon-overlap value ${JSON.stringify(iconOverlap)}; ignored.`,
+    )
   }
   // icon-overlap (MapLibre enum) wins over the legacy icon-allow-overlap
   // boolean when both are present, mirroring the text-overlap precedence
   // rule above. 'cooperative' approximates to 'never' (collide) with a
   // warning since X-GIS lacks priority-aware icon arbitration.
-  const iconCollides = iconOverlap === 'never' || iconOverlap === 'cooperative'
-    || (iconOverlap === undefined && iconAllowOverlap === false)
+  const iconCollides =
+    iconOverlap === 'never' ||
+    iconOverlap === 'cooperative' ||
+    (iconOverlap === undefined && iconAllowOverlap === false)
   if (iconOverlap === 'cooperative') {
-    warnings.push(`Symbol layer "${layer.id}" — icon-overlap: "cooperative" approximated as "never" (priority-aware icon collision pending).`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — icon-overlap: "cooperative" approximated as "never" (priority-aware icon collision pending).`,
+    )
   }
   if (iconCollides) {
     utils.push('label-icon-collide')
@@ -823,18 +936,22 @@ export function convertTextLayoutProperties(
   if (unwrapLiteralScalar(layout['icon-ignore-placement']) === true) {
     utils.push('label-icon-ignore-placement')
   }
-  if (unwrapLiteralScalar(layout['text-ignore-placement']) === true) utils.push('label-ignore-placement')
+  if (unwrapLiteralScalar(layout['text-ignore-placement']) === true)
+    utils.push('label-ignore-placement')
   const padding = unwrapLiteralScalar(layout['text-padding'])
   if (typeof padding === 'number' && Number.isFinite(padding)) {
     // Mapbox spec: text-padding >= 0. Number.isFinite gate rejects
     // NaN / Infinity slipping past the typeof check.
     if (padding < 0) {
-      warnings.push(`Symbol layer "${layer.id}" — text-padding ${padding} is negative; Mapbox spec requires >= 0. Clamped to 0.`)
+      warnings.push(
+        `Symbol layer "${layer.id}" — text-padding ${padding} is negative; Mapbox spec requires >= 0. Clamped to 0.`,
+      )
     }
     utils.push(`label-padding-${Math.max(0, padding)}`)
   } else if (padding !== undefined && padding !== null) {
-    const interp = interpolateZoomCall(padding, warnings,
-      (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
+    const interp = interpolateZoomCall(padding, warnings, (val) =>
+      typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null,
+    )
     if (interp !== null) utils.push(`label-padding-[${interp}]`)
   }
 
@@ -849,7 +966,9 @@ export function convertTextLayoutProperties(
   // alignment viewport/auto suppression.
   const iconPadding = unwrapLiteralScalar(layout['icon-padding'])
   if (typeof iconPadding === 'number' && Number.isFinite(iconPadding) && iconPadding !== 2) {
-    warnings.push(`Symbol layer "${layer.id}" — icon-padding ${iconPadding} declared but X-GIS has no icon-side collision queue yet (Phase C.9); icons will pack at the spec-default spacing.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — icon-padding ${iconPadding} declared but X-GIS has no icon-side collision queue yet (Phase C.9); icons will pack at the spec-default spacing.`,
+    )
   } else if (iconPadding !== undefined && iconPadding !== null && typeof iconPadding !== 'number') {
     warnings.push(`Symbol layer "${layer.id}" — icon-padding non-constant form not yet supported.`)
   }
@@ -870,7 +989,9 @@ export function convertTextLayoutProperties(
   // regress the lossless metric.
   const textOptional = unwrapLiteralScalar(layout['text-optional'])
   if (textOptional === true) {
-    warnings.push(`Symbol layer "${layer.id}" — text-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The label may be dropped at zoom levels where MapLibre would render icon-only.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — text-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The label may be dropped at zoom levels where MapLibre would render icon-only.`,
+    )
   }
   // icon-optional: true — the icon may be hidden when it collides while
   // its paired text still shows (Phase S Batch 4). When the icon joins
@@ -905,8 +1026,9 @@ export function convertTextLayoutProperties(
     // the diagnostic warning path at lower.ts:957) so the binding
     // surfaces a warn-level diagnostic on emit. Mirror of the
     // letter-spacing / max-width zoom-interp paths below.
-    const interp = interpolateZoomCall(rotate, warnings,
-      (val) => typeof val === 'number' && Number.isFinite(val) ? String(val) : null)
+    const interp = interpolateZoomCall(rotate, warnings, (val) =>
+      typeof val === 'number' && Number.isFinite(val) ? String(val) : null,
+    )
     if (interp !== null) {
       utils.push(`label-rotate-[${interp}]`)
     } else {
@@ -917,9 +1039,14 @@ export function convertTextLayoutProperties(
   const letterSpacing = unwrapLiteralScalar(layout['text-letter-spacing'])
   if (typeof letterSpacing === 'number' && Number.isFinite(letterSpacing) && letterSpacing !== 0) {
     utils.push(`label-letter-spacing-${fmtSigned(letterSpacing)}`)
-  } else if (letterSpacing !== undefined && letterSpacing !== null && typeof letterSpacing !== 'number') {
-    const interp = interpolateZoomCall(letterSpacing, warnings,
-      (val) => typeof val === 'number' && Number.isFinite(val) ? String(val) : null)
+  } else if (
+    letterSpacing !== undefined &&
+    letterSpacing !== null &&
+    typeof letterSpacing !== 'number'
+  ) {
+    const interp = interpolateZoomCall(letterSpacing, warnings, (val) =>
+      typeof val === 'number' && Number.isFinite(val) ? String(val) : null,
+    )
     if (interp !== null) utils.push(`label-letter-spacing-[${interp}]`)
   }
 
@@ -939,14 +1066,17 @@ export function convertTextLayoutProperties(
   // handles the `["step", ["zoom"], …]` shape and feeds the segment's
   // resolved placement through overrides.placement, which is always
   // a bare string by construction.
-  const placement: unknown = overrides?.placement !== undefined
-    ? overrides.placement
-    : unwrapLiteralScalar(layout['symbol-placement'])
+  const placement: unknown =
+    overrides?.placement !== undefined
+      ? overrides.placement
+      : unwrapLiteralScalar(layout['symbol-placement'])
   if (typeof maxWidth === 'number' && Number.isFinite(maxWidth)) {
     // Mapbox spec: text-max-width >= 0 (em units). Number.isFinite
     // rejects NaN / Infinity.
     if (maxWidth < 0) {
-      warnings.push(`Symbol layer "${layer.id}" — text-max-width ${maxWidth} is negative; Mapbox spec requires >= 0. Clamped to 0 (label wraps every character).`)
+      warnings.push(
+        `Symbol layer "${layer.id}" — text-max-width ${maxWidth} is negative; Mapbox spec requires >= 0. Clamped to 0 (label wraps every character).`,
+      )
     }
     utils.push(`label-max-width-${Math.max(0, maxWidth)}`)
   } else if (placement !== 'line' && placement !== 'line-center') {
@@ -956,7 +1086,9 @@ export function convertTextLayoutProperties(
   // Spec: text-line-height >= 0 (em units).
   if (typeof lineHeight === 'number' && Number.isFinite(lineHeight)) {
     if (lineHeight < 0) {
-      warnings.push(`Symbol layer "${layer.id}" — text-line-height ${lineHeight} is negative; Mapbox spec requires >= 0. Clamped to 0.`)
+      warnings.push(
+        `Symbol layer "${layer.id}" — text-line-height ${lineHeight} is negative; Mapbox spec requires >= 0. Clamped to 0.`,
+      )
     }
     utils.push(`label-line-height-${Math.max(0, lineHeight)}`)
   }
@@ -967,7 +1099,9 @@ export function convertTextLayoutProperties(
     // Mapbox spec: text-justify must be 'auto' | 'left' | 'center'
     // | 'right'. Only flag string values — expression-shaped values
     // pass through to downstream handling.
-    warnings.push(`Symbol layer "${layer.id}" — text-justify "${justify.slice(0, 40)}" is not a valid enum value; expected 'auto' | 'left' | 'center' | 'right'.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — text-justify "${justify.slice(0, 40)}" is not a valid enum value; expected 'auto' | 'left' | 'center' | 'right'.`,
+    )
   }
 
   // text-font: ["Noto Sans Regular", "Noto Sans CJK KR Regular"] →
@@ -1000,9 +1134,14 @@ export function convertTextLayoutProperties(
   // name). A single string ("Noto Sans Regular" instead of ["Noto Sans
   // Regular"]) is a spec violation — silently dropped by the
   // Array.isArray gate below. Surface so the author sees the typo.
-  if (layout['text-font'] !== undefined && layout['text-font'] !== null
-      && !Array.isArray(fontStack)) {
-    warnings.push(`Symbol layer "${layer.id}" — text-font must be an array of strings per Mapbox spec; got ${typeof layout['text-font']} (${JSON.stringify(layout['text-font']).slice(0, 60)}). Authored font dropped — labels render with the runtime fallback font.`)
+  if (
+    layout['text-font'] !== undefined &&
+    layout['text-font'] !== null &&
+    !Array.isArray(fontStack)
+  ) {
+    warnings.push(
+      `Symbol layer "${layer.id}" — text-font must be an array of strings per Mapbox spec; got ${typeof layout['text-font']} (${JSON.stringify(layout['text-font']).slice(0, 60)}). Authored font dropped — labels render with the runtime fallback font.`,
+    )
   }
   if (Array.isArray(fontStack) && fontStack.length > 0) {
     let emittedWeight: number | undefined
@@ -1041,7 +1180,9 @@ export function convertTextLayoutProperties(
   else if (typeof placement === 'string' && placement !== 'point') {
     // Mapbox spec: symbol-placement must be 'point' | 'line' |
     // 'line-center'. Only flag string values not in the enum.
-    warnings.push(`Symbol layer "${layer.id}" — symbol-placement "${placement.slice(0, 40)}" is not a valid enum; expected 'point' | 'line' | 'line-center'.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — symbol-placement "${placement.slice(0, 40)}" is not a valid enum; expected 'point' | 'line' | 'line-center'.`,
+    )
   }
 
   // text-rotation-alignment / text-pitch-alignment — Mapbox knobs
@@ -1060,7 +1201,9 @@ export function convertTextLayoutProperties(
   if (rotAlign === 'map' || rotAlign === 'viewport' || rotAlign === 'auto') {
     utils.push(`label-rotation-alignment-${rotAlign}`)
   } else if (typeof rotAlign === 'string') {
-    warnings.push(`Symbol layer "${layer.id}" — text-rotation-alignment "${rotAlign.slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport' | 'auto'.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — text-rotation-alignment "${rotAlign.slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport' | 'auto'.`,
+    )
   }
   const pitchAlign = unwrapLiteralScalar(layout['text-pitch-alignment'])
   if (pitchAlign === 'map' || pitchAlign === 'viewport' || pitchAlign === 'auto') {
@@ -1072,10 +1215,14 @@ export function convertTextLayoutProperties(
     // styles know why their map-aligned labels still look upright.
     // Plan §3.1 deferred — needs text-stage ground projection.
     if (pitchAlign === 'map') {
-      warnings.push(`Symbol layer "${layer.id}" — text-pitch-alignment "map" set but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented.`)
+      warnings.push(
+        `Symbol layer "${layer.id}" — text-pitch-alignment "map" set but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented.`,
+      )
     }
   } else if (typeof pitchAlign === 'string') {
-    warnings.push(`Symbol layer "${layer.id}" — text-pitch-alignment "${pitchAlign.slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport' | 'auto'.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — text-pitch-alignment "${pitchAlign.slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport' | 'auto'.`,
+    )
   }
 
   // symbol-spacing — distance between repeated labels along a line
@@ -1086,7 +1233,9 @@ export function convertTextLayoutProperties(
   if (placement === 'line') {
     if (typeof symbolSpacing === 'number' && Number.isFinite(symbolSpacing)) {
       if (symbolSpacing <= 0) {
-        warnings.push(`Symbol layer "${layer.id}" — symbol-spacing ${symbolSpacing} is not positive; Mapbox spec requires > 0. Falling back to default 250 px.`)
+        warnings.push(
+          `Symbol layer "${layer.id}" — symbol-spacing ${symbolSpacing} is not positive; Mapbox spec requires > 0. Falling back to default 250 px.`,
+        )
         utils.push('label-spacing-250')
       } else {
         utils.push(`label-spacing-${symbolSpacing}`)
@@ -1139,6 +1288,8 @@ export function convertTextLayoutProperties(
   if (zOrder === 'viewport-y' || zOrder === 'source' || zOrder === 'auto') {
     utils.push(`label-z-order-${zOrder}`)
   } else if (typeof zOrder === 'string') {
-    warnings.push(`Symbol layer "${layer.id}" — symbol-z-order "${zOrder.slice(0, 40)}" is not a valid enum; expected 'auto' | 'viewport-y' | 'source'.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — symbol-z-order "${zOrder.slice(0, 40)}" is not a valid enum; expected 'auto' | 'viewport-y' | 'source'.`,
+    )
   }
 }

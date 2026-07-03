@@ -23,20 +23,46 @@ import { hexToRgba } from '../ir/render-node'
 /** Mapbox style layer type, narrowed to the ones the spec actually
  *  carries `paint_X` / `layout_X` blocks for. */
 export type SpecLayerType =
-  | 'fill' | 'line' | 'symbol' | 'circle' | 'fill-extrusion'
-  | 'background' | 'heatmap' | 'hillshade' | 'raster'
+  | 'fill'
+  | 'line'
+  | 'symbol'
+  | 'circle'
+  | 'fill-extrusion'
+  | 'background'
+  | 'heatmap'
+  | 'hillshade'
+  | 'raster'
 
 export type SpecCategory = 'paint' | 'layout'
 
 interface SpecPropertyDef {
-  type: 'number' | 'string' | 'boolean' | 'color' | 'array' | 'enum' | 'formatted' | 'resolvedImage' | 'padding' | 'numberArray' | 'colorArray' | 'projectionDefinition' | 'variableAnchorOffsetCollection'
+  type:
+    | 'number'
+    | 'string'
+    | 'boolean'
+    | 'color'
+    | 'array'
+    | 'enum'
+    | 'formatted'
+    | 'resolvedImage'
+    | 'padding'
+    | 'numberArray'
+    | 'colorArray'
+    | 'projectionDefinition'
+    | 'variableAnchorOffsetCollection'
   default?: unknown
   minimum?: number
   maximum?: number
   units?: string
   values?: Record<string, unknown>
   expression?: { interpolated?: boolean; parameters?: string[] }
-  'property-type'?: 'constant' | 'data-driven' | 'data-constant' | 'cross-faded' | 'cross-faded-data-driven' | 'color-ramp'
+  'property-type'?:
+    | 'constant'
+    | 'data-driven'
+    | 'data-constant'
+    | 'cross-faded'
+    | 'cross-faded-data-driven'
+    | 'color-ramp'
 }
 
 /** Lookup the raw spec definition for a single property. Returns
@@ -104,9 +130,7 @@ export function createSpecExpression(
 ): ReturnType<typeof createExpression> {
   const propSpec = specProperty(layerType, category, propertyName)
   if (!propSpec) {
-    throw new Error(
-      `[oracle] unknown spec property: ${category}_${layerType}.${propertyName}`,
-    )
+    throw new Error(`[oracle] unknown spec property: ${category}_${layerType}.${propertyName}`)
   }
   return createExpression(mapboxExpression, propSpec as never)
 }

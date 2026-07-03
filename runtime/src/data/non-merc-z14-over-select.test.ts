@@ -65,9 +65,7 @@ describe('non-merc z=14 over-select — ratio gate vs mercator control', () => {
 
   for (const p of SPHERE_ROUTED) {
     it(`projType ${p}: globeVisibleTiles ≤ 2.2× mercator (was ~8×)`, () => {
-      const n = globeVisibleTiles(
-        SEOUL_LON, SEOUL_LAT, Z, MAX_Z, W, H, PITCH, 0,
-      ).length
+      const n = globeVisibleTiles(SEOUL_LON, SEOUL_LAT, Z, MAX_Z, W, H, PITCH, 0).length
       const ratio = n / mercCount
       // The bug: at z=14 p=75 sphere selector emitted ~189 tiles vs
       // mercator ~24 (7.9×) on 800×800. Memory cites 1322/297=4.5×
@@ -89,7 +87,8 @@ describe('non-merc z=14 over-select — ratio gate vs mercator control', () => {
   // the production-resolution ratio below 2× (i.e. matches the
   // memory's success-criteria ceiling of 600/300).
   it('1280×720 production resolution p=60: ratio ≤ 2× (memory target)', () => {
-    const WP = 1280, HP = 720
+    const WP = 1280,
+      HP = 720
     const cam = new Camera(SEOUL_LON, SEOUL_LAT, Z)
     cam.pitch = 60
     cam.bearing = 0

@@ -25,7 +25,8 @@ describe('matchArmsKey — legacy string-input invariants', () => {
   })
 
   it('hash is non-empty for a real match preamble string', () => {
-    const fill = 'var _mcF1: vec4f = vec4f(0.0, 0.0, 0.0, 0.0); if (field0_id == 0u) { _mcF1 = vec4f(0.78, 0.91, 0.74, 1.0); }'
+    const fill =
+      'var _mcF1: vec4f = vec4f(0.0, 0.0, 0.0, 0.0); if (field0_id == 0u) { _mcF1 = vec4f(0.78, 0.91, 0.74, 1.0); }'
     expect(matchArmsKey(fill, undefined)).toMatch(/^\|m:[a-z0-9]+$/)
   })
 

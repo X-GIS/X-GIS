@@ -26,10 +26,13 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
   // `p['fill-color']` index a char or undefined. Mirror of the
   // expand-color-match guard.
   const rawPaint = (layer as { paint?: unknown }).paint
-  const p = (rawPaint !== null && rawPaint !== undefined
-    && typeof rawPaint === 'object' && !Array.isArray(rawPaint))
-    ? rawPaint as Record<string, unknown>
-    : {}
+  const p =
+    rawPaint !== null &&
+    rawPaint !== undefined &&
+    typeof rawPaint === 'object' &&
+    !Array.isArray(rawPaint)
+      ? (rawPaint as Record<string, unknown>)
+      : {}
 
   if (layer.type === 'fill') {
     emitFillPaint(out, layer, p, warnings)

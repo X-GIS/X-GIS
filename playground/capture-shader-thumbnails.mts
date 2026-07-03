@@ -15,17 +15,21 @@ import { fileURLToPath } from 'node:url'
 import { examples } from '@xgis/shader-dsl/examples'
 import { emitGlslModule, reflect } from '@xgis/shader-dsl'
 
-const W = 640, H = 400, TIME = 3.0
+const W = 640,
+  H = 400,
+  TIME = 3.0
 const outDir = fileURLToPath(new URL('../site/public/shader/', import.meta.url))
 mkdirSync(outDir, { recursive: true })
 
-const payloads = examples.filter((e) => e.renderable).map((e) => ({
-  id: e.id,
-  vertex: emitGlslModule(e.module, 'vertex'),
-  fragment: emitGlslModule(e.module, 'fragment'),
-  reflection: reflect(e.module),
-  controls: e.controls ?? {},
-}))
+const payloads = examples
+  .filter((e) => e.renderable)
+  .map((e) => ({
+    id: e.id,
+    vertex: emitGlslModule(e.module, 'vertex'),
+    fragment: emitGlslModule(e.module, 'fragment'),
+    reflection: reflect(e.module),
+    controls: e.controls ?? {},
+  }))
 
 const code = `(() => {
   const payloads = ${JSON.stringify(payloads)};
@@ -72,11 +76,14 @@ const code = `(() => {
 const browser = await chromium.launch()
 const page = await browser.newPage()
 await page.goto('about:blank')
-const results = await page.evaluate(code) as { id: string; dataURL: string | null }[]
+const results = (await page.evaluate(code)) as { id: string; dataURL: string | null }[]
 await browser.close()
 
 for (const r of results) {
-  if (!r.dataURL) { console.log('XX', r.id, '(no render)'); continue }
+  if (!r.dataURL) {
+    console.log('XX', r.id, '(no render)')
+    continue
+  }
   const b64 = r.dataURL.split(',')[1]
   writeFileSync(`${outDir}${r.id}.jpg`, Buffer.from(b64, 'base64'))
   console.log('OK', `${r.id}.jpg`)

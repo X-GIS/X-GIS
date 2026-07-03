@@ -29,7 +29,9 @@ const MERC_LIMIT = 85.051129
 function makeController(cam: Camera): CameraController {
   const deps: CameraControllerDeps = {
     invalidate: () => {},
-    getCanvas: () => { throw new Error('getCanvas not used in this test') },
+    getCanvas: () => {
+      throw new Error('getCanvas not used in this test')
+    },
     getCtxCanvas: () => undefined,
   }
   return new CameraController(cam, deps)
@@ -176,16 +178,19 @@ describe('centerLatDeg sync contract', () => {
       const mercLatPreserve = mercatorYToLat(cam.centerY)
       // centerY unchanged (pure zoom): the same value the top-of-zoomAt capture
       // saw, so delta === 0 and the pole-ward latitude is carried verbatim.
-      ;(cam as unknown as {
-        _carryCenterLatThroughZoom(l: number, m: number): void
-      })._carryCenterLatThroughZoom(89, mercLatPreserve)
+      ;(
+        cam as unknown as {
+          _carryCenterLatThroughZoom(l: number, m: number): void
+        }
+      )._carryCenterLatThroughZoom(89, mercLatPreserve)
 
       expect(cam.centerLatDeg).toBe(89) // NOT reset to 85.05 — exactly preserved
       expect(mercatorYToLat(cam.centerY)).toBeCloseTo(MERC_LIMIT, 3) // centerY stays bounded
     })
 
     it('CYLINDRICAL: a PURE zoom keeps the invariant centerLatDeg === mercatorYToLat(centerY) byte-exact', () => {
-      const W = 1280, H = 720
+      const W = 1280,
+        H = 720
       const cam = new Camera(0, 70, 3)
       cam.projType = 0
 
@@ -241,7 +246,10 @@ describe('BUG P4 — sphere-family maxBounds preserves pole reach', () => {
     // Bounds whose TRUE north is 88° — well past the Mercator limit. The
     // metre box saturates maxY at the 85.05 value; the sphere family must
     // clamp centerLatDeg against the TRUE 88°, not the saturated metre Y.
-    ctrl.setMaxBounds([[-20, -88], [20, 88]])
+    ctrl.setMaxBounds([
+      [-20, -88],
+      [20, 88],
+    ])
 
     // Drag northward hard. Pre-fix clampCenterToBounds reset centerLatDeg
     // to mercatorYToLat(saturated centerY) = 85.051129 on every step.
@@ -262,7 +270,10 @@ describe('BUG P4 — sphere-family maxBounds preserves pole reach', () => {
     ctrl.setCenter(0, 70)
     // A tighter north of 80° must cap centerLatDeg at 80 even though the
     // sphere could otherwise roll to 90 — bounds are still enforced.
-    ctrl.setMaxBounds([[-20, -80], [20, 80]])
+    ctrl.setMaxBounds([
+      [-20, -80],
+      [20, 80],
+    ])
     cam.pan(0, 600, 1280, 720)
     expect(cam.centerLatDeg).toBeLessThanOrEqual(80 + 1e-6)
     expect(cam.centerLatDeg).toBeCloseTo(80, 2)
@@ -273,7 +284,10 @@ describe('BUG P4 — sphere-family maxBounds preserves pole reach', () => {
     cam.projType = 0 // mercator — cylindrical family, must NOT change
     const ctrl = makeController(cam)
     ctrl.setCenter(0, 80)
-    ctrl.setMaxBounds([[-20, -88], [20, 88]])
+    ctrl.setMaxBounds([
+      [-20, -88],
+      [20, 88],
+    ])
 
     // Drag north hard. The flat clamp caps centerY at the viewport pole
     // limit, then the (unchanged) cylindrical clampCenterToBounds path
@@ -301,7 +315,10 @@ describe('BUG P4 — sphere-family maxBounds preserves pole reach', () => {
     cam.projType = 0
     const ctrl = makeController(cam)
     ctrl.setCenter(0, 70)
-    ctrl.setMaxBounds([[-20, -80], [20, 80]])
+    ctrl.setMaxBounds([
+      [-20, -80],
+      [20, 80],
+    ])
     cam.pan(0, 8000, 1280, 720)
     expect(mercatorYToLat(cam.centerY)).toBeCloseTo(80, 3)
     expect(cam.centerLatDeg).toBe(mercatorYToLat(cam.centerY))

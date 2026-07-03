@@ -1,6 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
 import {
-  captureCanvas, sampleNonBackgroundPixels, colorHistogram,
+  captureCanvas,
+  sampleNonBackgroundPixels,
+  colorHistogram,
   type ColorBucket,
 } from './helpers/visual'
 import { withValidationCapture, clearValidationErrors } from './helpers/validation'
@@ -25,7 +27,9 @@ async function loadFixture(page: Page, id: string): Promise<void> {
     { timeout: TIMEOUT_MS },
   )
   await clearValidationErrors(page)
-  await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+  await page.evaluate(
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+  )
 }
 
 test.describe('X-GIS interaction', () => {
@@ -55,20 +59,18 @@ test.describe('X-GIS interaction', () => {
       // render. Use color histogram for the pin (pure rose is
       // safe — it's opaque) and a non-background sample for the
       // translucent triangle (rgba blended).
-      const buckets: ColorBucket[] = [
-        { name: 'rose', rgb: [244, 63, 94], tolerance: 80 },
-      ]
+      const buckets: ColorBucket[] = [{ name: 'rose', rgb: [244, 63, 94], tolerance: 80 }]
       const hist = await colorHistogram(page, png, buckets)
-      expect(hist.rose,
-        `rose pin: ${(hist.rose * 100).toFixed(2)}% — direct-layer point not rendering`)
-        .toBeGreaterThan(0.001)
+      expect(
+        hist.rose,
+        `rose pin: ${(hist.rose * 100).toFixed(2)}% — direct-layer point not rendering`,
+      ).toBeGreaterThan(0.001)
 
-      const differing = await sampleNonBackgroundPixels(
-        page, png, { r: 6, g: 8, b: 12 }, 50, 400,
-      )
-      expect(differing,
-        `total non-background: ${differing}/400 — bucket 2 (translucent vector) not rendering`)
-        .toBeGreaterThan(6) // pin alone gives ~5; translucent triangle adds at least 1-2 more
+      const differing = await sampleNonBackgroundPixels(page, png, { r: 6, g: 8, b: 12 }, 50, 400)
+      expect(
+        differing,
+        `total non-background: ${differing}/400 — bucket 2 (translucent vector) not rendering`,
+      ).toBeGreaterThan(6) // pin alone gives ~5; translucent triangle adds at least 1-2 more
     })
   })
 
@@ -82,12 +84,11 @@ test.describe('X-GIS interaction', () => {
       // assertion here — composition logic is unit-tested in
       // bucket-scheduler.test.ts.
       const png = await captureCanvas(page)
-      const differing = await sampleNonBackgroundPixels(
-        page, png, { r: 6, g: 8, b: 12 }, 50, 400,
-      )
-      expect(differing,
-        `${differing}/400 pixels — zoom × time composition produced empty canvas`)
-        .toBeGreaterThan(2)
+      const differing = await sampleNonBackgroundPixels(page, png, { r: 6, g: 8, b: 12 }, 50, 400)
+      expect(
+        differing,
+        `${differing}/400 pixels — zoom × time composition produced empty canvas`,
+      ).toBeGreaterThan(2)
     })
   })
 
@@ -102,9 +103,7 @@ test.describe('X-GIS interaction', () => {
       const samples: { differing: number; blue: number; rose: number }[] = []
       for (const ms of [200, 800, 1400, 2000, 2600, 3200]) {
         const png = await captureCanvas(page, { elapsedMsAtLeast: ms })
-        const differing = await sampleNonBackgroundPixels(
-          page, png, { r: 6, g: 8, b: 12 }, 50, 400,
-        )
+        const differing = await sampleNonBackgroundPixels(page, png, { r: 6, g: 8, b: 12 }, 50, 400)
         const r = await colorHistogram(page, png, [
           { name: 'blue', rgb: [59, 130, 246], tolerance: 100 },
           { name: 'rose', rgb: [244, 63, 94], tolerance: 100 },
@@ -112,11 +111,12 @@ test.describe('X-GIS interaction', () => {
         samples.push({ differing, blue: r.blue, rose: r.rose })
       }
       // Both keyframe colors must appear at SOME sample.
-      const sawBlue = samples.some(s => s.blue > 0.005)
-      const sawRose = samples.some(s => s.rose > 0.005)
-      expect(sawBlue && sawRose,
-        `multi-property keyframe: sawBlue=${sawBlue} sawRose=${sawRose} — fill not morphing across samples ${JSON.stringify(samples)}`)
-        .toBe(true)
+      const sawBlue = samples.some((s) => s.blue > 0.005)
+      const sawRose = samples.some((s) => s.rose > 0.005)
+      expect(
+        sawBlue && sawRose,
+        `multi-property keyframe: sawBlue=${sawBlue} sawRose=${sawRose} — fill not morphing across samples ${JSON.stringify(samples)}`,
+      ).toBe(true)
     })
   })
 })

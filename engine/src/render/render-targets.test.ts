@@ -24,7 +24,11 @@ import type { GPUContext } from '../gpu/gpu'
   TEXTURE_BINDING: 0x04,
 }
 
-interface FakeTex { __dev: string; createView: () => { __dev: string }; destroy: () => void }
+interface FakeTex {
+  __dev: string
+  createView: () => { __dev: string }
+  destroy: () => void
+}
 function makeDevice(id: string) {
   const created: FakeTex[] = []
   const device = {
@@ -38,7 +42,7 @@ function makeDevice(id: string) {
   return { device, created }
 }
 const makeCtx = (device: unknown): GPUContext =>
-  ({ device, format: 'bgra8unorm' } as unknown as GPUContext)
+  ({ device, format: 'bgra8unorm' }) as unknown as GPUContext
 const screenView = { __dev: 'screen' } as unknown as GPUTextureView
 const devOf = (v: GPUTextureView): string => (v as unknown as { __dev: string }).__dev
 

@@ -23,29 +23,104 @@ const PARTIAL_SMOKE_CASES: Array<{
   paintOrLayout: 'paint' | 'layout'
 }> = [
   // Fill
-  { property: 'fill-antialias', layer: { type: 'fill', sourceLayer: 'a' }, value: true, paintOrLayout: 'paint' },
-  { property: 'fill-translate', layer: { type: 'fill', sourceLayer: 'a' }, value: [1, 2], paintOrLayout: 'paint' },
+  {
+    property: 'fill-antialias',
+    layer: { type: 'fill', sourceLayer: 'a' },
+    value: true,
+    paintOrLayout: 'paint',
+  },
+  {
+    property: 'fill-translate',
+    layer: { type: 'fill', sourceLayer: 'a' },
+    value: [1, 2],
+    paintOrLayout: 'paint',
+  },
   // Line
-  { property: 'line-dasharray', layer: { type: 'line', sourceLayer: 'a' }, value: [4, 2], paintOrLayout: 'paint' },
+  {
+    property: 'line-dasharray',
+    layer: { type: 'line', sourceLayer: 'a' },
+    value: [4, 2],
+    paintOrLayout: 'paint',
+  },
   // Background
-  { property: 'background-color', layer: { type: 'background' }, value: '#abc', paintOrLayout: 'paint' },
-  { property: 'background-opacity', layer: { type: 'background' }, value: 0.5, paintOrLayout: 'paint' },
+  {
+    property: 'background-color',
+    layer: { type: 'background' },
+    value: '#abc',
+    paintOrLayout: 'paint',
+  },
+  {
+    property: 'background-opacity',
+    layer: { type: 'background' },
+    value: 0.5,
+    paintOrLayout: 'paint',
+  },
   // Fill-extrusion partial
-  { property: 'fill-extrusion-vertical-gradient', layer: { type: 'fill-extrusion', sourceLayer: 'a' }, value: false, paintOrLayout: 'paint' },
+  {
+    property: 'fill-extrusion-vertical-gradient',
+    layer: { type: 'fill-extrusion', sourceLayer: 'a' },
+    value: false,
+    paintOrLayout: 'paint',
+  },
   // Symbol
-  { property: 'symbol-sort-key', layer: { type: 'symbol', sourceLayer: 'a' }, value: 5, paintOrLayout: 'layout' },
-  { property: 'text-pitch-alignment', layer: { type: 'symbol', sourceLayer: 'a' }, value: 'viewport', paintOrLayout: 'layout' },
-  { property: 'text-overlap', layer: { type: 'symbol', sourceLayer: 'a' }, value: 'always', paintOrLayout: 'layout' },
-  { property: 'icon-allow-overlap', layer: { type: 'symbol', sourceLayer: 'a' }, value: true, paintOrLayout: 'layout' },
-  { property: 'icon-overlap', layer: { type: 'symbol', sourceLayer: 'a' }, value: 'always', paintOrLayout: 'layout' },
-  { property: 'icon-optional', layer: { type: 'symbol', sourceLayer: 'a' }, value: false, paintOrLayout: 'layout' },
-  { property: 'text-opacity', layer: { type: 'symbol', sourceLayer: 'a' }, value: 0.5, paintOrLayout: 'paint' },
-  { property: 'icon-opacity', layer: { type: 'symbol', sourceLayer: 'a' }, value: 0.5, paintOrLayout: 'paint' },
+  {
+    property: 'symbol-sort-key',
+    layer: { type: 'symbol', sourceLayer: 'a' },
+    value: 5,
+    paintOrLayout: 'layout',
+  },
+  {
+    property: 'text-pitch-alignment',
+    layer: { type: 'symbol', sourceLayer: 'a' },
+    value: 'viewport',
+    paintOrLayout: 'layout',
+  },
+  {
+    property: 'text-overlap',
+    layer: { type: 'symbol', sourceLayer: 'a' },
+    value: 'always',
+    paintOrLayout: 'layout',
+  },
+  {
+    property: 'icon-allow-overlap',
+    layer: { type: 'symbol', sourceLayer: 'a' },
+    value: true,
+    paintOrLayout: 'layout',
+  },
+  {
+    property: 'icon-overlap',
+    layer: { type: 'symbol', sourceLayer: 'a' },
+    value: 'always',
+    paintOrLayout: 'layout',
+  },
+  {
+    property: 'icon-optional',
+    layer: { type: 'symbol', sourceLayer: 'a' },
+    value: false,
+    paintOrLayout: 'layout',
+  },
+  {
+    property: 'text-opacity',
+    layer: { type: 'symbol', sourceLayer: 'a' },
+    value: 0.5,
+    paintOrLayout: 'paint',
+  },
+  {
+    property: 'icon-opacity',
+    layer: { type: 'symbol', sourceLayer: 'a' },
+    value: 0.5,
+    paintOrLayout: 'paint',
+  },
   // Circle
-  { property: 'circle-stroke-opacity', layer: { type: 'circle', sourceLayer: 'a' }, value: 0.5, paintOrLayout: 'paint' },
+  {
+    property: 'circle-stroke-opacity',
+    layer: { type: 'circle', sourceLayer: 'a' },
+    value: 0.5,
+    paintOrLayout: 'paint',
+  },
 ]
 
-function buildStyle(cell: typeof PARTIAL_SMOKE_CASES[number]): Record<string, unknown> {
+function buildStyle(cell: (typeof PARTIAL_SMOKE_CASES)[number]): Record<string, unknown> {
   const baseLayer: Record<string, unknown> = {
     id: 'l',
     type: cell.layer.type,
@@ -64,7 +139,12 @@ function buildStyle(cell: typeof PARTIAL_SMOKE_CASES[number]): Record<string, un
     baseLayer.layout = { 'text-field': '{name}' }
     baseLayer.paint = { 'text-color': '#fff' }
   } else if (cell.layer.type === 'circle') {
-    baseLayer.paint = { 'circle-radius': 4, 'circle-color': '#fff', 'circle-stroke-color': '#000', 'circle-stroke-width': 1 }
+    baseLayer.paint = {
+      'circle-radius': 4,
+      'circle-color': '#fff',
+      'circle-stroke-color': '#000',
+      'circle-stroke-width': 1,
+    }
   } else if (cell.layer.type === 'fill-extrusion') {
     baseLayer.paint = { 'fill-extrusion-color': '#fff', 'fill-extrusion-height': 10 }
   } else if (cell.layer.type === 'background') {

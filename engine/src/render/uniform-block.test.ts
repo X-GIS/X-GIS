@@ -17,8 +17,18 @@
 
 import { describe, it, expect } from 'vitest'
 import {
-  uniformStruct, arrayT, structDecl, module, reflect,
-  f32T, u32T, vec2fT, vec3fT, vec4fT, vec4uT, mat4x4fT,
+  uniformStruct,
+  arrayT,
+  structDecl,
+  module,
+  reflect,
+  f32T,
+  u32T,
+  vec2fT,
+  vec3fT,
+  vec4fT,
+  vec4uT,
+  mat4x4fT,
   type ShaderType,
 } from '@xgis/shader-dsl'
 import { uniformBlock, UniformBlock } from './uniform-block'
@@ -26,15 +36,19 @@ import { uniformBlock, UniformBlock } from './uniform-block'
 // Mixed-kind struct exercising every supported field shape. Hand-computed std140:
 // m @0(64) · v4 @64(16) · v3 @80(12) · s @92(4, packs into the vec3 tail) ·
 // v2 @96(8) · u @104(4) · uv4 @112(16) → size 128.
-const MIXED = uniformStruct('Mixed', { group: 0, binding: 0, as: 'u' }, {
-  m: mat4x4fT,
-  v4: vec4fT,
-  v3: vec3fT,
-  s: f32T,
-  v2: vec2fT,
-  u: u32T,
-  uv4: vec4uT,
-})
+const MIXED = uniformStruct(
+  'Mixed',
+  { group: 0, binding: 0, as: 'u' },
+  {
+    m: mat4x4fT,
+    v4: vec4fT,
+    v3: vec3fT,
+    s: f32T,
+    v2: vec2fT,
+    u: u32T,
+    uv4: vec4uT,
+  },
+)
 
 const mixedValues = {
   m: Float32Array.from({ length: 16 }, (_, i) => i + 1),
@@ -70,9 +84,17 @@ describe('UniformBlock layout (std140, handle-only wgslLayout path)', () => {
 
   it('std140Stride rounds byteLength up to the bind alignment', () => {
     expect(uniformBlock(MIXED).std140Stride()).toBe(256) // 128 → 256
-    const FIVE_MATS = uniformStruct('FiveMats', { group: 0, binding: 0, as: 'u' }, {
-      m0: mat4x4fT, m1: mat4x4fT, m2: mat4x4fT, m3: mat4x4fT, m4: mat4x4fT,
-    })
+    const FIVE_MATS = uniformStruct(
+      'FiveMats',
+      { group: 0, binding: 0, as: 'u' },
+      {
+        m0: mat4x4fT,
+        m1: mat4x4fT,
+        m2: mat4x4fT,
+        m3: mat4x4fT,
+        m4: mat4x4fT,
+      },
+    )
     expect(uniformBlock(FIVE_MATS).std140Stride()).toBe(512) // 320 → 512
   })
 })
@@ -114,10 +136,14 @@ describe('UniformBlock.set.* (hot-loop surface)', () => {
   })
 
   it('never touches the vec3 std140 pad lane', () => {
-    const PADDED = uniformStruct('Padded', { group: 0, binding: 0, as: 'u' }, {
-      v3: vec3fT, // @0..11, pad @12..15
-      v4: vec4fT, // @16..31
-    })
+    const PADDED = uniformStruct(
+      'Padded',
+      { group: 0, binding: 0, as: 'u' },
+      {
+        v3: vec3fT, // @0..11, pad @12..15
+        v4: vec4fT, // @16..31
+      },
+    )
     const b = uniformBlock(PADDED)
     b.set.v3(1, 2, 3)
     b.set.v4(4, 5, 6, 7)

@@ -39,7 +39,7 @@ import { generateWallMeshExtrudedECEF } from '@xgis/map'
 import { dequantVertexF32, mulMat4Vec4F32 } from '@xgis/compiler'
 
 const DEG2RAD = Math.PI / 180
-const A = 6378137                       // WGS84 semi-major (Mercator-metre scale)
+const A = 6378137 // WGS84 semi-major (Mercator-metre scale)
 const CANVAS_W = 1080
 const CANVAS_H = 720
 const DPR = 1
@@ -53,7 +53,7 @@ function tileEcefCenterFor(tileWestDeg: number, tileSouthDeg: number): [number, 
 
 // Clip → pixel (NDC half-extent × canvas/2). Matches polygon-ecef-mvp-parity.
 function clipToPx(clip: [number, number, number, number]): [number, number] {
-  return [(clip[0] / clip[3]) * CANVAS_W / 2, (clip[1] / clip[3]) * CANVAS_H / 2]
+  return [((clip[0] / clip[3]) * CANVAS_W) / 2, ((clip[1] / clip[3]) * CANVAS_H) / 2]
 }
 
 describe('G7 — extruded-globe recenter (projType 7 pitch>0)', () => {
@@ -83,7 +83,7 @@ describe('G7 — extruded-globe recenter (projType 7 pitch>0)', () => {
     const cam = new Camera(CAM_LON, CAM_LAT, ZOOM)
     cam.pitch = PITCH
     cam.bearing = 20
-    cam.globeMode = true   // projType 7: getECEFFrameView routes to _globeFrame
+    cam.globeMode = true // projType 7: getECEFFrameView routes to _globeFrame
     cam.projType = 7
     return cam
   }
@@ -92,15 +92,22 @@ describe('G7 — extruded-globe recenter (projType 7 pitch>0)', () => {
   // vertex (a known, deterministic ECEF position).
   function buildMesh() {
     const ring: Array<[number, number]> = buildingLonLat.map(([lon, lat]) => [
-      lon * DEG2RAD * A,                                              // abs Mercator x
-      A * Math.log(Math.tan(Math.PI / 4 + lat * DEG2RAD / 2)),       // abs Mercator y
+      lon * DEG2RAD * A, // abs Mercator x
+      A * Math.log(Math.tan(Math.PI / 4 + (lat * DEG2RAD) / 2)), // abs Mercator y
     ])
     const polygons: RingPolygon[] = [{ featId: 1, rings: [ring] }]
     const heights = new Map<number, number>([[1, HEIGHT_M]])
     const tileEcefCenter = tileEcefCenterFor(TILE_WEST, TILE_SOUTH)
     const tileMx = TILE_WEST * DEG2RAD * A
-    const tileMy = A * Math.log(Math.tan(Math.PI / 4 + TILE_SOUTH * DEG2RAD / 2))
-    const mesh = generateWallMeshExtrudedECEF(polygons, heights, undefined, tileMx, tileMy, tileEcefCenter)
+    const tileMy = A * Math.log(Math.tan(Math.PI / 4 + (TILE_SOUTH * DEG2RAD) / 2))
+    const mesh = generateWallMeshExtrudedECEF(
+      polygons,
+      heights,
+      undefined,
+      tileMx,
+      tileMy,
+      tileEcefCenter,
+    )
     return { mesh, tileEcefCenter }
   }
 
@@ -117,16 +124,22 @@ describe('G7 — extruded-globe recenter (projType 7 pitch>0)', () => {
     const offZ = tileEcefCenter[2] - cameraCenter[2]
     const offH: [number, number, number] = [Math.fround(offX), Math.fround(offY), Math.fround(offZ)]
     const offL: [number, number, number] = [
-      Math.fround(offX - offH[0]), Math.fround(offY - offH[1]), Math.fround(offZ - offH[2]),
+      Math.fround(offX - offH[0]),
+      Math.fround(offY - offH[1]),
+      Math.fround(offZ - offH[2]),
     ]
 
-    const quant = { vertices: mesh.vertices, dequantScale: mesh.dequantScale, dequantHalf: mesh.dequantHalf }
-    const vertCount = mesh.vertices.length / 11   // POLYGON_EXTRUDED_FORMAT stride = 11 floats
+    const quant = {
+      vertices: mesh.vertices,
+      dequantScale: mesh.dequantScale,
+      dequantHalf: mesh.dequantHalf,
+    }
+    const vertCount = mesh.vertices.length / 11 // POLYGON_EXTRUDED_FORMAT stride = 11 floats
     expect(vertCount).toBeGreaterThan(0)
 
     let maxPxErr = 0
     for (let vi = 0; vi < vertCount; vi++) {
-      const rtc = dequantVertexF32(quant, vi)   // ecef_rtc = vertex − tileEcefCenter
+      const rtc = dequantVertexF32(quant, vi) // ecef_rtc = vertex − tileEcefCenter
       // SIM of the FIXED VS else-arm: ecef_cam = ecef_rtc + off_h + off_l.
       const ecefCam: [number, number, number] = [
         Math.fround(Math.fround(rtc[0] + offH[0]) + offL[0]),
@@ -147,7 +160,10 @@ describe('G7 — extruded-globe recenter (projType 7 pitch>0)', () => {
       const vh = wallH * isTop
       const vEcef = lonLatToECEF(absLon, absLat, vh)
       const truthClip = mulMat4Vec4F32(ecefMatrix, [
-        vEcef[0] - cameraCenter[0], vEcef[1] - cameraCenter[1], vEcef[2] - cameraCenter[2], 1,
+        vEcef[0] - cameraCenter[0],
+        vEcef[1] - cameraCenter[1],
+        vEcef[2] - cameraCenter[2],
+        1,
       ])
 
       const [sx, sy] = clipToPx(simClip)
@@ -166,13 +182,20 @@ describe('G7 — extruded-globe recenter (projType 7 pitch>0)', () => {
     const ecefMatrix = new Float32Array(cam.getECEFFrameView(CANVAS_W, CANVAS_H, DPR).matrix)
     const cameraCenter = cam.getECEFCenter()
 
-    const quant = { vertices: mesh.vertices, dequantScale: mesh.dequantScale, dequantHalf: mesh.dequantHalf }
+    const quant = {
+      vertices: mesh.vertices,
+      dequantScale: mesh.dequantScale,
+      dequantHalf: mesh.dequantHalf,
+    }
     const vertCount = mesh.vertices.length / 11
 
     // The first roof vertex is a deterministic, well-defined sample.
     let sampleVi = -1
     for (let vi = 0; vi < vertCount; vi++) {
-      if (mesh.vertices[vi * 11 + 10] === 1) { sampleVi = vi; break }   // is_top == 1
+      if (mesh.vertices[vi * 11 + 10] === 1) {
+        sampleVi = vi
+        break
+      } // is_top == 1
     }
     expect(sampleVi).toBeGreaterThanOrEqual(0)
 
@@ -184,9 +207,7 @@ describe('G7 — extruded-globe recenter (projType 7 pitch>0)', () => {
     const offX = tileEcefCenter[0] - cameraCenter[0]
     const offY = tileEcefCenter[1] - cameraCenter[1]
     const offZ = tileEcefCenter[2] - cameraCenter[2]
-    const fixedClip = mulMat4Vec4F32(ecefMatrix, [
-      rtc[0] + offX, rtc[1] + offY, rtc[2] + offZ, 1,
-    ])
+    const fixedClip = mulMat4Vec4F32(ecefMatrix, [rtc[0] + offX, rtc[1] + offY, rtc[2] + offZ, 1])
 
     // The bare path transforms vertex − tileEcefCenter; the fixed path
     // transforms vertex − cameraCenter. They differ by cam_ecef_off (≈ the
@@ -195,7 +216,7 @@ describe('G7 — extruded-globe recenter (projType 7 pitch>0)', () => {
     // vertex falls entirely outside the clip frustum (w ≤ 0 / off-NDC). Either
     // way it is NOT near the true position — the collapse the bug produces.
     const offMag = Math.hypot(offX, offY, offZ)
-    expect(offMag).toBeGreaterThan(1_000_000)   // > 1000 km separation: a real far tile
+    expect(offMag).toBeGreaterThan(1_000_000) // > 1000 km separation: a real far tile
 
     const fixedW = fixedClip[3]
     const bareW = bareClip[3]

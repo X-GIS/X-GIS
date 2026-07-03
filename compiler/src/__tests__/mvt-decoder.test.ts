@@ -17,11 +17,13 @@ describe('decodeMvtTile (round-trip)', () => {
   it('decodes a Point feature with un-quantized lon/lat', () => {
     const orig = {
       type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [10, 20] },
-        properties: { name: 'p1', kind: 1 },
-      }],
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [10, 20] },
+          properties: { name: 'p1', kind: 1 },
+        },
+      ],
     }
     const idx = geojsonVt(orig, { maxZoom: 0, indexMaxZoom: 0 })
     const tile = idx.getTile(z, x, y)
@@ -45,12 +47,30 @@ describe('decodeMvtTile (round-trip)', () => {
       features: [
         {
           type: 'Feature',
-          geometry: { type: 'LineString', coordinates: [[0, 0], [10, 10], [20, 0]] },
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [0, 0],
+              [10, 10],
+              [20, 0],
+            ],
+          },
           properties: {},
         },
         {
           type: 'Feature',
-          geometry: { type: 'Polygon', coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]] },
+          geometry: {
+            type: 'Polygon',
+            coordinates: [
+              [
+                [0, 0],
+                [10, 0],
+                [10, 10],
+                [0, 10],
+                [0, 0],
+              ],
+            ],
+          },
           properties: { kind: 'park' },
         },
       ],
@@ -61,7 +81,7 @@ describe('decodeMvtTile (round-trip)', () => {
 
     const features = decodeMvtTile(buf, z, x, y)
     expect(features.length).toBeGreaterThanOrEqual(2)
-    const types = features.map(f => f.geometry.type).sort()
+    const types = features.map((f) => f.geometry.type).sort()
     expect(types).toContain('LineString')
     expect(types).toContain('Polygon')
     for (const f of features) {
@@ -72,52 +92,77 @@ describe('decodeMvtTile (round-trip)', () => {
   it('flattens multi-layer MVTs and tags each feature with its layer', () => {
     const water = {
       type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: { type: 'Polygon', coordinates: [[[0, 0], [5, 0], [5, 5], [0, 5], [0, 0]]] },
-        properties: {},
-      }],
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'Polygon',
+            coordinates: [
+              [
+                [0, 0],
+                [5, 0],
+                [5, 5],
+                [0, 5],
+                [0, 0],
+              ],
+            ],
+          },
+          properties: {},
+        },
+      ],
     }
     const roads = {
       type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates: [[10, 0], [15, 5]] },
-        properties: {},
-      }],
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [10, 0],
+              [15, 5],
+            ],
+          },
+          properties: {},
+        },
+      ],
     }
     const t1 = geojsonVt(water, { maxZoom: 0, indexMaxZoom: 0 }).getTile(z, x, y)
     const t2 = geojsonVt(roads, { maxZoom: 0, indexMaxZoom: 0 }).getTile(z, x, y)
     const buf = vtpbf.fromGeojsonVt({ water: t1, roads: t2 })
 
     const features = decodeMvtTile(buf, z, x, y)
-    const layers = new Set(features.map(f => f.properties._layer as string))
+    const layers = new Set(features.map((f) => f.properties._layer as string))
     expect(layers).toEqual(new Set(['water', 'roads']))
   })
 
   it('layers option restricts to the named subset', () => {
     const water = {
       type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [0, 0] },
-        properties: {},
-      }],
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [0, 0] },
+          properties: {},
+        },
+      ],
     }
     const roads = {
       type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [5, 5] },
-        properties: {},
-      }],
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [5, 5] },
+          properties: {},
+        },
+      ],
     }
     const t1 = geojsonVt(water, { maxZoom: 0, indexMaxZoom: 0 }).getTile(z, x, y)
     const t2 = geojsonVt(roads, { maxZoom: 0, indexMaxZoom: 0 }).getTile(z, x, y)
     const buf = vtpbf.fromGeojsonVt({ water: t1, roads: t2 })
 
     const features = decodeMvtTile(buf, z, x, y, { layers: ['roads'] })
-    expect(features.every(f => f.properties._layer === 'roads')).toBe(true)
+    expect(features.every((f) => f.properties._layer === 'roads')).toBe(true)
     expect(features.length).toBeGreaterThan(0)
   })
 })

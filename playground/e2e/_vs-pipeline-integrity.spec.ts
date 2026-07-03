@@ -61,14 +61,14 @@ const PROJECTIONS = [
 
 // Console substrings that mean a GPU pipeline/shader failed to build.
 const PIPELINE_FAILURE_PATTERNS = [
-  'WebGPU validation',          // uncapturederror handler (gpu.ts)
-  'shader prewarm failed',      // rejected createRenderPipelineAsync (renderer prewarm)
-  'does not match the shader',  // attribute base-type mismatch (the PR-2f bug)
-  'WebGPU device lost',         // catastrophic
+  'WebGPU validation', // uncapturederror handler (gpu.ts)
+  'shader prewarm failed', // rejected createRenderPipelineAsync (renderer prewarm)
+  'does not match the shader', // attribute base-type mismatch (the PR-2f bug)
+  'WebGPU device lost', // catastrophic
 ] as const
 
 function isPipelineFailure(text: string): boolean {
-  return PIPELINE_FAILURE_PATTERNS.some(p => text.includes(p))
+  return PIPELINE_FAILURE_PATTERNS.some((p) => text.includes(p))
 }
 
 async function waitReady(page: Page): Promise<void> {
@@ -83,11 +83,13 @@ async function waitReady(page: Page): Promise<void> {
  *  (lazy compile path) have run before we read the captured console. */
 async function settle(page: Page): Promise<void> {
   await page.evaluate(
-    () => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
   )
 }
 
-test('vs pipeline integrity: data-driven polygon variants create cleanly across all projections', async ({ page }) => {
+test('vs pipeline integrity: data-driven polygon variants create cleanly across all projections', async ({
+  page,
+}) => {
   const failures: string[] = []
   page.on('console', (m: ConsoleMessage) => {
     const text = m.text()
@@ -105,21 +107,17 @@ test('vs pipeline integrity: data-driven polygon variants create cleanly across 
 
   // Initial load (default projection) is where the PR-2f variant-layout
   // mismatch fired — at shader prewarm.
-  expect(
-    dedupe(failures),
-    'GPU pipeline failures on initial load of data-driven fill',
-  ).toEqual([])
+  expect(dedupe(failures), 'GPU pipeline failures on initial load of data-driven fill').toEqual([])
 
   // Sweep every projection; none may introduce a pipeline failure.
   for (const proj of PROJECTIONS) {
     await page.evaluate((p) => {
-      (window as unknown as { __xgisMap?: { setProjection(n: string): void } }).__xgisMap!.setProjection(p)
+      ;(
+        window as unknown as { __xgisMap?: { setProjection(n: string): void } }
+      ).__xgisMap!.setProjection(p)
     }, proj)
     await settle(page)
-    expect(
-      dedupe(failures),
-      `GPU pipeline failures through setProjection('${proj}')`,
-    ).toEqual([])
+    expect(dedupe(failures), `GPU pipeline failures through setProjection('${proj}')`).toEqual([])
   }
 })
 

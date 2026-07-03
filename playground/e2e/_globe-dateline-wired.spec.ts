@@ -17,7 +17,8 @@ test('globe @ dateline renders the Pacific hemisphere', async ({ page }) => {
   await page.goto('/demo.html?id=dark&proj=globe#2/0/180', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(2500)
 
@@ -32,23 +33,29 @@ test('globe @ dateline renders the Pacific hemisphere', async ({ page }) => {
     const url = URL.createObjectURL(blob)
     const img = new Image()
     await new Promise<void>((res, rej) => {
-      img.onload = () => res(); img.onerror = () => rej(new Error('img'))
+      img.onload = () => res()
+      img.onerror = () => rej(new Error('img'))
       img.src = url
     })
     const off = new OffscreenCanvas(img.width, img.height)
     const ctx = off.getContext('2d')!
     ctx.drawImage(img, 0, 0)
-    const w = img.width, h = img.height
+    const w = img.width,
+      h = img.height
     const data = ctx.getImageData(0, 0, w, h).data
     // Central 60×60% region — excludes UI chrome (zoom badge top-
     // left, snapshot button top-right, status bar bottom).
-    const xMin = Math.floor(w * 0.20), xMax = Math.floor(w * 0.80)
-    const yMin = Math.floor(h * 0.20), yMax = Math.floor(h * 0.80)
+    const xMin = Math.floor(w * 0.2),
+      xMax = Math.floor(w * 0.8)
+    const yMin = Math.floor(h * 0.2),
+      yMax = Math.floor(h * 0.8)
     let darkFill = 0
     for (let y = yMin; y < yMax; y++) {
       for (let x = xMin; x < xMax; x++) {
         const i = (y * w + x) * 4
-        const r = data[i]!, g = data[i + 1]!, b = data[i + 2]!
+        const r = data[i]!,
+          g = data[i + 1]!,
+          b = data[i + 2]!
         // slate-700/800 family: low-saturation cool grey. r<70, g 30-80,
         // b 40-90 covers MSAA-blended variants of the slate fill.
         if (r < 70 && g >= 30 && g < 90 && b >= 40 && b < 100) darkFill++
@@ -62,7 +69,9 @@ test('globe @ dateline renders the Pacific hemisphere', async ({ page }) => {
   // entirely empty, only Pacific-island stroke pixels of a few dots).
   // Post-fix Australia + NZ alone contribute many thousand. Threshold
   // sits well above any noise/AA bleed.
-  expect(dark, `Pacific hemisphere appears empty (${dark} dark-fill px). ` +
-    `globeVisibleTiles is probably not wired into vector-tile-renderer.ts.`)
-    .toBeGreaterThan(1000)
+  expect(
+    dark,
+    `Pacific hemisphere appears empty (${dark} dark-fill px). ` +
+      `globeVisibleTiles is probably not wired into vector-tile-renderer.ts.`,
+  ).toBeGreaterThan(1000)
 })

@@ -14,12 +14,8 @@
 // cheap and avoids running the rasterizer on every frame for the
 // same string.
 
-import {
-  AtlasState, type AtlasConfig, type AtlasSlot, type GlyphKey,
-} from './atlas-state'
-import type {
-  GlyphRasterizer, GlyphRasterResult,
-} from './glyph-rasterizer'
+import { AtlasState, type AtlasConfig, type AtlasSlot, type GlyphKey } from './atlas-state'
+import type { GlyphRasterizer, GlyphRasterResult } from './glyph-rasterizer'
 import { cjkSizedFontKey } from './glyph-rasterizer'
 import { codePointIsIdeographic } from '../text-wrap'
 
@@ -143,7 +139,9 @@ export class GlyphAtlasHost {
    *  read miss instead of returning glyphs with stale pixel coords.
    *  Read via `getGeneration()`. */
   private _generation = 0
-  getGeneration(): number { return this._generation }
+  getGeneration(): number {
+    return this._generation
+  }
   /** Glyph keys marked stale via `invalidate()`. The next `ensure()`
    *  call for one of these re-rasterises in place — same slot stays
    *  bound, metrics overwrite, dirty queue gets a fresh upload. Used
@@ -156,11 +154,7 @@ export class GlyphAtlasHost {
   private readonly fontKeyId = new Map<string, number>()
   private nextFontId = 0
 
-  constructor(
-    config: AtlasConfig,
-    rasterizer: GlyphRasterizer,
-    options: GlyphAtlasHostOptions,
-  ) {
+  constructor(config: AtlasConfig, rasterizer: GlyphRasterizer, options: GlyphAtlasHostOptions) {
     this.state = new AtlasState(config)
     this.rasterizer = rasterizer
     this.fontSize = options.fontSize
@@ -197,8 +191,11 @@ export class GlyphAtlasHost {
     const forceRasterize = ensured.created || this.stale.has(mk)
     if (forceRasterize) {
       const result = this.rasterizer.rasterize({
-        fontKey, fontSize: this.fontSize, codepoint,
-        sdfRadius: this.sdfRadius, slotSize: ensured.slot.size,
+        fontKey,
+        fontSize: this.fontSize,
+        codepoint,
+        sdfRadius: this.sdfRadius,
+        slotSize: ensured.slot.size,
       })
       this.metrics.set(mk, {
         advanceWidth: result.advanceWidth,
@@ -230,7 +227,8 @@ export class GlyphAtlasHost {
     if (cached !== undefined) return cached
     const m = this.metrics.get(mk)!
     const info: GlyphInfo = {
-      codepoint, slot: ensured.slot,
+      codepoint,
+      slot: ensured.slot,
       advanceWidth: m.advanceWidth,
       bearingX: m.bearingX,
       bearingY: m.bearingY,
@@ -322,7 +320,7 @@ export class GlyphAtlasHost {
     while (i < len) {
       const cp = text.codePointAt(i)!
       this.ensure(this.routeKey(fontKey, cp, cjkBucket), cp)
-      i += cp > 0xFFFF ? 2 : 1
+      i += cp > 0xffff ? 2 : 1
     }
     // CRITICAL: record the POST-ensure generation. Any eviction
     // during the loop bumps `_generation`; storing the latest value
@@ -355,9 +353,13 @@ export class GlyphAtlasHost {
     let i = 0
     while (i < len) {
       const cp = text.codePointAt(i)!
-      const key: GlyphKey = { fontKey: this.routeKey(fontKey, cp, cjkBucket), codepoint: cp, sdfRadius: this.sdfRadius }
+      const key: GlyphKey = {
+        fontKey: this.routeKey(fontKey, cp, cjkBucket),
+        codepoint: cp,
+        sdfRadius: this.sdfRadius,
+      }
       if (!this.metrics.has(this.metricsKey(key))) return false
-      i += cp > 0xFFFF ? 2 : 1
+      i += cp > 0xffff ? 2 : 1
     }
     // Record success at the current generation. Only stamp on the
     // positive branch — a negative result is a transient overflow
@@ -399,7 +401,7 @@ export class GlyphAtlasHost {
       const cp = text.codePointAt(i)!
       out.push(this.ensure(this.routeKey(fontKey, cp, cjkBucket), cp))
       // Surrogate pair (BMP supplement) spans 2 UTF-16 code units.
-      i += cp > 0xFFFF ? 2 : 1
+      i += cp > 0xffff ? 2 : 1
     }
     // CRITICAL: read `_generation` AFTER the ensure loop. Any
     // ensure() call inside the loop may bump it (slot reuse); the
@@ -448,7 +450,7 @@ export class GlyphAtlasHost {
    *  their own atlas slot AND the rasterizer renders them locally at that
    *  size. Latin (and CJK when no bucket) keep the plain key → PBF path. */
   private routeKey(fontKey: string, codepoint: number, cjkBucket: number): string {
-    return (cjkBucket > 0 && codePointIsIdeographic(codepoint))
+    return cjkBucket > 0 && codePointIsIdeographic(codepoint)
       ? cjkSizedFontKey(fontKey, cjkBucket)
       : fontKey
   }
@@ -461,14 +463,13 @@ export class GlyphAtlasHost {
       id = this.nextFontId++
       this.fontKeyId.set(k.fontKey, id)
     }
-    return id * 0x10000000 + k.codepoint * 0x80 + (k.sdfRadius & 0x7F)
+    return id * 0x10000000 + k.codepoint * 0x80 + (k.sdfRadius & 0x7f)
   }
 
-  private assembleInfo(
-    codepoint: number, slot: AtlasSlot, r: GlyphRasterResult,
-  ): GlyphInfo {
+  private assembleInfo(codepoint: number, slot: AtlasSlot, r: GlyphRasterResult): GlyphInfo {
     return {
-      codepoint, slot,
+      codepoint,
+      slot,
       advanceWidth: r.advanceWidth,
       bearingX: r.bearingX,
       bearingY: r.bearingY,

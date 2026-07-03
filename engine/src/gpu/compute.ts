@@ -103,9 +103,15 @@ export class ComputeDispatcher {
     const pipeline = this.getOrCreatePipeline(task.shader)
 
     let byInput = this._dispatchBGCache.get(pipeline)
-    if (!byInput) { byInput = new WeakMap(); this._dispatchBGCache.set(pipeline, byInput) }
+    if (!byInput) {
+      byInput = new WeakMap()
+      this._dispatchBGCache.set(pipeline, byInput)
+    }
     let byOutput = byInput.get(task.inputBuffer)
-    if (!byOutput) { byOutput = new WeakMap(); byInput.set(task.inputBuffer, byOutput) }
+    if (!byOutput) {
+      byOutput = new WeakMap()
+      byInput.set(task.inputBuffer, byOutput)
+    }
     let bindGroup = byOutput.get(task.outputBuffer)
     if (!bindGroup) {
       bindGroup = this.device.createBindGroup({
@@ -217,7 +223,11 @@ export class ComputeDispatcher {
    *  via writeBuffer. A featureCount of 0 yields a 16-byte stub so
    *  the bind group can still be wired (WebGPU rejects 0-sized
    *  bindings). */
-  createFeatDataBuffer(strideF32: number, featureCount: number, label = 'compute-feat-data'): GPUBuffer {
+  createFeatDataBuffer(
+    strideF32: number,
+    featureCount: number,
+    label = 'compute-feat-data',
+  ): GPUBuffer {
     const bytes = Math.max(16, featureCount * Math.max(1, strideF32) * 4)
     return this.device.createBuffer({
       size: bytes,
@@ -274,11 +284,20 @@ export class ComputeDispatcher {
     const pipeline = this.getOrCreateKernelPipeline(kernel)
 
     let kByInput = this._kernelBGCache.get(pipeline)
-    if (!kByInput) { kByInput = new WeakMap(); this._kernelBGCache.set(pipeline, kByInput) }
+    if (!kByInput) {
+      kByInput = new WeakMap()
+      this._kernelBGCache.set(pipeline, kByInput)
+    }
     let kByOutput = kByInput.get(inputBuffer)
-    if (!kByOutput) { kByOutput = new WeakMap(); kByInput.set(inputBuffer, kByOutput) }
+    if (!kByOutput) {
+      kByOutput = new WeakMap()
+      kByInput.set(inputBuffer, kByOutput)
+    }
     let kByCount = kByOutput.get(outputBuffer)
-    if (!kByCount) { kByCount = new WeakMap(); kByOutput.set(outputBuffer, kByCount) }
+    if (!kByCount) {
+      kByCount = new WeakMap()
+      kByOutput.set(outputBuffer, kByCount)
+    }
     let bindGroup = kByCount.get(countBuffer)
     if (!bindGroup) {
       bindGroup = this.device.createBindGroup({

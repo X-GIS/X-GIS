@@ -38,7 +38,9 @@ function makeStub(dpr = 1): { stage: IconStage; draws: () => IconDraw[] } {
     get: () => SPRITE,
   }
   ;(stage as unknown as { renderer: unknown }).renderer = {
-    setDraws: (d: IconDraw[]) => { captured = d },
+    setDraws: (d: IconDraw[]) => {
+      captured = d
+    },
   }
   return { stage, draws: () => captured }
 }

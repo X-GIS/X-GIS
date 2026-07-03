@@ -28,9 +28,9 @@ describe('resolveColor — CSS named colours', () => {
     // These names overlap with the Tailwind PALETTE keys ('red',
     // 'green', etc.) — the resolver must distinguish bare identifier
     // (CSS named colour) from hyphenated form (Tailwind shade).
-    expect(resolveColor('red')).toBe('#ff0000')      // CSS
-    expect(resolveColor('green')).toBe('#008000')    // CSS, NOT Tailwind's #22c55e
-    expect(resolveColor('blue')).toBe('#0000ff')     // CSS, NOT Tailwind's #3b82f6
+    expect(resolveColor('red')).toBe('#ff0000') // CSS
+    expect(resolveColor('green')).toBe('#008000') // CSS, NOT Tailwind's #22c55e
+    expect(resolveColor('blue')).toBe('#0000ff') // CSS, NOT Tailwind's #3b82f6
     expect(resolveColor('yellow')).toBe('#ffff00')
     expect(resolveColor('cyan')).toBe('#00ffff')
     expect(resolveColor('magenta')).toBe('#ff00ff')
@@ -85,42 +85,42 @@ describe('resolveColor — CSS named colours', () => {
     // catches typos in the bulk insertion that would otherwise only
     // surface when a user happens to type that specific name.
     const samples: [string, string][] = [
-      ['aliceblue',         '#f0f8ff'],
-      ['antiquewhite',      '#faebd7'],
-      ['aquamarine',        '#7fffd4'],
-      ['azure',             '#f0ffff'],
-      ['beige',             '#f5f5dc'],
-      ['burlywood',         '#deb887'],
-      ['chartreuse',        '#7fff00'],
-      ['crimson',           '#dc143c'],
-      ['darkblue',          '#00008b'],
-      ['deeppink',          '#ff1493'],
-      ['dodgerblue',        '#1e90ff'],
-      ['firebrick',         '#b22222'],
-      ['gold',              '#ffd700'],
-      ['indigo',            '#4b0082'],
-      ['khaki',             '#f0e68c'],
-      ['lawngreen',         '#7cfc00'],
-      ['mediumseagreen',    '#3cb371'],
-      ['midnightblue',      '#191970'],
-      ['navajowhite',       '#ffdead'],
-      ['navy',              '#000080'],
-      ['olive',             '#808000'],
-      ['palegoldenrod',     '#eee8aa'],
-      ['papayawhip',        '#ffefd5'],
-      ['peachpuff',         '#ffdab9'],
-      ['plum',              '#dda0dd'],
-      ['rosybrown',         '#bc8f8f'],
-      ['saddlebrown',       '#8b4513'],
-      ['seashell',          '#fff5ee'],
-      ['springgreen',       '#00ff7f'],
-      ['steelblue',         '#4682b4'],
-      ['teal',              '#008080'],
-      ['thistle',           '#d8bfd8'],
-      ['turquoise',         '#40e0d0'],
-      ['violet',            '#ee82ee'],
-      ['wheat',             '#f5deb3'],
-      ['yellowgreen',       '#9acd32'],
+      ['aliceblue', '#f0f8ff'],
+      ['antiquewhite', '#faebd7'],
+      ['aquamarine', '#7fffd4'],
+      ['azure', '#f0ffff'],
+      ['beige', '#f5f5dc'],
+      ['burlywood', '#deb887'],
+      ['chartreuse', '#7fff00'],
+      ['crimson', '#dc143c'],
+      ['darkblue', '#00008b'],
+      ['deeppink', '#ff1493'],
+      ['dodgerblue', '#1e90ff'],
+      ['firebrick', '#b22222'],
+      ['gold', '#ffd700'],
+      ['indigo', '#4b0082'],
+      ['khaki', '#f0e68c'],
+      ['lawngreen', '#7cfc00'],
+      ['mediumseagreen', '#3cb371'],
+      ['midnightblue', '#191970'],
+      ['navajowhite', '#ffdead'],
+      ['navy', '#000080'],
+      ['olive', '#808000'],
+      ['palegoldenrod', '#eee8aa'],
+      ['papayawhip', '#ffefd5'],
+      ['peachpuff', '#ffdab9'],
+      ['plum', '#dda0dd'],
+      ['rosybrown', '#bc8f8f'],
+      ['saddlebrown', '#8b4513'],
+      ['seashell', '#fff5ee'],
+      ['springgreen', '#00ff7f'],
+      ['steelblue', '#4682b4'],
+      ['teal', '#008080'],
+      ['thistle', '#d8bfd8'],
+      ['turquoise', '#40e0d0'],
+      ['violet', '#ee82ee'],
+      ['wheat', '#f5deb3'],
+      ['yellowgreen', '#9acd32'],
     ]
     for (const [name, expected] of samples) {
       expect(resolveColor(name)).toBe(expected)

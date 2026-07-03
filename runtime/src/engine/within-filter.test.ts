@@ -13,7 +13,8 @@ import { applyFilter } from '@xgis/map'
 function parseAst(src: string): unknown {
   const tokens = new Lexer(`let __t = ${src}`).tokenize()
   const program = new Parser(tokens).parse() as { body: Array<{ kind: string; value?: unknown }> }
-  const stmt = program.body.find(s => s.kind === 'LetStatement') as { value?: unknown } | undefined
+  const stmt = program.body.find((s) => s.kind === 'LetStatement') as
+    { value?: unknown } | undefined
   if (!stmt) throw new Error('let stmt missing')
   return stmt.value
 }
@@ -25,17 +26,49 @@ const filterExpr = { ast: parseAst(`within(get("$geometry"), ${SQUARE})`) }
 const fc = {
   type: 'FeatureCollection' as const,
   features: [
-    { type: 'Feature', id: 'inside', properties: {}, geometry: { type: 'Point', coordinates: [5, 5] } },
-    { type: 'Feature', id: 'outside', properties: {}, geometry: { type: 'Point', coordinates: [50, 50] } },
-    { type: 'Feature', id: 'multi-in', properties: {}, geometry: { type: 'MultiPoint', coordinates: [[2, 2], [8, 8]] } },
-    { type: 'Feature', id: 'multi-straddle', properties: {}, geometry: { type: 'MultiPoint', coordinates: [[2, 2], [50, 50]] } },
+    {
+      type: 'Feature',
+      id: 'inside',
+      properties: {},
+      geometry: { type: 'Point', coordinates: [5, 5] },
+    },
+    {
+      type: 'Feature',
+      id: 'outside',
+      properties: {},
+      geometry: { type: 'Point', coordinates: [50, 50] },
+    },
+    {
+      type: 'Feature',
+      id: 'multi-in',
+      properties: {},
+      geometry: {
+        type: 'MultiPoint',
+        coordinates: [
+          [2, 2],
+          [8, 8],
+        ],
+      },
+    },
+    {
+      type: 'Feature',
+      id: 'multi-straddle',
+      properties: {},
+      geometry: {
+        type: 'MultiPoint',
+        coordinates: [
+          [2, 2],
+          [50, 50],
+        ],
+      },
+    },
   ],
 }
 
 describe('applyFilter — within containment on GeoJSON', () => {
   it('keeps only features whose geometry is inside the polygon', () => {
     const out = applyFilter(fc as never, filterExpr)
-    const ids = out.features.map(f => (f as { id?: string }).id)
+    const ids = out.features.map((f) => (f as { id?: string }).id)
     expect(ids).toEqual(['inside', 'multi-in'])
   })
 

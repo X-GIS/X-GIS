@@ -21,7 +21,9 @@ const _env = (globalThis as { process?: { env?: Record<string, string | undefine
 let tracing = _env?.XGIS_SHADER_DSL_TRACE === '1'
 
 /** Turn authored-source tracing on/off. Default OFF (honours XGIS_SHADER_DSL_TRACE=1). */
-export const setSourceTracing = (on: boolean): void => { tracing = on }
+export const setSourceTracing = (on: boolean): void => {
+  tracing = on
+}
 export const isSourceTracing = (): boolean => tracing
 
 const locTable = new WeakMap<object, SourceLoc>()

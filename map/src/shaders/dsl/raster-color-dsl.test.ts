@@ -19,7 +19,11 @@ function adjust(rgbIn: number[], p0: number[], p1: number[]): number[] {
   const [hueDeg, bLow, bHigh, sat] = p0
   const contrast = p1[0]
   const w = spin(hueDeg * D2R)
-  let rgb = [dot(rgbIn, [w[0], w[1], w[2]]), dot(rgbIn, [w[2], w[0], w[1]]), dot(rgbIn, [w[1], w[2], w[0]])]
+  let rgb = [
+    dot(rgbIn, [w[0], w[1], w[2]]),
+    dot(rgbIn, [w[2], w[0], w[1]]),
+    dot(rgbIn, [w[1], w[2], w[0]]),
+  ]
   rgb = rgb.map((v) => bLow + (bHigh - bLow) * v)
   const satF = sat > 0 ? 1 - 1 / (1.001 - sat) : -sat
   const avg = (rgb[0] + rgb[1] + rgb[2]) / 3

@@ -56,11 +56,13 @@ function backendLatRange(projType?: number): { min: number; max: number } {
   const backend = new SyntheticEarthSurfaceBackend(projType)
   let result: BackendTileResult | null = null
   backend.attach({
-    acceptResult: (_key: number, r: BackendTileResult) => { result = r },
+    acceptResult: (_key: number, r: BackendTileResult) => {
+      result = r
+    },
   } as unknown as TileSourceSink)
   if (!result) throw new Error('backend did not emit a result on attach')
   const v = (result as BackendTileResult).vertices
-  const FILL_FLOATS_PER_VERT = 7   // #398: stride 28 B = 7 f32
+  const FILL_FLOATS_PER_VERT = 7 // #398: stride 28 B = 7 f32
   const n = v.length / FILL_FLOATS_PER_VERT
   let min = Infinity
   let max = -Infinity
@@ -101,9 +103,9 @@ describe('synthetic earth-surface band tracks projType (source-honest world band
     // the #360 black hole. The tail MUST therefore stay Merc-clamped here.
     for (const projType of [3, 4, 5, 7]) {
       const { min, max } = backendLatRange(projType)
-      expect(max).toBeCloseTo(MERCATOR_LAT_LIMIT, 1)   // tail clamps at +85.05 (NOT +90)
-      expect(min).toBeCloseTo(-MERCATOR_LAT_LIMIT, 1)  // tail clamps at -85.05 (NOT -90)
-      expect(max).toBeLessThan(86)                      // strictly NOT past the ±85 cap
+      expect(max).toBeCloseTo(MERCATOR_LAT_LIMIT, 1) // tail clamps at +85.05 (NOT +90)
+      expect(min).toBeCloseTo(-MERCATOR_LAT_LIMIT, 1) // tail clamps at -85.05 (NOT -90)
+      expect(max).toBeLessThan(86) // strictly NOT past the ±85 cap
     }
   })
 

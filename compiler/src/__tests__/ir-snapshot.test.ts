@@ -35,18 +35,21 @@ function summariseIR(ir: ReturnType<typeof lower>) {
     // SourceDef's discriminant field is `type` (geojson/vector/raster/…), not
     // `kind`; reading `.kind` made this always 'unknown' and the snapshot froze
     // a dead value instead of pinning real source-type drift.
-    sourceTypes: (ir.sources ?? []).map(s => (s as { type?: string }).type ?? 'unknown').sort(),
+    sourceTypes: (ir.sources ?? []).map((s) => (s as { type?: string }).type ?? 'unknown').sort(),
     renderNodeCount: ir.renderNodes?.length ?? 0,
     // RenderNode is a flat layer struct with no single tag field; derive a
     // meaningful per-node class from its discriminating fields (label / procedural
     // geometry / plain shape) so this gate actually catches a layer-mix regression
     // instead of bucketing every node under 'unknown' (it read a nonexistent .kind).
     renderNodeKinds: (ir.renderNodes ?? [])
-      .map(rn => {
+      .map((rn) => {
         const n = rn as { label?: unknown; geometry?: unknown }
         return n.label ? 'label' : n.geometry ? 'geometry' : 'shape'
       })
-      .reduce<Record<string, number>>((acc, k) => { acc[k] = (acc[k] ?? 0) + 1; return acc }, {}),
+      .reduce<Record<string, number>>((acc, k) => {
+        acc[k] = (acc[k] ?? 0) + 1
+        return acc
+      }, {}),
     symbolCount: ir.symbols?.length ?? 0,
     hasBackground: !!(ir as { background?: unknown }).background,
     diagnosticCount: ir.diagnostics?.length ?? 0,

@@ -7,9 +7,7 @@ import { Camera } from '@xgis/engine'
 import { visibleTilesFrustum, firstIndexedAncestor } from '@xgis/data'
 import { mercator } from '@xgis/engine'
 import { TileCatalog } from '@xgis/data'
-import {
-  compileGeoJSONToTiles, decomposeFeatures, tileKey,
-} from '@xgis/compiler'
+import { compileGeoJSONToTiles, decomposeFeatures, tileKey } from '@xgis/compiler'
 import type { GeoJSONFeatureCollection } from '@xgis/compiler'
 
 // THROUGHPUT CONVERGENCE at high-pitch frustum loads.
@@ -106,13 +104,13 @@ describe('Throughput convergence: baseline (pitch=0)', () => {
     const cam = new Camera(BUG.lon, BUG.lat, BUG.zoom)
     cam.pitch = 0
     const tiles = visibleTilesFrustum(cam, mercator, Math.round(BUG.zoom), W, H)
-    const tileKeys = tiles.map(t => tileKey(t.z, t.x, t.y))
+    const tileKeys = tiles.map((t) => tileKey(t.z, t.x, t.y))
 
     const source = coldSource()
     const { framesToConverge, finalReady } = simulateConvergence(source, tileKeys, 30)
     console.log(
       `[throughput pitch=0] ${tileKeys.length} tiles → converged in ${framesToConverge} frames ` +
-      `(final ready=${finalReady})`,
+        `(final ready=${finalReady})`,
     )
     // Baseline expectation: low-tile-count flat-camera viewport
     // should finish in well under 20 frames.
@@ -129,19 +127,23 @@ describe('Throughput convergence: bug URL (pitch=84)', () => {
   it('at the exact bug URL, convergence frame count is recorded', () => {
     const cam = makeBugCam()
     const tiles = visibleTilesFrustum(cam, mercator, Math.round(BUG.zoom), W, H)
-    const tileKeys = tiles.map(t => tileKey(t.z, t.x, t.y))
+    const tileKeys = tiles.map((t) => tileKey(t.z, t.x, t.y))
 
     const source = coldSource()
-    const { framesToConverge, readyPerFrame, finalReady } = simulateConvergence(source, tileKeys, 100)
+    const { framesToConverge, readyPerFrame, finalReady } = simulateConvergence(
+      source,
+      tileKeys,
+      100,
+    )
     console.log(
       `[throughput pitch=84 bug URL] ${tileKeys.length} tiles → ` +
-      (framesToConverge > 0
-        ? `converged in ${framesToConverge} frames`
-        : `NOT CONVERGED after 100 frames (${finalReady}/${tileKeys.length} ready)`),
+        (framesToConverge > 0
+          ? `converged in ${framesToConverge} frames`
+          : `NOT CONVERGED after 100 frames (${finalReady}/${tileKeys.length} ready)`),
     )
     console.log(
       `[throughput pitch=84 bug URL] per-frame ready: ${readyPerFrame.slice(0, 10).join(', ')}` +
-      (readyPerFrame.length > 10 ? `, ... (${readyPerFrame.length} frames total)` : ''),
+        (readyPerFrame.length > 10 ? `, ... (${readyPerFrame.length} frames total)` : ''),
     )
     expect(framesToConverge, 'never converged in 100 frames').toBeGreaterThan(0)
   })
@@ -149,7 +151,7 @@ describe('Throughput convergence: bug URL (pitch=84)', () => {
   it('convergence happens in ≤ 60 frames (≈ 1 s @ 60 fps)', () => {
     const cam = makeBugCam()
     const tiles = visibleTilesFrustum(cam, mercator, Math.round(BUG.zoom), W, H)
-    const tileKeys = tiles.map(t => tileKey(t.z, t.x, t.y))
+    const tileKeys = tiles.map((t) => tileKey(t.z, t.x, t.y))
 
     const source = coldSource()
     const { framesToConverge } = simulateConvergence(source, tileKeys, 60)
@@ -176,7 +178,7 @@ describe('Throughput convergence: bug URL (pitch=84)', () => {
     // outline pipeline got heavier.
     const cam = makeBugCam()
     const tiles = visibleTilesFrustum(cam, mercator, Math.round(BUG.zoom), W, H)
-    const tileKeys = tiles.map(t => tileKey(t.z, t.x, t.y))
+    const tileKeys = tiles.map((t) => tileKey(t.z, t.x, t.y))
 
     const source = coldSource()
     const { framesToConverge } = simulateConvergence(source, tileKeys, 40)
@@ -234,14 +236,17 @@ describe('Throughput convergence: XGVT sub-tile path (the user-bug path)', () =>
    *  ocean / no-data regions — the renderer simply skips those in
    *  production, and we should too in this test (otherwise the
    *  convergence loop waits forever for tiles that never had data). */
-  function reachableSubTileKeys(source: TileCatalog, tiles: ReturnType<typeof visibleTilesFrustum>): number[] {
+  function reachableSubTileKeys(
+    source: TileCatalog,
+    tiles: ReturnType<typeof visibleTilesFrustum>,
+  ): number[] {
     const idx = source.getIndex()
     if (!idx) return []
     const out: number[] = []
     for (const t of tiles) {
       const key = tileKey(t.z, t.x, t.y)
       if (idx.entryByHash.has(key)) continue // direct hit: no sub-tile needed
-      const anc = firstIndexedAncestor(key, k => idx.entryByHash.has(k))
+      const anc = firstIndexedAncestor(key, (k) => idx.entryByHash.has(k))
       if (anc === -1) continue // no ancestor: ocean, skip
       out.push(key)
     }
@@ -261,7 +266,7 @@ describe('Throughput convergence: XGVT sub-tile path (the user-bug path)', () =>
       source.resetCompileBudget()
       for (const key of leafKeys) {
         if (source.getTileData(key)) continue
-        const ancestor = firstIndexedAncestor(key, k => idx.entryByHash.has(k))
+        const ancestor = firstIndexedAncestor(key, (k) => idx.entryByHash.has(k))
         if (ancestor === -1) continue
         source.generateSubTile(key, ancestor)
       }
@@ -283,7 +288,7 @@ describe('Throughput convergence: XGVT sub-tile path (the user-bug path)', () =>
     const { frames, finalReady } = simulateSubTileConvergence(source, leafKeys, 30)
     console.log(
       `[sub-tile pitch=84] ${leafKeys.length} reachable leaves → ` +
-      (frames > 0 ? `converged in ${frames} frames` : `NOT converged (${finalReady} ready)`),
+        (frames > 0 ? `converged in ${frames} frames` : `NOT converged (${finalReady} ready)`),
     )
     // With the hybrid time budget (6 ms wall-clock after an 8-call
     // floor), microsecond-scale high-zoom sub-tile clips complete
@@ -312,13 +317,15 @@ describe('Throughput convergence: XGVT sub-tile path (the user-bug path)', () =>
     for (const r of rows) {
       console.log(
         `  pitch=${r.pitch.toString().padStart(3)} → ` +
-        `${r.leaves.toString().padStart(4)} leaves, ` +
-        `${r.frames > 0 ? r.frames.toString().padStart(2) + ' frames' : 'NOT CONVERGED'}`,
+          `${r.leaves.toString().padStart(4)} leaves, ` +
+          `${r.frames > 0 ? r.frames.toString().padStart(2) + ' frames' : 'NOT CONVERGED'}`,
       )
     }
     for (const r of rows) {
-      expect(r.frames, `pitch=${r.pitch}: did not converge in 30 frames (${r.leaves} leaves)`)
-        .toBeGreaterThan(0)
+      expect(
+        r.frames,
+        `pitch=${r.pitch}: did not converge in 30 frames (${r.leaves} leaves)`,
+      ).toBeGreaterThan(0)
       expect(r.frames, `pitch=${r.pitch}: sub-tile convergence too slow`).toBeLessThanOrEqual(15)
     }
   })
@@ -338,7 +345,7 @@ describe('Throughput convergence: pitch sweep', () => {
       cam.pitch = pitch
       cam.bearing = BUG.bearing
       const tiles = visibleTilesFrustum(cam, mercator, Math.round(BUG.zoom), W, H)
-      const tileKeys = tiles.map(t => tileKey(t.z, t.x, t.y))
+      const tileKeys = tiles.map((t) => tileKey(t.z, t.x, t.y))
 
       const source = coldSource()
       const { framesToConverge } = simulateConvergence(source, tileKeys, 200)
@@ -348,8 +355,8 @@ describe('Throughput convergence: pitch sweep', () => {
     for (const r of rows) {
       console.log(
         `  pitch=${r.pitch.toString().padStart(3)} → ` +
-        `${r.tiles.toString().padStart(4)} tiles, ` +
-        `${r.frames > 0 ? r.frames.toString().padStart(3) + ' frames' : 'NOT CONVERGED'}`,
+          `${r.tiles.toString().padStart(4)} tiles, ` +
+          `${r.frames > 0 ? r.frames.toString().padStart(3) + ' frames' : 'NOT CONVERGED'}`,
       )
     }
     // Monotonicity assertion: every pitch must at least converge.

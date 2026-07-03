@@ -291,11 +291,11 @@ export class GPUArena {
       const s = this.getStats()
       throw new Error(
         `GPUArena.alloc: out of capacity. Requested ${bytes} (aligned ${aligned}) ` +
-        `but only ${this.capacityBytes - this.bumpPtr} bytes remain ` +
-        `(capacity ${this.capacityBytes}, bump ${this.bumpPtr}). ` +
-        `live=${s.liveBytes} free=${s.freeBytes} ` +
-        `reuseHits=${s.reuseHits} allocCount=${s.allocCount} freeCount=${s.freeCount}. ` +
-        `Increase capacity OR free() unused allocations.`,
+          `but only ${this.capacityBytes - this.bumpPtr} bytes remain ` +
+          `(capacity ${this.capacityBytes}, bump ${this.bumpPtr}). ` +
+          `live=${s.liveBytes} free=${s.freeBytes} ` +
+          `reuseHits=${s.reuseHits} allocCount=${s.allocCount} freeCount=${s.freeCount}. ` +
+          `Increase capacity OR free() unused allocations.`,
       )
     }
     const offset = this.bumpPtr
@@ -318,10 +318,10 @@ export class GPUArena {
    *  corrupt memory — the failure mode degrades from CORRECTNESS to
    *  fragmentation-only. Tests pin the alloc/free symmetry. */
   free(offset: number, bytes: number): void {
-    if (bytes <= 0) return  // silent no-op for caller convenience
+    if (bytes <= 0) return // silent no-op for caller convenience
     if (DEV) {
       if (!this._liveOffsets.has(offset)) {
-        throw new Error('gpu-arena: double-free or free of un-alloc\'d offset ' + offset)
+        throw new Error("gpu-arena: double-free or free of un-alloc'd offset " + offset)
       }
       this._liveOffsets.delete(offset)
     }
@@ -369,8 +369,9 @@ export class GPUArena {
    *  so it is safe on the alloc-fail recovery path. */
   canServe(bytes: number): boolean {
     const aligned = align4(bytes)
-    return (this.freeList.get(aligned)?.length ?? 0) > 0
-      || this.bumpPtr + aligned <= this.capacityBytes
+    return (
+      (this.freeList.get(aligned)?.length ?? 0) > 0 || this.bumpPtr + aligned <= this.capacityBytes
+    )
   }
 
   /** Reclaim the bump region IFF nothing is live. Safe because no
@@ -448,9 +449,7 @@ export class GPUArena {
       // slot the allocator handed out, so the copy can never read past
       // the neighbour. RHI handles (not native GPUBuffers) — the WebGPU
       // encoder unwraps; the WebGL2 encoder copyBufferSubData's.
-      encoder.copyBufferToBuffer(
-        this._rhiBuffer, r.oldOffset, newRhiBuffer, packed, aligned,
-      )
+      encoder.copyBufferToBuffer(this._rhiBuffer, r.oldOffset, newRhiBuffer, packed, aligned)
       newOffsets[i] = packed
       packed += aligned
     }

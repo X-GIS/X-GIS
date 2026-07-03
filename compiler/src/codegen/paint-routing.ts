@@ -75,10 +75,7 @@ export type PaintRoute =
 /** Route a ColorValue. Caller MUST pass the scene-level Palette if
  *  it wants `palette-zoom` to fire; omitting it forces the legacy
  *  `cpu-uniform` path for zoom-interpolated colours. */
-export function routeColorValue(
-  value: ColorValue,
-  palette?: Palette,
-): PaintRoute {
+export function routeColorValue(value: ColorValue, palette?: Palette): PaintRoute {
   const deps = getColorDeps(value)
 
   if (value.kind === 'none' || value.kind === 'constant') {
@@ -110,9 +107,7 @@ export function routeColorValue(
  *  for ZOOM-only scalars today is `cpu-uniform`. The router
  *  surfaces the analysis so shader-gen + future compute paths
  *  agree without recomputing deps. */
-export function routePropertyShape<T>(
-  shape: PropertyShape<T>,
-): PaintRoute {
+export function routePropertyShape<T>(shape: PropertyShape<T>): PaintRoute {
   const deps = getPropertyShapeDeps(shape)
 
   if (shape.kind === 'constant') {

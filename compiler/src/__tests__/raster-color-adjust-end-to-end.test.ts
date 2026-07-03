@@ -52,11 +52,13 @@ describe('raster colour adjustments — Mapbox → ShowCommand.paintShapes.raste
   })
 
   it('positive constants → carried as constant shapes', () => {
-    const shows = compileToShows(rasterLayer({
-      'raster-hue-rotate': 90,
-      'raster-brightness-min': 0.2,
-      'raster-brightness-max': 0.8,
-    }))
+    const shows = compileToShows(
+      rasterLayer({
+        'raster-hue-rotate': 90,
+        'raster-brightness-min': 0.2,
+        'raster-brightness-max': 0.8,
+      }),
+    )
     const r = shows[0]!.paintShapes.raster
     expect(constVal(r.hueRotate)).toBe(90)
     expect(constVal(r.brightnessMin)).toBeCloseTo(0.2)
@@ -64,10 +66,12 @@ describe('raster colour adjustments — Mapbox → ShowCommand.paintShapes.raste
   })
 
   it('negative constants (saturation / contrast) → carried via bracket form', () => {
-    const shows = compileToShows(rasterLayer({
-      'raster-saturation': -0.5,
-      'raster-contrast': -0.3,
-    }))
+    const shows = compileToShows(
+      rasterLayer({
+        'raster-saturation': -0.5,
+        'raster-contrast': -0.3,
+      }),
+    )
     const r = shows[0]!.paintShapes.raster
     expect(constVal(r.saturation)).toBeCloseTo(-0.5)
     expect(constVal(r.contrast)).toBeCloseTo(-0.3)
@@ -78,7 +82,7 @@ describe('raster colour adjustments — Mapbox → ShowCommand.paintShapes.raste
     expect(shows[0]!.paintShapes.raster.resamplingNearest).toBe(true)
   })
 
-  it("raster-resampling: linear (default) → resamplingNearest false (no-op)", () => {
+  it('raster-resampling: linear (default) → resamplingNearest false (no-op)', () => {
     const shows = compileToShows(rasterLayer({ 'raster-resampling': 'linear' }))
     expect(shows[0]!.paintShapes.raster.resamplingNearest).toBe(false)
   })
@@ -89,14 +93,16 @@ describe('raster colour adjustments — Mapbox → ShowCommand.paintShapes.raste
   })
 
   it('the converter emits the colour utilities (no "ignored paint" note)', () => {
-    const xgis = convertMapboxStyle(rasterLayer({
-      'raster-hue-rotate': 45,
-      'raster-saturation': 0.5,
-      'raster-contrast': 0.5,
-      'raster-brightness-min': 0.1,
-      'raster-brightness-max': 0.9,
-      'raster-resampling': 'nearest',
-    }) as Parameters<typeof convertMapboxStyle>[0])
+    const xgis = convertMapboxStyle(
+      rasterLayer({
+        'raster-hue-rotate': 45,
+        'raster-saturation': 0.5,
+        'raster-contrast': 0.5,
+        'raster-brightness-min': 0.1,
+        'raster-brightness-max': 0.9,
+        'raster-resampling': 'nearest',
+      }) as Parameters<typeof convertMapboxStyle>[0],
+    )
     expect(xgis).toContain('raster-hue-rotate-45')
     expect(xgis).toContain('raster-saturation-0.5')
     expect(xgis).toContain('raster-resampling-nearest')

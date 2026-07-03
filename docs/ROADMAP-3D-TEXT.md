@@ -7,17 +7,20 @@ sessions land focused, scoped contributions.
 ## Current state (commit 64b847c)
 
 3D extrusion MVP — Phase 1 only:
+
 - WGSL Uniforms has `extrude_height_m: f32`
 - `vs_main_quantized` lifts polygon vertex to world-z = extrude_height_m
 - Hardcoded 50 m for `buildings` MVT slice in vector-tile-renderer
 - Visible at tilted camera (pitch ≥ 45°): polygon "roofs" lift off ground
 
 **Remaining for usable 3D**:
+
 - side walls (vertical quads connecting bottom-z=0 to top-z=height)
 - per-feature heights (each building uses its own `feature.height`)
 - lighting / shading (face-normal Lambert)
 
 **Text rendering**:
+
 - nothing yet — no glyph atlas, no symbol layer, no collision, no labels
 
 ## 3D Extrusion — Phase 2: Side walls
@@ -29,15 +32,17 @@ roof to ground.
 ### Approach: compile-time wall mesh generation
 
 Compiler change (`vector-tiler.ts`):
+
 1. After polygon tessellation, walk each ring's vertex pairs `(a, b)`.
 2. Emit four corner vertices per wall: `a_bot`, `a_top`, `b_bot`,
    `b_top`. Top vertices marked `is_top=1`, bottom `is_top=0`.
 3. Two triangles per wall: `(a_bot, b_bot, a_top)` and `(b_bot, b_top,
-   a_top)` (winding order outward-facing).
+a_top)` (winding order outward-facing).
 4. Append wall vertices to the existing polygon vertex buffer; wall
    indices to the existing index buffer.
 
 Vertex format change:
+
 - Current: `unorm16x2` (mx, my) + `float32` (feat_id) = 8 bytes
 - Need: + 1 bit (is_top). Could pack into the high bit of mx or my
   (sacrifices 1 unit of position precision = irrelevant), OR add a
@@ -48,6 +53,7 @@ Recommended: pack `is_top` into mx's high bit. 0 / 65535 → top, 1 /
 (pos_norm.x > 0.5 - 0.5/65535) ? 1.0 : 0.0`. No format change.
 
 Shader change (`vs_main_quantized`):
+
 ```wgsl
 let z_world = is_top * u.extrude_height_m;
 let clip = u.mvp * vec4<f32>(rtc, z_world, 1.0);
@@ -74,11 +80,13 @@ layer carries `height` (or `building:height`) feature property.
 ### Approach: PropertyTable + storage buffer
 
 Existing infrastructure:
+
 - compiler `PropertyTable` collects per-feature properties
 - runtime `buildFeatureDataBuffer` uploads to GPU storage buffer
 - shader variant reads field by `feat_id` via the bind group
 
 Steps:
+
 1. Style: `extrude: .height` syntax (or `extrude: 50` for constant).
 2. Compiler: when style declares `extrude:`, ensure `height` field
    is in the PropertyTable for the layer.
@@ -100,11 +108,13 @@ distance + uses smoothstep for clean edges at any scale + rotation.
 
 For MVP — pre-bake one font (e.g., Inter Regular) at 256×256 atlas
 covering ASCII + Latin-1 supplement. Tools:
+
 - `msdfgen` (C++ / WASM)
 - `fontnik` (Mapbox's, Python)
 - bundled as static asset in playground
 
 Layout:
+
 - 32px grid → 8×8 = 64 glyphs (ASCII printable)
 - Per-glyph: u16 atlas (u, v, w, h) + glyph metrics (advance, bearing)
 - Shipped as `.png` + `.json` metadata
@@ -124,7 +134,7 @@ batched per draw call.
 
 - Vertex buffer per layer: one entry per glyph instance, stride
   ~24 bytes — `(world_xy_anchor: vec2<f32>, char_code: u16,
-  glyph_offset_xy: vec2<f32>)`
+glyph_offset_xy: vec2<f32>)`
 - Shader expands instance to 4 quad vertices (top-left, top-right,
   bot-right, bot-left) using gl_VertexID
 - Sample SDF atlas, alpha = smoothstep(threshold, threshold+aa,
@@ -222,16 +232,16 @@ if bbox intersects an already-placed label's bbox.
 
 ## Estimated total
 
-| Feature                       | Time |
-|-------------------------------|-----:|
-| 3D side walls                 | 1 d  |
-| 3D per-feature heights        | 1-2 d|
-| 3D lighting (optional)        | 0.5 d|
-| Text — SDF atlas              | 0.5 d|
-| Text — glyph pipeline         | 1-2 d|
-| Text — layout engine          | 1 d  |
-| Text — symbol layer integration | 2 d|
-| Text — greedy collision       | 1 d  |
+| Feature                         |  Time |
+| ------------------------------- | ----: |
+| 3D side walls                   |   1 d |
+| 3D per-feature heights          | 1-2 d |
+| 3D lighting (optional)          | 0.5 d |
+| Text — SDF atlas                | 0.5 d |
+| Text — glyph pipeline           | 1-2 d |
+| Text — layout engine            |   1 d |
+| Text — symbol layer integration |   2 d |
+| Text — greedy collision         |   1 d |
 
 Cumulative: 3D ≈ 3-3.5 days. Text ≈ 6-7 days.
 

@@ -10,14 +10,16 @@ export const DEMOS_PROCEDURAL: Record<string, Demo> = {
   procedural_circles: {
     name: 'Population Circles',
     tag: 'point',
-    description: 'Data-driven SDF circles — per-feature radius from sqrt(pop_max), evaluated on CPU',
+    description:
+      'Data-driven SDF circles — per-feature radius from sqrt(pop_max), evaluated on CPU',
     source: load('procedural-circles.xgis'),
   },
 
   sdf_points: {
     name: 'SDF Points',
     tag: 'point',
-    description: 'Billboard markers (8px) + flat coverage (300km) — right-click drag to pitch and compare',
+    description:
+      'Billboard markers (8px) + flat coverage (300km) — right-click drag to pitch and compare',
     source: load('sdf-points.xgis'),
   },
 }

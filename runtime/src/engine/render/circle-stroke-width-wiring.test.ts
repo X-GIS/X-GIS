@@ -32,13 +32,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<GPUContext> {
   const canvas = { width: 1024, height: 768 } as unknown as HTMLCanvasElement
@@ -66,31 +71,43 @@ const FEAT_BYTES = STRIDE * 4
 /** Add a single circle layer with the given stroke width, run render() once,
  *  and return slot 9 (stroke_w_px) from the captured per-feature write. */
 function capturedStrokeWidth(ctx: GPUContext, strokeWidth: number): number {
-  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
+  const renderer = new PointRenderer({
+    device: ctx.device,
+    format: ctx.format,
+    rhi: new WebGpuDevice(ctx.device),
+  })
   // addLayer positional head: features, fill, stroke, strokeWidth, radiusPx,
   // opacity, … . Stroke non-null + opaque (α = 1, opacity 1) so it draws.
-  renderer.addLayer(
-    FEATURES as never,
-    FILL, STROKE, strokeWidth, 8, 1,
-  )
+  renderer.addLayer(FEATURES as never, FILL, STROKE, strokeWidth, 8, 1)
 
   let slot9 = Number.NaN
   const device = ctx.device as unknown as {
     queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer) => void }
   }
-  device.queue.writeBuffer = (buf: unknown, _off: number, data: ArrayBufferView | ArrayBuffer): void => {
+  device.queue.writeBuffer = (
+    buf: unknown,
+    _off: number,
+    data: ArrayBufferView | ArrayBuffer,
+  ): void => {
     if ((buf as { size?: number })?.size !== FEAT_BYTES) return
-    const f32 = data instanceof ArrayBuffer
-      ? new Float32Array(data)
-      : new Float32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset, STRIDE)
+    const f32 =
+      data instanceof ArrayBuffer
+        ? new Float32Array(data)
+        : new Float32Array(
+            (data as ArrayBufferView).buffer,
+            (data as ArrayBufferView).byteOffset,
+            STRIDE,
+          )
     slot9 = f32[STROKE_WIDTH_SLOT]
   }
 
   const camera = new Camera(10, 20, 8)
   camera.projType = 0
-  const encoder = (ctx.device as unknown as {
-    createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
-  }).createCommandEncoder()
+  const encoder = (
+    ctx.device as unknown as {
+      createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
+    }
+  ).createCommandEncoder()
   const pass = encoder.beginRenderPass()
   renderer.render(pass, camera, 0, 10, 20, W, H, 1)
 

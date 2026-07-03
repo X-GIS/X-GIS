@@ -12,22 +12,32 @@
 // returns leave out.iconImage unset → dispatchIcon early-returns.
 
 import { describe, it, expect } from 'vitest'
-import { Lexer, Parser, lower, emitCommands, evaluate, makeEvalProps, convertMapboxStyle } from '../index'
+import {
+  Lexer,
+  Parser,
+  lower,
+  emitCommands,
+  evaluate,
+  makeEvalProps,
+  convertMapboxStyle,
+} from '../index'
 
 function compile(iconImage: unknown) {
   const style = {
     version: 8,
     sources: { v: { type: 'vector' as const, url: 'x.pmtiles' } },
-    layers: [{
-      id: 'label_city',
-      type: 'symbol' as const,
-      source: 'v',
-      'source-layer': 'place',
-      layout: {
-        'icon-image': iconImage,
-        'text-field': '{name}',
+    layers: [
+      {
+        id: 'label_city',
+        type: 'symbol' as const,
+        source: 'v',
+        'source-layer': 'place',
+        layout: {
+          'icon-image': iconImage,
+          'text-field': '{name}',
+        },
       },
-    }],
+    ],
   }
   const xgis = convertMapboxStyle(style as never)
   const cmds = emitCommands(lower(new Parser(new Lexer(xgis).tokenize()).parse()))
@@ -47,7 +57,10 @@ describe('icon-image step-zoom — OFM label_city shape (iter 525)', () => {
     const show = compile(['step', ['zoom'], 'circle_11_black', 10, ''])
     const ast = (show?.label as { iconImageExpr?: { ast: unknown } })?.iconImageExpr?.ast
     expect(ast).toBeDefined()
-    const result = evaluate(ast as never, makeEvalProps({ props: { name: 'Seoul' }, cameraZoom: 5 }))
+    const result = evaluate(
+      ast as never,
+      makeEvalProps({ props: { name: 'Seoul' }, cameraZoom: 5 }),
+    )
     expect(result).toBe('circle_11_black')
   })
 
@@ -82,7 +95,9 @@ describe('icon-image step-zoom — OFM label_city shape (iter 525)', () => {
     // a 10-threshold form. Pin both threshold positions explicitly.
     const show = compile(['step', ['zoom'], 'circle_11_black', 9, ''])
     const ast = (show?.label as { iconImageExpr?: { ast: unknown } })?.iconImageExpr?.ast
-    expect(evaluate(ast as never, makeEvalProps({ props: {}, cameraZoom: 8 }))).toBe('circle_11_black')
+    expect(evaluate(ast as never, makeEvalProps({ props: {}, cameraZoom: 8 }))).toBe(
+      'circle_11_black',
+    )
     expect(evaluate(ast as never, makeEvalProps({ props: {}, cameraZoom: 9 }))).toBe('')
   })
 
@@ -92,7 +107,9 @@ describe('icon-image step-zoom — OFM label_city shape (iter 525)', () => {
     // pinning lets us catch a regression in the evaluator's loop.
     const show = compile(['step', ['zoom'], 'default_marker', 5, 'city_dot', 10, ''])
     const ast = (show?.label as { iconImageExpr?: { ast: unknown } })?.iconImageExpr?.ast
-    expect(evaluate(ast as never, makeEvalProps({ props: {}, cameraZoom: 0 }))).toBe('default_marker')
+    expect(evaluate(ast as never, makeEvalProps({ props: {}, cameraZoom: 0 }))).toBe(
+      'default_marker',
+    )
     expect(evaluate(ast as never, makeEvalProps({ props: {}, cameraZoom: 5 }))).toBe('city_dot')
     expect(evaluate(ast as never, makeEvalProps({ props: {}, cameraZoom: 9 }))).toBe('city_dot')
     expect(evaluate(ast as never, makeEvalProps({ props: {}, cameraZoom: 10 }))).toBe('')

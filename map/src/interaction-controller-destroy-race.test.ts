@@ -18,10 +18,7 @@
 // null and does NOT call getMappedRange on the dead buffer.
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import {
-  InteractionController,
-  type InteractionControllerDeps,
-} from './interaction-controller'
+import { InteractionController, type InteractionControllerDeps } from './interaction-controller'
 import type { LayerIdRegistry } from './layer'
 
 // GPUMapMode is a WebGPU browser global absent in vitest — stub it.
@@ -48,7 +45,7 @@ function makeRaceController(useFixedGetCtx: boolean) {
   // Staging buffer: mapAsync fires destroy signal, then resolves.
   const mockBuffer = {
     mapAsync: vi.fn().mockImplementation(async () => {
-      destroyed = true  // destroy() races the await window
+      destroyed = true // destroy() races the await window
     }),
     getMappedRange: getMappedRangeSpy,
     unmap: vi.fn(),
@@ -80,7 +77,7 @@ function makeRaceController(useFixedGetCtx: boolean) {
     rawDatasets: new Map(),
     featureIndex: new Map(),
     // Fixed: return null once destroyed; Buggy: always return ctx.
-    getCtx: () => (useFixedGetCtx && destroyed) ? null : (mockCtx as never),
+    getCtx: () => (useFixedGetCtx && destroyed ? null : (mockCtx as never)),
     getPickTexture: () => mockTexture,
     getPickTextureDevice: () => mockDevice as never,
     getProjectionName: () => 'mercator',

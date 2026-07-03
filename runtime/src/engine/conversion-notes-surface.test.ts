@@ -65,7 +65,7 @@ describe('A2: conversion notes surface at runtime', () => {
     expect(notes).not.toBeNull()
     expect((notes as string[]).length).toBeGreaterThan(0)
     // The notes carry the actual warning text, decoration stripped.
-    expect((notes as string[]).some(n => /feature-state/i.test(n))).toBe(true)
+    expect((notes as string[]).some((n) => /feature-state/i.test(n))).toBe(true)
     // No bullet / comment-frame leakage in the extracted lines.
     for (const n of notes as string[]) {
       expect(n).not.toMatch(/^\s*\*/)
@@ -86,7 +86,7 @@ describe('A2: conversion notes surface at runtime', () => {
       // One header line + one line per note.
       expect(warnSpy).toHaveBeenCalledTimes(notes.length + 1)
       // The warnings carry the convert tag + the dropped-filter text.
-      const all = warnSpy.mock.calls.map(c => String(c[0])).join('\n')
+      const all = warnSpy.mock.calls.map((c) => String(c[0])).join('\n')
       expect(all).toContain('[X-GIS convert]')
       expect(all).toMatch(/feature-state/i)
     } finally {

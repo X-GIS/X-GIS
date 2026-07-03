@@ -9,10 +9,26 @@ import { vec4fFromRgba } from './_util/node-builders'
 
 // 20 maximally-distinct colors from Tailwind palette (500 shades)
 const AUTO_PALETTE_TOKENS = [
-  'red-500', 'blue-500', 'green-500', 'amber-500', 'purple-500',
-  'cyan-500', 'pink-500', 'lime-500', 'orange-500', 'teal-500',
-  'indigo-500', 'yellow-500', 'emerald-500', 'rose-500', 'sky-500',
-  'violet-500', 'fuchsia-500', 'stone-500', 'slate-500', 'zinc-500',
+  'red-500',
+  'blue-500',
+  'green-500',
+  'amber-500',
+  'purple-500',
+  'cyan-500',
+  'pink-500',
+  'lime-500',
+  'orange-500',
+  'teal-500',
+  'indigo-500',
+  'yellow-500',
+  'emerald-500',
+  'rose-500',
+  'sky-500',
+  'violet-500',
+  'fuchsia-500',
+  'stone-500',
+  'slate-500',
+  'zinc-500',
 ]
 
 /**
@@ -33,9 +49,9 @@ let autoPalette: [number, number, number, number][] | null = null
 
 function getAutoPalette(): [number, number, number, number][] {
   if (autoPalette) return autoPalette
-  autoPalette = AUTO_PALETTE_TOKENS.map(token => {
+  autoPalette = AUTO_PALETTE_TOKENS.map((token) => {
     const hex = resolveColor(token)
-    return hex ? hexToRgba(hex) : [0.5, 0.5, 0.5, 1.0] as [number, number, number, number]
+    return hex ? hexToRgba(hex) : ([0.5, 0.5, 0.5, 1.0] as [number, number, number, number])
   })
   return autoPalette
 }
@@ -50,7 +66,7 @@ function getAutoPalette(): [number, number, number, number][] {
 export function buildCatPaletteConst(paletteSize = CAT_PALETTE_SIZE): ConstDecl {
   const palette = getAutoPalette()
   const type = arrayT(vec4fT, paletteSize)
-  const args = palette.slice(0, paletteSize).map(rgba => vec4fFromRgba(rgba).expr as Expr)
+  const args = palette.slice(0, paletteSize).map((rgba) => vec4fFromRgba(rgba).expr as Expr)
   return {
     name: 'CAT_PALETTE',
     type,

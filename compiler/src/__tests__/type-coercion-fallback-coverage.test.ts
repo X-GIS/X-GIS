@@ -26,30 +26,22 @@ describe('Mapbox type-coercion fallback chain', () => {
 
   it('["number", a, b, c] → a ?? b ?? c (multi-fallback)', () => {
     const w: string[] = []
-    expect(
-      exprToXgis(['number', ['get', 'a'], ['get', 'b'], 0], w),
-    ).toBe('.a ?? .b ?? 0')
+    expect(exprToXgis(['number', ['get', 'a'], ['get', 'b'], 0], w)).toBe('.a ?? .b ?? 0')
   })
 
   it('["string", v, "default"] → v ?? "default"', () => {
     const w: string[] = []
-    expect(
-      exprToXgis(['string', ['get', 'name_en'], 'unknown'], w),
-    ).toBe('.name_en ?? "unknown"')
+    expect(exprToXgis(['string', ['get', 'name_en'], 'unknown'], w)).toBe('.name_en ?? "unknown"')
   })
 
   it('["boolean", ["has", "x"], false] → has-check ?? false', () => {
     const w: string[] = []
-    expect(
-      exprToXgis(['boolean', ['has', 'x'], false], w),
-    ).toBe('.x != null ?? false')
+    expect(exprToXgis(['boolean', ['has', 'x'], false], w)).toBe('.x != null ?? false')
   })
 
   it('["to-color", ["get","c"], "#000"] → c ?? "#000"', () => {
     const w: string[] = []
-    expect(
-      exprToXgis(['to-color', ['get', 'c'], '#000'], w),
-    ).toBe('.c ?? "#000"')
+    expect(exprToXgis(['to-color', ['get', 'c'], '#000'], w)).toBe('.c ?? "#000"')
   })
 
   it('all args dropped (uncconvertible) → null', () => {

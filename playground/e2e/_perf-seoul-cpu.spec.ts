@@ -25,8 +25,15 @@ interface CpuProfile {
   timeDeltas?: number[]
 }
 
-function topHot(profile: CpuProfile, topN = 30): Array<{
-  name: string; url: string; line: number; selfMs: number; selfPct: number
+function topHot(
+  profile: CpuProfile,
+  topN = 30,
+): Array<{
+  name: string
+  url: string
+  line: number
+  selfMs: number
+  selfPct: number
 }> {
   const selfMicros = new Map<number, number>()
   const samples = profile.samples ?? []
@@ -36,7 +43,7 @@ function topHot(profile: CpuProfile, topN = 30): Array<{
     selfMicros.set(id, (selfMicros.get(id) ?? 0) + (deltas[i] ?? 0))
   }
   const totalUs = profile.endTime - profile.startTime
-  const rows = profile.nodes.map(n => ({
+  const rows = profile.nodes.map((n) => ({
     name: n.callFrame.functionName || '(anon)',
     url: n.callFrame.url || '',
     line: n.callFrame.lineNumber,
@@ -48,7 +55,7 @@ function topHot(profile: CpuProfile, topN = 30): Array<{
 }
 
 const CELLS: Array<{ slug: string; zoom: number; pitch: number }> = [
-  { slug: 'z14-p0',  zoom: 14, pitch: 0 },
+  { slug: 'z14-p0', zoom: 14, pitch: 0 },
   { slug: 'z16-p60', zoom: 16, pitch: 60 },
 ]
 
@@ -63,14 +70,19 @@ for (const cell of CELLS) {
     )
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 60_000 },
+      null,
+      { timeout: 60_000 },
     )
-    await page.waitForTimeout(5_000)  // settle uploads
+    await page.waitForTimeout(5_000) // settle uploads
 
     // Continuous render loop during profile (camera animation triggers
     // every frame to be re-rendered, surfacing hot path).
     await page.evaluate(() => {
-      const m = (window as unknown as { __xgisMap?: { camera: { bearing: number }; invalidate?: () => void } }).__xgisMap
+      const m = (
+        window as unknown as {
+          __xgisMap?: { camera: { bearing: number }; invalidate?: () => void }
+        }
+      ).__xgisMap
       if (!m) return
       let bearing = 0
       const loop = () => {
@@ -84,10 +96,10 @@ for (const cell of CELLS) {
 
     const cdp: CDPSession = await context.newCDPSession(page)
     await cdp.send('Profiler.enable')
-    await cdp.send('Profiler.setSamplingInterval', { interval: 100 })  // 10 kHz
+    await cdp.send('Profiler.setSamplingInterval', { interval: 100 }) // 10 kHz
     await cdp.send('Profiler.start')
-    await new Promise(r => setTimeout(r, 4_000))
-    const result = await cdp.send('Profiler.stop') as { profile: CpuProfile }
+    await new Promise((r) => setTimeout(r, 4_000))
+    const result = (await cdp.send('Profiler.stop')) as { profile: CpuProfile }
     await cdp.send('Profiler.disable')
     const profile = result.profile
 
@@ -98,8 +110,10 @@ for (const cell of CELLS) {
     for (const r of hot) {
       if (r.selfMs < 1) continue
       const u = r.url ? r.url.split('/').slice(-2).join('/') : ''
-      lines.push(`  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  `
-        + `${r.name.padEnd(40)} ${u}:${r.line}`)
+      lines.push(
+        `  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ` +
+          `${r.name.padEnd(40)} ${u}:${r.line}`,
+      )
     }
     writeFileSync(join(OUT, `${cell.slug}.hot.txt`), lines.join('\n'))
     // eslint-disable-next-line no-console

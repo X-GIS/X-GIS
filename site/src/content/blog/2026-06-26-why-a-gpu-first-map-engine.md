@@ -1,8 +1,8 @@
 ---
-title: "Why we built a GPU-first map engine"
+title: 'Why we built a GPU-first map engine'
 description: "X-GIS compiles a declarative style language into optimized WebGPU shaders — through a real compiler and a typed shader IR. Here's the shape of the system and why each layer exists."
 date: 2026-06-26
-tags: ["engine", "webgpu", "compiler", "intro"]
+tags: ['engine', 'webgpu', 'compiler', 'intro']
 lang: en
 ---
 

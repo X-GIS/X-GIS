@@ -22,13 +22,18 @@ beforeEach(() => {
   // browser-environment runs; bare-Node vitest may need this guard.
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<Awaited<ReturnType<typeof initGPU>>> {
   const canvas = { width: 1024, height: 720 } as unknown as HTMLCanvasElement
@@ -49,25 +54,26 @@ describe('MapRenderer construction (stub)', () => {
     // Shader modules: vertex + fragment WGSL pairs across the polygon /
     // extruded / OIT / ground variants. Minimum bar — actual count
     // matters less than "did we compile anything at all".
-    expect(stub.callCounts.createShaderModule ?? 0,
-      'MapRenderer should compile at least one shader module')
-      .toBeGreaterThan((before.createShaderModule ?? 0))
+    expect(
+      stub.callCounts.createShaderModule ?? 0,
+      'MapRenderer should compile at least one shader module',
+    ).toBeGreaterThan(before.createShaderModule ?? 0)
     // Render pipelines (sync + async). MapRenderer creates several at
     // construction time (fill, fillGround, fillExtruded, OIT, …); the
     // exact count is implementation detail but should be non-zero.
     const syncP = stub.callCounts.createRenderPipeline ?? 0
     const asyncP = stub.callCounts.createRenderPipelineAsync ?? 0
-    expect(syncP + asyncP, 'MapRenderer should create render pipelines')
-      .toBeGreaterThan(0)
+    expect(syncP + asyncP, 'MapRenderer should create render pipelines').toBeGreaterThan(0)
   })
 
   it('declares at least one bind group layout', async () => {
     const ctx = await makeCtx()
     const before = stub.callCounts.createBindGroupLayout ?? 0
     new MapRendererContent(ctx)
-    expect((stub.callCounts.createBindGroupLayout ?? 0) - before,
-      'MapRenderer should declare bind group layout(s)')
-      .toBeGreaterThan(0)
+    expect(
+      (stub.callCounts.createBindGroupLayout ?? 0) - before,
+      'MapRenderer should declare bind group layout(s)',
+    ).toBeGreaterThan(0)
   })
 
   it('uniform bind size is reflect-derived (no stale UNIFORM_SIZE constant)', async () => {
@@ -94,11 +100,13 @@ describe('MapRenderer construction (stub)', () => {
     // re-wire regressions historically broke when this binding was
     // silently dropped or changed visibility.
     const ctx = await makeCtx()
-    const r = new MapRendererContent(ctx) as unknown as { bindGroupLayout: { __descriptor?: GPUBindGroupLayoutDescriptor } }
+    const r = new MapRendererContent(ctx) as unknown as {
+      bindGroupLayout: { __descriptor?: GPUBindGroupLayoutDescriptor }
+    }
     const desc = r.bindGroupLayout.__descriptor
     expect(desc, 'MapRenderer.bindGroupLayout should be a stub-tagged BGL').toBeTruthy()
     const entries = desc!.entries as GPUBindGroupLayoutEntry[]
-    const slot0 = entries.find(e => e.binding === 0)
+    const slot0 = entries.find((e) => e.binding === 0)
     expect(slot0, 'binding 0 (layer Uniforms) must exist').toBeTruthy()
     expect(slot0!.buffer?.type, 'binding 0 must be a uniform buffer').toBe('uniform')
   })

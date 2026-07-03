@@ -32,7 +32,9 @@ function makeDiscCamera(lon = 0, lat = 0, zoom = 2, projType = 3): Camera {
   return cam
 }
 
-const W = 800, H = 600, DPR = 1
+const W = 800,
+  H = 600,
+  DPR = 1
 
 // ─── #8 Globe pan bearing rotation direction ──────────────────────────────────
 //
@@ -67,8 +69,10 @@ describe('#8 globe pan bearing rotation direction', () => {
     const camRef = makeGlobeCamera(0, 0, 4)
     camRef.bearing = 90
     // Simulate: anchor at centre pixel, then cursor moves 50px right
-    const anchorLon = 0, anchorLat = 0
-    const cursorX = (W / 2 + 50) * DPR, cursorY = (H / 2) * DPR
+    const anchorLon = 0,
+      anchorLat = 0
+    const cursorX = (W / 2 + 50) * DPR,
+      cursorY = (H / 2) * DPR
     panGlobeToScreenAnchor(camRef, anchorLon, anchorLat, cursorX, cursorY, W, H, DPR)
     // panGlobeToScreenAnchor rotates centre so anchor point comes under cursor.
     // A 50px rightward move of the cursor means the anchor is now to the left of
@@ -124,7 +128,8 @@ describe('#2 disc drag anchor round-trip', () => {
   // panDiscToScreenAnchor brings the anchor back under the cursor.
   function roundTripTest(projType: number, lat: number): void {
     const cam = makeDiscCamera(0, lat, 2, projType)
-    const cx = W * DPR * 0.5, cy = H * DPR * 0.5
+    const cx = W * DPR * 0.5,
+      cy = H * DPR * 0.5
 
     // Capture anchor at screen centre
     const anchor = cam.discDragAnchorAt(cx, cy, W, H, DPR)
@@ -137,7 +142,7 @@ describe('#2 disc drag anchor round-trip', () => {
     // (centerY is a Mercator mirror — recompute to keep consistent)
     const EARTH_R = 6378137
     const mercLat = Math.max(-85.051129, Math.min(85.051129, cam.centerLatDeg))
-    cam.centerY = Math.log(Math.tan(Math.PI / 4 + mercLat * (Math.PI / 180) / 2)) * EARTH_R
+    cam.centerY = Math.log(Math.tan(Math.PI / 4 + (mercLat * (Math.PI / 180)) / 2)) * EARTH_R
 
     // panDiscToScreenAnchor should converge the anchor back under the cursor
     cam.panDiscToScreenAnchor(anchor!.lon, anchor!.lat, cx, cy, W, H, DPR)
@@ -174,7 +179,8 @@ describe('#2 disc drag anchor round-trip', () => {
   it('panDiscToScreenAnchor is a no-op for non-disc projType', () => {
     const cam = new Camera(0, 0, 2)
     cam.projType = 0
-    const cx0 = cam.centerX, cy0 = cam.centerY
+    const cx0 = cam.centerX,
+      cy0 = cam.centerY
     cam.panDiscToScreenAnchor(10, 20, W / 2, H / 2, W, H, DPR)
     expect(cam.centerX).toBe(cx0)
     expect(cam.centerY).toBe(cy0)

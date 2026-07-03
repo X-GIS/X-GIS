@@ -21,18 +21,23 @@ test.describe('opacity error scan', () => {
       await page.setViewportSize({ width: 1280, height: 800 })
       const errors: string[] = []
       const warnings: string[] = []
-      page.on('console', m => {
+      page.on('console', (m) => {
         const t = m.text()
         if (m.type() === 'error') errors.push(t)
         if (m.type() === 'warning') warnings.push(t)
       })
-      page.on('pageerror', e => { errors.push('PAGE_ERROR: ' + e.message) })
+      page.on('pageerror', (e) => {
+        errors.push('PAGE_ERROR: ' + e.message)
+      })
 
       await page.goto(`/demo.html?id=osm_style&e2e=1${url}`, {
         waitUntil: 'domcontentloaded',
       })
-      await page.waitForFunction(() => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-        null, { timeout: 30_000 })
+      await page.waitForFunction(
+        () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
+        null,
+        { timeout: 30_000 },
+      )
       await page.waitForTimeout(10_000)
 
       // eslint-disable-next-line no-console
@@ -41,9 +46,18 @@ test.describe('opacity error scan', () => {
         // eslint-disable-next-line no-console
         console.log('FIRST_ERROR:', errors[0].substring(0, 500))
         const fname = `opacity-fail-${url.replace(/[/.#]/g, '_')}.log`
-        writeFileSync(fname, JSON.stringify({
-          url, errors: errors.slice(0, 10), warnings: warnings.slice(0, 5),
-        }, null, 2))
+        writeFileSync(
+          fname,
+          JSON.stringify(
+            {
+              url,
+              errors: errors.slice(0, 10),
+              warnings: warnings.slice(0, 5),
+            },
+            null,
+            2,
+          ),
+        )
       }
     })
   }

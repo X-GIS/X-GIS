@@ -23,12 +23,7 @@ import {
   extractInterpolateZoomStops,
   extractInterpolateZoomColorStops,
 } from './lower-helpers'
-import {
-  type ZoomStop,
-  type Diagnostic,
-  hexToRgba,
-  buildLabelShapes,
-} from './render-node'
+import { type ZoomStop, type Diagnostic, hexToRgba, buildLabelShapes } from './render-node'
 
 /**
  * Resolve a layer's `label-*` / `label-icon-*` utilities into a LabelDef.
@@ -76,7 +71,8 @@ export function lowerLabelProps(
   let labelAnchor: import('./render-node').LabelDef['anchor'] | undefined
   // Every label-anchor-X seen, in priority order (Mapbox text-variable-
   // anchor). Runtime tries each on collision; first non-colliding wins.
-  const labelAnchorCandidates: NonNullable<import('./render-node').LabelDef['anchorCandidates']> = []
+  const labelAnchorCandidates: NonNullable<import('./render-node').LabelDef['anchorCandidates']> =
+    []
   let labelTransform: import('./render-node').LabelDef['transform'] | undefined
   let labelOffsetX: number | undefined
   let labelOffsetY: number | undefined
@@ -176,7 +172,8 @@ export function lowerLabelProps(
         if (zoomStops && name === 'label-icon-size') {
           // Mapbox `icon-size: interpolate(zoom, …)` per-frame resolve
           // (iter 523). Clamp negatives to 0.
-          for (const s of zoomStops.stops) labelIconSizeZoomStops.push({ zoom: s.zoom, value: Math.max(0, s.value) })
+          for (const s of zoomStops.stops)
+            labelIconSizeZoomStops.push({ zoom: s.zoom, value: Math.max(0, s.value) })
           if (zoomStops.base !== 1) labelIconSizeZoomStopsBase = zoomStops.base
           continue
         }
@@ -221,7 +218,8 @@ export function lowerLabelProps(
         // label-halo zoom-interpolated width; last stop seeds the
         // static `halo.width` fallback.
         if (zoomStops && name === 'label-halo') {
-          for (const s of zoomStops.stops) labelHaloWidthZoomStops.push({ zoom: s.zoom, value: s.value })
+          for (const s of zoomStops.stops)
+            labelHaloWidthZoomStops.push({ zoom: s.zoom, value: s.value })
           if (zoomStops.base !== 1) labelHaloWidthZoomStopsBase = zoomStops.base
           labelHaloWidth = zoomStops.stops[zoomStops.stops.length - 1]!.value
           continue
@@ -303,28 +301,76 @@ export function lowerLabelProps(
         // (or unary-minus literal) bindings are accepted here.
         const n = bindingAsConstantNumber(item.binding)
         if (n !== null) {
-          if (name === 'label-offset-x') { labelOffsetX = n; continue }
-          if (name === 'label-offset-y') { labelOffsetY = n; continue }
-          if (name === 'label-translate-x') { labelTranslateX = n; continue }
-          if (name === 'label-translate-y') { labelTranslateY = n; continue }
-          if (name === 'label-radial-offset') { labelRadialOffset = n; continue }
+          if (name === 'label-offset-x') {
+            labelOffsetX = n
+            continue
+          }
+          if (name === 'label-offset-y') {
+            labelOffsetY = n
+            continue
+          }
+          if (name === 'label-translate-x') {
+            labelTranslateX = n
+            continue
+          }
+          if (name === 'label-translate-y') {
+            labelTranslateY = n
+            continue
+          }
+          if (name === 'label-radial-offset') {
+            labelRadialOffset = n
+            continue
+          }
           if (name.startsWith('label-vao-')) {
             // `label-vao-<idx>-<x|y>` bracket form (negative em).
             const m = /^label-vao-(\d+)-([xy])$/.exec(name)
-            if (m) { setVao(parseInt(m[1]!, 10), m[2]!, n); continue }
+            if (m) {
+              setVao(parseInt(m[1]!, 10), m[2]!, n)
+              continue
+            }
           }
-          if (name === 'label-rotate') { labelRotate = n; continue }
-          if (name === 'label-letter-spacing') { labelLetterSpacing = n; continue }
-          if (name === 'label-padding') { labelPadding = n; continue }
-          if (name === 'label-sort-key') { labelSortKey = n; continue }
+          if (name === 'label-rotate') {
+            labelRotate = n
+            continue
+          }
+          if (name === 'label-letter-spacing') {
+            labelLetterSpacing = n
+            continue
+          }
+          if (name === 'label-padding') {
+            labelPadding = n
+            continue
+          }
+          if (name === 'label-sort-key') {
+            labelSortKey = n
+            continue
+          }
           // Bracket-binding form for negative icon-offset components.
-          if (name === 'label-icon-offset-x') { labelIconOffset = [n, labelIconOffset?.[1] ?? 0]; continue }
-          if (name === 'label-icon-offset-y') { labelIconOffset = [labelIconOffset?.[0] ?? 0, n]; continue }
+          if (name === 'label-icon-offset-x') {
+            labelIconOffset = [n, labelIconOffset?.[1] ?? 0]
+            continue
+          }
+          if (name === 'label-icon-offset-y') {
+            labelIconOffset = [labelIconOffset?.[0] ?? 0, n]
+            continue
+          }
           // Bracket-binding form for negative icon-translate components.
-          if (name === 'label-icon-translate-x') { labelIconTranslateX = n; continue }
-          if (name === 'label-icon-translate-y') { labelIconTranslateY = n; continue }
-          if (name === 'label-icon-rotate') { labelIconRotate = n; continue }
-          if (name === 'label-icon-size') { labelIconSize = n; continue }
+          if (name === 'label-icon-translate-x') {
+            labelIconTranslateX = n
+            continue
+          }
+          if (name === 'label-icon-translate-y') {
+            labelIconTranslateY = n
+            continue
+          }
+          if (name === 'label-icon-rotate') {
+            labelIconRotate = n
+            continue
+          }
+          if (name === 'label-icon-size') {
+            labelIconSize = n
+            continue
+          }
         }
         // Non-label binding items (fill / stroke / size / opacity /
         // fill-extrusion / fill-translate / unhandled non-label bracket
@@ -351,54 +397,144 @@ export function lowerLabelProps(
 
       // ── label-* visual knob utilities (Batch 1c-8g) — stored in
       //    locals until foldLabelKnobs assembly at the bottom.
-      if (name === 'label-uppercase') { labelTransform = 'uppercase'; continue }
-      if (name === 'label-lowercase') { labelTransform = 'lowercase'; continue }
-      if (name === 'label-none') { labelTransform = 'none'; continue }
-      if (name === 'label-allow-overlap') { labelAllowOverlap = true; continue }
-      if (name === 'label-ignore-placement') { labelIgnorePlacement = true; continue }
-      if (name === 'label-icon-collide') { labelIconCollide = true; continue }
-      if (name === 'label-icon-ignore-placement') { labelIconIgnorePlacement = true; continue }
-      if (name === 'label-icon-optional') { labelIconOptional = true; continue }
+      if (name === 'label-uppercase') {
+        labelTransform = 'uppercase'
+        continue
+      }
+      if (name === 'label-lowercase') {
+        labelTransform = 'lowercase'
+        continue
+      }
+      if (name === 'label-none') {
+        labelTransform = 'none'
+        continue
+      }
+      if (name === 'label-allow-overlap') {
+        labelAllowOverlap = true
+        continue
+      }
+      if (name === 'label-ignore-placement') {
+        labelIgnorePlacement = true
+        continue
+      }
+      if (name === 'label-icon-collide') {
+        labelIconCollide = true
+        continue
+      }
+      if (name === 'label-icon-ignore-placement') {
+        labelIconIgnorePlacement = true
+        continue
+      }
+      if (name === 'label-icon-optional') {
+        labelIconOptional = true
+        continue
+      }
       // Mapbox `symbol-placement: line | line-center` — labels follow
       // line geometry instead of anchoring at a point. Runtime walks
       // the line's segments and emits a label per feature with rotation
       // matching the local tangent.
-      if (name === 'label-along-path') { labelPlacement = 'line'; continue }
-      if (name === 'label-line-center') { labelPlacement = 'line-center'; continue }
-      if (name === 'label-translate-anchor-map') { labelTranslateAnchorMap = true; continue }
-      if (name === 'label-icon-translate-anchor-map') { labelIconTranslateAnchorMap = true; continue }
-      if (name === 'label-rotation-alignment-map') { labelRotationAlignment = 'map'; continue }
-      if (name === 'label-rotation-alignment-viewport') { labelRotationAlignment = 'viewport'; continue }
-      if (name === 'label-rotation-alignment-auto') { labelRotationAlignment = 'auto'; continue }
-      if (name === 'label-pitch-alignment-map') { labelPitchAlignment = 'map'; continue }
-      if (name === 'label-pitch-alignment-viewport') { labelPitchAlignment = 'viewport'; continue }
-      if (name === 'label-pitch-alignment-auto') { labelPitchAlignment = 'auto'; continue }
-      if (name === 'label-keep-upright-true') { labelKeepUpright = true; continue }
-      if (name === 'label-keep-upright-false') { labelKeepUpright = false; continue }
-      if (name === 'label-z-order-auto') { labelSymbolZOrder = 'auto'; continue }
-      if (name === 'label-z-order-viewport-y') { labelSymbolZOrder = 'viewport-y'; continue }
-      if (name === 'label-z-order-source') { labelSymbolZOrder = 'source'; continue }
+      if (name === 'label-along-path') {
+        labelPlacement = 'line'
+        continue
+      }
+      if (name === 'label-line-center') {
+        labelPlacement = 'line-center'
+        continue
+      }
+      if (name === 'label-translate-anchor-map') {
+        labelTranslateAnchorMap = true
+        continue
+      }
+      if (name === 'label-icon-translate-anchor-map') {
+        labelIconTranslateAnchorMap = true
+        continue
+      }
+      if (name === 'label-rotation-alignment-map') {
+        labelRotationAlignment = 'map'
+        continue
+      }
+      if (name === 'label-rotation-alignment-viewport') {
+        labelRotationAlignment = 'viewport'
+        continue
+      }
+      if (name === 'label-rotation-alignment-auto') {
+        labelRotationAlignment = 'auto'
+        continue
+      }
+      if (name === 'label-pitch-alignment-map') {
+        labelPitchAlignment = 'map'
+        continue
+      }
+      if (name === 'label-pitch-alignment-viewport') {
+        labelPitchAlignment = 'viewport'
+        continue
+      }
+      if (name === 'label-pitch-alignment-auto') {
+        labelPitchAlignment = 'auto'
+        continue
+      }
+      if (name === 'label-keep-upright-true') {
+        labelKeepUpright = true
+        continue
+      }
+      if (name === 'label-keep-upright-false') {
+        labelKeepUpright = false
+        continue
+      }
+      if (name === 'label-z-order-auto') {
+        labelSymbolZOrder = 'auto'
+        continue
+      }
+      if (name === 'label-z-order-viewport-y') {
+        labelSymbolZOrder = 'viewport-y'
+        continue
+      }
+      if (name === 'label-z-order-source') {
+        labelSymbolZOrder = 'source'
+        continue
+      }
       if (name.startsWith('label-max-angle-')) {
         const num = parseFloat(name.slice('label-max-angle-'.length))
         if (!isNaN(num)) labelMaxAngle = num
         continue
       }
-      if (name === 'label-justify-auto') { labelJustify = 'auto'; continue }
-      if (name === 'label-justify-left') { labelJustify = 'left'; continue }
-      if (name === 'label-justify-center') { labelJustify = 'center'; continue }
-      if (name === 'label-justify-right') { labelJustify = 'right'; continue }
+      if (name === 'label-justify-auto') {
+        labelJustify = 'auto'
+        continue
+      }
+      if (name === 'label-justify-left') {
+        labelJustify = 'left'
+        continue
+      }
+      if (name === 'label-justify-center') {
+        labelJustify = 'center'
+        continue
+      }
+      if (name === 'label-justify-right') {
+        labelJustify = 'right'
+        continue
+      }
       if (name.startsWith('label-anchor-')) {
         const a = name.slice('label-anchor-'.length)
-        const valid = ['center', 'top', 'bottom', 'left', 'right',
-          'top-left', 'top-right', 'bottom-left', 'bottom-right'] as const
+        const valid = [
+          'center',
+          'top',
+          'bottom',
+          'left',
+          'right',
+          'top-left',
+          'top-right',
+          'bottom-left',
+          'bottom-right',
+        ] as const
         if ((valid as readonly string[]).includes(a)) {
           // First-seen wins for the static `anchor`; later siblings
           // become collision-fallback candidates. Avoid duplicates so
           // an accidental `label-anchor-top label-anchor-top` doesn't
           // bloat the candidate list.
-          if (labelAnchor === undefined) labelAnchor = a as typeof valid[number]
-          if (!labelAnchorCandidates.includes(a as typeof valid[number])) {
-            labelAnchorCandidates.push(a as typeof valid[number])
+          if (labelAnchor === undefined) labelAnchor = a as (typeof valid)[number]
+          if (!labelAnchorCandidates.includes(a as (typeof valid)[number])) {
+            labelAnchorCandidates.push(a as (typeof valid)[number])
           }
           continue
         }
@@ -512,10 +648,19 @@ export function lowerLabelProps(
       }
       if (name.startsWith('label-icon-anchor-')) {
         const a = name.slice('label-icon-anchor-'.length)
-        const valid = ['center', 'top', 'bottom', 'left', 'right',
-          'top-left', 'top-right', 'bottom-left', 'bottom-right'] as const
+        const valid = [
+          'center',
+          'top',
+          'bottom',
+          'left',
+          'right',
+          'top-left',
+          'top-right',
+          'bottom-left',
+          'bottom-right',
+        ] as const
         if ((valid as readonly string[]).includes(a)) {
-          labelIconAnchor = a as typeof valid[number]
+          labelIconAnchor = a as (typeof valid)[number]
         }
         continue
       }
@@ -611,46 +756,86 @@ export function lowerLabelProps(
   // the converter actually emitted vao pairs — plain text-variable-
   // anchor / text-radial-offset leave this undefined and the runtime
   // falls back to the radial / text-offset path.
-  const labelVariableAnchorOffset = labelVao.length > 0
-    ? labelAnchorCandidates
-        .slice(0, labelVao.length)
-        .map((a, i) => [a, labelVao[i] ?? [0, 0]] as [
-          typeof a, [number, number],
-        ])
-    : undefined
+  const labelVariableAnchorOffset =
+    labelVao.length > 0
+      ? labelAnchorCandidates
+          .slice(0, labelVao.length)
+          .map((a, i) => [a, labelVao[i] ?? [0, 0]] as [typeof a, [number, number]])
+      : undefined
 
   return foldLabelKnobs(label, {
-    labelSize, labelColor, labelHaloWidth, labelHaloColor, labelHaloBlur,
-    labelAnchor, labelTransform, labelOffsetX, labelOffsetY,
-    labelTranslateX, labelTranslateY, labelTranslateAnchorMap, labelRadialOffset,
+    labelSize,
+    labelColor,
+    labelHaloWidth,
+    labelHaloColor,
+    labelHaloBlur,
+    labelAnchor,
+    labelTransform,
+    labelOffsetX,
+    labelOffsetY,
+    labelTranslateX,
+    labelTranslateY,
+    labelTranslateAnchorMap,
+    labelRadialOffset,
     labelVariableAnchorOffset,
     labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
     labelSizeZoomStopsBase,
     labelColorZoomStops: labelColorZoomStops.length > 0 ? labelColorZoomStops : undefined,
     labelColorZoomStopsBase,
-    labelColorExpr, labelSizeExpr,
+    labelColorExpr,
+    labelSizeExpr,
     labelAnchorCandidates: labelAnchorCandidates.length > 1 ? labelAnchorCandidates : undefined,
-    labelHaloWidthZoomStops: labelHaloWidthZoomStops.length > 0 ? labelHaloWidthZoomStops : undefined,
+    labelHaloWidthZoomStops:
+      labelHaloWidthZoomStops.length > 0 ? labelHaloWidthZoomStops : undefined,
     labelHaloWidthZoomStopsBase,
-    labelHaloColorZoomStops: labelHaloColorZoomStops.length > 0 ? labelHaloColorZoomStops : undefined,
+    labelHaloColorZoomStops:
+      labelHaloColorZoomStops.length > 0 ? labelHaloColorZoomStops : undefined,
     labelHaloColorZoomStopsBase,
-    labelAllowOverlap, labelIgnorePlacement, labelPadding, labelSortKey,
-    labelRotate, labelLetterSpacing, labelFontStack, labelFontWeight, labelFontStyle,
-    labelMaxWidth, labelLineHeight, labelJustify,
-    labelPlacement, labelSpacing,
-    labelRotationAlignment, labelPitchAlignment, labelKeepUpright, labelMaxAngle, labelSymbolZOrder,
-    labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconTranslateX, labelIconTranslateY, labelIconTranslateAnchorMap, labelIconRotate, labelIconOpacity, labelIconRotationAlignment,
-    labelIconCollide, labelIconIgnorePlacement, labelIconOptional,
+    labelAllowOverlap,
+    labelIgnorePlacement,
+    labelPadding,
+    labelSortKey,
+    labelRotate,
+    labelLetterSpacing,
+    labelFontStack,
+    labelFontWeight,
+    labelFontStyle,
+    labelMaxWidth,
+    labelLineHeight,
+    labelJustify,
+    labelPlacement,
+    labelSpacing,
+    labelRotationAlignment,
+    labelPitchAlignment,
+    labelKeepUpright,
+    labelMaxAngle,
+    labelSymbolZOrder,
+    labelIconImage,
+    labelIconImageExpr,
+    labelIconSize,
+    labelIconAnchor,
+    labelIconOffset,
+    labelIconTranslateX,
+    labelIconTranslateY,
+    labelIconTranslateAnchorMap,
+    labelIconRotate,
+    labelIconOpacity,
+    labelIconRotationAlignment,
+    labelIconCollide,
+    labelIconIgnorePlacement,
+    labelIconOptional,
     labelIconSizeZoomStops: labelIconSizeZoomStops.length > 0 ? labelIconSizeZoomStops : undefined,
     labelIconSizeZoomStopsBase,
     labelOpacityZoomStops: labelOpacityZoomStops.length > 0 ? labelOpacityZoomStops : undefined,
     labelOpacityZoomStopsBase,
     labelOpacityExpr,
-    labelIconOpacityZoomStops: labelIconOpacityZoomStops.length > 0 ? labelIconOpacityZoomStops : undefined,
+    labelIconOpacityZoomStops:
+      labelIconOpacityZoomStops.length > 0 ? labelIconOpacityZoomStops : undefined,
     labelIconOpacityZoomStopsBase,
     labelIconOpacityExpr,
     labelIconColor,
-    labelIconColorZoomStops: labelIconColorZoomStops.length > 0 ? labelIconColorZoomStops : undefined,
+    labelIconColorZoomStops:
+      labelIconColorZoomStops.length > 0 ? labelIconColorZoomStops : undefined,
     labelIconColorZoomStopsBase,
     labelIconColorExpr,
   })
@@ -743,9 +928,11 @@ function foldLabelKnobs(
 ): import('./render-node').LabelDef | undefined {
   if (!base) return undefined
   let halo = base.halo
-  if (knobs.labelHaloWidth !== undefined
-      || knobs.labelHaloColor !== undefined
-      || knobs.labelHaloBlur !== undefined) {
+  if (
+    knobs.labelHaloWidth !== undefined ||
+    knobs.labelHaloColor !== undefined ||
+    knobs.labelHaloBlur !== undefined
+  ) {
     const resolvedBlur = knobs.labelHaloBlur ?? base.halo?.blur
     halo = {
       // Mapbox `text-halo-color` default is transparent black (no visible
@@ -775,22 +962,30 @@ function foldLabelKnobs(
     ...(knobs.labelColor !== undefined ? { color: knobs.labelColor } : {}),
     ...(halo !== undefined ? { halo } : {}),
     ...(knobs.labelAnchor !== undefined ? { anchor: knobs.labelAnchor } : {}),
-    ...(knobs.labelAnchorCandidates !== undefined ? { anchorCandidates: knobs.labelAnchorCandidates } : {}),
+    ...(knobs.labelAnchorCandidates !== undefined
+      ? { anchorCandidates: knobs.labelAnchorCandidates }
+      : {}),
     ...(knobs.labelTransform !== undefined ? { transform: knobs.labelTransform } : {}),
     ...(offset !== undefined ? { offset } : {}),
     ...(translate !== undefined ? { translate } : {}),
-    ...(knobs.labelTranslateAnchorMap !== undefined ? { translateAnchorMap: knobs.labelTranslateAnchorMap } : {}),
+    ...(knobs.labelTranslateAnchorMap !== undefined
+      ? { translateAnchorMap: knobs.labelTranslateAnchorMap }
+      : {}),
     ...(knobs.labelRadialOffset !== undefined ? { radialOffset: knobs.labelRadialOffset } : {}),
     ...(knobs.labelVariableAnchorOffset !== undefined && knobs.labelVariableAnchorOffset.length > 0
-      ? { variableAnchorOffset: knobs.labelVariableAnchorOffset } : {}),
+      ? { variableAnchorOffset: knobs.labelVariableAnchorOffset }
+      : {}),
     ...(knobs.labelAllowOverlap !== undefined ? { allowOverlap: knobs.labelAllowOverlap } : {}),
-    ...(knobs.labelIgnorePlacement !== undefined ? { ignorePlacement: knobs.labelIgnorePlacement } : {}),
+    ...(knobs.labelIgnorePlacement !== undefined
+      ? { ignorePlacement: knobs.labelIgnorePlacement }
+      : {}),
     ...(knobs.labelPadding !== undefined ? { padding: knobs.labelPadding } : {}),
     ...(knobs.labelSortKey !== undefined ? { sortKey: knobs.labelSortKey } : {}),
     ...(knobs.labelRotate !== undefined ? { rotate: knobs.labelRotate } : {}),
     ...(knobs.labelLetterSpacing !== undefined ? { letterSpacing: knobs.labelLetterSpacing } : {}),
     ...(knobs.labelFontStack !== undefined && knobs.labelFontStack.length > 0
-      ? { font: knobs.labelFontStack } : {}),
+      ? { font: knobs.labelFontStack }
+      : {}),
     ...(knobs.labelFontWeight !== undefined ? { fontWeight: knobs.labelFontWeight } : {}),
     ...(knobs.labelFontStyle !== undefined ? { fontStyle: knobs.labelFontStyle } : {}),
     ...(knobs.labelMaxWidth !== undefined ? { maxWidth: knobs.labelMaxWidth } : {}),
@@ -798,8 +993,12 @@ function foldLabelKnobs(
     ...(knobs.labelJustify !== undefined ? { justify: knobs.labelJustify } : {}),
     ...(knobs.labelPlacement !== undefined ? { placement: knobs.labelPlacement } : {}),
     ...(knobs.labelSpacing !== undefined ? { spacing: knobs.labelSpacing } : {}),
-    ...(knobs.labelRotationAlignment !== undefined ? { rotationAlignment: knobs.labelRotationAlignment } : {}),
-    ...(knobs.labelPitchAlignment !== undefined ? { pitchAlignment: knobs.labelPitchAlignment } : {}),
+    ...(knobs.labelRotationAlignment !== undefined
+      ? { rotationAlignment: knobs.labelRotationAlignment }
+      : {}),
+    ...(knobs.labelPitchAlignment !== undefined
+      ? { pitchAlignment: knobs.labelPitchAlignment }
+      : {}),
     ...(knobs.labelKeepUpright !== undefined ? { keepUpright: knobs.labelKeepUpright } : {}),
     ...(knobs.labelMaxAngle !== undefined ? { maxAngle: knobs.labelMaxAngle } : {}),
     ...(knobs.labelSymbolZOrder !== undefined ? { symbolZOrder: knobs.labelSymbolZOrder } : {}),
@@ -809,56 +1008,82 @@ function foldLabelKnobs(
     ...(knobs.labelIconSize !== undefined ? { iconSize: knobs.labelIconSize } : {}),
     ...(knobs.labelIconAnchor !== undefined ? { iconAnchor: knobs.labelIconAnchor } : {}),
     ...(knobs.labelIconOffset !== undefined ? { iconOffset: knobs.labelIconOffset } : {}),
-    ...(knobs.labelIconTranslateX !== undefined ? { iconTranslateX: knobs.labelIconTranslateX } : {}),
-    ...(knobs.labelIconTranslateY !== undefined ? { iconTranslateY: knobs.labelIconTranslateY } : {}),
-    ...(knobs.labelIconTranslateAnchorMap !== undefined ? { iconTranslateAnchorMap: knobs.labelIconTranslateAnchorMap } : {}),
+    ...(knobs.labelIconTranslateX !== undefined
+      ? { iconTranslateX: knobs.labelIconTranslateX }
+      : {}),
+    ...(knobs.labelIconTranslateY !== undefined
+      ? { iconTranslateY: knobs.labelIconTranslateY }
+      : {}),
+    ...(knobs.labelIconTranslateAnchorMap !== undefined
+      ? { iconTranslateAnchorMap: knobs.labelIconTranslateAnchorMap }
+      : {}),
     ...(knobs.labelIconRotate !== undefined ? { iconRotate: knobs.labelIconRotate } : {}),
     ...(knobs.labelIconOpacity !== undefined ? { iconOpacity: knobs.labelIconOpacity } : {}),
     ...(knobs.labelIconColor !== undefined ? { iconColor: knobs.labelIconColor } : {}),
-    ...(knobs.labelIconRotationAlignment !== undefined ? { iconRotationAlignment: knobs.labelIconRotationAlignment } : {}),
+    ...(knobs.labelIconRotationAlignment !== undefined
+      ? { iconRotationAlignment: knobs.labelIconRotationAlignment }
+      : {}),
     ...(knobs.labelIconCollide !== undefined ? { iconCollide: knobs.labelIconCollide } : {}),
-    ...(knobs.labelIconIgnorePlacement !== undefined ? { iconIgnorePlacement: knobs.labelIconIgnorePlacement } : {}),
+    ...(knobs.labelIconIgnorePlacement !== undefined
+      ? { iconIgnorePlacement: knobs.labelIconIgnorePlacement }
+      : {}),
     ...(knobs.labelIconOptional !== undefined ? { iconOptional: knobs.labelIconOptional } : {}),
   }
   // Plan Label L3: build the unified shapes bundle from the knob inputs
   // + the merged label's static fallbacks.
   merged.shapes = buildLabelShapes({
     size: merged.size,
-    sizeZoomStops: knobs.labelSizeZoomStops && knobs.labelSizeZoomStops.length > 0
-      ? knobs.labelSizeZoomStops : undefined,
+    sizeZoomStops:
+      knobs.labelSizeZoomStops && knobs.labelSizeZoomStops.length > 0
+        ? knobs.labelSizeZoomStops
+        : undefined,
     sizeZoomStopsBase: knobs.labelSizeZoomStopsBase,
     sizeExpr: knobs.labelSizeExpr,
     color: merged.color,
-    colorZoomStops: knobs.labelColorZoomStops && knobs.labelColorZoomStops.length > 0
-      ? knobs.labelColorZoomStops : undefined,
+    colorZoomStops:
+      knobs.labelColorZoomStops && knobs.labelColorZoomStops.length > 0
+        ? knobs.labelColorZoomStops
+        : undefined,
     colorZoomStopsBase: knobs.labelColorZoomStopsBase,
     colorExpr: knobs.labelColorExpr,
     halo: merged.halo,
-    haloWidthZoomStops: knobs.labelHaloWidthZoomStops && knobs.labelHaloWidthZoomStops.length > 0
-      ? knobs.labelHaloWidthZoomStops : undefined,
+    haloWidthZoomStops:
+      knobs.labelHaloWidthZoomStops && knobs.labelHaloWidthZoomStops.length > 0
+        ? knobs.labelHaloWidthZoomStops
+        : undefined,
     haloWidthZoomStopsBase: knobs.labelHaloWidthZoomStopsBase,
-    haloColorZoomStops: knobs.labelHaloColorZoomStops && knobs.labelHaloColorZoomStops.length > 0
-      ? knobs.labelHaloColorZoomStops : undefined,
+    haloColorZoomStops:
+      knobs.labelHaloColorZoomStops && knobs.labelHaloColorZoomStops.length > 0
+        ? knobs.labelHaloColorZoomStops
+        : undefined,
     haloColorZoomStopsBase: knobs.labelHaloColorZoomStopsBase,
     fontStack: merged.font,
     fontWeight: merged.fontWeight,
     fontStyle: merged.fontStyle,
     iconSize: merged.iconSize,
-    iconSizeZoomStops: knobs.labelIconSizeZoomStops && knobs.labelIconSizeZoomStops.length > 0
-      ? knobs.labelIconSizeZoomStops : undefined,
+    iconSizeZoomStops:
+      knobs.labelIconSizeZoomStops && knobs.labelIconSizeZoomStops.length > 0
+        ? knobs.labelIconSizeZoomStops
+        : undefined,
     iconSizeZoomStopsBase: knobs.labelIconSizeZoomStopsBase,
-    opacityZoomStops: knobs.labelOpacityZoomStops && knobs.labelOpacityZoomStops.length > 0
-      ? knobs.labelOpacityZoomStops : undefined,
+    opacityZoomStops:
+      knobs.labelOpacityZoomStops && knobs.labelOpacityZoomStops.length > 0
+        ? knobs.labelOpacityZoomStops
+        : undefined,
     opacityZoomStopsBase: knobs.labelOpacityZoomStopsBase,
     opacityExpr: knobs.labelOpacityExpr as import('./render-node').DataExpr | undefined,
     iconOpacity: merged.iconOpacity,
-    iconOpacityZoomStops: knobs.labelIconOpacityZoomStops && knobs.labelIconOpacityZoomStops.length > 0
-      ? knobs.labelIconOpacityZoomStops : undefined,
+    iconOpacityZoomStops:
+      knobs.labelIconOpacityZoomStops && knobs.labelIconOpacityZoomStops.length > 0
+        ? knobs.labelIconOpacityZoomStops
+        : undefined,
     iconOpacityZoomStopsBase: knobs.labelIconOpacityZoomStopsBase,
     iconOpacityExpr: knobs.labelIconOpacityExpr as import('./render-node').DataExpr | undefined,
     iconColor: merged.iconColor,
-    iconColorZoomStops: knobs.labelIconColorZoomStops && knobs.labelIconColorZoomStops.length > 0
-      ? knobs.labelIconColorZoomStops : undefined,
+    iconColorZoomStops:
+      knobs.labelIconColorZoomStops && knobs.labelIconColorZoomStops.length > 0
+        ? knobs.labelIconColorZoomStops
+        : undefined,
     iconColorZoomStopsBase: knobs.labelIconColorZoomStopsBase,
     iconColorExpr: knobs.labelIconColorExpr,
   })

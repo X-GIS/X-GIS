@@ -54,7 +54,12 @@ import { PAINT_HILLSHADE } from './spec-coverage/paint-hillshade'
 import { EXPRESSIONS } from './spec-coverage/expressions'
 import { FILTERS } from './spec-coverage/filters'
 
-export type { CoverageStatus, CoverageImpact, CoverageEntry, CoverageSection } from './spec-coverage/types'
+export type {
+  CoverageStatus,
+  CoverageImpact,
+  CoverageEntry,
+  CoverageSection,
+} from './spec-coverage/types'
 
 // ─── Assembled tree ───────────────────────────────────────────────────
 export const MAPBOX_COVERAGE: readonly CoverageSection[] = [
@@ -130,13 +135,15 @@ export const MAPBOX_COVERAGE: readonly CoverageSection[] = [
   {
     id: 'paint-heatmap',
     title: 'Paint — heatmap',
-    description: 'Heatmap layer renderer is not implemented; every property here is unsupported pending a roadmap entry.',
+    description:
+      'Heatmap layer renderer is not implemented; every property here is unsupported pending a roadmap entry.',
     entries: PAINT_HEATMAP,
   },
   {
     id: 'paint-hillshade',
     title: 'Paint — hillshade',
-    description: 'Hillshade layer renderer is not implemented; raster-dem source is recognised but produces no output.',
+    description:
+      'Hillshade layer renderer is not implemented; raster-dem source is recognised but produces no output.',
     entries: PAINT_HILLSHADE,
   },
   {
@@ -148,12 +155,13 @@ export const MAPBOX_COVERAGE: readonly CoverageSection[] = [
   {
     id: 'filters',
     title: 'Filters',
-    description: 'Legacy + expression form. Most filter operators reuse the expression infrastructure.',
+    description:
+      'Legacy + expression form. Most filter operators reuse the expression infrastructure.',
     entries: FILTERS,
   },
 ]
 
 /** Flat enumeration of every entry across sections, for tooling / tests. */
 export function flattenCoverage(): readonly CoverageEntry[] {
-  return MAPBOX_COVERAGE.flatMap(s => s.entries)
+  return MAPBOX_COVERAGE.flatMap((s) => s.entries)
 }

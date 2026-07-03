@@ -27,7 +27,10 @@ function captureFillValue(value: string): string {
   let found: string | undefined
   const visit = (n: any): void => {
     if (!n || typeof n !== 'object') return
-    if (n.kind === 'StyleProperty' && n.name === 'fill') { found = n.value; return }
+    if (n.kind === 'StyleProperty' && n.name === 'fill') {
+      found = n.value
+      return
+    }
     for (const k of Object.keys(n)) {
       const v = (n as any)[k]
       if (Array.isArray(v)) v.forEach(visit)
@@ -43,7 +46,10 @@ describe('FIX 3 — captureFnCallAsString preserves token separation', () => {
   it('space-separated oklab() round-trips through resolveColor', () => {
     const captured = captureFillValue('oklab(0.5 -0.05 0.1)')
     // Captured string must have >= 3 separable parts.
-    const inner = captured.replace(/^oklab\(/, '').replace(/\)$/, '').replace(/\//g, ',')
+    const inner = captured
+      .replace(/^oklab\(/, '')
+      .replace(/\)$/, '')
+      .replace(/\//g, ',')
     expect(inner.split(/[,\s]+/).filter(Boolean).length).toBe(3)
     expect(resolveColor(captured)).toMatch(/^#[0-9a-f]{6,8}$/)
   })

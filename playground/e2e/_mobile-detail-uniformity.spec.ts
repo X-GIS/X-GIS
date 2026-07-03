@@ -27,7 +27,10 @@ interface XGISMap {
   camera?: { zoom: number; centerX: number; centerY: number; pitch?: number }
 }
 declare global {
-  interface Window { __xgisMap?: XGISMap; __xgisReady?: boolean }
+  interface Window {
+    __xgisMap?: XGISMap
+    __xgisReady?: boolean
+  }
 }
 
 test.describe('Mobile detail uniformity', () => {
@@ -40,9 +43,15 @@ test.describe('Mobile detail uniformity', () => {
     // BEFORE the runtime constructs them, so every call from page-load
     // through settle is counted.
     await page.addInitScript(() => {
-      const w = window as unknown as { __DBG_FETCH_COUNTS: {
-        starts: number; aborts: number; reqCalls: number; reqKeys: number; loadTileCalls: number
-      } }
+      const w = window as unknown as {
+        __DBG_FETCH_COUNTS: {
+          starts: number
+          aborts: number
+          reqCalls: number
+          reqKeys: number
+          loadTileCalls: number
+        }
+      }
       w.__DBG_FETCH_COUNTS = { starts: 0, aborts: 0, reqCalls: 0, reqKeys: 0, loadTileCalls: 0 }
       const orig = AbortController.prototype.abort
       AbortController.prototype.abort = function patched(...args: unknown[]) {
@@ -88,24 +97,24 @@ test.describe('Mobile detail uniformity', () => {
       }, 100)
     })
 
-    await page.goto(
-      `/demo.html?id=pmtiles_layered#11.52/35.7553/139.6973/0/0`,
-      { waitUntil: 'domcontentloaded' },
-    )
+    await page.goto(`/demo.html?id=pmtiles_layered#11.52/35.7553/139.6973/0/0`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await page.waitForFunction(() => window.__xgisReady === true, null, { timeout: 30_000 })
     await page.waitForFunction(
-      () => window.__xgisReady === true,
-      null, { timeout: 30_000 },
+      () => {
+        const map = window.__xgisMap
+        if (!map?.vtSources) return false
+        let v = 0
+        for (const { renderer } of map.vtSources.values()) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          v += (renderer as any).getDrawStats?.().tilesVisible ?? 0
+        }
+        return v > 0
+      },
+      null,
+      { timeout: 60_000 },
     )
-    await page.waitForFunction(() => {
-      const map = window.__xgisMap
-      if (!map?.vtSources) return false
-      let v = 0
-      for (const { renderer } of map.vtSources.values()) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        v += (renderer as any).getDrawStats?.().tilesVisible ?? 0
-      }
-      return v > 0
-    }, null, { timeout: 60_000 })
 
     // Generous settle window — the symptom is that fetch stops
     // partway through the visible set, so 10 s should be far past
@@ -148,9 +157,13 @@ test.describe('Mobile detail uniformity', () => {
       function tileKey(z: number, x: number, y: number): number {
         return Math.pow(4, z) + morton(x, y)
       }
-      const visibleAtCurrentZ = visible.filter(t => t.z === cz)
-      const cachedVisibleAtCurrentZ = visibleAtCurrentZ.filter(t => cachedKeys.has(tileKey(t.z, t.x, t.y)))
-      const missingAtCurrentZ = visibleAtCurrentZ.filter(t => !cachedKeys.has(tileKey(t.z, t.x, t.y)))
+      const visibleAtCurrentZ = visible.filter((t) => t.z === cz)
+      const cachedVisibleAtCurrentZ = visibleAtCurrentZ.filter((t) =>
+        cachedKeys.has(tileKey(t.z, t.x, t.y)),
+      )
+      const missingAtCurrentZ = visibleAtCurrentZ.filter(
+        (t) => !cachedKeys.has(tileKey(t.z, t.x, t.y)),
+      )
       // Backend in-flight + queue state
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const backend = (r.source as any)?.backends?.[0] as any
@@ -162,7 +175,7 @@ test.describe('Mobile detail uniformity', () => {
         visibleAtCurrentZ: visibleAtCurrentZ.length,
         cachedVisibleAtCurrentZ: cachedVisibleAtCurrentZ.length,
         missingAtCurrentZ: missingAtCurrentZ.length,
-        missingKeys: missingAtCurrentZ.map(t => `${t.z}/${t.x}/${t.y}`),
+        missingKeys: missingAtCurrentZ.map((t) => `${t.z}/${t.x}/${t.y}`),
         cachedByZ: Object.fromEntries(cachedByZ),
         cachedTotal: cachedKeys.size,
         loadingTiles: cat?.loadingTiles?.size ?? -1,
@@ -179,8 +192,18 @@ test.describe('Mobile detail uniformity', () => {
     const fetchStats = await page.evaluate(() => {
       const map = window.__xgisMap
       if (!map?.vtSources) return null
-      const out: { starts: number; settled: number; aborts: number; failed: number; activeNow: number } = {
-        starts: 0, settled: 0, aborts: 0, failed: 0, activeNow: 0,
+      const out: {
+        starts: number
+        settled: number
+        aborts: number
+        failed: number
+        activeNow: number
+      } = {
+        starts: 0,
+        settled: 0,
+        aborts: 0,
+        failed: 0,
+        activeNow: 0,
       }
       for (const { renderer } of map.vtSources.values()) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -203,7 +226,20 @@ test.describe('Mobile detail uniformity', () => {
       }
       return out
     })
-    const counts = await page.evaluate(() => (window as unknown as { __DBG_FETCH_COUNTS: { starts: number; aborts: number; reqCalls: number; reqKeys: number; loadTileCalls: number } }).__DBG_FETCH_COUNTS)
+    const counts = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __DBG_FETCH_COUNTS: {
+              starts: number
+              aborts: number
+              reqCalls: number
+              reqKeys: number
+              loadTileCalls: number
+            }
+          }
+        ).__DBG_FETCH_COUNTS,
+    )
     const installState = await page.evaluate(() => {
       const map = window.__xgisMap
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -221,17 +257,22 @@ test.describe('Mobile detail uniformity', () => {
     console.log('[counts]', counts)
     console.log('[fetch stats]', fetchStats)
     console.log('[currentZ]', result.currentZ)
-    console.log('[visible]', `total=${result.visibleTotal}`,
+    console.log(
+      '[visible]',
+      `total=${result.visibleTotal}`,
       `at currentZ=${result.visibleAtCurrentZ}`,
       `cached at currentZ=${result.cachedVisibleAtCurrentZ}`,
-      `MISSING at currentZ=${result.missingAtCurrentZ}`)
+      `MISSING at currentZ=${result.missingAtCurrentZ}`,
+    )
     console.log('[catalog by zoom]', result.cachedByZ, 'total', result.cachedTotal)
-    console.log('[backend state]',
+    console.log(
+      '[backend state]',
       `loadingTiles=${result.loadingTiles}`,
       `abortControllers=${result.abortControllers}`,
       `pendingMvt=${result.pendingMvt}`,
       `prefetchKeys=${result.prefetchKeys}`,
-      `evictShield=${result.evictShield}`)
+      `evictShield=${result.evictShield}`,
+    )
     if (result.missingAtCurrentZ > 0) {
       console.log('[missing keys]', result.missingKeys.join(' '))
     }

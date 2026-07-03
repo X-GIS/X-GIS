@@ -44,13 +44,18 @@ function ddStmt(s: Stmt): Stmt[] {
       if (newArms.length === 0) return elseBody ? [...elseBody] : []
       return [{ s: 'if', arms: newArms, elseBody }]
     }
-    case 'for': return [{ ...s, body: ddBody(s.body) }]
-    case 'switch': return [{
-      ...s,
-      cases: s.cases.map((c) => ({ value: c.value, body: ddBody(c.body) })),
-      defaultBody: s.defaultBody ? ddBody(s.defaultBody) : undefined,
-    }]
-    default: return [s]
+    case 'for':
+      return [{ ...s, body: ddBody(s.body) }]
+    case 'switch':
+      return [
+        {
+          ...s,
+          cases: s.cases.map((c) => ({ value: c.value, body: ddBody(c.body) })),
+          defaultBody: s.defaultBody ? ddBody(s.defaultBody) : undefined,
+        },
+      ]
+    default:
+      return [s]
   }
 }
 

@@ -34,11 +34,13 @@ describe('no-self-assign', () => {
 
   it('auto-fix deletes the no-op self-assignment', () => {
     const m = module({
-      funcs: [fn('selfassign', { x: f32T }, f32T, ({ x }, b) => {
-        const v = b.var('v', f32T, f32(0))
-        b.assign(v, v)
-        b.ret(x)
-      })],
+      funcs: [
+        fn('selfassign', { x: f32T }, f32T, ({ x }, b) => {
+          const v = b.var('v', f32T, f32(0))
+          b.assign(v, v)
+          b.ret(x)
+        }),
+      ],
     })
     expect(ruleIds(m)).toContain('no-self-assign') // before
     const { module: fixed, applied } = applyFixes(m, [noSelfAssign])

@@ -51,7 +51,9 @@ import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/engine'
 import { projectGeomCpu, projectCpu } from '@xgis/map'
 
-const W = 800, H = 800, DPR = 1
+const W = 800,
+  H = 800,
+  DPR = 1
 
 // Apply column-major 4x4 to a vec4 → vec4.
 function mulMat4Vec4(
@@ -140,6 +142,9 @@ describe('non-Merc z=0 disc render scale (faithful flat path)', () => {
       ratio,
       `ortho disc span ${span!.toFixed(1)}px vs mercator ${mercSpan!.toFixed(1)}px (ratio ${ratio.toFixed(2)}) — should be ≈2× after the 2R cap`,
     ).toBeGreaterThanOrEqual(0.9)
-    expect(ratio, `ortho ratio ${ratio.toFixed(2)} over-fills — cap value likely wrong`).toBeLessThanOrEqual(2.5)
+    expect(
+      ratio,
+      `ortho ratio ${ratio.toFixed(2)} over-fills — cap value likely wrong`,
+    ).toBeLessThanOrEqual(2.5)
   })
 })

@@ -11,7 +11,15 @@ function mockCanvas(): HTMLCanvasElement {
 }
 
 interface Internals {
-  camera: { centerX: number; centerY: number; zoom: number; bearing: number; pitch: number; minZoom: number; maxZoom: number }
+  camera: {
+    centerX: number
+    centerY: number
+    zoom: number
+    bearing: number
+    pitch: number
+    minZoom: number
+    maxZoom: number
+  }
   setCenter(lon: number, lat: number): void
   setZoom(zoom: number): void
   setBearing(bearing: number): void
@@ -31,11 +39,29 @@ interface Internals {
   panBy(offset: [number, number]): void
   setMaxBounds(bounds: [[number, number], [number, number]] | null): void
   getMaxBounds(): [[number, number], [number, number]] | null
-  easeTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number; easing?: unknown }): void
-  flyTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number; speed?: number; curve?: number }): void
+  easeTo(opts: {
+    center?: [number, number]
+    zoom?: number
+    bearing?: number
+    pitch?: number
+    duration?: number
+    easing?: unknown
+  }): void
+  flyTo(opts: {
+    center?: [number, number]
+    zoom?: number
+    bearing?: number
+    pitch?: number
+    duration?: number
+    speed?: number
+    curve?: number
+  }): void
   resize(): void
   loaded(): boolean
-  fitBounds(bounds: [[number, number], [number, number]], opts?: { padding?: number; bearing?: number; pitch?: number }): void
+  fitBounds(
+    bounds: [[number, number], [number, number]],
+    opts?: { padding?: number; bearing?: number; pitch?: number },
+  ): void
   on(type: string, listener: unknown): void
   off(type: string, listener: unknown): void
   once(type: string, listener: unknown): void
@@ -138,7 +164,7 @@ describe('XGISMap Mapbox-API camera setters', () => {
       expect(map.camera.pitch).toBe(30)
     })
 
-    it('partial-success: invalid pitch doesn\'t block valid bearing', () => {
+    it("partial-success: invalid pitch doesn't block valid bearing", () => {
       map.camera.pitch = 20
       map.jumpTo({ bearing: 90, pitch: NaN })
       expect(map.camera.bearing).toBe(90)
@@ -306,7 +332,10 @@ describe('XGISMap Mapbox-API camera setters', () => {
   describe('setMaxBounds', () => {
     it('clamps setCenter to bbox', () => {
       // Korea bbox: roughly [125, 33] to [131, 39]
-      map.setMaxBounds([[125, 33], [131, 39]])
+      map.setMaxBounds([
+        [125, 33],
+        [131, 39],
+      ])
       map.setCenter(0, 0) // outside bbox
       const state = map.getCameraState()
       expect(state.center[0]).toBeGreaterThanOrEqual(125)
@@ -316,7 +345,10 @@ describe('XGISMap Mapbox-API camera setters', () => {
     })
 
     it('clamps jumpTo center to bbox', () => {
-      map.setMaxBounds([[125, 33], [131, 39]])
+      map.setMaxBounds([
+        [125, 33],
+        [131, 39],
+      ])
       map.jumpTo({ center: [180, 80], zoom: 5 })
       const state = map.getCameraState()
       expect(state.center[0]).toBeLessThanOrEqual(131)
@@ -324,7 +356,10 @@ describe('XGISMap Mapbox-API camera setters', () => {
     })
 
     it('null clears bounds', () => {
-      map.setMaxBounds([[0, 0], [10, 10]])
+      map.setMaxBounds([
+        [0, 0],
+        [10, 10],
+      ])
       map.setMaxBounds(null)
       expect(map.getMaxBounds()).toBeNull()
       map.setCenter(180, 80) // should not be clamped
@@ -335,39 +370,63 @@ describe('XGISMap Mapbox-API camera setters', () => {
     })
 
     it('rejects malformed bbox (south > north)', () => {
-      map.setMaxBounds([[0, 50], [10, 10]]) // south=50 > north=10
+      map.setMaxBounds([
+        [0, 50],
+        [10, 10],
+      ]) // south=50 > north=10
       expect(map.getMaxBounds()).toBeNull()
     })
 
     it('rejects out-of-range lat', () => {
-      map.setMaxBounds([[0, -95], [10, 10]])
+      map.setMaxBounds([
+        [0, -95],
+        [10, 10],
+      ])
       expect(map.getMaxBounds()).toBeNull()
-      map.setMaxBounds([[0, 0], [10, 100]])
+      map.setMaxBounds([
+        [0, 0],
+        [10, 100],
+      ])
       expect(map.getMaxBounds()).toBeNull()
     })
 
     it('rejects antimeridian-crossing bbox (west > east, iter 448)', () => {
       // Pacific-rim bbox: 170°E to -170°E (wraps through 180°/dateline)
-      map.setMaxBounds([[170, -50], [-170, 50]])
+      map.setMaxBounds([
+        [170, -50],
+        [-170, 50],
+      ])
       expect(map.getMaxBounds()).toBeNull()
     })
 
     it('immediately clamps current center when bounds shrink', () => {
       map.setCenter(180, 0)
-      map.setMaxBounds([[0, -10], [20, 10]]) // current center 180 is outside
+      map.setMaxBounds([
+        [0, -10],
+        [20, 10],
+      ]) // current center 180 is outside
       const state = map.getCameraState()
       expect(state.center[0]).toBeLessThanOrEqual(20)
     })
 
     it('getMaxBounds returns the active bbox', () => {
-      map.setMaxBounds([[1, 2], [3, 4]])
-      expect(map.getMaxBounds()).toEqual([[1, 2], [3, 4]])
+      map.setMaxBounds([
+        [1, 2],
+        [3, 4],
+      ])
+      expect(map.getMaxBounds()).toEqual([
+        [1, 2],
+        [3, 4],
+      ])
     })
 
     it('panBy honors bounds (iter 435)', () => {
       // Tight bbox around Korea + small zoom so panBy resolves to a
       // measurable lon delta.
-      map.setMaxBounds([[125, 33], [131, 39]])
+      map.setMaxBounds([
+        [125, 33],
+        [131, 39],
+      ])
       map.setZoom(0)
       map.setCenter(128, 36) // inside bbox
       // Pan east aggressively (1000 px); at zoom=0 with DPR=1 this is a
@@ -387,7 +446,10 @@ describe('XGISMap Mapbox-API camera setters', () => {
         zoom: number
         pan(dx: number, dy: number, w: number, h: number): void
       }
-      map.setMaxBounds([[125, 33], [131, 39]])
+      map.setMaxBounds([
+        [125, 33],
+        [131, 39],
+      ])
       map.setCenter(128, 36) // inside bbox
       cam.zoom = 0
       // Pan east aggressively — a huge dx that would escape the bbox.
@@ -402,7 +464,10 @@ describe('XGISMap Mapbox-API camera setters', () => {
         zoom: number
         zoomAt(d: number, sx: number, sy: number, w: number, h: number): void
       }
-      map.setMaxBounds([[125, 33], [131, 39]])
+      map.setMaxBounds([
+        [125, 33],
+        [131, 39],
+      ])
       map.setCenter(131, 39) // pinned at the NE corner
       cam.zoom = 0
       // Zoom in anchored far off the bbox corner — the anchor shift would
@@ -464,21 +529,33 @@ describe('XGISMap Mapbox-API camera setters', () => {
 
   describe('fitBounds (iter 440)', () => {
     it('centers on bbox midpoint', () => {
-      map.fitBounds([[120, 30], [130, 40]])
+      map.fitBounds([
+        [120, 30],
+        [130, 40],
+      ])
       const state = map.getCameraState()
       expect(state.center[0]).toBeCloseTo(125, 4)
       expect(state.center[1]).toBeCloseTo(35, 4)
     })
 
     it('applies optional bearing + pitch', () => {
-      map.fitBounds([[0, 0], [10, 10]], { bearing: 45, pitch: 30 })
+      map.fitBounds(
+        [
+          [0, 0],
+          [10, 10],
+        ],
+        { bearing: 45, pitch: 30 },
+      )
       expect(map.getBearing()).toBe(45)
       expect(map.getPitch()).toBe(30)
     })
 
     it('rejects malformed bbox (south > north)', () => {
       map.setZoom(7)
-      map.fitBounds([[0, 50], [10, 10]])
+      map.fitBounds([
+        [0, 50],
+        [10, 10],
+      ])
       expect(map.getZoom()).toBe(7) // untouched
     })
   })
@@ -559,7 +636,9 @@ describe('XGISMap Mapbox-API camera setters', () => {
 
     it('move payload carries the current center + zoom', () => {
       let payload: { center: [number, number]; zoom: number } | null = null
-      map.on('move', (e: unknown) => { payload = e as { center: [number, number]; zoom: number } })
+      map.on('move', (e: unknown) => {
+        payload = e as { center: [number, number]; zoom: number }
+      })
       map._processCameraEvents() // seed
       map.jumpTo({ center: [12, 34], zoom: 6 })
       map._processCameraEvents()
@@ -572,7 +651,9 @@ describe('XGISMap Mapbox-API camera setters', () => {
 
     it('load fires once, even if the load hook runs twice', () => {
       let count = 0
-      map.on('load', () => { count++ })
+      map.on('load', () => {
+        count++
+      })
       map._fireLoadEvent()
       map._fireLoadEvent()
       expect(count).toBe(1)
@@ -580,14 +661,21 @@ describe('XGISMap Mapbox-API camera setters', () => {
 
     it('idle fires once when the camera is at rest with no pending work', () => {
       let idleCount = 0
-      map.on('idle', () => { idleCount++ })
+      map.on('idle', () => {
+        idleCount++
+      })
       // Simulate the post-render quiesced state: a real frame would have
       // cleared _needsRender and stored the camera signature into
       // _lastSig*. Mirror that here (no GPU in the unit env) so
       // shouldRenderThisFrame() reports "nothing to draw".
       const internal = map as unknown as {
-        _needsRender: boolean; camera: { zoom: number; centerX: number; centerY: number; bearing: number; pitch: number }
-        _lastSigZoom: number; _lastSigCX: number; _lastSigCY: number; _lastSigBearing: number; _lastSigPitch: number
+        _needsRender: boolean
+        camera: { zoom: number; centerX: number; centerY: number; bearing: number; pitch: number }
+        _lastSigZoom: number
+        _lastSigCX: number
+        _lastSigCY: number
+        _lastSigBearing: number
+        _lastSigPitch: number
       }
       internal._needsRender = false
       internal._lastSigZoom = internal.camera.zoom

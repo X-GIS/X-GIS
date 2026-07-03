@@ -67,23 +67,27 @@ export function resolveImports(
   }
 
   // Prepend imported statements, then original (excluding import statements)
-  const body = [
-    ...imported,
-    ...program.body.filter(s => s.kind !== 'ImportStatement'),
-  ]
+  const body = [...imported, ...program.body.filter((s) => s.kind !== 'ImportStatement')]
 
   return { kind: 'Program', body }
 }
 
 function getStatementName(stmt: AST.Statement): string | null {
   switch (stmt.kind) {
-    case 'PresetStatement': return stmt.name
-    case 'FnStatement': return stmt.name
-    case 'SourceStatement': return stmt.name
-    case 'LetStatement': return stmt.name
-    case 'SymbolStatement': return stmt.name
-    case 'StyleStatement': return stmt.name
-    default: return null
+    case 'PresetStatement':
+      return stmt.name
+    case 'FnStatement':
+      return stmt.name
+    case 'SourceStatement':
+      return stmt.name
+    case 'LetStatement':
+      return stmt.name
+    case 'SymbolStatement':
+      return stmt.name
+    case 'StyleStatement':
+      return stmt.name
+    default:
+      return null
   }
 }
 
@@ -148,10 +152,7 @@ export async function resolveImportsAsync(
     }
   }
 
-  const body = [
-    ...imported,
-    ...program.body.filter(s => s.kind !== 'ImportStatement'),
-  ]
+  const body = [...imported, ...program.body.filter((s) => s.kind !== 'ImportStatement')]
 
   return { kind: 'Program', body }
 }
@@ -166,10 +167,16 @@ function looksLikeMapboxStyle(s: string): boolean {
   if (!trimmed.startsWith('{')) return false
   try {
     const j = JSON.parse(trimmed)
-    return j !== null && typeof j === 'object'
-      && typeof j.version === 'number' && j.version >= 7
-      && Array.isArray(j.layers)
-  } catch { return false }
+    return (
+      j !== null &&
+      typeof j === 'object' &&
+      typeof j.version === 'number' &&
+      j.version >= 7 &&
+      Array.isArray(j.layers)
+    )
+  } catch {
+    return false
+  }
 }
 
 function resolveFilePath(importPath: string, basePath: string): string {

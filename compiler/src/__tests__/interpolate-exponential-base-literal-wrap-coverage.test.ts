@@ -20,11 +20,7 @@ describe('interpolate exponential-base literal-wrap unwrap', () => {
           source: 's',
           paint: {
             'line-color': '#000',
-            'line-width': [
-              'interpolate', ['exponential', ['literal', 2]], ['zoom'],
-              5, 1,
-              14, 8,
-            ],
+            'line-width': ['interpolate', ['exponential', ['literal', 2]], ['zoom'], 5, 1, 14, 8],
           },
         },
       ],
@@ -32,7 +28,7 @@ describe('interpolate exponential-base literal-wrap unwrap', () => {
     const code = convertMapboxStyle(style as never)
     // Expected: exponential curve preserved (base 2).
     expect(code).toContain('interpolate_exp')
-    expect(code).toContain(', 2,')  // base argument
+    expect(code).toContain(', 2,') // base argument
   })
 
   it('non-zoom exponential base wrap (generic interpolate) still emits interpolate_exp', () => {
@@ -49,9 +45,13 @@ describe('interpolate exponential-base literal-wrap unwrap', () => {
           paint: {
             'circle-color': '#000',
             'circle-radius': [
-              'interpolate', ['exponential', ['literal', 1.5]], ['get', 'magnitude'],
-              0, 1,
-              10, 50,
+              'interpolate',
+              ['exponential', ['literal', 1.5]],
+              ['get', 'magnitude'],
+              0,
+              1,
+              10,
+              50,
             ],
           },
         },

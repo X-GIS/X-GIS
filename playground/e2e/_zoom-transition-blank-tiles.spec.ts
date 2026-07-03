@@ -19,11 +19,22 @@
 import { test, expect } from '@playwright/test'
 
 interface XgisMap {
-  vtSources: Map<string, { renderer: { _selection?: { _hysteresisZ?: number }; getDrawStats?: () => { tilesVisible: number } } }>
+  vtSources: Map<
+    string,
+    {
+      renderer: {
+        _selection?: { _hysteresisZ?: number }
+        getDrawStats?: () => { tilesVisible: number }
+      }
+    }
+  >
   camera: { zoom: number }
 }
 declare global {
-  interface Window { __xgisMap?: XgisMap; __xgisReady?: boolean }
+  interface Window {
+    __xgisMap?: XgisMap
+    __xgisReady?: boolean
+  }
 }
 
 test.describe('Zoom transition: hold previous LOD until next is ready', () => {
@@ -32,23 +43,23 @@ test.describe('Zoom transition: hold previous LOD until next is ready', () => {
   test('zoom-in jump 13 → 16: cz holds, advances only as cache fills', async ({ page }) => {
     test.setTimeout(60_000)
 
-    await page.goto(
-      `/demo.html?id=pmtiles_layered#13/35.68/139.76`,
-      { waitUntil: 'domcontentloaded' },
-    )
+    await page.goto(`/demo.html?id=pmtiles_layered#13/35.68/139.76`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await page.waitForFunction(() => window.__xgisReady === true, null, { timeout: 30_000 })
     await page.waitForFunction(
-      () => window.__xgisReady === true,
-      null, { timeout: 30_000 },
+      () => {
+        const map = window.__xgisMap
+        if (!map?.vtSources) return false
+        let v = 0
+        for (const { renderer } of map.vtSources.values()) {
+          v += renderer.getDrawStats?.().tilesVisible ?? 0
+        }
+        return v > 0
+      },
+      null,
+      { timeout: 60_000 },
     )
-    await page.waitForFunction(() => {
-      const map = window.__xgisMap
-      if (!map?.vtSources) return false
-      let v = 0
-      for (const { renderer } of map.vtSources.values()) {
-        v += renderer.getDrawStats?.().tilesVisible ?? 0
-      }
-      return v > 0
-    }, null, { timeout: 60_000 })
     await page.waitForTimeout(3000)
 
     const readCzs = async (): Promise<number[]> => {
@@ -56,7 +67,8 @@ test.describe('Zoom transition: hold previous LOD until next is ready', () => {
         const map = window.__xgisMap
         if (!map?.vtSources) return []
         const out: number[] = []
-        for (const { renderer } of map.vtSources.values()) out.push(renderer._selection?._hysteresisZ ?? -1)
+        for (const { renderer } of map.vtSources.values())
+          out.push(renderer._selection?._hysteresisZ ?? -1)
         return out
       })
     }
@@ -94,23 +106,23 @@ test.describe('Zoom transition: hold previous LOD until next is ready', () => {
   test('zoom-out jump 16 → 13: cz advances immediately (no hold)', async ({ page }) => {
     test.setTimeout(60_000)
 
-    await page.goto(
-      `/demo.html?id=pmtiles_layered#16/35.68/139.76`,
-      { waitUntil: 'domcontentloaded' },
-    )
+    await page.goto(`/demo.html?id=pmtiles_layered#16/35.68/139.76`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await page.waitForFunction(() => window.__xgisReady === true, null, { timeout: 30_000 })
     await page.waitForFunction(
-      () => window.__xgisReady === true,
-      null, { timeout: 30_000 },
+      () => {
+        const map = window.__xgisMap
+        if (!map?.vtSources) return false
+        let v = 0
+        for (const { renderer } of map.vtSources.values()) {
+          v += renderer.getDrawStats?.().tilesVisible ?? 0
+        }
+        return v > 0
+      },
+      null,
+      { timeout: 60_000 },
     )
-    await page.waitForFunction(() => {
-      const map = window.__xgisMap
-      if (!map?.vtSources) return false
-      let v = 0
-      for (const { renderer } of map.vtSources.values()) {
-        v += renderer.getDrawStats?.().tilesVisible ?? 0
-      }
-      return v > 0
-    }, null, { timeout: 60_000 })
     await page.waitForTimeout(3000)
 
     const readCzs = async (): Promise<number[]> => {
@@ -118,7 +130,8 @@ test.describe('Zoom transition: hold previous LOD until next is ready', () => {
         const map = window.__xgisMap
         if (!map?.vtSources) return []
         const out: number[] = []
-        for (const { renderer } of map.vtSources.values()) out.push(renderer._selection?._hysteresisZ ?? -1)
+        for (const { renderer } of map.vtSources.values())
+          out.push(renderer._selection?._hysteresisZ ?? -1)
         return out
       })
     }

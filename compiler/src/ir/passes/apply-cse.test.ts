@@ -6,14 +6,21 @@ import { describe, expect, it } from 'vitest'
 import { applyCSE, applyCSEFromReport, sameCSE } from './apply-cse'
 import { analyzeCSE } from './cse'
 import type {
-  ColorValue, DataExpr, RenderNode, Scene, SizeValue, StrokeValue,
+  ColorValue,
+  DataExpr,
+  RenderNode,
+  Scene,
+  SizeValue,
+  StrokeValue,
 } from '../render-node'
 import type { PropertyShape } from '../property-types'
 import type { Expr } from '../../parser/ast'
 
 const ident = (name: string): Expr => ({ kind: 'Identifier' as const, name })
 const field = (f: string): Expr => ({
-  kind: 'FieldAccess' as const, field: f, object: null,
+  kind: 'FieldAccess' as const,
+  field: f,
+  object: null,
 })
 const colorLit = (value: string): Expr => ({ kind: 'ColorLiteral' as const, value })
 const fnCall = (
@@ -24,15 +31,15 @@ const fnCall = (
   kind: 'FnCall' as const,
   callee: ident(calleeName),
   args,
-  matchBlock: matchArms.length > 0
-    ? { kind: 'MatchBlock' as const, arms: matchArms }
-    : undefined,
+  matchBlock: matchArms.length > 0 ? { kind: 'MatchBlock' as const, arms: matchArms } : undefined,
 })
-const expr = (ast: Expr): DataExpr => ({ ast } as DataExpr)
+const expr = (ast: Expr): DataExpr => ({ ast }) as DataExpr
 
 function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
   const base: RenderNode = {
-    name: 'a', sourceRef: 's', zOrder: 0,
+    name: 'a',
+    sourceRef: 's',
+    zOrder: 0,
     fill: { kind: 'none' },
     stroke: {
       color: { kind: 'none' },
@@ -42,8 +49,12 @@ function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
     size: { kind: 'none' } as SizeValue,
     extrude: { kind: 'none' } as never,
     extrudeBase: { kind: 'none' } as never,
-    projection: 'mercator', visible: true, pointerEvents: 'auto',
-    filter: null, geometry: null, billboard: true,
+    projection: 'mercator',
+    visible: true,
+    pointerEvents: 'auto',
+    filter: null,
+    geometry: null,
+    billboard: true,
     shape: { kind: 'named', name: 'circle' } as never,
   }
   return { ...base, ...overrides }
@@ -63,9 +74,13 @@ describe('applyCSE — basic shape', () => {
 
   it('singleton subtree → still gets an id (every visited node has one)', () => {
     const ast = field('class')
-    const ann = applyCSE(makeScene(makeNode({
-      fill: { kind: 'data-driven', expr: expr(ast) } as ColorValue,
-    })))
+    const ann = applyCSE(
+      makeScene(
+        makeNode({
+          fill: { kind: 'data-driven', expr: expr(ast) } as ColorValue,
+        }),
+      ),
+    )
     // The AST is just a single FieldAccess, no children. One unique
     // node, one id.
     expect(ann.uniqueCount).toBe(1)
@@ -76,19 +91,19 @@ describe('applyCSE — basic shape', () => {
   it('duplicate F(class) on fill + stroke → both nodes share an id', () => {
     const fillField = field('class')
     const strokeField = field('class')
-    const ast1 = fnCall('match', [fillField], [
-      { pattern: 'a', value: colorLit('#aaa') },
-    ])
-    const ast2 = fnCall('match', [strokeField], [
-      { pattern: 'b', value: colorLit('#bbb') },
-    ])
-    const ann = applyCSE(makeScene(makeNode({
-      fill: { kind: 'data-driven', expr: expr(ast1) } as ColorValue,
-      stroke: {
-        color: { kind: 'data-driven', expr: expr(ast2) } as ColorValue,
-        width: { kind: 'constant', value: 1 } as PropertyShape<number>,
-      } as StrokeValue,
-    })))
+    const ast1 = fnCall('match', [fillField], [{ pattern: 'a', value: colorLit('#aaa') }])
+    const ast2 = fnCall('match', [strokeField], [{ pattern: 'b', value: colorLit('#bbb') }])
+    const ann = applyCSE(
+      makeScene(
+        makeNode({
+          fill: { kind: 'data-driven', expr: expr(ast1) } as ColorValue,
+          stroke: {
+            color: { kind: 'data-driven', expr: expr(ast2) } as ColorValue,
+            width: { kind: 'constant', value: 1 } as PropertyShape<number>,
+          } as StrokeValue,
+        }),
+      ),
+    )
     const id1 = ann.cseIdByExpr.get(fillField)
     const id2 = ann.cseIdByExpr.get(strokeField)
     expect(id1).toBeDefined()
@@ -99,19 +114,23 @@ describe('applyCSE — basic shape', () => {
   it('distinct canonical strings → distinct ids', () => {
     const classField = field('class')
     const rankField = field('rank')
-    const ann = applyCSE(makeScene(makeNode({
-      fill: {
-        kind: 'data-driven',
-        expr: expr(fnCall('match', [classField], [])),
-      } as ColorValue,
-      stroke: {
-        color: {
-          kind: 'data-driven',
-          expr: expr(fnCall('match', [rankField], [])),
-        } as ColorValue,
-        width: { kind: 'constant', value: 1 } as PropertyShape<number>,
-      } as StrokeValue,
-    })))
+    const ann = applyCSE(
+      makeScene(
+        makeNode({
+          fill: {
+            kind: 'data-driven',
+            expr: expr(fnCall('match', [classField], [])),
+          } as ColorValue,
+          stroke: {
+            color: {
+              kind: 'data-driven',
+              expr: expr(fnCall('match', [rankField], [])),
+            } as ColorValue,
+            width: { kind: 'constant', value: 1 } as PropertyShape<number>,
+          } as StrokeValue,
+        }),
+      ),
+    )
     const idClass = ann.cseIdByExpr.get(classField)
     const idRank = ann.cseIdByExpr.get(rankField)
     expect(idClass).toBeDefined()
@@ -122,25 +141,39 @@ describe('applyCSE — basic shape', () => {
 
 describe('applyCSE — uniqueCount + canonicalById consistency', () => {
   it('uniqueCount equals canonicalById.size', () => {
-    const ann = applyCSE(makeScene(makeNode({
-      fill: {
-        kind: 'data-driven',
-        expr: expr(fnCall('match', [field('class')], [
-          { pattern: 'a', value: colorLit('#aaa') },
-          { pattern: 'b', value: colorLit('#bbb') },
-        ])),
-      } as ColorValue,
-    })))
+    const ann = applyCSE(
+      makeScene(
+        makeNode({
+          fill: {
+            kind: 'data-driven',
+            expr: expr(
+              fnCall(
+                'match',
+                [field('class')],
+                [
+                  { pattern: 'a', value: colorLit('#aaa') },
+                  { pattern: 'b', value: colorLit('#bbb') },
+                ],
+              ),
+            ),
+          } as ColorValue,
+        }),
+      ),
+    )
     expect(ann.uniqueCount).toBe(ann.canonicalById.size)
   })
 
   it('every assigned id has a canonical string', () => {
-    const ann = applyCSE(makeScene(makeNode({
-      fill: {
-        kind: 'data-driven',
-        expr: expr(fnCall('match', [field('class')], [])),
-      } as ColorValue,
-    })))
+    const ann = applyCSE(
+      makeScene(
+        makeNode({
+          fill: {
+            kind: 'data-driven',
+            expr: expr(fnCall('match', [field('class')], [])),
+          } as ColorValue,
+        }),
+      ),
+    )
     for (let i = 0; i < ann.uniqueCount; i++) {
       expect(ann.canonicalById.has(i)).toBe(true)
       expect(typeof ann.canonicalById.get(i)).toBe('string')
@@ -148,14 +181,16 @@ describe('applyCSE — uniqueCount + canonicalById consistency', () => {
   })
 
   it('totalNodes matches the report', () => {
-    const scene = makeScene(makeNode({
-      fill: {
-        kind: 'data-driven',
-        expr: expr(fnCall('match', [field('class')], [
-          { pattern: 'a', value: colorLit('#aaa') },
-        ])),
-      } as ColorValue,
-    }))
+    const scene = makeScene(
+      makeNode({
+        fill: {
+          kind: 'data-driven',
+          expr: expr(
+            fnCall('match', [field('class')], [{ pattern: 'a', value: colorLit('#aaa') }]),
+          ),
+        } as ColorValue,
+      }),
+    )
     const report = analyzeCSE(scene)
     const ann = applyCSEFromReport(report)
     expect(ann.totalNodes).toBe(report.totalNodes)
@@ -171,19 +206,23 @@ describe('applyCSE — id ordering', () => {
     for (let i = 0; i < 3; i++) {
       const f = field('class')
       classFields.push(f)
-      layers.push(makeNode({
+      layers.push(
+        makeNode({
+          fill: {
+            kind: 'data-driven',
+            expr: expr(fnCall('match', [f], [])),
+          } as ColorValue,
+        }),
+      )
+    }
+    layers.push(
+      makeNode({
         fill: {
           kind: 'data-driven',
-          expr: expr(fnCall('match', [f], [])),
+          expr: expr(fnCall('match', [rankField], [])),
         } as ColorValue,
-      }))
-    }
-    layers.push(makeNode({
-      fill: {
-        kind: 'data-driven',
-        expr: expr(fnCall('match', [rankField], [])),
-      } as ColorValue,
-    }))
+      }),
+    )
     const ann = applyCSE(makeScene(...layers))
     const classId = ann.cseIdByExpr.get(classFields[0]!)
     const rankId = ann.cseIdByExpr.get(rankField)
@@ -199,35 +238,47 @@ describe('sameCSE predicate', () => {
   it('returns true for two nodes with the same canonical key', () => {
     const f1 = field('class')
     const f2 = field('class')
-    const ann = applyCSE(makeScene(makeNode({
-      fill: { kind: 'data-driven', expr: expr(fnCall('match', [f1], [])) } as ColorValue,
-      stroke: {
-        color: { kind: 'data-driven', expr: expr(fnCall('match', [f2], [])) } as ColorValue,
-        width: { kind: 'constant', value: 1 } as PropertyShape<number>,
-      } as StrokeValue,
-    })))
+    const ann = applyCSE(
+      makeScene(
+        makeNode({
+          fill: { kind: 'data-driven', expr: expr(fnCall('match', [f1], [])) } as ColorValue,
+          stroke: {
+            color: { kind: 'data-driven', expr: expr(fnCall('match', [f2], [])) } as ColorValue,
+            width: { kind: 'constant', value: 1 } as PropertyShape<number>,
+          } as StrokeValue,
+        }),
+      ),
+    )
     expect(sameCSE(ann, f1, f2)).toBe(true)
   })
 
   it('returns false for two nodes with different canonical keys', () => {
     const f1 = field('class')
     const f2 = field('rank')
-    const ann = applyCSE(makeScene(makeNode({
-      fill: { kind: 'data-driven', expr: expr(fnCall('match', [f1], [])) } as ColorValue,
-      stroke: {
-        color: { kind: 'data-driven', expr: expr(fnCall('match', [f2], [])) } as ColorValue,
-        width: { kind: 'constant', value: 1 } as PropertyShape<number>,
-      } as StrokeValue,
-    })))
+    const ann = applyCSE(
+      makeScene(
+        makeNode({
+          fill: { kind: 'data-driven', expr: expr(fnCall('match', [f1], [])) } as ColorValue,
+          stroke: {
+            color: { kind: 'data-driven', expr: expr(fnCall('match', [f2], [])) } as ColorValue,
+            width: { kind: 'constant', value: 1 } as PropertyShape<number>,
+          } as StrokeValue,
+        }),
+      ),
+    )
     expect(sameCSE(ann, f1, f2)).toBe(false)
   })
 
   it('returns false when one node is not in the annotation', () => {
     const f1 = field('class')
-    const orphan = field('class')  // built independently; same canonical, different reference
-    const ann = applyCSE(makeScene(makeNode({
-      fill: { kind: 'data-driven', expr: expr(fnCall('match', [f1], [])) } as ColorValue,
-    })))
+    const orphan = field('class') // built independently; same canonical, different reference
+    const ann = applyCSE(
+      makeScene(
+        makeNode({
+          fill: { kind: 'data-driven', expr: expr(fnCall('match', [f1], [])) } as ColorValue,
+        }),
+      ),
+    )
     // Orphan was never walked → no entry → predicate is false even
     // though the canonical strings match.
     expect(sameCSE(ann, f1, orphan)).toBe(false)

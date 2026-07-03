@@ -25,14 +25,18 @@ export interface ShapeDescData {
 
 /** GPU-side segment (matches WGSL struct, 48 bytes) */
 export interface SegmentData {
-  kind: number    // 0=line, 1=quadratic, 2=cubic
+  kind: number // 0=line, 1=quadratic, 2=cubic
   colorIdx: number
   flags: number
   _pad: number
-  p0x: number; p0y: number
-  p1x: number; p1y: number
-  p2x: number; p2y: number
-  p3x: number; p3y: number
+  p0x: number
+  p0y: number
+  p1x: number
+  p1y: number
+  p2x: number
+  p2y: number
+  p3x: number
+  p3y: number
 }
 
 // ═══ SVG Path Parser ═══
@@ -92,87 +96,136 @@ function parseSVGPath(d: string): PathCmd[] {
  *  before segments are emitted. This gives `size N` a consistent meaning
  *  ("longest dimension renders at N units") regardless of how the path's
  *  source coords were authored. CSS `object-fit: contain` semantics. */
-function pathToSegments(cmds: PathCmd[]): { segments: SegmentData[]; bbox: [number, number, number, number] } {
+function pathToSegments(cmds: PathCmd[]): {
+  segments: SegmentData[]
+  bbox: [number, number, number, number]
+} {
   // Pass 1: scan AABB from raw command coords to derive the normalization scale.
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity
   const updateBBox = (x: number, y: number) => {
-    if (x < minX) minX = x; if (x > maxX) maxX = x
-    if (y < minY) minY = y; if (y > maxY) maxY = y
+    if (x < minX) minX = x
+    if (x > maxX) maxX = x
+    if (y < minY) minY = y
+    if (y > maxY) maxY = y
   }
   for (const cmd of cmds) {
     switch (cmd.type) {
-      case 'M': case 'L':
-        updateBBox(cmd.x, cmd.y); break
+      case 'M':
+      case 'L':
+        updateBBox(cmd.x, cmd.y)
+        break
       case 'Q':
-        updateBBox(cmd.x1, cmd.y1); updateBBox(cmd.x, cmd.y); break
+        updateBBox(cmd.x1, cmd.y1)
+        updateBBox(cmd.x, cmd.y)
+        break
       case 'C':
-        updateBBox(cmd.x1, cmd.y1); updateBBox(cmd.x2, cmd.y2)
-        updateBBox(cmd.x, cmd.y); break
+        updateBBox(cmd.x1, cmd.y1)
+        updateBBox(cmd.x2, cmd.y2)
+        updateBBox(cmd.x, cmd.y)
+        break
       // 'Z' contributes nothing to the AABB
     }
   }
   // Degenerate paths (single point at origin, etc.) leave maxExtent==0; skip
   // scaling to avoid divide-by-zero. Otherwise scale = 1/maxExtent.
-  const maxExtent = Math.max(
-    Math.abs(minX), Math.abs(maxX),
-    Math.abs(minY), Math.abs(maxY),
-  )
+  const maxExtent = Math.max(Math.abs(minX), Math.abs(maxX), Math.abs(minY), Math.abs(maxY))
   const scale = maxExtent > 1e-6 ? 1 / maxExtent : 1
   const sx = (v: number) => v * scale
 
   // Pass 2: emit segments with normalized coords.
   const segments: SegmentData[] = []
-  let cx = 0, cy = 0 // current point
-  let mx = 0, my = 0 // move-to point (for Z close)
+  let cx = 0,
+    cy = 0 // current point
+  let mx = 0,
+    my = 0 // move-to point (for Z close)
 
   for (const cmd of cmds) {
     switch (cmd.type) {
       case 'M':
-        cx = sx(cmd.x); cy = sx(cmd.y)
-        mx = cx; my = cy
+        cx = sx(cmd.x)
+        cy = sx(cmd.y)
+        mx = cx
+        my = cy
         break
 
       case 'L':
         segments.push({
-          kind: 0, colorIdx: 0, flags: 0, _pad: 0,
-          p0x: cx, p0y: cy,
-          p1x: sx(cmd.x), p1y: sx(cmd.y),
-          p2x: 0, p2y: 0, p3x: 0, p3y: 0,
+          kind: 0,
+          colorIdx: 0,
+          flags: 0,
+          _pad: 0,
+          p0x: cx,
+          p0y: cy,
+          p1x: sx(cmd.x),
+          p1y: sx(cmd.y),
+          p2x: 0,
+          p2y: 0,
+          p3x: 0,
+          p3y: 0,
         })
-        cx = sx(cmd.x); cy = sx(cmd.y)
+        cx = sx(cmd.x)
+        cy = sx(cmd.y)
         break
 
       case 'Q':
         segments.push({
-          kind: 1, colorIdx: 0, flags: 0, _pad: 0,
-          p0x: cx, p0y: cy,
-          p1x: sx(cmd.x1), p1y: sx(cmd.y1),
-          p2x: sx(cmd.x), p2y: sx(cmd.y),
-          p3x: 0, p3y: 0,
+          kind: 1,
+          colorIdx: 0,
+          flags: 0,
+          _pad: 0,
+          p0x: cx,
+          p0y: cy,
+          p1x: sx(cmd.x1),
+          p1y: sx(cmd.y1),
+          p2x: sx(cmd.x),
+          p2y: sx(cmd.y),
+          p3x: 0,
+          p3y: 0,
         })
-        cx = sx(cmd.x); cy = sx(cmd.y)
+        cx = sx(cmd.x)
+        cy = sx(cmd.y)
         break
 
       case 'C':
         segments.push({
-          kind: 2, colorIdx: 0, flags: 0, _pad: 0,
-          p0x: cx, p0y: cy,
-          p1x: sx(cmd.x1), p1y: sx(cmd.y1),
-          p2x: sx(cmd.x2), p2y: sx(cmd.y2),
-          p3x: sx(cmd.x), p3y: sx(cmd.y),
+          kind: 2,
+          colorIdx: 0,
+          flags: 0,
+          _pad: 0,
+          p0x: cx,
+          p0y: cy,
+          p1x: sx(cmd.x1),
+          p1y: sx(cmd.y1),
+          p2x: sx(cmd.x2),
+          p2y: sx(cmd.y2),
+          p3x: sx(cmd.x),
+          p3y: sx(cmd.y),
         })
-        cx = sx(cmd.x); cy = sx(cmd.y)
+        cx = sx(cmd.x)
+        cy = sx(cmd.y)
         break
 
       case 'Z':
         if (cx !== mx || cy !== my) {
           segments.push({
-            kind: 0, colorIdx: 0, flags: 0, _pad: 0,
-            p0x: cx, p0y: cy,
-            p1x: mx, p1y: my,
-            p2x: 0, p2y: 0, p3x: 0, p3y: 0,
+            kind: 0,
+            colorIdx: 0,
+            flags: 0,
+            _pad: 0,
+            p0x: cx,
+            p0y: cy,
+            p1x: mx,
+            p1y: my,
+            p2x: 0,
+            p2y: 0,
+            p3x: 0,
+            p3y: 0,
           })
-          cx = mx; cy = my
+          cx = mx
+          cy = my
         }
         break
     }
@@ -184,8 +237,10 @@ function pathToSegments(cmds: PathCmd[]): { segments: SegmentData[]; bbox: [numb
   return {
     segments,
     bbox: [
-      minX * scale - margin, minY * scale - margin,
-      maxX * scale + margin, maxY * scale + margin,
+      minX * scale - margin,
+      minY * scale - margin,
+      maxX * scale + margin,
+      maxY * scale + margin,
     ],
   }
 }
@@ -232,7 +287,8 @@ export const BUILTIN_SHAPES: Record<string, string> = {
   diamond: 'M 0 -1 L 0.7 0 L 0 1 L -0.7 0 Z',
   triangle: 'M 0 -1 L 0.9444 0.7222 L -0.9444 0.7222 Z',
   star: starPath(5, 1.0, 0.38),
-  cross: 'M -0.3333 -1 L 0.3333 -1 L 0.3333 -0.3333 L 1 -0.3333 L 1 0.3333 L 0.3333 0.3333 L 0.3333 1 L -0.3333 1 L -0.3333 0.3333 L -1 0.3333 L -1 -0.3333 L -0.3333 -0.3333 Z',
+  cross:
+    'M -0.3333 -1 L 0.3333 -1 L 0.3333 -0.3333 L 1 -0.3333 L 1 0.3333 L 0.3333 0.3333 L 0.3333 1 L -0.3333 1 L -0.3333 0.3333 L -1 0.3333 L -1 -0.3333 L -0.3333 -0.3333 Z',
   hexagon: regularPolygon(6, 1.0),
   pentagon: regularPolygon(5, 1.0),
 }
@@ -344,10 +400,14 @@ export class ShapeRegistry {
       segU32[off + 1] = s.colorIdx
       segU32[off + 2] = s.flags
       segU32[off + 3] = s._pad
-      segData[off + 4] = s.p0x; segData[off + 5] = s.p0y
-      segData[off + 6] = s.p1x; segData[off + 7] = s.p1y
-      segData[off + 8] = s.p2x; segData[off + 9] = s.p2y
-      segData[off + 10] = s.p3x; segData[off + 11] = s.p3y
+      segData[off + 4] = s.p0x
+      segData[off + 5] = s.p0y
+      segData[off + 6] = s.p1x
+      segData[off + 7] = s.p1y
+      segData[off + 8] = s.p2x
+      segData[off + 9] = s.p2y
+      segData[off + 10] = s.p3x
+      segData[off + 11] = s.p3y
     }
 
     // Recreate GPU buffers. STORAGE|COPY_DST, byte-identical via
@@ -358,14 +418,16 @@ export class ShapeRegistry {
 
     this._shapeBuffer = this.rhi.createBuffer({
       size: Math.max(shapeData.byteLength, 32),
-      usage: 'storage', writable: true,
+      usage: 'storage',
+      writable: true,
       label: 'shape-descs',
     })
     this.rhi.writeBuffer(this._shapeBuffer, 0, shapeData)
 
     this._segmentBuffer = this.rhi.createBuffer({
       size: Math.max(segData.byteLength, 48),
-      usage: 'storage', writable: true,
+      usage: 'storage',
+      writable: true,
       label: 'shape-segments',
     })
     this.rhi.writeBuffer(this._segmentBuffer, 0, segData)
@@ -381,5 +443,7 @@ export class ShapeRegistry {
     return this._segmentBuffer!
   }
 
-  get shapeCount(): number { return this.nextId - 1 }
+  get shapeCount(): number {
+    return this.nextId - 1
+  }
 }

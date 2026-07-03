@@ -19,14 +19,16 @@ function convert(style: unknown): { xgis: string; warnings: string[] } {
 const baseLayer = (paint: Record<string, unknown>) => ({
   version: 8,
   sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-  layers: [{
-    id: 'shield',
-    type: 'symbol',
-    source: 'v',
-    'source-layer': 'transportation',
-    layout: { 'icon-image': 'us-interstate-3' },
-    paint,
-  }],
+  layers: [
+    {
+      id: 'shield',
+      type: 'symbol',
+      source: 'v',
+      'source-layer': 'transportation',
+      layout: { 'icon-image': 'us-interstate-3' },
+      paint,
+    },
+  ],
 })
 
 describe('icon-color SDF tint conversion (Plan §4, iter 138)', () => {
@@ -34,33 +36,44 @@ describe('icon-color SDF tint conversion (Plan §4, iter 138)', () => {
     const { xgis, warnings } = convert(baseLayer({ 'icon-color': '#ff0000' }))
     expect(xgis).toContain('label-icon-color-')
     // No "deferred" / "not yet" / "doesn't yet" gap warning.
-    expect(warnings.some(s =>
-      s.includes('icon-color') && /deferred|doesn't yet|not yet|could not be converted/.test(s),
-    )).toBe(false)
+    expect(
+      warnings.some(
+        (s) =>
+          s.includes('icon-color') && /deferred|doesn't yet|not yet|could not be converted/.test(s),
+      ),
+    ).toBe(false)
     // Not in the generic ignored-properties blob either.
-    expect(warnings.some(s =>
-      s.includes('ignored properties') && s.includes('icon-color'),
-    )).toBe(false)
+    expect(warnings.some((s) => s.includes('ignored properties') && s.includes('icon-color'))).toBe(
+      false,
+    )
   })
 
   it('zoom-interp icon-color → bracket binding utility', () => {
-    const { xgis, warnings } = convert(baseLayer({
-      'icon-color': ['interpolate', ['linear'], ['zoom'], 6, '#ff0000', 14, '#0000ff'],
-    }))
+    const { xgis, warnings } = convert(
+      baseLayer({
+        'icon-color': ['interpolate', ['linear'], ['zoom'], 6, '#ff0000', 14, '#0000ff'],
+      }),
+    )
     expect(xgis).toContain('label-icon-color-[')
-    expect(warnings.some(s =>
-      s.includes('icon-color') && /deferred|doesn't yet|could not be converted/.test(s),
-    )).toBe(false)
+    expect(
+      warnings.some(
+        (s) => s.includes('icon-color') && /deferred|doesn't yet|could not be converted/.test(s),
+      ),
+    ).toBe(false)
   })
 
   it('data-driven icon-color (case) → expression binding, no gap warning', () => {
-    const { xgis, warnings } = convert(baseLayer({
-      'icon-color': ['case', ['==', ['get', 'kind'], 'interstate'], '#0000ff', '#888'],
-    }))
+    const { xgis, warnings } = convert(
+      baseLayer({
+        'icon-color': ['case', ['==', ['get', 'kind'], 'interstate'], '#0000ff', '#888'],
+      }),
+    )
     expect(xgis).toContain('label-icon-color-[')
-    expect(warnings.some(s =>
-      s.includes('icon-color') && /deferred|doesn't yet|could not be converted/.test(s),
-    )).toBe(false)
+    expect(
+      warnings.some(
+        (s) => s.includes('icon-color') && /deferred|doesn't yet|could not be converted/.test(s),
+      ),
+    ).toBe(false)
   })
 
   it('layer WITHOUT icon-color emits no icon-color utility', () => {

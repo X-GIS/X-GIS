@@ -36,14 +36,20 @@ function makeStubTileData(floats: number): TileData {
     lineVertices: lineVerts,
     lineIndices: idx,
     outlineIndices: idx,
-    tileWest: 0, tileSouth: 0, tileWidth: 1, tileHeight: 1, tileZoom: 0,
+    tileWest: 0,
+    tileSouth: 0,
+    tileWidth: 1,
+    tileHeight: 1,
+    tileZoom: 0,
   }
 }
 
 function injectSlice(catalog: TileCatalog, key: number, data: TileData): void {
-  const slice = (catalog as unknown as {
-    setSlice(k: number, layer: string, d: TileData): void
-  }).setSlice.bind(catalog)
+  const slice = (
+    catalog as unknown as {
+      setSlice(k: number, layer: string, d: TileData): void
+    }
+  ).setSlice.bind(catalog)
   slice(key, '', data)
 }
 
@@ -66,39 +72,43 @@ describe('TileCatalog lifecycle (BUG 11: prewarm pump cancellation)', () => {
     catalog.prewarmSkeleton({ depth: 0 })
 
     const armedAfterFirstTick = setTimeoutSpy.mock.calls.length
-    expect(armedAfterFirstTick,
-      'first tick must arm a retry because hasTileData stays false')
-      .toBeGreaterThanOrEqual(1)
+    expect(
+      armedAfterFirstTick,
+      'first tick must arm a retry because hasTileData stays false',
+    ).toBeGreaterThanOrEqual(1)
 
     // Advance several 250 ms windows — the pump keeps re-arming forever.
     vi.advanceTimersByTime(250)
     vi.advanceTimersByTime(250)
     vi.advanceTimersByTime(250)
-    expect(setTimeoutSpy.mock.calls.length,
-      'pump re-arms on every 250 ms tick (never terminates)')
-      .toBeGreaterThan(armedAfterFirstTick)
+    expect(
+      setTimeoutSpy.mock.calls.length,
+      'pump re-arms on every 250 ms tick (never terminates)',
+    ).toBeGreaterThan(armedAfterFirstTick)
     const prefetchCallsBeforeDestroy = prefetchSpy.mock.calls.length
-    expect(prefetchCallsBeforeDestroy,
-      'pump keeps firing prefetch against the source')
-      .toBeGreaterThan(1)
+    expect(
+      prefetchCallsBeforeDestroy,
+      'pump keeps firing prefetch against the source',
+    ).toBeGreaterThan(1)
 
     // destroy() must exist and stop the pump (FAILS before the fix:
     // TileCatalog has no destroy method).
-    expect(typeof (catalog as unknown as { destroy?: unknown }).destroy,
-      'TileCatalog must expose destroy() to cancel the pump')
-      .toBe('function')
+    expect(
+      typeof (catalog as unknown as { destroy?: unknown }).destroy,
+      'TileCatalog must expose destroy() to cancel the pump',
+    ).toBe('function')
     catalog.destroy()
 
     const armsAtDestroy = setTimeoutSpy.mock.calls.length
     const prefetchAtDestroy = prefetchSpy.mock.calls.length
     vi.advanceTimersByTime(250)
     vi.advanceTimersByTime(250)
-    expect(setTimeoutSpy.mock.calls.length,
-      'after destroy() the pump must not re-arm')
-      .toBe(armsAtDestroy)
-    expect(prefetchSpy.mock.calls.length,
-      'after destroy() prefetch must not fire again')
-      .toBe(prefetchAtDestroy)
+    expect(setTimeoutSpy.mock.calls.length, 'after destroy() the pump must not re-arm').toBe(
+      armsAtDestroy,
+    )
+    expect(prefetchSpy.mock.calls.length, 'after destroy() prefetch must not fire again').toBe(
+      prefetchAtDestroy,
+    )
   })
 
   it('prewarmSkeleton pump terminates on its own once tiles load (no leak when healthy)', () => {
@@ -110,9 +120,10 @@ describe('TileCatalog lifecycle (BUG 11: prewarm pump cancellation)', () => {
     // Populate the root key so hasTileData → true.
     injectSlice(catalog, tileKey(0, 0, 0), makeStubTileData(8))
     vi.advanceTimersByTime(250)
-    expect(setTimeoutSpy.mock.calls.length,
-      'pump stops once every skeleton key reports hasTileData')
-      .toBe(armed)
+    expect(
+      setTimeoutSpy.mock.calls.length,
+      'pump stops once every skeleton key reports hasTileData',
+    ).toBe(armed)
   })
 })
 
@@ -121,9 +132,11 @@ describe('TileCatalog lifecycle (BUG 13: evict-shield drains under budget)', () 
     vi.useFakeTimers()
     vi.setSystemTime(0)
     const catalog = new TileCatalog()
-    const shield = (catalog as unknown as {
-      eviction: { shieldMap: Map<number, number> }
-    }).eviction.shieldMap
+    const shield = (
+      catalog as unknown as {
+        eviction: { shieldMap: Map<number, number> }
+      }
+    ).eviction.shieldMap
 
     // Stay well under MAX_CACHED_TILES the whole time, but keep
     // prefetching distinct keys whose shield TTL keeps expiring. Each
@@ -141,8 +154,9 @@ describe('TileCatalog lifecycle (BUG 13: evict-shield drains under budget)', () 
     // early-return, so it never drains → size ≈ 50. After the fix the
     // sweep runs every call, so only the most-recent (un-expired) entry
     // can remain.
-    expect(shield.size,
-      'expired shield entries must be swept even when under budget')
-      .toBeLessThanOrEqual(2)
+    expect(
+      shield.size,
+      'expired shield entries must be swept even when under budget',
+    ).toBeLessThanOrEqual(2)
   })
 })

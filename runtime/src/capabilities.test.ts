@@ -8,10 +8,7 @@ describe('runtime capability table', () => {
   it('every unsupported entry has a note explaining why', () => {
     for (const c of RUNTIME_CAPABILITIES) {
       if (!c.supported) {
-        expect(
-          c.note?.length ?? 0,
-          `${c.layerType}.${c.property}:${c.variant}`,
-        ).toBeGreaterThan(10)
+        expect(c.note?.length ?? 0, `${c.layerType}.${c.property}:${c.variant}`).toBeGreaterThan(10)
       }
     }
   })

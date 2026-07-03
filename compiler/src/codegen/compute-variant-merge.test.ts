@@ -53,8 +53,11 @@ function makeFillEntry(): ComputePlanEntry {
     defaultColorHex: '#000000',
   })
   return {
-    renderNodeIndex: 0, paintAxis: 'fill', kernel,
-    fieldOrder: kernel.fieldOrder, categoryOrder: kernel.categoryOrder ?? {},
+    renderNodeIndex: 0,
+    paintAxis: 'fill',
+    kernel,
+    fieldOrder: kernel.fieldOrder,
+    categoryOrder: kernel.categoryOrder ?? {},
   }
 }
 
@@ -65,8 +68,11 @@ function makeStrokeEntry(): ComputePlanEntry {
     defaultColorHex: '#000000',
   })
   return {
-    renderNodeIndex: 0, paintAxis: 'stroke-color', kernel,
-    fieldOrder: kernel.fieldOrder, categoryOrder: kernel.categoryOrder ?? {},
+    renderNodeIndex: 0,
+    paintAxis: 'stroke-color',
+    kernel,
+    fieldOrder: kernel.fieldOrder,
+    categoryOrder: kernel.categoryOrder ?? {},
   }
 }
 
@@ -75,7 +81,7 @@ describe('mergeComputeAddendumIntoVariant — empty addendum (no-op)', () => {
     const v = makeLegacyVariant()
     const addendum = buildComputeVariantAddendum([], 0, 0)
     const merged = mergeComputeAddendumIntoVariant(v, addendum)
-    expect(merged).toBe(v)  // exact identity, no allocation
+    expect(merged).toBe(v) // exact identity, no allocation
   })
 })
 
@@ -98,7 +104,12 @@ describe('mergeComputeAddendumIntoVariant — fill override', () => {
   })
 
   it('appends addendum bindings after the legacy preamble consts', () => {
-    const fillColor = { name: 'X', type: { kind: 'scalar', scalar: 'f32' }, wgslValue: 1, cpuValue: 1 } as const
+    const fillColor = {
+      name: 'X',
+      type: { kind: 'scalar', scalar: 'f32' },
+      wgslValue: 1,
+      cpuValue: 1,
+    } as const
     const v = makeLegacyVariant({
       preamble: { consts: [fillColor] },
     })
@@ -106,7 +117,11 @@ describe('mergeComputeAddendumIntoVariant — fill override', () => {
     const merged = mergeComputeAddendumIntoVariant(v, addendum)
     expect(merged.preamble.consts).toEqual([fillColor])
     expect(merged.preamble.bindings).toHaveLength(1)
-    expect(merged.preamble.bindings![0]).toMatchObject({ group: 2, binding: 5, name: 'compute_out_fill' })
+    expect(merged.preamble.bindings![0]).toMatchObject({
+      group: 2,
+      binding: 5,
+      name: 'compute_out_fill',
+    })
   })
 
   it('empty legacy preamble → addendum bindings become the only bindings', () => {
@@ -139,10 +154,7 @@ describe('mergeComputeAddendumIntoVariant — stroke override', () => {
 describe('mergeComputeAddendumIntoVariant — both axes', () => {
   it('overrides both fillExpr and strokeExpr', () => {
     const v = makeLegacyVariant()
-    const addendum = buildComputeVariantAddendum(
-      [makeFillEntry(), makeStrokeEntry()],
-      0, 1,
-    )
+    const addendum = buildComputeVariantAddendum([makeFillEntry(), makeStrokeEntry()], 0, 1)
     const merged = mergeComputeAddendumIntoVariant(v, addendum)
     expect(fillStr(merged)).toContain('compute_out_fill')
     expect(strokeStr(merged)).toContain('compute_out_stroke')
@@ -150,10 +162,7 @@ describe('mergeComputeAddendumIntoVariant — both axes', () => {
 
   it('prunes both uniformFields', () => {
     const v = makeLegacyVariant()
-    const addendum = buildComputeVariantAddendum(
-      [makeFillEntry(), makeStrokeEntry()],
-      0, 1,
-    )
+    const addendum = buildComputeVariantAddendum([makeFillEntry(), makeStrokeEntry()], 0, 1)
     const merged = mergeComputeAddendumIntoVariant(v, addendum)
     expect(merged.uniformFields).not.toContain('fill_color')
     expect(merged.uniformFields).not.toContain('stroke_color')
@@ -174,7 +183,8 @@ describe('mergeComputeAddendumIntoVariant — cache key', () => {
     // Same set of bindings, different insertion order.
     const a1: ComputeVariantAddendum = {
       bindingDecls: [],
-      fillExpr: 'F', strokeExpr: 'S',
+      fillExpr: 'F',
+      strokeExpr: 'S',
       bindGroupEntries: [],
       bindings: [
         { paintAxis: 'stroke-color', bindGroup: 0, binding: 2 },
@@ -183,7 +193,8 @@ describe('mergeComputeAddendumIntoVariant — cache key', () => {
     }
     const a2: ComputeVariantAddendum = {
       bindingDecls: [],
-      fillExpr: 'F', strokeExpr: 'S',
+      fillExpr: 'F',
+      strokeExpr: 'S',
       bindGroupEntries: [],
       bindings: [
         { paintAxis: 'fill', bindGroup: 0, binding: 1 },
@@ -224,13 +235,10 @@ describe('mergeComputeAddendumIntoVariant — computeBindings surface', () => {
 
   it('populated on fill + stroke merge with sequential bindings', () => {
     const v = makeLegacyVariant()
-    const addendum = buildComputeVariantAddendum(
-      [makeFillEntry(), makeStrokeEntry()],
-      0, 3,
-    )
+    const addendum = buildComputeVariantAddendum([makeFillEntry(), makeStrokeEntry()], 0, 3)
     const merged = mergeComputeAddendumIntoVariant(v, addendum)
-    expect(merged.computeBindings!.map(b => b.binding)).toEqual([3, 4])
-    expect(merged.computeBindings!.map(b => b.paintAxis)).toEqual(['fill', 'stroke-color'])
+    expect(merged.computeBindings!.map((b) => b.binding)).toEqual([3, 4])
+    expect(merged.computeBindings!.map((b) => b.paintAxis)).toEqual(['fill', 'stroke-color'])
   })
 
   it('runtime "compute layout needed?" check is a single property test', () => {
@@ -265,8 +273,8 @@ describe('mergeComputeAddendumIntoVariant — invariant preservation', () => {
     })
     const addendum = buildComputeVariantAddendum([makeFillEntry()], 0, 1)
     mergeComputeAddendumIntoVariant(v, addendum)
-    expect(v.uniformFields).toEqual(['mvp', 'fill_color'])  // untouched
-    expect(fillStr(v)).toBe('u.fill_color')                  // untouched
+    expect(v.uniformFields).toEqual(['mvp', 'fill_color']) // untouched
+    expect(fillStr(v)).toBe('u.fill_color') // untouched
   })
 
   it('preserves needsFeatureBuffer / featureFields / palette fields', () => {

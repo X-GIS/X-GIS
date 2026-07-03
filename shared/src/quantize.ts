@@ -17,6 +17,6 @@ export function quantizeAxis(axis: number, halfRange: number, invSpan: number): 
   // over the tile's verts + epsilon) no axis exceeds the range, but rounding
   // at the extreme could land at 0x1_0000_0000; clamp defends the cast.
   if (q < 0) q = 0
-  else if (q > 0xFFFFFFFF) q = 0xFFFFFFFF
-  return [(q >>> 16) & 0xFFFF, q & 0xFFFF]
+  else if (q > 0xffffffff) q = 0xffffffff
+  return [(q >>> 16) & 0xffff, q & 0xffff]
 }

@@ -22,7 +22,10 @@ describe('pbfGlyphToSlot — scaled SDF re-encoding', () => {
     // 192 is the post-encode edge. Some pixel must straddle it.
     let edgeHit = false
     for (let i = 0; i < out.sdf.length; i++) {
-      if (out.sdf[i]! >= 180 && out.sdf[i]! <= 210) { edgeHit = true; break }
+      if (out.sdf[i]! >= 180 && out.sdf[i]! <= 210) {
+        edgeHit = true
+        break
+      }
     }
     expect(edgeHit).toBe(true)
   })
@@ -55,15 +58,15 @@ describe('pbfGlyphToSlot — scaled SDF re-encoding', () => {
     const space = stack.glyphs.get(0x20)
     // If the fixture omits space, synthesize a stand-in to exercise the
     // zero-bitmap branch unconditionally.
-    const g = space?.bitmap.length === 0
-      ? space
-      : { id: 0x20, bitmap: new Uint8Array(0), width: 0, height: 0,
-          left: 0, top: 0, advance: 6 }
+    const g =
+      space?.bitmap.length === 0
+        ? space
+        : { id: 0x20, bitmap: new Uint8Array(0), width: 0, height: 0, left: 0, top: 0, advance: 6 }
     const out = pbfGlyphToSlot(g, 'X', slotSize, sdfRadius, rasterFontSize)
     expect(out.sdf.length).toBe(slotSize * slotSize)
     // No glyph silhouette → SDF should be far-outside everywhere.
     // computeSDF emits 0 for "far outside".
-    expect(out.sdf.every(b => b === 0)).toBe(true)
+    expect(out.sdf.every((b) => b === 0)).toBe(true)
   })
 
   it('SDF interior is denser than the boundary band (sanity)', () => {

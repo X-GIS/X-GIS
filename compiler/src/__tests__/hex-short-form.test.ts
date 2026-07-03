@@ -69,9 +69,7 @@ describe('lowerMatchColorToMatch — short-form hex arm value', () => {
         args: [{ kind: 'FieldAccess', object: null, field: 'class' }],
         matchBlock: {
           kind: 'MatchBlock',
-          arms: [
-            { pattern: 'fire', value: { kind: 'ColorLiteral', value: armHex } },
-          ],
+          arms: [{ pattern: 'fire', value: { kind: 'ColorLiteral', value: armHex } }],
         },
       },
     }

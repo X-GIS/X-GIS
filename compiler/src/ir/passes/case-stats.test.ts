@@ -35,7 +35,7 @@ function probeMatchExprs(fixture: string) {
         const arms = ast.matchBlock.arms as { value: unknown }[]
         if (arms.length > 1) {
           const first = JSON.stringify(arms[0]!.value)
-          const allSame = arms.every(a => JSON.stringify(a.value) === first)
+          const allSame = arms.every((a) => JSON.stringify(a.value) === first)
           if (allSame) {
             trivial++
             if (examples.length < 5) examples.push(label)
@@ -55,11 +55,17 @@ function probeMatchExprs(fixture: string) {
 }
 
 describe('match expression statistics on real fixtures', () => {
-  for (const fixture of ['openfreemap-bright.json', 'openfreemap-liberty.json', 'openfreemap-positron.json']) {
+  for (const fixture of [
+    'openfreemap-bright.json',
+    'openfreemap-liberty.json',
+    'openfreemap-positron.json',
+  ]) {
     it(`reports counts for ${fixture}`, () => {
       const stats = probeMatchExprs(fixture)
       // eslint-disable-next-line no-console
-      console.log(`[${fixture}] match exprs: ${stats.anyMatch}, trivial: ${stats.trivial}, examples: ${stats.examples.join(' | ')}`)
+      console.log(
+        `[${fixture}] match exprs: ${stats.anyMatch}, trivial: ${stats.trivial}, examples: ${stats.examples.join(' | ')}`,
+      )
     })
   }
 })

@@ -15,6 +15,7 @@ triggers:
 # Data-layer gate must match the render-layer gate
 
 ## The Insight
+
 When a runtime renderer resolves per-feature data (evaluating an expression
 against `tileData.featureProps`), TWO independent gates must agree:
 
@@ -23,7 +24,7 @@ against `tileData.featureProps`), TWO independent gates must agree:
 2. **Data gate** — where the MVT worker decides whether to BUILD + SHIP
    `featureProps` at all: `show-source-maps.ts` `needsFeatureProps`
    (~:231) → `mvt-worker.ts:384` `needsFeatureProps ? buildFeatureProps(...) :
-   empty` → `featureProps.size>0 ? … : undefined`.
+empty` → `featureProps.size>0 ? … : undefined`.
 
 If the data gate is STRICTER than the render gate, the worker ships NO
 `featureProps` for that source, `tileData.featureProps` is `undefined`, and the
@@ -33,18 +34,21 @@ vary. Historically `needsFeatureProps` only covered `show.label` +
 point size/color — so a data-driven point size collapsed to `show.size ?? 6`.
 
 ## Why This Matters
+
 A synthetic unit test that hand-builds `show.sizeExpr` + a `featureProps` map
 passes (it bypasses the data gate entirely), while the REAL pipeline never ships
 `featureProps` and the render is unchanged. This is the exact trap that let the
 gap ship: the test proved the resolver, not the data delivery.
 
 ## Recognition Pattern
+
 - "I wired the per-feature resolver + the unit test passes, but the real demo
   looks the same."
 - Instrumenting the resolver shows the expression AST is present (`hasAst:true`)
   but `withProps:0` / `tileData.featureProps` is `undefined`.
 
 ## The Approach
+
 Whenever you add a runtime consumer of `featureProps`, make the `show-source-maps`
 `needsFeatureProps` predicate MIRROR the render-gate predicate EXACTLY, and add
 the expression's referenced fields to `featurePropKeys` via `collectFieldsStrict`
@@ -55,11 +59,14 @@ test asserting `needsFeatureProps===true` + the field in `featurePropKeys` for a
 REAL data-driven show is the fail-before gate.
 
 ## Example
+
 ```ts
 // show-source-maps.ts — mirror the render gate:
-const needsFeatureProps = show.label !== undefined
-  || show.shaderVariant?.needsFeatureBuffer === true
-  || show.sizeExpr?.ast != null            // <-- the CPU-resolved point-size consumer
+const needsFeatureProps =
+  show.label !== undefined ||
+  show.shaderVariant?.needsFeatureBuffer === true ||
+  show.sizeExpr?.ast != null // <-- the CPU-resolved point-size consumer
 // + collectFieldsStrict(show.sizeExpr.ast) into featurePropKeys
 ```
+
 See PR #731 (#722 S4), commit b8c9ec45.

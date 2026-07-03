@@ -60,25 +60,32 @@ interface ViewSpec {
 
 const VIEWS: ViewSpec[] = [
   // The plan's P1 verification gate — school fill area in Seoul.
-  { id: 'bright-seoul-school',
+  {
+    id: 'bright-seoul-school',
     style: 'openfreemap-bright',
     hash: '#17.85/37.12665/126.92430',
     description: 'OFM Bright, Seoul 행정초등학교 — P1 verification gate (school fill)',
     // 2026-05-18 baseline: 0 px > 128. Headroom: 5 (low-zoom AA noise).
     // eq baseline 97.28%; floor 90 = ~7pp headroom (very stable cell).
-    gt128Threshold: 5, eqFloorPct: 90 },
+    gt128Threshold: 5,
+    eqFloorPct: 90,
+  },
 
   // OFM Bright at a lower zoom — different fill mix (water + landuse).
-  { id: 'bright-tokyo-z14',
+  {
+    id: 'bright-tokyo-z14',
     style: 'openfreemap-bright',
     hash: '#14/35.6585/139.7454',
     description: 'OFM Bright, Tokyo z=14 — landuse + water fills',
     // 2026-05-18 baseline: 6. Threshold accounts for outline AA drift.
     // eq baseline 31.31%; floor 25 (intrinsically lower eq + AA noise).
-    gt128Threshold: 20, eqFloorPct: 25 },
+    gt128Threshold: 20,
+    eqFloorPct: 25,
+  },
 
   // OFM Liberty — uses different color palette + interpolate stops.
-  { id: 'liberty-paris-z14',
+  {
+    id: 'liberty-paris-z14',
     style: 'openfreemap-liberty',
     hash: '#14/48.8534/2.3488',
     description: 'OFM Liberty, Paris z=14 — interpolate-zoom heavy',
@@ -86,11 +93,14 @@ const VIEWS: ViewSpec[] = [
     // count. Threshold ~+18% absorbs minor stroke-width / antialias
     // drift without masking palette / interpolate regressions.
     // eq baseline 22.30%; floor 16 (dense AA boundaries lower eq).
-    gt128Threshold: 1200, eqFloorPct: 16 },
+    gt128Threshold: 1200,
+    eqFloorPct: 16,
+  },
 
   // Demotiles — country fills via 214-arm match() (P5 LUT target
   // when compute path runs MVT, currently still legacy if-else for VTR).
-  { id: 'demotiles-europe-z2',
+  {
+    id: 'demotiles-europe-z2',
     style: 'maplibre-demotiles',
     hash: '#2.5/48/15',
     description: 'MapLibre demotiles, Europe z=2 — 214-arm ADM0_A3 country palette',
@@ -109,12 +119,19 @@ const VIEWS: ViewSpec[] = [
     // eq baseline 87.71%; floor 60 = LOOSE on purpose — the ancestor-LRU
     // non-determinism makes eq bimodal, so a tight floor would flap.
     // 60 still catches a whole-frame regression (probe drove eq to 33.83).
-    gt128Threshold: 10000, eqFloorPct: 60 },
+    gt128Threshold: 10000,
+    eqFloorPct: 60,
+  },
 ]
 
 interface Buckets {
-  eq0: number; le8: number; le16: number; le32: number
-  le64: number; le128: number; gt128: number
+  eq0: number
+  le8: number
+  le16: number
+  le32: number
+  le64: number
+  le128: number
+  gt128: number
 }
 
 async function hideSymbolLayers(page: import('@playwright/test').Page) {
@@ -135,8 +152,14 @@ async function hideSymbolLayers(page: import('@playwright/test').Page) {
 
   // X-GIS: hide label-bearing + symbol-shaped layers via the public API.
   await page.evaluate(() => {
-    interface XGISShow { label?: unknown; visible?: boolean }
-    interface XGISLayer { name?: string; style?: { visible?: boolean } }
+    interface XGISShow {
+      label?: unknown
+      visible?: boolean
+    }
+    interface XGISLayer {
+      name?: string
+      style?: { visible?: boolean }
+    }
     interface XGISMap {
       vectorTileShows?: Array<{ show: XGISShow }>
       getLayers?(): readonly XGISLayer[]
@@ -158,14 +181,26 @@ async function hideSymbolLayers(page: import('@playwright/test').Page) {
   })
 
   // Wait for both sides to settle.
-  await page.evaluate(() => new Promise<void>((resolve) => {
-    interface MlMap { loaded(): boolean; once(ev: string, fn: () => void): void }
-    const ml = (window as unknown as { __mlMap?: MlMap }).__mlMap
-    if (!ml) { resolve(); return }
-    if (ml.loaded()) { resolve(); return }
-    ml.once('idle', () => resolve())
-    setTimeout(resolve, 12_000)
-  }))
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        interface MlMap {
+          loaded(): boolean
+          once(ev: string, fn: () => void): void
+        }
+        const ml = (window as unknown as { __mlMap?: MlMap }).__mlMap
+        if (!ml) {
+          resolve()
+          return
+        }
+        if (ml.loaded()) {
+          resolve()
+          return
+        }
+        ml.once('idle', () => resolve())
+        setTimeout(resolve, 12_000)
+      }),
+  )
   // iter-238 — wait for X-GIS tile cascade convergence. iter-238
   // diagnostic pinned harness flakiness on demotiles to varying
   // `tilesCached` at screenshot moment (212/227/257 across runs
@@ -177,41 +212,54 @@ async function hideSymbolLayers(page: import('@playwright/test').Page) {
   // pending source work AND a tail timeout to absorb late
   // mapAsync upload + bundle encode. Fall through if anything
   // takes longer than 8 s.
-  await page.evaluate(() => new Promise<void>(resolve => {
-    interface XS {
-      stats: { tilesCached: number; tilesVisible: number }
-      hasPendingSourceWork?: () => boolean
-    }
-    const map = (window as unknown as { __xgisMap?: XS }).__xgisMap
-    if (!map) { resolve(); return }
-    const STABLE_FRAMES = 60  // ~1 s @ 60 fps — tail for upload + bundle encode
-    const MAX_MS = 8_000
-    const start = performance.now()
-    let lastCache = -1
-    let stableCount = 0
-    const tick = () => {
-      const elapsed = performance.now() - start
-      const c = map.stats.tilesCached
-      const pending = map.hasPendingSourceWork?.() ?? false
-      // Cache must be stable AND source must have no pending work.
-      // Stable alone caught idle gaps between fetch batches;
-      // pending=true while stable=true is impossible (cache grows
-      // on upload). Both signals together = true settled state.
-      if (c === lastCache && !pending) {
-        stableCount++
-        if (stableCount >= STABLE_FRAMES) { resolve(); return }
-      } else {
-        stableCount = 0
-        lastCache = c
-      }
-      if (elapsed >= MAX_MS) { resolve(); return }
-      requestAnimationFrame(tick)
-    }
-    requestAnimationFrame(tick)
-  }))
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        interface XS {
+          stats: { tilesCached: number; tilesVisible: number }
+          hasPendingSourceWork?: () => boolean
+        }
+        const map = (window as unknown as { __xgisMap?: XS }).__xgisMap
+        if (!map) {
+          resolve()
+          return
+        }
+        const STABLE_FRAMES = 60 // ~1 s @ 60 fps — tail for upload + bundle encode
+        const MAX_MS = 8_000
+        const start = performance.now()
+        let lastCache = -1
+        let stableCount = 0
+        const tick = () => {
+          const elapsed = performance.now() - start
+          const c = map.stats.tilesCached
+          const pending = map.hasPendingSourceWork?.() ?? false
+          // Cache must be stable AND source must have no pending work.
+          // Stable alone caught idle gaps between fetch batches;
+          // pending=true while stable=true is impossible (cache grows
+          // on upload). Both signals together = true settled state.
+          if (c === lastCache && !pending) {
+            stableCount++
+            if (stableCount >= STABLE_FRAMES) {
+              resolve()
+              return
+            }
+          } else {
+            stableCount = 0
+            lastCache = c
+          }
+          if (elapsed >= MAX_MS) {
+            resolve()
+            return
+          }
+          requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
+      }),
+  )
   // Final 2-frame paint sync after cascade settles.
-  await page.evaluate(() => new Promise<void>(r =>
-    requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+  await page.evaluate(
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+  )
 }
 
 function diffBuckets(a: PNG, b: PNG, w: number, h: number): Buckets {
@@ -275,7 +323,8 @@ for (const view of VIEWS) {
         const w = window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }
         return w.__xgisReady === true && w.__mlReady === true
       },
-      null, { timeout: 90_000 },
+      null,
+      { timeout: 90_000 },
     )
     await hideSymbolLayers(page)
 
@@ -285,8 +334,19 @@ for (const view of VIEWS) {
     // captures a deterministic post-cascade state or a partially-
     // settled one.
     const diag = await page.evaluate(() => {
-      interface XS { stats: { tilesVisible: number; tilesCached: number; bundleHits: number; bundleMisses: number; bundleReplaysThisFrame?: number; heapDeltaAvgBytes?: number } }
-      interface ML { loaded(): boolean }
+      interface XS {
+        stats: {
+          tilesVisible: number
+          tilesCached: number
+          bundleHits: number
+          bundleMisses: number
+          bundleReplaysThisFrame?: number
+          heapDeltaAvgBytes?: number
+        }
+      }
+      interface ML {
+        loaded(): boolean
+      }
       const xg = (window as unknown as { __xgisMap?: XS }).__xgisMap
       const ml = (window as unknown as { __mlMap?: ML }).__mlMap
       return {
@@ -295,8 +355,10 @@ for (const view of VIEWS) {
         xgBundleHits: xg?.stats.bundleHits ?? -1,
         xgBundleMisses: xg?.stats.bundleMisses ?? -1,
         xgBundleReplays: xg?.stats.bundleReplaysThisFrame ?? -1,
-        xgHeapKb: xg?.stats.heapDeltaAvgBytes !== undefined && xg.stats.heapDeltaAvgBytes >= 0
-          ? Math.round(xg.stats.heapDeltaAvgBytes / 1024) : -1,
+        xgHeapKb:
+          xg?.stats.heapDeltaAvgBytes !== undefined && xg.stats.heapDeltaAvgBytes >= 0
+            ? Math.round(xg.stats.heapDeltaAvgBytes / 1024)
+            : -1,
         mlLoaded: ml?.loaded?.() ?? false,
       }
     })
@@ -313,8 +375,13 @@ for (const view of VIEWS) {
     const buckets = diffBuckets(mlNorm, xgNorm, w, h)
     const totalPx = w * h
     results.push({
-      id: view.id, style: view.style, hash: view.hash,
-      canvasW: w, canvasH: h, totalPx, buckets,
+      id: view.id,
+      style: view.style,
+      hash: view.hash,
+      canvasW: w,
+      canvasH: h,
+      totalPx,
+      buckets,
     })
 
     // Save the per-view PNGs.
@@ -322,39 +389,53 @@ for (const view of VIEWS) {
     mkdirSync(viewDir, { recursive: true })
     writeFileSync(join(viewDir, 'maplibre.png'), PNG.sync.write(mlNorm))
     writeFileSync(join(viewDir, 'xgis.png'), PNG.sync.write(xgNorm))
-    writeFileSync(join(viewDir, 'buckets.json'), JSON.stringify({
-      buckets, totalPx, canvasW: w, canvasH: h,
-    }, null, 2))
+    writeFileSync(
+      join(viewDir, 'buckets.json'),
+      JSON.stringify(
+        {
+          buckets,
+          totalPx,
+          canvasW: w,
+          canvasH: h,
+        },
+        null,
+        2,
+      ),
+    )
 
     // eslint-disable-next-line no-console
     console.log(
-      `[pixel-match ${view.id}] eq=${((buckets.eq0 / totalPx) * 100).toFixed(2)}% `
-      + `le32=${(((buckets.eq0 + buckets.le8 + buckets.le16 + buckets.le32) / totalPx) * 100).toFixed(2)}% `
-      + `gt128=${buckets.gt128}px (threshold ${view.gt128Threshold}) `
-      // iter-238 — diag state. If tilesVis / tilesCache / bundleHits
-      // vary across runs of same code, the harness is reading a
-      // non-deterministic post-cascade state.
-      + `[diag tilesVis=${diag.xgTilesVis} cache=${diag.xgTilesCache} `
-      + `bH=${diag.xgBundleHits} bM=${diag.xgBundleMisses} replays=${diag.xgBundleReplays} `
-      + `heapKB=${diag.xgHeapKb} mlLoaded=${diag.mlLoaded}]`,
+      `[pixel-match ${view.id}] eq=${((buckets.eq0 / totalPx) * 100).toFixed(2)}% ` +
+        `le32=${(((buckets.eq0 + buckets.le8 + buckets.le16 + buckets.le32) / totalPx) * 100).toFixed(2)}% ` +
+        `gt128=${buckets.gt128}px (threshold ${view.gt128Threshold}) ` +
+        // iter-238 — diag state. If tilesVis / tilesCache / bundleHits
+        // vary across runs of same code, the harness is reading a
+        // non-deterministic post-cascade state.
+        `[diag tilesVis=${diag.xgTilesVis} cache=${diag.xgTilesCache} ` +
+        `bH=${diag.xgBundleHits} bM=${diag.xgBundleMisses} replays=${diag.xgBundleReplays} ` +
+        `heapKB=${diag.xgHeapKb} mlLoaded=${diag.mlLoaded}]`,
     )
 
     // Regression gate. The buckets / REPORT.md / per-view PNGs are
     // already written above so a failing assertion preserves the
     // artifacts for inspection. Tighten thresholds in this file once
     // the corresponding render gap closes.
-    test.expect(
-      buckets.gt128,
-      `${view.id}: gt128=${buckets.gt128} exceeds threshold ${view.gt128Threshold}; visual regression vs MapLibre. Inspect __pixel-match-survey__/${view.id}/diff-heatmap.png.`,
-    ).toBeLessThanOrEqual(view.gt128Threshold)
+    test
+      .expect(
+        buckets.gt128,
+        `${view.id}: gt128=${buckets.gt128} exceeds threshold ${view.gt128Threshold}; visual regression vs MapLibre. Inspect __pixel-match-survey__/${view.id}/diff-heatmap.png.`,
+      )
+      .toBeLessThanOrEqual(view.gt128Threshold)
     // Whole-frame-shift gate: gt128 counts only grossly-different pixels,
     // so an alpha/color/gamma regression that moves EVERY pixel moderately
     // slips under it (see eqFloorPct doc). eq0% is the canary.
     const eqPct = (buckets.eq0 / totalPx) * 100
-    test.expect(
-      eqPct,
-      `${view.id}: eq=${eqPct.toFixed(2)}% below floor ${view.eqFloorPct}%; whole-frame shift (alpha/color/gamma) vs MapLibre — gt128 can miss this. Inspect __pixel-match-survey__/${view.id}/xgis.png.`,
-    ).toBeGreaterThanOrEqual(view.eqFloorPct)
+    test
+      .expect(
+        eqPct,
+        `${view.id}: eq=${eqPct.toFixed(2)}% below floor ${view.eqFloorPct}%; whole-frame shift (alpha/color/gamma) vs MapLibre — gt128 can miss this. Inspect __pixel-match-survey__/${view.id}/xgis.png.`,
+      )
+      .toBeGreaterThanOrEqual(view.eqFloorPct)
   })
 }
 
@@ -382,7 +463,7 @@ test.afterAll(async () => {
   lines.push('')
   lines.push('## View details')
   for (const view of VIEWS) {
-    const r = results.find(rr => rr.id === view.id)
+    const r = results.find((rr) => rr.id === view.id)
     if (!r) continue
     lines.push('')
     lines.push(`### ${view.id}`)

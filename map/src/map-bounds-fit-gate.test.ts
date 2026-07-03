@@ -121,7 +121,10 @@ describe('XGISMap programmatic setters close the bounds-fit gate (B1)', () => {
 
   it('fitBounds marks the camera positioned', () => {
     const map = new XGISMap(mockCanvas())
-    map.fitBounds([[2.2, 48.8], [2.5, 48.9]])
+    map.fitBounds([
+      [2.2, 48.8],
+      [2.5, 48.9],
+    ])
     expect(map._cameraPositionedFlag).toBe(true)
   })
 })

@@ -47,14 +47,7 @@ export type Dataset = 'synthetic' | 'ofm_bright' | 'synthetic_disc' | 'osm_style
 /** Render surfaces a cell is documented to exercise. Attribution only — the
  *  surfaces a cell frames are governed by its dataset + camera; this field
  *  records intent so a reader knows which pipeline the cell guards. */
-export type Surface =
-  | 'bg'
-  | 'fill'
-  | 'line'
-  | 'point'
-  | 'label'
-  | 'extrusion'
-  | 'grid'
+export type Surface = 'bg' | 'fill' | 'line' | 'point' | 'label' | 'extrusion' | 'grid'
 
 /** Oracle kinds. A cell may stack several; each is an independent detector. */
 export type OracleKind =

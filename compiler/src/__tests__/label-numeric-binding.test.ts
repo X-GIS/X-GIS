@@ -75,7 +75,7 @@ describe('label-along-path / label-line-center placement', () => {
   })
 
   it('default placement is undefined (= point at runtime)', () => {
-    const lbl = compileLabel('label-size-12')  // any non-placement utility
+    const lbl = compileLabel('label-size-12') // any non-placement utility
     expect(lbl.placement).toBeUndefined()
   })
 })

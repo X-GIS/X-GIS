@@ -3,35 +3,39 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { describe, expect, it } from 'vitest'
-import {
-  extendBindGroupLayoutEntriesForCompute,
-  buildComputeBindGroupEntries,
-} from '@xgis/engine'
+import { extendBindGroupLayoutEntriesForCompute, buildComputeBindGroupEntries } from '@xgis/engine'
 import type { ShaderVariant } from '@xgis/compiler'
 import { varRefVec4 } from '@xgis/compiler'
 
 function legacyVariant(): ShaderVariant {
   return {
-    key: 'L', preamble: {},
-    fillExpr: varRefVec4('u.fill_color'), strokeExpr: varRefVec4('u.stroke_color'),
+    key: 'L',
+    preamble: {},
+    fillExpr: varRefVec4('u.fill_color'),
+    strokeExpr: varRefVec4('u.stroke_color'),
     needsFeatureBuffer: false,
-    featureFields: [], uniformFields: [],
+    featureFields: [],
+    uniformFields: [],
     categoryOrder: {},
     paletteColorGradients: [],
     paletteScalarGradients: [],
-    fillUsesPalette: false, strokeUsesPalette: false,
+    fillUsesPalette: false,
+    strokeUsesPalette: false,
     opacityUsesPalette: false,
     // Phase 2.5 US-002 — default-fill/stroke sentinel flag (replaces the
     // runtime's legacy `fillExpr === 'u.fill_color'` string compare).
-    fillIsDefault: true, strokeIsDefault: true,
+    fillIsDefault: true,
+    strokeIsDefault: true,
   }
 }
 
-function withComputeBindings(bindings: { paintAxis: 'fill' | 'stroke-color'; bindGroup: number; binding: number }[]): ShaderVariant {
+function withComputeBindings(
+  bindings: { paintAxis: 'fill' | 'stroke-color'; bindGroup: number; binding: number }[],
+): ShaderVariant {
   return { ...legacyVariant(), computeBindings: bindings }
 }
 
-const FRAGMENT_BIT = 2  // GPUShaderStage.FRAGMENT
+const FRAGMENT_BIT = 2 // GPUShaderStage.FRAGMENT
 
 const LEGACY_ENTRIES: GPUBindGroupLayoutEntry[] = [
   { binding: 0, visibility: 3, buffer: { type: 'uniform' } },
@@ -52,9 +56,7 @@ describe('extendBindGroupLayoutEntriesForCompute', () => {
   })
 
   it('one fill binding → legacy + 1 read-only-storage entry at right slot', () => {
-    const v = withComputeBindings([
-      { paintAxis: 'fill', bindGroup: 0, binding: 16 },
-    ])
+    const v = withComputeBindings([{ paintAxis: 'fill', bindGroup: 0, binding: 16 }])
     const out = extendBindGroupLayoutEntriesForCompute(v, LEGACY_ENTRIES, FRAGMENT_BIT)
     expect(out.length).toBe(3)
     expect(out[2]).toEqual({
@@ -65,9 +67,7 @@ describe('extendBindGroupLayoutEntriesForCompute', () => {
   })
 
   it('preserves legacy entries verbatim', () => {
-    const v = withComputeBindings([
-      { paintAxis: 'fill', bindGroup: 0, binding: 16 },
-    ])
+    const v = withComputeBindings([{ paintAxis: 'fill', bindGroup: 0, binding: 16 }])
     const out = extendBindGroupLayoutEntriesForCompute(v, LEGACY_ENTRIES, FRAGMENT_BIT)
     expect(out[0]).toEqual(LEGACY_ENTRIES[0])
     expect(out[1]).toEqual(LEGACY_ENTRIES[1])
@@ -76,9 +76,7 @@ describe('extendBindGroupLayoutEntriesForCompute', () => {
   it('does not mutate the legacy entries array', () => {
     const legacy = [...LEGACY_ENTRIES]
     const before = JSON.stringify(legacy)
-    const v = withComputeBindings([
-      { paintAxis: 'fill', bindGroup: 0, binding: 16 },
-    ])
+    const v = withComputeBindings([{ paintAxis: 'fill', bindGroup: 0, binding: 16 }])
     extendBindGroupLayoutEntriesForCompute(v, legacy, FRAGMENT_BIT)
     expect(JSON.stringify(legacy)).toBe(before)
   })
@@ -95,9 +93,7 @@ describe('extendBindGroupLayoutEntriesForCompute', () => {
   })
 
   it('honours caller-supplied visibility bit (so tests can mock GPUShaderStage)', () => {
-    const v = withComputeBindings([
-      { paintAxis: 'fill', bindGroup: 0, binding: 16 },
-    ])
+    const v = withComputeBindings([{ paintAxis: 'fill', bindGroup: 0, binding: 16 }])
     const out = extendBindGroupLayoutEntriesForCompute(v, LEGACY_ENTRIES, 999)
     expect(out[2]!.visibility).toBe(999)
   })
@@ -117,13 +113,9 @@ describe('buildComputeBindGroupEntries', () => {
   })
 
   it('one fill binding → one bind-group entry with the buffer at the right slot', () => {
-    const v = withComputeBindings([
-      { paintAxis: 'fill', bindGroup: 0, binding: 16 },
-    ])
+    const v = withComputeBindings([{ paintAxis: 'fill', bindGroup: 0, binding: 16 }])
     const out = buildComputeBindGroupEntries(v, 0, makeLookup({ '0:fill': FAKE_BUFFER_A }))
-    expect(out).toEqual([
-      { binding: 16, resource: { buffer: FAKE_BUFFER_A } },
-    ])
+    expect(out).toEqual([{ binding: 16, resource: { buffer: FAKE_BUFFER_A } }])
   })
 
   it('fill + stroke → two entries at distinct slots', () => {
@@ -131,10 +123,14 @@ describe('buildComputeBindGroupEntries', () => {
       { paintAxis: 'fill', bindGroup: 0, binding: 16 },
       { paintAxis: 'stroke-color', bindGroup: 0, binding: 17 },
     ])
-    const out = buildComputeBindGroupEntries(v, 5, makeLookup({
-      '5:fill': FAKE_BUFFER_A,
-      '5:stroke-color': FAKE_BUFFER_B,
-    }))
+    const out = buildComputeBindGroupEntries(
+      v,
+      5,
+      makeLookup({
+        '5:fill': FAKE_BUFFER_A,
+        '5:stroke-color': FAKE_BUFFER_B,
+      }),
+    )
     expect(out).toEqual([
       { binding: 16, resource: { buffer: FAKE_BUFFER_A } },
       { binding: 17, resource: { buffer: FAKE_BUFFER_B } },
@@ -146,17 +142,19 @@ describe('buildComputeBindGroupEntries', () => {
       { paintAxis: 'fill', bindGroup: 0, binding: 16 },
       { paintAxis: 'stroke-color', bindGroup: 0, binding: 17 },
     ])
-    const out = buildComputeBindGroupEntries(v, 0, makeLookup({
-      // only fill present, stroke missing
-      '0:fill': FAKE_BUFFER_A,
-    }))
+    const out = buildComputeBindGroupEntries(
+      v,
+      0,
+      makeLookup({
+        // only fill present, stroke missing
+        '0:fill': FAKE_BUFFER_A,
+      }),
+    )
     expect(out).toBeNull()
   })
 
   it('renderNodeIndex is plumbed into the lookup', () => {
-    const v = withComputeBindings([
-      { paintAxis: 'fill', bindGroup: 0, binding: 16 },
-    ])
+    const v = withComputeBindings([{ paintAxis: 'fill', bindGroup: 0, binding: 16 }])
     // Lookup keyed by index; verifying index 7 reaches the lookup.
     const out = buildComputeBindGroupEntries(v, 7, (idx, axis) => {
       if (idx === 7 && axis === 'fill') return FAKE_BUFFER_A

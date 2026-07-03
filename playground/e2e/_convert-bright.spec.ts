@@ -22,7 +22,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const fixture = readFileSync(resolve(__dirname, '__convert-fixtures/bright.json'), 'utf8')
 
 test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
-  test('OpenFreeMap bright: converts, parses, loads in playground without silent failure', async ({ page }) => {
+  test('OpenFreeMap bright: converts, parses, loads in playground without silent failure', async ({
+    page,
+  }) => {
     test.setTimeout(60_000)
 
     // ── Step 1: convert (host-side, mirrors what the /convert page does)
@@ -42,22 +44,22 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
     const pageErrors: string[] = []
     const swallowedAlerts: string[] = []
     const allConsole: string[] = []
-    page.on('console', m => {
+    page.on('console', (m) => {
       allConsole.push(`[${m.type()}] ${m.text()}`)
       if (m.type() === 'error') consoleErrors.push(m.text())
     })
     const tileJsonLogs: string[] = []
-    page.on('console', m => {
+    page.on('console', (m) => {
       if (m.text().includes('TileJSON attached')) tileJsonLogs.push(m.text())
     })
     const tileFetches: { url: string; status: number; ok: boolean }[] = []
-    page.on('response', async resp => {
+    page.on('response', async (resp) => {
       const url = resp.url()
       if (/openfreemap\.org\/.*\.pbf|openfreemap\.org\/.*\.png/i.test(url)) {
         tileFetches.push({ url, status: resp.status(), ok: resp.ok() })
       }
     })
-    page.on('pageerror', e => {
+    page.on('pageerror', (e) => {
       pageErrors.push(e.message)
     })
     // Some site code calls `window.alert(...)` in lieu of throwing —
@@ -67,7 +69,11 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
       ;(window as unknown as { __alerts: string[] }).__alerts = []
       window.alert = (msg?: string) => {
         ;(window as unknown as { __alerts: string[] }).__alerts.push(String(msg))
-        try { orig(msg) } catch { /* ignore */ }
+        try {
+          orig(msg)
+        } catch {
+          /* ignore */
+        }
       }
     })
 
@@ -77,7 +83,9 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
       try {
         sessionStorage.setItem('__xgisImportSource', src)
         sessionStorage.setItem('__xgisImportLabel', 'Bright (OpenFreeMap)')
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }, xgis)
 
     // Navigate to Tokyo z=14 — dense feature area, every layer type
@@ -121,7 +129,9 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
         let nonBg = 0
         let uniqueColors = new Set<number>()
         for (let i = 0; i < data.length; i += 4) {
-          const r = data[i], g = data[i + 1], b = data[i + 2]
+          const r = data[i],
+            g = data[i + 1],
+            b = data[i + 2]
           uniqueColors.add((r << 16) | (g << 8) | b)
           // The bright background is #f8f4f0 — count anything else as
           // foreground. Tolerate small DPR/resampling drift.
@@ -133,7 +143,7 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
           nonBgPixels: nonBg,
           uniqueColors: uniqueColors.size,
           total: 64 * 64,
-          sampleColor: `#${[data[0], data[1], data[2]].map(x => x.toString(16).padStart(2, '0')).join('')}`,
+          sampleColor: `#${[data[0], data[1], data[2]].map((x) => x.toString(16).padStart(2, '0')).join('')}`,
           sample: Array.from(sample),
         }
       } catch (e) {
@@ -173,7 +183,9 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
     // — read those to confirm the source is on screen, not just internal.
     const monacoText = await page.locator('.monaco-editor .view-lines').first().innerText()
     expect(monacoText, 'monaco should render the converted source').toContain('landcover_glacier')
-    expect(monacoText, 'monaco should reference the converter-emitted source name').toContain('openmaptiles')
+    expect(monacoText, 'monaco should reference the converter-emitted source name').toContain(
+      'openmaptiles',
+    )
     expect(monacoText.length, 'monaco should hold non-trivial content').toBeGreaterThan(50)
 
     // ── Step 6: surface every error channel.
@@ -187,9 +199,11 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
     // failures for the openfreemap XYZ tiles (expected — no MVT
     // backend), favicon 404s, and DevTools deprecation noise.
     const ignorable = (s: string) =>
-      /tiles\.openfreemap\.org|favicon|DevTools|Failed to fetch|net::ERR|Adapter|WebGPU adapter/i.test(s)
-    const realConsoleErrors = consoleErrors.filter(s => !ignorable(s))
-    const realPageErrors = pageErrors.filter(s => !ignorable(s))
+      /tiles\.openfreemap\.org|favicon|DevTools|Failed to fetch|net::ERR|Adapter|WebGPU adapter/i.test(
+        s,
+      )
+    const realConsoleErrors = consoleErrors.filter((s) => !ignorable(s))
+    const realPageErrors = pageErrors.filter((s) => !ignorable(s))
 
     // Report everything, even ignorable, in test output for inspection.
     // eslint-disable-next-line no-console
@@ -197,7 +211,12 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
     // eslint-disable-next-line no-console
     console.log('layers:', layerCount, 'monaco chars:', monacoText.length, 'title:', title)
     // eslint-disable-next-line no-console
-    console.log('console.error (filtered):', realConsoleErrors.length, '(raw):', consoleErrors.length)
+    console.log(
+      'console.error (filtered):',
+      realConsoleErrors.length,
+      '(raw):',
+      consoleErrors.length,
+    )
     if (realConsoleErrors.length > 0) {
       // eslint-disable-next-line no-console
       console.log(realConsoleErrors.slice(0, 5).join('\n---\n'))

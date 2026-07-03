@@ -2,12 +2,19 @@ import { describe, expect, it } from 'vitest'
 
 // WebGPU globals don't exist under happy-dom — stub the few constants
 // LineRenderer touches in its constructor + ensureOffscreen.
-;(globalThis as unknown as { GPUShaderStage: { VERTEX: number; FRAGMENT: number } }).GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 }
+;(
+  globalThis as unknown as { GPUShaderStage: { VERTEX: number; FRAGMENT: number } }
+).GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 }
 ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
-  UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16,
+  UNIFORM: 1,
+  COPY_DST: 2,
+  STORAGE: 4,
+  VERTEX: 8,
+  INDEX: 16,
 }
 ;(globalThis as unknown as { GPUTextureUsage: Record<string, number> }).GPUTextureUsage = {
-  RENDER_ATTACHMENT: 16, TEXTURE_BINDING: 4,
+  RENDER_ATTACHMENT: 16,
+  TEXTURE_BINDING: 4,
 }
 import { LineRenderer } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
@@ -36,8 +43,16 @@ import type { GPUContext } from '@xgis/engine'
 // sample at GPU-execution time. We assert draw#1 reads 0.5 and draw#2 reads
 // 0.8 — i.e. each draw reads ITS OWN opacity, not a shared final value.
 
-interface RecordedWrite { buffer: object; offset: number; bytes: Uint8Array }
-interface RecordedBindGroup { idx: number; bg: object; dynamicOffsets: number[] | undefined }
+interface RecordedWrite {
+  buffer: object
+  offset: number
+  bytes: Uint8Array
+}
+interface RecordedBindGroup {
+  idx: number
+  bg: object
+  dynamicOffsets: number[] | undefined
+}
 
 function makeHarness() {
   const writes: RecordedWrite[] = []
@@ -56,14 +71,18 @@ function makeHarness() {
     createRenderPipeline: () => ({}) as GPURenderPipeline,
     createShaderModule: () => ({}) as GPUShaderModule,
     createSampler: () => ({}) as GPUSampler,
-    createTexture: () => ({
-      createView: () => ({}),
-      destroy: () => {},
-    }) as unknown as GPUTexture,
+    createTexture: () =>
+      ({
+        createView: () => ({}),
+        destroy: () => {},
+      }) as unknown as GPUTexture,
     queue: {
       writeBuffer: (
-        buf: GPUBuffer, offset: number, data: ArrayBufferView | ArrayBuffer,
-        dataOffset?: number, size?: number,
+        buf: GPUBuffer,
+        offset: number,
+        data: ArrayBufferView | ArrayBuffer,
+        dataOffset?: number,
+        size?: number,
       ) => {
         // Snapshot the bytes NOW (copyOf) — the caller may reuse the array.
         let view: Uint8Array
@@ -73,14 +92,24 @@ function makeHarness() {
           view = new Uint8Array(data)
         }
         const start = dataOffset ?? 0
-        const len = size ?? (view.byteLength - start)
-        writes.push({ buffer: buf as unknown as object, offset, bytes: view.slice(start, start + len) })
+        const len = size ?? view.byteLength - start
+        writes.push({
+          buffer: buf as unknown as object,
+          offset,
+          bytes: view.slice(start, start + len),
+        })
       },
     },
   }
 
   const lr = new LineRenderer(
-    { device: fakeDevice as unknown as GPUDevice, format: 'bgra8unorm', canvas: {} as HTMLCanvasElement, context: {} as GPUCanvasContext, rhi: new WebGpuDevice(fakeDevice as unknown as GPUDevice) } as unknown as GPUContext,
+    {
+      device: fakeDevice as unknown as GPUDevice,
+      format: 'bgra8unorm',
+      canvas: {} as HTMLCanvasElement,
+      context: {} as GPUCanvasContext,
+      rhi: new WebGpuDevice(fakeDevice as unknown as GPUDevice),
+    } as unknown as GPUContext,
     {} as GPUBindGroupLayout,
   )
 
@@ -120,7 +149,10 @@ function opacitySampledByDraw(
   if (relevant.length === 0) throw new Error(`no composite-ring write at offset ${off}`)
   // GPU sees the LAST write to a given offset before submit.
   const last = relevant[relevant.length - 1]
-  return new DataView(last.bytes.buffer, last.bytes.byteOffset, last.bytes.byteLength).getFloat32(0, true)
+  return new DataView(last.bytes.buffer, last.bytes.byteOffset, last.bytes.byteLength).getFloat32(
+    0,
+    true,
+  )
 }
 
 describe('translucent composite opacity (multi-layer clobber)', () => {

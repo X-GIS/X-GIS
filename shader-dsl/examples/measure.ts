@@ -22,9 +22,16 @@ if (want && selected.length === 0) {
 const pad = (s: string, n: number) => s.padEnd(n)
 const padL = (s: string, n: number) => s.padStart(n)
 
-console.log('optimizer effect — O0 (naive) → O2 (shipped). ops = GPU work (always minimised); chars/lines = source size (CSE can GROW it).\n')
 console.log(
-  pad('example', 18) + padL('calls O0→O2', 14) + padL('arith O0→O2', 14) + padL('ops saved', 11) + padL('chars O0→O2', 16) + padL('lines O0→O2', 14),
+  'optimizer effect — O0 (naive) → O2 (shipped). ops = GPU work (always minimised); chars/lines = source size (CSE can GROW it).\n',
+)
+console.log(
+  pad('example', 18) +
+    padL('calls O0→O2', 14) +
+    padL('arith O0→O2', 14) +
+    padL('ops saved', 11) +
+    padL('chars O0→O2', 16) +
+    padL('lines O0→O2', 14),
 )
 console.log('─'.repeat(87))
 

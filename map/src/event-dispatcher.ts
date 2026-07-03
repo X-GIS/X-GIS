@@ -21,7 +21,10 @@ import { XGISFeatureEvent } from './layer'
 export interface DispatcherDeps {
   /** Async pick at the given canvas-relative CSS coordinates. Returns
    *  null when the pixel doesn't carry a pickable layer. */
-  pickAt(clientX: number, clientY: number): Promise<{ featureId: number; layerId: number; instanceId: number } | null>
+  pickAt(
+    clientX: number,
+    clientY: number,
+  ): Promise<{ featureId: number; layerId: number; instanceId: number } | null>
   /** Reverse-resolve a layerId from the pick texture into its public
    *  XGISLayer wrapper. */
   getLayerById(layerId: number): XGISLayer | null
@@ -132,7 +135,9 @@ export class EventDispatcher {
    *  dispatch first, then map-level (suppressed on preventDefault). */
   private async fireOnce(
     type: import('./layer').XGISFeatureEventType,
-    clientX: number, clientY: number, ev: PointerEvent | WheelEvent,
+    clientX: number,
+    clientY: number,
+    ev: PointerEvent | WheelEvent,
   ): Promise<void> {
     const hit = await this.deps.pickAt(clientX, clientY)
     if (!hit) return
@@ -189,9 +194,16 @@ export class EventDispatcher {
   ): XGISFeatureEvent | null {
     const rect = this.deps.getCanvasRect()
     const pixel: readonly [number, number] = [clientX - rect.left, clientY - rect.top]
-    const coordinate = this.deps.clientToLngLat(clientX, clientY) ?? [NaN, NaN] as const
+    const coordinate = this.deps.clientToLngLat(clientX, clientY) ?? ([NaN, NaN] as const)
     return new XGISFeatureEvent({
-      type, target, feature, coordinate, pixel, clientX, clientY, originalEvent,
+      type,
+      target,
+      feature,
+      coordinate,
+      pixel,
+      clientX,
+      clientY,
+      originalEvent,
     })
   }
 }

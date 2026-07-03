@@ -11,8 +11,8 @@
 import { describe, it, expect } from 'vitest'
 import { verticalLayoutForTesting as v } from '@xgis/map'
 
-const LH = 28.8     // 1.2 (text-line-height) * 24 (sizePx)
-const SIZE = 24     // → em→px factor 1, SHAPING_DEFAULT_OFFSET px = −17
+const LH = 28.8 // 1.2 (text-line-height) * 24 (sizePx)
+const SIZE = 24 // → em→px factor 1, SHAPING_DEFAULT_OFFSET px = −17
 
 describe('vertical layout — MapLibre shapeLines parity', () => {
   it('single line, center anchor → baseline at the −17 em offset', () => {

@@ -48,7 +48,10 @@ function dt1d(f: Float64Array, n: number, out: Float64Array, v: Int32Array, z: F
       s = (f[q]! + q * q - (f[r]! + r * r)) / (2 * (q - r))
       if (s > z[k]!) break
       k -= 1
-      if (k < 0) { k = 0; break }
+      if (k < 0) {
+        k = 0
+        break
+      }
     }
     k += 1
     v[k] = q
@@ -80,9 +83,7 @@ let _dt_z: Float64Array = new Float64Array(0)
  *  each pixel it ends up holding squared distance to the nearest
  *  "0" sample (inside or outside, depending on which mask the
  *  caller filled in). */
-export function distanceTransform2D(
-  field: Float64Array, w: number, h: number,
-): Float64Array {
+export function distanceTransform2D(field: Float64Array, w: number, h: number): Float64Array {
   const dim = Math.max(w, h)
   // Lazy-grow the scratch buffers. Glyph slots are typically 64²
   // so after the first call all subsequent calls hit the cached
@@ -162,7 +163,8 @@ alphaTable[255] = -INF
  *  inside the seed loop. */
 export function computeSDF(
   alpha: Uint8Array | Uint8ClampedArray,
-  w: number, h: number,
+  w: number,
+  h: number,
   radius: number,
 ): Uint8Array {
   const N = w * h
@@ -185,15 +187,15 @@ export function computeSDF(
   // Mapping to TinySDF's grids: fIn ≡ gridOuter (seeds at ink-side),
   // fOut ≡ gridInner (seeds at non-ink-side).
   for (let i = 0; i < N; i++) {
-    fIn[i] = INF  // assume "no ink" until alpha tells us otherwise
-    fOut[i] = 0   // every pixel is treated as outside-seed by default
+    fIn[i] = INF // assume "no ink" until alpha tells us otherwise
+    fOut[i] = 0 // every pixel is treated as outside-seed by default
   }
   for (let i = 0; i < N; i++) {
     const a = alpha[i]!
-    if (a === 0) continue  // pure outside — keep defaults (fIn=INF, fOut=0)
+    if (a === 0) continue // pure outside — keep defaults (fIn=INF, fOut=0)
     const t = alphaTable[a]!
-    fIn[i] = Math.max(0, t)    // inside-seed (= 0) for a >= 178, small + for a < 178
-    fOut[i] = Math.max(0, -t)  // outside-seed (= 0) for a < 178, small + for a > 178, INF for a = 255
+    fIn[i] = Math.max(0, t) // inside-seed (= 0) for a >= 178, small + for a < 178
+    fOut[i] = Math.max(0, -t) // outside-seed (= 0) for a < 178, small + for a > 178, INF for a = 255
   }
 
   distanceTransform2D(fOut, w, h)

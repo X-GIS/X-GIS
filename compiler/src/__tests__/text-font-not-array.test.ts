@@ -17,44 +17,48 @@ function buildSymbolLayer(layout: Record<string, unknown>): unknown {
   return {
     version: 8,
     sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-    layers: [{
-      id: 'lbl',
-      type: 'symbol',
-      source: 'v',
-      'source-layer': 'a',
-      layout: { 'text-field': '{name}', ...layout },
-      paint: { 'text-color': '#000' },
-    }],
+    layers: [
+      {
+        id: 'lbl',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 'a',
+        layout: { 'text-field': '{name}', ...layout },
+        paint: { 'text-color': '#000' },
+      },
+    ],
   }
 }
 
 describe('text-font not-array spec gate', () => {
   it('text-font as a single string warns', () => {
     const w = warningsOf(buildSymbolLayer({ 'text-font': 'Noto Sans Regular' }))
-    expect(w.some(s => s.includes('text-font') && s.includes('array of strings'))).toBe(true)
+    expect(w.some((s) => s.includes('text-font') && s.includes('array of strings'))).toBe(true)
   })
 
   it('text-font as a number warns', () => {
     const w = warningsOf(buildSymbolLayer({ 'text-font': 12 }))
-    expect(w.some(s => s.includes('text-font') && s.includes('array of strings'))).toBe(true)
+    expect(w.some((s) => s.includes('text-font') && s.includes('array of strings'))).toBe(true)
   })
 
   it('text-font as an object warns', () => {
     const w = warningsOf(buildSymbolLayer({ 'text-font': { family: 'X' } }))
-    expect(w.some(s => s.includes('text-font') && s.includes('array of strings'))).toBe(true)
+    expect(w.some((s) => s.includes('text-font') && s.includes('array of strings'))).toBe(true)
   })
 
   it('text-font as a valid array does NOT warn', () => {
     const w = warningsOf(buildSymbolLayer({ 'text-font': ['Noto Sans Regular'] }))
-    expect(w.some(s => s.includes('text-font') && s.includes('array of strings'))).toBe(false)
+    expect(w.some((s) => s.includes('text-font') && s.includes('array of strings'))).toBe(false)
   })
 
   it('text-font wrapped as `["literal", ["..."]]` (v8 strict) does NOT warn', () => {
     // The literal-tuple unwrap should peel the outer literal and
     // recognize the inner array as a valid font stack.
-    const w = warningsOf(buildSymbolLayer({
-      'text-font': ['literal', ['Noto Sans Regular']],
-    }))
-    expect(w.some(s => s.includes('text-font') && s.includes('array of strings'))).toBe(false)
+    const w = warningsOf(
+      buildSymbolLayer({
+        'text-font': ['literal', ['Noto Sans Regular']],
+      }),
+    )
+    expect(w.some((s) => s.includes('text-font') && s.includes('array of strings'))).toBe(false)
   })
 })

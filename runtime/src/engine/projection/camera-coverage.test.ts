@@ -38,7 +38,8 @@ const ANCHORS: Array<[lon: number, lat: number, tag: string]> = [
   [0, -85, 'near-south-pole'],
 ]
 
-const W = 1024, H = 720
+const W = 1024,
+  H = 720
 
 function allFinite(m: Float32Array): { ok: boolean; bad?: { i: number; v: number } } {
   for (let i = 0; i < m.length; i++) {
@@ -79,8 +80,7 @@ describe('Camera matrix coverage — no NaN/Infinity at extreme params', () => {
             }
           }
         }
-        expect(failures, `${name}@${anchor}:\n  ${failures.slice(0, 5).join('\n  ')}`)
-          .toEqual([])
+        expect(failures, `${name}@${anchor}:\n  ${failures.slice(0, 5).join('\n  ')}`).toEqual([])
       })
     }
   }
@@ -113,8 +113,7 @@ describe('Camera matrix coverage — getFrameView (matrix + far + fc)', () => {
           }
         }
       }
-      expect(failures, `${name}:\n  ${failures.slice(0, 5).join('\n  ')}`)
-        .toEqual([])
+      expect(failures, `${name}:\n  ${failures.slice(0, 5).join('\n  ')}`).toEqual([])
     })
   }
 })

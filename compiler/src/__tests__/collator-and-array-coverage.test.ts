@@ -13,8 +13,7 @@ describe('comparison ops with trailing collator', () => {
   it('["==", a, b, ["collator", …]] lowers to collator_cmp (constant opts)', () => {
     const w: string[] = []
     const out = exprToXgis(
-      ['==', ['get', 'class'], 'primary',
-        ['collator', { 'case-sensitive': false }]],
+      ['==', ['get', 'class'], 'primary', ['collator', { 'case-sensitive': false }]],
       w,
     )
     expect(out).toBe('collator_cmp("==", .class, "primary", "", false, false)')
@@ -23,18 +22,13 @@ describe('comparison ops with trailing collator', () => {
 
   it('["<", a, b, ["collator", …]] lowers ordering compare with locale', () => {
     const w: string[] = []
-    const out = exprToXgis(
-      ['<', ['get', 'name'], 'Z',
-        ['collator', { locale: 'en' }]],
-      w,
-    )
+    const out = exprToXgis(['<', ['get', 'name'], 'Z', ['collator', { locale: 'en' }]], w)
     expect(out).toBe('collator_cmp("<", .name, "Z", "en", false, false)')
   })
 
   it('3-arg comparison without collator unchanged (regression guard)', () => {
     const w: string[] = []
-    expect(exprToXgis(['==', ['get', 'kind'], 'park'], w))
-      .toBe('.kind == "park"')
+    expect(exprToXgis(['==', ['get', 'kind'], 'park'], w)).toBe('.kind == "park"')
     expect(w).toEqual([])
   })
 
@@ -63,7 +57,6 @@ describe('["array", …] type assertion lowering', () => {
 
   it('["array", "number", 2, ["literal", [1, 2]]] works with literal-array inner', () => {
     const w: string[] = []
-    expect(exprToXgis(['array', 'number', 2, ['literal', [1, 2]]], w))
-      .toBe('[1, 2]')
+    expect(exprToXgis(['array', 'number', 2, ['literal', [1, 2]]], w)).toBe('[1, 2]')
   })
 })

@@ -130,7 +130,10 @@ export class InteractionController {
    *
    *  Pool reuse: the staging buffer ring avoids allocating per call, so
    *  hover scenarios (60 Hz pickAt) stay cheap. */
-  async pickAt(clientX: number, clientY: number): Promise<{ featureId: number; layerId: number; instanceId: number } | null> {
+  async pickAt(
+    clientX: number,
+    clientY: number,
+  ): Promise<{ featureId: number; layerId: number; instanceId: number } | null> {
     const pickTexture = this.getPickTexture()
     const ctx = this.getCtx()
     if (!pickTexture || !ctx) return null
@@ -155,7 +158,7 @@ export class InteractionController {
     // Rent a staging buffer. Each slot is 8 bytes (one RG32Uint pixel,
     // padded to minimum 256-byte row per WebGPU's copy alignment). We
     // over-allocate to 256 so bytesPerRow is valid.
-    let slot = this.pickReadbackPool.find(s => !s.inUse)
+    let slot = this.pickReadbackPool.find((s) => !s.inUse)
     if (!slot) {
       slot = {
         buf: ctx.device.createBuffer({
@@ -224,7 +227,9 @@ export class InteractionController {
    *       the frame BEFORE a `layer.visible = false`, and pins the
    *       invisible⇒unclickable contract at the readback boundary. */
   resolvePick(
-    featureId: number, layerId: number, instanceId: number,
+    featureId: number,
+    layerId: number,
+    instanceId: number,
   ): { featureId: number; layerId: number; instanceId: number } | null {
     if (featureId === 0 || layerId === 0) return null
     if (this.getLayerByPickId(layerId)?.visible === false) return null
@@ -243,7 +248,9 @@ export class InteractionController {
     // Find the source by walking vectorTileShows for the show this layer
     // wraps. Phase 4 only supports GeoJSON sources (in `_featureIndex`);
     // .xgvt sources land in Phase 5 with property-table reverse mapping.
-    const entry = this.getVectorTileShows().find(e => (e.show.layerName ?? e.show.targetName) === layerName)
+    const entry = this.getVectorTileShows().find(
+      (e) => (e.show.layerName ?? e.show.targetName) === layerName,
+    )
     const sourceName = entry?.show.targetName ?? layerName
     const props = this.lookupFeatureProperties(sourceName, featureId)
     return {

@@ -66,10 +66,18 @@ const v = (over: Partial<FixtureVariant>): FixtureVariant => ({
 
 const landuseMatchChain = (armCount: number, varName: string): string => {
   const palette: ReadonlyArray<readonly [number, number, number, number]> = [
-    [0.78, 0.91, 0.74, 1.0], [0.92, 0.86, 0.65, 1.0], [0.84, 0.80, 0.70, 1.0],
-    [0.69, 0.85, 0.69, 1.0], [0.95, 0.78, 0.78, 1.0], [0.71, 0.78, 0.83, 1.0],
-    [0.87, 0.74, 0.62, 1.0], [0.62, 0.74, 0.87, 1.0], [0.81, 0.67, 0.55, 1.0],
-    [0.55, 0.81, 0.67, 1.0], [0.67, 0.55, 0.81, 1.0], [0.79, 0.79, 0.79, 1.0],
+    [0.78, 0.91, 0.74, 1.0],
+    [0.92, 0.86, 0.65, 1.0],
+    [0.84, 0.8, 0.7, 1.0],
+    [0.69, 0.85, 0.69, 1.0],
+    [0.95, 0.78, 0.78, 1.0],
+    [0.71, 0.78, 0.83, 1.0],
+    [0.87, 0.74, 0.62, 1.0],
+    [0.62, 0.74, 0.87, 1.0],
+    [0.81, 0.67, 0.55, 1.0],
+    [0.55, 0.81, 0.67, 1.0],
+    [0.67, 0.55, 0.81, 1.0],
+    [0.79, 0.79, 0.79, 1.0],
     [0.91, 0.91, 0.78, 1.0],
   ]
   const fallback = `vec4f(0.78, 0.78, 0.78, 1.0)`
@@ -77,7 +85,9 @@ const landuseMatchChain = (armCount: number, varName: string): string => {
   for (let i = 0; i < armCount; i++) {
     const c = palette[i % palette.length]!
     const head = i === 0 ? 'if' : 'else if'
-    lines.push(`${head} (field0_id == ${i}u) { ${varName} = vec4f(${c[0].toFixed(2)}, ${c[1].toFixed(2)}, ${c[2].toFixed(2)}, ${c[3].toFixed(2)}); }`)
+    lines.push(
+      `${head} (field0_id == ${i}u) { ${varName} = vec4f(${c[0].toFixed(2)}, ${c[1].toFixed(2)}, ${c[2].toFixed(2)}, ${c[3].toFixed(2)}); }`,
+    )
   }
   return lines.join('\n  ')
 }
@@ -113,7 +123,8 @@ export const FIXTURES: readonly Fixture[] = [
         'const LIB_STOP_1: vec4<f32> = vec4<f32>(0.70, 0.78, 0.88, 1.0);',
         'const LIB_STOP_2: vec4<f32> = vec4<f32>(0.60, 0.72, 0.86, 1.0);',
       ].join('\n'),
-      fillExpr: 'mix(LIB_STOP_0, mix(LIB_STOP_1, LIB_STOP_2, clamp((u.zoom - 10.0) / 4.0, 0.0, 1.0)), clamp((u.zoom - 6.0) / 4.0, 0.0, 1.0))',
+      fillExpr:
+        'mix(LIB_STOP_0, mix(LIB_STOP_1, LIB_STOP_2, clamp((u.zoom - 10.0) / 4.0, 0.0, 1.0)), clamp((u.zoom - 6.0) / 4.0, 0.0, 1.0))',
     }),
   },
   {
@@ -149,7 +160,8 @@ export const FIXTURES: readonly Fixture[] = [
         'const Z3_1: vec4<f32> = vec4<f32>(0.0, 1.0, 0.0, 1.0);',
         'const Z3_2: vec4<f32> = vec4<f32>(0.0, 0.0, 1.0, 1.0);',
       ].join('\n'),
-      fillExpr: 'mix(Z3_0, mix(Z3_1, Z3_2, clamp((u.zoom - 12.0) / 4.0, 0.0, 1.0)), clamp((u.zoom - 8.0) / 4.0, 0.0, 1.0))',
+      fillExpr:
+        'mix(Z3_0, mix(Z3_1, Z3_2, clamp((u.zoom - 12.0) / 4.0, 0.0, 1.0)), clamp((u.zoom - 8.0) / 4.0, 0.0, 1.0))',
     }),
   },
   {
@@ -158,7 +170,8 @@ export const FIXTURES: readonly Fixture[] = [
     pickEnabled: false,
     variant: v({
       key: 'syn-featdata',
-      fillExpr: 'vec4<f32>(feat_data[input.feat_id * 3u + 0u], feat_data[input.feat_id * 3u + 1u], feat_data[input.feat_id * 3u + 2u], 1.0)',
+      fillExpr:
+        'vec4<f32>(feat_data[input.feat_id * 3u + 0u], feat_data[input.feat_id * 3u + 1u], feat_data[input.feat_id * 3u + 2u], 1.0)',
       needsFeatureBuffer: true,
     }),
   },
@@ -172,7 +185,8 @@ export const FIXTURES: readonly Fixture[] = [
         '@group(0) @binding(2) var color_grad_atlas: texture_2d<f32>;',
         '@group(0) @binding(4) var palette_samp: sampler;',
       ].join('\n'),
-      fillExpr: 'textureSampleLevel(color_grad_atlas, palette_samp, vec2<f32>(clamp((u.zoom - 0.0) / 20.0, 0.0, 1.0), 0.5), 0.0)',
+      fillExpr:
+        'textureSampleLevel(color_grad_atlas, palette_samp, vec2<f32>(clamp((u.zoom - 0.0) / 20.0, 0.0, 1.0), 0.5), 0.0)',
     }),
   },
 ] as const
@@ -234,17 +248,11 @@ export function emitForFixture(fx: Fixture): string {
   // variant-provided expression, prepending any matchPreamble chain.
   if (variant.fillExpr !== 'u.fill_color') {
     const matchCode = variant.fillPreamble ? `${variant.fillPreamble}\n  ` : ''
-    wgsl = wgsl.replace(
-      DEFAULT_FILL_ASSIGN,
-      `${matchCode}out.color = ${variant.fillExpr};`,
-    )
+    wgsl = wgsl.replace(DEFAULT_FILL_ASSIGN, `${matchCode}out.color = ${variant.fillExpr};`)
   }
   if (variant.strokeExpr !== 'u.stroke_color') {
     const matchCode = variant.strokePreamble ? `${variant.strokePreamble}\n  ` : ''
-    wgsl = wgsl.replace(
-      DEFAULT_STROKE_ASSIGN,
-      `${matchCode}out.color = ${variant.strokeExpr};`,
-    )
+    wgsl = wgsl.replace(DEFAULT_STROKE_ASSIGN, `${matchCode}out.color = ${variant.strokeExpr};`)
   }
   return wgsl
 }

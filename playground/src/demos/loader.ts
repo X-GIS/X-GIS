@@ -2,7 +2,11 @@
 // Source files live in ../examples/*.xgis — single source of truth.
 // Vite inlines them at build time via ?raw glob import.
 
-const modules = import.meta.glob<string>('../examples/*.xgis', { eager: true, query: '?raw', import: 'default' })
+const modules = import.meta.glob<string>('../examples/*.xgis', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+})
 
 // .xgis source URL rewrites — applied in BOTH dev and prod.
 //
@@ -40,7 +44,7 @@ export interface Demo {
   name: string
   tag: string
   description: string
-  source: string  // loaded from .xgis file
+  source: string // loaded from .xgis file
   /** When true, demo-runner enables runtime picking and installs a
    *  hover/click overlay panel that shows the hit feature's name +
    *  coordinate. Used by interactive picking demos and any fixture

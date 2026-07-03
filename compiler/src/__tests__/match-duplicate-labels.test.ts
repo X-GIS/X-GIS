@@ -22,66 +22,88 @@ describe('match duplicate-label spec gate', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'line-color': '#fff',
-          'line-width': ['match', ['get', 'class'],
-            'motorway', 4,
-            'motorway', 8,   // duplicate
-            1],
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'line-color': '#fff',
+            'line-width': [
+              'match',
+              ['get', 'class'],
+              'motorway',
+              4,
+              'motorway',
+              8, // duplicate
+              1,
+            ],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('duplicate label') && s.includes('motorway'))).toBe(true)
+    expect(w.some((s) => s.includes('duplicate label') && s.includes('motorway'))).toBe(true)
   })
 
   it('match with unique labels does NOT warn', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'line-color': '#fff',
-          'line-width': ['match', ['get', 'class'],
-            'motorway', 8,
-            'primary', 4,
-            'secondary', 2,
-            1],
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'line-color': '#fff',
+            'line-width': [
+              'match',
+              ['get', 'class'],
+              'motorway',
+              8,
+              'primary',
+              4,
+              'secondary',
+              2,
+              1,
+            ],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('duplicate label'))).toBe(false)
+    expect(w.some((s) => s.includes('duplicate label'))).toBe(false)
   })
 
   it('match with duplicate numeric labels warns', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'circle',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'circle-color': '#000',
-          'circle-stroke-color': '#000',
-          'circle-stroke-width': 1,
-          'circle-radius': ['match', ['get', 'rank'],
-            1, 5,
-            1, 10,  // duplicate numeric label
-            0],
+      layers: [
+        {
+          id: 'l',
+          type: 'circle',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'circle-color': '#000',
+            'circle-stroke-color': '#000',
+            'circle-stroke-width': 1,
+            'circle-radius': [
+              'match',
+              ['get', 'rank'],
+              1,
+              5,
+              1,
+              10, // duplicate numeric label
+              0,
+            ],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('duplicate label'))).toBe(true)
+    expect(w.some((s) => s.includes('duplicate label'))).toBe(true)
   })
 
   it('match with duplicates from array-of-labels shorthand still warns', () => {
@@ -91,20 +113,27 @@ describe('match duplicate-label spec gate', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'line-color': '#fff',
-          'line-width': ['match', ['get', 'class'],
-            ['motorway', 'primary'], 8,
-            'motorway', 4,  // motorway duplicated across arms
-            1],
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'line-color': '#fff',
+            'line-width': [
+              'match',
+              ['get', 'class'],
+              ['motorway', 'primary'],
+              8,
+              'motorway',
+              4, // motorway duplicated across arms
+              1,
+            ],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('duplicate label') && s.includes('motorway'))).toBe(true)
+    expect(w.some((s) => s.includes('duplicate label') && s.includes('motorway'))).toBe(true)
   })
 })

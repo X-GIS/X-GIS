@@ -45,8 +45,13 @@ function distToSegment(ax: number, ay: number, bx: number, by: number): number {
   let dy = by - ay
   if (dx !== 0 || dy !== 0) {
     const t = (-ax * dx + -ay * dy) / (dx * dx + dy * dy)
-    if (t > 1) { ax = bx; ay = by }
-    else if (t > 0) { ax += dx * t; ay += dy * t }
+    if (t > 1) {
+      ax = bx
+      ay = by
+    } else if (t > 0) {
+      ax += dx * t
+      ay += dy * t
+    }
   }
   dx = -ax
   dy = -ay
@@ -59,9 +64,11 @@ function pointInPolygons(x: number, y: number, polygons: Polygons): boolean {
     let inside = false
     for (const ring of polygon) {
       for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-        const xi = ring[i]![0]!, yi = ring[i]![1]!
-        const xj = ring[j]![0]!, yj = ring[j]![1]!
-        if (((yi > y) !== (yj > y)) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
+        const xi = ring[i]![0]!,
+          yi = ring[i]![1]!
+        const xj = ring[j]![0]!,
+          yj = ring[j]![1]!
+        if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
       }
     }
     if (inside) return true
@@ -71,7 +78,8 @@ function pointInPolygons(x: number, y: number, polygons: Polygons): boolean {
 
 /** Shortest distance (metres) from feature point p to the target sets. */
 function pointToTarget(p: Pt, points: Points, segments: Segments, polygons: Polygons): number {
-  const plng = Number(p[0]), plat = Number(p[1])
+  const plng = Number(p[0]),
+    plat = Number(p[1])
   if (polygons.length > 0 && pointInPolygons(plng, plat, polygons)) return 0
   const [kx, ky] = rulerFactors(plat)
   let best = Infinity
@@ -82,10 +90,13 @@ function pointToTarget(p: Pt, points: Points, segments: Segments, polygons: Poly
     if (d < best) best = d
   }
   for (const seg of segments) {
-    const a = seg[0]!, b = seg[1]!
+    const a = seg[0]!,
+      b = seg[1]!
     const d = distToSegment(
-      (Number(a[0]) - plng) * kx, (Number(a[1]) - plat) * ky,
-      (Number(b[0]) - plng) * kx, (Number(b[1]) - plat) * ky,
+      (Number(a[0]) - plng) * kx,
+      (Number(a[1]) - plat) * ky,
+      (Number(b[0]) - plng) * kx,
+      (Number(b[1]) - plat) * ky,
     )
     if (d < best) best = d
   }

@@ -29,7 +29,8 @@ function makeDeps(overrides: Partial<DispatcherDeps> = {}): DispatcherDeps {
     getLayerById: () => null,
     buildFeature: () => null,
     clientToLngLat: () => null,
-    getCanvasRect: () => ({ left: 0, top: 0, right: 256, bottom: 256, width: 256, height: 256 } as DOMRect),
+    getCanvasRect: () =>
+      ({ left: 0, top: 0, right: 256, bottom: 256, width: 256, height: 256 }) as DOMRect,
     dispatchMapEvent: vi.fn(),
     mapHasListeners: () => false,
     ...overrides,
@@ -53,7 +54,7 @@ describe('EventDispatcher.handlePointerLeave(): clears hoverPrev and fires mouse
     const mapLeave = vi.fn()
     const deps = makeDeps({
       getLayerById: (id) => (id === 7 ? layer : null),
-      buildFeature: () => ({ id: 99 } as unknown as ReturnType<DispatcherDeps['buildFeature']>),
+      buildFeature: () => ({ id: 99 }) as unknown as ReturnType<DispatcherDeps['buildFeature']>,
       mapHasListeners: () => false,
       dispatchMapEvent: mapLeave,
     })
@@ -76,7 +77,7 @@ describe('EventDispatcher.handlePointerLeave(): clears hoverPrev and fires mouse
     const dispatchEvent = layer.dispatchEvent as ReturnType<typeof vi.fn>
     const deps = makeDeps({
       getLayerById: (id) => (id === 7 ? layer : null),
-      buildFeature: () => ({ id: 99 } as unknown as ReturnType<DispatcherDeps['buildFeature']>),
+      buildFeature: () => ({ id: 99 }) as unknown as ReturnType<DispatcherDeps['buildFeature']>,
       mapHasListeners: () => false,
     })
     const d = new EventDispatcher(deps)
@@ -106,7 +107,9 @@ describe('pointercancel hover-reset: fail-before (old wiring) vs pass-after (fix
 
     // OLD onPointerCancel body — only clears _pointerActive, never touches dispatcher.
     let _pointerActive = true
-    const oldOnPointerCancel = () => { _pointerActive = false }
+    const oldOnPointerCancel = () => {
+      _pointerActive = false
+    }
     oldOnPointerCancel()
 
     // hoverPrev is STILL pinned — this is the bug.

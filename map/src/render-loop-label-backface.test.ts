@@ -13,7 +13,8 @@ import { buildGlobeMatrix } from '@xgis/engine'
 import { makeLabelProjectors } from '@xgis/map'
 
 describe('makeLabelProjectors — globe/ECEF back-face label cull', () => {
-  const W = 800, H = 600
+  const W = 800,
+    H = 600
   // Top-down globe centred at (lon 0, lat 0). The orbit eye sits on the +X
   // ECEF axis (the surface normal at lon0/lat0 at pitch 0), so the
   // camera-facing hemisphere is +X and the FAR hemisphere is −X (lon ±180).

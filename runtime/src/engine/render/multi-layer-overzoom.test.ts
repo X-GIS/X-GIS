@@ -21,7 +21,9 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  compileGeoJSONToTiles, decomposeFeatures, tileKey,
+  compileGeoJSONToTiles,
+  decomposeFeatures,
+  tileKey,
   type GeoJSONFeatureCollection,
 } from '@xgis/compiler'
 import { TileCatalog } from '@xgis/data'
@@ -32,8 +34,8 @@ function squareInTile(z: number, x: number, y: number): GeoJSONFeatureCollection
   const tn = Math.pow(2, z)
   const lonW = (x / tn) * 360 - 180
   const lonE = ((x + 1) / tn) * 360 - 180
-  const latN = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / tn))) * 180 / Math.PI
-  const latS = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / tn))) * 180 / Math.PI
+  const latN = (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / tn))) * 180) / Math.PI
+  const latS = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 1)) / tn))) * 180) / Math.PI
   // Inset slightly so clipping isn't degenerate at the edges.
   const lon0 = lonW + (lonE - lonW) * 0.05
   const lon1 = lonW + (lonE - lonW) * 0.95
@@ -41,13 +43,24 @@ function squareInTile(z: number, x: number, y: number): GeoJSONFeatureCollection
   const lat1 = latS + (latN - latS) * 0.95
   return {
     type: 'FeatureCollection',
-    features: [{
-      type: 'Feature',
-      properties: {},
-      geometry: { type: 'Polygon', coordinates: [[
-        [lon0, lat0], [lon1, lat0], [lon1, lat1], [lon0, lat1], [lon0, lat0],
-      ]] },
-    }],
+    features: [
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [lon0, lat0],
+              [lon1, lat0],
+              [lon1, lat1],
+              [lon0, lat1],
+              [lon0, lat0],
+            ],
+          ],
+        },
+      },
+    ],
   }
 }
 
@@ -57,7 +70,9 @@ describe('multi-layer over-zoom: per-layer generateSubTile across one frame', ()
     // slices for parent tile (1, 1, 0). The slice name simulates the
     // PMTiles per-MVT-layer split: water, landuse, roads, buildings.
     const source = new TileCatalog()
-    const parentZ = 1, parentX = 1, parentY = 0
+    const parentZ = 1,
+      parentX = 1,
+      parentY = 0
     const parentKey = tileKey(parentZ, parentX, parentY)
     const fc = squareInTile(parentZ, parentX, parentY)
     decomposeFeatures(fc.features)
@@ -81,9 +96,11 @@ describe('multi-layer over-zoom: per-layer generateSubTile across one frame', ()
     expect(baseParent).not.toBeNull()
     const layerNames = ['water', 'landuse', 'roads', 'buildings']
     // Reach into the source via type assertion since setSlice is private.
-    const setSlice = (source as unknown as {
-      setSlice(key: number, layer: string, data: typeof baseParent): void
-    }).setSlice.bind(source)
+    const setSlice = (
+      source as unknown as {
+        setSlice(key: number, layer: string, data: typeof baseParent): void
+      }
+    ).setSlice.bind(source)
     for (const ln of layerNames) {
       setSlice(parentKey, ln, baseParent!)
     }
@@ -116,10 +133,7 @@ describe('multi-layer over-zoom: per-layer generateSubTile across one frame', ()
       expect(sub, `${ln} sub-tile missing in dataCache`).not.toBeNull()
       const polyVerts = sub!.vertices.length / DSFUN_POLY_STRIDE
       const lineVerts = sub!.lineVertices.length / DSFUN_LINE_STRIDE
-      expect(
-        polyVerts > 0 || lineVerts > 0,
-        `${ln} sub-tile has no geometry`,
-      ).toBe(true)
+      expect(polyVerts > 0 || lineVerts > 0, `${ln} sub-tile has no geometry`).toBe(true)
     }
   })
 
@@ -140,17 +154,16 @@ describe('multi-layer over-zoom: per-layer generateSubTile across one frame', ()
     source.loadFromTileSet(set)
     const parentKey = tileKey(1, 1, 0)
     const baseParent = source.getTileData(parentKey)!
-    const setSlice = (source as unknown as {
-      setSlice(key: number, layer: string, data: typeof baseParent): void
-    }).setSlice.bind(source)
+    const setSlice = (
+      source as unknown as {
+        setSlice(key: number, layer: string, data: typeof baseParent): void
+      }
+    ).setSlice.bind(source)
     const layers = ['water', 'landuse', 'roads', 'buildings']
     for (const ln of layers) setSlice(parentKey, ln, baseParent)
 
     // Four "viewport" sub-keys at z=2 (within the parent quadrant).
-    const subKeys = [
-      tileKey(2, 2, 0), tileKey(2, 3, 0),
-      tileKey(2, 2, 1), tileKey(2, 3, 1),
-    ]
+    const subKeys = [tileKey(2, 2, 0), tileKey(2, 3, 0), tileKey(2, 2, 1), tileKey(2, 3, 1)]
 
     let snapshot: number[] = []
     for (let frame = 1; frame <= 60; frame++) {
@@ -172,7 +185,9 @@ describe('multi-layer over-zoom: per-layer generateSubTile across one frame', ()
       if (frame > 1 && count < snapshot[frame - 2]) {
         // Cache count went DOWN — bug.
         console.error('[overzoom-repro] gradual loss at frame', frame, 'snapshot:', snapshot)
-        expect.fail(`sub-tile count decreased from ${snapshot[frame - 2]} to ${count} at frame ${frame}`)
+        expect.fail(
+          `sub-tile count decreased from ${snapshot[frame - 2]} to ${count} at frame ${frame}`,
+        )
       }
     }
     // After steady state, all 16 (4 sub × 4 layers) must be cached.
@@ -196,9 +211,11 @@ describe('multi-layer over-zoom: per-layer generateSubTile across one frame', ()
     source.loadFromTileSet(set)
     const parentKey = tileKey(1, 1, 0)
     const baseParent = source.getTileData(parentKey)!
-    const setSlice = (source as unknown as {
-      setSlice(key: number, layer: string, data: typeof baseParent): void
-    }).setSlice.bind(source)
+    const setSlice = (
+      source as unknown as {
+        setSlice(key: number, layer: string, data: typeof baseParent): void
+      }
+    ).setSlice.bind(source)
     setSlice(parentKey, 'a', baseParent)
     setSlice(parentKey, 'b', baseParent)
 
@@ -210,7 +227,7 @@ describe('multi-layer over-zoom: per-layer generateSubTile across one frame', ()
     // Layer 'b' simulates the SECOND VTR render within the same
     // frame (same frameId). It should still be able to generate at
     // least the floor — sharing the reset guard must not starve.
-    source.resetCompileBudget(1)  // same frameId — short-circuits
+    source.resetCompileBudget(1) // same frameId — short-circuits
     const ok2 = source.generateSubTile(tileKey(2, 2, 1), parentKey, 'b')
     expect(ok2, 'layer b sub-tile (same frame)').toBe(true)
   })

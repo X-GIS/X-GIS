@@ -44,10 +44,12 @@ function pretextCacheKey(
   // `Float32Array` (the FrameArena-backed view). Hashing uses
   // index access + length, common to both.
   advances: ArrayLike<number>,
-  fontKey: string, fontSizePx: number,
-  letterSpacingPx: number, maxWidthPx: number,
+  fontKey: string,
+  fontSizePx: number,
+  letterSpacingPx: number,
+  maxWidthPx: number,
 ): number {
-  let h = 0x811c9dc5 | 0  // FNV-1a 32-bit offset basis
+  let h = 0x811c9dc5 | 0 // FNV-1a 32-bit offset basis
   // fontKey character codes
   for (let i = 0; i < fontKey.length; i++) {
     h = Math.imul(h ^ fontKey.charCodeAt(i), 0x01000193)
@@ -73,7 +75,10 @@ function pretextCacheKey(
 /** Compute the rendered width of glyph range [start, end) using the
  *  per-glyph advances + letter-spacing convention the renderer uses. */
 function rangeWidth(
-  advances: ArrayLike<number>, start: number, end: number, letterSpacingPx: number,
+  advances: ArrayLike<number>,
+  start: number,
+  end: number,
+  letterSpacingPx: number,
 ): number {
   let w = 0
   for (let j = start; j < end; j++) {
@@ -108,9 +113,19 @@ function rangeWidth(
 // over-count line widths by `~spacing per inter-word gap` and force
 // more breaks than necessary.
 const _BREAKABLE_CP: Record<number, true> = {
-  0x0a: true, 0x20: true, 0x26: true, 0x29: true, 0x2b: true, 0x2d: true,
-  0x2f: true, 0xad: true, 0xb7: true, 0x200b: true, 0x2010: true,
-  0x2013: true, 0x2027: true,
+  0x0a: true,
+  0x20: true,
+  0x26: true,
+  0x29: true,
+  0x2b: true,
+  0x2d: true,
+  0x2f: true,
+  0xad: true,
+  0xb7: true,
+  0x200b: true,
+  0x2010: true,
+  0x2013: true,
+  0x2027: true,
 }
 const _BREAKABLE_BEFORE_CP: Record<number, true> = { 0x28: true }
 function _charIsWhitespace(cp: number): boolean {
@@ -123,23 +138,26 @@ function _charIsWhitespace(cp: number): boolean {
 // data ships. Supplementary-plane ideographs (rare CJK extensions)
 // fall through to the Latin-style breakable-only path.
 function _allowsIdeographicBreaking(cp: number): boolean {
-  return (cp >= 0x2e80 && cp <= 0x2fdf)
-    || (cp >= 0x2ff0 && cp <= 0x303f)
-    || (cp >= 0x3041 && cp <= 0x3096)
-    || (cp >= 0x309d && cp <= 0x309f)
-    || (cp >= 0x30a1 && cp <= 0x30fa)
-    || (cp >= 0x30fd && cp <= 0x30ff)
-    || (cp >= 0x3105 && cp <= 0x312f)
-    || (cp >= 0x31a0 && cp <= 0x4dbf)
-    || (cp >= 0x4e00 && cp <= 0xa48c)
-    || (cp >= 0xa490 && cp <= 0xa4c6)
-    || (cp >= 0xac00 && cp <= 0xd7a3)   // Hangul syllables
-    || (cp >= 0xf900 && cp <= 0xfa6d)
-    || (cp >= 0xfa70 && cp <= 0xfad9)
-    || (cp >= 0xfe10 && cp <= 0xfe1f)
-    || (cp >= 0xfe30 && cp <= 0xfe4f)
-    || (cp >= 0xff00 && cp <= 0xffef)
-    || cp === 0x02ea || cp === 0x02eb
+  return (
+    (cp >= 0x2e80 && cp <= 0x2fdf) ||
+    (cp >= 0x2ff0 && cp <= 0x303f) ||
+    (cp >= 0x3041 && cp <= 0x3096) ||
+    (cp >= 0x309d && cp <= 0x309f) ||
+    (cp >= 0x30a1 && cp <= 0x30fa) ||
+    (cp >= 0x30fd && cp <= 0x30ff) ||
+    (cp >= 0x3105 && cp <= 0x312f) ||
+    (cp >= 0x31a0 && cp <= 0x4dbf) ||
+    (cp >= 0x4e00 && cp <= 0xa48c) ||
+    (cp >= 0xa490 && cp <= 0xa4c6) ||
+    (cp >= 0xac00 && cp <= 0xd7a3) || // Hangul syllables
+    (cp >= 0xf900 && cp <= 0xfa6d) ||
+    (cp >= 0xfa70 && cp <= 0xfad9) ||
+    (cp >= 0xfe10 && cp <= 0xfe1f) ||
+    (cp >= 0xfe30 && cp <= 0xfe4f) ||
+    (cp >= 0xff00 && cp <= 0xffef) ||
+    cp === 0x02ea ||
+    cp === 0x02eb
+  )
 }
 
 /** Minimum on-screen size (CSS px) for a label containing CJK/Hangul
@@ -169,7 +187,10 @@ export const CJK_SIZE_BUCKETS_CSS = [12, 16, 20, 24, 32, 48] as const
 export function cjkBucketPx(displayCssPx: number, dpr: number): number {
   let bucket = CJK_SIZE_BUCKETS_CSS[CJK_SIZE_BUCKETS_CSS.length - 1]!
   for (const b of CJK_SIZE_BUCKETS_CSS) {
-    if (b >= displayCssPx) { bucket = b; break }
+    if (b >= displayCssPx) {
+      bucket = b
+      break
+    }
   }
   return Math.round(bucket * dpr)
 }
@@ -210,7 +231,12 @@ export function hasCjkIdeograph(text: string): boolean {
   return false
 }
 
-function _kpBadness(lineWidth: number, targetWidth: number, penalty: number, isLast: boolean): number {
+function _kpBadness(
+  lineWidth: number,
+  targetWidth: number,
+  penalty: number,
+  isLast: boolean,
+): number {
   const ragged = (lineWidth - targetWidth) ** 2
   if (isLast) return lineWidth < targetWidth ? ragged / 2 : ragged * 2
   return ragged + Math.abs(penalty) * penalty
@@ -259,16 +285,20 @@ function _kpWrapSegment(
   advances: ArrayLike<number>,
   letterSpacingPx: number,
   maxWidthPx: number,
-  segStart: number, segEnd: number,
+  segStart: number,
+  segEnd: number,
   hasZeroWidthSpaces: boolean,
 ): WrappedLineRange[] {
   const n = segEnd - segStart
   if (n <= 0) return [{ start: segStart, end: segEnd, width: 0 }]
   if (maxWidthPx === Infinity) {
-    return [{
-      start: segStart, end: segEnd,
-      width: rangeWidth(advances, segStart, segEnd, letterSpacingPx),
-    }]
+    return [
+      {
+        start: segStart,
+        end: segEnd,
+        width: rangeWidth(advances, segStart, segEnd, letterSpacingPx),
+      },
+    ]
   }
   // 1. targetWidth = totalWidth / ceil(totalWidth / maxWidth).
   //    MapLibre `determineAverageLineWidth` sums getGlyphAdvance
@@ -289,7 +319,7 @@ function _kpWrapSegment(
     const cp = glyphs[i]!.codepoint
     if (!_charIsWhitespace(cp)) currentX += advances[i]! + letterSpacingPx
     const isLast = i === segEnd - 1
-    if (isLast) continue  // only emit the FINAL break via evaluateBreak below
+    if (isLast) continue // only emit the FINAL break via evaluateBreak below
     const nextCp = glyphs[i + 1]!.codepoint
     const ideoBreak = _allowsIdeographicBreaking(cp)
     const allowBreakBefore = i + 2 < segEnd ? _BREAKABLE_BEFORE_CP[nextCp] === true : false
@@ -314,16 +344,22 @@ function _kpWrapSegment(
   for (const idx of indices) {
     if (idx > prev) {
       lines.push({
-        start: prev, end: idx,
+        start: prev,
+        end: idx,
         width: rangeWidth(advances, prev, idx, letterSpacingPx),
       })
     }
     prev = idx
   }
-  return lines.length > 0 ? lines : [{
-    start: segStart, end: segEnd,
-    width: rangeWidth(advances, segStart, segEnd, letterSpacingPx),
-  }]
+  return lines.length > 0
+    ? lines
+    : [
+        {
+          start: segStart,
+          end: segEnd,
+          width: rangeWidth(advances, segStart, segEnd, letterSpacingPx),
+        },
+      ]
 }
 
 export function wrapWithKnuthPlass(
@@ -337,7 +373,14 @@ export function wrapWithKnuthPlass(
   letterSpacingPx: number,
   maxWidthPx: number,
 ): WrappedLineRange[] {
-  const cacheKey = pretextCacheKey(glyphs, advances, fontKey, fontSizePx, letterSpacingPx, maxWidthPx)
+  const cacheKey = pretextCacheKey(
+    glyphs,
+    advances,
+    fontKey,
+    fontSizePx,
+    letterSpacingPx,
+    maxWidthPx,
+  )
   const hit = _pretextCache.get(cacheKey)
   if (hit) {
     // LRU touch: re-insert to move to tail (most-recently-used).
@@ -365,7 +408,7 @@ export function wrapWithKnuthPlass(
   // MapLibre's `hasZeroWidthSpaces` tests the WHOLE string
   // (`this.text.includes('​')`), not per-segment — compute once
   // over every glyph and share across the `\n`-split segments.
-  const hasZeroWidthSpaces = glyphs.some(g => g.codepoint === 0x200b)
+  const hasZeroWidthSpaces = glyphs.some((g) => g.codepoint === 0x200b)
 
   const lines: WrappedLineRange[] = []
   for (const seg of segments) {
@@ -373,7 +416,15 @@ export function wrapWithKnuthPlass(
       lines.push({ start: seg.start, end: seg.end, width: 0 })
       continue
     }
-    const segLines = _kpWrapSegment(glyphs, advances, letterSpacingPx, maxWidthPx, seg.start, seg.end, hasZeroWidthSpaces)
+    const segLines = _kpWrapSegment(
+      glyphs,
+      advances,
+      letterSpacingPx,
+      maxWidthPx,
+      seg.start,
+      seg.end,
+      hasZeroWidthSpaces,
+    )
     for (const ln of segLines) lines.push(ln)
   }
 
@@ -397,10 +448,8 @@ export function wrapForTesting(
   maxWidthPx: number,
   letterSpacingPx = 0,
 ): { start: number; end: number; width: number }[] {
-  const glyphs = codepoints.map(
-    cp => ({ codepoint: cp } as unknown as GlyphInfo),
+  const glyphs = codepoints.map((cp) => ({ codepoint: cp }) as unknown as GlyphInfo)
+  return wrapWithKnuthPlass(glyphs, advances, '__wrap_test__', 16, letterSpacingPx, maxWidthPx).map(
+    (l) => ({ start: l.start, end: l.end, width: l.width }),
   )
-  return wrapWithKnuthPlass(
-    glyphs, advances, '__wrap_test__', 16, letterSpacingPx, maxWidthPx,
-  ).map(l => ({ start: l.start, end: l.end, width: l.width }))
 }

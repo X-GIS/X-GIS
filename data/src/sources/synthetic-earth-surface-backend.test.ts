@@ -12,11 +12,7 @@ import { describe, it, expect } from 'vitest'
 import { tileKey } from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from './synthetic-earth-surface-backend'
 import { lonLatToECEF, tileEcefCenterFromMerc } from '@xgis/engine'
-import {
-  TILE_LAYOUT_VERSION,
-  type BackendTileResult,
-  type TileSourceSink,
-} from '../tile-source'
+import { TILE_LAYOUT_VERSION, type BackendTileResult, type TileSourceSink } from '../tile-source'
 
 // WGS84 semi-major axis — matches the tiler + the render-side `off`.
 const A = 6378137
@@ -36,12 +32,12 @@ const MERC_LAT_CLAMP = 85.051129
 // latitude (NOT the rounded MERC_LAT_CLAMP) — building Z0_TILE_CENTER from the
 // rounded value would make the anchor cross-path pin a tautology that passes
 // even when the bg anchor and the render `off` differ by ~2.46 cm.
-const Z0_DECODED_SOUTH = Math.atan(Math.sinh(-Math.PI)) * 180 / Math.PI
+const Z0_DECODED_SOUTH = (Math.atan(Math.sinh(-Math.PI)) * 180) / Math.PI
 // The z=0 synthetic tile's ELLIPSOID corner anchor — the SAME value the
 // render-side per-tile pack reconstructs into cam_ecef_off. The bg pack and the
 // render `off` MUST agree here, else the RTC origins fail to cancel in 3D.
 const Z0_TILE_MX = -180 * DEG2RAD * A
-const Z0_TILE_MY = Math.log(Math.tan(Math.PI / 4 + Z0_DECODED_SOUTH * DEG2RAD / 2)) * A
+const Z0_TILE_MY = Math.log(Math.tan(Math.PI / 4 + (Z0_DECODED_SOUTH * DEG2RAD) / 2)) * A
 const Z0_TILE_CENTER = tileEcefCenterFromMerc(Z0_TILE_MX, Z0_TILE_MY)
 
 function makeRecordingSink(): {
@@ -54,7 +50,9 @@ function makeRecordingSink(): {
     releaseLoading: () => {},
     hasTileData: () => false,
     getLoadingCount: () => 0,
-    acceptResult: (key, result) => { pushed.push({ key, result }) },
+    acceptResult: (key, result) => {
+      pushed.push({ key, result })
+    },
   }
   return { sink, pushed }
 }
@@ -92,8 +90,8 @@ describe('SyntheticEarthSurfaceBackend — attach + loadTile', () => {
     const { sink, pushed } = makeRecordingSink()
     backend.attach(sink)
     const result = pushed[0].result!
-    expect(result.vertices.length).toBe(129 * 65 * 7)   // (128+1)*(64+1) verts
-    expect(result.indices.length).toBe(128 * 64 * 6)    // 49152
+    expect(result.vertices.length).toBe(129 * 65 * 7) // (128+1)*(64+1) verts
+    expect(result.indices.length).toBe(128 * 64 * 6) // 49152
     expect(result.lineVertices.length).toBe(0)
     expect(result.lineIndices.length).toBe(0)
     // Quantized buffer must carry its dequant companion params.
@@ -153,7 +151,7 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     expect(ey).toBeCloseTo(py, 1)
     expect(ez).toBeCloseTo(pz, 1)
     // f32 tail = tile-local Mercator. lon=-180 is the tile-west origin → local X = 0.
-    expect(v[4]).toBeCloseTo(0, 2)   // local_merc X
+    expect(v[4]).toBeCloseTo(0, 2) // local_merc X
   })
 
   it('last vertex (lon=+180, lat=+90) reaches the north pole via the QUANTIZED ECEF lanes; f32 tail is tile-local Mercator', () => {
@@ -175,7 +173,7 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     expect(ez).toBeCloseTo(pz, 1)
     // f32 tail = tile-local Mercator. lon=+180 → local X = (180+180)·deg2rad·A
     // (~4e7 m; f32 ulp ≈ 4 m there, so compare within a few metres).
-    expect(Math.abs(v[last * FILL_FLOATS_PER_VERT + 4]! - 360 * DEG2RAD * A)).toBeLessThan(5)   // local_merc X
+    expect(Math.abs(v[last * FILL_FLOATS_PER_VERT + 4]! - 360 * DEG2RAD * A)).toBeLessThan(5) // local_merc X
   })
 
   it('quantized position at the mid vertex reconstructs the tiler ELLIPSOID ECEF (A,0,0)', () => {
@@ -189,7 +187,7 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     // Mid row index = 32 (heightSegments/2), mid col index = 64 (widthSegments/2).
     const cols = 129
     const idx = 32 * cols + 64
-    const lane = idx * FILL_U16_PER_VERT   // u16 lane base (14 lanes / vertex)
+    const lane = idx * FILL_U16_PER_VERT // u16 lane base (14 lanes / vertex)
     const { dequantScale: scale, dequantHalf: half } = result
     // Dequant is the RTC residual about the z=0 tileEcefCenter (ELLIPSOID),
     // so the absolute ECEF = residual + tileEcefCenter.
@@ -202,12 +200,12 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     expect(ex).toBeCloseTo(refX, 1)
     expect(ey).toBeCloseTo(refY, 1)
     expect(ez).toBeCloseTo(refZ, 1)
-    expect(refX).toBeCloseTo(A, 1)  // sanity: equator radius == semi-major axis
+    expect(refX).toBeCloseTo(A, 1) // sanity: equator radius == semi-major axis
     // The f32 tail now holds TILE-LOCAL Mercator (local_merc = mx − tileOrigin);
     // reconstruct lon/lat (origin + local → inverse Mercator). Mid vertex = (0,0).
     const absMx = v[idx * FILL_FLOATS_PER_VERT + 4]! + Z0_TILE_MX
     const absMy = v[idx * FILL_FLOATS_PER_VERT + 5]! + Z0_TILE_MY
-    expect(absMx / (DEG2RAD * A)).toBeCloseTo(0, 4)               // lon ≈ 0
+    expect(absMx / (DEG2RAD * A)).toBeCloseTo(0, 4) // lon ≈ 0
     expect((2 * Math.atan(Math.exp(absMy / A)) - Math.PI / 2) / DEG2RAD).toBeCloseTo(0, 4) // lat ≈ 0
   })
 
@@ -242,10 +240,10 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     // Sample a spread: south pole row, mid, an off-meridian high-lat vertex,
     // and the north pole row.
     const samples = [
-      0,                    // (lon=-180, lat=-90) → TRUE -90 (polar cap)
-      32 * cols + 64,       // (lon=0,    lat=0)
-      62 * cols + 80,       // off-meridian high northern lat (84.375° ≤ cap)
-      vertexCount - 1,      // (lon=+180, lat=+90) → TRUE +90 (polar cap)
+      0, // (lon=-180, lat=-90) → TRUE -90 (polar cap)
+      32 * cols + 64, // (lon=0,    lat=0)
+      62 * cols + 80, // off-meridian high northern lat (84.375° ≤ cap)
+      vertexCount - 1, // (lon=+180, lat=+90) → TRUE +90 (polar cap)
     ]
     // Tolerance = the double-u16 quant resolution. The bg spans the whole globe
     // about a single tile-corner anchor → per-axis step = dequantScale ≈ 6 mm;
@@ -261,7 +259,7 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
       const err = Math.hypot(ex - refX, ey - refY, ez - refZ)
       expect(err).toBeLessThan(tol)
     }
-    expect(tol).toBeLessThan(1)  // < 1 m — orders below the 21 km basis error
+    expect(tol).toBeLessThan(1) // < 1 m — orders below the 21 km basis error
   })
 
   it('bg pack anchor == render-side tileEcefCenter (z=0 corner, DECODED south) so RTC origins cancel', () => {
@@ -281,7 +279,7 @@ describe('SyntheticEarthSurfaceBackend — vertex content', () => {
     const u16 = new Uint16Array(v.buffer)
     const { dequantScale: scale, dequantHalf: half } = result
     const cols = 129
-    const idx = 32 * cols + 64         // lon=0, lat=0
+    const idx = 32 * cols + 64 // lon=0, lat=0
     const lane = idx * FILL_U16_PER_VERT
     const [absX, absY, absZ] = lonLatToECEF(0, 0)
     const anchorX = absX - dequantAxis(u16, lane, scale, half)

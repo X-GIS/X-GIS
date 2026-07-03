@@ -56,7 +56,9 @@ describe('MapLibre demo style → xgis full pipeline', () => {
       const tokens = new Lexer(xgis).tokenize()
       const ast = new Parser(tokens).parse()
       lower(ast)
-    } catch (e) { err = e as Error }
+    } catch (e) {
+      err = e as Error
+    }
 
     if (err) {
       const m = /line (\d+)/.exec(err.message)

@@ -39,19 +39,25 @@ test('osm_style high-pitch Manhattan — baseline tile + frame stats', async ({ 
   await page.goto(`/demo.html?id=osm_style${URL_HASH}`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
   // Settle initial cascade.
-  await page.waitForFunction(() => {
-    const map = (window as unknown as { __xgisMap?: { vtSources: Map<string, unknown> } }).__xgisMap
-    if (!map?.vtSources) return false
-    let v = 0
-    for (const entry of map.vtSources.values()) {
-      const r = entry as { renderer?: { getDrawStats?: () => { tilesVisible: number } } }
-      v += r.renderer?.getDrawStats?.().tilesVisible ?? 0
-    }
-    return v > 0
-  }, null, { timeout: 60_000 })
+  await page.waitForFunction(
+    () => {
+      const map = (window as unknown as { __xgisMap?: { vtSources: Map<string, unknown> } })
+        .__xgisMap
+      if (!map?.vtSources) return false
+      let v = 0
+      for (const entry of map.vtSources.values()) {
+        const r = entry as { renderer?: { getDrawStats?: () => { tilesVisible: number } } }
+        v += r.renderer?.getDrawStats?.().tilesVisible ?? 0
+      }
+      return v > 0
+    },
+    null,
+    { timeout: 60_000 },
+  )
   await page.waitForTimeout(5_000)
 
   // Capture per-VTR draw stats AFTER settle.
@@ -88,7 +94,10 @@ test('osm_style high-pitch Manhattan — baseline tile + frame stats', async ({ 
         const now = performance.now()
         out.push(now - last)
         last = now
-        if (now - t0 >= durationMs) { res(out); return }
+        if (now - t0 >= durationMs) {
+          res(out)
+          return
+        }
         map.invalidate()
         requestAnimationFrame(tick)
       }
@@ -113,18 +122,34 @@ test('osm_style high-pitch Manhattan — baseline tile + frame stats', async ({ 
   console.log(`    p99 / worst:   ${p99.toFixed(1)} / ${worst.toFixed(0)} ms`)
   console.log(`  per-source:`)
   for (const s of stats) {
-    console.log(`    ${s.sourceName}: tiles=${s.tilesVisible} draws=${s.drawCalls} tris=${s.triangles} lines=${s.lines}`)
+    console.log(
+      `    ${s.sourceName}: tiles=${s.tilesVisible} draws=${s.drawCalls} tris=${s.triangles} lines=${s.lines}`,
+    )
   }
-  console.log(`  total: tiles=${totalTilesVis} draws=${totalDrawCalls} tris=${totalTriangles} lines=${totalLines}`)
+  console.log(
+    `  total: tiles=${totalTilesVis} draws=${totalDrawCalls} tris=${totalTriangles} lines=${totalLines}`,
+  )
 
   const out = path.resolve('test-results', 'high-pitch-manhattan.json')
   fs.mkdirSync(path.dirname(out), { recursive: true })
-  fs.writeFileSync(out, JSON.stringify({
-    hash: URL_HASH,
-    perSource: stats,
-    totals: { tiles: totalTilesVis, draws: totalDrawCalls, triangles: totalTriangles, lines: totalLines },
-    frames: { count: frames.length, medianMs: median, p99Ms: p99, worstMs: worst },
-  }, null, 2))
+  fs.writeFileSync(
+    out,
+    JSON.stringify(
+      {
+        hash: URL_HASH,
+        perSource: stats,
+        totals: {
+          tiles: totalTilesVis,
+          draws: totalDrawCalls,
+          triangles: totalTriangles,
+          lines: totalLines,
+        },
+        frames: { count: frames.length, medianMs: median, p99Ms: p99, worstMs: worst },
+      },
+      null,
+      2,
+    ),
+  )
   // eslint-disable-next-line no-console
   console.log(`\n[saved] ${out}`)
 
@@ -135,15 +160,18 @@ test('osm_style high-pitch Manhattan — baseline tile + frame stats', async ({ 
   // Thresholds at 100 / 130 / 800k catch any future regression that
   // re-introduces over-emission at high pitch — well below the
   // pre-fix numbers, well above the post-fix steady state.
-  expect(totalTilesVis,
+  expect(
+    totalTilesVis,
     `tilesVisible regressed: ${totalTilesVis} (pre-fix: 170, post-fix: 62). ` +
-    `Pitch-aware targetSSE in tiles-sse.ts may have been bypassed.`,
+      `Pitch-aware targetSSE in tiles-sse.ts may have been bypassed.`,
   ).toBeLessThan(100)
-  expect(totalDrawCalls,
+  expect(
+    totalDrawCalls,
     `drawCalls regressed: ${totalDrawCalls} (pre-fix: 205, post-fix: 74). ` +
-    `Each extra draw on mobile costs ~200 µs of GPU pass time — keep this bounded.`,
+      `Each extra draw on mobile costs ~200 µs of GPU pass time — keep this bounded.`,
   ).toBeLessThan(130)
-  expect(totalTriangles,
+  expect(
+    totalTriangles,
     `triangle count regressed: ${totalTriangles} (pre-fix: 1.3M, post-fix: 595k).`,
   ).toBeLessThan(800_000)
 })

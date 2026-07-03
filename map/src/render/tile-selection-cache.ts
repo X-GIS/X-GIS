@@ -26,14 +26,20 @@
 import { Camera } from '@xgis/engine'
 import { activeBody } from '@xgis/shared'
 import {
-  visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority, makeTileCoord,
+  visibleTilesFrustum,
+  visibleTilesFrustumSampled,
+  sortByPriority,
+  makeTileCoord,
 } from '@xgis/data'
 import { visibleTilesSSE } from '@xgis/data'
 import { globeVisibleTiles } from '@xgis/engine'
 import { tileKey, tileKeyParent } from '@xgis/compiler'
 import { enumerateWorldCopies, routeToSphereSelector } from '@xgis/engine'
 import {
-  mercator as mercatorProj, getProjection, type Projection, mercatorYToLat,
+  mercator as mercatorProj,
+  getProjection,
+  type Projection,
+  mercatorYToLat,
 } from '@xgis/engine'
 import { SELECTOR_PROJ_NAMES, promotesToGlobeWhenTilted, representsCenterAs } from '@xgis/engine'
 import type { TileCatalog } from '@xgis/data'
@@ -117,7 +123,7 @@ export class TileSelectionCache {
    *  until either every visible tile at `target` is cached OR
    *  `READINESS_TIMEOUT_MS` elapses. Cleared on advance + on any
    *  frame the threshold is no longer crossed. */
-  private _czPendingAdvance: { target: number, since: number } | null = null
+  private _czPendingAdvance: { target: number; since: number } | null = null
   /** Camera idle detection — prefetch is suppressed while the
    *  camera is actively moving (pinch zoom, pan) to keep mobile
    *  GPU + bandwidth budget on visible-only work. The moment the
@@ -224,9 +230,10 @@ export class TileSelectionCache {
     // family (3/4/5), oblique (6) and globe (7) sphere-route, so their
     // selectorProj is unused — fall back to mercatorProj (globe has no
     // flat-projection entry in the registry).
-    const selectorProj: Projection = (projType >= 1 && projType <= 6)
-      ? getProjection(SELECTOR_PROJ_NAMES[projType]!, projCenterLon, projCenterLat)
-      : mercatorProj
+    const selectorProj: Projection =
+      projType >= 1 && projType <= 6
+        ? getProjection(SELECTOR_PROJ_NAMES[projType]!, projCenterLon, projCenterLat)
+        : mercatorProj
 
     // Round-based currentZ with anti-oscillation hysteresis. Diagnosis:
     // pinch-zoom input on iOS Safari delivers fractional camera.zoom
@@ -352,9 +359,7 @@ export class TileSelectionCache {
       // ever satisfy `hasTileData(k, sliceLayer)` and the gate would
       // stall forever. Treat below-minzoom steps as already ready —
       // catalog has nothing to wait on.
-      const layerRange = sliceLayer
-        ? source.getLayerZoomRange?.(sliceLayer)
-        : null
+      const layerRange = sliceLayer ? source.getLayerZoomRange?.(sliceLayer) : null
       if (wantAdvance) {
         const now = performance.now()
         // Step-by-step advance: never jump cz multiple LODs in one
@@ -388,7 +393,8 @@ export class TileSelectionCache {
         // wait on).
         const belowLayerMinzoom = !!(layerRange && step < layerRange.minzoom)
         const aboveLayerMaxzoom = !!(layerRange && step > layerRange.maxzoom)
-        let total = 0, ready = 0
+        let total = 0,
+          ready = 0
         let stepTiles: ReturnType<typeof visibleTilesFrustum> = []
         if (!belowLayerMinzoom && !aboveLayerMaxzoom) {
           // Readiness gate uses the SAME selector as the main render
@@ -421,8 +427,13 @@ export class TileSelectionCache {
             stepTiles = cachedStep
           } else {
             stepTiles = visibleTilesSSE(
-              camera, selectorProj, step,
-              canvasWidth, canvasHeight, offsetMarginPx, dpr,
+              camera,
+              selectorProj,
+              step,
+              canvasWidth,
+              canvasHeight,
+              offsetMarginPx,
+              dpr,
             )
             this._gateSSECache.set(gateKey, stepTiles)
           }
@@ -438,8 +449,7 @@ export class TileSelectionCache {
             if (source.hasTileData(tileKey(t.z, t.x, t.y))) ready++
           }
         }
-        const stepReady = belowLayerMinzoom || aboveLayerMaxzoom
-          || total === 0 || ready === total
+        const stepReady = belowLayerMinzoom || aboveLayerMaxzoom || total === 0 || ready === total
         const timedOut = now - this._czPendingAdvance.since > READINESS_TIMEOUT_MS
 
         if (stepReady || timedOut) {
@@ -545,10 +555,13 @@ export class TileSelectionCache {
     let parentAtMaxLevel: number[]
     let archiveAncestor: number[]
     const cache = this._frameTileCache
-    if (cache && cache.frameId === frameId
-        && cache.marginPx === offsetMarginPx
-        && cache.currentZ === currentZ
-        && cache.maxLevel === maxLevel) {
+    if (
+      cache &&
+      cache.frameId === frameId &&
+      cache.marginPx === offsetMarginPx &&
+      cache.currentZ === currentZ &&
+      cache.maxLevel === maxLevel
+    ) {
       tiles = cache.tiles
       neededKeys = cache.neededKeys
       protectedAncestors = cache.protectedAncestors
@@ -573,8 +586,10 @@ export class TileSelectionCache {
       // (real-browser visual regression escape valve while Phase 3
       // bakes in usage).
       const _pitchDeg = camera.pitch ?? 0
-      const sseDisabled = typeof window !== 'undefined'
-        && (window as unknown as { __XGIS_USE_SSE_SELECTOR?: boolean }).__XGIS_USE_SSE_SELECTOR === false
+      const sseDisabled =
+        typeof window !== 'undefined' &&
+        (window as unknown as { __XGIS_USE_SSE_SELECTOR?: boolean }).__XGIS_USE_SSE_SELECTOR ===
+          false
       // Sphere-aware tile selection for the centre-relative projections.
       // Globe (projType 7, via globeMode), oblique_mercator (6) and the
       // azimuthal family (ortho=3, azimuthal=4, stereographic=5) all
@@ -602,11 +617,14 @@ export class TileSelectionCache {
         // and keeps tiles on BOTH sides of the dateline when the
         // camera faces the antimeridian.
         const R = activeBody().sphereR
-        const lon = camera.centerX / R * (180 / Math.PI)
+        const lon = (camera.centerX / R) * (180 / Math.PI)
         // Sphere family reads the true centre latitude (centerLatDeg reaches the
         // pole; mercatorYToLat(centerY) saturates at ±85.051, diverging from the
         // rendered sphere past that). Mirrors buildGlobeFrame/getECEFCenter.
-        const lat = representsCenterAs(projType) === 'lat-deg' ? camera.centerLatDeg : mercatorYToLat(camera.centerY)
+        const lat =
+          representsCenterAs(projType) === 'lat-deg'
+            ? camera.centerLatDeg
+            : mercatorYToLat(camera.centerY)
         const cssW = canvasWidth / dpr
         const cssH = canvasHeight / dpr
         // Disc projections (ortho/azi/stereo) fill the viewport even at low
@@ -630,8 +648,14 @@ export class TileSelectionCache {
           }
         }
         const globeTiles = globeVisibleTiles(
-          lon, lat, selZoom, selMaxZ, cssW, cssH,
-          camera.pitch ?? 0, camera.bearing ?? 0,
+          lon,
+          lat,
+          selZoom,
+          selMaxZ,
+          cssW,
+          cssH,
+          camera.pitch ?? 0,
+          camera.bearing ?? 0,
         )
         // iter 142 diagnostic: raw selection count BEFORE world-copy
         // fan-out / makeTileCoord, so the harness can split
@@ -657,7 +681,7 @@ export class TileSelectionCache {
             }
           }
         } else {
-          tiles = globeTiles.map(t => makeTileCoord(t.z, t.x, t.y, 0))
+          tiles = globeTiles.map((t) => makeTileCoord(t.z, t.x, t.y, 0))
         }
       } else {
         tiles = !sseDisabled
@@ -671,24 +695,24 @@ export class TileSelectionCache {
               dpr,
             )
           : _pitchDeg < 30
-          ? visibleTilesFrustumSampled(
-              camera,
-              selectorProj,
-              currentZ,
-              canvasWidth,
-              canvasHeight,
-              offsetMarginPx,
-              dpr,
-            )
-          : visibleTilesFrustum(
-              camera,
-              selectorProj,
-              currentZ,
-              canvasWidth,
-              canvasHeight,
-              offsetMarginPx,
-              dpr,
-            )
+            ? visibleTilesFrustumSampled(
+                camera,
+                selectorProj,
+                currentZ,
+                canvasWidth,
+                canvasHeight,
+                offsetMarginPx,
+                dpr,
+              )
+            : visibleTilesFrustum(
+                camera,
+                selectorProj,
+                currentZ,
+                canvasWidth,
+                canvasHeight,
+                offsetMarginPx,
+                dpr,
+              )
       }
 
       // Non-Mercator z=0 root-tile split. The z=0 root tile covers the
@@ -746,22 +770,32 @@ export class TileSelectionCache {
       // applied when that selector was active. Phase 3's SSE selector
       // emits mixed-LOD at every pitch by design, so the invariant
       // only fires on the sseDisabled fallback path.
-      if (sseDisabled
-          && (globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS
-          && _pitchDeg < 30) {
+      if (
+        sseDisabled &&
+        (globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS &&
+        _pitchDeg < 30
+      ) {
         for (const t of tiles) {
           if (t.z !== currentZ) {
             throw new Error(
-              `[XGIS INVARIANT] flat-pitch (${_pitchDeg.toFixed(1)}°) selector emitted `
-              + `tile z=${t.z} expected currentZ=${currentZ}. The dispatch should be `
-              + `routing to visibleTilesFrustumSampled which is single-zoom by design.`,
+              `[XGIS INVARIANT] flat-pitch (${_pitchDeg.toFixed(1)}°) selector emitted ` +
+                `tile z=${t.z} expected currentZ=${currentZ}. The dispatch should be ` +
+                `routing to visibleTilesFrustumSampled which is single-zoom by design.`,
             )
           }
         }
       }
       const n = Math.pow(2, currentZ)
-      const ctX = Math.floor((centerLon + 180) / 360 * n)
-      const ctY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)
+      const ctX = Math.floor(((centerLon + 180) / 360) * n)
+      const ctY = Math.floor(
+        ((1 -
+          Math.log(
+            Math.tan((centerLat * Math.PI) / 180) + 1 / Math.cos((centerLat * Math.PI) / 180),
+          ) /
+            Math.PI) /
+          2) *
+          n,
+      )
       sortByPriority(tiles, ctX, ctY)
       // Build neededKeys + worldOffsets + sliceLayer-INDEPENDENT
       // ancestor lookups in one pass so the entire derived set
@@ -832,7 +866,10 @@ export class TileSelectionCache {
           let found = -1
           for (let pz = tz - 1; pz >= 0; pz--) {
             pk = tileKeyParent(pk)
-            if (ancestorHasEntry(pk)) { found = pk; break }
+            if (ancestorHasEntry(pk)) {
+              found = pk
+              break
+            }
           }
           archiveAncestor[i] = found
         }
@@ -841,9 +878,13 @@ export class TileSelectionCache {
         frameId,
         marginPx: offsetMarginPx,
         currentZ,
-        tiles, neededKeys, protectedAncestors, worldOffDeg,
+        tiles,
+        neededKeys,
+        protectedAncestors,
+        worldOffDeg,
         maxLevel,
-        parentAtMaxLevel, archiveAncestor,
+        parentAtMaxLevel,
+        archiveAncestor,
       }
     }
 

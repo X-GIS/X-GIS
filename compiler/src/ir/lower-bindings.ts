@@ -88,8 +88,12 @@ export interface LayerAccumulator {
   strokeOffset: number | undefined
   strokeAlign: 'center' | 'inset' | 'outset' | undefined
   strokeBlur: number | undefined
-  dashArrayShape: { kind: 'zoom-interpolated'; stops: { zoom: number; value: number[] }[]; base?: number } | undefined
-  strokeOpacityShape: { kind: 'zoom-interpolated'; stops: { zoom: number; value: number }[]; base?: number } | undefined
+  dashArrayShape:
+    | { kind: 'zoom-interpolated'; stops: { zoom: number; value: number[] }[]; base?: number }
+    | undefined
+  strokeOpacityShape:
+    | { kind: 'zoom-interpolated'; stops: { zoom: number; value: number }[]; base?: number }
+    | undefined
   strokeGapWidth: number | undefined
   patternSlots: StrokePattern[]
   patternDirty: boolean[]

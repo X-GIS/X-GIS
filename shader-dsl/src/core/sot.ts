@@ -8,7 +8,24 @@
 // OPACITY). The SoT helpers declare a layout ONCE and DERIVE the rest, so the
 // pieces cannot disagree and the type checker covers field names + types.
 
-import { Node, ReadonlyNode, structT, bindingRef, construct, member, arrayT, Var, constRef, type ShaderType, type StructDecl, type ConstDecl, type KeyOf, type ScalarKey, type BindingDecl, type AddressSpace } from './ir'
+import {
+  Node,
+  ReadonlyNode,
+  structT,
+  bindingRef,
+  construct,
+  member,
+  arrayT,
+  Var,
+  constRef,
+  type ShaderType,
+  type StructDecl,
+  type ConstDecl,
+  type KeyOf,
+  type ScalarKey,
+  type BindingDecl,
+  type AddressSpace,
+} from './ir'
 
 /** A module-level constant declared ONCE (#763 X2) — the missing SoT declarator.
  *  `decl` goes into module() (or `uses:`), `node` is the typed reference; the
@@ -18,7 +35,11 @@ export interface ConstHandle<T extends ShaderType> {
   readonly decl: ConstDecl
   readonly node: ReadonlyNode<KeyOf<T>>
 }
-export function constDecl<T extends ShaderType>(name: string, type: T, values: { readonly wgsl: number; readonly cpu: number }): ConstHandle<T> {
+export function constDecl<T extends ShaderType>(
+  name: string,
+  type: T,
+  values: { readonly wgsl: number; readonly cpu: number },
+): ConstHandle<T> {
   return {
     decl: { name, type, wgslValue: values.wgsl, cpuValue: values.cpu },
     node: constRef(name, type),
@@ -43,7 +64,11 @@ export const builtin = <T extends ShaderType>(name: string, type: T): FieldSpec<
 })
 
 /** A `@location(<n>)` IO field, with optional `@interpolate(<mode>)` (e.g. 'flat'). */
-export const location = <T extends ShaderType>(n: number, type: T, interpolate?: string): FieldSpec<T> => ({
+export const location = <T extends ShaderType>(
+  n: number,
+  type: T,
+  interpolate?: string,
+): FieldSpec<T> => ({
   type,
   attr: `@location(${n})${interpolate ? ` @interpolate(${interpolate})` : ''}`,
   location: n,
@@ -60,27 +85,48 @@ export interface IoStruct<F extends Record<string, FieldSpec>> {
    *  fields — assigning through a read-only value was tsc-green and died at the driver.
    *  NonNullable strips the `| undefined` a conditional-field spread
    *  (`...(cond ? { pick } : {})`) introduces, so optional output fields stay plain. */
-  of(node: Node): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & { readonly $: ReadonlyNode }
-  of(node: ReadonlyNode): { readonly [K in keyof F]-?: ReadonlyNode<KeyOf<NonNullable<F[K]>['type']>> } & { readonly $: ReadonlyNode }
+  of(
+    node: Node,
+  ): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & {
+    readonly $: ReadonlyNode
+  }
+  of(
+    node: ReadonlyNode,
+  ): { readonly [K in keyof F]-?: ReadonlyNode<KeyOf<NonNullable<F[K]>['type']>> } & {
+    readonly $: ReadonlyNode
+  }
   /** Declare a `var` of this struct and return its typed field proxy in one step —
    *  `const o = VsOut.var()` replaces the `const out = Var(VsOut.type); const o =
    *  VsOut.of(out)` stub pair. Assign fields via `o.uv.assign(…)`, return / forward the
    *  raw value via `o.$`. `name` pins the WGSL identifier (byte-stable emit). */
-  var(name?: string): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & { readonly $: ReadonlyNode }
+  var(
+    name?: string,
+  ): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & {
+    readonly $: ReadonlyNode
+  }
   /** Build a value of this struct in ONE expression — `LineOut(f0, f1, …)` — instead of a
    *  mutable `var out; out.f0 = …; return out`. Args are taken in field-declaration order, so a
    *  wrong/missing field is a TS error. Replaces the imperative field-by-field output build. */
-  construct(values: { readonly [K in keyof F]: ReadonlyNode<KeyOf<NonNullable<F[K]>['type']>> }): Node
+  construct(values: {
+    readonly [K in keyof F]: ReadonlyNode<KeyOf<NonNullable<F[K]>['type']>>
+  }): Node
 }
 
 /** Declare an IO struct (vertex/fragment in/out) from one field map; derive the
  *  StructDecl (with attrs), the struct type, and typed field access. */
-export function ioStruct<F extends Record<string, FieldSpec>>(name: string, fields: F): IoStruct<F> {
+export function ioStruct<F extends Record<string, FieldSpec>>(
+  name: string,
+  fields: F,
+): IoStruct<F> {
   const decl: StructDecl = {
     name,
     fields: Object.entries(fields).map(([n, spec]) => ({
-      name: n, type: spec.type, attr: spec.attr,
-      location: spec.location, builtin: spec.builtin, interpolate: spec.interpolate,
+      name: n,
+      type: spec.type,
+      attr: spec.attr,
+      location: spec.location,
+      builtin: spec.builtin,
+      interpolate: spec.interpolate,
     })),
   }
   return {
@@ -101,22 +147,29 @@ export function ioStruct<F extends Record<string, FieldSpec>>(name: string, fiel
           // Duck-type as the raw node for value positions (#763 X14): `return o`
           // / `Return(o)` read `.expr`/`.type` — they used to die at LOAD with a
           // misleading "no field 'expr'". A declared field of that name wins.
-          if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return (node as unknown as Record<string, unknown>)[prop]
+          if ((prop === 'expr' || prop === 'type') && !(prop in fields))
+            return (node as unknown as Record<string, unknown>)[prop]
           const spec = fields[prop as string]
-          if (spec === undefined) throw new Error(`sot: ioStruct '${name}' has no field '${String(prop)}'`)
+          if (spec === undefined)
+            throw new Error(`sot: ioStruct '${name}' has no field '${String(prop)}'`)
           return member(node, prop as string, spec.type)
         },
         // The empty proxy TARGET has no keys, so without this trap `'$' in proxy`
         // is false and the call-factory unwrap misses — the proxy then gets
         // misparsed as a named-args bag ("has no field 'input'" at module load).
         has: (_t, prop) => prop === '$' || (typeof prop === 'string' && prop in fields),
-      }) as { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & { readonly $: ReadonlyNode }
+      }) as { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & {
+        readonly $: ReadonlyNode
+      }
     },
     var(varName?: string) {
       return this.of(varName !== undefined ? Var(varName, this.type) : Var(this.type))
     },
     construct(values: Record<string, ReadonlyNode>) {
-      return construct(structT(name), decl.fields.map((f) => values[f.name]))
+      return construct(
+        structT(name),
+        decl.fields.map((f) => values[f.name]),
+      )
     },
   }
 }
@@ -132,7 +185,9 @@ export interface PlainStruct<F extends Record<string, ShaderType>> {
    *  read-only base → `ReadonlyNode` fields.
    *  `.$` is the raw struct-value Node (forwardable — call factories unwrap it). */
   of(node: Node): { readonly [K in keyof F]: Node<KeyOf<F[K]>> } & { readonly $: ReadonlyNode }
-  of(node: ReadonlyNode): { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>> } & { readonly $: ReadonlyNode }
+  of(
+    node: ReadonlyNode,
+  ): { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>> } & { readonly $: ReadonlyNode }
   /** Positional field access — `Seg.get(node, 'p0_h')` is `node.field('p0_h', <type>)`,
    *  a wrong field name a TS error. Same as `.of(node).p0_h`; kept for call sites that
    *  read many fields off a shared shorthand (`const g = Seg.get`). A READ accessor —
@@ -150,8 +205,14 @@ export interface PlainStruct<F extends Record<string, ShaderType>> {
  *  `array<T>`, or a nested struct — from one field map; derive the StructDecl, the struct
  *  type (`.type` replaces every `structT('Name')` string), and typed field access. The one
  *  struct kind the binding/IO helpers don't cover, so a layout has exactly ONE declaration. */
-export function structDecl<F extends Record<string, ShaderType>>(name: string, fields: F): PlainStruct<F> {
-  const decl: StructDecl = { name, fields: Object.entries(fields).map(([n, type]) => ({ name: n, type })) }
+export function structDecl<F extends Record<string, ShaderType>>(
+  name: string,
+  fields: F,
+): PlainStruct<F> {
+  const decl: StructDecl = {
+    name,
+    fields: Object.entries(fields).map(([n, type]) => ({ name: n, type })),
+  }
   const type = structT(name)
   return {
     decl,
@@ -163,7 +224,10 @@ export function structDecl<F extends Record<string, ShaderType>>(name: string, f
       return this.of(varName !== undefined ? Var(varName, this.type) : Var(this.type))
     },
     construct(values: Record<string, ReadonlyNode>) {
-      return construct(structT(name), decl.fields.map((f) => values[f.name]))
+      return construct(
+        structT(name),
+        decl.fields.map((f) => values[f.name]),
+      )
     },
     of(node: ReadonlyNode) {
       return new Proxy({} as Record<string, Node>, {
@@ -171,9 +235,11 @@ export function structDecl<F extends Record<string, ShaderType>>(name: string, f
           if (typeof prop !== 'string') return undefined // symbol probes (#763 D1) — never fields
           if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (#763 X13)
           if (prop === '$') return node // raw struct-value Node (#740 R6, forwardable)
-          if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return (node as unknown as Record<string, unknown>)[prop] // #763 X14
+          if ((prop === 'expr' || prop === 'type') && !(prop in fields))
+            return (node as unknown as Record<string, unknown>)[prop] // #763 X14
           const t = fields[prop as string]
-          if (t === undefined) throw new Error(`sot: structDecl '${name}' has no field '${String(prop)}'`)
+          if (t === undefined)
+            throw new Error(`sot: structDecl '${name}' has no field '${String(prop)}'`)
           return member(node, prop as string, t)
         },
         // `'$' in proxy` must be true for the call-factory unwrap (empty target).
@@ -202,7 +268,10 @@ type UniformFieldSpec = ShaderType | HandleArray<StructHandle> | TypeArray<Shade
 
 export function arrayOf<H extends StructHandle>(element: H, count: number): HandleArray<H>
 export function arrayOf<T extends ShaderType>(element: T, count: number): TypeArray<T>
-export function arrayOf(element: StructHandle | ShaderType, count: number): HandleArray<StructHandle> | TypeArray<ShaderType> {
+export function arrayOf(
+  element: StructHandle | ShaderType,
+  count: number,
+): HandleArray<StructHandle> | TypeArray<ShaderType> {
   return typeof element === 'object' && 'of' in element
     ? { element: element as StructHandle, count }
     : { elemType: element as ShaderType, count }
@@ -217,10 +286,13 @@ const isTypeArray = (v: UniformFieldSpec): v is TypeArray<ShaderType> =>
  *  (#763 G2): `U.field.opacity.assign(…)` is a tsc error, not a naga rejection.
  *  Handle-array fields get the element handle's read view (the `.of` read overload). */
 type UniformFieldNode<V> =
-  V extends HandleArray<infer H> ? { at(i: ReadonlyNode<ScalarKey> | number): ReturnType<H['of']> }
-  : V extends TypeArray<infer T> ? { at(i: ReadonlyNode<ScalarKey> | number): ReadonlyNode<KeyOf<T>> }
-  : V extends ShaderType ? ReadonlyNode<KeyOf<V>>
-  : never
+  V extends HandleArray<infer H>
+    ? { at(i: ReadonlyNode<ScalarKey> | number): ReturnType<H['of']> }
+    : V extends TypeArray<infer T>
+      ? { at(i: ReadonlyNode<ScalarKey> | number): ReadonlyNode<KeyOf<T>> }
+      : V extends ShaderType
+        ? ReadonlyNode<KeyOf<V>>
+        : never
 
 export interface UniformStruct<F extends Record<string, UniformFieldSpec>> {
   readonly struct: StructDecl
@@ -242,8 +314,15 @@ export function uniformStruct<F extends Record<string, UniformFieldSpec>>(
   fields: F,
 ): UniformStruct<F> {
   const fieldType = (v: UniformFieldSpec): ShaderType =>
-    isHandleArray(v) ? arrayT(v.element.type, v.count) : isTypeArray(v) ? arrayT(v.elemType, v.count) : v
-  const struct: StructDecl = { name: typeName, fields: Object.entries(fields).map(([n, v]) => ({ name: n, type: fieldType(v) })) }
+    isHandleArray(v)
+      ? arrayT(v.element.type, v.count)
+      : isTypeArray(v)
+        ? arrayT(v.elemType, v.count)
+        : v
+  const struct: StructDecl = {
+    name: typeName,
+    fields: Object.entries(fields).map(([n, v]) => ({ name: n, type: fieldType(v) })),
+  }
   const type = structT(typeName)
   const node = bindingRef(at.as, type)
   return {
@@ -257,10 +336,14 @@ export function uniformStruct<F extends Record<string, UniformFieldSpec>>(
         if (typeof prop !== 'string') return undefined // symbol probes (#763 D1) — never fields
         if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (#763 X13) — await/JSON.stringify must not throw
         const v = fields[prop as string]
-        if (v === undefined) throw new Error(`sot: uniformStruct '${typeName}' has no field '${String(prop)}'`)
+        if (v === undefined)
+          throw new Error(`sot: uniformStruct '${typeName}' has no field '${String(prop)}'`)
         if (isHandleArray(v)) {
           const arrNode = member(node, prop as string, arrayT(v.element.type, v.count))
-          return { at: (i: ReadonlyNode<ScalarKey> | number) => v.element.of(arrNode.at(i, v.element.type)) }
+          return {
+            at: (i: ReadonlyNode<ScalarKey> | number) =>
+              v.element.of(arrNode.at(i, v.element.type)),
+          }
         }
         if (isTypeArray(v)) {
           const arrNode = member(node, prop as string, arrayT(v.elemType, v.count))
@@ -284,7 +367,11 @@ export interface Resource<T extends ShaderType = ShaderType> {
  *  node from one place. Generic over the resource type, so `r.node` keeps the SPECIFIC key
  *  (`Node<'texture_2d<f32>'>`, `Node<'sampler'>`) and texture/sampler ops are type-checked —
  *  not the widened `Node`. Space defaults to 'uniform' (the texture/sampler convention). */
-export function resource<T extends ShaderType>(name: string, type: T, at: { group: number; binding: number; space?: AddressSpace }): Resource<T> {
+export function resource<T extends ShaderType>(
+  name: string,
+  type: T,
+  at: { group: number; binding: number; space?: AddressSpace },
+): Resource<T> {
   return {
     binding: { group: at.group, binding: at.binding, name, space: at.space ?? 'uniform', type },
     node: bindingRef(name, type),
@@ -304,32 +391,47 @@ export interface StorageBuffer<A> {
 }
 
 /** A struct ELEMENT handle (structDecl / ioStruct) — has a `.type` and a typed `.of(node)` proxy. */
-type StructHandle = { readonly type: ShaderType; readonly decl?: StructDecl; of(node: ReadonlyNode): object }
+type StructHandle = {
+  readonly type: ShaderType
+  readonly decl?: StructDecl
+  of(node: ReadonlyNode): object
+}
 
 /** A storage buffer binding declared from its ELEMENT (a struct handle or a scalar type) in one place;
  *  derives the binding decl (space 'storage' + access), the access node, AND `.at(i)` element access. */
 /** Re-map a read view's fields to their mutable twins — the element view of a
  *  `read_write` storage buffer. Homomorphic, so field optionality/readonly are kept;
  *  the raw `$` node stays ReadonlyNode (writes go through fields, not the whole value). */
-type MutableView<V> = { [K in keyof V]: K extends '$' ? V[K] : V[K] extends ReadonlyNode<infer T> ? Node<T> : V[K] }
+type MutableView<V> = {
+  [K in keyof V]: K extends '$' ? V[K] : V[K] extends ReadonlyNode<infer T> ? Node<T> : V[K]
+}
 
 // The element view's WRITE capability follows the declared ACCESS (#763 G2):
 // `access: 'read'` hands out read views (`buf.at(i).p0.assign(…)` is a tsc error —
 // it used to compile and die at the driver); `read_write` hands out mutable views.
 export function storageBuffer<H extends StructHandle>(
-  name: string, element: H, at: { group: number; binding: number; access: 'read' },
+  name: string,
+  element: H,
+  at: { group: number; binding: number; access: 'read' },
 ): StorageBuffer<ReturnType<H['of']>>
 export function storageBuffer<H extends StructHandle>(
-  name: string, element: H, at: { group: number; binding: number; access: 'read_write' },
+  name: string,
+  element: H,
+  at: { group: number; binding: number; access: 'read_write' },
 ): StorageBuffer<MutableView<ReturnType<H['of']>>>
 export function storageBuffer<T extends ShaderType>(
-  name: string, element: T, at: { group: number; binding: number; access: 'read' },
+  name: string,
+  element: T,
+  at: { group: number; binding: number; access: 'read' },
 ): StorageBuffer<ReadonlyNode<KeyOf<T>>>
 export function storageBuffer<T extends ShaderType>(
-  name: string, element: T, at: { group: number; binding: number; access: 'read_write' },
+  name: string,
+  element: T,
+  at: { group: number; binding: number; access: 'read_write' },
 ): StorageBuffer<Node<KeyOf<T>>>
 export function storageBuffer(
-  name: string, element: StructHandle | ShaderType,
+  name: string,
+  element: StructHandle | ShaderType,
   at: { group: number; binding: number; access: 'read' | 'read_write' },
 ): StorageBuffer<unknown> {
   const handle = typeof element === 'object' && 'of' in element ? element : undefined
@@ -337,7 +439,14 @@ export function storageBuffer(
   const arr = arrayT(elemType)
   const node = bindingRef(name, arr)
   return {
-    binding: { group: at.group, binding: at.binding, name, space: 'storage', access: at.access, type: arr },
+    binding: {
+      group: at.group,
+      binding: at.binding,
+      name,
+      space: 'storage',
+      access: at.access,
+      type: arr,
+    },
     node,
     ...(handle?.decl !== undefined ? { elementDecl: handle.decl } : {}),
     at: (i) => (handle ? handle.of(node.at(i, elemType)) : node.at(i, elemType)),

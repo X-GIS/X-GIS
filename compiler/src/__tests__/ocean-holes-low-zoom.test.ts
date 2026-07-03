@@ -20,11 +20,13 @@ function signedArea(ring: ReadonlyArray<readonly [number, number]> | number[]): 
   const flat = typeof (ring as number[])[0] === 'number'
   const n = flat ? (ring as number[]).length / 2 : (ring as unknown[]).length
   const pt = (i: number): [number, number] =>
-    flat ? [(ring as number[])[i * 2]!, (ring as number[])[i * 2 + 1]!]
-         : (ring as [number, number][])[i]!
+    flat
+      ? [(ring as number[])[i * 2]!, (ring as number[])[i * 2 + 1]!]
+      : (ring as [number, number][])[i]!
   let a = 0
   for (let i = 0; i < n; i++) {
-    const [x1, y1] = pt(i), [x2, y2] = pt((i + 1) % n)
+    const [x1, y1] = pt(i),
+      [x2, y2] = pt((i + 1) % n)
     a += x1 * y2 - x2 * y1
   }
   return a / 2
@@ -35,10 +37,34 @@ describe('ocean polygon with island holes — low-zoom hole preservation (z=1 Au
   // Outer = full tile ocean; holes = three landmasses inside it
   // (a big Australia-like, a tall thin NZ-like, a tiny island), all
   // comfortably inside the tile so no clip changes the topology.
-  const outer = [[5, -5], [175, -5], [175, -80], [5, -80], [5, -5]]  // CW-ish ocean
-  const australia = [[110, -12], [155, -12], [155, -40], [110, -40], [110, -12]]
-  const newZealand = [[166, -34], [179, -34], [179, -47], [166, -47], [166, -34]]
-  const tinyIsle = [[60, -20], [64, -20], [64, -24], [60, -24], [60, -20]]
+  const outer = [
+    [5, -5],
+    [175, -5],
+    [175, -80],
+    [5, -80],
+    [5, -5],
+  ] // CW-ish ocean
+  const australia = [
+    [110, -12],
+    [155, -12],
+    [155, -40],
+    [110, -40],
+    [110, -12],
+  ]
+  const newZealand = [
+    [166, -34],
+    [179, -34],
+    [179, -47],
+    [166, -47],
+    [166, -34],
+  ]
+  const tinyIsle = [
+    [60, -20],
+    [64, -20],
+    [64, -24],
+    [60, -24],
+    [60, -20],
+  ]
   // GeoJSON polygon: [outer, ...holes] (holes get opposite winding by
   // the tiler's rewind; we pass them reversed to be explicit).
   const feature = {
@@ -68,7 +94,10 @@ describe('ocean polygon with island holes — low-zoom hole preservation (z=1 Au
     // Every ring keeps enough vertices to be a real polygon.
     for (let i = 0; i < rings.length; i++) {
       const r = rings[i]!
-      const n = typeof (r as number[])[0] === 'number' ? (r as number[]).length / 2 : (r as unknown[]).length
+      const n =
+        typeof (r as number[])[0] === 'number'
+          ? (r as number[]).length / 2
+          : (r as unknown[]).length
       expect(n, `ring[${i}] has ≥4 vertices`).toBeGreaterThanOrEqual(4)
     }
   })
@@ -87,7 +116,10 @@ describe('ocean polygon with island holes — low-zoom hole preservation (z=1 Au
   it('largest hole (Australia) keeps its area within 25% after simplify', () => {
     const tile = compileSingleTile(decomposeFeatures([feature]), 1, 1, 1, 14)!
     const rings = tile.polygons![0]!.rings as Array<number[] | [number, number][]>
-    const holeAreas = rings.slice(1).map(r => Math.abs(signedArea(r))).sort((a, b) => b - a)
+    const holeAreas = rings
+      .slice(1)
+      .map((r) => Math.abs(signedArea(r)))
+      .sort((a, b) => b - a)
     // Australia is the biggest hole; its compiled area must stay close
     // to the others' ordering and not collapse toward zero.
     expect(holeAreas[0]!, 'largest hole area is non-trivial').toBeGreaterThan(holeAreas[2]! * 4)

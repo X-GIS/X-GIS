@@ -9,7 +9,11 @@
 import { describe, it, expect } from 'vitest'
 import { BundleCache, type BundleEncodeDescriptor } from '@xgis/engine'
 
-interface MockBundle { __mock: true; label?: string; encodedSeq: number }
+interface MockBundle {
+  __mock: true
+  label?: string
+  encodedSeq: number
+}
 
 let bundleSeq = 0
 
@@ -19,7 +23,11 @@ function mockDevice(): GPUDevice {
       const encoder: Partial<GPURenderBundleEncoder> = {
         finish(opts?: GPURenderBundleDescriptor): GPURenderBundle {
           bundleSeq++
-          return { __mock: true, label: opts?.label, encodedSeq: bundleSeq } as unknown as GPURenderBundle
+          return {
+            __mock: true,
+            label: opts?.label,
+            encodedSeq: bundleSeq,
+          } as unknown as GPURenderBundle
         },
       }
       return encoder as GPURenderBundleEncoder
@@ -39,7 +47,9 @@ describe('BundleCache — getOrEncode', () => {
     bundleSeq = 0
     const cache = new BundleCache(mockDevice())
     let encodeCalled = 0
-    const b = cache.getOrEncode('k', DESC, () => { encodeCalled++ })
+    const b = cache.getOrEncode('k', DESC, () => {
+      encodeCalled++
+    })
     expect(encodeCalled).toBe(1)
     expect((b as unknown as MockBundle).__mock).toBe(true)
     expect(cache.getStats().misses).toBe(1)
@@ -49,10 +59,14 @@ describe('BundleCache — getOrEncode', () => {
   it('second call same key → cache hit, encodeFn NOT called again', () => {
     const cache = new BundleCache(mockDevice())
     let encodeCalled = 0
-    const b1 = cache.getOrEncode('k', DESC, () => { encodeCalled++ })
-    const b2 = cache.getOrEncode('k', DESC, () => { encodeCalled++ })
-    expect(encodeCalled).toBe(1)        // encoded once
-    expect(b2).toBe(b1)                 // same bundle ref
+    const b1 = cache.getOrEncode('k', DESC, () => {
+      encodeCalled++
+    })
+    const b2 = cache.getOrEncode('k', DESC, () => {
+      encodeCalled++
+    })
+    expect(encodeCalled).toBe(1) // encoded once
+    expect(b2).toBe(b1) // same bundle ref
     expect(cache.getStats().hits).toBe(1)
     expect(cache.getStats().misses).toBe(1)
   })
@@ -71,11 +85,15 @@ describe('BundleCache — invalidation', () => {
   it('invalidate(key) → next call re-encodes', () => {
     const cache = new BundleCache(mockDevice())
     let encodeCalled = 0
-    const b1 = cache.getOrEncode('k', DESC, () => { encodeCalled++ })
+    const b1 = cache.getOrEncode('k', DESC, () => {
+      encodeCalled++
+    })
     cache.invalidate('k')
-    const b2 = cache.getOrEncode('k', DESC, () => { encodeCalled++ })
+    const b2 = cache.getOrEncode('k', DESC, () => {
+      encodeCalled++
+    })
     expect(encodeCalled).toBe(2)
-    expect(b2).not.toBe(b1)             // distinct bundle ref
+    expect(b2).not.toBe(b1) // distinct bundle ref
     expect(cache.getStats().misses).toBe(2)
   })
 
@@ -88,12 +106,20 @@ describe('BundleCache — invalidation', () => {
   it('invalidateAll → every key re-encodes', () => {
     const cache = new BundleCache(mockDevice())
     let encodeCalled = 0
-    cache.getOrEncode('a', DESC, () => { encodeCalled++ })
-    cache.getOrEncode('b', DESC, () => { encodeCalled++ })
+    cache.getOrEncode('a', DESC, () => {
+      encodeCalled++
+    })
+    cache.getOrEncode('b', DESC, () => {
+      encodeCalled++
+    })
     cache.invalidateAll()
-    cache.getOrEncode('a', DESC, () => { encodeCalled++ })
-    cache.getOrEncode('b', DESC, () => { encodeCalled++ })
-    expect(encodeCalled).toBe(4)        // 2 + 2
+    cache.getOrEncode('a', DESC, () => {
+      encodeCalled++
+    })
+    cache.getOrEncode('b', DESC, () => {
+      encodeCalled++
+    })
+    expect(encodeCalled).toBe(4) // 2 + 2
     expect(cache.getStats().size).toBe(2)
   })
 })
@@ -101,10 +127,10 @@ describe('BundleCache — invalidation', () => {
 describe('BundleCache — stats', () => {
   it('hitRate computed correctly', () => {
     const cache = new BundleCache(mockDevice())
-    cache.getOrEncode('k', DESC, () => {})  // miss
-    cache.getOrEncode('k', DESC, () => {})  // hit
-    cache.getOrEncode('k', DESC, () => {})  // hit
-    cache.getOrEncode('k', DESC, () => {})  // hit
+    cache.getOrEncode('k', DESC, () => {}) // miss
+    cache.getOrEncode('k', DESC, () => {}) // hit
+    cache.getOrEncode('k', DESC, () => {}) // hit
+    cache.getOrEncode('k', DESC, () => {}) // hit
     const s = cache.getStats()
     expect(s.hits).toBe(3)
     expect(s.misses).toBe(1)
@@ -135,30 +161,34 @@ describe('BundleCache — iter-227 LRU cap', () => {
     cache.getOrEncode('c', DESC, () => {})
     expect(cache.getStats().size).toBe(3)
     expect(cache.getStats().evictions).toBe(0)
-    cache.getOrEncode('d', DESC, () => {})  // overflow → evict 1
+    cache.getOrEncode('d', DESC, () => {}) // overflow → evict 1
     expect(cache.getStats().size).toBe(3)
     expect(cache.getStats().evictions).toBe(1)
-    cache.getOrEncode('e', DESC, () => {})  // overflow → evict 2
+    cache.getOrEncode('e', DESC, () => {}) // overflow → evict 2
     expect(cache.getStats().size).toBe(3)
     expect(cache.getStats().evictions).toBe(2)
   })
 
   it('LRU policy: hit bumps recency, oldest-by-lastUsed evicted', () => {
     const cache = new BundleCache(mockDevice(), 3)
-    cache.getOrEncode('a', DESC, () => {})   // call 1, 'a'.lastUsed=1
-    cache.getOrEncode('b', DESC, () => {})   // call 2, 'b'.lastUsed=2
-    cache.getOrEncode('c', DESC, () => {})   // call 3, 'c'.lastUsed=3
-    cache.getOrEncode('a', DESC, () => {})   // call 4 (hit), 'a'.lastUsed=4
+    cache.getOrEncode('a', DESC, () => {}) // call 1, 'a'.lastUsed=1
+    cache.getOrEncode('b', DESC, () => {}) // call 2, 'b'.lastUsed=2
+    cache.getOrEncode('c', DESC, () => {}) // call 3, 'c'.lastUsed=3
+    cache.getOrEncode('a', DESC, () => {}) // call 4 (hit), 'a'.lastUsed=4
     // 'b' is now oldest (lastUsed=2). Inserting 'd' should evict 'b'.
-    cache.getOrEncode('d', DESC, () => {})   // call 5 (miss + evict)
+    cache.getOrEncode('d', DESC, () => {}) // call 5 (miss + evict)
     expect(cache.getStats().size).toBe(3)
     // Confirm: 'b' gone (next call re-encodes), 'a' / 'c' / 'd' present.
     let bReEncoded = false
-    cache.getOrEncode('b', DESC, () => { bReEncoded = true })
+    cache.getOrEncode('b', DESC, () => {
+      bReEncoded = true
+    })
     expect(bReEncoded).toBe(true)
     // 'a' still cached (no re-encode).
     let aReEncoded = false
-    cache.getOrEncode('a', DESC, () => { aReEncoded = true })
+    cache.getOrEncode('a', DESC, () => {
+      aReEncoded = true
+    })
     expect(aReEncoded).toBe(false)
   })
 

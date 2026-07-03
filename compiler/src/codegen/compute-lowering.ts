@@ -82,9 +82,7 @@ export function lowerConditionalColorToTernary(
  *  to a named colour; non-resolvable arms are skipped (mirrors
  *  shader-gen's `resolveColorFromAST` behaviour exactly so cross-
  *  path category IDs stay aligned). */
-export function lowerMatchColorToMatch(
-  expr: DataExpr,
-): MatchEmitSpec | null {
+export function lowerMatchColorToMatch(expr: DataExpr): MatchEmitSpec | null {
   const ast = expr.ast
   if (ast.kind !== 'FnCall') return null
   if (ast.callee.kind !== 'Identifier' || ast.callee.name !== 'match') return null

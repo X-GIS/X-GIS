@@ -9,19 +9,23 @@
 
 import { describe, expect, it } from 'vitest'
 import { collectPalette, emptyPalette, type ColorGradient } from './palette'
-import type { ColorValue, RenderNode, Scene, SizeValue, StrokeValue, ZoomStop } from '../ir/render-node'
+import type {
+  ColorValue,
+  RenderNode,
+  Scene,
+  SizeValue,
+  StrokeValue,
+  ZoomStop,
+} from '../ir/render-node'
 import type { PropertyShape, RGBA } from '../ir/property-types'
 
 const RED: RGBA = [1, 0, 0, 1]
 const GREEN: RGBA = [0, 1, 0, 1]
 const BLUE: RGBA = [0, 0, 1, 1]
 
-const zs = <T,>(zoom: number, value: T): ZoomStop<T> => ({ zoom, value })
+const zs = <T>(zoom: number, value: T): ZoomStop<T> => ({ zoom, value })
 
-function makeNode(
-  name: string,
-  overrides: Partial<RenderNode> = {},
-): RenderNode {
+function makeNode(name: string, overrides: Partial<RenderNode> = {}): RenderNode {
   const base: RenderNode = {
     name,
     sourceRef: 's',
@@ -66,9 +70,11 @@ describe('palette — collectPalette', () => {
   })
 
   it('constant fill → 1 color', () => {
-    const scene = makeScene(makeNode('a', {
-      fill: { kind: 'constant', rgba: RED } as ColorValue,
-    }))
+    const scene = makeScene(
+      makeNode('a', {
+        fill: { kind: 'constant', rgba: RED } as ColorValue,
+      }),
+    )
     const p = collectPalette(scene)
     expect(p.colors).toEqual([RED])
     expect(p.findColor(RED)).toBe(0)
@@ -87,12 +93,14 @@ describe('palette — collectPalette', () => {
   })
 
   it('zoom-interpolated color → 1 gradient + stop values added to color pool', () => {
-    const scene = makeScene(makeNode('a', {
-      fill: {
-        kind: 'zoom-interpolated',
-        stops: [zs(2, RED), zs(10, BLUE)],
-      } as ColorValue,
-    }))
+    const scene = makeScene(
+      makeNode('a', {
+        fill: {
+          kind: 'zoom-interpolated',
+          stops: [zs(2, RED), zs(10, BLUE)],
+        } as ColorValue,
+      }),
+    )
     const p = collectPalette(scene)
     expect(p.colorGradients).toHaveLength(1)
     expect(p.colorGradients[0]!.stops).toHaveLength(2)
@@ -138,41 +146,50 @@ describe('palette — collectPalette', () => {
   })
 
   it('time-interpolated color contributes base → 1 color, no gradient', () => {
-    const scene = makeScene(makeNode('a', {
-      fill: {
-        kind: 'time-interpolated',
-        base: GREEN,
-        stops: [{ timeMs: 0, value: GREEN }, { timeMs: 1000, value: RED }],
-        loop: false,
-        easing: 'linear',
-        delayMs: 0,
-      } as ColorValue,
-    }))
+    const scene = makeScene(
+      makeNode('a', {
+        fill: {
+          kind: 'time-interpolated',
+          base: GREEN,
+          stops: [
+            { timeMs: 0, value: GREEN },
+            { timeMs: 1000, value: RED },
+          ],
+          loop: false,
+          easing: 'linear',
+          delayMs: 0,
+        } as ColorValue,
+      }),
+    )
     const p = collectPalette(scene)
     expect(p.colors).toContainEqual(GREEN)
     expect(p.colorGradients).toHaveLength(0)
   })
 
   it('data-driven color → skipped entirely', () => {
-    const scene = makeScene(makeNode('a', {
-      fill: {
-        kind: 'data-driven',
-        expr: { ast: { kind: 'FieldAccess', name: 'class' } as never },
-      } as ColorValue,
-    }))
+    const scene = makeScene(
+      makeNode('a', {
+        fill: {
+          kind: 'data-driven',
+          expr: { ast: { kind: 'FieldAccess', name: 'class' } as never },
+        } as ColorValue,
+      }),
+    )
     const p = collectPalette(scene)
     expect(p.colors).toHaveLength(0)
     expect(p.colorGradients).toHaveLength(0)
   })
 
   it('opacity + strokeWidth scalars accumulate', () => {
-    const scene = makeScene(makeNode('a', {
-      opacity: { kind: 'constant', value: 0.8 } as PropertyShape<number>,
-      stroke: {
-        color: { kind: 'none' },
-        width: { kind: 'constant', value: 2.5 } as PropertyShape<number>,
-      } as StrokeValue,
-    }))
+    const scene = makeScene(
+      makeNode('a', {
+        opacity: { kind: 'constant', value: 0.8 } as PropertyShape<number>,
+        stroke: {
+          color: { kind: 'none' },
+          width: { kind: 'constant', value: 2.5 } as PropertyShape<number>,
+        } as StrokeValue,
+      }),
+    )
     const p = collectPalette(scene)
     expect(p.scalars).toContain(0.8)
     expect(p.scalars).toContain(2.5)
@@ -180,12 +197,14 @@ describe('palette — collectPalette', () => {
   })
 
   it('size zoom-interpolated → scalar gradient', () => {
-    const scene = makeScene(makeNode('a', {
-      size: {
-        kind: 'zoom-interpolated',
-        stops: [zs(0, 4), zs(20, 16)],
-      } as SizeValue,
-    }))
+    const scene = makeScene(
+      makeNode('a', {
+        size: {
+          kind: 'zoom-interpolated',
+          stops: [zs(0, 4), zs(20, 16)],
+        } as SizeValue,
+      }),
+    )
     const p = collectPalette(scene)
     expect(p.scalarGradients).toHaveLength(1)
     expect(p.scalars).toContain(4)
@@ -193,33 +212,39 @@ describe('palette — collectPalette', () => {
   })
 
   it('findColor returns -1 for unknown', () => {
-    const scene = makeScene(makeNode('a', {
-      fill: { kind: 'constant', rgba: RED } as ColorValue,
-    }))
+    const scene = makeScene(
+      makeNode('a', {
+        fill: { kind: 'constant', rgba: RED } as ColorValue,
+      }),
+    )
     const p = collectPalette(scene)
     expect(p.findColor(BLUE)).toBe(-1)
   })
 
   it('findColorGradient round-trips', () => {
     const stops = [zs(0, RED), zs(20, BLUE)]
-    const scene = makeScene(makeNode('a', {
-      fill: { kind: 'zoom-interpolated', stops } as ColorValue,
-    }))
+    const scene = makeScene(
+      makeNode('a', {
+        fill: { kind: 'zoom-interpolated', stops } as ColorValue,
+      }),
+    )
     const p = collectPalette(scene)
     const g: ColorGradient = { stops, base: 1 }
     expect(p.findColorGradient(g)).toBe(0)
   })
 
   it('walks fill, stroke.color, opacity, size, strokeWidth all in one pass', () => {
-    const scene = makeScene(makeNode('a', {
-      fill: { kind: 'constant', rgba: RED } as ColorValue,
-      stroke: {
-        color: { kind: 'constant', rgba: BLUE } as ColorValue,
-        width: { kind: 'constant', value: 1.5 } as PropertyShape<number>,
-      } as StrokeValue,
-      opacity: { kind: 'constant', value: 0.5 } as PropertyShape<number>,
-      size: { kind: 'constant', value: 12 } as SizeValue,
-    }))
+    const scene = makeScene(
+      makeNode('a', {
+        fill: { kind: 'constant', rgba: RED } as ColorValue,
+        stroke: {
+          color: { kind: 'constant', rgba: BLUE } as ColorValue,
+          width: { kind: 'constant', value: 1.5 } as PropertyShape<number>,
+        } as StrokeValue,
+        opacity: { kind: 'constant', value: 0.5 } as PropertyShape<number>,
+        size: { kind: 'constant', value: 12 } as SizeValue,
+      }),
+    )
     const p = collectPalette(scene)
     expect(p.colors).toContainEqual(RED)
     expect(p.colors).toContainEqual(BLUE)

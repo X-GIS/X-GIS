@@ -17,7 +17,9 @@ test('PMTiles vector-tile labels render via VTR path', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
 
   const errors: string[] = []
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(m.text())
+  })
   page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`))
 
   // Florence Duomo at z=14 — ensures the `places` source-layer tiles
@@ -27,7 +29,8 @@ test('PMTiles vector-tile labels render via VTR path', async ({ page }) => {
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // PMTiles tiles fetch over the network — give them time.
   await page.waitForTimeout(4_000)
@@ -37,14 +40,13 @@ test('PMTiles vector-tile labels render via VTR path', async ({ page }) => {
 
   const stats = await page.evaluate(async () => {
     const canvas = document.getElementById('map') as HTMLCanvasElement
-    const blob = await new Promise<Blob | null>((res) =>
-      canvas.toBlob((b) => res(b), 'image/png'),
-    )
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob((b) => res(b), 'image/png'))
     if (!blob) return { error: 'no blob' }
     const url = URL.createObjectURL(blob)
     const img = await new Promise<HTMLImageElement>((res, rej) => {
       const i = new Image()
-      i.onload = () => res(i); i.onerror = () => rej(new Error('decode'))
+      i.onload = () => res(i)
+      i.onerror = () => rej(new Error('decode'))
       i.src = url
     })
     const off = new OffscreenCanvas(img.width, img.height)
@@ -68,11 +70,12 @@ test('PMTiles vector-tile labels render via VTR path', async ({ page }) => {
   // labels at z=14. White text fill saturates pure-255 at glyph centers.
   // The buildings layer is stone-300 (RGB ~214) so it never reaches
   // the >=250 threshold; only label fills do.
-  expect(stats.pureWhite,
+  expect(
+    stats.pureWhite,
     `expected white text pixels (got ${stats.pureWhite}/${stats.total})`,
   ).toBeGreaterThan(50)
-  const gpuErrors = errors.filter(e =>
-    !e.includes('favicon') && !e.includes('Failed to load resource'),
+  const gpuErrors = errors.filter(
+    (e) => !e.includes('favicon') && !e.includes('Failed to load resource'),
   )
   expect(gpuErrors, 'no GPU validation errors').toEqual([])
 })

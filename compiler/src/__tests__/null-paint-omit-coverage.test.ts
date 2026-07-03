@@ -12,13 +12,15 @@ function emitFill(fillColor: unknown): string {
   return convertMapboxStyle({
     version: 8,
     sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-    layers: [{
-      id: 'l',
-      type: 'fill',
-      source: 'v',
-      'source-layer': 'water',
-      paint: { 'fill-color': fillColor },
-    }],
+    layers: [
+      {
+        id: 'l',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'water',
+        paint: { 'fill-color': fillColor },
+      },
+    ],
   } as never)
 }
 
@@ -26,13 +28,15 @@ function emitCircle(paint: Record<string, unknown>): string {
   return convertMapboxStyle({
     version: 8,
     sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-    layers: [{
-      id: 'l',
-      type: 'circle',
-      source: 'v',
-      'source-layer': 'poi',
-      paint,
-    }],
+    layers: [
+      {
+        id: 'l',
+        type: 'circle',
+        source: 'v',
+        'source-layer': 'poi',
+        paint,
+      },
+    ],
   } as never)
 }
 
@@ -40,14 +44,16 @@ function emitSymbol(paint: Record<string, unknown>, layout: Record<string, unkno
   return convertMapboxStyle({
     version: 8,
     sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-    layers: [{
-      id: 'l',
-      type: 'symbol',
-      source: 'v',
-      'source-layer': 'place',
-      paint,
-      layout: { 'text-field': '{name}', ...layout },
-    }],
+    layers: [
+      {
+        id: 'l',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 'place',
+        paint,
+        layout: { 'text-field': '{name}', ...layout },
+      },
+    ],
   } as never)
 }
 
@@ -104,13 +110,15 @@ describe('null paint values omit per Mapbox spec', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'l',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'water',
-        paint: { 'fill-color': '#abc', 'fill-opacity': ['literal', null] },
-      }],
+      layers: [
+        {
+          id: 'l',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'water',
+          paint: { 'fill-color': '#abc', 'fill-opacity': ['literal', null] },
+        },
+      ],
     } as never)
     expect(out).not.toMatch(/opacity-\[null\]/)
   })

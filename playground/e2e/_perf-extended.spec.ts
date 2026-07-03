@@ -19,13 +19,13 @@ interface Cell {
 }
 
 const CELLS: Cell[] = [
-  { slug: 'z14-p0',  zoom: 14, pitch: 0 },
+  { slug: 'z14-p0', zoom: 14, pitch: 0 },
   { slug: 'z14-p30', zoom: 14, pitch: 30 },
   { slug: 'z14-p60', zoom: 14, pitch: 60 },
-  { slug: 'z16-p0',  zoom: 16, pitch: 0 },
+  { slug: 'z16-p0', zoom: 16, pitch: 0 },
   { slug: 'z16-p30', zoom: 16, pitch: 30 },
   { slug: 'z16-p60', zoom: 16, pitch: 60 },
-  { slug: 'z18-p0',  zoom: 18, pitch: 0 },
+  { slug: 'z18-p0', zoom: 18, pitch: 0 },
   { slug: 'z18-p30', zoom: 18, pitch: 30 },
   { slug: 'z18-p60', zoom: 18, pitch: 60 },
 ]
@@ -40,7 +40,7 @@ interface CellResult {
   vertices: number
   triangles: number
   tilesVisible: number
-  gpuBreakdownMs: Record<string, number>  // segment → p50 ms
+  gpuBreakdownMs: Record<string, number> // segment → p50 ms
   heapBeforeMb: number
   heapAfterMb: number
   heapDeltaMb: number
@@ -56,29 +56,33 @@ for (const cell of CELLS) {
     const hash = `#${cell.zoom}/37.5172/126.9810/0/${cell.pitch}`
     const t0 = Date.now()
     // gpuprof=1 enables WebGPU timestamp-query path.
-    await page.goto(
-      `/compare.html?style=openfreemap-liberty&gpuprof=1${hash}`,
-      { waitUntil: 'domcontentloaded' },
-    )
+    await page.goto(`/compare.html?style=openfreemap-liberty&gpuprof=1${hash}`, {
+      waitUntil: 'domcontentloaded',
+    })
     await page.waitForFunction(
       () => {
         const w = window as unknown as { __xgisReady?: boolean }
         return w.__xgisReady === true
       },
-      null, { timeout: 60_000 },
+      null,
+      { timeout: 60_000 },
     )
     const loadMs = Date.now() - t0
     await page.waitForTimeout(4_000)
 
     // Heap snapshot pre-steady-state
     const heapBefore = await page.evaluate(async () => {
-      const w = window as unknown as { performance: { measureUserAgentSpecificMemory?: () => Promise<{ bytes: number }> } }
+      const w = window as unknown as {
+        performance: { measureUserAgentSpecificMemory?: () => Promise<{ bytes: number }> }
+      }
       try {
         if (w.performance.measureUserAgentSpecificMemory) {
           const m = await w.performance.measureUserAgentSpecificMemory()
           return m.bytes / 1024 / 1024
         }
-      } catch { /* unavailable in headless */ }
+      } catch {
+        /* unavailable in headless */
+      }
       // Fallback: deprecated performance.memory (chromium-only)
       const pm = (window.performance as unknown as { memory?: { usedJSHeapSize: number } }).memory
       return pm ? pm.usedJSHeapSize / 1024 / 1024 : 0
@@ -110,23 +114,41 @@ for (const cell of CELLS) {
 
     // GPU pass breakdown (median ms per segment from ring buffer).
     const gpuBreakdown = await page.evaluate(() => {
-      const m = (window as unknown as { __xgisMap?: { gpuTimer?: { getBreakdown: () => Record<string, number[]> } } }).__xgisMap
+      const m = (
+        window as unknown as {
+          __xgisMap?: { gpuTimer?: { getBreakdown: () => Record<string, number[]> } }
+        }
+      ).__xgisMap
       const breakdown = m?.gpuTimer?.getBreakdown() ?? {}
       const out: Record<string, number> = {}
       for (const [name, samples] of Object.entries(breakdown)) {
         if (samples.length === 0) continue
         const sorted = samples.slice().sort((a, b) => a - b)
-        out[name] = sorted[Math.floor(sorted.length * 0.5)]! / 1e6  // ns → ms
+        out[name] = sorted[Math.floor(sorted.length * 0.5)]! / 1e6 // ns → ms
       }
       return out
     })
 
     const drawStats = await page.evaluate(() => {
-      const m = (window as unknown as {
-        __xgisMap?: { vtSources?: Map<string, { renderer?: {
-          getDrawStats?: () => { drawCalls: number; vertices: number; triangles: number; tilesVisible: number }
-        } }> }
-      }).__xgisMap
+      const m = (
+        window as unknown as {
+          __xgisMap?: {
+            vtSources?: Map<
+              string,
+              {
+                renderer?: {
+                  getDrawStats?: () => {
+                    drawCalls: number
+                    vertices: number
+                    triangles: number
+                    tilesVisible: number
+                  }
+                }
+              }
+            >
+          }
+        }
+      ).__xgisMap
       if (!m?.vtSources) return null
       const agg = { drawCalls: 0, vertices: 0, triangles: 0, tilesVisible: 0 }
       for (const [, src] of m.vtSources) {
@@ -142,13 +164,17 @@ for (const cell of CELLS) {
 
     // Heap snapshot post-steady-state.
     const heapAfter = await page.evaluate(async () => {
-      const w = window as unknown as { performance: { measureUserAgentSpecificMemory?: () => Promise<{ bytes: number }> } }
+      const w = window as unknown as {
+        performance: { measureUserAgentSpecificMemory?: () => Promise<{ bytes: number }> }
+      }
       try {
         if (w.performance.measureUserAgentSpecificMemory) {
           const m = await w.performance.measureUserAgentSpecificMemory()
           return m.bytes / 1024 / 1024
         }
-      } catch { /* unavailable */ }
+      } catch {
+        /* unavailable */
+      }
       const pm = (window.performance as unknown as { memory?: { usedJSHeapSize: number } }).memory
       return pm ? pm.usedJSHeapSize / 1024 / 1024 : 0
     })
@@ -173,8 +199,8 @@ for (const cell of CELLS) {
 
     // eslint-disable-next-line no-console
     console.log(
-      `[perf-ext ${cell.slug}] load=${r.loadMs}ms p50=${r.steadyP50}ms p95=${r.steadyP95}ms `
-      + `tris=${r.triangles} tiles=${r.tilesVisible} heapΔ=${r.heapDeltaMb}MB`,
+      `[perf-ext ${cell.slug}] load=${r.loadMs}ms p50=${r.steadyP50}ms p95=${r.steadyP95}ms ` +
+        `tris=${r.triangles} tiles=${r.tilesVisible} heapΔ=${r.heapDeltaMb}MB`,
     )
   })
 }
@@ -191,7 +217,9 @@ test.afterAll(() => {
   lines.push('| Cell | Load(ms) | p50(ms) | p95(ms) | max(ms) | Draws | Tris | Tiles | HeapΔ(MB) |')
   lines.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|')
   for (const r of results) {
-    lines.push(`| ${r.slug} | ${r.loadMs} | ${r.steadyP50} | ${r.steadyP95} | ${r.steadyMax} | ${r.drawCalls} | ${r.triangles} | ${r.tilesVisible} | ${r.heapDeltaMb} |`)
+    lines.push(
+      `| ${r.slug} | ${r.loadMs} | ${r.steadyP50} | ${r.steadyP95} | ${r.steadyMax} | ${r.drawCalls} | ${r.triangles} | ${r.tilesVisible} | ${r.heapDeltaMb} |`,
+    )
   }
   lines.push('')
   lines.push('## GPU pass breakdown (median ms)')
@@ -203,7 +231,7 @@ test.afterAll(() => {
   lines.push(`| Cell | ${segs.join(' | ')} |`)
   lines.push(`|---|${segs.map(() => '---:').join('|')}|`)
   for (const r of results) {
-    const row = segs.map(s => r.gpuBreakdownMs[s]?.toFixed(2) ?? '—')
+    const row = segs.map((s) => r.gpuBreakdownMs[s]?.toFixed(2) ?? '—')
     lines.push(`| ${r.slug} | ${row.join(' | ')} |`)
   }
   writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))

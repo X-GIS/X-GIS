@@ -41,7 +41,7 @@ const SPACE_SMOKE: Array<{ proj: string; scene: 'world' }> = [
 ]
 
 const SCENES: Record<string, { zoom: number; lat: number; lon: number; pitch: number }> = {
-  'world': { zoom: 0.5, lat: 0, lon: 0, pitch: 0 },
+  world: { zoom: 0.5, lat: 0, lon: 0, pitch: 0 },
   'world-pitch': { zoom: 0.5, lat: 0, lon: 0, pitch: 60 },
 }
 
@@ -60,7 +60,7 @@ interface MapH {
  *  path (a WebGPU canvas can't getImageData directly). */
 async function blackRatio(page: import('@playwright/test').Page, png: Buffer): Promise<number> {
   return await page.evaluate(async (b64: string) => {
-    const blob = await fetch(`data:image/png;base64,${b64}`).then(r => r.blob())
+    const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())
     const bmp = await createImageBitmap(blob)
     const c = document.createElement('canvas')
     c.width = bmp.width
@@ -77,24 +77,33 @@ async function blackRatio(page: import('@playwright/test').Page, png: Buffer): P
   }, png.toString('base64'))
 }
 
-async function captureCell(page: import('@playwright/test').Page, proj: string, scene: string): Promise<Buffer> {
+async function captureCell(
+  page: import('@playwright/test').Page,
+  proj: string,
+  scene: string,
+): Promise<Buffer> {
   const s = SCENES[scene]
   const hash = `#${s.zoom}/${s.lat}/${s.lon}/0/${s.pitch}`
   await page.goto(`/demo.html?id=openfreemap_bright&proj=${proj}${hash}`, {
-    waitUntil: 'domcontentloaded', timeout: 60_000,
+    waitUntil: 'domcontentloaded',
+    timeout: 60_000,
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
   await page.waitForTimeout(1_500)
-  await page.evaluate(({ proj, lon, lat, zoom, pitch }) => {
-    const m = (window as unknown as { __xgisMap: MapH }).__xgisMap
-    m.setProjection(proj)
-    m.jumpTo({ center: [lon, lat], zoom, bearing: 0, pitch })
-    m.markCameraPositioned()
-    m.invalidate?.()
-  }, { proj, lon: s.lon, lat: s.lat, zoom: s.zoom, pitch: s.pitch })
+  await page.evaluate(
+    ({ proj, lon, lat, zoom, pitch }) => {
+      const m = (window as unknown as { __xgisMap: MapH }).__xgisMap
+      m.setProjection(proj)
+      m.jumpTo({ center: [lon, lat], zoom, bearing: 0, pitch })
+      m.markCameraPositioned()
+      m.invalidate?.()
+    },
+    { proj, lon: s.lon, lat: s.lat, zoom: s.zoom, pitch: s.pitch },
+  )
   await page.waitForTimeout(4_500)
   return await page.locator('#map').screenshot({ path: `${OUT}/${proj}__${scene}.png` })
 }
@@ -114,7 +123,9 @@ test('coverage: flat CORE/SHOWCASE has no black void; disc/globe render', async 
     const pass = black <= FLAT_BLACK_MAX
     results.push({ cell: `${proj}/${scene}`, black, gate: FLAT_BLACK_MAX, pass })
     // eslint-disable-next-line no-console
-    console.log(`[coverage] ${proj}/${scene}  black=${(black * 100).toFixed(2)}%  gate≤${FLAT_BLACK_MAX * 100}%  ${pass ? 'OK' : 'FAIL'}`)
+    console.log(
+      `[coverage] ${proj}/${scene}  black=${(black * 100).toFixed(2)}%  gate≤${FLAT_BLACK_MAX * 100}%  ${pass ? 'OK' : 'FAIL'}`,
+    )
   }
 
   for (const { proj, scene } of SPACE_SMOKE) {
@@ -124,18 +135,23 @@ test('coverage: flat CORE/SHOWCASE has no black void; disc/globe render', async 
     const pass = black < 0.99
     results.push({ cell: `${proj}/${scene}`, black, gate: null, pass })
     // eslint-disable-next-line no-console
-    console.log(`[coverage] ${proj}/${scene}  black=${(black * 100).toFixed(2)}%  (space-smoke <99%)  ${pass ? 'OK' : 'FAIL'}`)
+    console.log(
+      `[coverage] ${proj}/${scene}  black=${(black * 100).toFixed(2)}%  (space-smoke <99%)  ${pass ? 'OK' : 'FAIL'}`,
+    )
   }
 
   // eslint-disable-next-line no-console
   console.log(`\nPNGs -> ${OUT}`)
 
   // Assert flat coverage cells: no accidental black void.
-  for (const r of results.filter(r => r.gate !== null)) {
-    expect(r.black, `${r.cell} pure-black ratio must be ≤ ${FLAT_BLACK_MAX} (coverage void)`).toBeLessThanOrEqual(FLAT_BLACK_MAX)
+  for (const r of results.filter((r) => r.gate !== null)) {
+    expect(
+      r.black,
+      `${r.cell} pure-black ratio must be ≤ ${FLAT_BLACK_MAX} (coverage void)`,
+    ).toBeLessThanOrEqual(FLAT_BLACK_MAX)
   }
   // Smoke: disc/globe rendered something.
-  for (const r of results.filter(r => r.gate === null)) {
+  for (const r of results.filter((r) => r.gate === null)) {
     expect(r.black, `${r.cell} is an all-black frame (nothing rendered)`).toBeLessThan(0.99)
   }
 })

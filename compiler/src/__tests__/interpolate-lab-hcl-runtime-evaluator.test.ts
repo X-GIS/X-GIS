@@ -33,8 +33,7 @@ function build(value: unknown) {
     version: 8,
     sources: { a: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
     layers: [
-      { id: 'l', type: 'fill', source: 'a', 'source-layer': 'a',
-        paint: { 'fill-color': value } },
+      { id: 'l', type: 'fill', source: 'a', 'source-layer': 'a', paint: { 'fill-color': value } },
     ],
   }
 }
@@ -47,9 +46,13 @@ function evalExpr(src: string, vars: Record<string, unknown> = {}): unknown {
 describe('interpolate_lab / interpolate_hcl — data-driven runtime evaluator', () => {
   it('non-hex stops convert to interpolate_lab(...) (was linear downgrade)', () => {
     const style = build([
-      'interpolate-lab', ['linear'], ['get', 'k'],
-      0, ['get', 'c0'],
-      10, ['get', 'c1'],
+      'interpolate-lab',
+      ['linear'],
+      ['get', 'k'],
+      0,
+      ['get', 'c0'],
+      10,
+      ['get', 'c1'],
     ])
     const warnings: string[] = []
     const xgis = convertMapboxStyle(style as never, {
@@ -57,16 +60,20 @@ describe('interpolate_lab / interpolate_hcl — data-driven runtime evaluator', 
     })
     expect(xgis, warnings.join('\n')).toContain('interpolate_lab(')
     // Old downgrade warning must NOT fire.
-    expect(warnings.some(s => /approximated as linear-sRGB/.test(s))).toBe(false)
+    expect(warnings.some((s) => /approximated as linear-sRGB/.test(s))).toBe(false)
     // New routing notice fires.
-    expect(warnings.some(s => /routed to runtime interpolate_lab/.test(s))).toBe(true)
+    expect(warnings.some((s) => /routed to runtime interpolate_lab/.test(s))).toBe(true)
   })
 
   it('hcl form emits interpolate_hcl(...)', () => {
     const style = build([
-      'interpolate-hcl', ['linear'], ['get', 'k'],
-      0, ['get', 'c0'],
-      10, ['get', 'c1'],
+      'interpolate-hcl',
+      ['linear'],
+      ['get', 'k'],
+      0,
+      ['get', 'c0'],
+      10,
+      ['get', 'c1'],
     ])
     const warnings: string[] = []
     const xgis = convertMapboxStyle(style as never, {
@@ -119,9 +126,13 @@ describe('interpolate_lab / interpolate_hcl — data-driven runtime evaluator', 
   it('evaluator: end-to-end through the converter (data-driven get → eval)', () => {
     // Style references properties; eval against a fake feature.
     const style = build([
-      'interpolate-lab', ['linear'], ['get', 'magnitude'],
-      0, ['get', 'low'],
-      10, ['get', 'high'],
+      'interpolate-lab',
+      ['linear'],
+      ['get', 'magnitude'],
+      0,
+      ['get', 'low'],
+      10,
+      ['get', 'high'],
     ])
     const warnings: string[] = []
     convertMapboxStyle(style as never, {
@@ -129,10 +140,11 @@ describe('interpolate_lab / interpolate_hcl — data-driven runtime evaluator', 
     })
     // Evaluate the runtime form directly — at magnitude=5 with
     // low=#ffffff and high=#000000, expect Lab midpoint grey.
-    const result = evalExpr(
-      'interpolate_lab(magnitude, 0, low, 10, high)',
-      { magnitude: 5, low: '#ffffff', high: '#000000' },
-    )
+    const result = evalExpr('interpolate_lab(magnitude, 0, low, 10, high)', {
+      magnitude: 5,
+      low: '#ffffff',
+      high: '#000000',
+    })
     const rgb = parseSrgbHex(result as string)!
     const [L] = srgbToLab(rgb[0], rgb[1], rgb[2])
     expect(L).toBeGreaterThan(40)

@@ -20,14 +20,19 @@ interface FrameTrace {
 }
 
 async function captureTrace(page: Page, hash: string): Promise<FrameTrace> {
-  await page.goto(`/compare.html?style=openfreemap-bright${hash}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/compare.html?style=openfreemap-bright${hash}`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   await page.waitForTimeout(6_000)
   return await page.evaluate(async () => {
-    const map = (window as unknown as { __xgisMap?: { captureNextFrameTrace?: () => Promise<FrameTrace> } }).__xgisMap
+    const map = (
+      window as unknown as { __xgisMap?: { captureNextFrameTrace?: () => Promise<FrameTrace> } }
+    ).__xgisMap
     if (!map?.captureNextFrameTrace) throw new Error('captureNextFrameTrace missing')
     return await map.captureNextFrameTrace()
   })

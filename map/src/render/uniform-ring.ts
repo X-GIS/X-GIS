@@ -42,7 +42,9 @@ export class UniformRing {
   }
 
   /** The live GPU buffer, or null before `ensure()`. */
-  get buffer(): GPUBuffer | null { return this._buffer }
+  get buffer(): GPUBuffer | null {
+    return this._buffer
+  }
 
   /** Lazily create the ring buffer and build the caller's bind groups. */
   ensure(): void {
@@ -57,7 +59,9 @@ export class UniformRing {
 
   /** Reset the slot cursor for a new frame. Retired disposal is the
    *  caller's policy — see `takeRetired()`. */
-  resetSlot(): void { this.slot = 0 }
+  resetSlot(): void {
+    this.slot = 0
+  }
 
   /** Hand the caller the buffers retired by grows since the last call, and
    *  clear the internal list. The caller destroys or drops them per its
@@ -94,10 +98,14 @@ export class UniformRing {
    *  it empty. Safe to call multiple times per pass (no-op when clean). */
   flush(): void {
     if (this.dirtyHi === this.dirtyLo || !this._buffer) return
-    const lo = this.dirtyLo, hi = this.dirtyHi
+    const lo = this.dirtyLo,
+      hi = this.dirtyHi
     this.device.queue.writeBuffer(
-      this._buffer, lo,
-      this.staging.buffer, this.staging.byteOffset + lo, hi - lo,
+      this._buffer,
+      lo,
+      this.staging.buffer,
+      this.staging.byteOffset + lo,
+      hi - lo,
     )
     this.dirtyLo = 0
     this.dirtyHi = 0
@@ -117,8 +125,11 @@ export class UniformRing {
       // buffer before retiring it.
       if (this.slot > 0) {
         this.device.queue.writeBuffer(
-          this._buffer, 0,
-          this.staging.buffer, this.staging.byteOffset, this.slot * this.slotSize,
+          this._buffer,
+          0,
+          this.staging.buffer,
+          this.staging.byteOffset,
+          this.slot * this.slotSize,
         )
       }
       this.retired.push(this._buffer)

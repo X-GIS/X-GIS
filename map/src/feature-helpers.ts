@@ -17,7 +17,10 @@ import type { GeoJSONFeatureCollection } from '@xgis/data'
  *  signal should use {@link hexToRgba} instead. Previously duplicated
  *  in map.ts and vector-tile-renderer.ts; consolidated here. */
 export function parseHexColor(hex: string): [number, number, number, number] {
-  let r = 0, g = 0, b = 0, a = 1
+  let r = 0,
+    g = 0,
+    b = 0,
+    a = 1
   // Reject non-hex content early. Without this, `parseInt("zz", 16)` =
   // NaN propagated through to the colour buffer; the renderer's
   // float-array view stored NaN per channel and the GPU sampled
@@ -82,7 +85,9 @@ export function hexToRgba(hex: string | null | undefined): [number, number, numb
  *  to ringBboxCentre on the coordinate list. Returns null on empty /
  *  unsupported shapes so the caller can fall back to a different
  *  strategy (e.g. tile-centre when no per-feature anchor is available). */
-export function featureAnchor(geom: import('@xgis/data').GeoJSONGeometry | { type: string; coordinates: unknown }): [number, number] | null {
+export function featureAnchor(
+  geom: import('@xgis/data').GeoJSONGeometry | { type: string; coordinates: unknown },
+): [number, number] | null {
   if (!geom) return null
   // GeometryCollection (RFC 7946 §3.1.8) has `geometries`, not
   // `coordinates`. No single anchor without picking a sub-geometry;
@@ -95,14 +100,16 @@ export function featureAnchor(geom: import('@xgis/data').GeoJSONGeometry | { typ
     // Validate Point coords shape — a malformed Point with missing /
     // non-numeric coordinates would otherwise let the caller deref
     // [0]/[1] on null and crash downstream. Return null cleanly.
-    if (!Array.isArray(c) || c.length < 2 || typeof c[0] !== 'number' || typeof c[1] !== 'number') return null
+    if (!Array.isArray(c) || c.length < 2 || typeof c[0] !== 'number' || typeof c[1] !== 'number')
+      return null
     return c as [number, number]
   }
   if (geom.type === 'MultiPoint' && Array.isArray(c) && c.length > 0) {
     // Mirror the Point shape validation — first multi-point coord
     // must be a valid [number, number] pair, else null.
     const p = c[0]
-    if (!Array.isArray(p) || p.length < 2 || typeof p[0] !== 'number' || typeof p[1] !== 'number') return null
+    if (!Array.isArray(p) || p.length < 2 || typeof p[0] !== 'number' || typeof p[1] !== 'number')
+      return null
     return p as [number, number]
   }
   if (geom.type === 'LineString' && Array.isArray(c)) {
@@ -114,8 +121,13 @@ export function featureAnchor(geom: import('@xgis/data').GeoJSONGeometry | { typ
   if (geom.type === 'Polygon' && Array.isArray(c) && c.length > 0) {
     return ringBboxCentre(c[0] as [number, number][])
   }
-  if (geom.type === 'MultiPolygon' && Array.isArray(c) && c.length > 0
-      && Array.isArray(c[0]) && (c[0] as unknown[]).length > 0) {
+  if (
+    geom.type === 'MultiPolygon' &&
+    Array.isArray(c) &&
+    c.length > 0 &&
+    Array.isArray(c[0]) &&
+    (c[0] as unknown[]).length > 0
+  ) {
     return ringBboxCentre(c[0][0] as [number, number][])
   }
   return null
@@ -125,7 +137,10 @@ export function featureAnchor(geom: import('@xgis/data').GeoJSONGeometry | { typ
  *  for empty rings. */
 function ringBboxCentre(ring: [number, number][]): [number, number] | null {
   if (!ring || ring.length === 0) return null
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+  let minX = Infinity,
+    maxX = -Infinity,
+    minY = Infinity,
+    maxY = -Infinity
   for (const pt of ring) {
     // Skip malformed points (null, non-array, < 2 entries, non-numeric).
     // Pre-fix `for (const [x, y] of ring)` destructure threw on null
@@ -135,8 +150,10 @@ function ringBboxCentre(ring: [number, number][]): [number, number] | null {
     const x = pt[0]
     const y = pt[1]
     if (typeof x !== 'number' || typeof y !== 'number') continue
-    if (x < minX) minX = x; if (x > maxX) maxX = x
-    if (y < minY) minY = y; if (y > maxY) maxY = y
+    if (x < minX) minX = x
+    if (x > maxX) maxX = x
+    if (y < minY) minY = y
+    if (y > maxY) maxY = y
   }
   // If every point was malformed, minX/maxX stay at ±Infinity →
   // (Infinity + -Infinity) / 2 = NaN. Return null cleanly instead.
@@ -165,7 +182,7 @@ export function applyFilter(
   // a hard crash.
   if (!data || !filterExpr?.ast || !Array.isArray(data.features)) return data
   const ast = filterExpr.ast as AST.Expr
-  const filtered = data.features.filter(f => {
+  const filtered = data.features.filter((f) => {
     // Inject `$geometryType` + `$featureId` so Mapbox
     // `["geometry-type"]` and `["id"]` accessors (lowered to
     // `get("$geometryType")` / `get("$featureId")` by the converter)
@@ -232,7 +249,7 @@ export function applyGeometry(
   // load step crashes the whole rebuild.
   if (!data || !Array.isArray(data.features)) return data
   const ast = geometryExpr.ast as AST.Expr
-  const newFeatures = data.features.map(f => {
+  const newFeatures = data.features.map((f) => {
     const bag = makeEvalProps({
       props: f.properties ?? undefined,
       geometryType: f.geometry?.type,

@@ -12,16 +12,18 @@ describe('line-offset conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'road-casing',
-        type: 'line',
-        source: 'v',
-        paint: {
-          'line-color': '#888',
-          'line-width': 3,
-          'line-offset': 4,
+      layers: [
+        {
+          id: 'road-casing',
+          type: 'line',
+          source: 'v',
+          paint: {
+            'line-color': '#888',
+            'line-width': 3,
+            'line-offset': 4,
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toContain('stroke-offset-right-4')
@@ -32,12 +34,14 @@ describe('line-offset conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'road-casing',
-        type: 'line',
-        source: 'v',
-        paint: { 'line-color': '#888', 'line-width': 3, 'line-offset': -2.5 },
-      }],
+      layers: [
+        {
+          id: 'road-casing',
+          type: 'line',
+          source: 'v',
+          paint: { 'line-color': '#888', 'line-width': 3, 'line-offset': -2.5 },
+        },
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toContain('stroke-offset-left-2.5')
@@ -48,12 +52,14 @@ describe('line-offset conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'road',
-        type: 'line',
-        source: 'v',
-        paint: { 'line-color': '#888', 'line-width': 3, 'line-offset': 0 },
-      }],
+      layers: [
+        {
+          id: 'road',
+          type: 'line',
+          source: 'v',
+          paint: { 'line-color': '#888', 'line-width': 3, 'line-offset': 0 },
+        },
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).not.toMatch(/stroke-offset/)
@@ -63,12 +69,14 @@ describe('line-offset conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'road',
-        type: 'line',
-        source: 'v',
-        paint: { 'line-color': '#888', 'line-width': 3 },
-      }],
+      layers: [
+        {
+          id: 'road',
+          type: 'line',
+          source: 'v',
+          paint: { 'line-color': '#888', 'line-width': 3 },
+        },
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).not.toMatch(/stroke-offset/)
@@ -78,16 +86,18 @@ describe('line-offset conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'road',
-        type: 'line',
-        source: 'v',
-        paint: {
-          'line-color': '#888',
-          'line-width': 3,
-          'line-offset': ['interpolate', ['linear'], ['zoom'], 10, 0, 14, 3],
+      layers: [
+        {
+          id: 'road',
+          type: 'line',
+          source: 'v',
+          paint: {
+            'line-color': '#888',
+            'line-width': 3,
+            'line-offset': ['interpolate', ['linear'], ['zoom'], 10, 0, 14, 3],
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).not.toMatch(/stroke-offset/)
@@ -98,12 +108,14 @@ describe('line-offset conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'r',
-        type: 'line',
-        source: 'v',
-        paint: { 'line-color': '#888', 'line-width': 3, 'line-offset': 4 },
-      }],
+      layers: [
+        {
+          id: 'r',
+          type: 'line',
+          source: 'v',
+          paint: { 'line-color': '#888', 'line-width': 3, 'line-offset': 4 },
+        },
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     const tokens = new Lexer(xgis).tokenize()
@@ -121,12 +133,14 @@ describe('line-offset conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'r',
-        type: 'line',
-        source: 'v',
-        paint: { 'line-color': '#888', 'line-width': 3, 'line-offset': -3 },
-      }],
+      layers: [
+        {
+          id: 'r',
+          type: 'line',
+          source: 'v',
+          paint: { 'line-color': '#888', 'line-width': 3, 'line-offset': -3 },
+        },
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     const tokens = new Lexer(xgis).tokenize()

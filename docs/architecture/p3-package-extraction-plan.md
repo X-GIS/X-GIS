@@ -26,6 +26,7 @@ Rule: the grep-verified engine-machinery set (content-blind, import-grep clean) 
 a file in both lists resolves to engine if its imports are content-clean.
 
 ### @xgis/engine (content-blind machinery, ~47 files)
+
 - **RHI**: `render/rhi/{rhi,rhi-webgpu,rhi-webgl2}.ts`
 - **GPU**: `gpu/{gpu,gpu-arena,gpu-shared,gpu-timer,compute,compute-webgl2,frame-arena,frame-uniform,staging-buffer-pool,palette-texture,quality,bind-tiers}.ts`
 - **Projection/camera (pure math)**: `projection/{camera,camera-helpers,camera-world-copies,view-matrix,projection,projections-table,unproject,ecef,globe,globe-anchor,earth-surface-fill}.ts`
@@ -34,6 +35,7 @@ a file in both lists resolves to engine if its imports are content-clean.
 - **Shader DSL**: `shaders/dsl/{consts,index}.ts`
 
 ### @xgis/map (content)
+
 renderer.ts/renderer-types.ts/renderer-helpers.ts · passes/** (11) · VTR cluster
 (vector-tile-renderer*, bucket-scheduler, gpu-tile-store, tile-compute-resources,
 feature-data-binder, compute-feature-packer, prefetch-scheduler) · material/** (9) · text/** ·
@@ -43,14 +45,17 @@ sprite/** · {line,point,heatmap,raster,graticule}-renderer.ts + graticule.ts ·
 globe-eye-uniform) · **frame driver render-loop.ts** · **public facade map.ts (XGISMap)**.
 
 ### shell (runtime → thin barrel)
+
 `runtime/src/index.ts` re-exports `@xgis/map` + `@xgis/engine` public API; `runtime/src/web/component.ts`
 imports `XGISMap` from `@xgis/map` (the ONE allowed map→engine-direction value edge).
 
 ### Judgment-call files (grep at move time; engine only if content-clean, else map)
+
 `bind-group-registry.ts`, `upload-coordinator.ts`, `tile-selection-cache.ts`;
 `globe-eye-uniform.ts` → **map** (content paths write it).
 
 ## 2. Package/build/vite wiring (sibling-package model, real-GPU preserving)
+
 - `engine|map/package.json`: `type:module`, main/module/types→`dist/`, `build: vite build && bun scripts/build-dts.ts`. Deps: engine→`@xgis/{compiler,shader-dsl,shared}`; map→`@xgis/{engine,compiler,shader-dsl,shared}`.
 - `engine|map/tsconfig.json`: `extends ../tsconfig.base.json`, `composite:true`, `outDir:dist`, `rootDir:src`, `types:["@webgpu/types"]`, `paths`→sibling `dist/*.d.ts`, `references`. **Build order: shader-dsl → compiler/shared → engine → map** (avoids TS6305/TS6059).
 - Root `package.json` workspaces: add `engine`, `map`.
@@ -77,10 +82,11 @@ changed module-init order (eager-reflect / projections-table) = a real bug, stop
 - **Step 9 — Gate-6 + lock.** architecture-invariants: zero `@xgis/map` imports in any `engine/**` file (incl `import type`) + companion (no engine deep-import of map). Passes immediately (0 reverse edges). Full architecture-invariants both shards green.
 
 ## Steps that CANNOT be pure source-relocation (flagged)
+
 1. **Step 1** scaffold — structural; wrong tsconfig reference order breaks downstream.
 2. **Steps 3 & 5 & 6** — pure ONLY if module-init order preserved (projections-table init,
    uniform-ring grow, `*-uniform-slots` lazy `reflect()` — the #612/#193 hazards). Each must be
    DC=0 + **real-GPU map-load** verified, NOT just tsc/SwiftShader.
 3. **Step 7 render-loop** — pure ONLY because we chose relocation over the FrameRendererHost
    inversion (the inversion = a behavior-touching refactor + Gate-6 violation).
-Steps 2,4,8 = mechanical relocation + atomic import-path rewrite, gated by DC=0.
+   Steps 2,4,8 = mechanical relocation + atomic import-path rewrite, gated by DC=0.

@@ -22,7 +22,8 @@ describe('converter multi-wrap final sweep', () => {
   it('rgba doubly-wrapped channels hex-encode', () => {
     const w: string[] = []
     const out = colorToXgis(
-      ['rgba',
+      [
+        'rgba',
         ['literal', ['literal', 255]],
         ['literal', ['literal', 0]],
         ['literal', ['literal', 0]],
@@ -45,10 +46,13 @@ describe('converter multi-wrap final sweep', () => {
           source: 's',
           paint: {
             'line-color': '#000',
-            'line-dasharray': ['literal', [
-              ['literal', ['literal', 4]],
-              ['literal', ['literal', 2]],
-            ]],
+            'line-dasharray': [
+              'literal',
+              [
+                ['literal', ['literal', 4]],
+                ['literal', ['literal', 2]],
+              ],
+            ],
           },
         },
       ],
@@ -68,9 +72,7 @@ describe('converter multi-wrap final sweep', () => {
           source: 's',
           layout: {
             'text-field': '{name}',
-            'text-font': ['literal', [
-              ['literal', ['literal', 'Noto Sans Bold']],
-            ]],
+            'text-font': ['literal', [['literal', ['literal', 'Noto Sans Bold']]]],
           },
         },
       ],
@@ -90,10 +92,13 @@ describe('converter multi-wrap final sweep', () => {
           source: 's',
           layout: {
             'text-field': '{name}',
-            'text-variable-anchor': ['literal', [
-              ['literal', ['literal', 'top']],
-              ['literal', ['literal', 'bottom']],
-            ]],
+            'text-variable-anchor': [
+              'literal',
+              [
+                ['literal', ['literal', 'top']],
+                ['literal', ['literal', 'bottom']],
+              ],
+            ],
           },
         },
       ],
@@ -114,10 +119,13 @@ describe('converter multi-wrap final sweep', () => {
           source: 's',
           layout: {
             'text-field': '{name}',
-            'text-offset': ['literal', [
-              ['literal', ['literal', 0]],
-              ['literal', ['literal', -2]],
-            ]],
+            'text-offset': [
+              'literal',
+              [
+                ['literal', ['literal', 0]],
+                ['literal', ['literal', -2]],
+              ],
+            ],
           },
         },
       ],

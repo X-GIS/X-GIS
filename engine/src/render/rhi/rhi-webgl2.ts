@@ -42,27 +42,67 @@
 // texture emulation lands).
 
 import type {
-  RhiDevice, RhiBuffer, RhiTexture, RhiTextureView, RhiSampler, RhiBindGroup,
-  RhiBindGroupLayout, RhiPipeline, RhiRenderPass, RhiBufferDesc, RhiTextureDesc,
-  RhiSamplerDesc, RhiBindLayoutEntry, RhiBindEntry, RhiPipelineDesc, RhiTextureFormat, RhiBufferUsage,
-  RhiScreenPassDesc, RhiCommandEncoder, RhiRenderPassDesc,
+  RhiDevice,
+  RhiBuffer,
+  RhiTexture,
+  RhiTextureView,
+  RhiSampler,
+  RhiBindGroup,
+  RhiBindGroupLayout,
+  RhiPipeline,
+  RhiRenderPass,
+  RhiBufferDesc,
+  RhiTextureDesc,
+  RhiSamplerDesc,
+  RhiBindLayoutEntry,
+  RhiBindEntry,
+  RhiPipelineDesc,
+  RhiTextureFormat,
+  RhiBufferUsage,
+  RhiScreenPassDesc,
+  RhiCommandEncoder,
+  RhiRenderPassDesc,
 } from './rhi'
 
 // Each opaque RHI handle stores a rich GL record (cast both ways inside this
 // module). WebGL2 needs MORE per-handle metadata than WebGPU (a buffer's GL
 // target, a bind group's recorded resources, a pipeline's program + state), so
 // the records are structs, not bare native objects.
-interface Gl2Buffer { buf: WebGLBuffer; target: GLenum; usage: RhiBufferUsage; size: number }
+interface Gl2Buffer {
+  buf: WebGLBuffer
+  target: GLenum
+  usage: RhiBufferUsage
+  size: number
+}
 // A 'storage' RHI buffer has no WebGL2 equivalent (no SSBO in ES 3.00) — it is emulated
 // as a 2D-TILED R32F DATA TEXTURE (W×H, the GLSL pre-pass reads element i at texel
 // (i%W, i/W)). `tex` is bound to a texture unit like a sampled texture; width × height
 // holds the f32 count (W capped at 2048 so large arrays wrap across rows).
-interface Gl2StorageBuffer { storageTex: WebGLTexture; width: number; height: number; size: number }
-interface Gl2Texture { tex: WebGLTexture; width: number; height: number; format: RhiTextureFormat }
-interface Gl2View { texture: Gl2Texture }
-interface Gl2Sampler { samp: WebGLSampler }
-interface Gl2BindGroupLayout { entries: ReadonlyArray<RhiBindLayoutEntry> }
-interface Gl2BindGroup { layout: Gl2BindGroupLayout; entries: ReadonlyArray<RhiBindEntry> }
+interface Gl2StorageBuffer {
+  storageTex: WebGLTexture
+  width: number
+  height: number
+  size: number
+}
+interface Gl2Texture {
+  tex: WebGLTexture
+  width: number
+  height: number
+  format: RhiTextureFormat
+}
+interface Gl2View {
+  texture: Gl2Texture
+}
+interface Gl2Sampler {
+  samp: WebGLSampler
+}
+interface Gl2BindGroupLayout {
+  entries: ReadonlyArray<RhiBindLayoutEntry>
+}
+interface Gl2BindGroup {
+  layout: Gl2BindGroupLayout
+  entries: ReadonlyArray<RhiBindEntry>
+}
 interface Gl2Pipeline {
   program: WebGLProgram
   blend: 'alpha' | 'premult' | 'additive' | 'max' | 'none' | undefined
@@ -72,12 +112,24 @@ interface Gl2Pipeline {
    *  writeMask-0 pick target → all-false; the normal color path → all-true. */
   colorWriteMask: [boolean, boolean, boolean, boolean]
   cullMode?: 'none' | 'back' | 'front'
-  depth?: { write: boolean; compare: 'always' | 'less' | 'less-equal'; bias?: { constant: number; slopeScale: number; clamp: number } }
+  depth?: {
+    write: boolean
+    compare: 'always' | 'less' | 'less-equal'
+    bias?: { constant: number; slopeScale: number; clamp: number }
+  }
   /** Per-tile clip-mask stencil state (#746). Mirrors rhi-webgpu's rhiStencilToGpu:
    *  only compare + passOp vary; fail/depthFail stay 'keep'; ref arrives per-draw
    *  via setStencilReference. Absent = STENCIL_TEST disabled (the inert shape). */
-  stencil?: { compare: 'always' | 'equal'; passOp: 'keep' | 'replace'; writeMask: number; readMask: number }
-  vertexBuffers: ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
+  stencil?: {
+    compare: 'always' | 'equal'
+    passOp: 'keep' | 'replace'
+    writeMask: number
+    readMask: number
+  }
+  vertexBuffers: ReadonlyArray<{
+    stride: number
+    attributes: ReadonlyArray<{ location: number; offset: number; format: string }>
+  }>
   layouts: ReadonlyArray<Gl2BindGroupLayout>
 }
 
@@ -86,19 +138,30 @@ const un = <T>(h: unknown): T => h as T
 
 // ── format / blend mapping (mirrors rhi-webgpu so a future pixel-parity holds) ──
 
-function texFmt(gl: WebGL2RenderingContext, f: RhiTextureFormat): { internal: GLenum; format: GLenum; type: GLenum } {
+function texFmt(
+  gl: WebGL2RenderingContext,
+  f: RhiTextureFormat,
+): { internal: GLenum; format: GLenum; type: GLenum } {
   switch (f) {
-    case 'rgba8unorm': return { internal: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE }
-    case 'bgra8unorm': return { internal: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE } // WebGL2 has no BGRA8 storage; host orders bytes
-    case 'r16float': return { internal: gl.R16F, format: gl.RED, type: gl.HALF_FLOAT }
-    case 'rg32uint': return { internal: gl.RG32UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_INT }
-    case 'r32uint': return { internal: gl.R32UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_INT } // core color-renderable, no extension — the compute-as-draw target
-    case 'depth24plus-stencil8': return { internal: gl.DEPTH24_STENCIL8, format: gl.DEPTH_STENCIL, type: gl.UNSIGNED_INT_24_8 }
+    case 'rgba8unorm':
+      return { internal: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE }
+    case 'bgra8unorm':
+      return { internal: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE } // WebGL2 has no BGRA8 storage; host orders bytes
+    case 'r16float':
+      return { internal: gl.R16F, format: gl.RED, type: gl.HALF_FLOAT }
+    case 'rg32uint':
+      return { internal: gl.RG32UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_INT }
+    case 'r32uint':
+      return { internal: gl.R32UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_INT } // core color-renderable, no extension — the compute-as-draw target
+    case 'depth24plus-stencil8':
+      return { internal: gl.DEPTH24_STENCIL8, format: gl.DEPTH_STENCIL, type: gl.UNSIGNED_INT_24_8 }
     case 'rgba16float':
       // Fail-CLOSED: the OIT weighted-blend accum target. Rendering TO rgba16float
       // needs EXT_color_buffer_float, and the OIT MRT topology is offscreen anyway —
       // both are the WebGL2 full-frame phase, not slice-1.
-      throw new Error('webgl2: rgba16float (OIT accum) not yet supported (needs EXT_color_buffer_float; deferred to the WebGL2 full-frame phase)')
+      throw new Error(
+        'webgl2: rgba16float (OIT accum) not yet supported (needs EXT_color_buffer_float; deferred to the WebGL2 full-frame phase)',
+      )
   }
 }
 
@@ -112,16 +175,24 @@ const VFMT: Readonly<Record<string, { size: number; type: 'f32' | 'u8'; normaliz
 }
 
 function applyBlend(gl: WebGL2RenderingContext, mode: Gl2Pipeline['blend']): void {
-  if (!mode || mode === 'none') { gl.disable(gl.BLEND); return }
+  if (!mode || mode === 'none') {
+    gl.disable(gl.BLEND)
+    return
+  }
   gl.enable(gl.BLEND)
-  if (mode === 'max') { gl.blendEquation(gl.MAX); gl.blendFunc(gl.ONE, gl.ONE); return } // translucent-line offscreen accum
+  if (mode === 'max') {
+    gl.blendEquation(gl.MAX)
+    gl.blendFunc(gl.ONE, gl.ONE)
+    return
+  } // translucent-line offscreen accum
   gl.blendEquation(gl.FUNC_ADD)
   if (mode === 'alpha') {
     // STRAIGHT alpha — byte-matches rhi-webgpu BLEND_ALPHA (color src-alpha, alpha one).
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
   } else if (mode === 'premult') {
     gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
-  } else { // additive
+  } else {
+    // additive
     gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ONE, gl.ONE)
   }
 }
@@ -129,10 +200,13 @@ function applyBlend(gl: WebGL2RenderingContext, mode: Gl2Pipeline['blend']): voi
 function compile(gl: WebGL2RenderingContext, type: GLenum, src: string): WebGLShader {
   const sh = gl.createShader(type)
   if (!sh) throw new Error('webgl2: createShader failed')
-  gl.shaderSource(sh, src); gl.compileShader(sh)
+  gl.shaderSource(sh, src)
+  gl.compileShader(sh)
   if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
     const log = gl.getShaderInfoLog(sh) ?? ''
-    throw new Error(`webgl2: ${type === gl.VERTEX_SHADER ? 'vertex' : 'fragment'} compile failed:\n${log}\n--- source ---\n${src}`)
+    throw new Error(
+      `webgl2: ${type === gl.VERTEX_SHADER ? 'vertex' : 'fragment'} compile failed:\n${log}\n--- source ---\n${src}`,
+    )
   }
   return sh
 }
@@ -169,13 +243,26 @@ class WebGl2RenderPass implements RhiRenderPass {
     applyBlend(gl, pl.blend)
     // Color write mask (#782): re-apply every setPipeline — WebGL2 colorMask is global,
     // so a pick / clip-mask pipeline's all-false mask must not leak onto the next draw.
-    gl.colorMask(pl.colorWriteMask[0], pl.colorWriteMask[1], pl.colorWriteMask[2], pl.colorWriteMask[3])
+    gl.colorMask(
+      pl.colorWriteMask[0],
+      pl.colorWriteMask[1],
+      pl.colorWriteMask[2],
+      pl.colorWriteMask[3],
+    )
     if (pl.depth) {
       gl.enable(gl.DEPTH_TEST)
       gl.depthMask(pl.depth.write)
-      gl.depthFunc(pl.depth.compare === 'less' ? gl.LESS : pl.depth.compare === 'less-equal' ? gl.LEQUAL : gl.ALWAYS)
-      if (pl.depth.bias) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(pl.depth.bias.slopeScale, pl.depth.bias.constant) }
-      else gl.disable(gl.POLYGON_OFFSET_FILL)
+      gl.depthFunc(
+        pl.depth.compare === 'less'
+          ? gl.LESS
+          : pl.depth.compare === 'less-equal'
+            ? gl.LEQUAL
+            : gl.ALWAYS,
+      )
+      if (pl.depth.bias) {
+        gl.enable(gl.POLYGON_OFFSET_FILL)
+        gl.polygonOffset(pl.depth.bias.slopeScale, pl.depth.bias.constant)
+      } else gl.disable(gl.POLYGON_OFFSET_FILL)
     } else {
       gl.disable(gl.DEPTH_TEST)
       gl.depthMask(false)
@@ -253,12 +340,19 @@ class WebGl2RenderPass implements RhiRenderPass {
     }
   }
 
-  setVertexBuffer(_slot: number, buffer: RhiBuffer, offset = 0): void { this.vbuf = un<Gl2Buffer>(buffer); this.vbufOffset = offset }
+  setVertexBuffer(_slot: number, buffer: RhiBuffer, offset = 0): void {
+    this.vbuf = un<Gl2Buffer>(buffer)
+    this.vbufOffset = offset
+  }
   setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32', offset = 0): void {
     // `offset` (bytes) shifts the per-tile arena index sub-range start into the drawElements byte
     // offset — symmetric with setVertexBuffer's offset; default 0 is byte-identical to a no-offset
     // bind. `size` (byteLength) is implied by the draw's indexCount on WebGL2, so it is not stored.
-    this.ibuf = { buf: un<Gl2Buffer>(buffer), type: format === 'uint16' ? this.gl.UNSIGNED_SHORT : this.gl.UNSIGNED_INT, offset }
+    this.ibuf = {
+      buf: un<Gl2Buffer>(buffer),
+      type: format === 'uint16' ? this.gl.UNSIGNED_SHORT : this.gl.UNSIGNED_INT,
+      offset,
+    }
   }
 
   private bindAttributes(): void {
@@ -273,14 +367,22 @@ class WebGl2RenderPass implements RhiRenderPass {
         gl.enableVertexAttribArray(a.location)
         // `vbufOffset` (default 0) shifts the per-tile arena sub-range start into the
         // attribute byte offset — default 0 is byte-identical to the no-offset bind.
-        gl.vertexAttribPointer(a.location, fmt.size, fmt.type === 'f32' ? gl.FLOAT : gl.UNSIGNED_BYTE, fmt.normalized, vb.stride, a.offset + this.vbufOffset)
+        gl.vertexAttribPointer(
+          a.location,
+          fmt.size,
+          fmt.type === 'f32' ? gl.FLOAT : gl.UNSIGNED_BYTE,
+          fmt.normalized,
+          vb.stride,
+          a.offset + this.vbufOffset,
+        )
       }
     }
   }
 
   draw(vertexCount: number, instanceCount = 1, firstVertex = 0): void {
     this.bindAttributes()
-    if (instanceCount > 1) this.gl.drawArraysInstanced(this.gl.TRIANGLES, firstVertex, vertexCount, instanceCount)
+    if (instanceCount > 1)
+      this.gl.drawArraysInstanced(this.gl.TRIANGLES, firstVertex, vertexCount, instanceCount)
     else this.gl.drawArrays(this.gl.TRIANGLES, firstVertex, vertexCount)
   }
 
@@ -295,7 +397,14 @@ class WebGl2RenderPass implements RhiRenderPass {
     this.bindAttributes()
     if (!this.ibuf) throw new Error('webgl2: drawIndexed without an index buffer')
     this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.ibuf.buf)
-    if (instanceCount > 1) this.gl.drawElementsInstanced(this.gl.TRIANGLES, indexCount, this.ibuf.type, this.ibuf.offset, instanceCount)
+    if (instanceCount > 1)
+      this.gl.drawElementsInstanced(
+        this.gl.TRIANGLES,
+        indexCount,
+        this.ibuf.type,
+        this.ibuf.offset,
+        instanceCount,
+      )
     else this.gl.drawElements(this.gl.TRIANGLES, indexCount, this.ibuf.type, this.ibuf.offset)
   }
 
@@ -312,7 +421,13 @@ class WebGl2RenderPass implements RhiRenderPass {
  *  `finish()` is a no-op (there is no command buffer to submit). */
 class WebGl2CommandEncoder implements RhiCommandEncoder {
   constructor(private readonly gl: WebGL2RenderingContext) {}
-  copyBufferToBuffer(src: RhiBuffer, srcOffset: number, dst: RhiBuffer, dstOffset: number, size: number): void {
+  copyBufferToBuffer(
+    src: RhiBuffer,
+    srcOffset: number,
+    dst: RhiBuffer,
+    dstOffset: number,
+    size: number,
+  ): void {
     const gl = this.gl
     const s = un<Gl2Buffer | Gl2StorageBuffer>(src)
     const d = un<Gl2Buffer | Gl2StorageBuffer>(dst)
@@ -321,7 +436,9 @@ class WebGl2CommandEncoder implements RhiCommandEncoder {
     // vertex/index (real GL buffers) — guard so a mis-routed storage copy fails
     // loud rather than binding `undefined`. Mirrors destroyBuffer's storage fork.
     if ('storageTex' in s || 'storageTex' in d) {
-      throw new Error('webgl2: copyBufferToBuffer requires real GL buffers (a storage buffer is emulated as a data-texture; no buffer copy)')
+      throw new Error(
+        'webgl2: copyBufferToBuffer requires real GL buffers (a storage buffer is emulated as a data-texture; no buffer copy)',
+      )
     }
     gl.bindBuffer(gl.COPY_READ_BUFFER, s.buf)
     gl.bindBuffer(gl.COPY_WRITE_BUFFER, d.buf)
@@ -334,7 +451,9 @@ class WebGl2CommandEncoder implements RhiCommandEncoder {
     // Fail-CLOSED: offscreen / MRT render passes have no WebGL2 path in slice-1
     // (multi-attachment FBOs are the full-frame phase). copyBufferToBuffer is the
     // only supported encoder op — a render pass can never silently originate here.
-    throw new Error('webgl2: beginRenderPass (offscreen/MRT) not yet supported (deferred to the WebGL2 full-frame phase); this command encoder supports copyBufferToBuffer only')
+    throw new Error(
+      'webgl2: beginRenderPass (offscreen/MRT) not yet supported (deferred to the WebGL2 full-frame phase); this command encoder supports copyBufferToBuffer only',
+    )
   }
   finish(): void {
     // Immediate-mode: copyBufferSubData already executed at call time. There is no
@@ -358,8 +477,10 @@ export class WebGl2Device implements RhiDevice {
   constructor(public readonly gl: WebGL2RenderingContext) {
     if (SAMPLER_TYPES.size === 0) {
       // sampler GLSL types (for createPipeline reflection); collected once per ctx kind.
-      SAMPLER_TYPES.add(gl.SAMPLER_2D); SAMPLER_TYPES.add(gl.SAMPLER_CUBE)
-      SAMPLER_TYPES.add(gl.SAMPLER_3D); SAMPLER_TYPES.add(gl.SAMPLER_2D_ARRAY)
+      SAMPLER_TYPES.add(gl.SAMPLER_2D)
+      SAMPLER_TYPES.add(gl.SAMPLER_CUBE)
+      SAMPLER_TYPES.add(gl.SAMPLER_3D)
+      SAMPLER_TYPES.add(gl.SAMPLER_2D_ARRAY)
     }
   }
 
@@ -440,11 +561,21 @@ export class WebGl2Device implements RhiDevice {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-      return wrap<RhiBuffer>({ storageTex: tex, width, height, size: desc.size } satisfies Gl2StorageBuffer)
+      return wrap<RhiBuffer>({
+        storageTex: tex,
+        width,
+        height,
+        size: desc.size,
+      } satisfies Gl2StorageBuffer)
     }
     const buf = gl.createBuffer()
     if (!buf) throw new Error('webgl2: createBuffer failed')
-    const target = desc.usage === 'index' ? gl.ELEMENT_ARRAY_BUFFER : desc.usage === 'uniform' ? gl.UNIFORM_BUFFER : gl.ARRAY_BUFFER
+    const target =
+      desc.usage === 'index'
+        ? gl.ELEMENT_ARRAY_BUFFER
+        : desc.usage === 'uniform'
+          ? gl.UNIFORM_BUFFER
+          : gl.ARRAY_BUFFER
     gl.bindBuffer(target, buf)
     gl.bufferData(target, desc.size, gl.DYNAMIC_DRAW)
     return wrap<RhiBuffer>({ buf, target, usage: desc.usage, size: desc.size } satisfies Gl2Buffer)
@@ -457,7 +588,10 @@ export class WebGl2Device implements RhiDevice {
       // upload the f32 array into the W×H data texture, row-major (texel (i%W, i/W) = data[i]).
       // padded to the full W*H so the texSubImage covers the whole texture; a partial last row
       // reads 0 past the array end. byteOffset 0 = whole-array write (the storage-buffer case).
-      const f32 = data instanceof Float32Array ? data : new Float32Array(data instanceof ArrayBuffer ? data : (data as ArrayBufferView).buffer)
+      const f32 =
+        data instanceof Float32Array
+          ? data
+          : new Float32Array(data instanceof ArrayBuffer ? data : (data as ArrayBufferView).buffer)
       const cap = b.width * b.height
       let padded: Float32Array
       if (f32.length === cap) {
@@ -501,10 +635,21 @@ export class WebGl2Device implements RhiDevice {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-    return wrap<RhiTexture>({ tex, width: desc.width, height: desc.height, format: desc.format } satisfies Gl2Texture)
+    return wrap<RhiTexture>({
+      tex,
+      width: desc.width,
+      height: desc.height,
+      format: desc.format,
+    } satisfies Gl2Texture)
   }
 
-  writeTexture(texture: RhiTexture, data: BufferSource, _bytesPerRow: number, width: number, height: number): void {
+  writeTexture(
+    texture: RhiTexture,
+    data: BufferSource,
+    _bytesPerRow: number,
+    width: number,
+    height: number,
+  ): void {
     const t = un<Gl2Texture>(texture)
     const gl = this.gl
     gl.bindTexture(gl.TEXTURE_2D, t.tex)
@@ -520,14 +665,24 @@ export class WebGl2Device implements RhiDevice {
   }
 
   // WebGL2 has no texture views — the texture is its own view.
-  createView(texture: RhiTexture): RhiTextureView { return wrap<RhiTextureView>({ texture: un<Gl2Texture>(texture) } satisfies Gl2View) }
+  createView(texture: RhiTexture): RhiTextureView {
+    return wrap<RhiTextureView>({ texture: un<Gl2Texture>(texture) } satisfies Gl2View)
+  }
 
   createSampler(desc: RhiSamplerDesc): RhiSampler {
     const gl = this.gl
     const samp = gl.createSampler()
     if (!samp) throw new Error('webgl2: createSampler failed')
-    gl.samplerParameteri(samp, gl.TEXTURE_MIN_FILTER, desc.min === 'linear' ? gl.LINEAR : gl.NEAREST)
-    gl.samplerParameteri(samp, gl.TEXTURE_MAG_FILTER, desc.mag === 'linear' ? gl.LINEAR : gl.NEAREST)
+    gl.samplerParameteri(
+      samp,
+      gl.TEXTURE_MIN_FILTER,
+      desc.min === 'linear' ? gl.LINEAR : gl.NEAREST,
+    )
+    gl.samplerParameteri(
+      samp,
+      gl.TEXTURE_MAG_FILTER,
+      desc.mag === 'linear' ? gl.LINEAR : gl.NEAREST,
+    )
     gl.samplerParameteri(samp, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.samplerParameteri(samp, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
     return wrap<RhiSampler>({ samp } satisfies Gl2Sampler)
@@ -550,23 +705,31 @@ export class WebGl2Device implements RhiDevice {
     // so setBindGroup can iterate in order without a per-draw spread+sort (#784). A sampler
     // still sees its paired texture's unit first (the fused-sampler pair).
     const sorted = [...entries].sort((a, b) => a.binding - b.binding)
-    return wrap<RhiBindGroup>({ layout: un<Gl2BindGroupLayout>(layout), entries: sorted } satisfies Gl2BindGroup)
+    return wrap<RhiBindGroup>({
+      layout: un<Gl2BindGroupLayout>(layout),
+      entries: sorted,
+    } satisfies Gl2BindGroup)
   }
 
   createPipeline(desc: RhiPipelineDesc): RhiPipeline {
     if (!desc.vsCode || !desc.fsCode) {
-      throw new Error('webgl2: createPipeline requires GLSL vsCode/fsCode (emitGlslModule m,"vertex"/"fragment"); desc.code is WGSL — the single-module vs split-source divergence')
+      throw new Error(
+        'webgl2: createPipeline requires GLSL vsCode/fsCode (emitGlslModule m,"vertex"/"fragment"); desc.code is WGSL — the single-module vs split-source divergence',
+      )
     }
     const gl = this.gl
     const vs = compile(gl, gl.VERTEX_SHADER, desc.vsCode)
     const fs = compile(gl, gl.FRAGMENT_SHADER, desc.fsCode)
     const program = gl.createProgram()
     if (!program) throw new Error('webgl2: createProgram failed')
-    gl.attachShader(program, vs); gl.attachShader(program, fs); gl.linkProgram(program)
+    gl.attachShader(program, vs)
+    gl.attachShader(program, fs)
+    gl.linkProgram(program)
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
       throw new Error(`webgl2: link failed:\n${gl.getProgramInfoLog(program) ?? ''}`)
     }
-    gl.deleteShader(vs); gl.deleteShader(fs)
+    gl.deleteShader(vs)
+    gl.deleteShader(fs)
     gl.useProgram(program)
 
     // ── REFLECTION ──
@@ -579,10 +742,16 @@ export class WebGl2Device implements RhiDevice {
     // Carry the GROUP index so the uniform-block binding point is namespaced the SAME way
     // setBindGroup binds the buffer (group * stride + binding) — else two groups' binding-0
     // blocks both map to point 0 and collide (INVALID_OPERATION at draw, raster's 2 UBOs).
-    const uniformEntries = layouts.flatMap((l, g) => l.entries.filter((e) => e.kind === 'uniform').map((e) => ({ name: e.name, point: g * GROUP_BINDING_STRIDE + e.binding })))
+    const uniformEntries = layouts.flatMap((l, g) =>
+      l.entries
+        .filter((e) => e.kind === 'uniform')
+        .map((e) => ({ name: e.name, point: g * GROUP_BINDING_STRIDE + e.binding })),
+    )
     // a 'storage' binding emits as a sampler2D (data-texture emulation), so it reflects +
     // binds like a texture (its sampler uniform = the binding name → a texture unit).
-    const textureEntries = layouts.flatMap((l) => l.entries.filter((e) => e.kind === 'texture' || e.kind === 'storage'))
+    const textureEntries = layouts.flatMap((l) =>
+      l.entries.filter((e) => e.kind === 'texture' || e.kind === 'storage'),
+    )
 
     // uniform-block → block binding point = the entry's RHI binding number.
     const numBlocks = gl.getProgramParameter(program, gl.ACTIVE_UNIFORM_BLOCKS) as number
@@ -623,15 +792,25 @@ export class WebGl2Device implements RhiDevice {
     // resolves to all-true, byte-identical to today's implicit all-channels-enabled.
     const ct0 = desc.colorTargets[0]
     const cwMask = ct0 ? (ct0.writeMask ?? (ct0.format === 'rg32uint' ? 0 : 0xf)) : 0
-    const colorWriteMask: [boolean, boolean, boolean, boolean] =
-      [(cwMask & 1) !== 0, (cwMask & 2) !== 0, (cwMask & 4) !== 0, (cwMask & 8) !== 0]
+    const colorWriteMask: [boolean, boolean, boolean, boolean] = [
+      (cwMask & 1) !== 0,
+      (cwMask & 2) !== 0,
+      (cwMask & 4) !== 0,
+      (cwMask & 8) !== 0,
+    ]
 
     return wrap<RhiPipeline>({
       program,
       blend: desc.colorTargets[0]?.blend,
       colorWriteMask,
       cullMode: desc.cullMode,
-      depth: desc.depthStencil ? { write: desc.depthStencil.write, compare: desc.depthStencil.compare, bias: desc.depthStencil.bias } : undefined,
+      depth: desc.depthStencil
+        ? {
+            write: desc.depthStencil.write,
+            compare: desc.depthStencil.compare,
+            bias: desc.depthStencil.bias,
+          }
+        : undefined,
       stencil: desc.depthStencil?.stencil,
       vertexBuffers: desc.vertexBuffers ?? [],
       layouts,
@@ -652,20 +831,37 @@ export class WebGl2Device implements RhiDevice {
    *  (it is not a UBO, so it bypasses the bind-group reflection). NOT `createCommandEncoder`
    *  — this is the narrow single-attachment integer-output path compute needs (R32UI is
    *  core color-renderable, no extension). Returns the packed-u32 per texel, row-major. */
-  dispatchComputeToR32UI(pipeline: RhiPipeline, bindGroup: RhiBindGroup, wOut: number, hOut: number, uCount: Uint32Array): Uint32Array {
+  dispatchComputeToR32UI(
+    pipeline: RhiPipeline,
+    bindGroup: RhiBindGroup,
+    wOut: number,
+    hOut: number,
+    uCount: Uint32Array,
+  ): Uint32Array {
     const gl = this.gl
-    const outTex = un<Gl2Texture>(this.createTexture({ format: 'r32uint', width: wOut, height: hOut, usage: ['render', 'copy-src'] }))
+    const outTex = un<Gl2Texture>(
+      this.createTexture({
+        format: 'r32uint',
+        width: wOut,
+        height: hOut,
+        usage: ['render', 'copy-src'],
+      }),
+    )
     const fbo = gl.createFramebuffer()
     // Free the already-created outTex on the createFramebuffer-fail path (#782) — the
     // try/finally below only covers exits after fbo exists.
-    if (!fbo) { gl.deleteTexture(outTex.tex); throw new Error('webgl2: createFramebuffer (compute) failed') }
+    if (!fbo) {
+      gl.deleteTexture(outTex.tex)
+      throw new Error('webgl2: createFramebuffer (compute) failed')
+    }
     // The framebuffer + outTex must be freed on EVERY exit (the FBO-incomplete throw used
     // to leak both, the success path deleted both). finally covers all paths (#782).
     try {
       gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, outTex.tex, 0)
       const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
-      if (status !== gl.FRAMEBUFFER_COMPLETE) throw new Error(`webgl2: compute R32UI FBO incomplete (0x${status.toString(16)})`)
+      if (status !== gl.FRAMEBUFFER_COMPLETE)
+        throw new Error(`webgl2: compute R32UI FBO incomplete (0x${status.toString(16)})`)
       gl.viewport(0, 0, wOut, hOut)
       gl.disable(gl.BLEND) // blending is illegal on an integer attachment
       gl.clearBufferuiv(gl.COLOR, 0, new Uint32Array([0, 0, 0, 0]))

@@ -2,14 +2,17 @@ import { describe, expect, it } from 'vitest'
 // WebGPU globals don't exist under happy-dom — stub the few constants
 // LineRenderer touches in its constructor. (Mirrors
 // line-renderer-layer-ring.test.ts, the GPU-free layer-ring harness.)
-;(globalThis as unknown as { GPUShaderStage: { VERTEX: number; FRAGMENT: number } }).GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 }
+;(
+  globalThis as unknown as { GPUShaderStage: { VERTEX: number; FRAGMENT: number } }
+).GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 }
 ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
-  UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16,
+  UNIFORM: 1,
+  COPY_DST: 2,
+  STORAGE: 4,
+  VERTEX: 8,
+  INDEX: 16,
 }
-import {
-  LineRenderer,
-  LINE_JOIN_MITER, LINE_JOIN_ROUND, LINE_JOIN_BEVEL,
-} from '@xgis/map'
+import { LineRenderer, LINE_JOIN_MITER, LINE_JOIN_ROUND, LINE_JOIN_BEVEL } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 import type { GPUContext } from '@xgis/engine'
 
@@ -55,8 +58,11 @@ function makeLineRenderer(captured: { bytes?: ArrayBuffer; dataOffset?: number }
     createTexture: () => ({ createView: () => ({}) }) as unknown as GPUTexture,
     queue: {
       writeBuffer: (
-        _buf: GPUBuffer, _offset: number, data: ArrayBufferView | ArrayBuffer,
-        dataOffset?: number, _size?: number,
+        _buf: GPUBuffer,
+        _offset: number,
+        data: ArrayBufferView | ArrayBuffer,
+        dataOffset?: number,
+        _size?: number,
       ) => {
         // endFrame() flushes the staging Uint8Array's backing buffer.
         captured.bytes = (data as ArrayBufferView).buffer ?? (data as ArrayBuffer)
@@ -65,7 +71,13 @@ function makeLineRenderer(captured: { bytes?: ArrayBuffer; dataOffset?: number }
     },
   }
   return new LineRenderer(
-    { device: fakeDevice as unknown as GPUDevice, format: 'bgra8unorm', canvas: {} as HTMLCanvasElement, context: {} as GPUCanvasContext, rhi: new WebGpuDevice(fakeDevice as unknown as GPUDevice) } as unknown as GPUContext,
+    {
+      device: fakeDevice as unknown as GPUDevice,
+      format: 'bgra8unorm',
+      canvas: {} as HTMLCanvasElement,
+      context: {} as GPUCanvasContext,
+      rhi: new WebGpuDevice(fakeDevice as unknown as GPUDevice),
+    } as unknown as GPUContext,
     {} as GPUBindGroupLayout,
   )
 }
@@ -79,7 +91,10 @@ function capturedJoinBits(join: number): number {
   // mppAtCenter, cap, JOIN, miterLimit, …
   lr.writeLayerSlot([1, 0, 0, 1], 4, 1, 1, /* cap */ 0, join)
   lr.endFrame()
-  expect(captured.bytes, 'endFrame() should have flushed the layer ring via writeBuffer').toBeTruthy()
+  expect(
+    captured.bytes,
+    'endFrame() should have flushed the layer ring via writeBuffer',
+  ).toBeTruthy()
   // The flush covers the single slot starting at the buffer's dataOffset.
   const u32 = new Uint32Array(captured.bytes!, captured.dataOffset!, FLAGS_U32_INDEX + 1)
   const flags = u32[FLAGS_U32_INDEX]

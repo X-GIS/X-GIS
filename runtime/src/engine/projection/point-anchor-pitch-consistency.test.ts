@@ -16,19 +16,54 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  mercator, equirectangular, naturalEarth, orthographic,
-  azimuthalEquidistant, stereographic, obliqueMercator,
+  mercator,
+  equirectangular,
+  naturalEarth,
+  orthographic,
+  azimuthalEquidistant,
+  stereographic,
+  obliqueMercator,
 } from '@xgis/engine'
 import { Camera } from '@xgis/engine'
 
 const PROJECTIONS = [
   { name: 'mercator', proj: mercator, projType: 0, factory: () => mercator },
-  { name: 'equirectangular', proj: equirectangular(0), projType: 1, factory: (clon = 0) => equirectangular(clon) },
-  { name: 'natural_earth', proj: naturalEarth(0), projType: 2, factory: (clon = 0) => naturalEarth(clon) },
-  { name: 'orthographic', proj: orthographic(0, 0), projType: 3, factory: (clon = 0, clat = 0) => orthographic(clon, clat) },
-  { name: 'azimuthal_equidistant', proj: azimuthalEquidistant(0, 0), projType: 4, factory: (clon = 0, clat = 0) => azimuthalEquidistant(clon, clat) },
-  { name: 'stereographic', proj: stereographic(0, 0), projType: 5, factory: (clon = 0, clat = 0) => stereographic(clon, clat) },
-  { name: 'oblique_mercator', proj: obliqueMercator(0, 0), projType: 6, factory: (clon = 0, clat = 0) => obliqueMercator(clon, clat) },
+  {
+    name: 'equirectangular',
+    proj: equirectangular(0),
+    projType: 1,
+    factory: (clon = 0) => equirectangular(clon),
+  },
+  {
+    name: 'natural_earth',
+    proj: naturalEarth(0),
+    projType: 2,
+    factory: (clon = 0) => naturalEarth(clon),
+  },
+  {
+    name: 'orthographic',
+    proj: orthographic(0, 0),
+    projType: 3,
+    factory: (clon = 0, clat = 0) => orthographic(clon, clat),
+  },
+  {
+    name: 'azimuthal_equidistant',
+    proj: azimuthalEquidistant(0, 0),
+    projType: 4,
+    factory: (clon = 0, clat = 0) => azimuthalEquidistant(clon, clat),
+  },
+  {
+    name: 'stereographic',
+    proj: stereographic(0, 0),
+    projType: 5,
+    factory: (clon = 0, clat = 0) => stereographic(clon, clat),
+  },
+  {
+    name: 'oblique_mercator',
+    proj: obliqueMercator(0, 0),
+    projType: 6,
+    factory: (clon = 0, clat = 0) => obliqueMercator(clon, clat),
+  },
 ]
 
 const PITCH_VALUES = [0, 30, 60]
@@ -37,7 +72,13 @@ const W = 1024
 const H = 720
 
 // Apply a 4×4 MVP (column-major) to a vec4 — gives [x, y, z, w].
-function mvpApply(m: Float32Array, vx: number, vy: number, vz: number, vw: number): [number, number, number, number] {
+function mvpApply(
+  m: Float32Array,
+  vx: number,
+  vy: number,
+  vz: number,
+  vw: number,
+): [number, number, number, number] {
   return [
     m[0]! * vx + m[4]! * vy + m[8]! * vz + m[12]! * vw,
     m[1]! * vx + m[5]! * vy + m[9]! * vz + m[13]! * vw,
@@ -49,14 +90,19 @@ function mvpApply(m: Float32Array, vx: number, vy: number, vz: number, vw: numbe
 // World-space (Mercator metres) → screen pixels via MVP, RTC-relative.
 function worldToScreen(
   mvp: Float32Array,
-  worldX: number, worldY: number,
-  centerX: number, centerY: number,
-  canvasW: number, canvasH: number,
+  worldX: number,
+  worldY: number,
+  centerX: number,
+  centerY: number,
+  canvasW: number,
+  canvasH: number,
 ): { sx: number; sy: number; visible: boolean } | null {
-  const rx = worldX - centerX, ry = worldY - centerY
+  const rx = worldX - centerX,
+    ry = worldY - centerY
   const [cx, cy, , cw] = mvpApply(mvp, rx, ry, 0, 1)
-  if (cw <= 1e-6) return null  // behind camera
-  const ndcX = cx / cw, ndcY = cy / cw
+  if (cw <= 1e-6) return null // behind camera
+  const ndcX = cx / cw,
+    ndcY = cy / cw
   const sx = (ndcX + 1) * 0.5 * canvasW
   const sy = (1 - ndcY) * 0.5 * canvasH
   const visible = sx >= 0 && sx <= canvasW && sy >= 0 && sy <= canvasH
@@ -68,8 +114,13 @@ describe('pitch + point/label anchor MVP projection (user request #5)', () => {
     describe(name, () => {
       it('forward output finite for equator + mid-lat samples', () => {
         const points: Array<[number, number]> = [
-          [0, 0], [30, 0], [60, 0], [-30, 0],
-          [0, 30], [30, 30], [0, -30],
+          [0, 0],
+          [30, 0],
+          [60, 0],
+          [-30, 0],
+          [0, 30],
+          [30, 30],
+          [0, -30],
         ]
         for (const [lon, lat] of points) {
           const [x, y] = proj.forward(lon, lat)
@@ -80,15 +131,23 @@ describe('pitch + point/label anchor MVP projection (user request #5)', () => {
 
       it('round-trip forward → inverse within 0.001° on the front hemisphere', () => {
         const points: Array<[number, number]> = [
-          [0, 0], [10, 10], [-20, 15], [30, -10], [45, 30],
+          [0, 0],
+          [10, 10],
+          [-20, 15],
+          [30, -10],
+          [45, 30],
         ]
         for (const [lon, lat] of points) {
           const [x, y] = proj.forward(lon, lat)
           if (!Number.isFinite(x) || !Number.isFinite(y)) continue
           const [lon2, lat2] = proj.inverse(x, y)
           if (!Number.isFinite(lon2) || !Number.isFinite(lat2)) continue
-          expect(Math.abs(lon - lon2), `lon round-trip on ${name} at (${lon},${lat})`).toBeLessThan(0.001)
-          expect(Math.abs(lat - lat2), `lat round-trip on ${name} at (${lon},${lat})`).toBeLessThan(0.001)
+          expect(Math.abs(lon - lon2), `lon round-trip on ${name} at (${lon},${lat})`).toBeLessThan(
+            0.001,
+          )
+          expect(Math.abs(lat - lat2), `lat round-trip on ${name} at (${lon},${lat})`).toBeLessThan(
+            0.001,
+          )
         }
       })
 
@@ -118,8 +177,14 @@ describe('pitch + point/label anchor MVP projection (user request #5)', () => {
             continue
           }
           const r = worldToScreen(mvp, wx, wy, cam.centerX, cam.centerY, W, H)
-          expect(r, `${name} pitch=${pitch} projection returned null (behind camera)`).not.toBeNull()
-          expect(r!.visible, `${name} pitch=${pitch} centre anchor went off-screen at (${r!.sx.toFixed(1)}, ${r!.sy.toFixed(1)})`).toBe(true)
+          expect(
+            r,
+            `${name} pitch=${pitch} projection returned null (behind camera)`,
+          ).not.toBeNull()
+          expect(
+            r!.visible,
+            `${name} pitch=${pitch} centre anchor went off-screen at (${r!.sx.toFixed(1)}, ${r!.sy.toFixed(1)})`,
+          ).toBe(true)
           // Centre anchor x should remain near canvas centre (within
           // 1 pixel — bearing=0 → no horizontal shift from pitch).
           expect(Math.abs(r!.sx - W / 2)).toBeLessThan(1)

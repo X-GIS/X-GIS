@@ -28,7 +28,10 @@ interface XGISMap {
   camera?: { zoom: number; centerX: number; centerY: number; pitch?: number }
 }
 declare global {
-  interface Window { __xgisMap?: XGISMap; __xgisReady?: boolean }
+  interface Window {
+    __xgisMap?: XGISMap
+    __xgisReady?: boolean
+  }
 }
 
 test.describe('Mobile flat-pitch over-draw', () => {
@@ -40,34 +43,36 @@ test.describe('Mobile flat-pitch over-draw', () => {
     await page.addInitScript(() => {
       ;(window as unknown as { __DBG_FRUSTUM: boolean }).__DBG_FRUSTUM = true
     })
-    page.on('console', m => {
+    page.on('console', (m) => {
       if (m.text().includes('[FRUSTUM')) console.log(m.text())
     })
-    await page.goto(
-      `/demo.html?id=pmtiles_layered#11.52/35.7553/139.6973/0/0`,
-      { waitUntil: 'domcontentloaded' },
-    )
+    await page.goto(`/demo.html?id=pmtiles_layered#11.52/35.7553/139.6973/0/0`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await page.waitForFunction(() => window.__xgisReady === true, null, { timeout: 30_000 })
     await page.waitForFunction(
-      () => window.__xgisReady === true,
-      null, { timeout: 30_000 },
+      () => {
+        const map = window.__xgisMap
+        if (!map?.vtSources) return false
+        let v = 0
+        for (const { renderer } of map.vtSources.values()) {
+          v += renderer.getDrawStats?.().tilesVisible ?? 0
+        }
+        return v > 0
+      },
+      null,
+      { timeout: 60_000 },
     )
-    await page.waitForFunction(() => {
-      const map = window.__xgisMap
-      if (!map?.vtSources) return false
-      let v = 0
-      for (const { renderer } of map.vtSources.values()) {
-        v += renderer.getDrawStats?.().tilesVisible ?? 0
-      }
-      return v > 0
-    }, null, { timeout: 60_000 })
     await page.waitForTimeout(5000)
 
     const result = await page.evaluate(() => {
       const map = window.__xgisMap
       if (!map?.vtSources) return null
       const out: {
-        cameraZoom: number; pitch: number
-        canvasW: number; canvasH: number
+        cameraZoom: number
+        pitch: number
+        canvasW: number
+        canvasH: number
         currentZ: number | null
         drawnByZoom: Record<string, number>
         drawnTotal: number
@@ -77,7 +82,8 @@ test.describe('Mobile flat-pitch over-draw', () => {
       } = {
         cameraZoom: map.camera?.zoom ?? 0,
         pitch: map.camera?.pitch ?? 0,
-        canvasW: 0, canvasH: 0,
+        canvasW: 0,
+        canvasH: 0,
         currentZ: null,
         drawnByZoom: {},
         drawnTotal: 0,
@@ -86,7 +92,10 @@ test.describe('Mobile flat-pitch over-draw', () => {
         layerCount: 0,
       }
       const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
-      if (canvas) { out.canvasW = canvas.width; out.canvasH = canvas.height }
+      if (canvas) {
+        out.canvasW = canvas.width
+        out.canvasH = canvas.height
+      }
       for (const { renderer } of map.vtSources.values()) {
         const r = renderer as VTRDiag
         out.currentZ = r._selection?._hysteresisZ ?? null
@@ -143,9 +152,11 @@ test.describe('Mobile flat-pitch over-draw', () => {
       const map = window.__xgisMap!
       const camera = map.camera!
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cz = (([...map.vtSources!.values()][0]).renderer as any)._selection?._hysteresisZ as number
+      const cz = ([...map.vtSources!.values()][0].renderer as any)._selection
+        ?._hysteresisZ as number
       const canvas = document.querySelector('canvas') as HTMLCanvasElement
-      const cw = canvas.width, ch = canvas.height
+      const cw = canvas.width,
+        ch = canvas.height
       // Mercator → tile-y at zoom z.
       const R = 6378137
       const camLon = (camera.centerX / R) * (180 / Math.PI)
@@ -154,10 +165,11 @@ test.describe('Mobile flat-pitch over-draw', () => {
       // tile size at the camera's zoom (camera.zoom is fractional)
       const tileSizePx = 256 * Math.pow(2, camera.zoom - cz)
       // viewport half in tile units
-      const halfTilesX = (cw / 2) / tileSizePx
-      const halfTilesY = (ch / 2) / tileSizePx
-      const camTX = (camLon + 180) / 360 * n
-      const camTY = (1 - Math.log(Math.tan(Math.PI / 4 + camLat * Math.PI / 360)) / Math.PI) / 2 * n
+      const halfTilesX = cw / 2 / tileSizePx
+      const halfTilesY = ch / 2 / tileSizePx
+      const camTX = ((camLon + 180) / 360) * n
+      const camTY =
+        ((1 - Math.log(Math.tan(Math.PI / 4 + (camLat * Math.PI) / 360)) / Math.PI) / 2) * n
       const minTX = Math.floor(camTX - halfTilesX)
       const maxTX = Math.floor(camTX + halfTilesX)
       const minTY = Math.floor(camTY - halfTilesY)
@@ -171,7 +183,7 @@ test.describe('Mobile flat-pitch over-draw', () => {
       }
       // Read what visibleTilesFrustum actually returned (cached).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cache = (([...map.vtSources!.values()][0]).renderer as any)._selection?.frameTileCache?.()
+      const cache = ([...map.vtSources!.values()][0].renderer as any)._selection?.frameTileCache?.()
       const actualAtZ: { x: number; y: number }[] = []
       if (cache?.tiles) {
         for (const t of cache.tiles) {
@@ -180,16 +192,20 @@ test.describe('Mobile flat-pitch over-draw', () => {
       }
       return { expected, actualAtZ, cz, tileSizePx, camTX, camTY }
     })
-    console.log(`[expected at z=${expected.cz}] tile size ${expected.tileSizePx.toFixed(0)} px,`,
+    console.log(
+      `[expected at z=${expected.cz}] tile size ${expected.tileSizePx.toFixed(0)} px,`,
       `camTile (${expected.camTX.toFixed(2)}, ${expected.camTY.toFixed(2)})`,
       `→ ${expected.expected.length} tiles:`,
-      expected.expected.map(t => `${t.x},${t.y}`).join(' '))
-    console.log(`[actual visibleTilesFrustum at z=${expected.cz}] ${expected.actualAtZ.length} tiles:`,
-      expected.actualAtZ.map(t => `${t.x},${t.y}`).join(' '))
+      expected.expected.map((t) => `${t.x},${t.y}`).join(' '),
+    )
+    console.log(
+      `[actual visibleTilesFrustum at z=${expected.cz}] ${expected.actualAtZ.length} tiles:`,
+      expected.actualAtZ.map((t) => `${t.x},${t.y}`).join(' '),
+    )
 
     // Every expected tile must appear in the actual visible set.
-    const actualSet = new Set(expected.actualAtZ.map(t => `${t.x},${t.y}`))
-    const missing = expected.expected.filter(t => !actualSet.has(`${t.x},${t.y}`))
+    const actualSet = new Set(expected.actualAtZ.map((t) => `${t.x},${t.y}`))
+    const missing = expected.expected.filter((t) => !actualSet.has(`${t.x},${t.y}`))
     console.log(`[coverage gaps] ${missing.length} expected tiles missing from visible set`)
     expect(missing.length).toBe(0)
 

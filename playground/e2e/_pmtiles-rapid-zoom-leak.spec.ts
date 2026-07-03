@@ -31,7 +31,10 @@ interface XgisMap {
   camera: { zoom: number }
 }
 declare global {
-  interface Window { __xgisMap?: XgisMap; __xgisReady?: boolean }
+  interface Window {
+    __xgisMap?: XgisMap
+    __xgisReady?: boolean
+  }
 }
 
 test.describe('PMTiles live: fast zoom should not leak backend state', () => {
@@ -40,14 +43,10 @@ test.describe('PMTiles live: fast zoom should not leak backend state', () => {
   test('50× zoom 13↔16 cycles: abortControllers + pendingMvt stay bounded', async ({ page }) => {
     test.setTimeout(180_000)
 
-    await page.goto(
-      `/demo.html?id=pmtiles_layered#13/35.68/139.76`,
-      { waitUntil: 'domcontentloaded' },
-    )
-    await page.waitForFunction(
-      () => window.__xgisReady === true,
-      null, { timeout: 30_000 },
-    )
+    await page.goto(`/demo.html?id=pmtiles_layered#13/35.68/139.76`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await page.waitForFunction(() => window.__xgisReady === true, null, { timeout: 30_000 })
     await page.waitForTimeout(3000)
 
     const sample = async (): Promise<BackendDiag> => {
@@ -62,9 +61,11 @@ test.describe('PMTiles live: fast zoom should not leak backend state', () => {
         const catalog = renderer?.source as any
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const backend = catalog?.backends?.[0] as any
-        const heap = (performance as unknown as {
-          memory?: { usedJSHeapSize: number }
-        }).memory
+        const heap = (
+          performance as unknown as {
+            memory?: { usedJSHeapSize: number }
+          }
+        ).memory
         return {
           abortControllers: backend?.abortControllers?.size ?? -1,
           pendingMvt: backend?.pendingMvt?.length ?? -1,

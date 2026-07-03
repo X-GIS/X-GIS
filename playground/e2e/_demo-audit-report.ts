@@ -27,31 +27,35 @@ export default function globalTeardown(): void {
   const perDemoDir = join(OUT, 'per-demo')
   if (!existsSync(perDemoDir)) return
 
-  const files = readdirSync(perDemoDir).filter(f => f.endsWith('.json'))
+  const files = readdirSync(perDemoDir).filter((f) => f.endsWith('.json'))
   if (files.length === 0) return
 
   const results: DemoResult[] = files
-    .map(f => JSON.parse(readFileSync(join(perDemoDir, f), 'utf8')) as DemoResult)
+    .map((f) => JSON.parse(readFileSync(join(perDemoDir, f), 'utf8')) as DemoResult)
     .sort((a, b) => a.id.localeCompare(b.id))
 
   // The SSRF guard blocks cross-origin loopback data fetches in the test
   // env (test-env artifact, not a demo bug) — don't flag those on low paint.
   const ssrfArtifact = (r: DemoResult): boolean =>
-    r.failedRequests.some(f => /localhost|127\.0\.0\.1|\[::1\]|loopback host blocked|SSRF/i.test(f))
+    r.failedRequests.some((f) =>
+      /localhost|127\.0\.0\.1|\[::1\]|loopback host blocked|SSRF/i.test(f),
+    )
   // Broken = not ready, real console errors, non-finite camera, or a blank
   // frame. The centre-pixel sample was dropped: it false-flagged fixtures
   // whose centre is legitimately background despite a well-painted frame. (#462)
-  const broken = results.filter(r =>
-    !r.ready || r.errors.length > 0 || !r.cameraFinite
-    || (r.paintedPx < 200 && !ssrfArtifact(r)),
+  const broken = results.filter(
+    (r) =>
+      !r.ready || r.errors.length > 0 || !r.cameraFinite || (r.paintedPx < 200 && !ssrfArtifact(r)),
   )
 
   const lines: string[] = []
   lines.push('# Demo + fixture audit')
   lines.push('')
-  lines.push(`**Total**: ${results.length} | `
-    + `**Broken**: ${broken.length} | `
-    + `**Healthy**: ${results.length - broken.length}`)
+  lines.push(
+    `**Total**: ${results.length} | ` +
+      `**Broken**: ${broken.length} | ` +
+      `**Healthy**: ${results.length - broken.length}`,
+  )
   lines.push('')
 
   lines.push('## Broken')
@@ -64,8 +68,8 @@ export default function globalTeardown(): void {
     for (const r of broken) {
       const firstErr = (r.errors[0] ?? '').replace(/\|/g, '\\|').slice(0, 140)
       lines.push(
-        `| \`${r.id}\` | ${r.ready ? 'Y' : '**N**'} `
-        + `| ${r.paintedPx} | ${r.errors.length} | ${firstErr} |`,
+        `| \`${r.id}\` | ${r.ready ? 'Y' : '**N**'} ` +
+          `| ${r.paintedPx} | ${r.errors.length} | ${firstErr} |`,
       )
     }
     lines.push('')
@@ -96,8 +100,8 @@ export default function globalTeardown(): void {
   for (const r of results) {
     const ok = r.ready && r.errors.length === 0 && r.paintedPx >= 200
     lines.push(
-      `| ${ok ? '' : '**'}\`${r.id}\`${ok ? '' : '**'} | `
-      + `${r.ready ? 'Y' : '**N**'} | ${r.paintedPx} | ${r.errors.length} | ${r.warns.length} |`,
+      `| ${ok ? '' : '**'}\`${r.id}\`${ok ? '' : '**'} | ` +
+        `${r.ready ? 'Y' : '**N**'} | ${r.paintedPx} | ${r.errors.length} | ${r.warns.length} |`,
     )
   }
 
@@ -106,7 +110,7 @@ export default function globalTeardown(): void {
 
   // eslint-disable-next-line no-console
   console.log(
-    `[demo-audit] REPORT: ${results.length} demos, ${broken.length} broken `
-    + `(${join(OUT, 'REPORT.md')})`,
+    `[demo-audit] REPORT: ${results.length} demos, ${broken.length} broken ` +
+      `(${join(OUT, 'REPORT.md')})`,
   )
 }

@@ -22,18 +22,30 @@ import { mapModuleExprs } from './ir-transform'
 
 function foldNode(e: Expr): Expr {
   if (
-    e.op === 'binop'
-    && e.a.op === 'lit' && e.b.op === 'lit'
-    && typeof e.a.value === 'number' && typeof e.b.value === 'number'
+    e.op === 'binop' &&
+    e.a.op === 'lit' &&
+    e.b.op === 'lit' &&
+    typeof e.a.value === 'number' &&
+    typeof e.b.value === 'number'
   ) {
-    const a = e.a.value, b = e.b.value
+    const a = e.a.value,
+      b = e.b.value
     let v: number | undefined
     switch (e.bop) {
-      case '+': v = a + b; break
-      case '-': v = a - b; break
-      case '*': v = a * b; break
-      case '/': v = b !== 0 ? a / b : undefined; break
-      default: v = undefined // % / & | ^ << >> — not folded
+      case '+':
+        v = a + b
+        break
+      case '-':
+        v = a - b
+        break
+      case '*':
+        v = a * b
+        break
+      case '/':
+        v = b !== 0 ? a / b : undefined
+        break
+      default:
+        v = undefined // % / & | ^ << >> — not folded
     }
     if (v !== undefined) return { op: 'lit', type: e.type, value: v }
   }
@@ -43,31 +55,48 @@ function foldNode(e: Expr): Expr {
   // compare(lit, lit) -> bool lit. == / != fround f32 operands (matching the
   // oracle, oracle.ts:208); ordering stays f64 (the stricter mirror for thresholds).
   if (
-    e.op === 'compare'
-    && e.a.op === 'lit' && e.b.op === 'lit'
-    && typeof e.a.value === 'number' && typeof e.b.value === 'number'
+    e.op === 'compare' &&
+    e.a.op === 'lit' &&
+    e.b.op === 'lit' &&
+    typeof e.a.value === 'number' &&
+    typeof e.b.value === 'number'
   ) {
     const f32 = e.a.type.kind === 'scalar' && e.a.type.scalar === 'f32'
-    const a = e.a.value, b = e.b.value
+    const a = e.a.value,
+      b = e.b.value
     let v: boolean
     switch (e.cop) {
-      case '<': v = a < b; break
-      case '>': v = a > b; break
-      case '<=': v = a <= b; break
-      case '>=': v = a >= b; break
-      case '==': v = f32 ? Math.fround(a) === Math.fround(b) : a === b; break
-      case '!=': v = f32 ? Math.fround(a) !== Math.fround(b) : a !== b; break
+      case '<':
+        v = a < b
+        break
+      case '>':
+        v = a > b
+        break
+      case '<=':
+        v = a <= b
+        break
+      case '>=':
+        v = a >= b
+        break
+      case '==':
+        v = f32 ? Math.fround(a) === Math.fround(b) : a === b
+        break
+      case '!=':
+        v = f32 ? Math.fround(a) !== Math.fround(b) : a !== b
+        break
     }
     return { op: 'lit', type: boolT, value: v }
   }
   // logical(lit bool, lit bool) -> bool lit. Both operands are literals here, so
   // there is nothing to short-circuit.
   if (
-    e.op === 'logical'
-    && e.a.op === 'lit' && e.b.op === 'lit'
-    && typeof e.a.value === 'boolean' && typeof e.b.value === 'boolean'
+    e.op === 'logical' &&
+    e.a.op === 'lit' &&
+    e.b.op === 'lit' &&
+    typeof e.a.value === 'boolean' &&
+    typeof e.b.value === 'boolean'
   ) {
-    const v = e.lop === '&&' ? (e.a.value && e.b.value) : (e.a.value || e.b.value)
+    const v = e.lop === '&&' ? e.a.value && e.b.value : e.a.value || e.b.value
     return { op: 'lit', type: boolT, value: v }
   }
   // select(lit cond, t, f) -> t | f (the dead arm is dropped).

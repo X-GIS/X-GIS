@@ -27,7 +27,9 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/engine'
 
-const W = 800, H = 800, DPR = 1
+const W = 800,
+  H = 800,
+  DPR = 1
 
 /** Project a world point (Mercator m, RTC) → clip space. Mirrors
  *  what the GPU vertex shader does after RTC reconstruction. */

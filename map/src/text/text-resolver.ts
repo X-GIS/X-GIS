@@ -93,11 +93,13 @@ export function resolveText(
   const keyable = props !== null && typeof props === 'object'
   if (keyable) {
     const hit = resolveCache.get(props)
-    if (hit !== undefined
-        && hit.value === value
-        && hit.cameraZoom === cameraZoom
-        && hit.featureId === featureId
-        && hit.geometryType === geometryType) {
+    if (
+      hit !== undefined &&
+      hit.value === value &&
+      hit.cameraZoom === cameraZoom &&
+      hit.featureId === featureId &&
+      hit.geometryType === geometryType
+    ) {
       return hit.text
     }
   }
@@ -115,9 +117,10 @@ function resolveTextUncached(
   featureId: string | number | undefined,
   geometryType: string | undefined,
 ): string {
-  const enrichedProps = (cameraZoom !== undefined || featureId !== undefined || geometryType !== undefined)
-    ? makeEvalProps({ props, cameraZoom, geometryType, featureId })
-    : props
+  const enrichedProps =
+    cameraZoom !== undefined || featureId !== undefined || geometryType !== undefined
+      ? makeEvalProps({ props, cameraZoom, geometryType, featureId })
+      : props
   if (value.kind === 'expr') {
     const v = safeEval(value.expr.ast, enrichedProps)
     if (v === null || v === undefined) return ''

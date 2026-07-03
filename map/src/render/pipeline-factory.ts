@@ -31,10 +31,15 @@
 
 import type { GPUContext } from '@xgis/engine'
 import {
-  BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST,
-  STENCIL_WRITE_NO_DEPTH, STENCIL_TEST_NO_DEPTH,
-  BLEND_OIT_ACCUM, BLEND_OIT_REVEALAGE,
-  OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT,
+  BLEND_ALPHA,
+  STENCIL_WRITE,
+  STENCIL_TEST,
+  STENCIL_WRITE_NO_DEPTH,
+  STENCIL_TEST_NO_DEPTH,
+  BLEND_OIT_ACCUM,
+  BLEND_OIT_REVEALAGE,
+  OIT_ACCUM_FORMAT,
+  OIT_REVEALAGE_FORMAT,
 } from '@xgis/engine'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
@@ -42,8 +47,18 @@ import { toVertexBufferLayout } from '@xgis/engine'
 import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
-import { buildOverdrawComposePipeline, buildHeatmapBlurPipeline, buildHeatmapComposePipeline, buildOitComposePipeline } from './compose-pipelines'
-import { buildFlatFillMaterials, buildExtrudeMaterial, buildPatternFillMaterials, type FillRhiState } from './material/polygon-fill-material'
+import {
+  buildOverdrawComposePipeline,
+  buildHeatmapBlurPipeline,
+  buildHeatmapComposePipeline,
+  buildOitComposePipeline,
+} from './compose-pipelines'
+import {
+  buildFlatFillMaterials,
+  buildExtrudeMaterial,
+  buildPatternFillMaterials,
+  type FillRhiState,
+} from './material/polygon-fill-material'
 import type { Material } from './material/material'
 import { emitPolygonWgsl } from '../shaders/dsl/polygon'
 import { Node } from '@xgis/shader-dsl'
@@ -87,13 +102,15 @@ import type { Stmt } from '@xgis/shader-dsl'
 /** Bridge a renderer-side ShaderVariantInfo to the polygon COMPOSER's variant shape
  *  (null = default-uniform slice). Shared by the WGSL emit and the #746 GLSL twins so
  *  both backends compose the exact same variant. */
-function toComposerVariant(variant?: ShaderVariantInfo | null): Parameters<typeof emitPolygonWgsl>[0] {
+function toComposerVariant(
+  variant?: ShaderVariantInfo | null,
+): Parameters<typeof emitPolygonWgsl>[0] {
   // Default-uniform path (variant absent OR variant carries no preamble +
   // no feat_buffer) — the composer's null-variant emit substitutes the
   // POLYGON_SHADER_SOURCE:565 / 780 default-uniform assigns.
   const pre = variant?.preamble
-  const hasPreamble = !!pre
-    && (((pre.consts?.length ?? 0) + (pre.bindings?.length ?? 0) + (pre.funcs?.length ?? 0)) > 0)
+  const hasPreamble =
+    !!pre && (pre.consts?.length ?? 0) + (pre.bindings?.length ?? 0) + (pre.funcs?.length ?? 0) > 0
   if (!variant || (!hasPreamble && !variant.needsFeatureBuffer)) return null
 
   // Variant-bearing path — feed Node-typed exprs + needsFeatureBuffer into
@@ -103,9 +120,7 @@ function toComposerVariant(variant?: ShaderVariantInfo | null): Parameters<typeo
   // is imported from the package, not a local mirror), so `variant.fillExpr.expr`
   // is the runtime Node's own `Expr` type — reconstruct the Node directly, no cast.
   const fillExprNode =
-    variant.fillExpr && !variant.fillIsDefault
-      ? new Node<'vec4<f32>'>(variant.fillExpr.expr)
-      : null
+    variant.fillExpr && !variant.fillIsDefault ? new Node<'vec4<f32>'>(variant.fillExpr.expr) : null
   const strokeExprNode =
     variant.strokeExpr && !variant.strokeIsDefault
       ? new Node<'vec4<f32>'>(variant.strokeExpr.expr)
@@ -157,27 +172,42 @@ export class PipelineFactory {
   private _fillExtrudeMaterialNoPick: Material | null = null
   /** Fill-pattern (fs_fill_pattern) Material twins of the native fillPipelinePattern{Ground,Extruded}*
    *  pipelines — always built. recordFillDraw routes pattern draws through these. */
-  private _fillPatternMaterials: { patternGround: Material; patternExtruded: Material } | null = null
+  private _fillPatternMaterials: { patternGround: Material; patternExtruded: Material } | null =
+    null
   fillRhiState(): FillRhiState | null {
     if (!this._fillMaterials) return null
     return {
-      flat: this._fillMaterials.flat, ground: this._fillMaterials.ground,
-      pipes: { write: this.fillPipeline, test: this.fillPipelineFallback, groundWrite: this.fillPipelineGround, groundTest: this.fillPipelineGroundFallback },
+      flat: this._fillMaterials.flat,
+      ground: this._fillMaterials.ground,
+      pipes: {
+        write: this.fillPipeline,
+        test: this.fillPipelineFallback,
+        groundWrite: this.fillPipelineGround,
+        groundTest: this.fillPipelineGroundFallback,
+      },
       perStyle: this._fillPerStyle,
       extrude: this._fillExtrudeMaterial
         ? {
-            mat: this._fillExtrudeMaterial, write: this.fillPipelineExtruded, test: this.fillPipelineExtrudedFallback,
+            mat: this._fillExtrudeMaterial,
+            write: this.fillPipelineExtruded,
+            test: this.fillPipelineExtrudedFallback,
             ...(this._fillExtrudeMaterialNoPick
-              ? { matNoPick: this._fillExtrudeMaterialNoPick, writeNoPick: this.fillPipelineExtrudedNoPick, testNoPick: this.fillPipelineExtrudedFallbackNoPick }
+              ? {
+                  matNoPick: this._fillExtrudeMaterialNoPick,
+                  writeNoPick: this.fillPipelineExtrudedNoPick,
+                  testNoPick: this.fillPipelineExtrudedFallbackNoPick,
+                }
               : {}),
           }
         : null,
       pattern: this._fillPatternMaterials
         ? {
             ground: this._fillPatternMaterials.patternGround,
-            groundWrite: this.fillPipelinePatternGround, groundTest: this.fillPipelinePatternGroundFallback,
+            groundWrite: this.fillPipelinePatternGround,
+            groundTest: this.fillPipelinePatternGroundFallback,
             extruded: this._fillPatternMaterials.patternExtruded,
-            extrudedWrite: this.fillPipelinePatternExtruded, extrudedTest: this.fillPipelinePatternExtrudedFallback,
+            extrudedWrite: this.fillPipelinePatternExtruded,
+            extrudedTest: this.fillPipelinePatternExtrudedFallback,
           }
         : null,
     }
@@ -196,8 +226,13 @@ export class PipelineFactory {
     // variant, discarded). The WebGL2 full-frame phase that re-bases these twins onto
     // RHI-native objects will re-add the GLSL emit past its own live guard.
     const { flat, ground } = buildFlatFillMaterials({
-      rhi: this.ctx.rhi, shader: emitPolygonWgsl(cv, isPickEnabled()), format, sampleCount: getSampleCount(),
-      bindGroupLayout: this.getOrBuildVariantLayout(variant), vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT), pickEnabled: isPickEnabled(),
+      rhi: this.ctx.rhi,
+      shader: emitPolygonWgsl(cv, isPickEnabled()),
+      format,
+      sampleCount: getSampleCount(),
+      bindGroupLayout: this.getOrBuildVariantLayout(variant),
+      vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT),
+      pickEnabled: isPickEnabled(),
     })
     this._fillPerStyle.set(pipelines.fillPipeline, { mat: flat, variant: 0 })
     this._fillPerStyle.set(pipelines.fillPipelineFallback, { mat: flat, variant: 1 })
@@ -329,14 +364,18 @@ export class PipelineFactory {
    *  environments don't define the WebGPU globals at that time.
    *  Browsers' WebGPU runtimes assign the same numeric values. */
   static readonly FEATURE_LAYOUT_ENTRIES: readonly GPUBindGroupLayoutEntry[] = [
-    { binding: 0, visibility: /* VERTEX|FRAGMENT */ 3,
-      buffer: { type: 'uniform' as const, hasDynamicOffset: true } },
-    { binding: 1, visibility: /* FRAGMENT */ 2,
-      buffer: { type: 'read-only-storage' as const } },
-    { binding: 2, visibility: /* FRAGMENT */ 2,
-      texture: { sampleType: 'float' as const, viewDimension: '2d' as const } },
-    { binding: 4, visibility: /* FRAGMENT */ 2,
-      sampler: { type: 'filtering' as const } },
+    {
+      binding: 0,
+      visibility: /* VERTEX|FRAGMENT */ 3,
+      buffer: { type: 'uniform' as const, hasDynamicOffset: true },
+    },
+    { binding: 1, visibility: /* FRAGMENT */ 2, buffer: { type: 'read-only-storage' as const } },
+    {
+      binding: 2,
+      visibility: /* FRAGMENT */ 2,
+      texture: { sampleType: 'float' as const, viewDimension: '2d' as const },
+    },
+    { binding: 4, visibility: /* FRAGMENT */ 2, sampler: { type: 'filtering' as const } },
     // iter-197 — sprite atlas binding 5 + sampler binding 6 (iter-181/182
     // additions). Drift caught at compute=1 + OFM Bright z=10 Seoul: the
     // compute-extended layout (built from this static via
@@ -344,10 +383,12 @@ export class PipelineFactory {
     // `paletteLayoutEntries` (the non-compute path's source of truth)
     // already included them. VTR's `per-tile-feature-bg` BindGroup binds
     // 5/6 unconditionally → validation error on compute path only.
-    { binding: 5, visibility: /* FRAGMENT */ 2,
-      texture: { sampleType: 'float' as const, viewDimension: '2d' as const } },
-    { binding: 6, visibility: /* FRAGMENT */ 2,
-      sampler: { type: 'filtering' as const } },
+    {
+      binding: 5,
+      visibility: /* FRAGMENT */ 2,
+      texture: { sampleType: 'float' as const, viewDimension: '2d' as const },
+    },
+    { binding: 6, visibility: /* FRAGMENT */ 2, sampler: { type: 'filtering' as const } },
   ]
 
   /** iter-204A — palette + sprite-atlas binding slots (bindings 2/4/5/6)
@@ -363,14 +404,18 @@ export class PipelineFactory {
    *  (which needs a real GPUDevice). Visibility encoded as raw spec
    *  bits ({@link FEATURE_LAYOUT_ENTRIES} comment explains why). */
   static readonly PALETTE_LAYOUT_ENTRIES: readonly GPUBindGroupLayoutEntry[] = [
-    { binding: 2, visibility: /* FRAGMENT */ 2,
-      texture: { sampleType: 'float' as const, viewDimension: '2d' as const } },
-    { binding: 4, visibility: /* FRAGMENT */ 2,
-      sampler: { type: 'filtering' as const } },
-    { binding: 5, visibility: /* FRAGMENT */ 2,
-      texture: { sampleType: 'float' as const, viewDimension: '2d' as const } },
-    { binding: 6, visibility: /* FRAGMENT */ 2,
-      sampler: { type: 'filtering' as const } },
+    {
+      binding: 2,
+      visibility: /* FRAGMENT */ 2,
+      texture: { sampleType: 'float' as const, viewDimension: '2d' as const },
+    },
+    { binding: 4, visibility: /* FRAGMENT */ 2, sampler: { type: 'filtering' as const } },
+    {
+      binding: 5,
+      visibility: /* FRAGMENT */ 2,
+      texture: { sampleType: 'float' as const, viewDimension: '2d' as const },
+    },
+    { binding: 6, visibility: /* FRAGMENT */ 2, sampler: { type: 'filtering' as const } },
   ]
 
   /** Public mirror of {@link FEATURE_LAYOUT_ENTRIES} for the drift
@@ -615,7 +660,10 @@ export class PipelineFactory {
     const colorTargets: GPUColorTargetState[] = [{ format, blend: BLEND_ALPHA }]
     if (pickEnabled) colorTargets.push({ format: 'rg32uint' })
     const colorTargetsNoPick: GPUColorTargetState[] = pickEnabled
-      ? [{ format, blend: BLEND_ALPHA }, { format: 'rg32uint', writeMask: 0 }]
+      ? [
+          { format, blend: BLEND_ALPHA },
+          { format: 'rg32uint', writeMask: 0 },
+        ]
       : colorTargets
     const msaaState: GPUMultisampleState = { count: getSampleCount() }
 
@@ -625,7 +673,8 @@ export class PipelineFactory {
         vertex: { module: shaderModule, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
-        depthStencil: STENCIL_WRITE, multisample: msaaState,
+        depthStencil: STENCIL_WRITE,
+        multisample: msaaState,
         label: `fill-pipeline${suffix}`,
       }),
       // Ground-layer fill — same shader as `fill` but with depth
@@ -637,17 +686,23 @@ export class PipelineFactory {
         vertex: { module: shaderModule, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'back' }, // GPU back-cull far hemisphere on sphere; inert on flat (#587)
-        depthStencil: STENCIL_WRITE_NO_DEPTH, multisample: msaaState,
+        depthStencil: STENCIL_WRITE_NO_DEPTH,
+        multisample: msaaState,
         label: `fill-pipeline-ground${suffix}`,
       }),
       fillExtruded: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main_ecef_extruded', buffers: [extrudedVertexBufferLayout] },
+        vertex: {
+          module: shaderModule,
+          entryPoint: 'vs_main_ecef_extruded',
+          buffers: [extrudedVertexBufferLayout],
+        },
         fragment: { module: shaderModule, entryPoint: 'fs_fill_extrude', targets },
         // Two-sided rendering. Concave footprints (dome, courtyard)
         // need back walls visible when the camera tilts to see inside.
         primitive: { topology: 'triangle-list', cullMode: 'none' },
-        depthStencil: STENCIL_WRITE, multisample: msaaState,
+        depthStencil: STENCIL_WRITE,
+        multisample: msaaState,
         label: `fill-pipeline-extruded${suffix}`,
       }),
       line: device.createRenderPipeline({
@@ -655,7 +710,8 @@ export class PipelineFactory {
         vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets },
         primitive: { topology: 'line-list', cullMode: 'none' },
-        depthStencil: STENCIL_WRITE, multisample: msaaState,
+        depthStencil: STENCIL_WRITE,
+        multisample: msaaState,
         label: `line-pipeline${suffix}`,
       }),
       fillFallback: device.createRenderPipeline({
@@ -663,7 +719,8 @@ export class PipelineFactory {
         vertex: { module: shaderModule, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
-        depthStencil: STENCIL_TEST, multisample: msaaState,
+        depthStencil: STENCIL_TEST,
+        multisample: msaaState,
         label: `fill-pipeline-fallback${suffix}`,
       }),
       // Ground variant of the stencil-test fallback — same depth-
@@ -673,17 +730,23 @@ export class PipelineFactory {
         vertex: { module: shaderModule, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'back' }, // GPU back-cull far hemisphere (#587, see fillGround)
-        depthStencil: STENCIL_TEST_NO_DEPTH, multisample: msaaState,
+        depthStencil: STENCIL_TEST_NO_DEPTH,
+        multisample: msaaState,
         label: `fill-pipeline-ground-fallback${suffix}`,
       }),
       fillExtrudedFallback: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main_ecef_extruded', buffers: [extrudedVertexBufferLayout] },
+        vertex: {
+          module: shaderModule,
+          entryPoint: 'vs_main_ecef_extruded',
+          buffers: [extrudedVertexBufferLayout],
+        },
         fragment: { module: shaderModule, entryPoint: 'fs_fill_extrude', targets },
         // Same rationale as `fillExtruded` above: unculled to keep
         // dome / courtyard interiors visible.
         primitive: { topology: 'triangle-list', cullMode: 'none' },
-        depthStencil: STENCIL_TEST, multisample: msaaState,
+        depthStencil: STENCIL_TEST,
+        multisample: msaaState,
         label: `fill-pipeline-extruded-fallback${suffix}`,
       }),
       lineFallback: device.createRenderPipeline({
@@ -691,7 +754,8 @@ export class PipelineFactory {
         vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets },
         primitive: { topology: 'line-list', cullMode: 'none' },
-        depthStencil: STENCIL_TEST, multisample: msaaState,
+        depthStencil: STENCIL_TEST,
+        multisample: msaaState,
         label: `line-pipeline-fallback${suffix}`,
       }),
       // iter-182 — fill-pattern Stage 2 ground variant. Same vertex
@@ -705,7 +769,8 @@ export class PipelineFactory {
         vertex: { module: shaderModule, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill_pattern', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
-        depthStencil: STENCIL_WRITE_NO_DEPTH, multisample: msaaState,
+        depthStencil: STENCIL_WRITE_NO_DEPTH,
+        multisample: msaaState,
         label: `fill-pipeline-pattern-ground${suffix}`,
       }),
       fillPatternGroundFallback: device.createRenderPipeline({
@@ -713,7 +778,8 @@ export class PipelineFactory {
         vertex: { module: shaderModule, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill_pattern', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
-        depthStencil: STENCIL_TEST_NO_DEPTH, multisample: msaaState,
+        depthStencil: STENCIL_TEST_NO_DEPTH,
+        multisample: msaaState,
         label: `fill-pipeline-pattern-ground-fallback${suffix}`,
       }),
       // iter-186 — fill-extrusion-pattern Stage 2 variants. Same per-
@@ -727,18 +793,28 @@ export class PipelineFactory {
       // wall_shade.
       fillPatternExtruded: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main_ecef_extruded', buffers: [extrudedVertexBufferLayout] },
+        vertex: {
+          module: shaderModule,
+          entryPoint: 'vs_main_ecef_extruded',
+          buffers: [extrudedVertexBufferLayout],
+        },
         fragment: { module: shaderModule, entryPoint: 'fs_fill_pattern', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
-        depthStencil: STENCIL_WRITE, multisample: msaaState,
+        depthStencil: STENCIL_WRITE,
+        multisample: msaaState,
         label: `fill-pipeline-pattern-extruded${suffix}`,
       }),
       fillPatternExtrudedFallback: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main_ecef_extruded', buffers: [extrudedVertexBufferLayout] },
+        vertex: {
+          module: shaderModule,
+          entryPoint: 'vs_main_ecef_extruded',
+          buffers: [extrudedVertexBufferLayout],
+        },
         fragment: { module: shaderModule, entryPoint: 'fs_fill_pattern', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
-        depthStencil: STENCIL_TEST, multisample: msaaState,
+        depthStencil: STENCIL_TEST,
+        multisample: msaaState,
         label: `fill-pipeline-pattern-extruded-fallback${suffix}`,
       }),
     })
@@ -769,21 +845,36 @@ export class PipelineFactory {
     // P1.6/§4 — build the flat-fill Material twins (default shader), always. recordFillDraw routes the
     // flat/ground non-extrude fill through them (the raw fallback is deleted; an untwinned pipeline throws).
     this._fillMaterials = buildFlatFillMaterials({
-      rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
+      rhi: this.ctx.rhi,
+      shader: pickShader,
+      format,
+      sampleCount: getSampleCount(),
       // #778 P6 — no GLSL twin emit (webgl2 returned early above; this runs only on
       // WebGPU, which discards vsCode/fsCode). See registerFillMaterials.
-      bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout, pickEnabled,
+      bindGroupLayout: this.bindGroupLayout,
+      vertexLayout: vertexBufferLayout,
+      pickEnabled,
     })
     this._fillExtrudeMaterial = buildExtrudeMaterial({
-      rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
-      bindGroupLayout: this.bindGroupLayout, vertexLayout: extrudedVertexBufferLayout, pickEnabled,
+      rhi: this.ctx.rhi,
+      shader: pickShader,
+      format,
+      sampleCount: getSampleCount(),
+      bindGroupLayout: this.bindGroupLayout,
+      vertexLayout: extrudedVertexBufferLayout,
+      pickEnabled,
     })
     // Fill-pattern twins (fs_fill_pattern) of fillPipelinePattern{Ground,Extruded}* — one call twins
     // BOTH the ground (flat layout) + extruded (POLYGON_EXTRUDED layout) pattern pipelines.
     this._fillPatternMaterials = buildPatternFillMaterials({
-      rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
-      bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout,
-      extrudedVertexLayout: extrudedVertexBufferLayout, pickEnabled,
+      rhi: this.ctx.rhi,
+      shader: pickShader,
+      format,
+      sampleCount: getSampleCount(),
+      bindGroupLayout: this.bindGroupLayout,
+      vertexLayout: vertexBufferLayout,
+      extrudedVertexLayout: extrudedVertexBufferLayout,
+      pickEnabled,
     })
 
     // `?debug=overdraw` — fill + line debug mirrors. Same VS as the
@@ -796,13 +887,15 @@ export class PipelineFactory {
     // fill / line draw in the opaque bucket — map.ts overrides
     // cs.fp / cs.lp / cs.fpF etc. to point at these in debug mode.
     if (DEBUG_OVERDRAW) {
-      const overdrawTargets: GPUColorTargetState[] = [{
-        format: 'r16float',
-        blend: {
-          color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
-          alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+      const overdrawTargets: GPUColorTargetState[] = [
+        {
+          format: 'r16float',
+          blend: {
+            color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+          },
         },
-      }]
+      ]
       const overdrawDepthStencil: GPUDepthStencilState = {
         format: 'depth24plus-stencil8',
         depthCompare: 'always',
@@ -876,7 +969,11 @@ export class PipelineFactory {
     // Deferred — single-sample OIT is the typical industry choice.
     this.fillPipelineExtrudedOIT = device.createRenderPipeline({
       layout: pipelineLayout,
-      vertex: { module: shaderModule, entryPoint: 'vs_main_ecef_extruded', buffers: [extrudedVertexBufferLayout] },
+      vertex: {
+        module: shaderModule,
+        entryPoint: 'vs_main_ecef_extruded',
+        buffers: [extrudedVertexBufferLayout],
+      },
       fragment: { module: shaderModule, entryPoint: 'fs_oit_translucent', targets: oitTargets },
       // Iter 130: cullMode 'back' for OIT translucent extruded path.
       // Liberty's fill-extrusion-opacity=0.8 routes here. Pre-iter-130
@@ -943,16 +1040,28 @@ export class PipelineFactory {
     // recordFillDraw); the extrude no-pick rides the extrude slot's *NoPick fields.
     if (pickEnabled) {
       const np = buildFlatFillMaterials({
-        rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
-        bindGroupLayout: this.bindGroupLayout, vertexLayout: vertexBufferLayout, pickEnabled, pickWriteMask: 0,
+        rhi: this.ctx.rhi,
+        shader: pickShader,
+        format,
+        sampleCount: getSampleCount(),
+        bindGroupLayout: this.bindGroupLayout,
+        vertexLayout: vertexBufferLayout,
+        pickEnabled,
+        pickWriteMask: 0,
       })
       this._fillPerStyle.set(this.fillPipelineNoPick, { mat: np.flat, variant: 0 })
       this._fillPerStyle.set(this.fillPipelineFallbackNoPick, { mat: np.flat, variant: 1 })
       this._fillPerStyle.set(this.fillPipelineGroundNoPick, { mat: np.ground, variant: 0 })
       this._fillPerStyle.set(this.fillPipelineGroundFallbackNoPick, { mat: np.ground, variant: 1 })
       this._fillExtrudeMaterialNoPick = buildExtrudeMaterial({
-        rhi: this.ctx.rhi, shader: pickShader, format, sampleCount: getSampleCount(),
-        bindGroupLayout: this.bindGroupLayout, vertexLayout: extrudedVertexBufferLayout, pickEnabled, pickWriteMask: 0,
+        rhi: this.ctx.rhi,
+        shader: pickShader,
+        format,
+        sampleCount: getSampleCount(),
+        bindGroupLayout: this.bindGroupLayout,
+        vertexLayout: extrudedVertexBufferLayout,
+        pickEnabled,
+        pickWriteMask: 0,
       })
     }
 
@@ -1012,10 +1121,12 @@ export class PipelineFactory {
     const tasks: Promise<void>[] = []
     for (const v of variants) {
       if (this.shaderCache.has(v.key)) continue
-      tasks.push(this.createVariantPipelinesAsync(v).then((pipelines) => {
-        this.shaderCache.set(v.key, pipelines)
-        this.registerFillMaterials(v, pipelines)
-      }))
+      tasks.push(
+        this.createVariantPipelinesAsync(v).then((pipelines) => {
+          this.shaderCache.set(v.key, pipelines)
+          this.registerFillMaterials(v, pipelines)
+        }),
+      )
     }
     if (tasks.length > 0) await Promise.all(tasks)
   }
@@ -1035,7 +1146,14 @@ export class PipelineFactory {
     variant: ShaderVariantInfo,
     layoutFor: (v: ShaderVariantInfo) => GPUBindGroupLayout,
   ): {
-    descriptors: { fill: GPURenderPipelineDescriptor; fillGround: GPURenderPipelineDescriptor; line: GPURenderPipelineDescriptor; fillFallback: GPURenderPipelineDescriptor; fillGroundFallback: GPURenderPipelineDescriptor; lineFallback: GPURenderPipelineDescriptor }[]
+    descriptors: {
+      fill: GPURenderPipelineDescriptor
+      fillGround: GPURenderPipelineDescriptor
+      line: GPURenderPipelineDescriptor
+      fillFallback: GPURenderPipelineDescriptor
+      fillGroundFallback: GPURenderPipelineDescriptor
+      lineFallback: GPURenderPipelineDescriptor
+    }[]
     pickEnabled: boolean
   } {
     const { device, format } = this.ctx
@@ -1045,7 +1163,10 @@ export class PipelineFactory {
     const colorTargets: GPUColorTargetState[] = [{ format, blend: BLEND_ALPHA }]
     if (pickEnabled) colorTargets.push({ format: 'rg32uint' })
     const colorTargetsNoPick: GPUColorTargetState[] = pickEnabled
-      ? [{ format, blend: BLEND_ALPHA }, { format: 'rg32uint', writeMask: 0 }]
+      ? [
+          { format, blend: BLEND_ALPHA },
+          { format: 'rg32uint', writeMask: 0 },
+        ]
       : colorTargets
 
     const module = device.createShaderModule({
@@ -1059,9 +1180,12 @@ export class PipelineFactory {
     // bind group must agree on the extended layout — both reach the
     // same `getOrBuildVariantLayout` cache entry.
     const layout = layoutFor(variant)
-    const layoutLabel = (variant.computeBindings?.length ?? 0) > 0
-      ? 'compute'
-      : (variant.needsFeatureBuffer ? 'feature' : 'base')
+    const layoutLabel =
+      (variant.computeBindings?.length ?? 0) > 0
+        ? 'compute'
+        : variant.needsFeatureBuffer
+          ? 'feature'
+          : 'base'
     const pipelineLayout = device.createPipelineLayout({
       label: `mr-variantPipelineLayout(${layoutLabel})`,
       bindGroupLayouts: [layout],
@@ -1079,7 +1203,8 @@ export class PipelineFactory {
         vertex: { module, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list' as const, cullMode: 'none' as const },
-        depthStencil: STENCIL_WRITE, multisample: msaaState,
+        depthStencil: STENCIL_WRITE,
+        multisample: msaaState,
         label: `fill-${variant.key}${suffix}`,
       },
       fillGround: {
@@ -1087,7 +1212,8 @@ export class PipelineFactory {
         vertex: { module, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list' as const, cullMode: 'none' as const },
-        depthStencil: STENCIL_WRITE_NO_DEPTH, multisample: msaaState,
+        depthStencil: STENCIL_WRITE_NO_DEPTH,
+        multisample: msaaState,
         label: `fill-ground-${variant.key}${suffix}`,
       },
       line: {
@@ -1095,7 +1221,8 @@ export class PipelineFactory {
         vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_stroke', targets },
         primitive: { topology: 'line-list' as const, cullMode: 'none' as const },
-        depthStencil: STENCIL_WRITE, multisample: msaaState,
+        depthStencil: STENCIL_WRITE,
+        multisample: msaaState,
         label: `line-${variant.key}${suffix}`,
       },
       fillFallback: {
@@ -1103,7 +1230,8 @@ export class PipelineFactory {
         vertex: { module, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list' as const, cullMode: 'none' as const },
-        depthStencil: STENCIL_TEST, multisample: msaaState,
+        depthStencil: STENCIL_TEST,
+        multisample: msaaState,
         label: `fill-fallback-${variant.key}${suffix}`,
       },
       fillGroundFallback: {
@@ -1111,7 +1239,8 @@ export class PipelineFactory {
         vertex: { module, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list' as const, cullMode: 'none' as const },
-        depthStencil: STENCIL_TEST_NO_DEPTH, multisample: msaaState,
+        depthStencil: STENCIL_TEST_NO_DEPTH,
+        multisample: msaaState,
         label: `fill-ground-fallback-${variant.key}${suffix}`,
       },
       lineFallback: {
@@ -1119,7 +1248,8 @@ export class PipelineFactory {
         vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_stroke', targets },
         primitive: { topology: 'line-list' as const, cullMode: 'none' as const },
-        depthStencil: STENCIL_TEST, multisample: msaaState,
+        depthStencil: STENCIL_TEST,
+        multisample: msaaState,
         label: `line-fallback-${variant.key}${suffix}`,
       },
     })
@@ -1132,14 +1262,16 @@ export class PipelineFactory {
   async createVariantPipelinesAsync(variant: ShaderVariantInfo): Promise<CachedPipeline> {
     const { device } = this.ctx
     const { descriptors, pickEnabled } = this.buildVariantDescriptors(variant, this._layoutFor)
-    const built = await Promise.all(descriptors.map(async (set) => ({
-      fill:               await device.createRenderPipelineAsync(set.fill),
-      fillGround:         await device.createRenderPipelineAsync(set.fillGround),
-      line:               await device.createRenderPipelineAsync(set.line),
-      fillFallback:       await device.createRenderPipelineAsync(set.fillFallback),
-      fillGroundFallback: await device.createRenderPipelineAsync(set.fillGroundFallback),
-      lineFallback:       await device.createRenderPipelineAsync(set.lineFallback),
-    })))
+    const built = await Promise.all(
+      descriptors.map(async (set) => ({
+        fill: await device.createRenderPipelineAsync(set.fill),
+        fillGround: await device.createRenderPipelineAsync(set.fillGround),
+        line: await device.createRenderPipelineAsync(set.line),
+        fillFallback: await device.createRenderPipelineAsync(set.fillFallback),
+        fillGroundFallback: await device.createRenderPipelineAsync(set.fillGroundFallback),
+        lineFallback: await device.createRenderPipelineAsync(set.lineFallback),
+      })),
+    )
     const p = built[0]
     const np = pickEnabled ? built[1] : p
     return {
@@ -1166,7 +1298,10 @@ export class PipelineFactory {
     const colorTargets: GPUColorTargetState[] = [{ format, blend: BLEND_ALPHA }]
     if (pickEnabled) colorTargets.push({ format: 'rg32uint' })
     const colorTargetsNoPick: GPUColorTargetState[] = pickEnabled
-      ? [{ format, blend: BLEND_ALPHA }, { format: 'rg32uint', writeMask: 0 }]
+      ? [
+          { format, blend: BLEND_ALPHA },
+          { format: 'rg32uint', writeMask: 0 },
+        ]
       : colorTargets
 
     const module = device.createShaderModule({
@@ -1178,9 +1313,12 @@ export class PipelineFactory {
     // computeBindings, legacy otherwise). Matches `buildVariantDescriptors`
     // above so the cache key + pipeline layout stay in sync.
     const layout = this._layoutFor(variant)
-    const layoutLabel = (variant.computeBindings?.length ?? 0) > 0
-      ? 'compute'
-      : (variant.needsFeatureBuffer ? 'feature' : 'base')
+    const layoutLabel =
+      (variant.computeBindings?.length ?? 0) > 0
+        ? 'compute'
+        : variant.needsFeatureBuffer
+          ? 'feature'
+          : 'base'
     const pipelineLayout = device.createPipelineLayout({
       label: `mr-variantPipelineLayout(${layoutLabel})`,
       bindGroupLayouts: [layout],
@@ -1198,7 +1336,8 @@ export class PipelineFactory {
         vertex: { module, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
-        depthStencil: STENCIL_WRITE, multisample: msaaState,
+        depthStencil: STENCIL_WRITE,
+        multisample: msaaState,
         label: `fill-${variant.key}${suffix}`,
       }),
       // Ground (depth-disabled) variant — coplanar painter's-order
@@ -1213,7 +1352,8 @@ export class PipelineFactory {
         vertex: { module, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
-        depthStencil: STENCIL_WRITE_NO_DEPTH, multisample: msaaState,
+        depthStencil: STENCIL_WRITE_NO_DEPTH,
+        multisample: msaaState,
         label: `fill-ground-${variant.key}${suffix}`,
       }),
       line: device.createRenderPipeline({
@@ -1221,7 +1361,8 @@ export class PipelineFactory {
         vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_stroke', targets },
         primitive: { topology: 'line-list', cullMode: 'none' },
-        depthStencil: STENCIL_WRITE, multisample: msaaState,
+        depthStencil: STENCIL_WRITE,
+        multisample: msaaState,
         label: `line-${variant.key}${suffix}`,
       }),
       fillFallback: device.createRenderPipeline({
@@ -1229,7 +1370,8 @@ export class PipelineFactory {
         vertex: { module, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
-        depthStencil: STENCIL_TEST, multisample: msaaState,
+        depthStencil: STENCIL_TEST,
+        multisample: msaaState,
         label: `fill-fallback-${variant.key}${suffix}`,
       }),
       // Ground depth-disabled fallback variant — same role as
@@ -1243,7 +1385,8 @@ export class PipelineFactory {
         vertex: { module, entryPoint: 'vs_main_ecef', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
-        depthStencil: STENCIL_TEST_NO_DEPTH, multisample: msaaState,
+        depthStencil: STENCIL_TEST_NO_DEPTH,
+        multisample: msaaState,
         label: `fill-ground-fallback-${variant.key}${suffix}`,
       }),
       lineFallback: device.createRenderPipeline({
@@ -1251,7 +1394,8 @@ export class PipelineFactory {
         vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_stroke', targets },
         primitive: { topology: 'line-list', cullMode: 'none' },
-        depthStencil: STENCIL_TEST, multisample: msaaState,
+        depthStencil: STENCIL_TEST,
+        multisample: msaaState,
         label: `line-fallback-${variant.key}${suffix}`,
       }),
     })
@@ -1282,8 +1426,8 @@ export class PipelineFactory {
    *  state and STAYS on MapRenderer (plan §5 FB#1). Defaults to the
    *  factory's own non-compute lookup until MapRenderer wires the real
    *  resolver in its ctor (after `_pipelines` is built). */
-  private _layoutFor: (v: ShaderVariantInfo) => GPUBindGroupLayout =
-    (v) => this.getOrBuildVariantLayout(v)
+  private _layoutFor: (v: ShaderVariantInfo) => GPUBindGroupLayout = (v) =>
+    this.getOrBuildVariantLayout(v)
 
   /** Inject the coordinator's compute-aware layout resolver. */
   setLayoutResolver(resolver: (v: ShaderVariantInfo) => GPUBindGroupLayout): void {

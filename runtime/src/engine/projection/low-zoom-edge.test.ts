@@ -11,21 +11,21 @@ const VIEWPORT = { w: 1280, h: 720 }
 describe('low-zoom (z=0..3) tile selection envelope', () => {
   it('z=0 globe view: bounded tile count, never empty', () => {
     const tiles = globeVisibleTiles(
-      0, 0,         // center lon/lat
-      0,            // zoom
-      3,            // maxZ
-      VIEWPORT.w, VIEWPORT.h,
-      0, 0,         // pitch, bearing
+      0,
+      0, // center lon/lat
+      0, // zoom
+      3, // maxZ
+      VIEWPORT.w,
+      VIEWPORT.h,
+      0,
+      0, // pitch, bearing
     )
     expect(tiles.length).toBeGreaterThan(0)
     expect(tiles.length).toBeLessThan(300) // MAX_TILES cap
   })
 
   it('z=3 view centred on equator stays within hemisphere tile count', () => {
-    const tiles = globeVisibleTiles(
-      0, 0, 3, 3,
-      VIEWPORT.w, VIEWPORT.h, 0, 0,
-    )
+    const tiles = globeVisibleTiles(0, 0, 3, 3, VIEWPORT.w, VIEWPORT.h, 0, 0)
     // z=3 has 64 total tiles worldwide; visible hemisphere is half
     // of those at most. Sphere-cap cull should keep us well below.
     expect(tiles.length).toBeLessThan(64)
@@ -38,9 +38,14 @@ describe('low-zoom (z=0..3) tile selection envelope', () => {
     // pushed every one. Force-subdivide gate at tile-select.ts:356
     // fixed it; this asserts the regression stays fixed.
     const tiles = globeVisibleTiles(
-      0, 80,        // arctic camera
-      3, 3,         // z=3
-      VIEWPORT.w, VIEWPORT.h, 0, 0,
+      0,
+      80, // arctic camera
+      3,
+      3, // z=3
+      VIEWPORT.w,
+      VIEWPORT.h,
+      0,
+      0,
     )
     expect(tiles.length).toBeLessThan(120)
   })
@@ -51,28 +56,41 @@ describe('low-zoom (z=0..3) tile selection envelope', () => {
     // this by walking continuous lon/lat without a Mercator-pyramid
     // wrap discontinuity.
     const tiles = globeVisibleTiles(
-      180, 0,       // dateline camera
-      2, 3,
-      VIEWPORT.w, VIEWPORT.h, 0, 0,
+      180,
+      0, // dateline camera
+      2,
+      3,
+      VIEWPORT.w,
+      VIEWPORT.h,
+      0,
+      0,
     )
-    const xs = new Set(tiles.map(t => `${t.z}/${t.x}`))
+    const xs = new Set(tiles.map((t) => `${t.z}/${t.x}`))
     // z=2 has tiles x=0..3. Antimeridian view should see both x=0
     // (west of dateline) and x=3 (east of dateline) at z=2 or
     // their z=3 subdivisions x=0/x=7.
-    const hasWest = [...xs].some(k => /^2\/0$|^3\/[01]$/.test(k))
-    const hasEast = [...xs].some(k => /^2\/3$|^3\/[67]$/.test(k))
-    expect(hasWest || hasEast, 'antimeridian view should pick at least one west or east edge tile').toBe(true)
+    const hasWest = [...xs].some((k) => /^2\/0$|^3\/[01]$/.test(k))
+    const hasEast = [...xs].some((k) => /^2\/3$|^3\/[67]$/.test(k))
+    expect(
+      hasWest || hasEast,
+      'antimeridian view should pick at least one west or east edge tile',
+    ).toBe(true)
   })
 
   it('polar view: at very high lat the selector still picks tiles in visible band', () => {
     const tiles = globeVisibleTiles(
-      0, 85,        // near north pole
-      2, 3,
-      VIEWPORT.w, VIEWPORT.h, 0, 0,
+      0,
+      85, // near north pole
+      2,
+      3,
+      VIEWPORT.w,
+      VIEWPORT.h,
+      0,
+      0,
     )
     expect(tiles.length).toBeGreaterThan(0)
     // All picked tiles should be in the northern half: y ≤ 2^z/2.
-    const allNorth = tiles.every(t => {
+    const allNorth = tiles.every((t) => {
       const n = 1 << t.z
       return t.y < n / 2 + 1 // +1 slack for the y=n/2 boundary tile
     })

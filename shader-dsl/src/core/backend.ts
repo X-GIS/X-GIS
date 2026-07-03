@@ -9,9 +9,7 @@
 // threaded in later steps; until then the WGSL writer keeps its inline spelling
 // and remains byte-identical.
 
-import type {
-  ShaderType, ConstDecl, StructDecl, BindingDecl, FuncDecl, ModuleDecl,
-} from './ir'
+import type { ShaderType, ConstDecl, StructDecl, BindingDecl, FuncDecl, ModuleDecl } from './ir'
 import { ShaderDslError } from './diagnostics/error'
 
 /** GPU features a target may or may not support; emit of an unsupported feature
@@ -20,7 +18,9 @@ export type Capability = 'storageBuffer' | 'compute' | 'msaaTextureLoad'
 
 export class Capabilities {
   constructor(private readonly set: ReadonlySet<Capability>) {}
-  has(c: Capability): boolean { return this.set.has(c) }
+  has(c: Capability): boolean {
+    return this.set.has(c)
+  }
   /** True iff this target supports everything `reqs` needs. */
   covers(reqs: Iterable<Capability>): boolean {
     for (const c of reqs) if (!this.set.has(c)) return false
@@ -99,5 +99,8 @@ export interface Backend {
  *  mis-emit. Thrown by the capability gate (assertCaps) and by individual backend
  *  fragments that hit an unsupported construct. */
 export class UnsupportedFeatureError extends ShaderDslError {
-  constructor(message: string) { super({ code: 'SD0030', message }); this.name = 'UnsupportedFeatureError' }
+  constructor(message: string) {
+    super({ code: 'SD0030', message })
+    this.name = 'UnsupportedFeatureError'
+  }
 }

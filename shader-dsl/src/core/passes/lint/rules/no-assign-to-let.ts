@@ -9,9 +9,16 @@ function collectLetVar(body: readonly Stmt[], lets: Set<string>, vars: Set<strin
   for (const s of body) {
     if (s.s === 'let') lets.add(s.name)
     else if (s.s === 'var') vars.add(s.name)
-    else if (s.s === 'if') { for (const a of s.arms) collectLetVar(a.body, lets, vars); if (s.elseBody) collectLetVar(s.elseBody, lets, vars) }
-    else if (s.s === 'for') { collectLetVar([s.init], lets, vars); collectLetVar(s.body, lets, vars) }
-    else if (s.s === 'switch') { for (const c of s.cases) collectLetVar(c.body, lets, vars); if (s.defaultBody) collectLetVar(s.defaultBody, lets, vars) }
+    else if (s.s === 'if') {
+      for (const a of s.arms) collectLetVar(a.body, lets, vars)
+      if (s.elseBody) collectLetVar(s.elseBody, lets, vars)
+    } else if (s.s === 'for') {
+      collectLetVar([s.init], lets, vars)
+      collectLetVar(s.body, lets, vars)
+    } else if (s.s === 'switch') {
+      for (const c of s.cases) collectLetVar(c.body, lets, vars)
+      if (s.defaultBody) collectLetVar(s.defaultBody, lets, vars)
+    }
   }
 }
 
@@ -32,7 +39,8 @@ function targetRootName(e: Expr): string | undefined {
  *  stops it; this rule is the guard. Fix: declare the binding with `Var()` to mutate it. */
 export const noAssignToLet: LintRule = {
   id: 'no-assign-to-let',
-  description: 'assigning to a let-bound (immutable) binding is invalid WGSL — declare it with Var() to mutate',
+  description:
+    'assigning to a let-bound (immutable) binding is invalid WGSL — declare it with Var() to mutate',
   severity: 'error',
   category: 'correctness',
   create: (ctx) => {
@@ -40,12 +48,24 @@ export const noAssignToLet: LintRule = {
     let vars = new Set<string>()
     return {
       // Func runs immediately before this fn's Stmt walk (engine order), so the sets are this fn's.
-      Func(f) { lets = new Set(); vars = new Set(); collectLetVar(f.body, lets, vars) },
+      Func(f) {
+        lets = new Set()
+        vars = new Set()
+        collectLetVar(f.body, lets, vars)
+      },
       Stmt(s, fn) {
         if (s.s !== 'assign' && s.s !== 'assignOp') return
         const root = targetRootName(s.target)
         if (root !== undefined && lets.has(root) && !vars.has(root)) {
-          ctx.report(`assignment to immutable 'let' binding '${root}' in fn '${fn.name}' — declare it with Var() to mutate (assigning to a 'let' is invalid WGSL)`, { fn: fn.name, node: s, code: 'SD0107', hint: 'declare the binding with Var() instead of Let() to mutate it' })
+          ctx.report(
+            `assignment to immutable 'let' binding '${root}' in fn '${fn.name}' — declare it with Var() to mutate (assigning to a 'let' is invalid WGSL)`,
+            {
+              fn: fn.name,
+              node: s,
+              code: 'SD0107',
+              hint: 'declare the binding with Var() instead of Let() to mutate it',
+            },
+          )
         }
       },
     }

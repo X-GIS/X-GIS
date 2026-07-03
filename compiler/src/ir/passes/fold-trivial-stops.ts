@@ -40,8 +40,13 @@
 
 import type { IRPass } from '../pass-manager'
 import type {
-  Scene, RenderNode,
-  ColorValue, StrokeValue, StrokeWidthValue, OpacityValue, SizeValue,
+  Scene,
+  RenderNode,
+  ColorValue,
+  StrokeValue,
+  StrokeWidthValue,
+  OpacityValue,
+  SizeValue,
 } from '../render-node'
 
 /** Numeric tolerance for "the stops carry the same value". Real-world
@@ -58,8 +63,12 @@ function rgbaEqual(
   a: readonly [number, number, number, number],
   b: readonly [number, number, number, number],
 ): boolean {
-  return numbersEqual(a[0], b[0]) && numbersEqual(a[1], b[1])
-    && numbersEqual(a[2], b[2]) && numbersEqual(a[3], b[3])
+  return (
+    numbersEqual(a[0], b[0]) &&
+    numbersEqual(a[1], b[1]) &&
+    numbersEqual(a[2], b[2]) &&
+    numbersEqual(a[3], b[3])
+  )
 }
 
 function foldNumberShape(shape: OpacityValue): OpacityValue {
@@ -119,9 +128,12 @@ function foldRenderNode(node: RenderNode): RenderNode {
   const size = foldSize(node.size)
 
   if (
-    fill === node.fill && stroke === node.stroke
-    && opacity === node.opacity && size === node.size
-  ) return node
+    fill === node.fill &&
+    stroke === node.stroke &&
+    opacity === node.opacity &&
+    size === node.size
+  )
+    return node
 
   return { ...node, fill, stroke, opacity, size }
 }

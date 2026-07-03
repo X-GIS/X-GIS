@@ -27,11 +27,13 @@ import { TileSelectionCache, type FrameTileCache } from './tile-selection-cache'
 // the fields pumpPrefetch reads need to be present; everything else
 // throws if accidentally invoked (catches drift if pumpPrefetch ever
 // calls a different catalog method).
-function makeMockCatalog(opts: {
-  inArchive?: (key: number) => boolean
-  cached?: (key: number) => boolean
-  maxLevel?: number
-} = {}): {
+function makeMockCatalog(
+  opts: {
+    inArchive?: (key: number) => boolean
+    cached?: (key: number) => boolean
+    maxLevel?: number
+  } = {},
+): {
   catalog: unknown
   prefetchSpy: ReturnType<typeof vi.fn>
 } {
@@ -57,7 +59,8 @@ function makeMockCatalog(opts: {
 function makeVtr(catalog: unknown, neededKeys: number[], frameId: number): VectorTileRenderer {
   const vtr = Object.create(VectorTileRenderer.prototype) as VectorTileRenderer
   ;(vtr as unknown as { source: unknown }).source = catalog
-  ;(vtr as unknown as { prefetchScheduler: PrefetchScheduler }).prefetchScheduler = new PrefetchScheduler()
+  ;(vtr as unknown as { prefetchScheduler: PrefetchScheduler }).prefetchScheduler =
+    new PrefetchScheduler()
   ;(vtr as unknown as { currentFrameId: number }).currentFrameId = frameId
   const selection = new TileSelectionCache()
   const frameTileCache: FrameTileCache = {
@@ -104,7 +107,7 @@ describe('VectorTileRenderer.pumpPrefetch — frame-scope orchestration', () => 
     // visible).
     const parent = tileKey(13, 7000, 3250)
     const childrenOfParent = tileKeyChildren(parent)
-    const expectedSiblings = childrenOfParent.filter(c => !visible.includes(c))
+    const expectedSiblings = childrenOfParent.filter((c) => !visible.includes(c))
     expect(new Set(siblingCall)).toEqual(new Set(expectedSiblings))
   })
 
@@ -119,7 +122,11 @@ describe('VectorTileRenderer.pumpPrefetch — frame-scope orchestration', () => 
 
     vtr.pumpPrefetch(camera, 0, 1024, 768, 1)
     const scheduler = (vtr as unknown as { prefetchScheduler: PrefetchScheduler }).prefetchScheduler
-    const prev = (scheduler as unknown as { prevPanCam: { cx: number; cy: number; zoom: number; t: number } | null }).prevPanCam
+    const prev = (
+      scheduler as unknown as {
+        prevPanCam: { cx: number; cy: number; zoom: number; t: number } | null
+      }
+    ).prevPanCam
     expect(prev).not.toBeNull()
     expect(prev!.cx).toBeCloseTo(camera.centerX, 6)
     expect(prev!.cy).toBeCloseTo(camera.centerY, 6)
@@ -130,7 +137,8 @@ describe('VectorTileRenderer.pumpPrefetch — frame-scope orchestration', () => 
   it('skips both routes when no source is attached', () => {
     const vtr = Object.create(VectorTileRenderer.prototype) as VectorTileRenderer
     ;(vtr as unknown as { source: unknown }).source = null
-    ;(vtr as unknown as { prefetchScheduler: PrefetchScheduler }).prefetchScheduler = new PrefetchScheduler()
+    ;(vtr as unknown as { prefetchScheduler: PrefetchScheduler }).prefetchScheduler =
+      new PrefetchScheduler()
     const camera = new Camera(SEOUL.lon, SEOUL.lat, 14)
     // Should not throw, just early-return.
     expect(() => vtr.pumpPrefetch(camera, 0, 1024, 768, 1)).not.toThrow()

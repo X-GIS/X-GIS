@@ -61,10 +61,17 @@ export function pointPatchToFeatureCollection(data: PointPatch): GeoJSONFeatureC
   // clear error rather than the opaque TypeError. TS-typed-as-
   // PointPatch casts at the boundary can let unexpected values
   // through (host bypassing the API, test mocks, etc.).
-  if (!data || typeof data !== 'object'
-      || !data.lon || !(typeof (data.lon as ArrayLike<number>).length === 'number')
-      || !data.lat || !(typeof (data.lat as ArrayLike<number>).length === 'number')) {
-    throw new Error(`[X-GIS] setSourcePoints: data must be { lon: ArrayLike<number>, lat: ArrayLike<number>, ... }`)
+  if (
+    !data ||
+    typeof data !== 'object' ||
+    !data.lon ||
+    !(typeof (data.lon as ArrayLike<number>).length === 'number') ||
+    !data.lat ||
+    !(typeof (data.lat as ArrayLike<number>).length === 'number')
+  ) {
+    throw new Error(
+      `[X-GIS] setSourcePoints: data must be { lon: ArrayLike<number>, lat: ArrayLike<number>, ... }`,
+    )
   }
   const n = data.lon.length
   if (data.lat.length !== n) {
@@ -76,7 +83,9 @@ export function pointPatchToFeatureCollection(data: PointPatch): GeoJSONFeatureC
   if (data.properties) {
     for (const k of Object.keys(data.properties)) {
       if (data.properties[k].length !== n) {
-        throw new Error(`[X-GIS] setSourcePoints: property "${k}" length ${data.properties[k].length} != points ${n}`)
+        throw new Error(
+          `[X-GIS] setSourcePoints: property "${k}" length ${data.properties[k].length} != points ${n}`,
+        )
       }
     }
   }

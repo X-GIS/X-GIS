@@ -31,7 +31,10 @@ interface XgisMap {
   vtSources?: Map<string, { renderer: VTRDiag }>
 }
 declare global {
-  interface Window { __xgisMap?: XgisMap; __xgisReady?: boolean }
+  interface Window {
+    __xgisMap?: XgisMap
+    __xgisReady?: boolean
+  }
 }
 
 test.describe('OSM-style auto-merge — runtime proof', () => {
@@ -44,14 +47,18 @@ test.describe('OSM-style auto-merge — runtime proof', () => {
     })
     await page.waitForFunction(() => window.__xgisReady === true, null, { timeout: 30_000 })
     // Wait for tiles to actually upload — getDrawStats().tilesVisible > 0.
-    await page.waitForFunction(() => {
-      const map = window.__xgisMap
-      if (!map?.vtSources) return false
-      for (const { renderer } of map.vtSources.values()) {
-        if ((renderer.getDrawStats?.().tilesVisible ?? 0) > 0) return true
-      }
-      return false
-    }, null, { timeout: 30_000 })
+    await page.waitForFunction(
+      () => {
+        const map = window.__xgisMap
+        if (!map?.vtSources) return false
+        for (const { renderer } of map.vtSources.values()) {
+          if ((renderer.getDrawStats?.().tilesVisible ?? 0) > 0) return true
+        }
+        return false
+      },
+      null,
+      { timeout: 30_000 },
+    )
     await page.waitForTimeout(3000)
 
     const sliceKeys = await page.evaluate(() => {
@@ -81,14 +88,18 @@ test.describe('OSM-style auto-merge — runtime proof', () => {
       waitUntil: 'domcontentloaded',
     })
     await page.waitForFunction(() => window.__xgisReady === true, null, { timeout: 30_000 })
-    await page.waitForFunction(() => {
-      const map = window.__xgisMap
-      if (!map?.vtSources) return false
-      for (const { renderer } of map.vtSources.values()) {
-        if ((renderer.getDrawStats?.().tilesVisible ?? 0) > 0) return true
-      }
-      return false
-    }, null, { timeout: 30_000 })
+    await page.waitForFunction(
+      () => {
+        const map = window.__xgisMap
+        if (!map?.vtSources) return false
+        for (const { renderer } of map.vtSources.values()) {
+          if ((renderer.getDrawStats?.().tilesVisible ?? 0) > 0) return true
+        }
+        return false
+      },
+      null,
+      { timeout: 30_000 },
+    )
     await page.waitForTimeout(3000)
 
     const stats = await page.evaluate(() => {

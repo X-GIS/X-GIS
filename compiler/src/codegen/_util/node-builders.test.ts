@@ -13,15 +13,29 @@
 import { describe, it, expect } from 'vitest'
 import { nodeToWgslString } from '../node-to-wgsl'
 import {
-  f32Lit, i32Lit, u32Lit, boolLit,
-  constRefVec4, varRefVec4, refF32,
-  vec4f, vec4fFromRgba,
+  f32Lit,
+  i32Lit,
+  u32Lit,
+  boolLit,
+  constRefVec4,
+  varRefVec4,
+  refF32,
+  vec4f,
+  vec4fFromRgba,
   composeFillVec4,
-  toU32, toI32,
-  f32Add, f32Sub, f32Mul, f32Div,
-  u32Add, u32Mul, u32Mod,
+  toU32,
+  toI32,
+  f32Add,
+  f32Sub,
+  f32Mul,
+  f32Div,
+  u32Add,
+  u32Mul,
+  u32Mod,
   arrayIndex,
-  featDataField, featDataBindingRef, inputFeatIdRef,
+  featDataField,
+  featDataBindingRef,
+  inputFeatIdRef,
 } from './node-builders'
 
 describe('node-builders — literals', () => {
@@ -91,9 +105,11 @@ describe('node-builders — arithmetic + casts (US-005 prep)', () => {
 
   it('arrayIndex emits base[idx]', () => {
     const CAT_PALETTE = constRefVec4('CAT_PALETTE') as never
-    expect(nodeToWgslString(arrayIndex<'vec4<f32>'>(CAT_PALETTE, u32Mod(toU32(f32Lit(7)), u32Lit(20)), 'vec4<f32>'))).toBe(
-      'CAT_PALETTE[(u32(7.0) % 20u)]',
-    )
+    expect(
+      nodeToWgslString(
+        arrayIndex<'vec4<f32>'>(CAT_PALETTE, u32Mod(toU32(f32Lit(7)), u32Lit(20)), 'vec4<f32>'),
+      ),
+    ).toBe('CAT_PALETTE[(u32(7.0) % 20u)]')
   })
 
   it('categorical pattern composes via the new arithmetic helpers', () => {
@@ -119,7 +135,11 @@ describe('node-builders — feat_data lookup (US-005 prep)', () => {
   })
 
   it('featDataField builds the feat_data[input.feat_id * STRIDE + offset] address — byte-equiv to legacy exprToWGSL FieldAccess', () => {
-    const fieldMap = new Map([['class', 0], ['name', 1], ['layer', 2]])
+    const fieldMap = new Map([
+      ['class', 0],
+      ['name', 1],
+      ['layer', 2],
+    ])
     const node = featDataField('class', fieldMap)!
     // STRIDE = 3, offset = 0
     expect(nodeToWgslString(node)).toBe('feat_data[((input.feat_id * 3u) + 0u)]')
@@ -136,7 +156,9 @@ describe('node-builders — feat_data lookup (US-005 prep)', () => {
     const field = featDataField('class', fieldMap)!
     const palette = constRefVec4('CAT_PALETTE') as never
     const sampled = arrayIndex<'vec4<f32>'>(palette, u32Mod(toU32(field), u32Lit(20)), 'vec4<f32>')
-    expect(nodeToWgslString(sampled)).toBe('CAT_PALETTE[(u32(feat_data[((input.feat_id * 1u) + 0u)]) % 20u)]')
+    expect(nodeToWgslString(sampled)).toBe(
+      'CAT_PALETTE[(u32(feat_data[((input.feat_id * 1u) + 0u)]) % 20u)]',
+    )
   })
 })
 

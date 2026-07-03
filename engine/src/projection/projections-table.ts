@@ -39,9 +39,9 @@ const SINGLE_WORLD: readonly number[] = [0]
  *  cannot be isolated from isFlat/isCylindrical/isGlobe — the band is its own
  *  authority column. `bandLatRange` (earth-surface-fill.ts) consumes this. */
 export type WorldBandKind =
-  | 'mercator-clamped'   // 0 mercator / 1 equirect / 6 oblique-mercator
-  | 'natural-earth'      // 2 natural_earth — oval clip TBD
-  | 'sphere-full'        // 3 ortho / 4 azi-eq / 5 stereo / 7 globe
+  | 'mercator-clamped' // 0 mercator / 1 equirect / 6 oblique-mercator
+  | 'natural-earth' // 2 natural_earth — oval clip TBD
+  | 'sphere-full' // 3 ortho / 4 azi-eq / 5 stereo / 7 globe
 /** Max zoom at which periodic projections still enumerate neighbour world
  *  copies (above this the neighbours are off-canvas). */
 export const WORLD_COPY_MAX_ZOOM = 4
@@ -87,14 +87,110 @@ export interface ProjectionRecord {
 }
 
 export const PROJECTIONS: readonly ProjectionRecord[] = [
-  { name: 'mercator',              projType: 0, cullThreshold: null,  rimThreshold: null,  isFlat: true,  isSeam: false, isCylindrical: true,  isGlobe: false, periodic: false, worldCopies: WORLD_COPIES,  worldBand: 'mercator-clamped' },
-  { name: 'equirectangular',       projType: 1, cullThreshold: null,  rimThreshold: null,  isFlat: true,  isSeam: true,  isCylindrical: true,  isGlobe: false, periodic: true,  worldCopies: WORLD_COPIES,  worldBand: 'mercator-clamped' },
-  { name: 'natural_earth',         projType: 2, cullThreshold: null,  rimThreshold: null,  isFlat: true,  isSeam: true,  isCylindrical: true,  isGlobe: false, periodic: true,  worldCopies: WORLD_COPIES,  worldBand: 'natural-earth' },
-  { name: 'orthographic',          projType: 3, cullThreshold: 0.0,   rimThreshold: 0.0,   isFlat: false, isSeam: false, isCylindrical: false, isGlobe: false, periodic: false, worldCopies: SINGLE_WORLD, worldBand: 'sphere-full' },
-  { name: 'azimuthal_equidistant', projType: 4, cullThreshold: -0.85, rimThreshold: -0.85, isFlat: false, isSeam: false, isCylindrical: false, isGlobe: false, periodic: false, worldCopies: SINGLE_WORLD, worldBand: 'sphere-full' },
-  { name: 'stereographic',         projType: 5, cullThreshold: -0.8,  rimThreshold: -0.8,  isFlat: false, isSeam: false, isCylindrical: false, isGlobe: false, periodic: false, worldCopies: SINGLE_WORLD, worldBand: 'sphere-full' },
-  { name: 'oblique_mercator',      projType: 6, cullThreshold: null,  rimThreshold: null,  isFlat: false, isSeam: true,  isCylindrical: true,  isGlobe: false, periodic: true,  worldCopies: WORLD_COPIES,  worldBand: 'mercator-clamped' },
-  { name: 'globe',                 projType: 7, cullThreshold: 0.0,   rimThreshold: 0.0,   isFlat: false, isSeam: false, isCylindrical: false, isGlobe: true,  periodic: false, worldCopies: SINGLE_WORLD, worldBand: 'sphere-full' },
+  {
+    name: 'mercator',
+    projType: 0,
+    cullThreshold: null,
+    rimThreshold: null,
+    isFlat: true,
+    isSeam: false,
+    isCylindrical: true,
+    isGlobe: false,
+    periodic: false,
+    worldCopies: WORLD_COPIES,
+    worldBand: 'mercator-clamped',
+  },
+  {
+    name: 'equirectangular',
+    projType: 1,
+    cullThreshold: null,
+    rimThreshold: null,
+    isFlat: true,
+    isSeam: true,
+    isCylindrical: true,
+    isGlobe: false,
+    periodic: true,
+    worldCopies: WORLD_COPIES,
+    worldBand: 'mercator-clamped',
+  },
+  {
+    name: 'natural_earth',
+    projType: 2,
+    cullThreshold: null,
+    rimThreshold: null,
+    isFlat: true,
+    isSeam: true,
+    isCylindrical: true,
+    isGlobe: false,
+    periodic: true,
+    worldCopies: WORLD_COPIES,
+    worldBand: 'natural-earth',
+  },
+  {
+    name: 'orthographic',
+    projType: 3,
+    cullThreshold: 0.0,
+    rimThreshold: 0.0,
+    isFlat: false,
+    isSeam: false,
+    isCylindrical: false,
+    isGlobe: false,
+    periodic: false,
+    worldCopies: SINGLE_WORLD,
+    worldBand: 'sphere-full',
+  },
+  {
+    name: 'azimuthal_equidistant',
+    projType: 4,
+    cullThreshold: -0.85,
+    rimThreshold: -0.85,
+    isFlat: false,
+    isSeam: false,
+    isCylindrical: false,
+    isGlobe: false,
+    periodic: false,
+    worldCopies: SINGLE_WORLD,
+    worldBand: 'sphere-full',
+  },
+  {
+    name: 'stereographic',
+    projType: 5,
+    cullThreshold: -0.8,
+    rimThreshold: -0.8,
+    isFlat: false,
+    isSeam: false,
+    isCylindrical: false,
+    isGlobe: false,
+    periodic: false,
+    worldCopies: SINGLE_WORLD,
+    worldBand: 'sphere-full',
+  },
+  {
+    name: 'oblique_mercator',
+    projType: 6,
+    cullThreshold: null,
+    rimThreshold: null,
+    isFlat: false,
+    isSeam: true,
+    isCylindrical: true,
+    isGlobe: false,
+    periodic: true,
+    worldCopies: WORLD_COPIES,
+    worldBand: 'mercator-clamped',
+  },
+  {
+    name: 'globe',
+    projType: 7,
+    cullThreshold: 0.0,
+    rimThreshold: 0.0,
+    isFlat: false,
+    isSeam: false,
+    isCylindrical: false,
+    isGlobe: true,
+    periodic: false,
+    worldCopies: SINGLE_WORLD,
+    worldBand: 'sphere-full',
+  },
 ]
 
 // ═══ Derived predicates (the authority flip) ═══════════════════════════
@@ -156,7 +252,8 @@ export const isGlobeProj = (projType: number): boolean => PROJECTIONS[projType]?
  *  non-periodic projection that uses corner-unprojection for world-copy
  *  enumeration (all other projTypes use the table-driven periodic path or
  *  collapse to [0]). */
-export const isMercatorProj = (projType: number): boolean => !!(PROJECTIONS[projType]?.isCylindrical && !PROJECTIONS[projType]?.periodic)
+export const isMercatorProj = (projType: number): boolean =>
+  !!(PROJECTIONS[projType]?.isCylindrical && !PROJECTIONS[projType]?.periodic)
 
 /** Resolve the projType integer to its earth-surface-fill world-band kind.
  *  Pure table lookup over the `worldBand` column. An out-of-range projType
@@ -235,10 +332,12 @@ export function flatViewHeightCapM(projType: number, worldMercM: number): number
 /** Canonical name → projType map. Derived from PROJECTIONS; replaces the
  *  hand-written object literal in render-loop. Unknown names fall back to
  *  mercator (0) at the call site, matching the prior `?? 0`. */
-export const PROJECTION_NAME_TO_TYPE: Readonly<Record<string, number>> =
-  Object.fromEntries(PROJECTIONS.map((p) => [p.name, p.projType]))
+export const PROJECTION_NAME_TO_TYPE: Readonly<Record<string, number>> = Object.fromEntries(
+  PROJECTIONS.map((p) => [p.name, p.projType]),
+)
 
 /** Int → name for the flat-projection selector (projType 0..6). Globe (7)
  *  has no flat-projection entry and is handled separately by callers. */
-export const SELECTOR_PROJ_NAMES: readonly string[] =
-  PROJECTIONS.filter((p) => !p.isGlobe).map((p) => p.name)
+export const SELECTOR_PROJ_NAMES: readonly string[] = PROJECTIONS.filter((p) => !p.isGlobe).map(
+  (p) => p.name,
+)

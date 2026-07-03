@@ -17,11 +17,12 @@ function convert(mapbox: unknown): { result: string | null; warnings: string[] }
 
 /** Build a zero-arg FnCall AST node — the form `["properties"]` lowers
  *  to and the evaluator special-cases. */
-const propertiesCall = (): AST.Expr => ({
-  kind: 'FnCall',
-  callee: { kind: 'Identifier', name: 'properties' },
-  args: [],
-} as unknown as AST.Expr)
+const propertiesCall = (): AST.Expr =>
+  ({
+    kind: 'FnCall',
+    callee: { kind: 'Identifier', name: 'properties' },
+    args: [],
+  }) as unknown as AST.Expr
 
 describe('Mapbox ["properties"] expression accessor', () => {
   it('["properties"] → `properties()` builtin (no unknown-op warning)', () => {
@@ -29,14 +30,14 @@ describe('Mapbox ["properties"] expression accessor', () => {
     expect(result).toBe('properties()')
     // Must NOT fall to the generic unknown-op catch-all (the pre-fix
     // behaviour was a silent drop with "Expression not converted").
-    expect(warnings.some(w => w.startsWith('Expression not converted'))).toBe(false)
-    expect(warnings.some(w => w.includes('not yet supported'))).toBe(false)
+    expect(warnings.some((w) => w.startsWith('Expression not converted'))).toBe(false)
+    expect(warnings.some((w) => w.includes('not yet supported'))).toBe(false)
   })
 
   it('malformed ["properties", 1] warns about extra args but still emits', () => {
     const { result, warnings } = convert(['properties', 1])
     expect(result).toBe('properties()')
-    expect(warnings.some(w => w.includes('Malformed ["properties"]'))).toBe(true)
+    expect(warnings.some((w) => w.includes('Malformed ["properties"]'))).toBe(true)
   })
 
   it('evaluator returns the feature properties bag, stripped of reserved $-keys', () => {
@@ -53,7 +54,7 @@ describe('Mapbox ["properties"] expression accessor', () => {
     const out = evaluate(propertiesCall(), bag)
     expect(out).toEqual({ name: 'Main St', kind: 'street', lanes: 2 })
     // No reserved sidecars leak through.
-    expect(Object.keys(out as object).some(k => k.startsWith('$'))).toBe(false)
+    expect(Object.keys(out as object).some((k) => k.startsWith('$'))).toBe(false)
   })
 
   it('evaluator returns an empty object for a properties-less feature', () => {

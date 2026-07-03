@@ -17,103 +17,109 @@ describe('interpolate unknown curve type spec gate', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'line-color': '#fff',
-          'line-width': ['interpolate', ['wobbly'], ['zoom'],
-            5, 1,
-            15, 8,
-          ],
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'line-color': '#fff',
+            'line-width': ['interpolate', ['wobbly'], ['zoom'], 5, 1, 15, 8],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('unknown curve') && s.includes('wobbly'))).toBe(true)
+    expect(w.some((s) => s.includes('unknown curve') && s.includes('wobbly'))).toBe(true)
   })
 
   it('data-driven with unknown curve "smoothy" warns specifically', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'circle',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'circle-color': '#000',
-          'circle-stroke-color': '#000',
-          'circle-stroke-width': 1,
-          'circle-radius': ['interpolate', ['smoothy'], ['get', 'rank'],
-            0, 1,
-            10, 20,
-          ],
+      layers: [
+        {
+          id: 'l',
+          type: 'circle',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'circle-color': '#000',
+            'circle-stroke-color': '#000',
+            'circle-stroke-width': 1,
+            'circle-radius': ['interpolate', ['smoothy'], ['get', 'rank'], 0, 1, 10, 20],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('unknown curve') && s.includes('smoothy'))).toBe(true)
+    expect(w.some((s) => s.includes('unknown curve') && s.includes('smoothy'))).toBe(true)
   })
 
   it('zoom-interp with valid linear curve does NOT warn', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'line-color': '#fff',
-          'line-width': ['interpolate', ['linear'], ['zoom'],
-            5, 1, 15, 8,
-          ],
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'line-color': '#fff',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 5, 1, 15, 8],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('unknown curve'))).toBe(false)
+    expect(w.some((s) => s.includes('unknown curve'))).toBe(false)
   })
 
   it('zoom-interp with valid exponential curve does NOT warn', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'line-color': '#fff',
-          'line-width': ['interpolate', ['exponential', 1.5], ['zoom'],
-            5, 1, 15, 8,
-          ],
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'line-color': '#fff',
+            'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 5, 1, 15, 8],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('unknown curve'))).toBe(false)
+    expect(w.some((s) => s.includes('unknown curve'))).toBe(false)
   })
 
   it('zoom-interp with valid cubic-bezier curve does NOT warn', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'line-color': '#fff',
-          'line-width': ['interpolate', ['cubic-bezier', 0.42, 0, 0.58, 1], ['zoom'],
-            5, 1, 15, 8,
-          ],
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'line-color': '#fff',
+            'line-width': [
+              'interpolate',
+              ['cubic-bezier', 0.42, 0, 0.58, 1],
+              ['zoom'],
+              5,
+              1,
+              15,
+              8,
+            ],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('unknown curve'))).toBe(false)
+    expect(w.some((s) => s.includes('unknown curve'))).toBe(false)
   })
 })

@@ -20,20 +20,37 @@
 // ~σ2 blur per pass; two separable passes compose to a 2-D Gaussian.
 
 import {
-  fn, module,
-  f32, u32, vec2, vec4, toF32, toI32, clamp,
-  textureLoad, textureDimensions, vec2i,
-  u32T, vec2fT, vec4fT, texture2dfT,
-  Var, If,
+  fn,
+  module,
+  f32,
+  u32,
+  vec2,
+  vec4,
+  toF32,
+  toI32,
+  clamp,
+  textureLoad,
+  textureDimensions,
+  vec2i,
+  u32T,
+  vec2fT,
+  vec4fT,
+  texture2dfT,
+  Var,
+  If,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
 
-const Params = uniformStruct('BlurParams', { group: 0, binding: 1, as: 'p' }, {
-  // direction: (1,0) horizontal pass, (0,1) vertical pass. zw unused.
-  direction: vec4fT,
-})
+const Params = uniformStruct(
+  'BlurParams',
+  { group: 0, binding: 1, as: 'p' },
+  {
+    // direction: (1,0) horizontal pass, (0,1) vertical pass. zw unused.
+    direction: vec4fT,
+  },
+)
 
 const VsOut = ioStruct('VsOut', {
   pos: builtin('position', vec4fT),
@@ -44,18 +61,19 @@ const srcTex = resource('src_tex', texture2dfT, { group: 0, binding: 0 })
 
 // Oversized fullscreen triangle (NDC −1..3) — same trick as overdraw-compose.
 const vsFull = fn(
-  'vs_full', { idx: builtin('vertex_index', u32T) },
+  'vs_full',
+  { idx: builtin('vertex_index', u32T) },
   (p) => {
     const pos = Var(vec2(-1, -1))
-    If(p.idx.eq(1), () => { pos.assign(vec2(3, -1)) })
-      .elif(p.idx.eq(2), () => { pos.assign(vec2(-1, 3)) })
+    If(p.idx.eq(1), () => {
+      pos.assign(vec2(3, -1))
+    }).elif(p.idx.eq(2), () => {
+      pos.assign(vec2(-1, 3))
+    })
     const o = VsOut.var()
     o.pos.assign(vec4(pos, 0, 1))
     // y-flip — texture origin top-left, NDC origin bottom-left.
-    o.uv.assign(vec2(
-        pos.x.add(1).mul(0.5),
-        f32(1).sub(pos.y.add(1).mul(0.5)),
-      ))
+    o.uv.assign(vec2(pos.x.add(1).mul(0.5), f32(1).sub(pos.y.add(1).mul(0.5))))
     return o.$
   },
   { stage: 'vertex' },
@@ -64,7 +82,8 @@ const vsFull = fn(
 // fs_blur — 9-tap separable Gaussian along `direction`. Reads the R16Float
 // density with textureLoad (clamped to the texture extent at the edges).
 const fsBlur = fn(
-  'fs_blur', { in: VsOut },
+  'fs_blur',
+  { in: VsOut },
   (p) => {
     const dimU = textureDimensions(srcTex.node)
     const dim = vec2(toF32(dimU.x), toF32(dimU.y))
@@ -85,21 +104,22 @@ const fsBlur = fn(
     }
 
     // 9-tap binomial Gaussian weights (sum = 1).
-    const w0 = 0.2270270270
+    const w0 = 0.227027027
     const w1 = 0.1945945946
     const w2 = 0.1216216216
     const w3 = 0.0540540541
     const w4 = 0.0162162162
 
-    const acc = sampleAt(0).mul(f32(w0))
-        .add(sampleAt(1).mul(f32(w1)))
-        .add(sampleAt(-1).mul(f32(w1)))
-        .add(sampleAt(2).mul(f32(w2)))
-        .add(sampleAt(-2).mul(f32(w2)))
-        .add(sampleAt(3).mul(f32(w3)))
-        .add(sampleAt(-3).mul(f32(w3)))
-        .add(sampleAt(4).mul(f32(w4)))
-        .add(sampleAt(-4).mul(f32(w4)))
+    const acc = sampleAt(0)
+      .mul(f32(w0))
+      .add(sampleAt(1).mul(f32(w1)))
+      .add(sampleAt(-1).mul(f32(w1)))
+      .add(sampleAt(2).mul(f32(w2)))
+      .add(sampleAt(-2).mul(f32(w2)))
+      .add(sampleAt(3).mul(f32(w3)))
+      .add(sampleAt(-3).mul(f32(w3)))
+      .add(sampleAt(4).mul(f32(w4)))
+      .add(sampleAt(-4).mul(f32(w4)))
     return vec4(acc, 0, 0, 1)
   },
   { stage: 'fragment', retAttr: '@location(0)' },

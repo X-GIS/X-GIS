@@ -27,7 +27,10 @@ import { test, expect } from '@playwright/test'
 
 const FLICKER_BUDGET = 5
 
-async function loadAndObserve(page: import('@playwright/test').Page, hash: string): Promise<{ flicker: number; sample: string[] }> {
+async function loadAndObserve(
+  page: import('@playwright/test').Page,
+  hash: string,
+): Promise<{ flicker: number; sample: string[] }> {
   const flickers: string[] = []
   const onMsg = (m: import('@playwright/test').ConsoleMessage) => {
     const t = m.text()
@@ -40,7 +43,8 @@ async function loadAndObserve(page: import('@playwright/test').Page, hash: strin
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 20_000 },
+    null,
+    { timeout: 20_000 },
   )
   // Allow tile loads to settle. The 60-frame grace window inside the
   // map (~1s at 60fps) intentionally swallows the initial-load FLICKER
@@ -83,7 +87,9 @@ async function loadAndObserve(page: import('@playwright/test').Page, hash: strin
 // documented in the suite without producing a flaky CI signal.
 // Re-enable (swap to `.fail` or plain `test`) once reproduction
 // stabilises or the underlying tile-budget fix lands.
-test.fixme('water_hierarchy at moderate pitch (34°) does not sustain FLICKER warnings', async ({ page }) => {
+test.fixme('water_hierarchy at moderate pitch (34°) does not sustain FLICKER warnings', async ({
+  page,
+}) => {
   test.setTimeout(45_000)
   await page.setViewportSize({ width: 1200, height: 800 })
   const { flicker, sample } = await loadAndObserve(page, '#13.50/24.25169/91.09138/345.0/34.2')
@@ -91,10 +97,15 @@ test.fixme('water_hierarchy at moderate pitch (34°) does not sustain FLICKER wa
   expect(flicker).toBeLessThanOrEqual(FLICKER_BUDGET)
 })
 
-test.fail('water_hierarchy at high pitch (80°) does not sustain FLICKER warnings', async ({ page }) => {
-  test.setTimeout(45_000)
-  await page.setViewportSize({ width: 1200, height: 800 })
-  const { flicker, sample } = await loadAndObserve(page, '#13.50/24.22985/91.09184/330.0/79.9')
-  console.log(`[water-hierarchy 80°] FLICKER count: ${flicker} — sample: ${JSON.stringify(sample)}`)
-  expect(flicker).toBeLessThanOrEqual(FLICKER_BUDGET)
-})
+test.fail(
+  'water_hierarchy at high pitch (80°) does not sustain FLICKER warnings',
+  async ({ page }) => {
+    test.setTimeout(45_000)
+    await page.setViewportSize({ width: 1200, height: 800 })
+    const { flicker, sample } = await loadAndObserve(page, '#13.50/24.22985/91.09184/330.0/79.9')
+    console.log(
+      `[water-hierarchy 80°] FLICKER count: ${flicker} — sample: ${JSON.stringify(sample)}`,
+    )
+    expect(flicker).toBeLessThanOrEqual(FLICKER_BUDGET)
+  },
+)

@@ -11,8 +11,13 @@
 
 import { describe, it, expect } from 'vitest'
 import {
-  mercator, equirectangular, naturalEarth, orthographic,
-  azimuthalEquidistant, stereographic, obliqueMercator,
+  mercator,
+  equirectangular,
+  naturalEarth,
+  orthographic,
+  azimuthalEquidistant,
+  stereographic,
+  obliqueMercator,
   MERCATOR_LAT_LIMIT,
 } from '@xgis/engine'
 import type { Projection } from '@xgis/engine'
@@ -38,10 +43,18 @@ describe('iter-317 projection.forward — VALID-input finiteness (render contrac
   for (const [name, proj] of CYLINDRICAL) {
     it(`${name}: finite at antimeridian + poles + Mercator-limit`, () => {
       const samples: [number, number][] = [
-        [0, 0], [180, 0], [-180, 0], [179.999, 0],
-        [0, 85], [0, -85], [0, MERCATOR_LAT_LIMIT], [0, -MERCATOR_LAT_LIMIT],
-        [0, 90], [0, -90],  // poles — clamp must keep finite
-        [180, 90], [-180, -90],
+        [0, 0],
+        [180, 0],
+        [-180, 0],
+        [179.999, 0],
+        [0, 85],
+        [0, -85],
+        [0, MERCATOR_LAT_LIMIT],
+        [0, -MERCATOR_LAT_LIMIT],
+        [0, 90],
+        [0, -90], // poles — clamp must keep finite
+        [180, 90],
+        [-180, -90],
       ]
       for (const [lon, lat] of samples) {
         const out = proj.forward(lon, lat)
@@ -59,12 +72,19 @@ describe('iter-317 projection.forward — VALID-input finiteness (render contrac
   for (const [name, proj] of AZIMUTHAL) {
     it(`${name}: finite on the front hemisphere (center 0,0)`, () => {
       const front: [number, number][] = [
-        [0, 0], [10, 10], [-10, -10], [45, 0], [0, 45], [-45, 30],
+        [0, 0],
+        [10, 10],
+        [-10, -10],
+        [45, 0],
+        [0, 45],
+        [-45, 30],
       ]
       for (const [lon, lat] of front) {
         const out = proj.forward(lon, lat)
         if (!finite2(out)) {
-          throw new Error(`${name}.forward(${lon}, ${lat}) = [${out}] non-finite on front hemisphere`)
+          throw new Error(
+            `${name}.forward(${lon}, ${lat}) = [${out}] non-finite on front hemisphere`,
+          )
         }
       }
     })
@@ -85,7 +105,13 @@ describe('iter-317 projection.forward — VALID-input finiteness (render contrac
 
   it('obliqueMercator: finite on its main strip', () => {
     const obl = obliqueMercator(0, 0)
-    for (const [lon, lat] of [[0, 0], [10, 10], [-10, 10], [30, -20], [0, 45]] as [number, number][]) {
+    for (const [lon, lat] of [
+      [0, 0],
+      [10, 10],
+      [-10, 10],
+      [30, -20],
+      [0, 45],
+    ] as [number, number][]) {
       const out = obl.forward(lon, lat)
       if (!finite2(out)) throw new Error(`obliqueMercator.forward(${lon},${lat}) non-finite`)
     }
@@ -95,7 +121,13 @@ describe('iter-317 projection.forward — VALID-input finiteness (render contrac
 describe('iter-317 projection.forward → inverse round-trips (cylindrical)', () => {
   for (const [name, proj] of CYLINDRICAL) {
     it(`${name}: forward→inverse recovers lon/lat within the clamp band`, () => {
-      for (const [lon, lat] of [[0, 0], [45, 30], [-90, -45], [120, 60], [179, -70]] as [number, number][]) {
+      for (const [lon, lat] of [
+        [0, 0],
+        [45, 30],
+        [-90, -45],
+        [120, 60],
+        [179, -70],
+      ] as [number, number][]) {
         const [x, y] = proj.forward(lon, lat)
         const [rlon, rlat] = proj.inverse(x, y)
         expect(rlon).toBeCloseTo(lon, 4)

@@ -40,7 +40,8 @@ test.fixme('dashed_borders — sharp-corner segments carry the dash pattern', as
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(2500)
 
@@ -61,7 +62,9 @@ test.fixme('dashed_borders — sharp-corner segments carry the dash pattern', as
       let n = 0
       const row = y * c.width * 4
       for (let x = 0; x < c.width; x++) {
-        const r = full[row + x * 4], g = full[row + x * 4 + 1], b = full[row + x * 4 + 2]
+        const r = full[row + x * 4],
+          g = full[row + x * 4 + 1],
+          b = full[row + x * 4 + 2]
         const lum = 0.299 * r + 0.587 * g + 0.114 * b
         if (lum > 180) n++
       }
@@ -69,7 +72,10 @@ test.fixme('dashed_borders — sharp-corner segments carry the dash pattern', as
     }
     for (let y = 0; y < c.height; y++) {
       const n = rowBright(y)
-      if (n > bestBright) { bestBright = n; bestRow = y }
+      if (n > bestBright) {
+        bestBright = n
+        bestRow = y
+      }
     }
 
     // Count on/off transitions on that row. Also report the maximum
@@ -80,11 +86,17 @@ test.fixme('dashed_borders — sharp-corner segments carry the dash pattern', as
     let maxRun = 0
     let curRun = 0
     for (let x = 0; x < c.width; x++) {
-      const r = full[row + x * 4], g = full[row + x * 4 + 1], b = full[row + x * 4 + 2]
+      const r = full[row + x * 4],
+        g = full[row + x * 4 + 1],
+        b = full[row + x * 4 + 2]
       const lum = 0.299 * r + 0.587 * g + 0.114 * b
       const bright = lum > 180
-      if (bright) { curRun++; if (curRun > maxRun) maxRun = curRun }
-      else { curRun = 0 }
+      if (bright) {
+        curRun++
+        if (curRun > maxRun) maxRun = curRun
+      } else {
+        curRun = 0
+      }
       if (bright !== prevBright) transitions++
       prevBright = bright
     }
@@ -95,7 +107,10 @@ test.fixme('dashed_borders — sharp-corner segments carry the dash pattern', as
 
   // Sanity: did we even find a stroke? If the camera isn't drawing
   // anything bright, the test is uninformative — skip rather than fail.
-  test.skip(result.brightCount < 30, 'No stroke pixels visible at this camera state — check URL/data')
+  test.skip(
+    result.brightCount < 30,
+    'No stroke pixels visible at this camera state — check URL/data',
+  )
 
   // A correctly-dashed line shows many alternations and short runs.
   // A solid line shows ≤ 2 transitions and one long run (~brightCount).

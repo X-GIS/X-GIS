@@ -18,16 +18,10 @@
 
 import type { MapboxLayer } from '../types'
 
-export type LayerConvertFn = (
-  layer: MapboxLayer,
-  warnings: string[],
-) => string | null
+export type LayerConvertFn = (layer: MapboxLayer, warnings: string[]) => string | null
 
 export const LAYER_CONVERTERS: Map<string, LayerConvertFn> = new Map()
 
-export function registerLayerConverter(
-  layerType: string,
-  fn: LayerConvertFn,
-): void {
+export function registerLayerConverter(layerType: string, fn: LayerConvertFn): void {
   LAYER_CONVERTERS.set(layerType, fn)
 }

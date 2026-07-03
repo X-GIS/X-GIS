@@ -66,8 +66,10 @@ export function computeMiterPadRatio(
   tangentB: [number, number],
   miterLimit: number,
 ): number {
-  const ax = tangentA[0], ay = tangentA[1]
-  const bx = tangentB[0], by = tangentB[1]
+  const ax = tangentA[0],
+    ay = tangentA[1]
+  const bx = tangentB[0],
+    by = tangentB[1]
   if ((ax === 0 && ay === 0) || (bx === 0 && by === 0)) return 1 // cap
   // The quad extends along the segment direction (tangentA). The miter tip
   // projects onto this direction by |tan(θ/2)| × half_w, where θ is the
@@ -89,7 +91,7 @@ export function computeMiterPadRatio(
   // degenerate end of that range, just guarded earlier to avoid 0/0 in padAlong.
   if (denom < 1e-6) return 1 // 180° reversal → bevel (no miter extension)
   const padAlong = cross / denom
-  if (padAlong < 0.05) return 1       // collinear-ish, no miter needed
+  if (padAlong < 0.05) return 1 // collinear-ish, no miter needed
   // Miter limit: ratio 1/cos(θ/2) > miterLimit → bevel. θ = deflection between
   // the arriving/leaving tangents, so |A+B| = 2·cos(θ/2) ⇒ cosHalf = bisLen/2.
   // (Was wrongly sin(θ/2) = cross/bisLen — failed to bevel SHARP corners and
@@ -210,17 +212,19 @@ export function buildLineSegments(
   if (stride < 6) {
     throw new Error(
       `[line-segment-build] buildLineSegments expects stride>=6 with global arc_start at vertex[5]; got stride=${stride}. ` +
-      `Polygon outlines must come in via outlineVertices (stride-10), not as stride-5 indices into the polygon fill buffer.`,
+        `Polygon outlines must come in via outlineVertices (stride-10), not as stride-5 indices into the polygon fill buffer.`,
     )
   }
   const arcStart = new Float32Array(segCount)
   const arcTotal = new Float32Array(segCount)
   const segLen = new Float32Array(segCount)
   for (let i = 0; i < segCount; i++) {
-    const a = indices[i * 2], b = indices[i * 2 + 1]
+    const a = indices[i * 2],
+      b = indices[i * 2 + 1]
     const [ax, ay] = projVert(a)
     const [bx, by] = projVert(b)
-    const dx = bx - ax, dy = by - ay
+    const dx = bx - ax,
+      dy = by - ay
     segLen[i] = Math.sqrt(dx * dx + dy * dy)
     arcStart[i] = vertices[a * stride + 5]
   }
@@ -252,7 +256,11 @@ export function buildLineSegments(
     let r = x
     while (parent[r] !== r) r = parent[r]
     // Path compression.
-    while (parent[x] !== r) { const nx = parent[x]; parent[x] = r; x = nx }
+    while (parent[x] !== r) {
+      const nx = parent[x]
+      parent[x] = r
+      x = nx
+    }
     return r
   }
   for (let i = 0; i < segCount; i++) {
@@ -335,25 +343,30 @@ export function buildLineSegments(
     const dxUnit = segLenBuild > 1e-9 ? segDxBuild / segLenBuild : 1
     const dyUnit = segLenBuild > 1e-9 ? segDyBuild / segLenBuild : 0
 
-    let prevTx = 0, prevTy = 0
+    let prevTx = 0,
+      prevTy = 0
     if (stride === 10) {
       prevTx = vertices[a * stride + 6]
       prevTy = vertices[a * stride + 7]
     }
     if (prevTx === 0 && prevTy === 0) {
-      const aStart = adjStart[a], aEnd = adjStart[a + 1]
+      const aStart = adjStart[a],
+        aEnd = adjStart[a + 1]
       if (aEnd - aStart > 1) {
         for (let nIdx = aStart; nIdx < aEnd; nIdx++) {
           const ns = adjList[nIdx]
           if (ns === i) continue
           const na = indices[ns * 2]
           const nb = indices[ns * 2 + 1]
-          const otherEnd = (na === a) ? nb : na
+          const otherEnd = na === a ? nb : na
           const [ox, oy] = projVert(otherEnd)
           const dx = p0x - ox
           const dy = p0y - oy
           const len = Math.sqrt(dx * dx + dy * dy)
-          if (len > 1e-9) { prevTx = dx / len; prevTy = dy / len }
+          if (len > 1e-9) {
+            prevTx = dx / len
+            prevTy = dy / len
+          }
           break
         }
       }
@@ -372,30 +385,36 @@ export function buildLineSegments(
     // continues in the adjacent tile, so no-cap is correct there
     // too.
     if (prevTx === 0 && prevTy === 0 && vertOnBoundary(a)) {
-      prevTx = dxUnit; prevTy = dyUnit
+      prevTx = dxUnit
+      prevTy = dyUnit
     }
     out[off + 8] = prevTx
     out[off + 9] = prevTy
 
-    let nextTx = 0, nextTy = 0
+    let nextTx = 0,
+      nextTy = 0
     if (stride === 10) {
       nextTx = vertices[b * stride + 8]
       nextTy = vertices[b * stride + 9]
     }
     if (nextTx === 0 && nextTy === 0) {
-      const bStart = adjStart[b], bEnd = adjStart[b + 1]
+      const bStart = adjStart[b],
+        bEnd = adjStart[b + 1]
       if (bEnd - bStart > 1) {
         for (let nIdx = bStart; nIdx < bEnd; nIdx++) {
           const ns = adjList[nIdx]
           if (ns === i) continue
           const na = indices[ns * 2]
           const nb = indices[ns * 2 + 1]
-          const otherEnd = (na === b) ? nb : na
+          const otherEnd = na === b ? nb : na
           const [ox, oy] = projVert(otherEnd)
           const dx = ox - p1x
           const dy = oy - p1y
           const len = Math.sqrt(dx * dx + dy * dy)
-          if (len > 1e-9) { nextTx = dx / len; nextTy = dy / len }
+          if (len > 1e-9) {
+            nextTx = dx / len
+            nextTy = dy / len
+          }
           break
         }
       }
@@ -404,7 +423,8 @@ export function buildLineSegments(
     // the tin marker so clipped polygon outline arcs don't pile up
     // round caps at the tile boundary.
     if (nextTx === 0 && nextTy === 0 && vertOnBoundary(b)) {
-      nextTx = dxUnit; nextTy = dyUnit
+      nextTx = dxUnit
+      nextTy = dyUnit
     }
     out[off + 10] = nextTx
     out[off + 11] = nextTy
@@ -412,8 +432,16 @@ export function buildLineSegments(
     out[off + 12] = arcStart[i]
     out[off + 13] = arcTotal[i]
 
-    out[off + 14] = computeMiterPadRatio([prevTx, prevTy], [dxUnit, dyUnit], DEFAULT_BUILD_MITER_LIMIT)
-    out[off + 15] = computeMiterPadRatio([dxUnit, dyUnit], [nextTx, nextTy], DEFAULT_BUILD_MITER_LIMIT)
+    out[off + 14] = computeMiterPadRatio(
+      [prevTx, prevTy],
+      [dxUnit, dyUnit],
+      DEFAULT_BUILD_MITER_LIMIT,
+    )
+    out[off + 15] = computeMiterPadRatio(
+      [dxUnit, dyUnit],
+      [nextTx, nextTy],
+      DEFAULT_BUILD_MITER_LIMIT,
+    )
 
     // Per-segment z lift. featId lives at offset 4 in the DSFUN
     // input stride for every supported variant (5 / 6 / 10) — same
@@ -422,7 +450,7 @@ export function buildLineSegments(
     // sample from p0; for cross-feature segments (would be unusual
     // — typically each ring stays inside one feature) we'd see a
     // mid-segment seam, which is the input data's call to make.
-    const fid = (heights || widths || colors) ? vertices[a * stride + 4] : 0
+    const fid = heights || widths || colors ? vertices[a * stride + 4] : 0
     if (heights) {
       const h = heights.get(fid)
       // Match polygon-mesh.ts:226 fallback: missing fid → defaultHeight.
@@ -454,7 +482,6 @@ export function buildLineSegments(
     }
     // Slot 19 stays at the buffer's zero-init default — it's
     // pure WGSL alignment padding.
-
   }
   return out
 }

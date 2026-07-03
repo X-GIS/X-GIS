@@ -41,19 +41,21 @@ describe('stroke-dasharray parsing', () => {
     const src = 'layer foo { source: s | stroke-dasharray-20-10 }'
     const tokens = new Lexer(src).tokenize()
     // Look for the dasharray sequence
-    const names = tokens.map(t => t.value).join(' ')
+    const names = tokens.map((t) => t.value).join(' ')
     expect(names).toContain('stroke - dasharray - 20 - 10')
   })
 
   it('parses stroke-dasharray-20-10 as a single utility item', () => {
-    const ast = new Parser(new Lexer(`
+    const ast = new Parser(
+      new Lexer(`
       source s { type: geojson url: "x.geojson" }
       layer foo {
         source: s
         | stroke-dasharray-20-10
       }
-    `).tokenize()).parse()
-    const layerStmt = ast.body.find(s => s.kind === 'LayerStatement')!
+    `).tokenize(),
+    ).parse()
+    const layerStmt = ast.body.find((s) => s.kind === 'LayerStatement')!
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const util = (layerStmt as any).utilities[0].items[0]
     expect(util.name).toBe('stroke-dasharray-20-10')

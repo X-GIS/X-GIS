@@ -3,10 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { describe, expect, it } from 'vitest'
-import {
-  lowerConditionalColorToTernary,
-  lowerMatchColorToMatch,
-} from './compute-lowering'
+import { lowerConditionalColorToTernary, lowerMatchColorToMatch } from './compute-lowering'
 import type { ColorValue, DataExpr } from '../ir/render-node'
 import type { Expr } from '../parser/ast'
 
@@ -19,7 +16,7 @@ describe('lowerConditionalColorToTernary', () => {
     const v: ColorValue = {
       kind: 'conditional',
       branches: [
-        { field: 'hostile',  value: { kind: 'constant', rgba: RED } },
+        { field: 'hostile', value: { kind: 'constant', rgba: RED } },
         { field: 'friendly', value: { kind: 'constant', rgba: GREEN } },
       ],
       fallback: { kind: 'constant', rgba: BLUE },
@@ -72,7 +69,10 @@ describe('lowerConditionalColorToTernary', () => {
           field: 'x',
           value: {
             kind: 'zoom-interpolated',
-            stops: [{ zoom: 0, value: RED }, { zoom: 20, value: BLUE }],
+            stops: [
+              { zoom: 0, value: RED },
+              { zoom: 20, value: BLUE },
+            ],
           },
         },
       ],
@@ -103,7 +103,7 @@ describe('lowerMatchColorToMatch', () => {
         args: [fieldAccess(field)],
         matchBlock: {
           kind: 'MatchBlock',
-          arms: arms.map(a => ({
+          arms: arms.map((a) => ({
             pattern: a.pattern,
             value: { kind: 'ColorLiteral', value: a.hex },
           })),
@@ -114,23 +114,21 @@ describe('lowerMatchColorToMatch', () => {
 
   it('lowers match(.class) { … } with explicit default arm', () => {
     const expr = matchAst('class', [
-      { pattern: 'school',   hex: '#f0e8f8' },
+      { pattern: 'school', hex: '#f0e8f8' },
       { pattern: 'hospital', hex: '#f5deb3' },
-      { pattern: '_',        hex: '#888888' },
+      { pattern: '_', hex: '#888888' },
     ])
     const spec = lowerMatchColorToMatch(expr)!
     expect(spec).not.toBeNull()
     expect(spec.fieldName).toBe('class')
-    expect(spec.arms.map(a => a.pattern)).toEqual(['school', 'hospital'])
+    expect(spec.arms.map((a) => a.pattern)).toEqual(['school', 'hospital'])
     expect(spec.defaultColorHex).toBe('#888888')
   })
 
   it('synthesises transparent default when no _ arm present', () => {
     // Matches merge-layers convention: missing default → compound
     // fill falls through to nothing.
-    const expr = matchAst('class', [
-      { pattern: 'school', hex: '#f0e8f8' },
-    ])
+    const expr = matchAst('class', [{ pattern: 'school', hex: '#f0e8f8' }])
     const spec = lowerMatchColorToMatch(expr)!
     expect(spec.defaultColorHex).toBe('#00000000')
   })
@@ -158,11 +156,13 @@ describe('lowerMatchColorToMatch', () => {
       ast: {
         kind: 'FnCall',
         callee: { kind: 'Identifier', name: 'match' },
-        args: [{
-          kind: 'FieldAccess',
-          object: { kind: 'Identifier', name: 'props' },
-          field: 'class',
-        }],
+        args: [
+          {
+            kind: 'FieldAccess',
+            object: { kind: 'Identifier', name: 'props' },
+            field: 'class',
+          },
+        ],
         matchBlock: { kind: 'MatchBlock', arms: [] },
       },
     }
@@ -195,8 +195,9 @@ describe('lowerMatchColorToMatch', () => {
             {
               pattern: 'hospital',
               value: {
-                kind: 'BinaryExpr', op: '+',
-                left:  { kind: 'NumberLiteral', value: 1, unit: null },
+                kind: 'BinaryExpr',
+                op: '+',
+                left: { kind: 'NumberLiteral', value: 1, unit: null },
                 right: { kind: 'NumberLiteral', value: 1, unit: null },
               },
             },
@@ -205,7 +206,7 @@ describe('lowerMatchColorToMatch', () => {
       },
     }
     const spec = lowerMatchColorToMatch(expr)!
-    expect(spec.arms.map(a => a.pattern)).toEqual(['school'])
+    expect(spec.arms.map((a) => a.pattern)).toEqual(['school'])
   })
 
   it('resolves StringLiteral arm value via tokens lookup table', () => {
@@ -220,9 +221,7 @@ describe('lowerMatchColorToMatch', () => {
         args: [fieldAccess('class')],
         matchBlock: {
           kind: 'MatchBlock',
-          arms: [
-            { pattern: 'fire', value: { kind: 'StringLiteral', value: 'red-500' } },
-          ],
+          arms: [{ pattern: 'fire', value: { kind: 'StringLiteral', value: 'red-500' } }],
         },
       },
     }

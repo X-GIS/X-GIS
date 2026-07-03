@@ -14,8 +14,8 @@ interop-**incomplete**. Three interpretations of "interop" were considered:
   world geometry).
 - **B — COMPOSITE**: interleave three.js meshes into the X-GIS frame,
   depth-correctly.
-- **C — SOUNDNESS-PROXY**: is the model standard *enough* (right-handed, metric
-  world, separable view/projection) that *any* external lib could interop?
+- **C — SOUNDNESS-PROXY**: is the model standard _enough_ (right-handed, metric
+  world, separable view/projection) that _any_ external lib could interop?
 
 For a learning / portfolio project the deflated vision chose to **document the
 integration contracts**, not build the interop feature (the accessors / readback
@@ -30,7 +30,7 @@ cannot.
   (`runtime/src/engine/projection/globe.ts`).
 - **Readable camera state.** `getCameraState()` exposes
   lon/lat/zoom/bearing/pitch (`camera-controller.ts`), so an external lib can
-  reconstruct *a* camera.
+  reconstruct _a_ camera.
 - **Premultiplied-alpha canvas**, single WebGPU context owned by X-GIS
   (`gpu.ts`).
 
@@ -41,11 +41,11 @@ cannot.
 Every camera matrix accessor returns a single pre-multiplied `P·T·R…` product,
 and most are RTC (camera-relative), not a world-space view matrix. three.js (and
 every standard 3D lib) consumes `matrixWorldInverse` (view) and
-`projectionMatrix` (projection) as *separate* matrices in a world frame. X-GIS
+`projectionMatrix` (projection) as _separate_ matrices in a world frame. X-GIS
 ships only the product, and the only translate-included matrix (`getMatrix`) is
 dead code.
 
-- *Bridge if interop becomes a goal (additive, ~50 LOC, no hot-path change):*
+- _Bridge if interop becomes a goal (additive, ~50 LOC, no hot-path change):_
   `Camera.getViewMatrix()` / `getProjectionMatrix()` returning the un-fused pair
   in the absolute sphere-ECEF frame — the fused builders already compute
   `P`, `T`, `Rx`, `Rz`, `Renu` separately (`camera.ts`), so this is "stop
@@ -61,7 +61,7 @@ COMPOSITE (interpretation B), three.js must be configured into the **identical**
 log-depth formula, the same per-frame `fc`, and the same `[0,1]` clip-z. This is
 **load-bearing for high-pitch precision — do NOT switch X-GIS off log-depth.**
 
-- *Bridge:* expose `frame.logDepthFc` + `far` per frame and document the formula;
+- _Bridge:_ expose `frame.logDepthFc` + `far` per frame and document the formula;
   configure `THREE.WebGPURenderer` with a matching log-depth. Doc-only here.
 
 ### 3. Geometry is split-float ECEF-RTC, on a SPHERE-vs-ELLIPSOID geoid
@@ -78,7 +78,7 @@ apart), reconciled only within an RTC tile extent by a per-tile origin + a
 sphere-for-camera / ellipsoid-for-vertices. Handing absolute coords to three.js
 without naming which geoid applies introduces a latitude-dependent error.
 
-- *Bridge:* a geometry-readback path yielding absolute (or single-RTC-origin)
+- _Bridge:_ a geometry-readback path yielding absolute (or single-RTC-origin)
   ECEF f32 per layer — larger work, deferred. There is also no scene graph /
   transform-node hierarchy (transforms fold into per-draw uniforms), so a thin
   lon/lat/height → world-matrix anchor API would be needed to "parent" a 3D

@@ -79,7 +79,10 @@ type MirrorVariant = 'baseline' | 'fix'
 // for equirect is proj_equirectangular(clon,clat,clon) ⇒ wrap(clon−clon)=0 ⇒
 // x = 0, so flat_rel.x == project_geom.x here.
 function projectGeomEquirectFlatRelX(
-  absLon: number, clon: number, refLon: number, variant: MirrorVariant,
+  absLon: number,
+  clon: number,
+  refLon: number,
+  variant: MirrorVariant,
 ): number {
   const wo = floorf(div(add(sub(f(refLon), f(clon)), 180), 360))
   const lonPrimary = sub(f(absLon), mul(wo, 360))
@@ -110,7 +113,7 @@ const STRICT_M = 1e-3
 // must coincide with copy +1's lon=-180 WEST edge of a z1 child whose tile
 // spans lon [180,360] in copy+1 space (tileWest=-180, worldOff=+360 ⇒
 // tile_ref_lon = -180+360+90 = 270). Both name the +180/-180 meridian.
-const EDGE_A = { absLon: 180, refLon: 90 }   // copy 0 east edge
+const EDGE_A = { absLon: 180, refLon: 90 } // copy 0 east edge
 const EDGE_B = { absLon: -180, refLon: 270 } // copy +1 west edge
 
 // Camera longitudes spanning the dateline sweep. The bug shows ONLY when the
@@ -150,10 +153,12 @@ describe('antimeridian cross-copy seam coincidence (CPU f32 project_geom mirror)
     // AND stay coincident after the fix — proving the change touches only the
     // cross-copy fold, never an interior seam.
     for (const clon of [1, 60, -120, 179.99]) {
-      const base = projectGeomEquirectFlatRelX(0, clon, -90, 'baseline')
-        - projectGeomEquirectFlatRelX(0, clon, 90, 'baseline')
-      const fix = projectGeomEquirectFlatRelX(0, clon, -90, 'fix')
-        - projectGeomEquirectFlatRelX(0, clon, 90, 'fix')
+      const base =
+        projectGeomEquirectFlatRelX(0, clon, -90, 'baseline') -
+        projectGeomEquirectFlatRelX(0, clon, 90, 'baseline')
+      const fix =
+        projectGeomEquirectFlatRelX(0, clon, -90, 'fix') -
+        projectGeomEquirectFlatRelX(0, clon, 90, 'fix')
       expect(fix).toBe(base)
     }
   })

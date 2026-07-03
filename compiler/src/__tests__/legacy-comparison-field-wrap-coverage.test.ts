@@ -15,7 +15,9 @@ describe('legacy comparison wrapped field name', () => {
 
   it('double-wrap also peels', () => {
     const w: string[] = []
-    expect(filterToXgis(['!=', ['literal', ['literal', 'kind']], 'park'], w)).toBe('.kind != "park"')
+    expect(filterToXgis(['!=', ['literal', ['literal', 'kind']], 'park'], w)).toBe(
+      '.kind != "park"',
+    )
   })
 
   it('regression: bare field still works', () => {

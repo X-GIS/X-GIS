@@ -20,11 +20,17 @@ function makeSink() {
   const events: { key: number; result: BackendTileResult | null }[] = []
   let loadingCount = 0
   const sink: TileSourceSink = {
-    trackLoading: () => { loadingCount++ },
-    releaseLoading: () => { loadingCount-- },
+    trackLoading: () => {
+      loadingCount++
+    },
+    releaseLoading: () => {
+      loadingCount--
+    },
     hasTileData: () => false,
     getLoadingCount: () => loadingCount,
-    acceptResult: (key, result) => { events.push({ key, result }) },
+    acceptResult: (key, result) => {
+      events.push({ key, result })
+    },
   }
   return { sink, events, getLoadingCount: () => loadingCount }
 }
@@ -33,11 +39,24 @@ function makeSink() {
 function buildSyntheticMvt(z: number, x: number, y: number): Uint8Array | null {
   const orig = {
     type: 'FeatureCollection',
-    features: [{
-      type: 'Feature',
-      geometry: { type: 'Polygon', coordinates: [[[-20, -20], [20, -20], [20, 20], [-20, 20], [-20, -20]]] },
-      properties: {},
-    }],
+    features: [
+      {
+        type: 'Feature',
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [-20, -20],
+              [20, -20],
+              [20, 20],
+              [-20, 20],
+              [-20, -20],
+            ],
+          ],
+        },
+        properties: {},
+      },
+    ],
   }
   const idx = geojsonVt(orig, { maxZoom: 0, indexMaxZoom: 0 })
   const tile = idx.getTile(z, x, y)
@@ -49,7 +68,9 @@ describe('PMTilesBackend in isolation', () => {
   it('has() returns true for keys inside bounds + zoom window', () => {
     const fetcher: PMTilesFetcher = async () => null
     const backend = new PMTilesBackend({
-      fetcher, minZoom: 0, maxZoom: 4,
+      fetcher,
+      minZoom: 0,
+      maxZoom: 4,
       bounds: [-180, -85, 180, 85],
     })
     expect(backend.has(tileKey(0, 0, 0))).toBe(true)
@@ -59,7 +80,9 @@ describe('PMTilesBackend in isolation', () => {
   it('has() rejects keys outside the zoom window', () => {
     const fetcher: PMTilesFetcher = async () => null
     const backend = new PMTilesBackend({
-      fetcher, minZoom: 2, maxZoom: 4,
+      fetcher,
+      minZoom: 2,
+      maxZoom: 4,
       bounds: [-180, -85, 180, 85],
     })
     expect(backend.has(tileKey(0, 0, 0))).toBe(false)
@@ -70,7 +93,9 @@ describe('PMTilesBackend in isolation', () => {
   it('has() rejects keys outside bounds (Firenze-style narrow window)', () => {
     const fetcher: PMTilesFetcher = async () => null
     const backend = new PMTilesBackend({
-      fetcher, minZoom: 0, maxZoom: 14,
+      fetcher,
+      minZoom: 0,
+      maxZoom: 14,
       bounds: [11, 43, 12, 44],
     })
     expect(backend.has(tileKey(4, 0, 0))).toBe(false)
@@ -84,14 +109,16 @@ describe('PMTilesBackend in isolation', () => {
       return buildSyntheticMvt(z, x, y)
     }
     const backend = new PMTilesBackend({
-      fetcher, minZoom: 0, maxZoom: 0,
+      fetcher,
+      minZoom: 0,
+      maxZoom: 0,
       bounds: [-180, -85, 180, 85],
     })
     const { sink, events } = makeSink()
     backend.attach(sink)
 
     backend.loadTile(tileKey(0, 0, 0))
-    await new Promise(r => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 50))
     // Before tick: bytes queued, but no acceptResult yet.
     expect(fetchCount).toBe(1)
     expect(events, 'tick has not run — no acceptResult yet').toHaveLength(0)
@@ -105,14 +132,16 @@ describe('PMTilesBackend in isolation', () => {
   it('null fetcher result becomes empty placeholder via sink (immediate, no tick needed)', async () => {
     const fetcher: PMTilesFetcher = async () => null
     const backend = new PMTilesBackend({
-      fetcher, minZoom: 0, maxZoom: 0,
+      fetcher,
+      minZoom: 0,
+      maxZoom: 0,
       bounds: [-180, -85, 180, 85],
     })
     const { sink, events } = makeSink()
     backend.attach(sink)
 
     backend.loadTile(tileKey(0, 0, 0))
-    await new Promise(r => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 50))
     // Null fetch result short-circuits — no compile work to defer.
     expect(events).toHaveLength(1)
     expect(events[0].result, 'null = empty placeholder').toBeNull()
@@ -120,9 +149,14 @@ describe('PMTilesBackend in isolation', () => {
 
   it('skips fetch when sink already has the key cached', () => {
     let fetchCount = 0
-    const fetcher: PMTilesFetcher = async () => { fetchCount++; return null }
+    const fetcher: PMTilesFetcher = async () => {
+      fetchCount++
+      return null
+    }
     const backend = new PMTilesBackend({
-      fetcher, minZoom: 0, maxZoom: 0,
+      fetcher,
+      minZoom: 0,
+      maxZoom: 0,
       bounds: [-180, -85, 180, 85],
     })
     let cached = false
@@ -131,25 +165,36 @@ describe('PMTilesBackend in isolation', () => {
       releaseLoading: () => {},
       hasTileData: () => cached,
       getLoadingCount: () => 0,
-      acceptResult: () => { cached = true },
+      acceptResult: () => {
+        cached = true
+      },
     }
     backend.attach(sink)
-    cached = true  // simulate already-cached state
+    cached = true // simulate already-cached state
     backend.loadTile(tileKey(0, 0, 0))
     expect(fetchCount).toBe(0)
   })
 
   it('respects per-backend in-flight cap (MAX_INFLIGHT)', () => {
     let fetchCount = 0
-    const fetcher: PMTilesFetcher = async () => { fetchCount++; return null }
+    const fetcher: PMTilesFetcher = async () => {
+      fetchCount++
+      return null
+    }
     const backend = new PMTilesBackend({
-      fetcher, minZoom: 0, maxZoom: 4,
+      fetcher,
+      minZoom: 0,
+      maxZoom: 4,
       bounds: [-180, -85, 180, 85],
     })
     let loadingCount = 16
     const sink: TileSourceSink = {
-      trackLoading: () => { loadingCount++ },
-      releaseLoading: () => { loadingCount-- },
+      trackLoading: () => {
+        loadingCount++
+      },
+      releaseLoading: () => {
+        loadingCount--
+      },
       hasTileData: () => false,
       getLoadingCount: () => loadingCount,
       acceptResult: () => {},
@@ -169,7 +214,9 @@ describe('PMTilesBackend in isolation', () => {
       return sharedBytes
     }
     const backend = new PMTilesBackend({
-      fetcher, minZoom: 0, maxZoom: 4,
+      fetcher,
+      minZoom: 0,
+      maxZoom: 4,
       bounds: [-180, -85, 180, 85],
     })
     const { sink, events } = makeSink()
@@ -178,7 +225,7 @@ describe('PMTilesBackend in isolation', () => {
     for (let i = 0; i < 10; i++) {
       backend.loadTile(tileKey(0, 0, 0) + i)
     }
-    await new Promise(r => setTimeout(r, 100))
+    await new Promise((r) => setTimeout(r, 100))
     expect(fetchCount).toBe(10)
     expect(events, 'no tick yet — nothing compiled').toHaveLength(0)
 
@@ -193,13 +240,18 @@ describe('PMTilesBackend in isolation', () => {
   it('meta carries the constructor params', () => {
     const fetcher: PMTilesFetcher = async () => null
     const backend = new PMTilesBackend({
-      fetcher, minZoom: 2, maxZoom: 14,
+      fetcher,
+      minZoom: 2,
+      maxZoom: 14,
       bounds: [11, 43, 12, 44],
     })
     expect(backend.meta.minZoom).toBe(2)
     expect(backend.meta.maxZoom).toBe(14)
     expect(backend.meta.bounds).toEqual([11, 43, 12, 44])
-    expect(backend.meta.entries, 'PMTiles uses lazy discovery — no preregistered entries').toBeUndefined()
+    expect(
+      backend.meta.entries,
+      'PMTiles uses lazy discovery — no preregistered entries',
+    ).toBeUndefined()
   })
 })
 
@@ -214,27 +266,24 @@ describe('resolveDispatch — TileJSON vs PMTiles routing', () => {
     // manifest URL, but the xgis source still declares
     // `type: pmtiles`. Pre-fix the dispatcher trusted the kind
     // and tried to parse the JSON as a binary archive header.
-    expect(resolveDispatch('https://api.protomaps.com/tiles/v4.json?key=abc', 'pmtiles'))
-      .toBe('tilejson')
+    expect(resolveDispatch('https://api.protomaps.com/tiles/v4.json?key=abc', 'pmtiles')).toBe(
+      'tilejson',
+    )
   })
 
   it('routes a .pmtiles URL to PMTiles even when kind says tilejson', () => {
-    expect(resolveDispatch('https://example.com/world.pmtiles', 'tilejson'))
-      .toBe('pmtiles')
+    expect(resolveDispatch('https://example.com/world.pmtiles', 'tilejson')).toBe('pmtiles')
   })
 
   it('honours kind for extensionless URLs', () => {
     // openfreemap-style: tile server URL has no extension, the
     // `kind` declaration is the only signal we have.
-    expect(resolveDispatch('https://tiles.openfreemap.org/planet', 'tilejson'))
-      .toBe('tilejson')
-    expect(resolveDispatch('https://tiles.openfreemap.org/planet', 'pmtiles'))
-      .toBe('pmtiles')
+    expect(resolveDispatch('https://tiles.openfreemap.org/planet', 'tilejson')).toBe('tilejson')
+    expect(resolveDispatch('https://tiles.openfreemap.org/planet', 'pmtiles')).toBe('pmtiles')
   })
 
   it('treats .tilejson the same as .json', () => {
-    expect(resolveDispatch('https://example.com/style.tilejson', 'pmtiles'))
-      .toBe('tilejson')
+    expect(resolveDispatch('https://example.com/style.tilejson', 'pmtiles')).toBe('tilejson')
   })
 
   it('does not mis-route .geojson as TileJSON', () => {
@@ -243,15 +292,12 @@ describe('resolveDispatch — TileJSON vs PMTiles routing', () => {
     // manifest. Default fallback (pmtiles) is wrong too in
     // practice, but at least the function doesn't claim it's
     // TileJSON.
-    expect(resolveDispatch('https://example.com/data.geojson', undefined))
-      .toBe('pmtiles')
+    expect(resolveDispatch('https://example.com/data.geojson', undefined)).toBe('pmtiles')
   })
 
   it('falls back to pmtiles when nothing signals otherwise', () => {
-    expect(resolveDispatch('https://example.com/world.pmtiles', undefined))
-      .toBe('pmtiles')
-    expect(resolveDispatch('https://example.com/some-archive', undefined))
-      .toBe('pmtiles')
+    expect(resolveDispatch('https://example.com/world.pmtiles', undefined)).toBe('pmtiles')
+    expect(resolveDispatch('https://example.com/some-archive', undefined)).toBe('pmtiles')
   })
 
   it('routes XYZ template URLs ({z}/{x}/{y}) to tilejson even without extension', () => {
@@ -261,14 +307,11 @@ describe('resolveDispatch — TileJSON vs PMTiles routing', () => {
     // case fell to the null return and the caller defaulted to
     // PMTiles, which then failed with "Wrong magic number" on the
     // first fetch.
-    expect(resolveDispatch('https://example.com/tiles/{z}/{x}/{y}', 'auto'))
-      .toBe('tilejson')
+    expect(resolveDispatch('https://example.com/tiles/{z}/{x}/{y}', 'auto')).toBe('tilejson')
     // .mvt extension form still works (regression guard).
-    expect(resolveDispatch('https://example.com/tiles/{z}/{x}/{y}.mvt', 'auto'))
-      .toBe('tilejson')
+    expect(resolveDispatch('https://example.com/tiles/{z}/{x}/{y}.mvt', 'auto')).toBe('tilejson')
     // Mixed XYZ template with query params.
-    expect(resolveDispatch('https://example.com/v1/{z}/{x}/{y}?token=abc', 'auto'))
-      .toBe('tilejson')
+    expect(resolveDispatch('https://example.com/v1/{z}/{x}/{y}?token=abc', 'auto')).toBe('tilejson')
   })
 
   it('explicit kind: pmtiles still wins over an XYZ template (kind is authoritative when explicit)', () => {
@@ -276,7 +319,6 @@ describe('resolveDispatch — TileJSON vs PMTiles routing', () => {
     // probably wrong, but we honour the declaration — the URL-wins
     // rule only applies for ext-bearing URLs where the bytes are
     // unambiguous. The placeholder fallback is auto-only.
-    expect(resolveDispatch('https://example.com/tiles/{z}/{x}/{y}', 'pmtiles'))
-      .toBe('pmtiles')
+    expect(resolveDispatch('https://example.com/tiles/{z}/{x}/{y}', 'pmtiles')).toBe('pmtiles')
   })
 })

@@ -23,7 +23,9 @@ declare global {
   // Vite injects import.meta.env; declare only the flag we read so this
   // compiles without depending on vite/client. Merges with the standard
   // ImportMeta (which already carries `url`, used for worker URLs).
-  interface ImportMeta { readonly env: { readonly DEV: boolean } }
+  interface ImportMeta {
+    readonly env: { readonly DEV: boolean }
+  }
 }
 
 /** True under dev server + vitest, statically false (and stripped) in the
@@ -50,12 +52,17 @@ export function devAssert(cond: boolean, msg: string | (() => string)): void {
  *  NaN-safe: a NaN on either side fires (a NaN matrix / asin-domain miss is
  *  itself a defect). */
 export function devAssertClose(
-  a: number, b: number, eps: number, msg: string | (() => string),
+  a: number,
+  b: number,
+  eps: number,
+  msg: string | (() => string),
 ): void {
   if (!import.meta.env.DEV) return
   const d = Math.abs(a - b)
   if (!(d <= eps)) {
-    throw new Error(`[xgis devAssertClose] ${typeof msg === 'function' ? msg() : msg} — |${a} − ${b}| = ${d} > ${eps}`)
+    throw new Error(
+      `[xgis devAssertClose] ${typeof msg === 'function' ? msg() : msg} — |${a} − ${b}| = ${d} > ${eps}`,
+    )
   }
 }
 
@@ -73,7 +80,9 @@ export function devAssertClose(
  *  per distinct name for the page lifetime — dev-only, but real). */
 const _watch = new Map<string, number>()
 export function devWatch(
-  name: string, value: number, eps = 0,
+  name: string,
+  value: number,
+  eps = 0,
   onChange?: (prev: number, next: number) => void,
 ): void {
   if (!import.meta.env.DEV) return

@@ -20,19 +20,20 @@ to `endCamera` over `durationMs`, with a named `easing` curve.
 
 ## Available scenarios
 
-* **seoul-zoomin** — Smooth zoom in over Seoul z=8→16. Baseline
+- **seoul-zoomin** — Smooth zoom in over Seoul z=8→16. Baseline
   for OFM Bright tile cascade + label density.
-* **manhattan-pitch** — High-pitch pan over Manhattan. Exercises
+- **manhattan-pitch** — High-pitch pan over Manhattan. Exercises
   fill-extrusion render budget + LOD swap at z=15 pitch=70.
-* **global-globe-rotation** — Full 360° globe rotation. Sphere-cap
+- **global-globe-rotation** — Full 360° globe rotation. Sphere-cap
   tile selection + rim alpha fade + antimeridian wrap.
-* **arctic-projection-flip** — Camera over north pole. Low-zoom
+- **arctic-projection-flip** — Camera over north pole. Low-zoom
   tile selector + polar cap synthesis behaviour.
 
 ## Plan §8.5 — what consumes these
 
 Future perf / visual specs read the JSON via a `runScenario(page,
 name)` helper that:
+
 1. Loads the page with `projection` query param.
 2. Sets up startCamera.
 3. Drives a rAF-paced interaction interpolating to endCamera over

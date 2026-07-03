@@ -50,7 +50,9 @@ export function emitFillExtrusionPaint(
     // dropped with no warning (mirror of the fill-antialias drop in
     // paint-fill.ts). Surface the loss; full zoom-expr support is out
     // of scope.
-    warnings.push(`Layer "${layer.id}" — fill-extrusion-vertical-gradient zoom/data expression not supported (only constant true/false) — dropped.`)
+    warnings.push(
+      `Layer "${layer.id}" — fill-extrusion-vertical-gradient zoom/data expression not supported (only constant true/false) — dropped.`,
+    )
   }
   // iter-180 — fill-extrusion-translate Stage 1. The fill-extrusion
   // WGSL paths (vs_main_quantized + vs_main_quantized_extruded) already
@@ -68,7 +70,13 @@ export function emitFillExtrusionPaint(
   // anchor=map flag uses the 'fill' prefix and the VTR bearing-rotation
   // applies to the extrude path for free. viewport (default) = byte-
   // identical screen-space.
-  addTranslateAnchor(out, 'fill', p['fill-extrusion-translate-anchor'], p['fill-extrusion-translate'], warnings)
+  addTranslateAnchor(
+    out,
+    'fill',
+    p['fill-extrusion-translate-anchor'],
+    p['fill-extrusion-translate'],
+    warnings,
+  )
   // iter-179 — fill-extrusion-pattern Stage 1. Building walls are
   // drawn through the same fill RGBA channel as ground fills (the
   // extrude shader multiplies the colour by wall_shade in the
@@ -80,7 +88,9 @@ export function emitFillExtrusionPaint(
     if (typeof v === 'string') {
       out.push(`fill-pattern-${v}`)
     } else {
-      warnings.push(`Layer "${layer.id}" — fill-extrusion-pattern non-constant form (expression / interpolate) not yet wired through the IR; the constant string form is supported (iter-179). The walls fall back to fill-extrusion-color or transparent.`)
+      warnings.push(
+        `Layer "${layer.id}" — fill-extrusion-pattern non-constant form (expression / interpolate) not yet wired through the IR; the constant string form is supported (iter-179). The walls fall back to fill-extrusion-color or transparent.`,
+      )
     }
   }
   // fill-extrusion-vertical-gradient is now implemented (true default
@@ -102,7 +112,9 @@ function addExtrudeHeight(out: string[], v: unknown, warnings: string[]): void {
     // Number.isFinite rejects NaN/Infinity — Math.max(0, NaN) = NaN
     // would emit `fill-extrusion-height-NaN`.
     if (v < 0) {
-      warnings.push(`paint.fill-extrusion-height: value ${v} is negative; Mapbox spec requires >= 0. Clamped to 0 (walls won't extrude).`)
+      warnings.push(
+        `paint.fill-extrusion-height: value ${v} is negative; Mapbox spec requires >= 0. Clamped to 0 (walls won't extrude).`,
+      )
     }
     out.push(`fill-extrusion-height-${Math.max(0, v)}`)
     return
@@ -129,7 +141,9 @@ function addExtrudeBase(out: string[], v: unknown, warnings: string[]): void {
   // addExtrudeHeight clamp.
   if (typeof v === 'number' && Number.isFinite(v)) {
     if (v < 0) {
-      warnings.push(`paint.fill-extrusion-base: value ${v} is negative; Mapbox spec requires >= 0. Clamped to 0.`)
+      warnings.push(
+        `paint.fill-extrusion-base: value ${v} is negative; Mapbox spec requires >= 0. Clamped to 0.`,
+      )
     }
     out.push(`fill-extrusion-base-${Math.max(0, v)}`)
     return

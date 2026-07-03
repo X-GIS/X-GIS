@@ -19,13 +19,15 @@ function compile(layout: Record<string, unknown>): string[] {
   const style = {
     version: 8,
     sources: { v: { type: 'vector' as const, url: 'x.pmtiles' } },
-    layers: [{
-      id: 'sym',
-      type: 'symbol' as const,
-      source: 'v',
-      'source-layer': 'poi',
-      layout: { 'icon-image': 'marker', 'text-field': '{name}', ...layout },
-    }],
+    layers: [
+      {
+        id: 'sym',
+        type: 'symbol' as const,
+        source: 'v',
+        'source-layer': 'poi',
+        layout: { 'icon-image': 'marker', 'text-field': '{name}', ...layout },
+      },
+    ],
   }
   const warnings: string[] = []
   convertMapboxStyle(style as never, {
@@ -38,17 +40,17 @@ describe('text-optional / icon-optional warning gate — iter 519', () => {
   describe('text-optional', () => {
     it('default false → no warning', () => {
       const warnings = compile({ 'text-optional': false })
-      expect(warnings.filter(w => w.includes('text-optional'))).toEqual([])
+      expect(warnings.filter((w) => w.includes('text-optional'))).toEqual([])
     })
 
     it('omitted → no warning', () => {
       const warnings = compile({})
-      expect(warnings.filter(w => w.includes('text-optional'))).toEqual([])
+      expect(warnings.filter((w) => w.includes('text-optional'))).toEqual([])
     })
 
     it('true (OFM airport shape) → warning explaining missing arbitration', () => {
       const warnings = compile({ 'text-optional': true })
-      const hits = warnings.filter(w => w.includes('text-optional'))
+      const hits = warnings.filter((w) => w.includes('text-optional'))
       expect(hits.length).toBe(1)
       expect(hits[0]).toContain('text-optional: true')
       expect(hits[0]).toContain('symbol placement always pairs')
@@ -56,7 +58,7 @@ describe('text-optional / icon-optional warning gate — iter 519', () => {
 
     it('v8 literal-wrap [\"literal\", true] → warning fires (unwrap honoured)', () => {
       const warnings = compile({ 'text-optional': ['literal', true] })
-      expect(warnings.filter(w => w.includes('text-optional')).length).toBe(1)
+      expect(warnings.filter((w) => w.includes('text-optional')).length).toBe(1)
     })
   })
 
@@ -67,18 +69,18 @@ describe('text-optional / icon-optional warning gate — iter 519', () => {
   describe('icon-optional', () => {
     it('default false → no warning (OFM label_city/town shape)', () => {
       const warnings = compile({ 'icon-optional': false })
-      expect(warnings.filter(w => w.includes('icon-optional'))).toEqual([])
+      expect(warnings.filter((w) => w.includes('icon-optional'))).toEqual([])
     })
 
     it('true → no warning (implemented; carried as label-icon-optional)', () => {
       const warnings = compile({ 'icon-optional': true })
-      expect(warnings.filter(w => w.includes('icon-optional'))).toEqual([])
+      expect(warnings.filter((w) => w.includes('icon-optional'))).toEqual([])
     })
   })
 
   it('both true → exactly one warning (text-optional only; icon-optional implemented)', () => {
     const warnings = compile({ 'text-optional': true, 'icon-optional': true })
-    const hits = warnings.filter(w => /optional/.test(w))
+    const hits = warnings.filter((w) => /optional/.test(w))
     expect(hits.length).toBe(1)
     expect(hits[0]).toContain('text-optional: true')
   })

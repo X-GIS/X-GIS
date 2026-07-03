@@ -8,24 +8,48 @@
 // emit — the wgslBackend fragments reproduce the exact former strings.
 
 import type {
-  ShaderType, Expr, ConstDecl, StructDecl, BindingDecl, FuncDecl, ModuleDecl,
+  ShaderType,
+  Expr,
+  ConstDecl,
+  StructDecl,
+  BindingDecl,
+  FuncDecl,
+  ModuleDecl,
 } from '../ir'
 import { Capabilities, type Backend } from '../backend'
-import { emitExpr as emitExprNeutral, emitBody, emitModule as emitModuleDriver, emitModuleAt as emitModuleAtDriver, lowerForBackend } from '../emit'
+import {
+  emitExpr as emitExprNeutral,
+  emitBody,
+  emitModule as emitModuleDriver,
+  emitModuleAt as emitModuleAtDriver,
+  lowerForBackend,
+} from '../emit'
 import { lowerModule } from '../passes/match-lower'
 import { fixpoint, autoVars, type OptLevel } from '../passes/opt'
 import { spellIntrinsic } from '../intrinsics'
 
 export function wgslType(t: ShaderType): string {
   switch (t.kind) {
-    case 'scalar': return t.scalar
-    case 'vec': return `vec${t.n}<${t.elem}>`
-    case 'mat': return `mat${t.n}x${t.n}<${t.elem}>`
-    case 'struct': return t.name
-    case 'array': return t.size !== undefined ? `array<${wgslType(t.elem)}, ${t.size}>` : `array<${wgslType(t.elem)}>`
-    case 'texture': return t.dim === '2d-ms' ? `texture_multisampled_2d<${t.elem}>` : `texture_${t.dim}<${t.elem}>`
-    case 'sampler': return 'sampler'
-    case 'void': return 'void'
+    case 'scalar':
+      return t.scalar
+    case 'vec':
+      return `vec${t.n}<${t.elem}>`
+    case 'mat':
+      return `mat${t.n}x${t.n}<${t.elem}>`
+    case 'struct':
+      return t.name
+    case 'array':
+      return t.size !== undefined
+        ? `array<${wgslType(t.elem)}, ${t.size}>`
+        : `array<${wgslType(t.elem)}>`
+    case 'texture':
+      return t.dim === '2d-ms'
+        ? `texture_multisampled_2d<${t.elem}>`
+        : `texture_${t.dim}<${t.elem}>`
+    case 'sampler':
+      return 'sampler'
+    case 'void':
+      return 'void'
   }
 }
 
@@ -61,16 +85,27 @@ export const wgslBackend: Backend = {
   // `'select'` id is WGSL select(falseVal, trueVal, cond).
   intrinsic: (name, args) => spellIntrinsic('wgsl', name, args),
   localLet: (name, _type, init) => `let ${name} = ${init}`,
-  localVar: (name, type, init) => init !== undefined ? `var ${name}: ${wgslType(type)} = ${init}` : `var ${name}: ${wgslType(type)}`,
+  localVar: (name, type, init) =>
+    init !== undefined
+      ? `var ${name}: ${wgslType(type)} = ${init}`
+      : `var ${name}: ${wgslType(type)}`,
   constDecl: (name, type, value) => `const ${name}: ${wgslType(type)} = ${value};`,
-  caseLabel: (value, scrutType) => scrutType.kind === 'scalar' && scrutType.scalar === 'u32' ? `${value}u` : `${value}`,
+  caseLabel: (value, scrutType) =>
+    scrutType.kind === 'scalar' && scrutType.scalar === 'u32' ? `${value}u` : `${value}`,
   switchHead: (scrut) => `switch ${scrut} {`,
   rawStmt: (wgsl) => wgsl,
   placeholderStmt: (tag) => `// __placeholder: ${tag}`,
   // ── Module-decl surface (the WGSL spellings, lifted from the former free fns) ──
-  emitConst: (c) => wgslBackend.constDecl(c.name, c.type, c.valueExpr ? emitExprNeutral(c.valueExpr, wgslBackend) : f32Lit(c.wgslValue)),
+  emitConst: (c) =>
+    wgslBackend.constDecl(
+      c.name,
+      c.type,
+      c.valueExpr ? emitExprNeutral(c.valueExpr, wgslBackend) : f32Lit(c.wgslValue),
+    ),
   emitStruct: (s) => {
-    const fields = s.fields.map((f) => `  ${f.attr ? `${f.attr} ` : ''}${f.name}: ${wgslType(f.type)},`).join('\n')
+    const fields = s.fields
+      .map((f) => `  ${f.attr ? `${f.attr} ` : ''}${f.name}: ${wgslType(f.type)},`)
+      .join('\n')
     return `struct ${s.name} {\n${fields}\n}`
   },
   emitBinding: (b) => {
@@ -83,7 +118,8 @@ export const wgslBackend: Backend = {
   },
   emitFunc: (f) => {
     const params = f.params.map((p) => `${paramAttr(p)}${p.name}: ${wgslType(p.type)}`).join(', ')
-    const ret = f.ret.kind === 'void' ? '' : ` -> ${f.retAttr ? `${f.retAttr} ` : ''}${wgslType(f.ret)}`
+    const ret =
+      f.ret.kind === 'void' ? '' : ` -> ${f.retAttr ? `${f.retAttr} ` : ''}${wgslType(f.ret)}`
     const attrs = f.attrs && f.attrs.length ? `${f.attrs.join(' ')}\n` : ''
     return `${attrs}fn ${f.name}(${params})${ret} {\n${emitBody(f.body, 1, wgslBackend)}\n}`
   },
@@ -119,7 +155,9 @@ export const emitFunc = (f: FuncDecl): string => wgslBackend.emitFunc(f)
  *  module — so it runs only the lower+optimize the spelling needs; it mirrors `wgslBackend.optimize`
  *  (fixpoint) so this stays byte-identical to the func section of emitModule.) */
 export function emitFuncs(funcs: readonly FuncDecl[]): string {
-  const lowered = fixpoint(lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] })))
+  const lowered = fixpoint(
+    lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] })),
+  )
   return lowered.funcs.map((f) => wgslBackend.emitFunc(f)).join('\n\n')
 }
 
@@ -134,10 +172,12 @@ export const emitModule = (m: ModuleDecl): string => emitModuleDriver(m, wgslBac
 /** Emit WGSL at an explicit optimization level (O0/O1/O2). `emitModuleAt(m, 'O2')` is
  *  byte-identical to `emitModule(m)`; O0 is the naive (un-optimized) emit. Drives the
  *  emit-size measurement (core/measure.ts) and debug builds. */
-export const emitModuleAt = (m: ModuleDecl, level: OptLevel): string => emitModuleAtDriver(m, wgslBackend, level)
+export const emitModuleAt = (m: ModuleDecl, level: OptLevel): string =>
+  emitModuleAtDriver(m, wgslBackend, level)
 
 /** The lowered+optimized WGSL ModuleDecl at a level — the SAME pre-emit pipeline `emitModule`
  *  runs (validate → assertCaps → autoVars → lowerModule → optimizeAt), returned as IR rather
  *  than a string. Single source of the lowering recipe so an IR consumer (core/measure.ts's
  *  op-count) and the string emit cannot describe different modules. */
-export const lowerWgsl = (m: ModuleDecl, level: OptLevel): ModuleDecl => lowerForBackend(m, wgslBackend, level)
+export const lowerWgsl = (m: ModuleDecl, level: OptLevel): ModuleDecl =>
+  lowerForBackend(m, wgslBackend, level)

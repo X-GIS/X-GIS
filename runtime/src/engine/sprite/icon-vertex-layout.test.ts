@@ -13,9 +13,9 @@ const SHADER_SRC = emitIconWgsl()
 describe('icon vertex-format single-source consistency', () => {
   it('spec shape: stride 36 (pos_px f32x2 + uv f32x2 + opacity + tint f32x3 + sdf)', () => {
     expect(ICON_FORMAT.stride).toBe(36)
-    expect(ICON_FORMAT.fields.map(f => [f.location, f.offset, f.vbFormat])).toEqual([
-      [0,  0, 'float32x2'],
-      [1,  8, 'float32x2'],
+    expect(ICON_FORMAT.fields.map((f) => [f.location, f.offset, f.vbFormat])).toEqual([
+      [0, 0, 'float32x2'],
+      [1, 8, 'float32x2'],
       [2, 16, 'float32'],
       [3, 20, 'float32x3'],
       [4, 32, 'float32'],

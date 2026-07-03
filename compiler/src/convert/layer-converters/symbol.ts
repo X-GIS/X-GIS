@@ -53,11 +53,11 @@ function convertSymbolLayer(
   // Icon-only symbols emit a label with empty text — runtime renders
   // just the sprite. Both-text-and-icon layers proceed via the
   // existing text path with the icon utilities layered on top.
-  const labelExpr = iconOnly
-    ? '""'
-    : textFieldToXgisExpr(textField, warnings)
+  const labelExpr = iconOnly ? '""' : textFieldToXgisExpr(textField, warnings)
   if (labelExpr === null) {
-    warnings.push(`Symbol layer "${layer.id}" — text-field "${JSON.stringify(textField).slice(0, 60)}" not convertible.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — text-field "${JSON.stringify(textField).slice(0, 60)}" not convertible.`,
+    )
     return `// SKIPPED layer "${layer.id}" type="symbol" — text-field expression not convertible.`
   }
 
@@ -69,8 +69,10 @@ function convertSymbolLayer(
   if (layer['source-layer']) lines.push(`  sourceLayer: ${JSON.stringify(layer['source-layer'])}`)
   const effectiveMin = overrides?.minzoom !== undefined ? overrides.minzoom : layer.minzoom
   const effectiveMax = overrides?.maxzoom !== undefined ? overrides.maxzoom : layer.maxzoom
-  if (typeof effectiveMin === 'number' && Number.isFinite(effectiveMin)) lines.push(`  minzoom: ${effectiveMin}`)
-  if (typeof effectiveMax === 'number' && Number.isFinite(effectiveMax)) lines.push(`  maxzoom: ${effectiveMax}`)
+  if (typeof effectiveMin === 'number' && Number.isFinite(effectiveMin))
+    lines.push(`  minzoom: ${effectiveMin}`)
+  if (typeof effectiveMax === 'number' && Number.isFinite(effectiveMax))
+    lines.push(`  maxzoom: ${effectiveMax}`)
   // Authored-but-unconvertible filter fails CLOSED (filter: false →
   // match nothing), not open — see filterLineOrFailClosed.
   const symbolFilterLine = filterLineOrFailClosed(layer.filter, warnings)
@@ -87,7 +89,9 @@ function convertSymbolLayer(
     // Mapbox spec: visibility must be 'visible' | 'none'. Anything
     // else was silently treated as 'visible' (default), so a typo
     // like 'hidden' silently left the layer visible.
-    warnings.push(`Symbol layer "${layer.id}" — visibility "${symbolVisibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`)
+    warnings.push(
+      `Symbol layer "${layer.id}" — visibility "${symbolVisibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`,
+    )
   }
 
   const utils: string[] = [`label-[${labelExpr}]`]
@@ -118,18 +122,26 @@ function convertSymbolLayerDispatch(layer: MapboxLayer, warnings: string[]): str
       // Intersect the segment's range with the layer's declared
       // minzoom/maxzoom so a layer that's already gated outside
       // the step's full domain stays gated.
-      const minzoom = seg.minzoom !== undefined
-        ? (typeof layer.minzoom === 'number' && Number.isFinite(layer.minzoom) ? Math.max(layer.minzoom, seg.minzoom) : seg.minzoom)
-        : layer.minzoom
-      const maxzoom = seg.maxzoom !== undefined
-        ? (typeof layer.maxzoom === 'number' && Number.isFinite(layer.maxzoom) ? Math.min(layer.maxzoom, seg.maxzoom) : seg.maxzoom)
-        : layer.maxzoom
-      blocks.push(convertSymbolLayer(layer, warnings, {
-        idSuffix: String(i),
-        placement: seg.placement,
-        minzoom,
-        maxzoom,
-      }))
+      const minzoom =
+        seg.minzoom !== undefined
+          ? typeof layer.minzoom === 'number' && Number.isFinite(layer.minzoom)
+            ? Math.max(layer.minzoom, seg.minzoom)
+            : seg.minzoom
+          : layer.minzoom
+      const maxzoom =
+        seg.maxzoom !== undefined
+          ? typeof layer.maxzoom === 'number' && Number.isFinite(layer.maxzoom)
+            ? Math.min(layer.maxzoom, seg.maxzoom)
+            : seg.maxzoom
+          : layer.maxzoom
+      blocks.push(
+        convertSymbolLayer(layer, warnings, {
+          idSuffix: String(i),
+          placement: seg.placement,
+          minzoom,
+          maxzoom,
+        }),
+      )
     }
     return blocks.join('\n\n')
   }

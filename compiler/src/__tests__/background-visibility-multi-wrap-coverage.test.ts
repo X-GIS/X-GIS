@@ -64,9 +64,7 @@ describe('background visibility multi-wrap', () => {
     const style = {
       version: 8,
       sources: {},
-      layers: [
-        { id: 'bg', type: 'background', paint: { 'background-color': '#fff' } },
-      ],
+      layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#fff' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toContain('background { fill: #fff }')

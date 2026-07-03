@@ -71,7 +71,10 @@ export class TileDataCache {
    *  before adding the new one. */
   setSlice(key: number, layer: string, data: TileData): void {
     let slot = this.dataCache.get(key)
-    if (!slot) { slot = new Map(); this.dataCache.set(key, slot) }
+    if (!slot) {
+      slot = new Map()
+      this.dataCache.set(key, slot)
+    }
     const prev = slot.get(layer)
     if (prev) this._cachedBytes -= TileDataCache.sizeOfTileData(prev)
     slot.set(layer, data)
@@ -141,11 +144,11 @@ export class TileDataCache {
     // means the accounting is consistent.
     if (drift > 1024) {
       throw new Error(
-        `[XGIS INVARIANT] _cachedBytes drift at ${label}: actual=${actual} `
-        + `accumulator=${this._cachedBytes} drift=${drift} bytes across `
-        + `${this.dataCache.size} tile slots. The setSlice / deleteCacheEntry `
-        + `byte-add/subtract path is out of sync with sizeOfTileData. See `
-        + `commit 497a2c1 for the prebuilt-SDF drift class.`,
+        `[XGIS INVARIANT] _cachedBytes drift at ${label}: actual=${actual} ` +
+          `accumulator=${this._cachedBytes} drift=${drift} bytes across ` +
+          `${this.dataCache.size} tile slots. The setSlice / deleteCacheEntry ` +
+          `byte-add/subtract path is out of sync with sizeOfTileData. See ` +
+          `commit 497a2c1 for the prebuilt-SDF drift class.`,
       )
     }
   }

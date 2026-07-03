@@ -51,13 +51,17 @@ async function captureTrace(page: Page, hash: string, style: string): Promise<Fr
   await page.goto(`/compare.html?style=${style}${hash}`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // Let tiles fetch + labels submit.
   await page.waitForTimeout(8_000)
   return await page.evaluate(async () => {
-    const map = (window as unknown as { __xgisMap?: { captureNextFrameTrace?: () => Promise<FrameTrace> } }).__xgisMap
-    if (!map?.captureNextFrameTrace) throw new Error('captureNextFrameTrace not available on __xgisMap')
+    const map = (
+      window as unknown as { __xgisMap?: { captureNextFrameTrace?: () => Promise<FrameTrace> } }
+    ).__xgisMap
+    if (!map?.captureNextFrameTrace)
+      throw new Error('captureNextFrameTrace not available on __xgisMap')
     return await map.captureNextFrameTrace()
   })
 }
@@ -70,14 +74,16 @@ test.describe('label-text spec invariants', () => {
   test('demotiles z=3 country labels use ABBREV form (S. Kor)', async ({ page }) => {
     test.setTimeout(60_000)
     const trace = await captureTrace(page, '#3/36/127', 'maplibre-demotiles')
-    const korea = trace.labels.find(l => /Kor/.test(l.text))
+    const korea = trace.labels.find((l) => /Kor/.test(l.text))
     expect(korea, 'Korea label should be in trace at z=3').toBeDefined()
     // ABBREV form — should NOT be "South Korea"
     expect(korea!.text).not.toBe('South Korea')
-    expect(korea!.text.length).toBeLessThanOrEqual(10)  // ABBREV is short
+    expect(korea!.text.length).toBeLessThanOrEqual(10) // ABBREV is short
   })
 
-  test('demotiles z=5 country labels switch to full NAME (longer than ABBREV)', async ({ page }) => {
+  test('demotiles z=5 country labels switch to full NAME (longer than ABBREV)', async ({
+    page,
+  }) => {
     test.setTimeout(60_000)
     // Demotiles countries-label text-field: {stops:[[2,"{ABBREV}"],[4,"{NAME}"]]}
     // z>=4 should use NAME. NAME's exact value depends on the country's
@@ -86,7 +92,7 @@ test.describe('label-text spec invariants', () => {
     // string. The companion z=3 test asserts the shorter ABBREV form;
     // together they prove the zoom-driven step() resolves correctly.
     const traceZ5 = await captureTrace(page, '#5/36/127', 'maplibre-demotiles')
-    const koreaZ5 = traceZ5.labels.find(l => /Kor/.test(l.text))
+    const koreaZ5 = traceZ5.labels.find((l) => /Kor/.test(l.text))
     expect(koreaZ5, 'Korea label should be in trace at z=5').toBeDefined()
     // At z=5 the NAME-form should be at least as long as the ABBREV form
     // (the ABBREV is by definition shorter). Length >= 7 catches every
@@ -97,20 +103,22 @@ test.describe('label-text spec invariants', () => {
   test('demotiles geolines-label uses curve placement with blue color', async ({ page }) => {
     test.setTimeout(60_000)
     const trace = await captureTrace(page, '#3/22/-30', 'maplibre-demotiles')
-    const tropic = trace.labels.find(l => /Tropic|Equator|Cancer/.test(l.text))
+    const tropic = trace.labels.find((l) => /Tropic|Equator|Cancer/.test(l.text))
     expect(tropic, 'A geolines label should be in trace at z=3').toBeDefined()
     expect(tropic!.placement).toBe('curve')
     // text-color: "#1077B0" → [0.063, 0.467, 0.690, 1]
     expect(tropic!.color[0]).toBeCloseTo(0.063, 2)
     expect(tropic!.color[1]).toBeCloseTo(0.467, 2)
-    expect(tropic!.color[2]).toBeCloseTo(0.690, 2)
+    expect(tropic!.color[2]).toBeCloseTo(0.69, 2)
     expect(tropic!.color[3]).toBeCloseTo(1, 2)
   })
 
   test('demotiles countries-label font weight is Semibold (600)', async ({ page }) => {
     test.setTimeout(60_000)
     const trace = await captureTrace(page, '#4/36/127', 'maplibre-demotiles')
-    const country = trace.labels.find(l => l.layerName.includes('countries_label') || l.layerName.includes('countries-label'))
+    const country = trace.labels.find(
+      (l) => l.layerName.includes('countries_label') || l.layerName.includes('countries-label'),
+    )
     if (country) {
       // Spec: "text-font": ["Open Sans Semibold"] → fontWeight 600
       expect(country.fontWeight).toBe(600)
@@ -122,8 +130,9 @@ test.describe('label-text spec invariants', () => {
   test('OFM Bright water_name color is navy (#495e91)', async ({ page }) => {
     test.setTimeout(60_000)
     const trace = await captureTrace(page, '#4/22/-150', 'openfreemap-bright')
-    const ocean = trace.labels.find(l =>
-      /Pacific|Atlantic|Ocean/i.test(l.text) && /water_name/.test(l.layerName))
+    const ocean = trace.labels.find(
+      (l) => /Pacific|Atlantic|Ocean/i.test(l.text) && /water_name/.test(l.layerName),
+    )
     if (ocean) {
       // text-color: "#495e91" → [73/255, 94/255, 145/255, 1]
       expect(ocean.color[0]).toBeCloseTo(73 / 255, 2)
@@ -140,7 +149,7 @@ test.describe('label-text spec invariants', () => {
     // Regular / Semibold. A regression in the font-name → weight mapping
     // would silently downgrade the weight; this pins it.
     const trace = await captureTrace(page, '#3/40/0', 'openfreemap-bright')
-    const country = trace.labels.find(l => /label_country_2/.test(l.layerName))
+    const country = trace.labels.find((l) => /label_country_2/.test(l.layerName))
     if (country) {
       expect(country.fontWeight).toBe(700)
     }

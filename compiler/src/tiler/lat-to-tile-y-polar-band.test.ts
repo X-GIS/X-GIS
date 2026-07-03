@@ -23,7 +23,7 @@ import type { GeoJSONFeatureCollection } from './geojson-types'
 /** Tile column for a longitude at zoom z. */
 function lonToTileX(lon: number, z: number): number {
   const n = Math.pow(2, z)
-  return Math.max(0, Math.min(n - 1, Math.floor((lon + 180) / 360 * n)))
+  return Math.max(0, Math.min(n - 1, Math.floor(((lon + 180) / 360) * n)))
 }
 
 // ── constants ──────────────────────────────────────────────────────────────
@@ -33,28 +33,32 @@ function lonToTileX(lon: number, z: number): number {
 // A polygon whose ALL vertices are in this band should scatter to row 5,
 // but the buggy ±85 clamp maps those latitudes to row 26 instead.
 const Z = 14
-const CORRECT_ROW = 5  // tileBounds(14,5): south=85.039743, north=85.041642
-const LAT_SOUTH = 85.0400  // inside tile row 5's bounds
-const LAT_NORTH = 85.0415  // inside tile row 5's bounds
+const CORRECT_ROW = 5 // tileBounds(14,5): south=85.039743, north=85.041642
+const LAT_SOUTH = 85.04 // inside tile row 5's bounds
+const LAT_NORTH = 85.0415 // inside tile row 5's bounds
 const LON = 10.0
 
 function makeFC(): GeoJSONFeatureCollection {
   return {
     type: 'FeatureCollection',
-    features: [{
-      type: 'Feature',
-      properties: {},
-      geometry: {
-        type: 'Polygon',
-        coordinates: [[
-          [LON - 0.001, LAT_SOUTH],
-          [LON + 0.001, LAT_SOUTH],
-          [LON + 0.001, LAT_NORTH],
-          [LON - 0.001, LAT_NORTH],
-          [LON - 0.001, LAT_SOUTH],
-        ]],
+    features: [
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [LON - 0.001, LAT_SOUTH],
+              [LON + 0.001, LAT_SOUTH],
+              [LON + 0.001, LAT_NORTH],
+              [LON - 0.001, LAT_NORTH],
+              [LON - 0.001, LAT_SOUTH],
+            ],
+          ],
+        },
       },
-    }],
+    ],
   }
 }
 
@@ -66,7 +70,7 @@ describe('latToTileY polar-band clamp fix (FIX #7)', () => {
     // maxZoom=14 ensures z=14 tiles are generated.
     const tileset = compileGeoJSONToTiles(fc, { minZoom: Z, maxZoom: Z })
 
-    const level = tileset.levels.find(l => l.zoom === Z)
+    const level = tileset.levels.find((l) => l.zoom === Z)
     expect(level, 'zoom level 14 must be present').toBeDefined()
 
     const x = lonToTileX(LON, Z)
@@ -77,24 +81,34 @@ describe('latToTileY polar-band clamp fix (FIX #7)', () => {
     // The correct tile (row 5) is absent → tile === undefined.
     // After the fix, the polygon is scattered to row 5 and the tile is present
     // with non-zero fill geometry.
-    expect(tile,
+    expect(
+      tile,
       `tile (z=${Z}, x=${x}, y=${CORRECT_ROW}) must exist; ` +
-      `undefined means the polar-band polygon was scattered to the wrong row`
+        `undefined means the polar-band polygon was scattered to the wrong row`,
     ).toBeDefined()
 
-    expect(tile!.indices.length,
-      'polar-band polygon must produce fill triangles in the correct tile'
+    expect(
+      tile!.indices.length,
+      'polar-band polygon must produce fill triangles in the correct tile',
     ).toBeGreaterThan(0)
   })
 
   it('buggy ±85 clamp maps lat=85.04 to a different row than canonical ±85.0511287 clamp at z=14 (documents the numerical mismatch)', () => {
     const n = Math.pow(2, Z)
     const project = (lat: number) =>
-      Math.max(0, Math.min(n - 1,
-        Math.floor(
-          (1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n
-        )
-      ))
+      Math.max(
+        0,
+        Math.min(
+          n - 1,
+          Math.floor(
+            ((1 -
+              Math.log(Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180)) /
+                Math.PI) /
+              2) *
+              n,
+          ),
+        ),
+      )
 
     const buggyRow = project(Math.max(-85, Math.min(85, 85.04)))
     const correctRow = project(Math.max(-85.0511287, Math.min(85.0511287, 85.04)))

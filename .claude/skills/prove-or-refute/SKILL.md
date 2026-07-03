@@ -23,7 +23,7 @@ until it is PROVEN. The two failure modes this skill kills:
 1. **Confident static traces that are wrong.** A plausible code read ≠ proof.
 2. **Single-shot empirical "proof".** A passing run says nothing about the inputs
    you didn't run. The 4-fixture SHA gate passed while a byte-exact extraction
-   *could* have drifted on a 5th input; only a differential/construction proof
+   _could_ have drifted on a 5th input; only a differential/construction proof
    covers ALL inputs.
 
 For every claim, output exactly one verdict — **CONFIRMED-REAL**, **REFUTED**, or
@@ -113,7 +113,7 @@ INVARIANT: Inv, and why it holds for ALL inputs.
 ```
 
 **Where the "counterexample" really sits.** Not a counterexample to the bug
-(impossible for an ∃-claim) — a counterexample to the bug's *necessary condition*
+(impossible for an ∃-claim) — a counterexample to the bug's _necessary condition_
 C: you try to construct an input where C holds, and the invariant makes it
 unconstructible. By contrapositive, `Inv ⟹ ¬C  ≡  C ⟹ ¬Inv`; since Inv is always
 true, C is never true.
@@ -124,7 +124,7 @@ Necessary C ≡ feat_id > max(props keys). Invariant: the MVT decoder ALWAYS bui
 a properties object and the default resolver sets feat_id = the array index = that
 very props key (mvt-decoder.ts:55-58), so ∀ vertex : feat_id ∈ keys ⟹ ¬C.
 Assumption gives feat_id ∉ keys; invariant gives feat_id ∈ keys; ⊥. Bug cannot
-exist. ∎  REFUTED.
+exist. ∎ REFUTED.
 
 **The adversarial step is non-optional — and it is where bugs hide.** Reductio is
 only as sound as Inv. After step 5, ATTACK Inv: is it truly `∀`, or does some

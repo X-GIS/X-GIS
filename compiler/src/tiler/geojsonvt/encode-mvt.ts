@@ -41,17 +41,19 @@ export interface EncodeOptions {
  *  Returns an empty `Uint8Array` if no layer contains any feature —
  *  callers should treat empty bytes as "tile has no data" rather
  *  than "tile failed to encode". */
-export function encodeMVT(
-  layers: MVTLayerInput[],
-  options: EncodeOptions = {},
-): Uint8Array {
+export function encodeMVT(layers: MVTLayerInput[], options: EncodeOptions = {}): Uint8Array {
   const version = options.version ?? 2
   const extent = options.extent ?? 8192
 
   const pbf = new Pbf()
   for (const layer of layers) {
     if (layer.tile.features.length === 0) continue
-    pbf.writeMessage(3, writeLayer, { name: layer.name, features: layer.tile.features, version, extent })
+    pbf.writeMessage(3, writeLayer, {
+      name: layer.name,
+      features: layer.tile.features,
+      version,
+      extent,
+    })
   }
   return pbf.finish()
 }
@@ -118,9 +120,8 @@ function writeProperties(ctx: FeatureContext, pbf: Pbf): void {
     pbf.writeVarint(keyIndex)
 
     const type = typeof value
-    const storedValue = (type !== 'string' && type !== 'boolean' && type !== 'number')
-      ? JSON.stringify(value)
-      : value
+    const storedValue =
+      type !== 'string' && type !== 'boolean' && type !== 'number' ? JSON.stringify(value) : value
     const valueKey = `${typeof storedValue}:${String(storedValue)}`
     let valueIndex = valuecache.get(valueKey)
     if (valueIndex === undefined) {
@@ -166,9 +167,10 @@ function writeGeometry(feature: TransformedTileFeature, pbf: Pbf): void {
   // Point/MultiPoint stores geometry as a single Pair[] in our shape;
   // wrap it in an outer array so the rings loop below treats every
   // type uniformly.
-  const rings = type === 1
-    ? [feature.geometry as [number, number][]]
-    : (feature.geometry as [number, number][][])
+  const rings =
+    type === 1
+      ? [feature.geometry as [number, number][]]
+      : (feature.geometry as [number, number][][])
 
   let x = 0
   let y = 0

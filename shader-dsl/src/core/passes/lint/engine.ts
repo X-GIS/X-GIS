@@ -79,22 +79,33 @@ function walkExpr(e: Expr, onExpr: (e: Expr) => void): void {
     case 'binop':
     case 'compare':
     case 'logical':
-      walkExpr(e.a, onExpr); walkExpr(e.b, onExpr); break
+      walkExpr(e.a, onExpr)
+      walkExpr(e.b, onExpr)
+      break
     case 'unop':
-      walkExpr(e.a, onExpr); break
+      walkExpr(e.a, onExpr)
+      break
     case 'call':
     case 'construct':
-      for (const a of e.args) walkExpr(a, onExpr); break
+      for (const a of e.args) walkExpr(a, onExpr)
+      break
     case 'member':
-      walkExpr(e.base, onExpr); break
+      walkExpr(e.base, onExpr)
+      break
     case 'index':
-      walkExpr(e.base, onExpr); walkExpr(e.idx, onExpr); break
+      walkExpr(e.base, onExpr)
+      walkExpr(e.idx, onExpr)
+      break
     case 'select':
-      walkExpr(e.cond, onExpr); walkExpr(e.ifTrue, onExpr); walkExpr(e.ifFalse, onExpr); break
+      walkExpr(e.cond, onExpr)
+      walkExpr(e.ifTrue, onExpr)
+      walkExpr(e.ifFalse, onExpr)
+      break
     case 'matchExpr':
       walkExpr(e.scrutinee, onExpr)
       for (const [, v] of e.cases) walkExpr(v, onExpr)
-      walkExpr(e.default, onExpr); break
+      walkExpr(e.default, onExpr)
+      break
     default:
       break // lit / constref / param / varref — leaves
   }
@@ -103,18 +114,31 @@ function walkExpr(e: Expr, onExpr: (e: Expr) => void): void {
 function walkStmt(s: Stmt, onStmt: (s: Stmt) => void, onExpr: (e: Expr) => void): void {
   onStmt(s)
   switch (s.s) {
-    case 'let': walkExpr(s.expr, onExpr); break
-    case 'var': if (s.init) walkExpr(s.init, onExpr); break
+    case 'let':
+      walkExpr(s.expr, onExpr)
+      break
+    case 'var':
+      if (s.init) walkExpr(s.init, onExpr)
+      break
     case 'assign':
     case 'assignOp':
-      walkExpr(s.target, onExpr); walkExpr(s.expr, onExpr); break
-    case 'return': if (s.expr) walkExpr(s.expr, onExpr); break
+      walkExpr(s.target, onExpr)
+      walkExpr(s.expr, onExpr)
+      break
+    case 'return':
+      if (s.expr) walkExpr(s.expr, onExpr)
+      break
     case 'if':
-      for (const arm of s.arms) { walkExpr(arm.cond, onExpr); for (const b of arm.body) walkStmt(b, onStmt, onExpr) }
+      for (const arm of s.arms) {
+        walkExpr(arm.cond, onExpr)
+        for (const b of arm.body) walkStmt(b, onStmt, onExpr)
+      }
       if (s.elseBody) for (const b of s.elseBody) walkStmt(b, onStmt, onExpr)
       break
     case 'for':
-      walkStmt(s.init, onStmt, onExpr); walkExpr(s.cond, onExpr); walkStmt(s.update, onStmt, onExpr)
+      walkStmt(s.init, onStmt, onExpr)
+      walkExpr(s.cond, onExpr)
+      walkStmt(s.update, onStmt, onExpr)
       for (const b of s.body) walkStmt(b, onStmt, onExpr)
       break
     case 'switch':
@@ -138,11 +162,16 @@ function lintRaw(m: ModuleDecl, rules: readonly LintRule[], config?: LintConfig)
     const ctx: RuleContext = {
       module: m,
       options: config?.options?.[r.id],
-      report: (message, opts) => diags.push({
-        ruleId: r.id, severity: sev, message, fn: opts?.fn,
-        code: opts?.code, hint: opts?.hint,
-        loc: opts?.node ? getLoc(opts.node) : undefined,
-      }),
+      report: (message, opts) =>
+        diags.push({
+          ruleId: r.id,
+          severity: sev,
+          message,
+          fn: opts?.fn,
+          code: opts?.code,
+          hint: opts?.hint,
+          loc: opts?.node ? getLoc(opts.node) : undefined,
+        }),
     }
     return [r.create(ctx)]
   })
@@ -156,8 +185,12 @@ function lintRaw(m: ModuleDecl, rules: readonly LintRule[], config?: LintConfig)
       for (const s of f.body) {
         walkStmt(
           s,
-          (st) => { for (const v of active) v.Stmt?.(st, f) },
-          (ex) => { for (const v of active) v.Expr?.(ex, f) },
+          (st) => {
+            for (const v of active) v.Stmt?.(st, f)
+          },
+          (ex) => {
+            for (const v of active) v.Expr?.(ex, f)
+          },
         )
       }
     }
@@ -198,8 +231,16 @@ export function summarize(diags: readonly Diagnostic[]): LintSummary {
 
 /** Flag `lintDisable` entries that never suppressed anything — a stale deviation to
  *  remove (cf. ESLint reportUnusedDisableDirectives). Keeps documented deviations honest. */
-export function unusedDeviations(m: ModuleDecl, rules: readonly LintRule[], config?: LintConfig): Diagnostic[] {
-  const fired = new Set(lintRaw(m, rules, config).filter((d) => d.fn).map((d) => `${d.fn} ${d.ruleId}`))
+export function unusedDeviations(
+  m: ModuleDecl,
+  rules: readonly LintRule[],
+  config?: LintConfig,
+): Diagnostic[] {
+  const fired = new Set(
+    lintRaw(m, rules, config)
+      .filter((d) => d.fn)
+      .map((d) => `${d.fn} ${d.ruleId}`),
+  )
   const out: Diagnostic[] = []
   for (const f of m.funcs) {
     for (const id of f.lintDisable ?? []) {
@@ -257,7 +298,10 @@ export function mapStmts(body: readonly Stmt[], f: (s: Stmt) => Stmt | null): St
 /** Apply every fixable rule's auto-fix, folding the module through each. Returns the
  *  fixed module + the ids of rules that changed something. Fixes alter the emitted WGSL,
  *  so the caller re-verifies (golden / GPU). */
-export function applyFixes(m: ModuleDecl, rules: readonly LintRule[]): { module: ModuleDecl; applied: string[] } {
+export function applyFixes(
+  m: ModuleDecl,
+  rules: readonly LintRule[],
+): { module: ModuleDecl; applied: string[] } {
   let cur = m
   const applied: string[] = []
   for (const r of rules) {

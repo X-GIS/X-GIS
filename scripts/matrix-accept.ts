@@ -44,7 +44,7 @@ const candidate = join(CANDIDATE_DIR, `${id}.png`)
 if (!existsSync(candidate)) {
   die(
     `no candidate PNG at ${candidate}\n` +
-    `  Run the gate first:  XGIS_MATRIX=1 bun precheck:matrix  (or XGIS_MATRIX_FILTER=${id})`,
+      `  Run the gate first:  XGIS_MATRIX=1 bun precheck:matrix  (or XGIS_MATRIX_FILTER=${id})`,
   )
 }
 
@@ -52,8 +52,8 @@ const baseline = join(BASELINE_DIR, `${id}.png`)
 if (existsSync(baseline) && !force) {
   die(
     `baseline already exists at ${baseline}\n` +
-    `  This is an intentional-render-change path — RE-REVIEW the candidate, then re-run with --force.\n` +
-    `  (No silent rebake: a stale or unreviewed baseline blesses a bug.)`,
+      `  This is an intentional-render-change path — RE-REVIEW the candidate, then re-run with --force.\n` +
+      `  (No silent rebake: a stale or unreviewed baseline blesses a bug.)`,
   )
 }
 
@@ -63,8 +63,16 @@ copyFileSync(candidate, baseline)
 // Stamp provenance so a stale/unreviewed baseline is auditable in git blame.
 let commit = 'unknown'
 let reviewedBy = 'unknown'
-try { commit = execSync('git rev-parse HEAD', { cwd: REPO }).toString().trim() } catch { /* not a repo */ }
-try { reviewedBy = execSync('git config user.name', { cwd: REPO }).toString().trim() } catch { /* no user */ }
+try {
+  commit = execSync('git rev-parse HEAD', { cwd: REPO }).toString().trim()
+} catch {
+  /* not a repo */
+}
+try {
+  reviewedBy = execSync('git config user.name', { cwd: REPO }).toString().trim()
+} catch {
+  /* no user */
+}
 
 const meta = {
   cellId: id,

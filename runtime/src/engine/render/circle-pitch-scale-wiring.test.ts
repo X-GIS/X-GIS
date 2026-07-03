@@ -28,13 +28,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<GPUContext> {
   const canvas = { width: 1024, height: 768 } as unknown as HTMLCanvasElement
@@ -58,15 +63,32 @@ const CIRCLE_PARAMS_W = 35
  *  render() once, and return circle_params.w from the captured point uniform
  *  write. */
 function capturedPitchScaleFlag(ctx: GPUContext, pitchScaleMap: boolean): number {
-  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
+  const renderer = new PointRenderer({
+    device: ctx.device,
+    format: ctx.format,
+    rhi: new WebGpuDevice(ctx.device),
+  })
   // addLayer positional tail: …, circleTranslateXShape, circleTranslateYShape,
   // circlePitchScaleMap. Opaque (fill α = 1, opacity 1) so it draws in phase 1.
   renderer.addLayer(
     FEATURES as never,
-    FILL, null, 0, 8, 1,
-    null, null, true, undefined, undefined,
-    null, 0, 0, 0,
-    null, null, null,
+    FILL,
+    null,
+    0,
+    8,
+    1,
+    null,
+    null,
+    true,
+    undefined,
+    undefined,
+    null,
+    0,
+    0,
+    0,
+    null,
+    null,
+    null,
     pitchScaleMap,
   )
 
@@ -76,19 +98,30 @@ function capturedPitchScaleFlag(ctx: GPUContext, pitchScaleMap: boolean): number
   const device = ctx.device as unknown as {
     queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer) => void }
   }
-  device.queue.writeBuffer = (buf: unknown, _off: number, data: ArrayBufferView | ArrayBuffer): void => {
+  device.queue.writeBuffer = (
+    buf: unknown,
+    _off: number,
+    data: ArrayBufferView | ArrayBuffer,
+  ): void => {
     if ((buf as { size?: number })?.size !== UNIFORM_BYTES) return
-    const f32 = data instanceof ArrayBuffer
-      ? new Float32Array(data)
-      : new Float32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset, SLOT_COUNT)
+    const f32 =
+      data instanceof ArrayBuffer
+        ? new Float32Array(data)
+        : new Float32Array(
+            (data as ArrayBufferView).buffer,
+            (data as ArrayBufferView).byteOffset,
+            SLOT_COUNT,
+          )
     flag = f32[CIRCLE_PARAMS_W]
   }
 
   const camera = new Camera(10, 20, 8)
   camera.projType = 0
-  const encoder = (ctx.device as unknown as {
-    createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
-  }).createCommandEncoder()
+  const encoder = (
+    ctx.device as unknown as {
+      createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
+    }
+  ).createCommandEncoder()
   const pass = encoder.beginRenderPass()
   renderer.render(pass, camera, 0, 10, 20, W, H, 1)
 

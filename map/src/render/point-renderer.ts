@@ -28,10 +28,10 @@ import { globeEyeUniform } from './globe-eye-uniform'
 
 // Float-slot indices derived from the single-source POINT_FORMAT spec so the
 // packer cannot drift from the GPUVertexBufferLayout / vs_point @location.
-const POINT_FLOATS_PER_VERT = POINT_FORMAT.stride / 4                        // 4
-const POINT_CENTER_FLOAT = vertexField(POINT_FORMAT, 'center').offset / 4    // 0 (x,y = 0,1)
-const POINT_QUADID_FLOAT = vertexField(POINT_FORMAT, 'quad_id').offset / 4   // 2
-const POINT_FEATID_FLOAT = vertexField(POINT_FORMAT, 'feat_id').offset / 4   // 3
+const POINT_FLOATS_PER_VERT = POINT_FORMAT.stride / 4 // 4
+const POINT_CENTER_FLOAT = vertexField(POINT_FORMAT, 'center').offset / 4 // 0 (x,y = 0,1)
+const POINT_QUADID_FLOAT = vertexField(POINT_FORMAT, 'quad_id').offset / 4 // 2
+const POINT_FEATID_FLOAT = vertexField(POINT_FORMAT, 'feat_id').offset / 4 // 3
 
 // ── Reflection-driven bind-group layout + typed uniform pack target ──
 // reflect(buildPointModule()) recovers, from the SAME IR the WGSL is emitted
@@ -114,20 +114,29 @@ export function writePointFrameUniform(
   circleBlur = 0,
   circlePitchScaleMap = false,
 ): void {
-  const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
+  const metersPerPixel = WORLD_MERC / TILE_PX / Math.pow(2, camera.zoom)
   // Camera centre for the per-vertex re-centring. Flat Mercator (projType 0)
   // uses the 2D Mercator centre (camera.centerX/Y) split DSFUN into the .xy
   // lanes — the flat VS does rel = project(abs) − (cam_ecef_h.xy + cam_ecef_l.xy)
   // and ignores .z. 3D / globe uses the ECEF anchor (getECEFCenter, sphere).
   let cHx: number, cHy: number, cHz: number, cLx: number, cLy: number, cLz: number
   if (projType === 0) {
-    const cmx = camera.centerX, cmy = camera.centerY
-    cHx = Math.fround(cmx); cHy = Math.fround(cmy); cHz = 0
-    cLx = cmx - cHx; cLy = cmy - cHy; cLz = 0
+    const cmx = camera.centerX,
+      cmy = camera.centerY
+    cHx = Math.fround(cmx)
+    cHy = Math.fround(cmy)
+    cHz = 0
+    cLx = cmx - cHx
+    cLy = cmy - cHy
+    cLz = 0
   } else {
     const camC = camera.getECEFCenter()
-    cHx = Math.fround(camC[0]); cHy = Math.fround(camC[1]); cHz = Math.fround(camC[2])
-    cLx = camC[0] - cHx; cLy = camC[1] - cHy; cLz = camC[2] - cHz
+    cHx = Math.fround(camC[0])
+    cHy = Math.fround(camC[1])
+    cHz = Math.fround(camC[2])
+    cLx = camC[0] - cHx
+    cLy = camC[1] - cHy
+    cLz = camC[2] - cHz
   }
   const ge = globeEyeUniform(frame.eye)
   block.write({
@@ -234,7 +243,8 @@ export class PointRenderer {
     // UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
     this.uniformBuffer = this.rhi.createBuffer({
       size: this.frameBlock.byteLength,
-      usage: 'uniform', writable: true,
+      usage: 'uniform',
+      writable: true,
     })
   }
 
@@ -264,9 +274,12 @@ export class PointRenderer {
    *  ShapeRegistry is attached. STORAGE-only (no COPY_DST — never written),
    *  byte-identical via bufUsage('storage', writable:false). */
   private emptyStorageBuf(): RhiBuffer {
-    return this._emptyStorageBuf ??= this.rhi.createBuffer({
-      size: 64, usage: 'storage', writable: false, label: 'empty-shape-buf',
-    })
+    return (this._emptyStorageBuf ??= this.rhi.createBuffer({
+      size: 64,
+      usage: 'storage',
+      writable: false,
+      label: 'empty-shape-buf',
+    }))
   }
   private _emptyStorageBuf: RhiBuffer | null = null
 
@@ -279,10 +292,16 @@ export class PointRenderer {
   private ensurePointDraper(): void {
     if (this._pointDraper) return
     const vbl = this.vertexBufferLayout!
-    const vertexBuffers = [{
-      stride: vbl.arrayStride,
-      attributes: [...vbl.attributes].map((a) => ({ location: a.shaderLocation, offset: a.offset, format: a.format as string })),
-    }]
+    const vertexBuffers = [
+      {
+        stride: vbl.arrayStride,
+        attributes: [...vbl.attributes].map((a) => ({
+          location: a.shaderLocation,
+          offset: a.offset,
+          format: a.format as string,
+        })),
+      },
+    ]
     this._pointDraper = new PointDraper(this.rhi, this.format, getSampleCount(), vertexBuffers)
   }
 
@@ -311,7 +330,22 @@ export class PointRenderer {
   // because featId == source-feature index WITHIN a tile → fids collide across
   // tiles. Undefined when the layer has no data-driven size (constant-size path
   // stays byte-identical).
-  private tilePoints: { exH: number; eyH: number; ezH: number; exL: number; eyL: number; ezL: number; featId: number; absLon: number; absLat: number; mxH: number; mxL: number; myH: number; myL: number; featProps?: Record<string, unknown> | null }[] = []
+  private tilePoints: {
+    exH: number
+    eyH: number
+    ezH: number
+    exL: number
+    eyL: number
+    ezL: number
+    featId: number
+    absLon: number
+    absLat: number
+    mxH: number
+    mxL: number
+    myH: number
+    myL: number
+    featProps?: Record<string, unknown> | null
+  }[] = []
   private tilePointBuffer: RhiBuffer | null = null
   private tilePointIndexBuffer: RhiBuffer | null = null
   private tilePointFeatBuffer: RhiBuffer | null = null
@@ -346,8 +380,38 @@ export class PointRenderer {
    *  `featProps` (#722 S4) is the point's source feature properties bag
    *  (featureProps.get(featId) for this tile) — supplied only when the layer
    *  authors a data-driven size expression; undefined otherwise. */
-  addTilePoint(exH: number, eyH: number, ezH: number, exL: number, eyL: number, ezL: number, featId: number, absLon: number, absLat: number, mxH: number, mxL: number, myH: number, myL: number, featProps?: Record<string, unknown> | null): void {
-    this.tilePoints.push({ exH, eyH, ezH, exL, eyL, ezL, featId, absLon, absLat, mxH, mxL, myH, myL, featProps })
+  addTilePoint(
+    exH: number,
+    eyH: number,
+    ezH: number,
+    exL: number,
+    eyL: number,
+    ezL: number,
+    featId: number,
+    absLon: number,
+    absLat: number,
+    mxH: number,
+    mxL: number,
+    myH: number,
+    myL: number,
+    featProps?: Record<string, unknown> | null,
+  ): void {
+    this.tilePoints.push({
+      exH,
+      eyH,
+      ezH,
+      exL,
+      eyL,
+      ezL,
+      featId,
+      absLon,
+      absLat,
+      mxH,
+      mxL,
+      myH,
+      myL,
+      featProps,
+    })
   }
 
   /** Flush accumulated tile points as a single draw call */
@@ -359,7 +423,25 @@ export class PointRenderer {
     projCenterLat: number,
     canvasWidth: number,
     canvasHeight: number,
-    show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; sizeExpr?: { ast?: unknown } | null; shape?: string | null; sizeUnit?: string | null; anchor?: 'center' | 'bottom' | 'top'; billboard?: boolean; opacity?: number; circleTranslateX?: number; circleTranslateY?: number; circleBlur?: number; circlePitchScaleMap?: boolean; circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null; circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null; circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null },
+    show: {
+      fill?: string | null
+      stroke?: string | null
+      strokeWidth?: number
+      size?: number | null
+      sizeExpr?: { ast?: unknown } | null
+      shape?: string | null
+      sizeUnit?: string | null
+      anchor?: 'center' | 'bottom' | 'top'
+      billboard?: boolean
+      opacity?: number
+      circleTranslateX?: number
+      circleTranslateY?: number
+      circleBlur?: number
+      circlePitchScaleMap?: boolean
+      circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null
+      circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null
+      circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null
+    },
     dpr: number = 1,
   ): void {
     if (this.tilePoints.length === 0) return
@@ -383,7 +465,7 @@ export class PointRenderer {
     const sizeAst = (show.sizeExpr?.ast ?? null) as import('@xgis/compiler').Expr | null
     const cameraZoom = camera.zoom
     const cameraPitch = camera.pitch
-    const strokeWidth = show.strokeWidth ?? 1  // raw px, shader converts to UV
+    const strokeWidth = show.strokeWidth ?? 1 // raw px, shader converts to UV
     // #722 S2 — resolve the tile-layer shape ONCE (mirrors map.ts:2715, the
     // inline path). Fixes #16: tile points (URL geojson / PMTiles) hardcoded
     // shape_id 0 → custom shapes (star/…) always drew as circles. show.shape
@@ -394,7 +476,10 @@ export class PointRenderer {
     // the frame uniform every frame, so resolve the shapes here. These are
     // zoom-only, so elapsedMs=0 is fine.
     const tileStrokeOpacity = show.circleStrokeOpacityShape
-      ? Math.max(0, Math.min(1, resolveNumberShape(show.circleStrokeOpacityShape, camera.zoom, 0).value))
+      ? Math.max(
+          0,
+          Math.min(1, resolveNumberShape(show.circleStrokeOpacityShape, camera.zoom, 0).value),
+        )
       : 1
     const tileTranslateX = show.circleTranslateXShape
       ? resolveNumberShape(show.circleTranslateXShape, camera.zoom, 0).value
@@ -414,11 +499,11 @@ export class PointRenderer {
     // (px / center / billboard) yields the identical old fill/stroke-only byte.
     const unitMap: Record<string, number> = { m: 1, km: 2, deg: 3, nm: 4 }
     const sizeMode = show.sizeUnit ? (unitMap[show.sizeUnit] ?? 0) : 0
-    if (show.billboard === false) flags |= 8  // bit 3 = flat
-    flags |= (sizeMode << 4)
+    if (show.billboard === false) flags |= 8 // bit 3 = flat
+    flags |= sizeMode << 4
     // Anchor mode: bits 8-9 (0=center, 1=bottom, 2=top)
     const anchorMap = { center: 0, bottom: 1, top: 2 } as const
-    flags |= (anchorMap[show.anchor ?? 'center']) << 8
+    flags |= anchorMap[show.anchor ?? 'center'] << 8
 
     // #722 S1 — route the tile path through the shared world-copy fan-out
     // (fixes #17: tile points hardcoded COPIES=[0] and never replicated to the
@@ -448,18 +533,32 @@ export class PointRenderer {
       if (sizeAst && pt.featProps) {
         let ev: unknown
         try {
-          ev = evaluate(sizeAst, makeEvalProps({ props: pt.featProps, geometryType: 'Point', featureId: pt.featId, cameraZoom, cameraPitch }))
+          ev = evaluate(
+            sizeAst,
+            makeEvalProps({
+              props: pt.featProps,
+              geometryType: 'Point',
+              featureId: pt.featId,
+              cameraZoom,
+              cameraPitch,
+            }),
+          )
         } catch {
           ev = radiusPx
         }
         r = typeof ev === 'number' ? ev : radiusPx
       }
       src[so + F.radius_px] = r
-      src[so + F.fill_r] = fill ? fill[0] : 0; src[so + F.fill_g] = fill ? fill[1] : 0
-      src[so + F.fill_b] = fill ? fill[2] : 0; src[so + F.fill_a] = fill ? fill[3] * opacity : 0
-      src[so + F.stroke_r] = stroke ? stroke[0] : 0; src[so + F.stroke_g] = stroke ? stroke[1] : 0
-      src[so + F.stroke_b] = stroke ? stroke[2] : 0; src[so + F.stroke_a] = stroke ? stroke[3] * opacity * tileStrokeOpacity : 0
-      src[so + F.stroke_width_px] = strokeWidth; src[so + F.flags_packed] = flags
+      src[so + F.fill_r] = fill ? fill[0] : 0
+      src[so + F.fill_g] = fill ? fill[1] : 0
+      src[so + F.fill_b] = fill ? fill[2] : 0
+      src[so + F.fill_a] = fill ? fill[3] * opacity : 0
+      src[so + F.stroke_r] = stroke ? stroke[0] : 0
+      src[so + F.stroke_g] = stroke ? stroke[1] : 0
+      src[so + F.stroke_b] = stroke ? stroke[2] : 0
+      src[so + F.stroke_a] = stroke ? stroke[3] * opacity * tileStrokeOpacity : 0
+      src[so + F.stroke_width_px] = strokeWidth
+      src[so + F.flags_packed] = flags
       src[so + F.shape_id] = tileShapeId // #722 S2 — per-layer shape (0 = circle)
     }
 
@@ -480,7 +579,8 @@ export class PointRenderer {
         count: N,
         copies: COPIES,
         isTranslucent: false,
-        fwdX: 0, fwdY: 0,
+        fwdX: 0,
+        fwdY: 0,
         srcFeatData: src,
         position: { kind: 'presplit', points: this.tilePoints },
       },
@@ -497,15 +597,43 @@ export class PointRenderer {
 
     // VERTEX|COPY_DST / INDEX|COPY_DST / STORAGE|COPY_DST, byte-identical via
     // bufUsage(usage, writable:true); writeBuffer = queue.writeBuffer.
-    this.tilePointBuffer = this.rhi.createBuffer({ size: verts.byteLength, usage: 'vertex', writable: true, label: 'tile-point-vertices' })
+    this.tilePointBuffer = this.rhi.createBuffer({
+      size: verts.byteLength,
+      usage: 'vertex',
+      writable: true,
+      label: 'tile-point-vertices',
+    })
     this.rhi.writeBuffer(this.tilePointBuffer, 0, verts)
-    this.tilePointIndexBuffer = this.rhi.createBuffer({ size: indices.byteLength, usage: 'index', writable: true, label: 'tile-point-indices' })
+    this.tilePointIndexBuffer = this.rhi.createBuffer({
+      size: indices.byteLength,
+      usage: 'index',
+      writable: true,
+      label: 'tile-point-indices',
+    })
     this.rhi.writeBuffer(this.tilePointIndexBuffer, 0, indices)
-    this.tilePointFeatBuffer = this.rhi.createBuffer({ size: Math.max(featData.byteLength, 16), usage: 'storage', writable: true, label: 'tile-point-features' })
+    this.tilePointFeatBuffer = this.rhi.createBuffer({
+      size: Math.max(featData.byteLength, 16),
+      usage: 'storage',
+      writable: true,
+      label: 'tile-point-features',
+    })
     this.rhi.writeBuffer(this.tilePointFeatBuffer, 0, featData)
 
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
-    writePointFrameUniform(this.frameBlock, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, tileTranslateX, tileTranslateY, show.circleBlur ?? 0, show.circlePitchScaleMap ?? false)
+    writePointFrameUniform(
+      this.frameBlock,
+      frame,
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      tileTranslateX,
+      tileTranslateY,
+      show.circleBlur ?? 0,
+      show.circlePitchScaleMap ?? false,
+    )
     this.rhi.writeBuffer(this.uniformBuffer, 0, this.frameBlock.buffer)
 
     // Pick the translucent (no depth write) pipeline when the effective
@@ -527,17 +655,19 @@ export class PointRenderer {
     const shapeBuf = this.shapeRegistry?.shapeBuffer
     const segBuf = this.shapeRegistry?.segmentBuffer
     this._pointDraper!.draw(wrapWebGpuPass(pass), {
-      uniform: this.uniformBuffer, feat: this.tilePointFeatBuffer!,
+      uniform: this.uniformBuffer,
+      feat: this.tilePointFeatBuffer!,
       shape: shapeBuf ?? this.emptyStorageBuf(),
       seg: segBuf ?? this.emptyStorageBuf(),
-      vertex: this.tilePointBuffer!, index: this.tilePointIndexBuffer!,
-      indexCount: totalN * 6, variant: tileIsTranslucent ? 1 : 0,
+      vertex: this.tilePointBuffer!,
+      index: this.tilePointIndexBuffer!,
+      indexCount: totalN * 6,
+      variant: tileIsTranslucent ? 1 : 0,
     })
 
     // Clear for next frame
     this.tilePoints = []
   }
-
 
   /**
    * Add a point layer from GeoJSON features.
@@ -549,7 +679,10 @@ export class PointRenderer {
    * @param opacity Overall opacity multiplier
    */
   addLayer(
-    features: { geometry: { type: string; coordinates: number[] }; properties?: Record<string, unknown> }[],
+    features: {
+      geometry: { type: string; coordinates: number[] }
+      properties?: Record<string, unknown>
+    }[],
     fill: [number, number, number, number] | null,
     stroke: [number, number, number, number] | null,
     strokeWidth: number,
@@ -596,10 +729,10 @@ export class PointRenderer {
       const { lon, lat } = points[i]
       for (let q = 0; q < 4; q++) {
         const off = base + q * POINT_FLOATS_PER_VERT
-        verts[off + POINT_CENTER_FLOAT]     = lon
+        verts[off + POINT_CENTER_FLOAT] = lon
         verts[off + POINT_CENTER_FLOAT + 1] = lat
-        u32View[off + POINT_QUADID_FLOAT] = q  // quad_id as uint32 (4-byte element, same slot)
-        verts[off + POINT_FEATID_FLOAT] = i    // feat_id as float32
+        u32View[off + POINT_QUADID_FLOAT] = q // quad_id as uint32 (4-byte element, same slot)
+        verts[off + POINT_FEATID_FLOAT] = i // feat_id as float32
       }
       const iBase = i * 6
       const vBase = i * 4
@@ -621,11 +754,11 @@ export class PointRenderer {
     // Size mode in upper 4 bits: 0=px, 1=m, 2=km, 3=deg
     const unitMap: Record<string, number> = { m: 1, km: 2, deg: 3, nm: 4 }
     const sizeMode = sizeUnit ? (unitMap[sizeUnit] ?? 0) : 0
-    if (billboard === false) flags |= 8  // bit 3 = flat
-    flags |= (sizeMode << 4)
+    if (billboard === false) flags |= 8 // bit 3 = flat
+    flags |= sizeMode << 4
     // Anchor mode: bits 8-9 (0=center, 1=bottom, 2=top)
     const anchorMap = { center: 0, bottom: 1, top: 2 } as const
-    flags |= (anchorMap[anchor ?? 'center']) << 8
+    flags |= anchorMap[anchor ?? 'center'] << 8
 
     for (let i = 0; i < points.length; i++) {
       const off = i * STRIDE
@@ -641,7 +774,7 @@ export class PointRenderer {
       featData[off + F.stroke_b] = stroke ? stroke[2] : 0
       featData[off + F.stroke_a] = stroke ? stroke[3] * opacity : 0
       // stroke width in UV space
-      featData[off + F.stroke_width_px] = strokeWidth  // raw px, shader converts to UV
+      featData[off + F.stroke_width_px] = strokeWidth // raw px, shader converts to UV
       featData[off + F.flags_packed] = flags
       // [11..18] = ECEF DSFUN (pos_h.xyz, pos_l.xyz, abs_lon, abs_lat) — written per-frame in render()
       featData[off + F.shape_id] = shapeId ?? 0
@@ -657,13 +790,28 @@ export class PointRenderer {
 
     // VERTEX|COPY_DST / INDEX|COPY_DST / STORAGE|COPY_DST, byte-identical via
     // bufUsage(usage, writable:true); writeBuffer = queue.writeBuffer.
-    const vertexBuffer = this.rhi.createBuffer({ size: verts.byteLength, usage: 'vertex', writable: true, label: 'point-vertices' })
+    const vertexBuffer = this.rhi.createBuffer({
+      size: verts.byteLength,
+      usage: 'vertex',
+      writable: true,
+      label: 'point-vertices',
+    })
     this.rhi.writeBuffer(vertexBuffer, 0, verts)
 
-    const indexBuffer = this.rhi.createBuffer({ size: indices.byteLength, usage: 'index', writable: true, label: 'point-indices' })
+    const indexBuffer = this.rhi.createBuffer({
+      size: indices.byteLength,
+      usage: 'index',
+      writable: true,
+      label: 'point-indices',
+    })
     this.rhi.writeBuffer(indexBuffer, 0, indices)
 
-    const featureBuffer = this.rhi.createBuffer({ size: Math.max(featData.byteLength, 16), usage: 'storage', writable: true, label: 'point-features' })
+    const featureBuffer = this.rhi.createBuffer({
+      size: Math.max(featData.byteLength, 16),
+      usage: 'storage',
+      writable: true,
+      label: 'point-features',
+    })
     this.rhi.writeBuffer(featureBuffer, 0, featData)
 
     const bindGroup = this.makeBindGroup(featureBuffer)
@@ -678,8 +826,12 @@ export class PointRenderer {
     const isTranslucent = opacity < EPS || fillA < EPS || strokeA < EPS
 
     this.layers.push({
-      vertexBuffer, indexBuffer, featureBuffer,
-      featData, lons, lats,
+      vertexBuffer,
+      indexBuffer,
+      featureBuffer,
+      featData,
+      lons,
+      lats,
       indexCount: indices.length,
       pointCount: points.length,
       bindGroup,
@@ -724,9 +876,12 @@ export class PointRenderer {
       if (shape === null) continue
       // Skip constant / data-driven shapes — only zoom/time kinds
       // need per-frame re-resolution.
-      if (shape.kind !== 'zoom-interpolated'
-          && shape.kind !== 'time-interpolated'
-          && shape.kind !== 'zoom-time') continue
+      if (
+        shape.kind !== 'zoom-interpolated' &&
+        shape.kind !== 'time-interpolated' &&
+        shape.kind !== 'zoom-time'
+      )
+        continue
       const r = resolveNumberShape(shape, cameraZoom, elapsedMs)
       // Zoom-only optimization — skip when camera hasn't moved.
       // Time-animated shapes always update because elapsedMs always
@@ -749,9 +904,12 @@ export class PointRenderer {
       if (shape === null) continue
       // Only zoom/time kinds need per-frame re-resolution — constant /
       // data-driven are already folded into the baked stroke colour.
-      if (shape.kind !== 'zoom-interpolated'
-          && shape.kind !== 'time-interpolated'
-          && shape.kind !== 'zoom-time') continue
+      if (
+        shape.kind !== 'zoom-interpolated' &&
+        shape.kind !== 'time-interpolated' &&
+        shape.kind !== 'zoom-time'
+      )
+        continue
       const r = resolveNumberShape(shape, cameraZoom, elapsedMs)
       // Zoom-only optimization — skip when the camera hasn't moved.
       if (!r.hasTime && Math.abs(layer.lastDynStrokeOpacityZoom - cameraZoom) < 0.001) continue
@@ -771,10 +929,16 @@ export class PointRenderer {
     for (const layer of this.layers) {
       const sx = layer.circleTranslateXShape
       const sy = layer.circleTranslateYShape
-      const animatedX = sx !== null
-        && (sx.kind === 'zoom-interpolated' || sx.kind === 'time-interpolated' || sx.kind === 'zoom-time')
-      const animatedY = sy !== null
-        && (sy.kind === 'zoom-interpolated' || sy.kind === 'time-interpolated' || sy.kind === 'zoom-time')
+      const animatedX =
+        sx !== null &&
+        (sx.kind === 'zoom-interpolated' ||
+          sx.kind === 'time-interpolated' ||
+          sx.kind === 'zoom-time')
+      const animatedY =
+        sy !== null &&
+        (sy.kind === 'zoom-interpolated' ||
+          sy.kind === 'time-interpolated' ||
+          sy.kind === 'zoom-time')
       if (!animatedX && !animatedY) continue
       const rx = animatedX ? resolveNumberShape(sx, cameraZoom, elapsedMs) : null
       const ry = animatedY ? resolveNumberShape(sy, cameraZoom, elapsedMs) : null
@@ -833,7 +997,11 @@ export class PointRenderer {
       const expandedFeat = this._frameArena.allocF32(totalPoints * STRIDE)
       const expandedVerts = this._frameArena.allocF32(totalPoints * 4 * 4)
       const expandedIdx = this._frameArena.allocU32(totalPoints * 6)
-      const u32Verts = new Uint32Array(expandedVerts.buffer, expandedVerts.byteOffset, expandedVerts.length)
+      const u32Verts = new Uint32Array(
+        expandedVerts.buffer,
+        expandedVerts.byteOffset,
+        expandedVerts.length,
+      )
 
       // Depth-sort keys for translucent layers only (opaque uses feature
       // order — the depth test handles occlusion). Allocated by this method
@@ -849,7 +1017,8 @@ export class PointRenderer {
           count: N,
           copies: COPIES,
           isTranslucent: layer.isTranslucent,
-          fwdX, fwdY,
+          fwdX,
+          fwdY,
           srcFeatData: layer.featData,
           position: { kind: 'lonlat', lons: layer.lons, lats: layer.lats },
         },
@@ -863,9 +1032,24 @@ export class PointRenderer {
         if (layer._expandedVertBuf) this.rhi.destroyBuffer(layer._expandedVertBuf)
         if (layer._expandedIdxBuf) this.rhi.destroyBuffer(layer._expandedIdxBuf)
         if (layer._expandedFeatBuf) this.rhi.destroyBuffer(layer._expandedFeatBuf)
-        layer._expandedVertBuf = this.rhi.createBuffer({ size: expandedVerts.byteLength, usage: 'vertex', writable: true, label: 'point-expanded-vertices' })
-        layer._expandedIdxBuf = this.rhi.createBuffer({ size: expandedIdx.byteLength, usage: 'index', writable: true, label: 'point-expanded-indices' })
-        layer._expandedFeatBuf = this.rhi.createBuffer({ size: Math.max(expandedFeat.byteLength, 16), usage: 'storage', writable: true, label: 'point-expanded-features' })
+        layer._expandedVertBuf = this.rhi.createBuffer({
+          size: expandedVerts.byteLength,
+          usage: 'vertex',
+          writable: true,
+          label: 'point-expanded-vertices',
+        })
+        layer._expandedIdxBuf = this.rhi.createBuffer({
+          size: expandedIdx.byteLength,
+          usage: 'index',
+          writable: true,
+          label: 'point-expanded-indices',
+        })
+        layer._expandedFeatBuf = this.rhi.createBuffer({
+          size: Math.max(expandedFeat.byteLength, 16),
+          usage: 'storage',
+          writable: true,
+          label: 'point-expanded-features',
+        })
         layer._expandedSize = totalPoints
       }
 
@@ -877,7 +1061,20 @@ export class PointRenderer {
 
     const drawLayer = (layer: PointLayer, variant: number, totalPoints: number) => {
       // Write per-layer uniform (circle_params may differ between layers).
-      writePointFrameUniform(this.frameBlock, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, layer.circleTranslateX, layer.circleTranslateY, layer.circleBlur, layer.circlePitchScaleMap)
+      writePointFrameUniform(
+        this.frameBlock,
+        frame,
+        camera,
+        projType,
+        projCenterLon,
+        projCenterLat,
+        canvasWidth,
+        canvasHeight,
+        layer.circleTranslateX,
+        layer.circleTranslateY,
+        layer.circleBlur,
+        layer.circlePitchScaleMap,
+      )
       this.rhi.writeBuffer(this.uniformBuffer, 0, this.frameBlock.buffer)
       // Through the RHI Material seam (P1: the sole path), same as the tile-point draw.
       // ShapeRegistry shape/seg are RhiBuffer (step 3c) → passed directly; the empty
@@ -886,11 +1083,14 @@ export class PointRenderer {
       const segBuf = this.shapeRegistry?.segmentBuffer
       this.ensurePointDraper()
       this._pointDraper!.draw(wrapWebGpuPass(pass), {
-        uniform: this.uniformBuffer, feat: layer._expandedFeatBuf!,
+        uniform: this.uniformBuffer,
+        feat: layer._expandedFeatBuf!,
         shape: shapeBuf ?? this.emptyStorageBuf(),
         seg: segBuf ?? this.emptyStorageBuf(),
-        vertex: layer._expandedVertBuf!, index: layer._expandedIdxBuf!,
-        indexCount: totalPoints * 6, variant,
+        vertex: layer._expandedVertBuf!,
+        index: layer._expandedIdxBuf!,
+        indexCount: totalPoints * 6,
+        variant,
       })
     }
 

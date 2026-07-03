@@ -9,7 +9,7 @@ test('runtime quality toggles apply without validation errors', async ({ page })
   await page.setViewportSize({ width: 1200, height: 800 })
 
   const consoleErrors: string[] = []
-  page.on('console', m => {
+  page.on('console', (m) => {
     if (m.type() === 'error') consoleErrors.push(m.text())
   })
 
@@ -20,25 +20,27 @@ test('runtime quality toggles apply without validation errors', async ({ page })
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(1500)
 
   // Helper: 5×5 grid pickAt sweep. Returns count of non-null hits.
-  const pickSweep = async () => await page.evaluate(async () => {
-    const m = (window as any).__xgisMap
-    const canvas = document.querySelector('#map') as HTMLCanvasElement
-    const rect = canvas.getBoundingClientRect()
-    let hits = 0
-    for (let iy = 1; iy <= 5; iy++) {
-      for (let ix = 1; ix <= 5; ix++) {
-        const x = rect.left + (rect.width * ix) / 6
-        const y = rect.top + (rect.height * iy) / 6
-        if (await m.pickAt(x, y)) hits++
+  const pickSweep = async () =>
+    await page.evaluate(async () => {
+      const m = (window as any).__xgisMap
+      const canvas = document.querySelector('#map') as HTMLCanvasElement
+      const rect = canvas.getBoundingClientRect()
+      let hits = 0
+      for (let iy = 1; iy <= 5; iy++) {
+        for (let ix = 1; ix <= 5; ix++) {
+          const x = rect.left + (rect.width * ix) / 6
+          const y = rect.top + (rect.height * iy) / 6
+          if (await m.pickAt(x, y)) hits++
+        }
       }
-    }
-    return hits
-  })
+      return hits
+    })
 
   // 1) baseline — pickAt works with boot-time picking=1
   const hitsBoot = await pickSweep()
@@ -81,10 +83,11 @@ test('runtime quality toggles apply without validation errors', async ({ page })
   expect(q6.maxDpr).toBe(1)
 
   // No WebGPU / X-GIS validation errors through any of the transitions.
-  const validation = consoleErrors.filter(m =>
-    m.includes('[WebGPU validation]') ||
-    m.includes('frame-validation') ||
-    m.includes('[X-GIS pass:'),
+  const validation = consoleErrors.filter(
+    (m) =>
+      m.includes('[WebGPU validation]') ||
+      m.includes('frame-validation') ||
+      m.includes('[X-GIS pass:'),
   )
   if (validation.length > 0) {
     console.log('[runtime-quality] validation errors:')

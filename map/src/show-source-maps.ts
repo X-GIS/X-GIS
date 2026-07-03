@@ -114,23 +114,26 @@ export interface ShowSourceMaps {
    *  draws when N xgis layers share an MVT layer with different
    *  filters. `needsFeatureProps` / `needsExtrude` flags let the worker
    *  skip emitting heavy fields when no show on the slice consumes them. */
-  showSlicesBySource: Map<string, Array<{
-    sliceKey: string
-    sourceLayer: string
-    filterAst: unknown | null
-    needsFeatureProps: boolean
-    needsExtrude: boolean
-    /** Minimal set of feature-property keys any consumer on this slice
-     *  actually reads — the union of the data-driven variant's
-     *  `featureFields` and the label text-field's referenced fields.
-     *  Sorted for determinism. The MVT worker clones ONLY these keys
-     *  per feature instead of the whole properties Record, cutting the
-     *  worker→main structured-clone cost (309 ms/msg on Bright). An
-     *  EMPTY array is the safe fallback (an un-introspectable label AST,
-     *  or a literal-only label): the worker keeps the FULL props Record
-     *  so no consumer can lose a field it references. */
-    featurePropKeys: string[]
-  }>>
+  showSlicesBySource: Map<
+    string,
+    Array<{
+      sliceKey: string
+      sourceLayer: string
+      filterAst: unknown | null
+      needsFeatureProps: boolean
+      needsExtrude: boolean
+      /** Minimal set of feature-property keys any consumer on this slice
+       *  actually reads — the union of the data-driven variant's
+       *  `featureFields` and the label text-field's referenced fields.
+       *  Sorted for determinism. The MVT worker clones ONLY these keys
+       *  per feature instead of the whole properties Record, cutting the
+       *  worker→main structured-clone cost (309 ms/msg on Bright). An
+       *  EMPTY array is the safe fallback (an un-introspectable label AST,
+       *  or a literal-only label): the worker keeps the FULL props Record
+       *  so no consumer can lose a field it references. */
+      featurePropKeys: string[]
+    }>
+  >
 }
 
 /** Single pass over `commands.shows` building all five per-source maps
@@ -155,7 +158,10 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
     const layer = effectiveLayer(show)
     if (!layer) continue
     let set = usedSourceLayers.get(show.targetName)
-    if (!set) { set = new Set(); usedSourceLayers.set(show.targetName, set) }
+    if (!set) {
+      set = new Set()
+      usedSourceLayers.set(show.targetName, set)
+    }
     set.add(layer)
   }
 
@@ -167,13 +173,19 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
     const ex = show.extrude
     if (ex && ex.kind === 'feature') {
       let layerMap = extrudeExprsBySource.get(show.targetName)
-      if (!layerMap) { layerMap = {}; extrudeExprsBySource.set(show.targetName, layerMap) }
+      if (!layerMap) {
+        layerMap = {}
+        extrudeExprsBySource.set(show.targetName, layerMap)
+      }
       layerMap[layer] = ex.expr.ast
     }
     const exb = show.extrudeBase
     if (exb && exb.kind === 'feature') {
       let layerMap = extrudeBaseExprsBySource.get(show.targetName)
-      if (!layerMap) { layerMap = {}; extrudeBaseExprsBySource.set(show.targetName, layerMap) }
+      if (!layerMap) {
+        layerMap = {}
+        extrudeBaseExprsBySource.set(show.targetName, layerMap)
+      }
       layerMap[layer] = exb.expr.ast
     }
   }
@@ -185,7 +197,10 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
     if (!layer) continue
     const sk = computeSliceKey(layer, show.filterExpr?.ast ?? null)
     let layerMap = strokeWidthExprsBySource.get(show.targetName)
-    if (!layerMap) { layerMap = {}; strokeWidthExprsBySource.set(show.targetName, layerMap) }
+    if (!layerMap) {
+      layerMap = {}
+      strokeWidthExprsBySource.set(show.targetName, layerMap)
+    }
     layerMap[sk] = show.strokeWidthExpr.ast
   }
 
@@ -196,18 +211,24 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
     if (!layer) continue
     const sk = computeSliceKey(layer, show.filterExpr?.ast ?? null)
     let layerMap = strokeColorExprsBySource.get(show.targetName)
-    if (!layerMap) { layerMap = {}; strokeColorExprsBySource.set(show.targetName, layerMap) }
+    if (!layerMap) {
+      layerMap = {}
+      strokeColorExprsBySource.set(show.targetName, layerMap)
+    }
     layerMap[sk] = show.strokeColorExpr.ast
   }
 
-  const showSlicesBySource = new Map<string, Array<{
-    sliceKey: string
-    sourceLayer: string
-    filterAst: unknown | null
-    needsFeatureProps: boolean
-    needsExtrude: boolean
-    featurePropKeys: string[]
-  }>>()
+  const showSlicesBySource = new Map<
+    string,
+    Array<{
+      sliceKey: string
+      sourceLayer: string
+      filterAst: unknown | null
+      needsFeatureProps: boolean
+      needsExtrude: boolean
+      featurePropKeys: string[]
+    }>
+  >()
   // Per-slice union of used feature-property field names, tracked as a
   // Set while merging shows that share a sliceKey. A null entry means
   // "fall back to full props" (a label AST we couldn't introspect) and
@@ -218,7 +239,10 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
     const layer = effectiveLayer(show)
     if (!layer) continue
     let list = showSlicesBySource.get(show.targetName)
-    if (!list) { list = []; showSlicesBySource.set(show.targetName, list) }
+    if (!list) {
+      list = []
+      showSlicesBySource.set(show.targetName, list)
+    }
     const filterAst = show.filterExpr?.ast ?? null
     const sliceKey = computeSliceKey(layer, filterAst)
     // Worker emits featureProps Map when ANY downstream consumer reads per-
@@ -234,9 +258,10 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
     // both gate on `show.sizeExpr?.ast != null`). Mirror that gate here or the
     // point source ships no featureProps and every point collapses to the
     // constant `show.size` — the S4 data-layer gap the runtime half couldn't fix.
-    const needsFeatureProps = show.label !== undefined
-      || show.shaderVariant?.needsFeatureBuffer === true
-      || show.sizeExpr?.ast != null
+    const needsFeatureProps =
+      show.label !== undefined ||
+      show.shaderVariant?.needsFeatureBuffer === true ||
+      show.sizeExpr?.ast != null
     const ex = (show as { extrude?: { kind?: string } }).extrude
     const needsExtrude = !!ex && ex.kind !== 'none' && ex.kind !== undefined
     // Compute the fields THIS show reads so the worker clones only those.
@@ -269,12 +294,19 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
       }
       fieldSetsBySlice.set(sliceKey, poison ? null : acc)
     }
-    const existing = list.find(s => s.sliceKey === sliceKey)
+    const existing = list.find((s) => s.sliceKey === sliceKey)
     if (existing) {
       if (needsFeatureProps) existing.needsFeatureProps = true
       if (needsExtrude) existing.needsExtrude = true
     } else {
-      list.push({ sliceKey, sourceLayer: layer, filterAst, needsFeatureProps, needsExtrude, featurePropKeys: [] })
+      list.push({
+        sliceKey,
+        sourceLayer: layer,
+        filterAst,
+        needsFeatureProps,
+        needsExtrude,
+        featurePropKeys: [],
+      })
     }
   }
   // Bake the accumulated field Sets into each slice's sorted

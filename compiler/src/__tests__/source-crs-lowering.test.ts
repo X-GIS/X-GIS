@@ -78,7 +78,7 @@ describe('source crs lowering', () => {
       }
     `)
     const commands = emitCommands(scene)
-    const load = commands.loads.find(l => l.name === 'korea')
+    const load = commands.loads.find((l) => l.name === 'korea')
     expect(load).toBeDefined()
     expect(load!.crs).toBe('EPSG:5179')
   })
@@ -110,7 +110,7 @@ describe('source crs lowering', () => {
       }
     `)
     const commands = emitCommands(scene)
-    const load = commands.loads.find(l => l.name === 'world')
+    const load = commands.loads.find((l) => l.name === 'world')
     expect(load!.crs).toBe('EPSG:4326')
   })
 })

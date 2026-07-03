@@ -33,10 +33,7 @@ import { dirname, join, resolve } from 'node:path'
 import { runInteraction, computeStats, interactions } from './helpers/natural-interaction'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const fixture = readFileSync(
-  resolve(__dirname, '__convert-fixtures', 'bright.json'),
-  'utf8',
-)
+const fixture = readFileSync(resolve(__dirname, '__convert-fixtures', 'bright.json'), 'utf8')
 const OUT_DIR = resolve(__dirname, '__perf-projection-seoul-deep__')
 mkdirSync(OUT_DIR, { recursive: true })
 
@@ -54,7 +51,12 @@ const PROJECTIONS = [
   'globe',
 ] as const
 
-interface DrawStats { drawCalls: number; tilesVisible: number; triangles: number; globeTilesSelected: number }
+interface DrawStats {
+  drawCalls: number
+  tilesVisible: number
+  triangles: number
+  globeTilesSelected: number
+}
 
 interface Row {
   projection: string
@@ -72,11 +74,26 @@ const rows: Row[] = []
 
 async function readDrawStats(page: Page): Promise<DrawStats> {
   return page.evaluate(() => {
-    const m = (window as unknown as {
-      __xgisMap?: { vtSources?: Map<string, { renderer?: {
-        getDrawStats?: () => { drawCalls: number; vertices: number; triangles: number; tilesVisible: number; globeTilesSelected: number }
-      } }> }
-    }).__xgisMap
+    const m = (
+      window as unknown as {
+        __xgisMap?: {
+          vtSources?: Map<
+            string,
+            {
+              renderer?: {
+                getDrawStats?: () => {
+                  drawCalls: number
+                  vertices: number
+                  triangles: number
+                  tilesVisible: number
+                  globeTilesSelected: number
+                }
+              }
+            }
+          >
+        }
+      }
+    ).__xgisMap
     const agg = { drawCalls: 0, tilesVisible: 0, triangles: 0, globeTilesSelected: 0 }
     if (!m?.vtSources) return agg
     for (const [, src] of m.vtSources) {
@@ -93,18 +110,21 @@ async function readDrawStats(page: Page): Promise<DrawStats> {
 
 async function setup(page: Page, projection: string): Promise<void> {
   const xgis = convertMapboxStyle(fixture)
-  await page.addInitScript((args) => {
-    sessionStorage.setItem('__xgisImportSource', args.src)
-    sessionStorage.setItem('__xgisImportLabel', `Bright (proj=${args.proj})`)
-  }, { src: xgis, proj: projection })
-  // Start at z=11 Seoul — the exact "not rendering" report regime.
-  await page.goto(
-    `/demo.html?id=__import&proj=${projection}#11/${SEOUL.lat}/${SEOUL.lon}/0/0`,
-    { waitUntil: 'domcontentloaded' },
+  await page.addInitScript(
+    (args) => {
+      sessionStorage.setItem('__xgisImportSource', args.src)
+      sessionStorage.setItem('__xgisImportLabel', `Bright (proj=${args.proj})`)
+    },
+    { src: xgis, proj: projection },
   )
+  // Start at z=11 Seoul — the exact "not rendering" report regime.
+  await page.goto(`/demo.html?id=__import&proj=${projection}#11/${SEOUL.lat}/${SEOUL.lon}/0/0`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   await page.waitForTimeout(3_000) // tile cascade settle
 }
@@ -124,9 +144,7 @@ test.describe('perf-projection-seoul-deep', () => {
       const z11Selected = z11.globeTilesSelected
 
       // (2) Deep zoom-in sweep 13 → 16.5.
-      const timings = await runInteraction(
-        page, interactions.zoom(13, 16.5), { durationMs: 5000 },
-      )
+      const timings = await runInteraction(page, interactions.zoom(13, 16.5), { durationMs: 5000 })
       const stats = computeStats(timings)
       await page.waitForTimeout(500)
       const deep = await readDrawStats(page)
@@ -145,9 +163,9 @@ test.describe('perf-projection-seoul-deep', () => {
 
       // eslint-disable-next-line no-console
       console.log(
-        `[seoul-deep ${proj}] z11Rendered=${z11Rendered} z11Selected=${z11Selected} z11Tiles=${z11.tilesVisible} `
-        + `sweep p95=${stats.p95.toFixed(1)} max=${stats.max.toFixed(1)} `
-        + `deepTiles=${deep.tilesVisible} deepDraws=${deep.drawCalls}`,
+        `[seoul-deep ${proj}] z11Rendered=${z11Rendered} z11Selected=${z11Selected} z11Tiles=${z11.tilesVisible} ` +
+          `sweep p95=${stats.p95.toFixed(1)} max=${stats.max.toFixed(1)} ` +
+          `deepTiles=${deep.tilesVisible} deepDraws=${deep.drawCalls}`,
       )
 
       // Mercator is the known-good control — it must render at z=11
@@ -180,9 +198,9 @@ test.describe('perf-projection-seoul-deep', () => {
     ]
     for (const r of rows) {
       lines.push(
-        `| ${r.projection} | ${r.z11Rendered ? '✓' : '✗'} | ${r.z11Selected} | ${r.z11Tiles} `
-        + `| ${r.sweepMedian} | ${r.sweepP95} | ${r.sweepMax} `
-        + `| ${r.deepTiles} | ${r.deepDraws} |`,
+        `| ${r.projection} | ${r.z11Rendered ? '✓' : '✗'} | ${r.z11Selected} | ${r.z11Tiles} ` +
+          `| ${r.sweepMedian} | ${r.sweepP95} | ${r.sweepMax} ` +
+          `| ${r.deepTiles} | ${r.deepDraws} |`,
       )
     }
     writeFileSync(join(OUT_DIR, 'REPORT.md'), lines.join('\n'))

@@ -6,8 +6,7 @@
 /** Lower-pass options. Reserved for opt-in features that change the
  *  IR shape produced from a given AST — bypass flags for collapses
  *  that exist because a runtime feature wasn't available yet. */
-export interface LowerOptions {
-}
+export interface LowerOptions {}
 
 /** Result of pulling stops out of an `interpolate(...)` /
  *  `interpolate_exp(...)` binding. `base === 1` indicates the linear

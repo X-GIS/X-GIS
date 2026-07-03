@@ -112,11 +112,13 @@ export function memoizeOpen<T>(
  *  layer minzoom/maxzoom fall back to the SOURCE's overall zoom range
  *  when a layer omits them. */
 export function normalizeVectorLayers(
-  raw: Array<{ id: string; minzoom?: number; maxzoom?: number; fields?: Record<string, string> }> | undefined,
+  raw:
+    | Array<{ id: string; minzoom?: number; maxzoom?: number; fields?: Record<string, string> }>
+    | undefined,
   defaultMin: number,
   defaultMax: number,
 ): VectorLayerInfo[] {
-  return (raw ?? []).map(vl => ({
+  return (raw ?? []).map((vl) => ({
     id: vl.id,
     minzoom: vl.minzoom ?? defaultMin,
     maxzoom: vl.maxzoom ?? defaultMax,

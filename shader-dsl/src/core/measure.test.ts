@@ -11,13 +11,31 @@ import { emitModule, emitModuleAt } from './backends/wgsl'
 // SHRINKS the op count. Bytes saved ≠ work saved.
 
 // Redundancy = a repeated input-only subexpr. cse (O1+O2) computes sin(x) once, not twice.
-const cseHeavy = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => { b.ret(sin(x).add(sin(x))) })] })
+const cseHeavy = module({
+  funcs: [
+    fn('k', { x: f32T }, f32T, ({ x }, b) => {
+      b.ret(sin(x).add(sin(x)))
+    }),
+  ],
+})
 
 // Redundancy = a literal control predicate. Only const-fold (O2, NOT O1) collapses
 // select(2>1, a, b) to `return a`, dropping the dead arm + the compare op.
-const foldable = module({ funcs: [fn('k', { a: f32T, b: f32T }, f32T, ({ a, b }, bd) => { bd.ret(select(f32(2).gt(1), a, b)) })] })
+const foldable = module({
+  funcs: [
+    fn('k', { a: f32T, b: f32T }, f32T, ({ a, b }, bd) => {
+      bd.ret(select(f32(2).gt(1), a, b))
+    }),
+  ],
+})
 
-const trivial = module({ funcs: [fn('id', { x: f32T }, f32T, ({ x }, b) => { b.ret(x) })] })
+const trivial = module({
+  funcs: [
+    fn('id', { x: f32T }, f32T, ({ x }, b) => {
+      b.ret(x)
+    }),
+  ],
+})
 
 describe('emitSize', () => {
   it('counts chars and newline-split lines', () => {
@@ -72,7 +90,8 @@ describe('optimizerReport — op count is the GPU-work axis (monotone non-increa
 
 describe('opt levels — distinct optimization points', () => {
   it('cse fires at O1 (call dropped); fold only at O2 (predicate survives O1)', () => {
-    const calls = (m: typeof cseHeavy, lvl: 'O0' | 'O1' | 'O2') => (emitModuleAt(m, lvl).match(/sin\(/g) ?? []).length
+    const calls = (m: typeof cseHeavy, lvl: 'O0' | 'O1' | 'O2') =>
+      (emitModuleAt(m, lvl).match(/sin\(/g) ?? []).length
 
     // cse module: O0 has two sin calls, O1 already dedups to one (== O2).
     expect(calls(cseHeavy, 'O0')).toBe(2)

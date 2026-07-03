@@ -38,29 +38,44 @@ interface SymbolLayout {
   'text-justify'?: unknown
   [k: string]: unknown
 }
-interface SymbolPaint { 'text-translate'?: unknown; [k: string]: unknown }
+interface SymbolPaint {
+  'text-translate'?: unknown
+  [k: string]: unknown
+}
 
 function labelDefFor(layout: SymbolLayout, paint: SymbolPaint = {}): LabelDef {
   const xgis = convertMapboxStyle({
     version: 8,
     sources: { v: { type: 'vector', url: 'mapbox://x.pmtiles' } },
-    layers: [{
-      id: 'sym', type: 'symbol', source: 'v', 'source-layer': 'pts',
-      layout: { 'text-field': '{name}', ...layout } as never,
-      paint: paint as never,
-    }],
+    layers: [
+      {
+        id: 'sym',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 'pts',
+        layout: { 'text-field': '{name}', ...layout } as never,
+        paint: paint as never,
+      },
+    ],
   })
   const tokens = new Lexer(xgis).tokenize()
   const program = new Parser(tokens).parse()
   const scene = lower(program)
-  const node = scene.renderNodes.find(n => n.label !== undefined)
+  const node = scene.renderNodes.find((n) => n.label !== undefined)
   expect(node, 'expected one renderNode with a label').toBeDefined()
   return node!.label!
 }
 
 const ANCHORS = [
-  'center', 'top', 'bottom', 'left', 'right',
-  'top-left', 'top-right', 'bottom-left', 'bottom-right',
+  'center',
+  'top',
+  'bottom',
+  'left',
+  'right',
+  'top-left',
+  'top-right',
+  'bottom-left',
+  'bottom-right',
 ] as const
 
 describe('Mapbox text-anchor → LabelDef.anchor (9-way)', () => {
@@ -98,7 +113,7 @@ describe('Mapbox text-variable-anchor → LabelDef.anchorCandidates', () => {
 
 describe('Mapbox text-anchor default (omitted) → undefined in IR', () => {
   it('runtime falls back to center; IR leaves the field unset', () => {
-    const lbl = labelDefFor({})  // no text-anchor
+    const lbl = labelDefFor({}) // no text-anchor
     expect(lbl.anchor).toBeUndefined()
     // anchorCandidates is also unset — when the runtime sees neither,
     // it uses the Mapbox default of "center" (text-stage.ts:455).
@@ -135,12 +150,9 @@ describe('Mapbox text-offset (em units) → LabelDef.offset', () => {
 
 describe('Mapbox text-translate (paint, pixels) → LabelDef.translate', () => {
   it('px values preserved verbatim — stacks on top of em-unit offset', () => {
-    const lbl = labelDefFor(
-      { 'text-offset': [0, -0.2] },
-      { 'text-translate': [0, -8] },
-    )
-    expect(lbl.offset).toEqual([0, -0.2])    // em-units
-    expect(lbl.translate).toEqual([0, -8])   // pixels
+    const lbl = labelDefFor({ 'text-offset': [0, -0.2] }, { 'text-translate': [0, -8] })
+    expect(lbl.offset).toEqual([0, -0.2]) // em-units
+    expect(lbl.translate).toEqual([0, -8]) // pixels
   })
 })
 
@@ -190,11 +202,7 @@ describe('Mapbox text-radial-offset → LabelDef.radialOffset', () => {
 describe('Mapbox text-variable-anchor-offset → LabelDef.variableAnchorOffset', () => {
   it('zips ordered anchors with per-anchor em offsets, including negatives', () => {
     const lbl = labelDefFor({
-      'text-variable-anchor-offset': [
-        'top', [0, 1],
-        'left', [1, 0],
-        'bottom-right', [-0.5, -0.5],
-      ],
+      'text-variable-anchor-offset': ['top', [0, 1], 'left', [1, 0], 'bottom-right', [-0.5, -0.5]],
     })
     expect(lbl.variableAnchorOffset).toEqual([
       ['top', [0, 1]],

@@ -14,7 +14,7 @@ describe('source id sanitization collision', () => {
       version: 8,
       sources: {
         'world-tiles': { type: 'vector', url: 'https://a.example.com/v.pmtiles' },
-        'world_tiles': { type: 'vector', url: 'https://b.example.com/v.pmtiles' },
+        world_tiles: { type: 'vector', url: 'https://b.example.com/v.pmtiles' },
       },
       layers: [],
     }
@@ -26,8 +26,8 @@ describe('source id sanitization collision', () => {
     const style = {
       version: 8,
       sources: {
-        'world': { type: 'vector', url: 'https://a.example.com/v.pmtiles' },
-        'continents': { type: 'vector', url: 'https://b.example.com/v.pmtiles' },
+        world: { type: 'vector', url: 'https://a.example.com/v.pmtiles' },
+        continents: { type: 'vector', url: 'https://b.example.com/v.pmtiles' },
       },
       layers: [],
     }
@@ -40,7 +40,7 @@ describe('source id sanitization collision', () => {
       version: 8,
       sources: {
         '1km': { type: 'vector', url: 'https://a.example.com/v.pmtiles' },
-        '_1km': { type: 'vector', url: 'https://b.example.com/v.pmtiles' },
+        _1km: { type: 'vector', url: 'https://b.example.com/v.pmtiles' },
       },
       layers: [],
     }

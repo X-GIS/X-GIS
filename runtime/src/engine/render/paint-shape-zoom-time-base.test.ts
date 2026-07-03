@@ -8,12 +8,16 @@ import { resolveNumberShape } from '@xgis/map'
 
 describe('zoom-time PropertyShape honors zoomBase', () => {
   it('base !== 1 produces curve different from linear at the same zoom', () => {
-    const stops = [{ zoom: 0, value: 0 }, { zoom: 10, value: 100 }]
+    const stops = [
+      { zoom: 0, value: 0 },
+      { zoom: 10, value: 100 },
+    ]
     const timeStops = [{ timeMs: 0, value: 1 }] // identity time factor
 
     const linear = resolveNumberShape(
       { kind: 'zoom-time', zoomStops: stops, timeStops, loop: false, easing: 'linear', delayMs: 0 },
-      5, 0,
+      5,
+      0,
     ).value
     const exp = resolveNumberShape(
       {
@@ -25,22 +29,27 @@ describe('zoom-time PropertyShape honors zoomBase', () => {
         easing: 'linear',
         delayMs: 0,
       },
-      5, 0,
+      5,
+      0,
     ).value
 
-    expect(linear).toBeCloseTo(50, 6)            // linear z=5 → 50
+    expect(linear).toBeCloseTo(50, 6) // linear z=5 → 50
     // Exponential base=2: t = (2^5 - 1) / (2^10 - 1) ≈ 31/1023 ≈ 0.0303
     // value = 0 + t * (100 - 0) ≈ 3.03
     expect(exp).toBeLessThan(linear)
-    expect(exp).toBeCloseTo((Math.pow(2, 5) - 1) / (Math.pow(2, 10) - 1) * 100, 4)
+    expect(exp).toBeCloseTo(((Math.pow(2, 5) - 1) / (Math.pow(2, 10) - 1)) * 100, 4)
   })
 
   it('zoomBase undefined falls back to linear (byte-identical)', () => {
-    const stops = [{ zoom: 0, value: 0 }, { zoom: 10, value: 100 }]
+    const stops = [
+      { zoom: 0, value: 0 },
+      { zoom: 10, value: 100 },
+    ]
     const timeStops = [{ timeMs: 0, value: 1 }]
     const result = resolveNumberShape(
       { kind: 'zoom-time', zoomStops: stops, timeStops, loop: false, easing: 'linear', delayMs: 0 },
-      5, 0,
+      5,
+      0,
     ).value
     expect(result).toBeCloseTo(50, 6)
   })
@@ -50,11 +59,20 @@ describe('zoom-time PropertyShape honors zoomBase', () => {
     const result = resolveNumberShape(
       {
         kind: 'zoom-time',
-        zoomStops: [{ zoom: 0, value: 0 }, { zoom: 10, value: 100 }],
-        timeStops: [{ timeMs: 0, value: 1 }, { timeMs: 1000, value: 0.5 }],
-        loop: false, easing: 'linear', delayMs: 0,
+        zoomStops: [
+          { zoom: 0, value: 0 },
+          { zoom: 10, value: 100 },
+        ],
+        timeStops: [
+          { timeMs: 0, value: 1 },
+          { timeMs: 1000, value: 0.5 },
+        ],
+        loop: false,
+        easing: 'linear',
+        delayMs: 0,
       },
-      5, 0,
+      5,
+      0,
     ).value
     expect(result).toBeCloseTo(50, 6) // 50 * 1.0
   })

@@ -14,7 +14,7 @@ const SHADER_SRC = emitPointWgsl()
 describe('point vertex-format single-source consistency', () => {
   it('spec shape: stride 16 (center f32x2 + quad_id u32 + feat_id f32)', () => {
     expect(POINT_FORMAT.stride).toBe(16)
-    expect(POINT_FORMAT.fields.map(f => [f.location, f.offset, f.vbFormat])).toEqual([
+    expect(POINT_FORMAT.fields.map((f) => [f.location, f.offset, f.vbFormat])).toEqual([
       [0, 0, 'float32x2'],
       [1, 8, 'uint32'],
       [2, 12, 'float32'],

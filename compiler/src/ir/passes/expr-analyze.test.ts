@@ -8,7 +8,14 @@
 
 import { describe, expect, it } from 'vitest'
 import { analyzeExprs, exprAnalyzePass } from './expr-analyze'
-import type { ColorValue, DataExpr, RenderNode, Scene, SizeValue, StrokeValue } from '../render-node'
+import type {
+  ColorValue,
+  DataExpr,
+  RenderNode,
+  Scene,
+  SizeValue,
+  StrokeValue,
+} from '../render-node'
 import type { PropertyShape, RGBA } from '../property-types'
 import type { Expr } from '../../parser/ast'
 
@@ -20,24 +27,38 @@ const RED: RGBA = [1, 0, 0, 1]
 // arm to satisfy the full discriminated union shape).
 const ident = (name: string): Expr => ({ kind: 'Identifier', name })
 const field = (f: string): Expr => ({
-  kind: 'FieldAccess', field: f, object: null,
+  kind: 'FieldAccess',
+  field: f,
+  object: null,
 })
 const num = (value: number): Expr => ({
-  kind: 'NumberLiteral', value, unit: null,
+  kind: 'NumberLiteral',
+  value,
+  unit: null,
 })
-const fnCall = (calleeName: string, args: Expr[], matchArms: Array<{ pattern: string; value: Expr }> = []): Expr => ({
+const fnCall = (
+  calleeName: string,
+  args: Expr[],
+  matchArms: Array<{ pattern: string; value: Expr }> = [],
+): Expr => ({
   kind: 'FnCall',
   callee: ident(calleeName),
   args,
-  matchBlock: matchArms.length > 0
-    ? { kind: 'MatchBlock', arms: matchArms.map(a => ({ pattern: a.pattern as never, value: a.value })) }
-    : undefined,
+  matchBlock:
+    matchArms.length > 0
+      ? {
+          kind: 'MatchBlock',
+          arms: matchArms.map((a) => ({ pattern: a.pattern as never, value: a.value })),
+        }
+      : undefined,
 })
-const expr = (ast: Expr): DataExpr => ({ ast } as DataExpr)
+const expr = (ast: Expr): DataExpr => ({ ast }) as DataExpr
 
 function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
   const base: RenderNode = {
-    name: 'a', sourceRef: 's', zOrder: 0,
+    name: 'a',
+    sourceRef: 's',
+    zOrder: 0,
     fill: { kind: 'none' },
     stroke: {
       color: { kind: 'none' },
@@ -47,8 +68,12 @@ function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
     size: { kind: 'none' } as SizeValue,
     extrude: { kind: 'none' } as never,
     extrudeBase: { kind: 'none' } as never,
-    projection: 'mercator', visible: true, pointerEvents: 'auto',
-    filter: null, geometry: null, billboard: true,
+    projection: 'mercator',
+    visible: true,
+    pointerEvents: 'auto',
+    filter: null,
+    geometry: null,
+    billboard: true,
     shape: { kind: 'named', name: 'circle' } as never,
   }
   return { ...base, ...overrides }
@@ -65,17 +90,25 @@ describe('analyzeExprs — basic walk', () => {
   })
 
   it('constant fill → no DataExpr → 0 nodes visited', () => {
-    const a = analyzeExprs(makeScene(makeNode({
-      fill: { kind: 'constant', rgba: RED } as ColorValue,
-    })))
+    const a = analyzeExprs(
+      makeScene(
+        makeNode({
+          fill: { kind: 'constant', rgba: RED } as ColorValue,
+        }),
+      ),
+    )
     expect(a.totalNodes).toBe(0)
   })
 
   it('field access → hasFieldAccess true, depth 1', () => {
     const ast = field('class')
-    const a = analyzeExprs(makeScene(makeNode({
-      fill: { kind: 'data-driven', expr: expr(ast) } as ColorValue,
-    })))
+    const a = analyzeExprs(
+      makeScene(
+        makeNode({
+          fill: { kind: 'data-driven', expr: expr(ast) } as ColorValue,
+        }),
+      ),
+    )
     const meta = a.metaByExpr.get(ast)!
     expect(meta).toBeDefined()
     expect(meta.depth).toBe(1)
@@ -89,9 +122,13 @@ describe('analyzeExprs — depth + flag propagation', () => {
   it('FnCall over FieldAccess → depth 2, hasFieldAccess propagates', () => {
     const fa = field('class')
     const root = fnCall('get', [fa])
-    const a = analyzeExprs(makeScene(makeNode({
-      fill: { kind: 'data-driven', expr: expr(root) } as ColorValue,
-    })))
+    const a = analyzeExprs(
+      makeScene(
+        makeNode({
+          fill: { kind: 'data-driven', expr: expr(root) } as ColorValue,
+        }),
+      ),
+    )
     const rootMeta = a.metaByExpr.get(root)!
     expect(rootMeta.depth).toBeGreaterThanOrEqual(2)
     expect(rootMeta.hasFieldAccess).toBe(true)
@@ -101,14 +138,22 @@ describe('analyzeExprs — depth + flag propagation', () => {
 
   it('match() over FieldAccess → hasMatch true, matchArmCount set on root', () => {
     const colorLit = (v: string): Expr => ({ kind: 'ColorLiteral', value: v })
-    const ast = fnCall('match', [field('class')], [
-      { pattern: 'school', value: colorLit('#aaa') },
-      { pattern: 'park',   value: colorLit('#bbb') },
-      { pattern: '_',      value: colorLit('#ccc') },
-    ])
-    const a = analyzeExprs(makeScene(makeNode({
-      fill: { kind: 'data-driven', expr: expr(ast) } as ColorValue,
-    })))
+    const ast = fnCall(
+      'match',
+      [field('class')],
+      [
+        { pattern: 'school', value: colorLit('#aaa') },
+        { pattern: 'park', value: colorLit('#bbb') },
+        { pattern: '_', value: colorLit('#ccc') },
+      ],
+    )
+    const a = analyzeExprs(
+      makeScene(
+        makeNode({
+          fill: { kind: 'data-driven', expr: expr(ast) } as ColorValue,
+        }),
+      ),
+    )
     const meta = a.metaByExpr.get(ast)!
     expect(meta.hasMatch).toBe(true)
     expect(meta.matchArmCount).toBe(3)
@@ -118,15 +163,23 @@ describe('analyzeExprs — depth + flag propagation', () => {
 
   it('match() with one non-literal arm → allArmsConst false', () => {
     const colorLit = (v: string): Expr => ({ kind: 'ColorLiteral', value: v })
-    const ast = fnCall('match', [field('class')], [
-      { pattern: 'school', value: colorLit('#aaa') },
-      // FnCall arm is not a literal — disqualifies allArmsConst.
-      { pattern: 'park',   value: fnCall('rgba', [num(0.5), num(0.5), num(0.5), num(1)]) },
-      { pattern: '_',      value: colorLit('#ccc') },
-    ])
-    const a = analyzeExprs(makeScene(makeNode({
-      fill: { kind: 'data-driven', expr: expr(ast) } as ColorValue,
-    })))
+    const ast = fnCall(
+      'match',
+      [field('class')],
+      [
+        { pattern: 'school', value: colorLit('#aaa') },
+        // FnCall arm is not a literal — disqualifies allArmsConst.
+        { pattern: 'park', value: fnCall('rgba', [num(0.5), num(0.5), num(0.5), num(1)]) },
+        { pattern: '_', value: colorLit('#ccc') },
+      ],
+    )
+    const a = analyzeExprs(
+      makeScene(
+        makeNode({
+          fill: { kind: 'data-driven', expr: expr(ast) } as ColorValue,
+        }),
+      ),
+    )
     const meta = a.metaByExpr.get(ast)!
     expect(meta.matchArmCount).toBe(3)
     expect(meta.allArmsConst).toBe(false)
@@ -136,9 +189,13 @@ describe('analyzeExprs — depth + flag propagation', () => {
 
   it('idempotent default true for all current builtins', () => {
     const ast = fnCall('clamp', [field('size'), num(4), num(24)])
-    const a = analyzeExprs(makeScene(makeNode({
-      opacity: { kind: 'data-driven', expr: expr(ast) } as PropertyShape<number>,
-    })))
+    const a = analyzeExprs(
+      makeScene(
+        makeNode({
+          opacity: { kind: 'data-driven', expr: expr(ast) } as PropertyShape<number>,
+        }),
+      ),
+    )
     expect(a.metaByExpr.get(ast)!.idempotent).toBe(true)
   })
 })
@@ -146,9 +203,11 @@ describe('analyzeExprs — depth + flag propagation', () => {
 describe('analyzeExprs — pass integration', () => {
   it('exprAnalyzePass attaches exprAnalysis side-table to Scene', () => {
     const ast = field('class')
-    const scene = makeScene(makeNode({
-      fill: { kind: 'data-driven', expr: expr(ast) } as ColorValue,
-    }))
+    const scene = makeScene(
+      makeNode({
+        fill: { kind: 'data-driven', expr: expr(ast) } as ColorValue,
+      }),
+    )
     const out = exprAnalyzePass.run(scene)
     expect(out.exprAnalysis).toBeDefined()
     expect(out.exprAnalysis!.totalNodes).toBe(1)

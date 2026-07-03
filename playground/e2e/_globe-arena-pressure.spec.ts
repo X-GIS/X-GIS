@@ -43,11 +43,11 @@ const SOFTWARE_GPU = process.env.XGIS_SOFTWARE_GPU === '1'
 // Camera states around Seoul at globe z10-11 — the crash repro range.
 // Each entry is a URL hash fragment: #zoom/lat/lon
 const CAMERA_STATES = [
-  '#10.80/37.26370/127.02741',  // exact crash repro
-  '#11.00/37.56/126.97',        // Seoul city centre, slightly higher zoom
-  '#10.50/37.45/127.10',        // shifted east — different tile set
-  '#11.50/37.38/126.85',        // west Seoul — more tiles
-  '#10.20/37.70/127.30',        // lower zoom — more globe tiles visible
+  '#10.80/37.26370/127.02741', // exact crash repro
+  '#11.00/37.56/126.97', // Seoul city centre, slightly higher zoom
+  '#10.50/37.45/127.10', // shifted east — different tile set
+  '#11.50/37.38/126.85', // west Seoul — more tiles
+  '#10.20/37.70/127.30', // lower zoom — more globe tiles visible
 ] as const
 
 test('globe arena-pressure: no GPUArena OOM crash near Seoul z10-11', async ({ page }) => {
@@ -82,10 +82,9 @@ test('globe arena-pressure: no GPUArena OOM crash near Seoul z10-11', async ({ p
 
   // Load globe at Seoul using the dark demo (hermetic — no PMTiles needed).
   // The hash puts us at z10.8 / Seoul — the exact crash repro camera.
-  await page.goto(
-    `/demo.html?id=dark&proj=globe${CAMERA_STATES[0]}`,
-    { waitUntil: 'domcontentloaded' },
-  )
+  await page.goto(`/demo.html?id=dark&proj=globe${CAMERA_STATES[0]}`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
     null,
@@ -94,7 +93,9 @@ test('globe arena-pressure: no GPUArena OOM crash near Seoul z10-11', async ({ p
   // Let the tile pipeline warm up — fetch + decode + upload cycle
   await page.waitForTimeout(2000)
 
-  await page.locator('canvas').first()
+  await page
+    .locator('canvas')
+    .first()
     .screenshot({ path: path.join(OUT, 'initial-z10.8-seoul.png') })
 
   // Sweep through camera states to stream many tiles and stress the arena.
@@ -102,10 +103,14 @@ test('globe arena-pressure: no GPUArena OOM crash near Seoul z10-11', async ({ p
   // evicted (byte-pressure path) so new ones can be uploaded.
   for (let i = 1; i < CAMERA_STATES.length; i++) {
     const hash = CAMERA_STATES[i]!
-    await page.evaluate((h) => { window.location.hash = h }, hash)
+    await page.evaluate((h) => {
+      window.location.hash = h
+    }, hash)
     // Wait for tile upload + eviction cycle: 1.5 s per camera change
     await page.waitForTimeout(1500)
-    await page.locator('canvas').first()
+    await page
+      .locator('canvas')
+      .first()
       .screenshot({ path: path.join(OUT, `step-${i}-${hash.replace(/[#./]/g, '_')}.png`) })
   }
 
@@ -113,9 +118,13 @@ test('globe arena-pressure: no GPUArena OOM crash near Seoul z10-11', async ({ p
   // If the eviction loop is broken, the second visit to the same tiles
   // re-triggers the OOM (because the arena is still full from the first
   // visit and count-only trigger never evicted).
-  await page.evaluate((h) => { window.location.hash = h }, CAMERA_STATES[0])
+  await page.evaluate((h) => {
+    window.location.hash = h
+  }, CAMERA_STATES[0])
   await page.waitForTimeout(2000)
-  await page.locator('canvas').first()
+  await page
+    .locator('canvas')
+    .first()
     .screenshot({ path: path.join(OUT, 'return-z10.8-seoul.png') })
 
   // ─── ASSERTIONS ────────────────────────────────────────────────────────
@@ -132,7 +141,7 @@ test('globe arena-pressure: no GPUArena OOM crash near Seoul z10-11', async ({ p
   // 2. No uncaught page errors — a propagating throw from the render loop
   //    surfaces as a pageerror. If any arena-related pageerror fired, it
   //    is already in arenaErrors above; this catches other render crashes.
-  const renderCrashes = pageErrors.filter(e =>
+  const renderCrashes = pageErrors.filter((e) =>
     /GPUArena|out of capacity|renderFrame|render.*error/i.test(e),
   )
   expect(
@@ -146,19 +155,26 @@ test('globe arena-pressure: no GPUArena OOM crash near Seoul z10-11', async ({ p
     const paint = await page.evaluate(async () => {
       const cv = document.querySelector('canvas') as HTMLCanvasElement | null
       if (!cv) return 0
-      const w = cv.width, h = cv.height
+      const w = cv.width,
+        h = cv.height
       const off = new OffscreenCanvas(w, h)
       const ctx = off.getContext('2d')!
       ctx.drawImage(cv, 0, 0)
       const d = ctx.getImageData(0, 0, w, h).data
       // Sample centre 60% of canvas — avoids edge background
-      const xMin = (w * 0.20) | 0, xMax = (w * 0.80) | 0
-      const yMin = (h * 0.20) | 0, yMax = (h * 0.80) | 0
-      let nonbg = 0, total = 0
+      const xMin = (w * 0.2) | 0,
+        xMax = (w * 0.8) | 0
+      const yMin = (h * 0.2) | 0,
+        yMax = (h * 0.8) | 0
+      let nonbg = 0,
+        total = 0
       for (let y = yMin; y < yMax; y += 2) {
         for (let x = xMin; x < xMax; x += 2) {
           const i = (y * w + x) * 4
-          const r = d[i]!, g = d[i + 1]!, b = d[i + 2]!, a = d[i + 3]!
+          const r = d[i]!,
+            g = d[i + 1]!,
+            b = d[i + 2]!,
+            a = d[i + 3]!
           total++
           if (a > 4 && (r > 4 || g > 4 || b > 4)) nonbg++
         }
@@ -166,18 +182,25 @@ test('globe arena-pressure: no GPUArena OOM crash near Seoul z10-11', async ({ p
       return total > 0 ? nonbg / total : 0
     })
 
-    expect(paint, 'Canvas is blank after globe arena stress — tile rendering failed').toBeGreaterThan(0.01)
+    expect(
+      paint,
+      'Canvas is blank after globe arena stress — tile rendering failed',
+    ).toBeGreaterThan(0.01)
   }
 
   // 4. Write a summary artefact for CI triage.
   fs.writeFileSync(
     path.join(OUT, 'result.json'),
-    JSON.stringify({
-      arenaErrors,
-      pageErrors,
-      allConsoleErrorCount: allConsoleErrors.length,
-      softwareGpu: SOFTWARE_GPU,
-    }, null, 2),
+    JSON.stringify(
+      {
+        arenaErrors,
+        pageErrors,
+        allConsoleErrorCount: allConsoleErrors.length,
+        softwareGpu: SOFTWARE_GPU,
+      },
+      null,
+      2,
+    ),
   )
 })
 
@@ -191,8 +214,10 @@ test('globe arena-pressure: zoom sweep z9→12 Seoul no OOM', async ({ page }) =
   const arenaErrors: string[] = []
   page.on('console', (msg) => {
     const text = msg.text()
-    if ((msg.type() === 'error' || msg.type() === 'warning')
-        && /GPUArena|out of capacity|arena.*oom/i.test(text)) {
+    if (
+      (msg.type() === 'error' || msg.type() === 'warning') &&
+      /GPUArena|out of capacity|arena.*oom/i.test(text)
+    ) {
       arenaErrors.push(text)
     }
   })
@@ -203,10 +228,7 @@ test('globe arena-pressure: zoom sweep z9→12 Seoul no OOM', async ({ page }) =
   })
 
   await page.setViewportSize({ width: 1024, height: 768 })
-  await page.goto(
-    '/demo.html?id=dark&proj=globe#9/37.56/126.97',
-    { waitUntil: 'domcontentloaded' },
-  )
+  await page.goto('/demo.html?id=dark&proj=globe#9/37.56/126.97', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
     null,
@@ -219,20 +241,21 @@ test('globe arena-pressure: zoom sweep z9→12 Seoul no OOM', async ({ page }) =
     '#10/37.56/126.97',
     '#11/37.56/126.97',
     '#12/37.56/126.97',
-    '#11/37.56/126.97',   // zoom back out — eviction cycle
+    '#11/37.56/126.97', // zoom back out — eviction cycle
     '#10/37.56/126.97',
     '#9/37.56/126.97',
   ] as const
 
   for (const hash of ZOOM_HASHES) {
-    await page.evaluate((h) => { window.location.hash = h }, hash)
+    await page.evaluate((h) => {
+      window.location.hash = h
+    }, hash)
     await page.waitForTimeout(1200)
-    await page.locator('canvas').first()
+    await page
+      .locator('canvas')
+      .first()
       .screenshot({ path: path.join(OUT, `zoom-sweep-${hash.replace(/[#./]/g, '_')}.png`) })
   }
 
-  expect(
-    arenaErrors,
-    'GPUArena OOM errors during globe z9→12 zoom sweep',
-  ).toHaveLength(0)
+  expect(arenaErrors, 'GPUArena OOM errors during globe z9→12 zoom sweep').toHaveLength(0)
 })

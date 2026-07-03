@@ -28,7 +28,8 @@ function lockedRun(n: number): number[][] {
 function jaggedRing(n: number): number[][] {
   const ring: number[][] = []
   let s = 12345
-  let x = 0, y = 0
+  let x = 0,
+    y = 0
   for (let i = 0; i < n; i++) {
     s = (s * 1103515245 + 12345) & 0x7fffffff
     x += 1
@@ -43,7 +44,9 @@ describe('dpStep stack-overflow regression (iterative Douglas-Peucker)', () => {
     const ring = lockedRun(60_000)
     const lockAll = () => true
     let out: number[][] = []
-    expect(() => { out = simplify(ring, 1, lockAll) }).not.toThrow()
+    expect(() => {
+      out = simplify(ring, 1, lockAll)
+    }).not.toThrow()
     // All vertices locked → all kept.
     expect(out.length).toBe(ring.length)
   })
@@ -51,7 +54,9 @@ describe('dpStep stack-overflow regression (iterative Douglas-Peucker)', () => {
   it('simplifies a huge jagged ring without RangeError', () => {
     const ring = jaggedRing(120_000)
     let out: number[][] = []
-    expect(() => { out = simplify(ring, 2) }).not.toThrow()
+    expect(() => {
+      out = simplify(ring, 2)
+    }).not.toThrow()
     expect(out.length).toBeGreaterThanOrEqual(2)
     expect(out.length).toBeLessThanOrEqual(ring.length)
     // endpoints always preserved
@@ -70,21 +75,68 @@ describe('dpStep stack-overflow regression (iterative Douglas-Peucker)', () => {
 describe('iterative dpStep preserves Douglas-Peucker semantics', () => {
   it('drops a near-collinear midpoint, keeps a deviating one', () => {
     // midpoint deviates by 5 (>tol) → kept; with tiny deviation → dropped.
-    expect(simplify([[0, 0], [5, 5], [10, 0]], 1)).toEqual([[0, 0], [5, 5], [10, 0]])
-    expect(simplify([[0, 0], [5, 0.001], [10, 0]], 1)).toEqual([[0, 0], [10, 0]])
+    expect(
+      simplify(
+        [
+          [0, 0],
+          [5, 5],
+          [10, 0],
+        ],
+        1,
+      ),
+    ).toEqual([
+      [0, 0],
+      [5, 5],
+      [10, 0],
+    ])
+    expect(
+      simplify(
+        [
+          [0, 0],
+          [5, 0.001],
+          [10, 0],
+        ],
+        1,
+      ),
+    ).toEqual([
+      [0, 0],
+      [10, 0],
+    ])
   })
 
   it('honours locked vertices even below tolerance', () => {
     // middle vertex is collinear (would drop) but locked → survives.
-    const ring = [[0, 0], [5, 0], [10, 0]]
+    const ring = [
+      [0, 0],
+      [5, 0],
+      [10, 0],
+    ]
     const lockMid = (c: number[]) => c[0] === 5
-    expect(simplify(ring, 1, lockMid)).toEqual([[0, 0], [5, 0], [10, 0]])
+    expect(simplify(ring, 1, lockMid)).toEqual([
+      [0, 0],
+      [5, 0],
+      [10, 0],
+    ])
   })
 
   it('matches a known multi-point DP result', () => {
     // classic small case: only the two far-deviating peaks survive at tol 1.
-    const ring = [[0, 0], [1, 0.1], [2, 4], [3, 0.1], [4, 0], [5, 4], [6, 0]]
+    const ring = [
+      [0, 0],
+      [1, 0.1],
+      [2, 4],
+      [3, 0.1],
+      [4, 0],
+      [5, 4],
+      [6, 0],
+    ]
     const out = simplify(ring, 1)
-    expect(out).toEqual([[0, 0], [2, 4], [4, 0], [5, 4], [6, 0]])
+    expect(out).toEqual([
+      [0, 0],
+      [2, 4],
+      [4, 0],
+      [5, 4],
+      [6, 0],
+    ])
   })
 })

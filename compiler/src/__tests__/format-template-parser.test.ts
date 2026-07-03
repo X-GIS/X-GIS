@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  parseTextTemplate,
-  isBareExpressionTemplate,
-} from '../format/template-parser'
+import { parseTextTemplate, isBareExpressionTemplate } from '../format/template-parser'
 
 describe('parseTextTemplate', () => {
   describe('plain literals', () => {
@@ -11,29 +8,21 @@ describe('parseTextTemplate', () => {
     })
 
     it('plain text → single literal', () => {
-      expect(parseTextTemplate('Hello world')).toEqual([
-        { kind: 'literal', text: 'Hello world' },
-      ])
+      expect(parseTextTemplate('Hello world')).toEqual([{ kind: 'literal', text: 'Hello world' }])
     })
   })
 
   describe('bare interpolation', () => {
     it('"{name}" → single interp, no spec', () => {
-      expect(parseTextTemplate('{name}')).toEqual([
-        { kind: 'interp', text: 'name' },
-      ])
+      expect(parseTextTemplate('{name}')).toEqual([{ kind: 'interp', text: 'name' }])
     })
 
     it('"{.name}" → field access syntax', () => {
-      expect(parseTextTemplate('{.name}')).toEqual([
-        { kind: 'interp', text: '.name' },
-      ])
+      expect(parseTextTemplate('{.name}')).toEqual([{ kind: 'interp', text: '.name' }])
     })
 
     it('whitespace inside braces is trimmed', () => {
-      expect(parseTextTemplate('{  name  }')).toEqual([
-        { kind: 'interp', text: 'name' },
-      ])
+      expect(parseTextTemplate('{  name  }')).toEqual([{ kind: 'interp', text: 'name' }])
     })
 
     it('isBareExpressionTemplate detects single bare interp', () => {
@@ -119,22 +108,22 @@ describe('parseTextTemplate', () => {
 
     it('locale tail in spec', () => {
       expect(parseTextTemplate('{n:,.2f;C}')).toEqual([
-        { kind: 'interp', text: 'n', spec: { grouping: ',', precision: 2, type: 'f', locale: 'C' } },
+        {
+          kind: 'interp',
+          text: 'n',
+          spec: { grouping: ',', precision: 2, type: 'f', locale: 'C' },
+        },
       ])
     })
   })
 
   describe('escape sequences', () => {
     it('"\\\\{x\\\\}" → literal "{x}"', () => {
-      expect(parseTextTemplate('\\{x\\}')).toEqual([
-        { kind: 'literal', text: '{x}' },
-      ])
+      expect(parseTextTemplate('\\{x\\}')).toEqual([{ kind: 'literal', text: '{x}' }])
     })
 
     it('"\\\\\\\\" → literal "\\\\"', () => {
-      expect(parseTextTemplate('\\\\')).toEqual([
-        { kind: 'literal', text: '\\' },
-      ])
+      expect(parseTextTemplate('\\\\')).toEqual([{ kind: 'literal', text: '\\' }])
     })
 
     it('escape mixed with interp', () => {

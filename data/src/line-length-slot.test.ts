@@ -34,7 +34,7 @@ describe('buildLineSegments — line_length (slot 13)', () => {
     // arc_start increases per vertex; the far endpoint carries arc=300.
     const L = 300
     const vertices = dsfunLineVerts([
-      [0,   0, 0],
+      [0, 0, 0],
       [100, 0, 100],
       [200, 0, 200],
       [300, 0, 300],
@@ -56,11 +56,11 @@ describe('buildLineSegments — line_length (slot 13)', () => {
     // Polyline B: vertices 3..4, total length 50.
     // No shared endpoint → two connected components.
     const vertices = dsfunLineVerts([
-      [0,    0, 0],    // A v0
-      [200,  0, 200],  // A v1
-      [300,  0, 300],  // A v2  (A total = 300)
-      [0,    1000, 0], // B v0
-      [50,   1000, 50],// B v1  (B total = 50)
+      [0, 0, 0], // A v0
+      [200, 0, 200], // A v1
+      [300, 0, 300], // A v2  (A total = 300)
+      [0, 1000, 0], // B v0
+      [50, 1000, 50], // B v1  (B total = 50)
     ])
     const indices = new Uint32Array([0, 1, 1, 2, 3, 4])
     const seg = buildLineSegments(vertices, indices, 6)
@@ -78,7 +78,7 @@ describe('buildLineSegments — line_length (slot 13)', () => {
     // arc_start is the per-segment baseline, line_length is the shared total.
     const L = 600
     const vertices = dsfunLineVerts([
-      [0,   0, 0],
+      [0, 0, 0],
       [100, 0, 100],
       [350, 0, 350],
       [600, 0, 600],

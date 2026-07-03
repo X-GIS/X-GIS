@@ -55,11 +55,11 @@ export function evaluate(expr: AST.Expr, props: FeatureProps, fnEnv?: FnEnv): un
         ? evaluate(expr.thenExpr, props, fnEnv)
         : evaluate(expr.elseExpr, props, fnEnv)
     case 'ArrayLiteral':
-      return expr.elements.map(e => evaluate(e, props, fnEnv))
+      return expr.elements.map((e) => evaluate(e, props, fnEnv))
     case 'ArrayAccess': {
       const arr = evaluate(expr.array, props, fnEnv)
       const idx = toNumber(evaluate(expr.index, props, fnEnv))
-      return Array.isArray(arr) ? arr[Math.floor(idx)] ?? null : null
+      return Array.isArray(arr) ? (arr[Math.floor(idx)] ?? null) : null
     }
     default:
       return null
@@ -93,7 +93,8 @@ function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps, fnEnv?: FnEnv
   // as themselves on the left and don't trigger fallback.
   if (expr.op === '??') {
     if (left === null || left === undefined) return evaluate(expr.right, props, fnEnv)
-    if (typeof left === 'number' && !Number.isFinite(left)) return evaluate(expr.right, props, fnEnv)
+    if (typeof left === 'number' && !Number.isFinite(left))
+      return evaluate(expr.right, props, fnEnv)
     return left
   }
   // Short-circuit boolean operators BEFORE eagerly evaluating RHS.
@@ -150,10 +151,14 @@ function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps, fnEnv?: FnEnv
     // "5" < 6 → true, allowing the shield through; spec says false).
     if (typeof left === 'string' && typeof right === 'string') {
       switch (expr.op) {
-        case '<': return left < right
-        case '>': return left > right
-        case '<=': return left <= right
-        case '>=': return left >= right
+        case '<':
+          return left < right
+        case '>':
+          return left > right
+        case '<=':
+          return left <= right
+        case '>=':
+          return left >= right
       }
     }
     if (typeof left !== 'number' || typeof right !== 'number') {
@@ -168,34 +173,51 @@ function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps, fnEnv?: FnEnv
   // produce NaN buffer values via Infinity * 0. Coerce non-finite
   // arithmetic results to 0 (consistent with toNumber's non-finite
   // sentinel at c6aa3b0).
-  const finite = (n: number): number => Number.isFinite(n) ? n : 0
+  const finite = (n: number): number => (Number.isFinite(n) ? n : 0)
   switch (expr.op) {
-    case '+': return finite(l + r)
-    case '-': return finite(l - r)
-    case '*': return finite(l * r)
-    case '/': return r !== 0 ? finite(l / r) : 0
-    case '%': return r !== 0 ? finite(l % r) : 0
-    case '==': return left === right
-    case '!=': return left !== right
-    case '<': return l < r
-    case '>': return l > r
-    case '<=': return l <= r
-    case '>=': return l >= r
-    default: return null
+    case '+':
+      return finite(l + r)
+    case '-':
+      return finite(l - r)
+    case '*':
+      return finite(l * r)
+    case '/':
+      return r !== 0 ? finite(l / r) : 0
+    case '%':
+      return r !== 0 ? finite(l % r) : 0
+    case '==':
+      return left === right
+    case '!=':
+      return left !== right
+    case '<':
+      return l < r
+    case '>':
+      return l > r
+    case '<=':
+      return l <= r
+    case '>=':
+      return l >= r
+    default:
+      return null
   }
 }
 
 function evaluateUnary(expr: AST.UnaryExpr, props: FeatureProps, fnEnv?: FnEnv): unknown {
   const val = evaluate(expr.operand, props, fnEnv)
   switch (expr.op) {
-    case '-': return -toNumber(val)
-    case '!': return !toBool(val)
-    default: return null
+    case '-':
+      return -toNumber(val)
+    case '!':
+      return !toBool(val)
+    default:
+      return null
   }
 }
 
 /** Sentinel for early return from function body */
-class ReturnSignal { constructor(public value: unknown) {} }
+class ReturnSignal {
+  constructor(public value: unknown) {}
+}
 
 const MAX_LOOP_ITERATIONS = 10000
 
@@ -234,7 +256,8 @@ function executeBody(body: AST.Statement[], scope: FeatureProps, fnEnv?: FnEnv):
         }
         break
       }
-      default: break
+      default:
+        break
     }
   }
   return result
@@ -296,18 +319,20 @@ function evaluateFnCall(expr: AST.FnCall, props: FeatureProps, fnEnv?: FnEnv): u
         if (arm.pattern === keyStr) return evaluate(arm.value, props, fnEnv)
       }
     }
-    const defaultArm = expr.matchBlock.arms.find(a => a.pattern === '_')
+    const defaultArm = expr.matchBlock.arms.find((a) => a.pattern === '_')
     return defaultArm ? evaluate(defaultArm.value, props, fnEnv) : null
   }
 
-  const args = expr.args.map(a => evaluate(a, props, fnEnv))
+  const args = expr.args.map((a) => evaluate(a, props, fnEnv))
 
   // Try user-defined function first (higher priority than builtins)
   if (fnEnv) {
     const fn = fnEnv.get(name)
     if (fn) {
       const fnProps: FeatureProps = { ...props }
-      fn.params.forEach((p, i) => { fnProps[p.name] = args[i] })
+      fn.params.forEach((p, i) => {
+        fnProps[p.name] = args[i]
+      })
       const r = executeBody(fn.body, fnProps, fnEnv)
       return r instanceof ReturnSignal ? r.value : r
     }
@@ -323,7 +348,7 @@ function evaluatePipe(expr: AST.PipeExpr, props: FeatureProps, fnEnv?: FnEnv): u
     const name = transform.callee.kind === 'Identifier' ? transform.callee.name : null
     if (!name) continue
 
-    const args = transform.args.map(a => evaluate(a, props, fnEnv))
+    const args = transform.args.map((a) => evaluate(a, props, fnEnv))
     value = callBuiltin(name, [value, ...args])
   }
 
@@ -343,7 +368,7 @@ function evaluateMatch(expr: AST.MatchBlock, props: FeatureProps, fnEnv?: FnEnv)
     }
   }
   // Default arm
-  const defaultArm = expr.arms.find(a => a.pattern === '_')
+  const defaultArm = expr.arms.find((a) => a.pattern === '_')
   return defaultArm ? evaluate(defaultArm.value, props, fnEnv) : null
 }
 

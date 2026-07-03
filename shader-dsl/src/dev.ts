@@ -13,14 +13,25 @@
 // The `Diagnostic` result type also stays on the main barrel: ValidationError
 // exposes `.diagnostics` there.)
 export { lintModule } from './core/passes/validate'
-export { summarize, formatDiagnostics, type LintSummary, type Severity, type LintConfig } from './core/passes/lint/engine'
+export {
+  summarize,
+  formatDiagnostics,
+  type LintSummary,
+  type Severity,
+  type LintConfig,
+} from './core/passes/lint/engine'
 export { checkSingleExit } from './core/passes/single-exit'
 export { requiredCaps, assertCaps } from './core/passes/required-caps'
 
 // Unified diagnose()/formatReport() report + the error-code catalogue + coded-error
 // authoring helpers. (ShaderDslError itself stays on the main barrel — it is the
 // public base class of ValidationError.)
-export { diagnose, formatReport, type DiagnoseOptions, type DiagnosticReport } from './core/diagnostics/report'
+export {
+  diagnose,
+  formatReport,
+  type DiagnoseOptions,
+  type DiagnosticReport,
+} from './core/diagnostics/report'
 export { CODES, type ErrorCode, type ErrorCodeDef } from './core/diagnostics/codes'
 export { dslError, formatLoc, type SourceLoc } from './core/diagnostics/error'
 
@@ -28,7 +39,14 @@ export { dslError, formatLoc, type SourceLoc } from './core/diagnostics/error'
 export { setSourceTracing, isSourceTracing } from './core/diagnostics/loc'
 
 // Optimizer measurement (A/B the optimizer on op-count + source size).
-export { emitSize, countOps, optimizerReport, type EmitSize, type OpCount, type OptimizerReport } from './core/measure'
+export {
+  emitSize,
+  countOps,
+  optimizerReport,
+  type EmitSize,
+  type OpCount,
+  type OptimizerReport,
+} from './core/measure'
 
 // Optimizer pass surface for A/B and pass-level tests (#763 D3 — the former
 // `core/passes/opt/index` deep-path consumers; the `./core/*` wildcard subpath

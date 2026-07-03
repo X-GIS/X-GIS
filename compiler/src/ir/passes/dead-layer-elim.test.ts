@@ -352,7 +352,9 @@ describe('dead-layer-elim — pass metadata', () => {
   it('declares the right name and depends on merge-layers + folds', () => {
     expect(deadLayerElimPass.name).toBe('dead-layer-elim')
     expect(deadLayerElimPass.dependencies).toEqual([
-      'merge-layers', 'fold-trivial-stops', 'fold-trivial-case',
+      'merge-layers',
+      'fold-trivial-stops',
+      'fold-trivial-case',
     ])
   })
 })

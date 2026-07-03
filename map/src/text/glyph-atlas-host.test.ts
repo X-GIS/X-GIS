@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { GlyphAtlasHost } from './sdf/glyph-atlas-host'
 import { MockRasterizer } from './sdf/glyph-rasterizer'
 
-const cfg = { slotSize: 24, pageSize: 96 }   // 4×4 = 16 slots
+const cfg = { slotSize: 24, pageSize: 96 } // 4×4 = 16 slots
 const opts = { fontSize: 16, sdfRadius: 6 }
 
 let host: GlyphAtlasHost
@@ -18,7 +18,7 @@ describe('GlyphAtlasHost.ensure', () => {
 
   it('cached call does NOT re-queue', () => {
     host.ensure('noto', 65)
-    host.consumeDirty()  // drain
+    host.consumeDirty() // drain
     host.ensure('noto', 65)
     expect(host.consumeDirty()).toEqual([])
   })
@@ -52,7 +52,7 @@ describe('GlyphAtlasHost.ensureString', () => {
   it('returns one info per codepoint', () => {
     const infos = host.ensureString('noto', 'ABC')
     expect(infos).toHaveLength(3)
-    expect(infos.map(i => i.codepoint)).toEqual([65, 66, 67])
+    expect(infos.map((i) => i.codepoint)).toEqual([65, 66, 67])
   })
 
   it('queues one dirty entry per unique glyph', () => {
@@ -69,7 +69,7 @@ describe('GlyphAtlasHost.ensureString', () => {
     // 😀 = U+1F600, requires surrogate pair when iterated charwise.
     const infos = host.ensureString('noto', '😀')
     expect(infos).toHaveLength(1)
-    expect(infos[0]!.codepoint).toBe(0x1F600)
+    expect(infos[0]!.codepoint).toBe(0x1f600)
   })
 })
 
@@ -79,14 +79,14 @@ describe('GlyphAtlasHost.consumeEvictions', () => {
     for (let i = 0; i < 17; i++) host.ensure('noto', 0x100 + i)
     const evicted = host.consumeEvictions()
     expect(evicted.length).toBe(1)
-    expect(evicted[0]!.codepoint).toBe(0x100)  // oldest
+    expect(evicted[0]!.codepoint).toBe(0x100) // oldest
   })
 
   it('cleans up cached metrics for evicted glyphs', () => {
     for (let i = 0; i < 17; i++) host.ensure('noto', 0x100 + i)
     host.consumeEvictions()
     // Re-asking for the evicted glyph rasterises again (no metrics cache hit)
-    host.consumeDirty()  // drain
+    host.consumeDirty() // drain
     host.ensure('noto', 0x100)
     expect(host.consumeDirty()).toHaveLength(1)
   })
@@ -100,7 +100,7 @@ describe('GlyphAtlasHost.consumeEvictions', () => {
 
 describe('GlyphAtlasHost.prewarm', () => {
   it('rasterises supplied glyphs eagerly', () => {
-    host.prewarm('noto', [48, 49, 50, 51, 52])  // '0'..'4'
+    host.prewarm('noto', [48, 49, 50, 51, 52]) // '0'..'4'
     expect(host.consumeDirty()).toHaveLength(5)
   })
 
@@ -141,10 +141,10 @@ describe('GlyphAtlasHost.preloadString — iter-268 within-frame aliasing fix', 
     //
     // Setup: preload two short strings whose unique codepoints together
     // fit in the 16-slot atlas.
-    host.preloadString('noto', 'ABCDE')   // 5 unique
-    host.preloadString('noto', 'FGHIJ')   // 5 unique → 10 total ≪ 16
+    host.preloadString('noto', 'ABCDE') // 5 unique
+    host.preloadString('noto', 'FGHIJ') // 5 unique → 10 total ≪ 16
     const generationAfterPreload = host.getGeneration()
-    host.consumeEvictions()                // drain anything from preload
+    host.consumeEvictions() // drain anything from preload
     host.consumeDirty()
 
     // Now run the shape loop pattern: ensureString twice with the SAME
@@ -155,8 +155,8 @@ describe('GlyphAtlasHost.preloadString — iter-268 within-frame aliasing fix', 
 
     expect(host.getGeneration()).toBe(generationAfterPreload)
     expect(host.consumeEvictions()).toEqual([])
-    expect(glyphsA.map(g => g.codepoint)).toEqual([65, 66, 67, 68, 69])
-    expect(glyphsB.map(g => g.codepoint)).toEqual([70, 71, 72, 73, 74])
+    expect(glyphsA.map((g) => g.codepoint)).toEqual([65, 66, 67, 68, 69])
+    expect(glyphsB.map((g) => g.codepoint)).toEqual([70, 71, 72, 73, 74])
   })
 
   it('label A glyphs survive label B preload — no within-frame aliasing', () => {
@@ -171,7 +171,7 @@ describe('GlyphAtlasHost.preloadString — iter-268 within-frame aliasing fix', 
     // — no further eviction, both arrays reference STABLE slots whose
     // pxX/pxY contents are the right codepoint's SDF.
     host.preloadString('noto', 'Pyongyang')
-    host.preloadString('noto', 'pyeong')   // simulate Hangul names with ASCII codepoints
+    host.preloadString('noto', 'pyeong') // simulate Hangul names with ASCII codepoints
     const dirtyAfterPreload = host.consumeDirty()
     // Unique codepoints in 'Pyongyang' + 'pyeong' = P, y, o, n, g, a
     // (uppercase P), p, e (lowercase p) = 8 (case-sensitive). Atlas has
@@ -189,10 +189,8 @@ describe('GlyphAtlasHost.preloadString — iter-268 within-frame aliasing fix', 
     expect(host.getGeneration()).toBe(genBefore)
     expect(host.consumeEvictions()).toEqual([])
     // Both arrays are fully populated with the right codepoints.
-    expect(labelA.map(g => g.codepoint)).toEqual(
-      [...'Pyongyang'].map(c => c.codePointAt(0)!))
-    expect(labelB.map(g => g.codepoint)).toEqual(
-      [...'pyeong'].map(c => c.codePointAt(0)!))
+    expect(labelA.map((g) => g.codepoint)).toEqual([...'Pyongyang'].map((c) => c.codePointAt(0)!))
+    expect(labelB.map((g) => g.codepoint)).toEqual([...'pyeong'].map((c) => c.codePointAt(0)!))
   })
 
   // iter-273 — atlas OVERFLOW repro. User-reported (post-iter-268
@@ -208,8 +206,8 @@ describe('GlyphAtlasHost.preloadString — iter-268 within-frame aliasing fix', 
     // two bilingual-style labels. After preload, the LRU policy will
     // have evicted the earliest-admitted codepoints to make room for
     // the latest.
-    const labelAText = 'ABCDEFGHIJKL'   // 12 unique Latin
-    const labelBText = 'MNOPQRSTUVWX'   // 12 unique Latin → 24 total > 16
+    const labelAText = 'ABCDEFGHIJKL' // 12 unique Latin
+    const labelBText = 'MNOPQRSTUVWX' // 12 unique Latin → 24 total > 16
     host.preloadString('noto', labelAText)
     host.preloadString('noto', labelBText)
 
@@ -218,8 +216,8 @@ describe('GlyphAtlasHost.preloadString — iter-268 within-frame aliasing fix', 
     expect(evictedFromPreload.length).toBe(8)
     // The 8 evicted should be the earliest admitted (LRU = labelA's
     // first 8 codepoints A-H).
-    const evictedCodepoints = evictedFromPreload.map(k => k.codepoint).sort()
-    const expectedEvicted = [...'ABCDEFGH'].map(c => c.codePointAt(0)!).sort()
+    const evictedCodepoints = evictedFromPreload.map((k) => k.codepoint).sort()
+    const expectedEvicted = [...'ABCDEFGH'].map((c) => c.codePointAt(0)!).sort()
     expect(evictedCodepoints).toEqual(expectedEvicted)
 
     // Now the shape loop calls ensureString for labelA. It re-admits
@@ -259,8 +257,7 @@ describe('GlyphAtlasHost.preloadString — iter-268 within-frame aliasing fix', 
     // reused (compare slot pxX/pxY between labelA glyphs and
     // labelB glyphs — if any pair shares slot coords, that slot
     // was reassigned).
-    const labelASlotCoords = new Set(labelAGlyphs.map(g =>
-      `${g.slot.pxX},${g.slot.pxY}`))
+    const labelASlotCoords = new Set(labelAGlyphs.map((g) => `${g.slot.pxX},${g.slot.pxY}`))
     let collisionCount = 0
     for (const bg of labelBGlyphs) {
       if (labelASlotCoords.has(`${bg.slot.pxX},${bg.slot.pxY}`)) {
@@ -297,7 +294,7 @@ describe('GlyphAtlasHost.preloadString — iter-268 within-frame aliasing fix', 
   it('hasAllGlyphs surrogate-pair aware', () => {
     host.preloadString('noto', '😀')
     expect(host.hasAllGlyphs('noto', '😀')).toBe(true)
-    expect(host.hasAllGlyphs('noto', '😀X')).toBe(false)  // X not admitted
+    expect(host.hasAllGlyphs('noto', '😀X')).toBe(false) // X not admitted
   })
 })
 
@@ -318,7 +315,7 @@ describe('GlyphAtlasHost — iter-205 GlyphInfo memoization', () => {
     // allocating a new `{codepoint, slot, ...}` wrapper per char.
     const a = host.ensure('noto', 65)
     const b = host.ensure('noto', 65)
-    expect(b).toBe(a)  // reference equality, not just structural
+    expect(b).toBe(a) // reference equality, not just structural
   })
 
   it('different codepoints get distinct GlyphInfo references', () => {
@@ -342,8 +339,8 @@ describe('GlyphAtlasHost — iter-205 GlyphInfo memoization', () => {
   it('eviction drops the cached info entry for the displaced glyph', () => {
     // 4×4 = 16 slots; insert 16 distinct glyphs, then the 17th evicts.
     for (let i = 0; i < 16; i++) host.ensure('noto', 65 + i)
-    const firstBefore = host.ensure('noto', 65)  // cache hit, ref A
-    host.ensure('noto', 65 + 16)  // forces eviction of LRU slot
+    const firstBefore = host.ensure('noto', 65) // cache hit, ref A
+    host.ensure('noto', 65 + 16) // forces eviction of LRU slot
     // After eviction, re-ensuring codepoint 65 (assuming it was the
     // evicted one — LRU policy) MUST re-rasterise + rebuild info.
     // We don't assert which slot got evicted; we just verify that

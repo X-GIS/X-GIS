@@ -21,7 +21,10 @@ interface XgisMap {
   camera?: { zoom: number; pitch?: number }
 }
 declare global {
-  interface Window { __xgisMap?: XgisMap; __xgisReady?: boolean }
+  interface Window {
+    __xgisMap?: XgisMap
+    __xgisReady?: boolean
+  }
 }
 
 test.describe('Desktop baseline z=10 Seoul', () => {
@@ -30,20 +33,23 @@ test.describe('Desktop baseline z=10 Seoul', () => {
   test('zoom 10.25 / pitch 0 / 1500×907: triangles + visible distribution', async ({ page }) => {
     test.setTimeout(60_000)
 
-    await page.goto(
-      `/demo.html?id=pmtiles_layered#10.25/37.60144/126.93894/0/0`,
-      { waitUntil: 'domcontentloaded' },
-    )
+    await page.goto(`/demo.html?id=pmtiles_layered#10.25/37.60144/126.93894/0/0`, {
+      waitUntil: 'domcontentloaded',
+    })
     await page.waitForFunction(() => window.__xgisReady === true, null, { timeout: 30_000 })
-    await page.waitForFunction(() => {
-      const map = window.__xgisMap
-      if (!map?.vtSources) return false
-      let v = 0
-      for (const { renderer } of map.vtSources.values()) {
-        v += renderer.getDrawStats?.().tilesVisible ?? 0
-      }
-      return v > 0
-    }, null, { timeout: 60_000 })
+    await page.waitForFunction(
+      () => {
+        const map = window.__xgisMap
+        if (!map?.vtSources) return false
+        let v = 0
+        for (const { renderer } of map.vtSources.values()) {
+          v += renderer.getDrawStats?.().tilesVisible ?? 0
+        }
+        return v > 0
+      },
+      null,
+      { timeout: 60_000 },
+    )
     await page.waitForTimeout(5000)
 
     const result = await page.evaluate(() => {

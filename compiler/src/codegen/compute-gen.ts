@@ -51,10 +51,33 @@
 
 import { resolveColorToRgba } from '../tokens/colors'
 import {
-  fn, module, storageBuffer, resource, builtin,
-  If, Return, Var, Let, vec4, mix, pack4x8unorm, matchExpr, toI32,
-  constExpr, constRef, arrayLit, arrayT,
-  f32T, u32T, vec3uT, vec4uT, vec4fT, type Node, type ReadonlyNode, type ConstDecl, type ModuleDecl,
+  fn,
+  module,
+  storageBuffer,
+  resource,
+  builtin,
+  If,
+  Return,
+  Var,
+  Let,
+  vec4,
+  mix,
+  pack4x8unorm,
+  matchExpr,
+  toI32,
+  constExpr,
+  constRef,
+  arrayLit,
+  arrayT,
+  f32T,
+  u32T,
+  vec3uT,
+  vec4uT,
+  vec4fT,
+  type Node,
+  type ReadonlyNode,
+  type ConstDecl,
+  type ModuleDecl,
 } from '@xgis/shader-dsl'
 
 /** Workgroup size used by every emitted kernel. 64 is the WebGPU
@@ -87,8 +110,7 @@ const MATCH_LUT_THRESHOLD = 16
  *  threshold between runs to compare GPU timing on the same scene. */
 function readMatchLutThresholdOverride(): number | undefined {
   if (typeof globalThis === 'undefined') return undefined
-  const v = (globalThis as { __XGIS_MATCH_LUT_THRESHOLD?: number })
-    .__XGIS_MATCH_LUT_THRESHOLD
+  const v = (globalThis as { __XGIS_MATCH_LUT_THRESHOLD?: number }).__XGIS_MATCH_LUT_THRESHOLD
   return typeof v === 'number' && v >= 1 ? v : undefined
 }
 
@@ -176,8 +198,8 @@ export function emitMatchComputeKernel(spec: MatchEmitSpec): ComputeKernel {
   // string→ID assignment lines up across fragment + compute paths.
   // Two kernels emitted from the same arm set produce IDENTICAL
   // category IDs; the per-feature buffer fills exactly once.
-  const sortedPatterns = [...spec.arms.map(a => a.pattern)].sort()
-  const armByPattern = new Map(spec.arms.map(a => [a.pattern, a]))
+  const sortedPatterns = [...spec.arms.map((a) => a.pattern)].sort()
+  const armByPattern = new Map(spec.arms.map((a) => [a.pattern, a]))
 
   const rgba = (hex: string): Node<'vec4<f32>'> => {
     const [r, g, b, a] = colorHexToRGBA(hex)
@@ -193,24 +215,28 @@ export function emitMatchComputeKernel(spec: MatchEmitSpec): ComputeKernel {
   // inherits cse / const-fold / dce + the std430 layout — no hand-assembled WGSL.
   const useLut = sortedPatterns.length >= (readMatchLutThresholdOverride() ?? MATCH_LUT_THRESHOLD)
   const mod = useLut
-    ? buildComputeKernelModule('eval_match', (fid, featData) => {
-        // O(1) LUT branch — select on the RAW signed id (i32, NO max-clamp): an id
-        // in [0, N) indexes `LUT[id]`; the packer's `-1` unknown/sentinel (and any
-        // id >= N) falls to default. A `u32(max(v, 0))` clamp would alias -1 -> 0 ->
-        // arm 0's colour (issue #632, diverging from the switch path), so the
-        // selector AND the range-check are signed — mirroring the sub-threshold
-        // switch path's raw `i32(v)`. `Let` pins the feat_data read below the
-        // fid-bounds guard so out-of-range threads never index it.
-        const lutType = arrayT(vec4fT, sortedPatterns.length)
-        const iv = Let(toI32(featData.at(fid))) // single field → stride 1 → offset 0
-        const color = Var(vec4fT)
-        If(iv.ge(0).and(iv.lt(sortedPatterns.length)), () => {
-          color.assign(constRef('LUT', lutType).at(iv, vec4fT))
-        }).else(() => {
-          color.assign(rgba(spec.defaultColorHex))
-        })
-        return color
-      }, [buildMatchLutConst(sortedPatterns, armByPattern)])
+    ? buildComputeKernelModule(
+        'eval_match',
+        (fid, featData) => {
+          // O(1) LUT branch — select on the RAW signed id (i32, NO max-clamp): an id
+          // in [0, N) indexes `LUT[id]`; the packer's `-1` unknown/sentinel (and any
+          // id >= N) falls to default. A `u32(max(v, 0))` clamp would alias -1 -> 0 ->
+          // arm 0's colour (issue #632, diverging from the switch path), so the
+          // selector AND the range-check are signed — mirroring the sub-threshold
+          // switch path's raw `i32(v)`. `Let` pins the feat_data read below the
+          // fid-bounds guard so out-of-range threads never index it.
+          const lutType = arrayT(vec4fT, sortedPatterns.length)
+          const iv = Let(toI32(featData.at(fid))) // single field → stride 1 → offset 0
+          const color = Var(vec4fT)
+          If(iv.ge(0).and(iv.lt(sortedPatterns.length)), () => {
+            color.assign(constRef('LUT', lutType).at(iv, vec4fT))
+          }).else(() => {
+            color.assign(rgba(spec.defaultColorHex))
+          })
+          return color
+        },
+        [buildMatchLutConst(sortedPatterns, armByPattern)],
+      )
     : buildComputeKernelModule('eval_match', (fid, featData) => {
         const dflt = rgba(spec.defaultColorHex)
         // No arms → just the default colour (an empty match has no switch).
@@ -251,7 +277,7 @@ function buildMatchLutConst(
   sortedPatterns: string[],
   armByPattern: Map<string, MatchArmSpec>,
 ): ConstDecl {
-  const elems = sortedPatterns.map(pat => {
+  const elems = sortedPatterns.map((pat) => {
     const [r, g, b, a] = colorHexToRGBA(armByPattern.get(pat)!.colorHex)
     return vec4(r, g, b, a)
   })
@@ -269,7 +295,12 @@ export type ComputeCmpOp = '<' | '>' | '<=' | '>=' | '==' | '!='
  *  instead of being spliced in as opaque text. Every `field` named here MUST
  *  appear in `TernaryEmitSpec.fields` (the kernel loads those from `feat_data`). */
 export type ComputePredicate =
-  | { readonly kind: 'cmp'; readonly field: string; readonly op: ComputeCmpOp; readonly value: number }
+  | {
+      readonly kind: 'cmp'
+      readonly field: string
+      readonly op: ComputeCmpOp
+      readonly value: number
+    }
   | { readonly kind: 'and'; readonly left: ComputePredicate; readonly right: ComputePredicate }
 
 /** One branch of a `case`-style ternary chain: a structured `pred` and the
@@ -322,12 +353,18 @@ export function emitTernaryComputeKernel(spec: TernaryEmitSpec): ComputeKernel {
         throw new Error(`compute-gen: predicate references field "${p.field}" not in spec.fields`)
       }
       switch (p.op) {
-        case '<': return fieldNode.lt(p.value)
-        case '>': return fieldNode.gt(p.value)
-        case '<=': return fieldNode.le(p.value)
-        case '>=': return fieldNode.ge(p.value)
-        case '==': return fieldNode.eq(p.value)
-        case '!=': return fieldNode.ne(p.value)
+        case '<':
+          return fieldNode.lt(p.value)
+        case '>':
+          return fieldNode.gt(p.value)
+        case '<=':
+          return fieldNode.le(p.value)
+        case '>=':
+          return fieldNode.ge(p.value)
+        case '==':
+          return fieldNode.eq(p.value)
+        case '!=':
+          return fieldNode.ne(p.value)
       }
     }
     // case() semantics: branches preserve input order, first match wins, the
@@ -337,12 +374,18 @@ export function emitTernaryComputeKernel(spec: TernaryEmitSpec): ComputeKernel {
     if (spec.branches.length === 0) {
       color.assign(rgba(spec.defaultColorHex))
     } else {
-      let chain = If(predToNode(spec.branches[0]!.pred), () => { color.assign(rgba(spec.branches[0]!.colorHex)) })
+      let chain = If(predToNode(spec.branches[0]!.pred), () => {
+        color.assign(rgba(spec.branches[0]!.colorHex))
+      })
       for (let i = 1; i < spec.branches.length; i++) {
         const br = spec.branches[i]!
-        chain = chain.elif(predToNode(br.pred), () => { color.assign(rgba(br.colorHex)) })
+        chain = chain.elif(predToNode(br.pred), () => {
+          color.assign(rgba(br.colorHex))
+        })
       }
-      chain.else(() => { color.assign(rgba(spec.defaultColorHex)) })
+      chain.else(() => {
+        color.assign(rgba(spec.defaultColorHex))
+      })
     }
     return color
   })
@@ -407,19 +450,33 @@ export interface InterpolateEmitSpec {
 function buildComputeKernelModule(
   entryName: string,
   // feat_data is a READ buffer — the view hands out ReadonlyNode (#763 G2).
-  buildColor: (fid: Node<'u32'>, featData: { at(i: ReadonlyNode<'u32'>): ReadonlyNode<'f32'> }) => Node<'vec4<f32>'>,
+  buildColor: (
+    fid: Node<'u32'>,
+    featData: { at(i: ReadonlyNode<'u32'>): ReadonlyNode<'f32'> },
+  ) => Node<'vec4<f32>'>,
   consts: ConstDecl[] = [],
 ): ModuleDecl {
   const featData = storageBuffer('feat_data', f32T, { group: 0, binding: 0, access: 'read' })
   const outColor = storageBuffer('out_color', u32T, { group: 0, binding: 1, access: 'read_write' })
   const uCount = resource('u_count', vec4uT, { group: 0, binding: 2 }) // vec4<u32> — 16-byte UBO min
-  const kernel = fn(entryName, { gid: builtin('global_invocation_id', vec3uT) }, ({ gid }) => {
-    const fid = gid.x
-    If(fid.ge(uCount.node.x), () => { Return() })
-    const color = buildColor(fid, featData)
-    outColor.at(fid).assign(pack4x8unorm(color))
-  }, { stage: 'compute', workgroupSize: COMPUTE_WORKGROUP_SIZE })
-  return module({ consts, bindings: [featData.binding, outColor.binding, uCount.binding], funcs: [kernel] })
+  const kernel = fn(
+    entryName,
+    { gid: builtin('global_invocation_id', vec3uT) },
+    ({ gid }) => {
+      const fid = gid.x
+      If(fid.ge(uCount.node.x), () => {
+        Return()
+      })
+      const color = buildColor(fid, featData)
+      outColor.at(fid).assign(pack4x8unorm(color))
+    },
+    { stage: 'compute', workgroupSize: COMPUTE_WORKGROUP_SIZE },
+  )
+  return module({
+    consts,
+    bindings: [featData.binding, outColor.binding, uCount.binding],
+    funcs: [kernel],
+  })
 }
 
 export function emitInterpolateComputeKernel(spec: InterpolateEmitSpec): ComputeKernel {
@@ -436,19 +493,26 @@ export function emitInterpolateComputeKernel(spec: InterpolateEmitSpec): Compute
       color.assign(rgba(spec.stops[0]!.colorHex))
     } else {
       // first range: v <= s0 → c0 (clamp left)
-      let chain = If(v.le(spec.stops[0]!.input), () => { color.assign(rgba(spec.stops[0]!.colorHex)) })
+      let chain = If(v.le(spec.stops[0]!.input), () => {
+        color.assign(rgba(spec.stops[0]!.colorHex))
+      })
       // middle ranges: s[i-1] < v <= s[i] → mix(c[i-1], c[i], (v − s[i-1]) / (s[i] − s[i-1]))
       for (let i = 1; i < spec.stops.length; i++) {
-        const prev = spec.stops[i - 1]!, curr = spec.stops[i]!
+        const prev = spec.stops[i - 1]!,
+          curr = spec.stops[i]!
         const denom = curr.input - prev.input
         const safeDenom = denom === 0 ? 1 : denom // guard collide (caller bug); ordering makes prev<curr hold
         chain = chain.elif(v.le(curr.input), () => {
-          color.assign(mix(rgba(prev.colorHex), rgba(curr.colorHex), v.sub(prev.input).div(safeDenom)))
+          color.assign(
+            mix(rgba(prev.colorHex), rgba(curr.colorHex), v.sub(prev.input).div(safeDenom)),
+          )
         })
       }
       // trailing range: v > sN → cN (clamp right)
       const last = spec.stops[spec.stops.length - 1]!
-      chain.else(() => { color.assign(rgba(last.colorHex)) })
+      chain.else(() => {
+        color.assign(rgba(last.colorHex))
+      })
     }
     return color
   })

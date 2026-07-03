@@ -17,24 +17,20 @@ describe('rgb/rgba per-channel literal-wrap unwrap', () => {
 
   it('wrapped ["rgb", ["literal", 255], ["literal", 0], ["literal", 0]] also resolves', () => {
     const w: string[] = []
-    expect(colorToXgis(
-      ['rgb', ['literal', 255], ['literal', 0], ['literal', 0]],
-      w,
-    )).toBe('#ff0000')
+    expect(colorToXgis(['rgb', ['literal', 255], ['literal', 0], ['literal', 0]], w)).toBe(
+      '#ff0000',
+    )
   })
 
   it('mixed bare + wrapped channels resolve', () => {
     const w: string[] = []
-    expect(colorToXgis(
-      ['rgb', 255, ['literal', 128], 0],
-      w,
-    )).toBe('#ff8000')
+    expect(colorToXgis(['rgb', 255, ['literal', 128], 0], w)).toBe('#ff8000')
   })
 
   it('bare ["rgba", 255, 0, 0, 0.5] resolves', () => {
     const w: string[] = []
     const out = colorToXgis(['rgba', 255, 0, 0, 0.5], w)
-    expect(out).toMatch(/^#ff0000[78]0$/i)  // alpha 0.5 → 0x80 or 0x7f depending on rounding
+    expect(out).toMatch(/^#ff0000[78]0$/i) // alpha 0.5 → 0x80 or 0x7f depending on rounding
   })
 
   it('exprToXgis path: nested ["rgb", ["literal", 255], …] inside case also hex-encodes', () => {

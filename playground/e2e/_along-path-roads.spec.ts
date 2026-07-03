@@ -24,7 +24,9 @@ test('label-along-path renders road names from VT linestrings', async ({ page })
   await page.setViewportSize({ width: 1280, height: 800 })
 
   const errors: string[] = []
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(m.text())
+  })
   page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`))
 
   // Florence Duomo at z=15 — `roads` source-layer is dense here.
@@ -33,7 +35,8 @@ test('label-along-path renders road names from VT linestrings', async ({ page })
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   await page.waitForTimeout(4_000)
 
@@ -42,14 +45,13 @@ test('label-along-path renders road names from VT linestrings', async ({ page })
 
   const stats = await page.evaluate(async () => {
     const canvas = document.getElementById('map') as HTMLCanvasElement
-    const blob = await new Promise<Blob | null>((res) =>
-      canvas.toBlob((b) => res(b), 'image/png'),
-    )
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob((b) => res(b), 'image/png'))
     if (!blob) return { error: 'no blob' }
     const url = URL.createObjectURL(blob)
     const img = await new Promise<HTMLImageElement>((res, rej) => {
       const i = new Image()
-      i.onload = () => res(i); i.onerror = () => rej(new Error('decode'))
+      i.onload = () => res(i)
+      i.onerror = () => rej(new Error('decode'))
       i.src = url
     })
     const off = new OffscreenCanvas(img.width, img.height)
@@ -70,14 +72,13 @@ test('label-along-path renders road names from VT linestrings', async ({ page })
   // Stone-300 roads (RGB ~214) never reach >=250 — only white
   // label fills do. Florence at z=15 has dozens of named roads,
   // so we expect significant white pixel coverage.
-  expect(stats.pureWhite,
-    `expected white text pixels (got ${stats.pureWhite})`,
-  ).toBeGreaterThan(50)
+  expect(stats.pureWhite, `expected white text pixels (got ${stats.pureWhite})`).toBeGreaterThan(50)
 
-  const compileErrors = errors.filter(e =>
-    e.includes('Unexpected character') ||
-    e.includes('Expected utility name') ||
-    e.includes('parse error'),
+  const compileErrors = errors.filter(
+    (e) =>
+      e.includes('Unexpected character') ||
+      e.includes('Expected utility name') ||
+      e.includes('parse error'),
   )
   expect(compileErrors, 'no compile errors').toEqual([])
 })

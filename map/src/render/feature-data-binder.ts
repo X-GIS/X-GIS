@@ -35,7 +35,9 @@ import { polygonUniformSlots } from './polygon-uniform-slots'
 // lazily from reflect(buildPolygonModule()) — the SAME IR the shader is emitted
 // from — so a struct change reflows the bind size automatically. NOT a hand
 // constant: hand constants silently diverge when the DSL struct grows.
-function uniformSize(): number { return polygonUniformSlots().slots * 4 }
+function uniformSize(): number {
+  return polygonUniformSlots().slots * 4
+}
 
 /** Palette / sprite atlas resources passed per-call into the per-tile
  *  rebuild + carried at `buildPerTileFeatureData` time. These live on VTR
@@ -146,9 +148,7 @@ export class FeatureDataBinder {
    *  latestRenderNodeIndex while latestVariant still pointed at a
    *  prior compute show — variant.computeBindings.length=1 + plan
    *  filter at non-matching idx = 0 → ComputeLayerHandle throw). */
-  setComputePlan(
-    plan: readonly import('@xgis/compiler').ComputePlanEntry[] | undefined,
-  ): void {
+  setComputePlan(plan: readonly import('@xgis/compiler').ComputePlanEntry[] | undefined): void {
     this.latestComputePlan = plan
   }
 
@@ -188,8 +188,14 @@ export class FeatureDataBinder {
     ringBuf: GPUBuffer | null | undefined,
     palette: PaletteResources,
   ): void {
-    if (!ringBuf || !this._featureBindGroupLayout
-      || !palette.paletteColorAtlasView || !palette.paletteSampler || !palette.spriteAtlasView) return
+    if (
+      !ringBuf ||
+      !this._featureBindGroupLayout ||
+      !palette.paletteColorAtlasView ||
+      !palette.paletteSampler ||
+      !palette.spriteAtlasView
+    )
+      return
     for (const [sourceLayer, layerCache] of gpuCache) {
       for (const [tileKey, tile] of layerCache) {
         if (!tile.featureBindGroup || !tile.featureDataBuffer) continue
@@ -232,7 +238,8 @@ export class FeatureDataBinder {
     // tiles with featureProps had no schema to pack and rendered as
     // missing fills (OFM Bright landuse `class` match).
     this.latestVariantFields = variant.featureFields
-    this.latestVariantCategoryOrder = (variant.categoryOrder as Record<string, readonly string[]>) ?? {}
+    this.latestVariantCategoryOrder =
+      (variant.categoryOrder as Record<string, readonly string[]>) ?? {}
     this._featureBindGroupLayout = featureBindGroupLayout
     // Capture variant + renderNodeIndex ATOMICALLY when the show's
     // paint routes through the P4 compute path. Per-tile handle
@@ -435,7 +442,8 @@ export class FeatureDataBinder {
     // (added in P3 Step 3c). When the renderer hasn't pushed palette
     // resources yet, return null buffer so the caller falls back to
     // a non-feature pipeline rather than producing an invalid group.
-    if (!palette.paletteColorAtlasView || !palette.paletteSampler || !palette.spriteAtlasView) return null
+    if (!palette.paletteColorAtlasView || !palette.paletteSampler || !palette.spriteAtlasView)
+      return null
 
     // P4 compute path: when the captured variant carries
     // computeBindings, build (or refresh) a per-tile
@@ -444,11 +452,13 @@ export class FeatureDataBinder {
     // computeBindings) shows skip this entirely — the bind group
     // stays at the legacy 4-entry shape.
     let extraComputeEntries: { binding: number; resource: { buffer: GPUBuffer } }[] = []
-    if (this.latestVariant
-      && (this.latestVariant.computeBindings?.length ?? 0) > 0
-      && this.latestComputePlan
-      && this.latestRenderNodeIndex !== undefined
-      && handleKey) {
+    if (
+      this.latestVariant &&
+      (this.latestVariant.computeBindings?.length ?? 0) > 0 &&
+      this.latestComputePlan &&
+      this.latestRenderNodeIndex !== undefined &&
+      handleKey
+    ) {
       // Lazy-init the dispatcher on first compute attach.
       if (!this.computeDispatcher) {
         this.computeDispatcher = new ComputeDispatcher({ device: this.device } as never)
@@ -470,10 +480,7 @@ export class FeatureDataBinder {
       let maxFid = -1
       for (const fid of featureProps.keys()) if (fid > maxFid) maxFid = fid
       const featureCount = maxFid + 1
-      handle!.uploadFromProps(
-        (fid: number) => featureProps.get(fid) ?? null,
-        featureCount,
-      )
+      handle!.uploadFromProps((fid: number) => featureProps.get(fid) ?? null, featureCount)
       // Append the handle's bind-group entries (compute output
       // storage buffer at binding 16 by default).
       const compEntries = handle!.getBindGroupEntries()

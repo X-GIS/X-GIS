@@ -16,10 +16,10 @@ const PRECISION = 1e6 // default: 6 decimal places ≈ ~0.1m accuracy
  *  projected up-front (industry-standard pipeline — matches Mapbox
  *  GL / MapLibre / Tippecanoe). */
 export function precisionForZoomMM(zoom: number): number {
-  if (zoom <= 2) return 0.01  // ~100m
-  if (zoom <= 5) return 0.1   // ~10m
-  if (zoom <= 7) return 1     // ~1m
-  return 10                    // ~0.1m
+  if (zoom <= 2) return 0.01 // ~100m
+  if (zoom <= 5) return 0.1 // ~10m
+  if (zoom <= 7) return 1 // ~1m
+  return 10 // ~0.1m
 }
 
 // ═══ Varint ═══
@@ -165,6 +165,6 @@ export function decodeIndices(buf: Uint8Array): Uint32Array {
 // ═══ Ring Data: Polygon structure + coordinates ═══
 
 export interface RingPolygon {
-  rings: number[][][]  // [[x,y], ...] per ring (outer + holes)
+  rings: number[][][] // [[x,y], ...] per ring (outer + holes)
   featId: number
 }

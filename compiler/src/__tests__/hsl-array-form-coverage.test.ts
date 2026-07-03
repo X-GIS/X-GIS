@@ -26,10 +26,9 @@ describe('hsl / hsla array-form colour tuples', () => {
   it('v8 wrapped channels in hsl still resolve', () => {
     // Mirror of the rgb per-channel unwrap.
     const w: string[] = []
-    expect(colorToXgis(
-      ['hsl', ['literal', 0], ['literal', 100], ['literal', 50]],
-      w,
-    )).toBe('#ff0000')
+    expect(colorToXgis(['hsl', ['literal', 0], ['literal', 100], ['literal', 50]], w)).toBe(
+      '#ff0000',
+    )
   })
 
   it('v8 wrapped channels in hsla still resolve', () => {

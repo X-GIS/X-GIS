@@ -12,27 +12,60 @@ import type { ExprHandler } from './expr-handler-types'
 import { convertInterpolate } from './expr-interpolate'
 import { convertMatch } from './expr-match'
 import {
-  comparisonHandler, addMulHandler, subtractHandler, divModHandler,
-  minMaxHandler, powHandler, unaryMathHandler, mathConstantHandler,
+  comparisonHandler,
+  addMulHandler,
+  subtractHandler,
+  divModHandler,
+  minMaxHandler,
+  powHandler,
+  unaryMathHandler,
+  mathConstantHandler,
 } from './expr-arithmetic'
 import {
-  coalesceHandler, caseHandler, allHandler, anyHandler, notHandler, noneHandler,
+  coalesceHandler,
+  caseHandler,
+  allHandler,
+  anyHandler,
+  notHandler,
+  noneHandler,
 } from './expr-logic'
 import {
-  getHandler, hasHandler, notHasHandler, atHandler, typeofHandler,
-  zoomHandler, pitchHandler, propertiesHandler, geometryTypeHandler, idHandler, inHandler,
-  isSupportedScriptHandler, withinHandler, resolvedLocaleHandler, distanceHandler,
+  getHandler,
+  hasHandler,
+  notHasHandler,
+  atHandler,
+  typeofHandler,
+  zoomHandler,
+  pitchHandler,
+  propertiesHandler,
+  geometryTypeHandler,
+  idHandler,
+  inHandler,
+  isSupportedScriptHandler,
+  withinHandler,
+  resolvedLocaleHandler,
+  distanceHandler,
 } from './expr-lookup'
 import {
-  literalHandler, arrayHandler, typeCoercionHandler, concatHandler,
-  formatHandler, stepHandler, letHandler, varHandler, sliceHandler,
-  indexOfHandler, numberFormatHandler, rgbHandler,
+  literalHandler,
+  arrayHandler,
+  typeCoercionHandler,
+  concatHandler,
+  formatHandler,
+  stepHandler,
+  letHandler,
+  varHandler,
+  sliceHandler,
+  indexOfHandler,
+  numberFormatHandler,
+  rgbHandler,
 } from './expr-string'
 
 // `match` / `interpolate` already live in their own modules with a
 // `(v, warnings, recurse)` signature; adapt them to ExprHandler.
 const matchHandler: ExprHandler = (v, warnings, recurse) => convertMatch(v, warnings, recurse)
-const interpolateHandler: ExprHandler = (v, warnings, recurse) => convertInterpolate(v, warnings, recurse)
+const interpolateHandler: ExprHandler = (v, warnings, recurse) =>
+  convertInterpolate(v, warnings, recurse)
 
 /** op string → handler. Insertion order is irrelevant (Map lookup),
  *  but kept grouped by cluster for readability. */

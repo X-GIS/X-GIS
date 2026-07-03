@@ -24,15 +24,13 @@ function buildLayer(matchArgs: unknown[]): MapboxLayer {
 
 describe('expandPerFeatureColorMatch — v8 literal-wrap on keys', () => {
   it('bare keys-array splits into one sublayer per colour', () => {
-    const expanded = expandPerFeatureColorMatch(buildLayer([
-      ['ocean', 'sea'], '#001',
-      ['lake', 'pond'], '#0a0',
-      '#888',
-    ]))
+    const expanded = expandPerFeatureColorMatch(
+      buildLayer([['ocean', 'sea'], '#001', ['lake', 'pond'], '#0a0', '#888']),
+    )
     expect(expanded).not.toBeNull()
-    expect(expanded!.length).toBe(3)  // 2 colour buckets + default
+    expect(expanded!.length).toBe(3) // 2 colour buckets + default
     // First sublayer carries the ocean/sea filter.
-    const filters = expanded!.map(l => l.filter)
+    const filters = expanded!.map((l) => l.filter)
     expect(JSON.stringify(filters[0])).toContain('"ocean"')
     expect(JSON.stringify(filters[0])).toContain('"sea"')
   })
@@ -41,14 +39,18 @@ describe('expandPerFeatureColorMatch — v8 literal-wrap on keys', () => {
     // Pre-fix the wrap defeated typeof check and the whole expand
     // returned null; the layer rendered the FIRST colour for every
     // feature instead of per-class palette.
-    const expanded = expandPerFeatureColorMatch(buildLayer([
-      ['literal', ['ocean', 'sea']], '#001',
-      ['literal', ['lake', 'pond']], '#0a0',
-      '#888',
-    ]))
+    const expanded = expandPerFeatureColorMatch(
+      buildLayer([
+        ['literal', ['ocean', 'sea']],
+        '#001',
+        ['literal', ['lake', 'pond']],
+        '#0a0',
+        '#888',
+      ]),
+    )
     expect(expanded).not.toBeNull()
     expect(expanded!.length).toBe(3)
-    const filters = expanded!.map(l => l.filter)
+    const filters = expanded!.map((l) => l.filter)
     expect(JSON.stringify(filters[0])).toContain('"ocean"')
     expect(JSON.stringify(filters[0])).toContain('"sea"')
     expect(JSON.stringify(filters[1])).toContain('"lake"')
@@ -69,21 +71,17 @@ describe('expandPerFeatureColorMatch — v8 literal-wrap on keys', () => {
     // Pre-fix the per-arm out's typeof string check failed on the
     // wrap and the whole expand bailed → layer fell to lower.ts's
     // pick-first-stop fallback (one colour for every feature).
-    const expanded = expandPerFeatureColorMatch(buildLayer([
-      'ocean', ['literal', '#001'],
-      'lake', ['literal', '#0a0'],
-      ['literal', '#888'],
-    ]))
+    const expanded = expandPerFeatureColorMatch(
+      buildLayer(['ocean', ['literal', '#001'], 'lake', ['literal', '#0a0'], ['literal', '#888']]),
+    )
     expect(expanded).not.toBeNull()
     expect(expanded!.length).toBe(3)
   })
 
   it('mixed bare + wrapped keys both unwrap correctly', () => {
-    const expanded = expandPerFeatureColorMatch(buildLayer([
-      'ocean', '#001',
-      ['literal', ['lake', 'pond']], '#0a0',
-      '#888',
-    ]))
+    const expanded = expandPerFeatureColorMatch(
+      buildLayer(['ocean', '#001', ['literal', ['lake', 'pond']], '#0a0', '#888']),
+    )
     expect(expanded).not.toBeNull()
     expect(expanded!.length).toBe(3)
   })

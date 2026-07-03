@@ -18,8 +18,7 @@ import { stripCurveLineExtraScripts } from '@xgis/map'
 
 describe('stripCurveLineExtraScripts', () => {
   it('strips text from the first LF onwards', () => {
-    expect(stripCurveLineExtraScripts('Pureundeul pan-ro\n푸른들판로'))
-      .toBe('Pureundeul pan-ro')
+    expect(stripCurveLineExtraScripts('Pureundeul pan-ro\n푸른들판로')).toBe('Pureundeul pan-ro')
   })
 
   it('mono-script text passes through unchanged', () => {

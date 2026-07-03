@@ -17,9 +17,16 @@ import type { TileData } from '@xgis/data'
 beforeAll(() => {
   if (typeof (globalThis as Record<string, unknown>).GPUBufferUsage === 'undefined') {
     ;(globalThis as Record<string, unknown>).GPUBufferUsage = {
-      MAP_READ: 0x0001, MAP_WRITE: 0x0002, COPY_SRC: 0x0004, COPY_DST: 0x0008,
-      INDEX: 0x0010, VERTEX: 0x0020, UNIFORM: 0x0040, STORAGE: 0x0080,
-      INDIRECT: 0x0100, QUERY_RESOLVE: 0x0200,
+      MAP_READ: 0x0001,
+      MAP_WRITE: 0x0002,
+      COPY_SRC: 0x0004,
+      COPY_DST: 0x0008,
+      INDEX: 0x0010,
+      VERTEX: 0x0020,
+      UNIFORM: 0x0040,
+      STORAGE: 0x0080,
+      INDIRECT: 0x0100,
+      QUERY_RESOLVE: 0x0200,
     }
   }
 })
@@ -35,7 +42,11 @@ function polyOnlyTileData(): TileData {
     lineVertices: new Float32Array(0),
     lineIndices: new Uint32Array(0),
     outlineIndices: new Uint32Array(0),
-    tileWest: 0, tileSouth: 0, tileWidth: 1, tileHeight: 1, tileZoom: 14,
+    tileWest: 0,
+    tileSouth: 0,
+    tileWidth: 1,
+    tileHeight: 1,
+    tileZoom: 14,
   }
 }
 
@@ -47,11 +58,17 @@ describe('UploadCoordinator — Lane-B OOM recovery (sync path)', () => {
     let oom = true
     const vArena = {
       buffer: { id: 'v' } as unknown as GPUBuffer,
-      alloc: (_b: number) => { if (oom) throw new Error('arena OOM'); return 0 },
+      alloc: (_b: number) => {
+        if (oom) throw new Error('arena OOM')
+        return 0
+      },
       free: vi.fn(),
     }
     const iArena = { buffer: { id: 'i' } as unknown as GPUBuffer, alloc: () => 0, free: vi.fn() }
-    const evict = vi.fn((_a: unknown, _b: number) => { oom = false; return true })
+    const evict = vi.fn((_a: unknown, _b: number) => {
+      oom = false
+      return true
+    })
     const store = {
       getLayer: () => undefined,
       getOrCreateLayer: () => layerCache,
@@ -59,7 +76,7 @@ describe('UploadCoordinator — Lane-B OOM recovery (sync path)', () => {
       polyIndexArenaOrCreate: () => iArena,
       polyVertexArenaOrNull: () => vArena,
       polyIndexArenaOrNull: () => iArena,
-      acquireBuffer: () => ({} as GPUBuffer),
+      acquireBuffer: () => ({}) as GPUBuffer,
       releaseBuffer: () => {},
       incrementCount: vi.fn(),
       nextUploadEpoch: () => 7,
@@ -81,7 +98,9 @@ describe('UploadCoordinator — Lane-B OOM recovery (sync path)', () => {
     const layerCache = new Map<number, unknown>()
     const vArena = {
       buffer: {} as GPUBuffer,
-      alloc: (_b: number) => { throw new Error('arena OOM') },  // always fails
+      alloc: (_b: number) => {
+        throw new Error('arena OOM')
+      }, // always fails
       free: vi.fn(),
     }
     const iArena = { buffer: {} as GPUBuffer, alloc: () => 0, free: vi.fn() }
@@ -92,20 +111,20 @@ describe('UploadCoordinator — Lane-B OOM recovery (sync path)', () => {
       polyIndexArenaOrCreate: () => iArena,
       polyVertexArenaOrNull: () => vArena,
       polyIndexArenaOrNull: () => iArena,
-      acquireBuffer: () => ({} as GPUBuffer),
+      acquireBuffer: () => ({}) as GPUBuffer,
       releaseBuffer: () => {},
       incrementCount: vi.fn(),
       nextUploadEpoch: () => 1,
-      forceEvictBytes: () => false,  // frees nothing → retry still fails
+      forceEvictBytes: () => false, // frees nothing → retry still fails
     } as unknown as UploadStore
 
     const markWarned = vi.fn()
     const coord = new UploadCoordinator(makeHost(store, { markWarned }))
     expect(() => coord.uploadSync(99, polyOnlyTileData(), '')).not.toThrow()
 
-    expect(layerCache.has(99)).toBe(false)        // un-cached → retried next frame
-    expect(markWarned).toHaveBeenCalled()          // warn-once fired
-    expect(vArena.free).not.toHaveBeenCalled()     // no slot claimed → nothing to free
+    expect(layerCache.has(99)).toBe(false) // un-cached → retried next frame
+    expect(markWarned).toHaveBeenCalled() // warn-once fired
+    expect(vArena.free).not.toHaveBeenCalled() // no slot claimed → nothing to free
     expect(iArena.free).not.toHaveBeenCalled()
   })
 })
@@ -115,12 +134,17 @@ describe('UploadCoordinator — queue surface', () => {
     const queue = {
       size: () => 3,
       activeCount: () => 2,
-      get running() { return true },
+      get running() {
+        return true
+      },
     } as unknown as PriorityQueue<string, void>
-    const coord = new UploadCoordinator(makeHost({ getLayer: () => undefined } as unknown as UploadStore), queue)
+    const coord = new UploadCoordinator(
+      makeHost({ getLayer: () => undefined } as unknown as UploadStore),
+      queue,
+    )
 
     expect(coord.queueSize()).toBe(3)
-    expect(coord.pendingCount()).toBe(5)     // 3 queued + 2 active
+    expect(coord.pendingCount()).toBe(5) // 3 queued + 2 active
     expect(coord.hasPending()).toBe(true)
     expect(coord.isActive()).toBe(true)
 
@@ -142,7 +166,7 @@ describe('UploadCoordinator — async dispatch end-to-end (staging write strateg
       polyIndexArenaOrCreate: () => iArena,
       polyVertexArenaOrNull: () => vArena,
       polyIndexArenaOrNull: () => iArena,
-      acquireBuffer: () => ({} as GPUBuffer),
+      acquireBuffer: () => ({}) as GPUBuffer,
       releaseBuffer: () => {},
       incrementCount: vi.fn(),
       nextUploadEpoch: () => 5,
@@ -165,7 +189,7 @@ describe('UploadCoordinator — async dispatch end-to-end (staging write strateg
     coord.enqueue(7, polyOnlyTileData(), '')
 
     // Let the queue's microtask dispatch + the async dispatch settle.
-    await new Promise(r => setTimeout(r, 0))
+    await new Promise((r) => setTimeout(r, 0))
     await Promise.resolve()
 
     expect(layerCache.has(7)).toBe(true)
@@ -176,8 +200,8 @@ describe('UploadCoordinator — async dispatch end-to-end (staging write strateg
 // ── host builder ──
 function makeHost(store: UploadStore, over: Partial<UploadHost> = {}): UploadHost {
   return {
-    device: ({ queue: { writeBuffer: () => {} } } as unknown as GPUDevice),
-    stagingPool: ({} as unknown as StagingBufferPool),
+    device: { queue: { writeBuffer: () => {} } } as unknown as GPUDevice,
+    stagingPool: {} as unknown as StagingBufferPool,
     store,
     lineRenderer: () => null,
     buildPerTileFeatureData: () => null,

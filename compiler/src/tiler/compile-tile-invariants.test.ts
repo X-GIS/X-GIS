@@ -17,9 +17,7 @@
 // → tessellate → DSFUN-pack pipeline.
 
 import { describe, it, expect } from 'vitest'
-import {
-  decomposeFeatures, compileSingleTile, tileKey, tileKeyUnpack,
-} from './vector-tiler'
+import { decomposeFeatures, compileSingleTile, tileKey, tileKeyUnpack } from './vector-tiler'
 import type { GeoJSONFeature } from './geojson-types'
 
 // Polygon vertex stride — PR 2c.2 swapped Mercator-DSFUN stride-5
@@ -33,11 +31,13 @@ const QUANT_POLY_STRIDE_FLOATS = 7
 const DSFUN_LINE_STRIDE = 10
 
 const poly = (coords: number[][][]): GeoJSONFeature => ({
-  type: 'Feature', properties: {},
+  type: 'Feature',
+  properties: {},
   geometry: { type: 'Polygon', coordinates: coords },
 })
 const line = (coords: number[][]): GeoJSONFeature => ({
-  type: 'Feature', properties: {},
+  type: 'Feature',
+  properties: {},
   geometry: { type: 'LineString', coordinates: coords },
 })
 
@@ -92,30 +92,58 @@ function compileAt(feature: GeoJSONFeature, z: number, x: number, y: number) {
 
 describe('iter-313 compileSingleTile render-buffer invariants', () => {
   it('z=0 full-world rectangle — finite + in-bounds + non-empty', () => {
-    const world = poly([[[-179, -85], [179, -85], [179, 85], [-179, 85], [-179, -85]]])
+    const world = poly([
+      [
+        [-179, -85],
+        [179, -85],
+        [179, 85],
+        [-179, 85],
+        [-179, -85],
+      ],
+    ])
     const t = compileAt(world, 0, 0, 0)
     expect(t).not.toBe(null)
     assertRenderInvariants(t!, 'world-z0')
-    expect(t!.indices.length).toBeGreaterThan(0)  // has fill
+    expect(t!.indices.length).toBeGreaterThan(0) // has fill
   })
 
   it('antimeridian-spanning polygon at z=0 does not produce NaN', () => {
     // Ring crosses ±180. The MM projection + clip must not emit NaN.
-    const cross = poly([[[170, -10], [-170, -10], [-170, 10], [170, 10], [170, -10]]])
+    const cross = poly([
+      [
+        [170, -10],
+        [-170, -10],
+        [-170, 10],
+        [170, 10],
+        [170, -10],
+      ],
+    ])
     const t = compileAt(cross, 0, 0, 0)
     if (t) assertRenderInvariants(t, 'antimeridian-z0')
   })
 
   it('polygon with a hole — outer + hole both finite, fill present', () => {
     const withHole = poly([
-      [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]],          // outer
-      [[3, 3], [3, 7], [7, 7], [7, 3], [3, 3]],              // hole (CW)
+      [
+        [0, 0],
+        [10, 0],
+        [10, 10],
+        [0, 10],
+        [0, 0],
+      ], // outer
+      [
+        [3, 3],
+        [3, 7],
+        [7, 7],
+        [7, 3],
+        [3, 3],
+      ], // hole (CW)
     ])
     // z=5 tile near (lon 5, lat 5).
     const z = 5
     const n = 1 << z
-    const x = Math.floor((5 + 180) / 360 * n)
-    const ylat = 5 * Math.PI / 180
+    const x = Math.floor(((5 + 180) / 360) * n)
+    const ylat = (5 * Math.PI) / 180
     const yf = (1 - Math.log(Math.tan(ylat) + 1 / Math.cos(ylat)) / Math.PI) / 2
     const y = Math.floor(yf * n)
     const t = compileAt(withHole, z, x, y)
@@ -126,37 +154,71 @@ describe('iter-313 compileSingleTile render-buffer invariants', () => {
   })
 
   it('near-degenerate sliver polygon (1e-7° wide) does not crash or NaN', () => {
-    const sliver = poly([[[0, 0], [1e-7, 0], [1e-7, 10], [0, 10], [0, 0]]])
+    const sliver = poly([
+      [
+        [0, 0],
+        [1e-7, 0],
+        [1e-7, 10],
+        [0, 10],
+        [0, 0],
+      ],
+    ])
     const t = compileAt(sliver, 0, 0, 0)
     if (t) assertRenderInvariants(t, 'sliver-z0')
   })
 
   it('self-intersecting bowtie polygon — finite output (no NaN from earcut)', () => {
-    const bowtie = poly([[[0, 0], [10, 10], [10, 0], [0, 10], [0, 0]]])
+    const bowtie = poly([
+      [
+        [0, 0],
+        [10, 10],
+        [10, 0],
+        [0, 10],
+        [0, 0],
+      ],
+    ])
     const t = compileAt(bowtie, 0, 0, 0)
     if (t) assertRenderInvariants(t, 'bowtie-z0')
   })
 
   it('polygon at extreme north (lat 84.9, near Mercator limit) finite', () => {
-    const arctic = poly([[[0, 84], [5, 84], [5, 84.9], [0, 84.9], [0, 0]]])
+    const arctic = poly([
+      [
+        [0, 84],
+        [5, 84],
+        [5, 84.9],
+        [0, 84.9],
+        [0, 0],
+      ],
+    ])
     const t = compileAt(arctic, 2, 2, 0)
     if (t) assertRenderInvariants(t, 'arctic-z2')
   })
 
   it('line crossing tile boundary — finite line vertices + in-bounds seg indices', () => {
-    const l = line([[-10, 0], [10, 0]])
+    const l = line([
+      [-10, 0],
+      [10, 0],
+    ])
     const t = compileAt(l, 0, 0, 0)
     if (t) assertRenderInvariants(t, 'line-z0')
   })
 
   it('zero-length line segment (identical points) no NaN', () => {
-    const l = line([[5, 5], [5, 5]])
+    const l = line([
+      [5, 5],
+      [5, 5],
+    ])
     const t = compileAt(l, 0, 0, 0)
     if (t) assertRenderInvariants(t, 'zero-line-z0')
   })
 
   it('collinear line (3 points on a line) finite', () => {
-    const l = line([[0, 0], [5, 5], [10, 10]])
+    const l = line([
+      [0, 0],
+      [5, 5],
+      [10, 10],
+    ])
     const t = compileAt(l, 0, 0, 0)
     if (t) assertRenderInvariants(t, 'collinear-line-z0')
   })
@@ -176,9 +238,18 @@ describe('iter-313 compileSingleTile render-buffer invariants', () => {
 
   it('polygon fully outside tile → null or empty (no spurious geometry)', () => {
     // Polygon near lon 100, compiled against tile at lon -100.
-    const far = poly([[[100, 50], [101, 50], [101, 51], [100, 51], [100, 50]]])
-    const z = 3, n = 1 << z
-    const x = Math.floor((-100 + 180) / 360 * n)
+    const far = poly([
+      [
+        [100, 50],
+        [101, 50],
+        [101, 51],
+        [100, 51],
+        [100, 50],
+      ],
+    ])
+    const z = 3,
+      n = 1 << z
+    const x = Math.floor(((-100 + 180) / 360) * n)
     const t = compileAt(far, z, x, 2)
     // Either null (rejected) or empty fill — never NaN, never
     // out-of-bounds.
@@ -187,13 +258,19 @@ describe('iter-313 compileSingleTile render-buffer invariants', () => {
 
   it('multiple deep tiles (z=14) over a city-scale polygon stay finite', () => {
     // Seoul-ish small polygon at z=14.
-    const block = poly([[
-      [126.977, 37.566], [126.978, 37.566],
-      [126.978, 37.567], [126.977, 37.567], [126.977, 37.566],
-    ]])
-    const z = 14, n = 1 << z
-    const x = Math.floor((126.9775 + 180) / 360 * n)
-    const latR = 37.5665 * Math.PI / 180
+    const block = poly([
+      [
+        [126.977, 37.566],
+        [126.978, 37.566],
+        [126.978, 37.567],
+        [126.977, 37.567],
+        [126.977, 37.566],
+      ],
+    ])
+    const z = 14,
+      n = 1 << z
+    const x = Math.floor(((126.9775 + 180) / 360) * n)
+    const latR = (37.5665 * Math.PI) / 180
     const yf = (1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2
     const y = Math.floor(yf * n)
     const t = compileAt(block, z, x, y)

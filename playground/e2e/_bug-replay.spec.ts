@@ -16,12 +16,15 @@ interface Snapshot {
   camera: { lon: number; lat: number; zoom: number; bearing: number; pitch: number }
   viewport: { width: number; height: number; cssWidth: number; cssHeight: number; dpr: number }
   pageViewport: { width: number; height: number }
-  sources: Record<string, {
-    gpuCacheCount: number
-    pendingFetch: number
-    pendingUpload: number
-    tiles: Array<{ z: number; x: number; y: number }>
-  }>
+  sources: Record<
+    string,
+    {
+      gpuCacheCount: number
+      pendingFetch: number
+      pendingUpload: number
+      tiles: Array<{ z: number; x: number; y: number }>
+    }
+  >
 }
 
 test('replay user-reported bug snapshot', async ({ browser }) => {
@@ -34,9 +37,13 @@ test('replay user-reported bug snapshot', async ({ browser }) => {
   const snap = JSON.parse(fs.readFileSync(snapPath, 'utf-8')) as Snapshot
 
   // eslint-disable-next-line no-console
-  console.log(`[bug-replay] camera lon=${snap.camera.lon.toFixed(4)} lat=${snap.camera.lat.toFixed(4)} z=${snap.camera.zoom.toFixed(2)} pitch=${snap.camera.pitch.toFixed(1)}° bearing=${snap.camera.bearing.toFixed(0)}°`)
+  console.log(
+    `[bug-replay] camera lon=${snap.camera.lon.toFixed(4)} lat=${snap.camera.lat.toFixed(4)} z=${snap.camera.zoom.toFixed(2)} pitch=${snap.camera.pitch.toFixed(1)}° bearing=${snap.camera.bearing.toFixed(0)}°`,
+  )
   // eslint-disable-next-line no-console
-  console.log(`[bug-replay] viewport ${snap.viewport.cssWidth}×${snap.viewport.cssHeight} dpr=${snap.viewport.dpr}`)
+  console.log(
+    `[bug-replay] viewport ${snap.viewport.cssWidth}×${snap.viewport.cssHeight} dpr=${snap.viewport.dpr}`,
+  )
 
   const ctx = await browser.newContext({
     viewport: { width: snap.pageViewport.width, height: snap.pageViewport.height },
@@ -51,7 +58,11 @@ test('replay user-reported bug snapshot', async ({ browser }) => {
   const localUrl = `/demo.html${search}${hash}`
 
   page.on('console', (msg) => {
-    if (msg.type() === 'error' || msg.text().includes('WebGPU') || msg.text().includes('validation')) {
+    if (
+      msg.type() === 'error' ||
+      msg.text().includes('WebGPU') ||
+      msg.text().includes('validation')
+    ) {
       // eslint-disable-next-line no-console
       console.log(`[browser ${msg.type()}] ${msg.text().slice(0, 500)}`)
     }
@@ -64,7 +75,8 @@ test('replay user-reported bug snapshot', async ({ browser }) => {
   await page.goto(localUrl, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
 
   // Capture state at MULTIPLE moments to see the bug evolve:
@@ -80,7 +92,7 @@ test('replay user-reported bug snapshot', async ({ browser }) => {
   await page.locator('#map').screenshot({ path: 'test-results/bug-replay-fully-settled.png' })
 
   // Capture a settled snapshot for comparison.
-  const live = await page.evaluate(async () => {
+  const live = (await page.evaluate(async () => {
     const w = window as unknown as {
       __xgisStartDrawOrderTrace?: () => void
       __xgisMap?: { invalidate?: () => void }
@@ -90,13 +102,20 @@ test('replay user-reported bug snapshot', async ({ browser }) => {
     w.__xgisMap?.invalidate?.()
     await new Promise<void>((res) => setTimeout(res, 100))
     return w.__xgisSnapshot ? await w.__xgisSnapshot() : null
-  }) as { renderOrder: Array<{ slice: string; tileKey?: number }>; sources: Record<string, { gpuCacheCount: number }> } | null
+  })) as {
+    renderOrder: Array<{ slice: string; tileKey?: number }>
+    sources: Record<string, { gpuCacheCount: number }>
+  } | null
 
   if (live) {
-    const buildingDraws = live.renderOrder.filter(e => e.slice === 'buildings')
-    const uniqueBuildingTiles = new Set(buildingDraws.map(e => e.tileKey).filter(k => k !== undefined))
+    const buildingDraws = live.renderOrder.filter((e) => e.slice === 'buildings')
+    const uniqueBuildingTiles = new Set(
+      buildingDraws.map((e) => e.tileKey).filter((k) => k !== undefined),
+    )
     // eslint-disable-next-line no-console
-    console.log(`[bug-replay settled] gpuCache=${live.sources.pm_world?.gpuCacheCount}, building draws=${buildingDraws.length}, unique tiles=${uniqueBuildingTiles.size}`)
+    console.log(
+      `[bug-replay settled] gpuCache=${live.sources.pm_world?.gpuCacheCount}, building draws=${buildingDraws.length}, unique tiles=${uniqueBuildingTiles.size}`,
+    )
 
     // Z-distribution of building draws — should be all z=15 in the
     // settled state; any z<15 means fallbacks are still active.
@@ -108,7 +127,10 @@ test('replay user-reported bug snapshot', async ({ browser }) => {
       while (4 ** (z + 1) <= tk) z++
       byZ.set(z, (byZ.get(z) ?? 0) + 1)
     }
-    const zStr = [...byZ.entries()].sort((a, b) => a[0] - b[0]).map(([z, n]) => `z=${z}:${n}`).join(' ')
+    const zStr = [...byZ.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([z, n]) => `z=${z}:${n}`)
+      .join(' ')
     // eslint-disable-next-line no-console
     console.log(`[bug-replay settled] building draws by z-level: ${zStr}`)
   }

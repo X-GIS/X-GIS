@@ -12,8 +12,9 @@ test.describe('GPU adapter capability dump', () => {
 
     const info = await page.evaluate(async () => {
       if (!navigator.gpu) return { error: 'no navigator.gpu' }
-      const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })
-        ?? await navigator.gpu.requestAdapter()
+      const adapter =
+        (await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })) ??
+        (await navigator.gpu.requestAdapter())
       if (!adapter) return { error: 'no adapter' }
       const features: string[] = []
       for (const f of adapter.features) features.push(f)

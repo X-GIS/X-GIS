@@ -21,14 +21,7 @@ describe('["format", …] expression lowering', () => {
     // The typical Mapbox idiom for primary + fallback name:
     //   ["format", ["get", "name:en"], {}, " — ", {}, ["get", "name"], {}]
     const w: string[] = []
-    const out = exprToXgis(
-      ['format',
-        ['get', 'name_en'], {},
-        ' — ', {},
-        ['get', 'name'], {},
-      ],
-      w,
-    )
+    const out = exprToXgis(['format', ['get', 'name_en'], {}, ' — ', {}, ['get', 'name'], {}], w)
     expect(out).toBe('concat(.name_en, " — ", .name)')
     expect(w).toEqual([])
   })
@@ -37,10 +30,7 @@ describe('["format", …] expression lowering', () => {
     // Rich-text shape: span-level overrides dropped.
     const w: string[] = []
     const out = exprToXgis(
-      ['format',
-        'Big', { 'font-scale': 1.4, 'text-color': '#f00' },
-        'small', {},
-      ],
+      ['format', 'Big', { 'font-scale': 1.4, 'text-color': '#f00' }, 'small', {}],
       w,
     )
     expect(out).toBe('concat("Big", "small")')

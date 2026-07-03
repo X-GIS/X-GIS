@@ -17,27 +17,27 @@ describe('format() partial-drop', () => {
   it('all sections succeed → concat of all texts, no warning', () => {
     const warnings: string[] = []
     const result = exprToXgis(
-      ['format',
-        ['get', 'name'], {},
-        ' (', {},
-        ['to-string', ['get', 'pop']], {},
-        ')', {},
-      ],
+      ['format', ['get', 'name'], {}, ' (', {}, ['to-string', ['get', 'pop']], {}, ')', {}],
       warnings,
     )
     expect(result).not.toBeNull()
     expect(result).toContain('concat')
-    expect(warnings.some(w => w.includes('failed to convert'))).toBe(false)
+    expect(warnings.some((w) => w.includes('failed to convert'))).toBe(false)
   })
 
   it('one section fails → surviving sections concat with partial-drop warning', () => {
     const warnings: string[] = []
     const result = exprToXgis(
-      ['format',
-        ['get', 'name'], {},
-        ' ', {},
-        ['image', 'icon'], {}, // unsupported — silently drops pre-fix, now warns + skipped
-        ' fallback', {},
+      [
+        'format',
+        ['get', 'name'],
+        {},
+        ' ',
+        {},
+        ['image', 'icon'],
+        {}, // unsupported — silently drops pre-fix, now warns + skipped
+        ' fallback',
+        {},
       ],
       warnings,
     )
@@ -46,29 +46,22 @@ describe('format() partial-drop', () => {
     expect(result).toContain('.name')
     expect(result).toContain('fallback')
     // Warning surfaces WHICH section dropped
-    const w = warnings.find(w => w.includes('["format"] section') && w.includes('dropped from concat'))
+    const w = warnings.find(
+      (w) => w.includes('["format"] section') && w.includes('dropped from concat'),
+    )
     expect(w).toBeDefined()
   })
 
   it('ALL sections fail → returns null with "all sections failed" warning', () => {
     const warnings: string[] = []
-    const result = exprToXgis(
-      ['format',
-        ['image', 'a'], {},
-        ['image', 'b'], {},
-      ],
-      warnings,
-    )
+    const result = exprToXgis(['format', ['image', 'a'], {}, ['image', 'b'], {}], warnings)
     expect(result).toBeNull()
-    expect(warnings.some(w => w.includes('all') && w.includes('sections failed'))).toBe(true)
+    expect(warnings.some((w) => w.includes('all') && w.includes('sections failed'))).toBe(true)
   })
 
   it('single-section format with surviving text returns the bare text (no concat wrap)', () => {
     const warnings: string[] = []
-    const result = exprToXgis(
-      ['format', ['get', 'name'], {}],
-      warnings,
-    )
+    const result = exprToXgis(['format', ['get', 'name'], {}], warnings)
     expect(result).not.toBeNull()
     // Single section → just .name (no concat() wrap per existing convention)
     expect(result).toBe('.name')

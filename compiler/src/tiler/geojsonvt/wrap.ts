@@ -4,14 +4,9 @@
 
 import { clip } from './clip'
 import { createFeature } from './feature'
-import type {
-  FlatLine, GeoJSONVTOptions, ProjectedFeature,
-} from './types'
+import type { FlatLine, GeoJSONVTOptions, ProjectedFeature } from './types'
 
-export function wrap(
-  features: ProjectedFeature[],
-  options: GeoJSONVTOptions,
-): ProjectedFeature[] {
+export function wrap(features: ProjectedFeature[], options: GeoJSONVTOptions): ProjectedFeature[] {
   const buffer = options.buffer / options.extent
   let merged: ProjectedFeature[] = features
   const left = clip(features, 1, -1 - buffer, buffer, 0, -1, 2)
@@ -26,10 +21,7 @@ export function wrap(
   return merged
 }
 
-function shiftFeatureCoords(
-  features: ProjectedFeature[],
-  offset: number,
-): ProjectedFeature[] {
+function shiftFeatureCoords(features: ProjectedFeature[], offset: number): ProjectedFeature[] {
   const newFeatures: ProjectedFeature[] = []
 
   for (const feature of features) {

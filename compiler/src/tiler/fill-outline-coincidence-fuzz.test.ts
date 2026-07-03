@@ -51,7 +51,10 @@ function ecefToLonLatRad(x: number, y: number, z: number): [number, number] {
     N = A / Math.sqrt(1 - E2 * sinLat * sinLat)
     height = p / Math.cos(lat) - N
     const newLat = Math.atan2(z, p * (1 - (E2 * N) / (N + height)))
-    if (Math.abs(newLat - lat) < 1e-12) { lat = newLat; break }
+    if (Math.abs(newLat - lat) < 1e-12) {
+      lat = newLat
+      break
+    }
     lat = newLat
   }
   return [lon, lat]
@@ -63,12 +66,13 @@ function ecefToLonLatRad(x: number, y: number, z: number): [number, number] {
 // figure — i.e. using the equatorial value is marginally lenient. Immaterial
 // here: the measured split is 0.000 px against a 0.25 px gate (3+ orders).
 const Z_RENDER = 19.4
-const M_PER_PX = 156543.03392 / Math.pow(2, Z_RENDER)  // ≈ 0.226 m/px
+const M_PER_PX = 156543.03392 / Math.pow(2, Z_RENDER) // ≈ 0.226 m/px
 
 describe('H2 step-1 — fill ↔ outline encoding coincidence (CPU cross-path)', () => {
   it('Seoul building corner @ parent z14: fill-decode and outline-decode land on the same lon/lat (sub-pixel @ z19.4)', () => {
     // The exact view under investigation: #19.40/37.48381/126.99179.
-    const lonDeg = 126.99179, latDeg = 37.48381
+    const lonDeg = 126.99179,
+      latDeg = 37.48381
     const latRad = latDeg * DEG2RAD
     const [mx, my] = lonLatToMercF64(lonDeg, latDeg)
 
@@ -84,7 +88,9 @@ describe('H2 step-1 — fill ↔ outline encoding coincidence (CPU cross-path)',
     const qf = packECEFPolygonVertices([mx, my, 0], tileEcefCenter)
     const [ax, ay, az] = dequantVertexF32(qf, 0)
     const [fLon, fLat] = ecefToLonLatRad(
-      ax + tileEcefCenter[0], ay + tileEcefCenter[1], az + tileEcefCenter[2],
+      ax + tileEcefCenter[0],
+      ay + tileEcefCenter[1],
+      az + tileEcefCenter[2],
     )
 
     // OUTLINE path: pack → reconstruct tile-local metres (hi+lo) → + tile
@@ -93,8 +99,8 @@ describe('H2 step-1 — fill ↔ outline encoding coincidence (CPU cross-path)',
     // stride-8 input shape (the line kernel's IN_STRIDE; trailing tin/tout
     // slots zeroed) so count===1 and no undefined slot is read.
     const po = packDSFUNLineVertices([mx, my, 0, 0, 0, 0, 0, 0], tileMx, tileMy)
-    const oMx = tileMx + po[0]! + po[2]!   // mx_h + mx_l + origin
-    const oMy = tileMy + po[1]! + po[3]!   // my_h + my_l + origin
+    const oMx = tileMx + po[0]! + po[2]! // mx_h + mx_l + origin
+    const oMy = tileMy + po[1]! + po[3]! // my_h + my_l + origin
     const [oLon, oLat] = mercatorToLonLatRad(oMx, oMy)
 
     // Separation between the two decoded positions, in metres on the ground.
@@ -103,7 +109,9 @@ describe('H2 step-1 — fill ↔ outline encoding coincidence (CPU cross-path)',
     const splitM = Math.hypot(dEastM, dNorthM)
     const splitPx = splitM / M_PER_PX
 
-    console.log(`[H2 step-1] fill↔outline decoded split: ${splitM.toExponential(3)} m = ${splitPx.toFixed(3)} px @ z${Z_RENDER}`)
+    console.log(
+      `[H2 step-1] fill↔outline decoded split: ${splitM.toExponential(3)} m = ${splitPx.toFixed(3)} px @ z${Z_RENDER}`,
+    )
 
     // The DATA must agree to well under a pixel at the render zoom. If this
     // fires, the encoding kernels themselves drift fill off outline (the

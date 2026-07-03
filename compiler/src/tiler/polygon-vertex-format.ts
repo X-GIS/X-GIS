@@ -20,7 +20,15 @@
 
 import { buildFormat, type VertexFormat } from './vertex-format'
 
-export { field, type VbFormat, type WgslType, type VertexField, type ResolvedField, type VertexFormat, VB_FORMAT_BYTES } from './vertex-format'
+export {
+  field,
+  type VbFormat,
+  type WgslType,
+  type VertexField,
+  type ResolvedField,
+  type VertexFormat,
+  VB_FORMAT_BYTES,
+} from './vertex-format'
 
 // ── The polygon fill format (consumed by vs_main_ecef) ───────────────────────
 // bytes  0..11  uint16×6 quantized ECEF-RTC position (q_xy @0, q_z @8)

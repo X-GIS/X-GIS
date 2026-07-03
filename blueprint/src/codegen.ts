@@ -42,7 +42,12 @@ function pipeLines(raw: string | undefined): string[] {
   if (!raw) return []
   return raw
     .split('\n')
-    .map((l) => l.trim().replace(/^\|\s*/, '').trim())
+    .map((l) =>
+      l
+        .trim()
+        .replace(/^\|\s*/, '')
+        .trim(),
+    )
     .filter((l) => l.length > 0)
 }
 

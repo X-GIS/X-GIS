@@ -61,7 +61,12 @@ function patchGlobalFetch(): { calls: () => number; restore: () => void } {
     calls += 1
     return new Response('', { status: 200 })
   }) as unknown as typeof globalThis.fetch
-  return { calls: () => calls, restore: () => { globalThis.fetch = original } }
+  return {
+    calls: () => calls,
+    restore: () => {
+      globalThis.fetch = original
+    },
+  }
 }
 
 describe('SSRF guard — sprite atlas', () => {
@@ -75,7 +80,10 @@ describe('SSRF guard — sprite atlas', () => {
 
   it('still loads a public sprite URL (guard does not over-block)', () => {
     const spy = spyFetch()
-    const host = new SpriteAtlasHost({ spriteUrl: 'https://example.com/sprites/foo', fetch: spy.fn })
+    const host = new SpriteAtlasHost({
+      spriteUrl: 'https://example.com/sprites/foo',
+      fetch: spy.fn,
+    })
     // Public URL passes the guard → a fetch is attempted.
     expect(spy.calls()).toBeGreaterThan(0)
     expect(host.getState().status).not.toBe('failed')
@@ -88,7 +96,7 @@ describe('SSRF guard — sprite atlas', () => {
     expect(host.getState().status).toBe('failed')
     // The first-hop public URL was fetched, but the redirect target —
     // re-validated by safeFetch — was refused before reaching the network.
-    expect(r.urls.some(u => u.includes('169.254.169.254'))).toBe(false)
+    expect(r.urls.some((u) => u.includes('169.254.169.254'))).toBe(false)
   })
 })
 
@@ -100,7 +108,9 @@ describe('SSRF guard — glyph cache', () => {
       fetch: spy.fn,
     })
     let ready = false
-    cache.ensure('Open Sans', 65, () => { ready = true })
+    cache.ensure('Open Sans', 65, () => {
+      ready = true
+    })
     expect(spy.calls()).toBe(0)
     expect(ready).toBe(false)
     expect(cache.get('Open Sans', 65)).toBeUndefined()
@@ -123,7 +133,9 @@ describe('SSRF guard — glyph cache', () => {
       fetch: r.fn,
     })
     let ready = false
-    cache.ensure('Open Sans', 65, () => { ready = true })
+    cache.ensure('Open Sans', 65, () => {
+      ready = true
+    })
     // safeFetch rejects on the re-validated redirect → range degrades to the
     // silent 'failed' fallback. The rejection threads through an async fetch
     // + .then/.catch chain, so let the microtask queue drain until the range
@@ -134,7 +146,7 @@ describe('SSRF guard — glyph cache', () => {
     expect(ready).toBe(false)
     expect(cache.get('Open Sans', 65)).toBeUndefined()
     expect(cache.isResolved('Open Sans', 65)).toBe(true)
-    expect(r.urls.some(u => u.includes('127.0.0.1'))).toBe(false)
+    expect(r.urls.some((u) => u.includes('127.0.0.1'))).toBe(false)
   })
 })
 

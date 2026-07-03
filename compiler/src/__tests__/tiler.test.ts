@@ -1,11 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import {
-  encodeCoords, decodeCoords,
-  encodeIndices, decodeIndices,
-  zigzagEncode, zigzagDecode,
+  encodeCoords,
+  decodeCoords,
+  encodeIndices,
+  decodeIndices,
+  zigzagEncode,
+  zigzagDecode,
 } from '../tiler/encoding'
 import { simplify, toleranceForZoom } from '../tiler/simplify'
-import { compileGeoJSONToTiles, tileKey, tileKeyUnpack, tileKeyParent, tileKeyChildren, mortonEncode, mortonDecode } from '../tiler/vector-tiler'
+import {
+  compileGeoJSONToTiles,
+  tileKey,
+  tileKeyUnpack,
+  tileKeyParent,
+  tileKeyChildren,
+  mortonEncode,
+  mortonDecode,
+} from '../tiler/vector-tiler'
 import { clipPolygonToRect, clipLineToRect } from '../tiler/clip'
 import type { GeoJSONFeatureCollection } from '../tiler/geojson-types'
 
@@ -59,7 +70,11 @@ describe('Index Encoding', () => {
 describe('Douglas-Peucker Simplification', () => {
   it('simplifies a line', () => {
     const ring = [
-      [0, 0], [1, 0.1], [2, 0], [3, 0.05], [4, 0],
+      [0, 0],
+      [1, 0.1],
+      [2, 0],
+      [3, 0.05],
+      [4, 0],
     ]
     const simplified = simplify(ring, 0.2)
     expect(simplified.length).toBeLessThan(ring.length)
@@ -68,14 +83,29 @@ describe('Douglas-Peucker Simplification', () => {
   })
 
   it('preserves shape within tolerance', () => {
-    const ring = [[0, 0], [1, 1], [2, 0]]
+    const ring = [
+      [0, 0],
+      [1, 1],
+      [2, 0],
+    ]
     // With very low tolerance, should keep all points
     const simplified = simplify(ring, 0.001)
     expect(simplified.length).toBe(3)
   })
 
   it('returns input for short arrays', () => {
-    expect(simplify([[0, 0], [1, 1]], 1)).toEqual([[0, 0], [1, 1]])
+    expect(
+      simplify(
+        [
+          [0, 0],
+          [1, 1],
+        ],
+        1,
+      ),
+    ).toEqual([
+      [0, 0],
+      [1, 1],
+    ])
     expect(simplify([[0, 0]], 1)).toEqual([[0, 0]])
   })
 
@@ -123,8 +153,12 @@ describe('Tile Key (Morton + Sentinel)', () => {
 
   it('round-trips various zoom levels', () => {
     const cases: [number, number, number][] = [
-      [0, 0, 0], [1, 0, 0], [1, 1, 1],
-      [4, 12, 7], [8, 200, 150], [10, 512, 341],
+      [0, 0, 0],
+      [1, 0, 0],
+      [1, 1, 1],
+      [4, 12, 7],
+      [8, 200, 150],
+      [10, 512, 341],
       [14, 8000, 6000],
     ]
     for (const [z, x, y] of cases) {
@@ -141,11 +175,11 @@ describe('Tile Key (Morton + Sentinel)', () => {
     const parent = tileKeyParent(child)
     const [pz, px, py] = tileKeyUnpack(parent)
     expect(pz).toBe(2)
-    expect(px).toBe(Math.floor(5 / 2))  // 2
-    expect(py).toBe(Math.floor(2 / 2))  // 1
+    expect(px).toBe(Math.floor(5 / 2)) // 2
+    expect(py).toBe(Math.floor(2 / 2)) // 1
   })
 
-  it('children of a key contain the key\'s area', () => {
+  it("children of a key contain the key's area", () => {
     const parent = tileKey(2, 1, 1)
     const children = tileKeyChildren(parent)
     expect(children.length).toBe(4)
@@ -158,8 +192,8 @@ describe('Tile Key (Morton + Sentinel)', () => {
   it('unique keys for all tiles at a zoom level', () => {
     const z = 3
     const keys = new Set<number>()
-    for (let x = 0; x < (1 << z); x++) {
-      for (let y = 0; y < (1 << z); y++) {
+    for (let x = 0; x < 1 << z; x++) {
+      for (let y = 0; y < 1 << z; y++) {
         keys.add(tileKey(z, x, y))
       }
     }
@@ -170,21 +204,45 @@ describe('Tile Key (Morton + Sentinel)', () => {
 describe('Geometry Clipping', () => {
   describe('polygon clipping', () => {
     it('keeps polygon fully inside rect', () => {
-      const rings = [[[2, 2], [8, 2], [8, 8], [2, 8], [2, 2]]]
+      const rings = [
+        [
+          [2, 2],
+          [8, 2],
+          [8, 8],
+          [2, 8],
+          [2, 2],
+        ],
+      ]
       const clipped = clipPolygonToRect(rings, 0, 0, 10, 10)
       expect(clipped).toHaveLength(1)
       expect(clipped[0]).toHaveLength(5)
     })
 
     it('returns empty for polygon fully outside rect', () => {
-      const rings = [[[20, 20], [30, 20], [30, 30], [20, 30], [20, 20]]]
+      const rings = [
+        [
+          [20, 20],
+          [30, 20],
+          [30, 30],
+          [20, 30],
+          [20, 20],
+        ],
+      ]
       const clipped = clipPolygonToRect(rings, 0, 0, 10, 10)
       expect(clipped).toHaveLength(0)
     })
 
     it('clips polygon crossing one edge', () => {
       // Square from -5 to 5, clipped to x >= 0
-      const rings = [[[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, -5]]]
+      const rings = [
+        [
+          [-5, -5],
+          [5, -5],
+          [5, 5],
+          [-5, 5],
+          [-5, -5],
+        ],
+      ]
       const clipped = clipPolygonToRect(rings, 0, -10, 10, 10)
       expect(clipped).toHaveLength(1)
       // All vertices should have lon >= 0
@@ -195,7 +253,15 @@ describe('Geometry Clipping', () => {
 
     it('clips polygon crossing corner', () => {
       // Square from -5 to 5, clipped to [0,0,10,10]
-      const rings = [[[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, -5]]]
+      const rings = [
+        [
+          [-5, -5],
+          [5, -5],
+          [5, 5],
+          [-5, 5],
+          [-5, -5],
+        ],
+      ]
       const clipped = clipPolygonToRect(rings, 0, 0, 10, 10)
       expect(clipped).toHaveLength(1)
       for (const pt of clipped[0]) {
@@ -205,8 +271,20 @@ describe('Geometry Clipping', () => {
     })
 
     it('handles polygon with hole', () => {
-      const outer = [[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]
-      const hole = [[5, 5], [15, 5], [15, 15], [5, 15], [5, 5]]
+      const outer = [
+        [0, 0],
+        [20, 0],
+        [20, 20],
+        [0, 20],
+        [0, 0],
+      ]
+      const hole = [
+        [5, 5],
+        [15, 5],
+        [15, 15],
+        [5, 15],
+        [5, 5],
+      ]
       const clipped = clipPolygonToRect([outer, hole], 0, 0, 10, 10)
       expect(clipped.length).toBeGreaterThanOrEqual(1)
       // Outer ring clipped
@@ -216,20 +294,30 @@ describe('Geometry Clipping', () => {
 
   describe('line clipping', () => {
     it('keeps line fully inside rect', () => {
-      const coords = [[2, 2], [5, 5], [8, 3]]
+      const coords = [
+        [2, 2],
+        [5, 5],
+        [8, 3],
+      ]
       const segments = clipLineToRect(coords, 0, 0, 10, 10)
       expect(segments).toHaveLength(1)
       expect(segments[0]).toHaveLength(3)
     })
 
     it('returns empty for line fully outside rect', () => {
-      const coords = [[20, 20], [30, 30]]
+      const coords = [
+        [20, 20],
+        [30, 30],
+      ]
       const segments = clipLineToRect(coords, 0, 0, 10, 10)
       expect(segments).toHaveLength(0)
     })
 
     it('clips line crossing rect boundary', () => {
-      const coords = [[-5, 5], [15, 5]]
+      const coords = [
+        [-5, 5],
+        [15, 5],
+      ]
       const segments = clipLineToRect(coords, 0, 0, 10, 10)
       expect(segments).toHaveLength(1)
       // Clipped to [0,5] - [10,5]
@@ -239,7 +327,12 @@ describe('Geometry Clipping', () => {
 
     it('splits line into multiple segments', () => {
       // Line goes in, out, in
-      const coords = [[2, 5], [12, 5], [12, 2], [5, 2]]
+      const coords = [
+        [2, 5],
+        [12, 5],
+        [12, 2],
+        [5, 2],
+      ]
       const segments = clipLineToRect(coords, 0, 0, 10, 10)
       expect(segments.length).toBeGreaterThanOrEqual(1)
     })
@@ -254,7 +347,15 @@ describe('Vector Tiler', () => {
         type: 'Feature',
         geometry: {
           type: 'Polygon',
-          coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]],
+          coordinates: [
+            [
+              [0, 0],
+              [10, 0],
+              [10, 10],
+              [0, 10],
+              [0, 0],
+            ],
+          ],
         },
         properties: { name: 'square' },
       },
@@ -262,7 +363,15 @@ describe('Vector Tiler', () => {
         type: 'Feature',
         geometry: {
           type: 'Polygon',
-          coordinates: [[[20, 20], [30, 20], [30, 30], [20, 30], [20, 20]]],
+          coordinates: [
+            [
+              [20, 20],
+              [30, 20],
+              [30, 30],
+              [20, 30],
+              [20, 20],
+            ],
+          ],
         },
         properties: { name: 'square2' },
       },
@@ -282,7 +391,7 @@ describe('Vector Tiler', () => {
     const tileSet = compileGeoJSONToTiles(simpleGeoJSON, { minZoom: 0, maxZoom: 3 })
 
     // At zoom 0, there should be 1 tile (covers whole world)
-    const level0 = tileSet.levels.find(l => l.zoom === 0)
+    const level0 = tileSet.levels.find((l) => l.zoom === 0)
     expect(level0).toBeDefined()
     expect(level0!.tiles.size).toBe(1) // both features in one tile
 
@@ -329,17 +438,21 @@ describe('Vector Tiler', () => {
     // A detailed polygon
     const detailed: GeoJSONFeatureCollection = {
       type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: {
-          type: 'Polygon',
-          coordinates: [Array.from({ length: 50 }, (_, i) => {
-            const a = (i / 50) * Math.PI * 2
-            return [10 + Math.cos(a) * 5, 10 + Math.sin(a) * 5]
-          })],
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'Polygon',
+            coordinates: [
+              Array.from({ length: 50 }, (_, i) => {
+                const a = (i / 50) * Math.PI * 2
+                return [10 + Math.cos(a) * 5, 10 + Math.sin(a) * 5]
+              }),
+            ],
+          },
+          properties: {},
         },
-        properties: {},
-      }],
+      ],
     }
 
     const tileSet = compileGeoJSONToTiles(detailed, { minZoom: 0, maxZoom: 8 })

@@ -12,11 +12,7 @@ import {
   stereographic,
 } from '@xgis/engine'
 import type { Projection } from '@xgis/engine'
-import {
-  compileGeoJSONToTiles,
-  tileKey,
-  simplify as xgisSimplify,
-} from '@xgis/compiler'
+import { compileGeoJSONToTiles, tileKey, simplify as xgisSimplify } from '@xgis/compiler'
 import type { GeoJSONFeatureCollection } from '@xgis/compiler'
 
 // Cross-validation tests: compare our CPU math against reference values
@@ -35,37 +31,74 @@ import type { GeoJSONFeatureCollection } from '@xgis/compiler'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const FIXTURE_PATH = resolve(__dirname, './cross-validation.fixture.json')
 
-interface MercatorForwardSample { lon: number; lat: number; mercX: number; mercY: number }
-interface MercatorInverseSample { mercX: number; mercY: number; lon: number; lat: number }
+interface MercatorForwardSample {
+  lon: number
+  lat: number
+  mercX: number
+  mercY: number
+}
+interface MercatorInverseSample {
+  mercX: number
+  mercY: number
+  lon: number
+  lat: number
+}
 interface TileSample {
   label: string
-  lon: number; lat: number; zoom: number
-  tileX: number; tileY: number; tileZ: number
-  boundsWest: number; boundsSouth: number; boundsEast: number; boundsNorth: number
+  lon: number
+  lat: number
+  zoom: number
+  tileX: number
+  tileY: number
+  tileZ: number
+  boundsWest: number
+  boundsSouth: number
+  boundsEast: number
+  boundsNorth: number
 }
 interface ClipSample {
-  zoom: number; tileX: number; tileY: number
-  tileWest: number; tileSouth: number; tileEast: number; tileNorth: number
-  tileArea: number; interArea: number; fullyCovered: boolean
+  zoom: number
+  tileX: number
+  tileY: number
+  tileWest: number
+  tileSouth: number
+  tileEast: number
+  tileNorth: number
+  tileArea: number
+  interArea: number
+  fullyCovered: boolean
 }
 interface ProjectionSample {
-  lon: number; lat: number
-  x: number; y: number
-  roundLon: number; roundLat: number
+  lon: number
+  lat: number
+  x: number
+  y: number
+  roundLon: number
+  roundLat: number
 }
 interface TileFeatureCount {
-  z: number; x: number; y: number
-  west: number; south: number; east: number; north: number
+  z: number
+  x: number
+  y: number
+  west: number
+  south: number
+  east: number
+  north: number
   featureCount: number
 }
 interface CountryBBox {
   name: string
-  west: number; south: number; east: number; north: number
+  west: number
+  south: number
+  east: number
+  north: number
 }
 interface PipelineAreaSample {
   name: string
   featureIndex: number
-  z: number; x: number; y: number
+  z: number
+  x: number
+  y: number
   areaMercM2: number
 }
 interface SimplifySample {
@@ -142,20 +175,20 @@ describe('Cross-validation: Tile math (vs mercantile)', () => {
   // same integer tile coords.
   function ourTileXY(lon: number, lat: number, zoom: number): [number, number] {
     const n = Math.pow(2, zoom)
-    const x = Math.floor((lon + 180) / 360 * n)
+    const x = Math.floor(((lon + 180) / 360) * n)
     const clampedLat = Math.max(-85.051129, Math.min(85.051129, lat))
     const y = Math.floor(
-      (1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * Math.PI / 360)) / Math.PI) / 2 * n,
+      ((1 - Math.log(Math.tan(Math.PI / 4 + (clampedLat * Math.PI) / 360)) / Math.PI) / 2) * n,
     )
     return [x, y]
   }
 
   function ourTileBounds(x: number, y: number, z: number) {
     const n = Math.pow(2, z)
-    const west = x / n * 360 - 180
-    const east = (x + 1) / n * 360 - 180
-    const north = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI
-    const south = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n))) * 180 / Math.PI
+    const west = (x / n) * 360 - 180
+    const east = ((x + 1) / n) * 360 - 180
+    const north = (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n))) * 180) / Math.PI
+    const south = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 1)) / n))) * 180) / Math.PI
     return { west, south, east, north }
   }
 
@@ -175,8 +208,8 @@ describe('Cross-validation: Tile math (vs mercantile)', () => {
   it(`tile (x, y, z) → bounds matches mercantile at ${fixture.tile_math.length} samples`, () => {
     for (const s of fixture.tile_math) {
       const b = ourTileBounds(s.tileX, s.tileY, s.tileZ)
-      expect(b.west,  `${s.label} z=${s.zoom} west`).toBeCloseTo(s.boundsWest, 10)
-      expect(b.east,  `${s.label} z=${s.zoom} east`).toBeCloseTo(s.boundsEast, 10)
+      expect(b.west, `${s.label} z=${s.zoom} west`).toBeCloseTo(s.boundsWest, 10)
+      expect(b.east, `${s.label} z=${s.zoom} east`).toBeCloseTo(s.boundsEast, 10)
       expect(b.south, `${s.label} z=${s.zoom} south`).toBeCloseTo(s.boundsSouth, 10)
       expect(b.north, `${s.label} z=${s.zoom} north`).toBeCloseTo(s.boundsNorth, 10)
     }
@@ -263,10 +296,14 @@ function runProjectionCrossCheck(
       for (const s of samples) {
         const [lon, lat] = proj.inverse(s.x, s.y)
         if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
-        expect(lon, `${name} lon from (${s.x.toFixed(2)}, ${s.y.toFixed(2)})`)
-          .toBeCloseTo(s.roundLon, opts.invLonPrecision)
-        expect(lat, `${name} lat from (${s.x.toFixed(2)}, ${s.y.toFixed(2)})`)
-          .toBeCloseTo(s.roundLat, opts.invLatPrecision)
+        expect(lon, `${name} lon from (${s.x.toFixed(2)}, ${s.y.toFixed(2)})`).toBeCloseTo(
+          s.roundLon,
+          opts.invLonPrecision,
+        )
+        expect(lat, `${name} lat from (${s.x.toFixed(2)}, ${s.y.toFixed(2)})`).toBeCloseTo(
+          s.roundLat,
+          opts.invLatPrecision,
+        )
       }
     })
   })
@@ -278,9 +315,11 @@ function runProjectionCrossCheck(
 //   inverse N=6 → 5e-7 deg ≈ 5 cm at equator; plenty for Newton-Raphson
 //     convergence (natural earth) or analytic inverse (the others).
 
-runProjectionCrossCheck('Equirectangular', equirectangular(),
-  fixture.projections.equirectangular,
-  { forwardPrecision: 2, invLonPrecision: 6, invLatPrecision: 6 })
+runProjectionCrossCheck('Equirectangular', equirectangular(), fixture.projections.equirectangular, {
+  forwardPrecision: 2,
+  invLonPrecision: 6,
+  invLatPrecision: 6,
+})
 
 // NaturalEarth is a KNOWN DIVERGENCE from both pyproj `natearth`
 // (Patterson 2007) and `natearth2` (Šavrič 2015). X-GIS's polynomial
@@ -299,17 +338,26 @@ describe.skip('Cross-validation: NaturalEarth (vs pyproj) — SKIPPED (A-1 diver
   })
 })
 
-runProjectionCrossCheck('Orthographic (0°, 20°)', orthographic(0, 20),
+runProjectionCrossCheck(
+  'Orthographic (0°, 20°)',
+  orthographic(0, 20),
   fixture.projections.orthographic,
-  { forwardPrecision: 2, invLonPrecision: 6, invLatPrecision: 6 })
+  { forwardPrecision: 2, invLonPrecision: 6, invLatPrecision: 6 },
+)
 
-runProjectionCrossCheck('AzimuthalEquidistant (0°, 20°)', azimuthalEquidistant(0, 20),
+runProjectionCrossCheck(
+  'AzimuthalEquidistant (0°, 20°)',
+  azimuthalEquidistant(0, 20),
   fixture.projections.azimuthal_equidistant,
-  { forwardPrecision: 2, invLonPrecision: 6, invLatPrecision: 6 })
+  { forwardPrecision: 2, invLonPrecision: 6, invLatPrecision: 6 },
+)
 
-runProjectionCrossCheck('Stereographic (0°, 20°)', stereographic(0, 20),
+runProjectionCrossCheck(
+  'Stereographic (0°, 20°)',
+  stereographic(0, 20),
   fixture.projections.stereographic,
-  { forwardPrecision: 2, invLonPrecision: 6, invLatPrecision: 6 })
+  { forwardPrecision: 2, invLonPrecision: 6, invLatPrecision: 6 },
+)
 
 // ═══ Real-data: per-tile feature count vs shapely ═══
 
@@ -320,13 +368,13 @@ describe('Cross-validation: Real-data tile featureCount (vs shapely)', () => {
   const COUNTRIES_PATH = resolve(__dirname, '../../../playground/public/data/countries.geojson')
   const gj = JSON.parse(readFileSync(COUNTRIES_PATH, 'utf8')) as GeoJSONFeatureCollection
 
-  const zooms = [...new Set(fixture.tile_feature_counts.map(t => t.z))].sort((a, b) => a - b)
+  const zooms = [...new Set(fixture.tile_feature_counts.map((t) => t.z))].sort((a, b) => a - b)
   const minZoom = zooms[0]!
   const maxZoom = zooms[zooms.length - 1]!
   const set = compileGeoJSONToTiles(gj, { minZoom, maxZoom })
 
   it(`shapely intersection count matches X-GIS featureCount at ${fixture.tile_feature_counts.length} tiles`, () => {
-    const levelByZ = new Map(set.levels.map(l => [l.zoom, l]))
+    const levelByZ = new Map(set.levels.map((l) => [l.zoom, l]))
     const diffs: Array<{ key: string; shapely: number; ours: number; diff: number }> = []
     for (const s of fixture.tile_feature_counts) {
       const level = levelByZ.get(s.z)
@@ -335,7 +383,13 @@ describe('Cross-validation: Real-data tile featureCount (vs shapely)', () => {
       const tile = level.tiles.get(key)
       const ourCount = tile ? tile.featureCount : 0
       const diff = ourCount - s.featureCount
-      if (diff !== 0) diffs.push({ key: `z=${s.z} x=${s.x} y=${s.y}`, shapely: s.featureCount, ours: ourCount, diff })
+      if (diff !== 0)
+        diffs.push({
+          key: `z=${s.z} x=${s.x} y=${s.y}`,
+          shapely: s.featureCount,
+          ours: ourCount,
+          diff,
+        })
     }
     // Baseline statistics on the 80-tile fixture: max |diff| ≤ 3,
     // occurs on large (z=2) tiles whose boundary passes through many
@@ -345,7 +399,10 @@ describe('Cross-validation: Real-data tile featureCount (vs shapely)', () => {
     // residue. Tighten this bound over time as the clipper's behaviour
     // is brought closer to GEOS.
     const maxAbsDiff = diffs.reduce((m, d) => Math.max(m, Math.abs(d.diff)), 0)
-    const summary = diffs.slice(0, 10).map(d => `${d.key}: shapely=${d.shapely} ours=${d.ours} (diff=${d.diff})`).join('\n  ')
+    const summary = diffs
+      .slice(0, 10)
+      .map((d) => `${d.key}: shapely=${d.shapely} ours=${d.ours} (diff=${d.diff})`)
+      .join('\n  ')
     expect(
       maxAbsDiff,
       `${diffs.length} / ${fixture.tile_feature_counts.length} tiles diverged; first few:\n  ${summary}`,
@@ -363,7 +420,10 @@ describe('Cross-validation: Country bounding boxes (vs shapely)', () => {
   const gj = JSON.parse(readFileSync(COUNTRIES_PATH, 'utf8')) as GeoJSONFeatureCollection
 
   function featureBBox(geom: unknown): [number, number, number, number] {
-    let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity
+    let w = Infinity,
+      s = Infinity,
+      e = -Infinity,
+      n = -Infinity
     const walk = (node: unknown): void => {
       if (!Array.isArray(node)) return
       if (node.length >= 2 && typeof node[0] === 'number' && typeof node[1] === 'number') {
@@ -382,7 +442,9 @@ describe('Cross-validation: Country bounding boxes (vs shapely)', () => {
 
   it('bbox per country matches shapely at the requested precision', () => {
     for (const cb of fixture.country_bboxes) {
-      const feat = gj.features.find(f => (f.properties as { name?: string } | null)?.name === cb.name)
+      const feat = gj.features.find(
+        (f) => (f.properties as { name?: string } | null)?.name === cb.name,
+      )
       expect(feat, `country ${cb.name} not found in geojson`).toBeDefined()
       const [w, s, e, n] = featureBBox(feat!.geometry)
       // Coordinates are 6 decimal places in the source file, so 1e-6
@@ -408,7 +470,7 @@ describe('Cross-validation: Pipeline geometry area (clip + triangulate vs shapel
   const COUNTRIES_PATH = resolve(__dirname, '../../../playground/public/data/countries.geojson')
   const gj = JSON.parse(readFileSync(COUNTRIES_PATH, 'utf8')) as GeoJSONFeatureCollection
 
-  const zooms = [...new Set(fixture.pipeline_area_samples.map(s => s.z))].sort((a, b) => a - b)
+  const zooms = [...new Set(fixture.pipeline_area_samples.map((s) => s.z))].sort((a, b) => a - b)
   const maxZoom = zooms[zooms.length - 1]!
   // maxZoom equals the fixture zoom so the tile-level simplification
   // filter (`z < maxZoom`) does not run. Triangulated area should be
@@ -436,12 +498,14 @@ describe('Cross-validation: Pipeline geometry area (clip + triangulate vs shapel
       const lonDeg = vertices[base + 4]
       const latDeg = vertices[base + 5]
       const mx = lonDeg * DEG2RAD_CV * EARTH_R_CV
-      const my = Math.log(Math.tan(Math.PI / 4 + latDeg * DEG2RAD_CV / 2)) * EARTH_R_CV
+      const my = Math.log(Math.tan(Math.PI / 4 + (latDeg * DEG2RAD_CV) / 2)) * EARTH_R_CV
       return [mx, my]
     }
     let total = 0
     for (let i = 0; i < indices.length; i += 3) {
-      const i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2]
+      const i0 = indices[i],
+        i1 = indices[i + 1],
+        i2 = indices[i + 2]
       const fid0 = vertices[i0 * POLY_STRIDE + 3]
       const fid1 = vertices[i1 * POLY_STRIDE + 3]
       const fid2 = vertices[i2 * POLY_STRIDE + 3]
@@ -455,10 +519,10 @@ describe('Cross-validation: Pipeline geometry area (clip + triangulate vs shapel
   }
 
   it(`X-GIS triangulated area matches shapely intersection at ${fixture.pipeline_area_samples.length} country-tile pairs`, () => {
-    const levelByZ = new Map(set.levels.map(l => [l.zoom, l]))
+    const levelByZ = new Map(set.levels.map((l) => [l.zoom, l]))
     const report: string[] = []
     let maxRelDelta = 0
-    let compared = 0          // samples that produced a non-zero triangulated area
+    let compared = 0 // samples that produced a non-zero triangulated area
     const dropped: string[] = []
     for (const s of fixture.pipeline_area_samples) {
       const level = levelByZ.get(s.z)
@@ -482,14 +546,19 @@ describe('Cross-validation: Pipeline geometry area (clip + triangulate vs shapel
       const rel = Math.abs(ourArea - s.areaMercM2) / Math.max(ourArea, s.areaMercM2, 1)
       if (rel > maxRelDelta) maxRelDelta = rel
       if (rel > 0.01) {
-        report.push(`${s.name} z=${s.z} x=${s.x} y=${s.y}: ours=${ourArea.toExponential(3)} shapely=${s.areaMercM2.toExponential(3)} rel=${(rel * 100).toFixed(2)}%`)
+        report.push(
+          `${s.name} z=${s.z} x=${s.x} y=${s.y}: ours=${ourArea.toExponential(3)} shapely=${s.areaMercM2.toExponential(3)} rel=${(rel * 100).toFixed(2)}%`,
+        )
       }
     }
     // Gate is only meaningful if real comparisons ran and nothing was silently
     // dropped (a dropped feature has ourArea=0, previously excluded from the
     // tolerance check).
     expect(compared, 'no non-zero area comparisons ran — area gate is vacuous').toBeGreaterThan(0)
-    expect(dropped, `pipeline dropped sampled features whose tile is present:\n  ${dropped.join('\n  ')}`).toEqual([])
+    expect(
+      dropped,
+      `pipeline dropped sampled features whose tile is present:\n  ${dropped.join('\n  ')}`,
+    ).toEqual([])
     // 2% tolerance: clipping snaps vertices to tile edges and earcut
     // fan-triangulates, both of which introduce O(ε²) area noise per
     // edge. Keep loose enough to absorb that but tight enough to catch
@@ -511,7 +580,8 @@ describe('Cross-validation: Polygon simplification (vs shapely)', () => {
       // [N-1]. Close the ring representation: shapely drops the dup
       // last vertex (we already stripped it in Python). X-GIS's
       // simplify also returns the open form.
-      expect(ours.length,
+      expect(
+        ours.length,
         `${s.label} vertex count: ours=${ours.length} shapely=${s.shapelyVertexCount}`,
       ).toBe(s.shapelyVertexCount)
       // Area preservation: both simplified polygons should have very
@@ -519,8 +589,7 @@ describe('Cross-validation: Polygon simplification (vs shapely)', () => {
       // tolerance, so area delta is ≤ perimeter × tolerance — way
       // under 1% for the chosen inputs.
       const ourArea = shoelaceArea(ours)
-      expect(ourArea, `${s.label} area delta`)
-        .toBeCloseTo(s.shapelyArea, 4) // 5e-5 deg² absolute
+      expect(ourArea, `${s.label} area delta`).toBeCloseTo(s.shapelyArea, 4) // 5e-5 deg² absolute
     }
   })
 })

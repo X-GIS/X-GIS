@@ -66,34 +66,36 @@ describe('bind-group layout drift invariant (iter-204A)', () => {
   it('every PALETTE_LAYOUT_ENTRIES binding is present in FEATURE_LAYOUT_ENTRIES', () => {
     const feature = FrameRenderer.getFeatureLayoutEntries().map(asMinimal)
     const palette = FrameRenderer.PALETTE_LAYOUT_ENTRIES.map(asMinimal)
-    const featureBindings = new Set(feature.map(e => e.binding))
-    const missingFromFeature = palette
-      .map(e => e.binding)
-      .filter(b => !featureBindings.has(b))
+    const featureBindings = new Set(feature.map((e) => e.binding))
+    const missingFromFeature = palette.map((e) => e.binding).filter((b) => !featureBindings.has(b))
     expect(
       missingFromFeature,
       `These palette bindings are missing from FEATURE_LAYOUT_ENTRIES: [${missingFromFeature.join(', ')}]. ` +
-      `Bind groups writing these slots will fail WebGPU validation on the compute path. ` +
-      `Re-add the missing binding(s) to FEATURE_LAYOUT_ENTRIES (renderer.ts) — see iter-197.`,
+        `Bind groups writing these slots will fail WebGPU validation on the compute path. ` +
+        `Re-add the missing binding(s) to FEATURE_LAYOUT_ENTRIES (renderer.ts) — see iter-197.`,
     ).toEqual([])
   })
 
   it('matching bindings declare matching visibility masks', () => {
     const feature = FrameRenderer.getFeatureLayoutEntries().map(asMinimal)
     const palette = FrameRenderer.PALETTE_LAYOUT_ENTRIES.map(asMinimal)
-    const byBinding = new Map(feature.map(e => [e.binding, e.visibility]))
+    const byBinding = new Map(feature.map((e) => [e.binding, e.visibility]))
     const mismatches: { binding: number; feature: number; palette: number }[] = []
     for (const p of palette) {
       const f = byBinding.get(p.binding)
-      if (f === undefined) continue  // covered by the subset test
+      if (f === undefined) continue // covered by the subset test
       if (f !== p.visibility) {
-        mismatches.push({ binding: p.binding, feature: f as number, palette: p.visibility as number })
+        mismatches.push({
+          binding: p.binding,
+          feature: f as number,
+          palette: p.visibility as number,
+        })
       }
     }
     expect(
       mismatches,
       'PALETTE_LAYOUT_ENTRIES and FEATURE_LAYOUT_ENTRIES disagree on visibility for the same binding. ' +
-      'WebGPU validates visibility per entry; a mismatch fails layout construction.',
+        'WebGPU validates visibility per entry; a mismatch fails layout construction.',
     ).toEqual([])
   })
 
@@ -102,7 +104,9 @@ describe('bind-group layout drift invariant (iter-204A)', () => {
     // slot, this test points at the original intent. Bindings 2 (palette
     // atlas) + 4 (palette sampler) are P3-era; bindings 5 (sprite atlas)
     // + 6 (sprite sampler) are iter-181/182.
-    const bindings = FrameRenderer.PALETTE_LAYOUT_ENTRIES.map(e => e.binding).sort((a, b) => a - b)
+    const bindings = FrameRenderer.PALETTE_LAYOUT_ENTRIES.map((e) => e.binding).sort(
+      (a, b) => a - b,
+    )
     expect(bindings).toEqual([2, 4, 5, 6])
   })
 
@@ -111,7 +115,8 @@ describe('bind-group layout drift invariant (iter-204A)', () => {
     // NOT in PALETTE_LAYOUT_ENTRIES — feature buffer is the layer that
     // distinguishes the feature path from the base path.
     const bindings = FrameRenderer.getFeatureLayoutEntries()
-      .map(e => e.binding).sort((a, b) => a - b)
+      .map((e) => e.binding)
+      .sort((a, b) => a - b)
     expect(bindings).toEqual([0, 1, 2, 4, 5, 6])
   })
 })

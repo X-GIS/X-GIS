@@ -139,7 +139,9 @@ describe('P0-4: unknown event type at registration', () => {
     map.on('move', () => {})
     map.on('load', () => {})
     map.on('click', () => {})
-    expect(warnSpy.mock.calls.filter((c) => String(c[0]).includes('Unknown event type'))).toHaveLength(0)
+    expect(
+      warnSpy.mock.calls.filter((c) => String(c[0]).includes('Unknown event type')),
+    ).toHaveLength(0)
     map.destroy()
   })
 })
@@ -189,14 +191,18 @@ describe('P0-2: renderFrame exception recovery', () => {
   })
 
   it('halts after 3 consecutive failures with a final halt error', () => {
-    const { map, m } = armedMap(() => { throw new Error('persistent fault') })
+    const { map, m } = armedMap(() => {
+      throw new Error('persistent fault')
+    })
     map.renderLoop()
     map.renderLoop()
     map.renderLoop()
     expect(m.running).toBe(false) // true persistent fault → stop as before
     expect(rafSpy).toHaveBeenCalledTimes(2) // retries after failures 1+2 only
     expect(errSpy.mock.calls.filter((c) => String(c[0]).includes('[X-GIS frame]'))).toHaveLength(3)
-    expect(errSpy.mock.calls.filter((c) => String(c[0]).includes('halted after 3 consecutive'))).toHaveLength(1)
+    expect(
+      errSpy.mock.calls.filter((c) => String(c[0]).includes('halted after 3 consecutive')),
+    ).toHaveLength(1)
     map.renderLoop() // running=false → inert, no further scheduling
     expect(rafSpy).toHaveBeenCalledTimes(2)
     map.destroy()
@@ -209,10 +215,16 @@ class FakeRO {
   static instances: FakeRO[] = []
   observed: unknown[] = []
   disconnected = false
-  constructor(public cb: () => void) { FakeRO.instances.push(this) }
-  observe(el: unknown): void { this.observed.push(el) }
+  constructor(public cb: () => void) {
+    FakeRO.instances.push(this)
+  }
+  observe(el: unknown): void {
+    this.observed.push(el)
+  }
   unobserve(): void {}
-  disconnect(): void { this.disconnected = true }
+  disconnect(): void {
+    this.disconnected = true
+  }
 }
 
 class FakeMQL {
@@ -240,7 +252,11 @@ describe('P0-3: auto resize / DPR tracking', () => {
     vi.stubGlobal('ResizeObserver', FakeRO)
     vi.stubGlobal('window', {
       devicePixelRatio: 2,
-      matchMedia: (q: string) => { const m = new FakeMQL(q); mqls.push(m); return m },
+      matchMedia: (q: string) => {
+        const m = new FakeMQL(q)
+        mqls.push(m)
+        return m
+      },
     })
   })
   afterEach(() => {

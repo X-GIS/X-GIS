@@ -13,9 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const fixture = readFileSync(
-  resolve(HERE, '__convert-fixtures', 'liberty.json'), 'utf8',
-)
+const fixture = readFileSync(resolve(HERE, '__convert-fixtures', 'liberty.json'), 'utf8')
 const OUT = resolve(HERE, '__perf-liberty-paris-z18__')
 mkdirSync(OUT, { recursive: true })
 
@@ -27,16 +25,20 @@ test('OFM Liberty perf probe — #18.25/48.84778/2.33194/14/70', async ({ page }
     }
   })
   const xgis = convertMapboxStyle(JSON.parse(fixture) as never)
-  await page.addInitScript((args) => {
-    sessionStorage.setItem('__xgisImportSource', args.src)
-    sessionStorage.setItem('__xgisImportLabel', `Liberty z=18.25 pitch=70 Paris`)
-  }, { src: xgis })
+  await page.addInitScript(
+    (args) => {
+      sessionStorage.setItem('__xgisImportSource', args.src)
+      sessionStorage.setItem('__xgisImportLabel', `Liberty z=18.25 pitch=70 Paris`)
+    },
+    { src: xgis },
+  )
   await page.goto(`/demo.html?id=__import#18.25/48.84778/2.33194/14/70`, {
     waitUntil: 'domcontentloaded',
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
   await page.waitForTimeout(8_000) // settle — z=18 takes longer to load all tiles
   // Visual sanity check — write screenshot for inspection.
@@ -51,7 +53,7 @@ test('OFM Liberty perf probe — #18.25/48.84778/2.33194/14/70', async ({ page }
     for (let i = 0; i < 30; i++) {
       const t0 = performance.now()
       m.invalidate()
-      await new Promise<void>(r => requestAnimationFrame(() => r()))
+      await new Promise<void>((r) => requestAnimationFrame(() => r()))
       frames.push(performance.now() - t0)
     }
     frames.sort((a, b) => a - b)
@@ -65,14 +67,18 @@ test('OFM Liberty perf probe — #18.25/48.84778/2.33194/14/70', async ({ page }
 
   // ── Drag pan p95 ──
   const dragMetrics = await page.evaluate(async () => {
-    const m = (globalThis as { __xgisMap?: { invalidate: () => void; panBy: (offset: [number, number]) => void } }).__xgisMap
+    const m = (
+      globalThis as {
+        __xgisMap?: { invalidate: () => void; panBy: (offset: [number, number]) => void }
+      }
+    ).__xgisMap
     if (!m) return null
     const frames: number[] = []
     for (let i = 0; i < 60; i++) {
       const t0 = performance.now()
       m.panBy([8, 0]) // 8px horizontal pan per frame
       m.invalidate()
-      await new Promise<void>(r => requestAnimationFrame(() => r()))
+      await new Promise<void>((r) => requestAnimationFrame(() => r()))
       frames.push(performance.now() - t0)
     }
     frames.sort((a, b) => a - b)

@@ -21,16 +21,16 @@ describe('FrameArena — alloc + alignment', () => {
 
   it('sequential allocs are contiguous (4-byte aligned)', () => {
     const a = new FrameArena(1024)
-    const v1 = a.alloc(10)  // 10 bytes, aligned to 4 = 12 bytes
-    const v2 = a.alloc(20)  // starts at offset 12
+    const v1 = a.alloc(10) // 10 bytes, aligned to 4 = 12 bytes
+    const v2 = a.alloc(20) // starts at offset 12
     expect(v1.byteOffset).toBe(0)
     expect(v2.byteOffset).toBe(12)
   })
 
   it('alignment honored (16-byte align)', () => {
     const a = new FrameArena(1024)
-    a.alloc(5)               // bumps watermark to 8 (4-aligned)
-    const v = a.alloc(16, 16)  // next 16-aligned = 16
+    a.alloc(5) // bumps watermark to 8 (4-aligned)
+    const v = a.alloc(16, 16) // next 16-aligned = 16
     expect(v.byteOffset).toBe(16)
   })
 
@@ -68,15 +68,15 @@ describe('FrameArena — beginFrame + grow', () => {
 
   it('capacity grows when peak hits 0.9× cap at beginFrame', () => {
     const a = new FrameArena(1024)
-    a.alloc(950)  // ~0.93 × 1024 — over GROW_TRIGGER 0.9
+    a.alloc(950) // ~0.93 × 1024 — over GROW_TRIGGER 0.9
     a.beginFrame()
-    expect(a.getStats().capacityBytes).toBe(1536)  // 1024 × 1.5
+    expect(a.getStats().capacityBytes).toBe(1536) // 1024 × 1.5
     expect(a.getStats().grows).toBe(1)
   })
 
   it('capacity stable when peak below trigger', () => {
     const a = new FrameArena(1024)
-    a.alloc(500)  // ~0.49 × 1024 — under trigger
+    a.alloc(500) // ~0.49 × 1024 — under trigger
     a.beginFrame()
     expect(a.getStats().capacityBytes).toBe(1024)
     expect(a.getStats().grows).toBe(0)
@@ -93,7 +93,7 @@ describe('FrameArena — reserve + overflow', () => {
 
   it('reserve is no-op when already large enough', () => {
     const a = new FrameArena(1024)
-    a.reserve(512)  // smaller than current
+    a.reserve(512) // smaller than current
     expect(a.getStats().capacityBytes).toBe(1024)
     expect(a.getStats().grows).toBe(0)
   })
@@ -113,19 +113,17 @@ describe('FrameArena — reserve + overflow', () => {
     const a = new FrameArena(64)
     // Fill some bytes, then trigger overflow.
     const before = a.alloc(40)
-    before[0] = 0xAB
-    before[1] = 0xCD
+    before[0] = 0xab
+    before[1] = 0xcd
     // This alloc triggers grow + copy.
     const after = a.alloc(64)
     expect(after.byteLength).toBe(64)
     // Prior view's bytes (read-only) still readable via the OLD
     // buffer — but a fresh view at the same offset on the new
     // buffer should also show the copied data.
-    const recovered = new Uint8Array(
-      (a as unknown as { buffer: ArrayBuffer }).buffer, 0, 40,
-    )
-    expect(recovered[0]).toBe(0xAB)
-    expect(recovered[1]).toBe(0xCD)
+    const recovered = new Uint8Array((a as unknown as { buffer: ArrayBuffer }).buffer, 0, 40)
+    expect(recovered[0]).toBe(0xab)
+    expect(recovered[1]).toBe(0xcd)
   })
 })
 
@@ -185,10 +183,10 @@ describe('FrameArena — semantic invariants', () => {
     const a = new FrameArena(1024)
     const f1 = a.allocF32(2)
     f1[0] = 42
-    a.alloc(950)  // push peak past trigger
-    a.beginFrame()  // grow fires here
+    a.alloc(950) // push peak past trigger
+    a.beginFrame() // grow fires here
     const f2 = a.allocF32(2)
-    expect(f2.buffer).not.toBe(f1.buffer)  // different backing
+    expect(f2.buffer).not.toBe(f1.buffer) // different backing
     // f1's memory is detached from arena; reading it doesn't reflect
     // arena state. (Not asserted as invariant — just documents that
     // sub-views must not outlive grow events.)

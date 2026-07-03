@@ -85,7 +85,7 @@ describe('geojson-tiling-pool isolation (BUG 8 — per-caller namespaced index k
 
     // One shared singleton worker received both set-source messages.
     expect(FakeWorker.instances.length).toBe(1)
-    const setMsgs = FakeWorker.instances[0].posted.filter(m => m.kind === 'set-source')
+    const setMsgs = FakeWorker.instances[0].posted.filter((m) => m.kind === 'set-source')
     expect(setMsgs.length).toBe(2)
 
     // The user-facing sourceName is identical on both...
@@ -108,8 +108,8 @@ describe('geojson-tiling-pool isolation (BUG 8 — per-caller namespaced index k
     void pool.getTile(id, 'geojson', 3, 1, 2, 999)
 
     const posted = FakeWorker.instances[0].posted
-    const set = posted.find(m => m.kind === 'set-source')
-    const get = posted.find(m => m.kind === 'get-tile')
+    const set = posted.find((m) => m.kind === 'set-source')
+    const get = posted.find((m) => m.kind === 'get-tile')
     expect(get.indexKey).toBe(set.indexKey)
     // sourceName is preserved separately for the encoded MVT layer name.
     expect(get.sourceName).toBe('geojson')
@@ -123,12 +123,12 @@ describe('geojson-tiling-pool eviction (BUG 7 — dropSource frees the retained 
 
     // setSource spins up the worker and indexes under `${id}::geojson`.
     void pool.setSource(id, 'geojson', FC)
-    const indexKey = FakeWorker.instances[0].posted.find(m => m.kind === 'set-source').indexKey
+    const indexKey = FakeWorker.instances[0].posted.find((m) => m.kind === 'set-source').indexKey
 
     // Detach/replace path drops the source.
     pool.dropSource(id, 'geojson')
 
-    const drop = FakeWorker.instances[0].posted.find(m => m.kind === 'drop-source')
+    const drop = FakeWorker.instances[0].posted.find((m) => m.kind === 'drop-source')
     expect(drop, 'dropSource must post a drop-source message').toBeDefined()
     expect(drop.indexKey).toBe(indexKey)
   })
@@ -144,7 +144,7 @@ describe('geojson-tiling-pool eviction (BUG 7 — dropSource frees the retained 
     // Map A detaches its source.
     pool.dropSource(idA, 'geojson')
 
-    const drops = FakeWorker.instances[0].posted.filter(m => m.kind === 'drop-source')
+    const drops = FakeWorker.instances[0].posted.filter((m) => m.kind === 'drop-source')
     expect(drops.length).toBe(1)
     expect(drops[0].indexKey).toBe(`${idA}::geojson`)
     // Map B's index key is untouched.

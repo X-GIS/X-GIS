@@ -31,7 +31,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const OUT = join(HERE, '__pixel-match-demotiles-compute__')
 mkdirSync(OUT, { recursive: true })
 
-const VIEW_HASH = '#2.5/48/15'  // Europe — many countries in frame
+const VIEW_HASH = '#2.5/48/15' // Europe — many countries in frame
 const TIMEOUT = 30_000
 
 async function loadAndCapture(page: Page, compute: 0 | 1): Promise<{ ml: PNG; xg: PNG }> {
@@ -44,7 +44,8 @@ async function loadAndCapture(page: Page, compute: 0 | 1): Promise<{ ml: PNG; xg
       const w = window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }
       return w.__xgisReady === true && w.__mlReady === true
     },
-    null, { timeout: TIMEOUT },
+    null,
+    { timeout: TIMEOUT },
   )
 
   // Hide ML symbol layers.
@@ -61,8 +62,14 @@ async function loadAndCapture(page: Page, compute: 0 | 1): Promise<{ ml: PNG; xg
   })
   // Hide X-GIS label/icon layers.
   await page.evaluate(() => {
-    interface XGISShow { label?: unknown; visible?: boolean }
-    interface XGISLayer { name?: string; style?: { visible?: boolean } }
+    interface XGISShow {
+      label?: unknown
+      visible?: boolean
+    }
+    interface XGISLayer {
+      name?: string
+      style?: { visible?: boolean }
+    }
     interface XGISMap {
       vectorTileShows?: Array<{ show: XGISShow }>
       getLayers?(): readonly XGISLayer[]
@@ -82,8 +89,9 @@ async function loadAndCapture(page: Page, compute: 0 | 1): Promise<{ ml: PNG; xg
   })
 
   await page.waitForTimeout(3_500)
-  await page.evaluate(() => new Promise<void>(r =>
-    requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+  await page.evaluate(
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+  )
 
   const mlBuf = await page.locator('#ml-map canvas').first().screenshot()
   const xgBuf = await page.locator('#xg-canv').screenshot()
@@ -91,8 +99,13 @@ async function loadAndCapture(page: Page, compute: 0 | 1): Promise<{ ml: PNG; xg
 }
 
 interface Buckets {
-  eq0: number; le8: number; le16: number; le32: number
-  le64: number; le128: number; gt128: number
+  eq0: number
+  le8: number
+  le16: number
+  le32: number
+  le64: number
+  le128: number
+  gt128: number
 }
 
 function diffBuckets(a: PNG, b: PNG): { buckets: Buckets; total: number } {
@@ -105,8 +118,8 @@ function diffBuckets(a: PNG, b: PNG): { buckets: Buckets; total: number } {
       const bi = (y * b.width + x) * 4
       const m = Math.max(
         Math.abs(a.data[ai]! - b.data[bi]!),
-        Math.abs(a.data[ai+1]! - b.data[bi+1]!),
-        Math.abs(a.data[ai+2]! - b.data[bi+2]!),
+        Math.abs(a.data[ai + 1]! - b.data[bi + 1]!),
+        Math.abs(a.data[ai + 2]! - b.data[bi + 2]!),
       )
       if (m === 0) buckets.eq0++
       else if (m <= 8) buckets.le8++
@@ -122,7 +135,7 @@ function diffBuckets(a: PNG, b: PNG): { buckets: Buckets; total: number } {
 
 function fmtBuckets(b: Buckets, total: number): string {
   const pct = (n: number) => ((n / total) * 100).toFixed(2) + '%'
-  return `eq=${pct(b.eq0)} ≤32=${pct(b.eq0+b.le8+b.le16+b.le32)} ≤128=${pct(b.eq0+b.le8+b.le16+b.le32+b.le64+b.le128)} gt128=${b.gt128}`
+  return `eq=${pct(b.eq0)} ≤32=${pct(b.eq0 + b.le8 + b.le16 + b.le32)} ≤128=${pct(b.eq0 + b.le8 + b.le16 + b.le32 + b.le64 + b.le128)} gt128=${b.gt128}`
 }
 
 test('demotiles europe — compute=0 vs MapLibre', async ({ page }) => {
@@ -139,10 +152,10 @@ test('demotiles europe — compute=0 vs MapLibre', async ({ page }) => {
 test('demotiles europe — compute=1 vs MapLibre (VTR P4 path)', async ({ page }) => {
   test.setTimeout(TIMEOUT + 30_000)
   const errors: string[] = []
-  page.on('console', msg => {
+  page.on('console', (msg) => {
     if (msg.type() === 'error') errors.push(msg.text())
   })
-  page.on('pageerror', err => errors.push('pageerror: ' + err.message))
+  page.on('pageerror', (err) => errors.push('pageerror: ' + err.message))
   const { ml, xg } = await loadAndCapture(page, 1)
   if (errors.length > 0) {
     // eslint-disable-next-line no-console

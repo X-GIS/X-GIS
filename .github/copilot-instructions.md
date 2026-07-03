@@ -25,12 +25,14 @@ mcp_codebase-memo_get_architecture({ "project": "<display_name>" })
 ### Available Tools (14 MCP tools)
 
 **Indexing:**
+
 - `index_repository(repo_path)` — Index a repository into the knowledge graph
 - `list_projects` — List all indexed projects with node/edge counts
 - `delete_project(project)` — Remove a project and all its graph data
 - `index_status(project)` — Check indexing status
 
 **Querying:**
+
 - `search_graph(name_pattern, name_scope, label, file_pattern, exclude_file_pattern)` — Structured search by label, name/qualified_name, include/exclude file globs
 - `trace_call_path(function_name, direction, depth)` — BFS call chain traversal
 - `detect_changes(project)` — Map git diff to affected symbols + risk

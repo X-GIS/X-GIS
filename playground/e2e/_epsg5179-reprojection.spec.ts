@@ -89,14 +89,16 @@ test('EPSG:5179 GeoJSON renders at correct Seoul location via URL fetch', async 
 
   // Wait for the demo runner to be ready (it exposes __xgisRunSource).
   await page.waitForFunction(
-    () => typeof (window as unknown as { __xgisRunSource?: unknown }).__xgisRunSource === 'function',
+    () =>
+      typeof (window as unknown as { __xgisRunSource?: unknown }).__xgisRunSource === 'function',
     null,
     { timeout: 15_000 },
   )
 
   // Run our test source — this triggers the URL fetch + CRS reprojection path.
   await page.evaluate(
-    (src) => (window as unknown as { __xgisRunSource: (s: string) => Promise<void> }).__xgisRunSource(src),
+    (src) =>
+      (window as unknown as { __xgisRunSource: (s: string) => Promise<void> }).__xgisRunSource(src),
     XGIS_SOURCE,
   )
 
@@ -112,18 +114,21 @@ test('EPSG:5179 GeoJSON renders at correct Seoul location via URL fetch', async 
 
   // ── Assertion 1: no console errors ──────────────────────────────────
   // Filter out X-GIS info-level prefixes that are not errors.
-  const realErrors = consoleErrors.filter(e =>
-    !e.startsWith('[X-GIS]') &&
-    !e.startsWith('[X-GIS frame]') &&
-    !e.startsWith('[X-GIS frame-validation]'),
+  const realErrors = consoleErrors.filter(
+    (e) =>
+      !e.startsWith('[X-GIS]') &&
+      !e.startsWith('[X-GIS frame]') &&
+      !e.startsWith('[X-GIS frame-validation]'),
   )
   if (realErrors.length > 0 || failedRequests.length > 0) {
     console.log('[epsg5179] console errors:', realErrors)
     console.log('[epsg5179] failed requests:', failedRequests)
   }
   expect(realErrors, 'no console errors during EPSG:5179 load').toEqual([])
-  expect(failedRequests.filter(r => r.includes('fixture-epsg5179')),
-    'fixture GeoJSON fetch must succeed').toEqual([])
+  expect(
+    failedRequests.filter((r) => r.includes('fixture-epsg5179')),
+    'fixture GeoJSON fetch must succeed',
+  ).toEqual([])
 
   // ── Capture screenshot for diagnostics ──────────────────────────────
   const png = await page.locator('#map').screenshot()
@@ -133,21 +138,24 @@ test('EPSG:5179 GeoJSON renders at correct Seoul location via URL fetch', async 
   // The reprojected geometry must have reached the framebuffer.
   // Background is dark (~rgb(6,8,12) for the minimal demo); any
   // geometry (blue polygon, red line, green point) clears this threshold.
-  const litPixels = await page.evaluate(async ({ b64 }) => {
-    const blob = await fetch(`data:image/png;base64,${b64}`).then(r => r.blob())
-    const bmp = await createImageBitmap(blob)
-    const c = document.createElement('canvas')
-    c.width = bmp.width
-    c.height = bmp.height
-    const ctx = c.getContext('2d')!
-    ctx.drawImage(bmp, 0, 0)
-    const data = ctx.getImageData(0, 0, bmp.width, bmp.height).data
-    let lit = 0
-    for (let i = 0; i < data.length; i += 4) {
-      if (data[i] + data[i + 1] + data[i + 2] > 60) lit++
-    }
-    return lit
-  }, { b64: png.toString('base64') })
+  const litPixels = await page.evaluate(
+    async ({ b64 }) => {
+      const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())
+      const bmp = await createImageBitmap(blob)
+      const c = document.createElement('canvas')
+      c.width = bmp.width
+      c.height = bmp.height
+      const ctx = c.getContext('2d')!
+      ctx.drawImage(bmp, 0, 0)
+      const data = ctx.getImageData(0, 0, bmp.width, bmp.height).data
+      let lit = 0
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i] + data[i + 1] + data[i + 2] > 60) lit++
+      }
+      return lit
+    },
+    { b64: png.toString('base64') },
+  )
 
   console.log(`[epsg5179] lit pixels: ${litPixels}`)
   expect(litPixels, 'reprojected geometry must be visible on canvas').toBeGreaterThan(100)

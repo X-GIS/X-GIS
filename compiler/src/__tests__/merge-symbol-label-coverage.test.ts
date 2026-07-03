@@ -28,13 +28,17 @@ describe('merge-layers: symbol label preservation', () => {
       layers: [
         {
           id: 'place_city',
-          type: 'symbol', source: 'v', 'source-layer': 'place',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'place',
           filter: ['==', ['get', 'class'], 'city'],
           layout: { 'text-field': '{name}', 'text-size': 14 },
         },
         {
           id: 'place_town',
-          type: 'symbol', source: 'v', 'source-layer': 'place',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'place',
           filter: ['==', ['get', 'class'], 'town'],
           layout: { 'text-field': '{name}', 'text-size': 12 },
         },
@@ -57,19 +61,23 @@ describe('merge-layers: symbol label preservation', () => {
       layers: [
         {
           id: 'place_label',
-          type: 'symbol', source: 'v', 'source-layer': 'place',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'place',
           filter: ['==', ['get', 'class'], 'city'],
           layout: { 'text-field': '{name}' },
         },
         {
           id: 'place_dot',
-          type: 'fill', source: 'v', 'source-layer': 'place',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'place',
           filter: ['==', ['get', 'class'], 'town'],
           paint: { 'fill-color': '#000' },
         },
       ],
     })
     // Symbol layer with label survives unmerged.
-    expect(scene.renderNodes.find(n => n.label !== undefined)).toBeDefined()
+    expect(scene.renderNodes.find((n) => n.label !== undefined)).toBeDefined()
   })
 })

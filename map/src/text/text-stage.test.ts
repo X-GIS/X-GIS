@@ -94,7 +94,8 @@ describe('composeFontKey', () => {
   // as .notdef boxes (because no CJK fallback family is in the
   // chain). Both symptoms surfaced as the "country labels invisible
   // + text-font ignored" user report.
-  const DEFAULT = '"Noto Sans CJK KR","Apple SD Gothic Neo","Malgun Gothic","Microsoft YaHei","Noto Sans CJK JP","Hiragino Sans","Yu Gothic",sans-serif'
+  const DEFAULT =
+    '"Noto Sans CJK KR","Apple SD Gothic Neo","Malgun Gothic","Microsoft YaHei","Noto Sans CJK JP","Hiragino Sans","Yu Gothic",sans-serif'
 
   it('plain family-only def: returns family + appended CJK fallback chain', () => {
     const key = composeFontKey({ ...baseLabel, font: ['Noto Sans'] }, DEFAULT)
@@ -105,10 +106,7 @@ describe('composeFontKey', () => {
   })
 
   it('def with fontWeight=700: sentinel-encodes style + weight + family', () => {
-    const key = composeFontKey(
-      { ...baseLabel, font: ['Noto Sans'], fontWeight: 700 },
-      DEFAULT,
-    )
+    const key = composeFontKey({ ...baseLabel, font: ['Noto Sans'], fontWeight: 700 }, DEFAULT)
     expect(key.startsWith(FONT_KEY_SENTINEL)).toBe(true)
     // Parts after the leading sentinel: [style, weight, family-list]
     const parts = key.split(FONT_KEY_SENTINEL)
@@ -119,13 +117,10 @@ describe('composeFontKey', () => {
   })
 
   it('def with fontStyle=italic: sentinel-encodes italic style', () => {
-    const key = composeFontKey(
-      { ...baseLabel, font: ['Noto Sans'], fontStyle: 'italic' },
-      DEFAULT,
-    )
+    const key = composeFontKey({ ...baseLabel, font: ['Noto Sans'], fontStyle: 'italic' }, DEFAULT)
     const parts = key.split(FONT_KEY_SENTINEL)
     expect(parts[1]).toBe('italic')
-    expect(parts[2]).toBe('400')  // weight default
+    expect(parts[2]).toBe('400') // weight default
   })
 
   it('no font, no weight, no style: returns defaultFamily verbatim', () => {

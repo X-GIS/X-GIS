@@ -16,19 +16,21 @@ function buildCircle(paint: Record<string, unknown>): unknown {
   return {
     version: 8,
     sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-    layers: [{
-      id: 'c',
-      type: 'circle',
-      source: 'v',
-      'source-layer': 'a',
-      paint: {
-        'circle-color': '#000',
-        'circle-stroke-color': '#000',
-        'circle-stroke-width': 1,
-        'circle-radius': 4,
-        ...paint,
+    layers: [
+      {
+        id: 'c',
+        type: 'circle',
+        source: 'v',
+        'source-layer': 'a',
+        paint: {
+          'circle-color': '#000',
+          'circle-stroke-color': '#000',
+          'circle-stroke-width': 1,
+          'circle-radius': 4,
+          ...paint,
+        },
       },
-    }],
+    ],
   }
 }
 
@@ -38,23 +40,22 @@ describe('circle-blur supported (constant numeric)', () => {
     // Utility must appear in the emitted xgis source.
     expect(src).toContain('circle-blur-0.5')
     // No old-style gap warning about Plan §4 / per-feature blur attr.
-    expect(warnings.some(s => s.includes('Plan §4') && s.includes('circle-blur'))).toBe(false)
+    expect(warnings.some((s) => s.includes('Plan §4') && s.includes('circle-blur'))).toBe(false)
     // Should NOT surface in the generic ignored-properties blob.
-    expect(warnings.some(s =>
-      s.includes('ignored properties')
-      && s.includes('circle-blur'),
-    )).toBe(false)
+    expect(
+      warnings.some((s) => s.includes('ignored properties') && s.includes('circle-blur')),
+    ).toBe(false)
   })
 
   it('circle-blur: 0 → silent (no utility, no warning)', () => {
     const { src, warnings } = outputOf(buildCircle({ 'circle-blur': 0 }))
     expect(src).not.toContain('circle-blur')
-    expect(warnings.some(s => s.includes('circle-blur'))).toBe(false)
+    expect(warnings.some((s) => s.includes('circle-blur'))).toBe(false)
   })
 
   it('layer WITHOUT circle-blur → no utility, no warning', () => {
     const { src, warnings } = outputOf(buildCircle({}))
     expect(src).not.toContain('circle-blur')
-    expect(warnings.some(s => s.includes('circle-blur'))).toBe(false)
+    expect(warnings.some((s) => s.includes('circle-blur'))).toBe(false)
   })
 })

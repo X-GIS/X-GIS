@@ -58,10 +58,10 @@ function resolvedRotate(
 ): number | undefined {
   const eff = resolveLabelEffectiveDef(
     makeDef(rotationAlignment),
-    undefined,        // no LabelShapes bundle — exercise the static path
-    8,                // z
-    0,                // elapsedMs
-    null,             // layerFill
+    undefined, // no LabelShapes bundle — exercise the static path
+    8, // z
+    0, // elapsedMs
+    null, // layerFill
     cameraBearing,
   )
   return eff.rotate
@@ -71,9 +71,7 @@ describe('text-rotation-alignment point-label rotation wiring (GPU-free)', () =>
   it("'map' bakes -cameraBearing into the point-label rotate", () => {
     // The wire: rotationAlignment 'map' → effectiveDef.rotate gains
     // (-cameraBearing). Break `-cameraBearing` → 0 and this fails.
-    expect(resolvedRotate('map', CAMERA_BEARING)).toBeCloseTo(
-      BASE_ROTATE - CAMERA_BEARING, 6,
-    )
+    expect(resolvedRotate('map', CAMERA_BEARING)).toBeCloseTo(BASE_ROTATE - CAMERA_BEARING, 6)
   })
 
   it("'map' rotation tracks the camera bearing (non-vacuous: value depends on bearing)", () => {

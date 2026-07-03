@@ -8,7 +8,8 @@ import { test, expect, type Page } from '@playwright/test'
 async function waitForXgisReady(page: Page) {
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
 }
 
@@ -60,6 +61,8 @@ test('natural_earth demo: single world', async ({ page }) => {
   test.setTimeout(45_000)
   await page.setViewportSize({ width: 1280, height: 720 })
   const stats = await loadAndDump(page, 'fixture_projection_natural_earth', '')
-  console.log(`[natural_earth] drawCalls=${stats.drawCalls} sources=${JSON.stringify(stats.sources)}`)
+  console.log(
+    `[natural_earth] drawCalls=${stats.drawCalls} sources=${JSON.stringify(stats.sources)}`,
+  )
   expect(stats.drawCalls, 'natural_earth demo should still draw tiles').toBeGreaterThan(0)
 })

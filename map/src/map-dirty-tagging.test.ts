@@ -103,7 +103,9 @@ describe('S14 granular dirty tagging — text overlays tag LABEL only', () => {
     // Canvas2D system fallback before a WOFF FontFace lands must re-raster +
     // repaint when the font arrives. Without the fontsReady→markLabelDirty
     // wiring an idle map keeps the fallback letterforms forever.
-    const map = new XGISMap(mockCanvas(), { fonts: [{ family: 'X-Test', data: new ArrayBuffer(4) }] })
+    const map = new XGISMap(mockCanvas(), {
+      fonts: [{ family: 'X-Test', data: new ArrayBuffer(4) }],
+    })
     const s = clean(map)
     await map.fontsReady
     await Promise.resolve() // flush the wired .then microtask

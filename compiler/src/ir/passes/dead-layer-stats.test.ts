@@ -28,20 +28,26 @@ function lowerFixture(path: string): Scene {
 }
 
 describe('dead-layer-elim — fixture statistics', () => {
-  for (const fixture of ['openfreemap-bright.json', 'openfreemap-liberty.json', 'openfreemap-positron.json']) {
+  for (const fixture of [
+    'openfreemap-bright.json',
+    'openfreemap-liberty.json',
+    'openfreemap-positron.json',
+  ]) {
     it(`reports drop counts on ${fixture}`, () => {
       const before = lowerFixture(join(FIX, fixture))
       const after = deadLayerElimPass.run(before)
       const dropped = before.renderNodes.length - after.renderNodes.length
       const droppedNames: string[] = []
-      const liveNames = new Set(after.renderNodes.map(n => n.name))
+      const liveNames = new Set(after.renderNodes.map((n) => n.name))
       for (const n of before.renderNodes) {
         if (!liveNames.has(n.name) && droppedNames.length < 10) {
           droppedNames.push(n.name)
         }
       }
       // eslint-disable-next-line no-console
-      console.log(`[${fixture}] ${before.renderNodes.length} → ${after.renderNodes.length} (dropped ${dropped}). examples: ${droppedNames.join(', ')}`)
+      console.log(
+        `[${fixture}] ${before.renderNodes.length} → ${after.renderNodes.length} (dropped ${dropped}). examples: ${droppedNames.join(', ')}`,
+      )
     })
   }
 })

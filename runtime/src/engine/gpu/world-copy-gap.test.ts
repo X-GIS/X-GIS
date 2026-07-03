@@ -80,7 +80,7 @@ describe('enumerateWorldCopies — iter 139 low-zoom gate (user-bug pin)', () =>
   // street zoom because iter 127 enumerated ±2 world copies at EVERY
   // zoom. iter 139 gates to z<=WORLD_COPY_MAX_ZOOM. These cases lock
   // the predicate so the regression can't silently return.
-  const PERIODIC = [1, 2, 6]   // equirect, natural_earth, oblique-merc
+  const PERIODIC = [1, 2, 6] // equirect, natural_earth, oblique-merc
   const NON_PERIODIC = [0, 3, 4, 5, 7] // merc(SSE path), ortho, azi, stereo, globe
 
   it('periodic projections enumerate copies at/below the zoom gate', () => {
@@ -123,7 +123,10 @@ describe('iter-322 worldCopiesFor ↔ enumerateWorldCopies cross-consistency', (
     // Otherwise the wrap walk finds no neighbour coords to emit.
     for (const p of ALL_PROJ) {
       if (enumerateWorldCopies(p, 0)) {
-        expect(worldCopiesFor(p).length, `proj ${p} enumerates but is single-world`).toBeGreaterThan(1)
+        expect(
+          worldCopiesFor(p).length,
+          `proj ${p} enumerates but is single-world`,
+        ).toBeGreaterThan(1)
       }
     }
   })

@@ -7,9 +7,7 @@
 
 import { resolveColor } from '../tokens/colors'
 import { colorConstant, hexToRgba } from './render-node'
-import {
-  extractInterpolateZoomColorStops,
-} from './lower-helpers'
+import { extractInterpolateZoomColorStops } from './lower-helpers'
 import type { BindingHandler } from './lower-bindings'
 
 /** Binding-form `fill-[…]` arm (zoom-interp color, data-driven match). */
@@ -36,9 +34,10 @@ export const fillBindingHandler: BindingHandler = {
         if (hex) rgbaStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
       }
       if (rgbaStops.length > 0) {
-        acc.fill = colorInterp.base !== 1
-          ? { kind: 'zoom-interpolated', stops: rgbaStops, base: colorInterp.base }
-          : { kind: 'zoom-interpolated', stops: rgbaStops }
+        acc.fill =
+          colorInterp.base !== 1
+            ? { kind: 'zoom-interpolated', stops: rgbaStops, base: colorInterp.base }
+            : { kind: 'zoom-interpolated', stops: rgbaStops }
         return true
       }
     }
@@ -70,11 +69,17 @@ export const fillBindingHandler: BindingHandler = {
  *  amid the utility ladder; the assembler places them in original order. */
 export const fillAntialiasUtilHandler: BindingHandler = {
   match: (ctx) => ctx.name === 'fill-antialias-false',
-  apply: (ctx) => { ctx.acc.fillAntialias = false; return true },
+  apply: (ctx) => {
+    ctx.acc.fillAntialias = false
+    return true
+  },
 }
 export const fillExtrusionVerticalGradientUtilHandler: BindingHandler = {
   match: (ctx) => ctx.name === 'fill-extrusion-vertical-gradient-false',
-  apply: (ctx) => { ctx.acc.fillExtrusionVerticalGradient = false; return true },
+  apply: (ctx) => {
+    ctx.acc.fillExtrusionVerticalGradient = false
+    return true
+  },
 }
 
 /** Utility-form fill-pattern + generic fill-<color>. fill-pattern MUST precede

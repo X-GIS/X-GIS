@@ -8,14 +8,25 @@
 // so a pipeline with no built Material twin throws (the raw fallback draw + kill-switch were deleted).
 
 import type { RhiDevice } from '@xgis/engine'
-import { wrapWebGpuBindGroupLayout, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuPass } from '@xgis/engine'
+import {
+  wrapWebGpuBindGroupLayout,
+  wrapWebGpuBuffer,
+  wrapWebGpuBindGroup,
+  wrapWebGpuPass,
+} from '@xgis/engine'
 import { Material, executeItems } from './material'
 
 /** The per-tile GPUArena fill buffers recordFillDraw reads (structural — a VTR GPUTile satisfies it). */
 export interface FillTileBuffers {
-  vertexBuffer: GPUBuffer; polyVertexOffset: number; polyVertexByteLength: number
-  zBuffer: GPUBuffer | null; zBufferOffset: number; zBufferByteLength: number
-  indexBuffer: GPUBuffer; polyIndexOffset: number; polyIndexByteLength: number
+  vertexBuffer: GPUBuffer
+  polyVertexOffset: number
+  polyVertexByteLength: number
+  zBuffer: GPUBuffer | null
+  zBufferOffset: number
+  zBufferByteLength: number
+  indexBuffer: GPUBuffer
+  polyIndexOffset: number
+  polyIndexByteLength: number
   indexCount: number
 }
 
@@ -23,7 +34,12 @@ export interface FillTileBuffers {
 export interface FillRhiState {
   flat: Material | null
   ground: Material | null
-  pipes: { write: GPURenderPipeline; test: GPURenderPipeline; groundWrite: GPURenderPipeline; groundTest: GPURenderPipeline } | null
+  pipes: {
+    write: GPURenderPipeline
+    test: GPURenderPipeline
+    groundWrite: GPURenderPipeline
+    groundTest: GPURenderPipeline
+  } | null
   /** Per-STYLE (data-driven) fills compile their own shader → their own pipeline; this LIVE map
    *  (grown by PipelineFactory as layers are added) routes each per-style fill pipeline to its
    *  Material twin + variant. Checked before the default `pipes` above. */
@@ -32,16 +48,24 @@ export interface FillRhiState {
    *  twins. Routed on the bindZBuffer path. The *NoPick fields twin the pointer-events:none extrude
    *  pipelines (only built when picking is on; null otherwise). null = extrude stays raw. */
   extrude: {
-    mat: Material; write: GPURenderPipeline; test: GPURenderPipeline
-    matNoPick?: Material; writeNoPick?: GPURenderPipeline; testNoPick?: GPURenderPipeline
+    mat: Material
+    write: GPURenderPipeline
+    test: GPURenderPipeline
+    matNoPick?: Material
+    writeNoPick?: GPURenderPipeline
+    testNoPick?: GPURenderPipeline
   } | null
   /** Fill-pattern (fs_fill_pattern) twins of the native fillPipelinePattern{Ground,Extruded}* pipelines.
    *  ground = cull-none / depth-off stencil (twins fillPipelinePatternGround + fallback); extruded =
    *  per-feature height / depth-write stencil (twins fillPipelinePatternExtruded + fallback). Routed
    *  before the raw else when a show resolves fillPatternUV. null = pattern stays raw. */
   pattern: {
-    ground: Material; groundWrite: GPURenderPipeline; groundTest: GPURenderPipeline
-    extruded: Material; extrudedWrite: GPURenderPipeline; extrudedTest: GPURenderPipeline
+    ground: Material
+    groundWrite: GPURenderPipeline
+    groundTest: GPURenderPipeline
+    extruded: Material
+    extrudedWrite: GPURenderPipeline
+    extrudedTest: GPURenderPipeline
   } | null
 }
 
@@ -70,32 +94,75 @@ export interface FillMaterialInputs {
 
 const toMatVB = (l: GPUVertexBufferLayout) => ({
   stride: Number(l.arrayStride),
-  attributes: Array.from(l.attributes).map((a) => ({ location: a.shaderLocation, offset: a.offset, format: a.format as string })),
+  attributes: Array.from(l.attributes).map((a) => ({
+    location: a.shaderLocation,
+    offset: a.offset,
+    format: a.format as string,
+  })),
 })
 
 /** Build the flat + ground fill Material twins for one shader (default or per-style). Pickable: the
  *  pick target writeMask is 0xf (the polygon fragment writes the feature id). */
-export function buildFlatFillMaterials(inp: FillMaterialInputs): { flat: Material; ground: Material } {
+export function buildFlatFillMaterials(inp: FillMaterialInputs): {
+  flat: Material
+  ground: Material
+} {
   const rhi: RhiDevice = inp.rhi
   const fmt = inp.format as 'bgra8unorm'
   const groups = [wrapWebGpuBindGroupLayout(inp.bindGroupLayout)]
   const vertexBuffers = [toMatVB(inp.vertexLayout)]
   const colorTargets = inp.pickEnabled
-    ? [{ format: fmt, blend: 'alpha' as const }, { format: 'rg32uint' as const, writeMask: inp.pickWriteMask ?? 0xf }]
+    ? [
+        { format: fmt, blend: 'alpha' as const },
+        { format: 'rg32uint' as const, writeMask: inp.pickWriteMask ?? 0xf },
+      ]
     : [{ format: fmt, blend: 'alpha' as const }]
-  const base = { shader: inp.shader, vsCode: inp.vsCode, fsCode: inp.fsCode, vsEntry: 'vs_main_ecef', fsEntry: 'fs_fill', format: fmt, sampleCount: inp.sampleCount, groups, vertexBuffers, colorTargets }
+  const base = {
+    shader: inp.shader,
+    vsCode: inp.vsCode,
+    fsCode: inp.fsCode,
+    vsEntry: 'vs_main_ecef',
+    fsEntry: 'fs_fill',
+    format: fmt,
+    sampleCount: inp.sampleCount,
+    groups,
+    vertexBuffers,
+    colorTargets,
+  }
   const flat = new Material(rhi, {
-    ...base, cullMode: 'none',
+    ...base,
+    cullMode: 'none',
     variants: [
-      { depthCompare: 'less-equal', depthWrite: true, stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff }, label: 'fill-flat-write-rhi' },
-      { depthCompare: 'less-equal', depthWrite: true, stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff }, label: 'fill-flat-test-rhi' },
+      {
+        depthCompare: 'less-equal',
+        depthWrite: true,
+        stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff },
+        label: 'fill-flat-write-rhi',
+      },
+      {
+        depthCompare: 'less-equal',
+        depthWrite: true,
+        stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff },
+        label: 'fill-flat-test-rhi',
+      },
     ],
   })
   const ground = new Material(rhi, {
-    ...base, cullMode: 'back',
+    ...base,
+    cullMode: 'back',
     variants: [
-      { depthCompare: 'always', depthWrite: false, stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff }, label: 'fill-ground-write-rhi' },
-      { depthCompare: 'always', depthWrite: false, stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff }, label: 'fill-ground-test-rhi' },
+      {
+        depthCompare: 'always',
+        depthWrite: false,
+        stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff },
+        label: 'fill-ground-write-rhi',
+      },
+      {
+        depthCompare: 'always',
+        depthWrite: false,
+        stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff },
+        label: 'fill-ground-test-rhi',
+      },
     ],
   })
   return { flat, ground }
@@ -107,17 +174,33 @@ export function buildFlatFillMaterials(inp: FillMaterialInputs): { flat: Materia
 export function buildExtrudeMaterial(inp: FillMaterialInputs): Material {
   const fmt = inp.format as 'bgra8unorm'
   return new Material(inp.rhi, {
-    shader: inp.shader, vsEntry: 'vs_main_ecef_extruded', fsEntry: 'fs_fill_extrude',
-    format: fmt, sampleCount: inp.sampleCount,
+    shader: inp.shader,
+    vsEntry: 'vs_main_ecef_extruded',
+    fsEntry: 'fs_fill_extrude',
+    format: fmt,
+    sampleCount: inp.sampleCount,
     groups: [wrapWebGpuBindGroupLayout(inp.bindGroupLayout)],
     vertexBuffers: [toMatVB(inp.vertexLayout)],
     colorTargets: inp.pickEnabled
-      ? [{ format: fmt, blend: 'alpha' }, { format: 'rg32uint', writeMask: inp.pickWriteMask ?? 0xf }]
+      ? [
+          { format: fmt, blend: 'alpha' },
+          { format: 'rg32uint', writeMask: inp.pickWriteMask ?? 0xf },
+        ]
       : [{ format: fmt, blend: 'alpha' }],
     cullMode: 'none',
     variants: [
-      { depthCompare: 'less-equal', depthWrite: true, stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff }, label: 'fill-extrude-write-rhi' },
-      { depthCompare: 'less-equal', depthWrite: true, stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff }, label: 'fill-extrude-test-rhi' },
+      {
+        depthCompare: 'less-equal',
+        depthWrite: true,
+        stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff },
+        label: 'fill-extrude-write-rhi',
+      },
+      {
+        depthCompare: 'less-equal',
+        depthWrite: true,
+        stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff },
+        label: 'fill-extrude-test-rhi',
+      },
     ],
   })
 }
@@ -128,27 +211,67 @@ export function buildExtrudeMaterial(inp: FillMaterialInputs): Material {
  *  mirrors buildExtrudeMaterial (vs_main_ecef_extruded, the POLYGON_EXTRUDED vertex layout, STENCIL_WRITE
  *  / STENCIL_TEST). Both swap fsEntry to 'fs_fill_pattern' so the sprite atlas is sampled at the
  *  world-anchored UV. Variant 0 = STENCIL_WRITE(_NO_DEPTH) (main pipeline), 1 = the stencil-test fallback. */
-export function buildPatternFillMaterials(inp: FillMaterialInputs): { patternGround: Material; patternExtruded: Material } {
+export function buildPatternFillMaterials(inp: FillMaterialInputs): {
+  patternGround: Material
+  patternExtruded: Material
+} {
   const rhi: RhiDevice = inp.rhi
   const fmt = inp.format as 'bgra8unorm'
   const groups = [wrapWebGpuBindGroupLayout(inp.bindGroupLayout)]
   const colorTargets = inp.pickEnabled
-    ? [{ format: fmt, blend: 'alpha' as const }, { format: 'rg32uint' as const, writeMask: inp.pickWriteMask ?? 0xf }]
+    ? [
+        { format: fmt, blend: 'alpha' as const },
+        { format: 'rg32uint' as const, writeMask: inp.pickWriteMask ?? 0xf },
+      ]
     : [{ format: fmt, blend: 'alpha' as const }]
   const patternGround = new Material(rhi, {
-    shader: inp.shader, vsEntry: 'vs_main_ecef', fsEntry: 'fs_fill_pattern', format: fmt, sampleCount: inp.sampleCount,
-    groups, vertexBuffers: [toMatVB(inp.vertexLayout)], colorTargets, cullMode: 'none',
+    shader: inp.shader,
+    vsEntry: 'vs_main_ecef',
+    fsEntry: 'fs_fill_pattern',
+    format: fmt,
+    sampleCount: inp.sampleCount,
+    groups,
+    vertexBuffers: [toMatVB(inp.vertexLayout)],
+    colorTargets,
+    cullMode: 'none',
     variants: [
-      { depthCompare: 'always', depthWrite: false, stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff }, label: 'fill-pattern-ground-write-rhi' },
-      { depthCompare: 'always', depthWrite: false, stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff }, label: 'fill-pattern-ground-test-rhi' },
+      {
+        depthCompare: 'always',
+        depthWrite: false,
+        stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff },
+        label: 'fill-pattern-ground-write-rhi',
+      },
+      {
+        depthCompare: 'always',
+        depthWrite: false,
+        stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff },
+        label: 'fill-pattern-ground-test-rhi',
+      },
     ],
   })
   const patternExtruded = new Material(rhi, {
-    shader: inp.shader, vsEntry: 'vs_main_ecef_extruded', fsEntry: 'fs_fill_pattern', format: fmt, sampleCount: inp.sampleCount,
-    groups, vertexBuffers: [toMatVB(inp.extrudedVertexLayout ?? inp.vertexLayout)], colorTargets, cullMode: 'none',
+    shader: inp.shader,
+    vsEntry: 'vs_main_ecef_extruded',
+    fsEntry: 'fs_fill_pattern',
+    format: fmt,
+    sampleCount: inp.sampleCount,
+    groups,
+    vertexBuffers: [toMatVB(inp.extrudedVertexLayout ?? inp.vertexLayout)],
+    colorTargets,
+    cullMode: 'none',
     variants: [
-      { depthCompare: 'less-equal', depthWrite: true, stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff }, label: 'fill-pattern-extrude-write-rhi' },
-      { depthCompare: 'less-equal', depthWrite: true, stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff }, label: 'fill-pattern-extrude-test-rhi' },
+      {
+        depthCompare: 'less-equal',
+        depthWrite: true,
+        stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff },
+        label: 'fill-pattern-extrude-write-rhi',
+      },
+      {
+        depthCompare: 'less-equal',
+        depthWrite: true,
+        stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff },
+        label: 'fill-pattern-extrude-test-rhi',
+      },
     ],
   })
   return { patternGround, patternExtruded }
@@ -189,20 +312,38 @@ export function recordFillDraw(
       // rest match the default-shader flat/ground pipes.
       let ps = eff.perStyle?.get(pipeline)
       if (!ps && eff.perStyle && pipeline.label) {
-        for (const [k, v] of eff.perStyle) { if (eq(k)) { ps = v; break } }
+        for (const [k, v] of eff.perStyle) {
+          if (eq(k)) {
+            ps = v
+            break
+          }
+        }
       }
       const p = eff.pipes
-      mat = ps ? ps.mat
-        : (p && (eq(p.write) || eq(p.test))) ? eff.flat
-        : (p && (eq(p.groundWrite) || eq(p.groundTest))) ? eff.ground : null
-      variant = ps ? ps.variant
-        : (p && (eq(p.write) || eq(p.groundWrite))) ? 0
-        : (p && (eq(p.test) || eq(p.groundTest))) ? 1 : -1
+      mat = ps
+        ? ps.mat
+        : p && (eq(p.write) || eq(p.test))
+          ? eff.flat
+          : p && (eq(p.groundWrite) || eq(p.groundTest))
+            ? eff.ground
+            : null
+      variant = ps
+        ? ps.variant
+        : p && (eq(p.write) || eq(p.groundWrite))
+          ? 0
+          : p && (eq(p.test) || eq(p.groundTest))
+            ? 1
+            : -1
       // Fill-pattern ground twin (fs_fill_pattern) — checked after the solid flat/ground pipes.
       if (!mat && eff.pattern) {
         const pat = eff.pattern
-        if (eq(pat.groundWrite)) { mat = pat.ground; variant = 0 }
-        else if (eq(pat.groundTest)) { mat = pat.ground; variant = 1 }
+        if (eq(pat.groundWrite)) {
+          mat = pat.ground
+          variant = 0
+        } else if (eq(pat.groundTest)) {
+          mat = pat.ground
+          variant = 1
+        }
       }
     } else {
       // Opaque 3D extrude: match the two extrude pipelines. The per-feature height rides in the
@@ -211,30 +352,57 @@ export function recordFillDraw(
       // here: OIT-extrude is never scheduled and there is no per-style-extrude pipeline.)
       const e = eff.extrude
       if (e) {
-        if (eq(e.write)) { mat = e.mat; variant = 0 }
-        else if (eq(e.test)) { mat = e.mat; variant = 1 }
-        else if (e.matNoPick && eq(e.writeNoPick)) { mat = e.matNoPick; variant = 0 }
-        else if (e.matNoPick && eq(e.testNoPick)) { mat = e.matNoPick; variant = 1 }
+        if (eq(e.write)) {
+          mat = e.mat
+          variant = 0
+        } else if (eq(e.test)) {
+          mat = e.mat
+          variant = 1
+        } else if (e.matNoPick && eq(e.writeNoPick)) {
+          mat = e.matNoPick
+          variant = 0
+        } else if (e.matNoPick && eq(e.testNoPick)) {
+          mat = e.matNoPick
+          variant = 1
+        }
       }
       // Fill-pattern extruded twin (fs_fill_pattern) — checked after the solid extrude.
       if (!mat && eff.pattern) {
         const pat = eff.pattern
-        if (eq(pat.extrudedWrite)) { mat = pat.extruded; variant = 0 }
-        else if (eq(pat.extrudedTest)) { mat = pat.extruded; variant = 1 }
+        if (eq(pat.extrudedWrite)) {
+          mat = pat.extruded
+          variant = 0
+        } else if (eq(pat.extrudedTest)) {
+          mat = pat.extruded
+          variant = 1
+        }
       }
     }
     if (mat && variant >= 0) {
-      const g = globalThis as { __xgisVtrFillRhiDraws?: number }; g.__xgisVtrFillRhiDraws = (g.__xgisVtrFillRhiDraws ?? 0) + 1
-      executeItems(mat, wrapWebGpuPass(encoder), [{
-        variant,
-        bindGroups: [wrapWebGpuBindGroup(tileBg)],
-        dynamicOffsets: [[slotOffset]],
-        vertex: wrapWebGpuBuffer(cached.vertexBuffer), vertexOffset: cached.polyVertexOffset, vertexSize: cached.polyVertexByteLength,
-        index: { buffer: wrapWebGpuBuffer(cached.indexBuffer), format: 'uint32', offset: cached.polyIndexOffset, size: cached.polyIndexByteLength },
-        count: cached.indexCount, indexed: true,
-      }])
+      const g = globalThis as { __xgisVtrFillRhiDraws?: number }
+      g.__xgisVtrFillRhiDraws = (g.__xgisVtrFillRhiDraws ?? 0) + 1
+      executeItems(mat, wrapWebGpuPass(encoder), [
+        {
+          variant,
+          bindGroups: [wrapWebGpuBindGroup(tileBg)],
+          dynamicOffsets: [[slotOffset]],
+          vertex: wrapWebGpuBuffer(cached.vertexBuffer),
+          vertexOffset: cached.polyVertexOffset,
+          vertexSize: cached.polyVertexByteLength,
+          index: {
+            buffer: wrapWebGpuBuffer(cached.indexBuffer),
+            format: 'uint32',
+            offset: cached.polyIndexOffset,
+            size: cached.polyIndexByteLength,
+          },
+          count: cached.indexCount,
+          indexed: true,
+        },
+      ])
       return
     }
   }
-  throw new Error(`recordFillDraw: fill pipeline has no RHI Material twin — every fill draw must route through the RHI seam (§4 closed). label=${(pipeline as GPURenderPipeline).label ?? '?'} bindZBuffer=${bindZBuffer}`)
+  throw new Error(
+    `recordFillDraw: fill pipeline has no RHI Material twin — every fill draw must route through the RHI seam (§4 closed). label=${(pipeline as GPURenderPipeline).label ?? '?'} bindZBuffer=${bindZBuffer}`,
+  )
 }

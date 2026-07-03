@@ -27,7 +27,13 @@ const fixture = readFileSync(resolve(__dirname, '__convert-fixtures/bright.json'
 // z14 Tokyo — the on-device measurement target (#14/35.68/139.76).
 const HASH = '#14/35.68/139.76/0/0'
 
-interface Phase { name: string; meanMs: number; perFrameMs: number; maxFrameMs: number; samples: number }
+interface Phase {
+  name: string
+  meanMs: number
+  perFrameMs: number
+  maxFrameMs: number
+  samples: number
+}
 
 function pct(arr: number[], p: number): number {
   if (arr.length === 0) return 0
@@ -36,7 +42,10 @@ function pct(arr: number[], p: number): number {
 }
 
 async function setupPage(page: Page): Promise<void> {
-  page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log(`[page:${m.type()}] ${m.text()}`) })
+  page.on('console', (m) => {
+    if (m.type() === 'error' || m.type() === 'warning')
+      console.log(`[page:${m.type()}] ${m.text()}`)
+  })
   page.on('pageerror', (e) => console.log(`[pageerror] ${e.message}`))
   const xgis = convertMapboxStyle(fixture)
   await page.addInitScript((src: string) => {
@@ -49,7 +58,8 @@ async function setupPage(page: Page): Promise<void> {
   // so first-frame (which sets __xgisReady) can take a while headlessly.
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 180_000 },
+    null,
+    { timeout: 180_000 },
   )
   // Settle the cold-start tile cascade so we measure the sweep, not first paint.
   await page.waitForTimeout(8_000)
@@ -59,15 +69,29 @@ async function setupPage(page: Page): Promise<void> {
  *  rAF deltas. Mirrors the on-device «GPU/CPU 판정» sweep exactly. */
 async function runSweep(page: Page, ms: number): Promise<number[]> {
   return page.evaluate(async (durationMs) => {
-    interface Cam { zoom: number; centerX: number; centerY: number; pitch: number; bearing: number }
-    interface M { getCamera: () => Cam; invalidate: () => void }
+    interface Cam {
+      zoom: number
+      centerX: number
+      centerY: number
+      pitch: number
+      bearing: number
+    }
+    interface M {
+      getCamera: () => Cam
+      invalidate: () => void
+    }
     const map = (window as unknown as { __xgisMap?: M }).__xgisMap
     if (!map) throw new Error('__xgisMap not exposed')
-    const phases = (window as unknown as { __xgisPerfPhases?: { setEnabled: (b: boolean) => void; resetPhaseTimings: () => void } }).__xgisPerfPhases
+    const phases = (
+      window as unknown as {
+        __xgisPerfPhases?: { setEnabled: (b: boolean) => void; resetPhaseTimings: () => void }
+      }
+    ).__xgisPerfPhases
     phases?.setEnabled(true)
     phases?.resetPhaseTimings()
     const cam = map.getCamera()
-    const br0 = cam.bearing, p0 = cam.pitch
+    const br0 = cam.bearing,
+      p0 = cam.pitch
     const frames: number[] = []
     return await new Promise<number[]>((resolve) => {
       const start = performance.now()
@@ -77,7 +101,10 @@ async function runSweep(page: Page, ms: number): Promise<number[]> {
         frames.push(now - last)
         last = now
         const elapsed = now - start
-        if (elapsed >= durationMs) { resolve(frames); return }
+        if (elapsed >= durationMs) {
+          resolve(frames)
+          return
+        }
         const t = elapsed / durationMs
         const ph = t < 0.5 ? t * 2 : (1 - t) * 2
         cam.bearing = br0 + t * 360
@@ -92,7 +119,8 @@ async function runSweep(page: Page, ms: number): Promise<number[]> {
 
 async function readPhases(page: Page): Promise<Phase[]> {
   return page.evaluate(() => {
-    const api = (window as unknown as { __xgisPerfPhases?: { getPhaseAverages: () => Phase[] } }).__xgisPerfPhases
+    const api = (window as unknown as { __xgisPerfPhases?: { getPhaseAverages: () => Phase[] } })
+      .__xgisPerfPhases
     return api?.getPhaseAverages() ?? []
   }) as Promise<Phase[]>
 }
@@ -106,27 +134,34 @@ test('Bright high-pitch CPU burst — z14 Tokyo rotate+pitch', async ({ page }) 
   const phases = await readPhases(page)
 
   const fr = frames.slice(2)
-  const fP50 = pct(fr, 50), fP95 = pct(fr, 95)
+  const fP50 = pct(fr, 50),
+    fP95 = pct(fr, 95)
   const fMax = fr.reduce((a, b) => Math.max(a, b), 0)
 
   const byMax = [...phases].sort((a, b) => b.maxFrameMs - a.maxFrameMs)
-  const get = (n: string): Phase | undefined => phases.find(p => p.name === n)
-  const opaque = phases.filter(p => /encoder\.pass\.opaque/.test(p.name))
+  const get = (n: string): Phase | undefined => phases.find((p) => p.name === n)
+  const opaque = phases.filter((p) => /encoder\.pass\.opaque/.test(p.name))
   const opaqueMax = opaque.reduce((a, p) => Math.max(a, p.maxFrameMs), 0)
 
   /* eslint-disable no-console */
   console.log('\n=== Bright high-pitch CPU burst (z14 Tokyo, rotate+pitch 6s) ===')
-  console.log(`frame  p50=${fP50.toFixed(1)} p95=${fP95.toFixed(1)} worst=${fMax.toFixed(0)}ms  (${(1000 / fP50).toFixed(0)}fps, ${fr.length}f)`)
+  console.log(
+    `frame  p50=${fP50.toFixed(1)} p95=${fP95.toFixed(1)} worst=${fMax.toFixed(0)}ms  (${(1000 / fP50).toFixed(0)}fps, ${fr.length}f)`,
+  )
   console.log(`opaque pass worst-frame MAX = ${opaqueMax.toFixed(1)}ms`)
   console.log('\nphase  WORST-frame ms  (mean)   — sorted by worst frame:')
   for (const p of byMax.slice(0, 18)) {
-    console.log(`  ${p.maxFrameMs.toFixed(1).padStart(7)}   ${p.perFrameMs.toFixed(2).padStart(6)}   ${p.name}`)
+    console.log(
+      `  ${p.maxFrameMs.toFixed(1).padStart(7)}   ${p.perFrameMs.toFixed(2).padStart(6)}   ${p.name}`,
+    )
   }
   const subMarks = ['vtr.upload', 'vtr.evict', 'uniform-ring.grow']
   console.log('\nopaque burst attribution (B1 sub-marks):')
   for (const n of subMarks) {
     const p = get(n)
-    console.log(`  ${n.padEnd(20)} worst=${(p?.maxFrameMs ?? 0).toFixed(1).padStart(6)}ms  perFrame=${(p?.perFrameMs ?? 0).toFixed(2)}ms`)
+    console.log(
+      `  ${n.padEnd(20)} worst=${(p?.maxFrameMs ?? 0).toFixed(1).padStart(6)}ms  perFrame=${(p?.perFrameMs ?? 0).toFixed(2)}ms`,
+    )
   }
   /* eslint-enable no-console */
 })

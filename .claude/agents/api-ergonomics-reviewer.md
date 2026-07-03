@@ -75,6 +75,7 @@ incidents around Proxy traps and eager module-scope reflection (dim 8).
 Read the referenced issues/PRs when reviewing those areas specifically.
 
 Output: findings ranked by severity with file:line + the dimension violated
-+ concrete failure/friction scenario + fix direction. Explicitly state when
-the pit-of-success and first-contact tests PASS — a clean bill is
-information too.
+
+- concrete failure/friction scenario + fix direction. Explicitly state when
+  the pit-of-success and first-contact tests PASS — a clean bill is
+  information too.

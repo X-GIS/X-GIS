@@ -62,7 +62,10 @@ function installMockRaf(): MockRaf {
     cancelled,
     fire(handle: number) {
       const cb = callbacks.get(handle)
-      if (cb) { callbacks.delete(handle); cb(performance.now()) }
+      if (cb) {
+        callbacks.delete(handle)
+        cb(performance.now())
+      }
     },
   }
 }
@@ -75,7 +78,8 @@ function makeDeps(pickAt: DispatcherDeps['pickAt']): DispatcherDeps {
     getLayerById: () => null,
     buildFeature: () => null,
     clientToLngLat: () => null,
-    getCanvasRect: () => ({ left: 0, top: 0, right: 256, bottom: 256, width: 256, height: 256 } as DOMRect),
+    getCanvasRect: () =>
+      ({ left: 0, top: 0, right: 256, bottom: 256, width: 256, height: 256 }) as DOMRect,
     dispatchMapEvent: () => {},
     mapHasListeners: () => false,
   }
@@ -85,13 +89,21 @@ function makeDeps(pickAt: DispatcherDeps['pickAt']): DispatcherDeps {
 
 describe('EventDispatcher.destroy(): cancels the move-coalescing rAF', () => {
   let raf: MockRaf
-  beforeEach(() => { raf = installMockRaf() })
-  afterEach(() => { vi.unstubAllGlobals() })
+  beforeEach(() => {
+    raf = installMockRaf()
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
 
   it('a pending move-rAF is cancelled (handle passed to cancelAnimationFrame) and never fires pickAt', () => {
     const pickAt = vi.fn(async () => null)
     const d = new EventDispatcher(makeDeps(pickAt))
-    const internals = d as unknown as { moveRafHandle: number | null; moveLatest: unknown; hoverPrev: unknown }
+    const internals = d as unknown as {
+      moveRafHandle: number | null
+      moveLatest: unknown
+      hoverPrev: unknown
+    }
 
     // Schedule a move — handle stored, rAF NOT yet fired.
     d.handleMove(10, 20, {} as PointerEvent)
@@ -116,7 +128,10 @@ describe('EventDispatcher.destroy(): cancels the move-coalescing rAF', () => {
 
   it('is idempotent and a no-op when no move was ever scheduled', () => {
     const d = new EventDispatcher(makeDeps(vi.fn(async () => null)))
-    expect(() => { d.destroy(); d.destroy() }).not.toThrow()
+    expect(() => {
+      d.destroy()
+      d.destroy()
+    }).not.toThrow()
     expect(raf.cancelAnimationFrame).not.toHaveBeenCalled()
   })
 })
@@ -172,7 +187,9 @@ describe('XGISMap.destroy(): RAF + global teardown', () => {
     }
     vi.stubGlobal('window', win)
   })
-  afterEach(() => { vi.unstubAllGlobals() })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
 
   it('cancels _pendingFlushHandle, clears _pendingPatches, tears down the dispatcher, clears window globals; pickAt → null', async () => {
     const map = new XGISMap(stubCanvas())
@@ -181,7 +198,9 @@ describe('XGISMap.destroy(): RAF + global teardown', () => {
     // (2) Arm a pending flush rAF + a queued patch, as updateFeature would.
     //     Go through window.requestAnimationFrame so the handle matches the
     //     primitive scheduleFlushPendingUpdates uses (window present → rAF).
-    m._pendingFlushHandle = (win.requestAnimationFrame as MockRaf['requestAnimationFrame'])(() => {}) as unknown as number
+    m._pendingFlushHandle = (win.requestAnimationFrame as MockRaf['requestAnimationFrame'])(
+      () => {},
+    ) as unknown as number
     m._pendingPatches.set('src', new Map())
     const flushHandle = m._pendingFlushHandle
 

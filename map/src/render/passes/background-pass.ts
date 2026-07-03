@@ -63,7 +63,9 @@ class BackgroundPass implements RenderPass {
 
   // Always runs — the colour target must be cleared every frame even with
   // no layers, exactly as the opaque first sub-pass did before.
-  shouldRun(): boolean { return true }
+  shouldRun(): boolean {
+    return true
+  }
 
   execute(ctx: FrameContext, _scene: SceneView, host: BackgroundPassHost): void {
     // WS-1 — resolve a zoom-interpolated background-color / -opacity to
@@ -75,23 +77,30 @@ class BackgroundPass implements RenderPass {
     let bg = host._backgroundColor
     if (colorShape) {
       const resolved = resolveColorShape(colorShape, ctx.camera.zoom, ctx.elapsedMs)
-      if (resolved) bg = [resolved.value[0], resolved.value[1], resolved.value[2], resolved.value[3]]
+      if (resolved)
+        bg = [resolved.value[0], resolved.value[1], resolved.value[2], resolved.value[3]]
     }
     const opacityShape = host._backgroundOpacityShape
     if (opacityShape && bg) {
       const a = resolveNumberShape(opacityShape, ctx.camera.zoom, ctx.elapsedMs).value
       bg = [bg[0], bg[1], bg[2], bg[3] * a]
     }
-    const clearValue = backgroundClearValue(unwrapProjection(ctx.projection).projType, bg, DEBUG_OVERDRAW)
+    const clearValue = backgroundClearValue(
+      unwrapProjection(ctx.projection).projType,
+      bg,
+      DEBUG_OVERDRAW,
+    )
     ctx.passScope('background', () => {
       const pass = ctx.encoder.beginRenderPass({
-        colorAttachments: [{
-          view: ctx.colorView,
-          // Never the last colour writer → no resolveTarget.
-          clearValue,
-          loadOp: 'clear',
-          storeOp: 'store',
-        }],
+        colorAttachments: [
+          {
+            view: ctx.colorView,
+            // Never the last colour writer → no resolveTarget.
+            clearValue,
+            loadOp: 'clear',
+            storeOp: 'store',
+          },
+        ],
       })
       pass.end()
     })

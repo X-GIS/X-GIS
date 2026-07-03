@@ -27,7 +27,10 @@ import type { PropertyShape } from '@xgis/compiler'
 // identical binding swap that severs the paint-shape-resolve → renderer
 // import edge (the renderer↔paint cycle; design §3.4 / Wave 0).
 import {
-  interpolateZoom, interpolateZoomRgba, interpolateTime, interpolateTimeColor,
+  interpolateZoom,
+  interpolateZoomRgba,
+  interpolateTime,
+  interpolateTimeColor,
 } from './renderer-helpers'
 
 /** Compact representation of "value plus how it was computed". The
@@ -64,12 +67,14 @@ export function resolveNumberShape(
     case 'zoom-interpolated':
       return {
         value: interpolateZoom(shape.stops, cameraZoom, shape.base ?? 1),
-        hasZoom: true, hasTime: false,
+        hasZoom: true,
+        hasTime: false,
       }
     case 'time-interpolated':
       return {
         value: interpolateTime(shape.stops, elapsedMs, shape.loop, shape.easing, shape.delayMs),
-        hasZoom: false, hasTime: true,
+        hasZoom: false,
+        hasTime: true,
       }
     case 'zoom-time': {
       // Pass zoomBase through to interpolateZoom so exponential curves
@@ -78,7 +83,11 @@ export function resolveNumberShape(
       // collapsed to linear the moment a time animation was layered on.
       const zoomFactor = interpolateZoom(shape.zoomStops, cameraZoom, shape.zoomBase ?? 1)
       const timeFactor = interpolateTime(
-        shape.timeStops, elapsedMs, shape.loop, shape.easing, shape.delayMs,
+        shape.timeStops,
+        elapsedMs,
+        shape.loop,
+        shape.easing,
+        shape.delayMs,
       )
       return { value: zoomFactor * timeFactor, hasZoom: true, hasTime: true }
     }
@@ -100,16 +109,25 @@ export function resolveColorShape(
       return null
     case 'zoom-interpolated':
       return {
-        value: interpolateZoomRgba(shape.stops as { zoom: number; value: [number, number, number, number] }[], cameraZoom, shape.base ?? 1) as readonly [number, number, number, number],
-        hasZoom: true, hasTime: false,
+        value: interpolateZoomRgba(
+          shape.stops as { zoom: number; value: [number, number, number, number] }[],
+          cameraZoom,
+          shape.base ?? 1,
+        ) as readonly [number, number, number, number],
+        hasZoom: true,
+        hasTime: false,
       }
     case 'time-interpolated':
       return {
         value: interpolateTimeColor(
-          shape.stops as { timeMs: number; value: [number, number, number, number] }[], elapsedMs,
-          shape.loop, shape.easing, shape.delayMs,
+          shape.stops as { timeMs: number; value: [number, number, number, number] }[],
+          elapsedMs,
+          shape.loop,
+          shape.easing,
+          shape.delayMs,
         ) as readonly [number, number, number, number],
-        hasZoom: false, hasTime: true,
+        hasZoom: false,
+        hasTime: true,
       }
     case 'zoom-time': {
       // Spec doesn't define zoom × time composition for colour; pick
@@ -118,10 +136,14 @@ export function resolveColorShape(
       // colour shapes — this branch is defensive only.
       return {
         value: interpolateTimeColor(
-          shape.timeStops as { timeMs: number; value: [number, number, number, number] }[], elapsedMs,
-          shape.loop, shape.easing, shape.delayMs,
+          shape.timeStops as { timeMs: number; value: [number, number, number, number] }[],
+          elapsedMs,
+          shape.loop,
+          shape.easing,
+          shape.delayMs,
         ) as readonly [number, number, number, number],
-        hasZoom: true, hasTime: true,
+        hasZoom: true,
+        hasTime: true,
       }
     }
     case 'data-driven':
@@ -135,10 +157,7 @@ export function resolveColorShape(
  *  `null` otherwise — `data-driven` is resolved per-feature by the
  *  caller, and `time-interpolated` / `zoom-time` aren't produced
  *  for the axes that use this resolver. */
-export function resolveSteppedShape<T>(
-  shape: PropertyShape<T>,
-  cameraZoom: number,
-): T | null {
+export function resolveSteppedShape<T>(shape: PropertyShape<T>, cameraZoom: number): T | null {
   if (shape.kind === 'constant') return shape.value
   if (shape.kind === 'zoom-interpolated') {
     const stops = shape.stops

@@ -22,21 +22,21 @@ function convert(mapbox: unknown): { result: string | null; warnings: string[] }
 
 /** Bare boolean-literal AST node — what the emitted `true` source
  *  parses to. Used to assert the end-to-end evaluation result. */
-const boolLit = (value: boolean): AST.Expr => ({ kind: 'BoolLiteral', value } as AST.Expr)
+const boolLit = (value: boolean): AST.Expr => ({ kind: 'BoolLiteral', value }) as AST.Expr
 
 describe('Mapbox ["is-supported-script"] expression accessor', () => {
   it('["is-supported-script", str] → constant `true` (no warning, no catch-all)', () => {
     const { result, warnings } = convert(['is-supported-script', 'Hello'])
     expect(result).toBe('true')
     // Must NOT surface the old "accessor not supported" warning…
-    expect(warnings.some(w => w.includes('is-supported-script accessor'))).toBe(false)
+    expect(warnings.some((w) => w.includes('is-supported-script accessor'))).toBe(false)
     // …and must NOT fall through to the generic catch-all.
-    expect(warnings.some(w => w.startsWith('Expression not converted'))).toBe(false)
+    expect(warnings.some((w) => w.startsWith('Expression not converted'))).toBe(false)
   })
 
   it('lowers to `true` regardless of the (string / expression) argument', () => {
     // The arg is intentionally NOT evaluated — the result is invariant.
-    expect(convert(['is-supported-script', '日本語'] ).result).toBe('true')
+    expect(convert(['is-supported-script', '日本語']).result).toBe('true')
     expect(convert(['is-supported-script', ['get', 'name']]).result).toBe('true')
   })
 
@@ -63,7 +63,7 @@ describe('Mapbox ["is-supported-script"] expression accessor', () => {
   it('malformed ["is-supported-script"] (no arg) warns but still returns true', () => {
     const { result, warnings } = convert(['is-supported-script'])
     expect(result).toBe('true')
-    expect(warnings.some(w => w.includes('Malformed ["is-supported-script"]'))).toBe(true)
+    expect(warnings.some((w) => w.includes('Malformed ["is-supported-script"]'))).toBe(true)
   })
 
   it('emitted `true` evaluates to the boolean true (DEFAULT = supported branch)', () => {

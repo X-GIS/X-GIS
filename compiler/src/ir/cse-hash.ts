@@ -47,10 +47,22 @@
 //     needed.
 
 import type {
-  Expr, MatchBlock,
-  ArrayAccess, ArrayLiteral, ObjectLiteral, BinaryExpr, BoolLiteral, ColorLiteral,
-  ConditionalExpr, FieldAccess, FnCall, Identifier, NumberLiteral,
-  PipeExpr, StringLiteral, UnaryExpr,
+  Expr,
+  MatchBlock,
+  ArrayAccess,
+  ArrayLiteral,
+  ObjectLiteral,
+  BinaryExpr,
+  BoolLiteral,
+  ColorLiteral,
+  ConditionalExpr,
+  FieldAccess,
+  FnCall,
+  Identifier,
+  NumberLiteral,
+  PipeExpr,
+  StringLiteral,
+  UnaryExpr,
 } from '../parser/ast'
 
 /** Canonical string for one AST expression. Recursive; child
@@ -59,21 +71,36 @@ import type {
  *  hash apart. Format: `<TAG>(<payload>)`. */
 export function canonicalExpr(expr: Expr): string {
   switch (expr.kind) {
-    case 'NumberLiteral': return canonicalNumber(expr)
-    case 'StringLiteral': return canonicalString(expr)
-    case 'ColorLiteral':  return `C(${(expr as ColorLiteral).value})`
-    case 'BoolLiteral':   return `B(${(expr as BoolLiteral).value ? '1' : '0'})`
-    case 'Identifier':    return `I(${(expr as Identifier).name})`
-    case 'FieldAccess':   return canonicalField(expr)
-    case 'FnCall':        return canonicalFnCall(expr)
-    case 'BinaryExpr':    return canonicalBinary(expr)
-    case 'UnaryExpr':     return canonicalUnary(expr)
-    case 'PipeExpr':      return canonicalPipe(expr)
-    case 'ConditionalExpr': return canonicalConditional(expr)
-    case 'ArrayLiteral':  return canonicalArrayLit(expr)
-    case 'ObjectLiteral': return canonicalObjectLit(expr)
-    case 'ArrayAccess':   return canonicalArrayAccess(expr)
-    case 'MatchBlock':    return canonicalMatchBlock(expr)
+    case 'NumberLiteral':
+      return canonicalNumber(expr)
+    case 'StringLiteral':
+      return canonicalString(expr)
+    case 'ColorLiteral':
+      return `C(${(expr as ColorLiteral).value})`
+    case 'BoolLiteral':
+      return `B(${(expr as BoolLiteral).value ? '1' : '0'})`
+    case 'Identifier':
+      return `I(${(expr as Identifier).name})`
+    case 'FieldAccess':
+      return canonicalField(expr)
+    case 'FnCall':
+      return canonicalFnCall(expr)
+    case 'BinaryExpr':
+      return canonicalBinary(expr)
+    case 'UnaryExpr':
+      return canonicalUnary(expr)
+    case 'PipeExpr':
+      return canonicalPipe(expr)
+    case 'ConditionalExpr':
+      return canonicalConditional(expr)
+    case 'ArrayLiteral':
+      return canonicalArrayLit(expr)
+    case 'ObjectLiteral':
+      return canonicalObjectLit(expr)
+    case 'ArrayAccess':
+      return canonicalArrayAccess(expr)
+    case 'MatchBlock':
+      return canonicalMatchBlock(expr)
   }
 }
 
@@ -160,7 +187,7 @@ function canonicalMatchBlock(m: MatchBlock): string {
   // preserves source order — same byte-stable output as pre-204B,
   // so any consumer that asserted on the old format on such inputs
   // sees no change.
-  const armStrings = m.arms.map(a => `${a.pattern}->${canonicalExpr(a.value)}`)
+  const armStrings = m.arms.map((a) => `${a.pattern}->${canonicalExpr(a.value)}`)
   if (canSortArmsSafely(m)) {
     // Pull out the `_` arm if present, sort the rest alphabetically,
     // re-append the default at the tail.

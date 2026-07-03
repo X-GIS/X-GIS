@@ -20,17 +20,19 @@ function buildStyle(value: unknown) {
   return {
     version: 8,
     sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-    layers: [{
-      id: 'bldg',
-      type: 'fill-extrusion',
-      source: 'v',
-      'source-layer': 'building',
-      paint: {
-        'fill-extrusion-color': '#aaa',
-        'fill-extrusion-height': 10,
-        'fill-extrusion-vertical-gradient': value,
+    layers: [
+      {
+        id: 'bldg',
+        type: 'fill-extrusion',
+        source: 'v',
+        'source-layer': 'building',
+        paint: {
+          'fill-extrusion-color': '#aaa',
+          'fill-extrusion-height': 10,
+          'fill-extrusion-vertical-gradient': value,
+        },
       },
-    }],
+    ],
   }
 }
 
@@ -48,39 +50,41 @@ describe('fill-extrusion-vertical-gradient surface + opt-out propagation', () =>
     const style = buildStyle(undefined)
     delete (style.layers[0]!.paint as Record<string, unknown>)['fill-extrusion-vertical-gradient']
     convertMapboxStyle(style as never, { coverage })
-    expect(coverage.warnings.some(w => w.includes('vertical-gradient'))).toBe(false)
+    expect(coverage.warnings.some((w) => w.includes('vertical-gradient'))).toBe(false)
     expect(compileToShows(style)[0]!.fillExtrusionVerticalGradient).toBeUndefined()
   })
 
   it('explicit true (spec default) → no warning, flag undefined', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
     convertMapboxStyle(buildStyle(true) as never, { coverage })
-    expect(coverage.warnings.some(w => w.includes('vertical-gradient'))).toBe(false)
+    expect(coverage.warnings.some((w) => w.includes('vertical-gradient'))).toBe(false)
     expect(compileToShows(buildStyle(true))[0]!.fillExtrusionVerticalGradient).toBeUndefined()
   })
 
   it('["literal", true] (v8 strict wrap) → no warning', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
     convertMapboxStyle(buildStyle(['literal', true]) as never, { coverage })
-    expect(coverage.warnings.some(w => w.includes('vertical-gradient'))).toBe(false)
+    expect(coverage.warnings.some((w) => w.includes('vertical-gradient'))).toBe(false)
   })
 
   it('false → no warn, flag=false propagated to ShowCommand', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
     convertMapboxStyle(buildStyle(false) as never, { coverage })
     // Implemented now — the false case no longer surfaces a gap warning.
-    expect(coverage.warnings.some(w => w.includes('vertical-gradient'))).toBe(false)
+    expect(coverage.warnings.some((w) => w.includes('vertical-gradient'))).toBe(false)
     expect(compileToShows(buildStyle(false))[0]!.fillExtrusionVerticalGradient).toBe(false)
   })
 
   it('["literal", false] → flag=false (v8 strict wrap honoured)', () => {
-    expect(compileToShows(buildStyle(['literal', false]))[0]!.fillExtrusionVerticalGradient).toBe(false)
+    expect(compileToShows(buildStyle(['literal', false]))[0]!.fillExtrusionVerticalGradient).toBe(
+      false,
+    )
   })
 
   it('null (spec: fall back to default) → no warning, flag undefined', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
     convertMapboxStyle(buildStyle(null) as never, { coverage })
-    expect(coverage.warnings.some(w => w.includes('vertical-gradient'))).toBe(false)
+    expect(coverage.warnings.some((w) => w.includes('vertical-gradient'))).toBe(false)
     expect(compileToShows(buildStyle(null))[0]!.fillExtrusionVerticalGradient).toBeUndefined()
   })
 

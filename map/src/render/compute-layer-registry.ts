@@ -87,9 +87,7 @@ export class ComputeLayerRegistry {
     }
     const existing = this.handles.get(key)
     if (existing) return existing
-    const handle = new ComputeLayerHandle(
-      this.dispatcher, variant, scenePlan, renderNodeIndex,
-    )
+    const handle = new ComputeLayerHandle(this.dispatcher, variant, scenePlan, renderNodeIndex)
     this.handles.set(key, handle)
     return handle
   }

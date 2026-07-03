@@ -22,12 +22,13 @@
 > re-anchors and says so.
 
 > ## ⛔ Hard acceptance bar: ZERO map coupling (shader-dsl grade)
+>
 > `@xgis/engine` must be **content-blind exactly like `@xgis/shader-dsl`** — it knows nothing about
 > tiles, labels, named map projections, or any `@xgis/map` type. The standard is mechanical and
 > non-negotiable: **the engine has ZERO import edges into content** (no `import` of `XGISMap`,
 > `@xgis/map`, any renderer, or any map type — `import type` included is the stricter bar).
 >
-> How `@xgis/shader-dsl` already meets it (the template to copy): its *only* map coupling — the
+> How `@xgis/shader-dsl` already meets it (the template to copy): its _only_ map coupling — the
 > projection table — is **injected, not imported**. `configureProjections(PROJECTIONS)` pushes the
 > data IN from content; the DSL never imports `PROJECTIONS` and never names a map type
 > (`shaders/dsl/projections.ts:43-50`; verified: `shaders/dsl` has **no** `XGISMap` reference). That
@@ -41,6 +42,7 @@
 > "decoupling done".
 >
 > ### …and shaders are DSL-ONLY: NO hardcoded raw shader strings
+>
 > The engine's **only** shader interface is the typed `@xgis/shader-dsl` IR. **`@xgis/shader-dsl` is an
 > ALLOWED (indeed mandatory) dependency** — the engine USES it to author any generic shader it owns
 > (compose/blit/resolve, the compute kernel mechanics). What is **forbidden everywhere** (engine AND
@@ -52,7 +54,7 @@
 > **Distinction:** authoring via the DSL and reflecting it (`reflect()`/emit) = **correct** (e.g.
 > `gpu/frame-uniform.ts:53` `emitFrameUniformWgsl` is the engine using the DSL — NOT a violation).
 > A **hardcoded** raw shader string (e.g. `gpu/compute.ts:105-117` `return \`@compute fn main(){…}\``,
-> and `wgsl-expr.ts` string-building) = the **violation** — migrate it to DSL authoring. Gated in §8.5.
+and `wgsl-expr.ts` string-building) = the **violation** — migrate it to DSL authoring. Gated in §8.5.
 
 ---
 
@@ -62,8 +64,8 @@
 
 The **workflow engine** is the generic, content-blind **render-graph / pass scheduler**: the
 component of `@xgis/engine` that, given an ordered set of registered **pass definitions**
-(`PassDef[]`) and a per-frame scene classification, decides *which passes run*, *in what order*,
-*sharing which transient GPU targets*, and *who owns the MSAA resolve* — then drives each pass
+(`PassDef[]`) and a per-frame scene classification, decides _which passes run_, _in what order_,
+_sharing which transient GPU targets_, and _who owns the MSAA resolve_ — then drives each pass
 through a uniform `shouldRun → execute` loop wrapped in per-pass error/timing scopes.
 
 It replaces the hand-coded 8-step `if (…) pass.execute(…)` ladder in
@@ -79,35 +81,35 @@ reads off `frame` is today a build-time module constant imported per pass from `
 (`oit-pass.ts:11`); the design moves it onto `frame` so the engine can gate on it without knowing its
 meaning — that migration is part of Phase B, §7.1.)
 
-The *order and identity of buckets* (background / opaque / oit / translucent / points / labels /
+The _order and identity of buckets_ (background / opaque / oit / translucent / points / labels /
 heatmap / overdraw-compose) become **@xgis/map configuration injected through `registerPass`**, not
-engine code — exactly the inversion `engine-content-split.md` §2 calls for ("Pass *names* +
-bucket *order* are content config injected through the register API, not engine code", §2:68).
+engine code — exactly the inversion `engine-content-split.md` §2 calls for ("Pass _names_ +
+bucket _order_ are content config injected through the register API, not engine code", §2:68).
 
 This is the third register surface, alongside the two precedents:
 
-| Register surface | Precedent (exists today) | This doc |
-|---|---|---|
-| `registerProjection` | `configureProjections(PROJECTIONS)` — `projections.ts:46` | §5.1 (generalize) |
-| `registerRenderer` | `Material` / `DrawItem` / `executeItems` — `material.ts:83/130` | §5.2 |
-| `registerPass` | **none — the gap this doc designs** | §3, §5.3 |
+| Register surface     | Precedent (exists today)                                        | This doc          |
+| -------------------- | --------------------------------------------------------------- | ----------------- |
+| `registerProjection` | `configureProjections(PROJECTIONS)` — `projections.ts:46`       | §5.1 (generalize) |
+| `registerRenderer`   | `Material` / `DrawItem` / `executeItems` — `material.ts:83/130` | §5.2              |
+| `registerPass`       | **none — the gap this doc designs**                             | §3, §5.3          |
 
 ### 1.2 What it is NOT
 
 - **NOT a geoprocessing / ETL / dataflow engine.** No spatial joins, no tile transforms, no
-  feature pipelines. "Workflow" here is strictly the *GPU render-pass workflow* (the per-frame
+  feature pipelines. "Workflow" here is strictly the _GPU render-pass workflow_ (the per-frame
   command-encoder schedule), never data processing.
 - **NOT the blueprint visual node editor** (`blueprint/`, the Unreal-style style-authoring graph).
   The render graph is an internal engine scheduler with no UI, no serialization to disk, no user
-  authoring. (It happens to share the word "node"; the contract-test *technique* in `blueprint/`
+  authoring. (It happens to share the word "node"; the contract-test _technique_ in `blueprint/`
   is reused in §8, but nothing else.)
 - **NOT a general dependency-DAG solver in v1.** The taxonomy below is a small, fixed, ordered
-  bucket set with a handful of *known* cross-pass resource edges (depth, MSAA resolve, offscreen
+  bucket set with a handful of _known_ cross-pass resource edges (depth, MSAA resolve, offscreen
   targets). v1 encodes those edges as **explicit declared metadata**, not as a topological-sort
   over arbitrary read/write sets. Whether to grow into a true DAG is an open question (§9).
 - **NOT, in the additive phase, a rewrite of the pass bodies.** The first step (§7.1 Phase A)
   relocates each pass's `execute` body verbatim (it already is — `pass.ts:8-10` "Behaviour is
-  byte-identical to the inline block"). But the *data-driven* step (§7.1 Phase B) **does** edit the
+  byte-identical to the inline block"). But the _data-driven_ step (§7.1 Phase B) **does** edit the
   bodies: it extracts the resolve-attach / depth-store / transient-alloc logic OUT of `execute` and
   INTO the engine scheduler so `io` actually drives scheduling. That step is byte-**diverging** and
   re-baselines the pixel-diff (§8.3). Do not conflate the two phases — see §1.3.
@@ -130,14 +132,14 @@ engine↔content. Three residual content channels survive the `PassHost` inversi
    `scene.oit[].vtEntry.renderer.render!` (`oit-pass.ts:60-69`). This **side channel** is a second
    engine→content coupling the `PassHost` inversion does not touch (§4.5).
 3. **`FrameContext` carries map-projection scalars.** `projType` / `centerLon` / `centerLat`
-   (`frame-context.ts:36-42`) are *projection identity* (RTC centre degrees, ±85 clamp), not generic
+   (`frame-context.ts:36-42`) are _projection identity_ (RTC centre degrees, ±85 clamp), not generic
    4×4 engine math, yet they thread every content draw (`points-pass.ts:48`, `renderer.ts:785`). The
    "engine" handoff struct is laced with Mercator/projection content (§4.2, §9#3).
 
-And one sequencing caveat that colours the whole plan: **in the additive phase, `io` is *asserted*
+And one sequencing caveat that colours the whole plan: **in the additive phase, `io` is _asserted_
 metadata, not a scheduler input.** The verbatim `execute` bodies still compute every coupling
 themselves (`opaque-pass.ts:44-45` resolve, `:57` depth-store). The byte-identity gate (§8.1) passes
-*regardless of whether any `io` field is correct*. `io` becomes load-bearing only after the Phase-B
+_regardless of whether any `io` field is correct_. `io` becomes load-bearing only after the Phase-B
 centralization (§7.1) moves that logic into the engine. **So the additive adapter renames risk #1; it
 removes it only at Phase B.**
 
@@ -171,8 +173,8 @@ runtime/src/engine/render-loop.ts
 ```
 
 The eight singletons are **hardcoded imports** at `render-loop.ts:30-37` and the sequence is
-**hardcoded** at `:452-481`. `pass.ts:3-13` states this plainly: *"The render path is a fixed
-linear chain of passes."* This is `engine-content-split.md` §7 risk #1, the #1 extraction blocker.
+**hardcoded** at `:452-481`. `pass.ts:3-13` states this plainly: _"The render path is a fixed
+linear chain of passes."_ This is `engine-content-split.md` §7 risk #1, the #1 extraction blocker.
 
 > **Re-anchor:** `engine-content-split.md` §4:98 / §7:156 cite `render-loop.ts:455-481`. The
 > current line for the chain block is **`:452-481`** (background at `:455`). The substance is
@@ -184,23 +186,23 @@ Each pass's `execute(ctx, scene, host)` receives a `host` typed `PassHost`
 (`pass.ts:46-65`), which is the **intersection of exactly 8 per-pass role views**
 (`pass.ts:46-54`), each of which is literally a `Pick<XGISMap, …>` (`pass-hosts.ts:23-103`):
 
-| Role view | `pass-hosts.ts` | Members | Engine-generic | Content-specific |
-|---|---|---|---|---|
-| `BackgroundPassHost` | :23-27 | 3 | — | `_backgroundColor`, `_backgroundColorShape`, `_backgroundOpacityShape` |
-| `OpaquePassHost` | :30-38 | 7 | `camera`, `gpuTimer`, `_elapsedMs` | `renderer`†, `_rasterShow`, `pointRenderer`, `rasterRenderer` |
-| `OitPassHost` | :41-45 | 3 | `camera`, `ctx` | `renderer`† (compose pipeline + VTR fill via SceneView, §4.5) |
-| `TranslucentPassHost` | :48-52 | 3 | `camera` | `renderer`†, `lineRenderer` (nullable) |
-| `PointsPassHost` | :55-58 | 2 | `camera` | `pointRenderer` |
-| `LabelPassHost` | :62-89 | 26 | `camera`, `ctx` | **24 content members** (stages, glyph/sprite sources, data overlays, projection, dirty bookkeeping, dispatch memo, scratch sets, 2 debug hooks) |
-| `OverdrawComposePassHost` | :92-95 | 2 | `ctx` | `renderer`† (overdraw-compose pipeline, §4.5) |
-| `HeatmapPassHost` | :98-103 | 4 | `camera`, `ctx` | `renderer`†, `heatmapRenderer` (nullable) |
+| Role view                 | `pass-hosts.ts` | Members | Engine-generic                     | Content-specific                                                                                                                                |
+| ------------------------- | --------------- | ------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BackgroundPassHost`      | :23-27          | 3       | —                                  | `_backgroundColor`, `_backgroundColorShape`, `_backgroundOpacityShape`                                                                          |
+| `OpaquePassHost`          | :30-38          | 7       | `camera`, `gpuTimer`, `_elapsedMs` | `renderer`†, `_rasterShow`, `pointRenderer`, `rasterRenderer`                                                                                   |
+| `OitPassHost`             | :41-45          | 3       | `camera`, `ctx`                    | `renderer`† (compose pipeline + VTR fill via SceneView, §4.5)                                                                                   |
+| `TranslucentPassHost`     | :48-52          | 3       | `camera`                           | `renderer`†, `lineRenderer` (nullable)                                                                                                          |
+| `PointsPassHost`          | :55-58          | 2       | `camera`                           | `pointRenderer`                                                                                                                                 |
+| `LabelPassHost`           | :62-89          | 26      | `camera`, `ctx`                    | **24 content members** (stages, glyph/sprite sources, data overlays, projection, dirty bookkeeping, dispatch memo, scratch sets, 2 debug hooks) |
+| `OverdrawComposePassHost` | :92-95          | 2       | `ctx`                              | `renderer`† (overdraw-compose pipeline, §4.5)                                                                                                   |
+| `HeatmapPassHost`         | :98-103         | 4       | `camera`, `ctx`                    | `renderer`†, `heatmapRenderer` (nullable)                                                                                                       |
 
 > **† `renderer` is NOT engine-generic.** It is `MapRenderer`, a **content** god-object per
 > `engine-content-split.md` §3:75 (GIS fill/line/overdraw pipelines `renderer.ts:122-124,143`;
 > projection-parameterized `renderToPass` `:785`). Earlier drafts mis-classified it as the engine
 > "RHI-driver"; it must be **split** (RHI plumbing → engine; pipelines → content `RendererDef`)
 > before P2 (§1.3, §4.1). The "pure engine" passes (OIT, overdraw-compose) are pure only of a
-> *PassHost content member* — they still reach content through `renderer`† and `SceneView` (§4.5).
+> _PassHost content member_ — they still reach content through `renderer`† and `SceneView` (§4.5).
 
 The composed `PassHost` (`pass.ts:46-54`) is **only these 8** — `SceneClassifyHost`
 (`pass-hosts.ts:106-110`) and `FrameLoopHost` (`:115-136`) are joined into the wider
@@ -208,43 +210,43 @@ The composed `PassHost` (`pass.ts:46-54`) is **only these 8** — `SceneClassify
 invert is exactly the union of those 8 role views.
 
 **The engine-owned quartet** that recurs across passes and genuinely stays in `@xgis/engine` (never
-in the content interface): `camera` (6 passes — but the *generic* 4×4 view only, see §9#3),
+in the content interface): `camera` (6 passes — but the _generic_ 4×4 view only, see §9#3),
 `ctx`/GPUContext (4), `gpuTimer` (1), and the engine frame-clock `_elapsedMs` (1). `renderer`
 (`MapRenderer`, 5 passes) is the contested fifth — **content** until split (above). Every other
 `PassHost` member is content (`pass-hosts.ts` per-row; map field defs `map.ts:184-207,472-497`).
 
 ### 2.3 Why order alone is not the contract
 
-The visible bucket *order* is trivial to reproduce as a `PassDef[]`. The hard part is the
+The visible bucket _order_ is trivial to reproduce as a `PassDef[]`. The hard part is the
 **cross-pass couplings** that array position cannot encode. The full inventory (each one is a
 constraint the `PassDef` contract in §3 must carry):
 
 1. **Split clear ownership.** Background owns the whole-viewport **colour** clear
-   (`loadOp:'clear'` on `ctx.colorView`, *no* `resolveTarget` — "never the last colour writer",
+   (`loadOp:'clear'` on `ctx.colorView`, _no_ `resolveTarget` — "never the last colour writer",
    `background-pass.ts:86-95`); opaque's first sub-pass owns the **depth + stencil + pick** clears
    (`opaque-pass.ts:92-93,105,110-112`). Every later colour write is `loadOp:'load'`. So
-   `background → opaque` is a hard ordering edge, and clear ownership crosses *two* passes — not a
+   `background → opaque` is a hard ordering edge, and clear ownership crosses _two_ passes — not a
    single "clear pass".
 
 2. **Feed-forward depth store.** Opaque's last sub-pass STOREs depth instead of discarding it
-   *only because* OIT and/or points will later `depthLoadOp:'load'` it:
+   _only because_ OIT and/or points will later `depthLoadOp:'load'` it:
    `persistDepth = !isLastOpaque || scene.hasPoints || scene.hasOit` (`opaque-pass.ts:57`,
    store at `:106`; consumed `oit-pass.ts:54-57`, `points-pass.ts:32-41`). **An earlier pass's
    store-vs-discard depends on whether later passes exist** — a backward read-edge over a shared
    depth attachment.
 
 3. **Split, content-conditional MSAA resolve.** `opaque` / `translucent-composite` / `oit-compose`
-   resolve *only* when `scene.resolveOwner` selects them (`opaque-pass.ts:44-45`,
+   resolve _only_ when `scene.resolveOwner` selects them (`opaque-pass.ts:44-45`,
    `translucent-pass.ts:26-27`, `oit-pass.ts:78`; owner priority `scene-view.ts:73-77`,
    points > composite > opaque). But **`points` and the `label` text-overlay sub-pass resolve
    UNCONDITIONALLY** on `ctx.useResolve`, ignoring `resolveOwner` (`points-pass.ts:28`,
-   `label-pass.ts:1344`). So when labels exist, the label pass is the *de-facto* final resolver and
+   `label-pass.ts:1344`). So when labels exist, the label pass is the _de-facto_ final resolver and
    the `resolveOwner`-gated resolve is a redundant (harmless) double-resolve. **A flat `PassDef[]`
    inferring "resolve if I am the last colour pass" would be WRONG.** Resolve ownership is a
    global, scene-derived attribute.
 
 4. **Two render-target domains.** `heatmap` and `overdraw-compose` draw **directly to
-   `ctx.screenView`** (the *resolved* single-sample swapchain, `loadOp:'load'`) — NOT the MSAA
+   `ctx.screenView`** (the _resolved_ single-sample swapchain, `loadOp:'load'`) — NOT the MSAA
    `colorView` (`heatmap-pass.ts:122-126`, `overdraw-compose-pass.ts:26-31`). They MUST run after
    all MSAA resolves (i.e. after labels) or the label-pass resolve would overwrite them
    (`scene-view.ts:69-72`). Array position cannot encode "after the resolve barrier"; this is
@@ -268,7 +270,7 @@ constraint the `PassDef` contract in §3 must carry):
    is load-bearing for diagnostics, and the engine half owns the frame-level scope + submit.
 
 8. **Lifecycle phases ≠ colour passes.** Compute dispatch must run after encoder creation but
-   *before the first `beginRenderPass`* (`render-loop.ts:231,238-240`); `beginFrame` ring-resets
+   _before the first `beginRenderPass`_ (`render-loop.ts:231,238-240`); `beginFrame` ring-resets
    run before any pass (`:336-345,364-379`); `endFrame` ring-flush + `gpuTimer.resolveOnEncoder` +
    `submit` run after all passes (`:490-495,501`). These are **engine-half lifecycle hooks, not
    PassDefs**.
@@ -283,7 +285,7 @@ constraint the `PassDef` contract in §3 must carry):
 `execute` typed over a content-supplied **`RenderNode`** (§4), not `Pick<XGISMap>`.
 
 > **Design stance (v1):** a **flat ordered list with declared resource roles**, not a topological
-> DAG. The couplings in §2.3 are a *fixed, known, small* set; encoding them as declared metadata
+> DAG. The couplings in §2.3 are a _fixed, known, small_ set; encoding them as declared metadata
 > (which target domain, who owns the resolve, which shared attachments) is sufficient and far
 > easier to test for byte-identity than a general scheduler. §9 keeps the DAG option open.
 
@@ -294,12 +296,12 @@ constraint the `PassDef` contract in §3 must carry):
 
 /** Stable bucket identity. The engine treats these as opaque strings; the SET
  *  and ORDER are @xgis/map config (registerPass call order), never engine code. */
-export type PassBucket = string   // e.g. 'background' | 'opaque' | 'oit' | …
+export type PassBucket = string // e.g. 'background' | 'opaque' | 'oit' | …
 
 /** Which colour target a pass writes into. The TWO domains of §2.3.4. */
 export type TargetDomain =
-  | 'msaa'      // ctx.colorView (multisampled) — background/opaque/oit/translucent/points/label-text
-  | 'resolved'  // ctx.screenView (resolved swapchain, loadOp:'load') — heatmap/overdraw-compose
+  | 'msaa' // ctx.colorView (multisampled) — background/opaque/oit/translucent/points/label-text
+  | 'resolved' // ctx.screenView (resolved swapchain, loadOp:'load') — heatmap/overdraw-compose
   | 'offscreen' // a named transient (OIT accum, translucent MAX, heatmap accum/blur, overdraw accum)
 
 export interface PassDef {
@@ -340,16 +342,16 @@ core of "render-graph": the engine reads `io` to (a) attach the MSAA resolve tar
 pass, (b) decide depth store-vs-discard, (c) order the resolved-domain passes after the resolve
 barrier, and (d) allocate/alias the named transients.
 
-> **When `io` is load-bearing.** The engine *consuming* `io` to make decisions (a)-(d) is the
+> **When `io` is load-bearing.** The engine _consuming_ `io` to make decisions (a)-(d) is the
 > **Phase-B "centralization"** behaviour (§7.1) — it requires moving that logic OUT of the `execute`
 > bodies, which is byte-**diverging**. In the additive **Phase A** the bodies still decide everything
-> internally and `io` is only *asserted* by the contract test (§8.2). The list below describes the
+> internally and `io` is only _asserted_ by the contract test (§8.2). The list below describes the
 > Phase-B scheduler; until then, treat `io` as validated documentation, not control flow (§1.3).
 >
 > **Granularity caveat (opaque).** `io.resolve` / `io.writesDepth` are **pass**-scoped, but opaque
 > emits N internal `beginRenderPass` sub-passes and only its **terminal** sub-pass resolves
 > (`isLastOpaque`, `opaque-pass.ts:44-45`) or decides depth store (`:57,106`). So `io` on the single
-> opaque `PassDef` describes its *terminal sub-pass only*; the intra-opaque store/resolve decision
+> opaque `PassDef` describes its _terminal sub-pass only_; the intra-opaque store/resolve decision
 > stays inside `opaque.execute` until the sub-pass loop is itself modelled (§9#12). Engine-driven
 > resolve/depth for opaque is blocked on that.
 
@@ -361,7 +363,7 @@ barrier, and (d) allocate/alias the named transients.
  *  accumulator). Replaces the today-implicit ctx.rt.ensureOit / ensureHeatmap /
  *  lineRenderer.ensureOffscreen edges (§2.3.6). */
 export interface TransientTarget {
-  readonly name: string                       // 'oit.accum' | 'heatmap.accum' | 'translucent.max' | …
+  readonly name: string // 'oit.accum' | 'heatmap.accum' | 'translucent.max' | …
   readonly format: RhiTextureFormat
   readonly sampleCount: number
   /** Sized to the viewport unless a fixed/scaled size is given. */
@@ -397,7 +399,7 @@ export interface PassIo {
    *  aliases them; replaces ctx.rt.ensureOit/ensureHeatmap and the LOOP-level
    *  lineRenderer.ensureOffscreen (§2.3.6, render-loop.ts:450). */
   readonly creates?: ReadonlyArray<TransientTarget>
-  readonly reads?: ReadonlyArray<string>     // transient names
+  readonly reads?: ReadonlyArray<string> // transient names
   readonly writes?: ReadonlyArray<string>
 }
 ```
@@ -407,9 +409,9 @@ How the engine consumes `PassIo` each frame (the scheduler core, ~replacing `ren
 1. Compute the **active set** = `passes.filter(p => p.shouldRun(scene, frame))`, in `order`.
 2. **Resolve-owner resolution** (§2.3.3): the engine reads `scene.resolveOwner` — the **live source
    is `scene-view.ts:73-77`** (computed inline in `buildSceneView`); `planFrameSchedule`
-   (`bucket-scheduler.ts:436-447`) computes a *structurally-duplicated* copy that `buildSceneView`
+   (`bucket-scheduler.ts:436-447`) computes a _structurally-duplicated_ copy that `buildSceneView`
    does not call (a dup to reconcile, not the producer). The engine attaches the MSAA `resolveTarget`
-   to the matching `resolve:'owner-gated'` pass, *plus* every `resolve:'unconditional'` pass
+   to the matching `resolve:'owner-gated'` pass, _plus_ every `resolve:'unconditional'` pass
    (points/label-text) self-resolves. The redundant double-resolve is preserved byte-for-byte (it is
    harmless and current behaviour); collapsing it is an open question (§9), not a v1 change.
 3. **Depth store decision** (§2.3.2): the last depth-**writing** `PassDef` STOREs iff any later
@@ -417,9 +419,9 @@ How the engine consumes `PassIo` each frame (the scheduler core, ~replacing `ren
    `scene.hasPoints || scene.hasOit` half of `opaque-pass.ts:57`. The **intra-opaque** `!isLastOpaque`
    half is sub-pass-granular and the engine has no visibility into opaque's internal loop, so it
    stays inside `opaque.execute` (granularity caveat above, §9#12). `io.writesDepth` is therefore
-   *necessary but not sufficient* — do not delete the in-body `persistDepth`.
+   _necessary but not sufficient_ — do not delete the in-body `persistDepth`.
 4. **Resolve barrier** (§2.3.4): `colorDomain:'resolved'` passes are scheduled only after the
-   last `colorDomain:'msaa'` pass that resolves. The engine *asserts* this rather than inferring it,
+   last `colorDomain:'msaa'` pass that resolves. The engine _asserts_ this rather than inferring it,
    so a mis-registered heatmap-before-labels fails loudly instead of silently dropping the heatmap.
 5. **Transient allocation** (§2.3.6): `creates`/`reads`/`writes` drive a pooled allocator
    (the existing `RenderTargets.ensureOit/ensureHeatmap` semantics — see open question in §9 about
@@ -436,14 +438,14 @@ these are **not** PassDefs and **not** content-overridable:
 ```ts
 // @xgis/engine — render/graph/frame-schedule.ts (proposed, engine-owned)
 interface FrameLifecycle {
-  preFrame(ctx: FrameContext): void   // createCommandEncoder; compute dispatch; ring-reset beginFrame
-  runPasses(ctx, scene): void         // the §3.2 scheduler loop
-  postFrame(ctx): void                // ring-flush endFrame; gpuTimer.resolveOnEncoder; submit
+  preFrame(ctx: FrameContext): void // createCommandEncoder; compute dispatch; ring-reset beginFrame
+  runPasses(ctx, scene): void // the §3.2 scheduler loop
+  postFrame(ctx): void // ring-flush endFrame; gpuTimer.resolveOnEncoder; submit
 }
 ```
 
-Compute dispatch (`render-loop.ts:231,238-240`) sits in `preFrame` *before the first
-`beginRenderPass`*; this is also where compute dispatch routes per-backend — native compute on
+Compute dispatch (`render-loop.ts:231,238-240`) sits in `preFrame` _before the first
+`beginRenderPass`_; this is also where compute dispatch routes per-backend — native compute on
 WebGPU, fragment-shader GPGPU on WebGL2 (§7.3 parity mandate), behind one RHI contract. Never a
 "refuse on WebGL2" gate.
 
@@ -453,25 +455,25 @@ WebGPU, fragment-shader GPGPU on WebGL2 (§7.3 parity mandate), behind one RHI c
 
 The inversion deletes `host: PassHost` (`Pick<XGISMap>`, §2.2) and replaces it with a
 content-supplied **`RenderNode`** resolved from the registry by bucket id. The engine stops reaching
-UP into `XGISMap` *by type*; instead each registered pass receives only the engine quintet (via
+UP into `XGISMap` _by type_; instead each registered pass receives only the engine quintet (via
 `FrameContext`) plus its own content node's draw methods.
 
 ### 4.1 The boundary, member by member
 
 Every `PassHost` member maps to exactly one side:
 
-| `PassHost` member | Goes to | Why / where |
-|---|---|---|
-| `camera`*, `ctx`, `gpuTimer`, `_elapsedMs` | **engine** (`FrameContext`) | The recurring quartet (§2.2). *`camera` only as the **generic 4×4** view — the Mercator-metre position is content (§9#3); the engine hands down the generic view, not `centerX/Y`. `_elapsedMs` is the engine frame clock handed down for content expression eval (§9#7). |
-| `renderer` (`MapRenderer`) | **SPLIT** — engine RHI-driver + content pipelines | `engine-content-split.md` §3:75 = content. The encoder/pass plumbing → engine; the fill/line/raster/overdraw **pipelines** (`renderer.ts:122-124,143,785`) → a content `RendererDef` (§5.2). Not a clean hand-down (§1.3). |
-| `_backgroundColor`, `_backgroundColorShape`, `_backgroundOpacityShape` | **content** (`BackgroundNode`) | Pure style output (`pass-hosts.ts:23-27`); the clear-colour is a content contribution. |
-| **vector-tile fill/line draw** (the dominant opaque workload) | **content** (`OpaqueNode`) | `opaque-pass.ts:202-221` `cs.vtEntry.renderer.render(…cs.fp, cs.lp, cs.bgl…)` + `host.renderer.*` overdraw pipelines — reached via **`SceneView`**, NOT a `PassHost` member (§4.5). The original draft OMITTED this; it is the primary opaque content. |
-| `_rasterShow`, `rasterRenderer`, `pointRenderer` | **content** (`OpaqueNode`) | `pass-hosts.ts:36`; raster + opaque-point draws. |
-| `lineRenderer` | **content** (`TranslucentNode`) | `pass-hosts.ts:50`; nullable (the pass already tolerates absent content). |
-| `pointRenderer` (again) | **content** (`PointsNode`) | `pass-hosts.ts:57`; reached by TWO passes — see §4.3. |
-| `heatmapRenderer` | **content** (`HeatmapNode`) | `pass-hosts.ts:101`; nullable. |
-| 24 label members (`textStage`, `iconStage`, glyph/sprite sources, `overlays`, `rawDatasets`, `showCommands`, `vtSources`, `projectionName`, dirty + dispatch-memo + scratch + 2 debug hooks) | **content** (`LabelNode`) | `pass-hosts.ts:62-89`; the entire label subsystem is one self-contained content node (engine supplies only `camera`+`ctx`). |
-| OIT / overdraw-compose | **engine pass body + content compose pipeline** | They have **no `PassHost` content member**, but are **not** zero-content: OIT's fill sub-pass calls `cs.vtEntry.renderer.render!` (a VTR draw, `oit-pass.ts:60-69`) and both compose sub-passes use `host.renderer.{oitComposePipeline,overdrawComposeBindGroupLayout}` — **map shader graphs** (`engine-content-split.md` §3:78 = content). The pass *scheduling* is engine; the compose *pipeline* is content (§4.5). |
+| `PassHost` member                                                                                                                                                                            | Goes to                                           | Why / where                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `camera`*, `ctx`, `gpuTimer`, `_elapsedMs`                                                                                                                                                   | **engine** (`FrameContext`)                       | The recurring quartet (§2.2). *`camera` only as the **generic 4×4** view — the Mercator-metre position is content (§9#3); the engine hands down the generic view, not `centerX/Y`. `_elapsedMs` is the engine frame clock handed down for content expression eval (§9#7).                                                                                                                                               |
+| `renderer` (`MapRenderer`)                                                                                                                                                                   | **SPLIT** — engine RHI-driver + content pipelines | `engine-content-split.md` §3:75 = content. The encoder/pass plumbing → engine; the fill/line/raster/overdraw **pipelines** (`renderer.ts:122-124,143,785`) → a content `RendererDef` (§5.2). Not a clean hand-down (§1.3).                                                                                                                                                                                              |
+| `_backgroundColor`, `_backgroundColorShape`, `_backgroundOpacityShape`                                                                                                                       | **content** (`BackgroundNode`)                    | Pure style output (`pass-hosts.ts:23-27`); the clear-colour is a content contribution.                                                                                                                                                                                                                                                                                                                                  |
+| **vector-tile fill/line draw** (the dominant opaque workload)                                                                                                                                | **content** (`OpaqueNode`)                        | `opaque-pass.ts:202-221` `cs.vtEntry.renderer.render(…cs.fp, cs.lp, cs.bgl…)` + `host.renderer.*` overdraw pipelines — reached via **`SceneView`**, NOT a `PassHost` member (§4.5). The original draft OMITTED this; it is the primary opaque content.                                                                                                                                                                  |
+| `_rasterShow`, `rasterRenderer`, `pointRenderer`                                                                                                                                             | **content** (`OpaqueNode`)                        | `pass-hosts.ts:36`; raster + opaque-point draws.                                                                                                                                                                                                                                                                                                                                                                        |
+| `lineRenderer`                                                                                                                                                                               | **content** (`TranslucentNode`)                   | `pass-hosts.ts:50`; nullable (the pass already tolerates absent content).                                                                                                                                                                                                                                                                                                                                               |
+| `pointRenderer` (again)                                                                                                                                                                      | **content** (`PointsNode`)                        | `pass-hosts.ts:57`; reached by TWO passes — see §4.3.                                                                                                                                                                                                                                                                                                                                                                   |
+| `heatmapRenderer`                                                                                                                                                                            | **content** (`HeatmapNode`)                       | `pass-hosts.ts:101`; nullable.                                                                                                                                                                                                                                                                                                                                                                                          |
+| 24 label members (`textStage`, `iconStage`, glyph/sprite sources, `overlays`, `rawDatasets`, `showCommands`, `vtSources`, `projectionName`, dirty + dispatch-memo + scratch + 2 debug hooks) | **content** (`LabelNode`)                         | `pass-hosts.ts:62-89`; the entire label subsystem is one self-contained content node (engine supplies only `camera`+`ctx`).                                                                                                                                                                                                                                                                                             |
+| OIT / overdraw-compose                                                                                                                                                                       | **engine pass body + content compose pipeline**   | They have **no `PassHost` content member**, but are **not** zero-content: OIT's fill sub-pass calls `cs.vtEntry.renderer.render!` (a VTR draw, `oit-pass.ts:60-69`) and both compose sub-passes use `host.renderer.{oitComposePipeline,overdrawComposeBindGroupLayout}` — **map shader graphs** (`engine-content-split.md` §3:78 = content). The pass _scheduling_ is engine; the compose _pipeline_ is content (§4.5). |
 
 `projectionName` is a getter off `_viewport` (`map.ts:229`), reached by the label pass
 (`pass-hosts.ts:83`) — so the `RenderNode` interface must tolerate **accessors**, not just fields;
@@ -486,18 +488,18 @@ the inverted interface is structural (§4.2).
  *  largely the FrameContext + SceneView pair; the inversion moves content
  *  renderers OUT of the host and the engine context carries only these. */
 export interface FrameContext {
-  readonly camera: Camera          // generic 4×4 view (engine math) — NOT the Mercator-metre map camera (§9#3)
-  readonly rhi: RhiCommandEncoder  // P1-flipped encoder (today raw GPUCommandEncoder)
-  readonly elapsedMs: number       // engine frame clock (handed down)
+  readonly camera: Camera // generic 4×4 view (engine math) — NOT the Mercator-metre map camera (§9#3)
+  readonly rhi: RhiCommandEncoder // P1-flipped encoder (today raw GPUCommandEncoder)
+  readonly elapsedMs: number // engine frame clock (handed down)
   readonly gpuTimer: GpuTimer | null
   // ── PROJECTION CONTENT laced through the "engine" struct (frame-context.ts:36-42) ──
   // These are NOT generic engine math; they are map-projection identity threaded into
   // every content draw (points-pass.ts:48, renderer.ts:785 renderToPass). They must
   // move onto the content draw signature OR be carried as an opaque projection token
   // the content interprets — UNRESOLVED (§9#3):
-  readonly projType: number        // mercator … globe — map projection identity
-  readonly centerLon: number       // RTC projection-centre degrees
-  readonly centerLat: number       // clamped ±85
+  readonly projType: number // mercator … globe — map projection identity
+  readonly centerLon: number // RTC projection-centre degrees
+  readonly centerLat: number // clamped ±85
   // … the REST of the real type (frame-context.ts:21-77): device, screenView, colorView,
   //   w, h, dpr, frameCount, sampleCount, useResolve, visibleWorldCopies, rt, passScope, useRhi.
   //   visibleWorldCopies is WRITTEN by the label pass mid-frame and read earlier — an
@@ -513,42 +515,44 @@ export interface RenderNode {
 /** Each bucket's content slice = exactly the content members its PassHost
  *  up-reached, re-expressed as a node the pass draws THROUGH (no Pick<XGISMap>). */
 export interface BackgroundNode extends RenderNode {
-  clearColor(): readonly [number, number, number, number] | null   // from _background* shapes
+  clearColor(): readonly [number, number, number, number] | null // from _background* shapes
 }
 export interface OpaqueNode extends RenderNode {
-  drawRaster(ctx: FrameContext, scene: SceneView): void   // wraps rasterRenderer + _rasterShow
-  drawVectorTiles(ctx: FrameContext, scene: SceneView): void   // the DOMINANT opaque draw —
-    // wraps cs.vtEntry.renderer.render(…cs.fp,cs.lp,cs.bgl…) + overdraw pipelines (opaque-pass.ts:202-221)
-  drawOpaquePoints(ctx: FrameContext, scene: SceneView): void   // wraps pointRenderer opaque sub-pass
+  drawRaster(ctx: FrameContext, scene: SceneView): void // wraps rasterRenderer + _rasterShow
+  drawVectorTiles(ctx: FrameContext, scene: SceneView): void // the DOMINANT opaque draw —
+  // wraps cs.vtEntry.renderer.render(…cs.fp,cs.lp,cs.bgl…) + overdraw pipelines (opaque-pass.ts:202-221)
+  drawOpaquePoints(ctx: FrameContext, scene: SceneView): void // wraps pointRenderer opaque sub-pass
 }
 export interface TranslucentNode extends RenderNode {
-  drawTranslucent(ctx: FrameContext, scene: SceneView): void | null   // wraps lineRenderer (nullable)
+  drawTranslucent(ctx: FrameContext, scene: SceneView): void | null // wraps lineRenderer (nullable)
 }
 export interface PointsNode extends RenderNode {
-  drawPoints(ctx: FrameContext, scene: SceneView): void   // wraps pointRenderer direct-layer pass
+  drawPoints(ctx: FrameContext, scene: SceneView): void // wraps pointRenderer direct-layer pass
 }
 export interface HeatmapNode extends RenderNode {
-  accumulate(ctx, scene): void; blur(ctx): void; compose(ctx): void   // wraps heatmapRenderer 3-pass
+  accumulate(ctx, scene): void
+  blur(ctx): void
+  compose(ctx): void // wraps heatmapRenderer 3-pass
 }
 export interface LabelNode extends RenderNode {
   // The entire label subsystem behind ONE node (24 content members → methods).
   dispatch(ctx: FrameContext, scene: SceneView): void
-  readonly projectionName: string   // accessor — interface tolerates getters (map.ts:229)
+  readonly projectionName: string // accessor — interface tolerates getters (map.ts:229)
 }
 ```
 
-The inversion is **mechanical per pass**: keep the same member *names* the role view already
+The inversion is **mechanical per pass**: keep the same member _names_ the role view already
 narrowed, but source them from the node (`pass-hosts.ts` is `Pick<XGISMap>` keyed on member names,
 `:23-103`). Each pass's `execute` re-types its `host` param from the `Pick` to its node type. The
-8 narrowed role params already name each pass's minimal reach — *that minimal set IS its
-`RenderNode` slice* (`pass.ts:64`).
+8 narrowed role params already name each pass's minimal reach — _that minimal set IS its
+`RenderNode` slice_ (`pass.ts:64`).
 
 ### 4.3 One content node, multiple passes
 
 `pointRenderer` is reached by **both** `OpaquePassHost` and `PointsPassHost`
 (`pass-hosts.ts:36,57`). So the `RenderNode` contract must allow **one content node invoked by
 multiple engine passes** — it is NOT `1 node = 1 pass`. The clean modelling: a single point content
-node implements *both* `OpaqueNode.drawOpaquePoints` and `PointsNode.drawPoints`, and is registered
+node implements _both_ `OpaqueNode.drawOpaquePoints` and `PointsNode.drawPoints`, and is registered
 under both buckets (or the registry maps bucket → node and a node may answer to two buckets). This
 must be settled before the interface freezes (§9 open question).
 
@@ -561,7 +565,7 @@ This closes the **`PassHost` channel** of risk #1 (`engine-content-split.md` §7
 
 **But it is NOT the whole severance** — and the original draft over-claimed here. Two content
 channels survive `PassHost → RenderNode` (§4.5), and `MapRenderer` is still content-until-split
-(§4.1). The honest statement: inverting `PassHost` removes the *typed* up-reach; full engine→content
+(§4.1). The honest statement: inverting `PassHost` removes the _typed_ up-reach; full engine→content
 decoupling additionally requires §4.5 and the `renderer` split.
 
 The two **debug hooks** on `LabelPassHost` (`_pendingLabelDebugHook`, `_pendingTraceRecorder`,
@@ -589,7 +593,7 @@ off `SceneView` **every frame**. This must be a first-class part of the design, 
 - **Option B (sanctioned data channel):** explicitly document `SceneView` as a content→engine data
   conduit and define exactly which handle types may cross it (a frozen `ClassifiedShow` shape).
 
-`SceneClassifyHost` / `FrameLoopHost` (`pass-hosts.ts:106-136`) are a *third*, loop-level up-reach
+`SceneClassifyHost` / `FrameLoopHost` (`pass-hosts.ts:106-136`) are a _third_, loop-level up-reach
 (`classifyVectorTileShows`, `groupOpaqueBySource`, `heatmapRenderer`, `renderTargets`) outside
 `PassHost` — their inversion is a separate task (§9#9). **v1 REQUIREMENT (not a recommendation):
 Option A for opaque/OIT.** The prior-art benchmark (`engine-design-prior-art.md` §5, durable pattern 4)
@@ -658,13 +662,13 @@ engine.registerRenderer(def: RendererDef): void   // store; build Material lazil
 ```
 
 A registered renderer turns the by-type renderer reach (the `PassHost` role views, §2.2) into a
-**keyed registry of render nodes**. A pass resolves renderer handles *by id* from the engine instead
+**keyed registry of render nodes**. A pass resolves renderer handles _by id_ from the engine instead
 of `Pick<XGISMap>` — directly inverting risk #1. The `buildMaterial` thunk **must be lazy**
 (constructor / first-draw) to respect the no-eager-uniform-reflect rule (§6.1).
 
 > **`registerRenderer` is the prerequisite that makes `registerPass`'s host data-driven** (§7):
 > passes consume registered renderer/node handles, not typed slices of the concrete map. So
-> `registerRenderer` lands *before or with* `registerPass`.
+> `registerRenderer` lands _before or with_ `registerPass`.
 
 ### 5.3 `engine.registerPass`
 
@@ -678,9 +682,11 @@ replacing the hardcoded imports (`render-loop.ts:30-37`) and sequence (`:452-481
 const _passes: PassDef[] = []
 export function registerPass(def: PassDef): void {
   _passes.push(def)
-  _passes.sort((a, b) => a.order - b.order)   // explicit-order precedent: projType==index
+  _passes.sort((a, b) => a.order - b.order) // explicit-order precedent: projType==index
 }
-export function orderedPasses(): readonly PassDef[] { return _passes }
+export function orderedPasses(): readonly PassDef[] {
+  return _passes
+}
 ```
 
 The MRT/target vocabulary the `io` declaration needs already exists as `RhiRenderPassDesc`
@@ -696,7 +702,7 @@ The MRT/target vocabulary the `io` declaration needs already exists as `RhiRende
 > Unity (which routes all data through an explicit `PassData` struct + static lambdas) and Godot
 > (render-thread self-sync) precisely because **captured state breaks the moment any reorder/cull/defer
 > is introduced** (the §3.2 Phase-B scheduler, the §9#1 revisit). Single-threaded JS makes the
-> *threading* trivial today; the *no-capture* discipline is what keeps a future derived schedule safe.
+> _threading_ trivial today; the _no-capture_ discipline is what keeps a future derived schedule safe.
 
 ---
 
@@ -721,12 +727,13 @@ offsets from the DSL reflection `polygonUniformSlots().slot`:
   `new ArrayBuffer(polygonUniformBytes())`; `:173-192` all writes at `S.<field>`.
 
 **The frozen contract is the reflection itself** (`polygonUniformSlots()` / `polygonUniformBytes()`
-/ `polygonUniformStride()`), *not* a literal 256. The size is dynamic (`slots * 4`). The `PassDef` /
+/ `polygonUniformStride()`), _not_ a literal 256. The size is dynamic (`slots * 4`). The `PassDef` /
 `RenderNode` interface treats polygon uniform layout as **engine-injected-from-content-DSL** and
 need not re-freeze a magic offset table. The §7.3 "converge before freezing" blocker is **DONE**.
 
 Two follow-ups (both low-risk, do before the contract narrative freezes):
-- **Lazy-only access:** `polygonUniformSlots/Bytes/Stride` may be called *only after*
+
+- **Lazy-only access:** `polygonUniformSlots/Bytes/Stride` may be called _only after_
   `configureProjections()` — never from a module-level const/static field, because
   `reflect(buildPolygonModule())` triggers projection-injection emit
   (`polygon-uniform-slots.ts:21-44`, comment `:37-41`; VTR defers via the `US` Proxy `:20-28`).
@@ -735,7 +742,7 @@ Two follow-ups (both low-risk, do before the contract narrative freezes):
   any uniform-layout reflection.
 - **Delete stale comments:** `renderer.ts:831` ("192-byte"), `graticule-renderer.ts:158`
   ("240-byte"), and `engine-content-split.md` §4:102 ("256-byte") all drift from the now-dynamic
-  reflected size. Only the *comments* are stale; the *code* is reflect-derived. Delete the byte-count
+  reflected size. Only the _comments_ are stale; the _code_ is reflect-derived. Delete the byte-count
   comments to stop the next editor hand-maintaining a dead number.
 
 ### 6.2 `TEXT_FORMAT` / `ICON_FORMAT` (and `LINE_/POINT_/POLYGON_*_FORMAT`) — the clean model
@@ -772,7 +779,7 @@ cached.polyIndexByteLength)`. P0.2 landed the RHI sub-range op
 (`setVertexBuffer(slot, buffer, offset?, size?)`, `rhi.ts:125`, commit `c518af8f`). **A `RenderNode`
 draw is therefore NOT just `(pipeline, bindgroup, vbuf)` — it is `(pipeline, bindgroup +
 dynamicOffset[], {vbuf, offset, size}[], {ibuf, offset, size})`.** `DrawItem` (`material.ts:61-81`)
-must model these sub-ranges *before* the interface freezes, or it cannot express a VTR tile draw.
+must model these sub-ranges _before_ the interface freezes, or it cannot express a VTR tile draw.
 Whether the offset is a raw triple or an opaque `RhiBufferSlice` handle is an open question (§9).
 
 ### 6.5 `@xgis/shader-dsl` MUST gain compute → fragment-GPGPU lowering (the no-raw + parity consequence)
@@ -781,6 +788,7 @@ The no-raw-shader rule (§8.5) + the WebGL2 feature-parity mandate (§7.3, §8.6
 shader-dsl extension** — this is a direct, unavoidable consequence, not an optional nicety.
 
 **Current state (grounded):**
+
 - shader-dsl **already authors compute for WGSL**: `builder.ts:257-260,341-343` (`stage:'compute'`,
   `workgroupSize`, emits `@compute @workgroup_size(N)`), `nodes.ts:105-122` (`storage` address space,
   `read_write`). The compiler's per-feature compute kernels already go through it
@@ -793,6 +801,7 @@ shader-dsl extension** — this is a direct, unavoidable consequence, not an opt
 **The required extension** (so compute satisfies BOTH no-raw AND WebGL2 parity, authored ONCE in the DSL):
 the shader-dsl **GLSL backend must lower a `@compute` kernel to a fragment-shader GPGPU form**, instead
 of throwing:
+
 - `@compute @workgroup_size(N)` + `global_invocation_id` → a **full-screen fragment pass** over a data
   texture; `gl_FragCoord` → the invocation index.
 - `storage` **read** buffers → `sampler2D` data-texture gather (`texelFetch`) (the `glsl.ts:47` "later step").
@@ -801,14 +810,14 @@ of throwing:
   (the `RhiComputePipelineDesc` routes: WebGPU compute pass / WebGL2 fragment pass — §7.3).
 
 Until this lands, `gpu/compute.ts:generateShader()`'s **raw WGSL template literal** (the §8.5 Rule-B
-violation) cannot be migrated to the DSL *and still run on WebGL2* — the two requirements are coupled.
+violation) cannot be migrated to the DSL _and still run on WebGL2_ — the two requirements are coupled.
 This is the concrete shader-dsl work item the engine's shader-DSL-only + parity bars create; it aligns
 with the in-code "later step" markers and the known compute-gen ↔ shader-dsl re-target debt.
 
 > **Module-responsibility decision (authority: [`package-responsibilities.md`](./package-responsibilities.md)
 > rulings f, i):** because the backend is chosen at **runtime**, **`@xgis/compiler` emits NO shader
 > code** — it builds backend-neutral `@xgis/shader-dsl` IR and stops (no `emitModule`/WGSL string at
-> compile time). **`@xgis/shader-dsl` is the SOLE shader-code generator**, emitting WGSL *or* GLSL
+> compile time). **`@xgis/shader-dsl` is the SOLE shader-code generator**, emitting WGSL _or_ GLSL
 > (incl. this compute→fragment lowering) at runtime once the device backend is known. The current
 > `compute-gen.ts:417` `emitModule(...)` (compile-time WGSL) is a violation to migrate to IR-out.
 > Two modules generating shader code = the SRP break / wheel-reinvention this forbids.
@@ -828,12 +837,12 @@ registerProjection (EXISTS)
 
 Mapped to `engine-content-split.md` §6 phases:
 
-| Phase | What this doc's work does | Gated on |
-|---|---|---|
-| **Now (additive, pre-P1)** | §7.1 adapter: wrap the 8 existing `RenderPass[]` in a `PassDef[]` and have the loop iterate it — **behaviour byte-identical**, `host` still `Pick<XGISMap>`. | nothing — additive |
-| **P0** | RHI extensions. P0.1 stencil / P0.2 vbuf sub-range / P0.3 beginRenderPass+MRT / P0.4 compute-types **LANDED** (`1de71c54`/`c518af8f`/`0b835eac`/`5b9a8525`). Gaps remain (§7.3). | — |
-| **P1** | Flip every Draper default ON; route all draws through `Material`+RHI; the loop hands an `RhiCommandEncoder` (not raw `GPUCommandEncoder`). | enables RHI-typed `PassDef.execute` |
-| **P2** | Carve `@xgis/engine`; make the chain data-driven (`registerPass(PassDef)`); **invert `PassHost` → `RenderNode`** (§4). | P1 done |
+| Phase                      | What this doc's work does                                                                                                                                                        | Gated on                            |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| **Now (additive, pre-P1)** | §7.1 adapter: wrap the 8 existing `RenderPass[]` in a `PassDef[]` and have the loop iterate it — **behaviour byte-identical**, `host` still `Pick<XGISMap>`.                     | nothing — additive                  |
+| **P0**                     | RHI extensions. P0.1 stencil / P0.2 vbuf sub-range / P0.3 beginRenderPass+MRT / P0.4 compute-types **LANDED** (`1de71c54`/`c518af8f`/`0b835eac`/`5b9a8525`). Gaps remain (§7.3). | —                                   |
+| **P1**                     | Flip every Draper default ON; route all draws through `Material`+RHI; the loop hands an `RhiCommandEncoder` (not raw `GPUCommandEncoder`).                                       | enables RHI-typed `PassDef.execute` |
+| **P2**                     | Carve `@xgis/engine`; make the chain data-driven (`registerPass(PassDef)`); **invert `PassHost` → `RenderNode`** (§4).                                                           | P1 done                             |
 
 ### 7.1 The additive path is TWO gated steps, not one
 
@@ -857,7 +866,7 @@ things that have **opposite byte behaviour**. Split them:
 Because `host` is still `Pick<XGISMap>` and `execute` bodies are untouched, the emitted command
 stream is **identical**. **Crucially, this proves NOTHING about `io` being correct** — the bytes are
 produced by the verbatim bodies (`opaque-pass.ts:44-45,57`), so the §8.1 gate passes even if every
-`io` field were wrong. In Phase A `io` is *asserted* by the contract test (§8.2) only. (If the loop
+`io` field were wrong. In Phase A `io` is _asserted_ by the contract test (§8.2) only. (If the loop
 instead installed the full §3.2 scheduler while the bodies still self-managed resolve/depth/ensure,
 the logic would be **double-applied** — `resolveTarget` attached twice, `ensureOffscreen` at both
 `:450` and in-pass — which is NOT byte-identical. Phase A must avoid that.)
@@ -874,6 +883,7 @@ Because the descriptors are now built by the engine from `io` rather than by the
 `scene.*`, the command stream **can shift** (e.g. the redundant double-resolve might collapse, a
 store/discard might differ at a sub-pass boundary). Phase B is therefore **not** gated by DC = 0
 against the live ladder; it is gated by:
+
 - DC = 0 on the **RenderPassDescriptor stream** (§8.1) versus **Phase A** for every scene where the
   intent is unchanged, and an explicit, reviewed allow-list of intended divergences (e.g. collapsed
   double-resolve), plus
@@ -902,11 +912,11 @@ once `registerRenderer` exists and the encoder is RHI.
 > **internal perf strategy whose OUTPUT is byte-identical** (e.g. render bundles, below) — never a
 > missing feature, never missing output. `requiresCompute`-style "refuse on WebGL2" gates are **removed**.
 
-| Gap | State | Resolution (parity-mandatory) |
-|---|---|---|
-| **Compute** | P0.4 landed **TYPES ONLY** — `RhiComputePipeline/Desc/Pass/PassDesc` exist (`rhi.ts:224-250`) but `RhiDevice` has no factory methods. Live `ComputeDispatcher` runs **raw** `device.createComputePipeline` (`gpu/compute.ts:58,87`). | **FEATURE, must run on both.** WebGPU → native compute pass. **WebGL2 → fragment-shader GPGPU**: the per-feature paint kernels (an embarrassingly-parallel *map* over features) run as a fragment pass writing a **data texture** (R32F/RGBA32F, gather-only), the storage→data-texture emulation the charter already anticipates (`engine-content-split.md` §5). The DSL emits BOTH forms from one kernel (WGSL compute / GLSL fragment) — §6 no-raw rule. So the RHI compute contract gets a **real WebGL2 implementation**, NOT a fail-close. (Blocks the chain? No — `preFrame` hook §3.3.) |
-| **Render bundles** | No RHI surface. `bundle-cache.ts:78,134` records raw `GPURenderBundleEncoder`. | **The ONE legitimate backend difference** — bundling is a pure **perf optimization with byte-identical OUTPUT**: WebGPU records a bundle, WebGL2 replays the same draws per-frame. NOT a feature, so output parity holds with no WebGL2 bundle. The `PassDef` must not bake bundle-replay into its contract; invariant: a node's draw-list is REPLAYABLE (no per-draw `setStencilReference` inside a recorded scope). |
-| **Pick** | `pickAt` runs raw `copyTextureToBuffer` + `mapAsync` (`interaction-controller.ts`). | **FEATURE, must run on both.** The pick `@location1` MRT is part of the opaque topology (WebGL2 supports MRT via `gl.drawBuffers`). WebGPU → `copyTextureToBuffer`+`mapAsync`; **WebGL2 → `gl.readPixels`** from the pick attachment. Both ship. The v1 `PassIo` (§3.2) has no extra-colour-attachment field, so the pick MRT stays built inside `opaque.execute` (`opaque-pass.ts:90-97`), out of the frozen v1 `io` schema; the readback routes per-backend behind the RHI. |
+| Gap                | State                                                                                                                                                                                                                                | Resolution (parity-mandatory)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Compute**        | P0.4 landed **TYPES ONLY** — `RhiComputePipeline/Desc/Pass/PassDesc` exist (`rhi.ts:224-250`) but `RhiDevice` has no factory methods. Live `ComputeDispatcher` runs **raw** `device.createComputePipeline` (`gpu/compute.ts:58,87`). | **FEATURE, must run on both.** WebGPU → native compute pass. **WebGL2 → fragment-shader GPGPU**: the per-feature paint kernels (an embarrassingly-parallel _map_ over features) run as a fragment pass writing a **data texture** (R32F/RGBA32F, gather-only), the storage→data-texture emulation the charter already anticipates (`engine-content-split.md` §5). The DSL emits BOTH forms from one kernel (WGSL compute / GLSL fragment) — §6 no-raw rule. So the RHI compute contract gets a **real WebGL2 implementation**, NOT a fail-close. (Blocks the chain? No — `preFrame` hook §3.3.) |
+| **Render bundles** | No RHI surface. `bundle-cache.ts:78,134` records raw `GPURenderBundleEncoder`.                                                                                                                                                       | **The ONE legitimate backend difference** — bundling is a pure **perf optimization with byte-identical OUTPUT**: WebGPU records a bundle, WebGL2 replays the same draws per-frame. NOT a feature, so output parity holds with no WebGL2 bundle. The `PassDef` must not bake bundle-replay into its contract; invariant: a node's draw-list is REPLAYABLE (no per-draw `setStencilReference` inside a recorded scope).                                                                                                                                                                           |
+| **Pick**           | `pickAt` runs raw `copyTextureToBuffer` + `mapAsync` (`interaction-controller.ts`).                                                                                                                                                  | **FEATURE, must run on both.** The pick `@location1` MRT is part of the opaque topology (WebGL2 supports MRT via `gl.drawBuffers`). WebGPU → `copyTextureToBuffer`+`mapAsync`; **WebGL2 → `gl.readPixels`** from the pick attachment. Both ship. The v1 `PassIo` (§3.2) has no extra-colour-attachment field, so the pick MRT stays built inside `opaque.execute` (`opaque-pass.ts:90-97`), out of the frozen v1 `io` schema; the readback routes per-backend behind the RHI.                                                                                                                   |
 
 None of the three block the data-driven chain or the additive-now adapter. Compute and pick are
 **features with mandatory WebGL2 implementations** (fragment-GPGPU; `gl.readPixels`) — not fail-close.
@@ -929,6 +939,7 @@ Per CLAUDE.md §4 (goal-driven) and §5 (render verification MANDATORY).
 Phase A (§7.1) must emit a **byte-identical command stream** versus the current `:452-481` ladder.
 The snapshot must capture **more than WGSL/uniform/draws** — every coupling the `io` model governs
 lives in the `beginRenderPass` **descriptor**, not in shader/uniform/draw bytes. Snapshot, per pass:
+
 - the encoded **WGSL + uniform-pack + draw-call sequence**, AND
 - the full **`RenderPassDescriptor`**: `colorAttachments[].{loadOp, storeOp, resolveTarget != null}`,
   `depthStencilAttachment.{depthLoadOp, depthStoreOp, stencilLoadOp, stencilStoreOp}`, and the pick
@@ -941,10 +952,10 @@ silently regressing MSAA resolve or depth occlusion, the exact §2.3 hazards thi
 lift. Gate across the fixed scene matrix (mercator + globe; with/without translucent, points,
 heatmap, labels; `DEBUG_OVERDRAW` on/off — §2.3.5).
 
-- **Phase A** (`io` inert): DC = 0 on the full stream above proves the *wrapper* is faithful — it
+- **Phase A** (`io` inert): DC = 0 on the full stream above proves the _wrapper_ is faithful — it
   does **NOT** prove the `io` fields are correct (the bytes come from the verbatim bodies, §1.3/§7.1).
-- **Phase B** (`io` load-bearing): the descriptors are now built by the engine *from `io`*. Gate
-  DC = 0 on the descriptor stream **versus Phase A**, with a reviewed allow-list for any *intended*
+- **Phase B** (`io` load-bearing): the descriptors are now built by the engine _from `io`_. Gate
+  DC = 0 on the descriptor stream **versus Phase A**, with a reviewed allow-list for any _intended_
   divergence (e.g. a deliberately collapsed double-resolve). Only this proves the `io` model
   reconstructs the chain — and it is paired with the §8.3 real-GPU re-baseline.
 
@@ -958,27 +969,41 @@ table so codegen can't drift (`FIELD_KEYS` map → `expect(NODE_SPECS[type].fiel
 // runtime/src/engine/render/graph/__tests__/pass-contract.test.ts (proposed)
 describe('@xgis/engine render-graph contract', () => {
   it('the 8 registered buckets keep their identity + order', () => {
-    expect(orderedPasses().map(p => p.bucket)).toEqual([
-      'background','opaque','oit','translucent','points','label','heatmap','overdraw-compose',
+    expect(orderedPasses().map((p) => p.bucket)).toEqual([
+      'background',
+      'opaque',
+      'oit',
+      'translucent',
+      'points',
+      'label',
+      'heatmap',
+      'overdraw-compose',
     ])
   })
   it('exactly one pass clears colour, exactly one clears depth/stencil/pick', () => {
-    expect(orderedPasses().filter(p => p.io.clearsColor).map(p => p.bucket)).toEqual(['background'])
-    expect(orderedPasses().filter(p => p.io.clearsDepthStencilPick).map(p => p.bucket)).toEqual(['opaque'])
+    expect(
+      orderedPasses()
+        .filter((p) => p.io.clearsColor)
+        .map((p) => p.bucket),
+    ).toEqual(['background'])
+    expect(
+      orderedPasses()
+        .filter((p) => p.io.clearsDepthStencilPick)
+        .map((p) => p.bucket),
+    ).toEqual(['opaque'])
   })
   it('resolved-domain passes are registered AFTER the last msaa-domain pass', () => {
-    const idx = (b: string) => orderedPasses().findIndex(p => p.bucket === b)
-    for (const b of ['heatmap','overdraw-compose'])
-      expect(idx(b)).toBeGreaterThan(idx('label'))
+    const idx = (b: string) => orderedPasses().findIndex((p) => p.bucket === b)
+    for (const b of ['heatmap', 'overdraw-compose']) expect(idx(b)).toBeGreaterThan(idx('label'))
   })
   it('resolve roles match the scene-derived owner model (§2.3.3)', () => {
-    expect(byBucket('points').io.resolve).toBe('unconditional')   // points-pass.ts:28
-    expect(byBucket('label').io.resolve).toBe('unconditional')     // label-pass.ts:1344
-    expect(byBucket('opaque').io.resolve).toBe('owner-gated')      // opaque-pass.ts:44-45
+    expect(byBucket('points').io.resolve).toBe('unconditional') // points-pass.ts:28
+    expect(byBucket('label').io.resolve).toBe('unconditional') // label-pass.ts:1344
+    expect(byBucket('opaque').io.resolve).toBe('owner-gated') // opaque-pass.ts:44-45
   })
   it('depth readers/writers pin the feed-forward store rule (§2.3.2)', () => {
     expect(byBucket('opaque').io.writesDepth).toBe(true)
-    for (const b of ['oit','points']) expect(byBucket(b).io.readsDepth).toBe(true)
+    for (const b of ['oit', 'points']) expect(byBucket(b).io.readsDepth).toBe(true)
   })
 })
 ```
@@ -989,10 +1014,11 @@ This freezes the §3 schema the same way blueprint freezes codegen field keys �
 
 The byte-identity snapshot proves CPU-side faithfulness; it does **not** prove the rendered output.
 Per CLAUDE.md §5 the render verdict requires:
+
 1. **Directional pixel-diff** with `.claude/skills/compare-parity-pixeldiff/compare-diff.py`.
    **Phase A** (inert-`io` wrapper): live ladder vs adapter, DC = 0 expected (byte-identical). **Phase
    B** (centralization): this is a deliberate **re-baseline** — DC may be non-zero where a divergence
-   is *intended* (e.g. collapsed double-resolve); diff vs Phase A, read every hot tile, and accept
+   is _intended_ (e.g. collapsed double-resolve); diff vs Phase A, read every hot tile, and accept
    only reviewed intended changes. In both, vs MapLibre D1 < D0 unchanged. Gate on DC + direction,
    never an absolute %.
 2. **Read the diff image in a 16-split (4×4) grid at full resolution** (tile-crop-review), worst
@@ -1022,12 +1048,14 @@ generic shaders with. It is an **arch-ratchet**, modelled on the existing downwa
 it('@xgis/engine imports nothing from @xgis/map AND hardcodes no raw shader strings', () => {
   // Rule A — CONTENT-BLIND: zero import edges into @xgis/map content (the map renderers,
   // the map shader graphs, projection table). @xgis/shader-dsl is NOT here — it is allowed.
-  const FORBIDDEN = /from\s+['"](@xgis\/map|.*\/(vector-tile-renderer|line-renderer|point-renderer|heatmap-renderer|raster-renderer|graticule-renderer|map|interpreter|projections-table|shaders\/dsl\/(polygon|line|point|heatmap|raster|graticule)))['"]/
-  const FORBIDDEN_TYPE = /\bXGISMap\b/   // not even `import type`
+  const FORBIDDEN =
+    /from\s+['"](@xgis\/map|.*\/(vector-tile-renderer|line-renderer|point-renderer|heatmap-renderer|raster-renderer|graticule-renderer|map|interpreter|projections-table|shaders\/dsl\/(polygon|line|point|heatmap|raster|graticule)))['"]/
+  const FORBIDDEN_TYPE = /\bXGISMap\b/ // not even `import type`
   // Rule B — SHADERS DSL-ONLY (applies engine AND content): no shader hardcoded as a string
   // literal / template literal. All shaders are authored via @xgis/shader-dsl IR; the only
   // string is the DSL's EMIT output handed to the RHI. Authoring-via-DSL + reflect() are FINE.
-  const RAW_SHADER_LITERAL = /`[^`]*(@vertex|@fragment|@compute|fn\s+main\s*\(|gl_Position|gl_FragColor|precision\s+(highp|mediump))[^`]*`/
+  const RAW_SHADER_LITERAL =
+    /`[^`]*(@vertex|@fragment|@compute|fn\s+main\s*\(|gl_Position|gl_FragColor|precision\s+(highp|mediump))[^`]*`/
   // walk engineFiles(); assert no FORBIDDEN import, no XGISMap, no RAW_SHADER_LITERAL. Allowlist = EMPTY.
 })
 ```
@@ -1036,16 +1064,16 @@ Verified today: `rhi.ts`/`material.ts` pass both rules; `gpu/frame-uniform.ts:53
 `emitFrameUniformWgsl` is **correct** (the engine using the DSL, not a violation). The gate **fails
 today** on the channels below — the objective, mechanical definition of "done":
 
-| What the gate catches | Rule | Cut by |
-|---|---|---|
-| `pass.execute(host: Pick<XGISMap>)` (§2.2) | A | §4 `RenderNode` — content registers nodes; engine resolves by bucket id |
-| `renderer` = `MapRenderer` named in engine (§4.1) | A | split renderer — RHI-driver → engine; pipelines → content `RendererDef` (§5.2) |
-| `SceneView` carries `GPURenderPipeline`/`vtEntry` (§4.5) | A | §4.5 Option A — content draws emit generic `DrawItem[]` |
-| `FrameContext.{projType,centerLon,centerLat}` (§4.2) | A | §9#3 — inject projection token, not degrees |
-| **hardcoded raw WGSL in `gpu/compute.ts:105-117`** (`generateShader()` template literal) + `wgsl-expr.ts` string-building | B | **author the kernel via `@xgis/shader-dsl`** (not a hardcoded string); engine still uses the DSL |
+| What the gate catches                                                                                                     | Rule | Cut by                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------------ |
+| `pass.execute(host: Pick<XGISMap>)` (§2.2)                                                                                | A    | §4 `RenderNode` — content registers nodes; engine resolves by bucket id                          |
+| `renderer` = `MapRenderer` named in engine (§4.1)                                                                         | A    | split renderer — RHI-driver → engine; pipelines → content `RendererDef` (§5.2)                   |
+| `SceneView` carries `GPURenderPipeline`/`vtEntry` (§4.5)                                                                  | A    | §4.5 Option A — content draws emit generic `DrawItem[]`                                          |
+| `FrameContext.{projType,centerLon,centerLat}` (§4.2)                                                                      | A    | §9#3 — inject projection token, not degrees                                                      |
+| **hardcoded raw WGSL in `gpu/compute.ts:105-117`** (`generateShader()` template literal) + `wgsl-expr.ts` string-building | B    | **author the kernel via `@xgis/shader-dsl`** (not a hardcoded string); engine still uses the DSL |
 
 When this test is green with an **empty allowlist**, the engine is content-blind and shader-DSL-only.
-Every other gate (§8.1-8.4) proves *correctness*; this one proves *independence + no-raw-shaders*.
+Every other gate (§8.1-8.4) proves _correctness_; this one proves _independence + no-raw-shaders_.
 
 ### 8.6 Feature-parity gate — every feature ships on WebGPU AND WebGL2
 
@@ -1054,7 +1082,7 @@ an excuse to leave a feature unimplemented in the fallback (§7.3). The gate has
 
 1. **Capability-coverage assertion (static).** For every feature the engine exposes (compute dispatch,
    pick readback, MRT, float-render, …), assert a WebGL2 implementation path EXISTS — `rhi-webgl2.ts`
-   must not `throw "unsupported"` for any *feature* (only for a genuinely-absent **perf strategy** like
+   must not `throw "unsupported"` for any _feature_ (only for a genuinely-absent **perf strategy** like
    render bundles, whose output is reproduced by per-draw replay). A `throw` in a feature path fails
    the gate.
 2. **Cross-backend pixel parity (real-GPU).** The §8.3 directional pixel-diff is run **on both
@@ -1065,7 +1093,7 @@ an excuse to leave a feature unimplemented in the fallback (§7.3). The gate has
 
 The legitimate exception is explicit and narrow: an **internal perf strategy** (render bundles) may be
 WebGPU-only **iff** its WebGL2 replay produces byte-identical output (so it never shows up in the
-parity pixel-diff). Anything that changes *output* or *feature availability* between backends fails.
+parity pixel-diff). Anything that changes _output_ or _feature availability_ between backends fails.
 
 ---
 
@@ -1077,21 +1105,21 @@ parity pixel-diff). Anything that changes *output* or *feature availability* bet
    same-shape peer — **three.js** (web, 2-backend WebGPU+WebGL2, node-graph shader IR) — ships **no
    frame-graph at all**; **bgfx** shipped a flat numbered-view scheduler for **10+ years**; the two DAG
    headline payoffs are **unreachable or free** on X-GIS's platform (transient memory aliasing needs
-   app-placed heaps WebGPU/WebGL2 do not expose; minimal-barrier scheduling is *already done by WebGPU
-   for free* — X-GIS sits above the barrier layer, unlike Godot's Vulkan-level RD). Unity/Godot
-   migrated **off** flat models, but off *under-declared* ones — both still execute in declaration
+   app-placed heaps WebGPU/WebGL2 do not expose; minimal-barrier scheduling is _already done by WebGPU
+   for free_ — X-GIS sits above the barrier layer, unlike Godot's Vulkan-level RD). Unity/Godot
+   migrated **off** flat models, but off _under-declared_ ones — both still execute in declaration
    order; the real hazard is **under-declaration, not flatness**. So the teeth are in **hardening the
    declarations** (make `PassIo` complete + validated, §3.2 Phase-B) so the model is a strict superset
-   a future derived schedule could consume *additively*. **Revisit trigger (measured, not aspirational):**
+   a future derived schedule could consume _additively_. **Revisit trigger (measured, not aspirational):**
    (i) profiled async-compute need (N/A on single-queue WebGPU), (ii) measured transient-RT memory
    pressure, or (iii) a coupling `colorDomain/readsDepth/writesDepth/resolve/creates/reads/writes`
-   genuinely cannot encode. Until one is *measured*, CLAUDE.md §2 forbids the compiler.
+   genuinely cannot encode. Until one is _measured_, CLAUDE.md §2 forbids the compiler.
 
 2. **Double MSAA resolve — collapse or preserve?** When labels exist, the `resolveOwner`-gated pass
    resolves AND the label text-overlay resolves again on the same `useResolve` frame
    (`points-pass.ts:28`, `label-pass.ts:1344`). v1 **preserves** it (byte-identical). **Open:**
    should the data-driven model collapse resolve ownership to a single explicit terminal pass? That
-   would change the byte stream (one fewer resolve), so it is a *separate, gated* optimization, not
+   would change the byte stream (one fewer resolve), so it is a _separate, gated_ optimization, not
    part of the inversion.
 
 3. **Projection content laced through the "engine" handoff** (`engine-content-split.md` §7 risk #2)
@@ -1108,7 +1136,7 @@ parity pixel-diff). Anything that changes *output* or *feature availability* bet
    the §4.2 `FrameContext` shape.
 
 4. **Arena sub-range ownership** (§6.4, `engine-content-split.md` §7 risk #4). The
-   `setVertexBuffer(offset, size)` mechanism landed (P0.2) but the *ownership* model is undecided:
+   `setVertexBuffer(offset, size)` mechanism landed (P0.2) but the _ownership_ model is undecided:
    does `DrawItem` carry **raw `(buffer, offset, size)` triples** into engine-allocated memory (who
    validates in-bounds?), or **opaque `RhiBufferSlice` handles**? This directly shapes the frozen
    `DrawItem` shape, so it must be settled before the interface freezes.
@@ -1117,13 +1145,13 @@ parity pixel-diff). Anything that changes *output* or *feature availability* bet
    fully resolved `RenderNode` handles by bucket id (full inversion of `PassHost`), or keep a
    narrowed host slice in a transitional phase? This determines whether `registerRenderer` and
    `registerPass` land **atomically** at P2 or can be staged. The additive-now adapter (§7.1)
-   deliberately keeps the `Pick<XGISMap>` host, so the inversion is cleanly a *later* step.
+   deliberately keeps the `Pick<XGISMap>` host, so the inversion is cleanly a _later_ step.
 
 6. **`pointRenderer` dual reach** (§4.3). One content node is invoked by two buckets (opaque + points,
    `pass-hosts.ts:36,57`). The registry must map bucket → node allowing a node to answer to two
    buckets. Settle before the `RenderNode` interface freezes.
 
-7. **`_elapsedMs` ownership.** The engine frame clock (`pass-hosts.ts:31`) is consumed for *content*
+7. **`_elapsedMs` ownership.** The engine frame clock (`pass-hosts.ts:31`) is consumed for _content_
    expression eval (raster/label time-animation). Charter implies engine-owned + handed down via
    `FrameContext` (§4.2). Confirm the content node reads it off the context, not off the map.
 
@@ -1155,7 +1183,7 @@ parity pixel-diff). Anything that changes *output* or *feature availability* bet
     (`opaque-pass.ts:37-57`); only the **terminal** sub-pass may resolve (`isLastOpaque`, `:44-45`)
     or decide depth store (`:57,106`), and stencil is per-sub-pass. `io.resolve` / `io.writesDepth`
     are pass-scoped, so the engine cannot attach the resolve target or override depth-store to the
-    correct *sub-pass* from `io` alone — the Phase-B centralization (§7.1) for opaque is **blocked**
+    correct _sub-pass_ from `io` alone — the Phase-B centralization (§7.1) for opaque is **blocked**
     until opaque's internal loop is itself modelled (a sub-schedule the engine drives, or kept
     content-internal forever). `classifyVectorTileShows` / `groupOpaqueBySource`
     (`bucket-scheduler.ts`) were cited via `scene-view` but not read line-by-line — confirm the
@@ -1165,28 +1193,28 @@ parity pixel-diff). Anything that changes *output* or *feature availability* bet
 13. **`visibleWorldCopies` write-then-read hazard.** The label pass WRITES `ctx.visibleWorldCopies`
     (`label-pass.ts:359`) and comments say downstream opaque/line draws consume it. Verify there is
     no within-frame ordering hazard where opaque (which runs BEFORE labels) needs a value labels set
-    AFTER. If real, this is a cross-pass *data* edge the `io` model must also encode.
+    AFTER. If real, this is a cross-pass _data_ edge the `io` model must also encode.
 
 ---
 
 ## Appendix A — file:line index (this doc's anchors)
 
-| Subject | Location |
-|---|---|
-| Fixed chain block | `runtime/src/engine/render-loop.ts:452-481` (hardcoded imports `:30-37`) |
-| Lifecycle phases | `render-loop.ts:231,238-240` (compute), `:336-345,364-379` (beginFrame), `:490-495,501` (endFrame/resolve/submit), `:450` (loop-level ensureOffscreen) |
-| `passScope` + frame error scope | `render-loop.ts:254,260-274,531` |
-| `RenderPass` interface | `runtime/src/engine/render/passes/pass.ts:57-65`; `PassHost` `:46-54` |
-| 8 role views (`Pick<XGISMap>`) | `runtime/src/engine/render/passes/pass-hosts.ts:23-103`; `SceneClassifyHost` `:106-110`; `FrameLoopHost` `:115-136`; `RenderLoopHost` `:141-152` |
-| Pass bodies / gates | `{background:65/86-95, opaque:28/44-45/57/87-112, oit:19/26/36-48/54-57/78, translucent:19/26-27/30, points:20/28/32-41, label:158/359/1339/1344, heatmap:30/60-132, overdraw-compose:19/21-31}-pass.ts` |
-| Scene-derived resolve owner | `runtime/src/engine/render/scene-view.ts:69-77`; `bucket-scheduler.ts:436-447` |
-| Frame context (colorView/overdraw) | `runtime/src/engine/render/frame-context.ts:29-33` |
-| `Material`/`DrawItem`/`executeItems` | `runtime/src/engine/render/material/material.ts:33-57,61-81,83-148` |
-| `configureProjections` precedent | `runtime/src/engine/shaders/dsl/projections.ts:43-50`; call site `map.ts:749-750`; ladder `:307-326` |
-| Polygon uniform reflected SoT | `runtime/src/engine/render/polygon-uniform-slots.ts:21-44`; packers `vector-tile-renderer.ts:11,25-28`, `renderer.ts:843-885`, `graticule-renderer.ts:157,172-192` |
-| Vertex formats (`buildFormat`) | `text-vertex-format.ts:9`, `icon-vertex-format.ts:10`, `line-vertex-format.ts:20`, `point-vertex-format.ts:11`, `compiler/src/tiler/{polygon-vertex-format.ts:33/45,vertex-format.ts:62}` |
-| RHI render surface (P0.1-0.4) | `runtime/src/engine/render/rhi/rhi.ts:125,133,208-212,224-250,259-268,271-313` |
-| Arena sub-range binding | `vector-tile-renderer.ts:3560,3563,3567`; `gpu/gpu-arena.ts:1-60` |
-| Compute (raw, types-only RHI) | `gpu/compute.ts:58,87,164,281`; `rhi.ts:224-250` |
-| Bundles / pick (no RHI) | `bundle-cache.ts:78,134`; `vector-tile-renderer.ts:3571-3578`; `interaction-controller-*.test.ts` |
-| Contract-test precedent | `blueprint/src/__tests__/contract.test.ts:13-35` |
+| Subject                              | Location                                                                                                                                                                                                 |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fixed chain block                    | `runtime/src/engine/render-loop.ts:452-481` (hardcoded imports `:30-37`)                                                                                                                                 |
+| Lifecycle phases                     | `render-loop.ts:231,238-240` (compute), `:336-345,364-379` (beginFrame), `:490-495,501` (endFrame/resolve/submit), `:450` (loop-level ensureOffscreen)                                                   |
+| `passScope` + frame error scope      | `render-loop.ts:254,260-274,531`                                                                                                                                                                         |
+| `RenderPass` interface               | `runtime/src/engine/render/passes/pass.ts:57-65`; `PassHost` `:46-54`                                                                                                                                    |
+| 8 role views (`Pick<XGISMap>`)       | `runtime/src/engine/render/passes/pass-hosts.ts:23-103`; `SceneClassifyHost` `:106-110`; `FrameLoopHost` `:115-136`; `RenderLoopHost` `:141-152`                                                         |
+| Pass bodies / gates                  | `{background:65/86-95, opaque:28/44-45/57/87-112, oit:19/26/36-48/54-57/78, translucent:19/26-27/30, points:20/28/32-41, label:158/359/1339/1344, heatmap:30/60-132, overdraw-compose:19/21-31}-pass.ts` |
+| Scene-derived resolve owner          | `runtime/src/engine/render/scene-view.ts:69-77`; `bucket-scheduler.ts:436-447`                                                                                                                           |
+| Frame context (colorView/overdraw)   | `runtime/src/engine/render/frame-context.ts:29-33`                                                                                                                                                       |
+| `Material`/`DrawItem`/`executeItems` | `runtime/src/engine/render/material/material.ts:33-57,61-81,83-148`                                                                                                                                      |
+| `configureProjections` precedent     | `runtime/src/engine/shaders/dsl/projections.ts:43-50`; call site `map.ts:749-750`; ladder `:307-326`                                                                                                     |
+| Polygon uniform reflected SoT        | `runtime/src/engine/render/polygon-uniform-slots.ts:21-44`; packers `vector-tile-renderer.ts:11,25-28`, `renderer.ts:843-885`, `graticule-renderer.ts:157,172-192`                                       |
+| Vertex formats (`buildFormat`)       | `text-vertex-format.ts:9`, `icon-vertex-format.ts:10`, `line-vertex-format.ts:20`, `point-vertex-format.ts:11`, `compiler/src/tiler/{polygon-vertex-format.ts:33/45,vertex-format.ts:62}`                |
+| RHI render surface (P0.1-0.4)        | `runtime/src/engine/render/rhi/rhi.ts:125,133,208-212,224-250,259-268,271-313`                                                                                                                           |
+| Arena sub-range binding              | `vector-tile-renderer.ts:3560,3563,3567`; `gpu/gpu-arena.ts:1-60`                                                                                                                                        |
+| Compute (raw, types-only RHI)        | `gpu/compute.ts:58,87,164,281`; `rhi.ts:224-250`                                                                                                                                                         |
+| Bundles / pick (no RHI)              | `bundle-cache.ts:78,134`; `vector-tile-renderer.ts:3571-3578`; `interaction-controller-*.test.ts`                                                                                                        |
+| Contract-test precedent              | `blueprint/src/__tests__/contract.test.ts:13-35`                                                                                                                                                         |

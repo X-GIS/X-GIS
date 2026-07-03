@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
-  mercator, equirectangular, naturalEarth,
-  orthographic, azimuthalEquidistant, stereographic, obliqueMercator,
+  mercator,
+  equirectangular,
+  naturalEarth,
+  orthographic,
+  azimuthalEquidistant,
+  stereographic,
+  obliqueMercator,
 } from '@xgis/engine'
 import {
   projMercatorWgsl,
@@ -29,11 +34,14 @@ const EARTH_R = 6378137
 // eye-horizon cull. altR large ⇒ horizonCos → 0 ⇒ horizon ≈ strict hemisphere
 // (sign matches cosC); altR small ⇒ a tight visible cap.
 function nadirEye(clon: number, clat: number, altR: number): readonly [number, number, number] {
-  const lam = clon * Math.PI / 180, phi = clat * Math.PI / 180, c = Math.cos(phi)
+  const lam = (clon * Math.PI) / 180,
+    phi = (clat * Math.PI) / 180,
+    c = Math.cos(phi)
   const s = EARTH_R * (1 + altR)
   return [s * c * Math.cos(lam), s * c * Math.sin(lam), s * Math.sin(phi)]
 }
-const eye4 = (e: readonly [number, number, number]) => globeEyeUniform(e) as [number, number, number, number]
+const eye4 = (e: readonly [number, number, number]) =>
+  globeEyeUniform(e) as [number, number, number, number]
 
 // Phase 2-A: Cross-consistency between CPU canonical (projection.ts) and
 // WGSL mirror (projection-wgsl-mirror.ts). A failure means the GPU shader
@@ -177,7 +185,8 @@ describe('CPU/GPU projection consistency — Stereographic', () => {
     // when cos_c < -0.9, the WGSL returns vec2<f32>(1e15, 1e15). Both
     // effectively "cull" but the contract differs — consumers that check
     // Number.isFinite see different booleans.
-    let cpuNaNCount = 0, wgslSentinelCount = 0
+    let cpuNaNCount = 0,
+      wgslSentinelCount = 0
     for (const [lon, lat] of sampleGrid()) {
       if (cosC(lon, lat, CENTER_LON, CENTER_LAT) >= -0.9) continue
       const [xA] = cpu.forward(lon, lat)
@@ -188,7 +197,9 @@ describe('CPU/GPU projection consistency — Stereographic', () => {
     // May be 0 if the grid doesn't reach the antipode region for this
     // center — that's fine, the point is the observation is recorded.
     // eslint-disable-next-line no-console
-    console.log(`[stereographic back-hemisphere convention] CPU NaN=${cpuNaNCount} WGSL sentinel=${wgslSentinelCount}`)
+    console.log(
+      `[stereographic back-hemisphere convention] CPU NaN=${cpuNaNCount} WGSL sentinel=${wgslSentinelCount}`,
+    )
   })
 })
 
@@ -220,7 +231,12 @@ describe('CPU/GPU projection consistency — Oblique Mercator', () => {
   })
 
   it('center maps to (0, 0)', () => {
-    for (const [clon, clat] of [[0, 0], [10, 30], [-50, 45], [120, -20]] as const) {
+    for (const [clon, clat] of [
+      [0, 0],
+      [10, 30],
+      [-50, 45],
+      [120, -20],
+    ] as const) {
       const [x, y] = obliqueMercator(clon, clat).forward(clon, clat)
       expect(x).toBeCloseTo(0, 3)
       expect(y).toBeCloseTo(0, 3)
@@ -229,7 +245,12 @@ describe('CPU/GPU projection consistency — Oblique Mercator', () => {
 
   it('forward → inverse round-trips', () => {
     const proj = obliqueMercator(20, 40)
-    for (const [lon, lat] of [[0, 0], [10, 10], [-30, 50], [80, -20]] as const) {
+    for (const [lon, lat] of [
+      [0, 0],
+      [10, 10],
+      [-30, 50],
+      [80, -20],
+    ] as const) {
       const [x, y] = proj.forward(lon, lat)
       const [lon2, lat2] = proj.inverse(x, y)
       expect(lon2).toBeCloseTo(lon, 3)
@@ -245,7 +266,8 @@ describe('CPU/GPU projection consistency — Oblique Mercator', () => {
 // needs_backface_cull() in shaders/projection.ts — a boundary slip here
 // detaches every label/raster from the geometry under that projection.
 describe('projectWgsl dispatch matches the per-projection mirrors', () => {
-  const CL = 0, CT = 20
+  const CL = 0,
+    CT = 20
   const cases: Array<[number, (l: number, a: number) => [number, number]]> = [
     [0, (l, a) => projMercatorWgsl(l, a)],
     [1, (l, a) => projEquirectangularWgsl(l, a)],
@@ -269,7 +291,8 @@ describe('projectWgsl dispatch matches the per-projection mirrors', () => {
 })
 
 describe('needsBackfaceCullWgsl matches WGSL needs_backface_cull thresholds', () => {
-  const CL = 0, CT = 20
+  const CL = 0,
+    CT = 20
   // mercator(0) equirect(1) natural_earth(2) oblique_mercator(6) are all
   // whole-sphere (cylindrical / flat) — no hemisphere back-face. oblique
   // used to fall through the shader's `t > 2.5` block to the stereo
@@ -407,7 +430,8 @@ describe('project_geom — antimeridian seam continuity', () => {
     // Equirect is LINEAR, so its world-copy offset exactly cancels the
     // ±180 fold and the tile is drawn whole across the seam.
     const clon = -160
-    const west = 15, east = 25
+    const west = 15,
+      east = 25
     const refLon = (west + east) / 2
     // OLD per-vertex hard wrap: the two tile edges land a near-whole-
     // world apart — this is the smear.
@@ -434,7 +458,8 @@ describe('project_geom — antimeridian seam continuity', () => {
     // camera-facing bg band torn (the black wedge). Here clon = −160 puts
     // the antipode seam at lon = +20, so the 15..25 tile straddles it.
     const clon = -160
-    const west = 15, east = 25
+    const west = 15,
+      east = 25
     const refLon = (west + east) / 2
     const smearW = projectWgsl(2, west, 0, clon, 0)[0]
     const smearE = projectWgsl(2, east, 0, clon, 0)[0]
@@ -453,7 +478,7 @@ describe('project_geom — antimeridian seam continuity', () => {
     // is real: the tile straddles the oval edge).
     const oneWorld = 2 * Math.PI * 6378137
     const seamGap = Math.abs(gE - gW)
-    expect(seamGap).toBeGreaterThan(4e6)        // the real NE oval-seam step
+    expect(seamGap).toBeGreaterThan(4e6) // the real NE oval-seam step
     expect(seamGap).toBeLessThan(oneWorld * 0.2) // NOT a whole-world smear
   })
 
@@ -468,7 +493,7 @@ describe('project_geom — antimeridian seam continuity', () => {
         for (const [lon, lat] of sampleGrid()) {
           // Skip the exact ±180 boundary — wrap() (ceil) and
           // unwrap_lon_near (floor) legitimately differ only there.
-          if (((lon - clon) % 360 + 540) % 360 === 0) continue
+          if ((((lon - clon) % 360) + 540) % 360 === 0) continue
           const a = projectWgsl(projType, lon, lat, clon, 0)
           const b = projectGeomWgsl(projType, lon, lat, clon, 0, clon)
           expect(b[0]).toBeCloseTo(a[0], 3)
@@ -487,7 +512,7 @@ describe('project_geom — antimeridian seam continuity', () => {
     for (const clon of [175, -175, 160, -30]) {
       for (const projType of [1, 2, 6]) {
         for (const [lon, lat] of sampleGrid()) {
-          if (((lon - clon) % 360 + 540) % 360 === 0) continue // ±180 tie
+          if ((((lon - clon) % 360) + 540) % 360 === 0) continue // ±180 tie
           const a = projectWgsl(projType, lon, lat, clon, 20)
           const b = projectGeomWgsl(projType, lon, lat, clon, 20, lon)
           expect(b[0]).toBeCloseTo(a[0], 2)
@@ -504,7 +529,8 @@ describe('project_geom — antimeridian seam continuity', () => {
     // rotated antimeridian runs roughly along lon≈180. A 4°-wide tile
     // spanning lon 178..182 (abs_lon from a dateline tile's mercX)
     // straddles it.
-    const west = 178, east = 182
+    const west = 178,
+      east = 182
     const refLon = (west + east) / 2
     const smearW = projObliqueMercatorWgsl(west, 5, 0, 40)[0]
     const smearE = projObliqueMercatorWgsl(east, 5, 0, 40)[0]
@@ -521,8 +547,9 @@ describe('project_geom — antimeridian seam continuity', () => {
     // limb / antipode is an edge) have no in-primitive discontinuity.
     for (const projType of [0, 3, 4, 5]) {
       for (const [lon, lat] of sampleGrid()) {
-        expect(projectGeomWgsl(projType, lon, lat, 30, 20, 999))
-          .toEqual(projectWgsl(projType, lon, lat, 30, 20))
+        expect(projectGeomWgsl(projType, lon, lat, 30, 20, 999)).toEqual(
+          projectWgsl(projType, lon, lat, 30, 20),
+        )
       }
     }
   })
@@ -536,7 +563,8 @@ describe('project_geom — antimeridian seam continuity', () => {
   // black wedge at the Russia/Chukotka dateline. unwrap_lon_near_keep resolves
   // the tie by the wall's own clamped-longitude sign so each lobe stays whole.
   it('z0 root tile: a ±180 seam wall stays adjacent to its in-lobe neighbour (no gore)', () => {
-    const DEG = Math.PI / 180, R = 6378137
+    const DEG = Math.PI / 180,
+      R = 6378137
     const oneDegM = 1 * DEG * R // ≈ 0.111e6 m — expected wall↔neighbour gap
     for (const projType of [1 /* equirect */, 2 /* natural_earth */]) {
       // z0 root tile reference longitude is 0; camera at clon=0.

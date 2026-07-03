@@ -28,7 +28,10 @@ describe('ConstDecl wgslValue ↔ cpuValue precision split', () => {
     for (const name of INTENTIONAL_PRECISION_SPLIT) {
       const c = ALL.find((d) => d.name === name)
       expect(c, `allowlisted '${name}' not found among the consts`).toBeDefined()
-      expect(c!.wgslValue, `allowlisted '${name}' no longer diverges — remove it from the allowlist`).not.toBe(c!.cpuValue)
+      expect(
+        c!.wgslValue,
+        `allowlisted '${name}' no longer diverges — remove it from the allowlist`,
+      ).not.toBe(c!.cpuValue)
     }
   })
 })

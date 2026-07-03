@@ -17,9 +17,15 @@ import { mercator, equirectangular, naturalEarth } from '@xgis/engine'
 import { Camera } from '@xgis/engine'
 import { routeToSphereSelector } from '@xgis/engine'
 
-const W = 800, H = 800
+const W = 800,
+  H = 800
 
-interface TileLike { z: number; x: number; y: number; ox: number }
+interface TileLike {
+  z: number
+  x: number
+  y: number
+  ox: number
+}
 
 // NOTE: the quadtree selectors (globeVisibleTiles, visibleTilesFrustum-
 // Sampled) return MIXED-LOD leaves — near tiles at the target z, far/
@@ -31,7 +37,7 @@ function assertTileSetSane(tiles: TileLike[], _zHint: number, ctx: string, maxCo
   expect(tiles.length, `${ctx} selection explosion`).toBeLessThanOrEqual(maxCount)
   const seen = new Set<string>()
   for (const t of tiles) {
-    const n = Math.pow(2, t.z)  // per-tile zoom — quadtree is mixed-LOD
+    const n = Math.pow(2, t.z) // per-tile zoom — quadtree is mixed-LOD
     expect(Number.isFinite(t.x) && Number.isInteger(t.x), `${ctx} bad x ${t.x}`).toBe(true)
     expect(Number.isFinite(t.y) && Number.isInteger(t.y), `${ctx} bad y ${t.y}`).toBe(true)
     expect(Number.isInteger(t.z) && t.z >= 0, `${ctx} bad z ${t.z}`).toBe(true)
@@ -89,7 +95,7 @@ describe('iter-321 globeVisibleTiles — polar + dateline', () => {
     // pitch hit 1322 tiles vs mercator 297. The MAX_TILES=300 cap
     // (iter-461) bounds it. Pin the bound.
     const tiles = globeVisibleTiles(126.978, 37.566, 14, 14, W, H, 60, 0)
-    assertTileSetSane(tiles, 14, 'globe-z14-pitch60', 320)  // cap 300 + margin
+    assertTileSetSane(tiles, 14, 'globe-z14-pitch60', 320) // cap 300 + margin
   })
 
   it('bearing rotation does not produce out-of-range tiles', () => {
@@ -113,7 +119,7 @@ describe('iter-321 visibleTilesFrustumSampled — mercator/equirect/NE polar + d
     assertTileSetSane(tiles, 3, 'merc-antimeridian')
     // World-copy enumeration: at the dateline the selection should
     // span more than one world copy (ox values differ) OR wrap x.
-    const oxSet = new Set(tiles.map(t => Math.floor(t.ox / Math.pow(2, 3))))
+    const oxSet = new Set(tiles.map((t) => Math.floor(t.ox / Math.pow(2, 3))))
     expect(oxSet.size, 'merc dateline should touch ≥1 world copy').toBeGreaterThanOrEqual(1)
   })
 
@@ -208,9 +214,10 @@ describe('iter-322 sphere-routed projections — selection sane at pole + dateli
     it(`proj ${p}: routes to sphere AND selection sane at pole + dateline + mid`, () => {
       // Sanity: this projType genuinely sphere-routes (else the test
       // would be exercising the wrong selector).
-      const routes = p === 7
-        ? routeToSphereSelector(p, true)   // globe via globeMode
-        : routeToSphereSelector(p, false)
+      const routes =
+        p === 7
+          ? routeToSphereSelector(p, true) // globe via globeMode
+          : routeToSphereSelector(p, false)
       expect(routes, `proj ${p} expected to sphere-route`).toBe(true)
 
       // North pole, south pole, antimeridian, mid-latitude — the same

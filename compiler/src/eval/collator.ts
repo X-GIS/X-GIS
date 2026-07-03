@@ -33,7 +33,10 @@ function sensitivityOf(
 /** Build an Intl.Collator, falling back to the default locale if the tag
  *  is malformed (Intl.Collator throws a RangeError on bad BCP-47 syntax;
  *  a filter must not die on one authored typo). */
-function makeCollator(locale: string, sensitivity: Intl.CollatorOptions['sensitivity']): Intl.Collator {
+function makeCollator(
+  locale: string,
+  sensitivity: Intl.CollatorOptions['sensitivity'],
+): Intl.Collator {
   const loc = locale === '' ? undefined : locale
   try {
     return new Intl.Collator(loc, { sensitivity })
@@ -57,16 +60,25 @@ export function collatorCompare(
   caseSensitive: boolean,
   diacriticSensitive: boolean,
 ): boolean {
-  const c = makeCollator(locale, sensitivityOf(caseSensitive, diacriticSensitive))
-    .compare(stringify(a), stringify(b))
+  const c = makeCollator(locale, sensitivityOf(caseSensitive, diacriticSensitive)).compare(
+    stringify(a),
+    stringify(b),
+  )
   switch (op) {
-    case '==': return c === 0
-    case '!=': return c !== 0
-    case '<': return c < 0
-    case '<=': return c <= 0
-    case '>': return c > 0
-    case '>=': return c >= 0
-    default: return false
+    case '==':
+      return c === 0
+    case '!=':
+      return c !== 0
+    case '<':
+      return c < 0
+    case '<=':
+      return c <= 0
+    case '>':
+      return c > 0
+    case '>=':
+      return c >= 0
+    default:
+      return false
   }
 }
 

@@ -9,14 +9,24 @@ import { SpriteAtlasHost } from './sprite-atlas-host'
 
 const FIXTURE_JSON = {
   aerialway: { x: 147, y: 190, width: 19, height: 19, pixelRatio: 1 },
-  airport:   { x: 100, y: 100, width: 24, height: 24, pixelRatio: 2 },
-  pin_sdf:   { x: 0, y: 0, width: 16, height: 16, sdf: true },
-  malformed: { x: 0 },  // missing y/width/height — should be dropped
+  airport: { x: 100, y: 100, width: 24, height: 24, pixelRatio: 2 },
+  pin_sdf: { x: 0, y: 0, width: 16, height: 16, sdf: true },
+  malformed: { x: 0 }, // missing y/width/height — should be dropped
 }
 
 const TINY_PNG = new Uint8Array([
-  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,  // PNG signature
-  0x00, 0x00, 0x00, 0x0D,                          // IHDR length
+  0x89,
+  0x50,
+  0x4e,
+  0x47,
+  0x0d,
+  0x0a,
+  0x1a,
+  0x0a, // PNG signature
+  0x00,
+  0x00,
+  0x00,
+  0x0d, // IHDR length
 ])
 
 function installImageBitmapStub(): { restore: () => void; created: number } {
@@ -27,14 +37,23 @@ function installImageBitmapStub(): { restore: () => void; created: number } {
     return { width: 256, height: 256, close: () => {} } as unknown as ImageBitmap
   }
   return {
-    restore: () => { (globalThis as { createImageBitmap?: unknown }).createImageBitmap = original },
-    get created() { return created },
+    restore: () => {
+      ;(globalThis as { createImageBitmap?: unknown }).createImageBitmap = original
+    },
+    get created() {
+      return created
+    },
   }
 }
 
-function makeFetch(urls: string[], opts: {
-  jsonOk?: boolean; pngOk?: boolean; suffix2xOk?: boolean
-} = {}): typeof globalThis.fetch {
+function makeFetch(
+  urls: string[],
+  opts: {
+    jsonOk?: boolean
+    pngOk?: boolean
+    suffix2xOk?: boolean
+  } = {},
+): typeof globalThis.fetch {
   const { jsonOk = true, pngOk = true, suffix2xOk = true } = opts
   return ((input: RequestInfo | URL) => {
     const url = String(input)
@@ -45,15 +64,19 @@ function makeFetch(urls: string[], opts: {
       return Promise.resolve(new Response('', { status: 404 }))
     }
     if (isJson) {
-      return Promise.resolve(new Response(JSON.stringify(FIXTURE_JSON), {
-        status: jsonOk ? 200 : 404,
-        headers: { 'content-type': 'application/json' },
-      }))
+      return Promise.resolve(
+        new Response(JSON.stringify(FIXTURE_JSON), {
+          status: jsonOk ? 200 : 404,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
     }
-    return Promise.resolve(new Response(TINY_PNG, {
-      status: pngOk ? 200 : 404,
-      headers: { 'content-type': 'image/png' },
-    }))
+    return Promise.resolve(
+      new Response(TINY_PNG, {
+        status: pngOk ? 200 : 404,
+        headers: { 'content-type': 'image/png' },
+      }),
+    )
   }) as typeof globalThis.fetch
 }
 
@@ -69,8 +92,8 @@ describe('SpriteAtlasHost', () => {
     stub.restore()
 
     expect(urls).toHaveLength(2)
-    expect(urls.some(u => u.endsWith('/foo.json'))).toBe(true)
-    expect(urls.some(u => u.endsWith('/foo.png'))).toBe(true)
+    expect(urls.some((u) => u.endsWith('/foo.json'))).toBe(true)
+    expect(urls.some((u) => u.endsWith('/foo.png'))).toBe(true)
     expect(host.getState().status).toBe('loaded')
   })
 
@@ -86,8 +109,8 @@ describe('SpriteAtlasHost', () => {
     stub.restore()
 
     expect(host.getState().status).toBe('loaded')
-    expect(urls.some(u => u.includes('@2x'))).toBe(true)
-    expect(urls.some(u => u.endsWith('/foo.json'))).toBe(true)  // 1x fallback
+    expect(urls.some((u) => u.includes('@2x'))).toBe(true)
+    expect(urls.some((u) => u.endsWith('/foo.json'))).toBe(true) // 1x fallback
   })
 
   it('parses metadata + drops malformed entries', async () => {
@@ -101,8 +124,13 @@ describe('SpriteAtlasHost', () => {
     stub.restore()
 
     expect(host.get('aerialway')).toEqual({
-      name: 'aerialway', x: 147, y: 190, width: 19, height: 19,
-      pixelRatio: 1, sdf: false,
+      name: 'aerialway',
+      x: 147,
+      y: 190,
+      width: 19,
+      height: 19,
+      pixelRatio: 1,
+      sdf: false,
     })
     expect(host.get('airport')!.pixelRatio).toBe(2)
     expect(host.get('pin_sdf')!.sdf).toBe(true)

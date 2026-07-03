@@ -31,7 +31,8 @@ export function tileLinePart(
   const segments = clipLineToRect(arcLine, clip.mxW, clip.myS, clip.mxE, clip.myN)
   for (const seg of segments) {
     if (seg.length >= 2) {
-      const dataLine = z < maxZoom ? simplifyLine(seg, z, isOnBoundaryMerc, mercatorToleranceForZoom(z)) : seg
+      const dataLine =
+        z < maxZoom ? simplifyLine(seg, z, isOnBoundaryMerc, mercatorToleranceForZoom(z)) : seg
       if (dataLine.length >= 2) {
         tessellateLineToArrays(dataLine, fid, scratch.lv, scratch.li)
         featureIds.add(fid)

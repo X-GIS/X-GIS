@@ -99,7 +99,7 @@ sequenceDiagram
 ## Reading notes
 
 - **Compile is synchronous, GPU init is not.** `run` fires `initGPU(canvas)`
-  *before* lexing (step 0) and only `await`s it at step 2, so `requestDevice()`
+  _before_ lexing (step 0) and only `await`s it at step 2, so `requestDevice()`
   overlaps the lex/parse/lower/emit work. New-syntax styles (any `Source`/`Layer`
   statement) go `lower → optimize → emitCommands`; older styles fall back to
   `interpret(ast)`. Either way the product is a `SceneCommands` carrying `loads`
@@ -117,7 +117,7 @@ sequenceDiagram
   attach then calls `prewarmSkeleton()` to pin the z=0..N quadtree so the
   parent-fallback walk always finds an ancestor (`vector-tile-loader.ts:203-217`).
 - **The synthetic earth-surface source is special only in timing.** Its backend
-  emits its single z=0 mesh tile *immediately on `attach`* (`backend.ts:113-118`:
+  emits its single z=0 mesh tile _immediately on `attach`_ (`backend.ts:113-118`:
   `attach` → `loadTile(Z0_KEY)` → `sink.acceptResult`), so it is cached + uploaded
   before the first render request rather than fetched on demand. Its
   `ShowCommand` is prepended at `commands.shows[0]` so it paints behind every

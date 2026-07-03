@@ -42,13 +42,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<GPUContext> {
   const canvas = { width: 1024, height: 768 } as unknown as HTMLCanvasElement
@@ -61,9 +66,7 @@ async function makeCtx(): Promise<GPUContext> {
 function makeTileBGL(ctx: GPUContext): GPUBindGroupLayout {
   return ctx.device.createBindGroupLayout({
     label: 'line-cap-test-tile-bgl',
-    entries: [
-      { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
-    ],
+    entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } }],
   })
 }
 
@@ -71,13 +74,13 @@ function makeTileBGL(ctx: GPUContext): GPUBindGroupLayout {
 // writeLayerSlot() allocates slot 0 → off 0, so the flags word sits at u32
 // index 8 of the staged buffer the renderer uploads.
 const FLAGS_U32_INDEX = 8
-const CAP_MASK = 0x7        // bits 0-2
+const CAP_MASK = 0x7 // bits 0-2
 // The layer-uniform ring is 512 slots × 256 B — a size unique among the
 // buffers the renderer creates, so it keys the writeBuffer interception
 // unambiguously (mirrors line-color / line-miter-limit / line-pattern wiring).
 const LAYER_RING_BYTES = 512 * 256
 const JOIN_SHIFT = 3
-const JOIN_MASK = 0x3       // bits 3-4
+const JOIN_MASK = 0x3 // bits 3-4
 
 /** Allocate one layer slot with the given cap/join, flush via endFrame, and
  *  return the uploaded `flags` u32 by intercepting `device.queue.writeBuffer`
@@ -89,16 +92,23 @@ function capturedFlags(ctx: GPUContext, cap: number, join: number): number {
   const device = ctx.device as unknown as {
     queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer) => void }
   }
-  device.queue.writeBuffer = (buf: unknown, _off: number, data: ArrayBufferView | ArrayBuffer): void => {
+  device.queue.writeBuffer = (
+    buf: unknown,
+    _off: number,
+    data: ArrayBufferView | ArrayBuffer,
+  ): void => {
     // Key on the native buffer's unique byte-size (§4 seam: `renderer.layerRing`
     // is now an opaque RhiBuffer, but writeBuffer still receives the UNWRAPPED
     // native GPUBuffer — its size is distinct among the renderer's buffers).
     if ((buf as { size?: number })?.size !== LAYER_RING_BYTES) return
-    const u32 = data instanceof ArrayBuffer
-      ? new Uint32Array(data)
-      : new Uint32Array((data as ArrayBufferView).buffer,
-          (data as ArrayBufferView).byteOffset,
-          (data as ArrayBufferView).byteLength / 4)
+    const u32 =
+      data instanceof ArrayBuffer
+        ? new Uint32Array(data)
+        : new Uint32Array(
+            (data as ArrayBufferView).buffer,
+            (data as ArrayBufferView).byteOffset,
+            (data as ArrayBufferView).byteLength / 4,
+          )
     flags = u32[FLAGS_U32_INDEX]
   }
 

@@ -9,12 +9,17 @@ import { compileModule } from '../oracle'
 // composition that retires the polygon string-splice composer (placeholder/raw).
 // v1 scope: single-return fns (the variant-injection shape). Pinned by oracle
 // value-equality; additive (existing shaders are untouched, so byte-identity holds).
-const mk = (): ModuleDecl => module({
-  funcs: [
-    fn('dbl', { x: f32T }, f32T, ({ x }, b) => { b.ret(x.mul(2)) }),
-    fn('caller', { y: f32T }, f32T, ({ y }, b) => { b.ret(callFn('dbl', f32T, y.add(1))) }),
-  ],
-})
+const mk = (): ModuleDecl =>
+  module({
+    funcs: [
+      fn('dbl', { x: f32T }, f32T, ({ x }, b) => {
+        b.ret(x.mul(2))
+      }),
+      fn('caller', { y: f32T }, f32T, ({ y }, b) => {
+        b.ret(callFn('dbl', f32T, y.add(1)))
+      }),
+    ],
+  })
 
 describe('inline — Fn composition (#8)', () => {
   it('inlines the call, substituting the arg (dbl(y+1) -> (y+1)*2)', () => {
@@ -35,8 +40,13 @@ describe('inline — Fn composition (#8)', () => {
   it('leaves a multi-statement fn alone (v1: single-return only)', () => {
     const m = module({
       funcs: [
-        fn('complex', { x: f32T }, f32T, ({ x }, b) => { const t = b.let('t', x.mul(2)); b.ret(t.add(1)) }),
-        fn('caller', { y: f32T }, f32T, ({ y }, b) => { b.ret(callFn('complex', f32T, y)) }),
+        fn('complex', { x: f32T }, f32T, ({ x }, b) => {
+          const t = b.let('t', x.mul(2))
+          b.ret(t.add(1))
+        }),
+        fn('caller', { y: f32T }, f32T, ({ y }, b) => {
+          b.ret(callFn('complex', f32T, y))
+        }),
       ],
     })
     expect(emitModule(inlineFn(m, 'complex'))).toMatch(/\bcomplex\(/) // still called (not inlined)

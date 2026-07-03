@@ -6,10 +6,7 @@
 // null instead of surfacing an unhandled rejection.
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import {
-  InteractionController,
-  type InteractionControllerDeps,
-} from './interaction-controller'
+import { InteractionController, type InteractionControllerDeps } from './interaction-controller'
 import type { LayerIdRegistry } from './layer'
 
 // GPUMapMode is a WebGPU browser global absent in vitest — stub it.
@@ -24,7 +21,9 @@ function makeRejectController() {
   const getMappedRangeSpy = vi.fn()
 
   const mockBuffer = {
-    mapAsync: vi.fn().mockRejectedValue(new DOMException('Buffer already mapped', 'OperationError')),
+    mapAsync: vi
+      .fn()
+      .mockRejectedValue(new DOMException('Buffer already mapped', 'OperationError')),
     getMappedRange: getMappedRangeSpy,
     unmap: vi.fn(),
   }
@@ -54,7 +53,7 @@ function makeRejectController() {
     rawDatasets: new Map(),
     featureIndex: new Map(),
     getCtx: () => mockCtx as never,
-    getPickTexture: () => ({} as GPUTexture),
+    getPickTexture: () => ({}) as GPUTexture,
     getPickTextureDevice: () => mockDevice as never,
     getProjectionName: () => 'mercator',
     getVectorTileShows: () => [],

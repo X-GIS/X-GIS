@@ -22,10 +22,7 @@ describe('in op list double-wrap', () => {
 
   it('single-wrapped list still works (regression guard)', () => {
     const w: string[] = []
-    const out = exprToXgis(
-      ['in', ['get', 'class'], ['literal', ['primary', 'trunk']]],
-      w,
-    )
+    const out = exprToXgis(['in', ['get', 'class'], ['literal', ['primary', 'trunk']]], w)
     expect(out).toContain('.class == "primary"')
     expect(out).toContain('.class == "trunk"')
   })

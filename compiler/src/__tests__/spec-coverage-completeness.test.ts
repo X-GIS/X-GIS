@@ -22,8 +22,15 @@ import { flattenCoverage } from '../convert/spec-coverage'
  *  for. Read from `spec.latest` so a future spec version that adds a
  *  new layer type (e.g. `model`, `sky`) shows up automatically. */
 const LAYER_TYPES = [
-  'fill', 'line', 'symbol', 'circle', 'fill-extrusion',
-  'background', 'heatmap', 'hillshade', 'raster',
+  'fill',
+  'line',
+  'symbol',
+  'circle',
+  'fill-extrusion',
+  'background',
+  'heatmap',
+  'hillshade',
+  'raster',
 ] as const
 
 interface SpecProperty {
@@ -56,7 +63,7 @@ describe('Mapbox spec coverage — every spec property has a table entry', () =>
   // table groups properties into sections (paint-fill, layout-symbol,
   // etc.) but for completeness we only care about presence, not
   // section assignment.
-  const tableNames = new Set(flattenCoverage().map(e => e.name))
+  const tableNames = new Set(flattenCoverage().map((e) => e.name))
 
   it('latest.json paint + layout properties all appear in MAPBOX_COVERAGE', () => {
     const specProps = enumerateSpecProperties()

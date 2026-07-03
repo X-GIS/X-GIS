@@ -31,7 +31,7 @@ import { lonLatToECEF, lonLatToECEFSphere } from '@xgis/shared'
 const A = 6378137
 const WORLD_MERC = 2 * Math.PI * A
 const TILE_PX = 512
-const mpp = (zoom: number): number => (WORLD_MERC / TILE_PX) / Math.pow(2, zoom)
+const mpp = (zoom: number): number => WORLD_MERC / TILE_PX / Math.pow(2, zoom)
 
 // Distance between two ECEF points.
 const dist = (a: readonly number[], b: readonly number[]): number =>
@@ -39,8 +39,10 @@ const dist = (a: readonly number[], b: readonly number[]): number =>
 
 // A camera focused on Tokyo with a tile whose corner is one z14 tile away
 // (≈ a few km) — the deep-zoom field condition from the user bug.
-const CAM_LON = 139.76, CAM_LAT = 35.68
-const TILE_LON = 139.78, TILE_LAT = 35.66
+const CAM_LON = 139.76,
+  CAM_LAT = 35.68
+const TILE_LON = 139.78,
+  TILE_LAT = 35.66
 
 describe('globe ECEF camera-relative RTC — frame consistency (deep-zoom blank fix)', () => {
   it('MIXED basis (ellipsoid tile − SPHERE camera) injects a ~21 km error that blanks z14', () => {
@@ -87,15 +89,15 @@ describe('globe ECEF camera-relative RTC — frame consistency (deep-zoom blank 
     // at deep zoom.
     const camEll = lonLatToECEF(CAM_LON, CAM_LAT)
     const camSphere = lonLatToECEFSphere(CAM_LON, CAM_LAT)
-    const focusErr = dist(camEll, camSphere)  // ~21.5 km at Tokyo
+    const focusErr = dist(camEll, camSphere) // ~21.5 km at Tokyo
 
     expect(focusErr).toBeGreaterThan(20_000)
     expect(focusErr).toBeLessThan(23_000)
 
     // Sub-pixel at z1.5 (renders), large at z14 (blank) — monotonic.
-    expect(focusErr / mpp(1.5)).toBeLessThan(2)        // < 2 px → invisible
-    expect(focusErr / mpp(8)).toBeGreaterThan(30)      // tens of px → partial
-    expect(focusErr / mpp(14)).toBeGreaterThan(2_000)  // thousands → blank
+    expect(focusErr / mpp(1.5)).toBeLessThan(2) // < 2 px → invisible
+    expect(focusErr / mpp(8)).toBeGreaterThan(30) // tens of px → partial
+    expect(focusErr / mpp(14)).toBeGreaterThan(2_000) // thousands → blank
   })
 
   it('equator has zero ellipsoid−sphere gap (globe always rendered there even at z14)', () => {

@@ -31,7 +31,7 @@ describe('fill-extrusion-translate-anchor wiring (GPU-free)', () => {
     // bearing 90°: [dx,dy]=[10,0] → [dx·cos − dy·sin, dx·sin + dy·cos]
     //            = [10·0 − 0·1, 10·1 + 0·0] = [0, 10].
     const [rx, ry] = rotateTranslateForAnchor(10, 0, true, 90)
-    expect(rx).toBeCloseTo(0, 6)   // ← the discriminating assertion: rotated, not 10
+    expect(rx).toBeCloseTo(0, 6) // ← the discriminating assertion: rotated, not 10
     expect(ry).toBeCloseTo(10, 6)
   })
 

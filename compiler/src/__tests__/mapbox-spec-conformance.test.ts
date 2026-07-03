@@ -22,19 +22,19 @@
 //       interpolation arithmetic / expression operator semantics.
 
 import { describe, it, expect } from 'vitest'
-import {
-  convertMapboxStyle, Lexer, Parser, lower, emitCommands, evaluate,
-} from '../index'
-import {
-  specDefault, specDefaultColorRgba, createSpecExpression,
-} from '../spec/oracle'
+import { convertMapboxStyle, Lexer, Parser, lower, emitCommands, evaluate } from '../index'
+import { specDefault, specDefaultColorRgba, createSpecExpression } from '../spec/oracle'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const OFM_BRIGHT = JSON.parse(readFileSync(join(HERE, 'fixtures', 'openfreemap-bright.json'), 'utf8'))
-const MAPLIBRE_DEMO = JSON.parse(readFileSync(join(HERE, 'fixtures', 'maplibre-demotiles.json'), 'utf8'))
+const OFM_BRIGHT = JSON.parse(
+  readFileSync(join(HERE, 'fixtures', 'openfreemap-bright.json'), 'utf8'),
+)
+const MAPLIBRE_DEMO = JSON.parse(
+  readFileSync(join(HERE, 'fixtures', 'maplibre-demotiles.json'), 'utf8'),
+)
 
 function pipeline(style: unknown): { shows: unknown[] } {
   const xgis = convertMapboxStyle(style as never)
@@ -82,18 +82,23 @@ describe('3a. Mapbox spec defaults — applied when source style omits the prope
 
   const baseSource = { v: { type: 'vector', url: 'x.pmtiles' } } as const
 
-  function buildSymbolStyle(extraLayout: Record<string, unknown> = {}, extraPaint: Record<string, unknown> = {}): unknown {
+  function buildSymbolStyle(
+    extraLayout: Record<string, unknown> = {},
+    extraPaint: Record<string, unknown> = {},
+  ): unknown {
     return {
       version: 8,
       sources: baseSource,
-      layers: [{
-        id: 'L',
-        type: 'symbol',
-        source: 'v',
-        'source-layer': 'x',
-        layout: { 'text-field': 'test', ...extraLayout },
-        paint: extraPaint,
-      }],
+      layers: [
+        {
+          id: 'L',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'x',
+          layout: { 'text-field': 'test', ...extraLayout },
+          paint: extraPaint,
+        },
+      ],
     }
   }
 
@@ -101,10 +106,15 @@ describe('3a. Mapbox spec defaults — applied when source style omits the prope
     return {
       version: 8,
       sources: baseSource,
-      layers: [{
-        id: 'L', type: 'line', source: 'v', 'source-layer': 'x',
-        paint: extraPaint,
-      }],
+      layers: [
+        {
+          id: 'L',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'x',
+          paint: extraPaint,
+        },
+      ],
     }
   }
 
@@ -112,10 +122,15 @@ describe('3a. Mapbox spec defaults — applied when source style omits the prope
     return {
       version: 8,
       sources: baseSource,
-      layers: [{
-        id: 'L', type: 'fill', source: 'v', 'source-layer': 'x',
-        paint: extraPaint,
-      }],
+      layers: [
+        {
+          id: 'L',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'x',
+          paint: extraPaint,
+        },
+      ],
     }
   }
 
@@ -123,10 +138,15 @@ describe('3a. Mapbox spec defaults — applied when source style omits the prope
     return {
       version: 8,
       sources: baseSource,
-      layers: [{
-        id: 'L', type: 'circle', source: 'v', 'source-layer': 'x',
-        paint: extraPaint,
-      }],
+      layers: [
+        {
+          id: 'L',
+          type: 'circle',
+          source: 'v',
+          'source-layer': 'x',
+          paint: extraPaint,
+        },
+      ],
     }
   }
 
@@ -190,8 +210,7 @@ describe('3a. Mapbox spec defaults — applied when source style omits the prope
   it('symbol.text-line-height omitted → label.lineHeight absent / 1.2', () => {
     const s = showFromStyle(buildSymbolStyle())
     expect(specDefault('symbol', 'layout', 'text-line-height')).toBe(1.2)
-    if (s.label!.lineHeight !== undefined)
-      expect(s.label!.lineHeight).toBeCloseTo(1.2, 6)
+    if (s.label!.lineHeight !== undefined) expect(s.label!.lineHeight).toBeCloseTo(1.2, 6)
   })
 
   // ── symbol: text-max-width default → 10 ems (spec) ──
@@ -283,19 +302,25 @@ describe('3b. Evaluator differential — our evaluate() vs MapLibre createExpres
     {
       name: 'linear interpolate-by-zoom for line-width',
       mapbox: ['interpolate', ['linear'], ['zoom'], 12, 0.5, 14, 2, 20, 11.5],
-      layerType: 'line', category: 'paint', propertyName: 'line-width',
+      layerType: 'line',
+      category: 'paint',
+      propertyName: 'line-width',
       zooms: [4, 8, 12, 13, 14, 14.5, 18, 20],
     },
     {
       name: 'exponential interpolate-by-zoom (base=1.2) for line-width',
       mapbox: ['interpolate', ['exponential', 1.2], ['zoom'], 12, 0.5, 14, 2, 20, 11.5],
-      layerType: 'line', category: 'paint', propertyName: 'line-width',
+      layerType: 'line',
+      category: 'paint',
+      propertyName: 'line-width',
       zooms: [4, 8, 12, 13, 14, 14.5, 18, 20],
     },
     {
       name: 'linear interpolate-by-zoom for text-size',
       mapbox: ['interpolate', ['linear'], ['zoom'], 5, 10, 8, 14, 12, 18],
-      layerType: 'symbol', category: 'layout', propertyName: 'text-size',
+      layerType: 'symbol',
+      category: 'layout',
+      propertyName: 'text-size',
       zooms: [3, 5, 6, 8, 10, 12, 14],
     },
   ]
@@ -313,7 +338,10 @@ describe('3b. Evaluator differential — our evaluate() vs MapLibre createExpres
       const paintKey = c.propertyName
       const isPaint = c.category === 'paint'
       const layer: Record<string, unknown> = {
-        id: 'L', type: c.layerType, source: 'v', 'source-layer': 'x',
+        id: 'L',
+        type: c.layerType,
+        source: 'v',
+        'source-layer': 'x',
         layout: c.layerType === 'symbol' ? { 'text-field': 'test' } : {},
         paint: {},
       }
@@ -336,8 +364,10 @@ describe('3b. Evaluator differential — our evaluate() vs MapLibre createExpres
             return interpolateNumberStops(sw.stops, z, sw.base ?? 1)
           }
           if (show.strokeWidthExpr) {
-            return evaluate(show.strokeWidthExpr.ast as never,
-              { ...(c.props ?? {}), $zoom: z }) as number
+            return evaluate(show.strokeWidthExpr.ast as never, {
+              ...(c.props ?? {}),
+              $zoom: z,
+            }) as number
           }
           return show.strokeWidth
         }
@@ -348,8 +378,7 @@ describe('3b. Evaluator differential — our evaluate() vs MapLibre createExpres
             return interpolateNumberStops(sz.stops, z, sz.base ?? 1)
           }
           if (sz?.kind === 'data-driven') {
-            return evaluate(sz.expr.ast as never,
-              { ...(c.props ?? {}), $zoom: z }) as number
+            return evaluate(sz.expr.ast as never, { ...(c.props ?? {}), $zoom: z }) as number
           }
           return lbl.size
         }
@@ -358,12 +387,11 @@ describe('3b. Evaluator differential — our evaluate() vs MapLibre createExpres
 
       for (const z of c.zooms) {
         const ours = valueAt(z)
-        const mapbox = mlExpr.value.evaluate(
-          { zoom: z },
-          { type: 1, properties: c.props ?? {} } as never,
-        ) as number
-        expect(ours, `${c.name} @ z=${z}: ours=${ours} maplibre=${mapbox}`)
-          .toBeCloseTo(mapbox, 4)
+        const mapbox = mlExpr.value.evaluate({ zoom: z }, {
+          type: 1,
+          properties: c.props ?? {},
+        } as never) as number
+        expect(ours, `${c.name} @ z=${z}: ours=${ours} maplibre=${mapbox}`).toBeCloseTo(mapbox, 4)
       }
     })
   }
@@ -371,7 +399,10 @@ describe('3b. Evaluator differential — our evaluate() vs MapLibre createExpres
   // End-to-end: walk OFM Bright + MapLibre demo, find every layer with
   // a numeric expression paint property, and run the same differential
   // against the compiled ShowCommand.
-  for (const [name, style] of [['OFM Bright', OFM_BRIGHT], ['MapLibre demo', MAPLIBRE_DEMO]] as const) {
+  for (const [name, style] of [
+    ['OFM Bright', OFM_BRIGHT],
+    ['MapLibre demo', MAPLIBRE_DEMO],
+  ] as const) {
     it(`end-to-end: every zoom-interp line-width in ${name} matches MapLibre`, () => {
       const cmds = pipeline(style)
       const shows = cmds.shows as ShowLikeLabel[]
@@ -380,7 +411,9 @@ describe('3b. Evaluator differential — our evaluate() vs MapLibre createExpres
 
       const fails: string[] = []
       const ZOOMS = [4, 8, 12, 14, 14.5, 18]
-      for (const layer of (style as { layers: Array<{ id: string; type: string; paint?: Record<string, unknown> }> }).layers) {
+      for (const layer of (
+        style as { layers: Array<{ id: string; type: string; paint?: Record<string, unknown> }> }
+      ).layers) {
         if (layer.type !== 'line') continue
         const lw = layer.paint?.['line-width']
         if (typeof lw !== 'object' || lw === null) continue
@@ -391,7 +424,7 @@ describe('3b. Evaluator differential — our evaluate() vs MapLibre createExpres
         // modern AST gets covered by the cases above.
         if (Array.isArray((lw as { stops?: unknown }).stops)) continue
         const show = showsById.get(layer.id) ?? showsById.get(layer.id.replace(/-/g, '_'))
-        if (!show) continue  // layer was skipped by converter
+        if (!show) continue // layer was skipped by converter
 
         const mlExpr = createSpecExpression('line', 'paint', 'line-width', lw)
         if (mlExpr.result !== 'success') {
@@ -408,23 +441,24 @@ describe('3b. Evaluator differential — our evaluate() vs MapLibre createExpres
             // empty bag; for layers whose original expression depended
             // on properties, MapLibre and our evaluator should both
             // hit the same fallback / default arm.
-            ours = evaluate(show.strokeWidthExpr.ast as never,
-              { $zoom: z }) as number
+            ours = evaluate(show.strokeWidthExpr.ast as never, { $zoom: z }) as number
           } else {
             ours = show.strokeWidth
           }
-          const mapbox = mlExpr.value.evaluate(
-            { zoom: z },
-            { type: 1, properties: {} } as never,
-          ) as number
+          const mapbox = mlExpr.value.evaluate({ zoom: z }, {
+            type: 1,
+            properties: {},
+          } as never) as number
           if (Math.abs(ours - mapbox) > 1e-3) {
             fails.push(`[${layer.id}] @ z=${z}: ours=${ours} maplibre=${mapbox}`)
           }
         }
       }
-      expect(fails.slice(0, 20), fails.length === 0
-        ? ''
-        : `line-width evaluator drift (${fails.length} mismatches):\n${fails.slice(0, 20).join('\n')}`,
+      expect(
+        fails.slice(0, 20),
+        fails.length === 0
+          ? ''
+          : `line-width evaluator drift (${fails.length} mismatches):\n${fails.slice(0, 20).join('\n')}`,
       ).toEqual([])
     })
   }
@@ -445,7 +479,8 @@ function interpolateNumberStops(
   if (zoom <= stops[0]!.zoom) return stops[0]!.value
   if (zoom >= stops[stops.length - 1]!.zoom) return stops[stops.length - 1]!.value
   for (let i = 0; i < stops.length - 1; i++) {
-    const a = stops[i]!, b = stops[i + 1]!
+    const a = stops[i]!,
+      b = stops[i + 1]!
     if (zoom >= a.zoom && zoom <= b.zoom) {
       const span = b.zoom - a.zoom
       let t: number

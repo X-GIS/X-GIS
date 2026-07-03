@@ -50,8 +50,11 @@ function deserializeResponse(res: GeoJSONCompileResponse): CompileResult {
     const tiles = new Map<number, CompiledTile>()
     for (const [key, s] of level.tiles) {
       const tile: CompiledTile = {
-        z: s.z, x: s.x, y: s.y,
-        tileWest: s.tileWest, tileSouth: s.tileSouth,
+        z: s.z,
+        x: s.x,
+        y: s.y,
+        tileWest: s.tileWest,
+        tileSouth: s.tileSouth,
         vertices: new Float32Array(s.vertices),
         dequantScale: s.dequantScale,
         dequantHalf: s.dequantHalf,
@@ -87,8 +90,11 @@ function deserializeResponse(res: GeoJSONCompileResponse): CompileResult {
 // by `runCompile` back into the live CompileResult, without any worker hop.
 function serializedTileToLive(s: SerializedTile): CompiledTile {
   return {
-    z: s.z, x: s.x, y: s.y,
-    tileWest: s.tileWest, tileSouth: s.tileSouth,
+    z: s.z,
+    x: s.x,
+    y: s.y,
+    tileWest: s.tileWest,
+    tileSouth: s.tileSouth,
     vertices: new Float32Array(s.vertices),
     dequantScale: s.dequantScale,
     dequantHalf: s.dequantHalf,
@@ -121,9 +127,10 @@ export class GeoJSONCompilePool {
     // Fewer workers than VT pool: GeoJSON compile is usually one-shot per
     // source, not per-tile. 1–2 is plenty; the cap stays at 4 for very
     // large multi-source scenes.
-    const hc = typeof navigator !== 'undefined' && navigator.hardwareConcurrency
-      ? navigator.hardwareConcurrency
-      : 4
+    const hc =
+      typeof navigator !== 'undefined' && navigator.hardwareConcurrency
+        ? navigator.hardwareConcurrency
+        : 4
     this.size = Math.max(1, Math.min(4, Math.floor(hc / 2)))
   }
 
@@ -135,19 +142,22 @@ export class GeoJSONCompilePool {
     try {
       for (let i = 0; i < this.size; i++) {
         const w = new GeoJSONWorker({ name: `geojson-compile-${i}` })
-        w.addEventListener('message', (e: MessageEvent<GeoJSONCompileResponse | GeoJSONCompileError>) => {
-          const msg = e.data
-          const job = this.pending.get(msg.taskId)
-          if (!job) return
-          this.pending.delete(msg.taskId)
-          if (msg.kind === 'compile-done') {
-            job.resolve(deserializeResponse(msg))
-          } else {
-            const err = new Error(msg.message || 'worker compile failed')
-            err.stack = msg.stack ?? err.stack
-            job.reject(err)
-          }
-        })
+        w.addEventListener(
+          'message',
+          (e: MessageEvent<GeoJSONCompileResponse | GeoJSONCompileError>) => {
+            const msg = e.data
+            const job = this.pending.get(msg.taskId)
+            if (!job) return
+            this.pending.delete(msg.taskId)
+            if (msg.kind === 'compile-done') {
+              job.resolve(deserializeResponse(msg))
+            } else {
+              const err = new Error(msg.message || 'worker compile failed')
+              err.stack = msg.stack ?? err.stack
+              job.reject(err)
+            }
+          },
+        )
         w.addEventListener('error', (e) => {
           console.error('[geojson-compile-worker]', e.message)
           // Reject ONLY the jobs dispatched to THIS worker so callers don't
@@ -196,7 +206,12 @@ export class GeoJSONCompilePool {
       const w = this.workers[workerIndex]
       this.nextWorker = (this.nextWorker + 1) % this.workers.length
       const req: GeoJSONCompileRequest = {
-        kind: 'compile', taskId, geojson, minZoom, maxZoom, idResolverMode,
+        kind: 'compile',
+        taskId,
+        geojson,
+        minZoom,
+        maxZoom,
+        idResolverMode,
       }
       w.postMessage(req)
     })
@@ -213,7 +228,12 @@ export class GeoJSONCompilePool {
   ): Promise<CompileResult> {
     try {
       const { response } = runCompile({
-        kind: 'compile', taskId: 0, geojson, minZoom, maxZoom, idResolverMode,
+        kind: 'compile',
+        taskId: 0,
+        geojson,
+        minZoom,
+        maxZoom,
+        idResolverMode,
       })
       // runCompile produces the same serialized shape the worker emits; go
       // through the live-tile rebuild so both paths return identical typed

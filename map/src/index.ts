@@ -73,7 +73,12 @@ export * from './text/sdf/pbf/glyphs-proto'
 export * from './shaders/projection'
 // SELECTIVE: line-renderer re-exports the line-pattern surface already star-exported above
 // (via './render/line-pattern') — export only line-renderer's own symbols.
-export { LineRenderer, buildLineSegments, LINE_SEGMENT_STRIDE_F32, LINE_SEGMENT_STRIDE_BYTES } from './render/line-renderer'
+export {
+  LineRenderer,
+  buildLineSegments,
+  LINE_SEGMENT_STRIDE_F32,
+  LINE_SEGMENT_STRIDE_BYTES,
+} from './render/line-renderer'
 // Feature paint/filter helpers, tile-classification decision logic, extruded polygon-mesh
 // builder, render-cache versioning / cache-key hashing, dirty-domain tracker.
 export * from './feature-helpers'
@@ -113,17 +118,50 @@ export * from './text/text-stage-types'
 // importer (omitted).
 export { MapRendererContent } from './render/renderer'
 export type { ShowCommand, Easing } from './render/renderer-types'
-export { interpolateZoom, interpolateZoomRgba, interpolateTime, interpolateTimeColor, variantProducesFill } from './render/renderer-helpers'
-export { resolveNumberShape, resolveColorShape, resolveSteppedShape, resolveArrayShape } from './render/paint-shape-resolve'
+export {
+  interpolateZoom,
+  interpolateZoomRgba,
+  interpolateTime,
+  interpolateTimeColor,
+  variantProducesFill,
+} from './render/renderer-helpers'
+export {
+  resolveNumberShape,
+  resolveColorShape,
+  resolveSteppedShape,
+  resolveArrayShape,
+} from './render/paint-shape-resolve'
 export { FrameRenderer } from './render/frame-renderer'
 export { BindGroupRegistry } from './render/bind-group-registry'
-export { GlyphAtlasHost, type GlyphAtlasHostOptions, type GlyphInfo } from './text/sdf/glyph-atlas-host'
-export { wrapWithKnuthPlass, cjkBucketFor, wrapForTesting, codePointIsIdeographic, cjkBucketPx, CJK_SIZE_BUCKETS_CSS } from './text/text-wrap'
 export {
-  resolveTypography, applyTextTransform, stripCurveLineExtraScripts,
-  evaluateVariableOffsetEm, variableAnchorOffsetEm, layoutCacheKey, textKeyFor,
-  layoutCacheEntryValid, mlVerticalLayout, composeFontKey, verticalLayoutForTesting,
-  ONE_EM, SHAPING_DEFAULT_OFFSET, CJK_FALLBACK_CHAIN, type LabelAnchor,
+  GlyphAtlasHost,
+  type GlyphAtlasHostOptions,
+  type GlyphInfo,
+} from './text/sdf/glyph-atlas-host'
+export {
+  wrapWithKnuthPlass,
+  cjkBucketFor,
+  wrapForTesting,
+  codePointIsIdeographic,
+  cjkBucketPx,
+  CJK_SIZE_BUCKETS_CSS,
+} from './text/text-wrap'
+export {
+  resolveTypography,
+  applyTextTransform,
+  stripCurveLineExtraScripts,
+  evaluateVariableOffsetEm,
+  variableAnchorOffsetEm,
+  layoutCacheKey,
+  textKeyFor,
+  layoutCacheEntryValid,
+  mlVerticalLayout,
+  composeFontKey,
+  verticalLayoutForTesting,
+  ONE_EM,
+  SHAPING_DEFAULT_OFFSET,
+  CJK_FALLBACK_CHAIN,
+  type LabelAnchor,
 } from './text/text-stage-helpers'
 // Render-loop label/projection helpers, point-renderer (its reflect(buildPointModule()) stays
 // LAZY+memoized = the #612 map-load-crash guard), resolved-show paint cache, viewport-mode-

@@ -137,22 +137,25 @@ function mergeLayers(scene: Scene): Scene {
     let defaultArmNode: RenderNode | null = null
     if (j < nodes.length) {
       const cand = nodes[j]
-      if (cand.sourceRef === first.sourceRef
-          && cand.sourceLayer === first.sourceLayer
-          && cand.extrude.kind === 'none'
-          && cand.opacity.kind === 'constant' && cand.opacity.value >= 0.999
-          && cand.geometry === null
-          && cand.shape.kind === 'none'
-          // Stroke SHAPE (cap, join, dash, patterns, offset, align)
-          // must match — those properties live on the layer uniform,
-          // not in segment-baked overrides, so a mismatch would
-          // render the absorbed features with the group's cap/dash
-          // rather than their own. Width and colour are free to
-          // differ — both have segment-bake paths.
-          && strokesShapeEqual(first.stroke, cand.stroke)) {
+      if (
+        cand.sourceRef === first.sourceRef &&
+        cand.sourceLayer === first.sourceLayer &&
+        cand.extrude.kind === 'none' &&
+        cand.opacity.kind === 'constant' &&
+        cand.opacity.value >= 0.999 &&
+        cand.geometry === null &&
+        cand.shape.kind === 'none' &&
+        // Stroke SHAPE (cap, join, dash, patterns, offset, align)
+        // must match — those properties live on the layer uniform,
+        // not in segment-baked overrides, so a mismatch would
+        // render the absorbed features with the group's cap/dash
+        // rather than their own. Width and colour are free to
+        // differ — both have segment-bake paths.
+        strokesShapeEqual(first.stroke, cand.stroke)
+      ) {
         const notFilter = analyzeNotFilter(cand.filter)
         if (notFilter && notFilter.field === firstFilter.field) {
-          const allCompoundValues = dedupByRaw(group.flatMap(g => g.filter.values))
+          const allCompoundValues = dedupByRaw(group.flatMap((g) => g.filter.values))
           if (setEqual(notFilter.values, allCompoundValues)) {
             defaultArmNode = cand
             j++
@@ -177,11 +180,13 @@ function mergeLayers(scene: Scene): Scene {
     // isMergeableNode guarantees every group member has a constant
     // width — the `.kind === 'constant'` narrowing is exhaustive here.
     const firstWidthSrc = group[0].node.stroke.width
-    if (firstWidthSrc.kind !== 'constant') throw new Error('merge: non-constant width slipped past isMergeableNode')
+    if (firstWidthSrc.kind !== 'constant')
+      throw new Error('merge: non-constant width slipped past isMergeableNode')
     const firstWidth = firstWidthSrc.value
     for (const { node, filter } of group) {
       const w = node.stroke.width
-      if (w.kind !== 'constant') throw new Error('merge: non-constant width slipped past isMergeableNode')
+      if (w.kind !== 'constant')
+        throw new Error('merge: non-constant width slipped past isMergeableNode')
       if (w.value !== firstWidth) widthsAllEqual = false
       const fillRgba = node.fill.kind === 'constant' ? node.fill.rgba : null
       const strokeRgba = node.stroke.color.kind === 'constant' ? node.stroke.color.rgba : null
@@ -209,7 +214,7 @@ function mergeLayers(scene: Scene): Scene {
       }
     }
 
-    const allValues = dedupByRaw(group.flatMap(g => g.filter.values))
+    const allValues = dedupByRaw(group.flatMap((g) => g.filter.values))
     // When a default-arm node was absorbed, the compound covers
     // EVERY feature in the source layer (the explicit ||-values
     // PLUS everything else); drop the filter entirely so the
@@ -228,27 +233,27 @@ function mergeLayers(scene: Scene): Scene {
     // stroke; the match-arm chain in shader-gen turns alpha=0
     // arms into a discard-equivalent path (low-alpha SDF threshold
     // already covers it).
-    const defaultFillRgba = defaultArmNode?.fill.kind === 'constant'
-      ? defaultArmNode.fill.rgba
-      : null
-    const defaultStrokeRgba = defaultArmNode?.stroke.color.kind === 'constant'
-      ? defaultArmNode.stroke.color.rgba
-      : null
+    const defaultFillRgba =
+      defaultArmNode?.fill.kind === 'constant' ? defaultArmNode.fill.rgba : null
+    const defaultStrokeRgba =
+      defaultArmNode?.stroke.color.kind === 'constant' ? defaultArmNode.stroke.color.rgba : null
     // Default-arm node is only absorbed when it passes strokesShapeEqual
     // with the group's first member, so its width is also constant —
     // but defensively narrow before reading the number.
-    const defaultWidth = defaultArmNode?.stroke.width.kind === 'constant'
-      ? defaultArmNode.stroke.width.value
-      : undefined
+    const defaultWidth =
+      defaultArmNode?.stroke.width.kind === 'constant'
+        ? defaultArmNode.stroke.width.value
+        : undefined
 
-    const compoundFill: ColorValue = fillNeeded || defaultFillRgba
-      ? {
-          kind: 'data-driven',
-          expr: {
-            ast: buildMatchAst(firstFilter.field, fillArms, defaultFillRgba),
-          } as DataExpr,
-        }
-      : { kind: 'none' }
+    const compoundFill: ColorValue =
+      fillNeeded || defaultFillRgba
+        ? {
+            kind: 'data-driven',
+            expr: {
+              ast: buildMatchAst(firstFilter.field, fillArms, defaultFillRgba),
+            } as DataExpr,
+          }
+        : { kind: 'none' }
     // Stroke colour: when every member shares the colour, keep it as
     // a plain constant (no AST work). When they differ, leave the
     // shader-side ColorValue at the FIRST member's constant (acts
@@ -261,28 +266,28 @@ function mergeLayers(scene: Scene): Scene {
     // Stroke colour: per-feature dispatch baked into segment buffer
     // when group members differ, OR when the absorbed default arm's
     // stroke colour differs from the group's.
-    const allStrokeColorsSame = group.every(g =>
+    const allStrokeColorsSame = group.every((g) =>
       strokeColorsEqual(group[0].node.stroke, g.node.stroke),
     )
-    const defaultStrokeMatchesGroup = defaultStrokeRgba == null
-      || (group[0].node.stroke.color.kind === 'constant'
-          && group[0].node.stroke.color.rgba[0] === defaultStrokeRgba[0]
-          && group[0].node.stroke.color.rgba[1] === defaultStrokeRgba[1]
-          && group[0].node.stroke.color.rgba[2] === defaultStrokeRgba[2]
-          && group[0].node.stroke.color.rgba[3] === defaultStrokeRgba[3])
-    const strokeColorBakeNeeded = strokeNeeded
-      && (!allStrokeColorsSame || !defaultStrokeMatchesGroup)
-    const compoundStrokeColor: ColorValue = !strokeNeeded && !defaultStrokeRgba
-      ? { kind: 'none' }
-      : group[0].node.stroke.color
+    const defaultStrokeMatchesGroup =
+      defaultStrokeRgba == null ||
+      (group[0].node.stroke.color.kind === 'constant' &&
+        group[0].node.stroke.color.rgba[0] === defaultStrokeRgba[0] &&
+        group[0].node.stroke.color.rgba[1] === defaultStrokeRgba[1] &&
+        group[0].node.stroke.color.rgba[2] === defaultStrokeRgba[2] &&
+        group[0].node.stroke.color.rgba[3] === defaultStrokeRgba[3])
+    const strokeColorBakeNeeded =
+      strokeNeeded && (!allStrokeColorsSame || !defaultStrokeMatchesGroup)
+    const compoundStrokeColor: ColorValue =
+      !strokeNeeded && !defaultStrokeRgba ? { kind: 'none' } : group[0].node.stroke.color
     const compoundStrokeColorExpr = !strokeColorBakeNeeded
       ? undefined
-      : { ast: buildMatchAst(firstFilter.field, strokeArms, defaultStrokeRgba) } as DataExpr
+      : ({ ast: buildMatchAst(firstFilter.field, strokeArms, defaultStrokeRgba) } as DataExpr)
 
     // Per-feature width baking when EITHER group widths differ OR
     // the absorbed default arm's width differs from the group's.
-    const widthBakeNeeded = !widthsAllEqual
-      || (defaultWidth !== undefined && defaultWidth !== firstWidth)
+    const widthBakeNeeded =
+      !widthsAllEqual || (defaultWidth !== undefined && defaultWidth !== firstWidth)
     const compound: RenderNode = {
       ...first,
       name: `${first.sourceLayer ?? first.sourceRef}__merged_${group.length}${defaultArmNode ? '+1default' : ''}`,
@@ -295,11 +300,7 @@ function mergeLayers(scene: Scene): Scene {
           : {
               kind: 'data-driven',
               expr: {
-                ast: buildWidthMatchAst(
-                  firstFilter.field,
-                  widthArms,
-                  defaultWidth ?? null,
-                ),
+                ast: buildWidthMatchAst(firstFilter.field, widthArms, defaultWidth ?? null),
               } as DataExpr,
             },
         colorExpr: compoundStrokeColorExpr,
@@ -307,24 +308,26 @@ function mergeLayers(scene: Scene): Scene {
       // When a default arm absorbed: drop the filter so all
       // source-layer features reach the slice. Without absorption:
       // keep the OR-filter so unmatched features stay out.
-      filter: orFilter ? { ast: orFilter } as DataExpr : null,
+      filter: orFilter ? ({ ast: orFilter } as DataExpr) : null,
     }
     // Dev-mode visibility into the merge. Triggered ONLY when the
     // host environment defines `__XGIS_MERGE_LOG = true` (set by
     // playground vite config in dev, off in prod). Lets a contributor
     // confirm at-a-glance which xgis layers actually folded without
     // grepping IR snapshots. Production deployments stay silent.
-    const env = (globalThis as { __XGIS_MERGE_LOG?: boolean })
+    const env = globalThis as { __XGIS_MERGE_LOG?: boolean }
     if (env.__XGIS_MERGE_LOG) {
-      const memberNames = group.map(g => g.node.name).join(', ')
+      const memberNames = group.map((g) => g.node.name).join(', ')
       const widthInfo = widthsAllEqual ? 'same-width' : 'per-feature width'
       const colorInfo = !strokeNeeded
         ? 'no-stroke'
-        : compoundStrokeColorExpr ? 'per-feature stroke' : 'shared stroke'
+        : compoundStrokeColorExpr
+          ? 'per-feature stroke'
+          : 'shared stroke'
       // eslint-disable-next-line no-console
       console.log(
-        `[xgis merge] ${compound.name}: folded ${group.length} layers `
-        + `(${memberNames}) — ${widthInfo}, ${colorInfo}`,
+        `[xgis merge] ${compound.name}: folded ${group.length} layers ` +
+          `(${memberNames}) — ${widthInfo}, ${colorInfo}`,
       )
     }
     out.push(compound)
@@ -353,4 +356,3 @@ export const mergeLayersPass: IRPass = {
   dependencies: [],
   run: mergeLayers,
 }
-

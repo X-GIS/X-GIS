@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react"
+import { useEffect, useRef, useState, useCallback } from 'react'
 
 // Playground — the "type-and-see" island. A .xgis source editor (left)
 // wired to a live XGISMap canvas (right): edit the source, the compiler
@@ -30,7 +30,7 @@ import { useEffect, useRef, useState, useCallback } from "react"
 // Asset URLs are depth-independent absolute (`${base}/data/land.geojson`)
 // like GlobeDemo, so the source resolves regardless of where /play sits.
 
-type XGISMapType = import("@xgis/runtime").XGISMap
+type XGISMapType = import('@xgis/runtime').XGISMap
 
 interface Props {
   /** Site base URL (import.meta.env.BASE_URL, trailing slash stripped) so
@@ -57,10 +57,10 @@ interface Preset {
 // `{B}` is replaced with the absolute base at runtime.
 const PRESETS: Preset[] = [
   {
-    id: "land",
-    label: "Land",
-    blurb: "The minimal map — one source, one fill.",
-    projection: "globe",
+    id: 'land',
+    label: 'Land',
+    blurb: 'The minimal map — one source, one fill.',
+    projection: 'globe',
     source: `source land {
   type: geojson
   url: "{B}/data/land.geojson"
@@ -74,10 +74,10 @@ layer continents {
 }`,
   },
   {
-    id: "outline",
-    label: "Coastline",
-    blurb: "Stroke instead of fill — the world as a wire drawing.",
-    projection: "natural_earth",
+    id: 'outline',
+    label: 'Coastline',
+    blurb: 'Stroke instead of fill — the world as a wire drawing.',
+    projection: 'natural_earth',
     source: `source land {
   type: geojson
   url: "{B}/data/land.geojson"
@@ -91,10 +91,10 @@ layer coast {
 }`,
   },
   {
-    id: "data",
-    label: "Data-driven",
-    blurb: "match() on a feature property — colour comes from the data.",
-    projection: "natural_earth",
+    id: 'data',
+    label: 'Data-driven',
+    blurb: 'match() on a feature property — colour comes from the data.',
+    projection: 'natural_earth',
     source: `source land {
   type: geojson
   url: "{B}/data/land.geojson"
@@ -115,10 +115,10 @@ layer continents {
 }`,
   },
   {
-    id: "merc",
-    label: "Mercator",
-    blurb: "Same source, flat — switching projection is a uniform write.",
-    projection: "mercator",
+    id: 'merc',
+    label: 'Mercator',
+    blurb: 'Same source, flat — switching projection is a uniform write.',
+    projection: 'mercator',
     source: `source land {
   type: geojson
   url: "{B}/data/land.geojson"
@@ -136,7 +136,7 @@ layer continents {
 const DEBOUNCE_MS = 400
 
 /** Inject the absolute base into a preset/source template. */
-const withBase = (src: string, base: string) => src.split("{B}").join(base)
+const withBase = (src: string, base: string) => src.split('{B}').join(base)
 
 /** btoa over UTF-8 (handles non-ASCII), the convert page's exact idiom. */
 const encodeSource = (src: string) => btoa(unescape(encodeURIComponent(src)))
@@ -144,7 +144,7 @@ const decodeSource = (b64: string) => decodeURIComponent(escape(atob(b64)))
 
 /** Read `#src=<base64>` from the URL hash, or null when absent/invalid. */
 function readHashSource(): string | null {
-  if (typeof window === "undefined") return null
+  if (typeof window === 'undefined') return null
   const m = window.location.hash.match(/[#&]src=([^&]+)/)
   if (!m) return null
   try {
@@ -167,7 +167,7 @@ export default function Playground({ base, initialSource }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [mapReady, setMapReady] = useState(false)
   const [failed, setFailed] = useState(false)
-  const [activePreset, setActivePreset] = useState<string | null>("land")
+  const [activePreset, setActivePreset] = useState<string | null>('land')
   const [copied, setCopied] = useState(false)
 
   // ── Live-recompile machinery (refs — never trigger re-render) ──
@@ -178,59 +178,56 @@ export default function Playground({ base, initialSource }: Props) {
   const runSeq = useRef(0)
   const latestSource = useRef(initialSource)
   const runningRef = useRef(false)
-  const projectionRef = useRef("globe")
+  const projectionRef = useRef('globe')
   const destroyedRef = useRef(false)
 
   /** Compile + render `src` on the live map, newest-wins. Serializes against
    *  any in-flight run; stamps a sequence id so a stale completion can't
    *  overwrite a newer edit's result. */
-  const compileAndRender = useCallback(
-    async (src: string) => {
-      const map = mapRef.current
-      if (!map || destroyedRef.current) return
-      latestSource.current = src
-      if (runningRef.current) return // a run is live; it'll pick up latestSource
-      runningRef.current = true
-      try {
-        // Drain: keep running until the source stops changing under us.
-        while (!destroyedRef.current) {
-          const target = latestSource.current
-          const seq = ++runSeq.current
-          try {
-            // Absolute url: inside the source → baseUrl arg unused (""),
-            // exactly like GlobeDemo. run() tears down the prior scene
-            // internally (map.ts:1850) — one instance, swapped in place.
-            await map.run(target, "")
-            if (destroyedRef.current) return
-            // Ignore a stale completion (a newer run was kicked off while
-            // this awaited). Only the most-recent seq applies its view.
-            if (seq !== runSeq.current) continue
-            map.setProjection(projectionRef.current)
-            const c = map.getCamera()
-            c.zoom = 1
-            c.centerX = 0
-            c.centerY = 0
-            map.markCameraPositioned()
-            map.invalidate()
-            setError(null)
-            setMapReady(true)
-          } catch (err) {
-            // A genuine syntax / compile error in the user's .xgis. The
-            // compiler really throws here; surface the true message.
-            if (destroyedRef.current) return
-            if (seq === runSeq.current) {
-              setError(err instanceof Error ? err.message : String(err))
-            }
+  const compileAndRender = useCallback(async (src: string) => {
+    const map = mapRef.current
+    if (!map || destroyedRef.current) return
+    latestSource.current = src
+    if (runningRef.current) return // a run is live; it'll pick up latestSource
+    runningRef.current = true
+    try {
+      // Drain: keep running until the source stops changing under us.
+      while (!destroyedRef.current) {
+        const target = latestSource.current
+        const seq = ++runSeq.current
+        try {
+          // Absolute url: inside the source → baseUrl arg unused (""),
+          // exactly like GlobeDemo. run() tears down the prior scene
+          // internally (map.ts:1850) — one instance, swapped in place.
+          await map.run(target, '')
+          if (destroyedRef.current) return
+          // Ignore a stale completion (a newer run was kicked off while
+          // this awaited). Only the most-recent seq applies its view.
+          if (seq !== runSeq.current) continue
+          map.setProjection(projectionRef.current)
+          const c = map.getCamera()
+          c.zoom = 1
+          c.centerX = 0
+          c.centerY = 0
+          map.markCameraPositioned()
+          map.invalidate()
+          setError(null)
+          setMapReady(true)
+        } catch (err) {
+          // A genuine syntax / compile error in the user's .xgis. The
+          // compiler really throws here; surface the true message.
+          if (destroyedRef.current) return
+          if (seq === runSeq.current) {
+            setError(err instanceof Error ? err.message : String(err))
           }
-          // If nothing new arrived while we were running, we're done.
-          if (latestSource.current === target) break
         }
-      } finally {
-        runningRef.current = false
+        // If nothing new arrived while we were running, we're done.
+        if (latestSource.current === target) break
       }
-    },
-    [],
-  )
+    } finally {
+      runningRef.current = false
+    }
+  }, [])
 
   // ── Mount: build the single map, restore hash, first compile ──
   useEffect(() => {
@@ -239,7 +236,7 @@ export default function Playground({ base, initialSource }: Props) {
 
     destroyedRef.current = false
     let mountStarted = false
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
     // Restore a shared source from the URL hash (post-hydration so SSR is
     // deterministic). Falls back to the default preset when absent/invalid.
@@ -260,32 +257,34 @@ export default function Playground({ base, initialSource }: Props) {
       if (!map) return
       const rect = canvas.getBoundingClientRect()
       const delta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.003)
-      map.getCamera().zoomAt(
-        Math.max(-1, Math.min(1, delta)),
-        e.clientX - rect.left,
-        e.clientY - rect.top,
-        canvas.width,
-        canvas.height,
-      )
+      map
+        .getCamera()
+        .zoomAt(
+          Math.max(-1, Math.min(1, delta)),
+          e.clientX - rect.left,
+          e.clientY - rect.top,
+          canvas.width,
+          canvas.height,
+        )
     }
 
     const startMount = async () => {
       if (mountStarted || destroyedRef.current) return
       mountStarted = true
       try {
-        const { XGISMap } = await import("@xgis/runtime")
+        const { XGISMap } = await import('@xgis/runtime')
         if (destroyedRef.current) return
 
-        canvas.addEventListener("wheel", onWheel, { capture: true, passive: false })
+        canvas.addEventListener('wheel', onWheel, { capture: true, passive: false })
 
         const map = new XGISMap(canvas)
         mapRef.current = map
         // First compile goes through the same serialized path as edits.
         await compileAndRender(firstSource)
         if (destroyedRef.current) return
-        canvas.style.opacity = "1"
+        canvas.style.opacity = '1'
       } catch (err) {
-        console.warn("[playground]", err)
+        console.warn('[playground]', err)
         if (!destroyedRef.current) setFailed(true)
       }
     }
@@ -303,14 +302,14 @@ export default function Playground({ base, initialSource }: Props) {
 
     // If the user reaches for the canvas before idle fires, mount now.
     const onInteract = () => startMount()
-    canvas.addEventListener("pointerdown", onInteract, { once: true, passive: true })
+    canvas.addEventListener('pointerdown', onInteract, { once: true, passive: true })
 
     return () => {
       destroyedRef.current = true
       window.clearTimeout(kickoff)
       if (debounceRef.current) clearTimeout(debounceRef.current)
-      canvas.removeEventListener("wheel", onWheel, { capture: true } as EventListenerOptions)
-      canvas.removeEventListener("pointerdown", onInteract)
+      canvas.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions)
+      canvas.removeEventListener('pointerdown', onInteract)
       mapRef.current?.destroy?.()
       mapRef.current = null
     }
@@ -352,13 +351,13 @@ export default function Playground({ base, initialSource }: Props) {
 
   // ── Share: encode source into the hash, copy the link ──
   const copyLink = useCallback(async () => {
-    if (typeof window === "undefined") return
+    if (typeof window === 'undefined') return
     const url = `${window.location.origin}${window.location.pathname}#src=${encodeURIComponent(
       encodeSource(source),
     )}`
     // Keep the address bar in sync without a history entry.
     try {
-      window.history.replaceState(null, "", url)
+      window.history.replaceState(null, '', url)
     } catch {
       /* replaceState can throw in sandboxed embeds — copy still works */
     }
@@ -377,12 +376,12 @@ export default function Playground({ base, initialSource }: Props) {
   // code editor, and keeps keyboard users inside the box.
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Tab") {
+      if (e.key === 'Tab') {
         e.preventDefault()
         const el = e.currentTarget
         const start = el.selectionStart
         const end = el.selectionEnd
-        const next = source.slice(0, start) + "  " + source.slice(end)
+        const next = source.slice(0, start) + '  ' + source.slice(end)
         onEdit(next)
         // Restore the caret just after the inserted spaces.
         requestAnimationFrame(() => {
@@ -410,10 +409,10 @@ export default function Playground({ base, initialSource }: Props) {
               title={p.blurb}
               aria-pressed={activePreset === p.id}
               className={
-                "rounded-full border px-3 py-1 text-[12px] transition-colors " +
+                'rounded-full border px-3 py-1 text-[12px] transition-colors ' +
                 (activePreset === p.id
-                  ? "border-fg/40 bg-fg/10 text-fg"
-                  : "border-line bg-transparent text-fg-dim hover:border-line-strong hover:text-fg")
+                  ? 'border-fg/40 bg-fg/10 text-fg'
+                  : 'border-line bg-transparent text-fg-dim hover:border-line-strong hover:text-fg')
               }
             >
               {p.label}
@@ -424,7 +423,7 @@ export default function Playground({ base, initialSource }: Props) {
             onClick={copyLink}
             className="ml-auto rounded-full border border-line bg-transparent px-3 py-1 text-[12px] text-fg-dim transition-colors hover:border-line-strong hover:text-fg"
           >
-            {copied ? "Link copied" : "Copy link"}
+            {copied ? 'Link copied' : 'Copy link'}
           </button>
         </div>
 
@@ -463,7 +462,7 @@ export default function Playground({ base, initialSource }: Props) {
           ref={canvasRef}
           id="playground-map"
           className="block size-full opacity-0 transition-opacity duration-500"
-          style={{ touchAction: "none" }}
+          style={{ touchAction: 'none' }}
           aria-label="Live map rendered by X-GIS from the source on the left. Drag to pan or orbit, scroll to zoom."
           role="img"
         />
@@ -480,9 +479,8 @@ export default function Playground({ base, initialSource }: Props) {
               Live map unavailable
             </p>
             <p className="max-w-[340px] text-[13px] leading-[1.55] text-fg-dim">
-              This browser could not start WebGPU. The editor still works —
-              copy your source and open it where WebGPU is available (recent
-              Chrome, Edge, or Safari Technology Preview).
+              This browser could not start WebGPU. The editor still works — copy your source and
+              open it where WebGPU is available (recent Chrome, Edge, or Safari Technology Preview).
             </p>
           </div>
         )}

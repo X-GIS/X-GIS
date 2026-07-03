@@ -22,8 +22,12 @@ import { PNG } from 'pngjs'
 const SPRITE_BASE = 'https://tiles.openfreemap.org/sprites/ofm_f384/ofm'
 
 interface SpriteEntry {
-  x: number; y: number; width: number; height: number
-  pixelRatio?: number; sdf?: boolean
+  x: number
+  y: number
+  width: number
+  height: number
+  pixelRatio?: number
+  sdf?: boolean
 }
 
 async function fetchSprite(): Promise<{ json: Record<string, SpriteEntry>; png: PNG }> {
@@ -33,7 +37,7 @@ async function fetchSprite(): Promise<{ json: Record<string, SpriteEntry>; png: 
   ])
   if (!jsonRes.ok) throw new Error(`sprite JSON HTTP ${jsonRes.status}`)
   if (!pngRes.ok) throw new Error(`sprite PNG HTTP ${pngRes.status}`)
-  const json = await jsonRes.json() as Record<string, SpriteEntry>
+  const json = (await jsonRes.json()) as Record<string, SpriteEntry>
   const pngBuf = Buffer.from(await pngRes.arrayBuffer())
   const png = PNG.sync.read(pngBuf)
   return { json, png }
@@ -92,16 +96,24 @@ function dominantEdgeByte(stats: AlphaStats[]): number {
   // smooth, then take the lowest count in the middle 30..225 range.
   const smooth = new Array(256).fill(0)
   for (let b = 0; b < 256; b++) {
-    let acc = 0, n = 0
+    let acc = 0,
+      n = 0
     for (let k = -3; k <= 3; k++) {
       const bb = b + k
-      if (bb >= 0 && bb < 256) { acc += summed[bb]; n++ }
+      if (bb >= 0 && bb < 256) {
+        acc += summed[bb]
+        n++
+      }
     }
     smooth[b] = acc / n
   }
-  let minB = 128, minV = Infinity
+  let minB = 128,
+    minV = Infinity
   for (let b = 32; b < 224; b++) {
-    if (smooth[b] < minV) { minV = smooth[b]; minB = b }
+    if (smooth[b] < minV) {
+      minV = smooth[b]
+      minB = b
+    }
   }
   return minB
 }
@@ -113,17 +125,25 @@ async function main(): Promise<void> {
   const sdfEntries = Object.entries(json).filter(([, e]) => e.sdf === true)
   console.log(`[probe] SDF entries: ${sdfEntries.length}`)
   if (sdfEntries.length === 0) {
-    console.log('[probe] NO SDF entries in OFM bright sprite — icon-halo affects nothing in this style')
+    console.log(
+      '[probe] NO SDF entries in OFM bright sprite — icon-halo affects nothing in this style',
+    )
     return
   }
   const stats = sdfEntries.slice(0, 30).map(([name, e]) => analyseSdfEntry(name, e, png))
   console.log('\n[probe] per-entry median alpha on mid-cross (samples crossing the icon edge):')
   for (const s of stats) {
-    console.log(`  ${s.name.padEnd(40)} ${s.size.w}×${s.size.h}   medianAlpha=${s.medianAlphaOnMidCross}`)
+    console.log(
+      `  ${s.name.padEnd(40)} ${s.size.w}×${s.size.h}   medianAlpha=${s.medianAlphaOnMidCross}`,
+    )
   }
   const edge = dominantEdgeByte(stats)
-  console.log(`\n[probe] dominant edge alpha (histogram local-min): ${edge} / 255 = ${(edge / 255).toFixed(4)}`)
-  console.log(`[probe] Mapbox convention edge byte = 192 (= 0.7529). If close → spritezero default;`)
+  console.log(
+    `\n[probe] dominant edge alpha (histogram local-min): ${edge} / 255 = ${(edge / 255).toFixed(4)}`,
+  )
+  console.log(
+    `[probe] Mapbox convention edge byte = 192 (= 0.7529). If close → spritezero default;`,
+  )
   console.log(`[probe] differs → OFM uses custom buffer.`)
   // Distance-per-byte slope: at the edge, alpha changes by 255/SDF_PX per
   // pixel of signed distance. For Mapbox SDF_PX=8, slope ~32 bytes/px;
@@ -131,7 +151,8 @@ async function main(): Promise<void> {
   // alpha gradient along the mid-cross of one icon.
   if (stats.length > 0) {
     const s0 = sdfEntries[0]!
-    const name = s0[0], e = s0[1]
+    const name = s0[0],
+      e = s0[1]
     const midY = e.y + Math.floor(e.height / 2)
     const alphas: number[] = []
     for (let dx = 0; dx < e.width; dx++) alphas.push(alphaAt(png, e.x + dx, midY))
@@ -141,10 +162,19 @@ async function main(): Promise<void> {
       const d = Math.abs(alphas[i]! - alphas[i - 1]!)
       if (d > maxSlope) maxSlope = d
     }
-    console.log(`\n[probe] icon "${name}" horizontal mid-line max 1-px alpha slope: ${maxSlope} bytes/px`)
-    console.log(`[probe] → SDF_PX equivalent ≈ ${(255 / Math.max(1, maxSlope)).toFixed(2)} px per signed-distance unit`)
-    console.log(`[probe] Mapbox default SDF_PX = 8; OFM_SDF_PX = ${(255 / Math.max(1, maxSlope)).toFixed(2)}`)
+    console.log(
+      `\n[probe] icon "${name}" horizontal mid-line max 1-px alpha slope: ${maxSlope} bytes/px`,
+    )
+    console.log(
+      `[probe] → SDF_PX equivalent ≈ ${(255 / Math.max(1, maxSlope)).toFixed(2)} px per signed-distance unit`,
+    )
+    console.log(
+      `[probe] Mapbox default SDF_PX = 8; OFM_SDF_PX = ${(255 / Math.max(1, maxSlope)).toFixed(2)}`,
+    )
   }
 }
 
-main().catch(err => { console.error(err); process.exit(1) })
+main().catch((err) => {
+  console.error(err)
+  process.exit(1)
+})

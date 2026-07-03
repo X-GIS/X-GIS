@@ -37,7 +37,13 @@ function parseExpr(src: string): Expr {
 
 describe('Mapbox match — array-label semantics (OFM POI icon-image shape)', () => {
   it('exprToXgis converts the OFM POI match shape to a match block with two labels', () => {
-    const mapbox = ['match', ['get', 'subclass'], ['florist', 'furniture'], ['get', 'subclass'], ['get', 'class']]
+    const mapbox = [
+      'match',
+      ['get', 'subclass'],
+      ['florist', 'furniture'],
+      ['get', 'subclass'],
+      ['get', 'class'],
+    ]
     const warnings: string[] = []
     const xgis = exprToXgis(mapbox, warnings)
     expect(xgis).toBeTruthy()
@@ -49,19 +55,25 @@ describe('Mapbox match — array-label semantics (OFM POI icon-image shape)', ()
   })
 
   it('evaluator: subclass=school + class=education → "education" (default arm)', () => {
-    const expr = parseExpr('match(.subclass) { "florist" -> .subclass, "furniture" -> .subclass, _ -> .class }')
+    const expr = parseExpr(
+      'match(.subclass) { "florist" -> .subclass, "furniture" -> .subclass, _ -> .class }',
+    )
     const result = evaluate(expr as never, { subclass: 'school', class: 'education' })
     expect(result).toBe('education')
   })
 
   it('evaluator: subclass=florist + class=shop → "florist" (match arm 1)', () => {
-    const expr = parseExpr('match(.subclass) { "florist" -> .subclass, "furniture" -> .subclass, _ -> .class }')
+    const expr = parseExpr(
+      'match(.subclass) { "florist" -> .subclass, "furniture" -> .subclass, _ -> .class }',
+    )
     const result = evaluate(expr as never, { subclass: 'florist', class: 'shop' })
     expect(result).toBe('florist')
   })
 
   it('evaluator: subclass=furniture + class=shop → "furniture" (match arm 2)', () => {
-    const expr = parseExpr('match(.subclass) { "florist" -> .subclass, "furniture" -> .subclass, _ -> .class }')
+    const expr = parseExpr(
+      'match(.subclass) { "florist" -> .subclass, "furniture" -> .subclass, _ -> .class }',
+    )
     const result = evaluate(expr as never, { subclass: 'furniture', class: 'shop' })
     expect(result).toBe('furniture')
   })
@@ -70,13 +82,17 @@ describe('Mapbox match — array-label semantics (OFM POI icon-image shape)', ()
     // This is the Seoul "extra runner icon" feature. iconImage resolves to "leisure"
     // → sprite atlas's leisure entry (a runner/sports figure). MapLibre would
     // resolve to the SAME icon — the divergence is icon collision, not eval.
-    const expr = parseExpr('match(.subclass) { "florist" -> .subclass, "furniture" -> .subclass, _ -> .class }')
+    const expr = parseExpr(
+      'match(.subclass) { "florist" -> .subclass, "furniture" -> .subclass, _ -> .class }',
+    )
     const result = evaluate(expr as never, { subclass: 'sports_centre', class: 'leisure' })
     expect(result).toBe('leisure')
   })
 
   it('evaluator: missing subclass — default arm fires using class', () => {
-    const expr = parseExpr('match(.subclass) { "florist" -> .subclass, "furniture" -> .subclass, _ -> .class }')
+    const expr = parseExpr(
+      'match(.subclass) { "florist" -> .subclass, "furniture" -> .subclass, _ -> .class }',
+    )
     const result = evaluate(expr as never, { class: 'amenity' })
     expect(result).toBe('amenity')
   })

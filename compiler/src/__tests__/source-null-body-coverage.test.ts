@@ -16,7 +16,10 @@ describe('source null body guard', () => {
     // malformed source.
     const style = {
       version: 8,
-      sources: { bad: null as unknown, good: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
+      sources: {
+        bad: null as unknown,
+        good: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+      },
       layers: [
         { id: 'lbad', type: 'fill', source: 'bad', paint: { 'fill-color': '#fff' } },
         { id: 'l', type: 'fill', source: 'good', paint: { 'fill-color': '#000' } },

@@ -35,39 +35,64 @@ export const vec2iT = { kind: 'vec', n: 2, elem: 'i32' } as const satisfies Shad
 export const vec4iT = { kind: 'vec', n: 4, elem: 'i32' } as const satisfies ShaderType
 export const mat4x4fT = { kind: 'mat', n: 4, elem: 'f32' } as const satisfies ShaderType
 export const texture2dfT = { kind: 'texture', dim: '2d', elem: 'f32' } as const satisfies ShaderType
-export const texture2dMsfT = { kind: 'texture', dim: '2d-ms', elem: 'f32' } as const satisfies ShaderType
+export const texture2dMsfT = {
+  kind: 'texture',
+  dim: '2d-ms',
+  elem: 'f32',
+} as const satisfies ShaderType
 export const samplerT = { kind: 'sampler' } as const satisfies ShaderType
 export const voidT = { kind: 'void' } as const satisfies ShaderType
 export const structT = (name: string): ShaderType => ({ kind: 'struct', name })
 /** Array type; pass `size` for a fixed-length WGSL array (`array<T, N>`). */
-export const arrayT = (elem: ShaderType, size?: number): ShaderType => ({ kind: 'array', elem, size })
+export const arrayT = (elem: ShaderType, size?: number): ShaderType => ({
+  kind: 'array',
+  elem,
+  size,
+})
 
 // Type-level key of a ShaderType literal — the phantom carried by Node<K>.
-export type KeyOf<T> =
-  T extends { kind: 'scalar'; scalar: infer S extends string } ? S :
-  T extends { kind: 'vec'; n: infer N extends number; elem: infer E extends string } ? `vec${N}<${E}>` :
-  T extends { kind: 'mat'; n: infer N extends number } ? `mat${N}x${N}<f32>` :
-  // #763 X6 — texture/sampler arms (spellings match typeKey()): resource()
-  // promised a SPECIFIC key (`Node<'texture_2d<f32>'>`) but these fell through
-  // to `string`, so a texture/sampler argument swap type-checked.
-  T extends { kind: 'texture'; dim: '2d-ms' } ? 'texture_multisampled_2d<f32>' :
-  T extends { kind: 'texture'; dim: '2d' } ? 'texture_2d<f32>' :
-  T extends { kind: 'sampler' } ? 'sampler' :
-  string
+export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends string }
+  ? S
+  : T extends { kind: 'vec'; n: infer N extends number; elem: infer E extends string }
+    ? `vec${N}<${E}>`
+    : T extends { kind: 'mat'; n: infer N extends number }
+      ? `mat${N}x${N}<f32>`
+      : // #763 X6 — texture/sampler arms (spellings match typeKey()): resource()
+        // promised a SPECIFIC key (`Node<'texture_2d<f32>'>`) but these fell through
+        // to `string`, so a texture/sampler argument swap type-checked.
+        T extends { kind: 'texture'; dim: '2d-ms' }
+        ? 'texture_multisampled_2d<f32>'
+        : T extends { kind: 'texture'; dim: '2d' }
+          ? 'texture_2d<f32>'
+          : T extends { kind: 'sampler' }
+            ? 'sampler'
+            : string
 /** Element key of a vector key (`vec3<u32>` → `u32`); identity for scalars. */
 export type ElemKey<K extends string> = K extends `vec${number}<${infer E}>` ? E : K
 export type ScalarKey = 'f32' | 'i32' | 'u32'
 
 export function typeKey(t: ShaderType): string {
   switch (t.kind) {
-    case 'scalar': return t.scalar
-    case 'vec': return `vec${t.n}<${t.elem}>`
-    case 'mat': return `mat${t.n}x${t.n}<${t.elem}>`
-    case 'struct': return `struct:${t.name}`
-    case 'array': return t.size !== undefined ? `array<${typeKey(t.elem)},${t.size}>` : `array<${typeKey(t.elem)}>`
-    case 'texture': return t.dim === '2d-ms' ? `texture_multisampled_2d<${t.elem}>` : `texture_${t.dim}<${t.elem}>`
-    case 'sampler': return 'sampler'
-    case 'void': return 'void'
+    case 'scalar':
+      return t.scalar
+    case 'vec':
+      return `vec${t.n}<${t.elem}>`
+    case 'mat':
+      return `mat${t.n}x${t.n}<${t.elem}>`
+    case 'struct':
+      return `struct:${t.name}`
+    case 'array':
+      return t.size !== undefined
+        ? `array<${typeKey(t.elem)},${t.size}>`
+        : `array<${typeKey(t.elem)}>`
+    case 'texture':
+      return t.dim === '2d-ms'
+        ? `texture_multisampled_2d<${t.elem}>`
+        : `texture_${t.dim}<${t.elem}>`
+    case 'sampler':
+      return 'sampler'
+    case 'void':
+      return 'void'
   }
 }
 
@@ -76,5 +101,6 @@ export function typeEq(a: ShaderType, b: ShaderType): boolean {
 }
 
 export const isVec = (t: ShaderType): t is Extract<ShaderType, { kind: 'vec' }> => t.kind === 'vec'
-export const isScalar = (t: ShaderType): t is Extract<ShaderType, { kind: 'scalar' }> => t.kind === 'scalar'
+export const isScalar = (t: ShaderType): t is Extract<ShaderType, { kind: 'scalar' }> =>
+  t.kind === 'scalar'
 export const isMat = (t: ShaderType): t is Extract<ShaderType, { kind: 'mat' }> => t.kind === 'mat'

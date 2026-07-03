@@ -6,23 +6,36 @@
 // Phase-2 wiring — gated by the pixel survey + log-depth.test.ts.
 
 import {
-  fn, module, f32, vec4, max, log2,
-  f32T, vec4fT,
-  type FuncDecl, type ModuleDecl,
+  fn,
+  module,
+  f32,
+  vec4,
+  max,
+  log2,
+  f32T,
+  vec4fT,
+  type FuncDecl,
+  type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { emitFuncs } from '@xgis/shader-dsl'
 
 // apply_log_depth(pos, fc): write z = log2(max(f32(1e-6), w+1)) * fc * w, keeping
 // x/y/w. The *w pre-cancels the later perspective division.
 export const apply_log_depth = fn('apply_log_depth', { pos: vec4fT, fc: f32T }, ({ pos, fc }) => {
-  const z = log2(max(f32(1e-6), pos.w.add(1))).mul(fc).mul(pos.w)
+  const z = log2(max(f32(1e-6), pos.w.add(1)))
+    .mul(fc)
+    .mul(pos.w)
   return vec4(pos.x, pos.y, z, pos.w)
 })
 
 // compute_log_frag_depth(view_w, fc): per-pixel log depth for @builtin(frag_depth).
-export const compute_log_frag_depth = fn('compute_log_frag_depth', { view_w: f32T, fc: f32T }, ({ view_w, fc }) => {
-  return log2(max(f32(1e-6), view_w.add(1))).mul(fc)
-})
+export const compute_log_frag_depth = fn(
+  'compute_log_frag_depth',
+  { view_w: f32T, fc: f32T },
+  ({ view_w, fc }) => {
+    return log2(max(f32(1e-6), view_w.add(1))).mul(fc)
+  },
+)
 
 const LOG_DEPTH_FUNCS: FuncDecl[] = [apply_log_depth, compute_log_frag_depth]
 

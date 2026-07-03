@@ -42,7 +42,10 @@ interface XgisMap {
   }
 }
 declare global {
-  interface Window { __xgisMap?: XgisMap; __xgisReady?: boolean }
+  interface Window {
+    __xgisMap?: XgisMap
+    __xgisReady?: boolean
+  }
 }
 
 test.describe('Mobile fast-gesture thermal load', () => {
@@ -51,23 +54,23 @@ test.describe('Mobile fast-gesture thermal load', () => {
   test('Korea z=7.75: 10 s continuous pan + rotate, no far-ancestor fallback', async ({ page }) => {
     test.setTimeout(60_000)
 
-    await page.goto(
-      `/demo.html?id=pmtiles_layered#7.75/37.40304/127.50903/1.3/0`,
-      { waitUntil: 'domcontentloaded' },
-    )
+    await page.goto(`/demo.html?id=pmtiles_layered#7.75/37.40304/127.50903/1.3/0`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await page.waitForFunction(() => window.__xgisReady === true, null, { timeout: 30_000 })
     await page.waitForFunction(
-      () => window.__xgisReady === true,
-      null, { timeout: 30_000 },
+      () => {
+        const map = window.__xgisMap
+        if (!map?.vtSources) return false
+        let v = 0
+        for (const { renderer } of map.vtSources.values()) {
+          v += renderer.getDrawStats?.().tilesVisible ?? 0
+        }
+        return v > 0
+      },
+      null,
+      { timeout: 60_000 },
     )
-    await page.waitForFunction(() => {
-      const map = window.__xgisMap
-      if (!map?.vtSources) return false
-      let v = 0
-      for (const { renderer } of map.vtSources.values()) {
-        v += renderer.getDrawStats?.().tilesVisible ?? 0
-      }
-      return v > 0
-    }, null, { timeout: 60_000 })
     // Initial settle so the catalog has *some* tiles cached at the
     // start of the gesture — this is a faithful repro of the user
     // scenario (they had been viewing the location, then started
@@ -103,7 +106,7 @@ test.describe('Mobile fast-gesture thermal load', () => {
 
       const t0 = performance.now()
       while (performance.now() - t0 < durationMs) {
-        await new Promise<void>(r => requestAnimationFrame(() => r()))
+        await new Promise<void>((r) => requestAnimationFrame(() => r()))
         const t = (performance.now() - t0) / durationMs
         // Sinusoid pan + linear bearing spin.
         cam.centerX = cx0 + Math.sin(t * Math.PI * 4) * panRange

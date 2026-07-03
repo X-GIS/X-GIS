@@ -12,9 +12,7 @@ describe('sky layer skip', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [
-        { id: 'sky', type: 'sky', paint: { 'sky-color': '#88aaff' } },
-      ],
+      layers: [{ id: 'sky', type: 'sky', paint: { 'sky-color': '#88aaff' } }],
     }
     const warnings: string[] = []
     const xgis = convertMapboxStyle(style as never, {
@@ -23,7 +21,7 @@ describe('sky layer skip', () => {
     expect(xgis).toContain('// SKIPPED layer "sky" type="sky"')
     expect(xgis).toContain('sky layer')
     // Warning carries the same reason for diagnostic surface.
-    expect(warnings.some(w => w.includes('sky layer'))).toBe(true)
+    expect(warnings.some((w) => w.includes('sky layer'))).toBe(true)
   })
 
   it('non-sky layers still convert when a sky layer is also present', () => {
@@ -32,7 +30,13 @@ describe('sky layer skip', () => {
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
       layers: [
         { id: 'sky', type: 'sky', paint: { 'sky-color': '#88aaff' } },
-        { id: 'land', type: 'fill', source: 'v', 'source-layer': 'land', paint: { 'fill-color': '#ddd' } },
+        {
+          id: 'land',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'land',
+          paint: { 'fill-color': '#ddd' },
+        },
       ],
     }
     const xgis = convertMapboxStyle(style as never)

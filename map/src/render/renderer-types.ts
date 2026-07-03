@@ -84,8 +84,8 @@ export interface FillPaint extends Omit<import('@xgis/compiler').FillPaint, 'fil
   /** Runtime-only — fill-pattern Stage 2 resolved data (map.ts._resolveFillPatterns):
    *  VTR routes pattern shows to fillPipelinePatternGround with these packed
    *  into the per-tile uniform. Undefined while the atlas loads. */
-  fillPatternUV?: [number, number, number, number] | null  // (u0, v0, u1, v1)
-  fillPatternRepeatM?: [number, number] | null             // metres per pattern tile
+  fillPatternUV?: [number, number, number, number] | null // (u0, v0, u1, v1)
+  fillPatternRepeatM?: [number, number] | null // metres per pattern tile
   /** Runtime-only — per-frame animated fill override (map.ts
    *  classifyVectorTileShows), bypassing VTR's hex-string parse cache. */
   resolvedFillRgba?: [number, number, number, number] | null
@@ -96,7 +96,10 @@ export interface FillPaint extends Omit<import('@xgis/compiler').FillPaint, 'fil
  *  patterns, …) are INHERITED from the canonical `@xgis/compiler` LinePaint —
  *  single source, no manual mirror to drift. Adds only the RUNTIME-ONLY bake/
  *  resolve fields + re-loosens `linePattern` (synthetic shows omit it). */
-export interface LinePaint extends Omit<import('@xgis/compiler').LinePaint, 'linePattern' | 'dashArrayShape' | 'dashOffsetShape'> {
+export interface LinePaint extends Omit<
+  import('@xgis/compiler').LinePaint,
+  'linePattern' | 'dashArrayShape' | 'dashOffsetShape'
+> {
   /** Mapbox `paint.line-pattern` constant sprite name. Runtime loosens to optional. */
   linePattern?: string | null
   /** WS-1 dash shapes — compiler emits them required (`| null`); runtime loosens
@@ -120,7 +123,10 @@ export interface LinePaint extends Omit<import('@xgis/compiler').LinePaint, 'lin
  *  `@xgis/compiler` CirclePaint (single source of truth, no manual mirror);
  *  runtime only re-loosens `circleStrokeOpacityShape` to optional (synthetic
  *  shows omit it). */
-export interface CirclePaint extends Omit<import('@xgis/compiler').CirclePaint, 'circleStrokeOpacityShape'> {
+export interface CirclePaint extends Omit<
+  import('@xgis/compiler').CirclePaint,
+  'circleStrokeOpacityShape'
+> {
   circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null
 }
 
@@ -136,7 +142,10 @@ export type HeatmapPaint = import('@xgis/compiler').HeatmapPaint
  *  ExtrudePaint (single source, incl. fillExtrusionVerticalGradient); runtime
  *  only re-loosens extrude / extrudeBase to optional (synthetic / flat-fill
  *  shows omit them). The inline union is structurally the compiler's ExtrudeValue. */
-export interface ExtrudePaint extends Omit<import('@xgis/compiler').ExtrudePaint, 'extrude' | 'extrudeBase'> {
+export interface ExtrudePaint extends Omit<
+  import('@xgis/compiler').ExtrudePaint,
+  'extrude' | 'extrudeBase'
+> {
   extrude?:
     | { kind: 'none' }
     | { kind: 'constant'; value: number }
@@ -197,7 +206,7 @@ export interface ShowCommand extends FillPaint, LinePaint, CirclePaint, ExtrudeP
    *  compiler — same drift-elimination pattern as ShaderVariantInfo
    *  at line 595. */
   shaderVariant?: import('@xgis/compiler').ShaderVariant | null
-  filterExpr?: { ast: unknown } | null  // AST expression for per-feature filtering
+  filterExpr?: { ast: unknown } | null // AST expression for per-feature filtering
   geometryExpr?: { ast: unknown } | null
   sizeExpr?: { ast: unknown } | null
   sizeUnit?: string | null

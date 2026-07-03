@@ -19,14 +19,18 @@
 import { describe, it, expect } from 'vitest'
 import { globeVisibleTiles } from '@xgis/engine'
 
-const W = 800, H = 800
+const W = 800,
+  H = 800
 
 describe('globeVisibleTiles z0 focal-tile (non-merc z0 black-canvas fix)', () => {
   it('returns the covering root tile at z0/maxZ=0 centred off-origin (was 0 → black)', () => {
     // lon 126.97 (Seoul meridian); z0 clamps centerY→0 (equator); zoom 0.
     const tiles = globeVisibleTiles(126.97, 0, 0, 0, W, H, 0, 0)
     expect(tiles.length, 'z0 off-centre selected zero tiles → black canvas').toBeGreaterThan(0)
-    expect(tiles.some(t => t.z === 0 && t.x === 0 && t.y === 0), 'root 0/0/0 not selected').toBe(true)
+    expect(
+      tiles.some((t) => t.z === 0 && t.x === 0 && t.y === 0),
+      'root 0/0/0 not selected',
+    ).toBe(true)
   })
 
   it('still returns the root tile centred at lon 0 and at the antimeridian', () => {

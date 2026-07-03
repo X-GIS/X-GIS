@@ -23,7 +23,13 @@ function gcFeature(): GeoJSONFeature {
       type: 'GeometryCollection',
       geometries: [
         { type: 'Point', coordinates: [0, 0] },
-        { type: 'LineString', coordinates: [[0, 0], [1, 1]] },
+        {
+          type: 'LineString',
+          coordinates: [
+            [0, 0],
+            [1, 1],
+          ],
+        },
       ],
     } as unknown as GeoJSONFeature['geometry'],
   }

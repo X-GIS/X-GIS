@@ -49,7 +49,15 @@ const FRAME_COLORS = ['#2997ff', '#34d399', '#f5a623', '#f472b6', '#a78bfa', '#8
 type Drag =
   | { kind: 'pan'; sx: number; sy: number; px: number; py: number }
   | { kind: 'node'; id: string; ox: Map<string, [number, number]>; mx: number; my: number }
-  | { kind: 'frame'; id: string; ox: Map<string, [number, number]>; fx: number; fy: number; mx: number; my: number }
+  | {
+      kind: 'frame'
+      id: string
+      ox: Map<string, [number, number]>
+      fx: number
+      fy: number
+      mx: number
+      my: number
+    }
   | { kind: 'resize'; id: string; mx: number; my: number; w: number; h: number }
   | { kind: 'wire'; from: { node: string; pin: string; ptype: PinType }; reconnected?: boolean }
   | { kind: 'marquee'; x0: number; y0: number }
@@ -160,7 +168,9 @@ export class BlueprintEditor {
     let y: number
     let w = 360
     let h = 240
-    const sel = [...this.selNodes].map((id) => this.nodes.find((n) => n.id === id)).filter(Boolean) as BPNode[]
+    const sel = [...this.selNodes]
+      .map((id) => this.nodes.find((n) => n.id === id))
+      .filter(Boolean) as BPNode[]
     if (sel.length) {
       const xs = sel.map((n) => n.x)
       const ys = sel.map((n) => n.y)
@@ -172,7 +182,15 @@ export class BlueprintEditor {
       x = -this.pan.x / this.zoom + 60
       y = -this.pan.y / this.zoom + 60
     }
-    const f: BPFrame = { id: uid('f'), x, y, w, h, title: 'Comment', color: FRAME_COLORS[this.frames.length % FRAME_COLORS.length] }
+    const f: BPFrame = {
+      id: uid('f'),
+      x,
+      y,
+      w,
+      h,
+      title: 'Comment',
+      color: FRAME_COLORS[this.frames.length % FRAME_COLORS.length],
+    }
     this.frames.push(f)
     this.mountFrame(f)
     this.scheduleRedraw()
@@ -189,7 +207,10 @@ export class BlueprintEditor {
   }
 
   fit(selectionOnly = false) {
-    const ns = selectionOnly && this.selNodes.size ? this.nodes.filter((n) => this.selNodes.has(n.id)) : this.nodes
+    const ns =
+      selectionOnly && this.selNodes.size
+        ? this.nodes.filter((n) => this.selNodes.has(n.id))
+        : this.nodes
     if (!ns.length) return
     let minX = Infinity
     let minY = Infinity
@@ -206,7 +227,13 @@ export class BlueprintEditor {
     }
     const r = this.vp.getBoundingClientRect()
     const pad = 60
-    const z = Math.min(2, Math.max(0.2, Math.min(r.width / (maxX - minX + pad * 2), r.height / (maxY - minY + pad * 2))))
+    const z = Math.min(
+      2,
+      Math.max(
+        0.2,
+        Math.min(r.width / (maxX - minX + pad * 2), r.height / (maxY - minY + pad * 2)),
+      ),
+    )
     this.zoom = z
     this.pan.x = r.width / 2 - ((minX + maxX) / 2) * z
     this.pan.y = r.height / 2 - ((minY + maxY) / 2) * z
@@ -215,7 +242,9 @@ export class BlueprintEditor {
   }
 
   align(mode: 'left' | 'top' | 'hdist' | 'vdist') {
-    const sel = [...this.selNodes].map((id) => this.nodes.find((n) => n.id === id)).filter(Boolean) as BPNode[]
+    const sel = [...this.selNodes]
+      .map((id) => this.nodes.find((n) => n.id === id))
+      .filter(Boolean) as BPNode[]
     if (sel.length < 2) return
     this.record()
     if (mode === 'left') {
@@ -392,13 +421,19 @@ export class BlueprintEditor {
   }
   private applyTransform() {
     this.world.style.transform = `translate(${this.pan.x}px, ${this.pan.y}px) scale(${this.zoom})`
-    this.gEdges.setAttribute('transform', `translate(${this.pan.x},${this.pan.y}) scale(${this.zoom})`)
+    this.gEdges.setAttribute(
+      'transform',
+      `translate(${this.pan.x},${this.pan.y}) scale(${this.zoom})`,
+    )
     this.world.classList.toggle('bp-lod', this.zoom < 0.5)
     this.drawMini()
   }
   private toWorld(clientX: number, clientY: number) {
     const r = this.vp.getBoundingClientRect()
-    return { x: (clientX - r.left - this.pan.x) / this.zoom, y: (clientY - r.top - this.pan.y) / this.zoom }
+    return {
+      x: (clientX - r.left - this.pan.x) / this.zoom,
+      y: (clientY - r.top - this.pan.y) / this.zoom,
+    }
   }
 
   // ── render ──
@@ -494,7 +529,15 @@ export class BlueprintEditor {
       this.record()
       const inside = new Map<string, [number, number]>()
       for (const n of this.nodes) if (this.nodeInFrame(n, f)) inside.set(n.id, [n.x, n.y])
-      this.drag = { kind: 'frame', id: f.id, ox: inside, fx: f.x, fy: f.y, mx: e.clientX, my: e.clientY }
+      this.drag = {
+        kind: 'frame',
+        id: f.id,
+        ox: inside,
+        fx: f.x,
+        fy: f.y,
+        mx: e.clientX,
+        my: e.clientY,
+      }
       document.body.classList.add('bp-grabbing')
     })
     el.appendChild(bar)
@@ -790,12 +833,16 @@ export class BlueprintEditor {
       this.clearPinHints()
       const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
       if (el && el.classList.contains('bp-pin')) {
-        this.tryConnect(d.from, {
-          node: el.dataset.node!,
-          pin: el.dataset.pin!,
-          dir: el.dataset.dir as 'in' | 'out',
-          ptype: el.dataset.ptype as PinType,
-        }, d.reconnected)
+        this.tryConnect(
+          d.from,
+          {
+            node: el.dataset.node!,
+            pin: el.dataset.pin!,
+            dir: el.dataset.dir as 'in' | 'out',
+            ptype: el.dataset.ptype as PinType,
+          },
+          d.reconnected,
+        )
       } else {
         // dropped on empty canvas → contextual create + auto-wire
         this.openPalette(e.clientX, e.clientY, d.from)
@@ -835,7 +882,11 @@ export class BlueprintEditor {
         this.edges = this.edges.filter((x) => x.id !== ex.id)
         this.renderEdges()
         this.emit()
-        this.drag = { kind: 'wire', from: { node: fromNode, pin: fromPin, ptype: ft }, reconnected: true }
+        this.drag = {
+          kind: 'wire',
+          from: { node: fromNode, pin: fromPin, ptype: ft },
+          reconnected: true,
+        }
         this.showPinHints('out', ft)
         return
       }
@@ -879,13 +930,21 @@ export class BlueprintEditor {
       this.edges = this.edges.filter((x) => !(x.to.node === inp.node && x.to.pin === inp.pin))
     if (
       this.edges.some(
-        (x) => x.from.node === out.node && x.from.pin === out.pin && x.to.node === inp.node && x.to.pin === inp.pin,
+        (x) =>
+          x.from.node === out.node &&
+          x.from.pin === out.pin &&
+          x.to.node === inp.node &&
+          x.to.pin === inp.pin,
       )
     ) {
       if (!skipRecord) this.history.cancel()
       return
     }
-    this.edges.push({ id: uid('e'), from: { node: out.node, pin: out.pin }, to: { node: inp.node, pin: inp.pin } })
+    this.edges.push({
+      id: uid('e'),
+      from: { node: out.node, pin: out.pin },
+      to: { node: inp.node, pin: inp.pin },
+    })
     this.renderEdges()
     this.emit()
   }
@@ -960,7 +1019,11 @@ export class BlueprintEditor {
     const idset = new Set(ns.map((n) => n.id))
     const es = this.edges.filter((e) => idset.has(e.from.node) && idset.has(e.to.node))
     const fs = this.frames.filter((f) => this.selFrames.has(f.id))
-    return { nodes: ns.map((n) => ({ ...n, data: { ...n.data } })), edges: es.map((e) => ({ ...e })), frames: fs }
+    return {
+      nodes: ns.map((n) => ({ ...n, data: { ...n.data } })),
+      edges: es.map((e) => ({ ...e })),
+      frames: fs,
+    }
   }
   private copySelection() {
     if (!this.selNodes.size) return
@@ -990,7 +1053,12 @@ export class BlueprintEditor {
     for (const e of g.edges) {
       const f = idmap.get(e.from.node)
       const t = idmap.get(e.to.node)
-      if (f && t) this.edges.push({ id: uid('e'), from: { node: f, pin: e.from.pin }, to: { node: t, pin: e.to.pin } })
+      if (f && t)
+        this.edges.push({
+          id: uid('e'),
+          from: { node: f, pin: e.from.pin },
+          to: { node: t, pin: e.to.pin },
+        })
     }
     for (const fr of g.frames ?? []) {
       const nf: BPFrame = { ...fr, id: uid('f'), x: fr.x + dx, y: fr.y + dy }
@@ -1098,7 +1166,8 @@ export class BlueprintEditor {
         pair = { hit, vis }
         this.edgeEls.set(e.id, pair)
       }
-      const pt = (this.pinEls.get(`${e.from.node}:${e.from.pin}`)?.dataset.ptype ?? 'layer') as PinType
+      const pt = (this.pinEls.get(`${e.from.node}:${e.from.pin}`)?.dataset.ptype ??
+        'layer') as PinType
       const d = bezier(a.x, a.y, b.x, b.y)
       pair.hit.setAttribute('d', d)
       pair.vis.setAttribute('d', d)
@@ -1123,7 +1192,11 @@ export class BlueprintEditor {
   }
 
   // ── palette (search + contextual create) ──
-  private openPalette(clientX: number, clientY: number, from?: { node: string; pin: string; ptype: PinType }) {
+  private openPalette(
+    clientX: number,
+    clientY: number,
+    from?: { node: string; pin: string; ptype: PinType },
+  ) {
     this.ctxWorld = this.toWorld(clientX, clientY)
     const fromDir = from ? this.pinDir(from.node, from.pin) : null
     const wantDir = fromDir === 'out' ? 'in' : 'out'
@@ -1160,7 +1233,12 @@ export class BlueprintEditor {
       const target = wantPins.find((p) => pinCompatible(p.type, from.ptype))
       if (target) {
         const a = from
-        const b = { node: id, pin: target.id, dir: (fromDir === 'out' ? 'in' : 'out') as 'in' | 'out', ptype: target.type }
+        const b = {
+          node: id,
+          pin: target.id,
+          dir: (fromDir === 'out' ? 'in' : 'out') as 'in' | 'out',
+          ptype: target.type,
+        }
         this.tryConnect(a, b)
       }
     }
@@ -1231,10 +1309,7 @@ export class BlueprintEditor {
         const cardInput = this.nodeEls
           .get(n.id)
           ?.querySelector<HTMLElement>(`.bp-input[data-k="${f.key}"]`) as
-          | HTMLInputElement
-          | HTMLTextAreaElement
-          | HTMLSelectElement
-          | null
+          HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null
         if (cardInput) cardInput.value = input.value
         this.scheduleRedraw()
         this.emit()
@@ -1283,7 +1358,10 @@ export class BlueprintEditor {
       .map((e) => this.resolveLayer(e.from.node))
       .filter((id): id is string => !!id)
     const stored = (map.data.order || '').split(',').filter(Boolean)
-    const ids = [...stored.filter((id) => connected.includes(id)), ...connected.filter((id) => !stored.includes(id))]
+    const ids = [
+      ...stored.filter((id) => connected.includes(id)),
+      ...connected.filter((id) => !stored.includes(id)),
+    ]
     map.data.order = ids.join(',')
     box.innerHTML = '<div class="bp-order-h">draw order — top drawn first (under)</div>'
     if (!ids.length) {

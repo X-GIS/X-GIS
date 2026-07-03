@@ -129,7 +129,11 @@ export function greedyPlaceBboxes(
   const order: number[] = new Array(items.length)
   for (let i = 0; i < items.length; i++) order[i] = i
   let anySortKey = false
-  for (const it of items) if (it.sortKey !== undefined) { anySortKey = true; break }
+  for (const it of items)
+    if (it.sortKey !== undefined) {
+      anySortKey = true
+      break
+    }
   if (anySortKey) {
     order.sort((a, b) => (items[a]!.sortKey ?? 0) - (items[b]!.sortKey ?? 0))
   }
@@ -139,12 +143,20 @@ export function greedyPlaceBboxes(
     // Same-line min-distance gate runs BEFORE bbox collision so a
     // crowded same-line label is rejected even if its bbox doesn't
     // overlap any blocker. Saves a per-bbox scan when minLineSp > 0.
-    if (minLineSp > 0 && it.lineId !== undefined && it.anchorDistancePx !== undefined && !it.allowOverlap) {
+    if (
+      minLineSp > 0 &&
+      it.lineId !== undefined &&
+      it.anchorDistancePx !== undefined &&
+      !it.allowOverlap
+    ) {
       const claimed = placedByLine.get(it.lineId)
       if (claimed) {
         let crowded = false
         for (const d of claimed) {
-          if (Math.abs(d - it.anchorDistancePx) < minLineSp) { crowded = true; break }
+          if (Math.abs(d - it.anchorDistancePx) < minLineSp) {
+            crowded = true
+            break
+          }
         }
         if (crowded) {
           out[i] = { placed: false, chosen: -1 }
@@ -155,19 +167,29 @@ export function greedyPlaceBboxes(
     let pickedIdx = -1
     for (let c = 0; c < it.bboxes.length; c++) {
       const bbox = it.bboxes[c]!
-      if (it.allowOverlap) { pickedIdx = c; break }
+      if (it.allowOverlap) {
+        pickedIdx = c
+        break
+      }
       let collides = false
       for (const b of blocking) {
         // Same collision group (icon ↔ its own paired text) never collides.
         if (it.groupKey !== undefined && b.groupKey === it.groupKey) continue
         const bb = b.bbox
-        if (bbox.minX < bb.maxX && bbox.maxX > bb.minX
-            && bbox.minY < bb.maxY && bbox.maxY > bb.minY) {
+        if (
+          bbox.minX < bb.maxX &&
+          bbox.maxX > bb.minX &&
+          bbox.minY < bb.maxY &&
+          bbox.maxY > bb.minY
+        ) {
           collides = true
           break
         }
       }
-      if (!collides) { pickedIdx = c; break }
+      if (!collides) {
+        pickedIdx = c
+        break
+      }
     }
     if (pickedIdx < 0) {
       out[i] = { placed: false, chosen: -1 }
@@ -177,7 +199,10 @@ export function greedyPlaceBboxes(
     if (!it.ignorePlacement) blocking.push({ bbox: it.bboxes[pickedIdx]!, groupKey: it.groupKey })
     if (it.lineId !== undefined && it.anchorDistancePx !== undefined) {
       let arr = placedByLine.get(it.lineId)
-      if (!arr) { arr = []; placedByLine.set(it.lineId, arr) }
+      if (!arr) {
+        arr = []
+        placedByLine.set(it.lineId, arr)
+      }
       arr.push(it.anchorDistancePx)
     }
   }

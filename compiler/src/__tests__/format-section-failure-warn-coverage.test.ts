@@ -20,9 +20,12 @@ describe('format section failure warning', () => {
           layout: {
             'text-field': [
               'format',
-              ['get', 'name'], {},
-              ['image', 'flag-x'], {}, // section 2 — unsupported image accessor
-              ['get', 'pop'], {},
+              ['get', 'name'],
+              {},
+              ['image', 'flag-x'],
+              {}, // section 2 — unsupported image accessor
+              ['get', 'pop'],
+              {},
             ],
           },
         },
@@ -42,12 +45,7 @@ describe('format section failure warning', () => {
           type: 'symbol',
           source: 's',
           layout: {
-            'text-field': [
-              'format',
-              ['get', 'name'], {},
-              ' — ', {},
-              ['get', 'class'], {},
-            ],
+            'text-field': ['format', ['get', 'name'], {}, ' — ', {}, ['get', 'class'], {}],
           },
         },
       ],

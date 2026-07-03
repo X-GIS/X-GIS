@@ -13,14 +13,22 @@ function ref(lonRad: number, latRad: number, h: number): [number, number, number
   const s = Math.sin(latRad)
   const c = Math.cos(latRad)
   const n = WGS84_A / Math.sqrt(1 - WGS84_E2 * s * s)
-  return [(n + h) * c * Math.cos(lonRad), (n + h) * c * Math.sin(lonRad), (n * (1 - WGS84_E2) + h) * s]
+  return [
+    (n + h) * c * Math.cos(lonRad),
+    (n + h) * c * Math.sin(lonRad),
+    (n * (1 - WGS84_E2) + h) * s,
+  ]
 }
 
 const M = compileModule(module({ consts: ECEF_CONSTS, funcs: ECEF_FUNCS }))
 
 describe('ecef DSL — CPU eval matches the WGS84 reference', () => {
   const cases: Array<[number, number, number]> = [
-    [0, 0, 0], [127, 37, 100], [-122, 45, -50], [180, -85, 0], [90, 60, 1000],
+    [0, 0, 0],
+    [127, 37, 100],
+    [-122, 45, -50],
+    [180, -85, 0],
+    [90, 60, 1000],
   ]
   for (const [lonDeg, latDeg, h] of cases) {
     it(`lonlat_to_ecef(${lonDeg}deg, ${latDeg}deg, ${h}m) == reference`, () => {

@@ -119,7 +119,11 @@ const PRESENTATION: Record<string, Presentation> = {
     fields: {
       mode: { label: 'Mode', kind: 'select' },
       names: { label: 'Names (named only)', kind: 'text', placeholder: 'railway_tie, cliff_tooth' },
-      path: { label: 'Path / URL', kind: 'text', placeholder: 'https://tiles.openfreemap.org/styles/bright' },
+      path: {
+        label: 'Path / URL',
+        kind: 'text',
+        placeholder: 'https://tiles.openfreemap.org/styles/bright',
+      },
     },
     defaults: { mode: 'splice', names: '', path: '' },
   },
@@ -187,7 +191,12 @@ const PRESENTATION: Record<string, Presentation> = {
       ret: { label: 'Return type', kind: 'text', placeholder: 'f32' },
       body: { label: 'Body', kind: 'textarea', placeholder: 'clamp(level * 4, 8, 32)' },
     },
-    defaults: { name: 'threat_size', params: 'level: f32', ret: 'f32', body: 'clamp(level * 4, 8, 32)' },
+    defaults: {
+      name: 'threat_size',
+      params: 'level: f32',
+      ret: 'f32',
+      body: 'clamp(level * 4, 8, 32)',
+    },
   },
   layer: {
     title: 'Layer',
@@ -229,7 +238,8 @@ function buildConstructSpec(keyword: string, def: ConstructDef): NodeSpec {
   if (!p) throw new Error(`@xgis/blueprint: no presentation overlay for construct "${keyword}"`)
   const fields: FieldSpec[] = def.properties.map((prop) => {
     const ui = p.fields[prop.key]
-    if (!ui) throw new Error(`@xgis/blueprint: overlay missing field "${prop.key}" for "${keyword}"`)
+    if (!ui)
+      throw new Error(`@xgis/blueprint: overlay missing field "${prop.key}" for "${keyword}"`)
     return {
       key: prop.key,
       label: ui.label,

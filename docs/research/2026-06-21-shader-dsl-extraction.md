@@ -6,14 +6,17 @@ and a **multi-backend GPU library** (WGSL today; WebGL/GLSL later) — "a luma.g
 position." The DSL IR is the backend-neutral SoT; backends are plugins.
 
 ## Why it's feasible today
+
 - The IR is already backend-neutral: `core/backends/wgsl.ts` (GPU string emit) +
   `core/backends/cpu.ts` (f64 tree-walk) prove two backends off one IR. A future
   GLSL/WebGL backend is one more `core/backends/glsl.ts` plugin — the IR is untouched.
 - shader-dsl is nearly self-contained. **One** hard outbound runtime coupling.
 
 ## The one knot: `projections.ts` → `PROJECTIONS` table
+
 `runtime/src/engine/shader-dsl/shaders/projections.ts` imports the projection
 registry `runtime/src/engine/projection/projections-table.ts` and uses it at:
+
 - `:239` `FLAT = PROJECTIONS.filter(!isGlobe)` → dispatch-ladder order (projType = index).
 - `:50` `byName(n)` → `cullThreshold` for azimuthal/stereographic.
 
@@ -26,15 +29,17 @@ Duplicating the order inside shader-dsl (test-guarded) is rejected: it reintrodu
 exact drift the table-as-SoT was built to kill (AGENTS.md).
 
 ### `ProjectionSpec` (the injected contract)
+
 ```ts
 export interface ProjectionSpec {
-  name: string          // maps to the internal proj_<name> IR fn (forwardCall switch)
-  projType: number      // == proj_params.x; dispatch-ladder index
-  isGlobe: boolean      // excluded from the 2D FLAT ladder
+  name: string // maps to the internal proj_<name> IR fn (forwardCall switch)
+  projType: number // == proj_params.x; dispatch-ladder index
+  isGlobe: boolean // excluded from the 2D FLAT ladder
   cullThreshold?: number
 }
 export function configureProjections(specs: ProjectionSpec[]): void
 ```
+
 The runtime's `PROJECTIONS` already structurally satisfies `ProjectionSpec`. Runtime
 calls `configureProjections(PROJECTIONS)` once at engine init, before any shader emit.
 
@@ -43,12 +48,15 @@ are consumed at **emit time** (inside `emitPolygonWgsl`/`emitLineWgsl`/… and t
 CPU-proj functions), not at module load — so a lazy, post-configure build is safe.
 
 ## Layering (target)
+
 `@xgis/shader-dsl` (zero outbound dep) ← `@xgis/runtime` (owns `PROJECTIONS`, injects it).
 No cycle. `@xgis/shared`, `@xgis/compiler` unaffected. The `compiler` vertex-format
 contract stays convention+test (no import coupling).
 
 ## Execution — two independently-green PRs
+
 ### PR-A — invert in place (the hard part, isolated; still inside `runtime/`)
+
 1. Add `ProjectionSpec` + `configureProjections` seam to `projections.ts`; make
    `FLAT`/cull-consts/`PROJECTION_*`/`PROJECTION_MODULE`/`cpu-projections` lazily build
    from injected specs (default = imported `PROJECTIONS` for one transitional step).
@@ -59,6 +67,7 @@ contract stays convention+test (no import coupling).
    - **Gates (every step):** strict `tsc --build --force` · `bunx vitest run runtime/src/engine/shader-dsl/` (incl. polygon-variant-diff snapshots) · CPU-parity `_shader-math-parity.spec.ts` · full suite · no concurrent heavy jobs (one at a time).
 
 ### PR-B — mechanical relocation (no logic change)
+
 1. Scaffold `shader-dsl/` package: `package.json` (`@xgis/shader-dsl`, `main: ./src/index.ts`,
    `type: module`), `tsconfig.json` (`extends ../tsconfig.base.json`, composite, refs).
 2. `git mv runtime/src/engine/shader-dsl/** shader-dsl/src/**`.
@@ -70,12 +79,14 @@ contract stays convention+test (no import coupling).
    - **Gates:** same stack, green.
 
 ## Later (not this work)
+
 - PR-C: GLSL/WebGL backend plugin under `core/backends/`.
 - PR-D: lift `shader-dsl/` to its own repo (git subtree/filter — clean once zero-dep).
 
 ## Risks / guards
+
 - Init-order: `configureProjections` MUST run before first emit — assert-throw if a
   generated accessor is read unconfigured (loud, not silent-wrong).
 - The projection/CPU-parity gates are this repo's highest-bug-density area (#392/#360/
-  geoid) — PR-A keeps the IR math byte-identical; only the *source* of specs changes.
+  geoid) — PR-A keeps the IR math byte-identical; only the _source_ of specs changes.
   Polygon snapshot byte-equality + `_shader-math-parity` are the non-vacuous proof.

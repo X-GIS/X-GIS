@@ -9,16 +9,17 @@ import { cseLocal } from './cse-local'
 
 // A var read 3× through normalize() inside a single `return`: `v` is mutated, so fn-top
 // cse skips it; without cse-local the normalize (a sqrt + 3 divides) emits 3×.
-const repeatModule = () => module({
-  funcs: [
-    fn('f', { x: f32T }, vec3fT, ({ x }, b) => {
-      const v = Var(vec3(x, x.mul(2), x.mul(3)))
-      v.assign(v.add(vec3(1, 1, 1))) // mutate → v is a var, not hoistable by fn-top cse
-      const n = normalize(v)
-      b.ret(vec3(n.x, n.y, n.z)) // 3× normalize(v) in one statement
-    }),
-  ],
-})
+const repeatModule = () =>
+  module({
+    funcs: [
+      fn('f', { x: f32T }, vec3fT, ({ x }, b) => {
+        const v = Var(vec3(x, x.mul(2), x.mul(3)))
+        v.assign(v.add(vec3(1, 1, 1))) // mutate → v is a var, not hoistable by fn-top cse
+        const n = normalize(v)
+        b.ret(vec3(n.x, n.y, n.z)) // 3× normalize(v) in one statement
+      }),
+    ],
+  })
 
 describe('cse-local — statement-local CSE', () => {
   it('collapses a var-touching repeat within one statement to a single temp', () => {

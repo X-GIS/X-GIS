@@ -30,8 +30,7 @@ describe('structuralHash', () => {
   })
 
   it('array order significant', () => {
-    expect(structuralHash({ a: [1, 2, 3] }))
-      .not.toBe(structuralHash({ a: [3, 2, 1] }))
+    expect(structuralHash({ a: [1, 2, 3] })).not.toBe(structuralHash({ a: [3, 2, 1] }))
   })
 
   it('nested objects recursive', () => {

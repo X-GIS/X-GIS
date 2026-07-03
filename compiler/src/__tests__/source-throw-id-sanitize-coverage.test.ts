@@ -21,7 +21,9 @@ describe('source throw recovery — id sanitize + message neutralisation', () =>
     Object.defineProperty(src, 'url', {
       configurable: true,
       enumerable: true,
-      get() { throw new Error(msg) },
+      get() {
+        throw new Error(msg)
+      },
     })
     return src
   }

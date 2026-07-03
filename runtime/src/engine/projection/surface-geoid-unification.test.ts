@@ -35,7 +35,7 @@ const MERC_LAT_CLAMP = 85.051129
 // anchor uses. The bg tile-corner ANCHOR is built from THIS, not the rounded
 // clamp (they differ ~2.46 cm on X), so the geoid check's residual+center
 // reconstruction must use the decoded anchor to stay within the quant tolerance.
-const Z0_DECODED_SOUTH = Math.atan(Math.sinh(-Math.PI)) * 180 / Math.PI
+const Z0_DECODED_SOUTH = (Math.atan(Math.sinh(-Math.PI)) * 180) / Math.PI
 
 /** The TILER's ellipsoid ECEF forward (vector-tiler.ts:225-232) at height h.
  *  This is the authoritative geoid; bg + extrusion must match it. */
@@ -54,10 +54,7 @@ function tilerEllipsoidECEF(lonDeg: number, latDeg: number, h = 0): [number, num
 
 function lonLatToMerc(lon: number, lat: number): [number, number] {
   const clamped = Math.max(-MERC_LAT_CLAMP, Math.min(MERC_LAT_CLAMP, lat))
-  return [
-    lon * DEG2RAD * A,
-    Math.log(Math.tan(Math.PI / 4 + clamped * DEG2RAD / 2)) * A,
-  ]
+  return [lon * DEG2RAD * A, Math.log(Math.tan(Math.PI / 4 + (clamped * DEG2RAD) / 2)) * A]
 }
 
 function recordingSink(): { sink: TileSourceSink; pushed: { result: BackendTileResult | null }[] } {
@@ -67,7 +64,9 @@ function recordingSink(): { sink: TileSourceSink; pushed: { result: BackendTileR
     releaseLoading: () => {},
     hasTileData: () => false,
     getLoadingCount: () => 0,
-    acceptResult: (_key, result) => { pushed.push({ result }) },
+    acceptResult: (_key, result) => {
+      pushed.push({ result })
+    },
   }
   return { sink, pushed }
 }
@@ -95,9 +94,8 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
     const v = result.vertices
     const u16 = new Uint16Array(v.buffer)
     const { dequantScale: scale, dequantHalf: half } = result
-    const vertexCount = v.length / 7   // #398: fill stride 28 B = 7 f32
-    const deq = (lane: number): number =>
-      (u16[lane] * 65536 + u16[lane + 1]) * scale - half
+    const vertexCount = v.length / 7 // #398: fill stride 28 B = 7 f32
+    const deq = (lane: number): number => (u16[lane] * 65536 + u16[lane + 1]) * scale - half
 
     // Grid layout (earth-surface-fill.ts): row-major, cols = widthSegments+1 =
     // 129, rows = heightSegments+1 = 65, sphere band lat ∈ [-90, 90]. Derive the
@@ -128,27 +126,28 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
     const tol = 4 * scale
     let checked = 0
     for (const idx of samples) {
-      const lane = idx * 14   // #398: fill stride 14 u16/vert
+      const lane = idx * 14 // #398: fill stride 14 u16/vert
       const ex = deq(lane) + center[0]
       const ey = deq(lane + 2) + center[1]
       const ez = deq(lane + 4) + center[2]
       const [rx, ry, rz] = tilerEllipsoidECEF(gridLon(idx), gridLat(idx), 0)
       const err = Math.hypot(ex - rx, ey - ry, ez - rz)
-      expect(err).toBeLessThan(tol)  // ≤ quant resolution — one geoid
+      expect(err).toBeLessThan(tol) // ≤ quant resolution — one geoid
       checked++
     }
     expect(checked).toBeGreaterThan(10)
     // Guard the tolerance itself: dequantScale must stay finite/positive and far
     // below the ~21 km sphere↔ellipsoid pole delta this test would catch.
     expect(scale).toBeGreaterThan(0)
-    expect(tol).toBeLessThan(1)  // < 1 m — orders below the 21 km basis error
+    expect(tol).toBeLessThan(1) // < 1 m — orders below the 21 km basis error
   })
 
   it('EXTRUSION-WALL ECEF (roof + base) == tiler ellipsoid ECEF at high latitude', () => {
-    const STRIDE = 11  // POLYGON_EXTRUDED_FORMAT stride / 4
+    const STRIDE = 11 // POLYGON_EXTRUDED_FORMAT stride / 4
     // Footprint at high latitude (lon=10, lat=60) so the sphere↔ellipsoid
     // delta (~10 m at lat=60 on the z-axis) is well above the 1 mm gate.
-    const cx = 10, cy = 60
+    const cx = 10,
+      cy = 60
     const d = 0.005
     const baseH = 20
     const topH = 120
@@ -164,10 +163,12 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
       [cx + d, cy + d],
       [cx - d, cy + d],
     ]
-    const polygons: RingPolygon[] = [{
-      featId: 5,
-      rings: [[corners[0], corners[1], corners[2], corners[3], corners[0]]],
-    }]
+    const polygons: RingPolygon[] = [
+      {
+        featId: 5,
+        rings: [[corners[0], corners[1], corners[2], corners[3], corners[0]]],
+      },
+    ]
     const heights = new Map<number, number>([[5, topH - baseH]])
     const bases = new Map<number, number>([[5, baseH]])
     const center = tileEcefCenterFromMerc(corners[0][0], corners[0][1])
@@ -177,9 +178,13 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
     const u16 = new Uint16Array(v.buffer, v.byteOffset)
     const deq = (i: number, axis: number): number =>
       (u16[i * STRIDE * 2 + axis * 2] * 65536 + u16[i * STRIDE * 2 + axis * 2 + 1]) *
-        mesh.dequantScale - mesh.dequantHalf
-    const absECEF = (i: number): [number, number, number] =>
-      [center[0] + deq(i, 0), center[1] + deq(i, 1), center[2] + deq(i, 2)]
+        mesh.dequantScale -
+      mesh.dequantHalf
+    const absECEF = (i: number): [number, number, number] => [
+      center[0] + deq(i, 0),
+      center[1] + deq(i, 1),
+      center[2] + deq(i, 2),
+    ]
     const isTop = (i: number): number => v[i * STRIDE + 10]!
 
     // Roof verts are the last 4 (after 16 wall verts), in input ring order at
@@ -205,7 +210,10 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
       const bBot = e * 4 + 1
       expect(isTop(aBot)).toBe(0)
       expect(isTop(bBot)).toBe(0)
-      for (const [vi, corner] of [[aBot, e], [bBot, (e + 1) % 4]] as const) {
+      for (const [vi, corner] of [
+        [aBot, e],
+        [bBot, (e + 1) % 4],
+      ] as const) {
         const [ex, ey, ez] = absECEF(vi)
         const [rx, ry, rz] = tilerEllipsoidECEF(lonlat[corner][0], lonlat[corner][1], baseH)
         const err = Math.hypot(ex - rx, ey - ry, ez - rz)
@@ -233,8 +241,8 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
     const bgDeq = (lane: number): number =>
       (bgU16[lane] * 65536 + bgU16[lane + 1]) * bg.dequantScale - bg.dequantHalf
     const cols = 129
-    const bgIdx = 32 * cols + 64           // lon=0, lat=0
-    const bgLane = bgIdx * 14   // #398: fill stride 14 u16/vert
+    const bgIdx = 32 * cols + 64 // lon=0, lat=0
+    const bgLane = bgIdx * 14 // #398: fill stride 14 u16/vert
     const bgECEF: [number, number, number] = [
       bgCenter[0] + bgDeq(bgLane),
       bgCenter[1] + bgDeq(bgLane + 2),
@@ -249,20 +257,21 @@ describe('surface geoid unification — bg + extrusion share the tiler ellipsoid
     const c3 = lonLatToMerc(0, 0.01)
     const polygons: RingPolygon[] = [{ featId: 5, rings: [[c0, c1, c2, c3, c0]] }]
     const heights = new Map<number, number>([[5, 80]])
-    const bases = new Map<number, number>([[5, 0]])   // base height 0 → ground level
+    const bases = new Map<number, number>([[5, 0]]) // base height 0 → ground level
     const wallCenter = tileEcefCenterFromMerc(c0[0], c0[1])
     const mesh = generateWallMeshExtrudedECEF(polygons, heights, bases, 0, 0, wallCenter)
     const wU16 = new Uint16Array(mesh.vertices.buffer, mesh.vertices.byteOffset)
     const wDeq = (i: number, axis: number): number =>
       (wU16[i * STRIDE * 2 + axis * 2] * 65536 + wU16[i * STRIDE * 2 + axis * 2 + 1]) *
-        mesh.dequantScale - mesh.dequantHalf
+        mesh.dequantScale -
+      mesh.dequantHalf
     // First wall edge: a_bot (vertex 0) is corner 0 = (lon=0, lat=0) at base 0.
     const wallECEF: [number, number, number] = [
       wallCenter[0] + wDeq(0, 0),
       wallCenter[1] + wDeq(0, 1),
       wallCenter[2] + wDeq(0, 2),
     ]
-    expect(mesh.vertices[0 * STRIDE + 10]).toBe(0)  // is_top=0 → base vertex
+    expect(mesh.vertices[0 * STRIDE + 10]).toBe(0) // is_top=0 → base vertex
 
     // Tolerance = the bg quant step (~6 mm) plus the wall quant step — sum the two
     // round-trip resolutions. Both surfaces run the SAME WGS84 ellipsoid forward,

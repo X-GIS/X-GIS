@@ -22,7 +22,11 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
-  markStart, markEnd, getPhaseAverages, resetPhaseTimings, setPerfMarksEnabled,
+  markStart,
+  markEnd,
+  getPhaseAverages,
+  resetPhaseTimings,
+  setPerfMarksEnabled,
 } from '@xgis/map'
 
 beforeEach(() => {
@@ -35,17 +39,19 @@ describe('perf-marks — unbalanced markStart swallows a sample', () => {
     // Mimic the buggy path: a show opens the mark but `continue` skips its
     // markEnd, then the NEXT show opens the mark again (overwriting startTs)
     // and closes it normally.
-    markStart('s')          // GeoJSON show — no end (continue skips it)
-    markStart('s')          // next show — startTs overwritten
-    markEnd('s')            // closes only the SECOND start
-    const sUnbalanced = getPhaseAverages().find(p => p.name === 's')
+    markStart('s') // GeoJSON show — no end (continue skips it)
+    markStart('s') // next show — startTs overwritten
+    markEnd('s') // closes only the SECOND start
+    const sUnbalanced = getPhaseAverages().find((p) => p.name === 's')
     expect(sUnbalanced?.samples).toBe(1) // first start swallowed
 
     // Balanced control: two shows that BOTH close their mark record TWO.
     resetPhaseTimings()
-    markStart('b'); markEnd('b')
-    markStart('b'); markEnd('b')
-    const sBalanced = getPhaseAverages().find(p => p.name === 'b')
+    markStart('b')
+    markEnd('b')
+    markStart('b')
+    markEnd('b')
+    const sBalanced = getPhaseAverages().find((p) => p.name === 'b')
     expect(sBalanced?.samples).toBe(2)
   })
 })
@@ -54,15 +60,22 @@ describe('perf-marks — unbalanced markStart swallows a sample', () => {
 
 // Normalise CRLF→LF: the repo checks out with autocrlf on Windows, so the
 // raw bytes carry `\r\n`; the slice anchors below match on `\n` boundaries.
-const LABEL_PASS_SRC = readFileSync(resolve(__dirname, 'label-pass.ts'), 'utf8').replace(/\r\n/g, '\n')
+const LABEL_PASS_SRC = readFileSync(resolve(__dirname, 'label-pass.ts'), 'utf8').replace(
+  /\r\n/g,
+  '\n',
+)
 
 describe('label-pass — GeoJSON label-show branch balances its perf-mark', () => {
   it('the rawDatasets (Path 1) branch closes label-dispatch.show before `continue`', () => {
     // Slice the GeoJSON branch: from its opener to the first `continue`.
     const start = LABEL_PASS_SRC.indexOf('const data = host.rawDatasets.get(show.targetName)')
     expect(start).toBeGreaterThan(-1)
-    const continueIdx = LABEL_PASS_SRC.indexOf('\n            continue\n', start)
-    expect(continueIdx).toBeGreaterThan(start)
+    // Indentation-robust: match the branch-level `continue` (a bare statement on
+    // its own line) regardless of nesting depth, so re-formatting never breaks
+    // this guard. Inline `... ) continue` (the per-feature skips) don't match.
+    const rel = LABEL_PASS_SRC.slice(start).search(/\n[ \t]*continue\n/)
+    expect(rel).toBeGreaterThan(-1)
+    const continueIdx = start + rel
     const branch = LABEL_PASS_SRC.slice(start, continueIdx)
     // The loop-tail (~1022) makes this same call; the `continue` here must
     // mirror it or the show's dispatch sample is swallowed by the next show.

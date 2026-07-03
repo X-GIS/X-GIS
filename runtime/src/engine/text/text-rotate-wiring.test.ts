@@ -42,13 +42,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<GPUContext> {
   const canvas = { width: 1024, height: 768 } as unknown as HTMLCanvasElement
@@ -105,27 +110,37 @@ const VERTS_PER_GLYPH = 6
 /** Run setDraws once for the given rotateRad and return the uploaded
  *  vertex Float32Array (24 floats = 6 verts × 4 floats). */
 function capturedVerts(ctx: GPUContext, rotateRad: number | undefined): Float32Array {
-  const renderer = new TextRenderer(ctx.device, new WebGpuDevice(ctx.device), FAKE_ATLAS, ctx.format)
+  const renderer = new TextRenderer(
+    ctx.device,
+    new WebGpuDevice(ctx.device),
+    FAKE_ATLAS,
+    ctx.format,
+  )
 
   let verts: Float32Array | undefined
   const device = ctx.device as unknown as {
     queue: {
       writeBuffer: (
-        buf: unknown, off: number,
+        buf: unknown,
+        off: number,
         data: ArrayBuffer | ArrayBufferView,
-        dataOffset?: number, size?: number,
+        dataOffset?: number,
+        size?: number,
       ) => void
     }
   }
   device.queue.writeBuffer = (
-    buf: unknown, _off: number,
+    buf: unknown,
+    _off: number,
     data: ArrayBuffer | ArrayBufferView,
-    dataOffset?: number, size?: number,
+    dataOffset?: number,
+    size?: number,
   ): void => {
     if ((buf as { size?: number })?.size !== VERTEX_BUF_SIZE) return
     const ab = data instanceof ArrayBuffer ? data : (data as ArrayBufferView).buffer
-    const byteOff = data instanceof ArrayBuffer ? (dataOffset ?? 0) : (data as ArrayBufferView).byteOffset
-    const byteLen = size ?? (VERTS_PER_GLYPH * FLOATS_PER_VERT * 4)
+    const byteOff =
+      data instanceof ArrayBuffer ? (dataOffset ?? 0) : (data as ArrayBufferView).byteOffset
+    const byteLen = size ?? VERTS_PER_GLYPH * FLOATS_PER_VERT * 4
     verts = new Float32Array(ab, byteOff, byteLen / 4).slice(0, VERTS_PER_GLYPH * FLOATS_PER_VERT)
   }
 
@@ -138,14 +153,17 @@ function capturedVerts(ctx: GPUContext, rotateRad: number | undefined): Float32A
 describe('text-rotate rotateRad glyph-quad wiring (GPU-free)', () => {
   it('rotateRad = π/2 rotates every glyph vertex 90° CW about the anchor', async () => {
     const ctx = await makeCtx()
-    const plain = capturedVerts(ctx, undefined)        // text-rotate = 0
-    const rotated = capturedVerts(ctx, Math.PI / 2)    // text-rotate = 90°
+    const plain = capturedVerts(ctx, undefined) // text-rotate = 0
+    const rotated = capturedVerts(ctx, Math.PI / 2) // text-rotate = 90°
 
     // Sanity: rotation must have MOVED the geometry (else the assertion
     // below could pass vacuously on a degenerate at-anchor quad).
     let moved = false
     for (let i = 0; i < plain.length; i++) {
-      if (Math.abs(plain[i]! - rotated[i]!) > 1e-3) { moved = true; break }
+      if (Math.abs(plain[i]! - rotated[i]!) > 1e-3) {
+        moved = true
+        break
+      }
     }
     expect(moved, 'rotateRad must change the uploaded vertex positions').toBe(true)
 
@@ -156,8 +174,10 @@ describe('text-rotate rotateRad glyph-quad wiring (GPU-free)', () => {
     //   ry = anchorY + dx*1 + dy*0 = anchorY + (ux - anchorX)
     for (let v = 0; v < VERTS_PER_GLYPH; v++) {
       const o = v * FLOATS_PER_VERT
-      const ux = plain[o + 0]!, uy = plain[o + 1]!
-      const dx = ux - ANCHOR_X, dy = uy - ANCHOR_Y
+      const ux = plain[o + 0]!,
+        uy = plain[o + 1]!
+      const dx = ux - ANCHOR_X,
+        dy = uy - ANCHOR_Y
       const expX = ANCHOR_X - dy
       const expY = ANCHOR_Y + dx
       expect(rotated[o + 0]!, `vertex ${v} x`).toBeCloseTo(expX, 4)

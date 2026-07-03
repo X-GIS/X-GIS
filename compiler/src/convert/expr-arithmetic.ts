@@ -30,7 +30,9 @@ export const comparisonHandler: ExprHandler = (v, warnings, recurse, _recurseFil
       // into the call, so fall back to byte-exact compare with a warning.
       const opts = extractCollatorOpts(collator)
       if (opts === null) {
-        warnings.push(`["${op}"] ["collator", …] has non-constant options — locale-aware compare needs literal case-sensitive / diacritic-sensitive / locale; falling back to byte-exact compare.`)
+        warnings.push(
+          `["${op}"] ["collator", …] has non-constant options — locale-aware compare needs literal case-sensitive / diacritic-sensitive / locale; falling back to byte-exact compare.`,
+        )
         return `${a} ${op} ${b}`
       }
       return `collator_cmp(${JSON.stringify(op)}, ${a}, ${b}, ${JSON.stringify(opts.locale)}, ${opts.caseSensitive}, ${opts.diacriticSensitive})`
@@ -54,8 +56,8 @@ export const addMulHandler: ExprHandler = (v, warnings, recurse, _recurseFilter,
     warnings.push(`["${op}"] expects at least 2 arguments, got ${v.length - 1}.`)
     return null
   }
-  const parts = v.slice(1).map(a => recurse(a, warnings))
-  if (parts.some(p => p === null)) return null
+  const parts = v.slice(1).map((a) => recurse(a, warnings))
+  if (parts.some((p) => p === null)) return null
   return `(${parts.join(` ${op} `)})`
 }
 
@@ -96,9 +98,14 @@ export const minMaxHandler: ExprHandler = (v, warnings, recurse, _recurseFilter,
     return null
   }
   const rawCount = v.length - 1
-  const args = v.slice(1).map(x => recurse(x, warnings)).filter((s): s is string => s !== null)
+  const args = v
+    .slice(1)
+    .map((x) => recurse(x, warnings))
+    .filter((s): s is string => s !== null)
   if (args.length < rawCount) {
-    warnings.push(`["${op}"] dropped ${rawCount - args.length} of ${rawCount} arg(s) that failed to convert; result may differ from authored intent.`)
+    warnings.push(
+      `["${op}"] dropped ${rawCount - args.length} of ${rawCount} arg(s) that failed to convert; result may differ from authored intent.`,
+    )
   }
   return args.length > 0 ? `${op}(${args.join(', ')})` : null
 }
@@ -139,7 +146,9 @@ export const mathConstantHandler: ExprHandler = (v, warnings, _recurse, _recurse
   // Extra args would be silently dropped — warn so the author
   // doesn't accidentally pass operands to a no-arg constant.
   if (v.length !== 1) {
-    warnings.push(`Malformed ["${op}"] expression: zero-arg constant takes no arguments, got ${v.length - 1}.`)
+    warnings.push(
+      `Malformed ["${op}"] expression: zero-arg constant takes no arguments, got ${v.length - 1}.`,
+    )
   }
   return `${op}()`
 }

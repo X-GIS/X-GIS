@@ -98,7 +98,7 @@ describe('XGISMap.setPaintProperty — recognised properties', () => {
   it.each([
     ['fill-opacity', 0.5],
     ['line-opacity', 0.25],
-    ['opacity',      0.75],
+    ['opacity', 0.75],
   ])('%s: number → updates paintShapes.common.opacity', (prop, value) => {
     const map = new XGISMap(mockCanvas())
     const { show } = injectLayer(map, 'L')
@@ -119,7 +119,7 @@ describe('XGISMap.setPaintProperty — recognised properties', () => {
 
   it.each([
     ['visible' as const, true],
-    ['none'    as const, false],
+    ['none' as const, false],
   ])('visibility: %s → updates show.visible to %s', (vis, expected) => {
     const map = new XGISMap(mockCanvas())
     const { show } = injectLayer(map, 'L')
@@ -204,11 +204,11 @@ describe('XGISMap.setPaintProperty — round-trip with getPaintProperty', () => 
     const map = new XGISMap(mockCanvas())
     injectLayer(map, 'L')
     const cases: [string, unknown][] = [
-      ['fill-color',   '#abcdef'],
-      ['line-color',   '#123456'],
+      ['fill-color', '#abcdef'],
+      ['line-color', '#123456'],
       ['fill-opacity', 0.42],
-      ['line-width',   7],
-      ['visibility',   'none'],
+      ['line-width', 7],
+      ['visibility', 'none'],
     ]
     for (const [prop, value] of cases) {
       const setOk = map.setPaintProperty('L', prop, value)

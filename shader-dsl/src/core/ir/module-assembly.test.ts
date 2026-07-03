@@ -27,7 +27,9 @@ describe('module() transitive fn collection', () => {
     const authored = module({ funcs: [leaf, mid, top] })
     expect(authored.funcs.map((f) => f.name)).toEqual(['leaf', 'mid', 'top'])
     // The emitted WGSL is exactly what the same hand-assembled module emits.
-    expect(emitModule(authored)).toBe(emitModule({ consts: [], structs: [], bindings: [], funcs: [leaf, mid, top] }))
+    expect(emitModule(authored)).toBe(
+      emitModule({ consts: [], structs: [], bindings: [], funcs: [leaf, mid, top] }),
+    )
   })
 
   it('collects through a partially-authored list without disturbing its order', () => {
@@ -50,7 +52,10 @@ describe('module() transitive fn collection', () => {
     const caller = fn('caller2', { x: f32T }, ({ x }) => leaf(x))
     const leafCopy = { ...leaf.decl, body: [...leaf.decl.body] } // transformed twin, same name
     const m = module({ funcs: [leafCopy, caller] })
-    expect(m.funcs.map((f) => (f as { decl?: { name: string } }).decl?.name ?? f.name)).toEqual(['leaf', 'caller2'])
+    expect(m.funcs.map((f) => (f as { decl?: { name: string } }).decl?.name ?? f.name)).toEqual([
+      'leaf',
+      'caller2',
+    ])
   })
 })
 
@@ -63,7 +68,7 @@ describe('module() key-named funcs record', () => {
     const wgsl = emitModule(m)
     expect(wgsl).toContain('fn half_life(')
     expect(wgsl).toContain('half_life(x)') // the call site spells the key name
-    expect(wgsl).not.toContain('_fn')      // no auto-name leaked into the emit
+    expect(wgsl).not.toContain('_fn') // no auto-name leaked into the emit
   })
 
   it('renames a named fn when the key differs, across other bodies', () => {
@@ -84,4 +89,5 @@ describe('module() key-named funcs record', () => {
   })
 })
 
-const declName = (f: { name: string; decl?: { name: string } }): string => (f as { decl?: { name: string } }).decl?.name ?? f.name
+const declName = (f: { name: string; decl?: { name: string } }): string =>
+  (f as { decl?: { name: string } }).decl?.name ?? f.name

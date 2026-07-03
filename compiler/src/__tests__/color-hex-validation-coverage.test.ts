@@ -11,9 +11,7 @@ describe('hex colour validation at convert time', () => {
     const style = {
       version: 8,
       sources: {},
-      layers: [
-        { id: 'l', type: 'background', paint: { 'background-color': '#abcdef' } },
-      ],
+      layers: [{ id: 'l', type: 'background', paint: { 'background-color': '#abcdef' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toContain('#abcdef')
@@ -23,9 +21,7 @@ describe('hex colour validation at convert time', () => {
     const style = {
       version: 8,
       sources: {},
-      layers: [
-        { id: 'l', type: 'background', paint: { 'background-color': '#abc' } },
-      ],
+      layers: [{ id: 'l', type: 'background', paint: { 'background-color': '#abc' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toContain('#abc')
@@ -35,9 +31,7 @@ describe('hex colour validation at convert time', () => {
     const style = {
       version: 8,
       sources: {},
-      layers: [
-        { id: 'l', type: 'background', paint: { 'background-color': '#abcdef80' } },
-      ],
+      layers: [{ id: 'l', type: 'background', paint: { 'background-color': '#abcdef80' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toContain('#abcdef80')
@@ -47,9 +41,7 @@ describe('hex colour validation at convert time', () => {
     const style = {
       version: 8,
       sources: {},
-      layers: [
-        { id: 'l', type: 'background', paint: { 'background-color': '#zzz' } },
-      ],
+      layers: [{ id: 'l', type: 'background', paint: { 'background-color': '#zzz' } }],
     }
     const code = convertMapboxStyle(style as never)
     // Warning comment may mention the original; the BACKGROUND BLOCK
@@ -63,9 +55,7 @@ describe('hex colour validation at convert time', () => {
     const style = {
       version: 8,
       sources: {},
-      layers: [
-        { id: 'l', type: 'background', paint: { 'background-color': '#12345' } },
-      ],
+      layers: [{ id: 'l', type: 'background', paint: { 'background-color': '#12345' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).not.toMatch(/background\s*\{[^}]*#12345/)
@@ -77,9 +67,7 @@ describe('hex colour validation at convert time', () => {
     const style = {
       version: 8,
       sources: {},
-      layers: [
-        { id: 'l', type: 'background', paint: { 'background-color': '#ABCDEF' } },
-      ],
+      layers: [{ id: 'l', type: 'background', paint: { 'background-color': '#ABCDEF' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toContain('#abcdef')

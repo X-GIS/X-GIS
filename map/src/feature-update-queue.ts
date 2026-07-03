@@ -23,7 +23,10 @@ export interface FeatureUpdateQueueHost {
  *  verbatim relocation of the former Map methods — same execution order,
  *  same coercions, same warnings. */
 export class FeatureUpdateQueue {
-  private _pendingPatches = new Map<string, Map<number, { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> }>>()
+  private _pendingPatches = new Map<
+    string,
+    Map<number, { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> }>
+  >()
   private _pendingFlushHandle: number | null = null
   private _unknownSourceWarned = new Set<string>()
   // Tile-backed (URL-loaded) sources store a marker, not a FeatureCollection,
@@ -40,7 +43,10 @@ export class FeatureUpdateQueue {
    *  by map.ts's `_pendingPatches` delegating accessor; the same Map
    *  instance, so callers that mutate it (e.g. seed a source) and the
    *  destroy() teardown that clears it operate on shared state. */
-  get pendingPatches(): Map<string, Map<number, { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> }>> {
+  get pendingPatches(): Map<
+    string,
+    Map<number, { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> }>
+  > {
     return this._pendingPatches
   }
 
@@ -78,7 +84,9 @@ export class FeatureUpdateQueue {
     const dataset = this.host.rawDatasets.get(sourceId)
     if (!dataset || !Array.isArray((dataset as { features?: unknown }).features)) {
       if (!this._tileBackedUpdateWarned.has(sourceId)) {
-        xlog.warn(`[X-GIS] updateFeature: source "${sourceId}" is tile-backed (URL-loaded); feature updates are only supported for host-pushed GeoJSON sources (setSourceData)`)
+        xlog.warn(
+          `[X-GIS] updateFeature: source "${sourceId}" is tile-backed (URL-loaded); feature updates are only supported for host-pushed GeoJSON sources (setSourceData)`,
+        )
         this._tileBackedUpdateWarned.add(sourceId)
       }
       return
@@ -94,10 +102,13 @@ export class FeatureUpdateQueue {
     // doesn't spread char/index keys into the patched feature props.
     // Mirror of the makeEvalProps coercion (4e11bb7).
     const patchProps = patch.properties
-    const safePatchProps = patchProps !== null && patchProps !== undefined
-      && typeof patchProps === 'object' && !Array.isArray(patchProps)
-      ? patchProps
-      : {}
+    const safePatchProps =
+      patchProps !== null &&
+      patchProps !== undefined &&
+      typeof patchProps === 'object' &&
+      !Array.isArray(patchProps)
+        ? patchProps
+        : {}
     bySource.set(featureId, {
       geometry: patch.geometry ?? existing?.geometry,
       properties: { ...(existing?.properties ?? {}), ...safePatchProps },
@@ -108,9 +119,11 @@ export class FeatureUpdateQueue {
 
   private scheduleFlushPendingUpdates(): void {
     if (this._pendingFlushHandle !== null) return
-    const raf = (typeof window !== 'undefined' && window.requestAnimationFrame)
-      ? window.requestAnimationFrame.bind(window)
-      : (cb: FrameRequestCallback): number => setTimeout(() => cb(performance.now()), 16) as unknown as number
+    const raf =
+      typeof window !== 'undefined' && window.requestAnimationFrame
+        ? window.requestAnimationFrame.bind(window)
+        : (cb: FrameRequestCallback): number =>
+            setTimeout(() => cb(performance.now()), 16) as unknown as number
     this._pendingFlushHandle = raf(() => this.flushPendingUpdates())
   }
 
@@ -127,7 +140,9 @@ export class FeatureUpdateQueue {
       // the no-op is observable rather than silent.
       if (!data || !Array.isArray((data as { features?: unknown }).features)) {
         if (!this._tileBackedUpdateWarned.has(sourceId)) {
-          xlog.warn(`[X-GIS] updateFeature: source "${sourceId}" is not a patchable FeatureCollection; ${patches.size} pending update(s) dropped`)
+          xlog.warn(
+            `[X-GIS] updateFeature: source "${sourceId}" is not a patchable FeatureCollection; ${patches.size} pending update(s) dropped`,
+          )
           this._tileBackedUpdateWarned.add(sourceId)
         }
         continue

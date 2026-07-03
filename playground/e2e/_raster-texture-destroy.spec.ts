@@ -15,7 +15,8 @@ const READY_TIMEOUT_MS = 15_000
 async function waitForXgisReady(page: Page) {
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: READY_TIMEOUT_MS },
+    null,
+    { timeout: READY_TIMEOUT_MS },
   )
 }
 
@@ -24,16 +25,15 @@ test('multi_layer raster: no destroyed-texture validation errors during pan', as
   await page.setViewportSize({ width: 1280, height: 720 })
 
   const validationErrors: string[] = []
-  page.on('console', m => {
+  page.on('console', (m) => {
     if (m.type() === 'error' && m.text().includes('frame-validation')) {
       validationErrors.push(m.text())
     }
   })
 
-  await page.goto(
-    '/demo.html?id=multi_layer#4.70/44.63745/109.94708',
-    { waitUntil: 'domcontentloaded' },
-  )
+  await page.goto('/demo.html?id=multi_layer#4.70/44.63745/109.94708', {
+    waitUntil: 'domcontentloaded',
+  })
   await waitForXgisReady(page)
   await page.waitForTimeout(2000)
 
@@ -42,7 +42,8 @@ test('multi_layer raster: no destroyed-texture validation errors during pan', as
   await page.evaluate(async () => {
     const map = (window as unknown as { __xgisMap?: any }).__xgisMap
     const cam = map.camera
-    const R = 6378137, DEG2RAD = Math.PI / 180
+    const R = 6378137,
+      DEG2RAD = Math.PI / 180
     const targets: Array<[number, number, number]> = [
       [109.94, 44.63, 4.7],
       [120, 30, 5.5],
@@ -57,10 +58,10 @@ test('multi_layer raster: no destroyed-texture validation errors during pan', as
       for (const [lon, lat, zoom] of targets) {
         cam.centerX = lon * DEG2RAD * R
         const cl = Math.max(-85.0511, Math.min(85.0511, lat))
-        cam.centerY = Math.log(Math.tan(Math.PI / 4 + cl * DEG2RAD / 2)) * R
+        cam.centerY = Math.log(Math.tan(Math.PI / 4 + (cl * DEG2RAD) / 2)) * R
         cam.zoom = zoom
         map.invalidate()
-        await new Promise(r => setTimeout(r, 200))
+        await new Promise((r) => setTimeout(r, 200))
       }
     }
   })

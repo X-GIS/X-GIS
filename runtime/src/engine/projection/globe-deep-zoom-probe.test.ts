@@ -33,9 +33,7 @@ const OFM_BRIGHT_SOURCE_MAXLEVEL = 14
 
 function selectAt(zoom: number, sourceMaxLevel = OFM_BRIGHT_SOURCE_MAXLEVEL): number {
   const cz = Math.min(Math.floor(zoom), sourceMaxLevel)
-  return globeVisibleTiles(
-    SEOUL_LON, SEOUL_LAT, zoom, cz, CSS_W, CSS_H, 0, 0,
-  ).length
+  return globeVisibleTiles(SEOUL_LON, SEOUL_LAT, zoom, cz, CSS_W, CSS_H, 0, 0).length
 }
 
 describe('globeVisibleTiles deep-zoom probe (Seoul)', () => {

@@ -21,8 +21,13 @@ const OUT = join(HERE, '__pixel-match-buildings-only__')
 mkdirSync(OUT, { recursive: true })
 
 interface Buckets {
-  eq0: number; le8: number; le16: number; le32: number
-  le64: number; le128: number; gt128: number
+  eq0: number
+  le8: number
+  le16: number
+  le32: number
+  le64: number
+  le128: number
+  gt128: number
 }
 
 function diffBuckets(a: PNG, b: PNG, w: number, h: number): { buckets: Buckets; heatmap: PNG } {
@@ -74,15 +79,21 @@ interface View {
 }
 
 const VIEWS: View[] = [
-  { id: 'paris-z18-pitch49-bearing47',
+  {
+    id: 'paris-z18-pitch49-bearing47',
     hash: '#18.25/48.84778/2.33194/47.5/49.8',
-    description: 'User-reported view — Paris Quartier Latin, pitched bearing' },
-  { id: 'paris-z18-pitch60-bearing0',
+    description: 'User-reported view — Paris Quartier Latin, pitched bearing',
+  },
+  {
+    id: 'paris-z18-pitch60-bearing0',
     hash: '#18.25/48.84778/2.33194/0/60',
-    description: 'Higher pitch, no bearing — pure foreshortening' },
-  { id: 'paris-z16-pitch30',
+    description: 'Higher pitch, no bearing — pure foreshortening',
+  },
+  {
+    id: 'paris-z16-pitch30',
     hash: '#16/48.85/2.34/0/30',
-    description: 'Lower zoom + low pitch — building density mid-range' },
+    description: 'Lower zoom + low pitch — building density mid-range',
+  },
 ]
 
 for (const view of VIEWS) {
@@ -95,29 +106,42 @@ for (const view of VIEWS) {
       }
     })
     await page.setViewportSize({ width: 1280, height: 800 })
-    await page.goto(
-      `/compare.html?style=liberty-buildings-only${view.hash}`,
-      { waitUntil: 'domcontentloaded' },
-    )
+    await page.goto(`/compare.html?style=liberty-buildings-only${view.hash}`, {
+      waitUntil: 'domcontentloaded',
+    })
     await page.waitForFunction(
       () => {
         const w = window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }
         return w.__xgisReady === true && w.__mlReady === true
       },
-      null, { timeout: 90_000 },
+      null,
+      { timeout: 90_000 },
     )
     // Settle both sides.
-    await page.evaluate(() => new Promise<void>((resolve) => {
-      interface MlMap { loaded(): boolean; once(ev: string, fn: () => void): void }
-      const ml = (window as unknown as { __mlMap?: MlMap }).__mlMap
-      if (!ml) { resolve(); return }
-      if (ml.loaded()) { resolve(); return }
-      ml.once('idle', () => resolve())
-      setTimeout(resolve, 12_000)
-    }))
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          interface MlMap {
+            loaded(): boolean
+            once(ev: string, fn: () => void): void
+          }
+          const ml = (window as unknown as { __mlMap?: MlMap }).__mlMap
+          if (!ml) {
+            resolve()
+            return
+          }
+          if (ml.loaded()) {
+            resolve()
+            return
+          }
+          ml.once('idle', () => resolve())
+          setTimeout(resolve, 12_000)
+        }),
+    )
     await page.waitForTimeout(10_000) // settle — z=18 takes time to load all extruded building tiles
-    await page.evaluate(() => new Promise<void>(r =>
-      requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+    await page.evaluate(
+      () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+    )
 
     const mlPng = await page.locator('#ml-map canvas').first().screenshot()
     const xgPng = await page.locator('#xg-canv').screenshot()
@@ -135,18 +159,29 @@ for (const view of VIEWS) {
     writeFileSync(join(viewDir, 'maplibre.png'), PNG.sync.write(mlNorm))
     writeFileSync(join(viewDir, 'xgis.png'), PNG.sync.write(xgNorm))
     writeFileSync(join(viewDir, 'diff-heatmap.png'), PNG.sync.write(heatmap))
-    writeFileSync(join(viewDir, 'buckets.json'), JSON.stringify({
-      buckets, totalPx, canvasW: w, canvasH: h,
-      hash: view.hash, description: view.description,
-    }, null, 2))
+    writeFileSync(
+      join(viewDir, 'buckets.json'),
+      JSON.stringify(
+        {
+          buckets,
+          totalPx,
+          canvasW: w,
+          canvasH: h,
+          hash: view.hash,
+          description: view.description,
+        },
+        null,
+        2,
+      ),
+    )
 
     const pct = (n: number) => ((n / totalPx) * 100).toFixed(2) + '%'
     // eslint-disable-next-line no-console
     console.warn(
-      `[buildings-only ${view.id}] eq=${pct(buckets.eq0)} `
-      + `≤8=${pct(buckets.eq0 + buckets.le8)} `
-      + `≤32=${pct(buckets.eq0 + buckets.le8 + buckets.le16 + buckets.le32)} `
-      + `gt128=${buckets.gt128}`,
+      `[buildings-only ${view.id}] eq=${pct(buckets.eq0)} ` +
+        `≤8=${pct(buckets.eq0 + buckets.le8)} ` +
+        `≤32=${pct(buckets.eq0 + buckets.le8 + buckets.le16 + buckets.le32)} ` +
+        `gt128=${buckets.gt128}`,
     )
     expect(totalPx).toBeGreaterThan(0)
   })

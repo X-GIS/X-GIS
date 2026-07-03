@@ -3,9 +3,7 @@
 // Sits between lower() and emitCommands() in the pipeline.
 
 import type * as AST from '../parser/ast'
-import type {
-  Scene, RenderNode, ColorValue, OpacityValue, SizeValue,
-} from './render-node'
+import type { Scene, RenderNode, ColorValue, OpacityValue, SizeValue } from './render-node'
 import { colorConstant, opacityConstant, sizeConstant, hexToRgba } from './render-node'
 import { classifyExpr, type FnEnv } from './classify'
 import { constFold } from './const-fold'
@@ -36,7 +34,7 @@ export function optimize(scene: Scene, program?: AST.Program): Scene {
 
   const optimized: Scene = {
     sources: scene.sources,
-    renderNodes: scene.renderNodes.map(node => optimizeNode(node, fnEnv)),
+    renderNodes: scene.renderNodes.map((node) => optimizeNode(node, fnEnv)),
     symbols: scene.symbols,
   }
 

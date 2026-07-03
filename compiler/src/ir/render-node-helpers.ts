@@ -102,8 +102,7 @@ export function buildLabelShapes(input: {
     size = {
       kind: 'zoom-interpolated',
       stops: input.sizeZoomStops,
-      ...(input.sizeZoomStopsBase !== undefined
-        ? { base: input.sizeZoomStopsBase } : {}),
+      ...(input.sizeZoomStopsBase !== undefined ? { base: input.sizeZoomStopsBase } : {}),
     }
   } else {
     size = { kind: 'constant', value: input.size }
@@ -116,8 +115,7 @@ export function buildLabelShapes(input: {
     color = {
       kind: 'zoom-interpolated',
       stops: input.colorZoomStops,
-      ...(input.colorZoomStopsBase !== undefined
-        ? { base: input.colorZoomStopsBase } : {}),
+      ...(input.colorZoomStopsBase !== undefined ? { base: input.colorZoomStopsBase } : {}),
     }
   } else if (input.color) {
     color = { kind: 'constant', value: input.color }
@@ -128,8 +126,7 @@ export function buildLabelShapes(input: {
     haloWidth = {
       kind: 'zoom-interpolated',
       stops: input.haloWidthZoomStops,
-      ...(input.haloWidthZoomStopsBase !== undefined
-        ? { base: input.haloWidthZoomStopsBase } : {}),
+      ...(input.haloWidthZoomStopsBase !== undefined ? { base: input.haloWidthZoomStopsBase } : {}),
     }
   } else if (input.halo?.width !== undefined) {
     haloWidth = { kind: 'constant', value: input.halo.width }
@@ -140,28 +137,25 @@ export function buildLabelShapes(input: {
     haloColor = {
       kind: 'zoom-interpolated',
       stops: input.haloColorZoomStops,
-      ...(input.haloColorZoomStopsBase !== undefined
-        ? { base: input.haloColorZoomStopsBase } : {}),
+      ...(input.haloColorZoomStopsBase !== undefined ? { base: input.haloColorZoomStopsBase } : {}),
     }
   } else if (input.halo?.color) {
     haloColor = { kind: 'constant', value: input.halo.color }
   }
 
-  const haloBlur: Shape<number> | null = input.halo?.blur !== undefined
-    ? { kind: 'constant', value: input.halo.blur }
-    : null
+  const haloBlur: Shape<number> | null =
+    input.halo?.blur !== undefined ? { kind: 'constant', value: input.halo.blur } : null
 
-  const font: Shape<readonly string[]> | null = input.fontStack && input.fontStack.length > 0
-    ? { kind: 'constant', value: input.fontStack }
-    : null
+  const font: Shape<readonly string[]> | null =
+    input.fontStack && input.fontStack.length > 0
+      ? { kind: 'constant', value: input.fontStack }
+      : null
 
-  const fontWeight: Shape<number> | null = input.fontWeight !== undefined
-    ? { kind: 'constant', value: input.fontWeight }
-    : null
+  const fontWeight: Shape<number> | null =
+    input.fontWeight !== undefined ? { kind: 'constant', value: input.fontWeight } : null
 
-  const fontStyle: Shape<'normal' | 'italic'> | null = input.fontStyle !== undefined
-    ? { kind: 'constant', value: input.fontStyle }
-    : null
+  const fontStyle: Shape<'normal' | 'italic'> | null =
+    input.fontStyle !== undefined ? { kind: 'constant', value: input.fontStyle } : null
 
   // iter 523 — icon-size as PropertyShape so zoom-interp resolves per
   // frame. OFM bright road_oneway authors `interpolate zoom 15→0.5,
@@ -173,8 +167,7 @@ export function buildLabelShapes(input: {
     iconSize = {
       kind: 'zoom-interpolated',
       stops: input.iconSizeZoomStops,
-      ...(input.iconSizeZoomStopsBase !== undefined
-        ? { base: input.iconSizeZoomStopsBase } : {}),
+      ...(input.iconSizeZoomStopsBase !== undefined ? { base: input.iconSizeZoomStopsBase } : {}),
     }
   } else if (input.iconSize !== undefined) {
     iconSize = { kind: 'constant', value: input.iconSize }
@@ -193,8 +186,7 @@ export function buildLabelShapes(input: {
     opacity = {
       kind: 'zoom-interpolated',
       stops: input.opacityZoomStops,
-      ...(input.opacityZoomStopsBase !== undefined
-        ? { base: input.opacityZoomStopsBase } : {}),
+      ...(input.opacityZoomStopsBase !== undefined ? { base: input.opacityZoomStopsBase } : {}),
     }
   }
 
@@ -210,7 +202,8 @@ export function buildLabelShapes(input: {
       kind: 'zoom-interpolated',
       stops: input.iconOpacityZoomStops,
       ...(input.iconOpacityZoomStopsBase !== undefined
-        ? { base: input.iconOpacityZoomStopsBase } : {}),
+        ? { base: input.iconOpacityZoomStopsBase }
+        : {}),
     }
   } else if (input.iconOpacity !== undefined) {
     iconOpacity = { kind: 'constant', value: input.iconOpacity }
@@ -223,8 +216,7 @@ export function buildLabelShapes(input: {
     iconColor = {
       kind: 'zoom-interpolated',
       stops: input.iconColorZoomStops,
-      ...(input.iconColorZoomStopsBase !== undefined
-        ? { base: input.iconColorZoomStopsBase } : {}),
+      ...(input.iconColorZoomStopsBase !== undefined ? { base: input.iconColorZoomStopsBase } : {}),
     }
   } else if (input.iconColor) {
     iconColor = { kind: 'constant', value: input.iconColor }
@@ -241,7 +233,10 @@ export function buildLabelShapes(input: {
  * Parse hex color string to RGBA tuple (0-1 range).
  */
 export function hexToRgba(hex: string): [number, number, number, number] {
-  let r = 0, g = 0, b = 0, a = 1
+  let r = 0,
+    g = 0,
+    b = 0,
+    a = 1
   // Reject non-hex content before parseInt — mirror of feature-helpers
   // parseHexColor regex gate (caad699). Without it `parseInt('zz',
   // 16)` = NaN propagated through and downstream consumers (shader-gen
@@ -283,7 +278,10 @@ export function hexToRgba(hex: string): [number, number, number, number] {
  */
 export function rgbaToHex(rgba: import('./property-types').RGBA): string {
   const [r, g, b, a] = rgba
-  const toHex = (v: number) => Math.round(v * 255).toString(16).padStart(2, '0')
+  const toHex = (v: number) =>
+    Math.round(v * 255)
+      .toString(16)
+      .padStart(2, '0')
   if (a >= 0.999) {
     return `#${toHex(r)}${toHex(g)}${toHex(b)}`
   }

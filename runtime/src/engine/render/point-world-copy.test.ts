@@ -18,17 +18,17 @@ import { Camera } from '@xgis/engine'
 import { pointWorldCopies, worldCopyMercX } from '@xgis/map'
 
 const DEG2RAD = Math.PI / 180
-const R_MERC  = 6378137
+const R_MERC = 6378137
 
 // ── Camera helpers ────────────────────────────────────────────────────────
 
 function mercatorCamera(zoom: number, lon: number, lat: number, pitch = 0, bearing = 0): Camera {
   const c = new Camera()
-  c.centerX  = lon * DEG2RAD * R_MERC
-  c.centerY  = Math.log(Math.tan(Math.PI / 4 + lat * DEG2RAD / 2)) * R_MERC
-  c.zoom     = zoom
-  c.pitch    = pitch
-  c.bearing  = bearing
+  c.centerX = lon * DEG2RAD * R_MERC
+  c.centerY = Math.log(Math.tan(Math.PI / 4 + (lat * DEG2RAD) / 2)) * R_MERC
+  c.zoom = zoom
+  c.pitch = pitch
+  c.bearing = bearing
   c.projType = 0
   c.globeMode = false
   return c
@@ -90,7 +90,7 @@ describe('worldCopyMercX (issue #594)', () => {
     const copies = pointWorldCopies(0, cam, 2000, 600, 1)
     expect(copies.length).toBeGreaterThan(1) // sanity
 
-    const mxValues = copies.map(wo => worldCopyMercX(lon, wo))
+    const mxValues = copies.map((wo) => worldCopyMercX(lon, wo))
     const sorted = [...mxValues].sort((a, b) => a - b)
     for (let i = 1; i < sorted.length; i++) {
       const delta = sorted[i]! - sorted[i - 1]!

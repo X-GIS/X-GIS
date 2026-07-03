@@ -13,7 +13,10 @@ import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
 
-function compileLabel(layer: Record<string, unknown>, opts?: { coverage?: { sources: never[]; layers: never[]; warnings: string[] } }): {
+function compileLabel(
+  layer: Record<string, unknown>,
+  opts?: { coverage?: { sources: never[]; layers: never[]; warnings: string[] } },
+): {
   iconImage?: string
   iconTranslateX?: number
   iconTranslateY?: number
@@ -40,7 +43,10 @@ function compileLabel(layer: Record<string, unknown>, opts?: { coverage?: { sour
 describe('Mapbox paint.icon-translate → LabelDef.iconTranslateX/Y', () => {
   it('absent → both undefined (no offset)', () => {
     const def = compileLabel({
-      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
+      id: 'poi',
+      type: 'symbol',
+      source: 'src',
+      'source-layer': 'poi',
       layout: { 'icon-image': 'x' },
     })
     expect(def.iconTranslateX).toBeUndefined()
@@ -49,7 +55,10 @@ describe('Mapbox paint.icon-translate → LabelDef.iconTranslateX/Y', () => {
 
   it('[0, 0] → both undefined (default, no-op)', () => {
     const def = compileLabel({
-      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
+      id: 'poi',
+      type: 'symbol',
+      source: 'src',
+      'source-layer': 'poi',
       layout: { 'icon-image': 'x' },
       paint: { 'icon-translate': [0, 0] },
     })
@@ -59,7 +68,10 @@ describe('Mapbox paint.icon-translate → LabelDef.iconTranslateX/Y', () => {
 
   it('[3, 4] → x=3, y=4', () => {
     const def = compileLabel({
-      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
+      id: 'poi',
+      type: 'symbol',
+      source: 'src',
+      'source-layer': 'poi',
       layout: { 'icon-image': 'x' },
       paint: { 'icon-translate': [3, 4] },
     })
@@ -69,7 +81,10 @@ describe('Mapbox paint.icon-translate → LabelDef.iconTranslateX/Y', () => {
 
   it('negative [0, -8] (POI icon nudge up) → x undefined, y=-8 via bracket form', () => {
     const def = compileLabel({
-      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
+      id: 'poi',
+      type: 'symbol',
+      source: 'src',
+      'source-layer': 'poi',
       layout: { 'icon-image': 'x' },
       paint: { 'icon-translate': [0, -8] },
     })
@@ -79,7 +94,10 @@ describe('Mapbox paint.icon-translate → LabelDef.iconTranslateX/Y', () => {
 
   it('v8 ["literal", [dx, dy]] wrap unwraps to constant', () => {
     const def = compileLabel({
-      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
+      id: 'poi',
+      type: 'symbol',
+      source: 'src',
+      'source-layer': 'poi',
       layout: { 'icon-image': 'x' },
       paint: { 'icon-translate': ['literal', [-2, 5]] },
     })
@@ -89,7 +107,10 @@ describe('Mapbox paint.icon-translate → LabelDef.iconTranslateX/Y', () => {
 
   it('is independent of text-translate (icon shifts, text does not)', () => {
     const def = compileLabel({
-      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
+      id: 'poi',
+      type: 'symbol',
+      source: 'src',
+      'source-layer': 'poi',
       layout: { 'icon-image': 'x', 'text-field': '{name}' },
       paint: { 'icon-translate': [6, 0], 'text-translate': [0, -10] },
     })
@@ -101,7 +122,10 @@ describe('Mapbox paint.icon-translate → LabelDef.iconTranslateX/Y', () => {
 
   it('icon-translate-anchor "map" → LabelDef.iconTranslateAnchorMap=true (world-anchored)', () => {
     const def = compileLabel({
-      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
+      id: 'poi',
+      type: 'symbol',
+      source: 'src',
+      'source-layer': 'poi',
       layout: { 'icon-image': 'x' },
       paint: { 'icon-translate': [2, 2], 'icon-translate-anchor': 'map' },
     }) as { iconTranslateX?: number; iconTranslateY?: number; iconTranslateAnchorMap?: boolean }
@@ -112,7 +136,10 @@ describe('Mapbox paint.icon-translate → LabelDef.iconTranslateX/Y', () => {
 
   it('icon-translate-anchor "map" WITHOUT icon-translate → flag undefined (anchor no-op)', () => {
     const def = compileLabel({
-      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
+      id: 'poi',
+      type: 'symbol',
+      source: 'src',
+      'source-layer': 'poi',
       layout: { 'icon-image': 'x' },
       paint: { 'icon-translate-anchor': 'map' },
     }) as { iconTranslateAnchorMap?: boolean }
@@ -121,7 +148,10 @@ describe('Mapbox paint.icon-translate → LabelDef.iconTranslateX/Y', () => {
 
   it('DEFAULT (no anchor) → iconTranslateAnchorMap undefined (viewport, byte-identical)', () => {
     const def = compileLabel({
-      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
+      id: 'poi',
+      type: 'symbol',
+      source: 'src',
+      'source-layer': 'poi',
       layout: { 'icon-image': 'x' },
       paint: { 'icon-translate': [2, 2] },
     }) as { iconTranslateAnchorMap?: boolean }
@@ -130,12 +160,20 @@ describe('Mapbox paint.icon-translate → LabelDef.iconTranslateX/Y', () => {
 
   it('no gap warning for the supported constant form', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
-    compileLabel({
-      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
-      layout: { 'icon-image': 'x' },
-      paint: { 'icon-translate': [3, 4] },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    }, { coverage } as any)
-    expect(coverage.warnings.some(w => w.includes('shares the text-translate offset'))).toBe(false)
+    compileLabel(
+      {
+        id: 'poi',
+        type: 'symbol',
+        source: 'src',
+        'source-layer': 'poi',
+        layout: { 'icon-image': 'x' },
+        paint: { 'icon-translate': [3, 4] },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      },
+      { coverage } as any,
+    )
+    expect(coverage.warnings.some((w) => w.includes('shares the text-translate offset'))).toBe(
+      false,
+    )
   })
 })

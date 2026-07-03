@@ -42,35 +42,71 @@ import { isPickEnabled, getSampleCount, type GPUContext } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { asyncWriteBuffer, type StagingBufferPool } from '@xgis/engine'
 import { xlog } from '@xgis/shared'
-import { wrapWebGpuPass, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout } from '@xgis/engine'
+import {
+  wrapWebGpuPass,
+  wrapWebGpuBuffer,
+  wrapWebGpuBindGroup,
+  wrapWebGpuBindGroupLayout,
+} from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { LineDraper } from './material/line-material'
 import { LineCompositeDraper } from './material/line-composite-material'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import {
-  lineUniformSize, PATTERN_SLOT_COUNT, PATTERN_SLOT_F32,
-  LINE_CAP_BUTT, LINE_CAP_ROUND, LINE_CAP_SQUARE, LINE_CAP_ARROW,
-  LINE_JOIN_MITER, LINE_JOIN_ROUND, LINE_JOIN_BEVEL,
-  LINE_FLAG_HAS_PATTERN, LINE_FLAG_HAS_OFFSET,
-  PATTERN_UNIT_M, PATTERN_UNIT_PX, PATTERN_UNIT_KM, PATTERN_UNIT_NM,
-  PATTERN_ANCHOR_REPEAT, PATTERN_ANCHOR_START, PATTERN_ANCHOR_END, PATTERN_ANCHOR_CENTER,
-  checkPatternParams, packLineLayerUniform,
-  type DashConfig, type PatternSlot,
+  lineUniformSize,
+  PATTERN_SLOT_COUNT,
+  PATTERN_SLOT_F32,
+  LINE_CAP_BUTT,
+  LINE_CAP_ROUND,
+  LINE_CAP_SQUARE,
+  LINE_CAP_ARROW,
+  LINE_JOIN_MITER,
+  LINE_JOIN_ROUND,
+  LINE_JOIN_BEVEL,
+  LINE_FLAG_HAS_PATTERN,
+  LINE_FLAG_HAS_OFFSET,
+  PATTERN_UNIT_M,
+  PATTERN_UNIT_PX,
+  PATTERN_UNIT_KM,
+  PATTERN_UNIT_NM,
+  PATTERN_ANCHOR_REPEAT,
+  PATTERN_ANCHOR_START,
+  PATTERN_ANCHOR_END,
+  PATTERN_ANCHOR_CENTER,
+  checkPatternParams,
+  packLineLayerUniform,
+  type DashConfig,
+  type PatternSlot,
 } from './line-pattern'
 import { lineLayerUniformStride } from './line-uniform-slots'
 // Re-export so test files (line-renderer.test, line-pattern-guards.test, etc.)
 // keep importing the public surface from the renderer module.
 export {
-  lineUniformSize, PATTERN_SLOT_COUNT, PATTERN_SLOT_F32,
-  LINE_CAP_BUTT, LINE_CAP_ROUND, LINE_CAP_SQUARE, LINE_CAP_ARROW,
-  LINE_JOIN_MITER, LINE_JOIN_ROUND, LINE_JOIN_BEVEL,
-  LINE_FLAG_HAS_PATTERN, LINE_FLAG_HAS_OFFSET,
-  PATTERN_UNIT_M, PATTERN_UNIT_PX, PATTERN_UNIT_KM, PATTERN_UNIT_NM,
-  PATTERN_ANCHOR_REPEAT, PATTERN_ANCHOR_START, PATTERN_ANCHOR_END, PATTERN_ANCHOR_CENTER,
-  checkPatternParams, packLineLayerUniform,
-  type DashConfig, type PatternSlot,
+  lineUniformSize,
+  PATTERN_SLOT_COUNT,
+  PATTERN_SLOT_F32,
+  LINE_CAP_BUTT,
+  LINE_CAP_ROUND,
+  LINE_CAP_SQUARE,
+  LINE_CAP_ARROW,
+  LINE_JOIN_MITER,
+  LINE_JOIN_ROUND,
+  LINE_JOIN_BEVEL,
+  LINE_FLAG_HAS_PATTERN,
+  LINE_FLAG_HAS_OFFSET,
+  PATTERN_UNIT_M,
+  PATTERN_UNIT_PX,
+  PATTERN_UNIT_KM,
+  PATTERN_UNIT_NM,
+  PATTERN_ANCHOR_REPEAT,
+  PATTERN_ANCHOR_START,
+  PATTERN_ANCHOR_END,
+  PATTERN_ANCHOR_CENTER,
+  checkPatternParams,
+  packLineLayerUniform,
+  type DashConfig,
+  type PatternSlot,
 }
-
 
 // ═══ Segment Buffer Layout ═══
 // 40 bytes per segment. Phase 1: p0, p1 only. Later phases add prev/next tangents, arc_start, line_length.
@@ -197,10 +233,26 @@ export class LineRenderer {
     this.layerBindGroupLayout = this.device.createBindGroupLayout({
       label: 'line-layer-bgl',
       entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true } },
-        { binding: 1, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
-        { binding: 2, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
-        { binding: 3, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'uniform', hasDynamicOffset: true },
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'read-only-storage' },
+        },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'read-only-storage' },
+        },
+        {
+          binding: 3,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'read-only-storage' },
+        },
       ],
     })
 
@@ -209,7 +261,8 @@ export class LineRenderer {
     // UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
     this.layerRing = this.rhi.createBuffer({
       size: this.layerRingCapacity * this.layerStride,
-      usage: 'uniform', writable: true,
+      usage: 'uniform',
+      writable: true,
       label: 'line-layer-ring',
     })
     this.layerStaging = new Uint8Array(this.layerRingCapacity * this.layerStride)
@@ -217,7 +270,8 @@ export class LineRenderer {
     // STORAGE-only (never written), byte-identical via bufUsage('storage', writable:false).
     this.emptyShapeBuffer = this.rhi.createBuffer({
       size: 64,
-      usage: 'storage', writable: false,
+      usage: 'storage',
+      writable: false,
       label: 'line-empty-shape-buf',
     })
 
@@ -236,7 +290,8 @@ export class LineRenderer {
     // UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
     this.compositeRing = this.rhi.createBuffer({
       size: this.compositeRingCapacity * LineRenderer.COMPOSITE_SLOT,
-      usage: 'uniform', writable: true,
+      usage: 'uniform',
+      writable: true,
       label: 'line-composite-ring',
     })
   }
@@ -255,7 +310,8 @@ export class LineRenderer {
 
   /** Lazily allocate / resize the offscreen RT to match the main color target. */
   ensureOffscreen(width: number, height: number): void {
-    if (this.offscreenTexture && this.offscreenWidth === width && this.offscreenHeight === height) return
+    if (this.offscreenTexture && this.offscreenWidth === width && this.offscreenHeight === height)
+      return
     this.offscreenTexture?.destroy()
     this.offscreenTexture = this.device.createTexture({
       size: { width, height },
@@ -275,12 +331,14 @@ export class LineRenderer {
     if (!this.offscreenView) throw new Error('LineRenderer: offscreen not initialised')
     return encoder.beginRenderPass({
       label: 'line-translucent-pass',
-      colorAttachments: [{
-        view: this.offscreenView,
-        clearValue: { r: 0, g: 0, b: 0, a: 0 },
-        loadOp: 'clear',
-        storeOp: 'store',
-      }],
+      colorAttachments: [
+        {
+          view: this.offscreenView,
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: 'clear',
+          storeOp: 'store',
+        },
+      ],
     })
   }
 
@@ -292,23 +350,35 @@ export class LineRenderer {
    *  last layer's opacity. */
   composite(mainPass: GPURenderPassEncoder, opacity: number): void {
     if (!this.offscreenView) return
-    const off = this.compositeSlot < this.compositeRingCapacity
-      ? this.compositeSlot * LineRenderer.COMPOSITE_SLOT
-      : (this.compositeRingCapacity - 1) * LineRenderer.COMPOSITE_SLOT
+    const off =
+      this.compositeSlot < this.compositeRingCapacity
+        ? this.compositeSlot * LineRenderer.COMPOSITE_SLOT
+        : (this.compositeRingCapacity - 1) * LineRenderer.COMPOSITE_SLOT
     if (this.compositeSlot >= this.compositeRingCapacity) {
-      xlog.warn('[LineRenderer] composite ring overflow — capping at capacity; opacity bleed possible')
+      xlog.warn(
+        '[LineRenderer] composite ring overflow — capping at capacity; opacity bleed possible',
+      )
     } else {
       this.compositeSlot++
     }
     this.rhi.writeBuffer(this.compositeRing, off, new Float32Array([opacity, 0, 0, 0]))
     // Through the RHI Material seam (the sole path). The offscreen RT/pass origination stays raw (P2).
     // WebGPU-only (the offscreen translucent path fail-closes on WebGl2).
-    this.ensureCompositeDraper().draw(wrapWebGpuPass(mainPass), this.offscreenView, this.compositeRing, off)
+    this.ensureCompositeDraper().draw(
+      wrapWebGpuPass(mainPass),
+      this.offscreenView,
+      this.compositeRing,
+      off,
+    )
   }
 
   private _compositeDraper?: LineCompositeDraper
   private ensureCompositeDraper(): LineCompositeDraper {
-    return (this._compositeDraper ??= new LineCompositeDraper(this.rhi, this.format, getSampleCount()))
+    return (this._compositeDraper ??= new LineCompositeDraper(
+      this.rhi,
+      this.format,
+      getSampleCount(),
+    ))
   }
 
   setShapeRegistry(registry: ShapeRegistry): void {
@@ -396,14 +466,31 @@ export class LineRenderer {
     const off = this.layerSlot * this.layerStride
     this.layerSlot++
     const data = packLineLayerUniform(
-      strokeColor, strokeWidthPx, opacity, mppAtCenter,
-      cap, join, miterLimit, dash, patterns, offsetPx, viewportHeight, blurPx, dpr,
-      lineTranslateX, lineTranslateY, roundLimit,
+      strokeColor,
+      strokeWidthPx,
+      opacity,
+      mppAtCenter,
+      cap,
+      join,
+      miterLimit,
+      dash,
+      patterns,
+      offsetPx,
+      viewportHeight,
+      blurPx,
+      dpr,
+      lineTranslateX,
+      lineTranslateY,
+      roundLimit,
     )
     // Stage into the CPU mirror; flushLayerStaging (called from the
     // map's render loop via `endFrame()`) emits a single writeBuffer
     // over the frame's dirty range instead of one per layer.
-    const src = new Uint8Array(data.buffer, data.byteOffset, Math.min(data.byteLength, this.layerStride))
+    const src = new Uint8Array(
+      data.buffer,
+      data.byteOffset,
+      Math.min(data.byteLength, this.layerStride),
+    )
     this.layerStaging.set(src, off)
     const hi = off + this.layerStride
     if (this.layerDirtyHi === this.layerDirtyLo) {
@@ -421,7 +508,8 @@ export class LineRenderer {
    *  write before the submitted command buffer by spec. */
   endFrame(): void {
     if (this.layerDirtyHi === this.layerDirtyLo) return
-    const lo = this.layerDirtyLo, hi = this.layerDirtyHi
+    const lo = this.layerDirtyLo,
+      hi = this.layerDirtyHi
     // A subarray view over [lo, hi) of the CPU mirror (byteOffset 0) — the same
     // bytes the 5-arg `queue.writeBuffer(buf, lo, staging.buffer, lo, hi-lo)` wrote
     // to the same GPU offset, so the upload is byte-identical (the RHI seam's
@@ -504,16 +592,30 @@ export class LineRenderer {
     // layerBG is line's RhiBindGroup (createLayerBindGroup, via the RHI seam);
     // tileBG is the VTR tile bind group — still a raw GPUBindGroup (flips with the
     // VTR cluster) → wrapped here at the renderer call site (transient).
-    this._lineDraper!.draw(wrapWebGpuPass(pass), {
-      tileBG: wrapWebGpuBindGroup(tileBindGroup), layerBG: layerBindGroup, tileOffset, layerOffset,
-      pattern: patternActive, segmentCount,
-    }, translucent ? 'max' : isPickEnabled() ? 'pick' : 'opaque')
+    this._lineDraper!.draw(
+      wrapWebGpuPass(pass),
+      {
+        tileBG: wrapWebGpuBindGroup(tileBindGroup),
+        layerBG: layerBindGroup,
+        tileOffset,
+        layerOffset,
+        pattern: patternActive,
+        segmentCount,
+      },
+      translucent ? 'max' : isPickEnabled() ? 'pick' : 'opaque',
+    )
   }
 
   private _lineDraper?: LineDraper
   private ensureLineDraper(): void {
     if (this._lineDraper) return
-    this._lineDraper = new LineDraper(this.rhi, this.format, getSampleCount(), this.tileBindGroupLayout, this.layerBindGroupLayout)
+    this._lineDraper = new LineDraper(
+      this.rhi,
+      this.format,
+      getSampleCount(),
+      this.tileBindGroupLayout,
+      this.layerBindGroupLayout,
+    )
   }
 
   clearLayers(): void {

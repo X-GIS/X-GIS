@@ -22,7 +22,7 @@ describe('VersionedState', () => {
     const s = new VersionedState({ x: 1 })
     const ref = s.value
     s.bump()
-    expect(s.value).toBe(ref)  // same reference
+    expect(s.value).toBe(ref) // same reference
     expect(s.version()).toBe(1)
   })
 

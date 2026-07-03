@@ -60,22 +60,22 @@ Earth) and is called DSFUN (Double-Single FUNction).
 
 ## Files to change (atomic)
 
-| # | File | Change |
-|---|---|---|
-| 1 | `compiler/src/tiler/vector-tiler.ts` | `CompiledTile.vertices` / `lineVertices` / `pointVertices` stride update. Add `splitF64` helper. Vertex output converts lon/lat to tile-local Mercator meters and splits. |
-| 2 | `compiler/src/tiler/tile-format.ts` | `parseGPUReadyTile` reads new stride. `serializeXGVT` writes new stride. `includeGPUReady` path stays — layout just changes. |
-| 3 | `compiler/src/tiler/encoding.ts` | `decodeRingData` / `encodeRingData` output is already f64-equivalent TS numbers, but the tessellation output that gets written as vertices now goes through the Mercator+split pipeline. |
-| 4 | `runtime/src/data/xgvt-source.ts` | `TileData` type updates. `generateSubTile` clip region converts to Mercator meters (was degrees). `cacheTileData` signature unchanged but stride differs. |
-| 5 | `runtime/src/data/xgvt-worker.ts` | Worker response already sends typed-array buffers via Transferable — the bytes are just laid out differently now. Main thread also needs layout match. |
-| 6 | `runtime/src/data/xgvt-worker-pool.ts` | `ParsedTile` interface stride update (same fields, different view sizes). |
-| 7 | `runtime/src/engine/vector-tile-renderer.ts` | Vertex buffer layout descriptor: `pos_h: vec2<f32>` @0, `pos_l: vec2<f32>` @8, `feat_id: f32` @16, stride 20. Line: same + `arc_start: f32` @20, stride 24. Uniform: add `cam_h`, `cam_l` (replacing current `tile_rtc` components). Compute `(cam_merc_x - tile_origin_merc_x)` per tile per frame, splitF64, upload. |
-| 8 | `runtime/src/engine/renderer.ts` `vs_main` | Rewrite as DSFUN: `rel = (pos_h - cam_h) + (pos_l - cam_l); position = mvp * vec4(rel, 0, 1)`. Mercator path is now pure addition. Non-Mercator path: reconstruct `abs_merc = rel + cam_abs_merc`, unproject Mercator → lon/lat, forward-project to target. |
-| 9 | `runtime/src/engine/line-renderer.ts` `vs_line` | Same DSFUN rewrite. Segment builder `buildLineSegments` (if it reads vertices) also updates. |
-| 10 | `runtime/src/engine/point-renderer.ts` `vs_point` | Same DSFUN rewrite. Point has no arc_start so stride 5. |
-| 11 | `runtime/src/engine/raster-renderer.ts` `vs_tile` | Raster has no vertex buffer (procedural grid), but `tile.bounds` / `tile.merc_y` uniforms should also DSFUN-split for consistency at high zoom. |
-| 12 | `runtime/src/engine/map.ts` | `camera.maxZoom = 22` always. Remove the `maxSrcLevel + 6` clamp. Delete the stable-Mercator shader reformulation from commit `02cffcc` — DSFUN replaces it. |
-| 13 | `playground/public/data/*.xgvt` | Recompile every demo data file with the new compiler. File size increases ~1.67× (stride 5 vs 3). Since these files are `.gitignored` they only need to exist on disk, not commit. |
-| 14 | Tests | Any test that asserts vertex stride / vertex values needs updating. Expect 1-3 test files in `compiler/src/__tests__/` and `runtime/src/__tests__/`. |
+| #   | File                                              | Change                                                                                                                                                                                                                                                                                                                 |
+| --- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `compiler/src/tiler/vector-tiler.ts`              | `CompiledTile.vertices` / `lineVertices` / `pointVertices` stride update. Add `splitF64` helper. Vertex output converts lon/lat to tile-local Mercator meters and splits.                                                                                                                                              |
+| 2   | `compiler/src/tiler/tile-format.ts`               | `parseGPUReadyTile` reads new stride. `serializeXGVT` writes new stride. `includeGPUReady` path stays — layout just changes.                                                                                                                                                                                           |
+| 3   | `compiler/src/tiler/encoding.ts`                  | `decodeRingData` / `encodeRingData` output is already f64-equivalent TS numbers, but the tessellation output that gets written as vertices now goes through the Mercator+split pipeline.                                                                                                                               |
+| 4   | `runtime/src/data/xgvt-source.ts`                 | `TileData` type updates. `generateSubTile` clip region converts to Mercator meters (was degrees). `cacheTileData` signature unchanged but stride differs.                                                                                                                                                              |
+| 5   | `runtime/src/data/xgvt-worker.ts`                 | Worker response already sends typed-array buffers via Transferable — the bytes are just laid out differently now. Main thread also needs layout match.                                                                                                                                                                 |
+| 6   | `runtime/src/data/xgvt-worker-pool.ts`            | `ParsedTile` interface stride update (same fields, different view sizes).                                                                                                                                                                                                                                              |
+| 7   | `runtime/src/engine/vector-tile-renderer.ts`      | Vertex buffer layout descriptor: `pos_h: vec2<f32>` @0, `pos_l: vec2<f32>` @8, `feat_id: f32` @16, stride 20. Line: same + `arc_start: f32` @20, stride 24. Uniform: add `cam_h`, `cam_l` (replacing current `tile_rtc` components). Compute `(cam_merc_x - tile_origin_merc_x)` per tile per frame, splitF64, upload. |
+| 8   | `runtime/src/engine/renderer.ts` `vs_main`        | Rewrite as DSFUN: `rel = (pos_h - cam_h) + (pos_l - cam_l); position = mvp * vec4(rel, 0, 1)`. Mercator path is now pure addition. Non-Mercator path: reconstruct `abs_merc = rel + cam_abs_merc`, unproject Mercator → lon/lat, forward-project to target.                                                            |
+| 9   | `runtime/src/engine/line-renderer.ts` `vs_line`   | Same DSFUN rewrite. Segment builder `buildLineSegments` (if it reads vertices) also updates.                                                                                                                                                                                                                           |
+| 10  | `runtime/src/engine/point-renderer.ts` `vs_point` | Same DSFUN rewrite. Point has no arc_start so stride 5.                                                                                                                                                                                                                                                                |
+| 11  | `runtime/src/engine/raster-renderer.ts` `vs_tile` | Raster has no vertex buffer (procedural grid), but `tile.bounds` / `tile.merc_y` uniforms should also DSFUN-split for consistency at high zoom.                                                                                                                                                                        |
+| 12  | `runtime/src/engine/map.ts`                       | `camera.maxZoom = 22` always. Remove the `maxSrcLevel + 6` clamp. Delete the stable-Mercator shader reformulation from commit `02cffcc` — DSFUN replaces it.                                                                                                                                                           |
+| 13  | `playground/public/data/*.xgvt`                   | Recompile every demo data file with the new compiler. File size increases ~1.67× (stride 5 vs 3). Since these files are `.gitignored` they only need to exist on disk, not commit.                                                                                                                                     |
+| 14  | Tests                                             | Any test that asserts vertex stride / vertex values needs updating. Expect 1-3 test files in `compiler/src/__tests__/` and `runtime/src/__tests__/`.                                                                                                                                                                   |
 
 ## Execution order (keeps builds fixable)
 
@@ -108,6 +108,7 @@ Do NOT try to commit between steps. Finish the whole loop, then commit.
 ## Verification
 
 **Baseline** (before starting):
+
 - `bun run build && bun run test` — 302 tests pass
 - `physical_map_10m#0.50/0.00000/5.59440` loads sub-second (Phase A+B
   already shipped)
@@ -116,6 +117,7 @@ Do NOT try to commit between steps. Finish the whole loop, then commit.
 - `stroke_align#12.81/...` renders three parallel stripes correctly
 
 **After refactor**:
+
 - `bun run build && bun run test` — 302 tests pass (or updated count
   if stride tests were adjusted)
 - Same demos at same URLs render identically at low/mid zoom

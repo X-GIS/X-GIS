@@ -33,10 +33,11 @@ function pointInPolygon(x: number, y: number, polygon: PolygonCoords): boolean {
   let inside = false
   for (const ring of polygon) {
     for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      const xi = ring[i]![0]!, yi = ring[i]![1]!
-      const xj = ring[j]![0]!, yj = ring[j]![1]!
-      const intersects = (yi > y) !== (yj > y)
-        && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi
+      const xi = ring[i]![0]!,
+        yi = ring[i]![1]!
+      const xj = ring[j]![0]!,
+        yj = ring[j]![1]!
+      const intersects = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi
       if (intersects) inside = !inside
     }
   }

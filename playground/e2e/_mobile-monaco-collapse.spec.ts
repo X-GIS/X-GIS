@@ -10,15 +10,16 @@ test.describe('mobile editor collapse', () => {
     await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 30_000 },
+      null,
+      { timeout: 30_000 },
     )
 
     // Editor pane DOES NOT have `.expanded` initially → monaco-container
     // is hidden by the CSS rule.
     const monacoVisible = async (): Promise<boolean> => {
-      const display = await page.locator('#monaco-container').evaluate(
-        (el) => window.getComputedStyle(el).display,
-      )
+      const display = await page
+        .locator('#monaco-container')
+        .evaluate((el) => window.getComputedStyle(el).display)
       return display !== 'none'
     }
 
@@ -37,19 +38,20 @@ test.describe('mobile editor collapse', () => {
     await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 30_000 },
+      null,
+      { timeout: 30_000 },
     )
 
     // CSS hides .mobile-only on desktop → toggle is display:none.
-    const toggleDisplay = await page.locator('#editor-toggle').evaluate(
-      (el) => window.getComputedStyle(el).display,
-    )
+    const toggleDisplay = await page
+      .locator('#editor-toggle')
+      .evaluate((el) => window.getComputedStyle(el).display)
     expect(toggleDisplay).toBe('none')
 
     // Monaco container is visible (no `.expanded` class needed on desktop).
-    const monacoDisplay = await page.locator('#monaco-container').evaluate(
-      (el) => window.getComputedStyle(el).display,
-    )
+    const monacoDisplay = await page
+      .locator('#monaco-container')
+      .evaluate((el) => window.getComputedStyle(el).display)
     expect(monacoDisplay).not.toBe('none')
   })
 })

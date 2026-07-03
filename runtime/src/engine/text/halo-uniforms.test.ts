@@ -20,18 +20,21 @@ import { packUniformsForTesting, type TextDraw } from '@xgis/map'
 const baseGlyph = {
   codepoint: 65,
   slot: { page: 0, cellX: 0, cellY: 0, pxX: 0, pxY: 0, size: 64 },
-  advanceWidth: 16, bearingX: 0, bearingY: 16, width: 16, height: 20,
+  advanceWidth: 16,
+  bearingX: 0,
+  bearingY: 16,
+  width: 16,
+  height: 20,
   pbf: true,
 }
 
 // `pbf` defaults to true so the existing MapLibre-parity assertions
 // keep exercising the PBF (`·3`) path. The local-rasterised path
 // (pbf:false) is covered in its own describe below.
-function makeDraw(
-  fontSize: number, haloWidthPx: number, haloBlurPx = 0, pbf = true,
-): TextDraw {
+function makeDraw(fontSize: number, haloWidthPx: number, haloBlurPx = 0, pbf = true): TextDraw {
   return {
-    anchorX: 0, anchorY: 0,
+    anchorX: 0,
+    anchorY: 0,
     glyphs: [{ ...baseGlyph, pbf }],
     fontSize,
     rasterFontSize: 32,
@@ -67,7 +70,7 @@ describe('packUniforms — halo MapLibre-parity formula', () => {
     // Equivalent to the old formula's authored component
     // (2*0.149*24/32 = 0.2235) minus the dropped EDGE_GAMMA base.
     const u = packUniformsForTesting(makeDraw(32, 1, 2))
-    expect(u[HALO_BLUR_SLOT]).toBeCloseTo(2 * 1.19 * 3 / 32, 4)
+    expect(u[HALO_BLUR_SLOT]).toBeCloseTo((2 * 1.19 * 3) / 32, 4)
   })
 
   it('halo_blur_norm is exactly 0 when the style authored blur=0', () => {
@@ -79,9 +82,12 @@ describe('packUniforms — halo MapLibre-parity formula', () => {
 
   it('halo absent → both slots zero', () => {
     const u = packUniformsForTesting({
-      anchorX: 0, anchorY: 0,
+      anchorX: 0,
+      anchorY: 0,
       glyphs: [baseGlyph],
-      fontSize: 12, rasterFontSize: 32, sdfRadius: 8,
+      fontSize: 12,
+      rasterFontSize: 32,
+      sdfRadius: 8,
       color: [0, 0, 0, 1],
     })
     expect(u[12]).toBe(0)
@@ -110,7 +116,10 @@ describe('packUniforms — unified halo normalisation (iter 114)', () => {
   it('mixed local+pbf draw also uses haloK=3', () => {
     const mixed: TextDraw = {
       ...makeDraw(32, 1, 0, false),
-      glyphs: [{ ...baseGlyph, pbf: false }, { ...baseGlyph, pbf: true }],
+      glyphs: [
+        { ...baseGlyph, pbf: false },
+        { ...baseGlyph, pbf: true },
+      ],
     }
     const u = packUniformsForTesting(mixed)
     expect(u[HALO_WIDTH_SLOT]).toBeCloseTo(3 / 32, 6)
@@ -118,7 +127,7 @@ describe('packUniforms — unified halo normalisation (iter 114)', () => {
 
   it('local halo_blur uses haloK=3 like PBF', () => {
     const u = packUniformsForTesting(makeDraw(32, 1, 2, /* pbf */ false))
-    expect(u[HALO_BLUR_SLOT]).toBeCloseTo(2 * 1.19 * 3 / 32, 6)
+    expect(u[HALO_BLUR_SLOT]).toBeCloseTo((2 * 1.19 * 3) / 32, 6)
   })
 
   it('local halo_blur matches PBF halo_blur for the same input', () => {
@@ -156,11 +165,14 @@ function smoothstep(a: number, b: number, x: number): number {
 
 /** Mirrors the WGSL fragment shader's halo math 1:1 (iter 117). */
 function shaderHaloAlpha(args: {
-  sdf: number; soft: number; fontSize: number;
-  haloWidthPx: number; haloBlurPx: number;
+  sdf: number
+  soft: number
+  fontSize: number
+  haloWidthPx: number
+  haloBlurPx: number
 }): { halo_a: number; fill_a: number; halo_edge: number } {
-  const halo_width_norm = args.haloWidthPx * 3 / args.fontSize
-  const halo_blur_norm = args.haloBlurPx * 1.19 * 3 / args.fontSize
+  const halo_width_norm = (args.haloWidthPx * 3) / args.fontSize
+  const halo_blur_norm = (args.haloBlurPx * 1.19 * 3) / args.fontSize
   const halo_edge = EDGE - halo_width_norm
   // Iter 117: aa_halo = halo_blur + soft (SUM, matches MapLibre).
   const aa_halo = halo_blur_norm + args.soft
@@ -173,7 +185,10 @@ describe('halo smoothstep — opacity at typical user-visible distances', () => 
   // Bright z=4.7 country label config: fontSize=32 phys, halo=2 phys,
   // blur=2 phys.
   const config = {
-    fontSize: 32, haloWidthPx: 2, haloBlurPx: 2, soft: 0.022,
+    fontSize: 32,
+    haloWidthPx: 2,
+    haloBlurPx: 2,
+    soft: 0.022,
   }
 
   it('halo opacity > 0.85 at the glyph edge (visible outline)', () => {

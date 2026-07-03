@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  rasterUniformSlots, rasterUniformBytes, rasterTileSlots, rasterTileBytes,
-} from '@xgis/map'
+import { rasterUniformSlots, rasterUniformBytes, rasterTileSlots, rasterTileBytes } from '@xgis/map'
 
 // Byte-identity gate for the raster uniform migrations. raster-renderer hand-coded
 // the global 'Uniforms' size (160) + field byte offsets and the per-tile
@@ -16,10 +14,18 @@ describe('raster global Uniforms — reflect === shipped', () => {
     expect(rasterUniformBytes()).toBe(rasterUniformSlots().slots * 4)
   })
   const cases: ReadonlyArray<readonly [string, number]> = [
-    ['mvp', 0], ['proj_params', 64], ['raster_params', 80], ['raster_color0', 96],
-    ['raster_color1', 112], ['cam_ecef_center', 128], ['globe_eye', 144],
+    ['mvp', 0],
+    ['proj_params', 64],
+    ['raster_params', 80],
+    ['raster_color0', 96],
+    ['raster_color1', 112],
+    ['cam_ecef_center', 128],
+    ['globe_eye', 144],
   ]
-  for (const [f, b] of cases) it(`${f} @ byte ${b}`, () => { expect(S[f] * 4).toBe(b) })
+  for (const [f, b] of cases)
+    it(`${f} @ byte ${b}`, () => {
+      expect(S[f] * 4).toBe(b)
+    })
 })
 
 describe('raster per-tile TileUniforms — reflect === shipped', () => {
@@ -29,7 +35,13 @@ describe('raster per-tile TileUniforms — reflect === shipped', () => {
     expect(rasterTileBytes()).toBe(rasterTileSlots().slots * 4)
   })
   const cases: ReadonlyArray<readonly [string, number]> = [
-    ['bounds', 0], ['tile_ecef_center', 16], ['merc_y', 32], ['_pad', 40],
+    ['bounds', 0],
+    ['tile_ecef_center', 16],
+    ['merc_y', 32],
+    ['_pad', 40],
   ]
-  for (const [f, b] of cases) it(`${f} @ byte ${b}`, () => { expect(T[f] * 4).toBe(b) })
+  for (const [f, b] of cases)
+    it(`${f} @ byte ${b}`, () => {
+      expect(T[f] * 4).toBe(b)
+    })
 })

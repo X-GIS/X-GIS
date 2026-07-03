@@ -18,11 +18,17 @@ test('line RHI seam: stress scene renders error-free', async ({ page }) => {
   mkdirSync(OUT, { recursive: true })
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(m.text())
+  })
 
   await page.setViewportSize({ width: 600, height: 600 })
-  await page.goto('/demo.html?id=fixture_stress_all_renderers&e2e=1', { waitUntil: 'domcontentloaded' })
-  await page.waitForFunction(() => (window as unknown as W).__xgisReady === true, null, { timeout: 25_000 })
+  await page.goto('/demo.html?id=fixture_stress_all_renderers&e2e=1', {
+    waitUntil: 'domcontentloaded',
+  })
+  await page.waitForFunction(() => (window as unknown as W).__xgisReady === true, null, {
+    timeout: 25_000,
+  })
   await page.waitForTimeout(4000)
   writeFileSync(join(OUT, 'line-rhi-seam.png'), await page.locator('#map').screenshot())
 

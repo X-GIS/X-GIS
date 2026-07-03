@@ -1,6 +1,14 @@
 // ═══ Shader DSL — Optimization context barrel ═══
 
-export { optimize, fixpoint, optimizeAt, DEFAULT_PASSES, LEVEL_PASSES, type OptPass, type OptLevel } from './optimize'
+export {
+  optimize,
+  fixpoint,
+  optimizeAt,
+  DEFAULT_PASSES,
+  LEVEL_PASSES,
+  type OptPass,
+  type OptLevel,
+} from './optimize'
 export { constFold } from './const-fold'
 export { constProp } from './const-prop'
 export { copyProp } from './copy-prop'

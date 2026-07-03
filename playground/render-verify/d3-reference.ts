@@ -11,10 +11,7 @@
 // `fill-*` / `stroke-*` utilities resolve to (compiler/src/tokens/colors.ts).
 
 import { geoPath, type GeoProjection } from 'd3-geo'
-import type {
-  GeoJSONFeatureCollection,
-  GeoJSONFeature,
-} from './fixtures'
+import type { GeoJSONFeatureCollection, GeoJSONFeature } from './fixtures'
 
 // ── Spherical polygon winding fix ─────────────────────────────────────────
 // d3-geo treats GeoJSON polygons as SPHERICAL regions: a ring's winding order
@@ -123,10 +120,7 @@ export function renderReferenceToCanvas(
 ): void {
   // geoPath types are written against the DOM CanvasRenderingContext2D; an
   // OffscreenCanvas 2D context is shape-compatible for the path methods used.
-  const path = geoPath(
-    projection,
-    ctx as unknown as CanvasRenderingContext2D,
-  )
+  const path = geoPath(projection, ctx as unknown as CanvasRenderingContext2D)
 
   // ── Polygons: fill + thin stroke ──────────────────────────────────────
   // Rewind each polygon's rings to d3's expected spherical winding (exterior

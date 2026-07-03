@@ -24,22 +24,26 @@ void _mutabilityProbes
 describe('mutable-node type safety', () => {
   it('Var() mutation still emits a WGSL var + store (behaviour unchanged)', () => {
     const m = module({
-      funcs: [fn('m', { x: f32T }, f32T, ({ x }) => {
-        const acc = Var(f32(0))
-        acc.assign(acc.add(x))
-        return acc
-      })],
+      funcs: [
+        fn('m', { x: f32T }, f32T, ({ x }) => {
+          const acc = Var(f32(0))
+          acc.assign(acc.add(x))
+          return acc
+        }),
+      ],
     })
     expect(emitModule(m)).toContain('var')
   })
 
   it('the auto-var sugar (plain const + .assign) still type-checks and emits', () => {
     const m = module({
-      funcs: [fn('av', { x: f32T }, f32T, ({ x }) => {
-        const acc = f32(0) // plain value Node (Node, mutable) → auto-var materialises a var
-        acc.assign(acc.add(x))
-        return acc
-      })],
+      funcs: [
+        fn('av', { x: f32T }, f32T, ({ x }) => {
+          const acc = f32(0) // plain value Node (Node, mutable) → auto-var materialises a var
+          acc.assign(acc.add(x))
+          return acc
+        }),
+      ],
     })
     expect(emitModule(m)).toContain('var')
   })

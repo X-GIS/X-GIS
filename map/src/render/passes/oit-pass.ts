@@ -16,7 +16,9 @@ import type { RenderPass, OitPassHost } from './pass'
 class OitPass implements RenderPass {
   readonly label = 'oit'
 
-  shouldRun(scene: SceneView): boolean { return scene.hasOit && !DEBUG_OVERDRAW }
+  shouldRun(scene: SceneView): boolean {
+    return scene.hasOit && !DEBUG_OVERDRAW
+  }
 
   execute(ctx: FrameContext, scene: SceneView, host: OitPassHost): void {
     const encoder = ctx.encoder
@@ -38,12 +40,14 @@ class OitPass implements RenderPass {
           {
             view: ctx.rt.oitAccumView!,
             clearValue: { r: 0, g: 0, b: 0, a: 0 },
-            loadOp: 'clear', storeOp: 'store',
+            loadOp: 'clear',
+            storeOp: 'store',
           },
           {
             view: ctx.rt.oitRevealageView!,
             clearValue: { r: 1, g: 0, b: 0, a: 0 },
-            loadOp: 'clear', storeOp: 'store',
+            loadOp: 'clear',
+            storeOp: 'store',
           },
         ],
         // iter-193 — reverted iter-192's offscreenExtrudeDepth.
@@ -53,8 +57,10 @@ class OitPass implements RenderPass {
         // for the future opt-in path.
         depthStencilAttachment: {
           view: ctx.rt.stencilView!,
-          depthLoadOp: 'load', depthStoreOp: 'discard',
-          stencilLoadOp: 'load', stencilStoreOp: 'discard',
+          depthLoadOp: 'load',
+          depthStoreOp: 'discard',
+          stencilLoadOp: 'load',
+          stencilStoreOp: 'discard',
         },
       })
       for (const cs of scene.oit) {
@@ -67,11 +73,20 @@ class OitPass implements RenderPass {
 
     ctx.passScope('oit-compose', () => {
       const compPass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: ctx.colorView,
-          resolveTarget: ctx.useResolve && !scene.hasTranslucent && !scene.hasPoints && scene.resolveOwner === 'composite' ? ctx.screenView : undefined,
-          loadOp: 'load', storeOp: 'store',
-        }],
+        colorAttachments: [
+          {
+            view: ctx.colorView,
+            resolveTarget:
+              ctx.useResolve &&
+              !scene.hasTranslucent &&
+              !scene.hasPoints &&
+              scene.resolveOwner === 'composite'
+                ? ctx.screenView
+                : undefined,
+            loadOp: 'load',
+            storeOp: 'store',
+          },
+        ],
       })
       // Lazy-build the bind group when texture views change.
       const bg = host.ctx.device.createBindGroup({

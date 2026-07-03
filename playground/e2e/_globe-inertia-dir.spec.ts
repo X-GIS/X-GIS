@@ -30,10 +30,11 @@ for (const c of CASES) {
     }, c)
     await page.waitForTimeout(800)
 
-    const read = () => page.evaluate(() => {
-      const cam = (window as any).__xgisMap.camera
-      return { lon: (cam.centerX / 6378137) * (180 / Math.PI), lat: cam.centerLatDeg }
-    })
+    const read = () =>
+      page.evaluate(() => {
+        const cam = (window as any).__xgisMap.camera
+        return { lon: (cam.centerX / 6378137) * (180 / Math.PI), lat: cam.centerLatDeg }
+      })
 
     const start = await read()
     // FAST flick: dispatch pointer events to the canvas in a tight loop (small real dt
@@ -41,9 +42,18 @@ for (const c of CASES) {
     const { drag } = await page.evaluate(({ dx, dy }) => {
       const cv = document.querySelector('canvas') as HTMLCanvasElement
       const r = cv.getBoundingClientRect()
-      const sx = r.left + r.width / 2, sy = r.top + r.height / 2
+      const sx = r.left + r.width / 2,
+        sy = r.top + r.height / 2
       const ev = (type: string, x: number, y: number) =>
-        cv.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId: 1, bubbles: true, button: 0 }))
+        cv.dispatchEvent(
+          new PointerEvent(type, {
+            clientX: x,
+            clientY: y,
+            pointerId: 1,
+            bubbles: true,
+            button: 0,
+          }),
+        )
       ev('pointerdown', sx, sy)
       for (let i = 1; i <= 8; i++) ev('pointermove', sx + (i * dx) / 1, sy + (i * dy) / 1)
       ev('pointerup', sx + 8 * dx, sy + 8 * dy)
@@ -54,20 +64,33 @@ for (const c of CASES) {
     await page.waitForTimeout(500)
     const end = await read()
 
-    const dragLon = rel.lon - start.lon, dragLat = rel.lat - start.lat
-    const glideLon = end.lon - rel.lon, glideLat = end.lat - rel.lat
+    const dragLon = rel.lon - start.lon,
+      dragLat = rel.lat - start.lat
+    const glideLon = end.lon - rel.lon,
+      glideLat = end.lat - rel.lat
     // eslint-disable-next-line no-console
-    console.log(`DIR[${c.label}] drag=(${dragLon.toFixed(2)},${dragLat.toFixed(2)}) glide=(${glideLon.toFixed(2)},${glideLat.toFixed(2)})`)
+    console.log(
+      `DIR[${c.label}] drag=(${dragLon.toFixed(2)},${dragLat.toFixed(2)}) glide=(${glideLon.toFixed(2)},${glideLat.toFixed(2)})`,
+    )
 
     // The glide must CONTINUE the drag along the DOMINANT (intended) axis — the axis
     // the user actually flicked. A pure +x flick legitimately produces a pure-x glide;
     // the small incidental cross-axis drift the grab-anchor adds mid-drag is NOT part of
     // the flick intent, so the inertia is not required to reproduce it.
-    expect(Math.abs(glideLon) + Math.abs(glideLat), 'inertia produced a non-zero glide').toBeGreaterThan(0.05)
+    expect(
+      Math.abs(glideLon) + Math.abs(glideLat),
+      'inertia produced a non-zero glide',
+    ).toBeGreaterThan(0.05)
     if (Math.abs(dragLon) >= Math.abs(dragLat)) {
-      expect(Math.sign(glideLon), `dominant=lon: drag ${dragLon.toFixed(1)} glide ${glideLon.toFixed(1)}`).toBe(Math.sign(dragLon))
+      expect(
+        Math.sign(glideLon),
+        `dominant=lon: drag ${dragLon.toFixed(1)} glide ${glideLon.toFixed(1)}`,
+      ).toBe(Math.sign(dragLon))
     } else {
-      expect(Math.sign(glideLat), `dominant=lat: drag ${dragLat.toFixed(1)} glide ${glideLat.toFixed(1)}`).toBe(Math.sign(dragLat))
+      expect(
+        Math.sign(glideLat),
+        `dominant=lat: drag ${dragLat.toFixed(1)} glide ${glideLat.toFixed(1)}`,
+      ).toBe(Math.sign(dragLat))
     }
   })
 }

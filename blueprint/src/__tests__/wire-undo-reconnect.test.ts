@@ -22,7 +22,11 @@ interface Internals {
   history: History
   snap: boolean
   pinEls: Map<string, Pin>
-  drag: { kind: 'wire'; from: { node: string; pin: string; ptype: PinType }; reconnected?: boolean } | null
+  drag: {
+    kind: 'wire'
+    from: { node: string; pin: string; ptype: PinType }
+    reconnected?: boolean
+  } | null
   renderAll: () => void
   renderEdges: () => void
   renderInspector: () => void
@@ -109,7 +113,10 @@ describe('blueprint wire undo correctness', () => {
     ed.pinEls = new Map([pin('s', 'out', 'out', 'any'), pin('l', 'in', 'in', 'any')])
 
     const before = pastLen(ed)
-    ed.tryConnect({ node: 's', pin: 'out', ptype: 'any' }, { node: 'l', pin: 'in', dir: 'in', ptype: 'any' })
+    ed.tryConnect(
+      { node: 's', pin: 'out', ptype: 'any' },
+      { node: 'l', pin: 'in', dir: 'in', ptype: 'any' },
+    )
     expect(pastLen(ed) - before).toBe(1)
     expect(ed.edges.some((e) => e.from.node === 's' && e.to.node === 'l')).toBe(true)
   })

@@ -21,7 +21,7 @@ function compileDemo(source: string) {
 function vtrDash(show: { dashArray?: number[]; dashOffset?: number }, mpp: number) {
   if (!show.dashArray || show.dashArray.length < 2) return null
   return {
-    array: show.dashArray.map(v => v * mpp),
+    array: show.dashArray.map((v) => v * mpp),
     offset: (show.dashOffset ?? 0) * mpp,
   }
 }
@@ -48,7 +48,7 @@ describe('end-to-end dash pipeline', () => {
   it('dashed-lines demo: uniform buffer has dash_enable bit and correct cycle at zoom 5', () => {
     const commands = compileDemo(DASHED_LINES_DEMO)
     const show = commands.shows[0]
-    const mpp = (40075016.686 / 256) / Math.pow(2, 5) // ≈ 4891.97
+    const mpp = 40075016.686 / 256 / Math.pow(2, 5) // ≈ 4891.97
     const dash = vtrDash(show, mpp)
     expect(dash).not.toBeNull()
     expect(dash!.array).toEqual([20 * mpp, 10 * mpp])
@@ -109,7 +109,7 @@ describe('end-to-end dash pipeline', () => {
   })
 
   it('probes phase calculation: at zoom 5, a fragment at arc=0 is in the DASH range', () => {
-    const mpp = (40075016.686 / 256) / Math.pow(2, 5)
+    const mpp = 40075016.686 / 256 / Math.pow(2, 5)
     const dashArrayM = [20 * mpp, 10 * mpp]
     const cycleM = dashArrayM[0] + dashArrayM[1]
     // Emulate shader's phase calc: fract((arc_pos + offset) / cycle) * cycle

@@ -35,8 +35,7 @@ import { TextStage } from '@xgis/map'
 import { TextStageDiagnostics } from '@xgis/map'
 
 // FieldAccess AST node helper — mirrors text-resolver.test.ts.
-const fld = (field: string) =>
-  ({ kind: 'FieldAccess' as const, object: null, field })
+const fld = (field: string) => ({ kind: 'FieldAccess' as const, object: null, field })
 
 /** Build a GPU-free TextStage that only has the fields addLabel touches:
  *  cameraZoom (private, default undefined → no zoom enrichment), pending

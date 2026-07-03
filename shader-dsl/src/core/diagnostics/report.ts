@@ -12,7 +12,13 @@
 
 import type { ModuleDecl } from '../ir'
 import type { Backend } from '../backend'
-import { lint, summarize, type Diagnostic, type LintSummary, type LintConfig } from '../passes/lint/engine'
+import {
+  lint,
+  summarize,
+  type Diagnostic,
+  type LintSummary,
+  type LintConfig,
+} from '../passes/lint/engine'
 import { RULES, CORE_RULES } from '../passes/lint/rules'
 import { requiredCaps } from '../passes/required-caps'
 import { formatLoc } from './error'

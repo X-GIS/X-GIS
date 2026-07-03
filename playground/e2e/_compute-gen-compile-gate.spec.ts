@@ -14,7 +14,9 @@
 // Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { test, expect } from '@playwright/test'
 import {
-  emitInterpolateComputeKernel, emitMatchComputeKernel, emitTernaryComputeKernel,
+  emitInterpolateComputeKernel,
+  emitMatchComputeKernel,
+  emitTernaryComputeKernel,
 } from '../../compiler/src/codegen/compute-gen'
 
 function computeVariants(): Array<{ name: string; wgsl: string }> {
@@ -23,21 +25,32 @@ function computeVariants(): Array<{ name: string; wgsl: string }> {
       name: 'interpolate-3stop (IR-emitted #625)',
       wgsl: emitInterpolateComputeKernel({
         fieldName: 'rank',
-        stops: [{ input: 0, colorHex: '#ffffff' }, { input: 5, colorHex: '#888888' }, { input: 10, colorHex: '#000000' }],
+        stops: [
+          { input: 0, colorHex: '#ffffff' },
+          { input: 5, colorHex: '#888888' },
+          { input: 10, colorHex: '#000000' },
+        ],
       }).wgsl,
     },
     {
       name: 'interpolate-2stop',
       wgsl: emitInterpolateComputeKernel({
         fieldName: 'mag',
-        stops: [{ input: 1, colorHex: '#ffff00' }, { input: 8, colorHex: '#ff0000' }],
+        stops: [
+          { input: 1, colorHex: '#ffff00' },
+          { input: 8, colorHex: '#ff0000' },
+        ],
       }).wgsl,
     },
     {
       name: 'match-3arm',
       wgsl: emitMatchComputeKernel({
         fieldName: 'class',
-        arms: [{ pattern: 'school', colorHex: '#f0e8f8' }, { pattern: 'park', colorHex: '#88cc88' }, { pattern: 'hospital', colorHex: '#f5deb3' }],
+        arms: [
+          { pattern: 'school', colorHex: '#f0e8f8' },
+          { pattern: 'park', colorHex: '#88cc88' },
+          { pattern: 'hospital', colorHex: '#f5deb3' },
+        ],
         defaultColorHex: '#00000000',
       }).wgsl,
     },
@@ -87,7 +100,9 @@ test.describe('compute-gen WGSL compile gate', () => {
           const info = await module.getCompilationInfo()
           const errs = info.messages.filter((m) => m.type === 'error')
           if (errs.length > 0) {
-            failures.push(`${v.name}: ${errs.map((e) => `L${e.lineNum}: ${e.message}`).join(' | ')}`)
+            failures.push(
+              `${v.name}: ${errs.map((e) => `L${e.lineNum}: ${e.message}`).join(' | ')}`,
+            )
           }
         } catch (e) {
           failures.push(`${v.name}: threw ${(e as Error).message}`)
@@ -96,7 +111,9 @@ test.describe('compute-gen WGSL compile gate', () => {
       return { failures, count: variants.length }
     }, variants)
 
-    expect(result, `GPU unavailable: ${'fatal' in result ? result.fatal : ''}`).not.toHaveProperty('fatal')
+    expect(result, `GPU unavailable: ${'fatal' in result ? result.fatal : ''}`).not.toHaveProperty(
+      'fatal',
+    )
     if ('fatal' in result) return
     expect(
       result.failures,

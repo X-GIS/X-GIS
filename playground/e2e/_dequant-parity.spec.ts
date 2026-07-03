@@ -31,18 +31,21 @@ const SOFTWARE_GPU = process.env.XGIS_SOFTWARE_GPU === '1'
 // Per-tile symmetric half-range + step, spanning the real zoom range. scale =
 // span / 0xFFFFFFFF mirrors packECEFPolygonVertices.
 const CASES = [
-  { label: 'z0',  half: 1.0e7 },
-  { label: 'z8',  half: 4.0e4 },
+  { label: 'z0', half: 1.0e7 },
+  { label: 'z8', half: 4.0e4 },
   { label: 'z15', half: 3.0e2 },
-  { label: 'z22', half: 2.0e0 },
+  { label: 'z22', half: 2.0 },
 ] as const
 
-const N = 2000  // vertices per case
+const N = 2000 // vertices per case
 
 // Deterministic RNG so failures reproduce.
 function makeRng(seed: number): () => number {
   let s = seed >>> 0
-  return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 0x1_0000_0000 }
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0
+    return s / 0x1_0000_0000
+  }
 }
 
 const COMPUTE_WGSL = `
@@ -69,8 +72,8 @@ test.describe('dequant_ecef compute parity (GPU f32 ≡ CPU fround mirror)', () 
 
     // Build per-case inputs: random u16 position lanes + scale/half.
     const cases = CASES.map(({ label, half }, ci) => {
-      const scale = (2 * half) / 0xFFFFFFFF
-      const rng = makeRng(0xD0 + ci)
+      const scale = (2 * half) / 0xffffffff
+      const rng = makeRng(0xd0 + ci)
       // Stride from the SINGLE-SOURCE polygon fill format (stride 28 = 14 u16;
       // the u16×6 position is lanes 0..5, the rest is the f32 tail) so the
       // synthetic buffer strides EXACTLY like dequantVertexF32 reads it
@@ -83,7 +86,7 @@ test.describe('dequant_ecef compute parity (GPU f32 ≡ CPU fround mirror)', () 
       const inU32 = new Uint32Array(N * 6)
       for (let i = 0; i < N; i++) {
         for (let k = 0; k < 6; k++) {
-          const v = Math.floor(rng() * 0x10000) & 0xFFFF
+          const v = Math.floor(rng() * 0x10000) & 0xffff
           u16[i * u16PerVert + k] = v
           inU32[i * 6 + k] = v
         }
@@ -91,62 +94,90 @@ test.describe('dequant_ecef compute parity (GPU f32 ≡ CPU fround mirror)', () 
       return { label, half, scale, verts, inU32 }
     })
 
-    const gpu = await page.evaluate(async (args: {
-      wgsl: string
-      cases: Array<{ label: string; half: number; scale: number; inU32: number[] }>
-    }) => {
-      const nav = navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }
-      if (!nav.gpu) return { error: 'no navigator.gpu' as const }
-      const adapter = await (nav.gpu.requestAdapter() as Promise<GPUAdapter | null>)
-      if (!adapter) return { error: 'no adapter' as const }
-      const device = await adapter.requestDevice()
-      const errors: string[] = []
-      device.addEventListener('uncapturederror', (e) => {
-        errors.push((e as GPUUncapturedErrorEvent).error.message)
-      })
-
-      const module = device.createShaderModule({ code: args.wgsl })
-      const info = await module.getCompilationInfo()
-      const fatals = info.messages.filter(m => m.type === 'error')
-      if (fatals.length > 0) {
-        return { error: 'compile: ' + fatals.map(m => `${m.lineNum}:${m.message}`).join(' | ') }
-      }
-      const pipeline = device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'main' } })
-
-      const out: Record<string, number[]> = {}
-      for (const c of args.cases) {
-        const n = c.inU32.length / 6
-        const inData = new Uint32Array(c.inU32)
-        const inBuf = device.createBuffer({ size: inData.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST })
-        device.queue.writeBuffer(inBuf, 0, inData)
-        const outBuf = device.createBuffer({ size: n * 4 * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC })
-        const readBuf = device.createBuffer({ size: n * 4 * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ })
-        const ppBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
-        device.queue.writeBuffer(ppBuf, 0, new Float32Array([c.scale, c.half, 0, 0]))
-        const bind = device.createBindGroup({
-          layout: pipeline.getBindGroupLayout(0),
-          entries: [
-            { binding: 0, resource: { buffer: inBuf } },
-            { binding: 1, resource: { buffer: outBuf } },
-            { binding: 2, resource: { buffer: ppBuf } },
-          ],
+    const gpu = await page.evaluate(
+      async (args: {
+        wgsl: string
+        cases: Array<{ label: string; half: number; scale: number; inU32: number[] }>
+      }) => {
+        const nav = navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }
+        if (!nav.gpu) return { error: 'no navigator.gpu' as const }
+        const adapter = await (nav.gpu.requestAdapter() as Promise<GPUAdapter | null>)
+        if (!adapter) return { error: 'no adapter' as const }
+        const device = await adapter.requestDevice()
+        const errors: string[] = []
+        device.addEventListener('uncapturederror', (e) => {
+          errors.push((e as GPUUncapturedErrorEvent).error.message)
         })
-        const enc = device.createCommandEncoder()
-        const pass = enc.beginComputePass()
-        pass.setPipeline(pipeline)
-        pass.setBindGroup(0, bind)
-        pass.dispatchWorkgroups(Math.ceil(n / 64))
-        pass.end()
-        enc.copyBufferToBuffer(outBuf, 0, readBuf, 0, n * 4 * 4)
-        device.queue.submit([enc.finish()])
-        await readBuf.mapAsync(GPUMapMode.READ)
-        out[c.label] = Array.from(new Float32Array(readBuf.getMappedRange().slice(0)))
-        readBuf.unmap()
-      }
-      return { out, errors }
-    }, { wgsl: COMPUTE_WGSL, cases: cases.map(c => ({ label: c.label, half: c.half, scale: c.scale, inU32: Array.from(c.inU32) })) })
 
-    expect(gpu, `GPU compute failed: ${'error' in gpu ? gpu.error : ''}`).not.toHaveProperty('error')
+        const module = device.createShaderModule({ code: args.wgsl })
+        const info = await module.getCompilationInfo()
+        const fatals = info.messages.filter((m) => m.type === 'error')
+        if (fatals.length > 0) {
+          return { error: 'compile: ' + fatals.map((m) => `${m.lineNum}:${m.message}`).join(' | ') }
+        }
+        const pipeline = device.createComputePipeline({
+          layout: 'auto',
+          compute: { module, entryPoint: 'main' },
+        })
+
+        const out: Record<string, number[]> = {}
+        for (const c of args.cases) {
+          const n = c.inU32.length / 6
+          const inData = new Uint32Array(c.inU32)
+          const inBuf = device.createBuffer({
+            size: inData.byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+          })
+          device.queue.writeBuffer(inBuf, 0, inData)
+          const outBuf = device.createBuffer({
+            size: n * 4 * 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+          })
+          const readBuf = device.createBuffer({
+            size: n * 4 * 4,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+          })
+          const ppBuf = device.createBuffer({
+            size: 16,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          })
+          device.queue.writeBuffer(ppBuf, 0, new Float32Array([c.scale, c.half, 0, 0]))
+          const bind = device.createBindGroup({
+            layout: pipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: inBuf } },
+              { binding: 1, resource: { buffer: outBuf } },
+              { binding: 2, resource: { buffer: ppBuf } },
+            ],
+          })
+          const enc = device.createCommandEncoder()
+          const pass = enc.beginComputePass()
+          pass.setPipeline(pipeline)
+          pass.setBindGroup(0, bind)
+          pass.dispatchWorkgroups(Math.ceil(n / 64))
+          pass.end()
+          enc.copyBufferToBuffer(outBuf, 0, readBuf, 0, n * 4 * 4)
+          device.queue.submit([enc.finish()])
+          await readBuf.mapAsync(GPUMapMode.READ)
+          out[c.label] = Array.from(new Float32Array(readBuf.getMappedRange().slice(0)))
+          readBuf.unmap()
+        }
+        return { out, errors }
+      },
+      {
+        wgsl: COMPUTE_WGSL,
+        cases: cases.map((c) => ({
+          label: c.label,
+          half: c.half,
+          scale: c.scale,
+          inU32: Array.from(c.inU32),
+        })),
+      },
+    )
+
+    expect(gpu, `GPU compute failed: ${'error' in gpu ? gpu.error : ''}`).not.toHaveProperty(
+      'error',
+    )
     if ('error' in gpu) return
     expect(gpu.errors, `uncaptured GPU errors: ${gpu.errors.join(' | ')}`).toEqual([])
 
@@ -160,22 +191,35 @@ test.describe('dequant_ecef compute parity (GPU f32 ≡ CPU fround mirror)', () 
       const quant = { vertices: c.verts, dequantScale: c.scale, dequantHalf: c.half }
       for (let i = 0; i < N; i++) {
         const [cx, cy, cz] = dequantVertexF32(quant, i)
-        const gx = flat[i * 4], gy = flat[i * 4 + 1], gz = flat[i * 4 + 2]
-        for (const [g, cpu, axis] of [[gx, cx, 'x'], [gy, cy, 'y'], [gz, cz, 'z']] as const) {
+        const gx = flat[i * 4],
+          gy = flat[i * 4 + 1],
+          gz = flat[i * 4 + 2]
+        for (const [g, cpu, axis] of [
+          [gx, cx, 'x'],
+          [gy, cy, 'y'],
+          [gz, cz, 'z'],
+        ] as const) {
           if (!Number.isFinite(g) || !Number.isFinite(cpu)) continue
           compared++
           const d = Math.abs(g - cpu)
-          const tol = Math.abs(cpu) * 4e-6 + 1e-3  // ~few ULP at f32 + 1mm floor
+          const tol = Math.abs(cpu) * 4e-6 + 1e-3 // ~few ULP at f32 + 1mm floor
           const rel = d / (Math.abs(cpu) + 1e-9)
           if (rel > worstRel) worstRel = rel
           if (d > tol) {
-            failures.push(`${c.label} v${i}.${axis}: GPU=${g} CPU=${cpu} Δ=${d.toExponential(3)} (tol ${tol.toExponential(3)})`)
+            failures.push(
+              `${c.label} v${i}.${axis}: GPU=${g} CPU=${cpu} Δ=${d.toExponential(3)} (tol ${tol.toExponential(3)})`,
+            )
           }
         }
       }
     }
-    console.log(`[dequant parity] worst relative GPU-vs-CPU-fround delta: ${worstRel.toExponential(4)} (${SOFTWARE_GPU ? 'software' : 'hardware'} GPU), ${compared} axes compared`)
+    console.log(
+      `[dequant parity] worst relative GPU-vs-CPU-fround delta: ${worstRel.toExponential(4)} (${SOFTWARE_GPU ? 'software' : 'hardware'} GPU), ${compared} axes compared`,
+    )
     expect(compared, 'no finite pairs compared — kernel produced no output').toBeGreaterThan(20000)
-    expect(failures, `GPU dequant_ecef drifted from the CPU fround mirror:\n${failures.slice(0, 15).join('\n')}`).toEqual([])
+    expect(
+      failures,
+      `GPU dequant_ecef drifted from the CPU fround mirror:\n${failures.slice(0, 15).join('\n')}`,
+    ).toEqual([])
   })
 })

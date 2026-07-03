@@ -63,7 +63,15 @@ interface RampSample {
 }
 
 interface XgisMap {
-  vtSources: Map<string, { renderer: { _selection?: { _hysteresisZ?: number }; getDrawStats?: () => { tilesVisible: number; missedTiles: number } } }>
+  vtSources: Map<
+    string,
+    {
+      renderer: {
+        _selection?: { _hysteresisZ?: number }
+        getDrawStats?: () => { tilesVisible: number; missedTiles: number }
+      }
+    }
+  >
   camera: { zoom: number }
   inspectPipeline?: () => {
     sources: Array<{
@@ -74,7 +82,10 @@ interface XgisMap {
   }
 }
 declare global {
-  interface Window { __xgisMap?: XgisMap; __xgisReady?: boolean }
+  interface Window {
+    __xgisMap?: XgisMap
+    __xgisReady?: boolean
+  }
 }
 
 const DEMO_URL = '/demo.html?id=pmtiles_layered#13/35.68/139.76'
@@ -94,7 +105,8 @@ test.describe('Zoom-in tile hold (continuous gesture)', () => {
     // ancestor — i.e., the exact "blank gap" the user reported. It's a
     // much cleaner signal than pixel sampling because the runtime
     // already reasons about "did fallback succeed?" per-tile per-frame.
-    const flickerWarnings: Array<{ t: number; text: string; phase: 'pre-ramp' | 'ramp' | 'post' }> = []
+    const flickerWarnings: Array<{ t: number; text: string; phase: 'pre-ramp' | 'ramp' | 'post' }> =
+      []
     let phase: 'pre-ramp' | 'ramp' | 'post' = 'pre-ramp'
     const tStart = Date.now()
     page.on('console', (m) => {
@@ -117,26 +129,27 @@ test.describe('Zoom-in tile hold (continuous gesture)', () => {
     })
 
     await page.goto(DEMO_URL, { waitUntil: 'domcontentloaded' })
-    await page.waitForFunction(
-      () => window.__xgisReady === true,
-      null, { timeout: 30_000 },
-    )
+    await page.waitForFunction(() => window.__xgisReady === true, null, { timeout: 30_000 })
     // Settled state: every VTR has GPU-resident tiles AND nothing
     // pending. Settle on BOTH so cold-start dispatch race doesn't
     // leak into the baseline.
-    await page.waitForFunction(() => {
-      const map = window.__xgisMap
-      if (!map?.vtSources) return false
-      let visible = 0
-      let pending = 0
-      for (const { renderer } of map.vtSources.values()) {
-        const ds = renderer.getDrawStats?.()
-        visible += ds?.tilesVisible ?? 0
-        const r = renderer as unknown as { getPendingUploadCount?: () => number }
-        pending += r.getPendingUploadCount?.() ?? 0
-      }
-      return visible > 0 && pending === 0
-    }, null, { timeout: 60_000 })
+    await page.waitForFunction(
+      () => {
+        const map = window.__xgisMap
+        if (!map?.vtSources) return false
+        let visible = 0
+        let pending = 0
+        for (const { renderer } of map.vtSources.values()) {
+          const ds = renderer.getDrawStats?.()
+          visible += ds?.tilesVisible ?? 0
+          const r = renderer as unknown as { getPendingUploadCount?: () => number }
+          pending += r.getPendingUploadCount?.() ?? 0
+        }
+        return visible > 0 && pending === 0
+      },
+      null,
+      { timeout: 60_000 },
+    )
     await page.waitForTimeout(2000)
 
     // ── Baseline (settled, before any zoom) ──────────────────────────
@@ -161,13 +174,20 @@ test.describe('Zoom-in tile hold (continuous gesture)', () => {
       return { totalVisible, perSource, bgRGB, tol }
     }, BG_TOLERANCE_PER_CHANNEL)
 
-    if (!baseline.bgRGB) throw new Error('map._backgroundColor missing — demo has no background fill?')
-    console.log(`[baseline] tilesVisible=${baseline.totalVisible} bg=rgb(${baseline.bgRGB.join(',')})`)
+    if (!baseline.bgRGB)
+      throw new Error('map._backgroundColor missing — demo has no background fill?')
+    console.log(
+      `[baseline] tilesVisible=${baseline.totalVisible} bg=rgb(${baseline.bgRGB.join(',')})`,
+    )
 
     // Capture baseline screenshot + bg fraction.
     const baselinePng = await page.locator('#map').screenshot()
     writeFileSync(join(OUT, 'baseline.png'), baselinePng)
-    const baselineBgFraction = await measureBgFraction(page, baseline.bgRGB, BG_TOLERANCE_PER_CHANNEL)
+    const baselineBgFraction = await measureBgFraction(
+      page,
+      baseline.bgRGB,
+      BG_TOLERANCE_PER_CHANNEL,
+    )
     console.log(`[baseline] bgFraction=${(baselineBgFraction * 100).toFixed(1)}%`)
 
     const flickerBaseline = flickerWarnings.length
@@ -178,64 +198,80 @@ test.describe('Zoom-in tile hold (continuous gesture)', () => {
     // pinned to a rAF tick (matches real wheel-event cadence). No
     // pixel reads happen during the ramp — those would distort timing.
     phase = 'ramp'
-    const ramp = await page.evaluate(async (cfg) => {
-      const map = window.__xgisMap!
-      const samples: RampSample[] = []
-      const t0 = performance.now()
-      const tEnd = t0 + cfg.durationMs
-      let frame = 0
-      while (performance.now() < tEnd) {
-        await new Promise<void>(r => requestAnimationFrame(() => r()))
-        const elapsed = performance.now() - t0
-        const t = Math.min(1, elapsed / cfg.durationMs)
-        map.camera.zoom = cfg.startZoom + (cfg.endZoom - cfg.startZoom) * t
-        frame++
-        if (frame % cfg.sampleEvery === 0) {
-          const hysteresisZ: number[] = []
-          let totalVisible = 0
-          for (const { renderer } of map.vtSources.values()) {
-            hysteresisZ.push(renderer._selection?._hysteresisZ ?? -1)
-            totalVisible += renderer.getDrawStats?.().tilesVisible ?? 0
+    const ramp = await page.evaluate(
+      async (cfg) => {
+        const map = window.__xgisMap!
+        const samples: RampSample[] = []
+        const t0 = performance.now()
+        const tEnd = t0 + cfg.durationMs
+        let frame = 0
+        while (performance.now() < tEnd) {
+          await new Promise<void>((r) => requestAnimationFrame(() => r()))
+          const elapsed = performance.now() - t0
+          const t = Math.min(1, elapsed / cfg.durationMs)
+          map.camera.zoom = cfg.startZoom + (cfg.endZoom - cfg.startZoom) * t
+          frame++
+          if (frame % cfg.sampleEvery === 0) {
+            const hysteresisZ: number[] = []
+            let totalVisible = 0
+            for (const { renderer } of map.vtSources.values()) {
+              hysteresisZ.push(renderer._selection?._hysteresisZ ?? -1)
+              totalVisible += renderer.getDrawStats?.().tilesVisible ?? 0
+            }
+            const inspect = map.inspectPipeline?.()
+            const sources: SourceFrameStat[] = (inspect?.sources ?? []).map((s) => ({
+              name: s.name,
+              tilesVisible: s.frame.tilesVisible,
+              missedTiles: s.frame.missedTiles,
+              cacheSize: s.cache.size,
+              pendingUploads: s.cache.pendingUploads,
+            }))
+            samples.push({
+              t: elapsed,
+              cameraZoom: map.camera.zoom,
+              hysteresisZ,
+              totalTilesVisible: totalVisible,
+              sources,
+            })
           }
-          const inspect = map.inspectPipeline?.()
-          const sources: SourceFrameStat[] = (inspect?.sources ?? []).map(s => ({
-            name: s.name,
-            tilesVisible: s.frame.tilesVisible,
-            missedTiles: s.frame.missedTiles,
-            cacheSize: s.cache.size,
-            pendingUploads: s.cache.pendingUploads,
-          }))
-          samples.push({
-            t: elapsed,
-            cameraZoom: map.camera.zoom,
-            hysteresisZ,
-            totalTilesVisible: totalVisible,
-            sources,
-          })
         }
-      }
-      return samples
-    }, { startZoom: 13, endZoom: 17, durationMs: RAMP_DURATION_MS, sampleEvery: RAMP_SAMPLE_EVERY_FRAMES })
+        return samples
+      },
+      {
+        startZoom: 13,
+        endZoom: 17,
+        durationMs: RAMP_DURATION_MS,
+        sampleEvery: RAMP_SAMPLE_EVERY_FRAMES,
+      },
+    )
 
     phase = 'post'
     const flickerDuringRamp = flickerWarnings.length - flickerBaseline
     console.log(`[ramp] flicker warnings emitted during ramp = ${flickerDuringRamp}`)
 
     // Save full timeline for diagnosis when an assertion fails.
-    writeFileSync(join(OUT, 'timeline.json'),
-      JSON.stringify({
-        baseline: { ...baseline, bgFraction: baselineBgFraction, flickerCount: flickerBaseline },
-        ramp,
-        flickerWarnings,
-      }, null, 2))
+    writeFileSync(
+      join(OUT, 'timeline.json'),
+      JSON.stringify(
+        {
+          baseline: { ...baseline, bgFraction: baselineBgFraction, flickerCount: flickerBaseline },
+          ramp,
+          flickerWarnings,
+        },
+        null,
+        2,
+      ),
+    )
 
     // Trough metric — minimum of totalTilesVisible across the ramp.
     // A deep dip means the renderer briefly had nothing to draw.
     const trough = ramp.reduce(
-      (acc, s) => s.totalTilesVisible < acc.totalTilesVisible ? s : acc,
+      (acc, s) => (s.totalTilesVisible < acc.totalTilesVisible ? s : acc),
       ramp[0] ?? { t: 0, cameraZoom: 0, hysteresisZ: [], totalTilesVisible: Infinity, sources: [] },
     )
-    console.log(`[ramp] frames=${ramp.length}, trough at t=${trough.t.toFixed(0)}ms zoom=${trough.cameraZoom.toFixed(2)} totalTiles=${trough.totalTilesVisible} (baseline=${baseline.totalVisible})`)
+    console.log(
+      `[ramp] frames=${ramp.length}, trough at t=${trough.t.toFixed(0)}ms zoom=${trough.cameraZoom.toFixed(2)} totalTiles=${trough.totalTilesVisible} (baseline=${baseline.totalVisible})`,
+    )
 
     // ── Pass 2: spot screenshots at planned zoom values ──────────────
     // Each spot: jump to zoom, wait 200 ms (≈12 rAFs) for fallback /
@@ -244,19 +280,20 @@ test.describe('Zoom-in tile hold (continuous gesture)', () => {
     // hysteresis + fallback has a chance to compose, short enough
     // that a real bug (no hold, no fallback) still shows blank.
     await page.goto(DEMO_URL, { waitUntil: 'domcontentloaded' })
+    await page.waitForFunction(() => window.__xgisReady === true, null, { timeout: 30_000 })
     await page.waitForFunction(
-      () => window.__xgisReady === true,
-      null, { timeout: 30_000 },
+      () => {
+        const map = window.__xgisMap
+        if (!map?.vtSources) return false
+        let v = 0
+        for (const { renderer } of map.vtSources.values()) {
+          v += renderer.getDrawStats?.().tilesVisible ?? 0
+        }
+        return v > 0
+      },
+      null,
+      { timeout: 60_000 },
     )
-    await page.waitForFunction(() => {
-      const map = window.__xgisMap
-      if (!map?.vtSources) return false
-      let v = 0
-      for (const { renderer } of map.vtSources.values()) {
-        v += renderer.getDrawStats?.().tilesVisible ?? 0
-      }
-      return v > 0
-    }, null, { timeout: 60_000 })
     await page.waitForTimeout(2000)
 
     const spotResults: Array<{ zoom: number; bgFraction: number }> = []
@@ -265,7 +302,7 @@ test.describe('Zoom-in tile hold (continuous gesture)', () => {
         window.__xgisMap!.camera.zoom = target
         // ~12 rAFs at 60 fps.
         for (let i = 0; i < 12; i++) {
-          await new Promise<void>(r => requestAnimationFrame(() => r()))
+          await new Promise<void>((r) => requestAnimationFrame(() => r()))
         }
       }, z)
       const png = await page.locator('#map').screenshot()
@@ -283,9 +320,10 @@ test.describe('Zoom-in tile hold (continuous gesture)', () => {
     //     the import statement dropped the function but the prefetch
     //     branch still called it — silently broke prefetch on every
     //     zoom-in.
-    expect(pageErrors,
+    expect(
+      pageErrors,
       `Render loop threw during the test: ${pageErrors.join('; ')}. ` +
-      `Likely a missing import or null deref in the hot path.`,
+        `Likely a missing import or null deref in the hot path.`,
     ).toEqual([])
 
     // (A) Runtime FLICKER canary: the renderer emits "[FLICKER] N tiles
@@ -294,34 +332,37 @@ test.describe('Zoom-in tile hold (continuous gesture)', () => {
     //     would see bg through a gap. A handful during cold-start is
     //     normal (tiles racing to land); a sustained stream during a
     //     warm-cache zoom-in is the user-reported regression.
-    expect(flickerDuringRamp,
+    expect(
+      flickerDuringRamp,
       `Excessive [FLICKER] warnings during continuous zoom: ${flickerDuringRamp} ` +
-      `(baseline pre-ramp = ${flickerBaseline}). Each warning is a frame where the ` +
-      `runtime's parent-walk fallback couldn't find any cached ancestor for a ` +
-      `currently-visible tile — the user sees demo background through the gap. ` +
-      `Diagnose by reading flickerWarnings[] in timeline.json and the spot-z*.png frames.`,
+        `(baseline pre-ramp = ${flickerBaseline}). Each warning is a frame where the ` +
+        `runtime's parent-walk fallback couldn't find any cached ancestor for a ` +
+        `currently-visible tile — the user sees demo background through the gap. ` +
+        `Diagnose by reading flickerWarnings[] in timeline.json and the spot-z*.png frames.`,
     ).toBeLessThan(15)
 
     // (B) Bookkeeping: the renderer should always have SOMETHING on
     //     screen during the ramp. Floor at 40% of baseline tile count
     //     — generous, catches only severe drops to ~0.
-    expect(trough.totalTilesVisible,
+    expect(
+      trough.totalTilesVisible,
       `tilesVisible dropped to ${trough.totalTilesVisible} at zoom=${trough.cameraZoom.toFixed(2)} ` +
-      `(baseline ${baseline.totalVisible}, floor ${Math.floor(baseline.totalVisible * 0.4)}). ` +
-      `Renderer briefly had nothing to draw — hysteresis released before fallback populated, ` +
-      `or LRU evicted the parent before the child arrived.`,
+        `(baseline ${baseline.totalVisible}, floor ${Math.floor(baseline.totalVisible * 0.4)}). ` +
+        `Renderer briefly had nothing to draw — hysteresis released before fallback populated, ` +
+        `or LRU evicted the parent before the child arrived.`,
     ).toBeGreaterThan(Math.floor(baseline.totalVisible * 0.4))
 
     // (C) Visual: spot screenshots should not show large bg-color
     //     patches beyond the baseline. Threshold = baseline + 15 pp.
     //     Tighter than (A) because (A) is the load-bearing assertion;
     //     (C) is the "even bookkeeping was wrong" backstop.
-    const maxSpotBg = Math.max(...spotResults.map(s => s.bgFraction))
-    expect(maxSpotBg,
+    const maxSpotBg = Math.max(...spotResults.map((s) => s.bgFraction))
+    expect(
+      maxSpotBg,
       `Visual blank flash detected: max bg fraction during ramp = ${(maxSpotBg * 100).toFixed(1)}%, ` +
-      `baseline = ${(baselineBgFraction * 100).toFixed(1)}%. ` +
-      `Bookkeeping may report tilesVisible OK while the GPU buffers were evicted ` +
-      `(catalog has slice metadata but layerCache miss).`,
+        `baseline = ${(baselineBgFraction * 100).toFixed(1)}%. ` +
+        `Bookkeeping may report tilesVisible OK while the GPU buffers were evicted ` +
+        `(catalog has slice metadata but layerCache miss).`,
     ).toBeLessThan(baselineBgFraction + 0.15)
   })
 })
@@ -335,24 +376,31 @@ async function measureBgFraction(
   bg: [number, number, number] | number[],
   tol: number,
 ): Promise<number> {
-  return await page.evaluate(async ({ bg, tol }) => {
-    const canvas = document.getElementById('map') as HTMLCanvasElement
-    const blob = await new Promise<Blob | null>((res) => canvas.toBlob((b) => res(b), 'image/png'))
-    if (!blob) return 0
-    const bitmap = await createImageBitmap(blob)
-    const off = new OffscreenCanvas(bitmap.width, bitmap.height)
-    const ctx = off.getContext('2d')!
-    ctx.drawImage(bitmap, 0, 0)
-    const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data
-    let bgCount = 0
-    const total = data.length / 4
-    for (let i = 0; i < data.length; i += 4) {
-      if (Math.abs(data[i] - bg[0]) <= tol &&
+  return await page.evaluate(
+    async ({ bg, tol }) => {
+      const canvas = document.getElementById('map') as HTMLCanvasElement
+      const blob = await new Promise<Blob | null>((res) =>
+        canvas.toBlob((b) => res(b), 'image/png'),
+      )
+      if (!blob) return 0
+      const bitmap = await createImageBitmap(blob)
+      const off = new OffscreenCanvas(bitmap.width, bitmap.height)
+      const ctx = off.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0)
+      const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data
+      let bgCount = 0
+      const total = data.length / 4
+      for (let i = 0; i < data.length; i += 4) {
+        if (
+          Math.abs(data[i] - bg[0]) <= tol &&
           Math.abs(data[i + 1] - bg[1]) <= tol &&
-          Math.abs(data[i + 2] - bg[2]) <= tol) {
-        bgCount++
+          Math.abs(data[i + 2] - bg[2]) <= tol
+        ) {
+          bgCount++
+        }
       }
-    }
-    return bgCount / total
-  }, { bg: [bg[0], bg[1], bg[2]], tol })
+      return bgCount / total
+    },
+    { bg: [bg[0], bg[1], bg[2]], tol },
+  )
 }

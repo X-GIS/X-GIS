@@ -70,11 +70,7 @@ export interface PolarCapFeatureCollection {
  *  the tessellator); instead the ring runs at latThreshold all the
  *  way around then steps up to lat * 0.999 toward the pole to give
  *  the GPU vertex projector something well-defined. */
-function buildCapRing(
-  pole: 1 | -1,
-  latThreshold: number,
-  lonSegments: number,
-): [number, number][] {
+function buildCapRing(pole: 1 | -1, latThreshold: number, lonSegments: number): [number, number][] {
   const targetLat = pole === 1 ? latThreshold : -latThreshold
   const innerLat = pole === 1 ? 89.999 : -89.999
   const ring: [number, number][] = []

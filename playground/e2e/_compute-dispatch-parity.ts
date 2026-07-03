@@ -25,7 +25,11 @@ const SPEC = {
   defaultColorHex: '#0000ffff',
 }
 
-function oracle(kernel: ReturnType<typeof emitMatchComputeKernel>, feat: number[], n: number): number[] {
+function oracle(
+  kernel: ReturnType<typeof emitMatchComputeKernel>,
+  feat: number[],
+  n: number,
+): number[] {
   const out = new Array<number>(n).fill(0)
   const cm = compileModule(kernel.module)
   cm.setBinding('feat_data', feat)
@@ -57,7 +61,7 @@ export function runComputeDispatchParity(): DispatchParityResult {
     const got = dispatchComputeKernelWebGl2(device, kernel, new Float32Array(feat))
     const mismatches: { fid: number; got: number; want: number }[] = []
     for (let f = 0; f < fx.n; f++) {
-      if (got[f] !== (want[f]! >>> 0)) mismatches.push({ fid: f, got: got[f]!, want: want[f]! >>> 0 })
+      if (got[f] !== want[f]! >>> 0) mismatches.push({ fid: f, got: got[f]!, want: want[f]! >>> 0 })
       if (mismatches.length >= 8) break // cap the report
     }
     if (mismatches.length) ok = false

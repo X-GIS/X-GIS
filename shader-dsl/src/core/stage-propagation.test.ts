@@ -22,7 +22,10 @@ const structuredOnly = (f: FuncDecl): FuncDecl => {
 
 describe('#763 S — stageOf propagation', () => {
   it('S1: stageOf reads structured first, attr fallback second', () => {
-    const frag = fn('s1_fs', {}, () => vec4(1, 0, 0, 1), { stage: 'fragment', retAttr: '@location(0)' })
+    const frag = fn('s1_fs', {}, () => vec4(1, 0, 0, 1), {
+      stage: 'fragment',
+      retAttr: '@location(0)',
+    })
     expect(stageOf(frag)).toBe('fragment')
     expect(stageOf(structuredOnly(frag.decl))).toBe('fragment')
     expect(stageOf({ attrs: ['@vertex'] })).toBe('vertex')
@@ -39,7 +42,10 @@ describe('#763 S — stageOf propagation', () => {
   })
 
   it('S3: a structured-only fragment entry is classified fragment and NOT dropped', () => {
-    const frag = fn('s3_fs', {}, () => vec4(0, 1, 0, 1), { stage: 'fragment', retAttr: '@location(0)' })
+    const frag = fn('s3_fs', {}, () => vec4(0, 1, 0, 1), {
+      stage: 'fragment',
+      retAttr: '@location(0)',
+    })
     const m = module({ funcs: [structuredOnly(frag.decl)] })
     const glsl = emitGlslModule(m, 'fragment')
     // fail-before: the staged filter matched attr strings only → entry dropped
@@ -50,7 +56,10 @@ describe('#763 S — stageOf propagation', () => {
 
   it('S4: fn-DCE roots come from the stage predicate, not attrs.length', () => {
     const helper = fn('s4_helper', { x: f32T }, ({ x }) => x.mul(2))
-    const entry = fn('s4_fs', {}, () => vec4(1, 1, 1, 1), { stage: 'fragment', retAttr: '@location(0)' })
+    const entry = fn('s4_fs', {}, () => vec4(1, 1, 1, 1), {
+      stage: 'fragment',
+      retAttr: '@location(0)',
+    })
     // Structured-only entry + an UNCALLED helper: the old `attrs.length > 0`
     // saw zero roots → no-op'd → the dead helper survived.
     const m = module({ funcs: [structuredOnly(entry.decl), helper] })
@@ -59,11 +68,16 @@ describe('#763 S — stageOf propagation', () => {
   })
 
   it('S5: location()/builtin() entry params reach reflect() as vertex attributes', () => {
-    const vs = fn('s5_vs', {
-      pos: location(0, vec4fT),
-      w: location(1, f32T),
-      vi: builtin('vertex_index', { kind: 'scalar', scalar: 'u32' }),
-    }, ({ pos }) => pos, { stage: 'vertex' })
+    const vs = fn(
+      's5_vs',
+      {
+        pos: location(0, vec4fT),
+        w: location(1, f32T),
+        vi: builtin('vertex_index', { kind: 'scalar', scalar: 'u32' }),
+      },
+      ({ pos }) => pos,
+      { stage: 'vertex' },
+    )
     const m = module({ funcs: [vs] })
     const r = reflect(m)
     // fail-before: fn() dropped the structured location → reflect saw ZERO attributes.

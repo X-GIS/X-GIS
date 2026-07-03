@@ -17,11 +17,17 @@ function makeSink() {
   const events: { key: number; result: BackendTileResult | null }[] = []
   let loadingCount = 0
   const sink: TileSourceSink = {
-    trackLoading: () => { loadingCount++ },
-    releaseLoading: () => { loadingCount-- },
+    trackLoading: () => {
+      loadingCount++
+    },
+    releaseLoading: () => {
+      loadingCount--
+    },
     hasTileData: () => false,
     getLoadingCount: () => loadingCount,
-    acceptResult: (key, result) => { events.push({ key, result }) },
+    acceptResult: (key, result) => {
+      events.push({ key, result })
+    },
   }
   return { sink, events }
 }
@@ -30,7 +36,15 @@ const POLYGON_FEATURE = {
   type: 'Feature' as const,
   geometry: {
     type: 'Polygon' as const,
-    coordinates: [[[-30, -30], [30, -30], [30, 30], [-30, 30], [-30, -30]]],
+    coordinates: [
+      [
+        [-30, -30],
+        [30, -30],
+        [30, 30],
+        [-30, 30],
+        [-30, -30],
+      ],
+    ],
   },
   properties: {},
 }

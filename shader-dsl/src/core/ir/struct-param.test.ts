@@ -18,8 +18,7 @@ describe('fn() struct-handle params', () => {
       return s.k.add(s.v.x)
     })
     const newStyle = fn('probe', { s: Seg }, ({ s }) => s.k.add(s.v.x))
-    const emitOne = (f: typeof oldStyle) =>
-      emitModule(module({ structs: [Seg.decl], funcs: [f] }))
+    const emitOne = (f: typeof oldStyle) => emitModule(module({ structs: [Seg.decl], funcs: [f] }))
     expect(emitOne(newStyle)).toBe(emitOne(oldStyle))
   })
 

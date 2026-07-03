@@ -9,8 +9,16 @@ export * from './eval'
 // internally; the public compiler API only re-exports the formatters below, so
 // this list stays explicit rather than `export *` to keep that public set stable.
 export {
-  formatValue, parseFormatSpec, parseTextTemplate, isBareExpressionTemplate,
-  formatNumber, formatString, formatDMS, formatDM, formatBearing, formatDate,
+  formatValue,
+  parseFormatSpec,
+  parseTextTemplate,
+  isBareExpressionTemplate,
+  formatNumber,
+  formatString,
+  formatDMS,
+  formatDM,
+  formatBearing,
+  formatDate,
 } from './format'
 export * from './module'
 export * from './codegen'

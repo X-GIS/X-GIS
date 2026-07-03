@@ -400,7 +400,9 @@ export class StatementParser extends ExpressionParser {
       this.advance()
       percent = 100
     } else {
-      this.error(`Expected percent, 'from', or 'to' in keyframe, got ${TokenType[this.current().type]}`)
+      this.error(
+        `Expected percent, 'from', or 'to' in keyframe, got ${TokenType[this.current().type]}`,
+      )
     }
     if (percent < 0 || percent > 100) {
       this.error(`Keyframe percent must be in 0..100, got ${percent}`)
@@ -415,7 +417,9 @@ export class StatementParser extends ExpressionParser {
       if (this.isKeyframeBoundary()) break
       const item = this.parseUtilityItem()
       if (item.modifier) {
-        this.error(`Modifiers are not allowed inside keyframes (got '${item.modifier}:' on '${item.name}')`)
+        this.error(
+          `Modifiers are not allowed inside keyframes (got '${item.modifier}:' on '${item.name}')`,
+        )
       }
       utilities.push(item)
     }
@@ -444,7 +448,10 @@ export class StatementParser extends ExpressionParser {
     const line = this.current().line
     // Parse hyphen-joined property name
     let name = this.expectIdentifierOrKeyword()
-    while (this.check(TokenType.Minus) && this.tokens[this.pos + 1]?.type === TokenType.Identifier) {
+    while (
+      this.check(TokenType.Minus) &&
+      this.tokens[this.pos + 1]?.type === TokenType.Identifier
+    ) {
       this.advance() // skip '-'
       name += '-' + this.advance().value
     }
@@ -464,8 +471,8 @@ export class StatementParser extends ExpressionParser {
     } else if (this.check(TokenType.Bool)) {
       value = this.advance().value
     } else if (
-      this.check(TokenType.Identifier)
-      && this.tokens[this.pos + 1]?.type === TokenType.LParen
+      this.check(TokenType.Identifier) &&
+      this.tokens[this.pos + 1]?.type === TokenType.LParen
     ) {
       value = this.captureFnCallAsString()
     } else {
@@ -489,7 +496,12 @@ export class StatementParser extends ExpressionParser {
     let depth = 1
     while (depth > 0 && !this.isEnd()) {
       const t = this.current()
-      if (t.type === TokenType.LParen) { depth++; raw += '('; this.advance(); continue }
+      if (t.type === TokenType.LParen) {
+        depth++
+        raw += '('
+        this.advance()
+        continue
+      }
       if (t.type === TokenType.RParen) {
         depth--
         raw += ')'
@@ -520,7 +532,10 @@ export class StatementParser extends ExpressionParser {
     const name = this.current().value
     const next = this.tokens[this.pos + 1]
 
-    if ((name === 'fill' || name === 'opacity' || name === 'size') && next?.type === TokenType.Colon) {
+    if (
+      (name === 'fill' || name === 'opacity' || name === 'size') &&
+      next?.type === TokenType.Colon
+    ) {
       return true
     }
     if (name === 'stroke') {
@@ -529,8 +544,11 @@ export class StatementParser extends ExpressionParser {
       if (next?.type === TokenType.Minus) {
         const next2 = this.tokens[this.pos + 2]
         const next3 = this.tokens[this.pos + 3]
-        return next2?.type === TokenType.Identifier && next2.value === 'width' &&
-               next3?.type === TokenType.Colon
+        return (
+          next2?.type === TokenType.Identifier &&
+          next2.value === 'width' &&
+          next3?.type === TokenType.Colon
+        )
       }
     }
     return false
@@ -581,11 +599,7 @@ export class StatementParser extends ExpressionParser {
 
     const items: AST.UtilityItem[] = []
     // Parse items until we hit another |, }, or EOF
-    while (
-      !this.check(TokenType.Pipe) &&
-      !this.check(TokenType.RBrace) &&
-      !this.isEnd()
-    ) {
+    while (!this.check(TokenType.Pipe) && !this.check(TokenType.RBrace) && !this.isEnd()) {
       items.push(this.parseUtilityItem())
     }
 
@@ -602,7 +616,7 @@ export class StatementParser extends ExpressionParser {
     // `opacity-[interpolate(zoom, …)]` — see lower.ts.)
     if (this.isModifierPattern()) {
       modifier = this.advance().value // consume the modifier identifier
-      this.expect(TokenType.Colon)    // consume ':'
+      this.expect(TokenType.Colon) // consume ':'
     }
 
     // Parse the utility name: hyphen-joined tokens like "fill-red-500", "stroke-2"
@@ -614,17 +628,27 @@ export class StatementParser extends ExpressionParser {
     // New syntax: fill match(field) { ... }, fill categorical(field), fill gradient(field, ...)
     const DATA_STYLE_PROPS = ['fill', 'stroke', 'opacity']
     const DATA_STYLE_FNS = ['match', 'categorical', 'gradient']
-    if (DATA_STYLE_PROPS.includes(name) && this.check(TokenType.Identifier) &&
-        DATA_STYLE_FNS.includes(this.tokens[this.pos]?.value)) {
+    if (
+      DATA_STYLE_PROPS.includes(name) &&
+      this.check(TokenType.Identifier) &&
+      DATA_STYLE_FNS.includes(this.tokens[this.pos]?.value)
+    ) {
       binding = this.parseExpr()
       // If it's match(...), check for trailing { ... } match block
-      if (binding.kind === 'FnCall' && binding.callee.kind === 'Identifier' &&
-          binding.callee.name === 'match' && this.check(TokenType.LBrace)) {
+      if (
+        binding.kind === 'FnCall' &&
+        binding.callee.kind === 'Identifier' &&
+        binding.callee.name === 'match' &&
+        this.check(TokenType.LBrace)
+      ) {
         binding.matchBlock = this.parseMatchBlock()
       }
     }
     // Handle size-[speed], fill-[expr] patterns: minus followed by bracket
-    else if (this.check(TokenType.Minus) && this.tokens[this.pos + 1]?.type === TokenType.LBracket) {
+    else if (
+      this.check(TokenType.Minus) &&
+      this.tokens[this.pos + 1]?.type === TokenType.LBracket
+    ) {
       this.advance() // skip '-'
       this.advance() // skip '['
       binding = this.parseExpr()
@@ -638,7 +662,15 @@ export class StatementParser extends ExpressionParser {
     // Check for trailing unit after ] — e.g., size-[expr]km
     let bindingUnit: string | null = null
     if (binding) {
-      const unitTypes = [TokenType.Px, TokenType.M, TokenType.Km, TokenType.Nm, TokenType.Deg, TokenType.S, TokenType.Ms]
+      const unitTypes = [
+        TokenType.Px,
+        TokenType.M,
+        TokenType.Km,
+        TokenType.Nm,
+        TokenType.Deg,
+        TokenType.S,
+        TokenType.Ms,
+      ]
       if (unitTypes.includes(this.current().type)) {
         bindingUnit = this.advance().value
       } else if (this.check(TokenType.Identifier)) {
@@ -703,7 +735,10 @@ export class StatementParser extends ExpressionParser {
  *  statement, matching the original `default:` arm exactly. */
 type StatementHandler = (p: StatementParser) => AST.Statement
 
-const STATEMENT_HANDLERS: ReadonlyMap<TokenType, StatementHandler> = new Map<TokenType, StatementHandler>([
+const STATEMENT_HANDLERS: ReadonlyMap<TokenType, StatementHandler> = new Map<
+  TokenType,
+  StatementHandler
+>([
   [TokenType.Let, (p) => p.parseLetStatement()],
   [TokenType.Show, (p) => p.parseShowStatement()],
   [TokenType.Fn, (p) => p.parseFnStatement()],

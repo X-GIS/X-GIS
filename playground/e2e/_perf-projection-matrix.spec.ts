@@ -23,10 +23,7 @@ import { dirname, join, resolve } from 'node:path'
 import { runInteraction, computeStats, interactions } from './helpers/natural-interaction'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const fixture = readFileSync(
-  resolve(__dirname, '__convert-fixtures', 'bright.json'),
-  'utf8',
-)
+const fixture = readFileSync(resolve(__dirname, '__convert-fixtures', 'bright.json'), 'utf8')
 
 const OUT_DIR = resolve(__dirname, '__perf-projection-matrix__')
 mkdirSync(OUT_DIR, { recursive: true })
@@ -53,25 +50,28 @@ const PROJECTIONS = [
 ] as const
 
 const SCENARIOS: { name: string; body: () => (mapId: string, t: number) => void }[] = [
-  { name: 'pan',    body: () => interactions.pan({ lng: -10, lat: 35 }, { lng: 10, lat: 35 }) },
-  { name: 'zoom',   body: () => interactions.zoom(8, 12) },
+  { name: 'pan', body: () => interactions.pan({ lng: -10, lat: 35 }, { lng: 10, lat: 35 }) },
+  { name: 'zoom', body: () => interactions.zoom(8, 12) },
   { name: 'rotate', body: () => interactions.rotate(0, 90) },
-  { name: 'pitch',  body: () => interactions.pitch(0, 60) },
+  { name: 'pitch', body: () => interactions.pitch(0, 60) },
 ]
 
 async function setupPage(page: Page, projection: string) {
   const xgis = convertMapboxStyle(fixture)
-  await page.addInitScript((args) => {
-    sessionStorage.setItem('__xgisImportSource', args.src)
-    sessionStorage.setItem('__xgisImportLabel', `Bright (proj=${args.proj})`)
-  }, { src: xgis, proj: projection })
-  await page.goto(
-    `/demo.html?id=__import&proj=${projection}#8/35/0/0/0`,
-    { waitUntil: 'domcontentloaded' },
+  await page.addInitScript(
+    (args) => {
+      sessionStorage.setItem('__xgisImportSource', args.src)
+      sessionStorage.setItem('__xgisImportLabel', `Bright (proj=${args.proj})`)
+    },
+    { src: xgis, proj: projection },
   )
+  await page.goto(`/demo.html?id=__import&proj=${projection}#8/35/0/0/0`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // Initial cascade settle
   await page.waitForTimeout(2_000)
@@ -96,7 +96,9 @@ test.describe('perf-projection-matrix', () => {
         })
         // Informational only — log to console for trace inspection.
         // Real gate enabling needs local GPU baseline calibration.
-        console.log(`[perf-matrix] ${proj} × ${scenario.name}: p95=${stats.p95.toFixed(1)}ms p99=${stats.p99.toFixed(1)}ms max=${stats.max.toFixed(1)}ms n=${stats.count}`)
+        console.log(
+          `[perf-matrix] ${proj} × ${scenario.name}: p95=${stats.p95.toFixed(1)}ms p99=${stats.p99.toFixed(1)}ms max=${stats.max.toFixed(1)}ms n=${stats.count}`,
+        )
       })
     }
   }
@@ -112,7 +114,9 @@ test.describe('perf-projection-matrix', () => {
       '|---|---|---:|---:|---:|---:|---:|',
     ]
     for (const r of results) {
-      lines.push(`| ${r.projection} | ${r.scenario} | ${r.median.toFixed(1)} | ${r.p95.toFixed(1)} | ${r.p99.toFixed(1)} | ${r.max.toFixed(1)} | ${r.count} |`)
+      lines.push(
+        `| ${r.projection} | ${r.scenario} | ${r.median.toFixed(1)} | ${r.p95.toFixed(1)} | ${r.p99.toFixed(1)} | ${r.max.toFixed(1)} | ${r.count} |`,
+      )
     }
     writeFileSync(join(OUT_DIR, 'REPORT.md'), lines.join('\n'))
   })

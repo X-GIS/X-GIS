@@ -16,8 +16,11 @@
 // + prebuilt segment buffers, all marked Transferable.
 
 import {
-  decodeMvtTile, decomposeFeatures, compileSingleTile,
-  evaluate, makeEvalProps,
+  decodeMvtTile,
+  decomposeFeatures,
+  compileSingleTile,
+  evaluate,
+  makeEvalProps,
   type GeoJSONFeature,
 } from '@xgis/compiler'
 import { buildLineSegments } from '../line-segment-build'
@@ -134,12 +137,15 @@ function extractFeatureWidths(
     // Per-feature throw isolation — mirror of applyFilter (566ab36).
     let v: unknown
     try {
-      v = evaluate(expr as never, makeEvalProps({
-        props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
-        cameraZoom: tileZoom,
-        geometryType: f.geometry?.type,
-        featureId: (f as { id?: string | number }).id,
-      }))
+      v = evaluate(
+        expr as never,
+        makeEvalProps({
+          props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
+          cameraZoom: tileZoom,
+          geometryType: f.geometry?.type,
+          featureId: (f as { id?: string | number }).id,
+        }),
+      )
     } catch {
       continue
     }
@@ -181,12 +187,15 @@ function extractFeatureColors(
     // Per-feature throw isolation — mirror of applyFilter (566ab36).
     let v: unknown
     try {
-      v = evaluate(expr as never, makeEvalProps({
-        props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
-        cameraZoom: tileZoom,
-        geometryType: f.geometry?.type,
-        featureId: (f as { id?: string | number }).id,
-      }))
+      v = evaluate(
+        expr as never,
+        makeEvalProps({
+          props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
+          cameraZoom: tileZoom,
+          geometryType: f.geometry?.type,
+          featureId: (f as { id?: string | number }).id,
+        }),
+      )
     } catch {
       continue
     }
@@ -194,8 +203,11 @@ function extractFeatureColors(
     // evaluate() they come back as either an integer (vec4 packed
     // into a number) or a string '#rrggbbaa'. Match arms in
     // mergeLayers emit hex strings.
-    if (typeof v === 'string' && v.startsWith('#')
-        && (v.length === 4 || v.length === 5 || v.length === 7 || v.length === 9)) {
+    if (
+      typeof v === 'string' &&
+      v.startsWith('#') &&
+      (v.length === 4 || v.length === 5 || v.length === 7 || v.length === 9)
+    ) {
       // Accept all four CSS hex forms: #rgb / #rgba / #rrggbb / #rrggbbaa.
       // Pre-fix the short forms fell through the length gate and the
       // per-feature colour baking emitted nothing — match arms using
@@ -260,7 +272,14 @@ export interface MvtCompileRequest {
    *  draws that result when N shows share one MVT source layer with
    *  different `filter:` clauses (the OSM-style demo's 6 landuse_*
    *  layers all reading `landuse`). */
-  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean; featurePropKeys?: string[] }>
+  showSlices?: Array<{
+    sliceKey: string
+    sourceLayer: string
+    filterAst: unknown | null
+    needsFeatureProps?: boolean
+    needsExtrude?: boolean
+    featurePropKeys?: string[]
+  }>
   /** Per-sliceKey stroke-width override AST. The compound layer's
    *  width AST evaluated per feature → resolved width baked into the
    *  line segment buffer's per-segment slot so the line shader picks
@@ -334,13 +353,15 @@ const onMessage = (e: MessageEvent<InMsg>): void => {
   if (msg.kind !== 'compile-mvt') return
 
   try {
-    const features = decodeMvtTile(
-      new Uint8Array(msg.bytes), msg.z, msg.x, msg.y,
-      { layers: msg.layers },
-    )
+    const features = decodeMvtTile(new Uint8Array(msg.bytes), msg.z, msg.x, msg.y, {
+      layers: msg.layers,
+    })
     if (features.length === 0) {
-      ;(self as unknown as { postMessage: (m: OutMsg) => void })
-        .postMessage({ kind: 'compile-done', taskId: msg.taskId, slices: [] })
+      ;(self as unknown as { postMessage: (m: OutMsg) => void }).postMessage({
+        kind: 'compile-done',
+        taskId: msg.taskId,
+        slices: [],
+      })
       return
     }
 
@@ -351,7 +372,10 @@ const onMessage = (e: MessageEvent<InMsg>): void => {
     for (const f of features) {
       const ln = (f.properties?._layer as string) ?? ''
       let bucket = byLayer.get(ln)
-      if (!bucket) { bucket = []; byLayer.set(ln, bucket) }
+      if (!bucket) {
+        bucket = []
+        byLayer.set(ln, bucket)
+      }
       bucket.push(f)
     }
 
@@ -400,11 +424,18 @@ const onMessage = (e: MessageEvent<InMsg>): void => {
       const colors = extractFeatureColors(sourceFeatures, msg.strokeColorExprs?.[sliceKey], msg.z)
       let prebuiltOutlineSegments: ArrayBuffer | undefined
       let prebuiltLineSegments: ArrayBuffer | undefined
-      if (tile.outlineVertices && tile.outlineVertices.length > 0
-          && tile.outlineLineIndices && tile.outlineLineIndices.length > 0) {
+      if (
+        tile.outlineVertices &&
+        tile.outlineVertices.length > 0 &&
+        tile.outlineLineIndices &&
+        tile.outlineLineIndices.length > 0
+      ) {
         const seg = buildLineSegments(
-          tile.outlineVertices, tile.outlineLineIndices, 10,
-          msg.tileWidthMerc, msg.tileHeightMerc,
+          tile.outlineVertices,
+          tile.outlineLineIndices,
+          10,
+          msg.tileWidthMerc,
+          msg.tileHeightMerc,
           heights.size > 0 ? heights : undefined,
           widths.size > 0 ? widths : undefined,
           colors.size > 0 ? colors : undefined,
@@ -421,8 +452,11 @@ const onMessage = (e: MessageEvent<InMsg>): void => {
         const vertCount = maxIdx + 1
         if (vertCount > 0 && tile.lineVertices.length / vertCount >= 10) lineStride = 10
         const seg = buildLineSegments(
-          tile.lineVertices, tile.lineIndices, lineStride,
-          msg.tileWidthMerc, msg.tileHeightMerc,
+          tile.lineVertices,
+          tile.lineIndices,
+          lineStride,
+          msg.tileWidthMerc,
+          msg.tileHeightMerc,
           heights.size > 0 ? heights : undefined,
           widths.size > 0 ? widths : undefined,
           colors.size > 0 ? colors : undefined,
@@ -444,7 +478,7 @@ const onMessage = (e: MessageEvent<InMsg>): void => {
         outlineLineIndices: tile.outlineLineIndices?.buffer as ArrayBuffer | undefined,
         prebuiltLineSegments,
         prebuiltOutlineSegments,
-        polygons: tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId })),
+        polygons: tile.polygons?.map((p) => ({ rings: p.rings, featId: p.featId })),
         heights: heights.size > 0 ? heights : undefined,
         bases: bases.size > 0 ? bases : undefined,
         featureProps: featureProps.size > 0 ? featureProps : undefined,
@@ -470,7 +504,7 @@ const onMessage = (e: MessageEvent<InMsg>): void => {
         const layerFeatures = byLayer.get(desc.sourceLayer)
         if (!layerFeatures || layerFeatures.length === 0) continue
         const subset = desc.filterAst
-          ? layerFeatures.filter(f => {
+          ? layerFeatures.filter((f) => {
               const bag = makeEvalProps({
                 props: f.properties ?? undefined,
                 geometryType: f.geometry?.type,
@@ -481,7 +515,9 @@ const onMessage = (e: MessageEvent<InMsg>): void => {
             })
           : layerFeatures
         emitSlice(
-          desc.sliceKey, desc.sourceLayer, subset,
+          desc.sliceKey,
+          desc.sourceLayer,
+          subset,
           desc.needsFeatureProps === true,
           desc.needsExtrude === true,
           desc.featurePropKeys,
@@ -497,11 +533,10 @@ const onMessage = (e: MessageEvent<InMsg>): void => {
       }
     }
 
-    ;(self as unknown as { postMessage: (m: OutMsg, t?: Transferable[]) => void })
-      .postMessage(
-        { kind: 'compile-done', taskId: msg.taskId, slices },
-        transferables.filter(b => b.byteLength > 0),
-      )
+    ;(self as unknown as { postMessage: (m: OutMsg, t?: Transferable[]) => void }).postMessage(
+      { kind: 'compile-done', taskId: msg.taskId, slices },
+      transferables.filter((b) => b.byteLength > 0),
+    )
   } catch (err) {
     const e = err as Error
     ;(self as unknown as { postMessage: (m: OutMsg) => void }).postMessage({

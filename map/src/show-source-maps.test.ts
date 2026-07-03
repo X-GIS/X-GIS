@@ -46,9 +46,7 @@ const FILTER_GT_5M = { ast: { kind: 'BinaryExpr', op: '>', left: 'a', right: 5_0
 
 describe('buildShowSourceMaps showSlicesBySource — filter routing', () => {
   it('inline GeoJSON shows (no sourceLayer) still get slice entries', () => {
-    const { showSlicesBySource } = buildShowSourceMaps([
-      show({ targetName: 'countries' }),
-    ])
+    const { showSlicesBySource } = buildShowSourceMaps([show({ targetName: 'countries' })])
     const list = showSlicesBySource.get('countries')
     expect(list, 'inline GeoJSON show should get a slice list').toBeTruthy()
     expect(list).toHaveLength(1)
@@ -63,7 +61,7 @@ describe('buildShowSourceMaps showSlicesBySource — filter routing', () => {
     ])
     const list = showSlicesBySource.get('countries')!
     expect(list).toHaveLength(3)
-    expect(new Set(list.map(s => s.sliceKey)).size, '3 unique sliceKeys').toBe(3)
+    expect(new Set(list.map((s) => s.sliceKey)).size, '3 unique sliceKeys').toBe(3)
     expect(list[0]!.sliceKey).toBe('countries')
   })
 
@@ -73,7 +71,7 @@ describe('buildShowSourceMaps showSlicesBySource — filter routing', () => {
       show({ targetName: 'protomaps', sourceLayer: 'roads' }),
     ])
     const list = showSlicesBySource.get('protomaps')!
-    expect(list.map(s => s.sourceLayer).sort()).toEqual(['roads', 'water'])
+    expect(list.map((s) => s.sourceLayer).sort()).toEqual(['roads', 'water'])
   })
 })
 
@@ -82,9 +80,7 @@ describe('buildShowSourceMaps showSlicesBySource — filter routing', () => {
 // in the helper / inline GeoJSON gate trips loudly.
 describe('buildShowSourceMaps — all 5 maps honour inline GeoJSON shows', () => {
   it('usedSourceLayers includes inline GeoJSON layers', () => {
-    const { usedSourceLayers } = buildShowSourceMaps([
-      show({ targetName: 'countries' }),
-    ])
+    const { usedSourceLayers } = buildShowSourceMaps([show({ targetName: 'countries' })])
     expect(usedSourceLayers.get('countries')?.has('countries')).toBe(true)
   })
 
@@ -151,10 +147,13 @@ describe('cross-path sliceKey invariant (backend ↔ renderer)', () => {
     for (const s of shows) {
       const list = showSlicesBySource.get(s.targetName)!
       const filterAst = s.filterExpr?.ast ?? null
-      const backendEntry = list.find(e => e.filterAst === filterAst)
-      expect(backendEntry,
-        `backend slice missing for target=${s.targetName} filter=${!!filterAst}`).toBeTruthy()
-      expect(backendEntry!.sliceKey,
+      const backendEntry = list.find((e) => e.filterAst === filterAst)
+      expect(
+        backendEntry,
+        `backend slice missing for target=${s.targetName} filter=${!!filterAst}`,
+      ).toBeTruthy()
+      expect(
+        backendEntry!.sliceKey,
         `backend (${backendEntry!.sliceKey}) ↔ renderer (${rendererSliceKey(s)}) drift on ${s.targetName}`,
       ).toBe(rendererSliceKey(s))
     }
@@ -175,7 +174,9 @@ describe('buildShowSourceMaps — featurePropKeys field-filter', () => {
     const { showSlicesBySource } = buildShowSourceMaps([
       show({
         targetName: 'places',
-        label: { text: { kind: 'template', parts: [{ kind: 'interp', expr: { ast: fld('name') } }] } },
+        label: {
+          text: { kind: 'template', parts: [{ kind: 'interp', expr: { ast: fld('name') } }] },
+        },
         shaderVariant: { needsFeatureBuffer: true, featureFields: ['class'] },
       }),
     ])
@@ -194,8 +195,11 @@ describe('buildShowSourceMaps — featurePropKeys field-filter', () => {
 
   it('variant featureFields ignored when needsFeatureBuffer is false', () => {
     const { showSlicesBySource } = buildShowSourceMaps([
-      show({ targetName: 'water', sourceLayer: 'water',
-        shaderVariant: { needsFeatureBuffer: false, featureFields: ['class'] } }),
+      show({
+        targetName: 'water',
+        sourceLayer: 'water',
+        shaderVariant: { needsFeatureBuffer: false, featureFields: ['class'] },
+      }),
     ])
     expect(showSlicesBySource.get('water')![0]!.featurePropKeys).toEqual([])
   })
@@ -203,14 +207,20 @@ describe('buildShowSourceMaps — featurePropKeys field-filter', () => {
   it('shows sharing a sliceKey union their fields', () => {
     const { showSlicesBySource } = buildShowSourceMaps([
       show({ targetName: 'poi', label: { text: { kind: 'expr', expr: { ast: fld('name') } } } }),
-      show({ targetName: 'poi', shaderVariant: { needsFeatureBuffer: true, featureFields: ['class', 'rank'] } }),
+      show({
+        targetName: 'poi',
+        shaderVariant: { needsFeatureBuffer: true, featureFields: ['class', 'rank'] },
+      }),
     ])
     expect(showSlicesBySource.get('poi')![0]!.featurePropKeys).toEqual(['class', 'name', 'rank'])
   })
 
   it('literal-only label template → [] (no fields)', () => {
     const { showSlicesBySource } = buildShowSourceMaps([
-      show({ targetName: 'lit', label: { text: { kind: 'template', parts: [{ kind: 'literal', value: 'X' }] } } }),
+      show({
+        targetName: 'lit',
+        label: { text: { kind: 'template', parts: [{ kind: 'literal', value: 'X' }] } },
+      }),
     ])
     expect(showSlicesBySource.get('lit')![0]!.featurePropKeys).toEqual([])
   })
@@ -248,7 +258,7 @@ describe('buildShowSourceMaps — featurePropKeys field-filter', () => {
         kind: 'MatchBlock' as const,
         arms: [
           { pattern: 'shop', value: fld('name') },
-          { pattern: '_',    value: fld('ref') },
+          { pattern: '_', value: fld('ref') },
         ],
       },
     }
@@ -293,8 +303,8 @@ describe('buildShowSourceMaps — featurePropKeys field-filter', () => {
       matchBlock: {
         kind: 'MatchBlock' as const,
         arms: [
-          { pattern: 'shop',  value: { kind: 'StringLiteral' as const, value: 'shop_icon' } },
-          { pattern: '_',     value: fld('class') },
+          { pattern: 'shop', value: { kind: 'StringLiteral' as const, value: 'shop_icon' } },
+          { pattern: '_', value: fld('class') },
         ],
       },
     }
@@ -308,7 +318,11 @@ describe('buildShowSourceMaps — featurePropKeys field-filter', () => {
       }),
     ])
     // fail-before: only ['name', 'subclass'] — 'class' (arm value) was dropped.
-    expect(showSlicesBySource.get('poi')![0]!.featurePropKeys).toEqual(['class', 'name', 'subclass'])
+    expect(showSlicesBySource.get('poi')![0]!.featurePropKeys).toEqual([
+      'class',
+      'name',
+      'subclass',
+    ])
   })
 
   // ── GAP 3: get("colon-field") builtin call (the #375 OFM regression) ─
@@ -319,7 +333,10 @@ describe('buildShowSourceMaps — featurePropKeys field-filter', () => {
     // fail-before: collectFieldsStrict returned [] (FnCall arg-recursion saw a
     // StringLiteral and added nothing) → OFM non-latin labels lost their text.
     const { showSlicesBySource } = buildShowSourceMaps([
-      show({ targetName: 'place', label: { text: { kind: 'expr', expr: { ast: getStr('name:latin') } } } }),
+      show({
+        targetName: 'place',
+        label: { text: { kind: 'expr', expr: { ast: getStr('name:latin') } } },
+      }),
     ])
     expect(showSlicesBySource.get('place')![0]!.featurePropKeys).toEqual(['name:latin'])
   })
@@ -331,14 +348,28 @@ describe('buildShowSourceMaps — featurePropKeys field-filter', () => {
     // name. fail-before: only ['name', 'name_en'] (the FieldAccess ones).
     const ofmText = {
       kind: 'ConditionalExpr' as const,
-      condition: { kind: 'BinaryExpr' as const, op: '!=', left: getStr('name:nonlatin'), right: { kind: 'Identifier' as const, name: 'null' } },
-      thenExpr: { kind: 'FnCall' as const, callee: { kind: 'Identifier' as const, name: 'concat' }, args: [getStr('name:latin'), getStr('name:nonlatin')] },
+      condition: {
+        kind: 'BinaryExpr' as const,
+        op: '!=',
+        left: getStr('name:nonlatin'),
+        right: { kind: 'Identifier' as const, name: 'null' },
+      },
+      thenExpr: {
+        kind: 'FnCall' as const,
+        callee: { kind: 'Identifier' as const, name: 'concat' },
+        args: [getStr('name:latin'), getStr('name:nonlatin')],
+      },
       elseExpr: { kind: 'BinaryExpr' as const, op: '??', left: fld('name_en'), right: fld('name') },
     }
     const { showSlicesBySource } = buildShowSourceMaps([
       show({ targetName: 'place', label: { text: { kind: 'expr', expr: { ast: ofmText } } } }),
     ])
-    expect(showSlicesBySource.get('place')![0]!.featurePropKeys).toEqual(['name', 'name:latin', 'name:nonlatin', 'name_en'])
+    expect(showSlicesBySource.get('place')![0]!.featurePropKeys).toEqual([
+      'name',
+      'name:latin',
+      'name:nonlatin',
+      'name_en',
+    ])
   })
 
   it('dynamic get(<non-literal>) → full-props fallback ([])', () => {
@@ -347,7 +378,13 @@ describe('buildShowSourceMaps — featurePropKeys field-filter', () => {
     const dynGet = {
       kind: 'FnCall' as const,
       callee: { kind: 'Identifier' as const, name: 'get' },
-      args: [{ kind: 'FnCall' as const, callee: { kind: 'Identifier' as const, name: 'concat' }, args: [{ kind: 'StringLiteral' as const, value: 'name:' }, getStr('lang')] }],
+      args: [
+        {
+          kind: 'FnCall' as const,
+          callee: { kind: 'Identifier' as const, name: 'concat' },
+          args: [{ kind: 'StringLiteral' as const, value: 'name:' }, getStr('lang')],
+        },
+      ],
     }
     const { showSlicesBySource } = buildShowSourceMaps([
       show({ targetName: 'place', label: { text: { kind: 'expr', expr: { ast: dynGet } } } }),
@@ -449,9 +486,7 @@ describe('buildShowSourceMaps — #722 S4 data-driven point size', () => {
   it('constant point size (no sizeExpr) ships no featureProps — byte-identical', () => {
     // Negative control: without a size expression the byte-identical constant
     // path must NOT force featureProps (avoids the 309 ms/msg clone regression).
-    const { showSlicesBySource } = buildShowSourceMaps([
-      show({ targetName: 'cities' }),
-    ])
+    const { showSlicesBySource } = buildShowSourceMaps([show({ targetName: 'cities' })])
     const slice = showSlicesBySource.get('cities')![0]!
     expect(slice.needsFeatureProps).toBe(false)
     expect(slice.featurePropKeys).toEqual([])

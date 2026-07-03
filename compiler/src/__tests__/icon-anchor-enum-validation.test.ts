@@ -14,13 +14,15 @@ function compile(iconAnchor: unknown): { xgis: string; warnings: string[] } {
   const style = {
     version: 8,
     sources: { v: { type: 'vector' as const, url: 'x.pmtiles' } },
-    layers: [{
-      id: 'sym',
-      type: 'symbol' as const,
-      source: 'v',
-      'source-layer': 'poi',
-      layout: { 'icon-image': 'marker', 'icon-anchor': iconAnchor },
-    }],
+    layers: [
+      {
+        id: 'sym',
+        type: 'symbol' as const,
+        source: 'v',
+        'source-layer': 'poi',
+        layout: { 'icon-image': 'marker', 'icon-anchor': iconAnchor },
+      },
+    ],
   }
   const warnings: string[] = []
   const xgis = convertMapboxStyle(style as never, {
@@ -32,12 +34,19 @@ function compile(iconAnchor: unknown): { xgis: string; warnings: string[] } {
 describe('icon-anchor enum validation — iter 520', () => {
   describe('valid enum values pass through', () => {
     for (const v of [
-      'center', 'top', 'bottom', 'left', 'right',
-      'top-left', 'top-right', 'bottom-left', 'bottom-right',
+      'center',
+      'top',
+      'bottom',
+      'left',
+      'right',
+      'top-left',
+      'top-right',
+      'bottom-left',
+      'bottom-right',
     ]) {
       it(`"${v}" → no warning`, () => {
         const { warnings } = compile(v)
-        expect(warnings.filter(w => w.includes('icon-anchor'))).toEqual([])
+        expect(warnings.filter((w) => w.includes('icon-anchor'))).toEqual([])
       })
     }
 
@@ -55,7 +64,7 @@ describe('icon-anchor enum validation — iter 520', () => {
   describe('typos / unknown values warn', () => {
     it('"centre" (British) → warning + utility NOT emitted', () => {
       const { xgis, warnings } = compile('centre')
-      const hits = warnings.filter(w => w.includes('icon-anchor'))
+      const hits = warnings.filter((w) => w.includes('icon-anchor'))
       expect(hits.length).toBe(1)
       expect(hits[0]).toContain('"centre"')
       expect(hits[0]).toContain('not a valid enum')
@@ -67,48 +76,50 @@ describe('icon-anchor enum validation — iter 520', () => {
 
     it('"middle" → warning', () => {
       const { warnings } = compile('middle')
-      expect(warnings.filter(w => w.includes('icon-anchor')).length).toBe(1)
+      expect(warnings.filter((w) => w.includes('icon-anchor')).length).toBe(1)
     })
 
     it('camelCase "topRight" → warning (Mapbox is kebab-case)', () => {
       const { warnings } = compile('topRight')
-      expect(warnings.filter(w => w.includes('icon-anchor')).length).toBe(1)
+      expect(warnings.filter((w) => w.includes('icon-anchor')).length).toBe(1)
     })
 
     it('empty string → warning', () => {
       const { warnings } = compile('')
-      expect(warnings.filter(w => w.includes('icon-anchor')).length).toBe(1)
+      expect(warnings.filter((w) => w.includes('icon-anchor')).length).toBe(1)
     })
   })
 
   describe('non-string forms', () => {
     it('null → no warning (omitted = default applied)', () => {
       const { warnings } = compile(null)
-      expect(warnings.filter(w => w.includes('icon-anchor'))).toEqual([])
+      expect(warnings.filter((w) => w.includes('icon-anchor'))).toEqual([])
     })
 
     it('omitted → no warning', () => {
       const style = {
         version: 8,
         sources: { v: { type: 'vector' as const, url: 'x.pmtiles' } },
-        layers: [{
-          id: 'sym',
-          type: 'symbol' as const,
-          source: 'v',
-          'source-layer': 'poi',
-          layout: { 'icon-image': 'marker' },
-        }],
+        layers: [
+          {
+            id: 'sym',
+            type: 'symbol' as const,
+            source: 'v',
+            'source-layer': 'poi',
+            layout: { 'icon-image': 'marker' },
+          },
+        ],
       }
       const warnings: string[] = []
       convertMapboxStyle(style as never, {
         coverage: { sources: [], layers: [], warnings },
       })
-      expect(warnings.filter(w => w.includes('icon-anchor'))).toEqual([])
+      expect(warnings.filter((w) => w.includes('icon-anchor'))).toEqual([])
     })
 
     it('v8 literal-wrap ["literal", "top"] → no warning (unwrap honoured)', () => {
       const { xgis, warnings } = compile(['literal', 'top'])
-      expect(warnings.filter(w => w.includes('icon-anchor'))).toEqual([])
+      expect(warnings.filter((w) => w.includes('icon-anchor'))).toEqual([])
       expect(xgis).toContain('label-icon-anchor-top')
     })
   })

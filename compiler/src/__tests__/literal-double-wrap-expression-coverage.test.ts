@@ -10,10 +10,7 @@ import { exprToXgis, filterToXgis } from '../convert/expressions'
 describe('case literal multi-level wrap', () => {
   it('double-wrapped scalar inside ["==", get, ...] still emits == value', () => {
     const w: string[] = []
-    const out = filterToXgis(
-      ['==', ['get', 'class'], ['literal', ['literal', 'park']]],
-      w,
-    )
+    const out = filterToXgis(['==', ['get', 'class'], ['literal', ['literal', 'park']]], w)
     // Should be a scalar comparison, not array-vs-string.
     expect(out).toContain('"park"')
     expect(out).not.toContain('"literal"')
@@ -22,10 +19,7 @@ describe('case literal multi-level wrap', () => {
   it('double-wrapped numeric inside match key still emits scalar key', () => {
     const w: string[] = []
     const out = exprToXgis(
-      ['match', ['get', 'rank'],
-        ['literal', ['literal', 5]], '#f00',
-        '#000',
-      ],
+      ['match', ['get', 'rank'], ['literal', ['literal', 5]], '#f00', '#000'],
       w,
     )
     expect(out).toContain('5 -> "#f00"')

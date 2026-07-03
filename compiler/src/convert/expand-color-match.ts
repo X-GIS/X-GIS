@@ -40,14 +40,20 @@ type InFilter = [string, [string, string], [string, (string | number)[]]]
  *  features. Caller emits each sublayer through `convertLayer` as
  *  usual; the result is a slightly inflated layer count for a layer
  *  that needs per-feature colour. */
-export function expandPerFeatureColorMatch(layer: MapboxLayer, warnings?: string[]): MapboxLayer[] | null {
+export function expandPerFeatureColorMatch(
+  layer: MapboxLayer,
+  warnings?: string[],
+): MapboxLayer[] | null {
   if (layer.type !== 'fill') return null
   // Defensive: layer.paint should be an object per spec. A non-object
   // form (string, array, etc. from malformed JSON) would otherwise let
   // `paint['fill-color']` index a char or undefined.
   const rawPaint = layer.paint
-  if (rawPaint !== null && rawPaint !== undefined
-      && (typeof rawPaint !== 'object' || Array.isArray(rawPaint))) {
+  if (
+    rawPaint !== null &&
+    rawPaint !== undefined &&
+    (typeof rawPaint !== 'object' || Array.isArray(rawPaint))
+  ) {
     return null
   }
   const paint = (rawPaint ?? {}) as Record<string, unknown>
@@ -74,7 +80,9 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer, warnings?: string
   const args = fc.slice(2)
   // Need at least one (vals, out) pair and a default — i.e. 3 args.
   if (args.length < 3 || args.length % 2 === 0) {
-    warnings?.push(`Layer "${layer.id}" — fill-color match has ${args.length} args; expected odd count ≥ 3 (val1, out1, …, default). Per-feature colour expand bailed; the layer will render with a single fallback colour.`)
+    warnings?.push(
+      `Layer "${layer.id}" — fill-color match has ${args.length} args; expected odd count ≥ 3 (val1, out1, …, default). Per-feature colour expand bailed; the layer will render with a single fallback colour.`,
+    )
     return null
   }
 
@@ -97,7 +105,9 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer, warnings?: string
     // takes over and the layer renders ONE colour for every feature.
     // Surface so the author sees why an 8-country palette collapsed
     // to one colour.
-    warnings?.push(`Layer "${layer.id}" — fill-color match default arm is not a constant colour string; per-feature colour expand bailed and the layer will render with a single fallback colour.`)
+    warnings?.push(
+      `Layer "${layer.id}" — fill-color match default arm is not a constant colour string; per-feature colour expand bailed and the layer will render with a single fallback colour.`,
+    )
     return null
   }
 
@@ -131,7 +141,9 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer, warnings?: string
       out = out[1]
     }
     if (typeof out !== 'string') {
-      warnings?.push(`Layer "${layer.id}" — fill-color match arm output is not a constant colour string (got ${typeof out}); per-feature colour expand bailed and the layer will render with a single fallback colour.`)
+      warnings?.push(
+        `Layer "${layer.id}" — fill-color match arm output is not a constant colour string (got ${typeof out}); per-feature colour expand bailed and the layer will render with a single fallback colour.`,
+      )
       return null
     }
     const valList = Array.isArray(vals) ? vals : [vals]
@@ -145,7 +157,9 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer, warnings?: string
         // nor number (e.g. an expression or object); the value-set
         // filter can't represent it. Surface so author sees why the
         // palette expand bailed.
-        warnings?.push(`Layer "${layer.id}" — fill-color match contains a non-scalar key value (${typeof v}); per-feature colour expand bailed and the layer will render with a single fallback colour.`)
+        warnings?.push(
+          `Layer "${layer.id}" — fill-color match contains a non-scalar key value (${typeof v}); per-feature colour expand bailed and the layer will render with a single fallback colour.`,
+        )
         return null
       }
       // Skip values already claimed by an earlier arm — first-arm-wins.

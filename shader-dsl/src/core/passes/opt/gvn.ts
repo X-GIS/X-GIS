@@ -31,7 +31,14 @@
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
 import {
-  keyOf, isCompound, eachExpr, mapChildren, bodyHasRaw, collectLocals, collectMutatedRoots, refsLocal,
+  keyOf,
+  isCompound,
+  eachExpr,
+  mapChildren,
+  bodyHasRaw,
+  collectLocals,
+  collectMutatedRoots,
+  refsLocal,
 } from './expr-utils'
 
 // Only number exprs that COMPUTE — a bare member/swizzle/index navigation is as
@@ -39,8 +46,17 @@ import {
 function isWorthHoisting(e: Expr): boolean {
   let computes = false
   eachExpr(e, (x) => {
-    if (x.op === 'binop' || x.op === 'unop' || x.op === 'compare' || x.op === 'logical'
-      || x.op === 'call' || x.op === 'construct' || x.op === 'select' || x.op === 'matchExpr') computes = true
+    if (
+      x.op === 'binop' ||
+      x.op === 'unop' ||
+      x.op === 'compare' ||
+      x.op === 'logical' ||
+      x.op === 'call' ||
+      x.op === 'construct' ||
+      x.op === 'select' ||
+      x.op === 'matchExpr'
+    )
+      computes = true
   })
   return computes
 }
@@ -48,29 +64,43 @@ function isWorthHoisting(e: Expr): boolean {
 /** The varref / param root names an expression reads. */
 function rootsOf(e: Expr): Set<string> {
   const out = new Set<string>()
-  eachExpr(e, (x) => { if (x.op === 'varref' || x.op === 'param') out.add(x.name) })
+  eachExpr(e, (x) => {
+    if (x.op === 'varref' || x.op === 'param') out.add(x.name)
+  })
   return out
 }
 
 /** The value-carrying exprs of a SIMPLE statement (never the lvalue target). */
 function valueExprs(s: Stmt): readonly Expr[] {
   switch (s.s) {
-    case 'let': return [s.expr]
-    case 'var': return s.init !== undefined ? [s.init] : []
-    case 'assign': case 'assignOp': return [s.expr]
-    case 'return': return s.expr !== undefined ? [s.expr] : []
-    default: return [] // control-flow / break / continue / discard — handled by recursion
+    case 'let':
+      return [s.expr]
+    case 'var':
+      return s.init !== undefined ? [s.init] : []
+    case 'assign':
+    case 'assignOp':
+      return [s.expr]
+    case 'return':
+      return s.expr !== undefined ? [s.expr] : []
+    default:
+      return [] // control-flow / break / continue / discard — handled by recursion
   }
 }
 
 /** Rewrite only the value side of a simple statement (lvalue target untouched). */
 function mapStmtValue(s: Stmt, f: (e: Expr) => Expr): Stmt {
   switch (s.s) {
-    case 'let': return { ...s, expr: f(s.expr) }
-    case 'var': return s.init !== undefined ? { ...s, init: f(s.init) } : s
-    case 'assign': case 'assignOp': return { ...s, expr: f(s.expr) }
-    case 'return': return s.expr !== undefined ? { ...s, expr: f(s.expr) } : s
-    default: return s
+    case 'let':
+      return { ...s, expr: f(s.expr) }
+    case 'var':
+      return s.init !== undefined ? { ...s, init: f(s.init) } : s
+    case 'assign':
+    case 'assignOp':
+      return { ...s, expr: f(s.expr) }
+    case 'return':
+      return s.expr !== undefined ? { ...s, expr: f(s.expr) } : s
+    default:
+      return s
   }
 }
 
@@ -85,15 +115,19 @@ function mutatedBy(s: Stmt): Set<string> {
 }
 
 interface Occur {
-  stmts: Set<number>      // distinct statement indices with an UNCONDITIONAL occurrence
+  stmts: Set<number> // distinct statement indices with an UNCONDITIONAL occurrence
   exemplar: Expr
 }
 
 // Walk a value expr, recording unconditional compound/worth/local-touching keys at
 // statement `idx`; any key seen under a guard (cond=true) is excluded outright.
 function tally(
-  e: Expr, idx: number, cond: boolean, localSet: ReadonlySet<string>,
-  occ: Map<string, Occur>, condKeys: Set<string>,
+  e: Expr,
+  idx: number,
+  cond: boolean,
+  localSet: ReadonlySet<string>,
+  occ: Map<string, Occur>,
+  condKeys: Set<string>,
 ): void {
   if (isCompound(e) && isWorthHoisting(e) && refsLocal(e, localSet)) {
     const k = keyOf(e)
@@ -106,33 +140,59 @@ function tally(
     }
   }
   switch (e.op) {
-    case 'logical': tally(e.a, idx, cond, localSet, occ, condKeys); tally(e.b, idx, true, localSet, occ, condKeys); break
+    case 'logical':
+      tally(e.a, idx, cond, localSet, occ, condKeys)
+      tally(e.b, idx, true, localSet, occ, condKeys)
+      break
     case 'select':
       tally(e.cond, idx, cond, localSet, occ, condKeys)
       tally(e.ifTrue, idx, true, localSet, occ, condKeys)
-      tally(e.ifFalse, idx, true, localSet, occ, condKeys); break
+      tally(e.ifFalse, idx, true, localSet, occ, condKeys)
+      break
     case 'matchExpr':
       tally(e.scrutinee, idx, cond, localSet, occ, condKeys)
       for (const [, v] of e.cases) tally(v, idx, true, localSet, occ, condKeys)
-      tally(e.default, idx, true, localSet, occ, condKeys); break
-    case 'binop': case 'compare': tally(e.a, idx, cond, localSet, occ, condKeys); tally(e.b, idx, cond, localSet, occ, condKeys); break
-    case 'unop': tally(e.a, idx, cond, localSet, occ, condKeys); break
-    case 'call': case 'construct': for (const a of e.args) tally(a, idx, cond, localSet, occ, condKeys); break
-    case 'member': tally(e.base, idx, cond, localSet, occ, condKeys); break
-    case 'index': tally(e.base, idx, cond, localSet, occ, condKeys); tally(e.idx, idx, cond, localSet, occ, condKeys); break
-    default: break // leaf
+      tally(e.default, idx, true, localSet, occ, condKeys)
+      break
+    case 'binop':
+    case 'compare':
+      tally(e.a, idx, cond, localSet, occ, condKeys)
+      tally(e.b, idx, cond, localSet, occ, condKeys)
+      break
+    case 'unop':
+      tally(e.a, idx, cond, localSet, occ, condKeys)
+      break
+    case 'call':
+    case 'construct':
+      for (const a of e.args) tally(a, idx, cond, localSet, occ, condKeys)
+      break
+    case 'member':
+      tally(e.base, idx, cond, localSet, occ, condKeys)
+      break
+    case 'index':
+      tally(e.base, idx, cond, localSet, occ, condKeys)
+      tally(e.idx, idx, cond, localSet, occ, condKeys)
+      break
+    default:
+      break // leaf
   }
 }
 
 // GVN one straight-line block (its OWN statements; nested blocks are recursed first).
-function gvnBlock(body: readonly Stmt[], localSet: ReadonlySet<string>, next: { n: number }): Stmt[] {
+function gvnBlock(
+  body: readonly Stmt[],
+  localSet: ReadonlySet<string>,
+  next: { n: number },
+): Stmt[] {
   // 1. Recurse into nested blocks first (inner blocks get their own numbering).
   const rec = body.map((s) => recurseBlocks(s, localSet, next))
 
   // 2. Tally cross-statement candidates over this block's value exprs.
   const occ = new Map<string, Occur>()
   const condKeys = new Set<string>()
-  rec.forEach((s, idx) => { for (const e of valueExprs(s)) tally(e, idx, false, localSet, occ, condKeys) })
+  rec.forEach((s, idx) => {
+    for (const e of valueExprs(s)) tally(e, idx, false, localSet, occ, condKeys)
+  })
 
   // 3. Keep keys that occur unconditionally in >= 2 distinct statements.
   let cands = [...occ.entries()].filter(([k, o]) => !condKeys.has(k) && o.stmts.size >= 2)
@@ -154,7 +214,8 @@ function gvnBlock(body: readonly Stmt[], localSet: ReadonlySet<string>, next: { 
   // 5. Reassignment check: drop a key if any statement in [first, last) mutates a root it reads.
   const safe = cands.filter(([, o]) => {
     const idxs = [...o.stmts].sort((a, b) => a - b)
-    const first = idxs[0]!, last = idxs[idxs.length - 1]!
+    const first = idxs[0]!,
+      last = idxs[idxs.length - 1]!
     const roots = rootsOf(o.exemplar)
     for (let m = first; m < last; m++) {
       const mut = mutatedBy(rec[m]!)
@@ -194,18 +255,22 @@ function gvnBlock(body: readonly Stmt[], localSet: ReadonlySet<string>, next: { 
 // Rebuild a control-flow statement with each nested body GVN'd as its own block.
 function recurseBlocks(s: Stmt, localSet: ReadonlySet<string>, next: { n: number }): Stmt {
   switch (s.s) {
-    case 'if': return {
-      ...s,
-      arms: s.arms.map((a) => ({ cond: a.cond, body: gvnBlock(a.body, localSet, next) })),
-      elseBody: s.elseBody ? gvnBlock(s.elseBody, localSet, next) : undefined,
-    }
-    case 'for': return { ...s, body: gvnBlock(s.body, localSet, next) }
-    case 'switch': return {
-      ...s,
-      cases: s.cases.map((c) => ({ value: c.value, body: gvnBlock(c.body, localSet, next) })),
-      defaultBody: s.defaultBody ? gvnBlock(s.defaultBody, localSet, next) : undefined,
-    }
-    default: return s
+    case 'if':
+      return {
+        ...s,
+        arms: s.arms.map((a) => ({ cond: a.cond, body: gvnBlock(a.body, localSet, next) })),
+        elseBody: s.elseBody ? gvnBlock(s.elseBody, localSet, next) : undefined,
+      }
+    case 'for':
+      return { ...s, body: gvnBlock(s.body, localSet, next) }
+    case 'switch':
+      return {
+        ...s,
+        cases: s.cases.map((c) => ({ value: c.value, body: gvnBlock(c.body, localSet, next) })),
+        defaultBody: s.defaultBody ? gvnBlock(s.defaultBody, localSet, next) : undefined,
+      }
+    default:
+      return s
   }
 }
 

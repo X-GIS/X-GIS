@@ -25,7 +25,10 @@ function convert(layer: Record<string, unknown>): string {
 
 function symbolLayer(extraLayout: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    id: 'lbl', type: 'symbol', source: 'v', 'source-layer': 'places',
+    id: 'lbl',
+    type: 'symbol',
+    source: 'v',
+    'source-layer': 'places',
     layout: { 'text-field': '{name}', ...extraLayout },
     paint: { 'text-color': '#000' },
   }
@@ -46,7 +49,9 @@ function lowerUtilities(utilities: string) {
 
 describe('symbol-z-order threading (converter + IR)', () => {
   it('emits label-z-order-viewport-y for symbol-z-order: viewport-y', () => {
-    expect(convert(symbolLayer({ 'symbol-z-order': 'viewport-y' }))).toContain('label-z-order-viewport-y')
+    expect(convert(symbolLayer({ 'symbol-z-order': 'viewport-y' }))).toContain(
+      'label-z-order-viewport-y',
+    )
   })
 
   it('emits label-z-order-source for symbol-z-order: source', () => {
@@ -75,8 +80,9 @@ describe('symbol-z-order threading (converter + IR)', () => {
 
   // v8 strict ["literal", "viewport-y"] wrap resolves before the enum match.
   it('unwraps the v8 ["literal", …] strict wrapper', () => {
-    expect(convert(symbolLayer({ 'symbol-z-order': ['literal', 'viewport-y'] })))
-      .toContain('label-z-order-viewport-y')
+    expect(convert(symbolLayer({ 'symbol-z-order': ['literal', 'viewport-y'] }))).toContain(
+      'label-z-order-viewport-y',
+    )
   })
 
   // DEFAULT / absent — byte-identical to today: no utility, IR field unset

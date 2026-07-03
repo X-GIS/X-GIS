@@ -19,22 +19,38 @@ import type { NodeLike } from './node-types'
 import type { ConstDecl, BindingDecl, FuncDecl, Expr } from '@xgis/shader-dsl'
 import { vec4fT, f32T } from '@xgis/shader-dsl'
 import {
-  composeFillVec4, constRefVec4, varRefVec4, refF32,
-  toU32, toI32, u32Lit, u32Mod, arrayIndex,
-  mix4, clampF32, f32Sub, f32Div, f32Lit, vec4f, vec4fFromRgba, matchVec4,
+  composeFillVec4,
+  constRefVec4,
+  varRefVec4,
+  refF32,
+  toU32,
+  toI32,
+  u32Lit,
+  u32Mod,
+  arrayIndex,
+  mix4,
+  clampF32,
+  f32Sub,
+  f32Div,
+  f32Lit,
+  vec4f,
+  vec4fFromRgba,
+  matchVec4,
 } from './_util/node-builders'
-import {
-  buildFieldMap,
-  matchArmsKey,
-  resolveColorFromAST,
-} from './shader-gen-helpers'
+import { buildFieldMap, matchArmsKey, resolveColorFromAST } from './shader-gen-helpers'
 
 export type { ShaderVariant } from './shader-gen-types'
 
 /** Build a `vec4<f32>` module const from an RGBA tuple (the FILL/STROKE_COLOR
  *  specialised constants), authored as an IR literal expression. */
 function vec4ConstDecl(name: string, rgba: readonly [number, number, number, number]): ConstDecl {
-  return { name, type: vec4fT, wgslValue: 0, cpuValue: 0, valueExpr: vec4fFromRgba(rgba).expr as Expr }
+  return {
+    name,
+    type: vec4fT,
+    wgslValue: 0,
+    cpuValue: 0,
+    valueExpr: vec4fFromRgba(rgba).expr as Expr,
+  }
 }
 
 /** Build a scalar `f32` module const (OPACITY) — the dual-precision form. */
@@ -81,7 +97,13 @@ export function generateShaderVariant(
   }
 
   // ── Stroke ──
-  const strokeResult = processColorValue(node.stroke.color, 'STROKE', allFeatureFields, fnEnv, palette)
+  const strokeResult = processColorValue(
+    node.stroke.color,
+    'STROKE',
+    allFeatureFields,
+    fnEnv,
+    palette,
+  )
   consts.push(...strokeResult.preamble)
   if (!strokeResult.isConst) uniformFields.push('stroke_color')
   if (strokeResult.needsFeatures) needsFeatureBuffer = true
@@ -108,13 +130,13 @@ export function generateShaderVariant(
   // picks fall through to whatever drew underneath).
   const fillExprNode = composeColorOpacityNode(fillResult, opacityResult)
   const strokeExprNode = composeColorOpacityNode(strokeResult, opacityResult)
-  const fillExpr: NodeLike<'vec4<f32>'> | null =
-    node.fill.kind === 'none' ? null : fillExprNode
+  const fillExpr: NodeLike<'vec4<f32>'> | null = node.fill.kind === 'none' ? null : fillExprNode
   const strokeExpr: NodeLike<'vec4<f32>'> | null = strokeExprNode
 
   // ── Cache key ──
   const featureFields = [...allFeatureFields].sort()
-  const key = buildKey(node, fillResult, strokeResult, opacityResult, featureFields)
+  const key =
+    buildKey(node, fillResult, strokeResult, opacityResult, featureFields) +
     // Match-arms hash: two compound layers (same field, different
     // value→colour mappings) produce IDENTICAL `f:feat|ff:kind`
     // keys but DIFFERENT shader bodies — the matchExpr cases differ.
@@ -122,7 +144,7 @@ export function generateShaderVariant(
     // compound's pipeline for the SECOND compound's draws → roads end
     // up rendered with landuse colours (or vice versa). Hashing the
     // match Node's structural JSON disambiguates them.
-    + matchArmsKey(fillResult.matchNode, strokeResult.matchNode)
+    matchArmsKey(fillResult.matchNode, strokeResult.matchNode)
 
   // Aggregate categoryOrder from fill + stroke results. Both code
   // paths sort patterns alphabetically, so a field used by BOTH fill
@@ -182,7 +204,8 @@ function processColorValue(
   if (value.kind === 'none') {
     return {
       preamble: [vec4ConstDecl(`${prefix}_COLOR`, [0, 0, 0, 0])],
-      isConst: true, needsFeatures: false,
+      isConst: true,
+      needsFeatures: false,
       nodeExpr: constRefVec4(`${prefix}_COLOR`),
     }
   }
@@ -190,7 +213,8 @@ function processColorValue(
   if (value.kind === 'constant') {
     return {
       preamble: [vec4ConstDecl(`${prefix}_COLOR`, value.rgba)],
-      isConst: true, needsFeatures: false,
+      isConst: true,
+      needsFeatures: false,
       nodeExpr: constRefVec4(`${prefix}_COLOR`),
     }
   }
@@ -203,19 +227,24 @@ function processColorValue(
     const uniformName = prefix === 'FILL' ? 'u.fill_color' : 'u.stroke_color'
     return {
       preamble: [],
-      isConst: false, needsFeatures: false,
+      isConst: false,
+      needsFeatures: false,
       nodeExpr: varRefVec4(uniformName),
     }
   }
 
   if (value.kind === 'data-driven') {
     const fields = collectFields(value.expr.ast)
-    fields.forEach(f => featureFields.add(f))
+    fields.forEach((f) => featureFields.add(f))
     const fieldMap = buildFieldMap(featureFields)
     const ast = value.expr.ast
 
     // ── categorical(field) → auto palette ──
-    if (ast.kind === 'FnCall' && ast.callee.kind === 'Identifier' && ast.callee.name === 'categorical') {
+    if (
+      ast.kind === 'FnCall' &&
+      ast.callee.kind === 'Identifier' &&
+      ast.callee.name === 'categorical'
+    ) {
       const fieldExpr = ast.args[0]
       // categorical(field) → CAT_PALETTE[u32(field) % CAT_PALETTE_SIZE].
       // `astToNode` converts ANY field-argument AST shape (direct FieldAccess /
@@ -231,13 +260,19 @@ function processColorValue(
       )
       return {
         preamble: [buildCatPaletteConst()],
-        isConst: false, needsFeatures: true,
+        isConst: false,
+        needsFeatures: true,
         nodeExpr,
       }
     }
 
     // ── match(field) { "val" -> color, ... } → matchExpr IR node ──
-    if (ast.kind === 'FnCall' && ast.callee.kind === 'Identifier' && ast.callee.name === 'match' && ast.matchBlock) {
+    if (
+      ast.kind === 'FnCall' &&
+      ast.callee.kind === 'Identifier' &&
+      ast.callee.name === 'match' &&
+      ast.matchBlock
+    ) {
       const fieldExpr = ast.args[0]
       const arms = ast.matchBlock.arms
 
@@ -252,8 +287,8 @@ function processColorValue(
       // Sort patterns alphabetically to match runtime category ID assignment
       // (the packer maps string→ID in this same order; the IDs index the cases).
       const sortedPatterns = arms
-        .filter(a => a.pattern !== '_')
-        .map(a => a.pattern)
+        .filter((a) => a.pattern !== '_')
+        .map((a) => a.pattern)
         .sort()
       const rgbaByPattern = new Map<string, [number, number, number, number]>()
       for (const arm of arms) {
@@ -288,7 +323,8 @@ function processColorValue(
 
       return {
         preamble: [],
-        isConst: false, needsFeatures: true,
+        isConst: false,
+        needsFeatures: true,
         // Legacy string field (unused for output now that nodeExpr owns the
         // match — buildFillExpr's string path is only reached when nodeExpr is
         // absent). Carries the fallback colour as a defensive standalone value.
@@ -301,7 +337,12 @@ function processColorValue(
     }
 
     // ── gradient(field, min, max, colorLow, colorHigh) → mix() ──
-    if (ast.kind === 'FnCall' && ast.callee.kind === 'Identifier' && ast.callee.name === 'gradient' && ast.args.length === 5) {
+    if (
+      ast.kind === 'FnCall' &&
+      ast.callee.kind === 'Identifier' &&
+      ast.callee.name === 'gradient' &&
+      ast.args.length === 5
+    ) {
       const lowColor = resolveColorFromAST(ast.args[3])
       const highColor = resolveColorFromAST(ast.args[4])
       if (lowColor && highColor) {
@@ -314,11 +355,16 @@ function processColorValue(
         const nodeExpr = mix4(
           vec4fFromRgba(lowColor),
           vec4fFromRgba(highColor),
-          clampF32(f32Div(f32Sub(valNode, minNode), f32Sub(maxNode, minNode)), f32Lit(0), f32Lit(1)),
+          clampF32(
+            f32Div(f32Sub(valNode, minNode), f32Sub(maxNode, minNode)),
+            f32Lit(0),
+            f32Lit(1),
+          ),
         )
         return {
           preamble: [],
-          isConst: false, needsFeatures: true,
+          isConst: false,
+          needsFeatures: true,
           nodeExpr,
         }
       }
@@ -337,13 +383,19 @@ function processColorValue(
       )
       return {
         preamble: [buildCatPaletteConst()],
-        isConst: false, needsFeatures: true,
+        isConst: false,
+        needsFeatures: true,
         nodeExpr,
       }
     }
 
     // ── Legacy: scale(field, min, max, colorLow, colorHigh) ──
-    if (ast.kind === 'FnCall' && ast.callee.kind === 'Identifier' && ast.callee.name === 'scale' && ast.args.length === 5) {
+    if (
+      ast.kind === 'FnCall' &&
+      ast.callee.kind === 'Identifier' &&
+      ast.callee.name === 'scale' &&
+      ast.args.length === 5
+    ) {
       const lowColor = resolveColorFromAST(ast.args[3])
       const highColor = resolveColorFromAST(ast.args[4])
       if (lowColor && highColor) {
@@ -356,11 +408,16 @@ function processColorValue(
         const nodeExpr = mix4(
           vec4fFromRgba(lowColor),
           vec4fFromRgba(highColor),
-          clampF32(f32Div(f32Sub(valNode, minNode), f32Sub(maxNode, minNode)), f32Lit(0), f32Lit(1)),
+          clampF32(
+            f32Div(f32Sub(valNode, minNode), f32Sub(maxNode, minNode)),
+            f32Lit(0),
+            f32Lit(1),
+          ),
         )
         return {
           preamble: [],
-          isConst: false, needsFeatures: true,
+          isConst: false,
+          needsFeatures: true,
           nodeExpr,
         }
       }
@@ -369,7 +426,8 @@ function processColorValue(
     // Default: scalar data-driven expression → greyscale vec4(s, s, s, opacity).
     return {
       preamble: [],
-      isConst: false, needsFeatures: true,
+      isConst: false,
+      needsFeatures: true,
       scalarNodeExpr: astToNode(ast, fieldMap, fnEnv),
     }
   }
@@ -388,7 +446,8 @@ function processColorValue(
     if (gradientIdx >= 0) {
       return {
         preamble: [],
-        isConst: false, needsFeatures: false,
+        isConst: false,
+        needsFeatures: false,
         // Phase 2.5 US-005 idiom (palette sample) — emit the
         // textureSampleLevel call as a real Node so the zoom-interp +
         // palette path (OFM Bright zoom-interpolated fills, etc.) flows
@@ -402,7 +461,8 @@ function processColorValue(
   // conditional, zoom-interpolated (no palette), …  → fall back to uniform
   return {
     preamble: [],
-    isConst: false, needsFeatures: false,
+    isConst: false,
+    needsFeatures: false,
     nodeExpr: varRefVec4(`u.${prefix.toLowerCase()}_color`),
   }
 }
@@ -426,7 +486,7 @@ function processOpacity(
 
   if (value.kind === 'data-driven') {
     const fields = collectFields(value.expr.ast)
-    fields.forEach(f => featureFields.add(f))
+    fields.forEach((f) => featureFields.add(f))
     const fieldMap = buildFieldMap(featureFields)
     // Data-driven opacity → f32 Node via `astToNode` (any AST shape).
     return {

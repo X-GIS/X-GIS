@@ -29,7 +29,9 @@ describe('intrinsics — neutral registry (#3a)', () => {
   })
 
   it('textureSample drops the sampler arg on glsl', () => {
-    expect(spellIntrinsic('wgsl', 'textureSample', ['t', 's', 'uv'])).toBe('textureSample(t, s, uv)')
+    expect(spellIntrinsic('wgsl', 'textureSample', ['t', 's', 'uv'])).toBe(
+      'textureSample(t, s, uv)',
+    )
     expect(spellIntrinsic('glsl', 'textureSample', ['t', 's', 'uv'])).toBe('texture(t, uv)')
   })
 
@@ -43,7 +45,9 @@ describe('intrinsics — neutral registry (#3a)', () => {
   // the wgsl spelling stays untouched (WGSL byte-identity).
   it('textureLoad: WGSL unchanged; GLSL texelFetch wraps the lod in int()', () => {
     expect(spellIntrinsic('wgsl', 'textureLoad', ['t', 'c', 'lvl'])).toBe('textureLoad(t, c, lvl)')
-    expect(spellIntrinsic('glsl', 'textureLoad', ['t', 'c', 'lvl'])).toBe('texelFetch(t, c, int(lvl))')
+    expect(spellIntrinsic('glsl', 'textureLoad', ['t', 'c', 'lvl'])).toBe(
+      'texelFetch(t, c, int(lvl))',
+    )
   })
 
   it('textureDimensions: WGSL unchanged; GLSL textureSize (int lod) wrapped in uvec2', () => {
@@ -53,6 +57,8 @@ describe('intrinsics — neutral registry (#3a)', () => {
     // GLSL int/uint compile error). 0 lod when absent.
     expect(spellIntrinsic('glsl', 'textureDimensions', ['t'])).toBe('uvec2(textureSize(t, 0))')
     // explicit level form casts the given level to int.
-    expect(spellIntrinsic('glsl', 'textureDimensions', ['t', 'lvl'])).toBe('uvec2(textureSize(t, int(lvl)))')
+    expect(spellIntrinsic('glsl', 'textureDimensions', ['t', 'lvl'])).toBe(
+      'uvec2(textureSize(t, int(lvl)))',
+    )
   })
 })

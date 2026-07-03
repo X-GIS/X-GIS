@@ -87,8 +87,8 @@ export const STENCIL_WRITE: GPUDepthStencilState = {
   depthWriteEnabled: true,
   stencilFront: { compare: 'always', passOp: 'replace' },
   stencilBack: { compare: 'always', passOp: 'replace' },
-  stencilWriteMask: 0xFF,
-  stencilReadMask: 0xFF,
+  stencilWriteMask: 0xff,
+  stencilReadMask: 0xff,
 }
 
 /** Stencil test: only draw where stencil=0 (fallback tiles, not covered by children) */
@@ -99,7 +99,7 @@ export const STENCIL_TEST: GPUDepthStencilState = {
   stencilFront: { compare: 'equal', passOp: 'keep' },
   stencilBack: { compare: 'equal', passOp: 'keep' },
   stencilWriteMask: 0x00,
-  stencilReadMask: 0xFF,
+  stencilReadMask: 0xff,
 }
 
 /** Ground-layer stencil write — same tile-coverage stencil as
@@ -119,8 +119,8 @@ export const STENCIL_WRITE_NO_DEPTH: GPUDepthStencilState = {
   depthWriteEnabled: false,
   stencilFront: { compare: 'always', passOp: 'replace' },
   stencilBack: { compare: 'always', passOp: 'replace' },
-  stencilWriteMask: 0xFF,
-  stencilReadMask: 0xFF,
+  stencilWriteMask: 0xff,
+  stencilReadMask: 0xff,
 }
 
 /** Ground-layer stencil test — same fallback semantics as
@@ -134,7 +134,7 @@ export const STENCIL_TEST_NO_DEPTH: GPUDepthStencilState = {
   stencilFront: { compare: 'equal', passOp: 'keep' },
   stencilBack: { compare: 'equal', passOp: 'keep' },
   stencilWriteMask: 0x00,
-  stencilReadMask: 0xFF,
+  stencilReadMask: 0xff,
 }
 
 /** Depth test enabled, depth write disabled, stencil ignored. Used
@@ -194,8 +194,8 @@ export const STENCIL_CLIPMASK_WRITE: GPUDepthStencilState = {
   depthWriteEnabled: false,
   stencilFront: { compare: 'always', passOp: 'replace' },
   stencilBack: { compare: 'always', passOp: 'replace' },
-  stencilWriteMask: 0xFF,
-  stencilReadMask: 0xFF,
+  stencilWriteMask: 0xff,
+  stencilReadMask: 0xff,
 }
 
 /** Per-tile clip mask test for the FILL pipelines. Functionally
@@ -212,7 +212,7 @@ export const STENCIL_CLIPMASK_TEST: GPUDepthStencilState = {
   stencilFront: { compare: 'equal', passOp: 'keep' },
   stencilBack: { compare: 'equal', passOp: 'keep' },
   stencilWriteMask: 0x00,
-  stencilReadMask: 0xFF,
+  stencilReadMask: 0xff,
 }
 
 /** Per-tile clip mask test for ground (depth-disabled) layers. Same
@@ -226,7 +226,7 @@ export const STENCIL_CLIPMASK_TEST_NO_DEPTH: GPUDepthStencilState = {
   stencilFront: { compare: 'equal', passOp: 'keep' },
   stencilBack: { compare: 'equal', passOp: 'keep' },
   stencilWriteMask: 0x00,
-  stencilReadMask: 0xFF,
+  stencilReadMask: 0xff,
 }
 
 /** Stencil disabled: always pass, no write (raster tiles, SDF line body) */
@@ -295,4 +295,4 @@ export {
   worldCopiesFor,
   enumerateWorldCopies,
   routeToSphereSelector,
-} from "../projection/projections-table"
+} from '../projection/projections-table'

@@ -28,11 +28,17 @@ interface XgisCamera {
   bearing?: number
 }
 interface XgisMap {
-  vtSources: Map<string, { renderer: { getDrawStats?: () => { tilesVisible: number; drawCalls: number } } }>
+  vtSources: Map<
+    string,
+    { renderer: { getDrawStats?: () => { tilesVisible: number; drawCalls: number } } }
+  >
   camera: XgisCamera
 }
 declare global {
-  interface Window { __xgisMap?: XgisMap; __xgisReady?: boolean }
+  interface Window {
+    __xgisMap?: XgisMap
+    __xgisReady?: boolean
+  }
 }
 
 test.describe('Realistic mobile pinch gesture', () => {
@@ -41,23 +47,23 @@ test.describe('Realistic mobile pinch gesture', () => {
   test('4 bursts × multi-axis ease-in-out at Seoul z=13: bounded peaks', async ({ page }) => {
     test.setTimeout(180_000)
 
-    await page.goto(
-      `/demo.html?id=pmtiles_layered#13/37.6172/127.0801`,
-      { waitUntil: 'domcontentloaded' },
-    )
+    await page.goto(`/demo.html?id=pmtiles_layered#13/37.6172/127.0801`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await page.waitForFunction(() => window.__xgisReady === true, null, { timeout: 30_000 })
     await page.waitForFunction(
-      () => window.__xgisReady === true,
-      null, { timeout: 30_000 },
+      () => {
+        const map = window.__xgisMap
+        if (!map?.vtSources) return false
+        let v = 0
+        for (const { renderer } of map.vtSources.values()) {
+          v += renderer.getDrawStats?.().tilesVisible ?? 0
+        }
+        return v > 0
+      },
+      null,
+      { timeout: 60_000 },
     )
-    await page.waitForFunction(() => {
-      const map = window.__xgisMap
-      if (!map?.vtSources) return false
-      let v = 0
-      for (const { renderer } of map.vtSources.values()) {
-        v += renderer.getDrawStats?.().tilesVisible ?? 0
-      }
-      return v > 0
-    }, null, { timeout: 60_000 })
     await page.waitForTimeout(3000)
 
     // One burst: ease-in-out cubic interpolation of zoom + center
@@ -67,35 +73,37 @@ test.describe('Realistic mobile pinch gesture', () => {
       to: { zoom: number; cx: number; cy: number; pitch: number },
       durationMs: number,
     ): Promise<{ tilesVisible: number; drawCalls: number; heapMB: number | null }> => {
-      return await page.evaluate(async ({ from, to, durationMs }) => {
-        const map = window.__xgisMap!
-        const ease = (t: number) => t < 0.5
-          ? 4 * t * t * t
-          : 1 - Math.pow(-2 * t + 2, 3) / 2
-        const peaks = { tilesVisible: 0, drawCalls: 0, heapMB: null as number | null }
-        const t0 = performance.now()
-        while (performance.now() - t0 < durationMs) {
-          await new Promise<void>(r => requestAnimationFrame(() => r()))
-          const raw = Math.min(1, (performance.now() - t0) / durationMs)
-          const t = ease(raw)
-          map.camera.zoom = from.zoom + (to.zoom - from.zoom) * t
-          map.camera.centerX = from.cx + (to.cx - from.cx) * t
-          map.camera.centerY = from.cy + (to.cy - from.cy) * t
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          if ('pitch' in map.camera) (map.camera as any).pitch = from.pitch + (to.pitch - from.pitch) * t
-          for (const { renderer } of map.vtSources.values()) {
-            const ds = renderer.getDrawStats?.() ?? { tilesVisible: 0, drawCalls: 0 }
-            if (ds.tilesVisible > peaks.tilesVisible) peaks.tilesVisible = ds.tilesVisible
-            if (ds.drawCalls > peaks.drawCalls) peaks.drawCalls = ds.drawCalls
+      return await page.evaluate(
+        async ({ from, to, durationMs }) => {
+          const map = window.__xgisMap!
+          const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+          const peaks = { tilesVisible: 0, drawCalls: 0, heapMB: null as number | null }
+          const t0 = performance.now()
+          while (performance.now() - t0 < durationMs) {
+            await new Promise<void>((r) => requestAnimationFrame(() => r()))
+            const raw = Math.min(1, (performance.now() - t0) / durationMs)
+            const t = ease(raw)
+            map.camera.zoom = from.zoom + (to.zoom - from.zoom) * t
+            map.camera.centerX = from.cx + (to.cx - from.cx) * t
+            map.camera.centerY = from.cy + (to.cy - from.cy) * t
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            if ('pitch' in map.camera)
+              (map.camera as any).pitch = from.pitch + (to.pitch - from.pitch) * t
+            for (const { renderer } of map.vtSources.values()) {
+              const ds = renderer.getDrawStats?.() ?? { tilesVisible: 0, drawCalls: 0 }
+              if (ds.tilesVisible > peaks.tilesVisible) peaks.tilesVisible = ds.tilesVisible
+              if (ds.drawCalls > peaks.drawCalls) peaks.drawCalls = ds.drawCalls
+            }
+            const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory
+            if (heap) {
+              const mb = Math.round(heap.usedJSHeapSize / 1048576)
+              if (peaks.heapMB === null || mb > peaks.heapMB) peaks.heapMB = mb
+            }
           }
-          const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory
-          if (heap) {
-            const mb = Math.round(heap.usedJSHeapSize / 1048576)
-            if (peaks.heapMB === null || mb > peaks.heapMB) peaks.heapMB = mb
-          }
-        }
-        return peaks
-      }, { from, to, durationMs })
+          return peaks
+        },
+        { from, to, durationMs },
+      )
     }
 
     // Read starting camera as f64 mercator so we can offset relative
@@ -121,10 +129,10 @@ test.describe('Realistic mobile pinch gesture', () => {
     // report. 400 ms/burst with 100 ms idle ≈ a sustained pinch
     // gesture from a real user.
     const bursts = [
-      { dz: +1.5, dcx: +STEP_M, dcy: 0,         dpitch: 0,   label: 'zoom-in + pan-east' },
-      { dz: +1,   dcx: 0,        dcy: 0,         dpitch: +30, label: 'zoom-in + tilt-up' },
-      { dz: -2,   dcx: -STEP_M,  dcy: 0,         dpitch: 0,   label: 'zoom-out + pan-west' },
-      { dz: -0.5, dcx: 0,        dcy: -STEP_M,   dpitch: -20, label: 'zoom-out + pan-south + tilt-down' },
+      { dz: +1.5, dcx: +STEP_M, dcy: 0, dpitch: 0, label: 'zoom-in + pan-east' },
+      { dz: +1, dcx: 0, dcy: 0, dpitch: +30, label: 'zoom-in + tilt-up' },
+      { dz: -2, dcx: -STEP_M, dcy: 0, dpitch: 0, label: 'zoom-out + pan-west' },
+      { dz: -0.5, dcx: 0, dcy: -STEP_M, dpitch: -20, label: 'zoom-out + pan-south + tilt-down' },
     ]
 
     const overallPeaks = { tilesVisible: 0, drawCalls: 0, heapMB: 0 }
@@ -137,15 +145,20 @@ test.describe('Realistic mobile pinch gesture', () => {
         pitch: Math.max(0, Math.min(85, cur.pitch + b.dpitch)),
       }
       const peaks = await burst(cur, next, 400)
-      console.log(`[${b.label}] tilesVisible peak ${peaks.tilesVisible}, drawCalls ${peaks.drawCalls}, heap ${peaks.heapMB} MB`)
-      if (peaks.tilesVisible > overallPeaks.tilesVisible) overallPeaks.tilesVisible = peaks.tilesVisible
+      console.log(
+        `[${b.label}] tilesVisible peak ${peaks.tilesVisible}, drawCalls ${peaks.drawCalls}, heap ${peaks.heapMB} MB`,
+      )
+      if (peaks.tilesVisible > overallPeaks.tilesVisible)
+        overallPeaks.tilesVisible = peaks.tilesVisible
       if (peaks.drawCalls > overallPeaks.drawCalls) overallPeaks.drawCalls = peaks.drawCalls
       if ((peaks.heapMB ?? 0) > overallPeaks.heapMB) overallPeaks.heapMB = peaks.heapMB ?? 0
       cur = next
       await page.waitForTimeout(100)
     }
 
-    console.log(`[overall] tilesVisible ${overallPeaks.tilesVisible}, drawCalls ${overallPeaks.drawCalls}, heap ${overallPeaks.heapMB} MB`)
+    console.log(
+      `[overall] tilesVisible ${overallPeaks.tilesVisible}, drawCalls ${overallPeaks.drawCalls}, heap ${overallPeaks.heapMB} MB`,
+    )
 
     expect(overallPeaks.tilesVisible).toBeLessThan(200)
     expect(overallPeaks.drawCalls).toBeLessThan(1500)
@@ -159,23 +172,23 @@ test.describe('Realistic mobile pinch gesture', () => {
     // (z=10) covers a wider tile set than city zoom — exactly the
     // case that drove the user's "엄청 느려지고 발열" report on a
     // real iPhone. Test reproduces the conditions, not just z=13.
-    await page.goto(
-      `/demo.html?id=pmtiles_layered#9.99/37.6172/127.0801/0.3/2.3`,
-      { waitUntil: 'domcontentloaded' },
-    )
+    await page.goto(`/demo.html?id=pmtiles_layered#9.99/37.6172/127.0801/0.3/2.3`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await page.waitForFunction(() => window.__xgisReady === true, null, { timeout: 30_000 })
     await page.waitForFunction(
-      () => window.__xgisReady === true,
-      null, { timeout: 30_000 },
+      () => {
+        const map = window.__xgisMap
+        if (!map?.vtSources) return false
+        let v = 0
+        for (const { renderer } of map.vtSources.values()) {
+          v += renderer.getDrawStats?.().tilesVisible ?? 0
+        }
+        return v > 0
+      },
+      null,
+      { timeout: 60_000 },
     )
-    await page.waitForFunction(() => {
-      const map = window.__xgisMap
-      if (!map?.vtSources) return false
-      let v = 0
-      for (const { renderer } of map.vtSources.values()) {
-        v += renderer.getDrawStats?.().tilesVisible ?? 0
-      }
-      return v > 0
-    }, null, { timeout: 60_000 })
     await page.waitForTimeout(3000)
 
     // 10 s sustained — no idle gaps anywhere. Worst case for the
@@ -202,7 +215,7 @@ test.describe('Realistic mobile pinch gesture', () => {
       const DURATION = 10_000
       let lastFrame = t0
       while (performance.now() - t0 < DURATION) {
-        await new Promise<void>(r => requestAnimationFrame(() => r()))
+        await new Promise<void>((r) => requestAnimationFrame(() => r()))
         const now = performance.now()
         frameTimes.push(now - lastFrame)
         lastFrame = now
@@ -227,11 +240,15 @@ test.describe('Realistic mobile pinch gesture', () => {
       const avgMs = ft.reduce((a, b) => a + b, 0) / ft.length
       const sorted = [...ft].sort((a, b) => a - b)
       const p95Ms = sorted[Math.floor(sorted.length * 0.95)]
-      const slow = ft.filter(f => f > 33).length
+      const slow = ft.filter((f) => f > 33).length
       return { peaks, avgMs, p95Ms, slowFrames: slow, totalFrames: ft.length }
     })
-    console.log(`[10 s sustained @ z=10] tilesVisible peak ${result.peaks.tilesVisible}, drawCalls ${result.peaks.drawCalls}, heap ${result.peaks.heapMB} MB`)
-    console.log(`  frame time: avg ${result.avgMs.toFixed(1)} ms, p95 ${result.p95Ms.toFixed(1)} ms, >33 ms: ${result.slowFrames}/${result.totalFrames} (${(100 * result.slowFrames / result.totalFrames).toFixed(0)}%)`)
+    console.log(
+      `[10 s sustained @ z=10] tilesVisible peak ${result.peaks.tilesVisible}, drawCalls ${result.peaks.drawCalls}, heap ${result.peaks.heapMB} MB`,
+    )
+    console.log(
+      `  frame time: avg ${result.avgMs.toFixed(1)} ms, p95 ${result.p95Ms.toFixed(1)} ms, >33 ms: ${result.slowFrames}/${result.totalFrames} (${((100 * result.slowFrames) / result.totalFrames).toFixed(0)}%)`,
+    )
 
     expect(result.peaks.tilesVisible).toBeLessThan(200)
     expect(result.peaks.drawCalls).toBeLessThan(1500)

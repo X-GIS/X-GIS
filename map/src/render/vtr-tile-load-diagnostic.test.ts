@@ -52,8 +52,8 @@ describe('VectorTileRenderer.getTileLoadDiagnostic (iter-288)', () => {
     expect(d.needed).toBe(0)
     expect(d.missed).toBe(0)
     expect(d.gpuUnique).toBe(0)
-    expect(d.catalogCached).toBe(0)   // source null → fallback 0
-    expect(d.catalogLoading).toBe(0)  // source null → fallback 0
+    expect(d.catalogCached).toBe(0) // source null → fallback 0
+    expect(d.catalogLoading).toBe(0) // source null → fallback 0
     expect(d.uploadQueued).toBe(0)
     expect(typeof d.gpuCap).toBe('number')
     expect(d.gpuCap).toBeGreaterThan(0)

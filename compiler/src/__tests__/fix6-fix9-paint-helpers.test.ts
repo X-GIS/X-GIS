@@ -13,13 +13,15 @@ function emitFill(opacity: unknown): string {
   return convertMapboxStyle({
     version: 8,
     sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-    layers: [{
-      id: 'l',
-      type: 'fill',
-      source: 'v',
-      'source-layer': 'a',
-      paint: { 'fill-color': '#000', 'fill-opacity': opacity },
-    }],
+    layers: [
+      {
+        id: 'l',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'a',
+        paint: { 'fill-color': '#000', 'fill-opacity': opacity },
+      },
+    ],
   } as never)
 }
 
@@ -27,13 +29,15 @@ function emitFillColor(color: unknown): string {
   return convertMapboxStyle({
     version: 8,
     sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-    layers: [{
-      id: 'l',
-      type: 'fill',
-      source: 'v',
-      'source-layer': 'a',
-      paint: { 'fill-color': color },
-    }],
+    layers: [
+      {
+        id: 'l',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'a',
+        paint: { 'fill-color': color },
+      },
+    ],
   } as never)
 }
 
@@ -88,7 +92,10 @@ describe('FIX #9 — legacy property-function emits conversion warning (not sile
     const legacyCategorical = {
       property: 'class',
       type: 'categorical',
-      stops: [['primary', '#ff0000'], ['secondary', '#00ff00']],
+      stops: [
+        ['primary', '#ff0000'],
+        ['secondary', '#00ff00'],
+      ],
     }
     const out = emitFillColor(legacyCategorical)
     expect(out).toContain('Conversion notes')
@@ -101,7 +108,10 @@ describe('FIX #9 — legacy property-function emits conversion warning (not sile
     const legacyInterval = {
       property: 'height',
       type: 'interval',
-      stops: [[0, '#aaaaaa'], [100, '#ffffff']],
+      stops: [
+        [0, '#aaaaaa'],
+        [100, '#ffffff'],
+      ],
     }
     const out = emitFillColor(legacyInterval)
     expect(out).toContain('Conversion notes')
@@ -112,7 +122,10 @@ describe('FIX #9 — legacy property-function emits conversion warning (not sile
     // Sanity: a normal legacy zoom-function object must NOT be mistaken
     // for a property function; no new warning should appear for it.
     const zoomStops = {
-      stops: [[5, '#aaaaaa'], [14, '#ffffff']],
+      stops: [
+        [5, '#aaaaaa'],
+        [14, '#ffffff'],
+      ],
     }
     const out = emitFillColor(zoomStops)
     // Should not contain the property-function warning.

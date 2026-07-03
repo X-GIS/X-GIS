@@ -26,7 +26,7 @@ export function clip(
   k2 /= scale
 
   if (minAll >= k1 && maxAll < k2) return features // trivial accept
-  if (maxAll < k1 || minAll >= k2) return null    // trivial reject
+  if (maxAll < k1 || minAll >= k2) return null // trivial reject
 
   const clipped: ProjectedFeature[] = []
 
@@ -37,10 +37,12 @@ export function clip(
     const min = axis === 0 ? feature.minX : feature.minY
     const max = axis === 0 ? feature.maxX : feature.maxY
 
-    if (min >= k1 && max < k2) { // trivial accept
+    if (min >= k1 && max < k2) {
+      // trivial accept
       clipped.push(feature)
       continue
-    } else if (max < k1 || min >= k2) { // trivial reject
+    } else if (max < k1 || min >= k2) {
+      // trivial reject
       continue
     }
 
@@ -85,13 +87,7 @@ export function clip(
   return clipped.length ? clipped : null
 }
 
-function clipPoints(
-  geom: FlatLine,
-  newGeom: FlatLine,
-  k1: number,
-  k2: number,
-  axis: 0 | 1,
-): void {
+function clipPoints(geom: FlatLine, newGeom: FlatLine, k1: number, k2: number, axis: 0 | 1): void {
   for (let i = 0; i < geom.length; i += 3) {
     const a = geom[i + axis]
     if (a >= k1 && a <= k2) {
@@ -194,8 +190,10 @@ function addPoint(out: FlatLine, x: number, y: number, z: number): void {
 
 function intersectX(
   out: FlatLine,
-  ax: number, ay: number,
-  bx: number, by: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
   x: number,
 ): void {
   const t = (x - ax) / (bx - ax)
@@ -204,8 +202,10 @@ function intersectX(
 
 function intersectY(
   out: FlatLine,
-  ax: number, ay: number,
-  bx: number, by: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
   y: number,
 ): void {
   const t = (y - ay) / (by - ay)

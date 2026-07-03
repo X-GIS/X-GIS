@@ -58,22 +58,30 @@ interface ViewSpec {
 // the icon pipeline (Phase C of the compat plan) lands we'll add
 // thresholds here too.
 const VIEWS: ViewSpec[] = [
-  { id: 'bright-seoul-school',
+  {
+    id: 'bright-seoul-school',
     style: 'openfreemap-bright',
     hash: '#17.85/37.12665/126.92430',
-    description: 'OFM Bright, Seoul 행정초등학교 — label + icon parity at z=17.85' },
-  { id: 'bright-tokyo-z14',
+    description: 'OFM Bright, Seoul 행정초등학교 — label + icon parity at z=17.85',
+  },
+  {
+    id: 'bright-tokyo-z14',
     style: 'openfreemap-bright',
     hash: '#14/35.6585/139.7454',
-    description: 'OFM Bright, Tokyo z=14 — POI icons + place labels' },
-  { id: 'liberty-paris-z14',
+    description: 'OFM Bright, Tokyo z=14 — POI icons + place labels',
+  },
+  {
+    id: 'liberty-paris-z14',
     style: 'openfreemap-liberty',
     hash: '#14/48.8534/2.3488',
-    description: 'OFM Liberty, Paris z=14 — dense label network + icons' },
-  { id: 'demotiles-europe-z2',
+    description: 'OFM Liberty, Paris z=14 — dense label network + icons',
+  },
+  {
+    id: 'demotiles-europe-z2',
     style: 'maplibre-demotiles',
     hash: '#2.5/48/15',
-    description: 'MapLibre demotiles, Europe z=2 — country labels (Bold weight)' },
+    description: 'MapLibre demotiles, Europe z=2 — country labels (Bold weight)',
+  },
   // User request 2026-05-18: verify highway shield rendering.
   // Iter 503 wired icon-along-line dispatch; iter 506 wired
   // line-tangent rotation. This view (Texas around I-10) lands the
@@ -81,60 +89,84 @@ const VIEWS: ViewSpec[] = [
   // (`us-state_2`) + the white number text overlay. z=12 puts the
   // text overlay at legibility threshold; both renderers should
   // emit shield + numeric label at matching screen positions.
-  { id: 'bright-texas-shields',
+  {
+    id: 'bright-texas-shields',
     style: 'openfreemap-bright',
     hash: '#12/29.7604/-95.3698',
-    description: 'OFM Bright, Houston z=12 — US highway shields (I-10 / US-59)' },
+    description: 'OFM Bright, Houston z=12 — US highway shields (I-10 / US-59)',
+  },
   // User report 2026-05-19: "라벨 렌더링에서 폰트의 두께가 조금 얇게
   // 렌더링되는듯함. 가독성이 떨어지는 문제 발생". OFM Positron at
   // user-given hash (#13.35/83.90/-77.02). At z=13 lat=83 the Arctic
   // Ocean Mercator tiles are empty (eq=100% on first survey run);
   // kept anyway as the user's literal reference + a parallel
   // dense-label NYC view at z=14 for actual font-weight measurement.
-  { id: 'positron-arctic-z13',
+  {
+    id: 'positron-arctic-z13',
     style: 'openfreemap-positron',
     hash: '#13.35/83.90080/-77.02119',
-    description: 'OFM Positron, user-supplied Arctic z=13.35 hash (likely empty ocean)' },
-  { id: 'positron-nyc-z14',
+    description: 'OFM Positron, user-supplied Arctic z=13.35 hash (likely empty ocean)',
+  },
+  {
+    id: 'positron-nyc-z14',
     style: 'openfreemap-positron',
     hash: '#14/40.7484/-73.9857',
-    description: 'OFM Positron, NYC z=14 — dense Latin labels for font-weight thinness measurement' },
+    description: 'OFM Positron, NYC z=14 — dense Latin labels for font-weight thinness measurement',
+  },
   // User request 2026-05-19: label-quality check at OFM Positron
   // Seoul z=14.16 — dense Hangul labels (CJK-fallback chain) +
   // mixed-script "Seoul" Latin name. Focus: label quality.
-  { id: 'positron-seoul-z14',
+  {
+    id: 'positron-seoul-z14',
     style: 'openfreemap-positron',
     hash: '#14.16/37.57197/126.98361',
-    description: 'OFM Positron, Seoul z=14.16 — Hangul label quality compare' },
+    description: 'OFM Positron, Seoul z=14.16 — Hangul label quality compare',
+  },
   // User report 2026-05-19: "OFM Bright #19.31/37.12621/126.93016
   // 에서 도로 비주얼 아티팩트 발생. 컴페어 및 픽셀 디프 권고 확인후
   // 상세 검토 필요". Seoul z=19.31 road artifact view.
-  { id: 'bright-seoul-z19-roads',
+  {
+    id: 'bright-seoul-z19-roads',
     style: 'openfreemap-bright',
     hash: '#19.31/37.12621/126.93016',
-    description: 'OFM Bright, Seoul z=19.31 — road artifact investigation (user-flagged 2026-05-19)' },
+    description:
+      'OFM Bright, Seoul z=19.31 — road artifact investigation (user-flagged 2026-05-19)',
+  },
   // QA-sweep verification views (2026-06-25): user-flagged repros.
-  { id: 'bright-world-z0',
+  {
+    id: 'bright-world-z0',
     style: 'openfreemap-bright',
     hash: '#0/20/0',
-    description: 'OFM Bright z=0 — #601 white-box behind city/country labels (low-zoom only)' },
-  { id: 'bright-seoul-z22-icons',
+    description: 'OFM Bright z=0 — #601 white-box behind city/country labels (low-zoom only)',
+  },
+  {
+    id: 'bright-seoul-z22-icons',
     style: 'openfreemap-bright',
     hash: '#22.00/37.53613/126.88191/345.0/0.0',
-    description: 'OFM Bright Seoul z=22 — #603 road-interior icons duplicate/off-road (user repro)' },
-  { id: 'bright-eu-z4',
+    description: 'OFM Bright Seoul z=22 — #603 road-interior icons duplicate/off-road (user repro)',
+  },
+  {
+    id: 'bright-eu-z4',
     style: 'openfreemap-bright',
     hash: '#4/50/10',
-    description: 'OFM Bright EU z=4 — #606 admin/country outline width + #601 city dots' },
-  { id: 'demotiles-world-z0',
+    description: 'OFM Bright EU z=4 — #606 admin/country outline width + #601 city dots',
+  },
+  {
+    id: 'demotiles-world-z0',
     style: 'maplibre-demotiles',
     hash: '#0/20/0',
-    description: 'MapLibre demotiles z=0 — #606 coastline outline width (user-flagged thick)' },
+    description: 'MapLibre demotiles z=0 — #606 coastline outline width (user-flagged thick)',
+  },
 ]
 
 interface Buckets {
-  eq0: number; le8: number; le16: number; le32: number
-  le64: number; le128: number; gt128: number
+  eq0: number
+  le8: number
+  le16: number
+  le32: number
+  le64: number
+  le128: number
+  gt128: number
 }
 
 function diffBuckets(a: PNG, b: PNG, w: number, h: number): Buckets {
@@ -227,7 +259,8 @@ for (const view of VIEWS) {
       // parent fallback (no render hang); a fresh compare.html cold-start (GPU
       // init + worker/glyph/sprite atlas) at extreme cameras (e.g. z22) can
       // exceed 90s. Bumped to 150s (within the 180s per-test budget).
-      null, { timeout: 150_000 },
+      null,
+      { timeout: 150_000 },
     )
     // Intentionally NO hideSymbolLayers — that's the whole point of
     // this spec. Both sides keep labels + icons visible so the diff
@@ -236,34 +269,57 @@ for (const view of VIEWS) {
     // Settle wait: labels rely on glyph PBF fetches that can lag
     // behind the polygon paint. Wait a beat longer than the labels-
     // off survey to let the label collision pass converge.
-    await page.evaluate(() => new Promise<void>((resolve) => {
-      interface MlMap { loaded(): boolean; once(ev: string, fn: () => void): void }
-      const ml = (window as unknown as { __mlMap?: MlMap }).__mlMap
-      if (!ml) { resolve(); return }
-      if (ml.loaded()) { resolve(); return }
-      ml.once('idle', () => resolve())
-      setTimeout(resolve, 15_000)
-    }))
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          interface MlMap {
+            loaded(): boolean
+            once(ev: string, fn: () => void): void
+          }
+          const ml = (window as unknown as { __mlMap?: MlMap }).__mlMap
+          if (!ml) {
+            resolve()
+            return
+          }
+          if (ml.loaded()) {
+            resolve()
+            return
+          }
+          ml.once('idle', () => resolve())
+          setTimeout(resolve, 15_000)
+        }),
+    )
     await page.waitForTimeout(4_500)
-    await page.evaluate(() => new Promise<void>(r =>
-      requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+    await page.evaluate(
+      () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+    )
 
     // iter 531 diagnostic: probe IconStage for icon names the style
     // referenced but the atlas didn't have AFTER load. Surfaces
     // sprite-atlas key mismatches the compiler can't see. Stashed
     // to a per-view JSON for offline inspection; lossless — no
     // effect on the diff bucketing above.
-    const { missingIcons, dispatchedIcons, dispatchedLabelTexts, lastDrawIconCount, lastLabelCounts, lastDrawSample, canvasInfo } = await page.evaluate(() => {
-      const xg = (window as unknown as {
-        __xgisMap?: {
-          getMissingIconNames?: () => string[] | null
-          getDispatchedIconNames?: () => string[] | null
-          getDispatchedLabelTexts?: () => string[] | null
-          getLastDrawIconCount?: () => number | null
-          getLastLabelCounts?: () => { submitted: number; drawn: number } | null
-          getLastDrawSample?: () => unknown | null
+    const {
+      missingIcons,
+      dispatchedIcons,
+      dispatchedLabelTexts,
+      lastDrawIconCount,
+      lastLabelCounts,
+      lastDrawSample,
+      canvasInfo,
+    } = await page.evaluate(() => {
+      const xg = (
+        window as unknown as {
+          __xgisMap?: {
+            getMissingIconNames?: () => string[] | null
+            getDispatchedIconNames?: () => string[] | null
+            getDispatchedLabelTexts?: () => string[] | null
+            getLastDrawIconCount?: () => number | null
+            getLastLabelCounts?: () => { submitted: number; drawn: number } | null
+            getLastDrawSample?: () => unknown | null
+          }
         }
-      }).__xgisMap
+      ).__xgisMap
       const xgCanvas = document.getElementById('xg-canv') as HTMLCanvasElement | null
       return {
         missingIcons: xg?.getMissingIconNames?.() ?? null,
@@ -272,11 +328,15 @@ for (const view of VIEWS) {
         lastDrawIconCount: xg?.getLastDrawIconCount?.() ?? null,
         lastLabelCounts: xg?.getLastLabelCounts?.() ?? null,
         lastDrawSample: xg?.getLastDrawSample?.() ?? null,
-        canvasInfo: xgCanvas ? {
-          width: xgCanvas.width, height: xgCanvas.height,
-          clientWidth: xgCanvas.clientWidth, clientHeight: xgCanvas.clientHeight,
-          dpr: window.devicePixelRatio,
-        } : null,
+        canvasInfo: xgCanvas
+          ? {
+              width: xgCanvas.width,
+              height: xgCanvas.height,
+              clientWidth: xgCanvas.clientWidth,
+              clientHeight: xgCanvas.clientHeight,
+              dpr: window.devicePixelRatio,
+            }
+          : null,
       }
     })
 
@@ -292,8 +352,13 @@ for (const view of VIEWS) {
     const buckets = diffBuckets(mlNorm, xgNorm, w, h)
     const totalPx = w * h
     results.push({
-      id: view.id, style: view.style, hash: view.hash,
-      canvasW: w, canvasH: h, totalPx, buckets,
+      id: view.id,
+      style: view.style,
+      hash: view.hash,
+      canvasW: w,
+      canvasH: h,
+      totalPx,
+      buckets,
     })
 
     const viewDir = join(OUT, view.id)
@@ -306,18 +371,35 @@ for (const view of VIEWS) {
     // the failure mode (text smaller → red ring around every glyph;
     // halo missing → solid red around every label; icon missing →
     // red rectangle at the anchor).
-    writeFileSync(join(viewDir, 'diff-heatmap.png'),
-      PNG.sync.write(makeDiffHeatmap(mlNorm, xgNorm, w, h)))
-    writeFileSync(join(viewDir, 'buckets.json'), JSON.stringify({
-      buckets, totalPx, canvasW: w, canvasH: h,
-      missingIcons, dispatchedIcons, dispatchedLabelTexts,
-      lastDrawIconCount, lastLabelCounts, lastDrawSample, canvasInfo,
-    }, null, 2))
+    writeFileSync(
+      join(viewDir, 'diff-heatmap.png'),
+      PNG.sync.write(makeDiffHeatmap(mlNorm, xgNorm, w, h)),
+    )
+    writeFileSync(
+      join(viewDir, 'buckets.json'),
+      JSON.stringify(
+        {
+          buckets,
+          totalPx,
+          canvasW: w,
+          canvasH: h,
+          missingIcons,
+          dispatchedIcons,
+          dispatchedLabelTexts,
+          lastDrawIconCount,
+          lastLabelCounts,
+          lastDrawSample,
+          canvasInfo,
+        },
+        null,
+        2,
+      ),
+    )
 
     // eslint-disable-next-line no-console
     console.log(
-      `[pixel-match-labels ${view.id}] eq=${((buckets.eq0 / totalPx) * 100).toFixed(2)}% `
-      + `gt128=${buckets.gt128}px`,
+      `[pixel-match-labels ${view.id}] eq=${((buckets.eq0 / totalPx) * 100).toFixed(2)}% ` +
+        `gt128=${buckets.gt128}px`,
     )
   })
 }
@@ -348,7 +430,7 @@ test.afterAll(async () => {
   lines.push('')
   lines.push('## View details')
   for (const view of VIEWS) {
-    const r = results.find(rr => rr.id === view.id)
+    const r = results.find((rr) => rr.id === view.id)
     if (!r) continue
     lines.push('')
     lines.push(`### ${view.id}`)

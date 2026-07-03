@@ -21,21 +21,21 @@ const OUT = join(HERE, '__overdraw-inspector__')
 mkdirSync(OUT, { recursive: true })
 
 interface Preset {
-  id: string         // demo id
-  name: string       // file slug
-  hash: string       // #z/lat/lon[/bearing/pitch]
+  id: string // demo id
+  name: string // file slug
+  hash: string // #z/lat/lon[/bearing/pitch]
 }
 
 const PRESETS: Preset[] = [
   // World view — minimal layer stacking, mostly BG + water + earth.
   // Expect cool colors throughout (1-3× overdraw).
-  { id: 'osm_style', name: 'world',     hash: '#2/20/0' },
+  { id: 'osm_style', name: 'world', hash: '#2/20/0' },
   // Manhattan z=14 with pitch — dense landuse / buildings, fills
   // stack 4-5×. Roads and Central Park contrast clearly.
   { id: 'osm_style', name: 'manhattan', hash: '#14/40.78/-73.97/0/45' },
   // Tokyo z=14 — another dense urban target, no pitch for a flatter
   // comparison.
-  { id: 'osm_style', name: 'tokyo',     hash: '#14/35.68/139.76' },
+  { id: 'osm_style', name: 'tokyo', hash: '#14/35.68/139.76' },
 ]
 
 for (const preset of PRESETS) {
@@ -58,7 +58,8 @@ for (const preset of PRESETS) {
     })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 30_000 },
+      null,
+      { timeout: 30_000 },
     )
     await page.waitForTimeout(4_000)
 
@@ -69,7 +70,8 @@ for (const preset of PRESETS) {
     // mismatch shows up as a [X-GIS frame-validation] console.error
     // and the swapchain may stay black. Fail loudly so debug-mode
     // regressions don't get masked by the soft pixel-count check.
-    expect(errors,
+    expect(
+      errors,
       `GPU validation / console errors during debug=overdraw render:\n${errors.join('\n')}`,
     ).toEqual([])
 
@@ -80,7 +82,8 @@ for (const preset of PRESETS) {
     const stats = await page.evaluate(async () => {
       const canvas = document.getElementById('map') as HTMLCanvasElement
       const blob = await new Promise<Blob | null>((res) =>
-        canvas.toBlob((b) => res(b), 'image/png'))
+        canvas.toBlob((b) => res(b), 'image/png'),
+      )
       if (!blob) return { ok: false, reason: 'canvas.toBlob null' }
       const bitmap = await createImageBitmap(blob)
       const off = new OffscreenCanvas(bitmap.width, bitmap.height)
@@ -93,8 +96,6 @@ for (const preset of PRESETS) {
       }
       return { ok: nonBlack > 0, nonBlackPixels: nonBlack }
     })
-    expect(stats.ok,
-      `heatmap canvas appears blank (no pixels above colormap floor)`,
-    ).toBe(true)
+    expect(stats.ok, `heatmap canvas appears blank (no pixels above colormap floor)`).toBe(true)
   })
 }

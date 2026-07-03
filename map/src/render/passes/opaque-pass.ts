@@ -26,7 +26,9 @@ class OpaquePass implements RenderPass {
 
   // Always emits at least the synthetic first sub-pass (raster + canvas
   // background + screen clear), even with no opaque vector layers.
-  shouldRun(): boolean { return true }
+  shouldRun(): boolean {
+    return true
+  }
 
   execute(ctx: FrameContext, scene: SceneView, host: OpaquePassHost): void {
     const encoder = ctx.encoder
@@ -42,8 +44,7 @@ class OpaquePass implements RenderPass {
       const isLastOpaque = gi === opaqueCount - 1
       // Only the LAST opaque sub-pass can claim resolveTarget, and
       // only if no translucent/points pass runs after it.
-      const resolveHere =
-        ctx.useResolve && isLastOpaque && scene.resolveOwner === 'opaque'
+      const resolveHere = ctx.useResolve && isLastOpaque && scene.resolveOwner === 'opaque'
       // Depth must persist across opaque sub-passes so group N's
       // polygons are correctly occluded by group N-1's (e.g. roads
       // rendered after buildings must respect building depth in a
@@ -73,21 +74,23 @@ class OpaquePass implements RenderPass {
         // sub-pass clears the pick texture to (0, 0) = "no feature";
         // subsequent sub-passes load so earlier-group IDs persist
         // where later groups didn't draw.
-        const colorAttachments: GPURenderPassColorAttachment[] = [{
-          view: ctx.colorView,
-          resolveTarget: resolveHere ? ctx.screenView : undefined,
-          // The colour target is cleared by the background pass (bucket 0,
-          // render/passes/background-pass.ts) which now owns the
-          // whole-viewport clear — the coverage seam from VISION §5 gap #1.
-          // Every opaque sub-pass therefore LOADs the colour it left. The
-          // inside-band style `background-color` is still painted by the
-          // synthetic earth-surface ShowCommand through this same pipeline;
-          // the outside-band region is whatever the background pass cleared.
-          // (Depth / stencil / pick are still cleared by THIS first
-          // sub-pass below — they are bucket-1 concerns, not coverage.)
-          loadOp: 'load',
-          storeOp: 'store',
-        }]
+        const colorAttachments: GPURenderPassColorAttachment[] = [
+          {
+            view: ctx.colorView,
+            resolveTarget: resolveHere ? ctx.screenView : undefined,
+            // The colour target is cleared by the background pass (bucket 0,
+            // render/passes/background-pass.ts) which now owns the
+            // whole-viewport clear — the coverage seam from VISION §5 gap #1.
+            // Every opaque sub-pass therefore LOADs the colour it left. The
+            // inside-band style `background-color` is still painted by the
+            // synthetic earth-surface ShowCommand through this same pipeline;
+            // the outside-band region is whatever the background pass cleared.
+            // (Depth / stencil / pick are still cleared by THIS first
+            // sub-pass below — they are bucket-1 concerns, not coverage.)
+            loadOp: 'load',
+            storeOp: 'store',
+          },
+        ]
         if (isPickEnabled() && ctx.rt.pickTexture) {
           colorAttachments.push({
             view: ctx.rt.pickView!,
@@ -152,9 +155,25 @@ class OpaquePass implements RenderPass {
             host.rasterRenderer.setColorAdjust(0, 0, 1, 0, 0)
             host.rasterRenderer.setResampling(false)
           }
-          host.rasterRenderer.render(subPass, host.camera, projType, centerLon, centerLat, ctx.w, ctx.h, ctx.dpr)
+          host.rasterRenderer.render(
+            subPass,
+            host.camera,
+            projType,
+            centerLon,
+            centerLat,
+            ctx.w,
+            ctx.h,
+            ctx.dpr,
+          )
           host.gpuTimer?.mark(subPass, 'after_raster')
-          host.renderer.renderToPass(subPass, host.camera, projType, centerLon, centerLat, host._elapsedMs)
+          host.renderer.renderToPass(
+            subPass,
+            host.camera,
+            projType,
+            centerLon,
+            centerLat,
+            host._elapsedMs,
+          )
           host.gpuTimer?.mark(subPass, 'after_legacy')
         }
 
@@ -187,7 +206,7 @@ class OpaquePass implements RenderPass {
         // open and bucket 3 (or any subsequent encoder operation)
         // trips a "RenderPassEncoder is open" validation error.
         if (group) {
-          const isExtruded = (cs: typeof group.shows[number]): boolean => {
+          const isExtruded = (cs: (typeof group.shows)[number]): boolean => {
             const ex = (cs.show as { extrude?: { kind?: string } }).extrude
             return !!ex && ex.kind !== undefined && ex.kind !== 'none'
           }
@@ -201,11 +220,14 @@ class OpaquePass implements RenderPass {
           // in overdraw mode), the layer's fillPhase, and `false` for the
           // translucent-bucket flag (the opaque pass has a depth
           // attachment).
-          const drawShow = (cs: typeof group.shows[number]) => {
+          const drawShow = (cs: (typeof group.shows)[number]) => {
             cs.draw(
-              subPass, ctx, host.renderer.uniformBuffer,
+              subPass,
+              ctx,
+              host.renderer.uniformBuffer,
               DEBUG_OVERDRAW ? null : host.pointRenderer,
-              cs.fillPhase, false,
+              cs.fillPhase,
+              false,
             )
           }
           for (let si = 0; si < group.shows.length; si++) {

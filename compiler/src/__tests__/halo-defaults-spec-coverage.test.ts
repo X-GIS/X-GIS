@@ -43,10 +43,16 @@ function symbolLayer(paint: Record<string, unknown>): unknown {
   return {
     version: 8,
     sources: { t: { type: 'vector', tiles: ['x'] } },
-    layers: [{
-      id: 'l', type: 'symbol', source: 't', 'source-layer': 'p',
-      layout: { 'text-field': '{name}' }, paint,
-    }],
+    layers: [
+      {
+        id: 'l',
+        type: 'symbol',
+        source: 't',
+        'source-layer': 'p',
+        layout: { 'text-field': '{name}' },
+        paint,
+      },
+    ],
   }
 }
 
@@ -61,9 +67,12 @@ describe('halo defaults — Mapbox spec compliance', () => {
     // defaults to rgba(0,0,0,0) — fully transparent. Width=1 paints
     // an INVISIBLE halo (alpha 0 on every halo pixel). Match
     // MapLibre exactly.
-    const shows = compileToShows(symbolLayer({
-      'text-color': '#000', 'text-halo-width': 1,
-    }))
+    const shows = compileToShows(
+      symbolLayer({
+        'text-color': '#000',
+        'text-halo-width': 1,
+      }),
+    )
     const halo = shows[0]!.label!.halo
     expect(halo).toBeDefined()
     expect(halo!.width).toBe(1)
@@ -74,9 +83,12 @@ describe('halo defaults — Mapbox spec compliance', () => {
   it('text-halo-color authored without text-halo-width → halo width=0 (spec, no halo render)', () => {
     // Iter 487 fix: pre-fix default was 1 → painted 1 px halo even
     // when style omitted width. Now defaults to spec 0 → no render.
-    const shows = compileToShows(symbolLayer({
-      'text-color': '#000', 'text-halo-color': '#fff',
-    }))
+    const shows = compileToShows(
+      symbolLayer({
+        'text-color': '#000',
+        'text-halo-color': '#fff',
+      }),
+    )
     const halo = shows[0]!.label!.halo
     expect(halo).toBeDefined()
     expect(halo!.width).toBe(0)
@@ -85,9 +97,13 @@ describe('halo defaults — Mapbox spec compliance', () => {
 
   it('both halo-color + halo-width → visible halo with authored values', () => {
     // OFM common pattern. Verify both axes land verbatim.
-    const shows = compileToShows(symbolLayer({
-      'text-color': '#000', 'text-halo-color': '#fff', 'text-halo-width': 1.5,
-    }))
+    const shows = compileToShows(
+      symbolLayer({
+        'text-color': '#000',
+        'text-halo-color': '#fff',
+        'text-halo-width': 1.5,
+      }),
+    )
     const halo = shows[0]!.label!.halo
     expect(halo!.color).toEqual([1, 1, 1, 1])
     expect(halo!.width).toBe(1.5)
@@ -97,20 +113,25 @@ describe('halo defaults — Mapbox spec compliance', () => {
     // Authoring blur alone with no width is semantically "soften
     // the (nonexistent) halo by N px" — same as no halo. Spec
     // default width 0 + blur 0.5 = no render.
-    const shows = compileToShows(symbolLayer({
-      'text-color': '#000', 'text-halo-blur': 0.5,
-    }))
+    const shows = compileToShows(
+      symbolLayer({
+        'text-color': '#000',
+        'text-halo-blur': 0.5,
+      }),
+    )
     const halo = shows[0]!.label!.halo
     expect(halo!.width).toBe(0)
     expect(halo!.blur).toBe(0.5)
   })
 
   it('OFM water_name shape: rgba(255,255,255,0.7) + width 1.5 — alpha preserves', () => {
-    const shows = compileToShows(symbolLayer({
-      'text-color': '#0080ff',
-      'text-halo-color': 'rgba(255,255,255,0.7)',
-      'text-halo-width': 1.5,
-    }))
+    const shows = compileToShows(
+      symbolLayer({
+        'text-color': '#0080ff',
+        'text-halo-color': 'rgba(255,255,255,0.7)',
+        'text-halo-width': 1.5,
+      }),
+    )
     const halo = shows[0]!.label!.halo!
     expect(halo.width).toBe(1.5)
     expect(halo.color[0]).toBe(1)
@@ -121,12 +142,14 @@ describe('halo defaults — Mapbox spec compliance', () => {
   })
 
   it('OFM POI shape: #fff + width 1 + blur 0.5 — all 3 axes land', () => {
-    const shows = compileToShows(symbolLayer({
-      'text-color': '#000',
-      'text-halo-color': '#fff',
-      'text-halo-width': 1,
-      'text-halo-blur': 0.5,
-    }))
+    const shows = compileToShows(
+      symbolLayer({
+        'text-color': '#000',
+        'text-halo-color': '#fff',
+        'text-halo-width': 1,
+        'text-halo-blur': 0.5,
+      }),
+    )
     const halo = shows[0]!.label!.halo!
     expect(halo.color).toEqual([1, 1, 1, 1])
     expect(halo.width).toBe(1)
@@ -138,9 +161,12 @@ describe('halo defaults — Mapbox spec compliance', () => {
     // (opaque black) which painted hard black outlines around every
     // label that authored a width without a color (Bright highway-
     // name-major at z>12.2). Spec is [0,0,0,0] = invisible.
-    const shows = compileToShows(symbolLayer({
-      'text-color': '#666', 'text-halo-width': 2,
-    }))
+    const shows = compileToShows(
+      symbolLayer({
+        'text-color': '#666',
+        'text-halo-width': 2,
+      }),
+    )
     expect(shows[0]!.label!.halo!.color).toEqual([0, 0, 0, 0])
   })
 })

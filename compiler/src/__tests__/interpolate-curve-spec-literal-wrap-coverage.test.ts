@@ -19,11 +19,7 @@ describe('interpolate curve-spec literal-wrap unwrap', () => {
           source: 's',
           paint: {
             'line-color': '#000',
-            'line-width': [
-              'interpolate', ['literal', ['exponential', 2]], ['zoom'],
-              5, 1,
-              14, 8,
-            ],
+            'line-width': ['interpolate', ['literal', ['exponential', 2]], ['zoom'], 5, 1, 14, 8],
           },
         },
       ],
@@ -45,9 +41,13 @@ describe('interpolate curve-spec literal-wrap unwrap', () => {
           paint: {
             'circle-color': '#000',
             'circle-radius': [
-              'interpolate', ['literal', ['exponential', 1.8]], ['get', 'magnitude'],
-              0, 1,
-              10, 50,
+              'interpolate',
+              ['literal', ['exponential', 1.8]],
+              ['get', 'magnitude'],
+              0,
+              1,
+              10,
+              50,
             ],
           },
         },

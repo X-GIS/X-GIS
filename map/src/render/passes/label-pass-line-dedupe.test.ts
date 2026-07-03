@@ -38,7 +38,10 @@ describe('lineLabelDeduped — empty (icon-only) keys never dedupe', () => {
     let placed = 0
     let nextStop = spacing * 0.5
     while (nextStop <= total) {
-      if (!lineLabelDeduped(key, emitted)) { placed++; emitted.add(key) }
+      if (!lineLabelDeduped(key, emitted)) {
+        placed++
+        emitted.add(key)
+      }
       nextStop += spacing
     }
     return placed
@@ -72,20 +75,26 @@ describe('lineLabelDeduped — empty (icon-only) keys never dedupe', () => {
 describe('#605 — line-shield dedupe keys on the route ref, not the road name', () => {
   // A shield text-field is `["to-string", ["get", "ref"]]`; `["get","ref"]`
   // is an Identifier read of props.ref in the evaluator (evaluator.ts:40).
-  const shieldText: TextValue = { kind: 'expr', expr: { ast: { kind: 'Identifier', name: 'ref' } as never } }
+  const shieldText: TextValue = {
+    kind: 'expr',
+    expr: { ast: { kind: 'Identifier', name: 'ref' } as never },
+  }
   // A plain road-NAME label resolves the `name` prop the same way.
-  const nameText: TextValue = { kind: 'expr', expr: { ast: { kind: 'Identifier', name: 'name' } as never } }
+  const nameText: TextValue = {
+    kind: 'expr',
+    expr: { ast: { kind: 'Identifier', name: 'name' } as never },
+  }
 
   // One route sliced into N tile polylines. In OSM transportation_name a route
   // alternates between segments that carry a street `name` and segments that
   // carry only `ref`. Each entry is one polyline's feature props.
   const route82Segments: ReadonlyArray<Record<string, unknown>> = [
     { ref: '82', name: '남부순환로' },
-    { ref: '82' },               // ref-only segment
+    { ref: '82' }, // ref-only segment
     { ref: '82', name: '강남대로' },
-    { ref: '82' },               // ref-only segment
+    { ref: '82' }, // ref-only segment
     { ref: '82', name: '테헤란로' },
-    { ref: '82' },               // ref-only segment
+    { ref: '82' }, // ref-only segment
   ]
 
   // Mirror the curved-walk dedupe across MULTIPLE polylines of one show: the
@@ -101,7 +110,10 @@ describe('#605 — line-shield dedupe keys on the route ref, not the road name',
     let placed = 0
     for (const props of segments) {
       const key = lineLabelDedupeKey(pairedWithIcon, text, props, 19)
-      if (!lineLabelDeduped(key, emitted)) { placed++; emitted.add(key) }
+      if (!lineLabelDeduped(key, emitted)) {
+        placed++
+        emitted.add(key)
+      }
     }
     return placed
   }
@@ -128,7 +140,11 @@ describe('#605 — line-shield dedupe keys on the route ref, not the road name',
     // No paired icon → name-preferring path. Even if the bilingual text-field
     // would resolve differently per segment, the raw `name` keeps the dedupe
     // stable across segments. Here all carry name "Broadway" → 1.
-    const nameSegments = [{ name: 'Broadway', ref: 'X' }, { name: 'Broadway' }, { name: 'Broadway', ref: 'Y' }]
+    const nameSegments = [
+      { name: 'Broadway', ref: 'X' },
+      { name: 'Broadway' },
+      { name: 'Broadway', ref: 'Y' },
+    ]
     expect(countShieldsForRoute(false, nameText, nameSegments)).toBe(1)
     // And the chosen key IS the name (not the resolved ref), proving the
     // pairedWithIcon=false branch is unchanged.

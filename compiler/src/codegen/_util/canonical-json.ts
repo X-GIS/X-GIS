@@ -66,7 +66,8 @@ function walk(v: unknown, seen: WeakSet<object>): string {
         const pairs: string[] = []
         for (const k of keys) {
           const child = o[k]
-          if (child === undefined || typeof child === 'function' || typeof child === 'symbol') continue
+          if (child === undefined || typeof child === 'function' || typeof child === 'symbol')
+            continue
           pairs.push(`${JSON.stringify(k)}:${walk(child, seen)}`)
         }
         return `{${pairs.join(',')}}`

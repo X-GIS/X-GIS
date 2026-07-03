@@ -9,13 +9,13 @@ in `projection/camera.ts` (`getViewForProjection` routing, the `globeMode` /
 `promotesToGlobeWhenTilted` / `routeToSphereSelector`), and the per-frame
 promotion in `render-loop.ts` (`render` → `azimuthalTilted`).
 
-The core fact: **ECEF is the data coordinate system, but the *display*
+The core fact: **ECEF is the data coordinate system, but the _display_
 projection is a separate concern** (camera.ts:681-684). Every projType maps
 the same ECEF surface to the screen through exactly one of three view
 matrices, chosen by `getViewForProjection(projType, …)`:
 
 - **Flat 2D-plane MVP** — `getFrameView` → `_buildRTCMatrix`, the legacy
-  Mercator-metre RTC matrix. Curved ECEF data is flattened *per vertex* in
+  Mercator-metre RTC matrix. Curved ECEF data is flattened _per vertex_ in
   the shader (`project_geom(abs, refLon) − project(camLon, camLat)`), so one
   Mercator MVP serves every flat projType. Selected when
   `!globeMode && !isGlobeProj(projType)` (camera.ts:715-716).
@@ -76,8 +76,8 @@ stateDiagram-v2
 
 ## Reading notes
 
-- **projType ↔ wire value.** The `PROJECTIONS` array index *is* `projType`
-  *is* the shader `proj_params.x` int (projections-table.ts:7, 51). The 8
+- **projType ↔ wire value.** The `PROJECTIONS` array index _is_ `projType`
+  _is_ the shader `proj_params.x` int (projections-table.ts:7, 51). The 8
   rows in order: `0 mercator`, `1 equirectangular`, `2 natural_earth`,
   `3 orthographic`, `4 azimuthal_equidistant`, `5 stereographic`,
   `6 oblique_mercator`, `7 globe`. The shader takes its flat branch exactly
@@ -85,9 +85,9 @@ stateDiagram-v2
   in lockstep (camera.ts:699-700).
 
 - **One Mercator MVP for every flat projType.** `getViewForProjection` hands
-  flat projTypes (0-6, untilted) the *same* `getFrameView` →
+  flat projTypes (0-6, untilted) the _same_ `getFrameView` →
   `_buildRTCMatrix` 2D-plane matrix (camera.ts:686-692). The projections
-  differ only in the *per-vertex* forward applied in the shader — mercator
+  differ only in the _per-vertex_ forward applied in the shader — mercator
   via `project(abs) − cam`, the rest via
   `project_geom(abs, refLon) − project(camLon, camLat)`. `flatViewHeightCapM`
   caps the z0 view height so each disc/strip frames the canvas; the cap
@@ -107,13 +107,13 @@ stateDiagram-v2
 - **Cylindrical (0/1/2/6) stay flat under pitch — by design, with one latent
   gap.** They are `isCylindrical`, so `promotesToGlobeWhenTilted` excludes
   them and they keep the flat MVP at any pitch. The table comment flags that
-  `oblique_mercator (6)` nonetheless sphere-*routes* its tiles
+  `oblique_mercator (6)` nonetheless sphere-_routes_ its tiles
   (`routeToSphereSelector` → `!isFlat && !isGlobe` = {3,4,5,6}) while staying
   flat in the MVP — "flat MVP + sphere tiles", an explicit deferred bug, not
   a drawn state (projections-table.ts:119-146).
 
 - **Two distinct globe sub-modes.** `globe (7)` is always `globeMode` with
-  `globeOrtho=false` (perspective orbit). A *promoted* azimuthal disc runs
+  `globeOrtho=false` (perspective orbit). A _promoted_ azimuthal disc runs
   with `globeOrtho=true` (orthographic orbit — no perspective foreshortening,
   byte-identical to the flat disc at `pitch=0`) and preserves its source
   projType in `azimuthalProjType` so `_globeFrame` → `buildGlobeMatrix` can

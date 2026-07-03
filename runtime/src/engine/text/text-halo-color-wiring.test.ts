@@ -30,7 +30,11 @@ import { packUniformsForTesting, type TextDraw } from '@xgis/map'
 const baseGlyph = {
   codepoint: 65,
   slot: { page: 0, cellX: 0, cellY: 0, pxX: 0, pxY: 0, size: 64 },
-  advanceWidth: 16, bearingX: 0, bearingY: 16, width: 16, height: 20,
+  advanceWidth: 16,
+  bearingX: 0,
+  bearingY: 16,
+  width: 16,
+  height: 20,
   pbf: true,
 }
 
@@ -43,7 +47,8 @@ const HALO_COLOR_A = 11
 
 function makeDraw(haloColor: [number, number, number, number] | undefined): TextDraw {
   const d: TextDraw = {
-    anchorX: 0, anchorY: 0,
+    anchorX: 0,
+    anchorY: 0,
     glyphs: [{ ...baseGlyph }],
     fontSize: 32,
     rasterFontSize: 32,
@@ -72,8 +77,12 @@ describe('text-halo-color wiring (GPU-free)', () => {
     // packed slots must TRACK the prop, not a fixed value.
     const a = packUniformsForTesting(makeDraw([1, 0, 0, 1]))
     const b = packUniformsForTesting(makeDraw([0, 1, 0, 1]))
-    expect([a[HALO_COLOR_R], a[HALO_COLOR_G], a[HALO_COLOR_B], a[HALO_COLOR_A]])
-      .not.toEqual([b[HALO_COLOR_R], b[HALO_COLOR_G], b[HALO_COLOR_B], b[HALO_COLOR_A]])
+    expect([a[HALO_COLOR_R], a[HALO_COLOR_G], a[HALO_COLOR_B], a[HALO_COLOR_A]]).not.toEqual([
+      b[HALO_COLOR_R],
+      b[HALO_COLOR_G],
+      b[HALO_COLOR_B],
+      b[HALO_COLOR_A],
+    ])
     expect(a[HALO_COLOR_R]).toBeCloseTo(1, 6)
     expect(b[HALO_COLOR_G]).toBeCloseTo(1, 6)
   })

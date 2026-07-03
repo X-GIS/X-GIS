@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  predictTilePipeline, SUB_TILE_BUDGET_PER_FRAME,
-} from './tile-pipeline-predictor'
+import { predictTilePipeline, SUB_TILE_BUDGET_PER_FRAME } from './tile-pipeline-predictor'
 
 // CPU reproduction of the reported FLICKER bug (Bug 2) —
 // `dashed_borders#19.80/21.55/108.05/75.0/64.2` over an `ne_110m_ocean`
@@ -23,30 +21,34 @@ describe('tile pipeline predictor', () => {
       {
         lon: 108.05041,
         lat: 21.55202,
-        zoom: 19.80,
+        zoom: 19.8,
         bearing: 75.0,
         pitch: 64.2,
       },
       { maxLevel: 7 },
-      1200, 800,
+      1200,
+      800,
     )
 
     // Print the shape so a diagnostic run surfaces the numbers
     // alongside any FLICKER output from the browser session.
     // eslint-disable-next-line no-console
-    console.log('[predictor:dashed_borders-buggy-state]', JSON.stringify({
-      requestedZ: pred.requestedZ,
-      overzoomLevels: pred.overzoomLevels,
-      tilesWanted: pred.cacheCapacityCheck.requestedCount,
-      saturated: pred.cacheCapacityCheck.saturated,
-      parentCount: pred.parentTiles.length,
-      coldConvergenceFrames: pred.coldConvergenceFrames,
-      fitsIn: {
-        '256': pred.cacheCapacityCheck.fitsIn256,
-        '512': pred.cacheCapacityCheck.fitsIn512,
-        '1024': pred.cacheCapacityCheck.fitsIn1024,
-      },
-    }))
+    console.log(
+      '[predictor:dashed_borders-buggy-state]',
+      JSON.stringify({
+        requestedZ: pred.requestedZ,
+        overzoomLevels: pred.overzoomLevels,
+        tilesWanted: pred.cacheCapacityCheck.requestedCount,
+        saturated: pred.cacheCapacityCheck.saturated,
+        parentCount: pred.parentTiles.length,
+        coldConvergenceFrames: pred.coldConvergenceFrames,
+        fitsIn: {
+          '256': pred.cacheCapacityCheck.fitsIn256,
+          '512': pred.cacheCapacityCheck.fitsIn512,
+          '1024': pred.cacheCapacityCheck.fitsIn1024,
+        },
+      }),
+    )
 
     // Sanity: we DID round to z=20 (the hash's 19.80 rounds up).
     expect(pred.requestedZ).toBe(20)
@@ -93,7 +95,8 @@ describe('tile pipeline predictor', () => {
     const pred = predictTilePipeline(
       { lon: 0, lat: 0, zoom: 3, bearing: 0, pitch: 0 },
       { maxLevel: 7 },
-      1200, 800,
+      1200,
+      800,
     )
     expect(pred.requestedZ).toBe(3)
     expect(pred.overzoom).toBe(false)
@@ -111,7 +114,8 @@ describe('tile pipeline predictor', () => {
     const pred = predictTilePipeline(
       { lon: 0, lat: 0, zoom: 10, bearing: 0, pitch: 0 },
       { maxLevel: 7 },
-      1200, 800,
+      1200,
+      800,
     )
     expect(pred.overzoomLevels).toBe(3) // 10 - 7
     const shift = pred.overzoomLevels
@@ -121,7 +125,7 @@ describe('tile pipeline predictor', () => {
     for (const t of pred.visibleTiles) {
       const px = t.x >> shift
       const py = t.y >> shift
-      const hit = pred.parentTiles.some(p => p.x === px && p.y === py)
+      const hit = pred.parentTiles.some((p) => p.x === px && p.y === py)
       expect(hit).toBe(true)
     }
   })
@@ -142,7 +146,8 @@ describe('tile pipeline predictor', () => {
         pitch: 79.9,
       },
       { maxLevel: 10 }, // ne_10m_* sources
-      1200, 800,
+      1200,
+      800,
     )
     // z=13.5 rounds to 14 at the frustum.
     expect(pred.requestedZ).toBe(14)
@@ -158,19 +163,25 @@ describe('tile pipeline predictor', () => {
     // bug. Top-down z=20 sees a small rectangular patch; pitched z=20
     // sees to the horizon.
     const flat = predictTilePipeline(
-      { lon: 108.05041, lat: 21.55202, zoom: 19.80, bearing: 0, pitch: 0 },
-      { maxLevel: 7 }, 1200, 800,
+      { lon: 108.05041, lat: 21.55202, zoom: 19.8, bearing: 0, pitch: 0 },
+      { maxLevel: 7 },
+      1200,
+      800,
     )
     const pitched = predictTilePipeline(
-      { lon: 108.05041, lat: 21.55202, zoom: 19.80, bearing: 75, pitch: 64.2 },
-      { maxLevel: 7 }, 1200, 800,
+      { lon: 108.05041, lat: 21.55202, zoom: 19.8, bearing: 75, pitch: 64.2 },
+      { maxLevel: 7 },
+      1200,
+      800,
     )
-    expect(pitched.cacheCapacityCheck.requestedCount)
-      .toBeGreaterThan(flat.cacheCapacityCheck.requestedCount)
+    expect(pitched.cacheCapacityCheck.requestedCount).toBeGreaterThan(
+      flat.cacheCapacityCheck.requestedCount,
+    )
     // The pitched frame's request count should be at least 3× the
     // flat one — if this margin shrinks in a future change, the
     // frustum tile-selection logic likely regressed.
-    expect(pitched.cacheCapacityCheck.requestedCount)
-      .toBeGreaterThanOrEqual(flat.cacheCapacityCheck.requestedCount * 3)
+    expect(pitched.cacheCapacityCheck.requestedCount).toBeGreaterThanOrEqual(
+      flat.cacheCapacityCheck.requestedCount * 3,
+    )
   })
 })

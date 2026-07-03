@@ -76,11 +76,12 @@ function pe(type: string, opts: Partial<PointerEvent> & { pointerId?: number } =
   } as unknown as PointerEvent
 }
 
-
 // ═══ #3 onPointerCancel full reset ════════════════════════════════════════
 describe('#3 onPointerCancel full reset — rotateActivated stays stale before fix', () => {
   it('click after OS gesture-steal cancel is NOT suppressed', () => {
-    beforeEach(() => { _pid = 0 })
+    beforeEach(() => {
+      _pid = 0
+    })
     const canvas = makeCanvas()
     const camera = makeCamera()
     const ctrl = new PanZoomController()
@@ -97,8 +98,12 @@ describe('#3 onPointerCancel full reset — rotateActivated stays stale before f
 
     // Next: fresh single-finger tap — should fire onClick
     const pid2 = ++_pid
-    canvas.dispatchEvent(pe('pointerdown', { pointerId: pid2, button: 0, clientX: 200, clientY: 200 }))
-    canvas.dispatchEvent(pe('pointerup', { pointerId: pid2, button: 0, clientX: 200, clientY: 200 }))
+    canvas.dispatchEvent(
+      pe('pointerdown', { pointerId: pid2, button: 0, clientX: 200, clientY: 200 }),
+    )
+    canvas.dispatchEvent(
+      pe('pointerup', { pointerId: pid2, button: 0, clientX: 200, clientY: 200 }),
+    )
 
     // BUG (pre-fix): rotateActivated is still true → click suppressed → onClick NOT called
     // PASS (post-fix): rotateActivated reset in cancel → onClick IS called
@@ -134,7 +139,7 @@ describe('#4 two-pointer pointerdown clears rotation state', () => {
     // BUG (pre-fix): isRotatePending still true after size===2 branch → rotate fires on move
     // PASS (post-fix): cleared → pan path taken
     const rotateAfter = (camera.rotate as ReturnType<typeof vi.fn>).mock.calls.length
-    expect(rotateAfter).toBe(rotateBefore)  // no rotate call
+    expect(rotateAfter).toBe(rotateBefore) // no rotate call
     // pan or panToScreenAnchor should have been called
     const panAfter = (camera.pan as ReturnType<typeof vi.fn>).mock.calls.length
     const anchorAfter = (camera.panToScreenAnchor as ReturnType<typeof vi.fn>).mock.calls.length
@@ -185,7 +190,10 @@ describe('#7 inertia velocity matches drag world-speed at pitch>0', () => {
     // We instrument unprojectToZ0 to return known world offsets.
     _pid = 0
     // Two world positions: start at (0,0) relative, end at (50,0) relative
-    const worldPositions = [[0, 0], [50, 0]] as [number, number][]
+    const worldPositions = [
+      [0, 0],
+      [50, 0],
+    ] as [number, number][]
     let unprojectCall = -1
     const camera = makeCamera({
       unprojectToZ0: vi.fn().mockImplementation(() => {
@@ -204,7 +212,9 @@ describe('#7 inertia velocity matches drag world-speed at pitch>0', () => {
 
     // The test passes if no exception thrown and panToScreenAnchor was called
     // (confirming anchor-based movement path is active, not raw-px path)
-    expect((camera.panToScreenAnchor as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0)
+    expect(
+      (camera.panToScreenAnchor as ReturnType<typeof vi.fn>).mock.calls.length,
+    ).toBeGreaterThan(0)
   })
 })
 
@@ -215,8 +225,12 @@ describe('#11 pinch zoom symmetric (log2)', () => {
     const canvas = makeCanvas()
     let zoomLevel = 5
     const camera = makeCamera({
-      get zoom() { return zoomLevel },
-      set zoom(v) { zoomLevel = v },
+      get zoom() {
+        return zoomLevel
+      },
+      set zoom(v) {
+        zoomLevel = v
+      },
       zoomAt: vi.fn().mockImplementation((delta: number) => {
         zoomLevel += delta
       }),
@@ -233,22 +247,46 @@ describe('#11 pinch zoom symmetric (log2)', () => {
 
     // Pinch OUT to 200px apart (scale=2)
     ;(canvas as unknown as { dispatchEvent(e: Event): void }).dispatchEvent({
-      type: 'pointermove', pointerId: pid1, clientX: 300, clientY: 300,
-      button: 0, ctrlKey: false, preventDefault: vi.fn(), stopPropagation: vi.fn(),
+      type: 'pointermove',
+      pointerId: pid1,
+      clientX: 300,
+      clientY: 300,
+      button: 0,
+      ctrlKey: false,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
     } as unknown as Event)
     ;(canvas as unknown as { dispatchEvent(e: Event): void }).dispatchEvent({
-      type: 'pointermove', pointerId: pid2, clientX: 500, clientY: 300,
-      button: 0, ctrlKey: false, preventDefault: vi.fn(), stopPropagation: vi.fn(),
+      type: 'pointermove',
+      pointerId: pid2,
+      clientX: 500,
+      clientY: 300,
+      button: 0,
+      ctrlKey: false,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
     } as unknown as Event)
 
     // Pinch BACK IN to 100px apart (scale=0.5 relative to current)
     ;(canvas as unknown as { dispatchEvent(e: Event): void }).dispatchEvent({
-      type: 'pointermove', pointerId: pid1, clientX: 350, clientY: 300,
-      button: 0, ctrlKey: false, preventDefault: vi.fn(), stopPropagation: vi.fn(),
+      type: 'pointermove',
+      pointerId: pid1,
+      clientX: 350,
+      clientY: 300,
+      button: 0,
+      ctrlKey: false,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
     } as unknown as Event)
     ;(canvas as unknown as { dispatchEvent(e: Event): void }).dispatchEvent({
-      type: 'pointermove', pointerId: pid2, clientX: 450, clientY: 300,
-      button: 0, ctrlKey: false, preventDefault: vi.fn(), stopPropagation: vi.fn(),
+      type: 'pointermove',
+      pointerId: pid2,
+      clientX: 450,
+      clientY: 300,
+      button: 0,
+      ctrlKey: false,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
     } as unknown as Event)
 
     // BUG (pre-fix): (scale-1)*3 is asymmetric → afterOut−initial ≠ -(afterBack−afterOut)
@@ -326,7 +364,7 @@ describe('#12 double-tap bookkeeping before early return', () => {
 
     // Verify setPointerCapture was called for both pointers
     const calls = (canvas.setPointerCapture as ReturnType<typeof vi.fn>).mock.calls
-    const hasPid2 = calls.some(c => c[0] === pid2)
+    const hasPid2 = calls.some((c) => c[0] === pid2)
     expect(hasPid2).toBe(true)
   })
 })
@@ -358,15 +396,27 @@ describe('#13 exact-0 pinch sentinels: do not skip frame when value is 0', () =>
 
     // Move to angle ≈ 5°
     ;(canvas as unknown as { dispatchEvent(e: Event): void }).dispatchEvent({
-      type: 'pointermove', pointerId: pid2, clientX: 500, clientY: 317,
-      button: 0, ctrlKey: false, preventDefault: vi.fn(), stopPropagation: vi.fn(),
+      type: 'pointermove',
+      pointerId: pid2,
+      clientX: 500,
+      clientY: 317,
+      button: 0,
+      ctrlKey: false,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
     } as unknown as Event)
     const rotateMid = (camera.rotate as ReturnType<typeof vi.fn>).mock.calls.length
 
     // Move BACK to exactly horizontal (angle = 0 again)
     ;(canvas as unknown as { dispatchEvent(e: Event): void }).dispatchEvent({
-      type: 'pointermove', pointerId: pid2, clientX: 500, clientY: 300,
-      button: 0, ctrlKey: false, preventDefault: vi.fn(), stopPropagation: vi.fn(),
+      type: 'pointermove',
+      pointerId: pid2,
+      clientX: 500,
+      clientY: 300,
+      button: 0,
+      ctrlKey: false,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
     } as unknown as Event)
     const rotateAfter = (camera.rotate as ReturnType<typeof vi.fn>).mock.calls.length
 
@@ -404,12 +454,24 @@ describe('#13 exact-0 pinch sentinels: do not skip frame when value is 0', () =>
     // Both fingers move down in parallel (parallel drag → should pitch)
     // centerY goes from 0 → 30
     ;(canvas as unknown as { dispatchEvent(e: Event): void }).dispatchEvent({
-      type: 'pointermove', pointerId: pid1, clientX: 350, clientY: 30,
-      button: 0, ctrlKey: false, preventDefault: vi.fn(), stopPropagation: vi.fn(),
+      type: 'pointermove',
+      pointerId: pid1,
+      clientX: 350,
+      clientY: 30,
+      button: 0,
+      ctrlKey: false,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
     } as unknown as Event)
     ;(canvas as unknown as { dispatchEvent(e: Event): void }).dispatchEvent({
-      type: 'pointermove', pointerId: pid2, clientX: 450, clientY: 30,
-      button: 0, ctrlKey: false, preventDefault: vi.fn(), stopPropagation: vi.fn(),
+      type: 'pointermove',
+      pointerId: pid2,
+      clientX: 450,
+      clientY: 30,
+      button: 0,
+      ctrlKey: false,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
     } as unknown as Event)
 
     // BUG (pre-fix): lastPinchCenterY initialized to 0; first move has
@@ -451,8 +513,8 @@ describe('#2 disc drag keeps grabbed point under cursor', () => {
     // PASS (post-fix): panDiscToScreenAnchor called with { lon, lat } anchor
     expect(camera.panDiscToScreenAnchor).toHaveBeenCalled()
     const call = (camera.panDiscToScreenAnchor as ReturnType<typeof vi.fn>).mock.calls[0]
-    expect(call[0]).toBeCloseTo(0.5)  // lon
-    expect(call[1]).toBeCloseTo(0.3)  // lat
+    expect(call[0]).toBeCloseTo(0.5) // lon
+    expect(call[1]).toBeCloseTo(0.3) // lat
   })
 
   it('for projType 4 (azimuthal_eq): disc drag anchor path taken', () => {

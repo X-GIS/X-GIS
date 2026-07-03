@@ -38,7 +38,7 @@ describe('FIX — keyframe-animated opacity round-trip (0..100 token)', () => {
     const node = scene.renderNodes[0]
     expect(node.opacity.kind).toBe('time-interpolated')
     if (node.opacity.kind !== 'time-interpolated') throw new Error('wrong kind')
-    const byTime = new Map(node.opacity.stops.map(s => [s.timeMs, s.value]))
+    const byTime = new Map(node.opacity.stops.map((s) => [s.timeMs, s.value]))
     // fail-before: 1.0 (the `num <= 1 ? num` arm read 1 as the 0..1 form)
     expect(byTime.get(0)).toBeCloseTo(0.01, 5)
     expect(byTime.get(1000)).toBeCloseTo(1.0, 5)
@@ -59,7 +59,7 @@ describe('FIX — keyframe-animated opacity round-trip (0..100 token)', () => {
     `)
     const node = scene.renderNodes[0]
     if (node.opacity.kind !== 'time-interpolated') throw new Error('wrong kind')
-    const byTime = new Map(node.opacity.stops.map(s => [s.timeMs, s.value]))
+    const byTime = new Map(node.opacity.stops.map((s) => [s.timeMs, s.value]))
     expect(byTime.get(0)).toBeCloseTo(1.0, 5)
     expect(byTime.get(1000)).toBeCloseTo(0.5, 5)
   })

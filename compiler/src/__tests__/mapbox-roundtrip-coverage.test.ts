@@ -17,18 +17,19 @@
 // the user can spot the missing feature on a screenshot.
 
 import { describe, it, expect } from 'vitest'
-import {
-  convertMapboxStyle, Lexer, Parser, lower, emitCommands,
-  type MapboxLayer,
-} from '../index'
+import { convertMapboxStyle, Lexer, Parser, lower, emitCommands, type MapboxLayer } from '../index'
 import { sanitizeId } from '../convert/utils'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const OFM_BRIGHT = JSON.parse(readFileSync(join(HERE, 'fixtures', 'openfreemap-bright.json'), 'utf8'))
-const MAPLIBRE_DEMO = JSON.parse(readFileSync(join(HERE, 'fixtures', 'maplibre-demotiles.json'), 'utf8'))
+const OFM_BRIGHT = JSON.parse(
+  readFileSync(join(HERE, 'fixtures', 'openfreemap-bright.json'), 'utf8'),
+)
+const MAPLIBRE_DEMO = JSON.parse(
+  readFileSync(join(HERE, 'fixtures', 'maplibre-demotiles.json'), 'utf8'),
+)
 
 interface ShowSample {
   layerName: string
@@ -67,7 +68,7 @@ function pipeline(style: unknown): ShowSample[] {
   const scene = lower(ast)
   // Surface diagnostics from the lower pass — pinning that we don't
   // accidentally emit a binding-form utility without a handler.
-  for (const d of (scene.diagnostics ?? [])) {
+  for (const d of scene.diagnostics ?? []) {
     if (d.severity === 'warn' && d.code === 'X-GIS0005') {
       throw new Error(`Silent-drop binding: ${d.message}`)
     }
@@ -85,10 +86,12 @@ function findShow(shows: ShowSample[], mapboxId: string): ShowSample | undefined
   // sublayers suffixed `__c0`, `__c1`, …, `__cd` (default arm). Each
   // sublayer has a constant fill colour so the checkPaint assertions
   // about fill-color presence pass; pick the first colour bucket.
-  return shows.find(s =>
-    s.layerName === id
-    || s.layerName?.startsWith(id + '_0')
-    || s.layerName?.startsWith(id + '__c'))
+  return shows.find(
+    (s) =>
+      s.layerName === id ||
+      s.layerName?.startsWith(id + '_0') ||
+      s.layerName?.startsWith(id + '__c'),
+  )
 }
 
 // ── Per-property assertions ─────────────────────────────────────────
@@ -101,7 +104,7 @@ function findShow(shows: ShowSample[], mapboxId: string): ShowSample | undefined
 function checkPaint(layer: MapboxLayer, show: ShowSample | undefined): string[] {
   const fails: string[] = []
   const paint = (layer.paint ?? {}) as Record<string, unknown>
-  const layout = ((layer as { layout?: Record<string, unknown> }).layout ?? {})
+  const layout = (layer as { layout?: Record<string, unknown> }).layout ?? {}
 
   if (!show) {
     // Skipped layers (icon-only symbols, heatmap, hillshade) → only OK
@@ -134,18 +137,32 @@ function checkPaint(layer: MapboxLayer, show: ShowSample | undefined): string[] 
         const sw = show.paintShapes.line.strokeWidth
         const hasStops = sw.kind === 'zoom-interpolated' && sw.stops.length >= 2
         if (!hasExpr && !hasStops && show.strokeWidth === 1) {
-          fails.push(`[${layer.id}] line-width is non-constant but neither strokeWidthExpr nor paintShapes.line.strokeWidth zoom-stops is set AND strokeWidth is the default 1`)
+          fails.push(
+            `[${layer.id}] line-width is non-constant but neither strokeWidthExpr nor paintShapes.line.strokeWidth zoom-stops is set AND strokeWidth is the default 1`,
+          )
         }
       }
     }
-    if (paint['line-offset'] !== undefined && typeof paint['line-offset'] === 'number' && paint['line-offset'] !== 0) {
+    if (
+      paint['line-offset'] !== undefined &&
+      typeof paint['line-offset'] === 'number' &&
+      paint['line-offset'] !== 0
+    ) {
       if (show.strokeOffset === undefined || show.strokeOffset === 0) {
-        fails.push(`[${layer.id}] line-offset=${paint['line-offset']} but show.strokeOffset=${show.strokeOffset}`)
+        fails.push(
+          `[${layer.id}] line-offset=${paint['line-offset']} but show.strokeOffset=${show.strokeOffset}`,
+        )
       }
     }
-    if (paint['line-blur'] !== undefined && typeof paint['line-blur'] === 'number' && paint['line-blur'] !== 0) {
+    if (
+      paint['line-blur'] !== undefined &&
+      typeof paint['line-blur'] === 'number' &&
+      paint['line-blur'] !== 0
+    ) {
       if (show.strokeBlur === undefined || show.strokeBlur === 0) {
-        fails.push(`[${layer.id}] line-blur=${paint['line-blur']} but show.strokeBlur=${show.strokeBlur}`)
+        fails.push(
+          `[${layer.id}] line-blur=${paint['line-blur']} but show.strokeBlur=${show.strokeBlur}`,
+        )
       }
     }
   }
@@ -179,7 +196,9 @@ function checkPaint(layer: MapboxLayer, show: ShowSample | undefined): string[] 
         const sz = show.paintShapes.circle.size
         const hasSizeStops = sz !== null && sz.kind === 'zoom-interpolated' && sz.stops.length > 0
         if (!hasSizeStops && show.size === null) {
-          fails.push(`[${layer.id}] circle-radius is non-constant but no paintShapes.circle.size zoom-stops and size=null`)
+          fails.push(
+            `[${layer.id}] circle-radius is non-constant but no paintShapes.circle.size zoom-stops and size=null`,
+          )
         }
       }
     }
@@ -200,7 +219,9 @@ function checkPaint(layer: MapboxLayer, show: ShowSample | undefined): string[] 
         (label.colorZoomStops && label.colorZoomStops.length > 0) ||
         label.colorExpr !== undefined
       if (!hasColor) {
-        fails.push(`[${layer.id}] text-color set but label has no color / colorZoomStops / colorExpr`)
+        fails.push(
+          `[${layer.id}] text-color set but label has no color / colorZoomStops / colorExpr`,
+        )
       }
     }
     // text-size → label.size > 0 OR sizeZoomStops OR sizeExpr.
@@ -226,7 +247,9 @@ function checkPaint(layer: MapboxLayer, show: ShowSample | undefined): string[] 
         label.halo !== undefined ||
         (label.haloWidthZoomStops && label.haloWidthZoomStops.length > 0)
       if (!hasHalo) {
-        fails.push(`[${layer.id}] text-halo-color+width set but label has no halo / haloWidthZoomStops`)
+        fails.push(
+          `[${layer.id}] text-halo-color+width set but label has no halo / haloWidthZoomStops`,
+        )
       }
     }
     // symbol-placement: line → label.placement === 'line'
@@ -277,7 +300,12 @@ const KNOWN_GAPS_MAPLIBRE_DEMO: ReadonlySet<string> = new Set([
   // (No outstanding gaps. All previously documented bugs are fixed.)
 ])
 
-function runCoverage(name: string, style: unknown, layers: MapboxLayer[], knownGaps: ReadonlySet<string>): void {
+function runCoverage(
+  name: string,
+  style: unknown,
+  layers: MapboxLayer[],
+  knownGaps: ReadonlySet<string>,
+): void {
   describe(`Mapbox→RenderNode structural coverage — ${name}`, () => {
     const shows = pipeline(style)
 
@@ -288,14 +316,18 @@ function runCoverage(name: string, style: unknown, layers: MapboxLayer[], knownG
         fails.push(...checkPaint(layer, show))
       }
       fails.sort()
-      const newFails = fails.filter(f => !knownGaps.has(f))
-      const staleAllowlist = [...knownGaps].filter(g => !fails.includes(g))
+      const newFails = fails.filter((f) => !knownGaps.has(f))
+      const staleAllowlist = [...knownGaps].filter((g) => !fails.includes(g))
       const messages: string[] = []
       if (newFails.length > 0) {
-        messages.push(`NEW structural coverage gaps (regression — fix or add to KNOWN_GAPS):\n${newFails.join('\n')}`)
+        messages.push(
+          `NEW structural coverage gaps (regression — fix or add to KNOWN_GAPS):\n${newFails.join('\n')}`,
+        )
       }
       if (staleAllowlist.length > 0) {
-        messages.push(`STALE KNOWN_GAPS entries (the underlying bug is fixed — remove these from the allowlist):\n${staleAllowlist.join('\n')}`)
+        messages.push(
+          `STALE KNOWN_GAPS entries (the underlying bug is fixed — remove these from the allowlist):\n${staleAllowlist.join('\n')}`,
+        )
       }
       expect(messages, messages.join('\n\n')).toEqual([])
     })
@@ -303,7 +335,12 @@ function runCoverage(name: string, style: unknown, layers: MapboxLayer[], knownG
 }
 
 runCoverage('OFM Bright', OFM_BRIGHT, OFM_BRIGHT.layers as MapboxLayer[], KNOWN_GAPS_OFM_BRIGHT)
-runCoverage('MapLibre demo', MAPLIBRE_DEMO, MAPLIBRE_DEMO.layers as MapboxLayer[], KNOWN_GAPS_MAPLIBRE_DEMO)
+runCoverage(
+  'MapLibre demo',
+  MAPLIBRE_DEMO,
+  MAPLIBRE_DEMO.layers as MapboxLayer[],
+  KNOWN_GAPS_MAPLIBRE_DEMO,
+)
 
 describe('lower silent-drop diagnostic — X-GIS0005', () => {
   it('binding-form utility with no handler surfaces as a diagnostic', () => {
@@ -321,7 +358,7 @@ layer L {
     const tokens = new Lexer(src).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
-    const drops = (scene.diagnostics ?? []).filter(d => d.code === 'X-GIS0005')
+    const drops = (scene.diagnostics ?? []).filter((d) => d.code === 'X-GIS0005')
     expect(drops.length).toBeGreaterThan(0)
     expect(drops[0]!.severity).toBe('warn')
   })
@@ -343,7 +380,7 @@ layer F {
     const tokens = new Lexer(src).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
-    const drops = (scene.diagnostics ?? []).filter(d => d.code === 'X-GIS0005')
+    const drops = (scene.diagnostics ?? []).filter((d) => d.code === 'X-GIS0005')
     expect(drops).toEqual([])
   })
 })
@@ -364,7 +401,7 @@ layer L {
     const tokens = new Lexer(src).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
-    const drops = (scene.diagnostics ?? []).filter(d => d.code === 'X-GIS0006')
+    const drops = (scene.diagnostics ?? []).filter((d) => d.code === 'X-GIS0006')
     expect(drops.length).toBeGreaterThan(0)
     expect(drops[0]!.severity).toBe('warn')
     expect(drops[0]!.message).toContain('label-mystery-knob-3')
@@ -382,7 +419,7 @@ layer L {
     const tokens = new Lexer(src).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
-    const drops = (scene.diagnostics ?? []).filter(d => d.code === 'X-GIS0006')
+    const drops = (scene.diagnostics ?? []).filter((d) => d.code === 'X-GIS0006')
     expect(drops).toEqual([])
   })
 })

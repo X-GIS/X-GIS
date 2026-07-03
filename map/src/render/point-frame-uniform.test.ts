@@ -51,35 +51,65 @@ const CAM = {
 const FIXTURES: readonly Fixture[] = [
   {
     name: 'flat mercator (projType 0), defaults',
-    projType: 0, projCenterLon: 0, projCenterLat: 0,
-    canvasWidth: 1280, canvasHeight: 720,
-    circleTranslateX: 0, circleTranslateY: 0, circleBlur: 0, circlePitchScaleMap: false,
+    projType: 0,
+    projCenterLon: 0,
+    projCenterLat: 0,
+    canvasWidth: 1280,
+    canvasHeight: 720,
+    circleTranslateX: 0,
+    circleTranslateY: 0,
+    circleBlur: 0,
+    circlePitchScaleMap: false,
   },
   {
     name: 'flat mercator with translate/blur/pitch-scale:map',
-    projType: 0, projCenterLon: 0, projCenterLat: 0,
-    canvasWidth: 800, canvasHeight: 600,
-    circleTranslateX: 12.5, circleTranslateY: -7.25, circleBlur: 1.5, circlePitchScaleMap: true,
+    projType: 0,
+    projCenterLon: 0,
+    projCenterLat: 0,
+    canvasWidth: 800,
+    canvasHeight: 600,
+    circleTranslateX: 12.5,
+    circleTranslateY: -7.25,
+    circleBlur: 1.5,
+    circlePitchScaleMap: true,
   },
   {
     name: 'globe (projType 7) with eye — #600 globe_eye lanes live',
-    projType: 7, projCenterLon: 127.024, projCenterLat: 37.532,
+    projType: 7,
+    projCenterLon: 127.024,
+    projCenterLat: 37.532,
     eye: [12756274.1, 1234567.8, -7654321.9],
-    canvasWidth: 1920, canvasHeight: 1080,
-    circleTranslateX: 3, circleTranslateY: 4, circleBlur: 0.25, circlePitchScaleMap: false,
+    canvasWidth: 1920,
+    canvasHeight: 1080,
+    circleTranslateX: 3,
+    circleTranslateY: 4,
+    circleBlur: 0.25,
+    circlePitchScaleMap: false,
   },
   {
     name: 'degenerate 0×0 canvas (translate divide guards)',
-    projType: 6, projCenterLon: -45.5, projCenterLat: 62.25,
-    canvasWidth: 0, canvasHeight: 0,
-    circleTranslateX: 10, circleTranslateY: 10, circleBlur: 2, circlePitchScaleMap: true,
+    projType: 6,
+    projCenterLon: -45.5,
+    projCenterLat: 62.25,
+    canvasWidth: 0,
+    canvasHeight: 0,
+    circleTranslateX: 10,
+    circleTranslateY: 10,
+    circleBlur: 2,
+    circlePitchScaleMap: true,
   },
 ]
 
 /** Frozen verbatim reference: the retired lane-arithmetic writer, fixed slots. */
 function referenceBytes(f: Fixture): Uint8Array {
   const uf = new Float32Array(40)
-  const U_MVP = 0, U_PROJ = 16, U_VIEWPORT = 20, U_CAM_H = 24, U_CAM_L = 28, U_CIRCLE = 32, U_EYE = 36
+  const U_MVP = 0,
+    U_PROJ = 16,
+    U_VIEWPORT = 20,
+    U_CAM_H = 24,
+    U_CAM_L = 28,
+    U_CIRCLE = 32,
+    U_EYE = 36
   uf.set(MVP, U_MVP)
   // writeProjectionCull inline: proj_params + globe_eye as one coupled unit.
   uf[U_PROJ] = f.projType
@@ -87,20 +117,41 @@ function referenceBytes(f: Fixture): Uint8Array {
   uf[U_PROJ + 2] = f.projCenterLat
   uf[U_PROJ + 3] = 0
   const ge = globeEyeUniform(f.eye)
-  uf[U_EYE] = ge[0]; uf[U_EYE + 1] = ge[1]; uf[U_EYE + 2] = ge[2]; uf[U_EYE + 3] = ge[3]
-  const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, (CAM as { zoom: number }).zoom)
-  uf[U_VIEWPORT] = f.canvasWidth; uf[U_VIEWPORT + 1] = f.canvasHeight
-  uf[U_VIEWPORT + 2] = metersPerPixel; uf[U_VIEWPORT + 3] = LOG_DEPTH_FC
+  uf[U_EYE] = ge[0]
+  uf[U_EYE + 1] = ge[1]
+  uf[U_EYE + 2] = ge[2]
+  uf[U_EYE + 3] = ge[3]
+  const metersPerPixel = WORLD_MERC / TILE_PX / Math.pow(2, (CAM as { zoom: number }).zoom)
+  uf[U_VIEWPORT] = f.canvasWidth
+  uf[U_VIEWPORT + 1] = f.canvasHeight
+  uf[U_VIEWPORT + 2] = metersPerPixel
+  uf[U_VIEWPORT + 3] = LOG_DEPTH_FC
   if (f.projType === 0) {
-    const cmx = (CAM as { centerX: number }).centerX, cmy = (CAM as { centerY: number }).centerY
-    const cmxH = Math.fround(cmx), cmyH = Math.fround(cmy)
-    uf[U_CAM_H] = cmxH; uf[U_CAM_H + 1] = cmyH; uf[U_CAM_H + 2] = 0; uf[U_CAM_H + 3] = 0
-    uf[U_CAM_L] = cmx - cmxH; uf[U_CAM_L + 1] = cmy - cmyH; uf[U_CAM_L + 2] = 0; uf[U_CAM_L + 3] = 0
+    const cmx = (CAM as { centerX: number }).centerX,
+      cmy = (CAM as { centerY: number }).centerY
+    const cmxH = Math.fround(cmx),
+      cmyH = Math.fround(cmy)
+    uf[U_CAM_H] = cmxH
+    uf[U_CAM_H + 1] = cmyH
+    uf[U_CAM_H + 2] = 0
+    uf[U_CAM_H + 3] = 0
+    uf[U_CAM_L] = cmx - cmxH
+    uf[U_CAM_L + 1] = cmy - cmyH
+    uf[U_CAM_L + 2] = 0
+    uf[U_CAM_L + 3] = 0
   } else {
     const camC = CAM.getECEFCenter()
-    const cxH = Math.fround(camC[0]); const cyH = Math.fround(camC[1]); const czH = Math.fround(camC[2])
-    uf[U_CAM_H] = cxH; uf[U_CAM_H + 1] = cyH; uf[U_CAM_H + 2] = czH; uf[U_CAM_H + 3] = 0
-    uf[U_CAM_L] = camC[0] - cxH; uf[U_CAM_L + 1] = camC[1] - cyH; uf[U_CAM_L + 2] = camC[2] - czH; uf[U_CAM_L + 3] = 0
+    const cxH = Math.fround(camC[0])
+    const cyH = Math.fround(camC[1])
+    const czH = Math.fround(camC[2])
+    uf[U_CAM_H] = cxH
+    uf[U_CAM_H + 1] = cyH
+    uf[U_CAM_H + 2] = czH
+    uf[U_CAM_H + 3] = 0
+    uf[U_CAM_L] = camC[0] - cxH
+    uf[U_CAM_L + 1] = camC[1] - cyH
+    uf[U_CAM_L + 2] = camC[2] - czH
+    uf[U_CAM_L + 3] = 0
   }
   uf[U_CIRCLE] = f.canvasWidth > 0 ? (f.circleTranslateX * 2) / f.canvasWidth : 0
   uf[U_CIRCLE + 1] = f.canvasHeight > 0 ? -(f.circleTranslateY * 2) / f.canvasHeight : 0
@@ -116,9 +167,16 @@ describe('point frame uniform — block bytes ≡ retired lane writer', () => {
       writePointFrameUniform(
         block,
         { matrix: MVP, logDepthFc: LOG_DEPTH_FC, ...(f.eye ? { eye: f.eye } : {}) },
-        CAM, f.projType, f.projCenterLon, f.projCenterLat,
-        f.canvasWidth, f.canvasHeight,
-        f.circleTranslateX, f.circleTranslateY, f.circleBlur, f.circlePitchScaleMap,
+        CAM,
+        f.projType,
+        f.projCenterLon,
+        f.projCenterLat,
+        f.canvasWidth,
+        f.canvasHeight,
+        f.circleTranslateX,
+        f.circleTranslateY,
+        f.circleBlur,
+        f.circlePitchScaleMap,
       )
       expect(block.byteLength).toBe(160)
       expect([...new Uint8Array(block.buffer)]).toEqual([...referenceBytes(f)])

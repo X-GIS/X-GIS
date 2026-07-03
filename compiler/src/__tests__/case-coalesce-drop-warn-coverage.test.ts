@@ -59,8 +59,10 @@ describe('case / coalesce partial-drop warnings', () => {
             // Arm 1 cond `["image", …]` fails — should warn.
             'fill-color': [
               'case',
-              ['image', 'flag-x'], '#fff',
-              ['==', ['get', 'kind'], 'park'], '#0f0',
+              ['image', 'flag-x'],
+              '#fff',
+              ['==', ['get', 'kind'], 'park'],
+              '#0f0',
               '#abc',
             ],
           },
@@ -84,8 +86,10 @@ describe('case / coalesce partial-drop warnings', () => {
             'fill-color': [
               'match',
               ['get', 'kind'],
-              'park', ['image', 'green-leaf'],
-              'lake', '#00f',
+              'park',
+              ['image', 'green-leaf'],
+              'lake',
+              '#00f',
               '#aaa',
             ],
           },
@@ -111,7 +115,8 @@ describe('case / coalesce partial-drop warnings', () => {
             'fill-color': [
               'match',
               ['downcase', ['get', 'kind']],
-              'park', ['image', 'green-leaf'],
+              'park',
+              ['image', 'green-leaf'],
               '#aaa',
             ],
           },
@@ -132,11 +137,7 @@ describe('case / coalesce partial-drop warnings', () => {
           type: 'fill',
           source: 's',
           paint: {
-            'fill-color': [
-              'case',
-              ['==', ['get', 'kind'], 'park'], '#0f0',
-              '#abc',
-            ],
+            'fill-color': ['case', ['==', ['get', 'kind'], 'park'], '#0f0', '#abc'],
           },
         },
       ],

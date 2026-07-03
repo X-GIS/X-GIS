@@ -16,11 +16,16 @@ function staticServer(root: string) {
     if (urlPath.endsWith('/')) urlPath += 'index.html'
     const filePath = join(root, urlPath)
     if (!existsSync(filePath) || !statSync(filePath).isFile()) {
-      res.statusCode = 404; res.end('not found'); return
+      res.statusCode = 404
+      res.end('not found')
+      return
     }
     const types: Record<string, string> = {
-      '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
-      '.svg': 'image/svg+xml', '.json': 'application/json',
+      '.html': 'text/html',
+      '.js': 'application/javascript',
+      '.css': 'text/css',
+      '.svg': 'image/svg+xml',
+      '.json': 'application/json',
     }
     res.setHeader('Content-Type', types[extname(filePath)] ?? 'application/octet-stream')
     res.end(readFileSync(filePath))
@@ -34,7 +39,7 @@ test('convert page redesign: preset chips visible + clickable', async ({ page })
     test.skip(true, 'site/dist/convert not built — run `bun run build` in site first')
   }
   const server = staticServer(root)
-  await new Promise<void>(r => server.listen(0, () => r()))
+  await new Promise<void>((r) => server.listen(0, () => r()))
   const port = (server.address() as { port: number }).port
 
   try {
@@ -57,7 +62,14 @@ test('convert page redesign: preset chips visible + clickable', async ({ page })
     // Use a 1440-wide viewport so the xl-only OnThisPage TOC renders
     // and the screenshot reflects the desktop layout.
     await page.setViewportSize({ width: 1440, height: 900 })
-    for (const slug of ['quickstart', 'cookbook', 'mapbox', 'functions', 'expressions', 'sources']) {
+    for (const slug of [
+      'quickstart',
+      'cookbook',
+      'mapbox',
+      'functions',
+      'expressions',
+      'sources',
+    ]) {
       await page.goto(`http://localhost:${port}/docs/${slug}/`)
       await expect(page.locator('h1').first()).toBeVisible()
       await page.screenshot({ path: `test-results/docs-${slug}.png`, fullPage: true })
@@ -69,7 +81,7 @@ test('convert page redesign: preset chips visible + clickable', async ({ page })
     await expect(prevNext).toHaveCount(1)
 
     // ── Mobile hamburger drawer screenshot ──
-    await page.setViewportSize({ width: 390, height: 844 })  // iPhone 14
+    await page.setViewportSize({ width: 390, height: 844 }) // iPhone 14
     await page.goto(`http://localhost:${port}/docs/cookbook/`)
     await page.screenshot({ path: 'test-results/mobile-docs-cookbook.png', fullPage: false })
     // Open the hamburger drawer.
@@ -84,7 +96,9 @@ test('convert page redesign: preset chips visible + clickable', async ({ page })
     await expect(page.locator('#mobile-nav-drawer a', { hasText: 'XGVT spec' })).toBeVisible()
     // And the drawer's documentation group includes the new pages.
     await expect(page.locator('#mobile-nav-drawer a', { hasText: 'Cookbook' })).toBeVisible()
-    await expect(page.locator('#mobile-nav-drawer a', { hasText: 'Mapbox migration' })).toBeVisible()
+    await expect(
+      page.locator('#mobile-nav-drawer a', { hasText: 'Mapbox migration' }),
+    ).toBeVisible()
 
     // Pipeline concept page renders the SVG diagram inline.
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -111,8 +125,12 @@ test('convert page redesign: preset chips visible + clickable', async ({ page })
     await expect(page.locator('[data-page-feedback] button[data-vote="up"]')).toBeVisible()
     // Clicking thumbs-down reveals the category picker.
     await page.locator('[data-page-feedback] button[data-vote="down"]').click()
-    await expect(page.locator('.page-feedback-categories a', { hasText: 'Hard to understand' })).toBeVisible()
-    await expect(page.locator('.page-feedback-categories a', { hasText: 'Missing info' })).toBeVisible()
+    await expect(
+      page.locator('.page-feedback-categories a', { hasText: 'Hard to understand' }),
+    ).toBeVisible()
+    await expect(
+      page.locator('.page-feedback-categories a', { hasText: 'Missing info' }),
+    ).toBeVisible()
 
     // RuntimeSupport badge row at the top of the API page.
     await page.goto(`http://localhost:${port}/docs/api/`)
@@ -154,7 +172,9 @@ test('convert page redesign: preset chips visible + clickable', async ({ page })
     await page.goto(`http://localhost:${port}/docs/functions/`)
     const indexJson = await page.locator('#search-index').textContent()
     expect(indexJson, 'search index must include functions page').toContain('Function reference')
-    expect(indexJson, 'search index must include expressions page').toContain('Expressions & operators')
+    expect(indexJson, 'search index must include expressions page').toContain(
+      'Expressions & operators',
+    )
     expect(indexJson, 'search index must include sources page').toContain('Source types')
 
     // Sidebar Language group lists the new pages.

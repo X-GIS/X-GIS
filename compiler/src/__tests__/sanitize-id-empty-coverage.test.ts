@@ -16,9 +16,7 @@ describe('sanitizeId empty', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
-      layers: [
-        { id: '', type: 'fill', source: 's', paint: { 'fill-color': '#000' } },
-      ],
+      layers: [{ id: '', type: 'fill', source: 's', paint: { 'fill-color': '#000' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toContain('layer unnamed {')

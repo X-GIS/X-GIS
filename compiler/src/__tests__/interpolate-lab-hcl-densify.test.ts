@@ -13,9 +13,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
-import {
-  parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab,
-} from '../tokens/colors'
+import { parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab } from '../tokens/colors'
 
 describe('sRGB ↔ Lab ↔ LCh round-trip', () => {
   it('parseSrgbHex handles 3- and 6-digit hex', () => {
@@ -32,8 +30,8 @@ describe('sRGB ↔ Lab ↔ LCh round-trip', () => {
       const [L, a, b] = srgbToLab(rgb[0], rgb[1], rgb[2])
       const back = labToHex(L, a, b)
       // Convert both to numeric RGB and compare each channel within 1 unit
-      const orig = parseSrgbHex(hex)!.map(v => Math.round(v * 255))
-      const rt = parseSrgbHex(back)!.map(v => Math.round(v * 255))
+      const orig = parseSrgbHex(hex)!.map((v) => Math.round(v * 255))
+      const rt = parseSrgbHex(back)!.map((v) => Math.round(v * 255))
       for (let i = 0; i < 3; i++) {
         expect(Math.abs(orig[i]! - rt[i]!)).toBeLessThanOrEqual(1)
       }
@@ -62,11 +60,7 @@ describe('Mapbox interpolate-lab over zoom → densified hex stops', () => {
   }
 
   it('hex-stop interpolate-lab densifies + preserves endpoints', () => {
-    const style = build([
-      'interpolate-lab', ['linear'], ['zoom'],
-      0, '#ffffff',
-      18, '#000000',
-    ])
+    const style = build(['interpolate-lab', ['linear'], ['zoom'], 0, '#ffffff', 18, '#000000'])
     const warnings: string[] = []
     const out = convertMapboxStyle(style as unknown as string, {
       coverage: { sources: [], layers: [], warnings },
@@ -75,7 +69,7 @@ describe('Mapbox interpolate-lab over zoom → densified hex stops', () => {
     expect(out).toContain('#ffffff')
     expect(out).toContain('#000000')
     // Densification warning must mention Lab + piecewise-linear
-    const w = warnings.find(s => s.includes('interpolate-lab'))
+    const w = warnings.find((s) => s.includes('interpolate-lab'))
     expect(w, warnings.join('\n')).toBeDefined()
     expect(w).toContain('dense piecewise-linear')
     expect(w).toContain('Lab space')
@@ -84,16 +78,12 @@ describe('Mapbox interpolate-lab over zoom → densified hex stops', () => {
   it('hex-stop interpolate-hcl densifies in LCh space (hue shortest-path)', () => {
     // Red → Green spans hue ~0 → 120°; LCh path goes through orange,
     // not magenta (which would be the long way round).
-    const style = build([
-      'interpolate-hcl', ['linear'], ['zoom'],
-      0, '#ff0000',
-      10, '#00ff00',
-    ])
+    const style = build(['interpolate-hcl', ['linear'], ['zoom'], 0, '#ff0000', 10, '#00ff00'])
     const warnings: string[] = []
     convertMapboxStyle(style as unknown as string, {
       coverage: { sources: [], layers: [], warnings },
     })
-    const w = warnings.find(s => s.includes('interpolate-hcl'))
+    const w = warnings.find((s) => s.includes('interpolate-hcl'))
     expect(w, warnings.join('\n')).toBeDefined()
     expect(w).toContain('LCh space')
   })
@@ -104,9 +94,13 @@ describe('Mapbox interpolate-lab over zoom → densified hex stops', () => {
     // densifies the same way the linear curve does, with the Mapbox
     // exponential progress warp applied to the colour parameter.
     const style = build([
-      'interpolate-lab', ['exponential', 2], ['zoom'],
-      0, '#ffffff',
-      10, '#000000',
+      'interpolate-lab',
+      ['exponential', 2],
+      ['zoom'],
+      0,
+      '#ffffff',
+      10,
+      '#000000',
     ])
     const warnings: string[] = []
     const out = convertMapboxStyle(style as unknown as string, {
@@ -114,26 +108,30 @@ describe('Mapbox interpolate-lab over zoom → densified hex stops', () => {
     })
     expect(out).toContain('#ffffff')
     expect(out).toContain('#000000')
-    const w = warnings.find(s => s.includes('interpolate-lab'))
+    const w = warnings.find((s) => s.includes('interpolate-lab'))
     expect(w, warnings.join('\n')).toBeDefined()
     expect(w).toContain('exponential base 2')
     expect(w).toContain('dense piecewise-linear')
     // The old "non-linear curve approximated as linear-sRGB" warning
     // must NOT appear — exponential is densified, not dropped.
-    expect(warnings.some(s => s.includes('non-linear curve'))).toBe(false)
+    expect(warnings.some((s) => s.includes('non-linear curve'))).toBe(false)
   })
 
   it('exponential-curve interpolate-hcl densifies in LCh space', () => {
     const style = build([
-      'interpolate-hcl', ['exponential', 1.5], ['zoom'],
-      0, '#ff0000',
-      8, '#0000ff',
+      'interpolate-hcl',
+      ['exponential', 1.5],
+      ['zoom'],
+      0,
+      '#ff0000',
+      8,
+      '#0000ff',
     ])
     const warnings: string[] = []
     convertMapboxStyle(style as unknown as string, {
       coverage: { sources: [], layers: [], warnings },
     })
-    const w = warnings.find(s => s.includes('interpolate-hcl'))
+    const w = warnings.find((s) => s.includes('interpolate-hcl'))
     expect(w, warnings.join('\n')).toBeDefined()
     expect(w).toContain('exponential base 1.5')
     expect(w).toContain('LCh space')
@@ -144,9 +142,13 @@ describe('Mapbox interpolate-lab over zoom → densified hex stops', () => {
     // the linear-curve densification and the emitted curve stays
     // linear so the runtime doesn't re-warp.
     const style = build([
-      'interpolate-lab', ['exponential', 1], ['zoom'],
-      0, '#ffffff',
-      10, '#000000',
+      'interpolate-lab',
+      ['exponential', 1],
+      ['zoom'],
+      0,
+      '#ffffff',
+      10,
+      '#000000',
     ])
     const warnings: string[] = []
     const out = convertMapboxStyle(style as unknown as string, {
@@ -154,22 +156,18 @@ describe('Mapbox interpolate-lab over zoom → densified hex stops', () => {
     })
     expect(out).toContain('#ffffff')
     expect(out).toContain('#000000')
-    expect(warnings.some(s => s.includes('non-linear curve'))).toBe(false)
+    expect(warnings.some((s) => s.includes('non-linear curve'))).toBe(false)
   })
 
   it('non-hex stops fall back to linear-sRGB with diagnostic warning', () => {
     // ["get", "x"] inside an interpolate-lab stop value — runtime
     // expression, can't densify at compile time.
-    const style = build([
-      'interpolate-lab', ['linear'], ['zoom'],
-      0, ['get', 'x'],
-      10, '#000',
-    ])
+    const style = build(['interpolate-lab', ['linear'], ['zoom'], 0, ['get', 'x'], 10, '#000'])
     const warnings: string[] = []
     convertMapboxStyle(style as unknown as string, {
       coverage: { sources: [], layers: [], warnings },
     })
-    const w = warnings.find(s => s.includes('interpolate-lab') && s.includes('linear-sRGB'))
+    const w = warnings.find((s) => s.includes('interpolate-lab') && s.includes('linear-sRGB'))
     expect(w, warnings.join('\n')).toBeDefined()
   })
 })

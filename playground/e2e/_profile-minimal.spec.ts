@@ -7,12 +7,14 @@ test.describe('profile minimal @zoom=0', () => {
     await page.setViewportSize({ width: 1400, height: 900 })
 
     const consoleMsgs: string[] = []
-    page.on('console', m => {
+    page.on('console', (m) => {
       const t = `[${m.type()}] ${m.text()}`
       consoleMsgs.push(t)
     })
 
-    await page.goto('/demo.html?id=minimal&e2e=1#0.00/0.00000/148.38849', { waitUntil: 'domcontentloaded' })
+    await page.goto('/demo.html?id=minimal&e2e=1#0.00/0.00000/148.38849', {
+      waitUntil: 'domcontentloaded',
+    })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
       null,
@@ -28,19 +30,22 @@ test.describe('profile minimal @zoom=0', () => {
     await cdp.send('Profiler.start')
 
     // Measure frame times over ~3 seconds
-    const frameData = await page.evaluate(() => new Promise<{ times: number[]; total: number }>(resolve => {
-      const times: number[] = []
-      let last = performance.now()
-      const start = last
-      function tick() {
-        const t = performance.now()
-        times.push(t - last)
-        last = t
-        if (t - start < 3000) requestAnimationFrame(tick)
-        else resolve({ times, total: t - start })
-      }
-      requestAnimationFrame(tick)
-    }))
+    const frameData = await page.evaluate(
+      () =>
+        new Promise<{ times: number[]; total: number }>((resolve) => {
+          const times: number[] = []
+          let last = performance.now()
+          const start = last
+          function tick() {
+            const t = performance.now()
+            times.push(t - last)
+            last = t
+            if (t - start < 3000) requestAnimationFrame(tick)
+            else resolve({ times, total: t - start })
+          }
+          requestAnimationFrame(tick)
+        }),
+    )
 
     const { profile } = await cdp.send('Profiler.stop')
 

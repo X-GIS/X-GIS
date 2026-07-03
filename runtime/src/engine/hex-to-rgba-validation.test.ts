@@ -18,15 +18,13 @@ describe('hexToRgba validity contract', () => {
   it('returns null for malformed hex shape', () => {
     expect(hexToRgba('red')).toBeNull()
     expect(hexToRgba('#zz')).toBeNull()
-    expect(hexToRgba('#12345')).toBeNull()    // 5-char (not 3/4/6/8)
+    expect(hexToRgba('#12345')).toBeNull() // 5-char (not 3/4/6/8)
     expect(hexToRgba('#abc def')).toBeNull()
     expect(hexToRgba('not-a-hex')).toBeNull()
   })
 
   it('returns tuple for valid hex shapes', () => {
-    expect(hexToRgba('#abc')).toEqual([
-      0xaa / 255, 0xbb / 255, 0xcc / 255, 1,
-    ])
+    expect(hexToRgba('#abc')).toEqual([0xaa / 255, 0xbb / 255, 0xcc / 255, 1])
     expect(hexToRgba('#abcd')).not.toBeNull()
     expect(hexToRgba('#abcdef')).not.toBeNull()
     expect(hexToRgba('#abcdef80')).not.toBeNull()

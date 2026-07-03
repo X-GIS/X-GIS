@@ -16,9 +16,18 @@
 // unchanged.
 
 import { xlog } from '@xgis/shared'
-import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from './__profile__/perf-marks'
+import {
+  markStart as perfMarkStart,
+  markEnd as perfMarkEnd,
+  flushPerFrameMarks,
+} from './__profile__/perf-marks'
 import { mercatorYToLat } from '@xgis/engine'
-import { PROJECTION_NAME_TO_TYPE, isGlobeProj, promotesToGlobeWhenTilted, poleLimit } from '@xgis/engine'
+import {
+  PROJECTION_NAME_TO_TYPE,
+  isGlobeProj,
+  promotesToGlobeWhenTilted,
+  poleLimit,
+} from '@xgis/engine'
 import { resizeCanvas, effectiveDpr, getSampleCount, isPickEnabled } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
@@ -133,8 +142,12 @@ export class RenderLoop {
     // inverse, not the flat-Mercator-plane unproject).
     this.host.camera.projType = projType
     const { device, context, canvas } = this.host.ctx
-    const w = canvas.width, h = canvas.height
-    if (w === 0 || h === 0) { requestAnimationFrame(this.host.renderLoop); return }
+    const w = canvas.width,
+      h = canvas.height
+    if (w === 0 || h === 0) {
+      requestAnimationFrame(this.host.renderLoop)
+      return
+    }
 
     // DSFUN precision removes the old `maxSrcLevel + 6` clamp: tile vertices
     // are now stored as f64-equivalent (high/low) Mercator-meter pairs, so
@@ -150,7 +163,10 @@ export class RenderLoop {
     // sensible default before the clamp so one bad assignment doesn't
     // lock the camera into NaN matrices for every subsequent frame.
     if (!Number.isFinite(this.host.camera.centerX)) this.host.camera.centerX = 0
-    if (!Number.isFinite(this.host.camera.centerY)) { this.host.camera.centerY = 0; this.host.camera.syncCenterLat() }
+    if (!Number.isFinite(this.host.camera.centerY)) {
+      this.host.camera.centerY = 0
+      this.host.camera.syncCenterLat()
+    }
     if (!Number.isFinite(this.host.camera.zoom)) this.host.camera.zoom = 0
     if (!Number.isFinite(this.host.camera.bearing)) this.host.camera.bearing = 0
     // pitch goes through a setter (iter 368) so this is a defensive
@@ -167,8 +183,8 @@ export class RenderLoop {
     // camera zoom-scale jumps on every gesture under presets that set
     // interactionDpr (balanced/battery/?adaptiveDpr). See effectiveDpr.
     const dpr = effectiveDpr(this.host._interacting)
-    const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, this.host.camera.zoom)
-    const visHalfY = (h / dpr) * mpp / 2
+    const mpp = WORLD_MERC / TILE_PX / Math.pow(2, this.host.camera.zoom)
+    const visHalfY = ((h / dpr) * mpp) / 2
     const maxY = Math.max(0, MAX_MERC - visHalfY)
     this.host.camera.centerY = Math.max(-maxY, Math.min(maxY, this.host.camera.centerY))
 
@@ -182,10 +198,12 @@ export class RenderLoop {
     // into one world so the WORLD_COPIES math is always correct.
     if (this.host.camera.centerX > MAX_MERC) {
       const over = this.host.camera.centerX + MAX_MERC
-      this.host.camera.centerX = ((over % WORLD_MERC_FULL) + WORLD_MERC_FULL) % WORLD_MERC_FULL - MAX_MERC
+      this.host.camera.centerX =
+        (((over % WORLD_MERC_FULL) + WORLD_MERC_FULL) % WORLD_MERC_FULL) - MAX_MERC
     } else if (this.host.camera.centerX < -MAX_MERC) {
       const under = this.host.camera.centerX + MAX_MERC
-      this.host.camera.centerX = ((under % WORLD_MERC_FULL) + WORLD_MERC_FULL) % WORLD_MERC_FULL - MAX_MERC
+      this.host.camera.centerX =
+        (((under % WORLD_MERC_FULL) + WORLD_MERC_FULL) % WORLD_MERC_FULL) - MAX_MERC
     }
 
     // RTC: Camera center IS projection center. Always.
@@ -199,9 +217,10 @@ export class RenderLoop {
     // inert); the sphere allowance becomes live once centre storage holds true
     // latitude (S10).
     const rtcPoleLimit = poleLimit(this.host.camera.projType)
-    const centerLat = Math.max(-rtcPoleLimit, Math.min(rtcPoleLimit,
-      mercatorYToLat(this.host.camera.centerY)
-    ))
+    const centerLat = Math.max(
+      -rtcPoleLimit,
+      Math.min(rtcPoleLimit, mercatorYToLat(this.host.camera.centerY)),
+    )
 
     perfMarkEnd('frame.prep')
 
@@ -263,7 +282,10 @@ export class RenderLoop {
     // sequence at the end of the frame and clear the flag so only
     // ONE frame is captured. Set externally by tests / inspector.
     if (typeof window !== 'undefined') {
-      const w = window as unknown as { __xgisCaptureDrawOrder?: boolean; __xgisDrawOrderTrace?: unknown[] }
+      const w = window as unknown as {
+        __xgisCaptureDrawOrder?: boolean
+        __xgisDrawOrderTrace?: unknown[]
+      }
       if (w.__xgisCaptureDrawOrder) {
         w.__xgisDrawOrderTrace = []
       }
@@ -284,8 +306,9 @@ export class RenderLoop {
       // budget into bg / vtr / oit / text / overdraw shares.
       perfMarkStart(`encoder.pass.${label}`)
       device.pushErrorScope('validation')
-      try { fn() }
-      finally {
+      try {
+        fn()
+      } finally {
         // Report BOTH a resolved validation error AND a rejected pop —
         // the rejection was previously swallowed (Audit ⑧ B2).
         reportErrorScope(device.popErrorScope(), `pass:${label}`)
@@ -304,15 +327,19 @@ export class RenderLoop {
     // Lazily allocate the context once on the first frame, then mutate in place.
     if (this._ctx === null) {
       this._ctx = {
-        device, encoder, screenView,
-        colorView: screenView,            // set in the MSAA block below
+        device,
+        encoder,
+        screenView,
+        colorView: screenView, // set in the MSAA block below
         camera: this.host.camera,
         projection: makeProjectionToken(projType, centerLon, centerLat),
-        w, h, dpr,
+        w,
+        h,
+        dpr,
         elapsedMs: this.host._elapsedMs,
         frameCount: this.host._frameCount,
-        sampleCount: 1,                   // set in the MSAA block below
-        useResolve: false,                // set in the MSAA block below
+        sampleCount: 1, // set in the MSAA block below
+        useResolve: false, // set in the MSAA block below
         passScope,
         rt: this.host.renderTargets,
       }
@@ -347,7 +374,12 @@ export class RenderLoop {
       const sc = getSampleCount()
       ctx.sampleCount = sc
       const { useResolve, colorView } = ctx.rt.ensure(
-        w, h, sc, isPickEnabled(), DEBUG_OVERDRAW, screenView,
+        w,
+        h,
+        sc,
+        isPickEnabled(),
+        DEBUG_OVERDRAW,
+        screenView,
       )
       ctx.useResolve = useResolve
       ctx.colorView = colorView
@@ -513,7 +545,12 @@ export class RenderLoop {
       const w = window as unknown as {
         __xgisCaptureDrawOrder?: boolean
         __xgisDrawOrderTrace?: Array<{ seq: number; slice: string; phase: string; extrude: string }>
-        __xgisDrawOrderResult?: Array<{ seq: number; slice: string; phase: string; extrude: string }>
+        __xgisDrawOrderResult?: Array<{
+          seq: number
+          slice: string
+          phase: string
+          extrude: string
+        }>
       }
       if (w.__xgisCaptureDrawOrder && w.__xgisDrawOrderTrace) {
         const trace = w.__xgisDrawOrderTrace
@@ -521,7 +558,9 @@ export class RenderLoop {
         console.log('[XGIS-DRAW-ORDER] frame trace (' + trace.length + ' calls):')
         for (const e of trace) {
           // eslint-disable-next-line no-console
-          console.log(`  ${String(e.seq).padStart(2, ' ')}  extrude=${e.extrude.padEnd(10)}  phase=${e.phase.padEnd(8)}  slice="${e.slice}"`)
+          console.log(
+            `  ${String(e.seq).padStart(2, ' ')}  extrude=${e.extrude.padEnd(10)}  phase=${e.phase.padEnd(8)}  slice="${e.slice}"`,
+          )
         }
         w.__xgisDrawOrderResult = trace.slice()
         w.__xgisCaptureDrawOrder = false
@@ -550,7 +589,9 @@ export class RenderLoop {
     this.host._stats.bundleHits = 0
     this.host._stats.bundleMisses = 0
     this.host._stats.bundleEvictions = 0
-    let totalTilesVis = 0, totalTilesCached = 0, totalMissed = 0
+    let totalTilesVis = 0,
+      totalTilesCached = 0,
+      totalMissed = 0
     for (const [name, { renderer: vtR }] of this.host.vtSources) {
       if (!vtR.hasData()) continue
       const vts = vtR.getDrawStats()
@@ -591,12 +632,17 @@ export class RenderLoop {
             this.host._flickerLastFrame.set(name, this.host._frameCount)
             const zRounded = Math.round(this.host.camera.zoom)
             const cacheSize = vtR.getCacheSize()
-            xlog.warn(`[FLICKER] ${name}: ${vts.missedTiles} tiles without fallback (z=${zRounded} gpuCache=${cacheSize})`)
+            xlog.warn(
+              `[FLICKER] ${name}: ${vts.missedTiles} tiles without fallback (z=${zRounded} gpuCache=${cacheSize})`,
+            )
             // Ring-buffer the event so inspectPipeline() can replay
             // the last few seconds without needing a live console capture.
             this.host._flickerLog.push({
               ts: typeof performance !== 'undefined' ? performance.now() : Date.now(),
-              source: name, missed: vts.missedTiles, z: zRounded, cache: cacheSize,
+              source: name,
+              missed: vts.missedTiles,
+              z: zRounded,
+              cache: cacheSize,
             })
             if (this.host._flickerLog.length > FLICKER_LOG_CAP) {
               this.host._flickerLog.splice(0, this.host._flickerLog.length - FLICKER_LOG_CAP)
@@ -636,7 +682,10 @@ export class RenderLoop {
       this.host._needsRender = true
     } else {
       for (const [, { renderer }] of this.host.vtSources) {
-        if (renderer.hasPendingUploads()) { this.host._needsRender = true; break }
+        if (renderer.hasPendingUploads()) {
+          this.host._needsRender = true
+          break
+        }
       }
     }
 
@@ -650,11 +699,26 @@ export class RenderLoop {
    *  This is the WHOLE forced-WebGL2 hot path — none of the WebGPU multi-pass machinery runs
    *  (storage/MSAA renderers are Story-5/6). */
   private renderFrameViaRhi(
-    rhi: RhiDevice & RhiScreenPassDevice, w: number, h: number,
-    projType: number, centerLon: number, centerLat: number, dpr: number,
+    rhi: RhiDevice & RhiScreenPassDevice,
+    w: number,
+    h: number,
+    projType: number,
+    centerLon: number,
+    centerLat: number,
+    dpr: number,
   ): void {
     const pass = rhi.beginScreenPass({ width: w, height: h, clear: [0, 0, 0, 1] })
-    this.host.rasterRenderer.renderRhiChecker(rhi, pass, this.host.camera, projType, centerLon, centerLat, w, h, dpr)
+    this.host.rasterRenderer.renderRhiChecker(
+      rhi,
+      pass,
+      this.host.camera,
+      projType,
+      centerLon,
+      centerLat,
+      w,
+      h,
+      dpr,
+    )
     rhi.endScreenPass(pass)
     const errs = rhi.takeGlErrors?.() ?? []
     for (const message of errs) {
@@ -769,5 +833,4 @@ export class RenderLoop {
       }
     }
   }
-
 }

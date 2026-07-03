@@ -30,25 +30,44 @@ import type { TextDraw } from '@xgis/map'
 const g = globalThis as Record<string, unknown>
 g.GPUShaderStage ??= { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 }
 g.GPUBufferUsage ??= {
-  MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8, INDEX: 16,
-  VERTEX: 32, UNIFORM: 64, STORAGE: 128, INDIRECT: 256, QUERY_RESOLVE: 512,
+  MAP_READ: 1,
+  MAP_WRITE: 2,
+  COPY_SRC: 4,
+  COPY_DST: 8,
+  INDEX: 16,
+  VERTEX: 32,
+  UNIFORM: 64,
+  STORAGE: 128,
+  INDIRECT: 256,
+  QUERY_RESOLVE: 512,
 }
 g.GPUTextureUsage ??= {
-  COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8, RENDER_ATTACHMENT: 16,
+  COPY_SRC: 1,
+  COPY_DST: 2,
+  TEXTURE_BINDING: 4,
+  STORAGE_BINDING: 8,
+  RENDER_ATTACHMENT: 16,
 }
 g.GPUColorWrite ??= { RED: 1, GREEN: 2, BLUE: 4, ALPHA: 8, ALL: 15 }
 
 function stubDevice(): GPUDevice {
-  const stub: unknown = new Proxy(function () { return stub }, {
-    get(_t, p) {
-      if (p === 'size') return 1 << 22
-      if (p === 'width' || p === 'height') return 4096
-      if (p === 'limits') return { maxTextureDimension2D: 8192 }
-      if (p === Symbol.toPrimitive) return () => 0
+  const stub: unknown = new Proxy(
+    function () {
       return stub
     },
-    apply() { return stub },
-  })
+    {
+      get(_t, p) {
+        if (p === 'size') return 1 << 22
+        if (p === 'width' || p === 'height') return 4096
+        if (p === 'limits') return { maxTextureDimension2D: 8192 }
+        if (p === Symbol.toPrimitive) return () => 0
+        return stub
+      },
+      apply() {
+        return stub
+      },
+    },
+  )
   return stub as GPUDevice
 }
 
@@ -74,8 +93,11 @@ function makeStage(small = false) {
     : { rasterizer: new MockRasterizer() }
   const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', opts)
   const captured: TextDraw[][] = []
-  ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws =
-    (d: TextDraw[]) => { captured.push(d) }
+  ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws = (
+    d: TextDraw[],
+  ) => {
+    captured.push(d)
+  }
   return { stage, captured }
 }
 
@@ -117,19 +139,28 @@ describe('prepare() collision wiring (text-stage.ts:1915-1968)', () => {
     // either A's anchor appears or B/C drops.
     const { stage, captured } = makeStage()
     stage.beginFrame()
-    stage.addLabel(litValue('A'), {}, 100, 100, pointDef())   // shaped 0
-    stage.addLabel(litValue('B'), {}, 500, 500, pointDef())   // shaped 1
-    stage.addLabel(litValue('C'), {}, 108, 100, pointDef())   // shaped 2
+    stage.addLabel(litValue('A'), {}, 100, 100, pointDef()) // shaped 0
+    stage.addLabel(litValue('B'), {}, 500, 500, pointDef()) // shaped 1
+    stage.addLabel(litValue('C'), {}, 108, 100, pointDef()) // shaped 2
     stage.prepare()
     const draws = captured[0]!
     // Exactly two survivors: B (far) and C (later of the overlapping pair).
     expect(draws.length).toBe(2)
-    expect(draws.some(d => atAnchor(d, 500, 500)), 'B (far) should survive').toBe(true)
-    expect(draws.some(d => atAnchor(d, 108, 100)), 'C (later) should win the overlap').toBe(true)
-    expect(draws.some(d => atAnchor(d, 100, 100)), 'A (earlier) must be dropped').toBe(false)
+    expect(
+      draws.some((d) => atAnchor(d, 500, 500)),
+      'B (far) should survive',
+    ).toBe(true)
+    expect(
+      draws.some((d) => atAnchor(d, 108, 100)),
+      'C (later) should win the overlap',
+    ).toBe(true)
+    expect(
+      draws.some((d) => atAnchor(d, 100, 100)),
+      'A (earlier) must be dropped',
+    ).toBe(false)
     // Draw order preserves shaped order (B at index 1 before C at index 2).
-    const idxB = draws.findIndex(d => atAnchor(d, 500, 500))
-    const idxC = draws.findIndex(d => atAnchor(d, 108, 100))
+    const idxB = draws.findIndex((d) => atAnchor(d, 500, 500))
+    const idxC = draws.findIndex((d) => atAnchor(d, 108, 100))
     expect(idxB).toBeLessThan(idxC)
   })
 
@@ -148,7 +179,10 @@ describe('prepare() collision wiring (text-stage.ts:1915-1968)', () => {
     const draws = captured[0]!
     expect(draws.length).toBe(1)
     expect(atAnchor(draws[0]!, 100, 100), 'lower-sortKey Q wins').toBe(true)
-    expect(draws.some(d => atAnchor(d, 108, 100)), 'higher-sortKey P dropped').toBe(false)
+    expect(
+      draws.some((d) => atAnchor(d, 108, 100)),
+      'higher-sortKey P dropped',
+    ).toBe(false)
   })
 
   it('droppedPairKeys: rejected label stamps its pairKey; placed label does not; cleared next prepare', () => {
@@ -201,11 +235,22 @@ describe('prepare() collision wiring (text-stage.ts:1915-1968)', () => {
     const small = makeStage(true)
     small.stage.setCameraZoom(11)
     small.stage.beginFrame()
-    const words = ['서울특별', '부산광역', '인천대구', '광주울산', '대전세종', '평양원산', '청진함흥', '개성신의']
+    const words = [
+      '서울특별',
+      '부산광역',
+      '인천대구',
+      '광주울산',
+      '대전세종',
+      '평양원산',
+      '청진함흥',
+      '개성신의',
+    ]
     words.forEach((w, i) => small.stage.addLabel(litValue(w), {}, 100 + i * 40, 100, pointDef()))
     small.stage.prepare()
-    expect(small.stage.wasLastPrepareFullyResolved(),
-      'overflow-dropped label leaves prepare not-fully-resolved').toBe(false)
+    expect(
+      small.stage.wasLastPrepareFullyResolved(),
+      'overflow-dropped label leaves prepare not-fully-resolved',
+    ).toBe(false)
   })
 })
 
@@ -242,8 +287,17 @@ describe('#605 cross-tile shield same-line screen-space cap (prepare wiring)', (
     anchors.forEach((aDist, i) => {
       const [px, py] = hLine(0, 600, 1000 + i * 30) // row per tile, well separated in Y
       stage.addCurvedLineLabel(
-        litValue('82'), {}, px, py, aDist, lineDef(),
-        undefined, 'roads_shield', undefined, SAME_REF, aDist,
+        litValue('82'),
+        {},
+        px,
+        py,
+        aDist,
+        lineDef(),
+        undefined,
+        'roads_shield',
+        undefined,
+        SAME_REF,
+        aDist,
       )
     })
     stage.prepare()
@@ -261,8 +315,17 @@ describe('#605 cross-tile shield same-line screen-space cap (prepare wiring)', (
     anchors.forEach((aDist, i) => {
       const [px, py] = hLine(0, 900, 2000 + i * 30)
       stage.addCurvedLineLabel(
-        litValue('82'), {}, px, py, aDist, lineDef(),
-        undefined, 'roads_shield', undefined, SAME_REF, aDist,
+        litValue('82'),
+        {},
+        px,
+        py,
+        aDist,
+        lineDef(),
+        undefined,
+        'roads_shield',
+        undefined,
+        SAME_REF,
+        aDist,
       )
     })
     stage.prepare()
@@ -278,8 +341,17 @@ describe('#605 cross-tile shield same-line screen-space cap (prepare wiring)', (
     refs.forEach((ref, i) => {
       const [px, py] = hLine(0, 600, 3000 + i * 30)
       stage.addCurvedLineLabel(
-        litValue(ref), {}, px, py, 100, lineDef(),
-        undefined, 'roads_shield', undefined, `roads_shield ${ref}`, 100,
+        litValue(ref),
+        {},
+        px,
+        py,
+        100,
+        lineDef(),
+        undefined,
+        'roads_shield',
+        undefined,
+        `roads_shield ${ref}`,
+        100,
       )
     })
     stage.prepare()
@@ -295,8 +367,17 @@ describe('#605 cross-tile shield same-line screen-space cap (prepare wiring)', (
     ;[0, 1, 2].forEach((i) => {
       const [px, py] = hLine(0, 600, 4000 + i * 30)
       stage.addCurvedLineLabel(
-        litValue('Main St'), {}, px, py, 100, lineDef(),
-        undefined, 'roads', undefined, undefined, undefined,
+        litValue('Main St'),
+        {},
+        px,
+        py,
+        100,
+        lineDef(),
+        undefined,
+        'roads',
+        undefined,
+        undefined,
+        undefined,
       )
     })
     stage.prepare()

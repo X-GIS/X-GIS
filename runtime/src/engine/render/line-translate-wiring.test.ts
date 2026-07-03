@@ -27,9 +27,15 @@ import { describe, expect, it } from 'vitest'
 
 // WebGPU globals don't exist under happy-dom — stub the few constants
 // LineRenderer touches in its constructor (mirrors line-renderer-layer-ring).
-;(globalThis as unknown as { GPUShaderStage: { VERTEX: number; FRAGMENT: number } }).GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 }
+;(
+  globalThis as unknown as { GPUShaderStage: { VERTEX: number; FRAGMENT: number } }
+).GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 }
 ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
-  UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16,
+  UNIFORM: 1,
+  COPY_DST: 2,
+  STORAGE: 4,
+  VERTEX: 8,
+  INDEX: 16,
 }
 
 import { LineRenderer, lineUniformSize } from '@xgis/map'
@@ -46,7 +52,10 @@ const SLOT_TRANSLATE_Y = 48
 const TRANSLATE_X = 0.0123
 const TRANSLATE_Y = -0.0456
 
-interface CapturedWrite { offset: number; bytes: Float32Array }
+interface CapturedWrite {
+  offset: number
+  bytes: Float32Array
+}
 
 /** A fake GPU device that records the layer-ring flush and exposes the staged
  *  f32 bytes. Mirrors line-renderer-layer-ring.test.ts's fakeDevice. */
@@ -63,12 +72,17 @@ function makeFakeContext(writes: CapturedWrite[]): GPUContext {
     createTexture: () => ({ createView: () => ({}) }) as unknown as GPUTexture,
     queue: {
       writeBuffer: (
-        _buf: GPUBuffer, offset: number, data: ArrayBufferView | ArrayBuffer,
-        dataOffset?: number, _size?: number,
+        _buf: GPUBuffer,
+        offset: number,
+        data: ArrayBufferView | ArrayBuffer,
+        dataOffset?: number,
+        _size?: number,
       ) => {
         // endFrame() flushes with (layerRing, lo, layerStaging.buffer, dataOff, len).
         const ab = data instanceof ArrayBuffer ? data : (data as ArrayBufferView).buffer
-        const baseOff = (data instanceof ArrayBuffer ? 0 : (data as ArrayBufferView).byteOffset) + (dataOffset ?? 0)
+        const baseOff =
+          (data instanceof ArrayBuffer ? 0 : (data as ArrayBufferView).byteOffset) +
+          (dataOffset ?? 0)
         // Read the full uniform (52 f32) of the first staged slot.
         const bytes = new Float32Array(ab, baseOff, lineUniformSize() / 4)
         writes.push({ offset, bytes: bytes.slice(0, lineUniformSize() / 4) })
@@ -95,10 +109,21 @@ function captureLineTranslate(tx: number, ty: number): Float32Array {
 
   lr.beginFrame()
   lr.writeLayerSlot(
-    [1, 0, 0, 1], 2, 1, 1,            // strokeColor, width, opacity, mppAtCenter
-    undefined, undefined, undefined,  // cap, join, miterLimit (defaults)
-    null, [], 0, 1, 0, 1,             // dash, patterns, offsetPx, viewportH, blur, dpr
-    tx, ty,                           // lineTranslateX, lineTranslateY
+    [1, 0, 0, 1],
+    2,
+    1,
+    1, // strokeColor, width, opacity, mppAtCenter
+    undefined,
+    undefined,
+    undefined, // cap, join, miterLimit (defaults)
+    null,
+    [],
+    0,
+    1,
+    0,
+    1, // dash, patterns, offsetPx, viewportH, blur, dpr
+    tx,
+    ty, // lineTranslateX, lineTranslateY
   )
   lr.endFrame()
 

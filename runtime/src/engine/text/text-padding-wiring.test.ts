@@ -40,25 +40,44 @@ import type { TextDraw } from '@xgis/map'
 const g = globalThis as Record<string, unknown>
 g.GPUShaderStage ??= { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 }
 g.GPUBufferUsage ??= {
-  MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8, INDEX: 16,
-  VERTEX: 32, UNIFORM: 64, STORAGE: 128, INDIRECT: 256, QUERY_RESOLVE: 512,
+  MAP_READ: 1,
+  MAP_WRITE: 2,
+  COPY_SRC: 4,
+  COPY_DST: 8,
+  INDEX: 16,
+  VERTEX: 32,
+  UNIFORM: 64,
+  STORAGE: 128,
+  INDIRECT: 256,
+  QUERY_RESOLVE: 512,
 }
 g.GPUTextureUsage ??= {
-  COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8, RENDER_ATTACHMENT: 16,
+  COPY_SRC: 1,
+  COPY_DST: 2,
+  TEXTURE_BINDING: 4,
+  STORAGE_BINDING: 8,
+  RENDER_ATTACHMENT: 16,
 }
 g.GPUColorWrite ??= { RED: 1, GREEN: 2, BLUE: 4, ALPHA: 8, ALL: 15 }
 
 function stubDevice(): GPUDevice {
-  const stub: unknown = new Proxy(function () { return stub }, {
-    get(_t, p) {
-      if (p === 'size') return 1 << 22
-      if (p === 'width' || p === 'height') return 4096
-      if (p === 'limits') return { maxTextureDimension2D: 8192 }
-      if (p === Symbol.toPrimitive) return () => 0
+  const stub: unknown = new Proxy(
+    function () {
       return stub
     },
-    apply() { return stub },
-  })
+    {
+      get(_t, p) {
+        if (p === 'size') return 1 << 22
+        if (p === 'width' || p === 'height') return 4096
+        if (p === 'limits') return { maxTextureDimension2D: 8192 }
+        if (p === Symbol.toPrimitive) return () => 0
+        return stub
+      },
+      apply() {
+        return stub
+      },
+    },
+  )
   return stub as GPUDevice
 }
 
@@ -79,10 +98,15 @@ function pointDef(extra: Partial<LabelDef> = {}): LabelDef {
 }
 
 function makeStage() {
-  const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', { rasterizer: new MockRasterizer() })
+  const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', {
+    rasterizer: new MockRasterizer(),
+  })
   const captured: TextDraw[][] = []
-  ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws =
-    (d: TextDraw[]) => { captured.push(d) }
+  ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws = (
+    d: TextDraw[],
+  ) => {
+    captured.push(d)
+  }
   return { stage, captured }
 }
 
@@ -99,13 +123,19 @@ describe('text-padding collision-bbox wiring (GPU-free)', () => {
     // so any drop in the next test is caused solely by text-padding growth.
     const { stage, captured } = makeStage()
     stage.beginFrame()
-    stage.addLabel(litValue('A'), {}, 100, 100, pointDef())   // shaped 0
-    stage.addLabel(litValue('B'), {}, 130, 100, pointDef())   // shaped 1
+    stage.addLabel(litValue('A'), {}, 100, 100, pointDef()) // shaped 0
+    stage.addLabel(litValue('B'), {}, 130, 100, pointDef()) // shaped 1
     stage.prepare()
     const draws = captured[0]!
     expect(draws.length, 'default-padding neighbours do not collide').toBe(2)
-    expect(draws.some(d => atAnchor(d, 100, 100)), 'A survives at default padding').toBe(true)
-    expect(draws.some(d => atAnchor(d, 130, 100)), 'B survives at default padding').toBe(true)
+    expect(
+      draws.some((d) => atAnchor(d, 100, 100)),
+      'A survives at default padding',
+    ).toBe(true)
+    expect(
+      draws.some((d) => atAnchor(d, 130, 100)),
+      'B survives at default padding',
+    ).toBe(true)
   })
 
   it('large text-padding on A grows its collision bbox to engulf B → B (later) wins, A drops', () => {
@@ -116,11 +146,17 @@ describe('text-padding collision-bbox wiring (GPU-free)', () => {
     const { stage, captured } = makeStage()
     stage.beginFrame()
     stage.addLabel(litValue('A'), {}, 100, 100, pointDef({ padding: 40 })) // shaped 0
-    stage.addLabel(litValue('B'), {}, 130, 100, pointDef())                // shaped 1
+    stage.addLabel(litValue('B'), {}, 130, 100, pointDef()) // shaped 1
     stage.prepare()
     const draws = captured[0]!
     expect(draws.length, 'text-padding grows A box → exactly one survivor').toBe(1)
-    expect(atAnchor(draws[0]!, 130, 100), 'B (later submission) wins the padding-induced overlap').toBe(true)
-    expect(draws.some(d => atAnchor(d, 100, 100)), 'A dropped — its padded box collided with B').toBe(false)
+    expect(
+      atAnchor(draws[0]!, 130, 100),
+      'B (later submission) wins the padding-induced overlap',
+    ).toBe(true)
+    expect(
+      draws.some((d) => atAnchor(d, 100, 100)),
+      'A dropped — its padded box collided with B',
+    ).toBe(false)
   })
 })

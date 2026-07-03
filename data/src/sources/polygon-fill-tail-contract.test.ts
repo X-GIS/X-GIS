@@ -25,10 +25,10 @@ import { tileEcefCenterFromMerc } from '@xgis/engine'
 
 const A = 6378137
 const DEG2RAD = Math.PI / 180
-const FILL = 7          // floats per vertex (POLYGON_FILL_FORMAT stride, #398)
-const LON_SLOT = 4      // abs_lon (tile-local Mercator X)
-const LAT_SLOT = 5      // abs_lat (tile-local Mercator Y)
-const TRUELAT_SLOT = 6  // true_lat (UNCLAMPED latitude degrees — disc arm, #398)
+const FILL = 7 // floats per vertex (POLYGON_FILL_FORMAT stride, #398)
+const LON_SLOT = 4 // abs_lon (tile-local Mercator X)
+const LAT_SLOT = 5 // abs_lat (tile-local Mercator Y)
+const TRUELAT_SLOT = 6 // true_lat (UNCLAMPED latitude degrees — disc arm, #398)
 
 const mercX = (lonDeg: number): number => lonDeg * DEG2RAD * A
 const mercY = (latDeg: number): number =>
@@ -51,8 +51,10 @@ const NEAR_M = 8
 
 describe('POLYGON_FILL_FORMAT f32 tail contract: slots 4/5 are TILE-LOCAL Mercator', () => {
   it('packECEFPolygonVertices (compiler kernel) writes tail + origin == absolute Mercator', () => {
-    const lon = 30, lat = 50
-    const mx = mercX(lon), my = mercY(lat)
+    const lon = 30,
+      lat = 50
+    const mx = mercX(lon),
+      my = mercY(lat)
     // scratch is stride-3 [mx, my, fid] (absolute Mercator metres).
     const { vertices } = packECEFPolygonVertices([mx, my, 0], ANCHOR, ORIGIN)
     const [absMx, absMy] = absMercFromTail(vertices[LON_SLOT]!, vertices[LAT_SLOT]!)
@@ -89,9 +91,7 @@ describe('POLYGON_FILL_FORMAT f32 tail contract: slots 4/5 are TILE-LOCAL Mercat
     expect(vertices[TRUELAT_SLOT]!).toBeCloseTo(90, 4)
 
     // vertex 1: lon=30, lat=50 (below the clamp) → straight Mercator passthrough.
-    const [absMx1, absMy1] = absMercFromTail(
-      vertices[FILL + LON_SLOT]!, vertices[FILL + LAT_SLOT]!,
-    )
+    const [absMx1, absMy1] = absMercFromTail(vertices[FILL + LON_SLOT]!, vertices[FILL + LAT_SLOT]!)
     expect(Math.abs(absMx1 - mercX(30))).toBeLessThan(NEAR_M)
     expect(Math.abs(absMy1 - mercY(50))).toBeLessThan(NEAR_M)
     // #398 slot 6: a below-clamp row's true_lat == its actual latitude (50).

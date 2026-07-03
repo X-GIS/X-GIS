@@ -1,238 +1,320 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>X-GIS Playground</title>
-  <!-- Empty-URI icon link suppresses the auto /favicon.ico request that
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>X-GIS Playground</title>
+    <!-- Empty-URI icon link suppresses the auto /favicon.ico request that
        otherwise 404s against the Vite dev server and triggers the
        demo-runner's on-canvas error badge. -->
-  <link rel="icon" href="data:,">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
-  <style>
-    /* Palette mirrors the marketing site's xAI "Drafting Table" theme
+    <link rel="icon" href="data:," />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Palette mirrors the marketing site's xAI "Drafting Table" theme
        (site/src/styles/global.css): warm near-black ground, hairline
        borders, paper text, and a WHITE brand accent. */
-    :root {
-      --bg: #0a0a0a;
-      --surface: #191919;
-      --surface2: #1a1c20;
-      --border: #212327;
-      --border-hover: #2c2f34;
-      --text: #dadbdf;
-      --text-dim: #7d8187;
-      --text-muted: #5a5f66;
-      --accent: #ffffff;
-      --accent-dim: rgba(255, 255, 255, 0.08);
-      --font-sans: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      --font-mono: 'Geist Mono Variable', 'Geist Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--font-sans);
-      min-height: 100vh;
-      -webkit-font-smoothing: antialiased;
-    }
-    body::before {
-      content: '';
-      position: fixed; inset: 0;
-      background-image:
-        linear-gradient(var(--border) 1px, transparent 1px),
-        linear-gradient(90deg, var(--border) 1px, transparent 1px);
-      background-size: 80px 80px;
-      opacity: 0.1;
-      pointer-events: none;
-      mask-image: radial-gradient(ellipse 70% 40% at 50% 0%, black 20%, transparent 70%);
-    }
+      :root {
+        --bg: #0a0a0a;
+        --surface: #191919;
+        --surface2: #1a1c20;
+        --border: #212327;
+        --border-hover: #2c2f34;
+        --text: #dadbdf;
+        --text-dim: #7d8187;
+        --text-muted: #5a5f66;
+        --accent: #ffffff;
+        --accent-dim: rgba(255, 255, 255, 0.08);
+        --font-sans:
+          'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        --font-mono:
+          'Geist Mono Variable', 'Geist Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font-sans);
+        min-height: 100vh;
+        -webkit-font-smoothing: antialiased;
+      }
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        background-image:
+          linear-gradient(var(--border) 1px, transparent 1px),
+          linear-gradient(90deg, var(--border) 1px, transparent 1px);
+        background-size: 80px 80px;
+        opacity: 0.1;
+        pointer-events: none;
+        mask-image: radial-gradient(ellipse 70% 40% at 50% 0%, black 20%, transparent 70%);
+      }
 
-    /* ── Header ── */
-    header {
-      position: sticky; top: 0; z-index: 10;
-      background: rgba(6, 8, 12, 0.88);
-      backdrop-filter: blur(20px);
-      border-bottom: 1px solid var(--border);
-    }
-    .header-inner {
-      max-width: 1120px;
-      margin: 0 auto;
-      padding: 0 2rem;
-      height: 52px;
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-    .logo { display: flex; align-items: center; gap: 9px; text-decoration: none; color: inherit; }
-    .logo-icon { width: 22px; height: 22px; display: block; }
-    .logo-text { font-family: var(--font-sans); font-size: 0.95rem; letter-spacing: -0.02em; color: var(--text-dim); }
-    .logo-text em { font-style: normal; font-weight: 500; color: var(--text); }
-    .header-meta { margin-left: auto; display: flex; gap: 6px; align-items: center; }
-    .badge {
-      font-family: var(--font-mono); font-size: 0.58rem;
-      color: var(--text-muted); background: var(--surface);
-      border: 1px solid var(--border); border-radius: 4px;
-      padding: 2px 7px;
-    }
-    #search {
-      font-family: var(--font-sans); font-size: 12px;
-      background: var(--surface); border: 1px solid var(--border);
-      color: var(--text); border-radius: 6px;
-      padding: 5px 10px 5px 28px; width: 160px; outline: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235a6a7e' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E");
-      background-repeat: no-repeat; background-position: 9px center;
-      transition: border-color 0.15s;
-    }
-    #search:focus { border-color: var(--accent); width: 200px; }
-    #search::placeholder { color: var(--text-muted); }
+      /* ── Header ── */
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: rgba(6, 8, 12, 0.88);
+        backdrop-filter: blur(20px);
+        border-bottom: 1px solid var(--border);
+      }
+      .header-inner {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 0 2rem;
+        height: 52px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        text-decoration: none;
+        color: inherit;
+      }
+      .logo-icon {
+        width: 22px;
+        height: 22px;
+        display: block;
+      }
+      .logo-text {
+        font-family: var(--font-sans);
+        font-size: 0.95rem;
+        letter-spacing: -0.02em;
+        color: var(--text-dim);
+      }
+      .logo-text em {
+        font-style: normal;
+        font-weight: 500;
+        color: var(--text);
+      }
+      .header-meta {
+        margin-left: auto;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .badge {
+        font-family: var(--font-mono);
+        font-size: 0.58rem;
+        color: var(--text-muted);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 2px 7px;
+      }
+      #search {
+        font-family: var(--font-sans);
+        font-size: 12px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 6px;
+        padding: 5px 10px 5px 28px;
+        width: 160px;
+        outline: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235a6a7e' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: 9px center;
+        transition: border-color 0.15s;
+      }
+      #search:focus {
+        border-color: var(--accent);
+        width: 200px;
+      }
+      #search::placeholder {
+        color: var(--text-muted);
+      }
 
-    /* ── Content ── */
-    .content {
-      max-width: 1120px;
-      margin: 0 auto;
-      padding: 1.5rem 2rem 4rem;
-    }
+      /* ── Content ── */
+      .content {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 1.5rem 2rem 4rem;
+      }
 
-    /* Two-column demo list on wide screens — the 900px cap left 30+ %
+      /* Two-column demo list on wide screens — the 900px cap left 30+ %
      * of a standard 1440p viewport as background. Keeps the current
      * compact row layout at mobile widths. */
-    @media (min-width: 900px) {
-      .demo-list {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        column-gap: 12px;
+      @media (min-width: 900px) {
+        .demo-list {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          column-gap: 12px;
+        }
       }
-    }
 
-    /* ── Category Section ── */
-    .category {
-      margin-bottom: 2rem;
-    }
-    .category-header {
-      display: flex; align-items: center; gap: 10px;
-      margin-bottom: 0.6rem;
-      padding-bottom: 0.5rem;
-      border-bottom: 1px solid var(--border);
-    }
-    .category-dot {
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-    .category-name {
-      font-size: 0.72rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--text-dim);
-    }
-    .category-count {
-      font-family: var(--font-mono);
-      font-size: 0.6rem;
-      color: var(--text-muted);
-      margin-left: auto;
-    }
+      /* ── Category Section ── */
+      .category {
+        margin-bottom: 2rem;
+      }
+      .category-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 0.6rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border);
+      }
+      .category-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .category-name {
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-dim);
+      }
+      .category-count {
+        font-family: var(--font-mono);
+        font-size: 0.6rem;
+        color: var(--text-muted);
+        margin-left: auto;
+      }
 
-    /* ── Demo List ── */
-    .demo-list {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-    .demo-item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 8px 12px;
-      border-radius: 8px;
-      text-decoration: none;
-      color: inherit;
-      transition: background 0.12s;
-    }
-    .demo-item:hover {
-      background: var(--surface2);
-    }
-    .demo-name {
-      font-size: 0.85rem;
-      font-weight: 500;
-      color: var(--text);
-      min-width: 160px;
-    }
-    .demo-desc {
-      font-size: 0.75rem;
-      color: var(--text-dim);
-      flex: 1;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .demo-arrow {
-      color: var(--text-muted);
-      flex-shrink: 0;
-      opacity: 0;
-      transform: translateX(-4px);
-      transition: all 0.15s;
-    }
-    .demo-item:hover .demo-arrow {
-      opacity: 1;
-      transform: translateX(0);
-      color: var(--accent);
-    }
+      /* ── Demo List ── */
+      .demo-list {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .demo-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        text-decoration: none;
+        color: inherit;
+        transition: background 0.12s;
+      }
+      .demo-item:hover {
+        background: var(--surface2);
+      }
+      .demo-name {
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: var(--text);
+        min-width: 160px;
+      }
+      .demo-desc {
+        font-size: 0.75rem;
+        color: var(--text-dim);
+        flex: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .demo-arrow {
+        color: var(--text-muted);
+        flex-shrink: 0;
+        opacity: 0;
+        transform: translateX(-4px);
+        transition: all 0.15s;
+      }
+      .demo-item:hover .demo-arrow {
+        opacity: 1;
+        transform: translateX(0);
+        color: var(--accent);
+      }
 
-    /* ── Search: no results ── */
-    .no-results {
-      text-align: center;
-      padding: 3rem 0;
-      color: var(--text-muted);
-      font-size: 0.85rem;
-      display: none;
-    }
+      /* ── Search: no results ── */
+      .no-results {
+        text-align: center;
+        padding: 3rem 0;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+        display: none;
+      }
 
-    @media (max-width: 640px) {
-      .header-inner { padding: 0 1rem; gap: 10px; }
-      .content { padding: 1rem 1rem 3rem; }
-      .demo-desc { display: none; }
-      .demo-name { min-width: 0; }
-      .badge { display: none; }
-      /* On a 320 px iPhone SE the search field + logo would otherwise
+      @media (max-width: 640px) {
+        .header-inner {
+          padding: 0 1rem;
+          gap: 10px;
+        }
+        .content {
+          padding: 1rem 1rem 3rem;
+        }
+        .demo-desc {
+          display: none;
+        }
+        .demo-name {
+          min-width: 0;
+        }
+        .badge {
+          display: none;
+        }
+        /* On a 320 px iPhone SE the search field + logo would otherwise
        * overflow the viewport. Shrink the search and let focus still
        * expand it to the available space rather than a fixed pixel
        * width that could clip the logo. */
-      #search { width: 120px; }
-      #search:focus { width: 150px; }
-    }
-  </style>
-</head>
-<body>
-
-  <header>
-    <div class="header-inner">
-      <a class="logo" href=".">
-        <svg class="logo-icon" viewBox="0 0 512 512" role="img" aria-label="X-GIS"
-             fill="none" stroke="#ffffff" stroke-width="38"
-             stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="4">
-          <polyline points="106,170 61,256 106,342"/>
-          <line x1="166" y1="156" x2="236" y2="356"/>
-          <line x1="236" y1="156" x2="166" y2="356"/>
-          <line x1="296" y1="356" x2="346" y2="156"/>
-          <polyline points="406,170 451,256 406,342"/>
-        </svg>
-        <span class="logo-text"><em>X-GIS</em> Playground</span>
-      </a>
-      <div class="header-meta">
-        <span class="badge">WebGPU</span>
-        <span class="badge" id="demo-count"></span>
-        <a href="compare.html" class="badge" style="color:var(--text);border-color:var(--border-hover);text-decoration:none;" title="Side-by-side MapLibre ↔ X-GIS rendering">Compare</a>
-        <input type="text" id="search" placeholder="Search..." autocomplete="off">
+        #search {
+          width: 120px;
+        }
+        #search:focus {
+          width: 150px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <a class="logo" href=".">
+          <svg
+            class="logo-icon"
+            viewBox="0 0 512 512"
+            role="img"
+            aria-label="X-GIS"
+            fill="none"
+            stroke="#ffffff"
+            stroke-width="38"
+            stroke-linecap="square"
+            stroke-linejoin="miter"
+            stroke-miterlimit="4"
+          >
+            <polyline points="106,170 61,256 106,342" />
+            <line x1="166" y1="156" x2="236" y2="356" />
+            <line x1="236" y1="156" x2="166" y2="356" />
+            <line x1="296" y1="356" x2="346" y2="156" />
+            <polyline points="406,170 451,256 406,342" />
+          </svg>
+          <span class="logo-text"><em>X-GIS</em> Playground</span>
+        </a>
+        <div class="header-meta">
+          <span class="badge">WebGPU</span>
+          <span class="badge" id="demo-count"></span>
+          <a
+            href="compare.html"
+            class="badge"
+            style="color: var(--text); border-color: var(--border-hover); text-decoration: none"
+            title="Side-by-side MapLibre ↔ X-GIS rendering"
+            >Compare</a
+          >
+          <input type="text" id="search" placeholder="Search..." autocomplete="off" />
+        </div>
       </div>
-    </div>
-  </header>
+    </header>
 
-  <div class="content" id="content"></div>
-  <p class="no-results" id="no-results">No demos found.</p>
+    <div class="content" id="content"></div>
+    <p class="no-results" id="no-results">No demos found.</p>
 
-  <script type="module" src="/src/gallery.ts"></script>
-</body>
+    <script type="module" src="/src/gallery.ts"></script>
+  </body>
 </html>

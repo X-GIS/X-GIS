@@ -36,8 +36,13 @@
 
 import type { IRPass } from '../pass-manager'
 import type {
-  Scene, RenderNode,
-  ColorValue, OpacityValue, SizeValue, StrokeValue, StrokeWidthValue,
+  Scene,
+  RenderNode,
+  ColorValue,
+  OpacityValue,
+  SizeValue,
+  StrokeValue,
+  StrokeWidthValue,
 } from '../render-node'
 import { colorConstant, opacityConstant, sizeConstant, hexToRgba } from '../render-node'
 import type * as AST from '../../parser/ast'
@@ -129,9 +134,12 @@ function foldRenderNode(node: RenderNode): RenderNode {
   const opacity = foldOpacity(node.opacity)
   const size = foldSize(node.size)
   if (
-    fill === node.fill && stroke === node.stroke
-    && opacity === node.opacity && size === node.size
-  ) return node
+    fill === node.fill &&
+    stroke === node.stroke &&
+    opacity === node.opacity &&
+    size === node.size
+  )
+    return node
   return { ...node, fill, stroke, opacity, size }
 }
 

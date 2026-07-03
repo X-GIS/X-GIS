@@ -13,5 +13,7 @@ export const STRICT: LintConfig = { severity: severityFor(() => 'error') }
 
 /** Only correctness rules fire; style + perf rules are off — for quick / legacy passes. */
 export const LENIENT: LintConfig = {
-  severity: severityFor((category) => (category === undefined || category === 'correctness' ? 'error' : 'off')),
+  severity: severityFor((category) =>
+    category === undefined || category === 'correctness' ? 'error' : 'off',
+  ),
 }

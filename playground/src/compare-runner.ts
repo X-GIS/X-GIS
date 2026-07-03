@@ -14,15 +14,35 @@ import { extractMapboxProjectionName, extractMapboxLight } from './mapbox-projec
 
 // ── Style catalogue ─────────────────────────────────────────────────
 const STYLES: { id: string; label: string; url: string }[] = [
-  { id: 'maplibre-demotiles',   label: 'MapLibre demotiles',   url: 'https://demotiles.maplibre.org/style.json' },
-  { id: 'openfreemap-bright',   label: 'OFM Bright',           url: 'https://tiles.openfreemap.org/styles/bright' },
-  { id: 'openfreemap-liberty',  label: 'OFM Liberty',          url: 'https://tiles.openfreemap.org/styles/liberty' },
-  { id: 'openfreemap-positron', label: 'OFM Positron',         url: 'https://tiles.openfreemap.org/styles/positron' },
+  {
+    id: 'maplibre-demotiles',
+    label: 'MapLibre demotiles',
+    url: 'https://demotiles.maplibre.org/style.json',
+  },
+  {
+    id: 'openfreemap-bright',
+    label: 'OFM Bright',
+    url: 'https://tiles.openfreemap.org/styles/bright',
+  },
+  {
+    id: 'openfreemap-liberty',
+    label: 'OFM Liberty',
+    url: 'https://tiles.openfreemap.org/styles/liberty',
+  },
+  {
+    id: 'openfreemap-positron',
+    label: 'OFM Positron',
+    url: 'https://tiles.openfreemap.org/styles/positron',
+  },
   // iter-192 isolated extrude pixel-diff harness. Strips Liberty to
   // background + flat building fill + 3D building extrusion only,
   // so visual divergence from MapLibre can be attributed to the
   // extrude pipeline (translucent OIT vs alpha vs FBO + composite).
-  { id: 'liberty-buildings-only', label: 'Buildings-only (iter-192)', url: '/liberty-buildings-only.json' },
+  {
+    id: 'liberty-buildings-only',
+    label: 'Buildings-only (iter-192)',
+    url: '/liberty-buildings-only.json',
+  },
 ]
 
 // ── Hash math ───────────────────────────────────────────────────────
@@ -34,7 +54,11 @@ const DEG = 180 / Math.PI
 const RAD = Math.PI / 180
 
 interface CameraView {
-  zoom: number; lat: number; lon: number; bearing: number; pitch: number
+  zoom: number
+  lat: number
+  lon: number
+  bearing: number
+  pitch: number
 }
 
 function parseHash(): CameraView | null {
@@ -47,7 +71,7 @@ function parseHash(): CameraView | null {
 }
 
 function formatHash(v: CameraView): string {
-  const tail = (v.bearing || v.pitch) ? `/${v.bearing.toFixed(1)}/${v.pitch.toFixed(1)}` : ''
+  const tail = v.bearing || v.pitch ? `/${v.bearing.toFixed(1)}/${v.pitch.toFixed(1)}` : ''
   return `#${v.zoom.toFixed(2)}/${v.lat.toFixed(5)}/${v.lon.toFixed(5)}${tail}`
 }
 
@@ -63,7 +87,7 @@ function applyViewToXgis(map: XGISMap, v: CameraView): void {
   cam.zoom = Math.max(0, Math.min(cam.maxZoom, v.zoom))
   cam.centerX = v.lon * RAD * R_EARTH
   const clampLat = Math.max(-85.051129, Math.min(85.051129, v.lat))
-  cam.centerY = Math.log(Math.tan(Math.PI / 4 + clampLat * RAD / 2)) * R_EARTH
+  cam.centerY = Math.log(Math.tan(Math.PI / 4 + (clampLat * RAD) / 2)) * R_EARTH
   cam.bearing = v.bearing
   cam.pitch = v.pitch
   map.markCameraPositioned()
@@ -92,7 +116,7 @@ function pickInitialStyle(): { id: string; url: string } {
   const fromStorage = localStorage.getItem('xgis.compare.style')
   for (const candidate of [fromQuery, fromStorage]) {
     if (!candidate) continue
-    const match = STYLES.find(s => s.id === candidate)
+    const match = STYLES.find((s) => s.id === candidate)
     if (match) return { id: match.id, url: match.url }
     // Free-form URL fallback
     if (/^https?:\/\//.test(candidate)) return { id: '__custom__', url: candidate }
@@ -142,7 +166,10 @@ async function mountBoth(url: string): Promise<void> {
   const effProj = projParam ?? extractMapboxProjectionName(styleJson)
 
   // Tear down any previous instances first
-  if (mlMap) { mlMap.remove(); mlMap = null }
+  if (mlMap) {
+    mlMap.remove()
+    mlMap = null
+  }
   if (xgMap) {
     cancelAnimationFrame(xgRafId)
     xgMap.stop?.()
@@ -191,7 +218,9 @@ async function mountBoth(url: string): Promise<void> {
     // Any future MapLibre release that adds new chrome (CompassControl,
     // GlobeControl, etc.) is covered automatically.
     if (mlContainer) {
-      const ctrls = mlContainer.querySelectorAll('.maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-top-left, .maplibregl-ctrl-top-right')
+      const ctrls = mlContainer.querySelectorAll(
+        '.maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-top-left, .maplibregl-ctrl-top-right',
+      )
       for (const c of ctrls) {
         ;(c as HTMLElement).style.display = 'none'
       }
@@ -201,7 +230,11 @@ async function mountBoth(url: string): Promise<void> {
     // so the globe A/B is meaningful at low zoom — matching the z0
     // globe repros in #450 / #451.
     if (effProj === 'globe') {
-      try { mlMap!.setProjection({ type: 'globe' }) } catch { /* ML build without globe */ }
+      try {
+        mlMap!.setProjection({ type: 'globe' })
+      } catch {
+        /* ML build without globe */
+      }
     }
     ;(window as unknown as { __mlReady?: boolean }).__mlReady = true
   })
@@ -220,7 +253,9 @@ async function mountBoth(url: string): Promise<void> {
     })
     // Clear the source flag on the next frame so xg's rAF tick
     // can resume reading without immediately rebounding to ml.
-    requestAnimationFrame(() => { if (syncSource === 'ml') syncSource = null })
+    requestAnimationFrame(() => {
+      if (syncSource === 'ml') syncSource = null
+    })
   })
 
   // ── X-GIS side ────────────────────────────────────────────────────
@@ -235,10 +270,10 @@ async function mountBoth(url: string): Promise<void> {
     // fill is expanded into per-colour sublayers at the convert
     // stage and never reaches the compute router.
     const computeOptInConv = new URL(window.location.href).searchParams.get('compute') === '1'
-    xgisSrc = convertMapboxStyle(
-      styleJson as Parameters<typeof convertMapboxStyle>[0],
-      { inlineGeoJSON, bypassExpandColorMatch: computeOptInConv },
-    )
+    xgisSrc = convertMapboxStyle(styleJson as Parameters<typeof convertMapboxStyle>[0], {
+      inlineGeoJSON,
+      bypassExpandColorMatch: computeOptInConv,
+    })
   } catch (e) {
     setStatus(`convertMapboxStyle failed: ${(e as Error).message}`)
     return
@@ -248,7 +283,11 @@ async function mountBoth(url: string): Promise<void> {
   // for the rationale. Without this, X-GIS atlas caches glyphs in the
   // host's system fallback before our @font-face WOFF2 lands, and the
   // visual stays "wrong" until eviction.
-  try { await document.fonts?.ready } catch { /* no-op */ }
+  try {
+    await document.fonts?.ready
+  } catch {
+    /* no-op */
+  }
   // Mirror demo-runner.ts:?compute=1 — opt into the GPU compute paint
   // path for direct visual comparison against MapLibre.
   const computeOptIn = new URL(window.location.href).searchParams.get('compute') === '1'
@@ -318,7 +357,9 @@ async function mountBoth(url: string): Promise<void> {
           bearing: view.bearing,
           pitch: view.pitch,
         })
-        requestAnimationFrame(() => { if (syncSource === 'xg') syncSource = null })
+        requestAnimationFrame(() => {
+          if (syncSource === 'xg') syncSource = null
+        })
       }
     }
     xgRafId = requestAnimationFrame(tick)
@@ -332,9 +373,7 @@ let lastHistoryWrite = 0
 
 // ── Picker wiring ───────────────────────────────────────────────────
 function persistAndLoad(styleId: string, urlOverride?: string): void {
-  const url = urlOverride
-    ?? STYLES.find(s => s.id === styleId)?.url
-    ?? styleId
+  const url = urlOverride ?? STYLES.find((s) => s.id === styleId)?.url ?? styleId
   if (!url) return
   if (styleId !== '__custom__') {
     localStorage.setItem('xgis.compare.style', styleId)

@@ -32,7 +32,9 @@ describe('heatmap accum shader — DSL emission', () => {
   })
   it('vertex inputs: center / quad_id / feat_id', () => {
     expect(w).toContain('@vertex')
-    expect(w).toContain('fn vs_heatmap(@location(0) center: vec2<f32>, @location(1) quad_id: u32, @location(2) feat_id: f32)')
+    expect(w).toContain(
+      'fn vs_heatmap(@location(0) center: vec2<f32>, @location(1) quad_id: u32, @location(2) feat_id: f32)',
+    )
   })
   it('fragment emits a radial Gaussian density to the red channel', () => {
     expect(w).toContain('@fragment')

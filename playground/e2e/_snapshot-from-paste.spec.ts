@@ -39,12 +39,15 @@ interface Snapshot {
   camera: { lon: number; lat: number; zoom: number; bearing: number; pitch: number }
   viewport: { width: number; height: number; cssWidth: number; cssHeight: number; dpr: number }
   pageViewport: { width: number; height: number }
-  sources: Record<string, {
-    gpuCacheCount: number
-    pendingFetch: number
-    pendingUpload: number
-    tiles: Array<{ z: number; x: number; y: number }>
-  }>
+  sources: Record<
+    string,
+    {
+      gpuCacheCount: number
+      pendingFetch: number
+      pendingUpload: number
+      tiles: Array<{ z: number; x: number; y: number }>
+    }
+  >
   renderOrder: unknown[]
   pixelHash: string
   pixelHashBy: 'subtle' | 'fnv'
@@ -52,8 +55,10 @@ interface Snapshot {
 
 test.describe('snapshot replay from pasted JSON', () => {
   test('reproduce a user-pasted snapshot', async ({ browser }) => {
-    test.skip(PASTED_SNAPSHOT_JSON === null,
-      'No snapshot pasted — set PASTED_SNAPSHOT_JSON in this file to enable.')
+    test.skip(
+      PASTED_SNAPSHOT_JSON === null,
+      'No snapshot pasted — set PASTED_SNAPSHOT_JSON in this file to enable.',
+    )
     test.setTimeout(120_000)
     const snap = JSON.parse(PASTED_SNAPSHOT_JSON!) as Snapshot
 
@@ -66,14 +71,20 @@ test.describe('snapshot replay from pasted JSON', () => {
     // eslint-disable-next-line no-console
     console.log(`  pageUrl: ${snap.pageUrl}`)
     // eslint-disable-next-line no-console
-    console.log(`  camera: lon=${snap.camera.lon.toFixed(4)} lat=${snap.camera.lat.toFixed(4)} z=${snap.camera.zoom.toFixed(2)} bearing=${snap.camera.bearing.toFixed(1)}° pitch=${snap.camera.pitch.toFixed(1)}°`)
+    console.log(
+      `  camera: lon=${snap.camera.lon.toFixed(4)} lat=${snap.camera.lat.toFixed(4)} z=${snap.camera.zoom.toFixed(2)} bearing=${snap.camera.bearing.toFixed(1)}° pitch=${snap.camera.pitch.toFixed(1)}°`,
+    )
     // eslint-disable-next-line no-console
     console.log(`  page viewport: ${snap.pageViewport.width}×${snap.pageViewport.height}`)
     // eslint-disable-next-line no-console
-    console.log(`  canvas: ${snap.viewport.cssWidth}×${snap.viewport.cssHeight} (backing ${snap.viewport.width}×${snap.viewport.height}, dpr=${snap.viewport.dpr})`)
+    console.log(
+      `  canvas: ${snap.viewport.cssWidth}×${snap.viewport.cssHeight} (backing ${snap.viewport.width}×${snap.viewport.height}, dpr=${snap.viewport.dpr})`,
+    )
     const totalTiles = Object.values(snap.sources).reduce((acc, s) => acc + s.tiles.length, 0)
     // eslint-disable-next-line no-console
-    console.log(`  tiles to reproduce: ${totalTiles} across ${Object.keys(snap.sources).length} source(s)`)
+    console.log(
+      `  tiles to reproduce: ${totalTiles} across ${Object.keys(snap.sources).length} source(s)`,
+    )
 
     const ctx = await browser.newContext({
       viewport: { width: snap.pageViewport.width, height: snap.pageViewport.height },
@@ -85,42 +96,63 @@ test.describe('snapshot replay from pasted JSON', () => {
     await page.goto(snap.pageUrl, { waitUntil: 'domcontentloaded' })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 30_000 },
+      null,
+      { timeout: 30_000 },
     )
 
     // Replay — converge on the snapshot's tile set + camera.
-    const result = await page.evaluate(async (s) => {
-      const fn = (window as unknown as {
-        __xgisReplaySnapshot?: (snap: unknown, o?: unknown) => Promise<unknown>
-      }).__xgisReplaySnapshot
+    const result = (await page.evaluate(async (s) => {
+      const fn = (
+        window as unknown as {
+          __xgisReplaySnapshot?: (snap: unknown, o?: unknown) => Promise<unknown>
+        }
+      ).__xgisReplaySnapshot
       if (!fn) return { error: 'replay not exposed' }
       return await fn(s, { timeoutMs: 30_000 })
-    }, snap) as { matched: boolean; missingTiles: number; pendingFetchTotal: number; pendingUploadTotal: number } | { error: string }
+    }, snap)) as
+      | {
+          matched: boolean
+          missingTiles: number
+          pendingFetchTotal: number
+          pendingUploadTotal: number
+        }
+      | { error: string }
 
     if ('error' in result) throw new Error(`replay error: ${result.error}`)
 
     // eslint-disable-next-line no-console
-    console.log(`[paste-replay] replay: matched=${result.matched}, missing=${result.missingTiles}, pendingFetch=${result.pendingFetchTotal}, pendingUpload=${result.pendingUploadTotal}`)
+    console.log(
+      `[paste-replay] replay: matched=${result.matched}, missing=${result.missingTiles}, pendingFetch=${result.pendingFetchTotal}, pendingUpload=${result.pendingUploadTotal}`,
+    )
 
     // Capture for visual comparison.
     await page.locator('#map').screenshot({ path: 'test-results/replay-from-paste.png' })
 
     // Echo the live snapshot so the user can confirm the reproduction.
-    const live = await page.evaluate(async () => {
+    const live = (await page.evaluate(async () => {
       const fn = (window as unknown as { __xgisSnapshot?: () => Promise<unknown> }).__xgisSnapshot
       return fn ? await fn() : null
-    }) as Snapshot | null
+    })) as Snapshot | null
     if (live) {
       // eslint-disable-next-line no-console
-      console.log(`[paste-replay] live: pixelHash=${live.pixelHash.slice(0, 16)}, tiles=${Object.values(live.sources).reduce((a, s) => a + s.tiles.length, 0)}`)
+      console.log(
+        `[paste-replay] live: pixelHash=${live.pixelHash.slice(0, 16)}, tiles=${Object.values(live.sources).reduce((a, s) => a + s.tiles.length, 0)}`,
+      )
       // eslint-disable-next-line no-console
-      console.log(`[paste-replay] orig: pixelHash=${snap.pixelHash.slice(0, 16)}, tiles=${totalTiles}`)
+      console.log(
+        `[paste-replay] orig: pixelHash=${snap.pixelHash.slice(0, 16)}, tiles=${totalTiles}`,
+      )
       // eslint-disable-next-line no-console
-      console.log(`[paste-replay] note: pixel hash will differ across browser processes — visual comparison is the source of truth.`)
+      console.log(
+        `[paste-replay] note: pixel hash will differ across browser processes — visual comparison is the source of truth.`,
+      )
     }
 
     await ctx.close()
 
-    expect(result.matched, `replay couldn't load all snapshot tiles (missing=${result.missingTiles})`).toBe(true)
+    expect(
+      result.matched,
+      `replay couldn't load all snapshot tiles (missing=${result.missingTiles})`,
+    ).toBe(true)
   })
 })

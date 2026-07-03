@@ -58,7 +58,7 @@ test.describe('Performance debug — over-zoom + pitch + rotation', () => {
           if (typeof orig !== 'function') return
           const bound = orig.bind(target)
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ;(target as any)[methodName] = function(...args: any[]) {
+          ;(target as any)[methodName] = function (...args: any[]) {
             const t0 = performance.now()
             const ret = bound.apply(this, args)
             const t1 = performance.now()
@@ -91,12 +91,15 @@ test.describe('Performance debug — over-zoom + pitch + rotation', () => {
       // Wrap the outer renderFrame method (private but accessible).
       // Find it by walking instance prototype chain.
       const proto = Object.getPrototypeOf(map)
-      const renderFrameDesc = Object.getOwnPropertyDescriptor(proto, 'renderFrame')
-        ?? (proto.renderFrame ? { value: proto.renderFrame, writable: true, configurable: true } : null)
+      const renderFrameDesc =
+        Object.getOwnPropertyDescriptor(proto, 'renderFrame') ??
+        (proto.renderFrame
+          ? { value: proto.renderFrame, writable: true, configurable: true }
+          : null)
       if (renderFrameDesc?.value) {
         const orig = renderFrameDesc.value.bind(map)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ;(map as any).renderFrame = function(...args: any[]) {
+        ;(map as any).renderFrame = function (...args: any[]) {
           const t0 = performance.now()
           const ret = orig.apply(this, args)
           const t1 = performance.now()
@@ -115,10 +118,13 @@ test.describe('Performance debug — over-zoom + pitch + rotation', () => {
       const map = (window as any).__xgisMap
       if (!map?.camera) return
       const cam = map.camera
-      return new Promise<void>(resolve => {
+      return new Promise<void>((resolve) => {
         let i = 0
         const tick = () => {
-          if (i >= 30) { resolve(); return }
+          if (i >= 30) {
+            resolve()
+            return
+          }
           cam.bearing = (cam.bearing + 1) % 360
           i++
           setTimeout(tick, 100) // 100ms per tick — enough for slow frames
@@ -129,12 +135,12 @@ test.describe('Performance debug — over-zoom + pitch + rotation', () => {
 
     // Read the captured samples.
     type Sample = { type: string; source?: string; duration: number; frameId?: number }
-    const samples = await page.evaluate(() =>
-      (window as unknown as { __perfFrames: Sample[] }).__perfFrames ?? []
-    ) as Sample[]
+    const samples = (await page.evaluate(
+      () => (window as unknown as { __perfFrames: Sample[] }).__perfFrames ?? [],
+    )) as Sample[]
     // Also grab User Timing measures injected by render() source.
     const userMeasures = await page.evaluate(() => {
-      return performance.getEntriesByType('measure').map(m => ({
+      return performance.getEntriesByType('measure').map((m) => ({
         type: m.name,
         duration: m.duration,
       }))
@@ -165,7 +171,7 @@ test.describe('Performance debug — over-zoom + pitch + rotation', () => {
       const max = sorted[sorted.length - 1]
       console.log(
         `  ${key.padEnd(28)} n=${String(durations.length).padStart(4)} ` +
-        `mean=${mean.toFixed(2)} p50=${p50.toFixed(2)} p95=${p95.toFixed(2)} max=${max.toFixed(2)}`,
+          `mean=${mean.toFixed(2)} p50=${p50.toFixed(2)} p95=${p95.toFixed(2)} max=${max.toFixed(2)}`,
       )
     }
 

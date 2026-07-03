@@ -29,25 +29,37 @@ function collectExprCalls(e: Expr, out: Set<string>): void {
   switch (e.op) {
     case 'call':
       out.add(e.fn)
-      for (const a of e.args) collectExprCalls(a, out); break
+      for (const a of e.args) collectExprCalls(a, out)
+      break
     case 'construct':
-      for (const a of e.args) collectExprCalls(a, out); break
+      for (const a of e.args) collectExprCalls(a, out)
+      break
     case 'binop':
     case 'compare':
     case 'logical':
-      collectExprCalls(e.a, out); collectExprCalls(e.b, out); break
+      collectExprCalls(e.a, out)
+      collectExprCalls(e.b, out)
+      break
     case 'unop':
-      collectExprCalls(e.a, out); break
+      collectExprCalls(e.a, out)
+      break
     case 'member':
-      collectExprCalls(e.base, out); break
+      collectExprCalls(e.base, out)
+      break
     case 'index':
-      collectExprCalls(e.base, out); collectExprCalls(e.idx, out); break
+      collectExprCalls(e.base, out)
+      collectExprCalls(e.idx, out)
+      break
     case 'select':
-      collectExprCalls(e.cond, out); collectExprCalls(e.ifTrue, out); collectExprCalls(e.ifFalse, out); break
+      collectExprCalls(e.cond, out)
+      collectExprCalls(e.ifTrue, out)
+      collectExprCalls(e.ifFalse, out)
+      break
     case 'matchExpr':
       collectExprCalls(e.scrutinee, out)
       for (const [, v] of e.cases) collectExprCalls(v, out)
-      collectExprCalls(e.default, out); break
+      collectExprCalls(e.default, out)
+      break
     default:
       break // lit / constref / param / varref — no nested calls
   }
@@ -55,12 +67,20 @@ function collectExprCalls(e: Expr, out: Set<string>): void {
 
 function collectStmtCalls(s: Stmt, out: Set<string>): void {
   switch (s.s) {
-    case 'let': collectExprCalls(s.expr, out); break
-    case 'var': if (s.init !== undefined) collectExprCalls(s.init, out); break
+    case 'let':
+      collectExprCalls(s.expr, out)
+      break
+    case 'var':
+      if (s.init !== undefined) collectExprCalls(s.init, out)
+      break
     case 'assign':
     case 'assignOp':
-      collectExprCalls(s.target, out); collectExprCalls(s.expr, out); break
-    case 'return': if (s.expr !== undefined) collectExprCalls(s.expr, out); break
+      collectExprCalls(s.target, out)
+      collectExprCalls(s.expr, out)
+      break
+    case 'return':
+      if (s.expr !== undefined) collectExprCalls(s.expr, out)
+      break
     case 'if':
       for (const arm of s.arms) {
         collectExprCalls(arm.cond, out)
@@ -69,7 +89,9 @@ function collectStmtCalls(s: Stmt, out: Set<string>): void {
       if (s.elseBody) for (const b of s.elseBody) collectStmtCalls(b, out)
       break
     case 'for':
-      collectStmtCalls(s.init, out); collectExprCalls(s.cond, out); collectStmtCalls(s.update, out)
+      collectStmtCalls(s.init, out)
+      collectExprCalls(s.cond, out)
+      collectStmtCalls(s.update, out)
       for (const b of s.body) collectStmtCalls(b, out)
       break
     case 'switch':

@@ -16,7 +16,9 @@ describe('pointPatchToFeatureCollection', () => {
       geometry: { type: 'Point' },
       properties: {},
     })
-    expect((fc.features[0].geometry as unknown as { coordinates: [number, number] }).coordinates[0]).toBeCloseTo(-30, 2)
+    expect(
+      (fc.features[0].geometry as unknown as { coordinates: [number, number] }).coordinates[0],
+    ).toBeCloseTo(-30, 2)
     expect(fc.features[1].id).toBe(102)
     expect(fc.features[2].id).toBe(103)
   })
@@ -45,26 +47,32 @@ describe('pointPatchToFeatureCollection', () => {
   })
 
   it('throws on lon/lat length mismatch', () => {
-    expect(() => pointPatchToFeatureCollection({
-      lon: [0, 10],
-      lat: [0],
-    })).toThrow(/lon\/lat length mismatch/)
+    expect(() =>
+      pointPatchToFeatureCollection({
+        lon: [0, 10],
+        lat: [0],
+      }),
+    ).toThrow(/lon\/lat length mismatch/)
   })
 
   it('throws on ids length mismatch', () => {
-    expect(() => pointPatchToFeatureCollection({
-      lon: [0, 10, 20],
-      lat: [0, 0, 0],
-      ids: new Uint32Array([1, 2]),
-    })).toThrow(/ids length/)
+    expect(() =>
+      pointPatchToFeatureCollection({
+        lon: [0, 10, 20],
+        lat: [0, 0, 0],
+        ids: new Uint32Array([1, 2]),
+      }),
+    ).toThrow(/ids length/)
   })
 
   it('throws on property column length mismatch', () => {
-    expect(() => pointPatchToFeatureCollection({
-      lon: [0, 10],
-      lat: [0, 0],
-      properties: { callsign: ['A'] },
-    })).toThrow(/property "callsign" length/)
+    expect(() =>
+      pointPatchToFeatureCollection({
+        lon: [0, 10],
+        lat: [0, 0],
+        properties: { callsign: ['A'] },
+      }),
+    ).toThrow(/property "callsign" length/)
   })
 
   it('handles zero-length input (empty push)', () => {

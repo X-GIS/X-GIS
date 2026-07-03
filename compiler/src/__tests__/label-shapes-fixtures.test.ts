@@ -31,7 +31,7 @@ function compileFixture(fixture: string): Scene {
 }
 
 function findLayer(scene: Scene, namePattern: RegExp) {
-  return scene.renderNodes.find(n => namePattern.test(n.name))
+  return scene.renderNodes.find((n) => namePattern.test(n.name))
 }
 
 describe('LabelShapes inference on OFM Bright', () => {
@@ -78,8 +78,8 @@ describe('LabelShapes inference on OFM Bright', () => {
       labelCount++
       if (n.label.shapes) withShapes++
     }
-    expect(labelCount).toBeGreaterThan(10)  // OFM Bright has many labels
-    expect(withShapes).toBe(labelCount)  // every one populated
+    expect(labelCount).toBeGreaterThan(10) // OFM Bright has many labels
+    expect(withShapes).toBe(labelCount) // every one populated
   })
 })
 
@@ -89,7 +89,7 @@ describe('LabelShapes inference on MapLibre demotiles', () => {
   it('countries-label fontWeight bakes onto shapes.textLayout.size as constant', () => {
     // Source: "text-size": {stops: [[2, 11], [4, 13], [6, 16]]}
     const layer = findLayer(scene, /countries[_-]label/)
-    if (!layer) return  // optional — depends on demotiles version
+    if (!layer) return // optional — depends on demotiles version
     expect(layer.label?.shapes).toBeDefined()
     const size = layer.label!.shapes!.textLayout.size
     // Old-style {stops:[…]} → linear interpolate
@@ -99,7 +99,7 @@ describe('LabelShapes inference on MapLibre demotiles', () => {
   it('geolines-label color resolves to constant #1077B0', () => {
     // Source: "text-color": "#1077B0"
     const layer = findLayer(scene, /geolines[_-]label/)
-    if (!layer) return  // optional — depends on demotiles version
+    if (!layer) return // optional — depends on demotiles version
     // The layer IS present in this fixture, so assert the color resolves
     // unconditionally (mirrors the water_name sibling above). The previous
     // `if (color?.kind === 'constant')` wrapper ran ZERO assertions whenever the

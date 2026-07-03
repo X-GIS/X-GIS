@@ -20,26 +20,31 @@
 import { xlog } from '@xgis/shared'
 import {
   tileKeyUnpack,
-  decodeMvtTile, decomposeFeatures, compileSingleTile,
+  decodeMvtTile,
+  decomposeFeatures,
+  compileSingleTile,
   makeEvalProps,
   type GeoJSONFeature,
 } from '@xgis/compiler'
 import { buildLineSegments } from '../line-segment-build'
 import {
   TILE_LAYOUT_VERSION,
-  type TileSource, type TileSourceSink, type TileSourceMeta,
+  type TileSource,
+  type TileSourceSink,
+  type TileSourceMeta,
 } from '../tile-source'
 import { getSharedMvtPool, type MvtWorkerPool } from '../workers/mvt-worker-pool'
 import { evalFilterExpr } from '../eval/filter-eval'
+import { PriorityQueue, PriorityQueueItemRemovedError } from '@xgis/shared'
+import type { PMTilesFetcher, PMTilesBackendOptions } from './pmtiles-backend-types'
 import {
-  PriorityQueue, PriorityQueueItemRemovedError,
-} from '@xgis/shared'
-import type {
-  PMTilesFetcher, PMTilesBackendOptions,
-} from './pmtiles-backend-types'
-import {
-  extractFeatureHeights, extractFeatureWidths, extractFeatureColors,
-  maxInflight, failedKeyTtlMs, tileSizeMerc, tileIntersectsBounds,
+  extractFeatureHeights,
+  extractFeatureWidths,
+  extractFeatureColors,
+  maxInflight,
+  failedKeyTtlMs,
+  tileSizeMerc,
+  tileIntersectsBounds,
 } from './pmtiles-backend-helpers'
 
 // Type declarations live in pmtiles-backend-types.ts; pure free
@@ -54,7 +59,16 @@ export class PMTilesBackend implements TileSource {
   private layers: string[] | undefined
   private extrudeExprs: Record<string, unknown> | undefined
   private extrudeBaseExprs: Record<string, unknown> | undefined
-  private showSlices: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean; featurePropKeys?: string[] }> | undefined
+  private showSlices:
+    | Array<{
+        sliceKey: string
+        sourceLayer: string
+        filterAst: unknown | null
+        needsFeatureProps?: boolean
+        needsExtrude?: boolean
+        featurePropKeys?: string[]
+      }>
+    | undefined
   private strokeWidthExprs: Record<string, unknown> | undefined
   private strokeColorExprs: Record<string, unknown> | undefined
   private sink: TileSourceSink | null = null
@@ -182,18 +196,20 @@ export class PMTilesBackend implements TileSource {
 
     const sink = this.sink
     sink.trackLoading(key)
-    this.fetchQueue.add(key, () => this.doFetch(key)).catch((err: unknown) => {
-      if (err instanceof PriorityQueueItemRemovedError) {
-        // cancelStale dropped us before dispatch. Release the slot
-        // we reserved at enqueue. NOT a fetch failure → no failedKeys.
+    this.fetchQueue
+      .add(key, () => this.doFetch(key))
+      .catch((err: unknown) => {
+        if (err instanceof PriorityQueueItemRemovedError) {
+          // cancelStale dropped us before dispatch. Release the slot
+          // we reserved at enqueue. NOT a fetch failure → no failedKeys.
+          sink.releaseLoading(key)
+          return
+        }
+        // doFetch swallows its own errors, so anything reaching here is
+        // unexpected (queue invariant violation).
+        xlog.error('[pmtiles fetch queue]', err)
         sink.releaseLoading(key)
-        return
-      }
-      // doFetch swallows its own errors, so anything reaching here is
-      // unexpected (queue invariant violation).
-      xlog.error('[pmtiles fetch queue]', err)
-      sink.releaseLoading(key)
-    })
+      })
   }
 
   /** Stage 1 body — the actual HTTP fetch + outcome routing. Always
@@ -305,9 +321,11 @@ export class PMTilesBackend implements TileSource {
     //   - pendingMvt gains items only via doFetch's bytes-ready branch
     // None of them tick autonomously, so re-running cancelStale with all
     // three empty is provably idempotent.
-    if (this.fetchQueue.size() === 0
-        && this.abortControllers.size === 0
-        && this.pendingMvt.length === 0) {
+    if (
+      this.fetchQueue.size() === 0 &&
+      this.abortControllers.size === 0 &&
+      this.pendingMvt.length === 0
+    ) {
       return
     }
     const sink = this.sink
@@ -315,7 +333,7 @@ export class PMTilesBackend implements TileSource {
     // handler in loadTile() catches PriorityQueueItemRemovedError and
     // calls releaseLoading. No abortController exists for these (the
     // queue hasn't run doFetch yet), so we don't double-up below.
-    this.fetchQueue.removeByFilter(k => !activeKeys.has(k))
+    this.fetchQueue.removeByFilter((k) => !activeKeys.has(k))
     // Cancel in-flight fetches. Skip controllers already aborted
     // — same fetch can sit in this.abortControllers across many
     // frames if the underlying transport (PMTiles archive.getZxy)
@@ -369,52 +387,67 @@ export class PMTilesBackend implements TileSource {
       const [z, x, y] = tileKeyUnpack(key)
       const { widthMerc, heightMerc } = tileSizeMerc(z, y)
       if (pool) {
-        pool.compile(
-          bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
-          z, x, y, this.meta.maxZoom,
-          widthMerc, heightMerc,
-          this.layers,
-          this.extrudeExprs,
-          this.extrudeBaseExprs,
-          this.showSlices,
-          this.strokeWidthExprs,
-          this.strokeColorExprs,
-        ).then(slices => {
-          if (slices.length === 0) {
+        pool
+          .compile(
+            bytes.buffer.slice(
+              bytes.byteOffset,
+              bytes.byteOffset + bytes.byteLength,
+            ) as ArrayBuffer,
+            z,
+            x,
+            y,
+            this.meta.maxZoom,
+            widthMerc,
+            heightMerc,
+            this.layers,
+            this.extrudeExprs,
+            this.extrudeBaseExprs,
+            this.showSlices,
+            this.strokeWidthExprs,
+            this.strokeColorExprs,
+          )
+          .then((slices) => {
+            if (slices.length === 0) {
+              sink.acceptResult(key, null)
+              return
+            }
+            // Each slice is one MVT layer's geometry — push under its
+            // layerName so xgis layers with `sourceLayer: "<name>"`
+            // pick the matching slice from the catalog cache.
+            for (const slice of slices) {
+              sink.acceptResult(
+                key,
+                {
+                  vertices: slice.vertices,
+                  dequantScale: slice.dequantScale,
+                  dequantHalf: slice.dequantHalf,
+                  indices: slice.indices,
+                  lineVertices: slice.lineVertices,
+                  lineIndices: slice.lineIndices,
+                  pointVertices: slice.pointVertices,
+                  outlineIndices: slice.outlineIndices,
+                  outlineVertices: slice.outlineVertices,
+                  outlineLineIndices: slice.outlineLineIndices,
+                  polygons: slice.polygons,
+                  heights: slice.heights,
+                  bases: slice.bases,
+                  featureProps: slice.featureProps,
+                  fullCover: slice.fullCover,
+                  fullCoverFeatureId: slice.fullCoverFeatureId,
+                  prebuiltLineSegments: slice.prebuiltLineSegments,
+                  prebuiltOutlineSegments: slice.prebuiltOutlineSegments,
+                },
+                slice.layerName,
+              )
+            }
+          })
+          .catch((err) => {
+            xlog.error('[pmtiles worker]', (err as Error)?.stack ?? err)
             sink.acceptResult(key, null)
-            return
-          }
-          // Each slice is one MVT layer's geometry — push under its
-          // layerName so xgis layers with `sourceLayer: "<name>"`
-          // pick the matching slice from the catalog cache.
-          for (const slice of slices) {
-            sink.acceptResult(key, {
-              vertices: slice.vertices,
-              dequantScale: slice.dequantScale,
-              dequantHalf: slice.dequantHalf,
-              indices: slice.indices,
-              lineVertices: slice.lineVertices,
-              lineIndices: slice.lineIndices,
-              pointVertices: slice.pointVertices,
-              outlineIndices: slice.outlineIndices,
-              outlineVertices: slice.outlineVertices,
-              outlineLineIndices: slice.outlineLineIndices,
-              polygons: slice.polygons,
-              heights: slice.heights,
-              bases: slice.bases,
-              featureProps: slice.featureProps,
-              fullCover: slice.fullCover,
-              fullCoverFeatureId: slice.fullCoverFeatureId,
-              prebuiltLineSegments: slice.prebuiltLineSegments,
-              prebuiltOutlineSegments: slice.prebuiltOutlineSegments,
-            }, slice.layerName)
-          }
-        }).catch(err => {
-          xlog.error('[pmtiles worker]', (err as Error)?.stack ?? err)
-          sink.acceptResult(key, null)
-        }).finally(() => {
-          sink.releaseLoading(key)
-        })
+          })
+          .finally(() => {
+            sink.releaseLoading(key)
+          })
       } else {
         try {
           this.compileInline(key, bytes, z, x, y, widthMerc, heightMerc)
@@ -428,15 +461,22 @@ export class PMTilesBackend implements TileSource {
   /** Inline compile path — used when Worker is unavailable (tests).
    *  Same pipeline as the worker but blocks the main thread. */
   private compileInline(
-    key: number, bytes: Uint8Array,
-    z: number, x: number, y: number,
-    widthMerc: number, heightMerc: number,
+    key: number,
+    bytes: Uint8Array,
+    z: number,
+    x: number,
+    y: number,
+    widthMerc: number,
+    heightMerc: number,
   ): void {
     if (!this.sink) return
     const sink = this.sink
     try {
       const features = decodeMvtTile(bytes, z, x, y, { layers: this.layers })
-      if (features.length === 0) { sink.acceptResult(key, null); return }
+      if (features.length === 0) {
+        sink.acceptResult(key, null)
+        return
+      }
       // Mirror the worker's group-by-`_layer` so each MVT layer becomes
       // its own slice keyed under (key, layerName). Without this, vitest
       // runs (no Worker constructor) collapse all features into a single
@@ -446,7 +486,10 @@ export class PMTilesBackend implements TileSource {
       for (const f of features) {
         const ln = (f.properties?._layer as string) ?? ''
         let bucket = byLayer.get(ln)
-        if (!bucket) { bucket = []; byLayer.set(ln, bucket) }
+        if (!bucket) {
+          bucket = []
+          byLayer.set(ln, bucket)
+        }
         bucket.push(f)
       }
       let emittedAny = false
@@ -474,11 +517,18 @@ export class PMTilesBackend implements TileSource {
         const colors = extractFeatureColors(sourceFeatures, this.strokeColorExprs?.[sliceKey], z)
         let prebuiltOutlineSegments: Float32Array | undefined
         let prebuiltLineSegments: Float32Array | undefined
-        if (tile.outlineVertices && tile.outlineVertices.length > 0
-            && tile.outlineLineIndices && tile.outlineLineIndices.length > 0) {
+        if (
+          tile.outlineVertices &&
+          tile.outlineVertices.length > 0 &&
+          tile.outlineLineIndices &&
+          tile.outlineLineIndices.length > 0
+        ) {
           prebuiltOutlineSegments = buildLineSegments(
-            tile.outlineVertices, tile.outlineLineIndices, 10,
-            widthMerc, heightMerc,
+            tile.outlineVertices,
+            tile.outlineLineIndices,
+            10,
+            widthMerc,
+            heightMerc,
             heights.size > 0 ? heights : undefined,
             widths.size > 0 ? widths : undefined,
             colors.size > 0 ? colors : undefined,
@@ -494,34 +544,41 @@ export class PMTilesBackend implements TileSource {
           const vertCount = maxIdx + 1
           if (vertCount > 0 && tile.lineVertices.length / vertCount >= 10) lineStride = 10
           prebuiltLineSegments = buildLineSegments(
-            tile.lineVertices, tile.lineIndices, lineStride,
-            widthMerc, heightMerc,
+            tile.lineVertices,
+            tile.lineIndices,
+            lineStride,
+            widthMerc,
+            heightMerc,
             heights.size > 0 ? heights : undefined,
             widths.size > 0 ? widths : undefined,
             colors.size > 0 ? colors : undefined,
             0,
           )
         }
-        sink.acceptResult(key, {
-          vertices: tile.vertices,
-          dequantScale: tile.dequantScale,
-          dequantHalf: tile.dequantHalf,
-          indices: tile.indices,
-          lineVertices: tile.lineVertices,
-          lineIndices: tile.lineIndices,
-          pointVertices: tile.pointVertices,
-          outlineIndices: tile.outlineIndices,
-          outlineVertices: tile.outlineVertices,
-          outlineLineIndices: tile.outlineLineIndices,
-          polygons: tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId })),
-          heights: heights.size > 0 ? heights : undefined,
-          bases: bases.size > 0 ? bases : undefined,
-          featureProps: featureProps.size > 0 ? featureProps : undefined,
-          fullCover: tile.fullCover,
-          fullCoverFeatureId: tile.fullCoverFeatureId,
-          prebuiltLineSegments,
-          prebuiltOutlineSegments,
-        }, sliceKey)
+        sink.acceptResult(
+          key,
+          {
+            vertices: tile.vertices,
+            dequantScale: tile.dequantScale,
+            dequantHalf: tile.dequantHalf,
+            indices: tile.indices,
+            lineVertices: tile.lineVertices,
+            lineIndices: tile.lineIndices,
+            pointVertices: tile.pointVertices,
+            outlineIndices: tile.outlineIndices,
+            outlineVertices: tile.outlineVertices,
+            outlineLineIndices: tile.outlineLineIndices,
+            polygons: tile.polygons?.map((p) => ({ rings: p.rings, featId: p.featId })),
+            heights: heights.size > 0 ? heights : undefined,
+            bases: bases.size > 0 ? bases : undefined,
+            featureProps: featureProps.size > 0 ? featureProps : undefined,
+            fullCover: tile.fullCover,
+            fullCoverFeatureId: tile.fullCoverFeatureId,
+            prebuiltLineSegments,
+            prebuiltOutlineSegments,
+          },
+          sliceKey,
+        )
         emittedAny = true
       }
       if (this.showSlices && this.showSlices.length > 0) {
@@ -529,7 +586,7 @@ export class PMTilesBackend implements TileSource {
           const layerFeatures = byLayer.get(desc.sourceLayer)
           if (!layerFeatures || layerFeatures.length === 0) continue
           const subset = desc.filterAst
-            ? layerFeatures.filter(f => {
+            ? layerFeatures.filter((f) => {
                 const bag = makeEvalProps({
                   props: f.properties ?? undefined,
                   geometryType: f.geometry?.type,

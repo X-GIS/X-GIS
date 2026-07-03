@@ -48,12 +48,24 @@
 import type { Palette } from './palette'
 import type { NodeLike } from './node-types'
 import {
-  texture2dfT, samplerT, u32T, f32T,
-  type BindingDecl, type FuncDecl, type Stmt,
+  texture2dfT,
+  samplerT,
+  u32T,
+  f32T,
+  type BindingDecl,
+  type FuncDecl,
+  type Stmt,
 } from '@xgis/shader-dsl'
 import {
-  f32Lit, f32Sub, f32Div, refF32, clampF32,
-  varRefTexture2d, varRefSampler, vec2f, textureSampleLevelVec4,
+  f32Lit,
+  f32Sub,
+  f32Div,
+  refF32,
+  clampF32,
+  varRefTexture2d,
+  varRefSampler,
+  vec2f,
+  textureSampleLevelVec4,
 } from './_util/node-builders'
 
 /** Default bind-group / binding indices for palette resources. The
@@ -82,7 +94,6 @@ export const DEFAULT_PALETTE_SLOTS: PaletteBindingSlots = {
   scalarGradientBinding: 3,
   samplerBinding: 4,
 }
-
 
 /** WGSL expression to sample a color gradient at the current camera
  *  zoom. The caller is responsible for ensuring `gradientIndex` is
@@ -117,9 +128,9 @@ export function emitColorGradientSample(
   // Pre-bake zMin/zMax/v as literals — no extra uniform read,
   // matches how constant-color FILL_COLOR is inlined elsewhere.
   return (
-    `textureSampleLevel(color_grad_atlas, palette_samp, vec2f(`
-    + `clamp((${zoomExpr} - ${fmtF(zMin)}) / ${fmtF(zMax - zMin || 1)}, 0.0, 1.0), `
-    + `${fmtF(v)}), 0.0)`
+    `textureSampleLevel(color_grad_atlas, palette_samp, vec2f(` +
+    `clamp((${zoomExpr} - ${fmtF(zMin)}) / ${fmtF(zMax - zMin || 1)}, 0.0, 1.0), ` +
+    `${fmtF(v)}), 0.0)`
   )
 }
 
@@ -143,11 +154,7 @@ export function emitColorGradientSampleNode(
   const v = (gradientIndex + 0.5) / total
   const zoomNode = refF32(zoomVarrefName)
   const zSpan = zMax - zMin || 1
-  const u = clampF32(
-    f32Div(f32Sub(zoomNode, f32Lit(zMin)), f32Lit(zSpan)),
-    f32Lit(0),
-    f32Lit(1),
-  )
+  const u = clampF32(f32Div(f32Sub(zoomNode, f32Lit(zMin)), f32Lit(zSpan)), f32Lit(0), f32Lit(1))
   return textureSampleLevelVec4(
     varRefTexture2d('color_grad_atlas'),
     varRefSampler('palette_samp'),
@@ -176,7 +183,6 @@ export function emitColorGradientSampleNode(
  *  effectively this `mode` parameter at variant emit time. */
 export type ScalarPaletteMode = 'filtering' | 'manual'
 
-
 /** Palette atlas + sampler bindings as IR `BindingDecl`s (the `Partial<ModuleDecl>`
  *  preamble form — replaces `emitPaletteBindings`'s WGSL string). Texture/sampler
  *  are handle types: `space` is ignored by the backend, kept `'uniform'` for the
@@ -190,12 +196,30 @@ export function buildPaletteBindingDecls(
   if (!hasColor && !hasScalar) return []
   const decls: BindingDecl[] = []
   if (hasColor) {
-    decls.push({ group: slots.group, binding: slots.colorGradientBinding, name: 'color_grad_atlas', space: 'uniform', type: texture2dfT })
+    decls.push({
+      group: slots.group,
+      binding: slots.colorGradientBinding,
+      name: 'color_grad_atlas',
+      space: 'uniform',
+      type: texture2dfT,
+    })
   }
   if (hasScalar) {
-    decls.push({ group: slots.group, binding: slots.scalarGradientBinding, name: 'scalar_grad_atlas', space: 'uniform', type: texture2dfT })
+    decls.push({
+      group: slots.group,
+      binding: slots.scalarGradientBinding,
+      name: 'scalar_grad_atlas',
+      space: 'uniform',
+      type: texture2dfT,
+    })
   }
-  decls.push({ group: slots.group, binding: slots.samplerBinding, name: 'palette_samp', space: 'uniform', type: samplerT })
+  decls.push({
+    group: slots.group,
+    binding: slots.samplerBinding,
+    name: 'palette_samp',
+    space: 'uniform',
+    type: samplerT,
+  })
   return decls
 }
 
@@ -204,29 +228,27 @@ export function buildPaletteBindingDecls(
  *  `raw` Stmt: the helper is GPU-only (texture sampling), never run by the CPU
  *  oracle or the GLSL backend, so a raw body is sound. Returns null when the
  *  palette carries no scalar gradients. */
-export function buildScalarSampleFunc(
-  palette: Palette,
-  mode: ScalarPaletteMode,
-): FuncDecl | null {
+export function buildScalarSampleFunc(palette: Palette, mode: ScalarPaletteMode): FuncDecl | null {
   if (palette.scalarGradients.length === 0) return null
   const count = palette.scalarGradients.length
-  const body = mode === 'filtering'
-    ? [
-        'let t = clamp((zoom - zMin) / max(zMax - zMin, 1.0e-6), 0.0, 1.0);',
-        `let v = (f32(idx) + 0.5) / ${fmtF(count)};`,
-        'return textureSampleLevel(scalar_grad_atlas, palette_samp, vec2f(t, v), 0.0).r;',
-      ].join('\n')
-    : [
-        'let t = clamp((zoom - zMin) / max(zMax - zMin, 1.0e-6), 0.0, 1.0);',
-        'let dims = textureDimensions(scalar_grad_atlas);',
-        'let u = t * f32(dims.x - 1u);',
-        'let u0 = u32(floor(u));',
-        'let u1 = min(u0 + 1u, dims.x - 1u);',
-        'let frac = u - f32(u0);',
-        'let a = textureLoad(scalar_grad_atlas, vec2u(u0, idx), 0).r;',
-        'let b = textureLoad(scalar_grad_atlas, vec2u(u1, idx), 0).r;',
-        'return mix(a, b, frac);',
-      ].join('\n')
+  const body =
+    mode === 'filtering'
+      ? [
+          'let t = clamp((zoom - zMin) / max(zMax - zMin, 1.0e-6), 0.0, 1.0);',
+          `let v = (f32(idx) + 0.5) / ${fmtF(count)};`,
+          'return textureSampleLevel(scalar_grad_atlas, palette_samp, vec2f(t, v), 0.0).r;',
+        ].join('\n')
+      : [
+          'let t = clamp((zoom - zMin) / max(zMax - zMin, 1.0e-6), 0.0, 1.0);',
+          'let dims = textureDimensions(scalar_grad_atlas);',
+          'let u = t * f32(dims.x - 1u);',
+          'let u0 = u32(floor(u));',
+          'let u1 = min(u0 + 1u, dims.x - 1u);',
+          'let frac = u - f32(u0);',
+          'let a = textureLoad(scalar_grad_atlas, vec2u(u0, idx), 0).r;',
+          'let b = textureLoad(scalar_grad_atlas, vec2u(u1, idx), 0).r;',
+          'return mix(a, b, frac);',
+        ].join('\n')
   const rawBody: Stmt[] = [{ s: 'raw', wgsl: body }]
   return {
     name: 'xgis_scalar_sample',

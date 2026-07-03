@@ -28,7 +28,9 @@ import type { RenderPass, HeatmapPassHost } from './pass'
 class HeatmapPass implements RenderPass {
   readonly label = 'heatmap'
 
-  shouldRun(scene: SceneView): boolean { return scene.hasHeatmap && !DEBUG_OVERDRAW }
+  shouldRun(scene: SceneView): boolean {
+    return scene.hasHeatmap && !DEBUG_OVERDRAW
+  }
 
   execute(ctx: FrameContext, _scene: SceneView, host: HeatmapPassHost): void {
     const hr = host.heatmapRenderer
@@ -60,11 +62,14 @@ class HeatmapPass implements RenderPass {
         // ── Pass 1: ACCUM ── clear accum, additively splat this layer.
         {
           const accumPass = encoder.beginRenderPass({
-            colorAttachments: [{
-              view: accumView,
-              clearValue: { r: 0, g: 0, b: 0, a: 0 },
-              loadOp: 'clear', storeOp: 'store',
-            }],
+            colorAttachments: [
+              {
+                view: accumView,
+                clearValue: { r: 0, g: 0, b: 0, a: 0 },
+                loadOp: 'clear',
+                storeOp: 'store',
+              },
+            ],
           })
           hr.drawLayerAccum(accumPass, li)
           accumPass.end()
@@ -80,7 +85,14 @@ class HeatmapPass implements RenderPass {
             ],
           })
           const bp = encoder.beginRenderPass({
-            colorAttachments: [{ view: blurView, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }],
+            colorAttachments: [
+              {
+                view: blurView,
+                clearValue: { r: 0, g: 0, b: 0, a: 0 },
+                loadOp: 'clear',
+                storeOp: 'store',
+              },
+            ],
           })
           bp.setPipeline(blurPipeline)
           bp.setBindGroup(0, bg)
@@ -98,7 +110,14 @@ class HeatmapPass implements RenderPass {
             ],
           })
           const bp = encoder.beginRenderPass({
-            colorAttachments: [{ view: accumView, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }],
+            colorAttachments: [
+              {
+                view: accumView,
+                clearValue: { r: 0, g: 0, b: 0, a: 0 },
+                loadOp: 'clear',
+                storeOp: 'store',
+              },
+            ],
           })
           bp.setPipeline(blurPipeline)
           bp.setBindGroup(0, bg)
@@ -122,10 +141,13 @@ class HeatmapPass implements RenderPass {
             ],
           })
           const cp = encoder.beginRenderPass({
-            colorAttachments: [{
-              view: ctx.screenView,
-              loadOp: 'load', storeOp: 'store',
-            }],
+            colorAttachments: [
+              {
+                view: ctx.screenView,
+                loadOp: 'load',
+                storeOp: 'store',
+              },
+            ],
           })
           cp.setPipeline(composePipeline)
           cp.setBindGroup(0, bg)

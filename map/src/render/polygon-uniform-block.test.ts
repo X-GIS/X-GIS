@@ -17,7 +17,11 @@
 import { describe, it, expect } from 'vitest'
 import { uniformBlock } from '@xgis/engine'
 import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
-import { polygonUniformSlots, polygonUniformBytes, polygonUniformStride } from './polygon-uniform-slots'
+import {
+  polygonUniformSlots,
+  polygonUniformBytes,
+  polygonUniformStride,
+} from './polygon-uniform-slots'
 
 const MVP = Float32Array.from({ length: 16 }, (_, i) => (i + 1) * 0.0625)
 
@@ -50,16 +54,26 @@ describe('polygon Uniforms — block ≡ slot writer', () => {
       fill_color: [0.1, 0.2, 0.3, 0.4],
       stroke_color: [0.5, 0.6, 0.7, 0.8],
       proj_params: [7, 127.024, 37.532, 0],
-      cam_h: [1.25, -2.5], cam_l: [0.0003, -0.0007],
+      cam_h: [1.25, -2.5],
+      cam_l: [0.0003, -0.0007],
       tile_origin_merc: [12345.5, -6789.25],
       opacity: 0.85,
       log_depth_fc: 0.123,
-      pick_id: 0xabcd1234, layer_depth_offset: 3, tile_extent_m: 4096.5, extrude_height_m: 55.75,
+      pick_id: 0xabcd1234,
+      layer_depth_offset: 3,
+      tile_extent_m: 4096.5,
+      extrude_height_m: 55.75,
       clip_bounds: [-1e30, 1, 2, 3],
-      zoom: 14.5, extrude_base_m: 5.25, fill_translate_x: 0.01, fill_translate_y: -0.02,
-      tile_dequant_scale: 0.00012, tile_dequant_half: 8192,
-      light_color_packed: 0xffeeddcc, _pad_light_align: 0,
-      cam_ecef_off_h: [111.5, -222.25, 333.125, 0], cam_ecef_off_l: [0.015, -0.025, 0.035, 0],
+      zoom: 14.5,
+      extrude_base_m: 5.25,
+      fill_translate_x: 0.01,
+      fill_translate_y: -0.02,
+      tile_dequant_scale: 0.00012,
+      tile_dequant_half: 8192,
+      light_color_packed: 0xffeeddcc,
+      _pad_light_align: 0,
+      cam_ecef_off_h: [111.5, -222.25, 333.125, 0],
+      cam_ecef_off_l: [0.015, -0.025, 0.035, 0],
       light_dir_ecef: [0.288, -0.498, 0.996, 1.5],
       globe_eye: [0.5, -0.5, 0.7071, 0.31],
     })

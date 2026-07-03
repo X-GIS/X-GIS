@@ -286,7 +286,9 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     // on the resolvedShow snapshot below — single source of truth,
     // no parallel `resolvedXxx` locals to keep in sync.
     const composedOpa = resolveNumberShape(
-      entry.show.paintShapes.common.opacity, input.cameraZoom, input.elapsedMs,
+      entry.show.paintShapes.common.opacity,
+      input.cameraZoom,
+      input.elapsedMs,
     ).value
 
     // Phase 4c-final: no more effectiveShow clone + mutation. The
@@ -331,17 +333,29 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     void composedOpa
     const noPick = entry.show.pointerEvents === 'none'
     const fp = noPick
-      ? (entry.pipelines?.fillPipelineNoPick ?? defaults.fillPipelineNoPick ?? entry.pipelines?.fillPipeline ?? defaults.fillPipeline)
+      ? (entry.pipelines?.fillPipelineNoPick ??
+        defaults.fillPipelineNoPick ??
+        entry.pipelines?.fillPipeline ??
+        defaults.fillPipeline)
       : (entry.pipelines?.fillPipeline ?? defaults.fillPipeline)
     const lp = noPick
-      ? (entry.pipelines?.linePipelineNoPick ?? defaults.linePipelineNoPick ?? entry.pipelines?.linePipeline ?? defaults.linePipeline)
+      ? (entry.pipelines?.linePipelineNoPick ??
+        defaults.linePipelineNoPick ??
+        entry.pipelines?.linePipeline ??
+        defaults.linePipeline)
       : (entry.pipelines?.linePipeline ?? defaults.linePipeline)
     const bgl = entry.layout ?? defaults.bindGroupLayout
     const fpF = noPick
-      ? (entry.pipelines?.fillPipelineFallbackNoPick ?? defaults.fillPipelineFallbackNoPick ?? entry.pipelines?.fillPipelineFallback ?? defaults.fillPipelineFallback)
+      ? (entry.pipelines?.fillPipelineFallbackNoPick ??
+        defaults.fillPipelineFallbackNoPick ??
+        entry.pipelines?.fillPipelineFallback ??
+        defaults.fillPipelineFallback)
       : (entry.pipelines?.fillPipelineFallback ?? defaults.fillPipelineFallback)
     const lpF = noPick
-      ? (entry.pipelines?.linePipelineFallbackNoPick ?? defaults.linePipelineFallbackNoPick ?? entry.pipelines?.linePipelineFallback ?? defaults.linePipelineFallback)
+      ? (entry.pipelines?.linePipelineFallbackNoPick ??
+        defaults.linePipelineFallbackNoPick ??
+        entry.pipelines?.linePipelineFallback ??
+        defaults.linePipelineFallback)
       : (entry.pipelines?.linePipelineFallback ?? defaults.linePipelineFallback)
     // Ground (depth-disabled) variants. Prefer a per-show variant
     // ground pipeline when the show carries one (matches `fp`'s
@@ -354,10 +368,16 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     // bind-group correctness; the painter's-order optimisation just
     // doesn't apply to that show.
     const fpG = noPick
-      ? (entry.pipelines?.fillPipelineGroundNoPick ?? defaults.fillPipelineGroundNoPick ?? entry.pipelines?.fillPipelineGround ?? defaults.fillPipelineGround)
+      ? (entry.pipelines?.fillPipelineGroundNoPick ??
+        defaults.fillPipelineGroundNoPick ??
+        entry.pipelines?.fillPipelineGround ??
+        defaults.fillPipelineGround)
       : (entry.pipelines?.fillPipelineGround ?? defaults.fillPipelineGround)
     const fpGF = noPick
-      ? (entry.pipelines?.fillPipelineGroundFallbackNoPick ?? defaults.fillPipelineGroundFallbackNoPick ?? entry.pipelines?.fillPipelineGroundFallback ?? defaults.fillPipelineGroundFallback)
+      ? (entry.pipelines?.fillPipelineGroundFallbackNoPick ??
+        defaults.fillPipelineGroundFallbackNoPick ??
+        entry.pipelines?.fillPipelineGroundFallback ??
+        defaults.fillPipelineGroundFallback)
       : (entry.pipelines?.fillPipelineGroundFallback ?? defaults.fillPipelineGroundFallback)
     // Opaque-bucket fillPhase decision:
     //  * isOitExtrude && isTranslucentStroke → SKIP opaque entirely
@@ -382,7 +402,8 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     // immutable source. All downstream consumers read the resolved
     // scalars / RGBA from resolvedShow.
     const resolvedShow = resolveShow(entry.show, {
-      cameraZoom: input.cameraZoom, elapsedMs: input.elapsedMs,
+      cameraZoom: input.cameraZoom,
+      elapsedMs: input.elapsedMs,
     })
     // Bake this show's opaque draw closure. It captures the resolved
     // content pipelines + bind-group layout + the source's VTR + the
@@ -399,9 +420,9 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     // passes are gated off under DEBUG_OVERDRAW, so one closure serving
     // all three buckets is safe.
     const debugFp = DEBUG_OVERDRAW
-      ? (bgl === defaults.featureBindGroupLayout
-          ? defaults.fillPipelineOverdrawFeature!
-          : defaults.fillPipelineOverdraw!)
+      ? bgl === defaults.featureBindGroupLayout
+        ? defaults.fillPipelineOverdrawFeature!
+        : defaults.fillPipelineOverdraw!
       : null
     const debugLp = DEBUG_OVERDRAW ? defaults.linePipelineOverdraw! : null
     const drawFp = debugFp ?? fp
@@ -410,13 +431,37 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     const drawLpF = debugLp ?? lpF
     const drawFpG = debugFp ?? fpG
     const drawFpGF = debugFp ?? fpGF
-    const draw: ShowDrawFn = (pass, ctx, uniformBuffer, pointRenderer, phase, translucentBucket) => {
+    const draw: ShowDrawFn = (
+      pass,
+      ctx,
+      uniformBuffer,
+      pointRenderer,
+      phase,
+      translucentBucket,
+    ) => {
       const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
       vtEntry.renderer.render!(
-        pass, ctx.camera, projType, centerLon, centerLat, ctx.w, ctx.h,
-        entry.show, drawFp, drawLp, uniformBuffer, bgl,
-        drawFpF, drawLpF,
-        pointRenderer, phase, ctx.dpr, drawFpG, drawFpGF, translucentBucket, resolvedShow,
+        pass,
+        ctx.camera,
+        projType,
+        centerLon,
+        centerLat,
+        ctx.w,
+        ctx.h,
+        entry.show,
+        drawFp,
+        drawLp,
+        uniformBuffer,
+        bgl,
+        drawFpF,
+        drawLpF,
+        pointRenderer,
+        phase,
+        ctx.dpr,
+        drawFpG,
+        drawFpGF,
+        translucentBucket,
+        resolvedShow,
       )
     }
     const classified: ClassifiedShow = {

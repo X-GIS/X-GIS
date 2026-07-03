@@ -26,19 +26,25 @@ export function convertLineLayer(layer: MapboxLayer, warnings: string[]): string
     // Mapbox spec: line-cap must be 'butt' | 'round' | 'square'.
     // Only flag STRING values not in the enum — expression-shaped
     // (zoom-step) values pass through to downstream handling.
-    warnings.push(`Layer "${layer.id}" — line-cap "${cap.slice(0, 40)}" is not a valid enum; expected 'butt' | 'round' | 'square'.`)
+    warnings.push(
+      `Layer "${layer.id}" — line-cap "${cap.slice(0, 40)}" is not a valid enum; expected 'butt' | 'round' | 'square'.`,
+    )
   }
   const join = unwrapLiteralScalar(layout['line-join'])
   if (join === 'miter') layoutUtils.push('stroke-miter-join')
   else if (join === 'round') layoutUtils.push('stroke-round-join')
   else if (join === 'bevel') layoutUtils.push('stroke-bevel-join')
   else if (typeof join === 'string') {
-    warnings.push(`Layer "${layer.id}" — line-join "${join.slice(0, 40)}" is not a valid enum; expected 'miter' | 'round' | 'bevel'.`)
+    warnings.push(
+      `Layer "${layer.id}" — line-join "${join.slice(0, 40)}" is not a valid enum; expected 'miter' | 'round' | 'bevel'.`,
+    )
   }
   const miter = unwrapLiteralScalar(layout['line-miter-limit'])
   if (typeof miter === 'number' && Number.isFinite(miter)) {
     if (miter < 0) {
-      warnings.push(`Layer "${layer.id}" — line-miter-limit ${miter} is negative; Mapbox spec default is 2 and values < 1 collapse to bevel joins. Negative emits a malformed utility — clamped to 0.`)
+      warnings.push(
+        `Layer "${layer.id}" — line-miter-limit ${miter} is negative; Mapbox spec default is 2 and values < 1 collapse to bevel joins. Negative emits a malformed utility — clamped to 0.`,
+      )
     }
     layoutUtils.push(`stroke-miterlimit-${Math.max(0, miter)}`)
   }

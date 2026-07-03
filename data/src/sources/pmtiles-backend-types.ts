@@ -32,7 +32,9 @@
  *  surface AbortError as `'failed'` and skip the negative cache for
  *  abort-induced failures (they're not a real fetch problem). */
 export type PMTilesFetcher = (
-  z: number, x: number, y: number,
+  z: number,
+  x: number,
+  y: number,
   signal: AbortSignal,
 ) => Promise<Uint8Array | null | 'failed'>
 
@@ -47,7 +49,12 @@ export interface PMTilesBackendOptions {
    *  minzoom/maxzoom + (optional) field schema. Used by the runtime
    *  to skip work for layers that don't have data at the current
    *  camera zoom (e.g. protomaps v4 `buildings` only at z≥14). */
-  vectorLayers?: Array<{ id: string; minzoom: number; maxzoom: number; fields?: Record<string, string> }>
+  vectorLayers?: Array<{
+    id: string
+    minzoom: number
+    maxzoom: number
+    fields?: Record<string, string>
+  }>
   /** Per-MVT-layer 3D-extrude expression AST. Forwarded to the MVT
    *  worker on every compile request; the worker evaluates the AST
    *  against each feature's properties to produce the feature's
@@ -61,7 +68,14 @@ export interface PMTilesBackendOptions {
    *  instead of one slice per source layer — eliminating the
    *  redundant draws when N xgis layers share one MVT layer with
    *  different filters. See `filter-eval.ts` for the contract. */
-  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean; featurePropKeys?: string[] }>
+  showSlices?: Array<{
+    sliceKey: string
+    sourceLayer: string
+    filterAst: unknown | null
+    needsFeatureProps?: boolean
+    needsExtrude?: boolean
+    featurePropKeys?: string[]
+  }>
   /** Per-sliceKey stroke-width override AST. The worker uses it to
    *  bake per-feature widths into the slice's line segment buffer so
    *  the line shader picks each feature's width without re-uploading

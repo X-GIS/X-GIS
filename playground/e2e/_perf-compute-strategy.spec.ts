@@ -41,18 +41,25 @@ interface Sample {
 
 async function setup(page: Page, lutThreshold: number) {
   await page.addInitScript((threshold: number) => {
-    ;(globalThis as {
-      __XGIS_MATCH_LUT_THRESHOLD?: number
-      __XGIS_FORCE_COMPUTE_DISPATCH?: boolean
-    }).__XGIS_MATCH_LUT_THRESHOLD = threshold
-    ;(globalThis as {
-      __XGIS_FORCE_COMPUTE_DISPATCH?: boolean
-    }).__XGIS_FORCE_COMPUTE_DISPATCH = true
+    ;(
+      globalThis as {
+        __XGIS_MATCH_LUT_THRESHOLD?: number
+        __XGIS_FORCE_COMPUTE_DISPATCH?: boolean
+      }
+    ).__XGIS_MATCH_LUT_THRESHOLD = threshold
+    ;(
+      globalThis as {
+        __XGIS_FORCE_COMPUTE_DISPATCH?: boolean
+      }
+    ).__XGIS_FORCE_COMPUTE_DISPATCH = true
   }, lutThreshold)
-  await page.goto('/demo.html?id=continent_match&gpuprof=1&compute=1', { waitUntil: 'domcontentloaded' })
+  await page.goto('/demo.html?id=continent_match&gpuprof=1&compute=1', {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // Settle past cold-start cascade. GPU timer needs a few frames for
   // its readback ring to start producing samples (RING_SIZE=3).
@@ -71,7 +78,10 @@ async function measure(page: Page, durationMs: number): Promise<Sample[]> {
       invalidate: () => void
       gpuTimer: { getBreakdown(): Record<string, number[]>; resetTimings(): void } | null
     }
-    interface Sample { compute: number; vt: number }
+    interface Sample {
+      compute: number
+      vt: number
+    }
     const map = (window as unknown as { __xgisMap?: M }).__xgisMap
     if (!map) throw new Error('__xgisMap missing')
     const timer = map.gpuTimer
@@ -80,7 +90,7 @@ async function measure(page: Page, durationMs: number): Promise<Sample[]> {
 
     const startX = map.camera.centerX
     const samples: Sample[] = []
-    return await new Promise<Sample[]>(resolve => {
+    return await new Promise<Sample[]>((resolve) => {
       const t0 = performance.now()
       const tick = () => {
         const elapsed = performance.now() - t0
@@ -114,9 +124,12 @@ function pct(arr: number[], p: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))]!
 }
 
-function summariseField(samples: Sample[], field: 'compute' | 'vt'): { n: number; median: number; p95: number; mean: number } {
+function summariseField(
+  samples: Sample[],
+  field: 'compute' | 'vt',
+): { n: number; median: number; p95: number; mean: number } {
   if (samples.length === 0) return { n: 0, median: 0, p95: 0, mean: 0 }
-  const arr = samples.map(s => s[field]).filter(v => v > 0)
+  const arr = samples.map((s) => s[field]).filter((v) => v > 0)
   if (arr.length === 0) return { n: samples.length, median: 0, p95: 0, mean: 0 }
   return {
     n: arr.length,
@@ -132,7 +145,7 @@ test('continent-match GPU strategy A/B — switch vs LUT', async ({ browser }) =
   const runs: Array<{ label: string; threshold: number; samples: Sample[] }> = []
   for (const cfg of [
     { label: 'switch  (threshold 16, default)', threshold: 16 },
-    { label: 'LUT     (threshold 4,  forced)',  threshold: 4 },
+    { label: 'LUT     (threshold 4,  forced)', threshold: 4 },
   ]) {
     // Fresh context per run — guarantees the compute pipeline is recompiled
     // with the new threshold (compute-gen reads the override at emit time,
@@ -150,34 +163,44 @@ test('continent-match GPU strategy A/B — switch vs LUT', async ({ browser }) =
   lines.push('Scene: 7-arm match(CONTINENT) on Natural Earth countries (~250 features)')
   lines.push('')
   lines.push('── Compute pass timing (first kernel per frame, isolated) ──')
-  lines.push(`${'Threshold'.padEnd(38)} ${'frames'.padStart(8)} ${'median μs'.padStart(11)} ${'p95 μs'.padStart(11)} ${'mean μs'.padStart(11)}`)
+  lines.push(
+    `${'Threshold'.padEnd(38)} ${'frames'.padStart(8)} ${'median μs'.padStart(11)} ${'p95 μs'.padStart(11)} ${'mean μs'.padStart(11)}`,
+  )
   const toUs = (ns: number) => ns / 1000
   for (const run of runs) {
     const s = summariseField(run.samples, 'compute')
-    lines.push(`${run.label.padEnd(38)} ${String(s.n).padStart(8)} `
-      + `${toUs(s.median).toFixed(2).padStart(11)} `
-      + `${toUs(s.p95).toFixed(2).padStart(11)} `
-      + `${toUs(s.mean).toFixed(2).padStart(11)}`)
+    lines.push(
+      `${run.label.padEnd(38)} ${String(s.n).padStart(8)} ` +
+        `${toUs(s.median).toFixed(2).padStart(11)} ` +
+        `${toUs(s.p95).toFixed(2).padStart(11)} ` +
+        `${toUs(s.mean).toFixed(2).padStart(11)}`,
+    )
   }
   lines.push('')
   lines.push('── Render `vt` segment timing (context — should stay constant) ──')
-  lines.push(`${'Threshold'.padEnd(38)} ${'frames'.padStart(8)} ${'median μs'.padStart(11)} ${'p95 μs'.padStart(11)} ${'mean μs'.padStart(11)}`)
+  lines.push(
+    `${'Threshold'.padEnd(38)} ${'frames'.padStart(8)} ${'median μs'.padStart(11)} ${'p95 μs'.padStart(11)} ${'mean μs'.padStart(11)}`,
+  )
   for (const run of runs) {
     const s = summariseField(run.samples, 'vt')
-    lines.push(`${run.label.padEnd(38)} ${String(s.n).padStart(8)} `
-      + `${toUs(s.median).toFixed(2).padStart(11)} `
-      + `${toUs(s.p95).toFixed(2).padStart(11)} `
-      + `${toUs(s.mean).toFixed(2).padStart(11)}`)
+    lines.push(
+      `${run.label.padEnd(38)} ${String(s.n).padStart(8)} ` +
+        `${toUs(s.median).toFixed(2).padStart(11)} ` +
+        `${toUs(s.p95).toFixed(2).padStart(11)} ` +
+        `${toUs(s.mean).toFixed(2).padStart(11)}`,
+    )
   }
 
   // Verdict — use COMPUTE timing since that's the kernel-level isolation.
-  const sIf  = summariseField(runs[0]!.samples, 'compute')
+  const sIf = summariseField(runs[0]!.samples, 'compute')
   const sLut = summariseField(runs[1]!.samples, 'compute')
   lines.push('')
   if (sIf.median > 0 && sLut.median > 0) {
     const delta = ((sLut.median - sIf.median) / sIf.median) * 100
     const verdict = delta < -5 ? 'LUT WINS' : delta > 5 ? 'switch WINS' : 'within noise'
-    lines.push(`Δ kernel median: LUT vs switch = ${delta > 0 ? '+' : ''}${delta.toFixed(1)} %  →  ${verdict}`)
+    lines.push(
+      `Δ kernel median: LUT vs switch = ${delta > 0 ? '+' : ''}${delta.toFixed(1)} %  →  ${verdict}`,
+    )
   } else {
     lines.push('Δ: insufficient kernel samples (compute timing 0 — adapter may lack the feature)')
   }
@@ -187,13 +210,18 @@ test('continent-match GPU strategy A/B — switch vs LUT', async ({ browser }) =
   fs.mkdirSync(path.resolve('test-results'), { recursive: true })
   fs.writeFileSync(
     path.resolve('test-results', 'compute-strategy-ab.json'),
-    JSON.stringify({
-      runs: runs.map(r => ({
-        label: r.label, threshold: r.threshold,
-        compute: summariseField(r.samples, 'compute'),
-        vt: summariseField(r.samples, 'vt'),
-        rawComputeNs: r.samples.map(s => s.compute),
-      })),
-    }, null, 2),
+    JSON.stringify(
+      {
+        runs: runs.map((r) => ({
+          label: r.label,
+          threshold: r.threshold,
+          compute: summariseField(r.samples, 'compute'),
+          vt: summariseField(r.samples, 'vt'),
+          rawComputeNs: r.samples.map((s) => s.compute),
+        })),
+      },
+      null,
+      2,
+    ),
   )
 })

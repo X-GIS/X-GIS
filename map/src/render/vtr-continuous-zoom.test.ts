@@ -68,7 +68,9 @@ function makeVtr(lastZoom: number, cameraZoom: number) {
   const layout = {} as GPUBindGroupLayout
   const group = {} as GPUBindGroup
 
-  const set = (k: string, v: unknown) => { (vtr as unknown as Record<string, unknown>)[k] = v }
+  const set = (k: string, v: unknown) => {
+    ;(vtr as unknown as Record<string, unknown>)[k] = v
+  }
 
   set('frameBlock', block)
   set('lastZoom', lastZoom)
@@ -92,7 +94,11 @@ function makeVtr(lastZoom: number, cameraZoom: number) {
   set('lineRenderer', null)
   set('_linePatternActiveForShow', false)
   set('_drawStats', { hasDrawn: () => false, markDrawn: () => {} })
-  set('_bindGroups', { baseLayout: () => layout, baseGroup: () => group, featureGroup: () => group })
+  set('_bindGroups', {
+    baseLayout: () => layout,
+    baseGroup: () => group,
+    featureGroup: () => group,
+  })
   set('uniformRing', { buffer: {}, allocSlot: () => 0, stageSlot: () => {}, flush: () => {} })
 
   return { vtr, f32, layout }
@@ -103,21 +109,25 @@ function callRenderTileKeys(vtr: VectorTileRenderer, layout: GPUBindGroupLayout,
   const cache = new Map<number, GPUTile>([[key, emptyTile()]])
   const pipe = {} as GPURenderPipeline
   const pass = {} as GPURenderPassEncoder
-  ;(vtr as unknown as {
-    renderTileKeys(
-      keys: number[], pass: unknown, fillPipeline: unknown, linePipeline: unknown,
-      projCenterLon: number, projCenterLat: number, worldOffsets: number[] | undefined,
-      lineLayerOffset: number, lineLayerOffsetGap: number, phase: string,
-      layerCache: Map<number, GPUTile>, fillPipelineExtruded: unknown,
-      fillBindGroupLayout: unknown,
-    ): void
-  }).renderTileKeys(
-    [key], pass, pipe, pipe,
-    0, 0, undefined,
-    0, -1, 'fills',
-    cache, null,
-    layout,
-  )
+  ;(
+    vtr as unknown as {
+      renderTileKeys(
+        keys: number[],
+        pass: unknown,
+        fillPipeline: unknown,
+        linePipeline: unknown,
+        projCenterLon: number,
+        projCenterLat: number,
+        worldOffsets: number[] | undefined,
+        lineLayerOffset: number,
+        lineLayerOffsetGap: number,
+        phase: string,
+        layerCache: Map<number, GPUTile>,
+        fillPipelineExtruded: unknown,
+        fillBindGroupLayout: unknown,
+      ): void
+    }
+  ).renderTileKeys([key], pass, pipe, pipe, 0, 0, undefined, 0, -1, 'fills', cache, null, layout)
 }
 
 describe('VectorTileRenderer — u.zoom lane carries continuous camera zoom', () => {

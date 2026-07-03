@@ -18,7 +18,18 @@ const SIMPLE_FC: GeoJSONInput = {
     {
       type: 'Feature',
       properties: { name: 'A' },
-      geometry: { type: 'Polygon', coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]] },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [0, 0],
+            [10, 0],
+            [10, 10],
+            [0, 10],
+            [0, 0],
+          ],
+        ],
+      },
     },
   ],
 } as GeoJSONInput
@@ -31,7 +42,15 @@ const WORLD_RING: GeoJSONInput = {
       properties: { name: 'world' },
       geometry: {
         type: 'Polygon',
-        coordinates: [[[-179, -85], [179, -85], [179, 85], [-179, 85], [-179, -85]]],
+        coordinates: [
+          [
+            [-179, -85],
+            [179, -85],
+            [179, 85],
+            [-179, 85],
+            [-179, -85],
+          ],
+        ],
       },
     },
   ],
@@ -43,7 +62,14 @@ const LINE_FC: GeoJSONInput = {
     {
       type: 'Feature',
       properties: {},
-      geometry: { type: 'LineString', coordinates: [[0, 0], [10, 10], [20, 0]] },
+      geometry: {
+        type: 'LineString',
+        coordinates: [
+          [0, 0],
+          [10, 10],
+          [20, 0],
+        ],
+      },
     },
   ],
 } as GeoJSONInput
@@ -84,7 +110,10 @@ describe('geojson-vt TypeScript port — oracle parity vs upstream JS', () => {
       for (let y = 0; y < 4; y++) {
         const a = upstream.getTile(2, x, y)
         const b = ours.getTile(2, x, y)
-        expect(b !== null, `(2,${x},${y}) ours-null=${b === null} vs upstream-null=${a === null}`).toBe(a !== null)
+        expect(
+          b !== null,
+          `(2,${x},${y}) ours-null=${b === null} vs upstream-null=${a === null}`,
+        ).toBe(a !== null)
         if (a && b) {
           expect(b.features.length).toBe(a.features.length)
         }

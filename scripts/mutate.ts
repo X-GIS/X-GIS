@@ -85,9 +85,9 @@ function runTests(filter: string): boolean {
       cwd: process.cwd(),
       timeout: 60_000,
     })
-    return true  // all tests pass
+    return true // all tests pass
   } catch {
-    return false  // one or more tests fail
+    return false // one or more tests fail
   }
 }
 
@@ -116,7 +116,7 @@ function stripCommentAndStringRanges(src: string): Array<[number, number]> {
       const quote = c
       let j = i + 1
       while (j < src.length && src[j] !== quote) {
-        if (src[j] === '\\') j++  // skip escaped char
+        if (src[j] === '\\') j++ // skip escaped char
         j++
       }
       skip.push([i, j + 1])
@@ -179,28 +179,33 @@ async function main(): Promise<void> {
         if (isInSkipRange(offset, skipRanges)) continue
         const matchedText = m[0]
         const replacement = rule.swap(matchedText)
-        const mutated = original.substring(0, offset)
-          + replacement
-          + original.substring(offset + matchedText.length)
+        const mutated =
+          original.substring(0, offset) +
+          replacement +
+          original.substring(offset + matchedText.length)
         writeFileSync(target, mutated)
         const passed = runTests(filter)
         const outcome: MutantResult['outcome'] = passed ? 'survived' : 'killed'
         results.push({
-          rule: rule.label, offset,
-          original: matchedText, mutated: replacement,
+          rule: rule.label,
+          offset,
+          original: matchedText,
+          mutated: replacement,
           outcome,
         })
         processed++
         const mark = outcome === 'killed' ? '✓' : '✗'
-        console.log(`[${processed}/${total}] ${mark} ${outcome.padEnd(8)} [${rule.label}] @${offset}: '${matchedText}' → '${replacement}'`)
+        console.log(
+          `[${processed}/${total}] ${mark} ${outcome.padEnd(8)} [${rule.label}] @${offset}: '${matchedText}' → '${replacement}'`,
+        )
       }
     }
   } finally {
-    writeFileSync(target, original)  // ALWAYS restore
+    writeFileSync(target, original) // ALWAYS restore
   }
 
-  const killed = results.filter(r => r.outcome === 'killed').length
-  const survived = results.filter(r => r.outcome === 'survived').length
+  const killed = results.filter((r) => r.outcome === 'killed').length
+  const survived = results.filter((r) => r.outcome === 'survived').length
   const score = killed + survived > 0 ? (killed / (killed + survived)) * 100 : 0
   console.log('\n[mutate] ───────────────────────────────────────')
   console.log(`[mutate] killed:   ${killed}`)
@@ -217,7 +222,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('[mutate] error:', err)
   process.exit(1)
 })

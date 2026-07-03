@@ -31,9 +31,19 @@ import { describe, expect, it } from 'vitest'
 import { GpuTileStore } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/engine'
 
-interface MockBuffer { destroyed: boolean; label: string; destroy(): void }
+interface MockBuffer {
+  destroyed: boolean
+  label: string
+  destroy(): void
+}
 function mockBuffer(label: string): MockBuffer {
-  const b: MockBuffer = { destroyed: false, label, destroy() { b.destroyed = true } }
+  const b: MockBuffer = {
+    destroyed: false,
+    label,
+    destroy() {
+      b.destroyed = true
+    },
+  }
   return b
 }
 function mockDevice(): GPUDevice {
@@ -44,32 +54,49 @@ function mockDevice(): GPUDevice {
 // _releaseTileSlots / eviction reads. polyVertexArena stays null (no alloc),
 // so the arena.free + releaseBuffer(null) branches are silent no-ops and the
 // test exercises the segment-buffer lifecycle specifically.
-function seedTile(store: GpuTileStore, slot: string, tk: number): { outline: MockBuffer; line: MockBuffer; feat: MockBuffer } {
+function seedTile(
+  store: GpuTileStore,
+  slot: string,
+  tk: number,
+): { outline: MockBuffer; line: MockBuffer; feat: MockBuffer } {
   const outline = mockBuffer('line-segments')
   const line = mockBuffer('line-segments')
   // featureDataBuffer is also render-bound (featureBindGroup) and destroyed at
   // the same _releaseTileSlots site → same mid-render UAF class. Track it too.
   const feat = mockBuffer('feat-data')
   const tile = {
-    polyVertexOffset: 0, polyVertexByteLength: 0,
-    polyIndexOffset: 0, polyIndexByteLength: 0,
-    zBufferOffset: 0, zBufferByteLength: 0,
-    lineVertexBuffer: null, lineIndexBuffer: null, outlineIndexBuffer: null,
+    polyVertexOffset: 0,
+    polyVertexByteLength: 0,
+    polyIndexOffset: 0,
+    polyIndexByteLength: 0,
+    zBufferOffset: 0,
+    zBufferByteLength: 0,
+    lineVertexBuffer: null,
+    lineIndexBuffer: null,
+    outlineIndexBuffer: null,
     outlineSegmentBuffer: outline as unknown as GPUBuffer,
     lineSegmentBuffer: line as unknown as GPUBuffer,
     featureDataBuffer: feat as unknown as GPUBuffer,
     lastUsedFrame: 0,
   }
-  const inj = store as unknown as { gpuCache: Map<string, Map<number, unknown>>; _gpuCacheCount: number }
+  const inj = store as unknown as {
+    gpuCache: Map<string, Map<number, unknown>>
+    _gpuCacheCount: number
+  }
   let inner = inj.gpuCache.get(slot)
-  if (!inner) { inner = new Map<number, unknown>(); inj.gpuCache.set(slot, inner) }
+  if (!inner) {
+    inner = new Map<number, unknown>()
+    inj.gpuCache.set(slot, inner)
+  }
   inner.set(tk, tile)
   inj._gpuCacheCount++
   return { outline, line, feat }
 }
 
 type ReleasePriv = { _releaseTileSlots(s: string, tk: number, hook: (k: string) => void): unknown }
-type MaintPriv = { runFrameMaintenance(s: readonly number[], h: (k: string) => void, u: () => boolean): boolean }
+type MaintPriv = {
+  runFrameMaintenance(s: readonly number[], h: (k: string) => void, u: () => boolean): boolean
+}
 
 describe('GpuTileStore segment-buffer UAF — eviction defers destroy past the frame submit', () => {
   it('_releaseTileSlots retires (does NOT synchronously destroy) the render-bound tile buffers', () => {
@@ -81,12 +108,24 @@ describe('GpuTileStore segment-buffer UAF — eviction defers destroy past the f
     ;(store as unknown as ReleasePriv)._releaseTileSlots('', 1, () => {})
 
     // FAIL-BEFORE: pre-fix these destroyed synchronously → mid-render UAF.
-    expect(outline.destroyed, 'outline segment buffer must be RETIRED, not destroyed synchronously').toBe(false)
-    expect(line.destroyed, 'line segment buffer must be RETIRED, not destroyed synchronously').toBe(false)
-    expect(feat.destroyed, 'feature-data buffer (same render-bound UAF class) must be RETIRED').toBe(false)
+    expect(
+      outline.destroyed,
+      'outline segment buffer must be RETIRED, not destroyed synchronously',
+    ).toBe(false)
+    expect(line.destroyed, 'line segment buffer must be RETIRED, not destroyed synchronously').toBe(
+      false,
+    )
+    expect(
+      feat.destroyed,
+      'feature-data buffer (same render-bound UAF class) must be RETIRED',
+    ).toBe(false)
 
     // Drained at the next post-submit maintenance pass (prior submit has landed).
-    ;(store as unknown as MaintPriv).runFrameMaintenance([], () => {}, () => false)
+    ;(store as unknown as MaintPriv).runFrameMaintenance(
+      [],
+      () => {},
+      () => false,
+    )
     expect(outline.destroyed, 'retired buffer must be destroyed by runFrameMaintenance').toBe(true)
     expect(line.destroyed).toBe(true)
     expect(feat.destroyed).toBe(true)
@@ -97,7 +136,7 @@ describe('GpuTileStore segment-buffer UAF — eviction defers destroy past the f
     const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
     const { outline, line, feat } = seedTile(store, '', 2)
     ;(store as unknown as ReleasePriv)._releaseTileSlots('', 2, () => {})
-    expect(outline.destroyed).toBe(false)  // retired, not yet drained
+    expect(outline.destroyed).toBe(false) // retired, not yet drained
 
     store.destroy()
     expect(outline.destroyed, 'destroy() must drain the retired-tile pool').toBe(true)

@@ -44,7 +44,10 @@ export class XGISMapElement extends HTMLElement {
       // 방법 2: 인라인 코드 (<xgis-map> 내부 텍스트)
       const inlineCode = this.textContent?.trim()
       if (inlineCode) {
-        const baseUrl = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1)
+        const baseUrl = window.location.pathname.substring(
+          0,
+          window.location.pathname.lastIndexOf('/') + 1,
+        )
         await this.map.run(inlineCode, baseUrl)
         return
       }

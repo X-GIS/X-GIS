@@ -20,13 +20,14 @@ const BASE = (isCI ? '/X-GIS' : '/').replace(/\/$/, '')
 function rehypeBaseLinks() {
   return (tree) => {
     const walk = (node) => {
-      if (
-        node.tagName === 'a' &&
-        node.properties &&
-        typeof node.properties.href === 'string'
-      ) {
+      if (node.tagName === 'a' && node.properties && typeof node.properties.href === 'string') {
         const href = node.properties.href
-        if (BASE && href.startsWith('/') && !href.startsWith('//') && !href.startsWith(BASE + '/')) {
+        if (
+          BASE &&
+          href.startsWith('/') &&
+          !href.startsWith('//') &&
+          !href.startsWith(BASE + '/')
+        ) {
           node.properties.href = BASE + href
         }
       }
@@ -102,7 +103,9 @@ export default defineConfig({
         '@xgis/map': fileURLToPath(new URL('../map/src/index.ts', import.meta.url)),
         // #763 A1 — shader-dsl to SOURCE like the rest (subpath key FIRST: vite alias
         // is prefix-replacing, the bare key would swallow '/examples').
-        '@xgis/shader-dsl/examples': fileURLToPath(new URL('../shader-dsl/examples/index.ts', import.meta.url)),
+        '@xgis/shader-dsl/examples': fileURLToPath(
+          new URL('../shader-dsl/examples/index.ts', import.meta.url),
+        ),
         '@xgis/shader-dsl': fileURLToPath(new URL('../shader-dsl/src/index.ts', import.meta.url)),
         '@': fileURLToPath(new URL('./src', import.meta.url)),
       },
@@ -111,7 +114,14 @@ export default defineConfig({
     // their TS exports correctly through symlinks). Same fix the
     // playground uses.
     optimizeDeps: {
-      exclude: ['@xgis/compiler', '@xgis/blueprint', '@xgis/runtime', '@xgis/engine', '@xgis/map', '@xgis/shader-dsl'],
+      exclude: [
+        '@xgis/compiler',
+        '@xgis/blueprint',
+        '@xgis/runtime',
+        '@xgis/engine',
+        '@xgis/map',
+        '@xgis/shader-dsl',
+      ],
     },
     // (No /play proxy here — earlier attempt at HTTPS-target proxy
     // returned HTTP 500 because the playground's basic-ssl cert /

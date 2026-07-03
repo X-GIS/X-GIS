@@ -9,11 +9,11 @@ import { flattenCoverage } from '../convert/spec-coverage'
 describe('spec-coverage note coverage', () => {
   it('every partial / unsupported entry has a non-empty note', () => {
     const missing = flattenCoverage().filter(
-      e => (e.status === 'partial' || e.status === 'unsupported')
-        && (!e.note || e.note.length === 0),
+      (e) =>
+        (e.status === 'partial' || e.status === 'unsupported') && (!e.note || e.note.length === 0),
     )
     expect(
-      missing.map(e => e.name),
+      missing.map((e) => e.name),
       `${missing.length} entries lack notes`,
     ).toEqual([])
   })

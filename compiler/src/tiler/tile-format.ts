@@ -16,15 +16,15 @@ import type { PropertyTable } from './vector-tiler'
 export const TILE_FLAG_FULL_COVER = 0x1
 
 export interface TileIndexEntry {
-  tileHash: number      // Morton tile key
-  dataOffset: number    // Always 0 for in-memory tile sets (no file backing)
-  compactSize: number   // 0 for in-memory tile sets
-  gpuReadySize: number  // 0 for in-memory tile sets
+  tileHash: number // Morton tile key
+  dataOffset: number // Always 0 for in-memory tile sets (no file backing)
+  compactSize: number // 0 for in-memory tile sets
+  gpuReadySize: number // 0 for in-memory tile sets
   vertexCount: number
   indexCount: number
   lineVertexCount: number
   lineIndexCount: number
-  flags: number              // bit 0 = fullCover
+  flags: number // bit 0 = fullCover
   fullCoverFeatureId: number // flags >>> 1
 }
 

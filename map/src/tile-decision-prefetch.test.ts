@@ -15,12 +15,17 @@
 import { describe, expect, it } from 'vitest'
 import { tileKey, tileKeyParent, tileKeyChildren } from '@xgis/compiler'
 import {
-  projectPanPrefetchTarget, collectSiblingPrefetchKeys,
+  projectPanPrefetchTarget,
+  collectSiblingPrefetchKeys,
   type CameraSnapshot,
 } from './tile-decision'
 
-const baseSnap = (cx: number, cy: number, zoom: number, t: number): CameraSnapshot =>
-  ({ cx, cy, zoom, t })
+const baseSnap = (cx: number, cy: number, zoom: number, t: number): CameraSnapshot => ({
+  cx,
+  cy,
+  zoom,
+  t,
+})
 
 describe('projectPanPrefetchTarget — Google Earth pan-direction speculation', () => {
   it('returns null when prev is null (first frame, no velocity yet)', () => {
@@ -85,12 +90,25 @@ describe('projectPanPrefetchTarget — Google Earth pan-direction speculation', 
 
 describe('collectSiblingPrefetchKeys — AMMOS 3D Tiles Renderer loadSiblings', () => {
   it('returns empty for empty visible set', () => {
-    expect(collectSiblingPrefetchKeys([], () => false, () => true)).toEqual([])
+    expect(
+      collectSiblingPrefetchKeys(
+        [],
+        () => false,
+        () => true,
+      ),
+    ).toEqual([])
   })
 
   it('returns empty when maxKeys is 0', () => {
     const visible = [tileKey(2, 0, 0)]
-    expect(collectSiblingPrefetchKeys(visible, () => false, () => true, 0)).toEqual([])
+    expect(
+      collectSiblingPrefetchKeys(
+        visible,
+        () => false,
+        () => true,
+        0,
+      ),
+    ).toEqual([])
   })
 
   it('filters self, already-visible, already-cached, and out-of-archive keys', () => {
@@ -102,11 +120,7 @@ describe('collectSiblingPrefetchKeys — AMMOS 3D Tiles Renderer loadSiblings', 
     const visible = [c0, c1]
     const cached = new Set<number>([c2])
     const inArchive = (k: number): boolean => k !== c3
-    const got = collectSiblingPrefetchKeys(
-      visible,
-      (k) => cached.has(k),
-      inArchive,
-    )
+    const got = collectSiblingPrefetchKeys(visible, (k) => cached.has(k), inArchive)
     // c0/c1 are visible (skip self via != k AND visibleSet),
     // c2 is cached, c3 is out-of-archive → empty
     expect(got).toEqual([])
@@ -116,7 +130,11 @@ describe('collectSiblingPrefetchKeys — AMMOS 3D Tiles Renderer loadSiblings', 
     const parent = tileKey(1, 0, 0)
     const [c0, c1, c2, c3] = tileKeyChildren(parent)
     const visible = [c0]
-    const got = collectSiblingPrefetchKeys(visible, () => false, () => true)
+    const got = collectSiblingPrefetchKeys(
+      visible,
+      () => false,
+      () => true,
+    )
     // c0 is the visible one; c1/c2/c3 are off-screen siblings
     expect(new Set(got)).toEqual(new Set([c1, c2, c3]))
   })
@@ -127,7 +145,11 @@ describe('collectSiblingPrefetchKeys — AMMOS 3D Tiles Renderer loadSiblings', 
     const parent = tileKey(1, 0, 0)
     const [c0, c1, c2, c3] = tileKeyChildren(parent)
     const visible = [c0, c1]
-    const got = collectSiblingPrefetchKeys(visible, () => false, () => true)
+    const got = collectSiblingPrefetchKeys(
+      visible,
+      () => false,
+      () => true,
+    )
     expect(got).toHaveLength(2)
     expect(new Set(got)).toEqual(new Set([c2, c3]))
   })
@@ -142,7 +164,12 @@ describe('collectSiblingPrefetchKeys — AMMOS 3D Tiles Renderer loadSiblings', 
         visible.push(tileKey(3, x, y))
       }
     }
-    const got = collectSiblingPrefetchKeys(visible, () => false, () => true, 10)
+    const got = collectSiblingPrefetchKeys(
+      visible,
+      () => false,
+      () => true,
+      10,
+    )
     expect(got.length).toBe(10)
   })
 
@@ -151,7 +178,11 @@ describe('collectSiblingPrefetchKeys — AMMOS 3D Tiles Renderer loadSiblings', 
     // can't be derived. Should silently drop.
     const root = tileKey(0, 0, 0)
     expect(tileKeyParent(root)).toBeLessThan(1)
-    const got = collectSiblingPrefetchKeys([root], () => false, () => true)
+    const got = collectSiblingPrefetchKeys(
+      [root],
+      () => false,
+      () => true,
+    )
     expect(got).toEqual([])
   })
 })

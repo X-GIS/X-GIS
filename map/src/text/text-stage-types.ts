@@ -8,7 +8,11 @@ import type { GlyphRasterizer } from './sdf/glyph-rasterizer'
 import type { InlineGlyphSource } from './sdf/pbf/inline-glyph-provider'
 import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 
-export interface WrappedLineRange { start: number; end: number; width: number }
+export interface WrappedLineRange {
+  start: number
+  end: number
+  width: number
+}
 
 export interface KPBreak {
   index: number

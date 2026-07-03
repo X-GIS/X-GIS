@@ -24,8 +24,8 @@ mkdirSync(ART_DIR, { recursive: true })
 const VIEW = { width: 1400, height: 800 }
 
 interface FrameSample {
-  t: number             // ms since scenario start
-  dt: number            // frame delta ms
+  t: number // ms since scenario start
+  dt: number // frame delta ms
   writeBufCount: number // writeBuffer calls since previous frame
   writeBufBytes: number // bytes written since previous frame
 }
@@ -58,10 +58,13 @@ test('perf scenarios @zoom pan', async ({ page }) => {
 
   page.on('pageerror', (err) => console.log('[pageerror]', err.message))
 
-  await page.goto('/demo.html?id=minimal&e2e=1#0.00/0.00000/0.00', { waitUntil: 'domcontentloaded' })
+  await page.goto('/demo.html?id=minimal&e2e=1#0.00/0.00000/0.00', {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 20_000 },
+    null,
+    { timeout: 20_000 },
   )
   await page.waitForTimeout(2000) // let worker compile + tile loads settle
 
@@ -79,15 +82,23 @@ test('perf scenarios @zoom pan', async ({ page }) => {
     const origWrite = device.queue.writeBuffer.bind(device.queue)
     win.__perf = { count: 0, bytes: 0 }
     device.queue.writeBuffer = ((
-      buffer: GPUBuffer, offset: number, data: BufferSource, dataOffset?: number, size?: number,
+      buffer: GPUBuffer,
+      offset: number,
+      data: BufferSource,
+      dataOffset?: number,
+      size?: number,
     ) => {
       win.__perf!.count++
       // Data can be ArrayBuffer or typed-array view; both expose byteLength.
-      const len = size ?? (data as ArrayBufferView).byteLength ?? (data as ArrayBuffer).byteLength ?? 0
+      const len =
+        size ?? (data as ArrayBufferView).byteLength ?? (data as ArrayBuffer).byteLength ?? 0
       win.__perf!.bytes += len
       return origWrite(buffer, offset, data, dataOffset as number, size as number)
     }) as typeof device.queue.writeBuffer
-    win.__perfReset = () => { win.__perf!.count = 0; win.__perf!.bytes = 0 }
+    win.__perfReset = () => {
+      win.__perf!.count = 0
+      win.__perf!.bytes = 0
+    }
     win.__perfSnapshot = () => ({ count: win.__perf!.count, bytes: win.__perf!.bytes })
   })
 
@@ -110,26 +121,34 @@ test('perf scenarios @zoom pan', async ({ page }) => {
       const map = win.__xgisMap!
       // Rebuild the driver function inside the page scope.
       // eslint-disable-next-line no-new-func
-      const fn = new Function('return (' + src + ')')() as (w: Window & typeof globalThis, t: number) => boolean
+      const fn = new Function('return (' + src + ')')() as (
+        w: Window & typeof globalThis,
+        t: number,
+      ) => boolean
 
       win.__perfReset!()
       const samples: FrameSample[] = []
       const t0 = performance.now()
       let lastT = t0
-      let lastCount = 0, lastBytes = 0
+      let lastCount = 0,
+        lastBytes = 0
 
       await new Promise<void>((resolve) => {
         function tick() {
           const tNow = performance.now()
           const tRel = tNow - t0
           const dt = tNow - lastT
-          const count = win.__perf!.count, bytes = win.__perf!.bytes
+          const count = win.__perf!.count,
+            bytes = win.__perf!.bytes
           samples.push({
-            t: tRel, dt,
+            t: tRel,
+            dt,
             writeBufCount: count - lastCount,
             writeBufBytes: bytes - lastBytes,
           })
-          lastT = tNow; lastCount = count; lastBytes = bytes
+          lastT = tNow
+          lastCount = count
+          lastBytes = bytes
 
           const done = fn(window as unknown as Window & typeof globalThis, tRel)
           // Ensure controller state stays sane across programmatic drives;
@@ -148,12 +167,12 @@ test('perf scenarios @zoom pan', async ({ page }) => {
     const samples = raw.samples as FrameSample[]
     // Drop the first 2 samples — rAF boundary effects inflate dt spuriously.
     const fs = samples.slice(2)
-    const dts = fs.map(s => s.dt).sort((a, b) => a - b)
+    const dts = fs.map((s) => s.dt).sort((a, b) => a - b)
     const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
     const pct = (xs: number[], p: number) => xs[Math.floor(xs.length * p)] ?? 0
 
-    const wbCounts = fs.map(s => s.writeBufCount)
-    const wbBytes = fs.map(s => s.writeBufBytes)
+    const wbCounts = fs.map((s) => s.writeBufCount)
+    const wbBytes = fs.map((s) => s.writeBufBytes)
 
     return {
       name,
@@ -163,9 +182,9 @@ test('perf scenarios @zoom pan', async ({ page }) => {
       p50Ms: pct(dts, 0.5),
       p95Ms: pct(dts, 0.95),
       maxMs: dts[dts.length - 1] ?? 0,
-      dropsAt16: dts.filter(d => d > 16.7).length,
-      dropsAt33: dts.filter(d => d > 33.4).length,
-      dropsAt100: dts.filter(d => d > 100).length,
+      dropsAt16: dts.filter((d) => d > 16.7).length,
+      dropsAt33: dts.filter((d) => d > 33.4).length,
+      dropsAt100: dts.filter((d) => d > 100).length,
       writeBuf: {
         total: sum(wbCounts),
         avgPerFrame: sum(wbCounts) / Math.max(1, wbCounts.length),
@@ -180,13 +199,20 @@ test('perf scenarios @zoom pan', async ({ page }) => {
 
   // Helper: reset camera to a known start between scenarios.
   async function resetCamera(centerLon: number, zoom: number): Promise<void> {
-    await page.evaluate(({ lon, z }) => {
-      const R = 6378137
-      const map = (window as unknown as { __xgisMap?: { camera: { centerX: number; centerY: number; zoom: number } } }).__xgisMap!
-      map.camera.centerX = lon * Math.PI / 180 * R
-      map.camera.centerY = 0
-      map.camera.zoom = z
-    }, { lon: centerLon, z: zoom })
+    await page.evaluate(
+      ({ lon, z }) => {
+        const R = 6378137
+        const map = (
+          window as unknown as {
+            __xgisMap?: { camera: { centerX: number; centerY: number; zoom: number } }
+          }
+        ).__xgisMap!
+        map.camera.centerX = ((lon * Math.PI) / 180) * R
+        map.camera.centerY = 0
+        map.camera.zoom = z
+      },
+      { lon: centerLon, z: zoom },
+    )
     await page.waitForTimeout(500) // let cache settle after the jump
   }
 
@@ -198,64 +224,77 @@ test('perf scenarios @zoom pan', async ({ page }) => {
 
   // ── 2. Slow pan: 360° over 5 seconds at z=0 ──
   await resetCamera(0, 0)
-  scenarios.push(await runScenario('slow-pan-z0', (w, t) => {
-    const R = 6378137
-    const map = (w as unknown as { __xgisMap: { camera: { centerX: number } } }).__xgisMap
-    const u = Math.min(1, t / 5000)
-    map.camera.centerX = (360 * u - 180) * Math.PI / 180 * R
-    return t >= 5000
-  }))
+  scenarios.push(
+    await runScenario('slow-pan-z0', (w, t) => {
+      const R = 6378137
+      const map = (w as unknown as { __xgisMap: { camera: { centerX: number } } }).__xgisMap
+      const u = Math.min(1, t / 5000)
+      map.camera.centerX = (((360 * u - 180) * Math.PI) / 180) * R
+      return t >= 5000
+    }),
+  )
 
   // ── 3. Fast flick: 360° in 200ms ──
   await resetCamera(0, 0)
-  scenarios.push(await runScenario('fast-flick-z0', (w, t) => {
-    const R = 6378137
-    const map = (w as unknown as { __xgisMap: { camera: { centerX: number } } }).__xgisMap
-    const u = Math.min(1, t / 200)
-    map.camera.centerX = (360 * u - 180) * Math.PI / 180 * R
-    return t >= 500 // include 300ms of settle
-  }))
+  scenarios.push(
+    await runScenario('fast-flick-z0', (w, t) => {
+      const R = 6378137
+      const map = (w as unknown as { __xgisMap: { camera: { centerX: number } } }).__xgisMap
+      const u = Math.min(1, t / 200)
+      map.camera.centerX = (((360 * u - 180) * Math.PI) / 180) * R
+      return t >= 500 // include 300ms of settle
+    }),
+  )
 
   // ── 4. Slow zoom: z=0 → z=6 over 5 seconds ──
   await resetCamera(0, 0)
-  scenarios.push(await runScenario('slow-zoom-in', (w, t) => {
-    const map = (w as unknown as { __xgisMap: { camera: { zoom: number } } }).__xgisMap
-    const u = Math.min(1, t / 5000)
-    map.camera.zoom = u * 6
-    return t >= 5000
-  }))
+  scenarios.push(
+    await runScenario('slow-zoom-in', (w, t) => {
+      const map = (w as unknown as { __xgisMap: { camera: { zoom: number } } }).__xgisMap
+      const u = Math.min(1, t / 5000)
+      map.camera.zoom = u * 6
+      return t >= 5000
+    }),
+  )
 
   // ── 5. Fast zoom: z=0 → z=8 over 300ms ──
   await resetCamera(0, 0)
-  scenarios.push(await runScenario('fast-zoom-in', (w, t) => {
-    const map = (w as unknown as { __xgisMap: { camera: { zoom: number } } }).__xgisMap
-    const u = Math.min(1, t / 300)
-    map.camera.zoom = u * 8
-    return t >= 1000 // include 700ms settle
-  }))
+  scenarios.push(
+    await runScenario('fast-zoom-in', (w, t) => {
+      const map = (w as unknown as { __xgisMap: { camera: { zoom: number } } }).__xgisMap
+      const u = Math.min(1, t / 300)
+      map.camera.zoom = u * 8
+      return t >= 1000 // include 700ms settle
+    }),
+  )
 
   // ── 6. Zoom oscillation: scroll-spam style ──
   await resetCamera(0, 3)
-  scenarios.push(await runScenario('zoom-oscillate', (w, t) => {
-    const map = (w as unknown as { __xgisMap: { camera: { zoom: number } } }).__xgisMap
-    map.camera.zoom = 3 + 3 * Math.sin(t / 80) // 3-to-6 oscillation, ~12 Hz
-    return t >= 3000
-  }))
+  scenarios.push(
+    await runScenario('zoom-oscillate', (w, t) => {
+      const map = (w as unknown as { __xgisMap: { camera: { zoom: number } } }).__xgisMap
+      map.camera.zoom = 3 + 3 * Math.sin(t / 80) // 3-to-6 oscillation, ~12 Hz
+      return t >= 3000
+    }),
+  )
 
   // ── 7. Pan + zoom combined ──
   await resetCamera(0, 0)
-  scenarios.push(await runScenario('pan-plus-zoom', (w, t) => {
-    const R = 6378137
-    const map = (w as unknown as { __xgisMap: { camera: { centerX: number; zoom: number } } }).__xgisMap
-    const u = Math.min(1, t / 3000)
-    map.camera.centerX = (180 * u) * Math.PI / 180 * R
-    map.camera.zoom = u * 5
-    return t >= 3000
-  }))
+  scenarios.push(
+    await runScenario('pan-plus-zoom', (w, t) => {
+      const R = 6378137
+      const map = (w as unknown as { __xgisMap: { camera: { centerX: number; zoom: number } } })
+        .__xgisMap
+      const u = Math.min(1, t / 3000)
+      map.camera.centerX = ((180 * u * Math.PI) / 180) * R
+      map.camera.zoom = u * 5
+      return t >= 3000
+    }),
+  )
 
   // Emit a compact aggregate-only summary for the log, plus the full
   // report (with per-frame samples) to disk.
-  const summary = scenarios.map(s => ({
+  const summary = scenarios.map((s) => ({
     name: s.name,
     frames: s.frames,
     fps_avg: Math.round(1000 / s.avgMs),
@@ -295,10 +334,13 @@ test('perf scenarios @hybrid raster+vector max-zoom', async ({ page }) => {
   const START_LON = 151.21
   const START_LAT = -33.87
 
-  await page.goto(`/demo.html?id=raster&e2e=1#0.00/${START_LAT}/${START_LON}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/demo.html?id=raster&e2e=1#0.00/${START_LAT}/${START_LON}`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 20_000 },
+    null,
+    { timeout: 20_000 },
   )
   await page.waitForTimeout(3000) // let raster tiles + VT compile settle
 
@@ -314,14 +356,22 @@ test('perf scenarios @hybrid raster+vector max-zoom', async ({ page }) => {
     const origWrite = device.queue.writeBuffer.bind(device.queue)
     win.__perf = { count: 0, bytes: 0 }
     device.queue.writeBuffer = ((
-      buffer: GPUBuffer, offset: number, data: BufferSource, dataOffset?: number, size?: number,
+      buffer: GPUBuffer,
+      offset: number,
+      data: BufferSource,
+      dataOffset?: number,
+      size?: number,
     ) => {
       win.__perf!.count++
-      const len = size ?? (data as ArrayBufferView).byteLength ?? (data as ArrayBuffer).byteLength ?? 0
+      const len =
+        size ?? (data as ArrayBufferView).byteLength ?? (data as ArrayBuffer).byteLength ?? 0
       win.__perf!.bytes += len
       return origWrite(buffer, offset, data, dataOffset as number, size as number)
     }) as typeof device.queue.writeBuffer
-    win.__perfReset = () => { win.__perf!.count = 0; win.__perf!.bytes = 0 }
+    win.__perfReset = () => {
+      win.__perf!.count = 0
+      win.__perf!.bytes = 0
+    }
   })
 
   async function runScenario(
@@ -336,21 +386,31 @@ test('perf scenarios @hybrid raster+vector max-zoom', async ({ page }) => {
         __perfReset?: () => void
       }
       // eslint-disable-next-line no-new-func
-      const fn = new Function('return (' + src + ')')() as (w: Window & typeof globalThis, t: number) => boolean
+      const fn = new Function('return (' + src + ')')() as (
+        w: Window & typeof globalThis,
+        t: number,
+      ) => boolean
       win.__perfReset!()
       const samples: FrameSample[] = []
       const t0 = performance.now()
-      let lastT = t0, lastCount = 0, lastBytes = 0
+      let lastT = t0,
+        lastCount = 0,
+        lastBytes = 0
       await new Promise<void>((resolve) => {
         function tick() {
           const tNow = performance.now()
           const tRel = tNow - t0
-          const count = win.__perf!.count, bytes = win.__perf!.bytes
+          const count = win.__perf!.count,
+            bytes = win.__perf!.bytes
           samples.push({
-            t: tRel, dt: tNow - lastT,
-            writeBufCount: count - lastCount, writeBufBytes: bytes - lastBytes,
+            t: tRel,
+            dt: tNow - lastT,
+            writeBufCount: count - lastCount,
+            writeBufBytes: bytes - lastBytes,
           })
-          lastT = tNow; lastCount = count; lastBytes = bytes
+          lastT = tNow
+          lastCount = count
+          lastBytes = bytes
           const done = fn(window as unknown as Window & typeof globalThis, tRel)
           if (done) resolve()
           else requestAnimationFrame(tick)
@@ -360,19 +420,22 @@ test('perf scenarios @hybrid raster+vector max-zoom', async ({ page }) => {
       return { samples, totalMs: performance.now() - t0 }
     }, driverSrc)
     const fs = raw.samples.slice(2)
-    const dts = fs.map(s => s.dt).sort((a, b) => a - b)
+    const dts = fs.map((s) => s.dt).sort((a, b) => a - b)
     const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
     const pct = (xs: number[], p: number) => xs[Math.floor(xs.length * p)] ?? 0
-    const wbCounts = fs.map(s => s.writeBufCount)
-    const wbBytes = fs.map(s => s.writeBufBytes)
+    const wbCounts = fs.map((s) => s.writeBufCount)
+    const wbBytes = fs.map((s) => s.writeBufBytes)
     return {
-      name, durationMs: raw.totalMs, frames: fs.length,
+      name,
+      durationMs: raw.totalMs,
+      frames: fs.length,
       avgMs: sum(dts) / dts.length,
-      p50Ms: pct(dts, 0.5), p95Ms: pct(dts, 0.95),
+      p50Ms: pct(dts, 0.5),
+      p95Ms: pct(dts, 0.95),
       maxMs: dts[dts.length - 1] ?? 0,
-      dropsAt16: dts.filter(d => d > 16.7).length,
-      dropsAt33: dts.filter(d => d > 33.4).length,
-      dropsAt100: dts.filter(d => d > 100).length,
+      dropsAt16: dts.filter((d) => d > 16.7).length,
+      dropsAt33: dts.filter((d) => d > 33.4).length,
+      dropsAt100: dts.filter((d) => d > 100).length,
       writeBuf: {
         total: sum(wbCounts),
         avgPerFrame: sum(wbCounts) / Math.max(1, wbCounts.length),
@@ -386,16 +449,23 @@ test('perf scenarios @hybrid raster+vector max-zoom', async ({ page }) => {
   }
 
   async function resetCamera(lon: number, lat: number, zoom: number): Promise<void> {
-    await page.evaluate(({ lon, lat, z }) => {
-      const R = 6378137
-      const map = (window as unknown as { __xgisMap?: { camera: { centerX: number; centerY: number; zoom: number } } }).__xgisMap!
-      // Mercator Y from latitude (clamped to ±85° Mercator limit)
-      const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
-      const latRad = clamp(lat, -85, 85) * Math.PI / 180
-      map.camera.centerX = lon * Math.PI / 180 * R
-      map.camera.centerY = Math.log(Math.tan(Math.PI / 4 + latRad / 2)) * R
-      map.camera.zoom = z
-    }, { lon, lat, z: zoom })
+    await page.evaluate(
+      ({ lon, lat, z }) => {
+        const R = 6378137
+        const map = (
+          window as unknown as {
+            __xgisMap?: { camera: { centerX: number; centerY: number; zoom: number } }
+          }
+        ).__xgisMap!
+        // Mercator Y from latitude (clamped to ±85° Mercator limit)
+        const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+        const latRad = (clamp(lat, -85, 85) * Math.PI) / 180
+        map.camera.centerX = ((lon * Math.PI) / 180) * R
+        map.camera.centerY = Math.log(Math.tan(Math.PI / 4 + latRad / 2)) * R
+        map.camera.zoom = z
+      },
+      { lon, lat, z: zoom },
+    )
     // Give the cache a beat to start raster tile fetches + VT tile compile.
     // Raster needs more settle than vector — network-bound, not CPU-bound.
     await page.waitForTimeout(1500)
@@ -411,56 +481,69 @@ test('perf scenarios @hybrid raster+vector max-zoom', async ({ page }) => {
   //    O(4^(z+1)-4^z) raster tiles + compiles matching VT tiles. This
   //    is the stress test that most resembles "user slowly scrolling in". ──
   await resetCamera(START_LON, START_LAT, 0)
-  scenarios.push(await runScenario('hybrid-slow-zoom-to-max', (w, t) => {
-    const map = (w as unknown as { __xgisMap: { camera: { zoom: number } } }).__xgisMap
-    const u = Math.min(1, t / 10_000)
-    map.camera.zoom = u * 18
-    return t >= 11_000 // 1 s settle
-  }))
+  scenarios.push(
+    await runScenario('hybrid-slow-zoom-to-max', (w, t) => {
+      const map = (w as unknown as { __xgisMap: { camera: { zoom: number } } }).__xgisMap
+      const u = Math.min(1, t / 10_000)
+      map.camera.zoom = u * 18
+      return t >= 11_000 // 1 s settle
+    }),
+  )
 
   // ── 3. Fast zoom z=0 → z=18 in 400 ms. Most intermediate LODs are
   //    never visible long enough to start a fetch; the cache jumps
   //    straight to the leaf. Stresses the concurrency limiter, not
   //    the per-frame upload budget. ──
   await resetCamera(START_LON, START_LAT, 0)
-  scenarios.push(await runScenario('hybrid-fast-zoom-to-max', (w, t) => {
-    const map = (w as unknown as { __xgisMap: { camera: { zoom: number } } }).__xgisMap
-    const u = Math.min(1, t / 400)
-    map.camera.zoom = u * 18
-    return t >= 2000 // 1.6 s settle so raster fetches complete
-  }))
+  scenarios.push(
+    await runScenario('hybrid-fast-zoom-to-max', (w, t) => {
+      const map = (w as unknown as { __xgisMap: { camera: { zoom: number } } }).__xgisMap
+      const u = Math.min(1, t / 400)
+      map.camera.zoom = u * 18
+      return t >= 2000 // 1.6 s settle so raster fetches complete
+    }),
+  )
 
   // ── 4. Pan at sustained max zoom. Crossing tile boundaries at z=18
   //    triggers 1-2 new tiles per step — ideal workload once warm.
   //    Driver constants are inlined because `.toString()` serialization
   //    strips closure captures. ──
   await resetCamera(START_LON, START_LAT, 18)
-  scenarios.push(await runScenario('hybrid-pan-at-max', (w, t) => {
-    const R = 6378137
-    const map = (w as unknown as { __xgisMap: { camera: { centerX: number } } }).__xgisMap
-    const degPerMs = 0.01 / 1000
-    const lon0 = 151.21
-    map.camera.centerX = (lon0 + degPerMs * t) * Math.PI / 180 * R
-    return t >= 4000
-  }))
+  scenarios.push(
+    await runScenario('hybrid-pan-at-max', (w, t) => {
+      const R = 6378137
+      const map = (w as unknown as { __xgisMap: { camera: { centerX: number } } }).__xgisMap
+      const degPerMs = 0.01 / 1000
+      const lon0 = 151.21
+      map.camera.centerX = (((lon0 + degPerMs * t) * Math.PI) / 180) * R
+      return t >= 4000
+    }),
+  )
 
   // ── 5. Zoom-in + pan combined: real-world exploration gesture. ──
   await resetCamera(START_LON, START_LAT, 0)
-  scenarios.push(await runScenario('hybrid-zoom-and-pan', (w, t) => {
-    const R = 6378137
-    const map = (w as unknown as { __xgisMap: { camera: { centerX: number; zoom: number } } }).__xgisMap
-    const u = Math.min(1, t / 5000)
-    map.camera.zoom = u * 14
-    map.camera.centerX = (151.21 + 2 * u) * Math.PI / 180 * R
-    return t >= 5500
-  }))
+  scenarios.push(
+    await runScenario('hybrid-zoom-and-pan', (w, t) => {
+      const R = 6378137
+      const map = (w as unknown as { __xgisMap: { camera: { centerX: number; zoom: number } } })
+        .__xgisMap
+      const u = Math.min(1, t / 5000)
+      map.camera.zoom = u * 14
+      map.camera.centerX = (((151.21 + 2 * u) * Math.PI) / 180) * R
+      return t >= 5500
+    }),
+  )
 
-  const summary = scenarios.map(s => ({
+  const summary = scenarios.map((s) => ({
     name: s.name,
     frames: s.frames,
     fps_avg: Math.round(1000 / s.avgMs),
-    p50: +s.p50Ms.toFixed(1), p95: +s.p95Ms.toFixed(1), max: +s.maxMs.toFixed(1),
-    drops_16: s.dropsAt16, drops_33: s.dropsAt33, drops_100: s.dropsAt100,
+    p50: +s.p50Ms.toFixed(1),
+    p95: +s.p95Ms.toFixed(1),
+    max: +s.maxMs.toFixed(1),
+    drops_16: s.dropsAt16,
+    drops_33: s.dropsAt33,
+    drops_100: s.dropsAt100,
     wb_total: s.writeBuf.total,
     wb_avg: +s.writeBuf.avgPerFrame.toFixed(1),
     wb_peak: s.writeBuf.peakPerFrame,
@@ -468,5 +551,8 @@ test('perf scenarios @hybrid raster+vector max-zoom', async ({ page }) => {
     wb_peak_KB: +(s.writeBuf.peakBytesPerFrame / 1024).toFixed(1),
   }))
   console.log('PERF_SUMMARY_HYBRID:', JSON.stringify(summary, null, 2))
-  writeFileSync(join(ART_DIR, 'report-hybrid.json'), JSON.stringify({ summary, scenarios }, null, 2))
+  writeFileSync(
+    join(ART_DIR, 'report-hybrid.json'),
+    JSON.stringify({ summary, scenarios }, null, 2),
+  )
 })

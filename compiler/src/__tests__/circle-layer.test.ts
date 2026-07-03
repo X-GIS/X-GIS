@@ -13,15 +13,17 @@ describe('circle layer conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'cities',
-        type: 'circle',
-        source: 'v',
-        paint: {
-          'circle-radius': 6,
-          'circle-color': '#ff5500',
+      layers: [
+        {
+          id: 'cities',
+          type: 'circle',
+          source: 'v',
+          paint: {
+            'circle-radius': 6,
+            'circle-color': '#ff5500',
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toContain('layer cities {')
@@ -34,17 +36,19 @@ describe('circle layer conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'cities',
-        type: 'circle',
-        source: 'v',
-        paint: {
-          'circle-radius': 5,
-          'circle-color': '#fff',
-          'circle-stroke-color': '#000',
-          'circle-stroke-width': 1.5,
+      layers: [
+        {
+          id: 'cities',
+          type: 'circle',
+          source: 'v',
+          paint: {
+            'circle-radius': 5,
+            'circle-color': '#fff',
+            'circle-stroke-color': '#000',
+            'circle-stroke-width': 1.5,
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toContain('size-5')
@@ -57,12 +61,14 @@ describe('circle layer conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'dots',
-        type: 'circle',
-        source: 'v',
-        paint: { 'circle-color': '#369' },
-      }],
+      layers: [
+        {
+          id: 'dots',
+          type: 'circle',
+          source: 'v',
+          paint: { 'circle-color': '#369' },
+        },
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toContain('size-5')
@@ -73,12 +79,14 @@ describe('circle layer conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'dots',
-        type: 'circle',
-        source: 'v',
-        paint: { 'circle-radius': 3 },
-      }],
+      layers: [
+        {
+          id: 'dots',
+          type: 'circle',
+          source: 'v',
+          paint: { 'circle-radius': 3 },
+        },
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toContain('fill-#000')
@@ -88,17 +96,17 @@ describe('circle layer conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'pop',
-        type: 'circle',
-        source: 'v',
-        paint: {
-          'circle-radius': ['interpolate', ['linear'], ['zoom'],
-            0, 2,
-            10, 12],
-          'circle-color': '#c00',
+      layers: [
+        {
+          id: 'pop',
+          type: 'circle',
+          source: 'v',
+          paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 0, 2, 10, 12],
+            'circle-color': '#c00',
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toMatch(/size-\[interpolate\(zoom, 0, 2, 10, 12\)\]/)
@@ -108,15 +116,17 @@ describe('circle layer conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'pop',
-        type: 'circle',
-        source: 'v',
-        paint: {
-          'circle-radius': ['get', 'magnitude'],
-          'circle-color': '#c00',
+      layers: [
+        {
+          id: 'pop',
+          type: 'circle',
+          source: 'v',
+          paint: {
+            'circle-radius': ['get', 'magnitude'],
+            'circle-color': '#c00',
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toMatch(/size-\[\.magnitude\]/)
@@ -126,16 +136,18 @@ describe('circle layer conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'dots',
-        type: 'circle',
-        source: 'v',
-        paint: {
-          'circle-radius': 4,
-          'circle-color': '#000',
-          'circle-opacity': 0.5,
+      layers: [
+        {
+          id: 'dots',
+          type: 'circle',
+          source: 'v',
+          paint: {
+            'circle-radius': 4,
+            'circle-color': '#000',
+            'circle-opacity': 0.5,
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toContain('opacity-50')
@@ -145,19 +157,21 @@ describe('circle layer conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'poi',
-        type: 'circle',
-        source: 'v',
-        'source-layer': 'poi',
-        minzoom: 12,
-        maxzoom: 22,
-        filter: ['==', ['get', 'class'], 'cafe'],
-        paint: {
-          'circle-radius': 3,
-          'circle-color': '#a40',
+      layers: [
+        {
+          id: 'poi',
+          type: 'circle',
+          source: 'v',
+          'source-layer': 'poi',
+          minzoom: 12,
+          maxzoom: 22,
+          filter: ['==', ['get', 'class'], 'cafe'],
+          paint: {
+            'circle-radius': 3,
+            'circle-color': '#a40',
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toContain('source: v')
@@ -171,17 +185,19 @@ describe('circle layer conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'fancy',
-        type: 'circle',
-        source: 'v',
-        paint: {
-          'circle-radius': 5,
-          'circle-color': '#000',
-          'circle-blur': 0.5,
-          'circle-translate': [2, -3],
+      layers: [
+        {
+          id: 'fancy',
+          type: 'circle',
+          source: 'v',
+          paint: {
+            'circle-radius': 5,
+            'circle-color': '#000',
+            'circle-blur': 0.5,
+            'circle-translate': [2, -3],
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     // Conversion notes trailer should mention the dropped props.

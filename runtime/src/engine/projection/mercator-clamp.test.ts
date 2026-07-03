@@ -21,15 +21,17 @@ describe('Mercator latitude clamp consistency', () => {
     // DOWN and shrinking the Mercator Y by ~1.4 km (Y grows exponentially
     // near the pole). After the fix, 85.051 is inside the canonical
     // 85.051129 limit and should project without being modified.
-    const R = 6378137, DEG2RAD = Math.PI / 180
-    const expected = Math.log(Math.tan(Math.PI / 4 + 85.051 * DEG2RAD / 2)) * R
+    const R = 6378137,
+      DEG2RAD = Math.PI / 180
+    const expected = Math.log(Math.tan(Math.PI / 4 + (85.051 * DEG2RAD) / 2)) * R
     const [, actual] = mercator.forward(0, 85.051)
     expect(actual).toBeCloseTo(expected, 3)
   })
 
   it('lonLatToMercator does not clamp lat=85.051 either', () => {
-    const R = 6378137, DEG2RAD = Math.PI / 180
-    const expected = Math.log(Math.tan(Math.PI / 4 + 85.051 * DEG2RAD / 2)) * R
+    const R = 6378137,
+      DEG2RAD = Math.PI / 180
+    const expected = Math.log(Math.tan(Math.PI / 4 + (85.051 * DEG2RAD) / 2)) * R
     const [, actual] = lonLatToMercator(0, 85.051)
     expect(actual).toBeCloseTo(expected, 3)
   })

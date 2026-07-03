@@ -36,16 +36,28 @@ function getWorker(): Worker {
     const m = ev.data as OutMsg
     if (m.kind === 'set-source-done') {
       const p = pendingSetSource.get(m.taskId)
-      if (p) { pendingSetSource.delete(m.taskId); p.resolve() }
+      if (p) {
+        pendingSetSource.delete(m.taskId)
+        p.resolve()
+      }
     } else if (m.kind === 'set-source-error') {
       const p = pendingSetSource.get(m.taskId)
-      if (p) { pendingSetSource.delete(m.taskId); p.reject(new Error(m.message)) }
+      if (p) {
+        pendingSetSource.delete(m.taskId)
+        p.reject(new Error(m.message))
+      }
     } else if (m.kind === 'tile') {
       const p = pendingGetTile.get(m.taskId)
-      if (p) { pendingGetTile.delete(m.taskId); p.resolve(m.bytes) }
+      if (p) {
+        pendingGetTile.delete(m.taskId)
+        p.resolve(m.bytes)
+      }
     } else if (m.kind === 'tile-error') {
       const p = pendingGetTile.get(m.taskId)
-      if (p) { pendingGetTile.delete(m.taskId); p.reject(new Error(m.message)) }
+      if (p) {
+        pendingGetTile.delete(m.taskId)
+        p.reject(new Error(m.message))
+      }
     }
   })
   _worker.addEventListener('error', (ev) => {
@@ -105,7 +117,9 @@ export function setSource(
 export function getTile(
   instanceId: string,
   sourceName: string,
-  z: number, x: number, y: number,
+  z: number,
+  x: number,
+  y: number,
   key: number,
 ): Promise<Uint8Array> {
   const taskId = _nextTaskId++

@@ -131,8 +131,7 @@ export function analyzeExprs(scene: Scene): ExprAnalysis {
           hasMatch = true
           matchArmCount = e.matchBlock.arms.length
           // allArmsConst only meaningful when ALL arms are literals.
-          allArmsConst = e.matchBlock.arms.every(arm =>
-            isLiteral(arm.value))
+          allArmsConst = e.matchBlock.arms.every((arm) => isLiteral(arm.value))
           for (const arm of e.matchBlock.arms) {
             childMetas.push(visit(arm.value))
           }
@@ -149,8 +148,7 @@ export function analyzeExprs(scene: Scene): ExprAnalysis {
         for (const t of e.transforms) childMetas.push(visit(t))
         break
       case 'ConditionalExpr':
-        childMetas.push(
-          visit(e.condition), visit(e.thenExpr), visit(e.elseExpr))
+        childMetas.push(visit(e.condition), visit(e.thenExpr), visit(e.elseExpr))
         break
       case 'ArrayLiteral':
         for (const el of e.elements) childMetas.push(visit(el))
@@ -161,7 +159,7 @@ export function analyzeExprs(scene: Scene): ExprAnalysis {
       case 'MatchBlock':
         hasMatch = true
         matchArmCount = e.arms.length
-        allArmsConst = e.arms.every(arm => isLiteral(arm.value))
+        allArmsConst = e.arms.every((arm) => isLiteral(arm.value))
         for (const arm of e.arms) childMetas.push(visit(arm.value))
         break
       // Leaves — NumberLiteral, StringLiteral, ColorLiteral,
@@ -206,7 +204,8 @@ export function analyzeExprs(scene: Scene): ExprAnalysis {
       case 'time-interpolated':
         return
       case 'data-driven':
-        visitDataExpr(v.expr); return
+        visitDataExpr(v.expr)
+        return
       case 'conditional':
         for (const br of v.branches as ConditionalBranch<ColorValue>[]) {
           visitColorValue(br.value)
@@ -244,10 +243,12 @@ export function analyzeExprs(scene: Scene): ExprAnalysis {
  *  StringLiteral / ColorLiteral / BoolLiteral). Used by
  *  `allArmsConst` to detect const-LUT eligibility on MatchBlocks. */
 function isLiteral(e: Expr): boolean {
-  return e.kind === 'NumberLiteral'
-    || e.kind === 'StringLiteral'
-    || e.kind === 'ColorLiteral'
-    || e.kind === 'BoolLiteral'
+  return (
+    e.kind === 'NumberLiteral' ||
+    e.kind === 'StringLiteral' ||
+    e.kind === 'ColorLiteral' ||
+    e.kind === 'BoolLiteral'
+  )
 }
 
 /** PassManager-compatible IR pass. Reads `scene` (does not mutate),

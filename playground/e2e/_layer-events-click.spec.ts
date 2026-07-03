@@ -16,7 +16,8 @@ test('layer.addEventListener("click", h) — fires with feature + coord', async 
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(1500)
 
@@ -30,12 +31,17 @@ test('layer.addEventListener("click", h) — fires with feature + coord', async 
     ;(window as { __clickEvents?: unknown[] }).__clickEvents = []
     m.getLayer('fill')!.addEventListener('click', (ev: unknown) => {
       const e = ev as {
-        type: string; feature: { id: number; layer: string; properties: Record<string, unknown> }
-        coordinate: [number, number]; pixel: [number, number]
+        type: string
+        feature: { id: number; layer: string; properties: Record<string, unknown> }
+        coordinate: [number, number]
+        pixel: [number, number]
       }
       ;(window as { __clickEvents?: unknown[] }).__clickEvents!.push({
-        type: e.type, id: e.feature.id, layer: e.feature.layer,
-        coord: e.coordinate, pixel: e.pixel,
+        type: e.type,
+        id: e.feature.id,
+        layer: e.feature.layer,
+        coord: e.coordinate,
+        pixel: e.pixel,
         propsKeys: Object.keys(e.feature.properties ?? {}),
       })
     })
@@ -51,15 +57,28 @@ test('layer.addEventListener("click", h) — fires with feature + coord', async 
   await page.mouse.click(target.x, target.y)
 
   // Wait up to 1s for the async dispatch.
-  const events = await page.waitForFunction(
-    () => {
-      const arr = (window as { __clickEvents?: unknown[] }).__clickEvents
-      return arr && arr.length > 0 ? arr : null
-    },
-    null, { timeout: 1500 },
-  ).then(h => h.jsonValue() as Promise<Array<{
-    type: string; id: number; layer: string; coord: [number, number]; pixel: [number, number]; propsKeys: string[]
-  }>>)
+  const events = await page
+    .waitForFunction(
+      () => {
+        const arr = (window as { __clickEvents?: unknown[] }).__clickEvents
+        return arr && arr.length > 0 ? arr : null
+      },
+      null,
+      { timeout: 1500 },
+    )
+    .then(
+      (h) =>
+        h.jsonValue() as Promise<
+          Array<{
+            type: string
+            id: number
+            layer: string
+            coord: [number, number]
+            pixel: [number, number]
+            propsKeys: string[]
+          }>
+        >,
+    )
 
   console.log('[layer-events-click]', JSON.stringify(events))
   expect(events.length).toBeGreaterThanOrEqual(1)
@@ -87,12 +106,15 @@ test('drag past the click deadzone does NOT fire click', async ({ page }) => {
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(1500)
 
   await page.evaluate(() => {
-    type Map = { getLayer(n: string): { addEventListener(t: string, h: (e: unknown) => void): void } | null }
+    type Map = {
+      getLayer(n: string): { addEventListener(t: string, h: (e: unknown) => void): void } | null
+    }
     const m = (window as { __xgisMap?: Map }).__xgisMap!
     ;(window as { __clickEvents?: unknown[] }).__clickEvents = []
     m.getLayer('fill')!.addEventListener('click', () => {
@@ -112,7 +134,9 @@ test('drag past the click deadzone does NOT fire click', async ({ page }) => {
   await page.mouse.up()
   await page.waitForTimeout(500)
 
-  const count = await page.evaluate(() => (window as { __clickEvents?: unknown[] }).__clickEvents?.length ?? 0)
+  const count = await page.evaluate(
+    () => (window as { __clickEvents?: unknown[] }).__clickEvents?.length ?? 0,
+  )
   console.log(`[layer-events-click] drag click count: ${count}`)
   expect(count).toBe(0)
 })

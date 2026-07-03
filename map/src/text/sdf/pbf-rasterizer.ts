@@ -13,9 +13,7 @@
 // — inline data wins instantly with zero network; HTTP only fires
 // for codepoints the host didn't pre-bundle.
 
-import type {
-  GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult,
-} from './glyph-rasterizer'
+import type { GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult } from './glyph-rasterizer'
 import { parseFontKey, parseSizedFontKey } from './glyph-rasterizer'
 import type { GlyphProvider } from './pbf/glyph-provider'
 import { pbfGlyphToSlot, PBF_REF_SIZE } from './pbf/pbf-to-slot'
@@ -42,9 +40,7 @@ const WEIGHT_TO_KEYWORD: Record<number, string> = {
 // families, so we strip them when deriving the fontstack name. The
 // marker is the first known CJK entry; the boundary is deterministic
 // because composeFontKey controls the chain.
-const CJK_CHAIN_MARKERS = [
-  '"Noto Sans CJK KR"', 'Noto Sans CJK KR',
-]
+const CJK_CHAIN_MARKERS = ['"Noto Sans CJK KR"', 'Noto Sans CJK KR']
 
 /** Split the family list from a composeFontKey output into user-
  *  specified families (the ones the style author asked for) and the
@@ -54,12 +50,15 @@ export function splitUserFamilies(familyList: string): string[] {
   let userPortion = familyList
   for (const marker of CJK_CHAIN_MARKERS) {
     const idx = familyList.indexOf(marker)
-    if (idx >= 0) { userPortion = familyList.slice(0, idx); break }
+    if (idx >= 0) {
+      userPortion = familyList.slice(0, idx)
+      break
+    }
   }
   return userPortion
     .replace(/,\s*$/, '')
     .split(',')
-    .map(f => f.trim().replace(/^["']|["']$/g, ''))
+    .map((f) => f.trim().replace(/^["']|["']$/g, ''))
     .filter(Boolean)
 }
 
@@ -88,17 +87,22 @@ export function deriveFontstack(fontKey: string): string {
   // requires client-side multi-fetch (one URL per fontstack, per-
   // codepoint priority resolution); deferred to Phase 2 until a
   // real style needs it.
-  const firstFamily = splitUserFamilies(family)[0] ?? family.split(',')[0]!.trim().replace(/^["']|["']$/g, '')
+  const firstFamily =
+    splitUserFamilies(family)[0] ??
+    family
+      .split(',')[0]!
+      .trim()
+      .replace(/^["']|["']$/g, '')
   const weightNum = parseInt(weight, 10) || 400
   const isItalic = style === 'italic' || style === 'oblique'
   let token: string
   if (weightNum === 400 && isItalic) {
-    token = 'Italic'                                          // "Noto Sans Italic"
+    token = 'Italic' // "Noto Sans Italic"
   } else if (weightNum === 400) {
-    token = 'Regular'                                         // "Noto Sans Regular"
+    token = 'Regular' // "Noto Sans Regular"
   } else {
     const w = WEIGHT_TO_KEYWORD[weightNum] ?? 'Regular'
-    token = isItalic ? `${w} Italic` : w                      // "... Bold Italic" / "... Bold"
+    token = isItalic ? `${w} Italic` : w // "... Bold Italic" / "... Bold"
   }
   return `${firstFamily} ${token}`
 }

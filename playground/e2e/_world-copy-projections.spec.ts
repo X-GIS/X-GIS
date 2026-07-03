@@ -31,9 +31,11 @@ const VIEW = { width: 1400, height: 800 }
 // known-empty corner pixel of each rendered frame at run time.
 function isBackground(px: [number, number, number], bg: [number, number, number]): boolean {
   const TOL = 6
-  return Math.abs(px[0] - bg[0]) <= TOL
-    && Math.abs(px[1] - bg[1]) <= TOL
-    && Math.abs(px[2] - bg[2]) <= TOL
+  return (
+    Math.abs(px[0] - bg[0]) <= TOL &&
+    Math.abs(px[1] - bg[1]) <= TOL &&
+    Math.abs(px[2] - bg[2]) <= TOL
+  )
 }
 
 function getPx(png: PNG, x: number, y: number): [number, number, number] {
@@ -41,7 +43,10 @@ function getPx(png: PNG, x: number, y: number): [number, number, number] {
   return [png.data[i]!, png.data[i + 1]!, png.data[i + 2]!]
 }
 
-interface ColumnResult { nonBgCount: number; total: number }
+interface ColumnResult {
+  nonBgCount: number
+  total: number
+}
 
 function scanColumn(png: PNG, x: number, bg: [number, number, number]): ColumnResult {
   let nonBg = 0
@@ -52,11 +57,11 @@ function scanColumn(png: PNG, x: number, bg: [number, number, number]): ColumnRe
 }
 
 const PROJECTIONS: { name: string; expectMultiCopy: boolean }[] = [
-  { name: 'mercator', expectMultiCopy: true },          // baseline
-  { name: 'equirectangular', expectMultiCopy: true },   // iter 123
-  { name: 'natural_earth', expectMultiCopy: true },     // iter 123
-  { name: 'oblique_mercator', expectMultiCopy: true },  // iter 122
-  { name: 'orthographic', expectMultiCopy: false },     // single-world (disc)
+  { name: 'mercator', expectMultiCopy: true }, // baseline
+  { name: 'equirectangular', expectMultiCopy: true }, // iter 123
+  { name: 'natural_earth', expectMultiCopy: true }, // iter 123
+  { name: 'oblique_mercator', expectMultiCopy: true }, // iter 122
+  { name: 'orthographic', expectMultiCopy: false }, // single-world (disc)
 ]
 
 for (const proj of PROJECTIONS) {
@@ -75,17 +80,23 @@ for (const proj of PROJECTIONS) {
     })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 20_000 },
+      null,
+      { timeout: 20_000 },
     )
     await page.waitForTimeout(2_500)
-    await page.evaluate(() => new Promise<void>(r =>
-      requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+    await page.evaluate(
+      () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+    )
 
     // Diagnostic: count world-copy tiles that actually reached the renderer.
     const tileCounts = await page.evaluate(() => {
-      const m = (window as unknown as { __xgisMap?: {
-        tilesSnapshot?: () => Array<{ z: number; x: number; y: number; ox?: number }>
-      } }).__xgisMap
+      const m = (
+        window as unknown as {
+          __xgisMap?: {
+            tilesSnapshot?: () => Array<{ z: number; x: number; y: number; ox?: number }>
+          }
+        }
+      ).__xgisMap
       const tiles = m?.tilesSnapshot?.() ?? []
       const wcMap = new Map<number, number>()
       for (const t of tiles) {
@@ -98,8 +109,10 @@ for (const proj of PROJECTIONS) {
       }
     })
     // eslint-disable-next-line no-console
-    console.log(`[world-copy ${proj.name}] tiles total=${tileCounts.total} `
-      + `byWC=${JSON.stringify(tileCounts.worldCopies)}`)
+    console.log(
+      `[world-copy ${proj.name}] tiles total=${tileCounts.total} ` +
+        `byWC=${JSON.stringify(tileCounts.worldCopies)}`,
+    )
 
     const buf = await page.locator('#map').screenshot()
     const png = PNG.sync.read(buf)
@@ -125,10 +138,10 @@ for (const proj of PROJECTIONS) {
 
     // eslint-disable-next-line no-console
     console.log(
-      `[world-copy ${proj.name}] bg=(${bg.join(',')}) `
-      + `centre nonBg=${centre.nonBgCount}/${centre.total} `
-      + `left nonBg=${left.nonBgCount}/${left.total} `
-      + `right nonBg=${right.nonBgCount}/${right.total}`,
+      `[world-copy ${proj.name}] bg=(${bg.join(',')}) ` +
+        `centre nonBg=${centre.nonBgCount}/${centre.total} ` +
+        `left nonBg=${left.nonBgCount}/${left.total} ` +
+        `right nonBg=${right.nonBgCount}/${right.total}`,
     )
     if (errors.length > 0) {
       // eslint-disable-next-line no-console

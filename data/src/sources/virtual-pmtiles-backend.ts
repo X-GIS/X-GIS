@@ -18,15 +18,21 @@
 import { xlog } from '@xgis/shared'
 import {
   tileKeyUnpack,
-  decodeMvtTile, decomposeFeatures, compileSingleTile,
-  type GeoJSONFeature, type GeoJSONVTOptions,
+  decodeMvtTile,
+  decomposeFeatures,
+  compileSingleTile,
+  type GeoJSONFeature,
+  type GeoJSONVTOptions,
 } from '@xgis/compiler'
 import * as tilingPool from '../workers/geojson-tiling-pool'
 import { getSharedMvtPool, type MvtWorkerPool } from '../workers/mvt-worker-pool'
 import { buildLineSegments } from '../line-segment-build'
 import {
   TILE_LAYOUT_VERSION,
-  type BackendTileResult, type TileSource, type TileSourceMeta, type TileSourceSink,
+  type BackendTileResult,
+  type TileSource,
+  type TileSourceMeta,
+  type TileSourceSink,
 } from '../tile-source'
 
 export interface VirtualPMTilesBackendOptions {
@@ -62,7 +68,14 @@ export interface VirtualPMTilesBackendOptions {
   /** Per-show slice descriptors — when set the MVT worker emits one
    *  pre-filtered slice per (sourceLayer, filter) combo. Mirrors
    *  PMTilesBackend.options.showSlices. */
-  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean; featurePropKeys?: string[] }>
+  showSlices?: Array<{
+    sliceKey: string
+    sourceLayer: string
+    filterAst: unknown | null
+    needsFeatureProps?: boolean
+    needsExtrude?: boolean
+    featurePropKeys?: string[]
+  }>
   /** Per-sliceKey stroke-width / colour override ASTs (compiler-
    *  synthesised by the layer-merge pass). */
   strokeWidthExprs?: Record<string, unknown>
@@ -115,7 +128,10 @@ export class VirtualPMTilesBackend implements TileSource {
     // completes in tens of ms so by the first tile request the
     // worker is usually ready.
     this.indexReady = tilingPool.setSource(
-      this.instanceId, this.sourceName, opts.geojson, this.geojsonvtOptions,
+      this.instanceId,
+      this.sourceName,
+      opts.geojson,
+      this.geojsonvtOptions,
     )
   }
 
@@ -136,7 +152,7 @@ export class VirtualPMTilesBackend implements TileSource {
 
     this.indexReady
       .then(() => this.fetchAndCompile(key, sink))
-      .catch(err => {
+      .catch((err) => {
         xlog.error('[virtual-pmtiles fetch]', (err as Error)?.stack ?? err)
         sink.acceptResult(key, null)
         sink.releaseLoading(key)
@@ -177,8 +193,12 @@ export class VirtualPMTilesBackend implements TileSource {
         const pool = this.getPool()
         const slices = await pool.compile(
           bytes.buffer.slice(0, bytes.byteLength) as ArrayBuffer,
-          z, x, y, this.meta.maxZoom,
-          widthMerc, heightMerc,
+          z,
+          x,
+          y,
+          this.meta.maxZoom,
+          widthMerc,
+          heightMerc,
           this.layers,
           this.extrudeExprs,
           this.extrudeBaseExprs,
@@ -210,20 +230,30 @@ export class VirtualPMTilesBackend implements TileSource {
   }
 
   private compileInline(
-    key: number, bytes: Uint8Array,
-    z: number, x: number, y: number,
-    widthMerc: number, heightMerc: number,
+    key: number,
+    bytes: Uint8Array,
+    z: number,
+    x: number,
+    y: number,
+    widthMerc: number,
+    heightMerc: number,
   ): void {
     if (!this.sink) return
     const sink = this.sink
     try {
       const features = decodeMvtTile(bytes, z, x, y, { layers: this.layers })
-      if (features.length === 0) { sink.acceptResult(key, null); return }
+      if (features.length === 0) {
+        sink.acceptResult(key, null)
+        return
+      }
       const byLayer = new Map<string, GeoJSONFeature[]>()
       for (const f of features) {
         const ln = (f.properties?._layer as string) ?? this.sourceName
         let bucket = byLayer.get(ln)
-        if (!bucket) { bucket = []; byLayer.set(ln, bucket) }
+        if (!bucket) {
+          bucket = []
+          byLayer.set(ln, bucket)
+        }
         bucket.push(f)
       }
       let emitted = false
@@ -234,30 +264,38 @@ export class VirtualPMTilesBackend implements TileSource {
         const lineSegments = buildLineSegments(
           tile.lineVertices ?? new Float32Array(0),
           tile.lineIndices ?? new Uint32Array(0),
-          10, widthMerc, heightMerc,
+          10,
+          widthMerc,
+          heightMerc,
         )
         const outlineSegments = buildLineSegments(
           tile.outlineVertices ?? new Float32Array(0),
           tile.outlineLineIndices ?? new Uint32Array(0),
-          10, widthMerc, heightMerc,
+          10,
+          widthMerc,
+          heightMerc,
         )
-        sink.acceptResult(key, {
-          vertices: tile.vertices,
-          dequantScale: tile.dequantScale,
-          dequantHalf: tile.dequantHalf,
-          indices: tile.indices,
-          lineVertices: tile.lineVertices,
-          lineIndices: tile.lineIndices,
-          pointVertices: tile.pointVertices,
-          outlineIndices: tile.outlineIndices,
-          outlineVertices: tile.outlineVertices,
-          outlineLineIndices: tile.outlineLineIndices,
-          polygons: tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId })),
-          fullCover: tile.fullCover,
-          fullCoverFeatureId: tile.fullCoverFeatureId,
-          prebuiltLineSegments: lineSegments,
-          prebuiltOutlineSegments: outlineSegments,
-        }, layerName)
+        sink.acceptResult(
+          key,
+          {
+            vertices: tile.vertices,
+            dequantScale: tile.dequantScale,
+            dequantHalf: tile.dequantHalf,
+            indices: tile.indices,
+            lineVertices: tile.lineVertices,
+            lineIndices: tile.lineIndices,
+            pointVertices: tile.pointVertices,
+            outlineIndices: tile.outlineIndices,
+            outlineVertices: tile.outlineVertices,
+            outlineLineIndices: tile.outlineLineIndices,
+            polygons: tile.polygons?.map((p) => ({ rings: p.rings, featId: p.featId })),
+            fullCover: tile.fullCover,
+            fullCoverFeatureId: tile.fullCoverFeatureId,
+            prebuiltLineSegments: lineSegments,
+            prebuiltOutlineSegments: outlineSegments,
+          },
+          layerName,
+        )
         emitted = true
       }
       if (!emitted) sink.acceptResult(key, null)
@@ -277,10 +315,16 @@ export class VirtualPMTilesBackend implements TileSource {
 /** Direct field-by-field mapping between an MvtCompileSlice (the
  *  wire format) and a BackendTileResult (the sink's shape). */
 function sliceToBackendResult(slice: {
-  vertices: Float32Array; dequantScale: number; dequantHalf: number; indices: Uint32Array
-  lineVertices: Float32Array; lineIndices: Uint32Array
+  vertices: Float32Array
+  dequantScale: number
+  dequantHalf: number
+  indices: Uint32Array
+  lineVertices: Float32Array
+  lineIndices: Uint32Array
   pointVertices?: Float32Array
-  outlineIndices?: Uint32Array; outlineVertices?: Float32Array; outlineLineIndices?: Uint32Array
+  outlineIndices?: Uint32Array
+  outlineVertices?: Float32Array
+  outlineLineIndices?: Uint32Array
   polygons?: unknown
   heights?: ReadonlyMap<number, number>
   bases?: ReadonlyMap<number, number>
@@ -328,7 +372,7 @@ function tileSizeMerc(z: number, y: number): { widthMerc: number; heightMerc: nu
   }
   const latNorth = yToLat(y)
   const latSouth = yToLat(y + 1)
-  const myNorth = Math.log(Math.tan(Math.PI / 4 + clamp(latNorth) * DEG2RAD / 2)) * R
-  const mySouth = Math.log(Math.tan(Math.PI / 4 + clamp(latSouth) * DEG2RAD / 2)) * R
+  const myNorth = Math.log(Math.tan(Math.PI / 4 + (clamp(latNorth) * DEG2RAD) / 2)) * R
+  const mySouth = Math.log(Math.tan(Math.PI / 4 + (clamp(latSouth) * DEG2RAD) / 2)) * R
   return { widthMerc, heightMerc: myNorth - mySouth }
 }

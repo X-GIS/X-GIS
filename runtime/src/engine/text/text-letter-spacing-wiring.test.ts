@@ -38,8 +38,16 @@ import type { RhiBuffer, RhiBindGroup } from '@xgis/engine'
 // node test env. Values per the WebGPU spec (mirrors text-renderer-newline-page).
 const gg = globalThis as Record<string, unknown>
 gg.GPUBufferUsage ??= {
-  MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8, INDEX: 16,
-  VERTEX: 32, UNIFORM: 64, STORAGE: 128, INDIRECT: 256, QUERY_RESOLVE: 512,
+  MAP_READ: 1,
+  MAP_WRITE: 2,
+  COPY_SRC: 4,
+  COPY_DST: 8,
+  INDEX: 16,
+  VERTEX: 32,
+  UNIFORM: 64,
+  STORAGE: 128,
+  INDIRECT: 256,
+  QUERY_RESOLVE: 512,
 }
 
 const PAGE_SIZE = 256
@@ -78,7 +86,9 @@ function makeRenderer(): { renderer: TextRenderer; lastVerts: () => Float32Array
       //   Float32Array VIEW (no byteOffset/size args). The arena reuses its backing
       //   buffer across frames, so copy the view's exact bytes out now.
       writeBuffer(_buf: unknown, _off: number, src: ArrayBufferView): void {
-        captured = new Float32Array(src.buffer.slice(src.byteOffset, src.byteOffset + src.byteLength))
+        captured = new Float32Array(
+          src.buffer.slice(src.byteOffset, src.byteOffset + src.byteLength),
+        )
       },
     },
   } as unknown as GPUDevice

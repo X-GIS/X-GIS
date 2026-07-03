@@ -9,55 +9,102 @@
 
 import { test, expect } from '@playwright/test'
 
-interface DumpGlyph { cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }
-interface DumpLabel { text: string; anchorX: number; anchorY: number; glyphs: DumpGlyph[] }
+interface DumpGlyph {
+  cp: number
+  x: number
+  y: number
+  bearingY: number
+  height: number
+  rfs: number
+}
+interface DumpLabel {
+  text: string
+  anchorX: number
+  anchorY: number
+  glyphs: DumpGlyph[]
+}
 
 async function loadAndDump(
-  page: import('@playwright/test').Page, hash: string, filter: string,
+  page: import('@playwright/test').Page,
+  hash: string,
+  filter: string,
 ): Promise<DumpLabel[]> {
   await page.setViewportSize({ width: 1280, height: 720 })
   // compare.html live-converts the network OFM Bright style → labels +
   // glyphsUrl (PBF). The pre-baked demo .xgis emits no labels.
-  await page.goto(`/compare.html?style=openfreemap-bright${hash}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/compare.html?style=openfreemap-bright${hash}`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => !!(window as unknown as { __xgisMap?: unknown }).__xgisMap,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // Poll until labels actually dispatch (tiles + glyph PBF must arrive).
-  await page.waitForFunction(
-    () => {
-      const m = (window as unknown as { __xgisMap?: { getLastLabelCounts?: () => { drawn: number } | null } }).__xgisMap
-      const c = m?.getLastLabelCounts?.()
-      return !!c && c.drawn > 0
-    },
-    null, { timeout: 40_000 },
-  ).catch(() => {})
+  await page
+    .waitForFunction(
+      () => {
+        const m = (
+          window as unknown as {
+            __xgisMap?: { getLastLabelCounts?: () => { drawn: number } | null }
+          }
+        ).__xgisMap
+        const c = m?.getLastLabelCounts?.()
+        return !!c && c.drawn > 0
+      },
+      null,
+      { timeout: 40_000 },
+    )
+    .catch(() => {})
   await page.evaluate((f) => {
-    const m = (window as unknown as { __xgisMap?: { setLabelDumpFilter?: (s: string) => void; invalidate?: () => void } }).__xgisMap
+    const m = (
+      window as unknown as {
+        __xgisMap?: { setLabelDumpFilter?: (s: string) => void; invalidate?: () => void }
+      }
+    ).__xgisMap
     m?.setLabelDumpFilter?.(f)
     m?.invalidate?.()
   }, filter)
   await page.waitForTimeout(1_500)
-  return await page.evaluate(() => {
-    const m = (window as unknown as { __xgisMap?: { getDumpedLabels?: () => DumpLabel[] } }).__xgisMap
+  return (await page.evaluate(() => {
+    const m = (window as unknown as { __xgisMap?: { getDumpedLabels?: () => DumpLabel[] } })
+      .__xgisMap
     return m?.getDumpedLabels?.() ?? []
-  }) as DumpLabel[]
+  })) as DumpLabel[]
 }
 
 /** Load high, step-zoom OUT to target (exercises layout cache across
  *  sizes — the user's actual path), then dump. */
 async function loadAndDumpZoomOut(
   page: import('@playwright/test').Page,
-  lat: number, lon: number, fromZ: number, toZ: number, filter: string,
+  lat: number,
+  lon: number,
+  fromZ: number,
+  toZ: number,
+  filter: string,
 ): Promise<DumpLabel[]> {
   await page.setViewportSize({ width: 1280, height: 720 })
-  await page.goto(`/compare.html?style=openfreemap-bright#${fromZ}/${lat}/${lon}`, { waitUntil: 'domcontentloaded' })
-  await page.waitForFunction(() => !!(window as unknown as { __xgisMap?: unknown }).__xgisMap, null, { timeout: 30_000 })
+  await page.goto(`/compare.html?style=openfreemap-bright#${fromZ}/${lat}/${lon}`, {
+    waitUntil: 'domcontentloaded',
+  })
+  await page.waitForFunction(
+    () => !!(window as unknown as { __xgisMap?: unknown }).__xgisMap,
+    null,
+    { timeout: 30_000 },
+  )
   await page.waitForTimeout(6_000)
   // Step zoom out, settling each step so prepare runs at every size.
   for (let z = fromZ - 0.5; z >= toZ; z -= 0.5) {
     await page.evaluate((zz) => {
-      const m = (window as unknown as { __xgisMap?: { setZoom?: (z: number) => void; camera?: { zoom: number }; invalidate?: () => void } }).__xgisMap
+      const m = (
+        window as unknown as {
+          __xgisMap?: {
+            setZoom?: (z: number) => void
+            camera?: { zoom: number }
+            invalidate?: () => void
+          }
+        }
+      ).__xgisMap
       if (m?.setZoom) m.setZoom(zz)
       else if (m?.camera) m.camera.zoom = zz
       m?.invalidate?.()
@@ -66,23 +113,34 @@ async function loadAndDumpZoomOut(
   }
   await page.waitForTimeout(1_500)
   await page.evaluate((f) => {
-    const m = (window as unknown as { __xgisMap?: { setLabelDumpFilter?: (s: string) => void; invalidate?: () => void } }).__xgisMap
+    const m = (
+      window as unknown as {
+        __xgisMap?: { setLabelDumpFilter?: (s: string) => void; invalidate?: () => void }
+      }
+    ).__xgisMap
     m?.setLabelDumpFilter?.(f)
     m?.invalidate?.()
   }, filter)
   await page.waitForTimeout(1_200)
-  return await page.evaluate(() => {
-    const m = (window as unknown as { __xgisMap?: { getDumpedLabels?: () => DumpLabel[] } }).__xgisMap
+  return (await page.evaluate(() => {
+    const m = (window as unknown as { __xgisMap?: { getDumpedLabels?: () => DumpLabel[] } })
+      .__xgisMap
     return m?.getDumpedLabels?.() ?? []
-  }) as DumpLabel[]
+  })) as DumpLabel[]
 }
 
 /** Pretty-print a label's per-glyph placement grouped by line (y). */
 function describe(label: DumpLabel): string {
   const lines = label.glyphs
-    .filter(g => g.cp !== 10)
-    .map(g => `${String.fromCodePoint(g.cp)} x=${g.x.toFixed(1)} y=${g.y.toFixed(1)} bY=${g.bearingY.toFixed(1)} h=${g.height} rfs=${g.rfs}`)
-  return `"${label.text}" @(${label.anchorX.toFixed(0)},${label.anchorY.toFixed(0)})\n  ` + lines.join('\n  ')
+    .filter((g) => g.cp !== 10)
+    .map(
+      (g) =>
+        `${String.fromCodePoint(g.cp)} x=${g.x.toFixed(1)} y=${g.y.toFixed(1)} bY=${g.bearingY.toFixed(1)} h=${g.height} rfs=${g.rfs}`,
+    )
+  return (
+    `"${label.text}" @(${label.anchorX.toFixed(0)},${label.anchorY.toFixed(0)})\n  ` +
+    lines.join('\n  ')
+  )
 }
 
 test.describe('iter-330 bilingual label live dump', () => {
@@ -111,13 +169,15 @@ test.describe('iter-330 bilingual label live dump', () => {
     // Latin glyph. If violated → the on-screen overlap is in the data
     // the renderer received (CPU), not the GPU.
     for (const l of labels) {
-      const cjk = l.glyphs.filter(g => g.cp >= 0xac00 && g.cp <= 0xd7a3).map(g => g.y)
-      const lat = l.glyphs.filter(g => g.cp > 32 && g.cp < 0x3000 && g.cp !== 10).map(g => g.y)
+      const cjk = l.glyphs.filter((g) => g.cp >= 0xac00 && g.cp <= 0xd7a3).map((g) => g.y)
+      const lat = l.glyphs.filter((g) => g.cp > 32 && g.cp < 0x3000 && g.cp !== 10).map((g) => g.y)
       if (cjk.length && lat.length) {
-        console.log(`  → maxLatinY=${Math.max(...lat).toFixed(1)} minCjkY=${Math.min(...cjk).toFixed(1)} overlap=${Math.min(...cjk) <= Math.max(...lat)}`)
+        console.log(
+          `  → maxLatinY=${Math.max(...lat).toFixed(1)} minCjkY=${Math.min(...cjk).toFixed(1)} overlap=${Math.min(...cjk) <= Math.max(...lat)}`,
+        )
       }
     }
-    expect(labels.length).toBeGreaterThanOrEqual(0)  // diagnostic — never fails the run
+    expect(labels.length).toBeGreaterThanOrEqual(0) // diagnostic — never fails the run
   })
 
   test('z=10.87 Seoul — review all labels', async ({ page }) => {
@@ -128,15 +188,20 @@ test.describe('iter-330 bilingual label live dump', () => {
     // glyphs aren't x-monotonic within a line.
     let flagged = 0
     for (const l of labels) {
-      const ys = [...new Set(l.glyphs.filter(g => g.cp !== 10).map(g => Math.round(g.y)))].sort((a, b) => a - b)
-      if (ys.length < 2) continue  // single line
+      const ys = [...new Set(l.glyphs.filter((g) => g.cp !== 10).map((g) => Math.round(g.y)))].sort(
+        (a, b) => a - b,
+      )
+      if (ys.length < 2) continue // single line
       // Group glyphs by line-y, check intra-line x monotonic.
       let bad = false
       for (const ly of ys) {
-        const xs = l.glyphs.filter(g => g.cp !== 10 && Math.round(g.y) === ly).map(g => g.x)
+        const xs = l.glyphs.filter((g) => g.cp !== 10 && Math.round(g.y) === ly).map((g) => g.x)
         for (let i = 1; i < xs.length; i++) if (xs[i]! <= xs[i - 1]!) bad = true
       }
-      if (bad) { flagged++; console.log(`FLAG ${describe(l)}`) }
+      if (bad) {
+        flagged++
+        console.log(`FLAG ${describe(l)}`)
+      }
     }
     console.log(`\n=== ${flagged} multi-line label(s) with non-monotonic x ===`)
     expect(labels.length).toBeGreaterThanOrEqual(0)

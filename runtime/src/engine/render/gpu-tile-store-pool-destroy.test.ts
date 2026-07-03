@@ -37,7 +37,9 @@ function mockDevice() {
         usage: desc.usage,
         label: desc.label ?? undefined,
         destroyed: false,
-        destroy() { b.destroyed = true },
+        destroy() {
+          b.destroyed = true
+        },
       }
       return b as unknown as GPUBuffer
     },
@@ -63,7 +65,7 @@ describe('GpuTileStore.destroy() drains the buffer pool', () => {
     }
 
     // Sanity: parking in the pool must not have destroyed them yet.
-    expect(released.every(b => b.destroyed === false)).toBe(true)
+    expect(released.every((b) => b.destroyed === false)).toBe(true)
 
     store.destroy()
 

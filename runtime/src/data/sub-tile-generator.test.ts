@@ -12,9 +12,7 @@
 import { describe, it, expect } from 'vitest'
 import { SubTileGenerator } from '@xgis/data'
 import type { TileData } from '@xgis/data'
-import {
-  decomposeFeatures, compileSingleTile, tileKey,
-} from '@xgis/compiler'
+import { decomposeFeatures, compileSingleTile, tileKey } from '@xgis/compiler'
 import type { GeoJSONFeature } from '@xgis/compiler'
 
 // #398: polygon vertices are the quantized ECEF layout — stride 28 bytes
@@ -25,17 +23,22 @@ const DSFUN_POLY_STRIDE = 7
 /** Web-Mercator tile bounds in degrees (inline — tileBounds is a
  *  runtime-only helper in tile-select.ts, not exported from the
  *  compiler package). */
-function tileBoundsDeg(z: number, x: number, y: number): { west: number; south: number; east: number; north: number } {
+function tileBoundsDeg(
+  z: number,
+  x: number,
+  y: number,
+): { west: number; south: number; east: number; north: number } {
   const n = Math.pow(2, z)
-  const west = x / n * 360 - 180
-  const east = (x + 1) / n * 360 - 180
-  const north = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI
-  const south = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n))) * 180 / Math.PI
+  const west = (x / n) * 360 - 180
+  const east = ((x + 1) / n) * 360 - 180
+  const north = (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n))) * 180) / Math.PI
+  const south = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 1)) / n))) * 180) / Math.PI
   return { west, south, east, north }
 }
 
 const poly = (coords: number[][][]): GeoJSONFeature => ({
-  type: 'Feature', properties: {},
+  type: 'Feature',
+  properties: {},
   geometry: { type: 'Polygon', coordinates: coords },
 })
 
@@ -75,7 +78,8 @@ function assertSubTileInvariants(sub: TileData, ctx: string): void {
   for (let v = 0; v < vCnt; v++) {
     for (let s = 3; s < 7; s++) {
       const val = sub.vertices[v * DSFUN_POLY_STRIDE + s]!
-      if (!Number.isFinite(val)) throw new Error(`${ctx} vertices[${v}].f32[${s}] non-finite: ${val}`)
+      if (!Number.isFinite(val))
+        throw new Error(`${ctx} vertices[${v}].f32[${s}] non-finite: ${val}`)
     }
   }
   assertFinite(sub.lineVertices, `${ctx} lineVertices`)
@@ -91,25 +95,55 @@ describe('iter-315 SubTileGenerator overzoom clip', () => {
 
   it('hasClippableGeometry: true with polygon, false when empty', () => {
     const empty: TileData = {
-      vertices: new Float32Array(0), dequantScale: 1, dequantHalf: 0,
+      vertices: new Float32Array(0),
+      dequantScale: 1,
+      dequantHalf: 0,
       indices: new Uint32Array(0),
-      lineVertices: new Float32Array(0), lineIndices: new Uint32Array(0),
+      lineVertices: new Float32Array(0),
+      lineIndices: new Uint32Array(0),
       outlineIndices: new Uint32Array(0),
-      tileWest: 0, tileSouth: 0, tileWidth: 1, tileHeight: 1, tileZoom: 0,
+      tileWest: 0,
+      tileSouth: 0,
+      tileWidth: 1,
+      tileHeight: 1,
+      tileZoom: 0,
     }
     expect(gen.hasClippableGeometry(empty)).toBe(false)
     expect(gen.hasClippableGeometry(null)).toBe(false)
     expect(gen.hasClippableGeometry(undefined)).toBe(false)
 
-    const world = makeParent(poly([[[-170, -80], [170, -80], [170, 80], [-170, 80], [-170, -80]]]), 0, 0, 0)
+    const world = makeParent(
+      poly([
+        [
+          [-170, -80],
+          [170, -80],
+          [170, 80],
+          [-170, 80],
+          [-170, -80],
+        ],
+      ]),
+      0,
+      0,
+      0,
+    )
     expect(world).not.toBe(null)
     expect(gen.hasClippableGeometry(world!)).toBe(true)
   })
 
   it('clips z=0 world parent into a z=2 child — finite + in-bounds', () => {
     const world = makeParent(
-      poly([[[-170, -80], [170, -80], [170, 80], [-170, 80], [-170, -80]]]),
-      0, 0, 0,
+      poly([
+        [
+          [-170, -80],
+          [170, -80],
+          [170, 80],
+          [-170, 80],
+          [-170, -80],
+        ],
+      ]),
+      0,
+      0,
+      0,
     )!
     // z=2 child tile (x=1, y=1) — somewhere mid-world, covered by parent.
     const childKey = tileKey(2, 1, 1)
@@ -123,10 +157,19 @@ describe('iter-315 SubTileGenerator overzoom clip', () => {
   it('child fully inside parent geometry produces non-empty clip', () => {
     // Parent = z=3 tile fully inside a large polygon; child = its z=5
     // descendant. Both fully covered → child gets fill.
-    const big = poly([[[-10, -10], [40, -10], [40, 40], [-10, 40], [-10, -10]]])
-    const z = 3, n = 1 << z
-    const x = Math.floor((10 + 180) / 360 * n)
-    const latR = 10 * Math.PI / 180
+    const big = poly([
+      [
+        [-10, -10],
+        [40, -10],
+        [40, 40],
+        [-10, 40],
+        [-10, -10],
+      ],
+    ])
+    const z = 3,
+      n = 1 << z
+    const x = Math.floor(((10 + 180) / 360) * n)
+    const latR = (10 * Math.PI) / 180
     const yf = (1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2
     const y = Math.floor(yf * n)
     const parent = makeParent(big, z, x, y)
@@ -141,7 +184,15 @@ describe('iter-315 SubTileGenerator overzoom clip', () => {
   it('child outside parent geometry returns null (no spurious fill)', () => {
     // Parent has a small polygon in one corner; child addresses the
     // opposite corner → nothing survives clip → null.
-    const corner = poly([[[-179, -84], [-178, -84], [-178, -83], [-179, -83], [-179, -84]]])
+    const corner = poly([
+      [
+        [-179, -84],
+        [-178, -84],
+        [-178, -83],
+        [-179, -83],
+        [-179, -84],
+      ],
+    ])
     const parent = makeParent(corner, 0, 0, 0)
     if (parent && gen.hasClippableGeometry(parent)) {
       // z=2 child in the FAR (east/north) corner — opposite the polygon.
@@ -154,8 +205,18 @@ describe('iter-315 SubTileGenerator overzoom clip', () => {
 
   it('repeated generate() on the same parent is deterministic', () => {
     const world = makeParent(
-      poly([[[-170, -80], [170, -80], [170, 80], [-170, 80], [-170, -80]]]),
-      0, 0, 0,
+      poly([
+        [
+          [-170, -80],
+          [170, -80],
+          [170, 80],
+          [-170, 80],
+          [-170, -80],
+        ],
+      ]),
+      0,
+      0,
+      0,
     )!
     const childKey = tileKey(2, 2, 1)
     const a = gen.generate(world, childKey)
@@ -172,7 +233,15 @@ describe('iter-315 SubTileGenerator overzoom clip', () => {
   })
 
   it('deep child (z=2 parent → z=6 child, 4 levels) stays finite', () => {
-    const region = poly([[[-50, -50], [50, -50], [50, 50], [-50, 50], [-50, -50]]])
+    const region = poly([
+      [
+        [-50, -50],
+        [50, -50],
+        [50, 50],
+        [-50, 50],
+        [-50, -50],
+      ],
+    ])
     const parent = makeParent(region, 2, 1, 1)
     if (parent && gen.hasClippableGeometry(parent)) {
       const childKey = tileKey(6, 1 * 16 + 5, 1 * 16 + 5)

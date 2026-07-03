@@ -181,10 +181,7 @@ export class FrameArena {
   beginFrame(): void {
     if (this.watermark > this.peak) this.peak = this.watermark
     if (this.peak >= this.buffer.byteLength * FrameArena.GROW_TRIGGER) {
-      const newCap = Math.max(
-        16,
-        ((this.buffer.byteLength * FrameArena.GROW_FACTOR) + 15) & ~15,
-      )
+      const newCap = Math.max(16, (this.buffer.byteLength * FrameArena.GROW_FACTOR + 15) & ~15)
       this.buffer = new ArrayBuffer(newCap)
       this.grows++
     }

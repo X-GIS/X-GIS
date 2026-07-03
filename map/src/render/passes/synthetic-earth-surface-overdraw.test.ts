@@ -47,17 +47,11 @@ import { emitPolygonWgsl } from '@xgis/map'
 import { backgroundClearValue } from './background-pass'
 
 // Source files for structural dispatch-path analysis
-const OPAQUE_PASS_SRC = readFileSync(
-  resolve(__dirname, 'opaque-pass.ts'),
-  'utf8',
-)
+const OPAQUE_PASS_SRC = readFileSync(resolve(__dirname, 'opaque-pass.ts'), 'utf8')
 // The ?debug=overdraw pipeline substitution was inverted into the bucket
 // scheduler's per-show draw closure (P2 carve Step 2): the engine passes
 // no longer name a GPURenderPipeline, so the override now lives here.
-const BUCKET_SCHEDULER_SRC = readFileSync(
-  resolve(__dirname, '..', 'bucket-scheduler.ts'),
-  'utf8',
-)
+const BUCKET_SCHEDULER_SRC = readFileSync(resolve(__dirname, '..', 'bucket-scheduler.ts'), 'utf8')
 
 // ─────────────────────────────────────────────────────────────────────────────
 // T1 — BackendTileResult geometry matches 128×64 earth-surface mesh
@@ -68,13 +62,15 @@ describe('AC2c.3.7 — SyntheticEarthSurfaceBackend produces standard polygon ti
     const backend = new SyntheticEarthSurfaceBackend()
     let result: import('@xgis/data').BackendTileResult | null = null
     backend.attach({
-      acceptResult: (_key: number, r: import('@xgis/data').BackendTileResult | null) => { result = r },
+      acceptResult: (_key: number, r: import('@xgis/data').BackendTileResult | null) => {
+        result = r
+      },
     } as unknown as import('@xgis/data').TileSourceSink)
     expect(result).not.toBeNull()
     // 128×64 grid (F1 rim-smoothing): (widthSegs+1)*(heightSegs+1) vertices,
     // #398 quantized layout = stride 28 bytes = 7 floats each (u16×6 position +
     // fid/abs_lon/abs_lat/true_lat).
-    const expectedVertexCount = (128 + 1) * (64 + 1)   // = 8385
+    const expectedVertexCount = (128 + 1) * (64 + 1) // = 8385
     expect(result!.vertices.length).toBe(expectedVertexCount * 7)
     // Dequant companion params must accompany the quantized buffer.
     expect(result!.dequantScale).toBeGreaterThan(0)
@@ -85,9 +81,11 @@ describe('AC2c.3.7 — SyntheticEarthSurfaceBackend produces standard polygon ti
     const backend = new SyntheticEarthSurfaceBackend()
     let result: import('@xgis/data').BackendTileResult | null = null
     backend.attach({
-      acceptResult: (_key: number, r: import('@xgis/data').BackendTileResult | null) => { result = r },
+      acceptResult: (_key: number, r: import('@xgis/data').BackendTileResult | null) => {
+        result = r
+      },
     } as unknown as import('@xgis/data').TileSourceSink)
-    const expectedIndexCount = 128 * 64 * 6  // = 49152
+    const expectedIndexCount = 128 * 64 * 6 // = 49152
     expect(result!.indices.length).toBe(expectedIndexCount)
   })
 
@@ -95,7 +93,9 @@ describe('AC2c.3.7 — SyntheticEarthSurfaceBackend produces standard polygon ti
     const backend = new SyntheticEarthSurfaceBackend()
     let result: import('@xgis/data').BackendTileResult | null = null
     backend.attach({
-      acceptResult: (_key: number, r: import('@xgis/data').BackendTileResult | null) => { result = r },
+      acceptResult: (_key: number, r: import('@xgis/data').BackendTileResult | null) => {
+        result = r
+      },
     } as unknown as import('@xgis/data').TileSourceSink)
     const verts = result!.vertices
     // #398: floats 0..2 of each stride-7 vertex are the quantized u16×6
@@ -115,7 +115,9 @@ describe('AC2c.3.7 — SyntheticEarthSurfaceBackend produces standard polygon ti
     const backend = new SyntheticEarthSurfaceBackend()
     let result: import('@xgis/data').BackendTileResult | null = null
     backend.attach({
-      acceptResult: (_key: number, r: import('@xgis/data').BackendTileResult | null) => { result = r },
+      acceptResult: (_key: number, r: import('@xgis/data').BackendTileResult | null) => {
+        result = r
+      },
     } as unknown as import('@xgis/data').TileSourceSink)
     expect(result!.lineVertices.length).toBe(0)
     expect(result!.lineIndices.length).toBe(0)
@@ -205,7 +207,7 @@ describe('AC2c.3.7 — overdraw override is unconditional (no synthetic exclusio
     // Both call the SAME drawShow() (which invokes cs.draw), so the
     // override applies equally.
     const nonExtrudedLoop = 'if (!isExtruded(group.shows[si])) drawShow(group.shows[si])'
-    const extrudedLoop    = 'if (isExtruded(group.shows[si])) drawShow(group.shows[si])'
+    const extrudedLoop = 'if (isExtruded(group.shows[si])) drawShow(group.shows[si])'
     expect(OPAQUE_PASS_SRC).toContain(nonExtrudedLoop)
     expect(OPAQUE_PASS_SRC).toContain(extrudedLoop)
   })
@@ -248,7 +250,10 @@ describe('AC2c.3.7 — polygon DSL fs_overdraw shares module with vs_main_ecef (
     // This ensures depth-stencil depthWriteEnabled:false is honoured
     // (no implicit depth side-effect from the fragment stage).
     const afterFsOverdraw = wgsl.slice(wgsl.indexOf('fn fs_overdraw'))
-    const beforeNextFn = afterFsOverdraw.slice(0, afterFsOverdraw.indexOf('\nfn ', 1) + 1 || undefined)
+    const beforeNextFn = afterFsOverdraw.slice(
+      0,
+      afterFsOverdraw.indexOf('\nfn ', 1) + 1 || undefined,
+    )
     expect(beforeNextFn).not.toContain('frag_depth')
   })
 })
@@ -267,7 +272,12 @@ describe('AC2c.3.7 — overdraw accumulator clear value is a:0 (clean slate per 
   })
 
   it('the a:0 clear is exclusive to overdraw — normal mode never yields a:0', () => {
-    expect(backgroundClearValue(0, [0.5, 0.5, 0.5, 1], false)).not.toEqual({ r: 0, g: 0, b: 0, a: 0 })
+    expect(backgroundClearValue(0, [0.5, 0.5, 0.5, 1], false)).not.toEqual({
+      r: 0,
+      g: 0,
+      b: 0,
+      a: 0,
+    })
     expect(backgroundClearValue(7, null, false)).toEqual({ r: 0, g: 0, b: 0, a: 1 })
   })
 })

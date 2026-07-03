@@ -24,7 +24,11 @@ function compileOptimized(source: string) {
 }
 
 describe('WGSL Expression Compiler', () => {
-  const fieldMap = new Map([['speed', 0], ['altitude', 1], ['heading', 2]])
+  const fieldMap = new Map([
+    ['speed', 0],
+    ['altitude', 1],
+    ['heading', 2],
+  ])
 
   it('compiles number literals', () => {
     expect(exprToWGSL(parseExpr('42'), fieldMap)).toBe('42.0')
@@ -33,7 +37,9 @@ describe('WGSL Expression Compiler', () => {
 
   it('compiles field access', () => {
     expect(exprToWGSL(parseExpr('speed'), fieldMap)).toBe('feat_data[((input.feat_id * 3u) + 0u)]')
-    expect(exprToWGSL(parseExpr('.altitude'), fieldMap)).toBe('feat_data[((input.feat_id * 3u) + 1u)]')
+    expect(exprToWGSL(parseExpr('.altitude'), fieldMap)).toBe(
+      'feat_data[((input.feat_id * 3u) + 1u)]',
+    )
   })
 
   it('compiles arithmetic', () => {
@@ -52,7 +58,9 @@ describe('WGSL Expression Compiler', () => {
   })
 
   it('compiles unary negation', () => {
-    expect(exprToWGSL(parseExpr('-speed'), fieldMap)).toBe('(-feat_data[((input.feat_id * 3u) + 0u)])')
+    expect(exprToWGSL(parseExpr('-speed'), fieldMap)).toBe(
+      '(-feat_data[((input.feat_id * 3u) + 0u)])',
+    )
   })
 
   it('compiles % as a floored-modulo expression, never the raw % operator', () => {
@@ -62,7 +70,9 @@ describe('WGSL Expression Compiler', () => {
     const result = exprToWGSL(parseExpr('speed % 50'), fieldMap)
     expect(result).not.toContain('%')
     expect(result).toContain('floor(')
-    expect(result).toBe('(feat_data[((input.feat_id * 3u) + 0u)] - (50.0 * floor((feat_data[((input.feat_id * 3u) + 0u)] / 50.0))))')
+    expect(result).toBe(
+      '(feat_data[((input.feat_id * 3u) + 0u)] - (50.0 * floor((feat_data[((input.feat_id * 3u) + 0u)] / 50.0))))',
+    )
   })
 
   it('compiles log10 via log', () => {
@@ -112,7 +122,7 @@ describe('Shader Variant Generator', () => {
     const node = scene.renderNodes[0]
     const variant = generateShaderVariant(node)
 
-    const constNames = (variant.preamble.consts ?? []).map(c => c.name)
+    const constNames = (variant.preamble.consts ?? []).map((c) => c.name)
     expect(constNames).toContain('FILL_COLOR')
     expect(constNames).toContain('OPACITY')
     expect(variant.needsFeatureBuffer).toBe(false)
@@ -138,7 +148,7 @@ describe('Shader Variant Generator', () => {
     expect(fillWgsl).toContain(`% ${CAT_PALETTE_SIZE}u`)
 
     // Const-array seam: array<vec4<f32>, CAT_PALETTE_SIZE>.
-    const catConst = (variant.preamble.consts ?? []).find(c => c.name === 'CAT_PALETTE')
+    const catConst = (variant.preamble.consts ?? []).find((c) => c.name === 'CAT_PALETTE')
     expect(catConst).toBeDefined()
     expect((catConst!.type as { size?: number }).size).toBe(CAT_PALETTE_SIZE)
   })
@@ -154,7 +164,7 @@ describe('Shader Variant Generator', () => {
     const node = scene.renderNodes[0]
     const variant = generateShaderVariant(node)
 
-    expect((variant.preamble.consts ?? []).map(c => c.name)).toContain('FILL_COLOR')
+    expect((variant.preamble.consts ?? []).map((c) => c.name)).toContain('FILL_COLOR')
   })
 
   it('generates variant needing feature buffer for data-driven size', () => {
@@ -171,7 +181,7 @@ describe('Shader Variant Generator', () => {
     // Size is data-driven but fill is constant
     // The variant itself doesn't need feature buffer for fill
     // (size isn't handled in fragment shader yet)
-    expect((variant.preamble.consts ?? []).map(c => c.name)).toContain('FILL_COLOR')
+    expect((variant.preamble.consts ?? []).map((c) => c.name)).toContain('FILL_COLOR')
   })
 
   it('same constants produce same cache key', () => {

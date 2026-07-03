@@ -20,7 +20,13 @@ describe('iter-198 dead-source drop', () => {
         unused: { type: 'raster', url: 'https://example.com/unused.json' },
       },
       layers: [
-        { id: 'l1', type: 'fill', source: 'used', 'source-layer': 'foo', paint: { 'fill-color': '#000' } },
+        {
+          id: 'l1',
+          type: 'fill',
+          source: 'used',
+          'source-layer': 'foo',
+          paint: { 'fill-color': '#000' },
+        },
       ],
     }
     const code = convertMapboxStyle(style as never)
@@ -57,7 +63,13 @@ describe('iter-198 dead-source drop', () => {
         c: { type: 'raster', tiles: ['https://x/c/{z}/{x}/{y}.png'] },
       },
       layers: [
-        { id: 'la', type: 'fill', source: 'a', 'source-layer': 'foo', paint: { 'fill-color': '#000' } },
+        {
+          id: 'la',
+          type: 'fill',
+          source: 'a',
+          'source-layer': 'foo',
+          paint: { 'fill-color': '#000' },
+        },
         { id: 'lc', type: 'raster', source: 'c' },
       ],
     }
@@ -77,9 +89,7 @@ describe('iter-198 dead-source drop', () => {
       sources: {
         unused: { type: 'vector', url: 'https://x/u.json' },
       },
-      layers: [
-        { id: 'bg', type: 'background', paint: { 'background-color': '#fff' } },
-      ],
+      layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#fff' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).not.toMatch(/^source unused\s+\{/m)

@@ -53,7 +53,7 @@ export function runtimeCapability(
   variant: RuntimeCapability['variant'],
 ): RuntimeCapability | undefined {
   return RUNTIME_CAPABILITIES.find(
-    c => c.layerType === layerType && c.property === property && c.variant === variant,
+    (c) => c.layerType === layerType && c.property === property && c.variant === variant,
   )
 }
 
@@ -61,5 +61,5 @@ export function runtimeCapability(
  *  degrade the input. Useful for surfacing the gap matrix in docs
  *  or as a regression watch list. */
 export function runtimeGaps(): readonly RuntimeCapability[] {
-  return RUNTIME_CAPABILITIES.filter(c => !c.supported)
+  return RUNTIME_CAPABILITIES.filter((c) => !c.supported)
 }

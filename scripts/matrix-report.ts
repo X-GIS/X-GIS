@@ -39,22 +39,30 @@ const fmt = (n: number | null) =>
 console.log('═══ MATRIX GATE REPORT (cached) ═══\n')
 for (const r of rows) {
   const mark =
-    r.verdict === 'PASS' ? '✓'
-    : r.verdict === 'FAIL' ? '✗'
-    : r.verdict === 'SOFT' ? '~'
-    : r.verdict === 'CANDIDATE' ? '?'
-    : '·'
+    r.verdict === 'PASS'
+      ? '✓'
+      : r.verdict === 'FAIL'
+        ? '✗'
+        : r.verdict === 'SOFT'
+          ? '~'
+          : r.verdict === 'CANDIDATE'
+            ? '?'
+            : '·'
   console.log(
     `${mark} ${r.cellId.padEnd(26)} ${r.oracle.padEnd(16)} ${r.verdict.padEnd(10)} ` +
-    `meas=${fmt(r.measured).padEnd(10)} thr=${fmt(r.threshold).padEnd(10)} ${r.detail}`,
+      `meas=${fmt(r.measured).padEnd(10)} thr=${fmt(r.threshold).padEnd(10)} ${r.detail}`,
   )
 }
 
 const count = (v: string) => rows.filter((r) => r.verdict === v).length
 console.log('\n───────────────────────────────────────────────')
-console.log(`PASS=${count('PASS')}  FAIL=${count('FAIL')}  SOFT=${count('SOFT')}  SKIP=${count('SKIP')}  CANDIDATE=${count('CANDIDATE')}`)
+console.log(
+  `PASS=${count('PASS')}  FAIL=${count('FAIL')}  SOFT=${count('SOFT')}  SKIP=${count('SKIP')}  CANDIDATE=${count('CANDIDATE')}`,
+)
 if (count('CANDIDATE') > 0) {
-  console.log(`\n→ inspect e2e/__matrix__/<id>.png for each CANDIDATE, then \`bun run matrix:accept <id>\`.`)
+  console.log(
+    `\n→ inspect e2e/__matrix__/<id>.png for each CANDIDATE, then \`bun run matrix:accept <id>\`.`,
+  )
 }
 if (hardFailures.length > 0) {
   console.log('\nHARD FAILURES:')

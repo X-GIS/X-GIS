@@ -15,38 +15,38 @@
 
 ## Header (40 bytes)
 
-| Offset | Size | Type | Field |
-|--------|------|------|-------|
-| 0 | 4 | u32 | Magic number: `0x54564758` ("XGVT" LE) |
-| 4 | 2 | u16 | Version |
-| 6 | 1 | u8 | Level count (number of zoom levels) |
-| 7 | 1 | u8 | Max level (highest zoom in file) |
-| 8 | 16 | f32×4 | Bounds: [minLon, minLat, maxLon, maxLat] |
-| 24 | 4 | u32 | Index offset (bytes from file start) |
-| 28 | 4 | u32 | Index length (bytes) |
-| 32 | 4 | u32 | Property table offset |
-| 36 | 4 | u32 | Property table length |
+| Offset | Size | Type  | Field                                    |
+| ------ | ---- | ----- | ---------------------------------------- |
+| 0      | 4    | u32   | Magic number: `0x54564758` ("XGVT" LE)   |
+| 4      | 2    | u16   | Version                                  |
+| 6      | 1    | u8    | Level count (number of zoom levels)      |
+| 7      | 1    | u8    | Max level (highest zoom in file)         |
+| 8      | 16   | f32×4 | Bounds: [minLon, minLat, maxLon, maxLat] |
+| 24     | 4    | u32   | Index offset (bytes from file start)     |
+| 28     | 4    | u32   | Index length (bytes)                     |
+| 32     | 4    | u32   | Property table offset                    |
+| 36     | 4    | u32   | Property table length                    |
 
 ## Tile Index
 
-| Offset | Size | Type | Field |
-|--------|------|------|-------|
-| 0 | 4 | u32 | Tile count |
-| 4+ | 36×N | | Index entries (sorted by Morton key) |
+| Offset | Size | Type | Field                                |
+| ------ | ---- | ---- | ------------------------------------ |
+| 0      | 4    | u32  | Tile count                           |
+| 4+     | 36×N |      | Index entries (sorted by Morton key) |
 
 ### Index Entry (36 bytes)
 
-| Offset | Size | Type | Field |
-|--------|------|------|-------|
-| 0 | 4 | u32 | Tile hash (Morton code + sentinel) |
-| 4 | 4 | u32 | Data offset (absolute file position) |
-| 8 | 4 | u32 | Compact data size |
-| 12 | 4 | u32 | GPU-ready data size (0 if compact-only) |
-| 16 | 4 | u32 | Polygon vertex count |
-| 20 | 4 | u32 | Polygon index count |
-| 24 | 4 | u32 | Line vertex count |
-| 28 | 4 | u32 | Line index count |
-| 32 | 4 | u32 | Reserved |
+| Offset | Size | Type | Field                                   |
+| ------ | ---- | ---- | --------------------------------------- |
+| 0      | 4    | u32  | Tile hash (Morton code + sentinel)      |
+| 4      | 4    | u32  | Data offset (absolute file position)    |
+| 8      | 4    | u32  | Compact data size                       |
+| 12     | 4    | u32  | GPU-ready data size (0 if compact-only) |
+| 16     | 4    | u32  | Polygon vertex count                    |
+| 20     | 4    | u32  | Polygon index count                     |
+| 24     | 4    | u32  | Line vertex count                       |
+| 28     | 4    | u32  | Line index count                        |
+| 32     | 4    | u32  | Reserved                                |
 
 ## Tile Key (Morton Code)
 
@@ -57,6 +57,7 @@ key = (1 << (2 * z)) | mortonEncode(x, y)
 ```
 
 Properties:
+
 - `parent = key >>> 2`
 - `children = [key<<2, key<<2|1, key<<2|2, key<<2|3]`
 - Supports zoom 0-26 (fits in JS safe integer)
@@ -66,14 +67,14 @@ Properties:
 
 Each tile contains 6 compact sections:
 
-| Section | Encoding | Content |
-|---------|----------|---------|
-| 1. Polygon coords | ZigZag delta varint | lon/lat pairs |
-| 2. Polygon indices | ZigZag delta varint | triangle indices |
-| 3. Line coords | ZigZag delta varint | lon/lat pairs |
-| 4. Line indices | ZigZag delta varint | line segment indices |
+| Section             | Encoding            | Content                  |
+| ------------------- | ------------------- | ------------------------ |
+| 1. Polygon coords   | ZigZag delta varint | lon/lat pairs            |
+| 2. Polygon indices  | ZigZag delta varint | triangle indices         |
+| 3. Line coords      | ZigZag delta varint | lon/lat pairs            |
+| 4. Line indices     | ZigZag delta varint | line segment indices     |
 | 5. Polygon feat_ids | ZigZag delta varint | per-vertex feature index |
-| 6. Line feat_ids | ZigZag delta varint | per-vertex feature index |
+| 6. Line feat_ids    | ZigZag delta varint | per-vertex feature index |
 
 Each section is prefixed with a u32 byte length.
 
@@ -92,14 +93,15 @@ Coordinates are stored as delta-encoded, ZigZag-mapped, varint-packed integers:
 ### Zoom-Adaptive Precision
 
 | Zoom | Precision | Accuracy |
-|------|-----------|----------|
-| 0-4 | 1e4 | ~1.1 km |
-| 5-8 | 1e5 | ~110 m |
-| 9+ | 1e6 | ~11 m |
+| ---- | --------- | -------- |
+| 0-4  | 1e4       | ~1.1 km  |
+| 5-8  | 1e5       | ~110 m   |
+| 9+   | 1e6       | ~11 m    |
 
 ### Vertex Format (GPU-ready)
 
 When decoded, vertices are stride-3 Float32:
+
 ```
 [lon, lat, feat_id, lon, lat, feat_id, ...]
 ```
@@ -141,17 +143,20 @@ No geometry simplification is applied — original coordinates are preserved thr
 ## Runtime Loading
 
 ### Full Load (< 50MB files)
+
 1. `fetch(url)` → full ArrayBuffer
 2. Parse header + index
 3. Tiles decoded synchronously on demand
 
 ### Range Request (≥ 50MB files)
+
 1. `fetch(url, Range: 0-39)` → Header
 2. `fetch(url, Range: indexOffset-...)` → Index + PropertyTable
 3. Per visible tile: `fetch(url, Range: tileOffset-...)` → Tile data
 4. Batch adjacent tiles into single Range Requests
 
 ### Zoom Transition
+
 - Previous zoom tiles remain visible while new zoom tiles load
 - Atomic swap when all visible tiles at new zoom are cached
 - LRU eviction protects stable-zoom tiles

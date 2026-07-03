@@ -75,11 +75,13 @@ function packFlags(
   hasPattern: boolean,
   hasOffset: boolean,
 ): number {
-  return (cap & 7) |
+  return (
+    (cap & 7) |
     ((join & 3) << 3) |
     (dashEnable ? 1 << 5 : 0) |
     (hasPattern ? LINE_FLAG_HAS_PATTERN : 0) |
     (hasOffset ? LINE_FLAG_HAS_OFFSET : 0)
+  )
 }
 
 export interface DashConfig {
@@ -135,15 +137,15 @@ export function checkPatternParams(
   warn: (key: string, msg: string) => void,
 ): void {
   const unitLabel = (u: number | undefined) =>
-    u === PATTERN_UNIT_PX ? 'px'
-    : u === PATTERN_UNIT_KM ? 'km'
-    : u === PATTERN_UNIT_NM ? 'nm'
-    : 'm'
+    u === PATTERN_UNIT_PX ? 'px' : u === PATTERN_UNIT_KM ? 'km' : u === PATTERN_UNIT_NM ? 'nm' : 'm'
   const toMeters = (v: number, unit: number | undefined) =>
-    unit === PATTERN_UNIT_PX ? v * mppAtCenter
-    : unit === PATTERN_UNIT_KM ? v * 1000
-    : unit === PATTERN_UNIT_NM ? v * 1852
-    : v  // meters (default)
+    unit === PATTERN_UNIT_PX
+      ? v * mppAtCenter
+      : unit === PATTERN_UNIT_KM
+        ? v * 1000
+        : unit === PATTERN_UNIT_NM
+          ? v * 1852
+          : v // meters (default)
 
   for (let i = 0; i < patterns.length; i++) {
     const pat = patterns[i]
@@ -158,7 +160,7 @@ export function checkPatternParams(
       warn(
         key,
         `[LineRenderer] pattern slot ${i}: size (${pat.size}${unitLabel(pat.sizeUnit)}) > 2 × spacing (${pat.spacing}${unitLabel(pat.spacingUnit)}). ` +
-        `Neighbor instances beyond ±1 are clipped — increase spacing or reduce size.`,
+          `Neighbor instances beyond ±1 are clipped — increase spacing or reduce size.`,
       )
     }
 
@@ -167,8 +169,8 @@ export function checkPatternParams(
       warn(
         key,
         `[LineRenderer] pattern slot ${i}: spacing is ${spacingPx.toFixed(3)} px at current zoom ` +
-        `(${pat.spacing}${unitLabel(pat.spacingUnit)} × mpp=${mppAtCenter.toFixed(1)}). ` +
-        `Pattern will collapse to a solid stroke — use px unit or increase spacing.`,
+          `(${pat.spacing}${unitLabel(pat.spacingUnit)} × mpp=${mppAtCenter.toFixed(1)}). ` +
+          `Pattern will collapse to a solid stroke — use px unit or increase spacing.`,
       )
     }
   }
@@ -274,7 +276,7 @@ export function packLineLayerUniform(
     dashOffset = dash.offset ?? 0
   }
 
-  const hasPattern = patterns.some(p => !!p && p.shapeId > 0)
+  const hasPattern = patterns.some((p) => !!p && p.shapeId > 0)
   const hasOffset = Math.abs(offsetPx) > 0
   u32[8] = packFlags(cap, join, dashCount > 0, hasPattern, hasOffset)
   u32[9] = dashCount
@@ -294,10 +296,7 @@ export function packLineLayerUniform(
     const offsetUnit = p.offsetUnit ?? PATTERN_UNIT_M
     const anchor = p.anchor ?? PATTERN_ANCHOR_REPEAT
     const flags =
-      (spacingUnit & 3) |
-      ((sizeUnit & 3) << 2) |
-      ((offsetUnit & 3) << 4) |
-      ((anchor & 3) << 6)
+      (spacingUnit & 3) | ((sizeUnit & 3) << 2) | ((offsetUnit & 3) << 4) | ((anchor & 3) << 6)
     u32[base] = p.shapeId | 0
     u32[base + 1] = flags
     buf[base + 2] = p.spacing

@@ -7,7 +7,7 @@ Date: 2026-06-02
 
 Two coupled decisions:
 
-1. **Single-emit shaders.** All WGSL the engine runs is *emitted* from an
+1. **Single-emit shaders.** All WGSL the engine runs is _emitted_ from an
    in-house TypeScript DSL under `runtime/src/engine/shader-dsl/`. There is one
    DSL source per render surface — `shaders/polygon.ts`, `shaders/line.ts`,
    `shaders/point.ts`, `shaders/raster.ts` (plus `sdf.ts` / `log-depth.ts` /
@@ -90,15 +90,15 @@ silently diverge.
 `projections.ts` does not hard-code thresholds. It looks them up:
 
 ```ts
-const AZI_CULL    = byName('azimuthal_equidistant').cullThreshold as number // -0.85
-const STEREO_CULL = byName('stereographic').cullThreshold as number         // -0.8
+const AZI_CULL = byName('azimuthal_equidistant').cullThreshold as number // -0.85
+const STEREO_CULL = byName('stereographic').cullThreshold as number // -0.8
 ```
 
 and it generates the forward-projection dispatch ladder straight from table
 order (`projections.ts:238–257`):
 
 ```ts
-const FLAT = PROJECTIONS.filter((p) => !p.isGlobe)  // projType 0..6
+const FLAT = PROJECTIONS.filter((p) => !p.isGlobe) // projType 0..6
 function emitForwardLadder(b, t, lon, lat, clon, clat) {
   // if (t < 0.5) … elif (t < 1.5) … else …  — one arm per FLAT row, in order
 }
@@ -134,26 +134,26 @@ The derived predicates (`worldCopiesFor`, `enumerateWorldCopies`,
 the name↔int maps (`PROJECTION_NAME_TO_TYPE`, `SELECTOR_PROJ_NAMES`), and the CPU
 mirror all follow without separate edits.
 
-The table also makes latent behaviour gaps *explicit* rather than hidden. The
+The table also makes latent behaviour gaps _explicit_ rather than hidden. The
 clearest example is `promotesToGlobeWhenTilted` vs `routeToSphereSelector`
-(`projections-table.ts:125–146`): oblique_mercator (6) sphere-*routes* its tiles
-but is *excluded* from globe promotion (it is cylindrical), so at pitch > 0 it
+(`projections-table.ts:125–146`): oblique_mercator (6) sphere-_routes_ its tiles
+but is _excluded_ from globe promotion (it is cylindrical), so at pitch > 0 it
 keeps a flat MVP while its tiles come from the sphere selector. The difference
-between those two table-derived predicates *is* the bug, written down.
+between those two table-derived predicates _is_ the bug, written down.
 
 ### Guard rails
 
 Three gates keep the single-emit property honest:
 
-| Gate | File | What it pins |
-|------|------|--------------|
+| Gate                | File                                              | What it pins                                                                                                                                                                                                                                                     |
+| ------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Byte-drift snapshot | `shader-dsl/shaders/polygon-variant-diff.test.ts` | The polygon composer's emitted WGSL is compared byte-equal against committed snapshots under `__polygon-variant-snapshots__/` (≥8 fixtures). An intentional emit change must be paired with `bun scripts/capture-polygon-snapshots.ts` and a snapshot re-commit. |
-| Threshold drift | `projection/projection-threshold-drift.test.ts` | Parses the cull `select()` and rim `smoothstep()` literals back out of the *emitted* `WGSL_PROJECTION_FNS` and asserts they equal the `PROJECTIONS` rows. Mutating either the table or any live copy turns it red. |
-| CPU↔GPU parity | `playground/e2e/_shader-math-parity.spec.ts` | Executes the real emitted `WGSL_PROJECTION_FNS` on a WebGPU device and checks the result against the cpu-f64 lowering generated from the same graph. |
+| Threshold drift     | `projection/projection-threshold-drift.test.ts`   | Parses the cull `select()` and rim `smoothstep()` literals back out of the _emitted_ `WGSL_PROJECTION_FNS` and asserts they equal the `PROJECTIONS` rows. Mutating either the table or any live copy turns it red.                                               |
+| CPU↔GPU parity      | `playground/e2e/_shader-math-parity.spec.ts`      | Executes the real emitted `WGSL_PROJECTION_FNS` on a WebGPU device and checks the result against the cpu-f64 lowering generated from the same graph.                                                                                                             |
 
-The byte-drift gate is intentionally *byte-equal, not AST-equivalent*: a legacy-
+The byte-drift gate is intentionally _byte-equal, not AST-equivalent_: a legacy-
 vs-DSL structural diff would need a WGSL AST differ; the pixel survey + CI render
-gate validate the *semantic* legacy ≡ DSL equivalence end-to-end, and the
+gate validate the _semantic_ legacy ≡ DSL equivalence end-to-end, and the
 snapshot gate sits one level above to pin per-commit emit stability
 (`polygon-variant-diff.test.ts:14–24`).
 
@@ -162,10 +162,10 @@ snapshot gate sits one level above to pin per-commit emit stability
 The polygon surface migrated fully off the legacy hand-written WGSL template:
 `render/renderer-shaders.ts` (`POLYGON_SHADER_SOURCE`, 826 LOC) was **deleted**
 and the live polygon pipeline now builds from `emitPolygonWgsl`. The projection
-*block* every surface inlines (`WGSL_PROJECTION_CONSTS` / `_FNS`) is DSL-emitted
+_block_ every surface inlines (`WGSL_PROJECTION_CONSTS` / `_FNS`) is DSL-emitted
 for all of polygon / line / point / raster — `shaders/projection.ts` is now a
 thin re-export of the DSL output (`projection.ts:31–34`). The line, point, and
-raster shaders still author their *surface-specific* bodies as hand-WGSL strings
+raster shaders still author their _surface-specific_ bodies as hand-WGSL strings
 that prepend the shared emitted projection block (see `emitLineWgsl`,
 `line.ts:1105`); converting those bodies to full DSL modules is tracked
 separately (`docs/shader-dsl/PHASE-3-SCOPE.md`).

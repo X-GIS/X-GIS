@@ -74,25 +74,69 @@ export class Lexer {
       }
 
       // 2-char symbols
-      if (ch === '=' && this.peek(1) === '=') { this.push(TokenType.EqEq, '=='); this.advance(2); continue }
-      if (ch === '!' && this.peek(1) === '=') { this.push(TokenType.BangEq, '!='); this.advance(2); continue }
-      if (ch === '<' && this.peek(1) === '=') { this.push(TokenType.LtEq, '<='); this.advance(2); continue }
-      if (ch === '>' && this.peek(1) === '=') { this.push(TokenType.GtEq, '>='); this.advance(2); continue }
-      if (ch === '&' && this.peek(1) === '&') { this.push(TokenType.AmpAmp, '&&'); this.advance(2); continue }
-      if (ch === '|' && this.peek(1) === '|') { this.push(TokenType.PipePipe, '||'); this.advance(2); continue }
-      if (ch === '?' && this.peek(1) === '?') { this.push(TokenType.QuestionQuestion, '??'); this.advance(2); continue }
-      if (ch === '-' && this.peek(1) === '>') { this.push(TokenType.Arrow, '->'); this.advance(2); continue }
+      if (ch === '=' && this.peek(1) === '=') {
+        this.push(TokenType.EqEq, '==')
+        this.advance(2)
+        continue
+      }
+      if (ch === '!' && this.peek(1) === '=') {
+        this.push(TokenType.BangEq, '!=')
+        this.advance(2)
+        continue
+      }
+      if (ch === '<' && this.peek(1) === '=') {
+        this.push(TokenType.LtEq, '<=')
+        this.advance(2)
+        continue
+      }
+      if (ch === '>' && this.peek(1) === '=') {
+        this.push(TokenType.GtEq, '>=')
+        this.advance(2)
+        continue
+      }
+      if (ch === '&' && this.peek(1) === '&') {
+        this.push(TokenType.AmpAmp, '&&')
+        this.advance(2)
+        continue
+      }
+      if (ch === '|' && this.peek(1) === '|') {
+        this.push(TokenType.PipePipe, '||')
+        this.advance(2)
+        continue
+      }
+      if (ch === '?' && this.peek(1) === '?') {
+        this.push(TokenType.QuestionQuestion, '??')
+        this.advance(2)
+        continue
+      }
+      if (ch === '-' && this.peek(1) === '>') {
+        this.push(TokenType.Arrow, '->')
+        this.advance(2)
+        continue
+      }
 
       // 1-char symbols
       const singleChars: Record<string, TokenType> = {
-        '(': TokenType.LParen, ')': TokenType.RParen,
-        '{': TokenType.LBrace, '}': TokenType.RBrace,
-        '[': TokenType.LBracket, ']': TokenType.RBracket,
-        ':': TokenType.Colon, ',': TokenType.Comma,
-        '=': TokenType.Eq, '<': TokenType.Lt, '>': TokenType.Gt,
-        '+': TokenType.Plus, '-': TokenType.Minus,
-        '*': TokenType.Star, '/': TokenType.Slash, '%': TokenType.Percent,
-        '&': TokenType.Amp, '|': TokenType.Pipe, '!': TokenType.Bang, '?': TokenType.Question,
+        '(': TokenType.LParen,
+        ')': TokenType.RParen,
+        '{': TokenType.LBrace,
+        '}': TokenType.RBrace,
+        '[': TokenType.LBracket,
+        ']': TokenType.RBracket,
+        ':': TokenType.Colon,
+        ',': TokenType.Comma,
+        '=': TokenType.Eq,
+        '<': TokenType.Lt,
+        '>': TokenType.Gt,
+        '+': TokenType.Plus,
+        '-': TokenType.Minus,
+        '*': TokenType.Star,
+        '/': TokenType.Slash,
+        '%': TokenType.Percent,
+        '&': TokenType.Amp,
+        '|': TokenType.Pipe,
+        '!': TokenType.Bang,
+        '?': TokenType.Question,
       }
 
       const tokenType = singleChars[ch]
@@ -184,7 +228,11 @@ export class Lexer {
     }
 
     // Decimal part
-    if (this.pos < this.src.length && this.src[this.pos] === '.' && this.isDigit(this.src[this.pos + 1] ?? '')) {
+    if (
+      this.pos < this.src.length &&
+      this.src[this.pos] === '.' &&
+      this.isDigit(this.src[this.pos + 1] ?? '')
+    ) {
       value += '.'
       this.pos++
       this.col++
@@ -214,16 +262,19 @@ export class Lexer {
       if (look < this.src.length && this.isDigit(this.src[look]!)) {
         // Consume e/E
         value += this.src[this.pos]
-        this.pos++; this.col++
+        this.pos++
+        this.col++
         // Consume optional sign
         if (this.src[this.pos] === '+' || this.src[this.pos] === '-') {
           value += this.src[this.pos]
-          this.pos++; this.col++
+          this.pos++
+          this.col++
         }
         // Consume exponent digits
         while (this.pos < this.src.length && this.isDigit(this.src[this.pos])) {
           value += this.src[this.pos]
-          this.pos++; this.col++
+          this.pos++
+          this.col++
         }
       }
     }
@@ -255,7 +306,10 @@ export class Lexer {
     const startCol = this.col
     let value = ''
 
-    while (this.pos < this.src.length && (this.isAlphaNumeric(this.src[this.pos]) || this.src[this.pos] === '_')) {
+    while (
+      this.pos < this.src.length &&
+      (this.isAlphaNumeric(this.src[this.pos]) || this.src[this.pos] === '_')
+    ) {
       value += this.src[this.pos]
       this.pos++
       this.col++
@@ -316,10 +370,18 @@ export class Lexer {
     this.tokens.push({ type, value, line: this.line, col: this.col })
   }
 
-  private isDigit(ch: string): boolean { return ch >= '0' && ch <= '9' }
-  private isAlpha(ch: string): boolean { return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch === '_' }
-  private isAlphaNumeric(ch: string): boolean { return this.isAlpha(ch) || this.isDigit(ch) }
-  private isHexDigit(ch: string): boolean { return this.isDigit(ch) || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F') }
+  private isDigit(ch: string): boolean {
+    return ch >= '0' && ch <= '9'
+  }
+  private isAlpha(ch: string): boolean {
+    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch === '_'
+  }
+  private isAlphaNumeric(ch: string): boolean {
+    return this.isAlpha(ch) || this.isDigit(ch)
+  }
+  private isHexDigit(ch: string): boolean {
+    return this.isDigit(ch) || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')
+  }
 
   private error(msg: string): never {
     throw new Error(`[Lexer] ${msg} at line ${this.line}, col ${this.col}`)

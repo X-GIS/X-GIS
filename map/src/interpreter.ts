@@ -31,12 +31,10 @@ function synthesizeConstantPaintShapes(args: {
 }): PaintShapes {
   const fillRgba = args.fill !== null ? hexToRgba(args.fill) : null
   const strokeRgba = args.stroke !== null ? hexToRgba(args.stroke) : null
-  const fill: PropertyShape<PropertyRGBA> | null = fillRgba !== null
-    ? { kind: 'constant', value: fillRgba as PropertyRGBA }
-    : null
-  const stroke: PropertyShape<PropertyRGBA> | null = strokeRgba !== null
-    ? { kind: 'constant', value: strokeRgba as PropertyRGBA }
-    : null
+  const fill: PropertyShape<PropertyRGBA> | null =
+    fillRgba !== null ? { kind: 'constant', value: fillRgba as PropertyRGBA } : null
+  const stroke: PropertyShape<PropertyRGBA> | null =
+    strokeRgba !== null ? { kind: 'constant', value: strokeRgba as PropertyRGBA } : null
   return {
     fill: { fill },
     line: {
@@ -136,7 +134,7 @@ export function interpret(program: AST.Program): SceneCommands {
         // would race-create N orphan TileCatalog/VTRs and the actual
         // rendering ends up wired to whichever attachPMTilesSource
         // finished last. Symptom: gpuCache stays at 0 forever.
-        if (!loads.some(l => l.name === result.load.name)) {
+        if (!loads.some((l) => l.name === result.load.name)) {
           loads.push(result.load)
         }
         shows.push(result.show)
@@ -319,7 +317,13 @@ function extractShow(stmt: AST.ShowStatement): ShowCommand | null {
   }
 
   return {
-    targetName, fill, stroke, strokeWidth, projection, visible, opacity,
+    targetName,
+    fill,
+    stroke,
+    strokeWidth,
+    projection,
+    visible,
+    opacity,
     paintShapes: synthesizeConstantPaintShapes({ fill, stroke, strokeWidth, opacity }),
   }
 }

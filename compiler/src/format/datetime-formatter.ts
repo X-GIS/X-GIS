@@ -28,28 +28,46 @@ export function formatDate(value: DateInput, spec: FormatSpec): string {
   if (!date || isNaN(date.getTime())) return String(value)
   const pattern = spec.type ?? ''
   const useIntl = spec.locale !== undefined && spec.locale !== 'C'
-  const useUTC = !useIntl  // 'C' or undefined → UTC for determinism
+  const useUTC = !useIntl // 'C' or undefined → UTC for determinism
 
-  return pattern.replace(/%[YymdHMSjsaAbBpZz%]/g, token => {
+  return pattern.replace(/%[YymdHMSjsaAbBpZz%]/g, (token) => {
     switch (token) {
-      case '%Y': return String(useUTC ? date.getUTCFullYear() : date.getFullYear())
-      case '%y': return pad2((useUTC ? date.getUTCFullYear() : date.getFullYear()) % 100)
-      case '%m': return pad2((useUTC ? date.getUTCMonth() : date.getMonth()) + 1)
-      case '%d': return pad2(useUTC ? date.getUTCDate() : date.getDate())
-      case '%H': return pad2(useUTC ? date.getUTCHours() : date.getHours())
-      case '%M': return pad2(useUTC ? date.getUTCMinutes() : date.getMinutes())
-      case '%S': return pad2(useUTC ? date.getUTCSeconds() : date.getSeconds())
-      case '%j': return String(dayOfYear(date, useUTC)).padStart(3, '0')
-      case '%s': return String(Math.floor(date.getTime() / 1000))
-      case '%a': return weekdayShort(date, useUTC, spec.locale)
-      case '%A': return weekdayLong(date, useUTC, spec.locale)
-      case '%b': return monthShort(date, useUTC, spec.locale)
-      case '%B': return monthLong(date, useUTC, spec.locale)
-      case '%p': return (useUTC ? date.getUTCHours() : date.getHours()) < 12 ? 'AM' : 'PM'
-      case '%Z': return useUTC ? 'UTC' : tzAbbr(date, spec.locale)
-      case '%z': return useUTC ? '+0000' : tzOffset(date)
-      case '%%': return '%'
-      default: return token
+      case '%Y':
+        return String(useUTC ? date.getUTCFullYear() : date.getFullYear())
+      case '%y':
+        return pad2((useUTC ? date.getUTCFullYear() : date.getFullYear()) % 100)
+      case '%m':
+        return pad2((useUTC ? date.getUTCMonth() : date.getMonth()) + 1)
+      case '%d':
+        return pad2(useUTC ? date.getUTCDate() : date.getDate())
+      case '%H':
+        return pad2(useUTC ? date.getUTCHours() : date.getHours())
+      case '%M':
+        return pad2(useUTC ? date.getUTCMinutes() : date.getMinutes())
+      case '%S':
+        return pad2(useUTC ? date.getUTCSeconds() : date.getSeconds())
+      case '%j':
+        return String(dayOfYear(date, useUTC)).padStart(3, '0')
+      case '%s':
+        return String(Math.floor(date.getTime() / 1000))
+      case '%a':
+        return weekdayShort(date, useUTC, spec.locale)
+      case '%A':
+        return weekdayLong(date, useUTC, spec.locale)
+      case '%b':
+        return monthShort(date, useUTC, spec.locale)
+      case '%B':
+        return monthLong(date, useUTC, spec.locale)
+      case '%p':
+        return (useUTC ? date.getUTCHours() : date.getHours()) < 12 ? 'AM' : 'PM'
+      case '%Z':
+        return useUTC ? 'UTC' : tzAbbr(date, spec.locale)
+      case '%z':
+        return useUTC ? '+0000' : tzOffset(date)
+      case '%%':
+        return '%'
+      default:
+        return token
     }
   })
 }
@@ -80,20 +98,53 @@ function coerceDate(v: DateInput): Date | null {
   return null
 }
 
-function pad2(n: number): string { return n < 10 ? '0' + n : String(n) }
+function pad2(n: number): string {
+  return n < 10 ? '0' + n : String(n)
+}
 
 function dayOfYear(d: Date, utc: boolean): number {
-  const start = utc
-    ? Date.UTC(d.getUTCFullYear(), 0, 0)
-    : new Date(d.getFullYear(), 0, 0).getTime()
+  const start = utc ? Date.UTC(d.getUTCFullYear(), 0, 0) : new Date(d.getFullYear(), 0, 0).getTime()
   return Math.floor((d.getTime() - start) / 86400000)
 }
 
 const C_WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const C_WEEKDAY_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-const C_MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const C_MONTH_LONG = ['January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December']
+const C_WEEKDAY_LONG = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+]
+const C_MONTH_SHORT = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+]
+const C_MONTH_LONG = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+]
 
 function weekdayShort(d: Date, utc: boolean, locale?: string): string {
   if (utc || !locale) return C_WEEKDAY_SHORT[d.getUTCDay()]!
@@ -118,9 +169,11 @@ function tzAbbr(d: Date, locale?: string): string {
     const parts = new Intl.DateTimeFormat(locale ?? 'en-US', {
       timeZoneName: 'short',
     }).formatToParts(d)
-    const tz = parts.find(p => p.type === 'timeZoneName')
+    const tz = parts.find((p) => p.type === 'timeZoneName')
     return tz?.value ?? ''
-  } catch { return '' }
+  } catch {
+    return ''
+  }
 }
 
 function tzOffset(d: Date): string {

@@ -14,7 +14,10 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  CAMERA_ZOOM_KEY, FEATURE_ID_KEY, GEOMETRY_TYPE_KEY, makeEvalProps,
+  CAMERA_ZOOM_KEY,
+  FEATURE_ID_KEY,
+  GEOMETRY_TYPE_KEY,
+  makeEvalProps,
   normalizeGeometryType,
 } from './reserved-keys'
 import { evaluate } from './evaluator'
@@ -23,9 +26,9 @@ import type { Identifier } from '../parser/ast'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 
 const RESERVED_LITERALS = [
-  CAMERA_ZOOM_KEY,    // '$zoom'
-  FEATURE_ID_KEY,     // '$featureId'
-  GEOMETRY_TYPE_KEY,  // '$geometryType'
+  CAMERA_ZOOM_KEY, // '$zoom'
+  FEATURE_ID_KEY, // '$featureId'
+  GEOMETRY_TYPE_KEY, // '$geometryType'
 ] as const
 
 // Allowlist: places where the literal IS legitimate.
@@ -161,7 +164,7 @@ describe('reserved keys — no literal `$zoom` / `$featureId` / `$geometryType` 
     expect(normalizeGeometryType('GeometryCollection')).toBe('GeometryCollection')
   })
 
-  it('makeEvalProps wires camera zoom to the evaluator\'s `zoom` identifier', () => {
+  it("makeEvalProps wires camera zoom to the evaluator's `zoom` identifier", () => {
     // The PR #102 invariant in test form: regardless of how the
     // worker / runtime constructs the props bag, the evaluator's
     // built-in `zoom` identifier MUST resolve to the value passed

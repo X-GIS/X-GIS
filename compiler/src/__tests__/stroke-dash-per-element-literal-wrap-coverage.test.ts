@@ -20,7 +20,13 @@ describe('line-dasharray per-element literal-wrap unwrap', () => {
           source: 's',
           paint: {
             'line-color': '#000',
-            'line-dasharray': ['literal', [['literal', 4], ['literal', 2]]],
+            'line-dasharray': [
+              'literal',
+              [
+                ['literal', 4],
+                ['literal', 2],
+              ],
+            ],
           },
         },
       ],
@@ -34,7 +40,12 @@ describe('line-dasharray per-element literal-wrap unwrap', () => {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
       layers: [
-        { id: 'l', type: 'line', source: 's', paint: { 'line-color': '#000', 'line-dasharray': [4, 2] } },
+        {
+          id: 'l',
+          type: 'line',
+          source: 's',
+          paint: { 'line-color': '#000', 'line-dasharray': [4, 2] },
+        },
       ],
     }
     const code = convertMapboxStyle(style as never)
@@ -69,7 +80,13 @@ describe('line-dasharray per-element literal-wrap unwrap', () => {
           source: 's',
           paint: {
             'line-color': '#000',
-            'line-dasharray': ['literal', [['literal', -4], ['literal', 2]]],
+            'line-dasharray': [
+              'literal',
+              [
+                ['literal', -4],
+                ['literal', 2],
+              ],
+            ],
           },
         },
       ],

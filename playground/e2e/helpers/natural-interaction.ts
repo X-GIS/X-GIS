@@ -51,42 +51,59 @@ export async function runInteraction(
   const easeKey = opts.easing ? opts.easing.toString() : null
   const verbose = opts.verbose === true
 
-  return await page.evaluate(async ({ durationMs, bodySrc, easeSrc, verbose }) => {
-    const map = (window as unknown as { __xgisMap?: unknown }).__xgisMap
-    if (!map) throw new Error('runInteraction: window.__xgisMap not set — host page must expose it')
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
-    const ease: (t: number) => number = easeSrc
-      ? (new Function(`return (${easeSrc})`) as () => (t: number) => number)()
-      : (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
-    const body = new Function('mapId', 't', bodySrc) as (mapId: string, t: number) => void
-    const start = performance.now()
-    let prev = start
-    const frames: number[] = []
-    return new Promise<{ frames: number[]; totalMs: number }>((resolve) => {
-      function step() {
-        const now = performance.now()
-        const elapsed = now - start
-        const t = Math.min(1, elapsed / durationMs)
-        const eased = ease(t)
-        body('__xgisMap', eased)
-        const dt = now - prev
-        if (frames.length > 0) frames.push(dt) // skip first interval (warmup)
-        else frames.push(0)
-        prev = now
-        if (t < 1) requestAnimationFrame(step)
-        else {
-          if (verbose) console.log(`[runInteraction] ${frames.length} frames, total ${(now - start).toFixed(0)}ms`)
-          resolve({ frames: frames.slice(1), totalMs: now - start })
+  return await page.evaluate(
+    async ({ durationMs, bodySrc, easeSrc, verbose }) => {
+      const map = (window as unknown as { __xgisMap?: unknown }).__xgisMap
+      if (!map)
+        throw new Error('runInteraction: window.__xgisMap not set — host page must expose it')
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+      const ease: (t: number) => number = easeSrc
+        ? (new Function(`return (${easeSrc})`) as () => (t: number) => number)()
+        : (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+      const body = new Function('mapId', 't', bodySrc) as (mapId: string, t: number) => void
+      const start = performance.now()
+      let prev = start
+      const frames: number[] = []
+      return new Promise<{ frames: number[]; totalMs: number }>((resolve) => {
+        function step() {
+          const now = performance.now()
+          const elapsed = now - start
+          const t = Math.min(1, elapsed / durationMs)
+          const eased = ease(t)
+          body('__xgisMap', eased)
+          const dt = now - prev
+          if (frames.length > 0)
+            frames.push(dt) // skip first interval (warmup)
+          else frames.push(0)
+          prev = now
+          if (t < 1) requestAnimationFrame(step)
+          else {
+            if (verbose)
+              console.log(
+                `[runInteraction] ${frames.length} frames, total ${(now - start).toFixed(0)}ms`,
+              )
+            resolve({ frames: frames.slice(1), totalMs: now - start })
+          }
         }
-      }
-      requestAnimationFrame(step)
-    })
-  }, { durationMs, bodySrc: bodyFn.toString().replace(/^[^{]*{|}\s*$/g, ''), easeSrc: easeKey, verbose })
+        requestAnimationFrame(step)
+      })
+    },
+    {
+      durationMs,
+      bodySrc: bodyFn.toString().replace(/^[^{]*{|}\s*$/g, ''),
+      easeSrc: easeKey,
+      verbose,
+    },
+  )
 }
 
 export function computeStats(timings: FrameTimings): {
-  median: number; p95: number; p99: number; max: number; count: number
+  median: number
+  p95: number
+  p99: number
+  max: number
+  count: number
 } {
   const sorted = [...timings.frames].sort((a, b) => a - b)
   const pick = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))]!
@@ -102,7 +119,10 @@ export function computeStats(timings: FrameTimings): {
 /** Helper sequences for the common interaction primitives. Each
  *  generates a body function suitable for passing to runInteraction. */
 export const interactions = {
-  pan(start: { lng: number; lat: number }, end: { lng: number; lat: number }): (mapId: string, t: number) => void {
+  pan(
+    start: { lng: number; lat: number },
+    end: { lng: number; lat: number },
+  ): (mapId: string, t: number) => void {
     // Body is stringified and re-evaluated inside page.evaluate; do not
     // close over external variables — inline the start/end.
     // XGISMap.setCenter takes (lon, lat) as TWO scalars, not an array.

@@ -49,7 +49,14 @@ describe('ShapeRegistry path normalization', () => {
   // pathToSegments), so post-normalization a ±1 path's bbox spans
   // approximately [-1.1, 1.1] on each axis.
   function readBBox(r: ShapeRegistry, name: string): [number, number, number, number] {
-    const internal = (r as unknown as { shapes: Map<string, { desc: { bboxMinX: number, bboxMinY: number, bboxMaxX: number, bboxMaxY: number } }> }).shapes
+    const internal = (
+      r as unknown as {
+        shapes: Map<
+          string,
+          { desc: { bboxMinX: number; bboxMinY: number; bboxMaxX: number; bboxMaxY: number } }
+        >
+      }
+    ).shapes
     const userKey = 'user:' + name
     const entry = internal.get(userKey) ?? internal.get(name)
     if (!entry) throw new Error(`shape ${name} not registered`)
@@ -63,10 +70,14 @@ describe('ShapeRegistry path normalization', () => {
     r.addUserShape('mydot', 'M 0 -0.5 L 0.5 0 L 0 0.5 L -0.5 0 Z')
     const [minX, minY, maxX, maxY] = readBBox(r, 'mydot')
     // Margin of 0.1 added to normalized [-1, 1] bounds.
-    expect(maxX).toBeGreaterThan(1.05); expect(maxX).toBeLessThan(1.15)
-    expect(maxY).toBeGreaterThan(1.05); expect(maxY).toBeLessThan(1.15)
-    expect(minX).toBeLessThan(-1.05); expect(minX).toBeGreaterThan(-1.15)
-    expect(minY).toBeLessThan(-1.05); expect(minY).toBeGreaterThan(-1.15)
+    expect(maxX).toBeGreaterThan(1.05)
+    expect(maxX).toBeLessThan(1.15)
+    expect(maxY).toBeGreaterThan(1.05)
+    expect(maxY).toBeLessThan(1.15)
+    expect(minX).toBeLessThan(-1.05)
+    expect(minX).toBeGreaterThan(-1.15)
+    expect(minY).toBeLessThan(-1.05)
+    expect(minY).toBeGreaterThan(-1.15)
   })
 
   it('preserves aspect ratio for anisotropic paths', () => {
@@ -75,19 +86,26 @@ describe('ShapeRegistry path normalization', () => {
     // Max-extent is 0.5 → scale by 2. Y becomes ±0.2.
     r.addUserShape('bar', 'M -0.5 -0.1 L 0.5 -0.1 L 0.5 0.1 L -0.5 0.1 Z')
     const [, minY, maxX, maxY] = readBBox(r, 'bar')
-    expect(maxX).toBeGreaterThan(1.05); expect(maxX).toBeLessThan(1.15)
+    expect(maxX).toBeGreaterThan(1.05)
+    expect(maxX).toBeLessThan(1.15)
     // Y axis: 0.1 × 2 = 0.2, plus 0.1 margin → ~0.3
-    expect(maxY).toBeGreaterThan(0.25); expect(maxY).toBeLessThan(0.35)
-    expect(minY).toBeLessThan(-0.25); expect(minY).toBeGreaterThan(-0.35)
+    expect(maxY).toBeGreaterThan(0.25)
+    expect(maxY).toBeLessThan(0.35)
+    expect(minY).toBeLessThan(-0.25)
+    expect(minY).toBeGreaterThan(-0.35)
   })
 
   it('built-in `square` (now ±1 source) registers at ±1 normalized extent', () => {
     const r = new ShapeRegistry(new WebGpuDevice(fakeDevice))
     const [minX, minY, maxX, maxY] = readBBox(r, 'square')
-    expect(maxX).toBeGreaterThan(1.05); expect(maxX).toBeLessThan(1.15)
-    expect(maxY).toBeGreaterThan(1.05); expect(maxY).toBeLessThan(1.15)
-    expect(minX).toBeLessThan(-1.05); expect(minX).toBeGreaterThan(-1.15)
-    expect(minY).toBeLessThan(-1.05); expect(minY).toBeGreaterThan(-1.15)
+    expect(maxX).toBeGreaterThan(1.05)
+    expect(maxX).toBeLessThan(1.15)
+    expect(maxY).toBeGreaterThan(1.05)
+    expect(maxY).toBeLessThan(1.15)
+    expect(minX).toBeLessThan(-1.05)
+    expect(minX).toBeGreaterThan(-1.15)
+    expect(minY).toBeLessThan(-1.05)
+    expect(minY).toBeGreaterThan(-1.15)
   })
 
   it('handles degenerate paths without NaN (single-point M then Z)', () => {

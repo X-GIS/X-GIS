@@ -20,7 +20,7 @@ test('demotiles labels survive blocked font.pbf fetches (Canvas2D fallback)', as
   // Block every glyph PBF request BEFORE navigation so the very first
   // label submission misses the cache and exercises the fallback path.
   const blocked: string[] = []
-  await page.route('**/font/**/*.pbf', route => {
+  await page.route('**/font/**/*.pbf', (route) => {
     blocked.push(route.request().url())
     return route.abort()
   })
@@ -28,7 +28,7 @@ test('demotiles labels survive blocked font.pbf fetches (Canvas2D fallback)', as
   // Capture console errors — an exception in the PBF path should not
   // surface to the user as a runtime error.
   const consoleErrors: string[] = []
-  page.on('console', msg => {
+  page.on('console', (msg) => {
     if (msg.type() === 'error') consoleErrors.push(msg.text())
   })
 
@@ -37,7 +37,8 @@ test('demotiles labels survive blocked font.pbf fetches (Canvas2D fallback)', as
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // Settle the label collision pass + atlas uploads.
   await page.waitForTimeout(4_000)
@@ -53,10 +54,12 @@ test('demotiles labels survive blocked font.pbf fetches (Canvas2D fallback)', as
   // Filter known-noisy categories (asset 404 for demo tiles served at
   // different paths, MapLibre's own console warnings) so this assertion
   // only catches NEW X-GIS-originated errors.
-  const xgisErrors = consoleErrors.filter(e =>
-    !e.includes('maplibre-gl') &&
-    !e.includes('Failed to load resource') &&
-    !e.toLowerCase().includes('tile'))
+  const xgisErrors = consoleErrors.filter(
+    (e) =>
+      !e.includes('maplibre-gl') &&
+      !e.includes('Failed to load resource') &&
+      !e.toLowerCase().includes('tile'),
+  )
   expect(xgisErrors).toEqual([])
 
   // Sanity: the captured screenshot must contain non-background pixels —

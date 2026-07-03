@@ -27,15 +27,16 @@ component directly (`import SectionHead from '@/components/kit/SectionHead.astro
 ## Components
 
 ### `Eyebrow`
+
 The signature mono-caps kicker (Geist Mono UPPERCASE, positively tracked — reads
 as a code comment). Renders `font-mono uppercase tracking-[0.18em] text-[12px]
 text-fg-mute`.
 
-| Prop    | Type     | Default | Notes |
-|---------|----------|---------|-------|
-| `label` | `string` | —       | Kicker text. Falls back to `<slot>` when omitted. |
+| Prop    | Type     | Default | Notes                                                       |
+| ------- | -------- | ------- | ----------------------------------------------------------- |
+| `label` | `string` | —       | Kicker text. Falls back to `<slot>` when omitted.           |
 | `num`   | `string` | —       | Optional ordinal, e.g. `"01"`. Rendered as a `NN ·` prefix. |
-| `class` | `string` | `''`    | Merged onto the root `<p>`. |
+| `class` | `string` | `''`    | Merged onto the root `<p>`.                                 |
 
 ```astro
 <Eyebrow num="01" label="The Approach" />   {/* 01 · The Approach */}
@@ -46,17 +47,18 @@ text-fg-mute`.
 ---
 
 ### `SectionHead`
+
 The canonical section opener: `Eyebrow` → Inter weight-400 display head (tight
 negative tracking, sentence-case) → optional lead. Composes `Eyebrow`. Head is
 responsive `text-[40px] sm:text-[52px] lg:text-[64px]`, `tracking-[-0.02em]`.
 
-| Prop      | Type     | Default | Notes |
-|-----------|----------|---------|-------|
-| `eyebrow` | `string` | —       | Eyebrow text. Omit to drop the eyebrow. |
-| `num`     | `string` | —       | Ordinal forwarded to the eyebrow. |
-| `title`   | `string` | —       | Head text. Falls back to `<slot>` (so you can pass `<br/>` / markup). |
+| Prop      | Type     | Default | Notes                                                                                                                                  |
+| --------- | -------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `eyebrow` | `string` | —       | Eyebrow text. Omit to drop the eyebrow.                                                                                                |
+| `num`     | `string` | —       | Ordinal forwarded to the eyebrow.                                                                                                      |
+| `title`   | `string` | —       | Head text. Falls back to `<slot>` (so you can pass `<br/>` / markup).                                                                  |
 | `lead`    | `string` | —       | Lead paragraph (`text-fg-dim text-[17px] sm:text-[19px] leading-[1.6] max-w-[660px]`). Plain text — use the head slot for rich markup. |
-| `class`   | `string` | `''`    | Merged onto the wrapping container (default `max-w-[840px]`). |
+| `class`   | `string` | `''`    | Merged onto the wrapping container (default `max-w-[840px]`).                                                                          |
 
 ```astro
 <SectionHead num="01" eyebrow="The Approach"
@@ -70,15 +72,16 @@ responsive `text-[40px] sm:text-[52px] lg:text-[64px]`, `tracking-[-0.02em]`.
 ---
 
 ### `ContentBand`
+
 The section-rhythm wrapper: xAI vertical rhythm (`py-20 sm:py-32 lg:py-40`), a top
 hairline divider, a centered max-width container, and `px-6` gutters. Renders a
 `<section>`.
 
-| Prop    | Type                                | Default      | Notes |
-|---------|-------------------------------------|--------------|-------|
-| `id`    | `string`                            | —            | Anchor id on the `<section>`. |
-| `width` | `'standard' \| 'prose' \| 'wide'`   | `'standard'` | `standard` 1100px · `prose` 680px · `wide` 1280px. |
-| `class` | `string`                            | `''`         | Merged onto the `<section>` (e.g. `border-t-0` for the first band). |
+| Prop    | Type                              | Default      | Notes                                                               |
+| ------- | --------------------------------- | ------------ | ------------------------------------------------------------------- |
+| `id`    | `string`                          | —            | Anchor id on the `<section>`.                                       |
+| `width` | `'standard' \| 'prose' \| 'wide'` | `'standard'` | `standard` 1100px · `prose` 680px · `wide` 1280px.                  |
+| `class` | `string`                          | `''`         | Merged onto the `<section>` (e.g. `border-t-0` for the first band). |
 
 ```astro
 <ContentBand id="install" width="prose">…</ContentBand>
@@ -88,13 +91,14 @@ hairline divider, a centered max-width container, and `px-6` gutters. Renders a
 ---
 
 ### `Card`
+
 The xAI inset card: `bg-bg-card border border-line rounded-[8px]`, **no shadow**
 (the hairline carries elevation). Renders a `<div>`.
 
-| Prop      | Type     | Default | Notes |
-|-----------|----------|---------|-------|
+| Prop      | Type     | Default | Notes                                    |
+| --------- | -------- | ------- | ---------------------------------------- |
 | `padding` | `string` | `'p-6'` | Padding utility (`p-8`, `px-5 py-4`, …). |
-| `class`   | `string` | `''`    | Merged onto the root `<div>`. |
+| `class`   | `string` | `''`    | Merged onto the root `<div>`.            |
 
 ```astro
 <Card>…</Card>
@@ -104,17 +108,18 @@ The xAI inset card: `bg-bg-card border border-line rounded-[8px]`, **no shadow**
 ---
 
 ### `FeatureRow`
+
 The editorial row (rows over boxed grids): `grid-cols-[auto_1fr]` — a mono ordinal
 rail · [display title + prose `<slot>`] — with a top hairline and generous `py-8`.
 Pass `href` to make the whole row a link (title→accent + a 2px arrow nudge on
 hover; reduced-motion disables the nudge).
 
-| Prop    | Type     | Default | Notes |
-|---------|----------|---------|-------|
-| `num`   | `string` | —       | Ordinal in the left rail, e.g. `"01"`. |
-| `title` | `string` | —       | **Required.** Row title (display, weight 400). |
+| Prop    | Type     | Default | Notes                                                             |
+| ------- | -------- | ------- | ----------------------------------------------------------------- |
+| `num`   | `string` | —       | Ordinal in the left rail, e.g. `"01"`.                            |
+| `title` | `string` | —       | **Required.** Row title (display, weight 400).                    |
 | `href`  | `string` | —       | When set, the row renders as `<a>` and gains the link affordance. |
-| `class` | `string` | `''`    | Merged onto the root element. |
+| `class` | `string` | `''`    | Merged onto the root element.                                     |
 
 Body goes in the default slot:
 

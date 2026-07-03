@@ -26,24 +26,27 @@
 import { describe, it, expect } from 'vitest'
 import { SubTileGenerator } from '@xgis/data'
 import type { TileData } from '@xgis/data'
-import {
-  decomposeFeatures, compileSingleTile, tileKey, lonLatToMercF64,
-} from '@xgis/compiler'
+import { decomposeFeatures, compileSingleTile, tileKey, lonLatToMercF64 } from '@xgis/compiler'
 import type { GeoJSONFeature } from '@xgis/compiler'
 
 /** Web-Mercator tile bounds in degrees (tileBounds is internal to the
  *  compiler — reimplement the standard scheme here). */
-function tileBoundsDeg(z: number, x: number, y: number): { west: number; south: number; east: number; north: number } {
+function tileBoundsDeg(
+  z: number,
+  x: number,
+  y: number,
+): { west: number; south: number; east: number; north: number } {
   const n = Math.pow(2, z)
-  const west = x / n * 360 - 180
-  const east = (x + 1) / n * 360 - 180
-  const north = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI
-  const south = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n))) * 180 / Math.PI
+  const west = (x / n) * 360 - 180
+  const east = ((x + 1) / n) * 360 - 180
+  const north = (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n))) * 180) / Math.PI
+  const south = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 1)) / n))) * 180) / Math.PI
   return { west, south, east, north }
 }
 
 const poly = (coords: number[][][]): GeoJSONFeature => ({
-  type: 'Feature', properties: {},
+  type: 'Feature',
+  properties: {},
   geometry: { type: 'Polygon', coordinates: coords },
 })
 
@@ -80,18 +83,38 @@ describe('SubTileGenerator outline-frame (synthetic parent-edge leak)', () => {
     // anchored at (0,0) would test the abs ring X (~10M) against a
     // local-east of ~5M and never match — the bug. The parent is NOT at
     // lon=-180, so the dead filter cannot be accidentally masked.
-    const z = 3, x = 5, y = 2
+    const z = 3,
+      x = 5,
+      y = 2
     // Polygon spans lon 60..120, crossing the parent's east boundary
     // (lon=90). Sutherland-Hodgman clips it at lon=90, introducing a
     // synthetic vertical edge along the parent east rect.
-    const parent = makeParent(poly([[[60, 45], [120, 45], [120, 60], [60, 60], [60, 45]]]), z, x, y)
+    const parent = makeParent(
+      poly([
+        [
+          [60, 45],
+          [120, 45],
+          [120, 60],
+          [60, 60],
+          [60, 45],
+        ],
+      ]),
+      z,
+      x,
+      y,
+    )
     expect(parent).not.toBeNull()
-    expect(parent!.polygons, 'parent must forward clipped rings for the over-zoom outline path').toBeDefined()
+    expect(
+      parent!.polygons,
+      'parent must forward clipped rings for the over-zoom outline path',
+    ).toBeDefined()
 
     // Sub-tile z=5 x=23 (lon 78.75..90): its east edge coincides with the
     // parent east edge (lon=90), so a leaked synthetic stroke would land
     // exactly on this sub-tile's east boundary.
-    const subZ = 5, subX = 23, subY = 11
+    const subZ = 5,
+      subX = 23,
+      subY = 11
     const sub = new SubTileGenerator().generate(parent!, tileKey(subZ, subX, subY))
     expect(sub).not.toBeNull()
 
@@ -130,6 +153,9 @@ describe('SubTileGenerator outline-frame (synthetic parent-edge leak)', () => {
     // Sutherland-Hodgman frame edge). On unpatched code the predicate is
     // dead (and the wrap re-adds the edge), so this count is > 0 — the
     // user-visible vertical-line artifact.
-    expect(segmentsOnParentEastEdge, 'no outline segment may run along the parent east clip edge').toBe(0)
+    expect(
+      segmentsOnParentEastEdge,
+      'no outline segment may run along the parent east clip edge',
+    ).toBe(0)
   })
 })

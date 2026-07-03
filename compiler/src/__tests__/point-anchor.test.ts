@@ -23,33 +23,45 @@ describe('anchor-* utilities', () => {
   `
 
   it('defaults to undefined when no anchor utility is present', () => {
-    const commands = compile(BASE + `
+    const commands = compile(
+      BASE +
+        `
       }
-    `)
+    `,
+    )
     expect(commands.shows[0].anchor).toBeUndefined()
   })
 
   it('parses anchor-bottom into ShowCommand.anchor', () => {
-    const commands = compile(BASE + `
+    const commands = compile(
+      BASE +
+        `
       anchor-bottom
       }
-    `)
+    `,
+    )
     expect(commands.shows[0].anchor).toBe('bottom')
   })
 
   it('parses anchor-top into ShowCommand.anchor', () => {
-    const commands = compile(BASE + `
+    const commands = compile(
+      BASE +
+        `
       anchor-top
       }
-    `)
+    `,
+    )
     expect(commands.shows[0].anchor).toBe('top')
   })
 
   it('parses anchor-center explicitly', () => {
-    const commands = compile(BASE + `
+    const commands = compile(
+      BASE +
+        `
       anchor-center
       }
-    `)
+    `,
+    )
     expect(commands.shows[0].anchor).toBe('center')
   })
 
@@ -57,10 +69,13 @@ describe('anchor-* utilities', () => {
     // If optimizeNode stops spreading `...node` one day, anchor would
     // vanish just like dashArray did in an earlier version. Keep this
     // guard so the DSL-to-GPU flow stays intact.
-    const commands = compile(BASE + `
+    const commands = compile(
+      BASE +
+        `
       anchor-bottom stroke-white stroke-2
       }
-    `)
+    `,
+    )
     const show = commands.shows[0]
     expect(show.anchor).toBe('bottom')
     expect(show.strokeWidth).toBe(2)

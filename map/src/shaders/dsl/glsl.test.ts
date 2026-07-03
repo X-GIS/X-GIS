@@ -17,9 +17,9 @@ describe('glsl-es300 backend — backend-neutral emit', () => {
     // NO WGSL lexemes leaked through.
     expect(glsl).not.toContain('vec4<f32>')
     expect(glsl).not.toContain('vec3<f32>')
-    expect(glsl).not.toMatch(/\bfn\b/)     // no WGSL `fn` keyword
-    expect(glsl).not.toContain('@')        // no WGSL attributes
-    expect(glsl).not.toContain('let ')     // no WGSL `let`
+    expect(glsl).not.toMatch(/\bfn\b/) // no WGSL `fn` keyword
+    expect(glsl).not.toContain('@') // no WGSL attributes
+    expect(glsl).not.toContain('let ') // no WGSL `let`
   })
 
   it('the SAME IR emits WGSL spelling — the writer owns the lexeme, not the IR', () => {

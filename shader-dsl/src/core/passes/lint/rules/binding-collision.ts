@@ -13,7 +13,9 @@ export const bindingCollision: LintRule = {
         const key = `${b.group}:${b.binding}`
         const prev = slots.get(key)
         if (prev !== undefined) {
-          ctx.report(`binding collision @group(${b.group}) @binding(${b.binding}) — '${b.name}' vs '${prev}'`)
+          ctx.report(
+            `binding collision @group(${b.group}) @binding(${b.binding}) — '${b.name}' vs '${prev}'`,
+          )
         }
         slots.set(key, b.name)
       }

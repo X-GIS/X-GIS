@@ -13,19 +13,29 @@ describe('loadGeoJSON GeometryCollection support', () => {
   it('flattens Polygon sub-geometry inside a GeometryCollection', () => {
     const fc: GeoJSONFeatureCollection = {
       type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: {
-          type: 'GeometryCollection',
-          geometries: [
-            {
-              type: 'Polygon',
-              coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]],
-            },
-          ],
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'GeometryCollection',
+            geometries: [
+              {
+                type: 'Polygon',
+                coordinates: [
+                  [
+                    [0, 0],
+                    [10, 0],
+                    [10, 10],
+                    [0, 10],
+                    [0, 0],
+                  ],
+                ],
+              },
+            ],
+          },
+          properties: { kind: 'park' },
         },
-        properties: { kind: 'park' },
-      }],
+      ],
     }
     const result = loadGeoJSON(fc)
     expect(result.polygons.vertices.length).toBeGreaterThan(0)
@@ -34,19 +44,24 @@ describe('loadGeoJSON GeometryCollection support', () => {
   it('flattens LineString sub-geometry', () => {
     const fc: GeoJSONFeatureCollection = {
       type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: {
-          type: 'GeometryCollection',
-          geometries: [
-            {
-              type: 'LineString',
-              coordinates: [[0, 0], [10, 10]],
-            },
-          ],
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'GeometryCollection',
+            geometries: [
+              {
+                type: 'LineString',
+                coordinates: [
+                  [0, 0],
+                  [10, 10],
+                ],
+              },
+            ],
+          },
+          properties: {},
         },
-        properties: {},
-      }],
+      ],
     }
     const result = loadGeoJSON(fc)
     expect(result.lines.vertices.length).toBeGreaterThan(0)
@@ -55,23 +70,35 @@ describe('loadGeoJSON GeometryCollection support', () => {
   it('flattens mixed Polygon + LineString inside one collection', () => {
     const fc: GeoJSONFeatureCollection = {
       type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: {
-          type: 'GeometryCollection',
-          geometries: [
-            {
-              type: 'Polygon',
-              coordinates: [[[0, 0], [10, 0], [10, 10], [0, 0]]],
-            },
-            {
-              type: 'LineString',
-              coordinates: [[20, 20], [30, 30]],
-            },
-          ],
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'GeometryCollection',
+            geometries: [
+              {
+                type: 'Polygon',
+                coordinates: [
+                  [
+                    [0, 0],
+                    [10, 0],
+                    [10, 10],
+                    [0, 0],
+                  ],
+                ],
+              },
+              {
+                type: 'LineString',
+                coordinates: [
+                  [20, 20],
+                  [30, 30],
+                ],
+              },
+            ],
+          },
+          properties: { id: 'mix' },
         },
-        properties: { id: 'mix' },
-      }],
+      ],
     }
     const result = loadGeoJSON(fc)
     expect(result.polygons.vertices.length).toBeGreaterThan(0)
@@ -81,14 +108,16 @@ describe('loadGeoJSON GeometryCollection support', () => {
   it('handles empty geometries array', () => {
     const fc: GeoJSONFeatureCollection = {
       type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: {
-          type: 'GeometryCollection',
-          geometries: [],
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'GeometryCollection',
+            geometries: [],
+          },
+          properties: {},
         },
-        properties: {},
-      }],
+      ],
     }
     const result = loadGeoJSON(fc)
     expect(result.polygons.vertices.length).toBe(0)
@@ -98,22 +127,38 @@ describe('loadGeoJSON GeometryCollection support', () => {
   it('handles MultiPolygon sub-geometry', () => {
     const fc: GeoJSONFeatureCollection = {
       type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: {
-          type: 'GeometryCollection',
-          geometries: [
-            {
-              type: 'MultiPolygon',
-              coordinates: [
-                [[[0, 0], [5, 0], [5, 5], [0, 0]]],
-                [[[10, 10], [15, 10], [15, 15], [10, 10]]],
-              ],
-            },
-          ],
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'GeometryCollection',
+            geometries: [
+              {
+                type: 'MultiPolygon',
+                coordinates: [
+                  [
+                    [
+                      [0, 0],
+                      [5, 0],
+                      [5, 5],
+                      [0, 0],
+                    ],
+                  ],
+                  [
+                    [
+                      [10, 10],
+                      [15, 10],
+                      [15, 15],
+                      [10, 10],
+                    ],
+                  ],
+                ],
+              },
+            ],
+          },
+          properties: {},
         },
-        properties: {},
-      }],
+      ],
     }
     const result = loadGeoJSON(fc)
     expect(result.polygons.vertices.length).toBeGreaterThan(0)

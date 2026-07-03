@@ -12,13 +12,15 @@ function emitFill(opacity: unknown): string {
   return convertMapboxStyle({
     version: 8,
     sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-    layers: [{
-      id: 'l',
-      type: 'fill',
-      source: 'v',
-      'source-layer': 'a',
-      paint: { 'fill-color': '#000', 'fill-opacity': opacity },
-    }],
+    layers: [
+      {
+        id: 'l',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'a',
+        paint: { 'fill-color': '#000', 'fill-opacity': opacity },
+      },
+    ],
   } as never)
 }
 
@@ -60,18 +62,26 @@ describe('opacity scale conversion (Mapbox 0..1 → xgis 0..100)', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'wrapped_stops',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'transportation',
-        paint: {
-          'line-color': '#000',
-          'line-width': ['interpolate', ['linear'], ['zoom'],
-            10, ['literal', 1],
-            16, ['literal', 8]],
+      layers: [
+        {
+          id: 'wrapped_stops',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
+          paint: {
+            'line-color': '#000',
+            'line-width': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              10,
+              ['literal', 1],
+              16,
+              ['literal', 8],
+            ],
+          },
         },
-      }],
+      ],
     } as never)
     // Both stops should resolve to numeric values inside the
     // interpolate(zoom, …) call.
@@ -85,18 +95,23 @@ describe('opacity scale conversion (Mapbox 0..1 → xgis 0..100)', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'legacy_stops',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'transportation',
-        paint: {
-          'line-color': '#000',
-          'line-width': {
-            stops: [[10, ['literal', 2]], [16, ['literal', 6]]],
-          } as never,
+      layers: [
+        {
+          id: 'legacy_stops',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
+          paint: {
+            'line-color': '#000',
+            'line-width': {
+              stops: [
+                [10, ['literal', 2]],
+                [16, ['literal', 6]],
+              ],
+            } as never,
+          },
         },
-      }],
+      ],
     } as never)
     expect(out).toMatch(/interpolate\(zoom,\s*10,\s*2,\s*16,\s*6\)/)
   })
@@ -107,13 +122,15 @@ describe('opacity scale conversion (Mapbox 0..1 → xgis 0..100)', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'wrapped_width',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'transportation',
-        paint: { 'line-color': '#000', 'line-width': ['literal', 3] },
-      }],
+      layers: [
+        {
+          id: 'wrapped_width',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
+          paint: { 'line-color': '#000', 'line-width': ['literal', 3] },
+        },
+      ],
     } as never)
     expect(out).toContain('stroke-3')
     expect(out).not.toMatch(/stroke-\["3"\]/)
@@ -123,16 +140,18 @@ describe('opacity scale conversion (Mapbox 0..1 → xgis 0..100)', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'wrapped_height',
-        type: 'fill-extrusion',
-        source: 'v',
-        'source-layer': 'building',
-        paint: {
-          'fill-extrusion-color': '#888',
-          'fill-extrusion-height': ['literal', 40],
+      layers: [
+        {
+          id: 'wrapped_height',
+          type: 'fill-extrusion',
+          source: 'v',
+          'source-layer': 'building',
+          paint: {
+            'fill-extrusion-color': '#888',
+            'fill-extrusion-height': ['literal', 40],
+          },
         },
-      }],
+      ],
     } as never)
     expect(out).toContain('fill-extrusion-height-40')
   })
@@ -159,18 +178,18 @@ describe('opacity scale conversion (Mapbox 0..1 → xgis 0..100)', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'l',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'fill-color': '#000',
-          'fill-opacity': ['interpolate', ['linear'], ['zoom'],
-            10, 0.2,
-            16, 0.8],
+      layers: [
+        {
+          id: 'l',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'fill-color': '#000',
+            'fill-opacity': ['interpolate', ['linear'], ['zoom'], 10, 0.2, 16, 0.8],
+          },
         },
-      }],
+      ],
     } as never)
     // Both stops should scale to 0..100 inside the binding.
     expect(out).toMatch(/interpolate\(zoom,\s*10,\s*20,\s*16,\s*80\)/)

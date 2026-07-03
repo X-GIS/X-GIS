@@ -22,7 +22,8 @@ import { test, expect, type Page } from '@playwright/test'
 async function waitForXgisReady(page: Page) {
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
 }
 
@@ -35,45 +36,50 @@ async function countLitPixels(page: Page) {
   // on the right with lots of syntax-highlighted text (false positives).
   const canvas = page.locator('canvas#map')
   const sShot = await canvas.screenshot({ type: 'png' })
-  return await page.evaluate(async ({ pngBytes }) => {
-    const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' })
-    const url = URL.createObjectURL(blob)
-    const img = new Image()
-    await new Promise<void>((res, rej) => {
-      img.onload = () => res(); img.onerror = () => rej(new Error('img'))
-      img.src = url
-    })
-    const off = new OffscreenCanvas(img.width, img.height)
-    const ctx = off.getContext('2d')!
-    ctx.drawImage(img, 0, 0)
-    const data = ctx.getImageData(0, 0, img.width, img.height).data
-    let lit = 0
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i], g = data[i + 1], b = data[i + 2]
-      // "Lit" = sum of channels above a reasonable background floor.
-      // stone-200 is ~rgb(231,229,228); stone-500 stroke ~rgb(120,113,108).
-      // Both clear r+g+b > 300 easily; dark background sits well below.
-      if (r + g + b > 300) lit++
-    }
-    URL.revokeObjectURL(url)
-    return lit
-  }, { pngBytes: Array.from(sShot) })
+  return await page.evaluate(
+    async ({ pngBytes }) => {
+      const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' })
+      const url = URL.createObjectURL(blob)
+      const img = new Image()
+      await new Promise<void>((res, rej) => {
+        img.onload = () => res()
+        img.onerror = () => rej(new Error('img'))
+        img.src = url
+      })
+      const off = new OffscreenCanvas(img.width, img.height)
+      const ctx = off.getContext('2d')!
+      ctx.drawImage(img, 0, 0)
+      const data = ctx.getImageData(0, 0, img.width, img.height).data
+      let lit = 0
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i],
+          g = data[i + 1],
+          b = data[i + 2]
+        // "Lit" = sum of channels above a reasonable background floor.
+        // stone-200 is ~rgb(231,229,228); stone-500 stroke ~rgb(120,113,108).
+        // Both clear r+g+b > 300 easily; dark background sits well below.
+        if (r + g + b > 300) lit++
+      }
+      URL.revokeObjectURL(url)
+      return lit
+    },
+    { pngBytes: Array.from(sShot) },
+  )
 }
 
 test('PMTiles: archive header attaches + fetches log', async ({ page }) => {
   test.setTimeout(45_000)
   await page.setViewportSize({ width: 1280, height: 720 })
   const logs: string[] = []
-  page.on('console', msg => { logs.push(msg.text()) })
+  page.on('console', (msg) => {
+    logs.push(msg.text())
+  })
 
-  await page.goto(
-    '/demo.html?id=pmtiles_source#13/43.77/11.25',
-    { waitUntil: 'domcontentloaded' },
-  )
+  await page.goto('/demo.html?id=pmtiles_source#13/43.77/11.25', { waitUntil: 'domcontentloaded' })
   await waitForXgisReady(page)
   await page.waitForTimeout(3500) // give PMTiles header + tiles time to land
 
-  const attachLog = logs.find(l => l.includes('[X-GIS] PMTiles attached'))
+  const attachLog = logs.find((l) => l.includes('[X-GIS] PMTiles attached'))
   console.log('attach log:', attachLog ?? '(not found)')
   expect(attachLog, 'PMTiles header should attach').toBeTruthy()
   expect(attachLog!).toContain('z=0..15')
@@ -84,12 +90,11 @@ test('PMTiles: Florence at z=13 renders non-empty fill + strokes', async ({ page
   test.setTimeout(60_000)
   await page.setViewportSize({ width: 1280, height: 720 })
   const logs: string[] = []
-  page.on('console', msg => { logs.push(msg.text()) })
+  page.on('console', (msg) => {
+    logs.push(msg.text())
+  })
 
-  await page.goto(
-    '/demo.html?id=pmtiles_source#13/43.77/11.25',
-    { waitUntil: 'domcontentloaded' },
-  )
+  await page.goto('/demo.html?id=pmtiles_source#13/43.77/11.25', { waitUntil: 'domcontentloaded' })
   await waitForXgisReady(page)
   await page.waitForTimeout(6000) // generous wait for HTTP roundtrips + GPU upload
 
@@ -108,7 +113,11 @@ test('PMTiles: Florence at z=13 renders non-empty fill + strokes', async ({ page
       hasData(): boolean
       hasEntryInIndex(key: number): boolean
     }
-    const m = (window as unknown as { __xgisMap?: { vtSources?: Map<string, { source: Catalog; renderer: unknown }> } }).__xgisMap
+    const m = (
+      window as unknown as {
+        __xgisMap?: { vtSources?: Map<string, { source: Catalog; renderer: unknown }> }
+      }
+    ).__xgisMap
     const entry = m?.vtSources?.get('pm')
     if (!entry) return { error: 'no pm source' }
     const s = entry.source

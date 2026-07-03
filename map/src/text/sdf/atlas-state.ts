@@ -101,7 +101,7 @@ export class AtlasState {
     if (cfg.pageSize % cfg.slotSize !== 0) {
       throw new Error(
         `AtlasState: pageSize (${cfg.pageSize}) must be a multiple ` +
-        `of slotSize (${cfg.slotSize})`,
+          `of slotSize (${cfg.slotSize})`,
       )
     }
     this.cfg = cfg
@@ -143,7 +143,11 @@ export class AtlasState {
         const evicted = this.entries.get(oldestKn)!
         this.entries.delete(oldestKn)
         slot = evicted.slot
-        evictedKey = { fontKey: evicted.fontKey, codepoint: evicted.codepoint, sdfRadius: evicted.sdfRadius }
+        evictedKey = {
+          fontKey: evicted.fontKey,
+          codepoint: evicted.codepoint,
+          sdfRadius: evicted.sdfRadius,
+        }
         this.evictionCount += 1
       } else {
         // Nothing to evict — grow.
@@ -170,19 +174,26 @@ export class AtlasState {
   }
 
   /** Total slots currently holding a glyph. */
-  get size(): number { return this.entries.size }
+  get size(): number {
+    return this.entries.size
+  }
   /** Slots available for immediate allocation without eviction. */
-  get freeCount(): number { return this.freeSlots.length }
-  get pageCount(): number { return this.pageCountInternal }
-  get capacity(): number { return this.pageCountInternal * this.slotsPerPage }
+  get freeCount(): number {
+    return this.freeSlots.length
+  }
+  get pageCount(): number {
+    return this.pageCountInternal
+  }
+  get capacity(): number {
+    return this.pageCountInternal * this.slotsPerPage
+  }
   get stats() {
     return {
       hits: this.hitCount,
       misses: this.missCount,
       evictions: this.evictionCount,
-      hitRate: this.hitCount + this.missCount === 0
-        ? 0
-        : this.hitCount / (this.hitCount + this.missCount),
+      hitRate:
+        this.hitCount + this.missCount === 0 ? 0 : this.hitCount / (this.hitCount + this.missCount),
     }
   }
 
@@ -225,6 +236,6 @@ export class AtlasState {
       this.fontKeyId.set(k.fontKey, id)
       this.fontIdKey.push(k.fontKey)
     }
-    return id * 0x10000000 + k.codepoint * 0x80 + (k.sdfRadius & 0x7F)
+    return id * 0x10000000 + k.codepoint * 0x80 + (k.sdfRadius & 0x7f)
   }
 }

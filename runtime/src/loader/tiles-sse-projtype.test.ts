@@ -42,10 +42,11 @@ describe('visibleTilesSSE — projType resolution (single-world disc)', () => {
     // SINGLE_WORLD = [0] → the only world-copy root is 0, so the most
     // extreme longitude the selector ever reprojects is a primary-world
     // tile corner (≤ ~180°). The pre-fix 5-root DFS reached ±900°.
-    expect(maxAbsLon,
+    expect(
+      maxAbsLon,
       'orthographic is SINGLE_WORLD; the SSE selector must not evaluate ' +
-      'projection.forward outside the primary world. A value near 900° ' +
-      'means projType collapsed to equirectangular (worldCopiesFor → 5 roots).',
+        'projection.forward outside the primary world. A value near 900° ' +
+        'means projType collapsed to equirectangular (worldCopiesFor → 5 roots).',
     ).toBeLessThanOrEqual(181)
   })
 })

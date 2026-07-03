@@ -14,9 +14,7 @@ describe('vector layer missing source-layer', () => {
       sources: {
         v: { type: 'vector', url: 'https://example.com/v.pmtiles' },
       },
-      layers: [
-        { id: 'l', type: 'fill', source: 'v', paint: { 'fill-color': '#abc' } },
-      ],
+      layers: [{ id: 'l', type: 'fill', source: 'v', paint: { 'fill-color': '#abc' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toMatch(/Layer "l" reads from vector source "v" but has no source-layer/)
@@ -28,9 +26,7 @@ describe('vector layer missing source-layer', () => {
       sources: {
         p: { type: 'pmtiles', url: 'https://example.com/p.pmtiles' },
       },
-      layers: [
-        { id: 'l', type: 'fill', source: 'p', paint: { 'fill-color': '#abc' } },
-      ],
+      layers: [{ id: 'l', type: 'fill', source: 'p', paint: { 'fill-color': '#abc' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toMatch(/no source-layer/)
@@ -62,9 +58,7 @@ describe('vector layer missing source-layer', () => {
       sources: {
         r: { type: 'raster', tiles: ['https://example.com/{z}/{x}/{y}.png'] },
       },
-      layers: [
-        { id: 'l', type: 'raster', source: 'r' },
-      ],
+      layers: [{ id: 'l', type: 'raster', source: 'r' }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).not.toMatch(/no source-layer/)
@@ -76,9 +70,7 @@ describe('vector layer missing source-layer', () => {
       sources: {
         g: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       },
-      layers: [
-        { id: 'l', type: 'fill', source: 'g', paint: { 'fill-color': '#abc' } },
-      ],
+      layers: [{ id: 'l', type: 'fill', source: 'g', paint: { 'fill-color': '#abc' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).not.toMatch(/no source-layer/)

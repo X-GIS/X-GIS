@@ -19,18 +19,17 @@
 // ecef-point-precision-fuzz.test.ts.
 
 import { describe, it, expect } from 'vitest'
-import {
-  splitF64, packDSFUNLineVertices,
-  lonLatToMercF64,
-} from './ecef-packing'
+import { splitF64, packDSFUNLineVertices, lonLatToMercF64 } from './ecef-packing'
 
 function makeRng(seed: number): () => number {
   let s = seed | 0
   return () => {
-    s ^= s << 13; s |= 0
+    s ^= s << 13
+    s |= 0
     s ^= s >>> 17
-    s ^= s << 5; s |= 0
-    return ((s >>> 0) / 0x1_0000_0000)
+    s ^= s << 5
+    s |= 0
+    return (s >>> 0) / 0x1_0000_0000
   }
 }
 
@@ -54,14 +53,14 @@ describe('iter-314 splitF64 round-trip', () => {
     for (let i = 0; i < 1000; i++) {
       const x = (rng() * 2 - 1) * 2e7
       const [h] = splitF64(x)
-      expect(Math.fround(h)).toBe(h)  // already f32
+      expect(Math.fround(h)).toBe(h) // already f32
     }
   })
 
   it('zero / tiny / huge magnitudes', () => {
     for (const x of [0, 1e-9, -1e-9, 1, -1, 2.00375e7, -2.00375e7]) {
       const [h, l] = splitF64(x)
-      expect(Math.abs((h + l) - x)).toBeLessThan(Math.abs(x) * 1e-9 + 1e-9)
+      expect(Math.abs(h + l - x)).toBeLessThan(Math.abs(x) * 1e-9 + 1e-9)
     }
   })
 
@@ -78,7 +77,7 @@ describe('iter-314 splitF64 round-trip', () => {
 
 describe('iter-314 packDSFUNLineVertices reconstruction', () => {
   it('line vertex hi/lo reconstructs tile-local meters', () => {
-    const [mx, my] = lonLatToMercF64(2.3488, 48.8534)  // Paris
+    const [mx, my] = lonLatToMercF64(2.3488, 48.8534) // Paris
     const tileMx = mx - 250.0
     const tileMy = my - 175.0
     // stride-4 input: [mx, my, fid, arc_start]
@@ -88,6 +87,6 @@ describe('iter-314 packDSFUNLineVertices reconstruction', () => {
     const reconY = packed[1]! + packed[3]!
     expect(Math.abs(reconX - 250.0)).toBeLessThan(1e-3)
     expect(Math.abs(reconY - 175.0)).toBeLessThan(1e-3)
-    expect(packed[4]).toBe(7)  // fid preserved
+    expect(packed[4]).toBe(7) // fid preserved
   })
 })

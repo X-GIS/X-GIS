@@ -27,8 +27,12 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import {
   emitCommands,
-  type Scene, type ColorValue, type DataExpr, type RenderNode,
-  type SizeValue, type StrokeValue,
+  type Scene,
+  type ColorValue,
+  type DataExpr,
+  type RenderNode,
+  type SizeValue,
+  type StrokeValue,
 } from '@xgis/compiler'
 import type { PropertyShape } from '@xgis/compiler'
 import { nodeToWgslString } from '@xgis/compiler'
@@ -39,14 +43,21 @@ import { extendBindGroupLayoutEntriesForCompute } from '@xgis/engine'
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {
     ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
-      MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8,
-      INDEX: 16, VERTEX: 32, UNIFORM: 64, STORAGE: 128,
-      INDIRECT: 256, QUERY_RESOLVE: 512,
+      MAP_READ: 1,
+      MAP_WRITE: 2,
+      COPY_SRC: 4,
+      COPY_DST: 8,
+      INDEX: 16,
+      VERTEX: 32,
+      UNIFORM: 64,
+      STORAGE: 128,
+      INDIRECT: 256,
+      QUERY_RESOLVE: 512,
     }
   }
 })
 
-const FRAGMENT_BIT = 2  // GPUShaderStage.FRAGMENT
+const FRAGMENT_BIT = 2 // GPUShaderStage.FRAGMENT
 
 interface RecordedBindGroup {
   label: string | null
@@ -68,14 +79,16 @@ function makeFakeContext() {
       const ep = (d.compute as { entryPoint: string }).entryPoint
       return {
         _ep: ep,
-        getBindGroupLayout() { return { _l: ep } as unknown as GPUBindGroupLayout },
+        getBindGroupLayout() {
+          return { _l: ep } as unknown as GPUBindGroupLayout
+        },
       } as unknown as GPUComputePipeline
     },
     createBindGroup(d: GPUBindGroupDescriptor) {
       const entries = d.entries as GPUBindGroupEntry[]
       bindGroupsCreated.push({
         label: d.label ?? null,
-        entryBindings: entries.map(e => e.binding),
+        entryBindings: entries.map((e) => e.binding),
       })
       return { _stub: true } as unknown as GPUBindGroup
     },
@@ -89,8 +102,12 @@ function makeFakeContext() {
       buffers.push(rec)
       return {
         _label: d.label,
-        get size() { return rec.size },
-        destroy() { rec.destroyed = true },
+        get size() {
+          return rec.size
+        },
+        destroy() {
+          rec.destroyed = true
+        },
       } as unknown as GPUBuffer
     },
     queue: {
@@ -105,10 +122,18 @@ function makeFakeContext() {
       let ep = ''
       let workgroups = 0
       return {
-        setPipeline(p: GPUComputePipeline) { ep = (p as unknown as { _ep: string })._ep },
-        setBindGroup() { /* no-op */ },
-        dispatchWorkgroups(n: number) { workgroups = n },
-        end() { dispatches.push({ entryPoint: ep, workgroups }) },
+        setPipeline(p: GPUComputePipeline) {
+          ep = (p as unknown as { _ep: string })._ep
+        },
+        setBindGroup() {
+          /* no-op */
+        },
+        dispatchWorkgroups(n: number) {
+          workgroups = n
+        },
+        end() {
+          dispatches.push({ entryPoint: ep, workgroups })
+        },
       } as unknown as GPUComputePassEncoder
     },
   } as unknown as GPUCommandEncoder
@@ -117,7 +142,11 @@ function makeFakeContext() {
     device,
     dispatcher: new ComputeDispatcher({ device } as never),
     encoder,
-    buffers, writes, dispatches, layoutEntries, bindGroupsCreated,
+    buffers,
+    writes,
+    dispatches,
+    layoutEntries,
+    bindGroupsCreated,
   }
 }
 
@@ -132,16 +161,18 @@ function makeMatchScene(): Scene {
       matchBlock: {
         kind: 'MatchBlock',
         arms: [
-          { pattern: 'school',   value: { kind: 'ColorLiteral', value: '#f0e8f8' } },
+          { pattern: 'school', value: { kind: 'ColorLiteral', value: '#f0e8f8' } },
           { pattern: 'hospital', value: { kind: 'ColorLiteral', value: '#f5deb3' } },
-          { pattern: '_',        value: { kind: 'ColorLiteral', value: '#888888' } },
+          { pattern: '_', value: { kind: 'ColorLiteral', value: '#888888' } },
         ],
       },
     },
   }
   const fill: ColorValue = { kind: 'data-driven', expr }
   const node: RenderNode = {
-    name: 'landuse', sourceRef: 'lu', zOrder: 0,
+    name: 'landuse',
+    sourceRef: 'lu',
+    zOrder: 0,
     fill,
     stroke: {
       color: { kind: 'none' },
@@ -151,8 +182,12 @@ function makeMatchScene(): Scene {
     size: { kind: 'none' } as SizeValue,
     extrude: { kind: 'none' } as never,
     extrudeBase: { kind: 'none' } as never,
-    projection: 'mercator', visible: true, pointerEvents: 'auto',
-    filter: null, geometry: null, billboard: true,
+    projection: 'mercator',
+    visible: true,
+    pointerEvents: 'auto',
+    filter: null,
+    geometry: null,
+    billboard: true,
     shape: { kind: 'named', name: 'circle' } as never,
   }
   return { sources: [], symbols: [], renderNodes: [node] } as Scene
@@ -188,16 +223,15 @@ describe('Renderer compute integration — full pipeline simulation', () => {
     expect(variant.fillExpr ? nodeToWgslString(variant.fillExpr) : '').toContain('compute_out_fill')
 
     // ── Step 2: extend pipeline layout entries ──
-    const extended = extendBindGroupLayoutEntriesForCompute(
-      variant, LEGACY_ENTRIES, FRAGMENT_BIT,
-    )
+    const extended = extendBindGroupLayoutEntriesForCompute(variant, LEGACY_ENTRIES, FRAGMENT_BIT)
     // 4 legacy + 1 compute = 5 entries.
     expect(extended.length).toBe(5)
     expect(extended[4]!.binding).toBe(16)
     expect((extended[4]! as { buffer: { type: string } }).buffer.type).toBe('read-only-storage')
 
     // ── Step 3: registry + attach the show ──
-    const { device, dispatcher, encoder, buffers, dispatches, bindGroupsCreated } = makeFakeContext()
+    const { device, dispatcher, encoder, buffers, dispatches, bindGroupsCreated } =
+      makeFakeContext()
     const registry = new ComputeLayerRegistry(dispatcher)
     const handle = registry.attach('layer-landuse', variant, cmds.computePlan, /* idx */ 0)
     expect(handle).not.toBeNull()
@@ -206,7 +240,7 @@ describe('Renderer compute integration — full pipeline simulation', () => {
     expect(buffers).toHaveLength(3)
 
     // ── Step 4: upload feature properties ──
-    const props = (fid: number) => fid === 0 ? { class: 'school' } : { class: 'hospital' }
+    const props = (fid: number) => (fid === 0 ? { class: 'school' } : { class: 'hospital' })
     handle!.uploadFromProps(props, 50)
 
     // ── Step 5: per-frame dispatch ──
@@ -242,10 +276,10 @@ describe('Renderer compute integration — full pipeline simulation', () => {
     expect(lastBg.entryBindings).toEqual([0, 1, 2, 4, 16])
 
     // ── Step 7: cleanup ──
-    expect(buffers.filter(b => !b.destroyed)).toHaveLength(3)
+    expect(buffers.filter((b) => !b.destroyed)).toHaveLength(3)
     registry.detach('layer-landuse')
     expect(registry.size).toBe(0)
-    expect(buffers.filter(b => !b.destroyed)).toHaveLength(0)
+    expect(buffers.filter((b) => !b.destroyed)).toHaveLength(0)
   })
 
   it('legacy variant (no computeBindings) → registry is no-op + layout unchanged', () => {
@@ -253,19 +287,28 @@ describe('Renderer compute integration — full pipeline simulation', () => {
     // calls the same wire-up code but every compute-side call
     // short-circuits. This is the production state today.
     const scene: Scene = {
-      sources: [], symbols: [],
-      renderNodes: [{
-        name: 'plain', sourceRef: 's', zOrder: 0,
-        fill: { kind: 'constant', rgba: [1, 0, 0, 1] },
-        stroke: { color: { kind: 'none' }, width: { kind: 'constant', value: 0 } } as StrokeValue,
-        opacity: { kind: 'constant', value: 1 },
-        size: { kind: 'none' } as SizeValue,
-        extrude: { kind: 'none' } as never,
-        extrudeBase: { kind: 'none' } as never,
-        projection: 'mercator', visible: true, pointerEvents: 'auto',
-        filter: null, geometry: null, billboard: true,
-        shape: { kind: 'named', name: 'circle' } as never,
-      } as RenderNode],
+      sources: [],
+      symbols: [],
+      renderNodes: [
+        {
+          name: 'plain',
+          sourceRef: 's',
+          zOrder: 0,
+          fill: { kind: 'constant', rgba: [1, 0, 0, 1] },
+          stroke: { color: { kind: 'none' }, width: { kind: 'constant', value: 0 } } as StrokeValue,
+          opacity: { kind: 'constant', value: 1 },
+          size: { kind: 'none' } as SizeValue,
+          extrude: { kind: 'none' } as never,
+          extrudeBase: { kind: 'none' } as never,
+          projection: 'mercator',
+          visible: true,
+          pointerEvents: 'auto',
+          filter: null,
+          geometry: null,
+          billboard: true,
+          shape: { kind: 'named', name: 'circle' } as never,
+        } as RenderNode,
+      ],
     } as Scene
     const cmds = emitCommands(scene, { enableComputePath: true })
     const variant = cmds.shows[0]!.shaderVariant!
@@ -291,7 +334,7 @@ describe('Renderer compute integration — full pipeline simulation', () => {
     // The flag itself: emit WITHOUT compute path. The renderer
     // wire-up is the same code, but the variant never carries
     // computeBindings → every compute step is a no-op.
-    const cmds = emitCommands(makeMatchScene())  // enableComputePath defaults to false
+    const cmds = emitCommands(makeMatchScene()) // enableComputePath defaults to false
     const variant = cmds.shows[0]!.shaderVariant!
     expect(variant.computeBindings).toBeUndefined()
 
@@ -316,28 +359,35 @@ describe('Renderer compute integration — full pipeline simulation', () => {
             kind: 'MatchBlock',
             arms: [
               { pattern: arm, value: { kind: 'ColorLiteral', value: hex } },
-              { pattern: '_',  value: { kind: 'ColorLiteral', value: '#000000' } },
+              { pattern: '_', value: { kind: 'ColorLiteral', value: '#000000' } },
             ],
           },
         },
       })
       const mkNode = (name: string, field: string, arm: string, hex: string): RenderNode => ({
-        name, sourceRef: 's', zOrder: 0,
+        name,
+        sourceRef: 's',
+        zOrder: 0,
         fill: { kind: 'data-driven', expr: buildExpr(field, arm, hex) } as ColorValue,
         stroke: { color: { kind: 'none' }, width: { kind: 'constant', value: 0 } } as StrokeValue,
         opacity: { kind: 'constant', value: 1 },
         size: { kind: 'none' } as SizeValue,
         extrude: { kind: 'none' } as never,
         extrudeBase: { kind: 'none' } as never,
-        projection: 'mercator', visible: true, pointerEvents: 'auto',
-        filter: null, geometry: null, billboard: true,
+        projection: 'mercator',
+        visible: true,
+        pointerEvents: 'auto',
+        filter: null,
+        geometry: null,
+        billboard: true,
         shape: { kind: 'named', name: 'circle' } as never,
       })
       return {
-        sources: [], symbols: [],
+        sources: [],
+        symbols: [],
         renderNodes: [
           mkNode('landuse', 'class', 'school', '#aaaaaa'),
-          mkNode('roads',   'rank',  'major',  '#bbbbbb'),
+          mkNode('roads', 'rank', 'major', '#bbbbbb'),
         ],
       } as Scene
     }

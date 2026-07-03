@@ -25,16 +25,20 @@ import { wrap } from './wrap'
 import { transformTile } from './transform'
 import { createTile } from './tile'
 import type {
-  GeoJSONInput, GeoJSONVTOptions, InternalTile, ProjectedFeature, TransformedTile,
+  GeoJSONInput,
+  GeoJSONVTOptions,
+  InternalTile,
+  ProjectedFeature,
+  TransformedTile,
 } from './types'
 
 export const DEFAULT_OPTIONS: GeoJSONVTOptions = {
   maxZoom: 14,
   indexMaxZoom: 5,
   indexMaxPoints: 100_000,
-  tolerance: 6,    // 0.375 css px × (8192 / 512)
+  tolerance: 6, // 0.375 css px × (8192 / 512)
   extent: 8192,
-  buffer: 2048,    // 128 css px × (8192 / 512)
+  buffer: 2048, // 128 css px × (8192 / 512)
   promoteId: null,
   generateId: false,
 }
@@ -111,7 +115,7 @@ export class GeoJSONVT {
         // Drilldown mode — only follow the ancestor branch of the
         // target tile, skip sibling quadrants.
         const zoomSteps = cz - z
-        if (x !== (cx >> zoomSteps) || y !== (cy >> zoomSteps)) continue
+        if (x !== cx >> zoomSteps || y !== cy >> zoomSteps) continue
       }
 
       // Going deeper — drop the source-feature ref so it can be
@@ -123,7 +127,7 @@ export class GeoJSONVT {
       // 4-quad clip. Buffer overlap k1 = half the per-side buffer in
       // unit-square coords; left/right pairs first, then split each
       // into top/bottom.
-      const k1 = 0.5 * options.buffer / options.extent
+      const k1 = (0.5 * options.buffer) / options.extent
       const k2 = 0.5 - k1
       const k3 = 0.5 + k1
       const k4 = 1 + k1
@@ -159,7 +163,9 @@ export class GeoJSONVT {
    *  the nearest indexed ancestor when the request goes past
    *  `indexMaxZoom`. */
   getTile(z: number, x: number, y: number): TransformedTile | null {
-    z = +z; x = +x; y = +y
+    z = +z
+    x = +x
+    y = +y
     if (z < 0 || z > MAX_ALLOWED_ZOOM) return null
 
     const extent = this.options.extent
@@ -172,7 +178,9 @@ export class GeoJSONVT {
 
     // Walk up to the nearest indexed ancestor that still carries its
     // source-feature reference.
-    let z0 = z, x0 = x, y0 = y
+    let z0 = z,
+      x0 = x,
+      y0 = y
     let parent: InternalTile | undefined
     while (!parent && z0 > 0) {
       z0--
@@ -189,9 +197,6 @@ export class GeoJSONVT {
   }
 }
 
-export function geojsonvt(
-  data: GeoJSONInput,
-  options?: Partial<GeoJSONVTOptions>,
-): GeoJSONVT {
+export function geojsonvt(data: GeoJSONInput, options?: Partial<GeoJSONVTOptions>): GeoJSONVT {
   return new GeoJSONVT(data, options)
 }

@@ -20,7 +20,12 @@ import { FrameArena } from '@xgis/engine'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import type { TextDraw } from './text-renderer-types'
 import { codePointIsIdeographic } from './text-wrap'
-import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '@xgis/engine'
+import {
+  wrapWebGpuPass,
+  wrapWebGpuBindGroupLayout,
+  wrapWebGpuTextureView,
+  wrapWebGpuSampler,
+} from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { TextDraper, type TextSlice } from '../render/material/text-material'
 import { vertexField } from '@xgis/compiler'
@@ -29,12 +34,12 @@ import { toVertexBufferLayout } from '@xgis/engine'
 
 export type { TextDraw } from './text-renderer-types'
 
-const VERTS_PER_GLYPH = 6  // two triangles
+const VERTS_PER_GLYPH = 6 // two triangles
 // Derived from the single-source TEXT_FORMAT spec so the packer cannot drift
 // from the GPUVertexBufferLayout / text `vs` @location.
-const FLOATS_PER_VERT = TEXT_FORMAT.stride / 4                       // 4 (posX,posY,uvX,uvY)
-const TEXT_PX_SLOT = vertexField(TEXT_FORMAT, 'pos_px').offset / 4   // 0 (x,y = 0,1)
-const TEXT_UV_SLOT = vertexField(TEXT_FORMAT, 'uv').offset / 4       // 2 (u,v = 2,3)
+const FLOATS_PER_VERT = TEXT_FORMAT.stride / 4 // 4 (posX,posY,uvX,uvY)
+const TEXT_PX_SLOT = vertexField(TEXT_FORMAT, 'pos_px').offset / 4 // 0 (x,y = 0,1)
+const TEXT_UV_SLOT = vertexField(TEXT_FORMAT, 'uv').offset / 4 // 2 (u,v = 2,3)
 const FLOATS_PER_GLYPH = VERTS_PER_GLYPH * FLOATS_PER_VERT
 
 // Synthetic-oblique shear for the CJK/Hangul/Kana glyphs of an italic
@@ -70,7 +75,13 @@ export class TextRenderer {
    *  TextDraw can split into multiple slices when its glyphs span
    *  pages (CJK-heavy maps). `dynamicOffset` (bytes) points at this
    *  slice's 64-B uniform pack inside the shared uniform buffer. */
-  private drawSlices: Array<{ first: number; count: number; uniforms: Float32Array; page: number; dynamicOffset: number }> = []
+  private drawSlices: Array<{
+    first: number
+    count: number
+    uniforms: Float32Array
+    page: number
+    dynamicOffset: number
+  }> = []
   /** Combined uniforms for all slices, laid out at UNIFORM_STRIDE
    *  intervals. Rebuilt per frame in setDraws; viewport patched in
    *  draw() before the single GPU upload. */
@@ -100,15 +111,30 @@ export class TextRenderer {
   private ensureTextDraper(): void {
     if (this._textDraper) return
     const vbl = toVertexBufferLayout(TEXT_FORMAT)
-    const vertexBuffers = [{
-      stride: vbl.arrayStride,
-      attributes: [...vbl.attributes].map((a) => ({ location: a.shaderLocation, offset: a.offset, format: a.format as string })),
-    }]
-    this._textDraper = new TextDraper(this.rhi, this._textFmt, this._textSamples, this.bgLayout, vertexBuffers)
+    const vertexBuffers = [
+      {
+        stride: vbl.arrayStride,
+        attributes: [...vbl.attributes].map((a) => ({
+          location: a.shaderLocation,
+          offset: a.offset,
+          format: a.format as string,
+        })),
+      },
+    ]
+    this._textDraper = new TextDraper(
+      this.rhi,
+      this._textFmt,
+      this._textSamples,
+      this.bgLayout,
+      vertexBuffers,
+    )
   }
 
   constructor(
-    device: GPUDevice, rhi: RhiDevice, atlas: GlyphAtlasGPU, presentationFormat: GPUTextureFormat,
+    device: GPUDevice,
+    rhi: RhiDevice,
+    atlas: GlyphAtlasGPU,
+    presentationFormat: GPUTextureFormat,
     sampleCount: number = 1,
   ) {
     this.rhi = rhi
@@ -125,8 +151,11 @@ export class TextRenderer {
         // before submission "wins" for every draw — labels with multiple
         // distinct fill colors rendered with the last-submitted color
         // (water_name blue overwritten by city black).
-        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-          buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: UNIFORM_BYTES } },
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: UNIFORM_BYTES },
+        },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
       ],
@@ -137,7 +166,8 @@ export class TextRenderer {
     // Uniform — UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
     this.uniformBuf = this.rhi.createBuffer({
       size: this.uniformBufCapacityBytes,
-      usage: 'uniform', writable: true,
+      usage: 'uniform',
+      writable: true,
       label: 'text-uniform',
     })
   }
@@ -165,9 +195,7 @@ export class TextRenderer {
     this.drawSlices = []
 
     let glyphIdx = 0
-    const pageSize = this.atlas.pageCount > 0
-      ? this.atlas.getPage(0)!.width
-      : 1  // never used when no glyphs, but keeps types happy
+    const pageSize = this.atlas.pageCount > 0 ? this.atlas.getPage(0)!.width : 1 // never used when no glyphs, but keeps types happy
 
     for (const d of draws) {
       let penX = d.anchorX
@@ -202,10 +230,12 @@ export class TextRenderer {
       // glyphRotations isn't set; one trig-pair beats stamping a
       // rotation matrix per quad.
       const rot = d.rotateRad ?? 0
-      const cosR = Math.cos(rot), sinR = Math.sin(rot)
+      const cosR = Math.cos(rot),
+        sinR = Math.sin(rot)
       const rotateXY = (x: number, y: number): [number, number] => {
         if (rot === 0) return [x, y]
-        const dx = x - d.anchorX, dy = y - d.anchorY
+        const dx = x - d.anchorX,
+          dy = y - d.anchorY
         return [d.anchorX + dx * cosR - dy * sinR, d.anchorY + dx * sinR + dy * cosR]
       }
       for (let gi = 0; gi < d.glyphs.length; gi++) {
@@ -269,7 +299,7 @@ export class TextRenderer {
         // get real italic from the font (PBF SDF already slanted); the italic
         // glyph PBF serves CJK UPRIGHT, so MapLibre obliques them — gate on
         // the ideographic codepoint, not the glyph source.
-        const shear = (italicOblique && codePointIsIdeographic(g.codepoint)) ? OBLIQUE_TAN : 0
+        const shear = italicOblique && codePointIsIdeographic(g.codepoint) ? OBLIQUE_TAN : 0
         const shTop = shear * (baseY2 - y0)
         const shBot = shear * (baseY2 - y1)
         const u0 = g.slot.pxX / pageSize
@@ -287,18 +317,21 @@ export class TextRenderer {
         let brx: number, bry: number, trx: number, try_: number
         if (perGlyphRot !== undefined) {
           const gRot = perGlyphRot[gi] ?? 0
-          const gcx = (x0 + x1) * 0.5 + (shTop + shBot) * 0.5, gcy = (y0 + y1) * 0.5
-          const c = Math.cos(gRot), s = Math.sin(gRot)
+          const gcx = (x0 + x1) * 0.5 + (shTop + shBot) * 0.5,
+            gcy = (y0 + y1) * 0.5
+          const c = Math.cos(gRot),
+            s = Math.sin(gRot)
           const rotateGlyph = (x: number, y: number): [number, number] => {
-            const ddx = x - gcx, ddy = y - gcy
+            const ddx = x - gcx,
+              ddy = y - gcy
             return [gcx + ddx * c - ddy * s, gcy + ddx * s + ddy * c]
-          };
-          [tlx, tly] = rotateGlyph(x0 + shTop, y0)
+          }
+          ;[tlx, tly] = rotateGlyph(x0 + shTop, y0)
           ;[blx, bly] = rotateGlyph(x0 + shBot, y1)
           ;[brx, bry] = rotateGlyph(x1 + shBot, y1)
           ;[trx, try_] = rotateGlyph(x1 + shTop, y0)
         } else {
-          [tlx, tly] = rotateXY(x0 + shTop, y0)
+          ;[tlx, tly] = rotateXY(x0 + shTop, y0)
           ;[blx, bly] = rotateXY(x0 + shBot, y1)
           ;[brx, bry] = rotateXY(x1 + shBot, y1)
           ;[trx, try_] = rotateXY(x1 + shTop, y0)
@@ -308,13 +341,19 @@ export class TextRenderer {
         // Write one vertex at quad-corner v using spec-derived slots.
         const W = (v: number, x: number, y: number, uu: number, vv: number): void => {
           const o = off + v * FLOATS_PER_VERT
-          data[o + TEXT_PX_SLOT] = x; data[o + TEXT_PX_SLOT + 1] = y
-          data[o + TEXT_UV_SLOT] = uu; data[o + TEXT_UV_SLOT + 1] = vv
+          data[o + TEXT_PX_SLOT] = x
+          data[o + TEXT_PX_SLOT + 1] = y
+          data[o + TEXT_UV_SLOT] = uu
+          data[o + TEXT_UV_SLOT + 1] = vv
         }
         // tri 1: TL, BL, BR
-        W(0, tlx, tly, u0, v0); W(1, blx, bly, u0, v1); W(2, brx, bry, u1, v1)
+        W(0, tlx, tly, u0, v0)
+        W(1, blx, bly, u0, v1)
+        W(2, brx, bry, u1, v1)
         // tri 2: TL, BR, TR
-        W(3, tlx, tly, u0, v0); W(4, brx, bry, u1, v1); W(5, trx, try_, u1, v0)
+        W(3, tlx, tly, u0, v0)
+        W(4, brx, bry, u1, v1)
+        W(5, trx, try_, u1, v0)
 
         if (!offsets) {
           penX += g.advanceWidth * scale
@@ -333,7 +372,12 @@ export class TextRenderer {
       if (this.vertexBuf !== null) this.rhi.destroyBuffer(this.vertexBuf)
       const size = Math.max(1024, data.byteLength)
       // Vertex — VERTEX|COPY_DST, byte-identical via bufUsage('vertex', writable:true).
-      this.vertexBuf = this.rhi.createBuffer({ size, usage: 'vertex', writable: true, label: 'text-vertex' })
+      this.vertexBuf = this.rhi.createBuffer({
+        size,
+        usage: 'vertex',
+        writable: true,
+        label: 'text-vertex',
+      })
       this.vertexBufCapacityBytes = size
     }
     // `data` is an arena-backed view; writeBuffer copies its bytes — byte-identical
@@ -368,7 +412,8 @@ export class TextRenderer {
         this.uniformBufCapacityBytes = Math.max(totalBytes, this.uniformBufCapacityBytes * 2)
         this.uniformBuf = this.rhi.createBuffer({
           size: this.uniformBufCapacityBytes,
-          usage: 'uniform', writable: true,
+          usage: 'uniform',
+          writable: true,
           label: 'text-uniform',
         })
         this.bindGroupsByPage.length = 0
@@ -379,7 +424,7 @@ export class TextRenderer {
   /** Encode draw commands. `viewport` is in physical pixels. */
   draw(pass: GPURenderPassEncoder, viewport: { width: number; height: number }): void {
     if (this.vertexCount === 0 || this.vertexBuf === null) return
-    if (this.atlas.pageCount === 0) return  // no glyphs uploaded yet
+    if (this.atlas.pageCount === 0) return // no glyphs uploaded yet
 
     if (this.allUniforms === null) return
 
@@ -398,14 +443,18 @@ export class TextRenderer {
     // bounds the write to the active slices (allUniforms may be larger
     // from a previous frame) — byte-identical to the prior
     // (buffer, byteOffset, numSlices*UNIFORM_STRIDE) sub-range form.
-    this.rhi.writeBuffer(this.uniformBuf, 0, this.allUniforms.subarray(0, numSlices * UNIFORM_STRIDE_F32))
+    this.rhi.writeBuffer(
+      this.uniformBuf,
+      0,
+      this.allUniforms.subarray(0, numSlices * UNIFORM_STRIDE_F32),
+    )
 
     // The SDF text draw routes through the RHI Material seam (TextDraper) — the SOLE
     // path. Collect per-slice draw items + issue them via the generic seam.
     const rhiSlices: TextSlice[] = []
     for (const slice of this.drawSlices) {
       const page = this.atlas.getPage(slice.page)
-      if (!page) continue  // page evicted between flush and draw — skip
+      if (!page) continue // page evicted between flush and draw — skip
       let bg = this.bindGroupsByPage[slice.page]
       if (!bg) {
         // Bind group routes through the RHI seam (§4): binding 0 is the RhiBuffer
@@ -422,7 +471,12 @@ export class TextRenderer {
         ])
         this.bindGroupsByPage[slice.page] = bg
       }
-      rhiSlices.push({ bg, dynamicOffset: slice.dynamicOffset, count: slice.count, first: slice.first })
+      rhiSlices.push({
+        bg,
+        dynamicOffset: slice.dynamicOffset,
+        count: slice.count,
+        first: slice.first,
+      })
     }
     if (rhiSlices.length > 0) {
       this.ensureTextDraper()
@@ -457,15 +511,20 @@ export function packUniformsForTesting(d: TextDraw): Float32Array {
 // Bright z=14); test seam passes undefined to keep the legacy
 // fresh-heap allocation path.
 function packUniforms(d: TextDraw, arena?: FrameArena): Float32Array {
-  const buf = arena !== undefined
-    ? arena.allocF32(UNIFORM_BYTES / 4)
-    : new Float32Array(UNIFORM_BYTES / 4)
+  const buf =
+    arena !== undefined ? arena.allocF32(UNIFORM_BYTES / 4) : new Float32Array(UNIFORM_BYTES / 4)
   // viewport (slots 0,1) — written by draw()
-  buf[2] = 0; buf[3] = 0  // viewport pad
-  buf[4] = d.color[0]; buf[5] = d.color[1]; buf[6] = d.color[2]; buf[7] = d.color[3]
+  buf[2] = 0
+  buf[3] = 0 // viewport pad
+  buf[4] = d.color[0]
+  buf[5] = d.color[1]
+  buf[6] = d.color[2]
+  buf[7] = d.color[3]
   if (d.halo) {
-    buf[8] = d.halo.color[0]; buf[9] = d.halo.color[1]
-    buf[10] = d.halo.color[2]; buf[11] = d.halo.color[3]
+    buf[8] = d.halo.color[0]
+    buf[9] = d.halo.color[1]
+    buf[10] = d.halo.color[2]
+    buf[11] = d.halo.color[3]
     // MapLibre-derived halo math. The previous formula computed
     // halo_width / halo_blur in slot-pixel distance units which
     // produced a halo ~3× narrower and ~5× harder than MapLibre on
@@ -495,7 +554,7 @@ function packUniforms(d: TextDraw, arena?: FrameArena): Float32Array {
     // source. Pre-iter-114 local glyphs used 63-per-`sdfRadius` slope
     // (~4× shallower) which made shader AA cover ~4 px of edge instead
     // of ~1 px — the user-reported Hangul stroke unevenness.
-    void d.glyphs  // source attribution no longer affects halo math
+    void d.glyphs // source attribution no longer affects halo math
     const haloK = 3
     // px → normalised-SDF conversion. haloK/fontSize maps one physical
     // pixel of edge distance into the [0,1] SDF byte space for THIS
@@ -523,7 +582,10 @@ function packUniforms(d: TextDraw, arena?: FrameArena): Float32Array {
     // blur = 0.
     buf[13] = (d.halo.blur ?? 0) * 1.19 * pxToSdf
   } else {
-    buf[8] = 0; buf[9] = 0; buf[10] = 0; buf[11] = 0
+    buf[8] = 0
+    buf[9] = 0
+    buf[10] = 0
+    buf[11] = 0
     buf[12] = 0
     buf[13] = 0
   }

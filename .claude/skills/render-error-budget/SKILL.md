@@ -21,7 +21,7 @@ description: >
 
 The recurring failure mode in this codebase: a user reports a visible render bug,
 someone fixes it by **render → eyeball → tweak → re-render**, the screenshot looks
-right *at the tested camera*, it ships "done", and it **recurs** at a slightly
+right _at the tested camera_, it ships "done", and it **recurs** at a slightly
 different camera/zoom — "잡을듯 말듯 몇십번" (almost-fixed, dozens of times).
 `#387 → #389 → #392` (fill displaced from outline) is the canonical case: three
 "fixes", two of them the **wrong root** (ring-coincidence, fill-translate), because
@@ -31,7 +31,7 @@ That loop is the signature of **verification by observation** on a partial oracl
 Observation samples a continuous, high-dimensional output space (camera × zoom ×
 projection × data × surface); it finds bugs, it can never prove their absence
 between samples, and the symptom-fix at the sampled point leaves the root to
-re-surface elsewhere. The "dozens of attempts" is the *cost* of not having the
+re-surface elsewhere. The "dozens of attempts" is the _cost_ of not having the
 analytic gate.
 
 **The fix is not a better screenshot. It is to stop observing and start proving.**
@@ -42,12 +42,12 @@ single pixel exists.
 
 ## Decision tree — pick the construction, not the camera
 
-| Bug smell | Class | Technique (this skill) | Observation needed? |
-|---|---|---|---|
-| deep-zoom drift, f32 loss, fill/outline split, "excess tolerance", position wrong past zoom N | **precision** | **closed-form error budget** (§1) | No — exhaustive bound |
-| fill≠outline, CPU≠GPU, geoid sphere-vs-ellipsoid, two paths disagree | **frame-consistency** | **single authority / branded type** — make the bad state unrepresentable (§2) | No — compile error |
-| no closed form, no oracle, but a known relation (rotate/translate/zoom invariance, fill⊆stroke-bbox, seam continuity) | **geometric** | **metamorphic invariant** (§3) | No — oracle-free property |
-| MSAA seam pixels, blend, depth/overdraw order, sub-pixel coverage | **emergent raster** | none of the above — this is the irreducible residue | **Yes** → `visual-artifact-bisect` |
+| Bug smell                                                                                                             | Class                 | Technique (this skill)                                                        | Observation needed?                |
+| --------------------------------------------------------------------------------------------------------------------- | --------------------- | ----------------------------------------------------------------------------- | ---------------------------------- |
+| deep-zoom drift, f32 loss, fill/outline split, "excess tolerance", position wrong past zoom N                         | **precision**         | **closed-form error budget** (§1)                                             | No — exhaustive bound              |
+| fill≠outline, CPU≠GPU, geoid sphere-vs-ellipsoid, two paths disagree                                                  | **frame-consistency** | **single authority / branded type** — make the bad state unrepresentable (§2) | No — compile error                 |
+| no closed form, no oracle, but a known relation (rotate/translate/zoom invariance, fill⊆stroke-bbox, seam continuity) | **geometric**         | **metamorphic invariant** (§3)                                                | No — oracle-free property          |
+| MSAA seam pixels, blend, depth/overdraw order, sub-pixel coverage                                                     | **emergent raster**   | none of the above — this is the irreducible residue                           | **Yes** → `visual-artifact-bisect` |
 
 The first three classes are ~75% of the recurring render bugs here. Only the last
 genuinely needs eyes. Default to a construction; reach for the camera only when the
@@ -69,19 +69,19 @@ Procedure:
    - Example (H2): the pre-#392 fill arm stored absolute lon/lat **degrees** and
      re-projected: `merc_x = lon·DEG2RAD·R`. At Seoul `merc_x ≈ 1.4e7 m`, so a
      single f32 holds it with ulp `≈ 1.4e7 · 2⁻²³ ≈ 1.7 m`. That 1.7 m is the
-     error *floor* of the path, independent of zoom.
+     error _floor_ of the path, independent of zoom.
 2. **Bound over the domain.** Convert metres → pixels via `pxPerM(zoom) =
-   tileSize · 2^zoom / (2π·R)`. The leading-order budget is `boundPx(zoom) =
-   dominantM · 2⁻²³ · pxPerM(zoom)`. For H2 at z20.55: `1.4e7 · 2⁻²³ · ~19.6 ≈
-   1.7 m · 19.6 ≈ 33 px`. **The bug is a number you compute, not a thing you see.**
+tileSize · 2^zoom / (2π·R)`. The leading-order budget is `boundPx(zoom) =
+dominantM · 2⁻²³ · pxPerM(zoom)`. For H2 at z20.55: `1.4e7 · 2⁻²³ · ~19.6 ≈
+1.7 m · 19.6 ≈ 33 px`. **The bug is a number you compute, not a thing you see.**
    (The empirical f32 split is ~1.7× larger, ≈57 px, because a second same-order
    term — the truncated f32 `DEG2RAD` constant, rel err ~1.4e-7 — adds a comparable
    contribution; the leading term decides the FRAME, step 5's empirical gives the
    exact magnitude.)
 3. **Compare frames.** The #392 fix stores **tile-local** Mercator: magnitude `≤
-   tile_extent(zoom) = 2π·R / 2^zoom`. Then `boundPx = tile_extent · 2⁻²³ ·
-   pxPerM(zoom) = (2π·R/2^z)·2⁻²³·(tileSize·2^z/2π·R) = tileSize · 2⁻²³` — a
-   **constant ≈ 6e-5 px at every zoom** (tileSize 512). The closed form *proves*
+tile_extent(zoom) = 2π·R / 2^zoom`. Then `boundPx = tile_extent · 2⁻²³ ·
+pxPerM(zoom) = (2π·R/2^z)·2⁻²³·(tileSize·2^z/2π·R) = tileSize · 2⁻²³` — a
+   **constant ≈ 6e-5 px at every zoom** (tileSize 512). The closed form _proves_
    tile-local is sub-pixel everywhere and absolute-degree is not. This is the whole
    #392 argument, derivable at design time.
 4. **Gate it.** Assert `boundPx < pxTolerance` for every SHIPPING path over the
@@ -91,7 +91,7 @@ Procedure:
    path in f32 (`Math.fround` each op) vs f64 truth over a **dense** zoom×lon grid;
    assert `empiricalMaxPx ≤ analyticBoundPx`. If the empirical exceeds the bound,
    your dominant-term model under-counts — fix the model. The empirical check is
-   itself a cheap pre-observation gate (dense sampling of the *math*, not pixels).
+   itself a cheap pre-observation gate (dense sampling of the _math_, not pixels).
 
 The living gate: `runtime/src/engine/projection/coordinate-error-budget.test.ts`.
 Add a coordinate path = add its error model + dense empirical row. It runs in the
@@ -120,7 +120,7 @@ lives in." Don't test that they agree — make disagreement **impossible to writ
   the unambiguously-lossy extruded arm into a compile error, not a latent deep-zoom bug.
 
 This is the type-level form of the project's single-authority debt (the DSL unified
-shader *text*, not the position *frame* — see the recurrence-bedrock memory).
+shader _text_, not the position _frame_ — see the recurrence-bedrock memory).
 
 ## §3 Metamorphic invariants (geometric, oracle-free)
 
@@ -148,6 +148,6 @@ stop and write the budget instead.
 
 This skill does NOT let you assert "no render bugs remain" — absence is unprovable
 in a continuous, partially-oracle'd, GPU-composited domain. It lets you make the
-*scoped, true* claim: "no bug of class C over domain D" — and it pulls the
+_scoped, true_ claim: "no bug of class C over domain D" — and it pulls the
 precision and frame classes (the bulk of the recurrence) out of the
 observation-bound set into the provable set, before any user reports them.

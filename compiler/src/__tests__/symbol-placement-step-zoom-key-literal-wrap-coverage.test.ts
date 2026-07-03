@@ -21,10 +21,13 @@ describe('symbol-placement step zoom-key literal-wrap unwrap', () => {
           layout: {
             'text-field': '{ref}',
             'symbol-placement': [
-              'step', ['zoom'],
+              'step',
+              ['zoom'],
               'point',
-              ['literal', 12], 'line',
-              ['literal', 16], 'line-center',
+              ['literal', 12],
+              'line',
+              ['literal', 16],
+              'line-center',
             ],
           },
         },

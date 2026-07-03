@@ -41,6 +41,8 @@ describe('projection graph — 3-way consistency (CPU oracle · WGSL · GLSL)', 
     // GLSL ES signature: `vec2 proj_mercator(float lon_deg, float lat_deg)`.
     expect(glsl).toMatch(/vec2 proj_mercator\(float \w+, float \w+\) \{/)
     // and the WGSL of the same fn carries WGSL spelling — proof the IR is neutral.
-    expect(emitModule(getPROJECTION_MODULE())).toMatch(/fn proj_mercator\(\w+: f32, \w+: f32\) -> vec2<f32>/)
+    expect(emitModule(getPROJECTION_MODULE())).toMatch(
+      /fn proj_mercator\(\w+: f32, \w+: f32\) -> vec2<f32>/,
+    )
   })
 })

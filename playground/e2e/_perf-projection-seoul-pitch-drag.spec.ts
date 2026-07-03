@@ -26,9 +26,7 @@ import { dirname, join, resolve } from 'node:path'
 import { runInteraction, computeStats, interactions } from './helpers/natural-interaction'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const fixture = readFileSync(
-  resolve(__dirname, '__convert-fixtures', 'bright.json'), 'utf8',
-)
+const fixture = readFileSync(resolve(__dirname, '__convert-fixtures', 'bright.json'), 'utf8')
 const OUT_DIR = resolve(__dirname, '__perf-projection-seoul-pitch-drag__')
 mkdirSync(OUT_DIR, { recursive: true })
 
@@ -48,7 +46,10 @@ const START_PITCHES = [45, 60] as const
 
 interface PhaseStats {
   frames: number
-  median: number; p95: number; p99: number; max: number
+  median: number
+  p95: number
+  p99: number
+  max: number
 }
 
 interface CellResult {
@@ -56,20 +57,34 @@ interface CellResult {
   startPitch: number
   pitchPhase: PhaseStats
   dragPhase: PhaseStats
-  finalTiles: number; finalDraws: number; finalTris: number
+  finalTiles: number
+  finalDraws: number
+  finalTris: number
 }
 
 interface DrawStats {
-  drawCalls: number; tilesVisible: number; triangles: number; lines: number
+  drawCalls: number
+  tilesVisible: number
+  triangles: number
+  lines: number
 }
 
 async function readStats(page: Page): Promise<DrawStats> {
   return page.evaluate(() => {
-    const m = (window as unknown as {
-      __xgisMap?: { vtSources?: Map<string, { renderer?: {
-        getDrawStats?: () => DrawStats
-      } }> }
-    }).__xgisMap
+    const m = (
+      window as unknown as {
+        __xgisMap?: {
+          vtSources?: Map<
+            string,
+            {
+              renderer?: {
+                getDrawStats?: () => DrawStats
+              }
+            }
+          >
+        }
+      }
+    ).__xgisMap
     const agg = { drawCalls: 0, tilesVisible: 0, triangles: 0, lines: 0 }
     if (!m?.vtSources) return agg
     for (const [, src] of m.vtSources) {
@@ -86,10 +101,13 @@ async function readStats(page: Page): Promise<DrawStats> {
 
 async function setup(page: Page, projection: string, startPitch: number): Promise<void> {
   const xgis = convertMapboxStyle(fixture)
-  await page.addInitScript((args) => {
-    sessionStorage.setItem('__xgisImportSource', args.src)
-    sessionStorage.setItem('__xgisImportLabel', `Bright (${args.proj} startPitch=${args.p})`)
-  }, { src: xgis, proj: projection, p: startPitch })
+  await page.addInitScript(
+    (args) => {
+      sessionStorage.setItem('__xgisImportSource', args.src)
+      sessionStorage.setItem('__xgisImportLabel', `Bright (${args.proj} startPitch=${args.p})`)
+    },
+    { src: xgis, proj: projection, p: startPitch },
+  )
   // Start at z=14 Seoul with the configured starting pitch.
   await page.goto(
     `/demo.html?id=__import&proj=${projection}#${ZOOM}/${SEOUL.lat}/${SEOUL.lon}/0/${startPitch}`,
@@ -97,7 +115,8 @@ async function setup(page: Page, projection: string, startPitch: number): Promis
   )
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
   await page.waitForTimeout(3_500)
 }
@@ -125,9 +144,9 @@ test.describe('perf-projection-seoul-pitch-drag', () => {
         await setup(page, proj, startPitch)
 
         // Phase A: pitch ramp startPitch → 0.
-        const pitchTimings = await runInteraction(
-          page, interactions.pitch(startPitch, 0), { durationMs: 3000 },
-        )
+        const pitchTimings = await runInteraction(page, interactions.pitch(startPitch, 0), {
+          durationMs: 3000,
+        })
         await page.waitForTimeout(300) // mini-settle between phases
 
         // Phase B: drag-pan ~200 m at the now-flat view.
@@ -143,7 +162,8 @@ test.describe('perf-projection-seoul-pitch-drag', () => {
         const finalStats = await readStats(page)
 
         const r: CellResult = {
-          projection: proj, startPitch,
+          projection: proj,
+          startPitch,
           pitchPhase: toPhaseStats(pitchTimings),
           dragPhase: toPhaseStats(dragTimings),
           finalTiles: finalStats.tilesVisible,
@@ -153,10 +173,10 @@ test.describe('perf-projection-seoul-pitch-drag', () => {
         results.push(r)
         // eslint-disable-next-line no-console
         console.log(
-          `[pd ${proj} sp=${startPitch}] `
-          + `pitch:p95=${r.pitchPhase.p95}/max=${r.pitchPhase.max} `
-          + `drag:p95=${r.dragPhase.p95}/max=${r.dragPhase.max} `
-          + `tiles=${r.finalTiles} tris=${r.finalTris}`,
+          `[pd ${proj} sp=${startPitch}] ` +
+            `pitch:p95=${r.pitchPhase.p95}/max=${r.pitchPhase.max} ` +
+            `drag:p95=${r.dragPhase.p95}/max=${r.dragPhase.max} ` +
+            `tiles=${r.finalTiles} tris=${r.finalTris}`,
         )
 
         // Sanity: mercator (known-healthy control) must complete both
@@ -185,21 +205,23 @@ test.describe('perf-projection-seoul-pitch-drag', () => {
     lines.push('|---|---:|---:|---:|---:|---:|---:|')
     for (const r of results) {
       lines.push(
-        `| ${r.projection} | ${r.startPitch}° | ${r.pitchPhase.frames} | `
-        + `${r.pitchPhase.median} | ${r.pitchPhase.p95} | ${r.pitchPhase.p99} | `
-        + `${r.pitchPhase.max} |`,
+        `| ${r.projection} | ${r.startPitch}° | ${r.pitchPhase.frames} | ` +
+          `${r.pitchPhase.median} | ${r.pitchPhase.p95} | ${r.pitchPhase.p99} | ` +
+          `${r.pitchPhase.max} |`,
       )
     }
     lines.push('')
     lines.push('## Phase B — drag-pan')
     lines.push('')
-    lines.push('| Projection | StartPitch | Frames | Median | p95 | p99 | Max | TilesEnd | DrawsEnd | TrisEnd |')
+    lines.push(
+      '| Projection | StartPitch | Frames | Median | p95 | p99 | Max | TilesEnd | DrawsEnd | TrisEnd |',
+    )
     lines.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|')
     for (const r of results) {
       lines.push(
-        `| ${r.projection} | ${r.startPitch}° | ${r.dragPhase.frames} | `
-        + `${r.dragPhase.median} | ${r.dragPhase.p95} | ${r.dragPhase.p99} | `
-        + `${r.dragPhase.max} | ${r.finalTiles} | ${r.finalDraws} | ${r.finalTris} |`,
+        `| ${r.projection} | ${r.startPitch}° | ${r.dragPhase.frames} | ` +
+          `${r.dragPhase.median} | ${r.dragPhase.p95} | ${r.dragPhase.p99} | ` +
+          `${r.dragPhase.max} | ${r.finalTiles} | ${r.finalDraws} | ${r.finalTris} |`,
       )
     }
     lines.push('')

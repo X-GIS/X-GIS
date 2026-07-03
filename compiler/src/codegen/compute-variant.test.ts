@@ -7,7 +7,11 @@ import { buildComputeVariantAddendum, FRAGMENT_FEAT_ID_EXPR } from './compute-va
 import { emitMatchComputeKernel, emitTernaryComputeKernel } from './compute-gen'
 import type { ComputePlanEntry } from './compute-plan'
 
-function makeMatchEntry(field: string, paintAxis: 'fill' | 'stroke-color', renderNodeIndex = 0): ComputePlanEntry {
+function makeMatchEntry(
+  field: string,
+  paintAxis: 'fill' | 'stroke-color',
+  renderNodeIndex = 0,
+): ComputePlanEntry {
   const kernel = emitMatchComputeKernel({
     fieldName: field,
     arms: [{ pattern: 'a', colorHex: '#ff0000' }],
@@ -48,12 +52,13 @@ describe('buildComputeVariantAddendum', () => {
   })
 
   it('one fill entry → fillExpr set, preamble has one decl', () => {
-    const a = buildComputeVariantAddendum(
-      [makeMatchEntry('class', 'fill')],
-      0,
-      3,
-    )
-    expect(a.bindingDecls[0]).toMatchObject({ group: 0, binding: 3, name: 'compute_out_fill', space: 'storage' })
+    const a = buildComputeVariantAddendum([makeMatchEntry('class', 'fill')], 0, 3)
+    expect(a.bindingDecls[0]).toMatchObject({
+      group: 0,
+      binding: 3,
+      name: 'compute_out_fill',
+      space: 'storage',
+    })
     expect(a.fillExpr).toBe('unpack4x8unorm(compute_out_fill[input.feat_id])')
     expect(a.strokeExpr).toBeUndefined()
     expect(a.bindGroupEntries).toHaveLength(1)
@@ -61,11 +66,7 @@ describe('buildComputeVariantAddendum', () => {
   })
 
   it('one stroke entry → strokeExpr set', () => {
-    const a = buildComputeVariantAddendum(
-      [makeMatchEntry('class', 'stroke-color')],
-      2,
-      0,
-    )
+    const a = buildComputeVariantAddendum([makeMatchEntry('class', 'stroke-color')], 2, 0)
     expect(a.fillExpr).toBeUndefined()
     expect(a.strokeExpr).toBe('unpack4x8unorm(compute_out_stroke[input.feat_id])')
     expect(a.bindGroupEntries).toHaveLength(1)
@@ -73,16 +74,13 @@ describe('buildComputeVariantAddendum', () => {
 
   it('fill + stroke entries → both exprs set, two-line preamble, sequential bindings', () => {
     const a = buildComputeVariantAddendum(
-      [
-        makeMatchEntry('class', 'fill'),
-        makeTernaryEntry('border', 'stroke-color'),
-      ],
+      [makeMatchEntry('class', 'fill'), makeTernaryEntry('border', 'stroke-color')],
       0,
       5,
     )
     expect(a.fillExpr).toBeDefined()
     expect(a.strokeExpr).toBeDefined()
-    expect(a.bindGroupEntries.map(e => e.binding)).toEqual([5, 6])
+    expect(a.bindGroupEntries.map((e) => e.binding)).toEqual([5, 6])
     // Two distinct binding decls, in order.
     expect(a.bindingDecls).toHaveLength(2)
     expect(a.bindingDecls[0]!.binding).toBe(5)
@@ -91,45 +89,32 @@ describe('buildComputeVariantAddendum', () => {
 
   it('binding sequence starts at baseBinding and increments by 1', () => {
     const a = buildComputeVariantAddendum(
-      [
-        makeMatchEntry('a', 'fill'),
-        makeTernaryEntry('b', 'stroke-color'),
-      ],
+      [makeMatchEntry('a', 'fill'), makeTernaryEntry('b', 'stroke-color')],
       3,
       10,
     )
-    expect(a.bindings.map(b => b.binding)).toEqual([10, 11])
-    expect(a.bindings.every(b => b.bindGroup === 3)).toBe(true)
+    expect(a.bindings.map((b) => b.binding)).toEqual([10, 11])
+    expect(a.bindings.every((b) => b.bindGroup === 3)).toBe(true)
   })
 
   it('paintAxis preserved in bindings array (caller uses to wire output buffers)', () => {
     const a = buildComputeVariantAddendum(
-      [
-        makeMatchEntry('a', 'fill'),
-        makeTernaryEntry('b', 'stroke-color'),
-      ],
+      [makeMatchEntry('a', 'fill'), makeTernaryEntry('b', 'stroke-color')],
       0,
       0,
     )
-    expect(a.bindings.map(b => b.paintAxis)).toEqual(['fill', 'stroke-color'])
+    expect(a.bindings.map((b) => b.paintAxis)).toEqual(['fill', 'stroke-color'])
   })
 
   it('fid expression matches FRAGMENT_FEAT_ID_EXPR constant', () => {
-    const a = buildComputeVariantAddendum(
-      [makeMatchEntry('class', 'fill')],
-      0,
-      0,
-    )
+    const a = buildComputeVariantAddendum([makeMatchEntry('class', 'fill')], 0, 0)
     expect(FRAGMENT_FEAT_ID_EXPR).toBe('input.feat_id')
     expect(a.fillExpr).toContain(FRAGMENT_FEAT_ID_EXPR)
   })
 
   it('fragment expressions are valid vec4<f32> drop-ins (unpack4x8unorm wrapper)', () => {
     const a = buildComputeVariantAddendum(
-      [
-        makeMatchEntry('a', 'fill'),
-        makeTernaryEntry('b', 'stroke-color'),
-      ],
+      [makeMatchEntry('a', 'fill'), makeTernaryEntry('b', 'stroke-color')],
       0,
       0,
     )
@@ -139,14 +124,10 @@ describe('buildComputeVariantAddendum', () => {
   })
 
   it('bindGroupEntries shape: { binding, visibility, buffer: { type } }', () => {
-    const a = buildComputeVariantAddendum(
-      [makeMatchEntry('class', 'fill')],
-      0,
-      2,
-    )
+    const a = buildComputeVariantAddendum([makeMatchEntry('class', 'fill')], 0, 2)
     const entry = a.bindGroupEntries[0]!
     expect(entry.binding).toBe(2)
-    expect(entry.visibility).toBe(2)  // FRAGMENT bit
+    expect(entry.visibility).toBe(2) // FRAGMENT bit
     expect(entry.buffer.type).toBe('read-only-storage')
   })
 
@@ -158,10 +139,7 @@ describe('buildComputeVariantAddendum', () => {
     // assumptions about the caller's merge model. Test documents
     // the current behaviour so future callers know.
     const a = buildComputeVariantAddendum(
-      [
-        makeMatchEntry('a', 'fill'),
-        makeMatchEntry('b', 'fill'),
-      ],
+      [makeMatchEntry('a', 'fill'), makeMatchEntry('b', 'fill')],
       0,
       0,
     )

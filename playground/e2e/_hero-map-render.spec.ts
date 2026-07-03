@@ -25,7 +25,8 @@ test('landing-page hero map renders the full world', async ({ page }) => {
   await page.goto('/demo.html?id=minimal#0/0/0/0/0', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   await page.waitForTimeout(3_000) // settle
 
@@ -35,15 +36,14 @@ test('landing-page hero map renders the full world', async ({ page }) => {
   // non-background coverage drops dramatically.
   const stats = await page.evaluate(async () => {
     const canvas = document.getElementById('map') as HTMLCanvasElement
-    const blob = await new Promise<Blob | null>((res) =>
-      canvas.toBlob((b) => res(b), 'image/png'),
-    )
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob((b) => res(b), 'image/png'))
     if (!blob) return { error: 'no blob' }
     const buf = await blob.arrayBuffer()
     const img = new Image()
     const url = URL.createObjectURL(new Blob([buf], { type: 'image/png' }))
     await new Promise<void>((res, rej) => {
-      img.onload = () => res(); img.onerror = () => rej(new Error('decode'))
+      img.onload = () => res()
+      img.onerror = () => rej(new Error('decode'))
       img.src = url
     })
     const off = new OffscreenCanvas(img.width, img.height)
@@ -63,14 +63,17 @@ test('landing-page hero map renders the full world', async ({ page }) => {
     return { nonBgFraction: nonBg / total, width: img.width, height: img.height }
   })
   // eslint-disable-next-line no-console
-  console.log(`[hero-map] canvas ${(stats as { width: number; height: number }).width}×${(stats as { width: number; height: number }).height}, non-bg fraction = ${((stats as { nonBgFraction: number }).nonBgFraction * 100).toFixed(1)}%`)
+  console.log(
+    `[hero-map] canvas ${(stats as { width: number; height: number }).width}×${(stats as { width: number; height: number }).height}, non-bg fraction = ${((stats as { nonBgFraction: number }).nonBgFraction * 100).toFixed(1)}%`,
+  )
   await page.locator('#map').screenshot({ path: 'test-results/hero-map-render.png' })
 
   if ('error' in stats) throw new Error(stats.error as string)
   // World at zoom 0 covers most of the canvas; expect ≥ 15% non-bg
   // (lots of ocean = bg, but land + continents should fill enough).
   // The bug produced ~3% non-bg (only Africa + Australia visible).
-  expect(stats.nonBgFraction,
+  expect(
+    stats.nonBgFraction,
     `hero map shows only ${(stats.nonBgFraction * 100).toFixed(1)}% non-background — clip_bounds discard regression?`,
-  ).toBeGreaterThan(0.10)
+  ).toBeGreaterThan(0.1)
 })

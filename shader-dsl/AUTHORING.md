@@ -12,10 +12,12 @@ or `f32()` wrappers around literals. This guide documents the surface that lande
 > **Import paths.** Author from the package's public barrel — it re-exports the whole
 > `core/**` authoring + emit surface (the IR, the SoT layout declarators, the WGSL/GLSL
 > backends, the lint passes, the CPU oracle, and `reflect()`):
+>
 > ```ts
 > import { fn, module, vec4, If, Switch, when, emitModule, reflect, … } from '@xgis/shader-dsl'
 > import { ioStruct, uniformStruct, structDecl, builtin, location, storageBuffer, resource } from '@xgis/shader-dsl'
 > ```
+>
 > The X-GIS-specific shader graphs that used to live in `shader-dsl/src/shaders/*.ts`
 > moved to the map package (`map/src/shaders/dsl/` — #763 A3); they author through this same
 > barrel like any other consumer. Inside the package, the barrel re-exports the IR via the
@@ -40,7 +42,7 @@ fn(name?, params, ret?, body, opts?)
 ```
 
 - **`name`** — optional. Omit it for an auto `_fn{n}` name. Keep an explicit name for any
-  fn referenced by a *string* (an `externFn`, a placeholder-swap lookup) or compared in a
+  fn referenced by a _string_ (an `externFn`, a placeholder-swap lookup) or compared in a
   byte-identical snapshot.
 - **`params`** — a record `{ paramName: ShaderType }`. Entry points use `builtin(...)` /
   `location(...)` specs in the same record (see below).
@@ -56,7 +58,8 @@ return is a compile error.
 
 ```ts
 // Helper: return type inferred as f32 from `return select(...)`.
-export const dist_to_segment = fn('dist_to_segment',
+export const dist_to_segment = fn(
+  'dist_to_segment',
   { p: vec2fT, a: vec2fT, b: vec2fT },
   ({ p, a, b }) => {
     const ab = b.sub(a)
@@ -64,7 +67,8 @@ export const dist_to_segment = fn('dist_to_segment',
     const t = clamp(dot(p.sub(a), ab).div(max(len2, 1e-10)), 0, 1)
     const segDist = length(p.sub(a).sub(ab.mul(t)))
     return select(len2.lt(1e-10), length(p.sub(a)), segDist)
-  })
+  },
+)
 ```
 
 A function authored with `fn()` is an **`FnHandle`**: it is both the **callable** and the
@@ -106,16 +110,21 @@ Each field is an array; any omitted field defaults to `[]`. Order in `funcs:` is
 emit order, so **callees come before callers** (WGSL requires forward declaration order):
 
 ```ts
-export const buildRasterModule = (pickEnabled: boolean): ModuleDecl => module({
-  consts: [...PROJECTION_CONSTS, ...ECEF_CONSTS],
-  structs: [U.struct, Tile.struct, VsOut.decl, rasterFragmentOutput(pickEnabled).decl],
-  bindings: [U.binding, tex.binding, texSampler.binding, Tile.binding],
-  funcs: [
-    ...getGpuProjectionFuncs(), ...ECEF_FUNCS, ...RASTER_COLOR_FUNCS,
-    apply_log_depth, compute_log_frag_depth,
-    vs, buildFs(pickEnabled),
-  ],
-})
+export const buildRasterModule = (pickEnabled: boolean): ModuleDecl =>
+  module({
+    consts: [...PROJECTION_CONSTS, ...ECEF_CONSTS],
+    structs: [U.struct, Tile.struct, VsOut.decl, rasterFragmentOutput(pickEnabled).decl],
+    bindings: [U.binding, tex.binding, texSampler.binding, Tile.binding],
+    funcs: [
+      ...getGpuProjectionFuncs(),
+      ...ECEF_FUNCS,
+      ...RASTER_COLOR_FUNCS,
+      apply_log_depth,
+      compute_log_frag_depth,
+      vs,
+      buildFs(pickEnabled),
+    ],
+  })
 ```
 
 #### `funcs:` as a key-record — name once (#740 R1)
@@ -142,7 +151,7 @@ When a base module has variation seams, mark them with `b.placeholder('tag')` an
 variant with `composeModule`, instead of hand-rolling a clone-and-swap walk:
 
 ```ts
-const base = module({ funcs: [/* … fs_fill ends with */ (_p, b) => b.placeholder('fill-return') ] })
+const base = module({ funcs: [/* … fs_fill ends with */ (_p, b) => b.placeholder('fill-return')] })
 const composed = composeModule(base, { 'fill-return': variantFillReturnStmts })
 ```
 
@@ -168,12 +177,12 @@ below), the **auto-var pass** materialises it as a WGSL `var` automatically — 
 needed:
 
 ```ts
-const min_dist = f32(1e10)     // plain const…
+const min_dist = f32(1e10) // plain const…
 // …later, inside a loop…
-min_dist.assign(min(min_dist, d))   // …auto-materialises as `var`
+min_dist.assign(min(min_dist, d)) // …auto-materialises as `var`
 ```
 
-`Let(...)` / `Var(...)` still exist for the rare case where you need to *force* a named
+`Let(...)` / `Var(...)` still exist for the rare case where you need to _force_ a named
 binding (a derivative like `fwidth` that WGSL requires in uniform control flow, or a
 mutable accumulator you want to name), but the default is a plain `const`.
 
@@ -183,9 +192,9 @@ JS cannot overload `=`, so mutation is a method on the lvalue Node (mirrors thre
 `.assign`):
 
 ```ts
-x.assign(value)            // x = value;
-winding.assign(winding.add(1))   // compound = the pure op + assign; there is no addAssign
-o.pos.assign(vec4(pos, 0, 1))    // member targets work too
+x.assign(value) // x = value;
+winding.assign(winding.add(1)) // compound = the pure op + assign; there is no addAssign
+o.pos.assign(vec4(pos, 0, 1)) // member targets work too
 ```
 
 There is **no** free `assign(x, v)` function in the authoring surface — `.assign` is a
@@ -205,25 +214,25 @@ unchanged; it mirrors RxJS `Observable` vs `Subject`.) To mutate, declare with `
 
 Arithmetic, comparison, bitwise, swizzle, and index are **methods** on a Node:
 
-| category | methods |
-|---|---|
-| arithmetic | `.add .sub .mul .div .mod .neg` |
-| comparison | `.lt .gt .le .ge .eq .ne` |
-| logical | `.and .or` |
-| bitwise | `.bitAnd .bitOr .bitXor .shl .shr` |
+| category   | methods                                                                  |
+| ---------- | ------------------------------------------------------------------------ |
+| arithmetic | `.add .sub .mul .div .mod .neg`                                          |
+| comparison | `.lt .gt .le .ge .eq .ne`                                                |
+| logical    | `.and .or`                                                               |
+| bitwise    | `.bitAnd .bitOr .bitXor .shl .shr`                                       |
 | components | `.x .y .z .w` · `.r .g .b .a` · `.rgb .xy .xyz …` · `.swizzle<R>('zxy')` |
-| index | `.at(i, elemType)` |
-| ternary | `cond.select(a, b)` (WGSL `select`) |
+| index      | `.at(i, elemType)`                                                       |
+| ternary    | `cond.select(a, b)` (WGSL `select`)                                      |
 
 **A bare number literal lifts to the operand's type from context** — drop the `f32()` /
 `u32()` / `i32()` wrapper:
 
 ```ts
-x.add(1)            // f32 x → `x + 1.0`
-flags.bitAnd(1)     // u32 flags → `flags & 1u`   (typed from the LHS)
-mode.eq(2)          // u32 → `mode == 2u`
-vec4(pos, 0, 1)     // numeric components lift to the vec's element (f32)
-vec2u(0, 1)         // → u32 components
+x.add(1) // f32 x → `x + 1.0`
+flags.bitAnd(1) // u32 flags → `flags & 1u`   (typed from the LHS)
+mode.eq(2) // u32 → `mode == 2u`
+vec4(pos, 0, 1) // numeric components lift to the vec's element (f32)
+vec2u(0, 1) // → u32 components
 ```
 
 The same lift applies inside vector/struct constructors (`vec2/vec3/vec4/vec2u/vec2i`,
@@ -236,8 +245,8 @@ the type-anchor first arg of a math built-in).
 Use the WGSL built-ins for degree↔radian conversion, not a multiply by a rounded constant:
 
 ```ts
-const lonRad = radians(lon)     // was: lon.mul(DEG2RAD)
-const latDeg = degrees(latRad)  // was: latRad.div(DEG2RAD)
+const lonRad = radians(lon) // was: lon.mul(DEG2RAD)
+const latDeg = degrees(latRad) // was: latRad.div(DEG2RAD)
 ```
 
 (`DEG2RAD` survives only as the `(DEG2RAD·EARTH_R)` divisor in the abs-Mercator → degree
@@ -250,11 +259,19 @@ reverse paths, where folding it out would shift precision.)
 ### `If / elif / else` — statements
 
 ```ts
-If(pin.vis.lt(0), () => { Discard() })
+If(pin.vis.lt(0), () => {
+  Discard()
+})
 
-If(p.idx.eq(1), () => { pos.assign(vec2(3, -1)) })
-  .elif(p.idx.eq(2), () => { pos.assign(vec2(-1, 3)) })
-  .else(() => { /* … */ })
+If(p.idx.eq(1), () => {
+  pos.assign(vec2(3, -1))
+})
+  .elif(p.idx.eq(2), () => {
+    pos.assign(vec2(-1, 3))
+  })
+  .else(() => {
+    /* … */
+  })
 ```
 
 `If` / `elif` / `else` bodies are zero-arg closures `() => …` that author into the
@@ -293,19 +310,32 @@ condition-side sibling of `Switch`/`matchExpr` (scrutinee) and `select` (eager 2
 
 ```ts
 // 2-arm
-const dir = when(segLen.lt(1e-6), () => vec2(1, 0), () => segVec.div(segLen))
+const dir = when(
+  segLen.lt(1e-6),
+  () => vec2(1, 0),
+  () => segVec.div(segLen),
+)
 
 // N-arm: array of [condition, () => value] arms, then the else value (first true wins)
-const clip = when([
-  [projParams.x.lt(0.5), () => transformMat4(mvp, vec4(rel2d, 0, 1))],
-  [projParams.x.lt(6.5), () => transformMat4(mvp, vec4(relG, 0, 1))],
-], () => transformMat4(mvp, vec4(ecefRtc, 1)))
+const clip = when(
+  [
+    [projParams.x.lt(0.5), () => transformMat4(mvp, vec4(rel2d, 0, 1))],
+    [projParams.x.lt(6.5), () => transformMat4(mvp, vec4(relG, 0, 1))],
+  ],
+  () => transformMat4(mvp, vec4(ecefRtc, 1)),
+)
 
 // loop fold — body RETURNS the next accumulator (no Var + assign at the call site)
-const best = reduce(f32(1e10), u32(0), (i) => i.le(STEPS), (acc, i) => {
-  const q = bezierPoint(i)
-  return min(acc, length(p.sub(q)))
-}, u32(1))
+const best = reduce(
+  f32(1e10),
+  u32(0),
+  (i) => i.le(STEPS),
+  (acc, i) => {
+    const q = bezierPoint(i)
+    return min(acc, length(p.sub(q)))
+  },
+  u32(1),
+)
 ```
 
 `when`/`reduce` materialise the var + control flow internally and return the result Node, so
@@ -324,9 +354,9 @@ compile error, so adding a member surfaces every un-handled site. It lowers to t
 const Kind = enumU32({ Line: 0, Fill: 1, Stroke: 2 })
 
 const color = matchEnum(seg.kind, Kind, {
-  Line:   () => lineColor,
-  Fill:   () => fillColor,
-  Stroke: () => strokeColor,   // drop an arm → compile error
+  Line: () => lineColor,
+  Fill: () => fillColor,
+  Stroke: () => strokeColor, // drop an arm → compile error
 })
 // Kind.members.Fill is a Node<'u32'> literal; Kind.struct/values feed the case labels.
 ```
@@ -341,8 +371,8 @@ A control-flow body never captures a native `return value` as an early exit (tha
 read as a silent fall-through). Make early returns explicit:
 
 ```ts
-Return(value)                  // return value;
-ReturnIf(winding.ne(0), f32(1).sub(min_dist))   // if (winding != 0) { return …; }
+Return(value) // return value;
+ReturnIf(winding.ne(0), f32(1).sub(min_dist)) // if (winding != 0) { return …; }
 ```
 
 A `fn` body's **final** `return value` is native TS (the body's terminal `return`) — that
@@ -401,11 +431,15 @@ return RasterFragmentOutput.construct({ color: …, depth: … })
 Declares the struct + its binding together:
 
 ```ts
-const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
-  mvp: mat4x4fT,
-  proj_params: vec4fT,
-  raster_params: vec4fT,
-})
+const U = uniformStruct(
+  'Uniforms',
+  { group: 0, binding: 0, as: 'u' },
+  {
+    mvp: mat4x4fT,
+    proj_params: vec4fT,
+    raster_params: vec4fT,
+  },
+)
 // usage — `.field` for field access, `.x` chains straight off it:
 const opacity = U.field.raster_params.x
 const m = U.field.mvp
@@ -421,8 +455,14 @@ For a storage-buffer element type or a nested struct:
 
 ```ts
 export const ShapeSegment = structDecl('ShapeSegment', {
-  kind: u32T, color_idx: u32T, flags: u32T, _pad: u32T,
-  p0: vec2fT, p1: vec2fT, p2: vec2fT, p3: vec2fT,
+  kind: u32T,
+  color_idx: u32T,
+  flags: u32T,
+  _pad: u32T,
+  p0: vec2fT,
+  p1: vec2fT,
+  p2: vec2fT,
+  p3: vec2fT,
 })
 ```
 
@@ -438,9 +478,9 @@ or a scalar type). `.at(i)` returns the element's **typed field proxy** directly
 ```ts
 const segmentsB = storageBuffer('segments', ShapeSegment, { group: 0, binding: 9, access: 'read' })
 
-const seg = segmentsB.at(i)   // typed
-seg.p0                        // → Node<'vec2<f32>'>
-seg.kind                      // → Node<'u32'>
+const seg = segmentsB.at(i) // typed
+seg.p0 // → Node<'vec2<f32>'>
+seg.kind // → Node<'u32'>
 ```
 
 For a **scalar** element, `.at(i)` returns the element Node directly. `.binding` / `.node`
@@ -466,7 +506,9 @@ time):
 
 ```ts
 import { PI, EARTH_R } from './consts'
-const latRad = f32(2).mul(atan(exp(mercYAbs))).sub(PI.div(2))
+const latRad = f32(2)
+  .mul(atan(exp(mercYAbs)))
+  .sub(PI.div(2))
 ```
 
 To **declare** a module constant, a scalar that needs the truncated-vs-full-precision split
@@ -571,13 +613,30 @@ const lonRad = radians(lon)
 
 ```ts
 // BEFORE — named, typed, tuple-array switch / equality condExpr
-const v = condExpr(f32T, 'v', [[mode.eq(0), e0], [mode.eq(1), e1]], elseVal)
+const v = condExpr(
+  f32T,
+  'v',
+  [
+    [mode.eq(0), e0],
+    [mode.eq(1), e1],
+  ],
+  elseVal,
+)
 
 // AFTER — familiar Switch with Var + assign, OR condExpr taking only values
 const v = Var(elseVal)
-Switch(mode).case(0, () => v.assign(e0)).case(1, () => v.assign(e1)).default(() => {})
+Switch(mode)
+  .case(0, () => v.assign(e0))
+  .case(1, () => v.assign(e1))
+  .default(() => {})
 // or, for condition/range dispatch:
-const clip = condExpr([[c0, () => e0], [c1, () => e1]], () => elseVal)
+const clip = condExpr(
+  [
+    [c0, () => e0],
+    [c1, () => e1],
+  ],
+  () => elseVal,
+)
 ```
 
 ---
@@ -589,8 +648,12 @@ Authoring mistakes surface as **coded** errors (`shader-dsl [SD####]: …`) carr
 mismatched branches — each throws a `ShaderDslError` with a stable `.code` you can branch on:
 
 ```ts
-try { emitModule(m) } catch (e) {
-  if (e instanceof ShaderDslError && e.code === 'SD0002') { /* mismatched vectors */ }
+try {
+  emitModule(m)
+} catch (e) {
+  if (e instanceof ShaderDslError && e.code === 'SD0002') {
+    /* mismatched vectors */
+  }
 }
 ```
 
@@ -629,7 +692,7 @@ that produced it, so diagnostics can print `file:line:col`. It is **off by defau
 
 ```ts
 import { setSourceTracing } from '@xgis/shader-dsl'
-setSourceTracing(true)            // or set XGIS_SHADER_DSL_TRACE=1
+setSourceTracing(true) // or set XGIS_SHADER_DSL_TRACE=1
 ```
 
 Locations live in a private side-table keyed by node identity — they are **never** read on the
@@ -639,28 +702,28 @@ nodes), which is exactly where `validate()` / `lintModule()` / `diagnose()` run.
 
 ## Quick reference
 
-| Need | Write |
-|---|---|
-| A function | `fn(name?, params, body)` — return type inferred |
-| An entry point | `fn(name, { vid: builtin('vertex_index', u32T) }, body, { stage: 'vertex' })` |
-| A module | `module({ consts, structs, bindings, funcs })` |
-| An intermediate value | plain `const x = expr` |
-| Mutate it | `x.assign(v)` (auto-materialises a `var`) |
-| A literal in an op | bare number — `x.add(1)`, `vec4(p, 0, 1)` |
-| deg↔rad | `radians(x)` / `degrees(x)` |
-| Branch (statement) | `If(c, …).elif(c, …).else(…)` |
-| Branch (value) | `when(c, ()=>a, ()=>b)` / `when([[c,()=>a]], ()=>b)` (was `ifExpr`/`condExpr`) |
-| Exhaustive integer dispatch | `enumU32({A:0,B:1})` + `matchEnum(s, E, { A:()=>…, B:()=>… })` (missing arm = compile error) |
-| Integer dispatch | `Switch(s).case(n, …).default(…)` |
-| Loop fold (value) | `reduce(init, i0, cond, (acc,i)=>…, step)` |
-| Early return | `Return(v)` / `ReturnIf(c, v)` |
-| IO struct | `ioStruct(name, { f: builtin(...)/location(...) })` → `.of(n).f`, `.construct({…})`, `.type`, `.decl` |
-| Uniform | `uniformStruct(name, at, fields)` → `.field.f`, `.struct`, `.binding` |
-| Storage element struct | `structDecl(name, fields)` → `.of(n).f`, `.type`, `.decl` |
-| Storage buffer | `storageBuffer(name, Element, at)` → `buf.at(i).f` |
-| Texture / sampler | `resource(name, type, at)` → `.node`, `.binding` |
-| A shared const | import the handle (`PI`, `EARTH_R`) — not `constRef('NAME')` |
-| A non-scalar const | `constExpr(name, type, valueNode)` — `vec4` / `arrayLit` / struct literal |
-| Call a function | import the `FnHandle`, call directly — not `callFn('name')` |
-| Diagnose a module | `diagnose(m, { backend })` → `formatReport(report)` (lint + caps, no throw) |
-| Source locations in errors | `setSourceTracing(true)` (dev-only, off by default, never on emit) |
+| Need                        | Write                                                                                                 |
+| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| A function                  | `fn(name?, params, body)` — return type inferred                                                      |
+| An entry point              | `fn(name, { vid: builtin('vertex_index', u32T) }, body, { stage: 'vertex' })`                         |
+| A module                    | `module({ consts, structs, bindings, funcs })`                                                        |
+| An intermediate value       | plain `const x = expr`                                                                                |
+| Mutate it                   | `x.assign(v)` (auto-materialises a `var`)                                                             |
+| A literal in an op          | bare number — `x.add(1)`, `vec4(p, 0, 1)`                                                             |
+| deg↔rad                     | `radians(x)` / `degrees(x)`                                                                           |
+| Branch (statement)          | `If(c, …).elif(c, …).else(…)`                                                                         |
+| Branch (value)              | `when(c, ()=>a, ()=>b)` / `when([[c,()=>a]], ()=>b)` (was `ifExpr`/`condExpr`)                        |
+| Exhaustive integer dispatch | `enumU32({A:0,B:1})` + `matchEnum(s, E, { A:()=>…, B:()=>… })` (missing arm = compile error)          |
+| Integer dispatch            | `Switch(s).case(n, …).default(…)`                                                                     |
+| Loop fold (value)           | `reduce(init, i0, cond, (acc,i)=>…, step)`                                                            |
+| Early return                | `Return(v)` / `ReturnIf(c, v)`                                                                        |
+| IO struct                   | `ioStruct(name, { f: builtin(...)/location(...) })` → `.of(n).f`, `.construct({…})`, `.type`, `.decl` |
+| Uniform                     | `uniformStruct(name, at, fields)` → `.field.f`, `.struct`, `.binding`                                 |
+| Storage element struct      | `structDecl(name, fields)` → `.of(n).f`, `.type`, `.decl`                                             |
+| Storage buffer              | `storageBuffer(name, Element, at)` → `buf.at(i).f`                                                    |
+| Texture / sampler           | `resource(name, type, at)` → `.node`, `.binding`                                                      |
+| A shared const              | import the handle (`PI`, `EARTH_R`) — not `constRef('NAME')`                                          |
+| A non-scalar const          | `constExpr(name, type, valueNode)` — `vec4` / `arrayLit` / struct literal                             |
+| Call a function             | import the `FnHandle`, call directly — not `callFn('name')`                                           |
+| Diagnose a module           | `diagnose(m, { backend })` → `formatReport(report)` (lint + caps, no throw)                           |
+| Source locations in errors  | `setSourceTracing(true)` (dev-only, off by default, never on emit)                                    |

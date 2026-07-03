@@ -22,7 +22,7 @@ describe('compute-gen WGSL snapshot — match kernel', () => {
     const k = emitMatchComputeKernel({
       fieldName: 'class',
       arms: [
-        { pattern: 'school',   colorHex: '#f0e8f8' },
+        { pattern: 'school', colorHex: '#f0e8f8' },
         { pattern: 'cemetery', colorHex: '#aaddaa' },
         { pattern: 'hospital', colorHex: '#f5deb3' },
       ],

@@ -8,7 +8,8 @@ import { dispatchCenterKey } from './label-pass'
 // moved smoothly → snap jitter / off-road desync. dispatchCenterKey now
 // quantizes to ~1 CSS px (centre/mpp) so it ticks per px of pan at any zoom.
 describe('dispatchCenterKey — px-quantized rebake centre key (#402-C)', () => {
-  const cx = 14_117_000, cy = 4_517_000 // ~Seoul, Mercator metres
+  const cx = 14_117_000,
+    cy = 4_517_000 // ~Seoul, Mercator metres
 
   it('z22: a sub-metre pan (0.4 m ≈ 21 px) changes the key → icons rebake/track', () => {
     expect(dispatchCenterKey(cx, cy, 22)).not.toBe(dispatchCenterKey(cx + 0.4, cy, 22))

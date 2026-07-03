@@ -36,58 +36,134 @@ export class FrameRenderer {
   // ── Per-field delegating getters: the external pipeline-field read
   //    contract (plan §0) — every field map.ts / source-manager.ts /
   //    the OIT/opaque passes read MUST stay readable. ──
-  get fillPipeline(): GPURenderPipeline { return this._pipelines.fillPipeline }
+  get fillPipeline(): GPURenderPipeline {
+    return this._pipelines.fillPipeline
+  }
   /** P1.6 — the polygon flat-fill RHI Material twins + pipeline refs for VectorTileRenderer.setFillRhi. */
-  fillRhiState(): import('./material/polygon-fill-material').FillRhiState | null { return this._pipelines.fillRhiState() }
-  get fillPipelineGround(): GPURenderPipeline { return this._pipelines.fillPipelineGround }
-  get fillPipelineExtruded(): GPURenderPipeline { return this._pipelines.fillPipelineExtruded }
-  get fillPipelineExtrudedOIT(): GPURenderPipeline { return this._pipelines.fillPipelineExtrudedOIT }
-  get oitComposePipeline(): GPURenderPipeline { return this._pipelines.oitComposePipeline }
-  get oitComposeBindGroupLayout(): GPUBindGroupLayout { return this._pipelines.oitComposeBindGroupLayout }
-  get overdrawComposePipeline(): GPURenderPipeline | null { return this._pipelines.overdrawComposePipeline }
-  get overdrawComposeBindGroupLayout(): GPUBindGroupLayout { return this._pipelines.overdrawComposeBindGroupLayout }
-  get heatmapBlurBindGroupLayout(): GPUBindGroupLayout { return this._pipelines.heatmapBlurBindGroupLayout }
-  get heatmapComposeBindGroupLayout(): GPUBindGroupLayout { return this._pipelines.heatmapComposeBindGroupLayout }
-  get fillPipelineOverdraw(): GPURenderPipeline | null { return this._pipelines.fillPipelineOverdraw }
-  get fillPipelineOverdrawFeature(): GPURenderPipeline | null { return this._pipelines.fillPipelineOverdrawFeature }
-  get linePipelineOverdraw(): GPURenderPipeline | null { return this._pipelines.linePipelineOverdraw }
-  get linePipeline(): GPURenderPipeline { return this._pipelines.linePipeline }
-  get fillPipelineFallback(): GPURenderPipeline { return this._pipelines.fillPipelineFallback }
-  get fillPipelineGroundFallback(): GPURenderPipeline { return this._pipelines.fillPipelineGroundFallback }
-  get fillPipelineExtrudedFallback(): GPURenderPipeline { return this._pipelines.fillPipelineExtrudedFallback }
-  get fillPipelinePatternGround(): GPURenderPipeline { return this._pipelines.fillPipelinePatternGround }
-  get fillPipelinePatternGroundFallback(): GPURenderPipeline { return this._pipelines.fillPipelinePatternGroundFallback }
-  get fillPipelinePatternExtruded(): GPURenderPipeline { return this._pipelines.fillPipelinePatternExtruded }
-  get fillPipelinePatternExtrudedFallback(): GPURenderPipeline { return this._pipelines.fillPipelinePatternExtrudedFallback }
-  get linePipelineFallback(): GPURenderPipeline { return this._pipelines.linePipelineFallback }
-  get fillPipelineNoPick(): GPURenderPipeline { return this._pipelines.fillPipelineNoPick }
-  get fillPipelineGroundNoPick(): GPURenderPipeline { return this._pipelines.fillPipelineGroundNoPick }
-  get fillPipelineExtrudedNoPick(): GPURenderPipeline { return this._pipelines.fillPipelineExtrudedNoPick }
-  get linePipelineNoPick(): GPURenderPipeline { return this._pipelines.linePipelineNoPick }
-  get fillPipelineFallbackNoPick(): GPURenderPipeline { return this._pipelines.fillPipelineFallbackNoPick }
-  get fillPipelineGroundFallbackNoPick(): GPURenderPipeline { return this._pipelines.fillPipelineGroundFallbackNoPick }
-  get fillPipelineExtrudedFallbackNoPick(): GPURenderPipeline { return this._pipelines.fillPipelineExtrudedFallbackNoPick }
-  get linePipelineFallbackNoPick(): GPURenderPipeline { return this._pipelines.linePipelineFallbackNoPick }
-  get bindGroupLayout(): GPUBindGroupLayout { return this._pipelines.bindGroupLayout }
-  get featureBindGroupLayout(): GPUBindGroupLayout { return this._pipelines.featureBindGroupLayout }
+  fillRhiState(): import('./material/polygon-fill-material').FillRhiState | null {
+    return this._pipelines.fillRhiState()
+  }
+  get fillPipelineGround(): GPURenderPipeline {
+    return this._pipelines.fillPipelineGround
+  }
+  get fillPipelineExtruded(): GPURenderPipeline {
+    return this._pipelines.fillPipelineExtruded
+  }
+  get fillPipelineExtrudedOIT(): GPURenderPipeline {
+    return this._pipelines.fillPipelineExtrudedOIT
+  }
+  get oitComposePipeline(): GPURenderPipeline {
+    return this._pipelines.oitComposePipeline
+  }
+  get oitComposeBindGroupLayout(): GPUBindGroupLayout {
+    return this._pipelines.oitComposeBindGroupLayout
+  }
+  get overdrawComposePipeline(): GPURenderPipeline | null {
+    return this._pipelines.overdrawComposePipeline
+  }
+  get overdrawComposeBindGroupLayout(): GPUBindGroupLayout {
+    return this._pipelines.overdrawComposeBindGroupLayout
+  }
+  get heatmapBlurBindGroupLayout(): GPUBindGroupLayout {
+    return this._pipelines.heatmapBlurBindGroupLayout
+  }
+  get heatmapComposeBindGroupLayout(): GPUBindGroupLayout {
+    return this._pipelines.heatmapComposeBindGroupLayout
+  }
+  get fillPipelineOverdraw(): GPURenderPipeline | null {
+    return this._pipelines.fillPipelineOverdraw
+  }
+  get fillPipelineOverdrawFeature(): GPURenderPipeline | null {
+    return this._pipelines.fillPipelineOverdrawFeature
+  }
+  get linePipelineOverdraw(): GPURenderPipeline | null {
+    return this._pipelines.linePipelineOverdraw
+  }
+  get linePipeline(): GPURenderPipeline {
+    return this._pipelines.linePipeline
+  }
+  get fillPipelineFallback(): GPURenderPipeline {
+    return this._pipelines.fillPipelineFallback
+  }
+  get fillPipelineGroundFallback(): GPURenderPipeline {
+    return this._pipelines.fillPipelineGroundFallback
+  }
+  get fillPipelineExtrudedFallback(): GPURenderPipeline {
+    return this._pipelines.fillPipelineExtrudedFallback
+  }
+  get fillPipelinePatternGround(): GPURenderPipeline {
+    return this._pipelines.fillPipelinePatternGround
+  }
+  get fillPipelinePatternGroundFallback(): GPURenderPipeline {
+    return this._pipelines.fillPipelinePatternGroundFallback
+  }
+  get fillPipelinePatternExtruded(): GPURenderPipeline {
+    return this._pipelines.fillPipelinePatternExtruded
+  }
+  get fillPipelinePatternExtrudedFallback(): GPURenderPipeline {
+    return this._pipelines.fillPipelinePatternExtrudedFallback
+  }
+  get linePipelineFallback(): GPURenderPipeline {
+    return this._pipelines.linePipelineFallback
+  }
+  get fillPipelineNoPick(): GPURenderPipeline {
+    return this._pipelines.fillPipelineNoPick
+  }
+  get fillPipelineGroundNoPick(): GPURenderPipeline {
+    return this._pipelines.fillPipelineGroundNoPick
+  }
+  get fillPipelineExtrudedNoPick(): GPURenderPipeline {
+    return this._pipelines.fillPipelineExtrudedNoPick
+  }
+  get linePipelineNoPick(): GPURenderPipeline {
+    return this._pipelines.linePipelineNoPick
+  }
+  get fillPipelineFallbackNoPick(): GPURenderPipeline {
+    return this._pipelines.fillPipelineFallbackNoPick
+  }
+  get fillPipelineGroundFallbackNoPick(): GPURenderPipeline {
+    return this._pipelines.fillPipelineGroundFallbackNoPick
+  }
+  get fillPipelineExtrudedFallbackNoPick(): GPURenderPipeline {
+    return this._pipelines.fillPipelineExtrudedFallbackNoPick
+  }
+  get linePipelineFallbackNoPick(): GPURenderPipeline {
+    return this._pipelines.linePipelineFallbackNoPick
+  }
+  get bindGroupLayout(): GPUBindGroupLayout {
+    return this._pipelines.bindGroupLayout
+  }
+  get featureBindGroupLayout(): GPUBindGroupLayout {
+    return this._pipelines.featureBindGroupLayout
+  }
   /** Palette/sprite sampler — owned by the factory (shared by both
    *  atlases at bindings 4 + 6). In the external read contract
    *  (map.ts:557 / source-manager.ts). */
-  get paletteSampler(): GPUSampler { return this._pipelines.paletteSampler }
+  get paletteSampler(): GPUSampler {
+    return this._pipelines.paletteSampler
+  }
   /** The factory's 1×1 transparent palette + white sprite STUB views.
    *  MapRendererContent seeds its LIVE atlas views from these at ctor
    *  time (plan §5 FB#3) before the real atlases land. */
-  get paletteStubTextureView(): GPUTextureView { return this._pipelines.paletteStubTextureView }
-  get spriteAtlasStubTextureView(): GPUTextureView { return this._pipelines.spriteAtlasStubTextureView }
+  get paletteStubTextureView(): GPUTextureView {
+    return this._pipelines.paletteStubTextureView
+  }
+  get spriteAtlasStubTextureView(): GPUTextureView {
+    return this._pipelines.spriteAtlasStubTextureView
+  }
   private uniformRing!: UniformRing
   /** Live uniform ring buffer. Public — read by the OIT / opaque /
    *  translucent passes via `host.renderer.uniformBuffer` (routed through
    *  MapRendererContent's delegating getter). Delegates to the shared
    *  UniformRing so those callers keep working unchanged. */
-  get uniformBuffer(): GPUBuffer { return this.uniformRing.buffer! }
+  get uniformBuffer(): GPUBuffer {
+    return this.uniformRing.buffer!
+  }
   /** The shared UniformRing itself — MapRendererContent hands it to the
    *  graticule collaborator per frame (renderToPass). */
-  get uniformRingHandle(): UniformRing { return this.uniformRing }
+  get uniformRingHandle(): UniformRing {
+    return this.uniformRing
+  }
 
   // Compute-paint scaffolding (plan P4-5). Lazily initialised on the
   // first request — the registry owns ComputeLayerHandle instances
@@ -143,7 +219,13 @@ export class FrameRenderer {
    *  empty at init since no layers are registered yet), faithfully replacing
    *  the inline build at the same point in init. */
   initUniformRing(onGrow: () => void): void {
-    this.uniformRing = new UniformRing(this.ctx.device, polygonUniformStride(), 256, 'uniform-ring', onGrow)
+    this.uniformRing = new UniformRing(
+      this.ctx.device,
+      polygonUniformStride(),
+      256,
+      'uniform-ring',
+      onGrow,
+    )
     this.uniformRing.ensure()
   }
 
@@ -160,7 +242,9 @@ export class FrameRenderer {
 
   /** The live compute registry (or null before the first attach). Read by
    *  MapRendererContent.setPaletteColorAtlas / setSpriteAtlas / clearLayers. */
-  get registry(): ComputeLayerRegistry | null { return this.computeRegistry }
+  get registry(): ComputeLayerRegistry | null {
+    return this.computeRegistry
+  }
 
   /** The scene compute plan handed in via setComputePlan. Read by
    *  MapRendererContent.addLayer. */
@@ -224,9 +308,7 @@ export class FrameRenderer {
     const legacy = PipelineFactory.getFeatureLayoutEntries()
     // FRAGMENT bit = 2 (raw spec value; see FEATURE_LAYOUT_ENTRIES
     // comment for why we don't reference GPUShaderStage here).
-    const extended = extendBindGroupLayoutEntriesForCompute(
-      variant, legacy, /* FRAGMENT */ 2,
-    )
+    const extended = extendBindGroupLayoutEntriesForCompute(variant, legacy, /* FRAGMENT */ 2)
     const layout = this.ctx.device.createBindGroupLayout({
       label: `mr-featureBindGroupLayout-compute(${variant.key})`,
       entries: extended as GPUBindGroupLayoutEntry[],

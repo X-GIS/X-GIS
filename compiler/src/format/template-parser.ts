@@ -29,8 +29,15 @@
 import type { FormatSpec } from '../ir/render-node'
 import { parseFormatSpec } from './spec-parser'
 
-export interface TemplateLiteral { kind: 'literal'; text: string }
-export interface TemplateInterp { kind: 'interp'; text: string; spec?: FormatSpec }
+export interface TemplateLiteral {
+  kind: 'literal'
+  text: string
+}
+export interface TemplateInterp {
+  kind: 'interp'
+  text: string
+  spec?: FormatSpec
+}
 export type TemplatePart = TemplateLiteral | TemplateInterp
 
 /** Parse a raw template string into a flat sequence of parts.
@@ -38,12 +45,15 @@ export type TemplatePart = TemplateLiteral | TemplateInterp
  *  brace, malformed spec). */
 export function parseTextTemplate(input: string): TemplatePart[] {
   const out: TemplatePart[] = []
-  let lit = ''  // accumulating literal buffer
+  let lit = '' // accumulating literal buffer
   let i = 0
   const n = input.length
 
   const flushLit = (): void => {
-    if (lit.length > 0) { out.push({ kind: 'literal', text: lit }); lit = '' }
+    if (lit.length > 0) {
+      out.push({ kind: 'literal', text: lit })
+      lit = ''
+    }
   }
 
   while (i < n) {
@@ -77,10 +87,15 @@ export function parseTextTemplate(input: string): TemplatePart[] {
       let colonAt = -1
       while (j < n && depth > 0) {
         const cj = input[j]!
-        if (cj === '\\' && j + 1 < n) { j += 2; continue }
+        if (cj === '\\' && j + 1 < n) {
+          j += 2
+          continue
+        }
         if (cj === '{') depth += 1
-        else if (cj === '}') { depth -= 1; if (depth === 0) break }
-        else if (cj === ':' && depth === 1 && colonAt === -1) colonAt = j
+        else if (cj === '}') {
+          depth -= 1
+          if (depth === 0) break
+        } else if (cj === ':' && depth === 1 && colonAt === -1) colonAt = j
         j += 1
       }
       if (depth !== 0) {
@@ -98,7 +113,7 @@ export function parseTextTemplate(input: string): TemplatePart[] {
         if (consumed !== specText.length) {
           throw new Error(
             `text template: trailing characters after format spec ` +
-            `"${specText.slice(consumed)}" in "${input}"`,
+              `"${specText.slice(consumed)}" in "${input}"`,
           )
         }
         spec = parsed
@@ -122,7 +137,9 @@ export function parseTextTemplate(input: string): TemplatePart[] {
  *  of wrapping a single-element template, which keeps the legacy
  *  `label-[<expr>]` IR shape unchanged. */
 export function isBareExpressionTemplate(parts: TemplatePart[]): boolean {
-  return parts.length === 1
-    && parts[0]!.kind === 'interp'
-    && (parts[0] as TemplateInterp).spec === undefined
+  return (
+    parts.length === 1 &&
+    parts[0]!.kind === 'interp' &&
+    (parts[0] as TemplateInterp).spec === undefined
+  )
 }

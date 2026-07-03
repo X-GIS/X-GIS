@@ -20,19 +20,24 @@ describe('heatmap layers survive IR optimize', () => {
     const style = {
       version: 8,
       sources: { quakes: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
-      layers: [{
-        id: 'quake-heat',
-        type: 'heatmap',
-        source: 'quakes',
-        paint: { 'heatmap-radius': 30, 'heatmap-intensity': 2, 'heatmap-opacity': 0.9 },
-      }],
+      layers: [
+        {
+          id: 'quake-heat',
+          type: 'heatmap',
+          source: 'quakes',
+          paint: { 'heatmap-radius': 30, 'heatmap-intensity': 2, 'heatmap-opacity': 0.9 },
+        },
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     let ir = lower(new Parser(new Lexer(xgis).tokenize()).parse())
     ir = optimize(ir)
     const cmds = emitCommands(ir)
     const heat = cmds.shows.filter((s) => s.isHeatmap)
-    expect(heat.length, 'heatmap ShowCommand survives optimize (was dropped by dead-layer-elim)').toBeGreaterThan(0)
+    expect(
+      heat.length,
+      'heatmap ShowCommand survives optimize (was dropped by dead-layer-elim)',
+    ).toBeGreaterThan(0)
     expect(heat[0]!.heatmapRadius).toBe(30)
     expect(heat[0]!.heatmapIntensity).toBe(2)
   })

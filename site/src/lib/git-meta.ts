@@ -25,10 +25,11 @@ let _repoRoot: string | null | undefined
 function repoRoot(): string | null {
   if (_repoRoot !== undefined) return _repoRoot
   try {
-    _repoRoot = execSync('git rev-parse --show-toplevel', {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim() || null
+    _repoRoot =
+      execSync('git rev-parse --show-toplevel', {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim() || null
   } catch {
     _repoRoot = null
   }
@@ -49,20 +50,22 @@ export function gitMeta(filePath: string): Meta {
   let result = empty
   try {
     // -1 = newest commit, format=%aI gives strict ISO 8601.
-    const iso = execSync(
-      `git log -1 --format=%aI -- "${filePath}"`,
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], cwd },
-    ).trim()
+    const iso = execSync(`git log -1 --format=%aI -- "${filePath}"`, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      cwd,
+    }).trim()
     if (!iso) {
       cache.set(filePath, empty)
       return empty
     }
-    const authors = execSync(
-      `git log --format=%ae -- "${filePath}"`,
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], cwd },
-    )
+    const authors = execSync(`git log --format=%ae -- "${filePath}"`, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      cwd,
+    })
       .split(/\r?\n/)
-      .map(s => s.trim())
+      .map((s) => s.trim())
       .filter(Boolean)
     const distinct = new Set(authors).size
 

@@ -142,7 +142,10 @@ function formatLocaleNumber(value: number, spec: FormatSpec): string {
 function applyGrouping(s: string, sep: ',' | '_'): string {
   let sign = ''
   let body = s
-  if (body[0] === '-' || body[0] === '+') { sign = body[0]; body = body.slice(1) }
+  if (body[0] === '-' || body[0] === '+') {
+    sign = body[0]
+    body = body.slice(1)
+  }
   const dot = body.indexOf('.')
   const intPart = dot === -1 ? body : body.slice(0, dot)
   const fracPart = dot === -1 ? '' : body.slice(dot)
@@ -161,14 +164,17 @@ export function padOrTruncate(s: string, spec: FormatSpec): string {
   const pad = fill.repeat(width - s.length)
 
   switch (align) {
-    case '<': return s + pad
-    case '>': return pad + s
+    case '<':
+      return s + pad
+    case '>':
+      return pad + s
     case '^': {
       const left = pad.slice(0, Math.floor(pad.length / 2))
       const right = pad.slice(left.length)
       return left + s + right
     }
-    default: return pad + s
+    default:
+      return pad + s
   }
 }
 
@@ -182,8 +188,14 @@ function defaultAlignFor(spec: FormatSpec): '<' | '>' | '^' {
       // Caller routes pure-string to formatString, but if a number
       // hits here without a type, default to right-align (numeric).
       return '>'
-    case 'd': case 'f': case 'e': case 'E': case 'g': case 'G':
-    case '%': case 'n':
+    case 'd':
+    case 'f':
+    case 'e':
+    case 'E':
+    case 'g':
+    case 'G':
+    case '%':
+    case 'n':
       return '>'
     default:
       return '>'

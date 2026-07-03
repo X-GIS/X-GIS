@@ -23,32 +23,41 @@ interface BackendDiag {
   heapMB: number | null
   cycleMs: number
 }
-interface XgisCamera { centerX: number; centerY: number; zoom: number }
+interface XgisCamera {
+  centerX: number
+  centerY: number
+  zoom: number
+}
 interface XgisMap {
   vtSources: Map<string, { renderer: { source: unknown } }>
   camera: XgisCamera
 }
 declare global {
-  interface Window { __xgisMap?: XgisMap; __xgisReady?: boolean }
+  interface Window {
+    __xgisMap?: XgisMap
+    __xgisReady?: boolean
+  }
 }
 
 // World cities — well-spread coordinates so each jump triggers
 // directory pages the archive hasn't seen recently.
 const CITIES: Array<[string, number, number]> = [
-  ['Tokyo',     35.6762, 139.6503],
-  ['New York',  40.7128, -74.0060],
-  ['London',    51.5074,  -0.1278],
-  ['Sydney',   -33.8688, 151.2093],
-  ['Sao Paulo',-23.5505, -46.6333],
-  ['Cairo',     30.0444,  31.2357],
-  ['Mumbai',    19.0760,  72.8777],
-  ['Cape Town',-33.9249,  18.4241],
+  ['Tokyo', 35.6762, 139.6503],
+  ['New York', 40.7128, -74.006],
+  ['London', 51.5074, -0.1278],
+  ['Sydney', -33.8688, 151.2093],
+  ['Sao Paulo', -23.5505, -46.6333],
+  ['Cairo', 30.0444, 31.2357],
+  ['Mumbai', 19.076, 72.8777],
+  ['Cape Town', -33.9249, 18.4241],
 ]
 
 test.describe('PMTiles live: world-scale pan + zoom stress', () => {
   test.use({ viewport: { width: 1280, height: 720 } })
 
-  test('100× city jump + zoom: bounded growth in heap and backend collections', async ({ page }) => {
+  test('100× city jump + zoom: bounded growth in heap and backend collections', async ({
+    page,
+  }) => {
     test.setTimeout(360_000)
 
     // Cache-lookup telemetry — wraps the catalog's hot-path lookups
@@ -56,7 +65,9 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
     // so every call is counted. Production code is untouched;
     // counters live on window for the spec to read at the end.
     await page.addInitScript(() => {
-      ;(window as unknown as { __cacheStats: () => unknown, __installCacheTelemetry: () => void }).__installCacheTelemetry = () => {
+      ;(
+        window as unknown as { __cacheStats: () => unknown; __installCacheTelemetry: () => void }
+      ).__installCacheTelemetry = () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const map = (window as any).__xgisMap
         if (!map?.vtSources) return
@@ -82,19 +93,22 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
             const origHas = catalog.hasTileData.bind(catalog)
             catalog.hasTileData = (k: number, l?: string) => {
               const v = origHas(k, l)
-              if (v) stats.hasTileDataHits++; else stats.hasTileDataMisses++
+              if (v) stats.hasTileDataHits++
+              else stats.hasTileDataMisses++
               return v
             }
             const origIsLoading = catalog.isLoading.bind(catalog)
             catalog.isLoading = (k: number) => {
               const v = origIsLoading(k)
-              if (v) stats.isLoadingHits++; else stats.isLoadingMisses++
+              if (v) stats.isLoadingHits++
+              else stats.isLoadingMisses++
               return v
             }
             const origGetTile = catalog.getTileData.bind(catalog)
             catalog.getTileData = (k: number, l?: string) => {
               const v = origGetTile(k, l)
-              if (v) stats.getTileDataHits++; else stats.getTileDataMisses++
+              if (v) stats.getTileDataHits++
+              else stats.getTileDataMisses++
               return v
             }
           }
@@ -129,14 +143,10 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
       }
     })
 
-    await page.goto(
-      `/demo.html?id=pmtiles_layered#13/${CITIES[0][1]}/${CITIES[0][2]}`,
-      { waitUntil: 'domcontentloaded' },
-    )
-    await page.waitForFunction(
-      () => window.__xgisReady === true,
-      null, { timeout: 30_000 },
-    )
+    await page.goto(`/demo.html?id=pmtiles_layered#13/${CITIES[0][1]}/${CITIES[0][2]}`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await page.waitForFunction(() => window.__xgisReady === true, null, { timeout: 30_000 })
     await page.waitForTimeout(3000)
     // Install cache telemetry now that the renderer is up — this
     // catches every lookup during the stress loop below.
@@ -153,9 +163,11 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
         const catalog = renderer?.source as any
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const backend = catalog?.backends?.[0] as any
-        const heap = (performance as unknown as {
-          memory?: { usedJSHeapSize: number }
-        }).memory
+        const heap = (
+          performance as unknown as {
+            memory?: { usedJSHeapSize: number }
+          }
+        ).memory
         return {
           abortControllers: backend?.abortControllers?.size ?? -1,
           pendingMvt: backend?.pendingMvt?.length ?? -1,
@@ -181,20 +193,23 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
       // and "deep" zoom so we hit different LOD ranges per city.
       const zoom = 13 + (i % 5)
 
-      await page.evaluate(({ lat, lon, zoom }) => {
-        // Inline lon/lat → web-mercator conversion. Same formula
-        // used internally by lonLatToMercF64 — keeping it here
-        // avoids reaching into the runtime's util exports from a
-        // page.evaluate context.
-        const R = 6378137
-        const mx = lon * Math.PI / 180 * R
-        const lat2 = Math.max(-85.0511, Math.min(85.0511, lat))
-        const my = Math.log(Math.tan(Math.PI / 4 + lat2 * Math.PI / 360)) * R
-        const map = window.__xgisMap!
-        map.camera.centerX = mx
-        map.camera.centerY = my
-        map.camera.zoom = zoom
-      }, { lat, lon, zoom })
+      await page.evaluate(
+        ({ lat, lon, zoom }) => {
+          // Inline lon/lat → web-mercator conversion. Same formula
+          // used internally by lonLatToMercF64 — keeping it here
+          // avoids reaching into the runtime's util exports from a
+          // page.evaluate context.
+          const R = 6378137
+          const mx = ((lon * Math.PI) / 180) * R
+          const lat2 = Math.max(-85.0511, Math.min(85.0511, lat))
+          const my = Math.log(Math.tan(Math.PI / 4 + (lat2 * Math.PI) / 360)) * R
+          const map = window.__xgisMap!
+          map.camera.centerX = mx
+          map.camera.centerY = my
+          map.camera.zoom = zoom
+        },
+        { lat, lon, zoom },
+      )
       // Settle window — long enough for some fetches to start, not
       // long enough for them all to complete. This is the regime
       // where leaks would surface.
@@ -214,7 +229,6 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
     const after = await sample(0)
     console.log('[after stress + settle]', after)
 
-
     // Bounded-growth assertions. Larger ceilings than the simpler
     // diagnostic spec because the world-scale traversal warms the
     // archive's per-region caches.
@@ -225,25 +239,40 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
     expect(after.failedKeys).toBeLessThan(3000)
 
     // Cache hit-rate report.
-    const cacheStats = await page.evaluate(() => {
+    const cacheStats = (await page.evaluate(() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return ((window as any).__cacheStats?.() ?? null)
-    }) as null | {
-      hasTileDataHits: number; hasTileDataMisses: number
-      isLoadingHits: number; isLoadingMisses: number
-      getTileDataHits: number; getTileDataMisses: number
-      bufferPoolHits: number; bufferPoolMisses: number
-      gpuCacheHits: number; gpuCacheMisses: number
+      return (window as any).__cacheStats?.() ?? null
+    })) as null | {
+      hasTileDataHits: number
+      hasTileDataMisses: number
+      isLoadingHits: number
+      isLoadingMisses: number
+      getTileDataHits: number
+      getTileDataMisses: number
+      bufferPoolHits: number
+      bufferPoolMisses: number
+      gpuCacheHits: number
+      gpuCacheMisses: number
     }
     if (cacheStats) {
       const ratio = (h: number, m: number) =>
-        h + m === 0 ? 'n/a' : `${(100 * h / (h + m)).toFixed(1)}%`
+        h + m === 0 ? 'n/a' : `${((100 * h) / (h + m)).toFixed(1)}%`
       console.log('[cache hit rates]')
-      console.log(`  hasTileData: ${cacheStats.hasTileDataHits} hit / ${cacheStats.hasTileDataMisses} miss = ${ratio(cacheStats.hasTileDataHits, cacheStats.hasTileDataMisses)}`)
-      console.log(`  isLoading:   ${cacheStats.isLoadingHits} hit / ${cacheStats.isLoadingMisses} miss = ${ratio(cacheStats.isLoadingHits, cacheStats.isLoadingMisses)}`)
-      console.log(`  getTileData: ${cacheStats.getTileDataHits} hit / ${cacheStats.getTileDataMisses} miss = ${ratio(cacheStats.getTileDataHits, cacheStats.getTileDataMisses)}`)
-      console.log(`  bufferPool:  ${cacheStats.bufferPoolHits} hit / ${cacheStats.bufferPoolMisses} miss = ${ratio(cacheStats.bufferPoolHits, cacheStats.bufferPoolMisses)}`)
-      console.log(`  gpuCache:    ${cacheStats.gpuCacheHits} hit / ${cacheStats.gpuCacheMisses} miss = ${ratio(cacheStats.gpuCacheHits, cacheStats.gpuCacheMisses)}`)
+      console.log(
+        `  hasTileData: ${cacheStats.hasTileDataHits} hit / ${cacheStats.hasTileDataMisses} miss = ${ratio(cacheStats.hasTileDataHits, cacheStats.hasTileDataMisses)}`,
+      )
+      console.log(
+        `  isLoading:   ${cacheStats.isLoadingHits} hit / ${cacheStats.isLoadingMisses} miss = ${ratio(cacheStats.isLoadingHits, cacheStats.isLoadingMisses)}`,
+      )
+      console.log(
+        `  getTileData: ${cacheStats.getTileDataHits} hit / ${cacheStats.getTileDataMisses} miss = ${ratio(cacheStats.getTileDataHits, cacheStats.getTileDataMisses)}`,
+      )
+      console.log(
+        `  bufferPool:  ${cacheStats.bufferPoolHits} hit / ${cacheStats.bufferPoolMisses} miss = ${ratio(cacheStats.bufferPoolHits, cacheStats.bufferPoolMisses)}`,
+      )
+      console.log(
+        `  gpuCache:    ${cacheStats.gpuCacheHits} hit / ${cacheStats.gpuCacheMisses} miss = ${ratio(cacheStats.gpuCacheHits, cacheStats.gpuCacheMisses)}`,
+      )
     }
 
     if (before.heapMB !== null && after.heapMB !== null) {

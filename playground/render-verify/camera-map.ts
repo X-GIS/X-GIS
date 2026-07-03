@@ -61,9 +61,7 @@ function xgisNaturalEarth1Raw(lambda: number, phi: number): [number, number] {
   const phi6 = phi2 * phi4
   const xScale = 0.8707 - 0.131979 * phi2 + 0.013791 * phi4 - 0.0081435 * phi6
   const yVal =
-    phi *
-    (1.007226 +
-      phi2 * (0.015085 + phi2 * (-0.044475 + 0.028874 * phi2 - 0.005916 * phi4)))
+    phi * (1.007226 + phi2 * (0.015085 + phi2 * (-0.044475 + 0.028874 * phi2 - 0.005916 * phi4)))
   return [lambda * xScale, yVal]
 }
 

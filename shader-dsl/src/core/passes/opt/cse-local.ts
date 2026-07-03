@@ -28,7 +28,14 @@
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
 import {
-  keyOf, isCompound, eachExpr, mapChildren, bodyHasRaw, collectLocals, collectMutatedRoots, refsLocal,
+  keyOf,
+  isCompound,
+  eachExpr,
+  mapChildren,
+  bodyHasRaw,
+  collectLocals,
+  collectMutatedRoots,
+  refsLocal,
 } from './expr-utils'
 
 // Only hoist exprs that COMPUTE — a bare member/swizzle/index navigation is as cheap
@@ -36,8 +43,17 @@ import {
 function isWorthHoisting(e: Expr): boolean {
   let computes = false
   eachExpr(e, (x) => {
-    if (x.op === 'binop' || x.op === 'unop' || x.op === 'compare' || x.op === 'logical'
-      || x.op === 'call' || x.op === 'construct' || x.op === 'select' || x.op === 'matchExpr') computes = true
+    if (
+      x.op === 'binop' ||
+      x.op === 'unop' ||
+      x.op === 'compare' ||
+      x.op === 'logical' ||
+      x.op === 'call' ||
+      x.op === 'construct' ||
+      x.op === 'select' ||
+      x.op === 'matchExpr'
+    )
+      computes = true
   })
   return computes
 }
@@ -58,19 +74,41 @@ function tally(e: Expr, cond: boolean, localSet: ReadonlySet<string>, t: Tally):
     if (!t.exemplar.has(k)) t.exemplar.set(k, e)
   }
   switch (e.op) {
-    case 'logical': tally(e.a, cond, localSet, t); tally(e.b, true, localSet, t); break // RHS short-circuits
-    case 'select': tally(e.cond, cond, localSet, t); tally(e.ifTrue, true, localSet, t); tally(e.ifFalse, true, localSet, t); break
+    case 'logical':
+      tally(e.a, cond, localSet, t)
+      tally(e.b, true, localSet, t)
+      break // RHS short-circuits
+    case 'select':
+      tally(e.cond, cond, localSet, t)
+      tally(e.ifTrue, true, localSet, t)
+      tally(e.ifFalse, true, localSet, t)
+      break
     case 'matchExpr':
       tally(e.scrutinee, cond, localSet, t)
       for (const [, v] of e.cases) tally(v, true, localSet, t)
       tally(e.default, true, localSet, t)
       break
-    case 'binop': case 'compare': tally(e.a, cond, localSet, t); tally(e.b, cond, localSet, t); break
-    case 'unop': tally(e.a, cond, localSet, t); break
-    case 'call': case 'construct': for (const a of e.args) tally(a, cond, localSet, t); break
-    case 'member': tally(e.base, cond, localSet, t); break
-    case 'index': tally(e.base, cond, localSet, t); tally(e.idx, cond, localSet, t); break
-    default: break // leaf
+    case 'binop':
+    case 'compare':
+      tally(e.a, cond, localSet, t)
+      tally(e.b, cond, localSet, t)
+      break
+    case 'unop':
+      tally(e.a, cond, localSet, t)
+      break
+    case 'call':
+    case 'construct':
+      for (const a of e.args) tally(a, cond, localSet, t)
+      break
+    case 'member':
+      tally(e.base, cond, localSet, t)
+      break
+    case 'index':
+      tally(e.base, cond, localSet, t)
+      tally(e.idx, cond, localSet, t)
+      break
+    default:
+      break // leaf
   }
 }
 
@@ -78,27 +116,43 @@ function tally(e: Expr, cond: boolean, localSet: ReadonlySet<string>, t: Tally):
 // Control-flow statements return [] — only their nested bodies are recursed (elsewhere).
 function valueExprs(s: Stmt): readonly Expr[] {
   switch (s.s) {
-    case 'let': return [s.expr]
-    case 'var': return s.init !== undefined ? [s.init] : []
-    case 'assign': case 'assignOp': return [s.expr] // NOT the lvalue target
-    case 'return': return s.expr !== undefined ? [s.expr] : []
-    default: return []
+    case 'let':
+      return [s.expr]
+    case 'var':
+      return s.init !== undefined ? [s.init] : []
+    case 'assign':
+    case 'assignOp':
+      return [s.expr] // NOT the lvalue target
+    case 'return':
+      return s.expr !== undefined ? [s.expr] : []
+    default:
+      return []
   }
 }
 
 // Rewrite only the value side of a simple statement (target lvalue untouched).
 function mapStmtValue(s: Stmt, f: (e: Expr) => Expr): Stmt {
   switch (s.s) {
-    case 'let': return { ...s, expr: f(s.expr) }
-    case 'var': return s.init !== undefined ? { ...s, init: f(s.init) } : s
-    case 'assign': case 'assignOp': return { ...s, expr: f(s.expr) }
-    case 'return': return s.expr !== undefined ? { ...s, expr: f(s.expr) } : s
-    default: return s
+    case 'let':
+      return { ...s, expr: f(s.expr) }
+    case 'var':
+      return s.init !== undefined ? { ...s, init: f(s.init) } : s
+    case 'assign':
+    case 'assignOp':
+      return { ...s, expr: f(s.expr) }
+    case 'return':
+      return s.expr !== undefined ? { ...s, expr: f(s.expr) } : s
+    default:
+      return s
   }
 }
 
 // Hoist within-statement repeats of `s` → { the new `let` temps, the rewritten s }.
-function hoistInStatement(s: Stmt, localSet: ReadonlySet<string>, next: { n: number }): { lets: Stmt[]; stmt: Stmt } {
+function hoistInStatement(
+  s: Stmt,
+  localSet: ReadonlySet<string>,
+  next: { n: number },
+): { lets: Stmt[]; stmt: Stmt } {
   const exprs = valueExprs(s)
   if (exprs.length === 0) return { lets: [], stmt: s }
 
@@ -139,7 +193,11 @@ function hoistInStatement(s: Stmt, localSet: ReadonlySet<string>, next: { n: num
 
 // Process a statement list: recurse into nested blocks FIRST (so inner statements get
 // their own local-cse), then hoist within each statement, splicing the temps in ahead.
-function processBody(body: readonly Stmt[], localSet: ReadonlySet<string>, next: { n: number }): Stmt[] {
+function processBody(
+  body: readonly Stmt[],
+  localSet: ReadonlySet<string>,
+  next: { n: number },
+): Stmt[] {
   const out: Stmt[] = []
   for (const s of body) {
     const rec = recurseBlocks(s, localSet, next)
@@ -153,18 +211,22 @@ function processBody(body: readonly Stmt[], localSet: ReadonlySet<string>, next:
 // pass through (their own exprs are handled by hoistInStatement).
 function recurseBlocks(s: Stmt, localSet: ReadonlySet<string>, next: { n: number }): Stmt {
   switch (s.s) {
-    case 'if': return {
-      ...s,
-      arms: s.arms.map((a) => ({ cond: a.cond, body: processBody(a.body, localSet, next) })),
-      elseBody: s.elseBody ? processBody(s.elseBody, localSet, next) : undefined,
-    }
-    case 'for': return { ...s, body: processBody(s.body, localSet, next) }
-    case 'switch': return {
-      ...s,
-      cases: s.cases.map((c) => ({ value: c.value, body: processBody(c.body, localSet, next) })),
-      defaultBody: s.defaultBody ? processBody(s.defaultBody, localSet, next) : undefined,
-    }
-    default: return s
+    case 'if':
+      return {
+        ...s,
+        arms: s.arms.map((a) => ({ cond: a.cond, body: processBody(a.body, localSet, next) })),
+        elseBody: s.elseBody ? processBody(s.elseBody, localSet, next) : undefined,
+      }
+    case 'for':
+      return { ...s, body: processBody(s.body, localSet, next) }
+    case 'switch':
+      return {
+        ...s,
+        cases: s.cases.map((c) => ({ value: c.value, body: processBody(c.body, localSet, next) })),
+        defaultBody: s.defaultBody ? processBody(s.defaultBody, localSet, next) : undefined,
+      }
+    default:
+      return s
   }
 }
 

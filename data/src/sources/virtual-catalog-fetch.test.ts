@@ -12,7 +12,10 @@ import geojsonVt from 'geojson-vt'
 // @ts-expect-error — no published types
 import vtpbf from 'vt-pbf'
 import {
-  decodeMvtTile, decomposeFeatures, compileSingleTile, tileKey,
+  decodeMvtTile,
+  decomposeFeatures,
+  compileSingleTile,
+  tileKey,
   type CompiledTile,
 } from '@xgis/compiler'
 import { TileCatalog } from '../tile-catalog'
@@ -21,11 +24,24 @@ import type { VirtualTileFetcher } from '../tile-types'
 function buildSyntheticCompiledTile(z: number, x: number, y: number): CompiledTile | null {
   const orig = {
     type: 'FeatureCollection',
-    features: [{
-      type: 'Feature',
-      geometry: { type: 'Polygon', coordinates: [[[-30, -30], [30, -30], [30, 30], [-30, 30], [-30, -30]]] },
-      properties: {},
-    }],
+    features: [
+      {
+        type: 'Feature',
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [-30, -30],
+              [30, -30],
+              [30, 30],
+              [-30, 30],
+              [-30, -30],
+            ],
+          ],
+        },
+        properties: {},
+      },
+    ],
   }
   const idx = geojsonVt(orig, { maxZoom: 0, indexMaxZoom: 0 })
   const tile = idx.getTile(z, x, y)
@@ -42,22 +58,31 @@ describe('TileCatalog virtual catalog (on-demand fetch)', () => {
     const source = new TileCatalog()
     const fetcher: VirtualTileFetcher = async () => null
     source.setVirtualCatalog({
-      fetcher, minZoom: 0, maxZoom: 4,
+      fetcher,
+      minZoom: 0,
+      maxZoom: 4,
       bounds: [-180, -85, 180, 85],
     })
     expect(source.hasEntryInIndex(tileKey(0, 0, 0))).toBe(true)
     expect(source.hasEntryInIndex(tileKey(4, 8, 5))).toBe(true)
-    expect(source.hasEntryInIndex(tileKey(5, 0, 0)),
-      'past maxZoom must NOT be reported as in-index — overzoom uses sub-tile gen').toBe(false)
+    expect(
+      source.hasEntryInIndex(tileKey(5, 0, 0)),
+      'past maxZoom must NOT be reported as in-index — overzoom uses sub-tile gen',
+    ).toBe(false)
   })
 
   it('skips fetcher for tiles outside the catalog bounds', () => {
     const source = new TileCatalog()
     let fetchCount = 0
-    const fetcher: VirtualTileFetcher = async () => { fetchCount++; return null }
+    const fetcher: VirtualTileFetcher = async () => {
+      fetchCount++
+      return null
+    }
     source.setVirtualCatalog({
-      fetcher, minZoom: 0, maxZoom: 4,
-      bounds: [11, 43, 12, 44],  // tiny Firenze-like window
+      fetcher,
+      minZoom: 0,
+      maxZoom: 4,
+      bounds: [11, 43, 12, 44], // tiny Firenze-like window
     })
     // tile (0,0,0) covers the whole world → intersects → in-index
     expect(source.hasEntryInIndex(tileKey(0, 0, 0))).toBe(true)
@@ -74,19 +99,23 @@ describe('TileCatalog virtual catalog (on-demand fetch)', () => {
       return buildSyntheticCompiledTile(z, x, y)
     }
     source.setVirtualCatalog({
-      fetcher, minZoom: 0, maxZoom: 0,
+      fetcher,
+      minZoom: 0,
+      maxZoom: 0,
       bounds: [-180, -85, 180, 85],
     })
 
     const loadedKeys: number[] = []
-    source.onTileLoaded = (key) => { loadedKeys.push(key) }
+    source.onTileLoaded = (key) => {
+      loadedKeys.push(key)
+    }
 
     const key = tileKey(0, 0, 0)
     expect(source.hasTileData(key)).toBe(false)
     source.requestTiles([key])
 
     // fetcher is async — wait for the next microtask cycle.
-    await new Promise(r => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 50))
 
     expect(fetchCount).toBe(1)
     expect(source.hasTileData(key)).toBe(true)
@@ -104,41 +133,53 @@ describe('TileCatalog virtual catalog (on-demand fetch)', () => {
       return buildSyntheticCompiledTile(z, x, y)
     }
     source.setVirtualCatalog({
-      fetcher, minZoom: 0, maxZoom: 0,
+      fetcher,
+      minZoom: 0,
+      maxZoom: 0,
       bounds: [-180, -85, 180, 85],
     })
     const key = tileKey(0, 0, 0)
     source.requestTiles([key])
-    await new Promise(r => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 50))
     expect(fetchCount).toBe(1)
     source.requestTiles([key])
     source.requestTiles([key])
-    await new Promise(r => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 50))
     expect(fetchCount, 'cached key must not re-fetch').toBe(1)
   })
 
   it('null fetcher result caches an empty placeholder (no infinite re-request)', async () => {
     const source = new TileCatalog()
     let fetchCount = 0
-    const fetcher: VirtualTileFetcher = async () => { fetchCount++; return null }
+    const fetcher: VirtualTileFetcher = async () => {
+      fetchCount++
+      return null
+    }
     source.setVirtualCatalog({
-      fetcher, minZoom: 0, maxZoom: 0,
+      fetcher,
+      minZoom: 0,
+      maxZoom: 0,
       bounds: [-180, -85, 180, 85],
     })
     const key = tileKey(0, 0, 0)
     source.requestTiles([key])
-    await new Promise(r => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 50))
     expect(fetchCount).toBe(1)
-    expect(source.hasTileData(key), 'empty placeholder cached so cache.has shortcuts re-request').toBe(true)
+    expect(
+      source.hasTileData(key),
+      'empty placeholder cached so cache.has shortcuts re-request',
+    ).toBe(true)
     source.requestTiles([key])
-    await new Promise(r => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 50))
     expect(fetchCount).toBe(1)
   })
 
   it('maxLevel reports the catalog maxZoom', () => {
     const source = new TileCatalog()
     source.setVirtualCatalog({
-      fetcher: async () => null, minZoom: 0, maxZoom: 14,
+      fetcher: async () => null,
+      minZoom: 0,
+      maxZoom: 14,
       bounds: [-180, -85, 180, 85],
     })
     expect(source.maxLevel).toBe(14)
@@ -147,7 +188,9 @@ describe('TileCatalog virtual catalog (on-demand fetch)', () => {
   it('getBounds returns the catalog bounds (camera fit)', () => {
     const source = new TileCatalog()
     source.setVirtualCatalog({
-      fetcher: async () => null, minZoom: 0, maxZoom: 4,
+      fetcher: async () => null,
+      minZoom: 0,
+      maxZoom: 4,
       bounds: [11, 43, 12, 44],
     })
     expect(source.getBounds()).toEqual([11, 43, 12, 44])

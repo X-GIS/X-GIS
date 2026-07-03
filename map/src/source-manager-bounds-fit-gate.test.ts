@@ -31,7 +31,9 @@ class StubVectorTileRenderer {
   setOITPipeline(): void {}
   setLineRenderer(): void {}
   setSource(): void {}
-  getBounds(): null { return null }
+  getBounds(): null {
+    return null
+  }
 }
 // Inert TileSource — `attachBackend` reads `meta` (maxZoom / bounds / scheme /
 // layoutVersion) when merging into the catalog's index shell, so supply a complete
@@ -44,7 +46,9 @@ class StubVirtualPMTilesBackend {
     scheme: 'web-mercator-xyz' as const,
     layoutVersion: 3,
   }
-  has(): boolean { return false }
+  has(): boolean {
+    return false
+  }
   attach(): void {}
   loadTile(): void {}
   detach(): void {}
@@ -56,8 +60,12 @@ import { SourceManager, type SourceManagerDeps } from './source-manager'
 import { Camera } from '@xgis/engine'
 
 beforeEach(() => {
-  vi.spyOn(vtrModule, 'VectorTileRenderer').mockImplementation((() => new StubVectorTileRenderer()) as never)
-  vi.spyOn(xgisData, 'VirtualPMTilesBackend').mockImplementation((() => new StubVirtualPMTilesBackend()) as never)
+  vi.spyOn(vtrModule, 'VectorTileRenderer').mockImplementation(
+    (() => new StubVectorTileRenderer()) as never,
+  )
+  vi.spyOn(xgisData, 'VirtualPMTilesBackend').mockImplementation(
+    (() => new StubVirtualPMTilesBackend()) as never,
+  )
 })
 
 afterEach(() => {
@@ -129,7 +137,15 @@ function parisFC(): GeoJSONFeatureCollection {
         type: 'Feature',
         geometry: {
           type: 'Polygon',
-          coordinates: [[[2.2, 48.8], [2.5, 48.8], [2.5, 48.9], [2.2, 48.9], [2.2, 48.8]]],
+          coordinates: [
+            [
+              [2.2, 48.8],
+              [2.5, 48.8],
+              [2.5, 48.9],
+              [2.2, 48.9],
+              [2.2, 48.8],
+            ],
+          ],
         },
         properties: {},
       },

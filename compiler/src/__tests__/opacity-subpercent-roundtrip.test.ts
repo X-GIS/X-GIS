@@ -67,7 +67,7 @@ describe('FIX 1 — zoom-interp opacity stops scale individually', () => {
     const node = scene.renderNodes[0]
     expect(node.opacity.kind).toBe('zoom-interpolated')
     if (node.opacity.kind === 'zoom-interpolated') {
-      const byZoom = new Map(node.opacity.stops.map(s => [s.zoom, s.value]))
+      const byZoom = new Map(node.opacity.stops.map((s) => [s.zoom, s.value]))
       expect(byZoom.get(10)).toBeCloseTo(0.01, 5)
       expect(byZoom.get(16)).toBeCloseTo(0.5, 5)
     }

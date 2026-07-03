@@ -16,32 +16,33 @@ touches lon/lat again except for the cheap bbox-reject.
 
 ## Spaces
 
-| Code | Full name | Units | Used for |
-|------|-----------|-------|----------|
-| **LL** | WGS84 lon/lat | degrees | Source data, clipping, area calculations |
-| **MM** | Global Web Mercator (EPSG:3857) | meters | Rendering, line arc length, DSFUN origin |
-| **DLM** | DSFUN tile-local Mercator | meters, split f32 hi/lo | Output vertex format |
-| **SP** | Screen / NDC | pixels / clip-space | Camera projection only |
+| Code    | Full name                       | Units                   | Used for                                 |
+| ------- | ------------------------------- | ----------------------- | ---------------------------------------- |
+| **LL**  | WGS84 lon/lat                   | degrees                 | Source data, clipping, area calculations |
+| **MM**  | Global Web Mercator (EPSG:3857) | meters                  | Rendering, line arc length, DSFUN origin |
+| **DLM** | DSFUN tile-local Mercator       | meters, split f32 hi/lo | Output vertex format                     |
+| **SP**  | Screen / NDC                    | pixels / clip-space     | Camera projection only                   |
 
 Reference constants:
+
 - Earth radius R = 6378137 m (EPSG:3857 spec)
 - Mercator lat limit = 85.051129° (see `MERCATOR_LAT_LIMIT`)
 
 ## Convention: which space at which stage
 
-| Stage | Space | Why |
-|-------|-------|-----|
-| GeoJSON input | **LL** | Source data from user — RFC 7946 lon/lat |
-| `decomposeFeatures` (project once) | **LL → MM** | `makePolygonPart` calls `projectRingsToMM`; downstream sees MM only |
-| Feature bbox (`part.minLon`, etc.) | **LL** | Kept in LL for cheap bbox-reject against tile bounds; O(1) |
-| Polygon clipping (`clipPolygonToRect`) | **MM** | Matches render output space; edges straight in MM = how map renders |
-| Polygon outline / stroke clipping | **MM** | Shares the MM-clipped ring set with fill — endpoints agree by construction |
-| Line feature clipping (`clipLineToRect`) | **MM** | Arc length in meters; dash phase in meters |
-| Simplify polygon (Douglas-Peucker) | **MM** | Tolerance via `mercatorToleranceForZoom` |
-| Simplify line | **MM** | Same tolerance function |
-| Sub-tile clip in `generateSubTile` | **MM** (parent-local) | Parent vertices are DSFUN (MM); clip bounds derived from LL tile bounds |
-| Output vertices (polygon fill + outline + line + point) | **DLM** | f32 hi/lo pair, relative to tile origin (`tileMx`, `tileMy`) |
-| Tile bounds query | **LL** (primary) + **MM** (derived via `lonLatToMercF64`) | Derive MM from LL, never the other way |
+| Stage                                                   | Space                                                     | Why                                                                        |
+| ------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------- |
+| GeoJSON input                                           | **LL**                                                    | Source data from user — RFC 7946 lon/lat                                   |
+| `decomposeFeatures` (project once)                      | **LL → MM**                                               | `makePolygonPart` calls `projectRingsToMM`; downstream sees MM only        |
+| Feature bbox (`part.minLon`, etc.)                      | **LL**                                                    | Kept in LL for cheap bbox-reject against tile bounds; O(1)                 |
+| Polygon clipping (`clipPolygonToRect`)                  | **MM**                                                    | Matches render output space; edges straight in MM = how map renders        |
+| Polygon outline / stroke clipping                       | **MM**                                                    | Shares the MM-clipped ring set with fill — endpoints agree by construction |
+| Line feature clipping (`clipLineToRect`)                | **MM**                                                    | Arc length in meters; dash phase in meters                                 |
+| Simplify polygon (Douglas-Peucker)                      | **MM**                                                    | Tolerance via `mercatorToleranceForZoom`                                   |
+| Simplify line                                           | **MM**                                                    | Same tolerance function                                                    |
+| Sub-tile clip in `generateSubTile`                      | **MM** (parent-local)                                     | Parent vertices are DSFUN (MM); clip bounds derived from LL tile bounds    |
+| Output vertices (polygon fill + outline + line + point) | **DLM**                                                   | f32 hi/lo pair, relative to tile origin (`tileMx`, `tileMy`)               |
+| Tile bounds query                                       | **LL** (primary) + **MM** (derived via `lonLatToMercF64`) | Derive MM from LL, never the other way                                     |
 
 **Key simplification vs. pre-d34aed2/pre-2026-04-20**: polygons and
 lines both clip/simplify in **MM**. No more "polygon=LL, line=MM"

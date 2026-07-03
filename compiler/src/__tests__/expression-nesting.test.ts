@@ -16,11 +16,7 @@ function deepCase(n: number, base: unknown = 0): unknown {
 
 // Interpolate stops where each value is itself a nested match.
 function deepInterpolate(n: number): unknown {
-  return [
-    'interpolate', ['linear'], ['zoom'],
-    0, deepCase(n),
-    10, deepCase(n, 1),
-  ]
+  return ['interpolate', ['linear'], ['zoom'], 0, deepCase(n), 10, deepCase(n, 1)]
 }
 
 describe('expression nesting + depth guards', () => {
@@ -28,21 +24,21 @@ describe('expression nesting + depth guards', () => {
     const warnings: string[] = []
     const result = exprToXgis(deepCase(10), warnings)
     expect(result).not.toBeNull()
-    expect(warnings.some(w => w.includes('depth'))).toBe(false)
+    expect(warnings.some((w) => w.includes('depth'))).toBe(false)
   })
 
   it('handles depth 50 without warning', () => {
     const warnings: string[] = []
     const result = exprToXgis(deepCase(50), warnings)
     expect(result).not.toBeNull()
-    expect(warnings.some(w => w.includes('depth'))).toBe(false)
+    expect(warnings.some((w) => w.includes('depth'))).toBe(false)
   })
 
   it('handles depth 200 without warning', () => {
     const warnings: string[] = []
     const result = exprToXgis(deepCase(200), warnings)
     expect(result).not.toBeNull()
-    expect(warnings.some(w => w.includes('depth'))).toBe(false)
+    expect(warnings.some((w) => w.includes('depth'))).toBe(false)
   })
 
   it('truncates at depth > 256 with a warning instead of stack overflow', () => {
@@ -51,7 +47,7 @@ describe('expression nesting + depth guards', () => {
     const result = exprToXgis(deepCase(500), warnings)
     // Result might still emit (outer levels) but with at least one
     // truncation warning surfaced.
-    expect(warnings.some(w => w.includes('depth exceeded'))).toBe(true)
+    expect(warnings.some((w) => w.includes('depth exceeded'))).toBe(true)
     // Critically: must not throw / crash the test runner.
     expect(typeof result === 'string' || result === null).toBe(true)
   })
@@ -60,7 +56,7 @@ describe('expression nesting + depth guards', () => {
     const warnings: string[] = []
     const result = exprToXgis(deepInterpolate(20), warnings)
     expect(result).not.toBeNull()
-    expect(warnings.some(w => w.includes('depth'))).toBe(false)
+    expect(warnings.some((w) => w.includes('depth'))).toBe(false)
   })
 
   it('does not stack-overflow on circular let body (defensive)', () => {

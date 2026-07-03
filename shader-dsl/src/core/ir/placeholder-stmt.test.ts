@@ -35,9 +35,7 @@ function moduleWithBody(body: Stmt[]): ModuleDecl {
 
 describe('placeholder Stmt — wgsl backend (13b)', () => {
   it('emits a `// __placeholder: <tag>` comment so the WGSL parses', () => {
-    const mod = moduleWithBody([
-      { s: 'placeholder', tag: 'fill-return' },
-    ])
+    const mod = moduleWithBody([{ s: 'placeholder', tag: 'fill-return' }])
     const wgsl = emitModule(mod)
     expect(wgsl).toContain('// __placeholder: fill-return')
   })
@@ -55,9 +53,7 @@ describe('placeholder Stmt — wgsl backend (13b)', () => {
 
 describe('placeholder Stmt — cpu backend (13c)', () => {
   it('throws with the placeholder tag when execBody reaches it', () => {
-    const mod = moduleWithBody([
-      { s: 'placeholder', tag: 'fill-return' },
-    ])
+    const mod = moduleWithBody([{ s: 'placeholder', tag: 'fill-return' }])
     const cpu = compileModule(mod)
     expect(() => cpu.fns['host']!()).toThrow(/placeholder Stmt reached CPU backend.*fill-return/)
   })
@@ -66,10 +62,12 @@ describe('placeholder Stmt — cpu backend (13c)', () => {
     const mod = moduleWithBody([
       {
         s: 'if',
-        arms: [{
-          cond: { op: 'lit', type: { kind: 'scalar', scalar: 'bool' }, value: true },
-          body: [{ s: 'placeholder', tag: 'stroke-return' }],
-        }],
+        arms: [
+          {
+            cond: { op: 'lit', type: { kind: 'scalar', scalar: 'bool' }, value: true },
+            body: [{ s: 'placeholder', tag: 'stroke-return' }],
+          },
+        ],
       },
     ])
     const cpu = compileModule(mod)

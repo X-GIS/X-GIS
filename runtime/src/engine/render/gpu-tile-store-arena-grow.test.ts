@@ -23,15 +23,30 @@ import { GPUArena, type GPUArenaDevice } from '@xgis/engine'
 import type { RhiBuffer } from '@xgis/engine'
 import { WebGpuDevice } from '@xgis/engine'
 
-interface MockBuffer { size: number; destroyed: boolean; destroy(): void }
+interface MockBuffer {
+  size: number
+  destroyed: boolean
+  destroy(): void
+}
 function mockDevice(): GPUDevice {
   return {
     createBuffer(desc: GPUBufferDescriptor): GPUBuffer {
-      const b: MockBuffer = { size: desc.size, destroyed: false, destroy() { b.destroyed = true } }
+      const b: MockBuffer = {
+        size: desc.size,
+        destroyed: false,
+        destroy() {
+          b.destroyed = true
+        },
+      }
       return b as unknown as GPUBuffer
     },
     createCommandEncoder(): GPUCommandEncoder {
-      return { copyBufferToBuffer() {}, finish() { return {} as GPUCommandBuffer } } as unknown as GPUCommandEncoder
+      return {
+        copyBufferToBuffer() {},
+        finish() {
+          return {} as GPUCommandBuffer
+        },
+      } as unknown as GPUCommandEncoder
     },
     queue: { submit() {} },
   } as unknown as GPUDevice
@@ -42,11 +57,21 @@ function mockDevice(): GPUDevice {
 function arenaDevice(): GPUArenaDevice {
   return {
     createBuffer(desc): RhiBuffer {
-      const b: MockBuffer = { size: desc.size, destroyed: false, destroy() { b.destroyed = true } }
+      const b: MockBuffer = {
+        size: desc.size,
+        destroyed: false,
+        destroy() {
+          b.destroyed = true
+        },
+      }
       return { native: b } as unknown as RhiBuffer
     },
-    destroyBuffer(h) { (h as unknown as { native: MockBuffer }).native.destroy() },
-    unwrapBuffer(h) { return (h as unknown as { native: MockBuffer }).native as unknown as GPUBuffer },
+    destroyBuffer(h) {
+      ;(h as unknown as { native: MockBuffer }).native.destroy()
+    },
+    unwrapBuffer(h) {
+      return (h as unknown as { native: MockBuffer }).native as unknown as GPUBuffer
+    },
   }
 }
 
@@ -58,8 +83,17 @@ type StorePriv = {
   _gpuCacheCount: number
   _pendingArenaGrowV: number
   _pendingArenaCompaction: boolean
-  forceEvictBytes(a: GPUArena, needed: number, stable: readonly number[], hook: (k: string) => void): boolean
-  runFrameMaintenance(stable: readonly number[], hook: (k: string) => void, up: () => boolean): boolean
+  forceEvictBytes(
+    a: GPUArena,
+    needed: number,
+    stable: readonly number[],
+    hook: (k: string) => void,
+  ): boolean
+  runFrameMaintenance(
+    stable: readonly number[],
+    hook: (k: string) => void,
+    up: () => boolean,
+  ): boolean
 }
 
 // Fill `arena` with N protected tiles (each `bytes`), recorded in gpuCache so
@@ -72,12 +106,20 @@ function fillProtected(store: GpuTileStore, arena: GPUArena, n: number, bytes: n
   for (let i = 0; i < n; i++) {
     const off = arena.alloc(bytes)
     inner.set(i, {
-      polyVertexOffset: off, polyVertexByteLength: bytes,
-      polyIndexOffset: 0, polyIndexByteLength: 0,
-      zBufferOffset: 0, zBufferByteLength: 0,
-      lineVertexBuffer: null, lineIndexBuffer: null, outlineIndexBuffer: null,
-      outlineSegmentBuffer: null, lineSegmentBuffer: null, featureDataBuffer: null,
-      vertexBuffer: arena.buffer, indexBuffer: arena.buffer,
+      polyVertexOffset: off,
+      polyVertexByteLength: bytes,
+      polyIndexOffset: 0,
+      polyIndexByteLength: 0,
+      zBufferOffset: 0,
+      zBufferByteLength: 0,
+      lineVertexBuffer: null,
+      lineIndexBuffer: null,
+      outlineIndexBuffer: null,
+      outlineSegmentBuffer: null,
+      lineSegmentBuffer: null,
+      featureDataBuffer: null,
+      vertexBuffer: arena.buffer,
+      indexBuffer: arena.buffer,
       lastUsedFrame: 1,
     })
     inj._gpuCacheCount++
@@ -92,18 +134,22 @@ describe('GpuTileStore arena auto-grow (US-003)', () => {
     const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
     const inj = store as unknown as StorePriv
     const CAP = 64 * 1024
-    const arena = new GPUArena(arenaDevice(), { capacityBytes: CAP, usage: VERTEX_USAGE, copySrc: true })
+    const arena = new GPUArena(arenaDevice(), {
+      capacityBytes: CAP,
+      usage: VERTEX_USAGE,
+      copySrc: true,
+    })
     inj.polyVertexArena = arena
 
     // Fill the arena with protected tiles (≈ full capacity).
     const TILE = 8 * 1024
-    const keys = fillProtected(store, arena, 8, TILE)  // 8 × 8KB = 64KB = full
+    const keys = fillProtected(store, arena, 8, TILE) // 8 × 8KB = 64KB = full
 
     // Alloc-fail recovery: nothing is evictable (all protected) → must GROW.
     const served = inj.forceEvictBytes(arena, TILE, keys, () => {})
     expect(served).toBe(false)
-    expect(inj._pendingArenaCompaction).toBe(false)        // NOT fragmentation
-    expect(inj._pendingArenaGrowV).toBeGreaterThan(CAP)    // grow target > current
+    expect(inj._pendingArenaCompaction).toBe(false) // NOT fragmentation
+    expect(inj._pendingArenaGrowV).toBeGreaterThan(CAP) // grow target > current
     // Target fits live+needed and is ≥ 1.5× current.
     expect(inj._pendingArenaGrowV).toBeGreaterThanOrEqual(Math.ceil(CAP * 1.5))
   })
@@ -113,7 +159,11 @@ describe('GpuTileStore arena auto-grow (US-003)', () => {
     const store = new GpuTileStore(_dev, new WebGpuDevice(_dev))
     const inj = store as unknown as StorePriv
     const CAP = 64 * 1024
-    const arena = new GPUArena(arenaDevice(), { capacityBytes: CAP, usage: VERTEX_USAGE, copySrc: true })
+    const arena = new GPUArena(arenaDevice(), {
+      capacityBytes: CAP,
+      usage: VERTEX_USAGE,
+      copySrc: true,
+    })
     inj.polyVertexArena = arena
     const TILE = 8 * 1024
     const keys = fillProtected(store, arena, 8, TILE)
@@ -123,12 +173,16 @@ describe('GpuTileStore arena auto-grow (US-003)', () => {
     const oldBuffer = arena.buffer
 
     // Drain in the post-submit safe window. uploadActive=false so it runs now.
-    const moved = inj.runFrameMaintenance(keys, () => {}, () => false)
+    const moved = inj.runFrameMaintenance(
+      keys,
+      () => {},
+      () => false,
+    )
 
-    expect(moved).toBe(true)                       // relocation happened → bundles invalidate
-    expect(arena.capacityBytes).toBe(target)       // arena GREW
-    expect(inj._pendingArenaGrowV).toBe(0)         // flag consumed
-    expect(arena.buffer).not.toBe(oldBuffer)       // swapped to the larger buffer
+    expect(moved).toBe(true) // relocation happened → bundles invalidate
+    expect(arena.capacityBytes).toBe(target) // arena GREW
+    expect(inj._pendingArenaGrowV).toBe(0) // flag consumed
+    expect(arena.buffer).not.toBe(oldBuffer) // swapped to the larger buffer
     // The previously-failing alloc now succeeds against the grown arena.
     expect(() => arena.alloc(TILE)).not.toThrow()
   })
@@ -142,25 +196,39 @@ describe('GpuTileStore arena auto-grow (US-003)', () => {
     // a single protected tile occupying the whole bump via a large alloc is
     // impractical, so instead assert the branch via a near-ceiling cap.
     const CEIL = 512 * 1024 * 1024
-    const arena = new GPUArena(arenaDevice(), { capacityBytes: CEIL, usage: VERTEX_USAGE, copySrc: true })
+    const arena = new GPUArena(arenaDevice(), {
+      capacityBytes: CEIL,
+      usage: VERTEX_USAGE,
+      copySrc: true,
+    })
     inj.polyVertexArena = arena
     // One protected tile near the top of the bump so liveBytes+needed > cap but
     // capacity is already at the ceiling → no further grow allowed.
     const inner = new Map<number, unknown>()
     inj.gpuCache.set('', inner)
-    const off = arena.alloc(CEIL - 1024)  // bump ≈ ceiling
+    const off = arena.alloc(CEIL - 1024) // bump ≈ ceiling
     inner.set(0, {
-      polyVertexOffset: off, polyVertexByteLength: CEIL - 1024,
-      polyIndexOffset: 0, polyIndexByteLength: 0, zBufferOffset: 0, zBufferByteLength: 0,
-      lineVertexBuffer: null, lineIndexBuffer: null, outlineIndexBuffer: null,
-      outlineSegmentBuffer: null, lineSegmentBuffer: null, featureDataBuffer: null,
-      vertexBuffer: arena.buffer, indexBuffer: arena.buffer, lastUsedFrame: 1,
+      polyVertexOffset: off,
+      polyVertexByteLength: CEIL - 1024,
+      polyIndexOffset: 0,
+      polyIndexByteLength: 0,
+      zBufferOffset: 0,
+      zBufferByteLength: 0,
+      lineVertexBuffer: null,
+      lineIndexBuffer: null,
+      outlineIndexBuffer: null,
+      outlineSegmentBuffer: null,
+      lineSegmentBuffer: null,
+      featureDataBuffer: null,
+      vertexBuffer: arena.buffer,
+      indexBuffer: arena.buffer,
+      lastUsedFrame: 1,
     })
     inj._gpuCacheCount++
 
     const served = inj.forceEvictBytes(arena, 4096, [0], () => {})
     expect(served).toBe(false)
-    expect(inj._pendingArenaGrowV).toBe(0)            // NO grow past the ceiling
-    expect(inj._pendingArenaCompaction).toBe(true)    // graceful compaction/skip
+    expect(inj._pendingArenaGrowV).toBe(0) // NO grow past the ceiling
+    expect(inj._pendingArenaCompaction).toBe(true) // graceful compaction/skip
   })
 })

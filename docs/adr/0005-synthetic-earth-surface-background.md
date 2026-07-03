@@ -13,7 +13,7 @@ every authored layer.
 The original implementation was a standalone `BackgroundRenderer`: a
 fullscreen-then-world-extent quad drawn in its own pre-pass with its own MVP
 (iter-196 reduced it from fullscreen to a world-extent quad). That renderer
-owned a *second* projection path. On flat projections it painted a rectangle;
+owned a _second_ projection path. On flat projections it painted a rectangle;
 on sphere projections (orthographic / azimuthal / stereographic / globe) it
 could not curve the fill to the disc/sphere silhouette, because its quad did
 not flow through the same vertex shader the real tiles do. It was also a second
@@ -23,7 +23,7 @@ debug.
 Phase 2 migrated the polygon vertex pipeline to ECEF (`u.mvp_ecef` → `u.mvp`,
 DSFUN-quantized ECEF-RTC vertices; see ADR/memory `ecef_tile_pipeline_phase2`).
 Once polygons project through a single ECEF VS, the background fill can ride
-the *same* path instead of maintaining its own.
+the _same_ path instead of maintaining its own.
 
 ## Decision
 
@@ -61,7 +61,7 @@ Concretely:
 
 - **The opaque-pass `clearValue` stays pure black** `{ r: 0, g: 0, b: 0, a: 1 }`
   (`runtime/src/engine/render/passes/opaque-pass.ts:96-100`). The synthetic fill
-  only paints *inside* the projected world band; the "no world here" region —
+  only paints _inside_ the projected world band; the "no world here" region —
   above/below the ±85° Mercator world at z=0+pitch, or outside the disc/sphere
   silhouette — falls through to that black clear. This is the iter-196 MapLibre
   parity contract (opaque-pass.ts:86-95).
@@ -98,18 +98,18 @@ polygon, the background inherits — for free — the three properties the old
 
 1. **One geoid.** Vertices are quantized about the z=0 tile's WGS84-ellipsoid
    anchor `tileEcefCenter` via the shared tiler kernel `packECEFPolygonVertices`
-   (backend.ts:27, 160-162, 239). The anchor latitude is the *decoded* z=0
+   (backend.ts:27, 160-162, 239). The anchor latitude is the _decoded_ z=0
    tile-south `atan(sinh(-π))·180/π` (backend.ts:69), the same value the
    render-side per-tile `cam_ecef_off` reconstructs through `clampLat`
    (`vector-tile-renderer.ts:5032-5054`, cited in backend.ts:152-159), so the
-   ECEF-RTC origins cancel bit-for-bit and the bg lands on the *same* surface as
+   ECEF-RTC origins cancel bit-for-bit and the bg lands on the _same_ surface as
    real tiles. The whole globe is anchored about that single corner, giving a
    ~3 mm per-vertex fixed-point step against a ~1200 km grid cell (backend.ts:23-25).
 
 2. **One projection forward.** The same polygon VS that projects real tiles
    (`emitPolygonProjectionLadder`,
    `runtime/src/engine/shader-dsl/shaders/polygon.ts`) projects the synthetic
-   mesh, so the fill *curves naturally* on sphere projections instead of being a
+   mesh, so the fill _curves naturally_ on sphere projections instead of being a
    flat strip — the design intent recorded in
    `runtime/src/engine/projection/earth-surface-fill.ts:1-22` and the projection
    AGENTS spec (`projection/AGENTS.md:45-54`).
@@ -128,17 +128,17 @@ The mesh latitude band follows the projType, resolved from the authority table's
 `worldBandForProjType` at :157-159; `bandLatRange` consumes it in
 `earth-surface-fill.ts:98-114`):
 
-| projType            | band               | lat extent           |
-|---------------------|--------------------|----------------------|
-| 0/1/6 merc·equi·obl | `mercator-clamped` | ±`MERCATOR_LAT_LIMIT` (±85.0511°) |
-| 2 natural_earth     | `natural-earth`    | ±90° (oval clip in VS) |
-| 3/4/5/7 ortho·azi·stereo·globe | `sphere-full` | ±90° (poles) |
+| projType                       | band               | lat extent                        |
+| ------------------------------ | ------------------ | --------------------------------- |
+| 0/1/6 merc·equi·obl            | `mercator-clamped` | ±`MERCATOR_LAT_LIMIT` (±85.0511°) |
+| 2 natural_earth                | `natural-earth`    | ±90° (oval clip in VS)            |
+| 3/4/5/7 ortho·azi·stereo·globe | `sphere-full`      | ±90° (poles)                      |
 
 The band is fixed per backend instance; `XGISMap` re-installs the backend on a
 projection change so the GPU vertex buffer refreshes (backend.ts:98-107).
 
 Sphere-class bands have a wrinkle: their disc/sphere silhouette is the projection
-of the *full* ±90 grid, but the shared tiler kernel derives ECEF + `abs_lat` from
+of the _full_ ±90 grid, but the shared tiler kernel derives ECEF + `abs_lat` from
 inverse-Mercator, which asymptotes at ±85.05 and can never represent ±90. A
 straight kernel pack would leave a ~5° hole at each pole (the "black dots" of
 userbug 09). So sphere bands take a **dual-encode** path
@@ -152,9 +152,9 @@ userbug 09). So sphere bands take a **dual-encode** path
 All vertices share one per-buffer symmetric half-range, so they decode through
 the single `tile_dequant_scale` the GPU binds; the polar residual is only ~24 mm
 larger than the ±85 band. The fragment-side `abs(abs_lat) > MERCATOR_LAT_LIMIT`
-discard never trips at the cap because the VS writes the *clamped* `abs_lat` to
+discard never trips at the cap because the VS writes the _clamped_ `abs_lat` to
 the varying (`polygon.ts:92`, `abs_lat` location(2)) — only the per-vertex
-*position* attribute reaches the pole. Mercator (0/1/6) and natural_earth (2)
+_position_ attribute reaches the pole. Mercator (0/1/6) and natural_earth (2)
 bands keep the unchanged canonical kernel path (`packKernelClamped`,
 backend.ts:225-241) — byte-identical, zero behaviour change.
 
@@ -183,7 +183,7 @@ drawn once.
 - **Clear semantics** (SUPERSEDED — see [ADR-0007](0007-defined-coverage-background-pass.md)).
   Originally: the pure-black `clearValue` and its `isFirst ? clear : load`
   sub-pass discipline were pinned by `opaque-pass-clear-value.test.ts`, and the
-  background was *additive on top* of that black clear, not a replacement. As of
+  background was _additive on top_ of that black clear, not a replacement. As of
   ADR-0007 the whole-viewport clear is owned by the background pass, is
   projType-aware (flat → style bg, disc/globe → black), and the pin moved to
   `background-pass-clear-value.test.ts` (now a behavioural test of

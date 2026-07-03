@@ -11,33 +11,89 @@
 // pinned by oracle value-equality.
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
-import { keyOf, isCompound, refsLocal, mapChildren, mapStmtTop, bodyHasRaw, collectLocals, collectMutatedRoots } from './expr-utils'
+import {
+  keyOf,
+  isCompound,
+  refsLocal,
+  mapChildren,
+  mapStmtTop,
+  bodyHasRaw,
+  collectLocals,
+  collectMutatedRoots,
+} from './expr-utils'
 
 /** Collect the MAXIMAL input-only compound subexpressions of `e` into `out`. */
 function gatherExpr(e: Expr, locals: ReadonlySet<string>, out: Map<string, Expr>): void {
-  if (isCompound(e) && !refsLocal(e, locals)) { out.set(keyOf(e), e); return }
+  if (isCompound(e) && !refsLocal(e, locals)) {
+    out.set(keyOf(e), e)
+    return
+  }
   switch (e.op) {
-    case 'binop': case 'compare': case 'logical': gatherExpr(e.a, locals, out); gatherExpr(e.b, locals, out); break
-    case 'unop': gatherExpr(e.a, locals, out); break
-    case 'call': case 'construct': for (const a of e.args) gatherExpr(a, locals, out); break
-    case 'member': gatherExpr(e.base, locals, out); break
-    case 'index': gatherExpr(e.base, locals, out); gatherExpr(e.idx, locals, out); break
-    case 'select': gatherExpr(e.cond, locals, out); gatherExpr(e.ifTrue, locals, out); gatherExpr(e.ifFalse, locals, out); break
-    case 'matchExpr': gatherExpr(e.scrutinee, locals, out); for (const [, v] of e.cases) gatherExpr(v, locals, out); gatherExpr(e.default, locals, out); break
-    default: break // lit / constref / param / varref
+    case 'binop':
+    case 'compare':
+    case 'logical':
+      gatherExpr(e.a, locals, out)
+      gatherExpr(e.b, locals, out)
+      break
+    case 'unop':
+      gatherExpr(e.a, locals, out)
+      break
+    case 'call':
+    case 'construct':
+      for (const a of e.args) gatherExpr(a, locals, out)
+      break
+    case 'member':
+      gatherExpr(e.base, locals, out)
+      break
+    case 'index':
+      gatherExpr(e.base, locals, out)
+      gatherExpr(e.idx, locals, out)
+      break
+    case 'select':
+      gatherExpr(e.cond, locals, out)
+      gatherExpr(e.ifTrue, locals, out)
+      gatherExpr(e.ifFalse, locals, out)
+      break
+    case 'matchExpr':
+      gatherExpr(e.scrutinee, locals, out)
+      for (const [, v] of e.cases) gatherExpr(v, locals, out)
+      gatherExpr(e.default, locals, out)
+      break
+    default:
+      break // lit / constref / param / varref
   }
 }
 
 /** Walk stmts gathering invariants only from exprs that execute inside a loop. */
-function gatherStmt(s: Stmt, inLoop: boolean, locals: ReadonlySet<string>, out: Map<string, Expr>): void {
-  const ge = (e: Expr): void => { if (inLoop) gatherExpr(e, locals, out) }
+function gatherStmt(
+  s: Stmt,
+  inLoop: boolean,
+  locals: ReadonlySet<string>,
+  out: Map<string, Expr>,
+): void {
+  const ge = (e: Expr): void => {
+    if (inLoop) gatherExpr(e, locals, out)
+  }
   switch (s.s) {
-    case 'let': ge(s.expr); break
-    case 'var': if (s.init !== undefined) ge(s.init); break
-    case 'assign': case 'assignOp': ge(s.target); ge(s.expr); break
-    case 'return': if (s.expr !== undefined) ge(s.expr); break
+    case 'let':
+      ge(s.expr)
+      break
+    case 'var':
+      if (s.init !== undefined) ge(s.init)
+      break
+    case 'assign':
+    case 'assignOp':
+      ge(s.target)
+      ge(s.expr)
+      break
+    case 'return':
+      if (s.expr !== undefined) ge(s.expr)
+      break
     case 'if':
-      for (const a of s.arms) { ge(a.cond); for (const b of a.body) gatherStmt(b, inLoop, locals, out) }
+      for (const a of s.arms) {
+        ge(a.cond)
+        for (const b of a.body) gatherStmt(b, inLoop, locals, out)
+      }
       if (s.elseBody) for (const b of s.elseBody) gatherStmt(b, inLoop, locals, out)
       break
     case 'for':
@@ -51,7 +107,8 @@ function gatherStmt(s: Stmt, inLoop: boolean, locals: ReadonlySet<string>, out: 
       for (const c of s.cases) for (const b of c.body) gatherStmt(b, inLoop, locals, out)
       if (s.defaultBody) for (const b of s.defaultBody) gatherStmt(b, inLoop, locals, out)
       break
-    default: break
+    default:
+      break
   }
 }
 

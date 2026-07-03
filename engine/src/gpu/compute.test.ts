@@ -15,10 +15,7 @@
 
 import { beforeAll, describe, expect, it } from 'vitest'
 import { ComputeDispatcher } from './compute'
-import {
-  emitMatchComputeKernel,
-  type ComputeKernel,
-} from '@xgis/compiler'
+import { emitMatchComputeKernel, type ComputeKernel } from '@xgis/compiler'
 
 // Vitest runs in a Node environment with no WebGPU globals.
 // GPUBufferUsage is a runtime-supplied bitmask enum; we polyfill
@@ -28,15 +25,15 @@ import {
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {
     ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
-      MAP_READ:      0x0001,
-      MAP_WRITE:     0x0002,
-      COPY_SRC:      0x0004,
-      COPY_DST:      0x0008,
-      INDEX:         0x0010,
-      VERTEX:        0x0020,
-      UNIFORM:       0x0040,
-      STORAGE:       0x0080,
-      INDIRECT:      0x0100,
+      MAP_READ: 0x0001,
+      MAP_WRITE: 0x0002,
+      COPY_SRC: 0x0004,
+      COPY_DST: 0x0008,
+      INDEX: 0x0010,
+      VERTEX: 0x0020,
+      UNIFORM: 0x0040,
+      STORAGE: 0x0080,
+      INDIRECT: 0x0100,
       QUERY_RESOLVE: 0x0200,
     }
   }
@@ -79,12 +76,13 @@ function makeFakeContext() {
   const bufferCreates: RecordedBufferCreate[] = []
   const bufferWrites: RecordedBufferWrite[] = []
 
-  const fakePipeline = (entryPoint: string): GPUComputePipeline => ({
-    _entryPoint: entryPoint,
-    getBindGroupLayout(_index: number): GPUBindGroupLayout {
-      return { _layoutFor: entryPoint } as unknown as GPUBindGroupLayout
-    },
-  } as unknown as GPUComputePipeline)
+  const fakePipeline = (entryPoint: string): GPUComputePipeline =>
+    ({
+      _entryPoint: entryPoint,
+      getBindGroupLayout(_index: number): GPUBindGroupLayout {
+        return { _layoutFor: entryPoint } as unknown as GPUBindGroupLayout
+      },
+    }) as unknown as GPUComputePipeline
 
   const device = {
     createShaderModule(desc: { code: string; label?: string }): GPUShaderModule {
@@ -141,12 +139,18 @@ function makeFakeContext() {
       }
       passes.push(rec)
       return {
-        setPipeline(p: GPUComputePipeline) { rec.pipeline = p },
+        setPipeline(p: GPUComputePipeline) {
+          rec.pipeline = p
+        },
         setBindGroup(i: number, g: GPUBindGroup) {
           rec.bindGroups.push({ index: i, group: g })
         },
-        dispatchWorkgroups(x: number) { rec.workgroups = x },
-        end() { rec.ended = true },
+        dispatchWorkgroups(x: number) {
+          rec.workgroups = x
+        },
+        end() {
+          rec.ended = true
+        },
       } as unknown as GPUComputePassEncoder
     },
   } as unknown as GPUCommandEncoder
@@ -160,7 +164,7 @@ function makeFakeContext() {
     bindGroupCreates,
     bufferCreates,
     bufferWrites,
-    fakeBuffer: () => ({ _stub: true } as unknown as GPUBuffer),
+    fakeBuffer: () => ({ _stub: true }) as unknown as GPUBuffer,
   }
 }
 
@@ -197,7 +201,11 @@ describe('ComputeDispatcher.dispatchKernel', () => {
     // Synthesise two kernels with identical bodies but distinct
     // entry-point metadata to verify the cache key separates them.
     // same kernel IR (→ identical emitted WGSL), distinct entryPoint metadata.
-    const sharedModule = emitMatchComputeKernel({ fieldName: 'x', arms: [], defaultColorHex: '#00000000' }).module
+    const sharedModule = emitMatchComputeKernel({
+      fieldName: 'x',
+      arms: [],
+      defaultColorHex: '#00000000',
+    }).module
     const k1: ComputeKernel = {
       module: sharedModule,
       entryPoint: 'entry_a',
@@ -216,17 +224,19 @@ describe('ComputeDispatcher.dispatchKernel', () => {
     dispatcher.dispatchKernel(encoder, k1, fakeBuffer(), fakeBuffer(), fakeBuffer(), 1)
     dispatcher.dispatchKernel(encoder, k2, fakeBuffer(), fakeBuffer(), fakeBuffer(), 1)
     expect(pipelineCreates).toHaveLength(2)
-    expect(pipelineCreates.map(p => p.entryPoint).sort()).toEqual(['entry_a', 'entry_b'])
+    expect(pipelineCreates.map((p) => p.entryPoint).sort()).toEqual(['entry_a', 'entry_b'])
   })
 
   it('binds three resources at indices 0/1/2 (feat_data / out_color / u_count)', () => {
     const { dispatcher, encoder, bindGroupCreates, fakeBuffer } = makeFakeContext()
-    const input = fakeBuffer(), output = fakeBuffer(), count = fakeBuffer()
+    const input = fakeBuffer(),
+      output = fakeBuffer(),
+      count = fakeBuffer()
     dispatcher.dispatchKernel(encoder, makeKernel(), input, output, count, 10)
     expect(bindGroupCreates).toHaveLength(1)
     const entries = bindGroupCreates[0]!.entries
     expect(entries).toHaveLength(3)
-    expect(entries.map(e => e.binding)).toEqual([0, 1, 2])
+    expect(entries.map((e) => e.binding)).toEqual([0, 1, 2])
     expect((entries[0]!.resource as GPUBufferBinding).buffer).toBe(input)
     expect((entries[1]!.resource as GPUBufferBinding).buffer).toBe(output)
     expect((entries[2]!.resource as GPUBufferBinding).buffer).toBe(count)
@@ -248,7 +258,8 @@ describe('ComputeDispatcher.dispatchKernel', () => {
   })
 
   it('featureCount === 0 → no pass started (early return)', () => {
-    const { dispatcher, encoder, passes, pipelineCreates, bindGroupCreates, fakeBuffer } = makeFakeContext()
+    const { dispatcher, encoder, passes, pipelineCreates, bindGroupCreates, fakeBuffer } =
+      makeFakeContext()
     dispatcher.dispatchKernel(encoder, makeKernel(), fakeBuffer(), fakeBuffer(), fakeBuffer(), 0)
     expect(passes).toHaveLength(0)
     expect(pipelineCreates).toHaveLength(0)
@@ -299,7 +310,7 @@ describe('ComputeDispatcher — buffer factories', () => {
   it('createFeatDataBuffer sizes to stride * features * 4', () => {
     const { dispatcher, bufferCreates } = makeFakeContext()
     dispatcher.createFeatDataBuffer(2, 100)
-    expect(bufferCreates[0]!.size).toBe(2 * 100 * 4)  // 800
+    expect(bufferCreates[0]!.size).toBe(2 * 100 * 4) // 800
     expect(bufferCreates[0]!.usage & GPUBufferUsage.STORAGE).not.toBe(0)
     expect(bufferCreates[0]!.usage & GPUBufferUsage.COPY_DST).not.toBe(0)
   })
@@ -316,13 +327,13 @@ describe('ComputeDispatcher — buffer factories', () => {
     // emit a 0-byte buffer.
     const { dispatcher, bufferCreates } = makeFakeContext()
     dispatcher.createFeatDataBuffer(0, 100)
-    expect(bufferCreates[0]!.size).toBe(100 * 1 * 4)  // 400
+    expect(bufferCreates[0]!.size).toBe(100 * 1 * 4) // 400
   })
 
   it('createOutColorBuffer sizes to featureCount * 4 (one u32 per feature)', () => {
     const { dispatcher, bufferCreates } = makeFakeContext()
     dispatcher.createOutColorBuffer(50)
-    expect(bufferCreates[0]!.size).toBe(50 * 4)  // 200
+    expect(bufferCreates[0]!.size).toBe(50 * 4) // 200
     expect(bufferCreates[0]!.usage & GPUBufferUsage.STORAGE).not.toBe(0)
     expect(bufferCreates[0]!.usage & GPUBufferUsage.COPY_SRC).not.toBe(0)
   })
@@ -340,7 +351,7 @@ describe('ComputeDispatcher — buffer factories', () => {
     dispatcher.uploadFeatData(buf, data)
     expect(bufferWrites).toHaveLength(1)
     expect(bufferWrites[0]!.offset).toBe(0)
-    expect(bufferWrites[0]!.bytes).toBe(16)  // 4 f32 = 16 bytes
+    expect(bufferWrites[0]!.bytes).toBe(16) // 4 f32 = 16 bytes
   })
 
   it('uploadFeatData skips empty Float32Array (no-op, no GPU write)', () => {

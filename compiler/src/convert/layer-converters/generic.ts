@@ -26,8 +26,10 @@ export function convertGenericLayer(
   const lines: string[] = [`layer ${sanitizeId(layer.id)} {`]
   if (layer.source) lines.push(`  source: ${sanitizeId(layer.source)}`)
   if (layer['source-layer']) lines.push(`  sourceLayer: ${JSON.stringify(layer['source-layer'])}`)
-  if (typeof layer.minzoom === 'number' && Number.isFinite(layer.minzoom)) lines.push(`  minzoom: ${layer.minzoom}`)
-  if (typeof layer.maxzoom === 'number' && Number.isFinite(layer.maxzoom)) lines.push(`  maxzoom: ${layer.maxzoom}`)
+  if (typeof layer.minzoom === 'number' && Number.isFinite(layer.minzoom))
+    lines.push(`  minzoom: ${layer.minzoom}`)
+  if (typeof layer.maxzoom === 'number' && Number.isFinite(layer.maxzoom))
+    lines.push(`  maxzoom: ${layer.maxzoom}`)
   // Authored-but-unconvertible filter fails CLOSED (filter: false →
   // match nothing), not open — see filterLineOrFailClosed.
   const genericFilterLine = filterLineOrFailClosed(layer.filter, warnings)
@@ -45,7 +47,9 @@ export function convertGenericLayer(
   if (generalVisibility === 'none') {
     lines.push(`  visible: false`)
   } else if (typeof generalVisibility === 'string' && generalVisibility !== 'visible') {
-    warnings.push(`Layer "${layer.id}" — visibility "${generalVisibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`)
+    warnings.push(
+      `Layer "${layer.id}" — visibility "${generalVisibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`,
+    )
   }
 
   const utils = [...layoutUtils, ...paintToUtilities(layer, warnings)]

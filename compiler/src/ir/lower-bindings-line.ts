@@ -21,7 +21,11 @@ export const strokeDasharrayBindingHandler: BindingHandler = {
   apply: (ctx) => {
     const arrStops = extractInterpolateZoomArrayStops(ctx.item.binding!)
     if (arrStops) {
-      ctx.acc.dashArrayShape = { kind: 'zoom-interpolated', stops: arrStops.stops, base: arrStops.base }
+      ctx.acc.dashArrayShape = {
+        kind: 'zoom-interpolated',
+        stops: arrStops.stops,
+        base: arrStops.base,
+      }
       return true
     }
     // No array stops — fall through (original arm did NOT `continue`; the
@@ -57,7 +61,11 @@ export const strokeTranslateXBindingHandler: BindingHandler = {
   apply: (ctx) => {
     const zoomStops = extractInterpolateZoomStops(ctx.item.binding!)
     if (!zoomStops) return false
-    ctx.acc.strokeTranslateXShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }
+    ctx.acc.strokeTranslateXShape = {
+      kind: 'zoom-interpolated',
+      stops: zoomStops.stops,
+      base: zoomStops.base,
+    }
     return true
   },
 }
@@ -66,7 +74,11 @@ export const strokeTranslateYBindingHandler: BindingHandler = {
   apply: (ctx) => {
     const zoomStops = extractInterpolateZoomStops(ctx.item.binding!)
     if (!zoomStops) return false
-    ctx.acc.strokeTranslateYShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }
+    ctx.acc.strokeTranslateYShape = {
+      kind: 'zoom-interpolated',
+      stops: zoomStops.stops,
+      base: zoomStops.base,
+    }
     return true
   },
 }
@@ -78,7 +90,11 @@ export const strokeOpacityBindingHandler: BindingHandler = {
   apply: (ctx) => {
     const zoomStops = extractInterpolateZoomStops(ctx.item.binding!)
     if (!zoomStops) return false
-    ctx.acc.strokeOpacityShape = { kind: 'zoom-interpolated', stops: zoomStops.stops.map(s => ({ zoom: s.zoom, value: s.value / 100 })), base: zoomStops.base }
+    ctx.acc.strokeOpacityShape = {
+      kind: 'zoom-interpolated',
+      stops: zoomStops.stops.map((s) => ({ zoom: s.zoom, value: s.value / 100 })),
+      base: zoomStops.base,
+    }
     return true
   },
 }
@@ -119,9 +135,10 @@ export const strokeBindingHandler: BindingHandler = {
         if (hex) rgbaStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
       }
       if (rgbaStops.length > 0) {
-        acc.strokeColor = colorInterp.base !== 1
-          ? { kind: 'zoom-interpolated', stops: rgbaStops, base: colorInterp.base }
-          : { kind: 'zoom-interpolated', stops: rgbaStops }
+        acc.strokeColor =
+          colorInterp.base !== 1
+            ? { kind: 'zoom-interpolated', stops: rgbaStops, base: colorInterp.base }
+            : { kind: 'zoom-interpolated', stops: rgbaStops }
       }
     } else {
       // Disambiguate WIDTH vs COLOUR expression. Numeric zoom
@@ -172,20 +189,70 @@ export const strokeBindingHandler: BindingHandler = {
 // ── Utility-form stroke arms (no binding) ──
 
 export const lineCapJoinUtilHandlers: BindingHandler[] = [
-  { match: (c) => c.name === 'stroke-butt-cap', apply: (c) => { c.acc.linecap = 'butt'; return true } },
-  { match: (c) => c.name === 'stroke-round-cap', apply: (c) => { c.acc.linecap = 'round'; return true } },
-  { match: (c) => c.name === 'stroke-square-cap', apply: (c) => { c.acc.linecap = 'square'; return true } },
-  { match: (c) => c.name === 'stroke-arrow-cap', apply: (c) => { c.acc.linecap = 'arrow'; return true } },
-  { match: (c) => c.name === 'stroke-miter-join', apply: (c) => { c.acc.linejoin = 'miter'; return true } },
-  { match: (c) => c.name === 'stroke-round-join', apply: (c) => { c.acc.linejoin = 'round'; return true } },
-  { match: (c) => c.name === 'stroke-bevel-join', apply: (c) => { c.acc.linejoin = 'bevel'; return true } },
+  {
+    match: (c) => c.name === 'stroke-butt-cap',
+    apply: (c) => {
+      c.acc.linecap = 'butt'
+      return true
+    },
+  },
+  {
+    match: (c) => c.name === 'stroke-round-cap',
+    apply: (c) => {
+      c.acc.linecap = 'round'
+      return true
+    },
+  },
+  {
+    match: (c) => c.name === 'stroke-square-cap',
+    apply: (c) => {
+      c.acc.linecap = 'square'
+      return true
+    },
+  },
+  {
+    match: (c) => c.name === 'stroke-arrow-cap',
+    apply: (c) => {
+      c.acc.linecap = 'arrow'
+      return true
+    },
+  },
+  {
+    match: (c) => c.name === 'stroke-miter-join',
+    apply: (c) => {
+      c.acc.linejoin = 'miter'
+      return true
+    },
+  },
+  {
+    match: (c) => c.name === 'stroke-round-join',
+    apply: (c) => {
+      c.acc.linejoin = 'round'
+      return true
+    },
+  },
+  {
+    match: (c) => c.name === 'stroke-bevel-join',
+    apply: (c) => {
+      c.acc.linejoin = 'bevel'
+      return true
+    },
+  },
   {
     match: (c) => c.name.startsWith('stroke-miterlimit-'),
-    apply: (c) => { const num = parseFloat(c.name.slice('stroke-miterlimit-'.length)); if (!isNaN(num)) c.acc.miterlimit = num; return true },
+    apply: (c) => {
+      const num = parseFloat(c.name.slice('stroke-miterlimit-'.length))
+      if (!isNaN(num)) c.acc.miterlimit = num
+      return true
+    },
   },
   {
     match: (c) => c.name.startsWith('stroke-roundlimit-'),
-    apply: (c) => { const num = parseFloat(c.name.slice('stroke-roundlimit-'.length)); if (!isNaN(num)) c.acc.roundLimit = num; return true },
+    apply: (c) => {
+      const num = parseFloat(c.name.slice('stroke-roundlimit-'.length))
+      if (!isNaN(num)) c.acc.roundLimit = num
+      return true
+    },
   },
   {
     match: (c) => c.name.startsWith('stroke-dasharray-'),
@@ -195,46 +262,106 @@ export const lineCapJoinUtilHandlers: BindingHandler[] = [
       // the utility-name accumulator — hyphen is the only separator that
       // stays inside a single utility token via parseUtilityName.
       const parts = c.name.slice('stroke-dasharray-'.length).split('-')
-      const nums = parts.map(parseFloat).filter(n => !isNaN(n))
+      const nums = parts.map(parseFloat).filter((n) => !isNaN(n))
       if (nums.length >= 2) c.acc.dashArray = nums
       return true
     },
   },
   {
     match: (c) => c.name.startsWith('stroke-dashoffset-'),
-    apply: (c) => { const num = parseFloat(c.name.slice('stroke-dashoffset-'.length)); if (!isNaN(num)) c.acc.dashOffset = num; return true },
+    apply: (c) => {
+      const num = parseFloat(c.name.slice('stroke-dashoffset-'.length))
+      if (!isNaN(num)) c.acc.dashOffset = num
+      return true
+    },
   },
-  { match: (c) => c.name === 'stroke-inset', apply: (c) => { c.acc.strokeAlign = 'inset'; return true } },
-  { match: (c) => c.name === 'stroke-outset', apply: (c) => { c.acc.strokeAlign = 'outset'; return true } },
-  { match: (c) => c.name === 'stroke-center', apply: (c) => { c.acc.strokeAlign = 'center'; return true } },
+  {
+    match: (c) => c.name === 'stroke-inset',
+    apply: (c) => {
+      c.acc.strokeAlign = 'inset'
+      return true
+    },
+  },
+  {
+    match: (c) => c.name === 'stroke-outset',
+    apply: (c) => {
+      c.acc.strokeAlign = 'outset'
+      return true
+    },
+  },
+  {
+    match: (c) => c.name === 'stroke-center',
+    apply: (c) => {
+      c.acc.strokeAlign = 'center'
+      return true
+    },
+  },
   {
     // Right-hand parallel offset: same magnitude, negative sign convention.
     match: (c) => c.name.startsWith('stroke-offset-right-'),
-    apply: (c) => { const num = parseFloat(c.name.slice('stroke-offset-right-'.length)); if (!isNaN(num)) c.acc.strokeOffset = -num; return true },
+    apply: (c) => {
+      const num = parseFloat(c.name.slice('stroke-offset-right-'.length))
+      if (!isNaN(num)) c.acc.strokeOffset = -num
+      return true
+    },
   },
   {
     match: (c) => c.name.startsWith('stroke-offset-left-'),
-    apply: (c) => { const num = parseFloat(c.name.slice('stroke-offset-left-'.length)); if (!isNaN(num)) c.acc.strokeOffset = num; return true },
+    apply: (c) => {
+      const num = parseFloat(c.name.slice('stroke-offset-left-'.length))
+      if (!isNaN(num)) c.acc.strokeOffset = num
+      return true
+    },
   },
   {
     // Bare stroke-offset-N → positive (left of travel) by default.
     match: (c) => c.name.startsWith('stroke-offset-'),
-    apply: (c) => { const num = parseFloat(c.name.slice('stroke-offset-'.length)); if (!isNaN(num)) c.acc.strokeOffset = num; return true },
+    apply: (c) => {
+      const num = parseFloat(c.name.slice('stroke-offset-'.length))
+      if (!isNaN(num)) c.acc.strokeOffset = num
+      return true
+    },
   },
-  { match: (c) => c.name.startsWith('stroke-pattern-1-'), apply: (c) => { c.acc.parsePatternAttr(c.name.slice('stroke-pattern-1-'.length), 1); return true } },
-  { match: (c) => c.name.startsWith('stroke-pattern-2-'), apply: (c) => { c.acc.parsePatternAttr(c.name.slice('stroke-pattern-2-'.length), 2); return true } },
-  { match: (c) => c.name.startsWith('stroke-pattern-'), apply: (c) => { c.acc.parsePatternAttr(c.name.slice('stroke-pattern-'.length), 0); return true } },
+  {
+    match: (c) => c.name.startsWith('stroke-pattern-1-'),
+    apply: (c) => {
+      c.acc.parsePatternAttr(c.name.slice('stroke-pattern-1-'.length), 1)
+      return true
+    },
+  },
+  {
+    match: (c) => c.name.startsWith('stroke-pattern-2-'),
+    apply: (c) => {
+      c.acc.parsePatternAttr(c.name.slice('stroke-pattern-2-'.length), 2)
+      return true
+    },
+  },
+  {
+    match: (c) => c.name.startsWith('stroke-pattern-'),
+    apply: (c) => {
+      c.acc.parsePatternAttr(c.name.slice('stroke-pattern-'.length), 0)
+      return true
+    },
+  },
   {
     // Mapbox `paint.line-blur` — edge feathering in CSS px.
     match: (c) => c.name.startsWith('stroke-blur-'),
-    apply: (c) => { const num = parseFloat(c.name.slice('stroke-blur-'.length)); if (!isNaN(num)) c.acc.strokeBlur = num; return true },
+    apply: (c) => {
+      const num = parseFloat(c.name.slice('stroke-blur-'.length))
+      if (!isNaN(num)) c.acc.strokeBlur = num
+      return true
+    },
   },
   {
     // Mapbox `paint.line-gap-width` — px gap between two parallel strokes
     // ("double line" casing). Constant form here; zoom-interp emits the
     // bracket binding form handled in the binding-form arm.
     match: (c) => c.name.startsWith('stroke-gap-'),
-    apply: (c) => { const num = parseFloat(c.name.slice('stroke-gap-'.length)); if (!isNaN(num) && num > 0) c.acc.strokeGapWidth = num; return true },
+    apply: (c) => {
+      const num = parseFloat(c.name.slice('stroke-gap-'.length))
+      if (!isNaN(num) && num > 0) c.acc.strokeGapWidth = num
+      return true
+    },
   },
   {
     // iter-178 Mapbox `line-pattern` Stage 1 → linePattern. Uses the
@@ -242,7 +369,11 @@ export const lineCapJoinUtilHandlers: BindingHandler[] = [
     // native SDF dash arms above own, else the sprite is mis-routed into
     // the dash path). Must precede the generic `stroke-` branch below.
     match: (c) => c.name.startsWith('stroke-image-'),
-    apply: (c) => { const sprite = c.name.slice('stroke-image-'.length); if (sprite.length > 0) c.acc.linePattern = sprite; return true },
+    apply: (c) => {
+      const sprite = c.name.slice('stroke-image-'.length)
+      if (sprite.length > 0) c.acc.linePattern = sprite
+      return true
+    },
   },
   {
     match: (c) => c.name.startsWith('stroke-'),

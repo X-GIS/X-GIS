@@ -20,10 +20,14 @@ test('landing-page hero map renders all 4 quadrants', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
 
   await page.goto('http://localhost:4321/', { waitUntil: 'domcontentloaded' })
-  await page.waitForFunction(() => {
-    const c = document.getElementById('hero-map') as HTMLCanvasElement | null
-    return c && getComputedStyle(c).opacity === '1'
-  }, null, { timeout: 30_000 })
+  await page.waitForFunction(
+    () => {
+      const c = document.getElementById('hero-map') as HTMLCanvasElement | null
+      return c && getComputedStyle(c).opacity === '1'
+    },
+    null,
+    { timeout: 30_000 },
+  )
   await page.waitForTimeout(2_000)
 
   const png = await page.locator('#hero-map').screenshot()
@@ -31,24 +35,28 @@ test('landing-page hero map renders all 4 quadrants', async ({ page }) => {
 
   const stats = await page.evaluate(async () => {
     const canvas = document.getElementById('hero-map') as HTMLCanvasElement
-    const blob = await new Promise<Blob | null>((res) =>
-      canvas.toBlob((b) => res(b), 'image/png'),
-    )
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob((b) => res(b), 'image/png'))
     if (!blob) return { error: 'no blob' }
     const buf = await blob.arrayBuffer()
     const img = new Image()
     const url = URL.createObjectURL(new Blob([buf], { type: 'image/png' }))
     await new Promise<void>((res, rej) => {
-      img.onload = () => res(); img.onerror = () => rej(new Error('decode'))
+      img.onload = () => res()
+      img.onerror = () => rej(new Error('decode'))
       img.src = url
     })
     const off = new OffscreenCanvas(img.width, img.height)
     const ctx = off.getContext('2d')!
     ctx.drawImage(img, 0, 0)
     const data = ctx.getImageData(0, 0, img.width, img.height).data
-    const w = img.width, h = img.height
-    const halfW = w >> 1, halfH = h >> 1
-    let q_tl = 0, q_tr = 0, q_bl = 0, q_br = 0
+    const w = img.width,
+      h = img.height
+    const halfW = w >> 1,
+      halfH = h >> 1
+    let q_tl = 0,
+      q_tr = 0,
+      q_bl = 0,
+      q_br = 0
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const i = (y * w + x) * 4
@@ -72,7 +80,7 @@ test('landing-page hero map renders all 4 quadrants', async ({ page }) => {
   // all 4 (the hero map data spans North + South + Africa + Australia +
   // Europe + Asia). Each quadrant should have at least a small fraction
   // of its area painted with land.
-  const quadMin = (stats.w * stats.h / 4) * 0.01
+  const quadMin = ((stats.w * stats.h) / 4) * 0.01
   expect(stats.q_tl, 'top-left has content').toBeGreaterThan(quadMin)
   expect(stats.q_tr, 'top-right has content').toBeGreaterThan(quadMin)
   expect(stats.q_bl, 'bottom-left has content').toBeGreaterThan(quadMin)

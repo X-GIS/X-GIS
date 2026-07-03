@@ -57,7 +57,10 @@ export interface UploadStore {
   incrementCount(): void
   nextUploadEpoch(): number
   forceEvictBytes(
-    arena: GPUArena, needed: number, stable: readonly number[], hook: (k: string) => void,
+    arena: GPUArena,
+    needed: number,
+    stable: readonly number[],
+    hook: (k: string) => void,
   ): boolean
 }
 
@@ -123,7 +126,10 @@ interface TileWriteSink {
  *  in the same call. Reaches no suspension (`deferred = false`). */
 class SyncWriteSink implements TileWriteSink {
   readonly deferred = false
-  constructor(private readonly device: GPUDevice, private readonly lineRenderer: LineRenderer | null) {}
+  constructor(
+    private readonly device: GPUDevice,
+    private readonly lineRenderer: LineRenderer | null,
+  ) {}
   write(dst: GPUBuffer, offset: number, data: ArrayBuffer | ArrayBufferView): void {
     this.device.queue.writeBuffer(dst, offset, data as BufferSource)
   }
@@ -182,7 +188,10 @@ class AsyncWriteSink implements TileWriteSink {
 
 export class UploadCoordinator {
   private readonly uploadQueue: PriorityQueue<string, void>
-  private readonly uploadItemData = new Map<string, { key: number; data: TileData; sourceLayer: string }>()
+  private readonly uploadItemData = new Map<
+    string,
+    { key: number; data: TileData; sourceLayer: string }
+  >()
 
   /** Set by `destroy()` before the arenas are torn down. In-flight async
    *  dispatch coroutines suspended on the staging mapAsync round-trip
@@ -222,12 +231,12 @@ export class UploadCoordinator {
     if (this.host.store.getLayer(sourceLayer)?.has(key)) return
     const id = `${key}:${sourceLayer}`
     if (this.uploadQueue.has(id)) return
-    if (this._heldUploadIds.has(id)) return  // already deferred to next frame
+    if (this._heldUploadIds.has(id)) return // already deferred to next frame
 
     // Per-frame SLICE-upload cap. cap=4 desktop is the empirical sweet spot
     // (z=14 Tokyo / OFM Bright): convergence bounded, per-frame stall
     // tolerable. Mobile gets 1 (matches the prior uploadBudgetFor floor).
-    const cap = (typeof window !== 'undefined' && window.innerWidth <= 900) ? 1 : 4
+    const cap = typeof window !== 'undefined' && window.innerWidth <= 900 ? 1 : 4
     if (this._uploadsThisFrame >= cap) {
       this._heldUploads.push({ key, data, sourceLayer })
       this._heldUploadIds.add(id)
@@ -237,22 +246,27 @@ export class UploadCoordinator {
     this._uploadsThisFrame++
 
     this.uploadItemData.set(id, { key, data, sourceLayer })
-    this.uploadQueue.add(id, async () => {
-      const item = this.uploadItemData.get(id)
-      this.uploadItemData.delete(id)
-      if (!item) return
-      const sink = new AsyncWriteSink(
-        this.host.stagingPool, this.host.device, this.host.lineRenderer(), item.key,
-      )
-      await this._dispatch(item.key, item.data, item.sourceLayer, sink)
-    }).catch((err: unknown) => {
-      this.uploadItemData.delete(id)
-      // PriorityQueueItemRemovedError is the expected outcome when
-      // `cancelStale` drops a queued upload (camera moved past the tile) —
-      // a normal flow signal, not an error.
-      if (err instanceof PriorityQueueItemRemovedError) return
-      xlog.error('[upload queue]', err)
-    })
+    this.uploadQueue
+      .add(id, async () => {
+        const item = this.uploadItemData.get(id)
+        this.uploadItemData.delete(id)
+        if (!item) return
+        const sink = new AsyncWriteSink(
+          this.host.stagingPool,
+          this.host.device,
+          this.host.lineRenderer(),
+          item.key,
+        )
+        await this._dispatch(item.key, item.data, item.sourceLayer, sink)
+      })
+      .catch((err: unknown) => {
+        this.uploadItemData.delete(id)
+        // PriorityQueueItemRemovedError is the expected outcome when
+        // `cancelStale` drops a queued upload (camera moved past the tile) —
+        // a normal flow signal, not an error.
+        if (err instanceof PriorityQueueItemRemovedError) return
+        xlog.error('[upload queue]', err)
+      })
   }
 
   /** Release the per-frame upload slot counter and replay any tiles held
@@ -293,7 +307,7 @@ export class UploadCoordinator {
       const staleSet = new Set(staleIds)
       // removeByFilter rejects the dropped items' promises with
       // PriorityQueueItemRemovedError; the enqueue `.catch` handles it.
-      this.uploadQueue.removeByFilter(id => staleSet.has(id))
+      this.uploadQueue.removeByFilter((id) => staleSet.has(id))
       for (const id of staleIds) {
         const item = itemData.get(id)
         if (item) releasePrebuiltSegments(item.data)
@@ -347,7 +361,8 @@ export class UploadCoordinator {
   installPriority(distSq: (key: number) => number): void {
     const itemData = this.uploadItemData
     this.uploadQueue.priorityCallback = (a, b) => {
-      const ia = itemData.get(a), ib = itemData.get(b)
+      const ia = itemData.get(a),
+        ib = itemData.get(b)
       if (!ia || !ib) return 0
       return distSq(ib.key) - distSq(ia.key)
     }
@@ -388,7 +403,10 @@ export class UploadCoordinator {
    *  Returns null on any failure (caller runs forced eviction + retry, then
    *  warn-and-skip). Shared by both routes so OOM handling cannot diverge. */
   private _allocPolyPair(
-    vArena: GPUArena, iArena: GPUArena, vBytes: number, iBytes: number,
+    vArena: GPUArena,
+    iArena: GPUArena,
+    vBytes: number,
+    iBytes: number,
   ): { v: number; i: number } | null {
     let v: number | null = null
     try {
@@ -396,7 +414,7 @@ export class UploadCoordinator {
       const i = iArena.alloc(iBytes)
       return { v, i }
     } catch {
-      if (v !== null) vArena.free(v, vBytes)  // no partial leak
+      if (v !== null) vArena.free(v, vBytes) // no partial leak
       return null
     }
   }
@@ -406,7 +424,10 @@ export class UploadCoordinator {
    *  specific code is `sink.write` / `sink.uploadSegment` and the one
    *  `if (sink.deferred)` suspension block. */
   private async _dispatch(
-    key: number, data: TileData, sourceLayer: string, sink: TileWriteSink,
+    key: number,
+    data: TileData,
+    sourceLayer: string,
+    sink: TileWriteSink,
   ): Promise<void> {
     const store = this.host.store
     const layerCache = store.getOrCreateLayer(sourceLayer)
@@ -466,7 +487,7 @@ export class UploadCoordinator {
         const DEG2RAD = Math.PI / 180
         const clampLat = Math.max(-85.051129, Math.min(85.051129, data.tileSouth))
         const tileMx = data.tileWest * DEG2RAD * A_
-        const tileMy = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * A_
+        const tileMy = Math.log(Math.tan(Math.PI / 4 + (clampLat * DEG2RAD) / 2)) * A_
         const tileLonRad = tileMx / A_
         const tileLatRad = 2 * Math.atan(Math.exp(tileMy / A_)) - Math.PI / 2
         const sinLat = Math.sin(tileLatRad)
@@ -478,8 +499,12 @@ export class UploadCoordinator {
           N * (1 - E2_) * sinLat,
         ]
         const mesh = generateWallMeshExtrudedECEF(
-          data.polygons, data.heights!, data.bases,
-          tileMx, tileMy, tileEcefCenter,
+          data.polygons,
+          data.heights!,
+          data.bases,
+          tileMx,
+          tileMy,
+          tileEcefCenter,
         )
         polyVerts = mesh.vertices.buffer.slice(
           mesh.vertices.byteOffset,
@@ -515,8 +540,12 @@ export class UploadCoordinator {
       let pair = this._allocPolyPair(vArena, iArena, polyVertexByteLength, polyIndexByteLength)
       if (pair === null) {
         perfMarkStart('vtr.evict')
-        store.forceEvictBytes(vArena, polyVertexByteLength, this.host.stableKeys(), (k) => this.host.releaseTileHook(k))
-        store.forceEvictBytes(iArena, polyIndexByteLength, this.host.stableKeys(), (k) => this.host.releaseTileHook(k))
+        store.forceEvictBytes(vArena, polyVertexByteLength, this.host.stableKeys(), (k) =>
+          this.host.releaseTileHook(k),
+        )
+        store.forceEvictBytes(iArena, polyIndexByteLength, this.host.stableKeys(), (k) =>
+          this.host.releaseTileHook(k),
+        )
         perfMarkEnd('vtr.evict')
         pair = this._allocPolyPair(vArena, iArena, polyVertexByteLength, polyIndexByteLength)
       }
@@ -524,7 +553,9 @@ export class UploadCoordinator {
         const wKey = `arena-oom:${sourceLayer}:${key}`
         if (!this.host.hasWarned(wKey)) {
           this.host.markWarned(wKey)
-          xlog.warn(`[VTR arena-oom] poly arena out of capacity uploading tile ${key} (${sourceLayer || 'base'}); skipping this frame, will retry. vBytes=${polyVertexByteLength} iBytes=${polyIndexByteLength}`)
+          xlog.warn(
+            `[VTR arena-oom] poly arena out of capacity uploading tile ${key} (${sourceLayer || 'base'}); skipping this frame, will retry. vBytes=${polyVertexByteLength} iBytes=${polyIndexByteLength}`,
+          )
         }
         return
       }
@@ -588,21 +619,36 @@ export class UploadCoordinator {
         const clampSegLat = (v: number) => Math.max(-SEG_LAT_LIMIT, Math.min(SEG_LAT_LIMIT, v))
         const tileMercXWest = data.tileWest * SEG_DEG2RAD * SEG_R
         const tileMercXEast = (data.tileWest + data.tileWidth) * SEG_DEG2RAD * SEG_R
-        const tileMercYSouth = Math.log(Math.tan(Math.PI / 4 + clampSegLat(data.tileSouth) * SEG_DEG2RAD / 2)) * SEG_R
-        const tileMercYNorth = Math.log(Math.tan(Math.PI / 4 + clampSegLat(data.tileSouth + data.tileHeight) * SEG_DEG2RAD / 2)) * SEG_R
+        const tileMercYSouth =
+          Math.log(Math.tan(Math.PI / 4 + (clampSegLat(data.tileSouth) * SEG_DEG2RAD) / 2)) * SEG_R
+        const tileMercYNorth =
+          Math.log(
+            Math.tan(
+              Math.PI / 4 + (clampSegLat(data.tileSouth + data.tileHeight) * SEG_DEG2RAD) / 2,
+            ),
+          ) * SEG_R
         const tileWidthMerc = tileMercXEast - tileMercXWest
         const tileHeightMerc = tileMercYNorth - tileMercYSouth
-        if (data.outlineVertices && data.outlineVertices.length > 0
-            && data.outlineLineIndices && data.outlineLineIndices.length > 0) {
+        if (
+          data.outlineVertices &&
+          data.outlineVertices.length > 0 &&
+          data.outlineLineIndices &&
+          data.outlineLineIndices.length > 0
+        ) {
           // PMTiles MVT worker pre-builds segments off-thread; reuse if
           // present, else build now (XGVT-binary path). Main-thread fallback
           // passes heights so outlines match the worker pre-build.
-          const segData = data.prebuiltOutlineSegments
-            ?? buildLineSegments(
-              data.outlineVertices, data.outlineLineIndices, 10,
-              tileWidthMerc, tileHeightMerc,
+          const segData =
+            data.prebuiltOutlineSegments ??
+            buildLineSegments(
+              data.outlineVertices,
+              data.outlineLineIndices,
+              10,
+              tileWidthMerc,
+              tileHeightMerc,
               data.heights && data.heights.size > 0 ? data.heights : undefined,
-              undefined, undefined,
+              undefined,
+              undefined,
               0,
             )
           const segOut = sink.uploadSegment(segData)
@@ -628,10 +674,14 @@ export class UploadCoordinator {
               if (vertCount > 0 && data.lineVertices.length / vertCount >= 10) lineStride = 10
             }
             segData = buildLineSegments(
-              data.lineVertices, data.lineIndices, lineStride,
-              tileWidthMerc, tileHeightMerc,
+              data.lineVertices,
+              data.lineIndices,
+              lineStride,
+              tileWidthMerc,
+              tileHeightMerc,
               data.heights && data.heights.size > 0 ? data.heights : undefined,
-              undefined, undefined,
+              undefined,
+              undefined,
               0,
             )
           }
@@ -685,22 +735,41 @@ export class UploadCoordinator {
       // handle keying matches the `${key}:${sourceLayer}` identity used by
       // the upload queue + held set, so the handle's lifetime tracks the
       // tile's bind-group lifetime.
-      const perTileFeat = this.host.buildPerTileFeatureData(data.featureProps, `${key}:${sourceLayer}`)
+      const perTileFeat = this.host.buildPerTileFeatureData(
+        data.featureProps,
+        `${key}:${sourceLayer}`,
+      )
 
       layerCache.set(key, {
-        vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
-        polyIndexOffset, polyIndexByteLength,
+        vertexBuffer,
+        polyVertexOffset,
+        polyVertexByteLength,
+        indexBuffer,
+        polyIndexOffset,
+        polyIndexByteLength,
         indexCount: polyIndices.length,
-        zBuffer, zBufferOffset, zBufferByteLength, extruded: useFeatureHeights && !!data.polygons,
-        lineVertexBuffer, lineIndexBuffer,
+        zBuffer,
+        zBufferOffset,
+        zBufferByteLength,
+        extruded: useFeatureHeights && !!data.polygons,
+        lineVertexBuffer,
+        lineIndexBuffer,
         lineIndexCount: data.lineIndices.length,
-        outlineIndexBuffer, outlineIndexCount,
-        outlineSegmentBuffer, outlineSegmentCount, outlineSegmentBindGroup,
-        lineSegmentBuffer, lineSegmentCount, lineSegmentBindGroup,
-        tileWest: data.tileWest, tileSouth: data.tileSouth,
-        tileWidth: data.tileWidth, tileHeight: data.tileHeight,
+        outlineIndexBuffer,
+        outlineIndexCount,
+        outlineSegmentBuffer,
+        outlineSegmentCount,
+        outlineSegmentBindGroup,
+        lineSegmentBuffer,
+        lineSegmentCount,
+        lineSegmentBindGroup,
+        tileWest: data.tileWest,
+        tileSouth: data.tileSouth,
+        tileWidth: data.tileWidth,
+        tileHeight: data.tileHeight,
         tileZoom: data.tileZoom,
-        dequantScale, dequantHalf,
+        dequantScale,
+        dequantHalf,
         lastUsedFrame: this.host.frameCount(),
         uploadTimeMs: performance.now(),
         featureDataBuffer: perTileFeat?.buffer ?? null,
@@ -742,7 +811,9 @@ export class UploadCoordinator {
       const wKey = `upload-throw:${sourceLayer}:${key}`
       if (!this.host.hasWarned(wKey)) {
         this.host.markWarned(wKey)
-        xlog.warn(`[VTR upload] dispatch threw for tile ${key} (${sourceLayer || 'base'}); skipping. ${(e as Error)?.message ?? e}`)
+        xlog.warn(
+          `[VTR upload] dispatch threw for tile ${key} (${sourceLayer || 'base'}); skipping. ${(e as Error)?.message ?? e}`,
+        )
       }
     }
   }

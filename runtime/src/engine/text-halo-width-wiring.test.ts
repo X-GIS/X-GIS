@@ -34,7 +34,10 @@ import { resolveLabelEffectiveDef } from '@xgis/map'
 //   z=3 → 5,  z=5 → 7.
 const haloWidthShape = {
   kind: 'zoom-interpolated',
-  stops: [{ zoom: 0, value: 2 }, { zoom: 10, value: 12 }],
+  stops: [
+    { zoom: 0, value: 2 },
+    { zoom: 10, value: 12 },
+  ],
 } as never
 
 // Minimal LabelDef + LabelShapes bundle. resolveLabelEffectiveDef reads
@@ -44,13 +47,31 @@ const haloWidthShape = {
 const def: LabelDef = { text: { kind: 'literal', value: 'X' } as never, size: 12 }
 
 const shapes = {
-  textLayout: { size: { kind: 'constant', value: 12 }, font: null, fontWeight: null, fontStyle: null },
-  textPaint: { color: null, haloWidth: haloWidthShape, haloColor: null, haloBlur: null, opacity: null },
+  textLayout: {
+    size: { kind: 'constant', value: 12 },
+    font: null,
+    fontWeight: null,
+    fontStyle: null,
+  },
+  textPaint: {
+    color: null,
+    haloWidth: haloWidthShape,
+    haloColor: null,
+    haloBlur: null,
+    opacity: null,
+  },
   icon: { iconSize: null, iconOpacity: null, iconColor: null },
 } as never
 
 function resolveHaloWidthAt(z: number): number | undefined {
-  const eff = resolveLabelEffectiveDef(def, shapes, z, /* elapsedMs */ 0, '#ffffff', /* bearing */ 0)
+  const eff = resolveLabelEffectiveDef(
+    def,
+    shapes,
+    z,
+    /* elapsedMs */ 0,
+    '#ffffff',
+    /* bearing */ 0,
+  )
   return eff.halo?.width
 }
 

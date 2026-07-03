@@ -16,16 +16,24 @@ import { compileGeoJSONToTiles } from '../tiler/vector-tiler'
 describe('geodesic refinement for non-Mercator tessellation', () => {
   it('subdivides a large (>5°) triangle without throwing', () => {
     // A 40°-wide square polygon at moderate latitude.
-    const features = [{
-      type: 'Feature' as const,
-      properties: {},
-      geometry: {
-        type: 'Polygon' as const,
-        coordinates: [[
-          [-20, 30], [20, 30], [20, 60], [-20, 60], [-20, 30],
-        ]],
+    const features = [
+      {
+        type: 'Feature' as const,
+        properties: {},
+        geometry: {
+          type: 'Polygon' as const,
+          coordinates: [
+            [
+              [-20, 30],
+              [20, 30],
+              [20, 60],
+              [-20, 60],
+              [-20, 30],
+            ],
+          ],
+        },
       },
-    }]
+    ]
     const compiled = compileGeoJSONToTiles(
       { type: 'FeatureCollection' as const, features },
       { minZoom: 0, maxZoom: 2 },
@@ -36,16 +44,24 @@ describe('geodesic refinement for non-Mercator tessellation', () => {
   })
 
   it('subdivides Antarctica-like polygon spanning >60° lat', () => {
-    const features = [{
-      type: 'Feature' as const,
-      properties: {},
-      geometry: {
-        type: 'Polygon' as const,
-        coordinates: [[
-          [-180, -60], [180, -60], [180, -85], [-180, -85], [-180, -60],
-        ]],
+    const features = [
+      {
+        type: 'Feature' as const,
+        properties: {},
+        geometry: {
+          type: 'Polygon' as const,
+          coordinates: [
+            [
+              [-180, -60],
+              [180, -60],
+              [180, -85],
+              [-180, -85],
+              [-180, -60],
+            ],
+          ],
+        },
       },
-    }]
+    ]
     const compiled = compileGeoJSONToTiles(
       { type: 'FeatureCollection' as const, features },
       { minZoom: 0, maxZoom: 2 },
@@ -58,16 +74,24 @@ describe('geodesic refinement for non-Mercator tessellation', () => {
     // linear-midpoint path should fire (geodesic is wasted work).
     // We can only verify "no crash" here without instrumentation;
     // perf is covered by tile-pitch-throughput benchmarks.
-    const features = [{
-      type: 'Feature' as const,
-      properties: {},
-      geometry: {
-        type: 'Polygon' as const,
-        coordinates: [[
-          [0, 0], [1, 0], [1, 1], [0, 1], [0, 0],
-        ]],
+    const features = [
+      {
+        type: 'Feature' as const,
+        properties: {},
+        geometry: {
+          type: 'Polygon' as const,
+          coordinates: [
+            [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 1],
+              [0, 0],
+            ],
+          ],
+        },
       },
-    }]
+    ]
     const compiled = compileGeoJSONToTiles(
       { type: 'FeatureCollection' as const, features },
       { minZoom: 0, maxZoom: 5 },

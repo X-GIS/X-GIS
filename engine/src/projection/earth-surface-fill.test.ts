@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  generateEarthSurfaceFillMesh,
-  worldBandForProjType,
-} from './earth-surface-fill'
+import { generateEarthSurfaceFillMesh, worldBandForProjType } from './earth-surface-fill'
 import { MERCATOR_LAT_LIMIT } from './projection'
 
 describe('worldBandForProjType', () => {
@@ -43,15 +40,15 @@ describe('generateEarthSurfaceFillMesh', () => {
 
   it('first vertex is the south-west corner of the band', () => {
     const { vertices } = generateEarthSurfaceFillMesh(32, 16, 'mercator-clamped')
-    expect(vertices[0]).toBe(-180)                       // lon
-    expect(vertices[1]).toBeCloseTo(-MERCATOR_LAT_LIMIT, 5)  // lat
+    expect(vertices[0]).toBe(-180) // lon
+    expect(vertices[1]).toBeCloseTo(-MERCATOR_LAT_LIMIT, 5) // lat
   })
 
   it('last vertex is the north-east corner of the band', () => {
     const { vertices } = generateEarthSurfaceFillMesh(32, 16, 'mercator-clamped')
     const last = vertices.length - 2
-    expect(vertices[last]).toBeCloseTo(180, 5)            // lon
-    expect(vertices[last + 1]).toBeCloseTo(MERCATOR_LAT_LIMIT, 5)  // lat
+    expect(vertices[last]).toBeCloseTo(180, 5) // lon
+    expect(vertices[last + 1]).toBeCloseTo(MERCATOR_LAT_LIMIT, 5) // lat
   })
 
   it('sphere-full band reaches the geographic poles', () => {

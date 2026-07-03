@@ -54,23 +54,31 @@ describe('polygon outline arc continuity across tile boundaries', () => {
   it('a polygon spanning adjacent tiles uses PER-TILE arc (coincidence supersedes global arc)', () => {
     const geojson = {
       type: 'FeatureCollection' as const,
-      features: [{
-        type: 'Feature' as const,
-        properties: {},
-        geometry: {
-          type: 'Polygon' as const,
-          coordinates: [[
-            [-30, -10], [30, -10], [30, 10], [-30, 10], [-30, -10],
-          ]],
+      features: [
+        {
+          type: 'Feature' as const,
+          properties: {},
+          geometry: {
+            type: 'Polygon' as const,
+            coordinates: [
+              [
+                [-30, -10],
+                [30, -10],
+                [30, 10],
+                [-30, 10],
+                [-30, -10],
+              ],
+            ],
+          },
         },
-      }],
+      ],
     }
     decomposeFeatures(geojson.features) // ensures parts decompose without throwing
     const set = compileGeoJSONToTiles(geojson, { minZoom: 1, maxZoom: 1 })
     expect(set.levels.length).toBeGreaterThan(0)
-    const z1 = set.levels.find(l => l.zoom === 1)
+    const z1 = set.levels.find((l) => l.zoom === 1)
     expect(z1).toBeDefined()
-    const tiles = [...z1!.tiles.values()].filter(t => t.outlineVertices.length > 0)
+    const tiles = [...z1!.tiles.values()].filter((t) => t.outlineVertices.length > 0)
     expect(tiles.length).toBeGreaterThanOrEqual(2)
 
     // Per-tile arc: each tile's arc restarts near 0 and only spans that
@@ -82,7 +90,7 @@ describe('polygon outline arc continuity across tile boundaries', () => {
     for (const t of tiles) allArcs.push(...arcsFromTile(t.outlineVertices))
     const maxArc = Math.max(...allArcs)
     const minArc = Math.min(...allArcs)
-    expect(maxArc).toBeLessThan(1e7)     // per-tile, NOT full perimeter
+    expect(maxArc).toBeLessThan(1e7) // per-tile, NOT full perimeter
     expect(minArc).toBeLessThanOrEqual(1) // each tile's first vertex starts at 0
   })
 
@@ -92,18 +100,28 @@ describe('polygon outline arc continuity across tile boundaries', () => {
     // monotonically non-decreasing within each segment pair.
     const geojson = {
       type: 'FeatureCollection' as const,
-      features: [{
-        type: 'Feature' as const,
-        properties: {},
-        geometry: {
-          type: 'Polygon' as const,
-          coordinates: [[[10, 10], [20, 10], [20, 20], [10, 20], [10, 10]]],
+      features: [
+        {
+          type: 'Feature' as const,
+          properties: {},
+          geometry: {
+            type: 'Polygon' as const,
+            coordinates: [
+              [
+                [10, 10],
+                [20, 10],
+                [20, 20],
+                [10, 20],
+                [10, 10],
+              ],
+            ],
+          },
         },
-      }],
+      ],
     }
     const set = compileGeoJSONToTiles(geojson, { minZoom: 2, maxZoom: 2 })
-    const z2 = set.levels.find(l => l.zoom === 2)!
-    const tile = [...z2.tiles.values()].find(t => t.outlineVertices.length > 0)
+    const z2 = set.levels.find((l) => l.zoom === 2)!
+    const tile = [...z2.tiles.values()].find((t) => t.outlineVertices.length > 0)
     expect(tile).toBeDefined()
     const arcs = arcsFromTile(tile!.outlineVertices)
     expect(arcs.length).toBeGreaterThan(0)
@@ -113,7 +131,8 @@ describe('polygon outline arc continuity across tile boundaries', () => {
     const indices = tile!.outlineLineIndices
     expect(indices.length % 2).toBe(0)
     for (let i = 0; i < indices.length; i += 2) {
-      const a = indices[i], b = indices[i + 1]
+      const a = indices[i],
+        b = indices[i + 1]
       expect(arcs[b]).toBeGreaterThanOrEqual(arcs[a])
     }
   })

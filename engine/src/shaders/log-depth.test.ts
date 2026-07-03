@@ -16,8 +16,8 @@ import { computeLogDepthFc, simulateLogDepthZ } from '../shaders/log-depth'
 
 describe('computeLogDepthFc', () => {
   it('matches 1 / log2(far + 1)', () => {
-    expect(computeLogDepthFc(1)).toBeCloseTo(1 / Math.log2(2), 6)        // 1.0
-    expect(computeLogDepthFc(1023)).toBeCloseTo(1 / Math.log2(1024), 6)  // 0.1
+    expect(computeLogDepthFc(1)).toBeCloseTo(1 / Math.log2(2), 6) // 1.0
+    expect(computeLogDepthFc(1023)).toBeCloseTo(1 / Math.log2(1024), 6) // 0.1
     expect(computeLogDepthFc(1e6)).toBeCloseTo(1 / Math.log2(1e6 + 1), 6)
   })
 
@@ -34,7 +34,7 @@ describe('simulateLogDepthZ', () => {
   it('maps w=0 to ~0 and w=far to ~1 (WebGPU depth range)', () => {
     const far = 1000
     const zNear = simulateLogDepthZ(0.001, far)
-    const zFar  = simulateLogDepthZ(far, far)
+    const zFar = simulateLogDepthZ(far, far)
     expect(zNear).toBeGreaterThanOrEqual(0)
     expect(zNear).toBeLessThan(0.01) // very close to 0
     expect(zFar).toBeGreaterThan(0.99) // very close to 1
@@ -44,7 +44,7 @@ describe('simulateLogDepthZ', () => {
   it('is strictly monotonically increasing in view-space w', () => {
     const far = 10000
     const samples = [0.001, 1, 10, 100, 1000, 5000, 9999]
-    const depths = samples.map(w => simulateLogDepthZ(w, far))
+    const depths = samples.map((w) => simulateLogDepthZ(w, far))
     for (let i = 1; i < depths.length; i++) {
       expect(depths[i]).toBeGreaterThan(depths[i - 1])
     }
@@ -54,10 +54,10 @@ describe('simulateLogDepthZ', () => {
     // Standard 1/w depth collapses in the near region at ratios like 1:1e6.
     // Log depth should still resolve sub-meter detail near w=1.
     const far = 1e6
-    const d1   = simulateLogDepthZ(1,    far)
-    const d2   = simulateLogDepthZ(2,    far)
-    const d10  = simulateLogDepthZ(10,   far)
-    const d100 = simulateLogDepthZ(100,  far)
+    const d1 = simulateLogDepthZ(1, far)
+    const d2 = simulateLogDepthZ(2, far)
+    const d10 = simulateLogDepthZ(10, far)
+    const d100 = simulateLogDepthZ(100, far)
     // Each doubling of w should produce a distinct depth value well
     // above any realistic 24-bit depth ULP (~6e-8).
     expect(d2 - d1).toBeGreaterThan(1e-5)

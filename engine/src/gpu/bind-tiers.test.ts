@@ -7,7 +7,13 @@
 // every assertion is on plain TypeScript objects.
 
 import { describe, expect, it } from 'vitest'
-import { BindTier, BindTierRegistry, planTierLayout, tierLayoutOrder, type TierSlot } from './bind-tiers'
+import {
+  BindTier,
+  BindTierRegistry,
+  planTierLayout,
+  tierLayoutOrder,
+  type TierSlot,
+} from './bind-tiers'
 
 // Avoid hard import of GPUShaderStage (WebGPU typings) in tests —
 // the planner doesn't care about the actual numeric value, just
@@ -28,10 +34,34 @@ describe('bind-tiers — planTierLayout', () => {
 
   it('groups slots by tier + sorts within tier by binding', () => {
     const slots: TierSlot[] = [
-      { tier: BindTier.Tile, binding: 0, visibility: VERTEX | FRAGMENT, resourceType: 'uniform-dynamic', label: 'tile-uniform' },
-      { tier: BindTier.Constants, binding: 4, visibility: FRAGMENT, resourceType: 'sampler-filtering', label: 'palette-samp' },
-      { tier: BindTier.Constants, binding: 2, visibility: FRAGMENT, resourceType: 'texture-float-2d', label: 'palette-atlas' },
-      { tier: BindTier.Feature, binding: 0, visibility: FRAGMENT, resourceType: 'storage-readonly', label: 'feat-data' },
+      {
+        tier: BindTier.Tile,
+        binding: 0,
+        visibility: VERTEX | FRAGMENT,
+        resourceType: 'uniform-dynamic',
+        label: 'tile-uniform',
+      },
+      {
+        tier: BindTier.Constants,
+        binding: 4,
+        visibility: FRAGMENT,
+        resourceType: 'sampler-filtering',
+        label: 'palette-samp',
+      },
+      {
+        tier: BindTier.Constants,
+        binding: 2,
+        visibility: FRAGMENT,
+        resourceType: 'texture-float-2d',
+        label: 'palette-atlas',
+      },
+      {
+        tier: BindTier.Feature,
+        binding: 0,
+        visibility: FRAGMENT,
+        resourceType: 'storage-readonly',
+        label: 'feat-data',
+      },
     ]
     const planned = planTierLayout(slots)
 
@@ -40,7 +70,11 @@ describe('bind-tiers — planTierLayout', () => {
       { binding: 4, visibility: FRAGMENT, sampler: { type: 'filtering' } },
     ])
     expect(planned.entries.get(BindTier.Tile)).toEqual([
-      { binding: 0, visibility: VERTEX | FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true } },
+      {
+        binding: 0,
+        visibility: VERTEX | FRAGMENT,
+        buffer: { type: 'uniform', hasDynamicOffset: true },
+      },
     ])
     expect(planned.entries.get(BindTier.Feature)).toEqual([
       { binding: 0, visibility: FRAGMENT, buffer: { type: 'read-only-storage' } },
@@ -75,16 +109,42 @@ describe('bind-tiers — planTierLayout', () => {
 
   it('duplicate (tier, binding) collision throws with both labels', () => {
     const slots: TierSlot[] = [
-      { tier: BindTier.Tile, binding: 0, visibility: VERTEX, resourceType: 'uniform', label: 'first' },
-      { tier: BindTier.Tile, binding: 0, visibility: FRAGMENT, resourceType: 'uniform', label: 'second' },
+      {
+        tier: BindTier.Tile,
+        binding: 0,
+        visibility: VERTEX,
+        resourceType: 'uniform',
+        label: 'first',
+      },
+      {
+        tier: BindTier.Tile,
+        binding: 0,
+        visibility: FRAGMENT,
+        resourceType: 'uniform',
+        label: 'second',
+      },
     ]
-    expect(() => planTierLayout(slots)).toThrowError(/tier 2 @binding\(0\) collision.*first.*second/)
+    expect(() => planTierLayout(slots)).toThrowError(
+      /tier 2 @binding\(0\) collision.*first.*second/,
+    )
   })
 
   it('same binding number in DIFFERENT tiers is allowed', () => {
     const slots: TierSlot[] = [
-      { tier: BindTier.Constants, binding: 0, visibility: FRAGMENT, resourceType: 'texture-float-2d', label: 'const-tex' },
-      { tier: BindTier.Tile, binding: 0, visibility: VERTEX, resourceType: 'uniform-dynamic', label: 'tile-uni' },
+      {
+        tier: BindTier.Constants,
+        binding: 0,
+        visibility: FRAGMENT,
+        resourceType: 'texture-float-2d',
+        label: 'const-tex',
+      },
+      {
+        tier: BindTier.Tile,
+        binding: 0,
+        visibility: VERTEX,
+        resourceType: 'uniform-dynamic',
+        label: 'tile-uni',
+      },
     ]
     const planned = planTierLayout(slots)
     expect(planned.entries.get(BindTier.Constants)).toHaveLength(1)
@@ -95,7 +155,12 @@ describe('bind-tiers — planTierLayout', () => {
 describe('bind-tiers — tierLayoutOrder', () => {
   it('returns layouts in tier order, skipping empty tiers', () => {
     const slots: TierSlot[] = [
-      { tier: BindTier.Constants, binding: 0, visibility: FRAGMENT, resourceType: 'texture-float-2d' },
+      {
+        tier: BindTier.Constants,
+        binding: 0,
+        visibility: FRAGMENT,
+        resourceType: 'texture-float-2d',
+      },
       // skip Camera
       { tier: BindTier.Tile, binding: 0, visibility: VERTEX, resourceType: 'uniform-dynamic' },
       // skip Feature
@@ -107,7 +172,7 @@ describe('bind-tiers — tierLayoutOrder', () => {
       [BindTier.Constants, { _tag: 'const-layout' } as unknown as GPUBindGroupLayout],
       [BindTier.Tile, { _tag: 'tile-layout' } as unknown as GPUBindGroupLayout],
     ])
-    const ordered = tierLayoutOrder(planned, t => layoutByTier.get(t)!)
+    const ordered = tierLayoutOrder(planned, (t) => layoutByTier.get(t)!)
     expect(ordered).toHaveLength(2)
     expect((ordered[0] as unknown as { _tag: string })._tag).toBe('const-layout')
     expect((ordered[1] as unknown as { _tag: string })._tag).toBe('tile-layout')
@@ -115,23 +180,37 @@ describe('bind-tiers — tierLayoutOrder', () => {
 
   it('all four tiers present → returns 4 layouts in 0..3 order', () => {
     const slots: TierSlot[] = [
-      { tier: BindTier.Feature, binding: 0, visibility: FRAGMENT, resourceType: 'storage-readonly' },
+      {
+        tier: BindTier.Feature,
+        binding: 0,
+        visibility: FRAGMENT,
+        resourceType: 'storage-readonly',
+      },
       { tier: BindTier.Camera, binding: 0, visibility: VERTEX, resourceType: 'uniform' },
-      { tier: BindTier.Constants, binding: 0, visibility: FRAGMENT, resourceType: 'texture-float-2d' },
+      {
+        tier: BindTier.Constants,
+        binding: 0,
+        visibility: FRAGMENT,
+        resourceType: 'texture-float-2d',
+      },
       { tier: BindTier.Tile, binding: 0, visibility: VERTEX, resourceType: 'uniform-dynamic' },
     ]
     const planned = planTierLayout(slots)
     const tags = ['t0', 't1', 't2', 't3']
-    const ordered = tierLayoutOrder(planned, t => ({ _tag: tags[t]! } as unknown as GPUBindGroupLayout))
-    expect(ordered.map(l => (l as unknown as { _tag: string })._tag))
-      .toEqual(['t0', 't1', 't2', 't3'])
+    const ordered = tierLayoutOrder(
+      planned,
+      (t) => ({ _tag: tags[t]! }) as unknown as GPUBindGroupLayout,
+    )
+    expect(ordered.map((l) => (l as unknown as { _tag: string })._tag)).toEqual([
+      't0',
+      't1',
+      't2',
+      't3',
+    ])
   })
 
   it('empty plan → empty layout list', () => {
-    const ordered = tierLayoutOrder(
-      planTierLayout([]),
-      () => ({} as GPUBindGroupLayout),
-    )
+    const ordered = tierLayoutOrder(planTierLayout([]), () => ({}) as GPUBindGroupLayout)
     expect(ordered).toEqual([])
   })
 })
@@ -168,9 +247,9 @@ describe('bind-tiers — BindTierRegistry', () => {
     const c1 = reg.getLayout(BindTier.Constants)
     const c2 = reg.getLayout(BindTier.Constants)
     const t1 = reg.getLayout(BindTier.Tile)
-    expect(c1).toBe(c2)             // cached on second call
-    expect(c1).not.toBe(t1)         // different tier → different layout
-    expect(createdLabels.length).toBe(2)  // one per tier, not per get
+    expect(c1).toBe(c2) // cached on second call
+    expect(c1).not.toBe(t1) // different tier → different layout
+    expect(createdLabels.length).toBe(2) // one per tier, not per get
   })
 
   it('returns null for tiers with no slots', () => {
@@ -218,8 +297,20 @@ describe('bind-tiers — BindTierRegistry', () => {
   it('entries handed to GPUDevice.createBindGroupLayout match the planner output', () => {
     const { device, createdEntries } = makeFakeDevice()
     const planned = planTierLayout([
-      { tier: BindTier.Constants, binding: 2, visibility: 2, resourceType: 'texture-float-2d', label: 'tex' },
-      { tier: BindTier.Constants, binding: 4, visibility: 2, resourceType: 'sampler-filtering', label: 'samp' },
+      {
+        tier: BindTier.Constants,
+        binding: 2,
+        visibility: 2,
+        resourceType: 'texture-float-2d',
+        label: 'tex',
+      },
+      {
+        tier: BindTier.Constants,
+        binding: 4,
+        visibility: 2,
+        resourceType: 'sampler-filtering',
+        label: 'samp',
+      },
     ])
     const reg = new BindTierRegistry(device, planned)
     reg.getLayout(BindTier.Constants)

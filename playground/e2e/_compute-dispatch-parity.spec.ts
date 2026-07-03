@@ -5,7 +5,9 @@ import { test, expect } from '@playwright/test'
 // fullscreen draw into an R32UI offscreen FBO; the read-back out_color must byte-match the
 // CPU-f64 oracle for every feature (incl. the multi-row over-grid/discard case). This is
 // the §8.6 cross-backend feature-parity gate, driven through the runtime device — not hand GL.
-test('runtime WebGl2Device compute dispatch byte-matches the oracle on real WebGL2', async ({ page }) => {
+test('runtime WebGl2Device compute dispatch byte-matches the oracle on real WebGL2', async ({
+  page,
+}) => {
   await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
   const r = await page.evaluate(async () => {
     const mod = await import('/e2e/_compute-dispatch-parity.ts')

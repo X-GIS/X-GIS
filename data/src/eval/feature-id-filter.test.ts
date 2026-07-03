@@ -18,7 +18,11 @@ interface ShowLike {
 // the props bag this way before evaluating.
 const evalWithMeta = (
   ast: unknown,
-  feature: { id?: string | number; geometry?: { type: string }; properties?: Record<string, unknown> },
+  feature: {
+    id?: string | number
+    geometry?: { type: string }
+    properties?: Record<string, unknown>
+  },
 ): boolean => {
   const bag: Record<string, unknown> = { ...(feature.properties ?? {}) }
   if (feature.geometry) bag.$geometryType = feature.geometry.type
@@ -83,13 +87,15 @@ describe('feature-id filter routing — Mapbox ["id"] accessor', () => {
     const STYLE = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'X',
-        type: 'fill',
-        source: 'v',
-        filter: ['==', ['id'], 'abc'],
-        paint: { 'fill-color': '#f00' },
-      }],
+      layers: [
+        {
+          id: 'X',
+          type: 'fill',
+          source: 'v',
+          filter: ['==', ['id'], 'abc'],
+          paint: { 'fill-color': '#f00' },
+        },
+      ],
     }
     const xgis = convertMapboxStyle(STYLE as never)
     const tokens = new Lexer(xgis).tokenize()
@@ -103,23 +109,28 @@ describe('feature-id filter routing — Mapbox ["id"] accessor', () => {
     const STYLE = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'X',
-        type: 'fill',
-        source: 'v',
-        filter: ['all',
-          ['==', ['geometry-type'], 'Polygon'],
-          ['==', ['id'], 1],
-        ],
-        paint: { 'fill-color': '#f00' },
-      }],
+      layers: [
+        {
+          id: 'X',
+          type: 'fill',
+          source: 'v',
+          filter: ['all', ['==', ['geometry-type'], 'Polygon'], ['==', ['id'], 1]],
+          paint: { 'fill-color': '#f00' },
+        },
+      ],
     }
     const xgis = convertMapboxStyle(STYLE as never)
     const tokens = new Lexer(xgis).tokenize()
     const cmds = emitCommands(lower(new Parser(tokens).parse()))
     const filter = (cmds.shows[0] as unknown as ShowLike).filterExpr!.ast
-    expect(evalWithMeta(filter, { id: 1, geometry: { type: 'Polygon' }, properties: {} })).toBe(true)
-    expect(evalWithMeta(filter, { id: 1, geometry: { type: 'LineString' }, properties: {} })).toBe(false)
-    expect(evalWithMeta(filter, { id: 2, geometry: { type: 'Polygon' }, properties: {} })).toBe(false)
+    expect(evalWithMeta(filter, { id: 1, geometry: { type: 'Polygon' }, properties: {} })).toBe(
+      true,
+    )
+    expect(evalWithMeta(filter, { id: 1, geometry: { type: 'LineString' }, properties: {} })).toBe(
+      false,
+    )
+    expect(evalWithMeta(filter, { id: 2, geometry: { type: 'Polygon' }, properties: {} })).toBe(
+      false,
+    )
   })
 })

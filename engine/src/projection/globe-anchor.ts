@@ -53,13 +53,21 @@ export interface GlobeAnchorCamera {
  *  `matrix` (absolute sphere coords), which the ray↔sphere unproject needs;
  *  the camera's `_globeFrame` only retains the RTC variant. */
 function globeViewOf(
-  cam: GlobeAnchorCamera, canvasWidth: number, canvasHeight: number, dpr: number,
+  cam: GlobeAnchorCamera,
+  canvasWidth: number,
+  canvasHeight: number,
+  dpr: number,
 ): GlobeView {
   return buildGlobeMatrix(
-    (cam.centerX / EARTH_R) * RAD2DEG, cam.centerLatDeg,
-    cam.zoom, cam.pitch, cam.bearing,
-    canvasWidth / dpr, canvasHeight / dpr,
-    cam.globeOrtho, cam.azimuthalProjType,
+    (cam.centerX / EARTH_R) * RAD2DEG,
+    cam.centerLatDeg,
+    cam.zoom,
+    cam.pitch,
+    cam.bearing,
+    canvasWidth / dpr,
+    canvasHeight / dpr,
+    cam.globeOrtho,
+    cam.azimuthalProjType,
   )
 }
 
@@ -69,12 +77,17 @@ function globeViewOf(
  *  matrix aspect/altitude use the CSS dims derived via `dpr`). */
 export function unprojectGlobeFromCamera(
   cam: GlobeAnchorCamera,
-  screenX: number, screenY: number,
-  canvasWidth: number, canvasHeight: number,
+  screenX: number,
+  screenY: number,
+  canvasWidth: number,
+  canvasHeight: number,
   dpr: number,
 ): [number, number] | null {
   return unprojectGlobe(
-    screenX, screenY, canvasWidth, canvasHeight,
+    screenX,
+    screenY,
+    canvasWidth,
+    canvasHeight,
     globeViewOf(cam, canvasWidth, canvasHeight, dpr),
   )
 }
@@ -85,13 +98,13 @@ export function unprojectGlobeFromCamera(
  *  pole stays reachable); `centerY` = Mercator-bounded mirror. */
 function rotateCentre(cam: GlobeAnchorCamera, dLonDeg: number, dLatDeg: number): void {
   let lon = (cam.centerX / EARTH_R) * RAD2DEG + dLonDeg
-  lon = ((lon + 180) % 360 + 360) % 360 - 180
+  lon = ((((lon + 180) % 360) + 360) % 360) - 180
   const pl = poleLimit(cam.projType)
   const lat = Math.max(-pl, Math.min(pl, cam.centerLatDeg + dLatDeg))
   cam.centerX = lon * DEG2RAD * EARTH_R
   cam.centerLatDeg = lat
   const mercLat = Math.max(-85.051129, Math.min(85.051129, lat))
-  cam.centerY = Math.log(Math.tan(Math.PI / 4 + mercLat * DEG2RAD / 2)) * EARTH_R
+  cam.centerY = Math.log(Math.tan(Math.PI / 4 + (mercLat * DEG2RAD) / 2)) * EARTH_R
 }
 
 /** Wrap a lon delta into (-180, 180] so an anchor across the antimeridian
@@ -120,8 +133,10 @@ const CONVERGED_DEG = 1e-6
 export function zoomAtGlobeAnchored(
   cam: GlobeAnchorCamera,
   delta: number,
-  screenX: number, screenY: number,
-  canvasWidth: number, canvasHeight: number,
+  screenX: number,
+  screenY: number,
+  canvasWidth: number,
+  canvasHeight: number,
   dpr: number,
 ): void {
   const before = unprojectGlobeFromCamera(cam, screenX, screenY, canvasWidth, canvasHeight, dpr)
@@ -148,9 +163,12 @@ export function zoomAtGlobeAnchored(
  *  Mutates `cam.{centerX, centerY, centerLatDeg}`. */
 export function panGlobeToScreenAnchor(
   cam: GlobeAnchorCamera,
-  anchorLonDeg: number, anchorLatDeg: number,
-  screenX: number, screenY: number,
-  canvasWidth: number, canvasHeight: number,
+  anchorLonDeg: number,
+  anchorLatDeg: number,
+  screenX: number,
+  screenY: number,
+  canvasWidth: number,
+  canvasHeight: number,
   dpr: number,
 ): void {
   for (let i = 0; i < MAX_PASSES; i++) {

@@ -16,7 +16,11 @@
 
 import { test, expect, type Page } from '@playwright/test'
 
-async function loadAndCollect(page: Page, id: string, picking: boolean): Promise<{
+async function loadAndCollect(
+  page: Page,
+  id: string,
+  picking: boolean,
+): Promise<{
   errors: string[]
   paintedPx: number
 }> {
@@ -24,17 +28,18 @@ async function loadAndCollect(page: Page, id: string, picking: boolean): Promise
   const onConsole = (m: import('@playwright/test').ConsoleMessage): void => {
     if (m.type() === 'error') errors.push(m.text())
   }
-  const onPageError = (e: Error): void => { errors.push(`pageerror: ${e.message}`) }
+  const onPageError = (e: Error): void => {
+    errors.push(`pageerror: ${e.message}`)
+  }
   page.on('console', onConsole)
   page.on('pageerror', onPageError)
 
-  const url = picking
-    ? `/demo.html?id=${id}&e2e=1`
-    : `/demo.html?id=${id}&e2e=1`
+  const url = picking ? `/demo.html?id=${id}&e2e=1` : `/demo.html?id=${id}&e2e=1`
   await page.goto(url, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   // Hold long enough for ~1 s of frames so per-frame validation
   // errors (the bug fired on every draw) have plenty of chances.
@@ -59,7 +64,9 @@ test('fixture_picking: no frame-validation when picking enabled (regression)', a
   test.setTimeout(30_000)
   await page.setViewportSize({ width: 1200, height: 800 })
   const { errors } = await loadAndCollect(page, 'fixture_picking', true)
-  const validation = errors.filter(e => /frame-validation|Bind group layout|does not match layout/i.test(e))
+  const validation = errors.filter((e) =>
+    /frame-validation|Bind group layout|does not match layout/i.test(e),
+  )
   expect(validation, `Got validation errors: ${validation.join('\n')}`).toHaveLength(0)
 })
 
@@ -69,7 +76,8 @@ test('fixture_picking: paints all 3 quadrant colours (regression)', async ({ pag
   await page.goto('/demo.html?id=fixture_picking&e2e=1', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(2000)
 
@@ -83,16 +91,21 @@ test('fixture_picking: paints all 3 quadrant colours (regression)', async ({ pag
     const url = URL.createObjectURL(blob)
     const img = new Image()
     await new Promise<void>((res, rej) => {
-      img.onload = () => res(); img.onerror = () => rej(new Error('img'))
+      img.onload = () => res()
+      img.onerror = () => rej(new Error('img'))
       img.src = url
     })
     const off = new OffscreenCanvas(img.width, img.height)
     const ctx = off.getContext('2d')!
     ctx.drawImage(img, 0, 0)
     const data = ctx.getImageData(0, 0, img.width, img.height).data
-    let red = 0, green = 0, blue = 0
+    let red = 0,
+      green = 0,
+      blue = 0
     for (let i = 0; i < data.length; i += 4) {
-      const r = data[i], g = data[i + 1], b = data[i + 2]
+      const r = data[i],
+        g = data[i + 1],
+        b = data[i + 2]
       // Loose "dominant channel" classifier — picks the quadrant a
       // pixel belongs to even when MSAA blends down the saturation.
       if (r > 150 && g < 100 && b < 100) red++
@@ -106,7 +119,7 @@ test('fixture_picking: paints all 3 quadrant colours (regression)', async ({ pag
   // Each quadrant must contribute a meaningful number of pixels. The
   // pre-fix scenario painted only 2 quadrants (one was the buggy one
   // that hit validation and got dropped).
-  expect(counts.red,   `red quadrant missing: ${JSON.stringify(counts)}`).toBeGreaterThan(500)
+  expect(counts.red, `red quadrant missing: ${JSON.stringify(counts)}`).toBeGreaterThan(500)
   expect(counts.green, `green quadrant missing: ${JSON.stringify(counts)}`).toBeGreaterThan(500)
-  expect(counts.blue,  `blue quadrant missing: ${JSON.stringify(counts)}`).toBeGreaterThan(500)
+  expect(counts.blue, `blue quadrant missing: ${JSON.stringify(counts)}`).toBeGreaterThan(500)
 })

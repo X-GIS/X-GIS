@@ -12,14 +12,12 @@ import { evaluate } from '../eval/evaluator'
 describe('null comparison in filters', () => {
   it('["==", ["get", "field"], null] lowers to .field == null', () => {
     const w: string[] = []
-    expect(filterToXgis(['==', ['get', 'field'], null], w))
-      .toBe('.field == null')
+    expect(filterToXgis(['==', ['get', 'field'], null], w)).toBe('.field == null')
   })
 
   it('["!=", ["get", "field"], null] lowers to .field != null', () => {
     const w: string[] = []
-    expect(filterToXgis(['!=', ['get', 'field'], null], w))
-      .toBe('.field != null')
+    expect(filterToXgis(['!=', ['get', 'field'], null], w)).toBe('.field != null')
   })
 
   it('null comparison round-trips through the evaluator', () => {

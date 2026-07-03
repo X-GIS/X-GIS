@@ -47,8 +47,10 @@ export class ParserCursor {
     const next1 = this.tokens[this.pos + 1]
     const next2 = this.tokens[this.pos + 2]
     return (
-      next1 !== undefined && next1.type === TokenType.Identifier &&
-      next2 !== undefined && next2.type === TokenType.Colon
+      next1 !== undefined &&
+      next1.type === TokenType.Identifier &&
+      next2 !== undefined &&
+      next2.type === TokenType.Colon
     )
   }
 

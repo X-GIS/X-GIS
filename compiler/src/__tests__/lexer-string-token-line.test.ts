@@ -11,7 +11,7 @@ import { TokenType } from '../lexer/tokens'
 describe('BUG 14 — multi-line string token reports its opening line', () => {
   it('a string spanning two physical lines reports line 1 (its start)', () => {
     const tokens = new Lexer('"line1\nline2"').tokenize()
-    const str = tokens.find(t => t.type === TokenType.String)
+    const str = tokens.find((t) => t.type === TokenType.String)
     expect(str).toBeDefined()
     // Pre-fix: this.line was bumped to 2 by the embedded newline.
     expect(str!.line).toBe(1)
@@ -21,7 +21,7 @@ describe('BUG 14 — multi-line string token reports its opening line', () => {
 
   it('a single-line string is unaffected', () => {
     const tokens = new Lexer('"hello"').tokenize()
-    const str = tokens.find(t => t.type === TokenType.String)
+    const str = tokens.find((t) => t.type === TokenType.String)
     expect(str!.line).toBe(1)
     expect(str!.col).toBe(1)
   })

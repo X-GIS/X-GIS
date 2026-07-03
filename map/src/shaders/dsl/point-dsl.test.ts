@@ -21,12 +21,18 @@ describe('Phase-2 point shader — DSL emission', () => {
   it('uniform + 3 storage<read> bindings with runtime-sized arrays', () => {
     expect(pointPart).toContain('@group(0) @binding(0) var<uniform> u: Uniforms;')
     expect(pointPart).toContain('@group(0) @binding(1) var<storage, read> feat_data: array<f32>;')
-    expect(pointPart).toContain('@group(0) @binding(2) var<storage, read> shapes: array<ShapeDesc>;')
-    expect(pointPart).toContain('@group(0) @binding(3) var<storage, read> segments: array<Segment>;')
+    expect(pointPart).toContain(
+      '@group(0) @binding(2) var<storage, read> shapes: array<ShapeDesc>;',
+    )
+    expect(pointPart).toContain(
+      '@group(0) @binding(3) var<storage, read> segments: array<Segment>;',
+    )
   })
   it('vertex inputs: center / quad_id / feat_id', () => {
     expect(pointPart).toContain('@vertex')
-    expect(pointPart).toContain('fn vs_point(@location(0) center: vec2<f32>, @location(1) quad_id: u32, @location(2) feat_id: f32) -> PointOut')
+    expect(pointPart).toContain(
+      'fn vs_point(@location(0) center: vec2<f32>, @location(1) quad_id: u32, @location(2) feat_id: f32) -> PointOut',
+    )
   })
   it('fragment: discard on backface + fwidth AA + log-depth write', () => {
     expect(pointPart).toContain('@fragment')
@@ -44,12 +50,12 @@ describe('Phase-2 point shader — DSL emission', () => {
     // expression is now either inlined (single use) or hoisted to a cse temp. Pin
     // the SHIFT/MASK literals — the bitfield each extraction selects — not the
     // operand name, which is no longer a stable identifier.
-    expect(pointPart).toMatch(/>> 4u\) & 15u/)   // size_mode  (>> 4, mask 0xF)
-    expect(pointPart).toMatch(/>> 8u\) & 3u/)    // anchor_mode (>> 8, mask 3)
-    expect(pointPart).toContain('& 8u')          // is_flat bit
-    expect(pointPart).toContain('& 1u')          // fill
-    expect(pointPart).toContain('& 2u')          // stroke
-    expect(pointPart).toContain('& 4u')          // glow
+    expect(pointPart).toMatch(/>> 4u\) & 15u/) // size_mode  (>> 4, mask 0xF)
+    expect(pointPart).toMatch(/>> 8u\) & 3u/) // anchor_mode (>> 8, mask 3)
+    expect(pointPart).toContain('& 8u') // is_flat bit
+    expect(pointPart).toContain('& 1u') // fill
+    expect(pointPart).toContain('& 2u') // stroke
+    expect(pointPart).toContain('& 4u') // glow
   })
   it('VS re-centers ABSOLUTE per-feature ECEF against the camera (DSFUN)', () => {
     // Camera-relative RTC fix: per-feature ECEF DSFUN is absolute, so the VS
@@ -78,9 +84,9 @@ describe('Phase-2 point shader — DSL emission', () => {
     // the SAME properties via stable tokens: the Merc branch reads feat_data slot
     // 20 (the precise Mercator DSFUN high — not the lossy lon/lat reproject), and
     // the non-Mercator branch calls the shared flat_rel helper.
-    expect(vsOnly).toMatch(/feat_data\[\([^\]]+ \+ 20u\)\]/)           // Mercator: precise DSFUN tail (slot 20)
-    expect(vsOnly).not.toMatch(/project\(\w+, \w+, u\.proj_params\)/)  // not the lossy abs-lon/lat reproject
-    expect(vsOnly).toMatch(/flat_rel\([\s\S]*?u\.proj_params/)         // non-Mercator (shared helper)
+    expect(vsOnly).toMatch(/feat_data\[\([^\]]+ \+ 20u\)\]/) // Mercator: precise DSFUN tail (slot 20)
+    expect(vsOnly).not.toMatch(/project\(\w+, \w+, u\.proj_params\)/) // not the lossy abs-lon/lat reproject
+    expect(vsOnly).toMatch(/flat_rel\([\s\S]*?u\.proj_params/) // non-Mercator (shared helper)
   })
 
   it('SDF helpers + switch on segment kind', () => {
@@ -121,7 +127,7 @@ describe('Phase-2 point shader — DSL emission', () => {
     // when writing .uv. The CSE optimizer emits `1.0` (not `1` / `1u` / `1f`).
     // Each branch emits its own assignment so there must be at least 2
     // occurrences of the uv-scaling division in the VS body.
-    const uvLines = vsOnly.split('\n').filter(l => /\.uv\s*=/.test(l))
+    const uvLines = vsOnly.split('\n').filter((l) => /\.uv\s*=/.test(l))
     expect(uvLines.length).toBeGreaterThanOrEqual(2)
     for (const line of uvLines) {
       // Every uv assignment must divide by max(..., 1.0) — no bare assignment.

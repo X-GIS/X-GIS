@@ -24,7 +24,9 @@ describe('computeSliceKey', () => {
 
   it('produces a sourceLayer::<hash> key when a filter is present', () => {
     const country = computeSliceKey('place', {
-      op: '==', left: { kind: 'get', key: 'class' }, right: 'country',
+      op: '==',
+      left: { kind: 'get', key: 'class' },
+      right: 'country',
     } as never)
     expect(country.startsWith('place::')).toBe(true)
     expect(country).not.toBe('place')
@@ -32,10 +34,14 @@ describe('computeSliceKey', () => {
 
   it('different filters on the same sourceLayer produce distinct keys', () => {
     const k1 = computeSliceKey('place', {
-      op: '==', left: { kind: 'get', key: 'class' }, right: 'country',
+      op: '==',
+      left: { kind: 'get', key: 'class' },
+      right: 'country',
     } as never)
     const k2 = computeSliceKey('place', {
-      op: '==', left: { kind: 'get', key: 'class' }, right: 'city',
+      op: '==',
+      left: { kind: 'get', key: 'class' },
+      right: 'city',
     } as never)
     // Otherwise `label_country_3` and `label_city` would share a
     // slice in the per-tile cache — and the renderer would emit
@@ -45,10 +51,14 @@ describe('computeSliceKey', () => {
 
   it('same filter ASTs (same JSON shape) collapse to one key', () => {
     const k1 = computeSliceKey('place', {
-      op: '==', left: { kind: 'get', key: 'class' }, right: 'country',
+      op: '==',
+      left: { kind: 'get', key: 'class' },
+      right: 'country',
     } as never)
     const k2 = computeSliceKey('place', {
-      op: '==', left: { kind: 'get', key: 'class' }, right: 'country',
+      op: '==',
+      left: { kind: 'get', key: 'class' },
+      right: 'country',
     } as never)
     expect(k1).toBe(k2)
   })

@@ -17,19 +17,20 @@ test('user URL: z=18.5 pitch=67.5 over-zoom diagnostic', async ({ page }) => {
   test.setTimeout(60_000)
 
   const fetches: string[] = []
-  page.on('response', resp => {
+  page.on('response', (resp) => {
     const u = resp.url()
     if (/openfreemap\.org\/.*\.pbf/.test(u)) fetches.push(u)
   })
   const consoleLogs: string[] = []
-  page.on('console', m => consoleLogs.push(`[${m.type()}] ${m.text()}`))
+  page.on('console', (m) => consoleLogs.push(`[${m.type()}] ${m.text()}`))
 
   await page.goto(`/demo.html?id=openfreemap_bright${URL_HASH}`, {
     waitUntil: 'domcontentloaded',
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   await page.waitForTimeout(8_000)
 
@@ -50,26 +51,39 @@ test('user URL: z=18.5 pitch=67.5 over-zoom diagnostic', async ({ page }) => {
         last = now
         if (now - start < 3000) requestAnimationFrame(tick)
         else {
-          const map = (window as unknown as {
-            __xgisMap?: {
-              inspectPipeline?: () => unknown
-              vtSources?: Map<string, {
-                source?: {
-                  _allTileData?: Map<unknown, unknown>
-                  _loadingTiles?: Map<unknown, unknown>
-                  hasTileData?: (k: number) => boolean
-                  hasEntryInIndex?: (k: number) => boolean
-                }
-                renderer?: {
-                  _frameDrawnByZoom?: Map<number, number>
-                  _selection?: { frameTileCache?: () => { tiles?: Array<{ z: number; x: number; y: number }> } | null }
-                  gpuCache?: { size?: number }
-                  showCommands?: Array<{ targetName: string; sourceLayer?: string }>
-                }
-              }>
-              showCommands?: Array<{ targetName: string; sourceLayer?: string; filterExpr?: { ast?: unknown } }>
+          const map = (
+            window as unknown as {
+              __xgisMap?: {
+                inspectPipeline?: () => unknown
+                vtSources?: Map<
+                  string,
+                  {
+                    source?: {
+                      _allTileData?: Map<unknown, unknown>
+                      _loadingTiles?: Map<unknown, unknown>
+                      hasTileData?: (k: number) => boolean
+                      hasEntryInIndex?: (k: number) => boolean
+                    }
+                    renderer?: {
+                      _frameDrawnByZoom?: Map<number, number>
+                      _selection?: {
+                        frameTileCache?: () => {
+                          tiles?: Array<{ z: number; x: number; y: number }>
+                        } | null
+                      }
+                      gpuCache?: { size?: number }
+                      showCommands?: Array<{ targetName: string; sourceLayer?: string }>
+                    }
+                  }
+                >
+                showCommands?: Array<{
+                  targetName: string
+                  sourceLayer?: string
+                  filterExpr?: { ast?: unknown }
+                }>
+              }
             }
-          }).__xgisMap
+          ).__xgisMap
           const vt = map?.vtSources?.get?.('openmaptiles')
           const byZoomMap = vt?.renderer?._frameDrawnByZoom
           const byZoom: Record<number, number> = {}
@@ -85,7 +99,7 @@ test('user URL: z=18.5 pitch=67.5 over-zoom diagnostic', async ({ page }) => {
           }
           // How many shows do we have, how many distinct (sourceLayer + filter) slices?
           const shows = map?.showCommands ?? []
-          const omShows = shows.filter(s => s.targetName === 'openmaptiles')
+          const omShows = shows.filter((s) => s.targetName === 'openmaptiles')
           const sliceKeys = new Set<string>()
           for (const s of omShows) {
             const filterStr = s.filterExpr ? JSON.stringify(s.filterExpr.ast) : ''
@@ -94,12 +108,20 @@ test('user URL: z=18.5 pitch=67.5 over-zoom diagnostic', async ({ page }) => {
           const catalogStats = {
             visibleByZoom: tilesSeen,
             visibleTotal: cached?.tiles?.length ?? 0,
-            allCachedTiles: vt?.source?._allTileData instanceof Map ? vt.source._allTileData.size : -1,
-            loadingTiles: vt?.source?._loadingTiles instanceof Map ? vt.source._loadingTiles.size : -1,
+            allCachedTiles:
+              vt?.source?._allTileData instanceof Map ? vt.source._allTileData.size : -1,
+            loadingTiles:
+              vt?.source?._loadingTiles instanceof Map ? vt.source._loadingTiles.size : -1,
             shows: omShows.length,
             distinctSlices: sliceKeys.size,
           }
-          res({ frames, pipeline, byZoom, cacheSize: vt?.renderer?.gpuCache?.size ?? -1, catalogStats })
+          res({
+            frames,
+            pipeline,
+            byZoom,
+            cacheSize: vt?.renderer?.gpuCache?.size ?? -1,
+            catalogStats,
+          })
         }
       }
       requestAnimationFrame(tick)
@@ -129,18 +151,29 @@ test('user URL: z=18.5 pitch=67.5 over-zoom diagnostic', async ({ page }) => {
   console.log(`fetches by source-zoom: ${JSON.stringify(byZoomFetched)}`)
   // eslint-disable-next-line no-console
   console.log(`drawnByZoom (per frame): ${JSON.stringify(result.byZoom)}`)
-  const ip = result.pipeline as { sources?: Array<{ frame: { drawCalls: number; tilesVisible: number; missedTiles: number }; cache: { size: number; pendingUploads: number } }> } | null
+  const ip = result.pipeline as {
+    sources?: Array<{
+      frame: { drawCalls: number; tilesVisible: number; missedTiles: number }
+      cache: { size: number; pendingUploads: number }
+    }>
+  } | null
   const src = ip?.sources?.[0]
   // eslint-disable-next-line no-console
-  console.log(`drawCalls=${src?.frame.drawCalls} slicesDrawn=${src?.frame.tilesVisible} missed=${src?.frame.missedTiles}`)
+  console.log(
+    `drawCalls=${src?.frame.drawCalls} slicesDrawn=${src?.frame.tilesVisible} missed=${src?.frame.missedTiles}`,
+  )
   // eslint-disable-next-line no-console
   console.log(`cache.size=${src?.cache.size} pendingUploads=${src?.cache.pendingUploads}`)
   // eslint-disable-next-line no-console
-  console.log(`frame: median=${median.toFixed(1)}ms (${(1000/median).toFixed(0)} fps) p95=${p95.toFixed(1)}ms over ${result.frames.length} samples`)
+  console.log(
+    `frame: median=${median.toFixed(1)}ms (${(1000 / median).toFixed(0)} fps) p95=${p95.toFixed(1)}ms over ${result.frames.length} samples`,
+  )
   // eslint-disable-next-line no-console
   console.log(`catalog: ${JSON.stringify(result.catalogStats)}`)
   // Surface any FLICKER / sub-tile / over-zoom log lines.
-  const interesting = consoleLogs.filter(l => /FLICKER|sub-tile|overzoom|Sub-tile|gpuCache=|missedTiles/i.test(l))
+  const interesting = consoleLogs.filter((l) =>
+    /FLICKER|sub-tile|overzoom|Sub-tile|gpuCache=|missedTiles/i.test(l),
+  )
   if (interesting.length > 0) {
     // eslint-disable-next-line no-console
     console.log('--- runtime log signals ---')
@@ -156,5 +189,8 @@ test('user URL: z=18.5 pitch=67.5 over-zoom diagnostic', async ({ page }) => {
   // show even though only 13 distinct slices existed. Frame-scoped
   // memoization brought it to ~50 ms / 20 fps. Lock in <100 ms so a
   // regression that re-introduces the 6× redundant work fails fast.
-  expect(median, `over-zoom z=18.5 pitch=67.5 should stay under 100 ms median (was ${median.toFixed(0)} ms)`).toBeLessThan(100)
+  expect(
+    median,
+    `over-zoom z=18.5 pitch=67.5 should stay under 100 ms median (was ${median.toFixed(0)} ms)`,
+  ).toBeLessThan(100)
 })

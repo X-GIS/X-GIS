@@ -28,12 +28,12 @@ interface Cell {
 }
 
 const CELLS: Cell[] = [
-  { slug: 'z14-p0',  zoom: 14, pitch: 0 },   // labels + icons dense
-  { slug: 'z14-p45', zoom: 14, pitch: 45 },  // mixed
-  { slug: 'z16-p0',  zoom: 16, pitch: 0 },   // 3D buildings start
-  { slug: 'z16-p60', zoom: 16, pitch: 60 },  // 3D buildings + many tiles
-  { slug: 'z18-p0',  zoom: 18, pitch: 0 },   // dense buildings
-  { slug: 'z18-p60', zoom: 18, pitch: 60 },  // worst case
+  { slug: 'z14-p0', zoom: 14, pitch: 0 }, // labels + icons dense
+  { slug: 'z14-p45', zoom: 14, pitch: 45 }, // mixed
+  { slug: 'z16-p0', zoom: 16, pitch: 0 }, // 3D buildings start
+  { slug: 'z16-p60', zoom: 16, pitch: 60 }, // 3D buildings + many tiles
+  { slug: 'z18-p0', zoom: 18, pitch: 0 }, // dense buildings
+  { slug: 'z18-p60', zoom: 18, pitch: 60 }, // worst case
 ]
 
 interface Result {
@@ -63,16 +63,16 @@ for (const cell of CELLS) {
     // OFM Liberty hash: zoom/lat/lon/bearing/pitch.
     const hash = `#${cell.zoom}/37.5172/126.9810/0/${cell.pitch}`
     const t0 = Date.now()
-    await page.goto(
-      `/compare.html?style=openfreemap-liberty${hash}`,
-      { waitUntil: 'domcontentloaded' },
-    )
+    await page.goto(`/compare.html?style=openfreemap-liberty${hash}`, {
+      waitUntil: 'domcontentloaded',
+    })
     await page.waitForFunction(
       () => {
         const w = window as unknown as { __xgisReady?: boolean }
         return w.__xgisReady === true
       },
-      null, { timeout: 60_000 },
+      null,
+      { timeout: 60_000 },
     )
     const loadMs = Date.now() - t0
 
@@ -80,8 +80,9 @@ for (const cell of CELLS) {
     // frames have completed.
     const settleStart = Date.now()
     await page.waitForTimeout(3_000)
-    await page.evaluate(() => new Promise<void>(r =>
-      requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+    await page.evaluate(
+      () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+    )
     const settleMs = Date.now() - settleStart
 
     // 4-second steady-state frame-time capture via rAF callback.
@@ -89,12 +90,12 @@ for (const cell of CELLS) {
       const samples: number[] = []
       let last = performance.now()
       let runs = 0
-      const TARGET_FRAMES = 240  // 4 s at 60 fps
+      const TARGET_FRAMES = 240 // 4 s at 60 fps
       await new Promise<void>((resolve) => {
         const tick = (now: number) => {
           const dt = now - last
           last = now
-          if (runs > 0) samples.push(dt)  // skip first interval (settle noise)
+          if (runs > 0) samples.push(dt) // skip first interval (settle noise)
           runs++
           if (runs > TARGET_FRAMES) return resolve()
           requestAnimationFrame(tick)
@@ -110,14 +111,25 @@ for (const cell of CELLS) {
 
     // Draw stats from VTR.
     const drawStats = await page.evaluate(() => {
-      const m = (window as unknown as {
-        __xgisMap?: { vtSources?: Map<string, { renderer?: {
-          getDrawStats?: () => {
-            drawCalls: number; vertices: number; triangles: number
-            tilesVisible: number
+      const m = (
+        window as unknown as {
+          __xgisMap?: {
+            vtSources?: Map<
+              string,
+              {
+                renderer?: {
+                  getDrawStats?: () => {
+                    drawCalls: number
+                    vertices: number
+                    triangles: number
+                    tilesVisible: number
+                  }
+                }
+              }
+            >
           }
-        } }> }
-      }).__xgisMap
+        }
+      ).__xgisMap
       if (!m?.vtSources) return null
       const agg = { drawCalls: 0, vertices: 0, triangles: 0, tilesVisible: 0 }
       for (const [, src] of m.vtSources) {
@@ -151,8 +163,10 @@ for (const cell of CELLS) {
     }
     results.push(r)
     // eslint-disable-next-line no-console
-    console.log(`[perf ${cell.slug}] load=${r.loadMs}ms p50=${r.steadyP50}ms p95=${r.steadyP95}ms max=${r.steadyMax}ms `
-      + `draws=${r.drawCalls} tris=${r.triangles} tiles=${r.tilesVisible}`)
+    console.log(
+      `[perf ${cell.slug}] load=${r.loadMs}ms p50=${r.steadyP50}ms p95=${r.steadyP95}ms max=${r.steadyMax}ms ` +
+        `draws=${r.drawCalls} tris=${r.triangles} tiles=${r.tilesVisible}`,
+    )
   })
 }
 
@@ -164,7 +178,9 @@ test.afterAll(() => {
   lines.push('| Slug | Load(ms) | p50(ms) | p95(ms) | max(ms) | Draws | Tris | Tiles |')
   lines.push('|---|---:|---:|---:|---:|---:|---:|---:|')
   for (const r of results) {
-    lines.push(`| ${r.slug} | ${r.loadMs} | ${r.steadyP50} | ${r.steadyP95} | ${r.steadyMax} | ${r.drawCalls} | ${r.triangles} | ${r.tilesVisible} |`)
+    lines.push(
+      `| ${r.slug} | ${r.loadMs} | ${r.steadyP50} | ${r.steadyP95} | ${r.steadyMax} | ${r.drawCalls} | ${r.triangles} | ${r.tilesVisible} |`,
+    )
   }
   writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))
   // eslint-disable-next-line no-console

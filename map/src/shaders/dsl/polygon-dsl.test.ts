@@ -70,9 +70,13 @@ describe('emitPolygonWgsl — skeleton', () => {
     // Note: DSL `.a` normalizes to `.w` in WGSL emit (the single-component
     // accessor unifies r/g/b/a -> x/y/z/w; multi-letter swizzles like .rgb
     // pass through as-authored).
-    expect(wgsl).toMatch(/out\.color\s*=\s*vec4<f32>\(\(u\.fill_color\.rgb\s*\*\s*wall_shade\),\s*u\.fill_color\.w\)/)
+    expect(wgsl).toMatch(
+      /out\.color\s*=\s*vec4<f32>\(\(u\.fill_color\.rgb\s*\*\s*wall_shade\),\s*u\.fill_color\.w\)/,
+    )
     // Default stroke-return: out.color = vec4(u.stroke_color.rgb, u.stroke_color.a * alpha_scale)
-    expect(wgsl).toMatch(/out\.color\s*=\s*vec4<f32>\(u\.stroke_color\.rgb,\s*\(u\.stroke_color\.w\s*\*\s*alpha_scale\)\)/)
+    expect(wgsl).toMatch(
+      /out\.color\s*=\s*vec4<f32>\(u\.stroke_color\.rgb,\s*\(u\.stroke_color\.w\s*\*\s*alpha_scale\)\)/,
+    )
   })
 
   it('fs_fill_pattern samples sprite_atlas with world-anchored UV', () => {
@@ -116,15 +120,15 @@ describe('emitPolygonWgsl — skeleton', () => {
     // so assert the stable xor-shift structure: low-16-bit mask, the >>7 / <<3
     // xor-shift mix, the −512 centering on the masked value, and the jitter scale,
     // gated on feat_id != 0u — not the dropped binding names.
-    expect(wgsl).toMatch(/&\s*65535u/)            // low 16 bits of feat_id
+    expect(wgsl).toMatch(/&\s*65535u/) // low 16 bits of feat_id
     expect(wgsl).toMatch(/\^\s*\(\s*\w+\s*>>\s*7u\s*\)/) // xor-shift >> 7
     expect(wgsl).toMatch(/\^\s*\(\s*\w+\s*<<\s*3u\s*\)/) // xor-shift << 3
-    expect(wgsl).toMatch(/-\s*512\.0/)            // centre the 0..1023 masked value
-    expect(wgsl).toContain('1.5e-8')              // jitter scale
+    expect(wgsl).toMatch(/-\s*512\.0/) // centre the 0..1023 masked value
+    expect(wgsl).toContain('1.5e-8') // jitter scale
     expect(wgsl).toMatch(/input\.feat_id\s*!=\s*0u/) // jitter gated on real feat_id
     // Mask + shift constants in the WGSL emit.
     expect(wgsl).toContain('65535u') // 0xFFFF
-    expect(wgsl).toContain('1023u')  // 0x3FF
+    expect(wgsl).toContain('1023u') // 0x3FF
   })
 
   it('fs_fill pick attachment write is conditional on pickEnabled', () => {
@@ -205,9 +209,9 @@ describe('emitPolygonWgsl — skeleton', () => {
     // flat projTypes (< 6.5) via the shared flat_rel helper (project_geom −
     // projected camera centre). 3D / globe keeps the ECEF-RTC else path.
     const wgsl = emitPolygonWgsl(null, false)
-    expect(wgsl).toContain('project(abs_lon, abs_lat, u.proj_params)')          // Mercator
-    expect(wgsl).toContain('flat_rel(abs_lon, abs_lat, u.proj_params')          // non-Mercator (shared helper)
-    expect(wgsl).toContain('fn flat_rel(')                                       // emitted once, shared by all
+    expect(wgsl).toContain('project(abs_lon, abs_lat, u.proj_params)') // Mercator
+    expect(wgsl).toContain('flat_rel(abs_lon, abs_lat, u.proj_params') // non-Mercator (shared helper)
+    expect(wgsl).toContain('fn flat_rel(') // emitted once, shared by all
     expect(wgsl).toContain('u.proj_params.x < 0.5')
     expect(wgsl).toContain('u.proj_params.x < 6.5')
     // fill (vs_main_ecef) + line-entry (vs_main) + extruded all carry both.
@@ -287,7 +291,12 @@ describe('emitPolygonWgsl — skeleton', () => {
       fillExpr: new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: '_mcSS' }),
       strokeExpr: null,
       fillPreamble: [
-        { s: 'var', name: '_mcSS', type: vec4fT, init: vec4(f32(0.5), f32(0.5), f32(0.5), f32(1)).expr },
+        {
+          s: 'var',
+          name: '_mcSS',
+          type: vec4fT,
+          init: vec4(f32(0.5), f32(0.5), f32(0.5), f32(1)).expr,
+        },
       ],
       strokePreamble: null,
       needsFeatureBuffer: false,
@@ -304,7 +313,8 @@ describe('emitPolygonWgsl — skeleton', () => {
     // Stmt; the composer must emit it verbatim (first line at the 2-space body
     // indent) immediately before the fill-return assign — byte-identical to
     // the retired post-emit string splice.
-    const rawChain = 'var _mcSS: vec4f = vec4f(0.0, 0.0, 0.0, 1.0);\n  if (input.feat_id == 0u) { _mcSS = vec4f(1.0, 0.0, 0.0, 1.0); }\n'
+    const rawChain =
+      'var _mcSS: vec4f = vec4f(0.0, 0.0, 0.0, 1.0);\n  if (input.feat_id == 0u) { _mcSS = vec4f(1.0, 0.0, 0.0, 1.0); }\n'
     const variant: import('./polygon').ShaderVariantInfo = {
       preamble: null,
       fillExpr: new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: '_mcSS' }),
@@ -326,14 +336,29 @@ describe('emitPolygonWgsl — skeleton', () => {
     // — pickEnabled / preamble untouched. Mimics the compiler's output:
     // vec4(match.rgb, match.a * OPACITY) with the match arms baked in.
     const match = matchExpr(
-      new Node<'i32'>({ op: 'call', type: f32T, fn: 'i32', args: [
-        new Node<'f32'>({ op: 'index', type: f32T,
-          base: new Node({ op: 'varref', type: { kind: 'array', elem: f32T }, name: 'feat_data' }).expr,
-          idx: new Node<'u32'>({ op: 'member', type: { kind: 'scalar', scalar: 'u32' },
-            base: new Node({ op: 'varref', type: vec4fT, name: 'input' }).expr, field: 'feat_id' }).expr,
-        }).expr,
-      ] }) as unknown as Node<'i32'>,
-      [[0, vec4(f32(1), f32(0), f32(0), f32(1))], [1, vec4(f32(0), f32(1), f32(0), f32(1))]],
+      new Node<'i32'>({
+        op: 'call',
+        type: f32T,
+        fn: 'i32',
+        args: [
+          new Node<'f32'>({
+            op: 'index',
+            type: f32T,
+            base: new Node({ op: 'varref', type: { kind: 'array', elem: f32T }, name: 'feat_data' })
+              .expr,
+            idx: new Node<'u32'>({
+              op: 'member',
+              type: { kind: 'scalar', scalar: 'u32' },
+              base: new Node({ op: 'varref', type: vec4fT, name: 'input' }).expr,
+              field: 'feat_id',
+            }).expr,
+          }).expr,
+        ],
+      }) as unknown as Node<'i32'>,
+      [
+        [0, vec4(f32(1), f32(0), f32(0), f32(1))],
+        [1, vec4(f32(0), f32(1), f32(0), f32(1))],
+      ],
       vec4(f32(0.5), f32(0.5), f32(0.5), f32(1)),
     )
     const variant: import('./polygon').ShaderVariantInfo = {
@@ -378,8 +403,10 @@ describe('emitPolygonWgsl — skeleton', () => {
       preamble: {
         consts: [{ name: 'CUSTOM_K', type: vec4fT, wgslValue: 0, cpuValue: 0 }],
       },
-      fillExpr: null, strokeExpr: null,
-      fillPreamble: null, strokePreamble: null,
+      fillExpr: null,
+      strokeExpr: null,
+      fillPreamble: null,
+      strokePreamble: null,
       needsFeatureBuffer: false,
     }
     const wgsl = emitPolygonWgsl(variant, false)
@@ -391,10 +418,21 @@ describe('emitPolygonWgsl — skeleton', () => {
   it('AC3 #4 — variant.preamble.bindings only → binding appended at requested group/binding', () => {
     const variant: import('./polygon').ShaderVariantInfo = {
       preamble: {
-        bindings: [{ group: 3, binding: 7, name: 'custom_buf', space: 'storage', access: 'read', type: vec4fT }],
+        bindings: [
+          {
+            group: 3,
+            binding: 7,
+            name: 'custom_buf',
+            space: 'storage',
+            access: 'read',
+            type: vec4fT,
+          },
+        ],
       },
-      fillExpr: null, strokeExpr: null,
-      fillPreamble: null, strokePreamble: null,
+      fillExpr: null,
+      strokeExpr: null,
+      fillPreamble: null,
+      strokePreamble: null,
       needsFeatureBuffer: false,
     }
     const wgsl = emitPolygonWgsl(variant, false)
@@ -405,15 +443,19 @@ describe('emitPolygonWgsl — skeleton', () => {
   it('AC3 #5 — variant.preamble.funcs only → helper fn appended', () => {
     const variant: import('./polygon').ShaderVariantInfo = {
       preamble: {
-        funcs: [{
-          name: 'custom_helper',
-          params: [],
-          ret: f32T,
-          body: [{ s: 'return', expr: f32(42).expr }],
-        }],
+        funcs: [
+          {
+            name: 'custom_helper',
+            params: [],
+            ret: f32T,
+            body: [{ s: 'return', expr: f32(42).expr }],
+          },
+        ],
       },
-      fillExpr: null, strokeExpr: null,
-      fillPreamble: null, strokePreamble: null,
+      fillExpr: null,
+      strokeExpr: null,
+      fillPreamble: null,
+      strokePreamble: null,
       needsFeatureBuffer: false,
     }
     const wgsl = emitPolygonWgsl(variant, false)
@@ -425,7 +467,8 @@ describe('emitPolygonWgsl — skeleton', () => {
       preamble: null,
       fillExpr: vec4(f32(0.1), f32(0.2), f32(0.3), f32(0.4)),
       strokeExpr: vec4(f32(0.5), f32(0.6), f32(0.7), f32(0.8)),
-      fillPreamble: null, strokePreamble: null,
+      fillPreamble: null,
+      strokePreamble: null,
       needsFeatureBuffer: false,
     }
     const wgsl = emitPolygonWgsl(variant, false)
@@ -436,11 +479,14 @@ describe('emitPolygonWgsl — skeleton', () => {
   it('AC3 #9 — fillPreamble alone without fillExpr is a no-op (composer falls back to default)', () => {
     const variant: import('./polygon').ShaderVariantInfo = {
       preamble: null,
-      fillExpr: null, strokeExpr: null,
+      fillExpr: null,
+      strokeExpr: null,
       // Preamble Stmts authored but no fill-return Expr — composer ignores
       // the preamble and emits the default-uniform fill path. This pins
       // AC3's "preamble paired with expr" contract.
-      fillPreamble: [{ s: 'var', name: '_mcSS', type: vec4fT, init: vec4(f32(0), f32(0), f32(0), f32(1)).expr }],
+      fillPreamble: [
+        { s: 'var', name: '_mcSS', type: vec4fT, init: vec4(f32(0), f32(0), f32(0), f32(1)).expr },
+      ],
       strokePreamble: null,
       needsFeatureBuffer: false,
     }
@@ -461,11 +507,15 @@ describe('emitPolygonWgsl — skeleton', () => {
       preamble: null,
       fillExpr: matchExpr(
         u32(0),
-        [[0, vec4(f32(1), f32(0), f32(0), f32(1))], [1, vec4(f32(0), f32(1), f32(0), f32(1))]],
+        [
+          [0, vec4(f32(1), f32(0), f32(0), f32(1))],
+          [1, vec4(f32(0), f32(1), f32(0), f32(1))],
+        ],
         vec4(f32(0), f32(0), f32(1), f32(1)),
       ),
       strokeExpr: null,
-      fillPreamble: null, strokePreamble: null,
+      fillPreamble: null,
+      strokePreamble: null,
       needsFeatureBuffer: false,
     }
     const wgsl = emitPolygonWgsl(variant, false)
@@ -484,14 +534,15 @@ describe('emitPolygonWgsl — skeleton', () => {
       preamble: null,
       fillExpr: vec4(f32(0.5), f32(0.5), f32(0.5), f32(1)),
       strokeExpr: null,
-      fillPreamble: null, strokePreamble: null,
+      fillPreamble: null,
+      strokePreamble: null,
       needsFeatureBuffer: true,
     }
     const wgsl = emitPolygonWgsl(variant, true) // pickEnabled
     // All three composition axes appear in the output.
-    expect(wgsl).toMatch(/\w+\.pick\b/)               // pick attachment write (out is auto-named _vN)
-    expect(wgsl).toMatch(/\w+\.color\s*=\s*vec4<f32>\(0\.5,\s*0\.5/)  // variant fillExpr
-    expect(wgsl).toMatch(/@group\(0\)\s*@binding\(1\).*feat_data/)    // feat_data binding
+    expect(wgsl).toMatch(/\w+\.pick\b/) // pick attachment write (out is auto-named _vN)
+    expect(wgsl).toMatch(/\w+\.color\s*=\s*vec4<f32>\(0\.5,\s*0\.5/) // variant fillExpr
+    expect(wgsl).toMatch(/@group\(0\)\s*@binding\(1\).*feat_data/) // feat_data binding
   })
 
   it('variant.computeBindings appends storage bindings for each compute output buffer', () => {

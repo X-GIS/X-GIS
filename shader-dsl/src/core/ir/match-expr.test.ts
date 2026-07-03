@@ -32,7 +32,12 @@ function returnStmt(e: Expr): Stmt {
   return { s: 'return', expr: e }
 }
 
-function moduleFromBody(name: string, paramType: typeof f32T | typeof i32T | typeof u32T, retType: typeof i32T | typeof vec4fT, body: Stmt[]): ModuleDecl {
+function moduleFromBody(
+  name: string,
+  paramType: typeof f32T | typeof i32T | typeof u32T,
+  retType: typeof i32T | typeof vec4fT,
+  body: Stmt[],
+): ModuleDecl {
   const fn: FuncDecl = {
     name,
     params: [{ name: 's', type: paramType }],
@@ -48,7 +53,11 @@ describe('matchExpr — IR construction', () => {
   it('builds an Expr with op=matchExpr, type from default, deterministic case ordering', () => {
     const e = matchExpr(
       i32(0) as Node<'i32'>,
-      [[0, i32(10)], [1, i32(20)], [2, i32(30)]],
+      [
+        [0, i32(10)],
+        [1, i32(20)],
+        [2, i32(30)],
+      ],
       i32(99),
     )
     expect(e.expr.op).toBe('matchExpr')
@@ -64,11 +73,7 @@ describe('matchExpr — IR construction', () => {
   it('throws on case type mismatch vs default (runtime)', () => {
     expect(() => {
       // i32 case value with a vec4f default — incompatible Node types.
-      matchExpr(
-        i32(0) as Node<'i32'>,
-        [[0, vec4(1, 0, 0, 1) as unknown as Node<'i32'>]],
-        i32(99),
-      )
+      matchExpr(i32(0) as Node<'i32'>, [[0, vec4(1, 0, 0, 1) as unknown as Node<'i32'>]], i32(99))
     }).toThrow(/\[SD0011\]: matchExpr case type does not match/)
   })
 
@@ -92,7 +97,10 @@ describe('matchExpr — lowerModule pre-emit pass (i32 / u32 scrutinee)', () => 
   it('hoists `var _mr_0` + Stmt.switch with assigns into each case body; i32 scrutinee yields untyped case labels', () => {
     const e = matchExpr(
       i32(0) as Node<'i32'>,
-      [[0, i32(10)], [1, i32(20)]],
+      [
+        [0, i32(10)],
+        [1, i32(20)],
+      ],
       i32(99),
     )
     // matchExpr lives inside a `return` Stmt's expr.
@@ -133,7 +141,10 @@ describe('matchExpr — lowerModule pre-emit pass (i32 / u32 scrutinee)', () => 
   it('u32 scrutinee → emitted WGSL switch carries u32 case labels (`0u`, `1u`)', () => {
     const e = matchExpr(
       u32(0) as Node<'u32'>,
-      [[0, i32(10)], [1, i32(20)]],
+      [
+        [0, i32(10)],
+        [1, i32(20)],
+      ],
       i32(99),
     )
     const mod = moduleFromBody('t_u32', u32T, i32T, [
@@ -151,7 +162,10 @@ describe('matchExpr — non-integer scrutinee cast', () => {
   it('f32 scrutinee → switch scrut wrapped in i32(...)', () => {
     const e = matchExpr(
       f32(0) as Node<'f32'>,
-      [[0, i32(10)], [1, i32(20)]],
+      [
+        [0, i32(10)],
+        [1, i32(20)],
+      ],
       i32(99),
     )
     const mod = moduleFromBody('t_f32', f32T, i32T, [
@@ -174,7 +188,10 @@ describe('matchExpr — non-integer scrutinee cast', () => {
 
 describe('matchExpr — perf gate (>=10 arms always uses Stmt.switch)', () => {
   it('10-arm match yields a single Stmt.switch with 10 cases (linear-scaling lowering)', () => {
-    const cases: ReadonlyArray<readonly [number, Node<'i32'>]> = Array.from({ length: 10 }, (_, k) => [k, i32(k * 10)] as const)
+    const cases: ReadonlyArray<readonly [number, Node<'i32'>]> = Array.from(
+      { length: 10 },
+      (_, k) => [k, i32(k * 10)] as const,
+    )
     const e = matchExpr(u32(0) as Node<'u32'>, cases, i32(-1))
     const mod = moduleFromBody('t_ten', u32T, i32T, [
       { s: 'return', expr: replaceScrutinee(e.expr, scrutU32) },
@@ -192,7 +209,10 @@ describe('matchExpr — perf gate (>=10 arms always uses Stmt.switch)', () => {
   })
 
   it('13-arm match (real OFM landuse shape) reproducibly lowers', () => {
-    const cases: ReadonlyArray<readonly [number, Node<'i32'>]> = Array.from({ length: 13 }, (_, k) => [k, i32(k)] as const)
+    const cases: ReadonlyArray<readonly [number, Node<'i32'>]> = Array.from(
+      { length: 13 },
+      (_, k) => [k, i32(k)] as const,
+    )
     const e = matchExpr(u32(0) as Node<'u32'>, cases, i32(99))
     const mod = moduleFromBody('t_13', u32T, i32T, [
       { s: 'return', expr: replaceScrutinee(e.expr, scrutU32) },
@@ -205,7 +225,15 @@ describe('matchExpr — perf gate (>=10 arms always uses Stmt.switch)', () => {
 
 describe('matchExpr — CPU eval round-trip', () => {
   it('picks matched case', () => {
-    const e = matchExpr(u32(0) as Node<'u32'>, [[0, i32(10)], [1, i32(20)], [2, i32(30)]], i32(99))
+    const e = matchExpr(
+      u32(0) as Node<'u32'>,
+      [
+        [0, i32(10)],
+        [1, i32(20)],
+        [2, i32(30)],
+      ],
+      i32(99),
+    )
     const mod = moduleFromBody('pick', u32T, i32T, [
       { s: 'return', expr: replaceScrutinee(e.expr, scrutU32) },
     ])
@@ -215,7 +243,14 @@ describe('matchExpr — CPU eval round-trip', () => {
   })
 
   it('falls back to default when no case matches', () => {
-    const e = matchExpr(u32(0) as Node<'u32'>, [[0, i32(10)], [1, i32(20)]], i32(99))
+    const e = matchExpr(
+      u32(0) as Node<'u32'>,
+      [
+        [0, i32(10)],
+        [1, i32(20)],
+      ],
+      i32(99),
+    )
     const mod = moduleFromBody('dflt', u32T, i32T, [
       { s: 'return', expr: replaceScrutinee(e.expr, scrutU32) },
     ])
@@ -226,7 +261,10 @@ describe('matchExpr — CPU eval round-trip', () => {
   it('cpu vec4 default + matched case', () => {
     const e = matchExpr(
       u32(0) as Node<'u32'>,
-      [[0, vec4(1, 0, 0, 1)], [1, vec4(0, 1, 0, 1)]],
+      [
+        [0, vec4(1, 0, 0, 1)],
+        [1, vec4(0, 1, 0, 1)],
+      ],
       vec4(0.5, 0.5, 0.5, 1),
     )
     const mod = moduleFromBody('color', u32T, vec4fT, [
@@ -242,11 +280,35 @@ describe('matchExpr — walk semantics (hoist scope)', () => {
   it('matchExpr inside a Stmt.for body → hoist scoped to the loop body, NOT outside', () => {
     const e = matchExpr(u32(0) as Node<'u32'>, [[0, i32(10)]], i32(99))
     // Build a manual for: for (var i: u32 = 0u; i < 4u; i = i + 1u) { return matchExpr(...) }
-    const iVar: Stmt = { s: 'var', name: 'i', type: u32T, init: { op: 'lit', type: u32T, value: 0 } }
-    const cond: Expr = { op: 'compare', type: { kind: 'scalar', scalar: 'bool' }, cop: '<', a: { op: 'varref', type: u32T, name: 'i' }, b: { op: 'lit', type: u32T, value: 4 } }
-    const update: Stmt = { s: 'assign', target: { op: 'varref', type: u32T, name: 'i' }, expr: { op: 'binop', type: u32T, bop: '+', a: { op: 'varref', type: u32T, name: 'i' }, b: { op: 'lit', type: u32T, value: 1 } } }
+    const iVar: Stmt = {
+      s: 'var',
+      name: 'i',
+      type: u32T,
+      init: { op: 'lit', type: u32T, value: 0 },
+    }
+    const cond: Expr = {
+      op: 'compare',
+      type: { kind: 'scalar', scalar: 'bool' },
+      cop: '<',
+      a: { op: 'varref', type: u32T, name: 'i' },
+      b: { op: 'lit', type: u32T, value: 4 },
+    }
+    const update: Stmt = {
+      s: 'assign',
+      target: { op: 'varref', type: u32T, name: 'i' },
+      expr: {
+        op: 'binop',
+        type: u32T,
+        bop: '+',
+        a: { op: 'varref', type: u32T, name: 'i' },
+        b: { op: 'lit', type: u32T, value: 1 },
+      },
+    }
     const forStmt: Stmt = {
-      s: 'for', init: iVar, cond, update,
+      s: 'for',
+      init: iVar,
+      cond,
+      update,
       body: [returnStmt(replaceScrutinee(e.expr, scrutU32))],
     }
     const mod = moduleFromBody('t_for', u32T, i32T, [forStmt, returnStmt(i32(0).expr)])
@@ -270,10 +332,12 @@ describe('matchExpr — walk semantics (hoist scope)', () => {
     const e = matchExpr(u32(0) as Node<'u32'>, [[0, i32(10)]], i32(99))
     const ifStmt: Stmt = {
       s: 'if',
-      arms: [{
-        cond: { op: 'lit', type: { kind: 'scalar', scalar: 'bool' }, value: true },
-        body: [returnStmt(replaceScrutinee(e.expr, scrutU32))],
-      }],
+      arms: [
+        {
+          cond: { op: 'lit', type: { kind: 'scalar', scalar: 'bool' }, value: true },
+          body: [returnStmt(replaceScrutinee(e.expr, scrutU32))],
+        },
+      ],
     }
     const mod = moduleFromBody('t_if', u32T, i32T, [ifStmt, returnStmt(i32(0).expr)])
     const lowered = lowerModule(mod)
@@ -352,31 +416,82 @@ function countMatchExprs(m: ModuleDecl): number {
   const visitExpr = (e: Expr): void => {
     if (e.op === 'matchExpr') n++
     switch (e.op) {
-      case 'binop': case 'compare': case 'logical': visitExpr(e.a); visitExpr(e.b); break
-      case 'unop': visitExpr(e.a); break
-      case 'call': case 'construct': e.args.forEach(visitExpr); break
-      case 'member': visitExpr(e.base); break
-      case 'select': visitExpr(e.cond); visitExpr(e.ifTrue); visitExpr(e.ifFalse); break
-      case 'index': visitExpr(e.base); visitExpr(e.idx); break
+      case 'binop':
+      case 'compare':
+      case 'logical':
+        visitExpr(e.a)
+        visitExpr(e.b)
+        break
+      case 'unop':
+        visitExpr(e.a)
+        break
+      case 'call':
+      case 'construct':
+        e.args.forEach(visitExpr)
+        break
+      case 'member':
+        visitExpr(e.base)
+        break
+      case 'select':
+        visitExpr(e.cond)
+        visitExpr(e.ifTrue)
+        visitExpr(e.ifFalse)
+        break
+      case 'index':
+        visitExpr(e.base)
+        visitExpr(e.idx)
+        break
       case 'matchExpr':
         visitExpr(e.scrutinee)
         e.cases.forEach(([, v]) => visitExpr(v))
         visitExpr(e.default)
         break
       // leaves
-      case 'lit': case 'constref': case 'param': case 'varref': break
+      case 'lit':
+      case 'constref':
+      case 'param':
+      case 'varref':
+        break
     }
   }
   const visitStmt = (s: Stmt): void => {
     switch (s.s) {
-      case 'let': visitExpr(s.expr); break
-      case 'var': if (s.init) visitExpr(s.init); break
-      case 'assign': case 'assignOp': visitExpr(s.target); visitExpr(s.expr); break
-      case 'return': if (s.expr) visitExpr(s.expr); break
-      case 'if': s.arms.forEach(a => { visitExpr(a.cond); a.body.forEach(visitStmt) }); s.elseBody?.forEach(visitStmt); break
-      case 'for': visitStmt(s.init); visitExpr(s.cond); visitStmt(s.update); s.body.forEach(visitStmt); break
-      case 'switch': visitExpr(s.scrut); s.cases.forEach(c => c.body.forEach(visitStmt)); s.defaultBody?.forEach(visitStmt); break
-      case 'break': case 'continue': case 'discard': break
+      case 'let':
+        visitExpr(s.expr)
+        break
+      case 'var':
+        if (s.init) visitExpr(s.init)
+        break
+      case 'assign':
+      case 'assignOp':
+        visitExpr(s.target)
+        visitExpr(s.expr)
+        break
+      case 'return':
+        if (s.expr) visitExpr(s.expr)
+        break
+      case 'if':
+        s.arms.forEach((a) => {
+          visitExpr(a.cond)
+          a.body.forEach(visitStmt)
+        })
+        s.elseBody?.forEach(visitStmt)
+        break
+      case 'for':
+        visitStmt(s.init)
+        visitExpr(s.cond)
+        visitStmt(s.update)
+        s.body.forEach(visitStmt)
+        break
+      case 'switch':
+        visitExpr(s.scrut)
+        s.cases.forEach((c) => c.body.forEach(visitStmt))
+        s.defaultBody?.forEach(visitStmt)
+        break
+      case 'break':
+      case 'continue':
+      case 'discard':
+        break
     }
   }
   for (const f of m.funcs) f.body.forEach(visitStmt)
@@ -398,7 +513,10 @@ function replaceScrutinee(e: Expr, scrut: Expr): Expr {
 // not a raw Expr, and we're feeding it an already-built matchExpr Expr to
 // exercise nested lowering. Kept local to this test file.
 class MockNodeFromExpr<K extends string> {
-  constructor(private readonly e: Expr, private readonly _t: typeof i32T | typeof vec4fT) {}
+  constructor(
+    private readonly e: Expr,
+    private readonly _t: typeof i32T | typeof vec4fT,
+  ) {}
   asNode(): Node<K> {
     const _t = this._t
     return { expr: this.e, type: _t, __k: undefined as K | undefined } as unknown as Node<K>

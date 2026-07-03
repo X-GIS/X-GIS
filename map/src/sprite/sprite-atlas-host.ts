@@ -76,16 +76,22 @@ export class SpriteAtlasHost {
     // Promise resolves on terminal state (loaded OR failed). Callers
     // who need the atlas before first draw await this once; callers
     // happy with "render-when-ready" can just probe `get()`.
-    this.readyPromise = new Promise<void>(resolve => { this.resolveReady = resolve })
+    this.readyPromise = new Promise<void>((resolve) => {
+      this.resolveReady = resolve
+    })
     this.kickOffLoad()
   }
 
   /** Resolves once the atlas reaches a terminal state (loaded or
    *  failed). Never rejects — caller checks `state()` if they care
    *  about the difference. */
-  whenReady(): Promise<void> { return this.readyPromise }
+  whenReady(): Promise<void> {
+    return this.readyPromise
+  }
 
-  getState(): SpriteAtlasState { return this.state }
+  getState(): SpriteAtlasState {
+    return this.state
+  }
 
   /** Sync lookup. Returns the icon's metadata once the atlas is
    *  loaded; undefined for both "still loading" and "failed". */
@@ -126,11 +132,14 @@ export class SpriteAtlasHost {
         // through to HTMLCanvas in legacy environments.
         const C: typeof OffscreenCanvas | undefined =
           typeof OffscreenCanvas !== 'undefined' ? OffscreenCanvas : undefined
-        const canvas = C ? new C(w, h) : (() => {
-          const el = document.createElement('canvas')
-          el.width = w; el.height = h
-          return el as unknown as OffscreenCanvas
-        })()
+        const canvas = C
+          ? new C(w, h)
+          : (() => {
+              const el = document.createElement('canvas')
+              el.width = w
+              el.height = h
+              return el as unknown as OffscreenCanvas
+            })()
         const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D | null
         if (!ctx) return null
         ctx.drawImage(img as CanvasImageSource, 0, 0)
@@ -179,7 +188,10 @@ export class SpriteAtlasHost {
         readBodyCapped(jsonRes, MAX_SPRITE_JSON_BYTES, 'sprite json'),
         readBodyCapped(pngRes, MAX_SPRITE_PNG_BYTES, 'sprite png'),
       ])
-      const rawJson = JSON.parse(new TextDecoder().decode(jsonBytes)) as Record<string, RawSpriteEntry>
+      const rawJson = JSON.parse(new TextDecoder().decode(jsonBytes)) as Record<
+        string,
+        RawSpriteEntry
+      >
       // readBodyCapped yields a Uint8Array whose generic buffer param is
       // `ArrayBufferLike` (it may be a stream-chunk passthrough); the Blob
       // ctor's BlobPart wants a definite-buffer view. The bytes are plain
@@ -199,24 +211,45 @@ export class SpriteAtlasHost {
       return Promise.resolve()
     }
 
-    const start = this.dpr >= 1.5 ? tryLoad(HIGH_DPR_SUFFIX).catch(fallbackLoad) : tryLoad('').catch(handleFailure)
-    start.finally(() => { this.resolveReady?.(); this.resolveReady = null; this.onLanded?.() })
+    const start =
+      this.dpr >= 1.5
+        ? tryLoad(HIGH_DPR_SUFFIX).catch(fallbackLoad)
+        : tryLoad('').catch(handleFailure)
+    start.finally(() => {
+      this.resolveReady?.()
+      this.resolveReady = null
+      this.onLanded?.()
+    })
   }
 }
 
 interface RawSpriteEntry {
-  x: number; y: number; width: number; height: number
-  pixelRatio?: number; sdf?: boolean
+  x: number
+  y: number
+  width: number
+  height: number
+  pixelRatio?: number
+  sdf?: boolean
 }
 
 function parseMetadata(raw: Record<string, RawSpriteEntry>): Map<string, SpriteInfo> {
   const out = new Map<string, SpriteInfo>()
   for (const [name, e] of Object.entries(raw)) {
-    if (typeof e.x !== 'number' || typeof e.y !== 'number'
-      || typeof e.width !== 'number' || typeof e.height !== 'number') continue
+    if (
+      typeof e.x !== 'number' ||
+      typeof e.y !== 'number' ||
+      typeof e.width !== 'number' ||
+      typeof e.height !== 'number'
+    )
+      continue
     out.set(name, {
-      name, x: e.x, y: e.y, width: e.width, height: e.height,
-      pixelRatio: e.pixelRatio ?? 1, sdf: e.sdf === true,
+      name,
+      x: e.x,
+      y: e.y,
+      width: e.width,
+      height: e.height,
+      pixelRatio: e.pixelRatio ?? 1,
+      sdf: e.sdf === true,
     })
   }
   return out
@@ -233,8 +266,14 @@ async function decodeBlob(blob: Blob): Promise<ImageBitmap | HTMLImageElement> {
     const url = URL.createObjectURL(blob)
     return new Promise<HTMLImageElement>((resolve, reject) => {
       const img = new Image()
-      img.onload = () => { URL.revokeObjectURL(url); resolve(img) }
-      img.onerror = e => { URL.revokeObjectURL(url); reject(e) }
+      img.onload = () => {
+        URL.revokeObjectURL(url)
+        resolve(img)
+      }
+      img.onerror = (e) => {
+        URL.revokeObjectURL(url)
+        reject(e)
+      }
       img.src = url
     })
   }

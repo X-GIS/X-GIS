@@ -16,10 +16,20 @@ const isLit = (e: Expr, v: number): boolean =>
 function simplifyNode(e: Expr): Expr {
   if (e.op !== 'binop') return e
   switch (e.bop) {
-    case '+': if (isLit(e.b, 0)) return e.a; if (isLit(e.a, 0)) return e.b; break
-    case '-': if (isLit(e.b, 0)) return e.a; break // x - 0 -> x (NOT 0 - x)
-    case '*': if (isLit(e.b, 1)) return e.a; if (isLit(e.a, 1)) return e.b; break
-    case '/': if (isLit(e.b, 1)) return e.a; break // x / 1 -> x (NOT 1 / x)
+    case '+':
+      if (isLit(e.b, 0)) return e.a
+      if (isLit(e.a, 0)) return e.b
+      break
+    case '-':
+      if (isLit(e.b, 0)) return e.a
+      break // x - 0 -> x (NOT 0 - x)
+    case '*':
+      if (isLit(e.b, 1)) return e.a
+      if (isLit(e.a, 1)) return e.b
+      break
+    case '/':
+      if (isLit(e.b, 1)) return e.a
+      break // x / 1 -> x (NOT 1 / x)
   }
   return e
 }

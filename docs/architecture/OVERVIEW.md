@@ -37,26 +37,26 @@ GPU uniform change with no re-tessellation (`runtime/AGENTS.md` line 27).
 
 ### Actors
 
-| Actor | Interacts via | Grounded in |
-|-------|---------------|-------------|
-| **App developer** (embeds the map) | `XGISMap` public API / `<xgis-map>` web component | `runtime/src/index.ts:1,28` (`XGISMap`, `registerXGISElement`) |
-| **Style author** (writes `.xgis`) | `.xgis` source text → compiler | `README.md` "Language" section; `compiler/src/index.ts` (Lexer/Parser/lower) |
-| **Playground / demo user** | Vite dev app at `localhost:3000` | `package.json:14` (`dev`); `README.md:35` |
-| **Site visitor** | Astro marketing/docs site | `site/package.json` (`astro dev/build`) |
-| **Blueprint author** | Visual node editor (schema-derived) | `blueprint/src/index.ts:1-4` |
+| Actor                              | Interacts via                                     | Grounded in                                                                  |
+| ---------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------- |
+| **App developer** (embeds the map) | `XGISMap` public API / `<xgis-map>` web component | `runtime/src/index.ts:1,28` (`XGISMap`, `registerXGISElement`)               |
+| **Style author** (writes `.xgis`)  | `.xgis` source text → compiler                    | `README.md` "Language" section; `compiler/src/index.ts` (Lexer/Parser/lower) |
+| **Playground / demo user**         | Vite dev app at `localhost:3000`                  | `package.json:14` (`dev`); `README.md:35`                                    |
+| **Site visitor**                   | Astro marketing/docs site                         | `site/package.json` (`astro dev/build`)                                      |
+| **Blueprint author**               | Visual node editor (schema-derived)               | `blueprint/src/index.ts:1-4`                                                 |
 
 ### External dependencies
 
 X-GIS does not run in a vacuum — at runtime it talks to:
 
-| Dependency | Role | Grounded in |
-|-----------|------|-------------|
-| **WebGPU (`navigator.gpu`)** | Primary render target; a `GPUDevice` is assumed by all renderers | `runtime/AGENTS.md` line 24 |
-| **PMTiles archives** | HTTP vector-tile source (single-file archive) | `runtime/package.json:14` (`pmtiles`); `runtime/src/index.ts:19-27` |
-| **MVT / PBF tiles** | Wire format decoded into features (also produced in-worker for GeoJSON) | `compiler/src/index.ts:81` (`decodeMvtTile`); `compiler/package.json:13` (`@mapbox/vector-tile`, `pbf`) |
-| **TileJSON manifests** | Tile-source descriptor (URL template + metadata) | `runtime/src/index.ts:24` (`TileJSONSource`) |
-| **Sprite / glyph servers** | Icon atlas + PBF glyph ranges for labels | `runtime/src/engine/map.ts:43-45` (`TextStage`, `GlyphProvider`, `IconStage`) |
-| **Source GeoJSON** | In-memory `FeatureCollection` upstream (tiled in-worker) | `runtime/src/index.ts:5` (`loadGeoJSON`); `README.md:167-189` |
+| Dependency                   | Role                                                                    | Grounded in                                                                                             |
+| ---------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **WebGPU (`navigator.gpu`)** | Primary render target; a `GPUDevice` is assumed by all renderers        | `runtime/AGENTS.md` line 24                                                                             |
+| **PMTiles archives**         | HTTP vector-tile source (single-file archive)                           | `runtime/package.json:14` (`pmtiles`); `runtime/src/index.ts:19-27`                                     |
+| **MVT / PBF tiles**          | Wire format decoded into features (also produced in-worker for GeoJSON) | `compiler/src/index.ts:81` (`decodeMvtTile`); `compiler/package.json:13` (`@mapbox/vector-tile`, `pbf`) |
+| **TileJSON manifests**       | Tile-source descriptor (URL template + metadata)                        | `runtime/src/index.ts:24` (`TileJSONSource`)                                                            |
+| **Sprite / glyph servers**   | Icon atlas + PBF glyph ranges for labels                                | `runtime/src/engine/map.ts:43-45` (`TextStage`, `GlyphProvider`, `IconStage`)                           |
+| **Source GeoJSON**           | In-memory `FeatureCollection` upstream (tiled in-worker)                | `runtime/src/index.ts:5` (`loadGeoJSON`); `README.md:167-189`                                           |
 
 ```
                           ┌───────────────────────────────┐
@@ -89,14 +89,14 @@ consumers depend on `compiler` / `runtime`, never the reverse.
 
 ### Containers
 
-| Container | Responsibility | Key external deps | Grounded in |
-|-----------|----------------|-------------------|-------------|
-| **`@xgis/compiler`** | Pure-TS front end: Lexer → Parser → AST → `lower()` → IR `Scene` → `optimize()` → `emitCommands()` + WGSL codegen. **No GPU dependency** — WGSL is emitted as strings. Also hosts the Mapbox/MapLibre style importer (`convert/`) and the data-side vector tiler (`tiler/`). | `@mapbox/vector-tile`, `pbf` | `compiler/AGENTS.md` lines 6-7,26; `compiler/package.json` |
-| **`@xgis/runtime`** | The engine. Consumes compiler output (SceneCommands, ShaderVariant, CompiledTile) and paints on the GPU. Owns the WebGPU renderers, camera math, pointer interaction, and the full MVT/PBF tile pipeline. | `pmtiles`, `proj4`, `@chenglou/pretext` | `runtime/AGENTS.md` lines 6-7; `runtime/package.json` |
-| **`@xgis/blueprint`** | Standalone, framework-agnostic visual node editor for authoring `.xgis` maps. Node catalogue is **derived from** the compiler's `LANGUAGE_SCHEMA` so it tracks the language. | `@xgis/compiler` only | `blueprint/src/index.ts:1-4`; `blueprint/package.json` |
-| **`@xgis/shared`** | Shared support code consumed by compiler + runtime. | (none) | `package.json:6`; `compiler/package.json:13`, `runtime/package.json:12` |
-| **`@xgis/playground`** | Vite dev app + Playwright e2e (pixel-match survey, perf, projection coverage). Consumes both compiler + runtime; pulls in `maplibre-gl` only as an e2e comparison control. | `vite`, `@playwright/test`, `maplibre-gl`, `pixelmatch` | `playground/package.json`; root `AGENTS.md` line 27 |
-| **`@xgis/site`** | Astro marketing/docs site. Consumes compiler, runtime, **and** blueprint. | `astro`, `tailwindcss` | `site/package.json` |
+| Container              | Responsibility                                                                                                                                                                                                                                                               | Key external deps                                       | Grounded in                                                             |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------- |
+| **`@xgis/compiler`**   | Pure-TS front end: Lexer → Parser → AST → `lower()` → IR `Scene` → `optimize()` → `emitCommands()` + WGSL codegen. **No GPU dependency** — WGSL is emitted as strings. Also hosts the Mapbox/MapLibre style importer (`convert/`) and the data-side vector tiler (`tiler/`). | `@mapbox/vector-tile`, `pbf`                            | `compiler/AGENTS.md` lines 6-7,26; `compiler/package.json`              |
+| **`@xgis/runtime`**    | The engine. Consumes compiler output (SceneCommands, ShaderVariant, CompiledTile) and paints on the GPU. Owns the WebGPU renderers, camera math, pointer interaction, and the full MVT/PBF tile pipeline.                                                                    | `pmtiles`, `proj4`, `@chenglou/pretext`                 | `runtime/AGENTS.md` lines 6-7; `runtime/package.json`                   |
+| **`@xgis/blueprint`**  | Standalone, framework-agnostic visual node editor for authoring `.xgis` maps. Node catalogue is **derived from** the compiler's `LANGUAGE_SCHEMA` so it tracks the language.                                                                                                 | `@xgis/compiler` only                                   | `blueprint/src/index.ts:1-4`; `blueprint/package.json`                  |
+| **`@xgis/shared`**     | Shared support code consumed by compiler + runtime.                                                                                                                                                                                                                          | (none)                                                  | `package.json:6`; `compiler/package.json:13`, `runtime/package.json:12` |
+| **`@xgis/playground`** | Vite dev app + Playwright e2e (pixel-match survey, perf, projection coverage). Consumes both compiler + runtime; pulls in `maplibre-gl` only as an e2e comparison control.                                                                                                   | `vite`, `@playwright/test`, `maplibre-gl`, `pixelmatch` | `playground/package.json`; root `AGENTS.md` line 27                     |
+| **`@xgis/site`**       | Astro marketing/docs site. Consumes compiler, runtime, **and** blueprint.                                                                                                                                                                                                    | `astro`, `tailwindcss`                                  | `site/package.json`                                                     |
 
 > Note: `README.md:130-136` lists "three packages" (compiler / runtime /
 > playground) — that table predates the `blueprint`, `shared`, and `site`
@@ -206,6 +206,7 @@ coordinate-space contract (LL / MM / DLM / SP) is in
 
    `oit`, `translucent`, `points`, and `overdraw-compose` are gated by
    `shouldRun(scene)`; `opaque` and `label` always run (`render-loop.ts:463-479`).
+
 5. The passes reach the renderers — `VectorTileRenderer`, `MapRenderer`,
    `LineRenderer`, `PointRenderer`, `TextStage`, `IconStage` — through a typed
    `RenderLoopHost` view of `XGISMap`'s members

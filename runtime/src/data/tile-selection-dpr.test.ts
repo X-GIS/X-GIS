@@ -29,11 +29,14 @@ function tileKey(t: { z: number; x: number; y: number; ox: number }): string {
   return `${t.z}/${t.x}/${t.y}@${t.ox}`
 }
 
-function diff(a: Set<string>, b: Set<string>): { onlyA: string[]; onlyB: string[]; common: number } {
+function diff(
+  a: Set<string>,
+  b: Set<string>,
+): { onlyA: string[]; onlyB: string[]; common: number } {
   const onlyA: string[] = []
   const onlyB: string[] = []
   let common = 0
-  for (const k of a) (b.has(k) ? common++ : onlyA.push(k))
+  for (const k of a) b.has(k) ? common++ : onlyA.push(k)
   for (const k of b) if (!a.has(k)) onlyB.push(k)
   return { onlyA, onlyB, common }
 }
@@ -50,8 +53,11 @@ describe('tile selection DPR invariance', () => {
     if (d.onlyA.length || d.onlyB.length) {
       // eslint-disable-next-line no-console
       console.log('DFS divergence', {
-        dpr1Total: tiles1.length, dpr3Total: tiles3.length,
-        common: d.common, onlyDpr1: d.onlyA.slice(0, 10), onlyDpr3: d.onlyB.slice(0, 10),
+        dpr1Total: tiles1.length,
+        dpr3Total: tiles3.length,
+        common: d.common,
+        onlyDpr1: d.onlyA.slice(0, 10),
+        onlyDpr3: d.onlyB.slice(0, 10),
       })
     }
     expect(set1).toEqual(set3)
@@ -68,8 +74,11 @@ describe('tile selection DPR invariance', () => {
     if (d.onlyA.length || d.onlyB.length) {
       // eslint-disable-next-line no-console
       console.log('Sampled divergence', {
-        dpr1Total: tiles1.length, dpr3Total: tiles3.length,
-        common: d.common, onlyDpr1: d.onlyA.slice(0, 10), onlyDpr3: d.onlyB.slice(0, 10),
+        dpr1Total: tiles1.length,
+        dpr3Total: tiles3.length,
+        common: d.common,
+        onlyDpr1: d.onlyA.slice(0, 10),
+        onlyDpr3: d.onlyB.slice(0, 10),
       })
     }
     expect(set1).toEqual(set3)
@@ -79,16 +88,19 @@ describe('tile selection DPR invariance', () => {
     const cam = makeCam(10, 60, 45)
     const z = Math.round(cam.zoom)
     const dprs = [1, 1.5, 2, 3]
-    const sets = dprs.map(d => new Set(
-      visibleTilesFrustum(cam, mercator, z, CSS_W * d, CSS_H * d, 0, d).map(tileKey),
-    ))
+    const sets = dprs.map(
+      (d) =>
+        new Set(visibleTilesFrustum(cam, mercator, z, CSS_W * d, CSS_H * d, 0, d).map(tileKey)),
+    )
     for (let i = 1; i < sets.length; i++) {
       const d = diff(sets[0], sets[i])
       if (d.onlyA.length || d.onlyB.length) {
         // eslint-disable-next-line no-console
         console.log(`DPR ${dprs[0]} vs ${dprs[i]}`, {
-          left: sets[0].size, right: sets[i].size,
-          onlyLeft: d.onlyA.slice(0, 6), onlyRight: d.onlyB.slice(0, 6),
+          left: sets[0].size,
+          right: sets[i].size,
+          onlyLeft: d.onlyA.slice(0, 6),
+          onlyRight: d.onlyB.slice(0, 6),
         })
       }
       expect(sets[i]).toEqual(sets[0])
@@ -102,8 +114,7 @@ describe('tile selection DPR invariance', () => {
     const cam = makeCam(14.95, 0, 26)
     const tiles = visibleTilesFrustumSampled(cam, mercator, 15, CSS_W * 3, CSS_H * 3, 0, 3)
     // eslint-disable-next-line no-console
-    console.log(`sampled @ z=15 pitch=0 NYC: ${tiles.length} tiles`,
-      tiles.slice(0, 5).map(tileKey))
+    console.log(`sampled @ z=15 pitch=0 NYC: ${tiles.length} tiles`, tiles.slice(0, 5).map(tileKey))
     // Document the actual count so over-coverage shows up in diffs.
     expect(tiles.length).toBeGreaterThan(0)
   })
@@ -113,7 +124,7 @@ describe('tile selection DPR invariance', () => {
     // tile selector should produce identical sets at DPR=1 / 2 / 3.
     const cam = makeCam(11.5, 43, 29, -73.99, 40.78)
     const z = Math.round(cam.zoom)
-    const counts = [1, 2, 3].map(d => {
+    const counts = [1, 2, 3].map((d) => {
       const tiles = visibleTilesFrustum(cam, mercator, z, CSS_W * d, CSS_H * d, 0, d)
       return { dpr: d, count: tiles.length }
     })
@@ -133,7 +144,7 @@ describe('tile selection DPR invariance', () => {
     for (const s of scenarios) {
       const cam = makeCam(s.zoom, 0, s.bearing)
       const z = Math.round(cam.zoom)
-      const counts = [1, 2, 3].map(d => {
+      const counts = [1, 2, 3].map((d) => {
         const tiles = visibleTilesFrustumSampled(cam, mercator, z, CSS_W * d, CSS_H * d, 0, d)
         return { dpr: d, count: tiles.length }
       })

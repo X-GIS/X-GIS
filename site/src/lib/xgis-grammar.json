@@ -37,9 +37,7 @@
       "begin": "\"",
       "end": "\"",
       "name": "string.quoted.double.xgis",
-      "patterns": [
-        { "match": "\\\\.", "name": "constant.character.escape.xgis" }
-      ]
+      "patterns": [{ "match": "\\\\.", "name": "constant.character.escape.xgis" }]
     },
     "color": {
       "match": "#[0-9a-fA-F]{3,8}\\b",

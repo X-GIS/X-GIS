@@ -19,11 +19,7 @@ describe('fill-extrusion-height/base interp-callback clamp', () => {
           source: 's',
           paint: {
             'fill-extrusion-color': '#000',
-            'fill-extrusion-height': [
-              'interpolate', ['linear'], ['zoom'],
-              5, -50,
-              14, 200,
-            ],
+            'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 5, -50, 14, 200],
           },
         },
       ],
@@ -44,11 +40,7 @@ describe('fill-extrusion-height/base interp-callback clamp', () => {
           source: 's',
           paint: {
             'fill-extrusion-color': '#000',
-            'fill-extrusion-base': [
-              'interpolate', ['linear'], ['zoom'],
-              5, -10,
-              14, 100,
-            ],
+            'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 5, -10, 14, 100],
           },
         },
       ],

@@ -431,7 +431,7 @@ describe('Parser', () => {
         }
       `)
       const stmt = ast.body[0] as AST.LayerStatement
-      const filterProp = stmt.properties.find(p => p.name === 'filter')!
+      const filterProp = stmt.properties.find((p) => p.name === 'filter')!
       const bin = filterProp.value as AST.BinaryExpr
       expect(bin.op).toBe('==')
       expect((bin.left as AST.FieldAccess).field).toBe('type')
@@ -447,7 +447,7 @@ describe('Parser', () => {
         }
       `)
       const stmt = ast.body[0] as AST.LayerStatement
-      const filterProp = stmt.properties.find(p => p.name === 'filter')!
+      const filterProp = stmt.properties.find((p) => p.name === 'filter')!
       expect(filterProp.value.kind).toBe('BinaryExpr')
       const and = filterProp.value as AST.BinaryExpr
       expect(and.op).toBe('&&')
@@ -554,10 +554,10 @@ describe('Parser', () => {
     // It now works in any expression context, including filter:.
     it('parses match() block as a layer filter value', () => {
       const ast = parse(
-        'layer r {\n  filter: match(.kind) { "highway" -> true, "rail" -> true, _ -> false }\n}'
+        'layer r {\n  filter: match(.kind) { "highway" -> true, "rail" -> true, _ -> false }\n}',
       )
       const layer = ast.body[0] as AST.LayerStatement
-      const filter = layer.properties.find(p => p.name === 'filter') as AST.BlockProperty
+      const filter = layer.properties.find((p) => p.name === 'filter') as AST.BlockProperty
       const call = filter.value as AST.FnCall
       expect(call.kind).toBe('FnCall')
       expect((call.callee as AST.Identifier).name).toBe('match')
@@ -570,10 +570,10 @@ describe('Parser', () => {
 
     it('accepts numeric and string arm values (not just utility names)', () => {
       const ast = parse(
-        'layer r {\n  filter: match(.zoom) { "low" -> 1, "high" -> 100, _ -> 0 }\n}'
+        'layer r {\n  filter: match(.zoom) { "low" -> 1, "high" -> 100, _ -> 0 }\n}',
       )
       const layer = ast.body[0] as AST.LayerStatement
-      const filter = layer.properties.find(p => p.name === 'filter') as AST.BlockProperty
+      const filter = layer.properties.find((p) => p.name === 'filter') as AST.BlockProperty
       const arms = (filter.value as AST.FnCall).matchBlock?.arms ?? []
       expect((arms[0].value as AST.NumberLiteral).value).toBe(1)
       expect((arms[1].value as AST.NumberLiteral).value).toBe(100)

@@ -36,17 +36,23 @@ describe('fill-translate — Mapbox → ShowCommand.fillTranslateX/Y', () => {
   })
 
   it('[0, 0] → both undefined (default, no-op)', () => {
-    const shows = compileToShows(fillLayer('zero', {
-      'fill-color': '#888', 'fill-translate': [0, 0],
-    }))
+    const shows = compileToShows(
+      fillLayer('zero', {
+        'fill-color': '#888',
+        'fill-translate': [0, 0],
+      }),
+    )
     expect(shows[0]!.fillTranslateX).toBeUndefined()
     expect(shows[0]!.fillTranslateY).toBeUndefined()
   })
 
   it('[2, 3] → x=2, y=3', () => {
-    const shows = compileToShows(fillLayer('pos', {
-      'fill-color': '#888', 'fill-translate': [2, 3],
-    }))
+    const shows = compileToShows(
+      fillLayer('pos', {
+        'fill-color': '#888',
+        'fill-translate': [2, 3],
+      }),
+    )
     expect(shows[0]!.fillTranslateX).toBe(2)
     expect(shows[0]!.fillTranslateY).toBe(3)
   })
@@ -55,33 +61,45 @@ describe('fill-translate — Mapbox → ShowCommand.fillTranslateX/Y', () => {
     // Mapbox v8 wraps inner array as `["literal", [-2, -2]]`. The
     // bracket binding flows through label-numeric-binding for
     // signed values (parser-side `-` would split otherwise).
-    const shows = compileToShows(fillLayer('roof', {
-      'fill-color': '#f2eae2', 'fill-translate': [-2, -2],
-    }))
+    const shows = compileToShows(
+      fillLayer('roof', {
+        'fill-color': '#f2eae2',
+        'fill-translate': [-2, -2],
+      }),
+    )
     expect(shows[0]!.fillTranslateX).toBe(-2)
     expect(shows[0]!.fillTranslateY).toBe(-2)
   })
 
   it('only x non-zero: [4, 0] → x=4, y undefined', () => {
-    const shows = compileToShows(fillLayer('xOnly', {
-      'fill-color': '#888', 'fill-translate': [4, 0],
-    }))
+    const shows = compileToShows(
+      fillLayer('xOnly', {
+        'fill-color': '#888',
+        'fill-translate': [4, 0],
+      }),
+    )
     expect(shows[0]!.fillTranslateX).toBe(4)
     expect(shows[0]!.fillTranslateY).toBeUndefined()
   })
 
   it('only y non-zero: [0, -5] → x undefined, y=-5', () => {
-    const shows = compileToShows(fillLayer('yOnly', {
-      'fill-color': '#888', 'fill-translate': [0, -5],
-    }))
+    const shows = compileToShows(
+      fillLayer('yOnly', {
+        'fill-color': '#888',
+        'fill-translate': [0, -5],
+      }),
+    )
     expect(shows[0]!.fillTranslateX).toBeUndefined()
     expect(shows[0]!.fillTranslateY).toBe(-5)
   })
 
   it('v8 ["literal", [dx, dy]] wrap unwraps to constant', () => {
-    const shows = compileToShows(fillLayer('v8wrap', {
-      'fill-color': '#888', 'fill-translate': ['literal', [-1, 3]],
-    }))
+    const shows = compileToShows(
+      fillLayer('v8wrap', {
+        'fill-color': '#888',
+        'fill-translate': ['literal', [-1, 3]],
+      }),
+    )
     expect(shows[0]!.fillTranslateX).toBe(-1)
     expect(shows[0]!.fillTranslateY).toBe(3)
   })
@@ -93,14 +111,20 @@ describe('fill-translate — Mapbox → ShowCommand.fillTranslateX/Y', () => {
     // fillTranslate{X,Y}Shape; the runtime resolves each frame
     // (resolveShow → resolveNumberShape → VTR NDC bake). OFM
     // building-top: z=14 [0,0] → z=16 [-2,-2].
-    const shows = compileToShows(fillLayer('zinterp', {
-      'fill-color': '#f2eae2',
-      'fill-translate': [
-        'interpolate', ['linear'], ['zoom'],
-        14, ['literal', [0, 0]],
-        16, ['literal', [-2, -2]],
-      ],
-    }))
+    const shows = compileToShows(
+      fillLayer('zinterp', {
+        'fill-color': '#f2eae2',
+        'fill-translate': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          14,
+          ['literal', [0, 0]],
+          16,
+          ['literal', [-2, -2]],
+        ],
+      }),
+    )
     // The constant scalar fields stay undefined — the shape carries the
     // value now (resolved per frame, not folded to the last stop).
     expect(shows[0]!.fillTranslateX).toBeUndefined()
@@ -108,20 +132,29 @@ describe('fill-translate — Mapbox → ShowCommand.fillTranslateX/Y', () => {
     // Per-axis zoom-interpolated PropertyShapes with the authored stops.
     expect(shows[0]!.fillTranslateXShape).toEqual({
       kind: 'zoom-interpolated',
-      stops: [{ zoom: 14, value: 0 }, { zoom: 16, value: -2 }],
+      stops: [
+        { zoom: 14, value: 0 },
+        { zoom: 16, value: -2 },
+      ],
       base: 1,
     })
     expect(shows[0]!.fillTranslateYShape).toEqual({
       kind: 'zoom-interpolated',
-      stops: [{ zoom: 14, value: 0 }, { zoom: 16, value: -2 }],
+      stops: [
+        { zoom: 14, value: 0 },
+        { zoom: 16, value: -2 },
+      ],
       base: 1,
     })
   })
 
   it('fill-translate does NOT appear in ignored-paint warning list (iter 501 removed it)', () => {
-    const xgis = convertMapboxStyle(fillLayer('w', {
-      'fill-color': '#888', 'fill-translate': [-2, -2],
-    }) as Parameters<typeof convertMapboxStyle>[0])
+    const xgis = convertMapboxStyle(
+      fillLayer('w', {
+        'fill-color': '#888',
+        'fill-translate': [-2, -2],
+      }) as Parameters<typeof convertMapboxStyle>[0],
+    )
     // ignored paint properties: fill-translate would surface if a
     // regression re-added it to the surfaceIgnoredPaint list at
     // paint.ts:133.

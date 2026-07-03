@@ -12,38 +12,45 @@ import { test, expect, type Page } from '@playwright/test'
 async function waitForXgisReady(page: Page) {
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
 }
 
 async function snapAndCount(page: Page, target: 'amber' | 'cyan' | 'red' | 'blue') {
   const sShot = await page.screenshot({ type: 'png' })
-  return await page.evaluate(async ({ pngBytes, target }) => {
-    const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' })
-    const url = URL.createObjectURL(blob)
-    const img = new Image()
-    await new Promise<void>((res, rej) => {
-      img.onload = () => res(); img.onerror = () => rej(new Error('img'))
-      img.src = url
-    })
-    const off = new OffscreenCanvas(img.width, img.height)
-    const ctx = off.getContext('2d')!
-    ctx.drawImage(img, 0, 0)
-    const data = ctx.getImageData(0, 0, img.width, img.height).data
-    let hits = 0
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i], g = data[i + 1], b = data[i + 2]
-      if (target === 'amber' && r > 180 && g > 130 && g < 200 && b < 100) hits++
-      if (target === 'cyan' && r < 100 && g > 200 && b > 200) hits++
-      if (target === 'red' && r > 200 && g < 100 && b < 100) hits++
-      // fill-blue-500 = #3b82f6 — Tailwind palette. Detection band:
-      //   R∈[40,110], G∈[100,170], B∈[200,255]. Generous to absorb
-      //   AA + blend toward background.
-      if (target === 'blue' && r > 40 && r < 120 && g > 100 && g < 180 && b > 200) hits++
-    }
-    URL.revokeObjectURL(url)
-    return hits
-  }, { pngBytes: Array.from(sShot), target })
+  return await page.evaluate(
+    async ({ pngBytes, target }) => {
+      const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' })
+      const url = URL.createObjectURL(blob)
+      const img = new Image()
+      await new Promise<void>((res, rej) => {
+        img.onload = () => res()
+        img.onerror = () => rej(new Error('img'))
+        img.src = url
+      })
+      const off = new OffscreenCanvas(img.width, img.height)
+      const ctx = off.getContext('2d')!
+      ctx.drawImage(img, 0, 0)
+      const data = ctx.getImageData(0, 0, img.width, img.height).data
+      let hits = 0
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i],
+          g = data[i + 1],
+          b = data[i + 2]
+        if (target === 'amber' && r > 180 && g > 130 && g < 200 && b < 100) hits++
+        if (target === 'cyan' && r < 100 && g > 200 && b > 200) hits++
+        if (target === 'red' && r > 200 && g < 100 && b < 100) hits++
+        // fill-blue-500 = #3b82f6 — Tailwind palette. Detection band:
+        //   R∈[40,110], G∈[100,170], B∈[200,255]. Generous to absorb
+        //   AA + blend toward background.
+        if (target === 'blue' && r > 40 && r < 120 && g > 100 && g < 180 && b > 200) hits++
+      }
+      URL.revokeObjectURL(url)
+      return hits
+    },
+    { pngBytes: Array.from(sShot), target },
+  )
 }
 
 test('orthographic: line on FRONT hemisphere is visible', async ({ page }) => {
@@ -67,10 +74,9 @@ test('orthographic: line on BACK hemisphere is culled', async ({ page }) => {
   // Camera at the antipode (≈ +180° lon away from the line). Original
   // line sat at ~lon=-50..-20 / lat=-20..20 (per fixture-line.geojson).
   // Antipode camera: lon≈+130, lat=0. Ortho should hide the line entirely.
-  await page.goto(
-    '/demo.html?id=reftest_stroke_static&safe=1&proj=orthographic#3.00/0/130',
-    { waitUntil: 'domcontentloaded' },
-  )
+  await page.goto('/demo.html?id=reftest_stroke_static&safe=1&proj=orthographic#3.00/0/130', {
+    waitUntil: 'domcontentloaded',
+  })
   await waitForXgisReady(page)
   await page.waitForTimeout(2500)
   const amber = await snapAndCount(page, 'amber')
@@ -84,10 +90,9 @@ test('orthographic: triangle stroke on BACK hemisphere is culled', async ({ page
   // Triangle vertices in fixture-triangle.geojson: (-30,-20), (30,-20),
   // (0, 30) — all near equator. Antipode camera at (lon=180, lat=0)
   // puts the triangle on the far hemisphere.
-  await page.goto(
-    '/demo.html?id=fixture_stroke_fill&safe=1&proj=orthographic#3.00/0/180',
-    { waitUntil: 'domcontentloaded' },
-  )
+  await page.goto('/demo.html?id=fixture_stroke_fill&safe=1&proj=orthographic#3.00/0/180', {
+    waitUntil: 'domcontentloaded',
+  })
   await waitForXgisReady(page)
   await page.waitForTimeout(2500)
   const amber = await snapAndCount(page, 'amber')

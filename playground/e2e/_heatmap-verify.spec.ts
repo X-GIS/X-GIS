@@ -11,7 +11,11 @@ test('heatmap renders a density blob', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/demo.html?id=heatmap&e2e=1', { waitUntil: 'domcontentloaded' })
-  await page.waitForFunction(() => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true, null, { timeout: 15_000 })
+  await page.waitForFunction(
+    () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
+    null,
+    { timeout: 15_000 },
+  )
   await page.waitForTimeout(2500)
 
   const state = await page.evaluate(() => {

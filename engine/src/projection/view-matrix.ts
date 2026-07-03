@@ -77,18 +77,18 @@ export function buildRTCMatrix(
   viewHeightCap: number,
   out: Float32Array,
 ): { far: number } {
-  const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, view.zoom)
+  const metersPerPixel = WORLD_MERC / TILE_PX / Math.pow(2, view.zoom)
   const m = out
 
   // ── Always use perspective path (no ortho/perspective discontinuity) ──
   // MVP = Perspective × Translate(0,0,-alt) × RotateX(pitch) × RotateZ(bearing)
   // Applied right-to-left: bearing → pitch → move camera up → project
 
-  const fovRad = view.fovDeg * Math.PI / 180
+  const fovRad = (view.fovDeg * Math.PI) / 180
   const halfFov = fovRad / 2
   const aspect = canvasWidth / canvasHeight
-  const pitchRad = view.pitch * Math.PI / 180
-  const bearingRad = view.bearing * Math.PI / 180
+  const pitchRad = (view.pitch * Math.PI) / 180
+  const bearingRad = (view.bearing * Math.PI) / 180
 
   const rawViewHeightMeters = (canvasHeight / dpr) * metersPerPixel
   const viewHeightMeters = Math.min(rawViewHeightMeters, viewHeightCap)
@@ -106,31 +106,69 @@ export function buildRTCMatrix(
 
   // Translate(0, 0, -altitude)
   const T = _T
-  T[0] = 1; T[1] = 0; T[2] = 0; T[3] = 0
-  T[4] = 0; T[5] = 1; T[6] = 0; T[7] = 0
-  T[8] = 0; T[9] = 0; T[10] = 1; T[11] = 0
-  T[12] = 0; T[13] = 0; T[14] = -altitude; T[15] = 1
+  T[0] = 1
+  T[1] = 0
+  T[2] = 0
+  T[3] = 0
+  T[4] = 0
+  T[5] = 1
+  T[6] = 0
+  T[7] = 0
+  T[8] = 0
+  T[9] = 0
+  T[10] = 1
+  T[11] = 0
+  T[12] = 0
+  T[13] = 0
+  T[14] = -altitude
+  T[15] = 1
 
   // RotateX(-pitch) — tilt camera backward (look down at map from ahead)
-  const cp = Math.cos(-pitchRad), sp = Math.sin(-pitchRad)
+  const cp = Math.cos(-pitchRad),
+    sp = Math.sin(-pitchRad)
   const Rx = _Rx
-  Rx[0] = 1; Rx[1] = 0; Rx[2] = 0; Rx[3] = 0
-  Rx[4] = 0; Rx[5] = cp; Rx[6] = sp; Rx[7] = 0
-  Rx[8] = 0; Rx[9] = -sp; Rx[10] = cp; Rx[11] = 0
-  Rx[12] = 0; Rx[13] = 0; Rx[14] = 0; Rx[15] = 1
+  Rx[0] = 1
+  Rx[1] = 0
+  Rx[2] = 0
+  Rx[3] = 0
+  Rx[4] = 0
+  Rx[5] = cp
+  Rx[6] = sp
+  Rx[7] = 0
+  Rx[8] = 0
+  Rx[9] = -sp
+  Rx[10] = cp
+  Rx[11] = 0
+  Rx[12] = 0
+  Rx[13] = 0
+  Rx[14] = 0
+  Rx[15] = 1
 
   // RotateZ(bearing)
-  const cb = Math.cos(bearingRad), sb = Math.sin(bearingRad)
+  const cb = Math.cos(bearingRad),
+    sb = Math.sin(bearingRad)
   const Rz = _Rz
-  Rz[0] = cb; Rz[1] = sb; Rz[2] = 0; Rz[3] = 0
-  Rz[4] = -sb; Rz[5] = cb; Rz[6] = 0; Rz[7] = 0
-  Rz[8] = 0; Rz[9] = 0; Rz[10] = 1; Rz[11] = 0
-  Rz[12] = 0; Rz[13] = 0; Rz[14] = 0; Rz[15] = 1
+  Rz[0] = cb
+  Rz[1] = sb
+  Rz[2] = 0
+  Rz[3] = 0
+  Rz[4] = -sb
+  Rz[5] = cb
+  Rz[6] = 0
+  Rz[7] = 0
+  Rz[8] = 0
+  Rz[9] = 0
+  Rz[10] = 1
+  Rz[11] = 0
+  Rz[12] = 0
+  Rz[13] = 0
+  Rz[14] = 0
+  Rz[15] = 1
 
   // MVP = P × T × Rx × Rz  (right-to-left: bearing → pitch → translate → project)
-  mul4(_t1, Rx, Rz)      // t1 = Rx × Rz
-  mul4(_t2, T, _t1)       // t2 = T × (Rx × Rz)
-  mul4(_t3, P, _t2)       // t3 = P × T × Rx × Rz
+  mul4(_t1, Rx, Rz) // t1 = Rx × Rz
+  mul4(_t2, T, _t1) // t2 = T × (Rx × Rz)
+  mul4(_t3, P, _t2) // t3 = P × T × Rx × Rz
 
   for (let i = 0; i < 16; i++) m[i] = _t3[i]
   return { far }
@@ -148,14 +186,20 @@ export function buildGlobeFrame(
   out: Float32Array,
 ): { far: number; eye: ECEF } {
   const R = EARTH_R
-  const lon = view.centerX / R * (180 / Math.PI)
+  const lon = (view.centerX / R) * (180 / Math.PI)
   // Read the maintained true centre latitude (NOT mercatorYToLat(centerY),
   // which saturates at ±85.051129) so the globe orbit can reach the pole.
   const lat = view.centerLatDeg
   const v = buildGlobeMatrix(
-    lon, lat, view.zoom, view.pitch, view.bearing,
-    canvasWidth / dpr, canvasHeight / dpr,
-    view.globeOrtho, view.azimuthalProjType,
+    lon,
+    lat,
+    view.zoom,
+    view.pitch,
+    view.bearing,
+    canvasWidth / dpr,
+    canvasHeight / dpr,
+    view.globeOrtho,
+    view.azimuthalProjType,
   )
   out.set(v.rtcMatrix)
   return { far: v.far, eye: v.eye }
@@ -178,11 +222,11 @@ export function buildECEFFrameView(
   const RAD2DEG = 180 / Math.PI
   const cam_lon = (view.centerX / EARTH_R) * RAD2DEG
   const cam_lat = mercatorYToLatRad(view.centerY) * RAD2DEG
-  const cos_lat = Math.cos(cam_lat * Math.PI / 180)
+  const cos_lat = Math.cos((cam_lat * Math.PI) / 180)
 
   // 2. mpp/altitude in TRUE ENU metres.
-  const SPHERE_VIEW_HEIGHT_M = 2 * EARTH_R   // sphere diameter
-  const mpp_mercator = (WORLD_MERC / TILE_PX) / Math.pow(2, view.zoom)
+  const SPHERE_VIEW_HEIGHT_M = 2 * EARTH_R // sphere diameter
+  const mpp_mercator = WORLD_MERC / TILE_PX / Math.pow(2, view.zoom)
   const mpp_true = mpp_mercator * cos_lat
   const rawViewHeightTrueM = (canvasHeight / dpr) * mpp_true
   const viewHeightTrueM = Math.min(
@@ -191,11 +235,11 @@ export function buildECEFFrameView(
   )
 
   // 3. FOV / aspect / pitch / bearing — identical to legacy build.
-  const fovRad = view.fovDeg * Math.PI / 180
+  const fovRad = (view.fovDeg * Math.PI) / 180
   const halfFov = fovRad / 2
   const aspect = canvasWidth / canvasHeight
-  const pitchRad = view.pitch * Math.PI / 180
-  const bearingRad = view.bearing * Math.PI / 180
+  const pitchRad = (view.pitch * Math.PI) / 180
+  const bearingRad = (view.bearing * Math.PI) / 180
 
   // 4. Altitude in true metres + near/far via the legacy formula.
   const altitude_true = viewHeightTrueM / 2 / Math.tan(halfFov)
@@ -211,24 +255,62 @@ export function buildECEFFrameView(
   const P = perspectiveMatrix(f, near, far, aspect, _P)
   // Translate(0, 0, -altitude_true).
   const T = _T
-  T[0] = 1; T[1] = 0; T[2] = 0; T[3] = 0
-  T[4] = 0; T[5] = 1; T[6] = 0; T[7] = 0
-  T[8] = 0; T[9] = 0; T[10] = 1; T[11] = 0
-  T[12] = 0; T[13] = 0; T[14] = -altitude_true; T[15] = 1
+  T[0] = 1
+  T[1] = 0
+  T[2] = 0
+  T[3] = 0
+  T[4] = 0
+  T[5] = 1
+  T[6] = 0
+  T[7] = 0
+  T[8] = 0
+  T[9] = 0
+  T[10] = 1
+  T[11] = 0
+  T[12] = 0
+  T[13] = 0
+  T[14] = -altitude_true
+  T[15] = 1
   // RotateX(-pitch).
-  const cp = Math.cos(-pitchRad), sp = Math.sin(-pitchRad)
+  const cp = Math.cos(-pitchRad),
+    sp = Math.sin(-pitchRad)
   const Rx = _Rx
-  Rx[0] = 1; Rx[1] = 0; Rx[2] = 0; Rx[3] = 0
-  Rx[4] = 0; Rx[5] = cp; Rx[6] = sp; Rx[7] = 0
-  Rx[8] = 0; Rx[9] = -sp; Rx[10] = cp; Rx[11] = 0
-  Rx[12] = 0; Rx[13] = 0; Rx[14] = 0; Rx[15] = 1
+  Rx[0] = 1
+  Rx[1] = 0
+  Rx[2] = 0
+  Rx[3] = 0
+  Rx[4] = 0
+  Rx[5] = cp
+  Rx[6] = sp
+  Rx[7] = 0
+  Rx[8] = 0
+  Rx[9] = -sp
+  Rx[10] = cp
+  Rx[11] = 0
+  Rx[12] = 0
+  Rx[13] = 0
+  Rx[14] = 0
+  Rx[15] = 1
   // RotateZ(bearing).
-  const cb = Math.cos(bearingRad), sb = Math.sin(bearingRad)
+  const cb = Math.cos(bearingRad),
+    sb = Math.sin(bearingRad)
   const Rz = _Rz
-  Rz[0] = cb; Rz[1] = sb; Rz[2] = 0; Rz[3] = 0
-  Rz[4] = -sb; Rz[5] = cb; Rz[6] = 0; Rz[7] = 0
-  Rz[8] = 0; Rz[9] = 0; Rz[10] = 1; Rz[11] = 0
-  Rz[12] = 0; Rz[13] = 0; Rz[14] = 0; Rz[15] = 1
+  Rz[0] = cb
+  Rz[1] = sb
+  Rz[2] = 0
+  Rz[3] = 0
+  Rz[4] = -sb
+  Rz[5] = cb
+  Rz[6] = 0
+  Rz[7] = 0
+  Rz[8] = 0
+  Rz[9] = 0
+  Rz[10] = 1
+  Rz[11] = 0
+  Rz[12] = 0
+  Rz[13] = 0
+  Rz[14] = 0
+  Rz[15] = 1
   // ECEF→ENU rotation at camera anchor (column-major Float32Array(16),
   // homogeneous identity row/column). Passed straight to mul4 (widened to
   // ArrayLike<number>) — no plain-array copy needed.
@@ -236,10 +318,10 @@ export function buildECEFFrameView(
 
   // M = P × T × Rx × Rz × Renu (right-to-left: ECEF→ENU first, then
   // legacy 2D-camera chain).
-  mul4(_t1, Rx, Rz)          // t1 = Rx × Rz
-  mul4(_t2, _t1, RenuF)       // t2 = Rx × Rz × Renu
-  mul4(_t1, T, _t2)           // t1 = T × Rx × Rz × Renu
-  mul4(_t3, P, _t1)           // t3 = P × T × Rx × Rz × Renu
+  mul4(_t1, Rx, Rz) // t1 = Rx × Rz
+  mul4(_t2, _t1, RenuF) // t2 = Rx × Rz × Renu
+  mul4(_t1, T, _t2) // t1 = T × Rx × Rz × Renu
+  mul4(_t3, P, _t1) // t3 = P × T × Rx × Rz × Renu
 
   const m = out
   for (let i = 0; i < 16; i++) m[i] = _t3[i]

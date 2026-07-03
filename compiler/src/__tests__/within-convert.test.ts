@@ -11,7 +11,18 @@ function convert(mapbox: unknown): { result: string | null; warnings: string[] }
   return { result, warnings }
 }
 
-const POLY = { type: 'Polygon', coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]] }
+const POLY = {
+  type: 'Polygon',
+  coordinates: [
+    [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [0, 10],
+      [0, 0],
+    ],
+  ],
+}
 
 describe('within converter', () => {
   it('Polygon → within(get("$geometry"), <MultiPolygon-shaped coords>)', () => {
@@ -27,8 +38,22 @@ describe('within converter', () => {
     const mp = {
       type: 'MultiPolygon',
       coordinates: [
-        [[[0, 0], [1, 0], [1, 1], [0, 0]]],
-        [[[5, 5], [6, 5], [6, 6], [5, 5]]],
+        [
+          [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 0],
+          ],
+        ],
+        [
+          [
+            [5, 5],
+            [6, 5],
+            [6, 6],
+            [5, 5],
+          ],
+        ],
       ],
     }
     const { result, warnings } = convert(['within', mp])
@@ -48,12 +73,12 @@ describe('within converter', () => {
   it('non-polygon argument (e.g. Point) drops with a warning', () => {
     const { result, warnings } = convert(['within', { type: 'Point', coordinates: [0, 0] }])
     expect(result).toBeNull()
-    expect(warnings.some(w => w.includes('["within"]'))).toBe(true)
+    expect(warnings.some((w) => w.includes('["within"]'))).toBe(true)
   })
 
   it('wrong arity drops with a warning', () => {
     const { result, warnings } = convert(['within', POLY, POLY])
     expect(result).toBeNull()
-    expect(warnings.some(w => w.includes('Malformed ["within"]'))).toBe(true)
+    expect(warnings.some((w) => w.includes('Malformed ["within"]'))).toBe(true)
   })
 })

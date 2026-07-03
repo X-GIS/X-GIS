@@ -15,10 +15,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const MAP_SRC = readFileSync(
-  resolve(__dirname, '..', '..', '..', 'map', 'src', 'map.ts'),
-  'utf8',
-)
+const MAP_SRC = readFileSync(resolve(__dirname, '..', '..', '..', 'map', 'src', 'map.ts'), 'utf8')
 
 // Extract the setBackgroundFill method body so assertions don't false-
 // positive on unrelated references elsewhere in map.ts.
@@ -42,15 +39,11 @@ const NULL_BRANCH = extractNullBranch(SET_BG_BODY)
 
 describe('AC2c.3.C — setBackgroundFill(null) lifecycle teardown', () => {
   it('calls teardownSource(SYNTHETIC_EARTH_SURFACE_SOURCE) when backend installed', () => {
-    expect(NULL_BRANCH).toMatch(
-      /this\.teardownSource\(SYNTHETIC_EARTH_SURFACE_SOURCE\)/,
-    )
+    expect(NULL_BRANCH).toMatch(/this\.teardownSource\(SYNTHETIC_EARTH_SURFACE_SOURCE\)/)
   })
 
   it('deletes synthetic entry from rawDatasets to mirror install-side seeding', () => {
-    expect(NULL_BRANCH).toMatch(
-      /this\.rawDatasets\.delete\(SYNTHETIC_EARTH_SURFACE_SOURCE\)/,
-    )
+    expect(NULL_BRANCH).toMatch(/this\.rawDatasets\.delete\(SYNTHETIC_EARTH_SURFACE_SOURCE\)/)
   })
 
   it('nulls the _syntheticBackend field so future install can re-create', () => {
@@ -59,9 +52,7 @@ describe('AC2c.3.C — setBackgroundFill(null) lifecycle teardown', () => {
 
   it('filters the synthetic ShowCommand out of showCommands', () => {
     expect(NULL_BRANCH).toMatch(/this\.showCommands\.findIndex/)
-    expect(NULL_BRANCH).toMatch(
-      /s\.targetName === SYNTHETIC_EARTH_SURFACE_SOURCE/,
-    )
+    expect(NULL_BRANCH).toMatch(/s\.targetName === SYNTHETIC_EARTH_SURFACE_SOURCE/)
     expect(NULL_BRANCH).toMatch(/this\.showCommands\.splice\(synthIdx, 1\)/)
   })
 

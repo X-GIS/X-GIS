@@ -20,7 +20,9 @@ function denseRing(n: number): GeoJSONInput {
   coords.push(coords[0]!)
   return {
     type: 'FeatureCollection',
-    features: [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [coords] } }],
+    features: [
+      { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [coords] } },
+    ],
   }
 }
 
@@ -41,7 +43,7 @@ describe('#460 — low-zoom vertex budget caps the z0 world tile', () => {
     // Pre-#460 (tolerance 0 forced at z<=3) this kept all ~150k verts in the
     // z0 tile. Budget-capped, it simplifies to a few hundred.
     const pts = z0Points(new GeoJSONVT(denseRing(150_000)))
-    expect(pts).toBeGreaterThan(0)       // not dropped entirely
-    expect(pts).toBeLessThan(50_000)     // simplified well below the 150k input
+    expect(pts).toBeGreaterThan(0) // not dropped entirely
+    expect(pts).toBeLessThan(50_000) // simplified well below the 150k input
   })
 })

@@ -16,11 +16,19 @@ beforeEach(() => {
   // happy-dom doesn't ship Image / Canvas APIs by default; ensure a
   // minimal HTMLCanvasElement exists for getContext stubbing.
   if (typeof HTMLCanvasElement === 'undefined') {
-    ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class { width = 800; height = 600; getContext(_t: string): unknown { return null } } as never
+    ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
+    } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 describe('webgpu-stub', () => {
   it('navigator.gpu.requestAdapter returns a stub adapter', async () => {
@@ -61,7 +69,7 @@ describe('webgpu-stub', () => {
     const inst = installWebGPUStub()
     expect((globalThis as { navigator: { gpu: unknown } }).navigator.gpu).toBeTruthy()
     inst.uninstall()
-    expect(('navigator' in g)).toBe(had)
+    expect('navigator' in g).toBe(had)
   })
 
   it('createBindGroupLayout descriptor is preserved on the returned handle', async () => {
@@ -73,7 +81,9 @@ describe('webgpu-stub', () => {
         { binding: 1, visibility: 3, buffer: { type: 'storage' } },
       ],
     }
-    const bgl = device.createBindGroupLayout(desc) as unknown as { __descriptor: GPUBindGroupLayoutDescriptor }
+    const bgl = device.createBindGroupLayout(desc) as unknown as {
+      __descriptor: GPUBindGroupLayoutDescriptor
+    }
     // The descriptor passthrough lets future tests assert that a
     // renderer declared the bindings it should have.
     expect(bgl.__descriptor).toBe(desc)

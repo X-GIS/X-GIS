@@ -91,13 +91,25 @@ function applyUtility(props: ResolvedProperties, name: string): void {
   }
 
   // visible / hidden
-  if (name === 'visible') { props.visible = true; return }
-  if (name === 'hidden') { props.visible = false; return }
+  if (name === 'visible') {
+    props.visible = true
+    return
+  }
+  if (name === 'hidden') {
+    props.visible = false
+    return
+  }
 
   // pointer-events-{none,auto} — CSS-equivalent. 'none' makes the layer
   // non-pickable (skips pick texture write via writeMask:0 variant);
   // 'auto' is the default. Used by the DOM-inspired layer API so
   // authors can mark decorative layers as non-interactive in the DSL.
-  if (name === 'pointer-events-none') { props.pointerEvents = 'none'; return }
-  if (name === 'pointer-events-auto') { props.pointerEvents = 'auto'; return }
+  if (name === 'pointer-events-none') {
+    props.pointerEvents = 'none'
+    return
+  }
+  if (name === 'pointer-events-auto') {
+    props.pointerEvents = 'auto'
+    return
+  }
 }

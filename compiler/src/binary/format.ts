@@ -136,12 +136,7 @@ class BinaryEncoder {
   }
 
   writeU32(value: number): void {
-    this.buffer.push(
-      value & 0xff,
-      (value >> 8) & 0xff,
-      (value >> 16) & 0xff,
-      (value >> 24) & 0xff,
-    )
+    this.buffer.push(value & 0xff, (value >> 8) & 0xff, (value >> 16) & 0xff, (value >> 24) & 0xff)
   }
 
   writeF32(value: number): void {
