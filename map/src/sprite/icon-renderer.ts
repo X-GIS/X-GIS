@@ -13,7 +13,7 @@
 // caller projects lon/lat → screen px before submitting). The vertex
 // stage just converts viewport-px → NDC.
 
-import { SpriteAtlasGPU } from './sprite-atlas-gpu'
+import type { IconAtlasGpu } from './icon-stage'
 import {
   wrapWebGpuPass,
   wrapWebGpuBindGroupLayout,
@@ -96,7 +96,7 @@ export class IconRenderer {
    *  device.createBindGroup`, `writeBuffer === queue.writeBuffer`, `destroyBuffer ===
    *  GPUBuffer.destroy()`, so the GPU command stream is unchanged. */
   private readonly rhi: RhiDevice
-  private readonly atlas: SpriteAtlasGPU
+  private readonly atlas: IconAtlasGpu
   private readonly bgLayout: GPUBindGroupLayout
   private readonly uniformBuf: RhiBuffer
   private vertexBuf: RhiBuffer | null = null
@@ -185,7 +185,7 @@ export class IconRenderer {
   constructor(
     device: GPUDevice,
     rhi: RhiDevice,
-    atlas: SpriteAtlasGPU,
+    atlas: IconAtlasGpu,
     presentationFormat: GPUTextureFormat,
     sampleCount: number = 1,
   ) {

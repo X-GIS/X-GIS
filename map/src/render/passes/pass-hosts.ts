@@ -66,6 +66,7 @@ export type LabelPassHost = Pick<
   | 'fontTypography'
   | 'glyphProviders'
   | 'glyphsUrl'
+  | 'graphics'
   | 'iconStage'
   | 'inlineGlyphs'
   | 'overlays'

@@ -109,6 +109,10 @@ export * from './text/sdf/pbf/inline-glyph-provider'
 export * from './render/compute-layer-registry'
 export * from './render/feature-data-binder'
 export * from './sprite/icon-stage'
+// Host DRAWING API (#797) — the `map.graphics` façade + its CPU/GPU atlas.
+export * from './graphics/graphics-manager'
+export * from './sprite/host-image-registry'
+export * from './sprite/host-sprite-atlas-gpu'
 export * from './text/text-stage-types'
 // Renderer StyleProperties 6-file type-cycle SCC (renderer / renderer-types / renderer-helpers
 // / paint-shape-resolve / pipeline-factory / frame-renderer) + glyph-atlas-host↔text-wrap cycle

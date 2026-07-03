@@ -764,7 +764,7 @@ export class RenderLoop {
         // Stage 1 colour already in place from a prior frame; still
         // populate Stage 2 fields if not yet resolved.
       } else {
-        const px = host.getSpriteCenterColor(name)
+        const px = host.getSpriteCenterColor?.(name)
         if (px) {
           show.resolvedFillRgba = [px[0] / 255, px[1] / 255, px[2] / 255, px[3] / 255]
           invalidateResolvedShowCache(show)
@@ -808,7 +808,7 @@ export class RenderLoop {
       const name = show.linePattern
       if (!name) continue
       if (!show.resolvedStrokeRgba) {
-        const px = host.getSpriteCenterColor(name)
+        const px = host.getSpriteCenterColor?.(name)
         if (px) {
           show.resolvedStrokeRgba = [px[0] / 255, px[1] / 255, px[2] / 255, px[3] / 255]
           invalidateResolvedShowCache(show)

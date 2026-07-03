@@ -77,7 +77,9 @@ interface Internals {
   removeLayer(id: string): void
   addSource(id: string, s: unknown): void
   removeSource(id: string): void
-  addImage(id: string, img: unknown): void
+  addImage(id: string, img: ImageBitmap | ImageData): void
+  hasImage(id: string): boolean
+  removeImage(id: string): void
 }
 
 describe('XGISMap Mapbox-API camera setters', () => {
@@ -760,9 +762,16 @@ describe('XGISMap Mapbox-API camera setters', () => {
       expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/removeSource.*not supported/))
     })
 
-    it('addImage warns + returns', () => {
-      map.addImage('icon', {})
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/addImage.*not supported/))
+    it('addImage registers a host image (now supported, #797 P0)', () => {
+      warnSpy.mockClear()
+      const img = { width: 4, height: 4 } as unknown as ImageBitmap
+      expect(map.hasImage('icon')).toBe(false)
+      map.addImage('icon', img)
+      expect(map.hasImage('icon')).toBe(true)
+      map.removeImage('icon')
+      expect(map.hasImage('icon')).toBe(false)
+      // addImage is a real API now — no "unsupported" warning.
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringMatching(/addImage.*not supported/))
     })
 
     it('warn-once: second call to same method does not re-warn', () => {
