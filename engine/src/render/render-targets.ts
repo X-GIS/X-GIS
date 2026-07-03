@@ -123,6 +123,14 @@ export class RenderTargets {
     this.getCtx = getCtx
   }
 
+  /** The device the currently-cached targets were allocated on (`null` until
+   *  the first `ensure*`). Every cached texture — including `pickTexture` — is
+   *  minted inside `ensure*` on this device and dropped when it changes
+   *  (`syncDevice`), so it is authoritative for "which device owns the pick
+   *  texture". The pick path reads this to skip a cross-device readback in the
+   *  window between a `map.run()` re-init and the first post-swap frame (#792). */
+  get device(): GPUDevice | null { return this._device }
+
   /** Force the next `ensure()` to reallocate even when w/h are unchanged
    *  (used by setQuality after an msaa/picking sampleCount change). Mirrors
    *  the old `host.msaaWidth = 0; host.msaaHeight = 0`. */

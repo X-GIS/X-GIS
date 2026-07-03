@@ -831,6 +831,7 @@ export class XGISMap {
       featureIndex: this.featureUpdateQueue.featureIndex,
       getCtx: () => this._destroyed ? null : this.ctx,
       getPickTexture: () => this.pickTexture,
+      getPickTextureDevice: () => this.renderTargets.device,
       getProjectionName: () => this.projectionName,
       getVectorTileShows: () => this.vectorTileShows,
     })

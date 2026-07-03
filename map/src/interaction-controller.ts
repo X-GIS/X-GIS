@@ -61,6 +61,11 @@ export interface InteractionControllerDeps {
   /** The single-sample pick render-target, read fresh (allocated /
    *  destroyed during render-target setup; null when picking disabled). */
   getPickTexture(): GPUTexture | null
+  /** The device the pick render-target was allocated on, read fresh. After a
+   *  `map.run()` re-init this lags `getCtx().device` until the first post-swap
+   *  frame reallocates the targets; `pickAt` compares the two to skip a
+   *  cross-device readback in that window (#792). */
+  getPickTextureDevice(): GPUDevice | null
   /** The active projection key, read fresh (mutated by setProjection). */
   getProjectionName(): string
   /** The vectorTileShows array, read fresh (reassigned in rebuildLayers). */
@@ -90,6 +95,7 @@ export class InteractionController {
   private readonly _featureIndex: Map<string, Map<number, GeoJSONFeature>>
   private readonly getCtx: () => GPUContext | null
   private readonly getPickTexture: () => GPUTexture | null
+  private readonly getPickTextureDevice: () => GPUDevice | null
   private readonly getProjectionName: () => string
   private readonly getVectorTileShows: () => VectorTileShowEntry[]
 
@@ -106,6 +112,7 @@ export class InteractionController {
     this._featureIndex = deps.featureIndex
     this.getCtx = deps.getCtx
     this.getPickTexture = deps.getPickTexture
+    this.getPickTextureDevice = deps.getPickTextureDevice
     this.getProjectionName = deps.getProjectionName
     this.getVectorTileShows = deps.getVectorTileShows
   }
@@ -127,6 +134,14 @@ export class InteractionController {
     const pickTexture = this.getPickTexture()
     const ctx = this.getCtx()
     if (!pickTexture || !ctx) return null
+    // #792 — the pick RT is minted inside `RenderTargets.ensure*` on that
+    // class's tracked device. After a `map.run()` re-init the context swaps to
+    // a NEW device but the pick RT is not reallocated until the first
+    // post-swap frame's `ensure()`; in that window `pickTexture` still belongs
+    // to the DESTROYED prior device while `ctx.device` is the new one, so the
+    // `copyTextureToBuffer` below would be a cross-device copy WebGPU rejects.
+    // Skip the readback (treat as a miss) until the render targets catch up.
+    if (this.getPickTextureDevice() !== ctx.device) return null
     const canvas = ctx.canvas
     const rect = canvas.getBoundingClientRect()
     // Convert CSS coords → physical pixels, sampling the CENTRE of the CSS
