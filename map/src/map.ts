@@ -1036,6 +1036,9 @@ export class XGISMap {
     // (P2-carve Step 4); nodes capture this map + read it fresh at render time.
     this.renderLoopInstance = new RenderLoop(this)
     this.renderLoopInstance.registerNodes(buildRenderNodes(this))
+    // #797 P1 — repaint an idle map when a retained graphics batch is
+    // added/updated/removed (mirrors addImage's markLabelDirty re-arm).
+    this._graphics.setRepaintHook(() => this.invalidate())
     // P0-7 a11y baseline: make the host-supplied canvas focusable +
     // keyboard-drivable. Runs at ctor time (canvas is available pre-GPU);
     // no-ops when the canvas is not a real DOM element (unit-test mock).
@@ -2531,8 +2534,9 @@ export class XGISMap {
     }
     this.ctx = result
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
-    // #797 P0 — (re)attach the host DRAWING API GPU atlas to this run's device.
-    this.graphics.attachDevice(this.ctx.device)
+    // #797 P0/P1 — (re)attach the host DRAWING API GPU atlas + retained-icon
+    // draper to this run's device (rematerialises any batches added pre-run).
+    this.graphics.attachDevice(this.ctx.device, this.ctx.rhi, this.ctx.format)
     this.renderer = new MapRendererContent(this.ctx)
     this.renderer.setGraticuleEnabled(this._viewport.graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
@@ -3378,8 +3382,9 @@ export class XGISMap {
     }
     this.ctx = ctx
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
-    // #797 P0 — (re)attach the host DRAWING API GPU atlas to this run's device.
-    this.graphics.attachDevice(this.ctx.device)
+    // #797 P0/P1 — (re)attach the host DRAWING API GPU atlas + retained-icon
+    // draper to this run's device (rematerialises any batches added pre-run).
+    this.graphics.attachDevice(this.ctx.device, this.ctx.rhi, this.ctx.format)
     this.renderer = new MapRendererContent(this.ctx)
     this.renderer.setGraticuleEnabled(this._viewport.graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
