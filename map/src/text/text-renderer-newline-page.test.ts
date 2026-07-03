@@ -32,8 +32,16 @@ import type { RhiBuffer, RhiBindGroup } from '@xgis/engine'
 // bilingual-prepare-scatter.test.ts).
 const g = globalThis as Record<string, unknown>
 g.GPUBufferUsage ??= {
-  MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8, INDEX: 16,
-  VERTEX: 32, UNIFORM: 64, STORAGE: 128, INDIRECT: 256, QUERY_RESOLVE: 512,
+  MAP_READ: 1,
+  MAP_WRITE: 2,
+  COPY_SRC: 4,
+  COPY_DST: 8,
+  INDEX: 16,
+  VERTEX: 32,
+  UNIFORM: 64,
+  STORAGE: 128,
+  INDIRECT: 256,
+  QUERY_RESOLVE: 512,
 }
 
 const PAGE_SIZE = 256
@@ -53,7 +61,11 @@ function glyph(codepoint: number, page: number): GlyphInfo {
   }
 }
 
-interface RecordedSlice { first: number; count: number; page: number }
+interface RecordedSlice {
+  first: number
+  count: number
+  page: number
+}
 
 /** Build a setDraws-capable TextRenderer without touching real WebGPU. */
 function makeRenderer(): { renderer: TextRenderer; slices: () => RecordedSlice[] } {
@@ -123,10 +135,10 @@ describe('TextRenderer leading-newline atlas page', () => {
     // glyphs[0] = hard newline on page 0; first real glyph on page 1.
     // "\n성남시" — empty-latin concat result. cp 10 sits on P0, 성남시 on P1.
     const glyphs = [
-      glyph(10, 0),       // hard newline, page 0 — skipped, must NOT seed the slice
-      glyph(0xc131, 1),   // 성, page 1
-      glyph(0xb0a8, 1),   // 남, page 1
-      glyph(0xc2dc, 1),   // 시, page 1
+      glyph(10, 0), // hard newline, page 0 — skipped, must NOT seed the slice
+      glyph(0xc131, 1), // 성, page 1
+      glyph(0xb0a8, 1), // 남, page 1
+      glyph(0xc2dc, 1), // 시, page 1
     ]
     const { renderer, slices } = makeRenderer()
     renderer.setDraws([draw(glyphs)])
@@ -145,8 +157,8 @@ describe('TextRenderer leading-newline atlas page', () => {
     // No leading newline: real glyphs split across pages mid-label. The
     // page-boundary flush must still produce two slices on the right pages.
     const glyphs = [
-      glyph(0x41, 0),   // A, page 0
-      glyph(0x42, 0),   // B, page 0
+      glyph(0x41, 0), // A, page 0
+      glyph(0x42, 0), // B, page 0
       glyph(0xc131, 2), // 성, page 2 — boundary
       glyph(0xb0a8, 2), // 남, page 2
     ]

@@ -28,34 +28,75 @@ function isMaterialisable(e: Expr): boolean {
   return e.op !== 'varref' && e.op !== 'param' && e.op !== 'constref'
 }
 
-function collectTargets(body: readonly Stmt[], out: Map<Expr, { name: string; type: ShaderType }>, next: { n: number }): void {
+function collectTargets(
+  body: readonly Stmt[],
+  out: Map<Expr, { name: string; type: ShaderType }>,
+  next: { n: number },
+): void {
   for (const s of body) {
     if (s.s === 'assign' || s.s === 'assignOp') {
       const root = targetRoot(s.target)
-      if (isMaterialisable(root) && !out.has(root)) out.set(root, { name: `_av${next.n++}`, type: root.type })
+      if (isMaterialisable(root) && !out.has(root))
+        out.set(root, { name: `_av${next.n++}`, type: root.type })
     }
     // recurse nested bodies
-    if (s.s === 'if') { for (const a of s.arms) collectTargets(a.body, out, next); if (s.elseBody) collectTargets(s.elseBody, out, next) }
-    else if (s.s === 'for') { collectTargets(s.body, out, next) }
-    else if (s.s === 'switch') { for (const c of s.cases) collectTargets(c.body, out, next); if (s.defaultBody) collectTargets(s.defaultBody, out, next) }
+    if (s.s === 'if') {
+      for (const a of s.arms) collectTargets(a.body, out, next)
+      if (s.elseBody) collectTargets(s.elseBody, out, next)
+    } else if (s.s === 'for') {
+      collectTargets(s.body, out, next)
+    } else if (s.s === 'switch') {
+      for (const c of s.cases) collectTargets(c.body, out, next)
+      if (s.defaultBody) collectTargets(s.defaultBody, out, next)
+    }
   }
 }
 
 /** True if `s`'s whole subtree references any of `targets` (by identity). */
 function stmtRefs(s: Stmt, targets: ReadonlySet<Expr>): boolean {
   let hit = false
-  const scan = (e: Expr): void => { eachExpr(e, (x) => { if (targets.has(x)) hit = true }) }
+  const scan = (e: Expr): void => {
+    eachExpr(e, (x) => {
+      if (targets.has(x)) hit = true
+    })
+  }
   const walk = (st: Stmt): void => {
     if (hit) return
     switch (st.s) {
-      case 'let': scan(st.expr); break
-      case 'var': if (st.init !== undefined) scan(st.init); break
-      case 'assign': case 'assignOp': scan(st.target); scan(st.expr); break
-      case 'return': if (st.expr !== undefined) scan(st.expr); break
-      case 'if': for (const a of st.arms) { scan(a.cond); a.body.forEach(walk) } st.elseBody?.forEach(walk); break
-      case 'for': walk(st.init); scan(st.cond); walk(st.update); st.body.forEach(walk); break
-      case 'switch': scan(st.scrut); for (const c of st.cases) c.body.forEach(walk); st.defaultBody?.forEach(walk); break
-      default: break
+      case 'let':
+        scan(st.expr)
+        break
+      case 'var':
+        if (st.init !== undefined) scan(st.init)
+        break
+      case 'assign':
+      case 'assignOp':
+        scan(st.target)
+        scan(st.expr)
+        break
+      case 'return':
+        if (st.expr !== undefined) scan(st.expr)
+        break
+      case 'if':
+        for (const a of st.arms) {
+          scan(a.cond)
+          a.body.forEach(walk)
+        }
+        st.elseBody?.forEach(walk)
+        break
+      case 'for':
+        walk(st.init)
+        scan(st.cond)
+        walk(st.update)
+        st.body.forEach(walk)
+        break
+      case 'switch':
+        scan(st.scrut)
+        for (const c of st.cases) c.body.forEach(walk)
+        st.defaultBody?.forEach(walk)
+        break
+      default:
+        break
     }
   }
   walk(s)
@@ -96,19 +137,29 @@ function autoVarsFn(f: FuncDecl): FuncDecl {
 
   const processStmt = (s: Stmt): Stmt => {
     switch (s.s) {
-      case 'if': return {
-        ...s,
-        arms: s.arms.map((a) => ({ cond: rewrite(a.cond), body: processBlock(a.body) })),
-        elseBody: s.elseBody ? processBlock(s.elseBody) : undefined,
-      }
-      case 'for': return { ...s, init: processStmt(s.init), cond: rewrite(s.cond), update: processStmt(s.update), body: processBlock(s.body) }
-      case 'switch': return {
-        ...s,
-        scrut: rewrite(s.scrut),
-        cases: s.cases.map((c) => ({ value: c.value, body: processBlock(c.body) })),
-        defaultBody: s.defaultBody ? processBlock(s.defaultBody) : undefined,
-      }
-      default: return mapStmtTop(s, rewrite)
+      case 'if':
+        return {
+          ...s,
+          arms: s.arms.map((a) => ({ cond: rewrite(a.cond), body: processBlock(a.body) })),
+          elseBody: s.elseBody ? processBlock(s.elseBody) : undefined,
+        }
+      case 'for':
+        return {
+          ...s,
+          init: processStmt(s.init),
+          cond: rewrite(s.cond),
+          update: processStmt(s.update),
+          body: processBlock(s.body),
+        }
+      case 'switch':
+        return {
+          ...s,
+          scrut: rewrite(s.scrut),
+          cases: s.cases.map((c) => ({ value: c.value, body: processBlock(c.body) })),
+          defaultBody: s.defaultBody ? processBlock(s.defaultBody) : undefined,
+        }
+      default:
+        return mapStmtTop(s, rewrite)
     }
   }
 

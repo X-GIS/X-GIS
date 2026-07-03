@@ -16,7 +16,8 @@ import { overdrawComposeModule } from '../shaders/dsl/overdraw-compose'
 // The fullscreen-triangle vertex shader, DSL-authored (NOT a raw GLSL string) — reuses
 // the proven vs_full entry; emitGlslModule(m,'vertex') keeps only its @vertex entry.
 let _vsCache: string | undefined
-const fullscreenVsGlsl = (): string => (_vsCache ??= emitGlslModule(overdrawComposeModule, 'vertex'))
+const fullscreenVsGlsl = (): string =>
+  (_vsCache ??= emitGlslModule(overdrawComposeModule, 'vertex'))
 
 /**
  * Dispatch a per-feature compute kernel on WebGL2 as a fullscreen draw into an R32UI
@@ -50,7 +51,13 @@ export function dispatchComputeKernelWebGl2(
   const bindGroup = device.createBindGroup(layout, [{ binding: 0, resource: { buffer: featBuf } }])
 
   // u_count.x = N (the discard bounds guard); u_count.y = W_out (the output-row width).
-  const out = device.dispatchComputeToR32UI(pipeline, bindGroup, wOut, hOut, new Uint32Array([n, wOut, 0, 0]))
+  const out = device.dispatchComputeToR32UI(
+    pipeline,
+    bindGroup,
+    wOut,
+    hOut,
+    new Uint32Array([n, wOut, 0, 0]),
+  )
   // out is wOut*hOut; the first n texels are the per-feature results (rest are padding).
   return out.subarray(0, n)
 }

@@ -10,11 +10,11 @@ mkdirSync(OUT, { recursive: true })
 // waterway intermittent, tunnel casings, railway hatching, bridge
 // casings, highway-path, cablecar-dash. Sweep representative scenes.
 for (const cfg of [
-  { name: 'admin-boundary-z6',  hash: '#6/47.0/8.5' },        // alps, admin/country lines
-  { name: 'tunnel-z14',          hash: '#14/40.7589/-73.9851' }, // manhattan tunnels
-  { name: 'railway-z13',         hash: '#13/35.658/139.701' },   // tokyo rail hatching
-  { name: 'bridge-z14',          hash: '#14/40.7060/-73.9969' }, // brooklyn bridge
-  { name: 'waterway-z12',        hash: '#12/41.36/-72.10' },     // CT intermittent streams
+  { name: 'admin-boundary-z6', hash: '#6/47.0/8.5' }, // alps, admin/country lines
+  { name: 'tunnel-z14', hash: '#14/40.7589/-73.9851' }, // manhattan tunnels
+  { name: 'railway-z13', hash: '#13/35.658/139.701' }, // tokyo rail hatching
+  { name: 'bridge-z14', hash: '#14/40.7060/-73.9969' }, // brooklyn bridge
+  { name: 'waterway-z12', hash: '#12/41.36/-72.10' }, // CT intermittent streams
 ]) {
   test(`dash-case ${cfg.name}`, async ({ page }) => {
     test.setTimeout(60_000)
@@ -23,10 +23,11 @@ for (const cfg of [
       waitUntil: 'domcontentloaded',
     })
     await page.waitForFunction(
-      () => (window as unknown as { __xgisReady?: boolean; __mlReady?: boolean })
-        .__xgisReady === true
-        && (window as unknown as { __mlReady?: boolean }).__mlReady === true,
-      null, { timeout: 30_000 },
+      () =>
+        (window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }).__xgisReady ===
+          true && (window as unknown as { __mlReady?: boolean }).__mlReady === true,
+      null,
+      { timeout: 30_000 },
     )
     await page.waitForTimeout(8_000)
     const panes = page.locator('#panes .pane')

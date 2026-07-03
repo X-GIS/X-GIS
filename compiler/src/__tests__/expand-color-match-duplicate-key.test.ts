@@ -25,11 +25,9 @@ describe('expandPerFeatureColorMatch — duplicate key first-arm-wins', () => {
     // 'US' is listed under both '#abc' (first) and '#def' (second).
     // Mapbox semantics: 'US' → '#abc'. The expander must assign 'US'
     // only to the '#abc' sublayer and skip it in '#def'.
-    const expanded = expandPerFeatureColorMatch(buildLayer([
-      'US', '#abc',
-      ['US', 'CA'], '#def',
-      '#000',
-    ]))
+    const expanded = expandPerFeatureColorMatch(
+      buildLayer(['US', '#abc', ['US', 'CA'], '#def', '#000']),
+    )
 
     expect(expanded).not.toBeNull()
     const sublayers = expanded!
@@ -47,29 +45,33 @@ describe('expandPerFeatureColorMatch — duplicate key first-arm-wins', () => {
 
     // The '#abc' sublayer's in-filter must contain 'US'
     const abcFilter = abcLayer!.filter as unknown[]
-    const abcInFilter = abcFilter[0] === 'all'
-      ? (abcFilter as unknown[]).find((f): f is unknown[] => Array.isArray(f) && f[0] === 'in')
-      : (abcFilter as unknown[])
-    const abcVals: (string | number)[] = ((abcInFilter as unknown[])[2] as unknown[])[1] as (string | number)[]
+    const abcInFilter =
+      abcFilter[0] === 'all'
+        ? (abcFilter as unknown[]).find((f): f is unknown[] => Array.isArray(f) && f[0] === 'in')
+        : (abcFilter as unknown[])
+    const abcVals: (string | number)[] = ((abcInFilter as unknown[])[2] as unknown[])[1] as (
+      string | number
+    )[]
     expect(abcVals).toContain('US')
 
     // The '#def' sublayer's in-filter must NOT contain 'US'
     const defFilter = defLayer!.filter as unknown[]
-    const defInFilter = defFilter[0] === 'all'
-      ? (defFilter as unknown[]).find((f): f is unknown[] => Array.isArray(f) && f[0] === 'in')
-      : (defFilter as unknown[])
-    const defVals: (string | number)[] = ((defInFilter as unknown[])[2] as unknown[])[1] as (string | number)[]
+    const defInFilter =
+      defFilter[0] === 'all'
+        ? (defFilter as unknown[]).find((f): f is unknown[] => Array.isArray(f) && f[0] === 'in')
+        : (defFilter as unknown[])
+    const defVals: (string | number)[] = ((defInFilter as unknown[])[2] as unknown[])[1] as (
+      string | number
+    )[]
     expect(defVals).not.toContain('US')
   })
 
   it('duplicate key does NOT appear in allVals more than once (default NOT-IN filter)', () => {
     // 'US' appears under two arms. allVals should contain 'US' exactly once
     // so the NOT-IN default filter is minimal and correct.
-    const expanded = expandPerFeatureColorMatch(buildLayer([
-      'US', '#abc',
-      ['US', 'CA'], '#def',
-      '#000',
-    ]))
+    const expanded = expandPerFeatureColorMatch(
+      buildLayer(['US', '#abc', ['US', 'CA'], '#def', '#000']),
+    )
 
     expect(expanded).not.toBeNull()
     const sublayers = expanded!
@@ -79,11 +81,14 @@ describe('expandPerFeatureColorMatch — duplicate key first-arm-wins', () => {
     const defaultFilter = defaultLayer.filter as unknown[]
     // Structure: ['!', ['in', ['get', field], ['literal', allVals]]]
     // possibly wrapped in ['all', existingFilter, notIn]
-    const notInExpr = defaultFilter[0] === 'all'
-      ? (defaultFilter as unknown[]).find((f): f is unknown[] => Array.isArray(f) && f[0] === '!')
-      : (defaultFilter as unknown[])
+    const notInExpr =
+      defaultFilter[0] === 'all'
+        ? (defaultFilter as unknown[]).find((f): f is unknown[] => Array.isArray(f) && f[0] === '!')
+        : (defaultFilter as unknown[])
     const inExpr = (notInExpr as unknown[])[1] as unknown[]
-    const allVals: (string | number)[] = ((inExpr as unknown[])[2] as unknown[])[1] as (string | number)[]
+    const allVals: (string | number)[] = ((inExpr as unknown[])[2] as unknown[])[1] as (
+      string | number
+    )[]
 
     const usCount = allVals.filter((v) => v === 'US').length
     expect(usCount).toBe(1)

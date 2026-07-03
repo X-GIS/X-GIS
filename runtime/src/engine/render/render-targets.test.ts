@@ -32,7 +32,9 @@ function makeFakeDevice(): FakeDevice {
         descriptor,
         destroyed: false,
         createView: () => ({}) as GPUTextureView,
-        destroy() { this.destroyed = true },
+        destroy() {
+          this.destroyed = true
+        },
       }
       created.push(tex)
       return tex as unknown as GPUTexture
@@ -49,8 +51,12 @@ const screenView = {} as GPUTextureView
 
 describe('RenderTargets.ensure', () => {
   let stub: StubInstallation
-  beforeEach(() => { stub = installWebGPUStub() })
-  afterEach(() => { stub.uninstall() })
+  beforeEach(() => {
+    stub = installWebGPUStub()
+  })
+  afterEach(() => {
+    stub.uninstall()
+  })
 
   it('allocates ONLY stencil on first ensure (no MSAA, no pick, no overdraw); OIT/extrude are lazy', () => {
     const fake = makeFakeDevice()

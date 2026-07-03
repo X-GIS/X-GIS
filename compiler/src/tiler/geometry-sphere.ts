@@ -24,11 +24,19 @@
  *  indistinguishable from the original edge as long as each
  *  sub-segment spans ≤1° of arc, so this is safe to apply globally —
  *  no projection-specific gating needed at compile time. */
-function slerpLonLat(lon0: number, lat0: number, lon1: number, lat1: number, t: number): [number, number] {
+function slerpLonLat(
+  lon0: number,
+  lat0: number,
+  lon1: number,
+  lat1: number,
+  t: number,
+): [number, number] {
   const DEG2RAD = Math.PI / 180
   const RAD2DEG = 180 / Math.PI
-  const phi0 = lat0 * DEG2RAD, lam0 = lon0 * DEG2RAD
-  const phi1 = lat1 * DEG2RAD, lam1 = lon1 * DEG2RAD
+  const phi0 = lat0 * DEG2RAD,
+    lam0 = lon0 * DEG2RAD
+  const phi1 = lat1 * DEG2RAD,
+    lam1 = lon1 * DEG2RAD
   const x0 = Math.cos(phi0) * Math.cos(lam0)
   const y0 = Math.cos(phi0) * Math.sin(lam0)
   const z0 = Math.sin(phi0)
@@ -50,12 +58,18 @@ function slerpLonLat(lon0: number, lat0: number, lon1: number, lat1: number, t: 
 /** Great-circle distance in degrees between two (lon, lat) points. */
 function greatCircleDistanceDeg(lon0: number, lat0: number, lon1: number, lat1: number): number {
   const DEG2RAD = Math.PI / 180
-  const phi0 = lat0 * DEG2RAD, lam0 = lon0 * DEG2RAD
-  const phi1 = lat1 * DEG2RAD, lam1 = lon1 * DEG2RAD
-  const cosOmega = Math.max(-1, Math.min(1,
-    Math.sin(phi0) * Math.sin(phi1) + Math.cos(phi0) * Math.cos(phi1) * Math.cos(lam1 - lam0)
-  ))
-  return Math.acos(cosOmega) * 180 / Math.PI
+  const phi0 = lat0 * DEG2RAD,
+    lam0 = lon0 * DEG2RAD
+  const phi1 = lat1 * DEG2RAD,
+    lam1 = lon1 * DEG2RAD
+  const cosOmega = Math.max(
+    -1,
+    Math.min(
+      1,
+      Math.sin(phi0) * Math.sin(phi1) + Math.cos(phi0) * Math.cos(phi1) * Math.cos(lam1 - lam0),
+    ),
+  )
+  return (Math.acos(cosOmega) * 180) / Math.PI
 }
 
 /** Insert great-circle intermediate vertices into a line / ring so each
@@ -77,7 +91,8 @@ export function subdivideGreatCircle(coords: number[][]): number[][] {
   if (coords.length < 2) return coords
   const out: number[][] = [coords[0]]
   for (let i = 0; i < coords.length - 1; i++) {
-    const a = coords[i], b = coords[i + 1]
+    const a = coords[i],
+      b = coords[i + 1]
     const arcDeg = greatCircleDistanceDeg(a[0], a[1], b[0], b[1])
     if (arcDeg < 0.5) {
       out.push(b)

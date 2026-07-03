@@ -52,9 +52,25 @@ export const RULES: readonly LintRule[] = [
 ]
 
 export {
-  dupStruct, dupFunc, bindingCollision, allPathsReturn, singleExit, mixedScalarRule,
-  noRecursion, noUnreachable, noFloatEq, cyclomaticComplexity, paramCount, namingConvention, maxNesting,
-  noSelfAssign, noAssignToLet, noEmptyFunction, maxFunctionLength, preferLetOverVar, noDeadBinding,
+  dupStruct,
+  dupFunc,
+  bindingCollision,
+  allPathsReturn,
+  singleExit,
+  mixedScalarRule,
+  noRecursion,
+  noUnreachable,
+  noFloatEq,
+  cyclomaticComplexity,
+  paramCount,
+  namingConvention,
+  maxNesting,
+  noSelfAssign,
+  noAssignToLet,
+  noEmptyFunction,
+  maxFunctionLength,
+  preferLetOverVar,
+  noDeadBinding,
   callSignature,
 }
 

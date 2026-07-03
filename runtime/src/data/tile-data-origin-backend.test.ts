@@ -12,7 +12,9 @@ import { GeoJSONRuntimeBackend } from '@xgis/data'
 import { PMTilesBackend, type PMTilesFetcher } from '@xgis/data'
 import {
   TILE_LAYOUT_VERSION,
-  type TileSource, type TileSourceSink, type BackendTileResult,
+  type TileSource,
+  type TileSourceSink,
+  type BackendTileResult,
 } from '@xgis/data'
 
 // ─── Minimal mock TileSource ──────────────────────────────────────────────────
@@ -20,9 +22,15 @@ import {
 // The mock's attach() captures the sink, then the test manually drives
 // sink.acceptResult to push a BackendTileResult — no real fetch needed.
 
-function makeMockBackend(id: string): TileSource & { pushResult(key: number, result: BackendTileResult | null, sourceLayer?: string): void } {
+function makeMockBackend(
+  id: string,
+): TileSource & {
+  pushResult(key: number, result: BackendTileResult | null, sourceLayer?: string): void
+} {
   let _sink: TileSourceSink | null = null
-  const backend: TileSource & { pushResult(key: number, result: BackendTileResult | null, sourceLayer?: string): void } = {
+  const backend: TileSource & {
+    pushResult(key: number, result: BackendTileResult | null, sourceLayer?: string): void
+  } = {
     get meta() {
       return {
         bounds: [-180, -85, 180, 85] as [number, number, number, number],
@@ -33,8 +41,12 @@ function makeMockBackend(id: string): TileSource & { pushResult(key: number, res
       }
     },
     has: (_key) => true,
-    attach(sink) { _sink = sink },
-    loadTile(key) { _sink?.trackLoading(key) },
+    attach(sink) {
+      _sink = sink
+    },
+    loadTile(key) {
+      _sink?.trackLoading(key)
+    },
     pushResult(key, result, sourceLayer) {
       _sink!.acceptResult(key, result, sourceLayer)
     },
@@ -125,7 +137,15 @@ describe('TileData.originBackend reverse pointer (PR 2c.1 Task #5)', () => {
       type: 'Feature' as const,
       geometry: {
         type: 'Polygon' as const,
-        coordinates: [[[-30, -30], [30, -30], [30, 30], [-30, 30], [-30, -30]]],
+        coordinates: [
+          [
+            [-30, -30],
+            [30, -30],
+            [30, 30],
+            [-30, 30],
+            [-30, -30],
+          ],
+        ],
       },
       properties: {},
     }
@@ -155,7 +175,7 @@ describe('TileData.originBackend reverse pointer (PR 2c.1 Task #5)', () => {
     const key = tileKey(0, 0, 0)
     catalog.requestTiles([key])
     // Allow async fetch + acceptResult to complete
-    await new Promise(r => setTimeout(r, 80))
+    await new Promise((r) => setTimeout(r, 80))
 
     const data = catalog.getTileData(key)
     expect(data, 'PMTiles null-fetch produces a cached empty placeholder').not.toBeNull()

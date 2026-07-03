@@ -22,7 +22,11 @@ import { describe, expect, it } from 'vitest'
 import { GPUArena, type GPUArenaDevice } from './gpu-arena'
 import type { RhiBuffer } from '../render/rhi/rhi'
 
-interface MockBuffer { size: number; destroyed: boolean; destroy(): void }
+interface MockBuffer {
+  size: number
+  destroyed: boolean
+  destroy(): void
+}
 
 const unwrap = (h: unknown): MockBuffer => (h as { native: MockBuffer }).native
 
@@ -30,18 +34,31 @@ function mockDevice(): { dev: GPUArenaDevice; created: MockBuffer[] } {
   const created: MockBuffer[] = []
   const dev: GPUArenaDevice = {
     createBuffer(desc): RhiBuffer {
-      const b: MockBuffer = { size: desc.size, destroyed: false, destroy() { b.destroyed = true } }
+      const b: MockBuffer = {
+        size: desc.size,
+        destroyed: false,
+        destroy() {
+          b.destroyed = true
+        },
+      }
       created.push(b)
       return { native: b } as unknown as RhiBuffer
     },
-    destroyBuffer(h) { unwrap(h).destroy() },
-    unwrapBuffer(h) { return unwrap(h) as unknown as GPUBuffer },
+    destroyBuffer(h) {
+      unwrap(h).destroy()
+    },
+    unwrapBuffer(h) {
+      return unwrap(h) as unknown as GPUBuffer
+    },
   }
   return { dev, created }
 }
 
 // Records the relocation copies so we can assert no live slot is dropped.
-function mockEncoder(): { enc: { copyBufferToBuffer(...a: unknown[]): void }; copies: Array<{ srcOff: number; dstOff: number; size: number }> } {
+function mockEncoder(): {
+  enc: { copyBufferToBuffer(...a: unknown[]): void }
+  copies: Array<{ srcOff: number; dstOff: number; size: number }>
+} {
   const copies: Array<{ srcOff: number; dstOff: number; size: number }> = []
   const enc = {
     copyBufferToBuffer(_src: unknown, srcOff: number, _dst: unknown, dstOff: number, size: number) {
@@ -57,7 +74,11 @@ describe('GPUArena.compact(targetCapacity) — auto-grow', () => {
   it('grows capacity, preserves the live set, and serves the previously-failing alloc', () => {
     const { dev, created } = mockDevice()
     const CAP = 4096
-    const arena = new GPUArena(dev, { capacityBytes: CAP, usage: VERTEX_USAGE, label: 'poly-vertex-arena' })
+    const arena = new GPUArena(dev, {
+      capacityBytes: CAP,
+      usage: VERTEX_USAGE,
+      label: 'poly-vertex-arena',
+    })
 
     // Fill to capacity with 4 × 1KB allocs (all live / protected — never freed).
     const TILE = 1024
@@ -71,7 +92,11 @@ describe('GPUArena.compact(targetCapacity) — auto-grow', () => {
     // Grow: compact the live set into a 2× buffer.
     const { enc, copies } = mockEncoder()
     const TARGET = CAP * 2
-    const result = arena.compact(live, enc as unknown as Parameters<typeof arena.compact>[1], TARGET)
+    const result = arena.compact(
+      live,
+      enc as unknown as Parameters<typeof arena.compact>[1],
+      TARGET,
+    )
 
     // Capacity grew (FAIL-BEFORE: stayed at CAP without the target param).
     expect(arena.capacityBytes).toBe(TARGET)
@@ -82,7 +107,7 @@ describe('GPUArena.compact(targetCapacity) — auto-grow', () => {
     expect(arena.liveUsedBytes).toBe(4 * TILE)
     // Every live slot was copied (none dropped).
     expect(copies.length).toBe(4)
-    expect(copies.every(c => c.size === TILE)).toBe(true)
+    expect(copies.every((c) => c.size === TILE)).toBe(true)
     // The old buffer is returned for deferred retire, not destroyed here.
     expect((result.oldBuffer as unknown as MockBuffer).destroyed).toBe(false)
 
@@ -97,6 +122,6 @@ describe('GPUArena.compact(targetCapacity) — auto-grow', () => {
     const live = [{ oldOffset: arena.alloc(1024), bytes: 1024 }]
     const { enc } = mockEncoder()
     arena.compact(live, enc as unknown as Parameters<typeof arena.compact>[1])
-    expect(arena.capacityBytes).toBe(CAP)  // no grow without an explicit target
+    expect(arena.capacityBytes).toBe(CAP) // no grow without an explicit target
   })
 })

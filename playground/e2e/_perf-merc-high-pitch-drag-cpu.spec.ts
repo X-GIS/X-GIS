@@ -28,9 +28,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const fixture = fs.readFileSync(
-  resolve(__dirname, '__convert-fixtures/liberty.json'), 'utf8',
-)
+const fixture = fs.readFileSync(resolve(__dirname, '__convert-fixtures/liberty.json'), 'utf8')
 
 const SEOUL = { lon: 126.9776, lat: 37.53772 }
 const HASH = `#17.30/${SEOUL.lat}/${SEOUL.lon}/285.0/68.1`
@@ -47,8 +45,15 @@ interface CpuProfile {
   timeDeltas?: number[]
 }
 
-function topHotFunctions(profile: CpuProfile, topN = 30): Array<{
-  name: string; url: string; line: number; selfMs: number; selfPct: number
+function topHotFunctions(
+  profile: CpuProfile,
+  topN = 30,
+): Array<{
+  name: string
+  url: string
+  line: number
+  selfMs: number
+  selfPct: number
 }> {
   const selfMicros = new Map<number, number>()
   const samples = profile.samples ?? []
@@ -59,7 +64,7 @@ function topHotFunctions(profile: CpuProfile, topN = 30): Array<{
   }
   const totalMicros = profile.endTime - profile.startTime
   return profile.nodes
-    .map(n => ({
+    .map((n) => ({
       name: n.callFrame.functionName || '(anonymous)',
       url: n.callFrame.url || '',
       line: n.callFrame.lineNumber,
@@ -74,8 +79,8 @@ async function recordProfile(cdp: CDPSession, durationMs: number): Promise<CpuPr
   await cdp.send('Profiler.enable')
   await cdp.send('Profiler.setSamplingInterval', { interval: 100 }) // 10 kHz
   await cdp.send('Profiler.start')
-  await new Promise(r => setTimeout(r, durationMs))
-  const stopped = await cdp.send('Profiler.stop') as { profile: CpuProfile }
+  await new Promise((r) => setTimeout(r, durationMs))
+  const stopped = (await cdp.send('Profiler.stop')) as { profile: CpuProfile }
   await cdp.send('Profiler.disable')
   return stopped.profile
 }
@@ -90,7 +95,8 @@ async function setup(page: Page): Promise<void> {
   await page.goto(`/demo.html?id=__import${HASH}`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
   await page.waitForTimeout(4_000)
 }
@@ -105,25 +111,32 @@ test('#10 Liberty Seoul z17 pitch68 — CPU profile DURING drag-pan', async ({ p
   // Kick off the rAF pan-drag inside the page WITHOUT awaiting, so the
   // CDP profile records WHILE it runs. setCenter every rAF; small lon
   // delta (~200 m) mimics a finger drag without re-zooming.
-  const panPromise = page.evaluate(async (args: { lon: number; lat: number; durMs: number }) => {
-    const m = (window as unknown as { __xgisMap?: {
-      setCenter: (lng: number, lat: number) => void
-    } }).__xgisMap
-    if (!m) return
-    const t0 = performance.now()
-    await new Promise<void>(resolve => {
-      const step = (now: number) => {
-        const t = Math.min(1, (now - t0) / args.durMs)
-        const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
-        const dLon = 0.002 * ease
-        const dLat = 0.001 * ease
-        m.setCenter(args.lon + dLon, args.lat + dLat)
-        if (t >= 1) return resolve()
+  const panPromise = page.evaluate(
+    async (args: { lon: number; lat: number; durMs: number }) => {
+      const m = (
+        window as unknown as {
+          __xgisMap?: {
+            setCenter: (lng: number, lat: number) => void
+          }
+        }
+      ).__xgisMap
+      if (!m) return
+      const t0 = performance.now()
+      await new Promise<void>((resolve) => {
+        const step = (now: number) => {
+          const t = Math.min(1, (now - t0) / args.durMs)
+          const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
+          const dLon = 0.002 * ease
+          const dLat = 0.001 * ease
+          m.setCenter(args.lon + dLon, args.lat + dLat)
+          if (t >= 1) return resolve()
+          requestAnimationFrame(step)
+        }
         requestAnimationFrame(step)
-      }
-      requestAnimationFrame(step)
-    })
-  }, { lon: SEOUL.lon, lat: SEOUL.lat, durMs: PROFILE_MS })
+      })
+    },
+    { lon: SEOUL.lon, lat: SEOUL.lat, durMs: PROFILE_MS },
+  )
 
   // Record profile during the drag. Both end together.
   const profile = await recordProfile(cdp, PROFILE_MS)
@@ -138,11 +151,15 @@ test('#10 Liberty Seoul z17 pitch68 — CPU profile DURING drag-pan', async ({ p
 
   const hot = topHotFunctions(profile, 30)
   // eslint-disable-next-line no-console
-  console.log(`\n[hot] top 30 by self time over ${PROFILE_MS}ms DURING drag (#10 Liberty z17 pitch68):`)
+  console.log(
+    `\n[hot] top 30 by self time over ${PROFILE_MS}ms DURING drag (#10 Liberty z17 pitch68):`,
+  )
   for (const r of hot) {
     if (r.selfMs < 1) continue
     const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
     // eslint-disable-next-line no-console
-    console.log(`  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(40)} ${url}:${r.line}`)
+    console.log(
+      `  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(40)} ${url}:${r.line}`,
+    )
   }
 })

@@ -23,12 +23,12 @@ describe('Keyframes parser', () => {
     `
     const tokens = new Lexer(source).tokenize()
     const ast = new Parser(tokens).parse()
-    const kf = ast.body.find(s => s.kind === 'KeyframesStatement')
+    const kf = ast.body.find((s) => s.kind === 'KeyframesStatement')
     expect(kf).toBeDefined()
     if (kf?.kind !== 'KeyframesStatement') throw new Error('unreachable')
     expect(kf.name).toBe('pulse')
     expect(kf.frames).toHaveLength(3)
-    expect(kf.frames.map(f => f.percent)).toEqual([0, 50, 100])
+    expect(kf.frames.map((f) => f.percent)).toEqual([0, 50, 100])
     expect(kf.frames[1].utilities[0].name).toBe('opacity-30')
   })
 
@@ -43,9 +43,9 @@ describe('Keyframes parser', () => {
     `
     const tokens = new Lexer(source).tokenize()
     const ast = new Parser(tokens).parse()
-    const kf = ast.body.find(s => s.kind === 'KeyframesStatement')
+    const kf = ast.body.find((s) => s.kind === 'KeyframesStatement')
     if (kf?.kind !== 'KeyframesStatement') throw new Error('unreachable')
-    expect(kf.frames.map(f => f.percent)).toEqual([0, 100])
+    expect(kf.frames.map((f) => f.percent)).toEqual([0, 100])
   })
 
   it('sorts frames by percent after parsing', () => {
@@ -60,9 +60,9 @@ describe('Keyframes parser', () => {
     `
     const tokens = new Lexer(source).tokenize()
     const ast = new Parser(tokens).parse()
-    const kf = ast.body.find(s => s.kind === 'KeyframesStatement')
+    const kf = ast.body.find((s) => s.kind === 'KeyframesStatement')
     if (kf?.kind !== 'KeyframesStatement') throw new Error('unreachable')
-    expect(kf.frames.map(f => f.percent)).toEqual([0, 50, 100])
+    expect(kf.frames.map((f) => f.percent)).toEqual([0, 50, 100])
   })
 })
 
@@ -162,14 +162,16 @@ describe('Keyframes lowering', () => {
   })
 
   it('throws on unknown animation reference', () => {
-    expect(() => compile(`
+    expect(() =>
+      compile(`
       source data { type: geojson, url: "x.geojson" }
       layer broken {
         source: data
         | fill-red-500
         | animation-nonexistent animation-duration-500
       }
-    `)).toThrow(/Unknown keyframes reference/)
+    `),
+    ).toThrow(/Unknown keyframes reference/)
   })
 
   it('emits paintShapes.common.opacity time-interpolated + animationMeta Loop / Easing / DelayMs', () => {
@@ -193,7 +195,9 @@ describe('Keyframes lowering', () => {
       easing: 'ease-out',
       delayMs: 200,
     })
-    expect((show.paintShapes.common.opacity as { stops: { timeMs: number; value: number }[] }).stops).toEqual([
+    expect(
+      (show.paintShapes.common.opacity as { stops: { timeMs: number; value: number }[] }).stops,
+    ).toEqual([
       { timeMs: 0, value: 1.0 },
       { timeMs: 800, value: 0.1 },
     ])
@@ -476,7 +480,13 @@ describe('Keyframes — all-property metadata propagation (Bug 1 structural)', (
     // And the SHARED lifecycle metadata applies to every one of
     // them. Bug 1: only opacity got the right loop value. Every
     // animated paintShape carries the same loop/easing/delayMs.
-    for (const shape of [ps.common.opacity, ps.fill.fill, ps.line.stroke, ps.line.strokeWidth, ps.circle.size]) {
+    for (const shape of [
+      ps.common.opacity,
+      ps.fill.fill,
+      ps.line.stroke,
+      ps.line.strokeWidth,
+      ps.circle.size,
+    ]) {
       expect((shape as { loop: boolean }).loop).toBe(true)
       expect((shape as { easing: string }).easing).toBe('ease-in-out')
       expect((shape as { delayMs: number }).delayMs).toBe(100)

@@ -24,8 +24,14 @@ describe('PROJECTIONS table', () => {
 
   it('covers exactly the 8 known projections in wire order', () => {
     expect(PROJECTIONS.map((p) => p.name)).toEqual([
-      'mercator', 'equirectangular', 'natural_earth', 'orthographic',
-      'azimuthal_equidistant', 'stereographic', 'oblique_mercator', 'globe',
+      'mercator',
+      'equirectangular',
+      'natural_earth',
+      'orthographic',
+      'azimuthal_equidistant',
+      'stereographic',
+      'oblique_mercator',
+      'globe',
     ])
   })
 
@@ -33,16 +39,26 @@ describe('PROJECTIONS table', () => {
     // Regression pin: the exact object that render-loop.ts hand-encoded
     // before deriving it from the table.
     expect(PROJECTION_NAME_TO_TYPE).toEqual({
-      mercator: 0, equirectangular: 1, natural_earth: 2,
-      orthographic: 3, azimuthal_equidistant: 4, stereographic: 5,
-      oblique_mercator: 6, globe: 7,
+      mercator: 0,
+      equirectangular: 1,
+      natural_earth: 2,
+      orthographic: 3,
+      azimuthal_equidistant: 4,
+      stereographic: 5,
+      oblique_mercator: 6,
+      globe: 7,
     })
   })
 
   it('SELECTOR_PROJ_NAMES reproduces the prior VTR int→name array (globe excluded)', () => {
     expect(SELECTOR_PROJ_NAMES).toEqual([
-      'mercator', 'equirectangular', 'natural_earth', 'orthographic',
-      'azimuthal_equidistant', 'stereographic', 'oblique_mercator',
+      'mercator',
+      'equirectangular',
+      'natural_earth',
+      'orthographic',
+      'azimuthal_equidistant',
+      'stereographic',
+      'oblique_mercator',
     ])
   })
 
@@ -104,9 +120,14 @@ describe('PROJECTIONS table', () => {
     // {0,1,6}=mercator-clamped, {2}=natural-earth, {3,4,5,7}=sphere-full.
     // Mirrors the per-projType identity gate in earth-surface-fill.test.ts.
     const expected: Record<number, string> = {
-      0: 'mercator-clamped', 1: 'mercator-clamped', 2: 'natural-earth',
-      3: 'sphere-full', 4: 'sphere-full', 5: 'sphere-full',
-      6: 'mercator-clamped', 7: 'sphere-full',
+      0: 'mercator-clamped',
+      1: 'mercator-clamped',
+      2: 'natural-earth',
+      3: 'sphere-full',
+      4: 'sphere-full',
+      5: 'sphere-full',
+      6: 'mercator-clamped',
+      7: 'sphere-full',
     }
     for (const p of PROJECTIONS) {
       expect(p.worldBand).toBe(expected[p.projType])
@@ -118,8 +139,14 @@ describe('PROJECTIONS table', () => {
     // natural-earth + sphere-full → 90°. natural_earth (2) reaches the true
     // pole despite being cylindrical — it is NOT mercator-clamped.
     const expected: Record<number, number> = {
-      0: 85.051129, 1: 85.051129, 6: 85.051129,
-      2: 90, 3: 90, 4: 90, 5: 90, 7: 90,
+      0: 85.051129,
+      1: 85.051129,
+      6: 85.051129,
+      2: 90,
+      3: 90,
+      4: 90,
+      5: 90,
+      7: 90,
     }
     for (const p of PROJECTIONS) {
       expect(poleLimit(p.projType)).toBe(expected[p.projType])
@@ -140,8 +167,14 @@ describe('PROJECTIONS table', () => {
     // Sphere-full family stores a true centre latitude; the cylindrical family
     // (incl. natural_earth, the DECIDED default) keeps Mercator-Y pan authority.
     const expected: Record<number, string> = {
-      0: 'mercator-y', 1: 'mercator-y', 2: 'mercator-y', 6: 'mercator-y',
-      3: 'lat-deg', 4: 'lat-deg', 5: 'lat-deg', 7: 'lat-deg',
+      0: 'mercator-y',
+      1: 'mercator-y',
+      2: 'mercator-y',
+      6: 'mercator-y',
+      3: 'lat-deg',
+      4: 'lat-deg',
+      5: 'lat-deg',
+      7: 'lat-deg',
     }
     for (const p of PROJECTIONS) {
       expect(representsCenterAs(p.projType)).toBe(expected[p.projType])
@@ -154,7 +187,14 @@ describe('PROJECTIONS table', () => {
     // (0,1,2,6) have no hemisphere cull. US-002 ties these literals to the
     // WGSL source via projection-threshold-drift.test.ts.
     const expected: Record<number, number | null> = {
-      0: null, 1: null, 2: null, 3: 0.0, 4: -0.85, 5: -0.8, 6: null, 7: 0.0,
+      0: null,
+      1: null,
+      2: null,
+      3: 0.0,
+      4: -0.85,
+      5: -0.8,
+      6: null,
+      7: 0.0,
     }
     for (const p of PROJECTIONS) {
       expect(p.cullThreshold).toBe(expected[p.projType])

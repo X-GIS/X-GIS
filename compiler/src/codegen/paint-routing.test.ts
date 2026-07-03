@@ -9,18 +9,33 @@
 //   4. otherwise (TIME, ZOOM+TIME, no palette) → cpu-uniform
 
 import { describe, expect, it } from 'vitest'
-import { routeColorValue, routeIsCompute, routeIsPalette, routePropertyShape } from './paint-routing'
+import {
+  routeColorValue,
+  routeIsCompute,
+  routeIsPalette,
+  routePropertyShape,
+} from './paint-routing'
 import { collectPalette } from './palette'
-import type { ColorValue, DataExpr, RenderNode, Scene, SizeValue, StrokeValue, ZoomStop } from '../ir/render-node'
+import type {
+  ColorValue,
+  DataExpr,
+  RenderNode,
+  Scene,
+  SizeValue,
+  StrokeValue,
+  ZoomStop,
+} from '../ir/render-node'
 import type { PropertyShape, RGBA } from '../ir/property-types'
 
 const RED: RGBA = [1, 0, 0, 1]
 const BLUE: RGBA = [0, 0, 1, 1]
-const zs = <T,>(zoom: number, value: T): ZoomStop<T> => ({ zoom, value })
+const zs = <T>(zoom: number, value: T): ZoomStop<T> => ({ zoom, value })
 
 function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
   return {
-    name: 'a', sourceRef: 's', zOrder: 0,
+    name: 'a',
+    sourceRef: 's',
+    zOrder: 0,
     fill: { kind: 'none' },
     stroke: {
       color: { kind: 'none' },
@@ -30,8 +45,12 @@ function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
     size: { kind: 'none' } as SizeValue,
     extrude: { kind: 'none' } as never,
     extrudeBase: { kind: 'none' } as never,
-    projection: 'mercator', visible: true, pointerEvents: 'auto',
-    filter: null, geometry: null, billboard: true,
+    projection: 'mercator',
+    visible: true,
+    pointerEvents: 'auto',
+    filter: null,
+    geometry: null,
+    billboard: true,
     shape: { kind: 'named', name: 'circle' } as never,
     ...overrides,
   }
@@ -56,7 +75,8 @@ describe('routeColorValue', () => {
   it('zoom-interpolated WITH palette hit → palette-zoom + gradientIndex', () => {
     const v: ColorValue = { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] }
     const palette = collectPalette({
-      sources: [], symbols: [],
+      sources: [],
+      symbols: [],
       renderNodes: [makeNode({ fill: v })],
     } as Scene)
     const r = routeColorValue(v, palette)
@@ -70,7 +90,8 @@ describe('routeColorValue', () => {
     const sceneV: ColorValue = { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] }
     const otherV: ColorValue = { kind: 'zoom-interpolated', stops: [zs(0, BLUE), zs(10, RED)] }
     const palette = collectPalette({
-      sources: [], symbols: [],
+      sources: [],
+      symbols: [],
       renderNodes: [makeNode({ fill: sceneV })],
     } as Scene)
     expect(routeColorValue(otherV, palette).kind).toBe('cpu-uniform')
@@ -80,8 +101,13 @@ describe('routeColorValue', () => {
     const v: ColorValue = {
       kind: 'time-interpolated',
       base: RED,
-      stops: [{ timeMs: 0, value: RED }, { timeMs: 1000, value: BLUE }],
-      loop: false, easing: 'linear', delayMs: 0,
+      stops: [
+        { timeMs: 0, value: RED },
+        { timeMs: 1000, value: BLUE },
+      ],
+      loop: false,
+      easing: 'linear',
+      delayMs: 0,
     }
     expect(routeColorValue(v).kind).toBe('cpu-uniform')
   })
@@ -109,19 +135,17 @@ describe('routeColorValue', () => {
     }
     const zoomColor: ColorValue = { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] }
     const palette = collectPalette({
-      sources: [], symbols: [],
+      sources: [],
+      symbols: [],
       renderNodes: [makeNode({ fill: zoomColor })],
     } as Scene)
-    expect(routeColorValue({ kind: 'data-driven', expr }, palette).kind)
-      .toBe('compute-feature')
+    expect(routeColorValue({ kind: 'data-driven', expr }, palette).kind).toBe('compute-feature')
   })
 
   it('conditional ColorValue (FEATURE-dep by definition) → compute-feature', () => {
     const v: ColorValue = {
       kind: 'conditional',
-      branches: [
-        { field: 'school', value: { kind: 'constant', rgba: RED } },
-      ],
+      branches: [{ field: 'school', value: { kind: 'constant', rgba: RED } }],
       fallback: { kind: 'constant', rgba: BLUE },
     }
     expect(routeColorValue(v).kind).toBe('compute-feature')
@@ -145,8 +169,13 @@ describe('routePropertyShape', () => {
   it('time-interpolated scalar → cpu-uniform', () => {
     const r = routePropertyShape<number>({
       kind: 'time-interpolated',
-      stops: [{ timeMs: 0, value: 0 }, { timeMs: 1000, value: 1 }],
-      loop: false, easing: 'linear', delayMs: 0,
+      stops: [
+        { timeMs: 0, value: 0 },
+        { timeMs: 1000, value: 1 },
+      ],
+      loop: false,
+      easing: 'linear',
+      delayMs: 0,
     })
     expect(r.kind).toBe('cpu-uniform')
   })
@@ -163,8 +192,13 @@ describe('routePropertyShape', () => {
     const r = routePropertyShape<number>({
       kind: 'zoom-time',
       zoomStops: [zs(0, 0), zs(20, 1)],
-      timeStops: [{ timeMs: 0, value: 0 }, { timeMs: 1000, value: 1 }],
-      loop: false, easing: 'linear', delayMs: 0,
+      timeStops: [
+        { timeMs: 0, value: 0 },
+        { timeMs: 1000, value: 1 },
+      ],
+      loop: false,
+      easing: 'linear',
+      delayMs: 0,
     })
     expect(r.kind).toBe('cpu-uniform')
   })

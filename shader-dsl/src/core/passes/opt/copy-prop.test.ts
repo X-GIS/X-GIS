@@ -9,19 +9,27 @@ import { compileModule } from '../../oracle'
 // renaming → bit-identical. Correctness pinned by oracle value-equality.
 describe('optimize — copy propagation', () => {
   it('propagates a copy binding (let y = x) into its uses', () => {
-    const m = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => {
-      const y = b.let('y', x)
-      b.ret(y.add(1))
-    })] })
+    const m = module({
+      funcs: [
+        fn('k', { x: f32T }, f32T, ({ x }, b) => {
+          const y = b.let('y', x)
+          b.ret(y.add(1))
+        }),
+      ],
+    })
     const wgsl = emitModule(copyProp(m))
     expect(wgsl).toMatch(/x\s*\+\s*1\.0/) // y replaced by x
   })
 
   it('preserves oracle value-equality', () => {
-    const m = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => {
-      const y = b.let('y', x)
-      b.ret(y.add(1))
-    })] })
+    const m = module({
+      funcs: [
+        fn('k', { x: f32T }, f32T, ({ x }, b) => {
+          const y = b.let('y', x)
+          b.ret(y.add(1))
+        }),
+      ],
+    })
     expect(compileModule(copyProp(m)).fns.k(4)).toBe(compileModule(m).fns.k(4)) // 5
   })
 })

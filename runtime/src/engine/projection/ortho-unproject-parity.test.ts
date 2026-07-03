@@ -13,7 +13,9 @@
 import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/engine'
 
-const W = 800, H = 800, DPR = 1
+const W = 800,
+  H = 800,
+  DPR = 1
 
 function mulMat4Vec4(
   m: Float32Array | ArrayLike<number>,
@@ -42,7 +44,8 @@ describe('ortho render↔unproject cap parity (z0 disc fix)', () => {
       cam.globeOrtho = true
 
       // An off-centre screen point (asymmetric in both axes).
-      const sx = 560, sy = 300
+      const sx = 560,
+        sy = 300
       const world = cam.unprojectToZ0(sx, sy, W, H, DPR)
       expect(world, `unproject returned null at z=${zoom}`).not.toBeNull()
 

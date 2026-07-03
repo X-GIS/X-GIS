@@ -19,9 +19,13 @@ describe('expand-color-match wrapped get field', () => {
           source: 's',
           'source-layer': 'country',
           paint: {
-            'fill-color': ['match', ['get', ['literal', 'code']],
-              'us', '#f00',
-              'cn', '#0f0',
+            'fill-color': [
+              'match',
+              ['get', ['literal', 'code']],
+              'us',
+              '#f00',
+              'cn',
+              '#0f0',
               '#eee',
             ],
           },

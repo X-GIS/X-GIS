@@ -29,9 +29,10 @@ describe('setProjection validity set', () => {
     const aliasMatch = src.match(/const ALIASES: Record<string, string> = \{([\s\S]*?)\}/)
     expect(aliasMatch).not.toBeNull()
     const aliasMap = aliasMatch![1]
-      .split('\n').map(l => l.trim())
-      .filter(l => l.includes("':"))
-      .map(l => {
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.includes("':"))
+      .map((l) => {
         const m = l.match(/'([^']+)':\s*'([^']+)'/)
         return m ? { alias: m[1], canonical: m[2] } : null
       })
@@ -39,10 +40,15 @@ describe('setProjection validity set', () => {
     expect(aliasMap.length).toBeGreaterThan(0)
 
     const validMatch = src.match(/const VALID = new Set\(\[([\s\S]*?)\]\)/)
-    const validNames = new Set((validMatch![1].match(/'([a-z_]+)'/g) ?? []).map(s => s.slice(1, -1)))
+    const validNames = new Set(
+      (validMatch![1].match(/'([a-z_]+)'/g) ?? []).map((s) => s.slice(1, -1)),
+    )
 
     for (const { alias, canonical } of aliasMap) {
-      expect(validNames.has(canonical), `alias '${alias}' maps to '${canonical}' which is not in VALID`).toBe(true)
+      expect(
+        validNames.has(canonical),
+        `alias '${alias}' maps to '${canonical}' which is not in VALID`,
+      ).toBe(true)
     }
   })
 
@@ -54,7 +60,7 @@ describe('setProjection validity set', () => {
     // VALID set declared in setProjection.
     const validMatch = src.match(/const VALID = new Set\(\[([\s\S]*?)\]\)/)
     expect(validMatch).not.toBeNull()
-    const validNames = (validMatch![1].match(/'([a-z_]+)'/g) ?? []).map(s => s.slice(1, -1))
+    const validNames = (validMatch![1].match(/'([a-z_]+)'/g) ?? []).map((s) => s.slice(1, -1))
     expect(validNames.sort()).toEqual([
       'azimuthal_equidistant',
       'equirectangular',

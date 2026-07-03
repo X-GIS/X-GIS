@@ -41,7 +41,7 @@ export type GeoJSONGeometry =
 // ═══ GPU-ready mesh data ═══
 
 export interface MeshData {
-  vertices: Float32Array  // [lon, lat, feat_id, lon, lat, feat_id, ...] in degrees (3 floats/vertex)
+  vertices: Float32Array // [lon, lat, feat_id, lon, lat, feat_id, ...] in degrees (3 floats/vertex)
   indices: Uint32Array
   features: FeatureRange[]
   bounds: [number, number, number, number] // [minLon, minLat, maxLon, maxLat]

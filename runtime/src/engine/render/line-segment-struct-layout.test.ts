@@ -17,9 +17,13 @@ import { LINE_SEGMENT_STRIDE_BYTES, LINE_SEGMENT_STRIDE_F32 } from '@xgis/data'
 
 // std430 [align, size] in bytes for the scalar/vector types LineSegment uses.
 const STD430: Record<string, [number, number]> = {
-  'f32': [4, 4], 'u32': [4, 4], 'i32': [4, 4],
-  'vec2<f32>': [8, 8], 'vec2<u32>': [8, 8],
-  'vec3<f32>': [16, 12], 'vec4<f32>': [16, 16],
+  f32: [4, 4],
+  u32: [4, 4],
+  i32: [4, 4],
+  'vec2<f32>': [8, 8],
+  'vec2<u32>': [8, 8],
+  'vec3<f32>': [16, 12],
+  'vec4<f32>': [16, 16],
 }
 
 const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a

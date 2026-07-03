@@ -10,10 +10,19 @@
 // this is the WebGPU/compute face of the same DSL.
 
 import {
-  fn, module, f32, u32, reduce,
-  f32T, vec3uT, vec4uT,
-  If, Return,
-  storageBuffer, resource, builtin,
+  fn,
+  module,
+  f32,
+  u32,
+  reduce,
+  f32T,
+  vec3uT,
+  vec4uT,
+  If,
+  Return,
+  storageBuffer,
+  resource,
+  builtin,
 } from '../src/index.ts'
 import type { ShaderExample } from './_shared.ts'
 
@@ -25,17 +34,29 @@ const outputB = storageBuffer('output', f32T, { group: 0, binding: 1, access: 'r
 // .x = number of output elements (one reduced window each).
 const params = resource('params', vec4uT, { group: 0, binding: 2 })
 
-const reduceKernel = fn('reduce_windows', { gid: builtin('global_invocation_id', vec3uT) }, ({ gid }) => {
-  const idx = gid.x
-  If(idx.ge(params.node.x), () => { Return() })
+const reduceKernel = fn(
+  'reduce_windows',
+  { gid: builtin('global_invocation_id', vec3uT) },
+  ({ gid }) => {
+    const idx = gid.x
+    If(idx.ge(params.node.x), () => {
+      Return()
+    })
 
-  const base = idx.mul(WINDOW)
-  // Fold WINDOW elements: acc starts at 0, loop j in [0, WINDOW), accumulate.
-  const sum = reduce(f32(0), u32(0), (j) => j.lt(WINDOW), (acc, j) =>
-    acc.add(inputB.at(base.add(j))), u32(1))
+    const base = idx.mul(WINDOW)
+    // Fold WINDOW elements: acc starts at 0, loop j in [0, WINDOW), accumulate.
+    const sum = reduce(
+      f32(0),
+      u32(0),
+      (j) => j.lt(WINDOW),
+      (acc, j) => acc.add(inputB.at(base.add(j))),
+      u32(1),
+    )
 
-  outputB.at(idx).assign(sum)
-}, { stage: 'compute', workgroupSize: 64 })
+    outputB.at(idx).assign(sum)
+  },
+  { stage: 'compute', workgroupSize: 64 },
+)
 
 const reductionModule = module({
   bindings: [inputB.binding, outputB.binding, params.binding],
@@ -45,7 +66,8 @@ const reductionModule = module({
 export const computeReduction: ShaderExample = {
   id: 'compute-reduction',
   title: 'Compute reduction',
-  blurb: 'A @workgroup_size compute kernel folding a window of an input storage buffer into one output element with reduce(). WebGPU-only — GLSL ES 3.00 has no compute, so this shows WGSL + reflection.',
+  blurb:
+    'A @workgroup_size compute kernel folding a window of an input storage buffer into one output element with reduce(). WebGPU-only — GLSL ES 3.00 has no compute, so this shows WGSL + reflection.',
   category: 'compute',
   file: 'compute-reduction.ts',
   module: reductionModule,

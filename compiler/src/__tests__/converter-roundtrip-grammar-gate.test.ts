@@ -59,32 +59,50 @@ const PROPS = makeEvalProps({
 // axis (the comment notes which axis the shape is realistic for).
 const MATRIX: Array<[string, unknown]> = [
   // match arm value = case  → ternary-valued arm (THE drift). fill-color.
-  ['fill-color: match → case arm',
-    ['match', ['get', 'cls'], 'a', ['case', ['get', 'hl'], '#ffffff', '#000000'], '#888888']],
+  [
+    'fill-color: match → case arm',
+    ['match', ['get', 'cls'], 'a', ['case', ['get', 'hl'], '#ffffff', '#000000'], '#888888'],
+  ],
   // match DEFAULT arm = case → trailing ternary before `}`. line-color.
-  ['line-color: match → case default arm',
-    ['match', ['get', 'cls'], 'a', '#ff0000', ['case', ['get', 'hl'], '#ffffff', '#000000']]],
+  [
+    'line-color: match → case default arm',
+    ['match', ['get', 'cls'], 'a', '#ff0000', ['case', ['get', 'hl'], '#ffffff', '#000000']],
+  ],
   // match arm value = coalesce → `??` chain (parses on clean HEAD).
-  ['text-color: match → coalesce arm',
-    ['match', ['get', 'cls'], 'a', ['coalesce', ['get', 'x'], '#000000'], '#888888']],
+  [
+    'text-color: match → coalesce arm',
+    ['match', ['get', 'cls'], 'a', ['coalesce', ['get', 'x'], '#000000'], '#888888'],
+  ],
   // case branch = match block.
-  ['fill-color: case → match branch',
-    ['case', ['get', 'hl'], ['match', ['get', 'cls'], 'a', '#ffffff', '#000000'], '#888888']],
+  [
+    'fill-color: case → match branch',
+    ['case', ['get', 'hl'], ['match', ['get', 'cls'], 'a', '#ffffff', '#000000'], '#888888'],
+  ],
   // coalesce arm = case → parenthesised by the coalesce path already.
-  ['fill-color: coalesce → case arm',
-    ['coalesce', ['case', ['get', 'hl'], '#ffffff', '#000000'], '#888888']],
+  [
+    'fill-color: coalesce → case arm',
+    ['coalesce', ['case', ['get', 'hl'], '#ffffff', '#000000'], '#888888'],
+  ],
   // match arm value = interpolate → circle-radius data-driven scaling.
-  ['circle-radius: match → interpolate arm',
-    ['match', ['get', 'cls'], 'a', ['interpolate', ['linear'], ['get', 'mag'], 0, 1, 10, 20], 5]],
+  [
+    'circle-radius: match → interpolate arm',
+    ['match', ['get', 'cls'], 'a', ['interpolate', ['linear'], ['get', 'mag'], 0, 1, 10, 20], 5],
+  ],
   // let body = match → var substitution then match block.
-  ['fill-color: let → match body',
-    ['let', 'c', ['get', 'cls'], ['match', ['var', 'c'], 'a', '#ffffff', '#000000']]],
+  [
+    'fill-color: let → match body',
+    ['let', 'c', ['get', 'cls'], ['match', ['var', 'c'], 'a', '#ffffff', '#000000']],
+  ],
   // format text span = match → label text round-trip.
-  ['text-field: format → match span',
-    ['format', ['match', ['get', 'lang'], 'en', 'Name', 'ko', '이름', '?'], {}]],
+  [
+    'text-field: format → match span',
+    ['format', ['match', ['get', 'lang'], 'en', 'Name', 'ko', '이름', '?'], {}],
+  ],
   // case branch = coalesce → ternary-of-coalesce.
-  ['fill-color: case → coalesce branch',
-    ['case', ['get', 'hl'], ['coalesce', ['get', 'x'], '#abcabc'], '#defdef']],
+  [
+    'fill-color: case → coalesce branch',
+    ['case', ['get', 'hl'], ['coalesce', ['get', 'x'], '#abcabc'], '#defdef'],
+  ],
 ]
 
 describe('converter emit ⇄ parser grammar round-trip gate', () => {
@@ -101,7 +119,9 @@ describe('converter emit ⇄ parser grammar round-trip gate', () => {
       //    thrown parse error (e.g. "Expected RBrace, got Question").
       let ast: ReturnType<typeof parseExpressionString>
       expect(
-        () => { ast = parseExpressionString(xg) },
+        () => {
+          ast = parseExpressionString(xg)
+        },
         `emitted xgis failed to PARSE for "${name}":\n  ${xg.replace(/\n/g, ' ')}`,
       ).not.toThrow()
 
@@ -109,7 +129,9 @@ describe('converter emit ⇄ parser grammar round-trip gate', () => {
       //    second drift mode where a shape parses but the evaluator
       //    chokes on it.
       expect(
-        () => { evaluate(ast!, PROPS) },
+        () => {
+          evaluate(ast!, PROPS)
+        },
         `parsed AST failed to EVALUATE for "${name}":\n  ${xg.replace(/\n/g, ' ')}`,
       ).not.toThrow()
     })

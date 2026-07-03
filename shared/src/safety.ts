@@ -129,9 +129,11 @@ function walkCoordPairs(coords: unknown, budget: VertexBudget, depth: number): v
  *  Node / SSR there is no page origin, so this returns false and every private
  *  host stays blocked — the real server-side SSRF surface. */
 function isSameOriginAsPage(url: URL): boolean {
-  return typeof window !== 'undefined'
-    && typeof window.location !== 'undefined'
-    && url.origin === window.location.origin
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.location !== 'undefined' &&
+    url.origin === window.location.origin
+  )
 }
 
 /** SSRF guard for remote asset URLs. Absolute URLs must use http(s) and
@@ -159,7 +161,12 @@ export function assertSafeRemoteUrl(raw: string, label = 'remote URL'): void {
       } catch {
         resolved = null
       }
-      if (resolved && resolved.hostname !== 'x.invalid' && isPrivateHost(resolved.hostname) && !isSameOriginAsPage(resolved)) {
+      if (
+        resolved &&
+        resolved.hostname !== 'x.invalid' &&
+        isPrivateHost(resolved.hostname) &&
+        !isSameOriginAsPage(resolved)
+      ) {
         throw new XGISSecurityError(`[X-GIS] ${label}: private/loopback host blocked (SSRF guard).`)
       }
     }
@@ -217,7 +224,9 @@ export async function safeFetch(
     // of silently. (In Node the status is the real 3xx and the Location path
     // below re-validates + follows.)
     if (resp.type === 'opaqueredirect' || resp.status === 0) {
-      throw new XGISSecurityError(`[X-GIS] ${label}: redirect target hidden by the browser; refusing to follow un-revalidatable redirect (SSRF guard).`)
+      throw new XGISSecurityError(
+        `[X-GIS] ${label}: redirect target hidden by the browser; refusing to follow un-revalidatable redirect (SSRF guard).`,
+      )
     }
     if (resp.status < 300 || resp.status >= 400) return resp
     const location = resp.headers.get('location')
@@ -240,7 +249,10 @@ export async function safeFetch(
  *  matching here. A bare single-label intranet name is NOT treated as
  *  private — only the well-known reserved ranges + `localhost`. */
 function isPrivateHost(hostname: string): boolean {
-  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '') // strip IPv6 brackets; strip trailing DNS dot
+  const h = hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '') // strip IPv6 brackets; strip trailing DNS dot
   if (h === 'localhost' || h.endsWith('.localhost')) return true
   if (h === '::1' || h === '::') return true
   if (/^f[cd][0-9a-f]{2}:/.test(h)) return true // fc00::/7 unique-local

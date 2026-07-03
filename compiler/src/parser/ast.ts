@@ -156,7 +156,7 @@ export type FnCall = {
   kind: 'FnCall'
   callee: Expr
   args: Expr[]
-  matchBlock?: MatchBlock  // match(field) { "val" -> color, ... }
+  matchBlock?: MatchBlock // match(field) { "val" -> color, ... }
 }
 
 // a + b, a > b, etc.
@@ -236,7 +236,7 @@ export type LayerStatement = {
   name: string
   properties: BlockProperty[]
   utilities: UtilityLine[]
-  styleProperties: StyleProperty[]  // CSS-like properties: fill: stone-800
+  styleProperties: StyleProperty[] // CSS-like properties: fill: stone-800
   line: number
 }
 
@@ -308,31 +308,31 @@ export type StyleStatement = {
 // CSS-like property: fill: stone-800, stroke-width: 1, opacity: 0.8
 export type StyleProperty = {
   kind: 'StyleProperty'
-  name: string     // e.g., 'fill', 'stroke', 'stroke-width', 'opacity'
-  value: string    // e.g., 'stone-800', '#ff0000', '1', '0.8'
+  name: string // e.g., 'fill', 'stroke', 'stroke-width', 'opacity'
+  value: string // e.g., 'stone-800', '#ff0000', '1', '0.8'
   line: number
 }
 
 // A single utility item, e.g., z8:fill-red-500 or size-[speed/50]
 export type UtilityItem = {
   kind: 'UtilityItem'
-  modifier: string | null   // e.g., "z8", "friendly", "hover" (before the colon)
-  name: string              // e.g., "fill-red-500", "stroke-2", "opacity-80"
-  binding: Expr | null      // e.g., the expression inside [...] for data binding
+  modifier: string | null // e.g., "z8", "friendly", "hover" (before the colon)
+  name: string // e.g., "fill-red-500", "stroke-2", "opacity-80"
+  binding: Expr | null // e.g., the expression inside [...] for data binding
   bindingUnit?: string | null // e.g., "km" in size-[expr]km
 }
 
 // keyframes pulse { 0%: opacity-100  50%: opacity-30  100%: opacity-100 }
 export type KeyframesStatement = {
   kind: 'KeyframesStatement'
-  name: string             // e.g., "pulse"
-  frames: Keyframe[]       // sorted by percent after parsing
+  name: string // e.g., "pulse"
+  frames: Keyframe[] // sorted by percent after parsing
   line: number
 }
 
 // A single keyframe: { percent: 50, utilities: [UtilityItem('opacity-30')] }
 export type Keyframe = {
-  percent: number          // 0..100 (from=0, to=100)
+  percent: number // 0..100 (from=0, to=100)
   utilities: UtilityItem[]
   line: number
 }

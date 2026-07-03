@@ -57,41 +57,65 @@ describe('resolveShow — constant paint shapes', () => {
     // the static `show.fill` hex is authoritative downstream. The
     // resolver propagates that null unless `show.resolvedFillRgba`
     // (bake-time staging) exists.
-    const r = resolveShow(show({
-      fill: { kind: 'constant', value: [1, 0, 0, 1] },
-    }), env)
+    const r = resolveShow(
+      show({
+        fill: { kind: 'constant', value: [1, 0, 0, 1] },
+      }),
+      env,
+    )
     expect(r.fill).toBeNull()
   })
 })
 
 describe('resolveShow — zoom-interpolated', () => {
   it('interpolates opacity across zoom stops', () => {
-    const r = resolveShow(show({
-      opacity: { kind: 'zoom-interpolated', base: 1, stops: [
-        { zoom: 0, value: 0 },
-        { zoom: 10, value: 1 },
-      ] },
-    }), { cameraZoom: 5, elapsedMs: 0 })
+    const r = resolveShow(
+      show({
+        opacity: {
+          kind: 'zoom-interpolated',
+          base: 1,
+          stops: [
+            { zoom: 0, value: 0 },
+            { zoom: 10, value: 1 },
+          ],
+        },
+      }),
+      { cameraZoom: 5, elapsedMs: 0 },
+    )
     expect(r.opacity).toBeCloseTo(0.5, 3)
   })
 
   it('interpolates strokeWidth across zoom stops', () => {
-    const r = resolveShow(show({
-      strokeWidth: { kind: 'zoom-interpolated', base: 1, stops: [
-        { zoom: 0, value: 1 },
-        { zoom: 10, value: 5 },
-      ] },
-    }), { cameraZoom: 5, elapsedMs: 0 })
+    const r = resolveShow(
+      show({
+        strokeWidth: {
+          kind: 'zoom-interpolated',
+          base: 1,
+          stops: [
+            { zoom: 0, value: 1 },
+            { zoom: 10, value: 5 },
+          ],
+        },
+      }),
+      { cameraZoom: 5, elapsedMs: 0 },
+    )
     expect(r.strokeWidth).toBeCloseTo(3, 3)
   })
 
   it('interpolates RGBA fill across zoom stops', () => {
-    const r = resolveShow(show({
-      fill: { kind: 'zoom-interpolated', base: 1, stops: [
-        { zoom: 0, value: [1, 0, 0, 1] },
-        { zoom: 10, value: [0, 0, 1, 1] },
-      ] },
-    }), { cameraZoom: 5, elapsedMs: 0 })
+    const r = resolveShow(
+      show({
+        fill: {
+          kind: 'zoom-interpolated',
+          base: 1,
+          stops: [
+            { zoom: 0, value: [1, 0, 0, 1] },
+            { zoom: 10, value: [0, 0, 1, 1] },
+          ],
+        },
+      }),
+      { cameraZoom: 5, elapsedMs: 0 },
+    )
     expect(r.fill).not.toBeNull()
     expect(r.fill![0]).toBeCloseTo(0.5, 2)
     expect(r.fill![2]).toBeCloseTo(0.5, 2)
@@ -101,12 +125,19 @@ describe('resolveShow — zoom-interpolated', () => {
     // The compiler now lowers `line-color: interpolate(zoom, …)` to a real
     // zoom-interpolated stroke shape (it used to bake the last stop); this pins
     // the runtime half — the per-frame resolver interpolates it like fill.
-    const r = resolveShow(show({
-      stroke: { kind: 'zoom-interpolated', base: 1, stops: [
-        { zoom: 0, value: [1, 0, 0, 1] },
-        { zoom: 10, value: [0, 0, 1, 1] },
-      ] },
-    }), { cameraZoom: 5, elapsedMs: 0 })
+    const r = resolveShow(
+      show({
+        stroke: {
+          kind: 'zoom-interpolated',
+          base: 1,
+          stops: [
+            { zoom: 0, value: [1, 0, 0, 1] },
+            { zoom: 10, value: [0, 0, 1, 1] },
+          ],
+        },
+      }),
+      { cameraZoom: 5, elapsedMs: 0 },
+    )
     expect(r.stroke).not.toBeNull()
     expect(r.stroke![0]).toBeCloseTo(0.5, 2)
     expect(r.stroke![2]).toBeCloseTo(0.5, 2)
@@ -117,14 +148,25 @@ describe('resolveShow — zoom × time composition', () => {
   it('composes opacity = zoomFactor × timeFactor for the zoom-time shape', () => {
     // The classifier's legacy `zoomOpa * timeOpa` rule is replayed
     // by resolveNumberShape on the `zoom-time` kind.
-    const r = resolveShow(show({
-      opacity: {
-        kind: 'zoom-time',
-        zoomStops: [{ zoom: 0, value: 0 }, { zoom: 10, value: 1 }],
-        timeStops: [{ timeMs: 0, value: 1 }, { timeMs: 1000, value: 0.5 }],
-        loop: false, easing: 'linear', delayMs: 0,
-      },
-    }), { cameraZoom: 5, elapsedMs: 1000 })
+    const r = resolveShow(
+      show({
+        opacity: {
+          kind: 'zoom-time',
+          zoomStops: [
+            { zoom: 0, value: 0 },
+            { zoom: 10, value: 1 },
+          ],
+          timeStops: [
+            { timeMs: 0, value: 1 },
+            { timeMs: 1000, value: 0.5 },
+          ],
+          loop: false,
+          easing: 'linear',
+          delayMs: 0,
+        },
+      }),
+      { cameraZoom: 5, elapsedMs: 1000 },
+    )
     expect(r.opacity).toBeCloseTo(0.5 * 0.5, 3)
   })
 })
@@ -141,7 +183,10 @@ describe('resolveShow — layerName tag', () => {
   })
 
   it('falls back to targetName when both DSL and source are missing', () => {
-    const r = resolveShow(show({}, { layerName: undefined, sourceLayer: undefined, targetName: 'src' }), env)
+    const r = resolveShow(
+      show({}, { layerName: undefined, sourceLayer: undefined, targetName: 'src' }),
+      env,
+    )
     expect(r.layerName).toBe('src')
   })
 })

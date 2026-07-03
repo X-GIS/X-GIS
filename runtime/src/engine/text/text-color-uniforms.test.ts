@@ -39,7 +39,11 @@ const FILL_A = 7
 const baseGlyph = {
   codepoint: 65,
   slot: { page: 0, cellX: 0, cellY: 0, pxX: 0, pxY: 0, size: 64 },
-  advanceWidth: 16, bearingX: 0, bearingY: 16, width: 16, height: 20,
+  advanceWidth: 16,
+  bearingX: 0,
+  bearingY: 16,
+  width: 16,
+  height: 20,
   pbf: true,
 }
 
@@ -48,7 +52,8 @@ const baseGlyph = {
  *  thing that can move slots 4..7 is the text-color wire. */
 function makeDraw(color: [number, number, number, number]): TextDraw {
   return {
-    anchorX: 0, anchorY: 0,
+    anchorX: 0,
+    anchorY: 0,
     glyphs: [baseGlyph],
     fontSize: 24,
     rasterFontSize: 32,

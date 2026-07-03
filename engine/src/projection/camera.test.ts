@@ -33,16 +33,21 @@ import { lonLatToMercator } from './projection'
  *  signature). EARTH_R + DEG2RAD match `lonLatToMercator`'s constants. */
 function mercatorToLonLat(mx: number, my: number): [number, number] {
   const R = 6378137
-  const lon = mx / R * (180 / Math.PI)
+  const lon = (mx / R) * (180 / Math.PI)
   const lat = (2 * Math.atan(Math.exp(my / R)) - Math.PI / 2) * (180 / Math.PI)
   return [lon, lat]
 }
 
-const W = 1280, H = 720, DPR = 1
+const W = 1280,
+  H = 720,
+  DPR = 1
 
 /** Apply a column-major 4×4 to a vec4. Mirrors mulVec4 in camera.ts but
  *  exposed for the test to inspect projected world points. */
-function mulMatVec4(m: Float32Array, v: [number, number, number, number]): [number, number, number, number] {
+function mulMatVec4(
+  m: Float32Array,
+  v: [number, number, number, number],
+): [number, number, number, number] {
   const r: [number, number, number, number] = [0, 0, 0, 0]
   for (let row = 0; row < 4; row++) {
     let s = 0
@@ -57,7 +62,14 @@ function mulMatVec4(m: Float32Array, v: [number, number, number, number]): [numb
  *  emulates what `vs_main` does after the DSFUN `rel` reconstruction,
  *  so we can ask "where does this world point land on screen?" without
  *  pulling in WebGPU. */
-function projectWorld(cam: Camera, worldX: number, worldY: number, w: number = W, h: number = H, dpr: number = DPR): {
+function projectWorld(
+  cam: Camera,
+  worldX: number,
+  worldY: number,
+  w: number = W,
+  h: number = H,
+  dpr: number = DPR,
+): {
   ndc: [number, number, number]
   clipW: number
 } {
@@ -74,7 +86,12 @@ function projectWorld(cam: Camera, worldX: number, worldY: number, w: number = W
 describe('Camera — constructor + state', () => {
   it('lon/lat constructor agrees with lonLatToMercator', () => {
     const cases: [number, number][] = [
-      [0, 0], [127, 37.5], [-73.97, 40.78], [139.76, 35.68], [-180, 0], [180, 0],
+      [0, 0],
+      [127, 37.5],
+      [-73.97, 40.78],
+      [139.76, 35.68],
+      [-180, 0],
+      [180, 0],
     ]
     for (const [lon, lat] of cases) {
       const cam = new Camera(lon, lat, 5)
@@ -135,16 +152,20 @@ describe('Camera — pitch + bearing', () => {
     // the camera projects toward the screen centre rather than the top
     // edge, so |ndc.y| shrinks compared to the top-down case at the
     // same world distance.
-    const cam0 = new Camera(0, 0, 5); cam0.pitch = 0
-    const cam60 = new Camera(0, 0, 5); cam60.pitch = 60
+    const cam0 = new Camera(0, 0, 5)
+    cam0.pitch = 0
+    const cam60 = new Camera(0, 0, 5)
+    cam60.pitch = 60
     const flat = projectWorld(cam0, 0, 50_000)
     const tilted = projectWorld(cam60, 0, 50_000)
     expect(Math.abs(tilted.ndc[1])).toBeLessThan(Math.abs(flat.ndc[1]))
   })
 
   it('bearing=180 flips east point to -X (camera rotated half-turn)', () => {
-    const cam0 = new Camera(0, 0, 5); cam0.bearing = 0
-    const cam180 = new Camera(0, 0, 5); cam180.bearing = 180
+    const cam0 = new Camera(0, 0, 5)
+    cam0.bearing = 0
+    const cam180 = new Camera(0, 0, 5)
+    cam180.bearing = 180
     const east0 = projectWorld(cam0, 1000, 0)
     const east180 = projectWorld(cam180, 1000, 0)
     // Sign flip on X.
@@ -155,7 +176,8 @@ describe('Camera — pitch + bearing', () => {
   })
 
   it('bearing=90 rotates east point to +Y (was +X)', () => {
-    const cam = new Camera(0, 0, 5); cam.bearing = 90
+    const cam = new Camera(0, 0, 5)
+    cam.bearing = 90
     const east = projectWorld(cam, 1000, 0)
     // After 90° rotation, a world-east point should project mostly along
     // the screen's Y axis. Sign depends on the rotation convention; the
@@ -191,7 +213,8 @@ describe('Camera — unprojectToZ0 round-trip', () => {
 
   it('off-centre screen pixel round-trips back to the same screen pixel via project', () => {
     const cam = new Camera(0, 0, 5)
-    const sx = 800, sy = 250  // arbitrary off-centre pixel
+    const sx = 800,
+      sy = 250 // arbitrary off-centre pixel
     const world = cam.unprojectToZ0(sx, sy, W, H)
     expect(world).not.toBeNull()
     // Project the recovered world point back through the camera.
@@ -205,7 +228,7 @@ describe('Camera — unprojectToZ0 round-trip', () => {
 
   it('above-horizon ray returns null', () => {
     const cam = new Camera(0, 0, 5)
-    cam.pitch = 80   // nearly horizontal
+    cam.pitch = 80 // nearly horizontal
     // Top of screen at high pitch is well above horizon.
     const p = cam.unprojectToZ0(W / 2, 0, W, H)
     expect(p).toBeNull()
@@ -215,7 +238,8 @@ describe('Camera — unprojectToZ0 round-trip', () => {
 describe('Camera — zoomAt preserves cursor world point', () => {
   it('zooming in at an off-centre cursor keeps the same world point under the cursor', () => {
     const cam = new Camera(127, 37.5, 5)
-    const cursorX = 900, cursorY = 300
+    const cursorX = 900,
+      cursorY = 300
     const before = cam.unprojectToZ0(cursorX, cursorY, W, H)
     expect(before).not.toBeNull()
     const beforeWorldX = cam.centerX + before![0]
@@ -245,15 +269,15 @@ describe('Camera — zoomAt preserves cursor world point', () => {
 
 describe('Camera — pan X-wrap + Y clamp', () => {
   it('panning past the antimeridian wraps centerX into [-WORLD/2, +WORLD/2]', () => {
-    const cam = new Camera(179.5, 0, 3)  // near antimeridian
+    const cam = new Camera(179.5, 0, 3) // near antimeridian
     const startX = cam.centerX
     expect(startX).toBeGreaterThan(0)
     // Pan east by enough CSS pixels to cross the antimeridian.
-    cam.pan(-2000, 0, W, H)   // negative dx in pan() = move world east
+    cam.pan(-2000, 0, W, H) // negative dx in pan() = move world east
     const wrapped = cam.centerX
     // Wrap kicks in: wrapped should NOT be far east of startX; it
     // should have wrapped to the negative side.
-    expect(Math.abs(wrapped)).toBeLessThan(20_037_508)  // within world bounds
+    expect(Math.abs(wrapped)).toBeLessThan(20_037_508) // within world bounds
   })
 
   it('panning the camera north (drag dy>0 with default bearing) clamps centerY at the pole limit', () => {
@@ -290,10 +314,10 @@ describe('Camera — DSFUN cam_h/cam_l reconstruction', () => {
     const cases = [
       0.123,
       1234.567,
-      14_137_586.4321,        // Tokyo at zoom 22
-      -19_999_000.5,           // near west world edge
-      20_000_000,              // near antimeridian
-      40_000_000,              // hypothetical post-pan accumulation
+      14_137_586.4321, // Tokyo at zoom 22
+      -19_999_000.5, // near west world edge
+      20_000_000, // near antimeridian
+      40_000_000, // hypothetical post-pan accumulation
     ]
     for (const camRel of cases) {
       const camH = Math.fround(camRel)
@@ -316,7 +340,11 @@ describe('Camera — cache invalidation', () => {
     cam.zoom = 10
     const m1 = cam.getRTCMatrix(W, H)
     let differs = false
-    for (let i = 0; i < 16; i++) if (m0[i] !== m1[i]) { differs = true; break }
+    for (let i = 0; i < 16; i++)
+      if (m0[i] !== m1[i]) {
+        differs = true
+        break
+      }
     expect(differs).toBe(true)
   })
 
@@ -326,7 +354,11 @@ describe('Camera — cache invalidation', () => {
     cam.pitch = 45
     const m1 = cam.getRTCMatrix(W, H)
     let differs = false
-    for (let i = 0; i < 16; i++) if (m0[i] !== m1[i]) { differs = true; break }
+    for (let i = 0; i < 16; i++)
+      if (m0[i] !== m1[i]) {
+        differs = true
+        break
+      }
     expect(differs).toBe(true)
   })
 
@@ -367,7 +399,10 @@ describe('Camera — getMatrix() (legacy ortho)', () => {
 describe('Camera — round-trip via mercatorToLonLat', () => {
   it('lonLatToMercator + mercatorToLonLat recovers the input lon/lat', () => {
     const cases: [number, number][] = [
-      [0, 0], [127, 37.5], [-73.97, 40.78], [179.99, 85.0],
+      [0, 0],
+      [127, 37.5],
+      [-73.97, 40.78],
+      [179.99, 85.0],
     ]
     for (const [lon, lat] of cases) {
       const [mx, my] = lonLatToMercator(lon, lat)
@@ -394,7 +429,7 @@ describe('Camera — metersPerPixel formula', () => {
     const cases: [number, number][] = [
       [0, C / TILE_PX],
       [10, C / TILE_PX / 1024],
-      [22, C / TILE_PX / 4_194_304],  // sub-cm at zoom 22
+      [22, C / TILE_PX / 4_194_304], // sub-cm at zoom 22
     ]
     for (const [z, expected] of cases) {
       const cam = new Camera(0, 0, z)
@@ -412,9 +447,11 @@ describe('Camera — metersPerPixel formula', () => {
     // sampling rate the runtime uses for fetch / hit-test math doesn't
     // shift with pitch or bearing. This test pins that contract.
     const cam0 = new Camera(0, 0, 10)
-    cam0.pitch = 0; cam0.bearing = 0
+    cam0.pitch = 0
+    cam0.bearing = 0
     const cam1 = new Camera(0, 0, 10)
-    cam1.pitch = 60; cam1.bearing = 45
+    cam1.pitch = 60
+    cam1.bearing = 45
     // Indirect probe: same zoom, both should produce a matrix whose
     // first column scale element relates to mpp identically. Here we
     // assert the unprojected centre lands at the same camera centre
@@ -488,7 +525,7 @@ describe('Camera — near/far ratio across the (zoom × pitch) grid', () => {
     // CPU-mirror near calc — mirror camera.ts:130. halfFov derives
     // from Camera.FOV so the calc tracks any future FOV change.
     const mpp = 40075016.686 / 512 / Math.pow(2, cam.zoom)
-    const altitude = (H / 1) * mpp / 2 / Math.tan(Camera.FOV * Math.PI / 360)
+    const altitude = ((H / 1) * mpp) / 2 / Math.tan((Camera.FOV * Math.PI) / 360)
     const near = Math.max(1.0, altitude * 0.01)
     expect(far / near).toBeLessThan(1.6e4)
   })
@@ -529,8 +566,8 @@ describe('Camera — DPR independence', () => {
 
   it('unprojectToZ0 at canvas centre returns the same world point at any DPR', () => {
     const cam = new Camera(127, 37.5, 8)
-    const p1 = cam.unprojectToZ0(W * 1 / 2, H * 1 / 2, W * 1, H * 1, 1)
-    const p3 = cam.unprojectToZ0(W * 3 / 2, H * 3 / 2, W * 3, H * 3, 3)
+    const p1 = cam.unprojectToZ0((W * 1) / 2, (H * 1) / 2, W * 1, H * 1, 1)
+    const p3 = cam.unprojectToZ0((W * 3) / 2, (H * 3) / 2, W * 3, H * 3, 3)
     expect(p1).not.toBeNull()
     expect(p3).not.toBeNull()
     expect(p1![0]).toBeCloseTo(p3![0], 3)
@@ -646,7 +683,7 @@ describe('Camera — globeMode (orbit matrix for the true 3D globe)', () => {
     const cam = new Camera(0, 0, 3)
     cam.globeMode = true
     cam.pan(100, 0, W, H) // drag right
-    const lon = cam.centerX / R * (180 / Math.PI)
+    const lon = (cam.centerX / R) * (180 / Math.PI)
     expect(lon).toBeLessThan(0) // dragging right brings western land into view
     const cam2 = new Camera(0, 0, 3)
     cam2.globeMode = true

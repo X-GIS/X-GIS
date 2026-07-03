@@ -11,13 +11,15 @@ function emit(field: unknown): string {
   return convertMapboxStyle({
     version: 8,
     sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-    layers: [{
-      id: 'l',
-      type: 'symbol',
-      source: 'v',
-      'source-layer': 'place',
-      layout: { 'text-field': field },
-    }],
+    layers: [
+      {
+        id: 'l',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 'place',
+        layout: { 'text-field': field },
+      },
+    ],
   } as never)
 }
 

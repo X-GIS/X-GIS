@@ -118,7 +118,8 @@ describe('PanZoomController drag anchor DPR = getMaxDpr (not hardcoded 8)', () =
     //   replay  (dpr=3):       ndcX = (360*3/1800)*2-1 = 0.2
     // The 0.4-NDC mismatch shifts centerX by a large fraction of the view
     // half-width on the very first move.
-    const CX = 360, CY = 240
+    const CX = 360,
+      CY = 240
     const { canvas, fire } = makeStubCanvas(3)
     const ctrl = new PanZoomController()
     ctrl.attach(canvas, cam, () => ({ projectionName: 'mercator' }))
@@ -155,7 +156,8 @@ describe('PanZoomController drag anchor DPR = getMaxDpr (not hardcoded 8)', () =
     const cam = makeMercatorCamera()
     // device scale = min(2, 1) = 1 → canvas 600×400. Buggy capture dpr =
     // min(2,8)=2, replay dpr = getMaxDpr()=1 → mismatch.
-    const CX = 420, CY = 150
+    const CX = 420,
+      CY = 150
     const { canvas, fire } = makeStubCanvas(1)
     const ctrl = new PanZoomController()
     ctrl.attach(canvas, cam, () => ({ projectionName: 'mercator' }))

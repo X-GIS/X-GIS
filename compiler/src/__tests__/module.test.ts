@@ -74,7 +74,7 @@ describe('Module resolution', () => {
     const resolved = resolveImports(ast, './', mockReader)
 
     // Only alert_effect imported, not military_track
-    const presets = resolved.body.filter(s => s.kind === 'PresetStatement')
+    const presets = resolved.body.filter((s) => s.kind === 'PresetStatement')
     expect(presets).toHaveLength(1)
     expect((presets[0] as AST.PresetStatement).name).toBe('alert_effect')
   })
@@ -97,9 +97,11 @@ describe('Module resolution', () => {
 
     const resolved = resolveImports(ast, './', mockReader)
     // Both presets from styles.xgs land + the source + the layer.
-    const presets = resolved.body.filter(s => s.kind === 'PresetStatement')
-    expect(presets.map(p => (p as AST.PresetStatement).name).sort())
-      .toEqual(['alert_effect', 'military_track'])
+    const presets = resolved.body.filter((s) => s.kind === 'PresetStatement')
+    expect(presets.map((p) => (p as AST.PresetStatement).name).sort()).toEqual([
+      'alert_effect',
+      'military_track',
+    ])
   })
 
   it('splice form auto-detects Mapbox style.json and runs the converter', () => {
@@ -109,8 +111,13 @@ describe('Module resolution', () => {
         sources: { om: { type: 'vector', url: 'a.pmtiles' } },
         layers: [
           { id: 'bg', type: 'background', paint: { 'background-color': '#fff' } },
-          { id: 'water', type: 'fill', source: 'om', 'source-layer': 'water',
-            paint: { 'fill-color': '#a0c8ff' } },
+          {
+            id: 'water',
+            type: 'fill',
+            source: 'om',
+            'source-layer': 'water',
+            paint: { 'fill-color': '#a0c8ff' },
+          },
         ],
       }),
     }
@@ -124,12 +131,12 @@ describe('Module resolution', () => {
     `)
     const resolved = resolveImports(ast, './', reader)
     // Converted Mapbox layers + user statements all in one program.
-    const sources = resolved.body.filter(s => s.kind === 'SourceStatement')
-    const layers = resolved.body.filter(s => s.kind === 'LayerStatement')
-    const bg = resolved.body.filter(s => s.kind === 'BackgroundStatement')
-    expect(sources.length).toBeGreaterThanOrEqual(2)  // om + local
-    expect(layers.length).toBeGreaterThanOrEqual(2)   // water + overlay
-    expect(bg.length).toBeGreaterThanOrEqual(1)        // bg
+    const sources = resolved.body.filter((s) => s.kind === 'SourceStatement')
+    const layers = resolved.body.filter((s) => s.kind === 'LayerStatement')
+    const bg = resolved.body.filter((s) => s.kind === 'BackgroundStatement')
+    expect(sources.length).toBeGreaterThanOrEqual(2) // om + local
+    expect(layers.length).toBeGreaterThanOrEqual(2) // water + overlay
+    expect(bg.length).toBeGreaterThanOrEqual(1) // bg
   })
 
   it('splice form captures inline Mapbox-style GeoJSON `source.data` into options.inlineGeoJSON', () => {
@@ -141,11 +148,13 @@ describe('Module resolution', () => {
     // and auto-pushes it after run().
     const inlineFC = {
       type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [127, 37] },
-        properties: { name: 'seoul' },
-      }],
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [127, 37] },
+          properties: { name: 'seoul' },
+        },
+      ],
     }
     const mapboxFiles: Record<string, string> = {
       './annotated.json': JSON.stringify({
@@ -184,7 +193,7 @@ describe('Module resolution', () => {
     // Should not throw or duplicate — second import from same file is skipped
     const resolved = resolveImports(ast, './', mockReader)
     // First import brings military_track, second import is skipped (same file)
-    const presets = resolved.body.filter(s => s.kind === 'PresetStatement')
+    const presets = resolved.body.filter((s) => s.kind === 'PresetStatement')
     expect(presets).toHaveLength(1)
   })
 })

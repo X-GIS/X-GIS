@@ -15,12 +15,16 @@ test('removeEventListener unregisters plain listeners', async ({ page }) => {
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(1500)
 
   await page.evaluate(() => {
-    type L = { addEventListener(t: string, h: (e: unknown) => void): void; removeEventListener(t: string, h: (e: unknown) => void): void }
+    type L = {
+      addEventListener(t: string, h: (e: unknown) => void): void
+      removeEventListener(t: string, h: (e: unknown) => void): void
+    }
     const m = (window as { __xgisMap?: { getLayer(n: string): L | null } }).__xgisMap!
     ;(window as { __log?: string[] }).__log = []
     const log = (window as { __log?: string[] }).__log!
@@ -52,7 +56,8 @@ test('{ once: true } self-removes after first fire', async ({ page }) => {
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(1500)
 
@@ -86,12 +91,16 @@ test('removeEventListener unregisters a { once } handler before first fire', asy
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(1500)
 
   await page.evaluate(() => {
-    type L = { addEventListener(t: string, h: (e: unknown) => void, opt?: { once: boolean }): void; removeEventListener(t: string, h: (e: unknown) => void): void }
+    type L = {
+      addEventListener(t: string, h: (e: unknown) => void, opt?: { once: boolean }): void
+      removeEventListener(t: string, h: (e: unknown) => void): void
+    }
     const m = (window as { __xgisMap?: { getLayer(n: string): L | null } }).__xgisMap!
     ;(window as { __log?: string[] }).__log = []
     const log = (window as { __log?: string[] }).__log!
@@ -123,12 +132,15 @@ test('AbortSignal aborts before first fire', async ({ page }) => {
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(1500)
 
   await page.evaluate(() => {
-    type L = { addEventListener(t: string, h: (e: unknown) => void, opt?: { signal: AbortSignal }): void }
+    type L = {
+      addEventListener(t: string, h: (e: unknown) => void, opt?: { signal: AbortSignal }): void
+    }
     const m = (window as { __xgisMap?: { getLayer(n: string): L | null } }).__xgisMap!
     ;(window as { __log?: string[] }).__log = []
     const log = (window as { __log?: string[] }).__log!

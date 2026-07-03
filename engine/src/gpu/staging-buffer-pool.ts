@@ -17,12 +17,12 @@
 // is the canonical async upload pattern.
 
 const TIER_SIZES = [
-  4 * 1024,         // 4 KB   — small index buffers, z attributes
-  16 * 1024,        // 16 KB
-  64 * 1024,        // 64 KB
-  256 * 1024,       // 256 KB
-  1024 * 1024,      // 1 MB   — typical polygon vertex buffer
-  4 * 1024 * 1024,  // 4 MB
+  4 * 1024, // 4 KB   — small index buffers, z attributes
+  16 * 1024, // 16 KB
+  64 * 1024, // 64 KB
+  256 * 1024, // 256 KB
+  1024 * 1024, // 1 MB   — typical polygon vertex buffer
+  4 * 1024 * 1024, // 4 MB
   16 * 1024 * 1024, // 16 MB  — extreme tile (very dense roads)
 ]
 
@@ -54,13 +54,19 @@ export class StagingBufferPool {
   private mappedAtCreationFails = false
 
   /** Read-only view of the SwiftShader-style fallback flag. */
-  get hasMappedAtCreationFallback(): boolean { return this.mappedAtCreationFails }
+  get hasMappedAtCreationFallback(): boolean {
+    return this.mappedAtCreationFails
+  }
   /** Test seam — flip without provoking the GPU. */
-  _forceDirectWriteFallback(): void { this.mappedAtCreationFails = true }
+  _forceDirectWriteFallback(): void {
+    this.mappedAtCreationFails = true
+  }
 
   /** Expose the device so `asyncWriteBuffer` can route around this
    *  pool when the fallback is engaged. */
-  get gpuDevice(): GPUDevice { return this.device }
+  get gpuDevice(): GPUDevice {
+    return this.device
+  }
 
   constructor(device: GPUDevice) {
     this.device = device
@@ -72,7 +78,8 @@ export class StagingBufferPool {
    *  `asyncWriteBuffer` which catches and routes around via
    *  `device.queue.writeBuffer`. */
   async borrow(byteLength: number): Promise<StagingSlot> {
-    if (byteLength <= 0) throw new Error(`StagingBufferPool.borrow: byteLength must be positive (got ${byteLength})`)
+    if (byteLength <= 0)
+      throw new Error(`StagingBufferPool.borrow: byteLength must be positive (got ${byteLength})`)
 
     // Pick smallest tier that fits.
     let tier = 0
@@ -104,7 +111,10 @@ export class StagingBufferPool {
     }
 
     // No free buffer in this tier — create a fresh one, mapped at birth.
-    const buffer = this._createMappedBuffer(TIER_SIZES[tier]!, `staging-tier-${tier}-${TIER_SIZES[tier]}`)
+    const buffer = this._createMappedBuffer(
+      TIER_SIZES[tier]!,
+      `staging-tier-${tier}-${TIER_SIZES[tier]}`,
+    )
     this.created++
     return { buffer, tier, byteCapacity: TIER_SIZES[tier]! }
   }
@@ -150,7 +160,7 @@ export class StagingBufferPool {
 
   /** Diagnostic — current free count per tier. */
   getFreeCounts(): readonly number[] {
-    return this.free.map(list => list.length)
+    return this.free.map((list) => list.length)
   }
 
   /** Destroy every pooled buffer. Call on context loss / dispose. */
@@ -181,7 +191,7 @@ export async function asyncWriteBuffer(
   dstOffset: number,
   data: ArrayBuffer | ArrayBufferView,
 ): Promise<{ release: () => void }> {
-  const byteLength = ('byteLength' in data) ? data.byteLength : (data as ArrayBuffer).byteLength
+  const byteLength = 'byteLength' in data ? data.byteLength : (data as ArrayBuffer).byteLength
   if (byteLength === 0) {
     return { release: () => {} }
   }
@@ -210,9 +220,10 @@ export async function asyncWriteBuffer(
   const mapped = slot.buffer.getMappedRange(0, byteLength)
   // Copy data into the mapped range. Both ArrayBuffer and typed-array
   // inputs map to a Uint8Array view for the byte-level memcpy.
-  const srcBytes = data instanceof ArrayBuffer
-    ? new Uint8Array(data)
-    : new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+  const srcBytes =
+    data instanceof ArrayBuffer
+      ? new Uint8Array(data)
+      : new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
   new Uint8Array(mapped).set(srcBytes)
   slot.buffer.unmap()
   encoder.copyBufferToBuffer(slot.buffer, 0, dst, dstOffset, byteLength)

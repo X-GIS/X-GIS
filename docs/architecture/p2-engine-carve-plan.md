@@ -11,8 +11,8 @@
 
 `PassHost = Pick<XGISMap, …>` (pass-hosts.ts:23-103) **is** the engine→map back-edge.
 Every pass type-references `XGISMap`. Inverting PassHost→`RenderNode[]` where @xgis/map
-*implements & registers* nodes is what makes the §8.5 Gate-6 ratchet pass *by
-construction* — not a regex bolt-on. So the package move is **last**; the couplings are
+_implements & registers_ nodes is what makes the §8.5 Gate-6 ratchet pass _by
+construction_ — not a regex bolt-on. So the package move is **last**; the couplings are
 dissolved **first**, in dependency order (innermost handle leaks → outermost scheduler).
 
 ## Universal per-step gate (every step is a mechanical refactor → exact identity)
@@ -30,6 +30,7 @@ dissolved **first**, in dependency order (innermost handle leaks → outermost s
 ---
 
 ## Step 0 — Dead OIT subsystem + fill raw residuals (revised after a re-trace)
+
 - **VERIFIED DEAD (11-link proof, re-traced from source 2026-07-01):** `isOitExtrude`
   (bucket-scheduler.ts:299) is a hardcoded immutable `false` — **sole writer** — ⇒ `oit=[]`
   (`:203`/`:385`) ⇒ `hasOit=false` (scene-view.ts:66, sole writer) ⇒ `oit-pass.shouldRun=false`
@@ -47,9 +48,9 @@ dissolved **first**, in dependency order (innermost handle leaks → outermost s
   950-951, oit-pass.ts:84/90) and OIT targets (`ensureOit`/`oitAccumTexture`/`oitRevealageTexture`,
   render-targets.ts:46-88/258). Full deletion also hits `oit-pass.ts` (delete file),
   `pass-hosts.ts:41/144 OitPassHost`, `pass.ts:20/32/49`, `scene-view.ts`, `render-loop.ts:32/461`,
-  + tests render-targets/scene-view/map-rebuild-layers/source-manager-bounds-fit-gate/bundle-cache-key.
+  - tests render-targets/scene-view/map-rebuild-layers/source-manager-bounds-fit-gate/bundle-cache-key.
 - **DECISION — fold OIT removal into Step 4, do NOT delete standalone.** The OIT path is a
-  *deliberate* "future opt-in" scaffold (pipeline-factory.ts:861 comment), and its surface
+  _deliberate_ "future opt-in" scaffold (pipeline-factory.ts:861 comment), and its surface
   (`OitPassHost`, `pass.ts`, the `oit-fill` phase) IS the PassHost/RenderPass machinery Step 4
   inverts. A dead pass simply won't be registered as a `RenderNode` during the Step 4 inversion
   → it drops from the live path there, in context, without a premature 16-file subsystem delete.
@@ -58,6 +59,7 @@ dissolved **first**, in dependency order (innermost handle leaks → outermost s
   RHI routing (P1.6 — `show.fillPattern` propagation blocker), NOT on OIT. Keep raw until then.
 
 ## Step 1 — Split MapRenderer god-object → `FrameRenderer` (engine) + `MapRendererContent` (map)
+
 - **Engine-KEEP** (rename `MapRenderer`→`FrameRenderer`): `ctx`, `_pipelines` (renderer.ts:108),
   `uniformRing`/`uniformBuffer` (:150/:154), `bindGroup` rebuild (:415-442),
   `beginFrame/endFrame/allocUniformSlot/stageUniformSlot` (:445-466), compute path
@@ -66,7 +68,7 @@ dissolved **first**, in dependency order (innermost handle leaks → outermost s
 - **Content-MOVE:** `StyleProperties` (:35-82), `RenderLayer` (renderer-types.ts:233-252),
   `layers[]` (:172), `addLayer` (:473-649), `renderToPass` (:787-938), `setPalette/SpriteAtlas`
   (:660-742), `_graticule` (:177,:260-267,:927), `uniformDataBuf` 192B paint struct (:92).
-- **Invariant:** engine owns RHI/ring/pipeline *machinery*; content owns *what to paint*.
+- **Invariant:** engine owns RHI/ring/pipeline _machinery_; content owns _what to paint_.
   `MapRendererContent` reaches engine only via narrow accessor thunks. No content type
   (`ShowCommand`, `StyleProperties`, atlas views) survives in `FrameRenderer`.
 - **Fragile:** ring-slot allocation order must not reorder — gate the uniform-reflect dump per
@@ -74,6 +76,7 @@ dissolved **first**, in dependency order (innermost handle leaks → outermost s
   (byte-diverging Phase-B, out of scope).
 
 ## Step 2 — Invert SceneView content handles (`DrawItem` stream)
+
 - **Inverts:** `ClassifiedShow.{fp,lp,bgl,fpG,fpGF,fpF,lpF,vtEntry.renderer}` (bucket-scheduler
   ~:360-368) stop being read by engine passes. opaque/oit/translucent passes (opaque-pass.ts:150,
   oit-pass.ts:60, translucent-pass.ts:23) call `cs.vtEntry.renderer.render(...)`. Introduce an
@@ -85,6 +88,7 @@ dissolved **first**, in dependency order (innermost handle leaks → outermost s
   gate the chosen color/resolve view per frame + GPU command-stream trace equality.
 
 ## Step 3 — Neutralize FrameContext content scalars (opaque projection token)
+
 - **Inverts:** `projType` (render-loop.ts:288/303, azimuthal-when-tilted at :105-121),
   `centerLon` (:185), `centerLat` (:194-196), `visibleWorldCopies` (label-pass.ts:358-359).
   Replace the three scalars with one **opaque `ProjectionToken`** (engine treats it as an
@@ -97,6 +101,7 @@ dissolved **first**, in dependency order (innermost handle leaks → outermost s
   placement to own its production. Gate `_projection-label-onscreen` + label-anchor-parity.
 
 ## Step 4 — Invert PassHost → data-driven `RenderNode[]` / `PassDef[]`
+
 - **Inverts:** delete `PassHost` (pass-hosts.ts:23-103) + `RenderPass` (pass.ts:57-65). Engine
   defines `RenderNode { shouldRun(SceneView): bool; execute(FrameContext): void }` + a **flat**
   `PassDef[]` scheduler (reject DAG per the prior-art ruling). The 8 pass impls
@@ -109,10 +114,11 @@ dissolved **first**, in dependency order (innermost handle leaks → outermost s
   `RenderPassDescriptor` per node (§8.1) before/after, assert byte-equal.
 
 ## Step 5 — Physically relocate content + add Gate-6 ratchet (close by construction)
+
 - **Moves:** content `RenderNode` impls, `MapRendererContent`, `StyleProperties`, `RenderLayer`,
   atlas/graticule, paint-eval consumers (`label-pass` `evaluate/makeEvalProps/resolveColor`, VTR,
   `POLYGON_*_FORMAT` users) into `@xgis/map`. Engine retains: RHI, FrameRenderer machinery,
-  RenderNode contract + scheduler, FrameContext infra, RenderTargets, pipeline-factory *machinery*.
+  RenderNode contract + scheduler, FrameContext infra, RenderTargets, pipeline-factory _machinery_.
 - **Gate-6** added to architecture-invariants.test.ts: `runtime/src/engine/**` regex
   `import … from '@xgis/map'` ⇒ offenders must be `[]` (incl. `import type`). `@xgis/compiler`
   stays an allowed neutral peer — Gate-6 blocks @xgis/map **only** (do not over-scope to ban compiler).
@@ -122,8 +128,9 @@ dissolved **first**, in dependency order (innermost handle leaks → outermost s
 ---
 
 ## Divergence accounting (honest)
+
 No step is inherently non-byte-identical — the carve is mechanical end-to-end. Byte-identity
-*risk* concentrates at three named slots: (1) ring-slot order (Step 1) → uniform-reflect
+_risk_ concentrates at three named slots: (1) ring-slot order (Step 1) → uniform-reflect
 per-draw dump; (2) `resolveOwner`/draw-call order (Step 2) → command-stream trace equality;
 (3) `visibleWorldCopies` mid-frame production (Step 3) → label-anchor-parity.
 

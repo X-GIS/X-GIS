@@ -10,9 +10,7 @@ describe('min/max arity + partial-drop warnings', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
-      layers: [
-        { id: 'l', type: 'circle', source: 's', paint: { 'circle-radius': ['min'] } },
-      ],
+      layers: [{ id: 'l', type: 'circle', source: 's', paint: { 'circle-radius': ['min'] } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toMatch(/Malformed \["min"\] expression/)

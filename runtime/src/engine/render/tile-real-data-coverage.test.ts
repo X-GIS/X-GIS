@@ -60,7 +60,7 @@ function setupSource(): TileCatalog {
 // decomposeFeatures assigns featureIndex = array order).
 function featureIndexByName(name: string): number {
   const gj = loadCountries()
-  return gj.features.findIndex(f => (f.properties as { name?: string } | null)?.name === name)
+  return gj.features.findIndex((f) => (f.properties as { name?: string } | null)?.name === name)
 }
 
 describe('Real-data: countries.geojson pipeline', () => {
@@ -93,19 +93,19 @@ describe('Real-data: countries.geojson pipeline', () => {
 })
 
 describe('Real-data: tile selection covers known locations', () => {
-  it('Paris at z=10 selects tiles that overlap France\'s geometry', () => {
+  it("Paris at z=10 selects tiles that overlap France's geometry", () => {
     const cam = makeCam(10, 0, 2.3522, 48.8566)
     const tiles = visibleTilesFrustum(cam, mercator, 10, W, H)
     expect(tiles.length).toBeGreaterThan(0)
     // The camera-center tile is mandatory (see animation-coverage
     // tests). Here we additionally check the center tile's geographic
     // bounds overlap France's lon/lat range (~(-5, 41) to (10, 52)).
-    const centerTile = tiles.find(t => {
+    const centerTile = tiles.find((t) => {
       const n = Math.pow(2, t.z)
-      const lonW = t.x / n * 360 - 180
-      const lonE = (t.x + 1) / n * 360 - 180
-      const latN = Math.atan(Math.sinh(Math.PI * (1 - 2 * t.y / n))) * 180 / Math.PI
-      const latS = Math.atan(Math.sinh(Math.PI * (1 - 2 * (t.y + 1) / n))) * 180 / Math.PI
+      const lonW = (t.x / n) * 360 - 180
+      const lonE = ((t.x + 1) / n) * 360 - 180
+      const latN = (Math.atan(Math.sinh(Math.PI * (1 - (2 * t.y) / n))) * 180) / Math.PI
+      const latS = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (t.y + 1)) / n))) * 180) / Math.PI
       return 2.3522 >= lonW && 2.3522 < lonE && 48.8566 >= latS && 48.8566 < latN
     })
     expect(centerTile).toBeDefined()
@@ -116,7 +116,7 @@ describe('Real-data: tile selection covers known locations', () => {
     const camTokyo = makeCam(10, 0, 139.6917, 35.6895)
     const parisTiles = visibleTilesFrustum(camParis, mercator, 10, W, H)
     const tokyoTiles = visibleTilesFrustum(camTokyo, mercator, 10, W, H)
-    const parisKeys = new Set(parisTiles.map(t => `${t.z}/${t.x}/${t.y}`))
+    const parisKeys = new Set(parisTiles.map((t) => `${t.z}/${t.x}/${t.y}`))
     for (const t of tokyoTiles) {
       expect(parisKeys.has(`${t.z}/${t.x}/${t.y}`)).toBe(false)
     }
@@ -135,25 +135,27 @@ describe('Real-data: sub-tile generation for country interiors', () => {
     // zoom, so this is a supplementary shape check.
     const source = setupSource()
     const candidates: Array<{ lon: number; lat: number; z: number }> = [
-      { lon: 2,    lat: 25,  z: 14 },
-      { lon: 100,  lat: 45,  z: 14 },
-      { lon: 25,   lat: -20, z: 14 },
-      { lon: -60,  lat: -15, z: 14 },
-      { lon: 135,  lat: -25, z: 14 },
+      { lon: 2, lat: 25, z: 14 },
+      { lon: 100, lat: 45, z: 14 },
+      { lon: 25, lat: -20, z: 14 },
+      { lon: -60, lat: -15, z: 14 },
+      { lon: 135, lat: -25, z: 14 },
     ]
     for (const c of candidates) {
       source.resetCompileBudget()
       const n = Math.pow(2, c.z)
-      const tx = Math.floor((c.lon + 180) / 360 * n)
+      const tx = Math.floor(((c.lon + 180) / 360) * n)
       const clampedLat = Math.max(-85.051129, Math.min(85.051129, c.lat))
-      const ty = Math.floor((1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) / Math.PI) / 2 * n)
+      const ty = Math.floor(
+        ((1 - Math.log(Math.tan(Math.PI / 4 + (clampedLat * DEG2RAD) / 2)) / Math.PI) / 2) * n,
+      )
       const key = tileKey(c.z, tx, ty)
       source.compileTileOnDemand(key)
       const entry = source.getIndex()!.entryByHash.get(key)
       if (!entry || (entry.flags & TILE_FLAG_FULL_COVER) === 0) continue
       const data = source.getTileData(key)
       expect(data).not.toBeNull()
-      expect(data!.vertices.length).toBe(28)   // #398: 4 corners × 7 floats
+      expect(data!.vertices.length).toBe(28) // #398: 4 corners × 7 floats
       expect(data!.indices.length).toBe(6)
     }
   })
@@ -166,9 +168,11 @@ describe('Real-data: sub-tile generation for country interiors', () => {
     const source = setupSource()
     const z = 10
     const n = Math.pow(2, z)
-    const tx = Math.floor((-30 + 180) / 360 * n)
+    const tx = Math.floor(((-30 + 180) / 360) * n)
     const clampedLat = Math.max(-85.051129, Math.min(85.051129, 30))
-    const ty = Math.floor((1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) / Math.PI) / 2 * n)
+    const ty = Math.floor(
+      ((1 - Math.log(Math.tan(Math.PI / 4 + (clampedLat * DEG2RAD) / 2)) / Math.PI) / 2) * n,
+    )
     const key = tileKey(z, tx, ty)
 
     source.compileTileOnDemand(key)
@@ -185,9 +189,11 @@ describe('Real-data: sub-tile generation for country interiors', () => {
     const source = setupSource()
     const z = 8
     const n = Math.pow(2, z)
-    const tx = Math.floor((8 + 180) / 360 * n)
+    const tx = Math.floor(((8 + 180) / 360) * n)
     const clampedLat = Math.max(-85.051129, Math.min(85.051129, 48))
-    const ty = Math.floor((1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) / Math.PI) / 2 * n)
+    const ty = Math.floor(
+      ((1 - Math.log(Math.tan(Math.PI / 4 + (clampedLat * DEG2RAD) / 2)) / Math.PI) / 2) * n,
+    )
     const key = tileKey(z, tx, ty)
 
     source.compileTileOnDemand(key)
@@ -222,9 +228,11 @@ describe('Real-data: zoom-in animation over Paris', () => {
 
       // Get the camera-center tile at this zoom.
       const n = Math.pow(2, zoom)
-      const cx = Math.floor((2.3522 + 180) / 360 * n)
+      const cx = Math.floor(((2.3522 + 180) / 360) * n)
       const clampedLat = Math.max(-85.051129, Math.min(85.051129, 48.8566))
-      const cy = Math.floor((1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) / Math.PI) / 2 * n)
+      const cy = Math.floor(
+        ((1 - Math.log(Math.tan(Math.PI / 4 + (clampedLat * DEG2RAD) / 2)) / Math.PI) / 2) * n,
+      )
       const centerKey = tileKey(zoom, cx, cy)
 
       // Trigger sub-tile generation and check the resulting entry.

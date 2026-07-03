@@ -11,7 +11,7 @@ serialization.
 Parallelism is bounded by shared mutable state, not by how many agents you spawn.
 A unit of work can run concurrently only if it is **logically separable** (no shared
 contract/decision with the other unit) AND **physically separable** (no edit conflict
-— different files). When the code doesn't give you that, you have to *engineer* it.
+— different files). When the code doesn't give you that, you have to _engineer_ it.
 This is an architecture property: you pay once to make the seams separable, then every
 future feature parallelizes.
 
@@ -25,7 +25,7 @@ grounded:
    - `runtime/src/engine/render/vector-tile-renderer.ts` (~4000 lines)
    - `compiler/src/ir/lower.ts` (the single binding loop, ~1450 lines)
    - `runtime/src/engine/map.ts`, `point-renderer.ts`
-   Two axes editing the same god file conflict → serialized.
+     Two axes editing the same god file conflict → serialized.
 
 2. **Single-authority tables** (logical + physical chokepoint). Every axis hand-edits
    the SAME table:
@@ -36,7 +36,7 @@ grounded:
 
 3. **The IR spine** (logical chokepoint). Every paint axis threads a `PropertyShape`
    through the same long pipeline: `convert → lower → emit-commands → render-node →
-   runtime`. The shape interface, the `ShowCommand`/`RenderNode` types, and the binding
+runtime`. The shape interface, the `ShowCommand`/`RenderNode` types, and the binding
    loop are shared by all axes.
 
 So the table edits + the IR-spine type edits + the god-file edits forced the WS-1 axes
@@ -67,7 +67,7 @@ Verify identical-set the same way (`git show main:… → set diff`).
 
 - `scripts/gap-matrix.md` is ALREADY codegen (`scripts/emit-gap-matrix.ts`, gated by
   `gap-matrix-freshness.test.ts`). Keep it that way; never hand-edit. ✔ (done)
-- The arch-ratchet `LOC_CEILINGS` stays manual *by design* (it forces awareness of
+- The arch-ratchet `LOC_CEILINGS` stays manual _by design_ (it forces awareness of
   growth), but it is a per-axis edit chokepoint. Mitigation: when fanning out axes in
   worktrees, ceilings are the most common merge conflict — bump them in the integration
   pass, not per-worktree.
@@ -100,7 +100,7 @@ from Move 3. The converter is already fairly split (`layers-circle.ts`, `paint.t
 2. **Fan out with worktree isolation.** One executor per axis, each in its own git
    worktree (`isolation: "worktree"`), so parallel commits to the (now mostly
    non-overlapping) files don't conflict. Each axis edits its own `capabilities/<type>.ts`
-   + `spec-coverage/<type>.ts` descriptor + its renderer file.
+   - `spec-coverage/<type>.ts` descriptor + its renderer file.
 3. **Integrate once.** Merge the worktrees; resolve the few genuine shared-file conflicts
    (arch-ratchet ceilings, gap-matrix regen) in one pass; run the full suite ONCE.
 4. **Verify cheap-per-change, full-suite-once.** Per-axis: targeted gate (~1s). At

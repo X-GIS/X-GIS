@@ -38,7 +38,9 @@ import { validate } from './passes/validate'
 import { autoVars } from './passes/opt'
 
 export type CpuValue = number | boolean | number[] | CpuStruct
-export interface CpuStruct { [k: string]: CpuValue }
+export interface CpuStruct {
+  [k: string]: CpuValue
+}
 
 interface Ctx {
   consts: Map<string, CpuValue>
@@ -64,28 +66,39 @@ const isArr = Array.isArray
 
 function scalarBin(bop: BinOp, a: number, b: number, isI32 = false): number {
   switch (bop) {
-    case '+': return a + b
-    case '-': return a - b
-    case '*': return a * b
-    case '/': return a / b
-    case '%': return a % b
+    case '+':
+      return a + b
+    case '-':
+      return a - b
+    case '*':
+      return a * b
+    case '/':
+      return a / b
+    case '%':
+      return a % b
     // Bitwise — JS `& | ^ <<` produce int32; `>>> 0` normalises to nonnegative
     // u32 so cpu values stay in the unsigned range the shader expects. `>>`
     // uses JS `>>>` (logical shift) — point's per-feature flag dispatch is all
     // u32, and the codebase has no i32-arithmetic-shift use case.
-    case '&': return (a & b) >>> 0
-    case '|': return (a | b) >>> 0
-    case '^': return (a ^ b) >>> 0
-    case '<<': return (a << b) >>> 0
+    case '&':
+      return (a & b) >>> 0
+    case '|':
+      return (a | b) >>> 0
+    case '^':
+      return (a ^ b) >>> 0
+    case '<<':
+      return (a << b) >>> 0
     // i32 uses arithmetic shift (sign-preserving JS `>>`); u32/untyped uses
     // logical `>>>`. No current shader does an i32 shift, so the i32 branch is
     // presently unreachable — this only removes the latent footgun.
-    case '>>': return isI32 ? (a >> b) : (a >>> b)
+    case '>>':
+      return isI32 ? a >> b : a >>> b
   }
 }
 
 function applyBin(bop: BinOp, a: CpuValue, b: CpuValue, isI32 = false): CpuValue {
-  if (isArr(a) && isArr(b)) return a.map((x, i) => scalarBin(bop, x as number, b[i] as number, isI32))
+  if (isArr(a) && isArr(b))
+    return a.map((x, i) => scalarBin(bop, x as number, b[i] as number, isI32))
   if (isArr(a)) return a.map((x) => scalarBin(bop, x as number, b as number, isI32))
   if (isArr(b)) return b.map((y) => scalarBin(bop, a as number, y as number, isI32))
   return scalarBin(bop, a as number, b as number, isI32)
@@ -93,49 +106,92 @@ function applyBin(bop: BinOp, a: CpuValue, b: CpuValue, isI32 = false): CpuValue
 
 // ── Builtins (vec-aware where WGSL is component-wise) ──
 type Builtin = (...args: CpuValue[]) => CpuValue
-const map1 = (f: (x: number) => number): Builtin => (x) => (isArr(x) ? x.map((v) => f(v as number)) : f(x as number))
+const map1 =
+  (f: (x: number) => number): Builtin =>
+  (x) =>
+    isArr(x) ? x.map((v) => f(v as number)) : f(x as number)
 
 // WGSL / GLSL-ES `round` rounds halfway cases to the nearest EVEN integer, unlike
 // JS `Math.round` (ties toward +∞). round(2.5)=2, round(3.5)=4, round(-2.5)=-2.
 const roundTiesToEven = (x: number): number => {
-  const f = Math.floor(x), d = x - f
+  const f = Math.floor(x),
+    d = x - f
   if (d < 0.5) return f
   if (d > 0.5) return f + 1
   return f % 2 === 0 ? f : f + 1
 }
 
 const BUILTINS: Record<string, Builtin> = {
-  sin: map1(Math.sin), cos: map1(Math.cos), tan: map1(Math.tan),
-  asin: map1(Math.asin), acos: map1(Math.acos), atan: map1(Math.atan),
-  exp: map1(Math.exp), log: map1(Math.log), log2: map1(Math.log2), sqrt: map1(Math.sqrt),
-  exp2: map1((x) => 2 ** x), inverseSqrt: map1((x) => 1 / Math.sqrt(x)),
-  trunc: map1(Math.trunc), round: map1(roundTiesToEven),
-  floor: map1(Math.floor), ceil: map1(Math.ceil), abs: map1(Math.abs), sign: map1(Math.sign),
-  radians: map1((d) => (d * Math.PI) / 180), degrees: map1((r) => (r * 180) / Math.PI),
+  sin: map1(Math.sin),
+  cos: map1(Math.cos),
+  tan: map1(Math.tan),
+  asin: map1(Math.asin),
+  acos: map1(Math.acos),
+  atan: map1(Math.atan),
+  exp: map1(Math.exp),
+  log: map1(Math.log),
+  log2: map1(Math.log2),
+  sqrt: map1(Math.sqrt),
+  exp2: map1((x) => 2 ** x),
+  inverseSqrt: map1((x) => 1 / Math.sqrt(x)),
+  trunc: map1(Math.trunc),
+  round: map1(roundTiesToEven),
+  floor: map1(Math.floor),
+  ceil: map1(Math.ceil),
+  abs: map1(Math.abs),
+  sign: map1(Math.sign),
+  radians: map1((d) => (d * Math.PI) / 180),
+  degrees: map1((r) => (r * 180) / Math.PI),
   atan2: (y, x) => Math.atan2(y as number, x as number),
-  min: (a, b) => (isArr(a) || isArr(b) ? applyMinMax(Math.min, a, b) : Math.min(a as number, b as number)),
-  max: (a, b) => (isArr(a) || isArr(b) ? applyMinMax(Math.max, a, b) : Math.max(a as number, b as number)),
+  min: (a, b) =>
+    isArr(a) || isArr(b) ? applyMinMax(Math.min, a, b) : Math.min(a as number, b as number),
+  max: (a, b) =>
+    isArr(a) || isArr(b) ? applyMinMax(Math.max, a, b) : Math.max(a as number, b as number),
   // clamp ordering mirrors projection-wgsl-mirror.ts: max(lo, min(hi, x)).
   clamp: (x, lo, hi) => clampVal(x, lo, hi),
   mix: (a, b, t) => mixVal(a, b, t),
   // smoothstep is type-enforced scalar by the builder (node.ts:230 — all args + result
   // Node<ScalarKey>|number|f32), so no vector path is reachable here.
   smoothstep: (e0, e1, x) => {
-    const t = clampVal((x as number - (e0 as number)) / ((e1 as number) - (e0 as number)), 0, 1) as number
+    const t = clampVal(
+      ((x as number) - (e0 as number)) / ((e1 as number) - (e0 as number)),
+      0,
+      1,
+    ) as number
     return t * t * (3 - 2 * t)
   },
   // step(edge, x) — component-wise; edge may be a scalar broadcast over a vector x.
   step: (edge, x) => {
     const s = (e: number, v: number): number => (v < e ? 0 : 1)
-    return isArr(x) ? (x as number[]).map((v, i) => s(isArr(edge) ? (edge[i] as number) : (edge as number), v as number)) : s(edge as number, x as number)
+    return isArr(x)
+      ? (x as number[]).map((v, i) =>
+          s(isArr(edge) ? (edge[i] as number) : (edge as number), v as number),
+        )
+      : s(edge as number, x as number)
   },
   length: (v) => Math.sqrt((v as number[]).reduce((s, c) => s + (c as number) * (c as number), 0)),
-  dot: (a, b) => (a as number[]).reduce((s, c, i) => s + (c as number) * ((b as number[])[i] as number), 0),
-  distance: (a, b) => Math.sqrt((a as number[]).reduce((s, c, i) => { const d = (c as number) - ((b as number[])[i] as number); return s + d * d }, 0)),
-  normalize: (v) => { const a = v as number[]; const l = Math.sqrt(a.reduce((s, c) => s + (c as number) * (c as number), 0)); return a.map((c) => (c as number) / l) },
+  dot: (a, b) =>
+    (a as number[]).reduce((s, c, i) => s + (c as number) * ((b as number[])[i] as number), 0),
+  distance: (a, b) =>
+    Math.sqrt(
+      (a as number[]).reduce((s, c, i) => {
+        const d = (c as number) - ((b as number[])[i] as number)
+        return s + d * d
+      }, 0),
+    ),
+  normalize: (v) => {
+    const a = v as number[]
+    const l = Math.sqrt(a.reduce((s, c) => s + (c as number) * (c as number), 0))
+    return a.map((c) => (c as number) / l)
+  },
   cross: (a, b) => {
-    const u = a as number[], w = b as number[]
-    return [u[1]! * w[2]! - u[2]! * w[1]!, u[2]! * w[0]! - u[0]! * w[2]!, u[0]! * w[1]! - u[1]! * w[0]!]
+    const u = a as number[],
+      w = b as number[]
+    return [
+      u[1]! * w[2]! - u[2]! * w[1]!,
+      u[2]! * w[0]! - u[0]! * w[2]!,
+      u[0]! * w[1]! - u[1]! * w[0]!,
+    ]
   },
   f32: (x) => Number(x),
   i32: (x) => Math.trunc(x as number),
@@ -143,9 +199,12 @@ const BUILTINS: Record<string, Builtin> = {
   // #763 O1 — pure-math builtins the catalogue claims portable but the oracle
   // lacked (a shader using them compiled + emitted on both GPU targets, then
   // threw `unknown fn` at first CPU use — and compileModule is production-used).
-  pow: (a, b) => (isArr(a)
-    ? (a as number[]).map((x, i) => Math.pow(x as number, isArr(b) ? ((b as number[])[i] as number) : (b as number)))
-    : Math.pow(a as number, b as number)),
+  pow: (a, b) =>
+    isArr(a)
+      ? (a as number[]).map((x, i) =>
+          Math.pow(x as number, isArr(b) ? ((b as number[])[i] as number) : (b as number)),
+        )
+      : Math.pow(a as number, b as number),
   fract: map1((x) => x - Math.floor(x)),
   // unpack u32 RGBA8 → vec4<f32> in [0,1]; low byte → component 0 (pack4x8unorm inverse).
   unpack4x8unorm: (u) => {
@@ -166,7 +225,6 @@ const BUILTINS: Record<string, Builtin> = {
 }
 
 const _bitcastView = new DataView(new ArrayBuffer(4))
-
 
 // GPU-only stubs (#763 O3). textureSample needs the GPU's sampler/atlas; fwidth
 // needs neighbouring fragments — neither is computable in this per-invocation
@@ -196,7 +254,10 @@ function clampVal(x: CpuValue, lo: CpuValue, hi: CpuValue): CpuValue {
     const loA = isArr(lo) ? (lo as number[]) : null
     const hiA = isArr(hi) ? (hi as number[]) : null
     return (x as number[]).map((v, i) =>
-      Math.max(loA ? (loA[i] as number) : (lo as number), Math.min(hiA ? (hiA[i] as number) : (hi as number), v as number)),
+      Math.max(
+        loA ? (loA[i] as number) : (lo as number),
+        Math.min(hiA ? (hiA[i] as number) : (hi as number), v as number),
+      ),
     )
   }
   return Math.max(lo as number, Math.min(hi as number, x as number))
@@ -232,7 +293,8 @@ function matVec(m: number[], v: number[]): number[] {
 
 function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
   switch (e.op) {
-    case 'lit': return e.value
+    case 'lit':
+      return e.value
     case 'constref': {
       const v = ctx.consts.get(e.name)
       if (v === undefined) throw new Error(`shader-dsl/cpu: unknown const ${e.name}`)
@@ -245,7 +307,8 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       throw new Error(`shader-dsl/cpu: unbound ${e.name}`)
     }
     case 'binop': {
-      const av = evalExpr(e.a, env, ctx), bv = evalExpr(e.b, env, ctx)
+      const av = evalExpr(e.a, env, ctx),
+        bv = evalExpr(e.b, env, ctx)
       // mat * vec (column-major) — the MVP transform. Dispatched by the
       // operand's static type since values are type-blind number[] at runtime.
       if (e.bop === '*' && e.a.type.kind === 'mat' && e.b.type.kind === 'vec') {
@@ -256,10 +319,14 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       // for mat*mat (silently wrong vs both GPU backends) and misordered
       // vec*mat entirely.
       if (e.bop === '*' && e.a.type.kind === 'mat' && e.b.type.kind === 'mat') {
-        throw new Error('shader-dsl/cpu: mat*mat is not implemented (element-wise would be silently wrong) — decompose into mat*vec or add a real matrix product first')
+        throw new Error(
+          'shader-dsl/cpu: mat*mat is not implemented (element-wise would be silently wrong) — decompose into mat*vec or add a real matrix product first',
+        )
       }
       if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat') {
-        throw new Error('shader-dsl/cpu: vec*mat (row-vector form) is not implemented — use mat*vec')
+        throw new Error(
+          'shader-dsl/cpu: vec*mat (row-vector form) is not implemented — use mat*vec',
+        )
       }
       const i32Op = e.a.type.kind === 'scalar' && e.a.type.scalar === 'i32'
       return applyBin(e.bop, av, bv, i32Op)
@@ -269,19 +336,26 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       return isArr(a) ? a.map((v) => -(v as number)) : -(a as number)
     }
     case 'compare': {
-      const a = evalExpr(e.a, env, ctx) as number, b = evalExpr(e.b, env, ctx) as number
+      const a = evalExpr(e.a, env, ctx) as number,
+        b = evalExpr(e.b, env, ctx) as number
       // == / != reflect f32 rounding when comparing f32 operands — the GPU
       // computes f32, so exact f64 equality silently disagrees with it on
       // equality branches (#13). Ordering ops keep f64 (rounding rarely flips an
       // inequality, and f64 is the stricter mirror for thresholds).
       const f32cmp = e.a.type.kind === 'scalar' && e.a.type.scalar === 'f32'
       switch (e.cop) {
-        case '<': return a < b
-        case '>': return a > b
-        case '<=': return a <= b
-        case '>=': return a >= b
-        case '==': return f32cmp ? Math.fround(a) === Math.fround(b) : a === b
-        case '!=': return f32cmp ? Math.fround(a) !== Math.fround(b) : a !== b
+        case '<':
+          return a < b
+        case '>':
+          return a > b
+        case '<=':
+          return a <= b
+        case '>=':
+          return a >= b
+        case '==':
+          return f32cmp ? Math.fround(a) === Math.fround(b) : a === b
+        case '!=':
+          return f32cmp ? Math.fround(a) !== Math.fround(b) : a !== b
       }
     }
     // eslint-disable-next-line no-fallthrough
@@ -297,7 +371,9 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       const stub = GPU_STUBS[e.fn]
       if (stub) {
         if (!ctx.gpuStubs) {
-          throw new Error(`shader-dsl/cpu: '${e.fn}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (#763 O3)`)
+          throw new Error(
+            `shader-dsl/cpu: '${e.fn}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (#763 O3)`,
+          )
         }
         return stub(...args)
       }
@@ -323,7 +399,9 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         const decl = ctx.structs.get(e.type.name)
         if (decl === undefined) throw new Error(`oracle: struct '${e.type.name}' not declared`)
         const obj: Record<string, CpuValue> = {}
-        decl.fields.forEach((f, i) => { obj[f.name] = evalExpr(e.args[i]!, env, ctx) })
+        decl.fields.forEach((f, i) => {
+          obj[f.name] = evalExpr(e.args[i]!, env, ctx)
+        })
         return obj as CpuValue
       }
       // Vector constructor: flatten scalar/vec args into one component list.
@@ -334,7 +412,8 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         else out.push(v as number)
       }
       // WGSL splat: vecN<T>(singleScalar) fills all N components (e.g. vec3(0.5) = [0.5,0.5,0.5]).
-      if (e.type.kind === 'vec' && out.length === 1) return new Array(e.type.n as number).fill(out[0])
+      if (e.type.kind === 'vec' && out.length === 1)
+        return new Array(e.type.n as number).fill(out[0])
       return out
     }
     case 'select': {
@@ -357,7 +436,10 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
 }
 
 function setLValue(target: Expr, value: CpuValue, env: Map<string, CpuValue>, ctx: Ctx): void {
-  if (target.op === 'varref' || target.op === 'param') { env.set(target.name, value); return }
+  if (target.op === 'varref' || target.op === 'param') {
+    env.set(target.name, value)
+    return
+  }
   if (target.op === 'member') {
     const base = evalExpr(target.base, env, ctx)
     if (isArr(base)) base[FIELD_IDX[target.field]] = value as number
@@ -372,7 +454,12 @@ function setLValue(target: Expr, value: CpuValue, env: Map<string, CpuValue>, ct
   throw new Error(`shader-dsl/cpu: bad assignment target ${target.op}`)
 }
 
-type Signal = { kind: 'normal' } | { kind: 'return'; value: CpuValue | undefined } | { kind: 'break' } | { kind: 'continue' } | { kind: 'discard' }
+type Signal =
+  | { kind: 'normal' }
+  | { kind: 'return'; value: CpuValue | undefined }
+  | { kind: 'break' }
+  | { kind: 'continue' }
+  | { kind: 'discard' }
 const NORMAL: Signal = { kind: 'normal' }
 
 // One flat env per function call (no per-block child scope). This is safe
@@ -384,9 +471,15 @@ const NORMAL: Signal = { kind: 'normal' }
 function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): Signal {
   for (const s of body) {
     switch (s.s) {
-      case 'let': env.set(s.name, evalExpr(s.expr, env, ctx)); break
-      case 'var': env.set(s.name, s.init ? evalExpr(s.init, env, ctx) : zeroOf(s.type)); break
-      case 'assign': setLValue(s.target, evalExpr(s.expr, env, ctx), env, ctx); break
+      case 'let':
+        env.set(s.name, evalExpr(s.expr, env, ctx))
+        break
+      case 'var':
+        env.set(s.name, s.init ? evalExpr(s.init, env, ctx) : zeroOf(s.type))
+        break
+      case 'assign':
+        setLValue(s.target, evalExpr(s.expr, env, ctx), env, ctx)
+        break
       case 'assignOp': {
         const cur = evalExpr(s.target, env, ctx)
         // #763 O6 — thread the i32 flag exactly as the binop path does
@@ -396,10 +489,14 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         setLValue(s.target, applyBin(s.bop, cur, evalExpr(s.expr, env, ctx), i32Op), env, ctx)
         break
       }
-      case 'return': return { kind: 'return', value: s.expr ? evalExpr(s.expr, env, ctx) : undefined }
-      case 'break': return { kind: 'break' }
-      case 'continue': return { kind: 'continue' }
-      case 'discard': return { kind: 'discard' }
+      case 'return':
+        return { kind: 'return', value: s.expr ? evalExpr(s.expr, env, ctx) : undefined }
+      case 'break':
+        return { kind: 'break' }
+      case 'continue':
+        return { kind: 'continue' }
+      case 'discard':
+        return { kind: 'discard' }
       case 'if': {
         let taken = false
         for (const arm of s.arms) {
@@ -446,14 +543,18 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         // than silently no-op (the WGSL backend emits a defensive
         // comment, but on CPU there's no analogue and a silent
         // missing-return is much harder to localise).
-        throw new Error(`shader-dsl/cpu: placeholder Stmt reached CPU backend — composer forgot to splice tag=${s.tag}`)
+        throw new Error(
+          `shader-dsl/cpu: placeholder Stmt reached CPU backend — composer forgot to splice tag=${s.tag}`,
+        )
       }
       case 'raw': {
         // Phase 2 PR 2e.B.2 — raw WGSL passthrough is GPU-only; it has no
         // CPU evaluation. Reaching here means a raw Stmt was placed on a
         // shader path that also runs through the CPU mirror (cpu-projections
         // / compute eval), which is a composition bug — fail loudly.
-        throw new Error('shader-dsl/cpu: raw WGSL Stmt reached CPU backend — raw passthrough is GPU-only')
+        throw new Error(
+          'shader-dsl/cpu: raw WGSL Stmt reached CPU backend — raw passthrough is GPU-only',
+        )
       }
     }
   }
@@ -490,6 +591,8 @@ export function compileModule(m: ModuleDecl, opts?: { gpuStubs?: boolean }): Cpu
   }
   return {
     fns: ctx.fns,
-    setBinding: (name, value) => { ctx.bindings[name] = value },
+    setBinding: (name, value) => {
+      ctx.bindings[name] = value
+    },
   }
 }

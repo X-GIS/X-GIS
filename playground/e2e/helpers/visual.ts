@@ -39,10 +39,7 @@ export interface CaptureOptions {
  * so every visual test gets the same wait semantics — no flakes from
  * "screenshot fired one frame too early".
  */
-export async function captureCanvas(
-  page: Page,
-  opts: CaptureOptions = {},
-): Promise<Buffer> {
+export async function captureCanvas(page: Page, opts: CaptureOptions = {}): Promise<Buffer> {
   const readyTimeout = opts.readyTimeoutMs ?? 20_000
 
   await page.waitForFunction(
@@ -65,19 +62,27 @@ export async function captureCanvas(
   // `_wasIdle` is the field fallback for builds without the method.
   await page.evaluate((timeoutMs) => {
     return new Promise<void>((resolve) => {
-      const m = (window as unknown as {
-        __xgisMap?: { hasPendingSourceWork?: () => boolean; _wasIdle?: boolean }
-      }).__xgisMap
-      if (!m) { resolve(); return }
+      const m = (
+        window as unknown as {
+          __xgisMap?: { hasPendingSourceWork?: () => boolean; _wasIdle?: boolean }
+        }
+      ).__xgisMap
+      if (!m) {
+        resolve()
+        return
+      }
       const t0 = performance.now()
       let stable = 0
       const tick = () => {
         let settled = false
         try {
-          settled = typeof m.hasPendingSourceWork === 'function'
-            ? m.hasPendingSourceWork() === false
-            : m._wasIdle === true
-        } catch { settled = false }
+          settled =
+            typeof m.hasPendingSourceWork === 'function'
+              ? m.hasPendingSourceWork() === false
+              : m._wasIdle === true
+        } catch {
+          settled = false
+        }
         stable = settled ? stable + 1 : 0
         if (stable >= 5 || performance.now() - t0 > timeoutMs) resolve()
         else requestAnimationFrame(tick)
@@ -88,7 +93,9 @@ export async function captureCanvas(
 
   // Two extra rAF ticks so any shader-variant pipeline created on the
   // first frame can compose into the visible swap chain on frame 2.
-  await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+  await page.evaluate(
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+  )
 
   if (opts.elapsedMsAtLeast !== undefined) {
     const target = opts.elapsedMsAtLeast
@@ -102,7 +109,7 @@ export async function captureCanvas(
     )
     // One more rAF after the elapsed threshold so the frame at t≈target
     // is actually composed.
-    await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => r())))
+    await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => r())))
   }
 
   return await page.locator('#map').screenshot()
@@ -128,7 +135,7 @@ export async function sampleNonBackgroundPixels(
 ): Promise<number> {
   return await page.evaluate(
     async ({ b64, bg, tol, count }) => {
-      const blob = await fetch(`data:image/png;base64,${b64}`).then(r => r.blob())
+      const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())
       const bmp = await createImageBitmap(blob)
       const c = document.createElement('canvas')
       c.width = bmp.width
@@ -173,14 +180,18 @@ export async function pixelDiffRatio(
   return await page.evaluate(
     async ({ a64, b64, tol }) => {
       const decode = async (b64: string) => {
-        const blob = await fetch(`data:image/png;base64,${b64}`).then(r => r.blob())
+        const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())
         const bmp = await createImageBitmap(blob)
         const c = document.createElement('canvas')
         c.width = bmp.width
         c.height = bmp.height
         const ctx = c.getContext('2d')!
         ctx.drawImage(bmp, 0, 0)
-        return { data: ctx.getImageData(0, 0, bmp.width, bmp.height).data, w: bmp.width, h: bmp.height }
+        return {
+          data: ctx.getImageData(0, 0, bmp.width, bmp.height).data,
+          w: bmp.width,
+          h: bmp.height,
+        }
       }
       const A = await decode(a64)
       const B = await decode(b64)
@@ -214,7 +225,7 @@ export async function hashScreenshot(page: Page, pngBuffer: Buffer): Promise<str
     const digest = await crypto.subtle.digest('SHA-256', arr)
     return Array.from(new Uint8Array(digest))
       .slice(0, 12)
-      .map(b => b.toString(16).padStart(2, '0'))
+      .map((b) => b.toString(16).padStart(2, '0'))
       .join('')
   }, pngBuffer.toString('base64'))
 }
@@ -252,15 +263,10 @@ export type RGB = [number, number, number]
  * test that catches "everything went transparent" silent failures
  * that whole-frame baselines miss.
  */
-export async function pixelAt(
-  page: Page,
-  pngBuffer: Buffer,
-  x: number,
-  y: number,
-): Promise<RGB> {
+export async function pixelAt(page: Page, pngBuffer: Buffer, x: number, y: number): Promise<RGB> {
   return await page.evaluate(
     async ({ b64, px, py }) => {
-      const blob = await fetch(`data:image/png;base64,${b64}`).then(r => r.blob())
+      const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())
       const bmp = await createImageBitmap(blob)
       const c = document.createElement('canvas')
       c.width = bmp.width
@@ -298,7 +304,7 @@ export async function expectPixelAt(
   if (dr > tolerance || dg > tolerance || db > tolerance) {
     throw new Error(
       `pixel(${x},${y}): expected RGB(${expected.join(',')}) ±${tolerance}, ` +
-      `got RGB(${actual.join(',')}) (Δ=${dr},${dg},${db})`,
+        `got RGB(${actual.join(',')}) (Δ=${dr},${dg},${db})`,
     )
   }
 }
@@ -328,14 +334,16 @@ export async function extractRegion(
 ): Promise<Buffer> {
   const b64Out = await page.evaluate(
     async ({ b64, r }) => {
-      const blob = await fetch(`data:image/png;base64,${b64}`).then(rr => rr.blob())
+      const blob = await fetch(`data:image/png;base64,${b64}`).then((rr) => rr.blob())
       const bmp = await createImageBitmap(blob)
       const c = document.createElement('canvas')
       c.width = r.width
       c.height = r.height
       const ctx = c.getContext('2d')!
       ctx.drawImage(bmp, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height)
-      const outBlob: Blob = await new Promise(resolve => c.toBlob(b => resolve(b!), 'image/png'))
+      const outBlob: Blob = await new Promise((resolve) =>
+        c.toBlob((b) => resolve(b!), 'image/png'),
+      )
       const ab = await outBlob.arrayBuffer()
       // Encode to base64 inside the page context; node side decodes back.
       let s = ''
@@ -404,7 +412,7 @@ export async function colorHistogram(
 ): Promise<Record<string, number>> {
   return await page.evaluate(
     async ({ b64, bs }) => {
-      const blob = await fetch(`data:image/png;base64,${b64}`).then(r => r.blob())
+      const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())
       const bmp = await createImageBitmap(blob)
       const c = document.createElement('canvas')
       c.width = bmp.width
@@ -419,7 +427,9 @@ export async function colorHistogram(
       // bucket. Overlap is allowed — a single pixel can count into
       // multiple buckets.
       for (let i = 0; i < data.length; i += 4) {
-        const r = data[i], g = data[i + 1], blu = data[i + 2]
+        const r = data[i],
+          g = data[i + 1],
+          blu = data[i + 2]
         for (const b of bs) {
           if (
             Math.abs(r - b.rgb[0]) <= b.tolerance &&
@@ -457,13 +467,15 @@ export async function expectColorHistogram(
   for (const [name, [min, max]] of Object.entries(expectedRanges)) {
     const v = actual[name] ?? 0
     if (v < min || v > max) {
-      failures.push(`  ${name}: expected ${(min * 100).toFixed(1)}-${(max * 100).toFixed(1)}%, got ${(v * 100).toFixed(1)}%`)
+      failures.push(
+        `  ${name}: expected ${(min * 100).toFixed(1)}-${(max * 100).toFixed(1)}%, got ${(v * 100).toFixed(1)}%`,
+      )
     }
   }
   if (failures.length > 0) {
     throw new Error(
       `color histogram out of range:\n${failures.join('\n')}\n` +
-      `(full ratios: ${JSON.stringify(actual, (_, v) => typeof v === 'number' ? Number(v.toFixed(4)) : v)})`,
+        `(full ratios: ${JSON.stringify(actual, (_, v) => (typeof v === 'number' ? Number(v.toFixed(4)) : v))})`,
     )
   }
 }

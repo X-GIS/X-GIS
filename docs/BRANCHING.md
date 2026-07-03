@@ -3,7 +3,7 @@
 **Model: trunk-based.** `main` is the single integration branch — always green,
 always demo-ready. There is **no `dev`/integration branch.**
 
-*Rationale.* X-GIS is a solo learning/portfolio project where the architecture
+_Rationale._ X-GIS is a solo learning/portfolio project where the architecture
 quality **is** the deliverable (`docs/redesign/VISION.md` §0) and there are no
 versioned releases (we do not bump package versions). For that audience the
 strongest git signal is a **clean, linear `main` with atomic, individually-green
@@ -15,7 +15,7 @@ is the trunk, and every change earns its place there one PR at a time.
 ## Flow
 
 1. Branch off `main`: `<type>/<kebab-summary>`.
-2. Small, focused commits. Conventional-commit titles; body = *why* + the
+2. Small, focused commits. Conventional-commit titles; body = _why_ + the
    verification run; AI-assisted commits keep the `Co-Authored-By` trailer.
 3. **One PR per coherent change**, individually green.
 4. **Squash-merge** to `main` → a single `<type>(scope): summary (#NNN)` commit.
@@ -43,7 +43,7 @@ not a single CI check:
   `playground/e2e/_coverage-black-ratio.spec.ts`,
   `_pixel-match-survey.spec.ts` — and confirm green **before** opening / merging.
   Record the gate output in the PR description: the screenshot matrix is the
-  *discovery tripwire*; the deterministic numeric gate is the *proof of record*
+  _discovery tripwire_; the deterministic numeric gate is the _proof of record_
   (`docs/redesign/VISION.md` §6, `docs/verification/STRATEGY.md`).
 - **Never merge on a red local gate.** A passing no-GPU CI is necessary, not
   sufficient — "does it render correctly" is only ever checked locally.

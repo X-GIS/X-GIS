@@ -12,10 +12,12 @@ const MAX_Z = 22
 function makeRng(seed: number): () => number {
   let s = seed | 0
   return () => {
-    s ^= s << 13; s |= 0
+    s ^= s << 13
+    s |= 0
     s ^= s >>> 17
-    s ^= s << 5; s |= 0
-    return ((s >>> 0) / 0x1_0000_0000)
+    s ^= s << 5
+    s |= 0
+    return (s >>> 0) / 0x1_0000_0000
   }
 }
 
@@ -53,7 +55,7 @@ describe('iter-293 tileKey bijection — randomized fuzz', () => {
   it('tileKeyParent equals tileKeyUnpack of parent (z-1)', () => {
     const rng = makeRng(0xbeef)
     for (let trial = 0; trial < 2000; trial++) {
-      const z = 1 + Math.floor(rng() * MAX_Z)  // z>=1
+      const z = 1 + Math.floor(rng() * MAX_Z) // z>=1
       const n = Math.pow(2, z)
       const x = Math.floor(rng() * n)
       const y = Math.floor(rng() * n)
@@ -67,7 +69,7 @@ describe('iter-293 tileKey bijection — randomized fuzz', () => {
   it('tileKeyChildren(k) all unpack to (z+1, 2x..2x+1, 2y..2y+1)', () => {
     const rng = makeRng(0xdead)
     for (let trial = 0; trial < 1000; trial++) {
-      const z = Math.floor(rng() * MAX_Z)  // z<MAX so z+1 valid
+      const z = Math.floor(rng() * MAX_Z) // z<MAX so z+1 valid
       const n = Math.pow(2, z)
       const x = Math.floor(rng() * n)
       const y = Math.floor(rng() * n)
@@ -75,9 +77,9 @@ describe('iter-293 tileKey bijection — randomized fuzz', () => {
       const children = tileKeyChildren(k)
       expect(children.length).toBe(4)
       const wanted = new Set([
-        tileKey(z + 1, 2 * x,     2 * y),
+        tileKey(z + 1, 2 * x, 2 * y),
         tileKey(z + 1, 2 * x + 1, 2 * y),
-        tileKey(z + 1, 2 * x,     2 * y + 1),
+        tileKey(z + 1, 2 * x, 2 * y + 1),
         tileKey(z + 1, 2 * x + 1, 2 * y + 1),
       ])
       for (const c of children) expect(wanted.has(c)).toBe(true)

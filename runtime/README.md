@@ -43,9 +43,9 @@ The public surface is the `src/index.ts` barrel. The entry point is `XGISMap`.
 import { XGISMap } from '@xgis/runtime'
 
 const map = new XGISMap(canvas, options) // options: glyphs, spriteUrl, fonts, ...
-await map.run(xgisSource, baseUrl)        // compile + load + render an .xgis string
+await map.run(xgisSource, baseUrl) // compile + load + render an .xgis string
 // or:
-await map.load(url)                        // fetch + auto-detect .xgis vs .xgb
+await map.load(url) // fetch + auto-detect .xgis vs .xgb
 ```
 
 `new XGISMap(canvas, options)` wires the camera, controllers, and source
@@ -59,40 +59,40 @@ shadow-DOM canvas and dispatches its `src` attribute / inline text to
 
 Top-level exports from `index.ts`:
 
-| Export | What |
-|--------|------|
-| `XGISMap` | Top-level map orchestrator (compile → load → camera-fit → frame loop). |
-| `XGISMapElement`, `registerXGISElement` | `<xgis-map>` web component + registration. |
-| `Camera` | Zoom/pan/bearing/pitch, MVP matrix, log-depth FC. |
-| `MapRenderer` | WebGPU renderer for compiled GeoJSON meshes. |
-| `loadGeoJSON`, `lonLatToMercator` | GeoJSON ingest + Mercator helper. |
-| `mercator`, `equirectangular`, `naturalEarth`, `orthographic`, `getProjection` | Projection factories (CPU `{forward, inverse}`). |
-| `VectorTileLoader`, `VectorTileSource`, `PMTilesArchiveSource`, `TileJSONSource`, `loadPMTilesSource`, … | Vector-tile / PMTiles source surface. |
-| `synthesizePolarCaps`, `injectPolarCaps`, `projectionNeedsPolarCaps`, … | Polar-cap synth/detect (data preprocessing utility; no longer renderer-driven). |
-| `ComputeDispatcher` | Per-feature expression compute kernel dispatcher. |
-| `createColorRampTexture`, `createRampSampler`, `availableRamps` | Data-driven color-ramp LUTs. |
-| `RUNTIME_CAPABILITIES`, `runtimeCapability`, `runtimeGaps` | Per `(layerType, property, variant)` matrix of what the renderer actually honours. |
-| `StatsPanel`, `StatsTracker` | Per-frame fps/draws/tris/tiles metrics. |
+| Export                                                                                                   | What                                                                               |
+| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `XGISMap`                                                                                                | Top-level map orchestrator (compile → load → camera-fit → frame loop).             |
+| `XGISMapElement`, `registerXGISElement`                                                                  | `<xgis-map>` web component + registration.                                         |
+| `Camera`                                                                                                 | Zoom/pan/bearing/pitch, MVP matrix, log-depth FC.                                  |
+| `MapRenderer`                                                                                            | WebGPU renderer for compiled GeoJSON meshes.                                       |
+| `loadGeoJSON`, `lonLatToMercator`                                                                        | GeoJSON ingest + Mercator helper.                                                  |
+| `mercator`, `equirectangular`, `naturalEarth`, `orthographic`, `getProjection`                           | Projection factories (CPU `{forward, inverse}`).                                   |
+| `VectorTileLoader`, `VectorTileSource`, `PMTilesArchiveSource`, `TileJSONSource`, `loadPMTilesSource`, … | Vector-tile / PMTiles source surface.                                              |
+| `synthesizePolarCaps`, `injectPolarCaps`, `projectionNeedsPolarCaps`, …                                  | Polar-cap synth/detect (data preprocessing utility; no longer renderer-driven).    |
+| `ComputeDispatcher`                                                                                      | Per-feature expression compute kernel dispatcher.                                  |
+| `createColorRampTexture`, `createRampSampler`, `availableRamps`                                          | Data-driven color-ramp LUTs.                                                       |
+| `RUNTIME_CAPABILITIES`, `runtimeCapability`, `runtimeGaps`                                               | Per `(layerType, property, variant)` matrix of what the renderer actually honours. |
+| `StatsPanel`, `StatsTracker`                                                                             | Per-frame fps/draws/tris/tiles metrics.                                            |
 
 ## Subsystems
 
 Source lives under `src/`, split into four subsystem dirs plus support modules.
 Each has a per-directory `AGENTS.md` with the detail.
 
-| Subsystem | One-line | Detail |
-|-----------|----------|--------|
-| `engine/` | `XGISMap` orchestrator, DOM-style layer API, AST interpreter, interaction, stats. | [src/engine/AGENTS.md](./src/engine/AGENTS.md) |
-| `engine/render/` | Every draw-call renderer (vector tiles, lines, points, raster, background) + scheduling. | [src/engine/render/AGENTS.md](./src/engine/render/AGENTS.md) |
-| `engine/gpu/` | WebGPU device/context, shared blend/stencil constants, uniform/staging buffers, compute dispatch. | [src/engine/gpu/AGENTS.md](./src/engine/gpu/AGENTS.md) |
-| `engine/projection/` | Camera + the 7 CPU projections (projType 0–6) + true-3D globe (projType 7). | [src/engine/projection/AGENTS.md](./src/engine/projection/AGENTS.md) |
-| `engine/shader-dsl/` | In-house TSL-inspired DSL: one IR emits both WGSL and the CPU-f64 mirror (kills GPU↔CPU drift). | [src/engine/shader-dsl/AGENTS.md](./src/engine/shader-dsl/AGENTS.md) |
-| `engine/shaders/` | Shared WGSL string blocks (projection, log-depth, SDF). | [src/engine/shaders/AGENTS.md](./src/engine/shaders/AGENTS.md) |
-| `engine/text/` | SDF text/label pipeline: shaping, collision, atlas, rasterisers. | [src/engine/text/AGENTS.md](./src/engine/text/AGENTS.md) |
-| `engine/sprite/` | Sprite/icon atlas + icon renderer + stage. | [src/engine/sprite/AGENTS.md](./src/engine/sprite/AGENTS.md) |
-| `data/` | `TileCatalog` router/cache, per-format `TileSource` backends, decode worker pools, filter/extrude eval. | [src/data/AGENTS.md](./src/data/AGENTS.md) |
-| `loader/` | GeoJSON loader, `VectorTileLoader`, SSE tile selector, polar-cap detect. | [src/loader/AGENTS.md](./src/loader/AGENTS.md) |
-| `core/` | GPU-free geometry/scheduling primitives (line-segment build, polygon mesh, priority queue). | [src/core/AGENTS.md](./src/core/AGENTS.md) |
-| `web/` | `<xgis-map>` custom element. | [src/web/AGENTS.md](./src/web/AGENTS.md) |
+| Subsystem            | One-line                                                                                                | Detail                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `engine/`            | `XGISMap` orchestrator, DOM-style layer API, AST interpreter, interaction, stats.                       | [src/engine/AGENTS.md](./src/engine/AGENTS.md)                       |
+| `engine/render/`     | Every draw-call renderer (vector tiles, lines, points, raster, background) + scheduling.                | [src/engine/render/AGENTS.md](./src/engine/render/AGENTS.md)         |
+| `engine/gpu/`        | WebGPU device/context, shared blend/stencil constants, uniform/staging buffers, compute dispatch.       | [src/engine/gpu/AGENTS.md](./src/engine/gpu/AGENTS.md)               |
+| `engine/projection/` | Camera + the 7 CPU projections (projType 0–6) + true-3D globe (projType 7).                             | [src/engine/projection/AGENTS.md](./src/engine/projection/AGENTS.md) |
+| `engine/shader-dsl/` | In-house TSL-inspired DSL: one IR emits both WGSL and the CPU-f64 mirror (kills GPU↔CPU drift).         | [src/engine/shader-dsl/AGENTS.md](./src/engine/shader-dsl/AGENTS.md) |
+| `engine/shaders/`    | Shared WGSL string blocks (projection, log-depth, SDF).                                                 | [src/engine/shaders/AGENTS.md](./src/engine/shaders/AGENTS.md)       |
+| `engine/text/`       | SDF text/label pipeline: shaping, collision, atlas, rasterisers.                                        | [src/engine/text/AGENTS.md](./src/engine/text/AGENTS.md)             |
+| `engine/sprite/`     | Sprite/icon atlas + icon renderer + stage.                                                              | [src/engine/sprite/AGENTS.md](./src/engine/sprite/AGENTS.md)         |
+| `data/`              | `TileCatalog` router/cache, per-format `TileSource` backends, decode worker pools, filter/extrude eval. | [src/data/AGENTS.md](./src/data/AGENTS.md)                           |
+| `loader/`            | GeoJSON loader, `VectorTileLoader`, SSE tile selector, polar-cap detect.                                | [src/loader/AGENTS.md](./src/loader/AGENTS.md)                       |
+| `core/`              | GPU-free geometry/scheduling primitives (line-segment build, polygon mesh, priority queue).             | [src/core/AGENTS.md](./src/core/AGENTS.md)                           |
+| `web/`               | `<xgis-map>` custom element.                                                                            | [src/web/AGENTS.md](./src/web/AGENTS.md)                             |
 
 Cross-cutting design notes worth knowing before editing:
 

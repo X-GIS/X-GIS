@@ -5,14 +5,20 @@
 import { describe, expect, it } from 'vitest'
 import { annotateDeps, fillIsZoomOnly, hasFeatureDep } from './annotate-deps'
 import type {
-  ColorValue, DataExpr, RenderNode, Scene, SizeValue, StrokeValue, ZoomStop,
+  ColorValue,
+  DataExpr,
+  RenderNode,
+  Scene,
+  SizeValue,
+  StrokeValue,
+  ZoomStop,
 } from '../render-node'
 import type { PropertyShape, RGBA } from '../property-types'
 import { Dep } from '../deps'
 
 const RED: RGBA = [1, 0, 0, 1]
 const BLUE: RGBA = [0, 0, 1, 1]
-const zs = <T,>(zoom: number, value: T): ZoomStop<T> => ({ zoom, value })
+const zs = <T>(zoom: number, value: T): ZoomStop<T> => ({ zoom, value })
 
 function fieldAccess(name: string) {
   return { kind: 'FieldAccess' as const, object: null, field: name }
@@ -26,7 +32,7 @@ function matchAst(field: string, arms: { pattern: string; hex: string }[]): Data
       args: [fieldAccess(field)],
       matchBlock: {
         kind: 'MatchBlock',
-        arms: arms.map(a => ({
+        arms: arms.map((a) => ({
           pattern: a.pattern,
           value: { kind: 'ColorLiteral' as const, value: a.hex },
         })),
@@ -37,7 +43,9 @@ function matchAst(field: string, arms: { pattern: string; hex: string }[]): Data
 
 function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
   return {
-    name: 'a', sourceRef: 's', zOrder: 0,
+    name: 'a',
+    sourceRef: 's',
+    zOrder: 0,
     fill: { kind: 'none' },
     stroke: {
       color: { kind: 'none' },
@@ -47,8 +55,12 @@ function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
     size: { kind: 'none' } as SizeValue,
     extrude: { kind: 'none' } as never,
     extrudeBase: { kind: 'none' } as never,
-    projection: 'mercator', visible: true, pointerEvents: 'auto',
-    filter: null, geometry: null, billboard: true,
+    projection: 'mercator',
+    visible: true,
+    pointerEvents: 'auto',
+    filter: null,
+    geometry: null,
+    billboard: true,
     shape: { kind: 'named', name: 'circle' } as never,
     ...overrides,
   }
@@ -71,9 +83,13 @@ describe('annotateDeps — basic shape', () => {
   })
 
   it('all-constant scene → every entry has bits === Dep.NONE', () => {
-    const ann = annotateDeps(makeScene(makeNode({
-      fill: { kind: 'constant', rgba: RED },
-    })))
+    const ann = annotateDeps(
+      makeScene(
+        makeNode({
+          fill: { kind: 'constant', rgba: RED },
+        }),
+      ),
+    )
     expect(ann.byNode[0]!.fill?.bits).toBe(Dep.NONE)
     expect(ann.byNode[0]!.opacity?.bits).toBe(Dep.NONE)
     expect(ann.byNode[0]!.strokeWidth?.bits).toBe(Dep.NONE)
@@ -107,15 +123,20 @@ describe('annotateDeps — color axes', () => {
   it('stroke color separately tracked from fill', () => {
     const fill: ColorValue = { kind: 'constant', rgba: RED }
     const strokeColor: ColorValue = {
-      kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)],
+      kind: 'zoom-interpolated',
+      stops: [zs(0, RED), zs(20, BLUE)],
     }
-    const ann = annotateDeps(makeScene(makeNode({
-      fill,
-      stroke: {
-        color: strokeColor,
-        width: { kind: 'constant', value: 1 } as PropertyShape<number>,
-      } as StrokeValue,
-    })))
+    const ann = annotateDeps(
+      makeScene(
+        makeNode({
+          fill,
+          stroke: {
+            color: strokeColor,
+            width: { kind: 'constant', value: 1 } as PropertyShape<number>,
+          } as StrokeValue,
+        }),
+      ),
+    )
     expect(ann.byNode[0]!.fill?.bits).toBe(Dep.NONE)
     expect(ann.byNode[0]!.strokeColor?.bits).toBe(Dep.ZOOM)
   })
@@ -130,24 +151,32 @@ describe('annotateDeps — numeric axes always present', () => {
   })
 
   it('zoom-interpolated strokeWidth → bits === Dep.ZOOM', () => {
-    const ann = annotateDeps(makeScene(makeNode({
-      stroke: {
-        color: { kind: 'none' },
-        width: {
-          kind: 'zoom-interpolated',
-          stops: [zs(10, 1), zs(20, 5)],
-        } as PropertyShape<number>,
-      } as StrokeValue,
-    })))
+    const ann = annotateDeps(
+      makeScene(
+        makeNode({
+          stroke: {
+            color: { kind: 'none' },
+            width: {
+              kind: 'zoom-interpolated',
+              stops: [zs(10, 1), zs(20, 5)],
+            } as PropertyShape<number>,
+          } as StrokeValue,
+        }),
+      ),
+    )
     expect(ann.byNode[0]!.strokeWidth?.bits).toBe(Dep.ZOOM)
   })
 })
 
 describe('annotateDeps — DataExpr axes', () => {
   it('filter expression recorded with FEATURE bits', () => {
-    const ann = annotateDeps(makeScene(makeNode({
-      filter: { ast: fieldAccess('class') as never },
-    })))
+    const ann = annotateDeps(
+      makeScene(
+        makeNode({
+          filter: { ast: fieldAccess('class') as never },
+        }),
+      ),
+    )
     expect(ann.byNode[0]!.filter).toBeDefined()
     expect((ann.byNode[0]!.filter?.bits ?? 0) & Dep.FEATURE).toBe(Dep.FEATURE)
   })
@@ -160,32 +189,45 @@ describe('annotateDeps — DataExpr axes', () => {
 
 describe('annotateDeps — histogram', () => {
   it('counts NONE entries from constants', () => {
-    const ann = annotateDeps(makeScene(makeNode({
-      fill: { kind: 'constant', rgba: RED },
-    })))
+    const ann = annotateDeps(
+      makeScene(
+        makeNode({
+          fill: { kind: 'constant', rgba: RED },
+        }),
+      ),
+    )
     // fill(NONE) + opacity(NONE) + strokeWidth(NONE) = 3
     expect(ann.histogram[String(Dep.NONE)]).toBe(3)
   })
 
   it('counts ZOOM entries from zoom-interpolated fill + strokeWidth', () => {
-    const ann = annotateDeps(makeScene(makeNode({
-      fill: { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] },
-      stroke: {
-        color: { kind: 'none' },
-        width: { kind: 'zoom-interpolated', stops: [zs(0, 1), zs(20, 5)] } as PropertyShape<number>,
-      } as StrokeValue,
-    })))
+    const ann = annotateDeps(
+      makeScene(
+        makeNode({
+          fill: { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] },
+          stroke: {
+            color: { kind: 'none' },
+            width: {
+              kind: 'zoom-interpolated',
+              stops: [zs(0, 1), zs(20, 5)],
+            } as PropertyShape<number>,
+          } as StrokeValue,
+        }),
+      ),
+    )
     expect(ann.histogram[String(Dep.ZOOM)]).toBe(2)
   })
 
   it('multi-node histogram aggregates across the scene', () => {
     const fillConst: ColorValue = { kind: 'constant', rgba: RED }
     const fillZoom: ColorValue = { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] }
-    const ann = annotateDeps(makeScene(
-      makeNode({ fill: fillConst }),
-      makeNode({ fill: fillConst }),
-      makeNode({ fill: fillZoom }),
-    ))
+    const ann = annotateDeps(
+      makeScene(
+        makeNode({ fill: fillConst }),
+        makeNode({ fill: fillConst }),
+        makeNode({ fill: fillZoom }),
+      ),
+    )
     // Each node has fill(?) + opacity(NONE) + strokeWidth(NONE) entries.
     // Two const fills + 3 nodes × {opacity, strokeWidth} all NONE = 8 NONE.
     expect(ann.histogram[String(Dep.NONE)]).toBe(8)
@@ -196,26 +238,38 @@ describe('annotateDeps — histogram', () => {
 
 describe('annotateDeps — convenience predicates', () => {
   it('fillIsZoomOnly: constant fill → true', () => {
-    const ann = annotateDeps(makeScene(makeNode({
-      fill: { kind: 'constant', rgba: RED },
-    })))
+    const ann = annotateDeps(
+      makeScene(
+        makeNode({
+          fill: { kind: 'constant', rgba: RED },
+        }),
+      ),
+    )
     expect(fillIsZoomOnly(ann.byNode[0]!)).toBe(true)
   })
 
   it('fillIsZoomOnly: zoom-interpolated → true', () => {
-    const ann = annotateDeps(makeScene(makeNode({
-      fill: { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] },
-    })))
+    const ann = annotateDeps(
+      makeScene(
+        makeNode({
+          fill: { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] },
+        }),
+      ),
+    )
     expect(fillIsZoomOnly(ann.byNode[0]!)).toBe(true)
   })
 
   it('fillIsZoomOnly: data-driven match() → false', () => {
-    const ann = annotateDeps(makeScene(makeNode({
-      fill: {
-        kind: 'data-driven',
-        expr: matchAst('class', [{ pattern: 'a', hex: '#ff0000' }]),
-      },
-    })))
+    const ann = annotateDeps(
+      makeScene(
+        makeNode({
+          fill: {
+            kind: 'data-driven',
+            expr: matchAst('class', [{ pattern: 'a', hex: '#ff0000' }]),
+          },
+        }),
+      ),
+    )
     expect(fillIsZoomOnly(ann.byNode[0]!)).toBe(false)
   })
 
@@ -225,35 +279,49 @@ describe('annotateDeps — convenience predicates', () => {
   })
 
   it('hasFeatureDep: all-constant node → false', () => {
-    const ann = annotateDeps(makeScene(makeNode({
-      fill: { kind: 'constant', rgba: RED },
-    })))
+    const ann = annotateDeps(
+      makeScene(
+        makeNode({
+          fill: { kind: 'constant', rgba: RED },
+        }),
+      ),
+    )
     expect(hasFeatureDep(ann.byNode[0]!)).toBe(false)
   })
 
   it('hasFeatureDep: data-driven fill → true', () => {
-    const ann = annotateDeps(makeScene(makeNode({
-      fill: {
-        kind: 'data-driven',
-        expr: matchAst('class', [{ pattern: 'a', hex: '#ff0000' }]),
-      },
-    })))
+    const ann = annotateDeps(
+      makeScene(
+        makeNode({
+          fill: {
+            kind: 'data-driven',
+            expr: matchAst('class', [{ pattern: 'a', hex: '#ff0000' }]),
+          },
+        }),
+      ),
+    )
     expect(hasFeatureDep(ann.byNode[0]!)).toBe(true)
   })
 
   it('hasFeatureDep: filter only → true', () => {
-    const ann = annotateDeps(makeScene(makeNode({
-      filter: { ast: fieldAccess('admin_level') as never },
-    })))
+    const ann = annotateDeps(
+      makeScene(
+        makeNode({
+          filter: { ast: fieldAccess('admin_level') as never },
+        }),
+      ),
+    )
     expect(hasFeatureDep(ann.byNode[0]!)).toBe(true)
   })
 })
 
 describe('annotateDeps — purity', () => {
   it('does not mutate the input scene', () => {
-    const scene = makeScene(makeNode({
-      fill: { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] },
-    }))
+    const scene = makeScene(
+      makeNode({
+        fill: { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] },
+      }),
+    )
     const before = JSON.stringify(scene)
     annotateDeps(scene)
     expect(JSON.stringify(scene)).toBe(before)

@@ -36,8 +36,12 @@ import { emitModule } from '@xgis/shader-dsl' // compiler returns IR; emit WGSL 
 import {
   emitCommands,
   buildPerShowMergedVariant,
-  type Scene, type ColorValue, type DataExpr, type RenderNode,
-  type SizeValue, type StrokeValue,
+  type Scene,
+  type ColorValue,
+  type DataExpr,
+  type RenderNode,
+  type SizeValue,
+  type StrokeValue,
 } from '@xgis/compiler'
 import type { PropertyShape } from '@xgis/compiler'
 import { nodeToWgslString } from '@xgis/compiler'
@@ -48,9 +52,16 @@ import { packFeatureData } from '@xgis/map'
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {
     ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
-      MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8,
-      INDEX: 16, VERTEX: 32, UNIFORM: 64, STORAGE: 128,
-      INDIRECT: 256, QUERY_RESOLVE: 512,
+      MAP_READ: 1,
+      MAP_WRITE: 2,
+      COPY_SRC: 4,
+      COPY_DST: 8,
+      INDEX: 16,
+      VERTEX: 32,
+      UNIFORM: 64,
+      STORAGE: 128,
+      INDIRECT: 256,
+      QUERY_RESOLVE: 512,
     }
   }
 })
@@ -83,7 +94,7 @@ function makeFakeContext() {
       // Record which binding indices were attached — we use this to
       // verify the dispatcher binds 3 entries (feat / out / count).
       const entries = desc.entries as GPUBindGroupEntry[]
-      const indices = entries.map(e => e.binding)
+      const indices = entries.map((e) => e.binding)
       return { _label: desc.label, _indices: indices } as unknown as GPUBindGroup
     },
     createBuffer(desc: GPUBufferDescriptor): GPUBuffer {
@@ -94,12 +105,22 @@ function makeFakeContext() {
       }
       buffers.push(rec)
       return {
-        get size() { return rec.size },
-        destroy() { rec.destroyed = true },
+        get size() {
+          return rec.size
+        },
+        destroy() {
+          rec.destroyed = true
+        },
       } as unknown as GPUBuffer
     },
     queue: {
-      writeBuffer(_b: GPUBuffer, offset: number, data: BufferSource, _dataOffset?: number, size?: number) {
+      writeBuffer(
+        _b: GPUBuffer,
+        offset: number,
+        data: BufferSource,
+        _dataOffset?: number,
+        size?: number,
+      ) {
         writes.push({ offset, bytes: size ?? (data as ArrayBuffer).byteLength })
       },
     },
@@ -117,7 +138,9 @@ function makeFakeContext() {
         setBindGroup(_i: number, g: GPUBindGroup) {
           bindIndices = (g as unknown as { _indices: number[] })._indices ?? []
         },
-        dispatchWorkgroups(n: number) { workgroups = n },
+        dispatchWorkgroups(n: number) {
+          workgroups = n
+        },
         end() {
           dispatches.push({ entryPoint: ep, workgroups, bindings: bindIndices })
         },
@@ -128,7 +151,9 @@ function makeFakeContext() {
   return {
     dispatcher: new ComputeDispatcher({ device } as never),
     encoder,
-    buffers, writes, dispatches,
+    buffers,
+    writes,
+    dispatches,
   }
 }
 
@@ -145,16 +170,18 @@ function makeMatchScene(): Scene {
       matchBlock: {
         kind: 'MatchBlock',
         arms: [
-          { pattern: 'school',   value: { kind: 'ColorLiteral', value: '#f0e8f8' } },
+          { pattern: 'school', value: { kind: 'ColorLiteral', value: '#f0e8f8' } },
           { pattern: 'hospital', value: { kind: 'ColorLiteral', value: '#f5deb3' } },
-          { pattern: '_',        value: { kind: 'ColorLiteral', value: '#888888' } },
+          { pattern: '_', value: { kind: 'ColorLiteral', value: '#888888' } },
         ],
       },
     },
   }
   const fill: ColorValue = { kind: 'data-driven', expr }
   const node: RenderNode = {
-    name: 'landuse', sourceRef: 'lu', zOrder: 0,
+    name: 'landuse',
+    sourceRef: 'lu',
+    zOrder: 0,
     fill,
     stroke: {
       color: { kind: 'none' },
@@ -164,8 +191,12 @@ function makeMatchScene(): Scene {
     size: { kind: 'none' } as SizeValue,
     extrude: { kind: 'none' } as never,
     extrudeBase: { kind: 'none' } as never,
-    projection: 'mercator', visible: true, pointerEvents: 'auto',
-    filter: null, geometry: null, billboard: true,
+    projection: 'mercator',
+    visible: true,
+    pointerEvents: 'auto',
+    filter: null,
+    geometry: null,
+    billboard: true,
     shape: { kind: 'named', name: 'circle' } as never,
   }
   return { sources: [], symbols: [], renderNodes: [node] } as Scene
@@ -183,7 +214,11 @@ describe('P4 end-to-end — compiler ↔ runtime contract', () => {
     const cmds = emitCommands(makeMatchScene())
     const showVariant = cmds.shows[0]!.shaderVariant!
     const merged = buildPerShowMergedVariant(
-      showVariant, cmds.computePlan, 0, /* group */ 3, /* base */ 1,
+      showVariant,
+      cmds.computePlan,
+      0,
+      /* group */ 3,
+      /* base */ 1,
     )
     expect(merged.computeBindings).toBeDefined()
     expect(merged.computeBindings!.length).toBe(1)
@@ -199,7 +234,7 @@ describe('P4 end-to-end — compiler ↔ runtime contract', () => {
     // The preamble should declare compute_out_fill; fillExpr must
     // reference the same name. Drift here would produce an
     // unresolved-identifier WGSL compile error at pipeline create.
-    expect((merged.preamble.bindings ?? []).some(b => b.name === 'compute_out_fill')).toBe(true)
+    expect((merged.preamble.bindings ?? []).some((b) => b.name === 'compute_out_fill')).toBe(true)
     // Phase 2.5 US-004 — fillExpr now NodeLike|null.
     expect(merged.fillExpr ? nodeToWgslString(merged.fillExpr) : '').toContain('compute_out_fill')
   })
@@ -273,9 +308,9 @@ describe('P4 end-to-end — compiler ↔ runtime contract', () => {
           matchBlock: {
             kind: 'MatchBlock',
             arms: [
-              { pattern: 'school',   value: { kind: 'ColorLiteral', value: '#f0e8f8' } },
+              { pattern: 'school', value: { kind: 'ColorLiteral', value: '#f0e8f8' } },
               { pattern: 'hospital', value: { kind: 'ColorLiteral', value: '#f5deb3' } },
-              { pattern: '_',        value: { kind: 'ColorLiteral', value: '#888888' } },
+              { pattern: '_', value: { kind: 'ColorLiteral', value: '#888888' } },
             ],
           },
         },
@@ -283,7 +318,9 @@ describe('P4 end-to-end — compiler ↔ runtime contract', () => {
       const fill: ColorValue = { kind: 'data-driven', expr: buildExpr() }
       const strokeColor: ColorValue = { kind: 'data-driven', expr: buildExpr() }
       const node: RenderNode = {
-        name: 'landuse', sourceRef: 'lu', zOrder: 0,
+        name: 'landuse',
+        sourceRef: 'lu',
+        zOrder: 0,
         fill,
         stroke: {
           color: strokeColor,
@@ -293,8 +330,12 @@ describe('P4 end-to-end — compiler ↔ runtime contract', () => {
         size: { kind: 'none' } as SizeValue,
         extrude: { kind: 'none' } as never,
         extrudeBase: { kind: 'none' } as never,
-        projection: 'mercator', visible: true, pointerEvents: 'auto',
-        filter: null, geometry: null, billboard: true,
+        projection: 'mercator',
+        visible: true,
+        pointerEvents: 'auto',
+        filter: null,
+        geometry: null,
+        billboard: true,
         shape: { kind: 'named', name: 'circle' } as never,
       }
       return { sources: [], symbols: [], renderNodes: [node] } as Scene
@@ -337,26 +378,35 @@ describe('P4 end-to-end — compiler ↔ runtime contract', () => {
 
   it('no-compute scene → empty computePlan, identity-merged variant, no resources', () => {
     const scene: Scene = {
-      sources: [], symbols: [],
-      renderNodes: [{
-        name: 'a', sourceRef: 's', zOrder: 0,
-        fill: { kind: 'constant', rgba: [1, 0, 0, 1] },
-        stroke: { color: { kind: 'none' }, width: { kind: 'constant', value: 0 } } as StrokeValue,
-        opacity: { kind: 'constant', value: 1 },
-        size: { kind: 'none' } as SizeValue,
-        extrude: { kind: 'none' } as never,
-        extrudeBase: { kind: 'none' } as never,
-        projection: 'mercator', visible: true, pointerEvents: 'auto',
-        filter: null, geometry: null, billboard: true,
-        shape: { kind: 'named', name: 'circle' } as never,
-      } as RenderNode],
+      sources: [],
+      symbols: [],
+      renderNodes: [
+        {
+          name: 'a',
+          sourceRef: 's',
+          zOrder: 0,
+          fill: { kind: 'constant', rgba: [1, 0, 0, 1] },
+          stroke: { color: { kind: 'none' }, width: { kind: 'constant', value: 0 } } as StrokeValue,
+          opacity: { kind: 'constant', value: 1 },
+          size: { kind: 'none' } as SizeValue,
+          extrude: { kind: 'none' } as never,
+          extrudeBase: { kind: 'none' } as never,
+          projection: 'mercator',
+          visible: true,
+          pointerEvents: 'auto',
+          filter: null,
+          geometry: null,
+          billboard: true,
+          shape: { kind: 'named', name: 'circle' } as never,
+        } as RenderNode,
+      ],
     } as Scene
     const cmds = emitCommands(scene)
     expect(cmds.computePlan).toBeUndefined()
 
     const showVariant = cmds.shows[0]!.shaderVariant!
     const merged = buildPerShowMergedVariant(showVariant, cmds.computePlan, 0, 3, 1)
-    expect(merged).toBe(showVariant)               // identity-preserved
+    expect(merged).toBe(showVariant) // identity-preserved
     expect(merged.computeBindings).toBeUndefined() // no signal to runtime
 
     const { dispatcher } = makeFakeContext()

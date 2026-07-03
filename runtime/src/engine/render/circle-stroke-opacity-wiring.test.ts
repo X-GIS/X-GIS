@@ -39,13 +39,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<GPUContext> {
   const canvas = { width: 1024, height: 768 } as unknown as HTMLCanvasElement
@@ -64,8 +69,8 @@ const FEATURES = [
 ]
 const N = FEATURES.length
 
-const STRIDE = 24            // floats per point in feat_data (mirrors STRIDE)
-const STROKE_ALPHA_SLOT = 8  // feat_data slot 8 = baked stroke alpha
+const STRIDE = 24 // floats per point in feat_data (mirrors STRIDE)
+const STROKE_ALPHA_SLOT = 8 // feat_data slot 8 = baked stroke alpha
 const EXPANDED_BYTES = N * STRIDE * 4 // 288
 
 // Opaque blue stroke (alpha 1), opacity 1 → baseStrokeAlphaSlot8 = 1*1 = 1, so
@@ -77,7 +82,10 @@ const STROKE: [number, number, number, number] = [0, 0, 1, 1]
 const STROKE_OPACITY = 0.4
 const STROKE_OPACITY_SHAPE: PropertyShape<number> = {
   kind: 'zoom-interpolated',
-  stops: [{ zoom: 0, value: STROKE_OPACITY }, { zoom: 22, value: STROKE_OPACITY }],
+  stops: [
+    { zoom: 0, value: STROKE_OPACITY },
+    { zoom: 22, value: STROKE_OPACITY },
+  ],
   base: 1,
 } as unknown as PropertyShape<number>
 
@@ -89,14 +97,29 @@ const ZOOM = 8
  *  updateDynamicSizes (resolves the shape into feat_data slot 8) + render()
  *  once, and return slot 8 from the captured expanded-feature upload. */
 function capturedStrokeAlpha(ctx: GPUContext): number {
-  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
+  const renderer = new PointRenderer({
+    device: ctx.device,
+    format: ctx.format,
+    rhi: new WebGpuDevice(ctx.device),
+  })
   // addLayer positional tail: …, sizeShape, circleTranslateX, circleTranslateY,
   // circleBlur, strokeOpacityShape, … Opaque so it draws in phase 1.
   renderer.addLayer(
     FEATURES as never,
-    FILL, STROKE, 2, 8, 1,
-    null, null, true, undefined, undefined,
-    null, 0, 0, 0,
+    FILL,
+    STROKE,
+    2,
+    8,
+    1,
+    null,
+    null,
+    true,
+    undefined,
+    undefined,
+    null,
+    0,
+    0,
+    0,
     STROKE_OPACITY_SHAPE,
   )
 
@@ -104,11 +127,20 @@ function capturedStrokeAlpha(ctx: GPUContext): number {
   const device = ctx.device as unknown as {
     queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer) => void }
   }
-  device.queue.writeBuffer = (buf: unknown, _off: number, data: ArrayBufferView | ArrayBuffer): void => {
+  device.queue.writeBuffer = (
+    buf: unknown,
+    _off: number,
+    data: ArrayBufferView | ArrayBuffer,
+  ): void => {
     if ((buf as { size?: number })?.size !== EXPANDED_BYTES) return
-    const f32 = data instanceof ArrayBuffer
-      ? new Float32Array(data)
-      : new Float32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset, N * STRIDE)
+    const f32 =
+      data instanceof ArrayBuffer
+        ? new Float32Array(data)
+        : new Float32Array(
+            (data as ArrayBufferView).buffer,
+            (data as ArrayBufferView).byteOffset,
+            N * STRIDE,
+          )
     slot8 = f32[STROKE_ALPHA_SLOT]
   }
 
@@ -117,9 +149,11 @@ function capturedStrokeAlpha(ctx: GPUContext): number {
 
   const camera = new Camera(11, 21, ZOOM)
   camera.projType = 0
-  const encoder = (ctx.device as unknown as {
-    createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
-  }).createCommandEncoder()
+  const encoder = (
+    ctx.device as unknown as {
+      createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
+    }
+  ).createCommandEncoder()
   const pass = encoder.beginRenderPass()
   renderer.render(pass, camera, 0, 11, 21, W, H, 1)
 

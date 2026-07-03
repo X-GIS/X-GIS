@@ -7,7 +7,10 @@ import { buildLabelShapes } from '../ir/render-node'
 import type { ZoomStop, DataExpr } from '../ir/render-node'
 
 const FAKE_EXPR: DataExpr = { ast: { kind: 'NumberLiteral', value: 0, unit: null } as never }
-const SIZE_STOPS: ZoomStop<number>[] = [{ zoom: 4, value: 10 }, { zoom: 16, value: 22 }]
+const SIZE_STOPS: ZoomStop<number>[] = [
+  { zoom: 4, value: 10 },
+  { zoom: 16, value: 22 },
+]
 const COLOR_STOPS: ZoomStop<[number, number, number, number]>[] = [
   { zoom: 4, value: [1, 0, 0, 1] },
   { zoom: 16, value: [0, 0, 1, 1] },
@@ -31,7 +34,9 @@ describe('buildLabelShapes — size precedence', () => {
 
   it('carries sizeZoomStopsBase through', () => {
     const shapes = buildLabelShapes({
-      size: 14, sizeZoomStops: SIZE_STOPS, sizeZoomStopsBase: 1.5,
+      size: 14,
+      sizeZoomStops: SIZE_STOPS,
+      sizeZoomStopsBase: 1.5,
     })
     if (shapes.textLayout.size.kind === 'zoom-interpolated') {
       expect(shapes.textLayout.size.base).toBe(1.5)
@@ -40,7 +45,9 @@ describe('buildLabelShapes — size precedence', () => {
 
   it('data-driven wins over both zoom-stops and constant', () => {
     const shapes = buildLabelShapes({
-      size: 14, sizeZoomStops: SIZE_STOPS, sizeExpr: FAKE_EXPR,
+      size: 14,
+      sizeZoomStops: SIZE_STOPS,
+      sizeExpr: FAKE_EXPR,
     })
     expect(shapes.textLayout.size.kind).toBe('data-driven')
   })
@@ -64,7 +71,10 @@ describe('buildLabelShapes — color precedence', () => {
 
   it('data-driven wins', () => {
     const shapes = buildLabelShapes({
-      size: 14, color: RED, colorZoomStops: COLOR_STOPS, colorExpr: FAKE_EXPR,
+      size: 14,
+      color: RED,
+      colorZoomStops: COLOR_STOPS,
+      colorExpr: FAKE_EXPR,
     })
     expect(shapes.textPaint.color?.kind).toBe('data-driven')
   })
@@ -82,7 +92,10 @@ describe('buildLabelShapes — halo width', () => {
   })
 
   it('zoom-interpolated wins over constant', () => {
-    const stops: ZoomStop<number>[] = [{ zoom: 4, value: 1 }, { zoom: 12, value: 3 }]
+    const stops: ZoomStop<number>[] = [
+      { zoom: 4, value: 1 },
+      { zoom: 12, value: 3 },
+    ]
     const shapes = buildLabelShapes({
       size: 14,
       halo: { color: BLACK, width: 2 },

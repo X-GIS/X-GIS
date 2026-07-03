@@ -86,7 +86,8 @@ describe('decodeGlyphsPbf — glyph dimension cross-validation', () => {
   })
 
   it('keeps a glyph whose bitmap length matches (width+6)*(height+6)', () => {
-    const w = 4, h = 4
+    const w = 4,
+      h = 4
     const expected = (w + 6) * (h + 6) // 100
     const ok = glyph({
       id: 0x43,

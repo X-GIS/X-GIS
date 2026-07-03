@@ -39,8 +39,8 @@ function topHotFunctions(profile: CpuProfile, topN = 30) {
     const dt = deltas[i] ?? 0
     selfMicros.set(id, (selfMicros.get(id) ?? 0) + dt)
   }
-  const totalMicros = (profile.endTime - profile.startTime)
-  const rows = profile.nodes.map(n => ({
+  const totalMicros = profile.endTime - profile.startTime
+  const rows = profile.nodes.map((n) => ({
     name: n.callFrame.functionName || '(anonymous)',
     url: n.callFrame.url || '',
     line: n.callFrame.lineNumber,
@@ -53,10 +53,10 @@ function topHotFunctions(profile: CpuProfile, topN = 30) {
 
 async function recordProfile(cdp: CDPSession, durationMs: number): Promise<CpuProfile> {
   await cdp.send('Profiler.enable')
-  await cdp.send('Profiler.setSamplingInterval', { interval: 100 })  // 10 kHz
+  await cdp.send('Profiler.setSamplingInterval', { interval: 100 }) // 10 kHz
   await cdp.send('Profiler.start')
-  await new Promise(r => setTimeout(r, durationMs))
-  const stopped = await cdp.send('Profiler.stop') as { profile: CpuProfile }
+  await new Promise((r) => setTimeout(r, durationMs))
+  const stopped = (await cdp.send('Profiler.stop')) as { profile: CpuProfile }
   await cdp.send('Profiler.disable')
   return stopped.profile
 }
@@ -64,7 +64,8 @@ async function recordProfile(cdp: CDPSession, durationMs: number): Promise<CpuPr
 async function waitForXgisReady(page: Page) {
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
 }
 
@@ -80,7 +81,7 @@ test('Bright pitch=0 z=14 Tokyo — CPU profile + hot functions', async ({ page,
 
   await page.goto('/demo.html?id=__import#14/35.68/139.76/0/0', { waitUntil: 'domcontentloaded' })
   await waitForXgisReady(page)
-  await page.waitForTimeout(5_000)  // settle initial uploads
+  await page.waitForTimeout(5_000) // settle initial uploads
 
   const cdp = await context.newCDPSession(page)
   const PROFILE_MS = 4000
@@ -99,6 +100,8 @@ test('Bright pitch=0 z=14 Tokyo — CPU profile + hot functions', async ({ page,
     if (r.selfMs < 1) continue
     const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
     // eslint-disable-next-line no-console
-    console.log(`  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(40)} ${url}:${r.line}`)
+    console.log(
+      `  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(40)} ${url}:${r.line}`,
+    )
   }
 })

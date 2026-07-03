@@ -34,13 +34,15 @@ mkdirSync(join(OUT, 'per-demo'), { recursive: true })
 // import.meta.glob makes runtime import unworkable from Node; the
 // top-level key pattern is stable enough to regex.
 const DEMOS_SRC = readFileSync(resolve(HERE, '../src/demos.ts'), 'utf8')
-const DEMO_IDS = [...DEMOS_SRC.matchAll(/^  ([a-z_][a-z_0-9]*):\s*\{/gm)].map(m => m[1]!)
+const DEMO_IDS = [...DEMOS_SRC.matchAll(/^  ([a-z_][a-z_0-9]*):\s*\{/gm)].map((m) => m[1]!)
 
 // Console noise that fires on nearly every demo and isn't actionable.
-const CONSOLE_NOISE = /\[vite\]|Monaco|DevTools|powerPreference|ignoreHTTPSErrors|countries-sample|favicon|Failed to load resource|FLICKER|private\/loopback host blocked|SSRF guard/
+const CONSOLE_NOISE =
+  /\[vite\]|Monaco|DevTools|powerPreference|ignoreHTTPSErrors|countries-sample|favicon|Failed to load resource|FLICKER|private\/loopback host blocked|SSRF guard/
 // Error-class console messages that *would* normally be ignored under
 // CONSOLE_NOISE but indicate a real demo problem if they appear.
-const HARD_ERROR_RE = /\[X-GIS frame-validation\]|\[X-GIS pass:|\[VTR tile-drop|\[xgvt-pool parse\]|XGVT|WGSL|GPU|Shader|wgpu/i
+const HARD_ERROR_RE =
+  /\[X-GIS frame-validation\]|\[X-GIS pass:|\[VTR tile-drop|\[xgvt-pool parse\]|XGVT|WGSL|GPU|Shader|wgpu/i
 
 interface DemoResult {
   id: string
@@ -65,7 +67,7 @@ for (const id of DEMO_IDS) {
     const warns: string[] = []
     const failedRequests: string[] = []
 
-    page.on('console', m => {
+    page.on('console', (m) => {
       const t = m.text()
       const type = m.type()
       if (type !== 'error' && type !== 'warning') return
@@ -75,13 +77,13 @@ for (const id of DEMO_IDS) {
       if (type === 'error') errors.push(t)
       else warns.push(t)
     })
-    page.on('pageerror', e => errors.push(`[pageerror] ${e.message}`))
-    page.on('requestfailed', r => {
+    page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`))
+    page.on('requestfailed', (r) => {
       const u = r.url()
       if (CONSOLE_NOISE.test(u)) return
       failedRequests.push(`${u} (${r.failure()?.errorText ?? '?'})`)
     })
-    page.on('response', r => {
+    page.on('response', (r) => {
       const s = r.status()
       if (s < 400) return
       const u = r.url()
@@ -94,7 +96,13 @@ for (const id of DEMO_IDS) {
     let paintedPx = 0
     let centerPx = 0
     let screenshotPath = ''
-    let camera: { zoom: number; centerX: number; centerY: number; pitch: number; bearing: number } | null = null
+    let camera: {
+      zoom: number
+      centerX: number
+      centerY: number
+      pitch: number
+      bearing: number
+    } | null = null
 
     try {
       const t0 = Date.now()
@@ -102,20 +110,32 @@ for (const id of DEMO_IDS) {
       try {
         await page.waitForFunction(
           () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-          null, { timeout: 15_000 },
+          null,
+          { timeout: 15_000 },
         )
         ready = true
-      } catch { ready = false }
+      } catch {
+        ready = false
+      }
       readyMs = Date.now() - t0
       await page.waitForTimeout(1500)
 
       camera = await page.evaluate(() => {
-        interface Cam { zoom: number; centerX: number; centerY: number; pitch: number; bearing: number }
+        interface Cam {
+          zoom: number
+          centerX: number
+          centerY: number
+          pitch: number
+          bearing: number
+        }
         const m = (window as unknown as { __xgisMap?: { camera: Cam } }).__xgisMap
         if (!m) return null
         return {
-          zoom: m.camera.zoom, centerX: m.camera.centerX, centerY: m.camera.centerY,
-          pitch: m.camera.pitch, bearing: m.camera.bearing,
+          zoom: m.camera.zoom,
+          centerX: m.camera.centerX,
+          centerY: m.camera.centerY,
+          pitch: m.camera.pitch,
+          bearing: m.camera.bearing,
         }
       })
 
@@ -128,21 +148,28 @@ for (const id of DEMO_IDS) {
         const url = URL.createObjectURL(blob)
         const img = new Image()
         await new Promise<void>((res, rej) => {
-          img.onload = () => res(); img.onerror = () => rej(new Error('img'))
+          img.onload = () => res()
+          img.onerror = () => rej(new Error('img'))
           img.src = url
         })
         const off = new OffscreenCanvas(img.width, img.height)
         const ctx = off.getContext('2d')!
         ctx.drawImage(img, 0, 0)
-        const w = img.width, h = img.height
+        const w = img.width,
+          h = img.height
         const data = ctx.getImageData(0, 0, w, h).data
         const isPaint = (i: number): boolean => {
-          const r = data[i]!, g = data[i + 1]!, b = data[i + 2]!
+          const r = data[i]!,
+            g = data[i + 1]!,
+            b = data[i + 2]!
           return r > 15 || g > 15 || b > 18
         }
-        let whole = 0, center = 0
-        const xMin = Math.floor(w * 0.20), xMax = Math.floor(w * 0.80)
-        const yMin = Math.floor(h * 0.20), yMax = Math.floor(h * 0.80)
+        let whole = 0,
+          center = 0
+        const xMin = Math.floor(w * 0.2),
+          xMax = Math.floor(w * 0.8)
+        const yMin = Math.floor(h * 0.2),
+          yMax = Math.floor(h * 0.8)
         for (let y = 0; y < h; y++) {
           for (let x = 0; x < w; x++) {
             const i = (y * w + x) * 4
@@ -160,10 +187,11 @@ for (const id of DEMO_IDS) {
       errors.push(`[spec-error] ${(err as Error).message}`)
     }
 
-    const cameraFinite = camera !== null
-      && Number.isFinite(camera.zoom)
-      && Number.isFinite(camera.centerX)
-      && Number.isFinite(camera.centerY)
+    const cameraFinite =
+      camera !== null &&
+      Number.isFinite(camera.zoom) &&
+      Number.isFinite(camera.centerX) &&
+      Number.isFinite(camera.centerY)
     const result: DemoResult = {
       id,
       ready,
@@ -186,8 +214,8 @@ for (const id of DEMO_IDS) {
     // Demos whose data is fetched cross-origin over loopback are refused
     // by the SSRF guard in the test env (a test-env artifact, not a demo
     // bug) — they can't paint their data, so skip the paint gate. (#462)
-    const ssrfBlocked = result.failedRequests.some(
-      f => /localhost|127\.0\.0\.1|\[::1\]|loopback host blocked|SSRF/i.test(f),
+    const ssrfBlocked = result.failedRequests.some((f) =>
+      /localhost|127\.0\.0\.1|\[::1\]|loopback host blocked|SSRF/i.test(f),
     )
     expect.soft(ready, `${id} never reached __xgisReady`).toBe(true)
     expect.soft(result.errors, `${id} produced console errors`).toEqual([])
@@ -196,7 +224,8 @@ for (const id of DEMO_IDS) {
     // dropped: it false-flagged fixtures whose centre is legitimately
     // background despite tens of thousands of painted pixels. (#462)
     if (!SOFTWARE_GPU && !ssrfBlocked) {
-      expect.soft(paintedPx, `${id} painted only ${paintedPx} px (UI chrome only?)`)
+      expect
+        .soft(paintedPx, `${id} painted only ${paintedPx} px (UI chrome only?)`)
         .toBeGreaterThanOrEqual(200)
     }
   })

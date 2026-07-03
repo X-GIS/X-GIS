@@ -16,7 +16,9 @@ describe('scalar-node × vec-node broadcast', () => {
   })
 
   it('vec2+vec3 mixing is still rejected (binResultType, unchanged)', () => {
-    expect(() => fn('bad2', { a: vec2fT, b: vec3fT }, ({ a, b }) => a.add(b as never).x)).toThrow(/SD0002/)
+    expect(() => fn('bad2', { a: vec2fT, b: vec3fT }, ({ a, b }) => a.add(b as never).x)).toThrow(
+      /SD0002/,
+    )
   })
 })
 

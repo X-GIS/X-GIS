@@ -11,9 +11,28 @@ export type ExprClass = 'constant' | 'zoom-dependent' | 'per-feature-gpu' | 'per
 
 /** GPU-safe built-in functions that map directly to WGSL */
 const GPU_SAFE_BUILTINS = new Set([
-  'clamp', 'min', 'max', 'round', 'floor', 'ceil', 'abs', 'sqrt',
-  'log', 'log2', 'exp', 'exp2', 'pow', 'step', 'scale',
-  'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2',
+  'clamp',
+  'min',
+  'max',
+  'round',
+  'floor',
+  'ceil',
+  'abs',
+  'sqrt',
+  'log',
+  'log2',
+  'exp',
+  'exp2',
+  'pow',
+  'step',
+  'scale',
+  'sin',
+  'cos',
+  'tan',
+  'asin',
+  'acos',
+  'atan',
+  'atan2',
 ])
 
 /** Function environment for user-defined function classification */
@@ -38,10 +57,7 @@ export function classifyExpr(expr: AST.Expr, fnEnv?: FnEnv): ExprClass {
       return 'per-feature-gpu'
 
     case 'BinaryExpr':
-      return merge(
-        classifyExpr(expr.left, fnEnv),
-        classifyExpr(expr.right, fnEnv),
-      )
+      return merge(classifyExpr(expr.left, fnEnv), classifyExpr(expr.right, fnEnv))
 
     case 'UnaryExpr':
       return classifyExpr(expr.operand, fnEnv)
@@ -74,7 +90,7 @@ function classifyFnCall(expr: AST.FnCall, fnEnv?: FnEnv): ExprClass {
   const name = expr.callee.kind === 'Identifier' ? expr.callee.name : null
 
   // Classify all arguments
-  const argClasses = expr.args.map(a => classifyExpr(a, fnEnv))
+  const argClasses = expr.args.map((a) => classifyExpr(a, fnEnv))
   const argsClass = argClasses.reduce<ExprClass>((acc, c) => merge(acc, c), 'constant')
 
   if (!name) return merge(argsClass, 'per-feature-cpu')
@@ -106,7 +122,11 @@ function classifyFnBody(fn: AST.FnStatement, argClasses: ExprClass[], fnEnv?: Fn
 }
 
 /** Classify a block of statements (shared between fn body and if/else branches) */
-function classifyStmtBlock(stmts: AST.Statement[], paramClasses: Map<string, ExprClass>, fnEnv?: FnEnv): ExprClass {
+function classifyStmtBlock(
+  stmts: AST.Statement[],
+  paramClasses: Map<string, ExprClass>,
+  fnEnv?: FnEnv,
+): ExprClass {
   let result: ExprClass = 'constant'
   for (const stmt of stmts) {
     if (stmt.kind === 'ExprStatement') {
@@ -116,7 +136,8 @@ function classifyStmtBlock(stmts: AST.Statement[], paramClasses: Map<string, Exp
     } else if (stmt.kind === 'IfStatement') {
       result = merge(result, classifyWithParams(stmt.condition, paramClasses, fnEnv))
       result = merge(result, classifyStmtBlock(stmt.thenBranch, paramClasses, fnEnv))
-      if (stmt.elseBranch) result = merge(result, classifyStmtBlock(stmt.elseBranch, paramClasses, fnEnv))
+      if (stmt.elseBranch)
+        result = merge(result, classifyStmtBlock(stmt.elseBranch, paramClasses, fnEnv))
     } else if (stmt.kind === 'ReturnStatement' && stmt.value) {
       result = merge(result, classifyWithParams(stmt.value, paramClasses, fnEnv))
     } else if (stmt.kind === 'ForStatement') {
@@ -127,7 +148,11 @@ function classifyStmtBlock(stmts: AST.Statement[], paramClasses: Map<string, Exp
 }
 
 /** Classify expression where identifiers may be function parameters */
-function classifyWithParams(expr: AST.Expr, paramClasses: Map<string, ExprClass>, fnEnv?: FnEnv): ExprClass {
+function classifyWithParams(
+  expr: AST.Expr,
+  paramClasses: Map<string, ExprClass>,
+  fnEnv?: FnEnv,
+): ExprClass {
   switch (expr.kind) {
     case 'Identifier':
       if (expr.name === 'zoom') return 'zoom-dependent'
@@ -145,7 +170,7 @@ function classifyWithParams(expr: AST.Expr, paramClasses: Map<string, ExprClass>
       return classifyWithParams(expr.operand, paramClasses, fnEnv)
 
     case 'FnCall': {
-      const argClasses = expr.args.map(a => classifyWithParams(a, paramClasses, fnEnv))
+      const argClasses = expr.args.map((a) => classifyWithParams(a, paramClasses, fnEnv))
       const argsClass = argClasses.reduce<ExprClass>((acc, c) => merge(acc, c), 'constant')
       const name = expr.callee.kind === 'Identifier' ? expr.callee.name : null
       if (name && GPU_SAFE_BUILTINS.has(name)) return argsClass
@@ -158,7 +183,7 @@ function classifyWithParams(expr: AST.Expr, paramClasses: Map<string, ExprClass>
     case 'PipeExpr': {
       let cls = classifyWithParams(expr.input, paramClasses, fnEnv)
       for (const t of expr.transforms) {
-        const tArgs = t.args.map(a => classifyWithParams(a, paramClasses, fnEnv))
+        const tArgs = t.args.map((a) => classifyWithParams(a, paramClasses, fnEnv))
         const name = t.callee.kind === 'Identifier' ? t.callee.name : null
         if (name && GPU_SAFE_BUILTINS.has(name)) {
           cls = tArgs.reduce((acc, c) => merge(acc, c), cls)
@@ -172,8 +197,10 @@ function classifyWithParams(expr: AST.Expr, paramClasses: Map<string, ExprClass>
     case 'ConditionalExpr':
       return merge(
         classifyWithParams(expr.condition, paramClasses, fnEnv),
-        merge(classifyWithParams(expr.thenExpr, paramClasses, fnEnv),
-              classifyWithParams(expr.elseExpr, paramClasses, fnEnv)),
+        merge(
+          classifyWithParams(expr.thenExpr, paramClasses, fnEnv),
+          classifyWithParams(expr.elseExpr, paramClasses, fnEnv),
+        ),
       )
 
     default:
@@ -200,7 +227,7 @@ function classifyMatch(expr: AST.MatchBlock, fnEnv?: FnEnv): ExprClass {
 /** Merge two classifications — the "heavier" one wins */
 function merge(a: ExprClass, b: ExprClass): ExprClass {
   const order: Record<ExprClass, number> = {
-    'constant': 0,
+    constant: 0,
     'zoom-dependent': 1,
     'per-feature-gpu': 2,
     'per-feature-cpu': 3,

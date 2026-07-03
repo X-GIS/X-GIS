@@ -15,10 +15,23 @@ function bigEquatorBox() {
   // A box spanning 60deg of longitude at the equator. Each horizontal edge is a 60deg
   // arc — far above MAX_TRI_DEGREES_FOR_PROJ (2deg), so densification splits it into
   // ~32 sub-segments (depth cap 5). It sits inside the single z0 world tile.
-  const ring: [number, number][] = [[-30, -3], [30, -3], [30, 3], [-30, 3], [-30, -3]]
+  const ring: [number, number][] = [
+    [-30, -3],
+    [30, -3],
+    [30, 3],
+    [-30, 3],
+    [-30, -3],
+  ]
   return {
     type: 'FeatureCollection' as const,
-    features: [{ type: 'Feature' as const, id: 1, geometry: { type: 'Polygon' as const, coordinates: [ring] }, properties: {} }],
+    features: [
+      {
+        type: 'Feature' as const,
+        id: 1,
+        geometry: { type: 'Polygon' as const, coordinates: [ring] },
+        properties: {},
+      },
+    ],
   }
 }
 

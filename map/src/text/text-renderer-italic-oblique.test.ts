@@ -21,15 +21,23 @@ import type { RhiBuffer, RhiBindGroup } from '@xgis/engine'
 
 const g = globalThis as Record<string, unknown>
 g.GPUBufferUsage ??= {
-  MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8, INDEX: 16,
-  VERTEX: 32, UNIFORM: 64, STORAGE: 128, INDIRECT: 256, QUERY_RESOLVE: 512,
+  MAP_READ: 1,
+  MAP_WRITE: 2,
+  COPY_SRC: 4,
+  COPY_DST: 8,
+  INDEX: 16,
+  VERTEX: 32,
+  UNIFORM: 64,
+  STORAGE: 128,
+  INDIRECT: 256,
+  QUERY_RESOLVE: 512,
 }
 
 const PAGE_SIZE = 256
-const FLOATS_PER_VERT = 4          // posX, posY, uvX, uvY
+const FLOATS_PER_VERT = 4 // posX, posY, uvX, uvY
 const VERTS_PER_GLYPH = 6
-const OBLIQUE_TAN = 0.21           // must match text-renderer.ts
-const SLOT = 24                    // glyph slot size (px)
+const OBLIQUE_TAN = 0.21 // must match text-renderer.ts
+const SLOT = 24 // glyph slot size (px)
 
 /** GlyphInfo at the given codepoint. rasterFontSize == fontSize so the
  *  slot→display scale is 1 and drawHeight == SLOT. */
@@ -37,8 +45,13 @@ function glyph(codepoint: number): GlyphInfo {
   return {
     codepoint,
     slot: { page: 0, cellX: 0, cellY: 0, pxX: 0, pxY: 0, size: SLOT },
-    advanceWidth: 12, bearingX: 1, bearingY: 18, width: 12, height: 18,
-    pbf: true, rasterFontSize: SLOT,
+    advanceWidth: 12,
+    bearingX: 1,
+    bearingY: 18,
+    width: 12,
+    height: 18,
+    pbf: true,
+    rasterFontSize: SLOT,
   }
 }
 
@@ -52,7 +65,9 @@ function makeRenderer(): { renderer: TextRenderer; verts: () => Float32Array } {
       // `data` is the arena-backed Float32Array VIEW (no byteOffset/size args). Copy
       // its exact bytes out now (the arena reuses its backing buffer across frames).
       writeBuffer(_b: unknown, _o: number, src: ArrayBufferView) {
-        captured = new Float32Array(src.buffer.slice(src.byteOffset, src.byteOffset + src.byteLength))
+        captured = new Float32Array(
+          src.buffer.slice(src.byteOffset, src.byteOffset + src.byteLength),
+        )
       },
     },
   } as unknown as GPUDevice
@@ -61,19 +76,36 @@ function makeRenderer(): { renderer: TextRenderer; verts: () => Float32Array } {
     getPage: () => ({ width: PAGE_SIZE }) as unknown as GPUTexture,
   }
   interface MutableRenderer {
-    rhi: WebGpuDevice; atlas: typeof stubAtlas; _frameArena: FrameArena
-    drawSlices: unknown[]; vertexBuf: RhiBuffer | null; vertexCount: number
+    rhi: WebGpuDevice
+    atlas: typeof stubAtlas
+    _frameArena: FrameArena
+    drawSlices: unknown[]
+    vertexBuf: RhiBuffer | null
+    vertexCount: number
     vertexBufCapacityBytes: number
-    allUniforms: Float32Array | null; uniformBuf: RhiBuffer
-    uniformBufCapacityBytes: number; bindGroupsByPage: RhiBindGroup[]
+    allUniforms: Float32Array | null
+    uniformBuf: RhiBuffer
+    uniformBufCapacityBytes: number
+    bindGroupsByPage: RhiBindGroup[]
   }
   const r = Object.create(TextRenderer.prototype) as unknown as MutableRenderer
-  r.rhi = new WebGpuDevice(stubDevice); r.atlas = stubAtlas; r._frameArena = new FrameArena(64 * 1024)
-  r.drawSlices = []; r.vertexBuf = null; r.vertexCount = 0; r.vertexBufCapacityBytes = 0; r.allUniforms = null
-  r.uniformBuf = r.rhi.createBuffer({ size: 256, usage: 'uniform', writable: true }); r.uniformBufCapacityBytes = 256; r.bindGroupsByPage = []
+  r.rhi = new WebGpuDevice(stubDevice)
+  r.atlas = stubAtlas
+  r._frameArena = new FrameArena(64 * 1024)
+  r.drawSlices = []
+  r.vertexBuf = null
+  r.vertexCount = 0
+  r.vertexBufCapacityBytes = 0
+  r.allUniforms = null
+  r.uniformBuf = r.rhi.createBuffer({ size: 256, usage: 'uniform', writable: true })
+  r.uniformBufCapacityBytes = 256
+  r.bindGroupsByPage = []
   return {
     renderer: r as unknown as TextRenderer,
-    verts: () => { if (!captured) throw new Error('no vertex data captured'); return captured },
+    verts: () => {
+      if (!captured) throw new Error('no vertex data captured')
+      return captured
+    },
   }
 }
 
@@ -87,11 +119,19 @@ function shearOf(buf: Float32Array, gi: number): number {
 }
 
 function draw(glyphs: GlyphInfo[], italic: boolean): TextDraw {
-  return { anchorX: 100, anchorY: 100, glyphs, fontSize: SLOT, rasterFontSize: SLOT, color: [0, 0, 0, 1], italic }
+  return {
+    anchorX: 100,
+    anchorY: 100,
+    glyphs,
+    fontSize: SLOT,
+    rasterFontSize: SLOT,
+    color: [0, 0, 0, 1],
+    italic,
+  }
 }
 
-const HANGUL = 0xc7a5  // 장
-const LATIN = 0x41     // A
+const HANGUL = 0xc7a5 // 장
+const LATIN = 0x41 // A
 
 describe('TextRenderer italic synthetic oblique (#416)', () => {
   it('shears the CJK/Hangul glyphs of an italic label by OBLIQUE_TAN × height', () => {
@@ -114,7 +154,14 @@ describe('TextRenderer italic synthetic oblique (#416)', () => {
 
   it('leaves the default (italic-unset) draw upright', () => {
     const { renderer, verts } = makeRenderer()
-    const d: TextDraw = { anchorX: 100, anchorY: 100, glyphs: [glyph(HANGUL)], fontSize: SLOT, rasterFontSize: SLOT, color: [0, 0, 0, 1] }
+    const d: TextDraw = {
+      anchorX: 100,
+      anchorY: 100,
+      glyphs: [glyph(HANGUL)],
+      fontSize: SLOT,
+      rasterFontSize: SLOT,
+      color: [0, 0, 0, 1],
+    }
     renderer.setDraws([d])
     expect(shearOf(verts(), 0)).toBeCloseTo(0, 5)
   })

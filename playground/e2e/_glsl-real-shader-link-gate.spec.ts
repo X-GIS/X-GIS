@@ -6,7 +6,9 @@ import { test, expect } from '@playwright/test'
 // named `input`/`in` is GLSL-reserved) + the texelFetch/textureSize lod spelling —
 // both required for these real shaders and easy to regress. Runs the emit+link in the
 // browser (vite resolves the runtime shader graph; a bare bun run cannot).
-test('real DSL render shaders emit linkable GLSL on WebGL2 (raster + overdraw-compose)', async ({ page }) => {
+test('real DSL render shaders emit linkable GLSL on WebGL2 (raster + overdraw-compose)', async ({
+  page,
+}) => {
   await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
   const rows = await page.evaluate(async () => {
     const mod = await import('/e2e/_glsl-survey.ts')

@@ -93,9 +93,24 @@ function polys(): GeoJSONFeatureCollection {
   return {
     type: 'FeatureCollection',
     features: [
-      { type: 'Feature', id: 1, geometry: { type: 'Polygon', coordinates: [square(0, 0, 12)] }, properties: { name: 'origin' } },
-      { type: 'Feature', id: 2, geometry: { type: 'Polygon', coordinates: [square(100, 40, 10)] }, properties: { name: 'east' } },
-      { type: 'Feature', id: 3, geometry: { type: 'Polygon', coordinates: [square(-60, -20, 8)] }, properties: { name: 'southwest' } },
+      {
+        type: 'Feature',
+        id: 1,
+        geometry: { type: 'Polygon', coordinates: [square(0, 0, 12)] },
+        properties: { name: 'origin' },
+      },
+      {
+        type: 'Feature',
+        id: 2,
+        geometry: { type: 'Polygon', coordinates: [square(100, 40, 10)] },
+        properties: { name: 'east' },
+      },
+      {
+        type: 'Feature',
+        id: 3,
+        geometry: { type: 'Polygon', coordinates: [square(-60, -20, 8)] },
+        properties: { name: 'southwest' },
+      },
     ],
   }
 }
@@ -109,9 +124,44 @@ function lines(): GeoJSONFeatureCollection {
   return {
     type: 'FeatureCollection',
     features: [
-      { type: 'Feature', id: 1, geometry: { type: 'LineString', coordinates: [[170, 10], [-170, 10]] }, properties: { name: 'antimeridian-crosser' } },
-      { type: 'Feature', id: 2, geometry: { type: 'LineString', coordinates: [[-120, 50], [-60, 20], [0, 50]] }, properties: { name: 'zigzag-north' } },
-      { type: 'Feature', id: 3, geometry: { type: 'LineString', coordinates: [[20, -40], [60, -10], [120, -40]] }, properties: { name: 'zigzag-south' } },
+      {
+        type: 'Feature',
+        id: 1,
+        geometry: {
+          type: 'LineString',
+          coordinates: [
+            [170, 10],
+            [-170, 10],
+          ],
+        },
+        properties: { name: 'antimeridian-crosser' },
+      },
+      {
+        type: 'Feature',
+        id: 2,
+        geometry: {
+          type: 'LineString',
+          coordinates: [
+            [-120, 50],
+            [-60, 20],
+            [0, 50],
+          ],
+        },
+        properties: { name: 'zigzag-north' },
+      },
+      {
+        type: 'Feature',
+        id: 3,
+        geometry: {
+          type: 'LineString',
+          coordinates: [
+            [20, -40],
+            [60, -10],
+            [120, -40],
+          ],
+        },
+        properties: { name: 'zigzag-south' },
+      },
     ],
   }
 }

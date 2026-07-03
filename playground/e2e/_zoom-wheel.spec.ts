@@ -40,7 +40,7 @@ test.describe('wheel zoom — smooth descent', () => {
     await page.mouse.move(cx, cy)
     for (let i = 1; i <= 5; i++) {
       await page.mouse.wheel(0, 100) // deltaY=100 = zoom out
-      await page.waitForTimeout(400)  // let smooth-zoom settle between events
+      await page.waitForTimeout(400) // let smooth-zoom settle between events
       await sample(i)
     }
 
@@ -48,7 +48,9 @@ test.describe('wheel zoom — smooth descent', () => {
     console.log('Zoom samples:')
     for (const s of samples) {
       // eslint-disable-next-line no-console
-      console.log(`  event=${s.event}  zoom=${s.zoom.toFixed(3)}  cx=${s.cx.toFixed(0)}  cy=${s.cy.toFixed(0)}`)
+      console.log(
+        `  event=${s.event}  zoom=${s.zoom.toFixed(3)}  cx=${s.cx.toFixed(0)}  cy=${s.cy.toFixed(0)}`,
+      )
     }
 
     // Invariants:

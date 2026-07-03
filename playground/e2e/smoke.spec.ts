@@ -48,16 +48,9 @@ const PER_DEMO_TIMEOUT_MS = Number(process.env.SMOKE_TIMEOUT_MS ?? 15_000)
 const READY_POLL_INTERVAL_MS = 50
 
 // Console error filters
-const CONSOLE_IGNORE_PREFIXES = [
-  '[X-GIS]',
-  '[X-GIS frame]',
-]
-const CONSOLE_IGNORE_PATTERNS = [
-  /Failed to load resource:/,
-]
-const RESPONSE_IGNORE_URL_SUBSTRINGS = [
-  '/favicon.ico',
-]
+const CONSOLE_IGNORE_PREFIXES = ['[X-GIS]', '[X-GIS frame]']
+const CONSOLE_IGNORE_PATTERNS = [/Failed to load resource:/]
+const RESPONSE_IGNORE_URL_SUBSTRINGS = ['/favicon.ico']
 const ERROR_SIGNALS = [
   '[X-GIS frame-validation]',
   '[X-GIS pass:',
@@ -77,17 +70,30 @@ const ANIMATED_DEMOS = new Set(['animation_pulse', 'animation_showcase'])
 // has slight per-frame variance under parallel-worker GPU contention,
 // so it gets the same loose tolerance.
 const TILE_HEAVY_DEMOS = new Set([
-  'physical_map_10m', 'physical_map_50m', 'physical_map_xgvt',
-  'night_map', 'water_hierarchy', 'rivers_10m', 'states_10m',
-  'countries_categorical_xgvt', 'states_provinces',
-  'vector_tiles', 'vector_categorical', 'procedural_circles',
+  'physical_map_10m',
+  'physical_map_50m',
+  'physical_map_xgvt',
+  'night_map',
+  'water_hierarchy',
+  'rivers_10m',
+  'states_10m',
+  'countries_categorical_xgvt',
+  'states_provinces',
+  'vector_tiles',
+  'vector_categorical',
+  'procedural_circles',
 ])
 
 // Demos with SDF points — Bug 2 regression check (assert non-background
 // pixels exist, proving the points actually reached the framebuffer).
 const POINT_DEMOS = new Set([
-  'sdf_points', 'gradient_points', 'megacities', 'custom_shapes',
-  'shape_gallery', 'populated_places', 'procedural_circles',
+  'sdf_points',
+  'gradient_points',
+  'megacities',
+  'custom_shapes',
+  'shape_gallery',
+  'populated_places',
+  'procedural_circles',
   'custom_symbol',
 ])
 
@@ -117,7 +123,7 @@ async function collectOverlayErrors(page: Page): Promise<string[]> {
   return await page.evaluate(() => {
     const body = document.getElementById('log-body')
     if (!body) return []
-    return body.textContent?.split('\n').filter(l => l.trim().length > 0) ?? []
+    return body.textContent?.split('\n').filter((l) => l.trim().length > 0) ?? []
   })
 }
 
@@ -138,15 +144,15 @@ test.describe('X-GIS demo', () => {
         const type = msg.type()
         if (debug) consoleLog.push(`[${type}] ${text}`)
         if (type !== 'error') return
-        if (CONSOLE_IGNORE_PREFIXES.some(p => text.startsWith(p))) return
-        if (CONSOLE_IGNORE_PATTERNS.some(p => p.test(text))) return
+        if (CONSOLE_IGNORE_PREFIXES.some((p) => text.startsWith(p))) return
+        if (CONSOLE_IGNORE_PATTERNS.some((p) => p.test(text))) return
         consoleErrors.push(text)
       }
       const onResponse = (response: import('@playwright/test').Response) => {
         const status = response.status()
         const url = response.url()
         if (status >= 400) {
-          if (RESPONSE_IGNORE_URL_SUBSTRINGS.some(s => url.includes(s))) return
+          if (RESPONSE_IGNORE_URL_SUBSTRINGS.some((s) => url.includes(s))) return
           failedUrls.push(`${status} ${url}`)
         }
       }
@@ -156,7 +162,7 @@ test.describe('X-GIS demo', () => {
       page.on('console', onConsole)
       page.on('response', onResponse)
       page.on('requestfailed', onRequestFailed)
-      page.on('pageerror', err => consoleErrors.push(`pageerror: ${err.message}`))
+      page.on('pageerror', (err) => consoleErrors.push(`pageerror: ${err.message}`))
 
       try {
         // ── Phase 1: navigate + wait ready ──
@@ -177,8 +183,8 @@ test.describe('X-GIS demo', () => {
         await page.waitForTimeout(100)
 
         const overlayErrors = await collectOverlayErrors(page)
-        const criticalOverlay = overlayErrors.filter(line =>
-          ERROR_SIGNALS.some(sig => line.includes(sig)),
+        const criticalOverlay = overlayErrors.filter((line) =>
+          ERROR_SIGNALS.some((sig) => line.includes(sig)),
         )
 
         const totalErrors = consoleErrors.length + criticalOverlay.length
@@ -192,25 +198,27 @@ test.describe('X-GIS demo', () => {
         // ── Phase 3: baseline screenshot match (skip animated) ──
         if (!ANIMATED_DEMOS.has(id)) {
           if (TILE_HEAVY_DEMOS.has(id)) {
-            expect(png, `[baseline phase] ${id}`)
-              .toMatchSnapshot(`${id}.png`, { maxDiffPixelRatio: 0.05 })
+            expect(png, `[baseline phase] ${id}`).toMatchSnapshot(`${id}.png`, {
+              maxDiffPixelRatio: 0.05,
+            })
           } else {
-            expect(png, `[baseline phase] ${id}`)
-              .toMatchSnapshot(`${id}.png`)
+            expect(png, `[baseline phase] ${id}`).toMatchSnapshot(`${id}.png`)
           }
         }
 
         // ── Phase 4: Bug 2 mirror — non-background pixels for points ──
         if (POINT_DEMOS.has(id)) {
           const differing = await sampleNonBackgroundPixels(
-            page, png,
+            page,
+            png,
             { r: 6, g: 8, b: 12 },
             50,
             400,
           )
-          expect(differing,
-            `[Bug 2 phase] ${id}: only ${differing}/400 sampled pixels differ from background — points likely missing`)
-            .toBeGreaterThan(2)
+          expect(
+            differing,
+            `[Bug 2 phase] ${id}: only ${differing}/400 sampled pixels differ from background — points likely missing`,
+          ).toBeGreaterThan(2)
         }
       } catch (err) {
         if (debug) {

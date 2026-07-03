@@ -33,7 +33,10 @@ function compileLabel(layer: Record<string, unknown>): {
 describe('Mapbox icon-* → LabelDef.icon* round-trip', () => {
   it('extracts icon-image constant string', () => {
     const def = compileLabel({
-      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
+      id: 'poi',
+      type: 'symbol',
+      source: 'src',
+      'source-layer': 'poi',
       layout: { 'icon-image': 'aerialway', 'text-field': '{name}' },
     })
     expect(def.iconImage).toBe('aerialway')
@@ -41,7 +44,10 @@ describe('Mapbox icon-* → LabelDef.icon* round-trip', () => {
 
   it('text-less icon-only layers compile to an empty-text label with iconImage', () => {
     const def = compileLabel({
-      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
+      id: 'poi',
+      type: 'symbol',
+      source: 'src',
+      'source-layer': 'poi',
       layout: { 'icon-image': 'bus_stop' },
     })
     expect(def.iconImage).toBe('bus_stop')
@@ -49,7 +55,10 @@ describe('Mapbox icon-* → LabelDef.icon* round-trip', () => {
 
   it('icon-size constant numbers other than 1.0 propagate', () => {
     const def = compileLabel({
-      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
+      id: 'poi',
+      type: 'symbol',
+      source: 'src',
+      'source-layer': 'poi',
       layout: { 'icon-image': 'x', 'icon-size': 1.5 },
     })
     expect(def.iconSize).toBe(1.5)
@@ -57,7 +66,10 @@ describe('Mapbox icon-* → LabelDef.icon* round-trip', () => {
 
   it('icon-size = 1.0 is treated as default (utility omitted)', () => {
     const def = compileLabel({
-      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
+      id: 'poi',
+      type: 'symbol',
+      source: 'src',
+      'source-layer': 'poi',
       layout: { 'icon-image': 'x', 'icon-size': 1 },
     })
     expect(def.iconSize).toBeUndefined()
@@ -65,7 +77,10 @@ describe('Mapbox icon-* → LabelDef.icon* round-trip', () => {
 
   it('icon-anchor + icon-offset + icon-rotate all propagate', () => {
     const def = compileLabel({
-      id: 'poi', type: 'symbol', source: 'src', 'source-layer': 'poi',
+      id: 'poi',
+      type: 'symbol',
+      source: 'src',
+      'source-layer': 'poi',
       layout: {
         'icon-image': 'x',
         'icon-anchor': 'bottom',

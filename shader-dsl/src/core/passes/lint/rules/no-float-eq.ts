@@ -11,8 +11,14 @@ export const noFloatEq: LintRule = {
   category: 'correctness',
   create: (ctx) => ({
     Expr(e, fn) {
-      if (e.op === 'compare' && (e.cop === '==' || e.cop === '!=') && (isFloat(e.a.type) || isFloat(e.b.type))) {
-        ctx.report(`f32 '${e.cop}' in fn '${fn.name}' — exact float equality is unreliable`, { fn: fn.name })
+      if (
+        e.op === 'compare' &&
+        (e.cop === '==' || e.cop === '!=') &&
+        (isFloat(e.a.type) || isFloat(e.b.type))
+      ) {
+        ctx.report(`f32 '${e.cop}' in fn '${fn.name}' — exact float equality is unreliable`, {
+          fn: fn.name,
+        })
       }
     },
   }),

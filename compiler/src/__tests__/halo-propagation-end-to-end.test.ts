@@ -27,11 +27,14 @@ function compileToShows(mapboxStyle: unknown): ReturnType<typeof emitCommands>['
   return emitCommands(optimize(scene, ast)).shows
 }
 
-function symbolWithHalo(id: string, halo: {
-  color?: string
-  width?: number | unknown
-  blur?: number | unknown
-}): unknown {
+function symbolWithHalo(
+  id: string,
+  halo: {
+    color?: string
+    width?: number | unknown
+    blur?: number | unknown
+  },
+): unknown {
   return {
     id,
     type: 'symbol',
@@ -70,9 +73,14 @@ describe('text-halo propagation — Mapbox style → ShowCommand.label.halo', ()
   })
 
   it('text-halo-width=1, halo-color=#fff propagates as halo.{width:1, color:[1,1,1,1]}', () => {
-    const shows = compileToShows(makeStyle([symbolWithHalo('basic', {
-      width: 1, color: '#fff',
-    })]))
+    const shows = compileToShows(
+      makeStyle([
+        symbolWithHalo('basic', {
+          width: 1,
+          color: '#fff',
+        }),
+      ]),
+    )
     expect(shows[0]!.label!.halo).toBeDefined()
     expect(shows[0]!.label!.halo!.width).toBe(1)
     expect(shows[0]!.label!.halo!.color).toEqual([1, 1, 1, 1])
@@ -83,9 +91,15 @@ describe('text-halo propagation — Mapbox style → ShowCommand.label.halo', ()
     // text-halo-blur: 0.5 with halo-width: 1. Pinning this exact
     // value because user reported halo blur regression on these
     // layers ("할로 블러도 검토 필요").
-    const shows = compileToShows(makeStyle([symbolWithHalo('poi', {
-      width: 1, blur: 0.5, color: '#fff',
-    })]))
+    const shows = compileToShows(
+      makeStyle([
+        symbolWithHalo('poi', {
+          width: 1,
+          blur: 0.5,
+          color: '#fff',
+        }),
+      ]),
+    )
     expect(shows[0]!.label!.halo!.blur).toBe(0.5)
   })
 
@@ -95,9 +109,14 @@ describe('text-halo propagation — Mapbox style → ShowCommand.label.halo', ()
     // shader; full opacity would make label halo too aggressive.
     // Alpha goes through RGBA-byte quantisation (179/255 ≈ 0.7019)
     // so use toBeCloseTo for the alpha slot.
-    const shows = compileToShows(makeStyle([symbolWithHalo('water', {
-      width: 1.5, color: 'rgba(255,255,255,0.7)',
-    })]))
+    const shows = compileToShows(
+      makeStyle([
+        symbolWithHalo('water', {
+          width: 1.5,
+          color: 'rgba(255,255,255,0.7)',
+        }),
+      ]),
+    )
     const c = shows[0]!.label!.halo!.color
     expect(c[0]).toBe(1)
     expect(c[1]).toBe(1)
@@ -116,9 +135,14 @@ describe('text-halo propagation — Mapbox style → ShowCommand.label.halo', ()
     // layers.ts:473 so lower can't distinguish "explicitly 0" from
     // "absent"). Aligned to spec; runtime shader gates on halo_width
     // > 0 so 0-width produces no draw.
-    const shows = compileToShows(makeStyle([symbolWithHalo('zero-width', {
-      width: 0, color: '#fff',
-    })]))
+    const shows = compileToShows(
+      makeStyle([
+        symbolWithHalo('zero-width', {
+          width: 0,
+          color: '#fff',
+        }),
+      ]),
+    )
     const halo = shows[0]!.label!.halo
     expect(halo).toBeDefined()
     expect(halo!.width).toBe(0)
@@ -129,9 +153,15 @@ describe('text-halo propagation — Mapbox style → ShowCommand.label.halo', ()
     // fallback. Verify the lowered shape is sensible (not NaN /
     // undefined). Exact stops resolution is the runtime's job —
     // here we just gate "did the value land on label.halo".
-    const shows = compileToShows(makeStyle([symbolWithHalo('zoom-halo', {
-      width: 1, blur: 0.5, color: '#fff',
-    })]))
+    const shows = compileToShows(
+      makeStyle([
+        symbolWithHalo('zoom-halo', {
+          width: 1,
+          blur: 0.5,
+          color: '#fff',
+        }),
+      ]),
+    )
     expect(typeof shows[0]!.label!.halo!.width).toBe('number')
     expect(typeof shows[0]!.label!.halo!.blur).toBe('number')
     expect(Number.isFinite(shows[0]!.label!.halo!.width)).toBe(true)
@@ -146,9 +176,15 @@ describe('text-halo propagation — Mapbox style → ShowCommand.label.halo', ()
     // resolver) — pre-fix the flat field was populated but the
     // shapes mirror was null on simple cases, so per-frame paint
     // resolve fell back to defaults and rendered halo-less.
-    const shows = compileToShows(makeStyle([symbolWithHalo('shapes', {
-      width: 1, blur: 0.5, color: '#fff',
-    })]))
+    const shows = compileToShows(
+      makeStyle([
+        symbolWithHalo('shapes', {
+          width: 1,
+          blur: 0.5,
+          color: '#fff',
+        }),
+      ]),
+    )
     const shapes = shows[0]!.label!.shapes
     expect(shapes).toBeDefined()
     expect(shapes!.textPaint.haloWidth).toEqual({ kind: 'constant', value: 1 })

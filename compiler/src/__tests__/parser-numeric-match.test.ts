@@ -15,10 +15,7 @@ import { evaluate } from '../eval/evaluator'
 
 describe('parser: numeric match() labels', () => {
   it('positive numeric key round-trips convert -> parse -> eval', () => {
-    const xg = exprToXgis(
-      ['match', ['get', 'rank'], 1, 'a', 2, 'b', 'fallback'],
-      [],
-    )
+    const xg = exprToXgis(['match', ['get', 'rank'], 1, 'a', 2, 'b', 'fallback'], [])
     expect(xg).not.toBeNull()
     const ast = parseExpressionString(xg!)
     expect(evaluate(ast, { rank: 2 })).toBe('b')
@@ -27,10 +24,7 @@ describe('parser: numeric match() labels', () => {
   })
 
   it('negative numeric key round-trips (Minus + Number)', () => {
-    const xg = exprToXgis(
-      ['match', ['get', 'delta'], -3, 'neg', 5, 'pos', 'fb'],
-      [],
-    )
+    const xg = exprToXgis(['match', ['get', 'delta'], -3, 'neg', 5, 'pos', 'fb'], [])
     expect(xg).not.toBeNull()
     const ast = parseExpressionString(xg!)
     expect(evaluate(ast, { delta: -3 })).toBe('neg')

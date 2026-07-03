@@ -59,7 +59,7 @@ async function snapshotSources(page: Page): Promise<SourceSnapshot[]> {
         frame: { missedTiles: number; tilesVisible: number }
       }>
     }
-    return pipe.sources.map(s => ({
+    return pipe.sources.map((s) => ({
       name: s.name,
       cacheSize: s.cache.size,
       pendingLoads: s.cache.pendingLoads,
@@ -76,44 +76,53 @@ async function snapshotSources(page: Page): Promise<SourceSnapshot[]> {
  *  indicate tiles disappeared visually. */
 async function pixelDensity(page: Page): Promise<number> {
   const shot = await page.locator('canvas#map').screenshot({ type: 'png' })
-  return await page.evaluate(async ({ pngBytes }) => {
-    const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' })
-    const url = URL.createObjectURL(blob)
-    const img = new Image()
-    await new Promise<void>((res, rej) => {
-      img.onload = () => res()
-      img.onerror = () => rej(new Error('img load'))
-      img.src = url
-    })
-    const off = new OffscreenCanvas(img.width, img.height)
-    const ctx = off.getContext('2d')!
-    ctx.drawImage(img, 0, 0)
-    // Sample a center region (avoid editor / status bar edges).
-    const x0 = Math.floor(img.width * 0.1)
-    const y0 = Math.floor(img.height * 0.1)
-    const w = Math.floor(img.width * 0.8)
-    const h = Math.floor(img.height * 0.8)
-    const data = ctx.getImageData(x0, y0, w, h).data
-    let drawn = 0, total = 0
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i], g = data[i + 1], b = data[i + 2]
-      // background = stone-100 ≈ rgb(245, 245, 244). Count anything
-      // distinct from that as "drawn".
-      const isBg = r > 240 && g > 240 && b > 240
-      if (!isBg) drawn++
-      total++
-    }
-    URL.revokeObjectURL(url)
-    return drawn / total
-  }, { pngBytes: Array.from(shot) })
+  return await page.evaluate(
+    async ({ pngBytes }) => {
+      const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' })
+      const url = URL.createObjectURL(blob)
+      const img = new Image()
+      await new Promise<void>((res, rej) => {
+        img.onload = () => res()
+        img.onerror = () => rej(new Error('img load'))
+        img.src = url
+      })
+      const off = new OffscreenCanvas(img.width, img.height)
+      const ctx = off.getContext('2d')!
+      ctx.drawImage(img, 0, 0)
+      // Sample a center region (avoid editor / status bar edges).
+      const x0 = Math.floor(img.width * 0.1)
+      const y0 = Math.floor(img.height * 0.1)
+      const w = Math.floor(img.width * 0.8)
+      const h = Math.floor(img.height * 0.8)
+      const data = ctx.getImageData(x0, y0, w, h).data
+      let drawn = 0,
+        total = 0
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i],
+          g = data[i + 1],
+          b = data[i + 2]
+        // background = stone-100 ≈ rgb(245, 245, 244). Count anything
+        // distinct from that as "drawn".
+        const isBg = r > 240 && g > 240 && b > 240
+        if (!isBg) drawn++
+        total++
+      }
+      URL.revokeObjectURL(url)
+      return drawn / total
+    },
+    { pngBytes: Array.from(shot) },
+  )
 }
 
 function formatSnapshot(snapshots: SourceSnapshot[]): string {
-  return snapshots.map(s =>
-    `  ${s.name.padEnd(12)} cache=${String(s.cacheSize).padStart(4)} ` +
-    `pend(load/up)=${s.pendingLoads}/${s.pendingUploads} ` +
-    `missed=${String(s.missedTiles).padStart(3)} vis=${s.tilesVisible}`,
-  ).join('\n')
+  return snapshots
+    .map(
+      (s) =>
+        `  ${s.name.padEnd(12)} cache=${String(s.cacheSize).padStart(4)} ` +
+        `pend(load/up)=${s.pendingLoads}/${s.pendingUploads} ` +
+        `missed=${String(s.missedTiles).padStart(3)} vis=${s.tilesVisible}`,
+    )
+    .join('\n')
 }
 
 test.describe('PMTiles over-zoom: gradual disappearance repro', () => {
@@ -122,10 +131,10 @@ test.describe('PMTiles over-zoom: gradual disappearance repro', () => {
   // z=17 is 2 levels of sub-tile chain. Pitch values match the
   // user's earlier screenshots (pitch=45.6, pitch=58.5).
   const SCENARIOS = [
-    { zoom: 15.5, pitch: 0,    name: 'z=15.5 flat' },
-    { zoom: 16.15, pitch: 0,   name: 'z=16.15 flat (user-reported broken)' },
-    { zoom: 16.5, pitch: 0,    name: 'z=16.5 flat (2-level chain)' },
-    { zoom: 17.0, pitch: 0,    name: 'z=17 flat' },
+    { zoom: 15.5, pitch: 0, name: 'z=15.5 flat' },
+    { zoom: 16.15, pitch: 0, name: 'z=16.15 flat (user-reported broken)' },
+    { zoom: 16.5, pitch: 0, name: 'z=16.5 flat (2-level chain)' },
+    { zoom: 17.0, pitch: 0, name: 'z=17 flat' },
     { zoom: 15.5, pitch: 45.6, name: 'z=15.5 pitch=45.6' },
     { zoom: 17.0, pitch: 45.6, name: 'z=17 pitch=45.6' },
   ] as const
@@ -136,7 +145,7 @@ test.describe('PMTiles over-zoom: gradual disappearance repro', () => {
       await page.setViewportSize({ width: 1280, height: 720 })
 
       const flickerLogs: string[] = []
-      page.on('console', m => {
+      page.on('console', (m) => {
         const t = m.text()
         if (t.includes('[FLICKER]')) flickerLogs.push(t)
       })
@@ -213,7 +222,7 @@ test.describe('PMTiles over-zoom: gradual disappearance repro', () => {
       console.log('[sub-tile-diag]', JSON.stringify(subTileDiag, null, 2))
 
       for (const src of t0) {
-        const endSrc = tEnd.sources.find(s => s.name === src.name)
+        const endSrc = tEnd.sources.find((s) => s.name === src.name)
         expect(endSrc, `${src.name} disappeared from sources list`).toBeDefined()
         expect(
           endSrc!.cacheSize,
@@ -251,7 +260,7 @@ test.describe('PMTiles over-zoom: gradual disappearance repro', () => {
     // Capture FLICKER warnings for diagnostic — they shouldn't fire
     // continuously after settle (grace period 240 frames).
     const flickerLogs: string[] = []
-    page.on('console', m => {
+    page.on('console', (m) => {
       const t = m.text()
       if (t.includes('[FLICKER]')) flickerLogs.push(t)
     })
@@ -296,7 +305,7 @@ test.describe('PMTiles over-zoom: gradual disappearance repro', () => {
     // === ORACLES ===
     // 1. CacheSize must not decrease over the soak.
     for (const src of t0) {
-      const endSrc = tEnd.sources.find(s => s.name === src.name)
+      const endSrc = tEnd.sources.find((s) => s.name === src.name)
       expect(endSrc, `${src.name} disappeared from sources list`).toBeDefined()
       expect(
         endSrc!.cacheSize,

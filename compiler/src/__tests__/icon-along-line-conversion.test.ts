@@ -31,23 +31,25 @@ describe('road shield + oneway icon-along-line — compile-time wire-up', () => 
     const style = {
       version: 8,
       sources: { o: { type: 'vector', tiles: ['http://x/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'road_oneway',
-        type: 'symbol',
-        source: 'o',
-        'source-layer': 'transportation',
-        layout: {
-          'icon-image': 'oneway',
-          'icon-rotate': 90,
-          'symbol-placement': 'line',
-          'symbol-spacing': 75,
+      layers: [
+        {
+          id: 'road_oneway',
+          type: 'symbol',
+          source: 'o',
+          'source-layer': 'transportation',
+          layout: {
+            'icon-image': 'oneway',
+            'icon-rotate': 90,
+            'symbol-placement': 'line',
+            'symbol-spacing': 75,
+          },
+          paint: { 'icon-opacity': 0.5 },
         },
-        paint: { 'icon-opacity': 0.5 },
-      }],
+      ],
     }
     const shows = compileToShows(style)
     expect(shows.length).toBeGreaterThan(0)
-    const s = shows.find(x => x.layerName === 'road_oneway')!
+    const s = shows.find((x) => x.layerName === 'road_oneway')!
     expect(s).toBeDefined()
     expect(s.label).toBeDefined()
     expect(s.label!.placement).toBe('line')
@@ -63,26 +65,28 @@ describe('road shield + oneway icon-along-line — compile-time wire-up', () => 
     const style = {
       version: 8,
       sources: { o: { type: 'vector', tiles: ['http://x/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'highway-shield-non-us',
-        type: 'symbol',
-        source: 'o',
-        'source-layer': 'transportation_name',
-        minzoom: 11,
-        layout: {
-          'icon-image': ['concat', 'road_', ['get', 'ref_length']],
-          'symbol-placement': 'line',
-          'symbol-spacing': 200,
-          'text-field': ['to-string', ['get', 'ref']],
-          'text-font': ['Noto Sans Regular'],
-          'text-rotation-alignment': 'viewport',
-          'text-size': 10,
+      layers: [
+        {
+          id: 'highway-shield-non-us',
+          type: 'symbol',
+          source: 'o',
+          'source-layer': 'transportation_name',
+          minzoom: 11,
+          layout: {
+            'icon-image': ['concat', 'road_', ['get', 'ref_length']],
+            'symbol-placement': 'line',
+            'symbol-spacing': 200,
+            'text-field': ['to-string', ['get', 'ref']],
+            'text-font': ['Noto Sans Regular'],
+            'text-rotation-alignment': 'viewport',
+            'text-size': 10,
+          },
         },
-      }],
+      ],
     }
     const shows = compileToShows(style)
     // sanitizeId converts `-` to `_` in layer names.
-    const s = shows.find(x => (x.layerName ?? '').startsWith('highway_shield_non_us'))
+    const s = shows.find((x) => (x.layerName ?? '').startsWith('highway_shield_non_us'))
     expect(s).toBeDefined()
     expect(s!.label).toBeDefined()
     expect(s!.label!.placement).toBe('line')
@@ -104,10 +108,15 @@ describe('road shield + oneway icon-along-line — compile-time wire-up', () => 
     const style = {
       version: 8,
       sources: { o: { type: 'vector', tiles: ['http://x/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'oneway', type: 'symbol', source: 'o', 'source-layer': 't',
-        layout: { 'icon-image': 'oneway', 'icon-rotate': 90, 'symbol-placement': 'line' },
-      }],
+      layers: [
+        {
+          id: 'oneway',
+          type: 'symbol',
+          source: 'o',
+          'source-layer': 't',
+          layout: { 'icon-image': 'oneway', 'icon-rotate': 90, 'symbol-placement': 'line' },
+        },
+      ],
     }
     const shows = compileToShows(style)
     expect(shows[0]!.label!.iconRotate).toBe(90)
@@ -117,10 +126,15 @@ describe('road shield + oneway icon-along-line — compile-time wire-up', () => 
     const style = {
       version: 8,
       sources: { o: { type: 'vector', tiles: ['http://x/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'iconly', type: 'symbol', source: 'o', 'source-layer': 't',
-        layout: { 'icon-image': 'pin', 'symbol-placement': 'line' },
-      }],
+      layers: [
+        {
+          id: 'iconly',
+          type: 'symbol',
+          source: 'o',
+          'source-layer': 't',
+          layout: { 'icon-image': 'pin', 'symbol-placement': 'line' },
+        },
+      ],
     }
     const shows = compileToShows(style)
     expect(shows[0]!.label).toBeDefined()
@@ -138,25 +152,27 @@ describe('road shield + oneway icon-along-line — compile-time wire-up', () => 
     const style = {
       version: 8,
       sources: { o: { type: 'vector', tiles: ['http://x/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'shield',
-        type: 'symbol',
-        source: 'o',
-        'source-layer': 't',
-        layout: {
-          'icon-image': 'badge',
-          'symbol-placement': ['step', ['zoom'], 'point', 11, 'line'],
-          'text-field': '{ref}',
+      layers: [
+        {
+          id: 'shield',
+          type: 'symbol',
+          source: 'o',
+          'source-layer': 't',
+          layout: {
+            'icon-image': 'badge',
+            'symbol-placement': ['step', ['zoom'], 'point', 11, 'line'],
+            'text-field': '{ref}',
+          },
         },
-      }],
+      ],
     }
     const shows = compileToShows(style)
     // Step-placement splits into _0 / _1 sub-layers. layerName
     // carries the suffix.
-    const shieldShows = shows.filter(s => (s.layerName ?? '').startsWith('shield'))
+    const shieldShows = shows.filter((s) => (s.layerName ?? '').startsWith('shield'))
     expect(shieldShows.length).toBeGreaterThanOrEqual(2)
-    const point = shieldShows.find(s => s.label?.placement !== 'line')
-    const line = shieldShows.find(s => s.label?.placement === 'line')
+    const point = shieldShows.find((s) => s.label?.placement !== 'line')
+    const line = shieldShows.find((s) => s.label?.placement === 'line')
     expect(point).toBeDefined()
     expect(line).toBeDefined()
     expect(point!.label!.iconImage).toBe('badge')

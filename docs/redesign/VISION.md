@@ -7,12 +7,12 @@
 > pragmatic CTO · portfolio/hiring reviewer · verification skeptic) checked every
 > load-bearing claim against the actual code.
 >
-> **What the review changed.** The *core insight* survives — but the "single
+> **What the review changed.** The _core insight_ survives — but the "single
 > three-model Frame framework" framing did **not**, and one headline claim was
 > **factually wrong about this engine's own code**. This revision: (1) corrects
 > that error, (2) deflates the "framework" to **one invariant + a few scoped
 > fixes**, (3) re-anchors verification on numeric invariants (the screenshot
-> matrix is a *discovery tripwire*, not a gate), (4) names **clip-and-suture** as
+> matrix is a _discovery tripwire_, not a gate), (4) names **clip-and-suture** as
 > the real unsolved projection primitive instead of laundering it through a scope
 > tag, (5) adds a cross-library grounding section, and (6) adds an abort gate.
 > The honest one-liner: **this is two fixes and a test invariant, documented —
@@ -21,7 +21,7 @@
 ## 0. Ground truth (decided)
 
 - **Purpose:** learning / **portfolio — technical proof.** X-GIS exists to
-  demonstrate that a *correct, fast, coherently-architected* WebGPU GIS engine
+  demonstrate that a _correct, fast, coherently-architected_ WebGPU GIS engine
   can be built. **The architecture quality IS the deliverable** — not shipping a
   product. So "world-class, legible, gap-free design" is the actual success bar.
 - **Scope (locked):**
@@ -35,9 +35,9 @@
     `orthographic` / `azimuthal_equidistant` / `stereographic`. **These render
     today and will keep rendering.** They are simply **not held to the
     pixel-perfect bar**, because their correctness needs a primitive X-GIS does
-    not yet have (spherical clip-and-suture — §2.2). *Honest framing:* this is
+    not yet have (spherical clip-and-suture — §2.2). _Honest framing:_ this is
     "not gated yet," **not** "out of scope" and **not** "broken." Do not let the
-    scope tag launder *unsolved* into *descoped*.
+    scope tag launder _unsolved_ into _descoped_.
 
 ---
 
@@ -60,30 +60,30 @@ flowchart LR
 shared by all GPU surfaces; one `PROJECTIONS` table as source of truth; one ECEF
 tile geoid; a clean multi-bucket pass scheduler; a synthetic earth-surface fill
 that already paints the style background **inside** the projected world band
-(`earth-surface-fill.ts`, merged PRs #164/#165). The *math* is unified and a real
+(`earth-surface-fill.ts`, merged PRs #164/#165). The _math_ is unified and a real
 chunk of "coverage" already ships.
 
 **Where it actually leaks** — corrected after the review:
 
-- **Coverage of the region *outside* the world band is undefined-by-default, by
+- **Coverage of the region _outside_ the world band is undefined-by-default, by
   an intentional convention.** This is the one the matrix made loud, and the
   earlier draft of this doc got it **wrong**. The black you see around a shrunk
   disc / above a pitched horizon / in the low-zoom letterbox is **not an
   accidental "clear-value fallthrough."** It is a **deliberate decision**:
   `opaque-pass.ts:86-95` documents that the opaque clear stays pure black
-  `{0,0,0,1}` *"same convention as MapLibre … restoring pixel parity at the z=0
-  p=60 cell"*, ratified in `ADR-0005` (*"background is additive on top of that
-  clear, not a replacement"*) and pinned by `opaque-pass-clear-value.test.ts`.
+  `{0,0,0,1}` _"same convention as MapLibre … restoring pixel parity at the z=0
+  p=60 cell"_, ratified in `ADR-0005` (_"background is additive on top of that
+  clear, not a replacement"_) and pinned by `opaque-pass-clear-value.test.ts`.
   **So the real gap is narrow and true:** nothing paints the outside-band region
-  with anything *other than* black, and for CORE/SHOWCASE we now want to **change
-  that chosen convention** (defined letterbox / sky / space), *not* to fix a bug.
+  with anything _other than_ black, and for CORE/SHOWCASE we now want to **change
+  that chosen convention** (defined letterbox / sky / space), _not_ to fix a bug.
   Say it as a deliberate reversal, not a discovery.
 
-- **Labels are a separate CPU-placed subsystem.** *(Anchors do **not** drift —
-  the pitch diagnosis proved CPU and GPU anchors are byte-identical across pitch.)*
+- **Labels are a separate CPU-placed subsystem.** _(Anchors do **not** drift —
+  the pitch diagnosis proved CPU and GPU anchors are byte-identical across pitch.)_
   The real gap is one missing **feature**: labels are screen-space **billboards**
   with no `text-pitch-alignment: map`, so glyphs never lie on the tilted ground.
-  Note this is a *feature*, not a model: labels are an irreducibly separate
+  Note this is a _feature_, not a model: labels are an irreducibly separate
   placement engine (collision index + glyph/icon atlas + world-copy iteration),
   not "fill with a different shader" (§2.1).
 
@@ -99,17 +99,17 @@ chunk of "coverage" already ships.
 
 These are **not "one missing idea seen from four sides"** (that was rhetoric the
 review punctured). They are **four genuinely distinct concerns** that happen to
-share a theme: *the runtime has no single, defined answer to "what fills each
-pixel, and where does each projection stop?"* The honest unifier is **one test
+share a theme: _the runtime has no single, defined answer to "what fills each
+pixel, and where does each projection stop?"_ The honest unifier is **one test
 invariant** (§4), not a framework.
 
 ---
 
 ## 2. How the reference engines are built (and where X-GIS differs)
 
-*The most useful part of the review was the cross-library grounding — it shows
+_The most useful part of the review was the cross-library grounding — it shows
 which of our "bugs" are really unbuilt primitives that mature engines solved
-years ago. Three comparisons, each pinned to a concrete X-GIS gap.*
+years ago. Three comparisons, each pinned to a concrete X-GIS gap._
 
 ### 2.1 MapLibre / Mapbox GL — one Transform, one Painter, **symbols apart**
 
@@ -129,13 +129,13 @@ pipeline: `SymbolBucket` + a CPU `Placement` step + a screen-space
   labels "differ only by shader." **False** — `label-pass.ts` self-describes as
   "the largest pass: world-copy iteration, four anchor projectors, point/line
   placement, icon dispatch, screen-space collision + atlas." Like MapLibre, the
-  *projected anchor* shares the one transform (already true today); the *symbol
-  pipeline* is irreducibly separate. The only win available is the **one missing
+  _projected anchor_ shares the one transform (already true today); the _symbol
+  pipeline_ is irreducibly separate. The only win available is the **one missing
   property** (`text-pitch-alignment: map`), shipped as a feature — **not** a
   rewrite of the dominant CPU hot path (memory: label dispatch ~10.93 ms, p95
   ~107 ms high-pitch drag).
 - **The black-outside-world is MapLibre's convention too**, which is exactly why
-  `opaque-pass.ts` adopted it. Our change is a *deliberate* departure for
+  `opaque-pass.ts` adopted it. Our change is a _deliberate_ departure for
   CORE/SHOWCASE, knowingly trading a sliver of MapLibre pixel-parity for "no
   accidental black."
 
@@ -147,7 +147,7 @@ a projection as a **stream transform** whose domain is enforced by **clipping**:
 the boundary so a polygon crossing the seam stays one closed ring) and
 `clipCircle(angle)` (for azimuthals / orthographic — cuts at the small-circle
 limb and inserts the boundary arc). **Clip-and-resuture is the core primitive of
-a projection engine**, and it is what makes the *interesting* projections correct.
+a projection engine**, and it is what makes the _interesting_ projections correct.
 
 - **Where X-GIS differs (the real unsolved problem):** X-GIS has **no clip-and-
   suture anywhere**. It has a per-vertex `cullThreshold` (keeps or kills whole
@@ -156,12 +156,12 @@ a projection engine**, and it is what makes the *interesting* projections correc
   clipping it.
   Consequently:
   - the **azimuthal disc family can't be pixel-perfect** — hence EXPERIMENTAL.
-    The honest statement is *"we have not built `clipCircle`,"* not *"these
-    projections are out of scope."*
+    The honest statement is _"we have not built `clipCircle`,"_ not _"these
+    projections are out of scope."_
   - the **antimeridian seam in equirect / natural_earth** (the SHOWCASE tier we
     call "correct") needs a forest of ε-biased world-copy patches
     (`unwrap_lon_near_keep`, `SEAM_KEEP_EPS`, the NE-lobe wedge fix). That is a
-    **world-copy suturing** gap — a *forward-projection geometry* problem the
+    **world-copy suturing** gap — a _forward-projection geometry_ problem the
     coverage invariant does **not** touch. Naming it honestly: clip/suture is a
     named, still-open primitive, tracked separately from coverage.
 - **Inverse honesty:** d3-geo gives most projections an `.invert` (closed-form or
@@ -181,17 +181,17 @@ ellipsoid slightly larger than the globe; MapLibre v3 globe blends it offscreen)
 Either way it is **its own pass, not a flat background color**.
 
 - **Where X-GIS differs / must decide:** the earlier draft listed "atmosphere" as
-  a flat *coverage* state and simultaneously asked in §6 whether it needs a real
+  a flat _coverage_ state and simultaneously asked in §6 whether it needs a real
   shader. Pick one: for a portfolio whose CORE wow is the sphere, atmosphere is a
   **committed separate screen-space scattering pass** (depth-tested against the
   globe), **not** a coverage color. This is a fourth kind of thing and it's fine —
-  it just means the render model is *a pass graph*, not "one ordered layer stack"
+  it just means the render model is _a pass graph_, not "one ordered layer stack"
   (§2.4).
 
 ### 2.4 The lesson: a GPU frame is a **pass graph**, not a 2D layer stack
 
-The single biggest framework error in the first draft was *"every pixel is
-accounted for by exactly one well-defined layer of a single ordered model."* On
+The single biggest framework error in the first draft was _"every pixel is
+accounted for by exactly one well-defined layer of a single ordered model."_ On
 this engine's own hot path that is **false**: a pixel inside a translucent
 extrusion is written by the synthetic background, the opaque fills, the OIT accum
 pass, the OIT revealage pass, the compose pass, and the MSAA resolve — **six
@@ -200,9 +200,9 @@ writes across four render targets**, arbitrated by `clearValue` + depth + stenci
 a **pass graph**, exactly like MapLibre's Painter and Cesium's frame.
 
 So the surviving idea must be stated as an **authoring / test invariant**
-("every viewport pixel has a *defined source*"), **not** as a literal GPU
+("every viewport pixel has a _defined source_"), **not** as a literal GPU
 rendering invariant ("one ordered layer owns each pixel"). Depth/stencil and the
-multi-pass composite are the *real* arbiters of "what fills each pixel"; the
+multi-pass composite are the _real_ arbiters of "what fills each pixel"; the
 invariant rides **on top** of the pass graph, it does not replace it.
 
 ---
@@ -212,10 +212,11 @@ invariant rides **on top** of the pass graph, it does not replace it.
 Two users, one bar.
 
 **The map viewer (end user of any map X-GIS renders):**
+
 - Every viewport pixel has a **defined source** on CORE/SHOWCASE — letterbox →
   background; sky above a pitched horizon → background/sky; around a globe →
   space/atmosphere. **No pixel falls to black by accident.** (This is the user's
-  original complaint, and it is the *one* thing a coarse screenshot can check
+  original complaint, and it is the _one_ thing a coarse screenshot can check
   reliably — a per-cell black-pixel-ratio assertion. §4.)
 - Labels **sit on the map** (`text-pitch-alignment: map`) and stay readable.
 - Every **CORE/SHOWCASE projection × pitch × zoom** renders correctly. (Azimuthal
@@ -223,16 +224,17 @@ Two users, one bar.
 - Fast and smooth — no crash under real data; no jank on pan/zoom/pitch.
 
 **The developer (this project's reason to exist — portfolio):**
+
 - Adding a projection or a surface is a **localized** change.
-- The architecture is **legible**: a reader can predict *coverage* and
-  *projection* from the model. *(The pass/depth/stencil machinery is irreducibly
+- The architecture is **legible**: a reader can predict _coverage_ and
+  _projection_ from the model. _(The pass/depth/stencil machinery is irreducibly
   detailed and documented per-pass — legibility is "predict coverage + framing,"
   not "hold the whole OIT/stencil graph in your head," which the review correctly
-  flagged as unattainable.)*
+  flagged as unattainable.)_
 - Correctness is **gated by deterministic numeric invariants** that run in CI,
-  with the real-GPU visual matrix as the **discovery tripwire** that *surfaces*
-  what to turn into an invariant. *(Corrected from the first draft, which inverted
-  this — see §4 and §6.)*
+  with the real-GPU visual matrix as the **discovery tripwire** that _surfaces_
+  what to turn into an invariant. _(Corrected from the first draft, which inverted
+  this — see §4 and §6.)_
 
 ---
 
@@ -241,8 +243,8 @@ Two users, one bar.
 Stripped of the framework, the redesign is **one invariant**:
 
 > **On CORE/SHOWCASE, for every `(projection, camera, zoom, pitch)`, every pixel
-> of the viewport is painted by a *defined* layer — never left to black by
-> accident.** "Empty" (letterbox / sky / space) is a *chosen* layer, not a
+> of the viewport is painted by a _defined_ layer — never left to black by
+> accident.** "Empty" (letterbox / sky / space) is a _chosen_ layer, not a
 > fallthrough.
 
 This is genuinely good, it is the user's actual complaint, and crucially it is
@@ -253,19 +255,19 @@ invariant is the spine; everything else is scoped work, not a model.
 **What the invariant does NOT fix** (the review's most important calibration —
 own this, don't over-claim):
 
-| Bug class | Fixed by the invariant? | Why |
-|---|---|---|
-| Black void where bg/sky/surround expected (BUG-A/B/C) | **Yes** — this *is* the invariant | coverage outside the world band |
-| Labels billboard / don't lie on the tilted ground | **No** — separate **feature** | needs `text-pitch-alignment: map`, not coverage |
-| Disc shrinks under pitch | **No** — separate **framing** fix | framing belongs on the projection (§5) |
-| Antimeridian seam / NE-wedge (equirect/NE) | **No** — separate **suture** gap | world-copy stitching, a forward-geometry problem (§2.2) |
-| Azimuthal limb/antipode tear | **No** — needs **clip-and-suture** | the unbuilt d3-geo `clipCircle` primitive (§2.2) |
-| Precision (#210 f32 cancellation) | **No** — orthogonal | numeric, not coverage |
-| Arena OOM | **Already fixed** (#193 byte-aware eviction) | stale; do **not** re-justify a rebuild with it |
+| Bug class                                             | Fixed by the invariant?                      | Why                                                     |
+| ----------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------- |
+| Black void where bg/sky/surround expected (BUG-A/B/C) | **Yes** — this _is_ the invariant            | coverage outside the world band                         |
+| Labels billboard / don't lie on the tilted ground     | **No** — separate **feature**                | needs `text-pitch-alignment: map`, not coverage         |
+| Disc shrinks under pitch                              | **No** — separate **framing** fix            | framing belongs on the projection (§5)                  |
+| Antimeridian seam / NE-wedge (equirect/NE)            | **No** — separate **suture** gap             | world-copy stitching, a forward-geometry problem (§2.2) |
+| Azimuthal limb/antipode tear                          | **No** — needs **clip-and-suture**           | the unbuilt d3-geo `clipCircle` primitive (§2.2)        |
+| Precision (#210 f32 cancellation)                     | **No** — orthogonal                          | numeric, not coverage                                   |
+| Arena OOM                                             | **Already fixed** (#193 byte-aware eviction) | stale; do **not** re-justify a rebuild with it          |
 
 The first draft's "dissolves the bug classes by construction" was an over-claim.
 The invariant **eliminates the coverage-fallthrough class, full stop.** Precision,
-suture, framing, and resource bugs are *orthogonal* and tracked separately.
+suture, framing, and resource bugs are _orthogonal_ and tracked separately.
 
 ---
 
@@ -273,33 +275,33 @@ suture, framing, and resource bugs are *orthogonal* and tracked separately.
 
 The first draft sold "① Projection / ② Coverage / ③ Surface" as three composable
 models. The review showed ② is ~80% built, ① is a table column, and ③ is one
-feature. So the honest list of *work*, smallest-to-largest:
+feature. So the honest list of _work_, smallest-to-largest:
 
-1. **Outside-band coverage** *(the real, small gap — the headline fix).*
-   Add a **defined non-black layer** for the region *outside* the world band:
+1. **Outside-band coverage** _(the real, small gap — the headline fix)._
+   Add a **defined non-black layer** for the region _outside_ the world band:
    a flat letterbox/background base for flat projections; **space + a committed
    atmosphere scattering pass** for the globe (§2.3). This sits **behind** the
    existing synthetic earth-surface and **knowingly reverses** the deliberate
    black-clear convention (`opaque-pass.ts`, ADR-0005) for CORE/SHOWCASE. Roughly
    1–3 targeted PRs, gated by a black-pixel-ratio assertion.
 
-2. **`text-pitch-alignment: map`** *(one feature, not a model).* Ground-aligned
+2. **`text-pitch-alignment: map`** _(one feature, not a model)._ Ground-aligned
    label glyphs. Ship as a scoped feature on the existing label pipeline. **Do
    not** migrate the CPU label projector onto the GPU "for consistency" — the doc
    itself concedes there is no drift, and it is the dominant CPU hot path.
 
-3. **Framing as a projection property** *(a column, not a model).* Move the
+3. **Framing as a projection property** _(a column, not a model)._ Move the
    per-projection camera framing rule onto the `PROJECTIONS` table so a disc can't
    shrink under pitch. Extension of the existing SoT table.
 
-4. **Clip-and-suture** *(the real unsolved projection primitive — §2.2).* A
+4. **Clip-and-suture** _(the real unsolved projection primitive — §2.2)._ A
    spherical clip region (`clipCircle` for azimuthal/globe limb, `clipAntimeridian`
-   + world-copy suture for cylindricals) that **cuts straddling primitives and
-   re-stitches the boundary**, in the same projected frame. This is the prerequisite
-   for promoting any azimuthal projection out of EXPERIMENTAL, and for retiring the
-   ε-biased seam patches in SHOWCASE. **Largest item; explicitly optional** for the
-   portfolio — but name it as the honest "this is what a projection engine's hard
-   part actually is," not a scope tag.
+   - world-copy suture for cylindricals) that **cuts straddling primitives and
+     re-stitches the boundary**, in the same projected frame. This is the prerequisite
+     for promoting any azimuthal projection out of EXPERIMENTAL, and for retiring the
+     ε-biased seam patches in SHOWCASE. **Largest item; explicitly optional** for the
+     portfolio — but name it as the honest "this is what a projection engine's hard
+     part actually is," not a scope tag.
 
 Resources (the GPU arena) are **already** byte-aware-evicting (#193) — **not** a
 gap; removed from this list.
@@ -327,8 +329,8 @@ shipped (targeted, matrix-surfaced, numerically gated):
    labelled "renders, not gated."
 
 **Verification (corrected — this is the part the first draft got most wrong):**
-the real-GPU screenshot matrix is a **discovery tripwire** (it *surfaces* visual
-bugs; it cannot *gate* — `_matrix-scan.spec.ts` is a throwaway capture whose only
+the real-GPU screenshot matrix is a **discovery tripwire** (it _surfaces_ visual
+bugs; it cannot _gate_ — `_matrix-scan.spec.ts` is a throwaway capture whose only
 assertion is `records.length > 0`, and per ADR-0004 it can't run in CI: no GPU).
 **Every bug the matrix surfaces must be reduced to a deterministic numeric
 invariant before its step is "done":** coverage → per-cell paint/black-ratio;
@@ -342,7 +344,7 @@ the screenshot only **finds new** ones. (This re-anchors on the
 **Abort gate (new):** each step gets a day budget. **If any step regresses a
 previously-green matrix cell or a green numeric gate, or exceeds budget — ship
 what's green and stop.** The mid-migration state (two paradigms at once) is the
-state a portfolio reviewer is *most* likely to see; never leave it incoherent.
+state a portfolio reviewer is _most_ likely to see; never leave it incoherent.
 
 ---
 
@@ -357,6 +359,6 @@ state a portfolio reviewer is *most* likely to see; never leave it incoherent.
   ([[godfile-decomposition-review-2026-05-30]]) — reusing `FrameContext` /
   `SceneView` / `RenderLoop`, **not** a parallel new object.
 
-*Decided in the next artifact (**target architecture**), checked against this
+_Decided in the next artifact (**target architecture**), checked against this
 vision — and against the six personas' verified objections, summarized in the
-review that produced this revision.*
+review that produced this revision._

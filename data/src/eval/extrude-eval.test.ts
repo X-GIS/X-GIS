@@ -8,14 +8,17 @@ import { evalExtrudeExpr } from './extrude-eval'
 
 const lit = (value: number) => ({ kind: 'NumberLiteral' as const, value })
 const fld = (field: string) => ({ kind: 'FieldAccess' as const, object: null, field })
-const bin = (op: string, left: unknown, right: unknown) =>
-  ({ kind: 'BinaryExpr' as const, op, left, right })
-const fn = (name: string, args: unknown[]) =>
-  ({
-    kind: 'FnCall' as const,
-    callee: { kind: 'Identifier' as const, name },
-    args,
-  })
+const bin = (op: string, left: unknown, right: unknown) => ({
+  kind: 'BinaryExpr' as const,
+  op,
+  left,
+  right,
+})
+const fn = (name: string, args: unknown[]) => ({
+  kind: 'FnCall' as const,
+  callee: { kind: 'Identifier' as const, name },
+  args,
+})
 
 describe('evalExtrudeExpr', () => {
   it('evaluates a NumberLiteral', () => {

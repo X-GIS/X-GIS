@@ -22,11 +22,7 @@ describe('paint interp-zoom NaN/Infinity rejection', () => {
           source: 's',
           paint: {
             'line-color': '#abc',
-            'line-width': [
-              'interpolate', ['linear'], ['zoom'],
-              5, NaN as unknown,
-              10, 3,
-            ],
+            'line-width': ['interpolate', ['linear'], ['zoom'], 5, NaN as unknown, 10, 3],
           },
         },
       ],
@@ -50,11 +46,7 @@ describe('paint interp-zoom NaN/Infinity rejection', () => {
           source: 's',
           layout: {
             'text-field': '{name}',
-            'text-size': [
-              'interpolate', ['linear'], ['zoom'],
-              5, 12,
-              10, NaN as unknown,
-            ],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 5, 12, 10, NaN as unknown],
           },
         },
       ],
@@ -77,11 +69,7 @@ describe('paint interp-zoom NaN/Infinity rejection', () => {
           type: 'circle',
           source: 's',
           paint: {
-            'circle-radius': [
-              'interpolate', ['linear'], ['zoom'],
-              5, 3,
-              10, Infinity as unknown,
-            ],
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 3, 10, Infinity as unknown],
           },
         },
       ],

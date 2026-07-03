@@ -33,10 +33,15 @@ function circleLayer(paint: Record<string, unknown>): unknown {
   return {
     version: 8,
     sources: { t: { type: 'vector', tiles: ['x'] } },
-    layers: [{
-      id: 'c', type: 'circle', source: 't', 'source-layer': 'p',
-      paint: { 'circle-radius': 4, 'circle-color': '#08f', ...paint },
-    }],
+    layers: [
+      {
+        id: 'c',
+        type: 'circle',
+        source: 't',
+        'source-layer': 'p',
+        paint: { 'circle-radius': 4, 'circle-color': '#08f', ...paint },
+      },
+    ],
   }
 }
 

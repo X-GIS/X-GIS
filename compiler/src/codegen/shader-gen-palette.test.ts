@@ -13,7 +13,14 @@
 import { describe, expect, it } from 'vitest'
 import { generateShaderVariant } from './shader-gen'
 import { collectPalette } from './palette'
-import type { ColorValue, RenderNode, Scene, SizeValue, StrokeValue, ZoomStop } from '../ir/render-node'
+import type {
+  ColorValue,
+  RenderNode,
+  Scene,
+  SizeValue,
+  StrokeValue,
+  ZoomStop,
+} from '../ir/render-node'
 import type { PropertyShape, RGBA } from '../ir/property-types'
 import type { ShaderVariant } from './shader-gen'
 import { nodeToWgslString } from './node-to-wgsl'
@@ -31,11 +38,13 @@ function strokeStr(v: ShaderVariant): string {
 
 const RED: RGBA = [1, 0, 0, 1]
 const BLUE: RGBA = [0, 0, 1, 1]
-const zs = <T,>(zoom: number, value: T): ZoomStop<T> => ({ zoom, value })
+const zs = <T>(zoom: number, value: T): ZoomStop<T> => ({ zoom, value })
 
 function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
   const base: RenderNode = {
-    name: 'a', sourceRef: 's', zOrder: 0,
+    name: 'a',
+    sourceRef: 's',
+    zOrder: 0,
     fill: { kind: 'none' },
     stroke: {
       color: { kind: 'none' },
@@ -45,8 +54,12 @@ function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
     size: { kind: 'none' } as SizeValue,
     extrude: { kind: 'none' } as never,
     extrudeBase: { kind: 'none' } as never,
-    projection: 'mercator', visible: true, pointerEvents: 'auto',
-    filter: null, geometry: null, billboard: true,
+    projection: 'mercator',
+    visible: true,
+    pointerEvents: 'auto',
+    filter: null,
+    geometry: null,
+    billboard: true,
     shape: { kind: 'named', name: 'circle' } as never,
   }
   return { ...base, ...overrides }
@@ -61,7 +74,7 @@ describe('shader-gen — palette-aware emission', () => {
     const node = makeNode({
       fill: { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] } as ColorValue,
     })
-    const v = generateShaderVariant(node)  // no palette
+    const v = generateShaderVariant(node) // no palette
     expect(v.preamble.bindings ?? []).toEqual([])
     expect(fillStr(v)).toContain('u.fill_color')
     expect(v.paletteColorGradients).toEqual([])
@@ -73,10 +86,12 @@ describe('shader-gen — palette-aware emission', () => {
     })
     const palette = collectPalette(sceneFromNodes(node))
     const v = generateShaderVariant(node, undefined, palette)
-    expect(v.preamble.bindings).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: 'color_grad_atlas', binding: 2 }),
-      expect.objectContaining({ name: 'palette_samp' }),
-    ]))
+    expect(v.preamble.bindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'color_grad_atlas', binding: 2 }),
+        expect.objectContaining({ name: 'palette_samp' }),
+      ]),
+    )
     expect(fillStr(v)).toContain('textureSampleLevel(color_grad_atlas, palette_samp')
     expect(fillStr(v)).not.toContain('u.fill_color')
     expect(v.paletteColorGradients).toEqual([0])
@@ -93,7 +108,7 @@ describe('shader-gen — palette-aware emission', () => {
     const palette = collectPalette(sceneFromNodes(otherNode))
     const v = generateShaderVariant(node, undefined, palette)
     // Legacy uniform path — no atlas bindings emitted.
-    expect((v.preamble.bindings ?? []).some(b => b.name === 'color_grad_atlas')).toBe(false)
+    expect((v.preamble.bindings ?? []).some((b) => b.name === 'color_grad_atlas')).toBe(false)
     expect(fillStr(v)).toContain('u.fill_color')
     expect(v.paletteColorGradients).toEqual([])
   })
@@ -104,7 +119,7 @@ describe('shader-gen — palette-aware emission', () => {
     })
     const palette = collectPalette(sceneFromNodes(node))
     const v = generateShaderVariant(node, undefined, palette)
-    expect((v.preamble.bindings ?? []).some(b => b.name === 'color_grad_atlas')).toBe(false)
+    expect((v.preamble.bindings ?? []).some((b) => b.name === 'color_grad_atlas')).toBe(false)
     expect(fillStr(v)).toContain('FILL_COLOR')
     expect(v.paletteColorGradients).toEqual([])
   })
@@ -127,7 +142,7 @@ describe('shader-gen — palette-aware emission', () => {
     expect(v.paletteColorGradients).toContain(0)
     expect(v.paletteColorGradients).toContain(1)
     // Bindings emit ONCE even with multiple gradient samples.
-    expect((v.preamble.bindings ?? []).filter(b => b.name === 'color_grad_atlas')).toHaveLength(1)
+    expect((v.preamble.bindings ?? []).filter((b) => b.name === 'color_grad_atlas')).toHaveLength(1)
   })
 
   it('two layers sharing the same gradient → both reference index 0', () => {

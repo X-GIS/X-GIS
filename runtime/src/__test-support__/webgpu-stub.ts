@@ -16,14 +16,27 @@
 
 type AnyFn = (...args: unknown[]) => unknown
 
-const stub = (name: string): AnyFn => () => {
-  // Production paths that hit an unstubbed surface get a clear error.
-  // Lazy-instantiate the message so the no-op path stays branchless.
-  throw new Error(`[webgpu-stub] unstubbed call: ${name}`)
-}
+const stub =
+  (name: string): AnyFn =>
+  () => {
+    // Production paths that hit an unstubbed surface get a clear error.
+    // Lazy-instantiate the message so the no-op path stays branchless.
+    throw new Error(`[webgpu-stub] unstubbed call: ${name}`)
+  }
 
-interface StubBuffer { destroy: () => void; mapAsync: AnyFn; getMappedRange: AnyFn; unmap: AnyFn; size: number }
-interface StubTexture { createView: () => unknown; destroy: () => void; width: number; height: number }
+interface StubBuffer {
+  destroy: () => void
+  mapAsync: AnyFn
+  getMappedRange: AnyFn
+  unmap: AnyFn
+  size: number
+}
+interface StubTexture {
+  createView: () => unknown
+  destroy: () => void
+  width: number
+  height: number
+}
 
 function makeBuffer(size: number): StubBuffer {
   const range = new ArrayBuffer(Math.max(4, size))
@@ -38,7 +51,8 @@ function makeBuffer(size: number): StubBuffer {
 
 function makeTexture(w = 1, h = 1): StubTexture {
   return {
-    width: w, height: h,
+    width: w,
+    height: h,
     createView: () => ({}),
     destroy: () => undefined,
   }
@@ -52,16 +66,36 @@ function makePipeline(): unknown {
 
 function makeEncoder(bump: (k: string) => void): unknown {
   const pass = {
-    setPipeline: () => { bump('pass.setPipeline') },
-    setBindGroup: () => { bump('pass.setBindGroup') },
-    setVertexBuffer: () => { bump('pass.setVertexBuffer') },
-    setIndexBuffer: () => { bump('pass.setIndexBuffer') },
-    draw: () => { bump('pass.draw') },
-    drawIndexed: () => { bump('pass.drawIndexed') },
-    drawIndirect: () => { bump('pass.drawIndirect') },
-    executeBundles: () => { bump('pass.executeBundles') },
-    setStencilReference: () => { bump('pass.setStencilReference') },
-    end: () => { bump('pass.end') },
+    setPipeline: () => {
+      bump('pass.setPipeline')
+    },
+    setBindGroup: () => {
+      bump('pass.setBindGroup')
+    },
+    setVertexBuffer: () => {
+      bump('pass.setVertexBuffer')
+    },
+    setIndexBuffer: () => {
+      bump('pass.setIndexBuffer')
+    },
+    draw: () => {
+      bump('pass.draw')
+    },
+    drawIndexed: () => {
+      bump('pass.drawIndexed')
+    },
+    drawIndirect: () => {
+      bump('pass.drawIndirect')
+    },
+    executeBundles: () => {
+      bump('pass.executeBundles')
+    },
+    setStencilReference: () => {
+      bump('pass.setStencilReference')
+    },
+    end: () => {
+      bump('pass.end')
+    },
     setViewport: () => undefined,
     setScissorRect: () => undefined,
   }
@@ -85,7 +119,9 @@ export interface StubInstallation {
 
 export function installWebGPUStub(): StubInstallation {
   const calls: Record<string, number> = Object.create(null)
-  const bump = (k: string): void => { calls[k] = (calls[k] ?? 0) + 1 }
+  const bump = (k: string): void => {
+    calls[k] = (calls[k] ?? 0) + 1
+  }
 
   const device = {
     features: { has: () => false },
@@ -106,12 +142,21 @@ export function installWebGPUStub(): StubInstallation {
       maxComputeWorkgroupSizeZ: 64,
     },
     queue: {
-      submit: () => { bump('queue.submit') },
-      writeBuffer: () => { bump('queue.writeBuffer') },
-      writeTexture: () => { bump('queue.writeTexture') },
+      submit: () => {
+        bump('queue.submit')
+      },
+      writeBuffer: () => {
+        bump('queue.writeBuffer')
+      },
+      writeTexture: () => {
+        bump('queue.writeTexture')
+      },
       onSubmittedWorkDone: () => Promise.resolve(),
     },
-    createBuffer: (d: GPUBufferDescriptor) => { bump('createBuffer'); return makeBuffer(d.size) },
+    createBuffer: (d: GPUBufferDescriptor) => {
+      bump('createBuffer')
+      return makeBuffer(d.size)
+    },
     createTexture: (d: GPUTextureDescriptor) => {
       bump('createTexture')
       const sz = d.size as { width?: number; height?: number } | [number, number]
@@ -119,37 +164,81 @@ export function installWebGPUStub(): StubInstallation {
       const h = Array.isArray(sz) ? sz[1] : (sz.height ?? 1)
       return makeTexture(w, h)
     },
-    createSampler: () => { bump('createSampler'); return {} },
+    createSampler: () => {
+      bump('createSampler')
+      return {}
+    },
     createBindGroupLayout: (d: GPUBindGroupLayoutDescriptor) => {
       bump('createBindGroupLayout')
       // Return the descriptor itself so tests can assert on bindings.
       return { __descriptor: d }
     },
-    createBindGroup: () => { bump('createBindGroup'); return {} },
-    createPipelineLayout: () => { bump('createPipelineLayout'); return {} },
-    createRenderPipeline: () => { bump('createRenderPipeline'); return makePipeline() },
-    createRenderPipelineAsync: () => { bump('createRenderPipelineAsync'); return Promise.resolve(makePipeline()) },
-    createComputePipeline: () => { bump('createComputePipeline'); return makePipeline() },
-    createComputePipelineAsync: () => { bump('createComputePipelineAsync'); return Promise.resolve(makePipeline()) },
-    createShaderModule: () => { bump('createShaderModule'); return {} },
+    createBindGroup: () => {
+      bump('createBindGroup')
+      return {}
+    },
+    createPipelineLayout: () => {
+      bump('createPipelineLayout')
+      return {}
+    },
+    createRenderPipeline: () => {
+      bump('createRenderPipeline')
+      return makePipeline()
+    },
+    createRenderPipelineAsync: () => {
+      bump('createRenderPipelineAsync')
+      return Promise.resolve(makePipeline())
+    },
+    createComputePipeline: () => {
+      bump('createComputePipeline')
+      return makePipeline()
+    },
+    createComputePipelineAsync: () => {
+      bump('createComputePipelineAsync')
+      return Promise.resolve(makePipeline())
+    },
+    createShaderModule: () => {
+      bump('createShaderModule')
+      return {}
+    },
     createRenderBundleEncoder: () => {
       bump('createRenderBundleEncoder')
       // Bundle encoder shares the same command-recording surface as
       // the render pass encoder (subset). Reuse the pass stub +
       // a finish() that returns a sentinel bundle object.
       const bundlePass = {
-        setPipeline: () => { bump('bundle.setPipeline') },
-        setBindGroup: () => { bump('bundle.setBindGroup') },
-        setVertexBuffer: () => { bump('bundle.setVertexBuffer') },
-        setIndexBuffer: () => { bump('bundle.setIndexBuffer') },
-        draw: () => { bump('bundle.draw') },
-        drawIndexed: () => { bump('bundle.drawIndexed') },
-        drawIndirect: () => { bump('bundle.drawIndirect') },
-        finish: () => { bump('bundle.finish'); return { __bundle: true } },
+        setPipeline: () => {
+          bump('bundle.setPipeline')
+        },
+        setBindGroup: () => {
+          bump('bundle.setBindGroup')
+        },
+        setVertexBuffer: () => {
+          bump('bundle.setVertexBuffer')
+        },
+        setIndexBuffer: () => {
+          bump('bundle.setIndexBuffer')
+        },
+        draw: () => {
+          bump('bundle.draw')
+        },
+        drawIndexed: () => {
+          bump('bundle.drawIndexed')
+        },
+        drawIndirect: () => {
+          bump('bundle.drawIndirect')
+        },
+        finish: () => {
+          bump('bundle.finish')
+          return { __bundle: true }
+        },
       }
       return bundlePass
     },
-    createCommandEncoder: () => { bump('createCommandEncoder'); return makeEncoder(bump) },
+    createCommandEncoder: () => {
+      bump('createCommandEncoder')
+      return makeEncoder(bump)
+    },
     createQuerySet: () => ({ destroy: () => undefined }),
     pushErrorScope: () => undefined,
     popErrorScope: () => Promise.resolve(null),
@@ -178,19 +267,24 @@ export function installWebGPUStub(): StubInstallation {
   // Snapshot prior state for clean restore.
   const g = globalThis as unknown as {
     navigator?: Record<string, unknown>
-    GPUShaderStage?: unknown; GPUBufferUsage?: unknown; GPUTextureUsage?: unknown
-    GPUMapMode?: unknown; GPUColorWrite?: unknown
+    GPUShaderStage?: unknown
+    GPUBufferUsage?: unknown
+    GPUTextureUsage?: unknown
+    GPUMapMode?: unknown
+    GPUColorWrite?: unknown
   }
   const navExistedBefore = g.navigator !== undefined
   const priorGpu = g.navigator?.gpu
   const priorGlobals = {
-    GPUShaderStage: g.GPUShaderStage, GPUBufferUsage: g.GPUBufferUsage,
-    GPUTextureUsage: g.GPUTextureUsage, GPUMapMode: g.GPUMapMode,
+    GPUShaderStage: g.GPUShaderStage,
+    GPUBufferUsage: g.GPUBufferUsage,
+    GPUTextureUsage: g.GPUTextureUsage,
+    GPUMapMode: g.GPUMapMode,
     GPUColorWrite: g.GPUColorWrite,
   }
 
-  const priorGetContext = typeof HTMLCanvasElement !== 'undefined'
-    ? HTMLCanvasElement.prototype.getContext : null
+  const priorGetContext =
+    typeof HTMLCanvasElement !== 'undefined' ? HTMLCanvasElement.prototype.getContext : null
 
   // Install navigator.gpu. Node + happy-dom both ship navigator; bare
   // vitest-node sometimes doesn't. Define-if-missing then assign.
@@ -205,15 +299,25 @@ export function installWebGPUStub(): StubInstallation {
   }
   if (g.GPUBufferUsage === undefined) {
     g.GPUBufferUsage = {
-      MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8,
-      INDEX: 16, VERTEX: 32, UNIFORM: 64, STORAGE: 128,
-      INDIRECT: 256, QUERY_RESOLVE: 512,
+      MAP_READ: 1,
+      MAP_WRITE: 2,
+      COPY_SRC: 4,
+      COPY_DST: 8,
+      INDEX: 16,
+      VERTEX: 32,
+      UNIFORM: 64,
+      STORAGE: 128,
+      INDIRECT: 256,
+      QUERY_RESOLVE: 512,
     }
   }
   if (g.GPUTextureUsage === undefined) {
     g.GPUTextureUsage = {
-      COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4,
-      STORAGE_BINDING: 8, RENDER_ATTACHMENT: 16,
+      COPY_SRC: 1,
+      COPY_DST: 2,
+      TEXTURE_BINDING: 4,
+      STORAGE_BINDING: 8,
+      RENDER_ATTACHMENT: 16,
     }
   }
   if (g.GPUMapMode === undefined) g.GPUMapMode = { READ: 1, WRITE: 2 }
@@ -224,15 +328,27 @@ export function installWebGPUStub(): StubInstallation {
   // Stub canvas.getContext('webgpu'). Real Canvas2D / WebGL still need
   // to work for non-WebGPU tests, so we only intercept the 'webgpu' arg.
   if (typeof HTMLCanvasElement !== 'undefined') {
-    HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, type: string, ...rest: unknown[]): unknown {
+    HTMLCanvasElement.prototype.getContext = function (
+      this: HTMLCanvasElement,
+      type: string,
+      ...rest: unknown[]
+    ): unknown {
       if (type === 'webgpu') {
         return {
-          configure: () => { bump('context.configure') },
+          configure: () => {
+            bump('context.configure')
+          },
           unconfigure: () => undefined,
           getCurrentTexture: () => makeTexture(this.width, this.height),
         }
       }
-      return priorGetContext ? (priorGetContext as (this: HTMLCanvasElement, ...a: unknown[]) => unknown).call(this, type, ...rest) : null
+      return priorGetContext
+        ? (priorGetContext as (this: HTMLCanvasElement, ...a: unknown[]) => unknown).call(
+            this,
+            type,
+            ...rest,
+          )
+        : null
     } as never
   }
 

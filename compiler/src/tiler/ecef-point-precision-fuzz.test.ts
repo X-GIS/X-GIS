@@ -19,17 +19,19 @@ import { describe, it, expect } from 'vitest'
 import { packECEFPointFeatures } from './ecef-packing'
 
 // ── WGS84 constants (mirrors runtime/src/engine/projection/ecef.ts) ─────────
-const A = 6378137               // semi-major axis (m)
+const A = 6378137 // semi-major axis (m)
 const F = 1 / 298.257223563
-const E2 = F * (2 - F)          // first eccentricity squared
+const E2 = F * (2 - F) // first eccentricity squared
 
 // ── Deterministic LCG RNG ────────────────────────────────────────────────────
 function makeRng(seed: number): () => number {
   let s = seed | 0
   return () => {
-    s ^= s << 13; s |= 0
+    s ^= s << 13
+    s |= 0
     s ^= s >>> 17
-    s ^= s << 5;  s |= 0
+    s ^= s << 5
+    s |= 0
     return (s >>> 0) / 0x1_0000_0000
   }
 }
@@ -51,7 +53,10 @@ function ecefToLonLatRad(x: number, y: number, z: number): [number, number] {
     N = A / Math.sqrt(1 - E2 * sinLat * sinLat)
     height = p / Math.cos(lat) - N
     const newLat = Math.atan2(z, p * (1 - (E2 * N) / (N + height)))
-    if (Math.abs(newLat - lat) < 1e-12) { lat = newLat; break }
+    if (Math.abs(newLat - lat) < 1e-12) {
+      lat = newLat
+      break
+    }
     lat = newLat
   }
   return [lon, lat]
@@ -84,7 +89,6 @@ function roundTripError(mx: number, my: number): number {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('AC2d.2.5 packECEFPointFeatures precision round-trip', () => {
-
   it('stride-13 output: fid passes through unchanged', () => {
     const packed = packECEFPointFeatures([0, 0, 42])
     expect(packed.length).toBe(13)
@@ -120,9 +124,11 @@ describe('AC2d.2.5 packECEFPointFeatures precision round-trip', () => {
       // silence unused RAD2DEG lint when the body shrinks
       void RAD2DEG
     }
-    console.log(`[merc DSFUN tail] worst: dsfun=${(worstDsfun * 1000).toFixed(6)} mm  lossy=${(worstLossy).toFixed(3)} m`)
-    expect(worstDsfun).toBeLessThan(1e-3)          // sub-mm
-    expect(worstLossy).toBeGreaterThan(0.1)        // the f32-degree path loses >10 cm
+    console.log(
+      `[merc DSFUN tail] worst: dsfun=${(worstDsfun * 1000).toFixed(6)} mm  lossy=${worstLossy.toFixed(3)} m`,
+    )
+    expect(worstDsfun).toBeLessThan(1e-3) // sub-mm
+    expect(worstLossy).toBeGreaterThan(0.1) // the f32-degree path loses >10 cm
   })
 
   it('1e4 random points — z=22: worst-case ≤ 1 mm', () => {
@@ -143,7 +149,7 @@ describe('AC2d.2.5 packECEFPointFeatures precision round-trip', () => {
     }
 
     console.log(`[z=22] worst point reconstruction error: ${(worst * 1000).toFixed(6)} mm`)
-    expect(worst).toBeLessThan(1e-3)   // 1 mm
+    expect(worst).toBeLessThan(1e-3) // 1 mm
   })
 
   it('1e4 random points — z=15: worst-case ≤ 1 mm', () => {
@@ -198,10 +204,8 @@ describe('AC2d.2.5 packECEFPointFeatures precision round-trip', () => {
     for (let i = 0; i < 10_000; i++) {
       const baseMx = (rng() * 2 - 1) * MX_MAX * 0.5
       const baseMy = (rng() * 2 - 1) * MY_MAX * 0.5
-      const mx = Math.max(-MX_MAX, Math.min(MX_MAX,
-        baseMx + (rng() * 2 - 1) * HALF))
-      const my = Math.max(-MY_MAX, Math.min(MY_MAX,
-        baseMy + (rng() * 2 - 1) * HALF))
+      const mx = Math.max(-MX_MAX, Math.min(MX_MAX, baseMx + (rng() * 2 - 1) * HALF))
+      const my = Math.max(-MY_MAX, Math.min(MY_MAX, baseMy + (rng() * 2 - 1) * HALF))
 
       const err = roundTripError(mx, my)
       if (err > worst) worst = err
@@ -239,7 +243,9 @@ describe('AC2d.2.5 packECEFPointFeatures precision round-trip', () => {
       if (dLat > worstLat) worstLat = dLat
     }
 
-    console.log(`[point abs_lon/abs_lat] worst delta: lon=${worstLon.toExponential(3)}°  lat=${worstLat.toExponential(3)}°`)
+    console.log(
+      `[point abs_lon/abs_lat] worst delta: lon=${worstLon.toExponential(3)}°  lat=${worstLat.toExponential(3)}°`,
+    )
     expect(worstLon).toBeLessThan(1e-5)
     expect(worstLat).toBeLessThan(1e-5)
   })

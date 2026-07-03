@@ -3,9 +3,7 @@
 // module-level mutable state; each is a pure transform of its inputs.
 // Kept here so paint.ts stays focused on the per-property emitters.
 
-import {
-  parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab,
-} from '../tokens/colors'
+import { parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab } from '../tokens/colors'
 import type { InterpolateZoomShape } from './paint-types'
 import { colorToXgis } from './colors'
 import { exprToXgis } from './expressions'
@@ -60,10 +58,7 @@ export function unwrapLiteralScalarLocal(v: unknown): unknown {
  *
  *  Cubic-bezier curves fall back to linear with a warning — xgis has
  *  no per-stop control-point evaluator yet. */
-function interpolateZoomStops(
-  v: unknown,
-  warnings?: string[],
-): InterpolateZoomShape | null {
+function interpolateZoomStops(v: unknown, warnings?: string[]): InterpolateZoomShape | null {
   // Legacy stops shape (Mapbox style spec v0 / v1, still emitted by
   // many older styles — incl. the MapLibre demo basemap):
   //   { "stops": [[zoom, value], …], "base"?: number }
@@ -75,8 +70,10 @@ function interpolateZoomStops(
   // every legacy-style line-width / fill-color / text-size silently
   // collapsed to its default in the converter output.
   if (
-    v !== null && typeof v === 'object' && !Array.isArray(v)
-    && Array.isArray((v as { stops?: unknown }).stops)
+    v !== null &&
+    typeof v === 'object' &&
+    !Array.isArray(v) &&
+    Array.isArray((v as { stops?: unknown }).stops)
   ) {
     // FIX #9: Detect legacy Mapbox data-driven property functions before
     // treating the object as a zoom-function. A property function carries
@@ -92,16 +89,17 @@ function interpolateZoomStops(
     // the loss instead of hiding it.
     if (typeof (v as { property?: unknown }).property === 'string') {
       const propName = (v as { property: string }).property
-      const propType = typeof (v as { type?: unknown }).type === 'string'
-        ? (v as { type: string }).type
-        : 'unknown'
+      const propType =
+        typeof (v as { type?: unknown }).type === 'string'
+          ? (v as { type: string }).type
+          : 'unknown'
       warnings?.push(
-        `paint property uses a legacy Mapbox data-driven property function`
-        + ` (property: "${propName}", type: "${propType}"). Data-driven`
-        + ` property functions are not yet supported by the X-GIS converter;`
-        + ` the property falls back to its default. Use a modern Mapbox`
-        + ` expression (["match", ["get", "${propName}"], …] or`
-        + ` ["step", ["get", "${propName}"], …]) instead.`,
+        `paint property uses a legacy Mapbox data-driven property function` +
+          ` (property: "${propName}", type: "${propType}"). Data-driven` +
+          ` property functions are not yet supported by the X-GIS converter;` +
+          ` the property falls back to its default. Use a modern Mapbox` +
+          ` expression (["match", ["get", "${propName}"], …] or` +
+          ` ["step", ["get", "${propName}"], …]) instead.`,
       )
       return null
     }
@@ -129,7 +127,8 @@ function interpolateZoomStops(
     // typeof-only check would let a NaN base land in the IR as the
     // exponential curve's base, propagating through interpolate_exp
     // math to NaN at the renderer.
-    const base = typeof rawBase === 'number' && Number.isFinite(rawBase) && rawBase !== 1 ? rawBase : 1
+    const base =
+      typeof rawBase === 'number' && Number.isFinite(rawBase) && rawBase !== 1 ? rawBase : 1
     return {
       curve: base === 1 ? 'linear' : 'exponential',
       base,
@@ -143,7 +142,8 @@ function interpolateZoomStops(
   // stop colour-space evaluator yet, so falling back to linear is the
   // same loss-prevention pattern cubic-bezier already uses below.
   if (!Array.isArray(v)) return null
-  if (v[0] !== 'interpolate' && v[0] !== 'interpolate-lab' && v[0] !== 'interpolate-hcl') return null
+  if (v[0] !== 'interpolate' && v[0] !== 'interpolate-lab' && v[0] !== 'interpolate-hcl')
+    return null
   const isLabHcl = v[0] === 'interpolate-lab' || v[0] === 'interpolate-hcl'
   // v8 strict tooling can wrap the curve spec itself as
   // `["literal", ["exponential", 2]]`. Pre-fix the wrapped form left
@@ -151,8 +151,12 @@ function interpolateZoomStops(
   // the curve recognition fell through, and the authored exponential
   // / bezier curve collapsed to linear without a warning.
   let curveSpec: unknown = v[1]
-  while (Array.isArray(curveSpec) && curveSpec.length === 2 && curveSpec[0] === 'literal'
-      && Array.isArray(curveSpec[1])) {
+  while (
+    Array.isArray(curveSpec) &&
+    curveSpec.length === 2 &&
+    curveSpec[0] === 'literal' &&
+    Array.isArray(curveSpec[1])
+  ) {
     curveSpec = curveSpec[1]
   }
   // Element 2 must be the `zoom` accessor.
@@ -184,7 +188,9 @@ function interpolateZoomStops(
   // rather than silently rendering wrong values.
   for (let i = 1; i < stops.length; i++) {
     if (stops[i]!.zoom <= stops[i - 1]!.zoom) {
-      warnings?.push(`["${v[0]}"] stops not strictly ascending: stop ${i} zoom=${stops[i]!.zoom} <= stop ${i - 1} zoom=${stops[i - 1]!.zoom}. Mapbox spec requires monotonically increasing input values — evaluator output is undefined for the violating range.`)
+      warnings?.push(
+        `["${v[0]}"] stops not strictly ascending: stop ${i} zoom=${stops[i]!.zoom} <= stop ${i - 1} zoom=${stops[i - 1]!.zoom}. Mapbox spec requires monotonically increasing input values — evaluator output is undefined for the violating range.`,
+      )
       break // one warning per interpolate, not per pair
     }
   }
@@ -199,9 +205,15 @@ function interpolateZoomStops(
     // outer `if (Array.isArray(curveSpec))` + falling through with
     // defaults; this gate only fires for truly unknown names.)
     const cn = curveSpec[0]
-    if (typeof cn === 'string'
-        && cn !== 'linear' && cn !== 'exponential' && cn !== 'cubic-bezier') {
-      warnings?.push(`["${v[0]}"] unknown curve type "${cn}". Mapbox spec recognises only linear / exponential / cubic-bezier. Falling back to linear.`)
+    if (
+      typeof cn === 'string' &&
+      cn !== 'linear' &&
+      cn !== 'exponential' &&
+      cn !== 'cubic-bezier'
+    ) {
+      warnings?.push(
+        `["${v[0]}"] unknown curve type "${cn}". Mapbox spec recognises only linear / exponential / cubic-bezier. Falling back to linear.`,
+      )
     }
     if (curveSpec[0] === 'exponential') {
       // v8 strict tooling can wrap the base scalar as
@@ -219,7 +231,9 @@ function interpolateZoomStops(
         // curve at the evaluator (pow(neg, frac) is NaN, pow(0, neg)
         // is Infinity). Surface so the author sees the spec violation.
         if (b <= 0) {
-          warnings?.push(`["${v[0]}", ["exponential", ${b}], …] base must be > 0 per Mapbox spec; got ${b}. Falling back to linear interpolation.`)
+          warnings?.push(
+            `["${v[0]}", ["exponential", ${b}], …] base must be > 0 per Mapbox spec; got ${b}. Falling back to linear interpolation.`,
+          )
         } else {
           // Mirror of the legacy-stops base NaN guard above.
           curve = 'exponential'
@@ -233,7 +247,9 @@ function interpolateZoomStops(
       // with no diagnostic — the authored curve was nonsense + the
       // emitted curve didn't reflect it either.
       if (curveSpec.length !== 5) {
-        warnings?.push(`["${v[0]}", ["cubic-bezier", …]] requires exactly 4 control points (x1, y1, x2, y2); got ${curveSpec.length - 1}. Missing slots default to (0, 0, 1, 1) — verify the authored curve.`)
+        warnings?.push(
+          `["${v[0]}", ["cubic-bezier", …]] requires exactly 4 control points (x1, y1, x2, y2); got ${curveSpec.length - 1}. Missing slots default to (0, 0, 1, 1) — verify the authored curve.`,
+        )
       }
       // CSS cubic-bezier easing approximated by dense piecewise-linear
       // resampling at compile time. For each adjacent stop pair we
@@ -261,9 +277,13 @@ function interpolateZoomStops(
       // Raphson then converges to weird values. Surface so the
       // author sees the spec violation.
       if (x1 < 0 || x1 > 1 || x2 < 0 || x2 > 1) {
-        warnings?.push(`["${v[0]}", ["cubic-bezier", ${x1}, ${y1}, ${x2}, ${y2}], …]: x control points (x1=${x1}, x2=${x2}) must be in [0, 1] per CSS spec; the curve becomes non-invertible outside that range and the eased output is undefined.`)
+        warnings?.push(
+          `["${v[0]}", ["cubic-bezier", ${x1}, ${y1}, ${x2}, ${y2}], …]: x control points (x1=${x1}, x2=${x2}) must be in [0, 1] per CSS spec; the curve becomes non-invertible outside that range and the eased output is undefined.`,
+        )
       }
-      const allNumeric = stops.every(s => typeof s.value === 'number' && Number.isFinite(s.value as number))
+      const allNumeric = stops.every(
+        (s) => typeof s.value === 'number' && Number.isFinite(s.value as number),
+      )
       if (allNumeric) {
         const SAMPLES_PER_SEGMENT = 6
         const dense: typeof stops = []
@@ -271,7 +291,8 @@ function interpolateZoomStops(
           const a = stops[i]!
           const b = stops[i + 1]!
           dense.push(a)
-          const az = a.zoom, bz = b.zoom
+          const az = a.zoom,
+            bz = b.zoom
           const av = a.value as number
           const bv = b.value as number
           for (let k = 1; k < SAMPLES_PER_SEGMENT; k++) {
@@ -284,10 +305,14 @@ function interpolateZoomStops(
           }
         }
         dense.push(stops[stops.length - 1]!)
-        warnings?.push(`["interpolate", ["cubic-bezier", ${x1}, ${y1}, ${x2}, ${y2}], ["zoom"], …] approximated via dense piecewise-linear samples (${SAMPLES_PER_SEGMENT} per segment) — xgis has no per-stop bezier interpolator at runtime.`)
+        warnings?.push(
+          `["interpolate", ["cubic-bezier", ${x1}, ${y1}, ${x2}, ${y2}], ["zoom"], …] approximated via dense piecewise-linear samples (${SAMPLES_PER_SEGMENT} per segment) — xgis has no per-stop bezier interpolator at runtime.`,
+        )
         return { curve, base, stops: dense }
       }
-      warnings?.push(`["interpolate", ["cubic-bezier", …], ["zoom"], …] folded to linear — xgis has no per-stop bezier interpolator and non-numeric stop values can't be densified at compile time.`)
+      warnings?.push(
+        `["interpolate", ["cubic-bezier", …], ["zoom"], …] folded to linear — xgis has no per-stop bezier interpolator and non-numeric stop values can't be densified at compile time.`,
+      )
     }
   }
   // Interpolate-lab / interpolate-hcl densification (Plan §11 follow-
@@ -313,9 +338,15 @@ function interpolateZoomStops(
     const labStops: Array<{ zoom: number; L: number; a: number; b: number }> = []
     let allColour = true
     for (const s of stops) {
-      if (typeof s.value !== 'string') { allColour = false; break }
+      if (typeof s.value !== 'string') {
+        allColour = false
+        break
+      }
       const rgb = parseSrgbHex(s.value)
-      if (!rgb) { allColour = false; break }
+      if (!rgb) {
+        allColour = false
+        break
+      }
       const [L, a, b] = srgbToLab(rgb[0], rgb[1], rgb[2])
       labStops.push({ zoom: s.zoom, L, a, b })
     }
@@ -364,7 +395,9 @@ function interpolateZoomStops(
         value: stops[stops.length - 1]!.value,
       })
       const curveDesc = isExp ? `exponential base ${base}` : 'linear'
-      warnings?.push(`${v[0]}(…) [${curveDesc}] approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) — perceptually correct in ${useHcl ? 'LCh' : 'Lab'} space at compile time; runtime interpolation between dense hex stops.`)
+      warnings?.push(
+        `${v[0]}(…) [${curveDesc}] approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) — perceptually correct in ${useHcl ? 'LCh' : 'Lab'} space at compile time; runtime interpolation between dense hex stops.`,
+      )
       // Dense samples already carry the exponential warp — emit linear
       // so the runtime doesn't double-apply it.
       return { curve: 'linear', base: 1, stops: dense }
@@ -374,7 +407,9 @@ function interpolateZoomStops(
     // the genuine §11 remnant: closing it needs a runtime LAB/HCL
     // per-stop evaluator (non-hex values can't be densified ahead of
     // time because the colour isn't known until feature eval).
-    warnings?.push(`${v[0]}(…) approximated as linear-sRGB — xgis has no LAB/HCL per-stop evaluator at runtime and non-hex stop values can't be densified at compile time.`)
+    warnings?.push(
+      `${v[0]}(…) approximated as linear-sRGB — xgis has no LAB/HCL per-stop evaluator at runtime and non-hex stop values can't be densified at compile time.`,
+    )
   }
   return { curve, base, stops }
 }
@@ -391,9 +426,7 @@ function interpolateZoomStops(
  *  visible discretization of the runtime interpolate. Fallback to
  *  bisection if the derivative goes near-zero (rare with valid CSS
  *  control points but covered for robustness). */
-export function cssBezierEase(
-  t: number, x1: number, y1: number, x2: number, y2: number,
-): number {
+export function cssBezierEase(t: number, x1: number, y1: number, x2: number, y2: number): number {
   if (t <= 0) return 0
   if (t >= 1) return 1
   // x(s) = 3(1-s)² s x1 + 3(1-s) s² x2 + s³
@@ -423,7 +456,8 @@ export function cssBezierEase(
   // Bisection fallback if Newton stalled — guaranteed convergence
   // on a monotonic x(s) (CSS constrains control points so x is
   // monotonic on [0, 1]).
-  let lo = 0, hi = 1
+  let lo = 0,
+    hi = 1
   for (let i = 0; i < 24; i++) {
     s = (lo + hi) * 0.5
     const xs = xOf(s)
@@ -601,7 +635,9 @@ export function addOpacity(out: string[], v: unknown, warnings: string[]): void 
     // utilities silently drop. Same pattern as the raster-opacity
     // NaN guard.
     if (!Number.isFinite(v)) {
-      warnings.push(`paint.*opacity: non-finite value ${v} (NaN/Infinity); Mapbox spec requires a finite number in [0, 1]. Property dropped.`)
+      warnings.push(
+        `paint.*opacity: non-finite value ${v} (NaN/Infinity); Mapbox spec requires a finite number in [0, 1]. Property dropped.`,
+      )
       return
     }
     // Mapbox spec: opacity ∈ [0, 1]. Clamp at convert time so a
@@ -621,12 +657,16 @@ export function addOpacity(out: string[], v: unknown, warnings: string[]): void 
     //                   existing warn (v<0||v>100 gate fires).
     let clamped: number
     if (v < 0 || v > 100) {
-      warnings.push(`paint.*opacity: value ${v} out of range; Mapbox spec requires [0, 1] (X-GIS auto-detects [0, 100] percent). Clamped to ${Math.max(0, Math.min(1, v <= 1 ? v : v / 100))}.`)
+      warnings.push(
+        `paint.*opacity: value ${v} out of range; Mapbox spec requires [0, 1] (X-GIS auto-detects [0, 100] percent). Clamped to ${Math.max(0, Math.min(1, v <= 1 ? v : v / 100))}.`,
+      )
       clamped = Math.max(0, Math.min(1, v <= 1 ? v : v / 100))
     } else if (v > 1 && v <= 2) {
       // Typo window: value slightly above 1 in the 0..1 range. Mapbox/MapLibre
       // clamp to 1.0; pre-fix X-GIS divided by 100 → near-zero opacity.
-      warnings.push(`paint.*opacity: value ${v} is slightly above 1.0 — looks like a typo in the 0..1 range. Clamped to 1 (opacity-100). Use a value > 2 if you intended the legacy 0..100 percent form.`)
+      warnings.push(
+        `paint.*opacity: value ${v} is slightly above 1.0 — looks like a typo in the 0..1 range. Clamped to 1 (opacity-100). Use a value > 2 if you intended the legacy 0..100 percent form.`,
+      )
       clamped = 1
     } else {
       clamped = Math.max(0, Math.min(1, v <= 1 ? v : v / 100))
@@ -661,7 +701,9 @@ export function addOpacity(out: string[], v: unknown, warnings: string[]): void 
       // NB: phrasing avoids the substrings 'let'/'var' — converter tests assert
       // those tokens are substituted OUT of the emitted source, and conversion
       // notes are part of that source.
-      warnings.push(`paint.*opacity: data-driven (per-feature) opacity is not yet wired to a per-feature channel — the expression is evaluated as a single per-layer value, so per-feature differences will NOT render. Fold the alpha into a data-driven *-color instead (e.g. match(...) -> #rrggbbAA).`)
+      warnings.push(
+        `paint.*opacity: data-driven (per-feature) opacity is not yet wired to a per-feature channel — the expression is evaluated as a single per-layer value, so per-feature differences will NOT render. Fold the alpha into a data-driven *-color instead (e.g. match(...) -> #rrggbbAA).`,
+      )
     }
     out.push(`opacity-${maybeBracket(x)}`)
   }
@@ -689,13 +731,18 @@ export function addFillTranslate(out: string[], v: unknown, warnings: string[]):
   while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
     v = v[1]
   }
-  if (Array.isArray(v) && v.length === 2
-      && typeof v[0] === 'number' && Number.isFinite(v[0])
-      && typeof v[1] === 'number' && Number.isFinite(v[1])) {
+  if (
+    Array.isArray(v) &&
+    v.length === 2 &&
+    typeof v[0] === 'number' &&
+    Number.isFinite(v[0]) &&
+    typeof v[1] === 'number' &&
+    Number.isFinite(v[1])
+  ) {
     // Negative numbers wrap in brackets so the utility-name lexer
     // doesn't read the `-` as a segment separator (same convention
     // as label-offset-x / -y in layers.ts:656).
-    const fmt = (n: number): string => n < 0 ? `[${n}]` : `${n}`
+    const fmt = (n: number): string => (n < 0 ? `[${n}]` : `${n}`)
     if (v[0] !== 0) out.push(`fill-translate-x-${fmt(v[0])}`)
     if (v[1] !== 0) out.push(`fill-translate-y-${fmt(v[1])}`)
     return
@@ -716,7 +763,9 @@ export function addFillTranslate(out: string[], v: unknown, warnings: string[]):
       return
     }
   }
-  warnings.push(`paint.fill-translate: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
+  warnings.push(
+    `paint.fill-translate: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`,
+  )
 }
 
 /** Mapbox `*-translate-anchor` → optional `<prefix>-translate-anchor-map`
@@ -749,7 +798,9 @@ export function addTranslateAnchor(
     out.push(`${prefix}-translate-anchor-map`)
     return
   }
-  warnings.push(`paint.*-translate-anchor: unexpected value ${JSON.stringify(v)}; Mapbox spec allows only "map" | "viewport". Treated as viewport.`)
+  warnings.push(
+    `paint.*-translate-anchor: unexpected value ${JSON.stringify(v)}; Mapbox spec allows only "map" | "viewport". Treated as viewport.`,
+  )
 }
 
 /** Build a scalar zoom-interpolate bracket-binding body for ONE axis
@@ -762,8 +813,12 @@ export function vec2AxisZoomInterp(v: unknown, warnings: string[], idx: 0 | 1): 
   return interpolateZoomCall(v, warnings, (val) => {
     let inner: unknown = val
     while (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') inner = inner[1]
-    if (Array.isArray(inner) && inner.length === 2
-        && typeof inner[idx] === 'number' && Number.isFinite(inner[idx])) {
+    if (
+      Array.isArray(inner) &&
+      inner.length === 2 &&
+      typeof inner[idx] === 'number' &&
+      Number.isFinite(inner[idx])
+    ) {
       return String(inner[idx])
     }
     return null

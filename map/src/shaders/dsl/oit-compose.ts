@@ -14,14 +14,29 @@
 // Non-polygon-variant — independent emit; no ShaderVariant fields touched.
 
 import {
-  fn, module,
-  f32, i32, vec2, vec4, toF32, toI32,
-  textureLoad, textureDimensions, vec2i,
-  u32T, vec2fT, vec4fT,
-  texture2dfT, texture2dMsfT,
+  fn,
+  module,
+  f32,
+  i32,
+  vec2,
+  vec4,
+  toF32,
+  toI32,
+  textureLoad,
+  textureDimensions,
+  vec2i,
+  u32T,
+  vec2fT,
+  vec4fT,
+  texture2dfT,
+  texture2dMsfT,
   max,
-  Let, If, Loop, Return,
-  type ReadonlyNode, type ModuleDecl,
+  Let,
+  If,
+  Loop,
+  Return,
+  type ReadonlyNode,
+  type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, resource } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
@@ -42,16 +57,16 @@ const vsFull = fn(
   { idx: builtin('vertex_index', u32T) },
   (p) => {
     const pos = vec2(-1, -1)
-    If(p.idx.eq(1), () => { pos.assign(vec2(3, -1)) })
-      .elif(p.idx.eq(2), () => { pos.assign(vec2(-1, 3)) })
+    If(p.idx.eq(1), () => {
+      pos.assign(vec2(3, -1))
+    }).elif(p.idx.eq(2), () => {
+      pos.assign(vec2(-1, 3))
+    })
     // Texture coords are sample-load coords (integer pixels) computed from clip-space NDC:
     // uv = (pos + 1) / 2, y flipped because the texture origin is top-left while NDC's is bottom-left.
     return VsOut.construct({
       pos: vec4(pos, 0, 1),
-      uv: vec2(
-        pos.x.add(1).mul(0.5),
-        f32(1).sub(pos.y.add(1).mul(0.5)),
-      ),
+      uv: vec2(pos.x.add(1).mul(0.5), f32(1).sub(pos.y.add(1).mul(0.5))),
     })
   },
   { stage: 'vertex' },
@@ -79,10 +94,14 @@ const buildFsCompose = (sampleCount: number, accumTex: OitTex, revealageTex: Oit
       const uv = vec2i(toI32(inUv.x.mul(dim.x)), toI32(inUv.y.mul(dim.y)))
       const accumSum = vec4(0, 0, 0, 0)
       const revSum = f32(0)
-      Loop(i32(0), (s) => s.lt(i32(sampleCount)), (s) => {
-        accumSum.assign(accumSum.add(textureLoad(accumTex, uv, s)))
-        revSum.assign(revSum.add(textureLoad(revealageTex, uv, s).x))
-      })
+      Loop(
+        i32(0),
+        (s) => s.lt(i32(sampleCount)),
+        (s) => {
+          accumSum.assign(accumSum.add(textureLoad(accumTex, uv, s)))
+          revSum.assign(revSum.add(textureLoad(revealageTex, uv, s).x))
+        },
+      )
       const inv = f32(1).div(f32(sampleCount))
       const accum = Let(accumSum.mul(inv))
       const revealage = Let(revSum.mul(inv))

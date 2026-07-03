@@ -8,14 +8,12 @@ import { describe, it, expect } from 'vitest'
 import { evaluate } from './evaluator'
 import type * as AST from '../parser/ast'
 
-const lit = (value: number): AST.Expr =>
-  ({ kind: 'NumberLiteral', value } as never)
+const lit = (value: number): AST.Expr => ({ kind: 'NumberLiteral', value }) as never
 
-const bool = (value: boolean): AST.Expr =>
-  ({ kind: 'BoolLiteral', value } as never)
+const bool = (value: boolean): AST.Expr => ({ kind: 'BoolLiteral', value }) as never
 
 const bin = (op: '&&' | '||', left: AST.Expr, right: AST.Expr): AST.Expr =>
-  ({ kind: 'BinaryExpr', op, left, right } as never)
+  ({ kind: 'BinaryExpr', op, left, right }) as never
 
 describe('evaluator NaN-as-falsy short-circuit', () => {
   it('NaN || true → true (NaN is falsy, RHS evaluates)', () => {

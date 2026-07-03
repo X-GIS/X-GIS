@@ -16,14 +16,17 @@ test('osm_style buildings render 3D walls at pitch=70 over Tokyo', async ({ page
   test.setTimeout(60_000)
 
   const consoleErrors: string[] = []
-  page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()) })
+  page.on('console', (m) => {
+    if (m.type() === 'error') consoleErrors.push(m.text())
+  })
 
   await page.goto('/demo.html?id=osm_style#16/35.6586/139.7454/0/70', {
     waitUntil: 'domcontentloaded',
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   await page.waitForTimeout(8_000)
 
@@ -41,7 +44,8 @@ test('osm_style buildings render 3D walls at pitch=70 over Tokyo', async ({ page
       const img = new Image()
       img.onload = () => {
         const c = document.createElement('canvas')
-        c.width = img.width; c.height = img.height
+        c.width = img.width
+        c.height = img.height
         const ctx = c.getContext('2d')!
         ctx.drawImage(img, 0, 0)
         const data = ctx.getImageData(0, 0, c.width, c.height).data
@@ -52,9 +56,9 @@ test('osm_style buildings render 3D walls at pitch=70 over Tokyo', async ({ page
         for (let y = Math.floor(c.height * 0.5); y < c.height; y += 4) {
           for (let x = 0; x < c.width; x += 4) {
             const i = (y * c.width + x) * 4
-            const k = `${data[i]},${data[i+1]},${data[i+2]}`
+            const k = `${data[i]},${data[i + 1]},${data[i + 2]}`
             colors.add(k)
-            if (sampleCol.length < 6 && (y === Math.floor(c.height * 0.7))) sampleCol.push(k)
+            if (sampleCol.length < 6 && y === Math.floor(c.height * 0.7)) sampleCol.push(k)
           }
         }
         res({ uniqueColors: colors.size, sampleCol })
@@ -68,7 +72,7 @@ test('osm_style buildings render 3D walls at pitch=70 over Tokyo', async ({ page
 
   await page.locator('#map').screenshot({ path: 'test-results/osm-style-pitched.png' })
 
-  expect(consoleErrors.filter(s => !/favicon|DevTools|WebGPU adapter/.test(s))).toEqual([])
+  expect(consoleErrors.filter((s) => !/favicon|DevTools|WebGPU adapter/.test(s))).toEqual([])
   // Lower-half should have ≥ 30 distinct colours from anti-aliasing
   // + walls + outlines + landuse — flat buildings would produce
   // significantly fewer because every fragment shares the same fill

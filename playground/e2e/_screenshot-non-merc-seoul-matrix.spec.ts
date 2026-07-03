@@ -32,9 +32,7 @@ import { dirname, join, resolve } from 'node:path'
 import { PNG } from 'pngjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const fixture = readFileSync(
-  resolve(HERE, '__convert-fixtures', 'bright.json'), 'utf8',
-)
+const fixture = readFileSync(resolve(HERE, '__convert-fixtures', 'bright.json'), 'utf8')
 const OUT = resolve(HERE, '__screenshot-non-merc-seoul-matrix__')
 mkdirSync(OUT, { recursive: true })
 
@@ -78,10 +76,10 @@ interface CellMetrics {
   looksRendered: boolean
 }
 
-function analyseScreenshot(buf: Buffer): Omit<CellMetrics,
-  'projection' | 'zoom' | 'pitch'> {
+function analyseScreenshot(buf: Buffer): Omit<CellMetrics, 'projection' | 'zoom' | 'pitch'> {
   const png = PNG.sync.read(buf)
-  const w = png.width, h = png.height
+  const w = png.width,
+    h = png.height
   const total = w * h
   let bgPx = 0
   let lumSum = 0
@@ -92,16 +90,19 @@ function analyseScreenshot(buf: Buffer): Omit<CellMetrics,
     const r = png.data[off]!
     const g = png.data[off + 1]!
     const b = png.data[off + 2]!
-    if (Math.abs(r - BG.r) <= BG_TOL
-      && Math.abs(g - BG.g) <= BG_TOL
-      && Math.abs(b - BG.b) <= BG_TOL) bgPx++
+    if (
+      Math.abs(r - BG.r) <= BG_TOL &&
+      Math.abs(g - BG.g) <= BG_TOL &&
+      Math.abs(b - BG.b) <= BG_TOL
+    )
+      bgPx++
     const lum = 0.299 * r + 0.587 * g + 0.114 * b
     lumSum += lum
     lumSqSum += lum * lum
     buckets.add(((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4))
   }
   const mean = lumSum / total
-  const variance = (lumSqSum / total) - mean * mean
+  const variance = lumSqSum / total - mean * mean
   const luminanceStd = Math.sqrt(Math.max(0, variance))
   const bgFraction = bgPx / total
   const nonBgPx = total - bgPx
@@ -109,24 +110,35 @@ function analyseScreenshot(buf: Buffer): Omit<CellMetrics,
   // luminanceStd > 3 (some colour variation present).
   const looksRendered = bgFraction < 0.97 && luminanceStd > 3
   return {
-    width: w, height: h, totalPx: total, bgPx, bgFraction,
-    nonBgPx, uniqueBuckets: buckets.size, luminanceStd, looksRendered,
+    width: w,
+    height: h,
+    totalPx: total,
+    bgPx,
+    bgFraction,
+    nonBgPx,
+    uniqueBuckets: buckets.size,
+    luminanceStd,
+    looksRendered,
   }
 }
 
 async function setup(page: Page, projection: string, zoom: number, pitch: number): Promise<void> {
   const xgis = convertMapboxStyle(fixture)
-  await page.addInitScript((args) => {
-    sessionStorage.setItem('__xgisImportSource', args.src)
-    sessionStorage.setItem('__xgisImportLabel', `Bright (${args.proj} z=${args.z} p=${args.p})`)
-  }, { src: xgis, proj: projection, z: zoom, p: pitch })
+  await page.addInitScript(
+    (args) => {
+      sessionStorage.setItem('__xgisImportSource', args.src)
+      sessionStorage.setItem('__xgisImportLabel', `Bright (${args.proj} z=${args.z} p=${args.p})`)
+    },
+    { src: xgis, proj: projection, z: zoom, p: pitch },
+  )
   await page.goto(
     `/demo.html?id=__import&proj=${projection}#${zoom}/${SEOUL.lat}/${SEOUL.lon}/0/${pitch}`,
     { waitUntil: 'domcontentloaded' },
   )
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
   await page.waitForTimeout(3_500)
 }
@@ -150,16 +162,18 @@ test.describe('screenshot-non-merc-seoul-matrix', () => {
           const cellDir = join(OUT, `${proj}-z${zoom}-p${pitch}`)
           mkdirSync(cellDir, { recursive: true })
           writeFileSync(join(cellDir, 'xgis.png'), buf)
-          writeFileSync(join(cellDir, 'metrics.json'),
-            JSON.stringify({ projection: proj, zoom, pitch, ...m }, null, 2))
+          writeFileSync(
+            join(cellDir, 'metrics.json'),
+            JSON.stringify({ projection: proj, zoom, pitch, ...m }, null, 2),
+          )
 
           const row: CellMetrics = { projection: proj, zoom, pitch, ...m }
           results.push(row)
           // eslint-disable-next-line no-console
           console.log(
-            `[shot ${proj} z=${zoom} p=${pitch}] bg=${(row.bgFraction * 100).toFixed(1)}% `
-            + `buckets=${row.uniqueBuckets} lumStd=${row.luminanceStd.toFixed(1)} `
-            + (row.looksRendered ? 'RENDERED' : 'SPARSE/BLANK'),
+            `[shot ${proj} z=${zoom} p=${pitch}] bg=${(row.bgFraction * 100).toFixed(1)}% ` +
+              `buckets=${row.uniqueBuckets} lumStd=${row.luminanceStd.toFixed(1)} ` +
+              (row.looksRendered ? 'RENDERED' : 'SPARSE/BLANK'),
           )
         })
       }
@@ -182,19 +196,21 @@ test.describe('screenshot-non-merc-seoul-matrix', () => {
     lines.push('|---|---:|---:|---:|---:|---:|---:|:--:|')
     for (const r of results) {
       lines.push(
-        `| ${r.projection} | ${r.pitch}° | ${r.zoom} | `
-        + `${(r.bgFraction * 100).toFixed(1)} | ${r.nonBgPx} | ${r.uniqueBuckets} | `
-        + `${r.luminanceStd.toFixed(1)} | ${r.looksRendered ? '✓' : '✗'} |`,
+        `| ${r.projection} | ${r.pitch}° | ${r.zoom} | ` +
+          `${(r.bgFraction * 100).toFixed(1)} | ${r.nonBgPx} | ${r.uniqueBuckets} | ` +
+          `${r.luminanceStd.toFixed(1)} | ${r.looksRendered ? '✓' : '✗'} |`,
       )
     }
     lines.push('')
     // Group failures explicitly.
-    const failures = results.filter(r => !r.looksRendered)
+    const failures = results.filter((r) => !r.looksRendered)
     if (failures.length > 0) {
       lines.push('## Cells flagged SPARSE/BLANK (manual inspection of xgis.png required)')
       lines.push('')
       for (const r of failures) {
-        lines.push(`- ${r.projection} z=${r.zoom} p=${r.pitch}° — bg=${(r.bgFraction*100).toFixed(1)}%, lumStd=${r.luminanceStd.toFixed(1)}`)
+        lines.push(
+          `- ${r.projection} z=${r.zoom} p=${r.pitch}° — bg=${(r.bgFraction * 100).toFixed(1)}%, lumStd=${r.luminanceStd.toFixed(1)}`,
+        )
       }
     } else {
       lines.push('All 6 non-Merc projections render content across the full matrix.')

@@ -30,13 +30,17 @@ import type { GeoJSONFeature } from './geojson-types'
  *  centred at (lon, lat). Both rings closed (last = first). */
 function makeDonut(lon: number, lat: number): GeoJSONFeature {
   const outer = [
-    [lon - 2, lat - 2], [lon + 2, lat - 2],
-    [lon + 2, lat + 2], [lon - 2, lat + 2],
+    [lon - 2, lat - 2],
+    [lon + 2, lat - 2],
+    [lon + 2, lat + 2],
+    [lon - 2, lat + 2],
     [lon - 2, lat - 2],
   ]
   const hole = [
-    [lon - 1, lat - 1], [lon + 1, lat - 1],
-    [lon + 1, lat + 1], [lon - 1, lat + 1],
+    [lon - 1, lat - 1],
+    [lon + 1, lat - 1],
+    [lon + 1, lat + 1],
+    [lon - 1, lat + 1],
     [lon - 1, lat - 1],
   ]
   return {
@@ -48,8 +52,10 @@ function makeDonut(lon: number, lat: number): GeoJSONFeature {
 
 function makeSolidSquare(lon: number, lat: number): GeoJSONFeature {
   const outer = [
-    [lon - 2, lat - 2], [lon + 2, lat - 2],
-    [lon + 2, lat + 2], [lon - 2, lat + 2],
+    [lon - 2, lat - 2],
+    [lon + 2, lat - 2],
+    [lon + 2, lat + 2],
+    [lon - 2, lat + 2],
     [lon - 2, lat - 2],
   ]
   return {
@@ -72,25 +78,44 @@ describe('decomposeFeatures', () => {
 
   it('preserves ring count for MultiPolygon with hole in one part', () => {
     const feature: GeoJSONFeature = {
-      type: 'Feature', properties: {},
+      type: 'Feature',
+      properties: {},
       geometry: {
         type: 'MultiPolygon',
         coordinates: [
           // Part 1: solid square at (-10, 0)
-          [[
-            [-12, -2], [-8, -2], [-8, 2], [-12, 2], [-12, -2],
-          ]],
+          [
+            [
+              [-12, -2],
+              [-8, -2],
+              [-8, 2],
+              [-12, 2],
+              [-12, -2],
+            ],
+          ],
           // Part 2: donut at (10, 0)
           [
-            [[8, -2], [12, -2], [12, 2], [8, 2], [8, -2]],
-            [[9, -1], [11, -1], [11, 1], [9, 1], [9, -1]],
+            [
+              [8, -2],
+              [12, -2],
+              [12, 2],
+              [8, 2],
+              [8, -2],
+            ],
+            [
+              [9, -1],
+              [11, -1],
+              [11, 1],
+              [9, 1],
+              [9, -1],
+            ],
           ],
         ],
       },
     }
     const parts = decomposeFeatures([feature])
     expect(parts).toHaveLength(2)
-    const ringCounts = (parts as Array<{ rings: unknown[] }>).map(p => p.rings.length)
+    const ringCounts = (parts as Array<{ rings: unknown[] }>).map((p) => p.rings.length)
     expect(ringCounts.sort()).toEqual([1, 2])
   })
 })
@@ -170,4 +195,3 @@ describe('compileSingleTile — hole preservation', () => {
     expect(donutIndices).toBeGreaterThan(solidIndices)
   })
 })
-

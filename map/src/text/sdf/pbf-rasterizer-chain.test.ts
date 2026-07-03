@@ -20,7 +20,9 @@ function fontKeyOf(weight: number, family: string): string {
   return `${FONT_KEY_SENTINEL}normal${FONT_KEY_SENTINEL}${weight}${FONT_KEY_SENTINEL}${family}`
 }
 
-const slotSize = 64, sdfRadius = 8, fontSize = 32
+const slotSize = 64,
+  sdfRadius = 8,
+  fontSize = 32
 
 describe('PbfRasterizer chain composition', () => {
   it('inline provider shadows HTTP — fetch never fires when inline hits', async () => {
@@ -28,7 +30,10 @@ describe('PbfRasterizer chain composition', () => {
     const inline = new InlineGlyphProvider({ 'Open Sans Semibold': { 0: PBF_BYTES } })
     const cache = new GlyphPbfCache({
       glyphsUrl: 'https://x/{fontstack}/{range}.pbf',
-      fetch: () => { fetchCalls += 1; return Promise.resolve(new Response('', { status: 200 })) },
+      fetch: () => {
+        fetchCalls += 1
+        return Promise.resolve(new Response('', { status: 200 }))
+      },
     })
     const ras = new PbfRasterizer({
       fallback: new MockRasterizer(),
@@ -36,7 +41,13 @@ describe('PbfRasterizer chain composition', () => {
       onLanded: () => {},
     })
 
-    ras.rasterize({ fontKey: fontKeyOf(600, 'Open Sans'), fontSize, codepoint: 0x41, sdfRadius, slotSize })
+    ras.rasterize({
+      fontKey: fontKeyOf(600, 'Open Sans'),
+      fontSize,
+      codepoint: 0x41,
+      sdfRadius,
+      slotSize,
+    })
 
     // Inline had the glyph → no need to fetch.
     expect(fetchCalls).toBe(0)
@@ -44,10 +55,13 @@ describe('PbfRasterizer chain composition', () => {
 
   it('falls through to HTTP when inline misses', async () => {
     let fetchCalls = 0
-    const inline = new InlineGlyphProvider({})  // empty
+    const inline = new InlineGlyphProvider({}) // empty
     const cache = new GlyphPbfCache({
       glyphsUrl: 'https://x/{fontstack}/{range}.pbf',
-      fetch: () => { fetchCalls += 1; return Promise.resolve(new Response(PBF_BYTES, { status: 200 })) },
+      fetch: () => {
+        fetchCalls += 1
+        return Promise.resolve(new Response(PBF_BYTES, { status: 200 }))
+      },
     })
     const ras = new PbfRasterizer({
       fallback: new MockRasterizer(),
@@ -55,8 +69,14 @@ describe('PbfRasterizer chain composition', () => {
       onLanded: () => {},
     })
 
-    ras.rasterize({ fontKey: fontKeyOf(600, 'Open Sans'), fontSize, codepoint: 0x41, sdfRadius, slotSize })
-    await new Promise<void>(r => setTimeout(r, 20))
+    ras.rasterize({
+      fontKey: fontKeyOf(600, 'Open Sans'),
+      fontSize,
+      codepoint: 0x41,
+      sdfRadius,
+      slotSize,
+    })
+    await new Promise<void>((r) => setTimeout(r, 20))
 
     expect(fetchCalls).toBe(1)
   })
@@ -71,12 +91,12 @@ describe('PbfRasterizer chain composition', () => {
 
     // First rasterize with empty chain → fallback (MockRasterizer).
     const out1 = ras.rasterize({ fontKey, fontSize, codepoint: 0x41, sdfRadius, slotSize })
-    expect(out1.bearingY).toBeCloseTo(fontSize * 0.7, 5)  // Mock fingerprint
+    expect(out1.bearingY).toBeCloseTo(fontSize * 0.7, 5) // Mock fingerprint
 
     // Add inline provider; next rasterize hits it.
     ras.addProvider(new InlineGlyphProvider({ 'Open Sans Semibold': { 0: PBF_BYTES } }))
     const out2 = ras.rasterize({ fontKey, fontSize, codepoint: 0x41, sdfRadius, slotSize })
-    expect(out2.bearingY).toBeLessThan(20)  // PBF fingerprint
+    expect(out2.bearingY).toBeLessThan(20) // PBF fingerprint
   })
 
   it('multiple async providers — first to land triggers onLanded', async () => {
@@ -84,8 +104,10 @@ describe('PbfRasterizer chain composition', () => {
     let landed = 0
     const slowCache = new GlyphPbfCache({
       glyphsUrl: 'https://slow/{fontstack}/{range}.pbf',
-      fetch: () => new Promise<Response>(r => setTimeout(
-        () => r(new Response(PBF_BYTES, { status: 200 })), 50)),
+      fetch: () =>
+        new Promise<Response>((r) =>
+          setTimeout(() => r(new Response(PBF_BYTES, { status: 200 })), 50),
+        ),
     })
     const fastCache = new GlyphPbfCache({
       glyphsUrl: 'https://fast/{fontstack}/{range}.pbf',
@@ -94,20 +116,28 @@ describe('PbfRasterizer chain composition', () => {
     const ras = new PbfRasterizer({
       fallback: new MockRasterizer(),
       providers: [slowCache, fastCache],
-      onLanded: () => { landed += 1 },
+      onLanded: () => {
+        landed += 1
+      },
     })
 
-    ras.rasterize({ fontKey: fontKeyOf(600, 'Open Sans'), fontSize, codepoint: 0x41, sdfRadius, slotSize })
+    ras.rasterize({
+      fontKey: fontKeyOf(600, 'Open Sans'),
+      fontSize,
+      codepoint: 0x41,
+      sdfRadius,
+      slotSize,
+    })
 
     // Wait long enough for the fast one but not the slow one.
-    await new Promise<void>(r => setTimeout(r, 10))
-    expect(landed).toBeGreaterThanOrEqual(1)  // fast resolved
+    await new Promise<void>((r) => setTimeout(r, 10))
+    expect(landed).toBeGreaterThanOrEqual(1) // fast resolved
 
     // Slow one resolves later — that callback ALSO fires onLanded
     // (its own ensure() callback completes), but get() still returns
     // the same glyph. The atlas just does one extra redundant
     // re-rasterise pass; correctness is preserved.
-    await new Promise<void>(r => setTimeout(r, 70))
+    await new Promise<void>((r) => setTimeout(r, 70))
     expect(landed).toBe(2)
   })
 
@@ -122,10 +152,18 @@ describe('PbfRasterizer chain composition', () => {
     const ras = new PbfRasterizer({
       fallback: new MockRasterizer(),
       providers: [inline],
-      onLanded: () => { throw new Error('should not be called') },
+      onLanded: () => {
+        throw new Error('should not be called')
+      },
     })
 
-    const out = ras.rasterize({ fontKey: fontKeyOf(600, 'X'), fontSize, codepoint: 0x41, sdfRadius, slotSize })
-    expect(out).toBeDefined()  // fallback served it
+    const out = ras.rasterize({
+      fontKey: fontKeyOf(600, 'X'),
+      fontSize,
+      codepoint: 0x41,
+      sdfRadius,
+      slotSize,
+    })
+    expect(out).toBeDefined() // fallback served it
   })
 })

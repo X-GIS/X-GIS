@@ -5,15 +5,30 @@
 // the WebGL2 backend must match (pixel-identical) when it lands.
 
 import type {
-  RhiDevice, RhiBuffer, RhiTexture, RhiTextureView, RhiSampler, RhiBindGroup,
-  RhiBindGroupLayout, RhiPipeline, RhiRenderPass, RhiBufferDesc, RhiTextureDesc,
-  RhiSamplerDesc, RhiBindLayoutEntry, RhiBindEntry, RhiPipelineDesc,
-  RhiRenderPassDesc, RhiCommandEncoder,
+  RhiDevice,
+  RhiBuffer,
+  RhiTexture,
+  RhiTextureView,
+  RhiSampler,
+  RhiBindGroup,
+  RhiBindGroupLayout,
+  RhiPipeline,
+  RhiRenderPass,
+  RhiBufferDesc,
+  RhiTextureDesc,
+  RhiSamplerDesc,
+  RhiBindLayoutEntry,
+  RhiBindEntry,
+  RhiPipelineDesc,
+  RhiRenderPassDesc,
+  RhiCommandEncoder,
 } from './rhi'
 
 // Each opaque handle carries its native object on a `native` field (hidden from
 // callers by the opaque RHI types). unwrap() casts back inside this module.
-interface Native<T> { native: T }
+interface Native<T> {
+  native: T
+}
 const wrap = <T>(native: T): Native<T> => ({ native })
 const u = <T>(h: unknown): T => (h as Native<T>).native
 
@@ -45,9 +60,15 @@ const BLEND_MAX: GPUBlendState = {
  *  passOp keep, masks 0x00) byte-for-byte. Only compare + passOp vary; failOp /
  *  depthFailOp stay default 'keep' — matching gpu-shared STENCIL_WRITE / _TEST /
  *  _CLIPMASK_*. Pure (no GPUDevice) so the byte-identity is unit-testable. */
-export function rhiStencilToGpu(
-  s?: { compare: 'always' | 'equal'; passOp: 'keep' | 'replace'; writeMask: number; readMask: number },
-): Pick<GPUDepthStencilState, 'stencilFront' | 'stencilBack' | 'stencilWriteMask' | 'stencilReadMask'> {
+export function rhiStencilToGpu(s?: {
+  compare: 'always' | 'equal'
+  passOp: 'keep' | 'replace'
+  writeMask: number
+  readMask: number
+}): Pick<
+  GPUDepthStencilState,
+  'stencilFront' | 'stencilBack' | 'stencilWriteMask' | 'stencilReadMask'
+> {
   const compare: GPUCompareFunction = s?.compare ?? 'always'
   const passOp: GPUStencilOperation = s?.passOp ?? 'keep'
   return {
@@ -77,25 +98,46 @@ export function rhiRenderPassToGpu(desc: RhiRenderPassDesc): GPURenderPassDescri
       resolveTarget: a.resolveTarget ? u<GPUTextureView>(a.resolveTarget) : undefined,
       loadOp: a.loadOp,
       storeOp: a.storeOp,
-      ...(a.clearValue ? { clearValue: { r: a.clearValue[0], g: a.clearValue[1], b: a.clearValue[2], a: a.clearValue[3] } } : {}),
+      ...(a.clearValue
+        ? {
+            clearValue: {
+              r: a.clearValue[0],
+              g: a.clearValue[1],
+              b: a.clearValue[2],
+              a: a.clearValue[3],
+            },
+          }
+        : {}),
     })),
-    depthStencilAttachment: dsa ? {
-      view: u<GPUTextureView>(dsa.view),
-      ...(dsa.depthLoadOp !== undefined ? { depthLoadOp: dsa.depthLoadOp } : {}),
-      ...(dsa.depthStoreOp !== undefined ? { depthStoreOp: dsa.depthStoreOp } : {}),
-      ...(dsa.depthClearValue !== undefined ? { depthClearValue: dsa.depthClearValue } : {}),
-      ...(dsa.stencilLoadOp !== undefined ? { stencilLoadOp: dsa.stencilLoadOp } : {}),
-      ...(dsa.stencilStoreOp !== undefined ? { stencilStoreOp: dsa.stencilStoreOp } : {}),
-      ...(dsa.stencilClearValue !== undefined ? { stencilClearValue: dsa.stencilClearValue } : {}),
-    } : undefined,
+    depthStencilAttachment: dsa
+      ? {
+          view: u<GPUTextureView>(dsa.view),
+          ...(dsa.depthLoadOp !== undefined ? { depthLoadOp: dsa.depthLoadOp } : {}),
+          ...(dsa.depthStoreOp !== undefined ? { depthStoreOp: dsa.depthStoreOp } : {}),
+          ...(dsa.depthClearValue !== undefined ? { depthClearValue: dsa.depthClearValue } : {}),
+          ...(dsa.stencilLoadOp !== undefined ? { stencilLoadOp: dsa.stencilLoadOp } : {}),
+          ...(dsa.stencilStoreOp !== undefined ? { stencilStoreOp: dsa.stencilStoreOp } : {}),
+          ...(dsa.stencilClearValue !== undefined
+            ? { stencilClearValue: dsa.stencilClearValue }
+            : {}),
+        }
+      : undefined,
   }
 }
 
-function bufUsage(usage: RhiBufferDesc['usage'], writable: boolean, copySrc = false): GPUBufferUsageFlags {
-  const base = usage === 'uniform' ? GPUBufferUsage.UNIFORM
-    : usage === 'vertex' ? GPUBufferUsage.VERTEX
-    : usage === 'index' ? GPUBufferUsage.INDEX
-    : GPUBufferUsage.STORAGE
+function bufUsage(
+  usage: RhiBufferDesc['usage'],
+  writable: boolean,
+  copySrc = false,
+): GPUBufferUsageFlags {
+  const base =
+    usage === 'uniform'
+      ? GPUBufferUsage.UNIFORM
+      : usage === 'vertex'
+        ? GPUBufferUsage.VERTEX
+        : usage === 'index'
+          ? GPUBufferUsage.INDEX
+          : GPUBufferUsage.STORAGE
   // COPY_SRC is OR'd ONLY when copySrc is set (the arena compaction source) — an
   // un-flagged buffer's usage bits are byte-identical to the pre-copySrc map.
   return base | (writable ? GPUBufferUsage.COPY_DST : 0) | (copySrc ? GPUBufferUsage.COPY_SRC : 0)
@@ -104,10 +146,14 @@ function bufUsage(usage: RhiBufferDesc['usage'], writable: boolean, copySrc = fa
 function texUsage(usage: RhiTextureDesc['usage']): GPUTextureUsageFlags {
   let f = 0
   for (const k of usage) {
-    f |= k === 'sample' ? GPUTextureUsage.TEXTURE_BINDING
-      : k === 'render' ? GPUTextureUsage.RENDER_ATTACHMENT
-      : k === 'copy-dst' ? GPUTextureUsage.COPY_DST
-      : GPUTextureUsage.COPY_SRC
+    f |=
+      k === 'sample'
+        ? GPUTextureUsage.TEXTURE_BINDING
+        : k === 'render'
+          ? GPUTextureUsage.RENDER_ATTACHMENT
+          : k === 'copy-dst'
+            ? GPUTextureUsage.COPY_DST
+            : GPUTextureUsage.COPY_SRC
   }
   return f
 }
@@ -118,7 +164,9 @@ function texUsage(usage: RhiTextureDesc['usage']): GPUTextureUsageFlags {
 // and finishes via finish()).
 class WebGpuRenderPass implements RhiRenderPass {
   constructor(private readonly enc: GPURenderPassEncoder | GPURenderBundleEncoder) {}
-  setPipeline(p: RhiPipeline): void { this.enc.setPipeline(u<GPURenderPipeline>(p)) }
+  setPipeline(p: RhiPipeline): void {
+    this.enc.setPipeline(u<GPURenderPipeline>(p))
+  }
   setBindGroup(index: number, group: RhiBindGroup, dynamicOffsets?: number[]): void {
     // dynamicOffsets is OPTIONAL per the RHI contract — a bind group with no dynamic-offset bindings
     // passes none. WebGPU's setBindGroup(i, g, undefined) THROWS ("cannot convert undefined to a
@@ -127,12 +175,29 @@ class WebGpuRenderPass implements RhiRenderPass {
     if (dynamicOffsets) this.enc.setBindGroup(index, u<GPUBindGroup>(group), dynamicOffsets)
     else this.enc.setBindGroup(index, u<GPUBindGroup>(group))
   }
-  setVertexBuffer(slot: number, buffer: RhiBuffer, offset?: number, size?: number): void { this.enc.setVertexBuffer(slot, u<GPUBuffer>(buffer), offset, size) }
-  setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32', offset?: number, size?: number): void { this.enc.setIndexBuffer(u<GPUBuffer>(buffer), format, offset, size) }
-  draw(vertexCount: number, instanceCount = 1, firstVertex = 0): void { this.enc.draw(vertexCount, instanceCount, firstVertex) }
-  drawIndexed(indexCount: number, instanceCount = 1): void { this.enc.drawIndexed(indexCount, instanceCount) }
-  setStencilReference(ref: number): void { if ('setStencilReference' in this.enc) this.enc.setStencilReference(ref) }
-  end(): void { if ('end' in this.enc) this.enc.end() }
+  setVertexBuffer(slot: number, buffer: RhiBuffer, offset?: number, size?: number): void {
+    this.enc.setVertexBuffer(slot, u<GPUBuffer>(buffer), offset, size)
+  }
+  setIndexBuffer(
+    buffer: RhiBuffer,
+    format: 'uint16' | 'uint32',
+    offset?: number,
+    size?: number,
+  ): void {
+    this.enc.setIndexBuffer(u<GPUBuffer>(buffer), format, offset, size)
+  }
+  draw(vertexCount: number, instanceCount = 1, firstVertex = 0): void {
+    this.enc.draw(vertexCount, instanceCount, firstVertex)
+  }
+  drawIndexed(indexCount: number, instanceCount = 1): void {
+    this.enc.drawIndexed(indexCount, instanceCount)
+  }
+  setStencilReference(ref: number): void {
+    if ('setStencilReference' in this.enc) this.enc.setStencilReference(ref)
+  }
+  end(): void {
+    if ('end' in this.enc) this.enc.end()
+  }
 }
 
 /** Wrap a live GPURenderPassEncoder OR a GPURenderBundleEncoder (the render loop's pass / a VTR tile
@@ -191,28 +256,45 @@ export function wrapWebGpuBindGroup(group: GPUBindGroup): RhiBindGroup {
  *  one submit, matching the render loop's per-frame submit). */
 class WebGpuCommandEncoder implements RhiCommandEncoder {
   private readonly enc: GPUCommandEncoder
-  constructor(private readonly device: GPUDevice, label?: string) {
+  constructor(
+    private readonly device: GPUDevice,
+    label?: string,
+  ) {
     this.enc = device.createCommandEncoder(label !== undefined ? { label } : undefined)
   }
   beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
     return new WebGpuRenderPass(this.enc.beginRenderPass(rhiRenderPassToGpu(desc)))
   }
-  copyBufferToBuffer(src: RhiBuffer, srcOffset: number, dst: RhiBuffer, dstOffset: number, size: number): void {
+  copyBufferToBuffer(
+    src: RhiBuffer,
+    srcOffset: number,
+    dst: RhiBuffer,
+    dstOffset: number,
+    size: number,
+  ): void {
     this.enc.copyBufferToBuffer(u<GPUBuffer>(src), srcOffset, u<GPUBuffer>(dst), dstOffset, size)
   }
-  finish(): void { this.device.queue.submit([this.enc.finish()]) }
+  finish(): void {
+    this.device.queue.submit([this.enc.finish()])
+  }
 }
 
 export class WebGpuDevice implements RhiDevice {
   readonly backend = 'webgpu' as const
   constructor(private readonly device: GPUDevice) {}
 
-  createCommandEncoder(label?: string): RhiCommandEncoder { return new WebGpuCommandEncoder(this.device, label) }
+  createCommandEncoder(label?: string): RhiCommandEncoder {
+    return new WebGpuCommandEncoder(this.device, label)
+  }
 
   createBuffer(desc: RhiBufferDesc): RhiBuffer {
-    return wrap(this.device.createBuffer({
-      size: desc.size, usage: bufUsage(desc.usage, desc.writable ?? true, desc.copySrc), label: desc.label,
-    })) as unknown as RhiBuffer
+    return wrap(
+      this.device.createBuffer({
+        size: desc.size,
+        usage: bufUsage(desc.usage, desc.writable ?? true, desc.copySrc),
+        label: desc.label,
+      }),
+    ) as unknown as RhiBuffer
   }
 
   writeBuffer(buffer: RhiBuffer, byteOffset: number, data: BufferSource): void {
@@ -228,17 +310,30 @@ export class WebGpuDevice implements RhiDevice {
   }
 
   createTexture(desc: RhiTextureDesc): RhiTexture {
-    return wrap(this.device.createTexture({
-      size: { width: desc.width, height: desc.height },
-      format: desc.format as GPUTextureFormat,
-      usage: texUsage(desc.usage),
-      sampleCount: desc.sampleCount ?? 1,
-      label: desc.label,
-    })) as unknown as RhiTexture
+    return wrap(
+      this.device.createTexture({
+        size: { width: desc.width, height: desc.height },
+        format: desc.format as GPUTextureFormat,
+        usage: texUsage(desc.usage),
+        sampleCount: desc.sampleCount ?? 1,
+        label: desc.label,
+      }),
+    ) as unknown as RhiTexture
   }
 
-  writeTexture(texture: RhiTexture, data: BufferSource, bytesPerRow: number, width: number, height: number): void {
-    this.device.queue.writeTexture({ texture: u<GPUTexture>(texture) }, data, { bytesPerRow }, { width, height })
+  writeTexture(
+    texture: RhiTexture,
+    data: BufferSource,
+    bytesPerRow: number,
+    width: number,
+    height: number,
+  ): void {
+    this.device.queue.writeTexture(
+      { texture: u<GPUTexture>(texture) },
+      data,
+      { bytesPerRow },
+      { width, height },
+    )
   }
 
   destroyTexture(texture: RhiTexture): void {
@@ -250,10 +345,15 @@ export class WebGpuDevice implements RhiDevice {
   }
 
   createSampler(desc: RhiSamplerDesc): RhiSampler {
-    return wrap(this.device.createSampler({
-      magFilter: desc.mag, minFilter: desc.min,
-      addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge', label: desc.label,
-    })) as unknown as RhiSampler
+    return wrap(
+      this.device.createSampler({
+        magFilter: desc.mag,
+        minFilter: desc.min,
+        addressModeU: 'clamp-to-edge',
+        addressModeV: 'clamp-to-edge',
+        label: desc.label,
+      }),
+    ) as unknown as RhiSampler
   }
 
   // GPUSampler is GC-owned — WebGPU exposes no native destroy — so this is a no-op
@@ -262,64 +362,102 @@ export class WebGpuDevice implements RhiDevice {
 
   createBindGroupLayout(entries: RhiBindLayoutEntry[]): RhiBindGroupLayout {
     const vis = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT
-    return wrap(this.device.createBindGroupLayout({
-      entries: entries.map((e): GPUBindGroupLayoutEntry => {
-        if (e.kind === 'uniform') return { binding: e.binding, visibility: vis, buffer: { type: 'uniform', hasDynamicOffset: !!e.dynamic } }
-        if (e.kind === 'storage') return { binding: e.binding, visibility: vis, buffer: { type: 'read-only-storage' } }
-        if (e.kind === 'texture') return { binding: e.binding, visibility: GPUShaderStage.FRAGMENT, texture: {} }
-        return { binding: e.binding, visibility: GPUShaderStage.FRAGMENT, sampler: {} }
+    return wrap(
+      this.device.createBindGroupLayout({
+        entries: entries.map((e): GPUBindGroupLayoutEntry => {
+          if (e.kind === 'uniform')
+            return {
+              binding: e.binding,
+              visibility: vis,
+              buffer: { type: 'uniform', hasDynamicOffset: !!e.dynamic },
+            }
+          if (e.kind === 'storage')
+            return { binding: e.binding, visibility: vis, buffer: { type: 'read-only-storage' } }
+          if (e.kind === 'texture')
+            return { binding: e.binding, visibility: GPUShaderStage.FRAGMENT, texture: {} }
+          return { binding: e.binding, visibility: GPUShaderStage.FRAGMENT, sampler: {} }
+        }),
       }),
-    })) as unknown as RhiBindGroupLayout
+    ) as unknown as RhiBindGroupLayout
   }
 
   createBindGroup(layout: RhiBindGroupLayout, entries: RhiBindEntry[]): RhiBindGroup {
-    return wrap(this.device.createBindGroup({
-      layout: u<GPUBindGroupLayout>(layout),
-      entries: entries.map((e): GPUBindGroupEntry => {
-        const r = e.resource
-        if ('buffer' in r) return { binding: e.binding, resource: { buffer: u<GPUBuffer>(r.buffer), offset: r.offset ?? 0, size: r.size } }
-        if ('view' in r) return { binding: e.binding, resource: u<GPUTextureView>(r.view) }
-        return { binding: e.binding, resource: u<GPUSampler>(r.sampler) }
+    return wrap(
+      this.device.createBindGroup({
+        layout: u<GPUBindGroupLayout>(layout),
+        entries: entries.map((e): GPUBindGroupEntry => {
+          const r = e.resource
+          if ('buffer' in r)
+            return {
+              binding: e.binding,
+              resource: { buffer: u<GPUBuffer>(r.buffer), offset: r.offset ?? 0, size: r.size },
+            }
+          if ('view' in r) return { binding: e.binding, resource: u<GPUTextureView>(r.view) }
+          return { binding: e.binding, resource: u<GPUSampler>(r.sampler) }
+        }),
       }),
-    })) as unknown as RhiBindGroup
+    ) as unknown as RhiBindGroup
   }
 
   createPipeline(desc: RhiPipelineDesc): RhiPipeline {
     const module = this.device.createShaderModule({ code: desc.code, label: desc.label })
-    return wrap(this.device.createRenderPipeline({
-      layout: this.device.createPipelineLayout({ bindGroupLayouts: desc.bindGroupLayouts.map((l) => u<GPUBindGroupLayout>(l)) }),
-      vertex: {
-        module, entryPoint: desc.vsEntry,
-        buffers: desc.vertexBuffers?.map((vb): GPUVertexBufferLayout => ({
-          arrayStride: vb.stride,
-          attributes: vb.attributes.map((a) => ({ shaderLocation: a.location, offset: a.offset, format: a.format as GPUVertexFormat })),
-        })),
-      },
-      fragment: {
-        module, entryPoint: desc.fsEntry,
-        targets: desc.colorTargets.map((t): GPUColorTargetState => ({
-          format: t.format as GPUTextureFormat,
-          blend: t.blend === 'alpha' ? BLEND_ALPHA : t.blend === 'premult' ? BLEND_ALPHA_PREMULT : t.blend === 'additive' ? BLEND_ADDITIVE : t.blend === 'max' ? BLEND_MAX : undefined,
-          writeMask: t.writeMask ?? (t.format === 'rg32uint' ? 0 : 0xf), // 0xf = GPUColorWrite.ALL (literal — the WebGPU global is undefined under node test envs); pickable fills override to 0xf
-        })),
-      },
-      depthStencil: desc.depthStencil ? {
-        format: desc.depthStencil.format as GPUTextureFormat,
-        depthWriteEnabled: desc.depthStencil.write,
-        depthCompare: desc.depthStencil.compare,
-        ...(desc.depthStencil.bias ? {
-          depthBias: desc.depthStencil.bias.constant,
-          depthBiasSlopeScale: desc.depthStencil.bias.slopeScale,
-          depthBiasClamp: desc.depthStencil.bias.clamp,
-        } : {}),
-        // Stencil: config-driven (per-tile clip mask) or inert STENCIL_DISABLED by
-        // default — rhiStencilToGpu maps byte-for-byte to the gpu-shared states.
-        ...rhiStencilToGpu(desc.depthStencil.stencil),
-      } : undefined,
-      multisample: { count: desc.sampleCount ?? 1 },
-      primitive: { topology: 'triangle-list', cullMode: desc.cullMode ?? 'none' },
-      label: desc.label,
-    })) as unknown as RhiPipeline
+    return wrap(
+      this.device.createRenderPipeline({
+        layout: this.device.createPipelineLayout({
+          bindGroupLayouts: desc.bindGroupLayouts.map((l) => u<GPUBindGroupLayout>(l)),
+        }),
+        vertex: {
+          module,
+          entryPoint: desc.vsEntry,
+          buffers: desc.vertexBuffers?.map((vb): GPUVertexBufferLayout => ({
+            arrayStride: vb.stride,
+            attributes: vb.attributes.map((a) => ({
+              shaderLocation: a.location,
+              offset: a.offset,
+              format: a.format as GPUVertexFormat,
+            })),
+          })),
+        },
+        fragment: {
+          module,
+          entryPoint: desc.fsEntry,
+          targets: desc.colorTargets.map((t): GPUColorTargetState => ({
+            format: t.format as GPUTextureFormat,
+            blend:
+              t.blend === 'alpha'
+                ? BLEND_ALPHA
+                : t.blend === 'premult'
+                  ? BLEND_ALPHA_PREMULT
+                  : t.blend === 'additive'
+                    ? BLEND_ADDITIVE
+                    : t.blend === 'max'
+                      ? BLEND_MAX
+                      : undefined,
+            writeMask: t.writeMask ?? (t.format === 'rg32uint' ? 0 : 0xf), // 0xf = GPUColorWrite.ALL (literal — the WebGPU global is undefined under node test envs); pickable fills override to 0xf
+          })),
+        },
+        depthStencil: desc.depthStencil
+          ? {
+              format: desc.depthStencil.format as GPUTextureFormat,
+              depthWriteEnabled: desc.depthStencil.write,
+              depthCompare: desc.depthStencil.compare,
+              ...(desc.depthStencil.bias
+                ? {
+                    depthBias: desc.depthStencil.bias.constant,
+                    depthBiasSlopeScale: desc.depthStencil.bias.slopeScale,
+                    depthBiasClamp: desc.depthStencil.bias.clamp,
+                  }
+                : {}),
+              // Stencil: config-driven (per-tile clip mask) or inert STENCIL_DISABLED by
+              // default — rhiStencilToGpu maps byte-for-byte to the gpu-shared states.
+              ...rhiStencilToGpu(desc.depthStencil.stencil),
+            }
+          : undefined,
+        multisample: { count: desc.sampleCount ?? 1 },
+        primitive: { topology: 'triangle-list', cullMode: desc.cullMode ?? 'none' },
+        label: desc.label,
+      }),
+    ) as unknown as RhiPipeline
   }
 
   // GPURenderPipeline is GC-owned — WebGPU exposes no native destroy — so this is a no-op

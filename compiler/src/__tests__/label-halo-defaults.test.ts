@@ -18,18 +18,20 @@ describe('label halo defaults — Mapbox spec compliance', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'roads',
-        type: 'symbol' as const,
-        source: 'v',
-        'source-layer': 'transportation_name',
-        layout: { 'text-field': '{name}', 'text-size': 12 },
-        paint: {
-          'text-color': '#666',
-          'text-halo-width': 1,
-          // NB: no text-halo-color — Mapbox default rgba(0,0,0,0)
+      layers: [
+        {
+          id: 'roads',
+          type: 'symbol' as const,
+          source: 'v',
+          'source-layer': 'transportation_name',
+          layout: { 'text-field': '{name}', 'text-size': 12 },
+          paint: {
+            'text-color': '#666',
+            'text-halo-width': 1,
+            // NB: no text-halo-color — Mapbox default rgba(0,0,0,0)
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     const cmds = emitCommands(lower(new Parser(new Lexer(xgis).tokenize()).parse()))
@@ -44,18 +46,20 @@ describe('label halo defaults — Mapbox spec compliance', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'roads',
-        type: 'symbol' as const,
-        source: 'v',
-        'source-layer': 'transportation_name',
-        layout: { 'text-field': '{name}', 'text-size': 12 },
-        paint: {
-          'text-color': '#666',
-          'text-halo-width': 1,
-          'text-halo-color': '#f8f4f0',
+      layers: [
+        {
+          id: 'roads',
+          type: 'symbol' as const,
+          source: 'v',
+          'source-layer': 'transportation_name',
+          layout: { 'text-field': '{name}', 'text-size': 12 },
+          paint: {
+            'text-color': '#666',
+            'text-halo-width': 1,
+            'text-halo-color': '#f8f4f0',
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     const cmds = emitCommands(lower(new Parser(new Lexer(xgis).tokenize()).parse()))
@@ -91,6 +95,9 @@ describe('label halo defaults — Mapbox spec compliance', () => {
         offenders.push(`${s.layerName} halo=${JSON.stringify(s.label.halo.color)}`)
       }
     }
-    expect(offenders, `Labels with implicit halo getting opaque fallback: ${offenders.join(' / ')}`).toEqual([])
+    expect(
+      offenders,
+      `Labels with implicit halo getting opaque fallback: ${offenders.join(' / ')}`,
+    ).toEqual([])
   })
 })

@@ -13,7 +13,7 @@ export const MATRIX_MERC: MatrixCell[] = [
   // (0) ANCHOR — flat mercator, reuses the Oracle-B math oracles exactly.
   // Already-trusted: the reference is d3-geo + the live MVP, regenerated each
   // run, so no human bless is needed and it is hard from day one.
-{
+  {
     id: 'merc-europe-z4-p0',
     projection: 'mercator',
     zoom: 4,
@@ -46,7 +46,7 @@ export const MATRIX_MERC: MatrixCell[] = [
 
   // (4) HIGH-PITCH — the tilted blind quadrant. The above-horizon void must be
   // sky-filled, not black (black-ratio), plus a committed baseline.
-{
+  {
     id: 'merc-seoul-z8-p60',
     projection: 'mercator',
     zoom: 8,
@@ -68,7 +68,7 @@ export const MATRIX_MERC: MatrixCell[] = [
   // pixel-match, per memory). Every placed anchor must land inside the
   // viewport+margin; gross mis-dispatch (a projection-blind label layer placing
   // anchors off-screen) fails here. No baseline → no bless → green from day one.
-{
+  {
     id: 'merc-seoul-z14-labels',
     projection: 'mercator',
     zoom: 14,
@@ -95,7 +95,7 @@ export const MATRIX_MERC: MatrixCell[] = [
   },
 
   // ── FAMILY: known-failure-tripwires (cross-projection confirmed-bug cells)
-{
+  {
     id: 'merc-z0-p60-strip-bug',
     projection: 'mercator',
     zoom: 0,
@@ -107,7 +107,7 @@ export const MATRIX_MERC: MatrixCell[] = [
     // Healthy band ≈ 0.50–0.85 (midpoint 0.675 ± 0.175); the z0+pitch strip
     // collapses the disc well below 0.50 → expected_red.
     oracles: [
-      { kind: 'black_ratio', max: 0.10 },
+      { kind: 'black_ratio', max: 0.1 },
       { kind: 'disc_fraction', expected: 0.675, max: 0.175 },
     ],
     gate: 'soft',
@@ -115,7 +115,7 @@ export const MATRIX_MERC: MatrixCell[] = [
     note: 'Known-bug: mercator z0+pitch=60 degenerates to a flat strip (project_mercator_z0_pitch_render). disc_fraction catches the collapse; black_ratio catches the above-horizon void. Soft tripwire; flips green when buildGlobeMatrix near/far is corrected at z=0.',
   },
 
-{
+  {
     id: 'merc-z0-p80-strip-bug',
     projection: 'mercator',
     zoom: 0,
@@ -133,7 +133,7 @@ export const MATRIX_MERC: MatrixCell[] = [
     note: 'Known-bug: same class as merc-z0-p60 at the steepest pitch (p=80), where the strip is most severe (disc → thin sliver). Two pitch points bound the regression curve so a partial fix is still caught. Soft tripwire.',
   },
 
-{
+  {
     id: 'merc-z8-p70-label-pitchalign',
     projection: 'mercator',
     zoom: 8,
@@ -144,7 +144,7 @@ export const MATRIX_MERC: MatrixCell[] = [
     camera: { center: [126.98, 37.55] },
     oracles: [
       { kind: 'ink_family', families: [{ name: 'sky', minRatio: 0.0005 }] },
-      { kind: 'black_ratio', max: 0.10 },
+      { kind: 'black_ratio', max: 0.1 },
     ],
     gate: 'soft',
     knownStatus: 'expected_red',
@@ -159,7 +159,7 @@ export const MATRIX_MERC: MatrixCell[] = [
   // (reversed-Z / wrong compare) z-fights → frame_stability fails. black_ratio =
   // the dense city rendered. The holistic screenshot_diff depth-regression gate
   // is added once a real-GPU capture is reviewed + accepted. Candidate → soft.
-{
+  {
     id: 'osm-shinjuku-z16-p60-extrude',
     projection: 'mercator',
     zoom: 16,

@@ -59,14 +59,18 @@ async function setup(page: Page, demoId: string) {
   await page.goto(`/demo.html?id=${demoId}#3.0/0/0`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
   // Settle initial GeoJSON compile cascade. ne_110m_countries at
   // first paint takes ~1-3 s on cold cache; 5 s buffer.
   await page.waitForTimeout(5_000)
 }
 
-async function recordZoomWithProfile(page: Page, cdp: CDPSession): Promise<{
+async function recordZoomWithProfile(
+  page: Page,
+  cdp: CDPSession,
+): Promise<{
   profile: CpuProfile
   frames: FrameTiming[]
   perfNowAtProfileStart: number
@@ -77,10 +81,14 @@ async function recordZoomWithProfile(page: Page, cdp: CDPSession): Promise<{
   const perfNowAtProfileStart = await page.evaluate(() => performance.now())
 
   const frames = await page.evaluate(async (durationMs: number) => {
-    const map = (window as unknown as { __xgisMap?: {
-      getCamera: () => { zoom: number };
-      invalidate: () => void;
-    } }).__xgisMap
+    const map = (
+      window as unknown as {
+        __xgisMap?: {
+          getCamera: () => { zoom: number }
+          invalidate: () => void
+        }
+      }
+    ).__xgisMap
     if (!map) throw new Error('__xgisMap missing')
     const cam = map.getCamera()
     const out: FrameTiming[] = []
@@ -92,7 +100,10 @@ async function recordZoomWithProfile(page: Page, cdp: CDPSession): Promise<{
         const elapsed = now - t0
         out.push({ ts: now, dt: now - last, elapsed })
         last = now
-        if (elapsed >= durationMs) { res(out); return }
+        if (elapsed >= durationMs) {
+          res(out)
+          return
+        }
         // Triangle wave 4 → 7 → 4 (matches the brief's zoom range
         // for GeoJSON demos which are global at low zoom).
         const phase = elapsed / durationMs
@@ -105,7 +116,7 @@ async function recordZoomWithProfile(page: Page, cdp: CDPSession): Promise<{
     })
   }, 6000)
 
-  const stopped = await cdp.send('Profiler.stop') as { profile: CpuProfile }
+  const stopped = (await cdp.send('Profiler.stop')) as { profile: CpuProfile }
   await cdp.send('Profiler.disable')
   return { profile: stopped.profile, frames, perfNowAtProfileStart }
 }
@@ -200,8 +211,9 @@ async function runScenario(page: Page, cdp: CDPSession, demoId: string): Promise
   const { profile, frames, perfNowAtProfileStart } = await recordZoomWithProfile(page, cdp)
   const settled = frames.slice(2)
   const sorted = [...settled].sort((a, b) => a.dt - b.dt)
-  const pct = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))].dt
-  const worstFrame = settled.reduce((a, b) => b.dt > a.dt ? b : a, settled[0])
+  const pct = (p: number) =>
+    sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))].dt
+  const worstFrame = settled.reduce((a, b) => (b.dt > a.dt ? b : a), settled[0])
 
   const msToProfile = (ms: number) => profile.startTime + (ms - perfNowAtProfileStart) * 1000
   const winStart = msToProfile(worstFrame.ts - worstFrame.dt)
@@ -236,7 +248,12 @@ async function runScenario(page: Page, cdp: CDPSession, demoId: string): Promise
  *  zoom) WITHOUT a low-zoom settle. Captures setRawParts → first-
  *  visible-tile compile cascade timing — the case where users
  *  share a deep link or refresh at high zoom. */
-async function runColdStartAt(page: Page, cdp: CDPSession, demoId: string, hash: string): Promise<{
+async function runColdStartAt(
+  page: Page,
+  cdp: CDPSession,
+  demoId: string,
+  hash: string,
+): Promise<{
   demoId: string
   hash: string
   /** ms from goto() to __xgisReady. */
@@ -253,7 +270,8 @@ async function runColdStartAt(page: Page, cdp: CDPSession, demoId: string, hash:
   await page.goto(`/demo.html?id=${demoId}${hash}`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
   const readyMs = Date.now() - t0
 
@@ -261,7 +279,11 @@ async function runColdStartAt(page: Page, cdp: CDPSession, demoId: string, hash:
   // so any frame variance is purely the GeoJSON compile cascade.
   const tFirstTile = Date.now()
   const frames = await page.evaluate(async (durationMs: number) => {
-    const map = (window as unknown as { __xgisMap?: { vtSources: Map<string, unknown>; invalidate: () => void } }).__xgisMap
+    const map = (
+      window as unknown as {
+        __xgisMap?: { vtSources: Map<string, unknown>; invalidate: () => void }
+      }
+    ).__xgisMap
     if (!map) throw new Error('__xgisMap missing')
     const out: number[] = []
     return await new Promise<number[]>((res) => {
@@ -291,12 +313,16 @@ async function runColdStartAt(page: Page, cdp: CDPSession, demoId: string, hash:
     })
   }, 3000)
   const firstTileWatermark = frames.pop() ?? -1
-  const firstTileMs = firstTileWatermark < 0 ? -1 : Math.round(Date.now() - tFirstTile + firstTileWatermark - (3000))
+  const firstTileMs =
+    firstTileWatermark < 0 ? -1 : Math.round(Date.now() - tFirstTile + firstTileWatermark - 3000)
 
   return { demoId, hash, readyMs, firstTileMs, postReadyFrames: frames }
 }
 
-test('GeoJSON path cost — countries (ne_110m, ~177 features, 725 KB)', async ({ page, context }) => {
+test('GeoJSON path cost — countries (ne_110m, ~177 features, 725 KB)', async ({
+  page,
+  context,
+}) => {
   test.setTimeout(180_000)
   const cdp = await context.newCDPSession(page)
   const result = await runScenario(page, cdp, 'filter_gdp')
@@ -308,19 +334,29 @@ test('GeoJSON path cost — countries (ne_110m, ~177 features, 725 KB)', async (
   console.log(`\n=== GeoJSON path cost: ${result.demoId} ===`)
   console.log(`  Cold load (goto → __xgisReady + 5 s settle):  ${result.coldLoadMs} ms`)
   console.log(`  Interactive zoom 4→7→4 over 6 s:`)
-  console.log(`    median=${result.frames.medianMs.toFixed(1)} ms (${(1000 / result.frames.medianMs).toFixed(0)} fps)`)
-  console.log(`    p95=${result.frames.p95Ms.toFixed(1)} ms  p99=${result.frames.p99Ms.toFixed(1)} ms  worst=${result.frames.worstMs.toFixed(0)} ms`)
+  console.log(
+    `    median=${result.frames.medianMs.toFixed(1)} ms (${(1000 / result.frames.medianMs).toFixed(0)} fps)`,
+  )
+  console.log(
+    `    p95=${result.frames.p95Ms.toFixed(1)} ms  p99=${result.frames.p99Ms.toFixed(1)} ms  worst=${result.frames.worstMs.toFixed(0)} ms`,
+  )
   console.log(`    frames=${result.frames.count}`)
-  console.log(`\n[hitch frame ${result.hitch.worstMs.toFixed(0)} ms @ t+${(result.hitch.elapsedAtWorst / 1000).toFixed(2)} s] top contributors (${result.hitch.total.toFixed(1)} ms attributed):`)
+  console.log(
+    `\n[hitch frame ${result.hitch.worstMs.toFixed(0)} ms @ t+${(result.hitch.elapsedAtWorst / 1000).toFixed(2)} s] top contributors (${result.hitch.total.toFixed(1)} ms attributed):`,
+  )
   for (const r of result.hitch.top) {
     if (r.selfMs < 0.3) continue
     const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
-    console.log(`  ${r.selfMs.toFixed(2).padStart(6)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} :: ${r.callPath}`)
+    console.log(
+      `  ${r.selfMs.toFixed(2).padStart(6)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} :: ${r.callPath}`,
+    )
   }
   console.log(`\n[aggregate ${result.aggregate.total.toFixed(0)} ms] top:`)
   for (const r of result.aggregate.top) {
     if (r.selfMs < 5) continue
-    console.log(`  ${r.selfMs.toFixed(0).padStart(5)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)}`)
+    console.log(
+      `  ${r.selfMs.toFixed(0).padStart(5)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)}`,
+    )
   }
   console.log(`\n[saved] ${out}`)
 })
@@ -349,15 +385,18 @@ test('GeoJSON cold-start at high zoom — deep link / refresh stress', async ({ 
     const p99 = sorted[Math.min(sorted.length - 1, Math.floor(0.99 * sorted.length))] ?? 0
     console.log(
       `  [${c.label.padEnd(15)}] ready=${r.readyMs.toString().padStart(4)} ms  ` +
-      `firstTile=${r.firstTileMs >= 0 ? r.firstTileMs.toString().padStart(4) + ' ms' : 'never'}  ` +
-      `post-ready frames: median=${median.toFixed(1)} p99=${p99.toFixed(1)} worst=${worst.toFixed(0)} (${r.postReadyFrames.length} frames)`,
+        `firstTile=${r.firstTileMs >= 0 ? r.firstTileMs.toString().padStart(4) + ' ms' : 'never'}  ` +
+        `post-ready frames: median=${median.toFixed(1)} p99=${p99.toFixed(1)} worst=${worst.toFixed(0)} (${r.postReadyFrames.length} frames)`,
     )
     // Reset for next case — fresh page state.
     await page.goto('about:blank')
   }
 })
 
-test('GeoJSON zoom-in cascade — z=4 → z=10 over 5 s, single direction', async ({ page, context }) => {
+test('GeoJSON zoom-in cascade — z=4 → z=10 over 5 s, single direction', async ({
+  page,
+  context,
+}) => {
   test.setTimeout(180_000)
   const cdp = await context.newCDPSession(page)
   await setup(page, 'filter_gdp')
@@ -368,10 +407,14 @@ test('GeoJSON zoom-in cascade — z=4 → z=10 over 5 s, single direction', asyn
   const perfNowAtProfileStart = await page.evaluate(() => performance.now())
 
   const frames = await page.evaluate(async (durationMs: number) => {
-    const map = (window as unknown as { __xgisMap?: {
-      getCamera: () => { zoom: number; centerX: number; centerY: number };
-      invalidate: () => void;
-    } }).__xgisMap
+    const map = (
+      window as unknown as {
+        __xgisMap?: {
+          getCamera: () => { zoom: number; centerX: number; centerY: number }
+          invalidate: () => void
+        }
+      }
+    ).__xgisMap
     if (!map) throw new Error('__xgisMap missing')
     const cam = map.getCamera()
     const out: FrameTiming[] = []
@@ -383,7 +426,10 @@ test('GeoJSON zoom-in cascade — z=4 → z=10 over 5 s, single direction', asyn
         const elapsed = now - t0
         out.push({ ts: now, dt: now - last, elapsed })
         last = now
-        if (elapsed >= durationMs) { res(out); return }
+        if (elapsed >= durationMs) {
+          res(out)
+          return
+        }
         // Linear ramp 4 → 10 (single direction, no return). Each
         // intermediate z step exposes a fresh visible-tile set with
         // no cached data — the compileSync cascade hits hardest
@@ -396,25 +442,32 @@ test('GeoJSON zoom-in cascade — z=4 → z=10 over 5 s, single direction', asyn
     })
   }, 5000)
 
-  const stopped = await cdp.send('Profiler.stop') as { profile: CpuProfile }
+  const stopped = (await cdp.send('Profiler.stop')) as { profile: CpuProfile }
   await cdp.send('Profiler.disable')
   const profile = stopped.profile
 
   const settled = frames.slice(2)
   const sorted = [...settled].sort((a, b) => a.dt - b.dt)
-  const pct = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))].dt
-  const worstFrame = settled.reduce((a, b) => b.dt > a.dt ? b : a, settled[0])
+  const pct = (p: number) =>
+    sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))].dt
+  const worstFrame = settled.reduce((a, b) => (b.dt > a.dt ? b : a), settled[0])
   const msToProfile = (ms: number) => profile.startTime + (ms - perfNowAtProfileStart) * 1000
   const winStart = msToProfile(worstFrame.ts - worstFrame.dt)
   const winEnd = msToProfile(worstFrame.ts)
   const hitch = attributeWindow(profile, winStart, winEnd, 15)
 
   console.log(`\n=== GeoJSON zoom-in cascade z=4 → z=10 over 5 s (filter_gdp) ===`)
-  console.log(`  median=${pct(50).toFixed(1)} ms (${(1000 / pct(50)).toFixed(0)} fps)  p95=${pct(95).toFixed(1)}  p99=${pct(99).toFixed(1)}  worst=${worstFrame.dt.toFixed(0)} ms @ z=${(4 + (worstFrame.elapsed / 5000) * 6).toFixed(1)}  frames=${settled.length}`)
-  console.log(`\n[hitch frame ${worstFrame.dt.toFixed(0)} ms] top contributors (${hitch.totalMs.toFixed(1)} ms attributed):`)
+  console.log(
+    `  median=${pct(50).toFixed(1)} ms (${(1000 / pct(50)).toFixed(0)} fps)  p95=${pct(95).toFixed(1)}  p99=${pct(99).toFixed(1)}  worst=${worstFrame.dt.toFixed(0)} ms @ z=${(4 + (worstFrame.elapsed / 5000) * 6).toFixed(1)}  frames=${settled.length}`,
+  )
+  console.log(
+    `\n[hitch frame ${worstFrame.dt.toFixed(0)} ms] top contributors (${hitch.totalMs.toFixed(1)} ms attributed):`,
+  )
   for (const r of hitch.rows) {
     if (r.selfMs < 0.3) continue
     const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
-    console.log(`  ${r.selfMs.toFixed(2).padStart(6)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} :: ${r.callPath}`)
+    console.log(
+      `  ${r.selfMs.toFixed(2).padStart(6)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} :: ${r.callPath}`,
+    )
   }
 })

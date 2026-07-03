@@ -16,11 +16,17 @@
 // in isolation, no catalog setup required.
 
 import {
-  tileKeyUnpack, lonLatToMercF64,
-  clipPolygonToRect, clipLineToRect,
-  augmentRingWithArc, tessellateLineToArrays, packDSFUNLineVertices,
-  packECEFPolygonVertices, packECEFPointFeatures,
-  extractNonSyntheticArcs, makeSameBoundarySidePredicateMerc,
+  tileKeyUnpack,
+  lonLatToMercF64,
+  clipPolygonToRect,
+  clipLineToRect,
+  augmentRingWithArc,
+  tessellateLineToArrays,
+  packDSFUNLineVertices,
+  packECEFPolygonVertices,
+  packECEFPointFeatures,
+  extractNonSyntheticArcs,
+  makeSameBoundarySidePredicateMerc,
 } from '@xgis/compiler'
 import { type TileData, DSFUN_LINE_STRIDE } from './tile-types'
 
@@ -77,9 +83,11 @@ export class SubTileGenerator {
    *  at over-zoom. */
   hasClippableGeometry(parent: TileData | null | undefined): boolean {
     if (!parent) return false
-    return parent.indices.length > 0
-      || parent.lineIndices.length > 0
-      || (parent.pointVertices !== undefined && parent.pointVertices.length >= 13)
+    return (
+      parent.indices.length > 0 ||
+      parent.lineIndices.length > 0 ||
+      (parent.pointVertices !== undefined && parent.pointVertices.length >= 13)
+    )
   }
 
   /** Clip `parent`'s geometry into the sub-tile addressed by `subKey`,
@@ -94,10 +102,10 @@ export class SubTileGenerator {
     const [sz, sx, sy] = tileKeyUnpack(subKey)
     const sn = Math.pow(2, sz)
 
-    const subWest = sx / sn * 360 - 180
-    const subEast = (sx + 1) / sn * 360 - 180
-    const subSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (sy + 1) / sn))) * 180 / Math.PI
-    const subNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * sy / sn))) * 180 / Math.PI
+    const subWest = (sx / sn) * 360 - 180
+    const subEast = ((sx + 1) / sn) * 360 - 180
+    const subSouth = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (sy + 1)) / sn))) * 180) / Math.PI
+    const subNorth = (Math.atan(Math.sinh(Math.PI * (1 - (2 * sy) / sn))) * 180) / Math.PI
 
     // Parent vertices are stored as DSFUN tile-local Mercator meters
     // (high/low pairs). Sub-tile clip must run in the same Mercator-
@@ -140,7 +148,8 @@ export class SubTileGenerator {
     const verts = parent.vertices
     const subClampLat = Math.max(-ECEF_LAT_LIMIT, Math.min(ECEF_LAT_LIMIT, subSouth))
     const subTileMx = subWest * ECEF_DEG2RAD * ECEF_EARTH_R
-    const subTileMy = Math.log(Math.tan(Math.PI / 4 + subClampLat * ECEF_DEG2RAD / 2)) * ECEF_EARTH_R
+    const subTileMy =
+      Math.log(Math.tan(Math.PI / 4 + (subClampLat * ECEF_DEG2RAD) / 2)) * ECEF_EARTH_R
     // WGS84 ellipsoidal ECEF anchor — must match the compiler tiler's
     // `tileEcefCenter` math (cross-package import forbidden in worker
     // threads; values are bit-identical to runtime/projection/ecef.ts's
@@ -209,13 +218,17 @@ export class SubTileGenerator {
     // with the outline. Reusing the parent's existing triangulation is cheaper
     // than re-tessellating its rings per sub-tile.
     for (let t = 0; t < parent.indices.length; t += 3) {
-      const i0 = parent.indices[t], i1 = parent.indices[t + 1], i2 = parent.indices[t + 2]
+      const i0 = parent.indices[t],
+        i1 = parent.indices[t + 1],
+        i2 = parent.indices[t + 2]
       const [x0, y0, fid] = readPV(i0)
       const [x1, y1] = readPV(i1)
       const [x2, y2] = readPV(i2)
 
-      const minX = Math.min(x0, x1, x2), maxX = Math.max(x0, x1, x2)
-      const minY = Math.min(y0, y1, y2), maxY = Math.max(y0, y1, y2)
+      const minX = Math.min(x0, x1, x2),
+        maxX = Math.max(x0, x1, x2)
+      const minY = Math.min(y0, y1, y2),
+        maxY = Math.max(y0, y1, y2)
       if (maxX < clipW || minX > clipE || maxY < clipS || minY > clipN) continue
 
       if (minX >= clipW && maxX <= clipE && minY >= clipS && maxY <= clipN) {
@@ -223,7 +236,19 @@ export class SubTileGenerator {
         continue
       }
 
-      const clipped = clipPolygonToRect([[[x0, y0], [x1, y1], [x2, y2]]], clipW, clipS, clipE, clipN)
+      const clipped = clipPolygonToRect(
+        [
+          [
+            [x0, y0],
+            [x1, y1],
+            [x2, y2],
+          ],
+        ],
+        clipW,
+        clipS,
+        clipE,
+        clipN,
+      )
       if (clipped.length === 0 || clipped[0]!.length < 3) continue
       const ring = clipped[0]!
       const ringIdx: number[] = []
@@ -241,7 +266,16 @@ export class SubTileGenerator {
     outLI.length = 0
     const outLVKey = this._scratchOutLVKey
     outLVKey.clear()
-    const pushDedupLV = (x: number, y: number, fid: number, arc: number, tinX: number, tinY: number, toutX: number, toutY: number): number => {
+    const pushDedupLV = (
+      x: number,
+      y: number,
+      fid: number,
+      arc: number,
+      tinX: number,
+      tinY: number,
+      toutX: number,
+      toutY: number,
+    ): number => {
       const k = `${Math.round(x * 100)},${Math.round(y * 100)},${fid}`
       const hit = outLVKey.get(k)
       if (hit !== undefined) return hit
@@ -252,42 +286,70 @@ export class SubTileGenerator {
       outLVKey.set(k, idx)
       return idx
     }
-    const readLV = (vi: number): [number, number, number, number, number, number, number, number] => {
+    const readLV = (
+      vi: number,
+    ): [number, number, number, number, number, number, number, number] => {
       const off = vi * DSFUN_LINE_STRIDE
       const x = lineVerts[off] + lineVerts[off + 2]
       const y = lineVerts[off + 1] + lineVerts[off + 3]
       const fid = lineVerts[off + 4]
       const arc = lineVerts[off + 5]
-      const tinX = lineVerts[off + 6] ?? 0, tinY = lineVerts[off + 7] ?? 0
-      const toutX = lineVerts[off + 8] ?? 0, toutY = lineVerts[off + 9] ?? 0
+      const tinX = lineVerts[off + 6] ?? 0,
+        tinY = lineVerts[off + 7] ?? 0
+      const toutX = lineVerts[off + 8] ?? 0,
+        toutY = lineVerts[off + 9] ?? 0
       return [x, y, fid, arc, tinX, tinY, toutX, toutY]
     }
 
     for (let s = 0; s < lineIdx.length; s += 2) {
-      const a = lineIdx[s], b = lineIdx[s + 1]
+      const a = lineIdx[s],
+        b = lineIdx[s + 1]
       const [ax, ay, afid, aarc, atinX, atinY, atoutX, atoutY] = readLV(a)
       const [bx, by, , barc, btinX, btinY, btoutX, btoutY] = readLV(b)
 
-      if (Math.max(ax, bx) < clipW || Math.min(ax, bx) > clipE ||
-          Math.max(ay, by) < clipS || Math.min(ay, by) > clipN) continue
+      if (
+        Math.max(ax, bx) < clipW ||
+        Math.min(ax, bx) > clipE ||
+        Math.max(ay, by) < clipS ||
+        Math.min(ay, by) > clipN
+      )
+        continue
 
-      if (ax >= clipW && ax <= clipE && ay >= clipS && ay <= clipN &&
-          bx >= clipW && bx <= clipE && by >= clipS && by <= clipN) {
+      if (
+        ax >= clipW &&
+        ax <= clipE &&
+        ay >= clipS &&
+        ay <= clipN &&
+        bx >= clipW &&
+        bx <= clipE &&
+        by >= clipS &&
+        by <= clipN
+      ) {
         const ia = pushDedupLV(ax, ay, afid, aarc, atinX, atinY, atoutX, atoutY)
         const ib = pushDedupLV(bx, by, afid, barc, btinX, btinY, btoutX, btoutY)
         if (ia !== ib) outLI.push(ia, ib)
         continue
       }
 
-      const dx = bx - ax, dy = by - ay
-      let tMin = 0, tMax = 1
+      const dx = bx - ax,
+        dy = by - ay
+      let tMin = 0,
+        tMax = 1
       let valid = true
       const clipEdge = (p: number, q: number): void => {
         if (!valid) return
-        if (Math.abs(p) < 1e-15) { if (q < 0) valid = false; return }
+        if (Math.abs(p) < 1e-15) {
+          if (q < 0) valid = false
+          return
+        }
         const r = q / p
-        if (p < 0) { if (r > tMax) valid = false; else if (r > tMin) tMin = r }
-        else       { if (r < tMin) valid = false; else if (r < tMax) tMax = r }
+        if (p < 0) {
+          if (r > tMax) valid = false
+          else if (r > tMin) tMin = r
+        } else {
+          if (r < tMin) valid = false
+          else if (r < tMax) tMax = r
+        }
       }
       clipEdge(-dx, ax - clipW)
       clipEdge(dx, clipE - ax)
@@ -298,12 +360,34 @@ export class SubTileGenerator {
       const darc = barc - aarc
       // Mid-segment clip points: zero tangent → runtime boundary fallback.
       // Original vertices (tMin≈0 / tMax≈1): preserve tangent for cross-tile joins.
-      const p0tinX = tMin < 1e-10 ? atinX : 0, p0tinY = tMin < 1e-10 ? atinY : 0
-      const p0toutX = tMin < 1e-10 ? atoutX : 0, p0toutY = tMin < 1e-10 ? atoutY : 0
-      const p1tinX = tMax > 1 - 1e-10 ? btinX : 0, p1tinY = tMax > 1 - 1e-10 ? btinY : 0
-      const p1toutX = tMax > 1 - 1e-10 ? btoutX : 0, p1toutY = tMax > 1 - 1e-10 ? btoutY : 0
-      const ia = pushDedupLV(ax + tMin * dx, ay + tMin * dy, afid, aarc + tMin * darc, p0tinX, p0tinY, p0toutX, p0toutY)
-      const ib = pushDedupLV(ax + tMax * dx, ay + tMax * dy, afid, aarc + tMax * darc, p1tinX, p1tinY, p1toutX, p1toutY)
+      const p0tinX = tMin < 1e-10 ? atinX : 0,
+        p0tinY = tMin < 1e-10 ? atinY : 0
+      const p0toutX = tMin < 1e-10 ? atoutX : 0,
+        p0toutY = tMin < 1e-10 ? atoutY : 0
+      const p1tinX = tMax > 1 - 1e-10 ? btinX : 0,
+        p1tinY = tMax > 1 - 1e-10 ? btinY : 0
+      const p1toutX = tMax > 1 - 1e-10 ? btoutX : 0,
+        p1toutY = tMax > 1 - 1e-10 ? btoutY : 0
+      const ia = pushDedupLV(
+        ax + tMin * dx,
+        ay + tMin * dy,
+        afid,
+        aarc + tMin * darc,
+        p0tinX,
+        p0tinY,
+        p0toutX,
+        p0toutY,
+      )
+      const ib = pushDedupLV(
+        ax + tMax * dx,
+        ay + tMax * dy,
+        afid,
+        aarc + tMax * darc,
+        p1tinX,
+        p1tinY,
+        p1toutX,
+        p1toutY,
+      )
       if (ia !== ib) outLI.push(ia, ib)
     }
 
@@ -337,7 +421,10 @@ export class SubTileGenerator {
     // except at lon=-180, leaving the filter dead and the synthetic
     // axis-aligned frame edges visible as outline strokes.
     const isSameParentBoundarySide = makeSameBoundarySidePredicateMerc(
-      parentMx, parentMy, parentMxE, parentMyN,
+      parentMx,
+      parentMy,
+      parentMxE,
+      parentMyN,
     )
     // iter-250 — scratch reuse; clear at start. Same pattern as
     // outV/outI hoist above.
@@ -370,9 +457,11 @@ export class SubTileGenerator {
             let chain = arcRing
             const last = arcRing[arcRing.length - 1]
             const prev = arcRing[arcRing.length - 2]
-            if (Math.abs(last[0] - arcRing[0][0]) < 1e-6 &&
-                Math.abs(last[1] - arcRing[0][1]) < 1e-6 &&
-                isSameParentBoundarySide(prev, last)) {
+            if (
+              Math.abs(last[0] - arcRing[0][0]) < 1e-6 &&
+              Math.abs(last[1] - arcRing[0][1]) < 1e-6 &&
+              isSameParentBoundarySide(prev, last)
+            ) {
               chain = arcRing.slice(0, -1)
               if (chain.length < 2) continue
             }
@@ -386,9 +475,10 @@ export class SubTileGenerator {
         }
       }
     }
-    const outlineVertices = olvScratch.length > 0
-      ? packDSFUNLineVertices(olvScratch, subMxW, subMyS)
-      : new Float32Array(0)
+    const outlineVertices =
+      olvScratch.length > 0
+        ? packDSFUNLineVertices(olvScratch, subMxW, subMyS)
+        : new Float32Array(0)
     const outlineLineIndices = new Uint32Array(oliScratch)
 
     // Point clip. Phase 2 PR 2d.2 — parent pointVertices is ECEF DSFUN

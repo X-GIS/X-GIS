@@ -12,7 +12,7 @@ test.describe('osm_style + opacity error repro', () => {
     await page.setViewportSize({ width: 430, height: 715 })
     const errors: string[] = []
     const validations: string[] = []
-    page.on('console', m => {
+    page.on('console', (m) => {
       const t = m.text()
       if (m.type() === 'error') errors.push(t)
       if (t.includes('frame-validation') || t.includes('Bind group') || t.includes('shader')) {
@@ -25,17 +25,27 @@ test.describe('osm_style + opacity error repro', () => {
     await page.goto('/demo.html?id=osm_style&e2e=1#16/35.68/139.76/0/45', {
       waitUntil: 'domcontentloaded',
     })
-    await page.waitForFunction(() => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 30_000 })
+    await page.waitForFunction(
+      () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
+      null,
+      { timeout: 30_000 },
+    )
     await page.waitForTimeout(10000)
     await page.screenshot({ path: 'opacity-error.png', fullPage: false })
 
-    writeFileSync('opacity-error.log', JSON.stringify({
-      errors: errors.slice(0, 30),
-      validations: validations.slice(0, 30),
-      errorCount: errors.length,
-      validationCount: validations.length,
-    }, null, 2))
+    writeFileSync(
+      'opacity-error.log',
+      JSON.stringify(
+        {
+          errors: errors.slice(0, 30),
+          validations: validations.slice(0, 30),
+          errorCount: errors.length,
+          validationCount: validations.length,
+        },
+        null,
+        2,
+      ),
+    )
 
     console.log('errors:', errors.length, 'validations:', validations.length)
     if (errors.length > 0) console.log('FIRST_ERROR:', errors[0])

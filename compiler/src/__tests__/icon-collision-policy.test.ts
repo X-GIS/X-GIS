@@ -32,10 +32,15 @@ function compileLabel(layout: Record<string, unknown>): IconLabel {
   const style = {
     version: 8,
     sources: { o: { type: 'vector', tiles: ['http://x/{z}/{x}/{y}.pbf'] } },
-    layers: [{
-      id: 'q', type: 'symbol', source: 'o', 'source-layer': 't',
-      layout: { 'icon-image': 'pin', ...layout },
-    }],
+    layers: [
+      {
+        id: 'q',
+        type: 'symbol',
+        source: 'o',
+        'source-layer': 't',
+        layout: { 'icon-image': 'pin', ...layout },
+      },
+    ],
   }
   const xgis = convertMapboxStyle(style as Parameters<typeof convertMapboxStyle>[0])
   const tokens = new Lexer(xgis).tokenize()
@@ -49,10 +54,15 @@ function convertWarnings(layout: Record<string, unknown>): string[] {
   const style = {
     version: 8,
     sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-    layers: [{
-      id: 'q', type: 'symbol', source: 'v', 'source-layer': 't',
-      layout: { 'icon-image': 'pin', 'text-field': '{name}', ...layout },
-    }],
+    layers: [
+      {
+        id: 'q',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 't',
+        layout: { 'icon-image': 'pin', 'text-field': '{name}', ...layout },
+      },
+    ],
   }
   const coverage = { sources: [], layers: [], warnings: [] as string[] }
   convertMapboxStyle(style as never, { coverage })
@@ -63,10 +73,15 @@ function convertText(layout: Record<string, unknown>): string {
   const style = {
     version: 8,
     sources: { o: { type: 'vector', tiles: ['http://x/{z}/{x}/{y}.pbf'] } },
-    layers: [{
-      id: 'q', type: 'symbol', source: 'o', 'source-layer': 't',
-      layout: { 'icon-image': 'pin', ...layout },
-    }],
+    layers: [
+      {
+        id: 'q',
+        type: 'symbol',
+        source: 'o',
+        'source-layer': 't',
+        layout: { 'icon-image': 'pin', ...layout },
+      },
+    ],
   }
   return convertMapboxStyle(style as Parameters<typeof convertMapboxStyle>[0])
 }
@@ -108,14 +123,18 @@ describe('icon collision policy — converter → LabelDef IR', () => {
 
     it("icon-overlap 'cooperative' → iconCollide=true + approximation warning", () => {
       expect(compileLabel({ 'icon-overlap': 'cooperative' }).iconCollide).toBe(true)
-      const hits = convertWarnings({ 'icon-overlap': 'cooperative' }).filter(w => w.includes('icon-overlap'))
+      const hits = convertWarnings({ 'icon-overlap': 'cooperative' }).filter((w) =>
+        w.includes('icon-overlap'),
+      )
       expect(hits.length).toBe(1)
       expect(hits[0]).toContain('cooperative')
     })
 
     it("icon-overlap wins over icon-allow-overlap when both present (overlap 'always' beats allow false)", () => {
       // overlap:'always' (no collide) must override allow-overlap:false.
-      expect(compileLabel({ 'icon-overlap': 'always', 'icon-allow-overlap': false }).iconCollide).toBeUndefined()
+      expect(
+        compileLabel({ 'icon-overlap': 'always', 'icon-allow-overlap': false }).iconCollide,
+      ).toBeUndefined()
     })
   })
 

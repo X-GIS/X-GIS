@@ -11,12 +11,27 @@
 // emit helper that returns the compose pipeline's WGSL.
 
 import {
-  fn, module,
-  f32, u32, vec2, vec3, vec4, toF32, toI32,
+  fn,
+  module,
+  f32,
+  u32,
+  vec2,
+  vec3,
+  vec4,
+  toF32,
+  toI32,
   clamp,
-  textureLoad, textureDimensions, vec2i,
-  f32T, u32T, vec2fT, vec4fT, texture2dfT,
-  If, Return, type ModuleDecl,
+  textureLoad,
+  textureDimensions,
+  vec2i,
+  f32T,
+  u32T,
+  vec2fT,
+  vec4fT,
+  texture2dfT,
+  If,
+  Return,
+  type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, resource } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
@@ -36,8 +51,7 @@ const accumTex = resource('accum_tex', texture2dfT, { group: 0, binding: 0 })
 const colormap = fn('colormap', { t: f32T }, (p) => {
   const s = clamp(p.t, 0, 1)
   const r = clamp(s.mul(3).sub(0.5), 0, 1)
-  const g = clamp(s.mul(2.5), 0, 1)
-      .mul(clamp(f32(2).sub(s.mul(2)), 0, 1))
+  const g = clamp(s.mul(2.5), 0, 1).mul(clamp(f32(2).sub(s.mul(2)), 0, 1))
   const blue = clamp(f32(0.6).sub(s.mul(1.5)), 0, 1)
   Return(vec3(r, g, blue))
 })
@@ -47,18 +61,19 @@ const colormap = fn('colormap', { t: f32T }, (p) => {
 // buffer + a single triangle.
 
 const vsFull = fn(
-  'vs_full', { idx: builtin('vertex_index', u32T) },
+  'vs_full',
+  { idx: builtin('vertex_index', u32T) },
   (p) => {
     const pos = vec2(-1, -1)
-    If(p.idx.eq(1), () => { pos.assign(vec2(3, -1)) })
-      .elif(p.idx.eq(2), () => { pos.assign(vec2(-1, 3)) })
+    If(p.idx.eq(1), () => {
+      pos.assign(vec2(3, -1))
+    }).elif(p.idx.eq(2), () => {
+      pos.assign(vec2(-1, 3))
+    })
     // y-flip — texture origin top-left, NDC origin bottom-left.
     return VsOut.construct({
       pos: vec4(pos, 0, 1),
-      uv: vec2(
-        pos.x.add(1).mul(0.5),
-        f32(1).sub(pos.y.add(1).mul(0.5)),
-      ),
+      uv: vec2(pos.x.add(1).mul(0.5), f32(1).sub(pos.y.add(1).mul(0.5))),
     })
   },
   { stage: 'vertex' },
@@ -69,7 +84,8 @@ const vsFull = fn(
 // tunable in 8..32 range (label-heavy ↔ extruded-building scenes).
 
 const fsCompose = fn(
-  'fs_compose', { in: VsOut },
+  'fs_compose',
+  { in: VsOut },
   (p) => {
     const pin = p.in
     // textureDimensions returns vec2<u32>; toF32 each component for the

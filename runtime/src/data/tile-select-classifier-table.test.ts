@@ -70,7 +70,8 @@ describe('tile-select classifier table-ification — lookup equivalence', () => 
       // unchanged: ox spans the same range it did under projType 1.
       const oxValues = new Set(a.map((t) => t.ox))
       const newMax = (worldCopiesFor(PROJECTION_NAME_TO_TYPE['natural_earth'] ?? 0).length - 1) / 2
-      for (const ox of oxValues) expect(Math.abs(ox)).toBeLessThanOrEqual(newMax * Math.pow(2, zoom))
+      for (const ox of oxValues)
+        expect(Math.abs(ox)).toBeLessThanOrEqual(newMax * Math.pow(2, zoom))
     }
   })
 

@@ -1,7 +1,19 @@
 import { describe, it, expect } from 'vitest'
 import {
-  fn, bindingRef, member, arrayLit, transformMat4, vec2, vec4, f32, module,
-  structT, mat4x4fT, vec2fT, vec4fT, u32T,
+  fn,
+  bindingRef,
+  member,
+  arrayLit,
+  transformMat4,
+  vec2,
+  vec4,
+  f32,
+  module,
+  structT,
+  mat4x4fT,
+  vec2fT,
+  vec4fT,
+  u32T,
   type StructDecl,
 } from './index'
 import { builtin } from '../sot'
@@ -34,20 +46,37 @@ const FOut: StructDecl = {
 
 const u = bindingRef('u', structT('U'))
 
-const vs = fn('vs', { idx: builtin('vertex_index', u32T) }, structT('VOut'), ({ idx }, b) => {
-  const p = b.let('p', arrayLit(vec2fT,
-    vec2(f32(-1), f32(-1)), vec2(f32(1), f32(-1)), vec2(f32(0), f32(1))))
-  const local = b.let('local', p.at(idx, vec2fT).sub(member(u, 'cam', vec2fT)))
-  const out = b.var('out', structT('VOut'))
-  b.assign(member(out, 'pos', vec4fT), transformMat4(member(u, 'mvp', mat4x4fT), vec4(local, f32(0), f32(1))))
-  b.ret(out)
-}, { stage: 'vertex' })
+const vs = fn(
+  'vs',
+  { idx: builtin('vertex_index', u32T) },
+  structT('VOut'),
+  ({ idx }, b) => {
+    const p = b.let(
+      'p',
+      arrayLit(vec2fT, vec2(f32(-1), f32(-1)), vec2(f32(1), f32(-1)), vec2(f32(0), f32(1))),
+    )
+    const local = b.let('local', p.at(idx, vec2fT).sub(member(u, 'cam', vec2fT)))
+    const out = b.var('out', structT('VOut'))
+    b.assign(
+      member(out, 'pos', vec4fT),
+      transformMat4(member(u, 'mvp', mat4x4fT), vec4(local, f32(0), f32(1))),
+    )
+    b.ret(out)
+  },
+  { stage: 'vertex' },
+)
 
-const fs = fn('fs', { in: structT('VOut') }, structT('FOut'), (_p, b) => {
-  const out = b.var('out', structT('FOut'))
-  b.assign(member(out, 'color', vec4fT), member(u, 'color', vec4fT))
-  b.ret(out)
-}, { stage: 'fragment' })
+const fs = fn(
+  'fs',
+  { in: structT('VOut') },
+  structT('FOut'),
+  (_p, b) => {
+    const out = b.var('out', structT('FOut'))
+    b.assign(member(out, 'color', vec4fT), member(u, 'color', vec4fT))
+    b.ret(out)
+  },
+  { stage: 'fragment' },
+)
 
 const MOD = module({
   structs: [U, VOut, FOut],
@@ -79,12 +108,17 @@ describe('Phase-2 render-stage IR — cpu interpreter runs the vertex stage', ()
     // mvp: scale x/y by 2 (column-major diag), cam = (10, 20), color unused here.
     const mvp = [2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
     M.setBinding('u', { mvp, cam: [10, 20], color: [1, 0, 0, 1] } as unknown as never)
-    const verts: Array<[number, number]> = [[-1, -1], [1, -1], [0, 1]]
+    const verts: Array<[number, number]> = [
+      [-1, -1],
+      [1, -1],
+      [0, 1],
+    ]
     for (let idx = 0; idx < 3; idx++) {
       const out = M.fns.vs(idx) as { pos: number[] }
       const [px, py] = verts[idx]!
       // local = p[idx] - cam; pos = mvp * vec4(local, 0, 1) → scale*2 on x/y.
-      const lx = px - 10, ly = py - 20
+      const lx = px - 10,
+        ly = py - 20
       expect(out.pos[0]).toBeCloseTo(lx * 2, 6)
       expect(out.pos[1]).toBeCloseTo(ly * 2, 6)
       expect(out.pos[3]).toBeCloseTo(1, 6)

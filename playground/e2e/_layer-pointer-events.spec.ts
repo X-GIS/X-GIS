@@ -18,7 +18,8 @@ test('pointer-events:none takes a layer out of pickAt', async ({ page }) => {
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(1500)
 
@@ -28,46 +29,56 @@ test('pointer-events:none takes a layer out of pickAt', async ({ page }) => {
   })
   expect(fillId).toBeGreaterThan(0)
 
-  const sweep = async () => await page.evaluate(async () => {
-    const m = (window as { __xgisMap?: { pickAt(x: number, y: number): Promise<unknown> } }).__xgisMap!
-    const canvas = document.querySelector('#map') as HTMLCanvasElement
-    const rect = canvas.getBoundingClientRect()
-    const hits: Array<{ layerId: number; featureId: number }> = []
-    for (let iy = 1; iy <= 5; iy++) {
-      for (let ix = 1; ix <= 5; ix++) {
-        const x = rect.left + (rect.width * ix) / 6
-        const y = rect.top + (rect.height * iy) / 6
-        const r = await m.pickAt(x, y) as { featureId: number; layerId: number } | null
-        if (r) hits.push(r)
+  const sweep = async () =>
+    await page.evaluate(async () => {
+      const m = (window as { __xgisMap?: { pickAt(x: number, y: number): Promise<unknown> } })
+        .__xgisMap!
+      const canvas = document.querySelector('#map') as HTMLCanvasElement
+      const rect = canvas.getBoundingClientRect()
+      const hits: Array<{ layerId: number; featureId: number }> = []
+      for (let iy = 1; iy <= 5; iy++) {
+        for (let ix = 1; ix <= 5; ix++) {
+          const x = rect.left + (rect.width * ix) / 6
+          const y = rect.top + (rect.height * iy) / 6
+          const r = (await m.pickAt(x, y)) as { featureId: number; layerId: number } | null
+          if (r) hits.push(r)
+        }
       }
-    }
-    return hits
-  })
+      return hits
+    })
 
   // Baseline: fill layer is pickable.
   const before = await sweep()
   console.log(`[pointer-events] fillId=${fillId} before=${before.length}`)
   expect(before.length).toBeGreaterThan(0)
-  expect(before.some(h => h.layerId === fillId)).toBe(true)
+  expect(before.some((h) => h.layerId === fillId)).toBe(true)
 
   // Toggle pointer-events: none on the fill layer.
   await page.evaluate(() => {
-    const m = (window as { __xgisMap?: { getLayer(n: string): { style: { pointerEvents: string } } | null } }).__xgisMap!
+    const m = (
+      window as { __xgisMap?: { getLayer(n: string): { style: { pointerEvents: string } } | null } }
+    ).__xgisMap!
     m.getLayer('fill')!.style.pointerEvents = 'none'
   })
   await page.waitForTimeout(500)
   const off = await sweep()
-  console.log(`[pointer-events] off=${off.length}, fill hits=${off.filter(h => h.layerId === fillId).length}`)
+  console.log(
+    `[pointer-events] off=${off.length}, fill hits=${off.filter((h) => h.layerId === fillId).length}`,
+  )
   // Fill layer's pickId no longer lands in the pick texture.
-  expect(off.some(h => h.layerId === fillId)).toBe(false)
+  expect(off.some((h) => h.layerId === fillId)).toBe(false)
 
   // Toggle back to 'auto' → fill becomes pickable again.
   await page.evaluate(() => {
-    const m = (window as { __xgisMap?: { getLayer(n: string): { style: { pointerEvents: string } } | null } }).__xgisMap!
+    const m = (
+      window as { __xgisMap?: { getLayer(n: string): { style: { pointerEvents: string } } | null } }
+    ).__xgisMap!
     m.getLayer('fill')!.style.pointerEvents = 'auto'
   })
   await page.waitForTimeout(500)
   const restored = await sweep()
-  console.log(`[pointer-events] restored=${restored.length}, fill hits=${restored.filter(h => h.layerId === fillId).length}`)
-  expect(restored.some(h => h.layerId === fillId)).toBe(true)
+  console.log(
+    `[pointer-events] restored=${restored.length}, fill hits=${restored.filter((h) => h.layerId === fillId).length}`,
+  )
+  expect(restored.some((h) => h.layerId === fillId)).toBe(true)
 })

@@ -44,7 +44,10 @@ const B = 0x42
 describe('GlyphAtlasHost: a late-landed glyph upgrades on the next ensureString', () => {
   it('invalidate() bumps generation so ensureString re-rasterises the PBF-upgraded glyph', () => {
     const ras = new FlipRasterizer()
-    const host = new GlyphAtlasHost({ slotSize: 64, pageSize: 256 }, ras, { fontSize: 24, sdfRadius: 8 })
+    const host = new GlyphAtlasHost({ slotSize: 64, pageSize: 256 }, ras, {
+      fontSize: 24,
+      sdfRadius: 8,
+    })
 
     // First shape — PBF range not landed yet → zero-SDF fallback.
     const first = host.ensureString(FONT, 'A')
@@ -59,7 +62,9 @@ describe('GlyphAtlasHost: a late-landed glyph upgrades on the next ensureString'
     ras.real = true
     const genBefore = host.getGeneration()
     host.invalidate(FONT, A)
-    expect(host.getGeneration(), 'invalidate must bump generation so the string caches miss').toBe(genBefore + 1)
+    expect(host.getGeneration(), 'invalidate must bump generation so the string caches miss').toBe(
+      genBefore + 1,
+    )
 
     // The next ensureString MUST re-rasterise (upgrade), not serve the stale
     // fallback array. This is the bug: without the generation bump the string
@@ -75,7 +80,10 @@ describe('GlyphAtlasHost: a late-landed glyph upgrades on the next ensureString'
     // source AFTER labels were shaped with the fallback. invalidateAll() must bump
     // generation + mark all stale so every glyph re-rasterises through the new chain.
     const ras = new FlipRasterizer()
-    const host = new GlyphAtlasHost({ slotSize: 64, pageSize: 256 }, ras, { fontSize: 24, sdfRadius: 8 })
+    const host = new GlyphAtlasHost({ slotSize: 64, pageSize: 256 }, ras, {
+      fontSize: 24,
+      sdfRadius: 8,
+    })
 
     const first = host.ensureString(FONT, 'AB')
     expect(first.every((g) => !g.pbf)).toBe(true)
@@ -89,7 +97,10 @@ describe('GlyphAtlasHost: a late-landed glyph upgrades on the next ensureString'
     expect(host.getGeneration(), 'invalidateAll must bump generation').toBe(gen + 1)
 
     const upgraded = host.ensureString(FONT, 'AB')
-    expect(upgraded.every((g) => g.pbf), 'every fallback glyph must upgrade after invalidateAll').toBe(true)
+    expect(
+      upgraded.every((g) => g.pbf),
+      'every fallback glyph must upgrade after invalidateAll',
+    ).toBe(true)
     expect(ras.calls.get(A)).toBe(2)
     expect(ras.calls.get(B)).toBe(2)
   })

@@ -61,11 +61,13 @@ import type { GeoJSONFeatureCollection } from '../geojson-types'
 function makeFC(): GeoJSONFeatureCollection {
   return {
     type: 'FeatureCollection',
-    features: [{
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [0, 0] },
-      properties: {},
-    }],
+    features: [
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [0, 0] },
+        properties: {},
+      },
+    ],
   }
 }
 
@@ -117,13 +119,21 @@ describe('GeoJSONCompilePool — per-worker error isolation (#323 sibling)', () 
 
     // Each worker received exactly one posted compile; map worker -> its taskId.
     for (const w of FakeWorker.instances) expect(w.postedMessages.length).toBe(1)
-    const taskIdOf = FakeWorker.instances.map(w => w.postedMessages[0].taskId!)
+    const taskIdOf = FakeWorker.instances.map((w) => w.postedMessages[0].taskId!)
     // All four taskIds distinct (no collision).
     expect(new Set(taskIdOf).size).toBe(4)
 
     // Track which survivor jobs reject (they must NOT when worker 0 crashes).
     const rejected = [false, false, false, false]
-    jobs.forEach((p, i) => void p.then(() => {}, () => { rejected[i] = true }))
+    jobs.forEach(
+      (p, i) =>
+        void p.then(
+          () => {},
+          () => {
+            rejected[i] = true
+          },
+        ),
+    )
 
     // Crash ONLY worker 0.
     FakeWorker.instances[0].emit('error', { message: 'worker0 crashed' })

@@ -69,10 +69,12 @@ function xgisAlphaOld(perpDev: number, w: number, dpr: number, blur: number): nu
 // Numerically integrate a coverage profile in DEVICE px → (integratedWidth, w50, outerWidth).
 function coverageDev(
   fn: (perpDev: number, w: number, dpr: number, blur: number) => number,
-  w: number, dpr: number, blur: number,
+  w: number,
+  dpr: number,
+  blur: number,
 ): { integ: number; w50: number; outer: number } {
   const N = 40001
-  const xmax = (Math.max(8, w + 6)) * dpr
+  const xmax = Math.max(8, w + 6) * dpr
   let integ = 0
   let w50 = 0
   let outer = 0
@@ -81,7 +83,7 @@ function coverageDev(
   for (let i = 1; i < N; i++) {
     const x = (i * xmax) / (N - 1)
     const a = fn(x, w, dpr, blur)
-    integ += ((prevA + a) * 0.5) * (x - prevX)
+    integ += (prevA + a) * 0.5 * (x - prevX)
     if (a >= 0.5) w50 = x
     if (a >= 0.01) outer = x
     prevX = x

@@ -26,11 +26,21 @@ const { FakeWorker } = vi.hoisted(() => {
     listeners: Record<string, Listener[]> = {}
     postedMessages: unknown[] = []
     terminated = false
-    constructor(_opts?: unknown) { FakeWorker.instances.push(this) }
-    addEventListener(type: string, fn: Listener): void { (this.listeners[type] ??= []).push(fn) }
-    postMessage(msg: unknown): void { this.postedMessages.push(msg) }
-    terminate(): void { this.terminated = true }
-    emit(type: string, event: unknown): void { for (const fn of this.listeners[type] ?? []) fn(event) }
+    constructor(_opts?: unknown) {
+      FakeWorker.instances.push(this)
+    }
+    addEventListener(type: string, fn: Listener): void {
+      ;(this.listeners[type] ??= []).push(fn)
+    }
+    postMessage(msg: unknown): void {
+      this.postedMessages.push(msg)
+    }
+    terminate(): void {
+      this.terminated = true
+    }
+    emit(type: string, event: unknown): void {
+      for (const fn of this.listeners[type] ?? []) fn(event)
+    }
   }
   return { FakeWorker }
 })

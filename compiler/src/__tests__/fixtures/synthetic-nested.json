@@ -14,25 +14,21 @@
       "source": "test-vector",
       "source-layer": "roads",
       "paint": {
-        "line-width": [
-          "interpolate", ["linear"], ["zoom"],
-          5, 1,
-          10, 2,
-          15, 4
-        ],
+        "line-width": ["interpolate", ["linear"], ["zoom"], 5, 1, 10, 2, 15, 4],
         "line-color": [
           "case",
           ["==", ["get", "kind"], "motorway"],
-            ["interpolate", ["linear"], ["zoom"], 5, "#ff8800", 15, "#ffaa44"],
+          ["interpolate", ["linear"], ["zoom"], 5, "#ff8800", 15, "#ffaa44"],
           ["==", ["get", "kind"], "trunk"],
-            ["interpolate", ["linear"], ["zoom"], 5, "#cc6600", 15, "#dd8822"],
+          ["interpolate", ["linear"], ["zoom"], 5, "#cc6600", 15, "#dd8822"],
           "#888"
         ]
       },
       "filter": [
         "all",
         ["==", ["get", "$type"], "LineString"],
-        ["any",
+        [
+          "any",
           ["in", ["get", "kind"], ["literal", ["motorway", "trunk", "primary"]]],
           ["==", ["get", "highway"], true]
         ]
@@ -44,11 +40,7 @@
       "source": "test-vector",
       "source-layer": "places",
       "paint": {
-        "circle-radius": [
-          "let",
-          "base", ["get", "rank"],
-          ["+", ["var", "base"], 2]
-        ]
+        "circle-radius": ["let", "base", ["get", "rank"], ["+", ["var", "base"], 2]]
       }
     },
     {
@@ -59,16 +51,14 @@
       "layout": {
         "text-field": [
           "format",
-          ["get", "name"], {},
-          " ", {},
-          ["get", "name_en"], { "font-scale": 0.8 }
+          ["get", "name"],
+          {},
+          " ",
+          {},
+          ["get", "name_en"],
+          { "font-scale": 0.8 }
         ],
-        "text-size": [
-          "interpolate", ["linear"], ["zoom"],
-          5, 10,
-          10, 14,
-          15, 18
-        ]
+        "text-size": ["interpolate", ["linear"], ["zoom"], 5, 10, 10, 14, 15, 18]
       }
     },
     {
@@ -77,13 +67,7 @@
       "source": "test-vector",
       "source-layer": "boundaries",
       "paint": {
-        "line-width": [
-          "step", ["zoom"],
-          0.5,
-          5, 1,
-          10, 1.5,
-          15, 2
-        ],
+        "line-width": ["step", ["zoom"], 0.5, 5, 1, 10, 1.5, 15, 2],
         "line-color": "#888"
       }
     },
@@ -94,11 +78,7 @@
       "source-layer": "transportation",
       "paint": {
         "line-color": "#444",
-        "line-width": [
-          "interpolate", ["cubic-bezier", 0.42, 0, 0.58, 1], ["zoom"],
-          5, 0.5,
-          15, 4
-        ]
+        "line-width": ["interpolate", ["cubic-bezier", 0.42, 0, 0.58, 1], ["zoom"], 5, 0.5, 15, 4]
       }
     },
     {
@@ -107,11 +87,7 @@
       "source": "test-vector",
       "source-layer": "landuse",
       "paint": {
-        "fill-color": [
-          "interpolate-lab", ["linear"], ["zoom"],
-          5, "#ffffff",
-          15, "#222222"
-        ]
+        "fill-color": ["interpolate-lab", ["linear"], ["zoom"], 5, "#ffffff", 15, "#222222"]
       }
     }
   ]

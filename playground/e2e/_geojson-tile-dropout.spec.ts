@@ -33,17 +33,19 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const ART = join(HERE, '__geojson-tile-dropout__')
 mkdirSync(ART, { recursive: true })
 
-test.skip('GeoJSON ocean tiles render contiguously at z=7 near Korea (Yellow Sea)', async ({ page }) => {
+test.skip('GeoJSON ocean tiles render contiguously at z=7 near Korea (Yellow Sea)', async ({
+  page,
+}) => {
   test.setTimeout(60_000)
   await page.setViewportSize({ width: 900, height: 1200 })
 
-  await page.goto(
-    '/demo.html?id=styled_world#7.06/37.13808/126.52451/352.4/8.7',
-    { waitUntil: 'domcontentloaded' },
-  )
+  await page.goto('/demo.html?id=styled_world#7.06/37.13808/126.52451/352.4/8.7', {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // Generous settle for the in-memory tile compile cascade.
   await page.waitForTimeout(4_000)
@@ -56,24 +58,27 @@ test.skip('GeoJSON ocean tiles render contiguously at z=7 near Korea (Yellow Sea
   // area; on a healthy render the ocean fill dominates.
   const stats = await page.evaluate(async () => {
     const canvas = document.querySelector('canvas')!
-    const blob = await new Promise<Blob | null>((res) =>
-      canvas.toBlob((b) => res(b), 'image/png'),
-    )
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob((b) => res(b), 'image/png'))
     if (!blob) return { error: 'no blob' }
     const buf = await blob.arrayBuffer()
     const img = new Image()
     img.src = URL.createObjectURL(new Blob([buf], { type: 'image/png' }))
     await new Promise<void>((res, rej) => {
-      img.onload = () => res(); img.onerror = () => rej(new Error('decode'))
+      img.onload = () => res()
+      img.onerror = () => rej(new Error('decode'))
     })
     const off = new OffscreenCanvas(img.width, img.height)
     const ctx = off.getContext('2d')!
     ctx.drawImage(img, 0, 0)
     const data = ctx.getImageData(0, 0, img.width, img.height).data
-    let oceanBlue = 0, darkGap = 0, total = 0
+    let oceanBlue = 0,
+      darkGap = 0,
+      total = 0
     for (let i = 0; i < data.length; i += 4) {
       total++
-      const r = data[i], g = data[i + 1], b = data[i + 2]
+      const r = data[i],
+        g = data[i + 1],
+        b = data[i + 2]
       // sky-950 #082f49 — wide tolerance for GPU blending.
       if (r < 40 && g >= 35 && g <= 80 && b >= 60 && b <= 100) oceanBlue++
       // background gap — near-black slate.

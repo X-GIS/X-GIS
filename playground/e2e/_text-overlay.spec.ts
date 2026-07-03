@@ -25,13 +25,16 @@ test('text overlay: SDF labels render at city anchors', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
 
   const errors: string[] = []
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(m.text())
+  })
   page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`))
 
   await page.goto('/examples/text-overlay.html', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 20_000 },
+    null,
+    { timeout: 20_000 },
   )
   // Allow a few frames for the atlas worker to bake glyphs + the
   // text pass to upload them.
@@ -51,14 +54,13 @@ test('text overlay: SDF labels render at city anchors', async ({ page }) => {
   // pure 255.
   const stats = await page.evaluate(async () => {
     const canvas = document.getElementById('map') as HTMLCanvasElement
-    const blob = await new Promise<Blob | null>((res) =>
-      canvas.toBlob((b) => res(b), 'image/png'),
-    )
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob((b) => res(b), 'image/png'))
     if (!blob) return { error: 'no blob' }
     const url = URL.createObjectURL(blob)
     const img = await new Promise<HTMLImageElement>((res, rej) => {
       const i = new Image()
-      i.onload = () => res(i); i.onerror = () => rej(new Error('decode'))
+      i.onload = () => res(i)
+      i.onerror = () => rej(new Error('decode'))
       i.src = url
     })
     const off = new OffscreenCanvas(img.width, img.height)
@@ -71,7 +73,9 @@ test('text overlay: SDF labels render at city anchors', async ({ page }) => {
     let total = 0
     for (let i = 0; i < data.length; i += 4) {
       total++
-      const r = data[i], g = data[i + 1], b = data[i + 2]
+      const r = data[i],
+        g = data[i + 1],
+        b = data[i + 2]
       if (r >= 250 && g >= 250 && b >= 250) pureWhite++
       else if (r <= 30 && g <= 30 && b <= 30) nearBlack++
     }
@@ -90,7 +94,8 @@ test('text overlay: SDF labels render at city anchors', async ({ page }) => {
   // is a deliberately low floor — even one rendered city label
   // produces hundreds; the floor catches "shader compiled but
   // wrote nothing" without flaking on minor dpr / font variations.
-  expect(stats.pureWhite,
+  expect(
+    stats.pureWhite,
     `expected white text pixels (got ${stats.pureWhite}/${stats.total})`,
   ).toBeGreaterThan(50)
 
@@ -98,10 +103,11 @@ test('text overlay: SDF labels render at city anchors', async ({ page }) => {
   // popErrorScope reporters call console.error. The 404 below is
   // the unrelated countries.geojson — labels still land at correct
   // lon/lat without a base map, so the test isn't blocked by it.
-  const gpuErrors = errors.filter(e =>
-    !e.includes('favicon') &&
-    !e.includes('Failed to load resource') &&
-    !e.includes('countries.geojson'),
+  const gpuErrors = errors.filter(
+    (e) =>
+      !e.includes('favicon') &&
+      !e.includes('Failed to load resource') &&
+      !e.includes('countries.geojson'),
   )
   expect(gpuErrors, 'no GPU validation errors').toEqual([])
 })

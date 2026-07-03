@@ -213,7 +213,9 @@ interface OracleRun {
 function runOracleB(): OracleRun {
   try {
     rmSync(`${REPO}/playground/node_modules/.vite`, { recursive: true, force: true })
-  } catch { /* cache may not exist yet — fine */ }
+  } catch {
+    /* cache may not exist yet — fine */
+  }
   // Run the FULL suite (all CASES), NOT --grep=PARSE_CASE. Some defects are
   // invisible at the europe parse-frame yet catastrophic on another case: the
   // antimeridian seam-tear ([170,10]→[-170,10] crosser) is OFF-SCREEN at
@@ -222,24 +224,18 @@ function runOracleB(): OracleRun {
   // frames rose. "Caught" = the suite as a whole goes red (res.status≠0), so
   // ANY case's gate failing counts. PARSE_CASE is still used below to parse the
   // europe numbers for the human-readable baseline/mutated report only.
-  const res = spawnSync(
-    'bunx',
-    ['playwright', 'test', SPEC, '--project=chromium'],
-    {
-      cwd: `${REPO}/playground`,
-      env: { ...process.env, HEADED: '1' },
-      encoding: 'utf8',
-      shell: process.platform === 'win32',
-      timeout: 6 * 60_000,
-    },
-  )
+  const res = spawnSync('bunx', ['playwright', 'test', SPEC, '--project=chromium'], {
+    cwd: `${REPO}/playground`,
+    env: { ...process.env, HEADED: '1' },
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+    timeout: 6 * 60_000,
+  })
   const out = `${res.stdout ?? ''}\n${res.stderr ?? ''}`
   // Parse the spec's own log line, e.g.
   //   "[oracle-B] mercator-europe  drawCalls=18  mismatch=0.789%  numericMaxErr=4.128e-5px …"
   // Pin to PARSE_CASE; allow ANY fields between the case name and each metric.
-  const pm = out.match(
-    new RegExp(`\\[oracle-B\\]\\s+${PARSE_CASE}\\b[^\\n]*?mismatch=([\\d.]+)%`),
-  )
+  const pm = out.match(new RegExp(`\\[oracle-B\\]\\s+${PARSE_CASE}\\b[^\\n]*?mismatch=([\\d.]+)%`))
   const nm = out.match(
     new RegExp(`\\[oracle-B\\]\\s+${PARSE_CASE}\\b[^\\n]*?numericMaxErr=([\\d.eE+-]+)px`),
   )
@@ -269,25 +265,27 @@ function evaluate(): MutationResult[] {
   if (base.ratio === null) {
     throw new Error(
       '[evaluator] baseline not green, cannot evaluate: ' +
-      'Oracle-B produced no parseable mismatch line — ' +
-      'check that the spec ran and the map rendered.\n' +
-      '──── last 1200 chars of the Oracle-B run output ────\n' +
-      base.raw.slice(-1200),
+        'Oracle-B produced no parseable mismatch line — ' +
+        'check that the spec ran and the map rendered.\n' +
+        '──── last 1200 chars of the Oracle-B run output ────\n' +
+        base.raw.slice(-1200),
     )
   }
   if (!base.passed || base.ratio >= PIXEL_MISMATCH_MAX) {
     throw new Error(
       `[evaluator] baseline not green, cannot evaluate: baseline ` +
-      `${base.passed ? 'passed but mismatch' : 'FAILED its own gate ('} ` +
-      `${(base.ratio * 100).toFixed(3)}%${base.passed ? '' : `, numericErr=${base.numericErr}px)`}` +
-      ` >= gate ${(PIXEL_MISMATCH_MAX * 100).toFixed(0)}%. ` +
-      `Fix the render harness before running mutation evaluation.\n` +
-      base.raw.slice(-1000),
+        `${base.passed ? 'passed but mismatch' : 'FAILED its own gate ('} ` +
+        `${(base.ratio * 100).toFixed(3)}%${base.passed ? '' : `, numericErr=${base.numericErr}px)`}` +
+        ` >= gate ${(PIXEL_MISMATCH_MAX * 100).toFixed(0)}%. ` +
+        `Fix the render harness before running mutation evaluation.\n` +
+        base.raw.slice(-1000),
     )
   }
 
   // eslint-disable-next-line no-console
-  console.log(`[evaluator] baseline GREEN — mismatch=${(base.ratio * 100).toFixed(3)}% numericErr=${base.numericErr}px (gate passed)`)
+  console.log(
+    `[evaluator] baseline GREEN — mismatch=${(base.ratio * 100).toFixed(3)}% numericErr=${base.numericErr}px (gate passed)`,
+  )
 
   const results: MutationResult[] = []
 
@@ -297,11 +295,16 @@ function evaluate(): MutationResult[] {
     if (!original.includes(mut.find)) {
       throw new Error(
         `[evaluator] mutation "${mut.name}": find-string not present in ${mut.file} — ` +
-        `the constant moved; update the mutation.`,
+          `the constant moved; update the mutation.`,
       )
     }
-    const restore = (): void => { writeFileSync(path, original, 'utf8') }
-    const onSig = (): void => { restore(); process.exit(130) }
+    const restore = (): void => {
+      writeFileSync(path, original, 'utf8')
+    }
+    const onSig = (): void => {
+      restore()
+      process.exit(130)
+    }
     process.once('SIGINT', onSig)
 
     let mutated: OracleRun = { ratio: null, numericErr: null, passed: false, raw: '' }
@@ -340,10 +343,10 @@ function evaluate(): MutationResult[] {
     // eslint-disable-next-line no-console
     console.log(
       `[evaluator] ${mut.name}: ` +
-      `baseline{mismatch=${(base.ratio * 100).toFixed(3)}%, numericErr=${base.numericErr}px, PASS} → ` +
-      `mutated{mismatch=${mutated.ratio !== null ? (mutated.ratio * 100).toFixed(3) + '%' : 'n/a'}, ` +
-      `numericErr=${mutated.numericErr ?? 'n/a'}px, ${mutated.passed ? 'PASS' : 'FAIL'}} ` +
-      `→ ${caught ? 'CAUGHT' : 'MISSED'}`,
+        `baseline{mismatch=${(base.ratio * 100).toFixed(3)}%, numericErr=${base.numericErr}px, PASS} → ` +
+        `mutated{mismatch=${mutated.ratio !== null ? (mutated.ratio * 100).toFixed(3) + '%' : 'n/a'}, ` +
+        `numericErr=${mutated.numericErr ?? 'n/a'}px, ${mutated.passed ? 'PASS' : 'FAIL'}} ` +
+        `→ ${caught ? 'CAUGHT' : 'MISSED'}`,
     )
   }
 
@@ -370,10 +373,14 @@ function main(): void {
   }
   if (outOfScope.length > 0) {
     // eslint-disable-next-line no-console
-    console.log(`[evaluator] documented out-of-scope (excluded from catch-rate): ${outOfScope.length}`)
+    console.log(
+      `[evaluator] documented out-of-scope (excluded from catch-rate): ${outOfScope.length}`,
+    )
     for (const r of outOfScope) {
       // eslint-disable-next-line no-console
-      console.log(`  - ⊘ ${r.name}${r.caught ? ' (unexpectedly CAUGHT)' : ''}\n      reason: ${r.outOfScope}`)
+      console.log(
+        `  - ⊘ ${r.name}${r.caught ? ' (unexpectedly CAUGHT)' : ''}\n      reason: ${r.outOfScope}`,
+      )
     }
   }
   // Exit 0 IFF every in-scope mutation is caught. An out-of-scope mutation

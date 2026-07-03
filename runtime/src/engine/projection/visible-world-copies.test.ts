@@ -8,14 +8,17 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/engine'
 
-const W = 800, H = 600, DPR = 1
+const W = 800,
+  H = 600,
+  DPR = 1
 
 function camAt(zoom: number, lon: number, lat: number, pitch = 0, bearing = 0): Camera {
   const c = new Camera()
   // lonLatToMercator inline (avoids a depender import).
-  const R = 6378137, DEG2RAD = Math.PI / 180
+  const R = 6378137,
+    DEG2RAD = Math.PI / 180
   c.centerX = lon * DEG2RAD * R
-  c.centerY = Math.log(Math.tan(Math.PI / 4 + lat * DEG2RAD / 2)) * R
+  c.centerY = Math.log(Math.tan(Math.PI / 4 + (lat * DEG2RAD) / 2)) * R
   c.zoom = zoom
   c.pitch = pitch
   c.bearing = bearing
@@ -105,7 +108,7 @@ describe('Camera.getVisibleWorldCopies — iter-189 root fix', () => {
   it('cache invalidates on camera move', () => {
     const c = camAt(0, 0, 0, 30, 0)
     c.getVisibleWorldCopies(W, H, DPR) // warm cache
-    c.centerX += 1000  // move camera
+    c.centerX += 1000 // move camera
     const v2 = c.getVisibleWorldCopies(W, H, DPR)
     // identity may match or not (offsets could be same), but the
     // method must NOT have returned the stale cached array under

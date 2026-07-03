@@ -68,19 +68,24 @@ function isPolyArenaUAF(text: string): boolean {
 async function waitForXgisReady(page: Page): Promise<void> {
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: READY_TIMEOUT_MS },
+    null,
+    { timeout: READY_TIMEOUT_MS },
   )
 }
 
 test.describe.configure({ mode: 'serial' })
 
 for (const proj of DISC_PROJECTIONS) {
-  test(`disc-arena-uaf: no "used in submit while destroyed" switching into ${proj}`, async ({ page }) => {
+  test(`disc-arena-uaf: no "used in submit while destroyed" switching into ${proj}`, async ({
+    page,
+  }) => {
     test.setTimeout(2 * 60_000)
     await page.setViewportSize({ width: 1024, height: 768 })
 
     const uafErrors: string[] = []
-    page.on('pageerror', (e) => { if (isPolyArenaUAF(e.message)) uafErrors.push(`[pageerror] ${e.message}`) })
+    page.on('pageerror', (e) => {
+      if (isPolyArenaUAF(e.message)) uafErrors.push(`[pageerror] ${e.message}`)
+    })
     page.on('console', (m) => {
       if (m.type() === 'error' && isPolyArenaUAF(m.text())) uafErrors.push(m.text())
     })
@@ -91,20 +96,26 @@ for (const proj of DISC_PROJECTIONS) {
       // default), so the ?proj override is the band-crossing setProjection
       // that tears down the synthetic VTR while its z0 upload may still be
       // suspended on mapAsync — the exact repro.
-      await page.goto(
-        `/demo.html?id=fixture_synth_bg_only&e2e=1&proj=${proj}#0/0/0/0/0`,
-        { waitUntil: 'domcontentloaded', timeout: 60_000 },
-      )
+      await page.goto(`/demo.html?id=fixture_synth_bg_only&e2e=1&proj=${proj}#0/0/0/0/0`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60_000,
+      })
       await waitForXgisReady(page)
 
       // Pump several rAFs so any in-flight upload's submit (or its skipped
       // submit, post-fix) and the next frames land — the validation error,
       // if any, fires on the upload coroutine resuming after teardown.
-      await page.evaluate(() => new Promise<void>((r) => {
-        let n = 0
-        const loop = () => { if (++n >= 12) r(); else requestAnimationFrame(loop) }
-        requestAnimationFrame(loop)
-      }))
+      await page.evaluate(
+        () =>
+          new Promise<void>((r) => {
+            let n = 0
+            const loop = () => {
+              if (++n >= 12) r()
+              else requestAnimationFrame(loop)
+            }
+            requestAnimationFrame(loop)
+          }),
+      )
       await page.waitForTimeout(250) // let the async upload's microtask settle
     }
 
@@ -117,8 +128,8 @@ for (const proj of DISC_PROJECTIONS) {
     expect(
       uafErrors,
       `poly-arena "used in submit while destroyed" fired switching mercator → ${proj} ` +
-      `(${ITERATIONS} iterations). The synthetic VTR's async z0 upload submitted into a ` +
-      `destroyed poly-vertex/index arena — destroy→submit ordering regressed.`,
+        `(${ITERATIONS} iterations). The synthetic VTR's async z0 upload submitted into a ` +
+        `destroyed poly-vertex/index arena — destroy→submit ordering regressed.`,
     ).toEqual([])
   })
 }

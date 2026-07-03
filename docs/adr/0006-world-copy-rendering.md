@@ -29,7 +29,7 @@ The eight projTypes (see `projections-table.ts`, the single source of
 truth) fall into three world-wrap classes:
 
 | projType | name                | wrap class                |
-|----------|---------------------|---------------------------|
+| -------- | ------------------- | ------------------------- |
 | 0        | mercator            | flat cylindrical (tight)  |
 | 1        | equirectangular     | flat cylindrical (static) |
 | 2        | natural_earth       | flat cylindrical (static) |
@@ -70,7 +70,7 @@ emits:
 // camera.ts:879-883
 if (this.projType !== 0) {
   return enumerateWorldCopies(this.projType, this.zoom)
-    ? worldCopiesFor(this.projType)   // WORLD_COPIES = [-2,-1,0,1,2]
+    ? worldCopiesFor(this.projType) // WORLD_COPIES = [-2,-1,0,1,2]
     : [0]
 }
 ```
@@ -115,12 +115,12 @@ a small contiguous range like `[-1, 0]`.
 
 ## Consumers (the three pipelines that must agree)
 
-| Pipeline        | Site                                                              | Copy source |
-|-----------------|------------------------------------------------------------------|-------------|
-| Tile fetch      | `loader/tiles-sse.ts`, `data/tile-select*.ts`                    | `worldCopiesFor` / `enumerateWorldCopies` |
-| GPU fill/line   | `render/vector-tile-renderer.ts` (per-copy `worldOff` pack)      | `ctx.visibleWorldCopies` / table predicates |
-| Raster draw     | `render/raster-renderer.ts:293-295`                              | `getVisibleWorldCopies` (Merc) else `[0]` |
-| CPU labels      | `render/passes/label-pass.ts:189-190`                            | `getVisibleWorldCopies` → `ctx.visibleWorldCopies` |
+| Pipeline      | Site                                                        | Copy source                                        |
+| ------------- | ----------------------------------------------------------- | -------------------------------------------------- |
+| Tile fetch    | `loader/tiles-sse.ts`, `data/tile-select*.ts`               | `worldCopiesFor` / `enumerateWorldCopies`          |
+| GPU fill/line | `render/vector-tile-renderer.ts` (per-copy `worldOff` pack) | `ctx.visibleWorldCopies` / table predicates        |
+| Raster draw   | `render/raster-renderer.ts:293-295`                         | `getVisibleWorldCopies` (Merc) else `[0]`          |
+| CPU labels    | `render/passes/label-pass.ts:189-190`                       | `getVisibleWorldCopies` → `ctx.visibleWorldCopies` |
 
 `label-pass.ts` calls `getVisibleWorldCopies` and writes the result to
 `ctx.visibleWorldCopies` (`frame-context.ts:58-62`), which the
@@ -131,7 +131,7 @@ label fan-out and the GPU draw enumeration share one array per frame
 ## The gotcha: the flat-Mercator polygon FILL arm must explicitly ADD `world_off_m` (bug #212)
 
 Enumerating the right copy set is necessary but not sufficient — each
-GPU arm must also *honour* the offset when it transforms a vertex.
+GPU arm must also _honour_ the offset when it transforms a vertex.
 
 The flat-Mercator polygon **FILL** arm
 (`shader-dsl/shaders/polygon.ts`, `emitPolygonProjectionLadder`,
@@ -169,7 +169,7 @@ synthetic background band (the bg band flows through the same fill arm).
 **Why the LINE arm survived.** The line shader's `finalize_corner`
 (`shader-dsl/shaders/line.ts:234-247`) reconstructs absolute lon/lat
 from the tile-local Mercator corner (`corner + tile_origin_merc`, which
-*carries* `worldOff`) and reprojects via `flat_rel` — so its offset was
+_carries_ `worldOff`) and reprojects via `flat_rel` — so its offset was
 never cancelled. The non-Mercator polygon sibling
 (`polygon.ts:271-278`) likewise reprojects through `flat_rel`
 (world-copy-aware via `tileRefLon`) and was unaffected.

@@ -19,33 +19,45 @@ const vec3T: ShaderType = { kind: 'vec', n: 3, elem: 'f32' } as ShaderType
  *  still be correct or loud on it). */
 const matBinFn = (name: string, aT: ShaderType, bT: ShaderType, retT: ShaderType): FuncDecl => ({
   name,
-  params: [{ name: 'a', type: aT }, { name: 'b', type: bT }],
+  params: [
+    { name: 'a', type: aT },
+    { name: 'b', type: bT },
+  ],
   ret: retT,
-  body: [{
-    s: 'return',
-    expr: {
-      op: 'binop', bop: '*', type: retT,
-      a: { op: 'param', type: aT, name: 'a' },
-      b: { op: 'param', type: bT, name: 'b' },
-    },
-  } as unknown as Stmt],
+  body: [
+    {
+      s: 'return',
+      expr: {
+        op: 'binop',
+        bop: '*',
+        type: retT,
+        a: { op: 'param', type: aT, name: 'a' },
+        b: { op: 'param', type: bT, name: 'b' },
+      },
+    } as unknown as Stmt,
+  ],
 })
 
 describe('#763 O — oracle backend parity', () => {
   it('O1: pow / fract / unpack4x8unorm / bitcastU32 evaluate on the CPU', () => {
     const f = fn('o1', { x: f32T }, ({ x }) => {
-      const p = pow(x, f32(10))            // 2^10 = 1024
-      const fr = fract(f32(1.25))          // 0.25
+      const p = pow(x, f32(10)) // 2^10 = 1024
+      const fr = fract(f32(1.25)) // 0.25
       const rt = unpack4x8unorm(pack4x8unorm(vec4(1, 0, 0.5, 1)))
-      const bc = bitcastU32(f32(1))        // 0x3f800000
-      return vec4(p, fr, rt.z.mul(255), bitcastU32(f32(0)).add(bc).bitAnd(bc).eq(bc).select(f32(1), f32(0)))
+      const bc = bitcastU32(f32(1)) // 0x3f800000
+      return vec4(
+        p,
+        fr,
+        rt.z.mul(255),
+        bitcastU32(f32(0)).add(bc).bitAnd(bc).eq(bc).select(f32(1), f32(0)),
+      )
     })
     const m = compileModule(module({ funcs: [f] }))
     const out = m.fns['o1']!(2) as number[]
     expect(out[0]).toBe(1024)
     expect(out[1]).toBeCloseTo(0.25, 12)
     expect(out[2]).toBeCloseTo(128, 6) // 0.5 → byte 128 → *255/255
-    expect(out[3]).toBe(1)             // bitcastU32(1.0) === 0x3f800000 path exercised
+    expect(out[3]).toBe(1) // bitcastU32(1.0) === 0x3f800000 path exercised
   })
 
   it('O2: mat3 × vec3 is dimension-correct (the mat4-hardcoded form returned NaN)', () => {
@@ -59,11 +71,11 @@ describe('#763 O — oracle backend parity', () => {
 
   it('O2: mat × mat and vec × mat fail LOUD instead of element-wise-wrong', () => {
     const mm = compileModule(module({ funcs: [matBinFn('o2mm', mat3T, mat3T, mat3T)] }))
-    expect(() => mm.fns['o2mm']!([1, 0, 0, 0, 1, 0, 0, 0, 1], [1, 0, 0, 0, 1, 0, 0, 0, 1]))
-      .toThrow(/mat\*mat is not implemented/)
+    expect(() => mm.fns['o2mm']!([1, 0, 0, 0, 1, 0, 0, 0, 1], [1, 0, 0, 0, 1, 0, 0, 0, 1])).toThrow(
+      /mat\*mat is not implemented/,
+    )
     const vm = compileModule(module({ funcs: [matBinFn('o2vm', vec3T, mat3T, vec3T)] }))
-    expect(() => vm.fns['o2vm']!([1, 2, 3], [1, 0, 0, 0, 1, 0, 0, 0, 1]))
-      .toThrow(/vec\*mat/)
+    expect(() => vm.fns['o2vm']!([1, 2, 3], [1, 0, 0, 0, 1, 0, 0, 0, 1])).toThrow(/vec\*mat/)
   })
 
   it('O3: GPU-only stubs throw by default, return placeholders only under opt-in', () => {
@@ -77,10 +89,17 @@ describe('#763 O — oracle backend parity', () => {
         { name: 'uv', type: vec2fT },
       ],
       ret: vec4fT,
-      body: [{
-        s: 'return',
-        expr: { op: 'call', fn: 'textureSample', type: vec4fT, args: [tex, smp, { op: 'param', type: vec2fT, name: 'uv' }] },
-      } as unknown as Stmt],
+      body: [
+        {
+          s: 'return',
+          expr: {
+            op: 'call',
+            fn: 'textureSample',
+            type: vec4fT,
+            args: [tex, smp, { op: 'param', type: vec2fT, name: 'uv' }],
+          },
+        } as unknown as Stmt,
+      ],
     }
     const strict = compileModule(module({ funcs: [decl] }))
     expect(() => strict.fns['o3']!(0, 0, [0.5, 0.5])).toThrow(/GPU-only/)
@@ -105,8 +124,11 @@ describe('#763 O — oracle backend parity', () => {
     const GLSL_SYNTHETIC = new Set(['storageFetchF32'])
     const catalogued = Object.keys(INTRINSICS)
     const missing = catalogued.filter(
-      (name) => !ORACLE_BUILTIN_NAMES.has(name) && !ORACLE_GPU_STUB_NAMES.has(name)
-        && !EXPR_COVERED.has(name) && !GLSL_SYNTHETIC.has(name),
+      (name) =>
+        !ORACLE_BUILTIN_NAMES.has(name) &&
+        !ORACLE_GPU_STUB_NAMES.has(name) &&
+        !EXPR_COVERED.has(name) &&
+        !GLSL_SYNTHETIC.has(name),
     )
     // A name landing here means: it emits on WGSL/GLSL but throws `unknown fn`
     // at first CPU use. Add it to BUILTINS (pure math) or GPU_STUBS (documented).
@@ -121,7 +143,12 @@ describe('#763 O — oracle backend parity', () => {
       ret: i32T,
       body: [
         { s: 'var', name: 'v', type: i32T, init: { op: 'param', type: i32T, name: 'x' } },
-        { s: 'assignOp', target: { op: 'varref', type: i32T, name: 'v' }, bop: '>>', expr: { op: 'lit', type: u32T, value: 1 } },
+        {
+          s: 'assignOp',
+          target: { op: 'varref', type: i32T, name: 'v' },
+          bop: '>>',
+          expr: { op: 'lit', type: u32T, value: 1 },
+        },
         { s: 'return', expr: { op: 'varref', type: i32T, name: 'v' } },
       ] as unknown as Stmt[],
     }

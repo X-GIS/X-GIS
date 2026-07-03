@@ -47,8 +47,10 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
   const lines: string[] = [`layer ${sanitizeId(layer.id)} {`]
   if (layer.source) lines.push(`  source: ${sanitizeId(layer.source)}`)
   if (layer['source-layer']) lines.push(`  sourceLayer: ${JSON.stringify(layer['source-layer'])}`)
-  if (typeof layer.minzoom === 'number' && Number.isFinite(layer.minzoom)) lines.push(`  minzoom: ${layer.minzoom}`)
-  if (typeof layer.maxzoom === 'number' && Number.isFinite(layer.maxzoom)) lines.push(`  maxzoom: ${layer.maxzoom}`)
+  if (typeof layer.minzoom === 'number' && Number.isFinite(layer.minzoom))
+    lines.push(`  minzoom: ${layer.minzoom}`)
+  if (typeof layer.maxzoom === 'number' && Number.isFinite(layer.maxzoom))
+    lines.push(`  maxzoom: ${layer.maxzoom}`)
   // Authored-but-unconvertible filter fails CLOSED (filter: false →
   // match nothing), not open — see filterLineOrFailClosed.
   const circleFilterLine = filterLineOrFailClosed(layer.filter, warnings)
@@ -62,7 +64,9 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
   } else if (typeof circleVisibility === 'string' && circleVisibility !== 'visible') {
     // Same enum validation as symbol layer — typo'd visibility value
     // silently treated as default 'visible'.
-    warnings.push(`Circle layer "${layer.id}" — visibility "${circleVisibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`)
+    warnings.push(
+      `Circle layer "${layer.id}" — visibility "${circleVisibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`,
+    )
   }
 
   const utils: string[] = []
@@ -77,12 +81,15 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
     // same class as the other paint-numeric clamps. `size--5`
     // would lex as double-dash and crash the layer.
     if (radius < 0) {
-      warnings.push(`Circle layer "${layer.id}" — circle-radius ${radius} is negative; Mapbox spec requires >= 0. Clamped to 0 (circles won't render).`)
+      warnings.push(
+        `Circle layer "${layer.id}" — circle-radius ${radius} is negative; Mapbox spec requires >= 0. Clamped to 0 (circles won't render).`,
+      )
     }
     utils.push(`size-${Math.max(0, radius)}`)
   } else if (radius !== undefined && radius !== null) {
-    const interp = interpolateZoomCall(radius, warnings,
-      (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
+    const interp = interpolateZoomCall(radius, warnings, (val) =>
+      typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null,
+    )
     if (interp !== null) {
       utils.push(`size-[${interp}]`)
     } else {
@@ -182,8 +189,7 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
   // object (interpolate call); a bare number stays on the constant fold
   // path. When this is non-null the constant fold is skipped below.
   const strokeOpacityInterp =
-    strokeOpacityConst === null
-      && typeof strokeOpacityRaw === 'object' && strokeOpacityRaw !== null
+    strokeOpacityConst === null && typeof strokeOpacityRaw === 'object' && strokeOpacityRaw !== null
       ? interpolateZoomCall(paint['circle-stroke-opacity'], warnings, (val) => {
           if (typeof val !== 'number') return null
           const c = Math.max(0, Math.min(1, val))
@@ -232,12 +238,15 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
     // circle-stroke-width must override it to 0 or the circle draws a
     // spurious 1 px edge. Number.isFinite rejects NaN / Infinity.
     if (strokeWidth < 0) {
-      warnings.push(`Circle layer "${layer.id}" — circle-stroke-width ${strokeWidth} is negative; Mapbox spec requires >= 0. Clamped to 0 (no stroke).`)
+      warnings.push(
+        `Circle layer "${layer.id}" — circle-stroke-width ${strokeWidth} is negative; Mapbox spec requires >= 0. Clamped to 0 (no stroke).`,
+      )
     }
     utils.push(`stroke-${Math.max(0, strokeWidth)}`)
   } else if (strokeWidth !== undefined && strokeWidth !== null) {
-    const interp = interpolateZoomCall(strokeWidth, warnings,
-      (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
+    const interp = interpolateZoomCall(strokeWidth, warnings, (val) =>
+      typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null,
+    )
     if (interp !== null) {
       utils.push(`stroke-[${interp}]`)
     } else {
@@ -266,13 +275,18 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
     let tv: unknown = circleTranslate
     // Unwrap Mapbox v8 ["literal", [dx, dy]] form.
     while (Array.isArray(tv) && tv.length === 2 && tv[0] === 'literal') tv = tv[1]
-    if (Array.isArray(tv) && tv.length === 2
-        && typeof tv[0] === 'number' && Number.isFinite(tv[0])
-        && typeof tv[1] === 'number' && Number.isFinite(tv[1])) {
+    if (
+      Array.isArray(tv) &&
+      tv.length === 2 &&
+      typeof tv[0] === 'number' &&
+      Number.isFinite(tv[0]) &&
+      typeof tv[1] === 'number' &&
+      Number.isFinite(tv[1])
+    ) {
       // Negative numbers wrap in brackets so the utility lexer doesn't
       // treat the `-` as a segment separator — same convention as
       // fill-translate-x / label-offset in lower.ts.
-      const fmt = (n: number): string => n < 0 ? `[${n}]` : `${n}`
+      const fmt = (n: number): string => (n < 0 ? `[${n}]` : `${n}`)
       if (tv[0] !== 0) utils.push(`circle-translate-x-${fmt(tv[0] as number)}`)
       if (tv[1] !== 0) utils.push(`circle-translate-y-${fmt(tv[1] as number)}`)
     } else if (Array.isArray(tv) && tv.length >= 4 && tv[0] === 'interpolate') {
@@ -287,9 +301,14 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
       const axisInterp = (idx: 0 | 1): string | null =>
         interpolateZoomCall(tv, warnings, (val) => {
           let inner: unknown = val
-          while (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') inner = inner[1]
-          if (Array.isArray(inner) && inner.length === 2
-              && typeof inner[idx] === 'number' && Number.isFinite(inner[idx])) {
+          while (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal')
+            inner = inner[1]
+          if (
+            Array.isArray(inner) &&
+            inner.length === 2 &&
+            typeof inner[idx] === 'number' &&
+            Number.isFinite(inner[idx])
+          ) {
             return String(inner[idx])
           }
           return null
@@ -300,10 +319,14 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
         utils.push(`circle-translate-x-[${ix}]`)
         utils.push(`circle-translate-y-[${iy}]`)
       } else {
-        warnings.push(`Layer "${layer.id}" — circle-translate: non-constant form not yet supported — value dropped.`)
+        warnings.push(
+          `Layer "${layer.id}" — circle-translate: non-constant form not yet supported — value dropped.`,
+        )
       }
     } else {
-      warnings.push(`Layer "${layer.id}" — circle-translate: non-constant form not yet supported — value dropped.`)
+      warnings.push(
+        `Layer "${layer.id}" — circle-translate: non-constant form not yet supported — value dropped.`,
+      )
     }
   }
 
@@ -313,12 +336,20 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
   const circleBlurVal = unwrapLiteralScalar(paint['circle-blur'])
   if (typeof circleBlurVal === 'number' && Number.isFinite(circleBlurVal)) {
     if (circleBlurVal < 0) {
-      warnings.push(`Circle layer "${layer.id}" — circle-blur ${circleBlurVal} is negative; Mapbox spec requires >= 0. Clamped to 0.`)
+      warnings.push(
+        `Circle layer "${layer.id}" — circle-blur ${circleBlurVal} is negative; Mapbox spec requires >= 0. Clamped to 0.`,
+      )
     }
     if (circleBlurVal > 0) utils.push(`circle-blur-${Math.max(0, circleBlurVal)}`)
-  } else if (paint['circle-blur'] !== undefined && paint['circle-blur'] !== null && circleBlurVal === undefined) {
+  } else if (
+    paint['circle-blur'] !== undefined &&
+    paint['circle-blur'] !== null &&
+    circleBlurVal === undefined
+  ) {
     // Non-scalar (expression / zoom-interp) — not yet supported. Warn + drop.
-    warnings.push(`Layer "${layer.id}" — circle-blur: non-constant form not yet supported — value dropped.`)
+    warnings.push(
+      `Layer "${layer.id}" — circle-blur: non-constant form not yet supported — value dropped.`,
+    )
   }
 
   // circle-pitch-scale → circle-pitch-scale-map flag (emitted ONLY for the
@@ -333,7 +364,9 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
     if (psv === 'map') {
       utils.push('circle-pitch-scale-map')
     } else if (psv !== undefined && psv !== null && psv !== 'viewport') {
-      warnings.push(`Circle layer "${layer.id}" — circle-pitch-scale "${String(psv).slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport'. Treated as 'viewport'.`)
+      warnings.push(
+        `Circle layer "${layer.id}" — circle-pitch-scale "${String(psv).slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport'. Treated as 'viewport'.`,
+      )
     }
   }
 
@@ -348,8 +381,9 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
     // form remains a gap — surface it so the user sees it. Check the
     // unwrapped value shape: a scalar number OR a resolved zoom-interp
     // (strokeOpacityInterp !== null) we handled; otherwise warn.
-    ...(typeof strokeOpacityRaw === 'object' && strokeOpacityRaw !== null
-      && strokeOpacityInterp === null
+    ...(typeof strokeOpacityRaw === 'object' &&
+    strokeOpacityRaw !== null &&
+    strokeOpacityInterp === null
       ? ['circle-stroke-opacity']
       : []),
     'circle-sort-key',
@@ -363,8 +397,10 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
     // changes the translate's coordinate space). Skip the warning
     // in that case — mirror of the surfaceIgnoredPaint ANCHOR_PARENT
     // check for fill / line equivalents.
-    if (k === 'circle-translate-anchor'
-        && (paint['circle-translate'] === undefined || paint['circle-translate'] === null)) {
+    if (
+      k === 'circle-translate-anchor' &&
+      (paint['circle-translate'] === undefined || paint['circle-translate'] === null)
+    ) {
       continue
     }
     // circle-translate-anchor='viewport' matches X-GIS behaviour

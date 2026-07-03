@@ -15,7 +15,7 @@ export const coalesceHandler: ExprHandler = (v, warnings, recurse) => {
     warnings.push(`Malformed ["coalesce"] expression: expected at least 1 argument, got 0.`)
     return null
   }
-  const args = v.slice(1).map(a => recurse(a, warnings))
+  const args = v.slice(1).map((a) => recurse(a, warnings))
   const valid = args.filter((a): a is string => a !== null)
   // Surface partial-drop when SOME but not all args converted —
   // pre-fix the invalid arms vanished silently so a coalesce
@@ -27,7 +27,9 @@ export const coalesceHandler: ExprHandler = (v, warnings, recurse) => {
   // bail-to-null so callers know nothing converted.
   if (valid.length === 0) return null
   if (valid.length < args.length) {
-    warnings.push(`["coalesce"] dropped ${args.length - valid.length} of ${args.length} args that failed to convert; resulting fallback chain may differ from the authored intent.`)
+    warnings.push(
+      `["coalesce"] dropped ${args.length - valid.length} of ${args.length} args that failed to convert; resulting fallback chain may differ from the authored intent.`,
+    )
   }
   // Parenthesize ternary arms so the `??` fallback can't migrate
   // into a non-final arm's else-branch (parser puts `?:` above `??`).
@@ -54,7 +56,10 @@ export const caseHandler: ExprHandler = (v, warnings, recurse) => {
   for (let i = args.length - 3; i >= 0; i -= 2) {
     const cond = recurse(args[i], warnings)
     const val = recurse(args[i + 1], warnings)
-    if (cond === null || val === null) { droppedArms++; continue }
+    if (cond === null || val === null) {
+      droppedArms++
+      continue
+    }
     result = `${cond} ? ${val} : ${result}`
   }
   // Surface partial-drop: a case arm whose cond OR val failed to
@@ -64,14 +69,19 @@ export const caseHandler: ExprHandler = (v, warnings, recurse) => {
   // (e.g. `["image", …]` head, currently unsupported) would lose
   // the entire conditional path silently.
   if (droppedArms > 0) {
-    warnings.push(`["case"] dropped ${droppedArms} arm(s) whose cond or value failed to convert; remaining chain may collapse to default for the affected conditions.`)
+    warnings.push(
+      `["case"] dropped ${droppedArms} arm(s) whose cond or value failed to convert; remaining chain may collapse to default for the affected conditions.`,
+    )
   }
   return result
 }
 
 export const allHandler: ExprHandler = (v, warnings, _recurse, recurseFilter) => {
   const rawCount = v.length - 1
-  const parts = v.slice(1).map(a => recurseFilter(a, warnings)).filter((s): s is string => !!s)
+  const parts = v
+    .slice(1)
+    .map((a) => recurseFilter(a, warnings))
+    .filter((s): s is string => !!s)
   // Fail CLOSED on a dropped conjunct. `all` means AND, so silently
   // dropping a sub-filter that couldn't convert (e.g. an `["image", …]`
   // / `["within", …]` head) WIDENS the predicate — `["all", real,
@@ -82,7 +92,9 @@ export const allHandler: ExprHandler = (v, warnings, _recurse, recurseFilter) =>
   // unconvertible-filter fail-closed. (`any`/OR drops narrow the set
   // instead, the safe direction, so anyHandler stays as-is.)
   if (parts.length < rawCount && rawCount > 0) {
-    warnings.push(`["all"] dropped ${rawCount - parts.length} of ${rawCount} sub-filter(s) that failed to convert; fail-closed (AND-ed with false) so the predicate can't widen past the authored intent.`)
+    warnings.push(
+      `["all"] dropped ${rawCount - parts.length} of ${rawCount} sub-filter(s) that failed to convert; fail-closed (AND-ed with false) so the predicate can't widen past the authored intent.`,
+    )
     parts.push('false')
   }
   if (parts.length === 0) return 'true'
@@ -91,12 +103,17 @@ export const allHandler: ExprHandler = (v, warnings, _recurse, recurseFilter) =>
 
 export const anyHandler: ExprHandler = (v, warnings, _recurse, recurseFilter) => {
   const rawCount = v.length - 1
-  const parts = v.slice(1).map(a => recurseFilter(a, warnings)).filter((s): s is string => !!s)
+  const parts = v
+    .slice(1)
+    .map((a) => recurseFilter(a, warnings))
+    .filter((s): s is string => !!s)
   // Same partial-drop pattern as ["all"]. OR-chains hurt
   // DIFFERENTLY — dropping an arm narrows the accepted set, so
   // the layer becomes MORE restrictive than the author intended.
   if (parts.length < rawCount && rawCount > 0) {
-    warnings.push(`["any"] dropped ${rawCount - parts.length} of ${rawCount} sub-filter(s) that failed to convert; remaining OR chain accepts fewer features than the authored intent.`)
+    warnings.push(
+      `["any"] dropped ${rawCount - parts.length} of ${rawCount} sub-filter(s) that failed to convert; remaining OR chain accepts fewer features than the authored intent.`,
+    )
   }
   if (parts.length === 0) return 'false'
   return parts.map(parenthesize).join(' || ')
@@ -118,7 +135,10 @@ export const notHandler: ExprHandler = (v, warnings, _recurse, recurseFilter) =>
 // authored filter failed CLOSED to `filter: false` (renders nothing).
 export const noneHandler: ExprHandler = (v, warnings, _recurse, recurseFilter) => {
   const rawCount = v.length - 1
-  const parts = v.slice(1).map(a => recurseFilter(a, warnings)).filter((s): s is string => !!s)
+  const parts = v
+    .slice(1)
+    .map((a) => recurseFilter(a, warnings))
+    .filter((s): s is string => !!s)
   // ["none"] with no sub-filters = !(false) = true (accept every feature).
   if (rawCount === 0) return 'true'
   // Fail CLOSED on a dropped sub-filter. Dropping a disjunct NARROWS the
@@ -127,7 +147,9 @@ export const noneHandler: ExprHandler = (v, warnings, _recurse, recurseFilter) =
   // inner OR is unconditionally true and the negation collapses to false
   // (the none-analog of allHandler appending `false`).
   if (parts.length < rawCount) {
-    warnings.push(`["none"] dropped ${rawCount - parts.length} of ${rawCount} sub-filter(s) that failed to convert; fail-closed so the predicate can't widen past the authored intent.`)
+    warnings.push(
+      `["none"] dropped ${rawCount - parts.length} of ${rawCount} sub-filter(s) that failed to convert; fail-closed so the predicate can't widen past the authored intent.`,
+    )
     parts.push('true')
   }
   return `!(${parts.map(parenthesize).join(' || ')})`

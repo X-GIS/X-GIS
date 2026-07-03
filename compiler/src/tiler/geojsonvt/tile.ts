@@ -4,7 +4,12 @@
 // flat 2-coordinate per-vertex output (no z importance after this).
 
 import type {
-  FlatLine, GeoJSONVTOptions, InternalTile, ProjectedFeature, TileFeature, TileGeometryType,
+  FlatLine,
+  GeoJSONVTOptions,
+  InternalTile,
+  ProjectedFeature,
+  TileFeature,
+  TileGeometryType,
 } from './types'
 
 // #360 F2 — world zooms render at FULL FIDELITY (no Douglas-Peucker
@@ -52,12 +57,14 @@ export function createTile(
     let pts = 0
     for (const f of features) {
       pts += countPoints(f.geometry)
-      if (pts > LOW_ZOOM_FULL_FIDELITY_BUDGET) { lowZoomFidelity = false; break }
+      if (pts > LOW_ZOOM_FULL_FIDELITY_BUDGET) {
+        lowZoomFidelity = false
+        break
+      }
     }
   }
-  const tolerance = (z === options.maxZoom || lowZoomFidelity)
-    ? 0
-    : options.tolerance / ((1 << z) * options.extent)
+  const tolerance =
+    z === options.maxZoom || lowZoomFidelity ? 0 : options.tolerance / ((1 << z) * options.extent)
   const tile: InternalTile = {
     features: [],
     numPoints: 0,
@@ -79,11 +86,7 @@ export function createTile(
   return tile
 }
 
-function addFeature(
-  tile: InternalTile,
-  feature: ProjectedFeature,
-  tolerance: number,
-): void {
+function addFeature(tile: InternalTile, feature: ProjectedFeature, tolerance: number): void {
   const geom = feature.geometry
   const type = feature.type
   const simplified: FlatLine | FlatLine[] = []
@@ -96,7 +99,7 @@ function addFeature(
   if (type === 'Point' || type === 'MultiPoint') {
     const flat = geom as FlatLine
     for (let i = 0; i < flat.length; i += 3) {
-      (simplified as FlatLine).push(flat[i], flat[i + 1])
+      ;(simplified as FlatLine).push(flat[i], flat[i + 1])
       tile.numPoints++
       tile.numSimplified++
     }
@@ -123,8 +126,11 @@ function addFeature(
 
     const tileFeature: TileFeature = {
       geometry: simplified as FlatLine | FlatLine[],
-      type: (type === 'Polygon' || type === 'MultiPolygon' ? 3 :
-        (type === 'LineString' || type === 'MultiLineString' ? 2 : 1)) as TileGeometryType,
+      type: (type === 'Polygon' || type === 'MultiPolygon'
+        ? 3
+        : type === 'LineString' || type === 'MultiLineString'
+          ? 2
+          : 1) as TileGeometryType,
       tags,
     }
     if (feature.id !== null) {
@@ -144,7 +150,7 @@ function addLine(
 ): void {
   const sqTolerance = tolerance * tolerance
 
-  if (tolerance > 0 && ((geom.size ?? 0) < (isPolygon ? sqTolerance : tolerance))) {
+  if (tolerance > 0 && (geom.size ?? 0) < (isPolygon ? sqTolerance : tolerance)) {
     tile.numPoints += geom.length / 3
     return
   }

@@ -14,12 +14,18 @@ describe('layer convert throw isolation', () => {
     // acyclic; circular ones are out-of-spec but possible from
     // hand-edited / programmatic styles.)
     const recursive: unknown[] = ['get']
-    recursive.push(recursive)  // ['get', <self>]
+    recursive.push(recursive) // ['get', <self>]
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
       layers: [
-        { id: 'bad', type: 'fill', source: 's', paint: { 'fill-color': '#000' }, filter: recursive },
+        {
+          id: 'bad',
+          type: 'fill',
+          source: 's',
+          paint: { 'fill-color': '#000' },
+          filter: recursive,
+        },
         { id: 'good', type: 'fill', source: 's', paint: { 'fill-color': '#fff' } },
       ],
     }

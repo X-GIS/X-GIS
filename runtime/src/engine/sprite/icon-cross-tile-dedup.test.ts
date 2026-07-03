@@ -66,7 +66,9 @@ function makeIconStub(dpr = 1): { stage: IconStage; draws: () => IconDraw[] } {
     get: () => SPRITE,
   }
   ;(stage as unknown as { renderer: unknown }).renderer = {
-    setDraws: (d: IconDraw[]) => { captured = d },
+    setDraws: (d: IconDraw[]) => {
+      captured = d
+    },
   }
   return { stage, draws: () => captured }
 }
@@ -154,9 +156,15 @@ describe('#603 — cross-tile line-icon dedup (position-bucket gate)', () => {
 // reports an icon-only symbol as a dedup candidate.
 
 // The exact runtime shape of a compiled `text: '""'` (icon-only symbol).
-const ICON_ONLY_TEXT = { kind: 'template', parts: [{ kind: 'literal', value: '' }] } as unknown as TextValue
+const ICON_ONLY_TEXT = {
+  kind: 'template',
+  parts: [{ kind: 'literal', value: '' }],
+} as unknown as TextValue
 // A named road's text-field (single literal "Main St").
-const NAMED_TEXT = { kind: 'template', parts: [{ kind: 'literal', value: 'Main St' }] } as unknown as TextValue
+const NAMED_TEXT = {
+  kind: 'template',
+  parts: [{ kind: 'literal', value: 'Main St' }],
+} as unknown as TextValue
 
 describe('#603 — lineIconIsIconOnly arms the cross-tile dedup gate (real predicate)', () => {
   it('an icon-only symbol (text === "") IS a dedup candidate', () => {
@@ -191,7 +199,12 @@ describe('#603 — lineIconIsIconOnly arms the cross-tile dedup gate (real predi
     //   if (lineIconIsIconOnly(text,…) && pairedWithIcon && isLineIconDuplicate) drop
     const pairedWithIcon = true
     const tryEmit = (sx: number, sy: number): boolean => {
-      if (lineIconIsIconOnly(ICON_ONLY_TEXT, {}, 14) && pairedWithIcon && isLineIconDuplicate(sx, sy)) return false
+      if (
+        lineIconIsIconOnly(ICON_ONLY_TEXT, {}, 14) &&
+        pairedWithIcon &&
+        isLineIconDuplicate(sx, sy)
+      )
+        return false
       return true
     }
     // Tile A's polyline drops an arrow at (100,100).
@@ -211,7 +224,8 @@ describe('#603 — lineIconIsIconOnly arms the cross-tile dedup gate (real predi
       return false
     }
     const tryEmit = (sx: number, sy: number): boolean => {
-      if (lineIconIsIconOnly(NAMED_TEXT, {}, 14) && true && isLineIconDuplicate(sx, sy)) return false
+      if (lineIconIsIconOnly(NAMED_TEXT, {}, 14) && true && isLineIconDuplicate(sx, sy))
+        return false
       return true
     }
     // Both placements survive the position-bucket gate (named → not a candidate).

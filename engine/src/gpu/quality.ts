@@ -107,8 +107,11 @@ type QualityPreset = keyof typeof QUALITY_PRESETS
 
 function readURL(): URLSearchParams | null {
   if (typeof window === 'undefined') return null
-  try { return new URL(window.location.href).searchParams }
-  catch { return null }
+  try {
+    return new URL(window.location.href).searchParams
+  } catch {
+    return null
+  }
 }
 
 function clampMsaa(n: number): 1 | 2 | 4 {
@@ -129,7 +132,7 @@ function resolveQuality(): QualityConfig {
   let base: QualityConfig
   const presetParam = params.get('quality')
   const safeFlag = params.get('safe') === '1'
-  if (presetParam && (presetParam in QUALITY_PRESETS)) {
+  if (presetParam && presetParam in QUALITY_PRESETS) {
     base = { ...QUALITY_PRESETS[presetParam as QualityPreset] }
   } else if (safeFlag) {
     base = { ...QUALITY_PRESETS.battery }
@@ -198,9 +201,8 @@ function resolveQuality(): QualityConfig {
   // brings it back into 60 fps territory. Mapbox / MapLibre apply
   // the same heuristic. Users on a hypothetical DPR=1 retina-cap-
   // override (e.g. `?dpr=1`) keep msaa=4 for proper edge AA.
-  const effectiveDpr = typeof window !== 'undefined'
-    ? Math.min(window.devicePixelRatio || 1, base.maxDpr)
-    : 1
+  const effectiveDpr =
+    typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, base.maxDpr) : 1
   if (effectiveDpr >= 2 && msaaParam === null) {
     base.msaa = 1
   }
@@ -253,8 +255,14 @@ export function updateQuality(patch: Partial<QualityConfig>): void {
 if (typeof window !== 'undefined') {
   // Surface non-default quality once so users see the trade-off they
   // opted into. Quiet for default to avoid console noise.
-  const isDefault = QUALITY.msaa === 4 && QUALITY.maxDpr === 2 && QUALITY.interactionDpr === null && !QUALITY.picking
+  const isDefault =
+    QUALITY.msaa === 4 &&
+    QUALITY.maxDpr === 2 &&
+    QUALITY.interactionDpr === null &&
+    !QUALITY.picking
   if (!isDefault) {
-    console.info(`[X-GIS] quality: msaa=${QUALITY.msaa}× dpr=${QUALITY.maxDpr} adaptiveDpr=${QUALITY.interactionDpr ?? 'off'} picking=${QUALITY.picking ? 'on' : 'off'}`)
+    console.info(
+      `[X-GIS] quality: msaa=${QUALITY.msaa}× dpr=${QUALITY.maxDpr} adaptiveDpr=${QUALITY.interactionDpr ?? 'off'} picking=${QUALITY.picking ? 'on' : 'off'}`,
+    )
   }
 }

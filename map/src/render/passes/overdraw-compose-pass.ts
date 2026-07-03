@@ -16,7 +16,9 @@ class OverdrawComposePass implements RenderPass {
 
   // Gated on the build-time debug flag; execute() also guards the
   // accumulator texture (only present when DEBUG_OVERDRAW provisioned it).
-  shouldRun(): boolean { return DEBUG_OVERDRAW }
+  shouldRun(): boolean {
+    return DEBUG_OVERDRAW
+  }
 
   execute(ctx: FrameContext, _scene: SceneView, host: OverdrawComposePassHost): void {
     if (!ctx.rt.overdrawAccumTexture) return
@@ -24,18 +26,23 @@ class OverdrawComposePass implements RenderPass {
     ctx.passScope('overdraw-compose', () => {
       const pipeline = host.renderer.ensureOverdrawCompose()
       const compPass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: ctx.screenView,
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: 'clear', storeOp: 'store',
-        }],
+        colorAttachments: [
+          {
+            view: ctx.screenView,
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            loadOp: 'clear',
+            storeOp: 'store',
+          },
+        ],
       })
       const bg = host.ctx.device.createBindGroup({
         layout: host.renderer.overdrawComposeBindGroupLayout,
-        entries: [{
-          binding: 0,
-          resource: ctx.rt.overdrawView!,
-        }],
+        entries: [
+          {
+            binding: 0,
+            resource: ctx.rt.overdrawView!,
+          },
+        ],
       })
       compPass.setPipeline(pipeline)
       compPass.setBindGroup(0, bg)

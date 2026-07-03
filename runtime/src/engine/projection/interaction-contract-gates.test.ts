@@ -57,12 +57,7 @@
 // ───────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest'
-import {
-  getProjection,
-  mercator,
-  mercatorYToLat,
-  type Projection,
-} from '@xgis/engine'
+import { getProjection, mercator, mercatorYToLat, type Projection } from '@xgis/engine'
 import { Camera } from '@xgis/engine'
 import { globeForward, buildGlobeMatrix, unprojectGlobe } from '@xgis/engine'
 import { lonLatToECEF } from '@xgis/engine'
@@ -82,41 +77,116 @@ const G2_TOL_DEG = 1e-3
 // projType → a projection instance, centred so the sample spread sits
 // inside its well-conditioned domain (cylindrical: central meridian 0;
 // azimuthal/oblique: centre (0,20) so the disc covers the sampled band).
-const G2_CASES: Array<{ projType: number; name: string; proj: Projection; pts: [number, number][] }> = [
+const G2_CASES: Array<{
+  projType: number
+  name: string
+  proj: Projection
+  pts: [number, number][]
+}> = [
   {
-    projType: 0, name: 'mercator', proj: mercator,
+    projType: 0,
+    name: 'mercator',
+    proj: mercator,
     // Mercator forward clamps beyond ±85.05; stay inside so the round-trip
     // is the inverse's fidelity, not the clamp.
-    pts: [[0, 0], [45, 30], [-90, -45], [120, 60], [-150, -60], [179, 84], [-179, -84]],
+    pts: [
+      [0, 0],
+      [45, 30],
+      [-90, -45],
+      [120, 60],
+      [-150, -60],
+      [179, 84],
+      [-179, -84],
+    ],
   },
   {
-    projType: 1, name: 'equirectangular', proj: getProjection('equirectangular', 0),
-    pts: [[0, 0], [45, 30], [-90, -45], [120, 60], [-150, -60], [30, 80], [30, -80]],
+    projType: 1,
+    name: 'equirectangular',
+    proj: getProjection('equirectangular', 0),
+    pts: [
+      [0, 0],
+      [45, 30],
+      [-90, -45],
+      [120, 60],
+      [-150, -60],
+      [30, 80],
+      [30, -80],
+    ],
   },
   {
-    projType: 2, name: 'natural_earth', proj: getProjection('natural_earth', 0),
+    projType: 2,
+    name: 'natural_earth',
+    proj: getProjection('natural_earth', 0),
     // NE inverse is a 5-iter Newton solve; stay ≤75° where the Jacobian is
     // well-behaved (matches projection-inverse-roundtrip.test.ts).
-    pts: [[0, 0], [45, 30], [-90, -45], [120, 60], [-150, -60], [30, 70], [30, -70]],
+    pts: [
+      [0, 0],
+      [45, 30],
+      [-90, -45],
+      [120, 60],
+      [-150, -60],
+      [30, 70],
+      [30, -70],
+    ],
   },
   {
-    projType: 3, name: 'orthographic', proj: getProjection('orthographic', 0, 20),
+    projType: 3,
+    name: 'orthographic',
+    proj: getProjection('orthographic', 0, 20),
     // Visible hemisphere only — points near the (0,20) centre.
-    pts: [[0, 20], [20, 40], [-20, 0], [30, 45], [-30, -5], [10, 50], [-10, 5]],
+    pts: [
+      [0, 20],
+      [20, 40],
+      [-20, 0],
+      [30, 45],
+      [-30, -5],
+      [10, 50],
+      [-10, 5],
+    ],
   },
   {
-    projType: 4, name: 'azimuthal_equidistant', proj: getProjection('azimuthal_equidistant', 0, 20),
-    pts: [[0, 20], [20, 40], [-20, 0], [30, 45], [-30, -5], [10, 50], [-25, 55]],
+    projType: 4,
+    name: 'azimuthal_equidistant',
+    proj: getProjection('azimuthal_equidistant', 0, 20),
+    pts: [
+      [0, 20],
+      [20, 40],
+      [-20, 0],
+      [30, 45],
+      [-30, -5],
+      [10, 50],
+      [-25, 55],
+    ],
   },
   {
-    projType: 5, name: 'stereographic', proj: getProjection('stereographic', 0, 20),
-    pts: [[0, 20], [20, 40], [-20, 0], [30, 45], [-30, -5], [10, 50], [-25, 55]],
+    projType: 5,
+    name: 'stereographic',
+    proj: getProjection('stereographic', 0, 20),
+    pts: [
+      [0, 20],
+      [20, 40],
+      [-20, 0],
+      [30, 45],
+      [-30, -5],
+      [10, 50],
+      [-25, 55],
+    ],
   },
   {
-    projType: 6, name: 'oblique_mercator', proj: getProjection('oblique_mercator', 0, 20),
+    projType: 6,
+    name: 'oblique_mercator',
+    proj: getProjection('oblique_mercator', 0, 20),
     // Oblique tilts (centre→equator); near the rotated equator is well-
     // conditioned. Sample around the (0,20) centre.
-    pts: [[0, 20], [30, 40], [-30, 0], [40, 45], [-40, -5], [15, 50], [-15, -10]],
+    pts: [
+      [0, 20],
+      [30, 40],
+      [-30, 0],
+      [40, 45],
+      [-40, -5],
+      [15, 50],
+      [-15, -10],
+    ],
   },
 ]
 
@@ -132,14 +202,19 @@ describe('G2 — CPU per-projType inverse round-trip (foundational, PASSES today
         const [lon2, lat2] = proj.inverse(x, y)
         expect(Number.isFinite(lon2), `${name} lon2 non-finite @(${lon},${lat})`).toBe(true)
         expect(Number.isFinite(lat2), `${name} lat2 non-finite @(${lon},${lat})`).toBe(true)
-        expect(Math.abs(lat2 - lat), `${name} lat drift @(${lon},${lat}): ${lat}→${lat2}`).toBeLessThan(G2_TOL_DEG)
+        expect(
+          Math.abs(lat2 - lat),
+          `${name} lat drift @(${lon},${lat}): ${lat}→${lat2}`,
+        ).toBeLessThan(G2_TOL_DEG)
         // Longitude is degenerate at the poles (every meridian collapses) —
         // only assert lon away from ±90.
         if (Math.abs(lat) < 89.5) {
           let dLon = lon2 - lon
           if (dLon > 180) dLon -= 360
           if (dLon < -180) dLon += 360
-          expect(Math.abs(dLon), `${name} lon drift @(${lon},${lat}): ${lon}→${lon2}`).toBeLessThan(G2_TOL_DEG)
+          expect(Math.abs(dLon), `${name} lon drift @(${lon},${lat}): ${lon}→${lon2}`).toBeLessThan(
+            G2_TOL_DEG,
+          )
         }
         tested++
       }
@@ -171,10 +246,15 @@ describe('G2 — CPU per-projType inverse round-trip (foundational, PASSES today
 // round-tripping through this same wrong plane.
 // ════════════════════════════════════════════════════════════════════════
 
-const G1_W = 800, G1_H = 800, G1_DPR = 1
+const G1_W = 800,
+  G1_H = 800,
+  G1_DPR = 1
 
 // Column-major 4×4 × vec4.
-function mat4Vec4(m: Float32Array | ArrayLike<number>, v: [number, number, number, number]): [number, number, number, number] {
+function mat4Vec4(
+  m: Float32Array | ArrayLike<number>,
+  v: [number, number, number, number],
+): [number, number, number, number] {
   const out: [number, number, number, number] = [0, 0, 0, 0]
   for (let r = 0; r < 4; r++) {
     let s = 0
@@ -211,19 +291,29 @@ function cameraRecoverLonLat(cam: Camera, sx: number, sy: number): [number, numb
 // Cylindrical/pseudocyl: central meridian rides the camera lon (the runtime
 // recentres `centralLon` on camera longitude). Azimuthal/oblique: centre at
 // the camera anchor so the sampled point sits well inside the visible disc.
-const G1_CAM_LON = 20, G1_CAM_LAT = 40
-const G1_PT_LON = 35, G1_PT_LAT = 60
+const G1_CAM_LON = 20,
+  G1_CAM_LAT = 40
+const G1_PT_LON = 35,
+  G1_PT_LAT = 60
 
 function projForType(projType: number, centreLon: number, centreLat: number): Projection {
   switch (projType) {
-    case 0: return mercator
-    case 1: return getProjection('equirectangular', centreLon)
-    case 2: return getProjection('natural_earth', centreLon)
-    case 3: return getProjection('orthographic', centreLon, centreLat)
-    case 4: return getProjection('azimuthal_equidistant', centreLon, centreLat)
-    case 5: return getProjection('stereographic', centreLon, centreLat)
-    case 6: return getProjection('oblique_mercator', centreLon, centreLat)
-    default: throw new Error(`G1: no flat projection for projType ${projType}`)
+    case 0:
+      return mercator
+    case 1:
+      return getProjection('equirectangular', centreLon)
+    case 2:
+      return getProjection('natural_earth', centreLon)
+    case 3:
+      return getProjection('orthographic', centreLon, centreLat)
+    case 4:
+      return getProjection('azimuthal_equidistant', centreLon, centreLat)
+    case 5:
+      return getProjection('stereographic', centreLon, centreLat)
+    case 6:
+      return getProjection('oblique_mercator', centreLon, centreLat)
+    default:
+      throw new Error(`G1: no flat projection for projType ${projType}`)
   }
 }
 
@@ -270,7 +360,9 @@ describe('G1 — camera screen→geographic round-trip (mercator + flat non-merc
       it(`projType 0 (mercator) z=${zoom} pitch=${pitch}: geographic round-trip ≈ input`, () => {
         const err = g1RoundTripErrorDeg(0, zoom, pitch)
         expect(err, `mercator round-trip returned null (z=${zoom} p=${pitch})`).not.toBeNull()
-        expect(err!, `mercator geographic drift ${err}° (z=${zoom} p=${pitch})`).toBeLessThan(G1_TOL_DEG)
+        expect(err!, `mercator geographic drift ${err}° (z=${zoom} p=${pitch})`).toBeLessThan(
+          G1_TOL_DEG,
+        )
       })
     }
   }
@@ -280,7 +372,9 @@ describe('G1 — camera screen→geographic round-trip (mercator + flat non-merc
   // the geographic round-trip is now exact. Flipped from `it.fails` to normal
   // `it()` (the composer landed). Cylindrical/oblique also exercise pitch>0.
   const FLAT_NONMERC: Array<[number, string]> = [
-    [1, 'equirectangular'], [2, 'natural_earth'], [6, 'oblique_mercator'],
+    [1, 'equirectangular'],
+    [2, 'natural_earth'],
+    [6, 'oblique_mercator'],
   ]
   for (const [projType, name] of FLAT_NONMERC) {
     for (const zoom of [2, 6]) {
@@ -288,7 +382,9 @@ describe('G1 — camera screen→geographic round-trip (mercator + flat non-merc
         it(`projType ${projType} (${name}) z=${zoom} pitch=${pitch}: geographic round-trip ≈ input`, () => {
           const err = g1RoundTripErrorDeg(projType, zoom, pitch)
           expect(err, `${name} round-trip returned null (z=${zoom} p=${pitch})`).not.toBeNull()
-          expect(err!, `${name} geographic drift ${err}° (z=${zoom} p=${pitch})`).toBeLessThan(G1_TOL_DEG)
+          expect(err!, `${name} geographic drift ${err}° (z=${zoom} p=${pitch})`).toBeLessThan(
+            G1_TOL_DEG,
+          )
         })
       }
     }
@@ -300,14 +396,16 @@ describe('G1 — camera screen→geographic round-trip (mercator + flat non-merc
   // throws → `it.fails` stays GREEN. They pitch-lock, so only pitch 0 (tilted
   // promotes to globeMode).
   const DISC: Array<[number, string]> = [
-    [3, 'orthographic'], [4, 'azimuthal_equidistant'], [5, 'stereographic'],
+    [3, 'orthographic'],
+    [4, 'azimuthal_equidistant'],
+    [5, 'stereographic'],
   ]
   for (const [projType, name] of DISC) {
     for (const zoom of [2, 6]) {
       it.fails(
         `projType ${projType} (${name}) z=${zoom} pitch=0: geographic round-trip ≈ input ` +
-        `[target contract — disc inverse deferred to #9; unprojectToLonLat returns ` +
-        `null for the azimuthal set (limb singularity + zoom-feel)]`,
+          `[target contract — disc inverse deferred to #9; unprojectToLonLat returns ` +
+          `null for the azimuthal set (limb singularity + zoom-feel)]`,
         () => {
           const err = g1RoundTripErrorDeg(projType, zoom, 0)
           expect(err, `${name} round-trip returned null (z=${zoom} p=0)`).not.toBeNull()
@@ -326,7 +424,9 @@ describe('G1 — camera screen→geographic round-trip (mercator + flat non-merc
     expect(eqErr).not.toBeNull()
     // Was ≈6.4° latitude error for the (20,40)→(35,60) pair through the wrong
     // Mercator plane; the composer recovers the equirect plane exactly.
-    expect(eqErr!, `equirect geographic gap ${eqErr}° — expected ≈0 after composer`).toBeLessThan(G1_TOL_DEG)
+    expect(eqErr!, `equirect geographic gap ${eqErr}° — expected ≈0 after composer`).toBeLessThan(
+      G1_TOL_DEG,
+    )
     // Disc set: the composer does not handle it, so recovery is null.
     const orthoErr = g1RoundTripErrorDeg(3, 6, 0)
     expect(orthoErr, 'ortho recovery should be null (composer out of scope for disc)').toBeNull()
@@ -370,8 +470,8 @@ describe('G6 — globe tile-rim sphere-forward vs ellipsoid-render parity', () =
   // ellipsoid primitive (#7 fix, PR-D D4).
   it.fails(
     'high latitude: globeForward == lonLatToECEF ' +
-    '[#7 contract — fails until globeVisibleTiles forward routes through ' +
-    'shared ellipsoid lonLatToECEF; sphere vs ellipsoid differ ~21 km at the poles]',
+      '[#7 contract — fails until globeVisibleTiles forward routes through ' +
+      'shared ellipsoid lonLatToECEF; sphere vs ellipsoid differ ~21 km at the poles]',
     () => {
       for (const lat of [60, 75, 85.05]) {
         for (const lon of [-120, 0, 90]) {
@@ -397,8 +497,12 @@ describe('G6 — globe tile-rim sphere-forward vs ellipsoid-render parity', () =
     // pole. Pin a band that documents the defect without being brittle.
     for (const lat of [45, 60, 75, 85.05]) {
       const d = gap(30, lat)
-      expect(d, `lat=${lat} gap ${(d / 1000).toFixed(1)} km — expected 18-26 km`).toBeGreaterThan(18_000)
-      expect(d, `lat=${lat} gap ${(d / 1000).toFixed(1)} km — expected 18-26 km`).toBeLessThan(26_000)
+      expect(d, `lat=${lat} gap ${(d / 1000).toFixed(1)} km — expected 18-26 km`).toBeGreaterThan(
+        18_000,
+      )
+      expect(d, `lat=${lat} gap ${(d / 1000).toFixed(1)} km — expected 18-26 km`).toBeLessThan(
+        26_000,
+      )
     }
   })
 })
@@ -470,7 +574,9 @@ describe('G1b — flat non-merc 1/2/6 streamed-pinch zoom-anchor convergence (ME
   const STREAM_DELTA = 0.04
 
   const FLAT_NONMERC_G1B: Array<[number, string]> = [
-    [1, 'equirectangular'], [2, 'natural_earth'], [6, 'oblique_mercator'],
+    [1, 'equirectangular'],
+    [2, 'natural_earth'],
+    [6, 'oblique_mercator'],
   ]
 
   // Camera centre latitudes: a MID-LATITUDE control, a HIGH-latitude case, and
@@ -497,7 +603,11 @@ describe('G1b — flat non-merc 1/2/6 streamed-pinch zoom-anchor convergence (ME
    *  cumulative under-cursor pixel drift (where the originally-under-cursor
    *  geographic point ends up on screen vs the cursor itself), or null if the
    *  recovery is unavailable at any sampled step. */
-  function streamedPinchDriftPx(projType: number, centreLat: number, startZoom: number): number | null {
+  function streamedPinchDriftPx(
+    projType: number,
+    centreLat: number,
+    startZoom: number,
+  ): number | null {
     const cam = new Camera(G1_CAM_LON, centreLat, startZoom)
     cam.projType = projType
     cam.globeMode = false
@@ -572,7 +682,8 @@ describe('G1c — flat non-merc 1/2/6 streamed-drag anchor convergence (B3 lock)
   const G1C_PX_BUDGET = 1.0
   const DRAG_STEPS = 30
   // Per-step cursor motion: the controller wiring gate's stream (GATE 2A).
-  const DRAG_DX = 2, DRAG_DY = -1.5
+  const DRAG_DX = 2,
+    DRAG_DY = -1.5
 
   // Metres per device pixel at the start zoom (TILE_PX=512 pyramid, dpr 1) —
   // seeds the grabbed point's own-plane offset from the cursor offset.
@@ -580,7 +691,9 @@ describe('G1c — flat non-merc 1/2/6 streamed-drag anchor convergence (B3 lock)
   const TILE_PX_G1C = 512
 
   const FLAT_NONMERC_G1C: Array<[number, string]> = [
-    [1, 'equirectangular'], [2, 'natural_earth'], [6, 'oblique_mercator'],
+    [1, 'equirectangular'],
+    [2, 'natural_earth'],
+    [6, 'oblique_mercator'],
   ]
 
   // Same latitude spread as G1b: mid-lat control, high-lat, and the centre
@@ -602,7 +715,11 @@ describe('G1c — flat non-merc 1/2/6 streamed-drag anchor convergence (B3 lock)
   /** Stream a DRAG_STEPS-step drag through panToScreenAnchor and return the
    *  final under-cursor pixel drift of the grabbed geographic point
    *  (oracle-measured), or null if any oracle step is unavailable. */
-  function streamedDragDriftPx(projType: number, centreLat: number, startZoom: number): number | null {
+  function streamedDragDriftPx(
+    projType: number,
+    centreLat: number,
+    startZoom: number,
+  ): number | null {
     const cam = new Camera(G1_CAM_LON, centreLat, startZoom)
     cam.projType = projType
     cam.globeMode = false
@@ -610,7 +727,7 @@ describe('G1c — flat non-merc 1/2/6 streamed-drag anchor convergence (B3 lock)
     cam.pitch = 0
 
     // Grabbed geographic point — oracle inverse of the start-cursor offset.
-    const mpp = (WORLD_MERC_G1C / TILE_PX_G1C) / Math.pow(2, startZoom)
+    const mpp = WORLD_MERC_G1C / TILE_PX_G1C / Math.pow(2, startZoom)
     const [clon0, clat0] = camCentreLonLat(cam)
     const proj0 = projForType(projType, clon0, clat0)
     const cv0 = proj0.forward(clon0, clat0)
@@ -626,9 +743,11 @@ describe('G1c — flat non-merc 1/2/6 streamed-drag anchor convergence (B3 lock)
     if (!s0) return null
     const [ax, ay] = mercator.forward(g0[0], g0[1])
 
-    let px = s0[0], py = s0[1]
+    let px = s0[0],
+      py = s0[1]
     for (let s = 0; s < DRAG_STEPS; s++) {
-      px += DRAG_DX; py += DRAG_DY
+      px += DRAG_DX
+      py += DRAG_DY
       cam.panToScreenAnchor(ax, ay, px, py, G1_W, G1_H)
     }
 
@@ -727,7 +846,9 @@ describe('G1c — flat non-merc 1/2/6 streamed-drag anchor convergence (B3 lock)
 // ════════════════════════════════════════════════════════════════════════
 
 describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b disc set + G5c/G5d globe all locked)', () => {
-  const GZ_W = 800, GZ_H = 800, GZ_DPR = 1
+  const GZ_W = 800,
+    GZ_H = 800,
+    GZ_DPR = 1
   const GZ_R = 6378137
   const GZ_RAD2DEG = 180 / Math.PI
   // Streamed pinch: 20 small deltas (~+0.8 zoom total) — the regime the disc
@@ -756,7 +877,12 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
   /** Recover the geographic point under a screen pixel via the disc inverse on
    *  the disc plane (the CORRECT oracle — independent of the camera's own
    *  recovery, which is what zoomAt is being tested against). */
-  function discGeoUnderScreen(cam: Camera, name: string, sx: number, sy: number): [number, number] | null {
+  function discGeoUnderScreen(
+    cam: Camera,
+    name: string,
+    sx: number,
+    sy: number,
+  ): [number, number] | null {
     const rel = cam.unprojectToZ0(sx * GZ_DPR, sy * GZ_DPR, GZ_W, GZ_H, GZ_DPR)
     if (!rel) return null
     const [clon, clat] = gzCentre(cam)
@@ -769,7 +895,12 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
 
   /** Project a geographic point to a screen pixel via the disc forward on the
    *  disc plane + the camera's live render MVP. */
-  function discScreenForGeo(cam: Camera, name: string, lon: number, lat: number): [number, number] | null {
+  function discScreenForGeo(
+    cam: Camera,
+    name: string,
+    lon: number,
+    lat: number,
+  ): [number, number] | null {
     const [clon, clat] = gzCentre(cam)
     const proj = getProjection(name, clon, clat)
     const [px, py] = proj.forward(lon, lat)
@@ -790,7 +921,8 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
     // production accessor so an untilted disc renders through the flat MVP.
     cam.pitchLocked = true
     cam.pitch = 0
-    const SX = GZ_W * 0.5 + GZ_OFF_X, SY = GZ_H * 0.5 + GZ_OFF_Y
+    const SX = GZ_W * 0.5 + GZ_OFF_X,
+      SY = GZ_H * 0.5 + GZ_OFF_Y
     const g0 = discGeoUnderScreen(cam, name, SX, SY)
     if (!g0) return null
     for (let s = 0; s < GZ_STEPS; s++) cam.zoomAt(GZ_DELTA, SX, SY, GZ_W, GZ_H)
@@ -806,8 +938,14 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
   function gzGlobeView(cam: Camera): ReturnType<typeof buildGlobeMatrix> {
     const [clon, clat] = gzCentre(cam)
     return buildGlobeMatrix(
-      clon, clat, cam.zoom, cam.pitch, cam.bearing,
-      GZ_W / GZ_DPR, GZ_H / GZ_DPR, cam.globeOrtho,
+      clon,
+      clat,
+      cam.zoom,
+      cam.pitch,
+      cam.bearing,
+      GZ_W / GZ_DPR,
+      GZ_H / GZ_DPR,
+      cam.globeOrtho,
     )
   }
 
@@ -831,7 +969,8 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
     cam.globeMode = true
     cam.bearing = 0
     cam.pitch = pitch
-    const SX = GZ_W * 0.5 + GZ_OFF_X, SY = GZ_H * 0.5 + GZ_OFF_Y
+    const SX = GZ_W * 0.5 + GZ_OFF_X,
+      SY = GZ_H * 0.5 + GZ_OFF_Y
     const g0 = unprojectGlobe(SX, SY, GZ_W, GZ_H, gzGlobeView(cam))
     if (!g0) return null
     for (let s = 0; s < GZ_STEPS; s++) cam.zoomAt(GZ_DELTA, SX, SY, GZ_W, GZ_H)
@@ -869,14 +1008,15 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
   // the general arm's ~10-18 px wrong-scale Mercator-metre fling.
   const G3B_PX_BUDGET = 1.0
   const G3B_DISC: Array<[number, string]> = [
-    [4, 'azimuthal_equidistant'], [5, 'stereographic'],
+    [4, 'azimuthal_equidistant'],
+    [5, 'stereographic'],
   ]
   for (const [projType, name] of G3B_DISC) {
     for (const zoom of [4, 8]) {
       it(
         `G3b projType ${projType} (${name}) z=${zoom}: ${GZ_STEPS}-step zoom keeps the under-cursor geo point < ${G3B_PX_BUDGET}px ` +
-        `[regression lock — disc geo-anchor via discAnchorFor (camera-helpers.ts); ` +
-        `was ~10-18px fling while the branch was gated projType===3]`,
+          `[regression lock — disc geo-anchor via discAnchorFor (camera-helpers.ts); ` +
+          `was ~10-18px fling while the branch was gated projType===3]`,
         () => {
           const drift = discStreamedDriftPx(projType, name, zoom)
           expect(drift, `${name} streamed-zoom recovery returned null (z=${zoom})`).not.toBeNull()
@@ -901,11 +1041,14 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
     for (const pitch of [0, 30]) {
       it(
         `G5c projType 7 (globe) z=${zoom} pitch=${pitch}: ${GZ_STEPS}-step zoom keeps the under-cursor geo point < ${G5C_PX_BUDGET}px ` +
-        `[regression lock — zoomAt routes globeMode through zoomAtGlobeAnchored (ray↔sphere fixed point); ` +
-        `was 16-20px against the phantom flat Mercator plane]`,
+          `[regression lock — zoomAt routes globeMode through zoomAtGlobeAnchored (ray↔sphere fixed point); ` +
+          `was 16-20px against the phantom flat Mercator plane]`,
         () => {
           const drift = globeStreamedDriftPx(zoom, pitch)
-          expect(drift, `globe streamed-zoom recovery returned null (z=${zoom} p=${pitch})`).not.toBeNull()
+          expect(
+            drift,
+            `globe streamed-zoom recovery returned null (z=${zoom} p=${pitch})`,
+          ).not.toBeNull()
           expect(
             drift!,
             `globe cumulative under-cursor drift ${drift!.toFixed(4)}px over ${GZ_STEPS} steps (budget ${G5C_PX_BUDGET}px)`,
@@ -937,15 +1080,18 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
     cam.globeMode = true
     cam.bearing = 0
     cam.pitch = pitch
-    const SX0 = GZ_W * 0.5 - 120, SY0 = GZ_H * 0.5 + 80
+    const SX0 = GZ_W * 0.5 - 120,
+      SY0 = GZ_H * 0.5 + 80
     // The sphere point under the cursor at drag start = the controller's
     // globeMode anchor (unprojectGlobeFromCamera ≡ this oracle at dpr 1).
     const g0 = unprojectGlobe(SX0, SY0, GZ_W, GZ_H, gzGlobeView(cam))
     if (!g0) return null
-    let px = SX0, py = SY0
+    let px = SX0,
+      py = SY0
     let worst = 0
     for (let s = 0; s < 30; s++) {
-      px += 2; py -= 1.5
+      px += 2
+      py -= 1.5
       cam.panToScreenAnchor(g0[0], g0[1], px, py, GZ_W, GZ_H)
       const screen = globeScreenForGeo(cam, g0[0], g0[1])
       if (!screen) return null
@@ -958,7 +1104,7 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
     for (const pitch of [0, 45]) {
       it(
         `G5d projType 7 (globe) z=${zoom} pitch=${pitch}: 30-move drag keeps the grabbed sphere point < ${G5D_PX_BUDGET}px under the cursor (worst move) ` +
-        `[globe drag ground-tracking — panGlobeToScreenAnchor; was 7-11px through the phantom-plane Mercator-metre anchor]`,
+          `[globe drag ground-tracking — panGlobeToScreenAnchor; was 7-11px through the phantom-plane Mercator-metre anchor]`,
         () => {
           const worst = globeDragWorstDriftPx(zoom, pitch)
           expect(worst, `globe drag recovery returned null (z=${zoom} p=${pitch})`).not.toBeNull()
@@ -989,7 +1135,10 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
     const anchor = unprojectGlobe(GZ_W / 2, GZ_H / 2, GZ_W, GZ_H, gzGlobeView(cam))
     expect(anchor, 'pole-reach: anchor unproject returned null').not.toBeNull()
     cam.panToScreenAnchor(anchor![0], anchor![1], GZ_W / 2, GZ_H / 2 + 300, GZ_W, GZ_H)
-    expect(cam.centerLatDeg, `centerLatDeg ${cam.centerLatDeg}° did not cross the Mercator wall`).toBeGreaterThan(85.051129)
+    expect(
+      cam.centerLatDeg,
+      `centerLatDeg ${cam.centerLatDeg}° did not cross the Mercator wall`,
+    ).toBeGreaterThan(85.051129)
     // Mercator mirror stays representable for the 2D / tile-pyramid readers.
     expect(mercatorYToLat(cam.centerY)).toBeLessThanOrEqual(85.051129 + 1e-6)
     expect(Number.isFinite(cam.centerX)).toBe(true)
@@ -1004,14 +1153,22 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
     const azim = discStreamedDriftPx(4, 'azimuthal_equidistant', 8)
     const stereo = discStreamedDriftPx(5, 'stereographic', 8)
     const globe = globeStreamedDriftPx(8, 0)
-    for (const [label, v] of [['ortho', ortho], ['azim', azim], ['stereo', stereo], ['globe', globe]] as const) {
+    for (const [label, v] of [
+      ['ortho', ortho],
+      ['azim', azim],
+      ['stereo', stereo],
+      ['globe', globe],
+    ] as const) {
       expect(v, `${label} drift returned null`).not.toBeNull()
     }
     // #9 + #11 both landed: every projection class is anchored. Pin sub-px.
     expect(ortho!, `ortho(3) drift ${ortho}px — expected sub-px (anchored)`).toBeLessThan(1.0)
     expect(azim!, `azim_eq(4) drift ${azim}px — expected sub-px (anchored)`).toBeLessThan(1.0)
     expect(stereo!, `stereo(5) drift ${stereo}px — expected sub-px (anchored)`).toBeLessThan(1.0)
-    expect(globe!, `globe(7) drift ${globe}px — expected sub-px (ray↔sphere anchored)`).toBeLessThan(1.0)
+    expect(
+      globe!,
+      `globe(7) drift ${globe}px — expected sub-px (ray↔sphere anchored)`,
+    ).toBeLessThan(1.0)
   })
 })
 
@@ -1043,14 +1200,20 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
 // the Mercator-metre delta unchanged (regression guard).
 // ════════════════════════════════════════════════════════════════════════
 describe('G10 — disc camera.pan moves the surface (matches globe), not the Mercator plane (#602)', () => {
-  const G6_W = 800, G6_H = 800
+  const G6_W = 800,
+    G6_H = 800
   const EARTH_R_G6 = 6378137
   const RAD2DEG_G6 = 180 / Math.PI
 
   /** Centre [lon°, lat°] move produced by one `camera.pan(dx,dy)` from a fresh
    *  camera at (lon0=20, lat0) zoom 3. globeMode is set true only for projType
    *  7; the discs stay untilted (globeMode=false, pitch 0). */
-  function panCentreDelta(projType: number, lat0: number, dx: number, dy: number): { dLon: number; dLat: number } {
+  function panCentreDelta(
+    projType: number,
+    lat0: number,
+    dx: number,
+    dy: number,
+  ): { dLon: number; dLat: number } {
     const cam = new Camera(20, lat0, 3)
     cam.projType = projType
     cam.globeMode = projType === 7
@@ -1059,17 +1222,19 @@ describe('G10 — disc camera.pan moves the surface (matches globe), not the Mer
       cam.pitchLocked = true
       cam.pitch = 0
     }
-    const lon0 = cam.centerX / EARTH_R_G6 * RAD2DEG_G6
+    const lon0 = (cam.centerX / EARTH_R_G6) * RAD2DEG_G6
     const lat0Deg = cam.centerLatDeg
     cam.pan(dx, dy, G6_W, G6_H)
     return {
-      dLon: cam.centerX / EARTH_R_G6 * RAD2DEG_G6 - lon0,
+      dLon: (cam.centerX / EARTH_R_G6) * RAD2DEG_G6 - lon0,
       dLat: cam.centerLatDeg - lat0Deg,
     }
   }
 
   const DISC_G6: Array<[number, string]> = [
-    [3, 'orthographic'], [4, 'azimuthal_equidistant'], [5, 'stereographic'],
+    [3, 'orthographic'],
+    [4, 'azimuthal_equidistant'],
+    [5, 'stereographic'],
   ]
 
   // The decisive case: a VERTICAL drag at HIGH latitude. The Mercator-Y stretch
@@ -1083,10 +1248,14 @@ describe('G10 — disc camera.pan moves the surface (matches globe), not the Mer
         // Two representations of the same sphere: identical screen delta →
         // identical geographic centre motion. (Pre-fix: disc.dLat ≈ globe.dLat
         // · cos(lat0) — half at 60° — so this asserts the fix.)
-        expect(Math.abs(disc.dLat - globe.dLat),
-          `${name} lat=${lat0}: disc Δlat ${disc.dLat.toFixed(5)}° vs globe ${globe.dLat.toFixed(5)}° — disc-pan still on the Mercator plane`).toBeLessThan(1e-4)
-        expect(Math.abs(disc.dLon - globe.dLon),
-          `${name} lat=${lat0}: disc Δlon ${disc.dLon.toFixed(5)}° vs globe ${globe.dLon.toFixed(5)}°`).toBeLessThan(1e-4)
+        expect(
+          Math.abs(disc.dLat - globe.dLat),
+          `${name} lat=${lat0}: disc Δlat ${disc.dLat.toFixed(5)}° vs globe ${globe.dLat.toFixed(5)}° — disc-pan still on the Mercator plane`,
+        ).toBeLessThan(1e-4)
+        expect(
+          Math.abs(disc.dLon - globe.dLon),
+          `${name} lat=${lat0}: disc Δlon ${disc.dLon.toFixed(5)}° vs globe ${globe.dLon.toFixed(5)}°`,
+        ).toBeLessThan(1e-4)
       })
     }
   }
@@ -1100,8 +1269,10 @@ describe('G10 — disc camera.pan moves the surface (matches globe), not the Mer
     const at60 = panCentreDelta(3, 60, 0, 10).dLat
     expect(at0, `lat-0 Δlat ${at0}`).toBeGreaterThan(0.5)
     // Surface pan is latitude-independent; pre-fix at60 ≈ at0·cos(60°) = at0/2.
-    expect(Math.abs(at60 - at0),
-      `ortho lat=60 Δlat ${at60.toFixed(5)}° != lat=0 Δlat ${at0.toFixed(5)}° → still Mercator-stretched`).toBeLessThan(1e-4)
+    expect(
+      Math.abs(at60 - at0),
+      `ortho lat=60 Δlat ${at60.toFixed(5)}° != lat=0 Δlat ${at0.toFixed(5)}° → still Mercator-stretched`,
+    ).toBeLessThan(1e-4)
   })
 
   // Regression guard: Mercator (0) + flat cylindrical (1/2/6) keep the legacy
@@ -1110,14 +1281,21 @@ describe('G10 — disc camera.pan moves the surface (matches globe), not the Mer
   // centerY by Δpx·mpp (the Mercator stretch is INTENDED for the flat plane),
   // so their Δlat is the Mercator-derived value and DIFFERS from the globe's
   // surface value — assert that difference persists (i.e. unchanged behaviour).
-  for (const [projType, name] of [[0, 'mercator'], [1, 'equirectangular'], [2, 'natural_earth'], [6, 'oblique_mercator']] as Array<[number, string]>) {
+  for (const [projType, name] of [
+    [0, 'mercator'],
+    [1, 'equirectangular'],
+    [2, 'natural_earth'],
+    [6, 'oblique_mercator'],
+  ] as Array<[number, string]>) {
     it(`${name} (${projType}) lat=60 keeps the Mercator-metre delta pan (unchanged)`, () => {
       const flat = panCentreDelta(projType, 60, 0, 10)
       const globe = panCentreDelta(7, 60, 0, 10)
       // Flat pan moves the Mercator plane → Δlat ≠ the globe's surface Δlat at
       // high latitude (the existing, correct behaviour for these projTypes).
-      expect(Math.abs(flat.dLat - globe.dLat),
-        `${name} lat=60: Δlat ${flat.dLat.toFixed(5)}° unexpectedly equals globe ${globe.dLat.toFixed(5)}° — the flat branch was altered`).toBeGreaterThan(1e-3)
+      expect(
+        Math.abs(flat.dLat - globe.dLat),
+        `${name} lat=60: Δlat ${flat.dLat.toFixed(5)}° unexpectedly equals globe ${globe.dLat.toFixed(5)}° — the flat branch was altered`,
+      ).toBeGreaterThan(1e-3)
     })
   }
 })

@@ -26,7 +26,10 @@ const DIRS = [
   join(process.cwd(), 'map/src/render'),
 ]
 function readScanned(f: string): string {
-  for (const d of DIRS) { const p = join(d, f); if (existsSync(p)) return readFileSync(p, 'utf8') }
+  for (const d of DIRS) {
+    const p = join(d, f)
+    if (existsSync(p)) return readFileSync(p, 'utf8')
+  }
   throw new Error(`no-eager scan: ${f} not found in ${DIRS.join(' | ')}`)
 }
 

@@ -55,14 +55,21 @@ export function tilePolygonPart(
   // by construction (d34aed2). Simplifying the fill at z<maxZoom while
   // the outline kept full detail produced a fill/stroke gap growing
   // with zoom-out; see the matching note in processZoomLevelShared.
-  const clipped = clipPolygonToRect(part.rings!, clip.mxW, clip.myS, clip.mxE, clip.myN, precisionMM)
+  const clipped = clipPolygonToRect(
+    part.rings!,
+    clip.mxW,
+    clip.myS,
+    clip.mxE,
+    clip.myN,
+    precisionMM,
+  )
   if (clipped.length > 0 && clipped[0].length >= 3) {
     const dataRings = clipped
     // Repair self-intersecting OUTER ring only — but only when an
     // earcut probe actually detects the overlap. See
     // `needsBacktrackRepair` for the coverage-based detection.
     if (dataRings.length > 0 && dataRings[0]!.length >= 3) {
-      const holes = dataRings.slice(1).filter(r => r.length >= 3)
+      const holes = dataRings.slice(1).filter((r) => r.length >= 3)
       const acceptSplit = needsBacktrackRepair(dataRings[0]!, holes)
       if (!acceptSplit) {
         const repairedRings = [dataRings[0]!, ...holes]
@@ -70,8 +77,14 @@ export function tilePolygonPart(
         featureIds.add(fid)
         tilePolygons.push({ rings: repairedRings, featId: fid })
       } else {
-        const outerSubs = splitBoundaryBacktracks(dataRings[0]!, clip.mxW, clip.myS, clip.mxE, clip.myN)
-        const usableOuters = outerSubs.filter(r => r.length >= 3)
+        const outerSubs = splitBoundaryBacktracks(
+          dataRings[0]!,
+          clip.mxW,
+          clip.myS,
+          clip.mxE,
+          clip.myN,
+        )
+        const usableOuters = outerSubs.filter((r) => r.length >= 3)
         const effectiveOuters = usableOuters.length > 0 ? usableOuters : [dataRings[0]!]
         if (effectiveOuters.length === 1) {
           const repairedRings = [effectiveOuters[0]!, ...holes]

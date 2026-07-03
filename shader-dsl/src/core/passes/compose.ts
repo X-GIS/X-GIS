@@ -30,23 +30,35 @@ function swapInBody(
     if (s.s === 'placeholder') {
       seen.add(s.tag)
       const replacement = swaps[s.tag]
-      if (replacement) { used.add(s.tag); out.push(...replacement) } else out.push(s)
+      if (replacement) {
+        used.add(s.tag)
+        out.push(...replacement)
+      } else out.push(s)
       continue
     }
     if (s.s === 'if') {
       out.push({
         s: 'if',
-        arms: s.arms.map((arm) => ({ cond: arm.cond, body: swapInBody(arm.body, swaps, seen, used) })),
+        arms: s.arms.map((arm) => ({
+          cond: arm.cond,
+          body: swapInBody(arm.body, swaps, seen, used),
+        })),
         elseBody: s.elseBody ? swapInBody(s.elseBody, swaps, seen, used) : undefined,
       })
       continue
     }
-    if (s.s === 'for') { out.push({ ...s, body: swapInBody(s.body, swaps, seen, used) }); continue }
+    if (s.s === 'for') {
+      out.push({ ...s, body: swapInBody(s.body, swaps, seen, used) })
+      continue
+    }
     if (s.s === 'switch') {
       out.push({
         s: 'switch',
         scrut: s.scrut,
-        cases: s.cases.map((c) => ({ value: c.value, body: swapInBody(c.body, swaps, seen, used) })),
+        cases: s.cases.map((c) => ({
+          value: c.value,
+          body: swapInBody(c.body, swaps, seen, used),
+        })),
         defaultBody: s.defaultBody ? swapInBody(s.defaultBody, swaps, seen, used) : undefined,
       })
       continue
@@ -67,16 +79,23 @@ export function composeModule(
 ): ModuleDecl {
   const seen = new Set<string>()
   const used = new Set<string>()
-  const funcs: FuncDecl[] = m.funcs.map((f) => ({ ...f, body: swapInBody(f.body, swaps, seen, used) }))
+  const funcs: FuncDecl[] = m.funcs.map((f) => ({
+    ...f,
+    body: swapInBody(f.body, swaps, seen, used),
+  }))
 
   const unknownKeys = Object.keys(swaps).filter((k) => !used.has(k))
   if (unknownKeys.length) {
-    throw new Error(`shader-dsl: composeModule swap key(s) match no placeholder: ${unknownKeys.join(', ')} (seen: ${[...seen].join(', ') || 'none'})`)
+    throw new Error(
+      `shader-dsl: composeModule swap key(s) match no placeholder: ${unknownKeys.join(', ')} (seen: ${[...seen].join(', ') || 'none'})`,
+    )
   }
   if (!opts?.allowUnswapped) {
     const unswapped = [...seen].filter((t) => !used.has(t))
     if (unswapped.length) {
-      throw new Error(`shader-dsl: composeModule left placeholder(s) un-swapped: ${unswapped.join(', ')} — provide a swap or pass { allowUnswapped: true }`)
+      throw new Error(
+        `shader-dsl: composeModule left placeholder(s) un-swapped: ${unswapped.join(', ')} — provide a swap or pass { allowUnswapped: true }`,
+      )
     }
   }
 

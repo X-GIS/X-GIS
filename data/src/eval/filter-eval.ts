@@ -101,41 +101,48 @@ function hashAstIterative(root: unknown): number {
   }
   const stepNum = (n: number) => {
     f64[0] = n
-    h = (h * 33) ^ u32[0]!; h |= 0
-    h = (h * 33) ^ u32[1]!; h |= 0
+    h = (h * 33) ^ u32[0]!
+    h |= 0
+    h = (h * 33) ^ u32[1]!
+    h |= 0
   }
   // Markers (single-byte) separate value categories so e.g. the
   // number 1 and the string '1' don't collide; same for null,
   // boolean, object-open, array-open, end-of-children.
-  const M_OBJ = 0x7b      // '{'
-  const M_ARR = 0x5b      // '['
-  const M_END = 0x7d      // '}'
-  const M_STR = 0x73      // 's'
-  const M_NUM = 0x6e      // 'n'
-  const M_BOOL = 0x62     // 'b'
-  const M_NULL = 0x6f     // 'o'
+  const M_OBJ = 0x7b // '{'
+  const M_ARR = 0x5b // '['
+  const M_END = 0x7d // '}'
+  const M_STR = 0x73 // 's'
+  const M_NUM = 0x6e // 'n'
+  const M_BOOL = 0x62 // 'b'
+  const M_NULL = 0x6f // 'o'
   const stack: unknown[] = [root]
   const visited = new WeakSet<object>()
   while (stack.length > 0) {
     const v = stack.pop()
     if (v === null || v === undefined) {
-      h = (h * 33) ^ M_NULL; h |= 0
+      h = (h * 33) ^ M_NULL
+      h |= 0
       continue
     }
     const t = typeof v
     if (t === 'string') {
-      h = (h * 33) ^ M_STR; h |= 0
+      h = (h * 33) ^ M_STR
+      h |= 0
       stepStr(v as string)
       continue
     }
     if (t === 'number') {
-      h = (h * 33) ^ M_NUM; h |= 0
+      h = (h * 33) ^ M_NUM
+      h |= 0
       stepNum(v as number)
       continue
     }
     if (t === 'boolean') {
-      h = (h * 33) ^ M_BOOL; h |= 0
-      h = (h * 33) ^ ((v as boolean) ? 1 : 0); h |= 0
+      h = (h * 33) ^ M_BOOL
+      h |= 0
+      h = (h * 33) ^ ((v as boolean) ? 1 : 0)
+      h |= 0
       continue
     }
     if (t === 'object') {
@@ -144,12 +151,14 @@ function hashAstIterative(root: unknown): number {
         // Cyclic reference — emit a stable marker so two distinct
         // cyclic ASTs with different cycle structures still hash
         // distinctly via the prior walk before re-encountering.
-        h = (h * 33) ^ M_END; h |= 0
+        h = (h * 33) ^ M_END
+        h |= 0
         continue
       }
       visited.add(obj)
       if (Array.isArray(v)) {
-        h = (h * 33) ^ M_ARR; h |= 0
+        h = (h * 33) ^ M_ARR
+        h |= 0
         // Push end-marker first so it's popped LAST after children.
         stack.push({ kind: 'EndMarker' } as unknown)
         // Push children in reverse order so they pop in original order.
@@ -162,10 +171,12 @@ function hashAstIterative(root: unknown): number {
       const o = v as Record<string, unknown>
       // Detect end-marker placeholder (pushed by array/object open).
       if (o.kind === 'EndMarker') {
-        h = (h * 33) ^ M_END; h |= 0
+        h = (h * 33) ^ M_END
+        h |= 0
         continue
       }
-      h = (h * 33) ^ M_OBJ; h |= 0
+      h = (h * 33) ^ M_OBJ
+      h |= 0
       const keys = Object.keys(o).sort()
       stack.push({ kind: 'EndMarker' } as unknown)
       for (let i = keys.length - 1; i >= 0; i--) {
@@ -178,12 +189,16 @@ function hashAstIterative(root: unknown): number {
     }
     // function / symbol / bigint — unreachable for AST POJOs but
     // included for defensive completeness.
-    h = (h * 33) ^ M_NULL; h |= 0
+    h = (h * 33) ^ M_NULL
+    h |= 0
   }
   return h >>> 0
 }
 
-export function computeSliceKey(sourceLayer: string, filterAst: FilterAst | null | undefined): string {
+export function computeSliceKey(
+  sourceLayer: string,
+  filterAst: FilterAst | null | undefined,
+): string {
   if (!filterAst) return sourceLayer
   let inner = _sliceKeyCache.get(filterAst as object)
   if (inner) {

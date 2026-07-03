@@ -1,10 +1,6 @@
 import proj4 from 'proj4'
 import { normalizeEPSG, resolveEPSG } from './epsg-defs'
-import type {
-  GeoJSONFeatureCollection,
-  GeoJSONFeature,
-  GeoJSONGeometry,
-} from '../geojson-types'
+import type { GeoJSONFeatureCollection, GeoJSONFeature, GeoJSONGeometry } from '../geojson-types'
 
 // ═══ Input-data EPSG → WGS84 reprojection ═══
 //
@@ -59,10 +55,7 @@ function transformCoords(coords: unknown, tf: Transform): unknown {
 
 /** Reproject one geometry of any GeoJSON type, recursing into
  *  GeometryCollection. Returns a new geometry; `null` passes through. */
-function transformGeometry(
-  geom: GeoJSONGeometry | null,
-  tf: Transform,
-): GeoJSONGeometry | null {
+function transformGeometry(geom: GeoJSONGeometry | null, tf: Transform): GeoJSONGeometry | null {
   if (geom === null) return null
   if (geom.type === 'GeometryCollection') {
     return {

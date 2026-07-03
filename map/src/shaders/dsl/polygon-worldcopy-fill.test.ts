@@ -69,7 +69,12 @@ function camRelX(tileWestPrimary: number, worldOffDeg: number, clon: number): nu
 }
 
 // ── FILL arm — BASELINE (the bug: no world_off_m) ──
-function fillRelBaseline(absLon: number, tileWestPrimary: number, worldOffDeg: number, clon: number): number {
+function fillRelBaseline(
+  absLon: number,
+  tileWestPrimary: number,
+  worldOffDeg: number,
+  clon: number,
+): number {
   const tm = tileMercX(tileWestPrimary, worldOffDeg)
   const p2dx = absLon * DEG2RAD * EARTH_R
   return p2dx - tm - camRelX(tileWestPrimary, worldOffDeg, clon)
@@ -77,7 +82,11 @@ function fillRelBaseline(absLon: number, tileWestPrimary: number, worldOffDeg: n
 
 // ── FILL arm — FIXED (adds world_off_m, mirroring the shader edit) ──
 function fillRelFixed(
-  absLon: number, tileWestPrimary: number, worldOffDeg: number, clon: number, tileExtentM: number,
+  absLon: number,
+  tileWestPrimary: number,
+  worldOffDeg: number,
+  clon: number,
+  tileExtentM: number,
 ): { rel: number; wo: number } {
   const tm = tileMercX(tileWestPrimary, worldOffDeg)
   const tileRefLon = (tm + 0.5 * tileExtentM) / (DEG2RAD * EARTH_R)
@@ -90,7 +99,12 @@ function fillRelFixed(
 // p_h/p_l = (abs_merc_in_copy − tile_origin_merc); line_endpoint
 // subtracts cam_h/cam_l. worldOff SURVIVES because abs_merc_in_copy
 // carries it.
-function lineRel(absLon: number, tileWestPrimary: number, worldOffDeg: number, clon: number): number {
+function lineRel(
+  absLon: number,
+  tileWestPrimary: number,
+  worldOffDeg: number,
+  clon: number,
+): number {
   const tm = tileMercX(tileWestPrimary, worldOffDeg)
   const pLocal = (absLon + worldOffDeg) * DEG2RAD * EARTH_R - tm
   return pLocal - camRelX(tileWestPrimary, worldOffDeg, clon)
@@ -114,7 +128,7 @@ describe('Mercator world-copy fill-gap — CPU two-arm parity gate', () => {
       const l0 = lineRel(VERTEX_ABS_LON, TILE_WEST_Z0, 0, clon)
       const lm1 = lineRel(VERTEX_ABS_LON, TILE_WEST_Z0, -360, clon)
       // worldOff = −360° → shift = −360·DEG2RAD·R = −CIRC.
-      expect(Math.abs((lm1 - l0) - -CIRC)).toBeLessThan(F32_ULP_M)
+      expect(Math.abs(lm1 - l0 - -CIRC)).toBeLessThan(F32_ULP_M)
     }
   })
 
@@ -219,9 +233,7 @@ describe('Mercator world-copy fill-gap — emitted WGSL string companion', () =>
     // the world circumference (`... floor(((<refLon> + 180.0) / 360.0)) * 2.0) * PI) * EARTH_R`).
     // The +180/360 floor (not the clon-relative `- _cseN`/`+ 0.5` helper floor)
     // pins the FILL arm's add; \w+ is the cse-hoisted tile_ref_lon temp.
-    expect(wgsl).toMatch(
-      /floor\(\(\(\w+ \+ 180\.0\) \/ 360\.0\)\) \* 2\.0\) \* PI\) \* EARTH_R\)/,
-    )
+    expect(wgsl).toMatch(/floor\(\(\(\w+ \+ 180\.0\) \/ 360\.0\)\) \* 2\.0\) \* PI\) \* EARTH_R\)/)
   })
 
   it('adds world_off_m to rel2d.x before the MVP transform (fill + extrude)', () => {

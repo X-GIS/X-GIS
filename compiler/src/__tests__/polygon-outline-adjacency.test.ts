@@ -22,14 +22,24 @@ describe('polygon outline adjacency', () => {
   it('produces no degenerate self-loops in outlineLineIndices', () => {
     const geojson = {
       type: 'FeatureCollection' as const,
-      features: [{
-        type: 'Feature' as const,
-        properties: {},
-        geometry: {
-          type: 'Polygon' as const,
-          coordinates: [[[10, 10], [20, 10], [20, 20], [10, 20], [10, 10]]],
+      features: [
+        {
+          type: 'Feature' as const,
+          properties: {},
+          geometry: {
+            type: 'Polygon' as const,
+            coordinates: [
+              [
+                [10, 10],
+                [20, 10],
+                [20, 20],
+                [10, 20],
+                [10, 10],
+              ],
+            ],
+          },
         },
-      }],
+      ],
     }
     const parts = decomposeFeatures(geojson.features)
     const tile = compileSingleTile(parts, 2, 2, 1, 2)
@@ -46,14 +56,24 @@ describe('polygon outline adjacency', () => {
   it('every outline vertex appears in exactly 2 segments (closed ring)', () => {
     const geojson = {
       type: 'FeatureCollection' as const,
-      features: [{
-        type: 'Feature' as const,
-        properties: {},
-        geometry: {
-          type: 'Polygon' as const,
-          coordinates: [[[10, 10], [20, 10], [20, 20], [10, 20], [10, 10]]],
+      features: [
+        {
+          type: 'Feature' as const,
+          properties: {},
+          geometry: {
+            type: 'Polygon' as const,
+            coordinates: [
+              [
+                [10, 10],
+                [20, 10],
+                [20, 20],
+                [10, 20],
+                [10, 10],
+              ],
+            ],
+          },
         },
-      }],
+      ],
     }
     const parts = decomposeFeatures(geojson.features)
     const tile = compileSingleTile(parts, 2, 2, 1, 2)!
@@ -65,8 +85,10 @@ describe('polygon outline adjacency', () => {
     const ov = tile.outlineVertices
     const STRIDE = 10
     const posKey = (i: number) => {
-      const mxH = ov[i * STRIDE], myH = ov[i * STRIDE + 1]
-      const mxL = ov[i * STRIDE + 2], myL = ov[i * STRIDE + 3]
+      const mxH = ov[i * STRIDE],
+        myH = ov[i * STRIDE + 1]
+      const mxL = ov[i * STRIDE + 2],
+        myL = ov[i * STRIDE + 3]
       // Round the reconstructed mercator coord to ~mm to fold wrap-vertex
       // duplicates with their geometric twin.
       return `${Math.round((mxH + mxL) * 1000)}|${Math.round((myH + myL) * 1000)}`

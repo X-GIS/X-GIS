@@ -16,10 +16,10 @@
 import { describe, it, expect } from 'vitest'
 import { wrapForTesting } from '@xgis/map'
 
-const A = 0x41          // Latin 'A' — not breakable, not ideographic
-const SP = 0x20         // space — whitespace + breakable
-const CJK = 0x4e2d      // '中' — ideographic-breakable, not whitespace
-const ZWSP = 0x200b     // zero-width space
+const A = 0x41 // Latin 'A' — not breakable, not ideographic
+const SP = 0x20 // space — whitespace + breakable
+const CJK = 0x4e2d // '中' — ideographic-breakable, not whitespace
+const ZWSP = 0x200b // zero-width space
 
 describe('Knuth-Plass wrap — MapLibre parity', () => {
   it('A: no ZWSP → ideographic breaks are NOT penalised (balances via a CJK break, keeps the Latin word whole)', () => {
@@ -40,10 +40,10 @@ describe('Knuth-Plass wrap — MapLibre parity', () => {
     // is now true, so the +150 CJK-break penalty applies and the
     // space break wins: ["AAA ", "中中中中中中中​"].
     const cps = [A, A, A, SP, CJK, CJK, CJK, CJK, CJK, CJK, CJK, ZWSP]
-    const adv = cps.map(cp => (cp === ZWSP ? 0 : 10))
+    const adv = cps.map((cp) => (cp === ZWSP ? 0 : 10))
     const lines = wrapForTesting(cps, adv, 55)
     expect(lines.length).toBe(2)
-    expect(lines[0]!.end).toBe(4)   // break right after the space
+    expect(lines[0]!.end).toBe(4) // break right after the space
   })
 
   it('B: determineAverageLineWidth includes whitespace advance (drives lineCount)', () => {
@@ -51,7 +51,7 @@ describe('Knuth-Plass wrap — MapLibre parity', () => {
     // ceil(150/160)=1 line. Including them totalWidth=190 →
     // ceil(190/160)=2 lines. MapLibre includes whitespace.
     const cps = [A, SP, A, SP, A, SP, A, SP, A]
-    const adv = cps.map(cp => (cp === SP ? 10 : 30))
+    const adv = cps.map((cp) => (cp === SP ? 10 : 30))
     const lines = wrapForTesting(cps, adv, 160)
     expect(lines.length).toBe(2)
   })

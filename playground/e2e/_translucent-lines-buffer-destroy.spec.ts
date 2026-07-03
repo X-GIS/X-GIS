@@ -17,26 +17,28 @@ const READY_TIMEOUT_MS = 15_000
 async function waitForXgisReady(page: Page): Promise<void> {
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: READY_TIMEOUT_MS },
+    null,
+    { timeout: READY_TIMEOUT_MS },
   )
 }
 
-test('translucent_lines: no "Buffer used in submit while destroyed" during pan', async ({ page }) => {
+test('translucent_lines: no "Buffer used in submit while destroyed" during pan', async ({
+  page,
+}) => {
   test.setTimeout(45_000)
   await page.setViewportSize({ width: 1280, height: 720 })
 
   const validationErrors: string[] = []
-  page.on('console', m => {
+  page.on('console', (m) => {
     if (m.type() === 'error' && m.text().includes('frame-validation')) {
       validationErrors.push(m.text())
     }
   })
 
   // The user-reported camera state.
-  await page.goto(
-    '/demo.html?id=translucent_lines#6.90/3.54771/116.46131/15.0/57.9',
-    { waitUntil: 'domcontentloaded' },
-  )
+  await page.goto('/demo.html?id=translucent_lines#6.90/3.54771/116.46131/15.0/57.9', {
+    waitUntil: 'domcontentloaded',
+  })
   await waitForXgisReady(page)
   await page.waitForTimeout(5000) // long settle to surface initial-burst races
 
@@ -57,7 +59,7 @@ test('translucent_lines: no "Buffer used in submit while destroyed" during pan',
       const R = 6378137
       const DEG2RAD = Math.PI / 180
       const cl = Math.max(-85.0511, Math.min(85.0511, lat))
-      return [lon * DEG2RAD * R, Math.log(Math.tan(Math.PI / 4 + cl * DEG2RAD / 2)) * R]
+      return [lon * DEG2RAD * R, Math.log(Math.tan(Math.PI / 4 + (cl * DEG2RAD) / 2)) * R]
     }
     const trace: number[] = []
     const targets: Array<[number, number, number, number, number]> = [
@@ -80,7 +82,7 @@ test('translucent_lines: no "Buffer used in submit while destroyed" during pan',
         cam.bearing = bearing
         cam.pitch = pitch
         map.invalidate()
-        await new Promise(r => setTimeout(r, 200))
+        await new Promise((r) => setTimeout(r, 200))
         const pipe = map.inspectPipeline?.()
         if (pipe?.sources) {
           for (const s of pipe.sources) trace.push(s.cache?.size ?? 0)
@@ -91,7 +93,9 @@ test('translucent_lines: no "Buffer used in submit while destroyed" during pan',
   })
   await page.waitForTimeout(500)
 
-  console.log(`[buffer-destroy-repro] cache peak: ${cacheTrace.maxCache} (samples: ${cacheTrace.traceLen})`)
+  console.log(
+    `[buffer-destroy-repro] cache peak: ${cacheTrace.maxCache} (samples: ${cacheTrace.traceLen})`,
+  )
   if (validationErrors.length > 0) {
     console.log(`[buffer-destroy-repro] ${validationErrors.length} validation errors:`)
     for (const e of validationErrors.slice(0, 5)) console.log(`  ${e}`)

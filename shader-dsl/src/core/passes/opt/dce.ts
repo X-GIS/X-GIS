@@ -17,26 +17,38 @@ function collectExprNames(e: Expr, out: Set<string>): void {
   switch (e.op) {
     case 'varref':
     case 'param':
-      out.add(e.name); break
+      out.add(e.name)
+      break
     case 'binop':
     case 'compare':
     case 'logical':
-      collectExprNames(e.a, out); collectExprNames(e.b, out); break
+      collectExprNames(e.a, out)
+      collectExprNames(e.b, out)
+      break
     case 'unop':
-      collectExprNames(e.a, out); break
+      collectExprNames(e.a, out)
+      break
     case 'call':
     case 'construct':
-      for (const a of e.args) collectExprNames(a, out); break
+      for (const a of e.args) collectExprNames(a, out)
+      break
     case 'member':
-      collectExprNames(e.base, out); break
+      collectExprNames(e.base, out)
+      break
     case 'index':
-      collectExprNames(e.base, out); collectExprNames(e.idx, out); break
+      collectExprNames(e.base, out)
+      collectExprNames(e.idx, out)
+      break
     case 'select':
-      collectExprNames(e.cond, out); collectExprNames(e.ifTrue, out); collectExprNames(e.ifFalse, out); break
+      collectExprNames(e.cond, out)
+      collectExprNames(e.ifTrue, out)
+      collectExprNames(e.ifFalse, out)
+      break
     case 'matchExpr':
       collectExprNames(e.scrutinee, out)
       for (const [, v] of e.cases) collectExprNames(v, out)
-      collectExprNames(e.default, out); break
+      collectExprNames(e.default, out)
+      break
     default:
       break // lit / constref
   }
@@ -44,12 +56,20 @@ function collectExprNames(e: Expr, out: Set<string>): void {
 
 function collectStmtNames(s: Stmt, out: Set<string>): void {
   switch (s.s) {
-    case 'let': collectExprNames(s.expr, out); break
-    case 'var': if (s.init !== undefined) collectExprNames(s.init, out); break
+    case 'let':
+      collectExprNames(s.expr, out)
+      break
+    case 'var':
+      if (s.init !== undefined) collectExprNames(s.init, out)
+      break
     case 'assign':
     case 'assignOp':
-      collectExprNames(s.target, out); collectExprNames(s.expr, out); break
-    case 'return': if (s.expr !== undefined) collectExprNames(s.expr, out); break
+      collectExprNames(s.target, out)
+      collectExprNames(s.expr, out)
+      break
+    case 'return':
+      if (s.expr !== undefined) collectExprNames(s.expr, out)
+      break
     case 'if':
       for (const arm of s.arms) {
         collectExprNames(arm.cond, out)
@@ -58,7 +78,9 @@ function collectStmtNames(s: Stmt, out: Set<string>): void {
       if (s.elseBody) for (const b of s.elseBody) collectStmtNames(b, out)
       break
     case 'for':
-      collectStmtNames(s.init, out); collectExprNames(s.cond, out); collectStmtNames(s.update, out)
+      collectStmtNames(s.init, out)
+      collectExprNames(s.cond, out)
+      collectStmtNames(s.update, out)
       for (const b of s.body) collectStmtNames(b, out)
       break
     case 'switch':

@@ -8,8 +8,8 @@ import { interpolateTime, interpolateTimeColor, type Easing } from '@xgis/map'
 // delayMs offset. They exist entirely in pure JS so they run 10ms cold.
 
 const STOPS = [
-  { timeMs: 0,    value: 1.0 },
-  { timeMs: 500,  value: 0.0 },
+  { timeMs: 0, value: 1.0 },
+  { timeMs: 500, value: 0.0 },
   { timeMs: 1000, value: 1.0 },
 ]
 
@@ -127,9 +127,9 @@ describe('interpolateTime — degenerate stops', () => {
 // ═══ interpolateTimeColor: vec4 companion to interpolateTime ═══
 
 const COLOR_STOPS: { timeMs: number; value: [number, number, number, number] }[] = [
-  { timeMs: 0,    value: [1, 0, 0, 1] },  // red
-  { timeMs: 500,  value: [0, 1, 0, 1] },  // green
-  { timeMs: 1000, value: [0, 0, 1, 1] },  // blue
+  { timeMs: 0, value: [1, 0, 0, 1] }, // red
+  { timeMs: 500, value: [0, 1, 0, 1] }, // green
+  { timeMs: 1000, value: [0, 0, 1, 1] }, // blue
 ]
 
 describe('interpolateTimeColor — boundary & midpoint', () => {
@@ -202,8 +202,8 @@ describe('interpolateTimeColor — allocation reuse', () => {
 //      control — proves the test is sensitive to the bug shape)
 
 const PULSE_STOPS = [
-  { timeMs: 0,    value: 1.0 },
-  { timeMs: 750,  value: 0.3 },
+  { timeMs: 0, value: 1.0 },
+  { timeMs: 750, value: 0.3 },
   { timeMs: 1500, value: 1.0 },
 ]
 const CYCLE_MS = 1500
@@ -224,14 +224,16 @@ describe('interpolateTime — multi-cycle frame loop (Bug 1 regression)', () => 
     // Count samples within 0.05 of each extreme. With 450 samples
     // across 5 cycles of a triangle wave, we should hit each
     // extreme region ~5 times.
-    const nearMax = samples.filter(v => v > 0.95).length
-    const nearMin = samples.filter(v => v < 0.35).length
-    expect(nearMax,
-      `frame loop never returned to opacity ≈ 1.0 (saw ${nearMax} near-max samples) — animation stuck`)
-      .toBeGreaterThan(20)
-    expect(nearMin,
-      `frame loop never reached opacity ≈ 0.3 (saw ${nearMin} near-min samples) — animation never moved`)
-      .toBeGreaterThan(20)
+    const nearMax = samples.filter((v) => v > 0.95).length
+    const nearMin = samples.filter((v) => v < 0.35).length
+    expect(
+      nearMax,
+      `frame loop never returned to opacity ≈ 1.0 (saw ${nearMax} near-max samples) — animation stuck`,
+    ).toBeGreaterThan(20)
+    expect(
+      nearMin,
+      `frame loop never reached opacity ≈ 0.3 (saw ${nearMin} near-min samples) — animation never moved`,
+    ).toBeGreaterThan(20)
   })
 
   it('loop=true: value at t === value at t+cycleMs (wraparound invariant)', () => {
@@ -256,7 +258,7 @@ describe('interpolateTime — multi-cycle frame loop (Bug 1 regression)', () => 
     // test above would still pass but this one would fail.
     const samples = simulateFrames(false)
     const lastCycleSamples = samples.slice(Math.floor(samples.length * 0.6))
-    const allFrozen = lastCycleSamples.every(v => Math.abs(v - 1.0) < 1e-6)
+    const allFrozen = lastCycleSamples.every((v) => Math.abs(v - 1.0) < 1e-6)
     expect(allFrozen).toBe(true)
   })
 
@@ -265,7 +267,7 @@ describe('interpolateTime — multi-cycle frame loop (Bug 1 regression)', () => 
     for (let elapsed = 0; elapsed <= CYCLE_MS * 3; elapsed += FRAME_MS) {
       out.push(interpolateTime(PULSE_STOPS, elapsed, true, 'ease-in-out', 0))
     }
-    const distinct = new Set(out.map(v => Math.round(v * 100))).size
+    const distinct = new Set(out.map((v) => Math.round(v * 100))).size
     // Triangle wave with ease-in-out should hit ~30+ distinct
     // 0.01-rounded values across 3 cycles. If the value is stuck,
     // distinct ≈ 1.
@@ -278,9 +280,9 @@ describe('interpolateTimeColor — multi-cycle frame loop (Bug 1 regression)', (
   // over 2000ms. Bug 1's exact shape was this color animation
   // freezing at slate after one cycle.
   const HEAT_STOPS: { timeMs: number; value: [number, number, number, number] }[] = [
-    { timeMs: 0,    value: [0.20, 0.25, 0.33, 1] }, // slate-700
+    { timeMs: 0, value: [0.2, 0.25, 0.33, 1] }, // slate-700
     { timeMs: 1000, value: [0.88, 0.11, 0.28, 1] }, // rose-600
-    { timeMs: 2000, value: [0.20, 0.25, 0.33, 1] }, // slate-700
+    { timeMs: 2000, value: [0.2, 0.25, 0.33, 1] }, // slate-700
   ]
   const HEAT_CYCLE = 2000
 
@@ -290,8 +292,8 @@ describe('interpolateTimeColor — multi-cycle frame loop (Bug 1 regression)', (
       samples.push(interpolateTimeColor(HEAT_STOPS, elapsed, true, 'linear', 0))
     }
     // slate has high R component (>0.8) only briefly per cycle (the rose phase)
-    const nearRose = samples.filter(c => c[0] > 0.75).length
-    const nearSlate = samples.filter(c => c[0] < 0.30).length
+    const nearRose = samples.filter((c) => c[0] > 0.75).length
+    const nearSlate = samples.filter((c) => c[0] < 0.3).length
     expect(nearRose).toBeGreaterThan(20)
     expect(nearSlate).toBeGreaterThan(20)
   })

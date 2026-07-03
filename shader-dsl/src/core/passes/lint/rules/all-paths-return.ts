@@ -10,16 +10,22 @@ function alwaysReturns(body: readonly Stmt[]): boolean {
 }
 function stmtTerminates(s: Stmt): boolean {
   switch (s.s) {
-    case 'return': return true
-    case 'discard': return true
+    case 'return':
+      return true
+    case 'discard':
+      return true
     case 'if':
-      return s.elseBody !== undefined
-        && s.arms.every((arm) => alwaysReturns(arm.body))
-        && alwaysReturns(s.elseBody)
+      return (
+        s.elseBody !== undefined &&
+        s.arms.every((arm) => alwaysReturns(arm.body)) &&
+        alwaysReturns(s.elseBody)
+      )
     case 'switch':
-      return s.defaultBody !== undefined
-        && s.cases.every((c) => alwaysReturns(c.body))
-        && alwaysReturns(s.defaultBody)
+      return (
+        s.defaultBody !== undefined &&
+        s.cases.every((c) => alwaysReturns(c.body)) &&
+        alwaysReturns(s.defaultBody)
+      )
     default:
       return false
   }
@@ -34,7 +40,9 @@ export const allPathsReturn: LintRule = {
   create: (ctx) => ({
     Func(f) {
       if (f.ret.kind !== 'void' && !alwaysReturns(f.body)) {
-        ctx.report(`fn '${f.name}' returns non-void but a code path falls through without return`, { fn: f.name })
+        ctx.report(`fn '${f.name}' returns non-void but a code path falls through without return`, {
+          fn: f.name,
+        })
       }
     },
   }),

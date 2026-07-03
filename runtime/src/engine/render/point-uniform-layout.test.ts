@@ -28,8 +28,8 @@ const WGSL_TYPES: Record<string, [number, number]> = {
   'mat4x4<f32>': [64, 16],
   'vec4<f32>': [16, 16],
   'vec2<f32>': [8, 8],
-  'f32': [4, 4],
-  'u32': [4, 4],
+  f32: [4, 4],
+  u32: [4, 4],
 }
 
 /** Independent oracle: parse the emitted WGSL `struct Uniforms` and compute its

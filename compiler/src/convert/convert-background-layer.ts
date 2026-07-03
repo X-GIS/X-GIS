@@ -33,15 +33,20 @@ export function convertBackgroundLayer(
   // recognised; ['literal', ['literal', 'none']] from preprocessor
   // chains left the layer rendering despite the author's hide.
   let bgVisibility: unknown = bgLayer.layout?.visibility
-  while (Array.isArray(bgVisibility) && bgVisibility.length === 2
-      && bgVisibility[0] === 'literal') {
+  while (
+    Array.isArray(bgVisibility) &&
+    bgVisibility.length === 2 &&
+    bgVisibility[0] === 'literal'
+  ) {
     bgVisibility = bgVisibility[1]
   }
   const bgVisibilityNone = bgVisibility === 'none'
   // Mapbox spec: visibility must be 'visible' | 'none'. Warn on
   // typo'd values that silently fell to default 'visible'.
   if (typeof bgVisibility === 'string' && bgVisibility !== 'visible' && bgVisibility !== 'none') {
-    warnings.push(`Background layer "${bgLayer.id}" — visibility "${bgVisibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`)
+    warnings.push(
+      `Background layer "${bgLayer.id}" — visibility "${bgVisibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`,
+    )
   }
   const color = bgLayer.paint?.['background-color']
   // Probe the constant-colour conversion into a scratch warnings
@@ -59,9 +64,10 @@ export function convertBackgroundLayer(
   // surface show paintShapes.fill). The constant path keeps emitting a
   // hex via `colorStr`. colorToXgis returns null on the interpolate
   // shape, so this only fires when the constant path already declined.
-  const colorInterp = (colorStr === null && !bgVisibilityNone)
-    ? interpolateZoomCall(color, warnings, (val, w) => colorToXgis(val, w))
-    : null
+  const colorInterp =
+    colorStr === null && !bgVisibilityNone
+      ? interpolateZoomCall(color, warnings, (val, w) => colorToXgis(val, w))
+      : null
   // Commit the constant-colour probe diagnostics unless the interpolate
   // path claimed the value (then the "not converted" note is spurious).
   if (colorInterp === null) warnings.push(...colorProbeWarnings)
@@ -70,10 +76,13 @@ export function convertBackgroundLayer(
   // let bgPaint['background-opacity'] index a char and the warning
   // list leaked garbage property names.
   const rawBgPaint = bgLayer.paint
-  const bgPaint = (rawBgPaint !== null && rawBgPaint !== undefined
-    && typeof rawBgPaint === 'object' && !Array.isArray(rawBgPaint))
-    ? rawBgPaint as Record<string, unknown>
-    : {}
+  const bgPaint =
+    rawBgPaint !== null &&
+    rawBgPaint !== undefined &&
+    typeof rawBgPaint === 'object' &&
+    !Array.isArray(rawBgPaint)
+      ? (rawBgPaint as Record<string, unknown>)
+      : {}
   // Background-opacity constant fold (same pattern as
   // circle-stroke-opacity iter 4 partial landing). When both
   // background-color hex AND a constant numeric background-opacity
@@ -82,7 +91,8 @@ export function convertBackgroundLayer(
   // interpolate emit below (WS-1).
   {
     let bgOpRaw: unknown = bgPaint['background-opacity']
-    while (Array.isArray(bgOpRaw) && bgOpRaw.length === 2 && bgOpRaw[0] === 'literal') bgOpRaw = bgOpRaw[1]
+    while (Array.isArray(bgOpRaw) && bgOpRaw.length === 2 && bgOpRaw[0] === 'literal')
+      bgOpRaw = bgOpRaw[1]
     if (colorStr && typeof bgOpRaw === 'number' && Number.isFinite(bgOpRaw) && bgOpRaw < 0.999) {
       const a = Math.max(0, Math.min(1, bgOpRaw))
       // applyAlphaMultiplier handles #rgb / #rgba / #rrggbb / #rrggbbaa,
@@ -108,7 +118,8 @@ export function convertBackgroundLayer(
     ? interpolateZoomCall(bgOpacity, warnings, (val) =>
         typeof val === 'number' && Number.isFinite(val)
           ? String(Math.round(Math.max(0, Math.min(1, val)) * 100))
-          : null)
+          : null,
+      )
     : null
   // Emit the background block from the resolved fill (constant hex OR
   // zoom-interp) + the optional zoom-interp opacity. The xgis
@@ -116,9 +127,7 @@ export function convertBackgroundLayer(
   // style properties (parser.isStylePropertyStart).
   const fillStr = colorStr ?? colorInterp
   if (fillStr) {
-    const body = opacityInterp
-      ? `fill: ${fillStr} opacity: ${opacityInterp}`
-      : `fill: ${fillStr}`
+    const body = opacityInterp ? `fill: ${fillStr} opacity: ${opacityInterp}` : `fill: ${fillStr}`
     lines.push(`background { ${body} }`)
     lines.push('')
   }
@@ -129,8 +138,12 @@ export function convertBackgroundLayer(
   // data-driven (non-zoom) opacity that interpolateZoomCall declined
   // (opacityInterp === null) is still a real gap.
   const bgIgnored: string[] = []
-  if (bgOpacity !== undefined && bgOpacity !== null
-      && !bgOpacityIsConstant && opacityInterp === null) {
+  if (
+    bgOpacity !== undefined &&
+    bgOpacity !== null &&
+    !bgOpacityIsConstant &&
+    opacityInterp === null
+  ) {
     bgIgnored.push('background-opacity (non-constant)')
   }
   const bgPattern = bgPaint['background-pattern']

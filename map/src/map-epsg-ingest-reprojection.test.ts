@@ -46,9 +46,7 @@ function tileXY(lon: number, lat: number, z: number): [number, number] {
   const n = 2 ** z
   const x = Math.floor(((lon + 180) / 360) * n)
   const latRad = (lat * Math.PI) / 180
-  const y = Math.floor(
-    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n,
-  )
+  const y = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n)
   return [x, y]
 }
 
@@ -128,11 +126,15 @@ describe('XGISMap EPSG ingest reprojection (T4 wiring)', () => {
     setSourceCRS(map, 'korea', 'EPSG:5179')
     const out = map._reprojectIngest('korea', koreaFC())
 
-    let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity
+    let minLon = Infinity,
+      minLat = Infinity,
+      maxLon = -Infinity,
+      maxLat = -Infinity
     const visit = (c: unknown): void => {
       if (!Array.isArray(c)) return
       if (typeof c[0] === 'number' && typeof c[1] === 'number') {
-        const lon = c[0] as number, lat = c[1] as number
+        const lon = c[0] as number,
+          lat = c[1] as number
         if (lon < minLon) minLon = lon
         if (lon > maxLon) maxLon = lon
         if (lat < minLat) minLat = lat

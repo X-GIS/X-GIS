@@ -21,7 +21,10 @@ type Stop = { zoom: number; value: [number, number, number, number] }
 function approxRgba(actual: readonly number[], expected: readonly number[]): void {
   expect(actual.length).toBe(4)
   for (let i = 0; i < 4; i++) {
-    expect(Math.abs(actual[i]! - expected[i]!), `channel ${i}: ${actual[i]} vs ${expected[i]}`).toBeLessThan(1e-6)
+    expect(
+      Math.abs(actual[i]! - expected[i]!),
+      `channel ${i}: ${actual[i]} vs ${expected[i]}`,
+    ).toBeLessThan(1e-6)
   }
 }
 
@@ -132,7 +135,7 @@ describe('zoom-interpolated RGBA (iter 549)', () => {
         { zoom: 5, value: [1, 1, 1, 1] },
       ]
       const r = interpolateZoomRgba(dup, 5)
-      expect(r.every(v => Number.isFinite(v))).toBe(true)
+      expect(r.every((v) => Number.isFinite(v))).toBe(true)
     })
   })
 })

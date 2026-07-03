@@ -4,9 +4,7 @@
 // inputs. callBuiltin dispatches built-in functions on already-
 // evaluated argument arrays; toNumber/toBool are leaf coercions.
 
-import {
-  parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab,
-} from '../tokens/colors'
+import { parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab } from '../tokens/colors'
 import { evalWithin } from './within'
 import { evalDistance } from './distance'
 import { collatorCompare, resolvedLocale } from './collator'
@@ -30,10 +28,14 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       if (args.length === 0) return 0
       return Math.max(...args.map(toNumber))
     }
-    case 'round': return Math.round(toNumber(args[0]))
-    case 'floor': return Math.floor(toNumber(args[0]))
-    case 'ceil': return Math.ceil(toNumber(args[0]))
-    case 'abs': return Math.abs(toNumber(args[0]))
+    case 'round':
+      return Math.round(toNumber(args[0]))
+    case 'floor':
+      return Math.floor(toNumber(args[0]))
+    case 'ceil':
+      return Math.ceil(toNumber(args[0]))
+    case 'abs':
+      return Math.abs(toNumber(args[0]))
     case 'sqrt': {
       // Math.sqrt(-1) = NaN; clamp negative inputs to 0 so the NaN
       // doesn't propagate into downstream arithmetic (consistent with
@@ -41,9 +43,12 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       const x = toNumber(args[0])
       return x < 0 ? 0 : Math.sqrt(x)
     }
-    case 'log10': return Math.log10(Math.max(1e-10, toNumber(args[0])))
-    case 'log2': return Math.log2(Math.max(1e-10, toNumber(args[0])))
-    case 'scale': return toNumber(args[0]) * toNumber(args[1])
+    case 'log10':
+      return Math.log10(Math.max(1e-10, toNumber(args[0])))
+    case 'log2':
+      return Math.log2(Math.max(1e-10, toNumber(args[0])))
+    case 'scale':
+      return toNumber(args[0]) * toNumber(args[1])
     case 'step': {
       // Two shapes:
       //   (a) Legacy 4-arg:  step(val, threshold, below, above)
@@ -98,8 +103,10 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
     }
     // Case transforms — Mapbox `["downcase", x]` / `["upcase", x]`.
     // Numeric coercion is undefined in spec; we coerce via String().
-    case 'downcase': return String(args[0] ?? '').toLowerCase()
-    case 'upcase': return String(args[0] ?? '').toUpperCase()
+    case 'downcase':
+      return String(args[0] ?? '').toLowerCase()
+    case 'upcase':
+      return String(args[0] ?? '').toUpperCase()
     case 'typeof': {
       // Mapbox `["typeof", value]` — returns "string" / "number" /
       // "boolean" / "object" / null. JS typeof gives "string" /
@@ -175,9 +182,12 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
         if (typeof o.currency === 'string') currency = o.currency
       } else {
         if (typeof second === 'number') minFrac = second
-        const a2 = args[2]; if (typeof a2 === 'number') maxFrac = a2
-        const a3 = args[3]; if (typeof a3 === 'string') locale = a3
-        const a4 = args[4]; if (typeof a4 === 'string') currency = a4
+        const a2 = args[2]
+        if (typeof a2 === 'number') maxFrac = a2
+        const a3 = args[3]
+        if (typeof a3 === 'string') locale = a3
+        const a4 = args[4]
+        if (typeof a4 === 'string') currency = a4
       }
       const intlOpts: Intl.NumberFormatOptions = {}
       if (currency) {
@@ -195,10 +205,14 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
     // PI alias — Mapbox `["pi"]` (zero-arg). The existing `PI`
     // builtin used the SCREAMING name; expose lowercase too so the
     // converter can emit a 1:1 name match.
-    case 'pi': return Math.PI
-    case 'e': return Math.E
-    case 'ln2': return Math.LN2
-    case 'ln': return Math.log(Math.max(1e-10, toNumber(args[0])))
+    case 'pi':
+      return Math.PI
+    case 'e':
+      return Math.E
+    case 'ln2':
+      return Math.LN2
+    case 'ln':
+      return Math.log(Math.max(1e-10, toNumber(args[0])))
     case 'interpolate':
     case 'interpolate_exp': {
       // interpolate(input, x1, y1, x2, y2, …) — linear interpolation
@@ -224,7 +238,8 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       if (input <= stops[0].x) return stops[0].y
       if (input >= stops[stops.length - 1].x) return stops[stops.length - 1].y
       for (let i = 0; i + 1 < stops.length; i++) {
-        const a = stops[i], b = stops[i + 1]
+        const a = stops[i],
+          b = stops[i + 1]
         if (input >= a.x && input <= b.x) {
           if (typeof a.y === 'number' && typeof b.y === 'number') {
             let t: number
@@ -244,7 +259,7 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
             return a.y + (b.y - a.y) * t
           }
           // Non-numeric — pick the closer stop.
-          return (input - a.x) < (b.x - input) ? a.y : b.y
+          return input - a.x < b.x - input ? a.y : b.y
         }
       }
       return stops[0].y
@@ -278,8 +293,7 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       if (stops.length === 0) return null
       if (input <= stops[0].x) return stops[0].y
       if (input >= stops[stops.length - 1].x) return stops[stops.length - 1].y
-      const toHex = (v: unknown): string | null =>
-        typeof v === 'string' ? v : null
+      const toHex = (v: unknown): string | null => (typeof v === 'string' ? v : null)
       const parseLab = (s: string | null): [number, number, number] | null => {
         if (!s) return null
         const rgb = parseSrgbHex(s)
@@ -287,12 +301,13 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
         return srgbToLab(rgb[0], rgb[1], rgb[2])
       }
       for (let i = 0; i + 1 < stops.length; i++) {
-        const a = stops[i], b = stops[i + 1]
+        const a = stops[i],
+          b = stops[i + 1]
         if (input >= a.x && input <= b.x) {
           const labA = parseLab(toHex(a.y))
           const labB = parseLab(toHex(b.y))
           if (!labA || !labB) {
-            return (input - a.x) < (b.x - input) ? a.y : b.y
+            return input - a.x < b.x - input ? a.y : b.y
           }
           // Same duplicate-x guard as `interpolate`.
           const t = b.x === a.x ? 0 : (input - a.x) / (b.x - a.x)
@@ -319,9 +334,12 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       return stops[0].y
     }
     // Trigonometry
-    case 'sin': return Math.sin(toNumber(args[0]))
-    case 'cos': return Math.cos(toNumber(args[0]))
-    case 'tan': return Math.tan(toNumber(args[0]))
+    case 'sin':
+      return Math.sin(toNumber(args[0]))
+    case 'cos':
+      return Math.cos(toNumber(args[0]))
+    case 'tan':
+      return Math.tan(toNumber(args[0]))
     case 'asin': {
       // Math.asin domain [-1, 1] — outside returns NaN. Clamp so the
       // NaN doesn't propagate downstream (consistent with sqrt clamp).
@@ -332,8 +350,10 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       const x = toNumber(args[0])
       return Math.acos(Math.max(-1, Math.min(1, x)))
     }
-    case 'atan': return Math.atan(toNumber(args[0]))
-    case 'atan2': return Math.atan2(toNumber(args[0]), toNumber(args[1]))
+    case 'atan':
+      return Math.atan(toNumber(args[0]))
+    case 'atan2':
+      return Math.atan2(toNumber(args[0]), toNumber(args[1]))
     // Exponential
     case 'pow': {
       // Math.pow(-1, 0.5) = NaN, Math.pow(0, -1) = Infinity. Guard
@@ -346,10 +366,13 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       const r = Math.exp(toNumber(args[0]))
       return Number.isFinite(r) ? r : 0
     }
-    case 'log': return Math.log(Math.max(1e-10, toNumber(args[0])))
+    case 'log':
+      return Math.log(Math.max(1e-10, toNumber(args[0])))
     // Constants
-    case 'PI': return Math.PI
-    case 'TAU': return Math.PI * 2
+    case 'PI':
+      return Math.PI
+    case 'TAU':
+      return Math.PI * 2
     // Array
     case 'length': {
       // Mapbox `["length", v]` works on both strings and arrays.
@@ -358,7 +381,7 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       // returned 0 for every feature.
       const v0 = args[0]
       if (Array.isArray(v0)) return v0.length
-      if (typeof v0 === 'string') return [...v0].length  // codepoint count, not UTF-16 units
+      if (typeof v0 === 'string') return [...v0].length // codepoint count, not UTF-16 units
       return 0
     }
     // Geometry generators — return coordinate arrays
@@ -371,7 +394,7 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       const steps = Math.max(4, Math.min(4096, Math.floor(s || 32)))
       const pts: number[][] = []
       for (let i = 0; i <= steps; i++) {
-        const a = (i % steps) * Math.PI * 2 / steps
+        const a = ((i % steps) * Math.PI * 2) / steps
         pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)])
       }
       return pts
@@ -382,7 +405,7 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       const steps = Math.max(2, Math.min(4096, Math.floor(s || 32)))
       const pts: number[][] = []
       for (let i = 0; i <= steps; i++) {
-        const a = startA + (endA - startA) * i / steps
+        const a = startA + ((endA - startA) * i) / steps
         pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)])
       }
       return pts
@@ -475,8 +498,12 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       // [op, a, b, locale, caseSensitive, diacriticSensitive]. Pure CPU
       // locale-aware compare — see eval/collator.ts.
       return collatorCompare(
-        String(args[0]), args[1], args[2],
-        String(args[3] ?? ''), Boolean(args[4]), Boolean(args[5]),
+        String(args[0]),
+        args[1],
+        args[2],
+        String(args[3] ?? ''),
+        Boolean(args[4]),
+        Boolean(args[5]),
       )
     }
     case 'resolved_locale': {

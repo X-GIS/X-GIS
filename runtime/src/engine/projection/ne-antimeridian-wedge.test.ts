@@ -67,7 +67,13 @@ function cpuDelta(lon: number, clon: number, refLon: number): number {
 // ── The GPU project_geom (with the world-copy `wo` shift) — a faithful inline
 //    mirror of the projections.ts shader arm, used to model the rasterised
 //    bg-band coverage. `fold` toggles the FIX (lobe wrap) vs the BASELINE.
-function gpuProjectGeomX(lon: number, clon: number, refLon: number, isNE: boolean, fold: boolean): number {
+function gpuProjectGeomX(
+  lon: number,
+  clon: number,
+  refLon: number,
+  isNE: boolean,
+  fold: boolean,
+): number {
   const wo = Math.floor((refLon - clon + 180) / 360)
   const lonPrimary = lon - wo * 360
   const refPrimary = refLon - wo * 360
@@ -130,7 +136,9 @@ describe('natural_earth antimeridian black-wedge — project_geom lobe wrap (pro
       expect(fixed.hi, `clon=${clon}: oval right edge`).toBeGreaterThan(OVAL_HALF * 0.9)
       expect(fixed.gap, `clon=${clon}: black-wedge gap (fixed)`).toBeLessThan(MESH_CELL * 1.5)
       // … while the baseline leaves the ~5.2 Mm wedge (the gate's negative).
-      expect(baseline.gap, `clon=${clon}: baseline must reproduce the wedge`).toBeGreaterThan(MESH_CELL * 4)
+      expect(baseline.gap, `clon=${clon}: baseline must reproduce the wedge`).toBeGreaterThan(
+        MESH_CELL * 4,
+      )
     }
   })
 
@@ -156,7 +164,9 @@ describe('natural_earth antimeridian black-wedge — project_geom lobe wrap (pro
       for (const refLon of WORLD_COPIES.map((wc) => wc * 360)) {
         for (const lon of BG_COLUMNS) {
           const d = cpuDelta(lon, clon, refLon)
-          expect(projectGeomWgsl(EQ, lon, 0, clon, 0, refLon)[0]).toBe(projEquirectangularDWgsl(d, 0)[0])
+          expect(projectGeomWgsl(EQ, lon, 0, clon, 0, refLon)[0]).toBe(
+            projEquirectangularDWgsl(d, 0)[0],
+          )
         }
       }
     }

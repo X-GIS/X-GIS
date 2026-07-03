@@ -68,7 +68,7 @@ export function dedupByRaw(values: FilterValue[]): FilterValue[] {
 
 export function setEqual(a: FilterValue[], b: FilterValue[]): boolean {
   if (a.length !== b.length) return false
-  const set = new Set(a.map(v => v.raw))
+  const set = new Set(a.map((v) => v.raw))
   for (const v of b) if (!set.has(v.raw)) return false
   return true
 }
@@ -143,7 +143,8 @@ export function strokesShapeEqual(a: RenderNode['stroke'], b: RenderNode['stroke
   if ((a.patterns?.length ?? 0) !== (b.patterns?.length ?? 0)) return false
   if (a.patterns && b.patterns) {
     for (let i = 0; i < a.patterns.length; i++) {
-      const p = a.patterns[i]; const q = b.patterns[i]
+      const p = a.patterns[i]
+      const q = b.patterns[i]
       // Every pattern attribute (shape / spacing+unit / size+unit /
       // offset+unit / startOffset / anchor) is layer-uniform — no
       // per-segment override slot exists. Pre-fix the check only
@@ -172,7 +173,7 @@ export function isMergeableNode(n: RenderNode): boolean {
   if (n.opacity.value < 0.999) return false
   if (n.geometry !== null) return false
   if (n.animationMeta !== undefined) return false
-  if (n.shape.kind !== 'none') return false  // points handled separately
+  if (n.shape.kind !== 'none') return false // points handled separately
   // Symbol layers carry per-layer label specs (text content + font +
   // size + halo + collision priority). The merge collapses N layers
   // into ONE compound — only the first layer's label survives, so
@@ -201,7 +202,8 @@ export function strokeColorsEqual(a: RenderNode['stroke'], b: RenderNode['stroke
   if (a.color.kind !== b.color.kind) return false
   if (a.color.kind === 'none' && b.color.kind === 'none') return true
   if (a.color.kind === 'constant' && b.color.kind === 'constant') {
-    const ar = a.color.rgba; const br = b.color.rgba
+    const ar = a.color.rgba
+    const br = b.color.rgba
     return ar[0] === br[0] && ar[1] === br[1] && ar[2] === br[2] && ar[3] === br[3]
   }
   return false
@@ -231,9 +233,12 @@ export function canExtendGroup(first: RenderNode, candidate: RenderNode): boolea
   // otherwise falls through to layer.color. Avoids the LineRenderer
   // needing a feature-data binding (the polygon variant pipeline's
   // path) while still getting per-feature stroke colour.
-  if (first.opacity.kind === 'constant'
-      && candidate.opacity.kind === 'constant'
-      && first.opacity.value !== candidate.opacity.value) return false
+  if (
+    first.opacity.kind === 'constant' &&
+    candidate.opacity.kind === 'constant' &&
+    first.opacity.value !== candidate.opacity.value
+  )
+    return false
   return true
 }
 
@@ -254,7 +259,7 @@ export function buildMatchAst(
     pattern: '_',
     value: { kind: 'ColorLiteral', value: defaultHex } as AST.Expr,
   }
-  const matchArms: AST.MatchArm[] = arms.map(a => ({
+  const matchArms: AST.MatchArm[] = arms.map((a) => ({
     pattern: a.pattern,
     value: {
       kind: 'ColorLiteral',
@@ -304,7 +309,7 @@ export function buildWidthMatchAst(
    *  `landuse_other` pattern). 0 = "no override" sentinel. */
   defaultWidth: number | null = null,
 ): AST.Expr {
-  const matchArms: AST.MatchArm[] = arms.map(a => ({
+  const matchArms: AST.MatchArm[] = arms.map((a) => ({
     pattern: a.pattern,
     value: { kind: 'NumberLiteral', value: a.width } as AST.Expr,
   }))
@@ -332,10 +337,18 @@ export function buildWidthMatchAst(
 }
 
 function rgbaToHex(rgba: import('../property-types').RGBA): string {
-  const r = Math.round(rgba[0] * 255).toString(16).padStart(2, '0')
-  const g = Math.round(rgba[1] * 255).toString(16).padStart(2, '0')
-  const b = Math.round(rgba[2] * 255).toString(16).padStart(2, '0')
-  const a = Math.round(rgba[3] * 255).toString(16).padStart(2, '0')
+  const r = Math.round(rgba[0] * 255)
+    .toString(16)
+    .padStart(2, '0')
+  const g = Math.round(rgba[1] * 255)
+    .toString(16)
+    .padStart(2, '0')
+  const b = Math.round(rgba[2] * 255)
+    .toString(16)
+    .padStart(2, '0')
+  const a = Math.round(rgba[3] * 255)
+    .toString(16)
+    .padStart(2, '0')
   return `#${r}${g}${b}${a}`
 }
 
@@ -345,11 +358,12 @@ function rgbaToHex(rgba: import('../property-types').RGBA): string {
  *  member's filter. */
 export function buildOrFilter(field: string, allValues: FilterValue[]): AST.Expr {
   // Build .field == v0 || .field == v1 || ...
-  const fieldAccess = (): AST.Expr => ({
-    kind: 'FieldAccess',
-    object: null,
-    field,
-  } as unknown as AST.Expr)
+  const fieldAccess = (): AST.Expr =>
+    ({
+      kind: 'FieldAccess',
+      object: null,
+      field,
+    }) as unknown as AST.Expr
   const literalOf = (v: FilterValue): AST.Expr => {
     // Re-emit the SAME node kind the source filter used. A source
     // StringLiteral stays a StringLiteral (even when its text looks

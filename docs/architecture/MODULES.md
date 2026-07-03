@@ -63,7 +63,7 @@ Edges, grounded:
   imported by both `runtime/src/engine/projection/ecef.ts` (a thin
   `export * from '@xgis/shared'` re-export keeping every `../projection/ecef`
   path stable) and `compiler/src/tiler/vector-tiler.ts`. This re-export
-  exists *specifically* so the tiler and the engine share one ECEF source
+  exists _specifically_ so the tiler and the engine share one ECEF source
   instead of hand-mirroring constants across the package barrier.
 
 ---
@@ -112,15 +112,15 @@ import direction.
 
 ### Subsystem roles and key edges
 
-| Subsystem | Path | Role | Depends on (import dir) |
-|-----------|------|------|-------------------------|
-| **render** | `engine/render/` | GPU buffer/bind-group/draw-call orchestration. `vector-tile-renderer.ts` (VTR), `renderer.ts` (MapRenderer), per-geometry `point/line/raster-renderer`, `bucket-scheduler`, `uniform-ring`, `render-targets`, `bundle-cache`. | `gpu`, `projection`, `shader-dsl`, `data`, `loader`, `core` |
-| **gpu** | `engine/gpu/` | WebGPU device, buffers, arenas, compute, quality. `gpu-shared.ts` holds `WORLD_MERC` / `TILE_PX` and **re-exports the projection table's derived predicates** (`gpu-shared.ts:303`). `gpu-arena`, `frame-arena`, `staging-buffer-pool`, `compute`, `bind-tiers`, `palette-texture`. | `projection` (re-export only), shared GPU primitives |
-| **projection** | `engine/projection/` | Camera math, globe path, forward/inverse maps, and `projections-table.ts` = **single source of truth** (§3). `camera.ts`, `globe.ts`, `projection.ts`, `ecef.ts` (re-export of `@xgis/shared`). | `gpu/gpu-shared`, `gpu/gpu` (camera imports gpu, not vice-versa) |
+| Subsystem       | Path                  | Role                                                                                                                                                                                                                                                                                                                                                           | Depends on (import dir)                                                               |
+| --------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| **render**      | `engine/render/`      | GPU buffer/bind-group/draw-call orchestration. `vector-tile-renderer.ts` (VTR), `renderer.ts` (MapRenderer), per-geometry `point/line/raster-renderer`, `bucket-scheduler`, `uniform-ring`, `render-targets`, `bundle-cache`.                                                                                                                                  | `gpu`, `projection`, `shader-dsl`, `data`, `loader`, `core`                           |
+| **gpu**         | `engine/gpu/`         | WebGPU device, buffers, arenas, compute, quality. `gpu-shared.ts` holds `WORLD_MERC` / `TILE_PX` and **re-exports the projection table's derived predicates** (`gpu-shared.ts:303`). `gpu-arena`, `frame-arena`, `staging-buffer-pool`, `compute`, `bind-tiers`, `palette-texture`.                                                                            | `projection` (re-export only), shared GPU primitives                                  |
+| **projection**  | `engine/projection/`  | Camera math, globe path, forward/inverse maps, and `projections-table.ts` = **single source of truth** (§3). `camera.ts`, `globe.ts`, `projection.ts`, `ecef.ts` (re-export of `@xgis/shared`).                                                                                                                                                                | `gpu/gpu-shared`, `gpu/gpu` (camera imports gpu, not vice-versa)                      |
 | **shaders/dsl** | `engine/shaders/dsl/` | WGSL emit authority — the X-GIS shader **graphs** (polygon/line/point/text/sdf/raster/heatmap/projections) authored on the standalone `@xgis/shader-dsl` framework package (the IR + backends + emit live in that package now, not under `engine/`). `index.ts` is the only public barrel — consumers import `from '../shaders/dsl'`, never the inner modules. | `@xgis/shader-dsl` (framework), `compiler` types; leaf w.r.t. other engine subsystems |
-| **text** | `engine/text/` | Label pipeline: `text-stage.ts` (resolve → layout → collision → raster → atlas), `text-renderer`, `text-collision`, `sdf/` glyph atlas + PBF/Canvas rasterizers. | `gpu/frame-arena`, `shader-dsl` (text/sdf graphs), `sdf/` internals |
-| **sprite** | `engine/sprite/` | Icon pipeline: `icon-stage.ts`, `icon-renderer.ts`, `sprite-atlas-host/gpu`. Parallel to text but for sprites/POI/shields. | `gpu`, `shader-dsl` (icon graph) |
-| **camera** | `engine/camera/` | **Empty.** Camera code lives in `engine/projection/camera.ts` and `engine/camera-controller.ts` (engine root). The `camera/` dir is a placeholder. | — |
+| **text**        | `engine/text/`        | Label pipeline: `text-stage.ts` (resolve → layout → collision → raster → atlas), `text-renderer`, `text-collision`, `sdf/` glyph atlas + PBF/Canvas rasterizers.                                                                                                                                                                                               | `gpu/frame-arena`, `shader-dsl` (text/sdf graphs), `sdf/` internals                   |
+| **sprite**      | `engine/sprite/`      | Icon pipeline: `icon-stage.ts`, `icon-renderer.ts`, `sprite-atlas-host/gpu`. Parallel to text but for sprites/POI/shields.                                                                                                                                                                                                                                     | `gpu`, `shader-dsl` (icon graph)                                                      |
+| **camera**      | `engine/camera/`      | **Empty.** Camera code lives in `engine/projection/camera.ts` and `engine/camera-controller.ts` (engine root). The `camera/` dir is a placeholder.                                                                                                                                                                                                             | —                                                                                     |
 
 Note on `engine/shaders/dsl/projections.ts` vs the legacy
 `engine/shaders/projection.ts`: the DSL `dsl/projections.ts` is the
@@ -152,7 +152,7 @@ name:    mercator  equirect  natural_earth  ortho  azi-eq  stereo  obl-merc  glo
                                 (derived predicates — "the authority flip")
 ```
 
-The header (`projections-table.ts:1-21`) records *why* this exists: the same
+The header (`projections-table.ts:1-21`) records _why_ this exists: the same
 projType↔name relation was previously hand-encoded across ~3 representations
 (the render-loop name→int map, VTR's `SELECTOR_PROJ_NAMES` int→name array, and
 inline collapses in `tiles-sse` / `tile-select`). The table is the canonical
@@ -161,7 +161,7 @@ predicates (`gpu-shared.ts:303-309`) so its consumers — `tiles-sse`,
 `tile-select`, `vector-tile-renderer`, `camera`, label-pass — are unchanged
 while the authority lives in one file.
 
-Two facts the table makes explicit are documented as *latent bugs* in the
+Two facts the table makes explicit are documented as _latent bugs_ in the
 header comments, not hidden:
 
 - **`promotesToGlobeWhenTilted` vs `routeToSphereSelector`** disagree for
@@ -183,14 +183,14 @@ unclear state-ownership. A decomposition review exists
 `.omc/plans/master-plan-2026-05-30.md`) but is **unexecuted** — these files
 remain monolithic.
 
-| Class | File | LOC | ~Methods | Role |
-|-------|------|-----|----------|------|
-| **VectorTileRenderer** | `render/vector-tile-renderer.ts:110` | 5608 | ~237 | GPU buffers, bind groups, draw calls for vector tiles. Header asserts "GPU buffers, bind groups, and draw calls only" — data/cache/sub-tiling is TileCatalog's — yet it is by far the largest file. |
-| **XGISMap** | `map.ts:96` | 2956 | ~204 | The wiring hub / public API entry. Owns renderers, stages, camera, controllers, TileCatalog, SourceManager. `renderFrame` was relocated verbatim into `render-loop.ts` but still reaches ~30 private map fields via a typed `host` view (relocation, not decoupling — see `render-loop.ts:1-15`). |
-| **TextStage** | `text/text-stage.ts:601` | 1967 | ~66 | Label pipeline: resolve → layout → collision → raster → atlas. 0 dedicated unit tests historically (per architecture audit). |
-| **MapRenderer** | `render/renderer.ts:203` | 1947 | ~82 | Non-tile WebGPU renderer (graticule, polygon/line shader pipelines, compute layer registry, OIT compositing). |
-| **TileCatalog** | `data/tile-catalog.ts` | 1388 | ~109 | Tile router + cache + sub-tile clipping. Routes (z,x,y) to TileSource backends (XGVT-binary, PMTiles, GeoJSON-runtime); manages cache/eviction/budget/fan-out. CPU-only — GPU upload is VTR's job. |
-| **Camera** | `projection/camera.ts:13` | 1210 | ~41 | View/projection matrix construction for all 7 surfaces + globe; flat-vs-ECEF MVP gate. |
+| Class                  | File                                 | LOC  | ~Methods | Role                                                                                                                                                                                                                                                                                              |
+| ---------------------- | ------------------------------------ | ---- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **VectorTileRenderer** | `render/vector-tile-renderer.ts:110` | 5608 | ~237     | GPU buffers, bind groups, draw calls for vector tiles. Header asserts "GPU buffers, bind groups, and draw calls only" — data/cache/sub-tiling is TileCatalog's — yet it is by far the largest file.                                                                                               |
+| **XGISMap**            | `map.ts:96`                          | 2956 | ~204     | The wiring hub / public API entry. Owns renderers, stages, camera, controllers, TileCatalog, SourceManager. `renderFrame` was relocated verbatim into `render-loop.ts` but still reaches ~30 private map fields via a typed `host` view (relocation, not decoupling — see `render-loop.ts:1-15`). |
+| **TextStage**          | `text/text-stage.ts:601`             | 1967 | ~66      | Label pipeline: resolve → layout → collision → raster → atlas. 0 dedicated unit tests historically (per architecture audit).                                                                                                                                                                      |
+| **MapRenderer**        | `render/renderer.ts:203`             | 1947 | ~82      | Non-tile WebGPU renderer (graticule, polygon/line shader pipelines, compute layer registry, OIT compositing).                                                                                                                                                                                     |
+| **TileCatalog**        | `data/tile-catalog.ts`               | 1388 | ~109     | Tile router + cache + sub-tile clipping. Routes (z,x,y) to TileSource backends (XGVT-binary, PMTiles, GeoJSON-runtime); manages cache/eviction/budget/fan-out. CPU-only — GPU upload is VTR's job.                                                                                                |
+| **Camera**             | `projection/camera.ts:13`            | 1210 | ~41      | View/projection matrix construction for all 7 surfaces + globe; flat-vs-ECEF MVP gate.                                                                                                                                                                                                            |
 
 Method counts are approximate (a grep over indented method-like
 declarations, including overloads/getters); LOC are exact `wc -l`.
@@ -209,24 +209,24 @@ declarations, including overloads/getters); LOC are exact `wc -l`.
   proposed `≤500`-line ratchet and shared-module extraction (`ecef`,
   projection-policy registry, emit factories, uniform-pack). The
   `projections-table.ts` authority flip and the `@xgis/shared` ecef
-  re-export are the *executed slices* of that direction; the god-file splits
+  re-export are the _executed slices_ of that direction; the god-file splits
   themselves are not done.
 
 ---
 
 ## 5. Quick reference — "where does X live?"
 
-| Concern | Module |
-|---------|--------|
-| Projection capability / projType | `projection/projections-table.ts` (SoT) |
-| Camera / view matrix / globe | `projection/camera.ts`, `projection/globe.ts` |
-| WGSL emit | graphs in `engine/shaders/dsl/` (barrel `shaders/dsl/index.ts`), framework in `@xgis/shader-dsl` |
-| Vector tile draw | `render/vector-tile-renderer.ts` |
-| Non-tile draw (graticule, OIT, pipelines) | `render/renderer.ts` (MapRenderer) |
-| Per-frame orchestration | `render-loop.ts` (delegate of XGISMap) |
-| Tile routing / cache | `data/tile-catalog.ts` |
-| GPU device / arenas / `WORLD_MERC` | `gpu/gpu-shared.ts`, `gpu/gpu-arena.ts` |
-| Labels | `text/text-stage.ts` |
-| Icons / sprites | `sprite/icon-stage.ts` |
-| ECEF / WGS84 math (shared kernel) | `@xgis/shared/ecef.ts` |
-| Public API entry | `map.ts` (XGISMap) |
+| Concern                                   | Module                                                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Projection capability / projType          | `projection/projections-table.ts` (SoT)                                                          |
+| Camera / view matrix / globe              | `projection/camera.ts`, `projection/globe.ts`                                                    |
+| WGSL emit                                 | graphs in `engine/shaders/dsl/` (barrel `shaders/dsl/index.ts`), framework in `@xgis/shader-dsl` |
+| Vector tile draw                          | `render/vector-tile-renderer.ts`                                                                 |
+| Non-tile draw (graticule, OIT, pipelines) | `render/renderer.ts` (MapRenderer)                                                               |
+| Per-frame orchestration                   | `render-loop.ts` (delegate of XGISMap)                                                           |
+| Tile routing / cache                      | `data/tile-catalog.ts`                                                                           |
+| GPU device / arenas / `WORLD_MERC`        | `gpu/gpu-shared.ts`, `gpu/gpu-arena.ts`                                                          |
+| Labels                                    | `text/text-stage.ts`                                                                             |
+| Icons / sprites                           | `sprite/icon-stage.ts`                                                                           |
+| ECEF / WGS84 math (shared kernel)         | `@xgis/shared/ecef.ts`                                                                           |
+| Public API entry                          | `map.ts` (XGISMap)                                                                               |

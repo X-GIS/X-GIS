@@ -106,17 +106,19 @@ export class TextStageDiagnostics {
       layerName: layerName ?? '',
       text,
       color: (def.color ?? [0, 0, 0, 1]) as readonly [number, number, number, number],
-      halo: def.halo ? {
-        color: def.halo.color as readonly [number, number, number, number],
-        width: def.halo.width,
-        blur: def.halo.blur ?? 0,
-      } : undefined,
+      halo: def.halo
+        ? {
+            color: def.halo.color as readonly [number, number, number, number],
+            width: def.halo.width,
+            blur: def.halo.blur ?? 0,
+          }
+        : undefined,
       fontFamily: (def.font && def.font[0]) ?? 'sans-serif',
       fontWeight: def.fontWeight ?? 400,
       fontStyle: def.fontStyle ?? 'normal',
       sizePx: def.size,
       placement,
-      state: 'placed',  // collision result not known yet at submit time
+      state: 'placed', // collision result not known yet at submit time
       anchorScreenX,
       anchorScreenY,
     })
@@ -124,10 +126,14 @@ export class TextStageDiagnostics {
 
   /** Record the per-frame submitted (raw addLabel) count. Called at the
    *  top of prepare(). */
-  setSubmittedCount(n: number): void { this._lastSubmittedLabelCount = n }
+  setSubmittedCount(n: number): void {
+    this._lastSubmittedLabelCount = n
+  }
   /** Record the per-frame drawn (post-collision) count. Called at the
    *  end of prepare() (and on the empty early-out). */
-  setDrawnCount(n: number): void { this._lastDrawnLabelCount = n }
+  setDrawnCount(n: number): void {
+    this._lastDrawnLabelCount = n
+  }
 
   /** iter 152 z0-halo probe capture. Bounded to 512 entries. Called
    *  once per shaped point label inside the point-loop. haloK=3 mirrors
@@ -154,7 +160,7 @@ export class TextStageDiagnostics {
     const filt = this._dumpFilter
     this._dumpedLabels = []
     for (const d of draws) {
-      const text = String.fromCodePoint(...d.glyphs.map(g => g.codepoint))
+      const text = String.fromCodePoint(...d.glyphs.map((g) => g.codepoint))
       if (!text.includes(filt)) continue
       const off = d.glyphOffsets
       const glyphs = d.glyphs.map((g, gi) => ({
@@ -170,8 +176,11 @@ export class TextStageDiagnostics {
         rfs: g.rasterFontSize ?? fallbackRfs,
       }))
       this._dumpedLabels.push({
-        text, anchorX: d.anchorX, anchorY: d.anchorY,
-        fontSize: d.fontSize, slotSize,
+        text,
+        anchorX: d.anchorX,
+        anchorY: d.anchorY,
+        fontSize: d.fontSize,
+        slotSize,
         // Line-following labels (roads/rivers, symbol-placement=line)
         // carry per-glyph rotations and place glyphs ALONG a curve —
         // the stacked-line render-y analysis does NOT apply to them.
@@ -183,15 +192,31 @@ export class TextStageDiagnostics {
 
   // ── Accessors (drained by TextStage's thin public forwarders) ──────
 
-  getDispatchedLabelTexts(): string[] { return [...this.dispatchedLabelTexts].sort() }
-  clearDispatchedLabelTexts(): void { this.dispatchedLabelTexts.clear() }
+  getDispatchedLabelTexts(): string[] {
+    return [...this.dispatchedLabelTexts].sort()
+  }
+  clearDispatchedLabelTexts(): void {
+    this.dispatchedLabelTexts.clear()
+  }
 
-  getLastSubmittedLabelCount(): number { return this._lastSubmittedLabelCount }
-  getLastDrawnLabelCount(): number { return this._lastDrawnLabelCount }
+  getLastSubmittedLabelCount(): number {
+    return this._lastSubmittedLabelCount
+  }
+  getLastDrawnLabelCount(): number {
+    return this._lastDrawnLabelCount
+  }
 
-  getHaloDebug(): ReadonlyArray<HaloDebugEntry> { return this.haloDebug.slice() }
-  clearHaloDebug(): void { this.haloDebug.length = 0 }
+  getHaloDebug(): ReadonlyArray<HaloDebugEntry> {
+    return this.haloDebug.slice()
+  }
+  clearHaloDebug(): void {
+    this.haloDebug.length = 0
+  }
 
-  setLabelDumpFilter(substr: string | null): void { this._dumpFilter = substr }
-  getDumpedLabels(): ReadonlyArray<DumpedLabel> { return this._dumpedLabels }
+  setLabelDumpFilter(substr: string | null): void {
+    this._dumpFilter = substr
+  }
+  getDumpedLabels(): ReadonlyArray<DumpedLabel> {
+    return this._dumpedLabels
+  }
 }

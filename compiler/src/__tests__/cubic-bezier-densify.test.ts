@@ -47,62 +47,57 @@ describe('Mapbox interpolate-cubic-bezier conversion → densified stops', () =>
 
   it('numeric-valued bezier interpolate densifies stops and emits an approximation warning', () => {
     // Authored: linear-in at zoom 10..20, bezier ease-in (0.42, 0, 1, 1).
-    const style = build([
-      'interpolate', ['cubic-bezier', 0.42, 0, 1, 1], ['zoom'],
-      10, 1, 20, 16,
-    ])
+    const style = build(['interpolate', ['cubic-bezier', 0.42, 0, 1, 1], ['zoom'], 10, 1, 20, 16])
     const warnings: string[] = []
     const out = convertMapboxStyle(style as unknown as string, {
       coverage: { sources: [], layers: [], warnings },
     })
     expect(out).toContain('interpolate')
-    const bezierWarn = warnings.find(w => w.includes('cubic-bezier'))
+    const bezierWarn = warnings.find((w) => w.includes('cubic-bezier'))
     expect(bezierWarn, warnings.join('\n')).toBeDefined()
     expect(bezierWarn).toContain('dense piecewise-linear')
   })
 
   it('non-numeric values (colors) still warn and fold to linear', () => {
     const style = build([
-      'interpolate', ['cubic-bezier', 0.42, 0, 0.58, 1], ['zoom'],
-      10, '#ff0000', 20, '#0000ff',
+      'interpolate',
+      ['cubic-bezier', 0.42, 0, 0.58, 1],
+      ['zoom'],
+      10,
+      '#ff0000',
+      20,
+      '#0000ff',
     ])
     const warnings: string[] = []
     convertMapboxStyle(style as unknown as string, {
       coverage: { sources: [], layers: [], warnings },
     })
-    const w = warnings.find(w => w.includes('cubic-bezier') && w.includes('folded'))
+    const w = warnings.find((w) => w.includes('cubic-bezier') && w.includes('folded'))
     expect(w, `expected folded-to-linear warning; got: ${warnings.join('\n')}`).toBeDefined()
   })
 
   it('cubic-bezier with x1 out of [0,1] warns about CSS spec (iter 103)', () => {
-    const style = build([
-      'interpolate', ['cubic-bezier', 1.5, 0, 0.5, 1], ['zoom'],
-      10, 1, 20, 16,
-    ])
+    const style = build(['interpolate', ['cubic-bezier', 1.5, 0, 0.5, 1], ['zoom'], 10, 1, 20, 16])
     const warnings: string[] = []
     convertMapboxStyle(style as unknown as string, {
       coverage: { sources: [], layers: [], warnings },
     })
-    expect(warnings.some(w =>
-      w.includes('cubic-bezier')
-      && w.includes('x control points')
-      && w.includes('[0, 1]'),
-    )).toBe(true)
+    expect(
+      warnings.some(
+        (w) => w.includes('cubic-bezier') && w.includes('x control points') && w.includes('[0, 1]'),
+      ),
+    ).toBe(true)
   })
 
   it('cubic-bezier with x2 = -0.3 warns (iter 103)', () => {
-    const style = build([
-      'interpolate', ['cubic-bezier', 0.5, 0, -0.3, 1], ['zoom'],
-      10, 1, 20, 16,
-    ])
+    const style = build(['interpolate', ['cubic-bezier', 0.5, 0, -0.3, 1], ['zoom'], 10, 1, 20, 16])
     const warnings: string[] = []
     convertMapboxStyle(style as unknown as string, {
       coverage: { sources: [], layers: [], warnings },
     })
-    expect(warnings.some(w =>
-      w.includes('cubic-bezier')
-      && w.includes('x control points'),
-    )).toBe(true)
+    expect(warnings.some((w) => w.includes('cubic-bezier') && w.includes('x control points'))).toBe(
+      true,
+    )
   })
 
   it('cubic-bezier with overshoot y but x in [0,1] does NOT warn about x range', () => {
@@ -110,17 +105,21 @@ describe('Mapbox interpolate-cubic-bezier conversion → densified stops', () =>
     // is constrained. (0.5, -0.5, 0.5, 1.5) is the canonical "spring"
     // ease curve.
     const style = build([
-      'interpolate', ['cubic-bezier', 0.5, -0.5, 0.5, 1.5], ['zoom'],
-      10, 1, 20, 16,
+      'interpolate',
+      ['cubic-bezier', 0.5, -0.5, 0.5, 1.5],
+      ['zoom'],
+      10,
+      1,
+      20,
+      16,
     ])
     const warnings: string[] = []
     convertMapboxStyle(style as unknown as string, {
       coverage: { sources: [], layers: [], warnings },
     })
-    expect(warnings.some(w =>
-      w.includes('cubic-bezier')
-      && w.includes('x control points'),
-    )).toBe(false)
+    expect(warnings.some((w) => w.includes('cubic-bezier') && w.includes('x control points'))).toBe(
+      false,
+    )
   })
 
   it('malformed cubic-bezier with wrong CP count warns (iter 82)', () => {
@@ -128,18 +127,14 @@ describe('Mapbox interpolate-cubic-bezier conversion → densified stops', () =>
     // previously silently defaulted to (CP1, 0, 1, 1) with no
     // diagnostic — the authored intent was nonsensical AND the
     // emitted curve didn't reflect it.
-    const style = build([
-      'interpolate', ['cubic-bezier', 0.42], ['zoom'],
-      10, 1, 20, 16,
-    ])
+    const style = build(['interpolate', ['cubic-bezier', 0.42], ['zoom'], 10, 1, 20, 16])
     const warnings: string[] = []
     convertMapboxStyle(style as unknown as string, {
       coverage: { sources: [], layers: [], warnings },
     })
-    expect(warnings.some(w =>
-      w.includes('cubic-bezier')
-      && w.includes('exactly 4 control points'),
-    )).toBe(true)
+    expect(
+      warnings.some((w) => w.includes('cubic-bezier') && w.includes('exactly 4 control points')),
+    ).toBe(true)
   })
 
   it('v8-strict-wrapped control points still recognised as cubic-bezier', () => {
@@ -149,17 +144,19 @@ describe('Mapbox interpolate-cubic-bezier conversion → densified stops', () =>
     // diagnostic. The unwrapCP helper added in iter 71 peels these
     // wraps so the densification still kicks in.
     const style = build([
-      'interpolate', ['cubic-bezier',
-        ['literal', 0.42], ['literal', 0],
-        ['literal', 0.58], ['literal', 1],
-      ], ['zoom'],
-      10, 1, 20, 16,
+      'interpolate',
+      ['cubic-bezier', ['literal', 0.42], ['literal', 0], ['literal', 0.58], ['literal', 1]],
+      ['zoom'],
+      10,
+      1,
+      20,
+      16,
     ])
     const warnings: string[] = []
     convertMapboxStyle(style as unknown as string, {
       coverage: { sources: [], layers: [], warnings },
     })
-    const bezierWarn = warnings.find(w => w.includes('cubic-bezier'))
+    const bezierWarn = warnings.find((w) => w.includes('cubic-bezier'))
     expect(bezierWarn, warnings.join('\n')).toBeDefined()
     // The warning should report the unwrapped numeric control points
     // 0.42 / 0 / 0.58 / 1 — confirming unwrap fired.
@@ -172,10 +169,7 @@ describe('Mapbox interpolate-cubic-bezier conversion → densified stops', () =>
     // The densifier inserts intermediate samples but the first and
     // last stops must remain at the authored values so the runtime
     // result at z<=10 and z>=20 matches the authored endpoints.
-    const style = build([
-      'interpolate', ['cubic-bezier', 0.42, 0, 1, 1], ['zoom'],
-      10, 1, 20, 16,
-    ])
+    const style = build(['interpolate', ['cubic-bezier', 0.42, 0, 1, 1], ['zoom'], 10, 1, 20, 16])
     const out = convertMapboxStyle(style as unknown as string)
     // Output should contain "10," and "20," followed by the
     // endpoint values 1 and 16 in some recognisable form. Lax

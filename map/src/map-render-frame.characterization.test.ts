@@ -471,7 +471,13 @@ describe('XGISMap render-path characterization — inspectPipeline() snapshot (s
         getCompileBudgetUsed: () => 0,
       },
       renderer: {
-        getDrawStats: () => ({ drawCalls: 7, tilesVisible: 5, missedTiles: 0, triangles: 120, lines: 30 }),
+        getDrawStats: () => ({
+          drawCalls: 7,
+          tilesVisible: 5,
+          missedTiles: 0,
+          triangles: 120,
+          lines: 30,
+        }),
         getCacheSize: () => 4,
         getPendingUploadCount: () => 0,
       },
@@ -485,6 +491,12 @@ describe('XGISMap render-path characterization — inspectPipeline() snapshot (s
     expect(src.overzoomLevels).toBe(0)
     expect(src.cache.size).toBe(4)
     expect(src.cache.hasData).toBe(true)
-    expect(src.frame).toEqual({ drawCalls: 7, tilesVisible: 5, missedTiles: 0, triangles: 120, lines: 30 })
+    expect(src.frame).toEqual({
+      drawCalls: 7,
+      tilesVisible: 5,
+      missedTiles: 0,
+      triangles: 120,
+      lines: 30,
+    })
   })
 })

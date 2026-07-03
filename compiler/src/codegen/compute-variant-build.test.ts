@@ -44,14 +44,20 @@ function makeLegacyVariant(overrides: Partial<ShaderVariant> = {}): ShaderVarian
   }
 }
 
-function makeMatchEntry(field: string, renderNodeIndex: number, paintAxis: 'fill' | 'stroke-color' = 'fill'): ComputePlanEntry {
+function makeMatchEntry(
+  field: string,
+  renderNodeIndex: number,
+  paintAxis: 'fill' | 'stroke-color' = 'fill',
+): ComputePlanEntry {
   const kernel = emitMatchComputeKernel({
     fieldName: field,
     arms: [{ pattern: 'a', colorHex: '#ff0000' }],
     defaultColorHex: '#000000',
   })
   return {
-    renderNodeIndex, paintAxis, kernel,
+    renderNodeIndex,
+    paintAxis,
+    kernel,
     fieldOrder: kernel.fieldOrder,
     categoryOrder: kernel.categoryOrder ?? {},
   }
@@ -88,8 +94,8 @@ describe('buildPerShowMergedVariant', () => {
   it('filters out other shows; only entries for renderNodeIndex contribute', () => {
     const v = makeLegacyVariant()
     const plan = [
-      makeMatchEntry('a', 0, 'fill'),         // other show, ignored
-      makeMatchEntry('b', 1, 'fill'),         // this show
+      makeMatchEntry('a', 0, 'fill'), // other show, ignored
+      makeMatchEntry('b', 1, 'fill'), // this show
       makeMatchEntry('c', 2, 'stroke-color'), // other show, ignored
     ]
     const out = buildPerShowMergedVariant(v, plan, 1, 0, 1)
@@ -101,14 +107,11 @@ describe('buildPerShowMergedVariant', () => {
 
   it('multiple entries for same show → both bindings in preamble', () => {
     const v = makeLegacyVariant()
-    const plan = [
-      makeMatchEntry('a', 3, 'fill'),
-      makeMatchEntry('b', 3, 'stroke-color'),
-    ]
+    const plan = [makeMatchEntry('a', 3, 'fill'), makeMatchEntry('b', 3, 'stroke-color')]
     const out = buildPerShowMergedVariant(v, plan, 3, 0, 5)
     expect(fillStr(out)).toContain('compute_out_fill')
     expect(strokeStr(out)).toContain('compute_out_stroke')
-    expect(out.preamble.bindings!.map(b => b.binding)).toEqual([5, 6])
+    expect(out.preamble.bindings!.map((b) => b.binding)).toEqual([5, 6])
   })
 
   it('passes through bindGroup + baseBinding to the addendum', () => {

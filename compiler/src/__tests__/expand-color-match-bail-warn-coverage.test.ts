@@ -21,8 +21,10 @@ describe('expand-color-match bail warnings', () => {
             'fill-color': [
               'match',
               ['get', 'iso'],
-              'US', '#abc',
-              'CA', '#def',
+              'US',
+              '#abc',
+              'CA',
+              '#def',
               ['get', 'fallback'], // non-string default — expression
             ],
           },
@@ -46,8 +48,10 @@ describe('expand-color-match bail warnings', () => {
             'fill-color': [
               'match',
               ['get', 'iso'],
-              'US', ['get', 'color'], // arm value is expression, not constant
-              'CA', '#def',
+              'US',
+              ['get', 'color'], // arm value is expression, not constant
+              'CA',
+              '#def',
               '#fallback',
             ],
           },
@@ -74,8 +78,10 @@ describe('expand-color-match bail warnings', () => {
             'fill-color': [
               'match',
               ['get', 'iso'],
-              [['nested', 'array']], '#abc', // non-scalar key
-              'CA', '#def',
+              [['nested', 'array']],
+              '#abc', // non-scalar key
+              'CA',
+              '#def',
               '#000',
             ],
           },
@@ -101,8 +107,10 @@ describe('expand-color-match bail warnings', () => {
             'fill-color': [
               'match',
               ['get', 'iso'],
-              'US', '#abc',
-              'CA', '#def',
+              'US',
+              '#abc',
+              'CA',
+              '#def',
               // no trailing default — even count after slice(2) = 4
             ],
           },
@@ -126,9 +134,12 @@ describe('expand-color-match bail warnings', () => {
             'fill-color': [
               'match',
               ['get', 'iso'],
-              'US', '#abc',
-              'CA', '#def',
-              'MX', '#456',
+              'US',
+              '#abc',
+              'CA',
+              '#def',
+              'MX',
+              '#456',
               '#000',
             ],
           },

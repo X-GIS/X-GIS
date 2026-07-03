@@ -42,7 +42,17 @@ export type OptPass = (m: ModuleDecl) => ModuleDecl
  *  deliberately byte-stable shared-prelude emit (+ its golden-WGSL drift gate); gvn
  *  moves value construction across statements, which likewise perturbs emitted bytes.
  *  Wire either only behind a maintainer decision to regenerate those snapshots. */
-export const DEFAULT_PASSES: readonly OptPass[] = [constProp, copyProp, constFold, algebraicSimplify, deadBranch, cse, cseLocal, licm, dce]
+export const DEFAULT_PASSES: readonly OptPass[] = [
+  constProp,
+  copyProp,
+  constFold,
+  algebraicSimplify,
+  deadBranch,
+  cse,
+  cseLocal,
+  licm,
+  dce,
+]
 
 export function optimize(m: ModuleDecl, passes: readonly OptPass[] = DEFAULT_PASSES): ModuleDecl {
   return passes.reduce((mod, pass) => pass(mod), m)
@@ -53,7 +63,11 @@ export function optimize(m: ModuleDecl, passes: readonly OptPass[] = DEFAULT_PAS
  *  exposes a literal, const-fold collapses it, dead-branch drops the branch); this
  *  catches the deeper chains where a fold exposes the next propagation. Structural
  *  equality via JSON — the IR is plain, acyclic, function-free data. */
-export function fixpoint(m: ModuleDecl, passes: readonly OptPass[] = DEFAULT_PASSES, maxIters = 8): ModuleDecl {
+export function fixpoint(
+  m: ModuleDecl,
+  passes: readonly OptPass[] = DEFAULT_PASSES,
+  maxIters = 8,
+): ModuleDecl {
   let cur = m
   for (let i = 0; i < maxIters; i++) {
     const next = optimize(cur, passes)

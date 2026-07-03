@@ -42,7 +42,7 @@ function pct(arr: number[], p: number): number {
 function summarise(frames: number[]): Sample {
   const t = frames.slice(2) // drop 2 warmup frames
   const sorted = [...t].sort((a, b) => b - a)
-  const worstFrames = sorted.slice(0, 5).map(ms => {
+  const worstFrames = sorted.slice(0, 5).map((ms) => {
     const idx = t.indexOf(ms)
     return { idx, ms }
   })
@@ -58,9 +58,11 @@ function summarise(frames: number[]): Sample {
 
 function reportRow(name: string, s: Sample): string {
   const fps = s.median > 0 ? (1000 / s.median).toFixed(0) : '---'
-  return `  ${name.padEnd(28)}  ${s.median.toFixed(1).padStart(6)} ms (${fps.padStart(3)} fps)`
-    + `  p95=${s.p95.toFixed(1).padStart(6)}  p99=${s.p99.toFixed(1).padStart(6)}  worst=${s.worst.toFixed(0).padStart(5)}`
-    + `  frames=${s.frames}`
+  return (
+    `  ${name.padEnd(28)}  ${s.median.toFixed(1).padStart(6)} ms (${fps.padStart(3)} fps)` +
+    `  p95=${s.p95.toFixed(1).padStart(6)}  p99=${s.p99.toFixed(1).padStart(6)}  worst=${s.worst.toFixed(0).padStart(5)}` +
+    `  frames=${s.frames}`
+  )
 }
 
 async function setupPage(page: Page, demoId: string, compute: boolean) {
@@ -68,45 +70,62 @@ async function setupPage(page: Page, demoId: string, compute: boolean) {
   await page.goto(url, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // Settle initial cascade.
   await page.waitForTimeout(4_000)
 }
 
-async function runAnimation(
-  page: Page,
-  durationMs: number,
-  updateFn: string,
-): Promise<number[]> {
-  return await page.evaluate(async ({ ms, body }) => {
-    const map = (window as unknown as { __xgisMap?: {
-      camera: { zoom: number; centerX: number; centerY: number; pitch: number; bearing: number };
-      invalidate: () => void;
-    } }).__xgisMap
-    if (!map) throw new Error('__xgisMap not exposed')
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
-    const update = new Function('t', 'cam', 'map', body) as (t: number, c: unknown, m: unknown) => void
+async function runAnimation(page: Page, durationMs: number, updateFn: string): Promise<number[]> {
+  return await page.evaluate(
+    async ({ ms, body }) => {
+      const map = (
+        window as unknown as {
+          __xgisMap?: {
+            camera: {
+              zoom: number
+              centerX: number
+              centerY: number
+              pitch: number
+              bearing: number
+            }
+            invalidate: () => void
+          }
+        }
+      ).__xgisMap
+      if (!map) throw new Error('__xgisMap not exposed')
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+      const update = new Function('t', 'cam', 'map', body) as (
+        t: number,
+        c: unknown,
+        m: unknown,
+      ) => void
 
-    const cam = map.camera
-    const frames: number[] = []
-    return await new Promise<number[]>((resolve) => {
-      const start = performance.now()
-      let last = start
-      const tick = () => {
-        const now = performance.now()
-        frames.push(now - last)
-        last = now
-        const elapsed = now - start
-        if (elapsed >= ms) { resolve(frames); return }
-        const t = elapsed / ms
-        update(t, cam, map)
-        map.invalidate()
+      const cam = map.camera
+      const frames: number[] = []
+      return await new Promise<number[]>((resolve) => {
+        const start = performance.now()
+        let last = start
+        const tick = () => {
+          const now = performance.now()
+          frames.push(now - last)
+          last = now
+          const elapsed = now - start
+          if (elapsed >= ms) {
+            resolve(frames)
+            return
+          }
+          const t = elapsed / ms
+          update(t, cam, map)
+          map.invalidate()
+          requestAnimationFrame(tick)
+        }
         requestAnimationFrame(tick)
-      }
-      requestAnimationFrame(tick)
-    })
-  }, { ms: durationMs, body: updateFn })
+      })
+    },
+    { ms: durationMs, body: updateFn },
+  )
 }
 
 test('continent_match interactive perf — compute=1 vs compute=0', async ({ page }) => {
@@ -120,36 +139,54 @@ test('continent_match interactive perf — compute=1 vs compute=0', async ({ pag
     await setupPage(page, 'continent_match', compute)
 
     const baseCam = await page.evaluate(() => {
-      const m = (window as unknown as { __xgisMap?: { camera: { centerX: number; centerY: number; zoom: number } } }).__xgisMap!
+      const m = (
+        window as unknown as {
+          __xgisMap?: { camera: { centerX: number; centerY: number; zoom: number } }
+        }
+      ).__xgisMap!
       return { x: m.camera.centerX, y: m.camera.centerY }
     })
 
     // Scenario 1: zoom in/out triangle 3 → 8 → 3
-    const z1 = await runAnimation(page, 6000, `
+    const z1 = await runAnimation(
+      page,
+      6000,
+      `
       const phase = t < 0.5 ? t * 2 : (1 - t) * 2;
       cam.zoom = 3 + phase * 5;
-    `)
+    `,
+    )
     const s1 = summarise(z1)
 
     // Scenario 2: pan east 500km at z=6
-    const z2 = await runAnimation(page, 6000, `
+    const z2 = await runAnimation(
+      page,
+      6000,
+      `
       const phase = t < 0.5 ? t * 2 : (1 - t) * 2;
       cam.zoom = 6;
       cam.centerX = ${baseCam.x} + phase * 500000;
-    `)
+    `,
+    )
     const s2 = summarise(z2)
 
     // Scenario 3: combined zoom + pan
-    const z3 = await runAnimation(page, 6000, `
+    const z3 = await runAnimation(
+      page,
+      6000,
+      `
       const phase = t < 0.5 ? t * 2 : (1 - t) * 2;
       cam.zoom = 4 + phase * 4;
       cam.centerX = ${baseCam.x} + phase * 300000;
-    `)
+    `,
+    )
     const s3 = summarise(z3)
 
     results.push({
       label: compute ? 'compute=1' : 'compute=0',
-      s1, s2, s3,
+      s1,
+      s2,
+      s3,
     })
   }
 
@@ -166,17 +203,21 @@ test('continent_match interactive perf — compute=1 vs compute=0', async ({ pag
     // eslint-disable-next-line no-console
     console.log(reportRow('zoom + pan combined', r.s3))
     // eslint-disable-next-line no-console
-    console.log('  worst frames (idx ms):',
+    console.log(
+      '  worst frames (idx ms):',
       [...r.s1.worstFrames, ...r.s2.worstFrames, ...r.s3.worstFrames]
-        .sort((a, b) => b.ms - a.ms).slice(0, 5)
-        .map(f => `${f.idx}=${f.ms.toFixed(0)}ms`).join('  '))
+        .sort((a, b) => b.ms - a.ms)
+        .slice(0, 5)
+        .map((f) => `${f.idx}=${f.ms.toFixed(0)}ms`)
+        .join('  '),
+    )
     // eslint-disable-next-line no-console
     console.log()
   }
 
   // Comparison delta
-  const c0 = results.find(r => r.label === 'compute=0')!
-  const c1 = results.find(r => r.label === 'compute=1')!
+  const c0 = results.find((r) => r.label === 'compute=0')!
+  const c1 = results.find((r) => r.label === 'compute=1')!
   // eslint-disable-next-line no-console
   console.log('── compute=1 delta vs compute=0 ──')
   const deltaRow = (name: string, a: Sample, b: Sample) => {
@@ -204,19 +245,31 @@ test('OFM Bright interactive perf — compute=1', async ({ page }) => {
   await setupPage(page, 'openfreemap_bright', true)
 
   const baseCam = await page.evaluate(() => {
-    const m = (window as unknown as { __xgisMap?: { camera: { centerX: number; centerY: number; zoom: number } } }).__xgisMap!
+    const m = (
+      window as unknown as {
+        __xgisMap?: { camera: { centerX: number; centerY: number; zoom: number } }
+      }
+    ).__xgisMap!
     return { x: m.camera.centerX, y: m.camera.centerY }
   })
 
-  const z1 = await runAnimation(page, 6000, `
+  const z1 = await runAnimation(
+    page,
+    6000,
+    `
     const phase = t < 0.5 ? t * 2 : (1 - t) * 2;
     cam.zoom = 10 + phase * 5;
-  `)
-  const z2 = await runAnimation(page, 6000, `
+  `,
+  )
+  const z2 = await runAnimation(
+    page,
+    6000,
+    `
     const phase = t < 0.5 ? t * 2 : (1 - t) * 2;
     cam.zoom = 12;
     cam.centerX = ${baseCam.x} + phase * 200000;
-  `)
+  `,
+  )
   const s1 = summarise(z1)
   const s2 = summarise(z2)
   // eslint-disable-next-line no-console
@@ -226,10 +279,14 @@ test('OFM Bright interactive perf — compute=1', async ({ page }) => {
   // eslint-disable-next-line no-console
   console.log(reportRow('pan east 200km z=12', s2))
   // eslint-disable-next-line no-console
-  console.log('  worst frames:',
+  console.log(
+    '  worst frames:',
     [...s1.worstFrames, ...s2.worstFrames]
-      .sort((a, b) => b.ms - a.ms).slice(0, 5)
-      .map(f => `${f.idx}=${f.ms.toFixed(0)}ms`).join('  '))
+      .sort((a, b) => b.ms - a.ms)
+      .slice(0, 5)
+      .map((f) => `${f.idx}=${f.ms.toFixed(0)}ms`)
+      .join('  '),
+  )
   // eslint-disable-next-line no-console
   console.log()
 })

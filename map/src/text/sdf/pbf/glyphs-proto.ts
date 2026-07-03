@@ -24,7 +24,7 @@
 
 import { PbfReader, PbfEofError } from './varint'
 
-const PBF_BUFFER = 3  // px of outer buffer per side (bitmap = (w+6)×(h+6))
+const PBF_BUFFER = 3 // px of outer buffer per side (bitmap = (w+6)×(h+6))
 // Sane ceiling on glyph dimensions. PBFs are baked at a 24-px reference,
 // so even bold/CJK glyphs stay well under ~100 px per side; a couple of
 // hundred is a generous bound. width/height are untrusted uint32 varints
@@ -77,8 +77,7 @@ export function decodeGlyphsPbf(buf: Uint8Array): PbfFontstack[] {
         // dozens of stacks, so the tail is forged padding.
         if (stacks.length >= MAX_FONTSTACKS) break
         stacks.push(r.readMessage(readFontstack))
-      }
-      else r.skip(wire)
+      } else r.skip(wire)
       if (r.pos <= before) break
     }
   } catch (e) {
@@ -108,7 +107,10 @@ function readFontstack(r: PbfReader, end: number): PbfFontstack {
       // stop adding (drop the excess) — fail-closed like MAX_GLYPH_DIM. Skip to
       // the message end so the reader resyncs cleanly instead of misparsing the
       // forged tail. A legit 256-codepoint range never exceeds this bound.
-      if (stack.glyphs.size >= MAX_GLYPHS_PER_STACK) { r.pos = end; break }
+      if (stack.glyphs.size >= MAX_GLYPHS_PER_STACK) {
+        r.pos = end
+        break
+      }
       const g = r.readMessage(readGlyph)
       stack.glyphs.set(g.id, g)
     } else r.skip(wire)
@@ -118,7 +120,12 @@ function readFontstack(r: PbfReader, end: number): PbfFontstack {
 }
 
 function readGlyph(r: PbfReader, end: number): PbfGlyph {
-  let id = 0, width = 0, height = 0, left = 0, top = 0, advance = 0
+  let id = 0,
+    width = 0,
+    height = 0,
+    left = 0,
+    top = 0,
+    advance = 0
   let bitmap = new Uint8Array(0)
   while (r.pos < end) {
     const before = r.pos
@@ -131,8 +138,7 @@ function readGlyph(r: PbfReader, end: number): PbfGlyph {
       // source buffer, which would alias the caller's input. Defensive
       // copy so the caller can drop the input buffer.
       bitmap = new Uint8Array(r.readBytes(len))
-    }
-    else if (field === 3 && wire === 0) width = r.readVarint()
+    } else if (field === 3 && wire === 0) width = r.readVarint()
     else if (field === 4 && wire === 0) height = r.readVarint()
     else if (field === 5 && wire === 0) left = r.readSignedVarint()
     else if (field === 6 && wire === 0) top = r.readSignedVarint()
@@ -149,11 +155,7 @@ function readGlyph(r: PbfReader, end: number): PbfGlyph {
   // are kept — a bitmap-less glyph is a valid advance-only entry.
   if (bitmap.length > 0) {
     const expected = (width + 2 * PBF_BUFFER) * (height + 2 * PBF_BUFFER)
-    if (
-      width > MAX_GLYPH_DIM ||
-      height > MAX_GLYPH_DIM ||
-      bitmap.length !== expected
-    ) {
+    if (width > MAX_GLYPH_DIM || height > MAX_GLYPH_DIM || bitmap.length !== expected) {
       bitmap = new Uint8Array(0)
       width = 0
       height = 0

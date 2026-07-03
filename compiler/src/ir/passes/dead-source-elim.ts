@@ -48,8 +48,8 @@ export const deadSourceElimPass: IRPass = {
     // Identity preserve: every source live → return same Scene reference
     // so downstream identity checks (test invariants, memoisation)
     // observe the no-op cleanly. Mirror of dead-layer-elim:102.
-    if (scene.sources.every(s => referenced.has(s.name))) return scene
-    const live = scene.sources.filter(s => referenced.has(s.name))
+    if (scene.sources.every((s) => referenced.has(s.name))) return scene
+    const live = scene.sources.filter((s) => referenced.has(s.name))
     return { ...scene, sources: live }
   },
 }

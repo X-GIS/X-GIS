@@ -55,8 +55,12 @@ export class GlyphAtlasGPU {
   /** GPUTexture for the given page, or undefined if not allocated.
    *  The renderer uses page 0 for now (multi-page extends naturally
    *  once the host needs it). */
-  getPage(index: number): GPUTexture | undefined { return this.pages[index] }
-  get pageCount(): number { return this.pages.length }
+  getPage(index: number): GPUTexture | undefined {
+    return this.pages[index]
+  }
+  get pageCount(): number {
+    return this.pages.length
+  }
 
   /** Allocate a new page texture. Lazy — the host calls this when
    *  its own pageCount grows. */

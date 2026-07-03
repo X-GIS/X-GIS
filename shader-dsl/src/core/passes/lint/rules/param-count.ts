@@ -9,7 +9,8 @@ export const paramCount: LintRule = {
   create: (ctx) => ({
     Func(f) {
       const max = (ctx.options?.max as number) ?? 6
-      if (f.params.length > max) ctx.report(`fn '${f.name}' has ${f.params.length} parameters > ${max}`, { fn: f.name })
+      if (f.params.length > max)
+        ctx.report(`fn '${f.name}' has ${f.params.length} parameters > ${max}`, { fn: f.name })
     },
   }),
 }

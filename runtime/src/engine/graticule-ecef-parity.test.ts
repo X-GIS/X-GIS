@@ -95,7 +95,10 @@ describe('graticule ECEF kernel — shared vs old inline byte-equality', () => {
       const b = new Uint8Array(expected.buffer, expected.byteOffset, expected.byteLength)
       let firstDiff = -1
       for (let i = 0; i < a.length; i++) {
-        if (a[i] !== b[i]) { firstDiff = i; break }
+        if (a[i] !== b[i]) {
+          firstDiff = i
+          break
+        }
       }
       expect(firstDiff).toBe(-1)
     })

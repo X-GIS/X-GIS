@@ -30,7 +30,7 @@ test('flat pitch at Tokyo z=14: unique fetches vs draw calls', async ({ page }) 
   }, xgis)
 
   const fetches = new Set<string>()
-  page.on('response', resp => {
+  page.on('response', (resp) => {
     const u = resp.url()
     if (/openfreemap\.org\/.*\.pbf/.test(u)) fetches.add(u)
   })
@@ -38,18 +38,29 @@ test('flat pitch at Tokyo z=14: unique fetches vs draw calls', async ({ page }) 
   await page.goto('/demo.html?id=__import#14/35.68/139.76/0/0', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   await page.waitForTimeout(8_000) // settle
 
   const stats = await page.evaluate(() => {
-    const map = (window as unknown as {
-      __xgisMap?: {
-        inspectPipeline?: () => unknown
-        vtSources?: Map<string, { source?: { _allTileData?: Map<unknown, unknown> }; renderer?: { _frameDrawnByZoom?: Map<number, number> } }>
+    const map = (
+      window as unknown as {
+        __xgisMap?: {
+          inspectPipeline?: () => unknown
+          vtSources?: Map<
+            string,
+            {
+              source?: { _allTileData?: Map<unknown, unknown> }
+              renderer?: { _frameDrawnByZoom?: Map<number, number> }
+            }
+          >
+        }
       }
-    }).__xgisMap
-    const ip = map?.inspectPipeline?.() as { sources?: Array<{ frame: { drawCalls: number; tilesVisible: number; missedTiles: number } }> } | null
+    ).__xgisMap
+    const ip = map?.inspectPipeline?.() as {
+      sources?: Array<{ frame: { drawCalls: number; tilesVisible: number; missedTiles: number } }>
+    } | null
     const vt = map?.vtSources?.get?.('openmaptiles')
     const allTiles = vt?.source?._allTileData
     const byZoom: Record<number, number> = {}
@@ -77,14 +88,21 @@ test('flat pitch at Tokyo z=14: unique fetches vs draw calls', async ({ page }) 
   // eslint-disable-next-line no-console
   console.log(`GPU-cached slices (tile × source-layer): ${stats.cachedSlices}`)
   // eslint-disable-next-line no-console
-  console.log(`per-frame drawCalls: ${stats.drawCalls}  slicesDrawn: ${stats.slicesDrawn}  missed: ${stats.missed}`)
+  console.log(
+    `per-frame drawCalls: ${stats.drawCalls}  slicesDrawn: ${stats.slicesDrawn}  missed: ${stats.missed}`,
+  )
   // eslint-disable-next-line no-console
   console.log(`drawnByZoom: ${JSON.stringify(stats.byZoom)}`)
   // eslint-disable-next-line no-console
-  console.log(`inferred slices per unique tile: ~${stats.cachedSlices && uniqueTilesFromNetwork ? Math.round((stats.cachedSlices) / uniqueTilesFromNetwork) : '?'}`)
+  console.log(
+    `inferred slices per unique tile: ~${stats.cachedSlices && uniqueTilesFromNetwork ? Math.round(stats.cachedSlices / uniqueTilesFromNetwork) : '?'}`,
+  )
 
   // At pitch=0 over Tokyo z=14 with our test viewport (~860×720), a
   // 4×3 tile grid covers the visible area. Allow some slack for the
   // 1-tile margin used by the frustum sampler.
-  expect(uniqueTilesFromNetwork, 'flat pitch over Tokyo z=14 should request a small unique-tile set').toBeLessThan(40)
+  expect(
+    uniqueTilesFromNetwork,
+    'flat pitch over Tokyo z=14 should request a small unique-tile set',
+  ).toBeLessThan(40)
 })

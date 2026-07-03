@@ -93,12 +93,19 @@ export class ViewportModeController {
     // — a debugging footgun. Warn loudly + drop the call so the
     // previous projection stays active.
     const VALID = new Set([
-      'mercator', 'equirectangular', 'natural_earth',
-      'orthographic', 'azimuthal_equidistant', 'stereographic',
-      'oblique_mercator', 'globe',
+      'mercator',
+      'equirectangular',
+      'natural_earth',
+      'orthographic',
+      'azimuthal_equidistant',
+      'stereographic',
+      'oblique_mercator',
+      'globe',
     ])
     if (!VALID.has(canonical)) {
-      xlog.warn(`[X-GIS] setProjection: unknown projection "${name}" — keeping "${this.projectionName}". Valid: ${[...VALID].join(', ')}.`)
+      xlog.warn(
+        `[X-GIS] setProjection: unknown projection "${name}" — keeping "${this.projectionName}". Valid: ${[...VALID].join(', ')}.`,
+      )
       return false
     }
     const prevProj = this.projectionName
@@ -178,12 +185,14 @@ export class ViewportModeController {
     _polarCapsWarned = true
     xlog.warn(
       '[X-GIS] setPolarCapsEnabled is no longer renderer-driven. ' +
-      'Use the injectPolarCaps / synthesizePolarCaps exports as a pre-processing ' +
-      'step on your data, or accept honest source coverage.',
+        'Use the injectPolarCaps / synthesizePolarCaps exports as a pre-processing ' +
+        'step on your data, or accept honest source coverage.',
     )
   }
 
   /** @deprecated Always returns `false` post-Phase 1a — polar-cap synthesis
    *  is no longer renderer-driven (see `setPolarCapsEnabled`). */
-  isPolarCapsEnabled(): boolean { return false }
+  isPolarCapsEnabled(): boolean {
+    return false
+  }
 }

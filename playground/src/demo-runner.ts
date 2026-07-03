@@ -6,7 +6,12 @@ import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import { XGISMap, lonLatToMercator } from '@xgis/runtime'
 import { DEMOS } from './demos'
 import { extractMapboxProjectionName, extractMapboxLight } from './mapbox-projection'
-import { registerXGISLanguage, registerXGISTheme, validateSource, discoverFields } from './monaco-xgis'
+import {
+  registerXGISLanguage,
+  registerXGISTheme,
+  validateSource,
+  discoverFields,
+} from './monaco-xgis'
 
 // Monaco web worker setup
 self.MonacoEnvironment = {
@@ -127,22 +132,34 @@ if (editorToggle) {
   const wrap = document.createElement('div')
   wrap.id = 'log-overlay'
   wrap.style.cssText = [
-    'position:fixed', 'right:8px', 'bottom:8px', 'z-index:2000',
-    'max-width:min(96vw,520px)', 'max-height:60vh',
-    'font:11px/1.4 "DM Mono",monospace', 'color:#dde',
-    'background:rgba(10,12,20,0.92)', 'backdrop-filter:blur(6px)',
-    'border:1px solid rgba(255,255,255,0.18)', 'border-radius:6px',
-    'display:none', 'flex-direction:column', 'overflow:hidden',
+    'position:fixed',
+    'right:8px',
+    'bottom:8px',
+    'z-index:2000',
+    'max-width:min(96vw,520px)',
+    'max-height:60vh',
+    'font:11px/1.4 "DM Mono",monospace',
+    'color:#dde',
+    'background:rgba(10,12,20,0.92)',
+    'backdrop-filter:blur(6px)',
+    'border:1px solid rgba(255,255,255,0.18)',
+    'border-radius:6px',
+    'display:none',
+    'flex-direction:column',
+    'overflow:hidden',
   ].join(';')
 
   const header = document.createElement('div')
-  header.style.cssText = 'display:flex;gap:8px;align-items:center;padding:6px 10px;background:rgba(255,80,80,0.18);cursor:pointer;user-select:none'
-  header.innerHTML = '<strong style="flex:1">⚠ Errors</strong><span id="log-count">0</span><button id="log-safe" style="font:inherit;padding:2px 8px;border:1px solid #555;background:#222;color:#dde;border-radius:4px;cursor:pointer">Safe</button><button id="log-copy" style="font:inherit;padding:2px 8px;border:1px solid #555;background:#222;color:#dde;border-radius:4px;cursor:pointer">Copy</button><button id="log-clear" style="font:inherit;padding:2px 8px;border:1px solid #555;background:#222;color:#dde;border-radius:4px;cursor:pointer">×</button>'
+  header.style.cssText =
+    'display:flex;gap:8px;align-items:center;padding:6px 10px;background:rgba(255,80,80,0.18);cursor:pointer;user-select:none'
+  header.innerHTML =
+    '<strong style="flex:1">⚠ Errors</strong><span id="log-count">0</span><button id="log-safe" style="font:inherit;padding:2px 8px;border:1px solid #555;background:#222;color:#dde;border-radius:4px;cursor:pointer">Safe</button><button id="log-copy" style="font:inherit;padding:2px 8px;border:1px solid #555;background:#222;color:#dde;border-radius:4px;cursor:pointer">Copy</button><button id="log-clear" style="font:inherit;padding:2px 8px;border:1px solid #555;background:#222;color:#dde;border-radius:4px;cursor:pointer">×</button>'
   wrap.appendChild(header)
 
   const body = document.createElement('div')
   body.id = 'log-body'
-  body.style.cssText = 'overflow-y:auto;padding:8px 10px;white-space:pre-wrap;word-break:break-word;flex:1'
+  body.style.cssText =
+    'overflow-y:auto;padding:8px 10px;white-space:pre-wrap;word-break:break-word;flex:1'
   wrap.appendChild(body)
 
   document.body.appendChild(wrap)
@@ -164,11 +181,19 @@ if (editorToggle) {
   // a Monaco-internal bookkeeping warning that is not actionable for us.
   const NOISE_RE = /UNKNOWN touch/
   const push = (kind: 'error' | 'warn' | 'log', ...args: unknown[]) => {
-    const msg = args.map(a => {
-      if (a instanceof Error) return a.stack || a.message
-      if (typeof a === 'object') { try { return JSON.stringify(a) } catch { return String(a) } }
-      return String(a)
-    }).join(' ')
+    const msg = args
+      .map((a) => {
+        if (a instanceof Error) return a.stack || a.message
+        if (typeof a === 'object') {
+          try {
+            return JSON.stringify(a)
+          } catch {
+            return String(a)
+          }
+        }
+        return String(a)
+      })
+      .join(' ')
     if (NOISE_RE.test(msg)) return
     ENTRIES.push({ kind, ts: Date.now(), msg })
     if (ENTRIES.length > MAX) ENTRIES.splice(0, ENTRIES.length - MAX)
@@ -177,9 +202,15 @@ if (editorToggle) {
 
   // Hook console
   const origError = console.error.bind(console)
-  const origWarn  = console.warn.bind(console)
-  console.error = (...args: unknown[]) => { push('error', ...args); origError(...args) }
-  console.warn  = (...args: unknown[]) => { push('warn',  ...args); origWarn(...args) }
+  const origWarn = console.warn.bind(console)
+  console.error = (...args: unknown[]) => {
+    push('error', ...args)
+    origError(...args)
+  }
+  console.warn = (...args: unknown[]) => {
+    push('warn', ...args)
+    origWarn(...args)
+  }
 
   // Hook window errors + unhandled promise rejections.
   // iOS WebKit replaces e.message with "Script error." for cross-origin
@@ -193,7 +224,10 @@ if (editorToggle) {
       parts.push(err.stack || err.message || String(err))
     }
     if (e.filename) parts.push(`@ ${e.filename}:${e.lineno}:${e.colno}`)
-    if (parts.length === 0) parts.push('(opaque cross-origin error — try `taskkill /PID port:3001` and reload via localhost)')
+    if (parts.length === 0)
+      parts.push(
+        '(opaque cross-origin error — try `taskkill /PID port:3001` and reload via localhost)',
+      )
     push('error', parts.join('\n'))
   })
   window.addEventListener('unhandledrejection', (e) => {
@@ -219,14 +253,19 @@ if (editorToggle) {
     location.href = url.toString()
   })
   document.getElementById('log-copy')!.addEventListener('click', async () => {
-    const text = ENTRIES.map(fmtRow).join('\n\n') + '\n\n--\n' + location.href + '\n' + navigator.userAgent
+    const text =
+      ENTRIES.map(fmtRow).join('\n\n') + '\n\n--\n' + location.href + '\n' + navigator.userAgent
     try {
       await navigator.clipboard.writeText(text)
       const btn = document.getElementById('log-copy')! as HTMLButtonElement
       const orig = btn.textContent
       btn.textContent = 'Copied'
-      setTimeout(() => { btn.textContent = orig }, 1200)
-    } catch { /* clipboard might be blocked over plain http */ }
+      setTimeout(() => {
+        btn.textContent = orig
+      }, 1200)
+    } catch {
+      /* clipboard might be blocked over plain http */
+    }
   })
   document.getElementById('log-clear')!.addEventListener('click', () => {
     ENTRIES.length = 0
@@ -246,15 +285,19 @@ if (editorToggle) {
 ;(() => {
   type LogFn = (k: 'error' | 'warn' | 'log', ...a: unknown[]) => void
   const log = (label: string, err: unknown) => {
-    const stack = err instanceof Error ? (err.stack || err.message) : String(err)
+    const stack = err instanceof Error ? err.stack || err.message : String(err)
     const push = (window as unknown as { __xgisLog?: LogFn }).__xgisLog
     if (push) push('error', `[async ${label}]`, stack)
     else console.error(`[async ${label}]`, stack)
   }
   const wrap = <F extends (...a: never[]) => unknown>(label: string, fn: F): F =>
     ((...args: never[]) => {
-      try { return fn(...args) }
-      catch (e) { log(label, e); throw e }
+      try {
+        return fn(...args)
+      } catch (e) {
+        log(label, e)
+        throw e
+      }
     }) as F
 
   // requestAnimationFrame
@@ -267,19 +310,18 @@ if (editorToggle) {
   window.setTimeout = ((cb: TimerHandler, ms?: number, ...rest: unknown[]) =>
     typeof cb === 'function'
       ? stOrig(wrap('setTimeout', cb as never) as TimerHandler, ms, ...rest)
-      : stOrig(cb, ms, ...rest)
-  ) as typeof window.setTimeout
+      : stOrig(cb, ms, ...rest)) as typeof window.setTimeout
   const siOrig = window.setInterval
   window.setInterval = ((cb: TimerHandler, ms?: number, ...rest: unknown[]) =>
     typeof cb === 'function'
       ? siOrig(wrap('setInterval', cb as never) as TimerHandler, ms, ...rest)
-      : siOrig(cb, ms, ...rest)
-  ) as typeof window.setInterval
+      : siOrig(cb, ms, ...rest)) as typeof window.setInterval
 
   // queueMicrotask
   if (typeof window.queueMicrotask === 'function') {
     const qmtOrig = window.queueMicrotask.bind(window)
-    window.queueMicrotask = (cb: VoidFunction) => qmtOrig(wrap('microtask', cb as never) as VoidFunction)
+    window.queueMicrotask = (cb: VoidFunction) =>
+      qmtOrig(wrap('microtask', cb as never) as VoidFunction)
   }
 
   // addEventListener — skip self-referential error/unhandledrejection
@@ -367,18 +409,36 @@ editor.addAction({
 // The `<option value>` still carries the `demoIds` index, so the
 // existing `selectEl.value = String(idx)` path keeps working.
 const TAG_ORDER_DROPDOWN: string[] = [
-  'basic', 'style', 'raster', 'zoom', 'layer',
-  'line', 'point', 'per-feature', 'data-driven',
-  'vector-tiles', 'natural-earth', '10m', 'thematic',
+  'basic',
+  'style',
+  'raster',
+  'zoom',
+  'layer',
+  'line',
+  'point',
+  'per-feature',
+  'data-driven',
+  'vector-tiles',
+  'natural-earth',
+  '10m',
+  'thematic',
   'fixture',
 ]
 const TAG_LABELS_DROPDOWN: Record<string, string> = {
-  basic: 'Basic', style: 'Style & Filter', raster: 'Raster',
-  zoom: 'Zoom', layer: 'Multi-Layer', 'per-feature': 'Per-Feature',
-  'vector-tiles': 'Vector Tiles', 'natural-earth': 'Natural Earth',
-  'data-driven': 'Data-Driven', point: 'Points & Shapes',
-  line: 'SDF Lines', '10m': 'High Detail (10m)',
-  thematic: 'Thematic', fixture: 'Fixtures',
+  basic: 'Basic',
+  style: 'Style & Filter',
+  raster: 'Raster',
+  zoom: 'Zoom',
+  layer: 'Multi-Layer',
+  'per-feature': 'Per-Feature',
+  'vector-tiles': 'Vector Tiles',
+  'natural-earth': 'Natural Earth',
+  'data-driven': 'Data-Driven',
+  point: 'Points & Shapes',
+  line: 'SDF Lines',
+  '10m': 'High Detail (10m)',
+  thematic: 'Thematic',
+  fixture: 'Fixtures',
 }
 {
   const byTag = new Map<string, { idx: number; name: string }[]>()
@@ -393,7 +453,9 @@ const TAG_LABELS_DROPDOWN: Record<string, string> = {
     const list = byTag.get(tag)
     if (!list || seen.has(tag)) return
     seen.add(tag)
-    list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
+    list.sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }),
+    )
     const og = document.createElement('optgroup')
     og.label = TAG_LABELS_DROPDOWN[tag] ?? tag
     for (const { idx, name } of list) {
@@ -405,7 +467,7 @@ const TAG_LABELS_DROPDOWN: Record<string, string> = {
     selectEl.appendChild(og)
   }
   for (const tag of TAG_ORDER_DROPDOWN) addGroup(tag)
-  for (const tag of [...byTag.keys()].filter(t => !seen.has(t)).sort()) addGroup(tag)
+  for (const tag of [...byTag.keys()].filter((t) => !seen.has(t)).sort()) addGroup(tag)
 }
 
 // ── ?debug=labels overlay ───────────────────────────────────────────
@@ -430,8 +492,8 @@ function installLabelDebugOverlay(map: XGISMap): void {
     overlay = document.createElement('div')
     overlay.id = 'xgis-labels-debug'
     overlay.style.cssText =
-      'position:fixed;top:0;left:0;right:0;bottom:0;'
-      + 'pointer-events:none;z-index:9999;overflow:hidden;'
+      'position:fixed;top:0;left:0;right:0;bottom:0;' +
+      'pointer-events:none;z-index:9999;overflow:hidden;'
     document.body.appendChild(overlay)
   }
   // Recent submissions buffer. The text stage fires the hook from
@@ -461,11 +523,11 @@ function installLabelDebugOverlay(map: XGISMap): void {
   // position of the Sweden label.
   const diagPanel = document.createElement('div')
   diagPanel.style.cssText =
-    'position:fixed;top:6px;right:6px;'
-    + 'z-index:10000;pointer-events:none;'
-    + 'background:rgba(0,0,0,0.78);color:#fff;'
-    + 'font:9px/1.25 monospace;padding:4px 6px;'
-    + 'border-radius:3px;max-width:240px;white-space:pre;'
+    'position:fixed;top:6px;right:6px;' +
+    'z-index:10000;pointer-events:none;' +
+    'background:rgba(0,0,0,0.78);color:#fff;' +
+    'font:9px/1.25 monospace;padding:4px 6px;' +
+    'border-radius:3px;max-width:240px;white-space:pre;'
   document.body.appendChild(diagPanel)
 
   // Approximate the same projection math map.ts uses, so the panel
@@ -481,13 +543,16 @@ function installLabelDebugOverlay(map: XGISMap): void {
   }
   const WORLD_MERC_M = 40075016.686
   function projectAllCopies(
-    mvp: Float32Array, ccx: number, ccy: number,
-    lon: number, lat: number,
+    mvp: Float32Array,
+    ccx: number,
+    ccy: number,
+    lon: number,
+    lat: number,
   ): { ndcX: number; visible: boolean }[] {
     const [mx, my] = lonLatToMerc(lon, lat)
     const out: { ndcX: number; visible: boolean }[] = []
     for (const w of [-2, -1, 0, 1, 2]) {
-      const rtcX = (mx + w * WORLD_MERC_M) - ccx
+      const rtcX = mx + w * WORLD_MERC_M - ccx
       const rtcY = my - ccy
       const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
       const ccx_ = mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!
@@ -515,7 +580,8 @@ function installLabelDebugOverlay(map: XGISMap): void {
     const mapAny = map as unknown as {
       ctx?: { canvas?: HTMLCanvasElement }
       camera?: {
-        centerX: number; centerY: number;
+        centerX: number
+        centerY: number
         getRTCMatrix?: (w: number, h: number, dpr: number) => Float32Array
       }
     }
@@ -525,20 +591,22 @@ function installLabelDebugOverlay(map: XGISMap): void {
       diagPanel.textContent = 'diag: camera/canvas not ready'
       return
     }
-    const w = canvas.width, h = canvas.height
+    const w = canvas.width,
+      h = canvas.height
     const mvp = cam.getRTCMatrix(w, h, dpr)
-    const ccx = cam.centerX, ccy = cam.centerY
+    const ccx = cam.centerX,
+      ccy = cam.centerY
     const lines: string[] = []
-    lines.push(`canvas: ${w}×${h} phys / ${w / dpr | 0}×${h / dpr | 0} css (dpr=${dpr})`)
+    lines.push(`canvas: ${w}×${h} phys / ${(w / dpr) | 0}×${(h / dpr) | 0} css (dpr=${dpr})`)
     lines.push(`mvp[0]=${mvp[0]!.toFixed(3)} mvp[5]=${mvp[5]!.toFixed(3)}`)
     lines.push(`mvp[3]=${mvp[3]!.toFixed(3)} mvp[15]=${mvp[15]!.toExponential(2)}`)
     lines.push(`ccx=${(ccx / 1e6).toFixed(2)}e6 ccy=${(ccy / 1e6).toFixed(2)}e6`)
     for (const p of TEST_POINTS) {
       const results = projectAllCopies(mvp, ccx, ccy, p.lon, p.lat)
       // Compact summary: for each of [-2..+2], show ✓ or ✗.
-      const marks = results.map(r => r.visible ? '✓' : '✗').join('')
+      const marks = results.map((r) => (r.visible ? '✓' : '✗')).join('')
       // Visible projection's ndcX if any, else canonical's ndcX.
-      const visible = results.find(r => r.visible)
+      const visible = results.find((r) => r.visible)
       const shown = visible ?? results[2]!
       lines.push(`${p.name}: [${marks}] ndc=${shown.ndcX.toFixed(2)}`)
     }
@@ -561,7 +629,13 @@ function installLabelDebugOverlay(map: XGISMap): void {
     // unique feature". The user-visible signal is the count of
     // DISTINCT features piling at an anchor — that's what
     // unique-text gives us.
-    interface Group { ax: number; ay: number; texts: Set<string>; uniqueSubmits: number; kind: 'point' | 'curve' }
+    interface Group {
+      ax: number
+      ay: number
+      texts: Set<string>
+      uniqueSubmits: number
+      kind: 'point' | 'curve'
+    }
     const groups = new Map<string, Group>()
     for (const l of recent) {
       const cssX = l.ax / dpr
@@ -584,23 +658,24 @@ function installLabelDebugOverlay(map: XGISMap): void {
       const color = g.kind === 'curve' ? '#0078ff' : '#e23030'
       const dot = document.createElement('div')
       dot.style.cssText =
-        `position:absolute;left:${g.ax}px;top:${g.ay}px;`
-        + 'width:6px;height:6px;border-radius:50%;'
-        + `background:${color};transform:translate(-50%,-50%);`
-        + 'box-shadow:0 0 0 1px #fff;'
+        `position:absolute;left:${g.ax}px;top:${g.ay}px;` +
+        'width:6px;height:6px;border-radius:50%;' +
+        `background:${color};transform:translate(-50%,-50%);` +
+        'box-shadow:0 0 0 1px #fff;'
       overlay.appendChild(dot)
       const box = document.createElement('div')
       const uniqueTexts = [...g.texts]
-      const headline = uniqueTexts.length > 1
-        ? `[${uniqueTexts.length} texts] ${uniqueTexts.slice(0, 2).join(' · ').slice(0, 50)}…`
-        : (uniqueTexts[0] ?? '').slice(0, 60)
+      const headline =
+        uniqueTexts.length > 1
+          ? `[${uniqueTexts.length} texts] ${uniqueTexts.slice(0, 2).join(' · ').slice(0, 50)}…`
+          : (uniqueTexts[0] ?? '').slice(0, 60)
       box.style.cssText =
-        `position:absolute;left:${g.ax + 8}px;top:${g.ay - 8}px;`
-        + 'font:10px/1.2 -apple-system,monospace;'
-        + 'background:rgba(255,255,255,0.92);'
-        + `color:${color};border:1px solid ${color};`
-        + 'padding:2px 4px;border-radius:3px;'
-        + 'white-space:pre;max-width:240px;overflow:hidden;'
+        `position:absolute;left:${g.ax + 8}px;top:${g.ay - 8}px;` +
+        'font:10px/1.2 -apple-system,monospace;' +
+        'background:rgba(255,255,255,0.92);' +
+        `color:${color};border:1px solid ${color};` +
+        'padding:2px 4px;border-radius:3px;' +
+        'white-space:pre;max-width:240px;overflow:hidden;'
       // Show DISTINCT-feature count, not raw submission count. Distinct
       // texts at the same anchor → genuine multi-feature pile-up;
       // single-feature anchors read 1× regardless of frame rate.
@@ -616,7 +691,13 @@ const R_EARTH = 6378137
 const DEG = 180 / Math.PI
 const RAD = Math.PI / 180
 
-function parseHash(): { zoom: number; lat: number; lon: number; bearing: number; pitch: number } | null {
+function parseHash(): {
+  zoom: number
+  lat: number
+  lon: number
+  bearing: number
+  pitch: number
+} | null {
   const h = location.hash.replace(/^#/, '')
   if (!h) return null
   const parts = h.split('/').map(parseFloat)
@@ -635,7 +716,7 @@ function applyHashToCamera(map: XGISMap): void {
   cam.zoom = Math.max(0, Math.min(cam.maxZoom, h.zoom))
   cam.centerX = h.lon * RAD * R_EARTH
   const clampLat = Math.max(-85.051129, Math.min(85.051129, h.lat))
-  cam.centerY = Math.log(Math.tan(Math.PI / 4 + clampLat * RAD / 2)) * R_EARTH
+  cam.centerY = Math.log(Math.tan(Math.PI / 4 + (clampLat * RAD) / 2)) * R_EARTH
   cam.bearing = h.bearing
   cam.pitch = h.pitch
   // Tell the map this is an explicit positioning so the post-compile
@@ -653,7 +734,7 @@ function formatHash(map: XGISMap): string {
   const lo = lon.toFixed(5)
   const b = cam.bearing.toFixed(1)
   const p = cam.pitch.toFixed(1)
-  const tail = (cam.bearing || cam.pitch) ? `/${b}/${p}` : ''
+  const tail = cam.bearing || cam.pitch ? `/${b}/${p}` : ''
   return `#${z}/${la}/${lo}${tail}`
 }
 
@@ -700,20 +781,29 @@ const hashBadge = document.createElement('div')
 hashBadge.id = 'hash-badge'
 hashBadge.title = 'Click to copy map state (zoom/lat/lon/bearing/pitch)'
 hashBadge.style.cssText = [
-  'position:absolute', 'top:12px', 'left:12px', 'z-index:20',
-  'font:11px/1.4 "DM Mono",monospace', 'color:#dde',
-  'background:rgba(10,10,10,0.75)', 'backdrop-filter:blur(6px)',
-  'padding:6px 10px', 'border:1px solid rgba(255,255,255,0.12)',
-  'border-radius:6px', 'cursor:pointer', 'user-select:all',
+  'position:absolute',
+  'top:12px',
+  'left:12px',
+  'z-index:20',
+  'font:11px/1.4 "DM Mono",monospace',
+  'color:#dde',
+  'background:rgba(10,10,10,0.75)',
+  'backdrop-filter:blur(6px)',
+  'padding:6px 10px',
+  'border:1px solid rgba(255,255,255,0.12)',
+  'border-radius:6px',
+  'cursor:pointer',
+  'user-select:all',
 ].join(';')
 document.getElementById('map-pane')!.appendChild(hashBadge)
 hashBadge.addEventListener('click', () => {
   navigator.clipboard?.writeText(location.href).then(() => {
     hashBadge.style.color = '#8f8'
-    setTimeout(() => { hashBadge.style.color = '#dde' }, 600)
+    setTimeout(() => {
+      hashBadge.style.color = '#dde'
+    }, 600)
   })
 })
-
 
 window.addEventListener('hashchange', () => {
   if (currentMap) applyHashToCamera(currentMap)
@@ -739,13 +829,20 @@ function setupPickingOverlay(map: InstanceType<typeof XGISMap>): void {
   const panel = document.createElement('div')
   panel.id = 'picking-overlay'
   panel.style.cssText = [
-    'position:absolute', 'top:12px', 'right:12px',
-    'min-width:200px', 'max-width:min(80vw,300px)',
+    'position:absolute',
+    'top:12px',
+    'right:12px',
+    'min-width:200px',
+    'max-width:min(80vw,300px)',
     'padding:10px 12px',
-    'background:rgba(10,10,10,0.85)', 'backdrop-filter:blur(8px)',
-    'border:1px solid rgba(255,255,255,0.2)', 'border-radius:8px',
-    'font:11px/1.5 "Geist Mono Variable","Geist Mono",monospace', 'color:#dadbdf',
-    'pointer-events:none', 'z-index:25',
+    'background:rgba(10,10,10,0.85)',
+    'backdrop-filter:blur(8px)',
+    'border:1px solid rgba(255,255,255,0.2)',
+    'border-radius:8px',
+    'font:11px/1.5 "Geist Mono Variable","Geist Mono",monospace',
+    'color:#dadbdf',
+    'pointer-events:none',
+    'z-index:25',
     'box-shadow:0 4px 12px rgba(0,0,0,0.3)',
   ].join(';')
   panel.innerHTML = `
@@ -770,8 +867,7 @@ function setupPickingOverlay(map: InstanceType<typeof XGISMap>): void {
     feature: { id: number; layer: string; properties: Record<string, unknown> }
     coordinate: readonly [number, number]
   }
-  const fmtCoord = (c: readonly [number, number]) =>
-    `${c[0].toFixed(2)}°, ${c[1].toFixed(2)}°`
+  const fmtCoord = (c: readonly [number, number]) => `${c[0].toFixed(2)}°, ${c[1].toFixed(2)}°`
   const fmtFeature = (e: Ev) => {
     const name = (e.feature.properties.name as string | undefined) ?? `feature ${e.feature.id}`
     return `<span style="color:#c8d3e0">${name}</span> <span style="color:#5a6a7e">(${e.feature.layer} #${e.feature.id})</span>`
@@ -787,18 +883,30 @@ function setupPickingOverlay(map: InstanceType<typeof XGISMap>): void {
 
   // Map-level delegation — fires for any pickable layer hit, so the
   // panel shows whatever's on top regardless of which layer was added.
-  m.addEventListener('mousemove', (raw) => {
-    const e = raw as Ev
-    hoverEl.innerHTML = `${fmtFeature(e)}<br><span style="color:#5a6a7e">${fmtCoord(e.coordinate)}</span>`
-  }, { signal: ac.signal })
-  m.addEventListener('mouseleave', () => {
-    hoverEl.textContent = 'Hover a country…'
-    hoverEl.style.color = '#5a6a7e'
-  }, { signal: ac.signal })
-  m.addEventListener('click', (raw) => {
-    const e = raw as Ev
-    clickEl.innerHTML = `<span style="color:#4ade80">▸</span> ${fmtFeature(e)}<br><span style="color:#5a6a7e">${fmtCoord(e.coordinate)}</span>`
-  }, { signal: ac.signal })
+  m.addEventListener(
+    'mousemove',
+    (raw) => {
+      const e = raw as Ev
+      hoverEl.innerHTML = `${fmtFeature(e)}<br><span style="color:#5a6a7e">${fmtCoord(e.coordinate)}</span>`
+    },
+    { signal: ac.signal },
+  )
+  m.addEventListener(
+    'mouseleave',
+    () => {
+      hoverEl.textContent = 'Hover a country…'
+      hoverEl.style.color = '#5a6a7e'
+    },
+    { signal: ac.signal },
+  )
+  m.addEventListener(
+    'click',
+    (raw) => {
+      const e = raw as Ev
+      clickEl.innerHTML = `<span style="color:#4ade80">▸</span> ${fmtFeature(e)}<br><span style="color:#5a6a7e">${fmtCoord(e.coordinate)}</span>`
+    },
+    { signal: ac.signal },
+  )
 
   pickingOverlayCleanup = () => {
     ac.abort()
@@ -850,7 +958,11 @@ async function runSource(source: string, label: string) {
     // in practice: <link rel="preload"> kicks the fetch off at parse
     // time, so by the time we get here the promise typically resolves
     // immediately. Try/catch covers browsers without the FontFaceSet API.
-    try { await document.fonts?.ready } catch { /* no-op */ }
+    try {
+      await document.fonts?.ready
+    } catch {
+      /* no-op */
+    }
     // ?compute=1 — opt into Plan P4 GPU compute paint evaluation.
     // Threads through XGISMapOptions.enableComputePath → compiler
     // emit flag → variant.computeBindings → ComputeLayerRegistry
@@ -866,9 +978,10 @@ async function runSource(source: string, label: string) {
     // frame construction gate sees a non-null URL — pre-fix the gate
     // fired with `spriteUrl === null` and the atlas was never built,
     // so icon-image layers rendered nothing (iter 56 deploy-bug repro).
-    const ctorOpts: { enableComputePath: boolean; spriteUrl?: string; glyphs?: { url?: string } } = {
-      enableComputePath: computeOptIn,
-    }
+    const ctorOpts: { enableComputePath: boolean; spriteUrl?: string; glyphs?: { url?: string } } =
+      {
+        enableComputePath: computeOptIn,
+      }
     if (pendingSpriteUrl) ctorOpts.spriteUrl = pendingSpriteUrl
     if (pendingGlyphsUrl) ctorOpts.glyphs = { url: pendingGlyphsUrl }
     currentMap = new XGISMap(canvas, ctorOpts)
@@ -922,7 +1035,9 @@ async function runSource(source: string, label: string) {
     startHashSync(currentMap)
 
     status.textContent = `${label} · scroll to zoom, drag to pan`
-    setTimeout(() => { status.style.opacity = '0.4' }, 3000)
+    setTimeout(() => {
+      status.style.opacity = '0.4'
+    }, 3000)
   } catch (err) {
     console.error('[X-GIS]', err)
     errorDiv.style.display = 'block'
@@ -980,11 +1095,36 @@ function applyFixtureAutoPush(id: string, map: InstanceType<typeof XGISMap>): vo
     map.setSourceData('tracks', {
       type: 'FeatureCollection',
       features: [
-        { type: 'Feature', id: 1, geometry: { type: 'Point', coordinates: [-30, 0] },  properties: {} },
-        { type: 'Feature', id: 2, geometry: { type: 'Point', coordinates: [0, 0] },    properties: {} },
-        { type: 'Feature', id: 3, geometry: { type: 'Point', coordinates: [30, 0] },   properties: {} },
-        { type: 'Feature', id: 4, geometry: { type: 'Point', coordinates: [0, 30] },   properties: {} },
-        { type: 'Feature', id: 5, geometry: { type: 'Point', coordinates: [0, -30] },  properties: {} },
+        {
+          type: 'Feature',
+          id: 1,
+          geometry: { type: 'Point', coordinates: [-30, 0] },
+          properties: {},
+        },
+        {
+          type: 'Feature',
+          id: 2,
+          geometry: { type: 'Point', coordinates: [0, 0] },
+          properties: {},
+        },
+        {
+          type: 'Feature',
+          id: 3,
+          geometry: { type: 'Point', coordinates: [30, 0] },
+          properties: {},
+        },
+        {
+          type: 'Feature',
+          id: 4,
+          geometry: { type: 'Point', coordinates: [0, 30] },
+          properties: {},
+        },
+        {
+          type: 'Feature',
+          id: 5,
+          geometry: { type: 'Point', coordinates: [0, -30] },
+          properties: {},
+        },
       ],
     })
   } else if (id === 'multiline_labels') {
@@ -994,12 +1134,36 @@ function applyFixtureAutoPush(id: string, map: InstanceType<typeof XGISMap>): vo
     map.setSourceData('cities', {
       type: 'FeatureCollection',
       features: [
-        { type: 'Feature', geometry: { type: 'Point', coordinates: [-74.0060,  40.7128] }, properties: { name: 'New York City' } },
-        { type: 'Feature', geometry: { type: 'Point', coordinates: [-122.4194, 37.7749] }, properties: { name: 'San Francisco' } },
-        { type: 'Feature', geometry: { type: 'Point', coordinates: [-118.2437, 34.0522] }, properties: { name: 'Los Angeles' } },
-        { type: 'Feature', geometry: { type: 'Point', coordinates: [151.2093, -33.8688] }, properties: { name: 'Sydney Australia' } },
-        { type: 'Feature', geometry: { type: 'Point', coordinates: [-43.1729, -22.9068] }, properties: { name: 'Rio de Janeiro' } },
-        { type: 'Feature', geometry: { type: 'Point', coordinates: [126.9780,  37.5665] }, properties: { name: 'Seoul' } },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [-74.006, 40.7128] },
+          properties: { name: 'New York City' },
+        },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [-122.4194, 37.7749] },
+          properties: { name: 'San Francisco' },
+        },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [-118.2437, 34.0522] },
+          properties: { name: 'Los Angeles' },
+        },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [151.2093, -33.8688] },
+          properties: { name: 'Sydney Australia' },
+        },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [-43.1729, -22.9068] },
+          properties: { name: 'Rio de Janeiro' },
+        },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [126.978, 37.5665] },
+          properties: { name: 'Seoul' },
+        },
       ],
     })
   } else if (id === 'fixture_typed_array_points') {
@@ -1037,8 +1201,12 @@ runBtn.addEventListener('click', () => {
 }
 
 // ── Navigation ──
-prevBtn.addEventListener('click', () => { if (currentIdx > 0) loadDemo(currentIdx - 1) })
-nextBtn.addEventListener('click', () => { if (currentIdx < demoIds.length - 1) loadDemo(currentIdx + 1) })
+prevBtn.addEventListener('click', () => {
+  if (currentIdx > 0) loadDemo(currentIdx - 1)
+})
+nextBtn.addEventListener('click', () => {
+  if (currentIdx < demoIds.length - 1) loadDemo(currentIdx + 1)
+})
 selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
 
 // ── Mapbox style import ─────────────────────────────────────────────
@@ -1047,104 +1215,105 @@ selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
 // result into the editor. Triggered by the "Import Mapbox" button if
 // present in the markup, OR by `__xgisImportMapbox(jsonStr)` from the
 // devtools console / a future test harness.
-;(window as unknown as { __xgisImportMapbox?: (json: string | object) => void })
-  .__xgisImportMapbox = (json: string | object) => {
-    import('@xgis/compiler').then(async ({ convertMapboxStyle }) => {
-      try {
-        // Parse once so we can read the top-level `glyphs` URL without
-        // touching the xgis source. `glyphs` is a pure runtime concern
-        // (SDF PBF fetch URL); the compiler doesn't encode it into the
-        // xgis intermediate. We forward it to the map after the source
-        // runs — TextStage builds lazily on the first label frame and
-        // honours the URL the moment it's there.
-        const styleObj = typeof json === 'string' ? JSON.parse(json) : json
-        const glyphsUrl = (styleObj as { glyphs?: unknown }).glyphs
-        const spriteUrl = (styleObj as { sprite?: unknown }).sprite
-        // Style root camera (center / zoom / bearing / pitch). Applied
-        // AFTER runSource so the bounds-fit gate inside Mapbox/runtime
-        // doesn't fight us — markCameraPositioned shuts the gate. URL
-        // hash camera still wins because demo-runner's hash parser ran
-        // BEFORE this branch and already positioned the camera; we
-        // re-check the flag here and skip when hash already won.
-        const styleCenter = (styleObj as { center?: [number, number] }).center
-        const styleZoom = (styleObj as { zoom?: number }).zoom
-        const styleBearing = (styleObj as { bearing?: number }).bearing
-        const stylePitch = (styleObj as { pitch?: number }).pitch
-        // Capture inline GeoJSON `source.data` via the collector so it
-        // renders instead of being dropped with a "call setSourceData()
-        // manually" note. The converted xgis text can't embed inline
-        // data (the DSL has no inline-data form), so we push each
-        // captured FeatureCollection after runSource below.
-        const inlineGeoJSON = new Map<string, unknown>()
-        const xgis = convertMapboxStyle(styleObj, { inlineGeoJSON })
-        editor.setValue(xgis)
-        // Stash sprite + glyphs URLs in module-scope so the XGISMap
-        // constructor inside runSource picks them up at build time
-        // (vs the late setSpriteUrl call which fires AFTER IconStage's
-        // first-frame construction gate has already seen
-        // spriteUrl === null). Iter 105: the prior approach
-        // (`currentMap?.setSpriteUrl(...)` before runSource) was a
-        // no-op on first call because currentMap was null at that
-        // point; the post-runSource re-apply hit after IconStage was
-        // already built without the URL. Constructor-option seeding
-        // is the canonical fix.
-        pendingSpriteUrl = typeof spriteUrl === 'string' && spriteUrl.length > 0 ? spriteUrl : null
-        pendingGlyphsUrl = typeof glyphsUrl === 'string' && glyphsUrl.length > 0 ? glyphsUrl : null
-        await runSource(xgis, 'Imported (Mapbox)')
-        // Seed inline GeoJSON captured above. setSourceData populates the
-        // empty geojson sources the converter emitted (no-URL stubs) so
-        // the features render on the first frame after the push.
-        pushImportedInlineGeoJSON(Object.fromEntries(inlineGeoJSON))
-        // WS-8 — honour the style's top-level `projection` field. Apply
-        // BEFORE the camera block below so setProjection's zoom-clamp /
-        // globeMode writes don't clobber the style-declared camera. URL
-        // `?proj=` still wins: runSource() already applied it above, so
-        // skip when the override is present.
-        const styleProj = extractMapboxProjectionName(styleObj)
-        if (styleProj && !new URLSearchParams(location.search).get('proj')) {
-          currentMap?.setProjection(styleProj)
-        }
-        // WS-9 — honour the style's top-level `light` block (host-applied,
-        // affects fill-extrusion shading). Default light is left untouched
-        // when the style declares none.
-        const styleLight = extractMapboxLight(styleObj)
-        if (styleLight) currentMap?.setLight(styleLight)
-        // Apply style-declared camera when nothing else (URL hash or
-        // bounds-fit) explicitly positioned us yet. URL hash camera
-        // (parseHash → markCameraPositioned at boot) wins because the
-        // flag check below short-circuits.
-        if (currentMap && !currentMap._cameraPositionedFlag) {
-          const cam = currentMap.getCamera()
-          let anyApplied = false
-          if (Array.isArray(styleCenter) && styleCenter.length === 2) {
-            const [lng, lat] = styleCenter
-            const m = lonLatToMercator(lng, lat)
-            cam.centerX = m[0]
-            cam.centerY = m[1]
-            anyApplied = true
-          }
-          if (typeof styleZoom === 'number') {
-            cam.zoom = Math.max(0, Math.min(cam.maxZoom, styleZoom))
-            anyApplied = true
-          }
-          if (typeof styleBearing === 'number') {
-            cam.bearing = styleBearing
-            anyApplied = true
-          }
-          if (typeof stylePitch === 'number') {
-            cam.pitch = stylePitch
-            anyApplied = true
-          }
-          if (anyApplied) {
-            currentMap.markCameraPositioned()
-            currentMap.invalidate()
-          }
-        }
-      } catch (e) {
-        console.error('[X-GIS] Mapbox import failed:', e)
+;(
+  window as unknown as { __xgisImportMapbox?: (json: string | object) => void }
+).__xgisImportMapbox = (json: string | object) => {
+  import('@xgis/compiler').then(async ({ convertMapboxStyle }) => {
+    try {
+      // Parse once so we can read the top-level `glyphs` URL without
+      // touching the xgis source. `glyphs` is a pure runtime concern
+      // (SDF PBF fetch URL); the compiler doesn't encode it into the
+      // xgis intermediate. We forward it to the map after the source
+      // runs — TextStage builds lazily on the first label frame and
+      // honours the URL the moment it's there.
+      const styleObj = typeof json === 'string' ? JSON.parse(json) : json
+      const glyphsUrl = (styleObj as { glyphs?: unknown }).glyphs
+      const spriteUrl = (styleObj as { sprite?: unknown }).sprite
+      // Style root camera (center / zoom / bearing / pitch). Applied
+      // AFTER runSource so the bounds-fit gate inside Mapbox/runtime
+      // doesn't fight us — markCameraPositioned shuts the gate. URL
+      // hash camera still wins because demo-runner's hash parser ran
+      // BEFORE this branch and already positioned the camera; we
+      // re-check the flag here and skip when hash already won.
+      const styleCenter = (styleObj as { center?: [number, number] }).center
+      const styleZoom = (styleObj as { zoom?: number }).zoom
+      const styleBearing = (styleObj as { bearing?: number }).bearing
+      const stylePitch = (styleObj as { pitch?: number }).pitch
+      // Capture inline GeoJSON `source.data` via the collector so it
+      // renders instead of being dropped with a "call setSourceData()
+      // manually" note. The converted xgis text can't embed inline
+      // data (the DSL has no inline-data form), so we push each
+      // captured FeatureCollection after runSource below.
+      const inlineGeoJSON = new Map<string, unknown>()
+      const xgis = convertMapboxStyle(styleObj, { inlineGeoJSON })
+      editor.setValue(xgis)
+      // Stash sprite + glyphs URLs in module-scope so the XGISMap
+      // constructor inside runSource picks them up at build time
+      // (vs the late setSpriteUrl call which fires AFTER IconStage's
+      // first-frame construction gate has already seen
+      // spriteUrl === null). Iter 105: the prior approach
+      // (`currentMap?.setSpriteUrl(...)` before runSource) was a
+      // no-op on first call because currentMap was null at that
+      // point; the post-runSource re-apply hit after IconStage was
+      // already built without the URL. Constructor-option seeding
+      // is the canonical fix.
+      pendingSpriteUrl = typeof spriteUrl === 'string' && spriteUrl.length > 0 ? spriteUrl : null
+      pendingGlyphsUrl = typeof glyphsUrl === 'string' && glyphsUrl.length > 0 ? glyphsUrl : null
+      await runSource(xgis, 'Imported (Mapbox)')
+      // Seed inline GeoJSON captured above. setSourceData populates the
+      // empty geojson sources the converter emitted (no-URL stubs) so
+      // the features render on the first frame after the push.
+      pushImportedInlineGeoJSON(Object.fromEntries(inlineGeoJSON))
+      // WS-8 — honour the style's top-level `projection` field. Apply
+      // BEFORE the camera block below so setProjection's zoom-clamp /
+      // globeMode writes don't clobber the style-declared camera. URL
+      // `?proj=` still wins: runSource() already applied it above, so
+      // skip when the override is present.
+      const styleProj = extractMapboxProjectionName(styleObj)
+      if (styleProj && !new URLSearchParams(location.search).get('proj')) {
+        currentMap?.setProjection(styleProj)
       }
-    })
-  }
+      // WS-9 — honour the style's top-level `light` block (host-applied,
+      // affects fill-extrusion shading). Default light is left untouched
+      // when the style declares none.
+      const styleLight = extractMapboxLight(styleObj)
+      if (styleLight) currentMap?.setLight(styleLight)
+      // Apply style-declared camera when nothing else (URL hash or
+      // bounds-fit) explicitly positioned us yet. URL hash camera
+      // (parseHash → markCameraPositioned at boot) wins because the
+      // flag check below short-circuits.
+      if (currentMap && !currentMap._cameraPositionedFlag) {
+        const cam = currentMap.getCamera()
+        let anyApplied = false
+        if (Array.isArray(styleCenter) && styleCenter.length === 2) {
+          const [lng, lat] = styleCenter
+          const m = lonLatToMercator(lng, lat)
+          cam.centerX = m[0]
+          cam.centerY = m[1]
+          anyApplied = true
+        }
+        if (typeof styleZoom === 'number') {
+          cam.zoom = Math.max(0, Math.min(cam.maxZoom, styleZoom))
+          anyApplied = true
+        }
+        if (typeof styleBearing === 'number') {
+          cam.bearing = styleBearing
+          anyApplied = true
+        }
+        if (typeof stylePitch === 'number') {
+          cam.pitch = stylePitch
+          anyApplied = true
+        }
+        if (anyApplied) {
+          currentMap.markCameraPositioned()
+          currentMap.invalidate()
+        }
+      }
+    } catch (e) {
+      console.error('[X-GIS] Mapbox import failed:', e)
+    }
+  })
+}
 const importBtn = document.getElementById('import-mapbox-btn') as HTMLButtonElement | null
 if (importBtn) {
   importBtn.addEventListener('click', async () => {
@@ -1156,7 +1325,10 @@ if (importBtn) {
     document.body.appendChild(fileInput)
     fileInput.addEventListener('change', async () => {
       const file = fileInput.files?.[0]
-      if (!file) { fileInput.remove(); return }
+      if (!file) {
+        fileInput.remove()
+        return
+      }
       const text = await file.text()
       ;(window as unknown as { __xgisImportMapbox: (j: string) => void }).__xgisImportMapbox(text)
       fileInput.remove()
@@ -1181,8 +1353,13 @@ projSelectEl.addEventListener('change', () => {
 
 document.addEventListener('keydown', (e) => {
   if (monacoContainer.contains(e.target as Node) || e.target instanceof HTMLSelectElement) return
-  if (e.key === 'ArrowLeft' && currentIdx > 0) { e.preventDefault(); loadDemo(currentIdx - 1) }
-  else if (e.key === 'ArrowRight' && currentIdx < demoIds.length - 1) { e.preventDefault(); loadDemo(currentIdx + 1) }
+  if (e.key === 'ArrowLeft' && currentIdx > 0) {
+    e.preventDefault()
+    loadDemo(currentIdx - 1)
+  } else if (e.key === 'ArrowRight' && currentIdx < demoIds.length - 1) {
+    e.preventDefault()
+    loadDemo(currentIdx + 1)
+  }
 })
 
 // ── Resize handle ──
@@ -1255,7 +1432,9 @@ if (params.get('id') === '__import') {
       if (inlineEnc) {
         try {
           importInline = JSON.parse(decodeURIComponent(escape(atob(inlineEnc))))
-        } catch { /* malformed inline blob — render without it */ }
+        } catch {
+          /* malformed inline blob — render without it */
+        }
       }
     } catch {
       // Malformed base64 / utf-8 — fall through to sessionStorage.
@@ -1267,13 +1446,17 @@ if (params.get('id') === '__import') {
     try {
       imported = sessionStorage.getItem('__xgisImportSource')
       label = sessionStorage.getItem('__xgisImportLabel')
-    } catch { /* sessionStorage unavailable */ }
+    } catch {
+      /* sessionStorage unavailable */
+    }
   }
   if (!importInline) {
     try {
       const raw = sessionStorage.getItem('__xgisImportInline')
       if (raw) importInline = JSON.parse(raw)
-    } catch { /* sessionStorage unavailable / malformed — render without it */ }
+    } catch {
+      /* sessionStorage unavailable / malformed — render without it */
+    }
   }
   // Sibling sprite + glyphs URLs from the convert page. Iter 105:
   // pre-fix the convert page sent only the converted xgis source, so
@@ -1287,7 +1470,9 @@ if (params.get('id') === '__import') {
     const gs = sessionStorage.getItem('__xgisImportGlyphs')
     if (typeof ss === 'string' && ss.length > 0) pendingSpriteUrl = ss
     if (typeof gs === 'string' && gs.length > 0) pendingGlyphsUrl = gs
-  } catch { /* sessionStorage unavailable */ }
+  } catch {
+    /* sessionStorage unavailable */
+  }
   // Hash channel also supports sprite/glyphs query params (dev cross-
   // origin, sessionStorage doesn't survive the origin hop).
   const hashSprite = params.get('sprite')

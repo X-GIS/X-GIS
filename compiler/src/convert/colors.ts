@@ -69,7 +69,9 @@ export function colorToXgis(v: unknown, warnings: string[]): string | null {
       if (/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v)) {
         return v.toLowerCase()
       }
-      warnings.push(`Color "${v.slice(0, 60)}" looks like a hex literal but doesn't match #rgb / #rgba / #rrggbb / #rrggbbaa — emission skipped.`)
+      warnings.push(
+        `Color "${v.slice(0, 60)}" looks like a hex literal but doesn't match #rgb / #rgba / #rrggbb / #rrggbbaa — emission skipped.`,
+      )
       return null
     }
     const hex = resolveColor(v.trim())
@@ -79,7 +81,9 @@ export function colorToXgis(v: unknown, warnings: string[]): string | null {
     // which then became e.g. `fill-rainbow` in the emitted xgis;
     // the runtime utility resolver failed to find a colour and the
     // layer rendered transparent without any diagnostic.
-    warnings.push(`Color "${v.slice(0, 60)}" not recognised (not hex / named-colour / rgb()-fn) — emission skipped.`)
+    warnings.push(
+      `Color "${v.slice(0, 60)}" not recognised (not hex / named-colour / rgb()-fn) — emission skipped.`,
+    )
     return null
   }
   // Unwrap v8 strict `["literal", N]` per-channel wrappers so a

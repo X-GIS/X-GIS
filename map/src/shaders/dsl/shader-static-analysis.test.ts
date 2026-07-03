@@ -29,7 +29,10 @@ describe('shader static analysis — full lint ruleset', () => {
   it('no reachable module has an error-severity diagnostic', () => {
     for (const [name, m] of Object.entries(modules())) {
       const errors = lintModule(m).filter((d) => d.severity === 'error')
-      expect(errors, `${name}: ${errors.map((e) => `${e.ruleId} ${e.message}`).join(' | ')}`).toEqual([])
+      expect(
+        errors,
+        `${name}: ${errors.map((e) => `${e.ruleId} ${e.message}`).join(' | ')}`,
+      ).toEqual([])
     }
   })
 
@@ -39,7 +42,9 @@ describe('shader static analysis — full lint ruleset', () => {
         .filter((d) => d.severity === 'warning')
         .map((d) => `${name}/${d.fn ?? '-'}: ${d.ruleId} — ${d.message}`),
     )
-    console.log(`[shader-lint] ${warnings.length} warning(s) across reachable modules:\n${warnings.join('\n')}`)
+    console.log(
+      `[shader-lint] ${warnings.length} warning(s) across reachable modules:\n${warnings.join('\n')}`,
+    )
     // #763 V4 — warning-count RATCHET (the old `Array.isArray` assertion was vacuous).
     // Current inventory: 4 (line/compute_line_color complexity+length, line/vs_line
     // complexity, +1). A shader change that ADDS a warning must either fix it or

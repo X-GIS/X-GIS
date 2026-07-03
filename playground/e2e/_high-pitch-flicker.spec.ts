@@ -69,7 +69,7 @@ async function snapshotSources(page: Page): Promise<SourceSnapshot[]> {
         frame: { missedTiles: number; tilesVisible: number }
       }>
     }
-    return pipe.sources.map(s => ({
+    return pipe.sources.map((s) => ({
       name: s.name,
       sourceMaxLevel: s.sourceMaxLevel,
       cacheSize: s.cache.size,
@@ -84,7 +84,10 @@ async function snapshotSources(page: Page): Promise<SourceSnapshot[]> {
 /** Poll until every source reports missedTiles=0 OR timeoutMs expires.
  *  Returns the full timeline of snapshots so the test can report the
  *  trajectory when it fails. */
-async function waitForConvergence(page: Page, timeoutMs: number): Promise<{
+async function waitForConvergence(
+  page: Page,
+  timeoutMs: number,
+): Promise<{
   converged: boolean
   elapsedMs: number
   timeline: Array<{ t: number; sources: SourceSnapshot[] }>
@@ -102,8 +105,8 @@ async function waitForConvergence(page: Page, timeoutMs: number): Promise<{
     // state trivially satisfied the oracle, then minutes later when
     // it finally loaded its 164-tile frustum the test's steady-state
     // check saw the real convergence and flagged it as regression.
-    const allReady = sources.length > 0
-      && sources.every(s => s.missedTiles === 0 && s.cacheSize > 0)
+    const allReady =
+      sources.length > 0 && sources.every((s) => s.missedTiles === 0 && s.cacheSize > 0)
     if (allReady) {
       return { converged: true, elapsedMs: t, timeline }
     }
@@ -113,12 +116,15 @@ async function waitForConvergence(page: Page, timeoutMs: number): Promise<{
 }
 
 function formatSnapshot(snapshots: SourceSnapshot[]): string {
-  return snapshots.map(s =>
-    `  ${s.name.padEnd(12)} missed=${String(s.missedTiles).padStart(3)} ` +
-    `cache=${String(s.cacheSize).padStart(4)} ` +
-    `pend(load/up)=${s.pendingLoads}/${s.pendingUploads} ` +
-    `vis=${s.tilesVisible}`,
-  ).join('\n')
+  return snapshots
+    .map(
+      (s) =>
+        `  ${s.name.padEnd(12)} missed=${String(s.missedTiles).padStart(3)} ` +
+        `cache=${String(s.cacheSize).padStart(4)} ` +
+        `pend(load/up)=${s.pendingLoads}/${s.pendingUploads} ` +
+        `vis=${s.tilesVisible}`,
+    )
+    .join('\n')
 }
 
 test.describe('High-pitch FLICKER repro: physical_map_50m', () => {
@@ -132,7 +138,9 @@ test.describe('High-pitch FLICKER repro: physical_map_50m', () => {
   // non-background pixels; if the image has real rendered
   // content (ocean fill + coastline / river strokes), the bug
   // is just overlay-log noise, not a blank-tile render failure.
-  test('at bug URL, the renderer is actually drawing tiles (tilesVisible > 0)', async ({ page }) => {
+  test('at bug URL, the renderer is actually drawing tiles (tilesVisible > 0)', async ({
+    page,
+  }) => {
     test.setTimeout(READY_TIMEOUT_MS + 10_000)
 
     await page.goto(`/demo.html?id=${BUG.id}${BUG.hash}`, { waitUntil: 'domcontentloaded' })
@@ -155,7 +163,7 @@ test.describe('High-pitch FLICKER repro: physical_map_50m', () => {
       expect(
         s.tilesVisible,
         `${s.name}: zero tiles drawn despite missedTiles=${s.missedTiles} — ` +
-        `parent fallback not reaching GPU`,
+          `parent fallback not reaching GPU`,
       ).toBeGreaterThan(0)
     }
 
@@ -176,8 +184,9 @@ test.describe('High-pitch FLICKER repro: physical_map_50m', () => {
     expect(shot.byteLength, 'ground-region screenshot was empty').toBeGreaterThan(1000)
   })
 
-
-  test('every source eventually converges to missedTiles=0 at pitch=82.5 zoom=10.35', async ({ page }) => {
+  test('every source eventually converges to missedTiles=0 at pitch=82.5 zoom=10.35', async ({
+    page,
+  }) => {
     test.setTimeout(READY_TIMEOUT_MS + SETTLE_TIMEOUT_MS + 10_000)
 
     await page.goto(`/demo.html?id=${BUG.id}${BUG.hash}`, { waitUntil: 'domcontentloaded' })
@@ -192,14 +201,14 @@ test.describe('High-pitch FLICKER repro: physical_map_50m', () => {
     // haven't started loading.
     const { converged, elapsedMs, timeline } = await waitForConvergence(page, SETTLE_TIMEOUT_MS)
     const last = timeline[timeline.length - 1].sources
-    const summary = `convergence @ ${elapsedMs} ms: ${converged ? 'OK' : 'NOT CONVERGED'}\n` +
+    const summary =
+      `convergence @ ${elapsedMs} ms: ${converged ? 'OK' : 'NOT CONVERGED'}\n` +
       `initial (@0 ms):\n${formatSnapshot(initial)}\n` +
       `final (@${elapsedMs} ms):\n${formatSnapshot(last)}`
 
     // Oracle 1: every source loaded SOMETHING.
     for (const s of last) {
-      expect(s.cacheSize, `${s.name}: gpuCache stayed at 0\n${summary}`)
-        .toBeGreaterThan(0)
+      expect(s.cacheSize, `${s.name}: gpuCache stayed at 0\n${summary}`).toBeGreaterThan(0)
     }
 
     // Oracle 2: convergence reached. Previous steady-state oracle
@@ -209,12 +218,15 @@ test.describe('High-pitch FLICKER repro: physical_map_50m', () => {
     // meaningful oracle — that the renderer actually puts geometry
     // on-screen at this camera state — is covered by the parallel
     // `tilesVisible > 0` test above.
-    expect(converged,
+    expect(
+      converged,
       `FLICKER REPRO: not every source reached missedTiles=0 within ${SETTLE_TIMEOUT_MS} ms\n${summary}`,
     ).toBe(true)
   })
 
-  test('filter_gdp at pitch=83.9 zoom=10.22 (user bug 2026-04-21-B): ground renders', async ({ page }) => {
+  test('filter_gdp at pitch=83.9 zoom=10.22 (user bug 2026-04-21-B): ground renders', async ({
+    page,
+  }) => {
     test.setTimeout(READY_TIMEOUT_MS + SETTLE_TIMEOUT_MS + 10_000)
     // User's report is from iPhone portrait (aspect ratio ~0.46).
     // Default playwright viewport is 1280×720 (1.77 ratio) — very
@@ -255,12 +267,16 @@ test.describe('High-pitch FLICKER repro: physical_map_50m', () => {
         const url = URL.createObjectURL(blob)
         const img = new Image()
         await new Promise<void>((res, rej) => {
-          img.onload = () => res(); img.onerror = () => rej(new Error('img decode'))
+          img.onload = () => res()
+          img.onerror = () => rej(new Error('img decode'))
           img.src = url
         })
         const off = new OffscreenCanvas(img.width, img.height)
         const ctx = off.getContext('2d')
-        if (!ctx) { URL.revokeObjectURL(url); return { total: 0, nonBlack: 0 } }
+        if (!ctx) {
+          URL.revokeObjectURL(url)
+          return { total: 0, nonBlack: 0 }
+        }
         ctx.drawImage(img, 0, 0)
         const data = ctx.getImageData(0, 0, img.width, img.height).data
         let nonBlack = 0
@@ -284,15 +300,17 @@ test.describe('High-pitch FLICKER repro: physical_map_50m', () => {
     // is the only thing being drawn. The actual user signal is
     // "is there SOME rendered map area" rather than "every strip
     // below horizon is full".
-    const canvasStrips = samples.filter(s => s.fy >= 0.3 && s.fy <= 0.55)
-    const maxCanvas = Math.max(...canvasStrips.map(s => s.fraction))
+    const canvasStrips = samples.filter((s) => s.fy >= 0.3 && s.fy <= 0.55)
+    const maxCanvas = Math.max(...canvasStrips.map((s) => s.fraction))
     expect(
       maxCanvas,
-      `map canvas strips all blank: ${canvasStrips.map(s => `${s.fy}:${(s.fraction * 100).toFixed(0)}%`).join(' ')}`,
+      `map canvas strips all blank: ${canvasStrips.map((s) => `${s.fy}:${(s.fraction * 100).toFixed(0)}%`).join(' ')}`,
     ).toBeGreaterThan(0.5)
   })
 
-  test('pitch sweep 60° → 85° at zoom=10 over bug location: no permanent missedTiles', async ({ page }) => {
+  test('pitch sweep 60° → 85° at zoom=10 over bug location: no permanent missedTiles', async ({
+    page,
+  }) => {
     test.setTimeout(180_000) // 8 pitches × up to 20s each
 
     const failures: string[] = []

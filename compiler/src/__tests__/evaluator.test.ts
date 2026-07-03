@@ -193,7 +193,9 @@ describe('Evaluator', () => {
     })
 
     it('nested ternary', () => {
-      expect(evaluate(parseExpr('.speed > 100 ? "fast" : .speed > 10 ? "medium" : "slow"'), SHIP)).toBe('medium')
+      expect(
+        evaluate(parseExpr('.speed > 100 ? "fast" : .speed > 10 ? "medium" : "slow"'), SHIP),
+      ).toBe('medium')
     })
   })
 
@@ -205,7 +207,10 @@ describe('Evaluator', () => {
 
     it('evaluates nested array', () => {
       const result = evaluate(parseExpr('[[1, 2], [3, 4]]'), {})
-      expect(result).toEqual([[1, 2], [3, 4]])
+      expect(result).toEqual([
+        [1, 2],
+        [3, 4],
+      ])
     })
 
     it('length builtin', () => {
@@ -224,26 +229,34 @@ describe('Evaluator', () => {
     }
 
     it('if/else with return', () => {
-      expect(evalWithFn(
-        'fn classify(x: f32) -> f32 { if x > 10 { return 1.0 } else { return 0.0 } }',
-        'classify(20)'
-      )).toBe(1)
+      expect(
+        evalWithFn(
+          'fn classify(x: f32) -> f32 { if x > 10 { return 1.0 } else { return 0.0 } }',
+          'classify(20)',
+        ),
+      ).toBe(1)
 
-      expect(evalWithFn(
-        'fn classify(x: f32) -> f32 { if x > 10 { return 1.0 } else { return 0.0 } }',
-        'classify(5)'
-      )).toBe(0)
+      expect(
+        evalWithFn(
+          'fn classify(x: f32) -> f32 { if x > 10 { return 1.0 } else { return 0.0 } }',
+          'classify(5)',
+        ),
+      ).toBe(0)
     })
 
     it('else if chain', () => {
-      expect(evalWithFn(
-        'fn grade(x: f32) -> f32 { if x > 90 { return 4.0 } else if x > 80 { return 3.0 } else { return 2.0 } }',
-        'grade(95)'
-      )).toBe(4)
-      expect(evalWithFn(
-        'fn grade(x: f32) -> f32 { if x > 90 { return 4.0 } else if x > 80 { return 3.0 } else { return 2.0 } }',
-        'grade(85)'
-      )).toBe(3)
+      expect(
+        evalWithFn(
+          'fn grade(x: f32) -> f32 { if x > 90 { return 4.0 } else if x > 80 { return 3.0 } else { return 2.0 } }',
+          'grade(95)',
+        ),
+      ).toBe(4)
+      expect(
+        evalWithFn(
+          'fn grade(x: f32) -> f32 { if x > 90 { return 4.0 } else if x > 80 { return 3.0 } else { return 2.0 } }',
+          'grade(85)',
+        ),
+      ).toBe(3)
     })
 
     it('for loop with last expression', () => {
@@ -255,7 +268,7 @@ describe('Evaluator', () => {
           }
           return total
         }`,
-        'sum_to(4)'
+        'sum_to(4)',
       )
       // 0+1+2+3 = 6
       expect(result).toBe(6)
@@ -266,7 +279,7 @@ describe('Evaluator', () => {
         `fn circle_point(angle: f32) -> array {
           return [cos(angle), sin(angle)]
         }`,
-        'circle_point(0)'
+        'circle_point(0)',
       )
       expect(result).toEqual([1, 0])
     })
@@ -285,7 +298,7 @@ describe('Evaluator', () => {
     it('arc generates partial ring', () => {
       const result = evaluate(parseExpr('arc(0, 0, 1, 0, 3.14159265, 4)'), {}) as number[][]
       expect(result).toHaveLength(5) // 4+1 points for half circle
-      expect(result[0][0]).toBeCloseTo(1)  // start at (1,0)
+      expect(result[0][0]).toBeCloseTo(1) // start at (1,0)
       expect(result[4][0]).toBeCloseTo(-1) // end at (-1,0)
     })
   })
@@ -298,12 +311,16 @@ describe('Evaluator', () => {
     // doesn't know about match → every call returned null →
     // per-feature stroke widths / colours never made it into the
     // segment buffer.
-    function makeMatchAst(field: string, arms: Array<{ pattern: string; value: number | string }>): AST.Expr {
-      const matchArms: AST.MatchArm[] = arms.map(a => ({
+    function makeMatchAst(
+      field: string,
+      arms: Array<{ pattern: string; value: number | string }>,
+    ): AST.Expr {
+      const matchArms: AST.MatchArm[] = arms.map((a) => ({
         pattern: a.pattern,
-        value: typeof a.value === 'number'
-          ? { kind: 'NumberLiteral', value: a.value } as AST.Expr
-          : { kind: 'StringLiteral', value: a.value } as AST.Expr,
+        value:
+          typeof a.value === 'number'
+            ? ({ kind: 'NumberLiteral', value: a.value } as AST.Expr)
+            : ({ kind: 'StringLiteral', value: a.value } as AST.Expr),
       }))
       return {
         kind: 'FnCall',
@@ -332,9 +349,7 @@ describe('Evaluator', () => {
     })
 
     it('returns null when key is missing AND no default arm', () => {
-      const ast = makeMatchAst('kind', [
-        { pattern: 'a', value: 1 },
-      ])
+      const ast = makeMatchAst('kind', [{ pattern: 'a', value: 1 }])
       expect(evaluate(ast, {})).toBeNull()
     })
 

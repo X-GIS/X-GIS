@@ -24,11 +24,17 @@ const countReturns = (stmts: readonly Stmt[]): number => {
 }
 
 const hasInjection = (stmts: readonly Stmt[]): boolean =>
-  stmts.some((s) =>
-    s.s === 'raw' || s.s === 'placeholder'
-    || (s.s === 'if' && (s.arms.some((a) => hasInjection(a.body)) || (s.elseBody ? hasInjection(s.elseBody) : false)))
-    || (s.s === 'for' && hasInjection(s.body))
-    || (s.s === 'switch' && (s.cases.some((c) => hasInjection(c.body)) || (s.defaultBody ? hasInjection(s.defaultBody) : false))),
+  stmts.some(
+    (s) =>
+      s.s === 'raw' ||
+      s.s === 'placeholder' ||
+      (s.s === 'if' &&
+        (s.arms.some((a) => hasInjection(a.body)) ||
+          (s.elseBody ? hasInjection(s.elseBody) : false))) ||
+      (s.s === 'for' && hasInjection(s.body)) ||
+      (s.s === 'switch' &&
+        (s.cases.some((c) => hasInjection(c.body)) ||
+          (s.defaultBody ? hasInjection(s.defaultBody) : false))),
   )
 
 /** Single-exit violations for one fn — `[]` when compliant. A value fn must have
@@ -42,7 +48,9 @@ export function checkSingleExit(f: FuncDecl): string[] {
   const total = countReturns(f.body)
   const errs: string[] = []
   if (total > 1) {
-    errs.push(`fn '${f.name}': single-exit allows ONE return, found ${total} — refactor early returns to select() or a result var`)
+    errs.push(
+      `fn '${f.name}': single-exit allows ONE return, found ${total} — refactor early returns to select() or a result var`,
+    )
   } else if (total === 1) {
     const last = f.body[f.body.length - 1]
     if (!last || last.s !== 'return') {

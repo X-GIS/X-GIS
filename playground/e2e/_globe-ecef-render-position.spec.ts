@@ -60,12 +60,12 @@ const H = 512
 // test needs the true geometry to actually paint, so we render at globe-disc zoom.
 const TILE_WEST = -30.0
 const TILE_SOUTH = 10.0
-const CAM_LON = TILE_WEST + 10   // −20°: a continent east of the tile
-const CAM_LAT = TILE_SOUTH       // same parallel as the tile
+const CAM_LON = TILE_WEST + 10 // −20°: a continent east of the tile
+const CAM_LAT = TILE_SOUTH // same parallel as the tile
 const ZOOM = 3
 const PITCH = 55
 const BEARING = 0
-const HEIGHT_M = 60_000   // exaggerated extrusion so the walls paint at z3
+const HEIGHT_M = 60_000 // exaggerated extrusion so the walls paint at z3
 
 // A LARGE ~4°-wide synthetic footprint near the tile SW corner, in ABSOLUTE
 // Mercator metres (the ring convention generateWallMeshExtrudedECEF consumes).
@@ -95,15 +95,22 @@ function buildMesh(): {
   tileEcefCenter: [number, number, number]
 } {
   const ring: Array<[number, number]> = buildingLonLat.map(([lon, lat]) => [
-    lon * DEG2RAD * A,                                              // abs Mercator x
-    A * Math.log(Math.tan(Math.PI / 4 + lat * DEG2RAD / 2)),       // abs Mercator y
+    lon * DEG2RAD * A, // abs Mercator x
+    A * Math.log(Math.tan(Math.PI / 4 + (lat * DEG2RAD) / 2)), // abs Mercator y
   ])
   const polygons: RingPolygon[] = [{ featId: 1, rings: [ring] }]
   const heights = new Map<number, number>([[1, HEIGHT_M]])
   const tileEcefCenter = tileEcefCenterFor(TILE_WEST, TILE_SOUTH)
   const tileMx = TILE_WEST * DEG2RAD * A
-  const tileMy = A * Math.log(Math.tan(Math.PI / 4 + TILE_SOUTH * DEG2RAD / 2))
-  const mesh = generateWallMeshExtrudedECEF(polygons, heights, undefined, tileMx, tileMy, tileEcefCenter)
+  const tileMy = A * Math.log(Math.tan(Math.PI / 4 + (TILE_SOUTH * DEG2RAD) / 2))
+  const mesh = generateWallMeshExtrudedECEF(
+    polygons,
+    heights,
+    undefined,
+    tileMx,
+    tileMy,
+    tileEcefCenter,
+  )
   return { mesh, tileEcefCenter }
 }
 
@@ -114,25 +121,34 @@ function buildMesh(): {
 // on lane index 0 — reuses the exact GPU-validated fround mirror on the correct
 // lanes (the GPU reads them itself via arrayStride 44; this matches it).
 const EXT_STRIDE_FLOATS = 11
-function dequantExtruded(mesh: { vertices: Float32Array; dequantScale: number; dequantHalf: number }, vi: number): [number, number, number] {
+function dequantExtruded(
+  mesh: { vertices: Float32Array; dequantScale: number; dequantHalf: number },
+  vi: number,
+): [number, number, number] {
   const srcU16 = new Uint16Array(mesh.vertices.buffer, mesh.vertices.byteOffset)
-  const base = vi * EXT_STRIDE_FLOATS * 2   // 22 u16 lanes per vertex; pos = first 6
+  const base = vi * EXT_STRIDE_FLOATS * 2 // 22 u16 lanes per vertex; pos = first 6
   // stride-24 fill view: 12 u16 lanes (6 position + 6 zero tail) so vi=0 hits pos.
   const fill = new Float32Array(6)
   const fillU16 = new Uint16Array(fill.buffer)
   for (let k = 0; k < 6; k++) fillU16[k] = srcU16[base + k]!
-  const quant: QuantizedDecode = { vertices: fill, dequantScale: mesh.dequantScale, dequantHalf: mesh.dequantHalf }
+  const quant: QuantizedDecode = {
+    vertices: fill,
+    dequantScale: mesh.dequantScale,
+    dequantHalf: mesh.dequantHalf,
+  }
   return dequantVertexF32(quant, 0)
 }
 
 // Clip → pixel (NDC → viewport). Y flips (NDC +y up → pixel +y down).
 function clipToPx(clip: [number, number, number, number]): [number, number] {
-  const x = (clip[0] / clip[3] * 0.5 + 0.5) * W
-  const y = (1 - (clip[1] / clip[3] * 0.5 + 0.5)) * H
+  const x = ((clip[0] / clip[3]) * 0.5 + 0.5) * W
+  const y = (1 - ((clip[1] / clip[3]) * 0.5 + 0.5)) * H
   return [x, y]
 }
 
-test('globe(7) EXTRUDED mesh lands at its true screen position (cam_ecef_off recentre)', async ({ page }) => {
+test('globe(7) EXTRUDED mesh lands at its true screen position (cam_ecef_off recentre)', async ({
+  page,
+}) => {
   test.setTimeout(60_000)
   await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(() => (window as any).__xgisReady === true, { timeout: 20_000 })
@@ -140,20 +156,34 @@ test('globe(7) EXTRUDED mesh lands at its true screen position (cam_ecef_off rec
   // Live camera → globe / projType 7 / pitch 55. Return the production ECEF-MVP
   // + the sphere camera-anchor (getECEFCenter), exactly the chain the fixed
   // shader's else arm runs against.
-  const setup = await page.evaluate((args: { lon: number; lat: number; zoom: number; pitch: number; bearing: number; w: number; h: number }) => {
-    const m = (window as any).__xgisMap
-    const cam = m.camera
-    cam.centerX = args.lon * Math.PI / 180 * 6378137
-    cam.centerY = 6378137 * Math.log(Math.tan(Math.PI / 4 + args.lat * Math.PI / 180 / 2))
-    cam.zoom = args.zoom
-    cam.pitch = args.pitch
-    cam.bearing = args.bearing
-    cam.globeMode = true
-    cam.projType = 7
-    const frame = cam.getECEFFrameView(args.w, args.h, 1)
-    const c = cam.getECEFCenter()
-    return { mvp: Array.from(frame.matrix) as number[], cameraCenter: [c[0], c[1], c[2]] as number[] }
-  }, { lon: CAM_LON, lat: CAM_LAT, zoom: ZOOM, pitch: PITCH, bearing: BEARING, w: W, h: H })
+  const setup = await page.evaluate(
+    (args: {
+      lon: number
+      lat: number
+      zoom: number
+      pitch: number
+      bearing: number
+      w: number
+      h: number
+    }) => {
+      const m = (window as any).__xgisMap
+      const cam = m.camera
+      cam.centerX = ((args.lon * Math.PI) / 180) * 6378137
+      cam.centerY = 6378137 * Math.log(Math.tan(Math.PI / 4 + (args.lat * Math.PI) / 180 / 2))
+      cam.zoom = args.zoom
+      cam.pitch = args.pitch
+      cam.bearing = args.bearing
+      cam.globeMode = true
+      cam.projType = 7
+      const frame = cam.getECEFFrameView(args.w, args.h, 1)
+      const c = cam.getECEFCenter()
+      return {
+        mvp: Array.from(frame.matrix) as number[],
+        cameraCenter: [c[0], c[1], c[2]] as number[],
+      }
+    },
+    { lon: CAM_LON, lat: CAM_LAT, zoom: ZOOM, pitch: PITCH, bearing: BEARING, w: W, h: H },
+  )
 
   const { mesh, tileEcefCenter } = buildMesh()
   const cameraCenter = setup.cameraCenter
@@ -170,7 +200,9 @@ test('globe(7) EXTRUDED mesh lands at its true screen position (cam_ecef_off rec
   expect(offMag, 'far tile: > 1000 km ECEF separation from camera').toBeGreaterThan(1_000_000)
   const offH: [number, number, number] = [Math.fround(offX), Math.fround(offY), Math.fround(offZ)]
   const offL: [number, number, number] = [
-    Math.fround(offX - offH[0]), Math.fround(offY - offH[1]), Math.fround(offZ - offH[2]),
+    Math.fround(offX - offH[0]),
+    Math.fround(offY - offH[1]),
+    Math.fround(offZ - offH[2]),
   ]
 
   // CPU oracle (production mirrors): per-vertex FIXED + BUGGY screen pixels.
@@ -178,8 +210,12 @@ test('globe(7) EXTRUDED mesh lands at its true screen position (cam_ecef_off rec
   // BUGGY  = mvp · dequant                      ← the pre-#198 collapse
   // Centroid of FIXED is the painted-region target; centroid of BUGGY is the
   // collapse signature the painted result must be FAR from.
-  let fSumX = 0, fSumY = 0, fN = 0
-  let bSumX = 0, bSumY = 0, bN = 0
+  let fSumX = 0,
+    fSumY = 0,
+    fN = 0
+  let bSumX = 0,
+    bSumY = 0,
+    bN = 0
   for (let vi = 0; vi < vertCount; vi++) {
     const rtc = dequantExtruded(mesh, vi)
     const ecefCam: [number, number, number] = [
@@ -188,36 +224,63 @@ test('globe(7) EXTRUDED mesh lands at its true screen position (cam_ecef_off rec
       Math.fround(Math.fround(rtc[2] + offH[2]) + offL[2]),
     ]
     const fClip = mulMat4Vec4F32(mvp, [ecefCam[0], ecefCam[1], ecefCam[2], 1])
-    if (fClip[3] > 0) { const [px, py] = clipToPx(fClip); fSumX += px; fSumY += py; fN++ }
+    if (fClip[3] > 0) {
+      const [px, py] = clipToPx(fClip)
+      fSumX += px
+      fSumY += py
+      fN++
+    }
     const bClip = mulMat4Vec4F32(mvp, [rtc[0], rtc[1], rtc[2], 1])
-    if (bClip[3] > 0) { const [px, py] = clipToPx(bClip); bSumX += px; bSumY += py; bN++ }
+    if (bClip[3] > 0) {
+      const [px, py] = clipToPx(bClip)
+      bSumX += px
+      bSumY += py
+      bN++
+    }
   }
   expect(fN, 'FIXED oracle: no vertex projects in front of the camera').toBeGreaterThan(0)
-  const fixedCx = fSumX / fN, fixedCy = fSumY / fN
-  const buggyCx = bN > 0 ? bSumX / bN : NaN, buggyCy = bN > 0 ? bSumY / bN : NaN
+  const fixedCx = fSumX / fN,
+    fixedCy = fSumY / fN
+  const buggyCx = bN > 0 ? bSumX / bN : NaN,
+    buggyCy = bN > 0 ? bSumY / bN : NaN
   // Non-vacuity guard: the geometry is tuned (offMag > 1 Mm) so the un-recentred
   // bare path collapses to a wrong spot IN FRONT of the camera. If it instead all
   // fell behind (buggyCx = NaN), the fixToBuggy > 60 guard below would pass
   // vacuously — assert the collapse actually paints a finite wrong position.
-  expect(Number.isFinite(buggyCx), 'BUGGY oracle vacuous: bare-ecef collapse projected entirely behind the camera').toBe(true)
+  expect(
+    Number.isFinite(buggyCx),
+    'BUGGY oracle vacuous: bare-ecef collapse projected entirely behind the camera',
+  ).toBe(true)
 
   // GPU render: real DEQUANT_ECEF_WGSL + the exact else-arm recentre. Two draws
   // (CURRENT bare vs FIX +cam_ecef_off). Vertex buffer = genuine mesh bytes;
   // arrayStride 44 (POLYGON_EXTRUDED_FORMAT), q_xy uint16x4 @0 + q_z uint16x2 @8.
-  const out = await page.evaluate(async (a: {
-    dequantWgsl: string; verts: number[]; mvp: number[]; scale: number; half: number
-    offH: number[]; offL: number[]; w: number; h: number
-  }) => {
-    const adapter = await (navigator as any).gpu.requestAdapter()
-    if (!adapter) throw new Error('no WebGPU adapter (hardware GPU required — do NOT run under SwiftShader)')
-    const device = await adapter.requestDevice()
-    const u8 = new Uint8Array(a.verts)
-    const vbuf = device.createBuffer({ size: u8.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST })
-    device.queue.writeBuffer(vbuf, 0, u8)
-    const vertN = u8.byteLength / 44
+  const out = await page.evaluate(
+    async (a: {
+      dequantWgsl: string
+      verts: number[]
+      mvp: number[]
+      scale: number
+      half: number
+      offH: number[]
+      offL: number[]
+      w: number
+      h: number
+    }) => {
+      const adapter = await (navigator as any).gpu.requestAdapter()
+      if (!adapter)
+        throw new Error('no WebGPU adapter (hardware GPU required — do NOT run under SwiftShader)')
+      const device = await adapter.requestDevice()
+      const u8 = new Uint8Array(a.verts)
+      const vbuf = device.createBuffer({
+        size: u8.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      })
+      device.queue.writeBuffer(vbuf, 0, u8)
+      const vertN = u8.byteLength / 44
 
-    async function draw(recentre: boolean): Promise<{ cx: number; cy: number; count: number }> {
-      const code = `
+      async function draw(recentre: boolean): Promise<{ cx: number; cy: number; count: number }> {
+        const code = `
         ${a.dequantWgsl}
         struct U {
           mvp: mat4x4<f32>,
@@ -228,73 +291,148 @@ test('globe(7) EXTRUDED mesh lands at its true screen position (cam_ecef_off rec
         @group(0) @binding(0) var<uniform> u: U;
         @vertex fn vs(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>) -> @builtin(position) vec4<f32> {
           var ecef = dequant_ecef(q_xy, q_z, u.scale, u.half);
-          ${recentre
-            ? 'ecef = ecef + vec3<f32>(u.offh.x, u.offh.y, u.offh.z) + vec3<f32>(u.offl.x, u.offl.y, u.offl.z);'
-            : ''}
+          ${
+            recentre
+              ? 'ecef = ecef + vec3<f32>(u.offh.x, u.offh.y, u.offh.z) + vec3<f32>(u.offl.x, u.offl.y, u.offl.z);'
+              : ''
+          }
           return u.mvp * vec4<f32>(ecef, 1.0);
         }
         @fragment fn fs() -> @location(0) vec4<f32> { return vec4<f32>(1.0, 1.0, 1.0, 1.0); }`
-      const mod = device.createShaderModule({ code })
-      const info = await mod.getCompilationInfo()
-      const errs = info.messages.filter((mm) => mm.type === 'error')
-      if (errs.length) throw new Error('compile: ' + errs.map((mm) => mm.message).join('|'))
-      const pipe = device.createRenderPipeline({
-        layout: 'auto',
-        vertex: {
-          module: mod, entryPoint: 'vs',
-          buffers: [{ arrayStride: 44, attributes: [
-            { shaderLocation: 0, offset: 0, format: 'uint16x4' },
-            { shaderLocation: 1, offset: 8, format: 'uint16x2' },
-          ] }],
-        },
-        fragment: { module: mod, entryPoint: 'fs', targets: [{ format: 'rgba8unorm' }] },
-        primitive: { topology: 'triangle-list' },
-      })
-      // U layout: mat4 (64) + 4 f32 (16) + vec4 (16) + vec4 (16) = 112 bytes.
-      const uarr = new Float32Array(28)
-      uarr.set(a.mvp, 0)
-      uarr[16] = a.scale; uarr[17] = a.half
-      uarr.set(a.offH, 20)   // offh at float 20 (byte 80)
-      uarr.set(a.offL, 24)   // offl at float 24 (byte 96)
-      const ubuf = device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
-      device.queue.writeBuffer(ubuf, 0, uarr)
-      const bind = device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] })
-      const tex = device.createTexture({ size: [a.w, a.h], format: 'rgba8unorm', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC })
-      const enc = device.createCommandEncoder()
-      const pass = enc.beginRenderPass({ colorAttachments: [{ view: tex.createView(), clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: 'clear', storeOp: 'store' }] })
-      pass.setPipeline(pipe); pass.setBindGroup(0, bind); pass.setVertexBuffer(0, vbuf); pass.draw(vertN); pass.end()
-      const bpr = Math.ceil(a.w * 4 / 256) * 256
-      const rbuf = device.createBuffer({ size: bpr * a.h, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ })
-      enc.copyTextureToBuffer({ texture: tex }, { buffer: rbuf, bytesPerRow: bpr }, [a.w, a.h])
-      device.queue.submit([enc.finish()])
-      await rbuf.mapAsync(GPUMapMode.READ)
-      const d = new Uint8Array(rbuf.getMappedRange().slice(0)); rbuf.unmap()
-      let sx = 0, sy = 0, count = 0
-      for (let y = 0; y < a.h; y++) for (let x = 0; x < a.w; x++) {
-        if (d[y * bpr + x * 4]! > 128) { count++; sx += x; sy += y }
+        const mod = device.createShaderModule({ code })
+        const info = await mod.getCompilationInfo()
+        const errs = info.messages.filter((mm) => mm.type === 'error')
+        if (errs.length) throw new Error('compile: ' + errs.map((mm) => mm.message).join('|'))
+        const pipe = device.createRenderPipeline({
+          layout: 'auto',
+          vertex: {
+            module: mod,
+            entryPoint: 'vs',
+            buffers: [
+              {
+                arrayStride: 44,
+                attributes: [
+                  { shaderLocation: 0, offset: 0, format: 'uint16x4' },
+                  { shaderLocation: 1, offset: 8, format: 'uint16x2' },
+                ],
+              },
+            ],
+          },
+          fragment: { module: mod, entryPoint: 'fs', targets: [{ format: 'rgba8unorm' }] },
+          primitive: { topology: 'triangle-list' },
+        })
+        // U layout: mat4 (64) + 4 f32 (16) + vec4 (16) + vec4 (16) = 112 bytes.
+        const uarr = new Float32Array(28)
+        uarr.set(a.mvp, 0)
+        uarr[16] = a.scale
+        uarr[17] = a.half
+        uarr.set(a.offH, 20) // offh at float 20 (byte 80)
+        uarr.set(a.offL, 24) // offl at float 24 (byte 96)
+        const ubuf = device.createBuffer({
+          size: 112,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        })
+        device.queue.writeBuffer(ubuf, 0, uarr)
+        const bind = device.createBindGroup({
+          layout: pipe.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: { buffer: ubuf } }],
+        })
+        const tex = device.createTexture({
+          size: [a.w, a.h],
+          format: 'rgba8unorm',
+          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+        })
+        const enc = device.createCommandEncoder()
+        const pass = enc.beginRenderPass({
+          colorAttachments: [
+            {
+              view: tex.createView(),
+              clearValue: { r: 0, g: 0, b: 0, a: 1 },
+              loadOp: 'clear',
+              storeOp: 'store',
+            },
+          ],
+        })
+        pass.setPipeline(pipe)
+        pass.setBindGroup(0, bind)
+        pass.setVertexBuffer(0, vbuf)
+        pass.draw(vertN)
+        pass.end()
+        const bpr = Math.ceil((a.w * 4) / 256) * 256
+        const rbuf = device.createBuffer({
+          size: bpr * a.h,
+          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        })
+        enc.copyTextureToBuffer({ texture: tex }, { buffer: rbuf, bytesPerRow: bpr }, [a.w, a.h])
+        device.queue.submit([enc.finish()])
+        await rbuf.mapAsync(GPUMapMode.READ)
+        const d = new Uint8Array(rbuf.getMappedRange().slice(0))
+        rbuf.unmap()
+        let sx = 0,
+          sy = 0,
+          count = 0
+        for (let y = 0; y < a.h; y++)
+          for (let x = 0; x < a.w; x++) {
+            if (d[y * bpr + x * 4]! > 128) {
+              count++
+              sx += x
+              sy += y
+            }
+          }
+        return { cx: count ? sx / count : NaN, cy: count ? sy / count : NaN, count }
       }
-      return { cx: count ? sx / count : NaN, cy: count ? sy / count : NaN, count }
-    }
-    return { current: await draw(false), fix: await draw(true) }
-  }, {
-    dequantWgsl: DEQUANT_ECEF_WGSL,
-    verts: Array.from(new Uint8Array(mesh.vertices.buffer, mesh.vertices.byteOffset, mesh.vertices.byteLength)),
-    mvp, scale: mesh.dequantScale, half: mesh.dequantHalf,
-    offH, offL, w: W, h: H,
-  })
+      return { current: await draw(false), fix: await draw(true) }
+    },
+    {
+      dequantWgsl: DEQUANT_ECEF_WGSL,
+      verts: Array.from(
+        new Uint8Array(mesh.vertices.buffer, mesh.vertices.byteOffset, mesh.vertices.byteLength),
+      ),
+      mvp,
+      scale: mesh.dequantScale,
+      half: mesh.dequantHalf,
+      offH,
+      offL,
+      w: W,
+      h: H,
+    },
+  )
 
   const fixErr = Math.hypot(out.fix.cx - fixedCx, out.fix.cy - fixedCy)
-  const fixToBuggy = Number.isFinite(buggyCx) ? Math.hypot(out.fix.cx - buggyCx, out.fix.cy - buggyCy) : Infinity
+  const fixToBuggy = Number.isFinite(buggyCx)
+    ? Math.hypot(out.fix.cx - buggyCx, out.fix.cy - buggyCy)
+    : Infinity
   // eslint-disable-next-line no-console
-  console.log('[globe-ecef-render] oracle FIXED centroid =', fixedCx.toFixed(1), fixedCy.toFixed(1),
-    '| oracle BUGGY centroid =', Number.isFinite(buggyCx) ? `${buggyCx.toFixed(1)},${buggyCy.toFixed(1)}` : 'behind-camera (w<=0)')
+  console.log(
+    '[globe-ecef-render] oracle FIXED centroid =',
+    fixedCx.toFixed(1),
+    fixedCy.toFixed(1),
+    '| oracle BUGGY centroid =',
+    Number.isFinite(buggyCx)
+      ? `${buggyCx.toFixed(1)},${buggyCy.toFixed(1)}`
+      : 'behind-camera (w<=0)',
+  )
   // eslint-disable-next-line no-console
-  console.log('[globe-ecef-render] GPU FIX painted =', JSON.stringify(out.fix), '| CURRENT painted =', JSON.stringify(out.current))
+  console.log(
+    '[globe-ecef-render] GPU FIX painted =',
+    JSON.stringify(out.fix),
+    '| CURRENT painted =',
+    JSON.stringify(out.current),
+  )
   // eslint-disable-next-line no-console
-  console.log('[globe-ecef-render] FIX→fixedOracle err =', fixErr.toFixed(2), 'px | FIX→buggyOracle dist =', Number.isFinite(fixToBuggy) ? fixToBuggy.toFixed(2) : 'inf', 'px')
+  console.log(
+    '[globe-ecef-render] FIX→fixedOracle err =',
+    fixErr.toFixed(2),
+    'px | FIX→buggyOracle dist =',
+    Number.isFinite(fixToBuggy) ? fixToBuggy.toFixed(2) : 'inf',
+    'px',
+  )
 
   // 1) FIX actually painted on-screen.
-  expect(out.fix.count, 'FIX drew nothing — far extruded tile must land on-screen on globe(7) pitch55').toBeGreaterThan(10)
+  expect(
+    out.fix.count,
+    'FIX drew nothing — far extruded tile must land on-screen on globe(7) pitch55',
+  ).toBeGreaterThan(10)
   // 2) Painted centroid matches the FIXED CPU oracle (real dequant_ecef +
   //    cam_ecef_off + production MVP) within rasterization tolerance.
   expect(fixErr, 'GPU FIX centroid must match the fixed (recentred) CPU oracle').toBeLessThan(12)
@@ -308,6 +446,9 @@ test('globe(7) EXTRUDED mesh lands at its true screen position (cam_ecef_off rec
   //    count==0 is itself the collapse — accept either.
   if (out.current.count > 10) {
     const curErr = Math.hypot(out.current.cx - fixedCx, out.current.cy - fixedCy)
-    expect(curErr, 'CURRENT (bare ecef_rtc) must miss the true position — the collapse').toBeGreaterThan(60)
+    expect(
+      curErr,
+      'CURRENT (bare ecef_rtc) must miss the true position — the collapse',
+    ).toBeGreaterThan(60)
   }
 })

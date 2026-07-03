@@ -37,18 +37,29 @@ const projY = (lat: number) => {
 function inRing(px: number, py: number, ring: number[][]): boolean {
   let inside = false
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const xi = ring[i]![0]!, yi = ring[i]![1]!, xj = ring[j]![0]!, yj = ring[j]![1]!
-    if (((yi > py) !== (yj > py)) && (px < ((xj - xi) * (py - yi)) / (yj - yi) + xi)) inside = !inside
+    const xi = ring[i]![0]!,
+      yi = ring[i]![1]!,
+      xj = ring[j]![0]!,
+      yj = ring[j]![1]!
+    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside
   }
   return inside
 }
 // Is (lon,lat) covered by the tiled ocean polygon at zoom z?
-function covered(idx: InstanceType<typeof GeoJSONVT>, lon: number, lat: number, z: number): boolean {
+function covered(
+  idx: InstanceType<typeof GeoJSONVT>,
+  lon: number,
+  lat: number,
+  z: number,
+): boolean {
   const z2 = 1 << z
-  const tx = Math.floor(projX(lon) * z2), ty = Math.floor(projY(lat) * z2)
+  const tx = Math.floor(projX(lon) * z2),
+    ty = Math.floor(projY(lat) * z2)
   const ex = Math.round(EXTENT * (projX(lon) * z2 - tx))
   const ey = Math.round(EXTENT * (projY(lat) * z2 - ty))
-  const tile = idx.getTile(z, tx, ty) as { features?: Array<{ type: number; geometry: number[][][] }> } | null
+  const tile = idx.getTile(z, tx, ty) as {
+    features?: Array<{ type: number; geometry: number[][][] }>
+  } | null
   if (!tile?.features?.length) return false
   for (const f of tile.features) {
     if (f.type !== 3) continue
@@ -74,7 +85,9 @@ describe('#360 F2 — enclosed seas + sub-clamp Arctic covered at low zoom (defa
 
   it('control open-ocean is covered z0-3 (validates the coverage probe)', () => {
     for (let z = 0; z <= 3; z++) {
-      expect(covered(idx, CONTROL_OCEAN[1], CONTROL_OCEAN[2], z), `${CONTROL_OCEAN[0]} z${z}`).toBe(true)
+      expect(covered(idx, CONTROL_OCEAN[1], CONTROL_OCEAN[2], z), `${CONTROL_OCEAN[0]} z${z}`).toBe(
+        true,
+      )
     }
   })
 

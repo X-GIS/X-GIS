@@ -65,7 +65,7 @@ const A = 6378137 // WGS84 semi-major axis — matches the tiler + render-side `
 // unchanged. The bg tile-corner ANCHOR must use THIS decoded latitude (not the
 // rounded MERC_LAT_CLAMP) so the bg pack anchor equals the render-side
 // tileEcefCenter EXACTLY and the RTC origins cancel with no residual.
-const Z0_DECODED_SOUTH = Math.atan(Math.sinh(-Math.PI)) * 180 / Math.PI
+const Z0_DECODED_SOUTH = (Math.atan(Math.sinh(-Math.PI)) * 180) / Math.PI
 
 /** Stable source-name identifier the synthetic backend stamps on its
  *  emitted tiles. Mirrors `VectorTileRenderer.effectiveSourceLayer`'s
@@ -144,7 +144,7 @@ export class SyntheticEarthSurfaceBackend implements TileSource {
 
   private buildResult(): BackendTileResult {
     const mesh = generateEarthSurfaceFillMesh(WIDTH_SEGMENTS, HEIGHT_SEGMENTS, this.band)
-    const vertexCount = mesh.vertices.length / 2  // stride-2 lon/lat → vertex count
+    const vertexCount = mesh.vertices.length / 2 // stride-2 lon/lat → vertex count
 
     // Anchor about the z=0 synthetic tile's ELLIPSOID corner — the SAME value
     // the render-side per-tile uniform pack reconstructs into `cam_ecef_off`
@@ -157,7 +157,7 @@ export class SyntheticEarthSurfaceBackend implements TileSource {
     // equal and the polygon ECEF VS origins — (vertex − tileEcefCenter) +
     // (tileEcefCenter − cameraCenter) — cancel exactly with no residual.
     const tileMx = -180 * DEG2RAD * A
-    const tileMy = Math.log(Math.tan(Math.PI / 4 + Z0_DECODED_SOUTH * DEG2RAD / 2)) * A
+    const tileMy = Math.log(Math.tan(Math.PI / 4 + (Z0_DECODED_SOUTH * DEG2RAD) / 2)) * A
     const ecefTileCenter = tileEcefCenterFromMerc(tileMx, tileMy)
 
     // SPHERE-class bands (ortho/azi/stereo/globe) must reach the geographic
@@ -180,9 +180,10 @@ export class SyntheticEarthSurfaceBackend implements TileSource {
     // bands have nothing beyond ±85.05 (source-honest Web-Mercator extent), so
     // they keep the unchanged canonical kernel path — byte-identical, zero
     // behaviour change.
-    const q = this.band === 'sphere-full'
-      ? packECEFWithPolarCaps(mesh.vertices, vertexCount, ecefTileCenter, [tileMx, tileMy])
-      : packKernelClamped(mesh.vertices, vertexCount, ecefTileCenter)
+    const q =
+      this.band === 'sphere-full'
+        ? packECEFWithPolarCaps(mesh.vertices, vertexCount, ecefTileCenter, [tileMx, tileMy])
+        : packKernelClamped(mesh.vertices, vertexCount, ecefTileCenter)
     return {
       vertices: q.vertices,
       dequantScale: q.dequantScale,
@@ -216,9 +217,9 @@ function packKernelClamped(
     const lon = meshVerts[i * 2]
     const lat = meshVerts[i * 2 + 1]
     const clampedLat = Math.max(-MERC_LAT_CLAMP, Math.min(MERC_LAT_CLAMP, lat))
-    scratch[i * 3]     = lon * DEG2RAD * A
-    scratch[i * 3 + 1] = Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) * A
-    scratch[i * 3 + 2] = 0   // feat_id — single synthetic feature
+    scratch[i * 3] = lon * DEG2RAD * A
+    scratch[i * 3 + 1] = Math.log(Math.tan(Math.PI / 4 + (clampedLat * DEG2RAD) / 2)) * A
+    scratch[i * 3 + 2] = 0 // feat_id — single synthetic feature
   }
   // Pass the bg tile's Mercator origin so the f32 tail slots store TILE-LOCAL
   // Mercator (mx − origin) — matching what the renderer writes to

@@ -21,10 +21,17 @@ import { mercatorToECEFSphere } from '@xgis/engine'
 //      curve in screen-Y — proving the flat result is a real projection switch
 //      over genuinely curved data, not coincident geometry.
 
-const W = 800, H = 600, DPR = 1
+const W = 800,
+  H = 600,
+  DPR = 1
 
 // column-major mat4 (Float32Array(16)) × vec4(x,y,z,1) → NDC + clip-w.
-function projectNdc(m: Float32Array, x: number, y: number, z: number): { ndcX: number; ndcY: number; w: number } {
+function projectNdc(
+  m: Float32Array,
+  x: number,
+  y: number,
+  z: number,
+): { ndcX: number; ndcY: number; w: number } {
   const cx = m[0]! * x + m[4]! * y + m[8]! * z + m[12]!
   const cy = m[1]! * x + m[5]! * y + m[9]! * z + m[13]!
   const cw = m[3]! * x + m[7]! * y + m[11]! * z + m[15]!
@@ -93,7 +100,8 @@ describe('flat Mercator display projection (projType 0)', () => {
     const flat = cam.getViewForProjection(0, W, H, DPR)
     const ecef = cam.getECEFFrameView(W, H, DPR)
     let maxDelta = 0
-    for (let i = 0; i < 16; i++) maxDelta = Math.max(maxDelta, Math.abs(flat.matrix[i]! - ecef.matrix[i]!))
+    for (let i = 0; i < 16; i++)
+      maxDelta = Math.max(maxDelta, Math.abs(flat.matrix[i]! - ecef.matrix[i]!))
     expect(maxDelta).toBeGreaterThan(1e-6)
   })
 
@@ -103,7 +111,8 @@ describe('flat Mercator display projection (projType 0)', () => {
     const view = cam.getViewForProjection(0, W, H, DPR)
     const globe = cam.getECEFFrameView(W, H, DPR) // globeMode → _globeFrame
     let maxDelta = 0
-    for (let i = 0; i < 16; i++) maxDelta = Math.max(maxDelta, Math.abs(view.matrix[i]! - globe.matrix[i]!))
+    for (let i = 0; i < 16; i++)
+      maxDelta = Math.max(maxDelta, Math.abs(view.matrix[i]! - globe.matrix[i]!))
     expect(maxDelta).toBeLessThan(1e-9)
   })
 

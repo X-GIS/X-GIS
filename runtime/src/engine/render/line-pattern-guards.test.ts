@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  checkPatternParams,
-  PATTERN_UNIT_M,
-  PATTERN_UNIT_PX,
-  type PatternSlot,
-} from '@xgis/map'
+import { checkPatternParams, PATTERN_UNIT_M, PATTERN_UNIT_PX, type PatternSlot } from '@xgis/map'
 
 function makeSlot(overrides: Partial<PatternSlot> = {}): PatternSlot {
   return {
@@ -76,7 +71,7 @@ describe('checkPatternParams', () => {
     })
     const calls = collect([pat], 100)
     expect(calls).toHaveLength(2)
-    const keys = calls.map(c => c.key).join(' ')
+    const keys = calls.map((c) => c.key).join(' ')
     expect(keys).toContain('size-gt-2x-spacing')
     expect(keys).toContain('subpixel')
   })
@@ -88,10 +83,13 @@ describe('checkPatternParams', () => {
   })
 
   it('includes slot index in warning key', () => {
-    const calls = collect([
-      makeSlot(),                                           // slot 0 clean
-      makeSlot({ size: 300, spacing: 60 }),                 // slot 1 bad
-    ], 100)
+    const calls = collect(
+      [
+        makeSlot(), // slot 0 clean
+        makeSlot({ size: 300, spacing: 60 }), // slot 1 bad
+      ],
+      100,
+    )
     expect(calls).toHaveLength(1)
     expect(calls[0].key).toMatch(/^p1:/)
   })

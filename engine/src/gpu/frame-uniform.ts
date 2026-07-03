@@ -77,7 +77,7 @@ export class FrameUniform {
   private static metersPerPixel(zoom: number): number {
     const WORLD_MERC = EARTH.worldMerc
     const TILE_PX = 512
-    return (WORLD_MERC / TILE_PX) / Math.pow(2, zoom)
+    return WORLD_MERC / TILE_PX / Math.pow(2, zoom)
   }
 
   /** Write the per-frame uniform to GPU. Call once per frame from the

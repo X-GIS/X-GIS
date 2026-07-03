@@ -21,7 +21,8 @@ describe('country label expression — diagnostic', () => {
     const tokens = new Lexer(COUNTRY_LABEL_SRC).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
-    const layer = scene.renderNodes.find((l: { name?: string }) => l.name === 'label_country_3') as { name: string; label?: import('../ir/render-node').LabelDef } | undefined
+    const layer = scene.renderNodes.find((l: { name?: string }) => l.name === 'label_country_3') as
+      { name: string; label?: import('../ir/render-node').LabelDef } | undefined
     expect(layer).toBeDefined()
     expect(layer!.label).toBeDefined()
     expect(layer!.label!.text).toBeDefined()
@@ -35,7 +36,9 @@ describe('country label expression — diagnostic', () => {
     const tokens = new Lexer(COUNTRY_LABEL_SRC).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
-    const layer = scene.renderNodes.find((l: { name?: string }) => l.name === 'label_country_3') as { label: import('../ir/render-node').LabelDef }
+    const layer = scene.renderNodes.find(
+      (l: { name?: string }) => l.name === 'label_country_3',
+    ) as { label: import('../ir/render-node').LabelDef }
     const text = layer.label.text
     expect(text.kind).toBe('expr')
     if (text.kind !== 'expr') throw new Error('unreachable')
@@ -52,7 +55,9 @@ describe('country label expression — diagnostic', () => {
     const tokens = new Lexer(COUNTRY_LABEL_SRC).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
-    const layer = scene.renderNodes.find((l: { name?: string }) => l.name === 'label_country_3') as { label: import('../ir/render-node').LabelDef }
+    const layer = scene.renderNodes.find(
+      (l: { name?: string }) => l.name === 'label_country_3',
+    ) as { label: import('../ir/render-node').LabelDef }
     const text = layer.label.text
     if (text.kind !== 'expr') throw new Error('unreachable')
     const result = evaluate(text.expr.ast, {
@@ -71,7 +76,9 @@ describe('country label expression — diagnostic', () => {
     const tokens = new Lexer(COUNTRY_LABEL_SRC).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
-    const layer = scene.renderNodes.find((l: { name?: string }) => l.name === 'label_country_3') as { label: import('../ir/render-node').LabelDef }
+    const layer = scene.renderNodes.find(
+      (l: { name?: string }) => l.name === 'label_country_3',
+    ) as { label: import('../ir/render-node').LabelDef }
     const text = layer.label.text
     if (text.kind !== 'expr') throw new Error('unreachable')
     const result = evaluate(text.expr.ast, {

@@ -33,7 +33,10 @@ export function variantProducesFill(v: ShaderVariantInfo | null | undefined): bo
 // ═══ Color parsing ═══
 
 export function parseColor(hex: string): [number, number, number, number] {
-  let r = 0, g = 0, b = 0, a = 1
+  let r = 0,
+    g = 0,
+    b = 0,
+    a = 1
   // Reject non-hex content early. Mirror of the feature-helpers
   // parseHexColor regex gate (caad699) — without it `parseInt('zz',
   // 16)` = NaN propagated to colour channels and the GPU sampled
@@ -152,7 +155,8 @@ export function interpolateZoomRgba(
         const denom = Math.pow(base, span) - 1
         t = denom === 0 ? 0 : numer / denom
       }
-      const a = stops[i].value, b = stops[i + 1].value
+      const a = stops[i].value,
+        b = stops[i + 1].value
       return [
         a[0] + t * (b[0] - a[0]),
         a[1] + t * (b[1] - a[1]),
@@ -167,10 +171,10 @@ export function interpolateZoomRgba(
 
 /** Easing functions applied between adjacent time stops. Maps t∈[0,1] → [0,1]. */
 const EASING_LUT: Record<Easing, (t: number) => number> = {
-  'linear':      (t) => t,
-  'ease-in':     (t) => t * t,
-  'ease-out':    (t) => 1 - (1 - t) * (1 - t),
-  'ease-in-out': (t) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2,
+  linear: (t) => t,
+  'ease-in': (t) => t * t,
+  'ease-out': (t) => 1 - (1 - t) * (1 - t),
+  'ease-in-out': (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2),
 }
 
 /**
@@ -229,18 +233,30 @@ export function interpolateTimeColor(
   delayMs: number,
   out: [number, number, number, number] = [0, 0, 0, 0],
 ): [number, number, number, number] {
-  if (stops.length === 0) { out[0] = 1; out[1] = 1; out[2] = 1; out[3] = 1; return out }
+  if (stops.length === 0) {
+    out[0] = 1
+    out[1] = 1
+    out[2] = 1
+    out[3] = 1
+    return out
+  }
   const effective = elapsedMs - delayMs
   if (effective < 0) {
     const v = stops[0].value
-    out[0] = v[0]; out[1] = v[1]; out[2] = v[2]; out[3] = v[3]
+    out[0] = v[0]
+    out[1] = v[1]
+    out[2] = v[2]
+    out[3] = v[3]
     return out
   }
   const last = stops[stops.length - 1].timeMs
   const t = loop && last > 0 ? effective % last : Math.min(effective, last)
   if (t <= stops[0].timeMs) {
     const v = stops[0].value
-    out[0] = v[0]; out[1] = v[1]; out[2] = v[2]; out[3] = v[3]
+    out[0] = v[0]
+    out[1] = v[1]
+    out[2] = v[2]
+    out[3] = v[3]
     return out
   }
   for (let i = 0; i < stops.length - 1; i++) {
@@ -248,12 +264,16 @@ export function interpolateTimeColor(
       const span = stops[i + 1].timeMs - stops[i].timeMs
       if (span === 0) {
         const v = stops[i + 1].value
-        out[0] = v[0]; out[1] = v[1]; out[2] = v[2]; out[3] = v[3]
+        out[0] = v[0]
+        out[1] = v[1]
+        out[2] = v[2]
+        out[3] = v[3]
         return out
       }
       const raw = (t - stops[i].timeMs) / span
       const k = EASING_LUT[easing](raw)
-      const a = stops[i].value, b = stops[i + 1].value
+      const a = stops[i].value,
+        b = stops[i + 1].value
       out[0] = a[0] + k * (b[0] - a[0])
       out[1] = a[1] + k * (b[1] - a[1])
       out[2] = a[2] + k * (b[2] - a[2])
@@ -262,6 +282,9 @@ export function interpolateTimeColor(
     }
   }
   const v = stops[stops.length - 1].value
-  out[0] = v[0]; out[1] = v[1]; out[2] = v[2]; out[3] = v[3]
+  out[0] = v[0]
+  out[1] = v[1]
+  out[2] = v[2]
+  out[3] = v[3]
   return out
 }

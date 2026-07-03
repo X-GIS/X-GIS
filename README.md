@@ -129,15 +129,15 @@ layer tracks {
 
 Seven workspaces:
 
-| Package | Role |
-|---------|------|
-| `@xgis/shared` | Shared TypeScript types and utilities; common base, imports from neither compiler nor runtime. |
-| `@xgis/compiler` | Lexer, parser, IR, optimizer, WGSL codegen. Pure TypeScript, no GPU deps. |
-| `@xgis/blueprint` | Visual node-editor concept for `.xgis` pipeline authoring. |
+| Package            | Role                                                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `@xgis/shared`     | Shared TypeScript types and utilities; common base, imports from neither compiler nor runtime.                |
+| `@xgis/compiler`   | Lexer, parser, IR, optimizer, WGSL codegen. Pure TypeScript, no GPU deps.                                     |
+| `@xgis/blueprint`  | Visual node-editor concept for `.xgis` pipeline authoring.                                                    |
 | `@xgis/shader-dsl` | Zero-dep typed shader IR authored once, emitted to WGSL + a CPU f64 oracle (closes GPU/CPU projection drift). |
-| `@xgis/runtime` | WebGPU renderers (vector, raster tiles, globe), camera, interaction. |
-| `@xgis/playground` | Vite dev app + Playwright e2e suites for testing. |
-| `@xgis/site` | Astro documentation/marketing site. |
+| `@xgis/runtime`    | WebGPU renderers (vector, raster tiles, globe), camera, interaction.                                          |
+| `@xgis/playground` | Vite dev app + Playwright e2e suites for testing.                                                             |
+| `@xgis/site`       | Astro documentation/marketing site.                                                                           |
 
 ## Rendering
 
@@ -150,12 +150,12 @@ Seven workspaces:
 
 The compiler statically analyzes expressions and optimizes rendering:
 
-| Expression | Classification | Handling |
-|-----------|---------------|----------|
-| `360 / 12` | constant | Folded to `30` at compile time |
-| `z8:opacity-40` | zoom-dependent | CPU-interpolated per frame |
-| `speed / 50 \| clamp(4,24)` | per-feature-gpu | WGSL codegen, GPU evaluation |
-| `threat_size(5)` | constant (user fn) | Inlined and folded at compile time |
+| Expression                  | Classification     | Handling                           |
+| --------------------------- | ------------------ | ---------------------------------- |
+| `360 / 12`                  | constant           | Folded to `30` at compile time     |
+| `z8:opacity-40`             | zoom-dependent     | CPU-interpolated per frame         |
+| `speed / 50 \| clamp(4,24)` | per-feature-gpu    | WGSL codegen, GPU evaluation       |
+| `threat_size(5)`            | constant (user fn) | Inlined and folded at compile time |
 
 ## Commands
 

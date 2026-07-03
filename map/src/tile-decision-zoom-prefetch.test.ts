@@ -26,12 +26,13 @@
 import { describe, expect, it } from 'vitest'
 import { tileKey } from '@xgis/compiler'
 import { Camera } from '@xgis/engine'
-import {
-  visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord,
-} from '@xgis/data'
+import { visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord } from '@xgis/data'
 import { globeVisibleTiles } from '@xgis/engine'
 import {
-  mercator as mercatorProj, getProjection, type Projection, mercatorYToLat,
+  mercator as mercatorProj,
+  getProjection,
+  type Projection,
+  mercatorYToLat,
 } from '@xgis/engine'
 import { routeToSphereSelector } from '@xgis/engine'
 import { computeZoomDirectionPrefetchKeys } from './tile-decision'
@@ -89,24 +90,40 @@ function inlineReference(
   const prefetchTiles = routeToSphereSelector(projTypePF, camera.globeMode)
     ? (() => {
         const R = 6378137
-        const lonPF = camera.centerX / R * (180 / Math.PI)
+        const lonPF = (camera.centerX / R) * (180 / Math.PI)
         const latPF = mercatorYToLat(camera.centerY)
         const cssWPF = canvasWidth / dpr
         const cssHPF = canvasHeight / dpr
         return globeVisibleTiles(
-          lonPF, latPF, camera.zoom, prefetchZ, cssWPF, cssHPF,
-          camera.pitch ?? 0, camera.bearing ?? 0,
-        ).map(t => makeTileCoord(t.z, t.x, t.y, 0))
+          lonPF,
+          latPF,
+          camera.zoom,
+          prefetchZ,
+          cssWPF,
+          cssHPF,
+          camera.pitch ?? 0,
+          camera.bearing ?? 0,
+        ).map((t) => makeTileCoord(t.z, t.x, t.y, 0))
       })()
     : (camera.pitch ?? 0) < 30
-    ? visibleTilesFrustumSampled(
-        camera, selectorProj, prefetchZ,
-        canvasWidth, canvasHeight, offsetMarginPx, dpr,
-      )
-    : visibleTilesFrustum(
-        camera, selectorProj, prefetchZ,
-        canvasWidth, canvasHeight, offsetMarginPx, dpr,
-      )
+      ? visibleTilesFrustumSampled(
+          camera,
+          selectorProj,
+          prefetchZ,
+          canvasWidth,
+          canvasHeight,
+          offsetMarginPx,
+          dpr,
+        )
+      : visibleTilesFrustum(
+          camera,
+          selectorProj,
+          prefetchZ,
+          canvasWidth,
+          canvasHeight,
+          offsetMarginPx,
+          dpr,
+        )
   const prefetchKeys: number[] = []
   for (const t of prefetchTiles) {
     const k = tileKey(t.z, t.x, t.y)
@@ -129,7 +146,15 @@ function bothPaths(opts: {
   const cached = opts.cached ?? new Set<number>()
   const isCached = (k: number): boolean => cached.has(k)
   const ref = inlineReference(
-    camera, currentZ, MAX_SUB_TILE_Z, W, H, DPR, selectorProj, OFFSET_MARGIN_PX, isCached,
+    camera,
+    currentZ,
+    MAX_SUB_TILE_Z,
+    W,
+    H,
+    DPR,
+    selectorProj,
+    OFFSET_MARGIN_PX,
+    isCached,
   )
   const got = computeZoomDirectionPrefetchKeys({
     camera,
@@ -205,7 +230,11 @@ describe('computeZoomDirectionPrefetchKeys — byte-faithful extraction of the V
     // non-trivial selectorProj, the same getProjection(...) render() builds.
     const cam = makeCam(8.7, 0, false)
     ;(cam as { projType: number }).projType = 1
-    const selectorProj = getProjection('equirectangular', cam.centerX / 6378137 * (180 / Math.PI), 37)
+    const selectorProj = getProjection(
+      'equirectangular',
+      (cam.centerX / 6378137) * (180 / Math.PI),
+      37,
+    )
     const { ref, got } = bothPaths({ camera: cam, currentZ: 8, selectorProj })
     expect(got).toEqual(ref)
     expect(got.length).toBeGreaterThan(0)

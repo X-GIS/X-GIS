@@ -32,10 +32,7 @@ const UNCONVERTIBLE = ['feature-state', 'hover'] as unknown
 describe('["all"] with a dropped conjunct fails closed (does not widen)', () => {
   it('all(convertible, unconvertible) → predicate cannot widen (AND-ed with false)', () => {
     const warnings: string[] = []
-    const out = filterToXgis(
-      ['all', ['==', ['get', 'class'], 'park'], UNCONVERTIBLE],
-      warnings,
-    )
+    const out = filterToXgis(['all', ['==', ['get', 'class'], 'park'], UNCONVERTIBLE], warnings)
     expect(out).not.toBeNull()
     const code = out as string
     // Fail-before: code === '.class == "park"' (the widened conjunct).
@@ -46,15 +43,12 @@ describe('["all"] with a dropped conjunct fails closed (does not widen)', () => 
     // we can prove + AND false; we don't throw the whole filter away).
     expect(code).toContain('.class == "park"')
     // The drop is surfaced.
-    expect(warnings.some(w => /\["all"\] dropped/.test(w))).toBe(true)
+    expect(warnings.some((w) => /\["all"\] dropped/.test(w))).toBe(true)
   })
 
   it('the widened conjunct alone is NOT the result (the actual bug shape)', () => {
     const warnings: string[] = []
-    const out = filterToXgis(
-      ['all', ['==', ['get', 'class'], 'park'], UNCONVERTIBLE],
-      warnings,
-    )
+    const out = filterToXgis(['all', ['==', ['get', 'class'], 'park'], UNCONVERTIBLE], warnings)
     // The exact bug: returning just `.class == "park"` (renders all parks
     // including the ones the dropped conjunct excluded). Must NOT happen.
     expect(out).not.toBe('.class == "park"')
@@ -64,7 +58,10 @@ describe('["all"] with a dropped conjunct fails closed (does not widen)', () => 
     const warnings: string[] = []
     const out = convertLayer(
       {
-        id: 'parks', type: 'fill', source: 'osm', 'source-layer': 'landuse',
+        id: 'parks',
+        type: 'fill',
+        source: 'osm',
+        'source-layer': 'landuse',
         filter: ['all', ['==', ['get', 'class'], 'park'], UNCONVERTIBLE],
         paint: { 'fill-color': '#0a0' },
       } as never,
@@ -72,7 +69,9 @@ describe('["all"] with a dropped conjunct fails closed (does not widen)', () => 
     )
     expect(out).not.toBeNull()
     const code = out as string
-    expect(/\bfilter:.*\bfalse\b/.test(code), `expected a fail-closed filter line\n${code}`).toBe(true)
+    expect(/\bfilter:.*\bfalse\b/.test(code), `expected a fail-closed filter line\n${code}`).toBe(
+      true,
+    )
   })
 
   it('regression: all() with ALL conjuncts convertible is unchanged (no false)', () => {
@@ -84,20 +83,17 @@ describe('["all"] with a dropped conjunct fails closed (does not widen)', () => 
     // parenthesize() wraps each comparison operand of the && chain.
     expect(out).toBe('(.class == "park") && (.area == "big")')
     expect(out).not.toContain('false')
-    expect(warnings.some(w => /\["all"\] dropped/.test(w))).toBe(false)
+    expect(warnings.some((w) => /\["all"\] dropped/.test(w))).toBe(false)
   })
 
   it('regression: any() with a dropped arm stays as-is (OR narrows = safe direction)', () => {
     const warnings: string[] = []
-    const out = filterToXgis(
-      ['any', ['==', ['get', 'class'], 'park'], UNCONVERTIBLE],
-      warnings,
-    )
+    const out = filterToXgis(['any', ['==', ['get', 'class'], 'park'], UNCONVERTIBLE], warnings)
     // any drops narrow the accepted set (more restrictive) — the safe
     // direction — so the surviving arm is kept WITHOUT a false term.
     // (Single surviving arm, parenthesized by parenthesize().)
     expect(out).toBe('(.class == "park")')
     expect(out).not.toContain('false')
-    expect(warnings.some(w => /\["any"\] dropped/.test(w))).toBe(true)
+    expect(warnings.some((w) => /\["any"\] dropped/.test(w))).toBe(true)
   })
 })

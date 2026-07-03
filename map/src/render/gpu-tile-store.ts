@@ -207,7 +207,7 @@ export class GpuTileStore {
       this.polyVertexArena = new GPUArena(this.rhi, {
         capacityBytes: GpuTileStore.POLY_VERTEX_ARENA_CAPACITY,
         usage: 'vertex',
-        copySrc: true,  // compaction copy SOURCE → COPY_SRC (see GPUArenaOptions.copySrc)
+        copySrc: true, // compaction copy SOURCE → COPY_SRC (see GPUArenaOptions.copySrc)
         label: 'poly-vertex-arena',
       })
     }
@@ -256,7 +256,10 @@ export class GpuTileStore {
    *  Used by the uploader + the render readiness path. */
   getOrCreateLayer(sourceLayer: string): Map<number, GPUTile> {
     let m = this.gpuCache.get(sourceLayer)
-    if (!m) { m = new Map(); this.gpuCache.set(sourceLayer, m) }
+    if (!m) {
+      m = new Map()
+      this.gpuCache.set(sourceLayer, m)
+    }
     return m
   }
   /** Direct (sourceLayer, key) tile lookup — the cheap field-deref form
@@ -307,7 +310,10 @@ export class GpuTileStore {
     if (!buf) return
     const key = `${buf.size}:${buf.usage}`
     let pool = this._bufferPool.get(key)
-    if (!pool) { pool = []; this._bufferPool.set(key, pool) }
+    if (!pool) {
+      pool = []
+      this._bufferPool.set(key, pool)
+    }
     if (pool.length < GpuTileStore._BUFFER_POOL_CAP_PER_BUCKET) {
       pool.push(buf)
     } else {
@@ -403,10 +409,12 @@ export class GpuTileStore {
     // Use the arena's CURRENT capacity (not the static initial cap) so the
     // trigger tracks an auto-grown arena — else a grown arena would re-trigger
     // eviction the moment usedBytes passed 0.75× the OLD cap (over-eviction).
-    const vHi = this.polyVertexArena !== null
-      && this.polyVertexArena.highWaterBytes >= this.polyVertexArena.capacityBytes * ARENA_HIGH_WATER
-    const iHi = this.polyIndexArena !== null
-      && this.polyIndexArena.highWaterBytes >= this.polyIndexArena.capacityBytes * ARENA_HIGH_WATER
+    const vHi =
+      this.polyVertexArena !== null &&
+      this.polyVertexArena.highWaterBytes >= this.polyVertexArena.capacityBytes * ARENA_HIGH_WATER
+    const iHi =
+      this.polyIndexArena !== null &&
+      this.polyIndexArena.highWaterBytes >= this.polyIndexArena.capacityBytes * ARENA_HIGH_WATER
     // Drain arena buffers retired by a PRIOR frame's compaction. A full
     // frame has elapsed since they were swapped out (their copy submit +
     // every render that referenced them has long drained), so destroying
@@ -446,7 +454,11 @@ export class GpuTileStore {
     // A grow and a (fragmentation) compaction can both be pending — grow the
     // flagged arena to its target, compact the other at its current capacity;
     // one encoder/submit/invalidation covers both.
-    if (this._pendingArenaGrowV > 0 || this._pendingArenaGrowI > 0 || this._pendingArenaCompaction) {
+    if (
+      this._pendingArenaGrowV > 0 ||
+      this._pendingArenaGrowI > 0 ||
+      this._pendingArenaCompaction
+    ) {
       const vTarget = this._pendingArenaGrowV > 0 ? this._pendingArenaGrowV : undefined
       const iTarget = this._pendingArenaGrowI > 0 ? this._pendingArenaGrowI : undefined
       this._pendingArenaCompaction = false
@@ -473,10 +485,12 @@ export class GpuTileStore {
     // to avoid per-frame thrash.
     const cap = getMaxGpuTiles()
     const underBytes = (): boolean => {
-      const vLow = this.polyVertexArena === null
-        || this.polyVertexArena.liveUsedBytes <= this.polyVertexArena.capacityBytes * ARENA_LOW_WATER
-      const iLow = this.polyIndexArena === null
-        || this.polyIndexArena.liveUsedBytes <= this.polyIndexArena.capacityBytes * ARENA_LOW_WATER
+      const vLow =
+        this.polyVertexArena === null ||
+        this.polyVertexArena.liveUsedBytes <= this.polyVertexArena.capacityBytes * ARENA_LOW_WATER
+      const iLow =
+        this.polyIndexArena === null ||
+        this.polyIndexArena.liveUsedBytes <= this.polyIndexArena.capacityBytes * ARENA_LOW_WATER
       return vLow && iLow
     }
 
@@ -587,7 +601,9 @@ export class GpuTileStore {
    *  the polygon vertex+index bytes reclaimed so forceEvictBytes can sum
    *  progress without a per-tile getStats(). */
   private _releaseTileSlots(
-    slot: string, tk: number, releaseTileHook: ReleaseTileHook,
+    slot: string,
+    tk: number,
+    releaseTileHook: ReleaseTileHook,
   ): { vBytes: number; iBytes: number } {
     const inner = this.gpuCache.get(slot)
     if (!inner) return { vBytes: 0, iBytes: 0 }
@@ -655,8 +671,10 @@ export class GpuTileStore {
    *  off the hot path (alloc throws are rare), so the getStats() reads
    *  + transient Map/sort here are acceptable. */
   forceEvictBytes(
-    arena: GPUArena, needed: number,
-    stableKeys: readonly number[], releaseTileHook: ReleaseTileHook,
+    arena: GPUArena,
+    needed: number,
+    stableKeys: readonly number[],
+    releaseTileHook: ReleaseTileHook,
   ): boolean {
     // O(1) exact serviceability probe. getStats().freeBytes is the SUM
     // across all distinct exact-align4 size-keys, so `freeBytes >= needed`
@@ -719,9 +737,10 @@ export class GpuTileStore {
       //   • FRAGMENTATION: liveBytes is small but the monotonic bumpPtr is
       //     pinned near the cap by stranded mismatched free-list footprints.
       //     A same-size COMPACTION repacks and relieves it.
-      const ceiling = arena === this.polyVertexArena
-        ? GpuTileStore.POLY_VERTEX_ARENA_CEILING
-        : GpuTileStore.POLY_INDEX_ARENA_CEILING
+      const ceiling =
+        arena === this.polyVertexArena
+          ? GpuTileStore.POLY_VERTEX_ARENA_CEILING
+          : GpuTileStore.POLY_INDEX_ARENA_CEILING
       const overCapacity = arena.liveUsedBytes + align4(needed) > arena.capacityBytes
       if (overCapacity && arena.capacityBytes < ceiling) {
         // Grow target: fit live+needed, at least 1.5× current (amortizes
@@ -766,7 +785,11 @@ export class GpuTileStore {
    *  — every other step (safe window, retired-buffer deferral, atomic offset
    *  rewrite, bundle invalidation) is identical, which is why grow piggybacks
    *  on this method. undefined = same-size defrag (the compaction case). */
-  private _compactPolyArenas(uploadActive: () => boolean, vTarget?: number, iTarget?: number): boolean {
+  private _compactPolyArenas(
+    uploadActive: () => boolean,
+    vTarget?: number,
+    iTarget?: number,
+  ): boolean {
     const vArena = this.polyVertexArena
     const iArena = this.polyIndexArena
     if (vArena === null && iArena === null) return false

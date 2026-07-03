@@ -69,8 +69,7 @@ const evalWithGeom = (
   ast: unknown,
   geom: { type: string } | undefined,
   props: Record<string, unknown>,
-): boolean =>
-  evalFilterExpr(ast, geom ? { ...props, $geometryType: geom.type } : props)
+): boolean => evalFilterExpr(ast, geom ? { ...props, $geometryType: geom.type } : props)
 
 describe('geometry-type filter routing — OFM Bright water_name layers', () => {
   const shows = buildShows()
@@ -84,33 +83,36 @@ describe('geometry-type filter routing — OFM Bright water_name layers', () => 
   })
 
   it('Point feature routes to water_name_point_label only', () => {
-    const matched = shows.filter(s =>
-      evalWithGeom(s.filterExpr!.ast, { type: 'Point' }, { name: 'Lake Tahoe' }))
+    const matched = shows.filter((s) =>
+      evalWithGeom(s.filterExpr!.ast, { type: 'Point' }, { name: 'Lake Tahoe' }),
+    )
     expect(matched.length).toBe(1)
     expect(matched[0]!.sourceLayer).toBe('water_name')
   })
 
   it('MultiPoint feature routes to water_name_point_label only', () => {
-    const matched = shows.filter(s =>
-      evalWithGeom(s.filterExpr!.ast, { type: 'MultiPoint' }, { name: 'X' }))
+    const matched = shows.filter((s) =>
+      evalWithGeom(s.filterExpr!.ast, { type: 'MultiPoint' }, { name: 'X' }),
+    )
     expect(matched.length).toBe(1)
   })
 
   it('LineString feature routes to water_name_line_label only', () => {
-    const matched = shows.filter(s =>
-      evalWithGeom(s.filterExpr!.ast, { type: 'LineString' }, { name: 'Mississippi' }))
+    const matched = shows.filter((s) =>
+      evalWithGeom(s.filterExpr!.ast, { type: 'LineString' }, { name: 'Mississippi' }),
+    )
     expect(matched.length).toBe(1)
   })
 
   it('Polygon water_name feature matches neither layer (Mapbox parity)', () => {
-    const matched = shows.filter(s =>
-      evalWithGeom(s.filterExpr!.ast, { type: 'Polygon' }, { name: 'X' }))
+    const matched = shows.filter((s) =>
+      evalWithGeom(s.filterExpr!.ast, { type: 'Polygon' }, { name: 'X' }),
+    )
     expect(matched.length).toBe(0)
   })
 
   it('feature without geometry rejected (no $geometryType injected)', () => {
-    const matched = shows.filter(s =>
-      evalWithGeom(s.filterExpr!.ast, undefined, { name: 'X' }))
+    const matched = shows.filter((s) => evalWithGeom(s.filterExpr!.ast, undefined, { name: 'X' }))
     expect(matched.length).toBe(0)
   })
 })

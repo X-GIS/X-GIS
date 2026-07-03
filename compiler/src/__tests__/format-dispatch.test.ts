@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import {
-  formatValue, formatNumber, formatString, formatDMS, formatDM,
-  formatBearing, formatDate, parseFormatSpec,
+  formatValue,
+  formatNumber,
+  formatString,
+  formatDMS,
+  formatDM,
+  formatBearing,
+  formatDate,
+  parseFormatSpec,
 } from '../format'
 
 describe('formatValue dispatch', () => {
@@ -32,7 +38,7 @@ describe('formatValue dispatch', () => {
   it('routes "bearing" to 3-digit pad', () => {
     expect(formatValue(5, { type: 'bearing' })).toBe('005°')
     expect(formatValue(45, { type: 'bearing' })).toBe('045°')
-    expect(formatValue(360, { type: 'bearing' })).toBe('000°')  // wrap
+    expect(formatValue(360, { type: 'bearing' })).toBe('000°') // wrap
   })
 
   it('falls back gracefully on string + numeric spec', () => {
@@ -86,8 +92,9 @@ describe('formatNumber', () => {
 
   it("locale 'C' is deterministic (no Intl)", () => {
     // toFixed is byte-identical across V8 versions for normal floats.
-    expect(formatNumber(1234.5, { precision: 2, type: 'f', locale: 'C', grouping: ',' }))
-      .toBe('1,234.50')
+    expect(formatNumber(1234.5, { precision: 2, type: 'f', locale: 'C', grouping: ',' })).toBe(
+      '1,234.50',
+    )
   })
 })
 
@@ -139,20 +146,20 @@ describe('GIS formatters', () => {
     expect(formatBearing(5)).toBe('005°')
     expect(formatBearing(45)).toBe('045°')
     expect(formatBearing(180)).toBe('180°')
-    expect(formatBearing(360)).toBe('000°')  // wraps
-    expect(formatBearing(-90)).toBe('270°')  // negative wraps
+    expect(formatBearing(360)).toBe('000°') // wraps
+    expect(formatBearing(-90)).toBe('270°') // negative wraps
   })
 })
 
 describe('formatDate', () => {
   it('strftime UTC default', () => {
-    expect(formatDate('2026-05-09T14:32:18Z', { type: '%Y-%m-%d %H:%M:%SZ', locale: 'C' }))
-      .toBe('2026-05-09 14:32:18Z')
+    expect(formatDate('2026-05-09T14:32:18Z', { type: '%Y-%m-%d %H:%M:%SZ', locale: 'C' })).toBe(
+      '2026-05-09 14:32:18Z',
+    )
   })
 
   it('time only', () => {
-    expect(formatDate('2026-05-09T14:32:18Z', { type: '%H:%M:%S', locale: 'C' }))
-      .toBe('14:32:18')
+    expect(formatDate('2026-05-09T14:32:18Z', { type: '%H:%M:%S', locale: 'C' })).toBe('14:32:18')
   })
 
   it('Date object', () => {

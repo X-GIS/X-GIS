@@ -35,7 +35,12 @@ export type ECEF = readonly [x: number, y: number, z: number]
 export type LonLatHeight = readonly [lon: number, lat: number, height: number]
 
 /** lon/lat (degrees) + ellipsoidal height (metres) → ECEF (metres). */
-export function lonLatToECEF(lon: number, lat: number, height = 0, body: Body = activeBody()): ECEF {
+export function lonLatToECEF(
+  lon: number,
+  lat: number,
+  height = 0,
+  body: Body = activeBody(),
+): ECEF {
   const lonRad = lon * DEG2RAD
   const latRad = lat * DEG2RAD
   const sinLat = Math.sin(latRad)
@@ -51,7 +56,12 @@ export function lonLatToECEF(lon: number, lat: number, height = 0, body: Body = 
 /** ECEF (metres) → lon/lat (degrees) + ellipsoidal height (metres).
  *  Closed-form Bowring iteration; converges in 1-2 iterations at terrestrial
  *  altitudes. Returns lon ∈ (-180, 180]. */
-export function ecefToLonLat(x: number, y: number, z: number, body: Body = activeBody()): LonLatHeight {
+export function ecefToLonLat(
+  x: number,
+  y: number,
+  z: number,
+  body: Body = activeBody(),
+): LonLatHeight {
   const lon = Math.atan2(y, x)
   const p = Math.hypot(x, y)
   // Polar singularity guard: at p≈0 the point sits on the spin axis, so the
@@ -87,7 +97,12 @@ export function ecefToLonLat(x: number, y: number, z: number, body: Body = activ
  *  `projection.ts:mercatorYToLatRad` with `lonLatToECEF`. Used by the camera
  *  to derive `_ecefCenter` from the canonical `centerX, centerY` Mercator
  *  coordinates without changing camera semantics. */
-export function mercatorToECEF(mx: number, my: number, height = 0, body: Body = activeBody()): ECEF {
+export function mercatorToECEF(
+  mx: number,
+  my: number,
+  height = 0,
+  body: Body = activeBody(),
+): ECEF {
   // Inline the existing inverse formula rather than importing to keep this
   // module dependency-free for tooling. Matches projection.ts byte-for-byte:
   //   `2 * Math.atan(Math.exp(y / EARTH_RADIUS)) - Math.PI / 2`.
@@ -103,7 +118,11 @@ export function mercatorToECEF(mx: number, my: number, height = 0, body: Body = 
  *  Thin wrapper around `mercatorToECEF(tileMx, tileMy, 0)`. Exposed as a
  *  named helper so call sites read intent ("per-tile anchor center")
  *  rather than the lower-level Mercator→ECEF composition. */
-export function tileEcefCenterFromMerc(tileMx: number, tileMy: number, body: Body = activeBody()): ECEF {
+export function tileEcefCenterFromMerc(
+  tileMx: number,
+  tileMy: number,
+  body: Body = activeBody(),
+): ECEF {
   return mercatorToECEF(tileMx, tileMy, 0, body)
 }
 
@@ -122,7 +141,12 @@ export function tileEcefCenterFromMerc(tileMx: number, tileMy: number, body: Bod
  *  Future Phase 2e (legacy `project_geom` retirement) can collapse callers
  *  back onto the ellipsoidal helper when that is the only basis in use.
  *  Until then, the camera + ECEF-MVP pipeline must read the sphere. */
-export function lonLatToECEFSphere(lon: number, lat: number, height = 0, body: Body = activeBody()): ECEF {
+export function lonLatToECEFSphere(
+  lon: number,
+  lat: number,
+  height = 0,
+  body: Body = activeBody(),
+): ECEF {
   const lonRad = lon * DEG2RAD
   const latRad = lat * DEG2RAD
   const sinLat = Math.sin(latRad)
@@ -138,7 +162,12 @@ export function lonLatToECEFSphere(lon: number, lat: number, height = 0, body: B
  *  the lon/lat through `lonLatToECEFSphere`. See `lonLatToECEFSphere` for
  *  the rationale on why the camera/ECEF-MVP pipeline uses the sphere
  *  rather than the WGS84 ellipsoid. */
-export function mercatorToECEFSphere(mx: number, my: number, height = 0, body: Body = activeBody()): ECEF {
+export function mercatorToECEFSphere(
+  mx: number,
+  my: number,
+  height = 0,
+  body: Body = activeBody(),
+): ECEF {
   const lon = (mx / body.sphereR) * RAD2DEG
   const lat = (2 * Math.atan(Math.exp(my / body.sphereR)) - Math.PI / 2) * RAD2DEG
   return lonLatToECEFSphere(lon, lat, height, body)

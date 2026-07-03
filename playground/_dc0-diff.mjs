@@ -25,8 +25,13 @@ if (!baseDir || !afterDir) {
 const THRESHOLD = Number(process.env.THRESHOLD ?? 0)
 mkdirSync(diffOut, { recursive: true })
 
-const pngs = readdirSync(baseDir).filter((f) => f.endsWith('.png')).sort()
-if (pngs.length === 0) { console.error(`no PNGs in baseline dir ${baseDir}`); process.exit(2) }
+const pngs = readdirSync(baseDir)
+  .filter((f) => f.endsWith('.png'))
+  .sort()
+if (pngs.length === 0) {
+  console.error(`no PNGs in baseline dir ${baseDir}`)
+  process.exit(2)
+}
 
 let totalDC = 0
 let worst = { name: '', dc: -1 }
@@ -34,12 +39,19 @@ const rows = []
 for (const f of pngs) {
   const aPath = join(baseDir, f)
   const bPath = join(afterDir, f)
-  if (!existsSync(bPath)) { rows.push(`MISSING after  ${f}`); totalDC += 1; worst = worst.dc < 1 ? { name: f, dc: Infinity } : worst; continue }
+  if (!existsSync(bPath)) {
+    rows.push(`MISSING after  ${f}`)
+    totalDC += 1
+    worst = worst.dc < 1 ? { name: f, dc: Infinity } : worst
+    continue
+  }
   const a = PNG.sync.read(Buffer.from(await Bun.file(aPath).arrayBuffer()))
   const b = PNG.sync.read(Buffer.from(await Bun.file(bPath).arrayBuffer()))
   if (a.width !== b.width || a.height !== b.height) {
     rows.push(`SIZE-DIFF ${f}: ${a.width}x${a.height} vs ${b.width}x${b.height}`)
-    totalDC += 1; worst = { name: f, dc: Infinity }; continue
+    totalDC += 1
+    worst = { name: f, dc: Infinity }
+    continue
   }
   const diff = new PNG({ width: a.width, height: a.height })
   const dc = pixelmatch(a.data, b.data, diff.data, a.width, a.height, { threshold: THRESHOLD })
@@ -52,5 +64,9 @@ for (const f of pngs) {
 console.log(rows.join('\n'))
 console.log('─'.repeat(52))
 console.log(`fixtures=${pngs.length}  totalDC=${totalDC}  worst=${worst.name}:${worst.dc}`)
-if (totalDC === 0) { console.log('✅ DC=0 — relocation moved zero pixels'); process.exit(0) }
-console.log(`❌ DC>0 — diffs written to ${diffOut} (read worst tile 16-split per §5)`); process.exit(1)
+if (totalDC === 0) {
+  console.log('✅ DC=0 — relocation moved zero pixels')
+  process.exit(0)
+}
+console.log(`❌ DC>0 — diffs written to ${diffOut} (read worst tile 16-split per §5)`)
+process.exit(1)

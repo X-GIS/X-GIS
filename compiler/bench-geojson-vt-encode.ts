@@ -26,8 +26,8 @@ const cases: FixtureCase[] = [
     path: '../playground/public/sample-mapbox-with-inline-geojson.json',
     indexMaxZoom: 5,
     encodeKeys: [
-      { z: 5, x: 27, y: 12 },  // Korea-containing
-      { z: 5, x: 28, y: 12 },  // Tokyo-containing
+      { z: 5, x: 27, y: 12 }, // Korea-containing
+      { z: 5, x: 28, y: 12 }, // Tokyo-containing
     ],
   },
   {
@@ -35,9 +35,9 @@ const cases: FixtureCase[] = [
     path: '../playground/public/data/ne_110m_countries.geojson',
     indexMaxZoom: 5,
     encodeKeys: [
-      { z: 4, x: 8, y: 6 },     // North America
-      { z: 4, x: 9, y: 5 },     // Europe
-      { z: 5, x: 27, y: 12 },   // East Asia
+      { z: 4, x: 8, y: 6 }, // North America
+      { z: 4, x: 9, y: 5 }, // Europe
+      { z: 5, x: 27, y: 12 }, // East Asia
     ],
   },
   {
@@ -63,13 +63,15 @@ for (const c of cases) {
   if (parsed.sources) {
     // Mapbox style — extract the first inline geojson source.
     const sources = parsed.sources as Record<string, { type: string; data?: unknown }>
-    const inline = Object.values(sources).find(s => s.type === 'geojson' && s.data)
+    const inline = Object.values(sources).find((s) => s.type === 'geojson' && s.data)
     fc = inline?.data as { type: string; features: unknown[] }
   } else {
     fc = parsed
   }
   const parseMs = performance.now() - t0
-  console.log(`  features: ${fc.features?.length ?? 0}, file size: ${(raw.length / 1024).toFixed(0)} KB, JSON.parse: ${parseMs.toFixed(1)} ms`)
+  console.log(
+    `  features: ${fc.features?.length ?? 0}, file size: ${(raw.length / 1024).toFixed(0)} KB, JSON.parse: ${parseMs.toFixed(1)} ms`,
+  )
 
   // ── geojson-vt index build ──
   const buildT0 = performance.now()
@@ -99,8 +101,14 @@ for (const c of cases) {
     const bytes = vtpbf.fromGeojsonVt({ default: tile }, { version: 1, extent: 4096 })
     encodeTotal += performance.now() - et0
     bytesTotal += bytes.length
-    console.log(`    z=${k.z}/${k.x}/${k.y}: getTile ${(performance.now() - gt0 - encodeTotal + (encodeTotal - (encodeTotal - (performance.now() - et0)))).toFixed(1)} → encode → ${bytes.length} bytes`)
+    console.log(
+      `    z=${k.z}/${k.x}/${k.y}: getTile ${(performance.now() - gt0 - encodeTotal + (encodeTotal - (encodeTotal - (performance.now() - et0)))).toFixed(1)} → encode → ${bytes.length} bytes`,
+    )
   }
-  console.log(`  total getTile: ${getTileTotal.toFixed(1)} ms, encode: ${encodeTotal.toFixed(1)} ms, bytes: ${bytesTotal} (${(bytesTotal / 1024).toFixed(1)} KB)`)
-  console.log(`  Σ build + getTile + encode (one-time + ${c.encodeKeys.length} tiles): ${(buildMs + getTileTotal + encodeTotal).toFixed(1)} ms`)
+  console.log(
+    `  total getTile: ${getTileTotal.toFixed(1)} ms, encode: ${encodeTotal.toFixed(1)} ms, bytes: ${bytesTotal} (${(bytesTotal / 1024).toFixed(1)} KB)`,
+  )
+  console.log(
+    `  Σ build + getTile + encode (one-time + ${c.encodeKeys.length} tiles): ${(buildMs + getTileTotal + encodeTotal).toFixed(1)} ms`,
+  )
 }

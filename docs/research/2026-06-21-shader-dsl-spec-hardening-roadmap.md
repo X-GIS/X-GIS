@@ -14,26 +14,26 @@ the fix into ordered waves.
 
 ## Severity × cost matrix
 
-| # | Finding | Severity | Fix cost | Wave |
-|---|---|---|---|---|
-| 2 | No validation/semantic pass — emit is GIGO (`oracle.ts:144` throws; WGSL emits undeclared refs) | **Critical** | Medium | **1** |
-| 6 | Integer-arith f32-lift footgun — `u32.add(1)`→`(x + 1.0)`, naga-invalid (`node.ts:30,72`) | High | Low | **1** |
-| 5b | Invented int/float promotion (`f32 op u32 → f32`, `node.ts:50-55`) — WGSL forbids; emits invalid | High | Low | **1** |
-| 13 | Oracle `==` exact-f64 + `>>` always logical (`oracle.ts:54,166`) — silent CPU↔GPU divergence | Medium | Low | **1** |
-| 4d | Oracle f64 ≠ GPU f32: structurally blind to the repo's worst bug class (#392/#360) — **document the asterisk** | High | Low (doc) | **1** |
-| 12d | GLSL backend never compiled on a GPU — neutrality "proof" is vacuous — **document + flag** | High | Low (doc) | **1** |
-| 9 | Capability model not wired into emit (`covers/missing` uncalled) — fail-closed is hollow (`backend.ts:16`) | Medium | Low-Med | **2** |
-| 3a | Intrinsic id IS the WGSL string (`'bitcast<u32>'`, `'atan2'`, `node.ts:227`) — structured IntrinsicId | High | Medium | **2** |
-| 12 | Headless-WebGL2 compile gate for the GLSL backend — make neutrality non-vacuous | High | Medium | **2** |
-| 1 | Phantom-K type safety collapses to `string` (swizzle/field/struct/array/callFn) — `node.ts:130`, `types.ts:46` | High | High | **3** |
-| 3b | IO stored as WGSL attr strings (`@builtin`, `@location`, `nodes.ts:89,111`) — structured IO model | High | Med-High | **3** |
-| 8 | Composition too weak → flagship polygon falls back to `placeholder`+`raw` string-splice (`nodes.ts:52-71`) | High | High | **3** |
-| 3c | Retire `Stmt.raw` (WGSL-only escape hatch; blocks GLSL) — depends on #8 | High | High | **3** |
-| 4 | Real f32 differential oracle / headless-GPU diff — depends on #12 | High | High | **4** |
-| 5a | Impoverished type lattice (no f16/atomic/ptr/storage-tex/non-square mat) | Medium | Med (incremental) | **4** |
-| 7 | No optimizer (CSE/fold/DCE) — naga does it downstream anyway | Low-Med | High | **4** |
-| 10 | Manual string var names, no hygiene/gensym (`builder.ts:21`) — **breaks byte-identity** | Low-Med | Med | **4** |
-| 11 | `readonly` IR is fiction — builder casts `as unknown as Stmt` (`builder.ts:59`) | Low | Low | **4** |
+| #   | Finding                                                                                                        | Severity     | Fix cost          | Wave  |
+| --- | -------------------------------------------------------------------------------------------------------------- | ------------ | ----------------- | ----- |
+| 2   | No validation/semantic pass — emit is GIGO (`oracle.ts:144` throws; WGSL emits undeclared refs)                | **Critical** | Medium            | **1** |
+| 6   | Integer-arith f32-lift footgun — `u32.add(1)`→`(x + 1.0)`, naga-invalid (`node.ts:30,72`)                      | High         | Low               | **1** |
+| 5b  | Invented int/float promotion (`f32 op u32 → f32`, `node.ts:50-55`) — WGSL forbids; emits invalid               | High         | Low               | **1** |
+| 13  | Oracle `==` exact-f64 + `>>` always logical (`oracle.ts:54,166`) — silent CPU↔GPU divergence                   | Medium       | Low               | **1** |
+| 4d  | Oracle f64 ≠ GPU f32: structurally blind to the repo's worst bug class (#392/#360) — **document the asterisk** | High         | Low (doc)         | **1** |
+| 12d | GLSL backend never compiled on a GPU — neutrality "proof" is vacuous — **document + flag**                     | High         | Low (doc)         | **1** |
+| 9   | Capability model not wired into emit (`covers/missing` uncalled) — fail-closed is hollow (`backend.ts:16`)     | Medium       | Low-Med           | **2** |
+| 3a  | Intrinsic id IS the WGSL string (`'bitcast<u32>'`, `'atan2'`, `node.ts:227`) — structured IntrinsicId          | High         | Medium            | **2** |
+| 12  | Headless-WebGL2 compile gate for the GLSL backend — make neutrality non-vacuous                                | High         | Medium            | **2** |
+| 1   | Phantom-K type safety collapses to `string` (swizzle/field/struct/array/callFn) — `node.ts:130`, `types.ts:46` | High         | High              | **3** |
+| 3b  | IO stored as WGSL attr strings (`@builtin`, `@location`, `nodes.ts:89,111`) — structured IO model              | High         | Med-High          | **3** |
+| 8   | Composition too weak → flagship polygon falls back to `placeholder`+`raw` string-splice (`nodes.ts:52-71`)     | High         | High              | **3** |
+| 3c  | Retire `Stmt.raw` (WGSL-only escape hatch; blocks GLSL) — depends on #8                                        | High         | High              | **3** |
+| 4   | Real f32 differential oracle / headless-GPU diff — depends on #12                                              | High         | High              | **4** |
+| 5a  | Impoverished type lattice (no f16/atomic/ptr/storage-tex/non-square mat)                                       | Medium       | Med (incremental) | **4** |
+| 7   | No optimizer (CSE/fold/DCE) — naga does it downstream anyway                                                   | Low-Med      | High              | **4** |
+| 10  | Manual string var names, no hygiene/gensym (`builder.ts:21`) — **breaks byte-identity**                        | Low-Med      | Med               | **4** |
+| 11  | `readonly` IR is fiction — builder casts `as unknown as Stmt` (`builder.ts:59`)                                | Low          | Low               | **4** |
 
 ---
 

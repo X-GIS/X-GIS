@@ -46,7 +46,7 @@ const A = 6378137 // WGS84 semi-major axis — matches the tiler + render-side `
 // ANCHOR must use THIS decoded latitude (not the rounded MERC_LAT_CLAMP) so the
 // pack anchor equals the render-side tileEcefCenter EXACTLY and the RTC origins
 // cancel with no residual — identical to SyntheticEarthSurfaceBackend.
-const Z0_DECODED_SOUTH = Math.atan(Math.sinh(-Math.PI)) * 180 / Math.PI
+const Z0_DECODED_SOUTH = (Math.atan(Math.sinh(-Math.PI)) * 180) / Math.PI
 
 /** Which pole(s) a source touches at the Mercator clamp boundary. */
 export interface CapPoles {
@@ -229,7 +229,7 @@ export class GeoJSONPolarCapBackend implements TileSource {
     // the cap shares one RTC origin with the synthetic background + ground
     // tiles and the polygon ECEF VS origins cancel with no residual.
     const tileMx = -180 * DEG2RAD * A
-    const tileMy = Math.log(Math.tan(Math.PI / 4 + Z0_DECODED_SOUTH * DEG2RAD / 2)) * A
+    const tileMy = Math.log(Math.tan(Math.PI / 4 + (Z0_DECODED_SOUTH * DEG2RAD) / 2)) * A
     const ecefTileCenter = tileEcefCenterFromMerc(tileMx, tileMy)
 
     const q = packECEFWithPolarCaps(mesh.vertices, vertexCount, ecefTileCenter, [tileMx, tileMy])

@@ -63,19 +63,9 @@
 // plan.
 
 import type { RenderNode, Scene } from '../ir/render-node'
-import {
-  routeColorValue,
-  routeIsCompute,
-} from './paint-routing'
-import {
-  lowerConditionalColorToTernary,
-  lowerMatchColorToMatch,
-} from './compute-lowering'
-import {
-  emitMatchComputeKernel,
-  emitTernaryComputeKernel,
-  type ComputeKernel,
-} from './compute-gen'
+import { routeColorValue, routeIsCompute } from './paint-routing'
+import { lowerConditionalColorToTernary, lowerMatchColorToMatch } from './compute-lowering'
+import { emitMatchComputeKernel, emitTernaryComputeKernel, type ComputeKernel } from './compute-gen'
 
 /** Which paint axis on a RenderNode the entry targets. The runtime
  *  needs to know this so it can bind the kernel's `out_color`
@@ -168,10 +158,7 @@ function kernelFingerprint(k: ComputeKernel): string {
   ].join('\x1F')
 }
 
-function shareOrCache(
-  cache: Map<string, ComputeKernel>,
-  kernel: ComputeKernel,
-): ComputeKernel {
+function shareOrCache(cache: Map<string, ComputeKernel>, kernel: ComputeKernel): ComputeKernel {
   const key = kernelFingerprint(kernel)
   const existing = cache.get(key)
   if (existing) return existing
@@ -212,7 +199,9 @@ function pushAxis(
     if (!spec) return
     const kernel = shareOrCache(wgslCache, emitTernaryComputeKernel(spec))
     out.push({
-      renderNodeIndex, paintAxis, kernel,
+      renderNodeIndex,
+      paintAxis,
+      kernel,
       fieldOrder: kernel.fieldOrder,
       categoryOrder: kernel.categoryOrder ?? {},
     })
@@ -230,7 +219,9 @@ function pushAxis(
       const cached = cseCache.get(cseId)
       if (cached) {
         out.push({
-          renderNodeIndex, paintAxis, kernel: cached,
+          renderNodeIndex,
+          paintAxis,
+          kernel: cached,
           fieldOrder: cached.fieldOrder,
           categoryOrder: cached.categoryOrder ?? {},
         })
@@ -246,7 +237,9 @@ function pushAxis(
     // isn't in the cseAnnotation (Scene built outside `optimize()`).
     if (cseId !== undefined) cseCache.set(cseId, kernel)
     out.push({
-      renderNodeIndex, paintAxis, kernel,
+      renderNodeIndex,
+      paintAxis,
+      kernel,
       fieldOrder: kernel.fieldOrder,
       categoryOrder: kernel.categoryOrder ?? {},
     })

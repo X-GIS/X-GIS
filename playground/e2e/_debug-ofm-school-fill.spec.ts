@@ -44,16 +44,16 @@ mkdirSync(OUT, { recursive: true })
 test('ofm-bright school fill — #17.85/37.12665/126.92430', async ({ page }) => {
   test.setTimeout(60_000)
   await page.setViewportSize({ width: 1800, height: 900 })
-  await page.goto(
-    `/compare.html?style=openfreemap-bright#17.85/37.12665/126.92430`,
-    { waitUntil: 'domcontentloaded' },
-  )
+  await page.goto(`/compare.html?style=openfreemap-bright#17.85/37.12665/126.92430`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => {
       const w = window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }
       return w.__xgisReady === true && w.__mlReady === true
     },
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // PMTiles z=17 first-fetch on cold start typically resolves in
   // 2-4s, plus SDF label / icon stages. 10s covers headroom.

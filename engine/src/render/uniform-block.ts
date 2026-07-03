@@ -44,22 +44,30 @@ type Kind = 'f32' | 'u32' | 'i32'
 /** JS value shape for a reflected field, keyed by the DSL's type key. Vectors are
  *  exact-arity tuples (contextual typing checks the literal's length); matrices
  *  take any ArrayLike (16 lanes as a tuple would be noise, dev-asserted instead). */
-export type UniformValueFor<K extends string> =
-  K extends `mat${number}x${number}<${string}>` ? ArrayLike<number> :
-  K extends `vec4<${string}>` ? readonly [number, number, number, number] :
-  K extends `vec3<${string}>` ? readonly [number, number, number] :
-  K extends `vec2<${string}>` ? readonly [number, number] :
-  K extends 'f32' | 'u32' | 'i32' ? number :
-  number | ArrayLike<number> // KeyOf widened to string (untyped Record<string, ShaderType> blocks)
+export type UniformValueFor<K extends string> = K extends `mat${number}x${number}<${string}>`
+  ? ArrayLike<number>
+  : K extends `vec4<${string}>`
+    ? readonly [number, number, number, number]
+    : K extends `vec3<${string}>`
+      ? readonly [number, number, number]
+      : K extends `vec2<${string}>`
+        ? readonly [number, number]
+        : K extends 'f32' | 'u32' | 'i32'
+          ? number
+          : number | ArrayLike<number> // KeyOf widened to string (untyped Record<string, ShaderType> blocks)
 
 /** Fixed-arity setter for a reflected field (the zero-alloc hot-loop surface). */
-export type UniformSetterFor<K extends string> =
-  K extends `mat${number}x${number}<${string}>` ? (m: ArrayLike<number>) => void :
-  K extends `vec4<${string}>` ? (x: number, y: number, z: number, w: number) => void :
-  K extends `vec3<${string}>` ? (x: number, y: number, z: number) => void :
-  K extends `vec2<${string}>` ? (x: number, y: number) => void :
-  K extends 'f32' | 'u32' | 'i32' ? (x: number) => void :
-  (...lanes: number[]) => void // KeyOf widened to string (untyped Record<string, ShaderType> blocks)
+export type UniformSetterFor<K extends string> = K extends `mat${number}x${number}<${string}>`
+  ? (m: ArrayLike<number>) => void
+  : K extends `vec4<${string}>`
+    ? (x: number, y: number, z: number, w: number) => void
+    : K extends `vec3<${string}>`
+      ? (x: number, y: number, z: number) => void
+      : K extends `vec2<${string}>`
+        ? (x: number, y: number) => void
+        : K extends 'f32' | 'u32' | 'i32'
+          ? (x: number) => void
+          : (...lanes: number[]) => void // KeyOf widened to string (untyped Record<string, ShaderType> blocks)
 
 /** The full-struct value object for `write()` — one entry per reflected field. */
 export type UniformValues<F extends Record<string, ShaderType>> = {
@@ -103,14 +111,20 @@ export class UniformBlock<F extends Record<string, ShaderType> = Record<string, 
       // Fields the flat fast path cannot pack correctly — per-column mat3 padding,
       // array strides, nested structs — fail LOUD at construction (prod included):
       // a silent mis-pack here is exactly the corruption class this type retires.
-      if (fl.type.startsWith('struct:') || fl.type.startsWith('array') || fl.type.startsWith('mat3')) {
+      if (
+        fl.type.startsWith('struct:') ||
+        fl.type.startsWith('array') ||
+        fl.type.startsWith('mat3')
+      ) {
         throw new Error(
           `UniformBlock: field '${fl.name}' (${fl.type}) needs column/stride-aware packing — ` +
-          `keep its bespoke packer (see the LineLayer carve-out in #733)`,
+            `keep its bespoke packer (see the LineLayer carve-out in #733)`,
         )
       }
       if (fl.offset % 4 !== 0) {
-        throw new Error(`UniformBlock: field '${fl.name}' offset ${fl.offset} is not 4-byte aligned`)
+        throw new Error(
+          `UniformBlock: field '${fl.name}' offset ${fl.offset} is not 4-byte aligned`,
+        )
       }
       const off = fl.offset / 4
       const lanes = fl.size / 4
@@ -121,21 +135,45 @@ export class UniformBlock<F extends Record<string, ShaderType> = Record<string, 
       // through TypedArray.set; scalars store one lane. The vec3 std140 pad lane
       // (+3) is zeroed by ArrayBuffer init and never written — deterministic bytes.
       if (lanes === 1) {
-        const s = (x: number): void => { view[off] = x }
+        const s = (x: number): void => {
+          view[off] = x
+        }
         setters[fl.name] = s
-        writers.push({ name: fl.name, write: (v) => { view[off] = v as number } })
+        writers.push({
+          name: fl.name,
+          write: (v) => {
+            view[off] = v as number
+          },
+        })
       } else {
         const arr = (v: number | ArrayLike<number>): void => {
           const a = v as ArrayLike<number>
-          devAssert(a.length === lanes, () => `UniformBlock '${fl.name}': expected ${lanes} lanes, got ${a.length}`)
+          devAssert(
+            a.length === lanes,
+            () => `UniformBlock '${fl.name}': expected ${lanes} lanes, got ${a.length}`,
+          )
           view.set(a, off)
         }
         writers.push({ name: fl.name, write: arr })
-        setters[fl.name] =
-          fl.type.startsWith('mat') ? ((m: ArrayLike<number>) => arr(m)) :
-          lanes === 2 ? ((x: number, y: number) => { view[off] = x; view[off + 1] = y }) :
-          lanes === 3 ? ((x: number, y: number, z: number) => { view[off] = x; view[off + 1] = y; view[off + 2] = z }) :
-          ((x: number, y: number, z: number, w: number) => { view[off] = x; view[off + 1] = y; view[off + 2] = z; view[off + 3] = w })
+        setters[fl.name] = fl.type.startsWith('mat')
+          ? (m: ArrayLike<number>) => arr(m)
+          : lanes === 2
+            ? (x: number, y: number) => {
+                view[off] = x
+                view[off + 1] = y
+              }
+            : lanes === 3
+              ? (x: number, y: number, z: number) => {
+                  view[off] = x
+                  view[off + 1] = y
+                  view[off + 2] = z
+                }
+              : (x: number, y: number, z: number, w: number) => {
+                  view[off] = x
+                  view[off + 1] = y
+                  view[off + 2] = z
+                  view[off + 3] = w
+                }
       }
     }
 
@@ -160,7 +198,10 @@ export class UniformBlock<F extends Record<string, ShaderType> = Record<string, 
     for (let i = 0; i < list.length; i++) {
       const w = list[i]!
       const x = v[w.name]
-      devAssert(x !== undefined, () => `UniformBlock.write: field '${w.name}' missing (untyped caller?)`)
+      devAssert(
+        x !== undefined,
+        () => `UniformBlock.write: field '${w.name}' missing (untyped caller?)`,
+      )
       w.write(x as number | ArrayLike<number>)
     }
     return this
@@ -180,7 +221,9 @@ export class UniformBlock<F extends Record<string, ShaderType> = Record<string, 
 }
 
 /** Factory sugar for the common flat-struct path: `uniformBlock(U)`. */
-export function uniformBlock<F extends Record<string, ShaderType>>(u: UniformStruct<F>): UniformBlock<F> {
+export function uniformBlock<F extends Record<string, ShaderType>>(
+  u: UniformStruct<F>,
+): UniformBlock<F> {
   return UniformBlock.of(u)
 }
 
@@ -189,4 +232,5 @@ export function uniformBlock<F extends Record<string, ShaderType>>(u: UniformStr
  *  The `infer F extends` bound filters to flat (scalar/vec/mat) field records —
  *  a struct with `arrayOf(…)` handle-array fields resolves to `never`, matching
  *  the constructor's fail-loud array rejection (those keep bespoke packers). */
-export type UniformBlockOf<U> = U extends UniformStruct<infer F extends Record<string, ShaderType>> ? UniformBlock<F> : never
+export type UniformBlockOf<U> =
+  U extends UniformStruct<infer F extends Record<string, ShaderType>> ? UniformBlock<F> : never

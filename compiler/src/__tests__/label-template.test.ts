@@ -105,8 +105,12 @@ describe('label utility → IR TextValue', () => {
       `)
       expect(label.text.kind).toBe('template')
       if (label.text.kind === 'template') {
-        expect(label.text.parts.map(p => p.kind))
-          .toEqual(['interp', 'literal', 'interp', 'literal'])
+        expect(label.text.parts.map((p) => p.kind)).toEqual([
+          'interp',
+          'literal',
+          'interp',
+          'literal',
+        ])
       }
     })
 

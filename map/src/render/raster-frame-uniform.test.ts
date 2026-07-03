@@ -19,12 +19,27 @@
 import { describe, it, expect } from 'vitest'
 import { uniformBlock } from '@xgis/engine'
 import { reflect } from '@xgis/shader-dsl'
-import { buildRasterModule, rasterU as RASTER_U, rasterTileU as RASTER_TILE_U } from '../shaders/dsl/raster'
-import { writeRasterFrameUniform, writeRasterTileUniform, type RasterColorParams } from './raster-renderer'
+import {
+  buildRasterModule,
+  rasterU as RASTER_U,
+  rasterTileU as RASTER_TILE_U,
+} from '../shaders/dsl/raster'
+import {
+  writeRasterFrameUniform,
+  writeRasterTileUniform,
+  type RasterColorParams,
+} from './raster-renderer'
 import { globeEyeUniform } from './globe-eye-uniform'
 
 const MVP = Float32Array.from({ length: 16 }, (_, i) => (i + 1) * 0.125)
-const COLORS: RasterColorParams = { opacity: 0.85, hueRotate: 12.5, brightnessMin: 0.1, brightnessMax: 0.9, saturation: -0.25, contrast: 0.3 }
+const COLORS: RasterColorParams = {
+  opacity: 0.85,
+  hueRotate: 12.5,
+  brightnessMin: 0.1,
+  brightnessMax: 0.9,
+  saturation: -0.25,
+  contrast: 0.3,
+}
 
 interface Fixture {
   readonly name: string
@@ -37,8 +52,23 @@ interface Fixture {
 }
 
 const FIXTURES: readonly Fixture[] = [
-  { name: 'flat mercator (projType 0) — 2D centre anchor', projType: 0, lon: 0, lat: 0, logDepthFc: 0.111, camAnchor: [0.312345, 0.659876, 0] },
-  { name: 'globe (projType 7) with eye — ellipsoid anchor + live globe_eye', projType: 7, lon: 127.024, lat: 37.532, logDepthFc: 0.222, eye: [12756274.1, 1234567.8, -7654321.9], camAnchor: [-3054321.5, 4044321.25, 3867890.75] },
+  {
+    name: 'flat mercator (projType 0) — 2D centre anchor',
+    projType: 0,
+    lon: 0,
+    lat: 0,
+    logDepthFc: 0.111,
+    camAnchor: [0.312345, 0.659876, 0],
+  },
+  {
+    name: 'globe (projType 7) with eye — ellipsoid anchor + live globe_eye',
+    projType: 7,
+    lon: 127.024,
+    lat: 37.532,
+    logDepthFc: 0.222,
+    eye: [12756274.1, 1234567.8, -7654321.9],
+    camAnchor: [-3054321.5, 4044321.25, 3867890.75],
+  },
 ]
 
 /** Frozen verbatim reference: the retired render() slot writer (slots: mvp 0,
@@ -46,9 +76,15 @@ const FIXTURES: readonly Fixture[] = [
 function mainReferenceBytes(f: Fixture): Uint8Array {
   const uf = new Float32Array(40)
   uf.set(MVP, 0)
-  uf[16] = f.projType; uf[17] = f.lon; uf[18] = f.lat; uf[19] = f.logDepthFc
+  uf[16] = f.projType
+  uf[17] = f.lon
+  uf[18] = f.lat
+  uf[19] = f.logDepthFc
   const ge = globeEyeUniform(f.eye)
-  uf[36] = ge[0]; uf[37] = ge[1]; uf[38] = ge[2]; uf[39] = ge[3]
+  uf[36] = ge[0]
+  uf[37] = ge[1]
+  uf[38] = ge[2]
+  uf[39] = ge[3]
   uf.set([COLORS.opacity, 0, 0, 0], 20)
   uf.set([COLORS.hueRotate, COLORS.brightnessMin, COLORS.brightnessMax, COLORS.saturation], 24)
   uf.set([COLORS.contrast, 0, 0, 0], 28)
@@ -74,7 +110,11 @@ function packBlock(f: Fixture): Uint8Array {
   writeRasterFrameUniform(
     block,
     { matrix: MVP, logDepthFc: f.logDepthFc, ...(f.eye ? { eye: f.eye } : {}) },
-    f.projType, f.lon, f.lat, f.camAnchor, COLORS,
+    f.projType,
+    f.lon,
+    f.lat,
+    f.camAnchor,
+    COLORS,
   )
   expect(block.byteLength).toBe(160)
   return new Uint8Array(block.buffer)
@@ -110,19 +150,37 @@ describe('raster tile uniform — block bytes ≡ retired drawTileF32 writer', (
     { name: 'world-copy shifted (wo=1)', west: -11.25, south: 42.5, east: 0, north: 48.75, wo: 1 },
   ] as const
   const ECEF_SW: readonly [number, number, number] = [4187345.1, -832901.7, 4732081.9]
-  const MERC_S = 0.83279, MERC_DIFF = 0.11814
+  const MERC_S = 0.83279,
+    MERC_DIFF = 0.11814
 
   for (const c of CASES) {
     it(c.name, () => {
       // Frozen reference: slots bounds 0, tile_ecef_center 4, merc_y 8, _pad 10.
       const tf = new Float32Array(12)
-      tf[0] = c.west + c.wo * 360; tf[1] = c.south; tf[2] = c.east + c.wo * 360; tf[3] = c.north
-      tf[4] = ECEF_SW[0]; tf[5] = ECEF_SW[1]; tf[6] = ECEF_SW[2]; tf[7] = 0
-      tf[8] = MERC_S; tf[9] = MERC_DIFF
-      tf[10] = 0; tf[11] = 0
+      tf[0] = c.west + c.wo * 360
+      tf[1] = c.south
+      tf[2] = c.east + c.wo * 360
+      tf[3] = c.north
+      tf[4] = ECEF_SW[0]
+      tf[5] = ECEF_SW[1]
+      tf[6] = ECEF_SW[2]
+      tf[7] = 0
+      tf[8] = MERC_S
+      tf[9] = MERC_DIFF
+      tf[10] = 0
+      tf[11] = 0
 
       const block = uniformBlock(RASTER_TILE_U)
-      writeRasterTileUniform(block, c.west + c.wo * 360, c.south, c.east + c.wo * 360, c.north, ECEF_SW, MERC_S, MERC_DIFF)
+      writeRasterTileUniform(
+        block,
+        c.west + c.wo * 360,
+        c.south,
+        c.east + c.wo * 360,
+        c.north,
+        ECEF_SW,
+        MERC_S,
+        MERC_DIFF,
+      )
       expect(block.byteLength).toBe(48)
       expect([...new Uint8Array(block.buffer)]).toEqual([...new Uint8Array(tf.buffer.slice(0))])
     })
@@ -132,7 +190,10 @@ describe('raster tile uniform — block bytes ≡ retired drawTileF32 writer', (
 describe('raster layouts — handle path ≡ reflected module path', () => {
   it('Uniforms + TileUniforms offsets/sizes match reflect(buildRasterModule())', () => {
     const r = reflect(buildRasterModule(false))
-    const check = (block: { byteLength: number; fieldOffset(n: never): number }, name: string): void => {
+    const check = (
+      block: { byteLength: number; fieldOffset(n: never): number },
+      name: string,
+    ): void => {
       const reflected = r.uniforms.find((u) => u.name === name)!
       expect(reflected, name).toBeDefined()
       expect(block.byteLength, name).toBe(reflected.size)

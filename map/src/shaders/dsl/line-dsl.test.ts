@@ -50,12 +50,14 @@ describe('Phase-2 line shader — DSL emission', () => {
       expect(w).toMatch(/(\w+)\.x = \(\1\.x \+ \([\w.]+\.z \* \1\.w\)\)/)
       // clip.y -= translate.w * clip.w
       expect(w).toMatch(/(\w+)\.y = \(\1\.y - \([\w.]+\.w \* \1\.w\)\)/)
-      expect(w).toContain('< 0.25')  // NDC≪0.5 applied; pattern-repeat metres≫0.5 skipped
+      expect(w).toContain('< 0.25') // NDC≪0.5 applied; pattern-repeat metres≫0.5 skipped
       // applied to `clip` BEFORE log-depth finalises the position: the fill-translate
       // clip mutation precedes apply_log_depth in the VS body. (Anchor on the
       // `clip.x = (clip.x + ...)` mutation, not the struct field decl, so the
       // ordering is the real before/after — not trivially true.)
-      expect(linePart(w)).toMatch(/(\w+)\.x = \(\1\.x \+ \([\w.]+\.z \* \1\.w\)\)[\s\S]*?apply_log_depth/)
+      expect(linePart(w)).toMatch(
+        /(\w+)\.x = \(\1\.x \+ \([\w.]+\.z \* \1\.w\)\)[\s\S]*?apply_log_depth/,
+      )
     }
   })
   it('globe arm lifts z_lift along the GEODETIC NORMAL, not the ECEF polar axis', () => {
@@ -89,13 +91,21 @@ describe('Phase-2 line shader — DSL emission', () => {
     expect(linePart(noPick)).toContain('@group(0) @binding(5) var sprite_atlas: texture_2d<f32>;')
     expect(linePart(noPick)).toContain('@group(0) @binding(6) var sprite_samp: sampler;')
     expect(linePart(noPick)).toContain('@group(1) @binding(0) var<uniform> layer: LineLayer;')
-    expect(linePart(noPick)).toContain('@group(1) @binding(1) var<storage, read> segments: array<LineSegment>;')
-    expect(linePart(noPick)).toContain('@group(1) @binding(2) var<storage, read> shapes: array<ShapeDesc>;')
-    expect(linePart(noPick)).toContain('@group(1) @binding(3) var<storage, read> shape_segments: array<ShapeSegment>;')
+    expect(linePart(noPick)).toContain(
+      '@group(1) @binding(1) var<storage, read> segments: array<LineSegment>;',
+    )
+    expect(linePart(noPick)).toContain(
+      '@group(1) @binding(2) var<storage, read> shapes: array<ShapeDesc>;',
+    )
+    expect(linePart(noPick)).toContain(
+      '@group(1) @binding(3) var<storage, read> shape_segments: array<ShapeSegment>;',
+    )
   })
   it('emits vertex (instance_index + vertex_index) and 3 fragment entries', () => {
     expect(linePart(noPick)).toContain('@vertex')
-    expect(linePart(noPick)).toContain('fn vs_line(@builtin(instance_index) seg_id: u32, @builtin(vertex_index) vi: u32) -> LineOut')
+    expect(linePart(noPick)).toContain(
+      'fn vs_line(@builtin(instance_index) seg_id: u32, @builtin(vertex_index) vi: u32) -> LineOut',
+    )
     expect(linePart(noPick)).toContain('@fragment')
     expect(linePart(noPick)).toContain('fn fs_line(input: LineOut) -> LineFragmentOutput')
     expect(linePart(noPick)).toContain('fn fs_line_pattern(input: LineOut) -> LineFragmentOutput')
@@ -110,11 +120,11 @@ describe('Phase-2 line shader — DSL emission', () => {
     expect(calls).toBeGreaterThanOrEqual(4) // 1 def + 3 calls (fs_line, fs_line_pattern, fs_line_max)
   })
   it('bitwise unpacking of layer.flags + bitcast/unpack for per-segment colour', () => {
-    expect(linePart(noPick)).toContain('(layer.flags & 7u)')             // cap_type
-    expect(linePart(noPick)).toContain('((layer.flags >> 3u) & 3u)')     // join_flags
-    expect(linePart(noPick)).toContain('(layer.flags & 64u)')            // LINE_FLAG_HAS_PATTERN
-    expect(linePart(noPick)).toContain('bitcast<u32>(')                  // color_packed → u32
-    expect(linePart(noPick)).toContain('unpack4x8unorm(')                // u32 → RGBA8 vec4
+    expect(linePart(noPick)).toContain('(layer.flags & 7u)') // cap_type
+    expect(linePart(noPick)).toContain('((layer.flags >> 3u) & 3u)') // join_flags
+    expect(linePart(noPick)).toContain('(layer.flags & 64u)') // LINE_FLAG_HAS_PATTERN
+    expect(linePart(noPick)).toContain('bitcast<u32>(') // color_packed → u32
+    expect(linePart(noPick)).toContain('unpack4x8unorm(') // u32 → RGBA8 vec4
   })
   it('switch on vertex_index + for-loop with continue', () => {
     expect(linePart(noPick)).toContain('switch vi {')
@@ -146,13 +156,26 @@ describe('Phase-2 line shader — DSL emission', () => {
     // @256 (slot 64), so the struct is 272 bytes — identical to polygon Uniforms
     // (UNIFORM_SIZE), which it MUST be (shared VTR group(0) buffer).
     const T: Record<string, [number, number]> = {
-      'mat4x4<f32>': [64, 16], 'vec4<f32>': [16, 16], 'vec2<f32>': [8, 8], 'f32': [4, 4], 'u32': [4, 4],
+      'mat4x4<f32>': [64, 16],
+      'vec4<f32>': [16, 16],
+      'vec2<f32>': [8, 8],
+      f32: [4, 4],
+      u32: [4, 4],
     }
-    let cur = 0, maxA = 1; const off: Record<string, number> = {}
+    let cur = 0,
+      maxA = 1
+    const off: Record<string, number> = {}
     for (const raw of tu.split('\n')) {
-      const fm = raw.replace(/\/\/.*$/, '').trim().match(/^(\w+)\s*:\s*([\w<>]+)\s*,?$/)
+      const fm = raw
+        .replace(/\/\/.*$/, '')
+        .trim()
+        .match(/^(\w+)\s*:\s*([\w<>]+)\s*,?$/)
       if (!fm) continue
-      const [s, a] = T[fm[2]!]!; cur = Math.ceil(cur / a) * a; off[fm[1]!] = cur / 4; cur += s; if (a > maxA) maxA = a
+      const [s, a] = T[fm[2]!]!
+      cur = Math.ceil(cur / a) * a
+      off[fm[1]!] = cur / 4
+      cur += s
+      if (a > maxA) maxA = a
     }
     expect(off.cam_ecef_off_h).toBe(52)
     expect(off.cam_ecef_off_l).toBe(56)

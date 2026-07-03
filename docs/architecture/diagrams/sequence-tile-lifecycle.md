@@ -57,7 +57,7 @@ sequenceDiagram
   `has(key)` is a cheap synchronous predicate the catalog uses to avoid
   redundant fetches. XGVT-binary backends may implement `loadTilesBatch`.
 - **Off-thread decode**: `mvt-worker.ts` does `bytes → decodeMvtTile →
-  decomposeFeatures → compileSingleTile`, resolved through an rAF-driven
+decomposeFeatures → compileSingleTile`, resolved through an rAF-driven
   queue in `mvt-worker-pool.ts`. The GeoJSON path has its own compile +
   tiling worker pools.
 - **Two caches, two pressures**:
@@ -67,7 +67,7 @@ sequenceDiagram
     zoom; count-only eviction crashed the globe at z10–11
     (see [GPUArena OOM fix](../../../runtime/src/engine/render/vector-tile-renderer-helpers.ts)).
 - **Budget split gotcha**: the GPU cache cap `getMaxGpuTiles()` keys off
-  `window.innerWidth`, while `uploadBudgetFor()` keys off the *canvas* CSS
+  `window.innerWidth`, while `uploadBudgetFor()` keys off the _canvas_ CSS
   width — a known latent width-basis mismatch documented in the renderer
   helpers (harmless in practice; surfaced during the equirect-drag
   investigation).

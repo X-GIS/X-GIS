@@ -56,7 +56,7 @@ function snapshotBody(content: string): string {
 }
 
 function fixtureBySlug(slug: string): Fixture | undefined {
-  return FIXTURES.find(f => f.slug === slug)
+  return FIXTURES.find((f) => f.slug === slug)
 }
 
 describe('polygon-variant snapshot drift gate — US-010 impl', () => {
@@ -73,7 +73,10 @@ describe('polygon-variant snapshot drift gate — US-010 impl', () => {
       it(`${file}: baseline + fixture headers parseable`, () => {
         const content = readFileSync(join(SNAPSHOT_DIR, file), 'utf8')
         const baselineMatch = content.match(BASELINE_HEADER)
-        expect(baselineMatch, `missing/malformed "// baseline: <sha>" header in ${file}`).not.toBeNull()
+        expect(
+          baselineMatch,
+          `missing/malformed "// baseline: <sha>" header in ${file}`,
+        ).not.toBeNull()
         expect(baselineMatch![1]).toMatch(/^[a-f0-9]{40}$/)
         const slugMatch = content.match(SLUG_HEADER)
         expect(slugMatch, `missing "// fixture: <slug>" header in ${file}`).not.toBeNull()
@@ -105,17 +108,23 @@ describe('polygon-variant snapshot drift gate — US-010 impl', () => {
           const b = body.split('\n')
           let firstLine = -1
           for (let i = 0; i < Math.min(a.length, b.length); i++) {
-            if (a[i] !== b[i]) { firstLine = i; break }
+            if (a[i] !== b[i]) {
+              firstLine = i
+              break
+            }
           }
           if (firstLine === -1) firstLine = Math.min(a.length, b.length)
           const ctx = (lines: string[], n: number) =>
-            lines.slice(Math.max(0, n - 2), n + 3).map((l, i) => `  ${(n - 2 + i).toString().padStart(4)}| ${l}`).join('\n')
+            lines
+              .slice(Math.max(0, n - 2), n + 3)
+              .map((l, i) => `  ${(n - 2 + i).toString().padStart(4)}| ${l}`)
+              .join('\n')
           expect.fail(
             `Composer emit drift in ${file}.\n` +
-            `Re-run \`bun scripts/capture-polygon-snapshots.ts\` and commit if change is intentional.\n` +
-            `First diff at line ${firstLine + 1}:\n` +
-            `--- snapshot ---\n${ctx(b, firstLine)}\n` +
-            `--- emit ---\n${ctx(a, firstLine)}\n`,
+              `Re-run \`bun scripts/capture-polygon-snapshots.ts\` and commit if change is intentional.\n` +
+              `First diff at line ${firstLine + 1}:\n` +
+              `--- snapshot ---\n${ctx(b, firstLine)}\n` +
+              `--- emit ---\n${ctx(a, firstLine)}\n`,
           )
         }
       })

@@ -14,8 +14,13 @@ const OUT = join(HERE, '__pixel-match-liberty-paris-z18__')
 mkdirSync(OUT, { recursive: true })
 
 interface Buckets {
-  eq0: number; le8: number; le16: number; le32: number
-  le64: number; le128: number; gt128: number
+  eq0: number
+  le8: number
+  le16: number
+  le32: number
+  le64: number
+  le128: number
+  gt128: number
 }
 
 function diffBuckets(a: PNG, b: PNG, w: number, h: number): { buckets: Buckets; heatmap: PNG } {
@@ -71,29 +76,42 @@ test('pixel-match liberty Paris z18 pitch=49.8 bearing=47.5', async ({ page }) =
     }
   })
   await page.setViewportSize({ width: 1280, height: 800 })
-  await page.goto(
-    `/compare.html?style=openfreemap-liberty#18.25/48.84778/2.33194/47.5/49.8`,
-    { waitUntil: 'domcontentloaded' },
-  )
+  await page.goto(`/compare.html?style=openfreemap-liberty#18.25/48.84778/2.33194/47.5/49.8`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => {
       const w = window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }
       return w.__xgisReady === true && w.__mlReady === true
     },
-    null, { timeout: 90_000 },
+    null,
+    { timeout: 90_000 },
   )
   // Both sides settle.
-  await page.evaluate(() => new Promise<void>((resolve) => {
-    interface MlMap { loaded(): boolean; once(ev: string, fn: () => void): void }
-    const ml = (window as unknown as { __mlMap?: MlMap }).__mlMap
-    if (!ml) { resolve(); return }
-    if (ml.loaded()) { resolve(); return }
-    ml.once('idle', () => resolve())
-    setTimeout(resolve, 12_000)
-  }))
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        interface MlMap {
+          loaded(): boolean
+          once(ev: string, fn: () => void): void
+        }
+        const ml = (window as unknown as { __mlMap?: MlMap }).__mlMap
+        if (!ml) {
+          resolve()
+          return
+        }
+        if (ml.loaded()) {
+          resolve()
+          return
+        }
+        ml.once('idle', () => resolve())
+        setTimeout(resolve, 12_000)
+      }),
+  )
   await page.waitForTimeout(4_000)
-  await page.evaluate(() => new Promise<void>(r =>
-    requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+  await page.evaluate(
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+  )
 
   const mlPng = await page.locator('#ml-map canvas').first().screenshot()
   const xgPng = await page.locator('#xg-canv').screenshot()
@@ -109,11 +127,21 @@ test('pixel-match liberty Paris z18 pitch=49.8 bearing=47.5', async ({ page }) =
   writeFileSync(join(OUT, 'maplibre.png'), PNG.sync.write(mlNorm))
   writeFileSync(join(OUT, 'xgis.png'), PNG.sync.write(xgNorm))
   writeFileSync(join(OUT, 'diff-heatmap.png'), PNG.sync.write(heatmap))
-  writeFileSync(join(OUT, 'buckets.json'), JSON.stringify({
-    buckets, totalPx, canvasW: w, canvasH: h,
-    hash: '#18.25/48.84778/2.33194/47.5/49.8',
-    style: 'openfreemap-liberty',
-  }, null, 2))
+  writeFileSync(
+    join(OUT, 'buckets.json'),
+    JSON.stringify(
+      {
+        buckets,
+        totalPx,
+        canvasW: w,
+        canvasH: h,
+        hash: '#18.25/48.84778/2.33194/47.5/49.8',
+        style: 'openfreemap-liberty',
+      },
+      null,
+      2,
+    ),
+  )
 
   const pct = (n: number) => ((n / totalPx) * 100).toFixed(2) + '%'
   const lines: string[] = []
@@ -148,8 +176,8 @@ test('pixel-match liberty Paris z18 pitch=49.8 bearing=47.5', async ({ page }) =
   writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))
   // eslint-disable-next-line no-console
   console.warn(
-    `[pixel-match liberty-paris-z18-pitched] eq=${pct(buckets.eq0)} `
-    + `le32=${pct(cle32)} gt128=${buckets.gt128}px`,
+    `[pixel-match liberty-paris-z18-pitched] eq=${pct(buckets.eq0)} ` +
+      `le32=${pct(cle32)} gt128=${buckets.gt128}px`,
   )
   expect(totalPx).toBeGreaterThan(0)
 })

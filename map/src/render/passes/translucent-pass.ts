@@ -16,15 +16,16 @@ import type { RenderPass, TranslucentPassHost } from './pass'
 class TranslucentPass implements RenderPass {
   readonly label = 'translucent'
 
-  shouldRun(scene: SceneView): boolean { return scene.hasTranslucent && !DEBUG_OVERDRAW }
+  shouldRun(scene: SceneView): boolean {
+    return scene.hasTranslucent && !DEBUG_OVERDRAW
+  }
 
   execute(ctx: FrameContext, scene: SceneView, host: TranslucentPassHost): void {
     const encoder = ctx.encoder
     for (let li = 0; li < scene.translucent.length; li++) {
       const cs = scene.translucent[li]
       const isLastTranslucent = li === scene.translucent.length - 1
-      const resolveHere =
-        ctx.useResolve && isLastTranslucent && scene.resolveOwner === 'composite'
+      const resolveHere = ctx.useResolve && isLastTranslucent && scene.resolveOwner === 'composite'
 
       ctx.passScope(`translucent-off[${li}]`, () => {
         const offPass = host.lineRenderer!.beginTranslucentPass(encoder)
@@ -37,12 +38,14 @@ class TranslucentPass implements RenderPass {
 
       ctx.passScope(`translucent-comp[${li}]`, () => {
         const compPass = encoder.beginRenderPass({
-          colorAttachments: [{
-            view: ctx.colorView,
-            resolveTarget: resolveHere ? ctx.screenView : undefined,
-            loadOp: 'load',
-            storeOp: 'store',
-          }],
+          colorAttachments: [
+            {
+              view: ctx.colorView,
+              resolveTarget: resolveHere ? ctx.screenView : undefined,
+              loadOp: 'load',
+              storeOp: 'store',
+            },
+          ],
         })
         // Composite opacity reads the Phase 4b ResolvedShow
         // snapshot: zoom × time already collapsed by the bucket

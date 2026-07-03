@@ -16,7 +16,8 @@ test('map.addEventListener("click", h) fires with event.target = layer', async (
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(1500)
 
@@ -39,7 +40,9 @@ test('map.addEventListener("click", h) fires with event.target = layer', async (
   await page.mouse.click(target.x, target.y)
   await page.waitForTimeout(500)
 
-  const log = await page.evaluate(() => (window as { __log?: Array<{ target: string; id: number }> }).__log ?? [])
+  const log = await page.evaluate(
+    () => (window as { __log?: Array<{ target: string; id: number }> }).__log ?? [],
+  )
   console.log('[map-events]', JSON.stringify(log))
   expect(log.length).toBeGreaterThanOrEqual(1)
   expect(log[0].target).toBe('fill')
@@ -54,7 +57,8 @@ test('layer preventDefault suppresses map-level delegation', async ({ page }) =>
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(1500)
 
@@ -94,7 +98,8 @@ test('pointerdown / pointerup fire on the hit layer', async ({ page }) => {
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(1500)
 

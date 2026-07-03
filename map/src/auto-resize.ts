@@ -30,7 +30,10 @@ export function attachAutoResize(canvas: HTMLCanvasElement, onResize: () => void
   let detachDpr: (() => void) | null = null
   if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
     let mql: MediaQueryList
-    const onDprChange = (): void => { onResize(); arm() }
+    const onDprChange = (): void => {
+      onResize()
+      arm()
+    }
     const arm = (): void => {
       mql = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`)
       // { once } self-removes on fire; arm() re-attaches on the NEW dpr's

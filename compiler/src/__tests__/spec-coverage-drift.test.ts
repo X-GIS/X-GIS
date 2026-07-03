@@ -39,14 +39,33 @@ function readConverterSource(): string {
   //  - convert-background-layer.ts (C5) holds the background-* paint refs
   //    lifted out of mapbox-to-xgis.ts
   const files = [
-    'expressions.ts', 'expr-registry.ts', 'expr-arithmetic.ts', 'expr-logic.ts', 'expr-lookup.ts', 'expr-string.ts',
-    'layers.ts', 'layers-circle.ts', 'layers-symbol.ts', 'layers-heatmap.ts',
-    'paint.ts', 'paint-fill.ts', 'paint-line.ts', 'paint-fill-extrusion.ts', 'paint-raster.ts', 'paint-helpers.ts',
-    'sources.ts', 'colors.ts', 'mapbox-to-xgis.ts', 'convert-background-layer.ts',
-    'layer-converters/line.ts', 'layer-converters/circle.ts', 'layer-converters/symbol.ts', 'layer-converters/generic.ts',
+    'expressions.ts',
+    'expr-registry.ts',
+    'expr-arithmetic.ts',
+    'expr-logic.ts',
+    'expr-lookup.ts',
+    'expr-string.ts',
+    'layers.ts',
+    'layers-circle.ts',
+    'layers-symbol.ts',
+    'layers-heatmap.ts',
+    'paint.ts',
+    'paint-fill.ts',
+    'paint-line.ts',
+    'paint-fill-extrusion.ts',
+    'paint-raster.ts',
+    'paint-helpers.ts',
+    'sources.ts',
+    'colors.ts',
+    'mapbox-to-xgis.ts',
+    'convert-background-layer.ts',
+    'layer-converters/line.ts',
+    'layer-converters/circle.ts',
+    'layer-converters/symbol.ts',
+    'layer-converters/generic.ts',
     'layer-converters/heatmap.ts',
   ]
-  return files.map(f => readFileSync(join(CONVERT_DIR, f), 'utf8')).join('\n\n')
+  return files.map((f) => readFileSync(join(CONVERT_DIR, f), 'utf8')).join('\n\n')
 }
 
 /** Extract Mapbox spec strings the converter source actually references.
@@ -130,18 +149,32 @@ const TABLE_NAMES = (() => {
 // the field by design — runtime parts of the system shouldn't have
 // to thread URL state through the xgis-source intermediate.
 const TABLE_NOISE = new Set([
-  'tilejson', 'pmtiles', 'inline', 'icon-only', 'text', 'and',
-  'linear', 'exponential', 'cubic-bezier', 'form', 'boolean',
-  'expression', 'legacy', 'url',
+  'tilejson',
+  'pmtiles',
+  'inline',
+  'icon-only',
+  'text',
+  'and',
+  'linear',
+  'exponential',
+  'cubic-bezier',
+  'form',
+  'boolean',
+  'expression',
+  'legacy',
+  'url',
   // Same situation as 'glyphs' — supported end-to-end but the URL
   // flow bypasses the compiler converter (importer → runtime setter).
-  'glyphs', 'sprite',
+  'glyphs',
+  'sprite',
   // Initial-camera fields. Same runtime-side-only pattern as glyphs /
   // sprite — demo-runner.ts (playground) reads them off the raw style
   // JSON after `convertMapboxStyle()`, applies via `Camera` assignment
   // + `markCameraPositioned()`. No converter touchpoint by design;
   // the xgis DSL doesn't carry top-level camera state.
-  'center', 'bearing', 'pitch',
+  'center',
+  'bearing',
+  'pitch',
   // WS-8 — same host-applied pattern as center/bearing/pitch: the
   // demo-runner + compare-runner read top-level `projection` off the
   // raw style JSON and call XGISMap.setProjection(). No converter
@@ -167,18 +200,33 @@ describe('mapbox spec-coverage drift detector', () => {
       // (`min-fraction-digits` / `max-fraction-digits` for number-format)
       // live UNDER their parent expression entry and aren't standalone
       // properties.
-      if ([
-        'linear', 'exponential', 'cubic-bezier', 'zoom',
-        'min-fraction-digits', 'max-fraction-digits',
-        // JavaScript typeof results — picked up by the
-        // `.type === 'X'` extractor regex when the source has
-        // `typeof obj.type === 'string'` (sources.ts:134). Not
-        // Mapbox layer / source / expression names.
-        'string', 'number', 'boolean', 'object', 'undefined', 'function',
-      ].includes(name)) continue
+      if (
+        [
+          'linear',
+          'exponential',
+          'cubic-bezier',
+          'zoom',
+          'min-fraction-digits',
+          'max-fraction-digits',
+          // JavaScript typeof results — picked up by the
+          // `.type === 'X'` extractor regex when the source has
+          // `typeof obj.type === 'string'` (sources.ts:134). Not
+          // Mapbox layer / source / expression names.
+          'string',
+          'number',
+          'boolean',
+          'object',
+          'undefined',
+          'function',
+        ].includes(name)
+      )
+        continue
       missing.push(name)
     }
-    expect(missing, `Converter source references these Mapbox properties without a coverage table entry — add them to convert/spec-coverage.ts: ${missing.join(', ')}`).toEqual([])
+    expect(
+      missing,
+      `Converter source references these Mapbox properties without a coverage table entry — add them to convert/spec-coverage.ts: ${missing.join(', ')}`,
+    ).toEqual([])
   })
 
   it('every "supported" table entry actually has a converter reference', () => {
@@ -194,8 +242,11 @@ describe('mapbox spec-coverage drift detector', () => {
       if (referenced.has(head)) continue
       // Some entries' display label is a phrase ("vector (.pmtiles)" → head "vector").
       // Walk the alternative tokens too.
-      const tokens = e.name.split(/[\s,()]+/).map(s => s.toLowerCase()).filter(Boolean)
-      if (tokens.some(t => referenced.has(t))) continue
+      const tokens = e.name
+        .split(/[\s,()]+/)
+        .map((s) => s.toLowerCase())
+        .filter(Boolean)
+      if (tokens.some((t) => referenced.has(t))) continue
       orphans.push(e.name)
     }
     // Known orphans: properties whose support lives in the lower /
@@ -206,7 +257,9 @@ describe('mapbox spec-coverage drift detector', () => {
     // the table should track converter touchpoints.
     const allowlist = new Set<string>([
       // Top-level structural keys that don't appear as `case` strings:
-      'name', 'sources', 'layers',
+      'name',
+      'sources',
+      'layers',
       // MapLibre v3 alias for raster-resampling — read via the
       // non-hyphenated `p['resampling']` bracket access in paint-raster.ts
       // (the drift extractor only greps hyphenated bracket keys), same
@@ -214,7 +267,10 @@ describe('mapbox spec-coverage drift detector', () => {
       'resampling',
       // Source type entries are matched as `'vector'`, `'raster'`, etc. in the SCAN
       // but the table display names are parenthesised — accept either form.
-      'vector (.pmtiles)', 'vector (TileJSON)', 'geojson (URL)', 'geojson (inline)',
+      'vector (.pmtiles)',
+      'vector (TileJSON)',
+      'geojson (URL)',
+      'geojson (inline)',
       // Layer-type entries with parenthetical disambiguation.
       'symbol (text)',
       // Special-cased composite operator labels — the underlying ops
@@ -255,14 +311,23 @@ describe('mapbox spec-coverage drift detector', () => {
       // than via string. Drift detection can't see these so we
       // allowlist them; their conversion is exercised by other tests
       // (openfreemap-convert, mapbox-convert).
-      'id', 'type', 'source', 'minzoom', 'maxzoom', 'filter',
+      'id',
+      'type',
+      'source',
+      'minzoom',
+      'maxzoom',
+      'filter',
       // Pseudo-field names handled via `peeledPseudoField === '$type'`
       // / `'$id'` comparisons in filterToXgis — the $ prefix means
       // neither the `case 'X':` nor `op === 'X'` regex grabs them.
-      '$type', '$id',
+      '$type',
+      '$id',
     ])
-    const realOrphans = orphans.filter(o => !allowlist.has(o))
-    expect(realOrphans, `Coverage table marks these as supported but the converter source has no matching reference — either the converter regressed or the table needs cleanup: ${realOrphans.join(', ')}`).toEqual([])
+    const realOrphans = orphans.filter((o) => !allowlist.has(o))
+    expect(
+      realOrphans,
+      `Coverage table marks these as supported but the converter source has no matching reference — either the converter regressed or the table needs cleanup: ${realOrphans.join(', ')}`,
+    ).toEqual([])
   })
 
   it('every entry has a unique name WITHIN its section (sanity)', () => {

@@ -12,7 +12,10 @@ export type Control =
   | { kind: 'const'; value: number[] }
   | { kind: 'slider'; label: string; min: number; max: number; step: number; value: number }
 
-export interface ReflField { name: string; offset: number }
+export interface ReflField {
+  name: string
+  offset: number
+}
 export interface RenderSpec {
   id: string
   vertex: string
@@ -25,7 +28,9 @@ export interface RenderSpec {
 /** Live slider values, keyed by uniform-field name. The page mutates this; the loop reads it. */
 export type SliderValues = Record<string, number>
 
-export interface Mounted { destroy(): void }
+export interface Mounted {
+  destroy(): void
+}
 
 function compileShader(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader {
   const sh = gl.createShader(type)!
@@ -52,7 +57,9 @@ export function mountShader(
   const vs = compileShader(gl, gl.VERTEX_SHADER, spec.vertex)
   const fs = compileShader(gl, gl.FRAGMENT_SHADER, spec.fragment)
   const prog = gl.createProgram()!
-  gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog)
+  gl.attachShader(prog, vs)
+  gl.attachShader(prog, fs)
+  gl.linkProgram(prog)
   if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
     throw new Error(gl.getProgramInfoLog(prog) || 'program link failed')
   }
@@ -68,7 +75,7 @@ export function mountShader(
     gl.bindBuffer(gl.UNIFORM_BUFFER, ubo)
     gl.bufferData(gl.UNIFORM_BUFFER, buf.byteLength, gl.DYNAMIC_DRAW)
     const idx = gl.getUniformBlockIndex(prog, block.name)
-    if (idx !== 0xFFFFFFFF) {
+    if (idx !== 0xffffffff) {
       gl.uniformBlockBinding(prog, idx, 0)
       gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, ubo)
     }
@@ -89,7 +96,10 @@ export function mountShader(
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
     const w = Math.max(1, Math.round(canvas.clientWidth * dpr))
     const h = Math.max(1, Math.round(canvas.clientHeight * dpr))
-    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h }
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w
+      canvas.height = h
+    }
   }
 
   const packUniforms = (): void => {
@@ -121,10 +131,18 @@ export function mountShader(
   }
 
   // Pause the loop while the canvas is scrolled out of view (battery / mobile).
-  const io = new IntersectionObserver((entries) => { visible = entries[0]?.isIntersecting ?? true }, { threshold: 0 })
+  const io = new IntersectionObserver(
+    (entries) => {
+      visible = entries[0]?.isIntersecting ?? true
+    },
+    { threshold: 0 },
+  )
   io.observe(canvas)
 
-  const onLost = (e: Event): void => { e.preventDefault(); cancelAnimationFrame(raf) }
+  const onLost = (e: Event): void => {
+    e.preventDefault()
+    cancelAnimationFrame(raf)
+  }
   canvas.addEventListener('webglcontextlost', onLost, false)
 
   raf = requestAnimationFrame(frame)

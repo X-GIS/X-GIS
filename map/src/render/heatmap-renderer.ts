@@ -89,12 +89,12 @@ const STRIDE = 24
 /** Default Mapbox heatmap-color ramp (the spec default `interpolate` over
  *  heatmap-density). Transparent at 0 so empty areas don't tint the map. */
 export const DEFAULT_HEATMAP_RAMP: readonly HeatmapColorStop[] = [
-  { offset: 0.0, rgba: [0, 0, 1, 0] },        // rgba(0,0,255,0)
-  { offset: 0.1, rgba: [65 / 255, 105 / 255, 225 / 255, 1] },  // royalblue
-  { offset: 0.3, rgba: [0, 1, 1, 1] },        // cyan
-  { offset: 0.5, rgba: [0, 1, 0, 1] },        // lime
-  { offset: 0.7, rgba: [1, 1, 0, 1] },        // yellow
-  { offset: 1.0, rgba: [1, 0, 0, 1] },        // red
+  { offset: 0.0, rgba: [0, 0, 1, 0] }, // rgba(0,0,255,0)
+  { offset: 0.1, rgba: [65 / 255, 105 / 255, 225 / 255, 1] }, // royalblue
+  { offset: 0.3, rgba: [0, 1, 1, 1] }, // cyan
+  { offset: 0.5, rgba: [0, 1, 0, 1] }, // lime
+  { offset: 0.7, rgba: [1, 1, 0, 1] }, // yellow
+  { offset: 1.0, rgba: [1, 0, 0, 1] }, // red
 ]
 
 /** Pack the heatmap accum frame uniform into the typed block — one write() per
@@ -115,16 +115,25 @@ export function writeHeatmapFrameUniform(
   canvasWidth: number,
   canvasHeight: number,
 ): void {
-  const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
+  const metersPerPixel = WORLD_MERC / TILE_PX / Math.pow(2, camera.zoom)
   let cHx: number, cHy: number, cHz: number, cLx: number, cLy: number, cLz: number
   if (projType === 0) {
-    const cmx = camera.centerX, cmy = camera.centerY
-    cHx = Math.fround(cmx); cHy = Math.fround(cmy); cHz = 0
-    cLx = cmx - cHx; cLy = cmy - cHy; cLz = 0
+    const cmx = camera.centerX,
+      cmy = camera.centerY
+    cHx = Math.fround(cmx)
+    cHy = Math.fround(cmy)
+    cHz = 0
+    cLx = cmx - cHx
+    cLy = cmy - cHy
+    cLz = 0
   } else {
     const camC = camera.getECEFCenter()
-    cHx = Math.fround(camC[0]); cHy = Math.fround(camC[1]); cHz = Math.fround(camC[2])
-    cLx = camC[0] - cHx; cLy = camC[1] - cHy; cLz = camC[2] - cHz
+    cHx = Math.fround(camC[0])
+    cHy = Math.fround(camC[1])
+    cHz = Math.fround(camC[2])
+    cLx = camC[0] - cHx
+    cLy = camC[1] - cHy
+    cLz = camC[2] - cHz
   }
   const ge = globeEyeUniform(frame.eye)
   block.write({
@@ -176,17 +185,30 @@ export class HeatmapRenderer {
     // Accum uniform — UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
     this.uniformBuffer = this.rhi.createBuffer({
       size: this.frameBlock.byteLength, // reflected std140 size (144 = 36 f32 × 4, #600 globe_eye)
-      usage: 'uniform', writable: true,
+      usage: 'uniform',
+      writable: true,
     })
 
     // Blur direction uniforms (vec4: x,y = texel step direction). Written
     // once at construction — the pass never mutates them per-frame.
-    this.blurDirH = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, label: 'heatmap-blur-dir-h' })
-    this.blurDirV = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, label: 'heatmap-blur-dir-v' })
+    this.blurDirH = device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      label: 'heatmap-blur-dir-h',
+    })
+    this.blurDirV = device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      label: 'heatmap-blur-dir-v',
+    })
     device.queue.writeBuffer(this.blurDirH, 0, new Float32Array([1, 0, 0, 0]))
     device.queue.writeBuffer(this.blurDirV, 0, new Float32Array([0, 1, 0, 0]))
 
-    this.rampSampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear', label: 'heatmap-ramp-sampler' })
+    this.rampSampler = device.createSampler({
+      magFilter: 'linear',
+      minFilter: 'linear',
+      label: 'heatmap-ramp-sampler',
+    })
   }
 
   /** Blur direction uniform buffers (H / V) — read by the heatmap pass. */
@@ -212,10 +234,13 @@ export class HeatmapRenderer {
     for (let i = 0; i < W; i++) {
       const t = i / (W - 1)
       // Find the bracketing stops.
-      let lo = sorted[0], hi = sorted[sorted.length - 1]
+      let lo = sorted[0],
+        hi = sorted[sorted.length - 1]
       for (let s = 0; s < sorted.length - 1; s++) {
         if (t >= sorted[s].offset && t <= sorted[s + 1].offset) {
-          lo = sorted[s]; hi = sorted[s + 1]; break
+          lo = sorted[s]
+          hi = sorted[s + 1]
+          break
         }
       }
       const span = hi.offset - lo.offset
@@ -250,7 +275,10 @@ export class HeatmapRenderer {
    *  @param perFeatureWeights optional per-feature weight overrides
    */
   addLayer(
-    features: { geometry: { type: string; coordinates: number[] }; properties?: Record<string, unknown> }[],
+    features: {
+      geometry: { type: string; coordinates: number[] }
+      properties?: Record<string, unknown>
+    }[],
     radiusPx: number,
     weight: number,
     intensity: number,
@@ -261,7 +289,10 @@ export class HeatmapRenderer {
     const points: { lon: number; lat: number; w: number }[] = []
     let fi = 0
     for (const f of features) {
-      if (!f.geometry) { fi++; continue }
+      if (!f.geometry) {
+        fi++
+        continue
+      }
       const w = (perFeatureWeights ? perFeatureWeights[fi] : 1) * weight
       if (f.geometry.type === 'Point') {
         points.push({ lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], w })
@@ -287,12 +318,16 @@ export class HeatmapRenderer {
     const lyOpacity = Math.max(0, Math.min(1, opacity))
     // Per-layer compose params (intensity, opacity) — static, written once.
     const paramsBuf = this.device.createBuffer({
-      size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, label: 'heatmap-compose-params',
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      label: 'heatmap-compose-params',
     })
     this.device.queue.writeBuffer(paramsBuf, 0, new Float32Array([lyIntensity, lyOpacity, 0, 0]))
 
     this.layers.push({
-      lons, lats, weights,
+      lons,
+      lats,
+      weights,
       pointCount: points.length,
       radiusPx: Math.max(1, radiusPx),
       intensity: lyIntensity,
@@ -337,7 +372,16 @@ export class HeatmapRenderer {
     dpr: number,
   ): void {
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
-    writeHeatmapFrameUniform(this.frameBlock, frame, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight)
+    writeHeatmapFrameUniform(
+      this.frameBlock,
+      frame,
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+    )
     this.rhi.writeBuffer(this.uniformBuffer, 0, this.frameBlock.buffer)
   }
 
@@ -364,28 +408,46 @@ export class HeatmapRenderer {
       const vBase = i * 4 * 4
       for (let q = 0; q < 4; q++) {
         const off = vBase + q * 4
-        verts[off] = 0; verts[off + 1] = 0; u32View[off + 2] = q; verts[off + 3] = i
+        verts[off] = 0
+        verts[off + 1] = 0
+        u32View[off + 2] = q
+        verts[off + 3] = i
       }
-      const iBase = i * 6, vIdx = i * 4
-      indices[iBase] = vIdx; indices[iBase + 1] = vIdx + 1; indices[iBase + 2] = vIdx + 2
-      indices[iBase + 3] = vIdx; indices[iBase + 4] = vIdx + 2; indices[iBase + 5] = vIdx + 3
+      const iBase = i * 6,
+        vIdx = i * 4
+      indices[iBase] = vIdx
+      indices[iBase + 1] = vIdx + 1
+      indices[iBase + 2] = vIdx + 2
+      indices[iBase + 3] = vIdx
+      indices[iBase + 4] = vIdx + 2
+      indices[iBase + 5] = vIdx + 3
 
       const fOff = i * STRIDE
-      featData[fOff + 0] = layer.radiusPx     // slot 0: radius_px
-      featData[fOff + 1] = layer.weights[i]   // slot 1: weight
+      featData[fOff + 0] = layer.radiusPx // slot 0: radius_px
+      featData[fOff + 1] = layer.weights[i] // slot 1: weight
       // ECEF DSFUN centre (slots 11..16) — identical math to PointRenderer.
       const ecef = lonLatToECEF(lon, lat)
-      const exH = Math.fround(ecef[0]); const eyH = Math.fround(ecef[1]); const ezH = Math.fround(ecef[2])
-      featData[fOff + 11] = exH; featData[fOff + 12] = eyH; featData[fOff + 13] = ezH
-      featData[fOff + 14] = ecef[0] - exH; featData[fOff + 15] = ecef[1] - eyH; featData[fOff + 16] = ecef[2] - ezH
-      featData[fOff + 17] = lon; featData[fOff + 18] = lat
+      const exH = Math.fround(ecef[0])
+      const eyH = Math.fround(ecef[1])
+      const ezH = Math.fround(ecef[2])
+      featData[fOff + 11] = exH
+      featData[fOff + 12] = eyH
+      featData[fOff + 13] = ezH
+      featData[fOff + 14] = ecef[0] - exH
+      featData[fOff + 15] = ecef[1] - eyH
+      featData[fOff + 16] = ecef[2] - ezH
+      featData[fOff + 17] = lon
+      featData[fOff + 18] = lat
       // Absolute Mercator DSFUN tail (slots 20..23).
       const mx = lon * DEG2RAD * R_MERC
       const myClamp = Math.max(-85.051129, Math.min(85.051129, lat))
-      const my = Math.log(Math.tan(Math.PI / 4 + myClamp * DEG2RAD / 2)) * R_MERC
-      const mxH = Math.fround(mx); const myH = Math.fround(my)
-      featData[fOff + 20] = mxH; featData[fOff + 21] = Math.fround(mx - mxH)
-      featData[fOff + 22] = myH; featData[fOff + 23] = Math.fround(my - myH)
+      const my = Math.log(Math.tan(Math.PI / 4 + (myClamp * DEG2RAD) / 2)) * R_MERC
+      const mxH = Math.fround(mx)
+      const myH = Math.fround(my)
+      featData[fOff + 20] = mxH
+      featData[fOff + 21] = Math.fround(mx - mxH)
+      featData[fOff + 22] = myH
+      featData[fOff + 23] = Math.fround(my - myH)
     }
 
     // (Re)allocate per-layer GPU buffers when missing or point count changed. Routed
@@ -395,9 +457,24 @@ export class HeatmapRenderer {
       if (layer._vertBuf) this.rhi.destroyBuffer(layer._vertBuf)
       if (layer._idxBuf) this.rhi.destroyBuffer(layer._idxBuf)
       if (layer._featBuf) this.rhi.destroyBuffer(layer._featBuf)
-      layer._vertBuf = this.rhi.createBuffer({ size: verts.byteLength, usage: 'vertex', writable: true, label: 'heatmap-vertices' })
-      layer._idxBuf = this.rhi.createBuffer({ size: indices.byteLength, usage: 'index', writable: true, label: 'heatmap-indices' })
-      layer._featBuf = this.rhi.createBuffer({ size: Math.max(featData.byteLength, 16), usage: 'storage', writable: true, label: 'heatmap-features' })
+      layer._vertBuf = this.rhi.createBuffer({
+        size: verts.byteLength,
+        usage: 'vertex',
+        writable: true,
+        label: 'heatmap-vertices',
+      })
+      layer._idxBuf = this.rhi.createBuffer({
+        size: indices.byteLength,
+        usage: 'index',
+        writable: true,
+        label: 'heatmap-indices',
+      })
+      layer._featBuf = this.rhi.createBuffer({
+        size: Math.max(featData.byteLength, 16),
+        usage: 'storage',
+        writable: true,
+        label: 'heatmap-features',
+      })
       layer._bindGroup = this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bindGroupLayout), [
         { binding: 0, resource: { buffer: this.uniformBuffer } },
         { binding: 1, resource: { buffer: layer._featBuf } },
@@ -412,7 +489,10 @@ export class HeatmapRenderer {
     // target is r16float — WebGL2 fail-closes on it, so this is WebGPU-only by construction.
     this.ensureHeatmapDraper()
     this._heatmapDraper!.draw(wrapWebGpuPass(pass), {
-      bindGroup: layer._bindGroup!, vertBuf: layer._vertBuf!, idxBuf: layer._idxBuf!, indexCount: N * 6,
+      bindGroup: layer._bindGroup!,
+      vertBuf: layer._vertBuf!,
+      idxBuf: layer._idxBuf!,
+      indexCount: N * 6,
     })
   }
 

@@ -1,25 +1,28 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>X-GIS Demo</title>
-  <!-- Cache-busting: the JS bundle filenames are content-hashed so they
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>X-GIS Demo</title>
+    <!-- Cache-busting: the JS bundle filenames are content-hashed so they
        invalidate on each build, but the HTML shell that *references*
        them is not — iOS Safari was serving a stale demo.html that
        pointed at a long-gone bundle hash, leaving users on the
        previously-broken (pre-fix) bundle. Tell intermediaries +
        browsers to revalidate so a fresh deploy actually reaches the
        client. -->
-  <meta http-equiv="cache-control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="pragma" content="no-cache">
-  <meta http-equiv="expires" content="0">
-  <!-- Suppress auto /favicon.ico 404 — see index.html for full rationale. -->
-  <link rel="icon" href="data:,">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
-  <!-- Self-hosted Open Sans / Noto Sans were planned (see
+    <meta http-equiv="cache-control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="pragma" content="no-cache" />
+    <meta http-equiv="expires" content="0" />
+    <!-- Suppress auto /favicon.ico 404 — see index.html for full rationale. -->
+    <link rel="icon" href="data:," />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <!-- Self-hosted Open Sans / Noto Sans were planned (see
        public/fonts/map-fonts.css) but the actual .woff2 files were
        never vendored — the CSS @font-face declarations triggered
        /fonts/*.woff2 fetches that resolved to the SPA index.html
@@ -27,324 +30,382 @@
        1008813135" (bytes `<!DI`) on every demo. Disabled here to
        keep the console clean; the OS font chain handles Latin labels
        fine. Re-enable with the actual woff2 files committed. -->
-  <!--
+    <!--
   <link rel="preload" href="/fonts/open-sans-latin-variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/noto-sans-latin-variable.woff2" as="font" type="font/woff2" crossorigin>
   <link href="/fonts/map-fonts.css" rel="stylesheet">
   -->
-  <style>
-    /* Palette mirrors the marketing site's xAI "Drafting Table" theme
+    <style>
+      /* Palette mirrors the marketing site's xAI "Drafting Table" theme
        (site/src/styles/global.css): warm near-black ground, hairline
        borders, paper text, and a WHITE brand accent — emphasis is
        carried by shape + weight, not hue. --green stays as the
        functional "Run" affordance (the site has no equivalent token). */
-    :root {
-      --bg: #0a0a0a;
-      --surface: #191919;
-      --surface2: #1a1c20;
-      --border: #212327;
-      --border-hover: #2c2f34;
-      --text: #dadbdf;
-      --text-dim: #7d8187;
-      --text-muted: #5a5f66;
-      --accent: #ffffff;
-      --accent-dim: rgba(255, 255, 255, 0.08);
-      --green: #4ade80;
-      --green-dim: #4ade8018;
-      --font-sans: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      --font-mono: 'Geist Mono Variable', 'Geist Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
-      --editor-width: 420px;
-    }
+      :root {
+        --bg: #0a0a0a;
+        --surface: #191919;
+        --surface2: #1a1c20;
+        --border: #212327;
+        --border-hover: #2c2f34;
+        --text: #dadbdf;
+        --text-dim: #7d8187;
+        --text-muted: #5a5f66;
+        --accent: #ffffff;
+        --accent-dim: rgba(255, 255, 255, 0.08);
+        --green: #4ade80;
+        --green-dim: #4ade8018;
+        --font-sans:
+          'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        --font-mono:
+          'Geist Mono Variable', 'Geist Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+        --editor-width: 420px;
+      }
 
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--font-sans);
-      overflow: hidden;
-      -webkit-font-smoothing: antialiased;
-      /* Use dynamic viewport height so iOS Safari's collapsing URL bar
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font-sans);
+        overflow: hidden;
+        -webkit-font-smoothing: antialiased;
+        /* Use dynamic viewport height so iOS Safari's collapsing URL bar
          doesn't push half the editor out of view. `vh` is the legacy
          fallback for browsers that don't support `dvh` (pre-2022). */
-      height: 100vh;
-      height: 100dvh;
-    }
+        height: 100vh;
+        height: 100dvh;
+      }
 
-    /* ── Split Layout ── */
-    #layout {
-      display: flex;
-      height: 100vh;
-      height: 100dvh;
-    }
+      /* ── Split Layout ── */
+      #layout {
+        display: flex;
+        height: 100vh;
+        height: 100dvh;
+      }
 
-    #map-pane {
-      flex: 1;
-      position: relative;
-      min-width: 200px;
-    }
+      #map-pane {
+        flex: 1;
+        position: relative;
+        min-width: 200px;
+      }
 
-    #map {
-      width: 100%; height: 100%;
-      display: block; touch-action: none;
-    }
+      #map {
+        width: 100%;
+        height: 100%;
+        display: block;
+        touch-action: none;
+      }
 
-    #editor-pane {
-      width: var(--editor-width);
-      min-width: 280px;
-      max-width: 50vw;
-      display: flex;
-      flex-direction: column;
-      background: var(--surface);
-      border-left: 1px solid var(--border);
-      position: relative;
-    }
+      #editor-pane {
+        width: var(--editor-width);
+        min-width: 280px;
+        max-width: 50vw;
+        display: flex;
+        flex-direction: column;
+        background: var(--surface);
+        border-left: 1px solid var(--border);
+        position: relative;
+      }
 
-    /* ── Resize Handle ── */
-    #resize-handle {
-      position: absolute;
-      left: -3px; top: 0; bottom: 0;
-      width: 6px;
-      cursor: col-resize;
-      z-index: 30;
-    }
-    #resize-handle:hover, #resize-handle.active {
-      background: var(--accent);
-      opacity: 0.3;
-    }
+      /* ── Resize Handle ── */
+      #resize-handle {
+        position: absolute;
+        left: -3px;
+        top: 0;
+        bottom: 0;
+        width: 6px;
+        cursor: col-resize;
+        z-index: 30;
+      }
+      #resize-handle:hover,
+      #resize-handle.active {
+        background: var(--accent);
+        opacity: 0.3;
+      }
 
-    /* ── Editor Header ── */
-    .editor-header {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 8px 12px;
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
+      /* ── Editor Header ── */
+      .editor-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+      }
 
-    .editor-header .tb-nav {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text-dim);
-      width: 26px; height: 26px;
-      border-radius: 6px;
-      cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      transition: all 0.15s;
-      flex-shrink: 0;
-      font-size: 14px;
-    }
-    .editor-header .tb-nav:hover:not(:disabled) {
-      border-color: var(--border-hover);
-      color: var(--text);
-      background: var(--surface2);
-    }
-    .editor-header .tb-nav:disabled { opacity: 0.25; cursor: default; }
+      .editor-header .tb-nav {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text-dim);
+        width: 26px;
+        height: 26px;
+        border-radius: 6px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.15s;
+        flex-shrink: 0;
+        font-size: 14px;
+      }
+      .editor-header .tb-nav:hover:not(:disabled) {
+        border-color: var(--border-hover);
+        color: var(--text);
+        background: var(--surface2);
+      }
+      .editor-header .tb-nav:disabled {
+        opacity: 0.25;
+        cursor: default;
+      }
 
-    #demo-select {
-      font-family: var(--font-sans);
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      color: var(--text);
-      font-size: 12px; font-weight: 500;
-      padding: 4px 24px 4px 8px;
-      border-radius: 6px;
-      cursor: pointer;
-      flex: 1;
-      min-width: 0;
-      /* Without overflow constraints a long demo name blew past the
+      #demo-select {
+        font-family: var(--font-sans);
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 500;
+        padding: 4px 24px 4px 8px;
+        border-radius: 6px;
+        cursor: pointer;
+        flex: 1;
+        min-width: 0;
+        /* Without overflow constraints a long demo name blew past the
        * tag badge on narrow viewports; `text-overflow: ellipsis` keeps
        * the header on one line. */
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      overflow: hidden;
-      appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%235a6a7e' fill='none' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 8px center;
-    }
-    #demo-select:focus { outline: none; border-color: var(--accent); }
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        overflow: hidden;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%235a6a7e' fill='none' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 8px center;
+      }
+      #demo-select:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
 
-    #proj-select {
-      font-family: var(--font-mono);
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      color: var(--text-dim);
-      font-size: 11px;
-      padding: 4px 22px 4px 8px;
-      border-radius: 6px;
-      cursor: pointer;
-      flex-shrink: 0;
-      max-width: 140px;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      overflow: hidden;
-      appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%235a6a7e' fill='none' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 6px center;
-    }
-    #proj-select:focus { outline: none; border-color: var(--accent); }
+      #proj-select {
+        font-family: var(--font-mono);
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        color: var(--text-dim);
+        font-size: 11px;
+        padding: 4px 22px 4px 8px;
+        border-radius: 6px;
+        cursor: pointer;
+        flex-shrink: 0;
+        max-width: 140px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        overflow: hidden;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%235a6a7e' fill='none' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 6px center;
+      }
+      #proj-select:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
 
-    .tb-tag {
-      font-family: var(--font-mono);
-      font-size: 0.55rem;
-      color: var(--accent);
-      background: var(--accent-dim);
-      border: 1px solid var(--border-hover);
-      border-radius: 4px;
-      padding: 1px 6px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
+      .tb-tag {
+        font-family: var(--font-mono);
+        font-size: 0.55rem;
+        color: var(--accent);
+        background: var(--accent-dim);
+        border: 1px solid var(--border-hover);
+        border-radius: 4px;
+        padding: 1px 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
 
-    /* ── Editor Body (code area) ── */
-    .editor-body {
-      flex: 1;
-      min-height: 0;
-      overflow: hidden;
-      position: relative;
-    }
-    /* Let Monaco widgets (autocomplete, hover) overflow the editor pane */
-    .monaco-editor .overflow-guard { overflow: visible !important; }
-    .monaco-editor .overflowingContentWidgets { position: fixed !important; z-index: 100; }
+      /* ── Editor Body (code area) ── */
+      .editor-body {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        position: relative;
+      }
+      /* Let Monaco widgets (autocomplete, hover) overflow the editor pane */
+      .monaco-editor .overflow-guard {
+        overflow: visible !important;
+      }
+      .monaco-editor .overflowingContentWidgets {
+        position: fixed !important;
+        z-index: 100;
+      }
 
-    /* ── Editor Footer ── */
-    .editor-footer {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      border-top: 1px solid var(--border);
-      flex-shrink: 0;
-    }
+      /* ── Editor Footer ── */
+      .editor-footer {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-top: 1px solid var(--border);
+        flex-shrink: 0;
+      }
 
-    .run-btn {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      font-weight: 500;
-      background: var(--green-dim);
-      color: var(--green);
-      border: 1px solid #4ade8040;
-      border-radius: 6px;
-      padding: 5px 16px;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    .run-btn:hover { background: #4ade8030; border-color: var(--green); }
+      .run-btn {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 500;
+        background: var(--green-dim);
+        color: var(--green);
+        border: 1px solid #4ade8040;
+        border-radius: 6px;
+        padding: 5px 16px;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .run-btn:hover {
+        background: #4ade8030;
+        border-color: var(--green);
+      }
 
-    .run-hint {
-      font-family: var(--font-mono);
-      font-size: 10px;
-      color: var(--text-muted);
-    }
+      .run-hint {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--text-muted);
+      }
 
-    .editor-footer .spacer { flex: 1; }
+      .editor-footer .spacer {
+        flex: 1;
+      }
 
-    .back-link {
-      color: var(--text-muted);
-      text-decoration: none;
-      font-size: 11px;
-      display: flex; align-items: center; gap: 4px;
-      transition: color 0.15s;
-    }
-    .back-link:hover { color: var(--accent); }
-    .back-link svg { width: 12px; height: 12px; }
+      .back-link {
+        color: var(--text-muted);
+        text-decoration: none;
+        font-size: 11px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        transition: color 0.15s;
+      }
+      .back-link:hover {
+        color: var(--accent);
+      }
+      .back-link svg {
+        width: 12px;
+        height: 12px;
+      }
 
-    /* ── Status (on map) ── */
-    #status {
-      position: absolute; bottom: 12px; left: 12px;
-      background: rgba(10, 10, 10, 0.75);
-      border: 1px solid var(--border);
-      backdrop-filter: blur(12px);
-      padding: 4px 12px;
-      border-radius: 6px;
-      font-family: var(--font-mono);
-      font-size: 10px;
-      color: var(--text-dim);
-      pointer-events: none;
-      transition: opacity 0.5s;
-    }
+      /* ── Status (on map) ── */
+      #status {
+        position: absolute;
+        bottom: 12px;
+        left: 12px;
+        background: rgba(10, 10, 10, 0.75);
+        border: 1px solid var(--border);
+        backdrop-filter: blur(12px);
+        padding: 4px 12px;
+        border-radius: 6px;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--text-dim);
+        pointer-events: none;
+        transition: opacity 0.5s;
+      }
 
-    /* ── Error ── */
-    #error {
-      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      background: var(--surface);
-      padding: 2rem;
-      border-radius: 16px;
-      border: 1px solid #f4364430;
-      max-width: 520px;
-      display: none; z-index: 30;
-      box-shadow: 0 20px 60px #00000070;
-    }
-    #error h2 { color: #f43644; font-size: 0.9rem; font-weight: 600; margin-bottom: 0.8rem; }
-    #error pre {
-      color: var(--text);
-      font-family: var(--font-mono);
-      font-size: 12px;
-      white-space: pre-wrap;
-      line-height: 1.6;
-    }
+      /* ── Error ── */
+      #error {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: var(--surface);
+        padding: 2rem;
+        border-radius: 16px;
+        border: 1px solid #f4364430;
+        max-width: 520px;
+        display: none;
+        z-index: 30;
+        box-shadow: 0 20px 60px #00000070;
+      }
+      #error h2 {
+        color: #f43644;
+        font-size: 0.9rem;
+        font-weight: 600;
+        margin-bottom: 0.8rem;
+      }
+      #error pre {
+        color: var(--text);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        white-space: pre-wrap;
+        line-height: 1.6;
+      }
 
-    /* Snapshot copy button — floats in the map's top-right corner. */
-    #snapshot-btn {
-      position: absolute;
-      top: 12px;
-      right: 12px;
-      z-index: 100;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 10px;
-      font-family: var(--font-sans);
-      font-size: 11px;
-      font-weight: 500;
-      color: var(--text-dim);
-      background: rgba(16, 16, 16, 0.85);
-      backdrop-filter: blur(8px);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.15s;
-      user-select: none;
-    }
-    #snapshot-btn:hover {
-      color: var(--text);
-      border-color: var(--border-hover);
-      background: rgba(24, 24, 24, 0.95);
-    }
-    #snapshot-btn:active {
-      transform: translateY(1px);
-    }
-    #snapshot-btn[data-state="busy"] {
-      color: var(--accent);
-      border-color: var(--accent);
-    }
-    #snapshot-btn[data-state="ok"] {
-      color: var(--green);
-      border-color: var(--green);
-    }
-    #snapshot-btn[data-state="err"] {
-      color: #f87171;
-      border-color: #f87171;
-    }
-    /* Mobile: smaller, icon-only to stay out of the way. */
-    @media (max-width: 740px), (pointer: coarse) {
-      #snapshot-btn { padding: 6px; }
-      #snapshot-btn-label { display: none; }
-    }
+      /* Snapshot copy button — floats in the map's top-right corner. */
+      #snapshot-btn {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        font-family: var(--font-sans);
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--text-dim);
+        background: rgba(16, 16, 16, 0.85);
+        backdrop-filter: blur(8px);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.15s;
+        user-select: none;
+      }
+      #snapshot-btn:hover {
+        color: var(--text);
+        border-color: var(--border-hover);
+        background: rgba(24, 24, 24, 0.95);
+      }
+      #snapshot-btn:active {
+        transform: translateY(1px);
+      }
+      #snapshot-btn[data-state='busy'] {
+        color: var(--accent);
+        border-color: var(--accent);
+      }
+      #snapshot-btn[data-state='ok'] {
+        color: var(--green);
+        border-color: var(--green);
+      }
+      #snapshot-btn[data-state='err'] {
+        color: #f87171;
+        border-color: #f87171;
+      }
+      /* Mobile: smaller, icon-only to stay out of the way. */
+      @media (max-width: 740px), (pointer: coarse) {
+        #snapshot-btn {
+          padding: 6px;
+        }
+        #snapshot-btn-label {
+          display: none;
+        }
+      }
 
-    /* Desktop default — the source-toggle button is hidden because
+      /* Desktop default — the source-toggle button is hidden because
      * the editor is always visible. Mobile rule below overrides this
      * back to display:flex when the viewport is touch-primary. Source
      * order matters: this comes BEFORE the @media so the media-query
      * rule can override it (same specificity → later wins). */
-    .editor-header .tb-nav.mobile-only { display: none; }
+      .editor-header .tb-nav.mobile-only {
+        display: none;
+      }
 
-    /* ── Mobile: stack vertically + collapse Monaco by default ── */
-    /* Monaco on a touchscreen is borderline unusable (no IME hints,
+      /* ── Mobile: stack vertically + collapse Monaco by default ── */
+      /* Monaco on a touchscreen is borderline unusable (no IME hints,
      * micro-buttons, soft-keyboard occlusion). Default behaviour on
      * touch-primary devices is to give the map the entire viewport
      * and reduce the editor pane to its header strip — demo-select +
@@ -352,117 +413,171 @@
      * unless the user explicitly taps "📝" to peek at it. The toggle
      * is a CSS class swap on `#editor-pane`; Monaco's automaticLayout
      * picks up the resize. */
-    @media (max-width: 740px), (pointer: coarse) {
-      #layout { flex-direction: column; }
-      #map-pane {
-        flex: 1 1 auto;
-        min-height: 0;
-      }
-      #editor-pane {
-        width: 100% !important;
-        max-width: 100%;
-        flex: 0 0 auto;
-        border-left: none;
-        border-top: 1px solid var(--border);
-        /* Collapsed: header (demo-select / nav) + footer (Run /
+      @media (max-width: 740px), (pointer: coarse) {
+        #layout {
+          flex-direction: column;
+        }
+        #map-pane {
+          flex: 1 1 auto;
+          min-height: 0;
+        }
+        #editor-pane {
+          width: 100% !important;
+          max-width: 100%;
+          flex: 0 0 auto;
+          border-left: none;
+          border-top: 1px solid var(--border);
+          /* Collapsed: header (demo-select / nav) + footer (Run /
          * Import / Gallery) stay visible; the Monaco container
          * itself collapses to zero. */
+        }
+        #editor-pane:not(.expanded) #monaco-container,
+        #editor-pane:not(.expanded) #resize-handle {
+          display: none;
+        }
+        #editor-pane.expanded {
+          height: 60vh;
+          height: 60dvh;
+        }
+        #editor-pane.expanded #map-pane {
+          display: none;
+        }
+        #resize-handle {
+          display: none;
+        }
+        .editor-header .tb-nav.mobile-only {
+          display: flex;
+        }
       }
-      #editor-pane:not(.expanded) #monaco-container,
-      #editor-pane:not(.expanded) #resize-handle { display: none; }
-      #editor-pane.expanded {
-        height: 60vh;
-        height: 60dvh;
-      }
-      #editor-pane.expanded #map-pane { display: none; }
-      #resize-handle { display: none; }
-      .editor-header .tb-nav.mobile-only { display: flex; }
-    }
-    @media (max-width: 740px), (pointer: coarse) {
-      /* The tag badge on the right takes ~48px that we'd rather give
+      @media (max-width: 740px), (pointer: coarse) {
+        /* The tag badge on the right takes ~48px that we'd rather give
        * to the demo name select — the current demo's category is
        * already implied by grouping in the dropdown itself. */
-      .tb-tag { display: none; }
-      .editor-header { padding: 6px 8px; gap: 4px; }
-      /* Tap targets — Apple's 44×44 rule is impractical here but 30px
+        .tb-tag {
+          display: none;
+        }
+        .editor-header {
+          padding: 6px 8px;
+          gap: 4px;
+        }
+        /* Tap targets — Apple's 44×44 rule is impractical here but 30px
        * is close enough and keeps the header compact. */
-      .editor-header .tb-nav { width: 30px; height: 30px; }
-      .run-btn { padding: 7px 18px; font-size: 12px; }
-    }
+        .editor-header .tb-nav {
+          width: 30px;
+          height: 30px;
+        }
+        .run-btn {
+          padding: 7px 18px;
+          font-size: 12px;
+        }
+      }
 
-    /* Very narrow screens (≤ 360 px) — iPhone SE, compact Androids.
+      /* Very narrow screens (≤ 360 px) — iPhone SE, compact Androids.
      * Drop the explicit prev/next chevrons and let the native select
      * be the sole navigation control; the buttons were tap-targets of
      * last resort anyway. */
-    @media (max-width: 380px) {
-      /* Keep the source-toggle visible — it's the only way to peek
+      @media (max-width: 380px) {
+        /* Keep the source-toggle visible — it's the only way to peek
        * at the source on phones, and it's small enough to fit. */
-      .editor-header .tb-nav:not(.mobile-only) { display: none; }
-    }
-  </style>
-</head>
-<body>
-  <div id="layout">
-    <div id="map-pane">
-      <canvas id="map"></canvas>
-      <div id="status">Initializing...</div>
-      <!-- Snapshot copy button — floating in map's top-right corner.
+        .editor-header .tb-nav:not(.mobile-only) {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="layout">
+      <div id="map-pane">
+        <canvas id="map"></canvas>
+        <div id="status">Initializing...</div>
+        <!-- Snapshot copy button — floating in map's top-right corner.
            Captures the current scene state (camera, viewport, DPR,
            loaded tiles, render order, pixel hash) via __xgisSnapshot()
            and writes the JSON to the clipboard. Use to share an exact
            bug repro: copy here → paste into chat / a snapshot test. -->
-      <button id="snapshot-btn" title="Copy a JSON snapshot of the current scene to the clipboard (camera, tiles, render order, viewport, DPR — everything needed to reproduce)">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="3" y="6" width="18" height="14" rx="2"/>
-          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-          <circle cx="12" cy="13" r="3"/>
-        </svg>
-        <span id="snapshot-btn-label">Copy snapshot</span>
-      </button>
-    </div>
+        <button
+          id="snapshot-btn"
+          title="Copy a JSON snapshot of the current scene to the clipboard (camera, tiles, render order, viewport, DPR — everything needed to reproduce)"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="14"
+            height="14"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="3" y="6" width="18" height="14" rx="2" />
+            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+            <circle cx="12" cy="13" r="3" />
+          </svg>
+          <span id="snapshot-btn-label">Copy snapshot</span>
+        </button>
+      </div>
 
-    <div id="editor-pane">
-      <div id="resize-handle"></div>
+      <div id="editor-pane">
+        <div id="resize-handle"></div>
 
-      <div class="editor-header">
-        <button class="tb-nav" id="prev-btn" title="Previous">&#8249;</button>
-        <select id="demo-select"></select>
-        <button class="tb-nav" id="next-btn" title="Next">&#8250;</button>
-        <select id="proj-select" title="Projection override">
-          <option value="">proj: default</option>
-          <option value="mercator">mercator</option>
-          <option value="equirectangular">equirectangular</option>
-          <option value="natural_earth">natural earth</option>
-          <option value="orthographic">orthographic</option>
-          <option value="azimuthal_equidistant">azimuthal eq.</option>
-          <option value="stereographic">stereographic</option>
-          <option value="oblique_mercator">oblique mercator</option>
-          <option value="globe">globe (3D)</option>
-        </select>
-        <span class="tb-tag" id="demo-tag"></span>
-        <!-- Mobile-only toggle: peek at the source on touchscreens
+        <div class="editor-header">
+          <button class="tb-nav" id="prev-btn" title="Previous">&#8249;</button>
+          <select id="demo-select"></select>
+          <button class="tb-nav" id="next-btn" title="Next">&#8250;</button>
+          <select id="proj-select" title="Projection override">
+            <option value="">proj: default</option>
+            <option value="mercator">mercator</option>
+            <option value="equirectangular">equirectangular</option>
+            <option value="natural_earth">natural earth</option>
+            <option value="orthographic">orthographic</option>
+            <option value="azimuthal_equidistant">azimuthal eq.</option>
+            <option value="stereographic">stereographic</option>
+            <option value="oblique_mercator">oblique mercator</option>
+            <option value="globe">globe (3D)</option>
+          </select>
+          <span class="tb-tag" id="demo-tag"></span>
+          <!-- Mobile-only toggle: peek at the source on touchscreens
              where the editor is collapsed by default. CSS hides this
              on desktop where the editor is always visible. -->
-        <button class="tb-nav mobile-only" id="editor-toggle"
-                title="Show source" aria-label="Show source">&#9881;</button>
-      </div>
+          <button
+            class="tb-nav mobile-only"
+            id="editor-toggle"
+            title="Show source"
+            aria-label="Show source"
+          >
+            &#9881;
+          </button>
+        </div>
 
-      <div class="editor-body" id="monaco-container"></div>
+        <div class="editor-body" id="monaco-container"></div>
 
-      <div class="editor-footer">
-        <button class="run-btn" id="run-btn">&#9654; Run</button>
-        <span class="run-hint">Ctrl+Enter</span>
-        <button class="run-btn" id="import-mapbox-btn" style="background:var(--surface2);border-color:var(--border);color:var(--text-dim);" title="Import a Mapbox Style Spec JSON file and convert it to xgis source">Import Mapbox</button>
-        <span class="spacer"></span>
-        <a class="back-link" href=".">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-          Gallery
-        </a>
+        <div class="editor-footer">
+          <button class="run-btn" id="run-btn">&#9654; Run</button>
+          <span class="run-hint">Ctrl+Enter</span>
+          <button
+            class="run-btn"
+            id="import-mapbox-btn"
+            style="background: var(--surface2); border-color: var(--border); color: var(--text-dim)"
+            title="Import a Mapbox Style Spec JSON file and convert it to xgis source"
+          >
+            Import Mapbox
+          </button>
+          <span class="spacer"></span>
+          <a class="back-link" href=".">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            Gallery
+          </a>
+        </div>
       </div>
     </div>
-  </div>
 
-  <div id="error"><h2>Error</h2><pre id="error-msg"></pre></div>
-  <script type="module" src="/src/demo-runner.ts"></script>
-</body>
+    <div id="error">
+      <h2>Error</h2>
+      <pre id="error-msg"></pre>
+    </div>
+    <script type="module" src="/src/demo-runner.ts"></script>
+  </body>
 </html>

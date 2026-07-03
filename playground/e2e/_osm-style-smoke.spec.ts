@@ -12,7 +12,7 @@ test.describe('osm_style smoke', () => {
     await page.setViewportSize({ width: 430, height: 715 })
     const errors: string[] = []
     const validationErrors: string[] = []
-    page.on('console', m => {
+    page.on('console', (m) => {
       const text = m.text()
       if (m.type() === 'error') errors.push(text)
       if (text.includes('frame-validation') || text.includes('Bind group layout')) {
@@ -28,18 +28,28 @@ test.describe('osm_style smoke', () => {
     await page.goto('/demo.html?id=osm_style&e2e=1#15.78/37.53155/126.97068/348.1/85.0', {
       waitUntil: 'domcontentloaded',
     })
-    await page.waitForFunction(() => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 30_000 })
+    await page.waitForFunction(
+      () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
+      null,
+      { timeout: 30_000 },
+    )
     await page.waitForTimeout(15000) // tiles to load + settle (high-pitch needs deep fallback chain)
 
     await page.screenshot({ path: 'osm-style-tokyo-pitched.png', fullPage: false })
 
-    writeFileSync('osm-style-smoke.log', JSON.stringify({
-      errors: errors.slice(0, 30),
-      validationErrors: validationErrors.slice(0, 10),
-      validationCount: validationErrors.length,
-      errorCount: errors.length,
-    }, null, 2))
+    writeFileSync(
+      'osm-style-smoke.log',
+      JSON.stringify(
+        {
+          errors: errors.slice(0, 30),
+          validationErrors: validationErrors.slice(0, 10),
+          validationCount: validationErrors.length,
+          errorCount: errors.length,
+        },
+        null,
+        2,
+      ),
+    )
 
     console.log('errors:', errors.length, 'validation:', validationErrors.length)
     if (validationErrors.length > 0) console.log('FIRST_VALIDATION:', validationErrors[0])

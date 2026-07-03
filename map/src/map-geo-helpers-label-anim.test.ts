@@ -20,8 +20,11 @@ function show(shapes: Record<string, unknown> | null) {
   const nested = {
     textLayout: { size: f.size, font: f.font, fontWeight: f.fontWeight, fontStyle: f.fontStyle },
     textPaint: {
-      color: f.color, haloWidth: f.haloWidth, haloColor: f.haloColor,
-      haloBlur: f.haloBlur, opacity: f.opacity,
+      color: f.color,
+      haloWidth: f.haloWidth,
+      haloColor: f.haloColor,
+      haloBlur: f.haloBlur,
+      opacity: f.opacity,
     },
     icon: { iconSize: f.iconSize, iconOpacity: f.iconOpacity, iconColor: f.iconColor },
   }
@@ -34,9 +37,11 @@ describe('labelsHaveTimeAnimation', () => {
   })
 
   it('false when every label shape is constant or zoom-interpolated', () => {
-    expect(labelsHaveTimeAnimation([
-      show({ size: constant, color: zoom, haloWidth: null, opacity: zoom }),
-    ])).toBe(false)
+    expect(
+      labelsHaveTimeAnimation([
+        show({ size: constant, color: zoom, haloWidth: null, opacity: zoom }),
+      ]),
+    ).toBe(false)
   })
 
   it('true when a label size is time-interpolated', () => {
@@ -48,10 +53,12 @@ describe('labelsHaveTimeAnimation', () => {
   })
 
   it('true when ANY show in the scene has a time-driven label', () => {
-    expect(labelsHaveTimeAnimation([
-      show({ size: constant, color: zoom }),
-      show({ size: constant, iconOpacity: time }),
-    ])).toBe(true)
+    expect(
+      labelsHaveTimeAnimation([
+        show({ size: constant, color: zoom }),
+        show({ size: constant, iconOpacity: time }),
+      ]),
+    ).toBe(true)
   })
 
   it('checks icon-driven shapes (iconSize/iconColor) too', () => {

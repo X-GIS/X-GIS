@@ -115,7 +115,10 @@ export class PriorityQueue<T, R = unknown> {
   add(item: T, callback: (item: T) => Promise<R> | R): Promise<R> {
     let resolve!: (value: R) => void
     let reject!: (reason: unknown) => void
-    const promise = new Promise<R>((res, rej) => { resolve = res; reject = rej })
+    const promise = new Promise<R>((res, rej) => {
+      resolve = res
+      reject = rej
+    })
     const data: ItemData<T, R> = { callback, resolve, reject, promise }
     this.items.unshift(item)
     this.callbacks.set(item, data)
@@ -185,11 +188,7 @@ export class PriorityQueue<T, R = unknown> {
       this.currJobs--
       if (this.autoUpdate) this.scheduleJobRun()
     }
-    while (
-      this.maxJobs > this.currJobs
-      && this.items.length > 0
-      && iterated < this.maxJobs
-    ) {
+    while (this.maxJobs > this.currJobs && this.items.length > 0 && iterated < this.maxJobs) {
       this.currJobs++
       iterated++
       const item = this.items.pop()!

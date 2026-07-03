@@ -89,10 +89,7 @@ interface FeatureCollection {
  *  the cap features themselves don't sit on the boundary at the
  *  pole-side (the pole vertex is at lat ±90, not ±85), so a second
  *  pass adds nothing. */
-export function injectPolarCaps(
-  fc: FeatureCollection,
-  subdivisions = 16,
-): FeatureCollection {
+export function injectPolarCaps(fc: FeatureCollection, subdivisions = 16): FeatureCollection {
   if (!fc || fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) {
     return fc
   }
@@ -153,10 +150,7 @@ function polygonRingsOf(g: NonNullable<Feature['geometry']>): LonLat[][] {
  *  Caller supplies the integer subdivision count (default 16); higher
  *  values smooth the boundary at the cost of vertex count. The output
  *  is a closed ring (last vertex equals first). */
-export function synthesizeCapRing(
-  span: CapSpan,
-  subdivisions = 16,
-): Array<[number, number]> {
+export function synthesizeCapRing(span: CapSpan, subdivisions = 16): Array<[number, number]> {
   const boundaryLat = span.pole * MERCATOR_LAT_LIMIT
   const poleLat = span.pole * 90
   // Normalise span longitude range. Wrap-around when endLon < startLon
@@ -194,18 +188,23 @@ export function findClampBoundarySpans(ring: Array<[number, number]>): CapSpan[]
   // Locate first non-boundary vertex to anchor wrap-around correctly.
   let firstZero = -1
   for (let k = 0; k < n; k++) {
-    if (sides[k] === 0) { firstZero = k; break }
+    if (sides[k] === 0) {
+      firstZero = k
+      break
+    }
   }
   if (firstZero === -1) {
     // Whole ring on the boundary — entire ring is one span.
     const pole = sides[0]! as -1 | 1
-    return [{
-      pole,
-      startIdx: 0,
-      endIdx: n - 1,
-      startLon: ring[0]![0],
-      endLon: ring[n - 1]![0],
-    }]
+    return [
+      {
+        pole,
+        startIdx: 0,
+        endIdx: n - 1,
+        startLon: ring[0]![0],
+        endLon: ring[n - 1]![0],
+      },
+    ]
   }
   // Walk starting from the first zero so spans don't get split at the
   // arbitrary ring start.

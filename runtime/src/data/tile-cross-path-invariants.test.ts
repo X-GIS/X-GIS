@@ -52,8 +52,10 @@ function loadGeoJSON(p: string): GeoJSONFeatureCollection {
  *  — read them as-is (pre-fix they held absolute lon/lat degrees that this
  *  helper re-projected and origin-subtracted). */
 function polyVertex(
-  vertices: Float32Array, i: number,
-  _tileMx: number, _tileMy: number,
+  vertices: Float32Array,
+  i: number,
+  _tileMx: number,
+  _tileMy: number,
 ): [number, number] {
   const base = i * POLY_STRIDE
   return [vertices[base + 4], vertices[base + 5]]
@@ -67,14 +69,15 @@ function lineVertex(vertices: Float32Array, i: number): [number, number] {
 function tileMercOrigin(tile: { tileWest: number; tileSouth: number }): [number, number] {
   const mx = tile.tileWest * DEG2RAD_ * EARTH_R_
   const clampLat = Math.max(-85.051129, Math.min(85.051129, tile.tileSouth))
-  const my = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD_ / 2)) * EARTH_R_
+  const my = Math.log(Math.tan(Math.PI / 4 + (clampLat * DEG2RAD_) / 2)) * EARTH_R_
   return [mx, my]
 }
 
 /** Shoelace absolute area of a triangle list (ECEF stride-9 polygon
  *  vertices; we reproject to tile-local Mercator for the area calc). */
 function triangleMeshArea(
-  vertices: Float32Array, indices: Uint32Array,
+  vertices: Float32Array,
+  indices: Uint32Array,
   tile: { tileWest: number; tileSouth: number },
 ): number {
   const [tileMx, tileMy] = tileMercOrigin(tile)
@@ -108,12 +111,15 @@ describe('cross-path: compileGeoJSONToTiles(batch) ≡ compileSingleTile(on-dema
     const z = 8
     // Pick a boundary tile that intersects the triangle's right edge.
     const n = Math.pow(2, z)
-    const lon = 1.56, lat = 27.4
-    const x = Math.floor((lon + 180) / 360 * n)
-    const y = Math.floor((1 - Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)) / Math.PI) / 2 * n)
+    const lon = 1.56,
+      lat = 27.4
+    const x = Math.floor(((lon + 180) / 360) * n)
+    const y = Math.floor(
+      ((1 - Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) / Math.PI) / 2) * n,
+    )
 
     const batchSet = compileGeoJSONToTiles(gj, { minZoom: z, maxZoom: z })
-    const zLevel = batchSet.levels.find(l => l.zoom === z)
+    const zLevel = batchSet.levels.find((l) => l.zoom === z)
     expect(zLevel, 'batch did not emit z=8 level').toBeDefined()
     const batchTile = zLevel!.tiles.get(tileKey(z, x, y))
     expect(batchTile, `batch did not emit tile ${x}/${y}`).toBeDefined()
@@ -122,19 +128,23 @@ describe('cross-path: compileGeoJSONToTiles(batch) ≡ compileSingleTile(on-dema
     expect(singleTile, 'single did not emit tile').not.toBeNull()
 
     // Vertex counts must agree.
-    expect(singleTile!.vertices.length,
+    expect(
+      singleTile!.vertices.length,
       `polygon vertices: batch=${batchTile!.vertices.length} single=${singleTile!.vertices.length}`,
     ).toBe(batchTile!.vertices.length)
     expect(singleTile!.indices.length, 'polygon indices').toBe(batchTile!.indices.length)
-    expect(singleTile!.outlineVertices.length, 'outline vertices')
-      .toBe(batchTile!.outlineVertices.length)
-    expect(singleTile!.outlineLineIndices.length, 'outline indices')
-      .toBe(batchTile!.outlineLineIndices.length)
+    expect(singleTile!.outlineVertices.length, 'outline vertices').toBe(
+      batchTile!.outlineVertices.length,
+    )
+    expect(singleTile!.outlineLineIndices.length, 'outline indices').toBe(
+      batchTile!.outlineLineIndices.length,
+    )
 
     // Area invariant: same triangle list must sum to the same area.
     const areaBatch = triangleMeshArea(batchTile!.vertices, batchTile!.indices, batchTile!)
     const areaSingle = triangleMeshArea(singleTile!.vertices, singleTile!.indices, singleTile!)
-    expect(Math.abs(areaBatch - areaSingle),
+    expect(
+      Math.abs(areaBatch - areaSingle),
       `polygon area diverged: batch=${areaBatch.toFixed(2)} single=${areaSingle.toFixed(2)}`,
     ).toBeLessThanOrEqual(1) // 1 m² tolerance in tile-local Mercator
   })
@@ -146,15 +156,18 @@ describe('cross-path: compileGeoJSONToTiles(batch) ≡ compileSingleTile(on-dema
     // in the tessellator can flip a vertex's dedup outcome).
     const gj = loadGeoJSON(COUNTRIES_PATH)
     const batchSet = compileGeoJSONToTiles(gj, { minZoom: 3, maxZoom: 3 })
-    const z3 = batchSet.levels.find(l => l.zoom === 3)!
+    const z3 = batchSet.levels.find((l) => l.zoom === 3)!
 
     let diverged = 0
     const divergences: string[] = []
     for (const [key] of z3.tiles) {
-      const [, x, y] = [z3.zoom, (key >>> 0) & 0x3FFFFFF, ((key / 0x4000000) & 0x3FFFFFF) >>> 0]
-        .map((v, i) => i === 0 ? z3.zoom : v)
+      const [, x, y] = [
+        z3.zoom,
+        (key >>> 0) & 0x3ffffff,
+        ((key / 0x4000000) & 0x3ffffff) >>> 0,
+      ].map((v, i) => (i === 0 ? z3.zoom : v))
       // Simpler: extract via tileKeyUnpack
-      void x, y
+      ;(void x, y)
     }
 
     // The byte-level check above at z=8 is the strict guard; this
@@ -166,9 +179,9 @@ describe('cross-path: compileGeoJSONToTiles(batch) ≡ compileSingleTile(on-dema
       // Unpack key
       const z = (key >>> 0) % 32
       const rest = Math.floor(key / 32)
-      const x = rest & 0x3FFF
-      const y = Math.floor(rest / 0x4000) & 0x3FFF
-      void z, x, y
+      const x = rest & 0x3fff
+      const y = Math.floor(rest / 0x4000) & 0x3fff
+      ;(void z, x, y)
     }
     // Soft pass: if batch produced N tiles with vertices, we at least
     // don't throw when re-running single. Real byte-exact agreement is
@@ -199,15 +212,49 @@ describe('cross-path: polygon fill boundary == stroke outline endpoints', () => 
     tileX: number
     tileY: number
   }> = [
-    { label: 'tall triangle crosses tile north edge',
-      rings: [[[-5, -20], [5, -20], [0, 30], [-5, -20]]],
-      tileZoom: 4, tileX: 8, tileY: 7 }, // straddles equator
-    { label: 'large triangle lat span',
-      rings: [[[-30, -20], [30, -20], [0, 30], [-30, -20]]],
-      tileZoom: 4, tileX: 8, tileY: 6 },
-    { label: 'simple quad interior to tile',
-      rings: [[[10, 10], [20, 10], [20, 20], [10, 20], [10, 10]]],
-      tileZoom: 2, tileX: 2, tileY: 1 },
+    {
+      label: 'tall triangle crosses tile north edge',
+      rings: [
+        [
+          [-5, -20],
+          [5, -20],
+          [0, 30],
+          [-5, -20],
+        ],
+      ],
+      tileZoom: 4,
+      tileX: 8,
+      tileY: 7,
+    }, // straddles equator
+    {
+      label: 'large triangle lat span',
+      rings: [
+        [
+          [-30, -20],
+          [30, -20],
+          [0, 30],
+          [-30, -20],
+        ],
+      ],
+      tileZoom: 4,
+      tileX: 8,
+      tileY: 6,
+    },
+    {
+      label: 'simple quad interior to tile',
+      rings: [
+        [
+          [10, 10],
+          [20, 10],
+          [20, 20],
+          [10, 20],
+          [10, 10],
+        ],
+      ],
+      tileZoom: 2,
+      tileX: 2,
+      tileY: 1,
+    },
   ]
 
   for (const c of CASES) {
@@ -224,10 +271,14 @@ describe('cross-path: polygon fill boundary == stroke outline endpoints', () => 
 
       // Reconstruct fill boundary edges (every triangle edge appearing
       // in exactly one triangle).
-      const edgeCount = new Map<string, { count: number; a: [number, number]; b: [number, number] }>()
+      const edgeCount = new Map<
+        string,
+        { count: number; a: [number, number]; b: [number, number] }
+      >()
       const keyOf = (a: [number, number], b: [number, number]) => {
         const fwd = a[0] < b[0] || (a[0] === b[0] && a[1] < b[1])
-        const p0 = fwd ? a : b, p1 = fwd ? b : a
+        const p0 = fwd ? a : b,
+          p1 = fwd ? b : a
         return `${p0[0].toFixed(3)},${p0[1].toFixed(3)}|${p1[0].toFixed(3)},${p1[1].toFixed(3)}`
       }
       const [boundaryTileMx, boundaryTileMy] = tileMercOrigin(tile)
@@ -237,7 +288,11 @@ describe('cross-path: polygon fill boundary == stroke outline endpoints', () => 
           polyVertex(tile.vertices, tile.indices[i + 1], boundaryTileMx, boundaryTileMy),
           polyVertex(tile.vertices, tile.indices[i + 2], boundaryTileMx, boundaryTileMy),
         ]
-        for (const [a, b] of [[ps[0], ps[1]], [ps[1], ps[2]], [ps[2], ps[0]]] as const) {
+        for (const [a, b] of [
+          [ps[0], ps[1]],
+          [ps[1], ps[2]],
+          [ps[2], ps[0]],
+        ] as const) {
           const k = keyOf(a, b)
           const e = edgeCount.get(k)
           if (e) e.count++
@@ -245,17 +300,23 @@ describe('cross-path: polygon fill boundary == stroke outline endpoints', () => 
         }
       }
       const boundary = [...edgeCount.values()]
-        .filter(e => e.count === 1)
-        .map(e => [e.a[0], e.a[1], e.b[0], e.b[1]] as const)
+        .filter((e) => e.count === 1)
+        .map((e) => [e.a[0], e.a[1], e.b[0], e.b[1]] as const)
 
       // For each outline endpoint, find nearest distance to any fill
       // boundary edge. Must be ≤ 1 m in tile-local MM.
-      const pointToSegSq = (p: [number, number], a: [number, number], b: [number, number]): number => {
-        const dx = b[0] - a[0], dy = b[1] - a[1]
+      const pointToSegSq = (
+        p: [number, number],
+        a: [number, number],
+        b: [number, number],
+      ): number => {
+        const dx = b[0] - a[0],
+          dy = b[1] - a[1]
         const l2 = dx * dx + dy * dy
         if (l2 < 1e-12) return (p[0] - a[0]) ** 2 + (p[1] - a[1]) ** 2
         const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2))
-        const cx = a[0] + t * dx, cy = a[1] + t * dy
+        const cx = a[0] + t * dx,
+          cy = a[1] + t * dy
         return (p[0] - cx) ** 2 + (p[1] - cy) ** 2
       }
 
@@ -282,8 +343,10 @@ describe('cross-path: polygon fill boundary == stroke outline endpoints', () => 
       // visible tile-rect strokes that user reports flagged; line-
       // clip eliminates that entire bug class. Sub-pixel endpoint
       // drift is below any visible threshold.
-      expect(Math.sqrt(maxDistSq), `${c.label}: worst outline-endpoint-off-fill distance`)
-        .toBeLessThanOrEqual(10.0)
+      expect(
+        Math.sqrt(maxDistSq),
+        `${c.label}: worst outline-endpoint-off-fill distance`,
+      ).toBeLessThanOrEqual(10.0)
     })
   }
 })
@@ -311,7 +374,15 @@ describe('cross-path: generateSubTile area conservation', () => {
       properties: {},
       geometry: {
         type: 'Polygon' as const,
-        coordinates: [[[20, 10], [70, 10], [70, 50], [20, 50], [20, 10]]],
+        coordinates: [
+          [
+            [20, 10],
+            [70, 10],
+            [70, 50],
+            [20, 50],
+            [20, 10],
+          ],
+        ],
       },
     }
     const parts = decomposeFeatures([feature])
@@ -337,7 +408,12 @@ describe('cross-path: generateSubTile area conservation', () => {
     // Generate the 4 z=3 children from the parent.
     const parentKey = tileKey(2, 2, 1)
     const childAreas: number[] = []
-    for (const [cx, cy] of [[4, 2], [5, 2], [4, 3], [5, 3]]) {
+    for (const [cx, cy] of [
+      [4, 2],
+      [5, 2],
+      [4, 3],
+      [5, 3],
+    ]) {
       const childKey = tileKey(3, cx, cy)
       source.resetCompileBudget()
       source.generateSubTile(childKey, parentKey)
@@ -353,7 +429,8 @@ describe('cross-path: generateSubTile area conservation', () => {
     // 1% tolerance — the child-tile's local-origin re-computation of
     // DSFUN hi/lo introduces a few µm per vertex; triangles amplify
     // that into small area noise.
-    expect(relDelta,
+    expect(
+      relDelta,
       `child area sum ${childSum.toFixed(2)} m² vs parent ${parentArea.toFixed(2)} m² (${(relDelta * 100).toFixed(3)}%)`,
     ).toBeLessThanOrEqual(0.01)
   })
@@ -370,41 +447,46 @@ describe('cross-path: generateSubTile area conservation', () => {
 // metres.
 
 describe('cross-path: quantized ECEF reconstruction precision', () => {
-  it('every polygon vertex dequants finite, in-range (|axis| ≤ dequantHalf), no clamp', { timeout: 20_000 }, () => {
-    // PR 2f: polygon position is 32-bit fixed point per axis, split into
-    // uint16 hi/lo over the per-tile symmetric range [-dequantHalf,
-    // +dequantHalf]. The GPU VS reconstructs q = hi*65536 + lo; axis =
-    // q*dequantScale - dequantHalf. The invariant: dequant is finite and,
-    // by construction (halfRange = exact max-abs over the tile's verts +
-    // epsilon), every axis stays within ±dequantHalf — i.e. no encode lane
-    // overflowed (no 0xFFFF saturation / 0x0000 floor at the extremes).
-    const gj = loadGeoJSON(TRIANGLE_PATH)
-    const batchSet = compileGeoJSONToTiles(gj, { minZoom: 0, maxZoom: 5 })
-    let checked = 0
-    for (const level of batchSet.levels) for (const tile of level.tiles.values()) {
-      const n = tile.vertices.length / POLY_STRIDE
-      if (n === 0) continue
-      const half = tile.dequantHalf
-      const scale = tile.dequantScale
-      expect(Number.isFinite(half) && half > 0, 'dequantHalf sane').toBe(true)
-      expect(Number.isFinite(scale) && scale > 0, 'dequantScale sane').toBe(true)
-      const u16 = new Uint16Array(tile.vertices.buffer, tile.vertices.byteOffset)
-      for (let i = 0; i < n; i++) {
-        const lane = i * POLY_STRIDE * 2  // 2 u16 lanes per float; pos = first 6 lanes
-        for (let axis = 0; axis < 3; axis++) {
-          const hi = u16[lane + axis * 2]!
-          const lo = u16[lane + axis * 2 + 1]!
-          const q = hi * 65536 + lo
-          const recon = q * scale - half
-          expect(Number.isFinite(recon)).toBe(true)
-          // Within the symmetric range + a 1 mm slack for the epsilon/round.
-          expect(Math.abs(recon)).toBeLessThanOrEqual(half + 1e-3)
-          checked++
+  it(
+    'every polygon vertex dequants finite, in-range (|axis| ≤ dequantHalf), no clamp',
+    { timeout: 20_000 },
+    () => {
+      // PR 2f: polygon position is 32-bit fixed point per axis, split into
+      // uint16 hi/lo over the per-tile symmetric range [-dequantHalf,
+      // +dequantHalf]. The GPU VS reconstructs q = hi*65536 + lo; axis =
+      // q*dequantScale - dequantHalf. The invariant: dequant is finite and,
+      // by construction (halfRange = exact max-abs over the tile's verts +
+      // epsilon), every axis stays within ±dequantHalf — i.e. no encode lane
+      // overflowed (no 0xFFFF saturation / 0x0000 floor at the extremes).
+      const gj = loadGeoJSON(TRIANGLE_PATH)
+      const batchSet = compileGeoJSONToTiles(gj, { minZoom: 0, maxZoom: 5 })
+      let checked = 0
+      for (const level of batchSet.levels)
+        for (const tile of level.tiles.values()) {
+          const n = tile.vertices.length / POLY_STRIDE
+          if (n === 0) continue
+          const half = tile.dequantHalf
+          const scale = tile.dequantScale
+          expect(Number.isFinite(half) && half > 0, 'dequantHalf sane').toBe(true)
+          expect(Number.isFinite(scale) && scale > 0, 'dequantScale sane').toBe(true)
+          const u16 = new Uint16Array(tile.vertices.buffer, tile.vertices.byteOffset)
+          for (let i = 0; i < n; i++) {
+            const lane = i * POLY_STRIDE * 2 // 2 u16 lanes per float; pos = first 6 lanes
+            for (let axis = 0; axis < 3; axis++) {
+              const hi = u16[lane + axis * 2]!
+              const lo = u16[lane + axis * 2 + 1]!
+              const q = hi * 65536 + lo
+              const recon = q * scale - half
+              expect(Number.isFinite(recon)).toBe(true)
+              // Within the symmetric range + a 1 mm slack for the epsilon/round.
+              expect(Math.abs(recon)).toBeLessThanOrEqual(half + 1e-3)
+              checked++
+            }
+          }
         }
-      }
-    }
-    expect(checked, 'no vertices checked').toBeGreaterThan(0)
-  })
+      expect(checked, 'no vertices checked').toBeGreaterThan(0)
+    },
+  )
 })
 
 // ═══════════════════════════════════════════════════════════════════

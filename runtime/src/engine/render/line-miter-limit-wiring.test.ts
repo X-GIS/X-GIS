@@ -31,13 +31,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<GPUContext> {
   const canvas = { width: 1024, height: 768 } as unknown as HTMLCanvasElement
@@ -55,31 +60,35 @@ const MITER_LIMIT_SLOT = 7
 /** Add a single line layer with the given miterLimit, flush the layer ring,
  *  and return f32 slot [7] from the captured layer-ring upload. */
 function capturedMiterLimit(ctx: GPUContext, miterLimit: number): number {
-  const tileBgl = (ctx.device as unknown as {
-    createBindGroupLayout: (d: unknown) => GPUBindGroupLayout
-  }).createBindGroupLayout({ entries: [] })
+  const tileBgl = (
+    ctx.device as unknown as {
+      createBindGroupLayout: (d: unknown) => GPUBindGroupLayout
+    }
+  ).createBindGroupLayout({ entries: [] })
   const renderer = new LineRenderer(ctx, tileBgl)
 
   let value = Number.NaN
   const device = ctx.device as unknown as {
     queue: {
       writeBuffer: (
-        buf: unknown, bufferOffset: number,
-        data: ArrayBuffer | ArrayBufferView, dataOffset?: number, size?: number,
+        buf: unknown,
+        bufferOffset: number,
+        data: ArrayBuffer | ArrayBufferView,
+        dataOffset?: number,
+        size?: number,
       ) => void
     }
   }
   device.queue.writeBuffer = (
-    buf: unknown, _bufferOffset: number,
-    data: ArrayBuffer | ArrayBufferView, dataOffset = 0,
+    buf: unknown,
+    _bufferOffset: number,
+    data: ArrayBuffer | ArrayBufferView,
+    dataOffset = 0,
   ): void => {
     if ((buf as { size?: number })?.size !== LAYER_RING_BYTES) return
-    const ab = data instanceof ArrayBuffer
-      ? data
-      : (data as ArrayBufferView).buffer
-    const base = data instanceof ArrayBuffer
-      ? dataOffset
-      : (data as ArrayBufferView).byteOffset + dataOffset
+    const ab = data instanceof ArrayBuffer ? data : (data as ArrayBufferView).buffer
+    const base =
+      data instanceof ArrayBuffer ? dataOffset : (data as ArrayBufferView).byteOffset + dataOffset
     // The first layer's slot lands at ring offset 0 (dataOffset 0).
     const f32 = new Float32Array(ab, base, MITER_LIMIT_SLOT + 1)
     value = f32[MITER_LIMIT_SLOT]
@@ -88,9 +97,9 @@ function capturedMiterLimit(ctx: GPUContext, miterLimit: number): number {
   // writeLayerSlot positional tail: …, cap, join, miterLimit, dash, …
   renderer.writeLayerSlot(
     [1, 0, 0, 1], // strokeColor
-    3,            // strokeWidthPx
-    1,            // opacity
-    1000,         // mppAtCenter
+    3, // strokeWidthPx
+    1, // opacity
+    1000, // mppAtCenter
     LINE_CAP_BUTT,
     LINE_JOIN_MITER,
     miterLimit,

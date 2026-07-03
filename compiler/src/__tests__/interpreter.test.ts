@@ -85,7 +85,7 @@ describe('source/layer → commands pipeline', () => {
     expect(layer.kind).toBe('LayerStatement')
 
     // Resolve utilities
-    const allItems = layer.utilities.flatMap(l => l.items)
+    const allItems = layer.utilities.flatMap((l) => l.items)
     const resolved = resolveUtilities(allItems)
     expect(resolved.fill).toBe('#60a5fa')
     expect(resolved.stroke).toBe('#ffffff')

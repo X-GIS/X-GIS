@@ -6,8 +6,11 @@
 
 import { describe, it, expect } from 'vitest'
 import {
-  specProperty, specDefault, specDefaultColorRgba,
-  createSpecExpression, spec,
+  specProperty,
+  specDefault,
+  specDefaultColorRgba,
+  createSpecExpression,
+  spec,
 } from './oracle'
 
 describe('mapbox spec oracle', () => {
@@ -29,13 +32,11 @@ describe('mapbox spec oracle', () => {
     expect(specDefault('symbol', 'paint', 'text-color')).toBe('#000000')
   })
 
-  it('specDefaultColorRgba parses the spec\'s CSS string default', () => {
+  it("specDefaultColorRgba parses the spec's CSS string default", () => {
     // The textbook case — the very bug that motivated PR #105.
-    expect(specDefaultColorRgba('symbol', 'text-halo-color'))
-      .toEqual([0, 0, 0, 0])
+    expect(specDefaultColorRgba('symbol', 'text-halo-color')).toEqual([0, 0, 0, 0])
     // text-color default is "#000000" — should parse to opaque black.
-    expect(specDefaultColorRgba('symbol', 'text-color'))
-      .toEqual([0, 0, 0, 1])
+    expect(specDefaultColorRgba('symbol', 'text-color')).toEqual([0, 0, 0, 1])
   })
 
   it('returns undefined for unknown properties (does NOT throw)', () => {
@@ -44,20 +45,30 @@ describe('mapbox spec oracle', () => {
   })
 
   it('createSpecExpression matches MapLibre interpolation arithmetic', () => {
-    const lineWidth = ['interpolate', ['exponential', 1.2], ['zoom'],
-      12, 0.5, 14, 2, 20, 11.5] as const
+    const lineWidth = [
+      'interpolate',
+      ['exponential', 1.2],
+      ['zoom'],
+      12,
+      0.5,
+      14,
+      2,
+      20,
+      11.5,
+    ] as const
     const expr = createSpecExpression('line', 'paint', 'line-width', lineWidth)
     expect(expr.result).toBe('success')
     if (expr.result !== 'success') return
     const eval_ = (z: number): number =>
       expr.value.evaluate({ zoom: z }, { type: 1, properties: {} } as never) as number
-    expect(eval_(8)).toBe(0.5)        // clamped to first stop
+    expect(eval_(8)).toBe(0.5) // clamped to first stop
     expect(eval_(14)).toBeCloseTo(2, 4)
     expect(eval_(20)).toBe(11.5)
   })
 
   it('throws on unknown property in createSpecExpression', () => {
-    expect(() => createSpecExpression('line', 'paint', 'no-such-prop' as never, ['literal', 1]))
-      .toThrow(/unknown spec property/)
+    expect(() =>
+      createSpecExpression('line', 'paint', 'no-such-prop' as never, ['literal', 1]),
+    ).toThrow(/unknown spec property/)
   })
 })

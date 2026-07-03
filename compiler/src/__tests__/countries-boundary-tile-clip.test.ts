@@ -6,18 +6,16 @@
 // tile-edge-coincident segment.
 
 import { describe, it, expect } from 'vitest'
-import {
-  decomposeFeatures, compileSingleTile, lonLatToMercF64,
-} from '../tiler/vector-tiler'
+import { decomposeFeatures, compileSingleTile, lonLatToMercF64 } from '../tiler/vector-tiler'
 
 // tileBounds is internal to vector-tiler.ts. Reimplement the public
 // formula here — `tile.bounds` is the standard Web Mercator scheme.
 function tileBounds(z: number, x: number, y: number) {
   const n = 1 << z
-  const west = x / n * 360 - 180
-  const east = (x + 1) / n * 360 - 180
-  const latN = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI
-  const latS = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n))) * 180 / Math.PI
+  const west = (x / n) * 360 - 180
+  const east = ((x + 1) / n) * 360 - 180
+  const latN = (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n))) * 180) / Math.PI
+  const latS = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 1)) / n))) * 180) / Math.PI
   return { west, south: latS, east, north: latN }
 }
 
@@ -28,9 +26,15 @@ const POLY = {
   type: 'Feature' as const,
   geometry: {
     type: 'Polygon' as const,
-    coordinates: [[
-      [42, 48], [48, 48], [48, 52], [42, 52], [42, 48],
-    ]],
+    coordinates: [
+      [
+        [42, 48],
+        [48, 48],
+        [48, 52],
+        [42, 52],
+        [42, 48],
+      ],
+    ],
   },
   properties: {},
 }
@@ -38,7 +42,9 @@ const POLY = {
 describe('countries-boundary tile-clip artifact (demotiles repro)', () => {
   it('outline of a polygon spanning lon=45° tile boundary does NOT include the boundary segment', () => {
     // z=4 tile x=9 covers lon 22.5° to 45° (eastern edge at lon=45°).
-    const z = 4, x = 9, y = 5
+    const z = 4,
+      x = 9,
+      y = 5
     const parts = decomposeFeatures([POLY])
     const tile = compileSingleTile(parts, z, x, y, 7)
     expect(tile).not.toBeNull()
@@ -57,7 +63,7 @@ describe('countries-boundary tile-clip artifact (demotiles repro)', () => {
 
     const STRIDE = 10
     let segmentsOnEastEdge = 0
-    const EPS_MM = 100  // 100m tolerance — eastMx is exact in float64
+    const EPS_MM = 100 // 100m tolerance — eastMx is exact in float64
     const segments: Array<{ ax: number; bx: number }> = []
     const oli = tile!.outlineLineIndices
     if (oli) {
@@ -74,7 +80,9 @@ describe('countries-boundary tile-clip artifact (demotiles repro)', () => {
     }
 
     // eslint-disable-next-line no-console
-    console.log(`[tile-clip] tile x=${x}: ${segments.length} outline segments, ${segmentsOnEastEdge} along east edge (mx=${eastMx.toFixed(0)})`)
+    console.log(
+      `[tile-clip] tile x=${x}: ${segments.length} outline segments, ${segmentsOnEastEdge} along east edge (mx=${eastMx.toFixed(0)})`,
+    )
 
     // The real polygon has 4 edges: bottom (lon 42→48 at lat=48),
     // right (lat 48→52 at lon=48), top (lon 48→42 at lat=52), left
@@ -89,7 +97,9 @@ describe('countries-boundary tile-clip artifact (demotiles repro)', () => {
   })
 
   it('outline for the EAST half (tile x=10) also lacks west-edge segments', () => {
-    const z = 4, x = 10, y = 5
+    const z = 4,
+      x = 10,
+      y = 5
     const parts = decomposeFeatures([POLY])
     const tile = compileSingleTile(parts, z, x, y, 7)
     if (!tile) return
@@ -98,7 +108,7 @@ describe('countries-boundary tile-clip artifact (demotiles repro)', () => {
     if (!olv || !oli) return
     const tb = tileBounds(z, x, y)
     const tileWestMx = lonLatToMercF64(tb.west, 0)[0]
-    const westMx = tileWestMx  // tile x=10's west edge IS lon=45°
+    const westMx = tileWestMx // tile x=10's west edge IS lon=45°
 
     const STRIDE = 10
     let segmentsOnWestEdge = 0

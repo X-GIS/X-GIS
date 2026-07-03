@@ -12,7 +12,10 @@
 
 export type IntrinsicTarget = 'wgsl' | 'glsl'
 
-type Spelling = { readonly wgsl: (args: readonly string[]) => string; readonly glsl: (args: readonly string[]) => string }
+type Spelling = {
+  readonly wgsl: (args: readonly string[]) => string
+  readonly glsl: (args: readonly string[]) => string
+}
 
 const join = (args: readonly string[]): string => args.join(', ')
 
@@ -28,27 +31,51 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // select(falseVal, trueVal, cond) — WGSL builtin vs GLSL ternary.
   select: { wgsl: (a) => `select(${join(a)})`, glsl: (a) => `(${a[2]} ? ${a[1]} : ${a[0]})` },
   // textureSample(tex, samp, uv) — GLSL fuses tex+samp, so drop the sampler arg.
-  textureSample: { wgsl: (a) => `textureSample(${join(a)})`, glsl: (a) => `texture(${a[0]}, ${a[2]})` },
+  textureSample: {
+    wgsl: (a) => `textureSample(${join(a)})`,
+    glsl: (a) => `texture(${a[0]}, ${a[2]})`,
+  },
   atan2: { wgsl: (a) => `atan2(${join(a)})`, glsl: (a) => `atan(${join(a)})` },
   inverseSqrt: { wgsl: (a) => `inverseSqrt(${join(a)})`, glsl: (a) => `inversesqrt(${join(a)})` },
   // GLSL ES 3.00 (WebGL2) has NO packUnorm4x8/unpackUnorm4x8 — those are GLSL 4.00 /
   // ES 3.10 only. Inline the WGSL semantics by hand (round(clamp(v,0,1)*255), byte 0 in
   // the low bits). Verified against the CPU oracle on a real WebGL2 GPU.
-  pack4x8unorm: { wgsl: (a) => `pack4x8unorm(${join(a)})`, glsl: (a) => `(uint(round(clamp(${a[0]}.x, 0.0, 1.0) * 255.0)) | (uint(round(clamp(${a[0]}.y, 0.0, 1.0) * 255.0)) << 8) | (uint(round(clamp(${a[0]}.z, 0.0, 1.0) * 255.0)) << 16) | (uint(round(clamp(${a[0]}.w, 0.0, 1.0) * 255.0)) << 24))` },
-  unpack4x8unorm: { wgsl: (a) => `unpack4x8unorm(${join(a)})`, glsl: (a) => `(vec4(uvec4(${a[0]}, ${a[0]} >> 8, ${a[0]} >> 16, ${a[0]} >> 24) & 0xFFu) / 255.0)` },
+  pack4x8unorm: {
+    wgsl: (a) => `pack4x8unorm(${join(a)})`,
+    glsl: (a) =>
+      `(uint(round(clamp(${a[0]}.x, 0.0, 1.0) * 255.0)) | (uint(round(clamp(${a[0]}.y, 0.0, 1.0) * 255.0)) << 8) | (uint(round(clamp(${a[0]}.z, 0.0, 1.0) * 255.0)) << 16) | (uint(round(clamp(${a[0]}.w, 0.0, 1.0) * 255.0)) << 24))`,
+  },
+  unpack4x8unorm: {
+    wgsl: (a) => `unpack4x8unorm(${join(a)})`,
+    glsl: (a) =>
+      `(vec4(uvec4(${a[0]}, ${a[0]} >> 8, ${a[0]} >> 16, ${a[0]} >> 24) & 0xFFu) / 255.0)`,
+  },
   // bitcast<u32>(f) on WGSL; floatBitsToUint(f) on GLSL. The neutral id drops the
   // WGSL generic-call syntax that used to live in the IR.
-  bitcastU32: { wgsl: (a) => `bitcast<u32>(${join(a)})`, glsl: (a) => `floatBitsToUint(${join(a)})` },
+  bitcastU32: {
+    wgsl: (a) => `bitcast<u32>(${join(a)})`,
+    glsl: (a) => `floatBitsToUint(${join(a)})`,
+  },
   // GLSL texelFetch's lod/sample arg is `int` (WGSL passes a u32 level) → wrap the
   // 3rd arg in int(); GLSL has no implicit u32→int here. (2-arg form passes through.)
-  textureLoad: { wgsl: (a) => `textureLoad(${join(a)})`, glsl: (a) => a.length >= 3 ? `texelFetch(${a[0]}, ${a[1]}, int(${a[2]}))` : `texelFetch(${join(a)})` },
+  textureLoad: {
+    wgsl: (a) => `textureLoad(${join(a)})`,
+    glsl: (a) =>
+      a.length >= 3 ? `texelFetch(${a[0]}, ${a[1]}, int(${a[2]}))` : `texelFetch(${join(a)})`,
+  },
   // GLSL textureSize REQUIRES an int lod (WGSL textureDimensions(t) defaults to base
   // level 0); supply 0 when absent, else cast the given level to int. WGSL
   // textureDimensions returns vec2<u32> but GLSL textureSize returns a SIGNED ivec2 —
   // wrap in uvec2() so the GLSL type matches the IR's u32 type. Without this the
   // mismatch is masked while the call is inlined into an int context, but breaks the
   // moment the optimizer's CSE hoists it into a typed `uvec2 _cse = …` local.
-  textureDimensions: { wgsl: (a) => `textureDimensions(${join(a)})`, glsl: (a) => a.length >= 2 ? `uvec2(textureSize(${a[0]}, int(${a[1]})))` : `uvec2(textureSize(${a[0]}, 0))` },
+  textureDimensions: {
+    wgsl: (a) => `textureDimensions(${join(a)})`,
+    glsl: (a) =>
+      a.length >= 2
+        ? `uvec2(textureSize(${a[0]}, int(${a[1]})))`
+        : `uvec2(textureSize(${a[0]}, 0))`,
+  },
   // Storage-buffer emulation (WebGL2 has no SSBO): GLSL-only synthetic. A storage read
   // data[i] lowers to a fetch from a DATA TEXTURE — a[0]=the sampler, a[1]=the element index.
   // 2D-TILED: the linear index maps to (i % W, i / W) where W = the texture's own width
@@ -56,12 +83,20 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // across rows AND the 1-row case is unchanged (W=N → i%N=i, i/N=0). The shader reads the
   // device-chosen width, so no compile-time width constant needs syncing. Only the GLSL
   // backend sees this call (the pre-pass creates it); the wgsl spelling is unused.
-  storageFetchF32: { wgsl: (a) => `storageFetchF32(${join(a)})`, glsl: (a) => `texelFetch(${a[0]}, ivec2(int(${a[1]}) % textureSize(${a[0]}, 0).x, int(${a[1]}) / textureSize(${a[0]}, 0).x), 0).r` },
+  storageFetchF32: {
+    wgsl: (a) => `storageFetchF32(${join(a)})`,
+    glsl: (a) =>
+      `texelFetch(${a[0]}, ivec2(int(${a[1]}) % textureSize(${a[0]}, 0).x, int(${a[1]}) / textureSize(${a[0]}, 0).x), 0).r`,
+  },
 }
 
 /** Spell an intrinsic / call for a target. Registry id -> mapped spelling;
  *  otherwise identity `name(args)` (portable builtins + user-defined fn calls). */
-export function spellIntrinsic(target: IntrinsicTarget, name: string, args: readonly string[]): string {
+export function spellIntrinsic(
+  target: IntrinsicTarget,
+  name: string,
+  args: readonly string[],
+): string {
   const entry = INTRINSICS[name]
   if (entry) return entry[target](args)
   return `${name}(${join(args)})`
@@ -79,12 +114,40 @@ export function spellIntrinsic(target: IntrinsicTarget, name: string, args: read
 // builtin id the surface emits must be in INTRINSICS (divergent) OR here (asserted identical).
 export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
   // genType1 (component-wise unary) — same name in WGSL + GLSL ES 3.00.
-  'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'exp', 'log', 'log2', 'exp2',
-  'floor', 'ceil', 'abs', 'sqrt', 'fract', 'trunc', 'round', 'sign',
-  'radians', 'degrees', 'normalize', 'fwidth',
+  'sin',
+  'cos',
+  'tan',
+  'asin',
+  'acos',
+  'atan',
+  'exp',
+  'log',
+  'log2',
+  'exp2',
+  'floor',
+  'ceil',
+  'abs',
+  'sqrt',
+  'fract',
+  'trunc',
+  'round',
+  'sign',
+  'radians',
+  'degrees',
+  'normalize',
+  'fwidth',
   // multi-arg math — identical spelling on both targets.
-  'min', 'max', 'pow', 'clamp', 'mix', 'smoothstep', 'step',
-  'length', 'dot', 'distance', 'cross',
+  'min',
+  'max',
+  'pow',
+  'clamp',
+  'mix',
+  'smoothstep',
+  'step',
+  'length',
+  'dot',
+  'distance',
+  'cross',
 ])
 
 /** True if `name` is a builtin the registry knows how to spell on every target — either a

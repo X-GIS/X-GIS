@@ -6,12 +6,7 @@
 
 import type { FlatLine } from './types'
 
-export function simplify(
-  coords: FlatLine,
-  first: number,
-  last: number,
-  sqTolerance: number,
-): void {
+export function simplify(coords: FlatLine, first: number, last: number, sqTolerance: number): void {
   let maxSqDist = sqTolerance
   const mid = first + ((last - first) >> 1)
   let minPosToMid = last - first
@@ -48,9 +43,12 @@ export function simplify(
 }
 
 function getSqSegDist(
-  px: number, py: number,
-  x: number, y: number,
-  bx: number, by: number,
+  px: number,
+  py: number,
+  x: number,
+  y: number,
+  bx: number,
+  by: number,
 ): number {
   let dx = bx - x
   let dy = by - y

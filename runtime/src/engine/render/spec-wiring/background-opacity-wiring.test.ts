@@ -76,7 +76,9 @@ function capturedClearAlpha(opacityShape: PropertyShape<number> | null): number 
     elapsedMs: 0,
     colorView: {} as GPUTextureView,
     encoder: fakeEncoder,
-    passScope: (_label: string, fn: () => void): void => { fn() },
+    passScope: (_label: string, fn: () => void): void => {
+      fn()
+    },
   } as unknown as FrameContext
 
   const host = {
@@ -85,7 +87,11 @@ function capturedClearAlpha(opacityShape: PropertyShape<number> | null): number 
     _backgroundOpacityShape: opacityShape,
   } as unknown as BackgroundPassHost
 
-  backgroundPass.execute(ctx, {} as unknown as SceneView, host as unknown as Parameters<typeof backgroundPass.execute>[2])
+  backgroundPass.execute(
+    ctx,
+    {} as unknown as SceneView,
+    host as unknown as Parameters<typeof backgroundPass.execute>[2],
+  )
   return clearAlpha
 }
 

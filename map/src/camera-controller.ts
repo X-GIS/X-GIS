@@ -63,7 +63,8 @@ export class CameraController {
     }
     // Honor setMaxBounds: clamp the input lon/lat to the bbox before
     // projecting. Without this, jumpTo could escape the constraint.
-    let cLon = lon, cLat = lat
+    let cLon = lon,
+      cLat = lat
     if (this._maxBounds) {
       cLon = Math.max(this._maxBounds.west, Math.min(this._maxBounds.east, cLon))
       cLat = Math.max(this._maxBounds.south, Math.min(this._maxBounds.north, cLat))
@@ -124,15 +125,23 @@ export class CameraController {
       this.invalidate()
     }
   }
-  getMinZoom(): number { return this.camera.minZoom }
-  getMaxZoom(): number { return this.camera.maxZoom }
+  getMinZoom(): number {
+    return this.camera.minZoom
+  }
+  getMaxZoom(): number {
+    return this.camera.maxZoom
+  }
 
   /** Mapbox-API parity: increment / decrement zoom by 1.
    *  Animation arg is accepted but ignored (no transition infra) —
    *  matches MapLibre signature so callers can port code unchanged.
    *  Result is clamped to [minZoom, maxZoom]. */
-  zoomIn(): void { this.setZoom(this.camera.zoom + 1) }
-  zoomOut(): void { this.setZoom(this.camera.zoom - 1) }
+  zoomIn(): void {
+    this.setZoom(this.camera.zoom + 1)
+  }
+  zoomOut(): void {
+    this.setZoom(this.camera.zoom - 1)
+  }
 
   /** Mapbox-API parity: constrain pan to a lon/lat bounding box.
    *  Subsequent setCenter / jumpTo / user pan gestures clamp the
@@ -146,8 +155,15 @@ export class CameraController {
       return
     }
     const [[w, s], [e, n]] = bounds
-    if (!Number.isFinite(w) || !Number.isFinite(s) || !Number.isFinite(e) || !Number.isFinite(n)
-        || s > n || s < -90 || n > 90) {
+    if (
+      !Number.isFinite(w) ||
+      !Number.isFinite(s) ||
+      !Number.isFinite(e) ||
+      !Number.isFinite(n) ||
+      s > n ||
+      s < -90 ||
+      n > 90
+    ) {
       xlog.warn(`[X-GIS] setMaxBounds: invalid bounds (${w},${s})-(${e},${n}); ignored.`)
       return
     }
@@ -159,7 +175,9 @@ export class CameraController {
     // entirely in [-180, 180] without wrap. Reject loudly so callers
     // don't get a silently-incorrect clamp.
     if (w > e) {
-      xlog.warn(`[X-GIS] setMaxBounds: antimeridian-crossing bbox (west=${w} > east=${e}) not supported; ignored.`)
+      xlog.warn(
+        `[X-GIS] setMaxBounds: antimeridian-crossing bbox (west=${w} > east=${e}) not supported; ignored.`,
+      )
       return
     }
     this._maxBounds = { west: w, south: s, east: e, north: n }
@@ -189,7 +207,10 @@ export class CameraController {
   getMaxBounds(): [[number, number], [number, number]] | null {
     if (!this._maxBounds) return null
     const b = this._maxBounds
-    return [[b.west, b.south], [b.east, b.north]]
+    return [
+      [b.west, b.south],
+      [b.east, b.north],
+    ]
   }
 
   /** Mapbox-API parity: return the visible map bbox in lon/lat.
@@ -221,7 +242,10 @@ export class CameraController {
     const east = state.center[0] + halfLonSpan
     const south = Math.max(-90, state.center[1] - halfLatSpan)
     const north = Math.min(90, state.center[1] + halfLatSpan)
-    return [[west, south], [east, north]]
+    return [
+      [west, south],
+      [east, north],
+    ]
   }
 
   /** Mapbox-API parity: fit the camera to a lon/lat bounding box.
@@ -234,8 +258,13 @@ export class CameraController {
     opts: { padding?: number; bearing?: number; pitch?: number } = {},
   ): void {
     const [[w, s], [e, n]] = bounds
-    if (!Number.isFinite(w) || !Number.isFinite(s) || !Number.isFinite(e) || !Number.isFinite(n)
-        || s > n) {
+    if (
+      !Number.isFinite(w) ||
+      !Number.isFinite(s) ||
+      !Number.isFinite(e) ||
+      !Number.isFinite(n) ||
+      s > n
+    ) {
       xlog.warn(`[X-GIS] fitBounds: invalid bounds (${w},${s})-(${e},${n}); ignored.`)
       return
     }
@@ -245,7 +274,9 @@ export class CameraController {
     // centerLon = (w+e)/2 lands on the ANTIPODE of the intended centre. Reject
     // loudly so callers don't get a silently-wrong camera.
     if (w > e) {
-      xlog.warn(`[X-GIS] fitBounds: antimeridian-crossing bbox (west=${w} > east=${e}) not supported; ignored.`)
+      xlog.warn(
+        `[X-GIS] fitBounds: antimeridian-crossing bbox (west=${w} > east=${e}) not supported; ignored.`,
+      )
       return
     }
     const centerLon = (w + e) / 2
@@ -286,10 +317,25 @@ export class CameraController {
    *
    *  When animation lands, these become real eased / fly transitions
    *  and the alias is removed. */
-  easeTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number; easing?: unknown }): void {
+  easeTo(opts: {
+    center?: [number, number]
+    zoom?: number
+    bearing?: number
+    pitch?: number
+    duration?: number
+    easing?: unknown
+  }): void {
     this.jumpTo({ center: opts.center, zoom: opts.zoom, bearing: opts.bearing, pitch: opts.pitch })
   }
-  flyTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number; speed?: number; curve?: number }): void {
+  flyTo(opts: {
+    center?: [number, number]
+    zoom?: number
+    bearing?: number
+    pitch?: number
+    duration?: number
+    speed?: number
+    curve?: number
+  }): void {
     this.jumpTo({ center: opts.center, zoom: opts.zoom, bearing: opts.bearing, pitch: opts.pitch })
   }
 
@@ -302,7 +348,7 @@ export class CameraController {
       xlog.warn(`[X-GIS] panBy: non-finite offset (${offset[0]}, ${offset[1]}); ignored.`)
       return
     }
-    const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, this.camera.zoom)
+    const mpp = WORLD_MERC / TILE_PX / Math.pow(2, this.camera.zoom)
     // CSS-px → Mercator meters at current zoom. The camera works in CSS
     // pixels (Camera.pan is DPR-invariant, commit ee1f394) and `mpp` uses
     // the same metres-per-CSS-pixel as view-matrix.ts, so NO dpr factor:
@@ -312,20 +358,22 @@ export class CameraController {
     const dyMerc = offset[1] * mpp
     // Bearing rotation: screen-space +x is the map's east only when
     // bearing=0. Rotate the offset back into the map's reference frame.
-    const bearingRad = this.camera.bearing * Math.PI / 180
-    const cos = Math.cos(bearingRad), sin = Math.sin(bearingRad)
+    const bearingRad = (this.camera.bearing * Math.PI) / 180
+    const cos = Math.cos(bearingRad),
+      sin = Math.sin(bearingRad)
     const dxMap = dxMerc * cos - dyMerc * sin
     const dyMap = dxMerc * sin + dyMerc * cos
     // Route the result through setCenter so the maxBounds clamp
     // applies. Convert the new Mercator center back to lon/lat first
     // since setCenter expects lon/lat, then setCenter re-projects.
     if (this._maxBounds) {
-      const EARTH = activeBody().sphereR, D2R = Math.PI / 180
+      const EARTH = activeBody().sphereR,
+        D2R = Math.PI / 180
       const newMercX = this.camera.centerX + dxMap
       const newMercY = this.camera.centerY - dyMap // screen-y inverted
       const newLon = newMercX / (D2R * EARTH)
       const newLatRad = mercatorYToLatRad(newMercY)
-      const newLat = newLatRad * 180 / Math.PI
+      const newLat = (newLatRad * 180) / Math.PI
       this.setCenter(newLon, newLat)
     } else {
       this.camera.centerX += dxMap
@@ -370,7 +418,12 @@ export class CameraController {
    *  and the rest of the call still applies.
    *
    *  Matches MapLibre GL JS `map.jumpTo({ center: [lon, lat], zoom, bearing, pitch })`. */
-  jumpTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number }): void {
+  jumpTo(opts: {
+    center?: [number, number]
+    zoom?: number
+    bearing?: number
+    pitch?: number
+  }): void {
     if (opts.center) {
       // Guard the destructure: a non-array `center` (e.g. `{}` or a bare
       // object) is non-iterable and would throw a TypeError that propagates
@@ -379,28 +432,29 @@ export class CameraController {
       if (!Array.isArray(opts.center) || opts.center.length < 2) {
         xlog.warn(`[X-GIS] jumpTo: center must be [lon, lat]; skipped.`)
       } else {
-      const [lon, lat] = opts.center
-      if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
-        xlog.warn(`[X-GIS] jumpTo: non-finite center (${lon}, ${lat}); skipped.`)
-      } else {
-        // Honor maxBounds clamp first.
-        let cLon = lon, cLat = lat
-        if (this._maxBounds) {
-          cLon = Math.max(this._maxBounds.west, Math.min(this._maxBounds.east, cLon))
-          cLat = Math.max(this._maxBounds.south, Math.min(this._maxBounds.north, cLat))
+        const [lon, lat] = opts.center
+        if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+          xlog.warn(`[X-GIS] jumpTo: non-finite center (${lon}, ${lat}); skipped.`)
+        } else {
+          // Honor maxBounds clamp first.
+          let cLon = lon,
+            cLat = lat
+          if (this._maxBounds) {
+            cLon = Math.max(this._maxBounds.west, Math.min(this._maxBounds.east, cLon))
+            cLat = Math.max(this._maxBounds.south, Math.min(this._maxBounds.north, cLat))
+          }
+          // Same dual clamp as setCenter: centerY stays Mercator-representable,
+          // centerLatDeg carries the true (possibly pole-ward) centre latitude so
+          // jumpTo({ center: [0, 89] }) on the globe reaches the pole. Byte-
+          // identical for cylindrical projections (poleLimit=85.051129).
+          const pl = poleLimit(this.camera.projType)
+          const trueLat = Math.max(-pl, Math.min(pl, cLat))
+          const mercLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, cLat))
+          const [mx, my] = lonLatToMercator(cLon, mercLat)
+          this.camera.centerX = mx
+          this.camera.centerY = my
+          this.camera.centerLatDeg = trueLat
         }
-        // Same dual clamp as setCenter: centerY stays Mercator-representable,
-        // centerLatDeg carries the true (possibly pole-ward) centre latitude so
-        // jumpTo({ center: [0, 89] }) on the globe reaches the pole. Byte-
-        // identical for cylindrical projections (poleLimit=85.051129).
-        const pl = poleLimit(this.camera.projType)
-        const trueLat = Math.max(-pl, Math.min(pl, cLat))
-        const mercLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, cLat))
-        const [mx, my] = lonLatToMercator(cLon, mercLat)
-        this.camera.centerX = mx
-        this.camera.centerY = my
-        this.camera.centerLatDeg = trueLat
-      }
       }
     }
     if (opts.zoom !== undefined) {
@@ -434,9 +488,15 @@ export class CameraController {
   getCenter(): [number, number] {
     return this.getCameraState().center
   }
-  getZoom(): number { return this.camera.zoom }
-  getBearing(): number { return this.camera.bearing }
-  getPitch(): number { return this.camera.pitch }
+  getZoom(): number {
+    return this.camera.zoom
+  }
+  getBearing(): number {
+    return this.camera.bearing
+  }
+  getPitch(): number {
+    return this.camera.pitch
+  }
 
   /** Mapbox-API parity: read the current camera state as a single
    *  object. Returns longitude/latitude (NOT Mercator meters) so
@@ -463,7 +523,10 @@ export class CameraController {
     // (byte-identical: centerLatDeg===mercatorYToLat(centerY) there). Fall back
     // to the Mercator-derived value if centerLatDeg is somehow non-finite.
     let lat: number
-    if (representsCenterAs(this.camera.projType) === 'lat-deg' && Number.isFinite(this.camera.centerLatDeg)) {
+    if (
+      representsCenterAs(this.camera.projType) === 'lat-deg' &&
+      Number.isFinite(this.camera.centerLatDeg)
+    ) {
       lat = this.camera.centerLatDeg
     } else {
       lat = mercatorYToLat(cy)
@@ -500,7 +563,9 @@ export class CameraController {
    *  Used by fitBounds to pick the MORE CONSTRAINING axis (lon vs lat). */
   _fitZoomToMercYSpan(latS: number, latN: number, cssHeightPx: number): number {
     if (!(cssHeightPx > 0)) return 4
-    const EARTH = activeBody().sphereR, D2R = Math.PI / 180, LAT_LIMIT = 85.051129
+    const EARTH = activeBody().sphereR,
+      D2R = Math.PI / 180,
+      LAT_LIMIT = 85.051129
     const clampS = Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, latS))
     const clampN = Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, latN))
     const yS = Math.log(Math.tan(Math.PI / 4 + (clampS * D2R) / 2)) * EARTH

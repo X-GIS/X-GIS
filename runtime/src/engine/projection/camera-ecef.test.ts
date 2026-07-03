@@ -51,8 +51,8 @@ describe('Camera.getECEFCenter — derives ECEF from canonical Mercator centre',
     const after = cam.getECEFCenter()
     expect(after[0]).not.toBeCloseTo(before[0], 0)
     expect(after[1]).not.toBeCloseTo(before[1], 0)
-    expect(after[0]).toBeCloseTo(WGS84.A * Math.cos(lon * Math.PI / 180), 2)
-    expect(after[1]).toBeCloseTo(WGS84.A * Math.sin(lon * Math.PI / 180), 2)
+    expect(after[0]).toBeCloseTo(WGS84.A * Math.cos((lon * Math.PI) / 180), 2)
+    expect(after[1]).toBeCloseTo(WGS84.A * Math.sin((lon * Math.PI) / 180), 2)
   })
 })
 

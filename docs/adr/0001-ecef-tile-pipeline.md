@@ -174,10 +174,10 @@ clip-space delta at z=14 per `ecef.ts:97-110`).
 
 The decision is to **keep this vertex(ellipsoid) / camera(sphere) split** — it
 is intentional and guarded (≤1.5 px tolerance). The cross-cutting consequence,
-catalogued by the projection-matrix-unification audit (2026-05-31): any *other*
+catalogued by the projection-matrix-unification audit (2026-05-31): any _other_
 surface that builds its own ECEF on a sphere basis (extrusion walls, globe
 hit-testing / `unprojectGlobe`, graticule) diverges from the ellipsoid ground
-by ~21 km at the poles. Those sphere usages are *unintended drift*, not part of
+by ~21 km at the poles. Those sphere usages are _unintended drift_, not part of
 this decision, and are tracked separately. New ECEF producers MUST use the
 shared ellipsoid `lonLatToECEF` for vertices; only the camera basis reads the
 sphere.

@@ -24,16 +24,24 @@ describe('geodesic-midpoint pole-hop regression gate (iter 40)', () => {
   it('Eurasia-shaped polygon at z=0 compiles without throwing', () => {
     // Polygon spanning ~140° lon at high latitude — exactly the
     // edge case that produced iPhone Safari banding.
-    const features = [{
-      type: 'Feature' as const,
-      properties: {},
-      geometry: {
-        type: 'Polygon' as const,
-        coordinates: [[
-          [10, 75], [150, 75], [150, 35], [10, 35], [10, 75],
-        ]],
+    const features = [
+      {
+        type: 'Feature' as const,
+        properties: {},
+        geometry: {
+          type: 'Polygon' as const,
+          coordinates: [
+            [
+              [10, 75],
+              [150, 75],
+              [150, 35],
+              [10, 35],
+              [10, 75],
+            ],
+          ],
+        },
       },
-    }]
+    ]
     const compiled = compileGeoJSONToTiles(
       { type: 'FeatureCollection' as const, features },
       { minZoom: 0, maxZoom: 2 },
@@ -45,16 +53,24 @@ describe('geodesic-midpoint pole-hop regression gate (iter 40)', () => {
     // 170° lon span at lat=80 — the case where slerp midpoint
     // would jump to the pole. Pre-fix this produced visible
     // banding artefacts on Mercator render.
-    const features = [{
-      type: 'Feature' as const,
-      properties: {},
-      geometry: {
-        type: 'Polygon' as const,
-        coordinates: [[
-          [-85, 80], [85, 80], [85, 75], [-85, 75], [-85, 80],
-        ]],
+    const features = [
+      {
+        type: 'Feature' as const,
+        properties: {},
+        geometry: {
+          type: 'Polygon' as const,
+          coordinates: [
+            [
+              [-85, 80],
+              [85, 80],
+              [85, 75],
+              [-85, 75],
+              [-85, 80],
+            ],
+          ],
+        },
       },
-    }]
+    ]
     const compiled = compileGeoJSONToTiles(
       { type: 'FeatureCollection' as const, features },
       { minZoom: 0, maxZoom: 1 },
@@ -67,16 +83,24 @@ describe('geodesic-midpoint pole-hop regression gate (iter 40)', () => {
     // benefit from slerp midpoint. Test just verifies compilation
     // succeeds; the visual correctness is harder to assert
     // without the renderer.
-    const features = [{
-      type: 'Feature' as const,
-      properties: {},
-      geometry: {
-        type: 'Polygon' as const,
-        coordinates: [[
-          [-15, 45], [15, 45], [15, 30], [-15, 30], [-15, 45],
-        ]],
+    const features = [
+      {
+        type: 'Feature' as const,
+        properties: {},
+        geometry: {
+          type: 'Polygon' as const,
+          coordinates: [
+            [
+              [-15, 45],
+              [15, 45],
+              [15, 30],
+              [-15, 30],
+              [-15, 45],
+            ],
+          ],
+        },
       },
-    }]
+    ]
     const compiled = compileGeoJSONToTiles(
       { type: 'FeatureCollection' as const, features },
       { minZoom: 0, maxZoom: 3 },
@@ -88,16 +112,24 @@ describe('geodesic-midpoint pole-hop regression gate (iter 40)', () => {
     // The exact pattern from the iPhone screenshot — world-fit
     // view shows continents at z=0.5 which selects z=0 or z=1
     // tile. Z=0 root tile contains the full Eurasia ring.
-    const features = [{
-      type: 'Feature' as const,
-      properties: {},
-      geometry: {
-        type: 'Polygon' as const,
-        coordinates: [[
-          [-180, 70], [180, 70], [180, -60], [-180, -60], [-180, 70],
-        ]],
+    const features = [
+      {
+        type: 'Feature' as const,
+        properties: {},
+        geometry: {
+          type: 'Polygon' as const,
+          coordinates: [
+            [
+              [-180, 70],
+              [180, 70],
+              [180, -60],
+              [-180, -60],
+              [-180, 70],
+            ],
+          ],
+        },
       },
-    }]
+    ]
     const compiled = compileGeoJSONToTiles(
       { type: 'FeatureCollection' as const, features },
       { minZoom: 0, maxZoom: 0 },

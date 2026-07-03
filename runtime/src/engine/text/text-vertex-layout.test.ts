@@ -13,7 +13,7 @@ const SHADER_SRC = emitTextWgsl()
 describe('text vertex-format single-source consistency', () => {
   it('spec shape: stride 16 (pos_px f32x2 + uv f32x2)', () => {
     expect(TEXT_FORMAT.stride).toBe(16)
-    expect(TEXT_FORMAT.fields.map(f => [f.location, f.offset, f.vbFormat])).toEqual([
+    expect(TEXT_FORMAT.fields.map((f) => [f.location, f.offset, f.vbFormat])).toEqual([
       [0, 0, 'float32x2'],
       [1, 8, 'float32x2'],
     ])

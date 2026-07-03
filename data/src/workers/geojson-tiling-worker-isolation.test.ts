@@ -87,7 +87,10 @@ function getTile(indexKey: string): any {
     taskId: nextTask++,
     indexKey,
     sourceName: indexKey.split('::')[1],
-    z: 0, x: 0, y: 0, key: 7,
+    z: 0,
+    x: 0,
+    y: 0,
+    key: 7,
   })
   return scope.posted[scope.posted.length - 1]
 }

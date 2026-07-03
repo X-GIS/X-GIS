@@ -61,7 +61,7 @@ function isStaticallyTransparent(value: ColorValue): boolean {
   if (value.kind === 'constant') return value.rgba[3] === 0
   if (value.kind === 'zoom-interpolated') {
     if (value.stops.length === 0) return false
-    return value.stops.every(s => s.value[3] === 0)
+    return value.stops.every((s) => s.value[3] === 0)
   }
   return false
 }
@@ -75,8 +75,7 @@ function isDeadLayer(node: RenderNode, rasterSources: Set<string>): boolean {
   // minzoom && cameraZoom < maxzoom` band. Equal bounds is empty
   // (inclusive lower, exclusive upper). minzoom > maxzoom is
   // obviously empty.
-  if (node.minzoom !== undefined && node.maxzoom !== undefined
-      && node.minzoom >= node.maxzoom) {
+  if (node.minzoom !== undefined && node.maxzoom !== undefined && node.minzoom >= node.maxzoom) {
     return true
   }
 
@@ -107,8 +106,7 @@ function isDeadLayer(node: RenderNode, rasterSources: Set<string>): boolean {
   // (the renderer still inserts a stencil write) but the user's
   // intent is "no stroke" — pair it with hasStrokeColour for the
   // full check. We require strokeWidth>0 AND colour to render a stroke.
-  const hasStrokeWidth = node.stroke.width.kind !== 'constant'
-    || node.stroke.width.value > 0
+  const hasStrokeWidth = node.stroke.width.kind !== 'constant' || node.stroke.width.value > 0
   const hasStroke = hasStrokeColour && hasStrokeWidth
   const hasLabel = node.label !== undefined
   const hasProcedural = node.geometry !== null
@@ -147,9 +145,15 @@ function isDeadLayer(node: RenderNode, rasterSources: Set<string>): boolean {
   // header comment + the pin test at line 134-144. opacity is the
   // animation-base channel; transparent fill is the
   // structurally-dead channel.
-  if (hasFill && !hasStroke && !hasLabel && !hasProcedural && !hasPattern
-      && node.pointerEvents !== 'auto'
-      && isStaticallyTransparent(node.fill)) {
+  if (
+    hasFill &&
+    !hasStroke &&
+    !hasLabel &&
+    !hasProcedural &&
+    !hasPattern &&
+    node.pointerEvents !== 'auto' &&
+    isStaticallyTransparent(node.fill)
+  ) {
     return true
   }
 
@@ -171,10 +175,10 @@ export const deadLayerElimPass: IRPass = {
   run(scene: Scene): Scene {
     const rasterSources = new Set(
       scene.sources
-        .filter(s => s.type === 'raster' || s.type === 'raster-dem')
-        .map(s => s.name),
+        .filter((s) => s.type === 'raster' || s.type === 'raster-dem')
+        .map((s) => s.name),
     )
-    const live = scene.renderNodes.filter(n => !isDeadLayer(n, rasterSources))
+    const live = scene.renderNodes.filter((n) => !isDeadLayer(n, rasterSources))
     if (live.length === scene.renderNodes.length) return scene
     return { ...scene, renderNodes: live }
   },

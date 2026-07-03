@@ -38,10 +38,15 @@ describe('fill-pattern Stage 1 — no Batch-2 warning', () => {
   const baseStyle = (extra: Record<string, unknown>) => ({
     version: 8,
     sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-    layers: [{
-      id: 'l', type: 'fill', source: 'v', 'source-layer': 'a',
-      paint: { 'fill-pattern': 'my-pat', ...extra },
-    }],
+    layers: [
+      {
+        id: 'l',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'a',
+        paint: { 'fill-pattern': 'my-pat', ...extra },
+      },
+    ],
   })
   for (const [variant, extra] of [
     ['alone', {}],
@@ -50,12 +55,17 @@ describe('fill-pattern Stage 1 — no Batch-2 warning', () => {
     it(`fill-pattern ${variant} emits no Batch-2 warning`, () => {
       const coverage = { sources: [], layers: [], warnings: [] as string[] }
       convertMapboxStyle(baseStyle(extra) as never, { coverage })
-      const stale = coverage.warnings.find(w =>
-        w.includes('declared without fill-color')
-        || w.includes('set alongside fill-color')
-        || w.includes('Batch 2 sprite-atlas')
-        || (w.includes('fill-pattern') && w.includes('not yet supported')))
-      expect(stale, `unexpected legacy warning for fill-pattern ${variant}: ${stale}`).toBeUndefined()
+      const stale = coverage.warnings.find(
+        (w) =>
+          w.includes('declared without fill-color') ||
+          w.includes('set alongside fill-color') ||
+          w.includes('Batch 2 sprite-atlas') ||
+          (w.includes('fill-pattern') && w.includes('not yet supported')),
+      )
+      expect(
+        stale,
+        `unexpected legacy warning for fill-pattern ${variant}: ${stale}`,
+      ).toBeUndefined()
     })
   }
 })
@@ -64,10 +74,15 @@ describe('fill-extrusion-pattern Stage 1 — no Batch-2 warning', () => {
   const baseStyle = (extra: Record<string, unknown>) => ({
     version: 8,
     sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-    layers: [{
-      id: 'l', type: 'fill-extrusion', source: 'v', 'source-layer': 'a',
-      paint: { 'fill-extrusion-pattern': 'my-pat', 'fill-extrusion-height': 10, ...extra },
-    }],
+    layers: [
+      {
+        id: 'l',
+        type: 'fill-extrusion',
+        source: 'v',
+        'source-layer': 'a',
+        paint: { 'fill-extrusion-pattern': 'my-pat', 'fill-extrusion-height': 10, ...extra },
+      },
+    ],
   })
   for (const [variant, extra] of [
     ['alone', {}],
@@ -76,11 +91,16 @@ describe('fill-extrusion-pattern Stage 1 — no Batch-2 warning', () => {
     it(`fill-extrusion-pattern ${variant} emits no Batch-2 warning`, () => {
       const coverage = { sources: [], layers: [], warnings: [] as string[] }
       convertMapboxStyle(baseStyle(extra) as never, { coverage })
-      const stale = coverage.warnings.find(w =>
-        w.includes('declared without fill-extrusion-color')
-        || w.includes('set alongside fill-extrusion-color')
-        || w.includes('Batch 2 sprite-atlas'))
-      expect(stale, `unexpected legacy warning for fill-extrusion-pattern ${variant}: ${stale}`).toBeUndefined()
+      const stale = coverage.warnings.find(
+        (w) =>
+          w.includes('declared without fill-extrusion-color') ||
+          w.includes('set alongside fill-extrusion-color') ||
+          w.includes('Batch 2 sprite-atlas'),
+      )
+      expect(
+        stale,
+        `unexpected legacy warning for fill-extrusion-pattern ${variant}: ${stale}`,
+      ).toBeUndefined()
     })
   }
 })
@@ -89,10 +109,15 @@ describe('line-pattern Stage 1 — no Batch-2 warning', () => {
   const baseStyle = (extra: Record<string, unknown>) => ({
     version: 8,
     sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-    layers: [{
-      id: 'l', type: 'line', source: 'v', 'source-layer': 'a',
-      paint: { 'line-pattern': 'my-pat', 'line-width': 1, ...extra },
-    }],
+    layers: [
+      {
+        id: 'l',
+        type: 'line',
+        source: 'v',
+        'source-layer': 'a',
+        paint: { 'line-pattern': 'my-pat', 'line-width': 1, ...extra },
+      },
+    ],
   })
   for (const [variant, extra] of [
     ['alone', {}],
@@ -101,12 +126,17 @@ describe('line-pattern Stage 1 — no Batch-2 warning', () => {
     it(`line-pattern ${variant} emits no Batch-2 warning`, () => {
       const coverage = { sources: [], layers: [], warnings: [] as string[] }
       convertMapboxStyle(baseStyle(extra) as never, { coverage })
-      const stale = coverage.warnings.find(w =>
-        w.includes('declared without line-color')
-        || w.includes('set alongside line-color')
-        || w.includes('Batch 2 sprite-atlas')
-        || (w.includes('line-pattern') && w.includes('not yet supported')))
-      expect(stale, `unexpected legacy warning for line-pattern ${variant}: ${stale}`).toBeUndefined()
+      const stale = coverage.warnings.find(
+        (w) =>
+          w.includes('declared without line-color') ||
+          w.includes('set alongside line-color') ||
+          w.includes('Batch 2 sprite-atlas') ||
+          (w.includes('line-pattern') && w.includes('not yet supported')),
+      )
+      expect(
+        stale,
+        `unexpected legacy warning for line-pattern ${variant}: ${stale}`,
+      ).toBeUndefined()
     })
   }
 })
@@ -119,9 +149,15 @@ function buildStyle(c: Case, includeColour: boolean): Record<string, unknown> {
   return {
     version: 8,
     sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-    layers: [{
-      id: 'l', type: c.layerType, source: 'v', 'source-layer': 'a', paint,
-    }],
+    layers: [
+      {
+        id: 'l',
+        type: c.layerType,
+        source: 'v',
+        'source-layer': 'a',
+        paint,
+      },
+    ],
   }
 }
 
@@ -135,22 +171,26 @@ if (CASES.length > 0) {
       it(`${c.property} alone → "${c.alone.message}" warning`, () => {
         const coverage = { sources: [], layers: [], warnings: [] as string[] }
         convertMapboxStyle(buildStyle(c, false) as never, { coverage })
-        const w = coverage.warnings.find(w => w.includes(c.alone.message))
+        const w = coverage.warnings.find((w) => w.includes(c.alone.message))
         expect(w, `expected warning for ${c.property} alone`).toBeDefined()
         // Must NOT also surface via the generic ignored-properties blob.
-        expect(coverage.warnings.some(
-          w => w.includes('ignored paint properties') && w.includes(c.property),
-        )).toBe(false)
+        expect(
+          coverage.warnings.some(
+            (w) => w.includes('ignored paint properties') && w.includes(c.property),
+          ),
+        ).toBe(false)
       })
 
       it(`${c.property} + ${c.colourProp} → "${c.withColour.message}" warning`, () => {
         const coverage = { sources: [], layers: [], warnings: [] as string[] }
         convertMapboxStyle(buildStyle(c, true) as never, { coverage })
-        const w = coverage.warnings.find(w => w.includes(c.withColour.message))
+        const w = coverage.warnings.find((w) => w.includes(c.withColour.message))
         expect(w, `expected warning for ${c.property} + colour`).toBeDefined()
-        expect(coverage.warnings.some(
-          w => w.includes('ignored paint properties') && w.includes(c.property),
-        )).toBe(false)
+        expect(
+          coverage.warnings.some(
+            (w) => w.includes('ignored paint properties') && w.includes(c.property),
+          ),
+        ).toBe(false)
       })
     }
   })

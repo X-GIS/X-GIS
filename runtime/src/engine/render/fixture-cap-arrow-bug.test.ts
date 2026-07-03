@@ -26,16 +26,16 @@ describe('fixture_cap_arrow z=8.34 / pitch=74.8 / bearing=90', () => {
 
   it('selects the camera tile (8, 148, 128) — south of equator', () => {
     const tiles = visibleTilesFrustum(cam, mercator, 8, W, H)
-    const z8 = tiles.filter(t => t.z === 8)
+    const z8 = tiles.filter((t) => t.z === 8)
     expect(
-      z8.some(t => t.x === 148 && t.y === 128),
+      z8.some((t) => t.x === 148 && t.y === 128),
       'camera tile (8/148/128) must be selected — line at lat=0 lives in y=128',
     ).toBe(true)
   })
 
   it('selects at least some z=8 tiles south of equator (y >= 128)', () => {
     const tiles = visibleTilesFrustum(cam, mercator, 8, W, H)
-    const z8south = tiles.filter(t => t.z === 8 && t.y >= 128)
+    const z8south = tiles.filter((t) => t.z === 8 && t.y >= 128)
     expect(z8south.length, 'no z=8 tiles south of equator selected').toBeGreaterThan(0)
   })
 })

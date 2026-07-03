@@ -8,9 +8,7 @@
 // importing expressions.ts.
 
 import { cssBezierEase } from './paint'
-import {
-  parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab,
-} from '../tokens/colors'
+import { parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab } from '../tokens/colors'
 
 export function convertInterpolate(
   v: unknown[],
@@ -38,8 +36,12 @@ export function convertInterpolate(
   // exponential branch never fired, and the authored curve fell
   // back to linear silently.
   let curveSpec: unknown = v[1]
-  while (Array.isArray(curveSpec) && curveSpec.length === 2 && curveSpec[0] === 'literal'
-      && Array.isArray(curveSpec[1])) {
+  while (
+    Array.isArray(curveSpec) &&
+    curveSpec.length === 2 &&
+    curveSpec[0] === 'literal' &&
+    Array.isArray(curveSpec[1])
+  ) {
     curveSpec = curveSpec[1]
   }
   const input = recurse(v[2], warnings)
@@ -49,7 +51,10 @@ export function convertInterpolate(
   // Cubic-bezier control points (when curveSpec is cubic-bezier).
   // Used by the data-driven densification path below (iter 62, mirror
   // of paint.ts:cssBezierEase densification for zoom interpolates).
-  let bezierX1 = 0, bezierY1 = 0, bezierX2 = 1, bezierY2 = 1
+  let bezierX1 = 0,
+    bezierY1 = 0,
+    bezierX2 = 1,
+    bezierY2 = 1
   let isBezier = false
   if (Array.isArray(curveSpec)) {
     // Mapbox spec: curve type must be one of `linear` / `exponential`
@@ -57,9 +62,15 @@ export function convertInterpolate(
     // to linear without diagnostic — surface it so the author sees
     // the typo. Mirror of paint.ts gate (iter 78).
     const cn = curveSpec[0]
-    if (typeof cn === 'string'
-        && cn !== 'linear' && cn !== 'exponential' && cn !== 'cubic-bezier') {
-      warnings.push(`["${op}"] unknown curve type "${cn}". Mapbox spec recognises only linear / exponential / cubic-bezier. Falling back to linear.`)
+    if (
+      typeof cn === 'string' &&
+      cn !== 'linear' &&
+      cn !== 'exponential' &&
+      cn !== 'cubic-bezier'
+    ) {
+      warnings.push(
+        `["${op}"] unknown curve type "${cn}". Mapbox spec recognises only linear / exponential / cubic-bezier. Falling back to linear.`,
+      )
     }
     if (curveSpec[0] === 'exponential') {
       // v8 strict tooling can wrap the base scalar as
@@ -74,9 +85,12 @@ export function convertInterpolate(
         // Mapbox spec: exponential base must be > 0 (and != 1).
         // Mirror of paint.ts gate (iter 83).
         if (b <= 0) {
-          warnings.push(`["${op}", ["exponential", ${b}], …] base must be > 0 per Mapbox spec; got ${b}. Falling back to linear interpolation.`)
+          warnings.push(
+            `["${op}", ["exponential", ${b}], …] base must be > 0 per Mapbox spec; got ${b}. Falling back to linear interpolation.`,
+          )
         } else {
-          isExp = true; base = b
+          isExp = true
+          base = b
         }
       }
     } else if (curveSpec[0] === 'cubic-bezier') {
@@ -84,7 +98,9 @@ export function convertInterpolate(
       // Mapbox spec: cubic-bezier requires EXACTLY 4 control
       // points. Mirror of paint.ts gate (iter 82).
       if (curveSpec.length !== 5) {
-        warnings.push(`["${op}", ["cubic-bezier", …]] requires exactly 4 control points (x1, y1, x2, y2); got ${curveSpec.length - 1}. Missing slots default to (0, 0, 1, 1) — verify the authored curve.`)
+        warnings.push(
+          `["${op}", ["cubic-bezier", …]] requires exactly 4 control points (x1, y1, x2, y2); got ${curveSpec.length - 1}. Missing slots default to (0, 0, 1, 1) — verify the authored curve.`,
+        )
       }
       // v8 strict tooling can wrap individual control points as
       // `["literal", N]`; unwrap so the typeof gate accepts both
@@ -101,7 +117,9 @@ export function convertInterpolate(
       // CSS cubic-bezier spec: x1 + x2 MUST be in [0, 1] for
       // monotonic x(t). Mirror of paint.ts gate (iter 103).
       if (bezierX1 < 0 || bezierX1 > 1 || bezierX2 < 0 || bezierX2 > 1) {
-        warnings.push(`["${op}", ["cubic-bezier", ${bezierX1}, ${bezierY1}, ${bezierX2}, ${bezierY2}], …]: x control points (x1=${bezierX1}, x2=${bezierX2}) must be in [0, 1] per CSS spec; the curve becomes non-invertible outside that range and the eased output is undefined.`)
+        warnings.push(
+          `["${op}", ["cubic-bezier", ${bezierX1}, ${bezierY1}, ${bezierX2}, ${bezierY2}], …]: x control points (x1=${bezierX1}, x2=${bezierX2}) must be in [0, 1] per CSS spec; the curve becomes non-invertible outside that range and the eased output is undefined.`,
+        )
       }
     }
   }
@@ -116,7 +134,9 @@ export function convertInterpolate(
   // lost the trailing transition silently.
   const stopArgCount = v.length - 3
   if (stopArgCount % 2 !== 0) {
-    warnings.push(`["${op}"] has an odd number of stop arguments (${stopArgCount}); trailing unpaired value dropped.`)
+    warnings.push(
+      `["${op}"] has an odd number of stop arguments (${stopArgCount}); trailing unpaired value dropped.`,
+    )
   }
   const stopArgs: string[] = []
   for (let i = 3; i + 1 < v.length; i += 2) {
@@ -132,14 +152,18 @@ export function convertInterpolate(
     while (Array.isArray(rawZ) && rawZ.length === 2 && rawZ[0] === 'literal') rawZ = rawZ[1]
     if (typeof rawZ !== 'number' || !Number.isFinite(rawZ)) {
       const stopIdx = ((i - 3) / 2) | 0
-      warnings.push(`["${op}"] stop ${stopIdx + 1} x-value must be a literal finite number per Mapbox spec; got ${JSON.stringify(v[i]).slice(0, 80)}. Whole interpolate bails.`)
+      warnings.push(
+        `["${op}"] stop ${stopIdx + 1} x-value must be a literal finite number per Mapbox spec; got ${JSON.stringify(v[i]).slice(0, 80)}. Whole interpolate bails.`,
+      )
       return null
     }
     const z = String(rawZ)
     const y = recurse(v[i + 1], warnings)
     if (y === null) {
       const stopIdx = ((i - 3) / 2) | 0
-      warnings.push(`["${op}"] stop ${stopIdx + 1} value failed to convert; whole interpolate bails.`)
+      warnings.push(
+        `["${op}"] stop ${stopIdx + 1} value failed to convert; whole interpolate bails.`,
+      )
       return null
     }
     stopArgs.push(z, y)
@@ -155,7 +179,9 @@ export function convertInterpolate(
     const prev = Number(stopArgs[i - 2]!)
     const cur = Number(stopArgs[i]!)
     if (Number.isFinite(prev) && Number.isFinite(cur) && cur <= prev) {
-      warnings.push(`["${op}"] stops not strictly ascending: stop input=${cur} <= prior input=${prev}. Mapbox spec requires monotonically increasing input values — evaluator output is undefined for the violating range.`)
+      warnings.push(
+        `["${op}"] stops not strictly ascending: stop input=${cur} <= prior input=${prev}. Mapbox spec requires monotonically increasing input values — evaluator output is undefined for the violating range.`,
+      )
       break // one warning per interpolate, not per pair
     }
   }
@@ -178,7 +204,10 @@ export function convertInterpolate(
     for (let i = 0; i < stopArgs.length; i += 2) {
       const z = Number(stopArgs[i]!)
       const y = Number(stopArgs[i + 1]!)
-      if (!Number.isFinite(z) || !Number.isFinite(y)) { allNumeric = false; break }
+      if (!Number.isFinite(z) || !Number.isFinite(y)) {
+        allNumeric = false
+        break
+      }
       numericStops.push({ z, v: y })
     }
     if (allNumeric) {
@@ -196,7 +225,9 @@ export function convertInterpolate(
       }
       const last = numericStops[numericStops.length - 1]!
       dense.push(String(last.z), String(last.v))
-      warnings.push(`["${op}", ["cubic-bezier", ${bezierX1}, ${bezierY1}, ${bezierX2}, ${bezierY2}], …] approximated via dense piecewise-linear samples (${SAMPLES_PER_SEGMENT} per segment) — xgis has no per-stop bezier interpolator at runtime.`)
+      warnings.push(
+        `["${op}", ["cubic-bezier", ${bezierX1}, ${bezierY1}, ${bezierX2}, ${bezierY2}], …] approximated via dense piecewise-linear samples (${SAMPLES_PER_SEGMENT} per segment) — xgis has no per-stop bezier interpolator at runtime.`,
+      )
       return `interpolate(${input}, ${dense.join(', ')})`
     }
     // Not all-numeric: try HEX COLOUR stops, sampling each segment's
@@ -208,16 +239,25 @@ export function convertInterpolate(
     for (let i = 0; i < stopArgs.length; i += 2) {
       const z = Number(stopArgs[i]!)
       const y = stopArgs[i + 1]!
-      if (!Number.isFinite(z)) { allHex = false; break }
+      if (!Number.isFinite(z)) {
+        allHex = false
+        break
+      }
       const quoted = y.length >= 2 && y.startsWith('"') && y.endsWith('"')
       const rgb = parseSrgbHex(quoted ? y.slice(1, -1) : y)
-      if (!rgb) { allHex = false; break }
+      if (!rgb) {
+        allHex = false
+        break
+      }
       colourStops.push({ z, rgb, quoted })
     }
     if (allHex && colourStops.length >= 2) {
       const SAMPLES_PER_SEGMENT = 6
-      const reQuote = colourStops.some(s => s.quoted)
-      const ch = (c: number) => Math.max(0, Math.min(255, Math.round(c * 255))).toString(16).padStart(2, '0')
+      const reQuote = colourStops.some((s) => s.quoted)
+      const ch = (c: number) =>
+        Math.max(0, Math.min(255, Math.round(c * 255)))
+          .toString(16)
+          .padStart(2, '0')
       const emit = (rgb: [number, number, number]) => {
         const hex = `#${ch(rgb[0])}${ch(rgb[1])}${ch(rgb[2])}`
         return reQuote ? `"${hex}"` : hex
@@ -241,10 +281,14 @@ export function convertInterpolate(
       }
       const last = colourStops[colourStops.length - 1]!
       dense.push(String(last.z), emit(last.rgb))
-      warnings.push(`["${op}", ["cubic-bezier", ${bezierX1}, ${bezierY1}, ${bezierX2}, ${bezierY2}], …] colour stops approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) at bezier-eased fractions — xgis has no per-stop bezier interpolator at runtime.`)
+      warnings.push(
+        `["${op}", ["cubic-bezier", ${bezierX1}, ${bezierY1}, ${bezierX2}, ${bezierY2}], …] colour stops approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) at bezier-eased fractions — xgis has no per-stop bezier interpolator at runtime.`,
+      )
       return `interpolate(${input}, ${dense.join(', ')})`
     }
-    warnings.push(`["${op}", ["cubic-bezier", …], …] folded to linear — xgis has no per-stop bezier interpolator and non-numeric, non-hex stop values can't be densified at compile time.`)
+    warnings.push(
+      `["${op}", ["cubic-bezier", …], …] folded to linear — xgis has no per-stop bezier interpolator and non-numeric, non-hex stop values can't be densified at compile time.`,
+    )
   }
   if (isLab && !isExp && !isBezier) {
     // Try Lab/LCh densification over hex colour stops. stopArgs y
@@ -253,17 +297,30 @@ export function convertInterpolate(
     // `"#rrggbb"` (the latter is what exprToXgis emits for raw
     // string stop values, since strings are quoted at the
     // expression level to survive lexer round-trip).
-    const labStops: Array<{ z: number; L: number; a: number; b: number; hex: string; quoted: boolean }> = []
+    const labStops: Array<{
+      z: number
+      L: number
+      a: number
+      b: number
+      hex: string
+      quoted: boolean
+    }> = []
     let allHex = true
     for (let i = 0; i < stopArgs.length; i += 2) {
       const z = Number(stopArgs[i]!)
       let y = stopArgs[i + 1]!
-      if (!Number.isFinite(z)) { allHex = false; break }
+      if (!Number.isFinite(z)) {
+        allHex = false
+        break
+      }
       // Strip JSON quote wrap if present
       const quoted = y.length >= 2 && y.startsWith('"') && y.endsWith('"')
       const peeled = quoted ? y.slice(1, -1) : y
       const rgb = parseSrgbHex(peeled)
-      if (!rgb) { allHex = false; break }
+      if (!rgb) {
+        allHex = false
+        break
+      }
       const [L, a, b] = srgbToLab(rgb[0], rgb[1], rgb[2])
       labStops.push({ z, L, a, b, hex: peeled, quoted })
     }
@@ -274,8 +331,8 @@ export function convertInterpolate(
       // Preserve input quoting convention: if any stop was JSON-
       // quoted, every emitted hex is JSON-quoted too so the
       // resulting interpolate call parses identically.
-      const reQuote = labStops.some(s => s.quoted)
-      const emit = (hex: string) => reQuote ? `"${hex}"` : hex
+      const reQuote = labStops.some((s) => s.quoted)
+      const emit = (hex: string) => (reQuote ? `"${hex}"` : hex)
       for (let i = 0; i < labStops.length - 1; i++) {
         const a = labStops[i]!
         const b = labStops[i + 1]!
@@ -304,7 +361,9 @@ export function convertInterpolate(
       }
       const last = labStops[labStops.length - 1]!
       dense.push(String(last.z), emit(last.hex))
-      warnings.push(`${op}(…) approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) — perceptually correct in ${useHcl ? 'LCh' : 'Lab'} space at compile time; runtime interpolation between dense hex stops.`)
+      warnings.push(
+        `${op}(…) approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) — perceptually correct in ${useHcl ? 'LCh' : 'Lab'} space at compile time; runtime interpolation between dense hex stops.`,
+      )
       return `interpolate(${input}, ${dense.join(', ')})`
     }
     // iter-164 (§11 runtime evaluator): non-hex linear lab/hcl
@@ -318,10 +377,14 @@ export function convertInterpolate(
     // base curve adds another dimension that would compound the
     // runtime cost; not yet routed.
     const lookup = op === 'interpolate-hcl' ? 'interpolate_hcl' : 'interpolate_lab'
-    warnings.push(`${op}(…) routed to runtime ${lookup}(…) — per-feature Lab/LCh interpolation between resolved stop colours. iter 164.`)
+    warnings.push(
+      `${op}(…) routed to runtime ${lookup}(…) — per-feature Lab/LCh interpolation between resolved stop colours. iter 164.`,
+    )
     return `${lookup}(${input}, ${stopArgs.join(', ')})`
   } else if (isLab) {
-    warnings.push(`${op}(…) with non-linear curve approximated as linear-sRGB — compile-time densification only handles the linear curve.`)
+    warnings.push(
+      `${op}(…) with non-linear curve approximated as linear-sRGB — compile-time densification only handles the linear curve.`,
+    )
   }
 
   if (isExp) return `interpolate_exp(${input}, ${base}, ${stopArgs.join(', ')})`

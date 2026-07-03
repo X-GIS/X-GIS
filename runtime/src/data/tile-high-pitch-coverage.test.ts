@@ -64,26 +64,24 @@ function anyTileCoversLonLat(
 ): boolean {
   for (let tz = maxZ; tz >= 0; tz--) {
     const n = Math.pow(2, tz)
-    const tx = Math.floor((lon + 180) / 360 * n)
+    const tx = Math.floor(((lon + 180) / 360) * n)
     const clampedLat = Math.max(-85.051129, Math.min(85.051129, lat))
     const ty = Math.floor(
-      (1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) / Math.PI) / 2 * n,
+      ((1 - Math.log(Math.tan(Math.PI / 4 + (clampedLat * DEG2RAD) / 2)) / Math.PI) / 2) * n,
     )
-    if (tiles.some(t => t.z === tz && t.x === tx && t.y === ty)) return true
+    if (tiles.some((t) => t.z === tz && t.x === tx && t.y === ty)) return true
   }
   return false
 }
 
 /** Screen fraction → lon/lat via Camera.unprojectToZ0 + Mercator inverse.
  *  Returns null if the ray misses the ground plane (at/above horizon). */
-function unprojectFractionToLonLat(
-  cam: Camera, fx: number, fy: number,
-): [number, number] | null {
+function unprojectFractionToLonLat(cam: Camera, fx: number, fy: number): [number, number] | null {
   const rel = cam.unprojectToZ0(fx * W, fy * H, W, H)
   if (!rel) return null
   const mx = cam.centerX + rel[0]
   const my = cam.centerY + rel[1]
-  const lon = (mx / R) / DEG2RAD
+  const lon = mx / R / DEG2RAD
   const lat = (2 * Math.atan(Math.exp(my / R)) - Math.PI / 2) / DEG2RAD
   if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null
   return [lon, lat]
@@ -139,14 +137,15 @@ describe('High-pitch: exact bug reproduction (2026-04-20 report)', () => {
     const fractionsX = [0.25, 0.5, 0.75]
     const missed: string[] = []
     let checked = 0
-    for (const fy of fractionsY) for (const fx of fractionsX) {
-      const ll = unprojectFractionToLonLat(cam, fx, fy)
-      if (!ll) continue
-      checked++
-      if (!anyTileCoversLonLat(tiles, ll[0], ll[1], Math.round(BUG.zoom))) {
-        missed.push(`(${fx}, ${fy}) → lon=${ll[0].toFixed(3)} lat=${ll[1].toFixed(3)}`)
+    for (const fy of fractionsY)
+      for (const fx of fractionsX) {
+        const ll = unprojectFractionToLonLat(cam, fx, fy)
+        if (!ll) continue
+        checked++
+        if (!anyTileCoversLonLat(tiles, ll[0], ll[1], Math.round(BUG.zoom))) {
+          missed.push(`(${fx}, ${fy}) → lon=${ll[0].toFixed(3)} lat=${ll[1].toFixed(3)}`)
+        }
       }
-    }
     expect(checked, 'no samples in lower half unprojected').toBeGreaterThan(0)
     expect(
       missed,
@@ -220,10 +219,7 @@ describe('High-pitch: pitch × zoom matrix', () => {
       runner(`${key}: coverage holds`, () => {
         const cam = makeCam(zoom, pitch, 117.95751, 30.94565, 0)
         const tiles = visibleTilesFrustum(cam, mercator, zoom, W, H)
-        expect(
-          tiles.length,
-          `${key}: 0 tiles`,
-        ).toBeGreaterThan(0)
+        expect(tiles.length, `${key}: 0 tiles`).toBeGreaterThan(0)
 
         const ll = unprojectFractionToLonLat(cam, 0.5, 0.7)
         // Very low zoom at high pitch may horizon-clip even the lower
@@ -268,14 +264,14 @@ describe('High-pitch: pitch=80 × bearing sweep (bug URL had bearing=359.5)', ()
 
 describe('High-pitch: pitch=80 × various globe locations', () => {
   const LOCATIONS: Array<[label: string, lon: number, lat: number]> = [
-    ['bug-china',         117.95751,  30.94565],
-    ['paris',             2.3522,     48.8566],
-    ['tokyo',             139.6917,   35.6895],
-    ['new-york',          -74.0060,   40.7128],
-    ['sydney',            151.2093,   -33.8688],
-    ['sao-paulo',         -46.6333,   -23.5505],
-    ['equator-meridian',  0.0,        0.0],
-    ['norway-north',      8.0,        70.0],
+    ['bug-china', 117.95751, 30.94565],
+    ['paris', 2.3522, 48.8566],
+    ['tokyo', 139.6917, 35.6895],
+    ['new-york', -74.006, 40.7128],
+    ['sydney', 151.2093, -33.8688],
+    ['sao-paulo', -46.6333, -23.5505],
+    ['equator-meridian', 0.0, 0.0],
+    ['norway-north', 8.0, 70.0],
   ]
   for (const [label, lon, lat] of LOCATIONS) {
     it(`${label} (lon=${lon}, lat=${lat}): pitch=80 coverage holds`, () => {
@@ -348,7 +344,8 @@ describe('High-pitch: budget & continuity invariants', () => {
       const tiles = visibleTilesFrustum(cam, mercator, 10, W, H)
       if (prev > 0 && tiles.length > 0) {
         const r = Math.max(prev, tiles.length) / Math.min(prev, tiles.length)
-        if (r > 10) jumps.push(`pitch=${pitch - 1}→${pitch}: ${prev}→${tiles.length} (×${r.toFixed(1)})`)
+        if (r > 10)
+          jumps.push(`pitch=${pitch - 1}→${pitch}: ${prev}→${tiles.length} (×${r.toFixed(1)})`)
       }
       prev = tiles.length
     }
@@ -369,10 +366,7 @@ describe('High-pitch: tile set well-formedness', () => {
         const seen = new Set<string>()
         for (const t of tiles) {
           const k = `${t.z}/${t.x}/${t.y}/${t.ox ?? t.x}`
-          expect(
-            seen.has(k),
-            `pitch=${pitch} zoom=${zoom}: duplicate tile ${k}`,
-          ).toBe(false)
+          expect(seen.has(k), `pitch=${pitch} zoom=${zoom}: duplicate tile ${k}`).toBe(false)
           seen.add(k)
         }
       }
@@ -384,14 +378,16 @@ describe('High-pitch: tile set well-formedness', () => {
       const cam = makeCam(10, pitch, 117.95751, 30.94565, 0)
       const tiles = visibleTilesFrustum(cam, mercator, 10, W, H)
       for (const t of tiles) {
-        expect(Number.isInteger(t.z) && t.z >= 0 && t.z <= 10,
-          `pitch=${pitch}: bad z=${t.z}`).toBe(true)
-        expect(Number.isInteger(t.x) && Number.isInteger(t.y),
-          `pitch=${pitch}: non-integer tile coord`).toBe(true)
+        expect(Number.isInteger(t.z) && t.z >= 0 && t.z <= 10, `pitch=${pitch}: bad z=${t.z}`).toBe(
+          true,
+        )
+        expect(
+          Number.isInteger(t.x) && Number.isInteger(t.y),
+          `pitch=${pitch}: non-integer tile coord`,
+        ).toBe(true)
         const n = Math.pow(2, t.z)
         // Y must be in-range (no wrapping in lat direction).
-        expect(t.y >= 0 && t.y < n,
-          `pitch=${pitch}: y=${t.y} out of [0, ${n})`).toBe(true)
+        expect(t.y >= 0 && t.y < n, `pitch=${pitch}: y=${t.y} out of [0, ${n})`).toBe(true)
       }
     }
   })

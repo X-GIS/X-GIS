@@ -15,6 +15,7 @@ triggers:
 # Verifying an X-GIS render change: four traps that hid real bugs
 
 ## The Insight
+
 The DC=0 pixel-diff dance and a name-globbed `vitest run` feel like enough, but
 each has a failure mode this codebase hit:
 
@@ -43,11 +44,13 @@ each has a failure mode this codebase hit:
    pre-existing baseline failure on main.)
 
 ## Why This Matters
+
 Declaring a render refactor "done" on DC=0 + a name-glob subset shipped a real
 inline-path corruption (radius slot = Mercator-y). The full suite + a GPU-free
 wiring test caught it after the fact.
 
 ## The Approach
+
 For any shared-render-module change: (a) run the FULL `vitest run` before
 "done", (b) treat any surviving failure as suspect until you diff it against
 `main` (pre-existing?) or re-run isolated (load-flake?), (c) DC=0 the CHANGED
@@ -55,16 +58,19 @@ regime vs `main` (the authoritative correct render), not just vs the prior
 commit, (d) hard-settle streaming fixtures.
 
 ## Example — DC=0 dance git-safety (this bit twice)
+
 Run EVERY git op with `git -C <repo-root>` and guard the stash by name — a
 `git stash push <paths>` executed from a subdir (e.g. `playground/`) matches no
 pathspec, SILENTLY no-ops, and the later `git stash pop` then pops the WRONG
 stash (a stale session-start stash) → leaked files + a UU conflict.
+
 ```bash
 git -C /d/X-GIS stash push -m TAG -- <paths>
 git -C /d/X-GIS stash list | head -1 | grep -q TAG || { echo ABORT; exit 1; }
 # … capture BEFORE …
 git -C /d/X-GIS stash pop stash@{0}   # by ref, only after the guard
 ```
+
 Recovery if the wrong stash leaked: `git checkout HEAD -- <leaked files>` +
 `rm` the moved copies; the mis-popped stash is preserved (pop kept it on
 conflict). See session 2026-07-01 (#722 point-packing).

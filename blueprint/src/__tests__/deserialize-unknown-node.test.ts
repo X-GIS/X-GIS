@@ -67,7 +67,13 @@ describe('blueprint deserialization rejects unknown node types', () => {
     const payload: BPGraph = {
       nodes: [
         { id: 'good', type: 'source', x: 10, y: 10, data: { name: 'world' } },
-        { id: 'alien', type: 'totally-unknown' as unknown as BPNode['type'], x: 20, y: 20, data: {} },
+        {
+          id: 'alien',
+          type: 'totally-unknown' as unknown as BPNode['type'],
+          x: 20,
+          y: 20,
+          data: {},
+        },
       ],
       edges: [
         { id: 'e_bad', from: { node: 'good', pin: 'out' }, to: { node: 'alien', pin: 'in' } },
@@ -98,7 +104,9 @@ describe('blueprint deserialization rejects unknown node types', () => {
         { id: 'good', type: 'layer', x: 0, y: 0, data: {} },
         { id: 'alien', type: 'totally-unknown', x: 0, y: 0, data: {} },
       ],
-      edges: [{ id: 'e', from: { node: 'alien', pin: 'out' }, to: { node: 'good', pin: 'source' } }],
+      edges: [
+        { id: 'e', from: { node: 'alien', pin: 'out' }, to: { node: 'good', pin: 'source' } },
+      ],
       frames: [],
     })
 

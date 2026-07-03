@@ -23,7 +23,7 @@ interface Capture {
   pairKey: string | undefined
   x: number
   y: number
-  name: string  // icon name OR resolved text
+  name: string // icon name OR resolved text
 }
 
 function makeIconStageStub(): IconStage {
@@ -32,8 +32,7 @@ function makeIconStageStub(): IconStage {
   ;(stage as unknown as { dpr: number }).dpr = 1
   ;(stage as unknown as { missingIconNames: Set<string> }).missingIconNames = new Set()
   ;(stage as unknown as { dispatchedIconNames: Set<string> }).dispatchedIconNames = new Set()
-  ;(stage as unknown as { _iconDebugHook: null }).
-    _iconDebugHook = null
+  ;(stage as unknown as { _iconDebugHook: null })._iconDebugHook = null
   return stage
 }
 
@@ -82,13 +81,16 @@ describe('iter-301 paired-symbol position invariant', () => {
       textStage.addLabel(
         { parts: [{ kind: 'literal', value: f.ref }] } as never,
         {},
-        f.x, f.y,
+        f.x,
+        f.y,
         labelDef,
-        undefined, 'highway-shield', f.pair,
+        undefined,
+        'highway-shield',
+        f.pair,
       )
     }
 
-    expect(captures.length).toBe(6)  // 3 features × (icon + text)
+    expect(captures.length).toBe(6) // 3 features × (icon + text)
 
     // Pair by index: even = icon, odd = text for each feature.
     for (let i = 0; i < features.length; i++) {
@@ -111,7 +113,7 @@ describe('iter-301 paired-symbol position invariant', () => {
       captures.push({ name, pairKey })
     })
     stage.addIcon(0, 0, 'school', { pairKey: 'p1' })
-    stage.addIcon(0, 0, 'park')  // no pairKey
+    stage.addIcon(0, 0, 'park') // no pairKey
     stage.addIcon(0, 0, 'shield', { pairKey: 'p2' })
     expect(captures).toEqual([
       { name: 'school', pairKey: 'p1' },
@@ -130,7 +132,9 @@ describe('iter-301 paired-symbol position invariant', () => {
   it('debug hook fires BEFORE prepare() — captures all submissions including unmatched names', () => {
     const stage = makeIconStageStub()
     const captures: string[] = []
-    stage.setIconDebugHook(name => { captures.push(name) })
+    stage.setIconDebugHook((name) => {
+      captures.push(name)
+    })
     // 'nonexistent' would be dropped at prepare() (no atlas), but
     // the dispatch hook fires regardless — confirms instrumentation
     // is at the submission boundary, not the render boundary.

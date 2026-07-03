@@ -34,13 +34,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<GPUContext> {
   const canvas = { width: 1024, height: 768 } as unknown as HTMLCanvasElement
@@ -50,9 +55,9 @@ async function makeCtx(): Promise<GPUContext> {
 
 // Derived from the single-source ICON_FORMAT so the test cannot drift from the
 // packer / GPUVertexBufferLayout. tint r,g,b live at floats 5,6,7; sdf at 8.
-const FLOATS_PER_VERT = ICON_FORMAT.stride / 4                       // 9
-const TINT_SLOT = vertexField(ICON_FORMAT, 'tint').offset / 4        // 5
-const SDF_SLOT = vertexField(ICON_FORMAT, 'sdf').offset / 4          // 8
+const FLOATS_PER_VERT = ICON_FORMAT.stride / 4 // 9
+const TINT_SLOT = vertexField(ICON_FORMAT, 'tint').offset / 4 // 5
+const SDF_SLOT = vertexField(ICON_FORMAT, 'sdf').offset / 4 // 8
 
 // One SDF sprite → one quad → 6 verts × 9 floats = 54 floats = 216 B. The
 // vertex buffer is created at max(1024, grown) = 1024 B, distinct from the
@@ -65,11 +70,21 @@ const VERTEX_BUF_BYTES = 1024
 const TINT: [number, number, number] = [0.2, 0.4, 0.6]
 
 const SPRITE: SpriteInfo = {
-  name: 'marker', x: 0, y: 0, width: 16, height: 16, pixelRatio: 1, sdf: true,
+  name: 'marker',
+  x: 0,
+  y: 0,
+  width: 16,
+  height: 16,
+  pixelRatio: 1,
+  sdf: true,
 }
 
 const DRAW: IconDraw = {
-  anchorX: 100, anchorY: 200, sprite: SPRITE, sizeScale: 1, tint: TINT,
+  anchorX: 100,
+  anchorY: 200,
+  sprite: SPRITE,
+  sizeScale: 1,
+  tint: TINT,
 }
 
 // IconRenderer.setDraws only calls atlas.size(); a minimal non-zero atlas is
@@ -81,26 +96,37 @@ const FAKE_ATLAS = { size: () => ({ width: 256, height: 256 }) }
  *  from the vertex-buffer writeBuffer. */
 function capturedFirstVertex(ctx: GPUContext, draw: IconDraw): Float32Array | undefined {
   const renderer = new IconRenderer(
-    ctx.device, new WebGpuDevice(ctx.device), FAKE_ATLAS as never, ctx.format, 1,
+    ctx.device,
+    new WebGpuDevice(ctx.device),
+    FAKE_ATLAS as never,
+    ctx.format,
+    1,
   )
 
   let firstVert: Float32Array | undefined
   const device = ctx.device as unknown as {
     queue: {
       writeBuffer: (
-        buf: unknown, bufOff: number,
-        data: ArrayBufferView | ArrayBuffer, dataOff?: number, size?: number,
+        buf: unknown,
+        bufOff: number,
+        data: ArrayBufferView | ArrayBuffer,
+        dataOff?: number,
+        size?: number,
       ) => void
     }
   }
   device.queue.writeBuffer = (
-    buf: unknown, _bufOff: number,
-    data: ArrayBufferView | ArrayBuffer, dataOff?: number, _size?: number,
+    buf: unknown,
+    _bufOff: number,
+    data: ArrayBufferView | ArrayBuffer,
+    dataOff?: number,
+    _size?: number,
   ): void => {
     if ((buf as { size?: number })?.size !== VERTEX_BUF_BYTES) return
     // setDraws uploads `data.buffer` (an ArrayBuffer) with a byteOffset.
     const ab = data instanceof ArrayBuffer ? data : (data as ArrayBufferView).buffer
-    const baseOff = data instanceof ArrayBuffer ? (dataOff ?? 0) : (data as ArrayBufferView).byteOffset
+    const baseOff =
+      data instanceof ArrayBuffer ? (dataOff ?? 0) : (data as ArrayBufferView).byteOffset
     firstVert = new Float32Array(ab, baseOff, FLOATS_PER_VERT)
   }
 

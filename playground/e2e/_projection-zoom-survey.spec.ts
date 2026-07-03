@@ -44,9 +44,9 @@ const PROJECTIONS = [
 const SCENARIOS: Array<{ slug: string; hash: string }> = [
   // Default load — playground auto-fits to data bounds, so this is
   // the "whole world" view for each projection.
-  { slug: 'z0',        hash: '' },
+  { slug: 'z0', hash: '' },
   // hash format: #zoom/lat/lon/bearing/pitch
-  { slug: 'dateline',  hash: '#2/0/180' },
+  { slug: 'dateline', hash: '#2/0/180' },
   { slug: 'north-pole', hash: '#3/85/0' },
   { slug: 'south-pole', hash: '#3/-85/0' },
 ]
@@ -82,16 +82,23 @@ for (const proj of PROJECTIONS) {
         await page.goto(url, { waitUntil: 'domcontentloaded' })
         await page.waitForFunction(
           () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-          null, { timeout: 15_000 },
+          null,
+          { timeout: 15_000 },
         )
         ready = true
-      } catch { /* leave ready=false; spec still runs the screenshot */ }
+      } catch {
+        /* leave ready=false; spec still runs the screenshot */
+      }
       // Drop pre-ready noise (same reasoning as the demo audit's filter).
       if (ready) errors.length = 0
       await page.waitForTimeout(2000)
 
       const cam = await page.evaluate(() => {
-        const m = (window as unknown as { __xgisMap?: { camera: { zoom: number; centerX: number; centerY: number } } }).__xgisMap
+        const m = (
+          window as unknown as {
+            __xgisMap?: { camera: { zoom: number; centerX: number; centerY: number } }
+          }
+        ).__xgisMap
         return m ? { zoom: m.camera.zoom, cx: m.camera.centerX, cy: m.camera.centerY } : null
       })
 
@@ -108,21 +115,27 @@ for (const proj of PROJECTIONS) {
         const url = URL.createObjectURL(blob)
         const img = new Image()
         await new Promise<void>((res, rej) => {
-          img.onload = () => res(); img.onerror = () => rej(new Error('img'))
+          img.onload = () => res()
+          img.onerror = () => rej(new Error('img'))
           img.src = url
         })
         const off = new OffscreenCanvas(img.width, img.height)
         const ctx = off.getContext('2d')!
         ctx.drawImage(img, 0, 0)
-        const w = img.width, h = img.height
-        const xMin = Math.floor(w * 0.20), xMax = Math.floor(w * 0.80)
-        const yMin = Math.floor(h * 0.20), yMax = Math.floor(h * 0.80)
+        const w = img.width,
+          h = img.height
+        const xMin = Math.floor(w * 0.2),
+          xMax = Math.floor(w * 0.8)
+        const yMin = Math.floor(h * 0.2),
+          yMax = Math.floor(h * 0.8)
         const data = ctx.getImageData(0, 0, w, h).data
         let n = 0
         for (let y = yMin; y < yMax; y++) {
           for (let x = xMin; x < xMax; x++) {
             const i = (y * w + x) * 4
-            const r = data[i], g = data[i + 1], b = data[i + 2]
+            const r = data[i],
+              g = data[i + 1],
+              b = data[i + 2]
             if (r > 30 || g > 30 || b > 40) n++
           }
         }
@@ -133,7 +146,9 @@ for (const proj of PROJECTIONS) {
       page.off('console', onConsole)
 
       results.push({
-        proj, scenario: sc.slug, ready,
+        proj,
+        scenario: sc.slug,
+        ready,
         cameraZoom: cam?.zoom ?? null,
         paintCenter,
         errors: errors.slice(0, 3),
@@ -142,10 +157,11 @@ for (const proj of PROJECTIONS) {
 
       // Universal expectations — every cell must satisfy these.
       expect(ready, `${proj}/${sc.slug}: __xgisReady never flipped`).toBe(true)
-      expect(Number.isFinite(cam?.zoom ?? NaN),
-        `${proj}/${sc.slug}: camera.zoom non-finite (${cam?.zoom})`).toBe(true)
-      expect(errors, `${proj}/${sc.slug}: console errors\n  ${errors.join('\n  ')}`)
-        .toHaveLength(0)
+      expect(
+        Number.isFinite(cam?.zoom ?? NaN),
+        `${proj}/${sc.slug}: camera.zoom non-finite (${cam?.zoom})`,
+      ).toBe(true)
+      expect(errors, `${proj}/${sc.slug}: console errors\n  ${errors.join('\n  ')}`).toHaveLength(0)
 
       // Projection-specific paint expectations.
       // Mercator clips at ±85.051°, so the pole scenarios are
@@ -155,8 +171,10 @@ for (const proj of PROJECTIONS) {
       const expectBlankPole =
         proj === 'mercator' && (sc.slug === 'north-pole' || sc.slug === 'south-pole')
       if (!expectBlankPole) {
-        expect(paintCenter, `${proj}/${sc.slug}: central region empty (${paintCenter}px)`)
-          .toBeGreaterThan(2000)
+        expect(
+          paintCenter,
+          `${proj}/${sc.slug}: central region empty (${paintCenter}px)`,
+        ).toBeGreaterThan(2000)
       }
     })
   }
@@ -164,12 +182,19 @@ for (const proj of PROJECTIONS) {
 
 test.afterAll(() => {
   // REPORT.md table for human review.
-  const lines = ['# Projection × zoom survey', '', '| Projection | Scenario | Ready | Zoom | Central paint | Errors |',
-                 '|---|---|---:|---:|---:|---:|']
-  for (const r of results.sort((a, b) =>
-    a.proj.localeCompare(b.proj) || a.scenario.localeCompare(b.scenario))) {
-    lines.push(`| ${r.proj} | ${r.scenario} | ${r.ready ? 'Y' : '**N**'} ` +
-      `| ${r.cameraZoom?.toFixed(2) ?? 'n/a'} | ${r.paintCenter} | ${r.errors.length} |`)
+  const lines = [
+    '# Projection × zoom survey',
+    '',
+    '| Projection | Scenario | Ready | Zoom | Central paint | Errors |',
+    '|---|---|---:|---:|---:|---:|',
+  ]
+  for (const r of results.sort(
+    (a, b) => a.proj.localeCompare(b.proj) || a.scenario.localeCompare(b.scenario),
+  )) {
+    lines.push(
+      `| ${r.proj} | ${r.scenario} | ${r.ready ? 'Y' : '**N**'} ` +
+        `| ${r.cameraZoom?.toFixed(2) ?? 'n/a'} | ${r.paintCenter} | ${r.errors.length} |`,
+    )
   }
   writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))
 })

@@ -17,14 +17,12 @@
 //                               participates in collision, occlusion,
 //                               or layout (matches Mapbox).
 
-export type ZeroKind =
-  | 'identity'
-  | 'strict-zero'
-  | 'invisible-but-present'
+export type ZeroKind = 'identity' | 'strict-zero' | 'invisible-but-present'
 
 export interface ZeroSemantic {
   property: string
-  layerType: 'fill' | 'line' | 'symbol' | 'circle' | 'fill-extrusion' | 'raster' | 'background' | 'heatmap'
+  layerType:
+    'fill' | 'line' | 'symbol' | 'circle' | 'fill-extrusion' | 'raster' | 'background' | 'heatmap'
   kind: ZeroKind
   rationale: string
 }
@@ -49,8 +47,7 @@ export const ZERO_SEMANTICS: readonly ZeroSemantic[] = [
     property: 'line-offset',
     layerType: 'line',
     kind: 'identity',
-    rationale:
-      'offset=0 means line centered on its geometry. Converter correctly skips emit.',
+    rationale: 'offset=0 means line centered on its geometry. Converter correctly skips emit.',
   },
   {
     property: 'line-width',
@@ -102,8 +99,7 @@ export const ZERO_SEMANTICS: readonly ZeroSemantic[] = [
     property: 'icon-opacity',
     layerType: 'symbol',
     kind: 'invisible-but-present',
-    rationale:
-      'opacity=0 invisible but icon still claims collision space. Matches Mapbox.',
+    rationale: 'opacity=0 invisible but icon still claims collision space. Matches Mapbox.',
   },
   {
     property: 'icon-halo-width',
@@ -149,7 +145,8 @@ export const ZERO_SEMANTICS: readonly ZeroSemantic[] = [
     property: 'fill-extrusion-opacity',
     layerType: 'fill-extrusion',
     kind: 'invisible-but-present',
-    rationale: 'opacity=0 transparent walls — Mapbox draws them anyway (depth buffer participation preserved).',
+    rationale:
+      'opacity=0 transparent walls — Mapbox draws them anyway (depth buffer participation preserved).',
   },
 
   // ─── raster ────────────────────────────────────────────────
@@ -157,7 +154,8 @@ export const ZERO_SEMANTICS: readonly ZeroSemantic[] = [
     property: 'raster-opacity',
     layerType: 'raster',
     kind: 'invisible-but-present',
-    rationale: 'opacity=0 raster transparent but tile fetch / GPU upload still happens — Mapbox semantics.',
+    rationale:
+      'opacity=0 raster transparent but tile fetch / GPU upload still happens — Mapbox semantics.',
   },
 ] as const
 
@@ -167,7 +165,5 @@ export function zeroSemantic(
   layerType: ZeroSemantic['layerType'],
   property: string,
 ): ZeroSemantic | undefined {
-  return ZERO_SEMANTICS.find(
-    s => s.layerType === layerType && s.property === property,
-  )
+  return ZERO_SEMANTICS.find((s) => s.layerType === layerType && s.property === property)
 }

@@ -14,7 +14,7 @@ place (`needs_backface_cull`, `rim_alpha`, the VS transforms); the CPU writes it
 N places, each re-deriving the same values.
 
 #600 added a new field, `globe_eye` (the eye-horizon cull direction), read by the
-shared shader cull. The *write* was wired into 3 of the 6 writers (raster/point/
+shared shader cull. The _write_ was wired into 3 of the 6 writers (raster/point/
 heatmap) and **silently missing from the 3 vector writers**. Because the shader has
 a defensive fallback (`globe_eye.w == 0` → centre-hemisphere cull), the miss did not
 crash or render obviously wrong — it leaked far-side geometry only at high pitch /
@@ -25,7 +25,7 @@ This is not a one-off. It is the signature of a **shared contract maintained by
 convention across N sites**:
 
 - **Layout drift** — hand-coded struct sizes diverging from the DSL struct.
-  *Already addressed* by reflect-derived sizes (ADR-0003 lineage,
+  _Already addressed_ by reflect-derived sizes (ADR-0003 lineage,
   `*-uniform-slots.ts`, the `no-eager-uniform-reflect` gate).
 - **Writer-completeness drift** — a field is read but not every writer populates it
   (`globe_eye`). **Not addressed** structurally; currently held by a stop-gap guard
@@ -34,13 +34,13 @@ convention across N sites**:
 - **Semantic drift** — a default value doubles as "unset" (`globe_eye == 0`), so a
   missing write degrades silently instead of failing loudly.
 
-A guard test is a *ratchet* (it catches a regression after someone writes it and
-accretes over time), not a *cure*. For a long-lived library the durable move is to
+A guard test is a _ratchet_ (it catches a regression after someone writes it and
+accretes over time), not a _cure_. For a long-lived library the durable move is to
 **reduce the number of places that can be wrong**.
 
 ## Decision (proposed)
 
-Split the group(0) uniform into two blocks by *cadence*, not by renderer:
+Split the group(0) uniform into two blocks by _cadence_, not by renderer:
 
 1. **Frame-invariant block** — the fields that are identical for every renderer in a
    frame: `mvp`, `proj_params`, `globe_eye`, `log_depth_fc`, `zoom` (and the camera
@@ -84,22 +84,22 @@ Supporting principles (carry forward regardless of when step 2 lands):
 - **Benefit.** Removes the writer-completeness drift class at the root; shrinks each
   per-draw pack; makes the frame contract a single, typed, testable surface.
 - **Migration / staging.**
-  1. *(landed, #663)* Restore the missing `globe_eye` writes + the stop-gap
+  1. _(landed, #663)_ Restore the missing `globe_eye` writes + the stop-gap
      completeness guard (`frame-uniform-writer-completeness.test.ts`).
-  2–3. *(landed, this ADR's PR)* **Couple the drift-prone pair at the source.**
+     2–3. _(landed, this ADR's PR)_ **Couple the drift-prone pair at the source.**
      `frame-projection-uniform.ts:writeFrameProjectionUniform` writes `proj_params`
-     + `globe_eye` TOGETHER; the three polygon/line group(0) writers
-     (vector-tile-renderer / renderer.renderToPass / graticule) route through it, so a
-     "projection set, eye forgotten" partial write is now unrepresentable for that
-     family (no separate-bind-slot needed — same buffer, one coupled writer). The
-     completeness guard auto-narrowed to the families that still hand-pack their own
-     struct (raster / heatmap); it is deleted when they adopt the same coupled writer.
-  4. *(landed)* Generalized the coupled writer to ALL families via
+     - `globe_eye` TOGETHER; the three polygon/line group(0) writers
+       (vector-tile-renderer / renderer.renderToPass / graticule) route through it, so a
+       "projection set, eye forgotten" partial write is now unrepresentable for that
+       family (no separate-bind-slot needed — same buffer, one coupled writer). The
+       completeness guard auto-narrowed to the families that still hand-pack their own
+       struct (raster / heatmap); it is deleted when they adopt the same coupled writer.
+  2. _(landed)_ Generalized the coupled writer to ALL families via
      `writeProjectionCull(f32, projSlot, eyeSlot, …, projParamsW)` — raster/heatmap/
      point now route through it (raster passes `log_depth_fc` as `proj_params.w`).
      EVERY family that sets the projection now sets the eye in the same call, so the
      stop-gap completeness guard was DELETED (no hand-packers remain).
-  5. *(pending — needs real GPU)* Optionally lift the frame group into a SEPARATE
+  3. _(pending — needs real GPU)_ Optionally lift the frame group into a SEPARATE
      per-frame UBO bound once (a perf refinement over the current shared-buffer pack:
      bind frame data once instead of copying it into every per-draw slot) + a
      GPU-readback `devAssert` that the bound frame block matches the camera frame on

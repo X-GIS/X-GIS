@@ -152,7 +152,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // into extractNonSyntheticArcs); dropConsecutiveDuplicates added (strips
   // the S-H closing-duplicate that would make a degenerate outline edge).
   // Net negative — stays under the 1570 cap.
-  'compiler/src/tiler/vector-tiler.ts': 1570,
+  // Bumped 1570→1790 (full-repo prettier adopt): one-property-per-line / call-arg
+  // wrapping grew the file; formatting-only, no new logic. vector-tiler.ts
+  // decomposition stays a tracked priority.
+  'compiler/src/tiler/vector-tiler.ts': 1790,
   // Bumped 915→917 (#420) for the UNIFORM_SIZE/SLOT 240→256 bump +
   // light_dir_ecef contract comment when the polygon Uniforms struct grew.
   // Bumped 917→931 (Phase R heatmap): ensureHeatmapBlur / ensureHeatmapCompose
@@ -190,7 +193,8 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1078→1144 (Phase S Batch 3+4): text/icon-translate-anchor:map emits
   // (+14), icon collision policy emits — label-icon-collide/ignore-placement/
   // optional (+34), and symbol-z-order's label-z-order-<v> emit + enum warn (+18).
-  'compiler/src/convert/layers-symbol.ts': 1144,
+  // Bumped 1144→1295 (full-repo prettier adopt): formatting-only growth, no new logic.
+  'compiler/src/convert/layers-symbol.ts': 1295,
   // Bumped 1534→1574 for the arithmetic-arity fix (expr-arith-coalesce): the
   // variadic +/*, unary/binary -, and exact-2 //% forms each need a distinct
   // branch (was one over-strict shared comparison branch). Irreducible.
@@ -204,7 +208,8 @@ const LOC_CEILINGS: Record<string, number> = {
   'compiler/src/convert/expressions.ts': 1116,
   // Bumped 1354→1356 for the undo-correctness fixes: tryConnect skipRecord param + insertReroute selEdge clear (two irreducible statements).
   // Bumped 1356→1370 for the deserialization guard (#353): sanitizeGraph() drops unknown node types + dangling edges at the load/paste/restore trust boundary.
-  'blueprint/src/editor.ts': 1370,
+  // Bumped 1370→1448 (full-repo prettier adopt): formatting-only growth, no new logic.
+  'blueprint/src/editor.ts': 1448,
   // Bumped 1187→1198 for the fill-translate→outline coupling fix: a fill's
   // outline (drawn through the line pipeline) must apply the SAME viewport
   // fill-translate the polygon VS does, or a translated fill's outline
@@ -324,14 +329,21 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 828→866 (Phase S Batch 3+4): text/icon-translate-anchor:map (+12) +
   // icon collision policy's three label-knob accumulators (+20) + symbol-z-order's
   // labelSymbolZOrder local/parse-arms/knobs/fold (+6).
-  'compiler/src/ir/lower-label.ts': 866,
+  // Bumped 866→1091 (full-repo prettier adopt): formatting-only growth, no new logic.
+  'compiler/src/ir/lower-label.ts': 1091,
   // Baselined at 835 (Phase S Batch 3 raster +18 + text/icon +6; Batch 4 icon
   // collision +3 + symbol-z-order's LabelDef.symbolZOrder field + JSDoc).
   // Bumped 837→858 (Phase R heatmap + inline-geojson): the RenderNodeHeatmapPaint
   // interface (isHeatmap + 5 heatmap-* axes) + its RenderNode extends entry (+18),
   // and SourceDef.inlineData field + JSDoc (+3, same additive source-field class
   // as crs).
-  'compiler/src/ir/render-node.ts': 858,
+  // Bumped 858→901 (full-repo prettier adopt): formatting-only growth, no new logic.
+  'compiler/src/ir/render-node.ts': 901,
+  // Crossed 800 purely via the full-repo prettier adoption (one-property-per-line /
+  // call-arg wrapping) — not a hand-grown god-file; baselined at the formatted size,
+  // shrink as it converges.
+  'compiler/src/convert/paint-helpers.ts': 826,
+  'compiler/src/tokens/colors.ts': 937,
 }
 const NEW_FILE_CAP = 800
 

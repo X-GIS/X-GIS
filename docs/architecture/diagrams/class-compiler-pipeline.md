@@ -10,7 +10,8 @@ and the stage entry points: `convert/mapbox-to-xgis.ts`, `parser/parser.ts` +
 `ir/emit-commands.ts`, `ir/passes/merge-layers.ts`, `tiler/vector-tiler.ts` +
 `tiler/vector-tiler-types.ts` + `tiler/polygon-vertex-format.ts`, and
 `codegen/shader-gen.ts` + `codegen/shader-gen-types.ts` + `codegen/node-to-wgsl.ts`
-+ `codegen/compute-plan.ts` + `codegen/palette.ts`.
+
+- `codegen/compute-plan.ts` + `codegen/palette.ts`.
 
 > The pipeline is **text-in / data-out**: there is no single `Compiler`
 > class. Each stage is a free function (`convertMapboxStyle`, `Parser.parse`,
@@ -150,7 +151,7 @@ classDiagram
   `convertMapboxStyle?` → `new Parser(src).parse()` → `lower(program)` →
   `optimize(scene)` → then two sinks: `compileGeoJSONToTiles` (geometry →
   `CompiledTile`) and `generateShaderVariant` (paint → `ShaderVariant`).
-- **`convert/` is the optional front door, and it emits *text*, not IR.**
+- **`convert/` is the optional front door, and it emits _text_, not IR.**
   `convertMapboxStyle(input, options)` returns a **`string`** of `.xgis`
   source (built from `convertLayer` / `paintToUtilities` / `exprToXgis` /
   `filterToXgis`), which then re-enters the normal `Parser` path. It does not

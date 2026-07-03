@@ -90,7 +90,8 @@ export class GraticuleRenderer {
   /** Toggle the lat/lon grid overlay at runtime. Default off. */
   setEnabled(on: boolean): void {
     this.graticuleEnabled = on
-    if (on && !this.graticuleBuffer) this.initGraticule(this.lastGratZoom >= 0 ? this.lastGratZoom : 2)
+    if (on && !this.graticuleBuffer)
+      this.initGraticule(this.lastGratZoom >= 0 ? this.lastGratZoom : 2)
   }
 
   /** Read the current graticule on/off state. */
@@ -178,19 +179,29 @@ export class GraticuleRenderer {
         const ge = globeEyeUniform(frame.eye)
         B.write({
           mvp: frame.mvp, // ECEF-MVP for vs_main
-          fill_color: [1, 1, 1, 0.15],   // white @ 15% (minor grid line colour)
+          fill_color: [1, 1, 1, 0.15], // white @ 15% (minor grid line colour)
           stroke_color: [1, 1, 1, 0.15],
           proj_params: [frame.projType, frame.projCenterLon, frame.projCenterLat, 0],
-          cam_h: [0, 0], cam_l: [0, 0],
+          cam_h: [0, 0],
+          cam_l: [0, 0],
           tile_origin_merc: [0, 0],
           opacity: 1,
           log_depth_fc: frame.logDepthFc,
-          pick_id: 0, layer_depth_offset: 0, tile_extent_m: 0, extrude_height_m: 0,
+          pick_id: 0,
+          layer_depth_offset: 0,
+          tile_extent_m: 0,
+          extrude_height_m: 0,
           clip_bounds: [-1e30, 0, 0, 0],
-          zoom: 0, extrude_base_m: 0, fill_translate_x: 0, fill_translate_y: 0,
-          tile_dequant_scale: 0, tile_dequant_half: 0,
-          light_color_packed: 0, _pad_light_align: 0,
-          cam_ecef_off_h: [0, 0, 0, 0], cam_ecef_off_l: [0, 0, 0, 0],
+          zoom: 0,
+          extrude_base_m: 0,
+          fill_translate_x: 0,
+          fill_translate_y: 0,
+          tile_dequant_scale: 0,
+          tile_dequant_half: 0,
+          light_color_packed: 0,
+          _pad_light_align: 0,
+          cam_ecef_off_h: [0, 0, 0, 0],
+          cam_ecef_off_l: [0, 0, 0, 0],
           light_dir_ecef: [0, 0, 0, 0],
           globe_eye: [ge[0], ge[1], ge[2], ge[3]],
         })

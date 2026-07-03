@@ -28,8 +28,7 @@ export interface InlineGlyphSeed {
 }
 
 /** Either bytes-per-range OR a single PBF blob keyed by range start. */
-export type InlineGlyphSource =
-  | { [rangeStart: number]: Uint8Array | InlineGlyphSeed }
+export type InlineGlyphSource = { [rangeStart: number]: Uint8Array | InlineGlyphSeed }
 
 export class InlineGlyphProvider implements GlyphProvider {
   /** Outer key: fontstack ("Open Sans Semibold"). Inner key: range
@@ -70,7 +69,7 @@ export class InlineGlyphProvider implements GlyphProvider {
       const raw = rawForStack?.get(start)
       if (!raw) return undefined
       const stacks = decodeGlyphsPbf(raw)
-      const match = stacks.find(s => s.name === fontstack) ?? stacks[0]
+      const match = stacks.find((s) => s.name === fontstack) ?? stacks[0]
       if (!match) return undefined
       glyphs = match.glyphs
       if (stackDecoded) stackDecoded.set(start, glyphs)

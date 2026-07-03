@@ -33,9 +33,17 @@ describe('AC2c.3.6 — backgroundClearValue coverage contract', () => {
     ['equirectangular', 1],
     ['natural_earth', 2],
     ['oblique_mercator', 6],
-  ])('flat/cylindrical %s (projType %i) clears to the style background-color', (_name, projType) => {
-    expect(backgroundClearValue(projType, BG, false)).toEqual({ r: BG[0], g: BG[1], b: BG[2], a: BG[3] })
-  })
+  ])(
+    'flat/cylindrical %s (projType %i) clears to the style background-color',
+    (_name, projType) => {
+      expect(backgroundClearValue(projType, BG, false)).toEqual({
+        r: BG[0],
+        g: BG[1],
+        b: BG[2],
+        a: BG[3],
+      })
+    },
+  )
 
   // ── Disc / globe → defined pure-black space (iter-196 sentinel) ──
 
@@ -44,9 +52,12 @@ describe('AC2c.3.6 — backgroundClearValue coverage contract', () => {
     ['azimuthal_equidistant', 4],
     ['stereographic', 5],
     ['globe', 7],
-  ])('disc/globe %s (projType %i) clears to pure-black space even when a background-color is set', (_name, projType) => {
-    expect(backgroundClearValue(projType, BG, false)).toEqual(BLACK)
-  })
+  ])(
+    'disc/globe %s (projType %i) clears to pure-black space even when a background-color is set',
+    (_name, projType) => {
+      expect(backgroundClearValue(projType, BG, false)).toEqual(BLACK)
+    },
+  )
 
   // ── Flat with no background block → defined black (not an accident) ──
 
@@ -56,9 +67,12 @@ describe('AC2c.3.6 — backgroundClearValue coverage contract', () => {
 
   // ── Overdraw accumulator must start at zero, regardless of projType/bg ──
 
-  it.each([0, 2, 3, 7])('debug=overdraw clears the r16float accumulator to a:0 (projType %i)', (projType) => {
-    expect(backgroundClearValue(projType, BG, true)).toEqual(ZERO)
-  })
+  it.each([0, 2, 3, 7])(
+    'debug=overdraw clears the r16float accumulator to a:0 (projType %i)',
+    (projType) => {
+      expect(backgroundClearValue(projType, BG, true)).toEqual(ZERO)
+    },
+  )
 
   it('the pure-black space sentinel is exactly { r:0, g:0, b:0, a:1 } (not the prior dark-navy)', () => {
     expect(backgroundClearValue(7, null, false)).toEqual({ r: 0, g: 0, b: 0, a: 1 })

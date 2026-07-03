@@ -18,7 +18,9 @@ import { TileCatalog } from '@xgis/data'
 import { DSFUN_POLY_STRIDE } from '@xgis/data'
 import {
   TILE_LAYOUT_VERSION,
-  type TileSource, type TileSourceSink, type BackendTileResult,
+  type TileSource,
+  type TileSourceSink,
+  type BackendTileResult,
 } from '@xgis/data'
 
 // Minimal mock backend that lets the test drive sink.acceptResult directly
@@ -40,8 +42,12 @@ function makeMockBackend(): TileSource & {
       }
     },
     has: () => true,
-    attach(s) { sink = s },
-    loadTile(key) { sink?.trackLoading(key) },
+    attach(s) {
+      sink = s
+    },
+    loadTile(key) {
+      sink?.trackLoading(key)
+    },
     pushResult(key, result, sourceLayer) {
       sink!.acceptResult(key, result, sourceLayer)
     },
@@ -76,7 +82,10 @@ describe('createFullCoverTileData quad layout (quantized-ECEF stride 7)', () => 
     expect(data, 'full-cover tile must be cached').not.toBeNull()
 
     // 4 corners. Stride-7 (quantized ECEF + true_lat, #398) => 28 floats.
-    expect(data!.vertices.length % DSFUN_POLY_STRIDE, 'vertex buffer must be a whole number of stride-7 vertices').toBe(0)
+    expect(
+      data!.vertices.length % DSFUN_POLY_STRIDE,
+      'vertex buffer must be a whole number of stride-7 vertices',
+    ).toBe(0)
     expect(data!.vertices.length, '4 corners x 7 floats').toBe(4 * DSFUN_POLY_STRIDE)
 
     // acceptResult bookkeeping (vertexCount = vertices.length / DSFUN_POLY_STRIDE) must be
@@ -88,7 +97,9 @@ describe('createFullCoverTileData quad layout (quantized-ECEF stride 7)', () => 
 
     // Real per-tile dequant half-range — NOT the identity default (half 0,
     // scale 1) the pre-fix path left in place.
-    expect(data!.dequantHalf, 'per-tile ECEF half-range must be a real metre span').toBeGreaterThan(0)
+    expect(data!.dequantHalf, 'per-tile ECEF half-range must be a real metre span').toBeGreaterThan(
+      0,
+    )
     expect(data!.dequantScale, 'per-tile dequant step must be positive').toBeGreaterThan(0)
 
     // Float slots 4 / 5 now hold TILE-LOCAL Mercator (vertex_merc −
@@ -97,14 +108,14 @@ describe('createFullCoverTileData quad layout (quantized-ECEF stride 7)', () => 
     // bounds. Pre-fix these slots held absolute degrees (and earlier 0 / fid).
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
-    const tileWest = tx / tn * 360 - 180
-    const tileEast = (tx + 1) / tn * 360 - 180
-    const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tn))) * 180 / Math.PI
-    const tileNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / tn))) * 180 / Math.PI
+    const tileWest = (tx / tn) * 360 - 180
+    const tileEast = ((tx + 1) / tn) * 360 - 180
+    const tileSouth = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (ty + 1)) / tn))) * 180) / Math.PI
+    const tileNorth = (Math.atan(Math.sinh(Math.PI * (1 - (2 * ty) / tn))) * 180) / Math.PI
     const R = 6378137
     const D2R = Math.PI / 180
     const tileOriginMx = tileWest * D2R * R
-    const tileOriginMy = Math.log(Math.tan(Math.PI / 4 + tileSouth * D2R / 2)) * R
+    const tileOriginMy = Math.log(Math.tan(Math.PI / 4 + (tileSouth * D2R) / 2)) * R
     const absMx0 = verts[4] + tileOriginMx
     const absMy0 = verts[5] + tileOriginMy
     const lon0 = absMx0 / (D2R * R)
@@ -136,13 +147,14 @@ describe('createFullCoverTileData quad layout (quantized-ECEF stride 7)', () => 
 
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
-    const tileWest = tx / tn * 360 - 180
-    const tileEast = (tx + 1) / tn * 360 - 180
-    const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tn))) * 180 / Math.PI
-    const tileNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / tn))) * 180 / Math.PI
-    const R = 6378137, D2R = Math.PI / 180
+    const tileWest = (tx / tn) * 360 - 180
+    const tileEast = ((tx + 1) / tn) * 360 - 180
+    const tileSouth = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (ty + 1)) / tn))) * 180) / Math.PI
+    const tileNorth = (Math.atan(Math.sinh(Math.PI * (1 - (2 * ty) / tn))) * 180) / Math.PI
+    const R = 6378137,
+      D2R = Math.PI / 180
     const tileOriginMx = tileWest * D2R * R
-    const tileOriginMy = Math.log(Math.tan(Math.PI / 4 + tileSouth * D2R / 2)) * R
+    const tileOriginMy = Math.log(Math.tan(Math.PI / 4 + (tileSouth * D2R) / 2)) * R
     const verts = data!.vertices
     const eps = 1e-3
     // Every corner: local_merc (slots 4/5) + origin must reconstruct INSIDE the
@@ -151,10 +163,18 @@ describe('createFullCoverTileData quad layout (quantized-ECEF stride 7)', () => 
       const lon = (verts[c * DSFUN_POLY_STRIDE + 4] + tileOriginMx) / (D2R * R)
       const absMy = verts[c * DSFUN_POLY_STRIDE + 5] + tileOriginMy
       const lat = (2 * Math.atan(Math.exp(absMy / R)) - Math.PI / 2) / D2R
-      expect(lon, `corner ${c} lon in [${tileWest},${tileEast}]`).toBeGreaterThanOrEqual(tileWest - eps)
-      expect(lon, `corner ${c} lon in [${tileWest},${tileEast}]`).toBeLessThanOrEqual(tileEast + eps)
-      expect(lat, `corner ${c} lat in [${tileSouth},${tileNorth}]`).toBeGreaterThanOrEqual(tileSouth - eps)
-      expect(lat, `corner ${c} lat in [${tileSouth},${tileNorth}]`).toBeLessThanOrEqual(tileNorth + eps)
+      expect(lon, `corner ${c} lon in [${tileWest},${tileEast}]`).toBeGreaterThanOrEqual(
+        tileWest - eps,
+      )
+      expect(lon, `corner ${c} lon in [${tileWest},${tileEast}]`).toBeLessThanOrEqual(
+        tileEast + eps,
+      )
+      expect(lat, `corner ${c} lat in [${tileSouth},${tileNorth}]`).toBeGreaterThanOrEqual(
+        tileSouth - eps,
+      )
+      expect(lat, `corner ${c} lat in [${tileSouth},${tileNorth}]`).toBeLessThanOrEqual(
+        tileNorth + eps,
+      )
     }
   })
 })

@@ -1,7 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import {
-  fn, module, f32, u32, vec2, vec3, vec2fT, f32T, boolT, u32T,
-  param, constRef, clamp, log, tan, min, dot,
+  fn,
+  module,
+  f32,
+  u32,
+  vec2,
+  vec3,
+  vec2fT,
+  f32T,
+  boolT,
+  u32T,
+  param,
+  constRef,
+  clamp,
+  log,
+  tan,
+  min,
+  dot,
   type ConstDecl,
 } from './index'
 import { emitModule, emitFunc } from '../backends/wgsl'
@@ -33,14 +48,17 @@ describe('shader-dsl IR — type inference', () => {
   })
 
   it('scalar promotion f32 > i32 > u32', () => {
-    const a = param('a', f32T), b = param('b', u32T)
+    const a = param('a', f32T),
+      b = param('b', u32T)
     expect(a.add(b).type).toEqual(f32T)
   })
 })
 
 // A trivial projection-shaped function exercising let/return/builtins/consts.
 const merc = fn('merc', { lon: f32T, lat: f32T }, vec2fT, (p, b) => {
-  const PI = constRef('PI'), DEG2RAD = constRef('DEG2RAD'), EARTH_R = constRef('EARTH_R')
+  const PI = constRef('PI'),
+    DEG2RAD = constRef('DEG2RAD'),
+    EARTH_R = constRef('EARTH_R')
   const clamped = b.let('clamped', clamp(p.lat, f32(-85.051129), f32(85.051129)))
   const x = b.let('x', p.lon.mul(DEG2RAD).mul(EARTH_R))
   const y = b.let('y', log(tan(PI.div(4).add(clamped.mul(DEG2RAD).div(2)))).mul(EARTH_R))
@@ -70,12 +88,18 @@ describe('shader-dsl WGSL backend', () => {
 describe('shader-dsl CPU backend', () => {
   it('interprets the same IR in f64 and matches a hand reference', () => {
     const mod = compileModule(module({ consts: CONSTS, funcs: [merc] }))
-    const DEG = Math.PI / 180, R = 6378137
+    const DEG = Math.PI / 180,
+      R = 6378137
     const ref = (lon: number, lat: number): [number, number] => {
       const c = Math.max(-85.051129, Math.min(85.051129, lat))
       return [lon * DEG * R, Math.log(Math.tan(Math.PI / 4 + (c * DEG) / 2)) * R]
     }
-    for (const [lon, lat] of [[0, 0], [127, 37], [-150, -60], [179, 84]] as const) {
+    for (const [lon, lat] of [
+      [0, 0],
+      [127, 37],
+      [-150, -60],
+      [179, 84],
+    ] as const) {
       const got = mod.fns.merc(lon, lat) as number[]
       const [rx, ry] = ref(lon, lat)
       expect(got[0]).toBeCloseTo(rx, 6)
@@ -87,9 +111,14 @@ describe('shader-dsl CPU backend', () => {
     // sum of min(i, 3) for i in [0,5) via a for-loop + compound assign.
     const f = fn('acc', {}, f32T, (_p, b) => {
       const total = b.var('total', f32T, f32(0))
-      b.forRange('i', f32(0), (i) => i.lt(f32(5)), (b, i) => {
-        b.addAssign(total, min(i, f32(3)))
-      })
+      b.forRange(
+        'i',
+        f32(0),
+        (i) => i.lt(f32(5)),
+        (b, i) => {
+          b.addAssign(total, min(i, f32(3)))
+        },
+      )
       b.ret(total)
     })
     const mod = compileModule(module({ funcs: [f] }))
@@ -101,7 +130,14 @@ describe('shader-dsl CPU backend', () => {
     // Guards the naga/tint trap: a u32 counter must not increment by an f32.
     const f = fn('count', {}, u32T, (_p, b) => {
       const n = b.var('n', u32T, u32(0))
-      b.forRange('i', u32(0), (i) => i.lt(u32(4)), (loop) => { loop.addAssign(n, u32(1)) })
+      b.forRange(
+        'i',
+        u32(0),
+        (i) => i.lt(u32(4)),
+        (loop) => {
+          loop.addAssign(n, u32(1))
+        },
+      )
       b.ret(n)
     })
     expect(emitFunc(f)).toContain('i = (i + 1u)')

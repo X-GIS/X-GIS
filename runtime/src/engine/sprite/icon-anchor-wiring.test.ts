@@ -38,14 +38,24 @@ import type { SpriteInfo } from '@xgis/map'
 
 let stub: StubInstallation
 
-beforeEach(() => { stub = installWebGPUStub() })
-afterEach(() => { stub.uninstall() })
+beforeEach(() => {
+  stub = installWebGPUStub()
+})
+afterEach(() => {
+  stub.uninstall()
+})
 
 // A 40x40 design-px sprite (pixelRatio 1) → drawW = drawH = 40 at sizeScale 1.
 // Even dims keep every anchorOffset integer so the pixel-snap (Math.round on
 // the un-rotated path) is the identity and the assertions are exact.
 const SPRITE: SpriteInfo = {
-  name: 'test-icon', x: 0, y: 0, width: 40, height: 40, pixelRatio: 1, sdf: false,
+  name: 'test-icon',
+  x: 0,
+  y: 0,
+  width: 40,
+  height: 40,
+  pixelRatio: 1,
+  sdf: false,
 } as SpriteInfo
 
 const ANCHOR_X = 200
@@ -78,27 +88,39 @@ async function topLeftFor(anchor: IconAnchor): Promise<[number, number]> {
   const dev = device as unknown as {
     queue: {
       writeBuffer: (
-        buf: unknown, bufOff: number,
-        data: ArrayBufferView | ArrayBuffer, dataOff?: number, size?: number,
+        buf: unknown,
+        bufOff: number,
+        data: ArrayBufferView | ArrayBuffer,
+        dataOff?: number,
+        size?: number,
       ) => void
     }
   }
   dev.queue.writeBuffer = (
-    buf: unknown, _bufOff: number,
-    data: ArrayBufferView | ArrayBuffer, dataOff = 0, size?: number,
+    buf: unknown,
+    _bufOff: number,
+    data: ArrayBufferView | ArrayBuffer,
+    dataOff = 0,
+    size?: number,
   ): void => {
     // The vertex buffer is the large (>=1024 B) one; the uniform write (16 B)
     // only fires in draw(), which we never call. Read vertex 0's pos_px.
-    if ((buf as { size?: number })?.size === undefined || (buf as { size?: number }).size! < 1024) return
+    if ((buf as { size?: number })?.size === undefined || (buf as { size?: number }).size! < 1024)
+      return
     const ab = data instanceof ArrayBuffer ? data : data.buffer
-    const byteOff = data instanceof ArrayBuffer ? dataOff : (data as ArrayBufferView).byteOffset + dataOff
+    const byteOff =
+      data instanceof ArrayBuffer ? dataOff : (data as ArrayBufferView).byteOffset + dataOff
     const f32 = new Float32Array(ab, byteOff, (size ?? VERT_BYTES) / 4)
     tl = [f32[POS_X_SLOT]!, f32[POS_Y_SLOT]!]
   }
 
   const draw: IconDraw = {
-    anchorX: ANCHOR_X, anchorY: ANCHOR_Y,
-    sprite: SPRITE, sizeScale: 1, rotateRad: 0, anchor,
+    anchorX: ANCHOR_X,
+    anchorY: ANCHOR_Y,
+    sprite: SPRITE,
+    sizeScale: 1,
+    rotateRad: 0,
+    anchor,
   }
   renderer.setDraws([draw])
 

@@ -27,7 +27,9 @@ describe('nodeToWgslString — Expr → WGSL oracle', () => {
   it('round-trips a scalar arithmetic binop to parenthesised WGSL', () => {
     const node = {
       expr: {
-        op: 'binop' as const, type: f32T, bop: '+' as const,
+        op: 'binop' as const,
+        type: f32T,
+        bop: '+' as const,
         a: { op: 'lit' as const, type: f32T, value: 1 },
         b: { op: 'lit' as const, type: f32T, value: 2 },
       },
@@ -38,7 +40,8 @@ describe('nodeToWgslString — Expr → WGSL oracle', () => {
   it('emits a vec4f construct with all four components', () => {
     const node = {
       expr: {
-        op: 'construct' as const, type: vec4fT,
+        op: 'construct' as const,
+        type: vec4fT,
         args: [f32Lit(1).expr, f32Lit(0).expr, f32Lit(0).expr, f32Lit(1).expr],
       },
     }
@@ -54,7 +57,8 @@ describe('nodeToWgslString — Expr → WGSL oracle', () => {
     const boolT = { kind: 'scalar' as const, scalar: 'bool' as const }
     const node = {
       expr: {
-        op: 'select' as const, type: f32T,
+        op: 'select' as const,
+        type: f32T,
         cond: { op: 'varref' as const, type: boolT, name: 'flag' },
         ifTrue: f32Lit(1).expr,
         ifFalse: f32Lit(0).expr,
@@ -66,7 +70,9 @@ describe('nodeToWgslString — Expr → WGSL oracle', () => {
   it('emits a callFn-shaped call (fn name + arg list)', () => {
     const node = {
       expr: {
-        op: 'call' as const, type: f32T, fn: 'clamp',
+        op: 'call' as const,
+        type: f32T,
+        fn: 'clamp',
         args: [f32Lit(0.5).expr, f32Lit(0).expr, f32Lit(1).expr],
       },
     }
@@ -76,7 +82,8 @@ describe('nodeToWgslString — Expr → WGSL oracle', () => {
   it('throws if a matchExpr leaks into the adapter (fn-body-only path)', () => {
     const leak = {
       expr: {
-        op: 'matchExpr' as const, type: f32T,
+        op: 'matchExpr' as const,
+        type: f32T,
         scrutinee: { op: 'lit' as const, type: u32T, value: 0 },
         cases: [[0, f32Lit(1).expr] as const],
         default: f32Lit(-1).expr,

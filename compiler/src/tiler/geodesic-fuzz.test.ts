@@ -8,10 +8,12 @@ import { interpolateGreatCircle, haversineDistance } from './geodesic'
 function makeRng(seed: number): () => number {
   let s = seed | 0
   return () => {
-    s ^= s << 13; s |= 0
+    s ^= s << 13
+    s |= 0
     s ^= s >>> 17
-    s ^= s << 5; s |= 0
-    return ((s >>> 0) / 0x1_0000_0000)
+    s ^= s << 5
+    s |= 0
+    return (s >>> 0) / 0x1_0000_0000
   }
 }
 
@@ -41,14 +43,16 @@ describe('iter-295 interpolateGreatCircle fuzz', () => {
   it('output always finite for valid inputs (lon/lat in mercator-safe band)', () => {
     const rng = makeRng(0xbeef)
     for (let trial = 0; trial < 2000; trial++) {
-      const lon1 = (rng() * 360) - 180
-      const lat1 = (rng() * 170) - 85
-      const lon2 = (rng() * 360) - 180
-      const lat2 = (rng() * 170) - 85
+      const lon1 = rng() * 360 - 180
+      const lat1 = rng() * 170 - 85
+      const lon2 = rng() * 360 - 180
+      const lat2 = rng() * 170 - 85
       const t = rng()
       const r = interpolateGreatCircle(lon1, lat1, lon2, lat2, t)
       if (!Number.isFinite(r[0]) || !Number.isFinite(r[1])) {
-        throw new Error(`non-finite: lon1=${lon1} lat1=${lat1} lon2=${lon2} lat2=${lat2} t=${t} → [${r[0]}, ${r[1]}]`)
+        throw new Error(
+          `non-finite: lon1=${lon1} lat1=${lat1} lon2=${lon2} lat2=${lat2} t=${t} → [${r[0]}, ${r[1]}]`,
+        )
       }
     }
   })
@@ -99,8 +103,8 @@ describe('iter-295 interpolateGreatCircle fuzz', () => {
   it('equator-only path lat stays at 0 (no drift)', () => {
     const rng = makeRng(0xeee)
     for (let trial = 0; trial < 20; trial++) {
-      const lon1 = (rng() * 360) - 180
-      const lon2 = (rng() * 360) - 180
+      const lon1 = rng() * 360 - 180
+      const lon2 = rng() * 360 - 180
       const t = rng()
       const r = interpolateGreatCircle(lon1, 0, lon2, 0, t)
       expect(Math.abs(r[1])).toBeLessThan(1e-9)
@@ -112,7 +116,7 @@ describe('iter-295 interpolateGreatCircle fuzz', () => {
     // on the meridian.
     const r = interpolateGreatCircle(45, 10, 45, 60, 0.5)
     expect(r[0]).toBeCloseTo(45, 4)
-    expect(r[1]).toBeCloseTo(35, 0)  // approx midpoint lat
+    expect(r[1]).toBeCloseTo(35, 0) // approx midpoint lat
   })
 
   // iter-302 — mutation testing surfaced surviving mutants on the
@@ -126,8 +130,10 @@ describe('iter-295 interpolateGreatCircle fuzz', () => {
     // Points 1e-13 apart in lat — well below the 1e-12 epsilon, so
     // the fallback fires. The interior t should produce a linear
     // blend, NOT clamp to start/end.
-    const lon1 = 30, lat1 = 45
-    const lon2 = 30 + 1e-13, lat2 = 45 + 1e-13
+    const lon1 = 30,
+      lat1 = 45
+    const lon2 = 30 + 1e-13,
+      lat2 = 45 + 1e-13
     const t = 0.5
     const r = interpolateGreatCircle(lon1, lat1, lon2, lat2, t)
     // Result must be the linear midpoint, not lon1 or lon2 alone.
@@ -136,8 +142,10 @@ describe('iter-295 interpolateGreatCircle fuzz', () => {
   })
 
   it('iter-302: same near-coincident probe at t=0.25 + t=0.75 distinguishes sign mutants', () => {
-    const lon1 = 30, lat1 = 45
-    const lon2 = 30 + 1e-13, lat2 = 45 + 1e-13
+    const lon1 = 30,
+      lat1 = 45
+    const lon2 = 30 + 1e-13,
+      lat2 = 45 + 1e-13
     const r25 = interpolateGreatCircle(lon1, lat1, lon2, lat2, 0.25)
     const r75 = interpolateGreatCircle(lon1, lat1, lon2, lat2, 0.75)
     // Closer to start at t=0.25, closer to end at t=0.75. Mutating
@@ -155,10 +163,10 @@ describe('iter-295 haversineDistance fuzz', () => {
   it('symmetric: dist(A, B) === dist(B, A)', () => {
     const rng = makeRng(0x1234)
     for (let trial = 0; trial < 200; trial++) {
-      const lon1 = (rng() * 360) - 180
-      const lat1 = (rng() * 170) - 85
-      const lon2 = (rng() * 360) - 180
-      const lat2 = (rng() * 170) - 85
+      const lon1 = rng() * 360 - 180
+      const lat1 = rng() * 170 - 85
+      const lon2 = rng() * 360 - 180
+      const lat2 = rng() * 170 - 85
       const d1 = haversineDistance(lon1, lat1, lon2, lat2)
       const d2 = haversineDistance(lon2, lat2, lon1, lat1)
       expect(d1).toBeCloseTo(d2, 3)
@@ -169,8 +177,10 @@ describe('iter-295 haversineDistance fuzz', () => {
     const rng = makeRng(0x5555)
     for (let trial = 0; trial < 500; trial++) {
       const d = haversineDistance(
-        (rng() * 360) - 180, (rng() * 170) - 85,
-        (rng() * 360) - 180, (rng() * 170) - 85,
+        rng() * 360 - 180,
+        rng() * 170 - 85,
+        rng() * 360 - 180,
+        rng() * 170 - 85,
       )
       expect(d).toBeGreaterThanOrEqual(0)
       expect(Number.isFinite(d)).toBe(true)
@@ -184,8 +194,10 @@ describe('iter-295 haversineDistance fuzz', () => {
     const rng = makeRng(0x9999)
     for (let trial = 0; trial < 500; trial++) {
       const d = haversineDistance(
-        (rng() * 360) - 180, (rng() * 170) - 85,
-        (rng() * 360) - 180, (rng() * 170) - 85,
+        rng() * 360 - 180,
+        rng() * 170 - 85,
+        rng() * 360 - 180,
+        rng() * 170 - 85,
       )
       expect(d).toBeLessThanOrEqual(MAX)
     }
@@ -213,12 +225,12 @@ describe('iter-295 haversineDistance fuzz', () => {
   it('lon ±180 antimeridian: 0° lat → 0° lat across antimeridian is short', () => {
     // (-180, 0) and (180, 0) are SAME point. Distance should be ~0.
     const d = haversineDistance(-180, 0, 180, 0)
-    expect(d).toBeLessThan(1)  // sub-meter
+    expect(d).toBeLessThan(1) // sub-meter
   })
 
   it('antipode: distance equals half Earth circumference', () => {
     const d = haversineDistance(0, 0, 180, 0)
-    const halfC = Math.PI * 6378137  // π R
+    const halfC = Math.PI * 6378137 // π R
     expect(d).toBeCloseTo(halfC, -2)
   })
 })

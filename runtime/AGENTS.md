@@ -4,29 +4,33 @@
 # runtime (@xgis/runtime)
 
 ## Purpose
+
 `@xgis/runtime` is the WebGPU rendering half of X-GIS. It consumes `@xgis/compiler` output (SceneCommands, ShaderVariant, CompiledTile) and paints maps on the GPU. It owns: the WebGPU renderers (vector tiles, raster, lines, points, text/SDF, icons, globe); camera math and pointer interaction; the full MVT/PBF vector-tile pipeline (HTTP, PMTiles, in-memory GeoJSON → decode → decompose → compile → earcut → DSFUN GPU buffers); eight projection surfaces (projType 0–7, Mercator through true-3D globe/ECEF) each with a paired CPU implementation generated from the same shader DSL IR; SDF glyph rasterisation and PBF font loading; sprite atlas; and a `<xgis-map>` custom element. **WebGPU-only** — `initGPU` throws `WebGPUUnavailableError` when the adapter is absent; there is no Canvas 2D render fallback.
 
 ## Key Files
-| File | Description |
-|------|-------------|
-| `package.json` | `@xgis/runtime` workspace package (ESM, `type: module`). Runtime deps: `@mapbox/vector-tile`, `@webgpu/types`, `earcut`, `pbf`, `pmtiles`, `proj4`. Dev deps: `@xgis/compiler`, `@xgis/shader-dsl`, `@xgis/shared` (workspace), `geojson-vt`, `vt-pbf`, `rollup`, `rollup-plugin-dts`, `vite`. |
-| `tsconfig.json` | TypeScript project-reference config. Resolves `@xgis/compiler`, `@xgis/shared`, and `@xgis/shader-dsl` via their `../*/dist/index.d.ts`; also resolves `@xgis/compiler/tiler/geodesic` and `@xgis/shader-dsl/*`; emits to `./dist`; adds `@webgpu/types`. |
-| `vite.config.ts` | Library build config for `@xgis/runtime`. Bundles `@xgis/shared` and `@xgis/compiler` sources; externalises third-party deps (`earcut`, `proj4`, `pmtiles`, `pbf`, `@mapbox/vector-tile` — the `EXTERNAL` array); configures worker chunks (`?worker` graph) and asset paths (`base: './'`) for ESM consumers and re-bundlers. |
-| `src/index.ts` | Public barrel. Re-exports: `XGISMap`, `Camera`, `MapRenderer`, `StatsPanel`/`StatsTracker`, `loadGeoJSON`/`lonLatToMercator`, projection factories (`mercator`, `equirectangular`, `naturalEarth`, `orthographic`, `getProjection`), polar-cap helpers, `VectorTileLoader`/`VectorTileSource`/`PMTilesArchiveSource`/`TileJSONSource`, `XGISMapElement`/`registerXGISElement`, `ComputeDispatcher`, `createColorRampTexture`/`createRampSampler`/`availableRamps`, `RUNTIME_CAPABILITIES`/`runtimeCapability`/`runtimeGaps`. |
-| `src/capabilities.ts` | `RUNTIME_CAPABILITIES` matrix — per `(layerType, property, variant)` flags what the renderer actually honours, paired with the compiler's spec-coverage table to surface silent drops. |
-| `src/vite-shims.ts` | Ambient `declare module '*?worker'` shim for Vite's worker-bundle query suffix. Kept as `.ts` (not `.d.ts`) so it is tracked by git. |
-| `src/earcut.d.ts` | Re-export type declaration for the earcut triangulation function bundled via the compiler package. |
-| `src/engine/event-dispatcher.ts` | Pointer-event dispatcher: bridges controller pointer events to per-layer listener registries via `pickAt`. Owns cross-frame hover state `(layerId, featureId)` for `mouseenter`/`mouseleave` semantics. pickAt is rAF-coalesced; fires ~1 frame after click due to WebGPU `copyTextureToBuffer + mapAsync` latency. |
+
+| File                             | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `package.json`                   | `@xgis/runtime` workspace package (ESM, `type: module`). Runtime deps: `@mapbox/vector-tile`, `@webgpu/types`, `earcut`, `pbf`, `pmtiles`, `proj4`. Dev deps: `@xgis/compiler`, `@xgis/shader-dsl`, `@xgis/shared` (workspace), `geojson-vt`, `vt-pbf`, `rollup`, `rollup-plugin-dts`, `vite`.                                                                                                                                                                                                                               |
+| `tsconfig.json`                  | TypeScript project-reference config. Resolves `@xgis/compiler`, `@xgis/shared`, and `@xgis/shader-dsl` via their `../*/dist/index.d.ts`; also resolves `@xgis/compiler/tiler/geodesic` and `@xgis/shader-dsl/*`; emits to `./dist`; adds `@webgpu/types`.                                                                                                                                                                                                                                                                    |
+| `vite.config.ts`                 | Library build config for `@xgis/runtime`. Bundles `@xgis/shared` and `@xgis/compiler` sources; externalises third-party deps (`earcut`, `proj4`, `pmtiles`, `pbf`, `@mapbox/vector-tile` — the `EXTERNAL` array); configures worker chunks (`?worker` graph) and asset paths (`base: './'`) for ESM consumers and re-bundlers.                                                                                                                                                                                               |
+| `src/index.ts`                   | Public barrel. Re-exports: `XGISMap`, `Camera`, `MapRenderer`, `StatsPanel`/`StatsTracker`, `loadGeoJSON`/`lonLatToMercator`, projection factories (`mercator`, `equirectangular`, `naturalEarth`, `orthographic`, `getProjection`), polar-cap helpers, `VectorTileLoader`/`VectorTileSource`/`PMTilesArchiveSource`/`TileJSONSource`, `XGISMapElement`/`registerXGISElement`, `ComputeDispatcher`, `createColorRampTexture`/`createRampSampler`/`availableRamps`, `RUNTIME_CAPABILITIES`/`runtimeCapability`/`runtimeGaps`. |
+| `src/capabilities.ts`            | `RUNTIME_CAPABILITIES` matrix — per `(layerType, property, variant)` flags what the renderer actually honours, paired with the compiler's spec-coverage table to surface silent drops.                                                                                                                                                                                                                                                                                                                                       |
+| `src/vite-shims.ts`              | Ambient `declare module '*?worker'` shim for Vite's worker-bundle query suffix. Kept as `.ts` (not `.d.ts`) so it is tracked by git.                                                                                                                                                                                                                                                                                                                                                                                         |
+| `src/earcut.d.ts`                | Re-export type declaration for the earcut triangulation function bundled via the compiler package.                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `src/engine/event-dispatcher.ts` | Pointer-event dispatcher: bridges controller pointer events to per-layer listener registries via `pickAt`. Owns cross-frame hover state `(layerId, featureId)` for `mouseenter`/`mouseleave` semantics. pickAt is rAF-coalesced; fires ~1 frame after click due to WebGPU `copyTextureToBuffer + mapAsync` latency.                                                                                                                                                                                                          |
 
 ## Subdirectories
-| Directory | Purpose |
-|-----------|---------|
-| `src/` | All runtime source — engine, data, loader, core, web, debug, diagnostics subsystems (see `src/AGENTS.md`). |
-| `scripts/` | One-off PMTiles inspection / verification scripts (see `scripts/AGENTS.md`). |
+
+| Directory  | Purpose                                                                                                    |
+| ---------- | ---------------------------------------------------------------------------------------------------------- |
+| `src/`     | All runtime source — engine, data, loader, core, web, debug, diagnostics subsystems (see `src/AGENTS.md`). |
+| `scripts/` | One-off PMTiles inspection / verification scripts (see `scripts/AGENTS.md`).                               |
 
 ## For AI Agents
 
 ### Working In This Directory
+
 - **WebGPU-first.** Renderers assume a `GPUDevice`. Pure logic (tile math, packing, collision, layout) is deliberately split into GPU-free sibling modules so vitest can test them without a device (see `src/__test-support__/webgpu-stub`).
 - **CPU↔GPU projection parity is a hard contract.** The CPU mirror of the WGSL projections is code-generated from the shader DSL IR (`engine/shader-dsl/`), not hand-maintained. Any edit to a projection function must go through the DSL; hand-editing only one side is a documented recurring bug class. See ADR `0003-shader-dsl-single-emit`.
 - **earcut runs in Mercator-projected coordinates** so triangle edges match the GPU. Projections switch via a GPU uniform — never re-tessellate per projection.
@@ -36,12 +40,14 @@
 - God-object caveat: `engine/render/vector-tile-renderer.ts` (~5600 LOC), `engine/map.ts` (~2800 LOC), and `engine/text/text-stage.ts` own state that should be distributed — documented #1 architectural debt in `docs/architecture/MODULES.md §4`. Do not assume these files are cleanly layered.
 
 ### Testing Requirements
+
 - Colocated `*.test.ts` (vitest) throughout `src/`. Run via `bun run test` from the repo root.
 - `src/__test-support__/` provides WebGPU stubs; `src/__tests__/` holds integration-level tests. Neither directory's internals should be enumerated in file listings.
 - Perf, tile-selection, and projection changes additionally gate on Playwright suites in `playground/`: `test:pixel`, `test:perf`, `test:projection`, `test:e2e`.
 - CI runs no-GPU pure-compute/WGSL-compile gates under SwiftShader only. Render-correctness (pixel-match) runs locally on a real GPU. See ADR `0004-verification-gate-strategy` and `docs/verification/STRATEGY.md`.
 
 ### Common Patterns
+
 - `// ═══ Title ═══` banner comments head most modules; many carry Korean section headers in larger files.
 - Pure logic is extracted from GPU classes into GPU-free sibling modules (e.g. `line-segment-build.ts`, `polygon-mesh.ts`, `tile-decision.ts`, `bucket-scheduler.ts`) for testability; the GPU class re-exports the public surface.
 - Worker pools (GeoJSON tiling, MVT decode) live under `src/data/workers/` and communicate via structured-clone messages.
@@ -49,11 +55,13 @@
 ## Dependencies
 
 ### Internal (workspace, bundled into `dist/`)
+
 - `@xgis/compiler` — SceneCommands, ShaderVariant, CompiledTile, `decodeMvtTile`/`decomposeFeatures`/`compileSingleTile`, geojson-vt port, palette, expression `evaluate`, geodesic utilities.
 - `@xgis/shader-dsl` — single-emit WGSL+CPU projection DSL (the projection IR consumed by the render and CPU-mirror paths).
 - `@xgis/shared` — shared types and utilities.
 
 ### External
+
 - `pmtiles` — PMTiles archive reader.
 - `proj4` — EPSG input-data reprojection (**user-approved zero-dep-policy exception**, input side only; the eight display projections remain hand-written via the shader DSL).
 - `earcut` — polygon triangulation (exposed via `src/earcut.d.ts`).
@@ -64,6 +72,7 @@
 <!-- MANUAL: notes below this line are preserved on regeneration -->
 
 ### Zero-dep policy exception: `proj4` (user-approved, 2026-05-22)
+
 The repo's standing rule is to avoid adding npm dependencies and prefer
 hand-written code. `proj4` is an **explicit, user-approved exception** for the
 EPSG input-reprojection feature (plan: `.omc/plans/epsg-input-reprojection.md`,

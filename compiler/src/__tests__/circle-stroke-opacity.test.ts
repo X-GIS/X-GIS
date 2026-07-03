@@ -56,9 +56,12 @@ describe('circle-stroke-opacity', () => {
 
   it('zoom-interp form emits a stroke-opacity-[…] binding (WS-1) — no drop warning', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
-    const xgis = convertMapboxStyle(buildStyle({
-      'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 5, 0.2, 15, 1.0],
-    }), { coverage })
+    const xgis = convertMapboxStyle(
+      buildStyle({
+        'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 5, 0.2, 15, 1.0],
+      }),
+      { coverage },
+    )
     // Now resolved per frame — the converter emits a bracket binding on
     // the 0..100 scale (mirror of circle-opacity) instead of warning + dropping.
     expect(xgis).toContain('stroke-opacity-[interpolate(zoom, 5, 20, 15, 100)]')
@@ -67,6 +70,6 @@ describe('circle-stroke-opacity', () => {
     expect(xgis).toContain('stroke-#0000ff')
     expect(xgis).not.toMatch(/stroke-#0000ff[0-9a-f]{2}/)
     // No circle-stroke-opacity drop warning surfaces.
-    expect(coverage.warnings.some(w => w.includes('circle-stroke-opacity'))).toBe(false)
+    expect(coverage.warnings.some((w) => w.includes('circle-stroke-opacity'))).toBe(false)
   })
 })

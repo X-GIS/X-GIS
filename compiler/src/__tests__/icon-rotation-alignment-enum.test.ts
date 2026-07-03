@@ -16,40 +16,48 @@ function buildSymbol(layout: Record<string, unknown>): unknown {
   return {
     version: 8,
     sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-    layers: [{
-      id: 'lbl',
-      type: 'symbol',
-      source: 'v',
-      'source-layer': 'a',
-      layout: { 'text-field': '{name}', ...layout },
-      paint: { 'text-color': '#000' },
-    }],
+    layers: [
+      {
+        id: 'lbl',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 'a',
+        layout: { 'text-field': '{name}', ...layout },
+        paint: { 'text-color': '#000' },
+      },
+    ],
   }
 }
 
 describe('icon-rotation-alignment enum gate', () => {
   it('icon-rotation-alignment: "MAP" (case-typo) warns', () => {
     const w = warningsOf(buildSymbol({ 'icon-rotation-alignment': 'MAP' }))
-    expect(w.some(s => s.includes('icon-rotation-alignment') && s.includes('MAP'))).toBe(true)
+    expect(w.some((s) => s.includes('icon-rotation-alignment') && s.includes('MAP'))).toBe(true)
   })
 
   it('icon-rotation-alignment: "screen" (invalid) warns', () => {
     const w = warningsOf(buildSymbol({ 'icon-rotation-alignment': 'screen' }))
-    expect(w.some(s => s.includes('icon-rotation-alignment') && s.includes('screen'))).toBe(true)
+    expect(w.some((s) => s.includes('icon-rotation-alignment') && s.includes('screen'))).toBe(true)
   })
 
   it('icon-rotation-alignment: "map" does NOT warn', () => {
     const w = warningsOf(buildSymbol({ 'icon-rotation-alignment': 'map' }))
-    expect(w.some(s => s.includes('icon-rotation-alignment') && s.includes('not a valid enum'))).toBe(false)
+    expect(
+      w.some((s) => s.includes('icon-rotation-alignment') && s.includes('not a valid enum')),
+    ).toBe(false)
   })
 
   it('icon-rotation-alignment: "viewport" does NOT warn', () => {
     const w = warningsOf(buildSymbol({ 'icon-rotation-alignment': 'viewport' }))
-    expect(w.some(s => s.includes('icon-rotation-alignment') && s.includes('not a valid enum'))).toBe(false)
+    expect(
+      w.some((s) => s.includes('icon-rotation-alignment') && s.includes('not a valid enum')),
+    ).toBe(false)
   })
 
   it('icon-rotation-alignment: "auto" does NOT warn', () => {
     const w = warningsOf(buildSymbol({ 'icon-rotation-alignment': 'auto' }))
-    expect(w.some(s => s.includes('icon-rotation-alignment') && s.includes('not a valid enum'))).toBe(false)
+    expect(
+      w.some((s) => s.includes('icon-rotation-alignment') && s.includes('not a valid enum')),
+    ).toBe(false)
   })
 })

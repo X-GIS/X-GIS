@@ -10,6 +10,6 @@ import { buildFormat, type VertexFormat } from '@xgis/compiler'
 // stride 16.
 export const POINT_FORMAT: VertexFormat = buildFormat([
   { name: 'center', location: 0, vbFormat: 'float32x2', wgslType: 'vec2<f32>' }, // lon/lat
-  { name: 'quad_id', location: 1, vbFormat: 'uint32', wgslType: 'u32' },         // corner 0..3
-  { name: 'feat_id', location: 2, vbFormat: 'float32', wgslType: 'f32' },        // picking key
+  { name: 'quad_id', location: 1, vbFormat: 'uint32', wgslType: 'u32' }, // corner 0..3
+  { name: 'feat_id', location: 2, vbFormat: 'float32', wgslType: 'f32' }, // picking key
 ])

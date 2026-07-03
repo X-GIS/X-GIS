@@ -49,20 +49,35 @@ export function loadGeoJSON(data: GeoJSONFeatureCollection): {
   const lineIndices: number[] = []
   const lineFeatures: FeatureRange[] = []
 
-  let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity
+  let minLon = Infinity,
+    minLat = Infinity,
+    maxLon = -Infinity,
+    maxLat = -Infinity
 
   for (const feature of data.features) {
     const geom = feature.geometry
-    if (!geom) continue  // skip features with null geometry
+    if (!geom) continue // skip features with null geometry
 
     if (geom.type === 'Polygon') {
-      tessellatePolygon(geom.coordinates, feature.properties, polyVertices, polyIndices, polyFeatures)
+      tessellatePolygon(
+        geom.coordinates,
+        feature.properties,
+        polyVertices,
+        polyIndices,
+        polyFeatures,
+      )
     } else if (geom.type === 'MultiPolygon') {
       for (const polygon of geom.coordinates) {
         tessellatePolygon(polygon, feature.properties, polyVertices, polyIndices, polyFeatures)
       }
     } else if (geom.type === 'LineString') {
-      tessellateLineString(geom.coordinates, feature.properties, lineVertices, lineIndices, lineFeatures)
+      tessellateLineString(
+        geom.coordinates,
+        feature.properties,
+        lineVertices,
+        lineIndices,
+        lineFeatures,
+      )
     } else if (geom.type === 'MultiLineString') {
       for (const line of geom.coordinates) {
         tessellateLineString(line, feature.properties, lineVertices, lineIndices, lineFeatures)
@@ -81,15 +96,27 @@ export function loadGeoJSON(data: GeoJSONFeatureCollection): {
         if (!sub || typeof sub !== 'object') continue
         const subGeom = sub as { type?: string; coordinates?: unknown }
         if (subGeom.type === 'Polygon') {
-          tessellatePolygon(subGeom.coordinates as never, feature.properties, polyVertices, polyIndices, polyFeatures)
+          tessellatePolygon(
+            subGeom.coordinates as never,
+            feature.properties,
+            polyVertices,
+            polyIndices,
+            polyFeatures,
+          )
         } else if (subGeom.type === 'MultiPolygon') {
-          for (const polygon of (subGeom.coordinates as never[])) {
+          for (const polygon of subGeom.coordinates as never[]) {
             tessellatePolygon(polygon, feature.properties, polyVertices, polyIndices, polyFeatures)
           }
         } else if (subGeom.type === 'LineString') {
-          tessellateLineString(subGeom.coordinates as never, feature.properties, lineVertices, lineIndices, lineFeatures)
+          tessellateLineString(
+            subGeom.coordinates as never,
+            feature.properties,
+            lineVertices,
+            lineIndices,
+            lineFeatures,
+          )
         } else if (subGeom.type === 'MultiLineString') {
-          for (const line of (subGeom.coordinates as never[])) {
+          for (const line of subGeom.coordinates as never[]) {
             tessellateLineString(line, feature.properties, lineVertices, lineIndices, lineFeatures)
           }
         }
@@ -107,7 +134,8 @@ export function loadGeoJSON(data: GeoJSONFeatureCollection): {
   // silently fails. Skip non-finite coords so the bounds stay
   // computable from the valid subset.
   for (let i = 0; i < polyVertices.length; i += 3) {
-    const lon = polyVertices[i], lat = polyVertices[i + 1]
+    const lon = polyVertices[i],
+      lat = polyVertices[i + 1]
     if (Number.isFinite(lon) && lon < 500) {
       minLon = Math.min(minLon, lon)
       maxLon = Math.max(maxLon, lon)
@@ -118,7 +146,8 @@ export function loadGeoJSON(data: GeoJSONFeatureCollection): {
     }
   }
   for (let i = 0; i < lineVertices.length; i += 4) {
-    const lon = lineVertices[i], lat = lineVertices[i + 1]
+    const lon = lineVertices[i],
+      lat = lineVertices[i + 1]
     if (Number.isFinite(lon)) {
       minLon = Math.min(minLon, lon)
       maxLon = Math.max(maxLon, lon)
@@ -188,7 +217,10 @@ function tessellatePolygonPart(
 
     for (const coord of ring) {
       // Clamp latitude to Mercator limit — Antarctica at -90° → -MERCATOR_LAT_LIMIT
-      flatCoords.push(coord[0], Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, coord[1])))
+      flatCoords.push(
+        coord[0],
+        Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, coord[1])),
+      )
     }
   }
 
@@ -219,9 +251,12 @@ function tessellatePolygonPart(
   }
 
   function subdivideTri(i0: number, i1: number, i2: number, depth: number): void {
-    const x0 = finalVertices[i0 * 2], y0 = finalVertices[i0 * 2 + 1]
-    const x1 = finalVertices[i1 * 2], y1 = finalVertices[i1 * 2 + 1]
-    const x2 = finalVertices[i2 * 2], y2 = finalVertices[i2 * 2 + 1]
+    const x0 = finalVertices[i0 * 2],
+      y0 = finalVertices[i0 * 2 + 1]
+    const x1 = finalVertices[i1 * 2],
+      y1 = finalVertices[i1 * 2 + 1]
+    const x2 = finalVertices[i2 * 2],
+      y2 = finalVertices[i2 * 2 + 1]
 
     const d01 = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))
     const d12 = Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1))
@@ -320,17 +355,20 @@ function tessellateLineStringPiece(
   const R = 6378137
   const clampLat = (v: number) => Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, v))
   let arc = 0
-  let prevMx = 0, prevMy = 0
+  let prevMx = 0,
+    prevMy = 0
   for (let i = 0; i < subdivided.length; i++) {
     const c = subdivided[i]
     const mx = c[0] * DEG2RAD * R
-    const my = Math.log(Math.tan(Math.PI / 4 + clampLat(c[1]) * DEG2RAD / 2)) * R
+    const my = Math.log(Math.tan(Math.PI / 4 + (clampLat(c[1]) * DEG2RAD) / 2)) * R
     if (i > 0) {
-      const dx = mx - prevMx, dy = my - prevMy
+      const dx = mx - prevMx,
+        dy = my - prevMy
       arc += Math.sqrt(dx * dx + dy * dy)
     }
     outVertices.push(c[0], c[1], featureId, arc)
-    prevMx = mx; prevMy = my
+    prevMx = mx
+    prevMy = my
   }
 
   for (let i = 0; i < subdivided.length - 1; i++) {

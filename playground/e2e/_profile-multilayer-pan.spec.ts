@@ -12,7 +12,7 @@ test.describe('profile multi_layer pan @z0 worldwrap', () => {
     await page.setViewportSize({ width: 1400, height: 900 })
 
     const consoleMsgs: string[] = []
-    page.on('console', m => {
+    page.on('console', (m) => {
       consoleMsgs.push(`[${m.type()}] ${m.text()}`)
     })
 
@@ -36,7 +36,8 @@ test.describe('profile multi_layer pan @z0 worldwrap', () => {
     })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 30_000 },
+      null,
+      { timeout: 30_000 },
     )
 
     const gpuSupported = await page.evaluate(() => {
@@ -83,60 +84,72 @@ test.describe('profile multi_layer pan @z0 worldwrap', () => {
     await cdp.send('Profiler.setSamplingInterval', { interval: 200 })
     await cdp.send('Profiler.start')
 
-    const result = await page.evaluate(async (args) => {
-      const { x0, x1, cy } = args
-      const canvas = document.querySelector('#map') as HTMLCanvasElement
-      const times: number[] = []
-      let last = performance.now()
-      const start = last
-      let stop = false
-      function tick() {
-        const t = performance.now()
-        times.push(t - last)
-        last = t
-        if (!stop) requestAnimationFrame(tick)
-      }
-      requestAnimationFrame(tick)
+    const result = await page.evaluate(
+      async (args) => {
+        const { x0, x1, cy } = args
+        const canvas = document.querySelector('#map') as HTMLCanvasElement
+        const times: number[] = []
+        let last = performance.now()
+        const start = last
+        let stop = false
+        function tick() {
+          const t = performance.now()
+          times.push(t - last)
+          last = t
+          if (!stop) requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
 
-      const fire = (type: string, x: number, y: number) => {
-        const ev = new PointerEvent(type, {
-          pointerId: 1, bubbles: true, cancelable: true,
-          clientX: x, clientY: y, pointerType: 'mouse', isPrimary: true,
-          button: type === 'pointerdown' ? 0 : -1, buttons: type === 'pointerup' ? 0 : 1,
-        })
-        canvas.dispatchEvent(ev)
-      }
+        const fire = (type: string, x: number, y: number) => {
+          const ev = new PointerEvent(type, {
+            pointerId: 1,
+            bubbles: true,
+            cancelable: true,
+            clientX: x,
+            clientY: y,
+            pointerType: 'mouse',
+            isPrimary: true,
+            button: type === 'pointerdown' ? 0 : -1,
+            buttons: type === 'pointerup' ? 0 : 1,
+          })
+          canvas.dispatchEvent(ev)
+        }
 
-      fire('pointerdown', x0, cy)
-      const N = 60
-      for (let i = 0; i < N; i++) {
-        const x = x0 + (x1 - x0) * (i / (N - 1))
-        fire('pointermove', x, cy)
-        await new Promise(r => setTimeout(r, 16))
-      }
-      fire('pointerup', x1, cy)
-      await new Promise(r => setTimeout(r, 200))
-      fire('pointerdown', x1, cy)
-      for (let i = 0; i < N; i++) {
-        const x = x1 + (x0 - x1) * (i / (N - 1))
-        fire('pointermove', x, cy)
-        await new Promise(r => setTimeout(r, 16))
-      }
-      fire('pointerup', x0, cy)
-      await new Promise(r => setTimeout(r, 500))
-      stop = true
-      const total = performance.now() - start
+        fire('pointerdown', x0, cy)
+        const N = 60
+        for (let i = 0; i < N; i++) {
+          const x = x0 + (x1 - x0) * (i / (N - 1))
+          fire('pointermove', x, cy)
+          await new Promise((r) => setTimeout(r, 16))
+        }
+        fire('pointerup', x1, cy)
+        await new Promise((r) => setTimeout(r, 200))
+        fire('pointerdown', x1, cy)
+        for (let i = 0; i < N; i++) {
+          const x = x1 + (x0 - x1) * (i / (N - 1))
+          fire('pointermove', x, cy)
+          await new Promise((r) => setTimeout(r, 16))
+        }
+        fire('pointerup', x0, cy)
+        await new Promise((r) => setTimeout(r, 500))
+        stop = true
+        const total = performance.now() - start
 
-      // Pull GPU samples accumulated by the GPUTimer ring (in nanoseconds).
-      const m = (window as any).__xgisMap
-      const gpuNs: number[] = m?.gpuTimer?.getTimings?.() ?? []
-      const gpuBreakdown: Record<string, number[]> = m?.gpuTimer?.getBreakdown?.() ?? {}
-      return {
-        times, total, gpuNs, gpuBreakdown,
-        gpuEnabled: !!m?.gpuTimer?.enabled,
-        gpuInsidePasses: !!m?.gpuTimer?.insidePasses,
-      }
-    }, { x0: box.x + box.width * 0.85, x1: box.x + box.width * 0.15, cy })
+        // Pull GPU samples accumulated by the GPUTimer ring (in nanoseconds).
+        const m = (window as any).__xgisMap
+        const gpuNs: number[] = m?.gpuTimer?.getTimings?.() ?? []
+        const gpuBreakdown: Record<string, number[]> = m?.gpuTimer?.getBreakdown?.() ?? {}
+        return {
+          times,
+          total,
+          gpuNs,
+          gpuBreakdown,
+          gpuEnabled: !!m?.gpuTimer?.enabled,
+          gpuInsidePasses: !!m?.gpuTimer?.insidePasses,
+        }
+      },
+      { x0: box.x + box.width * 0.85, x1: box.x + box.width * 0.15, cy },
+    )
 
     const { profile } = await cdp.send('Profiler.stop')
     writeFileSync('profile-multilayer-pan.cpuprofile', JSON.stringify(profile))
@@ -153,15 +166,15 @@ test.describe('profile multi_layer pan @z0 worldwrap', () => {
       p99_ms: +cpu[Math.floor(cpu.length * 0.99)].toFixed(2),
       max_ms: +cpu[cpu.length - 1].toFixed(2),
       fps_avg: +(1000 / cpuAvg).toFixed(1),
-      slow_frames_gt_16ms: cpu.filter(t => t > 16.7).length,
-      slow_frames_gt_33ms: cpu.filter(t => t > 33.3).length,
-      slow_frames_gt_50ms: cpu.filter(t => t > 50).length,
+      slow_frames_gt_16ms: cpu.filter((t) => t > 16.7).length,
+      slow_frames_gt_33ms: cpu.filter((t) => t > 33.3).length,
+      slow_frames_gt_50ms: cpu.filter((t) => t > 50).length,
     }
 
     // ── GPU pass stats ──
     function summarizeNs(samplesNs: number[]) {
       if (samplesNs.length === 0) return null
-      const ms = samplesNs.map(ns => ns / 1e6).sort((a, b) => a - b)
+      const ms = samplesNs.map((ns) => ns / 1e6).sort((a, b) => a - b)
       const avg = ms.reduce((a, b) => a + b, 0) / ms.length
       return {
         samples: ms.length,
@@ -180,10 +193,10 @@ test.describe('profile multi_layer pan @z0 worldwrap', () => {
     if (result.gpuNs.length > 0) {
       const total = summarizeNs(result.gpuNs)!
       Object.assign(gpuStats, total)
-      const gpuMs = result.gpuNs.map(ns => ns / 1e6)
+      const gpuMs = result.gpuNs.map((ns) => ns / 1e6)
       Object.assign(gpuStats, {
-        gt_8ms_pct: +(gpuMs.filter(t => t > 8).length / gpuMs.length * 100).toFixed(1),
-        gt_16ms_pct: +(gpuMs.filter(t => t > 16).length / gpuMs.length * 100).toFixed(1),
+        gt_8ms_pct: +((gpuMs.filter((t) => t > 8).length / gpuMs.length) * 100).toFixed(1),
+        gt_16ms_pct: +((gpuMs.filter((t) => t > 16).length / gpuMs.length) * 100).toFixed(1),
       })
     }
     // Per-segment breakdown — only meaningful when inside_passes is true,
@@ -225,7 +238,13 @@ test.describe('profile multi_layer pan @z0 worldwrap', () => {
           name: `${cf?.functionName || '(anon)'} @ ${cf?.url?.split('/').slice(-2).join('/') || '?'}:${cf?.lineNumber}`,
         }
       })
-      .filter(e => !e.name.includes('?:-1') && !e.name.includes('(idle)') && !e.name.includes('(program)') && !e.name.includes('(garbage'))
+      .filter(
+        (e) =>
+          !e.name.includes('?:-1') &&
+          !e.name.includes('(idle)') &&
+          !e.name.includes('(program)') &&
+          !e.name.includes('(garbage'),
+      )
       .sort((a, b) => b.t - a.t)
       .slice(0, 30)
     console.log('TOP_SELF_TIME (filtered):')

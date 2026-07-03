@@ -21,7 +21,8 @@ import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/engine'
 import { PanZoomController } from './controller'
 
-const W = 800, H = 800
+const W = 800,
+  H = 800
 
 type Rec = { type: string; fn: (e: unknown) => void }
 
@@ -86,7 +87,10 @@ describe('PanZoomController listener cleanup — detach() removes every listener
       const counts = new Map<string, number>()
       for (const { type, fn } of recs) {
         let id = idOf.get(fn)
-        if (id === undefined) { id = next++; idOf.set(fn, id) }
+        if (id === undefined) {
+          id = next++
+          idOf.set(fn, id)
+        }
         const key = `${type}#${id}`
         counts.set(key, (counts.get(key) ?? 0) + 1)
       }
@@ -107,7 +111,9 @@ describe('PanZoomController listener cleanup — detach() removes every listener
     for (const [key, n] of remCounts) {
       if ((addCounts.get(key) ?? 0) !== n) {
         const type = key.split('#')[0]
-        unmatched.push(`${type} removed-but-not-added (removed ${n}, added ${addCounts.get(key) ?? 0})`)
+        unmatched.push(
+          `${type} removed-but-not-added (removed ${n}, added ${addCounts.get(key) ?? 0})`,
+        )
       }
     }
 

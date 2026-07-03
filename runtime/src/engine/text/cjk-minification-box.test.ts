@@ -33,14 +33,21 @@ const soft = (fontSizePx: number): number => Math.max(2.52 / Math.max(fontSizePx
 
 function fillA(sdf: number, fontSizePx: number): number {
   const s = soft(fontSizePx)
-  const lo = EDGE - s, hi = EDGE + s
+  const lo = EDGE - s,
+    hi = EDGE + s
   const t = Math.min(1, Math.max(0, (sdf - lo) / (hi - lo)))
   return t * t * (3 - 2 * t)
 }
 
 // 1D slice through a DENSE Han glyph (e.g. 国): frame | gap | inner | gap | frame.
 function buildDenseGlyphSdf(): Float32Array {
-  const strokes: Array<[number, number]> = [[1, 3], [7, 9], [11, 13], [15, 17], [21, 23]]
+  const strokes: Array<[number, number]> = [
+    [1, 3],
+    [7, 9],
+    [11, 13],
+    [15, 17],
+    [21, 23],
+  ]
   const row = new Float32Array(ATLAS)
   for (let x = 0; x < ATLAS; x++) {
     let best = -Infinity
@@ -55,21 +62,26 @@ function buildDenseGlyphSdf(): Float32Array {
 }
 
 function bilinearNoMip(row: Float32Array, atlasX: number): number {
-  const x0 = Math.floor(atlasX), f = atlasX - x0
+  const x0 = Math.floor(atlasX),
+    f = atlasX - x0
   const a = row[Math.min(row.length - 1, Math.max(0, x0))]!
   const b = row[Math.min(row.length - 1, Math.max(0, x0 + 1))]!
   return a * (1 - f) + b * f
 }
 
 function areaAverage(row: Float32Array, centerAtlasX: number, footprint: number): number {
-  const lo = centerAtlasX - footprint / 2, hi = centerAtlasX + footprint / 2
+  const lo = centerAtlasX - footprint / 2,
+    hi = centerAtlasX + footprint / 2
   const n = Math.max(2, Math.ceil(footprint) * 4)
   let sum = 0
   for (let i = 0; i < n; i++) sum += bilinearNoMip(row, lo + ((i + 0.5) / n) * (hi - lo))
   return sum / n
 }
 
-function fillFraction(displaySize: number, sampler: (row: Float32Array, cx: number, fp: number) => number): number {
+function fillFraction(
+  displaySize: number,
+  sampler: (row: Float32Array, cx: number, fp: number) => number,
+): number {
   const row = buildDenseGlyphSdf()
   const stride = ATLAS / displaySize
   let filled = 0

@@ -98,13 +98,8 @@ export class TileComputeResources {
           0,
           `tile-feat:${entry.kernel.entryPoint}`,
         ),
-        outBuffer: dispatcher.createOutColorBuffer(
-          0,
-          `tile-out:${entry.kernel.entryPoint}`,
-        ),
-        countBuffer: dispatcher.createCountBuffer(
-          `tile-count:${entry.kernel.entryPoint}`,
-        ),
+        outBuffer: dispatcher.createOutColorBuffer(0, `tile-out:${entry.kernel.entryPoint}`),
+        countBuffer: dispatcher.createCountBuffer(`tile-count:${entry.kernel.entryPoint}`),
         featureCount: 0,
         dirty: false,
       })
@@ -146,7 +141,10 @@ export class TileComputeResources {
    *  Each unique kernel is packed independently because different
    *  kernels have different fieldOrder + categoryOrder. Entries
    *  sharing a kernel share the packed data — that's the win. */
-  uploadFromProps(getProps: (fid: number) => FeaturePropertyBag | null | undefined, featureCount: number): void {
+  uploadFromProps(
+    getProps: (fid: number) => FeaturePropertyBag | null | undefined,
+    featureCount: number,
+  ): void {
     for (const r of this.kernels.values()) {
       const entry = r.representative
       const data = packFeatureData({
@@ -160,9 +158,12 @@ export class TileComputeResources {
       // allocation. The new buffer absorbs the old one's role; the
       // old buffer's `destroy()` is called so we don't leak when
       // tile re-decode pumps a larger feature count.
-      const needFeatBytes = Math.max(16, featureCount * Math.max(1, entry.kernel.featureStrideF32) * 4)
+      const needFeatBytes = Math.max(
+        16,
+        featureCount * Math.max(1, entry.kernel.featureStrideF32) * 4,
+      )
       const needOutBytes = Math.max(16, featureCount * 4)
-      if (((r.featBuffer as unknown) as { size: number }).size < needFeatBytes) {
+      if ((r.featBuffer as unknown as { size: number }).size < needFeatBytes) {
         r.featBuffer.destroy()
         r.featBuffer = this.dispatcher.createFeatDataBuffer(
           entry.kernel.featureStrideF32,
@@ -170,7 +171,7 @@ export class TileComputeResources {
           `tile-feat:${entry.kernel.entryPoint}`,
         )
       }
-      if (((r.outBuffer as unknown) as { size: number }).size < needOutBytes) {
+      if ((r.outBuffer as unknown as { size: number }).size < needOutBytes) {
         r.outBuffer.destroy()
         r.outBuffer = this.dispatcher.createOutColorBuffer(
           featureCount,
@@ -207,8 +208,10 @@ export class TileComputeResources {
     // `_perf-compute-strategy.spec.ts` A/B benchmark to surface kernel
     // timing on a static scene whose output buffer would otherwise be
     // valid across frames. Production code never sets this.
-    const forceEveryFrame = typeof globalThis !== 'undefined'
-      && (globalThis as { __XGIS_FORCE_COMPUTE_DISPATCH?: boolean }).__XGIS_FORCE_COMPUTE_DISPATCH === true
+    const forceEveryFrame =
+      typeof globalThis !== 'undefined' &&
+      (globalThis as { __XGIS_FORCE_COMPUTE_DISPATCH?: boolean }).__XGIS_FORCE_COMPUTE_DISPATCH ===
+        true
     for (const r of this.kernels.values()) {
       // Skip when nothing's changed since the last dispatch — the
       // output buffer still holds the last frame's correct values

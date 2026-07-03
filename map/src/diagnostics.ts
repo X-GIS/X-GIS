@@ -102,12 +102,15 @@ export interface MapSnapshot {
    *  must set the playwright context to this exact size or the canvas
    *  shrinks/grows and pixel hashes won't compare. */
   pageViewport: { width: number; height: number }
-  sources: Record<string, {
-    gpuCacheCount: number
-    pendingFetch: number
-    pendingUpload: number
-    tiles: Array<{ z: number; x: number; y: number }>
-  }>
+  sources: Record<
+    string,
+    {
+      gpuCacheCount: number
+      pendingFetch: number
+      pendingUpload: number
+      tiles: Array<{ z: number; x: number; y: number }>
+    }
+  >
   renderOrder: unknown[]
   pixelHash: string
   pixelHashBy: 'subtle' | 'fnv'
@@ -128,27 +131,37 @@ export interface ReplayResult {
 export function inspectMapPipeline(map: XGISMap): PipelineInspection {
   const m = map as unknown as {
     camera: {
-      centerX: number; centerY: number; zoom: number;
-      bearing: number; pitch: number; maxZoom: number;
+      centerX: number
+      centerY: number
+      zoom: number
+      bearing: number
+      pitch: number
+      maxZoom: number
     }
     ctx?: { canvas: { width: number; height: number } }
-    vtSources: Map<string, {
-      source: {
-        maxLevel: number
-        getPendingLoadCount(): number
-        hasData(): boolean
-        getSubTileBudgetUsed(): number
-        getCompileBudgetUsed(): number
-      }
-      renderer: {
-        getDrawStats(): {
-          drawCalls: number; tilesVisible: number; missedTiles: number;
-          triangles: number; lines: number;
+    vtSources: Map<
+      string,
+      {
+        source: {
+          maxLevel: number
+          getPendingLoadCount(): number
+          hasData(): boolean
+          getSubTileBudgetUsed(): number
+          getCompileBudgetUsed(): number
         }
-        getCacheSize(): number
-        getPendingUploadCount(): number
+        renderer: {
+          getDrawStats(): {
+            drawCalls: number
+            tilesVisible: number
+            missedTiles: number
+            triangles: number
+            lines: number
+          }
+          getCacheSize(): number
+          getPendingUploadCount(): number
+        }
       }
-    }>
+    >
     _frameCount: number
     getQuality(): QualityConfig
     _cameraExplicitlyPositioned: boolean
@@ -160,7 +173,8 @@ export function inspectMapPipeline(map: XGISMap): PipelineInspection {
   const DEG = 180 / Math.PI
   const canvasW = m.ctx?.canvas.width ?? 0
   const canvasH = m.ctx?.canvas.height ?? 0
-  const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+  const dpr =
+    typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
 
   const lon = (cam.centerX / R) * DEG
   const lat = mercatorYToLat(cam.centerY)
@@ -198,7 +212,8 @@ export function inspectMapPipeline(map: XGISMap): PipelineInspection {
   return {
     camera: {
       zoom: cam.zoom,
-      lon, lat,
+      lon,
+      lat,
       bearing: cam.bearing,
       pitch: cam.pitch,
       maxZoom: cam.maxZoom,
@@ -224,17 +239,23 @@ export async function captureMapSnapshot(map: XGISMap): Promise<MapSnapshot> {
     vtSources?: Map<string, unknown>
   }
   const camera = m.camera
-  const lon = (camera.centerX / 6378137) / (Math.PI / 180)
+  const lon = camera.centerX / 6378137 / (Math.PI / 180)
   const lat = mercatorYToLat(camera.centerY)
 
   const sources: MapSnapshot['sources'] = {}
   if (m.vtSources) {
     for (const [name, entry] of m.vtSources) {
-      const r = (entry as unknown as { renderer?: {
-        _gpuCacheCount?: number
-        getPendingUploadCount?: () => number
-        _selection?: { frameTileCache?: () => { tiles?: Array<{ z: number; x: number; y: number }> } | null }
-      } }).renderer
+      const r = (
+        entry as unknown as {
+          renderer?: {
+            _gpuCacheCount?: number
+            getPendingUploadCount?: () => number
+            _selection?: {
+              frameTileCache?: () => { tiles?: Array<{ z: number; x: number; y: number }> } | null
+            }
+          }
+        }
+      ).renderer
       const cat = (entry as unknown as { source?: { getPendingLoadCount?: () => number } }).source
       sources[name] = {
         gpuCacheCount: r?._gpuCacheCount ?? 0,
@@ -245,9 +266,12 @@ export async function captureMapSnapshot(map: XGISMap): Promise<MapSnapshot> {
     }
   }
 
-  const renderOrder = ((window as unknown as {
-    __xgisDrawOrderTrace?: unknown[]
-  }).__xgisDrawOrderTrace) ?? []
+  const renderOrder =
+    (
+      window as unknown as {
+        __xgisDrawOrderTrace?: unknown[]
+      }
+    ).__xgisDrawOrderTrace ?? []
 
   // Pixel hash: SubtleCrypto SHA-256 where available, FNV-1a fallback.
   // Canvas readback via toBlob → arrayBuffer (deterministic for the
@@ -264,7 +288,7 @@ export async function captureMapSnapshot(map: XGISMap): Promise<MapSnapshot> {
       if (typeof crypto !== 'undefined' && crypto.subtle) {
         const digest = await crypto.subtle.digest('SHA-256', buf)
         const bytes = Array.from(new Uint8Array(digest))
-        pixelHash = bytes.map(b => b.toString(16).padStart(2, '0')).join('')
+        pixelHash = bytes.map((b) => b.toString(16).padStart(2, '0')).join('')
         pixelHashBy = 'subtle'
       } else {
         // FNV-1a 32-bit. Lower entropy but adequate for detecting
@@ -294,14 +318,18 @@ export async function captureMapSnapshot(map: XGISMap): Promise<MapSnapshot> {
     pageUrl: typeof window !== 'undefined' ? window.location.href : '',
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
     camera: {
-      lon, lat,
+      lon,
+      lat,
       zoom: camera.zoom,
       bearing: camera.bearing ?? 0,
       pitch: camera.pitch ?? 0,
     },
     viewport: {
-      width: canvas.width, height: canvas.height,
-      cssWidth, cssHeight, dpr,
+      width: canvas.width,
+      height: canvas.height,
+      cssWidth,
+      cssHeight,
+      dpr,
     },
     pageViewport: { width: pageWidth, height: pageHeight },
     sources,
@@ -332,11 +360,20 @@ export async function replayMapSnapshot(
   opts: { timeoutMs?: number } = {},
 ): Promise<ReplayResult> {
   if (snap.schemaVersion !== undefined && snap.schemaVersion !== 1) {
-    throw new Error(`replaySnapshot: unsupported schema ${snap.schemaVersion} (this build supports 1)`)
+    throw new Error(
+      `replaySnapshot: unsupported schema ${snap.schemaVersion} (this build supports 1)`,
+    )
   }
   const timeoutMs = opts.timeoutMs ?? 30_000
   const m = map as unknown as {
-    camera: { centerX: number; centerY: number; zoom: number; bearing: number; pitch: number; syncCenterLat(): void }
+    camera: {
+      centerX: number
+      centerY: number
+      zoom: number
+      bearing: number
+      pitch: number
+      syncCenterLat(): void
+    }
     _cameraExplicitlyPositioned: boolean
     _needsRender: boolean
     vtSources?: Map<string, unknown>
@@ -349,7 +386,7 @@ export async function replayMapSnapshot(
   const DEG2RAD = Math.PI / 180
   m.camera.centerX = snap.camera.lon * DEG2RAD * R
   const clampedLat = Math.max(-85.051129, Math.min(85.051129, snap.camera.lat))
-  m.camera.centerY = Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) * R
+  m.camera.centerY = Math.log(Math.tan(Math.PI / 4 + (clampedLat * DEG2RAD) / 2)) * R
   // Keep the maintained true-centre-latitude consistent with the restored
   // centerY (bounded ≤85.05 here, so byte-safe) — the globe anchor readers
   // consume centerLatDeg, not the Mercator-bounded inverse.
@@ -370,16 +407,21 @@ export async function replayMapSnapshot(
     let missingTiles = 0
     let sourceMissing = false
     for (const [name, snapSrc] of Object.entries(snap.sources)) {
-      const live = (m.vtSources?.get(name) as unknown as {
-        source?: { hasTileData?: (key: number) => boolean; getPendingLoadCount?: () => number }
-        renderer?: { getPendingUploadCount?: () => number }
-      } | undefined)
+      const live = m.vtSources?.get(name) as unknown as
+        | {
+            source?: { hasTileData?: (key: number) => boolean; getPendingLoadCount?: () => number }
+            renderer?: { getPendingUploadCount?: () => number }
+          }
+        | undefined
       if (!live?.source) {
         sourceMissing = true
         missingTiles += snapSrc.tiles.length
         continue
       }
-      const cat = live.source as { hasTileData?: (key: number) => boolean; getPendingLoadCount?: () => number }
+      const cat = live.source as {
+        hasTileData?: (key: number) => boolean
+        getPendingLoadCount?: () => number
+      }
       pendingFetchTotal += cat.getPendingLoadCount?.() ?? 0
       pendingUploadTotal += live.renderer?.getPendingUploadCount?.() ?? 0
       for (const t of snapSrc.tiles) {
@@ -406,5 +448,12 @@ export async function replayMapSnapshot(
     await new Promise<void>((res) => setTimeout(res, 100))
   }
   // Timeout — return current state for caller to inspect.
-  return computeStatus() ?? { matched: false, missingTiles: 0, pendingFetchTotal: 0, pendingUploadTotal: 0 }
+  return (
+    computeStatus() ?? {
+      matched: false,
+      missingTiles: 0,
+      pendingFetchTotal: 0,
+      pendingUploadTotal: 0,
+    }
+  )
 }

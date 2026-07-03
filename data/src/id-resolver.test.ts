@@ -35,10 +35,15 @@ describe('toU32Id', () => {
 
   it('handles common C2 id patterns without collision', () => {
     const ids = [
-      'F-16-01', 'F-16-02', 'F-35-01',
-      'AWACS-1', 'AWACS-2',
+      'F-16-01',
+      'F-16-02',
+      'F-35-01',
+      'AWACS-1',
+      'AWACS-2',
       '550e8400-e29b-41d4-a716-446655440000', // UUID
-      'track#1', 'track#2', 'track#1000',
+      'track#1',
+      'track#2',
+      'track#1000',
     ]
     const hashes = ids.map(toU32Id)
     expect(new Set(hashes).size).toBe(ids.length)

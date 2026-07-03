@@ -16,9 +16,14 @@ function gvTempCount(m: ModuleDecl): number {
   const walk = (body: readonly Stmt[]): void => {
     for (const s of body) {
       if ((s.s === 'let' || s.s === 'var') && /^_gv\d+$/.test(s.name)) n++
-      if (s.s === 'if') { for (const a of s.arms) walk(a.body); if (s.elseBody) walk(s.elseBody) }
-      else if (s.s === 'for') walk(s.body)
-      else if (s.s === 'switch') { for (const c of s.cases) walk(c.body); if (s.defaultBody) walk(s.defaultBody) }
+      if (s.s === 'if') {
+        for (const a of s.arms) walk(a.body)
+        if (s.elseBody) walk(s.elseBody)
+      } else if (s.s === 'for') walk(s.body)
+      else if (s.s === 'switch') {
+        for (const c of s.cases) walk(c.body)
+        if (s.defaultBody) walk(s.defaultBody)
+      }
     }
   }
   for (const f of m.funcs) walk(f.body)
@@ -103,7 +108,13 @@ describe('gvn — cross-statement value numbering', () => {
   })
 
   it('bails out on a fn containing a raw Stmt', () => {
-    const base = module({ funcs: [fn('f', { x: f32T }, f32T, ({ x }, b) => { b.ret(x.mul(2)) })] })
+    const base = module({
+      funcs: [
+        fn('f', { x: f32T }, f32T, ({ x }, b) => {
+          b.ret(x.mul(2))
+        }),
+      ],
+    })
     const withRaw: ModuleDecl = {
       ...base,
       funcs: [{ ...base.funcs[0]!, body: [{ s: 'raw', wgsl: 'return x * 2.0;' }] }],

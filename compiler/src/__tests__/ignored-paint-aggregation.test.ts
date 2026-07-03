@@ -10,23 +10,28 @@ import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
 describe('surfaceIgnoredPaint aggregation', () => {
   it('multiple ignored line properties → single warning per layer', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
-    convertMapboxStyle({
-      version: 8,
-      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'r',
-        paint: {
-          'line-color': '#fff',
-          'line-translate-anchor': 'viewport',
-          'line-sort-key': 5,
-        },
-      }],
-    } as never, { coverage })
+    convertMapboxStyle(
+      {
+        version: 8,
+        sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+        layers: [
+          {
+            id: 'l',
+            type: 'line',
+            source: 'v',
+            'source-layer': 'r',
+            paint: {
+              'line-color': '#fff',
+              'line-translate-anchor': 'viewport',
+              'line-sort-key': 5,
+            },
+          },
+        ],
+      } as never,
+      { coverage },
+    )
 
-    const layerWarns = coverage.warnings.filter(w => w.includes('ignored paint properties'))
+    const layerWarns = coverage.warnings.filter((w) => w.includes('ignored paint properties'))
     // The anchor-parent dependency check suppresses
     // line-translate-anchor (parent line-translate is absent), so
     // only line-sort-key surfaces. (line-round-limit is no longer an
@@ -39,39 +44,59 @@ describe('surfaceIgnoredPaint aggregation', () => {
 
   it('multiple layers each get their own aggregated warning', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
-    convertMapboxStyle({
-      version: 8,
-      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [
-        { id: 'a', type: 'line', source: 'v', 'source-layer': 'r', paint: { 'line-color': '#fff', 'line-sort-key': 1 } },
-        { id: 'b', type: 'line', source: 'v', 'source-layer': 'r', paint: { 'line-color': '#fff', 'line-sort-key': 1 } },
-      ],
-    } as never, { coverage })
+    convertMapboxStyle(
+      {
+        version: 8,
+        sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+        layers: [
+          {
+            id: 'a',
+            type: 'line',
+            source: 'v',
+            'source-layer': 'r',
+            paint: { 'line-color': '#fff', 'line-sort-key': 1 },
+          },
+          {
+            id: 'b',
+            type: 'line',
+            source: 'v',
+            'source-layer': 'r',
+            paint: { 'line-color': '#fff', 'line-sort-key': 1 },
+          },
+        ],
+      } as never,
+      { coverage },
+    )
 
-    const layerWarns = coverage.warnings.filter(w => w.includes('ignored paint properties'))
+    const layerWarns = coverage.warnings.filter((w) => w.includes('ignored paint properties'))
     expect(layerWarns.length).toBe(2)
-    expect(layerWarns.some(w => w.includes('"a"'))).toBe(true)
-    expect(layerWarns.some(w => w.includes('"b"'))).toBe(true)
+    expect(layerWarns.some((w) => w.includes('"a"'))).toBe(true)
+    expect(layerWarns.some((w) => w.includes('"b"'))).toBe(true)
   })
 
   it('null-valued ignored property → no warning (spec fallback semantics)', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
-    convertMapboxStyle({
-      version: 8,
-      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'r',
-        paint: {
-          'line-color': '#fff',
-          'line-translate-anchor': null,
-          'line-sort-key': null,
-        },
-      }],
-    } as never, { coverage })
+    convertMapboxStyle(
+      {
+        version: 8,
+        sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+        layers: [
+          {
+            id: 'l',
+            type: 'line',
+            source: 'v',
+            'source-layer': 'r',
+            paint: {
+              'line-color': '#fff',
+              'line-translate-anchor': null,
+              'line-sort-key': null,
+            },
+          },
+        ],
+      } as never,
+      { coverage },
+    )
 
-    expect(coverage.warnings.some(w => w.includes('ignored paint properties'))).toBe(false)
+    expect(coverage.warnings.some((w) => w.includes('ignored paint properties'))).toBe(false)
   })
 })

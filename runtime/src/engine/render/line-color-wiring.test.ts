@@ -35,13 +35,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<GPUContext> {
   const canvas = { width: 1024, height: 768 } as unknown as HTMLCanvasElement
@@ -77,7 +82,15 @@ function captureFirstLayerSlot(ctx: GPUContext): Float32Array | undefined {
 
   let captured: Float32Array | undefined
   const device = ctx.device as unknown as {
-    queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer, dOff?: number, sz?: number) => void }
+    queue: {
+      writeBuffer: (
+        buf: unknown,
+        off: number,
+        data: ArrayBufferView | ArrayBuffer,
+        dOff?: number,
+        sz?: number,
+      ) => void
+    }
   }
   device.queue.writeBuffer = (
     buf: unknown,
@@ -91,8 +104,10 @@ function captureFirstLayerSlot(ctx: GPUContext): Float32Array | undefined {
     // `data` is the staging ArrayBuffer; `dataOffset` is the absolute byte
     // start of the dirty range. The first layer slot starts at byte 0.
     const ab = data instanceof ArrayBuffer ? data : (data as ArrayBufferView).buffer
-    const base = (dataOffset ?? (data instanceof ArrayBuffer ? 0 : (data as ArrayBufferView).byteOffset)) | 0
-    const lenBytes = size ?? (data instanceof ArrayBuffer ? data.byteLength : (data as ArrayBufferView).byteLength)
+    const base =
+      (dataOffset ?? (data instanceof ArrayBuffer ? 0 : (data as ArrayBufferView).byteOffset)) | 0
+    const lenBytes =
+      size ?? (data instanceof ArrayBuffer ? data.byteLength : (data as ArrayBufferView).byteLength)
     captured = new Float32Array(ab, base, Math.min(lenBytes, 16) / 4) // first 4 f32 = colour vec4
   }
 

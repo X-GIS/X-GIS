@@ -10,10 +10,7 @@
 // the readback (returns null, a miss) until the devices agree.
 
 import { describe, it, expect, vi } from 'vitest'
-import {
-  InteractionController,
-  type InteractionControllerDeps,
-} from './interaction-controller'
+import { InteractionController, type InteractionControllerDeps } from './interaction-controller'
 import type { LayerIdRegistry } from './layer'
 
 // WebGPU browser globals absent under vitest — stub what pickAt touches.
@@ -38,7 +35,7 @@ function makeController(pickDevice: unknown, ctxDevice: unknown): InteractionCon
     rawDatasets: new Map(),
     featureIndex: new Map(),
     getCtx: () => mockCtx as never,
-    getPickTexture: () => ({} as GPUTexture),
+    getPickTexture: () => ({}) as GPUTexture,
     getPickTextureDevice: () => pickDevice as never,
     getProjectionName: () => 'mercator',
     getVectorTileShows: () => [],

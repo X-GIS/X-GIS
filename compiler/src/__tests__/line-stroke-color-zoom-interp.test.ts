@@ -16,7 +16,13 @@ import { convertMapboxStyle, Lexer, Parser, lower, emitCommands } from '../index
 interface LineStrokeShape {
   layerName: string
   paintShapes?: {
-    line?: { stroke?: { kind: string; stops?: Array<{ zoom: number; value: [number, number, number, number] }>; base?: number } }
+    line?: {
+      stroke?: {
+        kind: string
+        stops?: Array<{ zoom: number; value: [number, number, number, number] }>
+        base?: number
+      }
+    }
   }
 }
 
@@ -29,15 +35,22 @@ function pipeline(style: unknown): LineStrokeShape[] {
 const style = (lineColor: unknown) => ({
   version: 8,
   sources: { s: { type: 'vector', url: 'https://example.com/t.json' } },
-  layers: [{
-    id: 'roads', type: 'line', source: 's', 'source-layer': 'road',
-    paint: { 'line-color': lineColor, 'line-width': 2 },
-  }],
+  layers: [
+    {
+      id: 'roads',
+      type: 'line',
+      source: 's',
+      'source-layer': 'road',
+      paint: { 'line-color': lineColor, 'line-width': 2 },
+    },
+  ],
 })
 
 describe('#726 — zoom-interpolated line-color lowers to a zoom-interpolated stroke shape', () => {
   it('linear interpolate(zoom) keeps EVERY stop (not the last-stop constant bake)', () => {
-    const shows = pipeline(style(['interpolate', ['linear'], ['zoom'], 5, '#ff0000', 15, '#0000ff']))
+    const shows = pipeline(
+      style(['interpolate', ['linear'], ['zoom'], 5, '#ff0000', 15, '#0000ff']),
+    )
     const road = shows.find((s) => s.paintShapes?.line?.stroke)
     expect(road, 'a line show with a stroke shape').toBeTruthy()
     const stroke = road!.paintShapes!.line!.stroke!
@@ -49,7 +62,9 @@ describe('#726 — zoom-interpolated line-color lowers to a zoom-interpolated st
   })
 
   it('exponential base survives onto the shape', () => {
-    const shows = pipeline(style(['interpolate', ['exponential', 1.6], ['zoom'], 5, '#ff0000', 15, '#0000ff']))
+    const shows = pipeline(
+      style(['interpolate', ['exponential', 1.6], ['zoom'], 5, '#ff0000', 15, '#0000ff']),
+    )
     const stroke = shows.find((s) => s.paintShapes?.line?.stroke)!.paintShapes!.line!.stroke!
     expect(stroke.kind).toBe('zoom-interpolated')
     expect(stroke.base).toBeCloseTo(1.6, 6)

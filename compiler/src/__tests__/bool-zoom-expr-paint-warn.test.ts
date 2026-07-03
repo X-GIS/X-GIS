@@ -20,50 +20,80 @@ describe('boolean paint prop as zoom-expression warns instead of dropping silent
   it('fill-antialias zoom-expression → warning fires (fail-before: was silent)', () => {
     const warnings: string[] = []
     convertLayer(
-      { id: 'landcover-wood', type: 'fill', source: 'osm', 'source-layer': 'landcover', paint: { 'fill-color': '#a0c0a0', 'fill-antialias': STEP_ZOOM_BOOL } } as never,
+      {
+        id: 'landcover-wood',
+        type: 'fill',
+        source: 'osm',
+        'source-layer': 'landcover',
+        paint: { 'fill-color': '#a0c0a0', 'fill-antialias': STEP_ZOOM_BOOL },
+      } as never,
       warnings,
     )
-    expect(warnings.some(w => /fill-antialias/i.test(w))).toBe(true)
+    expect(warnings.some((w) => /fill-antialias/i.test(w))).toBe(true)
   })
 
   it('fill-extrusion-vertical-gradient zoom-expression → warning fires (fail-before: was silent)', () => {
     const warnings: string[] = []
     convertLayer(
-      { id: 'bldg', type: 'fill-extrusion', source: 'osm', 'source-layer': 'building', paint: { 'fill-extrusion-color': '#ccc', 'fill-extrusion-vertical-gradient': STEP_ZOOM_BOOL } } as never,
+      {
+        id: 'bldg',
+        type: 'fill-extrusion',
+        source: 'osm',
+        'source-layer': 'building',
+        paint: {
+          'fill-extrusion-color': '#ccc',
+          'fill-extrusion-vertical-gradient': STEP_ZOOM_BOOL,
+        },
+      } as never,
       warnings,
     )
-    expect(warnings.some(w => /vertical-gradient/i.test(w))).toBe(true)
+    expect(warnings.some((w) => /vertical-gradient/i.test(w))).toBe(true)
   })
 
   it('regression: constant false still emits the flag with no spurious warning', () => {
     const warnings: string[] = []
     const out = convertLayer(
-      { id: 'c', type: 'fill', source: 's', 'source-layer': 'l', paint: { 'fill-color': '#fff', 'fill-antialias': false } } as never,
+      {
+        id: 'c',
+        type: 'fill',
+        source: 's',
+        'source-layer': 'l',
+        paint: { 'fill-color': '#fff', 'fill-antialias': false },
+      } as never,
       warnings,
     )
     expect(out).toContain('fill-antialias-false')
-    expect(warnings.some(w => /fill-antialias/i.test(w))).toBe(false)
+    expect(warnings.some((w) => /fill-antialias/i.test(w))).toBe(false)
   })
 
   it('regression: ["literal", false] still emits the flag with no spurious warning', () => {
     const warnings: string[] = []
     const out = convertLayer(
-      { id: 'c', type: 'fill', source: 's', 'source-layer': 'l', paint: { 'fill-color': '#fff', 'fill-antialias': ['literal', false] as unknown } } as never,
+      {
+        id: 'c',
+        type: 'fill',
+        source: 's',
+        'source-layer': 'l',
+        paint: { 'fill-color': '#fff', 'fill-antialias': ['literal', false] as unknown },
+      } as never,
       warnings,
     )
     expect(out).toContain('fill-antialias-false')
-    expect(warnings.some(w => /fill-antialias/i.test(w))).toBe(false)
+    expect(warnings.some((w) => /fill-antialias/i.test(w))).toBe(false)
   })
 
   it('regression: constant true (and unauthored default) emits no flag and no warning', () => {
-    for (const paint of [{ 'fill-color': '#fff', 'fill-antialias': true }, { 'fill-color': '#fff' }]) {
+    for (const paint of [
+      { 'fill-color': '#fff', 'fill-antialias': true },
+      { 'fill-color': '#fff' },
+    ]) {
       const warnings: string[] = []
       const out = convertLayer(
         { id: 'c', type: 'fill', source: 's', 'source-layer': 'l', paint } as never,
         warnings,
       )
       expect(out).not.toContain('fill-antialias')
-      expect(warnings.some(w => /fill-antialias/i.test(w))).toBe(false)
+      expect(warnings.some((w) => /fill-antialias/i.test(w))).toBe(false)
     }
   })
 })

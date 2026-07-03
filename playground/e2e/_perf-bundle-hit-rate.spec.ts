@@ -27,13 +27,11 @@ interface BundleStats {
 
 async function setupIdleScene(page: Page, hash: string, style: string): Promise<void> {
   await page.setViewportSize({ width: 1280, height: 800 })
-  await page.goto(
-    `/compare.html?style=${style}${hash}`,
-    { waitUntil: 'domcontentloaded' },
-  )
+  await page.goto(`/compare.html?style=${style}${hash}`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
   // Settle: 4 s lets the cold-start tile cascade fully drain.
   await page.waitForTimeout(4_000)
@@ -52,10 +50,13 @@ async function sampleBundleStats(page: Page, frames: number): Promise<BundleStat
     const map = (window as unknown as { __xgisMap?: M }).__xgisMap
     if (!map) throw new Error('__xgisMap missing')
     const out: { bundleHits: number; bundleMisses: number; bundleHitRate: number }[] = []
-    return await new Promise<typeof out>(resolve => {
+    return await new Promise<typeof out>((resolve) => {
       let i = 0
       const tick = () => {
-        if (i >= n) { resolve(out); return }
+        if (i >= n) {
+          resolve(out)
+          return
+        }
         const s = map.stats
         out.push({
           bundleHits: s.bundleHits,
@@ -101,14 +102,17 @@ test.describe('Phase RB.B validation — bundle hit rate at idle', () => {
     // Threshold 80 % gates the iter-226 win against future
     // regressions (cache-key over-invalidation would drop rate
     // below this floor before pixel-match catches anything).
-    expect(last.bundleHitRate, 'bundle hit rate should be > 80 % (iter-226 baseline 97.6 %)')
-      .toBeGreaterThan(0.8)
+    expect(
+      last.bundleHitRate,
+      'bundle hit rate should be > 80 % (iter-226 baseline 97.6 %)',
+    ).toBeGreaterThan(0.8)
 
     // Total bundle calls should be NON-ZERO — proves bundle path
     // actually runs (not gated off for this fixture).
-    expect(last.bundleHits + last.bundleMisses,
-      'bundle should fire at least once on the bright z=14 idle scene')
-      .toBeGreaterThan(0)
+    expect(
+      last.bundleHits + last.bundleMisses,
+      'bundle should fire at least once on the bright z=14 idle scene',
+    ).toBeGreaterThan(0)
 
     // Hits should INCREASE monotonically frame-to-frame. Misses
     // can also increase (new variants encountered) but the hit
@@ -123,7 +127,6 @@ test.describe('Phase RB.B validation — bundle hit rate at idle', () => {
     console.log(
       `[bundle delta over ${FRAMES} frames] hits+=${totalHitDelta} misses+=${totalMissDelta}`,
     )
-    expect(totalHitDelta, 'hits should accumulate over idle frames')
-      .toBeGreaterThan(0)
+    expect(totalHitDelta, 'hits should accumulate over idle frames').toBeGreaterThan(0)
   })
 })

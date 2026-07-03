@@ -39,17 +39,17 @@ export type TileState = 'unloaded' | 'loading' | 'cached' | 'failed'
  * the shader's DSFUN subtraction (pos_h - cam_h) + (pos_l - cam_l).
  */
 export interface TileData {
-  vertices: Float32Array       // polygon fills — PR 2f quantized ECEF stride 24 B
+  vertices: Float32Array // polygon fills — PR 2f quantized ECEF stride 24 B
   /** PR 2f per-tile quantized-position dequant step (metres) =
    *  `2*dequantHalf/0xFFFFFFFF`. The flat-fill polygon VS decodes each ECEF
    *  RTC axis as `q = f32(hi)*65536 + f32(lo); axis = q*scale - half`. */
   dequantScale: number
   /** PR 2f per-tile symmetric residual half-range (metres). */
   dequantHalf: number
-  indices: Uint32Array         // triangle indices
-  lineVertices: Float32Array   // lines — DSFUN stride 10 (arc_start at [5], tangent at [6-9])
-  lineIndices: Uint32Array     // line segment indices (pairs)
-  outlineIndices: Uint32Array  // polygon outline line segments (reuses `vertices`)
+  indices: Uint32Array // triangle indices
+  lineVertices: Float32Array // lines — DSFUN stride 10 (arc_start at [5], tangent at [6-9])
+  lineIndices: Uint32Array // line segment indices (pairs)
+  outlineIndices: Uint32Array // polygon outline line segments (reuses `vertices`)
   /** Polygon outline vertices in DSFUN stride 10 (matches `lineVertices`).
    *  When non-empty, VTR builds outline SDF segments from these instead
    *  of indexing into the polygon fill buffer — gives outlines the same
@@ -74,12 +74,12 @@ export interface TileData {
    *  path until the worker is extended). */
   prebuiltLineSegments?: Float32Array
   prebuiltOutlineSegments?: Float32Array
-  tileWest: number             // tile origin (degrees) — canonical identity
+  tileWest: number // tile origin (degrees) — canonical identity
   tileSouth: number
   tileWidth: number
   tileHeight: number
   tileZoom: number
-  polygons?: RingPolygon[]     // original rings (for sub-tiling)
+  polygons?: RingPolygon[] // original rings (for sub-tiling)
   /** featId → 3D extrude height in metres. Populated by the MVT
    *  decode path for layers whose features carry `render_height` /
    *  `height` properties (primarily `buildings`). VTR routes upload
@@ -240,9 +240,13 @@ function readInnerWidthMemoised(): number {
   const w = (typeof window !== 'undefined' ? window.innerWidth : 0) || 0
   _cachedInnerW = w
   if (typeof queueMicrotask === 'function') {
-    queueMicrotask(() => { _cachedInnerW = -1 })
+    queueMicrotask(() => {
+      _cachedInnerW = -1
+    })
   } else {
-    Promise.resolve().then(() => { _cachedInnerW = -1 })
+    Promise.resolve().then(() => {
+      _cachedInnerW = -1
+    })
   }
   return w
 }
@@ -278,9 +282,7 @@ export function defaultSkeletonDepth(): number {
  *
  *  @deprecated Step 3 of the layer-type refactor replaces this with
  *  the TileSource interface. Kept as a back-compat shim until then. */
-export type VirtualTileFetcher = (
-  z: number, x: number, y: number,
-) => Promise<CompiledTile | null>
+export type VirtualTileFetcher = (z: number, x: number, y: number) => Promise<CompiledTile | null>
 
 /** @deprecated see {@link VirtualTileFetcher}. */
 export interface VirtualCatalog {

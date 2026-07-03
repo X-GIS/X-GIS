@@ -16,7 +16,9 @@ function collectEqLiterals(node: AST.Expr): AST.Expr[] {
   const out: AST.Expr[] = []
   const visit = (n: AST.Expr): void => {
     if (n.kind === 'BinaryExpr' && n.op === '||') {
-      visit(n.left); visit(n.right); return
+      visit(n.left)
+      visit(n.right)
+      return
     }
     if (n.kind === 'BinaryExpr' && n.op === '==') {
       out.push(n.right)
@@ -74,8 +76,8 @@ describe('shader-gen variant key disambiguation (29be5a0 regression guard)', () 
     const commands = compileToCommands(source)
     // 4 input → 2 compounds (landuse + roads).
     expect(commands.shows.length).toBe(2)
-    const landuse = commands.shows.find(s => s.sourceLayer === 'landuse')
-    const roads = commands.shows.find(s => s.sourceLayer === 'roads')
+    const landuse = commands.shows.find((s) => s.sourceLayer === 'landuse')
+    const roads = commands.shows.find((s) => s.sourceLayer === 'roads')
     expect(landuse?.shaderVariant).toBeDefined()
     expect(roads?.shaderVariant).toBeDefined()
     expect(landuse!.shaderVariant!.key).not.toBe(roads!.shaderVariant!.key)
@@ -330,13 +332,13 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
     // center) stays separate → 2 RenderNodes, not 1.
     expect(scene.renderNodes.length).toBe(2)
     const compound = scene.renderNodes[0]
-    expect(compound.fill.kind).toBe('data-driven')   // park||grass fill
-    expect(compound.stroke.align).toBe('inset')      // fill+stroke → inset
-    expect(compound.filter).not.toBeNull()           // park||grass, not a dropped-default null
+    expect(compound.fill.kind).toBe('data-driven') // park||grass fill
+    expect(compound.stroke.align).toBe('inset') // fill+stroke → inset
+    expect(compound.filter).not.toBeNull() // park||grass, not a dropped-default null
     const other = scene.renderNodes[1]
     expect(other.name).toBe('landuse_other')
-    expect(other.fill.kind).toBe('none')             // pure line
-    expect(other.stroke.align).toBeUndefined()       // center (Mapbox-faithful)
+    expect(other.fill.kind).toBe('none') // pure line
+    expect(other.stroke.align).toBeUndefined() // center (Mapbox-faithful)
   })
 
   it('does NOT absorb when != value set differs from || values', () => {
@@ -411,7 +413,7 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
     // (c+d) — the water break splits the roads group into two
     // contiguous runs. 5 input → 3 output.
     expect(scene.renderNodes.length).toBe(3)
-    const roadsCompounds = scene.renderNodes.filter(n => n.sourceLayer === 'roads')
+    const roadsCompounds = scene.renderNodes.filter((n) => n.sourceLayer === 'roads')
     expect(roadsCompounds.length).toBe(2)
     // Both should have synthesized colorExpr + per-feature width —
     // group members have different stroke colours AND widths.
@@ -476,7 +478,7 @@ describe('mergeLayers — preserves source literal TYPE in the OR-filter', () =>
     for (const lit of lits) {
       expect(lit.kind).toBe('StringLiteral')
     }
-    expect(lits.map(l => (l as AST.StringLiteral).value).sort()).toEqual(['1', '2'])
+    expect(lits.map((l) => (l as AST.StringLiteral).value).sort()).toEqual(['1', '2'])
 
     // End-to-end semantics: the merged OR-filter must KEEP a feature
     // whose `class` is the string "1" and DROP a feature whose
@@ -514,7 +516,7 @@ describe('mergeLayers — preserves source literal TYPE in the OR-filter', () =>
     for (const lit of lits) {
       expect(lit.kind).toBe('NumberLiteral')
     }
-    expect(lits.map(l => (l as AST.NumberLiteral).value).sort()).toEqual([1, 2])
+    expect(lits.map((l) => (l as AST.NumberLiteral).value).sort()).toEqual([1, 2])
 
     // Numeric feature props match; the numeric-string "1" does NOT
     // (mirrors the unmerged `.rank == 1` NumberLiteral strict ===).

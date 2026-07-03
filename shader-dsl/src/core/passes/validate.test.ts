@@ -16,7 +16,11 @@ describe('validate — aggregated errors', () => {
     })
 
     let err: unknown
-    try { validate(m) } catch (e) { err = e }
+    try {
+      validate(m)
+    } catch (e) {
+      err = e
+    }
 
     expect(err).toBeInstanceOf(ValidationError)
     const ve = err as ValidationError
@@ -43,7 +47,9 @@ describe('validate — aggregated errors', () => {
 // fixture, a rule whose create() silently stops reporting stays green forever.
 
 function coreErrorsOf(m: Parameters<typeof validate>[0]): string[] {
-  try { validate(m) } catch (e) {
+  try {
+    validate(m)
+  } catch (e) {
     if (e instanceof ValidationError) return e.diagnostics.map((d) => d.ruleId)
     throw e
   }
@@ -77,7 +83,12 @@ describe('#763 V1 — CORE rule firing fixtures', () => {
   // is invisible to every other test; this makes it a one-line, reviewed diff.
   it('#763 V2 — CORE_RULES id catalogue is exactly the six structural invariants', () => {
     expect(CORE_RULES.map((r) => r.id)).toEqual([
-      'dup-struct', 'dup-func', 'binding-collision', 'all-paths-return', 'mixed-scalar', 'call-signature',
+      'dup-struct',
+      'dup-func',
+      'binding-collision',
+      'all-paths-return',
+      'mixed-scalar',
+      'call-signature',
     ])
   })
 })

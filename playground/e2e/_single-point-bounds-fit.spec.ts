@@ -34,7 +34,8 @@ for (const id of SINGLE_POINT_FIXTURES) {
     await page.goto(`/demo.html?id=${id}`, { waitUntil: 'domcontentloaded' })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 15_000 },
+      null,
+      { timeout: 15_000 },
     )
     // Bounds-fit fires after the GeoJSON compile promise resolves —
     // give it a beat post-ready.
@@ -55,7 +56,8 @@ for (const id of SINGLE_POINT_FIXTURES) {
     await page.goto(`/demo.html?id=${id}`, { waitUntil: 'domcontentloaded' })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 15_000 },
+      null,
+      { timeout: 15_000 },
     )
     await page.waitForTimeout(1500)
 
@@ -71,27 +73,36 @@ for (const id of SINGLE_POINT_FIXTURES) {
       const url = URL.createObjectURL(blob)
       const img = new Image()
       await new Promise<void>((res, rej) => {
-        img.onload = () => res(); img.onerror = () => rej(new Error('img'))
+        img.onload = () => res()
+        img.onerror = () => rej(new Error('img'))
         img.src = url
       })
       const off = new OffscreenCanvas(img.width, img.height)
       const ctx = off.getContext('2d')!
       ctx.drawImage(img, 0, 0)
-      const w = img.width, h = img.height
-      const xMin = Math.floor(w * 0.35), xMax = Math.floor(w * 0.65)
-      const yMin = Math.floor(h * 0.35), yMax = Math.floor(h * 0.65)
+      const w = img.width,
+        h = img.height
+      const xMin = Math.floor(w * 0.35),
+        xMax = Math.floor(w * 0.65)
+      const yMin = Math.floor(h * 0.35),
+        yMax = Math.floor(h * 0.65)
       const data = ctx.getImageData(0, 0, w, h).data
       let n = 0
       for (let y = yMin; y < yMax; y++) {
         for (let x = xMin; x < xMax; x++) {
           const i = (y * w + x) * 4
-          const r = data[i], g = data[i + 1], b = data[i + 2]
-          if (r > 60 || g > 60 || b > 80) n++  // anything above dark bg
+          const r = data[i],
+            g = data[i + 1],
+            b = data[i + 2]
+          if (r > 60 || g > 60 || b > 80) n++ // anything above dark bg
         }
       }
       URL.revokeObjectURL(url)
       return n
     }, Array.from(png))
-    expect(pointPx, `${id}: SDF point billboard not visible in centre (pixels: ${pointPx})`).toBeGreaterThan(50)
+    expect(
+      pointPx,
+      `${id}: SDF point billboard not visible in centre (pixels: ${pointPx})`,
+    ).toBeGreaterThan(50)
   })
 }

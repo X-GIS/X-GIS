@@ -104,7 +104,11 @@ describe('oblique_mercator vs Mercator-tile-pyramid mismatch (user issue #4)', (
     // contract violation at the selector boundary.
     const proj = obliqueMercator(45, 20)
     const samples: Array<[number, number]> = [
-      [45, 20], [50, 25], [40, 15], [60, 10], [30, 30],
+      [45, 20],
+      [50, 25],
+      [40, 15],
+      [60, 10],
+      [30, 30],
     ]
     for (const [lon, lat] of samples) {
       const [x, y] = proj.forward(lon, lat)

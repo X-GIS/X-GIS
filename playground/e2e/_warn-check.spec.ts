@@ -26,14 +26,16 @@ for (const id of DEMOS) {
     })
     page.on('pageerror', (e) => msgs.push({ type: 'pageerror', text: e.message }))
     page.on('response', (r) => {
-      if (r.status() >= 400) msgs.push({ type: 'http' + r.status(), text: `${r.status()} ${r.url()}` })
+      if (r.status() >= 400)
+        msgs.push({ type: 'http' + r.status(), text: `${r.status()} ${r.url()}` })
     })
     page.on('requestfailed', (r) => {
       msgs.push({ type: 'reqfail', text: `${r.failure()?.errorText ?? '?'} ${r.url()}` })
     })
     // Subframe responses are on a separate frame object — attach there too.
     page.context().on('response', (r) => {
-      if (r.status() >= 400) msgs.push({ type: 'ctx-http' + r.status(), text: `${r.status()} ${r.url()}` })
+      if (r.status() >= 400)
+        msgs.push({ type: 'ctx-http' + r.status(), text: `${r.status()} ${r.url()}` })
     })
     // Hook fetch + XHR to capture URL of any 404 — browser network events
     // from workers and sub-requests sometimes don't surface via page.on.
@@ -42,7 +44,10 @@ for (const id of DEMOS) {
       window.fetch = async function (input: RequestInfo | URL, init?: RequestInit) {
         const r = await origFetch.call(this, input as RequestInfo, init)
         if (!r.ok) {
-          const url = typeof input === 'string' ? input : (input as URL).toString?.() ?? (input as Request).url
+          const url =
+            typeof input === 'string'
+              ? input
+              : ((input as URL).toString?.() ?? (input as Request).url)
           console.warn(`[TEST-PROBE] fetch ${r.status} ${url}`)
         }
         return r
@@ -51,13 +56,20 @@ for (const id of DEMOS) {
     await page.goto(`/demo.html?id=${id}&e2e=1`, { waitUntil: 'domcontentloaded' })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 15_000 },
+      null,
+      { timeout: 15_000 },
     )
     await page.waitForTimeout(800)
     const noise = /\[vite\]|powerPreference|DevTools|Slow network/
-    const actionable = msgs.filter(m =>
-      (m.type === 'error' || m.type === 'warning' || m.type === 'pageerror' || m.type.startsWith('http') || m.type === 'reqfail' || m.type === 'loadfail') &&
-      !noise.test(m.text),
+    const actionable = msgs.filter(
+      (m) =>
+        (m.type === 'error' ||
+          m.type === 'warning' ||
+          m.type === 'pageerror' ||
+          m.type.startsWith('http') ||
+          m.type === 'reqfail' ||
+          m.type === 'loadfail') &&
+        !noise.test(m.text),
     )
     console.log(`\n=== ${id} (${actionable.length} actionable) ===`)
     for (const m of actionable) console.log(`  [${m.type}] ${m.text.slice(0, 200)}`)

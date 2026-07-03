@@ -18,7 +18,7 @@ describe('lineLabelSubdivSteps — screen-space line-label subdivision', () => {
   it('high-zoom short-metre / long-pixel segment subdivides (the fix)', () => {
     // z19 "Boulevard des Italiens" segment: ~361 m, ~6.8 px/m => ~2455 px.
     const steps = lineLabelSubdivSteps(361, 6.8, GAP, MAX)
-    expect(steps).toBe(Math.min(MAX, Math.ceil(361 * 6.8 / GAP))) // 26
+    expect(steps).toBe(Math.min(MAX, Math.ceil((361 * 6.8) / GAP))) // 26
     expect(steps).toBeGreaterThanOrEqual(10) // the metre rule gave 1 -> label dropped
   })
 

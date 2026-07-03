@@ -21,11 +21,17 @@ function lonLatToMercator(lon: number, lat: number): [number, number] {
 
 // Same body as the inline closure in map.ts, but exposed for tests.
 function projectLonLat(
-  mvp: Float32Array, w: number, h: number, ccx: number, ccy: number,
-  lon: number, lat: number, worldMercatorOffset: number = 0,
+  mvp: Float32Array,
+  w: number,
+  h: number,
+  ccx: number,
+  ccy: number,
+  lon: number,
+  lat: number,
+  worldMercatorOffset: number = 0,
 ): [number, number] | null {
   const [mx, my] = lonLatToMercator(lon, lat)
-  const rtcX = (mx + worldMercatorOffset) - ccx
+  const rtcX = mx + worldMercatorOffset - ccx
   const rtcY = my - ccy
   const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
   if (cw <= 0) return null
@@ -40,8 +46,13 @@ function projectLonLat(
 const WORLD_COPIES = [-2, -1, 0, 1, 2]
 
 function projectAllCopies(
-  mvp: Float32Array, w: number, h: number, ccx: number, ccy: number,
-  lon: number, lat: number,
+  mvp: Float32Array,
+  w: number,
+  h: number,
+  ccx: number,
+  ccy: number,
+  lon: number,
+  lat: number,
 ): Array<[number, number]> {
   const out: Array<[number, number]> = []
   for (const cw of WORLD_COPIES) {
@@ -62,8 +73,14 @@ describe('user-reported Pacific tile boundary clustering', () => {
   const EAST_SEA = { lon: 135, lat: 40, name: '동해' }
   const YELLOW_SEA = { lon: 123, lat: 35, name: '황해' }
 
-  function setupCamera(centerLon: number, zoom: number, pitch = 0): {
-    mvp: Float32Array; ccx: number; ccy: number
+  function setupCamera(
+    centerLon: number,
+    zoom: number,
+    pitch = 0,
+  ): {
+    mvp: Float32Array
+    ccx: number
+    ccy: number
   } {
     const cam = new Camera(centerLon, 0, zoom)
     cam.pitch = pitch
@@ -81,10 +98,30 @@ describe('user-reported Pacific tile boundary clustering', () => {
     // would mean all map to the same x).
     const { mvp, ccx, ccy } = setupCamera(0, 2)
     const canadaProj = projectAllCopies(mvp, CANVAS_W, CANVAS_H, ccx, ccy, CANADA.lon, CANADA.lat)
-    const eastSeaProj = projectAllCopies(mvp, CANVAS_W, CANVAS_H, ccx, ccy, EAST_SEA.lon, EAST_SEA.lat)
-    const yellowSeaProj = projectAllCopies(mvp, CANVAS_W, CANVAS_H, ccx, ccy, YELLOW_SEA.lon, YELLOW_SEA.lat)
+    const eastSeaProj = projectAllCopies(
+      mvp,
+      CANVAS_W,
+      CANVAS_H,
+      ccx,
+      ccy,
+      EAST_SEA.lon,
+      EAST_SEA.lat,
+    )
+    const yellowSeaProj = projectAllCopies(
+      mvp,
+      CANVAS_W,
+      CANVAS_H,
+      ccx,
+      ccy,
+      YELLOW_SEA.lon,
+      YELLOW_SEA.lat,
+    )
     // eslint-disable-next-line no-console
-    console.log('z=2 lon=0:', { Canada: canadaProj, EastSea: eastSeaProj, YellowSea: yellowSeaProj })
+    console.log('z=2 lon=0:', {
+      Canada: canadaProj,
+      EastSea: eastSeaProj,
+      YellowSea: yellowSeaProj,
+    })
     // At least one of each must project to a visible (non-empty) set.
     expect(canadaProj.length).toBeGreaterThan(0)
     expect(eastSeaProj.length).toBeGreaterThan(0)
@@ -93,8 +130,8 @@ describe('user-reported Pacific tile boundary clustering', () => {
     // on screen_x — they're 235° apart in lon, and at z=2 with
     // TILE_PX=512 a degree is ~5.7 px, so any genuine projection has
     // them >100 px apart even after world-copy wrap.
-    const canadaXs = canadaProj.map(p => p[0])
-    const eastSeaXs = eastSeaProj.map(p => p[0])
+    const canadaXs = canadaProj.map((p) => p[0])
+    const eastSeaXs = eastSeaProj.map((p) => p[0])
     // No pair of (canada_x, east_sea_x) should be within 10 px of each other
     for (const cx of canadaXs) {
       for (const ex of eastSeaXs) {
@@ -106,16 +143,36 @@ describe('user-reported Pacific tile boundary clustering', () => {
   it('z=2 camera over lon=180 (antimeridian view): each feature has its own screen_x', () => {
     const { mvp, ccx, ccy } = setupCamera(180, 2)
     const canadaProj = projectAllCopies(mvp, CANVAS_W, CANVAS_H, ccx, ccy, CANADA.lon, CANADA.lat)
-    const eastSeaProj = projectAllCopies(mvp, CANVAS_W, CANVAS_H, ccx, ccy, EAST_SEA.lon, EAST_SEA.lat)
-    const yellowSeaProj = projectAllCopies(mvp, CANVAS_W, CANVAS_H, ccx, ccy, YELLOW_SEA.lon, YELLOW_SEA.lat)
+    const eastSeaProj = projectAllCopies(
+      mvp,
+      CANVAS_W,
+      CANVAS_H,
+      ccx,
+      ccy,
+      EAST_SEA.lon,
+      EAST_SEA.lat,
+    )
+    const yellowSeaProj = projectAllCopies(
+      mvp,
+      CANVAS_W,
+      CANVAS_H,
+      ccx,
+      ccy,
+      YELLOW_SEA.lon,
+      YELLOW_SEA.lat,
+    )
     // eslint-disable-next-line no-console
-    console.log('z=2 lon=180:', { Canada: canadaProj, EastSea: eastSeaProj, YellowSea: yellowSeaProj })
+    console.log('z=2 lon=180:', {
+      Canada: canadaProj,
+      EastSea: eastSeaProj,
+      YellowSea: yellowSeaProj,
+    })
     expect(canadaProj.length).toBeGreaterThan(0)
     expect(eastSeaProj.length).toBeGreaterThan(0)
     expect(yellowSeaProj.length).toBeGreaterThan(0)
-    const canadaXs = canadaProj.map(p => p[0])
-    const eastSeaXs = eastSeaProj.map(p => p[0])
-    const yellowSeaXs = yellowSeaProj.map(p => p[0])
+    const canadaXs = canadaProj.map((p) => p[0])
+    const eastSeaXs = eastSeaProj.map((p) => p[0])
+    const yellowSeaXs = yellowSeaProj.map((p) => p[0])
     // East Sea (+135) and Yellow Sea (+123) differ by 12° lon. At z=2
     // that's ~70 px on a 1280 canvas — must be distinguishable.
     for (const ey of eastSeaXs) {
@@ -135,10 +192,30 @@ describe('user-reported Pacific tile boundary clustering', () => {
   it('z=1 camera over lon=0: all three features visible at distinct x', () => {
     const { mvp, ccx, ccy } = setupCamera(0, 1)
     const canadaProj = projectAllCopies(mvp, CANVAS_W, CANVAS_H, ccx, ccy, CANADA.lon, CANADA.lat)
-    const eastSeaProj = projectAllCopies(mvp, CANVAS_W, CANVAS_H, ccx, ccy, EAST_SEA.lon, EAST_SEA.lat)
-    const yellowSeaProj = projectAllCopies(mvp, CANVAS_W, CANVAS_H, ccx, ccy, YELLOW_SEA.lon, YELLOW_SEA.lat)
+    const eastSeaProj = projectAllCopies(
+      mvp,
+      CANVAS_W,
+      CANVAS_H,
+      ccx,
+      ccy,
+      EAST_SEA.lon,
+      EAST_SEA.lat,
+    )
+    const yellowSeaProj = projectAllCopies(
+      mvp,
+      CANVAS_W,
+      CANVAS_H,
+      ccx,
+      ccy,
+      YELLOW_SEA.lon,
+      YELLOW_SEA.lat,
+    )
     // eslint-disable-next-line no-console
-    console.log('z=1 lon=0:', { Canada: canadaProj, EastSea: eastSeaProj, YellowSea: yellowSeaProj })
+    console.log('z=1 lon=0:', {
+      Canada: canadaProj,
+      EastSea: eastSeaProj,
+      YellowSea: yellowSeaProj,
+    })
     expect(canadaProj.length).toBeGreaterThan(0)
     expect(eastSeaProj.length).toBeGreaterThan(0)
     expect(yellowSeaProj.length).toBeGreaterThan(0)

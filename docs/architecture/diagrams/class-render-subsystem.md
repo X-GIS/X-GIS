@@ -7,7 +7,7 @@ objects. Grounded in `map.ts`, `render-loop.ts`, `render/passes/*.ts`,
 
 > Known debt: `VectorTileRenderer` (5608 LOC / 174 methods) and `XGISMap`
 > (2956 / 160) are **god objects** — unclear state-ownership. See
-> [MODULES.md](../MODULES.md). The diagram shows their *current* surface,
+> [MODULES.md](../MODULES.md). The diagram shows their _current_ surface,
 > not a target shape.
 
 ```mermaid
@@ -151,10 +151,10 @@ classDiagram
   owns one `Camera`, the shared renderers, and one `VectorTileRenderer`
   per vector source (`vtSources`). `VTSourceEntry` is not a named type — it
   is the inline object literal `{ source: TileCatalog; renderer:
-  VectorTileRenderer }` (`map.ts:159`), so each entry also owns a
+VectorTileRenderer }` (`map.ts:159`), so each entry also owns a
   `TileCatalog` (omitted from the arrows to keep the box readable).
 - **Dependency (`..>`)** = "uses at call time", no ownership. The passes
-  are *stateless singletons* (`render/passes/*.ts` export one instance);
+  are _stateless singletons_ (`render/passes/*.ts` export one instance);
   they reach renderers/camera through the `host: RenderLoopHost` view.
 - **`ProjectionsTable`** (`projection/projections-table.ts`) is the single
   authority every projection-aware site reads — see

@@ -15,7 +15,7 @@ describe('FIX 2 — lexer tracks newlines inside string literals', () => {
     // `after` sits on physical line 4 (1-indexed).
     const src = '"line one\nline two\nline three"\nafter'
     const tokens = new Lexer(src).tokenize()
-    const after = tokens.find(t => t.type === TokenType.Identifier && t.value === 'after')
+    const after = tokens.find((t) => t.type === TokenType.Identifier && t.value === 'after')
     expect(after).toBeDefined()
     // Pre-fix: readString never did line++, so `after` reported line 2
     // (only the trailing real newline counted). True line = 4.
@@ -28,7 +28,7 @@ describe('FIX 2 — lexer tracks newlines inside string literals', () => {
     // the closing quote counts.
     const src = '"esc\\nstill-line-1"\nafter'
     const tokens = new Lexer(src).tokenize()
-    const after = tokens.find(t => t.type === TokenType.Identifier && t.value === 'after')
+    const after = tokens.find((t) => t.type === TokenType.Identifier && t.value === 'after')
     expect(after).toBeDefined()
     expect(after!.line).toBe(2)
   })
@@ -38,7 +38,7 @@ describe('FIX 2 — lexer tracks newlines inside string literals', () => {
     // token `x` follows the real newline so it sits at line 3, col 1.
     const src = '"ab\nQ"\nx'
     const tokens = new Lexer(src).tokenize()
-    const x = tokens.find(t => t.type === TokenType.Identifier && t.value === 'x')
+    const x = tokens.find((t) => t.type === TokenType.Identifier && t.value === 'x')
     expect(x).toBeDefined()
     expect(x!.line).toBe(3)
     expect(x!.col).toBe(1)

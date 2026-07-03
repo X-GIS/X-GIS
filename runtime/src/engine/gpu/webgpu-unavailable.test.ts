@@ -12,7 +12,9 @@ function bareCanvas(): HTMLCanvasElement {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
       width = 8
       height = 8
-      getContext(_t: string): unknown { return null }
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   const c = { width: 8, height: 8 } as unknown as HTMLCanvasElement

@@ -36,7 +36,12 @@ const HASH = '#4.82/36.87885/128.90493'
 // brighter than background. Either signature locates the label.
 const INK_THRESHOLD = 100
 
-interface BBox { minX: number; minY: number; maxX: number; maxY: number }
+interface BBox {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+}
 
 // Background visible → label ink is the only DARK pixel on canvas.
 function isHaloedInk(png: PNG, _w: number, _h: number, x: number, y: number): boolean {
@@ -47,7 +52,9 @@ function isHaloedInk(png: PNG, _w: number, _h: number, x: number, y: number): bo
   // landed on garbage coordinates (right edge of canvas in earlier
   // diagnostic runs).
   const i = (y * png.width + x) * 4
-  const r = png.data[i]!, g = png.data[i + 1]!, b = png.data[i + 2]!
+  const r = png.data[i]!,
+    g = png.data[i + 1]!,
+    b = png.data[i + 2]!
   return r < INK_THRESHOLD && g < INK_THRESHOLD && b < INK_THRESHOLD
 }
 
@@ -77,7 +84,10 @@ function findInkClusters(png: PNG, w: number, h: number): BBox[] {
     for (let x = 0; x < w; x++) {
       if (!mask[y * w + x] || visited[y * w + x]) continue
       // BFS with gap-tolerant neighborhood (radius GAP, Chebyshev).
-      let minX = x, maxX = x, minY = y, maxY = y
+      let minX = x,
+        maxX = x,
+        minY = y,
+        maxY = y
       const stack: number[] = [x, y]
       visited[y * w + x] = 1
       let count = 0
@@ -105,7 +115,8 @@ function findInkClusters(png: PNG, w: number, h: number): BBox[] {
       // Filter to plausible country-label clusters: >= 100 ink pixels,
       // bbox width 50-250 (single line ~70-160; with halo 50-200 OK),
       // height 20-90 (one or two lines stacked).
-      const cw = maxX - minX, ch = maxY - minY
+      const cw = maxX - minX,
+        ch = maxY - minY
       if (count >= 100 && cw >= 50 && cw < 250 && ch >= 20 && ch < 90) {
         clusters.push({ minX, minY, maxX, maxY })
       }
@@ -122,14 +133,18 @@ function findLabelBBox(png: PNG, w: number, h: number): BBox | null {
   // at zoom=4.82, hash 36.87/128.90 (country centroid for SK falls
   // around 36.5N, 127.8E vs camera 36.87N, 128.90E → label appears
   // a tad below + left of canvas centre).
-  const ax = w * 0.45, ay = h * 0.50
+  const ax = w * 0.45,
+    ay = h * 0.5
   let best: BBox | null = null
   let bestDist = Infinity
   for (const c of clusters) {
     const cx = (c.minX + c.maxX) / 2
     const cy = (c.minY + c.maxY) / 2
     const d = (cx - ax) ** 2 + (cy - ay) ** 2
-    if (d < bestDist) { bestDist = d; best = c }
+    if (d < bestDist) {
+      bestDist = d
+      best = c
+    }
   }
   return best
 }
@@ -147,7 +162,9 @@ function findInkBBox(png: PNG, w: number, h: number): BBox | null {
   // labels are compact text blocks (many ink pixels per row).
   const WIN = 100
   const STRIDE = 10
-  let bestDensity = 0, bestX = -1, bestY = -1
+  let bestDensity = 0,
+    bestX = -1,
+    bestY = -1
   for (let y0 = 0; y0 + WIN < h; y0 += STRIDE) {
     for (let x0 = 0; x0 + WIN < w; x0 += STRIDE) {
       let count = 0
@@ -166,7 +183,10 @@ function findInkBBox(png: PNG, w: number, h: number): BBox | null {
   }
   if (bestDensity === 0) return null
   // Tighten to the actual ink extent within the densest window.
-  let minX = w, maxX = -1, minY = h, maxY = -1
+  let minX = w,
+    maxX = -1,
+    minY = h,
+    maxY = -1
   for (let yy = 0; yy < WIN; yy++) {
     const yi = bestY + yy
     for (let xx = 0; xx < WIN; xx++) {
@@ -221,12 +241,18 @@ function upscale(src: PNG, factor: number): PNG {
 }
 
 interface Buckets {
-  eq0: number; le8: number; le16: number; le32: number
-  le64: number; le128: number; gt128: number
+  eq0: number
+  le8: number
+  le16: number
+  le32: number
+  le64: number
+  le128: number
+  gt128: number
 }
 
 function diffBuckets(a: PNG, b: PNG): Buckets {
-  const w = Math.min(a.width, b.width), h = Math.min(a.height, b.height)
+  const w = Math.min(a.width, b.width),
+    h = Math.min(a.height, b.height)
   const buckets: Buckets = { eq0: 0, le8: 0, le16: 0, le32: 0, le64: 0, le128: 0, gt128: 0 }
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -249,7 +275,8 @@ function diffBuckets(a: PNG, b: PNG): Buckets {
 }
 
 function diffHeatmap(a: PNG, b: PNG): PNG {
-  const w = Math.min(a.width, b.width), h = Math.min(a.height, b.height)
+  const w = Math.min(a.width, b.width),
+    h = Math.min(a.height, b.height)
   const out = new PNG({ width: w, height: h })
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -280,16 +307,29 @@ test('label-zoom South Korea OFM Positron', async ({ page }) => {
       const w = window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }
       return w.__xgisReady === true && w.__mlReady === true
     },
-    null, { timeout: 90_000 },
+    null,
+    { timeout: 90_000 },
   )
-  await page.evaluate(() => new Promise<void>((resolve) => {
-    interface MlMap { loaded(): boolean; once(ev: string, fn: () => void): void }
-    const ml = (window as unknown as { __mlMap?: MlMap }).__mlMap
-    if (!ml) { resolve(); return }
-    if (ml.loaded()) { resolve(); return }
-    ml.once('idle', () => resolve())
-    setTimeout(resolve, 15_000)
-  }))
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        interface MlMap {
+          loaded(): boolean
+          once(ev: string, fn: () => void): void
+        }
+        const ml = (window as unknown as { __mlMap?: MlMap }).__mlMap
+        if (!ml) {
+          resolve()
+          return
+        }
+        if (ml.loaded()) {
+          resolve()
+          return
+        }
+        ml.once('idle', () => resolve())
+        setTimeout(resolve, 15_000)
+      }),
+  )
   await page.waitForTimeout(4_500)
 
   // Isolate country labels: hide every layer EXCEPT label_country_*
@@ -310,8 +350,16 @@ test('label-zoom South Korea OFM Positron', async ({ page }) => {
     }
   })
   await page.evaluate(() => {
-    interface XGISShow { label?: unknown; visible?: boolean; targetName?: string; layerName?: string }
-    interface XGISLayer { name?: string; style?: { visible?: boolean } }
+    interface XGISShow {
+      label?: unknown
+      visible?: boolean
+      targetName?: string
+      layerName?: string
+    }
+    interface XGISLayer {
+      name?: string
+      style?: { visible?: boolean }
+    }
     interface XGISMap {
       vectorTileShows?: Array<{ show: XGISShow }>
       getLayers?(): readonly XGISLayer[]
@@ -330,17 +378,30 @@ test('label-zoom South Korea OFM Positron', async ({ page }) => {
     }
     map.invalidate?.()
   })
-  await page.evaluate(() => new Promise<void>((resolve) => {
-    interface MlMap { loaded(): boolean; once(ev: string, fn: () => void): void }
-    const ml = (window as unknown as { __mlMap?: MlMap }).__mlMap
-    if (!ml) { resolve(); return }
-    if (ml.loaded()) { resolve(); return }
-    ml.once('idle', () => resolve())
-    setTimeout(resolve, 8_000)
-  }))
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        interface MlMap {
+          loaded(): boolean
+          once(ev: string, fn: () => void): void
+        }
+        const ml = (window as unknown as { __mlMap?: MlMap }).__mlMap
+        if (!ml) {
+          resolve()
+          return
+        }
+        if (ml.loaded()) {
+          resolve()
+          return
+        }
+        ml.once('idle', () => resolve())
+        setTimeout(resolve, 8_000)
+      }),
+  )
   await page.waitForTimeout(3_500)
-  await page.evaluate(() => new Promise<void>(r =>
-    requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+  await page.evaluate(
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+  )
 
   const mlPng = await page.locator('#ml-map canvas').first().screenshot()
   const xgPng = await page.locator('#xg-canv').screenshot()
@@ -369,9 +430,12 @@ test('label-zoom South Korea OFM Positron', async ({ page }) => {
   let bestDist = Infinity
   for (const c of clusters) {
     const cyC = (c.minY + c.maxY) / 2
-    if (cyC <= cyCanvas) continue  // skip clusters above centre (NORTH KOREA)
+    if (cyC <= cyCanvas) continue // skip clusters above centre (NORTH KOREA)
     const d = Math.abs(cyC - cyCanvas)
-    if (d < bestDist) { bestDist = d; inkBox = c }
+    if (d < bestDist) {
+      bestDist = d
+      inkBox = c
+    }
   }
   // Fallback: if all clusters are above centre, take the closest.
   if (inkBox === null) {
@@ -379,7 +443,10 @@ test('label-zoom South Korea OFM Positron', async ({ page }) => {
     for (const c of clusters) {
       const cyC = (c.minY + c.maxY) / 2
       const d = Math.abs(cyC - cyCanvas)
-      if (d < bestDist) { bestDist = d; inkBox = c }
+      if (d < bestDist) {
+        bestDist = d
+        inkBox = c
+      }
     }
   }
   if (inkBox === null) throw new Error('SOUTH KOREA label not located')
@@ -394,7 +461,9 @@ test('label-zoom South Korea OFM Positron', async ({ page }) => {
   const labelW = box.maxX - box.minX + 1
   const labelH = box.maxY - box.minY + 1
   // eslint-disable-next-line no-console
-  console.log(`[label-zoom] SOUTH KOREA bbox: ${box.minX},${box.minY}..${box.maxX},${box.maxY} (${labelW}×${labelH})`)
+  console.log(
+    `[label-zoom] SOUTH KOREA bbox: ${box.minX},${box.minY}..${box.maxX},${box.maxY} (${labelW}×${labelH})`,
+  )
 
   const mlCrop = cropToBox(ml, box)
   const xgCrop = cropToBox(xg, box)
@@ -409,20 +478,36 @@ test('label-zoom South Korea OFM Positron', async ({ page }) => {
   writeFileSync(join(OUT, 'maplibre-4x.png'), PNG.sync.write(upscale(mlCrop, SCALE)))
   writeFileSync(join(OUT, 'xgis-4x.png'), PNG.sync.write(upscale(xgCrop, SCALE)))
   writeFileSync(join(OUT, 'diff-heatmap.png'), PNG.sync.write(diffHeatmap(mlCrop, xgCrop)))
-  writeFileSync(join(OUT, 'diff-heatmap-4x.png'),
-    PNG.sync.write(upscale(diffHeatmap(mlCrop, xgCrop), SCALE)))
-  writeFileSync(join(OUT, 'buckets.json'), JSON.stringify({
-    bbox: box, labelW, labelH, totalPx, buckets,
-    pct: {
-      eq0: ((buckets.eq0 / totalPx) * 100).toFixed(2) + '%',
-      le32_cumul: (((buckets.eq0 + buckets.le8 + buckets.le16 + buckets.le32) / totalPx) * 100).toFixed(2) + '%',
-      le128_cumul: (((totalPx - buckets.gt128) / totalPx) * 100).toFixed(2) + '%',
-      gt128_count: buckets.gt128,
-    },
-  }, null, 2))
+  writeFileSync(
+    join(OUT, 'diff-heatmap-4x.png'),
+    PNG.sync.write(upscale(diffHeatmap(mlCrop, xgCrop), SCALE)),
+  )
+  writeFileSync(
+    join(OUT, 'buckets.json'),
+    JSON.stringify(
+      {
+        bbox: box,
+        labelW,
+        labelH,
+        totalPx,
+        buckets,
+        pct: {
+          eq0: ((buckets.eq0 / totalPx) * 100).toFixed(2) + '%',
+          le32_cumul:
+            (((buckets.eq0 + buckets.le8 + buckets.le16 + buckets.le32) / totalPx) * 100).toFixed(
+              2,
+            ) + '%',
+          le128_cumul: (((totalPx - buckets.gt128) / totalPx) * 100).toFixed(2) + '%',
+          gt128_count: buckets.gt128,
+        },
+      },
+      null,
+      2,
+    ),
+  )
   // eslint-disable-next-line no-console
   console.log(
-    `[label-zoom] eq=${((buckets.eq0 / totalPx) * 100).toFixed(2)}% `
-    + `gt128=${buckets.gt128}/${totalPx} (${((buckets.gt128 / totalPx) * 100).toFixed(2)}%)`,
+    `[label-zoom] eq=${((buckets.eq0 / totalPx) * 100).toFixed(2)}% ` +
+      `gt128=${buckets.gt128}/${totalPx} (${((buckets.gt128 / totalPx) * 100).toFixed(2)}%)`,
   )
 })

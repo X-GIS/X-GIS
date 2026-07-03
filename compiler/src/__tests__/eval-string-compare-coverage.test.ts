@@ -15,10 +15,7 @@ function binCompare(op: '<' | '>' | '<=' | '>=', left: unknown, right: unknown):
     if (typeof v === 'number') return { kind: 'NumberLiteral', value: v }
     return { kind: 'NumberLiteral', value: 0 }
   }
-  return evaluate(
-    { kind: 'BinaryExpr', op, left: lit(left), right: lit(right) } as never,
-    {},
-  )
+  return evaluate({ kind: 'BinaryExpr', op, left: lit(left), right: lit(right) } as never, {})
 }
 
 describe('evaluator ordered string comparison', () => {

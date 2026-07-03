@@ -23,9 +23,7 @@ import { dirname, join, resolve } from 'node:path'
 import { runInteraction, computeStats, interactions } from './helpers/natural-interaction'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const fixture = readFileSync(
-  resolve(__dirname, '__convert-fixtures', 'bright.json'), 'utf8',
-)
+const fixture = readFileSync(resolve(__dirname, '__convert-fixtures', 'bright.json'), 'utf8')
 const OUT_DIR = resolve(__dirname, '__perf-projection-seoul-zoom-sweep__')
 mkdirSync(OUT_DIR, { recursive: true })
 
@@ -43,7 +41,10 @@ const PROJECTIONS = [
 const PITCHES = [0, 30, 60] as const
 
 interface DrawStats {
-  drawCalls: number; tilesVisible: number; triangles: number; lines: number
+  drawCalls: number
+  tilesVisible: number
+  triangles: number
+  lines: number
 }
 
 interface CellResult {
@@ -53,19 +54,33 @@ interface CellResult {
   endZ: number
   durationMs: number
   framesObserved: number
-  median: number; p95: number; p99: number; max: number
-  finalTiles: number; finalDraws: number; finalTris: number
+  median: number
+  p95: number
+  p99: number
+  max: number
+  finalTiles: number
+  finalDraws: number
+  finalTris: number
 }
 
 const results: CellResult[] = []
 
 async function readStats(page: Page): Promise<DrawStats> {
   return page.evaluate(() => {
-    const m = (window as unknown as {
-      __xgisMap?: { vtSources?: Map<string, { renderer?: {
-        getDrawStats?: () => DrawStats
-      } }> }
-    }).__xgisMap
+    const m = (
+      window as unknown as {
+        __xgisMap?: {
+          vtSources?: Map<
+            string,
+            {
+              renderer?: {
+                getDrawStats?: () => DrawStats
+              }
+            }
+          >
+        }
+      }
+    ).__xgisMap
     const agg = { drawCalls: 0, tilesVisible: 0, triangles: 0, lines: 0 }
     if (!m?.vtSources) return agg
     for (const [, src] of m.vtSources) {
@@ -82,10 +97,13 @@ async function readStats(page: Page): Promise<DrawStats> {
 
 async function setup(page: Page, projection: string, pitch: number): Promise<void> {
   const xgis = convertMapboxStyle(fixture)
-  await page.addInitScript((args) => {
-    sessionStorage.setItem('__xgisImportSource', args.src)
-    sessionStorage.setItem('__xgisImportLabel', `Bright (proj=${args.proj} pitch=${args.pitch})`)
-  }, { src: xgis, proj: projection, pitch })
+  await page.addInitScript(
+    (args) => {
+      sessionStorage.setItem('__xgisImportSource', args.src)
+      sessionStorage.setItem('__xgisImportLabel', `Bright (proj=${args.proj} pitch=${args.pitch})`)
+    },
+    { src: xgis, proj: projection, pitch },
+  )
   // Start at z=0 with the requested pitch + bearing 0.
   await page.goto(
     `/demo.html?id=__import&proj=${projection}#0/${SEOUL.lat}/${SEOUL.lon}/0/${pitch}`,
@@ -93,7 +111,8 @@ async function setup(page: Page, projection: string, pitch: number): Promise<voi
   )
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
   await page.waitForTimeout(3_500) // initial cascade
 }
@@ -108,16 +127,17 @@ test.describe('perf-projection-seoul-zoom-sweep', () => {
         await setup(page, proj, pitch)
 
         const DUR_MS = 8000
-        const timings = await runInteraction(
-          page, interactions.zoom(0, 19), { durationMs: DUR_MS },
-        )
+        const timings = await runInteraction(page, interactions.zoom(0, 19), { durationMs: DUR_MS })
         const stats = computeStats(timings)
         await page.waitForTimeout(500)
         const finalStats = await readStats(page)
 
         const r: CellResult = {
-          projection: proj, pitch,
-          startZ: 0, endZ: 19, durationMs: DUR_MS,
+          projection: proj,
+          pitch,
+          startZ: 0,
+          endZ: 19,
+          durationMs: DUR_MS,
           framesObserved: timings.frames.length,
           median: +stats.median.toFixed(1),
           p95: +stats.p95.toFixed(1),
@@ -130,9 +150,9 @@ test.describe('perf-projection-seoul-zoom-sweep', () => {
         results.push(r)
         // eslint-disable-next-line no-console
         console.log(
-          `[sweep ${proj} p=${pitch}] frames=${r.framesObserved} `
-          + `median=${r.median} p95=${r.p95} p99=${r.p99} max=${r.max}ms `
-          + `finalTiles=${r.finalTiles} finalDraws=${r.finalDraws} finalTris=${r.finalTris}`,
+          `[sweep ${proj} p=${pitch}] frames=${r.framesObserved} ` +
+            `median=${r.median} p95=${r.p95} p99=${r.p99} max=${r.max}ms ` +
+            `finalTiles=${r.finalTiles} finalDraws=${r.finalDraws} finalTris=${r.finalTris}`,
         )
 
         // Sanity: mercator pitch=0 is the known-healthy control —
@@ -152,12 +172,14 @@ test.describe('perf-projection-seoul-zoom-sweep', () => {
     lines.push(`Run: ${new Date().toISOString()}`)
     lines.push(`Seoul: ${SEOUL.lon}, ${SEOUL.lat}; OFM bright; 8 s rAF zoom sweep per cell`)
     lines.push('')
-    lines.push('| Projection | Pitch | Frames | Median | p95 | p99 | Max | TilesEnd | DrawsEnd | TrisEnd |')
+    lines.push(
+      '| Projection | Pitch | Frames | Median | p95 | p99 | Max | TilesEnd | DrawsEnd | TrisEnd |',
+    )
     lines.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|')
     for (const r of results) {
       lines.push(
-        `| ${r.projection} | ${r.pitch}° | ${r.framesObserved} | ${r.median} | ${r.p95} | ${r.p99} | ${r.max} | `
-        + `${r.finalTiles} | ${r.finalDraws} | ${r.finalTris} |`,
+        `| ${r.projection} | ${r.pitch}° | ${r.framesObserved} | ${r.median} | ${r.p95} | ${r.p99} | ${r.max} | ` +
+          `${r.finalTiles} | ${r.finalDraws} | ${r.finalTris} |`,
       )
     }
     lines.push('')

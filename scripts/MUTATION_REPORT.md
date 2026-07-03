@@ -4,14 +4,14 @@
 
 Mutation score correlates with test SPECIFICITY, not COVERAGE.
 
-  iter-281–283 cache layer (versioned-state, bundle-cache-key,
-  structural-key) → 85-100 % scores. Recent code shipped with
-  TIGHT EQUALITY-checked unit tests.
+iter-281–283 cache layer (versioned-state, bundle-cache-key,
+structural-key) → 85-100 % scores. Recent code shipped with
+TIGHT EQUALITY-checked unit tests.
 
-  camera.ts (105 unit + 10 fuzz) → 4.7 %. Property-style tests
-  (matrix finite, alt scales 32×) verify high-level invariants
-  but skip specific arithmetic-byte equality. Mutation flips
-  produce arithmetically-close matrices that pass the invariants.
+camera.ts (105 unit + 10 fuzz) → 4.7 %. Property-style tests
+(matrix finite, alt scales 32×) verify high-level invariants
+but skip specific arithmetic-byte equality. Mutation flips
+produce arithmetically-close matrices that pass the invariants.
 
 Takeaway: equality-pinned unit tests outperform property tests
 under mutation scoring. Use property-fuzz to find edges (iter-293
@@ -23,26 +23,26 @@ Tooling: `scripts/mutate.ts` (iter-302). Zero-dep hand-rolled Stryker-lite.
 
 ## Baseline run results (iter-303)
 
-| Target | Fuzz file | Mutants | Killed | Survived | Score |
-|---|---|---:|---:|---:|---:|
-| `compiler/src/tiler/geodesic.ts` | `geodesic-fuzz` | 18 | 16 | 2 | **88.9 %** |
-| `runtime/src/data/eval/filter-eval.ts` | `filter-eval-fuzz` | 31 | 25 | 6 | **80.6 %** |
-| `compiler/src/tiler/simplify.ts` | `simplify-fuzz` | 41 | 18 | 23 | 43.9 % |
-| `compiler/src/tiler/clip.ts` | `clip-fuzz` | 150 | 45 | 105 | 30.0 % |
-| `compiler/src/tokens/colors.ts` | `colors-fuzz` | 228 | 55 | 173 | 24.1 % |
-| `runtime/src/core/line-segment-build.ts` | `line-segment-build-fuzz` | 153 | 19 | 134 | 12.4 % |
+| Target                                   | Fuzz file                 | Mutants | Killed | Survived |      Score |
+| ---------------------------------------- | ------------------------- | ------: | -----: | -------: | ---------: |
+| `compiler/src/tiler/geodesic.ts`         | `geodesic-fuzz`           |      18 |     16 |        2 | **88.9 %** |
+| `runtime/src/data/eval/filter-eval.ts`   | `filter-eval-fuzz`        |      31 |     25 |        6 | **80.6 %** |
+| `compiler/src/tiler/simplify.ts`         | `simplify-fuzz`           |      41 |     18 |       23 |     43.9 % |
+| `compiler/src/tiler/clip.ts`             | `clip-fuzz`               |     150 |     45 |      105 |     30.0 % |
+| `compiler/src/tokens/colors.ts`          | `colors-fuzz`             |     228 |     55 |      173 |     24.1 % |
+| `runtime/src/core/line-segment-build.ts` | `line-segment-build-fuzz` |     153 |     19 |      134 |     12.4 % |
 
 ## iter-307/308/309 plug results
 
-| Target | Pre | Post | Δ |
-|---|---:|---:|---:|
-| `clip.ts` | 30.0 % | 30.7 % | +0.7 |
-| `colors.ts` | 24.1 % | 40.8 % | +16.7 ⭐ |
-| `evaluator.ts` | 13.0 % | 47.8 % | +34.8 ⭐⭐ |
-| `versioned-state.ts` | — | 100 % | — |
-| `bundle-cache-key.ts` | — | 100 % | — |
-| `camera.ts` | — | 4.7 % | — |
-| `structural-key.ts` | 81.5 % | 85.2 % | +3.7 |
+| Target                |    Pre |   Post |          Δ |
+| --------------------- | -----: | -----: | ---------: |
+| `clip.ts`             | 30.0 % | 30.7 % |       +0.7 |
+| `colors.ts`           | 24.1 % | 40.8 % |   +16.7 ⭐ |
+| `evaluator.ts`        | 13.0 % | 47.8 % | +34.8 ⭐⭐ |
+| `versioned-state.ts`  |      — |  100 % |          — |
+| `bundle-cache-key.ts` |      — |  100 % |          — |
+| `camera.ts`           |      — |  4.7 % |          — |
+| `structural-key.ts`   | 81.5 % | 85.2 % |       +3.7 |
 
 Biggest win: colors lab/lch/oklab/oklch routing tests (8 cases →
 +38 mutants killed). Pattern: discriminator branches (`fn === 'lab'`
@@ -62,15 +62,15 @@ mutant's `file:line` (which the report dumps verbatim).
 **< 30 % score** — fuzz is sparse vs the surface size. Most of the
 code is unexercised. Two patterns produce this:
 
-  1. Large file, small fuzz (`colors.ts` 700 LOC + 34 fuzz cases).
-     Each fuzz case touches one form; the other 60-80 % of forms
-     never run. Plug = grow the fuzz suite OR carve the file into
-     smaller modules.
+1. Large file, small fuzz (`colors.ts` 700 LOC + 34 fuzz cases).
+   Each fuzz case touches one form; the other 60-80 % of forms
+   never run. Plug = grow the fuzz suite OR carve the file into
+   smaller modules.
 
-  2. Internal helper paths reachable only via complex call chains
-     (`line-segment-build.ts` miter / tangent / pad-ratio
-     computation, only hit through specific stride 10 + heights
-     map + boundary-tangent combinations).
+2. Internal helper paths reachable only via complex call chains
+   (`line-segment-build.ts` miter / tangent / pad-ratio
+   computation, only hit through specific stride 10 + heights
+   map + boundary-tangent combinations).
 
 ## Methodology notes
 
@@ -117,6 +117,7 @@ bun scripts/mutate.ts <target-file> <vitest-filter>
 ```
 
 Output ends with:
+
 - Mutation score
 - File:line list of every surviving mutant + original/mutated text
 
@@ -126,9 +127,10 @@ mutated source is in place. Re-run; survivor disappears.
 ## Industry context
 
 Industry mutation score targets:
-- > 75 %  — strong test suite
+
+- > 75 % — strong test suite
 - 50-75 % — acceptable
-- < 50 %  — gaps; survivors are real bug candidates
+- < 50 % — gaps; survivors are real bug candidates
 
 X-GIS averages **47 %** across the 6 measured surfaces, range
 12-89 %. Above industry "acceptable" only for two surfaces; the

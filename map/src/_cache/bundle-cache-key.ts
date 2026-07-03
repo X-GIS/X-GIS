@@ -101,11 +101,13 @@ export interface BundleKeyState {
 export function isBundleKeyState(v: unknown): v is BundleKeyState {
   if (v === null || typeof v !== 'object') return false
   const o = v as Record<string, unknown>
-  return typeof o.sliceLayer === 'string'
-    && typeof o.phase === 'string'
-    && Array.isArray(o.neededKeys)
-    && Array.isArray(o.epochs)
-    && typeof o.bindGroupEpoch === 'number'
-    && typeof o.pickOn === 'boolean'
-    && typeof o.samples === 'number'
+  return (
+    typeof o.sliceLayer === 'string' &&
+    typeof o.phase === 'string' &&
+    Array.isArray(o.neededKeys) &&
+    Array.isArray(o.epochs) &&
+    typeof o.bindGroupEpoch === 'number' &&
+    typeof o.pickOn === 'boolean' &&
+    typeof o.samples === 'number'
+  )
 }

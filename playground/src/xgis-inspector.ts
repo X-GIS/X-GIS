@@ -14,12 +14,19 @@
 // load the GPU it's measuring.
 
 interface XGISCamera {
-  zoom: number; centerX: number; centerY: number
-  pitch?: number; bearing?: number
+  zoom: number
+  centerX: number
+  centerY: number
+  pitch?: number
+  bearing?: number
 }
 interface VTRStats {
-  drawCalls: number; vertices: number; triangles: number; lines: number
-  tilesVisible: number; missedTiles: number
+  drawCalls: number
+  vertices: number
+  triangles: number
+  lines: number
+  tilesVisible: number
+  missedTiles: number
 }
 interface VTRDiag {
   getDrawStats?: () => VTRStats
@@ -55,7 +62,7 @@ interface CacheStats {
 }
 
 const TAB_NAMES = ['Frame', 'Tiles', 'GPU', 'Cache', 'Camera', 'Net'] as const
-type TabName = typeof TAB_NAMES[number]
+type TabName = (typeof TAB_NAMES)[number]
 
 interface InspectorState {
   el: HTMLDivElement
@@ -69,8 +76,11 @@ interface InspectorState {
   totalSlowFrames: number
   // peaks
   peaks: {
-    tilesVisible: number; drawCalls: number; missedTiles: number
-    heapMB: number; gpuPassMs: number
+    tilesVisible: number
+    drawCalls: number
+    missedTiles: number
+    heapMB: number
+    gpuPassMs: number
   }
   cache: CacheStats
   startMs: number
@@ -120,10 +130,14 @@ export function installXGISInspector(): void {
 
 function zeroCacheStats(): CacheStats {
   return {
-    hasTileDataHits: 0, hasTileDataMisses: 0,
-    bufferPoolHits: 0, bufferPoolMisses: 0,
-    gpuCacheUploadHits: 0, gpuCacheUploadMisses: 0,
-    fetchStarts: 0, fetchAborts: 0,
+    hasTileDataHits: 0,
+    hasTileDataMisses: 0,
+    bufferPoolHits: 0,
+    bufferPoolMisses: 0,
+    gpuCacheUploadHits: 0,
+    gpuCacheUploadMisses: 0,
+    fetchStarts: 0,
+    fetchAborts: 0,
   }
 }
 
@@ -132,21 +146,34 @@ function zeroCacheStats(): CacheStats {
 function buildShell(state: InspectorState): void {
   state.el.id = 'xgis-inspector'
   state.el.style.cssText = [
-    'position:fixed', 'top:8px', 'right:8px', 'z-index:99999',
-    'background:rgba(15,15,18,0.92)', 'color:#d4d4d8',
+    'position:fixed',
+    'top:8px',
+    'right:8px',
+    'z-index:99999',
+    'background:rgba(15,15,18,0.92)',
+    'color:#d4d4d8',
     'font:11px/1.4 ui-monospace,Menlo,monospace',
-    'border:1px solid #3f3f46', 'border-radius:6px',
-    'min-width:240px', 'max-width:320px', 'max-height:60vh',
+    'border:1px solid #3f3f46',
+    'border-radius:6px',
+    'min-width:240px',
+    'max-width:320px',
+    'max-height:60vh',
     'box-shadow:0 4px 16px rgba(0,0,0,0.4)',
-    'overflow:hidden', 'user-select:none',
+    'overflow:hidden',
+    'user-select:none',
   ].join(';')
 
   const header = document.createElement('div')
   header.style.cssText = [
-    'display:flex', 'align-items:center', 'justify-content:space-between',
+    'display:flex',
+    'align-items:center',
+    'justify-content:space-between',
     'gap:6px',
-    'padding:5px 8px', 'background:#27272a',
-    'font-weight:600', 'color:#fafafa', 'border-bottom:1px solid #3f3f46',
+    'padding:5px 8px',
+    'background:#27272a',
+    'font-weight:600',
+    'color:#fafafa',
+    'border-bottom:1px solid #3f3f46',
   ].join(';')
 
   const title = document.createElement('span')
@@ -161,8 +188,14 @@ function buildShell(state: InspectorState): void {
   const copyBtn = document.createElement('button')
   copyBtn.textContent = 'Copy'
   copyBtn.style.cssText = [
-    'background:#3f3f46', 'color:#fafafa', 'border:none', 'border-radius:3px',
-    'padding:2px 8px', 'font:inherit', 'font-size:10px', 'cursor:pointer',
+    'background:#3f3f46',
+    'color:#fafafa',
+    'border:none',
+    'border-radius:3px',
+    'padding:2px 8px',
+    'font:inherit',
+    'font-size:10px',
+    'cursor:pointer',
   ].join(';')
   copyBtn.addEventListener('click', async (e) => {
     e.stopPropagation()
@@ -186,7 +219,11 @@ function buildShell(state: InspectorState): void {
       ta.style.cssText = 'position:fixed;left:-9999px;top:0;'
       document.body.appendChild(ta)
       ta.select()
-      try { document.execCommand('copy') } finally { ta.remove() }
+      try {
+        document.execCommand('copy')
+      } finally {
+        ta.remove()
+      }
       copyBtn.textContent = '✓ Copied (fallback)'
       copyBtn.style.background = '#16a34a'
       setTimeout(() => {
@@ -210,22 +247,32 @@ function buildShell(state: InspectorState): void {
     minBtn.textContent = state.visible ? '▾' : '▸'
   }
   title.addEventListener('click', toggleVisible)
-  minBtn.addEventListener('click', e => { e.stopPropagation(); toggleVisible() })
+  minBtn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    toggleVisible()
+  })
   state.el.appendChild(header)
 
   const tabBar = document.createElement('div')
   tabBar.style.cssText = [
-    'display:flex', 'background:#18181b', 'border-bottom:1px solid #3f3f46',
+    'display:flex',
+    'background:#18181b',
+    'border-bottom:1px solid #3f3f46',
   ].join(';')
   for (const name of TAB_NAMES) {
     const btn = document.createElement('button')
     btn.textContent = name
     btn.style.cssText = [
-      'flex:1', 'padding:5px 4px', 'background:transparent',
-      'border:none', 'border-right:1px solid #27272a', 'color:#a1a1aa',
-      'font:inherit', 'cursor:pointer',
+      'flex:1',
+      'padding:5px 4px',
+      'background:transparent',
+      'border:none',
+      'border-right:1px solid #27272a',
+      'color:#a1a1aa',
+      'font:inherit',
+      'cursor:pointer',
     ].join(';')
-    btn.addEventListener('click', e => {
+    btn.addEventListener('click', (e) => {
       e.stopPropagation()
       state.activeTab = name
       updateTabHighlight(tabBar, state.activeTab)
@@ -238,8 +285,11 @@ function buildShell(state: InspectorState): void {
   updateTabHighlight(tabBar, state.activeTab)
 
   state.body.style.cssText = [
-    'padding:8px', 'white-space:pre-wrap', 'overflow-y:auto',
-    'max-height:50vh', 'font:11px/1.45 ui-monospace,Menlo,monospace',
+    'padding:8px',
+    'white-space:pre-wrap',
+    'overflow-y:auto',
+    'max-height:50vh',
+    'font:11px/1.45 ui-monospace,Menlo,monospace',
   ].join(';')
   state.body.textContent = '…'
   state.el.appendChild(state.body)
@@ -261,24 +311,41 @@ function updateTabHighlight(tabBar: HTMLElement, active: TabName): void {
 function renderActiveTab(state: InspectorState): void {
   const map = (window as unknown as { __xgisMap?: XGISMap }).__xgisMap
   switch (state.activeTab) {
-    case 'Frame':  state.body.textContent = renderFrame(state, map);  break
-    case 'Tiles':  state.body.textContent = renderTiles(state, map);  break
-    case 'GPU':    state.body.textContent = renderGPU(state, map);    break
-    case 'Cache':  state.body.textContent = renderCache(state);       break
-    case 'Camera': state.body.textContent = renderCamera(state, map); break
-    case 'Net':    state.body.textContent = renderNet(state);         break
+    case 'Frame':
+      state.body.textContent = renderFrame(state, map)
+      break
+    case 'Tiles':
+      state.body.textContent = renderTiles(state, map)
+      break
+    case 'GPU':
+      state.body.textContent = renderGPU(state, map)
+      break
+    case 'Cache':
+      state.body.textContent = renderCache(state)
+      break
+    case 'Camera':
+      state.body.textContent = renderCamera(state, map)
+      break
+    case 'Net':
+      state.body.textContent = renderNet(state)
+      break
   }
 }
 
-function frameStats(state: InspectorState, samples: number): { avg: number; max: number; p95: number; fps: number } {
+function frameStats(
+  state: InspectorState,
+  samples: number,
+): { avg: number; max: number; p95: number; fps: number } {
   const n = Math.min(state.ftFilled, samples)
   if (n === 0) return { avg: 0, max: 0, p95: 0, fps: 0 }
   const arr: number[] = []
-  let sum = 0, max = 0
+  let sum = 0,
+    max = 0
   for (let i = 0; i < n; i++) {
     const idx = (state.ftHead - 1 - i + state.ftRing.length) % state.ftRing.length
     const v = state.ftRing[idx]
-    arr.push(v); sum += v
+    arr.push(v)
+    sum += v
     if (v > max) max = v
   }
   arr.sort((a, b) => a - b)
@@ -327,7 +394,7 @@ function renderTiles(state: InspectorState, map: XGISMap | undefined): string {
   const lines: string[] = []
   for (const [name, { renderer }] of map.vtSources) {
     const r = renderer as VTRDiag
-    const ds = r.getDrawStats?.() ?? { tilesVisible: 0, drawCalls: 0, missedTiles: 0 } as VTRStats
+    const ds = r.getDrawStats?.() ?? ({ tilesVisible: 0, drawCalls: 0, missedTiles: 0 } as VTRStats)
     if (ds.tilesVisible > state.peaks.tilesVisible) state.peaks.tilesVisible = ds.tilesVisible
     if (ds.drawCalls > state.peaks.drawCalls) state.peaks.drawCalls = ds.drawCalls
     if (ds.missedTiles > state.peaks.missedTiles) state.peaks.missedTiles = ds.missedTiles
@@ -364,7 +431,7 @@ function renderTiles(state: InspectorState, map: XGISMap | undefined): string {
       const cz = r._selection?._hysteresisZ ?? '?'
       const zKeys = [...byZ.keys()].sort((a, b) => a - b)
       const gpuSummary = zKeys.length
-        ? zKeys.map(z => `z=${z}:${byZ.get(z)}`).join(' ')
+        ? zKeys.map((z) => `z=${z}:${byZ.get(z)}`).join(' ')
         : '(empty)'
       lines.push(`currentZ     : ${cz}`)
       lines.push(`gpu retained : ${gpuSummary}`)
@@ -377,14 +444,16 @@ function renderTiles(state: InspectorState, map: XGISMap | undefined): string {
       const drawnMap = (r as any)._frameDrawnByZoom as Map<number, number> | undefined
       if (drawnMap && drawnMap.size > 0) {
         const drawnKeys = [...drawnMap.keys()].sort((a, b) => a - b)
-        lines.push(`drawn by zoom: ${drawnKeys.map(z => `z=${z}:${drawnMap.get(z)}`).join(' ')}`)
+        lines.push(`drawn by zoom: ${drawnKeys.map((z) => `z=${z}:${drawnMap.get(z)}`).join(' ')}`)
       } else {
         lines.push(`drawn by zoom: (idle frame)`)
       }
     }
 
     if (cat) {
-      lines.push(`catalog cache: ${cat.dataCache?.size ?? 0}  bytes ${fmtMB(cat._cachedBytes ?? 0)}`)
+      lines.push(
+        `catalog cache: ${cat.dataCache?.size ?? 0}  bytes ${fmtMB(cat._cachedBytes ?? 0)}`,
+      )
       // Catalog tile zoom distribution — same idea, but shows
       // CPU-side cached zoom levels instead of the GPU-resident
       // ones. Often reveals retention of higher-z tiles from a
@@ -401,7 +470,7 @@ function renderTiles(state: InspectorState, map: XGISMap | undefined): string {
         }
         const zKeys = [...byZ.keys()].sort((a, b) => a - b)
         if (zKeys.length) {
-          lines.push(`cat by zoom  : ${zKeys.map(z => `z=${z}:${byZ.get(z)}`).join(' ')}`)
+          lines.push(`cat by zoom  : ${zKeys.map((z) => `z=${z}:${byZ.get(z)}`).join(' ')}`)
         }
       }
       lines.push(`loadingTiles : ${cat.loadingTiles?.size ?? 0}`)
@@ -428,20 +497,27 @@ function renderGPU(_state: InspectorState, map: XGISMap | undefined): string {
     if (ctx.device?.features) {
       for (const f of ctx.device.features as Set<string>) features.push(f)
     }
-    lines.push(`adapter      : ${ad?.info?.vendor ?? '?'} / ${ad?.info?.device ?? ad?.info?.architecture ?? '?'}`)
+    lines.push(
+      `adapter      : ${ad?.info?.vendor ?? '?'} / ${ad?.info?.device ?? ad?.info?.architecture ?? '?'}`,
+    )
     lines.push(`timestamp-q  : ${ctx.timestampQuerySupported ? 'yes' : 'no'}`)
-    lines.push(`features     : ${features.length ? features.slice(0, 4).join(', ') + (features.length > 4 ? '…' : '') : '(none enabled)'}`)
+    lines.push(
+      `features     : ${features.length ? features.slice(0, 4).join(', ') + (features.length > 4 ? '…' : '') : '(none enabled)'}`,
+    )
   }
   // Canvas + DPR — actual pixel-buffer size the GPU is rasterising,
   // not the CSS viewport size. On iPhone DPR 3 + a 1.0 maxDpr cap
   // these can differ ×3, which is the difference between "warm" and
   // "thermal throttle".
-  const canvas = document.querySelector<HTMLCanvasElement>('#xgis-canvas') ?? document.querySelector<HTMLCanvasElement>('canvas')
+  const canvas =
+    document.querySelector<HTMLCanvasElement>('#xgis-canvas') ??
+    document.querySelector<HTMLCanvasElement>('canvas')
   const rawDpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1
   if (canvas) {
     const cssW = canvas.clientWidth
     const cssH = canvas.clientHeight
-    const cw = canvas.width, ch = canvas.height
+    const cw = canvas.width,
+      ch = canvas.height
     const effectiveDpr = cssW > 0 ? cw / cssW : 0
     const px = (cw * ch) / 1e6
     lines.push(`canvas css   : ${cssW}×${cssH}`)
@@ -453,7 +529,8 @@ function renderGPU(_state: InspectorState, map: XGISMap | undefined): string {
     const r = renderer as VTRDiag
     lines.push(`── ${name} ──`)
     if (r._bufferPool) {
-      let totalPooled = 0, totalBytes = 0
+      let totalPooled = 0,
+        totalBytes = 0
       const buckets: { key: string; n: number; bytes: number }[] = []
       for (const [key, arr] of r._bufferPool) {
         let bytes = 0
@@ -466,12 +543,18 @@ function renderGPU(_state: InspectorState, map: XGISMap | undefined): string {
       lines.push(`buffer pool  : ${totalPooled} bufs  ${fmtMB(totalBytes)}`)
       for (const b of buckets.slice(0, 4)) {
         const [size, usage] = b.key.split(':')
-        lines.push(`  bucket ${parseInt(size, 10) >= 1048576 ? (parseInt(size, 10) / 1048576).toFixed(1) + 'M' : (parseInt(size, 10) / 1024).toFixed(0) + 'K'} usage=${usage} : ${b.n} bufs  ${fmtMB(b.bytes)}`)
+        lines.push(
+          `  bucket ${parseInt(size, 10) >= 1048576 ? (parseInt(size, 10) / 1048576).toFixed(1) + 'M' : (parseInt(size, 10) / 1024).toFixed(0) + 'K'} usage=${usage} : ${b.n} bufs  ${fmtMB(b.bytes)}`,
+        )
       }
     }
     if (r.gpuCache) {
-      let total = 0, layers = 0
-      for (const inner of r.gpuCache.values()) { total += inner.size; layers++ }
+      let total = 0,
+        layers = 0
+      for (const inner of r.gpuCache.values()) {
+        total += inner.size
+        layers++
+      }
       lines.push(`gpu tiles    : ${total} across ${layers} layers`)
     }
   }
@@ -481,18 +564,21 @@ function renderGPU(_state: InspectorState, map: XGISMap | undefined): string {
 function renderCache(state: InspectorState): string {
   const c = state.cache
   const ratio = (h: number, m: number): string =>
-    h + m === 0 ? '   n/a' : `${(100 * h / (h + m)).toFixed(1).padStart(5)}%`
+    h + m === 0 ? '   n/a' : `${((100 * h) / (h + m)).toFixed(1).padStart(5)}%`
   return [
-    'hasTileData  : ' + ratio(c.hasTileDataHits, c.hasTileDataMisses) +
+    'hasTileData  : ' +
+      ratio(c.hasTileDataHits, c.hasTileDataMisses) +
       `  (${c.hasTileDataHits} h / ${c.hasTileDataMisses} m)`,
-    'bufferPool   : ' + ratio(c.bufferPoolHits, c.bufferPoolMisses) +
+    'bufferPool   : ' +
+      ratio(c.bufferPoolHits, c.bufferPoolMisses) +
       `  (${c.bufferPoolHits} h / ${c.bufferPoolMisses} m)`,
-    'gpuUpload    : ' + ratio(c.gpuCacheUploadHits, c.gpuCacheUploadMisses) +
+    'gpuUpload    : ' +
+      ratio(c.gpuCacheUploadHits, c.gpuCacheUploadMisses) +
       `  (${c.gpuCacheUploadHits} h / ${c.gpuCacheUploadMisses} m)`,
     '',
     `fetch starts : ${c.fetchStarts}`,
     `fetch aborts : ${c.fetchAborts}`,
-    `abort ratio  : ${c.fetchStarts > 0 ? (100 * c.fetchAborts / c.fetchStarts).toFixed(1) + '%' : 'n/a'}`,
+    `abort ratio  : ${c.fetchStarts > 0 ? ((100 * c.fetchAborts) / c.fetchStarts).toFixed(1) + '%' : 'n/a'}`,
   ].join('\n')
 }
 
@@ -528,7 +614,9 @@ function renderCamera(_state: InspectorState, map: XGISMap | undefined): string 
       const moveAt = r._selection?._lastCamMoveAt
       if (moveAt !== undefined) {
         const sinceMove = performance.now() - moveAt
-        lines.push(`idle        : ${sinceMove > 200 ? 'yes' : 'no'} (${sinceMove.toFixed(0)}ms since move)`)
+        lines.push(
+          `idle        : ${sinceMove > 200 ? 'yes' : 'no'} (${sinceMove.toFixed(0)}ms since move)`,
+        )
       }
     }
   }
@@ -539,13 +627,15 @@ function renderNet(state: InspectorState): string {
   return [
     `fetch starts : ${state.cache.fetchStarts}`,
     `fetch aborts : ${state.cache.fetchAborts}`,
-    `abort ratio  : ${state.cache.fetchStarts > 0
-      ? (100 * state.cache.fetchAborts / state.cache.fetchStarts).toFixed(1) + '%'
-      : 'n/a'}`,
+    `abort ratio  : ${
+      state.cache.fetchStarts > 0
+        ? ((100 * state.cache.fetchAborts) / state.cache.fetchStarts).toFixed(1) + '%'
+        : 'n/a'
+    }`,
     '',
     'Tip: a high abort ratio during gestures means the gate /',
     'cancelStale is doing its job — but lots of fetch starts +',
-    'lots of aborts means the work isn\'t free even if it never',
+    "lots of aborts means the work isn't free even if it never",
     'completes. Reduce fetch starts to actually drop the load.',
   ].join('\n')
 }
@@ -619,7 +709,8 @@ function installCacheTelemetry(stats: CacheStats): void {
         const orig = cat.hasTileData.bind(cat)
         cat.hasTileData = (k: number, l?: string): boolean => {
           const v: boolean = orig(k, l)
-          if (v) stats.hasTileDataHits++; else stats.hasTileDataMisses++
+          if (v) stats.hasTileDataHits++
+          else stats.hasTileDataMisses++
           return v
         }
       }

@@ -30,7 +30,16 @@ import { lonLatToMercF64 } from '../tiler/vector-tiler'
 import { precisionForZoomMM } from '../tiler/encoding'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const NE_110M = join(HERE, '..', '..', '..', 'playground', 'public', 'data', 'ne_110m_countries.geojson')
+const NE_110M = join(
+  HERE,
+  '..',
+  '..',
+  '..',
+  'playground',
+  'public',
+  'data',
+  'ne_110m_countries.geojson',
+)
 
 interface FeatureCol {
   features: Array<{
@@ -49,7 +58,7 @@ function loadKorea(): { south: number[][]; north: number[][][] } {
       south = (f.geometry.coordinates as number[][][])[0]!
     }
     if (n === 'North Korea' && f.geometry.type === 'MultiPolygon') {
-      north = (f.geometry.coordinates as number[][][][]).map(p => p[0]!)
+      north = (f.geometry.coordinates as number[][][][]).map((p) => p[0]!)
     }
   }
   return { south: south!, north: north! }
@@ -63,11 +72,15 @@ function ringArea(ring: number[][]): number {
   return s / 2
 }
 
-function tileBoundsMM(z: number, x: number, y: number): { w: number; s: number; e: number; n: number } {
+function tileBoundsMM(
+  z: number,
+  x: number,
+  y: number,
+): { w: number; s: number; e: number; n: number } {
   const N = 2 ** z
   const tileLon = (xi: number): number => (xi / N) * 360 - 180
   const tileLat = (yi: number): number => {
-    const ny = Math.PI * (1 - 2 * yi / N)
+    const ny = Math.PI * (1 - (2 * yi) / N)
     return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(ny) - Math.exp(-ny)))
   }
   const [w, s] = lonLatToMercF64(tileLon(x), tileLat(y + 1))
@@ -92,10 +105,15 @@ function earcutAreaCoverage(rings: number[][][]): number {
   const idx = earcut(flat, holes.length > 0 ? holes : undefined)
   let triAreaSum = 0
   for (let t = 0; t < idx.length; t += 3) {
-    const i0 = idx[t]! * 2, i1 = idx[t + 1]! * 2, i2 = idx[t + 2]! * 2
-    const ax = flat[i0]!, ay = flat[i0 + 1]!
-    const bx = flat[i1]!, by = flat[i1 + 1]!
-    const cx = flat[i2]!, cy = flat[i2 + 1]!
+    const i0 = idx[t]! * 2,
+      i1 = idx[t + 1]! * 2,
+      i2 = idx[t + 2]! * 2
+    const ax = flat[i0]!,
+      ay = flat[i0 + 1]!
+    const bx = flat[i1]!,
+      by = flat[i1 + 1]!
+    const cx = flat[i2]!,
+      cy = flat[i2 + 1]!
     triAreaSum += Math.abs((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) * 0.5
   }
   const ringAreaSum = rings.reduce((s, r) => s + Math.abs(ringArea(r)), 0)
@@ -103,8 +121,12 @@ function earcutAreaCoverage(rings: number[][][]): number {
 }
 
 const KOREA_Z7_TILES = [
-  { x: 107, y: 49 }, { x: 108, y: 49 }, { x: 109, y: 49 },
-  { x: 107, y: 50 }, { x: 108, y: 50 }, { x: 109, y: 50 },
+  { x: 107, y: 49 },
+  { x: 108, y: 49 },
+  { x: 109, y: 49 },
+  { x: 107, y: 50 },
+  { x: 108, y: 50 },
+  { x: 109, y: 50 },
 ] as const
 
 describe('clip back-track repair — Korea z=7 regression', () => {
@@ -142,29 +164,34 @@ describe('clip back-track repair — Korea z=7 regression', () => {
     const ringMM = projectToMM(south)
     const tb = tileBoundsMM(7, 108, 49)
     const clipped = clipPolygonToRect([ringMM], tb.w, tb.s, tb.e, tb.n, precisionForZoomMM(7))
-    const repaired = clipped.flatMap(r => splitBoundaryBacktracks(r, tb.w, tb.s, tb.e, tb.n))
+    const repaired = clipped.flatMap((r) => splitBoundaryBacktracks(r, tb.w, tb.s, tb.e, tb.n))
     // Earcut each repaired sub-ring separately (they represent
     // disconnected interior components — same dispatch the production
     // path uses in compileSingleTile.tessellatePolygonToArrays).
-    let triArea = 0, ringArea_ = 0
+    let triArea = 0,
+      ringArea_ = 0
     for (const sub of repaired) {
       triArea += earcutAreaCoverage([sub]) * Math.abs(ringArea(sub))
       ringArea_ += Math.abs(ringArea(sub))
     }
     const coverage = ringArea_ > 0 ? triArea / ringArea_ : 0
-    expect(repaired.length).toBeGreaterThanOrEqual(2)  // split happened
+    expect(repaired.length).toBeGreaterThanOrEqual(2) // split happened
     expect(coverage).toBeCloseTo(1.0, 2)
   })
 
   it('repair is a no-op for tiles that already produce clean clip output', () => {
     const { south } = loadKorea()
     const ringMM = projectToMM(south)
-    const cleanTiles = [{ x: 109, y: 49 }, { x: 108, y: 50 }, { x: 109, y: 50 }]
+    const cleanTiles = [
+      { x: 109, y: 49 },
+      { x: 108, y: 50 },
+      { x: 109, y: 50 },
+    ]
     for (const tk of cleanTiles) {
       const tb = tileBoundsMM(7, tk.x, tk.y)
       const clipped = clipPolygonToRect([ringMM], tb.w, tb.s, tb.e, tb.n, precisionForZoomMM(7))
       if (clipped.length === 0) continue
-      const repaired = clipped.flatMap(r => splitBoundaryBacktracks(r, tb.w, tb.s, tb.e, tb.n))
+      const repaired = clipped.flatMap((r) => splitBoundaryBacktracks(r, tb.w, tb.s, tb.e, tb.n))
       expect(repaired.length, `tile (${tk.x},${tk.y},7) should not split`).toBe(clipped.length)
     }
   })
@@ -177,10 +204,11 @@ describe('clip back-track repair — Korea z=7 regression', () => {
         const tb = tileBoundsMM(7, tk.x, tk.y)
         const clipped = clipPolygonToRect([ringMM], tb.w, tb.s, tb.e, tb.n, precisionForZoomMM(7))
         if (clipped.length === 0) continue
-        const repaired = clipped.flatMap(r => splitBoundaryBacktracks(r, tb.w, tb.s, tb.e, tb.n))
+        const repaired = clipped.flatMap((r) => splitBoundaryBacktracks(r, tb.w, tb.s, tb.e, tb.n))
         for (const sub of repaired) {
           const coverage = earcutAreaCoverage([sub])
-          expect(coverage,
+          expect(
+            coverage,
             `NK polygon ${pi} tile (${tk.x},${tk.y},7) sub-ring coverage`,
           ).toBeCloseTo(1.0, 1)
         }

@@ -11,28 +11,50 @@ import { compileModule } from '../../oracle'
 // raw Stmt is skipped (raw WGSL is opaque).
 describe('optimize — common-subexpression elimination', () => {
   it('hoists a repeated compound subexpr into one shared temp', () => {
-    const m = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => { b.ret(sin(x).add(sin(x))) })] })
+    const m = module({
+      funcs: [
+        fn('k', { x: f32T }, f32T, ({ x }, b) => {
+          b.ret(sin(x).add(sin(x)))
+        }),
+      ],
+    })
     const wgsl = emitModule(cse(m))
     expect(wgsl).toContain('_cse') // a hoisted temp was introduced
     expect((wgsl.match(/sin\(x\)/g) ?? []).length).toBe(1) // sin(x) computed once
   })
 
   it('does not hoist a non-repeated expr', () => {
-    const m = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => { b.ret(sin(x).add(1)) })] })
+    const m = module({
+      funcs: [
+        fn('k', { x: f32T }, f32T, ({ x }, b) => {
+          b.ret(sin(x).add(1))
+        }),
+      ],
+    })
     expect(emitModule(cse(m))).not.toContain('_cse')
   })
 
   it('preserves oracle value-equality', () => {
-    const m = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => { b.ret(sin(x).add(sin(x))) })] })
+    const m = module({
+      funcs: [
+        fn('k', { x: f32T }, f32T, ({ x }, b) => {
+          b.ret(sin(x).add(sin(x)))
+        }),
+      ],
+    })
     expect(compileModule(cse(m)).fns.k(0.5)).toBeCloseTo(compileModule(m).fns.k(0.5) as number, 10)
   })
 
   it('skips a fn containing a raw Stmt (does not crash, leaves it alone)', () => {
     const m: ModuleDecl = module({
-      funcs: [{
-        name: 'rf', params: [], ret: f32T,
-        body: [{ s: 'raw', wgsl: 'return sin(1.0) + sin(1.0);' } as Stmt],
-      }],
+      funcs: [
+        {
+          name: 'rf',
+          params: [],
+          ret: f32T,
+          body: [{ s: 'raw', wgsl: 'return sin(1.0) + sin(1.0);' } as Stmt],
+        },
+      ],
     })
     expect(() => emitModule(cse(m))).not.toThrow()
     expect(emitModule(cse(m))).not.toContain('_cse')
@@ -43,9 +65,17 @@ describe('optimize — common-subexpression elimination', () => {
     // _cse0 but leaves cos(x) repeated (it occurs nested AND standalone); cse#2
     // must hoist cos(x) as _cse1, never a colliding _cse0. Guards the
     // optimize()->emitModule() double-cse path the optimizer GPU-parity gate runs.
-    const m = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => {
-      b.ret(sin(cos(x)).add(sin(cos(x))).add(cos(x)))
-    })] })
+    const m = module({
+      funcs: [
+        fn('k', { x: f32T }, f32T, ({ x }, b) => {
+          b.ret(
+            sin(cos(x))
+              .add(sin(cos(x)))
+              .add(cos(x)),
+          )
+        }),
+      ],
+    })
     const twice = cse(cse(m))
     const wgsl = emitModule(twice)
     expect((wgsl.match(/let _cse0\b/g) ?? []).length).toBe(1) // _cse0 declared exactly once

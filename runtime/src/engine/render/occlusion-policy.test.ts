@@ -20,13 +20,17 @@ import { describe, expect, it } from 'vitest'
 // tests below can compare `compareOp` against any GPUCompareFunction
 // literal without TS narrowing each entry to its own single literal
 // (which makes a cross-policy `=== 'always'` check statically false).
-interface DepthPolicy { write: boolean; test: boolean; compareOp: GPUCompareFunction }
+interface DepthPolicy {
+  write: boolean
+  test: boolean
+  compareOp: GPUCompareFunction
+}
 const DEPTH_POLICY: Record<string, DepthPolicy> = {
-  STENCIL_WRITE:            { write: true,  test: true,  compareOp: 'less-equal' },
-  STENCIL_WRITE_NO_DEPTH:   { write: false, test: false, compareOp: 'always' },
-  STENCIL_TEST:             { write: true,  test: true,  compareOp: 'less-equal' },
-  STENCIL_TEST_NO_DEPTH:    { write: false, test: false, compareOp: 'always' },
-  DEPTH_READ_ONLY:          { write: false, test: true,  compareOp: 'less-equal' },
+  STENCIL_WRITE: { write: true, test: true, compareOp: 'less-equal' },
+  STENCIL_WRITE_NO_DEPTH: { write: false, test: false, compareOp: 'always' },
+  STENCIL_TEST: { write: true, test: true, compareOp: 'less-equal' },
+  STENCIL_TEST_NO_DEPTH: { write: false, test: false, compareOp: 'always' },
+  DEPTH_READ_ONLY: { write: false, test: true, compareOp: 'less-equal' },
 }
 
 describe('depth-state policy invariants', () => {

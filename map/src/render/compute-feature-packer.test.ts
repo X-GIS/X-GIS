@@ -58,7 +58,7 @@ describe('packFeatureData', () => {
       getProps: bagsFromArray([
         { school: true },
         { school: false },
-        {},  // missing → 0
+        {}, // missing → 0
       ]),
       fieldOrder: ['school'],
       categoryOrder: {},
@@ -79,7 +79,7 @@ describe('packFeatureData', () => {
 
   it('null / undefined → 0', () => {
     const out = packFeatureData({
-      getProps: bagsFromArray([{ x: null }, { x: undefined }, { /* missing */ }]),
+      getProps: bagsFromArray([{ x: null }, { x: undefined }, {/* missing */}]),
       fieldOrder: ['x'],
       categoryOrder: {},
       featureCount: 3,
@@ -99,11 +99,7 @@ describe('packFeatureData', () => {
 
   it('categoryOrder field: string maps to alphabetical index', () => {
     const out = packFeatureData({
-      getProps: bagsFromArray([
-        { class: 'cemetery' },
-        { class: 'hospital' },
-        { class: 'school' },
-      ]),
+      getProps: bagsFromArray([{ class: 'cemetery' }, { class: 'hospital' }, { class: 'school' }]),
       fieldOrder: ['class'],
       categoryOrder: {
         class: ['cemetery', 'hospital', 'school'],
@@ -116,7 +112,7 @@ describe('packFeatureData', () => {
   it('categoryOrder field: unmatched string → -1 (kernel else-branch fires)', () => {
     const out = packFeatureData({
       getProps: bagsFromArray([
-        { class: 'park' },  // not in list
+        { class: 'park' }, // not in list
       ]),
       fieldOrder: ['class'],
       categoryOrder: {
@@ -129,11 +125,7 @@ describe('packFeatureData', () => {
 
   it('categoryOrder field: non-string value → -1', () => {
     const out = packFeatureData({
-      getProps: bagsFromArray([
-        { class: 42 },
-        { class: true },
-        { class: null },
-      ]),
+      getProps: bagsFromArray([{ class: 42 }, { class: true }, { class: null }]),
       fieldOrder: ['class'],
       categoryOrder: { class: ['a', 'b'] },
       featureCount: 3,
@@ -154,9 +146,9 @@ describe('packFeatureData', () => {
   it('mixed field types in one entry: stride preserved, each col uses its own rule', () => {
     const out = packFeatureData({
       getProps: bagsFromArray([
-        { class: 'school',   rank: 5,  school: true },
+        { class: 'school', rank: 5, school: true },
         { class: 'hospital', rank: 12, school: false },
-        { class: 'unknown',  rank: -3, school: null },
+        { class: 'unknown', rank: -3, school: null },
       ]),
       fieldOrder: ['class', 'rank', 'school'],
       categoryOrder: {
@@ -165,9 +157,15 @@ describe('packFeatureData', () => {
       featureCount: 3,
     })
     expect(Array.from(out)).toEqual([
-      1, 5, 1,    // school → 1, rank 5, school true → 1
-      0, 12, 0,   // hospital → 0, rank 12, school false → 0
-      -1, -3, 0,  // unknown → -1, rank -3, school null → 0
+      1,
+      5,
+      1, // school → 1, rank 5, school true → 1
+      0,
+      12,
+      0, // hospital → 0, rank 12, school false → 0
+      -1,
+      -3,
+      0, // unknown → -1, rank -3, school null → 0
     ])
   })
 
@@ -178,7 +176,7 @@ describe('packFeatureData', () => {
         { class: 'pat_00' },
         { class: 'pat_25' },
         { class: 'pat_49' },
-        { class: 'pat_99' },  // not in list
+        { class: 'pat_99' }, // not in list
       ]),
       fieldOrder: ['class'],
       categoryOrder: { class: patterns },

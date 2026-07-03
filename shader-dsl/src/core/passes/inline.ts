@@ -24,7 +24,10 @@ function substParams(e: Expr, subst: ReadonlyMap<string, Expr>): Expr {
 /** True iff `body` contains a call to `name`. */
 function callsFn(body: readonly Stmt[], name: string): boolean {
   let found = false
-  const probe = (e: Expr): Expr => { if (e.op === 'call' && e.fn === name) found = true; return e }
+  const probe = (e: Expr): Expr => {
+    if (e.op === 'call' && e.fn === name) found = true
+    return e
+  }
   for (const s of body) mapStmt(s, probe)
   return found
 }
@@ -40,7 +43,9 @@ export function inlineFn(m: ModuleDecl, fnName: string): ModuleDecl {
     if (e.op === 'call' && e.fn === fnName) {
       const subst = new Map<string, Expr>()
       // args are already inlined (mapExpr is bottom-up), so substitution is one-shot.
-      target.params.forEach((p, i) => { if (e.args[i] !== undefined) subst.set(p.name, e.args[i]) })
+      target.params.forEach((p, i) => {
+        if (e.args[i] !== undefined) subst.set(p.name, e.args[i])
+      })
       return substParams(retExpr, subst)
     }
     return e

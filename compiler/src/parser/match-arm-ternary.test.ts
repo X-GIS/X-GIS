@@ -17,8 +17,7 @@ function parseExpr(src: string): AST.Expr {
 describe('match arm with ternary/case value', () => {
   // This is exactly what convert/expressions.ts emits for
   // ["match",["get","type"],"a",["case",["==",["get","x"],1],"#ff0000","#0000ff"],"#00ff00"]
-  const src =
-    'match(.type) { "a" -> .x == 1 ? "#ff0000" : "#0000ff", _ -> "#00ff00" }'
+  const src = 'match(.type) { "a" -> .x == 1 ? "#ff0000" : "#0000ff", _ -> "#00ff00" }'
 
   it('parses without throwing', () => {
     // On clean HEAD this throws: [Parser] Expected RBrace, got Question

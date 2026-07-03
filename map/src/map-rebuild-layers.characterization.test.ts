@@ -49,15 +49,25 @@ beforeAll(() => {
   const g = globalThis as unknown as Record<string, unknown>
   if (g.GPUBufferUsage === undefined) {
     g.GPUBufferUsage = {
-      MAP_READ: 0x0001, MAP_WRITE: 0x0002, COPY_SRC: 0x0004, COPY_DST: 0x0008,
-      INDEX: 0x0010, VERTEX: 0x0020, UNIFORM: 0x0040, STORAGE: 0x0080,
-      INDIRECT: 0x0100, QUERY_RESOLVE: 0x0200,
+      MAP_READ: 0x0001,
+      MAP_WRITE: 0x0002,
+      COPY_SRC: 0x0004,
+      COPY_DST: 0x0008,
+      INDEX: 0x0010,
+      VERTEX: 0x0020,
+      UNIFORM: 0x0040,
+      STORAGE: 0x0080,
+      INDIRECT: 0x0100,
+      QUERY_RESOLVE: 0x0200,
     }
   }
   if (g.GPUTextureUsage === undefined) {
     g.GPUTextureUsage = {
-      COPY_SRC: 0x01, COPY_DST: 0x02, TEXTURE_BINDING: 0x04,
-      STORAGE_BINDING: 0x08, RENDER_ATTACHMENT: 0x10,
+      COPY_SRC: 0x01,
+      COPY_DST: 0x02,
+      TEXTURE_BINDING: 0x04,
+      STORAGE_BINDING: 0x08,
+      RENDER_ATTACHMENT: 0x10,
     }
   }
 })
@@ -185,7 +195,12 @@ type MapInternals = {
   rawDatasets: Map<string, GeoJSONFeatureCollection>
   showCommands: unknown[]
   vtSources: Map<string, { source: unknown; renderer: unknown }>
-  vectorTileShows: Array<{ sourceName: string; show: { layerName?: string; targetName: string; pickId?: number }; pipelines: unknown; layout: unknown }>
+  vectorTileShows: Array<{
+    sourceName: string
+    show: { layerName?: string; targetName: string; pickId?: number }
+    pipelines: unknown
+    layout: unknown
+  }>
   _rasterShow: { targetName: string } | null
   _cameraExplicitlyPositioned: boolean
   rebuildLayers(): void
@@ -252,7 +267,15 @@ function polygonFC(): GeoJSONFeatureCollection {
         type: 'Feature',
         geometry: {
           type: 'Polygon',
-          coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]],
+          coordinates: [
+            [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 1],
+              [0, 0],
+            ],
+          ],
         },
         properties: { name: 'block' },
       },
@@ -266,7 +289,14 @@ function lineFC(): GeoJSONFeatureCollection {
     features: [
       {
         type: 'Feature',
-        geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1], [2, 0]] },
+        geometry: {
+          type: 'LineString',
+          coordinates: [
+            [0, 0],
+            [1, 1],
+            [2, 0],
+          ],
+        },
         properties: { name: 'road' },
       },
     ],
@@ -375,7 +405,9 @@ describe('XGISMap.rebuildLayers — characterization (pins current behaviour)', 
       const mocks = makeMocks()
       const { internals } = makeMap(mocks)
       internals.rawDatasets.set('roads', lineFC())
-      internals.showCommands = [show('roads', { layerName: 'roads', stroke: '#ff0000', strokeWidth: 2 })]
+      internals.showCommands = [
+        show('roads', { layerName: 'roads', stroke: '#ff0000', strokeWidth: 2 }),
+      ]
 
       internals.rebuildLayers()
 
@@ -453,7 +485,9 @@ describe('XGISMap.rebuildLayers — characterization (pins current behaviour)', 
 
       // First call is the reset (''), second arms the real URL.
       expect(mocks.rasterRenderer.setUrlTemplate).toHaveBeenCalledTimes(2)
-      expect(mocks.rasterRenderer.setUrlTemplate).toHaveBeenLastCalledWith('https://tiles/{z}/{x}/{y}.png')
+      expect(mocks.rasterRenderer.setUrlTemplate).toHaveBeenLastCalledWith(
+        'https://tiles/{z}/{x}/{y}.png',
+      )
     })
 
     it('captures the raster show as _rasterShow and skips vector tiling', () => {

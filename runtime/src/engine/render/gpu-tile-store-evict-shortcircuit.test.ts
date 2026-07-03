@@ -25,15 +25,30 @@ import { GPUArena, type GPUArenaDevice } from '@xgis/engine'
 import type { RhiBuffer } from '@xgis/engine'
 import { WebGpuDevice } from '@xgis/engine'
 
-interface MockBuffer { size: number; destroyed: boolean; destroy(): void }
+interface MockBuffer {
+  size: number
+  destroyed: boolean
+  destroy(): void
+}
 function mockDevice(): GPUDevice {
   return {
     createBuffer(desc: GPUBufferDescriptor): GPUBuffer {
-      const b: MockBuffer = { size: desc.size, destroyed: false, destroy() { b.destroyed = true } }
+      const b: MockBuffer = {
+        size: desc.size,
+        destroyed: false,
+        destroy() {
+          b.destroyed = true
+        },
+      }
       return b as unknown as GPUBuffer
     },
     createCommandEncoder(): GPUCommandEncoder {
-      return { copyBufferToBuffer() {}, finish() { return {} as GPUCommandBuffer } } as unknown as GPUCommandEncoder
+      return {
+        copyBufferToBuffer() {},
+        finish() {
+          return {} as GPUCommandBuffer
+        },
+      } as unknown as GPUCommandEncoder
     },
     queue: { submit() {} },
   } as unknown as GPUDevice
@@ -44,11 +59,21 @@ function mockDevice(): GPUDevice {
 function arenaDevice(): GPUArenaDevice {
   return {
     createBuffer(desc): RhiBuffer {
-      const b: MockBuffer = { size: desc.size, destroyed: false, destroy() { b.destroyed = true } }
+      const b: MockBuffer = {
+        size: desc.size,
+        destroyed: false,
+        destroy() {
+          b.destroyed = true
+        },
+      }
       return { native: b } as unknown as RhiBuffer
     },
-    destroyBuffer(h) { (h as unknown as { native: MockBuffer }).native.destroy() },
-    unwrapBuffer(h) { return (h as unknown as { native: MockBuffer }).native as unknown as GPUBuffer },
+    destroyBuffer(h) {
+      ;(h as unknown as { native: MockBuffer }).native.destroy()
+    },
+    unwrapBuffer(h) {
+      return (h as unknown as { native: MockBuffer }).native as unknown as GPUBuffer
+    },
   }
 }
 
@@ -74,27 +99,53 @@ type StorePriv = {
   gpuCache: Map<string, Map<number, unknown>>
   _gpuCacheCount: number
   _evictFutileV: boolean
-  forceEvictBytes(a: GPUArena, needed: number, stable: readonly number[], hook: (k: string) => void): boolean
-  runFrameMaintenance(stable: readonly number[], hook: (k: string) => void, up: () => boolean): boolean
+  forceEvictBytes(
+    a: GPUArena,
+    needed: number,
+    stable: readonly number[],
+    hook: (k: string) => void,
+  ): boolean
+  runFrameMaintenance(
+    stable: readonly number[],
+    hook: (k: string) => void,
+    up: () => boolean,
+  ): boolean
 }
 
 /** Build an at-ceiling, fully-protected vertex arena (eviction frees 0). */
-function atCeilingProtected(store: GpuTileStore): { arena: GPUArena; counting: ScanMap<string, Map<number, unknown>> } {
+function atCeilingProtected(store: GpuTileStore): {
+  arena: GPUArena
+  counting: ScanMap<string, Map<number, unknown>>
+} {
   const inj = store as unknown as StorePriv
   const counting = countingMap<string, Map<number, unknown>>()
   inj.gpuCache = counting as unknown as Map<string, Map<number, unknown>>
   const CEIL = 512 * 1024 * 1024
-  const arena = new GPUArena(arenaDevice(), { capacityBytes: CEIL, usage: VERTEX_USAGE, copySrc: true })
+  const arena = new GPUArena(arenaDevice(), {
+    capacityBytes: CEIL,
+    usage: VERTEX_USAGE,
+    copySrc: true,
+  })
   inj.polyVertexArena = arena
   const inner = new Map<number, unknown>()
   counting.set('', inner)
   const off = arena.alloc(CEIL - 1024) // bump ≈ ceiling → next alloc fails
   inner.set(0, {
-    polyVertexOffset: off, polyVertexByteLength: CEIL - 1024,
-    polyIndexOffset: 0, polyIndexByteLength: 0, zBufferOffset: 0, zBufferByteLength: 0,
-    lineVertexBuffer: null, lineIndexBuffer: null, outlineIndexBuffer: null,
-    outlineSegmentBuffer: null, lineSegmentBuffer: null, featureDataBuffer: null,
-    vertexBuffer: arena.buffer, indexBuffer: arena.buffer, lastUsedFrame: 1,
+    polyVertexOffset: off,
+    polyVertexByteLength: CEIL - 1024,
+    polyIndexOffset: 0,
+    polyIndexByteLength: 0,
+    zBufferOffset: 0,
+    zBufferByteLength: 0,
+    lineVertexBuffer: null,
+    lineIndexBuffer: null,
+    outlineIndexBuffer: null,
+    outlineSegmentBuffer: null,
+    lineSegmentBuffer: null,
+    featureDataBuffer: null,
+    vertexBuffer: arena.buffer,
+    indexBuffer: arena.buffer,
+    lastUsedFrame: 1,
   })
   inj._gpuCacheCount++
   return { arena, counting }
@@ -132,7 +183,11 @@ describe('GpuTileStore forceEvictBytes — at-ceiling futility short-circuit (a1
     expect(inj._evictFutileV).toBe(true)
 
     // New frame: maintenance clears the per-arena futility latch.
-    inj.runFrameMaintenance([0], () => {}, () => false)
+    inj.runFrameMaintenance(
+      [0],
+      () => {},
+      () => false,
+    )
     expect(inj._evictFutileV).toBe(false)
   })
 })

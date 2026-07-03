@@ -18,14 +18,17 @@ fs.mkdirSync(OUT, { recursive: true })
 
 test('WS-9: setLight changes fill-extrusion shading', async ({ page }) => {
   const errs: string[] = []
-  page.on('console', m => { if (m.type() === 'error') errs.push(m.text()) })
+  page.on('console', (m) => {
+    if (m.type() === 'error') errs.push(m.text())
+  })
 
   // osm_style renders 3D extruded buildings; Manhattan midtown, pitched 55°
   // so wall shading (the directional-light term) is prominent.
   await page.goto('https://localhost:3000/demo.html?id=osm_style&e2e=1#16/40.748/-73.985/0/55')
   await page.waitForFunction(
     () => !!(window as unknown as { __xgisMap?: { setLight?: unknown } }).__xgisMap?.setLight,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // Let tiles load + buildings extrude.
   await page.waitForTimeout(4500)
@@ -33,19 +36,23 @@ test('WS-9: setLight changes fill-extrusion shading', async ({ page }) => {
 
   // Custom light: near-max intensity, warm orange tint.
   await page.evaluate(() => {
-    ;(window as unknown as { __xgisMap: { setLight(o: unknown): void } })
-      .__xgisMap.setLight({ intensity: 0.98, color: [1.0, 0.45, 0.1] })
+    ;(window as unknown as { __xgisMap: { setLight(o: unknown): void } }).__xgisMap.setLight({
+      intensity: 0.98,
+      color: [1.0, 0.45, 0.1],
+    })
   })
   await page.waitForTimeout(2000)
   await page.screenshot({ path: path.join(OUT, 'custom-light.png') })
 
   // Reset proves reversibility + no stuck state.
   await page.evaluate(() => {
-    ;(window as unknown as { __xgisMap: { setLight(o: unknown): void } })
-      .__xgisMap.setLight(null)
+    ;(window as unknown as { __xgisMap: { setLight(o: unknown): void } }).__xgisMap.setLight(null)
   })
   await page.waitForTimeout(1500)
   await page.screenshot({ path: path.join(OUT, 'reset-light.png') })
 
-  expect(errs.filter(e => !/favicon|404/i.test(e)), `console errors: ${errs.join(' | ')}`).toEqual([])
+  expect(
+    errs.filter((e) => !/favicon|404/i.test(e)),
+    `console errors: ${errs.join(' | ')}`,
+  ).toEqual([])
 })

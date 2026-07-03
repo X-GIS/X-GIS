@@ -88,14 +88,20 @@ function clampPos(p: number[]): number[] {
 
 function clampGeometryToPlanet(g: GeoJSONGeometry): GeoJSONGeometry {
   switch (g.type) {
-    case 'Point':       return { type: 'Point', coordinates: clampPos(g.coordinates) }
-    case 'MultiPoint':  return { type: 'MultiPoint', coordinates: g.coordinates.map(clampPos) }
-    case 'LineString':  return { type: 'LineString', coordinates: g.coordinates.map(clampPos) }
+    case 'Point':
+      return { type: 'Point', coordinates: clampPos(g.coordinates) }
+    case 'MultiPoint':
+      return { type: 'MultiPoint', coordinates: g.coordinates.map(clampPos) }
+    case 'LineString':
+      return { type: 'LineString', coordinates: g.coordinates.map(clampPos) }
     case 'MultiLineString':
-      return { type: 'MultiLineString', coordinates: g.coordinates.map(ls => ls.map(clampPos)) }
+      return { type: 'MultiLineString', coordinates: g.coordinates.map((ls) => ls.map(clampPos)) }
     case 'Polygon':
-      return { type: 'Polygon', coordinates: g.coordinates.map(ring => ring.map(clampPos)) }
+      return { type: 'Polygon', coordinates: g.coordinates.map((ring) => ring.map(clampPos)) }
     case 'MultiPolygon':
-      return { type: 'MultiPolygon', coordinates: g.coordinates.map(poly => poly.map(ring => ring.map(clampPos))) }
+      return {
+        type: 'MultiPolygon',
+        coordinates: g.coordinates.map((poly) => poly.map((ring) => ring.map(clampPos))),
+      }
   }
 }

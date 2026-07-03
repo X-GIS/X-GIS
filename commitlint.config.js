@@ -8,7 +8,19 @@ export default {
     'type-enum': [
       2,
       'always',
-      ['feat', 'fix', 'perf', 'refactor', 'test', 'docs', 'chore', 'build', 'ci', 'style', 'revert'],
+      [
+        'feat',
+        'fix',
+        'perf',
+        'refactor',
+        'test',
+        'docs',
+        'chore',
+        'build',
+        'ci',
+        'style',
+        'revert',
+      ],
     ],
     // The repo scopes by subsystem, e.g. `fix(map): …`, `refactor(engine): …`.
     'scope-empty': [0],

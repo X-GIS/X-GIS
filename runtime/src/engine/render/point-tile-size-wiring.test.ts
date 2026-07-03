@@ -42,13 +42,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<GPUContext> {
   const canvas = { width: 1024, height: 768 } as unknown as HTMLCanvasElement
@@ -94,10 +99,25 @@ function addPoint(
   const [ezH, ezL] = split(ecef[2])
   const mx = lon * DEG2RAD * R_MERC
   const myC = Math.max(-85.051129, Math.min(85.051129, lat))
-  const my = Math.log(Math.tan(Math.PI / 4 + myC * DEG2RAD / 2)) * R_MERC
+  const my = Math.log(Math.tan(Math.PI / 4 + (myC * DEG2RAD) / 2)) * R_MERC
   const [mxH, mxL] = split(mx)
   const [myH, myL] = split(my)
-  renderer.addTilePoint(exH, eyH, ezH, exL, eyL, ezL, featId, lon, lat, mxH, mxL, myH, myL, featProps)
+  renderer.addTilePoint(
+    exH,
+    eyH,
+    ezH,
+    exL,
+    eyL,
+    ezL,
+    featId,
+    lon,
+    lat,
+    mxH,
+    mxL,
+    myH,
+    myL,
+    featProps,
+  )
 }
 
 /** Drive a single tile-point flush with three DISTINCT-fid points + a
@@ -105,10 +125,20 @@ function addPoint(
  *  three points from the per-feature buffer the renderer actually uploads. */
 function capturedRadiusSlots(
   ctx: GPUContext,
-  show: { fill?: string | null; stroke?: string | null; size?: number | null; opacity?: number; sizeExpr?: { ast?: unknown } | null },
+  show: {
+    fill?: string | null
+    stroke?: string | null
+    size?: number | null
+    opacity?: number
+    sizeExpr?: { ast?: unknown } | null
+  },
   featureProps: Map<number, Record<string, unknown>> | null,
 ): number[] {
-  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
+  const renderer = new PointRenderer({
+    device: ctx.device,
+    format: ctx.format,
+    rhi: new WebGpuDevice(ctx.device),
+  })
 
   const camera = new Camera(LON, LAT, ZOOM)
   camera.projType = 0
@@ -127,17 +157,32 @@ function capturedRadiusSlots(
   const device = ctx.device as unknown as {
     queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer) => void }
   }
-  device.queue.writeBuffer = (buf: unknown, _off: number, data: ArrayBufferView | ArrayBuffer): void => {
+  device.queue.writeBuffer = (
+    buf: unknown,
+    _off: number,
+    data: ArrayBufferView | ArrayBuffer,
+  ): void => {
     if ((buf as { size?: number })?.size !== FEAT_BYTES) return
-    const f32 = data instanceof ArrayBuffer
-      ? new Float32Array(data)
-      : new Float32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset, totalN * STRIDE)
-    slots = [f32[0 * STRIDE + RADIUS_SLOT], f32[1 * STRIDE + RADIUS_SLOT], f32[2 * STRIDE + RADIUS_SLOT]]
+    const f32 =
+      data instanceof ArrayBuffer
+        ? new Float32Array(data)
+        : new Float32Array(
+            (data as ArrayBufferView).buffer,
+            (data as ArrayBufferView).byteOffset,
+            totalN * STRIDE,
+          )
+    slots = [
+      f32[0 * STRIDE + RADIUS_SLOT],
+      f32[1 * STRIDE + RADIUS_SLOT],
+      f32[2 * STRIDE + RADIUS_SLOT],
+    ]
   }
 
-  const encoder = (ctx.device as unknown as {
-    createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
-  }).createCommandEncoder()
+  const encoder = (
+    ctx.device as unknown as {
+      createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
+    }
+  ).createCommandEncoder()
   const pass = encoder.beginRenderPass()
   renderer.flushTilePoints(pass, camera, 0, LON, LAT, W, H, show, 1)
 

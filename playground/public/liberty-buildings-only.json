@@ -27,7 +27,15 @@
       "maxzoom": 14,
       "paint": {
         "fill-color": "hsl(35,8%,85%)",
-        "fill-outline-color": ["interpolate", ["linear"], ["zoom"], 13, "hsla(35,6%,79%,0.32)", 14, "hsl(35,6%,79%)"]
+        "fill-outline-color": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          13,
+          "hsla(35,6%,79%,0.32)",
+          14,
+          "hsl(35,6%,79%)"
+        ]
       }
     },
     {

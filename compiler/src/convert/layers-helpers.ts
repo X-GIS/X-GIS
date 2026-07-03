@@ -35,10 +35,7 @@ import { exprToXgis, filterToXgis } from './expressions'
 // FIRST: an omitted/no-filter value returns null here (no filter line);
 // only a genuinely-authored predicate that filterToXgis can't lower
 // reaches the fail-closed `filter: false`.
-export function filterLineOrFailClosed(
-  filter: unknown,
-  warnings: string[],
-): string | null {
+export function filterLineOrFailClosed(filter: unknown, warnings: string[]): string | null {
   // No filter authored (bare or wrapped null) → accept all (no line).
   if (isOmittedValue(filter)) return null
   const f = filterToXgis(filter, warnings)
@@ -76,19 +73,33 @@ export function unwrapLiteralScalar(v: unknown): unknown {
   // existing behaviour on tuple wrappers (those route through
   // unwrapLiteralTuple) while letting wrapped-null bubble down so
   // downstream `!== null` gates fire as Mapbox-spec intends.
-  while (Array.isArray(v) && v.length === 2 && v[0] === 'literal'
-      && (typeof v[1] === 'number' || typeof v[1] === 'string'
-          || typeof v[1] === 'boolean' || v[1] === null)) {
+  while (
+    Array.isArray(v) &&
+    v.length === 2 &&
+    v[0] === 'literal' &&
+    (typeof v[1] === 'number' ||
+      typeof v[1] === 'string' ||
+      typeof v[1] === 'boolean' ||
+      v[1] === null)
+  ) {
     v = v[1]
   }
   // Handle the mixed case: `["literal", ["literal", 16]]` where the
   // outer's inner is itself a literal-array wrapper (which the scalar
   // gate above rejected). Peel once more if the inner is a 2-elt
   // literal whose payload is scalar. Loop bounded by structural depth.
-  while (Array.isArray(v) && v.length === 2 && v[0] === 'literal'
-      && Array.isArray(v[1]) && v[1].length === 2 && v[1][0] === 'literal'
-      && (typeof v[1][1] === 'number' || typeof v[1][1] === 'string'
-          || typeof v[1][1] === 'boolean' || v[1][1] === null)) {
+  while (
+    Array.isArray(v) &&
+    v.length === 2 &&
+    v[0] === 'literal' &&
+    Array.isArray(v[1]) &&
+    v[1].length === 2 &&
+    v[1][0] === 'literal' &&
+    (typeof v[1][1] === 'number' ||
+      typeof v[1][1] === 'string' ||
+      typeof v[1][1] === 'boolean' ||
+      v[1][1] === null)
+  ) {
     v = v[1][1]
   }
   return v
@@ -131,7 +142,7 @@ export function applyAlphaMultiplier(colorStr: string, opacity: number | null): 
   } else {
     return colorStr
   }
-  if ([r, g, b, a].some(v => !Number.isFinite(v))) return colorStr
+  if ([r, g, b, a].some((v) => !Number.isFinite(v))) return colorStr
   const aOut = Math.max(0, Math.min(255, Math.round(a * opacity)))
   const hh = (n: number): string => n.toString(16).padStart(2, '0')
   return `#${hh(r)}${hh(g)}${hh(b)}${hh(aOut)}`
@@ -142,15 +153,22 @@ export function applyAlphaMultiplier(colorStr: string, opacity: number | null): 
 // Shared between the static text-anchor / text-variable-anchor blocks
 // and the text-variable-anchor-offset offset block in convertSymbolLayer.
 export const VALID_ANCHORS = new Set([
-  'center', 'top', 'bottom', 'left', 'right',
-  'top-left', 'top-right', 'bottom-left', 'bottom-right',
+  'center',
+  'top',
+  'bottom',
+  'left',
+  'right',
+  'top-left',
+  'top-right',
+  'bottom-left',
+  'bottom-right',
 ])
 
 /** Format a signed number for a utility-name segment. Negative values
  *  use the bracket binding form `[<n>]` because the utility-name grammar
  *  treats `-` as a segment separator — emitting `label-offset-y--0.2`
  *  would lex as a malformed double-dash name. */
-export const fmtSigned = (n: number): string => n < 0 ? `[${n}]` : `${n}`
+export const fmtSigned = (n: number): string => (n < 0 ? `[${n}]` : `${n}`)
 
 // Per-element v8 literal-wrap unwrap so a double-wrap shape like
 // `["literal", [["literal", 0], ["literal", -1.5]]]` resolves to
@@ -159,7 +177,7 @@ export const fmtSigned = (n: number): string => n < 0 ? `[${n}]` : `${n}`
 // gate failed and the offset silently dropped.
 export const unwrapPairScalars = (t: unknown): unknown[] | null => {
   if (!Array.isArray(t) || t.length !== 2) return null
-  return t.map(c => {
+  return t.map((c) => {
     while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
     return c
   })
@@ -199,22 +217,30 @@ export function isOmittedValue(v: unknown): boolean {
  *  trailing token first; the two-word forms ("Extra Bold", "Semi
  *  Bold") get collapsed in `parseMapboxFontName` before lookup. */
 const FONT_WEIGHT_KEYWORDS: Record<string, number> = {
-  Thin: 100, Hairline: 100,
-  ExtraLight: 200, UltraLight: 200,
+  Thin: 100,
+  Hairline: 100,
+  ExtraLight: 200,
+  UltraLight: 200,
   Light: 300,
   // Roman = PostScript / Adobe Type 1 convention for the regular weight
   // (e.g. "Times Roman"). Without this, the parser left "Roman" as
   // part of the family name and the browser failed to match a font.
-  Regular: 400, Normal: 400, Book: 400, Roman: 400,
+  Regular: 400,
+  Normal: 400,
+  Book: 400,
+  Roman: 400,
   Medium: 500,
-  SemiBold: 600, DemiBold: 600,
+  SemiBold: 600,
+  DemiBold: 600,
   Bold: 700,
-  ExtraBold: 800, UltraBold: 800,
+  ExtraBold: 800,
+  UltraBold: 800,
   // CSS / OpenType convention: Heavy and Black both map to weight
   // 900 (the heaviest standard tier). Pre-fix Heavy was 800, which
   // matched no real foundry's naming — fonts shipped as "Roboto
   // Heavy" rendered one tier lighter than the author intended.
-  Black: 900, Heavy: 900,
+  Black: 900,
+  Heavy: 900,
 }
 const FONT_STYLE_KEYWORDS = new Set(['Italic', 'Oblique'])
 
@@ -251,7 +277,7 @@ export function parseMapboxFontName(name: string): {
   for (const k of Object.keys(FONT_WEIGHT_KEYWORDS)) {
     weightKeysByLower[k.toLowerCase()] = FONT_WEIGHT_KEYWORDS[k]!
   }
-  const styleKeysLower = new Set([...FONT_STYLE_KEYWORDS].map(s => s.toLowerCase()))
+  const styleKeysLower = new Set([...FONT_STYLE_KEYWORDS].map((s) => s.toLowerCase()))
   // Loop until neither end matches — handles "Bold Italic" and
   // "Italic Bold" without ordering assumptions. Two-word weight
   // forms ("Semi Bold", "Extra Bold") are checked BEFORE the
@@ -346,7 +372,9 @@ export function textFieldToXgisExpr(field: unknown, warnings: string[]): string 
       // turns into a raw `.name` lookup at runtime (template parser
       // accepts the raw key form).
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
-        warnings.push(`text-field token "{${name}}" — colon-bearing locale variants fall back to "name". Use a base "{name}" for cross-style portability.`)
+        warnings.push(
+          `text-field token "{${name}}" — colon-bearing locale variants fall back to "name". Use a base "{name}" for cross-style portability.`,
+        )
         return '.name'
       }
       return `.${name}`
@@ -368,8 +396,9 @@ export function textFieldToXgisExpr(field: unknown, warnings: string[]): string 
   // become real FieldAccess returns that the step() resolves to the
   // actual property value at evaluation time.
   if (
-    field !== null && typeof field === 'object'
-    && Array.isArray((field as { stops?: unknown }).stops)
+    field !== null &&
+    typeof field === 'object' &&
+    Array.isArray((field as { stops?: unknown }).stops)
   ) {
     const stops = (field as { stops: unknown[] }).stops
     if (stops.length < 1) return null
@@ -409,7 +438,11 @@ export function textFieldToXgisExpr(field: unknown, warnings: string[]): string 
  *  of following the road. */
 export function parseSymbolPlacementStep(
   layer: MapboxLayer,
-): Array<{ minzoom?: number; maxzoom?: number; placement: 'point' | 'line' | 'line-center' }> | null {
+): Array<{
+  minzoom?: number
+  maxzoom?: number
+  placement: 'point' | 'line' | 'line-center'
+}> | null {
   const layout = safePropsBag((layer as { layout?: unknown }).layout)
   const sp = layout['symbol-placement']
   if (!Array.isArray(sp) || sp[0] !== 'step') return null
@@ -442,7 +475,11 @@ export function parseSymbolPlacementStep(
     if (typeof z !== 'number' || !isValidPlacement(v)) return null
     breakpoints.push({ zoom: z, placement: v })
   }
-  const segments: Array<{ minzoom?: number; maxzoom?: number; placement: 'point' | 'line' | 'line-center' }> = []
+  const segments: Array<{
+    minzoom?: number
+    maxzoom?: number
+    placement: 'point' | 'line' | 'line-center'
+  }> = []
   // Pre-step segment.
   segments.push({ maxzoom: breakpoints[0]!.zoom, placement: defaultVal })
   for (let i = 0; i < breakpoints.length; i++) {

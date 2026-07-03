@@ -44,10 +44,13 @@ describe('unsupported op warnings — specific not generic', () => {
     it(`["${op}", …] → specific warning, returns null`, () => {
       const { result, warnings } = convert([op, ...args])
       expect(result).toBeNull()
-      const matched = warnings.find(w => w.includes(`["${op}"]`) && w.includes(expectMessage))
-      expect(matched, `expected warning matching "${expectMessage}" but got: ${JSON.stringify(warnings)}`).toBeDefined()
+      const matched = warnings.find((w) => w.includes(`["${op}"]`) && w.includes(expectMessage))
+      expect(
+        matched,
+        `expected warning matching "${expectMessage}" but got: ${JSON.stringify(warnings)}`,
+      ).toBeDefined()
       // Must NOT fall through to the generic catch-all
-      expect(warnings.some(w => w.startsWith('Expression not converted'))).toBe(false)
+      expect(warnings.some((w) => w.startsWith('Expression not converted'))).toBe(false)
     })
   }
 

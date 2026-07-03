@@ -22,9 +22,9 @@ const SHADER_SRC = emitPolygonWgsl(null, false)
 describe('vertex attribute-layout consistency (spec ↔ WGSL @location)', () => {
   it('polygon fill spec is PR 2f quantized ECEF + true_lat (stride 28: uint16x4 + uint16x2 + 4×f32)', () => {
     expect(POLYGON_FILL_FORMAT.stride).toBe(28)
-    expect(POLYGON_FILL_FORMAT.fields.map(f => [f.location, f.offset, f.vbFormat])).toEqual([
-      [0,  0, 'uint16x4'],
-      [1,  8, 'uint16x2'],
+    expect(POLYGON_FILL_FORMAT.fields.map((f) => [f.location, f.offset, f.vbFormat])).toEqual([
+      [0, 0, 'uint16x4'],
+      [1, 8, 'uint16x2'],
       [2, 12, 'float32'],
       [3, 16, 'float32'],
       [4, 20, 'float32'],
@@ -35,9 +35,9 @@ describe('vertex attribute-layout consistency (spec ↔ WGSL @location)', () => 
 
   it('polygon extruded spec is PR 2f quantized ECEF (stride 44)', () => {
     expect(POLYGON_EXTRUDED_FORMAT.stride).toBe(44)
-    expect(POLYGON_EXTRUDED_FORMAT.fields.map(f => [f.location, f.offset, f.vbFormat])).toEqual([
-      [0,  0, 'uint16x4'],
-      [1,  8, 'uint16x2'],
+    expect(POLYGON_EXTRUDED_FORMAT.fields.map((f) => [f.location, f.offset, f.vbFormat])).toEqual([
+      [0, 0, 'uint16x4'],
+      [1, 8, 'uint16x2'],
       [2, 12, 'float32'],
       [3, 16, 'float32'],
       [4, 20, 'float32'],
@@ -50,8 +50,8 @@ describe('vertex attribute-layout consistency (spec ↔ WGSL @location)', () => 
 
   it('line spec is ECEF-DSFUN (stride 36: pos_h f32x3 + pos_l f32x3 + 3×f32)', () => {
     expect(LINE_FORMAT.stride).toBe(36)
-    expect(LINE_FORMAT.fields.map(f => [f.location, f.offset, f.vbFormat])).toEqual([
-      [0,  0, 'float32x3'],
+    expect(LINE_FORMAT.fields.map((f) => [f.location, f.offset, f.vbFormat])).toEqual([
+      [0, 0, 'float32x3'],
       [1, 12, 'float32x3'],
       [2, 24, 'float32'],
       [3, 28, 'float32'],
@@ -65,7 +65,9 @@ describe('vertex attribute-layout consistency (spec ↔ WGSL @location)', () => 
   })
 
   it('polygon extruded spec ↔ vs_main_ecef_extruded WGSL @location types match exactly', () => {
-    expect(specShaderMismatches(POLYGON_EXTRUDED_FORMAT, SHADER_SRC, 'vs_main_ecef_extruded')).toEqual([])
+    expect(
+      specShaderMismatches(POLYGON_EXTRUDED_FORMAT, SHADER_SRC, 'vs_main_ecef_extruded'),
+    ).toEqual([])
   })
 
   it('line spec ↔ vs_main WGSL @location types match exactly', () => {

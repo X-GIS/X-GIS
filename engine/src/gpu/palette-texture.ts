@@ -174,10 +174,10 @@ function f32ToHalf(val: number): number {
   const sign = (bits >>> 16) & 0x8000
   const exp = (bits >>> 23) & 0xff
   const mant = bits & 0x7fffff
-  if (exp === 0) return sign   // zero / subnormal → zero
+  if (exp === 0) return sign // zero / subnormal → zero
   const newExp = exp - 127 + 15
-  if (newExp >= 31) return sign | 0x7c00   // overflow → ±Infinity
-  if (newExp <= 0) return sign             // underflow → zero
+  if (newExp >= 31) return sign | 0x7c00 // overflow → ±Infinity
+  if (newExp <= 0) return sign // underflow → zero
   return sign | (newExp << 10) | (mant >>> 13)
 }
 
@@ -229,7 +229,9 @@ export function packPalette(palette: Palette): PackedPalette {
   // Uint16Array for rgba16float — 4 half-floats per texel × GRADIENT_WIDTH
   // texels per row. Each row offset is `i * GRADIENT_WIDTH * 4` u16 slots.
   const colorGradientBytes = new Uint16Array(Math.max(colorGradientCount, 1) * GRADIENT_WIDTH * 4)
-  const colorGradientMeta = new Float32Array(Math.max(colorGradientCount, 1) * GRADIENT_META_STRIDE_F32)
+  const colorGradientMeta = new Float32Array(
+    Math.max(colorGradientCount, 1) * GRADIENT_META_STRIDE_F32,
+  )
   for (let i = 0; i < colorGradientCount; i++) {
     const g = palette.colorGradients[i]!
     bakeColorGradient(g, colorGradientBytes, i * GRADIENT_WIDTH * 4)
@@ -242,7 +244,9 @@ export function packPalette(palette: Palette): PackedPalette {
 
   const scalarGradientCount = palette.scalarGradients.length
   const scalarGradientF32 = new Float32Array(Math.max(scalarGradientCount, 1) * GRADIENT_WIDTH)
-  const scalarGradientMeta = new Float32Array(Math.max(scalarGradientCount, 1) * GRADIENT_META_STRIDE_F32)
+  const scalarGradientMeta = new Float32Array(
+    Math.max(scalarGradientCount, 1) * GRADIENT_META_STRIDE_F32,
+  )
   for (let i = 0; i < scalarGradientCount; i++) {
     const g = palette.scalarGradients[i]!
     bakeScalarGradient(g, scalarGradientF32, i * GRADIENT_WIDTH)
@@ -254,11 +258,16 @@ export function packPalette(palette: Palette): PackedPalette {
   }
 
   return {
-    colorBytes, colorCount,
-    scalarF32, scalarCount,
-    colorGradientBytes, colorGradientCount,
-    scalarGradientF32, scalarGradientCount,
-    colorGradientMeta, scalarGradientMeta,
+    colorBytes,
+    colorCount,
+    scalarF32,
+    scalarCount,
+    colorGradientBytes,
+    colorGradientCount,
+    scalarGradientF32,
+    scalarGradientCount,
+    colorGradientMeta,
+    scalarGradientMeta,
   }
 }
 
@@ -323,8 +332,10 @@ export function uploadPalette(device: GPUDevice, packed: PackedPalette): Palette
   // float32-filterable feature flag). Bind-group layout's
   // `sampleType: 'float'` covers both rgba8unorm + rgba16float.
   const colorGradientAtlas = make2D(
-    GRADIENT_WIDTH, Math.max(packed.colorGradientCount, 1),
-    'rgba16float', 'palette-color-gradient',
+    GRADIENT_WIDTH,
+    Math.max(packed.colorGradientCount, 1),
+    'rgba16float',
+    'palette-color-gradient',
   )
   if (packed.colorGradientCount > 0) {
     device.queue.writeTexture(
@@ -336,8 +347,10 @@ export function uploadPalette(device: GPUDevice, packed: PackedPalette): Palette
   }
 
   const scalarGradientAtlas = make2D(
-    GRADIENT_WIDTH, Math.max(packed.scalarGradientCount, 1),
-    'r32float', 'palette-scalar-gradient',
+    GRADIENT_WIDTH,
+    Math.max(packed.scalarGradientCount, 1),
+    'r32float',
+    'palette-scalar-gradient',
   )
   if (packed.scalarGradientCount > 0) {
     device.queue.writeTexture(
@@ -349,7 +362,10 @@ export function uploadPalette(device: GPUDevice, packed: PackedPalette): Palette
   }
 
   return {
-    colorPalette, scalarPalette, colorGradientAtlas, scalarGradientAtlas,
+    colorPalette,
+    scalarPalette,
+    colorGradientAtlas,
+    scalarGradientAtlas,
     counts: {
       colors: packed.colorCount,
       scalars: packed.scalarCount,

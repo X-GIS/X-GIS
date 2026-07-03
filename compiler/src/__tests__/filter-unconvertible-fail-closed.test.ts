@@ -41,25 +41,42 @@ function assertFailClosed(out: string | null): void {
   // The bug shape: a layer block is emitted with no filter line.
   const failOpen = emitsLayerBlock && !isMatchNothing && !/\bfilter:/.test(code)
   expect(failOpen, `fail-OPEN: layer renders ALL features (no filter line)\n${code}`).toBe(false)
-  expect(isMatchNothing || isSkipped, `expected fail-closed (filter:false or SKIPPED)\n${code}`).toBe(true)
+  expect(
+    isMatchNothing || isSkipped,
+    `expected fail-closed (filter:false or SKIPPED)\n${code}`,
+  ).toBe(true)
 }
 
 describe('unconvertible filter fails closed (not open)', () => {
   it('fill layer with ["feature-state"] filter → filter: false (match nothing), NOT filter-less', () => {
     const warnings: string[] = []
     const out = convertLayer(
-      { id: 'water', type: 'fill', source: 'osm', 'source-layer': 'water', filter: UNCONVERTIBLE, paint: { 'fill-color': '#00f' } } as never,
+      {
+        id: 'water',
+        type: 'fill',
+        source: 'osm',
+        'source-layer': 'water',
+        filter: UNCONVERTIBLE,
+        paint: { 'fill-color': '#00f' },
+      } as never,
       warnings,
     )
     assertFailClosed(out)
     // filterToXgis's own "not supported" warning still surfaces the loss.
-    expect(warnings.some(w => /feature-state/i.test(w))).toBe(true)
+    expect(warnings.some((w) => /feature-state/i.test(w))).toBe(true)
   })
 
   it('circle layer with unconvertible filter → fail closed', () => {
     const warnings: string[] = []
     const out = convertLayer(
-      { id: 'pts', type: 'circle', source: 'osm', 'source-layer': 'poi', filter: UNCONVERTIBLE, paint: { 'circle-color': '#00f' } } as never,
+      {
+        id: 'pts',
+        type: 'circle',
+        source: 'osm',
+        'source-layer': 'poi',
+        filter: UNCONVERTIBLE,
+        paint: { 'circle-color': '#00f' },
+      } as never,
       warnings,
     )
     assertFailClosed(out)
@@ -68,7 +85,14 @@ describe('unconvertible filter fails closed (not open)', () => {
   it('symbol layer with unconvertible filter → fail closed', () => {
     const warnings: string[] = []
     const out = convertLayer(
-      { id: 'lbl', type: 'symbol', source: 'osm', 'source-layer': 'place', filter: UNCONVERTIBLE, layout: { 'text-field': '{name}' } } as never,
+      {
+        id: 'lbl',
+        type: 'symbol',
+        source: 'osm',
+        'source-layer': 'place',
+        filter: UNCONVERTIBLE,
+        layout: { 'text-field': '{name}' },
+      } as never,
       warnings,
     )
     assertFailClosed(out)
@@ -77,7 +101,13 @@ describe('unconvertible filter fails closed (not open)', () => {
   it('heatmap layer with unconvertible filter → fail closed', () => {
     const warnings: string[] = []
     const out = convertLayer(
-      { id: 'hm', type: 'heatmap', source: 'osm', 'source-layer': 'poi', filter: UNCONVERTIBLE } as never,
+      {
+        id: 'hm',
+        type: 'heatmap',
+        source: 'osm',
+        'source-layer': 'poi',
+        filter: UNCONVERTIBLE,
+      } as never,
       warnings,
     )
     assertFailClosed(out)
@@ -86,7 +116,14 @@ describe('unconvertible filter fails closed (not open)', () => {
   it('regression: a CONVERTIBLE filter still emits its lowered form (not false)', () => {
     const warnings: string[] = []
     const out = convertLayer(
-      { id: 'lakes', type: 'fill', source: 'osm', 'source-layer': 'water', filter: ['==', ['get', 'class'], 'lake'], paint: { 'fill-color': '#00f' } } as never,
+      {
+        id: 'lakes',
+        type: 'fill',
+        source: 'osm',
+        'source-layer': 'water',
+        filter: ['==', ['get', 'class'], 'lake'],
+        paint: { 'fill-color': '#00f' },
+      } as never,
       warnings,
     )
     expect(out).toContain('filter: .class == "lake"')
@@ -96,7 +133,13 @@ describe('unconvertible filter fails closed (not open)', () => {
   it('regression: a layer with NO filter authored emits no filter line', () => {
     const warnings: string[] = []
     const out = convertLayer(
-      { id: 'plain', type: 'fill', source: 'osm', 'source-layer': 'water', paint: { 'fill-color': '#00f' } } as never,
+      {
+        id: 'plain',
+        type: 'fill',
+        source: 'osm',
+        'source-layer': 'water',
+        paint: { 'fill-color': '#00f' },
+      } as never,
       warnings,
     )
     expect(out).not.toContain('filter:')
@@ -108,7 +151,14 @@ describe('unconvertible filter fails closed (not open)', () => {
     // intentional, spec-faithful "no filter").
     const warnings: string[] = []
     const out = convertLayer(
-      { id: 'all', type: 'fill', source: 'osm', 'source-layer': 'water', filter: ['literal', null] as unknown, paint: { 'fill-color': '#00f' } } as never,
+      {
+        id: 'all',
+        type: 'fill',
+        source: 'osm',
+        'source-layer': 'water',
+        filter: ['literal', null] as unknown,
+        paint: { 'fill-color': '#00f' },
+      } as never,
       warnings,
     )
     expect(out).not.toContain('filter:')

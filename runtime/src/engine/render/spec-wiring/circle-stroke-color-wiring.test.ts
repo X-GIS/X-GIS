@@ -32,13 +32,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<GPUContext> {
   const canvas = { width: 1024, height: 768 } as unknown as HTMLCanvasElement
@@ -79,18 +84,30 @@ function captureFeatData(ctx: GPUContext): Float32Array | undefined {
     queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer) => void }
   }
   const orig = device.queue.writeBuffer
-  device.queue.writeBuffer = (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer): void => {
+  device.queue.writeBuffer = (
+    buf: unknown,
+    off: number,
+    data: ArrayBufferView | ArrayBuffer,
+  ): void => {
     if ((buf as { size?: number })?.size === N * STRIDE * 4) {
-      const f32 = data instanceof ArrayBuffer
-        ? new Float32Array(data)
-        : new Float32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset,
-            (data as ArrayBufferView).byteLength / 4)
+      const f32 =
+        data instanceof ArrayBuffer
+          ? new Float32Array(data)
+          : new Float32Array(
+              (data as ArrayBufferView).buffer,
+              (data as ArrayBufferView).byteOffset,
+              (data as ArrayBufferView).byteLength / 4,
+            )
       feat = f32.slice(0, N * STRIDE)
     }
     orig.call(device.queue, buf, off, data)
   }
 
-  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
+  const renderer = new PointRenderer({
+    device: ctx.device,
+    format: ctx.format,
+    rhi: new WebGpuDevice(ctx.device),
+  })
   // Positional: features, fill, stroke, strokeWidth, radiusPx, opacity, …
   renderer.addLayer(FEATURES as never, FILL, STROKE, STROKE_WIDTH, RADIUS, OPACITY)
   return feat
@@ -114,20 +131,34 @@ describe('circle-stroke-color stroke-RGB wiring (GPU-free)', () => {
     const ctx = await makeCtx()
     let feat: Float32Array | undefined
     const device = ctx.device as unknown as {
-      queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer) => void }
+      queue: {
+        writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer) => void
+      }
     }
     const orig = device.queue.writeBuffer
-    device.queue.writeBuffer = (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer): void => {
+    device.queue.writeBuffer = (
+      buf: unknown,
+      off: number,
+      data: ArrayBufferView | ArrayBuffer,
+    ): void => {
       if ((buf as { size?: number })?.size === N * STRIDE * 4) {
-        const f32 = data instanceof ArrayBuffer
-          ? new Float32Array(data)
-          : new Float32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset,
-              (data as ArrayBufferView).byteLength / 4)
+        const f32 =
+          data instanceof ArrayBuffer
+            ? new Float32Array(data)
+            : new Float32Array(
+                (data as ArrayBufferView).buffer,
+                (data as ArrayBufferView).byteOffset,
+                (data as ArrayBufferView).byteLength / 4,
+              )
         feat = f32.slice(0, N * STRIDE)
       }
       orig.call(device.queue, buf, off, data)
     }
-    const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
+    const renderer = new PointRenderer({
+      device: ctx.device,
+      format: ctx.format,
+      rhi: new WebGpuDevice(ctx.device),
+    })
     renderer.addLayer(FEATURES as never, FILL, null, STROKE_WIDTH, RADIUS, OPACITY)
     expect(feat, 'point-features feat_data buffer should have been written').toBeTruthy()
     for (let i = 0; i < N; i++) {

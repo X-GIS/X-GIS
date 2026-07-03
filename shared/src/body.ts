@@ -106,7 +106,9 @@ export const MARS_IAU2000: Body = makeBody('mars-iau2000', 3396190, 1 / 169.8)
 // It DEFAULTS to EARTH, so an unconfigured process renders Earth with zero
 // setup — the byte-identical guarantee.
 type BodyModuleState = { active: Body }
-const _state: BodyModuleState = ((globalThis as unknown as { __XGIS_BODY__?: BodyModuleState }).__XGIS_BODY__ ??= { active: EARTH })
+const _state: BodyModuleState = ((
+  globalThis as unknown as { __XGIS_BODY__?: BodyModuleState }
+).__XGIS_BODY__ ??= { active: EARTH })
 
 /** Set the process-global active body. Construction seam for a non-Earth map. */
 export function configureBody(body: Body): void {

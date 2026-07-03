@@ -33,7 +33,9 @@ describe('#763 D — dual-instance hardening', () => {
     // named-args bag ("undefined is not an object" / silent mis-swizzle class).
     const call = probe(alien)
     expect(call.expr.op).toBe('call')
-    const emitted = emitModule(module({ funcs: { d1: fn('d1', {}, () => probe(foreignNode(f32(1)))) } }))
+    const emitted = emitModule(
+      module({ funcs: { d1: fn('d1', {}, () => probe(foreignNode(f32(1)))) } }),
+    )
     expect(emitted).toContain('d1_probe(1')
   })
 
@@ -45,6 +47,8 @@ describe('#763 D — dual-instance hardening', () => {
     expect(() => module({ funcs: { d4_shared: shared } })).not.toThrow()
     // A DIFFERENT key would mutate the shared decl and corrupt the first
     // module's re-emit — fail loud at assembly time.
-    expect(() => module({ funcs: { d4_other: shared } })).toThrow(/already assembled as 'd4_shared'/)
+    expect(() => module({ funcs: { d4_other: shared } })).toThrow(
+      /already assembled as 'd4_shared'/,
+    )
   })
 })

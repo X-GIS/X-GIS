@@ -13,7 +13,10 @@ describe('Phase-2 log-depth — cpu interpreter ↔ canonical CPU helpers', () =
     for (const far of [1e4, 1e7, 2e10]) {
       const fc = computeLogDepthFc(far)
       for (const w of [1, 100, 1e4, 1e6]) {
-        expect(M.fns.compute_log_frag_depth(w, fc) as number).toBeCloseTo(simulateLogDepthZ(w, far), 9)
+        expect(M.fns.compute_log_frag_depth(w, fc) as number).toBeCloseTo(
+          simulateLogDepthZ(w, far),
+          9,
+        )
       }
     }
   })
@@ -38,6 +41,8 @@ describe('Phase-2 log-depth — WGSL emission', () => {
     expect(LOG_DEPTH_WGSL_FNS).toContain('fn apply_log_depth(pos: vec4<f32>, fc: f32) -> vec4<f32>')
     expect(LOG_DEPTH_WGSL_FNS).toContain('fn compute_log_frag_depth(view_w: f32, fc: f32) -> f32')
     expect(LOG_DEPTH_WGSL_FNS).toContain('log2(')
-    expect((LOG_DEPTH_WGSL_FNS.match(/{/g) ?? []).length).toBe((LOG_DEPTH_WGSL_FNS.match(/}/g) ?? []).length)
+    expect((LOG_DEPTH_WGSL_FNS.match(/{/g) ?? []).length).toBe(
+      (LOG_DEPTH_WGSL_FNS.match(/}/g) ?? []).length,
+    )
   })
 })

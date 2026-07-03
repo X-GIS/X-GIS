@@ -41,18 +41,18 @@ const BASELINES: BaselineDoc = JSON.parse(
 ) as BaselineDoc
 
 interface Preset {
-  fixture: string  // style id in compare-runner.ts STYLES catalogue
-  name: string     // human label for the camera framing
-  hash: string     // #z/lat/lon[/bearing/pitch] — applied via URL fragment
+  fixture: string // style id in compare-runner.ts STYLES catalogue
+  name: string // human label for the camera framing
+  hash: string // #z/lat/lon[/bearing/pitch] — applied via URL fragment
 }
 
 const PRESETS: Preset[] = [
-  { fixture: 'maplibre-demotiles',   name: 'world',     hash: '#1/0/0' },
-  { fixture: 'openfreemap-bright',   name: 'world',     hash: '#2/20/0' },
-  { fixture: 'openfreemap-bright',   name: 'tokyo',     hash: '#12/35.68/139.76' },
-  { fixture: 'openfreemap-bright',   name: 'manhattan', hash: '#14/40.78/-73.97/0/45' },
-  { fixture: 'openfreemap-liberty',  name: 'tokyo',     hash: '#12/35.68/139.76' },
-  { fixture: 'openfreemap-positron', name: 'world',     hash: '#2/20/0' },
+  { fixture: 'maplibre-demotiles', name: 'world', hash: '#1/0/0' },
+  { fixture: 'openfreemap-bright', name: 'world', hash: '#2/20/0' },
+  { fixture: 'openfreemap-bright', name: 'tokyo', hash: '#12/35.68/139.76' },
+  { fixture: 'openfreemap-bright', name: 'manhattan', hash: '#14/40.78/-73.97/0/45' },
+  { fixture: 'openfreemap-liberty', name: 'tokyo', hash: '#12/35.68/139.76' },
+  { fixture: 'openfreemap-positron', name: 'world', hash: '#2/20/0' },
 ]
 
 interface PresetMetric extends Preset {
@@ -89,10 +89,11 @@ for (const preset of PRESETS) {
     })
     // Wait for both engines to signal ready (mount complete).
     await page.waitForFunction(
-      () => (window as unknown as { __xgisReady?: boolean; __mlReady?: boolean })
-        .__xgisReady === true
-        && (window as unknown as { __mlReady?: boolean }).__mlReady === true,
-      null, { timeout: 60_000 },
+      () =>
+        (window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }).__xgisReady ===
+          true && (window as unknown as { __mlReady?: boolean }).__mlReady === true,
+      null,
+      { timeout: 60_000 },
     )
     // Wait for BOTH engines to reach a steady render state. The
     // previous `waitForTimeout(6_000)` was the source of the ~20 %
@@ -104,39 +105,53 @@ for (const preset of PRESETS) {
     //     + no fade are pending.
     //   - X-GIS has no direct event; we proxy by polling tile-cache
     //     size for 500 ms of no change.
-    await page.evaluate(() => new Promise<void>((resolve) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ml = (window as any).__mlMap
-      if (!ml) { resolve(); return }
-      // Already idle? loaded() === true means there's nothing in-flight.
-      if (ml.loaded()) { resolve(); return }
-      ml.once('idle', () => resolve())
-      // Hard cap so a misbehaving style doesn't hang the whole spec.
-      setTimeout(resolve, 30_000)
-    }))
-    await page.waitForFunction(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const map = (window as any).__xgisMap
-      if (!map?.vtSources) return true  // no VT sources → nothing to settle
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const w = window as any
-      let total = 0
-      for (const entry of map.vtSources.values()) {
-        total += entry.renderer?.getCacheSize?.() ?? 0
-      }
-      const prev = w.__xgisParityCacheSnapshot ?? -1
-      w.__xgisParityCacheSnapshot = total
-      if (prev !== total) {
-        w.__xgisParityCacheStableSince = Date.now()
-        return false
-      }
-      const stableMs = Date.now() - (w.__xgisParityCacheStableSince ?? Date.now())
-      return stableMs >= 500
-    }, null, { timeout: 30_000, polling: 100 })
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const ml = (window as any).__mlMap
+          if (!ml) {
+            resolve()
+            return
+          }
+          // Already idle? loaded() === true means there's nothing in-flight.
+          if (ml.loaded()) {
+            resolve()
+            return
+          }
+          ml.once('idle', () => resolve())
+          // Hard cap so a misbehaving style doesn't hang the whole spec.
+          setTimeout(resolve, 30_000)
+        }),
+    )
+    await page.waitForFunction(
+      () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const map = (window as any).__xgisMap
+        if (!map?.vtSources) return true // no VT sources → nothing to settle
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const w = window as any
+        let total = 0
+        for (const entry of map.vtSources.values()) {
+          total += entry.renderer?.getCacheSize?.() ?? 0
+        }
+        const prev = w.__xgisParityCacheSnapshot ?? -1
+        w.__xgisParityCacheSnapshot = total
+        if (prev !== total) {
+          w.__xgisParityCacheStableSince = Date.now()
+          return false
+        }
+        const stableMs = Date.now() - (w.__xgisParityCacheStableSince ?? Date.now())
+        return stableMs >= 500
+      },
+      null,
+      { timeout: 30_000, polling: 100 },
+    )
     // Belt-and-suspenders frame settle — one rAF round to let the
     // last drained-tile upload's render call commit to the swap chain.
-    await page.evaluate(() => new Promise<void>(r =>
-      requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+    await page.evaluate(
+      () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+    )
 
     // Capture + diff + retry-on-catastrophe. Roughly 1 in 30 cold
     // mounts EITHER canvas comes up blank (X-GIS WebGPU init race
@@ -162,7 +177,13 @@ for (const preset of PRESETS) {
       return out
     }
     const captureAndDiff = async (): Promise<{
-      diff: PNG; diffPixels: number; diffRatio: number; w: number; h: number; mlNorm: PNG; xgNorm: PNG
+      diff: PNG
+      diffPixels: number
+      diffRatio: number
+      w: number
+      h: number
+      mlNorm: PNG
+      xgNorm: PNG
     }> => {
       const mlPng = await page.locator('#ml-map canvas').first().screenshot()
       const xgPng = await page.locator('#xg-canv').screenshot()
@@ -173,8 +194,10 @@ for (const preset of PRESETS) {
       const mlNorm = ml.width === w && ml.height === h ? ml : cropped(ml, w, h)
       const xgNorm = xg.width === w && xg.height === h ? xg : cropped(xg, w, h)
       const d = new PNG({ width: w, height: h })
-      const px = pixelmatch(mlNorm.data, xgNorm.data, d.data, w, h,
-        { threshold: 0.15, includeAA: false })
+      const px = pixelmatch(mlNorm.data, xgNorm.data, d.data, w, h, {
+        threshold: 0.15,
+        includeAA: false,
+      })
       return { diff: d, diffPixels: px, diffRatio: px / (w * h), w, h, mlNorm, xgNorm }
     }
     // Catastrophe = first capture diff exceeds 2× the gate ceiling.
@@ -183,10 +206,10 @@ for (const preset of PRESETS) {
     // fully rendered = 70 %+ diff is the typical pattern). The
     // baseline + headroom together give a per-preset "expected
     // good" upper bound, so 2× of that is the natural cutoff.
-    const baselineForRetry = BASELINES.presets[`${preset.fixture}__${preset.name.replace(/[^a-z0-9]+/gi, '-')}`]
-    const catastropheCeiling = baselineForRetry !== undefined
-      ? baselineForRetry * BASELINES._headroom * 2
-      : 0.30  // no baseline registered → 30 % absolute
+    const baselineForRetry =
+      BASELINES.presets[`${preset.fixture}__${preset.name.replace(/[^a-z0-9]+/gi, '-')}`]
+    const catastropheCeiling =
+      baselineForRetry !== undefined ? baselineForRetry * BASELINES._headroom * 2 : 0.3 // no baseline registered → 30 % absolute
     let result = await captureAndDiff()
     // Two retries — empirically each retry recovers about half the
     // catastrophes (one 74 % → 8.8 %, but the other 69 % → 19 % which
@@ -195,11 +218,13 @@ for (const preset of PRESETS) {
       // eslint-disable-next-line no-console
       console.log(
         `[parity] ${preset.fixture}__${preset.name} catastrophic ` +
-        `(${(result.diffRatio * 100).toFixed(1)} %, attempt ${attempt}/2) — retry after 15 s`,
+          `(${(result.diffRatio * 100).toFixed(1)} %, attempt ${attempt}/2) — retry after 15 s`,
       )
       await page.waitForTimeout(15_000)
-      await page.evaluate(() => new Promise<void>(r =>
-        requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+      await page.evaluate(
+        () =>
+          new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+      )
       result = await captureAndDiff()
     }
     const { diff, diffPixels, diffRatio, w, h, mlNorm, xgNorm } = result
@@ -213,8 +238,10 @@ for (const preset of PRESETS) {
 
     const metric: PresetMetric = {
       ...preset,
-      width: w, height: h,
-      diffPixels, diffRatio,
+      width: w,
+      height: h,
+      diffPixels,
+      diffRatio,
       threshold: 0.15,
       durationMs: Date.now() - t0,
       timestamp: new Date().toISOString(),
@@ -223,12 +250,14 @@ for (const preset of PRESETS) {
     metrics.push(metric)
 
     // eslint-disable-next-line no-console
-    console.log(`[parity] ${slug}  ${w}×${h}  ` +
-      `diffPixels=${diffPixels}  diffRatio=${(diffRatio * 100).toFixed(2)}%  ` +
-      `consoleErrors=${consoleErrors.length}`)
+    console.log(
+      `[parity] ${slug}  ${w}×${h}  ` +
+        `diffPixels=${diffPixels}  diffRatio=${(diffRatio * 100).toFixed(2)}%  ` +
+        `consoleErrors=${consoleErrors.length}`,
+    )
     if (consoleErrors.length > 0) {
       // eslint-disable-next-line no-console
-      console.log(`[parity] ${slug} errors:\n` + consoleErrors.map(e => '  - ' + e).join('\n'))
+      console.log(`[parity] ${slug} errors:\n` + consoleErrors.map((e) => '  - ' + e).join('\n'))
     }
 
     // Hard gate. Diff ratio must stay below the per-preset baseline
@@ -241,10 +270,10 @@ for (const preset of PRESETS) {
       expect(
         diffRatio,
         `${slug} diffRatio=${(diffRatio * 100).toFixed(2)}% exceeded ` +
-        `baseline ${(baseline * 100).toFixed(2)}% × headroom ${BASELINES._headroom} ` +
-        `(=${(ceiling * 100).toFixed(2)}%). Investigate the diff PNG at ` +
-        `__style-parity-diff__/${slug}/diff.png. If the regression is intentional ` +
-        `update BASELINES.json with a note explaining what changed.`,
+          `baseline ${(baseline * 100).toFixed(2)}% × headroom ${BASELINES._headroom} ` +
+          `(=${(ceiling * 100).toFixed(2)}%). Investigate the diff PNG at ` +
+          `__style-parity-diff__/${slug}/diff.png. If the regression is intentional ` +
+          `update BASELINES.json with a note explaining what changed.`,
       ).toBeLessThanOrEqual(ceiling)
     }
   })
@@ -263,7 +292,9 @@ test.afterAll(() => {
   lines.push('| Fixture | Preset | Size | Diff pixels | Diff ratio |')
   lines.push('|---|---|---:|---:|---:|')
   for (const m of metrics) {
-    lines.push(`| ${m.fixture} | ${m.name} | ${m.width}×${m.height} | ${m.diffPixels} | ${(m.diffRatio * 100).toFixed(2)}% |`)
+    lines.push(
+      `| ${m.fixture} | ${m.name} | ${m.width}×${m.height} | ${m.diffPixels} | ${(m.diffRatio * 100).toFixed(2)}% |`,
+    )
   }
   lines.push('')
   lines.push('Soft-gated — diffs include the expected symbol-layer gap.')

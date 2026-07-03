@@ -13,23 +13,35 @@ import {
 describe('buildComputeOutputBindingDecl', () => {
   it('builds the fill binding decl with the right group/binding indices', () => {
     const decl = buildComputeOutputBindingDecl({
-      paintAxis: 'fill', bindGroup: 3, binding: 5,
+      paintAxis: 'fill',
+      bindGroup: 3,
+      binding: 5,
     })
     expect(decl).toMatchObject({
-      group: 3, binding: 5, name: 'compute_out_fill', space: 'storage', access: 'read',
+      group: 3,
+      binding: 5,
+      name: 'compute_out_fill',
+      space: 'storage',
+      access: 'read',
     })
   })
 
   it('builds the stroke binding decl with a distinct variable name', () => {
     const decl = buildComputeOutputBindingDecl({
-      paintAxis: 'stroke-color', bindGroup: 3, binding: 6,
+      paintAxis: 'stroke-color',
+      bindGroup: 3,
+      binding: 6,
     })
     expect(decl).toMatchObject({ group: 3, binding: 6, name: 'compute_out_stroke' })
   })
 
   it('fill and stroke variable names differ (so both can coexist)', () => {
     const fill = buildComputeOutputBindingDecl({ paintAxis: 'fill', bindGroup: 0, binding: 0 })
-    const stroke = buildComputeOutputBindingDecl({ paintAxis: 'stroke-color', bindGroup: 0, binding: 1 })
+    const stroke = buildComputeOutputBindingDecl({
+      paintAxis: 'stroke-color',
+      bindGroup: 0,
+      binding: 1,
+    })
     expect(fill.name).toBe('compute_out_fill')
     expect(stroke.name).toBe('compute_out_stroke')
     expect(fill.name).not.toBe(stroke.name)
@@ -51,10 +63,7 @@ describe('emitComputeOutputReadExpr', () => {
     // WGSL-defined to return vec4<f32>, so this test is documentation
     // — confirming the caller can assign `out.color = expr;` without
     // type coercion.
-    const expr = emitComputeOutputReadExpr(
-      { paintAxis: 'fill', bindGroup: 0, binding: 0 },
-      'fid',
-    )
+    const expr = emitComputeOutputReadExpr({ paintAxis: 'fill', bindGroup: 0, binding: 0 }, 'fid')
     expect(expr.startsWith('unpack4x8unorm(')).toBe(true)
     expect(expr.endsWith(')')).toBe(true)
   })
@@ -79,17 +88,21 @@ describe('emitComputeOutputReadExpr', () => {
 describe('makeComputeOutputBindGroupEntry', () => {
   it('returns binding + read-only-storage + FRAGMENT visibility', () => {
     const spec: ComputeOutputBindingSpec = {
-      paintAxis: 'fill', bindGroup: 3, binding: 5,
+      paintAxis: 'fill',
+      bindGroup: 3,
+      binding: 5,
     }
     const entry = makeComputeOutputBindGroupEntry(spec)
     expect(entry.binding).toBe(5)
     expect(entry.buffer.type).toBe('read-only-storage')
-    expect(entry.visibility).toBe(2)  // GPUShaderStage.FRAGMENT bit
+    expect(entry.visibility).toBe(2) // GPUShaderStage.FRAGMENT bit
   })
 
   it('accepts caller-provided visibility bit for typed environments', () => {
     const spec: ComputeOutputBindingSpec = {
-      paintAxis: 'stroke-color', bindGroup: 0, binding: 0,
+      paintAxis: 'stroke-color',
+      bindGroup: 0,
+      binding: 0,
     }
     // Real GPUShaderStage.FRAGMENT is 2; some test mocks pass 999.
     const entry = makeComputeOutputBindGroupEntry(spec, 999)
@@ -98,7 +111,9 @@ describe('makeComputeOutputBindGroupEntry', () => {
 
   it('does NOT carry the bindGroup (layout describes a single group, group is the layout itself)', () => {
     const spec: ComputeOutputBindingSpec = {
-      paintAxis: 'fill', bindGroup: 3, binding: 5,
+      paintAxis: 'fill',
+      bindGroup: 3,
+      binding: 5,
     }
     const entry = makeComputeOutputBindGroupEntry(spec)
     expect(entry).not.toHaveProperty('bindGroup')
@@ -110,7 +125,9 @@ describe('makeComputeOutputBindGroupEntry', () => {
 describe('cross-helper consistency (WGSL decl ↔ read expr ↔ runtime entry)', () => {
   it('binding number in the WGSL decl matches the runtime entry', () => {
     const spec: ComputeOutputBindingSpec = {
-      paintAxis: 'fill', bindGroup: 2, binding: 7,
+      paintAxis: 'fill',
+      bindGroup: 2,
+      binding: 7,
     }
     const decl = buildComputeOutputBindingDecl(spec)
     const entry = makeComputeOutputBindGroupEntry(spec)
@@ -121,7 +138,9 @@ describe('cross-helper consistency (WGSL decl ↔ read expr ↔ runtime entry)',
 
   it('var name in the decl matches the var name in the read expr', () => {
     const spec: ComputeOutputBindingSpec = {
-      paintAxis: 'fill', bindGroup: 0, binding: 0,
+      paintAxis: 'fill',
+      bindGroup: 0,
+      binding: 0,
     }
     const decl = buildComputeOutputBindingDecl(spec)
     const expr = emitComputeOutputReadExpr(spec, 'fid')
@@ -133,7 +152,9 @@ describe('cross-helper consistency (WGSL decl ↔ read expr ↔ runtime entry)',
 
   it('stroke spec uses compute_out_stroke in both decl and expr', () => {
     const spec: ComputeOutputBindingSpec = {
-      paintAxis: 'stroke-color', bindGroup: 0, binding: 0,
+      paintAxis: 'stroke-color',
+      bindGroup: 0,
+      binding: 0,
     }
     expect(buildComputeOutputBindingDecl(spec).name).toBe('compute_out_stroke')
     expect(emitComputeOutputReadExpr(spec, 'fid')).toContain('compute_out_stroke')

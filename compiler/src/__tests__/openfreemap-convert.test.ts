@@ -54,7 +54,9 @@ describe('OpenFreeMap Bright → xgis full pipeline', () => {
       const tokens = new Lexer(xgis).tokenize()
       const ast = new Parser(tokens).parse()
       lower(ast)
-    } catch (e) { err = e as Error }
+    } catch (e) {
+      err = e as Error
+    }
 
     if (err) {
       // Surface a snippet of the xgis around the failure point so

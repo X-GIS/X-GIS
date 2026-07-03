@@ -24,7 +24,13 @@ describe('zero-arg accessor + number-format arity warnings', () => {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
       layers: [
-        { id: 'l', type: 'fill', source: 's', filter: ['==', ['geometry-type', 1], 'Polygon'], paint: { 'fill-color': '#abc' } },
+        {
+          id: 'l',
+          type: 'fill',
+          source: 's',
+          filter: ['==', ['geometry-type', 1], 'Polygon'],
+          paint: { 'fill-color': '#abc' },
+        },
       ],
     }
     const code = convertMapboxStyle(style as never)
@@ -36,7 +42,13 @@ describe('zero-arg accessor + number-format arity warnings', () => {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
       layers: [
-        { id: 'l', type: 'fill', source: 's', filter: ['==', ['id', 1], 1], paint: { 'fill-color': '#abc' } },
+        {
+          id: 'l',
+          type: 'fill',
+          source: 's',
+          filter: ['==', ['id', 1], 1],
+          paint: { 'fill-color': '#abc' },
+        },
       ],
     }
     const code = convertMapboxStyle(style as never)

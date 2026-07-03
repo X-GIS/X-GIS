@@ -24,10 +24,7 @@ describe('expressions multi-level literal-wrap sweep', () => {
 
   it('["in", get, ["literal", [["literal", ["literal", "a"]]]]] still emits == "a"', () => {
     const w: string[] = []
-    const out = exprToXgis(
-      ['in', ['get', 'kind'], ['literal', [['literal', ['literal', 'a']]]]],
-      w,
-    )
+    const out = exprToXgis(['in', ['get', 'kind'], ['literal', [['literal', ['literal', 'a']]]]], w)
     expect(out).toContain('"a"')
     expect(out).not.toContain('"literal"')
   })
@@ -36,10 +33,7 @@ describe('expressions multi-level literal-wrap sweep', () => {
     // Complex input forces matchToTernary path.
     const w: string[] = []
     const out = exprToXgis(
-      ['match', ['concat', ['get', 'a'], ['get', 'b']],
-        ['literal', ['literal', 'x']], 1,
-        0,
-      ],
+      ['match', ['concat', ['get', 'a'], ['get', 'b']], ['literal', ['literal', 'x']], 1, 0],
       w,
     )
     expect(out).toContain('== "x"')
@@ -49,8 +43,11 @@ describe('expressions multi-level literal-wrap sweep', () => {
   it('matchToBooleanFilter handles double-wrapped boolean values', () => {
     const w: string[] = []
     const out = filterToXgis(
-      ['match', ['get', 'class'],
-        'park', ['literal', ['literal', true]],
+      [
+        'match',
+        ['get', 'class'],
+        'park',
+        ['literal', ['literal', true]],
         ['literal', ['literal', false]],
       ],
       w,
@@ -61,7 +58,8 @@ describe('expressions multi-level literal-wrap sweep', () => {
   it('rgb with double-wrapped channels still hex-encodes at convert time', () => {
     const w: string[] = []
     const out = exprToXgis(
-      ['rgb',
+      [
+        'rgb',
         ['literal', ['literal', 255]],
         ['literal', ['literal', 128]],
         ['literal', ['literal', 64]],

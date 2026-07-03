@@ -26,10 +26,22 @@ import { dirname, join } from 'node:path'
 import { convertMapboxStyle } from '@xgis/compiler'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const OFM_BRIGHT = JSON.parse(readFileSync(
-  join(HERE, '..', '..', '..', 'compiler', 'src', '__tests__', 'fixtures', 'openfreemap-bright.json'),
-  'utf8',
-))
+const OFM_BRIGHT = JSON.parse(
+  readFileSync(
+    join(
+      HERE,
+      '..',
+      '..',
+      '..',
+      'compiler',
+      'src',
+      '__tests__',
+      'fixtures',
+      'openfreemap-bright.json',
+    ),
+    'utf8',
+  ),
+)
 
 interface LabelTrace {
   layerName: string
@@ -47,13 +59,18 @@ test('OFM Bright @ zoom=0.5/lon=175 — labels do not cluster at antimeridian', 
   const xgisSource = convertMapboxStyle(OFM_BRIGHT, { warn: () => {} })
   const b64 = Buffer.from(xgisSource, 'utf8').toString('base64')
 
-  await page.goto(`/demo.html?id=__import&label=OFM+Bright#src=${b64}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/demo.html?id=__import&label=OFM+Bright#src=${b64}`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // Now position the camera at the antimeridian repro location.
-  await page.evaluate(() => { location.hash = '#0.5/24.58/175.54' })
+  await page.evaluate(() => {
+    location.hash = '#0.5/24.58/175.54'
+  })
   await page.waitForTimeout(15_000)
 
   const trace = await page.evaluate(async () => {
@@ -63,8 +80,8 @@ test('OFM Bright @ zoom=0.5/lon=175 — labels do not cluster at antimeridian', 
     const c = map.getCamera()
     c.zoom = c.zoom + 0.0001
     map.invalidate?.()
-    await new Promise<void>(r => requestAnimationFrame(() => r()))
-    await new Promise<void>(r => requestAnimationFrame(() => r()))
+    await new Promise<void>((r) => requestAnimationFrame(() => r()))
+    await new Promise<void>((r) => requestAnimationFrame(() => r()))
     return await map.captureNextFrameTrace()
   })
   expect(trace, 'expected trace from __xgisMap.captureNextFrameTrace()').toBeTruthy()
@@ -78,9 +95,12 @@ test('OFM Bright @ zoom=0.5/lon=175 — labels do not cluster at antimeridian', 
   // Filter to on-screen labels. The trace records every addLabel
   // submission including off-canvas anchors (collision-checked later);
   // only ON-screen clusters are visible bugs.
-  const onScreen = labels.filter(l =>
-    l.anchorScreenX >= 0 && l.anchorScreenX <= viewportW
-    && l.anchorScreenY >= 0 && l.anchorScreenY <= viewportH,
+  const onScreen = labels.filter(
+    (l) =>
+      l.anchorScreenX >= 0 &&
+      l.anchorScreenX <= viewportW &&
+      l.anchorScreenY >= 0 &&
+      l.anchorScreenY <= viewportH,
   )
 
   // Histogram labels by rounded x. A regression would pile dozens of
@@ -93,7 +113,10 @@ test('OFM Bright @ zoom=0.5/lon=175 — labels do not cluster at antimeridian', 
   for (const l of onScreen) {
     const bucket = Math.round(l.anchorScreenX / BUCKET_PX) * BUCKET_PX
     let set = histogram.get(bucket)
-    if (!set) { set = new Set(); histogram.set(bucket, set) }
+    if (!set) {
+      set = new Set()
+      histogram.set(bucket, set)
+    }
     set.add(l.text)
   }
   // Find the largest bucket and dump it for diagnosis.
@@ -108,7 +131,9 @@ test('OFM Bright @ zoom=0.5/lon=175 — labels do not cluster at antimeridian', 
     }
   }
   // eslint-disable-next-line no-console
-  console.log(`[antimeridian-cluster] worst bucket x≈${worstBucket}px holds ${worstSize} distinct labels`)
+  console.log(
+    `[antimeridian-cluster] worst bucket x≈${worstBucket}px holds ${worstSize} distinct labels`,
+  )
   if (worstSize > 3) {
     // eslint-disable-next-line no-console
     console.log(`[antimeridian-cluster] sample: ${worstSamples.join(' / ')}`)
@@ -116,9 +141,10 @@ test('OFM Bright @ zoom=0.5/lon=175 — labels do not cluster at antimeridian', 
   // 3 distinct labels in a single 5-px column is the soft ceiling. The
   // antimeridian regression piled 10+ on one column; under a healthy
   // pipeline you'd see at most 1-2 even for stacked ocean labels.
-  expect(worstSize,
+  expect(
+    worstSize,
     `Too many distinct labels share screen x≈${worstBucket}px ` +
-    `(>${worstSize}). Likely regression of the antimeridian wrap-copy ` +
-    `fix in vector-tile-renderer.ts forEachLabelFeature (commit 7df23d0).`,
+      `(>${worstSize}). Likely regression of the antimeridian wrap-copy ` +
+      `fix in vector-tile-renderer.ts forEachLabelFeature (commit 7df23d0).`,
   ).toBeLessThanOrEqual(3)
 })

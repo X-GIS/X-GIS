@@ -7,7 +7,6 @@
 // the wall would occlude it).
 export const EXTRUDE_FALLBACK_HEIGHT_M = 50
 
-
 //
 // Pure functions extracted from vector-tile-renderer's upload path.
 // Pulled out so the math is unit-testable independent of GPU state:
@@ -87,18 +86,18 @@ export interface WallMeshExtrudedECEF {
 // the vs_main_ecef_extruded @location attributes (cross-checked in
 // vertex-layout-consistency.test.ts). All offsets are 4-byte aligned, so
 // byte offset / 4 == f32 slot index.
-const STRIDE_FLOATS = POLYGON_EXTRUDED_FORMAT.stride / 4              // 11
-const EXT_FID_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'feature_id').offset / 4   // 3
-const EXT_LON_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'abs_lon').offset / 4      // 4
-const EXT_LAT_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'abs_lat').offset / 4      // 5
+const STRIDE_FLOATS = POLYGON_EXTRUDED_FORMAT.stride / 4 // 11
+const EXT_FID_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'feature_id').offset / 4 // 3
+const EXT_LON_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'abs_lon').offset / 4 // 4
+const EXT_LAT_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'abs_lat').offset / 4 // 5
 const EXT_FNORMAL_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'face_normal').offset / 4 // 6 (x,y,z = 6,7,8)
-const EXT_WALLH_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'wall_height').offset / 4   // 9
-const EXT_ISTOP_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'is_top').offset / 4        // 10
+const EXT_WALLH_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'wall_height').offset / 4 // 9
+const EXT_ISTOP_FLOAT = vertexField(POLYGON_EXTRUDED_FORMAT, 'is_top').offset / 4 // 10
 const RAD2DEG_LOCAL = 180 / Math.PI
-const EARTH_RADIUS_LOCAL = EARTH.sphereR  // WGS84 semi-major axis; used ONLY for the
-                                    // Mercator longitude inverse (mx/A, basis-
-                                    // independent). The ECEF POSITION is ellipsoid
-                                    // via lonLatToECEF.
+const EARTH_RADIUS_LOCAL = EARTH.sphereR // WGS84 semi-major axis; used ONLY for the
+// Mercator longitude inverse (mx/A, basis-
+// independent). The ECEF POSITION is ellipsoid
+// via lonLatToECEF.
 
 /** Build the ECEF extruded wall + roof mesh for a set of polygon
  *  features. Each feature emits:
@@ -194,18 +193,22 @@ export function generateWallMeshExtrudedECEF(
     const outerLen = outer.length
     // Strip the closing duplicate if present (earcut handles either, but
     // strips give cleaner triangulation in pathological cases).
-    const outerEnd = (outerLen >= 2 && outer[0][0] === outer[outerLen - 1][0] && outer[0][1] === outer[outerLen - 1][1])
-      ? outerLen - 1
-      : outerLen
+    const outerEnd =
+      outerLen >= 2 &&
+      outer[0][0] === outer[outerLen - 1][0] &&
+      outer[0][1] === outer[outerLen - 1][1]
+        ? outerLen - 1
+        : outerLen
     for (let i = 0; i < outerEnd; i++) flat.push(outer[i][0], outer[i][1])
     for (let r = 1; r < rings.length; r++) {
       const hole = rings[r]
       const holeLen = hole.length
       if (holeLen < 3) continue
       holeIdx.push(flat.length / 2)
-      const holeEnd = (holeLen >= 2 && hole[0][0] === hole[holeLen - 1][0] && hole[0][1] === hole[holeLen - 1][1])
-        ? holeLen - 1
-        : holeLen
+      const holeEnd =
+        holeLen >= 2 && hole[0][0] === hole[holeLen - 1][0] && hole[0][1] === hole[holeLen - 1][1]
+          ? holeLen - 1
+          : holeLen
       for (let i = 0; i < holeEnd; i++) flat.push(hole[i][0], hole[i][1])
     }
     const tris = earcut(flat, holeIdx.length > 0 ? holeIdx : undefined)
@@ -224,17 +227,21 @@ export function generateWallMeshExtrudedECEF(
     // Count unique roof vertices (outer + holes, no closing duplicate).
     const outer = rings[0]
     const outerLen = outer.length
-    const outerEnd = (outerLen >= 2 && outer[0][0] === outer[outerLen - 1][0] && outer[0][1] === outer[outerLen - 1][1])
-      ? outerLen - 1
-      : outerLen
+    const outerEnd =
+      outerLen >= 2 &&
+      outer[0][0] === outer[outerLen - 1][0] &&
+      outer[0][1] === outer[outerLen - 1][1]
+        ? outerLen - 1
+        : outerLen
     roofVertCount += outerEnd
     for (let r = 1; r < rings.length; r++) {
       const hole = rings[r]
       const holeLen = hole.length
       if (holeLen < 3) continue
-      const holeEnd = (holeLen >= 2 && hole[0][0] === hole[holeLen - 1][0] && hole[0][1] === hole[holeLen - 1][1])
-        ? holeLen - 1
-        : holeLen
+      const holeEnd =
+        holeLen >= 2 && hole[0][0] === hole[holeLen - 1][0] && hole[0][1] === hole[holeLen - 1][1]
+          ? holeLen - 1
+          : holeLen
       roofVertCount += holeEnd
     }
   }
@@ -259,9 +266,13 @@ export function generateWallMeshExtrudedECEF(
   // detection that may need them.
   const writeVertex = (
     vIdx: number,
-    mx: number, my: number, height: number,
+    mx: number,
+    my: number,
+    height: number,
     fid: number,
-    fnX: number, fnY: number, fnZ: number,
+    fnX: number,
+    fnY: number,
+    fnZ: number,
     wallHeight: number,
     isTop: number,
   ): void => {
@@ -274,7 +285,9 @@ export function generateWallMeshExtrudedECEF(
     const ay = ecef[1] - tileEcefCenter[1]
     const az = ecef[2] - tileEcefCenter[2]
     const r = vIdx * 3
-    resid[r] = ax; resid[r + 1] = ay; resid[r + 2] = az
+    resid[r] = ax
+    resid[r + 1] = ay
+    resid[r + 2] = az
     const m = Math.max(Math.abs(ax), Math.abs(ay), Math.abs(az))
     if (m > maxAbs) maxAbs = m
     // f32 tail (position u16 lanes are written in the quantize pass below).
@@ -282,7 +295,7 @@ export function generateWallMeshExtrudedECEF(
     vertices[o + EXT_FID_FLOAT] = fid
     vertices[o + EXT_LON_FLOAT] = lonDeg
     vertices[o + EXT_LAT_FLOAT] = latDeg
-    vertices[o + EXT_FNORMAL_FLOAT]     = fnX
+    vertices[o + EXT_FNORMAL_FLOAT] = fnX
     vertices[o + EXT_FNORMAL_FLOAT + 1] = fnY
     vertices[o + EXT_FNORMAL_FLOAT + 2] = fnZ
     vertices[o + EXT_WALLH_FLOAT] = wallHeight
@@ -317,8 +330,10 @@ export function generateWallMeshExtrudedECEF(
         const j = (i + 1) % len
         const aIdx = ccw ? i : j
         const bIdx = ccw ? j : i
-        const ax = ring[aIdx][0], ay = ring[aIdx][1]
-        const bx = ring[bIdx][0], by = ring[bIdx][1]
+        const ax = ring[aIdx][0],
+          ay = ring[aIdx][1]
+        const bx = ring[bIdx][0],
+          by = ring[bIdx][1]
 
         // Outward ECEF face_normal: rotate the edge tangent by -90° in
         // the local ENU East-North plane at the edge midpoint, then
@@ -357,9 +372,9 @@ export function generateWallMeshExtrudedECEF(
         // ENU → ECEF: v_ecef = e * East + n * North + u * Up,
         // with basis vectors (see `ecefToENURotation` comment).
         // u_component is 0 (purely horizontal outward normal).
-        const fnX = enuE * (-sLon)        + enuN * (-sLat * cLon)
-        const fnY = enuE * ( cLon)        + enuN * (-sLat * sLon)
-        const fnZ = /* enuE * 0 */          enuN * ( cLat)
+        const fnX = enuE * -sLon + enuN * (-sLat * cLon)
+        const fnY = enuE * cLon + enuN * (-sLat * sLon)
+        const fnZ = /* enuE * 0 */ enuN * cLat
 
         const baseV = vIdx
         // a_bot (is_top = 0, height = base b)
@@ -397,9 +412,12 @@ export function generateWallMeshExtrudedECEF(
     const roofBaseV = vIdx
     const outer = rings[0]
     const outerLen = outer.length
-    const outerEnd = (outerLen >= 2 && outer[0][0] === outer[outerLen - 1][0] && outer[0][1] === outer[outerLen - 1][1])
-      ? outerLen - 1
-      : outerLen
+    const outerEnd =
+      outerLen >= 2 &&
+      outer[0][0] === outer[outerLen - 1][0] &&
+      outer[0][1] === outer[outerLen - 1][1]
+        ? outerLen - 1
+        : outerLen
     const writeRoofVert = (mx: number, my: number): void => {
       // Roof face_normal = SPHERE-radial up at (lon, lat): an intentional
       // LIGHTING approximation that ignores the ellipsoid's normal deflection
@@ -422,9 +440,10 @@ export function generateWallMeshExtrudedECEF(
       const hole = rings[r]
       const holeLen = hole.length
       if (holeLen < 3) continue
-      const holeEnd = (holeLen >= 2 && hole[0][0] === hole[holeLen - 1][0] && hole[0][1] === hole[holeLen - 1][1])
-        ? holeLen - 1
-        : holeLen
+      const holeEnd =
+        holeLen >= 2 && hole[0][0] === hole[holeLen - 1][0] && hole[0][1] === hole[holeLen - 1][1]
+          ? holeLen - 1
+          : holeLen
       for (let i = 0; i < holeEnd; i++) writeRoofVert(hole[i][0], hole[i][1])
     }
     // Append roof triangle indices, offset by roofBaseV.
@@ -446,18 +465,18 @@ export function generateWallMeshExtrudedECEF(
   // epsilon (R1/R2). Encode each axis to 32-bit fixed point, split hi/lo.
   const dequantHalf = maxAbs + 1e-6
   const span = 2 * dequantHalf
-  const dequantScale = span / 0xFFFFFFFF
-  const invSpan = 0xFFFFFFFF / span
+  const dequantScale = span / 0xffffffff
+  const invSpan = 0xffffffff / span
   const u16 = new Uint16Array(vertices.buffer)
   for (let v = 0; v < finalVertCount; v++) {
     const r = v * 3
-    const lane = v * STRIDE_FLOATS * 2  // 2 u16 per f32 slot; pos = first 6 lanes
+    const lane = v * STRIDE_FLOATS * 2 // 2 u16 per f32 slot; pos = first 6 lanes
     for (let axis = 0; axis < 3; axis++) {
       let q = Math.round((resid[r + axis]! + dequantHalf) * invSpan)
       if (q < 0) q = 0
-      else if (q > 0xFFFFFFFF) q = 0xFFFFFFFF
-      u16[lane + axis * 2]     = (q >>> 16) & 0xFFFF
-      u16[lane + axis * 2 + 1] = q & 0xFFFF
+      else if (q > 0xffffffff) q = 0xffffffff
+      u16[lane + axis * 2] = (q >>> 16) & 0xffff
+      u16[lane + axis * 2 + 1] = q & 0xffff
     }
   }
 

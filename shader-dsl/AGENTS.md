@@ -4,6 +4,7 @@
 # shader-dsl (`@xgis/shader-dsl`)
 
 ## Purpose
+
 A zero-dependency TypeScript shader DSL that eliminates hand-maintained GPU/CPU drift. A shader is authored
 ONCE as a typed node graph (the IR); three backends then emit it over ONE shared tree-walk — a **WGSL**
 writer (the production strings for `device.createShaderModule`), a **GLSL ES 3.00** writer (real for
@@ -16,21 +17,24 @@ ceremony-free (TSL-grade): plain `const x = expr`, method ops + `.assign()`, `fn
 type, familiar `If`/`Switch` — see **`AUTHORING.md`** for the full guide.
 
 ## Key Files
-| File | Description |
-|------|-------------|
-| `package.json` | `@xgis/shader-dsl`, ESM, zero runtime deps; `main`/`exports` point at `src/index.ts` (source-only package — consumers type-resolve the TS directly). |
-| `tsconfig.json` | Standalone TS project (extends the repo base); `tsc --build shader-dsl/tsconfig.json` is the canonical typecheck for this package. |
-| `AUTHORING.md` | **The developer authoring guide** — `fn(name, params, body)` (ret inferred), `const x = expr` + auto-var, `.assign()`, contextual literal lift, `If`/`Switch`/combinators, the SoT helpers (`ioStruct`/`storageBuffer`/`structDecl`), typed const + fn handles. Start here before writing a shader. |
-| `src/index.ts` | The public barrel — the ONLY import surface for consumers outside this package. Re-exports the finished shader graphs + the emit entry points; `core/` is private and never imported directly. |
+
+| File            | Description                                                                                                                                                                                                                                                                                         |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `package.json`  | `@xgis/shader-dsl`, ESM, zero runtime deps; `main`/`exports` point at `src/index.ts` (source-only package — consumers type-resolve the TS directly).                                                                                                                                                |
+| `tsconfig.json` | Standalone TS project (extends the repo base); `tsc --build shader-dsl/tsconfig.json` is the canonical typecheck for this package.                                                                                                                                                                  |
+| `AUTHORING.md`  | **The developer authoring guide** — `fn(name, params, body)` (ret inferred), `const x = expr` + auto-var, `.assign()`, contextual literal lift, `If`/`Switch`/combinators, the SoT helpers (`ioStruct`/`storageBuffer`/`structDecl`), typed const + fn handles. Start here before writing a shader. |
+| `src/index.ts`  | The public barrel — the ONLY import surface for consumers outside this package. Re-exports the finished shader graphs + the emit entry points; `core/` is private and never imported directly.                                                                                                      |
 
 ## Subdirectories
-| Directory | Purpose |
-|-----------|---------|
-| `src/` | All source: `core/` (IR, the neutral emitter + backend contract, the pass pipeline, the SoT layer — private) and `shaders/` (concrete shader graphs). (see `src/AGENTS.md`) |
+
+| Directory | Purpose                                                                                                                                                                     |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/`    | All source: `core/` (IR, the neutral emitter + backend contract, the pass pipeline, the SoT layer — private) and `shaders/` (concrete shader graphs). (see `src/AGENTS.md`) |
 
 ## For AI Agents
 
 ### Working In This Directory
+
 - **Read `AUTHORING.md` first** — the API is intentionally ceremony-free and several older patterns are gone
   (`Var`/`Let` names, `.field()`/`.of()`/`.get()`, `entryFn`/`computeFn`, `callFn('name')`, `constRef('PI')`,
   explicit `fn()` ret tokens, free `assign()`). Use the current form or you reintroduce removed ceremony.
@@ -40,6 +44,7 @@ type, familiar `If`/`Switch` — see **`AUTHORING.md`** for the full guide.
 - `core/` is private; never widen the public barrel to export it.
 
 ### Testing Requirements
+
 - `node node_modules/typescript/bin/tsc --build shader-dsl/tsconfig.json` (canonical typecheck — NOT `npx tsc`).
 - `npx vitest run --root .` (the shader-dsl specs run as part of the repo suite; expect ~6654–6657 pass,
   `merc-perf-p95` is a known local-only flake).
@@ -47,6 +52,7 @@ type, familiar `If`/`Switch` — see **`AUTHORING.md`** for the full guide.
   when a GENUINE emit change is intended.
 
 ### Common Patterns
+
 - One IR, three backends, one tree-walk — any new emit feature must be added to the shared walk, not a single
   backend, or the CPU oracle / GLSL writer drift.
 - The auto-var pass relies on Expr OBJECT IDENTITY; it runs on ALL THREE backends — never skip it on a new one.
@@ -59,11 +65,13 @@ type, familiar `If`/`Switch` — see **`AUTHORING.md`** for the full guide.
 ## Dependencies
 
 ### Internal
+
 - Consumed by `runtime/src/engine/shaders/` and `compiler/` (projection/line/polygon/point/raster/text/compute).
 - The projection spec list (projType order, globe flag, cull thresholds) is INJECTED by the host via
   `configureProjections()` — this package keeps ZERO outbound dependency (future standalone repo).
 
 ### External
+
 - None at runtime (zero-dep by design). Dev-only: TypeScript, vitest, `@webgpu/types`.
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

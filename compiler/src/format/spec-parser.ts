@@ -46,9 +46,20 @@ export const GIS_TYPES = new Set(['dms', 'dm', 'mgrs', 'utm', 'bearing'])
 
 /** Single-character Python format types (numeric + string). */
 const SINGLE_CHAR_TYPES = new Set([
-  'd', 'f', 'e', 'E', 'g', 'G', '%', 'n',  // numeric
-  's',                                      // string
-  'b', 'o', 'x', 'X', 'c',                  // ints (rare for labels)
+  'd',
+  'f',
+  'e',
+  'E',
+  'g',
+  'G',
+  '%',
+  'n', // numeric
+  's', // string
+  'b',
+  'o',
+  'x',
+  'X',
+  'c', // ints (rare for labels)
 ])
 
 /** Parse a format spec string. Returns spec + how many input
@@ -110,10 +121,16 @@ export function parseFormatSpec(input: string): ParseResult {
   }
 
   // [#]
-  if (input[i] === '#') { spec.alt = true; i += 1 }
+  if (input[i] === '#') {
+    spec.alt = true
+    i += 1
+  }
 
   // [0]
-  if (input[i] === '0') { spec.zero = true; i += 1 }
+  if (input[i] === '0') {
+    spec.zero = true
+    i += 1
+  }
 
   // [width] — digit run
   let widthStart = i
@@ -160,7 +177,9 @@ export function parseFormatSpec(input: string): ParseResult {
 
 // ─── helpers ──────────────────────────────────────────────────────
 
-function isDigit(c: string): boolean { return c >= '0' && c <= '9' }
+function isDigit(c: string): boolean {
+  return c >= '0' && c <= '9'
+}
 
 function matchGisTypePrefix(s: string): { type: string; length: number } | null {
   for (const t of GIS_TYPES) {

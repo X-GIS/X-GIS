@@ -17,8 +17,16 @@
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
 import {
-  keyOf, isCompound, eachExpr, mapChildren, forEachTopExpr, mapStmtTop,
-  bodyHasRaw, collectLocals, collectMutatedRoots, refsLocal,
+  keyOf,
+  isCompound,
+  eachExpr,
+  mapChildren,
+  forEachTopExpr,
+  mapStmtTop,
+  bodyHasRaw,
+  collectLocals,
+  collectMutatedRoots,
+  refsLocal,
 } from './expr-utils'
 
 // Trivial navigation — a member/swizzle/index chain bottoming out at a leaf
@@ -28,8 +36,17 @@ import {
 function isWorthHoisting(e: Expr): boolean {
   let computes = false
   eachExpr(e, (x) => {
-    if (x.op === 'binop' || x.op === 'unop' || x.op === 'compare' || x.op === 'logical'
-      || x.op === 'call' || x.op === 'construct' || x.op === 'select' || x.op === 'matchExpr') computes = true
+    if (
+      x.op === 'binop' ||
+      x.op === 'unop' ||
+      x.op === 'compare' ||
+      x.op === 'logical' ||
+      x.op === 'call' ||
+      x.op === 'construct' ||
+      x.op === 'select' ||
+      x.op === 'matchExpr'
+    )
+      computes = true
   })
   return computes
 }

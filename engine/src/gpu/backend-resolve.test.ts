@@ -11,8 +11,13 @@ import { resolveBackend, initGPU, FORCE_GL2 } from './gpu'
 
 function fakeCanvas(gl: unknown): HTMLCanvasElement {
   return {
-    width: 8, height: 8, clientWidth: 8, clientHeight: 8,
-    getContext(type: string): unknown { return type === 'webgl2' ? gl : null },
+    width: 8,
+    height: 8,
+    clientWidth: 8,
+    clientHeight: 8,
+    getContext(type: string): unknown {
+      return type === 'webgl2' ? gl : null
+    },
   } as unknown as HTMLCanvasElement
 }
 

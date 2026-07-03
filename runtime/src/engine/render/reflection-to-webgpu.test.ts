@@ -14,7 +14,12 @@ import {
 
 const V = 1 // GPUShaderStage.VERTEX
 const F = 2 // GPUShaderStage.FRAGMENT
-const POINT_VIS: VisibilityMap = new Map([[0, V | F], [1, V | F], [2, F], [3, F]])
+const POINT_VIS: VisibilityMap = new Map([
+  [0, V | F],
+  [1, V | F],
+  [2, F],
+  [3, F],
+])
 
 describe('reflectionToBindGroupLayoutEntries', () => {
   const r = reflect(buildPointModule())
@@ -29,22 +34,35 @@ describe('reflectionToBindGroupLayoutEntries', () => {
   })
 
   it('throws when a binding has no visibility entry', () => {
-    expect(() => reflectionToBindGroupLayoutEntries(r, new Map([[0, V]])))
-      .toThrow(/no visibility for binding 1/)
+    expect(() => reflectionToBindGroupLayoutEntries(r, new Map([[0, V]]))).toThrow(
+      /no visibility for binding 1/,
+    )
   })
 
   it('maps a read_write storage binding to a read-write storage buffer', () => {
     const synthetic: Reflection = {
-      bindGroups: [{
-        group: 0,
-        entries: [
-          { group: 0, binding: 0, name: 'rw', space: 'storage', access: 'read_write', resourceKind: 'storage-buffer' },
-        ],
-      }],
-      uniforms: [], storage: [], entries: [],
+      bindGroups: [
+        {
+          group: 0,
+          entries: [
+            {
+              group: 0,
+              binding: 0,
+              name: 'rw',
+              space: 'storage',
+              access: 'read_write',
+              resourceKind: 'storage-buffer',
+            },
+          ],
+        },
+      ],
+      uniforms: [],
+      storage: [],
+      entries: [],
     }
-    expect(reflectionToBindGroupLayoutEntries(synthetic, new Map([[0, F]])))
-      .toEqual([{ binding: 0, visibility: F, buffer: { type: 'storage' } }])
+    expect(reflectionToBindGroupLayoutEntries(synthetic, new Map([[0, F]]))).toEqual([
+      { binding: 0, visibility: F, buffer: { type: 'storage' } },
+    ])
   })
 })
 
@@ -52,14 +70,20 @@ describe('uniformFieldSlots', () => {
   it('returns the point Uniforms field f32 slots + total slot count', () => {
     const u = uniformFieldSlots(reflect(buildPointModule()), 'Uniforms')
     expect(u.slot).toEqual({
-      mvp: 0, proj_params: 16, viewport: 20, cam_ecef_h: 24, cam_ecef_l: 28, circle_params: 32,
+      mvp: 0,
+      proj_params: 16,
+      viewport: 20,
+      cam_ecef_h: 24,
+      cam_ecef_l: 28,
+      circle_params: 32,
       globe_eye: 36, // #600 — globe(7) eye-horizon cull dir
     })
     expect(u.slots).toBe(40) // #600 — grew 36→40 (globe_eye vec4)
   })
 
   it('throws for an unknown struct name', () => {
-    expect(() => uniformFieldSlots(reflect(buildPointModule()), 'Nope'))
-      .toThrow(/no uniform struct 'Nope'/)
+    expect(() => uniformFieldSlots(reflect(buildPointModule()), 'Nope')).toThrow(
+      /no uniform struct 'Nope'/,
+    )
   })
 })

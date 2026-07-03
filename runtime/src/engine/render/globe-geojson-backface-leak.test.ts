@@ -44,16 +44,30 @@ function lonLatToMerc(lon: number, lat: number): [number, number] {
 
 // CPU port of polygon_cos_c_fragment / line back-face (same as the comprehensive
 // sweep): reconstruct lon/lat from absolute Mercator then call the shared cull.
-function vectorCull(lon: number, lat: number, clon: number, clat: number, eye?: readonly [number, number, number]): number {
+function vectorCull(
+  lon: number,
+  lat: number,
+  clon: number,
+  clat: number,
+  eye?: readonly [number, number, number],
+): number {
   const [mx, my] = lonLatToMerc(lon, lat)
   const absLon = mx / (DEG2RAD * EARTH_R)
   const latRad = 2 * Math.atan(Math.exp(my / EARTH_R)) - Math.PI / 2
   const absLat = latRad / DEG2RAD
-  return needsBackfaceCullWgsl(7, absLon, absLat, clon, clat, globeEyeUniform(eye) as [number, number, number, number])
+  return needsBackfaceCullWgsl(
+    7,
+    absLon,
+    absLat,
+    clon,
+    clat,
+    globeEyeUniform(eye) as [number, number, number, number],
+  )
 }
 
 describe('globe GeoJSON back-face leak — eye-horizon vs centre-hemisphere fallback', () => {
-  const clon = 0, clat = 0
+  const clon = 0,
+    clat = 0
   let eye: readonly [number, number, number]
   // A near-limb point in the OCCLUDED band: kept by the centre-hemisphere
   // fallback (cull >= 0) but culled by the eye-horizon model (cull < 0).
@@ -68,8 +82,8 @@ describe('globe GeoJSON back-face leak — eye-horizon vs centre-hemisphere fall
     occludedBandPoint = (() => {
       for (let lat = -89; lat <= 89; lat += 1) {
         for (let lon = -180; lon < 180; lon += 1) {
-          const kept = vectorCull(lon, lat, clon, clat, undefined)   // fallback (globe_eye=0)
-          const culled = vectorCull(lon, lat, clon, clat, eye)       // eye-horizon (globe_eye written)
+          const kept = vectorCull(lon, lat, clon, clat, undefined) // fallback (globe_eye=0)
+          const culled = vectorCull(lon, lat, clon, clat, eye) // eye-horizon (globe_eye written)
           if (kept >= 0 && culled < 0) return { lon, lat }
         }
       }
@@ -86,11 +100,15 @@ describe('globe GeoJSON back-face leak — eye-horizon vs centre-hemisphere fall
     const { lon, lat } = occludedBandPoint!
     // FAIL-BEFORE: globe_eye unwritten → centre-hemisphere keeps the occluded
     // band fragment (the rendered 뒷면 leak).
-    expect(vectorCull(lon, lat, clon, clat, undefined), 'fail-before: fallback already culled — no leak to fix')
-      .toBeGreaterThanOrEqual(0)
+    expect(
+      vectorCull(lon, lat, clon, clat, undefined),
+      'fail-before: fallback already culled — no leak to fix',
+    ).toBeGreaterThanOrEqual(0)
     // FIX: globe_eye written → eye-horizon culls the occluded band.
-    expect(vectorCull(lon, lat, clon, clat, eye), `occluded band point (${lon},${lat}) not culled by eye-horizon`)
-      .toBeLessThan(0)
+    expect(
+      vectorCull(lon, lat, clon, clat, eye),
+      `occluded band point (${lon},${lat}) not culled by eye-horizon`,
+    ).toBeLessThan(0)
   })
 
   it('genuinely front (centre) geometry still passes under eye-horizon', () => {

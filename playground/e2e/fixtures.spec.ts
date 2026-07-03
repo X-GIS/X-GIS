@@ -1,6 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
 import {
-  captureCanvas, expectColorHistogram, sampleNonBackgroundPixels,
+  captureCanvas,
+  expectColorHistogram,
+  sampleNonBackgroundPixels,
   type ColorBucket,
 } from './helpers/visual'
 import { withValidationCapture, clearValidationErrors } from './helpers/validation'
@@ -43,7 +45,9 @@ async function loadFixture(page: Page, id: string): Promise<void> {
   await clearValidationErrors(page)
   // Two extra rAF ticks to let everything compose into the
   // visible swap chain.
-  await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+  await page.evaluate(
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+  )
 }
 
 /** Helper: run a fixture and assert at least one bucket has a
@@ -75,41 +79,51 @@ const SKY_400: [number, number, number] = [56, 189, 248]
 test.describe('X-GIS fixture: geometry', () => {
   test('point — single SDF point renders red pixels', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_point',
+    await fixtureColorAssert(
+      page,
+      'fixture_point',
       [{ name: 'red', rgb: RED_500, tolerance: 80 }],
-      { red: [0.001, 0.30] },
+      { red: [0.001, 0.3] },
     )
   })
 
   test('line — 2-vertex line renders amber pixels', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_line',
+    await fixtureColorAssert(
+      page,
+      'fixture_line',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 80 }],
-      { amber: [0.001, 0.30] },
+      { amber: [0.001, 0.3] },
     )
   })
 
   test('line_join — sharp turn renders amber + miter geometry intact', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_line_join',
+    await fixtureColorAssert(
+      page,
+      'fixture_line_join',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 80 }],
-      { amber: [0.001, 0.30] },
+      { amber: [0.001, 0.3] },
     )
   })
 
   test('triangle — 3-vertex polygon renders blue fill', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_triangle',
+    await fixtureColorAssert(
+      page,
+      'fixture_triangle',
       [{ name: 'blue', rgb: BLUE_500, tolerance: 80 }],
-      { blue: [0.001, 0.50] },
+      { blue: [0.001, 0.5] },
     )
   })
 
   test('square — 4-vertex tessellation renders emerald fill', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_square',
+    await fixtureColorAssert(
+      page,
+      'fixture_square',
       [{ name: 'emerald', rgb: EMERALD_500, tolerance: 80 }],
-      { emerald: [0.005, 0.60] },
+      { emerald: [0.005, 0.6] },
     )
   })
 })
@@ -119,24 +133,33 @@ test.describe('X-GIS fixture: geometry', () => {
 test.describe('X-GIS fixture: style', () => {
   test('stroke_fill — both fill and stroke colors visible on one layer', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_stroke_fill', [
-      { name: 'blue', rgb: BLUE_500, tolerance: 80 },
-      { name: 'amber', rgb: AMBER_300, tolerance: 80 },
-    ], {
-      blue:  [0.001, 0.50],
-      amber: [0.001, 0.30],
-    })
+    await fixtureColorAssert(
+      page,
+      'fixture_stroke_fill',
+      [
+        { name: 'blue', rgb: BLUE_500, tolerance: 80 },
+        { name: 'amber', rgb: AMBER_300, tolerance: 80 },
+      ],
+      {
+        blue: [0.001, 0.5],
+        amber: [0.001, 0.3],
+      },
+    )
   })
 
   test('dashed_line — dash shader produces amber pixels', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_dashed_line',
+    await fixtureColorAssert(
+      page,
+      'fixture_dashed_line',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 80 }],
-      { amber: [0.001, 0.30] },
+      { amber: [0.001, 0.3] },
     )
   })
 
-  test('translucent_stroke — bucket 2 offscreen path renders without freezing', async ({ page }) => {
+  test('translucent_stroke — bucket 2 offscreen path renders without freezing', async ({
+    page,
+  }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
     // Translucent layer means alpha-blended pixels never match the
     // pure source color exactly. Use non-background sampling: if
@@ -147,26 +170,33 @@ test.describe('X-GIS fixture: style', () => {
       await loadFixture(page, 'fixture_translucent_stroke')
       const png = await captureCanvas(page)
       const differing = await sampleNonBackgroundPixels(
-        page, png,
+        page,
+        png,
         { r: 6, g: 8, b: 12 }, // dark canvas background
-        50,                    // tolerance
-        400,                   // 20x20 sample grid
+        50, // tolerance
+        400, // 20x20 sample grid
       )
-      expect(differing,
-        `translucent_stroke: only ${differing}/400 sampled pixels differ from background — bucket 2 likely broken`)
-        .toBeGreaterThan(2)
+      expect(
+        differing,
+        `translucent_stroke: only ${differing}/400 sampled pixels differ from background — bucket 2 likely broken`,
+      ).toBeGreaterThan(2)
     })
   })
 
   test('multi_layer — top layer renders over bottom layer', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_multi_layer', [
-      { name: 'blue', rgb: BLUE_500, tolerance: 80 },
-      { name: 'rose', rgb: ROSE_500, tolerance: 80 },
-    ], {
-      blue: [0.001, 0.60],
-      rose: [0.001, 0.40],
-    })
+    await fixtureColorAssert(
+      page,
+      'fixture_multi_layer',
+      [
+        { name: 'blue', rgb: BLUE_500, tolerance: 80 },
+        { name: 'rose', rgb: ROSE_500, tolerance: 80 },
+      ],
+      {
+        blue: [0.001, 0.6],
+        rose: [0.001, 0.4],
+      },
+    )
   })
 })
 
@@ -182,18 +212,17 @@ test.describe('X-GIS fixture: animation', () => {
     // at SOME point in the cycle instead of any single frame.
     await withValidationCapture(page, async () => {
       await loadFixture(page, 'fixture_anim_opacity')
-      const buckets: ColorBucket[] = [
-        { name: 'emerald', rgb: EMERALD_500, tolerance: 120 },
-      ]
+      const buckets: ColorBucket[] = [{ name: 'emerald', rgb: EMERALD_500, tolerance: 120 }]
       let maxEmerald = 0
       for (const ms of [100, 400, 800, 1200, 1600, 2000]) {
         const png = await captureCanvas(page, { elapsedMsAtLeast: ms })
         const r = await (await import('./helpers/visual')).colorHistogram(page, png, buckets)
         if (r.emerald > maxEmerald) maxEmerald = r.emerald
       }
-      expect(maxEmerald,
-        `anim_opacity: emerald peak ${(maxEmerald * 100).toFixed(3)}% across 6 samples — fill never reached opacity-100 phase`)
-        .toBeGreaterThan(0.005)
+      expect(
+        maxEmerald,
+        `anim_opacity: emerald peak ${(maxEmerald * 100).toFixed(3)}% across 6 samples — fill never reached opacity-100 phase`,
+      ).toBeGreaterThan(0.005)
     })
   })
 
@@ -211,7 +240,7 @@ test.describe('X-GIS fixture: animation', () => {
       let sawRose = false
       for (const ms of [200, 600, 1000, 1400, 1800, 2200, 2600, 3000]) {
         const png = await captureCanvas(page, { elapsedMsAtLeast: ms })
-        const r = await import('./helpers/visual').then(v => v.colorHistogram(page, png, buckets))
+        const r = await import('./helpers/visual').then((v) => v.colorHistogram(page, png, buckets))
         if (r.blue > 0.01) sawBlue = true
         if (r.rose > 0.01) sawRose = true
       }
@@ -227,17 +256,21 @@ test.describe('X-GIS fixture: animation', () => {
 test.describe('X-GIS fixture: sdf-points', () => {
   test('sdf_point — billboard pin marker', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_sdf_point',
+    await fixtureColorAssert(
+      page,
+      'fixture_sdf_point',
       [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }],
-      { rose: [0.001, 0.30] },
+      { rose: [0.001, 0.3] },
     )
   })
 
   test('sdf_glow — translucent halo + opaque pin', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_sdf_glow',
+    await fixtureColorAssert(
+      page,
+      'fixture_sdf_glow',
       [{ name: 'amber', rgb: AMBER_500, tolerance: 100 }],
-      { amber: [0.001, 0.30] },
+      { amber: [0.001, 0.3] },
     )
   })
 })
@@ -247,7 +280,9 @@ test.describe('X-GIS fixture: sdf-points', () => {
 // ── Stress fixtures (exercise validation capture) ─────────────────
 
 test.describe('X-GIS fixture: stress', () => {
-  test('stress_all_renderers — polygon + line + point in one frame, no validation errors', async ({ page }) => {
+  test('stress_all_renderers — polygon + line + point in one frame, no validation errors', async ({
+    page,
+  }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
     await withValidationCapture(page, async () => {
       await loadFixture(page, 'fixture_stress_all_renderers')
@@ -256,12 +291,11 @@ test.describe('X-GIS fixture: stress', () => {
       // primary assertion — a bind group / pipeline mismatch
       // anywhere in the multi-renderer stack would surface as a
       // queued error.
-      const differing = await sampleNonBackgroundPixels(
-        page, png, { r: 6, g: 8, b: 12 }, 50, 400,
-      )
-      expect(differing,
-        `stress_all_renderers: ${differing}/400 non-bg pixels — multi-renderer composite empty`)
-        .toBeGreaterThan(5)
+      const differing = await sampleNonBackgroundPixels(page, png, { r: 6, g: 8, b: 12 }, 50, 400)
+      expect(
+        differing,
+        `stress_all_renderers: ${differing}/400 non-bg pixels — multi-renderer composite empty`,
+      ).toBeGreaterThan(5)
     })
   })
 
@@ -270,12 +304,11 @@ test.describe('X-GIS fixture: stress', () => {
     await withValidationCapture(page, async () => {
       await loadFixture(page, 'fixture_stress_many_layers')
       const png = await captureCanvas(page)
-      const differing = await sampleNonBackgroundPixels(
-        page, png, { r: 6, g: 8, b: 12 }, 50, 400,
-      )
-      expect(differing,
-        `stress_many_layers: ${differing}/400 non-bg pixels — multi-layer dispatch broken`)
-        .toBeGreaterThan(5)
+      const differing = await sampleNonBackgroundPixels(page, png, { r: 6, g: 8, b: 12 }, 50, 400)
+      expect(
+        differing,
+        `stress_many_layers: ${differing}/400 non-bg pixels — multi-layer dispatch broken`,
+      ).toBeGreaterThan(5)
     })
   })
 })
@@ -283,30 +316,39 @@ test.describe('X-GIS fixture: stress', () => {
 test.describe('X-GIS fixture: projection', () => {
   test('categorical — 3 features with distinct match() colors', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_categorical', [
-      { name: 'red', rgb: RED_500, tolerance: 80 },
-      { name: 'emerald', rgb: EMERALD_500, tolerance: 80 },
-      { name: 'blue', rgb: BLUE_500, tolerance: 80 },
-    ], {
-      red:     [0.001, 0.30],
-      emerald: [0.001, 0.30],
-      blue:    [0.001, 0.30],
-    })
+    await fixtureColorAssert(
+      page,
+      'fixture_categorical',
+      [
+        { name: 'red', rgb: RED_500, tolerance: 80 },
+        { name: 'emerald', rgb: EMERALD_500, tolerance: 80 },
+        { name: 'blue', rgb: BLUE_500, tolerance: 80 },
+      ],
+      {
+        red: [0.001, 0.3],
+        emerald: [0.001, 0.3],
+        blue: [0.001, 0.3],
+      },
+    )
   })
 
   test('mercator_clip — polar polygon at lat 80-88 renders without crash', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_mercator_clip',
+    await fixtureColorAssert(
+      page,
+      'fixture_mercator_clip',
       [{ name: 'sky', rgb: SKY_400, tolerance: 100 }],
-      { sky: [0.0001, 0.50] },
+      { sky: [0.0001, 0.5] },
     )
   })
 
   test('antimeridian — polygon crossing 180° renders amber on both sides', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_antimeridian',
+    await fixtureColorAssert(
+      page,
+      'fixture_antimeridian',
       [{ name: 'amber', rgb: AMBER_500, tolerance: 100 }],
-      { amber: [0.001, 0.50] },
+      { amber: [0.001, 0.5] },
     )
   })
 })
@@ -316,33 +358,41 @@ test.describe('X-GIS fixture: projection', () => {
 test.describe('X-GIS fixture: stroke caps/joins', () => {
   test('cap_round — round cap tip reaches canvas', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_cap_round',
+    await fixtureColorAssert(
+      page,
+      'fixture_cap_round',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 100 }],
-      { amber: [0.001, 0.30] },
+      { amber: [0.001, 0.3] },
     )
   })
 
   test('cap_square — square cap tip reaches canvas', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_cap_square',
+    await fixtureColorAssert(
+      page,
+      'fixture_cap_square',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 100 }],
-      { amber: [0.001, 0.30] },
+      { amber: [0.001, 0.3] },
     )
   })
 
   test('join_round — round join on sharp turn', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_join_round',
+    await fixtureColorAssert(
+      page,
+      'fixture_join_round',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 100 }],
-      { amber: [0.001, 0.30] },
+      { amber: [0.001, 0.3] },
     )
   })
 
   test('join_bevel — bevel join on sharp turn', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_join_bevel',
+    await fixtureColorAssert(
+      page,
+      'fixture_join_bevel',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 100 }],
-      { amber: [0.001, 0.30] },
+      { amber: [0.001, 0.3] },
     )
   })
 })
@@ -352,33 +402,41 @@ test.describe('X-GIS fixture: stroke caps/joins', () => {
 test.describe('X-GIS fixture: stroke patterns', () => {
   test('pattern_multi — 2-slot pattern stack renders amber pixels', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_pattern_multi',
+    await fixtureColorAssert(
+      page,
+      'fixture_pattern_multi',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 120 }],
-      { amber: [0.0005, 0.40] },
+      { amber: [0.0005, 0.4] },
     )
   })
 
   test('stroke_inset — inward-shifted border on polygon boundary', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_stroke_inset',
+    await fixtureColorAssert(
+      page,
+      'fixture_stroke_inset',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 100 }],
-      { amber: [0.001, 0.40] },
+      { amber: [0.001, 0.4] },
     )
   })
 
   test('stroke_offset_right — signed right-rail offset line', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_stroke_offset_right',
+    await fixtureColorAssert(
+      page,
+      'fixture_stroke_offset_right',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 100 }],
-      { amber: [0.001, 0.30] },
+      { amber: [0.001, 0.3] },
     )
   })
 
   test('dasharray_complex — 4-value composite dash array', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_dasharray_complex',
+    await fixtureColorAssert(
+      page,
+      'fixture_dasharray_complex',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 100 }],
-      { amber: [0.0005, 0.30] },
+      { amber: [0.0005, 0.3] },
     )
   })
 })
@@ -388,9 +446,11 @@ test.describe('X-GIS fixture: stroke patterns', () => {
 test.describe('X-GIS fixture: animation easing', () => {
   test('anim_ease_linear — linear easing keyframe renders emerald', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_anim_ease_linear',
+    await fixtureColorAssert(
+      page,
+      'fixture_anim_ease_linear',
       [{ name: 'emerald', rgb: EMERALD_500, tolerance: 120 }],
-      { emerald: [0.005, 0.60] },
+      { emerald: [0.005, 0.6] },
     )
   })
 })
@@ -400,15 +460,19 @@ test.describe('X-GIS fixture: animation easing', () => {
 test.describe('X-GIS fixture: data-driven', () => {
   test('size_expr — point size-[sqrt(.pop) / 2] renders 3 rose dots', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_size_expr',
+    await fixtureColorAssert(
+      page,
+      'fixture_size_expr',
       [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }],
-      { rose: [0.0005, 0.30] },
+      { rose: [0.0005, 0.3] },
     )
   })
 
   test('filter_complex — only .kind == "b" renders (emerald only)', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_filter_complex',
+    await fixtureColorAssert(
+      page,
+      'fixture_filter_complex',
       [
         { name: 'emerald', rgb: EMERALD_500, tolerance: 80 },
         { name: 'red', rgb: RED_500, tolerance: 80 },
@@ -416,8 +480,8 @@ test.describe('X-GIS fixture: data-driven', () => {
       ],
       {
         emerald: [0.001, 0.45],
-        red:     [0, 0.005],
-        blue:    [0, 0.005],
+        red: [0, 0.005],
+        blue: [0, 0.005],
       },
     )
   })
@@ -428,9 +492,11 @@ test.describe('X-GIS fixture: data-driven', () => {
 test.describe('X-GIS fixture: custom shape', () => {
   test('shape_custom_svg — locally-defined diamond SDF renders rose pixels', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_shape_custom_svg',
+    await fixtureColorAssert(
+      page,
+      'fixture_shape_custom_svg',
       [{ name: 'rose', rgb: ROSE_500, tolerance: 120 }],
-      { rose: [0.0005, 0.30] },
+      { rose: [0.0005, 0.3] },
     )
   })
 })
@@ -438,11 +504,15 @@ test.describe('X-GIS fixture: custom shape', () => {
 // ── Extension 2: projection / anchor / size-zoom / patterns / miterlimit / anim-dashoffset ──
 
 test.describe('X-GIS fixture: projection variants', () => {
-  test('projection_equirectangular — equirect non-Mercator path renders emerald', async ({ page }) => {
+  test('projection_equirectangular — equirect non-Mercator path renders emerald', async ({
+    page,
+  }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_projection_equirectangular',
+    await fixtureColorAssert(
+      page,
+      'fixture_projection_equirectangular',
       [{ name: 'emerald', rgb: EMERALD_500, tolerance: 80 }],
-      { emerald: [0.005, 0.60] },
+      { emerald: [0.005, 0.6] },
     )
   })
 })
@@ -450,17 +520,21 @@ test.describe('X-GIS fixture: projection variants', () => {
 test.describe('X-GIS fixture: point anchor modes', () => {
   test('anchor_center — centered sprite renders rose pixels', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_anchor_center',
+    await fixtureColorAssert(
+      page,
+      'fixture_anchor_center',
       [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }],
-      { rose: [0.0005, 0.30] },
+      { rose: [0.0005, 0.3] },
     )
   })
 
   test('anchor_top — top-anchored sprite renders rose pixels', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_anchor_top',
+    await fixtureColorAssert(
+      page,
+      'fixture_anchor_top',
       [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }],
-      { rose: [0.0005, 0.30] },
+      { rose: [0.0005, 0.3] },
     )
   })
 })
@@ -471,9 +545,11 @@ test.describe('X-GIS fixture: size zoom interpolation', () => {
     // Interpolated size at the default camera zoom is smaller than
     // a fixed size-50 fixture, so rose pixels end up < 0.1% — use a
     // looser floor than the other point fixtures.
-    await fixtureColorAssert(page, 'fixture_size_zoom',
+    await fixtureColorAssert(
+      page,
+      'fixture_size_zoom',
       [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }],
-      { rose: [0.0001, 0.30] },
+      { rose: [0.0001, 0.3] },
     )
   })
 })
@@ -481,17 +557,21 @@ test.describe('X-GIS fixture: size zoom interpolation', () => {
 test.describe('X-GIS fixture: stroke align outset + miterlimit', () => {
   test('stroke_outset — outward-shifted border renders amber', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_stroke_outset',
+    await fixtureColorAssert(
+      page,
+      'fixture_stroke_outset',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 100 }],
-      { amber: [0.001, 0.40] },
+      { amber: [0.001, 0.4] },
     )
   })
 
   test('miterlimit — clamped miter falls back to bevel without crashing', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_miterlimit',
+    await fixtureColorAssert(
+      page,
+      'fixture_miterlimit',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 100 }],
-      { amber: [0.001, 0.30] },
+      { amber: [0.001, 0.3] },
     )
   })
 })
@@ -499,25 +579,31 @@ test.describe('X-GIS fixture: stroke align outset + miterlimit', () => {
 test.describe('X-GIS fixture: pattern anchor/units', () => {
   test('pattern_anchor_start — pattern pinned at line start', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_pattern_anchor_start',
+    await fixtureColorAssert(
+      page,
+      'fixture_pattern_anchor_start',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 120 }],
-      { amber: [0.0005, 0.40] },
+      { amber: [0.0005, 0.4] },
     )
   })
 
   test('pattern_anchor_end — pattern pinned at line end', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_pattern_anchor_end',
+    await fixtureColorAssert(
+      page,
+      'fixture_pattern_anchor_end',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 120 }],
-      { amber: [0.0005, 0.40] },
+      { amber: [0.0005, 0.4] },
     )
   })
 
   test('pattern_units_km — km-unit spacing resolves without crashing', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_pattern_units_km',
+    await fixtureColorAssert(
+      page,
+      'fixture_pattern_units_km',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 120 }],
-      { amber: [0.0005, 0.40] },
+      { amber: [0.0005, 0.4] },
     )
   })
 })
@@ -525,9 +611,11 @@ test.describe('X-GIS fixture: pattern anchor/units', () => {
 test.describe('X-GIS fixture: animated dashoffset', () => {
   test('anim_dashoffset — marching-ants cycle renders amber', async ({ page }) => {
     test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
-    await fixtureColorAssert(page, 'fixture_anim_dashoffset',
+    await fixtureColorAssert(
+      page,
+      'fixture_anim_dashoffset',
       [{ name: 'amber', rgb: AMBER_300, tolerance: 120 }],
-      { amber: [0.0005, 0.30] },
+      { amber: [0.0005, 0.3] },
     )
   })
 })
@@ -552,49 +640,82 @@ test.describe('X-GIS fixture: external data injection', () => {
       // The post-push assertion uses a stricter 0.001 threshold so a
       // genuine rose-rendering regression still trips.
       const emptyPng = await captureCanvas(page)
-      const emptyR = await (await import('./helpers/visual'))
-        .colorHistogram(page, emptyPng, [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }])
-      expect(emptyR.rose, 'empty inline source should render no rose pixels')
-        .toBeLessThan(0.0005)
+      const emptyR = await (
+        await import('./helpers/visual')
+      ).colorHistogram(page, emptyPng, [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }])
+      expect(emptyR.rose, 'empty inline source should render no rose pixels').toBeLessThan(0.0005)
 
       // First push — 3 points.
       await page.evaluate(() => {
-        const map = (window as unknown as { __xgisMap: { setSourceData: (id: string, fc: unknown) => void } }).__xgisMap
+        const map = (
+          window as unknown as { __xgisMap: { setSourceData: (id: string, fc: unknown) => void } }
+        ).__xgisMap
         map.setSourceData('tracks', {
           type: 'FeatureCollection',
           features: [
-            { type: 'Feature', id: 1, geometry: { type: 'Point', coordinates: [-30, 0] }, properties: {} },
-            { type: 'Feature', id: 2, geometry: { type: 'Point', coordinates: [0, 0] },   properties: {} },
-            { type: 'Feature', id: 3, geometry: { type: 'Point', coordinates: [30, 0] },  properties: {} },
+            {
+              type: 'Feature',
+              id: 1,
+              geometry: { type: 'Point', coordinates: [-30, 0] },
+              properties: {},
+            },
+            {
+              type: 'Feature',
+              id: 2,
+              geometry: { type: 'Point', coordinates: [0, 0] },
+              properties: {},
+            },
+            {
+              type: 'Feature',
+              id: 3,
+              geometry: { type: 'Point', coordinates: [30, 0] },
+              properties: {},
+            },
           ],
         })
       })
-      await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+      await page.evaluate(
+        () =>
+          new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+      )
 
       const png1 = await captureCanvas(page)
-      await expectColorHistogram(page, png1,
-        [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }],
-        { rose: [0.0005, 0.30] },
-      )
+      await expectColorHistogram(page, png1, [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }], {
+        rose: [0.0005, 0.3],
+      })
 
       // Second push — different coordinates, proves retile works.
       await page.evaluate(() => {
-        const map = (window as unknown as { __xgisMap: { setSourceData: (id: string, fc: unknown) => void } }).__xgisMap
+        const map = (
+          window as unknown as { __xgisMap: { setSourceData: (id: string, fc: unknown) => void } }
+        ).__xgisMap
         map.setSourceData('tracks', {
           type: 'FeatureCollection',
           features: [
-            { type: 'Feature', id: 1, geometry: { type: 'Point', coordinates: [-10, -10] }, properties: {} },
-            { type: 'Feature', id: 2, geometry: { type: 'Point', coordinates: [10, 10] },   properties: {} },
+            {
+              type: 'Feature',
+              id: 1,
+              geometry: { type: 'Point', coordinates: [-10, -10] },
+              properties: {},
+            },
+            {
+              type: 'Feature',
+              id: 2,
+              geometry: { type: 'Point', coordinates: [10, 10] },
+              properties: {},
+            },
           ],
         })
       })
-      await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+      await page.evaluate(
+        () =>
+          new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+      )
 
       const png2 = await captureCanvas(page)
-      await expectColorHistogram(page, png2,
-        [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }],
-        { rose: [0.0005, 0.30] },
-      )
+      await expectColorHistogram(page, png2, [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }], {
+        rose: [0.0005, 0.3],
+      })
     })
   })
 
@@ -605,37 +726,45 @@ test.describe('X-GIS fixture: external data injection', () => {
 
       // First push — 3 points via typed arrays.
       await page.evaluate(() => {
-        const map = (window as unknown as { __xgisMap: { setSourcePoints: (id: string, d: unknown) => void } }).__xgisMap
+        const map = (
+          window as unknown as { __xgisMap: { setSourcePoints: (id: string, d: unknown) => void } }
+        ).__xgisMap
         map.setSourcePoints('tracks', {
           lon: new Float32Array([-30, 0, 30]),
           lat: new Float32Array([0, 0, 0]),
           ids: new Uint32Array([101, 102, 103]),
         })
       })
-      await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+      await page.evaluate(
+        () =>
+          new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+      )
 
       const png1 = await captureCanvas(page)
-      await expectColorHistogram(page, png1,
-        [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }],
-        { rose: [0.0005, 0.30] },
-      )
+      await expectColorHistogram(page, png1, [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }], {
+        rose: [0.0005, 0.3],
+      })
 
       // Second push — 4 points (added one, proves retile).
       await page.evaluate(() => {
-        const map = (window as unknown as { __xgisMap: { setSourcePoints: (id: string, d: unknown) => void } }).__xgisMap
+        const map = (
+          window as unknown as { __xgisMap: { setSourcePoints: (id: string, d: unknown) => void } }
+        ).__xgisMap
         map.setSourcePoints('tracks', {
           lon: new Float32Array([-30, -10, 10, 30]),
           lat: new Float32Array([10, -10, 10, -10]),
           ids: new Uint32Array([101, 102, 103, 104]),
         })
       })
-      await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+      await page.evaluate(
+        () =>
+          new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+      )
 
       const png2 = await captureCanvas(page)
-      await expectColorHistogram(page, png2,
-        [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }],
-        { rose: [0.0005, 0.30] },
-      )
+      await expectColorHistogram(page, png2, [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }], {
+        rose: [0.0005, 0.3],
+      })
     })
   })
 })

@@ -43,7 +43,7 @@ import { configureProjections } from '../map/src/shaders/dsl/projections'
 import { PROJECTIONS } from '../engine/src/projection/projections-table'
 configureProjections(PROJECTIONS)
 
-const argBaseline = process.argv.find(a => a.startsWith('--baseline='))?.split('=')[1]
+const argBaseline = process.argv.find((a) => a.startsWith('--baseline='))?.split('=')[1]
 const baselineSha = argBaseline ?? execSync('git rev-parse HEAD').toString().trim()
 
 const __filename = fileURLToPath(import.meta.url)

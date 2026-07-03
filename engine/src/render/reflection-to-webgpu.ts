@@ -59,7 +59,9 @@ export function reflectionGroupToBindGroupLayoutEntries(
       throw new Error(`reflectionToWebGPU: no visibility for binding ${e.binding} ('${e.name}')`)
     }
     if (e.resourceKind === 'texture' || e.resourceKind === 'sampler') {
-      throw new Error(`reflectionToWebGPU: ${e.resourceKind} binding ${e.binding} not supported by the buffer adapter`)
+      throw new Error(
+        `reflectionToWebGPU: ${e.resourceKind} binding ${e.binding} not supported by the buffer adapter`,
+      )
     }
     return {
       binding: e.binding,
@@ -100,7 +102,9 @@ export function uniformFieldSlots(reflection: Reflection, structName: string): U
   const slot: Record<string, number> = {}
   for (const f of u.fields) {
     if (f.offset % 4 !== 0) {
-      throw new Error(`reflectionToWebGPU: field '${f.name}' byteOffset ${f.offset} is not f32-aligned`)
+      throw new Error(
+        `reflectionToWebGPU: field '${f.name}' byteOffset ${f.offset} is not f32-aligned`,
+      )
     }
     slot[f.name] = f.offset / 4
   }

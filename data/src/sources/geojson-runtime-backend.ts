@@ -10,13 +10,17 @@
 // invoking the backend).
 
 import {
-  tileKey, tileKeyUnpack,
+  tileKey,
+  tileKeyUnpack,
   compileSingleTile,
-  type GeometryPart, type RingPolygon,
+  type GeometryPart,
+  type RingPolygon,
 } from '@xgis/compiler'
 import {
   TILE_LAYOUT_VERSION,
-  type TileSource, type TileSourceSink, type TileSourceMeta,
+  type TileSource,
+  type TileSourceSink,
+  type TileSourceMeta,
 } from '../tile-source'
 
 export class GeoJSONRuntimeBackend implements TileSource {
@@ -116,7 +120,10 @@ export class GeoJSONRuntimeBackend implements TileSource {
       this.sink.acceptResult(key, null)
       return true
     }
-    const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId }))
+    const polygons: RingPolygon[] | undefined = tile.polygons?.map((p) => ({
+      rings: p.rings,
+      featId: p.featId,
+    }))
     this.sink.acceptResult(key, {
       vertices: tile.vertices,
       dequantScale: tile.dequantScale,
@@ -147,7 +154,7 @@ export class GeoJSONRuntimeBackend implements TileSource {
       const k = tileKey(gz, x >> shift, y >> shift)
       const indices = this.partGrid.get(k)
       if (!indices) return null
-      return indices.map(i => this.rawParts[i])
+      return indices.map((i) => this.rawParts[i])
     }
 
     const shift = gz - z
@@ -162,7 +169,10 @@ export class GeoJSONRuntimeBackend implements TileSource {
         const indices = this.partGrid.get(k)
         if (!indices) continue
         for (const idx of indices) {
-          if (!seen.has(idx)) { seen.add(idx); result.push(this.rawParts[idx]) }
+          if (!seen.has(idx)) {
+            seen.add(idx)
+            result.push(this.rawParts[idx])
+          }
         }
       }
     }
@@ -177,10 +187,34 @@ export class GeoJSONRuntimeBackend implements TileSource {
 
     for (let i = 0; i < parts.length; i++) {
       const p = parts[i]
-      const minTX = Math.max(0, Math.floor((p.minLon + 180) / 360 * n))
-      const maxTX = Math.min(n - 1, Math.floor((p.maxLon + 180) / 360 * n))
-      const minTY = Math.max(0, Math.floor((1 - Math.log(Math.tan(Math.max(p.minLat, -85) * Math.PI / 180) + 1 / Math.cos(Math.max(p.minLat, -85) * Math.PI / 180)) / Math.PI) / 2 * n))
-      const maxTY = Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(Math.min(p.maxLat, 85) * Math.PI / 180) + 1 / Math.cos(Math.min(p.maxLat, 85) * Math.PI / 180)) / Math.PI) / 2 * n))
+      const minTX = Math.max(0, Math.floor(((p.minLon + 180) / 360) * n))
+      const maxTX = Math.min(n - 1, Math.floor(((p.maxLon + 180) / 360) * n))
+      const minTY = Math.max(
+        0,
+        Math.floor(
+          ((1 -
+            Math.log(
+              Math.tan((Math.max(p.minLat, -85) * Math.PI) / 180) +
+                1 / Math.cos((Math.max(p.minLat, -85) * Math.PI) / 180),
+            ) /
+              Math.PI) /
+            2) *
+            n,
+        ),
+      )
+      const maxTY = Math.min(
+        n - 1,
+        Math.floor(
+          ((1 -
+            Math.log(
+              Math.tan((Math.min(p.maxLat, 85) * Math.PI) / 180) +
+                1 / Math.cos((Math.min(p.maxLat, 85) * Math.PI) / 180),
+            ) /
+              Math.PI) /
+            2) *
+            n,
+        ),
+      )
 
       // Note: in Mercator tile coords, smaller Y = higher latitude
       const yLo = Math.min(minTY, maxTY)
@@ -190,7 +224,10 @@ export class GeoJSONRuntimeBackend implements TileSource {
         for (let ty = yLo; ty <= yHi; ty++) {
           const k = tileKey(z, tx, ty)
           let arr = grid.get(k)
-          if (!arr) { arr = []; grid.set(k, arr) }
+          if (!arr) {
+            arr = []
+            grid.set(k, arr)
+          }
           arr.push(i)
         }
       }
@@ -201,7 +238,10 @@ export class GeoJSONRuntimeBackend implements TileSource {
 
 function computeBounds(parts: GeometryPart[]): [number, number, number, number] {
   if (parts.length === 0) return [-180, -85, 180, 85]
-  let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity
+  let minLon = Infinity,
+    minLat = Infinity,
+    maxLon = -Infinity,
+    maxLat = -Infinity
   for (const p of parts) {
     if (p.minLon < minLon) minLon = p.minLon
     if (p.maxLon > maxLon) maxLon = p.maxLon

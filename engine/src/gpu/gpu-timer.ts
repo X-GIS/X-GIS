@@ -72,7 +72,7 @@ interface Slot {
 
 const SEGMENT_LABELS_INSIDE = ['bg', 'raster', 'legacy', 'vt'] as const
 const MARKER_LABELS_INSIDE = ['after_bg', 'after_raster', 'after_legacy'] as const
-type MarkerLabel = typeof MARKER_LABELS_INSIDE[number]
+type MarkerLabel = (typeof MARKER_LABELS_INSIDE)[number]
 
 // Sub-pass 0 marker count. With inside-passes: 5 (begin + 3 mid + end).
 // Without: 2 (begin + end).
@@ -169,9 +169,8 @@ export class GPUTimer {
     if (!this.enabled || !this.querySet) return null
     const passIdx = this.nextSubpassToAssign
     if (passIdx >= MAX_SUBPASSES) return null
-    const firstMarker = passIdx === 0
-      ? 0
-      : this.firstPassMarkers + (passIdx - 1) * SUBPASS_N_MARKERS
+    const firstMarker =
+      passIdx === 0 ? 0 : this.firstPassMarkers + (passIdx - 1) * SUBPASS_N_MARKERS
     const lastMarker = firstMarker + (passIdx === 0 ? this.firstPassMarkers : SUBPASS_N_MARKERS) - 1
     this.subpassFirstMarkerIdx.push(firstMarker)
     this.nextSubpassToAssign = passIdx + 1
@@ -222,9 +221,11 @@ export class GPUTimer {
     const markerIdx = MARKER_LABELS_INSIDE.indexOf(label) + 1 // +1 for "begin"
     // `writeTimestamp` is gated by the chromium-experimental feature
     // and isn't on the standard `GPURenderPassEncoder` type — cast.
-    ;(pass as unknown as {
-      writeTimestamp: (qs: GPUQuerySet, idx: number) => void
-    }).writeTimestamp(this.querySet, markerIdx)
+    ;(
+      pass as unknown as {
+        writeTimestamp: (qs: GPUQuerySet, idx: number) => void
+      }
+    ).writeTimestamp(this.querySet, markerIdx)
   }
 
   /** Encode resolveQuerySet + copyBufferToBuffer into the frame's
@@ -237,7 +238,10 @@ export class GPUTimer {
     let chosen = -1
     for (let i = 0; i < RING_SIZE; i++) {
       const idx = (this.writeIdx + i) % RING_SIZE
-      if (this.slots[idx].state === 'idle') { chosen = idx; break }
+      if (this.slots[idx].state === 'idle') {
+        chosen = idx
+        break
+      }
     }
     if (chosen < 0) return // ring full, drop sample
     const slot = this.slots[chosen]
@@ -267,11 +271,14 @@ export class GPUTimer {
       if (slot.state === 'copy') {
         slot.state = 'map'
         const s = slot
-        s.buf.mapAsync(GPUMapMode.READ).then(() => {
-          if (s.state === 'map') s.state = 'mapped'
-        }).catch(() => {
-          s.state = 'idle'
-        })
+        s.buf
+          .mapAsync(GPUMapMode.READ)
+          .then(() => {
+            if (s.state === 'map') s.state = 'mapped'
+          })
+          .catch(() => {
+            s.state = 'idle'
+          })
       }
     }
   }
@@ -296,21 +303,23 @@ export class GPUTimer {
       let vtTotal = Number(t4 - t3)
       for (let i = 1; i < nSubpasses; i++) {
         const base = this.firstPassMarkers + (i - 1) * SUBPASS_N_MARKERS
-        const a = big[base], b = big[base + 1]
+        const a = big[base],
+          b = big[base + 1]
         if (b < a) continue // skip non-monotonic sub-pass — likely a stale
-                            // readback before the GPU finished writing
+        // readback before the GPU finished writing
         vtTotal += Number(b - a)
       }
       this.push(0, Number(t1 - t0)) // bg
       this.push(1, Number(t2 - t1)) // raster
       this.push(2, Number(t3 - t2)) // legacy
-      this.push(3, vtTotal)         // vt (sub-pass 0 vt segment + all sub-passes 1..N)
+      this.push(3, vtTotal) // vt (sub-pass 0 vt segment + all sub-passes 1..N)
     } else {
       // Single 'total' ring. Sum begin..end of every sub-pass.
       let total = 0
       for (let i = 0; i < nSubpasses; i++) {
         const base = i === 0 ? 0 : this.firstPassMarkers + (i - 1) * SUBPASS_N_MARKERS
-        const a = big[base], b = big[base + 1]
+        const a = big[base],
+          b = big[base + 1]
         if (b < a) continue
         total += Number(b - a)
       }

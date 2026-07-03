@@ -25,7 +25,10 @@ function compileFixture(path: string): Scene {
   return optimize(lower(program), program)
 }
 
-function countFolds(before: Scene, after: Scene): {
+function countFolds(
+  before: Scene,
+  after: Scene,
+): {
   total: number
   perSlot: Record<string, number>
   examples: string[]
@@ -37,23 +40,49 @@ function countFolds(before: Scene, after: Scene): {
     const b = before.renderNodes[i]!
     const a = after.renderNodes[i]!
     const layerLabel = b.name ?? `node[${i}]`
-    if (a.fill !== b.fill) { total++; perSlot.fill = (perSlot.fill ?? 0) + 1; if (examples.length < 5) examples.push(`${layerLabel}: fill`) }
-    if (a.stroke.color !== b.stroke.color) { total++; perSlot.strokeColor = (perSlot.strokeColor ?? 0) + 1; if (examples.length < 5) examples.push(`${layerLabel}: strokeColor`) }
-    if (a.stroke.width !== b.stroke.width) { total++; perSlot.strokeWidth = (perSlot.strokeWidth ?? 0) + 1; if (examples.length < 5) examples.push(`${layerLabel}: strokeWidth`) }
-    if (a.opacity !== b.opacity) { total++; perSlot.opacity = (perSlot.opacity ?? 0) + 1; if (examples.length < 5) examples.push(`${layerLabel}: opacity`) }
-    if (a.size !== b.size) { total++; perSlot.size = (perSlot.size ?? 0) + 1; if (examples.length < 5) examples.push(`${layerLabel}: size`) }
+    if (a.fill !== b.fill) {
+      total++
+      perSlot.fill = (perSlot.fill ?? 0) + 1
+      if (examples.length < 5) examples.push(`${layerLabel}: fill`)
+    }
+    if (a.stroke.color !== b.stroke.color) {
+      total++
+      perSlot.strokeColor = (perSlot.strokeColor ?? 0) + 1
+      if (examples.length < 5) examples.push(`${layerLabel}: strokeColor`)
+    }
+    if (a.stroke.width !== b.stroke.width) {
+      total++
+      perSlot.strokeWidth = (perSlot.strokeWidth ?? 0) + 1
+      if (examples.length < 5) examples.push(`${layerLabel}: strokeWidth`)
+    }
+    if (a.opacity !== b.opacity) {
+      total++
+      perSlot.opacity = (perSlot.opacity ?? 0) + 1
+      if (examples.length < 5) examples.push(`${layerLabel}: opacity`)
+    }
+    if (a.size !== b.size) {
+      total++
+      perSlot.size = (perSlot.size ?? 0) + 1
+      if (examples.length < 5) examples.push(`${layerLabel}: size`)
+    }
   }
   return { total, perSlot, examples }
 }
 
 describe('fold-trivial-stops — fixture statistics', () => {
-  for (const fixture of ['openfreemap-bright.json', 'openfreemap-liberty.json', 'openfreemap-positron.json']) {
+  for (const fixture of [
+    'openfreemap-bright.json',
+    'openfreemap-liberty.json',
+    'openfreemap-positron.json',
+  ]) {
     it(`reports fold counts on ${fixture}`, () => {
       const before = compileFixture(join(FIX, fixture))
       const after = foldTrivialStopsPass.run(before)
       const stats = countFolds(before, after)
       // eslint-disable-next-line no-console
-      console.log(`[${fixture}] folds: ${stats.total}, per slot: ${JSON.stringify(stats.perSlot)}, examples: ${stats.examples.join(' | ')}`)
+      console.log(
+        `[${fixture}] folds: ${stats.total}, per slot: ${JSON.stringify(stats.perSlot)}, examples: ${stats.examples.join(' | ')}`,
+      )
     })
   }
 })

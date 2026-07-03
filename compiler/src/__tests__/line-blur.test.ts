@@ -13,16 +13,18 @@ describe('line-blur conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'glow',
-        type: 'line',
-        source: 'v',
-        paint: {
-          'line-color': '#ff0',
-          'line-width': 4,
-          'line-blur': 3,
+      layers: [
+        {
+          id: 'glow',
+          type: 'line',
+          source: 'v',
+          paint: {
+            'line-color': '#ff0',
+            'line-width': 4,
+            'line-blur': 3,
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toContain('stroke-blur-3')
@@ -55,16 +57,18 @@ describe('line-blur conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'L',
-        type: 'line',
-        source: 'v',
-        paint: {
-          'line-color': '#fff',
-          'line-width': 3,
-          'line-blur': ['interpolate', ['linear'], ['zoom'], 8, 0, 14, 2],
+      layers: [
+        {
+          id: 'L',
+          type: 'line',
+          source: 'v',
+          paint: {
+            'line-color': '#fff',
+            'line-width': 3,
+            'line-blur': ['interpolate', ['linear'], ['zoom'], 8, 0, 14, 2],
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).not.toMatch(/stroke-blur/)
@@ -75,12 +79,14 @@ describe('line-blur conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'L',
-        type: 'line',
-        source: 'v',
-        paint: { 'line-color': '#fff', 'line-width': 3, 'line-blur': 2.5 },
-      }],
+      layers: [
+        {
+          id: 'L',
+          type: 'line',
+          source: 'v',
+          paint: { 'line-color': '#fff', 'line-width': 3, 'line-blur': 2.5 },
+        },
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     const tokens = new Lexer(xgis).tokenize()
@@ -93,12 +99,14 @@ describe('line-blur conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'geojson', data: 'x.geojson' } },
-      layers: [{
-        id: 'L',
-        type: 'line',
-        source: 'v',
-        paint: { 'line-color': '#fff', 'line-width': 3, 'line-blur': 4 },
-      }],
+      layers: [
+        {
+          id: 'L',
+          type: 'line',
+          source: 'v',
+          paint: { 'line-color': '#fff', 'line-width': 3, 'line-blur': 4 },
+        },
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     const tokens = new Lexer(xgis).tokenize()

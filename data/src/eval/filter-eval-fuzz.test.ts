@@ -56,7 +56,7 @@ describe('iter-298 evalFilterExpr fuzz', () => {
     // 0/0 yields the evaluator's defensive 0 (line 173 of evaluator.ts),
     // so this exercises the path. But a manual NaN literal goes
     // straight through.
-    const ast = bin('/', num(0), num(0))  // evaluator returns 0
+    const ast = bin('/', num(0), num(0)) // evaluator returns 0
     expect(evalFilterExpr(ast, {})).toBe(false)
   })
 
@@ -100,7 +100,7 @@ describe('iter-298 evalFilterExpr fuzz', () => {
     expect(evalFilterExpr(field('class'), { class: 'road' })).toBe(true)
     expect(evalFilterExpr(field('class'), { class: '' })).toBe(false)
     expect(evalFilterExpr(field('class'), { class: 0 })).toBe(false)
-    expect(evalFilterExpr(field('class'), {})).toBe(false)  // missing
+    expect(evalFilterExpr(field('class'), {})).toBe(false) // missing
   })
 })
 
@@ -197,7 +197,7 @@ describe('iter-298 computeSliceKey fuzz', () => {
     let f2: unknown = num(0)
     for (let i = 0; i < 5000; i++) {
       f1 = bin('+', f1, num(1))
-      f2 = bin('+', f2, num(2))  // different RHS literal
+      f2 = bin('+', f2, num(2)) // different RHS literal
     }
     const k1 = computeSliceKey('a', f1)
     const k2 = computeSliceKey('a', f2)

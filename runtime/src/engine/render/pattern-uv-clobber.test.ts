@@ -37,14 +37,19 @@ let stubCtx: Awaited<ReturnType<typeof initGPU>>
 beforeEach(async () => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
   stubCtx = await makeCtx()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<Awaited<ReturnType<typeof initGPU>>> {
   const canvas = { width: 1024, height: 720 } as unknown as HTMLCanvasElement
@@ -59,7 +64,7 @@ function makeRecordingRing(): { ring: UniformRing; staging: () => Float32Array }
   // Stride derived from reflect() (lazy: safe here, after configureProjections).
   const UNIFORM_SLOT = polygonUniformStride()
   const device = {
-    createBuffer: () => ({ destroy() {} } as unknown as GPUBuffer),
+    createBuffer: () => ({ destroy() {} }) as unknown as GPUBuffer,
     queue: { writeBuffer: () => {} },
   } as unknown as GPUDevice
   const ring = new UniformRing(device, UNIFORM_SLOT, 8, 'test-ring', () => {})
@@ -77,10 +82,15 @@ function makeRecordingRing(): { ring: UniformRing; staging: () => Float32Array }
 function stubTile() {
   return {
     lastUsedFrame: 0,
-    tileWest: 0, tileSouth: 0, tileZoom: 4,
-    indexCount: 0, lineIndexCount: 0,
-    outlineSegmentCount: 0, lineSegmentCount: 0,
-    dequantScale: 1, dequantHalf: 0,
+    tileWest: 0,
+    tileSouth: 0,
+    tileZoom: 4,
+    indexCount: 0,
+    lineIndexCount: 0,
+    outlineSegmentCount: 0,
+    lineSegmentCount: 0,
+    dequantScale: 1,
+    dequantHalf: 0,
     extruded: false,
     featureBindGroup: null,
   } as unknown as import('@xgis/map').GPUTile
@@ -148,19 +158,19 @@ function stageOneTile(opts: {
   //   layerCache, fillPipelineExtruded, fillBindGroupLayout, translucentBucket?)
   ;(vtr.renderTileKeys as (...a: unknown[]) => void).call(
     vtr,
-    [KEY],                 // keys
-    passStub,              // pass
+    [KEY], // keys
+    passStub, // pass
     {} as GPURenderPipeline, // fillPipeline (never used: indexCount 0)
     {} as GPURenderPipeline, // linePipeline
-    0,                     // projCenterLon
-    0,                     // projCenterLat
-    undefined,             // worldOffsets
-    0,                     // lineLayerOffset
-    -1,                    // lineLayerOffsetGap (single-line sentinel)
-    'fills',               // phase (drawStrokes=false → no stroke path)
-    layerCache,            // layerCache
-    null,                  // fillPipelineExtruded
-    layoutSentinel,        // fillBindGroupLayout (=== baseLayout())
+    0, // projCenterLon
+    0, // projCenterLat
+    undefined, // worldOffsets
+    0, // lineLayerOffset
+    -1, // lineLayerOffsetGap (single-line sentinel)
+    'fills', // phase (drawStrokes=false → no stroke path)
+    layerCache, // layerCache
+    null, // fillPipelineExtruded
+    layoutSentinel, // fillBindGroupLayout (=== baseLayout())
   )
 
   return staging()
@@ -174,8 +184,10 @@ describe('renderTileKeys pattern-UV slot clobber (fill_color.a fill v1, stroke_c
 
   it('fill-pattern v1 (fill_color.a) survives the per-tile loop instead of being clobbered by alpha', () => {
     const staged = stageOneTile({
-      fillUV: FILL_UV, lineUV: LINE_UV,
-      fillPatternActive: true, linePatternActive: false,
+      fillUV: FILL_UV,
+      lineUV: LINE_UV,
+      fillPatternActive: true,
+      linePatternActive: false,
     })
     // The whole fill-pattern UV bbox must reach the GPU intact.
     expect(staged[US.fill_color! + 0]).toBeCloseTo(0.1, 6)
@@ -187,8 +199,10 @@ describe('renderTileKeys pattern-UV slot clobber (fill_color.a fill v1, stroke_c
 
   it('line-pattern v1 (stroke_color.a) survives the per-tile loop instead of being clobbered by alpha', () => {
     const staged = stageOneTile({
-      fillUV: FILL_UV, lineUV: LINE_UV,
-      fillPatternActive: false, linePatternActive: true,
+      fillUV: FILL_UV,
+      lineUV: LINE_UV,
+      fillPatternActive: false,
+      linePatternActive: true,
     })
     expect(staged[US.stroke_color! + 0]).toBeCloseTo(0.5, 6)
     expect(staged[US.stroke_color! + 1]).toBeCloseTo(0.6, 6)
@@ -202,8 +216,10 @@ describe('renderTileKeys pattern-UV slot clobber (fill_color.a fill v1, stroke_c
     // both flags false the per-tile loop MUST still write baseFillA/baseStrokeA
     // (= cachedColor.a * opacity = 1.0), overwriting whatever was in the lane.
     const staged = stageOneTile({
-      fillUV: FILL_UV, lineUV: LINE_UV,
-      fillPatternActive: false, linePatternActive: false,
+      fillUV: FILL_UV,
+      lineUV: LINE_UV,
+      fillPatternActive: false,
+      linePatternActive: false,
     })
     expect(staged[US.fill_color! + 3]).toBeCloseTo(1.0, 6) // baseFillA
     expect(staged[US.stroke_color! + 3]).toBeCloseTo(1.0, 6) // baseStrokeA

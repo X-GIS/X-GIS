@@ -40,8 +40,13 @@ function packHalo(haloWidthPhys: number, haloBlurPhys: number, fontSizePhys: num
 /** The fragment shader's premultiplied output alpha for a pixel with the given
  *  SDF sample, mirroring shaders/dsl/text.ts. `clamp` toggles the #601 fix. */
 function shadeAlpha(
-  sdf: number, fontSizePhys: number, haloWidthPhys: number, haloBlurPhys: number,
-  fillA = 1, haloColorA = 1, clamp = true,
+  sdf: number,
+  fontSizePhys: number,
+  haloWidthPhys: number,
+  haloBlurPhys: number,
+  fillA = 1,
+  haloColorA = 1,
+  clamp = true,
 ): number {
   const soft = Math.max(2.52 / Math.max(fontSizePhys, 1), 1 / 255)
   const { haloWidthNorm, haloBlurNorm } = packHalo(haloWidthPhys, haloBlurPhys, fontSizePhys)
@@ -89,7 +94,7 @@ describe('#601 — small-text halo must not saturate the cell background', () =>
     const soft = (fs: number) => Math.max(2.52 / fs, 1 / 255)
     const lowerEdge = (fs: number) => {
       const { haloWidthNorm, haloBlurNorm } = packHalo(HALO_W, HALO_BLUR, fs)
-      return (EDGE - haloWidthNorm) - (haloBlurNorm + soft(fs))
+      return EDGE - haloWidthNorm - (haloBlurNorm + soft(fs))
     }
     expect(lowerEdge(SMALL_FS)).toBeLessThanOrEqual(0) // background enters the ramp
     expect(lowerEdge(NORMAL_FS)).toBeGreaterThan(0) // normal text is fine

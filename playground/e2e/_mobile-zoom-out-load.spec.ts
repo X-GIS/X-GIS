@@ -21,11 +21,17 @@
 import { test, expect } from '@playwright/test'
 
 interface XgisMap {
-  vtSources: Map<string, { renderer: { getDrawStats?: () => { tilesVisible: number; drawCalls: number } } }>
+  vtSources: Map<
+    string,
+    { renderer: { getDrawStats?: () => { tilesVisible: number; drawCalls: number } } }
+  >
   camera: { zoom: number }
 }
 declare global {
-  interface Window { __xgisMap?: XgisMap; __xgisReady?: boolean }
+  interface Window {
+    __xgisMap?: XgisMap
+    __xgisReady?: boolean
+  }
 }
 
 test.describe('Mobile zoom-out: tile count stays bounded', () => {
@@ -37,23 +43,23 @@ test.describe('Mobile zoom-out: tile count stays bounded', () => {
   test('zoom-out 16 → 13 on mobile viewport: tilesVisible never spikes', async ({ page }) => {
     test.setTimeout(60_000)
 
-    await page.goto(
-      `/demo.html?id=pmtiles_layered#16/35.68/139.76`,
-      { waitUntil: 'domcontentloaded' },
-    )
+    await page.goto(`/demo.html?id=pmtiles_layered#16/35.68/139.76`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await page.waitForFunction(() => window.__xgisReady === true, null, { timeout: 30_000 })
     await page.waitForFunction(
-      () => window.__xgisReady === true,
-      null, { timeout: 30_000 },
+      () => {
+        const map = window.__xgisMap
+        if (!map?.vtSources) return false
+        let v = 0
+        for (const { renderer } of map.vtSources.values()) {
+          v += renderer.getDrawStats?.().tilesVisible ?? 0
+        }
+        return v > 0
+      },
+      null,
+      { timeout: 60_000 },
     )
-    await page.waitForFunction(() => {
-      const map = window.__xgisMap
-      if (!map?.vtSources) return false
-      let v = 0
-      for (const { renderer } of map.vtSources.values()) {
-        v += renderer.getDrawStats?.().tilesVisible ?? 0
-      }
-      return v > 0
-    }, null, { timeout: 60_000 })
     await page.waitForTimeout(3000)
 
     const sample = async (): Promise<{ tilesVisible: number; drawCalls: number }[]> => {
@@ -69,7 +75,7 @@ test.describe('Mobile zoom-out: tile count stays bounded', () => {
     }
 
     const baseline = await sample()
-    const baselineMaxTV = Math.max(...baseline.map(s => s.tilesVisible))
+    const baselineMaxTV = Math.max(...baseline.map((s) => s.tilesVisible))
     console.log(`[baseline z=16] tilesVisible (per-VTR max) = ${baselineMaxTV}`)
 
     // Jump to zoom 13. Sample every ~50 ms for 3 s — captures the
@@ -85,7 +91,7 @@ test.describe('Mobile zoom-out: tile count stays bounded', () => {
     const tStart = Date.now()
     while (Date.now() - tStart < 3000) {
       const s = await sample()
-      const maxTV = Math.max(...s.map(x => x.tilesVisible))
+      const maxTV = Math.max(...s.map((x) => x.tilesVisible))
       samples.push(maxTV)
       await page.waitForTimeout(50)
     }

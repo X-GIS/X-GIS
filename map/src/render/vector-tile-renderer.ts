@@ -30,7 +30,9 @@ import type { ResolvedShow } from './resolved-show'
 import { structuralHashKey } from '../_cache/structural-key'
 import type { BundleKeyState } from '../_cache/bundle-cache-key'
 import {
-  classifyTile, computeProtectedKeys, computeZoomDirectionPrefetchKeys,
+  classifyTile,
+  computeProtectedKeys,
+  computeZoomDirectionPrefetchKeys,
   type TileDecision,
 } from '../tile-decision'
 import { PrefetchScheduler } from './prefetch-scheduler'
@@ -104,11 +106,15 @@ const ANCESTOR_PROTECT_DEPTH = 22
  *  (MapLibre map-anchor). Pure 2D rotation; no allocation when the
  *  offset is zero or anchor is viewport. */
 export function rotateTranslateForAnchor(
-  dx: number, dy: number, anchorMap: boolean | undefined, bearingDeg: number,
+  dx: number,
+  dy: number,
+  anchorMap: boolean | undefined,
+  bearingDeg: number,
 ): [number, number] {
   if (!anchorMap || (dx === 0 && dy === 0)) return [dx, dy]
   const r = (bearingDeg * Math.PI) / 180
-  const c = Math.cos(r), s = Math.sin(r)
+  const c = Math.cos(r),
+    s = Math.sin(r)
   return [dx * c - dy * s, dx * s + dy * c]
 }
 
@@ -369,7 +375,10 @@ export class VectorTileRenderer {
       lineRenderer: () => this.lineRenderer,
       buildPerTileFeatureData: (featureProps, handleKey) =>
         this._featureBinder.buildPerTileFeatureData(
-          featureProps, this.uniformRing?.buffer, this._bindGroups.paletteResources(), handleKey,
+          featureProps,
+          this.uniformRing?.buffer,
+          this._bindGroups.paletteResources(),
+          handleKey,
         ),
       frameCount: () => this.frameCount,
       stableKeys: () => this.stableKeys,
@@ -391,7 +400,6 @@ export class VectorTileRenderer {
    *  re-encode. */
   private bundleCache: BundleCache
 
-
   /** Tiered MAP_WRITE | COPY_SRC pool used by the async upload path
    *  (`doUploadTileAsync`). The sync `doUploadTile` keeps using
    *  `device.queue.writeBuffer` for mid-render fallback uploads where
@@ -412,7 +420,11 @@ export class VectorTileRenderer {
    *  per-show). The render loop pushes host._light into every VTR each
    *  frame; omitted fields keep their current value. Cheap (3 scalar
    *  stores); the packer consumes them per tile uniform write. */
-  setLight(light: { position?: [number, number, number]; intensity?: number; color?: [number, number, number] }): void {
+  setLight(light: {
+    position?: [number, number, number]
+    intensity?: number
+    color?: [number, number, number]
+  }): void {
     if (light.position) this._lightPosition = light.position
     if (typeof light.intensity === 'number') this._lightIntensity = light.intensity
     if (light.color) this._lightColor = light.color
@@ -479,9 +491,7 @@ export class VectorTileRenderer {
    *  latestRenderNodeIndex while latestVariant still pointed at a
    *  prior compute show — variant.computeBindings.length=1 + plan
    *  filter at non-matching idx = 0 → ComputeLayerHandle throw). */
-  setComputePlan(
-    plan: readonly import('@xgis/compiler').ComputePlanEntry[] | undefined,
-  ): void {
+  setComputePlan(plan: readonly import('@xgis/compiler').ComputePlanEntry[] | undefined): void {
     this._featureBinder.setComputePlan(plan)
   }
 
@@ -524,7 +534,13 @@ export class VectorTileRenderer {
 
   private ensureUniformRing(): void {
     if (this.uniformRing) return
-    this.uniformRing = new UniformRing(this.device, this.frameBlock.std140Stride(), 1024, 'vtr-uniform-ring', () => this._onUniformRingGrow())
+    this.uniformRing = new UniformRing(
+      this.device,
+      this.frameBlock.std140Stride(),
+      1024,
+      'vtr-uniform-ring',
+      () => this._onUniformRingGrow(),
+    )
     this.uniformRing.ensure()
   }
 
@@ -552,7 +568,11 @@ export class VectorTileRenderer {
       this._featureBinder.featureBindGroupLayout(),
       this._featureBinder.featureDataBufferHandle(),
     )
-    this._featureBinder.rebuildPerTileGroups(this._store.cache(), ringBuf, this._bindGroups.paletteResources())
+    this._featureBinder.rebuildPerTileGroups(
+      this._store.cache(),
+      ringBuf,
+      this._bindGroups.paletteResources(),
+    )
   }
 
   /** Frame ID set by `beginFrame(frameId)`, threaded through to
@@ -611,10 +631,8 @@ export class VectorTileRenderer {
     // `stableKeys` + the compute-handle release hook + the upload-active
     // probe are passed in so the store references neither VTR nor the
     // upload queue.
-    const compacted = this._store.runFrameMaintenance(
-      this.stableKeys,
-      this._releaseTileHook,
-      () => this._uploads.isActive(),
+    const compacted = this._store.runFrameMaintenance(this.stableKeys, this._releaseTileHook, () =>
+      this._uploads.isActive(),
     )
     // Compaction swapped each tile's vertex/index buffer to a fresh packed
     // buffer + retired the old one (destroyed next maintenance pass). Cached
@@ -668,7 +686,13 @@ export class VectorTileRenderer {
     const cache = this._selection.frameTileCache()
     if (!cache) return
     this.prefetchScheduler.pump(
-      this.source, cache, camera, projType, canvasWidth, canvasHeight, dpr,
+      this.source,
+      cache,
+      camera,
+      projType,
+      canvasWidth,
+      canvasHeight,
+      dpr,
     )
   }
 
@@ -699,7 +723,7 @@ export class VectorTileRenderer {
     const n = (1 << tz) >>> 0
     const PI_R = Math.PI * activeBody().sphereR
     const tileX = ((tx + 0.5) / n) * 2 * PI_R - PI_R
-    const tileY = (1 - 2 * (ty + 0.5) / n) * PI_R
+    const tileY = (1 - (2 * (ty + 0.5)) / n) * PI_R
     const dx = tileX - this._distMemoCamX
     const dy = tileY - this._distMemoCamY
     const d2 = dx * dx + dy * dy
@@ -826,7 +850,11 @@ export class VectorTileRenderer {
   ): void {
     if (!this.source) return
     this._labelSource.forEachLabel(
-      this.source, this.stableKeys, this._selection.frameTileCache()?.neededKeys, sliceLayer, fn,
+      this.source,
+      this.stableKeys,
+      this._selection.frameTileCache()?.neededKeys,
+      sliceLayer,
+      fn,
     )
   }
 
@@ -854,14 +882,20 @@ export class VectorTileRenderer {
   forEachLineLabelFeature(
     sliceLayer: string | undefined,
     fn: (
-      p1MercX: number, p1MercY: number,
-      p2MercX: number, p2MercY: number,
+      p1MercX: number,
+      p1MercY: number,
+      p2MercX: number,
+      p2MercY: number,
       props: Record<string, unknown>,
     ) => void,
   ): void {
     if (!this.source) return
     this._labelSource.forEachLineLabel(
-      this.source, this.stableKeys, this._selection.frameTileCache()?.neededKeys, sliceLayer, fn,
+      this.source,
+      this.stableKeys,
+      this._selection.frameTileCache()?.neededKeys,
+      sliceLayer,
+      fn,
     )
   }
 
@@ -889,7 +923,11 @@ export class VectorTileRenderer {
   ): void {
     if (!this.source) return
     this._labelSource.forEachLineLabelPolyline(
-      this.source, this.stableKeys, this._selection.frameTileCache()?.neededKeys, sliceLayer, fn,
+      this.source,
+      this.stableKeys,
+      this._selection.frameTileCache()?.neededKeys,
+      sliceLayer,
+      fn,
     )
   }
 
@@ -1008,9 +1046,22 @@ export class VectorTileRenderer {
    *  compared bit-exact — a combined product key would be unsafe because
    *  float multiply is non-associative, so only equal individual factors
    *  guarantee the re-mapped array is byte-identical to a fresh recompute. */
-  private _dashArrayCache: { src: readonly number[]; scalePx: number; mpp: number; result: number[] } | null = null
+  private _dashArrayCache: {
+    src: readonly number[]
+    scalePx: number
+    mpp: number
+    result: number[]
+  } | null = null
 
-  getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number; tilesVisible: number; missedTiles: number; globeTilesSelected: number } {
+  getDrawStats(): {
+    drawCalls: number
+    vertices: number
+    triangles: number
+    lines: number
+    tilesVisible: number
+    missedTiles: number
+    globeTilesSelected: number
+  } {
     return this._drawStats.getDrawStats()
   }
 
@@ -1037,7 +1088,10 @@ export class VectorTileRenderer {
     renderNodeIndex?: number,
   ): void {
     const builtSourceBuffer = this._featureBinder.buildFeatureDataBuffer(
-      variant, featureBindGroupLayout, this.source?.getPropertyTable(), renderNodeIndex,
+      variant,
+      featureBindGroupLayout,
+      this.source?.getPropertyTable(),
+      renderNodeIndex,
     )
     if (builtSourceBuffer) {
       // Build the shared feature-bound tile bind group
@@ -1162,9 +1216,18 @@ export class VectorTileRenderer {
     // after the frame and clears the flag. Production paths stay
     // silent unless the flag is set.
     if (typeof window !== 'undefined') {
-      const trace = (window as unknown as { __xgisDrawOrderTrace?: Array<{
-        seq: number; slice: string; phase: string; extrude: string; tileKey?: number; isFill?: boolean
-      }> }).__xgisDrawOrderTrace
+      const trace = (
+        window as unknown as {
+          __xgisDrawOrderTrace?: Array<{
+            seq: number
+            slice: string
+            phase: string
+            extrude: string
+            tileKey?: number
+            isFill?: boolean
+          }>
+        }
+      ).__xgisDrawOrderTrace
       if (trace) {
         // Stash for the per-tile drawIndexed entries renderTileKeys
         // is about to push.
@@ -1205,9 +1268,12 @@ export class VectorTileRenderer {
     // PropertyTable is empty), so the compound landuse `class` match
     // variant's render() never reached its tile loop. Per-tile feature
     // groups are tested inside the loop via `cached.featureBindGroup`.
-    if (bindGroupLayout !== this._bindGroups.baseLayout()
-        && !this._bindGroups.featureGroup()
-        && this._featureBinder.latestVariantFieldsLength() === 0) return
+    if (
+      bindGroupLayout !== this._bindGroups.baseLayout() &&
+      !this._bindGroups.featureGroup() &&
+      this._featureBinder.latestVariantFieldsLength() === 0
+    )
+      return
 
     this.frameCount++
     // Pass the FRAME-level id (set by beginFrame from map's
@@ -1249,8 +1315,8 @@ export class VectorTileRenderer {
     // Stroke width — zoom × time already collapsed by the bucket
     // scheduler. ResolvedShow is the SOLE per-frame source.
     const strokeWidthPx_h = resolvedShow.strokeWidth
-    const alignDeltaPx_h = show.strokeAlign === 'inset' || show.strokeAlign === 'outset'
-      ? strokeWidthPx_h / 2 : 0
+    const alignDeltaPx_h =
+      show.strokeAlign === 'inset' || show.strokeAlign === 'outset' ? strokeWidthPx_h / 2 : 0
     const offsetMarginPx = Math.ceil(strokeOffsetPx_h + alignDeltaPx_h + strokeWidthPx_h / 2 + 2)
     // Projection-aware tile selection: the flat selectors project tile
     // corners through THIS projection's forward (relative to the projected
@@ -1262,9 +1328,10 @@ export class VectorTileRenderer {
     // family (3/4/5), oblique (6) and globe (7) sphere-route, so their
     // selectorProj is unused — fall back to mercatorProj (globe has no
     // flat-projection entry in the registry).
-    const selectorProj: Projection = (projType >= 1 && projType <= 6)
-      ? getProjection(SELECTOR_PROJ_NAMES[projType]!, projCenterLon, projCenterLat)
-      : mercatorProj
+    const selectorProj: Projection =
+      projType >= 1 && projType <= 6
+        ? getProjection(SELECTOR_PROJ_NAMES[projType]!, projCenterLon, projCenterLat)
+        : mercatorProj
 
     // Per-frame visible-tile selection + zoom-transition hysteresis +
     // readiness gate. The selection collaborator owns the cross-frame
@@ -1274,15 +1341,30 @@ export class VectorTileRenderer {
     // (the per-MVT-layer cull that used to `return` inline here) —
     // skip the render() for this ShowCommand in that case.
     const sel = this._selection.selectForFrame(
-      camera, projType, projCenterLon, projCenterLat,
-      canvasWidth, canvasHeight, dpr,
-      this.currentFrameId, this.source, sliceLayer, offsetMarginPx, maxLevel,
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      dpr,
+      this.currentFrameId,
+      this.source,
+      sliceLayer,
+      offsetMarginPx,
+      maxLevel,
       this._drawStats,
     )
     if (!sel) return
     const {
-      tiles, neededKeys, protectedAncestors, worldOffDeg,
-      parentAtMaxLevel, archiveAncestor, currentZ, cameraIdle,
+      tiles,
+      neededKeys,
+      protectedAncestors,
+      worldOffDeg,
+      parentAtMaxLevel,
+      archiveAncestor,
+      currentZ,
+      cameraIdle,
     } = sel
 
     if (currentZ !== this.lastZoom) this.lastZoom = currentZ
@@ -1352,11 +1434,19 @@ export class VectorTileRenderer {
     // behaviour.)
     const bearingDeg = camera.bearing ?? 0
     const [ftx, fty] = rotateTranslateForAnchor(
-      resolvedShow.fillTranslateX, resolvedShow.fillTranslateY, show.fillTranslateAnchorMap, bearingDeg)
+      resolvedShow.fillTranslateX,
+      resolvedShow.fillTranslateY,
+      show.fillTranslateAnchorMap,
+      bearingDeg,
+    )
     this.currentFillTranslateNdcX = ftx !== 0 ? (ftx * 2) / canvasWidth : 0
     this.currentFillTranslateNdcY = fty !== 0 ? (fty * 2) / canvasHeight : 0
     const [ltx, lty] = rotateTranslateForAnchor(
-      resolvedShow.strokeTranslateX, resolvedShow.strokeTranslateY, show.strokeTranslateAnchorMap, bearingDeg)
+      resolvedShow.strokeTranslateX,
+      resolvedShow.strokeTranslateY,
+      show.strokeTranslateAnchorMap,
+      bearingDeg,
+    )
     this.currentStrokeTranslateNdcX = ltx !== 0 ? (ltx * 2) / canvasWidth : 0
     this.currentStrokeTranslateNdcY = lty !== 0 ? (lty * 2) / canvasHeight : 0
     // Mapbox fill-antialias / fill-extrusion-vertical-gradient opt-outs.
@@ -1412,7 +1502,8 @@ export class VectorTileRenderer {
     // can be [0,0,0,0] yet the draw is still meaningful — must keep it.
     // The skip uses the typed `fillIsDefault` sentinel (variantProducesFill()
     // helper), not a default-uniform string compare on variantFillExpr.
-    this._skipFillDraw = !variantProducesFill(show.shaderVariant) && this.cachedFillColor[3] <= 0.005
+    this._skipFillDraw =
+      !variantProducesFill(show.shaderVariant) && this.cachedFillColor[3] <= 0.005
 
     // Write uniforms through the typed block's fixed-arity setters (zero
     // per-call allocation — the hot-loop surface; #733 P2d).
@@ -1426,30 +1517,41 @@ export class VectorTileRenderer {
     // the pattern pipeline path is wired by the caller (setPatternPipelines).
     const patternUV = show.fillPatternUV
     const patternRepeat = show.fillPatternRepeatM
-    const patternSlotsActive = patternUV != null && patternRepeat != null
-      && this._bindGroups.patternGroundPipeline() !== null
+    const patternSlotsActive =
+      patternUV != null &&
+      patternRepeat != null &&
+      this._bindGroups.patternGroundPipeline() !== null
     if (patternSlotsActive) {
       B.set.fill_color(patternUV![0], patternUV![1], patternUV![2], patternUV![3])
       this._patternUniformActive = true
       this._patternRepeatMX = patternRepeat![0]
       this._patternRepeatMY = patternRepeat![1]
     } else {
-      B.set.fill_color(this.cachedFillColor[0]!, this.cachedFillColor[1]!, this.cachedFillColor[2]!, this.cachedFillColor[3]! * this.currentOpacity)
+      B.set.fill_color(
+        this.cachedFillColor[0]!,
+        this.cachedFillColor[1]!,
+        this.cachedFillColor[2]!,
+        this.cachedFillColor[3]! * this.currentOpacity,
+      )
       this._patternUniformActive = false
     }
     // Line-pattern packs the sprite atlas UV bbox into the stroke_color
     // slot (20-23). fs_line_pattern reads (u0, v0, u1, v1) from
     // tile.stroke_color. Pattern shows trade their solid stroke colour for
     // the atlas sample.
-    const linePatternSlotsActive = show.linePatternUV != null
-      && show.linePatternRepeatM != null
-      && this.lineRenderer != null
+    const linePatternSlotsActive =
+      show.linePatternUV != null && show.linePatternRepeatM != null && this.lineRenderer != null
     this._linePatternActiveForShow = linePatternSlotsActive
     if (linePatternSlotsActive) {
       const lu = show.linePatternUV!
       B.set.stroke_color(lu[0]!, lu[1]!, lu[2]!, lu[3]!)
     } else {
-      B.set.stroke_color(this.cachedStrokeColor[0]!, this.cachedStrokeColor[1]!, this.cachedStrokeColor[2]!, this.cachedStrokeColor[3]! * this.currentOpacity)
+      B.set.stroke_color(
+        this.cachedStrokeColor[0]!,
+        this.cachedStrokeColor[1]!,
+        this.cachedStrokeColor[2]!,
+        this.cachedStrokeColor[3]! * this.currentOpacity,
+      )
     }
     // proj_params + globe_eye written TOGETHER (frame-invariant; kept colocated
     // so the #600 "projection set, eye forgotten" leak stays unrepresentable —
@@ -1480,7 +1582,7 @@ export class VectorTileRenderer {
       // the worker bake + segment slot.
       // Pre-resolved by bucket-scheduler (zoom × time → plain scalar).
       const strokeWidthPx = resolvedShow.strokeWidth
-      const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
+      const mpp = WORLD_MERC / TILE_PX / Math.pow(2, camera.zoom)
       const capMap = { butt: 0, round: 1, square: 2, arrow: 3 } as const
       const joinMap = { miter: 0, round: 1, bevel: 2 } as const
       // Mapbox GL spec defaults for OMITTED line-cap/join/miter-limit:
@@ -1518,25 +1620,24 @@ export class VectorTileRenderer {
         if (c !== null && c.src === dashSrc && c.scalePx === dashWidthScalePx && c.mpp === mpp) {
           dashArray = c.result
         } else {
-          dashArray = dashSrc.map(v => v * dashWidthScalePx * mpp)
+          dashArray = dashSrc.map((v) => v * dashWidthScalePx * mpp)
           this._dashArrayCache = { src: dashSrc, scalePx: dashWidthScalePx, mpp, result: dashArray }
         }
       }
-      const dash = dashArray !== null
-        ? {
-            array: dashArray,
-            offset: resolvedShow.dashOffset * dashWidthScalePx * mpp,
-          }
-        : null
-
-
+      const dash =
+        dashArray !== null
+          ? {
+              array: dashArray,
+              offset: resolvedShow.dashOffset * dashWidthScalePx * mpp,
+            }
+          : null
 
       // Resolve patterns: shape name → registry ID; unit name → flag code.
       const unitMap = { m: 0, px: 1, km: 2, nm: 3 } as const
       const anchorMap = { repeat: 0, start: 1, end: 2, center: 3 } as const
       const patternSlots = (show.patterns ?? [])
         .slice(0, 3)
-        .map(p => ({
+        .map((p) => ({
           shapeId: this.lineRenderer!.resolveShapeId(p.shape),
           spacing: p.spacing,
           spacingUnit: unitMap[p.spacingUnit ?? 'm'],
@@ -1547,7 +1648,7 @@ export class VectorTileRenderer {
           startOffset: p.startOffset ?? 0,
           anchor: anchorMap[p.anchor ?? 'repeat'],
         }))
-        .filter(p => p.shapeId > 0)
+        .filter((p) => p.shapeId > 0)
 
       // In translucent mode the offscreen RT must hold the FULL color +
       // stroke alpha (no opacity multiply). The composite step then blends
@@ -1561,11 +1662,12 @@ export class VectorTileRenderer {
       // shift by ±half_width; combines additively with explicit
       // stroke-offset-N (so users can fine-tune around the baseline).
       const explicitOffset = show.strokeOffset ?? 0
-      const alignDelta = show.strokeAlign === 'inset'
-        ? strokeWidthPx / 2
-        : show.strokeAlign === 'outset'
-          ? -strokeWidthPx / 2
-          : 0
+      const alignDelta =
+        show.strokeAlign === 'inset'
+          ? strokeWidthPx / 2
+          : show.strokeAlign === 'outset'
+            ? -strokeWidthPx / 2
+            : 0
       const effectiveOffset = explicitOffset + alignDelta
 
       // Mapbox line-gap-width: render the line as TWO parallel
@@ -1589,7 +1691,12 @@ export class VectorTileRenderer {
       const linePatternActive = show.linePatternUV != null && show.linePatternRepeatM != null
       const lineSlotColor: [number, number, number, number] = linePatternActive
         ? [show.linePatternRepeatM![0], 0, 0, show.linePatternRepeatM![1]]
-        : [this.cachedStrokeColor[0], this.cachedStrokeColor[1], this.cachedStrokeColor[2], this.cachedStrokeColor[3]]
+        : [
+            this.cachedStrokeColor[0],
+            this.cachedStrokeColor[1],
+            this.cachedStrokeColor[2],
+            this.cachedStrokeColor[3],
+          ]
 
       lineLayerOffset = this.lineRenderer.writeLayerSlot(
         lineSlotColor,
@@ -1611,7 +1718,12 @@ export class VectorTileRenderer {
       )
       if (gapWidth > 0) {
         lineLayerOffsetGap = this.lineRenderer.writeLayerSlot(
-          [this.cachedStrokeColor[0], this.cachedStrokeColor[1], this.cachedStrokeColor[2], this.cachedStrokeColor[3]],
+          [
+            this.cachedStrokeColor[0],
+            this.cachedStrokeColor[1],
+            this.cachedStrokeColor[2],
+            this.cachedStrokeColor[3],
+          ],
           strokeWidthPx,
           layerOpacity,
           mpp,
@@ -1661,8 +1773,7 @@ export class VectorTileRenderer {
     const sliceCached = (k: number): boolean => {
       let v = sliceCachedMemo.get(k)
       if (v === undefined) {
-        v = layerCache.has(k)
-            || this.source!.hasTileData(k, sliceLayer)
+        v = layerCache.has(k) || this.source!.hasTileData(k, sliceLayer)
         sliceCachedMemo.set(k, v)
       }
       return v
@@ -1710,7 +1821,6 @@ export class VectorTileRenderer {
       this._frameClassifyMemo.set(sliceLayer, sliceMemo)
     }
 
-
     for (let i = 0; i < tiles.length; i++) {
       const key = neededKeys[i]
 
@@ -1745,7 +1855,13 @@ export class VectorTileRenderer {
           hasNonEmptySliceInCatalog: (k) => {
             if (layerCache.has(k)) return true
             const d = this.source!.getTileData(k, sliceLayer)
-            return !!d && (d.vertices.length > 0 || d.lineVertices.length > 0 || (d.pointVertices?.length ?? 0) > 0 || !!d.fullCover)
+            return (
+              !!d &&
+              (d.vertices.length > 0 ||
+                d.lineVertices.length > 0 ||
+                (d.pointVertices?.length ?? 0) > 0 ||
+                !!d.fullCover)
+            )
           },
           hasAnySliceInCatalog: (k) => this.source!.hasTileData(k),
           hasEntryInIndex: (k) => this.source!.hasEntryInIndex(k),
@@ -1757,7 +1873,8 @@ export class VectorTileRenderer {
         })
         sliceMemo.set(key, decision)
       }
-      _tileDecisions[i] = decision.kind === 'queued-with-fallback' ? decision.fallback.kind : decision.kind
+      _tileDecisions[i] =
+        decision.kind === 'queued-with-fallback' ? decision.fallback.kind : decision.kind
 
       if (decision.kind === 'overzoom-parent') {
         fallbackKeys.push(decision.parentKey)
@@ -1782,7 +1899,9 @@ export class VectorTileRenderer {
         const wKey = `no-ancestor:${t.z}/${t.x}/${t.y}`
         if (maxLevel > 0 && !this._drawStats.hasWarned(wKey)) {
           this._drawStats.markWarned(wKey)
-          xlog.warn(`[VTR tile-drop] no ancestor found for ${t.z}/${t.x}/${t.y} — dropping from render (maxLevel=${maxLevel}).`)
+          xlog.warn(
+            `[VTR tile-drop] no ancestor found for ${t.z}/${t.x}/${t.y} — dropping from render (maxLevel=${maxLevel}).`,
+          )
         }
         continue
       }
@@ -1806,7 +1925,11 @@ export class VectorTileRenderer {
           // tile draws as a black hole. (See _high-pitch-flicker
           // regression case.)
           perfMarkStart('vtr.upload')
-          this.doUploadTile(inner.parentKey, this.source.getTileData(inner.parentKey, sliceLayer)!, sliceLayer)
+          this.doUploadTile(
+            inner.parentKey,
+            this.source.getTileData(inner.parentKey, sliceLayer)!,
+            sliceLayer,
+          )
           perfMarkEnd('vtr.upload')
         }
         fallbackKeys.push(inner.parentKey)
@@ -1853,11 +1976,11 @@ export class VectorTileRenderer {
         if (d === 'queued-no-fb' || d === undefined) {
           const t = tiles[i]
           throw new Error(
-            `[XGIS INVARIANT] tile ${t.z}/${t.x}/${t.y} layer="${sliceLayer}" `
-            + `decision=${d ?? 'untracked'}. The per-tile loop resolved this tile `
-            + `without a primary draw or a per-tile fallback push. This is the bug `
-            + `class fixed by commit 49d4801 (uploadTile queue + continue skipping `
-            + `the parent-walk fallback).`,
+            `[XGIS INVARIANT] tile ${t.z}/${t.x}/${t.y} layer="${sliceLayer}" ` +
+              `decision=${d ?? 'untracked'}. The per-tile loop resolved this tile ` +
+              `without a primary draw or a per-tile fallback push. This is the bug ` +
+              `class fixed by commit 49d4801 (uploadTile queue + continue skipping ` +
+              `the parent-walk fallback).`,
           )
         }
       }
@@ -2060,9 +2183,9 @@ export class VectorTileRenderer {
       // so the entire opaque pass agrees on the r16float attachment.
       const groundForLayout: GPURenderPipeline | null = DEBUG_OVERDRAW
         ? (fillPipelineGroundOverride ?? fillPipeline)
-        : (groundIsBase
-            ? this._bindGroups.groundPipeline()
-            : (fillPipelineGroundOverride ?? null))
+        : groundIsBase
+          ? this._bindGroups.groundPipeline()
+          : (fillPipelineGroundOverride ?? null)
       // Fill-pattern routing. When the show has a resolved pattern UV bbox
       // AND the variant pipeline path isn't active AND we're not in
       // DEBUG_OVERDRAW (r16float surface), swap the ground pipeline for the
@@ -2070,23 +2193,24 @@ export class VectorTileRenderer {
       // bindGroupLayout, so it's only valid on the `groundIsBase` path;
       // variant + feature-data pattern shows fall through to the generic
       // fillPipeline (renders solid colour, not crash).
-      const patternActive = !DEBUG_OVERDRAW
-        && groundIsBase
-        && show.fillPatternUV != null
-        && this._bindGroups.patternGroundPipeline() !== null
+      const patternActive =
+        !DEBUG_OVERDRAW &&
+        groundIsBase &&
+        show.fillPatternUV != null &&
+        this._bindGroups.patternGroundPipeline() !== null
       const groundChoice = patternActive
         ? this._bindGroups.patternGroundPipeline()
         : groundForLayout
-      const mainFill = this.currentExtrudeMode === 'none' && groundChoice !== null
-        ? groundChoice
-        : fillPipeline
+      const mainFill =
+        this.currentExtrudeMode === 'none' && groundChoice !== null ? groundChoice : fillPipeline
       // Fill-extrusion-pattern: when the extruded pattern pipeline is wired
       // and the show has a resolved pattern UV bbox, route per-feature
       // extruded draws to the pattern variant. Same gate as the ground path.
-      const extrudedPatternActive = !DEBUG_OVERDRAW
-        && groundIsBase
-        && show.fillPatternUV != null
-        && this._bindGroups.patternExtrudedPipeline() !== null
+      const extrudedPatternActive =
+        !DEBUG_OVERDRAW &&
+        groundIsBase &&
+        show.fillPatternUV != null &&
+        this._bindGroups.patternExtrudedPipeline() !== null
       const extrudedPipeline = extrudedPatternActive
         ? this._bindGroups.patternExtrudedPipeline()
         : this._bindGroups.extrudedPipeline()
@@ -2138,16 +2262,20 @@ export class VectorTileRenderer {
       //   __XGIS_BUNDLE_FORCE_ON = true   to force enable (testing only)
       let allTilesLoaded = true
       for (let i = 0; i < neededKeys.length; i++) {
-        if (!layerCache.get(neededKeys[i]!)) { allTilesLoaded = false; break }
+        if (!layerCache.get(neededKeys[i]!)) {
+          allTilesLoaded = false
+          break
+        }
       }
-      const _bundleForceOn = (globalThis as { __XGIS_BUNDLE_FORCE_ON?: boolean })
-        .__XGIS_BUNDLE_FORCE_ON === true
-      const shouldBundle = _bundleForceOn
-        && !DEBUG_OVERDRAW
-        && !translucentBucket
-        && phase !== 'strokes'
-        && phase !== 'oit-fill'
-        && allTilesLoaded
+      const _bundleForceOn =
+        (globalThis as { __XGIS_BUNDLE_FORCE_ON?: boolean }).__XGIS_BUNDLE_FORCE_ON === true
+      const shouldBundle =
+        _bundleForceOn &&
+        !DEBUG_OVERDRAW &&
+        !translucentBucket &&
+        phase !== 'strokes' &&
+        phase !== 'oit-fill' &&
+        allTilesLoaded
       if (shouldBundle) {
         // Structural cache key: a single structuralHashKey() over a typed
         // state literal. Adding a new dependency below = one new property;
@@ -2189,11 +2317,26 @@ export class VectorTileRenderer {
           label: cacheKey,
         }
         let wasMiss = false
-        const bundle = this.bundleCache.getOrEncode(cacheKey, desc, encoder => {
+        const bundle = this.bundleCache.getOrEncode(cacheKey, desc, (encoder) => {
           wasMiss = true
           this._skipFillDrawForBundle = false
           this._skipStrokeDrawForBundle = false
-          this.renderTileKeys(neededKeys, encoder, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, extrudedPipeline, bindGroupLayout, translucentBucket)
+          this.renderTileKeys(
+            neededKeys,
+            encoder,
+            mainFill,
+            linePipeline,
+            projCenterLon,
+            projCenterLat,
+            worldOffDeg,
+            lineLayerOffset,
+            lineLayerOffsetGap,
+            phase,
+            layerCache,
+            extrudedPipeline,
+            bindGroupLayout,
+            translucentBucket,
+          )
         })
         if (!wasMiss) {
           // Cache hit: replay path. Re-run renderTileKeys for state
@@ -2202,13 +2345,43 @@ export class VectorTileRenderer {
           // population still happens.
           this._skipFillDrawForBundle = true
           this._skipStrokeDrawForBundle = true
-          this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, extrudedPipeline, bindGroupLayout, translucentBucket)
+          this.renderTileKeys(
+            neededKeys,
+            pass,
+            mainFill,
+            linePipeline,
+            projCenterLon,
+            projCenterLat,
+            worldOffDeg,
+            lineLayerOffset,
+            lineLayerOffsetGap,
+            phase,
+            layerCache,
+            extrudedPipeline,
+            bindGroupLayout,
+            translucentBucket,
+          )
           this._skipFillDrawForBundle = false
           this._skipStrokeDrawForBundle = false
         }
         pass.executeBundles([bundle])
       } else {
-        this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, extrudedPipeline, bindGroupLayout, translucentBucket)
+        this.renderTileKeys(
+          neededKeys,
+          pass,
+          mainFill,
+          linePipeline,
+          projCenterLon,
+          projCenterLat,
+          worldOffDeg,
+          lineLayerOffset,
+          lineLayerOffsetGap,
+          phase,
+          layerCache,
+          extrudedPipeline,
+          bindGroupLayout,
+          translucentBucket,
+        )
       }
     }
 
@@ -2235,9 +2408,9 @@ export class VectorTileRenderer {
           indexed.push({ k, o: fallbackOffsets[i], vk: fallbackVisibleKeys[i], z })
         }
         indexed.sort((a, b) => a.z - b.z)
-        fallbackKeys = indexed.map(c => c.k)
-        fallbackOffsets = indexed.map(c => c.o)
-        fallbackVisibleKeys = indexed.map(c => c.vk)
+        fallbackKeys = indexed.map((c) => c.k)
+        fallbackOffsets = indexed.map((c) => c.o)
+        fallbackVisibleKeys = indexed.map((c) => c.vk)
       }
       if (phase !== 'strokes') pass.setStencilReference(0)
       // Visual debug hook: when `globalThis.__XGIS_FALLBACK_RED = true` is
@@ -2248,7 +2421,9 @@ export class VectorTileRenderer {
       // it, alpha = 0, render order); if no red appears, the fallback
       // path itself is dropping the tile.
       const _debugRed = (globalThis as { __XGIS_FALLBACK_RED?: boolean }).__XGIS_FALLBACK_RED
-      let _origR = 0, _origG = 0, _origB = 0
+      let _origR = 0,
+        _origG = 0,
+        _origB = 0
       if (_debugRed) {
         // Save/override RGB only — alpha stays whatever the tile loop last
         // wrote (the setter's fixed arity re-writes it with its current value).
@@ -2265,25 +2440,28 @@ export class VectorTileRenderer {
       const fallbackGroundIsBase = bindGroupLayout === this._bindGroups.baseLayout()
       const fallbackGroundForLayout: GPURenderPipeline | null = DEBUG_OVERDRAW
         ? (fillPipelineGroundFallbackOverride ?? fillPipelineFallback ?? null)
-        : (fallbackGroundIsBase
-            ? this._bindGroups.groundPipelineFallback()
-            : (fillPipelineGroundFallbackOverride ?? null))
+        : fallbackGroundIsBase
+          ? this._bindGroups.groundPipelineFallback()
+          : (fillPipelineGroundFallbackOverride ?? null)
       // Fill-pattern fallback routing (mirror of the primary path above).
-      const fallbackPatternActive = !DEBUG_OVERDRAW
-        && fallbackGroundIsBase
-        && show.fillPatternUV != null
-        && this._bindGroups.patternGroundPipelineFallback() !== null
+      const fallbackPatternActive =
+        !DEBUG_OVERDRAW &&
+        fallbackGroundIsBase &&
+        show.fillPatternUV != null &&
+        this._bindGroups.patternGroundPipelineFallback() !== null
       const fallbackGroundChoice = fallbackPatternActive
         ? this._bindGroups.patternGroundPipelineFallback()
         : fallbackGroundForLayout
-      const fallbackFill = this.currentExtrudeMode === 'none' && fallbackGroundChoice !== null
-        ? fallbackGroundChoice
-        : fillPipelineFallback
+      const fallbackFill =
+        this.currentExtrudeMode === 'none' && fallbackGroundChoice !== null
+          ? fallbackGroundChoice
+          : fillPipelineFallback
       // Fill-extrusion-pattern fallback path mirror.
-      const fallbackExtrudedPatternActive = !DEBUG_OVERDRAW
-        && fallbackGroundIsBase
-        && show.fillPatternUV != null
-        && this._bindGroups.patternExtrudedPipelineFallback() !== null
+      const fallbackExtrudedPatternActive =
+        !DEBUG_OVERDRAW &&
+        fallbackGroundIsBase &&
+        show.fillPatternUV != null &&
+        this._bindGroups.patternExtrudedPipelineFallback() !== null
       const fallbackExtrudedPipeline = fallbackExtrudedPatternActive
         ? this._bindGroups.patternExtrudedPipelineFallback()
         : this._bindGroups.extrudedPipelineFallback()
@@ -2299,18 +2477,22 @@ export class VectorTileRenderer {
       // guard avoids the same partial-set replay class of bug.
       let fbAllLoaded = true
       for (let i = 0; i < fallbackKeys.length; i++) {
-        if (!layerCache.get(fallbackKeys[i]!)) { fbAllLoaded = false; break }
+        if (!layerCache.get(fallbackKeys[i]!)) {
+          fbAllLoaded = false
+          break
+        }
       }
       // Fallback path also default OFF (see primary path).
-      const _fbBundleForceOn = (globalThis as { __XGIS_BUNDLE_FORCE_ON?: boolean })
-        .__XGIS_BUNDLE_FORCE_ON === true
-      const fbShouldBundle = _fbBundleForceOn
-        && !DEBUG_OVERDRAW
-        && !translucentBucket
-        && phase !== 'strokes'
-        && phase !== 'oit-fill'
-        && !_debugRed
-        && fbAllLoaded
+      const _fbBundleForceOn =
+        (globalThis as { __XGIS_BUNDLE_FORCE_ON?: boolean }).__XGIS_BUNDLE_FORCE_ON === true
+      const fbShouldBundle =
+        _fbBundleForceOn &&
+        !DEBUG_OVERDRAW &&
+        !translucentBucket &&
+        phase !== 'strokes' &&
+        phase !== 'oit-fill' &&
+        !_debugRed &&
+        fbAllLoaded
       if (fbShouldBundle) {
         // Structural cache key (mirrors primary path; see
         // _cache/structural-key.ts).
@@ -2349,22 +2531,70 @@ export class VectorTileRenderer {
           label: fbCacheKey,
         }
         let fbWasMiss = false
-        const fbBundle = this.bundleCache.getOrEncode(fbCacheKey, fbDesc, encoder => {
+        const fbBundle = this.bundleCache.getOrEncode(fbCacheKey, fbDesc, (encoder) => {
           fbWasMiss = true
           this._skipFillDrawForBundle = false
           this._skipStrokeDrawForBundle = false
-          this.renderTileKeys(fallbackKeys, encoder, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, fallbackExtrudedPipeline, bindGroupLayout, translucentBucket, fallbackVisibleKeys)
+          this.renderTileKeys(
+            fallbackKeys,
+            encoder,
+            fallbackFill,
+            linePipelineFallback!,
+            projCenterLon,
+            projCenterLat,
+            fallbackOffsets,
+            lineLayerOffset,
+            lineLayerOffsetGap,
+            phase,
+            layerCache,
+            fallbackExtrudedPipeline,
+            bindGroupLayout,
+            translucentBucket,
+            fallbackVisibleKeys,
+          )
         })
         if (!fbWasMiss) {
           this._skipFillDrawForBundle = true
           this._skipStrokeDrawForBundle = true
-          this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, fallbackExtrudedPipeline, bindGroupLayout, translucentBucket, fallbackVisibleKeys)
+          this.renderTileKeys(
+            fallbackKeys,
+            pass,
+            fallbackFill,
+            linePipelineFallback!,
+            projCenterLon,
+            projCenterLat,
+            fallbackOffsets,
+            lineLayerOffset,
+            lineLayerOffsetGap,
+            phase,
+            layerCache,
+            fallbackExtrudedPipeline,
+            bindGroupLayout,
+            translucentBucket,
+            fallbackVisibleKeys,
+          )
           this._skipFillDrawForBundle = false
           this._skipStrokeDrawForBundle = false
         }
         pass.executeBundles([fbBundle])
       } else {
-        this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, fallbackExtrudedPipeline, bindGroupLayout, translucentBucket, fallbackVisibleKeys)
+        this.renderTileKeys(
+          fallbackKeys,
+          pass,
+          fallbackFill,
+          linePipelineFallback!,
+          projCenterLon,
+          projCenterLat,
+          fallbackOffsets,
+          lineLayerOffset,
+          lineLayerOffsetGap,
+          phase,
+          layerCache,
+          fallbackExtrudedPipeline,
+          bindGroupLayout,
+          translucentBucket,
+          fallbackVisibleKeys,
+        )
       }
       if (_debugRed) {
         const f32 = new Float32Array(this.frameBlock.buffer)
@@ -2372,7 +2602,6 @@ export class VectorTileRenderer {
         this.frameBlock.set.fill_color(_origR, _origG, _origB, f32[a3]!)
       }
     }
-
 
     // Prefetch adjacent + next zoom (every 10th frame, idle only).
     // While the camera is actively moving the prefetched edge tiles
@@ -2501,16 +2730,34 @@ export class VectorTileRenderer {
         const featProps = wantsFeatProps ? tileData.featureProps : undefined
         for (let i = 0; i < ptv.length; i += 13) {
           pointRenderer.addTilePoint(
-            ptv[i], ptv[i + 1], ptv[i + 2],   // ex_h, ey_h, ez_h
-            ptv[i + 3], ptv[i + 4], ptv[i + 5], // ex_l, ey_l, ez_l
-            ptv[i + 6],                          // feat_id
-            ptv[i + 7], ptv[i + 8],              // abs_lon, abs_lat (cull)
-            ptv[i + 9], ptv[i + 10], ptv[i + 11], ptv[i + 12], // merc DSFUN mx_h,mx_l,my_h,my_l
+            ptv[i],
+            ptv[i + 1],
+            ptv[i + 2], // ex_h, ey_h, ez_h
+            ptv[i + 3],
+            ptv[i + 4],
+            ptv[i + 5], // ex_l, ey_l, ez_l
+            ptv[i + 6], // feat_id
+            ptv[i + 7],
+            ptv[i + 8], // abs_lon, abs_lat (cull)
+            ptv[i + 9],
+            ptv[i + 10],
+            ptv[i + 11],
+            ptv[i + 12], // merc DSFUN mx_h,mx_l,my_h,my_l
             featProps ? (featProps.get(ptv[i + 6]) ?? null) : null, // #722 S4 per-feature source props
           )
         }
       }
-      pointRenderer.flushTilePoints(pass, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, show, dpr)
+      pointRenderer.flushTilePoints(
+        pass,
+        camera,
+        projType,
+        projCenterLon,
+        projCenterLat,
+        canvasWidth,
+        canvasHeight,
+        show,
+        dpr,
+      )
     }
   }
 
@@ -2656,9 +2903,10 @@ export class VectorTileRenderer {
     // Lines always use baseBindGroupLayout (assertion further below
     // is preserved). Strokes get the same uniform-only layout via
     // currentLineTileBg.
-    const fillBg = fillBindGroupLayout === this._bindGroups.baseLayout()
-      ? this._bindGroups.baseGroup()
-      : this._bindGroups.featureGroup()
+    const fillBg =
+      fillBindGroupLayout === this._bindGroups.baseLayout()
+        ? this._bindGroups.baseGroup()
+        : this._bindGroups.featureGroup()
     // For featureBindGroupLayout the source-level `tileBgFeature` is
     // null in the MVT/PMTiles path (each tile owns its own
     // featureBindGroup). Don't early-return on that case — per-tile
@@ -2684,9 +2932,12 @@ export class VectorTileRenderer {
       // skipped (Korea fill-drop bug, 2026-05-10): only the first
       // dispatch's clip_bounds rect actually let any fragment through.
       const visibleKey = visibleKeysForClip?.[ki] ?? -1
-      const drawKey: number | string = visibleKey >= 0
-        ? `${key}:${worldOff}:${visibleKey}`
-        : worldOff === 0 ? key : key + worldOff * 1000000
+      const drawKey: number | string =
+        visibleKey >= 0
+          ? `${key}:${worldOff}:${visibleKey}`
+          : worldOff === 0
+            ? key
+            : key + worldOff * 1000000
       if (this._drawStats.hasDrawn(drawKey)) continue
       const cached = layerCache.get(key)
       if (!cached) continue
@@ -2711,10 +2962,20 @@ export class VectorTileRenderer {
       if (!this._patternUniformActive) {
         // Alpha-only refresh — RGB re-written with its current cached values
         // (the pattern guard above means the slot holds cachedFillColor RGB).
-        this.frameBlock.set.fill_color(this.cachedFillColor[0]!, this.cachedFillColor[1]!, this.cachedFillColor[2]!, baseFillA)
+        this.frameBlock.set.fill_color(
+          this.cachedFillColor[0]!,
+          this.cachedFillColor[1]!,
+          this.cachedFillColor[2]!,
+          baseFillA,
+        )
       }
       if (!this._linePatternActiveForShow) {
-        this.frameBlock.set.stroke_color(this.cachedStrokeColor[0]!, this.cachedStrokeColor[1]!, this.cachedStrokeColor[2]!, baseStrokeA)
+        this.frameBlock.set.stroke_color(
+          this.cachedStrokeColor[0]!,
+          this.cachedStrokeColor[1]!,
+          this.cachedStrokeColor[2]!,
+          baseStrokeA,
+        )
       }
       // u.opacity for shader variants is written at index 34 (offset 136 in
       // the 192-byte layout) in the DSFUN uniform block, below — keep it off
@@ -2733,9 +2994,10 @@ export class VectorTileRenderer {
       // the tiler always pre-projects to Mercator. Non-Mercator reprojection
       // happens in the shader via abs merc → lon/lat → project().
       const tileMercX = (cached.tileWest + worldOff) * DEG2RAD * R
-      const tileMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(cached.tileSouth) * DEG2RAD / 2)) * R
+      const tileMercY =
+        Math.log(Math.tan(Math.PI / 4 + (clampLat(cached.tileSouth) * DEG2RAD) / 2)) * R
       const camMercX = projCenterLon * DEG2RAD * R
-      const camMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(projCenterLat) * DEG2RAD / 2)) * R
+      const camMercY = Math.log(Math.tan(Math.PI / 4 + (clampLat(projCenterLat) * DEG2RAD) / 2)) * R
       const camRelX = camMercX - tileMercX // f64 cancellation
       const camRelY = camMercY - tileMercY
 
@@ -2769,11 +3031,13 @@ export class VectorTileRenderer {
       const E2_ECEF = (1 / 298.257223563) * (2 - 1 / 298.257223563)
       const tLatR = clampLat(cached.tileSouth) * DEG2RAD
       const tLonR = cached.tileWest * DEG2RAD
-      const tSin = Math.sin(tLatR), tCos = Math.cos(tLatR)
+      const tSin = Math.sin(tLatR),
+        tCos = Math.cos(tLatR)
       const tN = R / Math.sqrt(1 - E2_ECEF * tSin * tSin)
       const camLatR = clampLat(projCenterLat) * DEG2RAD
       const camLonR = projCenterLon * DEG2RAD
-      const camSin = Math.sin(camLatR), camCos = Math.cos(camLatR)
+      const camSin = Math.sin(camLatR),
+        camCos = Math.cos(camLatR)
       const cN = R / Math.sqrt(1 - E2_ECEF * camSin * camSin)
       const offX = tN * tCos * Math.cos(tLonR) - cN * camCos * Math.cos(camLonR)
       const offY = tN * tCos * Math.sin(tLonR) - cN * camCos * Math.sin(camLonR)
@@ -2785,7 +3049,9 @@ export class VectorTileRenderer {
       //   cam_ecef_off_l.w = fill-extrusion-vertical-gradient
       this.frameBlock.set.cam_ecef_off_h(hi(offX), hi(offY), hi(offZ), this.currentFillAntialias)
       this.frameBlock.set.cam_ecef_off_l(
-        Math.fround(offX - hi(offX)), Math.fround(offY - hi(offY)), Math.fround(offZ - hi(offZ)),
+        Math.fround(offX - hi(offX)),
+        Math.fround(offY - hi(offY)),
+        Math.fround(offZ - hi(offZ)),
         this.currentFillVerticalGradient,
       )
 
@@ -2798,13 +3064,15 @@ export class VectorTileRenderer {
       // the wall/roof normals (East=(-sLon,cLon,0), North=(-sLat·cLon,
       // -sLat·sLon,cLat), Up=(cLat·cLon,cLat·sLon,sLat)) → roof brightest,
       // walls in MapLibre's band (CPU-oracle confirmed). .w (63) spare.
-      const camSinLon = Math.sin(camLonR), camCosLon = Math.cos(camLonR)
+      const camSinLon = Math.sin(camLonR),
+        camCosLon = Math.cos(camLonR)
       // Convert the Mapbox light position [radius, azimuth°, polar°] to an
       // (East,North,Up) direction via MapLibre's sphericalToCartesian
       // (azimuth +90° so 0° points north). The default [1.15,210,30]
       // reproduces the old baked (0.288,-0.498,0.996).
       const [lRad, lAz, lPol] = this._lightPosition
-      const lAzR = (lAz + 90) * DEG2RAD, lPolR = lPol * DEG2RAD
+      const lAzR = (lAz + 90) * DEG2RAD,
+        lPolR = lPol * DEG2RAD
       const LE = lRad * Math.cos(lAzR) * Math.sin(lPolR)
       const LN = lRad * Math.sin(lAzR) * Math.sin(lPolR)
       const LU = lRad * Math.cos(lPolR)
@@ -2812,9 +3080,9 @@ export class VectorTileRenderer {
       // light_color_packed (u32 lane — routed through the block's raw-word
       // view). The extrude VS reads both; all other variants ignore them.
       this.frameBlock.set.light_dir_ecef(
-        Math.fround(LE * (-camSinLon) + LN * (-camSin * camCosLon) + LU * (camCos * camCosLon)),
-        Math.fround(LE * (camCosLon) + LN * (-camSin * camSinLon) + LU * (camCos * camSinLon)),
-        Math.fround(/* LE*0 */ LN * (camCos) + LU * (camSin)),
+        Math.fround(LE * -camSinLon + LN * (-camSin * camCosLon) + LU * (camCos * camCosLon)),
+        Math.fround(LE * camCosLon + LN * (-camSin * camSinLon) + LU * (camCos * camSinLon)),
+        Math.fround(/* LE*0 */ LN * camCos + LU * camSin),
         this._lightIntensity,
       )
       const lc = this._lightColor
@@ -2845,7 +3113,7 @@ export class VectorTileRenderer {
       // (~10 effective bits at 85°). Layer index = pickId & 0xFFFF —
       // pickIds are assigned in style declaration order so this matches
       // the bucket scheduler's draw order.
-      this.frameBlock.set.layer_depth_offset((this.currentPickId & 0xFFFF) * 1e-3)
+      this.frameBlock.set.layer_depth_offset((this.currentPickId & 0xffff) * 1e-3)
       // tile_extent_m (38) — tile-local Mercator-meter extent at this
       // tile's zoom. vs_main_quantized dequants pos_norm via this.
       // 2π × R / 2^z; we cache R × 2π once per VTR.
@@ -2881,13 +3149,14 @@ export class VectorTileRenderer {
         const vn = Math.pow(2, vz)
         const vWestLon = (vx / vn) * 360 - 180 + worldOff
         const vEastLon = ((vx + 1) / vn) * 360 - 180 + worldOff
-        const vNorthLat = Math.atan(Math.sinh(Math.PI * (1 - 2 * vy / vn))) * 180 / Math.PI
-        const vSouthLat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (vy + 1) / vn))) * 180 / Math.PI
+        const vNorthLat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * vy) / vn))) * 180) / Math.PI
+        const vSouthLat =
+          (Math.atan(Math.sinh(Math.PI * (1 - (2 * (vy + 1)) / vn))) * 180) / Math.PI
         this.frameBlock.set.clip_bounds(
           Math.fround(vWestLon * DEG2RAD * R),
-          Math.fround(Math.log(Math.tan(Math.PI / 4 + clampLat(vSouthLat) * DEG2RAD / 2)) * R),
+          Math.fround(Math.log(Math.tan(Math.PI / 4 + (clampLat(vSouthLat) * DEG2RAD) / 2)) * R),
           Math.fround(vEastLon * DEG2RAD * R),
-          Math.fround(Math.log(Math.tan(Math.PI / 4 + clampLat(vNorthLat) * DEG2RAD / 2)) * R),
+          Math.fround(Math.log(Math.tan(Math.PI / 4 + (clampLat(vNorthLat) * DEG2RAD) / 2)) * R),
         )
       } else {
         // Sentinel: no clip. Fragment shader's `clip_bounds.x > -1e29`
@@ -2950,9 +3219,10 @@ export class VectorTileRenderer {
       // Either can be transiently null (e.g. a frame after a projection switch);
       // binding null with a dynamic offset corrupts the whole encoder (every
       // later draw + finish() fail → black screen) → resolve null, skip below.
-      const currentTileBg: GPUBindGroup | null = fillBindGroupLayout === this._bindGroups.baseLayout()
-        ? this._bindGroups.baseGroup()!
-        : (cached.featureBindGroup ?? this._bindGroups.featureGroup() ?? null)
+      const currentTileBg: GPUBindGroup | null =
+        fillBindGroupLayout === this._bindGroups.baseLayout()
+          ? this._bindGroups.baseGroup()!
+          : (cached.featureBindGroup ?? this._bindGroups.featureGroup() ?? null)
       // Stage the slot into the CPU-side mirror instead of issuing one
       // writeBuffer per tile; the mirror is flushed in a single call at
       // the end of this renderTileKeys invocation.
@@ -2973,32 +3243,40 @@ export class VectorTileRenderer {
         //  * 'oit-fill' phase: translucent extrude → OIT MRT pipe
         //  * per-feature extrude (opaque): vs_main_quantized_extruded + zBuffer
         //  * uniform / ground (opaque): pre-selected `fillPipeline`
-        const useOitPipe = isOitFill
-          && cached.extruded
-          && this._bindGroups.extrudedOITPipeline() !== null
+        const useOitPipe =
+          isOitFill && cached.extruded && this._bindGroups.extrudedOITPipeline() !== null
         // DIAG: log per-tile drawIndexed for the current trace if armed.
         // Granular enough to verify the cross-tile order claim
         // ("all tiles' 2D before any 3D") rather than just per-show
         // sequencing. Pipeline decision is computed below — if the
         // trace is armed we record the routing here for diagnosis.
         if (typeof window !== 'undefined') {
-          const trace = (window as unknown as { __xgisDrawOrderTrace?: Array<{
-            seq: number; slice: string; phase: string; extrude: string;
-            tileKey?: number; isFill?: boolean;
-            pipelineRoute?: 'oit' | 'extrude' | 'fill' | 'skip';
-            hasZBuffer?: boolean;
-          }> }).__xgisDrawOrderTrace
+          const trace = (
+            window as unknown as {
+              __xgisDrawOrderTrace?: Array<{
+                seq: number
+                slice: string
+                phase: string
+                extrude: string
+                tileKey?: number
+                isFill?: boolean
+                pipelineRoute?: 'oit' | 'extrude' | 'fill' | 'skip'
+                hasZBuffer?: boolean
+              }>
+            }
+          ).__xgisDrawOrderTrace
           if (trace) {
             // Pipeline route is determined a few lines below — but the
             // logic is mirrored here so we can record it before
             // dispatch. Skip path: OIT requested but useOitPipe failed.
             const willSkip = isOitFill && !useOitPipe
-            const route: 'oit' | 'extrude' | 'fill' | 'skip' =
-              willSkip ? 'skip'
-              : useOitPipe ? 'oit'
-              : (this.currentExtrudeMode === 'per-feature' && cached.extruded)
-                ? 'extrude'
-                : 'fill'
+            const route: 'oit' | 'extrude' | 'fill' | 'skip' = willSkip
+              ? 'skip'
+              : useOitPipe
+                ? 'oit'
+                : this.currentExtrudeMode === 'per-feature' && cached.extruded
+                  ? 'extrude'
+                  : 'fill'
             trace.push({
               seq: trace.length,
               slice: this._drawStats.traceSlice() ?? '?',
@@ -3042,28 +3320,28 @@ export class VectorTileRenderer {
         // loses unpredictably depending on pitch / camera angle. Skip
         // instead: showing no fallback building briefly is far less
         // visually broken than showing a flat one. Strokes still draw.
-        const wantsExtrude = !isOitFill
-          && this.currentExtrudeMode === 'per-feature'
-          && fillPipelineExtruded !== null
+        const wantsExtrude =
+          !isOitFill && this.currentExtrudeMode === 'per-feature' && fillPipelineExtruded !== null
         if (wantsExtrude && !cached.extruded) {
           if (drawStrokes) strokeQueue.push({ cached, slotOffset })
           continue
         }
-        const useExtrudedPipe = !isOitFill
-          && this.currentExtrudeMode === 'per-feature'
-          && cached.extruded
-          && fillPipelineExtruded !== null
+        const useExtrudedPipe =
+          !isOitFill &&
+          this.currentExtrudeMode === 'per-feature' &&
+          cached.extruded &&
+          fillPipelineExtruded !== null
         // Debug=overdraw: collapse OIT + extruded paths onto the
         // single overdraw pipeline supplied as `fillPipeline`. The
         // OIT / extruded variants target their own formats which
         // don't match the r16float accumulator attached to this pass.
         const activePipe = DEBUG_OVERDRAW
           ? fillPipeline
-          : (useOitPipe
-              ? this._bindGroups.extrudedOITPipeline()!
-              : useExtrudedPipe
-                ? fillPipelineExtruded!
-                : fillPipeline)
+          : useOitPipe
+            ? this._bindGroups.extrudedOITPipeline()!
+            : useExtrudedPipe
+              ? fillPipelineExtruded!
+              : fillPipeline
         // Bundle-compatible draw recording extracted to `recordTileFill`.
         // The 6 GPU commands below (setPipeline, setBindGroup,
         // setVertexBuffer ×1-2, setIndexBuffer, drawIndexed) are the EXACT
@@ -3073,7 +3351,11 @@ export class VectorTileRenderer {
         // Skip if feature bg not ready — never bind null (see note above).
         if (currentTileBg) {
           this.recordTileFill(
-            pass, activePipe, currentTileBg, slotOffset, cached,
+            pass,
+            activePipe,
+            currentTileBg,
+            slotOffset,
+            cached,
             /* bindZBuffer */ useOitPipe || useExtrudedPipe,
           )
         }
@@ -3089,8 +3371,11 @@ export class VectorTileRenderer {
       // overwrite the outline color. Recording the slot offset here
       // lets the deferred stroke pass reuse the same uniform slot
       // without re-doing the per-tile bind-group setup.
-      if (drawStrokes && this.lineRenderer
-          && (cached.outlineSegmentCount > 0 || cached.lineSegmentCount > 0)) {
+      if (
+        drawStrokes &&
+        this.lineRenderer &&
+        (cached.outlineSegmentCount > 0 || cached.lineSegmentCount > 0)
+      ) {
         strokeQueue.push({ cached, slotOffset })
       }
 
@@ -3099,7 +3384,13 @@ export class VectorTileRenderer {
       // (sum across all render() calls within one frame so getDrawStats()
       // reflects the FRAME total for sliced sources rather than the last
       // layer's stats). Same arithmetic/order as the prior inline block.
-      this._drawStats.markDrawn(drawKey, cached.indexCount, cached.lineIndexCount, vc, cached.tileZoom)
+      this._drawStats.markDrawn(
+        drawKey,
+        cached.indexCount,
+        cached.lineIndexCount,
+        vc,
+        cached.tileZoom,
+      )
     }
     // Second pass: emit every queued stroke draw now that all fills
     // for this layer have written depth. Outline + line-feature
@@ -3118,17 +3409,34 @@ export class VectorTileRenderer {
       // written, iterate the strokeQueue with each offset. Single-line
       // (default) draws once. The second pass uses the SAME segment
       // data — only the layer-slot uniform's offset_m differs.
-      const offsets = lineLayerOffsetGap >= 0
-        ? [lineLayerOffset, lineLayerOffsetGap]
-        : [lineLayerOffset]
+      const offsets =
+        lineLayerOffsetGap >= 0 ? [lineLayerOffset, lineLayerOffsetGap] : [lineLayerOffset]
       for (const lo of offsets) {
         for (let i = 0; i < strokeQueue.length; i++) {
           const { cached, slotOffset } = strokeQueue[i]
           if (cached.outlineSegmentCount > 0 && cached.outlineSegmentBindGroup) {
-            this.lineRenderer.drawSegments(pass, currentLineTileBg2, cached.outlineSegmentBindGroup, cached.outlineSegmentCount, slotOffset, lo, translucentLines, this._linePatternActiveForShow)
+            this.lineRenderer.drawSegments(
+              pass,
+              currentLineTileBg2,
+              cached.outlineSegmentBindGroup,
+              cached.outlineSegmentCount,
+              slotOffset,
+              lo,
+              translucentLines,
+              this._linePatternActiveForShow,
+            )
           }
           if (cached.lineSegmentCount > 0 && cached.lineSegmentBindGroup) {
-            this.lineRenderer.drawSegments(pass, currentLineTileBg2, cached.lineSegmentBindGroup, cached.lineSegmentCount, slotOffset, lo, translucentLines, this._linePatternActiveForShow)
+            this.lineRenderer.drawSegments(
+              pass,
+              currentLineTileBg2,
+              cached.lineSegmentBindGroup,
+              cached.lineSegmentCount,
+              slotOffset,
+              lo,
+              translucentLines,
+              this._linePatternActiveForShow,
+            )
           }
         }
       }
@@ -3138,6 +3446,4 @@ export class VectorTileRenderer {
     // data by WebGPU's submit-ordering guarantees.
     this.flushUniformStaging()
   }
-
 }
-

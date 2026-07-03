@@ -40,7 +40,7 @@ const DSFUN_LAT_LIMIT = 85.051129
 export function lonLatToMercF64(lon: number, lat: number): [number, number] {
   const clamped = Math.max(-DSFUN_LAT_LIMIT, Math.min(DSFUN_LAT_LIMIT, lat))
   const mx = lon * DSFUN_DEG2RAD * DSFUN_EARTH_R
-  const my = Math.log(Math.tan(Math.PI / 4 + clamped * DSFUN_DEG2RAD / 2)) * DSFUN_EARTH_R
+  const my = Math.log(Math.tan(Math.PI / 4 + (clamped * DSFUN_DEG2RAD) / 2)) * DSFUN_EARTH_R
   return [mx, my]
 }
 
@@ -103,9 +103,7 @@ export function tileEcefCenterFromMerc(
  * lanes. abs_lon/abs_lat are kept (slots 7/8) for the fragment hemisphere cull,
  * which is degree-tolerant.
  */
-export function packECEFPointFeatures(
-  scratchPv: number[] | Float64Array,
-): Float32Array {
+export function packECEFPointFeatures(scratchPv: number[] | Float64Array): Float32Array {
   // WGS84 ellipsoid constants come from the module-level @xgis/shared import.
 
   const count = scratchPv.length / 3
@@ -137,7 +135,7 @@ export function packECEFPointFeatures(
     const myH = Math.fround(my)
 
     const base = i * 13
-    out[base]     = exH
+    out[base] = exH
     out[base + 1] = eyH
     out[base + 2] = ezH
     out[base + 3] = Math.fround(rx - exH)
@@ -146,7 +144,7 @@ export function packECEFPointFeatures(
     out[base + 6] = fid
     out[base + 7] = lon_rad * RAD2DEG
     out[base + 8] = lat_rad * RAD2DEG
-    out[base + 9]  = mxH
+    out[base + 9] = mxH
     out[base + 10] = Math.fround(mx - mxH)
     out[base + 11] = myH
     out[base + 12] = Math.fround(my - myH)
@@ -172,11 +170,11 @@ export interface QuantizedPolygonVertices {
 // Offsets derived from the single-source POLYGON_FILL_FORMAT spec so the
 // bytes this packer WRITES cannot drift from the WGSL @location attributes /
 // host GPUVertexBufferLayout that READ them. stride 24 B = 6 f32 = 12 u16.
-const FILL_FLOATS_PER_VERT = POLYGON_FILL_FORMAT.stride / 4   // 7
-const FILL_U16_PER_VERT = POLYGON_FILL_FORMAT.stride / 2      // 14
-const FILL_FID_FLOAT = field(POLYGON_FILL_FORMAT, 'feature_id').offset / 4  // 3
-const FILL_LON_FLOAT = field(POLYGON_FILL_FORMAT, 'abs_lon').offset / 4     // 4
-const FILL_LAT_FLOAT = field(POLYGON_FILL_FORMAT, 'abs_lat').offset / 4     // 5
+const FILL_FLOATS_PER_VERT = POLYGON_FILL_FORMAT.stride / 4 // 7
+const FILL_U16_PER_VERT = POLYGON_FILL_FORMAT.stride / 2 // 14
+const FILL_FID_FLOAT = field(POLYGON_FILL_FORMAT, 'feature_id').offset / 4 // 3
+const FILL_LON_FLOAT = field(POLYGON_FILL_FORMAT, 'abs_lon').offset / 4 // 4
+const FILL_LAT_FLOAT = field(POLYGON_FILL_FORMAT, 'abs_lat').offset / 4 // 5
 const FILL_TRUELAT_FLOAT = field(POLYGON_FILL_FORMAT, 'true_lat').offset / 4 // 6
 
 /** Pack ABSOLUTE Mercator-metre polygon vertices into the quantized ECEF
@@ -258,7 +256,9 @@ export function packECEFPolygonVertices(
     const ax = ex - ecefTileCenter[0]
     const ay = ey - ecefTileCenter[1]
     const az = ez - ecefTileCenter[2]
-    rx[i] = ax; ry[i] = ay; rz[i] = az
+    rx[i] = ax
+    ry[i] = ay
+    rz[i] = az
     // Tile-local Mercator (small magnitude → sub-mm in f32 at every zoom).
     localMercX[i] = mx - tileOriginMerc[0]
     localMercY[i] = my - tileOriginMerc[1]
@@ -272,8 +272,8 @@ export function packECEFPolygonVertices(
   // 1 µm — far below the ≤1 mm contract and below the 2^32 step at any zoom.
   const halfRange = maxAbs + 1e-6
   const span = 2 * halfRange
-  const dequantScale = span / 0xFFFFFFFF
-  const invSpan = 0xFFFFFFFF / span
+  const dequantScale = span / 0xffffffff
+  const invSpan = 0xffffffff / span
 
   // Interleaved output: stride 24 bytes = 6 floats. f32 tail at float 3/4/5;
   // u16×6 position in the first 12 bytes via a Uint16Array view of the same
@@ -284,8 +284,8 @@ export function packECEFPolygonVertices(
     const [xh, xl] = quantizeAxis(rx[i], halfRange, invSpan)
     const [yh, yl] = quantizeAxis(ry[i], halfRange, invSpan)
     const [zh, zl] = quantizeAxis(rz[i], halfRange, invSpan)
-    const u = i * FILL_U16_PER_VERT   // u16 lane base (q_xy lanes 0..3, q_z lanes 4..5)
-    u16[u]     = xh
+    const u = i * FILL_U16_PER_VERT // u16 lane base (q_xy lanes 0..3, q_z lanes 4..5)
+    u16[u] = xh
     u16[u + 1] = xl
     u16[u + 2] = yh
     u16[u + 3] = yl
@@ -313,7 +313,7 @@ export function projectRingsToMM(rings: number[][][]): number[][][] {
       const [lon, lat] = ring[i]
       const clamped = Math.max(-DSFUN_LAT_LIMIT, Math.min(DSFUN_LAT_LIMIT, lat))
       const mx = lon * DSFUN_DEG2RAD * DSFUN_EARTH_R
-      const my = Math.log(Math.tan(Math.PI / 4 + clamped * DSFUN_DEG2RAD / 2)) * DSFUN_EARTH_R
+      const my = Math.log(Math.tan(Math.PI / 4 + (clamped * DSFUN_DEG2RAD) / 2)) * DSFUN_EARTH_R
       projRing[i] = [mx, my]
     }
     out[r] = projRing
@@ -375,7 +375,7 @@ export function packECEFLineSegments(
 ): Float32Array {
   // WGS84 ellipsoid constants come from the module-level @xgis/shared import.
 
-  const IN_STRIDE = 8   // [mx, my, featId, arc, tin_x, tin_y, tout_x, tout_y]
+  const IN_STRIDE = 8 // [mx, my, featId, arc, tin_x, tin_y, tout_x, tout_y]
   const OUT_STRIDE = 11 // [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, abs_lon, abs_lat, enu_dir_e, enu_dir_n, enu_pad_u]
   const count = scratchLv.length / IN_STRIDE
   const out = new Float32Array(count * OUT_STRIDE)
@@ -438,7 +438,7 @@ export function packECEFLineSegments(
     }
 
     const di = i * OUT_STRIDE
-    out[di]     = exH
+    out[di] = exH
     out[di + 1] = eyH
     out[di + 2] = ezH
     out[di + 3] = exL
@@ -448,10 +448,10 @@ export function packECEFLineSegments(
     out[di + 7] = lat_deg
     out[di + 8] = enuDirE
     out[di + 9] = enuDirN
-    out[di + 10] = 0  // up-component reserved (Method A across-offset is
-                     //  computed VS-side via cross(up, dir); the up axis
-                     //  emerges from the ENU rotation matrix the VS forms
-                     //  from (lon, lat) — no need to bake it here).
+    out[di + 10] = 0 // up-component reserved (Method A across-offset is
+    //  computed VS-side via cross(up, dir); the up axis
+    //  emerges from the ENU rotation matrix the VS forms
+    //  from (lon, lat) — no need to bake it here).
   }
   return out
 }

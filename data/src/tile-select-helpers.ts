@@ -24,10 +24,7 @@ import type { TileCoord } from './tile-select-types'
  *  terminates in 15 iterations per distinct column; Set-based dedup
  *  at the call site avoids the N²ish cost when many descendants share
  *  one ancestor. */
-export function firstIndexedAncestor(
-  leafKey: number,
-  hasEntry: (key: number) => boolean,
-): number {
+export function firstIndexedAncestor(leafKey: number, hasEntry: (key: number) => boolean): number {
   const MAX_WALK = 22
   let pk = leafKey
   for (let i = 0; i < MAX_WALK && pk > 1; i++) {
@@ -46,7 +43,12 @@ export function worldCopyOf(coord: TileCoord): number {
 
 /** Build a TileCoord with the absolute-x contract pre-computed. Use
  *  this from any new selector to ensure the contract holds. */
-export function makeTileCoord(z: number, wrappedX: number, y: number, worldCopy: number = 0): TileCoord {
+export function makeTileCoord(
+  z: number,
+  wrappedX: number,
+  y: number,
+  worldCopy: number = 0,
+): TileCoord {
   return { z, x: wrappedX, y, ox: wrappedX + worldCopy * Math.pow(2, z) }
 }
 
@@ -65,8 +67,14 @@ export function visibleTiles(
   const n = Math.pow(2, z)
 
   // Center tile
-  const cx = Math.floor((centerLon + 180) / 360 * n)
-  const cy = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)
+  const cx = Math.floor(((centerLon + 180) / 360) * n)
+  const cy = Math.floor(
+    ((1 -
+      Math.log(Math.tan((centerLat * Math.PI) / 180) + 1 / Math.cos((centerLat * Math.PI) / 180)) /
+        Math.PI) /
+      2) *
+      n,
+  )
 
   // How many tiles fit in viewport — account for overzoom
   // At camera zoom >> tile zoom, each tile covers many screen pixels
@@ -79,7 +87,7 @@ export function visibleTiles(
   let effW = viewportWidth
   let effH = viewportHeight
   if (bearing) {
-    const rad = Math.abs(bearing * Math.PI / 180)
+    const rad = Math.abs((bearing * Math.PI) / 180)
     const cos = Math.abs(Math.cos(rad))
     const sin = Math.abs(Math.sin(rad))
     effW = viewportWidth * cos + viewportHeight * sin
@@ -93,7 +101,7 @@ export function visibleTiles(
   // Quantize pitch to 5° steps to stabilize tile set (prevents oscillation)
   if (pitch && pitch > 0) {
     const quantizedPitch = Math.ceil(Math.min(pitch, 85) / 5) * 5
-    const pitchFactor = 1 / Math.cos(quantizedPitch * Math.PI / 180)
+    const pitchFactor = 1 / Math.cos((quantizedPitch * Math.PI) / 180)
     const extra = Math.ceil(tilesY * (pitchFactor - 1))
     tilesY += Math.min(extra, tilesY * 4)
   }
@@ -102,7 +110,7 @@ export function visibleTiles(
 
   // Wrap cx to [0, n) so world copies are symmetric around the primary world
   const wrappedCx = ((cx % n) + n) % n
-  const wrapOffset = cx - wrappedCx  // how many tiles the camera is shifted
+  const wrapOffset = cx - wrappedCx // how many tiles the camera is shifted
 
   for (let dx = -tilesX; dx <= tilesX; dx++) {
     for (let dy = -tilesY; dy <= tilesY; dy++) {
@@ -114,7 +122,7 @@ export function visibleTiles(
       // Limit world copies. visibleTiles is invoked from xgvt-source
       // sub-tile generation and the Canvas 2D fallback — both pure
       // Mercator paths — so the Mercator wrap range applies.
-      const maxCopies = (worldCopiesFor(0).length - 1) / 2  // mercator → 2
+      const maxCopies = (worldCopiesFor(0).length - 1) / 2 // mercator → 2
       if (ox < -maxCopies * n || ox >= (maxCopies + 1) * n) continue
 
       tiles.push({ z, x, y, ox })
@@ -124,12 +132,17 @@ export function visibleTiles(
 }
 
 /** Get lon/lat bounds for a tile */
-export function tileBounds(coord: TileCoord): { west: number; south: number; east: number; north: number } {
+export function tileBounds(coord: TileCoord): {
+  west: number
+  south: number
+  east: number
+  north: number
+} {
   const n = Math.pow(2, coord.z)
-  const west = coord.x / n * 360 - 180
-  const east = (coord.x + 1) / n * 360 - 180
-  const north = Math.atan(Math.sinh(Math.PI * (1 - 2 * coord.y / n))) * 180 / Math.PI
-  const south = Math.atan(Math.sinh(Math.PI * (1 - 2 * (coord.y + 1) / n))) * 180 / Math.PI
+  const west = (coord.x / n) * 360 - 180
+  const east = ((coord.x + 1) / n) * 360 - 180
+  const north = (Math.atan(Math.sinh(Math.PI * (1 - (2 * coord.y) / n))) * 180) / Math.PI
+  const south = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (coord.y + 1)) / n))) * 180) / Math.PI
   return { west, south, east, north }
 }
 
@@ -162,7 +175,11 @@ export function isTileTemplate(url: string): boolean {
 /**
  * Sort tiles by distance from center (closest first → highest priority).
  */
-export function sortByPriority(tiles: TileCoord[], centerTileX: number, centerTileY: number): TileCoord[] {
+export function sortByPriority(
+  tiles: TileCoord[],
+  centerTileX: number,
+  centerTileY: number,
+): TileCoord[] {
   return tiles.sort((a, b) => {
     // Use original x (ox) for distance — correct for world copies
     const ax = a.ox ?? a.x

@@ -2,8 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { resolveText } from '@xgis/map'
 import type { TextValue } from '@xgis/compiler'
 
-const fld = (field: string) =>
-  ({ kind: 'FieldAccess' as const, object: null, field })
+const fld = (field: string) => ({ kind: 'FieldAccess' as const, object: null, field })
 
 describe('resolveText', () => {
   describe('kind: expr', () => {
@@ -66,16 +65,13 @@ describe('resolveText', () => {
           { kind: 'literal', value: ')' },
         ],
       }
-      expect(resolveText(tv, { name: 'Seoul', country: 'Korea' }))
-        .toBe('Seoul (Korea)')
+      expect(resolveText(tv, { name: 'Seoul', country: 'Korea' })).toBe('Seoul (Korea)')
     })
 
     it('GIS spec applied via formatValue', () => {
       const tv: TextValue = {
         kind: 'template',
-        parts: [
-          { kind: 'interp', expr: { ast: fld('lat') }, spec: { type: 'dms' } },
-        ],
+        parts: [{ kind: 'interp', expr: { ast: fld('lat') }, spec: { type: 'dms' } }],
       }
       expect(resolveText(tv, { lat: 37.5665 })).toBe(`37°33'59.4"`)
     })
@@ -106,9 +102,7 @@ describe('resolveText', () => {
     it('bearing format spec', () => {
       const tv: TextValue = {
         kind: 'template',
-        parts: [
-          { kind: 'interp', expr: { ast: fld('brg') }, spec: { type: 'bearing' } },
-        ],
+        parts: [{ kind: 'interp', expr: { ast: fld('brg') }, spec: { type: 'bearing' } }],
       }
       expect(resolveText(tv, { brg: 45 })).toBe('045°')
     })
@@ -133,8 +127,7 @@ describe('resolveText', () => {
 
     it('$geometryType resolves from feature.geometry.type', () => {
       const tv: TextValue = { kind: 'expr', expr: { ast: fld('$geometryType') } }
-      expect(resolveText(tv, {}, undefined, { geometry: { type: 'Point' } }))
-        .toBe('Point')
+      expect(resolveText(tv, {}, undefined, { geometry: { type: 'Point' } })).toBe('Point')
     })
 
     it('back-compat: omitting both cameraZoom + feature keeps the raw props path', () => {

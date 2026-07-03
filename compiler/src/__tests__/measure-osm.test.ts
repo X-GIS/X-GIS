@@ -26,9 +26,13 @@ describe('measure: real osm-style.xgis merge result', () => {
     for (let i = 0; i < optimized.renderNodes.length; i++) {
       const n = optimized.renderNodes[i]
       // eslint-disable-next-line no-console
-      console.log(`  ${i}: ${n.name} [${n.sourceLayer ?? '-'}] fill=${n.fill.kind} stroke=${n.stroke.color.kind}`)
+      console.log(
+        `  ${i}: ${n.name} [${n.sourceLayer ?? '-'}] fill=${n.fill.kind} stroke=${n.stroke.color.kind}`,
+      )
     }
     // eslint-disable-next-line no-console
-    console.log(`\nReduction: ${lowered.renderNodes.length} → ${optimized.renderNodes.length} (${((1 - optimized.renderNodes.length/lowered.renderNodes.length)*100).toFixed(1)}%)`)
+    console.log(
+      `\nReduction: ${lowered.renderNodes.length} → ${optimized.renderNodes.length} (${((1 - optimized.renderNodes.length / lowered.renderNodes.length) * 100).toFixed(1)}%)`,
+    )
   })
 })

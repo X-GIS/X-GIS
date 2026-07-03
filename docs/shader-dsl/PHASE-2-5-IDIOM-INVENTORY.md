@@ -9,6 +9,7 @@ Option B' (preamble stays compiler-emitted `Stmt[]` instead of full
 Expr-tree retarget) per the ralplan rev-4.
 
 **Source-of-truth files** (the AC1 11-file surface):
+
 - `compiler/src/codegen/shader-gen.ts` — primary emit
 - `compiler/src/codegen/shader-gen-types.ts` — interface (US-004)
 - `compiler/src/codegen/shader-gen-helpers.ts` — preamble line builders
@@ -30,19 +31,19 @@ don't feed the polygon variant lane.
 
 Legend: ✓ = Node-emit landed; ◐ = surface-Node landed, deeper migration deferred to US-007 (preamble field shape); ☐ = wgslRaw fallback still active.
 
-| # | Idiom | Status | Shape | Conversion target |
-|---|---|---|---|---|
-| 1 | scalar const | ◐ | `const X: f32 = V;` (preamble, string field) | `ConstDecl[]` (blocked on preamble field migration in US-007) |
-| 2 | vec literal const | ◐ | `const C: vec4f = vec4f(r,g,b,a);` (preamble, string field) | FuncDecl wrapper (count = 2, FuncDecl path chosen) — blocked on preamble field migration |
-| 3 | match chain | ◐ | `var _mcSS = ...; if (field_id == 0u) { _mcSS = ...; }` | Surface `_mcSS` varref Node-emit landed (commit a095f1b idiom #4); matchPreamble string field stays until US-007 swaps to matchExpr + Stmt.switch hoist |
-| 4 | feat_data lookup | ✓ | `feat_data[input.feat_id * N + K]` | `featDataField(name, fieldMap)` Node — covered by simpleScalarNode (commits cf83417, 42035cd) |
-| 5 | color palette sample | ✓ | `textureSampleLevel(color_grad_atlas, palette_samp, vec2(t, row), 0.0)` | `emitColorGradientSampleNode` (commit af67050) |
-| 6 | scalar palette sample | ✓ | `xgis_scalar_sample(idx, zoom, zMin, zMax)` | `emitScalarGradientSampleNode` (commit 06508d4) |
-| 7 | zoom-interp cond chain (no palette) | ✓ | falls back to `u.fill_color` / `u.stroke_color` | covered by idiom #2 varref-pair pattern (commit ac05668) |
-| 8 | gradient + scale | ✓ | `mix(vec4f(low), vec4f(high), clamp((val-min)/(max-min), 0, 1))` | `mix4 + clampF32 + f32{Sub,Div}` composition via `simpleScalarNode` for val/min/max (commits c965e04, 4f1708a) |
-| 9 | categorical | ✓ | `CAT_PALETTE[u32(field) % 20u]` | `arrayIndex(constRefVec4('CAT_PALETTE'), u32Mod(toU32(featDataField(field)), u32Lit(20)))` (commits 30a558a, bbd0620) |
-| 10 | computeBindings extension | ◐ | `@group/@binding` preamble decls + `unpack4x8unorm(compute_out_X[fid])` | fillExpr / strokeExpr Node-emit via `emitComputeOutputReadExprNode` (commit 4361e6e); preamble decl string stays until US-007 preamble field migration |
-| 11 | other | (varies) | DataExpr arithmetic + builtin calls | `simpleScalarNode` handles BinaryExpr +-*/ + 19 WGSL builtin fn calls (commits 42035cd, 25476a6) |
+| #   | Idiom                               | Status   | Shape                                                                   | Conversion target                                                                                                                                       |
+| --- | ----------------------------------- | -------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | scalar const                        | ◐        | `const X: f32 = V;` (preamble, string field)                            | `ConstDecl[]` (blocked on preamble field migration in US-007)                                                                                           |
+| 2   | vec literal const                   | ◐        | `const C: vec4f = vec4f(r,g,b,a);` (preamble, string field)             | FuncDecl wrapper (count = 2, FuncDecl path chosen) — blocked on preamble field migration                                                                |
+| 3   | match chain                         | ◐        | `var _mcSS = ...; if (field_id == 0u) { _mcSS = ...; }`                 | Surface `_mcSS` varref Node-emit landed (commit a095f1b idiom #4); matchPreamble string field stays until US-007 swaps to matchExpr + Stmt.switch hoist |
+| 4   | feat_data lookup                    | ✓        | `feat_data[input.feat_id * N + K]`                                      | `featDataField(name, fieldMap)` Node — covered by simpleScalarNode (commits cf83417, 42035cd)                                                           |
+| 5   | color palette sample                | ✓        | `textureSampleLevel(color_grad_atlas, palette_samp, vec2(t, row), 0.0)` | `emitColorGradientSampleNode` (commit af67050)                                                                                                          |
+| 6   | scalar palette sample               | ✓        | `xgis_scalar_sample(idx, zoom, zMin, zMax)`                             | `emitScalarGradientSampleNode` (commit 06508d4)                                                                                                         |
+| 7   | zoom-interp cond chain (no palette) | ✓        | falls back to `u.fill_color` / `u.stroke_color`                         | covered by idiom #2 varref-pair pattern (commit ac05668)                                                                                                |
+| 8   | gradient + scale                    | ✓        | `mix(vec4f(low), vec4f(high), clamp((val-min)/(max-min), 0, 1))`        | `mix4 + clampF32 + f32{Sub,Div}` composition via `simpleScalarNode` for val/min/max (commits c965e04, 4f1708a)                                          |
+| 9   | categorical                         | ✓        | `CAT_PALETTE[u32(field) % 20u]`                                         | `arrayIndex(constRefVec4('CAT_PALETTE'), u32Mod(toU32(featDataField(field)), u32Lit(20)))` (commits 30a558a, bbd0620)                                   |
+| 10  | computeBindings extension           | ◐        | `@group/@binding` preamble decls + `unpack4x8unorm(compute_out_X[fid])` | fillExpr / strokeExpr Node-emit via `emitComputeOutputReadExprNode` (commit 4361e6e); preamble decl string stays until US-007 preamble field migration  |
+| 11  | other                               | (varies) | DataExpr arithmetic + builtin calls                                     | `simpleScalarNode` handles BinaryExpr +-*/ + 19 WGSL builtin fn calls (commits 42035cd, 25476a6)                                                        |
 
 ## Remaining unmigrated shapes (still wgslRaw fallback)
 
@@ -56,28 +57,28 @@ Legend: ✓ = Node-emit landed; ◐ = surface-Node landed, deeper migration defe
 
 ## Emit-site map (one row per `ShaderVariant` field assignment)
 
-| File:Line | Field | Bucket | Notes |
-|---|---|---|---|
-| `shader-gen.ts:92-95` | `fillExpr` (default) | 1 (placeholder `u.fill_color`) | The `node.fill.kind === 'none'` path; US-002 surfaces this via `fillIsDefault: true`. |
-| `shader-gen.ts:94` | `fillExpr` (real fill) | dispatch → `buildFillExpr(fillResult, opacityResult)` | Calls into `processColorValue` → multiple buckets per the ColorResult.expr shape (see `processColorValue` rows below). |
-| `shader-gen.ts:95` | `strokeExpr` | dispatch → `buildStrokeExpr(strokeResult, opacityResult)` | Same dispatch shape as fill. |
-| `shader-gen.ts:134` | `preamble` | dispatch | `preambleLines.join('\n')` — composition of every bucket-3/5/6/8/10 site that pushed lines. |
-| `shader-gen.ts:137-138` | `fillPreamble`/`strokePreamble` | 3 | `matchPreamble` from `processColorValue` (match if-else chains). |
-| `shader-gen.ts:162-163` | `const ${prefix}_COLOR: vec4f = vec4f(0,0,0,0);` (kind='none') | 2 | Vec literal const. Always present in stroke-only / fill-only flows. |
-| `shader-gen.ts:182` | `uniformName = 'u.fill_color'` / `'u.stroke_color'` | (placeholder) | The default-uniform expr; US-002 sentinel. |
-| `shader-gen-helpers.ts:22-31` | `matchArmsKey` | (hash util) | Not an emit site per se — hashes existing strings; in US-010 this will hash the canonical-sorted JSON serialisation of the matchExpr Node. |
-| `palette-emit.ts:201` | `generatePaletteWGSL` | 8 + 10 | Emits a `palette_color(i) -> vec4<f32>` fn AND the `@binding(2)/(4)` declarations. Two sub-conversions. |
-| `palette-emit.ts:emitPaletteBindings` | `@group/@binding` declarations | 10 | Binding-decl block prepended via `preambleLines.unshift`. |
-| `palette-emit.ts:emitScalarSampleHelper` | scalar palette sample fn | 8 | One-shot helper fn for the scalar atlas. |
-| `categorical-encoder.ts:emitCategoricalMatch` | `var _mcSS: vec4f = D; if (...) { _mcSS = C0; }` | 3 | Match chain producer. |
-| `wgsl-expr.ts:*` | binop / member access / paren-balanced expr builders | (utility) | Building blocks of buckets 2, 4, 5, 6, 7. Per-helper conversion. |
-| `paint-routing.ts:*` | dispatch between palette / uniform / inline | (utility) | No direct WGSL emit — routes ColorResult shape. |
-| `compute-variant.ts:91` | `fillExpr` for compute-routed fill | 4 + 10 | `feat_data.at(...)` analogue for compute output buffer + a `@binding(N) var<storage, read> out_fill: array<...>;` declaration prepended. |
-| `compute-variant.ts:105-106` | `preamble` extension for compute bindings | 10 | The compute output binding decls. |
-| `compute-variant.ts:113-114` | `strokeExpr` for compute-routed stroke | 4 + 10 | Same shape as fill. |
-| `compute-variant-build.ts:*` | dispatch | (utility) | Selects which addendums to apply. No new emit. |
-| `compute-variant-merge.ts:99-110` | merged `fillExpr` / `strokeExpr` / `preamble` | dispatch + 10 | Inherits from compute-variant.ts; merge logic is the only new artefact. |
-| `compute-output-binding.ts:61` | extra binding emit | 10 | One more `@binding` line appended to preamble. |
+| File:Line                                     | Field                                                          | Bucket                                                    | Notes                                                                                                                                      |
+| --------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `shader-gen.ts:92-95`                         | `fillExpr` (default)                                           | 1 (placeholder `u.fill_color`)                            | The `node.fill.kind === 'none'` path; US-002 surfaces this via `fillIsDefault: true`.                                                      |
+| `shader-gen.ts:94`                            | `fillExpr` (real fill)                                         | dispatch → `buildFillExpr(fillResult, opacityResult)`     | Calls into `processColorValue` → multiple buckets per the ColorResult.expr shape (see `processColorValue` rows below).                     |
+| `shader-gen.ts:95`                            | `strokeExpr`                                                   | dispatch → `buildStrokeExpr(strokeResult, opacityResult)` | Same dispatch shape as fill.                                                                                                               |
+| `shader-gen.ts:134`                           | `preamble`                                                     | dispatch                                                  | `preambleLines.join('\n')` — composition of every bucket-3/5/6/8/10 site that pushed lines.                                                |
+| `shader-gen.ts:137-138`                       | `fillPreamble`/`strokePreamble`                                | 3                                                         | `matchPreamble` from `processColorValue` (match if-else chains).                                                                           |
+| `shader-gen.ts:162-163`                       | `const ${prefix}_COLOR: vec4f = vec4f(0,0,0,0);` (kind='none') | 2                                                         | Vec literal const. Always present in stroke-only / fill-only flows.                                                                        |
+| `shader-gen.ts:182`                           | `uniformName = 'u.fill_color'` / `'u.stroke_color'`            | (placeholder)                                             | The default-uniform expr; US-002 sentinel.                                                                                                 |
+| `shader-gen-helpers.ts:22-31`                 | `matchArmsKey`                                                 | (hash util)                                               | Not an emit site per se — hashes existing strings; in US-010 this will hash the canonical-sorted JSON serialisation of the matchExpr Node. |
+| `palette-emit.ts:201`                         | `generatePaletteWGSL`                                          | 8 + 10                                                    | Emits a `palette_color(i) -> vec4<f32>` fn AND the `@binding(2)/(4)` declarations. Two sub-conversions.                                    |
+| `palette-emit.ts:emitPaletteBindings`         | `@group/@binding` declarations                                 | 10                                                        | Binding-decl block prepended via `preambleLines.unshift`.                                                                                  |
+| `palette-emit.ts:emitScalarSampleHelper`      | scalar palette sample fn                                       | 8                                                         | One-shot helper fn for the scalar atlas.                                                                                                   |
+| `categorical-encoder.ts:emitCategoricalMatch` | `var _mcSS: vec4f = D; if (...) { _mcSS = C0; }`               | 3                                                         | Match chain producer.                                                                                                                      |
+| `wgsl-expr.ts:*`                              | binop / member access / paren-balanced expr builders           | (utility)                                                 | Building blocks of buckets 2, 4, 5, 6, 7. Per-helper conversion.                                                                           |
+| `paint-routing.ts:*`                          | dispatch between palette / uniform / inline                    | (utility)                                                 | No direct WGSL emit — routes ColorResult shape.                                                                                            |
+| `compute-variant.ts:91`                       | `fillExpr` for compute-routed fill                             | 4 + 10                                                    | `feat_data.at(...)` analogue for compute output buffer + a `@binding(N) var<storage, read> out_fill: array<...>;` declaration prepended.   |
+| `compute-variant.ts:105-106`                  | `preamble` extension for compute bindings                      | 10                                                        | The compute output binding decls.                                                                                                          |
+| `compute-variant.ts:113-114`                  | `strokeExpr` for compute-routed stroke                         | 4 + 10                                                    | Same shape as fill.                                                                                                                        |
+| `compute-variant-build.ts:*`                  | dispatch                                                       | (utility)                                                 | Selects which addendums to apply. No new emit.                                                                                             |
+| `compute-variant-merge.ts:99-110`             | merged `fillExpr` / `strokeExpr` / `preamble`                  | dispatch + 10                                             | Inherits from compute-variant.ts; merge logic is the only new artefact.                                                                    |
+| `compute-output-binding.ts:61`                | extra binding emit                                             | 10                                                        | One more `@binding` line appended to preamble.                                                                                             |
 
 ## "Other" bucket — currently EMPTY
 

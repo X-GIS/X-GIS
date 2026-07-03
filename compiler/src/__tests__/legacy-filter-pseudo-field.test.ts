@@ -73,7 +73,9 @@ describe('legacy $id filter', () => {
   it('["in", "$id", 1, 2, 3] expands to OR chain', () => {
     const w: string[] = []
     const result = filterToXgis(['in', '$id', 1, 2, 3], w)
-    expect(result).toBe('get("$featureId") == 1 || get("$featureId") == 2 || get("$featureId") == 3')
+    expect(result).toBe(
+      'get("$featureId") == 1 || get("$featureId") == 2 || get("$featureId") == 3',
+    )
     expect(w).toHaveLength(0)
   })
 })

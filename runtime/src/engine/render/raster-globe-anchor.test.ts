@@ -11,7 +11,8 @@ import { lonLatToECEF } from '@xgis/engine'
 
 describe('raster globe camera anchor — ellipsoid frame', () => {
   it('is the WGS84 ellipsoid ECEF (matches the tile vertices), not the sphere', () => {
-    const lon = 127, lat = 35.68 // Tokyo-ish mid-latitude (max ellipsoid offset)
+    const lon = 127,
+      lat = 35.68 // Tokyo-ish mid-latitude (max ellipsoid offset)
     const anchor = rasterGlobeCamAnchor(lon, lat)
 
     // Same frame as lonlat_to_ecef — the raster tile vertices.
@@ -22,8 +23,10 @@ describe('raster globe camera anchor — ellipsoid frame', () => {
 
     // And it is NOT the sphere: ~21.5km apart at this latitude. Hand-rolled
     // sphere so the assertion is independent of which sphere helper is used.
-    const R = 6378137, D2R = Math.PI / 180
-    const clat = Math.cos(lat * D2R), slat = Math.sin(lat * D2R)
+    const R = 6378137,
+      D2R = Math.PI / 180
+    const clat = Math.cos(lat * D2R),
+      slat = Math.sin(lat * D2R)
     const sx = R * clat * Math.cos(lon * D2R)
     const sy = R * clat * Math.sin(lon * D2R)
     const sz = R * slat

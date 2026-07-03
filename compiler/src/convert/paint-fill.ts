@@ -52,7 +52,9 @@ export function emitFillPaint(
     if (typeof v === 'string') {
       out.push(`fill-pattern-${v}`)
     } else {
-      warnings.push(`Layer "${layer.id}" — fill-pattern non-constant form (expression / interpolate) not yet wired through the IR; the constant string form is supported (iter-177). The layer falls back to fill-color or transparent.`)
+      warnings.push(
+        `Layer "${layer.id}" — fill-pattern non-constant form (expression / interpolate) not yet wired through the IR; the constant string form is supported (iter-177). The layer falls back to fill-color or transparent.`,
+      )
     }
   }
   addFillTranslate(out, p['fill-translate'], warnings)
@@ -78,11 +80,11 @@ export function emitFillPaint(
     // warning (the `=== false` test is false for an array, the unwrap
     // only peels `["literal", …]`). Surface the loss instead of
     // dropping it silently; full zoom-expr antialias is out of scope.
-    warnings.push(`Layer "${layer.id}" — fill-antialias zoom/data expression not supported (only constant true/false) — dropped.`)
+    warnings.push(
+      `Layer "${layer.id}" — fill-antialias zoom/data expression not supported (only constant true/false) — dropped.`,
+    )
   }
-  surfaceIgnoredPaint(layer.id, p, warnings, [
-    'fill-sort-key',
-  ])
+  surfaceIgnoredPaint(layer.id, p, warnings, ['fill-sort-key'])
 }
 
 /** Mapbox `paint.fill-outline-color` → xgis `stroke-<color> stroke-1`

@@ -16,7 +16,7 @@ function convert(mapbox: unknown): { result: string | null; warnings: string[] }
 // Parse `interpolate(.x, z0, "#hex0", z1, "#hex1", …)` into [z, hex] pairs.
 function parseStops(src: string): Array<[number, string]> {
   const inner = src.replace(/^interpolate\([^,]+,\s*/, '').replace(/\)$/, '')
-  const toks = inner.split(',').map(s => s.trim())
+  const toks = inner.split(',').map((s) => s.trim())
   const out: Array<[number, string]> = []
   for (let i = 0; i < toks.length; i += 2) {
     out.push([Number(toks[i]), toks[i + 1]!.replace(/"/g, '')])
@@ -30,9 +30,15 @@ const EASE_IN = ['cubic-bezier', 0.42, 0, 1, 1]
 
 describe('interpolate cubic-bezier with colour stops', () => {
   it('densifies colour stops instead of folding to linear', () => {
-    const { result, warnings } = convert(
-      ['interpolate', EASE_IN, ['get', 'x'], 0, '#000000', 10, '#ffffff'],
-    )
+    const { result, warnings } = convert([
+      'interpolate',
+      EASE_IN,
+      ['get', 'x'],
+      0,
+      '#000000',
+      10,
+      '#ffffff',
+    ])
     expect(result).not.toBeNull()
     expect(result!.startsWith('interpolate(.x,')).toBe(true)
     // A 2-stop input densifies to 6 samples per segment (+ endpoint).
@@ -41,14 +47,12 @@ describe('interpolate cubic-bezier with colour stops', () => {
     // Every stop value is a hex colour.
     for (const [, hex] of stops) expect(hex).toMatch(/^#[0-9a-f]{6}$/i)
     // No "folded to linear" downgrade; the dense-sample note instead.
-    expect(warnings.some(w => /folded to linear/.test(w))).toBe(false)
-    expect(warnings.some(w => /cubic-bezier/.test(w) && /sample/i.test(w))).toBe(true)
+    expect(warnings.some((w) => /folded to linear/.test(w))).toBe(false)
+    expect(warnings.some((w) => /cubic-bezier/.test(w) && /sample/i.test(w))).toBe(true)
   })
 
   it('midpoint colour reflects bezier easing (ease-in → darker than linear #808080)', () => {
-    const { result } = convert(
-      ['interpolate', EASE_IN, ['get', 'x'], 0, '#000000', 10, '#ffffff'],
-    )
+    const { result } = convert(['interpolate', EASE_IN, ['get', 'x'], 0, '#000000', 10, '#ffffff'])
     const stops = parseStops(result!)
     const mid = stops.find(([z]) => z === 5)
     expect(mid, 'expected a densified stop at z=5').toBeDefined()
@@ -58,10 +62,16 @@ describe('interpolate cubic-bezier with colour stops', () => {
   })
 
   it('non-hex (expression) colour stops still fall back to linear with a warning', () => {
-    const { result, warnings } = convert(
-      ['interpolate', EASE_IN, ['get', 'x'], 0, ['get', 'c0'], 10, '#ffffff'],
-    )
+    const { result, warnings } = convert([
+      'interpolate',
+      EASE_IN,
+      ['get', 'x'],
+      0,
+      ['get', 'c0'],
+      10,
+      '#ffffff',
+    ])
     expect(result!.startsWith('interpolate(.x,')).toBe(true)
-    expect(warnings.some(w => /folded to linear/.test(w))).toBe(true)
+    expect(warnings.some((w) => /folded to linear/.test(w))).toBe(true)
   })
 })

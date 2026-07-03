@@ -62,7 +62,7 @@ export function expandKeyframeTimeStops(
     if (!kf) {
       throw new Error(
         `Unknown keyframes reference: animation-${animationName} ` +
-        `(layer '${stmtName}' at line ${stmtLine})`,
+          `(layer '${stmtName}' at line ${stmtLine})`,
       )
     }
     for (const frame of kf.frames) {

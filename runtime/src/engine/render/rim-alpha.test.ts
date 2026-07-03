@@ -20,11 +20,11 @@ function smoothstep(a: number, b: number, x: number): number {
 
 // Mirror of WGSL rim_alpha for testing.
 function rimAlpha(projType: number, cosC: number): number {
-  if (projType <= 2) return 1.0          // flat / cylindrical — no rim
-  if (projType === 3) return smoothstep(0.0, RIM_FADE, cosC)       // ortho
+  if (projType <= 2) return 1.0 // flat / cylindrical — no rim
+  if (projType === 3) return smoothstep(0.0, RIM_FADE, cosC) // ortho
   if (projType === 4) return smoothstep(-0.85, -0.85 + RIM_FADE, cosC) // azimuth
-  if (projType === 5) return smoothstep(-0.8, -0.8 + RIM_FADE, cosC)   // stereo
-  if (projType === 6) return 1.0          // oblique — no rim
+  if (projType === 5) return smoothstep(-0.8, -0.8 + RIM_FADE, cosC) // stereo
+  if (projType === 6) return 1.0 // oblique — no rim
   return smoothstep(0.0, RIM_FADE, cosC) // globe
 }
 

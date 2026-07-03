@@ -85,7 +85,7 @@ describe('iter-294 resolveColor fuzz', () => {
     // CSS spec: out-of-range RGB values are clamped to [0, 255]
     const r = resolveColor('rgb(300, -10, 100)')
     expect(r).not.toBe(null)
-    expect(r!.startsWith('#ff')).toBe(true)  // 300 → 255
+    expect(r!.startsWith('#ff')).toBe(true) // 300 → 255
   })
 
   it('rgb() fractional values supported', () => {
@@ -95,7 +95,7 @@ describe('iter-294 resolveColor fuzz', () => {
   it('rgba() with alpha=0.5', () => {
     const r = resolveColor('rgba(255, 0, 0, 0.5)')
     expect(r).not.toBe(null)
-    expect(r!.length).toBe(9)  // #rrggbbaa
+    expect(r!.length).toBe(9) // #rrggbbaa
   })
 
   it('rgba() with alpha clamped > 1 emits opaque (alpha byte omitted)', () => {
@@ -103,7 +103,7 @@ describe('iter-294 resolveColor fuzz', () => {
     // Probe pinned the contract: opaque output is 7 chars, not 9.
     const r = resolveColor('rgba(255, 0, 0, 5)')
     expect(r).not.toBe(null)
-    expect(r!.length).toBe(7)  // #ff0000 — alpha=1 elided
+    expect(r!.length).toBe(7) // #ff0000 — alpha=1 elided
     expect(r!.toLowerCase()).toBe('#ff0000')
   })
 
@@ -111,7 +111,7 @@ describe('iter-294 resolveColor fuzz', () => {
     const r = resolveColor('rgba(255, 0, 0, -1)')
     expect(r).not.toBe(null)
     expect(r!.endsWith('00')).toBe(true)
-    expect(r!.length).toBe(9)  // #rrggbbaa
+    expect(r!.length).toBe(9) // #rrggbbaa
   })
 
   it('hsl() basic', () => {
@@ -143,10 +143,10 @@ describe('iter-294 resolveColor fuzz', () => {
   })
 
   it('malformed function returns null', () => {
-    expect(resolveColor('rgb(255)')).toBe(null)         // too few
+    expect(resolveColor('rgb(255)')).toBe(null) // too few
     expect(resolveColor('rgb()')).toBe(null)
-    expect(resolveColor('rgb(255, 0, 0, 0, 0)')).toBe(null)  // too many
-    expect(resolveColor('rgb(a, b, c)')).toBe(null)     // non-numeric
+    expect(resolveColor('rgb(255, 0, 0, 0, 0)')).toBe(null) // too many
+    expect(resolveColor('rgb(a, b, c)')).toBe(null) // non-numeric
   })
 
   it('palette form: blue-500 returns a hex', () => {
@@ -234,7 +234,7 @@ describe('iter-308 CSS colour-function name discrimination', () => {
     expect(r).not.toBe(null)
     const m = r!.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/)
     expect(m).not.toBe(null)
-    expect(m![1]).toBe(m![2])  // grey
+    expect(m![1]).toBe(m![2]) // grey
   })
 
   it('oklab() distinct from lab() at same numeric inputs', () => {
@@ -257,7 +257,7 @@ describe('iter-308 CSS colour-function name discrimination', () => {
 
   it('hwb() routes to HWB→sRGB (not lab/lch)', () => {
     // Pure hue with no white/black tint.
-    const r = resolveColor('hwb(0 0% 0%)')  // pure red
+    const r = resolveColor('hwb(0 0% 0%)') // pure red
     expect(r).not.toBe(null)
     expect(r!.toLowerCase()).toBe('#ff0000')
   })
@@ -287,7 +287,7 @@ describe('iter-308 CSS colour-function name discrimination', () => {
     expect(r).not.toBe(null)
     const m = r!.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/)
     expect(m).not.toBe(null)
-    expect(m![1]).toBe(m![2])  // grey
+    expect(m![1]).toBe(m![2]) // grey
     expect(m![2]).toBe(m![3])
   })
 })

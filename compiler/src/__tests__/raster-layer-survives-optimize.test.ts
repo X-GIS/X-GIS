@@ -43,27 +43,29 @@ describe('raster layers survive IR optimize', () => {
     let ir = lower(new Parser(new Lexer(xgis).tokenize()).parse())
     ir = optimize(ir)
     const cmds = emitCommands(ir)
-    const ne2Shows = cmds.shows.filter(s => s.targetName === 'ne2_shaded')
+    const ne2Shows = cmds.shows.filter((s) => s.targetName === 'ne2_shaded')
     expect(ne2Shows.length).toBeGreaterThan(0)
     expect(ne2Shows[0]!.layerName).toBe('natural_earth')
   })
 
-  it.each([
-    'openfreemap-bright.json',
-    'openfreemap-liberty.json',
-    'openfreemap-positron.json',
-  ])('every raster source in %s receives at least one ShowCommand', (fixture) => {
-    const stylePath = path.resolve('compiler/src/__tests__/fixtures', fixture)
-    const rasterSources = referencedRasterSourceNames(stylePath)
-    if (rasterSources.length === 0) return
-    const style = JSON.parse(fs.readFileSync(stylePath, 'utf-8'))
-    const xgis = convertMapboxStyle(style)
-    let ir = lower(new Parser(new Lexer(xgis).tokenize()).parse())
-    ir = optimize(ir)
-    const cmds = emitCommands(ir)
-    for (const srcName of rasterSources) {
-      const matching = cmds.shows.filter(s => s.targetName === srcName)
-      expect(matching.length, `${fixture}: ShowCommand for raster source "${srcName}"`).toBeGreaterThan(0)
-    }
-  })
+  it.each(['openfreemap-bright.json', 'openfreemap-liberty.json', 'openfreemap-positron.json'])(
+    'every raster source in %s receives at least one ShowCommand',
+    (fixture) => {
+      const stylePath = path.resolve('compiler/src/__tests__/fixtures', fixture)
+      const rasterSources = referencedRasterSourceNames(stylePath)
+      if (rasterSources.length === 0) return
+      const style = JSON.parse(fs.readFileSync(stylePath, 'utf-8'))
+      const xgis = convertMapboxStyle(style)
+      let ir = lower(new Parser(new Lexer(xgis).tokenize()).parse())
+      ir = optimize(ir)
+      const cmds = emitCommands(ir)
+      for (const srcName of rasterSources) {
+        const matching = cmds.shows.filter((s) => s.targetName === srcName)
+        expect(
+          matching.length,
+          `${fixture}: ShowCommand for raster source "${srcName}"`,
+        ).toBeGreaterThan(0)
+      }
+    },
+  )
 })

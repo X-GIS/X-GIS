@@ -12,16 +12,16 @@ property controls, assert a value that TRACKS the prop. Proven non-vacuous by
 applying the documented break-recipe CENTRALLY → confirming the targeted RED →
 reverting.
 
-| Test file | Property | Wire observed | Break → RED |
-|---|---|---|---|
-| `fill-extrusion-height-wiring` | fill-extrusion-height | `uniformF32[39]` ← currentExtrudeHeight (vtr:3788) | `uf[39]=0` ✓ |
-| `fill-extrusion-base-wiring` | fill-extrusion-base | `uniformF32[45]` ← currentExtrudeBase (vtr:3841) | `uf[45]=0` ✓ |
-| `fill-extrusion-vertical-gradient-wiring` | fill-extrusion-vertical-gradient | `uniformF32[59]` ← currentFillVerticalGradient (vtr:3726) | constant 1 (opt-out case fails) ✓ |
-| `fill-extrusion-translate-wiring` | fill-extrusion-translate | `uniformF32[46/47]` ← currentFillTranslateNdc{X,Y} (vtr:3854) | `uf[46]=0` ✓ |
-| `fill-extrusion-translate-anchor-wiring` | fill-extrusion-translate-anchor | `rotateTranslateForAnchor` bearing-rotation (vtr:109) | always-passthrough (map case fails) ✓ |
-| `raster-saturation-wiring` | raster-saturation | raster uniform `raster_color0.w` = slot 27 (raster-renderer:314) | last elem 0 ✓ |
-| `raster-contrast-wiring` | raster-contrast | raster uniform `raster_color1.x` = slot 28 (raster-renderer:316) | first elem 0 ✓ |
-| `raster-resampling-wiring` | raster-resampling | active `sampler` field === nearestSampler after setResampling(true) (raster-renderer:205) | force linear (nearest case fails) ✓ |
+| Test file                                 | Property                         | Wire observed                                                                             | Break → RED                           |
+| ----------------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------- |
+| `fill-extrusion-height-wiring`            | fill-extrusion-height            | `uniformF32[39]` ← currentExtrudeHeight (vtr:3788)                                        | `uf[39]=0` ✓                          |
+| `fill-extrusion-base-wiring`              | fill-extrusion-base              | `uniformF32[45]` ← currentExtrudeBase (vtr:3841)                                          | `uf[45]=0` ✓                          |
+| `fill-extrusion-vertical-gradient-wiring` | fill-extrusion-vertical-gradient | `uniformF32[59]` ← currentFillVerticalGradient (vtr:3726)                                 | constant 1 (opt-out case fails) ✓     |
+| `fill-extrusion-translate-wiring`         | fill-extrusion-translate         | `uniformF32[46/47]` ← currentFillTranslateNdc{X,Y} (vtr:3854)                             | `uf[46]=0` ✓                          |
+| `fill-extrusion-translate-anchor-wiring`  | fill-extrusion-translate-anchor  | `rotateTranslateForAnchor` bearing-rotation (vtr:109)                                     | always-passthrough (map case fails) ✓ |
+| `raster-saturation-wiring`                | raster-saturation                | raster uniform `raster_color0.w` = slot 27 (raster-renderer:314)                          | last elem 0 ✓                         |
+| `raster-contrast-wiring`                  | raster-contrast                  | raster uniform `raster_color1.x` = slot 28 (raster-renderer:316)                          | first elem 0 ✓                        |
+| `raster-resampling-wiring`                | raster-resampling                | active `sampler` field === nearestSampler after setResampling(true) (raster-renderer:205) | force linear (nearest case fails) ✓   |
 
 ## One source change (behaviour-neutral)
 
@@ -52,7 +52,7 @@ unit-testable directly. 1-line diff, zero behavioural change, pinned-tsc clean.
    lib-split + `baseUrl` (TS5101) across the repo (e.g. `map.ts:3010`,
    `line-join-wiring.test.ts:61` — both COMMITTED). The pinned compiler is clean:
    the canonical gate is `node node_modules/typescript/bin/tsc --noEmit -p
-   runtime/tsconfig.json` → **exit 0**. Recommend pinning tsc invocation in
+runtime/tsconfig.json` → **exit 0**. Recommend pinning tsc invocation in
    scripts/CI (or aligning the global) so `npx tsc` doesn't mislead.
 
 2. **arch-ratchet red at HEAD:** `architecture-invariants.test.ts` →

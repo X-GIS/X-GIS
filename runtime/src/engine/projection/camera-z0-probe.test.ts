@@ -18,7 +18,9 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/engine'
 
-const W = 800, H = 800, DPR = 1
+const W = 800,
+  H = 800,
+  DPR = 1
 
 /** Round numbers for stable snapshot — full precision belongs in
  *  the runtime, not the diagnostic. Altitude / far range over many
@@ -58,7 +60,7 @@ describe('iter-287 z=0 camera matrix probe (mercator flat-strip + non-merc disc)
     z4p60.pitch = 60
     const z0p0 = new Camera(0, 0, 0)
     const dump = {
-      'z=0 p=0':  snapKey(z0p0),
+      'z=0 p=0': snapKey(z0p0),
       'z=0 p=60': snapKey(z0p60),
       'z=4 p=60': snapKey(z4p60),
     }
@@ -150,7 +152,7 @@ describe('iter-287 z=0 camera matrix probe (mercator flat-strip + non-merc disc)
     const cam = new Camera(0, 0, 0)
     const WORLD_MERC_LOCAL = 40075016.686
     const TILE_PX = 512
-    const metersPerPixel = WORLD_MERC_LOCAL / TILE_PX  // z=0 baseline
+    const metersPerPixel = WORLD_MERC_LOCAL / TILE_PX // z=0 baseline
     const rawViewportHeightMeters = H * metersPerPixel
     // Confirm the raw value (what the camera sees BEFORE the cap).
     expect(rawViewportHeightMeters).toBeGreaterThan(WORLD_MERC_LOCAL)

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from 'react'
 
 // GlobeDemo — the live X-GIS globe, embedded as the hero visual of the
 // "Globe & 3D" concept page. Adapted from the home Hero island, trimmed
@@ -18,7 +18,7 @@ import { useEffect, useRef, useState } from "react"
 // drag), so "draggable" needs no extra wiring — we only add a scoped
 // wheel-to-zoom handler and the lifecycle guards.
 
-type XGISMapType = import("@xgis/runtime").XGISMap
+type XGISMapType = import('@xgis/runtime').XGISMap
 
 interface Props {
   /** Site base URL (import.meta.env.BASE_URL, trailing slash stripped) so
@@ -53,7 +53,7 @@ export default function GlobeDemo({ base }: Props) {
     let map: XGISMapType | null = null
     let mountStarted = false
     let destroyed = false
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
     // Scoped wheel-zoom — capture + non-passive so the page doesn't
     // scroll while the pointer is over the globe; mirrors Hero.
@@ -63,39 +63,48 @@ export default function GlobeDemo({ base }: Props) {
       if (!map) return
       const rect = canvas.getBoundingClientRect()
       const delta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.003)
-      map.getCamera().zoomAt(
-        Math.max(-1, Math.min(1, delta)),
-        e.clientX - rect.left, e.clientY - rect.top,
-        canvas.width, canvas.height,
-      )
+      map
+        .getCamera()
+        .zoomAt(
+          Math.max(-1, Math.min(1, delta)),
+          e.clientX - rect.left,
+          e.clientY - rect.top,
+          canvas.width,
+          canvas.height,
+        )
     }
 
     const startMount = async () => {
       if (mountStarted || destroyed) return
       mountStarted = true
       try {
-        const { XGISMap } = await import("@xgis/runtime")
+        const { XGISMap } = await import('@xgis/runtime')
         if (destroyed) return
 
-        canvas.addEventListener("wheel", onWheel, { capture: true, passive: false })
+        canvas.addEventListener('wheel', onWheel, { capture: true, passive: false })
 
         map = new XGISMap(canvas)
         // Absolute source URL inside `source(base)` → baseUrl arg unused.
-        await map.run(source(base), "")
-        if (destroyed) { map.destroy?.(); return }
+        await map.run(source(base), '')
+        if (destroyed) {
+          map.destroy?.()
+          return
+        }
 
-        map.setProjection("globe")
+        map.setProjection('globe')
         // Frame the planet, centred — the same full-disc framing the home
         // hero uses for its globe beat (known-good value).
         const c = map.getCamera()
-        c.zoom = 1; c.centerX = 0; c.centerY = 0
+        c.zoom = 1
+        c.centerX = 0
+        c.centerY = 0
         map.markCameraPositioned()
         map.invalidate()
 
-        canvas.style.opacity = "1"
+        canvas.style.opacity = '1'
         setMapReady(true)
       } catch (err) {
-        console.warn("[globe-demo]", err)
+        console.warn('[globe-demo]', err)
         if (!destroyed) setFailed(true)
       }
     }
@@ -103,19 +112,19 @@ export default function GlobeDemo({ base }: Props) {
     // Idle/lazy kickoff — don't compete with first paint. Falls back to a
     // short timeout where requestIdleCallback is unavailable (Safari).
     const requestIdle =
-      (window as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void }).requestIdleCallback
-      ?? ((cb: () => void) => window.setTimeout(cb, 0))
+      (window as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void })
+        .requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 0))
     const kickoff = window.setTimeout(() => requestIdle(() => startMount(), { timeout: 1500 }), 600)
 
     // If the reader reaches for the globe before idle fires, mount now.
     const onInteract = () => startMount()
-    canvas.addEventListener("pointerdown", onInteract, { once: true, passive: true })
+    canvas.addEventListener('pointerdown', onInteract, { once: true, passive: true })
 
     return () => {
       destroyed = true
       window.clearTimeout(kickoff)
-      canvas.removeEventListener("wheel", onWheel, { capture: true } as EventListenerOptions)
-      canvas.removeEventListener("pointerdown", onInteract)
+      canvas.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions)
+      canvas.removeEventListener('pointerdown', onInteract)
       map?.destroy?.()
     }
     // base is stable for the page lifetime; mount once.
@@ -129,7 +138,7 @@ export default function GlobeDemo({ base }: Props) {
           ref={canvasRef}
           id="globe-demo-canvas"
           className="block w-full opacity-0 transition-opacity duration-500"
-          style={{ height: "440px", touchAction: "none" }}
+          style={{ height: '440px', touchAction: 'none' }}
           aria-label="Interactive 3D globe rendered live by X-GIS. Drag to orbit, scroll to zoom."
           role="img"
         />
@@ -146,11 +155,10 @@ export default function GlobeDemo({ base }: Props) {
               Live globe unavailable
             </p>
             <p className="max-w-[320px] text-[13px] leading-[1.55] text-fg-dim">
-              This browser could not start WebGPU. The same globe runs on the
-              home page hero.
+              This browser could not start WebGPU. The same globe runs on the home page hero.
             </p>
             <a
-              href={base + "/"}
+              href={base + '/'}
               className="text-[13px] text-accent transition-colors hover:text-accent-hover"
             >
               Open the live globe →

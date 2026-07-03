@@ -15,18 +15,27 @@
 import { describe, it, expect } from 'vitest'
 import { emitGlslModule, wgslLayout, UnsupportedFeatureError } from '@xgis/shader-dsl'
 import {
-  mat4x4fT, vec4fT, vec2fT, vec3fT, f32T, u32T, structT,
-  type ShaderType, type Expr, type ModuleDecl, type StructDecl,
+  mat4x4fT,
+  vec4fT,
+  vec2fT,
+  vec3fT,
+  f32T,
+  u32T,
+  structT,
+  type ShaderType,
+  type Expr,
+  type ModuleDecl,
+  type StructDecl,
 } from '@xgis/shader-dsl'
 
 // ── a synthetic vertex+fragment module with a std140 uniform struct ──
 const Uniforms: StructDecl = {
   name: 'Uniforms',
   fields: [
-    { name: 'mvp', type: mat4x4fT },        // std140 offset 0
-    { name: 'viewport', type: vec4fT },     // 64
-    { name: 'fade', type: f32T },           // 80
-    { name: 'origin', type: vec3fT },       // 96 (vec3 aligns to 16 — the classic trap)
+    { name: 'mvp', type: mat4x4fT }, // std140 offset 0
+    { name: 'viewport', type: vec4fT }, // 64
+    { name: 'fade', type: f32T }, // 80
+    { name: 'origin', type: vec3fT }, // 96 (vec3 aligns to 16 — the classic trap)
   ],
 }
 const VsIn: StructDecl = {
@@ -51,7 +60,12 @@ const FsOut: StructDecl = {
 // minimal typed IR-node builders for the synthetic bodies (no authoring layer needed)
 const param = (name: string, type: ShaderType): Expr => ({ op: 'param', type, name })
 const varref = (name: string, type: ShaderType): Expr => ({ op: 'varref', type, name })
-const fld = (base: Expr, field: string, type: ShaderType): Expr => ({ op: 'member', type, base, field })
+const fld = (base: Expr, field: string, type: ShaderType): Expr => ({
+  op: 'member',
+  type,
+  base,
+  field,
+})
 const lit = (value: number): Expr => ({ op: 'lit', type: f32T, value })
 const v4 = (...args: Expr[]): Expr => ({ op: 'construct', type: vec4fT, args })
 
@@ -73,7 +87,8 @@ const module: ModuleDecl = {
           expr: v4(
             fld(fld(param('inp', structT('VsIn')), 'pos', vec2fT), 'x', f32T),
             fld(fld(param('inp', structT('VsIn')), 'pos', vec2fT), 'y', f32T),
-            lit(0), lit(1),
+            lit(0),
+            lit(1),
           ),
         },
         {
@@ -93,12 +108,16 @@ const module: ModuleDecl = {
         {
           s: 'return',
           expr: {
-            op: 'construct', type: structT('FsOut'),
-            args: [v4(
-              fld(fld(param('inp', structT('VsOut')), 'uv', vec2fT), 'x', f32T),
-              fld(fld(param('inp', structT('VsOut')), 'uv', vec2fT), 'y', f32T),
-              lit(0), lit(1),
-            )],
+            op: 'construct',
+            type: structT('FsOut'),
+            args: [
+              v4(
+                fld(fld(param('inp', structT('VsOut')), 'uv', vec2fT), 'x', f32T),
+                fld(fld(param('inp', structT('VsOut')), 'uv', vec2fT), 'y', f32T),
+                lit(0),
+                lit(1),
+              ),
+            ],
           },
         },
       ],
@@ -125,7 +144,10 @@ describe('glsl-es300 — std140 UBO from the reflection engine', () => {
     // offset SoT the host packs against): mvp@0 viewport@64 fade@80 origin@96.
     const L = wgslLayout(Uniforms, 'std140')
     expect(Object.fromEntries(L.fields.map((f) => [f.name, f.offset]))).toEqual({
-      mvp: 0, viewport: 64, fade: 80, origin: 96,
+      mvp: 0,
+      viewport: 64,
+      fade: 80,
+      origin: 96,
     })
     expect(L.size).toBe(112) // origin (vec3 @96, size 12) → padded to 16-multiple = 112
   })
@@ -190,19 +212,38 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
   // GLSL compile error. The backend renames any param/local-var that collides (and every
   // reference) so a real shader whose entry param is named `input` (raster) / `in`
   // (overdraw) links. Struct fields + binding names are left alone.
-  const ReservedIn: StructDecl = { name: 'ReservedIn', fields: [{ name: 'uv', type: vec2fT, attr: '@location(0)' }] }
+  const ReservedIn: StructDecl = {
+    name: 'ReservedIn',
+    fields: [{ name: 'uv', type: vec2fT, attr: '@location(0)' }],
+  }
   const reservedMod: ModuleDecl = {
-    consts: [], structs: [ReservedIn, FsOut], bindings: [],
-    funcs: [{
-      name: 'fs', attrs: ['@fragment'],
-      params: [{ name: 'input', type: structT('ReservedIn') }], // `input` is GLSL-reserved
-      ret: structT('FsOut'),
-      body: [
-        // a local var named `sample` (also reserved) initialised from the reserved param.
-        { s: 'let', name: 'sample', expr: fld(fld(param('input', structT('ReservedIn')), 'uv', vec2fT), 'x', f32T) },
-        { s: 'return', expr: { op: 'construct', type: structT('FsOut'), args: [v4(varref('sample', f32T), lit(0), lit(0), lit(1))] } },
-      ],
-    }],
+    consts: [],
+    structs: [ReservedIn, FsOut],
+    bindings: [],
+    funcs: [
+      {
+        name: 'fs',
+        attrs: ['@fragment'],
+        params: [{ name: 'input', type: structT('ReservedIn') }], // `input` is GLSL-reserved
+        ret: structT('FsOut'),
+        body: [
+          // a local var named `sample` (also reserved) initialised from the reserved param.
+          {
+            s: 'let',
+            name: 'sample',
+            expr: fld(fld(param('input', structT('ReservedIn')), 'uv', vec2fT), 'x', f32T),
+          },
+          {
+            s: 'return',
+            expr: {
+              op: 'construct',
+              type: structT('FsOut'),
+              args: [v4(varref('sample', f32T), lit(0), lit(0), lit(1))],
+            },
+          },
+        ],
+      },
+    ],
   }
 
   it('renames a reserved-word entry param + every reference consistently', () => {
@@ -228,72 +269,134 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
 describe('glsl-es300 — GLSL ES integer rules (u32 switch labels, flat varyings)', () => {
   it('a u32 switch emits u-suffixed case labels (label type must match the scrutinee)', () => {
     const mod: ModuleDecl = {
-      consts: [], structs: [], bindings: [],
-      funcs: [{
-        name: 'pick', params: [{ name: 'k', type: u32T }], ret: f32T,
-        body: [
-          { s: 'var', name: 'o', type: f32T, init: lit(0) },
-          { s: 'switch', scrut: { op: 'param', type: u32T, name: 'k' },
-            cases: [{ value: 1, body: [{ s: 'assign', target: { op: 'varref', type: f32T, name: 'o' }, expr: lit(1) }] }],
-            defaultBody: [] },
-          { s: 'return', expr: { op: 'varref', type: f32T, name: 'o' } },
-        ],
-      }],
+      consts: [],
+      structs: [],
+      bindings: [],
+      funcs: [
+        {
+          name: 'pick',
+          params: [{ name: 'k', type: u32T }],
+          ret: f32T,
+          body: [
+            { s: 'var', name: 'o', type: f32T, init: lit(0) },
+            {
+              s: 'switch',
+              scrut: { op: 'param', type: u32T, name: 'k' },
+              cases: [
+                {
+                  value: 1,
+                  body: [
+                    { s: 'assign', target: { op: 'varref', type: f32T, name: 'o' }, expr: lit(1) },
+                  ],
+                },
+              ],
+              defaultBody: [],
+            },
+            { s: 'return', expr: { op: 'varref', type: f32T, name: 'o' } },
+          ],
+        },
+      ],
     }
     const glsl = emitGlslModule(mod)
     expect(glsl).toMatch(/switch \(k\)/)
-    expect(glsl).toMatch(/case 1u:/)        // u32 scrutinee → u-suffixed label
-    expect(glsl).not.toMatch(/case 1:/)     // a bare int label is a GLSL ES type-mismatch error
+    expect(glsl).toMatch(/case 1u:/) // u32 scrutinee → u-suffixed label
+    expect(glsl).not.toMatch(/case 1:/) // a bare int label is a GLSL ES type-mismatch error
   })
 
   it('an integer inter-stage varying is `flat` (vertex-OUT + fragment-IN), an int vertex attribute is NOT', () => {
-    const IntIn: StructDecl = { name: 'IntIn', fields: [{ name: 'idx', type: u32T, attr: '@location(0)' }] }
-    const IntOut: StructDecl = { name: 'IntOut', fields: [
-      { name: 'position', type: vec4fT, attr: '@builtin(position)' },
-      { name: 'tag', type: u32T, attr: '@location(0)' },
-    ] }
+    const IntIn: StructDecl = {
+      name: 'IntIn',
+      fields: [{ name: 'idx', type: u32T, attr: '@location(0)' }],
+    }
+    const IntOut: StructDecl = {
+      name: 'IntOut',
+      fields: [
+        { name: 'position', type: vec4fT, attr: '@builtin(position)' },
+        { name: 'tag', type: u32T, attr: '@location(0)' },
+      ],
+    }
     const vmod: ModuleDecl = {
-      consts: [], structs: [IntIn, IntOut], bindings: [],
-      funcs: [{
-        name: 'vs', attrs: ['@vertex'], params: [{ name: 'inp', type: structT('IntIn') }], ret: structT('IntOut'),
-        body: [
-          { s: 'var', name: 'o', type: structT('IntOut') },
-          { s: 'assign', target: fld(varref('o', structT('IntOut')), 'position', vec4fT), expr: v4(lit(0), lit(0), lit(0), lit(1)) },
-          { s: 'assign', target: fld(varref('o', structT('IntOut')), 'tag', u32T), expr: fld(param('inp', structT('IntIn')), 'idx', u32T) },
-          { s: 'return', expr: varref('o', structT('IntOut')) },
-        ],
-      }],
+      consts: [],
+      structs: [IntIn, IntOut],
+      bindings: [],
+      funcs: [
+        {
+          name: 'vs',
+          attrs: ['@vertex'],
+          params: [{ name: 'inp', type: structT('IntIn') }],
+          ret: structT('IntOut'),
+          body: [
+            { s: 'var', name: 'o', type: structT('IntOut') },
+            {
+              s: 'assign',
+              target: fld(varref('o', structT('IntOut')), 'position', vec4fT),
+              expr: v4(lit(0), lit(0), lit(0), lit(1)),
+            },
+            {
+              s: 'assign',
+              target: fld(varref('o', structT('IntOut')), 'tag', u32T),
+              expr: fld(param('inp', structT('IntIn')), 'idx', u32T),
+            },
+            { s: 'return', expr: varref('o', structT('IntOut')) },
+          ],
+        },
+      ],
     }
     const vs = emitGlslModule(vmod, 'vertex')
-    expect(vs).toMatch(/flat out uint tag;/)                       // integer vertex-OUT varying → flat
-    expect(vs).toMatch(/layout\(location = 0\) in uint a_idx;/)    // integer vertex attribute → NOT flat
-    expect(vs).not.toMatch(/flat (?:layout|in)/)                   // no flat on the attribute
+    expect(vs).toMatch(/flat out uint tag;/) // integer vertex-OUT varying → flat
+    expect(vs).toMatch(/layout\(location = 0\) in uint a_idx;/) // integer vertex attribute → NOT flat
+    expect(vs).not.toMatch(/flat (?:layout|in)/) // no flat on the attribute
   })
 })
 
 describe('glsl-es300 — storage → data-texture emulation (opt-in)', () => {
   const arrF32 = { kind: 'array', elem: f32T } as ShaderType // runtime-sized storage array<f32>
   const storageMod: ModuleDecl = {
-    consts: [], structs: [FsOut],
-    bindings: [{ group: 0, binding: 0, name: 'data', space: 'storage', access: 'read', type: arrF32 }],
-    funcs: [{
-      name: 'fs', attrs: ['@fragment'], params: [], ret: structT('FsOut'),
-      body: [{
-        s: 'return',
-        expr: {
-          op: 'construct', type: structT('FsOut'),
-          // data[2] read → its value as the red channel.
-          args: [v4({ op: 'index', type: f32T, base: varref('data', arrF32), idx: { op: 'lit', type: u32T, value: 2 } }, lit(0), lit(0), lit(1))],
-        },
-      }],
-    }],
+    consts: [],
+    structs: [FsOut],
+    bindings: [
+      { group: 0, binding: 0, name: 'data', space: 'storage', access: 'read', type: arrF32 },
+    ],
+    funcs: [
+      {
+        name: 'fs',
+        attrs: ['@fragment'],
+        params: [],
+        ret: structT('FsOut'),
+        body: [
+          {
+            s: 'return',
+            expr: {
+              op: 'construct',
+              type: structT('FsOut'),
+              // data[2] read → its value as the red channel.
+              args: [
+                v4(
+                  {
+                    op: 'index',
+                    type: f32T,
+                    base: varref('data', arrF32),
+                    idx: { op: 'lit', type: u32T, value: 2 },
+                  },
+                  lit(0),
+                  lit(0),
+                  lit(1),
+                ),
+              ],
+            },
+          },
+        ],
+      },
+    ],
   }
 
   it('emulateStorage lowers a storage array<f32> to a sampler2D + texelFetch (no SSBO)', () => {
     const fs = emitGlslModule(storageMod, 'fragment', { emulateStorage: true })
-    expect(fs).toContain('uniform sampler2D data;')   // storage binding → data texture
+    expect(fs).toContain('uniform sampler2D data;') // storage binding → data texture
     // data[i] → 2D-tiled fetch: ivec2(i % textureSize(data,0).x, i / textureSize(data,0).x)
-    expect(fs).toMatch(/texelFetch\(data, ivec2\(int\(.*\) % textureSize\(data, 0\)\.x, int\(.*\) \/ textureSize\(data, 0\)\.x\), 0\)\.r/)
+    expect(fs).toMatch(
+      /texelFetch\(data, ivec2\(int\(.*\) % textureSize\(data, 0\)\.x, int\(.*\) \/ textureSize\(data, 0\)\.x\), 0\)\.r/,
+    )
     expect(fs).not.toContain('data[') // no raw array indexing survives
   })
 
@@ -306,21 +409,50 @@ describe('glsl-es300 — fail-closed on out-of-scope features', () => {
   it('a storage binding fails closed (GLSL ES 3.00 has no SSBO)', () => {
     const seg: StructDecl = { name: 'Seg', fields: [{ name: 'a', type: vec2fT }] }
     const storageMod: ModuleDecl = {
-      consts: [], structs: [seg],
-      bindings: [{ group: 0, binding: 0, name: 'segs', space: 'storage', access: 'read', type: { kind: 'array', elem: structT('Seg') } }],
+      consts: [],
+      structs: [seg],
+      bindings: [
+        {
+          group: 0,
+          binding: 0,
+          name: 'segs',
+          space: 'storage',
+          access: 'read',
+          type: { kind: 'array', elem: structT('Seg') },
+        },
+      ],
       funcs: [],
     }
     expect(() => emitGlslModule(storageMod)).toThrow(UnsupportedFeatureError)
   })
 
   it('an unmapped builtin fails closed rather than emitting a bad gl_* name', () => {
-    const badOut: StructDecl = { name: 'BadOut', fields: [{ name: 'p', type: vec4fT, attr: '@builtin(sample_index)' }] }
+    const badOut: StructDecl = {
+      name: 'BadOut',
+      fields: [{ name: 'p', type: vec4fT, attr: '@builtin(sample_index)' }],
+    }
     const badMod: ModuleDecl = {
-      consts: [], structs: [badOut], bindings: [],
-      funcs: [{
-        name: 'vs', attrs: ['@vertex'], params: [], ret: structT('BadOut'),
-        body: [{ s: 'return', expr: { op: 'construct', type: structT('BadOut'), args: [v4(lit(0), lit(0), lit(0), lit(1))] } }],
-      }],
+      consts: [],
+      structs: [badOut],
+      bindings: [],
+      funcs: [
+        {
+          name: 'vs',
+          attrs: ['@vertex'],
+          params: [],
+          ret: structT('BadOut'),
+          body: [
+            {
+              s: 'return',
+              expr: {
+                op: 'construct',
+                type: structT('BadOut'),
+                args: [v4(lit(0), lit(0), lit(0), lit(1))],
+              },
+            },
+          ],
+        },
+      ],
     }
     expect(() => emitGlslModule(badMod, 'vertex')).toThrow(UnsupportedFeatureError)
   })

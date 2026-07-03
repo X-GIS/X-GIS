@@ -57,17 +57,17 @@ describe('Phase-2 raster shader — DSL emission (ECEF VS, PR 2d.3)', () => {
     const vsBody = noPick.slice(noPick.indexOf('@vertex\nfn vs_tile'))
     const vsEnd = vsBody.indexOf('\n@fragment')
     const vsOnly = vsEnd > 0 ? vsBody.slice(0, vsEnd) : vsBody
-    expect(vsOnly).toContain('u.proj_params.x < 0.5')              // Mercator fast path
-    expect(vsOnly).toContain('u.proj_params.x < 6.5')              // non-Mercator flat
+    expect(vsOnly).toContain('u.proj_params.x < 0.5') // Mercator fast path
+    expect(vsOnly).toContain('u.proj_params.x < 6.5') // non-Mercator flat
     // Mercator branch CALLS project() with the reconstructed lon/lat and
     // u.proj_params. The lon/lat args are no longer hand `let` names (lon /
     // lat_deg) — the cse auto-cache hoists the reused input-only exprs into
     // shared temps (or inlines a single use), so generalize the first two args
     // to \w+ and pin the call + the stable u.proj_params operand.
-    expect(vsOnly).toMatch(/\bproject\([\s\S]*?, u\.proj_params\)/)          // Mercator
+    expect(vsOnly).toMatch(/\bproject\([\s\S]*?, u\.proj_params\)/) // Mercator
     // non-Mercator branch CALLS the shared flat_rel() helper with u.proj_params
     // as the projType arg; the leading lon/lat args are likewise cse/inlined.
-    expect(vsOnly).toMatch(/\bflat_rel\([\s\S]*?, u\.proj_params,/)           // non-Mercator (shared helper)
+    expect(vsOnly).toMatch(/\bflat_rel\([\s\S]*?, u\.proj_params,/) // non-Mercator (shared helper)
     expect(noPick).toContain('fn flat_rel(')
     expect(noPick).toContain('fn project_geom(')
   })
@@ -145,14 +145,23 @@ import { globeEyeUniform } from '../../render/globe-eye-uniform'
 // back-face-cull-comprehensive's #600 discriminating block.)
 const EARTH_R = 6378137
 function nadirEye(clon: number, clat: number): readonly [number, number, number] {
-  const lam = clon * Math.PI / 180, phi = clat * Math.PI / 180, c = Math.cos(phi)
+  const lam = (clon * Math.PI) / 180,
+    phi = (clat * Math.PI) / 180,
+    c = Math.cos(phi)
   const s = EARTH_R * 1e6
   return [s * c * Math.cos(lam), s * c * Math.sin(lam), s * Math.sin(phi)]
 }
 // Globe cull with the far-nadir eye over the camera centre (= the strict
 // hemisphere predicate, in eye-horizon form).
 const cullGlobe = (lon: number, lat: number, clon: number, clat: number): number =>
-  needsBackfaceCullCpu(7, lon, lat, clon, clat, globeEyeUniform(nadirEye(clon, clat)) as [number, number, number, number])
+  needsBackfaceCullCpu(
+    7,
+    lon,
+    lat,
+    clon,
+    clat,
+    globeEyeUniform(nadirEye(clon, clat)) as [number, number, number, number],
+  )
 
 describe('back-face predicate — analytic (CPU mirror, #595)', () => {
   // GLOBE(7) calls route through cullGlobe() (which supplies the #600 eye).
@@ -186,8 +195,8 @@ describe('back-face predicate — analytic (CPU mirror, #595)', () => {
 
   it('orthographic (disc): back hemisphere → negative, front → positive', () => {
     // Ortho uses strict cos_c cull — same semantics as globe.
-    expect(needsBackfaceCullCpu(ORTHO, 0, 0, 0, 0)).toBeGreaterThan(0)   // face-on
-    expect(needsBackfaceCullCpu(ORTHO, 180, 0, 0, 0)).toBeLessThan(0)    // antipode
+    expect(needsBackfaceCullCpu(ORTHO, 0, 0, 0, 0)).toBeGreaterThan(0) // face-on
+    expect(needsBackfaceCullCpu(ORTHO, 180, 0, 0, 0)).toBeLessThan(0) // antipode
   })
 
   // ── DISCRIMINATING counterexample: per-vertex interpolation leak (#595 v2) ──
@@ -210,19 +219,17 @@ describe('back-face predicate — analytic (CPU mirror, #595)', () => {
 
     // Per-vertex bilinear interpolation (the bug): compute cos_c at the 4
     // tile corners and bilinearly interpolate to the interior point.
-    const sw = cullGlobe(-180,    0,     0, 30)  // uu=0, vv=1 (south)
-    const se = cullGlobe(-90,     0,     0, 30)  // uu=1, vv=1
-    const nw = cullGlobe(-180,    66.51, 0, 30)  // uu=0, vv=0 (north)
-    const ne = cullGlobe(-90,     66.51, 0, 30)  // uu=1, vv=0
+    const sw = cullGlobe(-180, 0, 0, 30) // uu=0, vv=1 (south)
+    const se = cullGlobe(-90, 0, 0, 30) // uu=1, vv=1
+    const nw = cullGlobe(-180, 66.51, 0, 30) // uu=0, vv=0 (north)
+    const ne = cullGlobe(-90, 66.51, 0, 30) // uu=1, vv=0
 
     // uu = (−137.25 − (−180)) / (−90 − (−180)) = 42.75/90 = 0.475
     // vv = 0 → north, 1 → south. lat=41.57 in [0..66.51] → vv = (66.51−41.57)/66.51 = 0.375
-    const uu = ((-137.25) - (-180)) / ((-90) - (-180))  // 0.475
-    const vv = (66.51 - 41.57) / 66.51                  // 0.375 (north=0, south=1)
-    const bilinear = nw * (1 - uu) * (1 - vv)
-                   + ne * uu       * (1 - vv)
-                   + sw * (1 - uu) * vv
-                   + se * uu       * vv
+    const uu = (-137.25 - -180) / (-90 - -180) // 0.475
+    const vv = (66.51 - 41.57) / 66.51 // 0.375 (north=0, south=1)
+    const bilinear =
+      nw * (1 - uu) * (1 - vv) + ne * uu * (1 - vv) + sw * (1 - uu) * vv + se * uu * vv
     // The bilinear result is positive (the bug: would NOT discard).
     expect(bilinear).toBeGreaterThan(0)
 

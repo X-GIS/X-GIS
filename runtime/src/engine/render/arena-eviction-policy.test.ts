@@ -50,16 +50,22 @@ function mockDevice(): GPUArenaDevice {
         copySrc: desc.copySrc,
         label: desc.label,
         destroyed: false,
-        destroy() { b.destroyed = true },
+        destroy() {
+          b.destroyed = true
+        },
       }
       return { native: b } as unknown as RhiBuffer
     },
-    destroyBuffer(h) { unwrap(h).destroy() },
-    unwrapBuffer(h) { return unwrap(h) as unknown as GPUBuffer },
+    destroyBuffer(h) {
+      unwrap(h).destroy()
+    },
+    unwrapBuffer(h) {
+      return unwrap(h) as unknown as GPUBuffer
+    },
   }
 }
 
-const VERTEX_USAGE = 'vertex'  // RhiBufferUsage role (was GPUBufferUsage.VERTEX | COPY_DST)
+const VERTEX_USAGE = 'vertex' // RhiBufferUsage role (was GPUBufferUsage.VERTEX | COPY_DST)
 // Match the production arena capacity (64 MB)
 const CAPACITY = 64 * 1024 * 1024
 
@@ -75,7 +81,7 @@ describe('arena byte-pressure eviction — Lane A trigger gate', () => {
       label: 'poly-vertex-arena',
     })
 
-    const TILE_BYTES = 2 * 1024 * 1024  // 2 MB per tile (large globe tile)
+    const TILE_BYTES = 2 * 1024 * 1024 // 2 MB per tile (large globe tile)
     const offsets: number[] = []
 
     // Alloc 30 tiles worth of large vertex data
@@ -100,8 +106,8 @@ describe('arena byte-pressure eviction — Lane A trigger gate', () => {
     // path is what determines trigger timing:
     const uniqueTileCount = 30
     const MAX_GPU_TILES_DESKTOP = 256
-    expect(uniqueTileCount).toBeLessThan(MAX_GPU_TILES_DESKTOP)  // count cap NOT reached
-    expect(arena.highWaterBytes).toBeGreaterThan(CAPACITY * ARENA_HIGH_WATER)  // byte cap IS crossed
+    expect(uniqueTileCount).toBeLessThan(MAX_GPU_TILES_DESKTOP) // count cap NOT reached
+    expect(arena.highWaterBytes).toBeGreaterThan(CAPACITY * ARENA_HIGH_WATER) // byte cap IS crossed
     void offsets
   })
 
@@ -113,7 +119,7 @@ describe('arena byte-pressure eviction — Lane A trigger gate', () => {
       usage: VERTEX_USAGE,
     })
 
-    const TILE_BYTES = 4 * 1024 * 1024  // 4 MB tiles
+    const TILE_BYTES = 4 * 1024 * 1024 // 4 MB tiles
     // Alloc 14 tiles → 56 MB live (87.5% — above HIGH_WATER at 75%)
     const offsets: number[] = []
     for (let i = 0; i < 14; i++) {
@@ -150,7 +156,7 @@ describe('arena byte-pressure eviction — Lane A trigger gate', () => {
       usage: VERTEX_USAGE,
     })
 
-    const TILE_BYTES = 4 * 1024 * 1024  // 4 MB each
+    const TILE_BYTES = 4 * 1024 * 1024 // 4 MB each
 
     // Fill to ~75% (12 tiles × 4 MB = 48 MB)
     const offsets: number[] = []
@@ -167,7 +173,9 @@ describe('arena byte-pressure eviction — Lane A trigger gate', () => {
 
     // New large alloc MUST NOT throw — freed slots are available
     let newOffset: number | undefined
-    expect(() => { newOffset = arena.alloc(TILE_BYTES) }).not.toThrow()
+    expect(() => {
+      newOffset = arena.alloc(TILE_BYTES)
+    }).not.toThrow()
     expect(typeof newOffset).toBe('number')
     // The reused offset was in the freed range (free-list pop)
     expect(arena.getStats().reuseHits).toBeGreaterThan(0)
@@ -180,9 +188,9 @@ describe('arena byte-pressure eviction — Lane A trigger gate', () => {
     //   → vertex must be freed (no partial leak)
     //   → no throw escapes
     // We use two separate small arenas to isolate vertex vs index failure.
-    const SMALL = 4 * 1024   // 4 KB capacity each
+    const SMALL = 4 * 1024 // 4 KB capacity each
     const vertexArena = new GPUArena(mockDevice(), { capacityBytes: SMALL, usage: VERTEX_USAGE })
-    const indexArena  = new GPUArena(mockDevice(), { capacityBytes: SMALL, usage: VERTEX_USAGE })
+    const indexArena = new GPUArena(mockDevice(), { capacityBytes: SMALL, usage: VERTEX_USAGE })
 
     // Fill index arena to capacity so the next alloc throws
     indexArena.alloc(4096)
@@ -230,7 +238,10 @@ describe('async upload path (FIX 1) — _allocPolyPair leak-free + OOM-safe', ()
   // Mirror of VectorTileRenderer._allocPolyPair (the promoted private method
   // both upload paths share). Vertex-then-index; free vertex if index fails.
   function allocPolyPair(
-    vArena: GPUArena, iArena: GPUArena, vBytes: number, iBytes: number,
+    vArena: GPUArena,
+    iArena: GPUArena,
+    vBytes: number,
+    iBytes: number,
   ): { v: number; i: number } | null {
     let v: number | null = null
     try {
@@ -247,12 +258,12 @@ describe('async upload path (FIX 1) — _allocPolyPair leak-free + OOM-safe', ()
     const SMALL = 4 * 1024
     const vArena = new GPUArena(mockDevice(), { capacityBytes: SMALL, usage: VERTEX_USAGE })
     const iArena = new GPUArena(mockDevice(), { capacityBytes: SMALL, usage: VERTEX_USAGE })
-    iArena.alloc(SMALL)  // index arena full → next index alloc throws
+    iArena.alloc(SMALL) // index arena full → next index alloc throws
 
     const pair = allocPolyPair(vArena, iArena, 1024, 1024)
-    expect(pair).toBeNull()                       // contained, no throw
-    expect(vArena.liveUsedBytes).toBe(0)          // vertex slot rolled back
-    expect(vArena.getStats().freeCount).toBe(1)   // exactly one rollback free
+    expect(pair).toBeNull() // contained, no throw
+    expect(vArena.liveUsedBytes).toBe(0) // vertex slot rolled back
+    expect(vArena.getStats().freeCount).toBe(1) // exactly one rollback free
   })
 
   it('race-guard free returns BOTH poly slots so liveBytes drains to 0', () => {
@@ -289,7 +300,7 @@ describe('async upload path (FIX 1) — _allocPolyPair leak-free + OOM-safe', ()
     const TINY = 64
     const vArena = new GPUArena(mockDevice(), { capacityBytes: TINY, usage: VERTEX_USAGE })
     const iArena = new GPUArena(mockDevice(), { capacityBytes: TINY, usage: VERTEX_USAGE })
-    vArena.alloc(TINY)  // both arenas full, nothing evictable here
+    vArena.alloc(TINY) // both arenas full, nothing evictable here
     iArena.alloc(TINY)
 
     let escaped = false
@@ -302,7 +313,7 @@ describe('async upload path (FIX 1) — _allocPolyPair leak-free + OOM-safe', ()
     expect(escaped).toBe(false)
     expect(pair).toBeNull()
     // No partial claim survived (vertex alloc itself failed → nothing to free)
-    expect(vArena.liveUsedBytes).toBe(TINY)  // only the pre-filled alloc
+    expect(vArena.liveUsedBytes).toBe(TINY) // only the pre-filled alloc
   })
 })
 
@@ -318,9 +329,10 @@ describe('arena byte-pressure eviction — reclaimIfDrained gate', () => {
       usage: VERTEX_USAGE,
     })
 
-    const TILE_BYTES = 8 * 1024 * 1024  // 8 MB tiles
+    const TILE_BYTES = 8 * 1024 * 1024 // 8 MB tiles
     const offsets: number[] = []
-    for (let i = 0; i < 7; i++) {        // 56 MB → 87.5% bump
+    for (let i = 0; i < 7; i++) {
+      // 56 MB → 87.5% bump
       offsets.push(arena.alloc(TILE_BYTES))
     }
     expect(arena.highWaterBytes).toBe(7 * TILE_BYTES)
@@ -328,12 +340,12 @@ describe('arena byte-pressure eviction — reclaimIfDrained gate', () => {
     // Evict all tiles
     for (const off of offsets) arena.free(off, TILE_BYTES)
     expect(arena.liveUsedBytes).toBe(0)
-    expect(arena.highWaterBytes).toBe(7 * TILE_BYTES)  // bumpPtr still pinned
+    expect(arena.highWaterBytes).toBe(7 * TILE_BYTES) // bumpPtr still pinned
 
     // reclaimIfDrained should reset bump
     const reclaimed = arena.reclaimIfDrained()
     expect(reclaimed).toBe(true)
-    expect(arena.highWaterBytes).toBe(0)       // bumpPtr reset
+    expect(arena.highWaterBytes).toBe(0) // bumpPtr reset
     expect(arena.liveUsedBytes).toBe(0)
 
     // New uploads use offset 0 again — arena fully available
@@ -349,13 +361,13 @@ describe('arena byte-pressure eviction — reclaimIfDrained gate', () => {
     })
     const TILE_BYTES = 4 * 1024 * 1024
     const o1 = arena.alloc(TILE_BYTES)
-    arena.alloc(TILE_BYTES)  // second tile not freed
+    arena.alloc(TILE_BYTES) // second tile not freed
     arena.free(o1, TILE_BYTES)
 
-    expect(arena.liveUsedBytes).toBe(TILE_BYTES)  // one still live
+    expect(arena.liveUsedBytes).toBe(TILE_BYTES) // one still live
     const reclaimed = arena.reclaimIfDrained()
-    expect(reclaimed).toBe(false)                 // refused
-    expect(arena.highWaterBytes).toBe(2 * TILE_BYTES)  // bumpPtr unchanged
+    expect(reclaimed).toBe(false) // refused
+    expect(arena.highWaterBytes).toBe(2 * TILE_BYTES) // bumpPtr unchanged
   })
 })
 
@@ -367,8 +379,8 @@ describe('arena exact-align4 free-list under simulated tile eviction', () => {
     // enables same-footprint reuse (the common hot-path).
     const arena = new GPUArena(mockDevice(), { capacityBytes: 4096, usage: VERTEX_USAGE })
 
-    const SIZE_A = 20  // align4 = 20
-    const SIZE_B = 28  // align4 = 28; old bucket 32 = same as A → bug
+    const SIZE_A = 20 // align4 = 20
+    const SIZE_B = 28 // align4 = 28; old bucket 32 = same as A → bug
 
     const offA = arena.alloc(SIZE_A)
     const offB = arena.alloc(SIZE_B)
@@ -378,12 +390,12 @@ describe('arena exact-align4 free-list under simulated tile eviction', () => {
 
     // Upload new tile with SIZE_B footprint: must NOT reuse A's slot
     const offC = arena.alloc(SIZE_B)
-    expect(offC).not.toBe(offA)   // no corruption: A's 20 B slot not given to 28 B request
+    expect(offC).not.toBe(offA) // no corruption: A's 20 B slot not given to 28 B request
     expect(arena.getStats().reuseHits).toBe(0)
 
     // Upload new tile with SIZE_A footprint: DOES reuse A's slot
     const offD = arena.alloc(SIZE_A)
-    expect(offD).toBe(offA)       // correct same-size reuse
+    expect(offD).toBe(offA) // correct same-size reuse
     expect(arena.getStats().reuseHits).toBe(1)
 
     void offB

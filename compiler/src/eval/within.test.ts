@@ -9,18 +9,58 @@ import { describe, it, expect } from 'vitest'
 import { evalWithin } from './within'
 
 // A unit square [0,0]–[10,10] as a single Polygon (one outer ring).
-const square = [[[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]]
+const square = [
+  [
+    [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [0, 10],
+      [0, 0],
+    ],
+  ],
+]
 
 // Square with a hole [3,3]–[7,7].
-const squareWithHole = [[
-  [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]],
-  [[3, 3], [7, 3], [7, 7], [3, 7], [3, 3]],
-]]
+const squareWithHole = [
+  [
+    [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [0, 10],
+      [0, 0],
+    ],
+    [
+      [3, 3],
+      [7, 3],
+      [7, 7],
+      [3, 7],
+      [3, 3],
+    ],
+  ],
+]
 
 // Two disjoint squares: [0,0]–[10,10] and [20,0]–[30,10].
 const twoSquares = [
-  [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]],
-  [[[20, 0], [30, 0], [30, 10], [20, 10], [20, 0]]],
+  [
+    [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [0, 10],
+      [0, 0],
+    ],
+  ],
+  [
+    [
+      [20, 0],
+      [30, 0],
+      [30, 10],
+      [20, 10],
+      [20, 0],
+    ],
+  ],
 ]
 
 const pt = (x: number, y: number) => ({ type: 'Point', coordinates: [x, y] })
@@ -51,10 +91,32 @@ describe('evalWithin — MultiPolygon argument', () => {
 
 describe('evalWithin — MultiPoint tested geometry', () => {
   it('all points inside → true', () => {
-    expect(evalWithin({ type: 'MultiPoint', coordinates: [[2, 2], [8, 8]] }, square)).toBe(true)
+    expect(
+      evalWithin(
+        {
+          type: 'MultiPoint',
+          coordinates: [
+            [2, 2],
+            [8, 8],
+          ],
+        },
+        square,
+      ),
+    ).toBe(true)
   })
   it('one point outside → false (within requires FULL containment)', () => {
-    expect(evalWithin({ type: 'MultiPoint', coordinates: [[2, 2], [15, 8]] }, square)).toBe(false)
+    expect(
+      evalWithin(
+        {
+          type: 'MultiPoint',
+          coordinates: [
+            [2, 2],
+            [15, 8],
+          ],
+        },
+        square,
+      ),
+    ).toBe(false)
   })
   it('empty MultiPoint → false (nothing to contain)', () => {
     expect(evalWithin({ type: 'MultiPoint', coordinates: [] }, square)).toBe(false)
@@ -63,7 +125,18 @@ describe('evalWithin — MultiPoint tested geometry', () => {
 
 describe('evalWithin — deferred / degraded inputs', () => {
   it('LineString tested geometry → false (deferred slice)', () => {
-    expect(evalWithin({ type: 'LineString', coordinates: [[1, 1], [2, 2]] }, square)).toBe(false)
+    expect(
+      evalWithin(
+        {
+          type: 'LineString',
+          coordinates: [
+            [1, 1],
+            [2, 2],
+          ],
+        },
+        square,
+      ),
+    ).toBe(false)
   })
   it('null geometry (e.g. MVT path, no $geometry injected) → false', () => {
     expect(evalWithin(null, square)).toBe(false)

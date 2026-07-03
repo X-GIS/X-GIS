@@ -90,7 +90,7 @@ export const typeCoercionHandler: ExprHandler = (v, warnings, recurse, _recurseF
   // null and the layer's height collapsed to whatever the
   // evaluator's null-arithmetic default was (typically 0, but
   // for layouts like `interpolate(zoom, … null …)` could break).
-  const args = v.slice(1).map(a => recurse(a, warnings))
+  const args = v.slice(1).map((a) => recurse(a, warnings))
   const valid = args.filter((a): a is string => a !== null)
   if (valid.length === 0) return null
   // Surface partial-drop — mirror of coalesce/case/match partial-
@@ -100,7 +100,9 @@ export const typeCoercionHandler: ExprHandler = (v, warnings, recurse, _recurseF
   // visible-vs-authored mismatch was unfindable without this
   // diagnostic.
   if (valid.length < args.length) {
-    warnings.push(`["${op}"] dropped ${args.length - valid.length} of ${args.length} arg(s) that failed to convert; resulting fallback chain may differ from the authored intent.`)
+    warnings.push(
+      `["${op}"] dropped ${args.length - valid.length} of ${args.length} arg(s) that failed to convert; resulting fallback chain may differ from the authored intent.`,
+    )
   }
   if (valid.length === 1) return valid[0]!
   // Parenthesize ternary arms — see coalesce note: an unwrapped
@@ -117,8 +119,8 @@ export const concatHandler: ExprHandler = (v, warnings, recurse) => {
   // case returned null which silently dropped the property
   // (e.g. text-field collapsed to no label).
   const rawArgs = v.slice(1)
-  const rawNonNullCount = rawArgs.filter(a => a !== null && a !== undefined).length
-  const parts = rawArgs.map(a => recurse(a, warnings)).filter((s): s is string => s !== null)
+  const rawNonNullCount = rawArgs.filter((a) => a !== null && a !== undefined).length
+  const parts = rawArgs.map((a) => recurse(a, warnings)).filter((s): s is string => s !== null)
   // Surface partial-drop — an `["image", …]` head in a concat
   // chain (e.g. `["concat", ["image", "icon"], " ", ["get",
   // "name"]]`) would silently lose the icon and emit
@@ -127,7 +129,9 @@ export const concatHandler: ExprHandler = (v, warnings, recurse) => {
   // (skip-null semantic) so we only count non-null inputs that
   // failed to convert.
   if (parts.length < rawNonNullCount) {
-    warnings.push(`["concat"] dropped ${rawNonNullCount - parts.length} of ${rawNonNullCount} non-null arg(s) that failed to convert; concatenation may be missing the authored content.`)
+    warnings.push(
+      `["concat"] dropped ${rawNonNullCount - parts.length} of ${rawNonNullCount} non-null arg(s) that failed to convert; concatenation may be missing the authored content.`,
+    )
   }
   return parts.length > 0 ? `concat(${parts.join(', ')})` : '""'
 }
@@ -147,7 +151,9 @@ export const formatHandler: ExprHandler = (v, warnings, recurse) => {
   const args = v.slice(1)
   if (args.length === 0) return null
   if (args.length % 2 !== 0) {
-    warnings.push(`Malformed ["format"] — text+opts pairs required: ${JSON.stringify(v).slice(0, 120)}`)
+    warnings.push(
+      `Malformed ["format"] — text+opts pairs required: ${JSON.stringify(v).slice(0, 120)}`,
+    )
     return null
   }
   let hasRichOpts = false
@@ -160,8 +166,12 @@ export const formatHandler: ExprHandler = (v, warnings, recurse) => {
     // Anything non-empty means the user requested styling we can't
     // express; flag once per format call so the conversion notes
     // surface the gap without N copies.
-    if (opts && typeof opts === 'object' && !Array.isArray(opts)
-        && Object.keys(opts as Record<string, unknown>).length > 0) {
+    if (
+      opts &&
+      typeof opts === 'object' &&
+      !Array.isArray(opts) &&
+      Object.keys(opts as Record<string, unknown>).length > 0
+    ) {
       hasRichOpts = true
     }
     const t = recurse(text, warnings)
@@ -171,7 +181,9 @@ export const formatHandler: ExprHandler = (v, warnings, recurse) => {
       // entirely when any one section failed, dropping the
       // label visibly). Surface WHICH section failed so the user
       // can locate it without bisecting the format chain.
-      warnings.push(`["format"] section ${i / 2 + 1} (${JSON.stringify(text).slice(0, 60)}) failed to convert — dropped from concat; remaining sections still emit.`)
+      warnings.push(
+        `["format"] section ${i / 2 + 1} (${JSON.stringify(text).slice(0, 60)}) failed to convert — dropped from concat; remaining sections still emit.`,
+      )
       droppedSections++
       continue
     }
@@ -182,11 +194,15 @@ export const formatHandler: ExprHandler = (v, warnings, recurse) => {
   // coalesce / case / match / concat — never silently empty
   // unless there's truly nothing to emit.
   if (texts.length === 0) {
-    warnings.push(`["format"] all ${droppedSections} sections failed to convert — format expression returns null.`)
+    warnings.push(
+      `["format"] all ${droppedSections} sections failed to convert — format expression returns null.`,
+    )
     return null
   }
   if (hasRichOpts) {
-    warnings.push(`["format"] span-level options (font-scale / text-color / text-font / vertical-align) dropped — X-GIS labels render with one style per layer.`)
+    warnings.push(
+      `["format"] span-level options (font-scale / text-color / text-font / vertical-align) dropped — X-GIS labels render with one style per layer.`,
+    )
   }
   if (texts.length === 1) return texts[0]!
   return `concat(${texts.join(', ')})`
@@ -215,7 +231,9 @@ export const stepHandler: ExprHandler = (v, warnings, recurse) => {
     while (Array.isArray(stopX) && stopX.length === 2 && stopX[0] === 'literal') stopX = stopX[1]
     if (typeof stopX !== 'number' || !Number.isFinite(stopX)) {
       const stopIdx = ((i - 3) / 2) | 0
-      warnings.push(`["step"] stop ${stopIdx + 1} x-value must be a literal finite number per Mapbox spec; got ${JSON.stringify(v[i]).slice(0, 80)}. Whole step bails.`)
+      warnings.push(
+        `["step"] stop ${stopIdx + 1} x-value must be a literal finite number per Mapbox spec; got ${JSON.stringify(v[i]).slice(0, 80)}. Whole step bails.`,
+      )
       return null
     }
     stopXs.push(stopX)
@@ -226,7 +244,9 @@ export const stepHandler: ExprHandler = (v, warnings, recurse) => {
   // bucket scan picks the first range matching the input).
   for (let i = 1; i < stopXs.length; i++) {
     if (stopXs[i]! <= stopXs[i - 1]!) {
-      warnings.push(`["step"] stops not strictly ascending: stop ${i + 1} input=${stopXs[i]} <= stop ${i} input=${stopXs[i - 1]}. Mapbox spec requires monotonically increasing input values — evaluator output is undefined for the violating range.`)
+      warnings.push(
+        `["step"] stops not strictly ascending: stop ${i + 1} input=${stopXs[i]} <= stop ${i} input=${stopXs[i - 1]}. Mapbox spec requires monotonically increasing input values — evaluator output is undefined for the violating range.`,
+      )
       break // one warning per step, not per pair
     }
   }
@@ -247,13 +267,19 @@ export const stepHandler: ExprHandler = (v, warnings, recurse) => {
   // it without bisecting. Total-bail kept (step semantics require
   // every slot to convert) — this is precision over the silent
   // null return.
-  const failedIdx = args.findIndex(a => a === null)
+  const failedIdx = args.findIndex((a) => a === null)
   if (failedIdx !== -1) {
-    const slotName = failedIdx === 0 ? 'input'
-      : failedIdx === 1 ? 'default'
-      : failedIdx % 2 === 0 ? `stop ${(failedIdx / 2) | 0}`
-      : `value ${((failedIdx - 1) / 2) | 0}`
-    warnings.push(`["step"] arg ${failedIdx + 1} (${slotName}) failed to convert; whole step bails.`)
+    const slotName =
+      failedIdx === 0
+        ? 'input'
+        : failedIdx === 1
+          ? 'default'
+          : failedIdx % 2 === 0
+            ? `stop ${(failedIdx / 2) | 0}`
+            : `value ${((failedIdx - 1) / 2) | 0}`
+    warnings.push(
+      `["step"] arg ${failedIdx + 1} (${slotName}) failed to convert; whole step bails.`,
+    )
     return null
   }
   return `step(${args.join(', ')})`
@@ -278,7 +304,9 @@ export const letHandler: ExprHandler = (v, warnings, recurse) => {
   for (let i = 0; i < args.length - 1; i += 2) {
     const name = args[i]
     if (typeof name !== 'string') {
-      warnings.push(`Malformed ["let"] expression: binding name at slot ${i} is ${typeof name}, expected string.`)
+      warnings.push(
+        `Malformed ["let"] expression: binding name at slot ${i} is ${typeof name}, expected string.`,
+      )
       return null
     }
     if (seenNames.has(name)) {
@@ -293,7 +321,14 @@ export const letHandler: ExprHandler = (v, warnings, recurse) => {
     bindings.set(name, args[i + 1])
   }
   if (duplicateNames.length > 0) {
-    warnings.push(`["let"] duplicate binding name(s) ${duplicateNames.slice(0, 4).map(d => `"${d}"`).join(', ')}${duplicateNames.length > 4 ? ` + ${duplicateNames.length - 4} more` : ''}. The LAST binding wins; earlier ones are silent dead code.`)
+    warnings.push(
+      `["let"] duplicate binding name(s) ${duplicateNames
+        .slice(0, 4)
+        .map((d) => `"${d}"`)
+        .join(
+          ', ',
+        )}${duplicateNames.length > 4 ? ` + ${duplicateNames.length - 4} more` : ''}. The LAST binding wins; earlier ones are silent dead code.`,
+    )
   }
   const substituted = substituteVars(body, bindings)
   return recurse(substituted, warnings)
@@ -311,11 +346,13 @@ export const sliceHandler: ExprHandler = (v, warnings, recurse) => {
   // Mapbox `["slice", input, start]` or `["slice", input, start, end]`.
   // Routes through xgis `slice(input, start[, end])` builtin.
   if (v.length < 3 || v.length > 4) {
-    warnings.push(`Malformed ["slice"] expression: expected 2-3 arguments (input, start[, end]), got ${v.length - 1}.`)
+    warnings.push(
+      `Malformed ["slice"] expression: expected 2-3 arguments (input, start[, end]), got ${v.length - 1}.`,
+    )
     return null
   }
-  const parts = v.slice(1).map(a => recurse(a, warnings))
-  if (parts.some(p => p === null)) return null
+  const parts = v.slice(1).map((a) => recurse(a, warnings))
+  if (parts.some((p) => p === null)) return null
   return `slice(${parts.join(', ')})`
 }
 
@@ -323,11 +360,13 @@ export const indexOfHandler: ExprHandler = (v, warnings, recurse) => {
   // Mapbox `["index-of", needle, haystack]` or
   // `["index-of", needle, haystack, from_index]`.
   if (v.length < 3 || v.length > 4) {
-    warnings.push(`Malformed ["index-of"] expression: expected 2-3 arguments (needle, haystack[, from_index]), got ${v.length - 1}.`)
+    warnings.push(
+      `Malformed ["index-of"] expression: expected 2-3 arguments (needle, haystack[, from_index]), got ${v.length - 1}.`,
+    )
     return null
   }
-  const parts = v.slice(1).map(a => recurse(a, warnings))
-  if (parts.some(p => p === null)) return null
+  const parts = v.slice(1).map((a) => recurse(a, warnings))
+  if (parts.some((p) => p === null)) return null
   // xgis identifier names can't contain hyphens; route to the
   // underscore-bridged builtin which the evaluator binds.
   return `index_of(${parts.join(', ')})`
@@ -341,14 +380,18 @@ export const numberFormatHandler: ExprHandler = (v, warnings, recurse) => {
   // Absent fields lower to `null` literals — the evaluator treats
   // null as "use spec default" for each slot.
   if (v.length !== 3) {
-    warnings.push(`Malformed ["number-format"] expression: expected 2 arguments (input, options), got ${v.length - 1}.`)
+    warnings.push(
+      `Malformed ["number-format"] expression: expected 2 arguments (input, options), got ${v.length - 1}.`,
+    )
     return null
   }
   const input = recurse(v[1], warnings)
   if (input === null) return null
   const opts = v[2]
   if (!opts || typeof opts !== 'object' || Array.isArray(opts)) {
-    warnings.push(`["number-format"] options arg must be a literal object: ${JSON.stringify(opts).slice(0, 80)}`)
+    warnings.push(
+      `["number-format"] options arg must be a literal object: ${JSON.stringify(opts).slice(0, 80)}`,
+    )
     return null
   }
   const o = opts as Record<string, unknown>
@@ -391,14 +434,16 @@ export const rgbHandler: ExprHandler = (v, warnings, _recurse, _recurseFilter, o
   // which the runtime hex parser then failed silently on.
   const requiredCh = op === 'rgb' ? 3 : 4
   if (ch.length !== requiredCh) {
-    warnings.push(`["${op}"] expected ${requiredCh} channels, got ${ch.length}: ${JSON.stringify(v).slice(0, 80)}`)
+    warnings.push(
+      `["${op}"] expected ${requiredCh} channels, got ${ch.length}: ${JSON.stringify(v).slice(0, 80)}`,
+    )
     return null
   }
   // Number.isFinite gate — NaN passes typeof; Math.round(NaN) is
   // NaN; `(NaN).toString(16)` is "NaN" → emitted hex literal
   // would be `#NaNNaNNaN` which the runtime parseHexColor regex
   // rejects, silently collapsing the colour to opaque black.
-  const allNumeric = ch.every(c => typeof c === 'number' && Number.isFinite(c))
+  const allNumeric = ch.every((c) => typeof c === 'number' && Number.isFinite(c))
   if (allNumeric) {
     const [r, g, b, a] = ch as number[]
     const cl = (n: number) => Math.max(0, Math.min(255, Math.round(n)))
@@ -407,6 +452,8 @@ export const rgbHandler: ExprHandler = (v, warnings, _recurse, _recurseFilter, o
       ? `#${hex(r)}${hex(g)}${hex(b)}`
       : `#${hex(r)}${hex(g)}${hex(b)}${hex(Math.round(a * 255))}`
   }
-  warnings.push(`["${op}"] with non-constant channels not converted: ${JSON.stringify(v).slice(0, 80)}`)
+  warnings.push(
+    `["${op}"] with non-constant channels not converted: ${JSON.stringify(v).slice(0, 80)}`,
+  )
   return null
 }

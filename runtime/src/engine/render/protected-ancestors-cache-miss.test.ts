@@ -116,8 +116,8 @@ describe('TileSelectionCache.selectForFrame — protectedAncestors cache-miss pa
     // while the cache holds the real non-empty inject — they diverge.
     expect(
       selection.protectedAncestors,
-      'returned protectedAncestors diverged from the stored frame-cache value '
-        + '(variable-shadowing bug: return read the outer [] not the inner inject)',
+      'returned protectedAncestors diverged from the stored frame-cache value ' +
+        '(variable-shadowing bug: return read the outer [] not the inner inject)',
     ).toEqual(stored.protectedAncestors)
     expect(
       selection.protectedAncestors.length,
@@ -137,7 +137,19 @@ describe('TileSelectionCache.selectForFrame — protectedAncestors cache-miss pa
     const drawStats = new FrameDrawStats()
 
     const args = [
-      camera, 0, TOKYO.lon, TOKYO.lat, W, H, DPR, 7, makeMockCatalog(), '', 0, 14, drawStats,
+      camera,
+      0,
+      TOKYO.lon,
+      TOKYO.lat,
+      W,
+      H,
+      DPR,
+      7,
+      makeMockCatalog(),
+      '',
+      0,
+      14,
+      drawStats,
     ] as const
 
     const miss = cache.selectForFrame(...args)

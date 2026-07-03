@@ -38,10 +38,12 @@ describe('step + concat playground demo source', () => {
       adm0name: 'Japan',
     }
     // Inline parse the bindings the same way the runtime would.
-    const tokens = new Lexer(`source x { type: geojson } layer y { source: x | size-[step(.pop_max, 3, 100000, 5, 1000000, 7, 5000000, 10)] }`).tokenize()
+    const tokens = new Lexer(
+      `source x { type: geojson } layer y { source: x | size-[step(.pop_max, 3, 100000, 5, 1000000, 7, 5000000, 10)] }`,
+    ).tokenize()
     const ast = new Parser(tokens).parse()
     // Find the size binding's AST node and evaluate it directly.
-    const layer = ast.body.find(s => s.kind === 'LayerStatement') as never
+    const layer = ast.body.find((s) => s.kind === 'LayerStatement') as never
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sizeBinding = (layer as any).utilities[0].items[0].binding
     const result = evaluate(sizeBinding, props)
@@ -50,9 +52,11 @@ describe('step + concat playground demo source', () => {
   })
 
   it('concat coerces numerics + drops nulls', () => {
-    const tokens = new Lexer(`source x { type: geojson } layer y { source: x | label-[concat(.name, " (", round(.pop_max / 1000), "k)")] }`).tokenize()
+    const tokens = new Lexer(
+      `source x { type: geojson } layer y { source: x | label-[concat(.name, " (", round(.pop_max / 1000), "k)")] }`,
+    ).tokenize()
     const ast = new Parser(tokens).parse()
-    const layer = ast.body.find(s => s.kind === 'LayerStatement') as never
+    const layer = ast.body.find((s) => s.kind === 'LayerStatement') as never
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const labelBinding = (layer as any).utilities[0].items[0].binding
     const result = evaluate(labelBinding, { name: 'Tokyo', pop_max: 13_500_000 })

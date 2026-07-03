@@ -24,8 +24,8 @@ interface Preset {
 }
 
 const PRESETS: Preset[] = [
-  { name: 'pacific-z1.40',  hash: '#1.40/22.8/-165.5' },
-  { name: 'seoul-z17.93',   hash: '#17.93/37.12661/126.92401' },
+  { name: 'pacific-z1.40', hash: '#1.40/22.8/-165.5' },
+  { name: 'seoul-z17.93', hash: '#17.93/37.12661/126.92401' },
 ]
 
 interface PresetMetric extends Preset {
@@ -49,10 +49,11 @@ for (const preset of PRESETS) {
       waitUntil: 'domcontentloaded',
     })
     await page.waitForFunction(
-      () => (window as unknown as { __xgisReady?: boolean; __mlReady?: boolean })
-        .__xgisReady === true
-        && (window as unknown as { __mlReady?: boolean }).__mlReady === true,
-      null, { timeout: 60_000 },
+      () =>
+        (window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }).__xgisReady ===
+          true && (window as unknown as { __mlReady?: boolean }).__mlReady === true,
+      null,
+      { timeout: 60_000 },
     )
     // Tile fetch settle. High-zoom Seoul + low-zoom Pacific need
     // different amounts of network time; play it safe.
@@ -88,10 +89,10 @@ for (const preset of PRESETS) {
     const xgNorm = xg.width === w && xg.height === h ? xg : cropped(xg)
 
     const diff = new PNG({ width: w, height: h })
-    const diffPixels = pixelmatch(
-      mlNorm.data, xgNorm.data, diff.data, w, h,
-      { threshold: 0.15, includeAA: false },
-    )
+    const diffPixels = pixelmatch(mlNorm.data, xgNorm.data, diff.data, w, h, {
+      threshold: 0.15,
+      includeAA: false,
+    })
     const diffRatio = diffPixels / (w * h)
 
     const dir = join(OUT, preset.name)
@@ -102,16 +103,20 @@ for (const preset of PRESETS) {
 
     const metric: PresetMetric = {
       ...preset,
-      width: w, height: h,
-      diffPixels, diffRatio,
+      width: w,
+      height: h,
+      diffPixels,
+      diffRatio,
       threshold: 0.15,
       durationMs: Date.now() - t0,
     }
     writeFileSync(join(dir, 'metrics.json'), JSON.stringify(metric, null, 2))
     metrics.push(metric)
     // eslint-disable-next-line no-console
-    console.log(`[user-parity] ${preset.name}  ${w}×${h}  ` +
-      `diffPixels=${diffPixels}  diffRatio=${(diffRatio * 100).toFixed(2)}%`)
+    console.log(
+      `[user-parity] ${preset.name}  ${w}×${h}  ` +
+        `diffPixels=${diffPixels}  diffRatio=${(diffRatio * 100).toFixed(2)}%`,
+    )
   })
 }
 
@@ -121,7 +126,9 @@ test.afterAll(() => {
   lines.push('| Preset | Size | Diff pixels | Diff ratio |')
   lines.push('|---|---:|---:|---:|')
   for (const m of metrics) {
-    lines.push(`| ${m.name} | ${m.width}×${m.height} | ${m.diffPixels} | ${(m.diffRatio * 100).toFixed(2)}% |`)
+    lines.push(
+      `| ${m.name} | ${m.width}×${m.height} | ${m.diffPixels} | ${(m.diffRatio * 100).toFixed(2)}% |`,
+    )
   }
   writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n') + '\n')
 })

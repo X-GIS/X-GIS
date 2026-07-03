@@ -35,22 +35,21 @@ describe('["get", <expression>] dynamic key access', () => {
 
   it('["has", ["concat", "name:", lang]] lowers to get(concat(…)) != null', () => {
     const w: string[] = []
-    expect(
-      exprToXgis(['has', ['concat', 'name:', ['get', 'lang']]], w),
-    ).toBe('get(concat("name:", .lang)) != null')
+    expect(exprToXgis(['has', ['concat', 'name:', ['get', 'lang']]], w)).toBe(
+      'get(concat("name:", .lang)) != null',
+    )
   })
 
   it('["!has", ...] mirrors the has form with == null', () => {
     const w: string[] = []
-    expect(
-      exprToXgis(['!has', ['concat', 'name:', ['get', 'lang']]], w),
-    ).toBe('get(concat("name:", .lang)) == null')
+    expect(exprToXgis(['!has', ['concat', 'name:', ['get', 'lang']]], w)).toBe(
+      'get(concat("name:", .lang)) == null',
+    )
   })
 
   it('["has", ["literal", "name:en"]] unwraps to colon-key has', () => {
     const w: string[] = []
-    expect(exprToXgis(['has', ['literal', 'name:en']], w))
-      .toBe('get("name:en") != null')
+    expect(exprToXgis(['has', ['literal', 'name:en']], w)).toBe('get("name:en") != null')
   })
 
   it('dynamic-key get round-trips through the evaluator', () => {
@@ -60,14 +59,16 @@ describe('["get", <expression>] dynamic key access', () => {
     const ast = {
       kind: 'FnCall' as const,
       callee: { kind: 'Identifier' as const, name: 'get' },
-      args: [{
-        kind: 'FnCall' as const,
-        callee: { kind: 'Identifier' as const, name: 'concat' },
-        args: [
-          { kind: 'StringLiteral' as const, value: 'name:' },
-          { kind: 'FieldAccess' as const, object: null, field: 'lang' },
-        ],
-      }],
+      args: [
+        {
+          kind: 'FnCall' as const,
+          callee: { kind: 'Identifier' as const, name: 'concat' },
+          args: [
+            { kind: 'StringLiteral' as const, value: 'name:' },
+            { kind: 'FieldAccess' as const, object: null, field: 'lang' },
+          ],
+        },
+      ],
     }
     const props = { lang: 'ko', 'name:ko': '서울', 'name:en': 'Seoul' }
     expect(evaluate(ast as never, props)).toBe('서울')

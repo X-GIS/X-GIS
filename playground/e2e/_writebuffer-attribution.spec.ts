@@ -6,7 +6,11 @@
 
 import { test } from '@playwright/test'
 
-const TARGETS = ['fixture_filter_complex', 'fixture_stress_many_layers', 'fixture_translucent_stroke'] as const
+const TARGETS = [
+  'fixture_filter_complex',
+  'fixture_stress_many_layers',
+  'fixture_translucent_stroke',
+] as const
 
 for (const id of TARGETS) {
   test(`writeBuffer attribution: ${id}`, async ({ page }) => {
@@ -64,14 +68,17 @@ for (const id of TARGETS) {
     await page.goto(`/demo.html?id=${id}&e2e=1`, { waitUntil: 'domcontentloaded' })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 15_000 },
+      null,
+      { timeout: 15_000 },
     )
     await page.waitForTimeout(1500)
 
     // Reset counters after init-load churn so we measure just the
     // interactive window.
     await page.evaluate(() => {
-      const win = window as unknown as { __bufStats?: Map<string, { calls: number; bytes: number }> }
+      const win = window as unknown as {
+        __bufStats?: Map<string, { calls: number; bytes: number }>
+      }
       win.__bufStats?.clear()
     })
 
@@ -88,21 +95,23 @@ for (const id of TARGETS) {
         function tick() {
           const t = performance.now() - t0
           map.camera.zoom = (t / 1200) * 4
-          map.camera.centerX = startX + Math.sin(t / 200) * 20 * Math.PI / 180 * R
+          map.camera.centerX = startX + ((Math.sin(t / 200) * 20 * Math.PI) / 180) * R
           if (t >= 1500) resolve()
           else requestAnimationFrame(tick)
         }
         requestAnimationFrame(tick)
       })
 
-      return [...(win.__bufStats!).entries()]
+      return [...win.__bufStats!.entries()]
         .map(([label, v]) => ({ label, calls: v.calls, bytes: v.bytes }))
         .sort((a, b) => b.bytes - a.bytes)
     })
 
     console.log(`\n=== ${id} ===`)
     for (const r of rawReport) {
-      console.log(`  ${String(r.calls).padStart(4)} calls  ${(r.bytes / 1024).toFixed(1).padStart(8)} KB  ${r.label}`)
+      console.log(
+        `  ${String(r.calls).padStart(4)} calls  ${(r.bytes / 1024).toFixed(1).padStart(8)} KB  ${r.label}`,
+      )
     }
   })
 }

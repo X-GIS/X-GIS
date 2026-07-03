@@ -28,11 +28,22 @@ function makePalette(p: Partial<Palette>): Palette {
   const colorGradients = (p.colorGradients ?? []) as readonly ColorGradient[]
   const scalarGradients = (p.scalarGradients ?? []) as readonly ScalarGradient[]
   return {
-    colors, scalars, colorGradients, scalarGradients,
-    findColor() { return -1 },
-    findScalar() { return -1 },
-    findColorGradient() { return -1 },
-    findScalarGradient() { return -1 },
+    colors,
+    scalars,
+    colorGradients,
+    scalarGradients,
+    findColor() {
+      return -1
+    },
+    findScalar() {
+      return -1
+    },
+    findColorGradient() {
+      return -1
+    },
+    findScalarGradient() {
+      return -1
+    },
   }
 }
 
@@ -75,7 +86,10 @@ describe('palette-texture — packPalette', () => {
 
   it('color gradient bake → half-float endpoints + midpoint interpolated', () => {
     const g: ColorGradient = {
-      stops: [{ zoom: 0, value: RED }, { zoom: 10, value: BLUE }],
+      stops: [
+        { zoom: 0, value: RED },
+        { zoom: 10, value: BLUE },
+      ],
       base: 1,
     }
     const packed = packPalette(makePalette({ colorGradients: [g] }))
@@ -87,7 +101,7 @@ describe('palette-texture — packPalette', () => {
       const sign = (h & 0x8000) >>> 15
       const exp = (h & 0x7c00) >>> 10
       const mant = h & 0x3ff
-      if (exp === 0) return sign ? -0 : 0  // zero / subnormal → zero
+      if (exp === 0) return sign ? -0 : 0 // zero / subnormal → zero
       if (exp === 31) return sign ? -Infinity : Infinity
       const f = (1 + mant / 1024) * Math.pow(2, exp - 15)
       return sign ? -f : f
@@ -112,7 +126,10 @@ describe('palette-texture — packPalette', () => {
 
   it('color gradient meta encodes (zMin, zMax, base, _pad)', () => {
     const g: ColorGradient = {
-      stops: [{ zoom: 2, value: RED }, { zoom: 15, value: BLUE }],
+      stops: [
+        { zoom: 2, value: RED },
+        { zoom: 15, value: BLUE },
+      ],
       base: 1.5,
     }
     const packed = packPalette(makePalette({ colorGradients: [g] }))
@@ -125,7 +142,10 @@ describe('palette-texture — packPalette', () => {
 
   it('scalar gradient bake → linear interpolation', () => {
     const g: ScalarGradient = {
-      stops: [{ zoom: 0, value: 0 }, { zoom: 10, value: 100 }],
+      stops: [
+        { zoom: 0, value: 0 },
+        { zoom: 10, value: 100 },
+      ],
       base: 1,
     }
     const packed = packPalette(makePalette({ scalarGradients: [g] }))
@@ -137,8 +157,20 @@ describe('palette-texture — packPalette', () => {
   })
 
   it('two gradients pack to two rows (rgba16float, 8 bytes per texel)', () => {
-    const g1: ColorGradient = { stops: [{ zoom: 0, value: RED }, { zoom: 10, value: BLUE }], base: 1 }
-    const g2: ColorGradient = { stops: [{ zoom: 0, value: BLUE }, { zoom: 10, value: RED }], base: 1 }
+    const g1: ColorGradient = {
+      stops: [
+        { zoom: 0, value: RED },
+        { zoom: 10, value: BLUE },
+      ],
+      base: 1,
+    }
+    const g2: ColorGradient = {
+      stops: [
+        { zoom: 0, value: BLUE },
+        { zoom: 10, value: RED },
+      ],
+      base: 1,
+    }
     const packed = packPalette(makePalette({ colorGradients: [g1, g2] }))
     expect(packed.colorGradientCount).toBe(2)
     // Uint16Array storing rgba16float: 4 channels × 2 bytes × W texels × N rows.
@@ -146,19 +178,19 @@ describe('palette-texture — packPalette', () => {
     // Bit-pattern compare for the endpoint half-floats (avoids the
     // DataView.getFloat16 dependency that older Node lacks).
     // half-float 1.0 = 0x3C00, half-float 0.0 = 0x0000.
-    expect(packed.colorGradientBytes[0]).toBe(0x3C00)  // row 0, texel 0, R = 1
-    expect(packed.colorGradientBytes[2]).toBe(0x0000)  // row 0, texel 0, B = 0
+    expect(packed.colorGradientBytes[0]).toBe(0x3c00) // row 0, texel 0, R = 1
+    expect(packed.colorGradientBytes[2]).toBe(0x0000) // row 0, texel 0, B = 0
     const row1U16Offset = GRADIENT_WIDTH * 4
-    expect(packed.colorGradientBytes[row1U16Offset + 0]).toBe(0x0000)  // row 1, R = 0
-    expect(packed.colorGradientBytes[row1U16Offset + 2]).toBe(0x3C00)  // row 1, B = 1
+    expect(packed.colorGradientBytes[row1U16Offset + 0]).toBe(0x0000) // row 1, R = 0
+    expect(packed.colorGradientBytes[row1U16Offset + 2]).toBe(0x3c00) // row 1, B = 1
   })
 
   it('clamps RGBA channels to [0,1] before quantising to byte', () => {
     const overflow: [number, number, number, number] = [1.5, -0.2, 0.5, 1.0]
     const packed = packPalette(makePalette({ colors: [overflow] }))
-    expect(packed.colorBytes[0]).toBe(255)  // 1.5 → 1 → 255
-    expect(packed.colorBytes[1]).toBe(0)    // -0.2 → 0 → 0
-    expect(packed.colorBytes[2]).toBe(128)  // 0.5 → 128 (round)
+    expect(packed.colorBytes[0]).toBe(255) // 1.5 → 1 → 255
+    expect(packed.colorBytes[1]).toBe(0) // -0.2 → 0 → 0
+    expect(packed.colorBytes[2]).toBe(128) // 0.5 → 128 (round)
     expect(packed.colorBytes[3]).toBe(255)
   })
 })
@@ -166,7 +198,10 @@ describe('palette-texture — packPalette', () => {
 describe('palette-texture — gradient eval math', () => {
   it('linear color gradient mid = 0.5 lerp', () => {
     const g: ColorGradient = {
-      stops: [{ zoom: 0, value: RED }, { zoom: 10, value: BLUE }],
+      stops: [
+        { zoom: 0, value: RED },
+        { zoom: 10, value: BLUE },
+      ],
       base: 1,
     }
     const v = evalColorGradientAt(g, 5)
@@ -176,28 +211,37 @@ describe('palette-texture — gradient eval math', () => {
 
   it('exponential base > 1 biases toward upper stop', () => {
     const g: ColorGradient = {
-      stops: [{ zoom: 0, value: RED }, { zoom: 10, value: BLUE }],
+      stops: [
+        { zoom: 0, value: RED },
+        { zoom: 10, value: BLUE },
+      ],
       base: 2,
     }
     const v = evalColorGradientAt(g, 5)
     // base=2 curve at t=0.5: (2^0.5 - 1) / (2 - 1) ≈ 0.414 — closer
     // to the LOWER stop (red) than linear's 0.5.
-    expect(v[0]).toBeGreaterThan(0.5)  // r > linear midpoint
-    expect(v[2]).toBeLessThan(0.5)     // b < linear midpoint
+    expect(v[0]).toBeGreaterThan(0.5) // r > linear midpoint
+    expect(v[2]).toBeLessThan(0.5) // b < linear midpoint
   })
 
   it('clamps to first stop below domain, last stop above', () => {
     const g: ColorGradient = {
-      stops: [{ zoom: 2, value: RED }, { zoom: 10, value: BLUE }],
+      stops: [
+        { zoom: 2, value: RED },
+        { zoom: 10, value: BLUE },
+      ],
       base: 1,
     }
-    expect(evalColorGradientAt(g, 0)[0]).toBe(1)   // below domain → red
-    expect(evalColorGradientAt(g, 20)[2]).toBe(1)  // above domain → blue
+    expect(evalColorGradientAt(g, 0)[0]).toBe(1) // below domain → red
+    expect(evalColorGradientAt(g, 20)[2]).toBe(1) // above domain → blue
   })
 
   it('scalar gradient linear', () => {
     const g: ScalarGradient = {
-      stops: [{ zoom: 0, value: 0 }, { zoom: 10, value: 100 }],
+      stops: [
+        { zoom: 0, value: 0 },
+        { zoom: 10, value: 100 },
+      ],
       base: 1,
     }
     expect(evalScalarGradientAt(g, 5)).toBeCloseTo(50)
@@ -209,7 +253,7 @@ describe('palette-texture — gradient eval math', () => {
     const g: ColorGradient = {
       stops: [
         { zoom: 0, value: [0, 0, 0, 1] },
-        { zoom: 5, value: [1, 0, 0, 1] },   // pure red at z=5
+        { zoom: 5, value: [1, 0, 0, 1] }, // pure red at z=5
         { zoom: 10, value: [0, 0, 1, 1] },
       ],
       base: 1,

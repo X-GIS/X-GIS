@@ -23,11 +23,14 @@ describe('source convert throw isolation', () => {
     const coverage = { sources: [] as { id: string }[], layers: [], warnings: [] as string[] }
     const style = {
       version: 8,
-      sources: { bad: 'not-an-object' as unknown, good: { type: 'vector', url: 'https://x.pmtiles' } },
+      sources: {
+        bad: 'not-an-object' as unknown,
+        good: { type: 'vector', url: 'https://x.pmtiles' },
+      },
       layers: [],
     }
     convertMapboxStyle(style as never, { coverage } as never)
-    expect(coverage.sources.map(s => s.id).sort()).toEqual(['bad', 'good'])
+    expect(coverage.sources.map((s) => s.id).sort()).toEqual(['bad', 'good'])
   })
 
   it('regression: well-formed sources still emit', () => {

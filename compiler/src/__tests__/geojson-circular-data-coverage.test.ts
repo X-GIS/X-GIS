@@ -10,13 +10,11 @@ import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
 describe('GeoJSON inline data circular reference', () => {
   it('circular data does not crash convertMapboxStyle', () => {
     const circular: Record<string, unknown> = { type: 'FeatureCollection' }
-    circular.self = circular  // cycle
+    circular.self = circular // cycle
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: circular as unknown } },
-      layers: [
-        { id: 'l', type: 'fill', source: 's', paint: { 'fill-color': '#000' } },
-      ],
+      layers: [{ id: 'l', type: 'fill', source: 's', paint: { 'fill-color': '#000' } }],
     }
     expect(() => convertMapboxStyle(style as never)).not.toThrow()
     const code = convertMapboxStyle(style as never)
@@ -31,7 +29,10 @@ describe('GeoJSON inline data circular reference', () => {
       sources: {
         s: {
           type: 'geojson',
-          data: { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] } }] },
+          data: {
+            type: 'FeatureCollection',
+            features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] } }],
+          },
         },
       },
       layers: [],

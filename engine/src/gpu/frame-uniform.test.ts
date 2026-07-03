@@ -3,11 +3,16 @@ import { describe, it, expect, vi, beforeAll } from 'vitest'
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {
     ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
-      MAP_READ: 0x0001, MAP_WRITE: 0x0002,
-      COPY_SRC: 0x0004, COPY_DST: 0x0008,
-      INDEX: 0x0010, VERTEX: 0x0020,
-      UNIFORM: 0x0040, STORAGE: 0x0080,
-      INDIRECT: 0x0100, QUERY_RESOLVE: 0x0200,
+      MAP_READ: 0x0001,
+      MAP_WRITE: 0x0002,
+      COPY_SRC: 0x0004,
+      COPY_DST: 0x0008,
+      INDEX: 0x0010,
+      VERTEX: 0x0020,
+      UNIFORM: 0x0040,
+      STORAGE: 0x0080,
+      INDIRECT: 0x0100,
+      QUERY_RESOLVE: 0x0200,
     }
   }
 })
@@ -17,7 +22,11 @@ import { FrameUniform, FRAME_UNIFORM_SIZE_BYTES, WGSL_FRAME_UNIFORM } from './fr
 // Lightweight Camera stub matching `getFrameView`'s contract.
 function fakeCamera(opts: { matrix?: Float32Array; logDepthFc?: number; zoom?: number } = {}): {
   zoom: number
-  getFrameView(w: number, h: number, dpr: number): { matrix: Float32Array; far: number; logDepthFc: number }
+  getFrameView(
+    w: number,
+    h: number,
+    dpr: number,
+  ): { matrix: Float32Array; far: number; logDepthFc: number }
 } {
   const matrix = opts.matrix ?? new Float32Array(16).fill(0).map((_, i) => i + 1)
   const logDepthFc = opts.logDepthFc ?? 0.5
@@ -33,10 +42,12 @@ function fakeDevice(): { device: GPUDevice; writes: { offset: number; bytes: Uin
   const device = {
     createBuffer: vi.fn(() => buffer),
     queue: {
-      writeBuffer: vi.fn((_buf: GPUBuffer, offset: number, src: ArrayBuffer, srcOffset: number, size: number) => {
-        const slice = new Uint8Array(src, srcOffset, size)
-        writes.push({ offset, bytes: new Uint8Array(slice) })
-      }),
+      writeBuffer: vi.fn(
+        (_buf: GPUBuffer, offset: number, src: ArrayBuffer, srcOffset: number, size: number) => {
+          const slice = new Uint8Array(src, srcOffset, size)
+          writes.push({ offset, bytes: new Uint8Array(slice) })
+        },
+      ),
     },
   } as unknown as GPUDevice
   return { device, writes }
@@ -51,7 +62,11 @@ describe('FrameUniform', () => {
     expect(writes).toHaveLength(1)
     expect(writes[0]!.offset).toBe(0)
     expect(writes[0]!.bytes.byteLength).toBe(FRAME_UNIFORM_SIZE_BYTES)
-    const f32 = new Float32Array(writes[0]!.bytes.buffer, writes[0]!.bytes.byteOffset, FRAME_UNIFORM_SIZE_BYTES / 4)
+    const f32 = new Float32Array(
+      writes[0]!.bytes.buffer,
+      writes[0]!.bytes.byteOffset,
+      FRAME_UNIFORM_SIZE_BYTES / 4,
+    )
     // MVP at offset 0..15
     for (let i = 0; i < 16; i++) expect(f32[i]).toBeCloseTo(i + 1)
     // proj_params: type, centerLon, centerLat, logDepthFc
@@ -62,7 +77,7 @@ describe('FrameUniform', () => {
     // viewport: w, h, mpp, dpr
     expect(f32[20]).toBe(800)
     expect(f32[21]).toBe(600)
-    expect(f32[22]).toBeGreaterThan(0)  // metersPerPixel(4) > 0
+    expect(f32[22]).toBeGreaterThan(0) // metersPerPixel(4) > 0
     expect(f32[23]).toBe(2)
   })
 

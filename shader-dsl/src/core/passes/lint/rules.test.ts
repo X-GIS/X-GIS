@@ -4,21 +4,33 @@ import { RULES } from './rules'
 import { module, fn, callFn, f32T, f32, boolT } from '../../ir'
 import type { LintConfig } from './engine'
 
-const ruleIds = (m: ReturnType<typeof module>, cfg?: LintConfig) => lint(m, RULES, cfg).map((d) => d.ruleId)
+const ruleIds = (m: ReturnType<typeof module>, cfg?: LintConfig) =>
+  lint(m, RULES, cfg).map((d) => d.ruleId)
 
 describe('lint rules — correctness checks + deviations', () => {
   it('no-recursion flags a direct self-call (WGSL has no recursion)', () => {
-    const m = module({ funcs: [fn('rec', { x: f32T }, f32T, ({ x }, _b) => callFn('rec', f32T, x))] })
+    const m = module({
+      funcs: [fn('rec', { x: f32T }, f32T, ({ x }, _b) => callFn('rec', f32T, x))],
+    })
     expect(ruleIds(m)).toContain('no-recursion')
   })
 
   it('no-unreachable-code flags a statement after a return in the same block', () => {
     const m = module({
       funcs: [
-        fn('dead', { x: f32T }, f32T, ({ x }, b) => {
-          b.if(x.gt(f32(0)), (c) => { c.ret(x); c.let('z', x.mul(2)) }) // let after return = dead
-          b.ret(f32(0))
-        }, { allowEarlyReturn: true }), // deviate single-exit so only no-unreachable fires
+        fn(
+          'dead',
+          { x: f32T },
+          f32T,
+          ({ x }, b) => {
+            b.if(x.gt(f32(0)), (c) => {
+              c.ret(x)
+              c.let('z', x.mul(2))
+            }) // let after return = dead
+            b.ret(f32(0))
+          },
+          { allowEarlyReturn: true },
+        ), // deviate single-exit so only no-unreachable fires
       ],
     })
     expect(ruleIds(m)).toContain('no-unreachable-code')
@@ -26,7 +38,11 @@ describe('lint rules — correctness checks + deviations', () => {
 
   it('lintDisable suppresses a rule for that fn (documented deviation)', () => {
     const m = module({
-      funcs: [fn('rec', { x: f32T }, f32T, ({ x }, _b) => callFn('rec', f32T, x), { lintDisable: ['no-recursion'] })],
+      funcs: [
+        fn('rec', { x: f32T }, f32T, ({ x }, _b) => callFn('rec', f32T, x), {
+          lintDisable: ['no-recursion'],
+        }),
+      ],
     })
     expect(ruleIds(m)).not.toContain('no-recursion')
   })
@@ -43,14 +59,20 @@ describe('lint rules — correctness checks + deviations', () => {
 
   it('cyclomatic-complexity fires past the configured threshold', () => {
     const m = module({
-      funcs: [fn('branchy', { x: f32T }, f32T, ({ x }, b) => {
-        b.if(x.gt(f32(0)), () => {})
-        b.if(x.lt(f32(0)), () => {})
-        b.ret(x)
-      })],
+      funcs: [
+        fn('branchy', { x: f32T }, f32T, ({ x }, b) => {
+          b.if(x.gt(f32(0)), () => {})
+          b.if(x.lt(f32(0)), () => {})
+          b.ret(x)
+        }),
+      ],
     })
-    expect(ruleIds(m, { options: { 'cyclomatic-complexity': { max: 1 } } })).toContain('cyclomatic-complexity')
-    expect(ruleIds(m, { options: { 'cyclomatic-complexity': { max: 99 } } })).not.toContain('cyclomatic-complexity')
+    expect(ruleIds(m, { options: { 'cyclomatic-complexity': { max: 1 } } })).toContain(
+      'cyclomatic-complexity',
+    )
+    expect(ruleIds(m, { options: { 'cyclomatic-complexity': { max: 99 } } })).not.toContain(
+      'cyclomatic-complexity',
+    )
   })
 
   it('param-count fires past the configured threshold', () => {
@@ -66,12 +88,20 @@ describe('lint rules — correctness checks + deviations', () => {
 
   it('max-nesting-depth fires past the configured threshold', () => {
     const m = module({
-      funcs: [fn('nested', { x: f32T }, f32T, ({ x }, b) => {
-        b.if(x.gt(f32(0)), (c) => { c.if(x.lt(f32(1)), () => {}) }) // depth 2
-        b.ret(x)
-      })],
+      funcs: [
+        fn('nested', { x: f32T }, f32T, ({ x }, b) => {
+          b.if(x.gt(f32(0)), (c) => {
+            c.if(x.lt(f32(1)), () => {})
+          }) // depth 2
+          b.ret(x)
+        }),
+      ],
     })
-    expect(ruleIds(m, { options: { 'max-nesting-depth': { max: 1 } } })).toContain('max-nesting-depth')
-    expect(ruleIds(m, { options: { 'max-nesting-depth': { max: 9 } } })).not.toContain('max-nesting-depth')
+    expect(ruleIds(m, { options: { 'max-nesting-depth': { max: 1 } } })).toContain(
+      'max-nesting-depth',
+    )
+    expect(ruleIds(m, { options: { 'max-nesting-depth': { max: 9 } } })).not.toContain(
+      'max-nesting-depth',
+    )
   })
 })

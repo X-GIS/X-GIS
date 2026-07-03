@@ -19,17 +19,17 @@ describe('interpolate-exponential conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'road',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'roads',
-        paint: {
-          'line-width': ['interpolate', ['exponential', 1.3], ['zoom'],
-            11, 1,
-            19, 2.5],
+      layers: [
+        {
+          id: 'road',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'roads',
+          paint: {
+            'line-width': ['interpolate', ['exponential', 1.3], ['zoom'], 11, 1, 19, 2.5],
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toContain('interpolate_exp(zoom, 1.3, 11, 1, 19, 2.5)')
@@ -41,16 +41,17 @@ describe('interpolate-exponential conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'road',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'roads',
-        paint: {
-          'line-width': ['interpolate', ['exponential', 1], ['zoom'],
-            11, 1, 19, 2.5],
+      layers: [
+        {
+          id: 'road',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'roads',
+          paint: {
+            'line-width': ['interpolate', ['exponential', 1], ['zoom'], 11, 1, 19, 2.5],
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     // base=1 is mathematically linear; emit the cheaper form so the
@@ -63,16 +64,17 @@ describe('interpolate-exponential conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'road',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'roads',
-        paint: {
-          'line-width': ['interpolate', ['linear'], ['zoom'],
-            11, 1, 19, 2.5],
+      layers: [
+        {
+          id: 'road',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'roads',
+          paint: {
+            'line-width': ['interpolate', ['linear'], ['zoom'], 11, 1, 19, 2.5],
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toContain('interpolate(zoom, 11, 1, 19, 2.5)')
@@ -83,16 +85,25 @@ describe('interpolate-exponential conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'road',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'roads',
-        paint: {
-          'line-width': ['interpolate', ['cubic-bezier', 0, 0.5, 1, 0.5], ['zoom'],
-            11, 1, 19, 2.5],
+      layers: [
+        {
+          id: 'road',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'roads',
+          paint: {
+            'line-width': [
+              'interpolate',
+              ['cubic-bezier', 0, 0.5, 1, 0.5],
+              ['zoom'],
+              11,
+              1,
+              19,
+              2.5,
+            ],
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     // Iter 60: numeric-valued bezier interpolates densify into a

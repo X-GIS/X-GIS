@@ -30,42 +30,56 @@ class IconStageProbe {
     }
     return true
   }
-  getMissingIconNames(): string[] { return [...this.missingIconNames].sort() }
-  clearMissingIconNames(): void { this.missingIconNames.clear() }
+  getMissingIconNames(): string[] {
+    return [...this.missingIconNames].sort()
+  }
+  clearMissingIconNames(): void {
+    this.missingIconNames.clear()
+  }
 }
 
 const FIXTURE_JSON = {
   airport_11: { x: 0, y: 0, width: 24, height: 24, pixelRatio: 1 },
-  school_11:  { x: 30, y: 0, width: 24, height: 24, pixelRatio: 1 },
+  school_11: { x: 30, y: 0, width: 24, height: 24, pixelRatio: 1 },
 }
 
-const TINY_PNG = new Uint8Array([0x89, 0x50, 0x4E, 0x47])
+const TINY_PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
 
 function installImageBitmapStub(): () => void {
   const original = (globalThis as { createImageBitmap?: unknown }).createImageBitmap
   ;(globalThis as { createImageBitmap?: unknown }).createImageBitmap = async () => {
     return { width: 64, height: 64, close: () => {} } as unknown as ImageBitmap
   }
-  return () => { (globalThis as { createImageBitmap?: unknown }).createImageBitmap = original }
+  return () => {
+    ;(globalThis as { createImageBitmap?: unknown }).createImageBitmap = original
+  }
 }
 
 function makeFetch(): typeof globalThis.fetch {
   return ((input: RequestInfo | URL) => {
     const url = String(input)
     if (url.endsWith('.json')) {
-      return Promise.resolve(new Response(JSON.stringify(FIXTURE_JSON), {
-        status: 200, headers: { 'content-type': 'application/json' },
-      }))
+      return Promise.resolve(
+        new Response(JSON.stringify(FIXTURE_JSON), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
     }
-    return Promise.resolve(new Response(TINY_PNG, {
-      status: 200, headers: { 'content-type': 'image/png' },
-    }))
+    return Promise.resolve(
+      new Response(TINY_PNG, {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      }),
+    )
   }) as typeof globalThis.fetch
 }
 
 describe('IconStage missing-icon-names diagnostic (iter 526)', () => {
   let restoreStub: () => void
-  beforeEach(() => { restoreStub = installImageBitmapStub() })
+  beforeEach(() => {
+    restoreStub = installImageBitmapStub()
+  })
 
   it('does NOT record misses BEFORE atlas loads (loading-state false positives)', async () => {
     const host = new SpriteAtlasHost({ spriteUrl: 'http://x/atlas', fetch: makeFetch() })
@@ -88,7 +102,7 @@ describe('IconStage missing-icon-names diagnostic (iter 526)', () => {
     // only carries `school_11`. The lookup misses; diagnostic records.
     expect(probe.probe('school')).toBe(false)
     expect(probe.probe('hospital')).toBe(false)
-    expect(probe.probe('school_11')).toBe(true)   // exact match wins
+    expect(probe.probe('school_11')).toBe(true) // exact match wins
     expect(probe.probe('airport_11')).toBe(true)
     expect(probe.getMissingIconNames()).toEqual(['hospital', 'school'])
     restoreStub()

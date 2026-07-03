@@ -82,9 +82,7 @@ export function normalizeEPSG(code: string | number): string {
   if (m) {
     return `EPSG:${m[1]}`
   }
-  throw new Error(
-    `Invalid EPSG code: "${code}" (expected "EPSG:<n>" or "<n>")`,
-  )
+  throw new Error(`Invalid EPSG code: "${code}" (expected "EPSG:<n>" or "<n>")`)
 }
 
 /**
@@ -110,5 +108,4 @@ export function resolveEPSG(code: string | number): string {
 }
 
 /** The EPSG codes for which this registry ships proj4 def strings. */
-export const REGISTERED_EPSG_CODES: readonly string[] =
-  Object.keys(BUNDLED_DEFS)
+export const REGISTERED_EPSG_CODES: readonly string[] = Object.keys(BUNDLED_DEFS)

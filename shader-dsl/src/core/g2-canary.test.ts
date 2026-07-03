@@ -48,8 +48,15 @@ describe('#763 G — readonly invariant', () => {
       lon.assign(f32(0))
       // G4: ReadonlyNode accepted at every read position that used to demand Node
       // (one arm returns a Let — ReadonlyNode — the other a plain Node)
-      const picked = matchEnum<Record<'A' | 'B', number>, 'f32'>(kind, Kind, { A: () => Let(lon.mul(2)), B: () => lon })
-      const w = when<'f32'>(lon.gt(0), () => Let(lon.add(1)), () => lon)
+      const picked = matchEnum<Record<'A' | 'B', number>, 'f32'>(kind, Kind, {
+        A: () => Let(lon.mul(2)),
+        B: () => lon,
+      })
+      const w = when<'f32'>(
+        lon.gt(0),
+        () => Let(lon.add(1)),
+        () => lon,
+      )
       const acc = Var(f32(0))
       Switch(kind) // a READ-ONLY param as scrutinee — the G3+G4 lock in one line
         .case(0, () => acc.assign(picked))

@@ -26,11 +26,11 @@ test('minimal water layer over OpenFreeMap TileJSON renders SOMETHING', async ({
   const consoleErrors: string[] = []
   const allConsole: string[] = []
   const tileFetches: { url: string; status: number }[] = []
-  page.on('console', m => {
+  page.on('console', (m) => {
     allConsole.push(`[${m.type()}] ${m.text()}`)
     if (m.type() === 'error') consoleErrors.push(m.text())
   })
-  page.on('response', resp => {
+  page.on('response', (resp) => {
     const u = resp.url()
     if (/openfreemap\.org\/.*\.pbf/.test(u)) {
       tileFetches.push({ url: u, status: resp.status() })
@@ -43,8 +43,11 @@ test('minimal water layer over OpenFreeMap TileJSON renders SOMETHING', async ({
   }, minSrc)
 
   await page.goto('/demo.html?id=__import#3/0/0', { waitUntil: 'domcontentloaded' })
-  await page.waitForFunction(() => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 })
+  await page.waitForFunction(
+    () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
+    null,
+    { timeout: 30_000 },
+  )
   await page.waitForTimeout(8_000)
 
   // page.screenshot() captures the rendered canvas correctly (incl.
@@ -52,26 +55,37 @@ test('minimal water layer over OpenFreeMap TileJSON renders SOMETHING', async ({
   // WebGPU canvas yields transparent pixels under Chromium.
   const buf = await page.locator('#map').screenshot()
   const stats = await page.evaluate(async (b64: string) => {
-    return await new Promise<{ uniqueColors: number; sampleColors: string[]; bluePixels: number }>((resolve) => {
-      const img = new Image()
-      img.onload = () => {
-        const c = document.createElement('canvas')
-        c.width = 80; c.height = 80
-        const ctx = c.getContext('2d')!
-        ctx.drawImage(img, 0, 0, 80, 80)
-        const data = ctx.getImageData(0, 0, 80, 80).data
-        const colors = new Set<string>()
-        let blue = 0
-        for (let i = 0; i < data.length; i += 4) {
-          colors.add(`${data[i]},${data[i+1]},${data[i+2]}`)
-          if (Math.abs(data[i] - 51) < 30 && Math.abs(data[i+1] - 153) < 30 && Math.abs(data[i+2] - 204) < 30) {
-            blue++
+    return await new Promise<{ uniqueColors: number; sampleColors: string[]; bluePixels: number }>(
+      (resolve) => {
+        const img = new Image()
+        img.onload = () => {
+          const c = document.createElement('canvas')
+          c.width = 80
+          c.height = 80
+          const ctx = c.getContext('2d')!
+          ctx.drawImage(img, 0, 0, 80, 80)
+          const data = ctx.getImageData(0, 0, 80, 80).data
+          const colors = new Set<string>()
+          let blue = 0
+          for (let i = 0; i < data.length; i += 4) {
+            colors.add(`${data[i]},${data[i + 1]},${data[i + 2]}`)
+            if (
+              Math.abs(data[i] - 51) < 30 &&
+              Math.abs(data[i + 1] - 153) < 30 &&
+              Math.abs(data[i + 2] - 204) < 30
+            ) {
+              blue++
+            }
           }
+          resolve({
+            uniqueColors: colors.size,
+            sampleColors: [...colors].slice(0, 10),
+            bluePixels: blue,
+          })
         }
-        resolve({ uniqueColors: colors.size, sampleColors: [...colors].slice(0, 10), bluePixels: blue })
-      }
-      img.src = `data:image/png;base64,${b64}`
-    })
+        img.src = `data:image/png;base64,${b64}`
+      },
+    )
   }, buf.toString('base64'))
 
   // eslint-disable-next-line no-console

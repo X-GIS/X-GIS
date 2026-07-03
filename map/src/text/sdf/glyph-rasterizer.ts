@@ -209,8 +209,15 @@ class Canvas2DRasterizer implements GlyphRasterizer {
     const sdf = computeSDF(alpha, slotSize, slotSize, sdfRadius)
 
     return {
-      fontKey, codepoint, sdfRadius, sdf,
-      advanceWidth, bearingX, bearingY, width, height,
+      fontKey,
+      codepoint,
+      sdfRadius,
+      sdf,
+      advanceWidth,
+      bearingX,
+      bearingY,
+      width,
+      height,
       rasterFontSize: fontSize,
     }
   }
@@ -246,10 +253,7 @@ class Canvas2DMetricsRasterizer implements GlyphRasterizer {
   private readonly ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D
   private readonly fullFallback: GlyphRasterizer
 
-  constructor(
-    canvas: OffscreenCanvas | HTMLCanvasElement,
-    fullFallback: GlyphRasterizer,
-  ) {
+  constructor(canvas: OffscreenCanvas | HTMLCanvasElement, fullFallback: GlyphRasterizer) {
     this.canvas = canvas
     const ctx = canvas.getContext('2d', { willReadFrequently: false })
     if (!ctx) throw new Error('Canvas2DMetricsRasterizer: failed to acquire 2d context')
@@ -263,7 +267,10 @@ class Canvas2DMetricsRasterizer implements GlyphRasterizer {
     // Minimal canvas — we never read pixels, only need a 2D context
     // to call measureText against. 1×1 is enough; resizing per slot
     // would be pointless.
-    if (this.canvas.width !== 1) { this.canvas.width = 1; this.canvas.height = 1 }
+    if (this.canvas.width !== 1) {
+      this.canvas.width = 1
+      this.canvas.height = 1
+    }
     const parsed = parseFontKey(fontKey)
     ctx.font = `${parsed.style} ${parsed.weight} ${fontSize}px ${parsed.family}`
     ctx.textBaseline = 'alphabetic'
@@ -275,8 +282,10 @@ class Canvas2DMetricsRasterizer implements GlyphRasterizer {
     // even if PBF never delivers this character.
     if (metrics.width === 0) return this.fullFallback.rasterize(req)
     return {
-      fontKey, codepoint, sdfRadius,
-      sdf: new Uint8Array(slotSize * slotSize),  // all zeros = invisible
+      fontKey,
+      codepoint,
+      sdfRadius,
+      sdf: new Uint8Array(slotSize * slotSize), // all zeros = invisible
       advanceWidth: metrics.width,
       bearingX: -metrics.actualBoundingBoxLeft,
       bearingY: metrics.actualBoundingBoxAscent,
@@ -310,7 +319,10 @@ export class MockRasterizer implements GlyphRasterizer {
     }
     const sdf = computeSDF(alpha, slotSize, slotSize, sdfRadius)
     return {
-      fontKey, codepoint, sdfRadius, sdf,
+      fontKey,
+      codepoint,
+      sdfRadius,
+      sdf,
       advanceWidth: fontSize * 0.6,
       bearingX: 0,
       bearingY: fontSize * 0.7,
@@ -341,7 +353,8 @@ export function createRasterizer(): GlyphRasterizer {
   }
   if (typeof document !== 'undefined') {
     const c = document.createElement('canvas')
-    c.width = 32; c.height = 32
+    c.width = 32
+    c.height = 32
     return new Canvas2DRasterizer(c)
   }
   return new MockRasterizer()
@@ -355,11 +368,14 @@ export function createMetricsRasterizer(fullFallback: GlyphRasterizer): GlyphRas
   if (typeof OffscreenCanvas !== 'undefined') {
     try {
       return new Canvas2DMetricsRasterizer(new OffscreenCanvas(1, 1), fullFallback)
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
   if (typeof document !== 'undefined') {
     const c = document.createElement('canvas')
-    c.width = 1; c.height = 1
+    c.width = 1
+    c.height = 1
     return new Canvas2DMetricsRasterizer(c, fullFallback)
   }
   return fullFallback

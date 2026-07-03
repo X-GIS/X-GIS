@@ -7,12 +7,20 @@ import { describe, it, expect } from 'vitest'
 import { UniformRing } from './uniform-ring'
 
 ;(globalThis as { GPUBufferUsage?: unknown }).GPUBufferUsage ??= {
-  UNIFORM: 0x40, COPY_DST: 0x08, VERTEX: 0x20, INDEX: 0x10, STORAGE: 0x80, COPY_SRC: 0x04,
+  UNIFORM: 0x40,
+  COPY_DST: 0x08,
+  VERTEX: 0x20,
+  INDEX: 0x10,
+  STORAGE: 0x80,
+  COPY_SRC: 0x04,
 }
 
 const SLOT = 256
 
-interface FakeBuffer { id: string; destroyed?: boolean }
+interface FakeBuffer {
+  id: string
+  destroyed?: boolean
+}
 
 function makeRing(initialCapacity: number) {
   const writes: { buf: FakeBuffer; bufOffset: number; dataLen: number }[] = []
@@ -21,17 +29,30 @@ function makeRing(initialCapacity: number) {
   let onGrowCalls = 0
   const device = {
     createBuffer: () => {
-      const b: FakeBuffer = { id: `buf${n++}`, destroy() { (this as FakeBuffer).destroyed = true } } as FakeBuffer
+      const b: FakeBuffer = {
+        id: `buf${n++}`,
+        destroy() {
+          ;(this as FakeBuffer).destroyed = true
+        },
+      } as FakeBuffer
       created.push(b)
       return b as unknown as GPUBuffer
     },
     queue: {
-      writeBuffer: (buf: FakeBuffer, bufOffset: number, _d: ArrayBuffer, _o: number, size: number) => {
+      writeBuffer: (
+        buf: FakeBuffer,
+        bufOffset: number,
+        _d: ArrayBuffer,
+        _o: number,
+        size: number,
+      ) => {
         writes.push({ buf, bufOffset, dataLen: size })
       },
     },
   } as unknown as GPUDevice
-  const ring = new UniformRing(device, SLOT, initialCapacity, 'test-ring', () => { onGrowCalls++ })
+  const ring = new UniformRing(device, SLOT, initialCapacity, 'test-ring', () => {
+    onGrowCalls++
+  })
   return { ring, writes, created, getOnGrow: () => onGrowCalls }
 }
 
@@ -59,23 +80,26 @@ describe('UniformRing', () => {
     const { ring, writes, created } = makeRing(2)
     ring.ensure()
     const oldBuf = created[0]!
-    ring.allocSlot(); ring.allocSlot()          // fill capacity (slot cursor → 2)
+    ring.allocSlot()
+    ring.allocSlot() // fill capacity (slot cursor → 2)
     ring.stageSlot(0, new ArrayBuffer(SLOT))
-    ring.allocSlot()                            // slot 2 >= capacity → grow
-    const oldWrite = writes.find(w => w.buf === oldBuf)
+    ring.allocSlot() // slot 2 >= capacity → grow
+    const oldWrite = writes.find((w) => w.buf === oldBuf)
     expect(oldWrite, 'old buffer flushed on grow').toBeDefined()
     expect(oldWrite!.bufOffset).toBe(0)
-    expect(oldWrite!.dataLen).toBe(2 * SLOT)    // cursor was 2 at grow
+    expect(oldWrite!.dataLen).toBe(2 * SLOT) // cursor was 2 at grow
     expect(ring.takeRetired()).toContain(oldBuf)
   })
 
   it('capacity doubles past the requested minimum and fires onGrow per grow', () => {
     const { ring, created, getOnGrow } = makeRing(2)
     ring.ensure()
-    expect(getOnGrow()).toBe(1)                 // ensure
-    ring.allocSlot(); ring.allocSlot(); ring.allocSlot() // slot 2 → grow to 4
+    expect(getOnGrow()).toBe(1) // ensure
+    ring.allocSlot()
+    ring.allocSlot()
+    ring.allocSlot() // slot 2 → grow to 4
     expect(created.length).toBe(2)
-    expect(getOnGrow()).toBe(2)                 // ensure + 1 grow
+    expect(getOnGrow()).toBe(2) // ensure + 1 grow
   })
 
   it('flush writes the dirty range to the current buffer, then no-ops when clean', () => {
@@ -85,7 +109,7 @@ describe('UniformRing', () => {
     ring.stageSlot(SLOT, new ArrayBuffer(SLOT))
     ring.flush()
     const cur = created[0]!
-    const flushWrite = writes.find(w => w.buf === cur && w.bufOffset === 0)
+    const flushWrite = writes.find((w) => w.buf === cur && w.bufOffset === 0)
     expect(flushWrite).toBeDefined()
     expect(flushWrite!.dataLen).toBe(2 * SLOT)
     const before = writes.length
@@ -96,7 +120,8 @@ describe('UniformRing', () => {
   it('takeRetired returns then clears; resetSlot rewinds the cursor', () => {
     const { ring } = makeRing(1)
     ring.ensure()
-    ring.allocSlot(); ring.allocSlot()          // grow → 1 retired
+    ring.allocSlot()
+    ring.allocSlot() // grow → 1 retired
     expect(ring.takeRetired().length).toBe(1)
     expect(ring.takeRetired().length).toBe(0)
     ring.resetSlot()
@@ -106,7 +131,8 @@ describe('UniformRing', () => {
   it('destroy() clears the live buffer reference', () => {
     const { ring } = makeRing(1)
     ring.ensure()
-    ring.allocSlot(); ring.allocSlot()
+    ring.allocSlot()
+    ring.allocSlot()
     ring.destroy()
     expect(ring.buffer).toBeNull()
   })

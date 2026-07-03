@@ -24,9 +24,7 @@ import { dirname, join, resolve } from 'node:path'
 import { runInteraction, computeStats, interactions } from './helpers/natural-interaction'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const fixture = readFileSync(
-  resolve(__dirname, '__convert-fixtures', 'liberty.json'), 'utf8',
-)
+const fixture = readFileSync(resolve(__dirname, '__convert-fixtures', 'liberty.json'), 'utf8')
 const OUT = resolve(__dirname, '__perf-merc-high-pitch-drag__')
 mkdirSync(OUT, { recursive: true })
 
@@ -35,8 +33,12 @@ const SEOUL = { lon: 126.9776, lat: 37.53772 }
 const HASH = `#17.30/${SEOUL.lat}/${SEOUL.lon}/285.0/68.1`
 
 interface DrawStats {
-  drawCalls: number; tilesVisible: number; triangles: number; lines: number
-  missedTiles: number; globeTilesSelected: number
+  drawCalls: number
+  tilesVisible: number
+  triangles: number
+  lines: number
+  missedTiles: number
+  globeTilesSelected: number
 }
 
 async function setup(page: Page): Promise<void> {
@@ -48,21 +50,35 @@ async function setup(page: Page): Promise<void> {
   await page.goto(`/demo.html?id=__import${HASH}`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   await page.waitForTimeout(4_000) // cascade + extrude settle
 }
 
 async function readStats(page: Page): Promise<DrawStats> {
   return page.evaluate(() => {
-    const m = (window as unknown as {
-      __xgisMap?: { vtSources?: Map<string, { renderer?: {
-        getDrawStats?: () => DrawStats
-      } }> }
-    }).__xgisMap
+    const m = (
+      window as unknown as {
+        __xgisMap?: {
+          vtSources?: Map<
+            string,
+            {
+              renderer?: {
+                getDrawStats?: () => DrawStats
+              }
+            }
+          >
+        }
+      }
+    ).__xgisMap
     const agg = {
-      drawCalls: 0, tilesVisible: 0, triangles: 0, lines: 0,
-      missedTiles: 0, globeTilesSelected: 0,
+      drawCalls: 0,
+      tilesVisible: 0,
+      triangles: 0,
+      lines: 0,
+      missedTiles: 0,
+      globeTilesSelected: 0,
     }
     if (!m?.vtSources) return agg
     for (const [, src] of m.vtSources) {
@@ -123,7 +139,7 @@ test('merc high-pitch drag — Liberty Seoul z17 pitch68', async ({ page }) => {
   writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))
   // eslint-disable-next-line no-console
   console.log(
-    `[merc-high-pitch-drag] static: tiles=${staticStats.tilesVisible} draws=${staticStats.drawCalls} tris=${staticStats.triangles}`
-    + ` | pan: p95=${panStats.p95.toFixed(1)} max=${panStats.max.toFixed(1)} post-tiles=${postPanStats.tilesVisible}`,
+    `[merc-high-pitch-drag] static: tiles=${staticStats.tilesVisible} draws=${staticStats.drawCalls} tris=${staticStats.triangles}` +
+      ` | pan: p95=${panStats.p95.toFixed(1)} max=${panStats.max.toFixed(1)} post-tiles=${postPanStats.tilesVisible}`,
   )
 })

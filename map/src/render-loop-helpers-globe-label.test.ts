@@ -16,7 +16,8 @@ import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/engine'
 import { makeLabelProjectors } from './render-loop-helpers'
 
-const W = 800, H = 600
+const W = 800,
+  H = 600
 
 function projectCentre(pitch: number, withFocus: boolean): [number, number] | null {
   const cam = new Camera(127, 37, 0) // Seoul, zoom 0
@@ -25,7 +26,11 @@ function projectCentre(pitch: number, withFocus: boolean): [number, number] | nu
   cam.pitch = pitch
   const view = cam.getViewForProjection(7, W, H, 1)
   const proj = makeLabelProjectors(
-    view.matrix, W, H, undefined, view.eye,
+    view.matrix,
+    W,
+    H,
+    undefined,
+    view.eye,
     withFocus ? cam.getECEFCenter() : undefined,
   )
   return proj.projectLonLat(127, 37) // the camera centre

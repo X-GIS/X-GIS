@@ -83,9 +83,13 @@ export function writeRasterFrameUniform(
 /** Pack one raster TileUniforms slot (exported for the byte-equality gate). */
 export function writeRasterTileUniform(
   block: UniformBlockOf<typeof RASTER_TILE_U>,
-  west: number, south: number, east: number, north: number,
+  west: number,
+  south: number,
+  east: number,
+  north: number,
   tileEcef: readonly [number, number, number] | ECEF,
-  mercSouth: number, mercDiff: number,
+  mercSouth: number,
+  mercDiff: number,
 ): void {
   block.write({
     bounds: [west, south, east, north],
@@ -149,9 +153,12 @@ export class RasterRenderer {
   // (per-tile packing goes through rasterTileBlock() — #733 P2b)
   private colorParams(): RasterColorParams {
     return {
-      opacity: this._opacity, hueRotate: this._hueRotate,
-      brightnessMin: this._brightnessMin, brightnessMax: this._brightnessMax,
-      saturation: this._saturation, contrast: this._contrast,
+      opacity: this._opacity,
+      hueRotate: this._hueRotate,
+      brightnessMin: this._brightnessMin,
+      brightnessMax: this._brightnessMax,
+      saturation: this._saturation,
+      contrast: this._contrast,
     }
   }
 
@@ -210,7 +217,13 @@ export class RasterRenderer {
    *  each `paintShapes.raster.*` PropertyShape<number> before render().
    *  Non-finite inputs fall back to the spec default (a no-op) so a
    *  malformed value can't NaN-poison the texel like opacity used to. */
-  setColorAdjust(hueRotate: number, brightnessMin: number, brightnessMax: number, saturation: number, contrast: number): void {
+  setColorAdjust(
+    hueRotate: number,
+    brightnessMin: number,
+    brightnessMax: number,
+    saturation: number,
+    contrast: number,
+  ): void {
     const f = (v: number, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d)
     this._hueRotate = f(hueRotate, 0)
     // Mapbox spec ranges: brightness 0..1, saturation/contrast -1..1.
@@ -241,16 +254,26 @@ export class RasterRenderer {
   /** Lazily build the 256×256 RGBA checker as an RHI texture (WebGl2Device path). */
   private ensureRhiChecker(rhi: RhiDevice): RhiTexture {
     if (this._rhiChecker) return this._rhiChecker
-    const N = 256, C = 32
+    const N = 256,
+      C = 32
     const data = new Uint8Array(N * N * 4)
     for (let y = 0; y < N; y++) {
       for (let x = 0; x < N; x++) {
         const on = (((x / C) | 0) + ((y / C) | 0)) % 2 === 0
         const i = (y * N + x) * 4
-        data[i] = on ? 240 : 30; data[i + 1] = on ? 80 : 30; data[i + 2] = on ? 40 : 120; data[i + 3] = 255
+        data[i] = on ? 240 : 30
+        data[i + 1] = on ? 80 : 30
+        data[i + 2] = on ? 40 : 120
+        data[i + 3] = 255
       }
     }
-    const tex = rhi.createTexture({ width: N, height: N, format: 'rgba8unorm', usage: ['sample', 'copy-dst'], label: 'rhi-raster-checker' })
+    const tex = rhi.createTexture({
+      width: N,
+      height: N,
+      format: 'rgba8unorm',
+      usage: ['sample', 'copy-dst'],
+      label: 'rhi-raster-checker',
+    })
     rhi.writeTexture(tex, data, N * 4, N, N)
     this._rhiChecker = tex
     return tex
@@ -261,9 +284,15 @@ export class RasterRenderer {
    *  orientation gate) drawn via the SAME RasterDraper the WebGPU pilot uses, now backed
    *  by the WebGl2Device. globalBytes/tileBytes mirror the live render() packing. */
   renderRhiChecker(
-    rhi: RhiDevice, pass: RhiRenderPass, camera: Camera,
-    projType: number, projCenterLon: number, projCenterLat: number,
-    w: number, h: number, dpr: number,
+    rhi: RhiDevice,
+    pass: RhiRenderPass,
+    camera: Camera,
+    projType: number,
+    projCenterLon: number,
+    projCenterLat: number,
+    w: number,
+    h: number,
+    dpr: number,
   ): void {
     this._rhiDraper ??= new RasterDraper(rhi, 'rgba8unorm', 1)
     const checker = this.ensureRhiChecker(rhi)
@@ -276,19 +305,31 @@ export class RasterRenderer {
     // the globe/ECEF anchor is Story-5/6), so pack the 2D Mercator camera centre. No projType
     // branch here keeps the forced-WebGL2 path off the projType-comparison arch ratchet.
     const B = rasterBlock()
-    writeRasterFrameUniform(B, frame, projType, projCenterLon, projCenterLat,
-      [camera.centerX, camera.centerY, 0], this.colorParams())
+    writeRasterFrameUniform(
+      B,
+      frame,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      [camera.centerX, camera.centerY, 0],
+      this.colorParams(),
+    )
 
     // One z0 world tile (whole Mercator band).
-    const west = -180, south = -85.051129, east = 180, north = 85.051129
+    const west = -180,
+      south = -85.051129,
+      east = 180,
+      north = 85.051129
     const swEcef = lonLatToECEF(west, south)
     const DEG2RAD = Math.PI / 180
-    const mercSouth = Math.log(Math.tan(Math.PI / 4 + south * DEG2RAD / 2))
-    const mercNorth = Math.log(Math.tan(Math.PI / 4 + north * DEG2RAD / 2))
+    const mercSouth = Math.log(Math.tan(Math.PI / 4 + (south * DEG2RAD) / 2))
+    const mercNorth = Math.log(Math.tan(Math.PI / 4 + (north * DEG2RAD) / 2))
     const TB = rasterTileBlock()
     writeRasterTileUniform(TB, west, south, east, north, swEcef, mercSouth, mercNorth - mercSouth)
 
-    this._rhiDraper.draw(pass, B.buffer, [{ texture: checker, tileBytes: new Float32Array(TB.buffer.slice(0)) }])
+    this._rhiDraper.draw(pass, B.buffer, [
+      { texture: checker, tileBytes: new Float32Array(TB.buffer.slice(0)) },
+    ])
   }
 
   render(
@@ -335,15 +376,21 @@ export class RasterRenderer {
     // the sphere cap — it produces a 2D rect cull that misses cap-edge tiles,
     // causing blank coverage gaps on the globe (#596).
     const R = activeBody().sphereR
-    const centerLon = camera.centerX / R * (180 / Math.PI)
+    const centerLon = (camera.centerX / R) * (180 / Math.PI)
     const centerLat = mercatorYToLat(camera.centerY)
     const cssW = canvasWidth / dpr
     const cssH = canvasHeight / dpr
     let tiles: ReturnType<typeof visibleTilesFrustum>
     if (routeToSphereSelector(projType, camera.globeMode)) {
       const globeTiles = globeVisibleTiles(
-        centerLon, centerLat, camera.zoom, currentZ, cssW, cssH,
-        camera.pitch ?? 0, camera.bearing ?? 0,
+        centerLon,
+        centerLat,
+        camera.zoom,
+        currentZ,
+        cssW,
+        cssH,
+        camera.pitch ?? 0,
+        camera.bearing ?? 0,
       )
       if (enumerateWorldCopies(projType, camera.zoom)) {
         tiles = []
@@ -353,14 +400,15 @@ export class RasterRenderer {
           }
         }
       } else {
-        tiles = globeTiles.map(t => ({ z: t.z, x: t.x, y: t.y, ox: t.ox }))
+        tiles = globeTiles.map((t) => ({ z: t.z, x: t.x, y: t.y, ox: t.ox }))
       }
     } else {
       // Flat projections: pass projection name so the selector's world-copy
       // gate (worldCopiesFor()) picks single-world for non-Mercator.
-      const selectorProj = projType === 0
-        ? mercatorProj
-        : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
+      const selectorProj =
+        projType === 0
+          ? mercatorProj
+          : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
       tiles = visibleTilesFrustum(camera, selectorProj, currentZ, canvasWidth, canvasHeight, 0, dpr)
     }
 
@@ -371,7 +419,7 @@ export class RasterRenderer {
     })
 
     // Build set of visible tile keys for this frame
-    const visibleKeys = new Set(tiles.map(c => `${c.z}/${c.x}/${c.y}`))
+    const visibleKeys = new Set(tiles.map((c) => `${c.z}/${c.x}/${c.y}`))
 
     // Load missing tiles — iterate in reverse zoom order so leaf (near/high-z)
     // tiles consume the limited concurrency budget first. The draw sort above
@@ -391,7 +439,11 @@ export class RasterRenderer {
       loadImageTexture(this.device, url, ctrl.signal).then((texture) => {
         this.loadingTiles.delete(key)
         if (!texture) return
-        this.tileCache.set(key, { texture, lastUsedFrame: this.frameCount, firstShownFrame: this.frameCount })
+        this.tileCache.set(key, {
+          texture,
+          lastUsedFrame: this.frameCount,
+          firstShownFrame: this.frameCount,
+        })
         this.evictTiles(visibleKeys)
       })
     }
@@ -408,11 +460,20 @@ export class RasterRenderer {
     // SPHERE (E2=0), and subtracting it left the ellipsoid−sphere discrepancy
     // (~21.5 km at mid-lat) on every vertex → the raster sheet flew off the
     // globe. Mirrors the vector tiler's cam_ecef_off fix.
-    const camAnchor: readonly [number, number, number] = projType === 0
-      ? [camera.centerX, camera.centerY, 0]
-      : rasterGlobeCamAnchor(projCenterLon, projCenterLat)
+    const camAnchor: readonly [number, number, number] =
+      projType === 0
+        ? [camera.centerX, camera.centerY, 0]
+        : rasterGlobeCamAnchor(projCenterLon, projCenterLat)
     const B = rasterBlock()
-    writeRasterFrameUniform(B, frame, projType, projCenterLon, projCenterLat, camAnchor, this.colorParams())
+    writeRasterFrameUniform(
+      B,
+      frame,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      camAnchor,
+      this.colorParams(),
+    )
     // The raster draw goes through the RHI Material seam (P1.4: the sole path). Collect each
     // visible tile (+ world-copy) into a RasterTile, then issue them in ONE draper.draw below.
     const tilesArr: RasterTile[] = []
@@ -429,9 +490,18 @@ export class RasterRenderer {
         if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
         const ctrl = new AbortController()
         this.loadingTiles.set(parentKey, ctrl)
-        loadImageTexture(this.device, tileUrl(this.urlTemplate, { z: parentZ, x: parentX, y: parentY, ox: parentX }), ctrl.signal).then((texture) => {
+        loadImageTexture(
+          this.device,
+          tileUrl(this.urlTemplate, { z: parentZ, x: parentX, y: parentY, ox: parentX }),
+          ctrl.signal,
+        ).then((texture) => {
           this.loadingTiles.delete(parentKey)
-          if (texture) this.tileCache.set(parentKey, { texture, lastUsedFrame: this.frameCount, firstShownFrame: this.frameCount })
+          if (texture)
+            this.tileCache.set(parentKey, {
+              texture,
+              lastUsedFrame: this.frameCount,
+              firstShownFrame: this.frameCount,
+            })
         })
       }
     }
@@ -485,10 +555,11 @@ export class RasterRenderer {
       const renderCoord = isFallback ? fallbackCoord : coord
       const rn = Math.pow(2, renderCoord.z)
       const ox = renderCoord.ox ?? renderCoord.x
-      const west = ox / rn * 360 - 180
-      const east = (ox + 1) / rn * 360 - 180
-      const north = Math.atan(Math.sinh(Math.PI * (1 - 2 * renderCoord.y / rn))) * 180 / Math.PI
-      const south = Math.atan(Math.sinh(Math.PI * (1 - 2 * (renderCoord.y + 1) / rn))) * 180 / Math.PI
+      const west = (ox / rn) * 360 - 180
+      const east = ((ox + 1) / rn) * 360 - 180
+      const north = (Math.atan(Math.sinh(Math.PI * (1 - (2 * renderCoord.y) / rn))) * 180) / Math.PI
+      const south =
+        (Math.atan(Math.sinh(Math.PI * (1 - (2 * (renderCoord.y + 1)) / rn))) * 180) / Math.PI
 
       // ECEF anchor: SW corner of tile in WGS84 ECEF (unshifted across copies).
       // The shader subtracts this from lonlat_to_ecef(vertex) to form the RTC
@@ -502,8 +573,8 @@ export class RasterRenderer {
       const DEG2RAD = Math.PI / 180
       const MERC_LIMIT = 85.051129
       const clampMerc = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
-      const mercSouth = Math.log(Math.tan(Math.PI / 4 + clampMerc(south) * DEG2RAD / 2))
-      const mercNorth = Math.log(Math.tan(Math.PI / 4 + clampMerc(north) * DEG2RAD / 2))
+      const mercSouth = Math.log(Math.tan(Math.PI / 4 + (clampMerc(south) * DEG2RAD) / 2))
+      const mercNorth = Math.log(Math.tan(Math.PI / 4 + (clampMerc(north) * DEG2RAD) / 2))
       const mercDiff = mercNorth - mercSouth
 
       // iter-188 — world-copy loop. For Mercator, draw the tile in every visible world copy
@@ -512,7 +583,16 @@ export class RasterRenderer {
       // Non-Mercator collapses to wo=0. Each (tile, world-copy) becomes one RasterTile.
       for (const wo of RASTER_WORLD_COPIES) {
         const TB = rasterTileBlock() // memoised — write() repacks every lane each iteration
-        writeRasterTileUniform(TB, west + wo * 360, south, east + wo * 360, north, swEcef, mercSouth, mercDiff)
+        writeRasterTileUniform(
+          TB,
+          west + wo * 360,
+          south,
+          east + wo * 360,
+          north,
+          swEcef,
+          mercSouth,
+          mercDiff,
+        )
         // The block buffer is reused every iteration — COPY it for the batch entry.
         tilesArr.push({ texture: cached.texture, tileBytes: new Float32Array(TB.buffer.slice(0)) })
       }
@@ -523,7 +603,13 @@ export class RasterRenderer {
     // owns the per-tile pool + the global/texture/sampler bind group. pick = the opaque-pass MRT.
     // Always called (even with 0 visible tiles) so the global uniform is written every frame —
     // matching the legacy path (it wrote the global before the loop): 0 tiles → global write, no draws.
-    this.ensureRasterDraper().draw(wrapWebGpuPass(pass), B.buffer, tilesArr, this._nearest, isPickEnabled())
+    this.ensureRasterDraper().draw(
+      wrapWebGpuPass(pass),
+      B.buffer,
+      tilesArr,
+      this._nearest,
+      isPickEnabled(),
+    )
 
     // Capture this frame's visible set; deferred eviction runs in the next
     // beginFrame(). Eviction used to run inline here, but destroying tile

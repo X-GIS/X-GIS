@@ -48,8 +48,14 @@ export interface SceneView {
 }
 
 /** Members of the owning map that SceneView derivation reads. */
-type SceneHost = Pick<RenderLoopHost,
-  'classifyVectorTileShows' | 'groupOpaqueBySource' | 'lineRenderer' | 'pointRenderer' | 'heatmapRenderer'>
+type SceneHost = Pick<
+  RenderLoopHost,
+  | 'classifyVectorTileShows'
+  | 'groupOpaqueBySource'
+  | 'lineRenderer'
+  | 'pointRenderer'
+  | 'heatmapRenderer'
+>
 
 /** Build the per-frame SceneView from the bucket scheduler. Mirrors the
  *  inline block formerly at render()'s bucket-scheduler section. */
@@ -70,10 +76,16 @@ export function buildSceneView(host: SceneHost, _ctx: FrameContext): SceneView {
   // color target. Priority: dedicated points > last composite > last opaque.
   // The heatmap pass composites AFTER labels onto the resolved swapchain, so
   // it does NOT participate in resolveOwner.
-  const resolveOwner: ResolveOwner = hasPoints
-    ? 'points'
-    : hasTranslucent
-      ? 'composite'
-      : 'opaque'
-  return { opaque, translucent, oit, opaqueGroups, hasTranslucent, hasOit, hasPoints, hasHeatmap, resolveOwner }
+  const resolveOwner: ResolveOwner = hasPoints ? 'points' : hasTranslucent ? 'composite' : 'opaque'
+  return {
+    opaque,
+    translucent,
+    oit,
+    opaqueGroups,
+    hasTranslucent,
+    hasOit,
+    hasPoints,
+    hasHeatmap,
+    resolveOwner,
+  }
 }

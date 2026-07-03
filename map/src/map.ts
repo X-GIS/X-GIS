@@ -2,7 +2,21 @@
 
 import { xlog } from '@xgis/shared'
 import { setLogSink as setEngineLogSink } from '@xgis/shared'
-import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, extractInterpolateZoomColorStops, extractInterpolateZoomStops } from '@xgis/compiler'
+import {
+  Lexer,
+  Parser,
+  lower,
+  optimize,
+  emitCommands,
+  evaluate,
+  makeEvalProps,
+  deserializeXGB,
+  resolveImportsAsync,
+  resolveUtilities,
+  resolveColor,
+  extractInterpolateZoomColorStops,
+  extractInterpolateZoomStops,
+} from '@xgis/compiler'
 import { packPalette, uploadPalette, type PaletteTextures } from '@xgis/engine'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '@xgis/data'
@@ -23,7 +37,15 @@ import {
 } from './geojson-polar-cap-show'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { getSharedGeoJSONCompilePool } from '@xgis/data'
-import { initGPU, GPU_PROF, getMaxDpr, effectiveDpr, WebGPUUnavailableError, type GPUContext, type BackendChoice } from '@xgis/engine'
+import {
+  initGPU,
+  GPU_PROF,
+  getMaxDpr,
+  effectiveDpr,
+  WebGPUUnavailableError,
+  type GPUContext,
+  type BackendChoice,
+} from '@xgis/engine'
 import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/engine'
 import { Camera } from '@xgis/engine'
@@ -58,37 +80,53 @@ import type { TextStageOptions } from './text/text-stage-types'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
 import { IconStage } from './sprite/icon-stage'
 import {
-  LayerIdRegistry, XGISLayer,
-  type XGISFeature, type XGISFeatureEvent, type XGISFeatureEventType, type XGISFeatureListener,
-  type XGISMapEventType, type XGISMapListener,
+  LayerIdRegistry,
+  XGISLayer,
+  type XGISFeature,
+  type XGISFeatureEvent,
+  type XGISFeatureEventType,
+  type XGISFeatureListener,
+  type XGISMapEventType,
+  type XGISMapListener,
 } from './layer'
 import { attachAutoResize } from './auto-resize'
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '@xgis/data'
 import { isTileTemplate } from '@xgis/data'
 import { buildShowSourceMaps } from './show-source-maps'
+import { parseHexColor, hexToRgba, applyFilter, applyGeometry } from './feature-helpers'
 import {
-  parseHexColor, hexToRgba,
-  applyFilter, applyGeometry,
-} from './feature-helpers'
-import {
-  inspectMapPipeline, captureMapSnapshot, replayMapSnapshot,
-  type PipelineInspection, type MapSnapshot, type ReplayResult,
+  inspectMapPipeline,
+  captureMapSnapshot,
+  replayMapSnapshot,
+  type PipelineInspection,
+  type MapSnapshot,
+  type ReplayResult,
 } from './diagnostics'
 import type {
-  VariantPipelines, TextOverlay,
-  TextOverlayOptions, TextOverlayHandle, XGISFontResource,
-  XGISMapOptions, FontTypographyMap,
+  VariantPipelines,
+  TextOverlay,
+  TextOverlayOptions,
+  TextOverlayHandle,
+  XGISFontResource,
+  XGISMapOptions,
+  FontTypographyMap,
 } from './map-types'
 // Re-export the public type surface so existing `import { ... } from
 // './engine/map'` paths keep resolving after the extraction.
 export type {
-  TextOverlayOptions, TextOverlayHandle, XGISFontResource,
-  XGISMapOptions, FontTypographyMap,
+  TextOverlayOptions,
+  TextOverlayHandle,
+  XGISFontResource,
+  XGISMapOptions,
+  FontTypographyMap,
 } from './map-types'
 import {
-  asVectorTileKind, sceneHasAnyAnimation, labelsHaveTimeAnimation,
-  buildTypographyMap, registerFonts,
+  asVectorTileKind,
+  sceneHasAnyAnimation,
+  labelsHaveTimeAnimation,
+  buildTypographyMap,
+  registerFonts,
 } from './map-geo-helpers'
 import { prewarmVectorTileSource, detectVectorTileFormat } from '@xgis/data'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
@@ -166,7 +204,9 @@ export function extractConversionNotes(source: string): string[] | null {
 export function logConversionNotes(source: string): void {
   const notes = extractConversionNotes(source)
   if (!notes) return
-  xlog.warn(`[X-GIS convert] ${notes.length} conversion note(s) — the source was produced by convertMapboxStyle and dropped / approximated the following; the render may differ from the authored Mapbox style:`)
+  xlog.warn(
+    `[X-GIS convert] ${notes.length} conversion note(s) — the source was produced by convertMapboxStyle and dropped / approximated the following; the render may differ from the authored Mapbox style:`,
+  )
   for (const n of notes) xlog.warn(`[X-GIS convert]   • ${n}`)
 }
 
@@ -196,7 +236,7 @@ export class XGISMap {
    *  for now (one raster basemap per scene is the realistic case).
    *  Per-frame `render()` resolves `paintShapes.opacity` here and
    *  pushes it to the renderer. Null when no raster show is active. */
-  _rasterShow: typeof this.showCommands[0] | null = null
+  _rasterShow: (typeof this.showCommands)[0] | null = null
   /** Optional GPU pass timer. Null when timestamp-query is unsupported or
    *  `?gpuprof=1` is not set. When set, the FIRST opaque sub-pass each
    *  frame is timed; samples drain to `getGpuTimings()`. */
@@ -229,7 +269,9 @@ export class XGISMap {
    *  (ViewportModeController); exposed here as a field-read getter so the
    *  RenderLoop host view / label-pass (`host.projectionName`) and the
    *  internal reads keep their plain property-access shape. */
-  get projectionName(): string { return this._viewport.projectionName }
+  get projectionName(): string {
+    return this._viewport.projectionName
+  }
   private controller: Controller | null = null
 
   // SDF text overlay stage. Lazy — first `addOverlay` call instantiates.
@@ -258,7 +300,12 @@ export class XGISMap {
 
   // Vector tile sources + renderers (per .xgvt source)
   vtSources = new Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>()
-  private vectorTileShows: { sourceName: string; show: SceneCommands['shows'][0]; pipelines: VariantPipelines | null; layout: GPUBindGroupLayout | null }[] = []
+  private vectorTileShows: {
+    sourceName: string
+    show: SceneCommands['shows'][0]
+    pipelines: VariantPipelines | null
+    layout: GPUBindGroupLayout | null
+  }[] = []
   private vtVariantPipelines: VariantPipelines | null = null
 
   // Raw data for re-projection
@@ -312,11 +359,15 @@ export class XGISMap {
 
   // Delegating accessors so existing internal readers (switchController,
   // diagnostics, destroy) stay byte-identical.
-  private get mapListeners() { return this._eventBus.mapListeners }
+  private get mapListeners() {
+    return this._eventBus.mapListeners
+  }
   // Public (not `private`) so the white-box lifecycle-event spec can read it
   // without tripping noUnusedLocals — it has no internal caller (mirrors the
   // `_cameraPositionedFlag` test-only accessor convention). Not public API.
-  get mapEventListeners() { return this._eventBus.mapEventListeners }
+  get mapEventListeners() {
+    return this._eventBus.mapEventListeners
+  }
 
   /** Bound `keydown` handler for keyboard pan/zoom (P0-7 a11y). Stored so
    *  `destroy()` can detach it — otherwise the listener (and the closed-
@@ -356,9 +407,15 @@ export class XGISMap {
   // (not `private`) so those specs can read/write them without tripping
   // noUnusedLocals — no internal caller (mirrors `_cameraPositionedFlag`).
   // Not public API.
-  get _pendingPatches() { return this.featureUpdateQueue.pendingPatches }
-  get _pendingFlushHandle(): number | null { return this.featureUpdateQueue.pendingFlushHandle }
-  set _pendingFlushHandle(handle: number | null) { this.featureUpdateQueue.pendingFlushHandle = handle }
+  get _pendingPatches() {
+    return this.featureUpdateQueue.pendingPatches
+  }
+  get _pendingFlushHandle(): number | null {
+    return this.featureUpdateQueue.pendingFlushHandle
+  }
+  set _pendingFlushHandle(handle: number | null) {
+    this.featureUpdateQueue.pendingFlushHandle = handle
+  }
 
   // GPU render-target texture lifecycle (stencil / msaa / OIT accum +
   // revealage / offscreen-extrude depth / overdraw accumulator / pick),
@@ -377,7 +434,9 @@ export class XGISMap {
   // at the pointer location via async mapAsync. Kept at single-sample
   // regardless of SAMPLE_COUNT — picking wants deterministic, non-resolved IDs.
   // Now owned by RenderTargets; delegated here for the pick-path accessor.
-  get pickTexture(): GPUTexture | null { return this.renderTargets.pickTexture }
+  get pickTexture(): GPUTexture | null {
+    return this.renderTargets.pickTexture
+  }
 
   // Stats inspector
   _stats = new StatsTracker()
@@ -431,7 +490,10 @@ export class XGISMap {
    *  worker decode produces a new props object ref → cache miss
    *  on first access → entry recomputed. Old entries GC via
    *  WeakMap automatic cleanup. */
-  readonly _featureExprsCache = new WeakMap<Record<string, unknown>, { zoomBucket: number; effectiveDef: AST.LabelDef; def: AST.LabelDef }>()
+  readonly _featureExprsCache = new WeakMap<
+    Record<string, unknown>,
+    { zoomBucket: number; effectiveDef: AST.LabelDef; def: AST.LabelDef }
+  >()
   /** iter-261 (Plan L.1.1) — label-dispatch cache hit-rate diagnostic.
    *  The dispatch signature itself now lives per-host inside label-pass
    *  (#778 P3 numeric skip state); these counters track hit/miss without
@@ -489,7 +551,8 @@ export class XGISMap {
    *  threaded into the synthetic earth-surface show's paintShapes.fill
    *  (sphere path). null = constant background (the `_backgroundColor`
    *  hex is authoritative). Non-private so the render host reads it. */
-  _backgroundColorShape: import('@xgis/compiler').PropertyShape<readonly [number, number, number, number]> | null = null
+  _backgroundColorShape:
+    import('@xgis/compiler').PropertyShape<readonly [number, number, number, number]> | null = null
   /** WS-1 — zoom-interpolated `background-opacity`. Built from a
    *  `background { … opacity: interpolate(zoom, …) }` style property
    *  (0..1 after dividing the emitted 0..100 stops). Resolved per frame
@@ -505,8 +568,11 @@ export class XGISMap {
    *  the camera-anchor ENU basis (the #420 default behaviour); the
    *  map/viewport bearing distinction is not yet modelled. Non-private so
    *  the render host reads it, like `_backgroundColor`. */
-  _light: { position: [number, number, number]; intensity: number; color: [number, number, number] }
-    = { position: [1.15, 210, 30], intensity: 0.5, color: [1, 1, 1] }
+  _light: {
+    position: [number, number, number]
+    intensity: number
+    color: [number, number, number]
+  } = { position: [1.15, 210, 30], intensity: 0.5, color: [1, 1, 1] }
   /** P3 Step 3c — scene-scoped palette GPU textures. Held for
    *  destruction on the next scene reload; the underlying view is
    *  bound to every VTR + MapRenderer via setPaletteColorAtlas. */
@@ -552,7 +618,20 @@ export class XGISMap {
 
   /** Explicit render trigger for code paths that change state outside the
    *  camera (setSourceData, updateFeature, tile load completion, etc.). */
-  invalidate(): void { if (this._destroyed) return; this._needsRender = true; this._dirty.tag(DirtyDomain.CAMERA | DirtyDomain.VIEWPORT | DirtyDomain.PROJECTION | DirtyDomain.STYLE | DirtyDomain.SOURCE | DirtyDomain.GEOMETRY | DirtyDomain.LABEL | DirtyDomain.CLOCK) }
+  invalidate(): void {
+    if (this._destroyed) return
+    this._needsRender = true
+    this._dirty.tag(
+      DirtyDomain.CAMERA |
+        DirtyDomain.VIEWPORT |
+        DirtyDomain.PROJECTION |
+        DirtyDomain.STYLE |
+        DirtyDomain.SOURCE |
+        DirtyDomain.GEOMETRY |
+        DirtyDomain.LABEL |
+        DirtyDomain.CLOCK,
+    )
+  }
 
   /** Internal render trigger for the non-camera state changes that used to set
    *  `_needsRender = true` raw (scene rebuild, overlay add/remove). Sets the
@@ -562,7 +641,10 @@ export class XGISMap {
    *  `_dirty`, so output is byte-identical until a consumer reads the bitset
    *  (S16). No `_destroyed` guard — every caller is an internal load/overlay
    *  path that already runs only on a live map. */
-  private _markDirty(domains: number): void { this._needsRender = true; this._dirty.tag(domains) }
+  private _markDirty(domains: number): void {
+    this._needsRender = true
+    this._dirty.tag(domains)
+  }
 
   /** Eval-side consumer for the label pass (S16 — the FIRST consumer skip).
    *  Reads-and-CLEARS the LABEL domain: returns whether labels were re-tagged
@@ -570,7 +652,9 @@ export class XGISMap {
    *  unless an edit (overlay add/remove, scene rebuild, or any invalidate())
    *  re-tags it. The label pass combines this with its camera/canvas/tile-set
    *  signature to skip re-dispatch + re-collision on an unchanged frame. */
-  consumeLabelDirty(): boolean { return this._dirty.consume(DirtyDomain.LABEL) }
+  consumeLabelDirty(): boolean {
+    return this._dirty.consume(DirtyDomain.LABEL)
+  }
 
   /** Producer side of the LABEL dirty domain — re-arm a frame AND tag
    *  LABEL so the next frame's S16 skip is forced to re-prepare. Used by
@@ -578,7 +662,9 @@ export class XGISMap {
    *  requesting frame already drew (Audit ① B1): without this, the skip
    *  keeps replaying the stale zero-SDF glyph until the camera moves.
    *  Package-internal (no modifier) so RenderLoopHost can see it. */
-  markLabelDirty(): void { this._markDirty(DirtyDomain.LABEL) }
+  markLabelDirty(): void {
+    this._markDirty(DirtyDomain.LABEL)
+  }
 
   /** Flag an active user gesture (pan / zoom) so the render loop can drop
    *  to QUALITY.interactionDpr while interacting and restore full DPR once
@@ -615,19 +701,31 @@ export class XGISMap {
    *  light is a top-level style concern, not encoded in the xgis DSL.
    *  Omitted fields keep their current value; null resets to the Mapbox
    *  default. The render loop pushes `_light` into every VTR each frame. */
-  setLight(light: { position?: [number, number, number]; intensity?: number; color?: [number, number, number] } | null): void {
+  setLight(
+    light: {
+      position?: [number, number, number]
+      intensity?: number
+      color?: [number, number, number]
+    } | null,
+  ): void {
     if (light === null) {
       this._light = { position: [1.15, 210, 30], intensity: 0.5, color: [1, 1, 1] }
     } else {
-      if (Array.isArray(light.position) && light.position.length === 3
-          && light.position.every(n => Number.isFinite(n))) {
+      if (
+        Array.isArray(light.position) &&
+        light.position.length === 3 &&
+        light.position.every((n) => Number.isFinite(n))
+      ) {
         this._light.position = [light.position[0]!, light.position[1]!, light.position[2]!]
       }
       if (typeof light.intensity === 'number' && Number.isFinite(light.intensity)) {
         this._light.intensity = Math.max(0, Math.min(1, light.intensity))
       }
-      if (Array.isArray(light.color) && light.color.length === 3
-          && light.color.every(n => Number.isFinite(n))) {
+      if (
+        Array.isArray(light.color) &&
+        light.color.length === 3 &&
+        light.color.every((n) => Number.isFinite(n))
+      ) {
         this._light.color = [light.color[0]!, light.color[1]!, light.color[2]!]
       }
     }
@@ -650,7 +748,7 @@ export class XGISMap {
       // mid-session null-teardown must drop it now so the next frame
       // does not dispatch a draw against a torn-down catalog.
       const synthIdx = this.showCommands.findIndex(
-        s => s.targetName === SYNTHETIC_EARTH_SURFACE_SOURCE,
+        (s) => s.targetName === SYNTHETIC_EARTH_SURFACE_SOURCE,
       )
       if (synthIdx >= 0) {
         invalidateResolvedShowCache(this.showCommands[synthIdx]!)
@@ -661,9 +759,14 @@ export class XGISMap {
       this.invalidate()
       return
     }
-    if (!Array.isArray(rgba) || rgba.length !== 4
-        || !Number.isFinite(rgba[0]) || !Number.isFinite(rgba[1])
-        || !Number.isFinite(rgba[2]) || !Number.isFinite(rgba[3])) {
+    if (
+      !Array.isArray(rgba) ||
+      rgba.length !== 4 ||
+      !Number.isFinite(rgba[0]) ||
+      !Number.isFinite(rgba[1]) ||
+      !Number.isFinite(rgba[2]) ||
+      !Number.isFinite(rgba[3])
+    ) {
       xlog.warn(`[X-GIS] setBackgroundFill: rejected non-finite RGBA ${JSON.stringify(rgba)}`)
       return
     }
@@ -682,7 +785,7 @@ export class XGISMap {
     } else {
       this._syntheticBackend?.updateFillColor(rgba)
       const synthShow = this.showCommands.find(
-        s => s.targetName === SYNTHETIC_EARTH_SURFACE_SOURCE,
+        (s) => s.targetName === SYNTHETIC_EARTH_SURFACE_SOURCE,
       )
       if (synthShow) {
         updateSyntheticEarthSurfaceShowFill(synthShow, rgba)
@@ -698,9 +801,7 @@ export class XGISMap {
    *  VectorTileRenderer pair, attaches the synthetic backend, and seeds
    *  `rawDatasets` with the `_vectorTile: true` marker rebuildLayers
    *  checks. Idempotent. */
-  private _installSyntheticEarthSurfaceSource(
-    rgba: [number, number, number, number],
-  ): void {
+  private _installSyntheticEarthSurfaceSource(rgba: [number, number, number, number]): void {
     if (this._syntheticBackend) {
       this._syntheticBackend.updateFillColor(rgba)
       return
@@ -708,12 +809,27 @@ export class XGISMap {
     const catalog = new TileCatalog()
     const vtRenderer = new VectorTileRenderer(this.ctx)
     vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
-    vtRenderer.setPaletteResources(this.renderer.paletteColorAtlasView, this.renderer.paletteSampler)
+    vtRenderer.setPaletteResources(
+      this.renderer.paletteColorAtlasView,
+      this.renderer.paletteSampler,
+    )
     vtRenderer.setSpriteAtlasView(this.renderer.spriteAtlasView)
-    vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
-    vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
-    vtRenderer.setPatternPipelines(this.renderer.fillPipelinePatternGround, this.renderer.fillPipelinePatternGroundFallback)
-    vtRenderer.setPatternExtrudedPipelines(this.renderer.fillPipelinePatternExtruded, this.renderer.fillPipelinePatternExtrudedFallback)
+    vtRenderer.setExtrudedPipelines(
+      this.renderer.fillPipelineExtruded,
+      this.renderer.fillPipelineExtrudedFallback,
+    )
+    vtRenderer.setGroundPipelines(
+      this.renderer.fillPipelineGround,
+      this.renderer.fillPipelineGroundFallback,
+    )
+    vtRenderer.setPatternPipelines(
+      this.renderer.fillPipelinePatternGround,
+      this.renderer.fillPipelinePatternGroundFallback,
+    )
+    vtRenderer.setPatternExtrudedPipelines(
+      this.renderer.fillPipelinePatternExtruded,
+      this.renderer.fillPipelinePatternExtrudedFallback,
+    )
     vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
     if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
     vtRenderer.setFillRhi?.(this.renderer.fillRhiState?.() ?? null)
@@ -724,10 +840,9 @@ export class XGISMap {
     catalog.attachBackend(backend)
     this._syntheticBackend = backend
     this.vtSources.set(SYNTHETIC_EARTH_SURFACE_SOURCE, { source: catalog, renderer: vtRenderer })
-    this.rawDatasets.set(
-      SYNTHETIC_EARTH_SURFACE_SOURCE,
-      { _vectorTile: true } as unknown as GeoJSONFeatureCollection,
-    )
+    this.rawDatasets.set(SYNTHETIC_EARTH_SURFACE_SOURCE, {
+      _vectorTile: true,
+    } as unknown as GeoJSONFeatureCollection)
   }
 
   /** Issue #360 F1 — XGISMap-side host adapter for the per-source polar-cap
@@ -744,12 +859,17 @@ export class XGISMap {
       rawDatasets: this.rawDatasets,
       geojsonCapPoles: this.geojsonCapPoles,
       getShowCommands: () => this.showCommands as ShowCommand[],
-      setShowCommands: (shows) => { this.showCommands = shows as SceneCommands['shows'] },
+      setShowCommands: (shows) => {
+        this.showCommands = shows as SceneCommands['shows']
+      },
       teardownSource: (id) => this.teardownSource(id),
     }
   }
 
-  constructor(private canvas: HTMLCanvasElement, options: XGISMapOptions = {}) {
+  constructor(
+    private canvas: HTMLCanvasElement,
+    options: XGISMapOptions = {},
+  ) {
     configureProjections(PROJECTIONS)
     this.camera = new Camera(0, 20, 2)
     this.cameraController = new CameraController(this.camera, {
@@ -817,7 +937,9 @@ export class XGISMap {
       runBoundsFitGate: (apply) => this._runBoundsFitGate(apply),
       rebuildLayers: () => this.rebuildLayers(),
       teardownSource: (sourceId) => this.teardownSource(sourceId),
-      deleteFeatureIndex: (sourceId) => { this.featureUpdateQueue.featureIndex.delete(sourceId) },
+      deleteFeatureIndex: (sourceId) => {
+        this.featureUpdateQueue.featureIndex.delete(sourceId)
+      },
     })
     // Pick / interaction QUERY cluster — receives the shared camera +
     // layer/source state by reference; ctx / pickTexture / projectionName /
@@ -829,7 +951,7 @@ export class XGISMap {
       xgisLayers: this.xgisLayers,
       rawDatasets: this.rawDatasets,
       featureIndex: this.featureUpdateQueue.featureIndex,
-      getCtx: () => this._destroyed ? null : this.ctx,
+      getCtx: () => (this._destroyed ? null : this.ctx),
       getPickTexture: () => this.pickTexture,
       getPickTextureDevice: () => this.renderTargets.device,
       getProjectionName: () => this.projectionName,
@@ -857,11 +979,12 @@ export class XGISMap {
     // the system fallback before they loaded + re-arm the loop — else a label
     // submitted before fontsReady keeps the fallback letterforms forever (the
     // resource-land twin of the glyph/provider re-raster fixes).
-    if (options.fonts) void this.fontsReady.then(() => {
-      if (this._destroyed) return
-      this.textStage?.invalidateAllGlyphs()
-      this.markLabelDirty()
-    })
+    if (options.fonts)
+      void this.fontsReady.then(() => {
+        if (this._destroyed) return
+        this.textStage?.invalidateAllGlyphs()
+        this.markLabelDirty()
+      })
     // P4 opt-in for compute-driven paint evaluation. Stored as a
     // simple flag the run() method reads when invoking emitCommands.
     if (options.enableComputePath) this._enableComputePath = true
@@ -904,7 +1027,12 @@ export class XGISMap {
   private _setupAccessibility(ariaLabel?: string): void {
     const canvas = this.canvas
     if (typeof document === 'undefined') return
-    if (!canvas || typeof canvas.setAttribute !== 'function' || typeof canvas.addEventListener !== 'function') return
+    if (
+      !canvas ||
+      typeof canvas.setAttribute !== 'function' ||
+      typeof canvas.addEventListener !== 'function'
+    )
+      return
     // Focusable + named for assistive tech. Only set tabIndex if the host
     // hasn't already made it focusable, so an embedder's explicit choice
     // (e.g. tabindex=-1 to drive focus programmatically) is preserved.
@@ -933,8 +1061,7 @@ export class XGISMap {
     const style = document.createElement('style')
     style.setAttribute('data-xgis-a11y', '')
     style.textContent =
-      'canvas[data-xgis-map]:focus-visible{' +
-      'outline:3px solid #4d90fe;outline-offset:2px;}'
+      'canvas[data-xgis-map]:focus-visible{' + 'outline:3px solid #4d90fe;outline-offset:2px;}'
     document.head.appendChild(style)
   }
 
@@ -956,13 +1083,28 @@ export class XGISMap {
     const FAST_PX = 320
     const step = e.shiftKey ? FAST_PX : PAN_PX
     switch (e.key) {
-      case 'ArrowUp':    this.cameraController.panBy([0, -step]); break
-      case 'ArrowDown':  this.cameraController.panBy([0,  step]); break
-      case 'ArrowLeft':  this.cameraController.panBy([-step, 0]); break
-      case 'ArrowRight': this.cameraController.panBy([ step, 0]); break
-      case '+': case '=': this.cameraController.zoomIn(); break
-      case '-': case '_': this.cameraController.zoomOut(); break
-      default: return // not a key we handle — leave default behaviour intact
+      case 'ArrowUp':
+        this.cameraController.panBy([0, -step])
+        break
+      case 'ArrowDown':
+        this.cameraController.panBy([0, step])
+        break
+      case 'ArrowLeft':
+        this.cameraController.panBy([-step, 0])
+        break
+      case 'ArrowRight':
+        this.cameraController.panBy([step, 0])
+        break
+      case '+':
+      case '=':
+        this.cameraController.zoomIn()
+        break
+      case '-':
+      case '_':
+        this.cameraController.zoomOut()
+        break
+      default:
+        return // not a key we handle — leave default behaviour intact
     }
     e.preventDefault()
     // Mirror the pointer-gesture bookkeeping (onPointerDown): the user has
@@ -984,24 +1126,52 @@ export class XGISMap {
   /** Mapbox-API parity: programmatic camera control. Delegated to
    *  CameraController — see camera-controller.ts for the validation /
    *  clamp logic (moved verbatim). */
-  setCenter(lon: number, lat: number): void { this.cameraController.setCenter(lon, lat); this._cameraExplicitlyPositioned = true; this._dirty.tag(DirtyDomain.CAMERA) }
-  setZoom(zoom: number): void { this.cameraController.setZoom(zoom); this._cameraExplicitlyPositioned = true; this._dirty.tag(DirtyDomain.CAMERA) }
-  setMinZoom(z: number): void { this.cameraController.setMinZoom(z) }
-  setMaxZoom(z: number): void { this.cameraController.setMaxZoom(z) }
-  getMinZoom(): number { return this.cameraController.getMinZoom() }
-  getMaxZoom(): number { return this.cameraController.getMaxZoom() }
-  zoomIn(): void { this.cameraController.zoomIn() }
-  zoomOut(): void { this.cameraController.zoomOut() }
-  setMaxBounds(bounds: [[number, number], [number, number]] | null): void { this.cameraController.setMaxBounds(bounds) }
-  getMaxBounds(): [[number, number], [number, number]] | null { return this.cameraController.getMaxBounds() }
-  getBounds(): [[number, number], [number, number]] { return this.cameraController.getBounds() }
+  setCenter(lon: number, lat: number): void {
+    this.cameraController.setCenter(lon, lat)
+    this._cameraExplicitlyPositioned = true
+    this._dirty.tag(DirtyDomain.CAMERA)
+  }
+  setZoom(zoom: number): void {
+    this.cameraController.setZoom(zoom)
+    this._cameraExplicitlyPositioned = true
+    this._dirty.tag(DirtyDomain.CAMERA)
+  }
+  setMinZoom(z: number): void {
+    this.cameraController.setMinZoom(z)
+  }
+  setMaxZoom(z: number): void {
+    this.cameraController.setMaxZoom(z)
+  }
+  getMinZoom(): number {
+    return this.cameraController.getMinZoom()
+  }
+  getMaxZoom(): number {
+    return this.cameraController.getMaxZoom()
+  }
+  zoomIn(): void {
+    this.cameraController.zoomIn()
+  }
+  zoomOut(): void {
+    this.cameraController.zoomOut()
+  }
+  setMaxBounds(bounds: [[number, number], [number, number]] | null): void {
+    this.cameraController.setMaxBounds(bounds)
+  }
+  getMaxBounds(): [[number, number], [number, number]] | null {
+    return this.cameraController.getMaxBounds()
+  }
+  getBounds(): [[number, number], [number, number]] {
+    return this.cameraController.getBounds()
+  }
 
   /** Mapbox-API parity: returns true once the map has finished its
    *  initial load and entered the render loop. Matches MapLibre GL
    *  JS `map.loaded()`. Tracks the same `__xgisReady` signal the
    *  smoke-test harness polls. */
   private _loaded = false
-  loaded(): boolean { return this._loaded }
+  loaded(): boolean {
+    return this._loaded
+  }
 
   /** Host hook fired once if the GPU device is lost (driver reset, tab
    *  backgrounding, OOM) — NOT on explicit teardown. The render loop
@@ -1021,7 +1191,9 @@ export class XGISMap {
    *  instead of an uncaught throw bubbling to window.onerror. The map
    *  simply does not mount (no ctx, render loop never starts). Safe to
    *  set before run(). */
-  onWebGPUUnavailable(cb: () => void): void { this._onWebGPUUnavailable = cb }
+  onWebGPUUnavailable(cb: () => void): void {
+    this._onWebGPUUnavailable = cb
+  }
   private _onWebGPUUnavailable: (() => void) | null = null
 
   /** Default WebGPU-unavailable UX when the host did NOT register an
@@ -1092,22 +1264,37 @@ export class XGISMap {
     xlog.warn(`[X-GIS] map.${method}() is not supported. ${replacement}`)
   }
   setStyle(_style: unknown): void {
-    this._warnUnsupported('setStyle', 'Recompile the .xgis source via @xgis/compiler and reload the runtime; X-GIS uses compile-time IR, not runtime style swap.')
+    this._warnUnsupported(
+      'setStyle',
+      'Recompile the .xgis source via @xgis/compiler and reload the runtime; X-GIS uses compile-time IR, not runtime style swap.',
+    )
   }
   addLayer(_layer: unknown, _beforeId?: string): void {
-    this._warnUnsupported('addLayer', 'Add the layer to your .xgis source and recompile; runtime layer-mutation is not implemented.')
+    this._warnUnsupported(
+      'addLayer',
+      'Add the layer to your .xgis source and recompile; runtime layer-mutation is not implemented.',
+    )
   }
   removeLayer(_id: string): void {
-    this._warnUnsupported('removeLayer', 'Set `visible: false` on the layer style in your .xgis source instead.')
+    this._warnUnsupported(
+      'removeLayer',
+      'Set `visible: false` on the layer style in your .xgis source instead.',
+    )
   }
   addSource(_id: string, _source: unknown): void {
-    this._warnUnsupported('addSource', 'Declare the source in your .xgis source / use attachPMTilesSource for vector tiles.')
+    this._warnUnsupported(
+      'addSource',
+      'Declare the source in your .xgis source / use attachPMTilesSource for vector tiles.',
+    )
   }
   removeSource(_id: string): void {
     this._warnUnsupported('removeSource', 'Remove the source from your .xgis source and recompile.')
   }
   addImage(_id: string, _image: unknown): void {
-    this._warnUnsupported('addImage', 'Sprite atlas is not implemented yet (Batch 2 roadmap). Embed icon data in feature properties for now.')
+    this._warnUnsupported(
+      'addImage',
+      'Sprite atlas is not implemented yet (Batch 2 roadmap). Embed icon data in feature properties for now.',
+    )
   }
 
   /** Notify the map that its container resized (Mapbox-API parity). Just
@@ -1120,17 +1307,34 @@ export class XGISMap {
   /** Route engine logs (pass-validation errors, warnings) to a custom sink
    *  instead of the console — for telemetry / in-app overlays. Pass null to
    *  restore the console default. */
-  setLogSink(sink: import('@xgis/shared').LogSink | null): void { setEngineLogSink(sink) }
+  setLogSink(sink: import('@xgis/shared').LogSink | null): void {
+    setEngineLogSink(sink)
+  }
 
   /** Mapbox-API parity: animated camera variants. X-GIS has no
    *  transition infra yet, so both alias to jumpTo (instant) inside
    *  CameraController. */
-  easeTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number; easing?: unknown }): void {
+  easeTo(opts: {
+    center?: [number, number]
+    zoom?: number
+    bearing?: number
+    pitch?: number
+    duration?: number
+    easing?: unknown
+  }): void {
     this.cameraController.easeTo(opts)
     this._cameraExplicitlyPositioned = true
     this._dirty.tag(DirtyDomain.CAMERA)
   }
-  flyTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number; speed?: number; curve?: number }): void {
+  flyTo(opts: {
+    center?: [number, number]
+    zoom?: number
+    bearing?: number
+    pitch?: number
+    duration?: number
+    speed?: number
+    curve?: number
+  }): void {
     this.cameraController.flyTo(opts)
     this._cameraExplicitlyPositioned = true
     this._dirty.tag(DirtyDomain.CAMERA)
@@ -1138,33 +1342,62 @@ export class XGISMap {
 
   /** Mapbox-API parity: pan the map by an offset in CSS pixels.
    *  Delegated to CameraController. */
-  panBy(offset: [number, number]): void { this.cameraController.panBy(offset); this._cameraExplicitlyPositioned = true; this._dirty.tag(DirtyDomain.CAMERA) }
+  panBy(offset: [number, number]): void {
+    this.cameraController.panBy(offset)
+    this._cameraExplicitlyPositioned = true
+    this._dirty.tag(DirtyDomain.CAMERA)
+  }
 
-  setBearing(bearing: number): void { this.cameraController.setBearing(bearing); this._dirty.tag(DirtyDomain.CAMERA) }
-  setPitch(pitch: number): void { this.cameraController.setPitch(pitch); this._dirty.tag(DirtyDomain.CAMERA) }
+  setBearing(bearing: number): void {
+    this.cameraController.setBearing(bearing)
+    this._dirty.tag(DirtyDomain.CAMERA)
+  }
+  setPitch(pitch: number): void {
+    this.cameraController.setPitch(pitch)
+    this._dirty.tag(DirtyDomain.CAMERA)
+  }
 
   /** Mapbox-API parity: bulk camera update. Delegated to
    *  CameraController. */
-  jumpTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number }): void {
+  jumpTo(opts: {
+    center?: [number, number]
+    zoom?: number
+    bearing?: number
+    pitch?: number
+  }): void {
     this.cameraController.jumpTo(opts)
     this._cameraExplicitlyPositioned = true
     this._dirty.tag(DirtyDomain.CAMERA)
   }
 
   /** Mapbox-API parity: per-axis getters. Delegated to CameraController. */
-  getCenter(): [number, number] { return this.cameraController.getCenter() }
-  getZoom(): number { return this.cameraController.getZoom() }
-  getBearing(): number { return this.cameraController.getBearing() }
-  getPitch(): number { return this.cameraController.getPitch() }
+  getCenter(): [number, number] {
+    return this.cameraController.getCenter()
+  }
+  getZoom(): number {
+    return this.cameraController.getZoom()
+  }
+  getBearing(): number {
+    return this.cameraController.getBearing()
+  }
+  getPitch(): number {
+    return this.cameraController.getPitch()
+  }
 
   /** MapLibre-API parity + the core debug-measurement primitive: project
    *  `[lon, lat]` → canvas-local CSS-px (×dpr for device px). Impl +
    *  full contract in `projectLonLatToScreenCss`. */
   project(lonLat: readonly [number, number]): [number, number] | null {
-    const dpr = effectiveDpr(this._interacting)  // SAME interaction-cap dpr the frame sizes the canvas with (render-loop.ts:219)
+    const dpr = effectiveDpr(this._interacting) // SAME interaction-cap dpr the frame sizes the canvas with (render-loop.ts:219)
     const [centerLon, centerLat] = this.getCenter()
     return projectLonLatToScreenCss(
-      this.camera, this.canvas.width, this.canvas.height, dpr, centerLon, centerLat, lonLat,
+      this.camera,
+      this.canvas.width,
+      this.canvas.height,
+      dpr,
+      centerLon,
+      centerLat,
+      lonLat,
     )
   }
 
@@ -1174,7 +1407,13 @@ export class XGISMap {
    *  camera-helpers.ts) at the same interaction-cap dpr `project` uses. */
   unproject(screen: readonly [number, number]): [number, number] | null {
     const dpr = effectiveDpr(this._interacting)
-    return this.camera.unprojectToLonLat(screen[0] * dpr, screen[1] * dpr, this.canvas.width, this.canvas.height, dpr)
+    return this.camera.unprojectToLonLat(
+      screen[0] * dpr,
+      screen[1] * dpr,
+      this.canvas.width,
+      this.canvas.height,
+      dpr,
+    )
   }
 
   /** Mapbox-API parity: read the current camera state as a single
@@ -1188,10 +1427,14 @@ export class XGISMap {
    *  `injectPolarCaps` / `synthesizePolarCaps` (re-exported from
    *  `@xgis/runtime`) before `setSourceData`. This setter is a no-op +
    *  one-shot `xlog.warn` so existing host code does not throw. */
-  setPolarCapsEnabled(on: boolean): void { this._viewport.setPolarCapsEnabled(on) }
+  setPolarCapsEnabled(on: boolean): void {
+    this._viewport.setPolarCapsEnabled(on)
+  }
   /** @deprecated Always returns `false` post-Phase 1a — polar-cap synthesis
    *  is no longer renderer-driven (see `setPolarCapsEnabled`). */
-  isPolarCapsEnabled(): boolean { return this._viewport.isPolarCapsEnabled() }
+  isPolarCapsEnabled(): boolean {
+    return this._viewport.isPolarCapsEnabled()
+  }
 
   /** Current graticule on/off state. */
   isGraticuleEnabled(): boolean {
@@ -1242,15 +1485,21 @@ export class XGISMap {
   }
 
   /** Get current rendering stats */
-  get stats(): RenderStats { return this._stats.get() }
+  get stats(): RenderStats {
+    return this._stats.get()
+  }
 
   /** Public read/write access to the camera (for URL hash, etc). */
-  getCamera(): Camera { return this.camera }
+  getCamera(): Camera {
+    return this.camera
+  }
 
   /** Read the currently-active quality config (live — mutated by
    *  `setQuality`). Returns a shallow copy so callers can't accidentally
    *  mutate the internal object. */
-  getQuality(): QualityConfig { return { ...QUALITY } }
+  getQuality(): QualityConfig {
+    return { ...QUALITY }
+  }
 
   /** Snapshot of everything a human needs to debug the tile pipeline
    *  at CPU level: camera state, per-source cache/budget state,
@@ -1261,7 +1510,9 @@ export class XGISMap {
    *  Structured return so `JSON.stringify()` produces a copy-pasteable
    *  report. Nothing here allocates GPU work — safe to call every
    *  frame if needed. */
-  inspectPipeline(): PipelineInspection { return inspectMapPipeline(this) }
+  inspectPipeline(): PipelineInspection {
+    return inspectMapPipeline(this)
+  }
 
   /** Change any combination of quality knobs at runtime. The map figures
    *  out which parts are cheap (DPR — next resizeCanvas applies) vs
@@ -1290,7 +1541,8 @@ export class XGISMap {
     const after = QUALITY
     const msaaChanged = before.msaa !== after.msaa
     const pickingChanged = before.picking !== after.picking
-    const dprChanged = before.maxDpr !== after.maxDpr || before.interactionDpr !== after.interactionDpr
+    const dprChanged =
+      before.maxDpr !== after.maxDpr || before.interactionDpr !== after.interactionDpr
 
     if (msaaChanged || pickingChanged) {
       // Force next renderFrame to recreate msaa / stencil / pick
@@ -1384,7 +1636,10 @@ export class XGISMap {
    *
    *  Pool reuse: the staging buffer ring avoids allocating per call, so
    *  hover scenarios (60 Hz pickAt) stay cheap. */
-  async pickAt(clientX: number, clientY: number): Promise<{ featureId: number; layerId: number; instanceId: number } | null> {
+  async pickAt(
+    clientX: number,
+    clientY: number,
+  ): Promise<{ featureId: number; layerId: number; instanceId: number } | null> {
     // Defense-in-depth: a move-rAF queued before destroy() must not run
     // copyTextureToBuffer/submit on the destroyed device (the dispatcher's
     // rAF is cancelled in destroy(); guard the entry point too).
@@ -1529,8 +1784,20 @@ export class XGISMap {
     this.textStage?.setLabelDumpFilter(substr)
   }
   getDumpedLabels(): ReadonlyArray<{
-    text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number; curved: boolean
-    glyphs: ReadonlyArray<{ cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }>
+    text: string
+    anchorX: number
+    anchorY: number
+    fontSize: number
+    slotSize: number
+    curved: boolean
+    glyphs: ReadonlyArray<{
+      cp: number
+      x: number
+      y: number
+      bearingY: number
+      height: number
+      rfs: number
+    }>
   }> | null {
     return this.textStage?.getDumpedLabels() ?? null
   }
@@ -1541,7 +1808,12 @@ export class XGISMap {
     this.iconStage?.setIconDumpEnabled(on)
   }
   getDumpedIcons(): ReadonlyArray<{
-    name: string; anchorX: number; anchorY: number; drawW: number; drawH: number; centerY: number
+    name: string
+    anchorX: number
+    anchorY: number
+    drawW: number
+    drawH: number
+    centerY: number
   }> | null {
     return this.iconStage?.getDumpedIcons() ?? null
   }
@@ -1558,15 +1830,18 @@ export class XGISMap {
    *  Returns one entry per source (keyed by source name) so multi-
    *  source styles (e.g. raster basemap + vector overlay) don't
    *  collide. */
-  getTileLoadDiagnostic(): Record<string, {
-    needed: number
-    missed: number
-    gpuUnique: number
-    catalogCached: number
-    catalogLoading: number
-    uploadQueued: number
-    gpuCap: number
-  }> {
+  getTileLoadDiagnostic(): Record<
+    string,
+    {
+      needed: number
+      missed: number
+      gpuUnique: number
+      catalogCached: number
+      catalogLoading: number
+      uploadQueued: number
+      gpuCap: number
+    }
+  > {
     const out: Record<string, ReturnType<VectorTileRenderer['getTileLoadDiagnostic']>> = {}
     for (const [name, entry] of this.vtSources) {
       out[name] = entry.renderer.getTileLoadDiagnostic()
@@ -1586,7 +1861,11 @@ export class XGISMap {
    *  the derived altitude / halfFov / near-far plane numbers
    *  `_buildRTCMatrix` consumes. Caller passes current canvas dims
    *  (matches whatever the renderer used last frame). */
-  getCameraDebugSnapshot(canvasWidth: number, canvasHeight: number, dpr: number = 1): {
+  getCameraDebugSnapshot(
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number = 1,
+  ): {
     matrix: number[]
     far: number
     altitude: number
@@ -1607,8 +1886,11 @@ export class XGISMap {
    *  LIVE pipeline resolves at z0 vs deeper zoom.
    *  (memory project_z0_halo_too_large_2026_05_19) */
   getHaloDebug(): ReadonlyArray<{
-    text: string; fontSize: number; rasterFontSize: number
-    haloWidth: number; haloWidthNorm: number
+    text: string
+    fontSize: number
+    rasterFontSize: number
+    haloWidth: number
+    haloWidthNorm: number
   }> | null {
     return this.textStage?.getHaloDebug() ?? null
   }
@@ -1643,11 +1925,14 @@ export class XGISMap {
    *  passing `undefined`. Lazy-binds: if the text stage isn't built
    *  yet (no label show has been processed), the hook is captured
    *  here and attached when the stage is constructed. */
-  setLabelDebugHook(hook: ((text: string, ax: number, ay: number, kind: 'point' | 'curve') => void) | undefined): void {
+  setLabelDebugHook(
+    hook: ((text: string, ax: number, ay: number, kind: 'point' | 'curve') => void) | undefined,
+  ): void {
     this._pendingLabelDebugHook = hook
     this.textStage?.setLabelDebugHook(hook)
   }
-  _pendingLabelDebugHook?: ((text: string, ax: number, ay: number, kind: 'point' | 'curve') => void) | undefined
+  _pendingLabelDebugHook?:
+    ((text: string, ax: number, ay: number, kind: 'point' | 'curve') => void) | undefined
 
   /** Render-trace recorder. When set, every frame pushes its resolved
    *  paint state + label submissions into the recorder. Used by spec
@@ -1659,7 +1944,9 @@ export class XGISMap {
    *  layer-level paint state in addition to label metadata, and is
    *  forwarded into the bucket scheduler's `traceRecorder` field on
    *  the next `renderFrame()` via `_pendingTraceRecorder`. */
-  setTraceRecorder(recorder: import('./diagnostics/render-trace').RenderTraceRecorder | null): void {
+  setTraceRecorder(
+    recorder: import('./diagnostics/render-trace').RenderTraceRecorder | null,
+  ): void {
     this._pendingTraceRecorder = recorder
     this.textStage?.setTraceRecorder(recorder)
   }
@@ -1675,12 +1962,12 @@ export class XGISMap {
     const { createTraceRecorder } = await import('./diagnostics/render-trace')
     const recorder = createTraceRecorder()
     this.setTraceRecorder(recorder)
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     // Force a render so labels/layers get emitted even if the camera
     // is idle (no auto-renderFrame queued).
     this.invalidate()
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     const trace = recorder.snapshot()
     this.setTraceRecorder(null)
     return trace
@@ -1709,17 +1996,23 @@ export class XGISMap {
     }
     const dispatcher = this.eventDispatcher
     this.controller.attach(
-      this.canvas, this.camera,
+      this.canvas,
+      this.camera,
       () => ({ projectionName: this.projectionName }),
       {
-        onClick: (x, y, e) => { dispatcher.handleClick(x, y, e).catch(() => {}) },
+        onClick: (x, y, e) => {
+          dispatcher.handleClick(x, y, e).catch(() => {})
+        },
         onPointerMove: (x, y, e) => {
           // Continuous drag (pointer held) is an active gesture; a bare
           // hover is not — gate the interaction flag on _pointerActive.
           if (this._pointerActive) this.markInteracting()
           dispatcher.handleMove(x, y, e)
         },
-        onPointerLeave: (e) => { this._pointerActive = false; dispatcher.handlePointerLeave(e) },
+        onPointerLeave: (e) => {
+          this._pointerActive = false
+          dispatcher.handlePointerLeave(e)
+        },
         // Any drag, rotate, or wheel zoom is the user explicitly
         // positioning the camera — disable the post-compile bounds-fit
         // auto-snap so the user doesn't get yanked back to whole-world
@@ -1730,10 +2023,16 @@ export class XGISMap {
           this.markInteracting()
           dispatcher.handlePointerDown(x, y, e).catch(() => {})
         },
-        onPointerUp: (x, y, e) => { this._pointerActive = false; dispatcher.handlePointerUp(x, y, e).catch(() => {}) },
+        onPointerUp: (x, y, e) => {
+          this._pointerActive = false
+          dispatcher.handlePointerUp(x, y, e).catch(() => {})
+        },
         // OS/gesture steal (capture loss) ends the drag without a clean
         // pointerup — clear the flag so a later hover can't re-pin low DPR.
-        onPointerCancel: (e) => { this._pointerActive = false; dispatcher.handlePointerLeave(e) },
+        onPointerCancel: (e) => {
+          this._pointerActive = false
+          dispatcher.handlePointerLeave(e)
+        },
         onWheel: (x, y, e) => {
           this._cameraExplicitlyPositioned = true
           this.markInteracting()
@@ -1874,10 +2173,13 @@ export class XGISMap {
     // TypeError: Invalid base URL. Accepts '', '/data/', relative URLs, or
     // fully-qualified URLs.
     const absBase = (() => {
-      if (typeof window === 'undefined') return baseUrl  // SSR / tests
+      if (typeof window === 'undefined') return baseUrl // SSR / tests
       if (!baseUrl) return window.location.href
-      try { return new URL(baseUrl, window.location.href).href }
-      catch { return window.location.href }
+      try {
+        return new URL(baseUrl, window.location.href).href
+      } catch {
+        return window.location.href
+      }
     })()
 
     // 0. Kick off GPU init in parallel with the synchronous IR
@@ -1892,7 +2194,7 @@ export class XGISMap {
     // GPU init has no dependency on the IR result — it just needs
     // `this.canvas`. Errors propagate exactly as before via the awaited
     // catch.
-    const gpuInit = initGPU(this.canvas, { backend: this._backend }).catch(err => {
+    const gpuInit = initGPU(this.canvas, { backend: this._backend }).catch((err) => {
       // Hold the rejection here so the await below converts it to a
       // sync throw at the same call site as the previous code. We
       // don't want unhandled-rejection noise if step 1 errors out
@@ -1919,9 +2221,13 @@ export class XGISMap {
     // module-resolution failures aren't opaque on iOS.
     const resolver = async (path: string): Promise<string | null> => {
       let url: string
-      try { url = new URL(path, absBase).href }
-      catch (e) {
-        xlog.error(`[X-GIS import] cannot build URL for "${path}" against base "${absBase}":`, (e as Error).message)
+      try {
+        url = new URL(path, absBase).href
+      } catch (e) {
+        xlog.error(
+          `[X-GIS import] cannot build URL for "${path}" against base "${absBase}":`,
+          (e as Error).message,
+        )
         return null
       }
       try {
@@ -1952,12 +2258,14 @@ export class XGISMap {
     // this, inline data was silently dropped — host had to know to
     // call setSourceData() manually.
     const inlineGeoJSON = new Map<string, unknown>()
-    if (ast.body.some(s => s.kind === 'ImportStatement')) {
+    if (ast.body.some((s) => s.kind === 'ImportStatement')) {
       ast = await resolveImportsAsync(ast, absBase, resolver, { inlineGeoJSON })
     }
 
     // Use IR pipeline for new syntax, fallback to legacy interpreter
-    const hasNewSyntax = ast.body.some(s => s.kind === 'SourceStatement' || s.kind === 'LayerStatement')
+    const hasNewSyntax = ast.body.some(
+      (s) => s.kind === 'SourceStatement' || s.kind === 'LayerStatement',
+    )
     let commands
     if (hasNewSyntax) {
       // match() fills survive lowering as data-driven UNCONDITIONALLY
@@ -1973,9 +2281,10 @@ export class XGISMap {
       // applying?" through the renderer. Each diagnostic carries an
       // X-GIS<NNNN> code so the message is greppable.
       for (const d of scene.diagnostics ?? []) {
-        const prefix = d.severity === 'warn'
-          ? `[X-GIS ${d.code ?? 'diag'} warn]`
-          : `[X-GIS ${d.code ?? 'diag'} info]`
+        const prefix =
+          d.severity === 'warn'
+            ? `[X-GIS ${d.code ?? 'diag'} warn]`
+            : `[X-GIS ${d.code ?? 'diag'} info]`
         const lineSuffix = d.line ? ` (line ${d.line})` : ''
         if (d.severity === 'warn') xlog.warn(`${prefix}${lineSuffix} ${d.message}`)
         else console.log(`${prefix}${lineSuffix} ${d.message}`)
@@ -2032,9 +2341,10 @@ export class XGISMap {
               if (rgba !== null) stops.push({ zoom: s.zoom, value: rgba })
             }
             if (stops.length > 0) {
-              this._backgroundColorShape = colorInterp.base !== 1
-                ? { kind: 'zoom-interpolated', stops, base: colorInterp.base }
-                : { kind: 'zoom-interpolated', stops }
+              this._backgroundColorShape =
+                colorInterp.base !== 1
+                  ? { kind: 'zoom-interpolated', stops, base: colorInterp.base }
+                  : { kind: 'zoom-interpolated', stops }
             }
           } else if (raw.startsWith('#')) {
             color = raw
@@ -2049,10 +2359,11 @@ export class XGISMap {
           const expr = isInterpolateString(raw) ? parseFillInterpolate(raw) : null
           const opInterp = expr ? extractInterpolateZoomStops(expr) : null
           if (opInterp && opInterp.stops.length > 0) {
-            const stops = opInterp.stops.map(s => ({ zoom: s.zoom, value: s.value / 100 }))
-            this._backgroundOpacityShape = opInterp.base !== 1
-              ? { kind: 'zoom-interpolated', stops, base: opInterp.base }
-              : { kind: 'zoom-interpolated', stops }
+            const stops = opInterp.stops.map((s) => ({ zoom: s.zoom, value: s.value / 100 }))
+            this._backgroundOpacityShape =
+              opInterp.base !== 1
+                ? { kind: 'zoom-interpolated', stops, base: opInterp.base }
+                : { kind: 'zoom-interpolated', stops }
           }
         }
       }
@@ -2074,9 +2385,10 @@ export class XGISMap {
     // before the first per-frame resolve, and so the existing
     // `if (this._backgroundColor)` install gates still fire.
     if (this._backgroundColor === null && this._backgroundColorShape !== null) {
-      const first = this._backgroundColorShape.kind === 'zoom-interpolated'
-        ? this._backgroundColorShape.stops[0]?.value
-        : undefined
+      const first =
+        this._backgroundColorShape.kind === 'zoom-interpolated'
+          ? this._backgroundColorShape.stops[0]?.value
+          : undefined
       if (first) this._backgroundColor = [first[0], first[1], first[2], first[3]]
     }
 
@@ -2115,7 +2427,8 @@ export class XGISMap {
       // URL resolution must match the data-load loop below exactly so
       // the cache hit lands. Loop uses `baseUrl + load.url` for
       // relative paths; mirror that here.
-      const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
+      const url =
+        load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
       const declaredType = (load as { type?: string }).type
       // Prewarm only the formats that route through the MVT decode
       // worker pool — `prewarmVectorTileSource` is a no-op for XGVT
@@ -2130,11 +2443,10 @@ export class XGISMap {
         // worker pool. Mirror source-manager's classification: anything that
         // is NOT a raster (declared raster, or an untyped {z}/{x}/{y}
         // template) falls through to the GeoJSON path and needs that pool.
-        const isDeclaredVector = declaredType === 'vector'
-          || declaredType === 'tilejson'
-          || declaredType === 'pmtiles'
-        const looksLikeRaster = declaredType === 'raster'
-          || (!isDeclaredVector && isTileTemplate(url))
+        const isDeclaredVector =
+          declaredType === 'vector' || declaredType === 'tilejson' || declaredType === 'pmtiles'
+        const looksLikeRaster =
+          declaredType === 'raster' || (!isDeclaredVector && isTileTemplate(url))
         if (!looksLikeRaster) anyVectorTile = true
       }
     }
@@ -2148,9 +2460,8 @@ export class XGISMap {
     // on the first compile() AFTER __xgisReady (~720 ms of idle worker
     // module-eval the pre-ready GPU/shader init would otherwise hide).
     if (anyVectorTile) {
-      void import('@xgis/data').then(m => m.prewarmMvtWorkerPool()).catch(() => undefined)
+      void import('@xgis/data').then((m) => m.prewarmMvtWorkerPool()).catch(() => undefined)
     }
-
 
     // 2. Await the GPU init kicked off at step 0. WebGPU is required —
     // any failure here propagates so the caller knows the map can't
@@ -2170,7 +2481,7 @@ export class XGISMap {
     // Re-arming state now would resurrect the map AND leak this freshly-
     // minted device for the page lifetime — destroy it and bail instead.
     if (this._destroyed) {
-      (result as GPUContext)?.device?.destroy?.()
+      ;(result as GPUContext)?.device?.destroy?.()
       return
     }
     this.ctx = result
@@ -2200,8 +2511,10 @@ export class XGISMap {
         this._paletteHandles = handles
         this.renderer.setPaletteColorAtlas(handles.colorGradientAtlas.createView())
       } catch (e) {
-        xlog.warn('[X-GIS] palette upload failed; falling back to legacy uniform path:',
-          (e as Error)?.message)
+        xlog.warn(
+          '[X-GIS] palette upload failed; falling back to legacy uniform path:',
+          (e as Error)?.message,
+        )
       }
     }
     try {
@@ -2217,18 +2530,25 @@ export class XGISMap {
       }
       this.shapeRegistry.uploadToGPU()
       this.pointRenderer.setShapeRegistry(this.shapeRegistry)
-    } catch (e) { xlog.warn('[X-GIS] PointRenderer init failed:', e) }
+    } catch (e) {
+      xlog.warn('[X-GIS] PointRenderer init failed:', e)
+    }
     // Heatmap renderer (Phase R) — owns the accum pipeline + per-layer
     // density buffers; the blur/compose pipelines live in pipeline-factory.
-    try { this.heatmapRenderer = new HeatmapRenderer(this.ctx) } catch (e) { xlog.warn('[X-GIS] HeatmapRenderer init failed:', e) }
+    try {
+      this.heatmapRenderer = new HeatmapRenderer(this.ctx)
+    } catch (e) {
+      xlog.warn('[X-GIS] HeatmapRenderer init failed:', e)
+    }
 
     // SDF line renderer (shared by all VTR instances)
     try {
       this.lineRenderer = new LineRenderer(this.ctx, this.renderer.bindGroupLayout)
       if (this.shapeRegistry) this.lineRenderer.setShapeRegistry(this.shapeRegistry)
-    } catch (e) { xlog.warn('[X-GIS] LineRenderer init failed:', e) }
+    } catch (e) {
+      xlog.warn('[X-GIS] LineRenderer init failed:', e)
+    }
     // VT sources/renderers created per .xgvt file in the load loop
-
 
     // 3. Load data — all sources in parallel. Sequential awaits used to
     // serialize 4-source demos into ~4x the total wall-clock time (each
@@ -2261,16 +2581,23 @@ export class XGISMap {
     // (invalid / unsupported `crs`) is isolated rather than aborting every
     // load (AC7). Non-reprojection failures (HTTP, JSON parse, …) keep the
     // existing fail-the-run contract and are re-thrown after the batch.
-    const loadResults = await Promise.allSettled(commands.loads.map(load =>
-      this.sourceManager._attachOneSource(load, baseUrl, {
-        usedSourceLayers,
-        extrudeExprsBySource,
-        extrudeBaseExprsBySource,
-        strokeWidthExprsBySource,
-        strokeColorExprsBySource,
-        showSlicesBySource,
-      }, cameraFitState),
-    ))
+    const loadResults = await Promise.allSettled(
+      commands.loads.map((load) =>
+        this.sourceManager._attachOneSource(
+          load,
+          baseUrl,
+          {
+            usedSourceLayers,
+            extrudeExprsBySource,
+            extrudeBaseExprsBySource,
+            strokeWidthExprsBySource,
+            strokeColorExprsBySource,
+            showSlicesBySource,
+          },
+          cameraFitState,
+        ),
+      ),
+    )
     for (const r of loadResults) {
       if (r.status !== 'rejected') continue
       const reason = r.reason as { xgisReprojectFailure?: boolean } | undefined
@@ -2301,10 +2628,16 @@ export class XGISMap {
         const pts = (reprojected.features ?? []).filter(
           (f) => f.geometry?.type === 'Point' || f.geometry?.type === 'MultiPoint',
         )
-        if (pts.length) this.heatmapPointData.set(id, { type: 'FeatureCollection', features: pts } as GeoJSONFeatureCollection)
+        if (pts.length)
+          this.heatmapPointData.set(id, {
+            type: 'FeatureCollection',
+            features: pts,
+          } as GeoJSONFeatureCollection)
         else this.heatmapPointData.delete(id)
       } else {
-        xlog.warn(`[X-GIS] Inline GeoJSON for unknown source "${id}" — dropping. (Mapbox style sources didn't emit a matching load command.)`)
+        xlog.warn(
+          `[X-GIS] Inline GeoJSON for unknown source "${id}" — dropping. (Mapbox style sources didn't emit a matching load command.)`,
+        )
       }
     }
 
@@ -2319,7 +2652,10 @@ export class XGISMap {
       this._installSyntheticEarthSurfaceSource(this._backgroundColor)
       // WS-1 — pass the zoom-interp colour shape so the sphere/globe
       // earth-surface fill resolves per frame (resolveShow handles it).
-      const syntheticShow = buildSyntheticEarthSurfaceShow(this._backgroundColor, this._backgroundColorShape)
+      const syntheticShow = buildSyntheticEarthSurfaceShow(
+        this._backgroundColor,
+        this._backgroundColorShape,
+      )
       commands.shows = [syntheticShow, ...commands.shows] as typeof commands.shows
     }
 
@@ -2340,7 +2676,9 @@ export class XGISMap {
     // sources WITHOUT a fresh emitCommands run) can still hand the
     // current plan to VTR.setComputeContext. Cleared on binary load
     // (which has no compute plan).
-    this._currentComputePlan = (commands as { computePlan?: import('@xgis/compiler').ComputePlanEntry[] }).computePlan
+    this._currentComputePlan = (
+      commands as { computePlan?: import('@xgis/compiler').ComputePlanEntry[] }
+    ).computePlan
 
     // Hand the compute plan to the renderer BEFORE rebuildLayers so
     // its addLayer calls can attach ComputeLayerHandles for variants
@@ -2378,9 +2716,14 @@ export class XGISMap {
     }
     if (variants.length > 0) {
       try {
-        await this.renderer.prewarmShaderVariantsAsync(variants as unknown as Parameters<MapRendererContent['prewarmShaderVariantsAsync']>[0])
+        await this.renderer.prewarmShaderVariantsAsync(
+          variants as unknown as Parameters<MapRendererContent['prewarmShaderVariantsAsync']>[0],
+        )
       } catch (e) {
-        xlog.warn('[X-GIS] shader prewarm failed (falling back to lazy compile on first draw):', (e as Error).message)
+        xlog.warn(
+          '[X-GIS] shader prewarm failed (falling back to lazy compile on first draw):',
+          (e as Error).message,
+        )
       }
     }
 
@@ -2433,10 +2776,11 @@ export class XGISMap {
       w.__xgisStartDrawOrderTrace = () => {
         w.__xgisDrawOrderTrace = []
       }
-      w.__xgisReplaySnapshot = (snap, opts) => self.replaySnapshot(
-        snap as Parameters<typeof self.replaySnapshot>[0],
-        opts as Parameters<typeof self.replaySnapshot>[1] | undefined,
-      )
+      w.__xgisReplaySnapshot = (snap, opts) =>
+        self.replaySnapshot(
+          snap as Parameters<typeof self.replaySnapshot>[0],
+          opts as Parameters<typeof self.replaySnapshot>[1] | undefined,
+        )
     }
   }
 
@@ -2451,10 +2795,15 @@ export class XGISMap {
    *  Call from a test scenario to assert deterministic behaviour or
    *  to capture a "broken" snapshot for diagnosis.
    */
-  async captureSnapshot(): Promise<MapSnapshot> { return captureMapSnapshot(this) }
+  async captureSnapshot(): Promise<MapSnapshot> {
+    return captureMapSnapshot(this)
+  }
 
   /** Replay a captured snapshot — see diagnostics.replayMapSnapshot. */
-  async replaySnapshot(snap: Parameters<typeof replayMapSnapshot>[1], opts?: Parameters<typeof replayMapSnapshot>[2]): Promise<ReplayResult> {
+  async replaySnapshot(
+    snap: Parameters<typeof replayMapSnapshot>[1],
+    opts?: Parameters<typeof replayMapSnapshot>[2],
+  ): Promise<ReplayResult> {
     return replayMapSnapshot(this, snap, opts)
   }
 
@@ -2473,13 +2822,9 @@ export class XGISMap {
    *  Public (underscore-prefixed) as a test seam — same convention as
    *  `_runBoundsFitGate` — so integration tests can drive the ingest
    *  reprojection without a GPU device (AC3/AC7/AC8). */
-  _reprojectIngest(
-    sourceName: string,
-    fc: GeoJSONFeatureCollection,
-  ): GeoJSONFeatureCollection {
+  _reprojectIngest(sourceName: string, fc: GeoJSONFeatureCollection): GeoJSONFeatureCollection {
     return this.sourceManager._reprojectIngest(sourceName, fc)
   }
-
 
   /** Rebuild GPU layers from raw data with current projection */
   private rebuildLayers(): void {
@@ -2524,7 +2869,12 @@ export class XGISMap {
         const hmSource = this.heatmapPointData.get(show.targetName)
         if (hmSource?.features?.length && this.heatmapRenderer) {
           try {
-            const feats = applyFilter(hmSource, show.filterExpr, this.camera.zoom, this.camera.pitch).features
+            const feats = applyFilter(
+              hmSource,
+              show.filterExpr,
+              this.camera.zoom,
+              this.camera.pitch,
+            ).features
             const t = feats[0]?.geometry?.type
             if (t === 'Point' || t === 'MultiPoint') {
               this.heatmapRenderer.addLayer(
@@ -2561,10 +2911,7 @@ export class XGISMap {
       // into multiple shows; the wrapper still mutates the first
       // show, the rest will adopt it via the layerName lookup).
       if (!this.xgisLayers.has(layerName)) {
-        this.xgisLayers.set(
-          layerName,
-          new XGISLayer(layerName, show, () => this.invalidate()),
-        )
+        this.xgisLayers.set(layerName, new XGISLayer(layerName, show, () => this.invalidate()))
       }
 
       // Raster tile source referenced by a layer → activate raster renderer
@@ -2608,9 +2955,7 @@ export class XGISMap {
             // VTR. The plan setter is idempotent + scene-scoped.
             vtEntry.renderer.setComputePlan(this._currentComputePlan)
             if (variant.needsFeatureBuffer && !vtEntry.renderer.hasFeatureData()) {
-              vtEntry.renderer.buildFeatureDataBuffer(
-                variant as any, layout, show.renderNodeIndex,
-              )
+              vtEntry.renderer.buildFeatureDataBuffer(variant as any, layout, show.renderNodeIndex)
             }
           } catch (e) {
             xlog.warn('[X-GIS] VT variant pipeline failed:', e)
@@ -2624,7 +2969,9 @@ export class XGISMap {
       // GeoJSON → in-memory tiling → VectorTileRenderer
       // Each layer gets its own key: reuse source if no filter, separate if filtered
       const hasFilter = !!show.filterExpr
-      const vtKey = hasFilter ? `${show.targetName}__${this.vectorTileShows.length}` : show.targetName
+      const vtKey = hasFilter
+        ? `${show.targetName}__${this.vectorTileShows.length}`
+        : show.targetName
 
       // Reuse existing VT source if same key (same source, no filter)
       if (this.vtSources.has(vtKey)) {
@@ -2645,11 +2992,11 @@ export class XGISMap {
             // VTR. The plan setter is idempotent + scene-scoped.
             vtEntry.renderer.setComputePlan(this._currentComputePlan)
             if (variant.needsFeatureBuffer && !vtEntry.renderer.hasFeatureData()) {
-              vtEntry.renderer.buildFeatureDataBuffer(
-                variant as any, layout, show.renderNodeIndex,
-              )
+              vtEntry.renderer.buildFeatureDataBuffer(variant as any, layout, show.renderNodeIndex)
             }
-          } catch (e) { xlog.warn('[X-GIS] VT variant pipeline failed:', e) }
+          } catch (e) {
+            xlog.warn('[X-GIS] VT variant pipeline failed:', e)
+          }
         }
         this.vectorTileShows.push({ sourceName: vtKey, show, pipelines, layout })
         continue
@@ -2665,7 +3012,11 @@ export class XGISMap {
       // Point geometry → SDF point renderer (skip polygon tiling pipeline)
       const firstGeomType = filtered.features[0]?.geometry?.type
 
-      if ((firstGeomType === 'Point' || firstGeomType === 'MultiPoint') && !show.geometryExpr && this.pointRenderer) {
+      if (
+        (firstGeomType === 'Point' || firstGeomType === 'MultiPoint') &&
+        !show.geometryExpr &&
+        this.pointRenderer
+      ) {
         const fillHex = show.fill
         const strokeHex = show.stroke
         const fill = fillHex ? parseHexColor(fillHex) : null
@@ -2677,11 +3028,12 @@ export class XGISMap {
         // animated sizes runs through pointRenderer.updateDynamicSizes
         // each frame.
         const sizeShape = show.paintShapes.circle.size
-        const baseSize = sizeShape !== null
-          ? (sizeShape.kind === 'constant'
+        const baseSize =
+          sizeShape !== null
+            ? sizeShape.kind === 'constant'
               ? sizeShape.value
-              : resolveNumberShape(sizeShape, this.camera.zoom, performance.now()).value)
-          : 8
+              : resolveNumberShape(sizeShape, this.camera.zoom, performance.now()).value
+            : 8
 
         // Evaluate per-feature size if data-driven. Inject reserved
         // keys (`$zoom` / `$geometryType` / `$featureId`) via
@@ -2694,7 +3046,7 @@ export class XGISMap {
           const ast = show.sizeExpr.ast as import('@xgis/compiler').Expr
           const cameraZoom = this.camera.zoom
           const cameraPitch = this.camera.pitch
-          perFeatureSizes = filtered.features.map(f => {
+          perFeatureSizes = filtered.features.map((f) => {
             const bag = makeEvalProps({
               props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
               geometryType: f.geometry?.type,
@@ -2720,7 +3072,8 @@ export class XGISMap {
 
         this.pointRenderer.addLayer(
           filtered.features as any,
-          fill, stroke,
+          fill,
+          stroke,
           show.strokeWidth,
           baseSize,
           show.opacity ?? 1.0,
@@ -2750,12 +3103,27 @@ export class XGISMap {
       const source = new TileCatalog()
       const vtRenderer = new VectorTileRenderer(this.ctx)
       vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
-    vtRenderer.setPaletteResources(this.renderer.paletteColorAtlasView, this.renderer.paletteSampler)
-    vtRenderer.setSpriteAtlasView(this.renderer.spriteAtlasView)
-      vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
-      vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
-    vtRenderer.setPatternPipelines(this.renderer.fillPipelinePatternGround, this.renderer.fillPipelinePatternGroundFallback)
-    vtRenderer.setPatternExtrudedPipelines(this.renderer.fillPipelinePatternExtruded, this.renderer.fillPipelinePatternExtrudedFallback)
+      vtRenderer.setPaletteResources(
+        this.renderer.paletteColorAtlasView,
+        this.renderer.paletteSampler,
+      )
+      vtRenderer.setSpriteAtlasView(this.renderer.spriteAtlasView)
+      vtRenderer.setExtrudedPipelines(
+        this.renderer.fillPipelineExtruded,
+        this.renderer.fillPipelineExtrudedFallback,
+      )
+      vtRenderer.setGroundPipelines(
+        this.renderer.fillPipelineGround,
+        this.renderer.fillPipelineGroundFallback,
+      )
+      vtRenderer.setPatternPipelines(
+        this.renderer.fillPipelinePatternGround,
+        this.renderer.fillPipelinePatternGroundFallback,
+      )
+      vtRenderer.setPatternExtrudedPipelines(
+        this.renderer.fillPipelinePatternExtruded,
+        this.renderer.fillPipelinePatternExtrudedFallback,
+      )
       vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
       if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
       vtRenderer.setFillRhi?.(this.renderer.fillRhiState?.() ?? null)
@@ -2774,13 +3142,15 @@ export class XGISMap {
       //     reads raw features, not tile geometry)
       //   - filter is set (per-show filtering needs showSlices wiring
       //     into VirtualPMTilesBackend — separate work)
-      const needsFeatureBuffer = !!(show.shaderVariant?.needsFeatureBuffer)
-      const useVirtualForInline = typeof window !== 'undefined'
-        && ((window as unknown as { __XGIS_USE_VIRTUAL_INLINE_GEOJSON?: boolean }).__XGIS_USE_VIRTUAL_INLINE_GEOJSON === true
-            || /[?&]virt_inline=1\b/.test(window.location.search))
-        && !hasFilter
-        && !show.geometryExpr?.ast
-        && !needsFeatureBuffer
+      const needsFeatureBuffer = !!show.shaderVariant?.needsFeatureBuffer
+      const useVirtualForInline =
+        typeof window !== 'undefined' &&
+        ((window as unknown as { __XGIS_USE_VIRTUAL_INLINE_GEOJSON?: boolean })
+          .__XGIS_USE_VIRTUAL_INLINE_GEOJSON === true ||
+          /[?&]virt_inline=1\b/.test(window.location.search)) &&
+        !hasFilter &&
+        !show.geometryExpr?.ast &&
+        !needsFeatureBuffer
       if (useVirtualForInline) {
         this.sourceManager._attachInlineGeoJSONViaVirtualPMTiles(vtKey, filtered, show, source)
         // Setup shader variant pipelines + layout synchronously so the
@@ -2798,7 +3168,12 @@ export class XGISMap {
             xlog.warn('[X-GIS] GeoJSON VT variant pipeline failed:', e)
           }
         }
-        this.vectorTileShows.push({ sourceName: vtKey, show, pipelines: syncPipelines, layout: syncLayout })
+        this.vectorTileShows.push({
+          sourceName: vtKey,
+          show,
+          pipelines: syncPipelines,
+          layout: syncLayout,
+        })
         continue
       }
 
@@ -2818,71 +3193,76 @@ export class XGISMap {
       // key — `setSourceData` / `teardownSource` deletes the entry, and we
       // only apply results if the pointer still matches.
       const registeredEntry = this.vtSources.get(vtKey)
-      compilePromise.then(({ parts, tileSet }) => {
-        if (this.vtSources.get(vtKey) !== registeredEntry) return // superseded
-        if (tileSet.levels.length > 0) {
-          source.addTileLevel(tileSet.levels[0], tileSet.bounds, tileSet.propertyTable)
-        }
-        // rawMaxZoom caps runtime sub-tile generation depth. Set to
-        // camera.maxZoom (22) so zooming past z=7 produces properly-
-        // sized sub-tiles (9.5 m at z=22) instead of a z=7 parent fallback
-        // whose 305 km quad distorts under pitched perspective.
-        // Paired with 5c1be77's fullCover plumbing through compileSingleTile
-        // → xgvt-source so the sub-tile quads reach the match() color
-        // lookup with the correct feature id attached.
-        source.setRawParts(parts, tileSet.levels.length > 0 ? 22 : 0)
-
-        // Feature data buffer MUST be built after the property table
-        // is set on the source — which only happens in `addTileLevel`
-        // above. Building it earlier (inside the sync rebuildLayers
-        // block below) silently no-ops because `getPropertyTable()`
-        // returns undefined before the worker returns, leaving the
-        // variant pipeline paired with the default bind-group layout
-        // and tripping a WebGPU validation error on every draw. Fixture
-        // audit surfaced this as the `match()`-based fixtures
-        // (fixture_categorical, reftest_triangle_match, etc.) logging
-        // "Bind group layout of pipeline layout does not match layout
-        // of bind group".
-        const variant = show.shaderVariant
-        if (variant && variant.needsFeatureBuffer && !vtRenderer.hasFeatureData()) {
-          // Compute-aware layout selection — matches the same call in
-          // rebuildLayers (lines 1729 / 1758) so the VTR per-tile
-          // bind group uses the extended layout when the variant
-          // carries computeBindings.
-          vtRenderer.buildFeatureDataBuffer(
-            variant as import('@xgis/compiler').ShaderVariant,
-            this.renderer.getOrBuildVariantLayout(variant as never),
-            show.renderNodeIndex,
-          )
-          vtRenderer.setComputePlan(this._currentComputePlan)
-        }
-        // Worker result just landed — wake the render loop to paint it.
-        this.invalidate()
-
-        // Fit camera to data bounds once the compile lands — but only
-        // when the user hasn't already positioned the camera explicitly
-        // (URL hash, programmatic .setView, or a pan/zoom gesture).
-        // Otherwise the auto-fit clobbers the requested view, which
-        // surfaced as a bug when demos with deep-link hash URLs
-        // (e.g. `#19.80/21.55/108.05/75/64.2`) snapped back to whole-
-        // world view as soon as the worker compile resolved.
-        this._runBoundsFitGate(() => {
-          const [minLon, minLat, maxLon, maxLat] = tileSet.bounds
-          if (minLon < Infinity) {
-            const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
-            const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
-            this.camera.centerX = cx
-            this.camera.centerY = cy
-            // Keep centerLatDeg consistent with the fitted centerY (≤85, byte-safe).
-            this.camera.syncCenterLat()
-            const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-            const cssW = this.canvas.width / dpr
-            this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
+      compilePromise
+        .then(({ parts, tileSet }) => {
+          if (this.vtSources.get(vtKey) !== registeredEntry) return // superseded
+          if (tileSet.levels.length > 0) {
+            source.addTileLevel(tileSet.levels[0], tileSet.bounds, tileSet.propertyTable)
           }
+          // rawMaxZoom caps runtime sub-tile generation depth. Set to
+          // camera.maxZoom (22) so zooming past z=7 produces properly-
+          // sized sub-tiles (9.5 m at z=22) instead of a z=7 parent fallback
+          // whose 305 km quad distorts under pitched perspective.
+          // Paired with 5c1be77's fullCover plumbing through compileSingleTile
+          // → xgvt-source so the sub-tile quads reach the match() color
+          // lookup with the correct feature id attached.
+          source.setRawParts(parts, tileSet.levels.length > 0 ? 22 : 0)
+
+          // Feature data buffer MUST be built after the property table
+          // is set on the source — which only happens in `addTileLevel`
+          // above. Building it earlier (inside the sync rebuildLayers
+          // block below) silently no-ops because `getPropertyTable()`
+          // returns undefined before the worker returns, leaving the
+          // variant pipeline paired with the default bind-group layout
+          // and tripping a WebGPU validation error on every draw. Fixture
+          // audit surfaced this as the `match()`-based fixtures
+          // (fixture_categorical, reftest_triangle_match, etc.) logging
+          // "Bind group layout of pipeline layout does not match layout
+          // of bind group".
+          const variant = show.shaderVariant
+          if (variant && variant.needsFeatureBuffer && !vtRenderer.hasFeatureData()) {
+            // Compute-aware layout selection — matches the same call in
+            // rebuildLayers (lines 1729 / 1758) so the VTR per-tile
+            // bind group uses the extended layout when the variant
+            // carries computeBindings.
+            vtRenderer.buildFeatureDataBuffer(
+              variant as import('@xgis/compiler').ShaderVariant,
+              this.renderer.getOrBuildVariantLayout(variant as never),
+              show.renderNodeIndex,
+            )
+            vtRenderer.setComputePlan(this._currentComputePlan)
+          }
+          // Worker result just landed — wake the render loop to paint it.
+          this.invalidate()
+
+          // Fit camera to data bounds once the compile lands — but only
+          // when the user hasn't already positioned the camera explicitly
+          // (URL hash, programmatic .setView, or a pan/zoom gesture).
+          // Otherwise the auto-fit clobbers the requested view, which
+          // surfaced as a bug when demos with deep-link hash URLs
+          // (e.g. `#19.80/21.55/108.05/75/64.2`) snapped back to whole-
+          // world view as soon as the worker compile resolved.
+          this._runBoundsFitGate(() => {
+            const [minLon, minLat, maxLon, maxLat] = tileSet.bounds
+            if (minLon < Infinity) {
+              const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
+              const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
+              this.camera.centerX = cx
+              this.camera.centerY = cy
+              // Keep centerLatDeg consistent with the fitted centerY (≤85, byte-safe).
+              this.camera.syncCenterLat()
+              const dpr =
+                typeof window !== 'undefined'
+                  ? Math.min(window.devicePixelRatio || 1, getMaxDpr())
+                  : 1
+              const cssW = this.canvas.width / dpr
+              this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
+            }
+          })
         })
-      }).catch((err) => {
-        xlog.error('[X-GIS] GeoJSON compile failed:', err)
-      })
+        .catch((err) => {
+          xlog.error('[X-GIS] GeoJSON compile failed:', err)
+        })
 
       // Setup shader variant if needed. The pipeline + layout must be
       // wired synchronously (they're stored on vectorTileShows and read
@@ -2915,9 +3295,18 @@ export class XGISMap {
     if (this._loaded || this.running) this._teardownForReinit()
 
     const scene = deserializeXGB(buffer)
-    const commands: SceneCommands = { loads: scene.loads, shows: scene.shows as unknown as SceneCommands['shows'] }
+    const commands: SceneCommands = {
+      loads: scene.loads,
+      shows: scene.shows as unknown as SceneCommands['shows'],
+    }
 
-    console.log('[X-GIS] Binary loaded:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
+    console.log(
+      '[X-GIS] Binary loaded:',
+      commands.loads.length,
+      'loads,',
+      commands.shows.length,
+      'shows',
+    )
 
     let ctx: GPUContext
     try {
@@ -2946,11 +3335,20 @@ export class XGISMap {
     this.renderer.setGraticuleEnabled(this._viewport.graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
     if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
-      try { this.pointRenderer = new PointRenderer(this.ctx) } catch (e) { xlog.warn('[X-GIS] PointRenderer init failed:', e) }
-      try { this.heatmapRenderer = new HeatmapRenderer(this.ctx) } catch (e) { xlog.warn('[X-GIS] HeatmapRenderer init failed:', e) }
+    try {
+      this.pointRenderer = new PointRenderer(this.ctx)
+    } catch (e) {
+      xlog.warn('[X-GIS] PointRenderer init failed:', e)
+    }
+    try {
+      this.heatmapRenderer = new HeatmapRenderer(this.ctx)
+    } catch (e) {
+      xlog.warn('[X-GIS] HeatmapRenderer init failed:', e)
+    }
 
     for (const load of commands.loads) {
-      const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
+      const url =
+        load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
       // SSRF guard: a .xgb scene's source URL is host-supplied. Block
       // private/loopback/non-http(s) targets before fetch AND re-check each
       // redirect hop (safeFetch follows manually) so an allowlisted host
@@ -3050,7 +3448,9 @@ export class XGISMap {
       // freeze the map; only a persistent fault (3 consecutive) halts the loop
       // (no 60×/sec spam). destroy()/device-loss exit via running/deviceLost.
       if (++this._frameFailures >= 3) {
-        xlog.error(`[X-GIS] render loop halted after ${this._frameFailures} consecutive frame failures`)
+        xlog.error(
+          `[X-GIS] render loop halted after ${this._frameFailures} consecutive frame failures`,
+        )
         this.running = false
         return
       }
@@ -3075,7 +3475,8 @@ export class XGISMap {
     if (this.hasPendingSourceWork()) return true
     const c = this.camera
     const canvas = this.ctx?.canvas
-    const w = canvas?.width ?? 0, h = canvas?.height ?? 0
+    const w = canvas?.width ?? 0,
+      h = canvas?.height ?? 0
     return (
       c.zoom !== this._lastSigZoom ||
       c.centerX !== this._lastSigCX ||
@@ -3109,7 +3510,12 @@ export class XGISMap {
       if (source.hasPendingLoads?.()) return true
       if (renderer.hasPendingUploads?.()) return true
       const stats = renderer.getDrawStats?.()
-      if (stats && (stats as { missedTiles?: number }).missedTiles && (stats as { missedTiles: number }).missedTiles > 0) return true
+      if (
+        stats &&
+        (stats as { missedTiles?: number }).missedTiles &&
+        (stats as { missedTiles: number }).missedTiles > 0
+      )
+        return true
     }
     return false
   }
@@ -3162,7 +3568,9 @@ export class XGISMap {
         linePipelineFallbackNoPick: this.renderer.linePipelineFallbackNoPick,
         // ?debug=overdraw substitution handles (read only in overdraw mode; the classifier bakes them into each show's draw closure — null on the production path):
         featureBindGroupLayout: this.renderer.featureBindGroupLayout,
-        fillPipelineOverdraw: this.renderer.fillPipelineOverdraw, fillPipelineOverdrawFeature: this.renderer.fillPipelineOverdrawFeature, linePipelineOverdraw: this.renderer.linePipelineOverdraw,
+        fillPipelineOverdraw: this.renderer.fillPipelineOverdraw,
+        fillPipelineOverdrawFeature: this.renderer.fillPipelineOverdrawFeature,
+        linePipelineOverdraw: this.renderer.linePipelineOverdraw,
       },
       traceRecorder: this._pendingTraceRecorder,
     })
@@ -3273,14 +3681,20 @@ export class XGISMap {
     const layer = this.getLayer(layerId)
     if (!layer) return undefined
     switch (property) {
-      case 'fill-color':   return layer.style.fill
-      case 'line-color':   return layer.style.stroke
+      case 'fill-color':
+        return layer.style.fill
+      case 'line-color':
+        return layer.style.stroke
       case 'fill-opacity':
       case 'line-opacity':
-      case 'opacity':      return layer.style.opacity
-      case 'line-width':   return layer.style.strokeWidth
-      case 'visibility':   return layer.style.visible ? 'visible' : 'none'
-      default:             return undefined
+      case 'opacity':
+        return layer.style.opacity
+      case 'line-width':
+        return layer.style.strokeWidth
+      case 'visibility':
+        return layer.style.visible ? 'visible' : 'none'
+      default:
+        return undefined
     }
   }
 
@@ -3300,19 +3714,28 @@ export class XGISMap {
   /** Mapbox-API parity `on()`/`off()` aliases — delegated to MapEventBus. */
   on(type: XGISMapEventType, listener: XGISMapListener): void
   on(type: XGISFeatureEventType, listener: XGISFeatureListener): void
-  on(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
+  on(
+    type: XGISFeatureEventType | XGISMapEventType,
+    listener: XGISFeatureListener | XGISMapListener,
+  ): void {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(this._eventBus.on as (t: any, l: any) => void)(type, listener)
   }
   off(type: XGISMapEventType, listener: XGISMapListener): void
   off(type: XGISFeatureEventType, listener: XGISFeatureListener): void
-  off(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
+  off(
+    type: XGISFeatureEventType | XGISMapEventType,
+    listener: XGISFeatureListener | XGISMapListener,
+  ): void {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(this._eventBus.off as (t: any, l: any) => void)(type, listener)
   }
   once(type: XGISMapEventType, listener: XGISMapListener): void
   once(type: XGISFeatureEventType, listener: XGISFeatureListener): void
-  once(type: XGISFeatureEventType | XGISMapEventType, listener: XGISFeatureListener | XGISMapListener): void {
+  once(
+    type: XGISFeatureEventType | XGISMapEventType,
+    listener: XGISFeatureListener | XGISMapListener,
+  ): void {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(this._eventBus.once as (t: any, l: any) => void)(type, listener)
   }
@@ -3524,7 +3947,12 @@ export class XGISMap {
     // run() install block (~2088) — clear them so a destroyed map is neither
     // pinned nor reported loaded.
     if (typeof window !== 'undefined') {
-      const w = window as unknown as { __xgisReady?: boolean; __xgisSnapshot?: unknown; __xgisStartDrawOrderTrace?: unknown; __xgisReplaySnapshot?: unknown }
+      const w = window as unknown as {
+        __xgisReady?: boolean
+        __xgisSnapshot?: unknown
+        __xgisStartDrawOrderTrace?: unknown
+        __xgisReplaySnapshot?: unknown
+      }
       w.__xgisReady = false
       delete w.__xgisSnapshot
       delete w.__xgisStartDrawOrderTrace

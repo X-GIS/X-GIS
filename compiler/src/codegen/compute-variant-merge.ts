@@ -107,8 +107,14 @@ export function mergeComputeAddendumIntoVariant(
     // 'unpack4x8unorm(compute_out_fill[input.feat_id])' WGSL at the
     // marker substitution site, semantic-equivalent to the legacy
     // string emit under AC6 paren-density allowance.
-    fillExpr: hasFill ? emitComputeOutputReadExprNode(addendum.bindings.find(b => b.paintAxis === 'fill')!) : variant.fillExpr,
-    strokeExpr: hasStroke ? emitComputeOutputReadExprNode(addendum.bindings.find(b => b.paintAxis === 'stroke-color')!) : variant.strokeExpr,
+    fillExpr: hasFill
+      ? emitComputeOutputReadExprNode(addendum.bindings.find((b) => b.paintAxis === 'fill')!)
+      : variant.fillExpr,
+    strokeExpr: hasStroke
+      ? emitComputeOutputReadExprNode(
+          addendum.bindings.find((b) => b.paintAxis === 'stroke-color')!,
+        )
+      : variant.strokeExpr,
     // Phase 2.5 US-002 — when the compute kernel takes over the axis,
     // the addendum produces a non-default fillExpr / strokeExpr
     // (`bindingRefs[i]` etc.) → the default-sentinel flag must clear
@@ -127,6 +133,6 @@ export function mergeComputeAddendumIntoVariant(
     // expects to match the preamble decl order. Deep-copy each spec
     // so a later mutation on the addendum (e.g. caller reusing the
     // builder output) can't reach into the merged variant's state.
-    computeBindings: addendum.bindings.map(b => ({ ...b })),
+    computeBindings: addendum.bindings.map((b) => ({ ...b })),
   }
 }

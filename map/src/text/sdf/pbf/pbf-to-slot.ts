@@ -16,8 +16,8 @@
 import type { GlyphRasterResult } from '../glyph-rasterizer'
 import type { PbfGlyph } from './glyphs-proto'
 
-export const PBF_REF_SIZE = 24  // MapLibre rasterises all glyph PBFs at 24 px
-const PBF_BUFFER = 3          // px of outer buffer around the glyph bbox
+export const PBF_REF_SIZE = 24 // MapLibre rasterises all glyph PBFs at 24 px
+const PBF_BUFFER = 3 // px of outer buffer around the glyph bbox
 
 // One fresh Uint8Array per call — the result is returned and the
 // caller (atlas-host) takes ownership. A shared scratch would alias
@@ -40,8 +40,8 @@ export function pbfGlyphToSlot(
   // Latin "Seoul"/"l"). The returned `rasterFontSize: PBF_REF_SIZE`
   // tells the renderer to scale this glyph by sizePx/24 at draw
   // time, so display size is unchanged while the SDF stays 1:1.
-  void rasterFontSize  // PBF size is source-fixed, not the global raster
-  void sdfRadius       // distance encoding already matches engine convention
+  void rasterFontSize // PBF size is source-fixed, not the global raster
+  void sdfRadius // distance encoding already matches engine convention
   // PBF is baked at its native 24-px reference. Slot is sized for
   // PBF native at this scale (slot=64 fits 24 + 2*8 sdfRadius +
   // headroom). Copy the FULL PBF bitmap (g.width + 2·buffer wide,

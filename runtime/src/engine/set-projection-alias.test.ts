@@ -19,12 +19,20 @@ const ALIASES_EXPECTED: Record<string, string> = {
 describe('setProjection alias normalization', () => {
   it('every alias maps to a key the renderFrame projType lookup recognizes', () => {
     const PROJTYPE_KEYS = new Set([
-      'mercator', 'equirectangular', 'natural_earth',
-      'orthographic', 'azimuthal_equidistant', 'stereographic',
-      'oblique_mercator', 'globe',
+      'mercator',
+      'equirectangular',
+      'natural_earth',
+      'orthographic',
+      'azimuthal_equidistant',
+      'stereographic',
+      'oblique_mercator',
+      'globe',
     ])
     for (const canonical of Object.values(ALIASES_EXPECTED)) {
-      expect(PROJTYPE_KEYS.has(canonical), `alias target "${canonical}" missing from projType lookup`).toBe(true)
+      expect(
+        PROJTYPE_KEYS.has(canonical),
+        `alias target "${canonical}" missing from projType lookup`,
+      ).toBe(true)
     }
   })
 

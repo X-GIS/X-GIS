@@ -172,7 +172,7 @@ classDiagram
   `TileSource` backends. `attachBackend(backend)` calls `backend.attach(sink)`,
   pushes it onto `backends[]`, merges `meta`, and checks `layoutVersion`
   (`tile-catalog.ts:254`). `GeoJSONRuntimeBackend` is the one backend the
-  catalog *constructs itself* — lazily inside `setRawParts`.
+  catalog _constructs itself_ — lazily inside `setRawParts`.
 - **Realization (`<|..`)** = each backend `implements TileSource`. Confirmed
   classes under `data/sources/`: `PMTilesBackend`, `VirtualPMTilesBackend`,
   `GeoJSONRuntimeBackend`, `SyntheticEarthSurfaceBackend`,
@@ -182,7 +182,7 @@ classDiagram
   (HTTP range-merge), and **TileJSON** sources reach the catalog through the
   same `prewarmSkeleton` / fetch path as the others — no dedicated class.
 - **Push contract (`TileSourceSink`)** — the catalog hands each backend a
-  *fresh* sink via `makeSink(backend)` (one per backend, not a singleton) so
+  _fresh_ sink via `makeSink(backend)` (one per backend, not a singleton) so
   `acceptResult` can stamp `originBackend` for per-backend eviction. A backend
   is fire-and-forget: `loadTile(key)` returns void and later calls
   `sink.acceptResult(key, result, sourceLayer)` (or `null` for a miss). A

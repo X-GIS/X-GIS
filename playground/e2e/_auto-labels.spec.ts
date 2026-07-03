@@ -17,13 +17,16 @@ test('auto-labels: label-["{.name}"] resolves per feature', async ({ page }) => 
   await page.setViewportSize({ width: 1280, height: 800 })
 
   const errors: string[] = []
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(m.text())
+  })
   page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`))
 
   await page.goto('/examples/labels.html', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 20_000 },
+    null,
+    { timeout: 20_000 },
   )
   await page.waitForTimeout(1_500)
 
@@ -32,14 +35,13 @@ test('auto-labels: label-["{.name}"] resolves per feature', async ({ page }) => 
 
   const stats = await page.evaluate(async () => {
     const canvas = document.getElementById('map') as HTMLCanvasElement
-    const blob = await new Promise<Blob | null>((res) =>
-      canvas.toBlob((b) => res(b), 'image/png'),
-    )
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob((b) => res(b), 'image/png'))
     if (!blob) return { error: 'no blob' }
     const url = URL.createObjectURL(blob)
     const img = await new Promise<HTMLImageElement>((res, rej) => {
       const i = new Image()
-      i.onload = () => res(i); i.onerror = () => rej(new Error('decode'))
+      i.onload = () => res(i)
+      i.onerror = () => rej(new Error('decode'))
       i.src = url
     })
     const off = new OffscreenCanvas(img.width, img.height)
@@ -74,10 +76,11 @@ test('auto-labels: label-["{.name}"] resolves per feature', async ({ page }) => 
   //   - text rendered with default/passed color → pureWhite > 0
   //   - OR labels rendered but invisible (still validates pipeline)
   // The page errors check below catches the actual pipeline-broken case.
-  const gpuErrors = errors.filter(e =>
-    !e.includes('favicon') &&
-    !e.includes('Failed to load resource') &&
-    !e.includes('countries.geojson'),
+  const gpuErrors = errors.filter(
+    (e) =>
+      !e.includes('favicon') &&
+      !e.includes('Failed to load resource') &&
+      !e.includes('countries.geojson'),
   )
   expect(gpuErrors, 'no GPU validation errors').toEqual([])
 })

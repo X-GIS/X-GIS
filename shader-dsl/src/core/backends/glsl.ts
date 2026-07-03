@@ -39,26 +39,42 @@ export { UnsupportedFeatureError } from '../backend'
 
 function glslType(t: ShaderType): string {
   switch (t.kind) {
-    case 'scalar': return ({ f32: 'float', i32: 'int', u32: 'uint', bool: 'bool' } as const)[t.scalar]
-    case 'vec': return `${({ f32: 'vec', i32: 'ivec', u32: 'uvec' } as const)[t.elem]}${t.n}`
-    case 'mat': return `mat${t.n}`
-    case 'struct': return t.name
+    case 'scalar':
+      return ({ f32: 'float', i32: 'int', u32: 'uint', bool: 'bool' } as const)[t.scalar]
+    case 'vec':
+      return `${({ f32: 'vec', i32: 'ivec', u32: 'uvec' } as const)[t.elem]}${t.n}`
+    case 'mat':
+      return `mat${t.n}`
+    case 'struct':
+      return t.name
     case 'array': {
-      if (t.size === undefined) throw new UnsupportedFeatureError('glsl-es300: runtime-sized array (storage buffer) — needs a data-texture (later step)')
+      if (t.size === undefined)
+        throw new UnsupportedFeatureError(
+          'glsl-es300: runtime-sized array (storage buffer) — needs a data-texture (later step)',
+        )
       return `${glslType(t.elem)}[${t.size}]`
     }
     case 'texture':
-      if (t.dim === '2d-ms') throw new UnsupportedFeatureError('glsl-es300: multisampled texture sampling — resolve first (later step)')
+      if (t.dim === '2d-ms')
+        throw new UnsupportedFeatureError(
+          'glsl-es300: multisampled texture sampling — resolve first (later step)',
+        )
       return 'sampler2D' // GLSL fuses texture+sampler into one combined sampler
-    case 'sampler': throw new UnsupportedFeatureError('glsl-es300: standalone sampler — fused into the combined sampler2D')
-    case 'void': return 'void'
+    case 'sampler':
+      throw new UnsupportedFeatureError(
+        'glsl-es300: standalone sampler — fused into the combined sampler2D',
+      )
+    case 'void':
+      return 'void'
   }
 }
 
 // An integer scalar/vector — GLSL ES requires `flat` interpolation on such inter-stage varyings.
 function isIntType(t: ShaderType): boolean {
-  return (t.kind === 'scalar' && (t.scalar === 'i32' || t.scalar === 'u32')) ||
+  return (
+    (t.kind === 'scalar' && (t.scalar === 'i32' || t.scalar === 'u32')) ||
     (t.kind === 'vec' && (t.elem === 'i32' || t.elem === 'u32'))
+  )
 }
 
 function glslLit(value: number | boolean, t: ShaderType): string {
@@ -112,7 +128,11 @@ function topoSortStructs(structs: readonly StructDecl[]): StructDecl[] {
 /** String fallback ONLY (#740 R3): sot-authored fields carry structured
  *  location/builtin — read those via ioAttr() below. This regex path survives
  *  solely for hand-built FuncDecl literals and bare `retAttr` strings. */
-function parseAttrString(attr: string | undefined): { location?: number; builtin?: string; interpolate?: string } {
+function parseAttrString(attr: string | undefined): {
+  location?: number
+  builtin?: string
+  interpolate?: string
+} {
   if (!attr) return {}
   const loc = attr.match(LOCATION_RE)
   if (loc) {
@@ -127,9 +147,22 @@ function parseAttrString(attr: string | undefined): { location?: number; builtin
 /** Structured-first IO attr read (#740 R3). `interpolate` rides along (#763 P4)
  *  so `@interpolate(flat)` float varyings emit GLSL `flat` — they used to
  *  interpolate smooth on WebGL2 while WGSL got provoking-vertex flat. */
-function ioAttr(src: { readonly location?: number; readonly builtin?: string; readonly interpolate?: string; readonly attr?: string } | undefined): { location?: number; builtin?: string; interpolate?: string } {
+function ioAttr(
+  src:
+    | {
+        readonly location?: number
+        readonly builtin?: string
+        readonly interpolate?: string
+        readonly attr?: string
+      }
+    | undefined,
+): { location?: number; builtin?: string; interpolate?: string } {
   if (!src) return {}
-  if (src.location !== undefined) return { location: src.location, ...(src.interpolate !== undefined ? { interpolate: src.interpolate } : {}) }
+  if (src.location !== undefined)
+    return {
+      location: src.location,
+      ...(src.interpolate !== undefined ? { interpolate: src.interpolate } : {}),
+    }
   if (src.builtin !== undefined) return { builtin: src.builtin }
   return parseAttrString(src.attr)
 }
@@ -153,12 +186,18 @@ const BUILTIN_OUT: Readonly<Record<string, string>> = {
 
 function builtinIn(b: string): string {
   const g = BUILTIN_IN[b]
-  if (!g) throw new UnsupportedFeatureError(`glsl-es300: unsupported input @builtin(${b}) — no readable gl_* mapping`)
+  if (!g)
+    throw new UnsupportedFeatureError(
+      `glsl-es300: unsupported input @builtin(${b}) — no readable gl_* mapping`,
+    )
   return g
 }
 function builtinOut(b: string): string {
   const g = BUILTIN_OUT[b]
-  if (!g) throw new UnsupportedFeatureError(`glsl-es300: unsupported output @builtin(${b}) — no writable gl_* mapping`)
+  if (!g)
+    throw new UnsupportedFeatureError(
+      `glsl-es300: unsupported output @builtin(${b}) — no writable gl_* mapping`,
+    )
   return g
 }
 
@@ -193,18 +232,33 @@ export const glslEs300Backend: Backend = {
   literal: glslLit,
   intrinsic: (name, args) => spellIntrinsic('glsl', name, args),
   localLet: (name, type, init) => `${glslType(type)} ${name} = ${init}`,
-  localVar: (name, type, init) => init !== undefined ? `${glslType(type)} ${name} = ${init}` : `${glslType(type)} ${name}`,
+  localVar: (name, type, init) =>
+    init !== undefined ? `${glslType(type)} ${name} = ${init}` : `${glslType(type)} ${name}`,
   constDecl: (name, type, value) => `const ${glslType(type)} ${name} = ${value};`,
   // GLSL ES requires the case label type to MATCH the switch scrutinee: a u32 scrutinee
   // needs `${value}u` labels (an int label is a compile error), an i32/int one stays bare.
-  caseLabel: (value, scrutType) => scrutType.kind === 'scalar' && scrutType.scalar === 'u32' ? `${value}u` : `${value}`,
+  caseLabel: (value, scrutType) =>
+    scrutType.kind === 'scalar' && scrutType.scalar === 'u32' ? `${value}u` : `${value}`,
   switchHead: (scrut) => `switch (${scrut}) {`,
   // C-style GLSL switch falls through — each case must `break` or it leaks into the next.
   caseBreak: 'break;',
-  rawStmt: () => { throw new UnsupportedFeatureError('glsl-es300: raw WGSL Stmt cannot lower to GLSL (backendOnly:wgsl)') },
-  placeholderStmt: () => { throw new UnsupportedFeatureError('glsl-es300: un-swapped placeholder Stmt — composer must run first') },
+  rawStmt: () => {
+    throw new UnsupportedFeatureError(
+      'glsl-es300: raw WGSL Stmt cannot lower to GLSL (backendOnly:wgsl)',
+    )
+  },
+  placeholderStmt: () => {
+    throw new UnsupportedFeatureError(
+      'glsl-es300: un-swapped placeholder Stmt — composer must run first',
+    )
+  },
   // ── Module-decl surface ──
-  emitConst: (c) => glslEs300Backend.constDecl(c.name, c.type, c.valueExpr ? emitExprNeutral(c.valueExpr, glslEs300Backend) : f32Lit(c.wgslValue)),
+  emitConst: (c) =>
+    glslEs300Backend.constDecl(
+      c.name,
+      c.type,
+      c.valueExpr ? emitExprNeutral(c.valueExpr, glslEs300Backend) : f32Lit(c.wgslValue),
+    ),
   // A NON-uniform struct (an IO output type, or a storage element struct) emits as a
   // plain GLSL struct; the `@location`/`@builtin` field attrs are stripped here — they
   // become `in`/`out` varyings at entry-IO lowering, not struct members.
@@ -218,15 +272,27 @@ export const glslEs300Backend: Backend = {
   // map), so the bare method fails closed to keep the offset SoT in one place. Storage is
   // gated out by assertCaps before emit; the throw here is belt-and-braces.
   emitBinding: (b) => {
-    if (b.type.kind === 'texture' || b.type.kind === 'sampler') return `uniform ${glslType(b.type)} ${b.name};`
-    if (b.space === 'storage') throw new UnsupportedFeatureError('glsl-es300: storage buffer (SSBO) — GLSL ES 3.00 has no SSBO; fail-closed')
-    throw new UnsupportedFeatureError(`glsl-es300: uniform struct binding '${b.name}' — std140 UBO is assembled by emitGlslModule (needs the struct map)`)
+    if (b.type.kind === 'texture' || b.type.kind === 'sampler')
+      return `uniform ${glslType(b.type)} ${b.name};`
+    if (b.space === 'storage')
+      throw new UnsupportedFeatureError(
+        'glsl-es300: storage buffer (SSBO) — GLSL ES 3.00 has no SSBO; fail-closed',
+      )
+    throw new UnsupportedFeatureError(
+      `glsl-es300: uniform struct binding '${b.name}' — std140 UBO is assembled by emitGlslModule (needs the struct map)`,
+    )
   },
   emitFunc: (f) => {
     // Entry funcs are lowered to varyings + main() by emitGlslModule; a stray entry
     // reaching emitFunc means the assembly bypassed that path — fail loudly.
-    if (isEntry(f)) throw new UnsupportedFeatureError(`glsl-es300: entry func '${f.name}' must lower via emitGlslModule's entry path`)
-    if (f.attrs?.length) throw new UnsupportedFeatureError(`glsl-es300: non-entry func '${f.name}' carries stage attrs (${f.attrs.join(' ')})`)
+    if (isEntry(f))
+      throw new UnsupportedFeatureError(
+        `glsl-es300: entry func '${f.name}' must lower via emitGlslModule's entry path`,
+      )
+    if (f.attrs?.length)
+      throw new UnsupportedFeatureError(
+        `glsl-es300: non-entry func '${f.name}' carries stage attrs (${f.attrs.join(' ')})`,
+      )
     const params = f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ')
     return `${glslType(f.ret)} ${f.name}(${params}) {\n${emitBody(f.body, 1, glslEs300Backend)}\n}`
   },
@@ -284,20 +350,29 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
   // `in` varyings: each entry param that is a struct contributes its @location fields;
   // a bare @location param contributes itself. @builtin fields read from gl_* globals.
   for (const p of f.params) {
-    const fields = p.type.kind === 'struct'
-      ? structByName(structs, p.type.name).fields.map((sf) => ({ name: sf.name, type: sf.type, ...ioAttr(sf) }))
-      // A bare entry param carries its stage attr as `attr` (the `@location(n)`/`@builtin(...)`
-      // string the location()/builtin() helpers emit) OR as direct location/builtin fields (raw IR).
-      : [{ name: p.name, type: p.type, ...ioAttr(p) }]
+    const fields =
+      p.type.kind === 'struct'
+        ? structByName(structs, p.type.name).fields.map((sf) => ({
+            name: sf.name,
+            type: sf.type,
+            ...ioAttr(sf),
+          }))
+        : // A bare entry param carries its stage attr as `attr` (the `@location(n)`/`@builtin(...)`
+          // string the location()/builtin() helpers emit) OR as direct location/builtin fields (raw IR).
+          [{ name: p.name, type: p.type, ...ioAttr(p) }]
     for (const s of fields) {
       if (s.builtin) continue
-      if (s.location === undefined) throw new UnsupportedFeatureError(`glsl-es300: entry '${f.name}' input '${s.name}' has neither @location nor @builtin`)
+      if (s.location === undefined)
+        throw new UnsupportedFeatureError(
+          `glsl-es300: entry '${f.name}' input '${s.name}' has neither @location nor @builtin`,
+        )
       // location qualifier ONLY on a vertex attribute; a fragment input varying drops it.
       const qual = stage === 'vertex' ? `layout(location = ${s.location}) ` : ''
       // GLSL ES requires `flat` on an integer inter-stage varying (a fragment-IN that carries
       // an int/uint can't be interpolated). @interpolate(flat) float varyings match it (#763 P4).
       // Vertex attributes (vertex-IN) are not varyings → no flat.
-      const flat = stage === 'fragment' && (isIntType(s.type) || s.interpolate === 'flat') ? 'flat ' : ''
+      const flat =
+        stage === 'fragment' && (isIntType(s.type) || s.interpolate === 'flat') ? 'flat ' : ''
       lines.push(`${qual}${flat}in ${glslType(s.type)} ${inName(s.name)};`)
     }
   }
@@ -307,22 +382,34 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
     // non-struct vertex output would emit as `out T _ret`, which can never link to a
     // fragment input named anything else. Fail closed instead of emitting a shader
     // pair that compiles and renders nothing.
-    throw new UnsupportedFeatureError(`glsl-es300: entry '${f.name}' returns a bare non-struct vertex output — GLSL links varyings by NAME; use an ioStruct so both stages share the field name`)
+    throw new UnsupportedFeatureError(
+      `glsl-es300: entry '${f.name}' returns a bare non-struct vertex output — GLSL links varyings by NAME; use an ioStruct so both stages share the field name`,
+    )
   }
-  const retFields = f.ret.kind === 'struct'
-    ? structByName(structs, f.ret.name).fields.map((sf) => ({ name: sf.name, type: sf.type, ...ioAttr(sf) }))
-    : f.ret.kind === 'void' ? []
-      : [{ name: '_ret', type: f.ret, ...parseAttrString(f.retAttr) }]
+  const retFields =
+    f.ret.kind === 'struct'
+      ? structByName(structs, f.ret.name).fields.map((sf) => ({
+          name: sf.name,
+          type: sf.type,
+          ...ioAttr(sf),
+        }))
+      : f.ret.kind === 'void'
+        ? []
+        : [{ name: '_ret', type: f.ret, ...parseAttrString(f.retAttr) }]
   for (const s of retFields) {
     if (s.builtin) continue
-    if (s.location === undefined) throw new UnsupportedFeatureError(`glsl-es300: entry '${f.name}' output '${s.name}' has neither @location nor @builtin`)
+    if (s.location === undefined)
+      throw new UnsupportedFeatureError(
+        `glsl-es300: entry '${f.name}' output '${s.name}' has neither @location nor @builtin`,
+      )
     // location qualifier ONLY on a fragment draw buffer; a vertex output varying drops it.
     const qual = stage === 'fragment' ? `layout(location = ${s.location}) ` : ''
     // `flat` on an integer VERTEX-OUT varying (matches the fragment-IN above), and on
     // @interpolate(flat) float varyings (#763 P4) — both sides derive from the same
     // structured field, so the qualifier stays link-matched. A fragment draw buffer
     // (fragment-OUT) is not interpolated → no flat.
-    const flat = stage === 'vertex' && (isIntType(s.type) || s.interpolate === 'flat') ? 'flat ' : ''
+    const flat =
+      stage === 'vertex' && (isIntType(s.type) || s.interpolate === 'flat') ? 'flat ' : ''
     lines.push(`${qual}${flat}out ${glslType(s.type)} ${s.name};`)
   }
 
@@ -342,7 +429,9 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
       body.push(`  ${glslType(p.type)} ${p.name};`)
       for (const sf of s.fields) {
         const { builtin } = ioAttr(sf)
-        body.push(`  ${p.name}.${sf.name} = ${builtin ? builtinInRead(builtin, sf.type) : inName(sf.name)};`)
+        body.push(
+          `  ${p.name}.${sf.name} = ${builtin ? builtinInRead(builtin, sf.type) : inName(sf.name)};`,
+        )
       }
       args.push(p.name)
     } else {
@@ -411,21 +500,34 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
 // (f32 lanes). A scalar field is one lane (u32 lanes are bitcast back); a vecN<f32> field is N
 // consecutive lanes recombined with a vec ctor. mat / vec<u32> fields are excluded (throw on
 // access). The CPU packs the struct in std430, so lane = byteOffset/4 reads the same field.
-type StructField = { lane: number; kind: 'scalar'; isU32: boolean } | { lane: number; kind: 'vec'; n: number }
-interface StructStorage { stride: number; fields: Map<string, StructField> }
+type StructField =
+  { lane: number; kind: 'scalar'; isU32: boolean } | { lane: number; kind: 'vec'; n: number }
+interface StructStorage {
+  stride: number
+  fields: Map<string, StructField>
+}
 
 function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
   const structsMap = new Map(m.structs.map((s) => [s.name, s]))
-  const f32Names = new Set<string>()                       // array<f32> storage
-  const structStorage = new Map<string, StructStorage>()   // array<Struct> storage
+  const f32Names = new Set<string>() // array<f32> storage
+  const structStorage = new Map<string, StructStorage>() // array<Struct> storage
   for (const b of m.bindings) {
     if (b.space !== 'storage') continue
-    if (b.type.kind !== 'array') throw new UnsupportedFeatureError(`glsl-es300 storage-emul: binding '${b.name}' is not an array`)
+    if (b.type.kind !== 'array')
+      throw new UnsupportedFeatureError(
+        `glsl-es300 storage-emul: binding '${b.name}' is not an array`,
+      )
     const elem = b.type.elem
-    if (elem.kind === 'scalar' && elem.scalar === 'f32') { f32Names.add(b.name); continue }
+    if (elem.kind === 'scalar' && elem.scalar === 'f32') {
+      f32Names.add(b.name)
+      continue
+    }
     if (elem.kind === 'struct') {
       const sd = structsMap.get(elem.name)
-      if (!sd) throw new UnsupportedFeatureError(`glsl-es300 storage-emul: struct '${elem.name}' for binding '${b.name}' not in module`)
+      if (!sd)
+        throw new UnsupportedFeatureError(
+          `glsl-es300 storage-emul: struct '${elem.name}' for binding '${b.name}' not in module`,
+        )
       const layout = wgslLayout(sd, 'std430', structsMap) // the same std430 the host packs against
       const fields = new Map<string, StructField>()
       for (const f of sd.fields) {
@@ -433,7 +535,10 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
         if (fl.offset % 4 !== 0) continue // not f32-lane-aligned → unreadable (throws on access)
         const lane = fl.offset / 4
         if (f.type.kind === 'scalar') {
-          if (f.type.scalar === 'i32') throw new UnsupportedFeatureError(`glsl-es300 storage-emul: i32 struct field '${f.name}' — only f32/u32 lanes supported`)
+          if (f.type.scalar === 'i32')
+            throw new UnsupportedFeatureError(
+              `glsl-es300 storage-emul: i32 struct field '${f.name}' — only f32/u32 lanes supported`,
+            )
           fields.set(f.name, { lane, kind: 'scalar', isU32: f.type.scalar === 'u32' })
         } else if (f.type.kind === 'vec' && f.type.elem === 'f32') {
           fields.set(f.name, { lane, kind: 'vec', n: f.type.n })
@@ -442,14 +547,23 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
       structStorage.set(b.name, { stride: layout.size / 4, fields })
       continue
     }
-    throw new UnsupportedFeatureError(`glsl-es300 storage-emul: binding '${b.name}' — array<f32> and array<Struct(scalar fields)> supported; a top-level array<u32/i32/vecN> needs typed packing`)
+    throw new UnsupportedFeatureError(
+      `glsl-es300 storage-emul: binding '${b.name}' — array<f32> and array<Struct(scalar fields)> supported; a top-level array<u32/i32/vecN> needs typed packing`,
+    )
   }
   if (f32Names.size === 0 && structStorage.size === 0) return m
   const allNames = new Set<string>([...f32Names, ...structStorage.keys()])
   // every storage binding → a sampler2D (R32F data texture) uniform; same name/group/binding.
-  const bindings = m.bindings.map((b): BindingDecl => allNames.has(b.name) ? { ...b, space: 'uniform', type: texture2dfT } : b)
+  const bindings = m.bindings.map((b): BindingDecl =>
+    allNames.has(b.name) ? { ...b, space: 'uniform', type: texture2dfT } : b,
+  )
   const u32lit = (value: number): Expr => ({ op: 'lit', type: u32T, value })
-  const fetch = (name: string, lane: Expr): Expr => ({ op: 'call', type: f32T, fn: 'storageFetchF32', args: [{ op: 'varref', type: texture2dfT, name }, lane] })
+  const fetch = (name: string, lane: Expr): Expr => ({
+    op: 'call',
+    type: f32T,
+    fn: 'storageFetchF32',
+    args: [{ op: 'varref', type: texture2dfT, name }, lane],
+  })
   const rE = (e: Expr): Expr => {
     switch (e.op) {
       case 'member': {
@@ -458,9 +572,18 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
         if (b.op === 'index' && b.base.op === 'varref' && structStorage.has(b.base.name)) {
           const ss = structStorage.get(b.base.name)!
           const fl = ss.fields.get(e.field)
-          if (!fl) throw new UnsupportedFeatureError(`glsl-es300 storage-emul: '${b.base.name}[i].${e.field}' — mat / vec<u32> / nested-struct fields not supported (only scalar + vecN<f32> lanes)`)
+          if (!fl)
+            throw new UnsupportedFeatureError(
+              `glsl-es300 storage-emul: '${b.base.name}[i].${e.field}' — mat / vec<u32> / nested-struct fields not supported (only scalar + vecN<f32> lanes)`,
+            )
           // baseLane = i*STRIDE + field-lane; a scalar reads it, a vecN reads N consecutive lanes.
-          const baseLane: Expr = { op: 'binop', type: u32T, bop: '+', a: { op: 'binop', type: u32T, bop: '*', a: rE(b.idx), b: u32lit(ss.stride) }, b: u32lit(fl.lane) }
+          const baseLane: Expr = {
+            op: 'binop',
+            type: u32T,
+            bop: '+',
+            a: { op: 'binop', type: u32T, bop: '*', a: rE(b.idx), b: u32lit(ss.stride) },
+            b: u32lit(fl.lane),
+          }
           if (fl.kind === 'scalar') {
             const f = fetch(b.base.name, baseLane)
             return fl.isU32 ? { op: 'call', type: e.type, fn: 'bitcastU32', args: [f] } : f
@@ -468,7 +591,8 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
           // vecN<f32> field → vecN(fetch(base), fetch(base+1), …, fetch(base+N-1))
           const comps: Expr[] = []
           for (let k = 0; k < fl.n; k++) {
-            const lane: Expr = k === 0 ? baseLane : { op: 'binop', type: u32T, bop: '+', a: baseLane, b: u32lit(k) }
+            const lane: Expr =
+              k === 0 ? baseLane : { op: 'binop', type: u32T, bop: '+', a: baseLane, b: u32lit(k) }
             comps.push(fetch(b.base.name, lane))
           }
           return { op: 'construct', type: e.type, args: comps }
@@ -476,31 +600,73 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
         return { ...e, base: rE(e.base) }
       }
       case 'index':
-        if (e.base.op === 'varref' && f32Names.has(e.base.name)) return fetch(e.base.name, rE(e.idx))
-        if (e.base.op === 'varref' && structStorage.has(e.base.name)) throw new UnsupportedFeatureError(`glsl-es300 storage-emul: storage struct element '${e.base.name}[i]' used without a .field access`)
+        if (e.base.op === 'varref' && f32Names.has(e.base.name))
+          return fetch(e.base.name, rE(e.idx))
+        if (e.base.op === 'varref' && structStorage.has(e.base.name))
+          throw new UnsupportedFeatureError(
+            `glsl-es300 storage-emul: storage struct element '${e.base.name}[i]' used without a .field access`,
+          )
         return { ...e, base: rE(e.base), idx: rE(e.idx) }
-      case 'binop': return { ...e, a: rE(e.a), b: rE(e.b) }
-      case 'compare': return { ...e, a: rE(e.a), b: rE(e.b) }
-      case 'logical': return { ...e, a: rE(e.a), b: rE(e.b) }
-      case 'unop': return { ...e, a: rE(e.a) }
-      case 'call': return { ...e, args: e.args.map(rE) }
-      case 'construct': return { ...e, args: e.args.map(rE) }
-      case 'select': return { ...e, cond: rE(e.cond), ifTrue: rE(e.ifTrue), ifFalse: rE(e.ifFalse) }
-      case 'matchExpr': return { ...e, scrutinee: rE(e.scrutinee), cases: e.cases.map(([v, x]) => [v, rE(x)] as const), default: rE(e.default) }
-      default: return e // lit / constref / param / varref
+      case 'binop':
+        return { ...e, a: rE(e.a), b: rE(e.b) }
+      case 'compare':
+        return { ...e, a: rE(e.a), b: rE(e.b) }
+      case 'logical':
+        return { ...e, a: rE(e.a), b: rE(e.b) }
+      case 'unop':
+        return { ...e, a: rE(e.a) }
+      case 'call':
+        return { ...e, args: e.args.map(rE) }
+      case 'construct':
+        return { ...e, args: e.args.map(rE) }
+      case 'select':
+        return { ...e, cond: rE(e.cond), ifTrue: rE(e.ifTrue), ifFalse: rE(e.ifFalse) }
+      case 'matchExpr':
+        return {
+          ...e,
+          scrutinee: rE(e.scrutinee),
+          cases: e.cases.map(([v, x]) => [v, rE(x)] as const),
+          default: rE(e.default),
+        }
+      default:
+        return e // lit / constref / param / varref
     }
   }
   const rS = (s: Stmt): Stmt => {
     switch (s.s) {
-      case 'let': return { ...s, expr: rE(s.expr) }
-      case 'var': return { ...s, init: s.init !== undefined ? rE(s.init) : undefined }
-      case 'assign': return { ...s, target: rE(s.target), expr: rE(s.expr) }
-      case 'assignOp': return { ...s, target: rE(s.target), expr: rE(s.expr) }
-      case 'return': return s.expr !== undefined ? { ...s, expr: rE(s.expr) } : s
-      case 'if': return { ...s, arms: s.arms.map((a) => ({ cond: rE(a.cond), body: a.body.map(rS) })), elseBody: s.elseBody?.map(rS) }
-      case 'for': return { ...s, init: rS(s.init), cond: rE(s.cond), update: rS(s.update), body: s.body.map(rS) }
-      case 'switch': return { ...s, scrut: rE(s.scrut), cases: s.cases.map((c) => ({ value: c.value, body: c.body.map(rS) })), defaultBody: s.defaultBody?.map(rS) }
-      default: return s
+      case 'let':
+        return { ...s, expr: rE(s.expr) }
+      case 'var':
+        return { ...s, init: s.init !== undefined ? rE(s.init) : undefined }
+      case 'assign':
+        return { ...s, target: rE(s.target), expr: rE(s.expr) }
+      case 'assignOp':
+        return { ...s, target: rE(s.target), expr: rE(s.expr) }
+      case 'return':
+        return s.expr !== undefined ? { ...s, expr: rE(s.expr) } : s
+      case 'if':
+        return {
+          ...s,
+          arms: s.arms.map((a) => ({ cond: rE(a.cond), body: a.body.map(rS) })),
+          elseBody: s.elseBody?.map(rS),
+        }
+      case 'for':
+        return {
+          ...s,
+          init: rS(s.init),
+          cond: rE(s.cond),
+          update: rS(s.update),
+          body: s.body.map(rS),
+        }
+      case 'switch':
+        return {
+          ...s,
+          scrut: rE(s.scrut),
+          cases: s.cases.map((c) => ({ value: c.value, body: c.body.map(rS) })),
+          defaultBody: s.defaultBody?.map(rS),
+        }
+      default:
+        return s
     }
   }
   return { ...m, bindings, funcs: m.funcs.map((f) => ({ ...f, body: f.body.map(rS) })) }
@@ -530,80 +696,181 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
 // untouched. FAIL-CLOSED (operationalizes the gather-only invariant, not trusted): a
 // scatter (write index != gid), >1 output write, or a gid use other than `.x` throws.
 export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
-  const entry = m.funcs.find((f) => f.stage === 'compute' || f.attrs?.some((a) => a.startsWith('@compute')))
-  if (!entry) throw new UnsupportedFeatureError('glsl-es300 compute-emul: no @compute entry in module')
-  const gid = entry.params.find((p) => (ioAttr(p).builtin) === 'global_invocation_id')
-  if (!gid) throw new UnsupportedFeatureError('glsl-es300 compute-emul: @compute entry has no @builtin(global_invocation_id) param')
+  const entry = m.funcs.find(
+    (f) => f.stage === 'compute' || f.attrs?.some((a) => a.startsWith('@compute')),
+  )
+  if (!entry)
+    throw new UnsupportedFeatureError('glsl-es300 compute-emul: no @compute entry in module')
+  const gid = entry.params.find((p) => ioAttr(p).builtin === 'global_invocation_id')
+  if (!gid)
+    throw new UnsupportedFeatureError(
+      'glsl-es300 compute-emul: @compute entry has no @builtin(global_invocation_id) param',
+    )
   const outBinding = m.bindings.find((b) => b.space === 'storage' && b.access === 'read_write')
-  if (!outBinding) throw new UnsupportedFeatureError('glsl-es300 compute-emul: no read_write storage output binding to map to the fragment colour output')
+  if (!outBinding)
+    throw new UnsupportedFeatureError(
+      'glsl-es300 compute-emul: no read_write storage output binding to map to the fragment colour output',
+    )
   const uCount = m.bindings.find((b) => b.space === 'uniform')
-  if (!uCount) throw new UnsupportedFeatureError('glsl-es300 compute-emul: no uniform binding (u_count) to source the output-row width from')
+  if (!uCount)
+    throw new UnsupportedFeatureError(
+      'glsl-es300 compute-emul: no uniform binding (u_count) to source the output-row width from',
+    )
 
-  const isGidX = (e: Expr): boolean => e.op === 'member' && e.field === 'x' && e.base.op === 'param' && e.base.name === gid.name
+  const isGidX = (e: Expr): boolean =>
+    e.op === 'member' && e.field === 'x' && e.base.op === 'param' && e.base.name === gid.name
 
   // the linear texel index from gl_FragCoord (pixel-center → floor is exact in range).
   const fragPos: Expr = { op: 'param', type: vec4fT, name: 'xgis_frag_pos' }
-  const u32floor = (f: 'x' | 'y'): Expr => ({ op: 'call', type: u32T, fn: 'u32', args: [{ op: 'call', type: f32T, fn: 'floor', args: [{ op: 'member', type: f32T, base: fragPos, field: f }] }] })
-  const width: Expr = { op: 'member', type: u32T, base: { op: 'varref', type: uCount.type, name: uCount.name }, field: 'y' }
-  const fidExpr: Expr = { op: 'binop', type: u32T, bop: '+', a: u32floor('x'), b: { op: 'binop', type: u32T, bop: '*', a: u32floor('y'), b: width } }
+  const u32floor = (f: 'x' | 'y'): Expr => ({
+    op: 'call',
+    type: u32T,
+    fn: 'u32',
+    args: [
+      {
+        op: 'call',
+        type: f32T,
+        fn: 'floor',
+        args: [{ op: 'member', type: f32T, base: fragPos, field: f }],
+      },
+    ],
+  })
+  const width: Expr = {
+    op: 'member',
+    type: u32T,
+    base: { op: 'varref', type: uCount.type, name: uCount.name },
+    field: 'y',
+  }
+  const fidExpr: Expr = {
+    op: 'binop',
+    type: u32T,
+    bop: '+',
+    a: u32floor('x'),
+    b: { op: 'binop', type: u32T, bop: '*', a: u32floor('y'), b: width },
+  }
 
   // Expr rewrite: gid.x → fidExpr; a bare gid param ref (gid.y/.z or whole vec) is a
   // non-gather use → fail-closed; everything else recurses (exhaustive, mirrors rE in
   // lowerStorageToDataTexture).
   const rE = (e: Expr): Expr => {
     if (isGidX(e)) return fidExpr
-    if (e.op === 'param' && e.name === gid.name) throw new UnsupportedFeatureError(`glsl-es300 compute-emul: global_invocation_id used other than '.x' — only a 1-D linear invocation index is supported`)
+    if (e.op === 'param' && e.name === gid.name)
+      throw new UnsupportedFeatureError(
+        `glsl-es300 compute-emul: global_invocation_id used other than '.x' — only a 1-D linear invocation index is supported`,
+      )
     switch (e.op) {
-      case 'member': return { ...e, base: rE(e.base) }
-      case 'index': return { ...e, base: rE(e.base), idx: rE(e.idx) }
-      case 'binop': return { ...e, a: rE(e.a), b: rE(e.b) }
-      case 'compare': return { ...e, a: rE(e.a), b: rE(e.b) }
-      case 'logical': return { ...e, a: rE(e.a), b: rE(e.b) }
-      case 'unop': return { ...e, a: rE(e.a) }
-      case 'call': return { ...e, args: e.args.map(rE) }
-      case 'construct': return { ...e, args: e.args.map(rE) }
-      case 'select': return { ...e, cond: rE(e.cond), ifTrue: rE(e.ifTrue), ifFalse: rE(e.ifFalse) }
-      case 'matchExpr': return { ...e, scrutinee: rE(e.scrutinee), cases: e.cases.map(([v, x]) => [v, rE(x)] as const), default: rE(e.default) }
-      default: return e // lit / constref / param(non-gid) / varref
+      case 'member':
+        return { ...e, base: rE(e.base) }
+      case 'index':
+        return { ...e, base: rE(e.base), idx: rE(e.idx) }
+      case 'binop':
+        return { ...e, a: rE(e.a), b: rE(e.b) }
+      case 'compare':
+        return { ...e, a: rE(e.a), b: rE(e.b) }
+      case 'logical':
+        return { ...e, a: rE(e.a), b: rE(e.b) }
+      case 'unop':
+        return { ...e, a: rE(e.a) }
+      case 'call':
+        return { ...e, args: e.args.map(rE) }
+      case 'construct':
+        return { ...e, args: e.args.map(rE) }
+      case 'select':
+        return { ...e, cond: rE(e.cond), ifTrue: rE(e.ifTrue), ifFalse: rE(e.ifFalse) }
+      case 'matchExpr':
+        return {
+          ...e,
+          scrutinee: rE(e.scrutinee),
+          cases: e.cases.map(([v, x]) => [v, rE(x)] as const),
+          default: rE(e.default),
+        }
+      default:
+        return e // lit / constref / param(non-gid) / varref
     }
   }
 
   let writes = 0
   const rS = (s: Stmt): Stmt => {
     // the SOLE read_write-storage write `out[gid.x] = E` → `return E` (R32UI draw buffer).
-    if (s.s === 'assign' && s.target.op === 'index' && s.target.base.op === 'varref' && s.target.base.name === outBinding.name) {
+    if (
+      s.s === 'assign' &&
+      s.target.op === 'index' &&
+      s.target.base.op === 'varref' &&
+      s.target.base.name === outBinding.name
+    ) {
       writes++
-      if (!isGidX(s.target.idx)) throw new UnsupportedFeatureError(`glsl-es300 compute-emul: output write '${outBinding.name}[…]' is not at the invocation index (scatter / non-gather kernel unsupported)`)
+      if (!isGidX(s.target.idx))
+        throw new UnsupportedFeatureError(
+          `glsl-es300 compute-emul: output write '${outBinding.name}[…]' is not at the invocation index (scatter / non-gather kernel unsupported)`,
+        )
       return { s: 'return', expr: rE(s.expr) }
     }
     switch (s.s) {
-      case 'let': return { ...s, expr: rE(s.expr) }
-      case 'var': return { ...s, init: s.init !== undefined ? rE(s.init) : undefined }
-      case 'assign': return { ...s, target: rE(s.target), expr: rE(s.expr) }
-      case 'assignOp': return { ...s, target: rE(s.target), expr: rE(s.expr) }
-      case 'return': return s.expr !== undefined ? { ...s, expr: rE(s.expr) } : { s: 'discard' } // bounds-guard early-out → discard
-      case 'if': return { ...s, arms: s.arms.map((a) => ({ cond: rE(a.cond), body: a.body.map(rS) })), elseBody: s.elseBody?.map(rS) }
-      case 'for': return { ...s, init: rS(s.init), cond: rE(s.cond), update: rS(s.update), body: s.body.map(rS) }
-      case 'switch': return { ...s, scrut: rE(s.scrut), cases: s.cases.map((c) => ({ value: c.value, body: c.body.map(rS) })), defaultBody: s.defaultBody?.map(rS) }
-      default: return s // discard
+      case 'let':
+        return { ...s, expr: rE(s.expr) }
+      case 'var':
+        return { ...s, init: s.init !== undefined ? rE(s.init) : undefined }
+      case 'assign':
+        return { ...s, target: rE(s.target), expr: rE(s.expr) }
+      case 'assignOp':
+        return { ...s, target: rE(s.target), expr: rE(s.expr) }
+      case 'return':
+        return s.expr !== undefined ? { ...s, expr: rE(s.expr) } : { s: 'discard' } // bounds-guard early-out → discard
+      case 'if':
+        return {
+          ...s,
+          arms: s.arms.map((a) => ({ cond: rE(a.cond), body: a.body.map(rS) })),
+          elseBody: s.elseBody?.map(rS),
+        }
+      case 'for':
+        return {
+          ...s,
+          init: rS(s.init),
+          cond: rE(s.cond),
+          update: rS(s.update),
+          body: s.body.map(rS),
+        }
+      case 'switch':
+        return {
+          ...s,
+          scrut: rE(s.scrut),
+          cases: s.cases.map((c) => ({ value: c.value, body: c.body.map(rS) })),
+          defaultBody: s.defaultBody?.map(rS),
+        }
+      default:
+        return s // discard
     }
   }
 
   const newBody = entry.body.map(rS)
-  if (writes !== 1) throw new UnsupportedFeatureError(`glsl-es300 compute-emul: expected exactly ONE output write to '${outBinding.name}', found ${writes} (only a gather-only single-output kernel maps to fragment-GPGPU)`)
+  if (writes !== 1)
+    throw new UnsupportedFeatureError(
+      `glsl-es300 compute-emul: expected exactly ONE output write to '${outBinding.name}', found ${writes} (only a gather-only single-output kernel maps to fragment-GPGPU)`,
+    )
 
   const rewritten: FuncDecl = {
     ...entry,
     attrs: ['@fragment'],
-    params: [{ name: 'xgis_frag_pos', type: vec4fT, builtin: 'position' }, ...entry.params.filter((p) => p !== gid)],
+    params: [
+      { name: 'xgis_frag_pos', type: vec4fT, builtin: 'position' },
+      ...entry.params.filter((p) => p !== gid),
+    ],
     ret: u32T,
     retAttr: '@location(0)',
     body: newBody,
   }
-  return { ...m, bindings: m.bindings.filter((b) => b !== outBinding), funcs: m.funcs.map((f) => (f === entry ? rewritten : f)) }
+  return {
+    ...m,
+    bindings: m.bindings.filter((b) => b !== outBinding),
+    funcs: m.funcs.map((f) => (f === entry ? rewritten : f)),
+  }
 }
 
-export function emitGlslModule(m: ModuleDecl, stage?: 'vertex' | 'fragment', opts?: { emulateStorage?: boolean; emulateCompute?: boolean }): string {
+export function emitGlslModule(
+  m: ModuleDecl,
+  stage?: 'vertex' | 'fragment',
+  opts?: { emulateStorage?: boolean; emulateCompute?: boolean },
+): string {
   // autoVars BEFORE lowerModule (inside lowerForBackend), same order as the WGSL backend /
   // CPU oracle — materialising assigned plain-value bindings into real vars is BACKEND-NEUTRAL.
   // Opt-in storage→data-texture emulation runs FIRST so the rewritten module carries no
@@ -612,8 +879,10 @@ export function emitGlslModule(m: ModuleDecl, stage?: 'vertex' | 'fragment', opt
   // read_write `out_color` binding, which lowerStorageToDataTexture would throw on),
   // then storage→data-texture converts the remaining `feat_data` read. emulateCompute
   // IMPLIES emulateStorage.
-  const src = opts?.emulateCompute ? lowerStorageToDataTexture(lowerComputeToFragment(m))
-    : opts?.emulateStorage ? lowerStorageToDataTexture(m)
+  const src = opts?.emulateCompute
+    ? lowerStorageToDataTexture(lowerComputeToFragment(m))
+    : opts?.emulateStorage
+      ? lowerStorageToDataTexture(m)
       : m
   // GLSL-local: rename any param/var identifier colliding with a GLSL reserved word
   // (e.g. an entry param `input` / `in`) — does NOT affect the WGSL backend.
@@ -622,7 +891,9 @@ export function emitGlslModule(m: ModuleDecl, stage?: 'vertex' | 'fragment', opt
 
   // Stage filter through the shared predicate (#763 S3) — the old attr-string
   // match silently DROPPED a structured-only entry from its own stage's emit.
-  const entries = lowered.funcs.filter((f) => isEntry(f) && (stage === undefined || stageOf(f) === stage))
+  const entries = lowered.funcs.filter(
+    (f) => isEntry(f) && (stage === undefined || stageOf(f) === stage),
+  )
   const helpers = lowered.funcs.filter((f) => !isEntry(f))
 
   // A struct consumed as a uniform/storage BINDING type becomes a UBO/SSBO block, NOT a
@@ -632,19 +903,24 @@ export function emitGlslModule(m: ModuleDecl, stage?: 'vertex' | 'fragment', opt
   // signature references the IO struct types, and storage-element structs are read field-
   // wise — both need a real `struct` decl.
   const bindingStructNames = new Set<string>()
-  for (const b of lowered.bindings) if (b.type.kind === 'struct') bindingStructNames.add(b.type.name)
+  for (const b of lowered.bindings)
+    if (b.type.kind === 'struct') bindingStructNames.add(b.type.name)
 
   // `precision highp int;` too: a GLSL ES 3.00 FRAGMENT shader has NO default int
   // precision, so a uint/int varying or expression there is a compile error without it.
   const parts: string[] = ['#version 300 es', 'precision highp float;', 'precision highp int;', '']
 
-  if (lowered.consts.length) parts.push(lowered.consts.map((c) => glslEs300Backend.emitConst(c)).join('\n'))
+  if (lowered.consts.length)
+    parts.push(lowered.consts.map((c) => glslEs300Backend.emitConst(c)).join('\n'))
 
   // Topologically sorted (#763 P5): GLSL has no struct forward-declaration, so a
   // nested struct must be DEFINED before the struct that embeds it. WGSL accepts
   // any order; helper fns got prototypes in #745 — structs get a topo sort.
-  const plainStructs = topoSortStructs(lowered.structs.filter((s) => !bindingStructNames.has(s.name)))
-  if (plainStructs.length) parts.push(plainStructs.map((s) => glslEs300Backend.emitStruct(s)).join('\n\n'))
+  const plainStructs = topoSortStructs(
+    lowered.structs.filter((s) => !bindingStructNames.has(s.name)),
+  )
+  if (plainStructs.length)
+    parts.push(plainStructs.map((s) => glslEs300Backend.emitStruct(s)).join('\n\n'))
 
   // Uniform UBO blocks (std140, reflection-fed) + texture/sampler uniforms.
   const bindingLines: string[] = []
@@ -654,15 +930,28 @@ export function emitGlslModule(m: ModuleDecl, stage?: 'vertex' | 'fragment', opt
     // sampler2D (textureSample(tex,samp,uv) → texture(tex,uv)), so it emits no
     // separate GLSL uniform. The host reflection maps the texture binding to a
     // texture unit and drops the sampler binding to match.
-    else if (b.type.kind === 'sampler') { /* fused into the texture's sampler2D — skip */ }
-    else if (b.space === 'storage') throw new UnsupportedFeatureError('glsl-es300: storage buffer (SSBO) — GLSL ES 3.00 has no SSBO; fail-closed')
-    else if (b.type.kind === 'struct') bindingLines.push(emitGlslUbo(b, structByName(structs, b.type.name)))
+    else if (b.type.kind === 'sampler') {
+      /* fused into the texture's sampler2D — skip */
+    } else if (b.space === 'storage')
+      throw new UnsupportedFeatureError(
+        'glsl-es300: storage buffer (SSBO) — GLSL ES 3.00 has no SSBO; fail-closed',
+      )
+    else if (b.type.kind === 'struct')
+      bindingLines.push(emitGlslUbo(b, structByName(structs, b.type.name)))
     // compute-GPGPU only: a bare scalar/vec uniform (u_count: uvec4) emits as a
     // default-block uniform (set via glUniform*). Gated behind emulateCompute so the
     // existing "uniform binding must be a struct" invariant is unchanged for every
     // vertex/fragment caller (critique #3).
-    else if (opts?.emulateCompute && b.space === 'uniform' && (b.type.kind === 'scalar' || b.type.kind === 'vec')) bindingLines.push(`uniform ${glslType(b.type)} ${b.name};`)
-    else throw new UnsupportedFeatureError(`glsl-es300: uniform binding '${b.name}' must be a struct (a std140 UBO block)`)
+    else if (
+      opts?.emulateCompute &&
+      b.space === 'uniform' &&
+      (b.type.kind === 'scalar' || b.type.kind === 'vec')
+    )
+      bindingLines.push(`uniform ${glslType(b.type)} ${b.name};`)
+    else
+      throw new UnsupportedFeatureError(
+        `glsl-es300: uniform binding '${b.name}' must be a struct (a std140 UBO block)`,
+      )
   }
   if (bindingLines.length) parts.push(bindingLines.join('\n\n'))
 
@@ -672,9 +961,14 @@ export function emitGlslModule(m: ModuleDecl, stage?: 'vertex' | 'fragment', opt
   // collected callees are prepended and may legitimately precede the extern-bodied
   // projection fns they call. Prototypes make the fn section order-free for good.
   if (helpers.length) {
-    parts.push(helpers.map((f) =>
-      `${glslType(f.ret)} ${f.name}(${f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ')});`,
-    ).join('\n'))
+    parts.push(
+      helpers
+        .map(
+          (f) =>
+            `${glslType(f.ret)} ${f.name}(${f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ')});`,
+        )
+        .join('\n'),
+    )
   }
   if (helpers.length) parts.push(helpers.map((f) => glslEs300Backend.emitFunc(f)).join('\n\n'))
   if (entries.length) parts.push(entries.map((f) => emitGlslEntry(f, structs)).join('\n\n'))

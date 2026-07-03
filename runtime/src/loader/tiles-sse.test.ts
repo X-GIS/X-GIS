@@ -42,10 +42,11 @@ describe('visibleTilesSSE — basic emission', () => {
     // but for FLAT pitch under-camera tiles must hit native zoom.
     const cam = makeCam(14, 0, 139.76, 35.68)
     const tiles = visibleTilesSSE(cam, mercator, 14, 1280, 800, 0, 1)
-    const maxZ = Math.max(...tiles.filter(t => !t.fallbackOnly).map(t => t.z))
-    expect(maxZ,
+    const maxZ = Math.max(...tiles.filter((t) => !t.fallbackOnly).map((t) => t.z))
+    expect(
+      maxZ,
       'primary tiles must reach the camera native cz at flat pitch — ' +
-      'a regression here means DEFAULT_TARGET_SSE_PX climbed back above 1.',
+        'a regression here means DEFAULT_TARGET_SSE_PX climbed back above 1.',
     ).toBe(14)
   })
 
@@ -58,7 +59,7 @@ describe('visibleTilesSSE — basic emission', () => {
     // appear in the primary set.
     const cam = makeCam(6.93, 0, 126.52, 37.09)
     const tiles = visibleTilesSSE(cam, mercator, 7, 900, 700, 0, 1)
-    const maxZ = Math.max(...tiles.filter(t => !t.fallbackOnly).map(t => t.z))
+    const maxZ = Math.max(...tiles.filter((t) => !t.fallbackOnly).map((t) => t.z))
     expect(maxZ).toBe(7)
   })
 
@@ -131,19 +132,23 @@ describe('visibleTilesSSE — TileCoord contract', () => {
     // uploaded yet. Mirrors visibleTilesFrustum's behaviour.
     const cam = makeCam(14, 60, 139.76, 35.68)
     const tiles = visibleTilesSSE(cam, mercator, 14, 1280, 800, 0, 1)
-    const primaries = tiles.filter(t => !t.fallbackOnly)
-    const ancestors = tiles.filter(t => t.fallbackOnly === true)
+    const primaries = tiles.filter((t) => !t.fallbackOnly)
+    const ancestors = tiles.filter((t) => t.fallbackOnly === true)
     expect(primaries.length).toBeGreaterThan(0)
     expect(ancestors.length).toBeGreaterThan(0)
     // Every ancestor should be at a strictly LOWER zoom than at least
     // one primary tile (they're parents).
-    const primaryZooms = new Set(primaries.map(t => t.z))
+    const primaryZooms = new Set(primaries.map((t) => t.z))
     for (const a of ancestors) {
       let foundChild = false
       for (const z of primaryZooms) {
-        if (z > a.z) { foundChild = true; break }
+        if (z > a.z) {
+          foundChild = true
+          break
+        }
       }
-      expect(foundChild,
+      expect(
+        foundChild,
         `ancestor at z=${a.z} should have at least one primary child at higher z`,
       ).toBe(true)
     }
@@ -156,7 +161,7 @@ describe('visibleTilesSSE — Phase 2 world copies', () => {
     // is in worldCopy=0, the other half in worldCopy=+1 (or -1).
     // Without world-copy enumeration, half the screen would render
     // black at non-zero pitch + bearing.
-    const cam = makeCam(8, 60, 179.5, 0)  // just east of date line
+    const cam = makeCam(8, 60, 179.5, 0) // just east of date line
     const tiles = visibleTilesSSE(cam, mercator, 14, 1280, 800, 0, 1)
     const worldCopies = new Set<number>()
     for (const t of tiles) {
@@ -197,7 +202,7 @@ describe('visibleTilesSSE — globe-equivalent horizon cull (Mercator)', () => {
     // affects pitched LOW-zoom views where many low-z tiles otherwise
     // fall through. So the strict equality is `culled <= uncapped`,
     // and the BIG win shows up at lower zooms / higher pitch.
-    const cam = makeCam(8, 80, 139.76, 35.68)  // wider view = more aggressive cull
+    const cam = makeCam(8, 80, 139.76, 35.68) // wider view = more aggressive cull
     const culled = visibleTilesSSE(cam, mercator, 14, 1280, 800, 0, 1)
     const uncapped = visibleTilesSSE(cam, mercator, 14, 1280, 800, 0, 1, {
       disableHorizonCull: true,

@@ -18,19 +18,54 @@ export type Expr =
   | { readonly op: 'constref'; readonly type: ShaderType; readonly name: string }
   | { readonly op: 'param'; readonly type: ShaderType; readonly name: string }
   | { readonly op: 'varref'; readonly type: ShaderType; readonly name: string }
-  | { readonly op: 'binop'; readonly type: ShaderType; readonly bop: BinOp; readonly a: Expr; readonly b: Expr }
+  | {
+      readonly op: 'binop'
+      readonly type: ShaderType
+      readonly bop: BinOp
+      readonly a: Expr
+      readonly b: Expr
+    }
   | { readonly op: 'unop'; readonly type: ShaderType; readonly a: Expr }
-  | { readonly op: 'compare'; readonly type: ShaderType; readonly cop: CmpOp; readonly a: Expr; readonly b: Expr }
-  | { readonly op: 'logical'; readonly type: ShaderType; readonly lop: LogOp; readonly a: Expr; readonly b: Expr }
+  | {
+      readonly op: 'compare'
+      readonly type: ShaderType
+      readonly cop: CmpOp
+      readonly a: Expr
+      readonly b: Expr
+    }
+  | {
+      readonly op: 'logical'
+      readonly type: ShaderType
+      readonly lop: LogOp
+      readonly a: Expr
+      readonly b: Expr
+    }
   // `declRef` (present only on calls made through a real FnHandle — absent on externFn /
   // raw callFn string calls) points at the callee's FuncDecl so module() can auto-collect
   // transitively-called fns and key-naming can rewrite call spellings. NEVER read by the
   // emit path (the spelling stays `fn`), never serialized, dropped freely by pass rewrites
   // (collection runs at assembly time, before any pass).
-  | { readonly op: 'call'; readonly type: ShaderType; readonly fn: string; readonly args: readonly Expr[]; readonly declRef?: FuncDecl }
-  | { readonly op: 'member'; readonly type: ShaderType; readonly base: Expr; readonly field: string }
+  | {
+      readonly op: 'call'
+      readonly type: ShaderType
+      readonly fn: string
+      readonly args: readonly Expr[]
+      readonly declRef?: FuncDecl
+    }
+  | {
+      readonly op: 'member'
+      readonly type: ShaderType
+      readonly base: Expr
+      readonly field: string
+    }
   | { readonly op: 'construct'; readonly type: ShaderType; readonly args: readonly Expr[] }
-  | { readonly op: 'select'; readonly type: ShaderType; readonly cond: Expr; readonly ifTrue: Expr; readonly ifFalse: Expr }
+  | {
+      readonly op: 'select'
+      readonly type: ShaderType
+      readonly cond: Expr
+      readonly ifTrue: Expr
+      readonly ifFalse: Expr
+    }
   | { readonly op: 'index'; readonly type: ShaderType; readonly base: Expr; readonly idx: Expr }
   // `match (scrutinee) { case v0: e0; ...; default: dflt }`. The WGSL backend
   // pre-emit pass (core/passes/match-lower.ts) lowers every matchExpr inside
@@ -38,7 +73,13 @@ export type Expr =
   // varref to the slot; emitExpr never sees a `matchExpr` Expr post-lowering.
   // The CPU backend evaluates the scrutinee then returns the matched case's
   // value or the default. Phase 2.5 (US-001).
-  | { readonly op: 'matchExpr'; readonly type: ShaderType; readonly scrutinee: Expr; readonly cases: ReadonlyArray<readonly [number, Expr]>; readonly default: Expr }
+  | {
+      readonly op: 'matchExpr'
+      readonly type: ShaderType
+      readonly scrutinee: Expr
+      readonly cases: ReadonlyArray<readonly [number, Expr]>
+      readonly default: Expr
+    }
 
 // ── Statement nodes ──
 
@@ -47,10 +88,25 @@ export type Stmt =
   | { readonly s: 'var'; readonly name: string; readonly type: ShaderType; readonly init?: Expr }
   | { readonly s: 'assign'; readonly target: Expr; readonly expr: Expr }
   | { readonly s: 'assignOp'; readonly target: Expr; readonly bop: BinOp; readonly expr: Expr }
-  | { readonly s: 'if'; readonly arms: ReadonlyArray<{ readonly cond: Expr; readonly body: readonly Stmt[] }>; readonly elseBody?: readonly Stmt[] }
+  | {
+      readonly s: 'if'
+      readonly arms: ReadonlyArray<{ readonly cond: Expr; readonly body: readonly Stmt[] }>
+      readonly elseBody?: readonly Stmt[]
+    }
   | { readonly s: 'return'; readonly expr?: Expr }
-  | { readonly s: 'for'; readonly init: Stmt; readonly cond: Expr; readonly update: Stmt; readonly body: readonly Stmt[] }
-  | { readonly s: 'switch'; readonly scrut: Expr; readonly cases: ReadonlyArray<{ readonly value: number; readonly body: readonly Stmt[] }>; readonly defaultBody?: readonly Stmt[] }
+  | {
+      readonly s: 'for'
+      readonly init: Stmt
+      readonly cond: Expr
+      readonly update: Stmt
+      readonly body: readonly Stmt[]
+    }
+  | {
+      readonly s: 'switch'
+      readonly scrut: Expr
+      readonly cases: ReadonlyArray<{ readonly value: number; readonly body: readonly Stmt[] }>
+      readonly defaultBody?: readonly Stmt[]
+    }
   | { readonly s: 'break' }
   | { readonly s: 'continue' }
   | { readonly s: 'discard' }
@@ -113,7 +169,10 @@ export interface StructField {
   /** Structured `@interpolate(mode)` (set alongside `location`). */
   readonly interpolate?: string
 }
-export interface StructDecl { readonly name: string; readonly fields: readonly StructField[] }
+export interface StructDecl {
+  readonly name: string
+  readonly fields: readonly StructField[]
+}
 
 export type AddressSpace = 'uniform' | 'storage'
 export interface BindingDecl {
@@ -128,7 +187,14 @@ export interface BindingDecl {
 
 export interface FuncDecl {
   readonly name: string
-  readonly params: readonly { name: string; type: ShaderType; builtin?: string; location?: number; interpolate?: string; attr?: string }[]
+  readonly params: readonly {
+    name: string
+    type: ShaderType
+    builtin?: string
+    location?: number
+    interpolate?: string
+    attr?: string
+  }[]
   readonly ret: ShaderType
   readonly body: readonly Stmt[]
   /** Stage / pipeline attributes emitted before `fn` (e.g. `@compute`,
@@ -165,18 +231,31 @@ export interface ModuleDecl {
  *  only for hand-built FuncDecl literals (#740 R3 contract). Every stage/entry
  *  decision (reflect, capability gate, GLSL entry classification, fn-DCE roots)
  *  goes through this one helper so the predicates cannot drift apart again. */
-export const stageOf = (f: Pick<FuncDecl, 'stage' | 'attrs'>): 'vertex' | 'fragment' | 'compute' | undefined =>
-  f.stage ?? (
-    f.attrs?.some((a) => a.startsWith('@vertex')) ? 'vertex'
-      : f.attrs?.some((a) => a.startsWith('@fragment')) ? 'fragment'
-        : f.attrs?.some((a) => a.startsWith('@compute')) ? 'compute' : undefined)
+export const stageOf = (
+  f: Pick<FuncDecl, 'stage' | 'attrs'>,
+): 'vertex' | 'fragment' | 'compute' | undefined =>
+  f.stage ??
+  (f.attrs?.some((a) => a.startsWith('@vertex'))
+    ? 'vertex'
+    : f.attrs?.some((a) => a.startsWith('@fragment'))
+      ? 'fragment'
+      : f.attrs?.some((a) => a.startsWith('@compute'))
+        ? 'compute'
+        : undefined)
 
 /** Workgroup size of a compute entry — structured field first, attr fallback (#763 S1). */
-export const workgroupSizeOf = (f: Pick<FuncDecl, 'workgroupSize' | 'attrs'>): number | undefined => {
+export const workgroupSizeOf = (
+  f: Pick<FuncDecl, 'workgroupSize' | 'attrs'>,
+): number | undefined => {
   if (f.workgroupSize !== undefined) return f.workgroupSize
   const m = f.attrs?.map((a) => a.match(/@workgroup_size\((\d+)/)).find(Boolean)
   return m ? Number(m[1]) : undefined
 }
 
 /** An entry-point parameter — carries a `@builtin(...)` or a `@location(n)`. */
-export interface EntryParam { readonly name: string; readonly type: ShaderType; readonly builtin?: string; readonly location?: number }
+export interface EntryParam {
+  readonly name: string
+  readonly type: ShaderType
+  readonly builtin?: string
+  readonly location?: number
+}

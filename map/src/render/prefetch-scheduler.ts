@@ -20,7 +20,8 @@
 
 import type { TileCatalog } from '@xgis/data'
 import {
-  collectSiblingPrefetchKeys, projectPanPrefetchTarget,
+  collectSiblingPrefetchKeys,
+  projectPanPrefetchTarget,
   type CameraSnapshot,
 } from '../tile-decision'
 import { visibleTilesFrustumSampled } from '@xgis/data'
@@ -102,11 +103,18 @@ export class PrefetchScheduler {
     const targetZ = Math.max(0, Math.min(Math.floor(future.zoom), source.maxLevel))
     // Same selectorProj derivation as VTR.render — keeps the future-
     // frustum walk consistent with the live one.
-    const selectorProj: Projection = projType === 0
-      ? mercatorProj
-      : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
+    const selectorProj: Projection =
+      projType === 0
+        ? mercatorProj
+        : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
     const futureTiles = visibleTilesFrustumSampled(
-      futureCam, selectorProj, targetZ, canvasWidth, canvasHeight, 0, dpr,
+      futureCam,
+      selectorProj,
+      targetZ,
+      canvasWidth,
+      canvasHeight,
+      0,
+      dpr,
     )
     if (futureTiles.length === 0) return
     const futureKeys: number[] = []

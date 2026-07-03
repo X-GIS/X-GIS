@@ -27,13 +27,18 @@ interface CpuProfile {
   timeDeltas?: number[]
 }
 
-interface FrameTiming { ts: number; dt: number; elapsed: number }
+interface FrameTiming {
+  ts: number
+  dt: number
+  elapsed: number
+}
 
 async function setupBright(page: Page) {
   await page.goto('/demo.html?id=openfreemap_bright&compute=1', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // Short settle so the pan can trigger fresh tile loads — long settle
   // drained the worker queue in the receive spec; we want the same
@@ -41,7 +46,10 @@ async function setupBright(page: Page) {
   await page.waitForTimeout(800)
 }
 
-async function recordPanWithProfile(page: Page, cdp: CDPSession): Promise<{
+async function recordPanWithProfile(
+  page: Page,
+  cdp: CDPSession,
+): Promise<{
   profile: CpuProfile
   frames: FrameTiming[]
   perfNowAtProfileStart: number
@@ -60,7 +68,8 @@ async function recordPanWithProfile(page: Page, cdp: CDPSession): Promise<{
     if (!map) throw new Error('__xgisMap missing')
     const startX = map.camera.centerX
     const startY = map.camera.centerY
-    const dx = 800_000, dy = 400_000
+    const dx = 800_000,
+      dy = 400_000
     const out: FrameTiming[] = []
     return await new Promise<FrameTiming[]>((res) => {
       const t0 = performance.now()
@@ -70,7 +79,10 @@ async function recordPanWithProfile(page: Page, cdp: CDPSession): Promise<{
         const elapsed = now - t0
         out.push({ ts: now, dt: now - last, elapsed })
         last = now
-        if (elapsed >= durationMs) { res(out); return }
+        if (elapsed >= durationMs) {
+          res(out)
+          return
+        }
         const t = elapsed / durationMs
         map.camera.centerX = startX + t * dx
         map.camera.centerY = startY + t * dy
@@ -81,7 +93,7 @@ async function recordPanWithProfile(page: Page, cdp: CDPSession): Promise<{
     })
   }, 8000)
 
-  const stopped = await cdp.send('Profiler.stop') as { profile: CpuProfile }
+  const stopped = (await cdp.send('Profiler.stop')) as { profile: CpuProfile }
   await cdp.send('Profiler.disable')
   return { profile: stopped.profile, frames, perfNowAtProfileStart }
 }
@@ -98,9 +110,21 @@ function nodePath(byId: Map<number, ProfileNode>, id: number, maxDepth = 4): str
   return parts.join(' ← ')
 }
 
-interface AttributionRow { name: string; url: string; line: number; selfMs: number; selfPct: number; callPath: string }
+interface AttributionRow {
+  name: string
+  url: string
+  line: number
+  selfMs: number
+  selfPct: number
+  callPath: string
+}
 
-function attributeWindow(profile: CpuProfile, winStart: number, winEnd: number, topN = 25): AttributionRow[] {
+function attributeWindow(
+  profile: CpuProfile,
+  winStart: number,
+  winEnd: number,
+  topN = 25,
+): AttributionRow[] {
   const samples = profile.samples ?? []
   const deltas = profile.timeDeltas ?? []
   const byId = new Map<number, ProfileNode>()
@@ -156,13 +180,16 @@ test('OFM Bright pan-hitch attribution', async ({ page, context }) => {
 
   const settled = frames.slice(2)
   const sorted = [...settled].sort((a, b) => b.dt - a.dt)
-  const median = settled.length > 0
-    ? [...settled].sort((a, b) => a.dt - b.dt)[Math.floor(settled.length / 2)]!.dt
-    : 0
+  const median =
+    settled.length > 0
+      ? [...settled].sort((a, b) => a.dt - b.dt)[Math.floor(settled.length / 2)]!.dt
+      : 0
   const worst = sorted[0]!
   const top5 = sorted.slice(0, 5)
   // eslint-disable-next-line no-console
-  console.log(`\n[pan] frames=${settled.length} median=${median.toFixed(1)}ms worst=${worst.dt.toFixed(0)}ms`)
+  console.log(
+    `\n[pan] frames=${settled.length} median=${median.toFixed(1)}ms worst=${worst.dt.toFixed(0)}ms`,
+  )
   // eslint-disable-next-line no-console
   console.log('[pan] top-5 worst frames:')
   for (const f of top5) {
@@ -183,7 +210,9 @@ test('OFM Bright pan-hitch attribution', async ({ page, context }) => {
     if (r.selfMs < 0.1) continue
     const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
     // eslint-disable-next-line no-console
-    console.log(`  ${r.selfMs.toFixed(2).padStart(6)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(40)} ${url}:${r.line}`)
+    console.log(
+      `  ${r.selfMs.toFixed(2).padStart(6)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(40)} ${url}:${r.line}`,
+    )
     // eslint-disable-next-line no-console
     console.log(`    via: ${r.callPath}`)
   }
@@ -200,10 +229,17 @@ test('OFM Bright pan-hitch attribution', async ({ page, context }) => {
     console.log(`  ${r.selfMs.toFixed(2).padStart(6)} ms  ${r.name.padEnd(40)} via ${r.callPath}`)
   }
 
-  fs.writeFileSync(path.resolve('test-results', 'pan-hitch-attribution.json'), JSON.stringify({
-    medianMs: median,
-    worst: { dt: worst.dt, elapsed: worst.elapsed },
-    top5Worst: top5.map(f => ({ dt: f.dt, elapsed: f.elapsed })),
-    hitchTop: top,
-  }, null, 2))
+  fs.writeFileSync(
+    path.resolve('test-results', 'pan-hitch-attribution.json'),
+    JSON.stringify(
+      {
+        medianMs: median,
+        worst: { dt: worst.dt, elapsed: worst.elapsed },
+        top5Worst: top5.map((f) => ({ dt: f.dt, elapsed: f.elapsed })),
+        hitchTop: top,
+      },
+      null,
+      2,
+    ),
+  )
 })

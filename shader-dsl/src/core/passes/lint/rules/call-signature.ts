@@ -29,7 +29,11 @@ export const callSignature: LintRule = {
         if (e.args.length !== target.params.length) {
           ctx.report(
             `call to '${e.fn}' passes ${e.args.length} argument${e.args.length === 1 ? '' : 's'}, declared ${target.params.length}`,
-            { fn: fn.name, node: e, hint: `declared: ${target.params.map((p) => `${p.name}: ${typeKey(p.type)}`).join(', ')}` },
+            {
+              fn: fn.name,
+              node: e,
+              hint: `declared: ${target.params.map((p) => `${p.name}: ${typeKey(p.type)}`).join(', ')}`,
+            },
           )
           return
         }

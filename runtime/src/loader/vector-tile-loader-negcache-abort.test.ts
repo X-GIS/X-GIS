@@ -75,7 +75,7 @@ describe('FIX 1 — tileFetchNegativeCache is bounded', () => {
     // FIFO eviction keeps it pinned at the cap.
     let z = 5
     for (let i = 0; i < 6000; i++) {
-      const x = i & 0x3ff       // 0..1023
+      const x = i & 0x3ff // 0..1023
       const y = (i >> 10) & 0xff
       if ((i & 0xfff) === 0) z++
       const r = await fetcher(z, x * 7 + i, y * 11 + i, signal)
@@ -112,8 +112,12 @@ describe('FIX 1 — tileFetchNegativeCache is bounded', () => {
 describe('FIX 2 — backoff sleep removes its abort listener on resolve', () => {
   let originalFetch: typeof globalThis.fetch
 
-  beforeEach(() => { originalFetch = globalThis.fetch })
-  afterEach(() => { globalThis.fetch = originalFetch })
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+  })
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
 
   it('balances addEventListener/removeEventListener when the timer fires', async () => {
     const { signal, added, removed } = makeRecordingSignal()

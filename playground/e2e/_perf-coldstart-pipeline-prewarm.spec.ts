@@ -47,7 +47,8 @@ for (const c of cases) {
     await page.goto(`/demo.html?id=${c.demo}${c.hash}`, { waitUntil: 'domcontentloaded' })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 60_000 },
+      null,
+      { timeout: 60_000 },
     )
     const frames = await page.evaluate(async (durationMs: number) => {
       const map = (window as unknown as { __xgisMap?: { invalidate: () => void } }).__xgisMap
@@ -60,7 +61,10 @@ for (const c of cases) {
           const now = performance.now()
           out.push(now - last)
           last = now
-          if (now - t0 >= durationMs) { res(out); return }
+          if (now - t0 >= durationMs) {
+            res(out)
+            return
+          }
           map.invalidate()
           requestAnimationFrame(tick)
         }
@@ -70,7 +74,12 @@ for (const c of cases) {
     const worst = Math.max(...frames, 0)
     const sorted = [...frames].sort((a, b) => a - b)
     const p99 = sorted[Math.min(sorted.length - 1, Math.floor(0.99 * sorted.length))] ?? 0
-    console.log(`[${c.label}] worst=${worst.toFixed(0)} ms p99=${p99.toFixed(1)} ms (${frames.length} frames over 3 s)`)
-    expect(worst, `cold-start worst frame regressed past ${c.budgetMs} ms — pipeline prewarm may not be reaching this variant`).toBeLessThan(c.budgetMs)
+    console.log(
+      `[${c.label}] worst=${worst.toFixed(0)} ms p99=${p99.toFixed(1)} ms (${frames.length} frames over 3 s)`,
+    )
+    expect(
+      worst,
+      `cold-start worst frame regressed past ${c.budgetMs} ms — pipeline prewarm may not be reaching this variant`,
+    ).toBeLessThan(c.budgetMs)
   })
 }

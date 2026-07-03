@@ -46,8 +46,10 @@ describe('anchor ↔ geometry projection parity (E1)', () => {
   // −179° → the two land a full world apart. (A vertex in the PRIMARY tile
   // near the camera does NOT diverge — see the next test — which is why the
   // bug only surfaces for seam-straddling tiles / adjacent world copies.)
-  const CLON = 0, CLAT = 0
-  const FEATURE_LON = -179, FEATURE_LAT = 20
+  const CLON = 0,
+    CLAT = 0
+  const FEATURE_LON = -179,
+    FEATURE_LAT = 20
   const TILE_REF_LON = 180
 
   // Cylindrical equirect (1) + natural_earth (2) give a clean world-width
@@ -57,18 +59,21 @@ describe('anchor ↔ geometry projection parity (E1)', () => {
 
   it('plain project() DIVERGES from project_geom() for a seam-straddling tile', () => {
     for (const pt of CLEAN_SEAM) {
-      const [ax] = projectWgsl(pt, FEATURE_LON, FEATURE_LAT, CLON, CLAT)            // OLD anchor
+      const [ax] = projectWgsl(pt, FEATURE_LON, FEATURE_LAT, CLON, CLAT) // OLD anchor
       const [gx] = projectGeomWgsl(pt, FEATURE_LON, FEATURE_LAT, CLON, CLAT, TILE_REF_LON) // geometry
       const dx = Math.abs(ax - gx)
       // ~one world width (the wrapped vs unwrapped branch).
-      expect(dx, `projType ${pt}: project() should diverge from project_geom() across a straddling tile`)
-        .toBeGreaterThan(WORLD_WIDTH_M * 0.4)
+      expect(
+        dx,
+        `projType ${pt}: project() should diverge from project_geom() across a straddling tile`,
+      ).toBeGreaterThan(WORLD_WIDTH_M * 0.4)
     }
   })
 
   it('project() AGREES with project_geom() away from the seam (switch is safe)', () => {
     // Feature within clon±180 — no wrap, the unwrap is the identity.
-    const nearLon = 178, refNear = 178
+    const nearLon = 178,
+      refNear = 178
     for (const pt of SEAM_PROJ) {
       const [ax, ay] = projectWgsl(pt, nearLon, FEATURE_LAT, CLON, CLAT)
       const [gx, gy] = projectGeomWgsl(pt, nearLon, FEATURE_LAT, CLON, CLAT, refNear)

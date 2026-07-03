@@ -33,7 +33,8 @@ function walkTs(absDir: string): string[] {
     if (name === 'node_modules' || name === 'dist' || name === '.vite') continue
     const p = join(absDir, name)
     if (statSync(p).isDirectory()) out.push(...walkTs(p))
-    else if (name.endsWith('.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts')) out.push(p)
+    else if (name.endsWith('.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts'))
+      out.push(p)
   }
   return out
 }
@@ -59,8 +60,9 @@ const GATE_A_ALLOWLIST: string[] = [].sort()
 
 describe('SRP ratchet: shaders are DSL-authored — no hardcoded raw shader strings', () => {
   it('no .ts hardcodes a WGSL/GLSL shader as a template literal (allowlist shrinks only)', () => {
-    const offenders = ALL_TS
-      .filter((f) => RAW_SHADER_TEMPLATE.test(stripComments(readFileSync(f, 'utf8'))))
+    const offenders = ALL_TS.filter((f) =>
+      RAW_SHADER_TEMPLATE.test(stripComments(readFileSync(f, 'utf8'))),
+    )
       .map(rel)
       .sort()
     expect(
@@ -86,8 +88,11 @@ const GATE_B_ALLOWLIST = [
 
 describe('SRP ratchet: @xgis/compiler emits no shader code (backend is a runtime decision)', () => {
   it('compiler/src calls no shader-dsl emitModule/emitExpr (allowlist shrinks only)', () => {
-    const offenders = ALL_TS
-      .filter((f) => rel(f).startsWith('compiler/src/') && EMIT_CALL.test(stripComments(readFileSync(f, 'utf8'))))
+    const offenders = ALL_TS.filter(
+      (f) =>
+        rel(f).startsWith('compiler/src/') &&
+        EMIT_CALL.test(stripComments(readFileSync(f, 'utf8'))),
+    )
       .map(rel)
       .sort()
     expect(

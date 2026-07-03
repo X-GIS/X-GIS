@@ -20,14 +20,14 @@
 import type { XGISMap } from '../../map'
 
 /** Background pass: the whole-viewport clear colour. */
-export type BackgroundPassHost = Pick<XGISMap,
-  | '_backgroundColor'
-  | '_backgroundColorShape'
-  | '_backgroundOpacityShape'
+export type BackgroundPassHost = Pick<
+  XGISMap,
+  '_backgroundColor' | '_backgroundColorShape' | '_backgroundOpacityShape'
 >
 
 /** Opaque bucket: raster + opaque vector sub-passes. */
-export type OpaquePassHost = Pick<XGISMap,
+export type OpaquePassHost = Pick<
+  XGISMap,
   | '_elapsedMs'
   | '_rasterShow'
   | 'camera'
@@ -38,28 +38,18 @@ export type OpaquePassHost = Pick<XGISMap,
 >
 
 /** Order-independent-transparency composite pass. */
-export type OitPassHost = Pick<XGISMap,
-  | 'camera'
-  | 'ctx'
-  | 'renderer'
->
+export type OitPassHost = Pick<XGISMap, 'camera' | 'ctx' | 'renderer'>
 
 /** Translucent-stroke offscreen + composite pass. */
-export type TranslucentPassHost = Pick<XGISMap,
-  | 'camera'
-  | 'lineRenderer'
-  | 'renderer'
->
+export type TranslucentPassHost = Pick<XGISMap, 'camera' | 'lineRenderer' | 'renderer'>
 
 /** Direct-layer points pass. */
-export type PointsPassHost = Pick<XGISMap,
-  | 'camera'
-  | 'pointRenderer'
->
+export type PointsPassHost = Pick<XGISMap, 'camera' | 'pointRenderer'>
 
 /** Label + icon dispatch pass (text/icon stages, glyph/sprite sources,
  *  the label-dispatch memo counters, label-dirty bookkeeping). */
-export type LabelPassHost = Pick<XGISMap,
+export type LabelPassHost = Pick<
+  XGISMap,
   | '_featureExprsCache'
   | '_labelsHaveTimeAnimation'
   | '_labelDispatchHits'
@@ -88,30 +78,22 @@ export type LabelPassHost = Pick<XGISMap,
 >
 
 /** Overdraw debug-compose pass (?debug=overdraw). */
-export type OverdrawComposePassHost = Pick<XGISMap,
-  | 'ctx'
-  | 'renderer'
->
+export type OverdrawComposePassHost = Pick<XGISMap, 'ctx' | 'renderer'>
 
 /** Heatmap pass (Phase R) — the 3-pass accum/blur/compose pipeline. */
-export type HeatmapPassHost = Pick<XGISMap,
-  | 'camera'
-  | 'ctx'
-  | 'heatmapRenderer'
-  | 'renderer'
->
+export type HeatmapPassHost = Pick<XGISMap, 'camera' | 'ctx' | 'heatmapRenderer' | 'renderer'>
 
 /** Per-frame scene classification (consumed by `buildSceneView`). */
-export type SceneClassifyHost = Pick<XGISMap,
-  | 'classifyVectorTileShows'
-  | 'groupOpaqueBySource'
-  | 'heatmapRenderer'
+export type SceneClassifyHost = Pick<
+  XGISMap,
+  'classifyVectorTileShows' | 'groupOpaqueBySource' | 'heatmapRenderer'
 >
 
 /** Members only the RenderLoop body itself touches — the frame clock,
  *  stats, flicker-watchdog, sprite-atlas push, redraw gate, render-target
  *  bookkeeping — that no single pass reaches through its host param. */
-export type FrameLoopHost = Pick<XGISMap,
+export type FrameLoopHost = Pick<
+  XGISMap,
   | '_flickerFirstFrame'
   | '_flickerLastFrame'
   | '_flickerLog'
@@ -137,14 +119,13 @@ export type FrameLoopHost = Pick<XGISMap,
 /** The full owning-map view the render loop reaches its members through —
  *  the INTERSECTION of every per-concern role. Identical member set to the
  *  flat Pick it replaces; `this.host` resolves exactly the same fields. */
-export type RenderLoopHost =
-  & BackgroundPassHost
-  & OpaquePassHost
-  & OitPassHost
-  & TranslucentPassHost
-  & PointsPassHost
-  & LabelPassHost
-  & OverdrawComposePassHost
-  & HeatmapPassHost
-  & SceneClassifyHost
-  & FrameLoopHost
+export type RenderLoopHost = BackgroundPassHost &
+  OpaquePassHost &
+  OitPassHost &
+  TranslucentPassHost &
+  PointsPassHost &
+  LabelPassHost &
+  OverdrawComposePassHost &
+  HeatmapPassHost &
+  SceneClassifyHost &
+  FrameLoopHost

@@ -24,23 +24,26 @@ describe('classifyTile — empty default-slice (single-layer GeoJSON)', () => {
   // Common scenario: single-layer GeoJSON, sliceLayer=''. The visible
   // tile has an EMPTY placeholder in the catalog (slice present but
   // zero geometry). No ancestor / child carries the slice. Not on GPU.
-  const emptyDefaultSliceInputs = (overrides: Partial<ClassifyTileInputs> = {}): ClassifyTileInputs => ({
-    visible: tile(14, 8000, 5000),
-    visibleKey,
-    maxLevel: 14,
-    parentAtMaxLevel: -1,
-    archiveAncestor: -1,
-    layerCache: new Map<number, unknown>(),     // not on GPU
-    // The empty placeholder makes the slice "present" in the catalog.
-    hasSliceInCatalog: (k) => k === visibleKey,
-    // ...but it carries NO geometry — empty placeholder.
-    hasNonEmptySliceInCatalog: () => false,
-    // hasAnySliceInCatalog: only the (empty) default slice exists.
-    hasAnySliceInCatalog: (k) => k === visibleKey,
-    hasEntryInIndex: () => true,
-    sliceLayer: '',                              // single-layer GeoJSON
-    ...overrides,
-  } as ClassifyTileInputs)
+  const emptyDefaultSliceInputs = (
+    overrides: Partial<ClassifyTileInputs> = {},
+  ): ClassifyTileInputs =>
+    ({
+      visible: tile(14, 8000, 5000),
+      visibleKey,
+      maxLevel: 14,
+      parentAtMaxLevel: -1,
+      archiveAncestor: -1,
+      layerCache: new Map<number, unknown>(), // not on GPU
+      // The empty placeholder makes the slice "present" in the catalog.
+      hasSliceInCatalog: (k) => k === visibleKey,
+      // ...but it carries NO geometry — empty placeholder.
+      hasNonEmptySliceInCatalog: () => false,
+      // hasAnySliceInCatalog: only the (empty) default slice exists.
+      hasAnySliceInCatalog: (k) => k === visibleKey,
+      hasEntryInIndex: () => true,
+      sliceLayer: '', // single-layer GeoJSON
+      ...overrides,
+    }) as ClassifyTileInputs
 
   it('empty default slice with no usable fallback → drop-empty-slice (NOT queued-with-fallback)', () => {
     const d = classifyTile(emptyDefaultSliceInputs())
@@ -51,24 +54,28 @@ describe('classifyTile — empty default-slice (single-layer GeoJSON)', () => {
 
   it('empty default slice but ancestor HAS real geometry → parent-fallback (iter-284 parity for "" slice)', () => {
     const ancestorKey = tileKeyParent(visibleKey)
-    const d = classifyTile(emptyDefaultSliceInputs({
-      // visible slice present-but-empty; ancestor slice present AND
-      // non-empty.
-      hasSliceInCatalog: (k) => k === visibleKey || k === ancestorKey,
-      hasNonEmptySliceInCatalog: (k) => k === ancestorKey,
-      hasAnySliceInCatalog: (k) => k === visibleKey || k === ancestorKey,
-    }))
+    const d = classifyTile(
+      emptyDefaultSliceInputs({
+        // visible slice present-but-empty; ancestor slice present AND
+        // non-empty.
+        hasSliceInCatalog: (k) => k === visibleKey || k === ancestorKey,
+        hasNonEmptySliceInCatalog: (k) => k === ancestorKey,
+        hasAnySliceInCatalog: (k) => k === visibleKey || k === ancestorKey,
+      }),
+    )
     expect(d.kind).toBe('parent-fallback')
     if (d.kind === 'parent-fallback') expect(d.parentKey).toBe(ancestorKey)
   })
 
   it('back-compat: NON-empty default slice still uploads (queued-with-fallback)', () => {
     const ancestorKey = tileKeyParent(visibleKey)
-    const d = classifyTile(emptyDefaultSliceInputs({
-      hasSliceInCatalog: (k) => k === visibleKey || k === ancestorKey,
-      hasNonEmptySliceInCatalog: (k) => k === visibleKey || k === ancestorKey,
-      hasAnySliceInCatalog: (k) => k === visibleKey || k === ancestorKey,
-    }))
+    const d = classifyTile(
+      emptyDefaultSliceInputs({
+        hasSliceInCatalog: (k) => k === visibleKey || k === ancestorKey,
+        hasNonEmptySliceInCatalog: (k) => k === visibleKey || k === ancestorKey,
+        hasAnySliceInCatalog: (k) => k === visibleKey || k === ancestorKey,
+      }),
+    )
     expect(d.kind).toBe('queued-with-fallback')
   })
 

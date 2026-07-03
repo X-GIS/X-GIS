@@ -22,7 +22,7 @@
 // fall off the ring buffer.
 
 interface PhaseState {
-  startTs: number  // -1 when not active
+  startTs: number // -1 when not active
   /** iter-263 — per-call ring (legacy, averages per invocation). */
   ring: Float32Array
   ringIdx: number
@@ -54,10 +54,12 @@ function urlPerfFlag(): boolean {
   try {
     const p = new URL(window.location.href).searchParams
     return p.get('perfmarks') === '1' || p.get('gpuprof') === '1'
-  } catch { return false }
+  } catch {
+    return false
+  }
 }
-let ENABLED = (globalThis as { __xgisPerfMarks?: boolean }).__xgisPerfMarks === true
-  || urlPerfFlag()
+let ENABLED =
+  (globalThis as { __xgisPerfMarks?: boolean }).__xgisPerfMarks === true || urlPerfFlag()
 
 /** Toggle perf-marks recording. Off by default in production. */
 export function setPerfMarksEnabled(b: boolean): void {
@@ -125,8 +127,20 @@ export function flushPerFrameMarks(): void {
  *  mean alone hides bursts (a phase that is 2 ms on 59 frames and 50 ms
  *  on one averages ~3 ms), and bursty stalls are exactly the mobile case
  *  we're chasing. Localizing a spike needs the worst frame, not the mean. */
-export function getPhaseAverages(): Array<{ name: string; meanMs: number; perFrameMs: number; maxFrameMs: number; samples: number }> {
-  const out: Array<{ name: string; meanMs: number; perFrameMs: number; maxFrameMs: number; samples: number }> = []
+export function getPhaseAverages(): Array<{
+  name: string
+  meanMs: number
+  perFrameMs: number
+  maxFrameMs: number
+  samples: number
+}> {
+  const out: Array<{
+    name: string
+    meanMs: number
+    perFrameMs: number
+    maxFrameMs: number
+    samples: number
+  }> = []
   for (const [name, s] of _states) {
     if (s.ringFilled === 0) continue
     let sum = 0
@@ -139,7 +153,13 @@ export function getPhaseAverages(): Array<{ name: string; meanMs: number; perFra
       if (v > frameMax) frameMax = v
     }
     const perFrameMs = s.perFrameRingFilled > 0 ? frameSum / s.perFrameRingFilled : 0
-    out.push({ name, meanMs: sum / s.ringFilled, perFrameMs, maxFrameMs: frameMax, samples: s.ringFilled })
+    out.push({
+      name,
+      meanMs: sum / s.ringFilled,
+      perFrameMs,
+      maxFrameMs: frameMax,
+      samples: s.ringFilled,
+    })
   }
   out.sort((a, b) => b.perFrameMs - a.perFrameMs)
   return out
@@ -150,13 +170,15 @@ export function resetPhaseTimings(): void {
 }
 
 // Side-effect: expose via globalThis for harness + DevTools.
-;(globalThis as {
-  __xgisPerfPhases?: {
-    getPhaseAverages: typeof getPhaseAverages
-    resetPhaseTimings: typeof resetPhaseTimings
-    setEnabled: typeof setPerfMarksEnabled
+;(
+  globalThis as {
+    __xgisPerfPhases?: {
+      getPhaseAverages: typeof getPhaseAverages
+      resetPhaseTimings: typeof resetPhaseTimings
+      setEnabled: typeof setPerfMarksEnabled
+    }
   }
-}).__xgisPerfPhases = {
+).__xgisPerfPhases = {
   getPhaseAverages,
   resetPhaseTimings,
   // Exposed so a DevTools / remote-debugged-phone console can arm the per-pass

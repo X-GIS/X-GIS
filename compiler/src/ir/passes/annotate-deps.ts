@@ -144,8 +144,8 @@ export function annotateDeps(scene: Scene): DepsAnnotation {
 /** Convenience predicate — true iff the node's fill is ZOOM-only
  *  (or constant). Useful for P3 stops-baker eligibility checks. */
 export function fillIsZoomOnly(node: NodeDepsAnnotation): boolean {
-  if (!node.fill) return true  // no fill → trivially "no extra deps"
-  return (node.fill.bits & ~/* ZOOM */ 1) === 0
+  if (!node.fill) return true // no fill → trivially "no extra deps"
+  return (node.fill.bits & ~(/* ZOOM */ 1)) === 0
 }
 
 /** Convenience predicate — true iff any paint axis on the node
@@ -153,7 +153,14 @@ export function fillIsZoomOnly(node: NodeDepsAnnotation): boolean {
  *  gating ("does this layer need a per-feature dispatch?"). */
 export function hasFeatureDep(node: NodeDepsAnnotation): boolean {
   const FEATURE = 1 << 2
-  for (const k of ['fill', 'strokeColor', 'opacity', 'strokeWidth', 'filter', 'geometry'] as const) {
+  for (const k of [
+    'fill',
+    'strokeColor',
+    'opacity',
+    'strokeWidth',
+    'filter',
+    'geometry',
+  ] as const) {
     const e = node[k]
     if (e && (e.bits & FEATURE) !== 0) return true
   }

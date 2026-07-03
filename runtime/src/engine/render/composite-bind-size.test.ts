@@ -22,11 +22,17 @@ import { LineRenderer } from '@xgis/map'
  *  that can appear in a composite uniform struct. Matches WGSL's uniform
  *  address-space layout rules. */
 const WGSL_TYPE_LAYOUT: Record<string, { size: number; align: number }> = {
-  f32: { size: 4, align: 4 }, i32: { size: 4, align: 4 }, u32: { size: 4, align: 4 },
-  'vec2<f32>': { size: 8, align: 8 }, vec2f: { size: 8, align: 8 },
-  'vec3<f32>': { size: 12, align: 16 }, vec3f: { size: 12, align: 16 },
-  'vec4<f32>': { size: 16, align: 16 }, vec4f: { size: 16, align: 16 },
-  'mat4x4<f32>': { size: 64, align: 16 }, mat4x4f: { size: 64, align: 16 },
+  f32: { size: 4, align: 4 },
+  i32: { size: 4, align: 4 },
+  u32: { size: 4, align: 4 },
+  'vec2<f32>': { size: 8, align: 8 },
+  vec2f: { size: 8, align: 8 },
+  'vec3<f32>': { size: 12, align: 16 },
+  vec3f: { size: 12, align: 16 },
+  'vec4<f32>': { size: 16, align: 16 },
+  vec4f: { size: 16, align: 16 },
+  'mat4x4<f32>': { size: 64, align: 16 },
+  mat4x4f: { size: 64, align: 16 },
 }
 
 const roundUp = (n: number, a: number): number => Math.ceil(n / a) * a
@@ -38,7 +44,9 @@ function wgslStructSize(src: string, name: string): number {
   const m = src.match(new RegExp(`struct\\s+${name}\\s*\\{([^}]*)\\}`, 's'))
   if (!m) throw new Error(`struct ${name} not found in emitted WGSL`)
   const fields = m[1]
-    .split(/[;,\n]/).map((s) => s.trim()).filter(Boolean)
+    .split(/[;,\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
     .map((line) => {
       const fm = line.match(/^[\w]+\s*:\s*(.+?)\s*$/)
       if (!fm) throw new Error(`unparseable struct field: "${line}"`)

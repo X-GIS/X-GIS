@@ -15,7 +15,13 @@
 // Pure diagnostic UI — reads the map's public getCamera()/invalidate()/stats/
 // gpuTimer surface and the __xgisPerfPhases global. Touches no render code.
 
-interface PerfCamera { zoom: number; centerX: number; centerY: number; pitch: number; bearing: number }
+interface PerfCamera {
+  zoom: number
+  centerX: number
+  centerY: number
+  pitch: number
+  bearing: number
+}
 interface PerfMap {
   getCamera(): PerfCamera
   invalidate(): void
@@ -23,7 +29,13 @@ interface PerfMap {
   gpuTimer?: { getBreakdown(): Record<string, number[]>; resetTimings?: () => void } | null
 }
 interface PerfPhasesAPI {
-  getPhaseAverages: () => Array<{ name: string; meanMs: number; perFrameMs: number; maxFrameMs: number; samples: number }>
+  getPhaseAverages: () => Array<{
+    name: string
+    meanMs: number
+    perFrameMs: number
+    maxFrameMs: number
+    samples: number
+  }>
   resetPhaseTimings: () => void
   setEnabled: (b: boolean) => void
 }
@@ -60,7 +72,11 @@ function pct(arr: number[], p: number): number {
 
 /** Drive one camera animation for `durationMs`, mutating the live camera via
  *  `update(t)` each rAF tick, and return the per-frame deltas (ms). */
-function runScenario(map: PerfMap, durationMs: number, update: (t: number, cam: PerfCamera) => void): Promise<number[]> {
+function runScenario(
+  map: PerfMap,
+  durationMs: number,
+  update: (t: number, cam: PerfCamera) => void,
+): Promise<number[]> {
   const cam = map.getCamera()
   const frames: number[] = []
   return new Promise<number[]>((resolve) => {
@@ -71,7 +87,10 @@ function runScenario(map: PerfMap, durationMs: number, update: (t: number, cam: 
       frames.push(now - last)
       last = now
       const elapsed = now - start
-      if (elapsed >= durationMs) { resolve(frames); return }
+      if (elapsed >= durationMs) {
+        resolve(frames)
+        return
+      }
       update(elapsed / durationMs, cam)
       map.invalidate()
       requestAnimationFrame(tick)
@@ -83,7 +102,9 @@ function runScenario(map: PerfMap, durationMs: number, update: (t: number, cam: 
 function summarise(frames: number[]): string {
   const t = frames.slice(2) // drop warmup
   if (t.length === 0) return 'no frames'
-  const p50 = pct(t, 50), p95 = pct(t, 95), p99 = pct(t, 99)
+  const p50 = pct(t, 50),
+    p95 = pct(t, 95),
+    p99 = pct(t, 99)
   const worst = t.reduce((a, b) => Math.max(a, b), 0)
   const fps = p50 > 0 ? (1000 / p50).toFixed(0) : '--'
   return `p50=${p50.toFixed(1)} p95=${p95.toFixed(1)} p99=${p99.toFixed(1)} worst=${worst.toFixed(0)}  (~${fps}fps, ${t.length}f)`
@@ -93,27 +114,40 @@ function summarise(frames: number[]): string {
  *  `rotPitchP50` is the measured rAF frame-time median of the (slow) rotate+
  *  pitch scenario — compared against `frame.total` to expose work OUTSIDE the
  *  render loop (tile upload/streaming, rAF scheduling, compositing). */
-function buildReport(map: PerfMap, panZoomLine: string, rotPitchLine: string, rotPitchP50: number): string {
+function buildReport(
+  map: PerfMap,
+  panZoomLine: string,
+  rotPitchLine: string,
+  rotPitchP50: number,
+): string {
   const dpr = window.devicePixelRatio || 1
   const canvas = document.querySelector('canvas')
-  const cw = canvas?.width ?? 0, ch = canvas?.height ?? 0
-  const clientW = canvas?.clientWidth ?? 0, clientH = canvas?.clientHeight ?? 0
+  const cw = canvas?.width ?? 0,
+    ch = canvas?.height ?? 0
+  const clientW = canvas?.clientWidth ?? 0,
+    clientH = canvas?.clientHeight ?? 0
   const effDpr = clientW > 0 ? (cw / clientW).toFixed(2) : '?'
 
   const phases = (window as unknown as { __xgisPerfPhases?: PerfPhasesAPI }).__xgisPerfPhases
   const all = phases?.getPhaseAverages?.() ?? []
   // getPhaseAverages is already sorted by perFrameMs desc; partition preserves it.
-  const passes = all.filter(p => p.name.startsWith('encoder.pass.'))
-  const frameStar = all.filter(p => p.name.startsWith('frame.'))
-  const other = all.filter(p => !p.name.startsWith('encoder.pass.') && !p.name.startsWith('frame.'))
-  const opaqueGroups = passes.filter(p => /encoder\.pass\.opaque/.test(p.name)).length
-  const translucent = passes.filter(p => /encoder\.pass\.translucent/.test(p.name)).length
+  const passes = all.filter((p) => p.name.startsWith('encoder.pass.'))
+  const frameStar = all.filter((p) => p.name.startsWith('frame.'))
+  const other = all.filter(
+    (p) => !p.name.startsWith('encoder.pass.') && !p.name.startsWith('frame.'),
+  )
+  const opaqueGroups = passes.filter((p) => /encoder\.pass\.opaque/.test(p.name)).length
+  const translucent = passes.filter((p) => /encoder\.pass\.translucent/.test(p.name)).length
 
   const gpu = map.gpuTimer?.getBreakdown?.() ?? {}
-  const gpuLine = Object.entries(gpu).map(([k, ns]) => {
-    const ms = ns.map(n => n / 1e6).sort((a, b) => a - b)
-    return ms.length ? `${k}=${pct(ms, 50).toFixed(2)}/${pct(ms, 95).toFixed(2)}` : ''
-  }).filter(Boolean).join('  ') || '(없음 — URL에 &gpuprof=1 추가)'
+  const gpuLine =
+    Object.entries(gpu)
+      .map(([k, ns]) => {
+        const ms = ns.map((n) => n / 1e6).sort((a, b) => a - b)
+        return ms.length ? `${k}=${pct(ms, 50).toFixed(2)}/${pct(ms, 95).toFixed(2)}` : ''
+      })
+      .filter(Boolean)
+      .join('  ') || '(없음 — URL에 &gpuprof=1 추가)'
 
   const s = map.stats
   const drawLine = s
@@ -135,7 +169,8 @@ function buildReport(map: PerfMap, panZoomLine: string, rotPitchLine: string, ro
   if (passes.length === 0) {
     lines.push('  (없음 — perf-marks 미활성. ?perf=1 또는 ?gpuprof=1 로 로드했는지 확인)')
   } else {
-    for (const p of passes) lines.push(`  ${p.perFrameMs.toFixed(3).padStart(8)}  ${p.name.replace('encoder.pass.', '')}`)
+    for (const p of passes)
+      lines.push(`  ${p.perFrameMs.toFixed(3).padStart(8)}  ${p.name.replace('encoder.pass.', '')}`)
   }
 
   // Frame-stage CPU (frame.prep / encode / submit / total) — the render loop's
@@ -153,15 +188,19 @@ function buildReport(map: PerfMap, panZoomLine: string, rotPitchLine: string, ro
   //  • measured frame − frame.total isolates work OUTSIDE renderFrame (tile
   //    decode/upload, rAF scheduling, compositing).
   const passSum = passes.reduce((a, p) => a + p.perFrameMs, 0)
-  const frameEncode = frameStar.find(p => p.name === 'frame.encode')?.perFrameMs ?? 0
-  const frameTotal = frameStar.find(p => p.name === 'frame.total')?.perFrameMs ?? 0
+  const frameEncode = frameStar.find((p) => p.name === 'frame.encode')?.perFrameMs ?? 0
+  const frameTotal = frameStar.find((p) => p.name === 'frame.total')?.perFrameMs ?? 0
   if (frameEncode > 0) {
-    lines.push(`  frame.encode=${frameEncode.toFixed(1)} − passes합=${passSum.toFixed(1)}`
-      + `  → 비패스 encode(classify/prefetch)≈${(frameEncode - passSum).toFixed(1)}ms`)
+    lines.push(
+      `  frame.encode=${frameEncode.toFixed(1)} − passes합=${passSum.toFixed(1)}` +
+        `  → 비패스 encode(classify/prefetch)≈${(frameEncode - passSum).toFixed(1)}ms`,
+    )
   }
   if (frameTotal > 0 && rotPitchP50 > 0) {
-    lines.push(`  측정 frame p50=${rotPitchP50.toFixed(1)} − frame.total=${frameTotal.toFixed(1)}`
-      + `  → 렌더 밖(업로드/rAF/합성)≈${(rotPitchP50 - frameTotal).toFixed(1)}ms`)
+    lines.push(
+      `  측정 frame p50=${rotPitchP50.toFixed(1)} − frame.total=${frameTotal.toFixed(1)}` +
+        `  → 렌더 밖(업로드/rAF/합성)≈${(rotPitchP50 - frameTotal).toFixed(1)}ms`,
+    )
   }
 
   // Every other marked phase (tile selection / classify / prepare / prefetch),
@@ -183,11 +222,11 @@ export function installPerfOverlay(map: PerfMap): void {
   const panel = document.createElement('div')
   panel.id = 'xgis-perf-overlay'
   panel.style.cssText =
-    'position:fixed;left:0;right:0;bottom:0;z-index:10001;'
-    + 'background:rgba(0,0,0,0.86);color:#e8e8e8;'
-    + 'font:11px/1.35 monospace;padding:8px 10px;'
-    + 'max-height:48vh;overflow:auto;-webkit-overflow-scrolling:touch;'
-    + 'border-top:1px solid #444;'
+    'position:fixed;left:0;right:0;bottom:0;z-index:10001;' +
+    'background:rgba(0,0,0,0.86);color:#e8e8e8;' +
+    'font:11px/1.35 monospace;padding:8px 10px;' +
+    'max-height:48vh;overflow:auto;-webkit-overflow-scrolling:touch;' +
+    'border-top:1px solid #444;'
   document.body.appendChild(panel)
 
   const bar = document.createElement('div')
@@ -196,8 +235,8 @@ export function installPerfOverlay(map: PerfMap): void {
     const b = document.createElement('button')
     b.textContent = label
     b.style.cssText =
-      'font:bold 12px/1 monospace;padding:8px 12px;border-radius:6px;'
-      + 'border:1px solid #666;background:#1f6feb;color:#fff;touch-action:manipulation;'
+      'font:bold 12px/1 monospace;padding:8px 12px;border-radius:6px;' +
+      'border:1px solid #666;background:#1f6feb;color:#fff;touch-action:manipulation;'
     return b
   }
   const runBtn = mkBtn('▶ 측정 (12초)')
@@ -213,7 +252,8 @@ export function installPerfOverlay(map: PerfMap): void {
 
   const pre = document.createElement('pre')
   pre.style.cssText = 'margin:0;white-space:pre-wrap;word-break:break-word;'
-  pre.textContent = '«측정»을 눌러 6초 pan+zoom + 6초 rotate+pitch 를 돌립니다 (현재 카메라 기준 — 글로브/평면 모두 OK).\nGPU 시간까지 보려면 URL 에 &gpuprof=1 을 붙여 다시 로드하세요.'
+  pre.textContent =
+    '«측정»을 눌러 6초 pan+zoom + 6초 rotate+pitch 를 돌립니다 (현재 카메라 기준 — 글로브/평면 모두 OK).\nGPU 시간까지 보려면 URL 에 &gpuprof=1 을 붙여 다시 로드하세요.'
   panel.append(bar, pre)
 
   let report = ''
@@ -242,7 +282,10 @@ export function installPerfOverlay(map: PerfMap): void {
       // streets. The old hard-coded zoom 10→14 zoomed a globe down to mercator
       // and never tested the sphere pass.
       const b0 = map.getCamera()
-      const z0 = b0.zoom, x0 = b0.centerX, p0 = b0.pitch, br0 = b0.bearing
+      const z0 = b0.zoom,
+        x0 = b0.centerX,
+        p0 = b0.pitch,
+        br0 = b0.bearing
       // ~0.4 of the visible width at this zoom (Web-Mercator world circumference
       // is 40,075,016 m); keeps the pan on-screen at z=3 and z=14 alike.
       const panDelta = (40075016.686 / Math.pow(2, z0)) * 0.4
@@ -250,20 +293,23 @@ export function installPerfOverlay(map: PerfMap): void {
       pre.textContent = '측정 중… pan+zoom (6초)'
       const panZoom = await runScenario(map, 6000, (t, cam) => {
         const ph = t < 0.5 ? t * 2 : (1 - t) * 2
-        cam.zoom = Math.max(0, z0 + ph * 2)   // zoom in +2 then back
+        cam.zoom = Math.max(0, z0 + ph * 2) // zoom in +2 then back
         cam.centerX = x0 + ph * panDelta
       })
       pre.textContent = '측정 중… rotate+pitch (6초)'
       const rotPitch = await runScenario(map, 6000, (t, cam) => {
         const ph = t < 0.5 ? t * 2 : (1 - t) * 2
-        cam.bearing = br0 + t * 360           // full spin — drives the globe sphere pass
+        cam.bearing = br0 + t * 360 // full spin — drives the globe sphere pass
         cam.pitch = p0 + ph * 40
       })
 
       // Restore the starting view (pan/zoom/pitch already returned via the
       // triangle wave; bearing ends a full turn later ≡ br0).
       const camNow = map.getCamera()
-      camNow.zoom = z0; camNow.centerX = x0; camNow.pitch = p0; camNow.bearing = br0
+      camNow.zoom = z0
+      camNow.centerX = x0
+      camNow.pitch = p0
+      camNow.bearing = br0
       map.invalidate()
 
       const rotPitchP50 = pct(rotPitch.slice(2), 50)
@@ -282,16 +328,22 @@ export function installPerfOverlay(map: PerfMap): void {
   // GPU-bound. Settles the 22ms "렌더 밖" gap directly.
   abBtn.addEventListener('click', () => {
     void (async () => {
-      abBtn.disabled = true; runBtn.disabled = true
+      abBtn.disabled = true
+      runBtn.disabled = true
       const b0 = map.getCamera()
-      const z0 = b0.zoom, x0 = b0.centerX, y0 = b0.centerY, p0 = b0.pitch, br0 = b0.bearing
+      const z0 = b0.zoom,
+        x0 = b0.centerX,
+        y0 = b0.centerY,
+        p0 = b0.pitch,
+        br0 = b0.bearing
       const sweep = (t: number, cam: PerfCamera): void => {
         const ph = t < 0.5 ? t * 2 : (1 - t) * 2
         cam.bearing = br0 + t * 360
         cam.pitch = p0 + ph * 40
       }
       const phases = (window as unknown as { __xgisPerfPhases?: PerfPhasesAPI }).__xgisPerfPhases
-      phases?.setEnabled?.(true); phases?.resetPhaseTimings?.()
+      phases?.setEnabled?.(true)
+      phases?.resetPhaseTimings?.()
       map.gpuTimer?.resetTimings?.()
 
       // Main-thread stall probe: a MessageChannel posts to itself as fast as
@@ -338,7 +390,11 @@ export function installPerfOverlay(map: PerfMap): void {
 
       // Restore the view.
       const c = map.getCamera()
-      c.zoom = z0; c.centerX = x0; c.centerY = y0; c.pitch = p0; c.bearing = br0
+      c.zoom = z0
+      c.centerX = x0
+      c.centerY = y0
+      c.pitch = p0
+      c.bearing = br0
       map.invalidate()
 
       const fr = frames.slice(2)
@@ -349,16 +405,21 @@ export function installPerfOverlay(map: PerfMap): void {
       const stallP50 = pct(gaps, 50)
       const stallP95 = pct(gaps, 95)
       const stallMax = gaps.reduce((a, b) => Math.max(a, b), 0)
-      const frameTotal = (phases?.getPhaseAverages?.() ?? []).find(p => p.name === 'frame.total')?.perFrameMs ?? 0
+      const frameTotal =
+        (phases?.getPhaseAverages?.() ?? []).find((p) => p.name === 'frame.total')?.perFrameMs ?? 0
       const frameTotalMax = phaseMax.get('frame.total') ?? 0
       const gpu = map.gpuTimer?.getBreakdown?.() ?? {}
-      const gpuVals = Object.values(gpu).flat().map(n => n / 1e6).sort((a, b) => a - b)
+      const gpuVals = Object.values(gpu)
+        .flat()
+        .map((n) => n / 1e6)
+        .sort((a, b) => a - b)
       const gpuP50 = gpuVals.length ? gpuVals[Math.floor(gpuVals.length * 0.5)]! : 0
       // Decision: is the main thread busy for most of the frame, or idle?
       const busyFrac = fP50 > 0 ? stallMax / fP50 : 0
-      const verdict = busyFrac > 0.7
-        ? `→ 메인스레드 최대 stall ${stallMax.toFixed(0)}ms ≈ frame ${fP50.toFixed(0)}ms : CPU 바운드(메인스레드가 프레임 내내 바쁨 — renderFrame 밖 JS)`
-        : `→ 메인스레드 최대 stall ${stallMax.toFixed(0)}ms ≪ frame ${fP50.toFixed(0)}ms : GPU 바운드(메인은 idle, GPU/present 대기 — DPR/draw/present 쪽)`
+      const verdict =
+        busyFrac > 0.7
+          ? `→ 메인스레드 최대 stall ${stallMax.toFixed(0)}ms ≈ frame ${fP50.toFixed(0)}ms : CPU 바운드(메인스레드가 프레임 내내 바쁨 — renderFrame 밖 JS)`
+          : `→ 메인스레드 최대 stall ${stallMax.toFixed(0)}ms ≪ frame ${fP50.toFixed(0)}ms : GPU 바운드(메인은 idle, GPU/present 대기 — DPR/draw/present 쪽)`
 
       // Worst-frame attribution. NOTE: frame.total-max and the rAF-worst frame
       // need NOT be the same frame, so subtracting them ("렌더 밖 ≈ rAF−total")
@@ -368,15 +429,17 @@ export function installPerfOverlay(map: PerfMap): void {
       // an inside-render opaque burst (upload/evict/ring-grow — see sub-marks).
       const topPhaseMax = [...phaseMax.entries()]
         .filter(([n]) => !n.startsWith('frame.'))
-        .sort((a, b) => b[1] - a[1]).slice(0, 8)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8)
       const opaqueMax = [...phaseMax.entries()]
         .filter(([n]) => /encoder\.pass\.opaque/.test(n))
         .reduce((a, [, v]) => Math.max(a, v), 0)
-      const whereWorst = opaqueMax >= frameTotalMax * 0.6 && opaqueMax > 0
-        ? `렌더 안 opaque 패스 스파이크 (opaque최악=${opaqueMax.toFixed(0)}ms ≈ frame.total최악) — 아래 sub-marks 가 범인`
-        : frameTotalMax >= framesMax * 0.6
-        ? `렌더 안(frame.total) 스파이크 — 아래 phase MAX 참조`
-        : `rAF최악(${framesMax.toFixed(0)})이 frame.total최악(${frameTotalMax.toFixed(0)})보다 큼 — 서로 다른 프레임일 수 있어 phase MAX / MVT 로 교차확인`
+      const whereWorst =
+        opaqueMax >= frameTotalMax * 0.6 && opaqueMax > 0
+          ? `렌더 안 opaque 패스 스파이크 (opaque최악=${opaqueMax.toFixed(0)}ms ≈ frame.total최악) — 아래 sub-marks 가 범인`
+          : frameTotalMax >= framesMax * 0.6
+            ? `렌더 안(frame.total) 스파이크 — 아래 phase MAX 참조`
+            : `rAF최악(${framesMax.toFixed(0)})이 frame.total최악(${frameTotalMax.toFixed(0)})보다 큼 — 서로 다른 프레임일 수 있어 phase MAX / MVT 로 교차확인`
 
       // MVT drain deltas across the sweep — how much of the outside-render time
       // is the worker-result drain chain.
@@ -386,8 +449,9 @@ export function installPerfOverlay(map: PerfMap): void {
         const dDrains = poolAfter.totalDrains - poolBefore.totalDrains
         const dMs = poolAfter.totalDrainMs - poolBefore.totalDrainMs
         const perDrain = dDrains > 0 ? dMs / dDrains : 0
-        drainLine = `MVT drain(측정중): 타일=${dTiles} drain횟수=${dDrains} drain합=${dMs.toFixed(1)}ms `
-          + `(회당~${perDrain.toFixed(1)}ms, 최대배치=${poolAfter.maxDrainSize}, 잔여큐=${poolAfter.queueLength})`
+        drainLine =
+          `MVT drain(측정중): 타일=${dTiles} drain횟수=${dDrains} drain합=${dMs.toFixed(1)}ms ` +
+          `(회당~${perDrain.toFixed(1)}ms, 최대배치=${poolAfter.maxDrainSize}, 잔여큐=${poolAfter.queueLength})`
       }
 
       const dpr = window.devicePixelRatio || 1
@@ -403,15 +467,19 @@ export function installPerfOverlay(map: PerfMap): void {
         `최악프레임 분해: rAF최악=${framesMax.toFixed(0)} / frame.total최악=${frameTotalMax.toFixed(0)} → ${whereWorst}`,
         'phase MAX (최악프레임 ms, 큰 순):',
         ...(topPhaseMax.length
-          ? topPhaseMax.map(([n, v]) => `  ${v.toFixed(1).padStart(7)}  ${n.replace('encoder.pass.', '')}`)
+          ? topPhaseMax.map(
+              ([n, v]) => `  ${v.toFixed(1).padStart(7)}  ${n.replace('encoder.pass.', '')}`,
+            )
           : ['  (phase 마크 없음 — ?gpuprof=1 로 로드했는지 확인)']),
         'opaque 버스트 분해 (sub-marks 최악ms):',
         ...['vtr.upload', 'vtr.evict', 'uniform-ring.grow'].map(
-          n => `  ${(phaseMax.get(n) ?? 0).toFixed(1).padStart(7)}  ${n}`),
+          (n) => `  ${(phaseMax.get(n) ?? 0).toFixed(1).padStart(7)}  ${n}`,
+        ),
         drainLine,
       ].join('\n')
       pre.textContent = report
-      abBtn.disabled = false; runBtn.disabled = false
+      abBtn.disabled = false
+      runBtn.disabled = false
       abBtn.textContent = '▶ GPU/CPU 다시'
     })()
   })
@@ -419,8 +487,15 @@ export function installPerfOverlay(map: PerfMap): void {
   copyBtn.addEventListener('click', () => {
     const text = report || pre.textContent || ''
     navigator.clipboard?.writeText(text).then(
-      () => { copyBtn.textContent = '✓ 복사됨'; setTimeout(() => { copyBtn.textContent = '📋 복사' }, 1500) },
-      () => { copyBtn.textContent = '복사 실패 — 길게 눌러 선택' },
+      () => {
+        copyBtn.textContent = '✓ 복사됨'
+        setTimeout(() => {
+          copyBtn.textContent = '📋 복사'
+        }, 1500)
+      },
+      () => {
+        copyBtn.textContent = '복사 실패 — 길게 눌러 선택'
+      },
     )
   })
 

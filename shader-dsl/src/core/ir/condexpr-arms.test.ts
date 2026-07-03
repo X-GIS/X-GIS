@@ -24,10 +24,13 @@ import { emitFunc } from '../backends/wgsl'
 describe('condExpr / ifExpr — arm assignments land INSIDE the branches', () => {
   it('condExpr emits the assignment inside each if/elif/else arm (not empty arms)', () => {
     const pick = fn('pick3', { sel: f32T }, f32T, ({ sel }) => {
-      return condExpr([
-        [sel.lt(f32(0.5)), () => f32(10)],
-        [sel.lt(f32(6.5)), () => f32(20)],
-      ], () => f32(30))
+      return condExpr(
+        [
+          [sel.lt(f32(0.5)), () => f32(10)],
+          [sel.lt(f32(6.5)), () => f32(20)],
+        ],
+        () => f32(30),
+      )
     })
     const wgsl = emitFunc(pick)
 
@@ -43,7 +46,11 @@ describe('condExpr / ifExpr — arm assignments land INSIDE the branches', () =>
 
   it('ifExpr emits then/else assignments inside the branches (not empty arms)', () => {
     const pick = fn('pick2', { sel: f32T }, f32T, ({ sel }) => {
-      return ifExpr(sel.lt(f32(0.5)), () => f32(11), () => f32(22))
+      return ifExpr(
+        sel.lt(f32(0.5)),
+        () => f32(11),
+        () => f32(22),
+      )
     })
     const wgsl = emitFunc(pick)
     expect(wgsl).toMatch(/\{\s*_v\d+ = 11\.0;\s*\} else \{/s)

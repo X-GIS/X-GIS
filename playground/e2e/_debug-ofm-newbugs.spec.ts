@@ -11,9 +11,9 @@ mkdirSync(OUT, { recursive: true })
 //                     #4.37/36.79604/-173.97143
 //   polygon/line tile: #2.32/53.22993/-84.35541
 for (const cfg of [
-  { name: 'cam1-z2.26',  hash: '#2.26/16.14556/-16683927' },
-  { name: 'cam2-z4.37',  hash: '#4.37/36.79604/-173.97143' },
-  { name: 'cam3-z2.32',  hash: '#2.32/53.22993/-84.35541' },
+  { name: 'cam1-z2.26', hash: '#2.26/16.14556/-16683927' },
+  { name: 'cam2-z4.37', hash: '#4.37/36.79604/-173.97143' },
+  { name: 'cam3-z2.32', hash: '#2.32/53.22993/-84.35541' },
 ]) {
   test(`ofm-newbug ${cfg.name}`, async ({ page }) => {
     test.setTimeout(60_000)
@@ -22,10 +22,11 @@ for (const cfg of [
       waitUntil: 'domcontentloaded',
     })
     await page.waitForFunction(
-      () => (window as unknown as { __xgisReady?: boolean; __mlReady?: boolean })
-        .__xgisReady === true
-        && (window as unknown as { __mlReady?: boolean }).__mlReady === true,
-      null, { timeout: 30_000 },
+      () =>
+        (window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }).__xgisReady ===
+          true && (window as unknown as { __mlReady?: boolean }).__mlReady === true,
+      null,
+      { timeout: 30_000 },
     )
     await page.waitForTimeout(10_000)
     const panes = page.locator('#panes .pane')

@@ -22,8 +22,10 @@ export class SpriteAtlasGPU {
     // Linear filter so non-integer-scale icons (icon-size != 1) stay
     // smooth; clamp-to-edge so atlas neighbours never bleed.
     this.sampler = device.createSampler({
-      magFilter: 'linear', minFilter: 'linear',
-      addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge',
+      magFilter: 'linear',
+      minFilter: 'linear',
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge',
       label: 'sprite-atlas-sampler',
     })
   }
@@ -42,7 +44,10 @@ export class SpriteAtlasGPU {
     this.texture = this.device.createTexture({
       size: { width: w, height: h },
       format: 'rgba8unorm',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+      usage:
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_DST |
+        GPUTextureUsage.RENDER_ATTACHMENT,
       label: 'sprite-atlas',
     })
     // copyExternalImageToTexture handles both ImageBitmap and

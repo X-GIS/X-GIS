@@ -10,13 +10,15 @@ function emitLine(width: unknown): string {
   return convertMapboxStyle({
     version: 8,
     sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-    layers: [{
-      id: 'l',
-      type: 'line',
-      source: 'v',
-      'source-layer': 'transportation',
-      paint: { 'line-color': '#000', 'line-width': width },
-    }],
+    layers: [
+      {
+        id: 'l',
+        type: 'line',
+        source: 'v',
+        'source-layer': 'transportation',
+        paint: { 'line-color': '#000', 'line-width': width },
+      },
+    ],
   } as never)
 }
 

@@ -48,11 +48,23 @@ import type { TextDraw } from '@xgis/map'
 const g = globalThis as Record<string, unknown>
 g.GPUShaderStage ??= { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 }
 g.GPUBufferUsage ??= {
-  MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8, INDEX: 16,
-  VERTEX: 32, UNIFORM: 64, STORAGE: 128, INDIRECT: 256, QUERY_RESOLVE: 512,
+  MAP_READ: 1,
+  MAP_WRITE: 2,
+  COPY_SRC: 4,
+  COPY_DST: 8,
+  INDEX: 16,
+  VERTEX: 32,
+  UNIFORM: 64,
+  STORAGE: 128,
+  INDIRECT: 256,
+  QUERY_RESOLVE: 512,
 }
 g.GPUTextureUsage ??= {
-  COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8, RENDER_ATTACHMENT: 16,
+  COPY_SRC: 1,
+  COPY_DST: 2,
+  TEXTURE_BINDING: 4,
+  STORAGE_BINDING: 8,
+  RENDER_ATTACHMENT: 16,
 }
 g.GPUColorWrite ??= { RED: 1, GREEN: 2, BLUE: 4, ALPHA: 8, ALL: 15 }
 
@@ -60,16 +72,23 @@ g.GPUColorWrite ??= { RED: 1, GREEN: 2, BLUE: 4, ALPHA: 8, ALL: 15 }
 // the same stub; numeric-ish props return a number so the GPU classes'
 // constructors don't choke on `.size` / `.width`.
 function stubDevice(): GPUDevice {
-  const stub: unknown = new Proxy(function () { return stub }, {
-    get(_t, p) {
-      if (p === 'size') return 1 << 22
-      if (p === 'width' || p === 'height') return 4096
-      if (p === 'limits') return { maxTextureDimension2D: 8192 }
-      if (p === Symbol.toPrimitive) return () => 0
+  const stub: unknown = new Proxy(
+    function () {
       return stub
     },
-    apply() { return stub },
-  })
+    {
+      get(_t, p) {
+        if (p === 'size') return 1 << 22
+        if (p === 'width' || p === 'height') return 4096
+        if (p === 'limits') return { maxTextureDimension2D: 8192 }
+        if (p === Symbol.toPrimitive) return () => 0
+        return stub
+      },
+      apply() {
+        return stub
+      },
+    },
+  )
   return stub as GPUDevice
 }
 
@@ -83,7 +102,7 @@ function defWithLineHeight(size: number, lineHeight: number): LabelDef {
   return {
     text: litValue(''),
     size,
-    maxWidth: 8,          // wide enough that the \n is the only break
+    maxWidth: 8, // wide enough that the \n is the only break
     font: ['Noto Sans Bold'],
     anchor: 'top',
     lineHeight,
@@ -92,16 +111,21 @@ function defWithLineHeight(size: number, lineHeight: number): LabelDef {
 
 /** Build a stage and spy on renderer.setDraws to capture the produced draws. */
 function makeStage() {
-  const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', { rasterizer: new MockRasterizer() })
+  const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', {
+    rasterizer: new MockRasterizer(),
+  })
   const captured: TextDraw[][] = []
-  ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws =
-    (d: TextDraw[]) => { captured.push(d) }
+  ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws = (
+    d: TextDraw[],
+  ) => {
+    captured.push(d)
+  }
   return { stage, captured }
 }
 
 /** Find the draw whose glyph codepoints contain the given char. */
 function findDrawWithText(draws: TextDraw[], cp: number): TextDraw | undefined {
-  return draws.find(d => d.glyphs.some(g => g.codepoint === cp))
+  return draws.find((d) => d.glyphs.some((g) => g.codepoint === cp))
 }
 
 /** Measure the inter-line baseline spacing (line-2 Y − line-1 Y) from a draw's
@@ -125,7 +149,7 @@ function interLineDelta(draw: TextDraw): number {
 
 // Two-line ASCII label — the \n is the sole break opportunity (maxWidth wide).
 const TWO_LINE = 'Ab\nCd'
-const SIZE = 16  // dpr defaults to 1 → sizePx = SIZE
+const SIZE = 16 // dpr defaults to 1 → sizePx = SIZE
 
 /** Drive a single-label frame with the given lineHeight and return the
  *  measured inter-line baseline delta from the real prepare() output. */

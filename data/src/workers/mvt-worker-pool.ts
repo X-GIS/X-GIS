@@ -113,23 +113,29 @@ export class MvtWorkerPool {
   /** Cumulative wall-time spent in drain (ms). */
   totalDrainMs = 0
   /** Current queue length — direct accessor for the rAF-stage gate. */
-  get queueLength(): number { return this.resolveQueue.length }
+  get queueLength(): number {
+    return this.resolveQueue.length
+  }
   /** Current pending compile count (in-flight worker jobs). */
-  get pendingCount(): number { return this.pending.size }
+  get pendingCount(): number {
+    return this.pending.size
+  }
 
   constructor() {
-    const hc = typeof navigator !== 'undefined' && navigator.hardwareConcurrency
-      ? navigator.hardwareConcurrency
-      : 4
+    const hc =
+      typeof navigator !== 'undefined' && navigator.hardwareConcurrency
+        ? navigator.hardwareConcurrency
+        : 4
     // Cap workers at 2 on mobile-class viewports — every active
     // worker holds an MVT-decode arena in flight + competes with
     // the main thread for thermal budget. Desktop keeps the
     // hardwareConcurrency-driven 2-6 range. Re-checked at
     // construction time so the cap works in both real mobile
     // browsers and Playwright mobile-emulation viewports.
-    const isMobile = typeof window !== 'undefined'
-      && (window.innerWidth || 0) > 0
-      && (window.innerWidth || 0) <= 900
+    const isMobile =
+      typeof window !== 'undefined' &&
+      (window.innerWidth || 0) > 0 &&
+      (window.innerWidth || 0) <= 900
     const ceiling = isMobile ? 2 : 6
     this.size = Math.max(2, Math.min(ceiling, hc - 1))
   }
@@ -141,31 +147,38 @@ export class MvtWorkerPool {
     if (this.workers.length > 0) return
     for (let i = 0; i < this.size; i++) {
       const w = new MvtWorker({ name: `mvt-compile-${i}` })
-      w.addEventListener('message', (e: MessageEvent<{
-        kind: string; taskId: number;
-        slices?: SliceMsg[];
-        message?: string; stack?: string;
-      }>) => {
-        const m = e.data
-        const job = this.pending.get(m.taskId)
-        if (!job) return
-        this.pending.delete(m.taskId)
-        if (m.kind === 'compile-done') {
-          // Buffer for rAF drain — see field comment on `resolveQueue`.
-          // The wrapping (Float32Array / Uint32Array constructors) is
-          // ALSO deferred to drain time so the per-microtask
-          // allocation burst is split across several frames too.
-          this.resolveQueue.push({ job, slices: m.slices ?? [] })
-          this.scheduleResolveDrain()
-        } else {
-          // Error path stays synchronous — the rejection is light
-          // (no typed-array wrapping) and prompt error reporting is
-          // more important than burst smoothing.
-          const err = new Error(m.message || 'mvt worker failed')
-          err.stack = m.stack ?? err.stack
-          job.reject(err)
-        }
-      })
+      w.addEventListener(
+        'message',
+        (
+          e: MessageEvent<{
+            kind: string
+            taskId: number
+            slices?: SliceMsg[]
+            message?: string
+            stack?: string
+          }>,
+        ) => {
+          const m = e.data
+          const job = this.pending.get(m.taskId)
+          if (!job) return
+          this.pending.delete(m.taskId)
+          if (m.kind === 'compile-done') {
+            // Buffer for rAF drain — see field comment on `resolveQueue`.
+            // The wrapping (Float32Array / Uint32Array constructors) is
+            // ALSO deferred to drain time so the per-microtask
+            // allocation burst is split across several frames too.
+            this.resolveQueue.push({ job, slices: m.slices ?? [] })
+            this.scheduleResolveDrain()
+          } else {
+            // Error path stays synchronous — the rejection is light
+            // (no typed-array wrapping) and prompt error reporting is
+            // more important than burst smoothing.
+            const err = new Error(m.message || 'mvt worker failed')
+            err.stack = m.stack ?? err.stack
+            job.reject(err)
+          }
+        },
+      )
       w.addEventListener('error', (e: ErrorEvent) => {
         console.error('[mvt-worker]', e.message)
         // Reject ONLY the jobs dispatched to THIS worker so callers don't
@@ -220,7 +233,7 @@ export class MvtWorkerPool {
     let processed = 0
     while (processed < MvtWorkerPool.MAX_RESOLVES_PER_FRAME && this.resolveQueue.length > 0) {
       const { job, slices } = this.resolveQueue.shift()!
-      const wrapped: MvtCompileSlice[] = slices.map(s => ({
+      const wrapped: MvtCompileSlice[] = slices.map((s) => ({
         layerName: s.layerName,
         vertices: new Float32Array(s.vertices),
         dequantScale: s.dequantScale,
@@ -231,9 +244,15 @@ export class MvtWorkerPool {
         pointVertices: s.pointVertices ? new Float32Array(s.pointVertices) : undefined,
         outlineIndices: s.outlineIndices ? new Uint32Array(s.outlineIndices) : undefined,
         outlineVertices: s.outlineVertices ? new Float32Array(s.outlineVertices) : undefined,
-        outlineLineIndices: s.outlineLineIndices ? new Uint32Array(s.outlineLineIndices) : undefined,
-        prebuiltLineSegments: s.prebuiltLineSegments ? new Float32Array(s.prebuiltLineSegments) : undefined,
-        prebuiltOutlineSegments: s.prebuiltOutlineSegments ? new Float32Array(s.prebuiltOutlineSegments) : undefined,
+        outlineLineIndices: s.outlineLineIndices
+          ? new Uint32Array(s.outlineLineIndices)
+          : undefined,
+        prebuiltLineSegments: s.prebuiltLineSegments
+          ? new Float32Array(s.prebuiltLineSegments)
+          : undefined,
+        prebuiltOutlineSegments: s.prebuiltOutlineSegments
+          ? new Float32Array(s.prebuiltOutlineSegments)
+          : undefined,
         polygons: s.polygons,
         heights: s.heights,
         bases: s.bases,
@@ -258,13 +277,23 @@ export class MvtWorkerPool {
    *  in the tile produces a slice. */
   compile(
     bytes: ArrayBuffer,
-    z: number, x: number, y: number,
+    z: number,
+    x: number,
+    y: number,
     maxZoom: number,
-    tileWidthMerc: number, tileHeightMerc: number,
+    tileWidthMerc: number,
+    tileHeightMerc: number,
     layers?: string[],
     extrudeExprs?: Record<string, unknown>,
     extrudeBaseExprs?: Record<string, unknown>,
-    showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean; featurePropKeys?: string[] }>,
+    showSlices?: Array<{
+      sliceKey: string
+      sourceLayer: string
+      filterAst: unknown | null
+      needsFeatureProps?: boolean
+      needsExtrude?: boolean
+      featurePropKeys?: string[]
+    }>,
     strokeWidthExprs?: Record<string, unknown>,
     strokeColorExprs?: Record<string, unknown>,
   ): Promise<MvtCompileSlice[]> {
@@ -275,17 +304,26 @@ export class MvtWorkerPool {
       this.pending.set(taskId, { resolve, reject, workerIndex })
       const w = this.workers[workerIndex]
       this.nextWorker = (this.nextWorker + 1) % this.workers.length
-      w.postMessage({
-        kind: 'compile-mvt', taskId, bytes,
-        z, x, y, maxZoom,
-        tileWidthMerc, tileHeightMerc,
-        layers,
-        extrudeExprs,
-        extrudeBaseExprs,
-        showSlices,
-        strokeWidthExprs,
-        strokeColorExprs,
-      }, [bytes])
+      w.postMessage(
+        {
+          kind: 'compile-mvt',
+          taskId,
+          bytes,
+          z,
+          x,
+          y,
+          maxZoom,
+          tileWidthMerc,
+          tileHeightMerc,
+          layers,
+          extrudeExprs,
+          extrudeBaseExprs,
+          showSlices,
+          strokeWidthExprs,
+          strokeColorExprs,
+        },
+        [bytes],
+      )
     })
   }
 

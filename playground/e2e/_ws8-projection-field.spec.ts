@@ -27,30 +27,45 @@ const GLOBE_STYLE = {
 
 test('WS-8: style projection:globe drives setProjection without ?proj=', async ({ page }) => {
   const errs: string[] = []
-  page.on('console', m => { if (m.type() === 'error') errs.push(m.text()) })
+  page.on('console', (m) => {
+    if (m.type() === 'error') errs.push(m.text())
+  })
 
   await page.goto('https://localhost:3000/demo.html?id=minimal&e2e=1')
   await page.waitForFunction(
-    () => !!(window as unknown as { __xgisImportMapbox?: unknown }).__xgisImportMapbox
-       && !!(window as unknown as { __xgisMap?: { getProjectionName?: () => string } }).__xgisMap?.getProjectionName,
-    null, { timeout: 30_000 },
+    () =>
+      !!(window as unknown as { __xgisImportMapbox?: unknown }).__xgisImportMapbox &&
+      !!(window as unknown as { __xgisMap?: { getProjectionName?: () => string } }).__xgisMap
+        ?.getProjectionName,
+    null,
+    { timeout: 30_000 },
   )
 
-  const before = await page.evaluate(
-    () => (window as unknown as { __xgisMap: { getProjectionName(): string } }).__xgisMap.getProjectionName(),
+  const before = await page.evaluate(() =>
+    (
+      window as unknown as { __xgisMap: { getProjectionName(): string } }
+    ).__xgisMap.getProjectionName(),
   )
 
   await page.evaluate((style) => {
-    ;(window as unknown as { __xgisImportMapbox: (j: string) => void }).__xgisImportMapbox(JSON.stringify(style))
+    ;(window as unknown as { __xgisImportMapbox: (j: string) => void }).__xgisImportMapbox(
+      JSON.stringify(style),
+    )
   }, GLOBE_STYLE)
 
   // Wait for the imported style's projection to take effect.
   await page.waitForFunction(
-    () => (window as unknown as { __xgisMap?: { getProjectionName?: () => string } }).__xgisMap?.getProjectionName?.() === 'globe',
-    null, { timeout: 30_000 },
+    () =>
+      (
+        window as unknown as { __xgisMap?: { getProjectionName?: () => string } }
+      ).__xgisMap?.getProjectionName?.() === 'globe',
+    null,
+    { timeout: 30_000 },
   )
-  const after = await page.evaluate(
-    () => (window as unknown as { __xgisMap: { getProjectionName(): string } }).__xgisMap.getProjectionName(),
+  const after = await page.evaluate(() =>
+    (
+      window as unknown as { __xgisMap: { getProjectionName(): string } }
+    ).__xgisMap.getProjectionName(),
   )
 
   await page.waitForTimeout(800)
@@ -59,5 +74,8 @@ test('WS-8: style projection:globe drives setProjection without ?proj=', async (
   // Behavioral assertions (GPU-independent — the real WS-8 proof).
   expect(before, 'minimal demo starts non-globe').not.toBe('globe')
   expect(after, 'style projection:globe must flip the engine to globe').toBe('globe')
-  expect(errs.filter(e => !/favicon|404/i.test(e)), `console errors: ${errs.join(' | ')}`).toEqual([])
+  expect(
+    errs.filter((e) => !/favicon|404/i.test(e)),
+    `console errors: ${errs.join(' | ')}`,
+  ).toEqual([])
 })

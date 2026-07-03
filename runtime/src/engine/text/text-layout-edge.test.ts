@@ -41,8 +41,8 @@ describe('iter-318 wrap (Knuth-Plass) edge cases', () => {
   it('one long unbreakable word wider than maxWidth → still emitted (overflow line)', () => {
     // No space codepoints → no break opportunity. MapLibre emits the
     // word on a single overflowing line rather than dropping it.
-    const { cps, adv } = uniform(20, 65, 10)  // 200 px word
-    const lines = wrapForTesting(cps, adv, 50)  // maxWidth 50
+    const { cps, adv } = uniform(20, 65, 10) // 200 px word
+    const lines = wrapForTesting(cps, adv, 50) // maxWidth 50
     expect(lines.length).toBeGreaterThanOrEqual(1)
     // Union of ranges must cover all 20 glyphs.
     const covered = lines.reduce((s, l) => s + (l.end - l.start), 0)
@@ -65,21 +65,28 @@ describe('iter-318 wrap (Knuth-Plass) edge cases', () => {
 
   it('lines cover the full input contiguously (no gap / no overlap)', () => {
     // Mix in spaces (cp 32) so there ARE break opportunities.
-    const cps = [72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100]  // "Hello World"
+    const cps = [72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100] // "Hello World"
     const adv = cps.map(() => 12)
     const lines = wrapForTesting(cps, adv, 60)
     let cursor = 0
     for (const l of lines) {
-      expect(l.start).toBe(cursor)  // contiguous
+      expect(l.start).toBe(cursor) // contiguous
       expect(l.end).toBeGreaterThan(l.start)
       cursor = l.end
     }
-    expect(cursor).toBe(cps.length)  // covers all
+    expect(cursor).toBe(cps.length) // covers all
   })
 
   it('all widths finite + non-negative across 100 random strings', () => {
     let s = 0x7a11
-    const rng = () => { s ^= s << 13; s |= 0; s ^= s >>> 17; s ^= s << 5; s |= 0; return (s >>> 0) / 0x1_0000_0000 }
+    const rng = () => {
+      s ^= s << 13
+      s |= 0
+      s ^= s >>> 17
+      s ^= s << 5
+      s |= 0
+      return (s >>> 0) / 0x1_0000_0000
+    }
     for (let t = 0; t < 100; t++) {
       const n = 1 + Math.floor(rng() * 30)
       const cps = Array.from({ length: n }, () => (rng() < 0.2 ? 32 : 65 + Math.floor(rng() * 26)))

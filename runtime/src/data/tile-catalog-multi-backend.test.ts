@@ -19,7 +19,15 @@ const POLY_LARGE = {
   type: 'Feature' as const,
   geometry: {
     type: 'Polygon' as const,
-    coordinates: [[[-30, -30], [30, -30], [30, 30], [-30, 30], [-30, -30]]],
+    coordinates: [
+      [
+        [-30, -30],
+        [30, -30],
+        [30, 30],
+        [-30, 30],
+        [-30, -30],
+      ],
+    ],
   },
   properties: {},
 }
@@ -37,7 +45,9 @@ describe('TileCatalog multi-backend dispatch', () => {
 
     const fetcher: PMTilesFetcher = async () => null
     const pmBackend = new PMTilesBackend({
-      fetcher, minZoom: 0, maxZoom: 14,
+      fetcher,
+      minZoom: 0,
+      maxZoom: 14,
       bounds: [100, -50, 150, 50],
     })
     catalog.attachBackend(pmBackend)
@@ -58,7 +68,9 @@ describe('TileCatalog multi-backend dispatch', () => {
 
     const fetcher: PMTilesFetcher = async () => null
     const pmBackend = new PMTilesBackend({
-      fetcher, minZoom: 0, maxZoom: 14,
+      fetcher,
+      minZoom: 0,
+      maxZoom: 14,
       bounds: [-180, -85, 180, 85],
     })
     catalog.attachBackend(pmBackend)
@@ -69,39 +81,63 @@ describe('TileCatalog multi-backend dispatch', () => {
     const catalog = new TileCatalog()
     const fetcherA: PMTilesFetcher = async () => null
     // Backend A: tiny window over Europe — does NOT cover (z=2, x=0, y=0)
-    catalog.attachBackend(new PMTilesBackend({
-      fetcher: fetcherA, minZoom: 0, maxZoom: 14,
-      bounds: [11, 43, 12, 44],
-    }))
-    expect(catalog.hasEntryInIndex(tileKey(2, 0, 0)),
-      'first backend should NOT claim a tile outside its bounds').toBe(false)
+    catalog.attachBackend(
+      new PMTilesBackend({
+        fetcher: fetcherA,
+        minZoom: 0,
+        maxZoom: 14,
+        bounds: [11, 43, 12, 44],
+      }),
+    )
+    expect(
+      catalog.hasEntryInIndex(tileKey(2, 0, 0)),
+      'first backend should NOT claim a tile outside its bounds',
+    ).toBe(false)
 
     const fetcherB: PMTilesFetcher = async () => null
     // Backend B: world coverage — claims everything
-    catalog.attachBackend(new PMTilesBackend({
-      fetcher: fetcherB, minZoom: 0, maxZoom: 14,
-      bounds: [-180, -85, 180, 85],
-    }))
-    expect(catalog.hasEntryInIndex(tileKey(2, 0, 0)),
-      'second backend should claim the tile via has() check').toBe(true)
+    catalog.attachBackend(
+      new PMTilesBackend({
+        fetcher: fetcherB,
+        minZoom: 0,
+        maxZoom: 14,
+        bounds: [-180, -85, 180, 85],
+      }),
+    )
+    expect(
+      catalog.hasEntryInIndex(tileKey(2, 0, 0)),
+      'second backend should claim the tile via has() check',
+    ).toBe(true)
   })
 
   it('first-attached-wins: PMTiles A claims first when both backends overlap', async () => {
     let aFetched = false
     let bFetched = false
     const catalog = new TileCatalog()
-    catalog.attachBackend(new PMTilesBackend({
-      fetcher: async () => { aFetched = true; return null },
-      minZoom: 0, maxZoom: 4,
-      bounds: [-180, -85, 180, 85],
-    }))
-    catalog.attachBackend(new PMTilesBackend({
-      fetcher: async () => { bFetched = true; return null },
-      minZoom: 0, maxZoom: 4,
-      bounds: [-180, -85, 180, 85],
-    }))
+    catalog.attachBackend(
+      new PMTilesBackend({
+        fetcher: async () => {
+          aFetched = true
+          return null
+        },
+        minZoom: 0,
+        maxZoom: 4,
+        bounds: [-180, -85, 180, 85],
+      }),
+    )
+    catalog.attachBackend(
+      new PMTilesBackend({
+        fetcher: async () => {
+          bFetched = true
+          return null
+        },
+        minZoom: 0,
+        maxZoom: 4,
+        bounds: [-180, -85, 180, 85],
+      }),
+    )
     catalog.requestTiles([tileKey(0, 0, 0)])
-    await new Promise(r => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 50))
     expect(aFetched, 'first-attached backend claims overlapping keys').toBe(true)
     expect(bFetched, 'second backend should NOT be invoked').toBe(false)
   })
@@ -124,7 +160,8 @@ describe('TileCatalog multi-backend dispatch', () => {
     expect(catalog.hasTileData(key)).toBe(true)
     // But hasEntryInIndex now relies only on the synthesised entry
     // (no backend.has fallback for the detached backend).
-    expect(catalog.hasEntryInIndex(key),
-      'cached tile keeps its synthesised XGVTIndex entry').toBe(true)
+    expect(catalog.hasEntryInIndex(key), 'cached tile keeps its synthesised XGVTIndex entry').toBe(
+      true,
+    )
   })
 })

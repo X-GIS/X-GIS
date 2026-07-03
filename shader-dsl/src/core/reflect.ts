@@ -15,7 +15,15 @@
 // nothing from it). The std140/std430 offsets are anchored to the offsets the runtime
 // already ships (reflect.test.ts).
 
-import { type ShaderType, type StructDecl, type ModuleDecl, type AddressSpace, typeKey, stageOf, workgroupSizeOf } from './ir'
+import {
+  type ShaderType,
+  type StructDecl,
+  type ModuleDecl,
+  type AddressSpace,
+  typeKey,
+  stageOf,
+  workgroupSizeOf,
+} from './ir'
 
 const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a
 
@@ -23,13 +31,21 @@ export type LayoutKind = 'std140' | 'std430'
 
 /** Size + alignment (bytes) of a host-shareable type under a layout. Throws on a
  *  non-host-shareable type (texture/sampler/void are bind resources, not struct fields). */
-function typeLayout(t: ShaderType, layout: LayoutKind, structs: ReadonlyMap<string, StructDecl>): { size: number; align: number } {
+function typeLayout(
+  t: ShaderType,
+  layout: LayoutKind,
+  structs: ReadonlyMap<string, StructDecl>,
+): { size: number; align: number } {
   switch (t.kind) {
     case 'scalar':
       return { size: 4, align: 4 }
     case 'vec':
       // vec2 → 8/8, vec3 → 12/16, vec4 → 16/16 (elem is always 4 bytes)
-      return t.n === 2 ? { size: 8, align: 8 } : t.n === 3 ? { size: 12, align: 16 } : { size: 16, align: 16 }
+      return t.n === 2
+        ? { size: 8, align: 8 }
+        : t.n === 3
+          ? { size: 12, align: 16 }
+          : { size: 16, align: 16 }
     case 'mat': {
       // #763 P7 — mat2 std140 DIVERGES between WGSL uniform rules (column stride 8)
       // and real GLSL std140 (columns round to vec4 → stride 16). The GLSL UBO emit
@@ -37,10 +53,17 @@ function typeLayout(t: ShaderType, layout: LayoutKind, structs: ReadonlyMap<stri
       // bytes vs GL for it and every following field. No producer exists (types.ts
       // exports only mat4x4fT) — reject until the vec4-rounded rule + a layout test land.
       if (layout === 'std140' && t.n === 2) {
-        throw new Error('wgslLayout: mat2 in std140 is not supported — WGSL uniform rules (stride 8) and GLSL std140 (stride 16) disagree; add the dual-rule layout + tests before using mat2 in a UBO')
+        throw new Error(
+          'wgslLayout: mat2 in std140 is not supported — WGSL uniform rules (stride 8) and GLSL std140 (stride 16) disagree; add the dual-rule layout + tests before using mat2 in a UBO',
+        )
       }
       // matNxN<f32>: N columns of vecN; column stride = round(size,align) of the column vec.
-      const col = t.n === 2 ? { size: 8, align: 8 } : t.n === 3 ? { size: 12, align: 16 } : { size: 16, align: 16 }
+      const col =
+        t.n === 2
+          ? { size: 8, align: 8 }
+          : t.n === 3
+            ? { size: 12, align: 16 }
+            : { size: 16, align: 16 }
       const stride = roundUp(col.size, col.align)
       return { size: stride * t.n, align: col.align }
     }
@@ -52,7 +75,10 @@ function typeLayout(t: ShaderType, layout: LayoutKind, structs: ReadonlyMap<stri
       const el = typeLayout(t.elem, layout, structs)
       let stride = roundUp(el.size, el.align)
       let align = el.align
-      if (layout === 'std140') { stride = roundUp(stride, 16); align = roundUp(align, 16) }
+      if (layout === 'std140') {
+        stride = roundUp(stride, 16)
+        align = roundUp(align, 16)
+      }
       const count = t.size ?? 0 // runtime-sized array → 0 (stride still defined)
       return { size: count * stride, align }
     }
@@ -67,17 +93,36 @@ function structByName(structs: ReadonlyMap<string, StructDecl>, name: string): S
   return s
 }
 
-export interface FieldLayout { readonly name: string; readonly type: string; readonly offset: number; readonly align: number; readonly size: number }
-export interface StructLayout { readonly name: string; readonly size: number; readonly align: number; readonly fields: readonly FieldLayout[] }
+export interface FieldLayout {
+  readonly name: string
+  readonly type: string
+  readonly offset: number
+  readonly align: number
+  readonly size: number
+}
+export interface StructLayout {
+  readonly name: string
+  readonly size: number
+  readonly align: number
+  readonly fields: readonly FieldLayout[]
+}
 
 /** Compute the std140 (uniform) / std430 (storage) byte layout of a struct: per-field
  *  offset/align/size + the struct's total size + alignment. Std140 rounds the STRUCT
  *  and ARRAY base alignment up to 16 (uniform rule); std430 uses natural alignment. */
-export function wgslLayout(struct: StructDecl, layout: LayoutKind, structs: ReadonlyMap<string, StructDecl> = new Map()): StructLayout {
+export function wgslLayout(
+  struct: StructDecl,
+  layout: LayoutKind,
+  structs: ReadonlyMap<string, StructDecl> = new Map(),
+): StructLayout {
   return structLayout(struct, layout, structs.size ? structs : new Map([[struct.name, struct]]))
 }
 
-function structLayout(struct: StructDecl, layout: LayoutKind, structs: ReadonlyMap<string, StructDecl>): StructLayout {
+function structLayout(
+  struct: StructDecl,
+  layout: LayoutKind,
+  structs: ReadonlyMap<string, StructDecl>,
+): StructLayout {
   let cursor = 0
   let maxAlign = 1
   const fields: FieldLayout[] = []
@@ -102,9 +147,20 @@ export interface BindEntry {
   readonly resourceKind: ResourceKind
   readonly structName?: string
 }
-export interface BindGroup { readonly group: number; readonly entries: readonly BindEntry[] }
-export interface VertexAttr { readonly name: string; readonly location: number; readonly type: string; readonly offset: number }
-export interface VertexLayout { readonly attributes: readonly VertexAttr[]; readonly arrayStride: number }
+export interface BindGroup {
+  readonly group: number
+  readonly entries: readonly BindEntry[]
+}
+export interface VertexAttr {
+  readonly name: string
+  readonly location: number
+  readonly type: string
+  readonly offset: number
+}
+export interface VertexLayout {
+  readonly attributes: readonly VertexAttr[]
+  readonly arrayStride: number
+}
 export interface EntryInfo {
   readonly name: string
   readonly stage: 'vertex' | 'fragment' | 'compute'
@@ -127,7 +183,13 @@ export interface Reflection {
 }
 
 const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
-  t.kind === 'texture' ? 'texture' : t.kind === 'sampler' ? 'sampler' : space === 'storage' ? 'storage-buffer' : 'uniform-buffer'
+  t.kind === 'texture'
+    ? 'texture'
+    : t.kind === 'sampler'
+      ? 'sampler'
+      : space === 'storage'
+        ? 'storage-buffer'
+        : 'uniform-buffer'
 
 // String fallback ONLY (#740 R3): fn()-authored decls carry structured
 // `stage`/`workgroupSize` — reflect reads those first; the attrs-string parse
@@ -142,7 +204,10 @@ export function reflect(m: ModuleDecl): Reflection {
   const byGroup = new Map<number, BindEntry[]>()
   for (const b of m.bindings) {
     const e: BindEntry = {
-      group: b.group, binding: b.binding, name: b.name, space: b.space,
+      group: b.group,
+      binding: b.binding,
+      name: b.name,
+      space: b.space,
       ...(b.access ? { access: b.access } : {}),
       resourceKind: resourceKind(b.space, b.type),
       ...(b.type.kind === 'struct' ? { structName: b.type.name } : {}),
@@ -169,7 +234,8 @@ export function reflect(m: ModuleDecl): Reflection {
     const stage = stageOf(f)
     if (!stage) continue
     entries.push({
-      name: f.name, stage,
+      name: f.name,
+      stage,
       ...(stage === 'compute' ? { workgroupSize: workgroupSizeOf(f) ?? 64 } : {}),
       inputs: f.params.map((p) => typeKey(p.type)),
       output: typeKey(f.ret),
@@ -181,7 +247,12 @@ export function reflect(m: ModuleDecl): Reflection {
         if (p.location === undefined) continue
         const { size, align } = typeLayout(p.type, 'std430', structs)
         cursor = roundUp(cursor, align)
-        attributes.push({ name: p.name, location: p.location, type: typeKey(p.type), offset: cursor })
+        attributes.push({
+          name: p.name,
+          location: p.location,
+          type: typeKey(p.type),
+          offset: cursor,
+        })
         cursor += size
       }
       if (attributes.length) vertex = { attributes, arrayStride: cursor }

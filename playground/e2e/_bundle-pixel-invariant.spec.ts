@@ -30,7 +30,7 @@ interface Scene {
 const SCENES: Scene[] = [
   { id: 'tokyo-z14', hash: '#14/35.6585/139.7454' },
   { id: 'seoul-z14', hash: '#14/37.5665/126.978' },
-  { id: 'world-z3',  hash: '#3/30/120' },
+  { id: 'world-z3', hash: '#3/30/120' },
 ]
 
 // Bundle delta must not exceed direct-vs-direct noise baseline by more
@@ -41,7 +41,11 @@ const SCENES: Scene[] = [
 // its delta is within noise band.
 const BUNDLE_NOISE_FACTOR = 1.5
 
-async function capture(page: import('@playwright/test').Page, scene: Scene, bundleOn: boolean): Promise<Buffer> {
+async function capture(
+  page: import('@playwright/test').Page,
+  scene: Scene,
+  bundleOn: boolean,
+): Promise<Buffer> {
   await page.setViewportSize({ width: 1024, height: 768 })
   // iter-276 — bundle default ON. Disable via __XGIS_BUNDLE_DISABLE.
   await page.addInitScript((on: boolean) => {
@@ -55,21 +59,31 @@ async function capture(page: import('@playwright/test').Page, scene: Scene, bund
   await page.goto(`/demo.html?id=__import${scene.hash}`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   await page.waitForTimeout(7_000)
   return await page.locator('canvas').first().screenshot({ type: 'png' })
 }
 
-function diffPixels(a: Buffer, b: Buffer, threshold: number, outPath?: string): {
-  width: number; height: number; aboveThreshold: number; maxDelta: number
+function diffPixels(
+  a: Buffer,
+  b: Buffer,
+  threshold: number,
+  outPath?: string,
+): {
+  width: number
+  height: number
+  aboveThreshold: number
+  maxDelta: number
 } {
   const pa = PNG.sync.read(a)
   const pb = PNG.sync.read(b)
   if (pa.width !== pb.width || pa.height !== pb.height) {
     throw new Error(`size mismatch ${pa.width}x${pa.height} vs ${pb.width}x${pb.height}`)
   }
-  const w = pa.width, h = pa.height
+  const w = pa.width,
+    h = pa.height
   let aboveThreshold = 0
   let maxDelta = 0
   const diff = outPath ? new PNG({ width: w, height: h }) : null
@@ -118,9 +132,13 @@ for (const scene of SCENES) {
     const r = diffPixels(off, on, 16, resolve(outDir, `${scene.id}-diff.png`))
     const limit = Math.max(50, Math.round(noise.aboveThreshold * BUNDLE_NOISE_FACTOR))
     // eslint-disable-next-line no-console
-    console.log(`[bundle-invariant ${scene.id}] NOISE  off-vs-off2: maxDelta=${noise.maxDelta} aboveThreshold=${noise.aboveThreshold}`)
+    console.log(
+      `[bundle-invariant ${scene.id}] NOISE  off-vs-off2: maxDelta=${noise.maxDelta} aboveThreshold=${noise.aboveThreshold}`,
+    )
     // eslint-disable-next-line no-console
-    console.log(`[bundle-invariant ${scene.id}] BUNDLE off-vs-on:   maxDelta=${r.maxDelta} aboveThreshold=${r.aboveThreshold} (allowed=${limit} = max(50, noise×${BUNDLE_NOISE_FACTOR}))`)
+    console.log(
+      `[bundle-invariant ${scene.id}] BUNDLE off-vs-on:   maxDelta=${r.maxDelta} aboveThreshold=${r.aboveThreshold} (allowed=${limit} = max(50, noise×${BUNDLE_NOISE_FACTOR}))`,
+    )
     expect(r.aboveThreshold).toBeLessThanOrEqual(limit)
   })
 }

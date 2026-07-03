@@ -385,7 +385,7 @@ describe('IR EmitCommands', () => {
     expect(commands.shows).toHaveLength(1)
     const show = commands.shows[0]
     expect(show.targetName).toBe('world')
-    expect(show.fill).toBe('#ef4444')  // red-500
+    expect(show.fill).toBe('#ef4444') // red-500
     expect(show.stroke).toBe('#000000') // black
     expect(show.strokeWidth).toBe(1)
     expect(show.opacity).toBe(0.9)

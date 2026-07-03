@@ -12,7 +12,7 @@ import { GEOMETRY_KEY } from './reserved-keys'
 function evalExpr(src: string, props: Record<string, unknown>): unknown {
   const tokens = new Lexer(`let __t = ${src}`).tokenize()
   const ast = new Parser(tokens).parse() as { body: Array<{ kind: string; value?: unknown }> }
-  const stmt = ast.body.find(s => s.kind === 'LetStatement') as { value?: unknown } | undefined
+  const stmt = ast.body.find((s) => s.kind === 'LetStatement') as { value?: unknown } | undefined
   if (!stmt) throw new Error('let stmt missing')
   return evaluate(stmt.value as never, props)
 }

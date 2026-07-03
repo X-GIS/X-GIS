@@ -6,15 +6,19 @@
 import { describe, it, expect } from 'vitest'
 import { cjkBucketPx, CJK_SIZE_BUCKETS_CSS } from '@xgis/map'
 import {
-  cjkSizedFontKey, parseSizedFontKey, MockRasterizer,
-  type GlyphRasterizer, type GlyphRasterRequest, type GlyphRasterResult,
+  cjkSizedFontKey,
+  parseSizedFontKey,
+  MockRasterizer,
+  type GlyphRasterizer,
+  type GlyphRasterRequest,
+  type GlyphRasterResult,
 } from '@xgis/map'
 import { PbfRasterizer } from '@xgis/map'
 import type { GlyphProvider } from '@xgis/map'
 
 describe('cjkBucketPx ladder', () => {
   it('picks the smallest bucket >= display size (always minify, never magnify)', () => {
-    expect(cjkBucketPx(9, 1)).toBe(12)   // below smallest → smallest bucket
+    expect(cjkBucketPx(9, 1)).toBe(12) // below smallest → smallest bucket
     expect(cjkBucketPx(12, 1)).toBe(12)
     expect(cjkBucketPx(13, 1)).toBe(16)
     expect(cjkBucketPx(20, 1)).toBe(20)
@@ -25,7 +29,7 @@ describe('cjkBucketPx ladder', () => {
     expect(cjkBucketPx(999, 1)).toBe(max)
   })
   it('scales by dpr', () => {
-    expect(cjkBucketPx(12, 2)).toBe(24)   // 12px bucket × dpr2
+    expect(cjkBucketPx(12, 2)).toBe(24) // 12px bucket × dpr2
     expect(cjkBucketPx(20, 2)).toBe(40)
   })
 })
@@ -58,7 +62,10 @@ describe('PbfRasterizer local-ideograph routing', () => {
     const log: string[] = []
     const probed: number[] = []
     const provider: GlyphProvider = {
-      get: (_fs, cp) => { probed.push(cp); return undefined },
+      get: (_fs, cp) => {
+        probed.push(cp)
+        return undefined
+      },
     }
     const ras = new PbfRasterizer({
       fallback: recordingRasterizer('fallback', log),
@@ -67,15 +74,18 @@ describe('PbfRasterizer local-ideograph routing', () => {
       onLanded: () => {},
     })
     ras.rasterize(req(cjkSizedFontKey('\x01normal\x01400\x01Noto Sans', 16)))
-    expect(log).toEqual(['cjkFull:16'])   // local path, at the bucket size
-    expect(probed).toEqual([])            // PBF provider never consulted
+    expect(log).toEqual(['cjkFull:16']) // local path, at the bucket size
+    expect(probed).toEqual([]) // PBF provider never consulted
   })
 
   it('a plain (unmarked) key still goes through the PBF provider chain', () => {
     const log: string[] = []
     const probed: number[] = []
     const provider: GlyphProvider = {
-      get: (_fs, cp) => { probed.push(cp); return undefined },
+      get: (_fs, cp) => {
+        probed.push(cp)
+        return undefined
+      },
     }
     const ras = new PbfRasterizer({
       fallback: recordingRasterizer('fallback', log),
@@ -84,7 +94,7 @@ describe('PbfRasterizer local-ideograph routing', () => {
       onLanded: () => {},
     })
     ras.rasterize(req('\x01normal\x01400\x01Noto Sans'))
-    expect(probed).toEqual([0x56fd])      // PBF provider WAS consulted
-    expect(log).toEqual(['fallback:24'])  // miss → metrics fallback, not cjkFull
+    expect(probed).toEqual([0x56fd]) // PBF provider WAS consulted
+    expect(log).toEqual(['fallback:24']) // miss → metrics fallback, not cjkFull
   })
 })

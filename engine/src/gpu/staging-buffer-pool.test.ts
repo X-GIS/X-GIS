@@ -3,12 +3,20 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
 // WebGPU globals don't exist in the node test env — polyfill the tiny
 // subset the pool touches. Values match the WebGPU spec.
 ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
-  MAP_READ: 0x0001, MAP_WRITE: 0x0002, COPY_SRC: 0x0004, COPY_DST: 0x0008,
-  INDEX: 0x0010, VERTEX: 0x0020, UNIFORM: 0x0040, STORAGE: 0x0080,
-  INDIRECT: 0x0100, QUERY_RESOLVE: 0x0200,
+  MAP_READ: 0x0001,
+  MAP_WRITE: 0x0002,
+  COPY_SRC: 0x0004,
+  COPY_DST: 0x0008,
+  INDEX: 0x0010,
+  VERTEX: 0x0020,
+  UNIFORM: 0x0040,
+  STORAGE: 0x0080,
+  INDIRECT: 0x0100,
+  QUERY_RESOLVE: 0x0200,
 }
 ;(globalThis as unknown as { GPUMapMode: Record<string, number> }).GPUMapMode = {
-  READ: 0x0001, WRITE: 0x0002,
+  READ: 0x0001,
+  WRITE: 0x0002,
 }
 
 import { StagingBufferPool, asyncWriteBuffer } from './staging-buffer-pool'
@@ -49,16 +57,29 @@ class MockBuffer {
     const len = length ?? this.size - offset
     return this.storage.slice(offset, offset + len)
   }
-  unmap(): void { this.state = 'unmapped' }
-  destroy(): void { this.destroyCalled++; this.state = 'destroyed' }
+  unmap(): void {
+    this.state = 'unmapped'
+  }
+  destroy(): void {
+    this.destroyCalled++
+    this.state = 'destroyed'
+  }
 }
 
 function makeMockEncoder() {
-  const copies: Array<{ src: GPUBuffer; srcOff: number; dst: GPUBuffer; dstOff: number; size: number }> = []
+  const copies: Array<{
+    src: GPUBuffer
+    srcOff: number
+    dst: GPUBuffer
+    dstOff: number
+    size: number
+  }> = []
   const encoder = {
-    copyBufferToBuffer: vi.fn((src: GPUBuffer, srcOff: number, dst: GPUBuffer, dstOff: number, size: number) => {
-      copies.push({ src, srcOff, dst, dstOff, size })
-    }),
+    copyBufferToBuffer: vi.fn(
+      (src: GPUBuffer, srcOff: number, dst: GPUBuffer, dstOff: number, size: number) => {
+        copies.push({ src, srcOff, dst, dstOff, size })
+      },
+    ),
   } as unknown as GPUCommandEncoder & { _copies: typeof copies }
   ;(encoder as unknown as { _copies: typeof copies })._copies = copies
   return encoder
@@ -140,9 +161,11 @@ describe('StagingBufferPool', () => {
     const swDevice = {
       createBuffer: vi.fn((desc: GPUBufferDescriptor) => {
         if (desc.mappedAtCreation) {
-          throw new RangeError(`Failed to execute 'createBuffer' on 'GPUDevice': ` +
-            `createBuffer failed, size (${desc.size}) is too large for the ` +
-            `implementation when mappedAtCreation == true`)
+          throw new RangeError(
+            `Failed to execute 'createBuffer' on 'GPUDevice': ` +
+              `createBuffer failed, size (${desc.size}) is too large for the ` +
+              `implementation when mappedAtCreation == true`,
+          )
         }
         return new MockBuffer(desc.size, false) as unknown as GPUBuffer
       }),
@@ -180,9 +203,13 @@ describe('StagingBufferPool', () => {
   it('_forceDirectWriteFallback test seam triggers the same path without throwing', async () => {
     const writes: Array<{ dst: GPUBuffer; offset: number }> = []
     const swDevice = {
-      createBuffer: vi.fn(() => { throw new Error('should not be called') }),
+      createBuffer: vi.fn(() => {
+        throw new Error('should not be called')
+      }),
       queue: {
-        writeBuffer: vi.fn((dst: GPUBuffer, off: number) => { writes.push({ dst, offset: off }) }),
+        writeBuffer: vi.fn((dst: GPUBuffer, off: number) => {
+          writes.push({ dst, offset: off })
+        }),
       },
     } as unknown as GPUDevice
     const swPool = new StagingBufferPool(swDevice)
@@ -203,7 +230,8 @@ describe('StagingBufferPool', () => {
     const handle = await asyncWriteBuffer(pool, encoder, dstBuf, 0, data)
     handle.release()
 
-    const copies = (encoder as unknown as { _copies: Array<{ size: number; dst: unknown }> })._copies
+    const copies = (encoder as unknown as { _copies: Array<{ size: number; dst: unknown }> })
+      ._copies
     expect(copies.length).toBe(1)
     expect(copies[0].size).toBe(5)
     expect(copies[0].dst).toBe(dstBuf)

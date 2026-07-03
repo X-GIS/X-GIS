@@ -7,13 +7,19 @@
 
 import { test, expect, type Page } from '@playwright/test'
 
-async function measureColdStart(page: Page, query: string): Promise<{ readyMs: number; firstPaintMs: number }> {
+async function measureColdStart(
+  page: Page,
+  query: string,
+): Promise<{ readyMs: number; firstPaintMs: number }> {
   const sep = query.length > 0 ? '&' : ''
   const start = Date.now()
-  await page.goto(`/demo.html?id=styled_world${sep}${query.replace(/^\?/, '')}#3/30/120`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/demo.html?id=styled_world${sep}${query.replace(/^\?/, '')}#3/30/120`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   const readyMs = Date.now() - start
 
@@ -21,26 +27,34 @@ async function measureColdStart(page: Page, query: string): Promise<{ readyMs: n
   // exceeds 5 %. This catches the moment the first batch of GeoJSON
   // tiles have decoded + uploaded.
   const firstPaintStart = Date.now()
-  await page.waitForFunction(async () => {
-    const c = document.querySelector('canvas') as HTMLCanvasElement | null
-    if (!c) return false
-    const blob = await new Promise<Blob | null>((res) => c.toBlob(b => res(b)))
-    if (!blob) return false
-    const buf = await blob.arrayBuffer()
-    const img = new Image()
-    img.src = URL.createObjectURL(new Blob([buf], { type: 'image/png' }))
-    await new Promise<void>((res) => { img.onload = () => res() })
-    const off = new OffscreenCanvas(img.width, img.height)
-    const ctx = off.getContext('2d')!
-    ctx.drawImage(img, 0, 0)
-    const data = ctx.getImageData(0, 0, img.width, img.height).data
-    let lit = 0
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i], g = data[i + 1], b = data[i + 2]
-      if (r > 50 || g > 50 || b > 50) lit++
-    }
-    return (lit / (data.length / 4)) > 0.05
-  }, null, { timeout: 30_000, polling: 200 })
+  await page.waitForFunction(
+    async () => {
+      const c = document.querySelector('canvas') as HTMLCanvasElement | null
+      if (!c) return false
+      const blob = await new Promise<Blob | null>((res) => c.toBlob((b) => res(b)))
+      if (!blob) return false
+      const buf = await blob.arrayBuffer()
+      const img = new Image()
+      img.src = URL.createObjectURL(new Blob([buf], { type: 'image/png' }))
+      await new Promise<void>((res) => {
+        img.onload = () => res()
+      })
+      const off = new OffscreenCanvas(img.width, img.height)
+      const ctx = off.getContext('2d')!
+      ctx.drawImage(img, 0, 0)
+      const data = ctx.getImageData(0, 0, img.width, img.height).data
+      let lit = 0
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i],
+          g = data[i + 1],
+          b = data[i + 2]
+        if (r > 50 || g > 50 || b > 50) lit++
+      }
+      return lit / (data.length / 4) > 0.05
+    },
+    null,
+    { timeout: 30_000, polling: 200 },
+  )
   const firstPaintMs = Date.now() - firstPaintStart + readyMs
 
   return { readyMs, firstPaintMs }
@@ -65,12 +79,12 @@ test('phase5f — cold-start perf: legacy vs default (VirtualPMTilesBackend)', a
   }
 
   const legacyMed = {
-    readyMs: median(legacyRuns.map(r => r.readyMs)),
-    firstPaintMs: median(legacyRuns.map(r => r.firstPaintMs)),
+    readyMs: median(legacyRuns.map((r) => r.readyMs)),
+    firstPaintMs: median(legacyRuns.map((r) => r.firstPaintMs)),
   }
   const defaultMed = {
-    readyMs: median(defaultRuns.map(r => r.readyMs)),
-    firstPaintMs: median(defaultRuns.map(r => r.firstPaintMs)),
+    readyMs: median(defaultRuns.map((r) => r.readyMs)),
+    firstPaintMs: median(defaultRuns.map((r) => r.firstPaintMs)),
   }
 
   // eslint-disable-next-line no-console

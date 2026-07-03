@@ -27,8 +27,12 @@ describe('compute-gen — emitMatchComputeKernel', () => {
       arms: [{ pattern: 'a', colorHex: '#ff0000' }],
       defaultColorHex: '#000000',
     })
-    expect(emitModule(k.module)).toContain('@group(0) @binding(0) var<storage, read> feat_data: array<f32>')
-    expect(emitModule(k.module)).toContain('@group(0) @binding(1) var<storage, read_write> out_color: array<u32>')
+    expect(emitModule(k.module)).toContain(
+      '@group(0) @binding(0) var<storage, read> feat_data: array<f32>',
+    )
+    expect(emitModule(k.module)).toContain(
+      '@group(0) @binding(1) var<storage, read_write> out_color: array<u32>',
+    )
     expect(emitModule(k.module)).toContain('@group(0) @binding(2) var<uniform> u_count: vec4<u32>')
   })
 
@@ -53,10 +57,10 @@ describe('compute-gen — emitMatchComputeKernel', () => {
     const k = emitMatchComputeKernel({
       fieldName: 'class',
       arms: [
-        { pattern: 'school',   colorHex: '#f0e8f8' },
+        { pattern: 'school', colorHex: '#f0e8f8' },
         { pattern: 'cemetery', colorHex: '#aaddaa' },
         { pattern: 'hospital', colorHex: '#f5deb3' },
-        { pattern: 'railway',  colorHex: '#cccccc' },
+        { pattern: 'railway', colorHex: '#cccccc' },
       ],
       defaultColorHex: '#00000000',
     })
@@ -94,10 +98,10 @@ describe('compute-gen — emitMatchComputeKernel', () => {
 
   it('parses 3-digit, 4-digit, 6-digit, 8-digit hex colors', () => {
     const cases = [
-      { input: '#f00',      r: 1.0, g: 0.0,             b: 0.0, a: 1.0 },
-      { input: '#f008',     r: 1.0, g: 0.0,             b: 0.0, a: 8 / 15 },
-      { input: '#ff8000',   r: 1.0, g: 0x80 / 255,      b: 0.0, a: 1.0 },
-      { input: '#ff800080', r: 1.0, g: 0x80 / 255,      b: 0.0, a: 0x80 / 255 },
+      { input: '#f00', r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+      { input: '#f008', r: 1.0, g: 0.0, b: 0.0, a: 8 / 15 },
+      { input: '#ff8000', r: 1.0, g: 0x80 / 255, b: 0.0, a: 1.0 },
+      { input: '#ff800080', r: 1.0, g: 0x80 / 255, b: 0.0, a: 0x80 / 255 },
     ]
     for (const c of cases) {
       const k = emitMatchComputeKernel({
@@ -140,7 +144,7 @@ describe('compute-gen — emitMatchComputeKernel', () => {
     expect(k.dispatchSize(1)).toBe(1)
     expect(k.dispatchSize(COMPUTE_WORKGROUP_SIZE)).toBe(1)
     expect(k.dispatchSize(COMPUTE_WORKGROUP_SIZE + 1)).toBe(2)
-    expect(k.dispatchSize(1000)).toBe(Math.ceil(1000 / 64))  // 16
+    expect(k.dispatchSize(1000)).toBe(Math.ceil(1000 / 64)) // 16
   })
 
   it('empty arms list still emits a valid kernel with only the default colour', () => {
@@ -174,12 +178,15 @@ describe('compute-gen — emitMatchComputeKernel', () => {
     // would alias -1 → 0 → arm 0 (wrong colour), so the selector is the raw i32.
     const k = emitMatchComputeKernel({
       fieldName: 'class',
-      arms: [{ pattern: 'a', colorHex: '#ff0000' }, { pattern: 'b', colorHex: '#00ff00' }],
+      arms: [
+        { pattern: 'a', colorHex: '#ff0000' },
+        { pattern: 'b', colorHex: '#00ff00' },
+      ],
       defaultColorHex: '#0000ff',
     })
-    expect(emitModule(k.module)).toContain('i32(')          // signed scrutinee
-    expect(emitModule(k.module)).not.toContain('max(')      // no clamp that would swallow the -1 sentinel
-    expect(emitModule(k.module)).toContain('default')       // -1 (and any non-arm id) hits the default arm
+    expect(emitModule(k.module)).toContain('i32(') // signed scrutinee
+    expect(emitModule(k.module)).not.toContain('max(') // no clamp that would swallow the -1 sentinel
+    expect(emitModule(k.module)).toContain('default') // -1 (and any non-arm id) hits the default arm
   })
 
   it('match kernel exposes categoryOrder with alphabetised patterns', () => {
@@ -190,7 +197,7 @@ describe('compute-gen — emitMatchComputeKernel', () => {
     const k = emitMatchComputeKernel({
       fieldName: 'class',
       arms: [
-        { pattern: 'school',   colorHex: '#aaa' },
+        { pattern: 'school', colorHex: '#aaa' },
         { pattern: 'cemetery', colorHex: '#bbb' },
         { pattern: 'hospital', colorHex: '#ccc' },
       ],
@@ -222,8 +229,12 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
       branches: [{ pred: { kind: 'cmp', field: 'rank', op: '==', value: 0 }, colorHex: '#fff' }],
       defaultColorHex: '#000',
     })
-    expect(emitModule(k.module)).toContain('@group(0) @binding(0) var<storage, read> feat_data: array<f32>')
-    expect(emitModule(k.module)).toContain('@group(0) @binding(1) var<storage, read_write> out_color: array<u32>')
+    expect(emitModule(k.module)).toContain(
+      '@group(0) @binding(0) var<storage, read> feat_data: array<f32>',
+    )
+    expect(emitModule(k.module)).toContain(
+      '@group(0) @binding(1) var<storage, read_write> out_color: array<u32>',
+    )
     expect(emitModule(k.module)).toContain('@group(0) @binding(2) var<uniform> u_count: vec4<u32>')
   })
 
@@ -289,14 +300,16 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
   it('loads multiple fields with stride + offset (multi-field case)', () => {
     const k = emitTernaryComputeKernel({
       fields: ['cls', 'rank'],
-      branches: [{
-        pred: {
-          kind: 'and',
-          left: { kind: 'cmp', field: 'cls', op: '==', value: 0 },
-          right: { kind: 'cmp', field: 'rank', op: '>', value: 5 },
+      branches: [
+        {
+          pred: {
+            kind: 'and',
+            left: { kind: 'cmp', field: 'cls', op: '==', value: 0 },
+            right: { kind: 'cmp', field: 'rank', op: '>', value: 5 },
+          },
+          colorHex: '#fff',
         },
-        colorHex: '#fff',
-      }],
+      ],
       defaultColorHex: '#000',
     })
     // Stride multiply is CSE-hoisted (`let _cseN = (gid.x * 2u)`); offset-0
@@ -312,14 +325,16 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
     // each side a compare against the loaded field.
     const k = emitTernaryComputeKernel({
       fields: ['a', 'b'],
-      branches: [{
-        pred: {
-          kind: 'and',
-          left: { kind: 'cmp', field: 'a', op: '>', value: 0 },
-          right: { kind: 'cmp', field: 'b', op: '<', value: 10 },
+      branches: [
+        {
+          pred: {
+            kind: 'and',
+            left: { kind: 'cmp', field: 'a', op: '>', value: 0 },
+            right: { kind: 'cmp', field: 'b', op: '<', value: 10 },
+          },
+          colorHex: '#fff',
         },
-        colorHex: '#fff',
-      }],
+      ],
       defaultColorHex: '#000',
     })
     expect(emitModule(k.module)).toContain('&&')
@@ -365,7 +380,9 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
     })
     expect(emitModule(k.module)).toContain('@compute @workgroup_size(64)')
     // Unconditional default assignment — no branch `if`, no field loads.
-    expect(emitModule(k.module)).toContain('vec4<f32>(0.5333333333333333, 0.5333333333333333, 0.5333333333333333, 1.0)')
+    expect(emitModule(k.module)).toContain(
+      'vec4<f32>(0.5333333333333333, 0.5333333333333333, 0.5333333333333333, 1.0)',
+    )
     expect(emitModule(k.module)).not.toContain('else')
     expect(emitModule(k.module)).not.toMatch(/= feat_data\[/)
   })
@@ -387,10 +404,17 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
   it('emits the standard binding header (parity with match/case kernels)', () => {
     const k = emitInterpolateComputeKernel({
       fieldName: 'rank',
-      stops: [{ input: 0, colorHex: '#fff' }, { input: 10, colorHex: '#000' }],
+      stops: [
+        { input: 0, colorHex: '#fff' },
+        { input: 10, colorHex: '#000' },
+      ],
     })
-    expect(emitModule(k.module)).toContain('@group(0) @binding(0) var<storage, read> feat_data: array<f32>')
-    expect(emitModule(k.module)).toContain('@group(0) @binding(1) var<storage, read_write> out_color: array<u32>')
+    expect(emitModule(k.module)).toContain(
+      '@group(0) @binding(0) var<storage, read> feat_data: array<f32>',
+    )
+    expect(emitModule(k.module)).toContain(
+      '@group(0) @binding(1) var<storage, read_write> out_color: array<u32>',
+    )
     expect(emitModule(k.module)).toContain('@group(0) @binding(2) var<uniform> u_count: vec4<u32>')
   })
 
@@ -398,13 +422,13 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
     const k = emitInterpolateComputeKernel({
       fieldName: 'rank',
       stops: [
-        { input: 0,  colorHex: '#ff0000' },
+        { input: 0, colorHex: '#ff0000' },
         { input: 10, colorHex: '#00ff00' },
       ],
     })
     // IR-emitted (CSE-hoisted colours, auto-named temps) — assert the CONTRACT, not
     // the temp names; the full WGSL is locked by compute-gen-wgsl-snapshot.test.ts.
-    expect(emitModule(k.module)).toMatch(/<= 0\.0\)/)                       // first-stop boundary
+    expect(emitModule(k.module)).toMatch(/<= 0\.0\)/) // first-stop boundary
     expect(emitModule(k.module)).toContain('vec4<f32>(1.0, 0.0, 0.0, 1.0)') // c0 (#ff0000)
   })
 
@@ -412,11 +436,11 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
     const k = emitInterpolateComputeKernel({
       fieldName: 'rank',
       stops: [
-        { input: 0,  colorHex: '#ff0000' },
+        { input: 0, colorHex: '#ff0000' },
         { input: 10, colorHex: '#00ff00' },
       ],
     })
-    expect(emitModule(k.module)).toContain('mix(')   // piecewise lerp between adjacent stops
+    expect(emitModule(k.module)).toContain('mix(') // piecewise lerp between adjacent stops
     expect(emitModule(k.module)).toContain('/ 10.0') // normalised by the stop span (t = (v − s0)/10, s0=0 folded out)
   })
 
@@ -424,7 +448,7 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
     const k = emitInterpolateComputeKernel({
       fieldName: 'rank',
       stops: [
-        { input: 0,  colorHex: '#ff0000' },
+        { input: 0, colorHex: '#ff0000' },
         { input: 10, colorHex: '#00ff00' },
       ],
     })
@@ -437,7 +461,7 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
     const k = emitInterpolateComputeKernel({
       fieldName: 'pop',
       stops: [
-        { input: 0,    colorHex: '#000000' },
+        { input: 0, colorHex: '#000000' },
         { input: 1000, colorHex: '#ff0000' },
         { input: 5000, colorHex: '#ffffff' },
       ],
@@ -466,7 +490,10 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
   it('returns single-field metadata (stride 1, fieldOrder = [name])', () => {
     const k = emitInterpolateComputeKernel({
       fieldName: 'rank',
-      stops: [{ input: 0, colorHex: '#fff' }, { input: 1, colorHex: '#000' }],
+      stops: [
+        { input: 0, colorHex: '#fff' },
+        { input: 1, colorHex: '#000' },
+      ],
     })
     expect(k.featureStrideF32).toBe(1)
     expect(k.fieldOrder).toEqual(['rank'])
@@ -475,7 +502,10 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
   it('packs colour via pack4x8unorm (output parity with other kernels)', () => {
     const k = emitInterpolateComputeKernel({
       fieldName: 'x',
-      stops: [{ input: 0, colorHex: '#fff' }, { input: 1, colorHex: '#000' }],
+      stops: [
+        { input: 0, colorHex: '#fff' },
+        { input: 1, colorHex: '#000' },
+      ],
     })
     expect(emitModule(k.module)).toContain('pack4x8unorm(')
     expect(emitModule(k.module)).toContain('out_color[')
@@ -484,7 +514,10 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
   it('sets entryPoint to "eval_interpolate" in returned metadata', () => {
     const k = emitInterpolateComputeKernel({
       fieldName: 'x',
-      stops: [{ input: 0, colorHex: '#fff' }, { input: 1, colorHex: '#000' }],
+      stops: [
+        { input: 0, colorHex: '#fff' },
+        { input: 1, colorHex: '#000' },
+      ],
     })
     expect(k.entryPoint).toBe('eval_interpolate')
   })
@@ -495,7 +528,10 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
     // separate ComputePipeline objects without collision.
     const k = emitInterpolateComputeKernel({
       fieldName: 'x',
-      stops: [{ input: 0, colorHex: '#fff' }, { input: 1, colorHex: '#000' }],
+      stops: [
+        { input: 0, colorHex: '#fff' },
+        { input: 1, colorHex: '#000' },
+      ],
     })
     expect(emitModule(k.module)).toContain('fn eval_interpolate(')
   })
@@ -509,7 +545,7 @@ describe('emitMatchComputeKernel — LUT branch (P5 large-match)', () => {
       const r = (i * 17) % 256
       const g = (i * 31) % 256
       const b = (i * 53) % 256
-      const hex = '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('')
+      const hex = '#' + [r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')
       arms.push({ pattern: `k${String(i).padStart(3, '0')}`, colorHex: hex })
     }
     return { fieldName: 'cls', arms, defaultColorHex: '#888888' }
@@ -544,9 +580,9 @@ describe('emitMatchComputeKernel — LUT branch (P5 large-match)', () => {
     // u32(max(id,0)) clamp would alias the packer's -1 unknown sentinel onto arm 0
     // (issue #632). The IR shell auto-names the index + colour vars (CSE/auto-vars),
     // so match the structure with flexible identifiers rather than the literal names.
-    expect(emitModule(k.module)).toMatch(/\w+ >= 0\)/)                       // signed lower-bound guard
+    expect(emitModule(k.module)).toMatch(/\w+ >= 0\)/) // signed lower-bound guard
     expect(emitModule(k.module)).toMatch(/\w+ < 20\)+\s*\{\s*\w+ = LUT\[\w+\];/)
-    expect(emitModule(k.module)).not.toContain('max(')                       // no clamp that swallows -1
+    expect(emitModule(k.module)).not.toContain('max(') // no clamp that swallows -1
     expect(emitModule(k.module)).toMatch(/\} else \{\s*\w+ = vec4<f32>\(/)
   })
 
@@ -556,7 +592,10 @@ describe('emitMatchComputeKernel — LUT branch (P5 large-match)', () => {
     const arms: { pattern: string; colorHex: string }[] = []
     for (let i = 0; i < 20; i++) {
       // i=0 generates k099, i=19 generates k080.
-      arms.push({ pattern: `k${String(99 - i).padStart(3, '0')}`, colorHex: `#${i.toString(16).padStart(2, '0')}0000` })
+      arms.push({
+        pattern: `k${String(99 - i).padStart(3, '0')}`,
+        colorHex: `#${i.toString(16).padStart(2, '0')}0000`,
+      })
     }
     const k = emitMatchComputeKernel({ fieldName: 'x', arms, defaultColorHex: '#ffffff' })
     expect(k.categoryOrder?.x?.[0]).toBe('k080')

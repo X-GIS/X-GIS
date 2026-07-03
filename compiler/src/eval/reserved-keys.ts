@@ -111,10 +111,13 @@ export function makeEvalProps(opts: {
   // boundary) would otherwise spread char/index keys into the props
   // bag and downstream `.field` lookups would return chars.
   const rawProps = opts.props
-  const safeProps = rawProps !== null && rawProps !== undefined
-    && typeof rawProps === 'object' && !Array.isArray(rawProps)
-    ? rawProps as Record<string, unknown>
-    : {}
+  const safeProps =
+    rawProps !== null &&
+    rawProps !== undefined &&
+    typeof rawProps === 'object' &&
+    !Array.isArray(rawProps)
+      ? (rawProps as Record<string, unknown>)
+      : {}
   const out: Record<string, unknown> = { ...safeProps }
   if (opts.cameraZoom !== undefined) out[CAMERA_ZOOM_KEY] = opts.cameraZoom
   if (opts.cameraPitch !== undefined) out[CAMERA_PITCH_KEY] = opts.cameraPitch

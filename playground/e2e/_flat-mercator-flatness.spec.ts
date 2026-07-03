@@ -1,8 +1,5 @@
 import { test, expect } from '@playwright/test'
-import {
-  getProjectionWgslConsts,
-  getProjectionWgslFns,
-} from '@xgis/map'
+import { getProjectionWgslConsts, getProjectionWgslFns } from '@xgis/map'
 import { configureProjections } from '@xgis/map'
 // Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { PROJECTIONS } from '../../engine/src/projection/projections-table'
@@ -39,7 +36,9 @@ const SAME_Y_PROJ = [
 const LAT = 20
 const LONS = [-20, 0, 20]
 
-test('flat display: same-latitude points share screen-Y (mercator / equirect / natural_earth)', async ({ page }) => {
+test('flat display: same-latitude points share screen-Y (mercator / equirect / natural_earth)', async ({
+  page,
+}) => {
   test.setTimeout(60_000)
   await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(() => (window as any).__xgisReady === true, { timeout: 20_000 })
@@ -50,23 +49,36 @@ test('flat display: same-latitude points share screen-Y (mercator / equirect / n
     const cam = (window as any).__xgisMap.camera
     cam.centerX = 0
     const EARTH_R = 6378137
-    cam.centerY = Math.log(Math.tan(Math.PI / 4 + 20 * (Math.PI / 180) / 2)) * EARTH_R
-    cam.zoom = 2; cam.bearing = 0; cam.pitch = 0; cam.globeMode = false
+    cam.centerY = Math.log(Math.tan(Math.PI / 4 + (20 * (Math.PI / 180)) / 2)) * EARTH_R
+    cam.zoom = 2
+    cam.bearing = 0
+    cam.pitch = 0
+    cam.globeMode = false
     const frame = cam.getViewForProjection(0, 512, 512, 1)
     return { mvp: Array.from(frame.matrix as Float32Array) }
   })
 
-  const out = await page.evaluate(async (args: {
-    consts: string; fns: string; mvp: number[]; projTypes: number[]; lons: number[]; lat: number
-  }) => {
-    const adapter = await (navigator as any).gpu.requestAdapter()
-    const device = await adapter.requestDevice()
-    const W = 512, H = 512
-    const quad = new Float32Array([-1, -1, 1, -1, -1, 1, 1, -1, 1, 1, -1, 1])
-    const vbuf = device.createBuffer({ size: quad.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST })
-    device.queue.writeBuffer(vbuf, 0, quad)
+  const out = await page.evaluate(
+    async (args: {
+      consts: string
+      fns: string
+      mvp: number[]
+      projTypes: number[]
+      lons: number[]
+      lat: number
+    }) => {
+      const adapter = await (navigator as any).gpu.requestAdapter()
+      const device = await adapter.requestDevice()
+      const W = 512,
+        H = 512
+      const quad = new Float32Array([-1, -1, 1, -1, -1, 1, 1, -1, 1, 1, -1, 1])
+      const vbuf = device.createBuffer({
+        size: quad.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      })
+      device.queue.writeBuffer(vbuf, 0, quad)
 
-    const code = `
+      const code = `
       ${args.consts}
       ${args.fns}
       struct U { mvp: mat4x4<f32>, proj_params: vec4<f32>, anchor: vec2<f32>, _pad: vec2<f32> }
@@ -82,62 +94,130 @@ test('flat display: same-latitude points share screen-Y (mercator / equirect / n
         return clip;
       }
       @fragment fn fs() -> @location(0) vec4<f32> { return vec4<f32>(1.0, 1.0, 1.0, 1.0); }`
-    const mod = device.createShaderModule({ code })
-    const info = await mod.getCompilationInfo()
-    const err = info.messages.filter((m: any) => m.type === 'error')
-    if (err.length) throw new Error('compile: ' + err.map((m: any) => m.message).join('|'))
-    const pipe = device.createRenderPipeline({
-      layout: 'auto',
-      vertex: { module: mod, entryPoint: 'vs', buffers: [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }] }] },
-      fragment: { module: mod, entryPoint: 'fs', targets: [{ format: 'rgba8unorm' }] },
-      primitive: { topology: 'triangle-list' },
-    })
+      const mod = device.createShaderModule({ code })
+      const info = await mod.getCompilationInfo()
+      const err = info.messages.filter((m: any) => m.type === 'error')
+      if (err.length) throw new Error('compile: ' + err.map((m: any) => m.message).join('|'))
+      const pipe = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+          module: mod,
+          entryPoint: 'vs',
+          buffers: [
+            { arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }] },
+          ],
+        },
+        fragment: { module: mod, entryPoint: 'fs', targets: [{ format: 'rgba8unorm' }] },
+        primitive: { topology: 'triangle-list' },
+      })
 
-    async function draw(projType: number, anchorLon: number, anchorLat: number): Promise<{ cx: number; cy: number; count: number }> {
-      const uarr = new Float32Array(24)
-      uarr.set(args.mvp, 0)
-      uarr[16] = projType; uarr[17] = 0; uarr[18] = 20; uarr[19] = 0 // proj_params: type, clon, clat
-      uarr[20] = anchorLon; uarr[21] = anchorLat                      // anchor (lon, lat deg)
-      const ubuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
-      device.queue.writeBuffer(ubuf, 0, uarr)
-      const bind = device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] })
-      const tex = device.createTexture({ size: [W, H], format: 'rgba8unorm', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC })
-      const enc = device.createCommandEncoder()
-      const pass = enc.beginRenderPass({ colorAttachments: [{ view: tex.createView(), clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: 'clear', storeOp: 'store' }] })
-      pass.setPipeline(pipe); pass.setBindGroup(0, bind); pass.setVertexBuffer(0, vbuf); pass.draw(6); pass.end()
-      const bpr = Math.ceil(W * 4 / 256) * 256
-      const rbuf = device.createBuffer({ size: bpr * H, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ })
-      enc.copyTextureToBuffer({ texture: tex }, { buffer: rbuf, bytesPerRow: bpr }, [W, H])
-      device.queue.submit([enc.finish()])
-      await rbuf.mapAsync(GPUMapMode.READ)
-      const d = new Uint8Array(rbuf.getMappedRange().slice(0)); rbuf.unmap()
-      let sx = 0, sy = 0, count = 0
-      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        if (d[y * bpr + x * 4]! > 128) { sx += x; sy += y; count++ }
+      async function draw(
+        projType: number,
+        anchorLon: number,
+        anchorLat: number,
+      ): Promise<{ cx: number; cy: number; count: number }> {
+        const uarr = new Float32Array(24)
+        uarr.set(args.mvp, 0)
+        uarr[16] = projType
+        uarr[17] = 0
+        uarr[18] = 20
+        uarr[19] = 0 // proj_params: type, clon, clat
+        uarr[20] = anchorLon
+        uarr[21] = anchorLat // anchor (lon, lat deg)
+        const ubuf = device.createBuffer({
+          size: 96,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        })
+        device.queue.writeBuffer(ubuf, 0, uarr)
+        const bind = device.createBindGroup({
+          layout: pipe.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: { buffer: ubuf } }],
+        })
+        const tex = device.createTexture({
+          size: [W, H],
+          format: 'rgba8unorm',
+          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+        })
+        const enc = device.createCommandEncoder()
+        const pass = enc.beginRenderPass({
+          colorAttachments: [
+            {
+              view: tex.createView(),
+              clearValue: { r: 0, g: 0, b: 0, a: 1 },
+              loadOp: 'clear',
+              storeOp: 'store',
+            },
+          ],
+        })
+        pass.setPipeline(pipe)
+        pass.setBindGroup(0, bind)
+        pass.setVertexBuffer(0, vbuf)
+        pass.draw(6)
+        pass.end()
+        const bpr = Math.ceil((W * 4) / 256) * 256
+        const rbuf = device.createBuffer({
+          size: bpr * H,
+          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        })
+        enc.copyTextureToBuffer({ texture: tex }, { buffer: rbuf, bytesPerRow: bpr }, [W, H])
+        device.queue.submit([enc.finish()])
+        await rbuf.mapAsync(GPUMapMode.READ)
+        const d = new Uint8Array(rbuf.getMappedRange().slice(0))
+        rbuf.unmap()
+        let sx = 0,
+          sy = 0,
+          count = 0
+        for (let y = 0; y < H; y++)
+          for (let x = 0; x < W; x++) {
+            if (d[y * bpr + x * 4]! > 128) {
+              sx += x
+              sy += y
+              count++
+            }
+          }
+        return { cx: count ? sx / count : -1, cy: count ? sy / count : -1, count }
       }
-      return { cx: count ? sx / count : -1, cy: count ? sy / count : -1, count }
-    }
 
-    const byProj: Record<number, { cx: number; cy: number; count: number }[]> = {}
-    for (const pt of args.projTypes) {
-      byProj[pt] = []
-      for (const lon of args.lons) byProj[pt].push(await draw(pt, lon, args.lat))
-    }
-    return byProj
-  }, { consts: getProjectionWgslConsts(), fns: getProjectionWgslFns(), mvp: setup.mvp, projTypes: SAME_Y_PROJ.map(p => p.projType), lons: LONS, lat: LAT })
+      const byProj: Record<number, { cx: number; cy: number; count: number }[]> = {}
+      for (const pt of args.projTypes) {
+        byProj[pt] = []
+        for (const lon of args.lons) byProj[pt].push(await draw(pt, lon, args.lat))
+      }
+      return byProj
+    },
+    {
+      consts: getProjectionWgslConsts(),
+      fns: getProjectionWgslFns(),
+      mvp: setup.mvp,
+      projTypes: SAME_Y_PROJ.map((p) => p.projType),
+      lons: LONS,
+      lat: LAT,
+    },
+  )
 
   for (const { projType, name } of SAME_Y_PROJ) {
     const pts = out[projType]!
     for (let i = 0; i < LONS.length; i++) {
-      console.log(`[flat-flatness] ${name} lon=${LONS[i]} → cx=${pts[i]!.cx.toFixed(1)} cy=${pts[i]!.cy.toFixed(1)} count=${pts[i]!.count}`)
+      console.log(
+        `[flat-flatness] ${name} lon=${LONS[i]} → cx=${pts[i]!.cx.toFixed(1)} cy=${pts[i]!.cy.toFixed(1)} count=${pts[i]!.count}`,
+      )
       expect(pts[i]!.count, `${name} lon ${LONS[i]} drew nothing`).toBeGreaterThan(10)
     }
-    const ys = pts.map(p => p.cy)
-    const xs = pts.map(p => p.cx)
+    const ys = pts.map((p) => p.cy)
+    const xs = pts.map((p) => p.cx)
     // FLATNESS: same latitude → same screen-Y (a globe curves them tens of px).
-    expect(Math.max(...ys) - Math.min(...ys), `${name}: same-lat points must share screen-Y`).toBeLessThan(3)
+    expect(
+      Math.max(...ys) - Math.min(...ys),
+      `${name}: same-lat points must share screen-Y`,
+    ).toBeLessThan(3)
     // Longitude spreads screen-X monotonically; far points do not collapse.
-    expect(xs[0]! < xs[1]! && xs[1]! < xs[2]!, `${name}: screen-X must increase with longitude`).toBe(true)
-    expect(Math.abs(xs[2]! - xs[0]!), `${name}: longitude span must produce screen-X separation`).toBeGreaterThan(60)
+    expect(
+      xs[0]! < xs[1]! && xs[1]! < xs[2]!,
+      `${name}: screen-X must increase with longitude`,
+    ).toBe(true)
+    expect(
+      Math.abs(xs[2]! - xs[0]!),
+      `${name}: longitude span must produce screen-X separation`,
+    ).toBeGreaterThan(60)
   }
 })

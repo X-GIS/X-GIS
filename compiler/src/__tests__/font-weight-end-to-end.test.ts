@@ -56,7 +56,8 @@ function symbolLayer(id: string, font: string[]): unknown {
 describe('fontWeight propagation — Mapbox style → ShowCommand', () => {
   it('"Noto Sans Bold" → parsed weight 700 → emitted label-font-weight-700 utility', () => {
     expect(parseMapboxFontName('Noto Sans Bold')).toEqual({
-      family: 'Noto Sans', weight: 700,
+      family: 'Noto Sans',
+      weight: 700,
     })
     const style = makeStyle([symbolLayer('bold', ['Noto Sans Bold'])])
     const xgis = convertMapboxStyle(style as Parameters<typeof convertMapboxStyle>[0])
@@ -97,7 +98,8 @@ describe('fontWeight propagation — Mapbox style → ShowCommand', () => {
 
   it('Heavy maps to 900 (iter 397 fix; previously stuck at 800)', () => {
     expect(parseMapboxFontName('Noto Sans Heavy')).toEqual({
-      family: 'Noto Sans', weight: 900,
+      family: 'Noto Sans',
+      weight: 900,
     })
     const shows = compileToShows(makeStyle([symbolLayer('heavy', ['Noto Sans Heavy'])]))
     expect(shows[0]!.label!.fontWeight).toBe(900)
@@ -105,7 +107,8 @@ describe('fontWeight propagation — Mapbox style → ShowCommand', () => {
 
   it('case-insensitive "Semibold" maps to 600 (iter ~144 fix; pre-fix was Regular fallback)', () => {
     expect(parseMapboxFontName('Open Sans Semibold')).toEqual({
-      family: 'Open Sans', weight: 600,
+      family: 'Open Sans',
+      weight: 600,
     })
     const shows = compileToShows(makeStyle([symbolLayer('semi', ['Open Sans Semibold'])]))
     expect(shows[0]!.label!.fontWeight).toBe(600)
@@ -116,9 +119,9 @@ describe('fontWeight propagation — Mapbox style → ShowCommand', () => {
     // emits ONE label-font-weight-700 from the first matching stack
     // entry. Verifies the loop at layers.ts:867 doesn't get confused
     // by the second entry's "Bold" overriding to a different value.
-    const shows = compileToShows(makeStyle([symbolLayer(
-      'cjk', ['Noto Sans Bold', 'Noto Sans CJK KR Bold'],
-    )]))
+    const shows = compileToShows(
+      makeStyle([symbolLayer('cjk', ['Noto Sans Bold', 'Noto Sans CJK KR Bold'])]),
+    )
     expect(shows[0]!.label!.fontWeight).toBe(700)
   })
 })

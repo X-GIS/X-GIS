@@ -18,13 +18,31 @@ const TWO_FEATURES: GeoJSONInput = {
       type: 'Feature',
       id: 1,
       properties: { name: 'A', rank: 3, hot: true },
-      geometry: { type: 'Polygon', coordinates: [[[-10, -10], [10, -10], [10, 10], [-10, 10], [-10, -10]]] },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [-10, -10],
+            [10, -10],
+            [10, 10],
+            [-10, 10],
+            [-10, -10],
+          ],
+        ],
+      },
     },
     {
       type: 'Feature',
       id: 2,
       properties: { name: 'B', class: 'ocean' },
-      geometry: { type: 'LineString', coordinates: [[0, 0], [10, 5], [20, 0]] },
+      geometry: {
+        type: 'LineString',
+        coordinates: [
+          [0, 0],
+          [10, 5],
+          [20, 0],
+        ],
+      },
     },
   ],
 } as GeoJSONInput
@@ -41,8 +59,8 @@ describe('encodeMVT — round-trip via decodeMvtTile', () => {
     const decoded = decodeMvtTile(bytes, 0, 0, 0)
     expect(decoded.length).toBe(2)
 
-    const polygon = decoded.find(f => f.properties?.name === 'A')
-    const line = decoded.find(f => f.properties?.name === 'B')
+    const polygon = decoded.find((f) => f.properties?.name === 'A')
+    const line = decoded.find((f) => f.properties?.name === 'B')
     expect(polygon).toBeDefined()
     expect(line).toBeDefined()
 
@@ -74,19 +92,40 @@ describe('encodeMVT — round-trip via decodeMvtTile', () => {
   it('multi-layer encoding emits one Layer per source', () => {
     const a: GeoJSONInput = {
       type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        properties: { name: 'a-poly' },
-        geometry: { type: 'Polygon', coordinates: [[[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, -5]]] },
-      }],
+      features: [
+        {
+          type: 'Feature',
+          properties: { name: 'a-poly' },
+          geometry: {
+            type: 'Polygon',
+            coordinates: [
+              [
+                [-5, -5],
+                [5, -5],
+                [5, 5],
+                [-5, 5],
+                [-5, -5],
+              ],
+            ],
+          },
+        },
+      ],
     } as GeoJSONInput
     const b: GeoJSONInput = {
       type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        properties: { name: 'b-line' },
-        geometry: { type: 'LineString', coordinates: [[0, 0], [10, 10]] },
-      }],
+      features: [
+        {
+          type: 'Feature',
+          properties: { name: 'b-line' },
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [0, 0],
+              [10, 10],
+            ],
+          },
+        },
+      ],
     } as GeoJSONInput
     const tileA = geojsonvt(a).getTile(0, 0, 0)!
     const tileB = geojsonvt(b).getTile(0, 0, 0)!
@@ -97,8 +136,8 @@ describe('encodeMVT — round-trip via decodeMvtTile', () => {
     ])
     const decoded = decodeMvtTile(bytes, 0, 0, 0)
     expect(decoded.length).toBe(2)
-    const aFeature = decoded.find(f => f.properties?._layer === 'layer_a')
-    const bFeature = decoded.find(f => f.properties?._layer === 'layer_b')
+    const aFeature = decoded.find((f) => f.properties?._layer === 'layer_a')
+    const bFeature = decoded.find((f) => f.properties?._layer === 'layer_b')
     expect(aFeature?.properties?.name).toBe('a-poly')
     expect(bFeature?.properties?.name).toBe('b-line')
   })

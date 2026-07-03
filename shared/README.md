@@ -54,19 +54,19 @@ ellipsoid (`a = 6378137 m`, `1/f = 298.257223563`).
 
 ### Types
 
-| Export | Shape |
-| --- | --- |
-| `ECEF` | `readonly [x, y, z]` — ECEF Cartesian metres |
+| Export         | Shape                                                        |
+| -------------- | ------------------------------------------------------------ |
+| `ECEF`         | `readonly [x, y, z]` — ECEF Cartesian metres                 |
 | `LonLatHeight` | `readonly [lon, lat, height]` — degrees + ellipsoidal metres |
 
 ### Forward / inverse maps
 
-| Export | Role |
-| --- | --- |
-| `lonLatToECEF(lon, lat, height?)` | lon/lat (deg) + height → ECEF (ellipsoidal) |
-| `ecefToLonLat(x, y, z)` | ECEF → lon/lat/height (Bowring iteration) |
-| `mercatorToECEF(mx, my, height?)` | Web Mercator metres → ECEF (ellipsoidal) |
-| `tileEcefCenterFromMerc(mx, my)` | per-tile ECEF anchor from a Mercator tile corner |
+| Export                            | Role                                             |
+| --------------------------------- | ------------------------------------------------ |
+| `lonLatToECEF(lon, lat, height?)` | lon/lat (deg) + height → ECEF (ellipsoidal)      |
+| `ecefToLonLat(x, y, z)`           | ECEF → lon/lat/height (Bowring iteration)        |
+| `mercatorToECEF(mx, my, height?)` | Web Mercator metres → ECEF (ellipsoidal)         |
+| `tileEcefCenterFromMerc(mx, my)`  | per-tile ECEF anchor from a Mercator tile corner |
 
 ### Sphere variants
 
@@ -74,18 +74,18 @@ The legacy 2D MVP path is built on a **spherical** Mercator basis, so these
 mirror the forwards above with eccentricity `E2 = 0` to keep the dual ECEF/legacy
 paths parity-matched at the equator until the legacy path is retired:
 
-| Export | Role |
-| --- | --- |
+| Export                                  | Role                                  |
+| --------------------------------------- | ------------------------------------- |
 | `lonLatToECEFSphere(lon, lat, height?)` | spherical `lonLatToECEF` (radius `A`) |
-| `mercatorToECEFSphere(mx, my, height?)` | spherical `mercatorToECEF` |
+| `mercatorToECEFSphere(mx, my, height?)` | spherical `mercatorToECEF`            |
 
 ### GPU-precision + basis helpers
 
-| Export | Role |
-| --- | --- |
-| `dsfunSplitECEF(ecef, ecefCenter)` | hi/lo f32 split of an RTC-relative ECEF vertex (sub-mm precision on GPU) |
-| `ecefToENURotation(lon, lat)` | column-major `Float32Array(16)` ECEF→ENU (East/North/Up) rotation |
-| `WGS84` | `{ A, F, E2, RAD2DEG }` constants, for WGSL emission / tiler / cross-validation |
+| Export                                   | Role                                                                                                                                                |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dsfunSplitECEF(ecef, ecefCenter)`       | hi/lo f32 split of an RTC-relative ECEF vertex (sub-mm precision on GPU)                                                                            |
+| `ecefToENURotation(lon, lat)`            | column-major `Float32Array(16)` ECEF→ENU (East/North/Up) rotation                                                                                   |
+| `WGS84`                                  | `{ A, F, E2, RAD2DEG }` constants, for WGSL emission / tiler / cross-validation                                                                     |
 | `quantizeAxis(axis, halfRange, invSpan)` | quantize one absolute axis value into a double-u16 `[hi, lo]` pair for the packed ECEF vertex layout (shared by the tiler + synthetic-earth packer) |
 
 ## Build

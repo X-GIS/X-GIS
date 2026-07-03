@@ -9,9 +9,9 @@ import { describe, expect, it } from 'vitest'
 import { cosC, needsBackfaceCullWgsl } from '@xgis/map'
 
 const PROJECTIONS = [
-  { name: 'orthographic',         type: 3, threshold: 0 },      // strict hemisphere
-  { name: 'azimuthal_equidistant', type: 4, threshold: -0.85 },  // wider rim
-  { name: 'stereographic',        type: 5, threshold: -0.8 },   // wider rim
+  { name: 'orthographic', type: 3, threshold: 0 }, // strict hemisphere
+  { name: 'azimuthal_equidistant', type: 4, threshold: -0.85 }, // wider rim
+  { name: 'stereographic', type: 5, threshold: -0.8 }, // wider rim
 ]
 
 // Post-fix raster vis matches needsBackfaceCullWgsl exactly (vis >= 1 →
@@ -48,7 +48,7 @@ describe('raster vs vector cull-threshold parity (iter 431 fix)', () => {
         // proj.threshold and 0). For azimuthal threshold -0.85 we use
         // cc=-0.5; for stereo threshold -0.8 we use cc=-0.4.
         const ccTarget = proj.threshold / 2 // half-way to threshold, definitely in band
-        const rimLon = Math.acos(ccTarget) * 180 / Math.PI
+        const rimLon = (Math.acos(ccTarget) * 180) / Math.PI
         const cc = cosC(rimLon, 0, 0, 0)
         // Confirm we're in the rim band: cc between threshold and 0.
         expect(cc).toBeLessThan(0)
@@ -64,7 +64,7 @@ describe('raster vs vector cull-threshold parity (iter 431 fix)', () => {
 
       it('past-threshold point: both raster paths discard', () => {
         // Beyond the threshold — cc = -0.95, well past azimuthal's -0.85.
-        const lon = Math.acos(-0.95) * 180 / Math.PI // ≈ 162°
+        const lon = (Math.acos(-0.95) * 180) / Math.PI // ≈ 162°
         expect(rasterCullPre(lon, 0, 0, 0)).toBeLessThan(0)
         expect(rasterCullPost(proj.type, lon, 0, 0, 0)).toBeLessThan(0)
       })
@@ -81,11 +81,12 @@ describe('raster vs vector cull-threshold parity (iter 431 fix)', () => {
     // Sweep azimuthal at a rim band point; vector polygon cull (which
     // also routes through needsBackfaceCullWgsl) must produce the same
     // sign as the post-fix raster path.
-    const clon = 0, clat = 0
+    const clon = 0,
+      clat = 0
     for (const pt of [3, 4, 5]) {
       for (let i = 0; i < 5; i++) {
         const cc = -0.95 + i * 0.3 // sweep -0.95, -0.65, -0.35, -0.05, 0.25
-        const lon = Math.acos(Math.max(-1, Math.min(1, cc))) * 180 / Math.PI
+        const lon = (Math.acos(Math.max(-1, Math.min(1, cc))) * 180) / Math.PI
         const rasterPost = rasterCullPost(pt, lon, 0, clon, clat)
         const vectorCull = needsBackfaceCullWgsl(pt, lon, 0, clon, clat)
         expect(Math.sign(rasterPost)).toBe(Math.sign(vectorCull))

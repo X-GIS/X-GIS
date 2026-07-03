@@ -41,23 +41,38 @@ function exprCost(e: Expr): number {
   switch (e.op) {
     case 'binop':
     case 'compare':
-    case 'logical': return 1 + exprCost(e.a) + exprCost(e.b)
-    case 'unop': return 1 + exprCost(e.a)
+    case 'logical':
+      return 1 + exprCost(e.a) + exprCost(e.b)
+    case 'unop':
+      return 1 + exprCost(e.a)
     case 'call':
-    case 'construct': return 1 + e.args.reduce((n, a) => n + exprCost(a), 0)
-    case 'member': return 1 + exprCost(e.base)
-    case 'index': return 1 + exprCost(e.base) + exprCost(e.idx)
-    case 'select': return 1 + exprCost(e.cond) + exprCost(e.ifTrue) + exprCost(e.ifFalse)
+    case 'construct':
+      return 1 + e.args.reduce((n, a) => n + exprCost(a), 0)
+    case 'member':
+      return 1 + exprCost(e.base)
+    case 'index':
+      return 1 + exprCost(e.base) + exprCost(e.idx)
+    case 'select':
+      return 1 + exprCost(e.cond) + exprCost(e.ifTrue) + exprCost(e.ifFalse)
     case 'matchExpr':
-      return 1 + exprCost(e.scrutinee) + e.cases.reduce((n, [, v]) => n + exprCost(v), 0) + exprCost(e.default)
-    default: return 1 // lit / constref / param / varref
+      return (
+        1 +
+        exprCost(e.scrutinee) +
+        e.cases.reduce((n, [, v]) => n + exprCost(v), 0) +
+        exprCost(e.default)
+      )
+    default:
+      return 1 // lit / constref / param / varref
   }
 }
 
 /** Count `call` sites of `name` across every fn body in the module. */
 function countCalls(m: ModuleDecl, name: string): number {
   let n = 0
-  const probe = (e: Expr): Expr => { if (e.op === 'call' && e.fn === name) n++; return e }
+  const probe = (e: Expr): Expr => {
+    if (e.op === 'call' && e.fn === name) n++
+    return e
+  }
   for (const f of m.funcs) for (const s of f.body) mapStmt(s, probe)
   return n
 }
@@ -70,7 +85,10 @@ function pickCandidate(m: ModuleDecl): string | undefined {
     if (ret === undefined) continue
     // Recursive single-return fn — inlineFn keeps it (infinite expansion otherwise); skip.
     let recursive = false
-    mapStmt({ s: 'return', expr: ret }, (e) => { if (e.op === 'call' && e.fn === f.name) recursive = true; return e })
+    mapStmt({ s: 'return', expr: ret }, (e) => {
+      if (e.op === 'call' && e.fn === f.name) recursive = true
+      return e
+    })
     if (recursive) continue
     const calls = countCalls(m, f.name)
     if (calls === 0) continue // dead — leave to deadFnElim, not inlining

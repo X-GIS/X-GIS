@@ -29,28 +29,44 @@ function lonLatToMerc(lon: number, lat: number): [number, number] {
 // hemisphere, so the point cull sign still matches the cosC ground truth this
 // file pins. The pitched eye is exercised in the comprehensive test's #600 block.
 function nadirEye(clon: number, clat: number): readonly [number, number, number] {
-  const lam = clon * DEG2RAD, phi = clat * DEG2RAD, c = Math.cos(phi)
+  const lam = clon * DEG2RAD,
+    phi = clat * DEG2RAD,
+    c = Math.cos(phi)
   const s = EARTH_R * 1e6
   return [s * c * Math.cos(lam), s * c * Math.sin(lam), s * Math.sin(phi)]
 }
 
 // CPU port of WGSL point_cos_c.
-function pointCosCCpu(rtcMercX: number, rtcMercY: number, projType: number, camLon: number, camLat: number): number {
+function pointCosCCpu(
+  rtcMercX: number,
+  rtcMercY: number,
+  projType: number,
+  camLon: number,
+  camLat: number,
+): number {
   const clampedCamLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, camLat))
   const camMercX = camLon * DEG2RAD * EARTH_R
-  const camMercY = Math.log(Math.tan(Math.PI / 4 + clampedCamLat * DEG2RAD / 2)) * EARTH_R
+  const camMercY = Math.log(Math.tan(Math.PI / 4 + (clampedCamLat * DEG2RAD) / 2)) * EARTH_R
   const absMercX = rtcMercX + camMercX
   const absMercY = rtcMercY + camMercY
   const absLon = absMercX / (DEG2RAD * EARTH_R)
   const latRad = 2 * Math.atan(Math.exp(absMercY / EARTH_R)) - Math.PI / 2
   const absLat = latRad / DEG2RAD
   // #600 — globe(7) needs globe_eye (far nadir eye over the camera centre).
-  return needsBackfaceCullWgsl(projType, absLon, absLat, camLon, camLat, globeEyeUniform(nadirEye(camLon, camLat)) as [number, number, number, number])
+  return needsBackfaceCullWgsl(
+    projType,
+    absLon,
+    absLat,
+    camLon,
+    camLat,
+    globeEyeUniform(nadirEye(camLon, camLat)) as [number, number, number, number],
+  )
 }
 
 describe('point_cos_c vs polygon/line fragment-cull parity (workflow #2)', () => {
   it('globe (projType=7): point culls match lon/lat cosC across grid', () => {
-    const camLon = 0, camLat = 20
+    const camLon = 0,
+      camLat = 20
     const [camMercX, camMercY] = lonLatToMerc(camLon, camLat)
     for (let i = 0; i < 11; i++) {
       for (let j = 0; j < 11; j++) {
@@ -61,14 +77,17 @@ describe('point_cos_c vs polygon/line fragment-cull parity (workflow #2)', () =>
         const rtcY = absMercY - camMercY
         const cull = pointCosCCpu(rtcX, rtcY, 7, camLon, camLat)
         const truth = cosC(lon, lat, camLon, camLat)
-        expect(Math.sign(cull), `mismatch at lon=${lon} lat=${lat}: cull=${cull} truth=${truth}`)
-          .toBe(Math.sign(truth))
+        expect(
+          Math.sign(cull),
+          `mismatch at lon=${lon} lat=${lat}: cull=${cull} truth=${truth}`,
+        ).toBe(Math.sign(truth))
       }
     }
   })
 
   it('orthographic (projType=3): point culls match ground truth', () => {
-    const camLon = 127, camLat = 37
+    const camLon = 127,
+      camLat = 37
     const [camMercX, camMercY] = lonLatToMerc(camLon, camLat)
     for (let i = 0; i < 10; i++) {
       for (let j = 0; j < 10; j++) {
@@ -85,9 +104,15 @@ describe('point_cos_c vs polygon/line fragment-cull parity (workflow #2)', () =>
   })
 
   it('antipodal points on globe always cull (red pixel guard)', () => {
-    const camLon = 0, camLat = 0
+    const camLon = 0,
+      camLat = 0
     const [camMercX, camMercY] = lonLatToMerc(camLon, camLat)
-    const antipodes: Array<[number, number]> = [[180, 0], [-180, 0], [175, 30], [-175, -45]]
+    const antipodes: Array<[number, number]> = [
+      [180, 0],
+      [-180, 0],
+      [175, 30],
+      [-175, -45],
+    ]
     for (const [lon, lat] of antipodes) {
       const [absMercX, absMercY] = lonLatToMerc(lon, lat)
       const cull = pointCosCCpu(absMercX - camMercX, absMercY - camMercY, 7, camLon, camLat)
@@ -97,7 +122,8 @@ describe('point_cos_c vs polygon/line fragment-cull parity (workflow #2)', () =>
 
   it('flat projections: point cull always ≥1 (no cull for cylindrical/flat)', () => {
     for (const pt of [0, 1, 2, 6]) {
-      const camLon = 60, camLat = 25
+      const camLon = 60,
+        camLat = 25
       const [camMercX, camMercY] = lonLatToMerc(camLon, camLat)
       for (let i = 0; i < 6; i++) {
         for (let j = 0; j < 6; j++) {

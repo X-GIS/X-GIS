@@ -12,7 +12,8 @@ test('pickAt returns feature IDs for hover', async ({ page }) => {
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(2000)
 
@@ -37,7 +38,7 @@ test('pickAt returns feature IDs for hover', async ({ page }) => {
     return samples
   })
 
-  const hits = results.filter(s => s.result !== null)
+  const hits = results.filter((s) => s.result !== null)
   const hitRatio = hits.length / results.length
   console.log(`[pick-e2e] hits: ${hits.length}/${results.length} (${(hitRatio * 100).toFixed(0)}%)`)
   for (const h of hits) {
@@ -53,6 +54,6 @@ test('pickAt returns feature IDs for hover', async ({ page }) => {
     expect(r.featureId).toBeGreaterThan(0)
   }
   // Different samples should return different IDs (not all the same country).
-  const uniqueIds = new Set(hits.map(h => (h.result as { featureId: number }).featureId))
+  const uniqueIds = new Set(hits.map((h) => (h.result as { featureId: number }).featureId))
   expect(uniqueIds.size).toBeGreaterThanOrEqual(2)
 })

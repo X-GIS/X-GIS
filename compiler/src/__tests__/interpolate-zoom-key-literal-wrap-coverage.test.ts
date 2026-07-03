@@ -20,9 +20,13 @@ describe('interpolate-zoom key literal-wrap unwrap', () => {
           paint: {
             'line-color': '#000',
             'line-width': [
-              'interpolate', ['linear'], ['zoom'],
-              ['literal', 5], 1,
-              ['literal', 14], 8,
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              ['literal', 5],
+              1,
+              ['literal', 14],
+              8,
             ],
           },
         },

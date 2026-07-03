@@ -59,8 +59,12 @@ export function unprojectToZ0(
   const n = mulVec4(inv, [ndcX, ndcY, -1, 1])
   const f = mulVec4(inv, [ndcX, ndcY, 1, 1])
   // Perspective divide
-  const nx = n[0] / n[3], ny = n[1] / n[3], nz = n[2] / n[3]
-  const fx = f[0] / f[3], fy = f[1] / f[3], fz = f[2] / f[3]
+  const nx = n[0] / n[3],
+    ny = n[1] / n[3],
+    nz = n[2] / n[3]
+  const fx = f[0] / f[3],
+    fy = f[1] / f[3],
+    fz = f[2] / f[3]
 
   // Intersect with z=0 plane
   const dz = fz - nz

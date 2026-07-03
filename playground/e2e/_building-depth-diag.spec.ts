@@ -10,7 +10,11 @@
 
 import { test, expect } from '@playwright/test'
 
-const SCENARIOS: Array<{ slug: string; url: string; viewport?: { width: number; height: number } }> = [
+const SCENARIOS: Array<{
+  slug: string
+  url: string
+  viewport?: { width: number; height: number }
+}> = [
   // High-pitch reference URL from commit 23453f3.
   { slug: 'tokyo-pitch63', url: '/demo.html?id=osm_style#16.33/35.6585/139.7454/0/63.5' },
   // Lower pitch — height ordering most visible from the side.
@@ -27,7 +31,8 @@ test.describe('3D building depth-sort diag', () => {
       await page.goto(scn.url, { waitUntil: 'domcontentloaded' })
       await page.waitForFunction(
         () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-        null, { timeout: 30_000 },
+        null,
+        { timeout: 30_000 },
       )
       // Settle: tiles + layer compile + extrude data → GPU upload.
       // The async upload path needs a few frames to drain through the
@@ -36,17 +41,22 @@ test.describe('3D building depth-sort diag', () => {
 
       // Inspect what's on screen for diagnostic logging.
       const stats = await page.evaluate(() => {
-        const map = (window as unknown as {
-          __xgisMap?: {
-            camera: { lon: number; lat: number; zoom: number; bearing: number; pitch: number }
-            vtSources?: Map<string, {
-              renderer?: {
-                _frameTileCache?: { tiles?: Array<{ z: number; x: number; y: number }> }
-                _gpuCacheCount?: number
-              }
-            }>
+        const map = (
+          window as unknown as {
+            __xgisMap?: {
+              camera: { lon: number; lat: number; zoom: number; bearing: number; pitch: number }
+              vtSources?: Map<
+                string,
+                {
+                  renderer?: {
+                    _frameTileCache?: { tiles?: Array<{ z: number; x: number; y: number }> }
+                    _gpuCacheCount?: number
+                  }
+                }
+              >
+            }
           }
-        }).__xgisMap
+        ).__xgisMap
         if (!map) return { error: 'no map' }
         const out: Record<string, unknown> = { camera: map.camera }
         if (map.vtSources) {

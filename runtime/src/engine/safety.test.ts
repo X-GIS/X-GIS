@@ -24,20 +24,27 @@ describe('XGISError taxonomy', () => {
 describe('assertSafeRemoteUrl same-origin loopback allowance', () => {
   const setOrigin = (origin: string | undefined) => {
     if (origin === undefined) delete (globalThis as { window?: unknown }).window
-    else (globalThis as { window?: { location: { origin: string } } }).window = { location: { origin } }
+    else
+      (globalThis as { window?: { location: { origin: string } } }).window = {
+        location: { origin },
+      }
   }
   afterEach(() => setOrigin(undefined))
 
   it('allows a loopback host that is the SAME origin as the page (dev server own assets + proxy)', () => {
     setOrigin('https://localhost:3000')
     expect(() => assertSafeRemoteUrl('https://localhost:3000/data/x.geojson')).not.toThrow()
-    expect(() => assertSafeRemoteUrl('https://localhost:3000/pmtiles-proxy/v4.pmtiles')).not.toThrow()
+    expect(() =>
+      assertSafeRemoteUrl('https://localhost:3000/pmtiles-proxy/v4.pmtiles'),
+    ).not.toThrow()
   })
 
   it('still blocks a private host that is a DIFFERENT origin than the page', () => {
     setOrigin('https://maps.example.com')
     expect(() => assertSafeRemoteUrl('https://127.0.0.1/internal')).toThrow(XGISSecurityError)
-    expect(() => assertSafeRemoteUrl('https://169.254.169.254/latest/meta-data')).toThrow(XGISSecurityError)
+    expect(() => assertSafeRemoteUrl('https://169.254.169.254/latest/meta-data')).toThrow(
+      XGISSecurityError,
+    )
     // a different loopback PORT is cross-origin → still blocked
     setOrigin('https://localhost:3000')
     expect(() => assertSafeRemoteUrl('https://localhost:8080/x')).toThrow(XGISSecurityError)
@@ -65,7 +72,17 @@ describe('assertIngestBudget', () => {
 
   it('throws when total vertices exceed the cap', () => {
     const big = {
-      geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4], [5, 5]] },
+      geometry: {
+        type: 'LineString',
+        coordinates: [
+          [0, 0],
+          [1, 1],
+          [2, 2],
+          [3, 3],
+          [4, 4],
+          [5, 5],
+        ],
+      },
     }
     expect(() => assertIngestBudget([big], 'test', limits)).toThrow(XGISInputError)
   })
@@ -74,11 +91,20 @@ describe('assertIngestBudget', () => {
     const poly = {
       geometry: {
         type: 'Polygon',
-        coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1]]], // 4 vertices
+        coordinates: [
+          [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 1],
+          ],
+        ], // 4 vertices
       },
     }
     // 4 ring vertices > the 3-vertex cap ⇒ nested-ring counting reached it.
-    expect(() => assertIngestBudget([poly], 'test', { maxFeatures: 3, maxVertices: 3 })).toThrow(XGISInputError)
+    expect(() => assertIngestBudget([poly], 'test', { maxFeatures: 3, maxVertices: 3 })).toThrow(
+      XGISInputError,
+    )
     const gc = {
       geometry: {
         type: 'GeometryCollection',
@@ -88,7 +114,9 @@ describe('assertIngestBudget', () => {
         ],
       },
     }
-    expect(() => assertIngestBudget([gc], 'test', { maxFeatures: 3, maxVertices: 1 })).toThrow(XGISInputError)
+    expect(() => assertIngestBudget([gc], 'test', { maxFeatures: 3, maxVertices: 1 })).toThrow(
+      XGISInputError,
+    )
   })
 
   it('is a no-op when features is not an array', () => {
@@ -130,7 +158,9 @@ describe('assertSafeRemoteUrl', () => {
   it('allows public http/https URLs', () => {
     expect(() => assertSafeRemoteUrl('https://example.com/sprites/foo')).not.toThrow()
     expect(() => assertSafeRemoteUrl('http://x/atlas')).not.toThrow()
-    expect(() => assertSafeRemoteUrl('https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf')).not.toThrow()
+    expect(() =>
+      assertSafeRemoteUrl('https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf'),
+    ).not.toThrow()
   })
 
   it('allows relative (same-origin) URLs', () => {
@@ -140,7 +170,9 @@ describe('assertSafeRemoteUrl', () => {
 
   it('blocks IPv4-mapped IPv6 loopback / metadata (SSRF bypass)', () => {
     expect(() => assertSafeRemoteUrl('http://[::ffff:127.0.0.1]/x')).toThrow(XGISSecurityError)
-    expect(() => assertSafeRemoteUrl('http://[::ffff:169.254.169.254]/x')).toThrow(XGISSecurityError)
+    expect(() => assertSafeRemoteUrl('http://[::ffff:169.254.169.254]/x')).toThrow(
+      XGISSecurityError,
+    )
   })
 
   it('blocks IPv4-compatible / NAT64 / 6to4 IPv6 wrapping private addresses', () => {
@@ -157,7 +189,9 @@ describe('assertSafeRemoteUrl', () => {
   })
 
   it('blocks protocol-relative URLs to private hosts but allows public ones', () => {
-    expect(() => assertSafeRemoteUrl('//169.254.169.254/latest/meta-data')).toThrow(XGISSecurityError)
+    expect(() => assertSafeRemoteUrl('//169.254.169.254/latest/meta-data')).toThrow(
+      XGISSecurityError,
+    )
     expect(() => assertSafeRemoteUrl('//127.0.0.1/x')).toThrow(XGISSecurityError)
     expect(() => assertSafeRemoteUrl('//cdn.example.com/sprite')).not.toThrow()
   })
@@ -197,9 +231,9 @@ describe('assertIngestBudget DoS-nesting hardening', () => {
     const feature = { geometry: { type: 'LineString', coordinates: ring } }
     // One feature, 50 vertices, cap 10 → must throw even though feature
     // count (1) is under maxFeatures.
-    expect(() => assertIngestBudget([feature], 'big', { maxFeatures: 10, maxVertices: 10 })).toThrow(
-      XGISInputError,
-    )
+    expect(() =>
+      assertIngestBudget([feature], 'big', { maxFeatures: 10, maxVertices: 10 }),
+    ).toThrow(XGISInputError)
   })
 })
 

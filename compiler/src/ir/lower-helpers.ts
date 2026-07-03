@@ -32,7 +32,7 @@ export function bindingToTextValue(binding: AST.Expr): TextValue {
     const interp = parts[0] as { kind: 'interp'; text: string }
     return { kind: 'expr', expr: { ast: parseExpressionString(interp.text) } }
   }
-  const irParts: TextPart[] = parts.map(p => {
+  const irParts: TextPart[] = parts.map((p) => {
     if (p.kind === 'literal') return { kind: 'literal', value: p.text }
     return {
       kind: 'interp',
@@ -51,8 +51,11 @@ export function bindingToTextValue(binding: AST.Expr): TextValue {
  *  falls through to its data-driven branch. */
 export function bindingAsConstantNumber(binding: AST.Expr): number | null {
   if (binding.kind === 'NumberLiteral') return binding.value
-  if (binding.kind === 'UnaryExpr' && binding.op === '-'
-      && binding.operand.kind === 'NumberLiteral') {
+  if (
+    binding.kind === 'UnaryExpr' &&
+    binding.op === '-' &&
+    binding.operand.kind === 'NumberLiteral'
+  ) {
     return -binding.operand.value
   }
   return null
@@ -66,10 +69,12 @@ export function bindingAsConstantNumber(binding: AST.Expr): number | null {
  *  v, …, default]` into this shape via `expressions.ts:111`. */
 export function extractMatchDefaultColor(expr: AST.Expr): string | null {
   // Match form: `match(.field) { v -> #colour, …, _ -> #default }`.
-  if (expr.kind === 'FnCall'
-      && expr.callee.kind === 'Identifier'
-      && expr.callee.name === 'match'
-      && expr.matchBlock) {
+  if (
+    expr.kind === 'FnCall' &&
+    expr.callee.kind === 'Identifier' &&
+    expr.callee.name === 'match' &&
+    expr.matchBlock
+  ) {
     for (const arm of expr.matchBlock.arms) {
       if (arm.pattern === '_') {
         if (arm.value.kind === 'ColorLiteral') return arm.value.value
@@ -137,9 +142,7 @@ export function extractMatchDefaultColor(expr: AST.Expr): string | null {
  *  zoom-interpolation infrastructure (no per-frame eval, no per-
  *  feature plumbing — the existing kind:'zoom-interpolated' code
  *  paths in the runtime do the heavy lifting). */
-export function extractInterpolateZoomStops(
-  expr: AST.Expr,
-): ZoomStopsWithBase<number> | null {
+export function extractInterpolateZoomStops(expr: AST.Expr): ZoomStopsWithBase<number> | null {
   if (expr.kind !== 'FnCall') return null
   if (expr.callee.kind !== 'Identifier') return null
   const calleeName = expr.callee.name
@@ -196,9 +199,7 @@ export function extractInterpolateZoomStops(
  *  semantics and the X-GIS step evaluator (input >= stop → val).
  *  ε = 0.0001 zoom units is imperceptible. Values are returned raw (0..1);
  *  the caller is responsible for any scale conversion. */
-export function extractStepZoomStops(
-  expr: AST.Expr,
-): ZoomStopsWithBase<number> | null {
+export function extractStepZoomStops(expr: AST.Expr): ZoomStopsWithBase<number> | null {
   if (expr.kind !== 'FnCall') return null
   if (expr.callee.kind !== 'Identifier') return null
   if (expr.callee.name !== 'step') return null

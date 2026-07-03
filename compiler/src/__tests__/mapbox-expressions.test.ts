@@ -17,28 +17,41 @@ function parses(xgis: string): boolean {
     const tokens = new Lexer(xgis).tokenize()
     new Parser(tokens).parse()
     return true
-  } catch { return false }
+  } catch {
+    return false
+  }
 }
 
 function convertWithFontGet(expr: unknown): string {
   return convertMapboxStyle({
     version: 8,
     sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-    layers: [{
-      id: 'l', type: 'symbol', source: 'x', 'source-layer': 'pts',
-      layout: { 'text-field': expr } as never,
-    }],
+    layers: [
+      {
+        id: 'l',
+        type: 'symbol',
+        source: 'x',
+        'source-layer': 'pts',
+        layout: { 'text-field': expr } as never,
+      },
+    ],
   })
 }
 
 describe('Math operators', () => {
   it('["^", a, b] → pow(a, b)', () => {
     const out = convertMapboxStyle({
-      version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'p', type: 'fill', source: 'x', 'source-layer': 'a',
-        paint: { 'fill-opacity': ['^', ['get', 'rank'], 2] } as never,
-      }],
+      version: 8,
+      sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [
+        {
+          id: 'p',
+          type: 'fill',
+          source: 'x',
+          'source-layer': 'a',
+          paint: { 'fill-opacity': ['^', ['get', 'rank'], 2] } as never,
+        },
+      ],
     })
     expect(out).toMatch(/pow\(\.rank,\s*2\)/)
     expect(parses(out)).toBe(true)
@@ -47,11 +60,17 @@ describe('Math operators', () => {
   for (const op of ['abs', 'ceil', 'floor', 'round', 'sqrt']) {
     it(`["${op}", x] → ${op}(x)`, () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'p', type: 'fill', source: 'x', 'source-layer': 'a',
-          paint: { 'fill-opacity': [op, ['get', 'v']] } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'p',
+            type: 'fill',
+            source: 'x',
+            'source-layer': 'a',
+            paint: { 'fill-opacity': [op, ['get', 'v']] } as never,
+          },
+        ],
       })
       expect(out).toContain(`${op}(.v)`)
       expect(parses(out)).toBe(true)
@@ -61,11 +80,17 @@ describe('Math operators', () => {
   for (const op of ['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'ln', 'log10', 'log2']) {
     it(`["${op}", x] → ${op}(x)`, () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'p', type: 'fill', source: 'x', 'source-layer': 'a',
-          paint: { 'fill-opacity': [op, ['get', 'v']] } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'p',
+            type: 'fill',
+            source: 'x',
+            'source-layer': 'a',
+            paint: { 'fill-opacity': [op, ['get', 'v']] } as never,
+          },
+        ],
       })
       expect(out).toContain(`${op}(.v)`)
       expect(parses(out)).toBe(true)
@@ -75,11 +100,17 @@ describe('Math operators', () => {
   for (const op of ['pi', 'e', 'ln2']) {
     it(`["${op}"] → ${op}() builtin call`, () => {
       const out = convertMapboxStyle({
-        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-        layers: [{
-          id: 'p', type: 'fill', source: 'x', 'source-layer': 'a',
-          paint: { 'fill-opacity': ['/', ['get', 'v'], [op]] } as never,
-        }],
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          {
+            id: 'p',
+            type: 'fill',
+            source: 'x',
+            'source-layer': 'a',
+            paint: { 'fill-opacity': ['/', ['get', 'v'], [op]] } as never,
+          },
+        ],
       })
       expect(out).toContain(`${op}()`)
       expect(parses(out)).toBe(true)
@@ -108,11 +139,17 @@ describe('String operators', () => {
 
   it('["length", arr] → length(arr)', () => {
     const out = convertMapboxStyle({
-      version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'p', type: 'fill', source: 'x', 'source-layer': 'a',
-        paint: { 'fill-opacity': ['length', ['get', 'tags']] } as never,
-      }],
+      version: 8,
+      sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [
+        {
+          id: 'p',
+          type: 'fill',
+          source: 'x',
+          'source-layer': 'a',
+          paint: { 'fill-opacity': ['length', ['get', 'tags']] } as never,
+        },
+      ],
     })
     expect(out).toContain('length(.tags)')
     expect(parses(out)).toBe(true)
@@ -122,11 +159,17 @@ describe('String operators', () => {
 describe('step expression', () => {
   it('["step", input, def, s1, v1, s2, v2] → step(input, def, s1, v1, s2, v2)', () => {
     const out = convertMapboxStyle({
-      version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'p', type: 'fill', source: 'x', 'source-layer': 'a',
-        paint: { 'fill-opacity': ['step', ['get', 'rank'], 0.1, 5, 0.5, 10, 1] } as never,
-      }],
+      version: 8,
+      sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [
+        {
+          id: 'p',
+          type: 'fill',
+          source: 'x',
+          'source-layer': 'a',
+          paint: { 'fill-opacity': ['step', ['get', 'rank'], 0.1, 5, 0.5, 10, 1] } as never,
+        },
+      ],
     })
     // The fill-opacity step came through as an opacity binding
     // (lower pass keeps it as a constant numeric pipeline) — we
@@ -141,18 +184,24 @@ describe('step expression', () => {
 describe('let / var (substitution)', () => {
   it('["let", "x", expr, body-using-var] → expr inlined in body', () => {
     const out = convertMapboxStyle({
-      version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'p', type: 'fill', source: 'x', 'source-layer': 'a',
-        paint: {
-          'fill-opacity': ['let', 'r', ['get', 'rank'], ['*', ['var', 'r'], 0.1]],
-        } as never,
-      }],
+      version: 8,
+      sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [
+        {
+          id: 'p',
+          type: 'fill',
+          source: 'x',
+          'source-layer': 'a',
+          paint: {
+            'fill-opacity': ['let', 'r', ['get', 'rank'], ['*', ['var', 'r'], 0.1]],
+          } as never,
+        },
+      ],
     })
     // After substitution: ["*", ["get", "rank"], 0.1] → ".rank * 0.1"
     expect(out).toMatch(/\.rank\s*\*\s*0\.1/)
-    expect(out).not.toContain('var')   // substituted out
-    expect(out).not.toContain('let')   // ditto
+    expect(out).not.toContain('var') // substituted out
+    expect(out).not.toContain('let') // ditto
     expect(parses(out)).toBe(true)
   })
 })
@@ -160,11 +209,17 @@ describe('let / var (substitution)', () => {
 describe('conversion casts (passthrough)', () => {
   it('["to-string", x] passes through as inner expression', () => {
     const out = convertMapboxStyle({
-      version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'p', type: 'symbol', source: 'x', 'source-layer': 'a',
-        layout: { 'text-field': ['to-string', ['get', 'name']] } as never,
-      }],
+      version: 8,
+      sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [
+        {
+          id: 'p',
+          type: 'symbol',
+          source: 'x',
+          'source-layer': 'a',
+          layout: { 'text-field': ['to-string', ['get', 'name']] } as never,
+        },
+      ],
     })
     expect(out).toContain('.name')
     expect(out).not.toContain('to-string')
@@ -173,11 +228,17 @@ describe('conversion casts (passthrough)', () => {
 
   it('["to-number", x] passes through (existing behavior)', () => {
     const out = convertMapboxStyle({
-      version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'p', type: 'fill', source: 'x', 'source-layer': 'a',
-        paint: { 'fill-opacity': ['to-number', ['get', 'v']] } as never,
-      }],
+      version: 8,
+      sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [
+        {
+          id: 'p',
+          type: 'fill',
+          source: 'x',
+          'source-layer': 'a',
+          paint: { 'fill-opacity': ['to-number', ['get', 'v']] } as never,
+        },
+      ],
     })
     expect(out).toContain('.v')
     expect(parses(out)).toBe(true)
@@ -187,11 +248,17 @@ describe('conversion casts (passthrough)', () => {
 describe('rgb / rgba constant fold', () => {
   it('["rgb", 255, 0, 128] → #ff0080 hex', () => {
     const out = convertMapboxStyle({
-      version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'p', type: 'fill', source: 'x', 'source-layer': 'a',
-        paint: { 'fill-color': ['rgb', 255, 0, 128] } as never,
-      }],
+      version: 8,
+      sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [
+        {
+          id: 'p',
+          type: 'fill',
+          source: 'x',
+          'source-layer': 'a',
+          paint: { 'fill-color': ['rgb', 255, 0, 128] } as never,
+        },
+      ],
     })
     expect(out).toContain('#ff0080')
     expect(parses(out)).toBe(true)
@@ -199,13 +266,19 @@ describe('rgb / rgba constant fold', () => {
 
   it('["rgba", 255, 0, 128, 0.5] → #ff008080 hex', () => {
     const out = convertMapboxStyle({
-      version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'p', type: 'fill', source: 'x', 'source-layer': 'a',
-        paint: { 'fill-color': ['rgba', 255, 0, 128, 0.5] } as never,
-      }],
+      version: 8,
+      sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [
+        {
+          id: 'p',
+          type: 'fill',
+          source: 'x',
+          'source-layer': 'a',
+          paint: { 'fill-color': ['rgba', 255, 0, 128, 0.5] } as never,
+        },
+      ],
     })
-    expect(out).toContain('#ff0080')  // alpha 0.5 → 0x80; full = #ff008080
+    expect(out).toContain('#ff0080') // alpha 0.5 → 0x80; full = #ff008080
     expect(parses(out)).toBe(true)
   })
 })
@@ -218,16 +291,23 @@ describe('non-identifier field name guard (regression)', () => {
     // `.name:latin` which the lexer rejected (the `:` token starts
     // a modifier).
     const out = convertMapboxStyle({
-      version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'p', type: 'symbol', source: 'x', 'source-layer': 'a',
-        layout: {
-          'text-field': ['coalesce',
-            ['concat', ['get', 'name:latin'], ' ', ['get', 'name:nonlatin']],
-            ['get', 'name'],
-          ],
-        } as never,
-      }],
+      version: 8,
+      sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [
+        {
+          id: 'p',
+          type: 'symbol',
+          source: 'x',
+          'source-layer': 'a',
+          layout: {
+            'text-field': [
+              'coalesce',
+              ['concat', ['get', 'name:latin'], ' ', ['get', 'name:nonlatin']],
+              ['get', 'name'],
+            ],
+          } as never,
+        },
+      ],
     })
     expect(out).not.toContain('.name:latin')
     expect(out).not.toContain('.name:nonlatin')
@@ -238,11 +318,17 @@ describe('non-identifier field name guard (regression)', () => {
 
   it('text-field token "{name:latin}" falls back to ".name"', () => {
     const out = convertMapboxStyle({
-      version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
-      layers: [{
-        id: 'p', type: 'symbol', source: 'x', 'source-layer': 'a',
-        layout: { 'text-field': '{name:latin}' } as never,
-      }],
+      version: 8,
+      sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [
+        {
+          id: 'p',
+          type: 'symbol',
+          source: 'x',
+          'source-layer': 'a',
+          layout: { 'text-field': '{name:latin}' } as never,
+        },
+      ],
     })
     expect(out).toContain('.name')
     expect(out).not.toMatch(/\.name:latin/)

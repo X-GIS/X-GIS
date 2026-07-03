@@ -29,19 +29,19 @@ by inclusion (only the AC1 variant-emit lane is gated).
 The 11-file compiler/src/codegen/ surface that feeds the polygon
 variant fields:
 
-| File | Phase 2.5 task |
-|---|---|
-| `shader-gen.ts` | US-005 per-idiom Node conversion |
-| `shader-gen-types.ts` | US-004 type migration (DONE for fillExpr / strokeExpr); preamble / fillPreamble / strokePreamble deferred to US-005/US-007 |
-| `shader-gen-helpers.ts` | US-010 matchArmsKey rewrite (canonical-JSON over Node, helper landed at `_util/canonical-json.ts`) |
-| `palette-emit.ts` | US-005 palette sample idiom |
-| `categorical-encoder.ts` | US-005 match chain idiom |
-| `wgsl-expr.ts` | US-005 generic Node builders |
-| `paint-routing.ts` | US-005 dispatch update |
-| `compute-variant.ts` | US-006 compute-variant retarget |
-| `compute-variant-build.ts` | US-006 |
-| `compute-variant-merge.ts` | US-004 wrap landed; US-006 unwraps via real Node construction |
-| `compute-output-binding.ts:61` | US-006 binding emit |
+| File                           | Phase 2.5 task                                                                                                             |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `shader-gen.ts`                | US-005 per-idiom Node conversion                                                                                           |
+| `shader-gen-types.ts`          | US-004 type migration (DONE for fillExpr / strokeExpr); preamble / fillPreamble / strokePreamble deferred to US-005/US-007 |
+| `shader-gen-helpers.ts`        | US-010 matchArmsKey rewrite (canonical-JSON over Node, helper landed at `_util/canonical-json.ts`)                         |
+| `palette-emit.ts`              | US-005 palette sample idiom                                                                                                |
+| `categorical-encoder.ts`       | US-005 match chain idiom                                                                                                   |
+| `wgsl-expr.ts`                 | US-005 generic Node builders                                                                                               |
+| `paint-routing.ts`             | US-005 dispatch update                                                                                                     |
+| `compute-variant.ts`           | US-006 compute-variant retarget                                                                                            |
+| `compute-variant-build.ts`     | US-006                                                                                                                     |
+| `compute-variant-merge.ts`     | US-004 wrap landed; US-006 unwraps via real Node construction                                                              |
+| `compute-output-binding.ts:61` | US-006 binding emit                                                                                                        |
 
 After PR-B / PR-C close, every WGSL string assembled by these files
 must have been replaced by a DSL Node value. The variant cache key
@@ -69,7 +69,7 @@ debug helpers, and palette compute kernels:
 ### Palette / atlas compute helpers
 
 - **`palette-emit.ts:emitPaletteBindings`** — the `@group(0)
-  @binding(N) var color_grad_atlas: texture_2d<f32>;` declaration
+@binding(N) var color_grad_atlas: texture_2d<f32>;` declaration
   block + the `palette_color(i)` helper fn. These ARE prepended to
   `ShaderVariant.preamble`, so they ARE in the migration surface
   → US-005 idiom #5 (palette sample) + US-007's `Partial<ModuleDecl>`

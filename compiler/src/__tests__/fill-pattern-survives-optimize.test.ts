@@ -26,7 +26,10 @@ describe('fill-pattern-only layers survive IR optimize', () => {
       'source s { type: geojson, url: "x.geojson" }\nlayer pat { source: s | fill-pattern-pat }\n',
     )
     const pat = cmds.shows.filter((s) => s.fillPattern != null)
-    expect(pat.length, 'fill-pattern ShowCommand survives optimize (was dropped by dead-layer-elim)').toBe(1)
+    expect(
+      pat.length,
+      'fill-pattern ShowCommand survives optimize (was dropped by dead-layer-elim)',
+    ).toBe(1)
     expect(pat[0]!.fillPattern).toBe('pat')
   })
 
@@ -35,14 +38,18 @@ describe('fill-pattern-only layers survive IR optimize', () => {
       version: 8,
       sprite: '/sprite',
       sources: { poly: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
-      layers: [{ id: 'wetland', type: 'fill', source: 'poly', paint: { 'fill-pattern': 'wetland_bg' } }],
+      layers: [
+        { id: 'wetland', type: 'fill', source: 'poly', paint: { 'fill-pattern': 'wetland_bg' } },
+      ],
     }
     const cmds = compileOptimized(convertMapboxStyle(style as never))
     expect(cmds.shows.some((s) => s.fillPattern === 'wetland_bg')).toBe(true)
   })
 
   it('a fill layer with truly no paint is STILL dropped (guard is pattern-scoped)', () => {
-    const cmds = compileOptimized('source s { type: geojson, url: "x.geojson" }\nlayer empty { source: s }\n')
+    const cmds = compileOptimized(
+      'source s { type: geojson, url: "x.geojson" }\nlayer empty { source: s }\n',
+    )
     expect(cmds.shows.some((s) => s.layerName === 'empty')).toBe(false)
   })
 })

@@ -11,7 +11,8 @@ import * as fs from 'node:fs'
 async function waitForXgisReady(page: Page) {
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
 }
 
@@ -23,7 +24,8 @@ async function snap(page: Page, name: string) {
 async function dumpCatalogs(page: Page, label: string) {
   const state = await page.evaluate(() => {
     type Cat = { maxLevel: number; getCacheSize(): number; getPendingLoadCount(): number }
-    const m = (window as unknown as { __xgisMap?: { vtSources?: Map<string, { source: Cat }> } }).__xgisMap
+    const m = (window as unknown as { __xgisMap?: { vtSources?: Map<string, { source: Cat }> } })
+      .__xgisMap
     if (!m?.vtSources) return null
     const out: Record<string, { cache: number; pending: number; max: number }> = {}
     for (const [name, e] of m.vtSources.entries()) {
@@ -42,7 +44,9 @@ test('layered z=3 over Pacific — capture artefact', async ({ page }) => {
   test.setTimeout(60_000)
   await page.setViewportSize({ width: 1280, height: 720 })
   const logs: string[] = []
-  page.on('console', m => { logs.push(m.text()) })
+  page.on('console', (m) => {
+    logs.push(m.text())
+  })
 
   await page.goto('/demo.html?id=pmtiles_layered#3/40/-150', { waitUntil: 'domcontentloaded' })
   await waitForXgisReady(page)

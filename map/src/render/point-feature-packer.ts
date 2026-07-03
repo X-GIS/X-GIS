@@ -71,11 +71,18 @@ export function mercXForCopy(mxHi: number, mxLo: number, wo: number): [number, n
  * re-split via {@link mercXForCopy}.
  */
 export interface TilePointLike {
-  readonly exH: number; readonly eyH: number; readonly ezH: number
-  readonly exL: number; readonly eyL: number; readonly ezL: number
-  readonly absLon: number; readonly absLat: number
-  readonly mxH: number; readonly mxL: number
-  readonly myH: number; readonly myL: number
+  readonly exH: number
+  readonly eyH: number
+  readonly ezH: number
+  readonly exL: number
+  readonly eyL: number
+  readonly ezL: number
+  readonly absLon: number
+  readonly absLat: number
+  readonly mxH: number
+  readonly mxL: number
+  readonly myH: number
+  readonly myL: number
 }
 
 /**
@@ -176,23 +183,34 @@ export function packPointInstances(input: PackPointInput, out: PackPointOutput):
         const lat = lats[i]
         // ECEF DSFUN: absolute ECEF with hi/lo split around origin.
         const ecef = lonLatToECEF(lon, lat)
-        const exH = Math.fround(ecef[0]); const exL = ecef[0] - exH
-        const eyH = Math.fround(ecef[1]); const eyL = ecef[1] - eyH
-        const ezH = Math.fround(ecef[2]); const ezL = ecef[2] - ezH
+        const exH = Math.fround(ecef[0])
+        const exL = ecef[0] - exH
+        const eyH = Math.fround(ecef[1])
+        const eyL = ecef[1] - eyH
+        const ezH = Math.fround(ecef[2])
+        const ezL = ecef[2] - ezH
         const dstOff = (basePoint + i) * S
-        feat[dstOff + F.ecef_x_h] = exH; feat[dstOff + F.ecef_y_h] = eyH; feat[dstOff + F.ecef_z_h] = ezH
-        feat[dstOff + F.ecef_x_l] = exL; feat[dstOff + F.ecef_y_l] = eyL; feat[dstOff + F.ecef_z_l] = ezL
-        feat[dstOff + F.abs_lon] = lon; feat[dstOff + F.abs_lat] = lat
+        feat[dstOff + F.ecef_x_h] = exH
+        feat[dstOff + F.ecef_y_h] = eyH
+        feat[dstOff + F.ecef_z_h] = ezH
+        feat[dstOff + F.ecef_x_l] = exL
+        feat[dstOff + F.ecef_y_l] = eyL
+        feat[dstOff + F.ecef_z_l] = ezL
+        feat[dstOff + F.abs_lon] = lon
+        feat[dstOff + F.abs_lat] = lat
         // Absolute Mercator DSFUN (20-23) — precise flat-Mercator position.
         // For world copies (projType 0) apply a per-copy longitude offset of
         // wo*360° in Mercator metres so the point appears in every visible
         // world repeat. ECEF/abs_lon above are copy-independent.
         const mx = worldCopyMercX(lon, wo)
         const myClamp = Math.max(-85.051129, Math.min(85.051129, lat))
-        const my = Math.log(Math.tan(Math.PI / 4 + myClamp * DEG2RAD / 2)) * R_MERC
-        const mxH = Math.fround(mx); const myH = Math.fround(my)
-        feat[dstOff + F.merc_x_h] = mxH; feat[dstOff + F.merc_x_l] = Math.fround(mx - mxH)
-        feat[dstOff + F.merc_y_h] = myH; feat[dstOff + F.merc_y_l] = Math.fround(my - myH)
+        const my = Math.log(Math.tan(Math.PI / 4 + (myClamp * DEG2RAD) / 2)) * R_MERC
+        const mxH = Math.fround(mx)
+        const myH = Math.fround(my)
+        feat[dstOff + F.merc_x_h] = mxH
+        feat[dstOff + F.merc_x_l] = Math.fround(mx - mxH)
+        feat[dstOff + F.merc_y_h] = myH
+        feat[dstOff + F.merc_y_l] = Math.fround(my - myH)
       }
     }
   } else {
@@ -204,13 +222,20 @@ export function packPointInstances(input: PackPointInput, out: PackPointOutput):
         const pt = pts[i]
         const dstOff = (basePoint + i) * S
         // ECEF DSFUN + abs lon/lat are copy-independent — passed through as-is.
-        feat[dstOff + F.ecef_x_h] = pt.exH; feat[dstOff + F.ecef_y_h] = pt.eyH; feat[dstOff + F.ecef_z_h] = pt.ezH
-        feat[dstOff + F.ecef_x_l] = pt.exL; feat[dstOff + F.ecef_y_l] = pt.eyL; feat[dstOff + F.ecef_z_l] = pt.ezL
-        feat[dstOff + F.abs_lon] = pt.absLon; feat[dstOff + F.abs_lat] = pt.absLat
+        feat[dstOff + F.ecef_x_h] = pt.exH
+        feat[dstOff + F.ecef_y_h] = pt.eyH
+        feat[dstOff + F.ecef_z_h] = pt.ezH
+        feat[dstOff + F.ecef_x_l] = pt.exL
+        feat[dstOff + F.ecef_y_l] = pt.eyL
+        feat[dstOff + F.ecef_z_l] = pt.ezL
+        feat[dstOff + F.abs_lon] = pt.absLon
+        feat[dstOff + F.abs_lat] = pt.absLat
         // Only Mercator-x shifts per world copy; Mercator-y is copy-independent.
         const [mxH, mxL] = mercXForCopy(pt.mxH, pt.mxL, wo)
-        feat[dstOff + F.merc_x_h] = mxH; feat[dstOff + F.merc_x_l] = mxL
-        feat[dstOff + F.merc_y_h] = pt.myH; feat[dstOff + F.merc_y_l] = pt.myL
+        feat[dstOff + F.merc_x_h] = mxH
+        feat[dstOff + F.merc_x_l] = mxL
+        feat[dstOff + F.merc_y_h] = pt.myH
+        feat[dstOff + F.merc_y_l] = pt.myL
       }
     }
   }
@@ -244,8 +269,12 @@ export function packPointInstances(input: PackPointInput, out: PackPointOutput):
         // Feature-order indices for opaque layers.
         const iBase = globalIdx * 6
         const vIdx = globalIdx * 4
-        idx[iBase] = vIdx; idx[iBase + 1] = vIdx + 1; idx[iBase + 2] = vIdx + 2
-        idx[iBase + 3] = vIdx; idx[iBase + 4] = vIdx + 2; idx[iBase + 5] = vIdx + 3
+        idx[iBase] = vIdx
+        idx[iBase + 1] = vIdx + 1
+        idx[iBase + 2] = vIdx + 2
+        idx[iBase + 3] = vIdx
+        idx[iBase + 4] = vIdx + 2
+        idx[iBase + 5] = vIdx + 3
       }
     }
   }
@@ -259,8 +288,12 @@ export function packPointInstances(input: PackPointInput, out: PackPointOutput):
       const globalIdx = arr[p]
       const iBase = p * 6
       const vIdx = globalIdx * 4
-      idx[iBase] = vIdx; idx[iBase + 1] = vIdx + 1; idx[iBase + 2] = vIdx + 2
-      idx[iBase + 3] = vIdx; idx[iBase + 4] = vIdx + 2; idx[iBase + 5] = vIdx + 3
+      idx[iBase] = vIdx
+      idx[iBase + 1] = vIdx + 1
+      idx[iBase + 2] = vIdx + 2
+      idx[iBase + 3] = vIdx
+      idx[iBase + 4] = vIdx + 2
+      idx[iBase + 5] = vIdx + 3
     }
   }
 

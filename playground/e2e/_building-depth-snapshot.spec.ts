@@ -33,17 +33,24 @@ const SCENES: Array<{ slug: string; url: string }> = [
 interface Snapshot {
   camera: { lon: number; lat: number; zoom: number; bearing: number; pitch: number }
   viewport: { width: number; height: number }
-  sources: Record<string, {
-    gpuCacheCount: number
-    pendingFetch: number
-    pendingUpload: number
-    tiles: Array<{ z: number; x: number; y: number }>
-  }>
+  sources: Record<
+    string,
+    {
+      gpuCacheCount: number
+      pendingFetch: number
+      pendingUpload: number
+      tiles: Array<{ z: number; x: number; y: number }>
+    }
+  >
   renderOrder: Array<{
-    seq: number; slice: string; phase: string; extrude: string;
-    tileKey?: number; isFill?: boolean;
-    pipelineRoute?: 'oit' | 'extrude' | 'fill' | 'skip';
-    hasZBuffer?: boolean;
+    seq: number
+    slice: string
+    phase: string
+    extrude: string
+    tileKey?: number
+    isFill?: boolean
+    pipelineRoute?: 'oit' | 'extrude' | 'fill' | 'skip'
+    hasZBuffer?: boolean
   }>
   pixelHash: string
   pixelHashBy: 'subtle' | 'fnv'
@@ -57,7 +64,8 @@ test.describe('3D building depth-sort: scene snapshot', () => {
       await page.goto(scn.url, { waitUntil: 'domcontentloaded' })
       await page.waitForFunction(
         () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-        null, { timeout: 30_000 },
+        null,
+        { timeout: 30_000 },
       )
       // Settle: tile fetch + decode + upload + first render.
       await page.waitForTimeout(5_000)
@@ -76,13 +84,15 @@ test.describe('3D building depth-sort: scene snapshot', () => {
       // events. 2 frames @ 60 fps + a margin.
       await page.waitForTimeout(50)
 
-      const snap = await page.evaluate(async () => {
-        const fn = (window as unknown as {
-          __xgisSnapshot?: () => Promise<unknown>
-        }).__xgisSnapshot
+      const snap = (await page.evaluate(async () => {
+        const fn = (
+          window as unknown as {
+            __xgisSnapshot?: () => Promise<unknown>
+          }
+        ).__xgisSnapshot
         if (!fn) return { error: 'snapshot not exposed' }
         return await fn()
-      }) as Snapshot | { error: string }
+      })) as Snapshot | { error: string }
 
       if ('error' in snap) {
         throw new Error(`snapshot failed: ${snap.error}`)
@@ -90,7 +100,7 @@ test.describe('3D building depth-sort: scene snapshot', () => {
 
       // Distil: which pipelines ran per tile? Detects the audit's
       // suspect routings.
-      const fillEvents = snap.renderOrder.filter(e => e.isFill === true)
+      const fillEvents = snap.renderOrder.filter((e) => e.isFill === true)
       const byRoute = new Map<string, number>()
       const byExtrude = new Map<string, number>()
       const tilesWithoutZBuffer: number[] = []
@@ -107,7 +117,9 @@ test.describe('3D building depth-sort: scene snapshot', () => {
       // eslint-disable-next-line no-console
       console.log(`\n[building-snapshot ${scn.slug}]`)
       // eslint-disable-next-line no-console
-      console.log(`  camera: lon=${snap.camera.lon.toFixed(4)} lat=${snap.camera.lat.toFixed(4)} z=${snap.camera.zoom.toFixed(2)} pitch=${snap.camera.pitch.toFixed(1)}°`)
+      console.log(
+        `  camera: lon=${snap.camera.lon.toFixed(4)} lat=${snap.camera.lat.toFixed(4)} z=${snap.camera.zoom.toFixed(2)} pitch=${snap.camera.pitch.toFixed(1)}°`,
+      )
       // eslint-disable-next-line no-console
       console.log(`  pixelHash: ${snap.pixelHash.slice(0, 16)}... (${snap.pixelHashBy})`)
       // eslint-disable-next-line no-console
@@ -115,14 +127,20 @@ test.describe('3D building depth-sort: scene snapshot', () => {
       // eslint-disable-next-line no-console
       console.log(`    by route: ${[...byRoute.entries()].map(([k, v]) => `${k}=${v}`).join(', ')}`)
       // eslint-disable-next-line no-console
-      console.log(`    by extrude+route: ${[...byExtrude.entries()].map(([k, v]) => `${k}=${v}`).join(', ')}`)
+      console.log(
+        `    by extrude+route: ${[...byExtrude.entries()].map(([k, v]) => `${k}=${v}`).join(', ')}`,
+      )
       if (tilesWithoutZBuffer.length > 0) {
         // eslint-disable-next-line no-console
-        console.log(`  ⚠ ${tilesWithoutZBuffer.length} feature-extrude tiles WITHOUT zBuffer (fell back to fillPipeline)`)
+        console.log(
+          `  ⚠ ${tilesWithoutZBuffer.length} feature-extrude tiles WITHOUT zBuffer (fell back to fillPipeline)`,
+        )
       }
       for (const [name, src] of Object.entries(snap.sources)) {
         // eslint-disable-next-line no-console
-        console.log(`  source[${name}]: gpu=${src.gpuCacheCount}, pendingFetch=${src.pendingFetch}, pendingUpload=${src.pendingUpload}, tiles=${src.tiles.length}`)
+        console.log(
+          `  source[${name}]: gpu=${src.gpuCacheCount}, pendingFetch=${src.pendingFetch}, pendingUpload=${src.pendingUpload}, tiles=${src.tiles.length}`,
+        )
       }
 
       // Save screenshot alongside the snapshot for visual review.
@@ -138,20 +156,25 @@ test.describe('3D building depth-sort: scene snapshot', () => {
   test('determinism: same camera, two snapshots, identical hash', async ({ page }) => {
     test.setTimeout(60_000)
     await page.setViewportSize({ width: 1280, height: 720 })
-    await page.goto('/demo.html?id=osm_style#15.5/40.7508/-73.9851/0/60', { waitUntil: 'domcontentloaded' })
+    await page.goto('/demo.html?id=osm_style#15.5/40.7508/-73.9851/0/60', {
+      waitUntil: 'domcontentloaded',
+    })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 30_000 },
+      null,
+      { timeout: 30_000 },
     )
     await page.waitForTimeout(8_000) // long settle so all tiles arrive
 
     const grab = async (): Promise<{ pixelHash: string; tileCount: number }> => {
-      const s = await page.evaluate(async () => {
-        const fn = (window as unknown as {
-          __xgisSnapshot?: () => Promise<unknown>
-        }).__xgisSnapshot
+      const s = (await page.evaluate(async () => {
+        const fn = (
+          window as unknown as {
+            __xgisSnapshot?: () => Promise<unknown>
+          }
+        ).__xgisSnapshot
         return fn ? await fn() : null
-      }) as Snapshot | null
+      })) as Snapshot | null
       if (!s) throw new Error('no snapshot')
       const tileCount = Object.values(s.sources).reduce((acc, src) => acc + src.tiles.length, 0)
       return { pixelHash: s.pixelHash, tileCount }
@@ -164,7 +187,9 @@ test.describe('3D building depth-sort: scene snapshot', () => {
     const b = await grab()
 
     // eslint-disable-next-line no-console
-    console.log(`[determinism] a.hash=${a.pixelHash.slice(0, 16)} b.hash=${b.pixelHash.slice(0, 16)}`)
+    console.log(
+      `[determinism] a.hash=${a.pixelHash.slice(0, 16)} b.hash=${b.pixelHash.slice(0, 16)}`,
+    )
     // eslint-disable-next-line no-console
     console.log(`[determinism] a.tiles=${a.tileCount}, b.tiles=${b.tileCount}`)
     // Same tile count is the bare-minimum determinism check (cache

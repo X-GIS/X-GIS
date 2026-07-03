@@ -67,7 +67,11 @@ export const sizeZoomBindingHandler: BindingHandler = {
       if (zoomStops.base !== 1) ctx.acc.sizeZoomStopsBase = zoomStops.base
       return true
     }
-    ctx.acc.size = { kind: 'data-driven', expr: { ast: ctx.item.binding! }, unit: ctx.item.bindingUnit ?? null }
+    ctx.acc.size = {
+      kind: 'data-driven',
+      expr: { ast: ctx.item.binding! },
+      unit: ctx.item.bindingUnit ?? null,
+    }
     return true
   },
 }
@@ -78,7 +82,11 @@ export const fillTranslateXBindingHandler: BindingHandler = {
   apply: (ctx) => {
     const zoomStops = extractInterpolateZoomStops(ctx.item.binding!)
     if (!zoomStops) return false
-    ctx.acc.fillTranslateXShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }
+    ctx.acc.fillTranslateXShape = {
+      kind: 'zoom-interpolated',
+      stops: zoomStops.stops,
+      base: zoomStops.base,
+    }
     return true
   },
 }
@@ -87,7 +95,11 @@ export const fillTranslateYBindingHandler: BindingHandler = {
   apply: (ctx) => {
     const zoomStops = extractInterpolateZoomStops(ctx.item.binding!)
     if (!zoomStops) return false
-    ctx.acc.fillTranslateYShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }
+    ctx.acc.fillTranslateYShape = {
+      kind: 'zoom-interpolated',
+      stops: zoomStops.stops,
+      base: zoomStops.base,
+    }
     return true
   },
 }
@@ -96,7 +108,11 @@ export const circleTranslateXBindingHandler: BindingHandler = {
   apply: (ctx) => {
     const zoomStops = extractInterpolateZoomStops(ctx.item.binding!)
     if (!zoomStops) return false
-    ctx.acc.circleTranslateXShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }
+    ctx.acc.circleTranslateXShape = {
+      kind: 'zoom-interpolated',
+      stops: zoomStops.stops,
+      base: zoomStops.base,
+    }
     return true
   },
 }
@@ -105,7 +121,11 @@ export const circleTranslateYBindingHandler: BindingHandler = {
   apply: (ctx) => {
     const zoomStops = extractInterpolateZoomStops(ctx.item.binding!)
     if (!zoomStops) return false
-    ctx.acc.circleTranslateYShape = { kind: 'zoom-interpolated', stops: zoomStops.stops, base: zoomStops.base }
+    ctx.acc.circleTranslateYShape = {
+      kind: 'zoom-interpolated',
+      stops: zoomStops.stops,
+      base: zoomStops.base,
+    }
     return true
   },
 }
@@ -113,11 +133,17 @@ export const circleTranslateYBindingHandler: BindingHandler = {
 /** Binding-form fill-extrusion height/base (feature exprs). */
 export const fillExtrusionHeightBindingHandler: BindingHandler = {
   match: (ctx) => ctx.name === 'fill-extrusion-height',
-  apply: (ctx) => { ctx.acc.extrude = { kind: 'feature', expr: { ast: ctx.item.binding! }, fallback: 0 }; return true },
+  apply: (ctx) => {
+    ctx.acc.extrude = { kind: 'feature', expr: { ast: ctx.item.binding! }, fallback: 0 }
+    return true
+  },
 }
 export const fillExtrusionBaseBindingHandler: BindingHandler = {
   match: (ctx) => ctx.name === 'fill-extrusion-base',
-  apply: (ctx) => { ctx.acc.extrudeBase = { kind: 'feature', expr: { ast: ctx.item.binding! }, fallback: 0 }; return true },
+  apply: (ctx) => {
+    ctx.acc.extrudeBase = { kind: 'feature', expr: { ast: ctx.item.binding! }, fallback: 0 }
+    return true
+  },
 }
 
 /** Final binding-form fallthrough: numeric-const translate arms + the
@@ -132,35 +158,87 @@ export const bindingFallthroughHandler: BindingHandler = {
     const n = bindingAsConstantNumber(ctx.item.binding!)
     if (n !== null) {
       const a = ctx.acc
-      if (ctx.name === 'fill-translate-x') { a.fillTranslateX = n; return true }
-      if (ctx.name === 'fill-translate-y') { a.fillTranslateY = n; return true }
-      if (ctx.name === 'circle-translate-x') { a.circleTranslateX = n; return true }
-      if (ctx.name === 'circle-translate-y') { a.circleTranslateY = n; return true }
-      if (ctx.name === 'circle-blur') { a.circleBlur = n; return true }
-      if (ctx.name === 'stroke-translate-x') { a.strokeTranslateX = n; return true }
-      if (ctx.name === 'stroke-translate-y') { a.strokeTranslateY = n; return true }
+      if (ctx.name === 'fill-translate-x') {
+        a.fillTranslateX = n
+        return true
+      }
+      if (ctx.name === 'fill-translate-y') {
+        a.fillTranslateY = n
+        return true
+      }
+      if (ctx.name === 'circle-translate-x') {
+        a.circleTranslateX = n
+        return true
+      }
+      if (ctx.name === 'circle-translate-y') {
+        a.circleTranslateY = n
+        return true
+      }
+      if (ctx.name === 'circle-blur') {
+        a.circleBlur = n
+        return true
+      }
+      if (ctx.name === 'stroke-translate-x') {
+        a.strokeTranslateX = n
+        return true
+      }
+      if (ctx.name === 'stroke-translate-y') {
+        a.strokeTranslateY = n
+        return true
+      }
       // Raster colour adjustments allow negative values (hue-rotate /
       // saturation / contrast / brightness), so they reach the lexer in
       // bracket-binding form (`raster-contrast-[-0.5]`). Constant numbers
       // only — non-constant raster colour forms aren't plumbed.
-      if (ctx.name === 'raster-hue-rotate') { a.rasterHueRotate = n; return true }
-      if (ctx.name === 'raster-brightness-min') { a.rasterBrightnessMin = n; return true }
-      if (ctx.name === 'raster-brightness-max') { a.rasterBrightnessMax = n; return true }
-      if (ctx.name === 'raster-saturation') { a.rasterSaturation = n; return true }
-      if (ctx.name === 'raster-contrast') { a.rasterContrast = n; return true }
+      if (ctx.name === 'raster-hue-rotate') {
+        a.rasterHueRotate = n
+        return true
+      }
+      if (ctx.name === 'raster-brightness-min') {
+        a.rasterBrightnessMin = n
+        return true
+      }
+      if (ctx.name === 'raster-brightness-max') {
+        a.rasterBrightnessMax = n
+        return true
+      }
+      if (ctx.name === 'raster-saturation') {
+        a.rasterSaturation = n
+        return true
+      }
+      if (ctx.name === 'raster-contrast') {
+        a.rasterContrast = n
+        return true
+      }
       // Heatmap scalars in bracket-binding form: a bare number (the converter
       // emits the constant form as a utility; a `[N]` would only arise from a
       // negative literal, which heatmap props never are).
-      if (ctx.name === 'heatmap-radius') { a.heatmapRadius = n; return true }
-      if (ctx.name === 'heatmap-weight') { a.heatmapWeight = n; return true }
-      if (ctx.name === 'heatmap-intensity') { a.heatmapIntensity = n; return true }
-      if (ctx.name === 'heatmap-opacity') { a.heatmapOpacity = n; return true }
+      if (ctx.name === 'heatmap-radius') {
+        a.heatmapRadius = n
+        return true
+      }
+      if (ctx.name === 'heatmap-weight') {
+        a.heatmapWeight = n
+        return true
+      }
+      if (ctx.name === 'heatmap-intensity') {
+        a.heatmapIntensity = n
+        return true
+      }
+      if (ctx.name === 'heatmap-opacity') {
+        a.heatmapOpacity = n
+        return true
+      }
     }
     // Heatmap zoom-interp scalars: `heatmap-radius-[interpolate(zoom, …)]`.
     // Full per-zoom resolution isn't threaded; resolve to a representative
     // constant (the LAST stop value, the value at the deepest declared zoom)
     // so the layer still renders. Documented partial.
-    if (ctx.name === 'heatmap-radius' || ctx.name === 'heatmap-intensity' || ctx.name === 'heatmap-opacity') {
+    if (
+      ctx.name === 'heatmap-radius' ||
+      ctx.name === 'heatmap-intensity' ||
+      ctx.name === 'heatmap-opacity'
+    ) {
       const zs = extractInterpolateZoomStops(ctx.item.binding!)
       if (zs && zs.stops.length > 0) {
         const v = zs.stops[zs.stops.length - 1]!.value
@@ -210,7 +288,11 @@ export const translateConstUtilHandlers: BindingHandler[] = [
   },
   {
     match: (c) => c.name.startsWith('fill-translate-y-'),
-    apply: (c) => { const num = parseFloat(c.name.slice('fill-translate-y-'.length)); if (!isNaN(num)) c.acc.fillTranslateY = num; return true },
+    apply: (c) => {
+      const num = parseFloat(c.name.slice('fill-translate-y-'.length))
+      if (!isNaN(num)) c.acc.fillTranslateY = num
+      return true
+    },
   },
   {
     // Mapbox fill-translate-anchor=map → world-space anchor flag. The
@@ -218,22 +300,37 @@ export const translateConstUtilHandlers: BindingHandler[] = [
     // byte-identical default that emits nothing). Runtime rotates the
     // [dx,dy] offset by the map bearing at the per-tile bake.
     match: (c) => c.name === 'fill-translate-anchor-map',
-    apply: (c) => { c.acc.fillTranslateAnchorMap = true; return true },
+    apply: (c) => {
+      c.acc.fillTranslateAnchorMap = true
+      return true
+    },
   },
 ]
 
 export const circleTranslateConstUtilHandlers: BindingHandler[] = [
   {
     match: (c) => c.name.startsWith('circle-translate-x-'),
-    apply: (c) => { const num = parseFloat(c.name.slice('circle-translate-x-'.length)); if (!isNaN(num)) c.acc.circleTranslateX = num; return true },
+    apply: (c) => {
+      const num = parseFloat(c.name.slice('circle-translate-x-'.length))
+      if (!isNaN(num)) c.acc.circleTranslateX = num
+      return true
+    },
   },
   {
     match: (c) => c.name.startsWith('circle-translate-y-'),
-    apply: (c) => { const num = parseFloat(c.name.slice('circle-translate-y-'.length)); if (!isNaN(num)) c.acc.circleTranslateY = num; return true },
+    apply: (c) => {
+      const num = parseFloat(c.name.slice('circle-translate-y-'.length))
+      if (!isNaN(num)) c.acc.circleTranslateY = num
+      return true
+    },
   },
   {
     match: (c) => c.name.startsWith('circle-blur-'),
-    apply: (c) => { const num = parseFloat(c.name.slice('circle-blur-'.length)); if (!isNaN(num)) c.acc.circleBlur = num; return true },
+    apply: (c) => {
+      const num = parseFloat(c.name.slice('circle-blur-'.length))
+      if (!isNaN(num)) c.acc.circleBlur = num
+      return true
+    },
   },
   {
     // Mapbox circle-pitch-scale=map → perspective radius-scale flag. The
@@ -242,7 +339,10 @@ export const circleTranslateConstUtilHandlers: BindingHandler[] = [
     // circle's screen radius by camera_to_center / clip.w so circles
     // foreshorten with pitch/distance. Mirror of fill-translate-anchor-map.
     match: (c) => c.name === 'circle-pitch-scale-map',
-    apply: (c) => { c.acc.circlePitchScaleMap = true; return true },
+    apply: (c) => {
+      c.acc.circlePitchScaleMap = true
+      return true
+    },
   },
 ]
 
@@ -253,40 +353,70 @@ export const circleTranslateConstUtilHandlers: BindingHandler[] = [
 export const heatmapConstUtilHandlers: BindingHandler[] = [
   {
     match: (c) => c.name === 'heatmap',
-    apply: (c) => { c.acc.isHeatmap = true; return true },
+    apply: (c) => {
+      c.acc.isHeatmap = true
+      return true
+    },
   },
   {
     match: (c) => c.name.startsWith('heatmap-radius-'),
-    apply: (c) => { const n = parseFloat(c.name.slice('heatmap-radius-'.length)); if (!isNaN(n)) c.acc.heatmapRadius = n; return true },
+    apply: (c) => {
+      const n = parseFloat(c.name.slice('heatmap-radius-'.length))
+      if (!isNaN(n)) c.acc.heatmapRadius = n
+      return true
+    },
   },
   {
     match: (c) => c.name.startsWith('heatmap-weight-'),
-    apply: (c) => { const n = parseFloat(c.name.slice('heatmap-weight-'.length)); if (!isNaN(n)) c.acc.heatmapWeight = n; return true },
+    apply: (c) => {
+      const n = parseFloat(c.name.slice('heatmap-weight-'.length))
+      if (!isNaN(n)) c.acc.heatmapWeight = n
+      return true
+    },
   },
   {
     match: (c) => c.name.startsWith('heatmap-intensity-'),
-    apply: (c) => { const n = parseFloat(c.name.slice('heatmap-intensity-'.length)); if (!isNaN(n)) c.acc.heatmapIntensity = n; return true },
+    apply: (c) => {
+      const n = parseFloat(c.name.slice('heatmap-intensity-'.length))
+      if (!isNaN(n)) c.acc.heatmapIntensity = n
+      return true
+    },
   },
   {
     match: (c) => c.name.startsWith('heatmap-opacity-'),
-    apply: (c) => { const n = parseFloat(c.name.slice('heatmap-opacity-'.length)); if (!isNaN(n)) c.acc.heatmapOpacity = n; return true },
+    apply: (c) => {
+      const n = parseFloat(c.name.slice('heatmap-opacity-'.length))
+      if (!isNaN(n)) c.acc.heatmapOpacity = n
+      return true
+    },
   },
 ]
 
 export const strokeTranslateConstUtilHandlers: BindingHandler[] = [
   {
     match: (c) => c.name.startsWith('stroke-translate-x-'),
-    apply: (c) => { const num = parseFloat(c.name.slice('stroke-translate-x-'.length)); if (!isNaN(num)) c.acc.strokeTranslateX = num; return true },
+    apply: (c) => {
+      const num = parseFloat(c.name.slice('stroke-translate-x-'.length))
+      if (!isNaN(num)) c.acc.strokeTranslateX = num
+      return true
+    },
   },
   {
     match: (c) => c.name.startsWith('stroke-translate-y-'),
-    apply: (c) => { const num = parseFloat(c.name.slice('stroke-translate-y-'.length)); if (!isNaN(num)) c.acc.strokeTranslateY = num; return true },
+    apply: (c) => {
+      const num = parseFloat(c.name.slice('stroke-translate-y-'.length))
+      if (!isNaN(num)) c.acc.strokeTranslateY = num
+      return true
+    },
   },
   {
     // Mapbox line-translate-anchor=map → world-space anchor flag for
     // the line pipeline. Emitted by the converter only for anchor=map.
     match: (c) => c.name === 'stroke-translate-anchor-map',
-    apply: (c) => { c.acc.strokeTranslateAnchorMap = true; return true },
+    apply: (c) => {
+      c.acc.strokeTranslateAnchorMap = true
+      return true
+    },
   },
 ]
 
@@ -337,7 +467,7 @@ export const miscUtilHandlers: BindingHandler[] = [
       const unitMatch = sizeStr.match(/^([\d.]+)(px|m|km|nm|deg)?$/)
       if (unitMatch) {
         const num = parseFloat(unitMatch[1])
-        const unit = unitMatch[2] || null  // null = px default
+        const unit = unitMatch[2] || null // null = px default
         if (!isNaN(num)) c.acc.size = sizeConstant(num, unit)
       }
       return true
@@ -350,35 +480,100 @@ export const miscUtilHandlers: BindingHandler[] = [
   // flag is a bare boolean.
   {
     match: (c) => c.name.startsWith('raster-brightness-min-'),
-    apply: (c) => { const n = parseFloat(c.name.slice('raster-brightness-min-'.length)); if (!isNaN(n)) c.acc.rasterBrightnessMin = n; return true },
+    apply: (c) => {
+      const n = parseFloat(c.name.slice('raster-brightness-min-'.length))
+      if (!isNaN(n)) c.acc.rasterBrightnessMin = n
+      return true
+    },
   },
   {
     match: (c) => c.name.startsWith('raster-brightness-max-'),
-    apply: (c) => { const n = parseFloat(c.name.slice('raster-brightness-max-'.length)); if (!isNaN(n)) c.acc.rasterBrightnessMax = n; return true },
+    apply: (c) => {
+      const n = parseFloat(c.name.slice('raster-brightness-max-'.length))
+      if (!isNaN(n)) c.acc.rasterBrightnessMax = n
+      return true
+    },
   },
   {
     match: (c) => c.name.startsWith('raster-hue-rotate-'),
-    apply: (c) => { const n = parseFloat(c.name.slice('raster-hue-rotate-'.length)); if (!isNaN(n)) c.acc.rasterHueRotate = n; return true },
+    apply: (c) => {
+      const n = parseFloat(c.name.slice('raster-hue-rotate-'.length))
+      if (!isNaN(n)) c.acc.rasterHueRotate = n
+      return true
+    },
   },
   {
     match: (c) => c.name.startsWith('raster-saturation-'),
-    apply: (c) => { const n = parseFloat(c.name.slice('raster-saturation-'.length)); if (!isNaN(n)) c.acc.rasterSaturation = n; return true },
+    apply: (c) => {
+      const n = parseFloat(c.name.slice('raster-saturation-'.length))
+      if (!isNaN(n)) c.acc.rasterSaturation = n
+      return true
+    },
   },
   {
     match: (c) => c.name === 'raster-resampling-nearest',
-    apply: (c) => { c.acc.rasterResamplingNearest = true; return true },
+    apply: (c) => {
+      c.acc.rasterResamplingNearest = true
+      return true
+    },
   },
   {
     match: (c) => c.name.startsWith('raster-contrast-'),
-    apply: (c) => { const n = parseFloat(c.name.slice('raster-contrast-'.length)); if (!isNaN(n)) c.acc.rasterContrast = n; return true },
+    apply: (c) => {
+      const n = parseFloat(c.name.slice('raster-contrast-'.length))
+      if (!isNaN(n)) c.acc.rasterContrast = n
+      return true
+    },
   },
-  { match: (c) => c.name.startsWith('projection-'), apply: (c) => { c.acc.projection = c.name.slice(11); return true } },
-  { match: (c) => c.name === 'hidden', apply: (c) => { c.acc.visible = false; return true } },
-  { match: (c) => c.name === 'flat', apply: (c) => { c.acc.billboard = false; return true } },
-  { match: (c) => c.name === 'billboard', apply: (c) => { c.acc.billboard = true; return true } },
-  { match: (c) => c.name === 'anchor-center', apply: (c) => { c.acc.anchor = 'center'; return true } },
-  { match: (c) => c.name === 'anchor-bottom', apply: (c) => { c.acc.anchor = 'bottom'; return true } },
-  { match: (c) => c.name === 'anchor-top', apply: (c) => { c.acc.anchor = 'top'; return true } },
+  {
+    match: (c) => c.name.startsWith('projection-'),
+    apply: (c) => {
+      c.acc.projection = c.name.slice(11)
+      return true
+    },
+  },
+  {
+    match: (c) => c.name === 'hidden',
+    apply: (c) => {
+      c.acc.visible = false
+      return true
+    },
+  },
+  {
+    match: (c) => c.name === 'flat',
+    apply: (c) => {
+      c.acc.billboard = false
+      return true
+    },
+  },
+  {
+    match: (c) => c.name === 'billboard',
+    apply: (c) => {
+      c.acc.billboard = true
+      return true
+    },
+  },
+  {
+    match: (c) => c.name === 'anchor-center',
+    apply: (c) => {
+      c.acc.anchor = 'center'
+      return true
+    },
+  },
+  {
+    match: (c) => c.name === 'anchor-bottom',
+    apply: (c) => {
+      c.acc.anchor = 'bottom'
+      return true
+    },
+  },
+  {
+    match: (c) => c.name === 'anchor-top',
+    apply: (c) => {
+      c.acc.anchor = 'top'
+      return true
+    },
+  },
   {
     match: (c) => c.name.startsWith('shape-'),
     apply: (c) => {
@@ -391,9 +586,27 @@ export const miscUtilHandlers: BindingHandler[] = [
       return true
     },
   },
-  { match: (c) => c.name === 'visible', apply: (c) => { c.acc.visible = true; return true } },
-  { match: (c) => c.name === 'pointer-events-none', apply: (c) => { c.acc.pointerEvents = 'none'; return true } },
-  { match: (c) => c.name === 'pointer-events-auto', apply: (c) => { c.acc.pointerEvents = 'auto'; return true } },
+  {
+    match: (c) => c.name === 'visible',
+    apply: (c) => {
+      c.acc.visible = true
+      return true
+    },
+  },
+  {
+    match: (c) => c.name === 'pointer-events-none',
+    apply: (c) => {
+      c.acc.pointerEvents = 'none'
+      return true
+    },
+  },
+  {
+    match: (c) => c.name === 'pointer-events-auto',
+    apply: (c) => {
+      c.acc.pointerEvents = 'auto'
+      return true
+    },
+  },
   {
     match: (c) => c.name.startsWith('animation-'),
     apply: (c) => {

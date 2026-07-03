@@ -20,8 +20,11 @@ test.describe('osm_style high-pitch visual diag', () => {
     await page.goto('/demo.html?id=osm_style&e2e=1#15.78/37.53155/126.97068/348.1/85.0', {
       waitUntil: 'domcontentloaded',
     })
-    await page.waitForFunction(() => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 30_000 })
+    await page.waitForFunction(
+      () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
+      null,
+      { timeout: 30_000 },
+    )
     await page.waitForTimeout(20_000) // let tiles settle deeply
 
     await page.screenshot({ path: 'diag-1-baseline.png', fullPage: false })

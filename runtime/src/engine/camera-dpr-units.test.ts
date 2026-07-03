@@ -99,7 +99,10 @@ describe('camera API DPR unit-correctness (panBy / fitBounds / getBounds)', () =
 
   describe('fitBounds is DPR-invariant', () => {
     it('the resulting zoom at DPR=2 equals the DPR=1 zoom (not one level higher)', () => {
-      const bounds: [[number, number], [number, number]] = [[120, 30], [130, 40]]
+      const bounds: [[number, number], [number, number]] = [
+        [120, 30],
+        [130, 40],
+      ]
 
       const m1 = makeMap(1)
       m1.fitBounds(bounds)
@@ -114,7 +117,10 @@ describe('camera API DPR unit-correctness (panBy / fitBounds / getBounds)', () =
     })
 
     it('the requested bbox fits within the viewport after fitBounds (DPR=2)', () => {
-      const bounds: [[number, number], [number, number]] = [[120, 30], [130, 40]]
+      const bounds: [[number, number], [number, number]] = [
+        [120, 30],
+        [130, 40],
+      ]
       const requestedLonSpan = 130 - 120
 
       const m2 = makeMap(2)

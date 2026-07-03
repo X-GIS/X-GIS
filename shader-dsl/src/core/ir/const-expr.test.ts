@@ -27,8 +27,15 @@ describe('ConstDecl.valueExpr — non-scalar module constants', () => {
   })
 
   it('WGSL emits an array<vec4> const literal', () => {
-    const wgsl = emitModule(module({ consts: [palConst], funcs: [fn('p', {}, () => constRef('PAL', arrayT(vec4fT, 2)))] }))
-    expect(wgsl).toContain('const PAL: array<vec4<f32>, 2> = array<vec4<f32>, 2>(vec4<f32>(1.0, 0.0, 0.0, 1.0), vec4<f32>(0.0, 1.0, 0.0, 1.0));')
+    const wgsl = emitModule(
+      module({
+        consts: [palConst],
+        funcs: [fn('p', {}, () => constRef('PAL', arrayT(vec4fT, 2)))],
+      }),
+    )
+    expect(wgsl).toContain(
+      'const PAL: array<vec4<f32>, 2> = array<vec4<f32>, 2>(vec4<f32>(1.0, 0.0, 0.0, 1.0), vec4<f32>(0.0, 1.0, 0.0, 1.0));',
+    )
   })
 
   it('GLSL emits the vec4 const with GLSL spelling', () => {

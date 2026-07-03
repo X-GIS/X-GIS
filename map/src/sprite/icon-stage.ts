@@ -74,16 +74,44 @@ export class IconStage {
    *  shield's box centre against its text label centre (the "라벨이랑
    *  흰색 박스가 안맞아요" class). Refreshed each prepare(); null when
    *  capture is disabled (default off — zero overhead). */
-  private _iconDump: { name: string; anchorX: number; anchorY: number; drawW: number; drawH: number; centerY: number }[] | null = null
-  setIconDumpEnabled(on: boolean): void { this._iconDump = on ? [] : null }
-  getDumpedIcons(): { name: string; anchorX: number; anchorY: number; drawW: number; drawH: number; centerY: number }[] | null { return this._iconDump }
+  private _iconDump:
+    | {
+        name: string
+        anchorX: number
+        anchorY: number
+        drawW: number
+        drawH: number
+        centerY: number
+      }[]
+    | null = null
+  setIconDumpEnabled(on: boolean): void {
+    this._iconDump = on ? [] : null
+  }
+  getDumpedIcons():
+    | {
+        name: string
+        anchorX: number
+        anchorY: number
+        drawW: number
+        drawH: number
+        centerY: number
+      }[]
+    | null {
+    return this._iconDump
+  }
   /** iter-301 — per-icon dispatch debug hook. Symmetric to
    *  TextStage's `setLabelDebugHook` so a test harness can collect
    *  paired-symbol (icon + text) anchor coordinates and assert
    *  alignment per pairKey. Hook fires once per addIcon submission
    *  BEFORE the prepare() pass + sprite resolution; null = no hook. */
-  private _iconDebugHook: ((iconName: string, anchorX: number, anchorY: number, pairKey: string | undefined) => void) | null = null
-  setIconDebugHook(hook: ((iconName: string, anchorX: number, anchorY: number, pairKey: string | undefined) => void) | null): void {
+  private _iconDebugHook:
+    | ((iconName: string, anchorX: number, anchorY: number, pairKey: string | undefined) => void)
+    | null = null
+  setIconDebugHook(
+    hook:
+      | ((iconName: string, anchorX: number, anchorY: number, pairKey: string | undefined) => void)
+      | null,
+  ): void {
     this._iconDebugHook = hook
   }
 
@@ -104,20 +132,34 @@ export class IconStage {
     this.renderer = new IconRenderer(device, rhi, this.gpu, presentationFormat, sampleCount)
   }
 
-  setDpr(dpr: number): void { this.dpr = dpr > 0 ? dpr : 1 }
+  setDpr(dpr: number): void {
+    this.dpr = dpr > 0 ? dpr : 1
+  }
 
   /** Submit one icon for the current frame. `anchorX/Y` are in
    *  physical px (engine-side projected). `iconName` keys into the
    *  sprite atlas — unknown names are dropped silently in prepare(). */
   addIcon(
-    anchorX: number, anchorY: number, iconName: string,
-    opts: { sizeScale?: number; rotateRad?: number; anchor?: IconAnchor; opacity?: number; tint?: [number, number, number]; pairKey?: string; collide?: boolean } = {},
+    anchorX: number,
+    anchorY: number,
+    iconName: string,
+    opts: {
+      sizeScale?: number
+      rotateRad?: number
+      anchor?: IconAnchor
+      opacity?: number
+      tint?: [number, number, number]
+      pairKey?: string
+      collide?: boolean
+    } = {},
   ): void {
     if (this._iconDebugHook) {
       this._iconDebugHook(iconName, anchorX, anchorY, opts.pairKey)
     }
     this.pending.push({
-      anchorX, anchorY, iconName,
+      anchorX,
+      anchorY,
+      iconName,
       sizeScale: opts.sizeScale ?? 1,
       rotateRad: opts.rotateRad ?? 0,
       anchor: opts.anchor ?? 'center',
@@ -186,19 +228,26 @@ export class IconStage {
       if (p.collide) {
         const cdW = (sprite.width / sprite.pixelRatio) * sizeScale
         const cdH = (sprite.height / sprite.pixelRatio) * sizeScale
-        const pad = 2 * this.dpr  // Mapbox icon-padding default
-        const minX = p.anchorX - cdW / 2 - pad, maxX = p.anchorX + cdW / 2 + pad
-        const minY = p.anchorY - cdH / 2 - pad, maxY = p.anchorY + cdH / 2 + pad
+        const pad = 2 * this.dpr // Mapbox icon-padding default
+        const minX = p.anchorX - cdW / 2 - pad,
+          maxX = p.anchorX + cdW / 2 + pad
+        const minY = p.anchorY - cdH / 2 - pad,
+          maxY = p.anchorY + cdH / 2 + pad
         let overlaps = false
         for (const b of placedBoxes) {
-          if (minX < b.maxX && maxX > b.minX && minY < b.maxY && maxY > b.minY) { overlaps = true; break }
+          if (minX < b.maxX && maxX > b.minX && minY < b.maxY && maxY > b.minY) {
+            overlaps = true
+            break
+          }
         }
         if (overlaps) continue
         placedBoxes.push({ minX, minY, maxX, maxY })
       }
       draws.push({
-        anchorX: p.anchorX, anchorY: p.anchorY,
-        sprite, sizeScale,
+        anchorX: p.anchorX,
+        anchorY: p.anchorY,
+        sprite,
+        sizeScale,
         rotateRad: p.rotateRad,
         anchor: p.anchor,
         opacity: p.opacity,
@@ -211,10 +260,20 @@ export class IconStage {
         // vertical centre of the rendered box relative to nothing — the
         // SAME geometry icon-renderer uses (anchorOffset). center/left/
         // right centre on anchorY; top* below; bottom* above.
-        const cy = a === 'top' || a === 'top-left' || a === 'top-right' ? p.anchorY + drawH / 2
-          : a === 'bottom' || a === 'bottom-left' || a === 'bottom-right' ? p.anchorY - drawH / 2
-          : p.anchorY
-        this._iconDump.push({ name: p.iconName, anchorX: p.anchorX, anchorY: p.anchorY, drawW, drawH, centerY: cy })
+        const cy =
+          a === 'top' || a === 'top-left' || a === 'top-right'
+            ? p.anchorY + drawH / 2
+            : a === 'bottom' || a === 'bottom-left' || a === 'bottom-right'
+              ? p.anchorY - drawH / 2
+              : p.anchorY
+        this._iconDump.push({
+          name: p.iconName,
+          anchorX: p.anchorX,
+          anchorY: p.anchorY,
+          drawW,
+          drawH,
+          centerY: cy,
+        })
       }
     }
     this.renderer.setDraws(draws)
@@ -252,7 +311,10 @@ export class IconStage {
   computeObstacles(
     activeTextPairKeys: ReadonlySet<string> = new Set(),
   ): { bbox: { minX: number; minY: number; maxX: number; maxY: number }; groupKey?: string }[] {
-    const out: { bbox: { minX: number; minY: number; maxX: number; maxY: number }; groupKey?: string }[] = []
+    const out: {
+      bbox: { minX: number; minY: number; maxX: number; maxY: number }
+      groupKey?: string
+    }[] = []
     for (const p of this.pending) {
       if (!p.collide) continue
       // Skip icons whose paired text is live in the collision pass — that
@@ -264,14 +326,25 @@ export class IconStage {
       const drawW = (sprite.width / sprite.pixelRatio) * sizeScale
       const drawH = (sprite.height / sprite.pixelRatio) * sizeScale
       const a = p.anchor ?? 'center'
-      const cx = a === 'left' || a === 'top-left' || a === 'bottom-left' ? p.anchorX + drawW / 2
-        : a === 'right' || a === 'top-right' || a === 'bottom-right' ? p.anchorX - drawW / 2
-        : p.anchorX
-      const cy = a === 'top' || a === 'top-left' || a === 'top-right' ? p.anchorY + drawH / 2
-        : a === 'bottom' || a === 'bottom-left' || a === 'bottom-right' ? p.anchorY - drawH / 2
-        : p.anchorY
+      const cx =
+        a === 'left' || a === 'top-left' || a === 'bottom-left'
+          ? p.anchorX + drawW / 2
+          : a === 'right' || a === 'top-right' || a === 'bottom-right'
+            ? p.anchorX - drawW / 2
+            : p.anchorX
+      const cy =
+        a === 'top' || a === 'top-left' || a === 'top-right'
+          ? p.anchorY + drawH / 2
+          : a === 'bottom' || a === 'bottom-left' || a === 'bottom-right'
+            ? p.anchorY - drawH / 2
+            : p.anchorY
       out.push({
-        bbox: { minX: cx - drawW / 2, minY: cy - drawH / 2, maxX: cx + drawW / 2, maxY: cy + drawH / 2 },
+        bbox: {
+          minX: cx - drawW / 2,
+          minY: cy - drawH / 2,
+          maxX: cx + drawW / 2,
+          maxY: cy + drawH / 2,
+        },
         groupKey: p.pairKey,
       })
     }
@@ -301,27 +374,39 @@ export class IconStage {
    *  state (loaded OR failed). Useful for callers who want to suppress
    *  the first frame until icons are available. Failure does NOT
    *  reject — caller probes `host.getState()` if it wants to know. */
-  whenReady(): Promise<void> { return this.host.whenReady() }
+  whenReady(): Promise<void> {
+    return this.host.whenReady()
+  }
 
   /** Look up sprite metadata directly — exposed for collision /
    *  text-icon-fit code paths that need an icon's design size before
    *  the draw is queued. */
-  getSprite(name: string): SpriteInfo | undefined { return this.host.get(name) }
+  getSprite(name: string): SpriteInfo | undefined {
+    return this.host.get(name)
+  }
 
   /** Diagnostic: every icon name the style referenced that the atlas
    *  didn't have AFTER it loaded. Useful for pinpointing sprite-
    *  atlas mismatches (style says `school`; atlas has `school_11`).
    *  Returns a fresh array so the caller can hold onto it across
    *  frame boundaries. */
-  getMissingIconNames(): string[] { return [...this.missingIconNames].sort() }
+  getMissingIconNames(): string[] {
+    return [...this.missingIconNames].sort()
+  }
 
   /** Reset the missing-icon diagnostic (tests that drive the stage
    *  through multiple atlas-load cycles). */
-  clearMissingIconNames(): void { this.missingIconNames.clear() }
+  clearMissingIconNames(): void {
+    this.missingIconNames.clear()
+  }
 
   /** Iter 532 sibling — icon names successfully dispatched. */
-  getDispatchedIconNames(): string[] { return [...this.dispatchedIconNames].sort() }
-  clearDispatchedIconNames(): void { this.dispatchedIconNames.clear() }
+  getDispatchedIconNames(): string[] {
+    return [...this.dispatchedIconNames].sort()
+  }
+  clearDispatchedIconNames(): void {
+    this.dispatchedIconNames.clear()
+  }
 
   /** Iter 533 sibling — last frame's actual GPU-submitted icon count.
    *  `getDispatchedIconNames()` is cumulative across all frames and
@@ -330,7 +415,9 @@ export class IconStage {
    *  `prepare()`. Zero here despite a non-empty dispatched set means
    *  "shields rendered earlier; the screenshot frame had no pending
    *  addIcons" — likely a tile-cache / feature-iteration race. */
-  getLastDrawIconCount(): number { return this.renderer.vertexCount / 6 }
+  getLastDrawIconCount(): number {
+    return this.renderer.vertexCount / 6
+  }
 
   /** Iter 534 — first vertex of the most recent setDraws (pos_px_xy,
    *  uv, opacity) + last-known atlas dimensions. Lets the diagnostic

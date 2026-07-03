@@ -29,7 +29,11 @@ describe('reprojectFeatureCollection', () => {
     const fc: GeoJSONFeatureCollection = {
       type: 'FeatureCollection',
       features: [
-        { type: 'Feature', geometry: { type: 'Point', coordinates: M5179.slice() }, properties: {} },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: M5179.slice() },
+          properties: {},
+        },
         {
           type: 'Feature',
           geometry: { type: 'LineString', coordinates: [M5179.slice(), M5179.slice()] },
@@ -37,7 +41,10 @@ describe('reprojectFeatureCollection', () => {
         },
         {
           type: 'Feature',
-          geometry: { type: 'Polygon', coordinates: [[M5179.slice(), M5179.slice(), M5179.slice(), M5179.slice()]] },
+          geometry: {
+            type: 'Polygon',
+            coordinates: [[M5179.slice(), M5179.slice(), M5179.slice(), M5179.slice()]],
+          },
           properties: {},
         },
       ],
@@ -67,7 +74,13 @@ describe('reprojectFeatureCollection', () => {
   it('accepts bare-numeric and "5179" CRS spellings', () => {
     const fc: GeoJSONFeatureCollection = {
       type: 'FeatureCollection',
-      features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: M5179.slice() }, properties: {} }],
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: M5179.slice() },
+          properties: {},
+        },
+      ],
     }
     for (const crs of ['5179', 5179] as const) {
       const out = reprojectFeatureCollection(fc, crs)
@@ -81,7 +94,11 @@ describe('reprojectFeatureCollection', () => {
     const fc: GeoJSONFeatureCollection = {
       type: 'FeatureCollection',
       features: [
-        { type: 'Feature', geometry: { type: 'MultiPoint', coordinates: [M5179.slice()] }, properties: {} },
+        {
+          type: 'Feature',
+          geometry: { type: 'MultiPoint', coordinates: [M5179.slice()] },
+          properties: {},
+        },
         {
           type: 'Feature',
           geometry: { type: 'MultiLineString', coordinates: [[M5179.slice(), M5179.slice()]] },
@@ -89,7 +106,10 @@ describe('reprojectFeatureCollection', () => {
         },
         {
           type: 'Feature',
-          geometry: { type: 'MultiPolygon', coordinates: [[[M5179.slice(), M5179.slice(), M5179.slice()]]] },
+          geometry: {
+            type: 'MultiPolygon',
+            coordinates: [[[M5179.slice(), M5179.slice(), M5179.slice()]]],
+          },
           properties: {},
         },
         {
@@ -124,14 +144,23 @@ describe('reprojectFeatureCollection', () => {
     check(mls.coordinates)
     const mpoly = out.features[2]!.geometry as { coordinates: unknown }
     check(mpoly.coordinates)
-    const gc = out.features[3]!.geometry as { type: 'GeometryCollection'; geometries: { coordinates: unknown }[] }
+    const gc = out.features[3]!.geometry as {
+      type: 'GeometryCollection'
+      geometries: { coordinates: unknown }[]
+    }
     for (const g of gc.geometries) check(g.coordinates)
   })
 
   it('is a no-op for EPSG:4326 (returns the same reference)', () => {
     const fc: GeoJSONFeatureCollection = {
       type: 'FeatureCollection',
-      features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [126.9784, 37.5665] }, properties: {} }],
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [126.9784, 37.5665] },
+          properties: {},
+        },
+      ],
     }
     for (const crs of ['EPSG:4326', '4326', 4326, 'epsg:4326'] as const) {
       expect(reprojectFeatureCollection(fc, crs)).toBe(fc)
@@ -141,7 +170,9 @@ describe('reprojectFeatureCollection', () => {
   it('throws on an unregistered EPSG code', () => {
     const fc: GeoJSONFeatureCollection = {
       type: 'FeatureCollection',
-      features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: {} }],
+      features: [
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: {} },
+      ],
     }
     expect(() => reprojectFeatureCollection(fc, 'EPSG:9999')).toThrow(/Unsupported EPSG/)
     expect(() => reprojectFeatureCollection(fc, 'not-an-epsg')).toThrow(/Invalid EPSG/)
@@ -151,7 +182,13 @@ describe('reprojectFeatureCollection', () => {
     const original = M5179.slice()
     const fc: GeoJSONFeatureCollection = {
       type: 'FeatureCollection',
-      features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: original }, properties: { name: 'x' } }],
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: original },
+          properties: { name: 'x' },
+        },
+      ],
     }
     const out = reprojectFeatureCollection(fc, 'EPSG:5179')
 
@@ -169,7 +206,9 @@ describe('reprojectFeatureCollection', () => {
     const xy = [1000000, 2000000] // 5179 false-origin ⇒ lon_0=127.5, lat_0=38
     const fc: GeoJSONFeatureCollection = {
       type: 'FeatureCollection',
-      features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: xy.slice() }, properties: {} }],
+      features: [
+        { type: 'Feature', geometry: { type: 'Point', coordinates: xy.slice() }, properties: {} },
+      ],
     }
     const out = reprojectFeatureCollection(fc, 'EPSG:5179')
     const expected = proj4('EPSG:5179', 'EPSG:4326', xy.slice())

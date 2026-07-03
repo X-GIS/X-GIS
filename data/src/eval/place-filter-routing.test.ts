@@ -61,7 +61,10 @@ layer label_city_capital {
 }
 `
 
-interface ShowLike { targetName: string; filterExpr: { ast: unknown } | null }
+interface ShowLike {
+  targetName: string
+  filterExpr: { ast: unknown } | null
+}
 
 function buildShows(): ShowLike[] {
   const tokens = new Lexer(OFM_BRIGHT_PLACE_SUBSET_XGIS).tokenize()
@@ -76,25 +79,33 @@ describe('OFM Bright place filter routing — should match exactly ONE show per 
 
   it('Seoul (class=city, capital=2) matches exactly one show', () => {
     const seoul = { class: 'city', capital: 2, name: 'Seoul' }
-    const matched = shows.filter(s => s.filterExpr ? evalFilterExpr(s.filterExpr.ast, seoul) : true)
+    const matched = shows.filter((s) =>
+      s.filterExpr ? evalFilterExpr(s.filterExpr.ast, seoul) : true,
+    )
     expect(matched.length).toBe(1)
   })
 
   it('Busan (class=city, capital≠2) matches exactly one show', () => {
     const busan = { class: 'city', capital: 0, name: 'Busan' }
-    const matched = shows.filter(s => s.filterExpr ? evalFilterExpr(s.filterExpr.ast, busan) : true)
+    const matched = shows.filter((s) =>
+      s.filterExpr ? evalFilterExpr(s.filterExpr.ast, busan) : true,
+    )
     expect(matched.length).toBe(1)
   })
 
   it('A town (class=town) matches exactly one show', () => {
     const town = { class: 'town', name: 'X' }
-    const matched = shows.filter(s => s.filterExpr ? evalFilterExpr(s.filterExpr.ast, town) : true)
+    const matched = shows.filter((s) =>
+      s.filterExpr ? evalFilterExpr(s.filterExpr.ast, town) : true,
+    )
     expect(matched.length).toBe(1)
   })
 
   it('A suburb (class=suburb) matches exactly one show', () => {
     const suburb = { class: 'suburb', name: 'X' }
-    const matched = shows.filter(s => s.filterExpr ? evalFilterExpr(s.filterExpr.ast, suburb) : true)
+    const matched = shows.filter((s) =>
+      s.filterExpr ? evalFilterExpr(s.filterExpr.ast, suburb) : true,
+    )
     expect(matched.length).toBe(1)
   })
 

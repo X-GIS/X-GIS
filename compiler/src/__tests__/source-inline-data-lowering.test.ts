@@ -48,7 +48,7 @@ const EXPECTED_FC = {
 describe('source inline data lowering', () => {
   it('parses `data: {...}` to an ObjectLiteral expression', () => {
     const ast = parse(GOAL)
-    const src = ast.body.find(s => s.kind === 'SourceStatement') as any
+    const src = ast.body.find((s) => s.kind === 'SourceStatement') as any
     expect(src).toBeDefined()
     const dataProp = src.properties.find((p: any) => p.name === 'data')
     expect(dataProp).toBeDefined()
@@ -75,7 +75,7 @@ describe('source inline data lowering', () => {
   it('emitCommands threads inlineData onto the LoadCommand', () => {
     const scene = compile(GOAL)
     const commands = emitCommands(scene)
-    const load = commands.loads.find(l => l.name === 'quakes')
+    const load = commands.loads.find((l) => l.name === 'quakes')
     expect(load).toBeDefined()
     expect(load!.inlineData).toEqual(EXPECTED_FC)
   })
@@ -89,7 +89,7 @@ describe('source inline data lowering', () => {
       }
     `)
     expect(scene.sources[0].inlineData).toEqual({ type: 'FeatureCollection', features: [] })
-    const warn = (scene.diagnostics ?? []).find(d => d.code === 'X-GIS0007')
+    const warn = (scene.diagnostics ?? []).find((d) => d.code === 'X-GIS0007')
     expect(warn).toBeDefined()
     expect(warn!.severity).toBe('warn')
   })

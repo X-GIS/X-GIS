@@ -71,25 +71,44 @@ export class RenderTargets {
   private readonly _viewCache = new WeakMap<GPUTexture, GPUTextureView>()
   private viewOf(tex: GPUTexture): GPUTextureView {
     let v = this._viewCache.get(tex)
-    if (v === undefined) { v = tex.createView(); this._viewCache.set(tex, v) }
+    if (v === undefined) {
+      v = tex.createView()
+      this._viewCache.set(tex, v)
+    }
     return v
   }
   /** Cached default view of `stencilTexture` (null until `ensure`). */
-  get stencilView(): GPUTextureView | null { return this.stencilTexture ? this.viewOf(this.stencilTexture) : null }
+  get stencilView(): GPUTextureView | null {
+    return this.stencilTexture ? this.viewOf(this.stencilTexture) : null
+  }
   /** Cached default view of `pickTexture` (null when picking disabled). */
-  get pickView(): GPUTextureView | null { return this.pickTexture ? this.viewOf(this.pickTexture) : null }
+  get pickView(): GPUTextureView | null {
+    return this.pickTexture ? this.viewOf(this.pickTexture) : null
+  }
   /** Cached default view of `msaaTexture` (null when sampleCount === 1). */
-  get msaaView(): GPUTextureView | null { return this.msaaTexture ? this.viewOf(this.msaaTexture) : null }
+  get msaaView(): GPUTextureView | null {
+    return this.msaaTexture ? this.viewOf(this.msaaTexture) : null
+  }
   /** Cached default view of `overdrawAccumTexture` (null unless `?debug=overdraw`). */
-  get overdrawView(): GPUTextureView | null { return this.overdrawAccumTexture ? this.viewOf(this.overdrawAccumTexture) : null }
+  get overdrawView(): GPUTextureView | null {
+    return this.overdrawAccumTexture ? this.viewOf(this.overdrawAccumTexture) : null
+  }
   /** Cached default view of `oitAccumTexture` (null until `ensureOit`). */
-  get oitAccumView(): GPUTextureView | null { return this.oitAccumTexture ? this.viewOf(this.oitAccumTexture) : null }
+  get oitAccumView(): GPUTextureView | null {
+    return this.oitAccumTexture ? this.viewOf(this.oitAccumTexture) : null
+  }
   /** Cached default view of `oitRevealageTexture` (null until `ensureOit`). */
-  get oitRevealageView(): GPUTextureView | null { return this.oitRevealageTexture ? this.viewOf(this.oitRevealageTexture) : null }
+  get oitRevealageView(): GPUTextureView | null {
+    return this.oitRevealageTexture ? this.viewOf(this.oitRevealageTexture) : null
+  }
   /** Cached default view of `heatmapAccumTexture` (null until `ensureHeatmap`). */
-  get heatmapAccumView(): GPUTextureView | null { return this.heatmapAccumTexture ? this.viewOf(this.heatmapAccumTexture) : null }
+  get heatmapAccumView(): GPUTextureView | null {
+    return this.heatmapAccumTexture ? this.viewOf(this.heatmapAccumTexture) : null
+  }
   /** Cached default view of `heatmapBlurTexture` (null until `ensureHeatmap`). */
-  get heatmapBlurView(): GPUTextureView | null { return this.heatmapBlurTexture ? this.viewOf(this.heatmapBlurTexture) : null }
+  get heatmapBlurView(): GPUTextureView | null {
+    return this.heatmapBlurTexture ? this.viewOf(this.heatmapBlurTexture) : null
+  }
   /** Heatmap density accumulation target (r16float, single-sample). Lazily
    *  allocated by `ensureHeatmap()` ONLY when a heatmap layer is present, so
    *  a style with no heatmap allocates nothing here (byte-identical default).
@@ -129,7 +148,9 @@ export class RenderTargets {
    *  (`syncDevice`), so it is authoritative for "which device owns the pick
    *  texture". The pick path reads this to skip a cross-device readback in the
    *  window between a `map.run()` re-init and the first post-swap frame (#792). */
-  get device(): GPUDevice | null { return this._device }
+  get device(): GPUDevice | null {
+    return this._device
+  }
 
   /** Force the next `ensure()` to reallocate even when w/h are unchanged
    *  (used by setQuality after an msaa/picking sampleCount change). Mirrors
@@ -259,9 +280,7 @@ export class RenderTargets {
     // the swapchain. Translucent/OIT paths still run — their debug
     // pipeline mirrors emit into the same accumulator with additive
     // blend, so the heatmap counts every contributing draw.
-    const colorView = debugOverdraw
-      ? this.overdrawView!
-      : (useResolve ? this.msaaView! : screenView)
+    const colorView = debugOverdraw ? this.overdrawView! : useResolve ? this.msaaView! : screenView
 
     return { useResolve, colorView }
   }
@@ -309,8 +328,13 @@ export class RenderTargets {
   ensureOit(w: number, h: number, sampleCount: number): void {
     const { device } = this.getCtx()
     this.syncDevice(device)
-    if (this.oitAccumTexture
-      && this.oitWidth === w && this.oitHeight === h && this.oitSampleCount === sampleCount) return
+    if (
+      this.oitAccumTexture &&
+      this.oitWidth === w &&
+      this.oitHeight === h &&
+      this.oitSampleCount === sampleCount
+    )
+      return
     this.oitAccumTexture?.destroy()
     this.oitRevealageTexture?.destroy()
     this.offscreenExtrudeDepth?.destroy()

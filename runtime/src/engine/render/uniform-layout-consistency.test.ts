@@ -45,7 +45,10 @@ describe('uniform byte-layout consistency (CPU pack ↔ DSL struct, via reflect(
   it('the CPU packer (vector-tile-renderer) packs through the typed UniformBlock, not magic numbers', () => {
     // vector-tile-renderer.ts relocated to @xgis/map (P3 Batch B7); HERE is
     // runtime/src/engine/render → up 4 to repo root, then into map/src/render.
-    const vtr = readFileSync(join(HERE, '..', '..', '..', '..', 'map', 'src', 'render', 'vector-tile-renderer.ts'), 'utf8')
+    const vtr = readFileSync(
+      join(HERE, '..', '..', '..', '..', 'map', 'src', 'render', 'vector-tile-renderer.ts'),
+      'utf8',
+    )
     // #733 (this test's previous regexes pinned the intermediate US.<field> era):
     // the packer is now a typed UniformBlock over POLYGON_U — named set.* writes
     // with compile-time completeness, layout still sourced from reflect() inside

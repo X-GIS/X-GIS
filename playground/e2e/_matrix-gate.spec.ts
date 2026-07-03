@@ -104,15 +104,17 @@ for (const cell of CELLS) {
     // host-pushed inline GeoJSON is dropped as drop-empty-slice (drawCalls=0).
     if (cell.dataset === 'synthetic') {
       await page.addInitScript(() => {
-        ;(window as unknown as { __XGIS_USE_VIRTUAL_INLINE_GEOJSON?: boolean })
-          .__XGIS_USE_VIRTUAL_INLINE_GEOJSON = true
+        ;(
+          window as unknown as { __XGIS_USE_VIRTUAL_INLINE_GEOJSON?: boolean }
+        ).__XGIS_USE_VIRTUAL_INLINE_GEOJSON = true
       })
     }
     // For label cells, install a page-side anchor accumulator BEFORE the map
     // boots so setLabelDebugHook (wired below) feeds it.
     await page.addInitScript(() => {
-      ;(window as unknown as { __xgisMatrixLabelAnchors?: { ax: number; ay: number }[] })
-        .__xgisMatrixLabelAnchors = []
+      ;(
+        window as unknown as { __xgisMatrixLabelAnchors?: { ax: number; ay: number }[] }
+      ).__xgisMatrixLabelAnchors = []
     })
 
     // `?e2e=1` opts out of the demo-runner's auto-push so this spec controls
@@ -129,35 +131,43 @@ for (const cell of CELLS) {
 
     // Hide the DOM chrome painted OVER the #map canvas so the capture is pure
     // rendered geometry (centralized here so cells don't each re-do it).
-    await page.addStyleTag({ content: '#status, #snapshot-btn, #hash-badge, #log-overlay { display: none !important; }' })
+    await page.addStyleTag({
+      content: '#status, #snapshot-btn, #hash-badge, #log-overlay { display: none !important; }',
+    })
 
     // ── Position: load sources (synthetic), set projection + camera, wire the
     //    label hook so anchors are captured during placement. ──
-    await page.evaluate(async ({ dataset, projection, center, zoom, pitch, bearing }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const viteImport = (u: string): Promise<any> => import(/* @vite-ignore */ u)
-      const m = (window as unknown as { __xgisMap: MapH }).__xgisMap
-      // Feed placed-label anchors into the page-side accumulator.
-      const sink = (window as unknown as { __xgisMatrixLabelAnchors: { ax: number; ay: number }[] })
-        .__xgisMatrixLabelAnchors
-      m.setLabelDebugHook((_t, ax, ay) => { sink.push({ ax, ay }) })
+    await page.evaluate(
+      async ({ dataset, projection, center, zoom, pitch, bearing }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const viteImport = (u: string): Promise<any> => import(/* @vite-ignore */ u)
+        const m = (window as unknown as { __xgisMap: MapH }).__xgisMap
+        // Feed placed-label anchors into the page-side accumulator.
+        const sink = (
+          window as unknown as { __xgisMatrixLabelAnchors: { ax: number; ay: number }[] }
+        ).__xgisMatrixLabelAnchors
+        m.setLabelDebugHook((_t, ax, ay) => {
+          sink.push({ ax, ay })
+        })
 
-      if (dataset === 'synthetic') {
-        const fx = await viteImport('/render-verify/fixtures.ts')
-        for (const [id, fc] of Object.entries(fx.FIXTURE_SOURCES)) m.setSourceData(id, fc)
-      }
-      m.setProjection(projection)
-      m.jumpTo({ center, zoom, pitch, bearing })
-      m.markCameraPositioned()
-      m.invalidate?.()
-    }, {
-      dataset: cell.dataset,
-      projection: cell.projection,
-      center: cell.camera.center,
-      zoom: cell.zoom,
-      pitch: cell.pitch,
-      bearing: cell.bearing,
-    })
+        if (dataset === 'synthetic') {
+          const fx = await viteImport('/render-verify/fixtures.ts')
+          for (const [id, fc] of Object.entries(fx.FIXTURE_SOURCES)) m.setSourceData(id, fc)
+        }
+        m.setProjection(projection)
+        m.jumpTo({ center, zoom, pitch, bearing })
+        m.markCameraPositioned()
+        m.invalidate?.()
+      },
+      {
+        dataset: cell.dataset,
+        projection: cell.projection,
+        center: cell.camera.center,
+        zoom: cell.zoom,
+        pitch: cell.pitch,
+        bearing: cell.bearing,
+      },
+    )
 
     // Drain async source work (tile fetch → MVT slice → GPU upload) then paint.
     // captureCanvas waits on hasPendingSourceWork() clearing; for label cells
@@ -165,11 +175,17 @@ for (const cell of CELLS) {
     const png = await captureCanvas(page)
     // Extra settle for label/ofm cells (basemap labels resolve a few frames in).
     if (cell.surfaces.includes('label')) {
-      await page.evaluate(() => new Promise<void>((r) => {
-        let n = 0
-        const loop = () => { if (++n >= 12) r(); else requestAnimationFrame(loop) }
-        requestAnimationFrame(loop)
-      }))
+      await page.evaluate(
+        () =>
+          new Promise<void>((r) => {
+            let n = 0
+            const loop = () => {
+              if (++n >= 12) r()
+              else requestAnimationFrame(loop)
+            }
+            requestAnimationFrame(loop)
+          }),
+      )
     }
 
     // Write the candidate artifact (review scratch; gitignored).
@@ -187,11 +203,15 @@ for (const cell of CELLS) {
     for (const o of cell.oracles) {
       const result: OracleResult = await runOracle(page, png, cell, o)
       const verdict: ReportRow['verdict'] =
-        result.status === 'skipped' ? 'SKIP'
-        : result.status === 'candidate-missing' ? 'CANDIDATE'
-        : result.pass ? 'PASS'
-        : gate === 'hard' ? 'FAIL'
-        : 'SOFT'
+        result.status === 'skipped'
+          ? 'SKIP'
+          : result.status === 'candidate-missing'
+            ? 'CANDIDATE'
+            : result.pass
+              ? 'PASS'
+              : gate === 'hard'
+                ? 'FAIL'
+                : 'SOFT'
       if (verdict === 'PASS') sawPass = true
       else if (verdict === 'SOFT' || verdict === 'FAIL') sawNonPass = true
       else sawInconclusive = true // SKIP | CANDIDATE
@@ -210,7 +230,9 @@ for (const cell of CELLS) {
         hardFailures.push(`${cell.id} :: ${result.kind} — ${result.detail}`)
       }
       // eslint-disable-next-line no-console
-      console.log(`[matrix] ${cell.id} (${cell.knownStatus}/${gate}) ${result.kind}: ${verdict} — ${result.detail}`)
+      console.log(
+        `[matrix] ${cell.id} (${cell.knownStatus}/${gate}) ${result.kind}: ${verdict} — ${result.detail}`,
+      )
     }
     // Audit ③ E — a documented-open-bug cell whose oracles ALL pass (at
     // least one real PASS, no SOFT/FAIL, and NOTHING skipped/candidate —
@@ -241,13 +263,19 @@ test.afterAll(() => {
   const soft = rows.filter((r) => r.verdict === 'SOFT').length
   const skip = rows.filter((r) => r.verdict === 'SKIP').length
   lines.push('───────────────────────────────────────────────────────────────')
-  lines.push(`PASS=${rows.filter((r) => r.verdict === 'PASS').length}  FAIL=${hardFailures.length}  SOFT=${soft}  SKIP=${skip}  CANDIDATE=${candidates}`)
+  lines.push(
+    `PASS=${rows.filter((r) => r.verdict === 'PASS').length}  FAIL=${hardFailures.length}  SOFT=${soft}  SKIP=${skip}  CANDIDATE=${candidates}`,
+  )
   if (candidates > 0) {
-    lines.push(`→ ${candidates} cell-oracle(s) need a reviewed baseline: inspect e2e/__matrix__/<id>.png, then \`bun run matrix:accept <id>\`.`)
+    lines.push(
+      `→ ${candidates} cell-oracle(s) need a reviewed baseline: inspect e2e/__matrix__/<id>.png, then \`bun run matrix:accept <id>\`.`,
+    )
   }
   if (expectedRedAllGreen.length > 0) {
     lines.push('───────────────────────────────────────────────────────────────')
-    lines.push(`⚠ EXPECTED_RED FLIP — ${expectedRedAllGreen.length} documented-bug cell(s) now pass ALL oracles:`)
+    lines.push(
+      `⚠ EXPECTED_RED FLIP — ${expectedRedAllGreen.length} documented-bug cell(s) now pass ALL oracles:`,
+    )
     for (const id of expectedRedAllGreen) lines.push(`    ${id}`)
     lines.push('  → either the bug is FIXED (promote knownStatus: expected_red → green in')
     lines.push('    matrix.manifest.ts) or NO oracle catches it (strengthen the oracle).')
@@ -255,8 +283,13 @@ test.afterAll(() => {
   // eslint-disable-next-line no-console
   console.log(lines.join('\n'))
   try {
-    writeFileSync(join(OUT, 'report.json'), JSON.stringify({ rows, hardFailures, expectedRedAllGreen }, null, 2))
-  } catch { /* artifact write is best-effort */ }
+    writeFileSync(
+      join(OUT, 'report.json'),
+      JSON.stringify({ rows, hardFailures, expectedRedAllGreen }, null, 2),
+    )
+  } catch {
+    /* artifact write is best-effort */
+  }
 
   // The ONLY hard assertion: hard-gated cells with a real failure.
   expect(hardFailures, `matrix hard failures:\n${hardFailures.join('\n')}`).toEqual([])

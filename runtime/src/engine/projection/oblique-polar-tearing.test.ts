@@ -107,7 +107,12 @@ describe('oblique_mercator polar tile tearing — vertex Y must not collapse pas
     expect(eq0[0]).toBeCloseTo(0, 6)
     expect(eq0[1]).toBeCloseTo(0, 6)
     // Round trip a few interior samples
-    for (const [lon, lat] of [[10, 20], [-30, 45], [45, -50], [60, 30]] as [number, number][]) {
+    for (const [lon, lat] of [
+      [10, 20],
+      [-30, 45],
+      [45, -50],
+      [60, 30],
+    ] as [number, number][]) {
       const [x, y] = proj.forward(lon, lat)
       const [rlon, rlat] = proj.inverse(x, y)
       expect(rlon).toBeCloseTo(lon, 6)

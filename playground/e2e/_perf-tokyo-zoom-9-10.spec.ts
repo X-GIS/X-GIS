@@ -23,15 +23,32 @@ import * as path from 'node:path'
 
 test.describe.configure({ mode: 'serial' })
 
-interface ProfileNode { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; parent?: number }
-interface CpuProfile { nodes: ProfileNode[]; startTime: number; endTime: number; samples?: number[]; timeDeltas?: number[] }
-interface Frame { ts: number; dt: number; elapsed: number }
+interface ProfileNode {
+  id: number
+  callFrame: { functionName: string; url: string; lineNumber: number }
+  parent?: number
+}
+interface CpuProfile {
+  nodes: ProfileNode[]
+  startTime: number
+  endTime: number
+  samples?: number[]
+  timeDeltas?: number[]
+}
+interface Frame {
+  ts: number
+  dt: number
+  elapsed: number
+}
 
 async function setup(page: Page) {
-  await page.goto('/demo.html?id=openfreemap_bright#9/35.68/139.76', { waitUntil: 'domcontentloaded' })
+  await page.goto('/demo.html?id=openfreemap_bright#9/35.68/139.76', {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // Settle initial cascade. The actual stutter happens DURING the
   // zoom motion below — we want pre-zoom glyph atlas already populated
@@ -39,7 +56,10 @@ async function setup(page: Page) {
   await page.waitForTimeout(3_000)
 }
 
-async function recordZoomWithProfile(page: Page, cdp: CDPSession): Promise<{
+async function recordZoomWithProfile(
+  page: Page,
+  cdp: CDPSession,
+): Promise<{
   profile: CpuProfile
   frames: Frame[]
   perfNowAtStart: number
@@ -50,12 +70,15 @@ async function recordZoomWithProfile(page: Page, cdp: CDPSession): Promise<{
   const perfNowAtStart = await page.evaluate(() => performance.now())
 
   const frames = await page.evaluate(async () => {
-    interface M { camera: { zoom: number }; invalidate: () => void }
+    interface M {
+      camera: { zoom: number }
+      invalidate: () => void
+    }
     const map = (window as unknown as { __xgisMap?: M }).__xgisMap
     if (!map) throw new Error('__xgisMap missing')
     const startZoom = map.camera.zoom
     const out: Frame[] = []
-    return await new Promise<Frame[]>(resolve => {
+    return await new Promise<Frame[]>((resolve) => {
       const t0 = performance.now()
       let last = t0
       const tick = () => {
@@ -66,7 +89,10 @@ async function recordZoomWithProfile(page: Page, cdp: CDPSession): Promise<{
         // 3 seconds: z=9 → z=10 linearly. Slow enough that glyph
         // atlas misses spread across frames; the user's "stutter"
         // shows up as 1-2 worst frames.
-        if (elapsed >= 3000) { resolve(out); return }
+        if (elapsed >= 3000) {
+          resolve(out)
+          return
+        }
         map.camera.zoom = startZoom + (elapsed / 3000) * 1.0
         map.invalidate()
         requestAnimationFrame(tick)
@@ -75,7 +101,7 @@ async function recordZoomWithProfile(page: Page, cdp: CDPSession): Promise<{
     })
   })
 
-  const stopped = await cdp.send('Profiler.stop') as { profile: CpuProfile }
+  const stopped = (await cdp.send('Profiler.stop')) as { profile: CpuProfile }
   await cdp.send('Profiler.disable')
   return { profile: stopped.profile, frames, perfNowAtStart }
 }
@@ -92,7 +118,14 @@ function nodePath(byId: Map<number, ProfileNode>, id: number, max = 4): string {
   return parts.join(' ← ')
 }
 
-interface Row { name: string; selfMs: number; selfPct: number; callPath: string; url: string; line: number }
+interface Row {
+  name: string
+  selfMs: number
+  selfPct: number
+  callPath: string
+  url: string
+  line: number
+}
 
 function attribute(profile: CpuProfile, winStart: number, winEnd: number, topN = 25): Row[] {
   const samples = profile.samples ?? []
@@ -102,10 +135,11 @@ function attribute(profile: CpuProfile, winStart: number, winEnd: number, topN =
   for (const n of profile.nodes as any[]) byId.set(n.id, { id: n.id, callFrame: n.callFrame })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const n of profile.nodes as any[]) {
-    if (Array.isArray(n.children)) for (const cid of n.children) {
-      const child = byId.get(cid)
-      if (child) child.parent = n.id
-    }
+    if (Array.isArray(n.children))
+      for (const cid of n.children) {
+        const child = byId.get(cid)
+        if (child) child.parent = n.id
+      }
   }
   const selfMicros = new Map<number, number>()
   let cursor = profile.startTime
@@ -143,25 +177,33 @@ test('Tokyo OFM Bright z=9→10 stutter — CPU attribution', async ({ page, con
   const { profile, frames, perfNowAtStart } = await recordZoomWithProfile(page, cdp)
 
   fs.mkdirSync(path.resolve('test-results'), { recursive: true })
-  fs.writeFileSync(path.resolve('test-results', 'tokyo-zoom-9-10.cpuprofile'), JSON.stringify(profile))
+  fs.writeFileSync(
+    path.resolve('test-results', 'tokyo-zoom-9-10.cpuprofile'),
+    JSON.stringify(profile),
+  )
 
   const settled = frames.slice(3)
   const sorted = [...settled].sort((a, b) => b.dt - a.dt)
-  const med = settled.length > 0
-    ? [...settled].sort((a, b) => a.dt - b.dt)[Math.floor(settled.length / 2)]!.dt
-    : 0
+  const med =
+    settled.length > 0
+      ? [...settled].sort((a, b) => a.dt - b.dt)[Math.floor(settled.length / 2)]!.dt
+      : 0
   const worst = sorted[0]!
   const top5 = sorted.slice(0, 5)
 
   // eslint-disable-next-line no-console
   console.log(`\n══ Tokyo OFM Bright z=9 → z=10 (3 s) ══`)
   // eslint-disable-next-line no-console
-  console.log(`Frames ${settled.length}  median ${med.toFixed(1)} ms  worst ${worst.dt.toFixed(0)} ms (@ z=${(9 + worst.elapsed / 3000).toFixed(2)})`)
+  console.log(
+    `Frames ${settled.length}  median ${med.toFixed(1)} ms  worst ${worst.dt.toFixed(0)} ms (@ z=${(9 + worst.elapsed / 3000).toFixed(2)})`,
+  )
   // eslint-disable-next-line no-console
   console.log('Top-5 worst frames:')
   for (const f of top5) {
     // eslint-disable-next-line no-console
-    console.log(`  ${f.dt.toFixed(0).padStart(4)} ms  @ z=${(9 + f.elapsed / 3000).toFixed(2)}  t+${(f.elapsed / 1000).toFixed(2)} s`)
+    console.log(
+      `  ${f.dt.toFixed(0).padStart(4)} ms  @ z=${(9 + f.elapsed / 3000).toFixed(2)}  t+${(f.elapsed / 1000).toFixed(2)} s`,
+    )
   }
 
   // Attribute the WORST single frame.
@@ -173,7 +215,9 @@ test('Tokyo OFM Bright z=9→10 stutter — CPU attribution', async ({ page, con
   for (const r of attribute(profile, winStart, winEnd, 20)) {
     if (r.selfMs < 0.1) continue
     // eslint-disable-next-line no-console
-    console.log(`  ${r.selfMs.toFixed(2).padStart(6)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(36)} ${r.url}:${r.line}`)
+    console.log(
+      `  ${r.selfMs.toFixed(2).padStart(6)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(36)} ${r.url}:${r.line}`,
+    )
     // eslint-disable-next-line no-console
     console.log(`    via: ${r.callPath}`)
   }
@@ -195,6 +239,8 @@ test('Tokyo OFM Bright z=9→10 stutter — CPU attribution', async ({ page, con
   for (const r of attribute(profile, profile.startTime, profile.endTime, 20)) {
     if (r.selfMs < 5) continue
     // eslint-disable-next-line no-console
-    console.log(`  ${r.selfMs.toFixed(0).padStart(5)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(36)} ${r.url}:${r.line}`)
+    console.log(
+      `  ${r.selfMs.toFixed(0).padStart(5)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(36)} ${r.url}:${r.line}`,
+    )
   }
 })

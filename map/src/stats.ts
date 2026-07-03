@@ -3,7 +3,7 @@
 
 export interface RenderStats {
   fps: number
-  frameTime: number       // ms
+  frameTime: number // ms
   drawCalls: number
   vertices: number
   triangles: number
@@ -122,7 +122,7 @@ export class StatsTracker {
     this.frames++
     const now = performance.now()
     if (now - this.lastTime >= 1000) {
-      this.fps = Math.round(this.frames * 1000 / (now - this.lastTime))
+      this.fps = Math.round((this.frames * 1000) / (now - this.lastTime))
       this.frames = 0
       this.lastTime = now
     }
@@ -223,7 +223,8 @@ export class StatsPanel {
     `
 
     const header = document.createElement('div')
-    header.style.cssText = 'font-size:10px;color:#555;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;cursor:pointer;'
+    header.style.cssText =
+      'font-size:10px;color:#555;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;cursor:pointer;'
     header.textContent = 'Inspector'
     header.addEventListener('click', () => this.toggle())
     this.el.appendChild(header)
@@ -279,12 +280,13 @@ export class StatsPanel {
   toggle(): void {
     this.visible = !this.visible
     const content = this.el.querySelectorAll('div:not(:first-child)') as NodeListOf<HTMLDivElement>
-    content.forEach(el => el.style.display = this.visible ? '' : 'none')
+    content.forEach((el) => (el.style.display = this.visible ? '' : 'none'))
   }
 
   update(stats: RenderStats): void {
     this.rows.get('fps')!.textContent = String(stats.fps)
-    this.rows.get('fps')!.style.color = stats.fps >= 55 ? '#4ade80' : stats.fps >= 30 ? '#facc15' : '#ef4444'
+    this.rows.get('fps')!.style.color =
+      stats.fps >= 55 ? '#4ade80' : stats.fps >= 30 ? '#facc15' : '#ef4444'
     this.rows.get('frameTime')!.textContent = stats.frameTime.toFixed(1) + ' ms'
     this.rows.get('drawCalls')!.textContent = String(stats.drawCalls)
     this.rows.get('vertices')!.textContent = stats.vertices.toLocaleString()
@@ -305,11 +307,16 @@ export class StatsPanel {
       } else {
         const ratePct = (stats.bundleHitRate * 100).toFixed(0)
         const ev = stats.bundleEvictions
-        bundleRow.textContent = ev > 0
-          ? `${stats.bundleHits} (${ratePct}%) ev:${ev}`
-          : `${stats.bundleHits} (${ratePct}%)`
-        bundleRow.style.color = stats.bundleHitRate >= 0.8 ? '#4ade80'
-          : stats.bundleHitRate >= 0.5 ? '#facc15' : '#ef4444'
+        bundleRow.textContent =
+          ev > 0
+            ? `${stats.bundleHits} (${ratePct}%) ev:${ev}`
+            : `${stats.bundleHits} (${ratePct}%)`
+        bundleRow.style.color =
+          stats.bundleHitRate >= 0.8
+            ? '#4ade80'
+            : stats.bundleHitRate >= 0.5
+              ? '#facc15'
+              : '#ef4444'
       }
     }
     // iter-229 — Bundle calls per frame. At idle on the bundled
@@ -334,8 +341,7 @@ export class StatsPanel {
         // Color: < 50 KB green (clean), 50-200 KB yellow (notable),
         // > 200 KB red (hot-path allocations).
         const abs = Math.abs(avgKb)
-        heapRow.style.color = abs < 50 ? '#4ade80'
-          : abs < 200 ? '#facc15' : '#ef4444'
+        heapRow.style.color = abs < 50 ? '#4ade80' : abs < 200 ? '#facc15' : '#ef4444'
       }
     }
   }

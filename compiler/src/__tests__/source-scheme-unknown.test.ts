@@ -19,7 +19,7 @@ describe('source scheme unknown-value gate', () => {
       sources: { v: { type: 'raster', tiles: ['https://x/{z}/{x}/{y}.png'], scheme: 'wms' } },
       layers: [],
     })
-    expect(w.some(s => s.includes('scheme') && s.includes('wms'))).toBe(true)
+    expect(w.some((s) => s.includes('scheme') && s.includes('wms'))).toBe(true)
   })
 
   it('scheme: "XYZ" (case-typo) warns', () => {
@@ -30,7 +30,7 @@ describe('source scheme unknown-value gate', () => {
       sources: { v: { type: 'raster', tiles: ['https://x/{z}/{x}/{y}.png'], scheme: 'XYZ' } },
       layers: [],
     })
-    expect(w.some(s => s.includes('scheme') && s.includes('XYZ'))).toBe(true)
+    expect(w.some((s) => s.includes('scheme') && s.includes('XYZ'))).toBe(true)
   })
 
   it('scheme: "TMS" (case-typo) warns', () => {
@@ -39,7 +39,7 @@ describe('source scheme unknown-value gate', () => {
       sources: { v: { type: 'raster', tiles: ['https://x/{z}/{x}/{y}.png'], scheme: 'TMS' } },
       layers: [],
     })
-    expect(w.some(s => s.includes('scheme') && s.includes('TMS'))).toBe(true)
+    expect(w.some((s) => s.includes('scheme') && s.includes('TMS'))).toBe(true)
   })
 
   it('scheme: "xyz" (default) does NOT warn', () => {
@@ -48,7 +48,7 @@ describe('source scheme unknown-value gate', () => {
       sources: { v: { type: 'raster', tiles: ['https://x/{z}/{x}/{y}.png'], scheme: 'xyz' } },
       layers: [],
     })
-    expect(w.some(s => s.includes('scheme'))).toBe(false)
+    expect(w.some((s) => s.includes('scheme'))).toBe(false)
   })
 
   it('scheme: "tms" warns with the Y-flipped message (existing gate)', () => {
@@ -57,6 +57,6 @@ describe('source scheme unknown-value gate', () => {
       sources: { v: { type: 'raster', tiles: ['https://x/{z}/{x}/{y}.png'], scheme: 'tms' } },
       layers: [],
     })
-    expect(w.some(s => s.includes('tms') && s.includes('Y-flipped'))).toBe(true)
+    expect(w.some((s) => s.includes('tms') && s.includes('Y-flipped'))).toBe(true)
   })
 })

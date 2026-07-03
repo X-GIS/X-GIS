@@ -10,9 +10,7 @@ describe('array/typeof/slice/index-of arity warnings', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
-      layers: [
-        { id: 'l', type: 'fill', source: 's', paint: { 'fill-color': ['at', 0] } },
-      ],
+      layers: [{ id: 'l', type: 'fill', source: 's', paint: { 'fill-color': ['at', 0] } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toMatch(/Malformed \["at"\] expression: expected 2 arguments/)
@@ -23,7 +21,13 @@ describe('array/typeof/slice/index-of arity warnings', () => {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
       layers: [
-        { id: 'l', type: 'fill', source: 's', filter: ['==', ['typeof'], 'string'], paint: { 'fill-color': '#abc' } },
+        {
+          id: 'l',
+          type: 'fill',
+          source: 's',
+          filter: ['==', ['typeof'], 'string'],
+          paint: { 'fill-color': '#abc' },
+        },
       ],
     }
     const code = convertMapboxStyle(style as never)
@@ -35,7 +39,12 @@ describe('array/typeof/slice/index-of arity warnings', () => {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
       layers: [
-        { id: 'l', type: 'symbol', source: 's', layout: { 'text-field': ['slice', ['get', 'name']] } },
+        {
+          id: 'l',
+          type: 'symbol',
+          source: 's',
+          layout: { 'text-field': ['slice', ['get', 'name']] },
+        },
       ],
     }
     const code = convertMapboxStyle(style as never)
@@ -47,7 +56,12 @@ describe('array/typeof/slice/index-of arity warnings', () => {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
       layers: [
-        { id: 'l', type: 'fill', source: 's', paint: { 'fill-color': ['*', 0, ['index-of', 'x']] } },
+        {
+          id: 'l',
+          type: 'fill',
+          source: 's',
+          paint: { 'fill-color': ['*', 0, ['index-of', 'x']] },
+        },
       ],
     }
     const code = convertMapboxStyle(style as never)

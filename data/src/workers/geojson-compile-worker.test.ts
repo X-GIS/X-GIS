@@ -12,13 +12,13 @@
 // A separate e2e/playwright test covers the real worker spawn path.
 
 import { describe, expect, it } from 'vitest'
-import {
-  runCompile,
-  resolveIdResolver,
-} from './geojson-compile-worker'
+import { runCompile, resolveIdResolver } from './geojson-compile-worker'
 import type { GeoJSONFeatureCollection } from '../geojson-types'
 
-function makePointFC(points: [number, number][], ids?: (string | number)[]): GeoJSONFeatureCollection {
+function makePointFC(
+  points: [number, number][],
+  ids?: (string | number)[],
+): GeoJSONFeatureCollection {
   return {
     type: 'FeatureCollection',
     features: points.map((c, i) => ({
@@ -34,14 +34,24 @@ function makePolygonFC(): GeoJSONFeatureCollection {
   // Simple square at 0..1 lon, 0..1 lat — one polygon, 4 corners.
   return {
     type: 'FeatureCollection',
-    features: [{
-      type: 'Feature',
-      geometry: {
-        type: 'Polygon',
-        coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]],
+    features: [
+      {
+        type: 'Feature',
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 1],
+              [0, 0],
+            ],
+          ],
+        },
+        properties: { name: 'square' },
       },
-      properties: { name: 'square' },
-    }],
+    ],
   }
 }
 
@@ -69,10 +79,18 @@ describe('resolveIdResolver', () => {
 
 describe('runCompile — point features', () => {
   it('produces one tile at z0 with pointVertices matching input count', () => {
-    const fc = makePointFC([[0, 0], [10, 10], [-20, 30]])
+    const fc = makePointFC([
+      [0, 0],
+      [10, 10],
+      [-20, 30],
+    ])
     const { response, transferables } = runCompile({
-      kind: 'compile', taskId: 1, geojson: fc,
-      minZoom: 0, maxZoom: 0, idResolverMode: 'feature-id-fallback',
+      kind: 'compile',
+      taskId: 1,
+      geojson: fc,
+      minZoom: 0,
+      maxZoom: 0,
+      idResolverMode: 'feature-id-fallback',
     })
 
     expect(response.kind).toBe('compile-done')
@@ -92,10 +110,20 @@ describe('runCompile — point features', () => {
   })
 
   it('idResolverMode=feature-id-fallback encodes feature.id into feat_id slot', () => {
-    const fc = makePointFC([[0, 0], [5, 5]], [123, 456])
+    const fc = makePointFC(
+      [
+        [0, 0],
+        [5, 5],
+      ],
+      [123, 456],
+    )
     const { response } = runCompile({
-      kind: 'compile', taskId: 2, geojson: fc,
-      minZoom: 0, maxZoom: 0, idResolverMode: 'feature-id-fallback',
+      kind: 'compile',
+      taskId: 2,
+      geojson: fc,
+      minZoom: 0,
+      maxZoom: 0,
+      idResolverMode: 'feature-id-fallback',
     })
     const tile = response.levels[0].tiles[0][1]
     const pv = new Float32Array(tile.pointVertices!)
@@ -108,8 +136,12 @@ describe('runCompile — point features', () => {
 describe('runCompile — polygon features', () => {
   it('tessellates a square into two triangles (6 indices)', () => {
     const { response, transferables } = runCompile({
-      kind: 'compile', taskId: 3, geojson: makePolygonFC(),
-      minZoom: 0, maxZoom: 0, idResolverMode: 'index',
+      kind: 'compile',
+      taskId: 3,
+      geojson: makePolygonFC(),
+      minZoom: 0,
+      maxZoom: 0,
+      idResolverMode: 'index',
     })
 
     expect(response.featureCount).toBe(1)
@@ -132,8 +164,12 @@ describe('runCompile — polygon features', () => {
 
   it('carries the property table through the serialization boundary', () => {
     const { response } = runCompile({
-      kind: 'compile', taskId: 4, geojson: makePolygonFC(),
-      minZoom: 0, maxZoom: 0, idResolverMode: 'index',
+      kind: 'compile',
+      taskId: 4,
+      geojson: makePolygonFC(),
+      minZoom: 0,
+      maxZoom: 0,
+      idResolverMode: 'index',
     })
     expect(response.propertyTable.fieldNames).toContain('name')
     // 'name' appears once with value 'square' — the table stores it per-feature.
@@ -145,9 +181,12 @@ describe('runCompile — polygon features', () => {
 describe('runCompile — edge cases', () => {
   it('empty FeatureCollection yields zero parts and zero tiles', () => {
     const { response, transferables } = runCompile({
-      kind: 'compile', taskId: 5,
+      kind: 'compile',
+      taskId: 5,
       geojson: { type: 'FeatureCollection', features: [] },
-      minZoom: 0, maxZoom: 0, idResolverMode: 'index',
+      minZoom: 0,
+      maxZoom: 0,
+      idResolverMode: 'index',
     })
     expect(response.featureCount).toBe(0)
     expect(response.parts.length).toBe(0)
@@ -157,8 +196,12 @@ describe('runCompile — edge cases', () => {
 
   it('all non-zero typed-array buffers end up in the transferables list', () => {
     const { response, transferables } = runCompile({
-      kind: 'compile', taskId: 6, geojson: makePolygonFC(),
-      minZoom: 0, maxZoom: 0, idResolverMode: 'index',
+      kind: 'compile',
+      taskId: 6,
+      geojson: makePolygonFC(),
+      minZoom: 0,
+      maxZoom: 0,
+      idResolverMode: 'index',
     })
     const tile = response.levels[0].tiles[0][1]
     for (const buf of [tile.vertices, tile.indices, tile.outlineIndices]) {
@@ -173,10 +216,17 @@ describe('runCompile — edge cases', () => {
   })
 
   it('bounds reflect the union of all feature coordinates', () => {
-    const fc = makePointFC([[-50, -30], [80, 40]])
+    const fc = makePointFC([
+      [-50, -30],
+      [80, 40],
+    ])
     const { response } = runCompile({
-      kind: 'compile', taskId: 7, geojson: fc,
-      minZoom: 0, maxZoom: 0, idResolverMode: 'index',
+      kind: 'compile',
+      taskId: 7,
+      geojson: fc,
+      minZoom: 0,
+      maxZoom: 0,
+      idResolverMode: 'index',
     })
     const [minLon, minLat, maxLon, maxLat] = response.bounds
     expect(minLon).toBeCloseTo(-50)

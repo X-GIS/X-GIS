@@ -26,5 +26,5 @@ export function substituteVars(
   // belong to the inner scope. A heuristic, but matches the way
   // Mapbox styles in the wild are written (no shadowing).
   if (expr[0] === 'let') return expr
-  return expr.map(c => substituteVars(c, bindings, visited))
+  return expr.map((c) => substituteVars(c, bindings, visited))
 }

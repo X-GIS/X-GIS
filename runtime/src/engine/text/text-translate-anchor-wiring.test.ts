@@ -45,25 +45,44 @@ import type { TextDraw } from '@xgis/map'
 const g = globalThis as Record<string, unknown>
 g.GPUShaderStage ??= { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 }
 g.GPUBufferUsage ??= {
-  MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8, INDEX: 16,
-  VERTEX: 32, UNIFORM: 64, STORAGE: 128, INDIRECT: 256, QUERY_RESOLVE: 512,
+  MAP_READ: 1,
+  MAP_WRITE: 2,
+  COPY_SRC: 4,
+  COPY_DST: 8,
+  INDEX: 16,
+  VERTEX: 32,
+  UNIFORM: 64,
+  STORAGE: 128,
+  INDIRECT: 256,
+  QUERY_RESOLVE: 512,
 }
 g.GPUTextureUsage ??= {
-  COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8, RENDER_ATTACHMENT: 16,
+  COPY_SRC: 1,
+  COPY_DST: 2,
+  TEXTURE_BINDING: 4,
+  STORAGE_BINDING: 8,
+  RENDER_ATTACHMENT: 16,
 }
 g.GPUColorWrite ??= { RED: 1, GREEN: 2, BLUE: 4, ALPHA: 8, ALL: 15 }
 
 function stubDevice(): GPUDevice {
-  const stub: unknown = new Proxy(function () { return stub }, {
-    get(_t, p) {
-      if (p === 'size') return 1 << 22
-      if (p === 'width' || p === 'height') return 4096
-      if (p === 'limits') return { maxTextureDimension2D: 8192 }
-      if (p === Symbol.toPrimitive) return () => 0
+  const stub: unknown = new Proxy(
+    function () {
       return stub
     },
-    apply() { return stub },
-  })
+    {
+      get(_t, p) {
+        if (p === 'size') return 1 << 22
+        if (p === 'width' || p === 'height') return 4096
+        if (p === 'limits') return { maxTextureDimension2D: 8192 }
+        if (p === Symbol.toPrimitive) return () => 0
+        return stub
+      },
+      apply() {
+        return stub
+      },
+    },
+  )
   return stub as GPUDevice
 }
 
@@ -85,10 +104,15 @@ function pointDef(extra: Partial<LabelDef> = {}): LabelDef {
 }
 
 function makeStage() {
-  const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', { rasterizer: new MockRasterizer() })
+  const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', {
+    rasterizer: new MockRasterizer(),
+  })
   const captured: TextDraw[][] = []
-  ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws =
-    (d: TextDraw[]) => { captured.push(d) }
+  ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws = (
+    d: TextDraw[],
+  ) => {
+    captured.push(d)
+  }
   return { stage, captured }
 }
 
@@ -102,12 +126,17 @@ const BEARING = 90
  *  anchor. dpr defaults to 1 (makeStage never calls setDpr), so the draw anchor
  *  is exactly anchorXY + rotate(translate). */
 function capturedDrawAnchor(
-  stage: TextStage, captured: TextDraw[][], anchorMap: boolean | undefined,
+  stage: TextStage,
+  captured: TextDraw[][],
+  anchorMap: boolean | undefined,
 ): { x: number; y: number } {
   stage.setBearing(BEARING)
   stage.beginFrame()
   stage.addLabel(
-    litValue('A'), {}, ANCHOR_X, ANCHOR_Y,
+    litValue('A'),
+    {},
+    ANCHOR_X,
+    ANCHOR_Y,
     pointDef({ translate: TRANSLATE, translateAnchorMap: anchorMap }),
   )
   stage.prepare()
@@ -117,15 +146,15 @@ function capturedDrawAnchor(
 }
 
 describe('text-translate-anchor map flag runtime wiring (GPU-free)', () => {
-  it("anchorMap=true rotates text-translate by the bearing into the draw anchor", () => {
+  it('anchorMap=true rotates text-translate by the bearing into the draw anchor', () => {
     const { stage, captured } = makeStage()
     // rotate([10,0], 90°) = [10*cos90, 10*sin90] = [~0, 10].
     const a = capturedDrawAnchor(stage, captured, true)
-    expect(a.x).toBeCloseTo(ANCHOR_X + 0, 4)        // dx rotated out of X
-    expect(a.y).toBeCloseTo(ANCHOR_Y + 10, 4)       // dx rotated into +Y
+    expect(a.x).toBeCloseTo(ANCHOR_X + 0, 4) // dx rotated out of X
+    expect(a.y).toBeCloseTo(ANCHOR_Y + 10, 4) // dx rotated into +Y
   })
 
-  it("anchorMap=false (viewport default) leaves text-translate screen-space — unrotated", () => {
+  it('anchorMap=false (viewport default) leaves text-translate screen-space — unrotated', () => {
     const { stage, captured } = makeStage()
     // identity [10,0] regardless of bearing → drawX = anchorX+10, drawY = anchorY.
     const a = capturedDrawAnchor(stage, captured, false)
@@ -133,7 +162,7 @@ describe('text-translate-anchor map flag runtime wiring (GPU-free)', () => {
     expect(a.y).toBeCloseTo(ANCHOR_Y + 0, 4)
   })
 
-  it("anchorMap undefined (absent) == viewport — byte-identical screen-space", () => {
+  it('anchorMap undefined (absent) == viewport — byte-identical screen-space', () => {
     const { stage, captured } = makeStage()
     const a = capturedDrawAnchor(stage, captured, undefined)
     expect(a.x).toBeCloseTo(ANCHOR_X + 10, 4)

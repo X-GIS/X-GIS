@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test'
-import { lonLatToMercF64, splitF64, packECEFPolygonVertices, tileEcefCenterFromMerc } from '@xgis/compiler'
+import {
+  lonLatToMercF64,
+  splitF64,
+  packECEFPolygonVertices,
+  tileEcefCenterFromMerc,
+} from '@xgis/compiler'
 import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -59,7 +64,8 @@ function tileBounds(lon: number, lat: number, z: number) {
   const tx = Math.floor(((lon + 180) / 360) * n)
   const latRad = (lat * Math.PI) / 180
   const ty = Math.floor(((1 - Math.asinh(Math.tan(latRad)) / Math.PI) / 2) * n)
-  const lat2deg = (yy: number) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * yy) / n))) * 180) / Math.PI
+  const lat2deg = (yy: number) =>
+    (Math.atan(Math.sinh(Math.PI * (1 - (2 * yy) / n))) * 180) / Math.PI
   return {
     westLon: (tx / n) * 360 - 180,
     eastLon: ((tx + 1) / n) * 360 - 180,
@@ -70,7 +76,10 @@ function tileBounds(lon: number, lat: number, z: number) {
 
 function makeRng(seed: number): () => number {
   let s = seed >>> 0
-  return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 0x1_0000_0000 }
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0
+    return s / 0x1_0000_0000
+  }
 }
 
 // Deep-zoom cells: the reported Seoul view + a high-|lon| control (the f32
@@ -121,7 +130,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 `
 
 test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)', () => {
-  test('the #392 fill arm coincides with the f64 outline; the pre-#392 arm splits', async ({ page }) => {
+  test('the #392 fill arm coincides with the f64 outline; the pre-#392 arm splits', async ({
+    page,
+  }) => {
     test.setTimeout(60_000)
     await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
 
@@ -135,7 +146,7 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
       const [camHx, camLx] = splitF64(camMx - tileMx)
       const [camHy, camLy] = splitF64(camMy - tileMy)
 
-      const rng = makeRng(0xF111 ^ Math.floor(c.lon * 1000))
+      const rng = makeRng(0xf111 ^ Math.floor(c.lon * 1000))
       const scratch: number[] = []
       const lons: number[] = []
       const lats: number[] = []
@@ -145,7 +156,8 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
         const lat = tb.southLat + rng() * (tb.northLat - tb.southLat)
         const [mx, my] = lonLatToMercF64(lon, lat)
         scratch.push(mx, my, i + 1)
-        lons.push(lon); lats.push(lat)
+        lons.push(lon)
+        lats.push(lat)
         truth.push([mx - camMx, my - camMy]) // f64 camera-relative = the outline position
       }
       // Pack through the REAL fill packer with the same origin the renderer
@@ -153,81 +165,112 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
       const packed = packECEFPolygonVertices(scratch, ecefCenter, [tileMx, tileMy])
       const inp = new Float32Array(N * 4)
       for (let i = 0; i < N; i++) {
-        inp[i * 4] = packed.vertices[i * 7 + 4]     // local_merc_x (slot FILL_LON_FLOAT; fill stride 7 floats post-#398)
+        inp[i * 4] = packed.vertices[i * 7 + 4] // local_merc_x (slot FILL_LON_FLOAT; fill stride 7 floats post-#398)
         inp[i * 4 + 1] = packed.vertices[i * 7 + 5] // local_merc_y (slot FILL_LAT_FLOAT)
         inp[i * 4 + 2] = lons[i]
         inp[i * 4 + 3] = lats[i]
       }
       const uni = new Float32Array(12)
-      uni[0] = camHx; uni[1] = camHy           // cam_h.xy
-      uni[4] = camLx; uni[5] = camLy           // cam_l.xy
-      uni[8] = tileMx; uni[9] = tileMy         // origin.xy (truncated to f32 on store, as the real uniform)
+      uni[0] = camHx
+      uni[1] = camHy // cam_h.xy
+      uni[4] = camLx
+      uni[5] = camLy // cam_l.xy
+      uni[8] = tileMx
+      uni[9] = tileMy // origin.xy (truncated to f32 on store, as the real uniform)
       return { label: c.label, inp: Array.from(inp), uni: Array.from(uni), truth }
     })
 
-    const gpu = await page.evaluate(async (args: {
-      wgsl: string
-      cells: Array<{ label: string; inp: number[]; uni: number[] }>
-    }) => {
-      const nav = navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }
-      if (!nav.gpu) return { error: 'no navigator.gpu' as const }
-      const adapter = await (nav.gpu.requestAdapter() as Promise<GPUAdapter | null>)
-      if (!adapter) return { error: 'no adapter' as const }
-      const device = await adapter.requestDevice()
-      const errors: string[] = []
-      device.addEventListener('uncapturederror', (e) => { errors.push((e as GPUUncapturedErrorEvent).error.message) })
-
-      const module = device.createShaderModule({ code: args.wgsl })
-      const info = await module.getCompilationInfo()
-      const fatals = info.messages.filter((m) => m.type === 'error')
-      if (fatals.length > 0) return { error: 'compile: ' + fatals.map((m) => `${m.lineNum}:${m.message}`).join(' | ') }
-      const pipeline = device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'main' } })
-
-      const out: Record<string, number[]> = {}
-      for (const c of args.cells) {
-        const n = c.inp.length / 4
-        const inData = new Float32Array(c.inp)
-        const inBuf = device.createBuffer({ size: inData.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST })
-        device.queue.writeBuffer(inBuf, 0, inData)
-        const outBuf = device.createBuffer({ size: n * 4 * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC })
-        const readBuf = device.createBuffer({ size: n * 4 * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ })
-        const uBuf = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
-        device.queue.writeBuffer(uBuf, 0, new Float32Array(c.uni))
-        const bind = device.createBindGroup({
-          layout: pipeline.getBindGroupLayout(0),
-          entries: [
-            { binding: 0, resource: { buffer: inBuf } },
-            { binding: 1, resource: { buffer: outBuf } },
-            { binding: 2, resource: { buffer: uBuf } },
-          ],
+    const gpu = await page.evaluate(
+      async (args: {
+        wgsl: string
+        cells: Array<{ label: string; inp: number[]; uni: number[] }>
+      }) => {
+        const nav = navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }
+        if (!nav.gpu) return { error: 'no navigator.gpu' as const }
+        const adapter = await (nav.gpu.requestAdapter() as Promise<GPUAdapter | null>)
+        if (!adapter) return { error: 'no adapter' as const }
+        const device = await adapter.requestDevice()
+        const errors: string[] = []
+        device.addEventListener('uncapturederror', (e) => {
+          errors.push((e as GPUUncapturedErrorEvent).error.message)
         })
-        const enc = device.createCommandEncoder()
-        const pass = enc.beginComputePass()
-        pass.setPipeline(pipeline)
-        pass.setBindGroup(0, bind)
-        pass.dispatchWorkgroups(Math.ceil(n / 64))
-        pass.end()
-        enc.copyBufferToBuffer(outBuf, 0, readBuf, 0, n * 4 * 4)
-        device.queue.submit([enc.finish()])
-        await readBuf.mapAsync(GPUMapMode.READ)
-        out[c.label] = Array.from(new Float32Array(readBuf.getMappedRange().slice(0)))
-        readBuf.unmap()
-      }
-      return { out, errors }
-    }, { wgsl: COMPUTE_WGSL, cells: cells.map((c) => ({ label: c.label, inp: c.inp, uni: c.uni })) })
 
-    expect(gpu, `GPU compute failed: ${'error' in gpu ? gpu.error : ''}`).not.toHaveProperty('error')
+        const module = device.createShaderModule({ code: args.wgsl })
+        const info = await module.getCompilationInfo()
+        const fatals = info.messages.filter((m) => m.type === 'error')
+        if (fatals.length > 0)
+          return { error: 'compile: ' + fatals.map((m) => `${m.lineNum}:${m.message}`).join(' | ') }
+        const pipeline = device.createComputePipeline({
+          layout: 'auto',
+          compute: { module, entryPoint: 'main' },
+        })
+
+        const out: Record<string, number[]> = {}
+        for (const c of args.cells) {
+          const n = c.inp.length / 4
+          const inData = new Float32Array(c.inp)
+          const inBuf = device.createBuffer({
+            size: inData.byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+          })
+          device.queue.writeBuffer(inBuf, 0, inData)
+          const outBuf = device.createBuffer({
+            size: n * 4 * 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+          })
+          const readBuf = device.createBuffer({
+            size: n * 4 * 4,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+          })
+          const uBuf = device.createBuffer({
+            size: 48,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          })
+          device.queue.writeBuffer(uBuf, 0, new Float32Array(c.uni))
+          const bind = device.createBindGroup({
+            layout: pipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: inBuf } },
+              { binding: 1, resource: { buffer: outBuf } },
+              { binding: 2, resource: { buffer: uBuf } },
+            ],
+          })
+          const enc = device.createCommandEncoder()
+          const pass = enc.beginComputePass()
+          pass.setPipeline(pipeline)
+          pass.setBindGroup(0, bind)
+          pass.dispatchWorkgroups(Math.ceil(n / 64))
+          pass.end()
+          enc.copyBufferToBuffer(outBuf, 0, readBuf, 0, n * 4 * 4)
+          device.queue.submit([enc.finish()])
+          await readBuf.mapAsync(GPUMapMode.READ)
+          out[c.label] = Array.from(new Float32Array(readBuf.getMappedRange().slice(0)))
+          readBuf.unmap()
+        }
+        return { out, errors }
+      },
+      { wgsl: COMPUTE_WGSL, cells: cells.map((c) => ({ label: c.label, inp: c.inp, uni: c.uni })) },
+    )
+
+    expect(gpu, `GPU compute failed: ${'error' in gpu ? gpu.error : ''}`).not.toHaveProperty(
+      'error',
+    )
     if ('error' in gpu) return
     expect(gpu.errors, `uncaptured GPU errors: ${gpu.errors.join(' | ')}`).toEqual([])
 
-    let worstNewM = 0, worstNewPx = 0, worstOldM = 0, worstOldPx = 0
+    let worstNewM = 0,
+      worstNewPx = 0,
+      worstOldM = 0,
+      worstOldPx = 0
     let compared = 0
     for (const c of cells) {
       const flat = gpu.out[c.label]
       for (let i = 0; i < N; i++) {
         const [tx, ty] = c.truth[i]
-        const newDx = flat[i * 4] - tx, newDy = flat[i * 4 + 1] - ty
-        const oldDx = flat[i * 4 + 2] - tx, oldDy = flat[i * 4 + 3] - ty
+        const newDx = flat[i * 4] - tx,
+          newDy = flat[i * 4 + 1] - ty
+        const oldDx = flat[i * 4 + 2] - tx,
+          oldDy = flat[i * 4 + 3] - ty
         if (![newDx, newDy, oldDx, oldDy].every(Number.isFinite)) continue
         compared++
         const newM = Math.hypot(newDx, newDy)
@@ -240,20 +283,32 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
     worstOldPx = worstOldM * PX_PER_M
     console.log(
       `[fill-flat parity] ${SOFTWARE_GPU ? 'software' : 'hardware'} GPU, ${compared} verts | ` +
-      `NEW(#392) worst ${worstNewM.toExponential(3)} m = ${worstNewPx.toExponential(3)} px | ` +
-      `OLD(pre-#392) worst ${worstOldM.toFixed(4)} m = ${worstOldPx.toFixed(2)} px @ z${Z_REPORT}`
+        `NEW(#392) worst ${worstNewM.toExponential(3)} m = ${worstNewPx.toExponential(3)} px | ` +
+        `OLD(pre-#392) worst ${worstOldM.toFixed(4)} m = ${worstOldPx.toFixed(2)} px @ z${Z_REPORT}`,
     )
 
     expect(compared, 'no finite vertices compared').toBeGreaterThan(N) // both cells contributed
 
     // The #392 fill arm reconstructs the outline position to sub-mm / sub-px.
-    expect(worstNewM, `#392 fill arm drifted from the f64 outline: ${worstNewM.toExponential(3)} m`).toBeLessThan(2e-3)
-    expect(worstNewPx, `#392 fill arm split from the outline on screen: ${worstNewPx.toExponential(3)} px`).toBeLessThan(0.5)
+    expect(
+      worstNewM,
+      `#392 fill arm drifted from the f64 outline: ${worstNewM.toExponential(3)} m`,
+    ).toBeLessThan(2e-3)
+    expect(
+      worstNewPx,
+      `#392 fill arm split from the outline on screen: ${worstNewPx.toExponential(3)} px`,
+    ).toBeLessThan(0.5)
 
     // TEETH: the pre-#392 f32-degree arm is provably displaced — so a packing
     // revert (tail slots back to degrees) makes NEW fail this very gate too.
-    expect(worstOldM, `pre-#392 arm should be physically displaced (gate has no teeth): ${worstOldM} m`).toBeGreaterThan(0.5)
-    expect(worstOldPx, `pre-#392 arm should be visibly split (the ~10px symptom): ${worstOldPx} px`).toBeGreaterThan(5)
+    expect(
+      worstOldM,
+      `pre-#392 arm should be physically displaced (gate has no teeth): ${worstOldM} m`,
+    ).toBeGreaterThan(0.5)
+    expect(
+      worstOldPx,
+      `pre-#392 arm should be visibly split (the ~10px symptom): ${worstOldPx} px`,
+    ).toBeGreaterThan(5)
   })
 
   test('emitted polygon fill arm still reads tile-local Mercator (arm-revert pin)', () => {
@@ -265,7 +320,16 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
     // auto-var/CSE pass binds it to a generated name (`_cseN`), not a fixed one,
     // so pin the expression, not the binding name.
     const here = dirname(fileURLToPath(import.meta.url))
-    const snapDir = join(here, '..', '..', 'map', 'src', 'shaders', 'dsl', '__polygon-variant-snapshots__')
+    const snapDir = join(
+      here,
+      '..',
+      '..',
+      'map',
+      'src',
+      'shaders',
+      'dsl',
+      '__polygon-variant-snapshots__',
+    )
     const TOKEN = '= ((vec2<f32>(abs_lon, abs_lat) - u.cam_h) - u.cam_l)'
     const files = readdirSync(snapDir).filter((f) => f.endsWith('.wgsl'))
     expect(files.length, `no polygon snapshots in ${snapDir}`).toBeGreaterThan(0)

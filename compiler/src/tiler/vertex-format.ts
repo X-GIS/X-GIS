@@ -15,16 +15,12 @@
 /** WebGPU vertex attribute formats used across the renderers. Byte sizes are
  *  fixed by the WebGPU spec; see VB_FORMAT_BYTES. Extend both together. */
 export type VbFormat =
-  | 'uint16x2' | 'uint16x4'
-  | 'uint32'
-  | 'float32' | 'float32x2' | 'float32x3' | 'float32x4'
+  'uint16x2' | 'uint16x4' | 'uint32' | 'float32' | 'float32x2' | 'float32x3' | 'float32x4'
 
 /** WGSL type a vertex attribute presents to the shader. Note u16 lanes are
  *  widened to u32 by WebGPU (uint16x4 → vec4<u32>, uint16x2 → vec2<u32>). */
 export type WgslType =
-  | 'u32' | 'f32'
-  | 'vec2<u32>' | 'vec4<u32>'
-  | 'vec2<f32>' | 'vec3<f32>' | 'vec4<f32>'
+  'u32' | 'f32' | 'vec2<u32>' | 'vec4<u32>' | 'vec2<f32>' | 'vec3<f32>' | 'vec4<f32>'
 
 /** Byte size of each vertex format (WebGPU-defined). */
 export const VB_FORMAT_BYTES: Readonly<Record<VbFormat, number>> = {

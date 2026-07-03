@@ -20,16 +20,30 @@ function isCopySource(e: Expr): e is Extract<Expr, { op: 'param' | 'varref' | 'c
   return e.op === 'param' || e.op === 'varref' || e.op === 'constref'
 }
 
-function collectCopies(body: readonly Stmt[], mutated: ReadonlySet<string>, out: Map<string, Expr>): void {
+function collectCopies(
+  body: readonly Stmt[],
+  mutated: ReadonlySet<string>,
+  out: Map<string, Expr>,
+): void {
   for (const s of body) {
     if (
-      s.s === 'let' && isCopySource(s.expr) && !mutated.has(s.name)
+      s.s === 'let' &&
+      isCopySource(s.expr) &&
+      !mutated.has(s.name) &&
       // a constref is immutable; a param/varref source must itself never be reassigned
-      && (s.expr.op === 'constref' || !mutated.has(s.expr.name))
-    ) out.set(s.name, s.expr)
-    else if (s.s === 'if') { for (const a of s.arms) collectCopies(a.body, mutated, out); if (s.elseBody) collectCopies(s.elseBody, mutated, out) }
-    else if (s.s === 'for') { collectCopies([s.init], mutated, out); collectCopies(s.body, mutated, out) }
-    else if (s.s === 'switch') { for (const c of s.cases) collectCopies(c.body, mutated, out); if (s.defaultBody) collectCopies(s.defaultBody, mutated, out) }
+      (s.expr.op === 'constref' || !mutated.has(s.expr.name))
+    )
+      out.set(s.name, s.expr)
+    else if (s.s === 'if') {
+      for (const a of s.arms) collectCopies(a.body, mutated, out)
+      if (s.elseBody) collectCopies(s.elseBody, mutated, out)
+    } else if (s.s === 'for') {
+      collectCopies([s.init], mutated, out)
+      collectCopies(s.body, mutated, out)
+    } else if (s.s === 'switch') {
+      for (const c of s.cases) collectCopies(c.body, mutated, out)
+      if (s.defaultBody) collectCopies(s.defaultBody, mutated, out)
+    }
   }
 }
 

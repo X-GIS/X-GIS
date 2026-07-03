@@ -24,9 +24,9 @@ describe('decodeGlyphsPbf — Open Sans Semibold 0-255 fixture', () => {
     // which glyphs the PBF actually carries (servers sometimes ship
     // narrower coverage for narrow ranges).
     expect(stack.glyphs.size).toBeGreaterThan(80)
-    expect(stack.glyphs.has(0x41)).toBe(true)  // 'A'
-    expect(stack.glyphs.has(0x61)).toBe(true)  // 'a'
-    expect(stack.glyphs.has(0x30)).toBe(true)  // '0'
+    expect(stack.glyphs.has(0x41)).toBe(true) // 'A'
+    expect(stack.glyphs.has(0x61)).toBe(true) // 'a'
+    expect(stack.glyphs.has(0x30)).toBe(true) // '0'
   })
 
   it('spot-checks "A" — non-empty bitmap, plausible metrics', () => {
@@ -47,7 +47,7 @@ describe('decodeGlyphsPbf — Open Sans Semibold 0-255 fixture', () => {
     // SDF must contain the edge value (192). If everything is 0 the
     // decoder is dropping bytes; if everything is 255 the wire type
     // was misread.
-    const hasEdge = A.bitmap.some(b => b >= 180 && b <= 210)
+    const hasEdge = A.bitmap.some((b) => b >= 180 && b <= 210)
     expect(hasEdge).toBe(true)
   })
 

@@ -8,22 +8,33 @@ function eachExpr(e: Expr, onExpr: (e: Expr) => void): void {
     case 'binop':
     case 'compare':
     case 'logical':
-      eachExpr(e.a, onExpr); eachExpr(e.b, onExpr); break
+      eachExpr(e.a, onExpr)
+      eachExpr(e.b, onExpr)
+      break
     case 'unop':
-      eachExpr(e.a, onExpr); break
+      eachExpr(e.a, onExpr)
+      break
     case 'call':
     case 'construct':
-      for (const a of e.args) eachExpr(a, onExpr); break
+      for (const a of e.args) eachExpr(a, onExpr)
+      break
     case 'member':
-      eachExpr(e.base, onExpr); break
+      eachExpr(e.base, onExpr)
+      break
     case 'index':
-      eachExpr(e.base, onExpr); eachExpr(e.idx, onExpr); break
+      eachExpr(e.base, onExpr)
+      eachExpr(e.idx, onExpr)
+      break
     case 'select':
-      eachExpr(e.cond, onExpr); eachExpr(e.ifTrue, onExpr); eachExpr(e.ifFalse, onExpr); break
+      eachExpr(e.cond, onExpr)
+      eachExpr(e.ifTrue, onExpr)
+      eachExpr(e.ifFalse, onExpr)
+      break
     case 'matchExpr':
       eachExpr(e.scrutinee, onExpr)
       for (const [, v] of e.cases) eachExpr(v, onExpr)
-      eachExpr(e.default, onExpr); break
+      eachExpr(e.default, onExpr)
+      break
     default:
       break // lit / constref / param / varref — leaves
   }
@@ -34,18 +45,31 @@ function eachExpr(e: Expr, onExpr: (e: Expr) => void): void {
 function eachStmt(s: Stmt, onStmt: (s: Stmt) => void, onExpr: (e: Expr) => void): void {
   onStmt(s)
   switch (s.s) {
-    case 'let': eachExpr(s.expr, onExpr); break
-    case 'var': if (s.init) eachExpr(s.init, onExpr); break
+    case 'let':
+      eachExpr(s.expr, onExpr)
+      break
+    case 'var':
+      if (s.init) eachExpr(s.init, onExpr)
+      break
     case 'assign':
     case 'assignOp':
-      eachExpr(s.target, onExpr); eachExpr(s.expr, onExpr); break
-    case 'return': if (s.expr) eachExpr(s.expr, onExpr); break
+      eachExpr(s.target, onExpr)
+      eachExpr(s.expr, onExpr)
+      break
+    case 'return':
+      if (s.expr) eachExpr(s.expr, onExpr)
+      break
     case 'if':
-      for (const arm of s.arms) { eachExpr(arm.cond, onExpr); for (const b of arm.body) eachStmt(b, onStmt, onExpr) }
+      for (const arm of s.arms) {
+        eachExpr(arm.cond, onExpr)
+        for (const b of arm.body) eachStmt(b, onStmt, onExpr)
+      }
       if (s.elseBody) for (const b of s.elseBody) eachStmt(b, onStmt, onExpr)
       break
     case 'for':
-      eachStmt(s.init, onStmt, onExpr); eachExpr(s.cond, onExpr); eachStmt(s.update, onStmt, onExpr)
+      eachStmt(s.init, onStmt, onExpr)
+      eachExpr(s.cond, onExpr)
+      eachStmt(s.update, onStmt, onExpr)
       for (const b of s.body) eachStmt(b, onStmt, onExpr)
       break
     case 'switch':
@@ -73,8 +97,12 @@ export const noDeadBinding: LintRule = {
       for (const s of f.body) {
         eachStmt(
           s,
-          (st) => { if (st.s === 'let') letNames.push(st.name) },
-          (e) => { if (e.op === 'varref') referenced.add(e.name) },
+          (st) => {
+            if (st.s === 'let') letNames.push(st.name)
+          },
+          (e) => {
+            if (e.op === 'varref') referenced.add(e.name)
+          },
         )
       }
       for (const name of letNames) {

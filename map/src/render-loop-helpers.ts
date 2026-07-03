@@ -5,12 +5,21 @@
 // behaviour stays byte-identical. Mirrors map-geo-helpers.ts in spirit.
 
 import type { LabelDef } from '@xgis/compiler'
-import { resolveNumberShape, resolveColorShape, resolveSteppedShape } from './render/paint-shape-resolve'
+import {
+  resolveNumberShape,
+  resolveColorShape,
+  resolveSteppedShape,
+} from './render/paint-shape-resolve'
 import { hexToRgba } from './feature-helpers'
 import { lonLatToECEF } from '@xgis/engine'
 import { EARTH_R } from '@xgis/engine'
 import { mercatorYToLat } from '@xgis/engine'
-import { projectCpu, projectGeomCpu, needsBackfaceCullCpu, projMercatorCpu } from './shaders/dsl/cpu-projections'
+import {
+  projectCpu,
+  projectGeomCpu,
+  needsBackfaceCullCpu,
+  projMercatorCpu,
+} from './shaders/dsl/cpu-projections'
 import { isGlobeProj } from '@xgis/engine'
 import type { Camera } from '@xgis/engine'
 import { WORLD_MERC } from '@xgis/engine'
@@ -34,12 +43,11 @@ const WORLD_CIRC = 2 * Math.PI * 6378137
  *  push/pop is unbalanced; a device-lost reject is the first sign of a GPU
  *  fault). This is the side-effecting exception to this file's pure-helper
  *  rule — it owns only the `xlog` logger, no map state. */
-export function reportErrorScope(
-  popPromise: Promise<GPUError | null>,
-  tag: string,
-): void {
+export function reportErrorScope(popPromise: Promise<GPUError | null>, tag: string): void {
   popPromise
-    .then((err) => { if (err) xlog.error(`[X-GIS ${tag}]`, err.message) })
+    .then((err) => {
+      if (err) xlog.error(`[X-GIS ${tag}]`, err.message)
+    })
     .catch((e) => {
       xlog.error(
         `[X-GIS ${tag}] popErrorScope rejected`,
@@ -70,16 +78,18 @@ export function resolveLabelEffectiveDef(
   // text-size: constant / zoom-interpolated paths resolve to a
   // concrete number; data-driven needs the per-feature eval
   // path, so we treat its placeholder as the static `def.size`.
-  const resolvedSize = shapes && shapes.textLayout.size.kind !== 'data-driven'
-    ? resolveNumberShape(shapes.textLayout.size, z, elapsedMs).value
-    : def.size
+  const resolvedSize =
+    shapes && shapes.textLayout.size.kind !== 'data-driven'
+      ? resolveNumberShape(shapes.textLayout.size, z, elapsedMs).value
+      : def.size
   // text-color: null shape → fall back to the layer fill hex.
   // data-driven goes through applyFeatureExprs.
   let resolvedColor: [number, number, number, number] | undefined
   if (shapes && shapes.textPaint.color !== null && shapes.textPaint.color.kind !== 'data-driven') {
     const c = resolveColorShape(shapes.textPaint.color, z, elapsedMs)
     if (c !== null) resolvedColor = c.value as [number, number, number, number]
-    else if (shapes.textPaint.color.kind === 'constant') resolvedColor = shapes.textPaint.color.value as [number, number, number, number]
+    else if (shapes.textPaint.color.kind === 'constant')
+      resolvedColor = shapes.textPaint.color.value as [number, number, number, number]
   }
   if (resolvedColor === undefined) {
     resolvedColor = hexToRgba(layerFill) ?? [1, 1, 1, 1]
@@ -103,27 +113,32 @@ export function resolveLabelEffectiveDef(
   }
   if (shapes?.textPaint.haloColor && shapes.textPaint.haloColor.kind !== 'data-driven') {
     const c = resolveColorShape(shapes.textPaint.haloColor, z, elapsedMs)
-    haloColorOverride = (c !== null
-      ? c.value as [number, number, number, number]
-      : (shapes.textPaint.haloColor.kind === 'constant'
-        ? shapes.textPaint.haloColor.value as [number, number, number, number]
-        : undefined))
+    haloColorOverride =
+      c !== null
+        ? (c.value as [number, number, number, number])
+        : shapes.textPaint.haloColor.kind === 'constant'
+          ? (shapes.textPaint.haloColor.value as [number, number, number, number])
+          : undefined
   }
   if (shapes?.textPaint.haloBlur && shapes.textPaint.haloBlur.kind !== 'data-driven') {
     haloBlurOverride = resolveNumberShape(shapes.textPaint.haloBlur, z, elapsedMs).value
   }
   let resolvedHalo = def.halo
-  if (haloWidthOverride !== undefined || haloColorOverride !== undefined || haloBlurOverride !== undefined) {
+  if (
+    haloWidthOverride !== undefined ||
+    haloColorOverride !== undefined ||
+    haloBlurOverride !== undefined
+  ) {
     // Mapbox spec defaults: text-halo-color transparent black,
     // text-halo-width 0. Used as fallback when a knob is
     // resolved but `def.halo` is absent (haloWidth-only style).
     const baseColor = haloColorOverride ?? def.halo?.color ?? [0, 0, 0, 0]
     const baseWidth = haloWidthOverride ?? def.halo?.width ?? 0
-    const baseBlur = haloBlurOverride !== undefined
-      ? haloBlurOverride : def.halo?.blur
-    resolvedHalo = baseBlur !== undefined
-      ? { color: baseColor, width: baseWidth, blur: baseBlur }
-      : { color: baseColor, width: baseWidth }
+    const baseBlur = haloBlurOverride !== undefined ? haloBlurOverride : def.halo?.blur
+    resolvedHalo =
+      baseBlur !== undefined
+        ? { color: baseColor, width: baseWidth, blur: baseBlur }
+        : { color: baseColor, width: baseWidth }
   }
   // Font resolution: family stack / weight / style are three
   // independent PropertyShapes resolved through the shared
@@ -159,9 +174,7 @@ export function resolveLabelEffectiveDef(
   // rotation knob since it's the more common request.
   const isLineLabel = def.placement === 'line' || def.placement === 'line-center'
   const rotAlign = def.rotationAlignment ?? 'auto'
-  const useMapRotForPoints = !isLineLabel
-    && (rotAlign === 'map'
-      || (rotAlign === 'auto' && false))  // auto = viewport for point, no extra rotation
+  const useMapRotForPoints = !isLineLabel && (rotAlign === 'map' || (rotAlign === 'auto' && false)) // auto = viewport for point, no extra rotation
   // Bearing rotation for `map`-aligned point labels. Camera
   // bearing is in degrees CCW; text-rotate is degrees CW.
   // Negate so a 30° map rotation yields a 30° label rotation
@@ -172,19 +185,29 @@ export function resolveLabelEffectiveDef(
   // shape falls back to def.iconSize (= constant from
   // LabelDef) or the spec default 1 at dispatchIcon. Mirror
   // of the text-size resolve above.
-  const resolvedIconSize = shapes && shapes.icon.iconSize !== null && shapes.icon.iconSize.kind !== 'data-driven'
-    ? resolveNumberShape(shapes.icon.iconSize, z, elapsedMs).value
-    : def.iconSize
+  const resolvedIconSize =
+    shapes && shapes.icon.iconSize !== null && shapes.icon.iconSize.kind !== 'data-driven'
+      ? resolveNumberShape(shapes.icon.iconSize, z, elapsedMs).value
+      : def.iconSize
   // text-opacity — non-constant forms only land here. The
   // constant form is already folded into label-color's alpha
   // at convert-time (applyAlphaMultiplier). Multiplied into
   // resolvedColor.a + resolvedHalo.color.a so halo also fades.
   // Data-driven goes through applyFeatureExprs. Iter 113.
-  if (shapes && shapes.textPaint.opacity !== null && shapes.textPaint.opacity.kind !== 'data-driven') {
+  if (
+    shapes &&
+    shapes.textPaint.opacity !== null &&
+    shapes.textPaint.opacity.kind !== 'data-driven'
+  ) {
     const op = resolveNumberShape(shapes.textPaint.opacity, z, elapsedMs).value
     const clamped = Math.max(0, Math.min(1, op))
     if (resolvedColor !== undefined) {
-      resolvedColor = [resolvedColor[0], resolvedColor[1], resolvedColor[2], resolvedColor[3] * clamped]
+      resolvedColor = [
+        resolvedColor[0],
+        resolvedColor[1],
+        resolvedColor[2],
+        resolvedColor[3] * clamped,
+      ]
     }
     if (resolvedHalo !== undefined) {
       const hc = resolvedHalo.color as [number, number, number, number]
@@ -194,9 +217,10 @@ export function resolveLabelEffectiveDef(
   // icon-opacity — both constant and non-constant route through
   // shapes.iconOpacity (PropertyShape). Falls back to def.iconOpacity
   // (LabelDef constant) when no shape was authored.
-  const resolvedIconOpacity = shapes && shapes.icon.iconOpacity !== null && shapes.icon.iconOpacity.kind !== 'data-driven'
-    ? resolveNumberShape(shapes.icon.iconOpacity, z, elapsedMs).value
-    : def.iconOpacity
+  const resolvedIconOpacity =
+    shapes && shapes.icon.iconOpacity !== null && shapes.icon.iconOpacity.kind !== 'data-driven'
+      ? resolveNumberShape(shapes.icon.iconOpacity, z, elapsedMs).value
+      : def.iconOpacity
   // icon-color — constant + zoom-interp route through
   // shapes.iconColor (PropertyShape<RGBA>); data-driven is
   // handled by the per-feature evaluator below (mirrors color).
@@ -204,7 +228,8 @@ export function resolveLabelEffectiveDef(
   if (shapes && shapes.icon.iconColor !== null && shapes.icon.iconColor.kind !== 'data-driven') {
     const ic = resolveColorShape(shapes.icon.iconColor, z, elapsedMs)
     if (ic !== null) resolvedIconColor = ic.value as [number, number, number, number]
-    else if (shapes.icon.iconColor.kind === 'constant') resolvedIconColor = shapes.icon.iconColor.value as [number, number, number, number]
+    else if (shapes.icon.iconColor.kind === 'constant')
+      resolvedIconColor = shapes.icon.iconColor.value as [number, number, number, number]
   }
   if (resolvedIconColor === undefined) resolvedIconColor = def.iconColor
   // Iter 133 perf: in-place field set instead of conditional
@@ -370,8 +395,12 @@ export function makeLabelProjectors(
     : projectCpu(projType, centerLon, centerLat, centerLon, centerLat)
   const _projScratch: [number, number] = [0, 0]
 
-  const projectMerc = (mx: number, my: number, worldMercatorOffset = 0): [number, number] | null => {
-    const rtcX = (mx + worldMercatorOffset) - ccx
+  const projectMerc = (
+    mx: number,
+    my: number,
+    worldMercatorOffset = 0,
+  ): [number, number] | null => {
+    const rtcX = mx + worldMercatorOffset - ccx
     const rtcY = my - ccy
     const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
     if (cw <= 0) return null
@@ -383,7 +412,11 @@ export function makeLabelProjectors(
     return _projScratch
   }
 
-  const projectLonLat = (lon: number, lat: number, worldMercatorOffset = 0): [number, number] | null => {
+  const projectLonLat = (
+    lon: number,
+    lat: number,
+    worldMercatorOffset = 0,
+  ): [number, number] | null => {
     if (isMerc) {
       // Shared clamped CPU Mercator mirror (proj_mercator f64 lowering) —
       // byte-equivalent to the prior inline (same formula, consts, and
@@ -397,7 +430,8 @@ export function makeLabelProjectors(
     // limb-meridian label pile-up. The margin only affects ortho (raw cos_c);
     // for every other projType needs_backface_cull returns ±1/1 so `< margin`
     // reduces to the original `< 0` back-hemisphere cull.
-    if (needsBackfaceCullCpu(projType, lon, lat, centerLon, centerLat) < ORTHO_RIM_LABEL_MARGIN) return null
+    if (needsBackfaceCullCpu(projType, lon, lat, centerLon, centerLat) < ORTHO_RIM_LABEL_MARGIN)
+      return null
     const p = projectGeomCpu(projType, lon, lat, centerLon, centerLat, lon)
     if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) return null
     // World-copy offset in PROJECTED-x space: `worldMercatorOffset` here carries
@@ -405,7 +439,7 @@ export function makeLabelProjectors(
     // GPU project_geom adds to p.x for the periodic non-merc arms. projectGeomCpu
     // is the no-offset mirror (cpu-projections.ts:50), so the shift is applied
     // here — feeding a shifted refLon would NOT work (equirect wraps lon-delta).
-    const rtcX = (p[0] + worldMercatorOffset) - lblCenter[0]
+    const rtcX = p[0] + worldMercatorOffset - lblCenter[0]
     const rtcY = p[1] - lblCenter[1]
     const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
     if (cw <= 0) return null
@@ -420,7 +454,7 @@ export function makeLabelProjectors(
   const projectMercAny = (sx: number, sy: number): [number, number] | null => {
     if (isMerc) return projectMerc(sx, sy)
     const R = 6378137
-    const lon = sx / (Math.PI / 180 * R)
+    const lon = sx / ((Math.PI / 180) * R)
     const lat = mercatorYToLat(sy)
     return projectLonLat(lon, lat, 0)
   }
@@ -472,9 +506,18 @@ export function projectLonLatToScreenCss(
   const view = camera.getViewForProjection(projType, w, h, dpr)
   const camMerc = projMercatorCpu(centerLon, centerLat)
   const { projectLonLat } = makeLabelProjectors(
-    view.matrix, w, h,
+    view.matrix,
+    w,
+    h,
     isFlatProj
-      ? { projType, ccx: camMerc[0], ccy: camMerc[1], centerLon, centerLat, visibleWorldCopies: camera.getVisibleWorldCopies(w, h, dpr) }
+      ? {
+          projType,
+          ccx: camMerc[0],
+          ccy: camMerc[1],
+          centerLon,
+          centerLat,
+          visibleWorldCopies: camera.getVisibleWorldCopies(w, h, dpr),
+        }
       : undefined,
     view.eye,
   )

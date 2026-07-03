@@ -11,14 +11,16 @@ function symbolWith(paint: Record<string, unknown>, layout?: Record<string, unkn
   return {
     version: 8,
     sources: { t: { type: 'vector', tiles: ['x'] } },
-    layers: [{
-      id: 'q',
-      type: 'symbol',
-      source: 't',
-      'source-layer': 'p',
-      layout: { 'text-field': '{name}', ...(layout ?? {}) },
-      paint,
-    }],
+    layers: [
+      {
+        id: 'q',
+        type: 'symbol',
+        source: 't',
+        'source-layer': 'p',
+        layout: { 'text-field': '{name}', ...(layout ?? {}) },
+        paint,
+      },
+    ],
   }
 }
 
@@ -34,55 +36,73 @@ function hasWarning(xgisSource: string, sub: string): boolean {
 
 describe('text-opacity → label-color alpha fold (constant form)', () => {
   it('text-color: #fff + text-opacity: 0.5 → #ffffff80', () => {
-    const out = convertMapboxStyle(symbolWith({
-      'text-color': '#fff', 'text-opacity': 0.5,
-    }) as Parameters<typeof convertMapboxStyle>[0])
+    const out = convertMapboxStyle(
+      symbolWith({
+        'text-color': '#fff',
+        'text-opacity': 0.5,
+      }) as Parameters<typeof convertMapboxStyle>[0],
+    )
     expect(extractLabelColor(out)).toBe('label-color-#ffffff80')
   })
 
   it('default text-color (#000) * text-opacity: 0.3 → #0000004d', () => {
-    const out = convertMapboxStyle(symbolWith({
-      'text-opacity': 0.3,
-    }) as Parameters<typeof convertMapboxStyle>[0])
+    const out = convertMapboxStyle(
+      symbolWith({
+        'text-opacity': 0.3,
+      }) as Parameters<typeof convertMapboxStyle>[0],
+    )
     expect(extractLabelColor(out)).toBe('label-color-#0000004d')
   })
 
   it('text-color: rgba(255,255,255,0.8) + text-opacity: 0.5 → #ffffff66', () => {
     // Composes: text-color alpha 0.8 × text-opacity 0.5 = 0.4
     // → 102/255 ≈ 0x66
-    const out = convertMapboxStyle(symbolWith({
-      'text-color': 'rgba(255,255,255,0.8)', 'text-opacity': 0.5,
-    }) as Parameters<typeof convertMapboxStyle>[0])
+    const out = convertMapboxStyle(
+      symbolWith({
+        'text-color': 'rgba(255,255,255,0.8)',
+        'text-opacity': 0.5,
+      }) as Parameters<typeof convertMapboxStyle>[0],
+    )
     expect(extractLabelColor(out)).toBe('label-color-#ffffff66')
   })
 
   it('text-opacity: 1 is a no-op (passes hex through)', () => {
-    const out = convertMapboxStyle(symbolWith({
-      'text-color': '#abc', 'text-opacity': 1,
-    }) as Parameters<typeof convertMapboxStyle>[0])
+    const out = convertMapboxStyle(
+      symbolWith({
+        'text-color': '#abc',
+        'text-opacity': 1,
+      }) as Parameters<typeof convertMapboxStyle>[0],
+    )
     expect(extractLabelColor(out)).toBe('label-color-#abc')
   })
 
   it('no text-opacity authored: text-color hex passes through unchanged', () => {
-    const out = convertMapboxStyle(symbolWith({
-      'text-color': '#abc',
-    }) as Parameters<typeof convertMapboxStyle>[0])
+    const out = convertMapboxStyle(
+      symbolWith({
+        'text-color': '#abc',
+      }) as Parameters<typeof convertMapboxStyle>[0],
+    )
     expect(extractLabelColor(out)).toBe('label-color-#abc')
   })
 
   it('constant text-opacity does NOT trigger the spurious "ignored property" warning', () => {
-    const out = convertMapboxStyle(symbolWith({
-      'text-color': '#fff', 'text-opacity': 0.5,
-    }) as Parameters<typeof convertMapboxStyle>[0])
+    const out = convertMapboxStyle(
+      symbolWith({
+        'text-color': '#fff',
+        'text-opacity': 0.5,
+      }) as Parameters<typeof convertMapboxStyle>[0],
+    )
     expect(hasWarning(out, 'ignored properties (Batch 1d/1e+): text-opacity')).toBe(false)
     expect(hasWarning(out, 'ignored properties (Batch 1d/1e+)')).toBe(false)
   })
 
   it('non-constant text-opacity (zoom interp) emits dedicated label-opacity utility (iter 113)', () => {
-    const out = convertMapboxStyle(symbolWith({
-      'text-color': '#fff',
-      'text-opacity': ['interpolate', ['linear'], ['zoom'], 0, 1, 22, 0.5],
-    }) as Parameters<typeof convertMapboxStyle>[0])
+    const out = convertMapboxStyle(
+      symbolWith({
+        'text-color': '#fff',
+        'text-opacity': ['interpolate', ['linear'], ['zoom'], 0, 1, 22, 0.5],
+      }) as Parameters<typeof convertMapboxStyle>[0],
+    )
     // Color emits without folded alpha — the zoom interp lives on a
     // separate label-opacity-[…] utility that lower.ts threads into
     // LabelShapes.opacity PropertyShape. Runtime resolves per frame.
@@ -93,9 +113,12 @@ describe('text-opacity → label-color alpha fold (constant form)', () => {
   })
 
   it('text-opacity = 0 collapses to fully transparent (#rrggbb00)', () => {
-    const out = convertMapboxStyle(symbolWith({
-      'text-color': '#fff', 'text-opacity': 0,
-    }) as Parameters<typeof convertMapboxStyle>[0])
+    const out = convertMapboxStyle(
+      symbolWith({
+        'text-color': '#fff',
+        'text-opacity': 0,
+      }) as Parameters<typeof convertMapboxStyle>[0],
+    )
     expect(extractLabelColor(out)).toBe('label-color-#ffffff00')
   })
 })

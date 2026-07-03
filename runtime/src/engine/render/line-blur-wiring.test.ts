@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  packLineLayerUniform,
-  lineUniformSize,
-} from '@xgis/map'
+import { packLineLayerUniform, lineUniformSize } from '@xgis/map'
 
 // line-blur wiring (GPU-free, fail-before).
 //
@@ -44,10 +41,18 @@ const MPP = 1000
 
 function packWithBlur(blurPx: number): Float32Array {
   return packLineLayerUniform(
-    COLOR, WIDTH, OPACITY, MPP,
-    undefined, undefined, undefined, // cap / join / miterLimit → spec defaults
-    null, [], 0, 1,                  // dash / patterns / offsetPx / viewportHeight
-    blurPx,                          // ← line-blur
+    COLOR,
+    WIDTH,
+    OPACITY,
+    MPP,
+    undefined,
+    undefined,
+    undefined, // cap / join / miterLimit → spec defaults
+    null,
+    [],
+    0,
+    1, // dash / patterns / offsetPx / viewportHeight
+    blurPx, // ← line-blur
   )
 }
 

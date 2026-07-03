@@ -12,13 +12,13 @@ mkdirSync(OUT, { recursive: true })
 // the duplication, so sweep zoom levels around the original
 // case and a separate dense-label scene.
 for (const cfg of [
-  { name: 'seoul-z17',    hash: '#17/37.12661/126.92401' },
-  { name: 'seoul-z18',    hash: '#18/37.12661/126.92401' },
-  { name: 'seoul-z19',    hash: '#19/37.12661/126.92401' },
+  { name: 'seoul-z17', hash: '#17/37.12661/126.92401' },
+  { name: 'seoul-z18', hash: '#18/37.12661/126.92401' },
+  { name: 'seoul-z19', hash: '#19/37.12661/126.92401' },
   { name: 'manhattan-z16', hash: '#16/40.7589/-73.9851' },
   { name: 'manhattan-z18', hash: '#18/40.7589/-73.9851' },
-  { name: 'tokyo-z16',     hash: '#16/35.6762/139.6503' },
-  { name: 'tokyo-z18',     hash: '#18/35.6762/139.6503' },
+  { name: 'tokyo-z16', hash: '#16/35.6762/139.6503' },
+  { name: 'tokyo-z18', hash: '#18/35.6762/139.6503' },
 ]) {
   test(`zoom-in-dup ${cfg.name}`, async ({ page }) => {
     test.setTimeout(60_000)
@@ -27,10 +27,11 @@ for (const cfg of [
       waitUntil: 'domcontentloaded',
     })
     await page.waitForFunction(
-      () => (window as unknown as { __xgisReady?: boolean; __mlReady?: boolean })
-        .__xgisReady === true
-        && (window as unknown as { __mlReady?: boolean }).__mlReady === true,
-      null, { timeout: 30_000 },
+      () =>
+        (window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }).__xgisReady ===
+          true && (window as unknown as { __mlReady?: boolean }).__mlReady === true,
+      null,
+      { timeout: 30_000 },
     )
     await page.waitForTimeout(10_000)
     const panes = page.locator('#panes .pane')

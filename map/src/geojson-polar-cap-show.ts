@@ -9,11 +9,7 @@
 
 import type { ShowCommand } from './render/renderer-types'
 import { defaultRasterShapes } from '@xgis/compiler'
-import {
-  GeoJSONPolarCapBackend,
-  capSourceName,
-  type CapPoles,
-} from '@xgis/data'
+import { GeoJSONPolarCapBackend, capSourceName, type CapPoles } from '@xgis/data'
 import { TileCatalog } from '@xgis/data'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { worldBandForProjType } from '@xgis/engine'
@@ -61,12 +57,27 @@ export function installGeoJSONPolarCaps(host: PolarCapInstallHost): void {
     const catalog = new TileCatalog()
     const vtRenderer = new VectorTileRenderer(host.ctx)
     vtRenderer.setBindGroupLayout(host.renderer.bindGroupLayout)
-    vtRenderer.setPaletteResources(host.renderer.paletteColorAtlasView, host.renderer.paletteSampler)
+    vtRenderer.setPaletteResources(
+      host.renderer.paletteColorAtlasView,
+      host.renderer.paletteSampler,
+    )
     vtRenderer.setSpriteAtlasView(host.renderer.spriteAtlasView)
-    vtRenderer.setExtrudedPipelines(host.renderer.fillPipelineExtruded, host.renderer.fillPipelineExtrudedFallback)
-    vtRenderer.setGroundPipelines(host.renderer.fillPipelineGround, host.renderer.fillPipelineGroundFallback)
-    vtRenderer.setPatternPipelines(host.renderer.fillPipelinePatternGround, host.renderer.fillPipelinePatternGroundFallback)
-    vtRenderer.setPatternExtrudedPipelines(host.renderer.fillPipelinePatternExtruded, host.renderer.fillPipelinePatternExtrudedFallback)
+    vtRenderer.setExtrudedPipelines(
+      host.renderer.fillPipelineExtruded,
+      host.renderer.fillPipelineExtrudedFallback,
+    )
+    vtRenderer.setGroundPipelines(
+      host.renderer.fillPipelineGround,
+      host.renderer.fillPipelineGroundFallback,
+    )
+    vtRenderer.setPatternPipelines(
+      host.renderer.fillPipelinePatternGround,
+      host.renderer.fillPipelinePatternGroundFallback,
+    )
+    vtRenderer.setPatternExtrudedPipelines(
+      host.renderer.fillPipelinePatternExtruded,
+      host.renderer.fillPipelinePatternExtrudedFallback,
+    )
     vtRenderer.setOITPipeline(host.renderer.fillPipelineExtrudedOIT)
     if (host.lineRenderer) vtRenderer.setLineRenderer(host.lineRenderer)
     vtRenderer.setSource(catalog)
@@ -92,7 +103,9 @@ export function detachGeoJSONPolarCaps(host: PolarCapInstallHost): void {
     removed = true
   }
   if (removed) {
-    host.setShowCommands(host.getShowCommands().filter((s) => !s.targetName.endsWith('__polar_cap')))
+    host.setShowCommands(
+      host.getShowCommands().filter((s) => !s.targetName.endsWith('__polar_cap')),
+    )
   }
 }
 

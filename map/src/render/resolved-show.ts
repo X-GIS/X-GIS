@@ -146,15 +146,16 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
   // moved AND (c) for shows with a time-driven axis, elapsedMs is
   // unchanged too. Bright pan motion holds zoom — all 115 shows hit.
   const cached = _resolveCache.get(show)
-  if (cached
-    && cached.opacity === ps.common.opacity
-    && cached.strokeWidth === ps.line.strokeWidth
-    && cached.size === ps.circle.size
-    && cached.fill === ps.fill.fill
-    && cached.stroke === ps.line.stroke
-    && cached.dashOffset === show.dashOffsetShape
-    && cached.zoom === cameraZoom
-    && (!cached.hasTimeDep || cached.elapsedMs === elapsedMs)
+  if (
+    cached &&
+    cached.opacity === ps.common.opacity &&
+    cached.strokeWidth === ps.line.strokeWidth &&
+    cached.size === ps.circle.size &&
+    cached.fill === ps.fill.fill &&
+    cached.stroke === ps.line.stroke &&
+    cached.dashOffset === show.dashOffsetShape &&
+    cached.zoom === cameraZoom &&
+    (!cached.hasTimeDep || cached.elapsedMs === elapsedMs)
   ) {
     return cached.resolved
   }
@@ -172,16 +173,18 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
   //                  per-layer fallback that loses the user's
   //                  declared base width — so we read show
   //                  directly for this case.
-  const strokeWidth = ps.line.strokeWidth.kind === 'data-driven'
-    ? (show.strokeWidth ?? 1)
-    : resolveNumberShape(ps.line.strokeWidth, cameraZoom, elapsedMs).value
+  const strokeWidth =
+    ps.line.strokeWidth.kind === 'data-driven'
+      ? (show.strokeWidth ?? 1)
+      : resolveNumberShape(ps.line.strokeWidth, cameraZoom, elapsedMs).value
 
   // Size — same rule as strokeWidth.
-  const size = ps.circle.size === null
-    ? (show.size ?? 0)
-    : ps.circle.size.kind === 'data-driven'
+  const size =
+    ps.circle.size === null
       ? (show.size ?? 0)
-      : resolveNumberShape(ps.circle.size, cameraZoom, elapsedMs).value
+      : ps.circle.size.kind === 'data-driven'
+        ? (show.size ?? 0)
+        : resolveNumberShape(ps.circle.size, cameraZoom, elapsedMs).value
 
   // Dash offset is a STRUCTURAL stroke attribute (drift of the dash
   // pattern along the line) — it has its own PropertyShape outside the
@@ -211,9 +214,7 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
 
   // WS-1 — per-frame zoom-interp dash array (STEP). Zoom-only, so the
   // zoom-keyed resolve-cache keeps it fresh. null → VTR uses show.dashArray.
-  const dashArray = show.dashArrayShape
-    ? resolveArrayShape(show.dashArrayShape, cameraZoom)
-    : null
+  const dashArray = show.dashArrayShape ? resolveArrayShape(show.dashArrayShape, cameraZoom) : null
 
   // Fill / stroke colour — `null` from the resolver means "the
   // ShowCommand's static `fill` hex is authoritative this frame".
@@ -232,39 +233,42 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
   // strict ≤1 RGB delta verification target. Defer until 10-bit
   // HDR canvas / non-byte display surface is wired (browser
   // dependency, separate phase).
-  const fillResolved = ps.fill.fill !== null
-    ? resolveColorShape(ps.fill.fill, cameraZoom, elapsedMs)
-    : null
-  const strokeResolved = ps.line.stroke !== null
-    ? resolveColorShape(ps.line.stroke, cameraZoom, elapsedMs)
-    : null
+  const fillResolved =
+    ps.fill.fill !== null ? resolveColorShape(ps.fill.fill, cameraZoom, elapsedMs) : null
+  const strokeResolved =
+    ps.line.stroke !== null ? resolveColorShape(ps.line.stroke, cameraZoom, elapsedMs) : null
 
   // Static-hex fallback for the `null` case. parseHexColor lives in
   // map.ts; we just hand back whatever the ShowCommand already
   // computed at compile time (`resolvedFillRgba` is the bake-time
   // staging field used by classifyVectorTileShows).
-  const fill: RGBA | null = fillResolved !== null
-    ? (fillResolved.value as RGBA)
-    : (show.resolvedFillRgba ?? null)
-  const stroke: RGBA | null = strokeResolved !== null
-    ? (strokeResolved.value as RGBA)
-    : (show.resolvedStrokeRgba ?? null)
+  const fill: RGBA | null =
+    fillResolved !== null ? (fillResolved.value as RGBA) : (show.resolvedFillRgba ?? null)
+  const stroke: RGBA | null =
+    strokeResolved !== null ? (strokeResolved.value as RGBA) : (show.resolvedStrokeRgba ?? null)
 
   const resolved: ResolvedShow = {
     layerName: show.layerName ?? show.sourceLayer ?? show.targetName ?? '',
-    opacity, strokeWidth, size, dashOffset,
-    fill, stroke,
-    fillTranslateX, fillTranslateY, strokeTranslateX, strokeTranslateY,
+    opacity,
+    strokeWidth,
+    size,
+    dashOffset,
+    fill,
+    stroke,
+    fillTranslateX,
+    fillTranslateY,
+    strokeTranslateX,
+    strokeTranslateY,
     dashArray,
   }
 
   const hasTimeDep =
-    shapeIsTimeDep(ps.common.opacity as ShapeRef)
-    || shapeIsTimeDep(ps.line.strokeWidth as ShapeRef)
-    || shapeIsTimeDep(ps.circle.size as ShapeRef)
-    || shapeIsTimeDep(ps.fill.fill as ShapeRef)
-    || shapeIsTimeDep(ps.line.stroke as ShapeRef)
-    || shapeIsTimeDep(show.dashOffsetShape as ShapeRef)
+    shapeIsTimeDep(ps.common.opacity as ShapeRef) ||
+    shapeIsTimeDep(ps.line.strokeWidth as ShapeRef) ||
+    shapeIsTimeDep(ps.circle.size as ShapeRef) ||
+    shapeIsTimeDep(ps.fill.fill as ShapeRef) ||
+    shapeIsTimeDep(ps.line.stroke as ShapeRef) ||
+    shapeIsTimeDep(show.dashOffsetShape as ShapeRef)
   if (cached) {
     cached.opacity = ps.common.opacity as ShapeRef
     cached.strokeWidth = ps.line.strokeWidth as ShapeRef

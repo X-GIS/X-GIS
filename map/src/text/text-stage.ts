@@ -20,11 +20,13 @@
 
 import type { LabelDef, TextValue } from '@xgis/compiler'
 import { resolveText, type FeatureProps } from './text-resolver'
-import {
-  GlyphAtlasHost, type GlyphAtlasHostOptions,
-} from './sdf/glyph-atlas-host'
+import { GlyphAtlasHost, type GlyphAtlasHostOptions } from './sdf/glyph-atlas-host'
 import { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
-import { createRasterizer, createMetricsRasterizer, type GlyphRasterizer } from './sdf/glyph-rasterizer'
+import {
+  createRasterizer,
+  createMetricsRasterizer,
+  type GlyphRasterizer,
+} from './sdf/glyph-rasterizer'
 import { GlyphPbfCache } from './sdf/pbf/glyph-pbf-cache'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '@xgis/engine'
@@ -36,20 +38,23 @@ import type { TextDraw } from './text-renderer-types'
 import type { RhiDevice } from '@xgis/engine'
 import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from './text-collision'
 import {
-  applyTextTransform, stripCurveLineExtraScripts,
-  evaluateVariableOffsetEm, variableAnchorOffsetEm,
+  applyTextTransform,
+  stripCurveLineExtraScripts,
+  evaluateVariableOffsetEm,
+  variableAnchorOffsetEm,
   resolveTypography,
-  layoutCacheKey, textKeyFor, layoutCacheEntryValid,
-  mlVerticalLayout, composeFontKey,
-  ONE_EM, SHAPING_DEFAULT_OFFSET, CJK_FALLBACK_CHAIN,
+  layoutCacheKey,
+  textKeyFor,
+  layoutCacheEntryValid,
+  mlVerticalLayout,
+  composeFontKey,
+  ONE_EM,
+  SHAPING_DEFAULT_OFFSET,
+  CJK_FALLBACK_CHAIN,
   type LabelAnchor,
 } from './text-stage-helpers'
-import type {
-  TextStageOptions, PendingLabel, PendingLineLabel,
-} from './text-stage-types'
-import {
-  wrapWithKnuthPlass, cjkBucketFor,
-} from './text-wrap'
+import type { TextStageOptions, PendingLabel, PendingLineLabel } from './text-stage-types'
+import { wrapWithKnuthPlass, cjkBucketFor } from './text-wrap'
 import { TextStageDiagnostics } from './text-stage-diagnostics'
 // iter-265 — sub-phase drill inside prepare(). encoder.stage-prepare
 // shows 1.31 ms/frame in iter-263 budget but we don't know which
@@ -75,7 +80,9 @@ export { wrapForTesting } from './text-wrap'
 // text-layout-edge.test.ts, text-stage.test.ts,
 // bilingual-label-placement-repro.test.ts).
 export {
-  layoutCacheEntryValid, mlVerticalLayout, verticalLayoutForTesting,
+  layoutCacheEntryValid,
+  mlVerticalLayout,
+  verticalLayoutForTesting,
   composeFontKey,
 } from './text-stage-helpers'
 
@@ -105,7 +112,18 @@ export {
 // Linux). Per-label font stacks coming from Mapbox styles get the
 // same fallback chain appended in composeFontKey. CJK_FALLBACK_CHAIN
 // now lives in text-stage-helpers.ts alongside composeFontKey.
-const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography' | 'dpr' | 'onResourceLanded'>> = {
+const DEFAULTS: Required<
+  Omit<
+    TextStageOptions,
+    | 'rasterizer'
+    | 'glyphsUrl'
+    | 'inlineGlyphs'
+    | 'glyphProviders'
+    | 'fontTypography'
+    | 'dpr'
+    | 'onResourceLanded'
+  >
+> = {
   slotSize: 64,
   // iter-272 — bump atlas slots 1296 → 4096 (~3.2× headroom).
   // User-reported bilingual label corruption on OFM Bright dense
@@ -128,11 +146,15 @@ const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'in
  *  (Phase S Batch 2). No work when the offset is zero or anchor is
  *  viewport. */
 function rotateLabelTranslate(
-  dx: number, dy: number, anchorMap: boolean | undefined, bearingDeg: number,
+  dx: number,
+  dy: number,
+  anchorMap: boolean | undefined,
+  bearingDeg: number,
 ): [number, number] {
   if (!anchorMap || (dx === 0 && dy === 0)) return [dx, dy]
   const r = (bearingDeg * Math.PI) / 180
-  const c = Math.cos(r), s = Math.sin(r)
+  const c = Math.cos(r),
+    s = Math.sin(r)
   return [dx * c - dy * s, dx * s + dy * c]
 }
 
@@ -140,7 +162,18 @@ export class TextStage {
   readonly host: GlyphAtlasHost
   readonly gpu: GlyphAtlasGPU
   readonly renderer: TextRenderer
-  readonly opts: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography' | 'dpr' | 'onResourceLanded'>>
+  readonly opts: Required<
+    Omit<
+      TextStageOptions,
+      | 'rasterizer'
+      | 'glyphsUrl'
+      | 'inlineGlyphs'
+      | 'glyphProviders'
+      | 'fontTypography'
+      | 'dpr'
+      | 'onResourceLanded'
+    >
+  >
   /** The PBF rasterizer when this stage was built with PBF/inline/
    *  custom-provider config; null when no PBF chain is active.
    *  Exposed so `addGlyphProvider` can extend the chain after the
@@ -203,7 +236,10 @@ export class TextStage {
    *  Key: FNV-1a hash of (fontKey, text codepoints) — same shape as
    *  pretextCacheKey. Value: GlyphInfo[] (one per codepoint, same
    *  array shape host.ensureString would return). */
-  private readonly _glyphsByTextCache = new Map<number, import('./sdf/glyph-atlas-host').GlyphInfo[]>()
+  private readonly _glyphsByTextCache = new Map<
+    number,
+    import('./sdf/glyph-atlas-host').GlyphInfo[]
+  >()
   /** iter 168 — Phase A slice 2: across-frame layout cache.
    *  Caches the per-anchor camera-independent layout output (dx, dy,
    *  glyphOffsets, totalAdvance, blockTop, blockBottom, haloGeom,
@@ -215,23 +251,32 @@ export class TextStage {
    *  drawX/Y = p.anchorX/Y + cached.dx/dy, bbox = drawX/Y +
    *  cached.bbox-offsets, color = per-frame p.def.color, halo color
    *  = per-frame p.def.halo.color (only halo GEOMETRY is cached). */
-  private readonly _layoutCache = new Map<number, {
-    dx: number; dy: number; totalAdvance: number
-    blockTop: number; blockBottom: number; padding: number
-    glyphOffsets: Float32Array
-    glyphs: import('./sdf/glyph-atlas-host').GlyphInfo[]
-    /** iter-190 — atlas generation at cache write. On read, compare
-     *  with host.getGeneration(); mismatch → glyphs[] slot references
-     *  may point at reassigned codepoints (iter-175 corruption root),
-     *  so treat as cache miss. */
-    generation: number
-    /** Audit ④ B1 — exact source identity (`fontKey\0text`) at write.
-     *  On read, a `_layoutKey` hash collision is rejected by comparing
-     *  this against the requesting label's srcKey (see layoutCacheEntryValid). */
-    srcKey: string
-    haloGeom?: { width: number; blur?: number }
-    sizePx: number; letterSpacingPx: number; rotateRad?: number
-  }>()
+  private readonly _layoutCache = new Map<
+    number,
+    {
+      dx: number
+      dy: number
+      totalAdvance: number
+      blockTop: number
+      blockBottom: number
+      padding: number
+      glyphOffsets: Float32Array
+      glyphs: import('./sdf/glyph-atlas-host').GlyphInfo[]
+      /** iter-190 — atlas generation at cache write. On read, compare
+       *  with host.getGeneration(); mismatch → glyphs[] slot references
+       *  may point at reassigned codepoints (iter-175 corruption root),
+       *  so treat as cache miss. */
+      generation: number
+      /** Audit ④ B1 — exact source identity (`fontKey\0text`) at write.
+       *  On read, a `_layoutKey` hash collision is rejected by comparing
+       *  this against the requesting label's srcKey (see layoutCacheEntryValid). */
+      srcKey: string
+      haloGeom?: { width: number; blur?: number }
+      sizePx: number
+      letterSpacingPx: number
+      rotateRad?: number
+    }
+  >()
   private static readonly LAYOUT_CACHE_MAX = 4096
   // iter-266 — layout cache hit-rate counter. The iter-261 L.1.1
   // probe at the OUTER label-dispatch loop (map.ts sig cache)
@@ -266,7 +311,18 @@ export class TextStage {
     options: TextStageOptions = {},
     sampleCount: number = 1,
   ) {
-    this.opts = { ...DEFAULTS, ...options } as Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography' | 'dpr' | 'onResourceLanded'>>
+    this.opts = { ...DEFAULTS, ...options } as Required<
+      Omit<
+        TextStageOptions,
+        | 'rasterizer'
+        | 'glyphsUrl'
+        | 'inlineGlyphs'
+        | 'glyphProviders'
+        | 'fontTypography'
+        | 'dpr'
+        | 'onResourceLanded'
+      >
+    >
     // Iter 116: rasterFontSize + sdfRadius are now DPR-invariant —
     // they match MapLibre's TinySDF defaults (fontSize=24, radius=8,
     // textureScale=1) and the PBF glyph server's native 24-px raster.
@@ -327,7 +383,8 @@ export class TextStage {
       if (options.glyphProviders) providers.push(...options.glyphProviders)
       if (options.glyphsUrl) providers.push(new GlyphPbfCache({ glyphsUrl: options.glyphsUrl }))
       pbfRas = new PbfRasterizer({
-        fallback, providers,
+        fallback,
+        providers,
         // Local-ideograph (#421): bucketed CJK renders via the FULL Canvas2D path.
         cjkFull: fullFallback,
         onLanded: (fontKey, codepoint) => {
@@ -426,7 +483,9 @@ export class TextStage {
    *  Distinct from the older `_debugHook`, which only carries the
    *  (text, x, y, kind) tuple — kept for back-compat with the
    *  `#labels-debug` URL flag. Both can be active simultaneously. */
-  setTraceRecorder(recorder: import('../diagnostics/render-trace').RenderTraceRecorder | null): void {
+  setTraceRecorder(
+    recorder: import('../diagnostics/render-trace').RenderTraceRecorder | null,
+  ): void {
     this._traceRecorder = recorder
   }
   private _traceRecorder: import('../diagnostics/render-trace').RenderTraceRecorder | null = null
@@ -440,7 +499,9 @@ export class TextStage {
    *  submission — collision-dropped labels still trigger it (so the
    *  user can SEE which submissions are being made even if collision
    *  hides them visually). */
-  setLabelDebugHook(hook: ((text: string, ax: number, ay: number, kind: 'point' | 'curve') => void) | undefined): void {
+  setLabelDebugHook(
+    hook: ((text: string, ax: number, ay: number, kind: 'point' | 'curve') => void) | undefined,
+  ): void {
     this._debugHook = hook
   }
   private _debugHook?: (text: string, ax: number, ay: number, kind: 'point' | 'curve') => void
@@ -449,8 +510,8 @@ export class TextStage {
    *  cursor coord readouts, timestamps, distance/bearing labels. */
   prewarmGISDefaults(fontKey?: string): void {
     const set: number[] = []
-    for (let c = 0x20; c <= 0x7E; c++) set.push(c)  // basic Latin
-    set.push(0xB0)  // °
+    for (let c = 0x20; c <= 0x7e; c++) set.push(c) // basic Latin
+    set.push(0xb0) // °
     this.prewarm(set, fontKey)
   }
 
@@ -459,7 +520,8 @@ export class TextStage {
    *  object. Overwritten on every call; the caller reads both slots
    *  immediately and never retains the holder itself. */
   private readonly _internedPolyline: [Float32Array, Float32Array] = [
-    new Float32Array(0), new Float32Array(0),
+    new Float32Array(0),
+    new Float32Array(0),
   ]
 
   /** #790 (#778 P4) — copy a caller-projected polyline (held in a
@@ -477,12 +539,17 @@ export class TextStage {
    *  is the reused `_internedPolyline` holder: read both slots before
    *  the next call. */
   internCurvedPolyline(
-    srcX: Float32Array, srcY: Float32Array, count: number,
+    srcX: Float32Array,
+    srcY: Float32Array,
+    count: number,
   ): readonly [Float32Array, Float32Array] {
     bumpAlloc('text-stage.curved.polyline.FrameArena')
     const px = this._frameArena.allocF32(count)
     const py = this._frameArena.allocF32(count)
-    for (let i = 0; i < count; i++) { px[i] = srcX[i]!; py[i] = srcY[i]! }
+    for (let i = 0; i < count; i++) {
+      px[i] = srcX[i]!
+      py[i] = srcY[i]!
+    }
     this._internedPolyline[0] = px
     this._internedPolyline[1] = py
     return this._internedPolyline
@@ -527,13 +594,20 @@ export class TextStage {
     }
     if (polylineX.length > 0) {
       this._diag.recordTrace(
-        this._traceRecorder, 'curve', def, transformed,
-        polylineX[0]!, polylineY[0]!, layerName,
+        this._traceRecorder,
+        'curve',
+        def,
+        transformed,
+        polylineX[0]!,
+        polylineY[0]!,
+        layerName,
       )
     }
     this.pendingLine.push({
       text: transformed,
-      polylineX, polylineY, centerOffsetPx,
+      polylineX,
+      polylineY,
+      centerOffsetPx,
       def,
       fontKey: fontKey ?? composeFontKey(def, this.opts.defaultFont),
       pairKey,
@@ -549,11 +623,15 @@ export class TextStage {
   /** iter-336 — glyph-atlas generation (host bumps on every slot
    *  eviction). Stable across a steady frame ⇒ no eviction ⇒ no
    *  glyph-slot aliasing possible. See XGISMap.getAtlasGeneration. */
-  getAtlasGeneration(): number { return this.host.getGeneration() }
+  getAtlasGeneration(): number {
+    return this.host.getGeneration()
+  }
 
   /** Enable per-glyph offset capture for labels containing `substr`.
    *  Pass null to disable. Cleared + refilled each prepare(). */
-  setLabelDumpFilter(substr: string | null): void { this._diag.setLabelDumpFilter(substr) }
+  setLabelDumpFilter(substr: string | null): void {
+    this._diag.setLabelDumpFilter(substr)
+  }
   /** Last prepare()'s captured labels matching the dump filter, with
    *  each glyph's resolved (x,y) offset from the label anchor PLUS the
    *  per-glyph metrics + display fontSize + atlas slotSize the renderer
@@ -562,34 +640,65 @@ export class TextStage {
    *  A correct label has uniform RENDERED y per line; a mixed-rfs glyph
    *  renders at the wrong height even when its offset y is correct. */
   getDumpedLabels(): ReadonlyArray<{
-    text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number; curved: boolean
-    glyphs: ReadonlyArray<{ cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }>
-  }> { return this._diag.getDumpedLabels() }
+    text: string
+    anchorX: number
+    anchorY: number
+    fontSize: number
+    slotSize: number
+    curved: boolean
+    glyphs: ReadonlyArray<{
+      cp: number
+      x: number
+      y: number
+      bearingY: number
+      height: number
+      rfs: number
+    }>
+  }> {
+    return this._diag.getDumpedLabels()
+  }
 
   /** Diagnostic: every resolved text string the stage has submitted
    *  since last clear (mirror of IconStage.getDispatchedIconNames).
    *  Iter 108 — added to localize the OFM Bright Texas highway-shield
    *  text-overlay no-render bug. */
-  getDispatchedLabelTexts(): string[] { return this._diag.getDispatchedLabelTexts() }
-  clearDispatchedLabelTexts(): void { this._diag.clearDispatchedLabelTexts() }
+  getDispatchedLabelTexts(): string[] {
+    return this._diag.getDispatchedLabelTexts()
+  }
+  clearDispatchedLabelTexts(): void {
+    this._diag.clearDispatchedLabelTexts()
+  }
   /** iter-285 — last frame's submitted (raw addLabel) and drawn
    *  (post-collision) label counts. `submitted - drawn` measures
    *  collision-suppression pressure for the most recent prepare(). */
-  getLastSubmittedLabelCount(): number { return this._diag.getLastSubmittedLabelCount() }
-  getLastDrawnLabelCount(): number { return this._diag.getLastDrawnLabelCount() }
+  getLastSubmittedLabelCount(): number {
+    return this._diag.getLastSubmittedLabelCount()
+  }
+  getLastDrawnLabelCount(): number {
+    return this._diag.getLastDrawnLabelCount()
+  }
   /** iter 152 — drain the z0-halo probe capture (see haloDebug). */
   getHaloDebug(): ReadonlyArray<{
-    text: string; fontSize: number; rasterFontSize: number
-    haloWidth: number; haloWidthNorm: number
-  }> { return this._diag.getHaloDebug() }
-  clearHaloDebug(): void { this._diag.clearHaloDebug() }
+    text: string
+    fontSize: number
+    rasterFontSize: number
+    haloWidth: number
+    haloWidthNorm: number
+  }> {
+    return this._diag.getHaloDebug()
+  }
+  clearHaloDebug(): void {
+    this._diag.clearHaloDebug()
+  }
 
   /** Iter 112: pair-keys of text labels REJECTED by the most recent
    *  prepare() collision pass. IconStage.prepare reads this to drop
    *  paired icons whose text was dropped. Set is cleared at the
    *  START of each prepare() so call order matters: IconStage must
    *  run AFTER TextStage. */
-  getDroppedPairKeys(): ReadonlySet<string> { return this.droppedPairKeys }
+  getDroppedPairKeys(): ReadonlySet<string> {
+    return this.droppedPairKeys
+  }
 
   /** #609 — pair-keys of labels with a LIVE text bbox queued for the
    *  current frame (point + curved-line). Read by IconStage.computeObstacles
@@ -630,8 +739,13 @@ export class TextStage {
       this._debugHook(transformed, anchorScreenX, anchorScreenY, 'point')
     }
     this._diag.recordTrace(
-      this._traceRecorder, 'point', def, transformed,
-      anchorScreenX, anchorScreenY, layerName,
+      this._traceRecorder,
+      'point',
+      def,
+      transformed,
+      anchorScreenX,
+      anchorScreenY,
+      layerName,
     )
     this.pending.push({
       text: transformed,
@@ -788,7 +902,7 @@ export class TextStage {
     for (let i = 0; i < this.pending.length; i++) {
       const p = this.pending[i]!
       if (!this.host.hasAllGlyphs(p.fontKey, p.text, cjkBucketFor(p.text, p.def.size, dpr))) {
-        p.text = ''  // overflow drop — label skipped this frame
+        p.text = '' // overflow drop — label skipped this frame
         fullyResolved = false
       }
     }
@@ -822,7 +936,11 @@ export class TextStage {
       // GlyphInfo or a cache value that copies pxX/pxY rather than
       // referencing the live slot). #10 drag p95 -36% (slice 1) +
       // -4% (slice 2) gains lost; correctness > perf.
-      const glyphs = this.host.ensureString(p.fontKey, p.text, cjkBucketFor(p.text, p.def.size, dpr))
+      const glyphs = this.host.ensureString(
+        p.fontKey,
+        p.text,
+        cjkBucketFor(p.text, p.def.size, dpr),
+      )
       // CSS-px → physical-px. The atlas is in physical px (anchors
       // arrive projected to canvas.width/height) so every length
       // sourced from the LabelDef has to scale by DPR.
@@ -843,8 +961,7 @@ export class TextStage {
       const letterSpacingPx = ((p.def.letterSpacing ?? 0) + typo.letterSpacingEm) * sizePx
       // Multiline layout: greedy word-break at maxWidth (em-units →
       // px). When unset, treat as Infinity = single line.
-      const maxWidthPx = p.def.maxWidth !== undefined
-        ? p.def.maxWidth * sizePx : Infinity
+      const maxWidthPx = p.def.maxWidth !== undefined ? p.def.maxWidth * sizePx : Infinity
       const lineHeightEm = (p.def.lineHeight ?? 1.2) * typo.lineHeightScale
       const lineHeightPx = lineHeightEm * sizePx
       const justify = p.def.justify ?? 'auto' // spec default 'auto' (resolved below)
@@ -883,8 +1000,12 @@ export class TextStage {
       // canvas-measured widths — would diverge from advanceWidth and
       // smear the bbox math).
       const lines = wrapWithKnuthPlass(
-        glyphs, advances, p.fontKey, sizePx,
-        letterSpacingPx, maxWidthPx,
+        glyphs,
+        advances,
+        p.fontKey,
+        sizePx,
+        letterSpacingPx,
+        maxWidthPx,
       )
       // Total bounding box width = max line width.
       let totalAdvance = 0
@@ -900,17 +1021,18 @@ export class TextStage {
       // anchor) drives it, falling back to the single static anchor.
       const vao = p.def.variableAnchorOffset
       const candidates: readonly LabelAnchor[] = vao
-        ? vao.map(pair => pair[0])
-        : (p.def.anchorCandidates && p.def.anchorCandidates.length > 0
-            ? p.def.anchorCandidates
-            : [p.def.anchor ?? 'center'])
+        ? vao.map((pair) => pair[0])
+        : p.def.anchorCandidates && p.def.anchorCandidates.length > 0
+          ? p.def.anchorCandidates
+          : [p.def.anchor ?? 'center']
       // MapLibre routes text-offset / text-radial-offset through the
       // per-anchor sign/axis rules ONLY for variable-placement labels.
       // A static single text-anchor keeps the plain offset add (no
       // baseline shift) — matching MapLibre's non-variable path.
-      const variableMode = vao !== undefined
-        || p.def.radialOffset !== undefined
-        || (p.def.anchorCandidates !== undefined && p.def.anchorCandidates.length > 1)
+      const variableMode =
+        vao !== undefined ||
+        p.def.radialOffset !== undefined ||
+        (p.def.anchorCandidates !== undefined && p.def.anchorCandidates.length > 1)
       const padding = (p.def.padding ?? 2) * dpr
       const haloOut = p.def.halo
         ? {
@@ -927,8 +1049,11 @@ export class TextStage {
       // (the rotated tx/ty differ) so a cached entry never goes stale.
       const [txRaw, tyRaw] = p.def.translate
         ? rotateLabelTranslate(
-            p.def.translate[0], p.def.translate[1],
-            p.def.translateAnchorMap, this.bearingDeg)
+            p.def.translate[0],
+            p.def.translate[1],
+            p.def.translateAnchorMap,
+            this.bearingDeg,
+          )
         : [0, 0]
 
       // iter-168 Phase A slice 2 — layout cache (single-anchor static).
@@ -947,9 +1072,7 @@ export class TextStage {
       // pitch=70 idle frame budget was 78ms with no caching (probe
       // 2026-05-20) — label layout dominated. Re-enabling restores
       // the iter-167 / iter-168 perf gains correctly.
-      const _isCacheable = !variableMode
-        && candidates.length === 1
-        && p.def.rotate === undefined
+      const _isCacheable = !variableMode && candidates.length === 1 && p.def.rotate === undefined
       let _layoutKey: number | undefined
       // Audit ④ B1 — exact source identity to reject `_layoutKey` hash
       // collisions on hit (the NUL separator keeps `font+text` distinct
@@ -961,12 +1084,17 @@ export class TextStage {
         const cacheKey = textKeyFor(p.fontKey, p.text)
         _srcKey = p.fontKey + '\u0000' + p.text
         _layoutKey = layoutCacheKey(
-          cacheKey, sizePx, letterSpacingPx,
+          cacheKey,
+          sizePx,
+          letterSpacingPx,
           maxWidthPx === Infinity ? Infinity : maxWidthPx,
           lineHeightPx,
-          justify, anchorStr,
-          p.def.offset ? p.def.offset[0] : 0, p.def.offset ? p.def.offset[1] : 0,
-          txRaw, tyRaw,
+          justify,
+          anchorStr,
+          p.def.offset ? p.def.offset[0] : 0,
+          p.def.offset ? p.def.offset[1] : 0,
+          txRaw,
+          tyRaw,
           padding,
           haloOut ? haloOut.width : 0,
           haloOut?.blur ?? 0,
@@ -981,8 +1109,7 @@ export class TextStage {
         // AND the 32-bit `_layoutKey` can collide, so a matching key may
         // belong to a DIFFERENT label — `srcKey` rejects that. Either
         // mismatch → drop the entry and fall through to recompute.
-        if (hit !== undefined
-            && layoutCacheEntryValid(hit, _srcKey, this.host.getGeneration())) {
+        if (hit !== undefined && layoutCacheEntryValid(hit, _srcKey, this.host.getGeneration())) {
           // iter-266 — count hit (after generation guard, so this
           // is a "real" hit that skipped the candidates loop).
           this._layoutCacheHits++
@@ -991,35 +1118,39 @@ export class TextStage {
           this._layoutCache.set(_layoutKey, hit)
           const drawX = p.anchorX + hit.dx
           const drawY = p.anchorY + hit.dy
-          const haloLive = hit.haloGeom && p.def.halo
-            ? {
-                color: p.def.halo.color,
-                width: hit.haloGeom.width,
-                ...(hit.haloGeom.blur !== undefined ? { blur: hit.haloGeom.blur } : {}),
-              }
-            : undefined
+          const haloLive =
+            hit.haloGeom && p.def.halo
+              ? {
+                  color: p.def.halo.color,
+                  width: hit.haloGeom.width,
+                  ...(hit.haloGeom.blur !== undefined ? { blur: hit.haloGeom.blur } : {}),
+                }
+              : undefined
           shaped.push({
-            layouts: [{
-              draw: {
-                anchorX: drawX, anchorY: drawY,
-                glyphs: hit.glyphs,
-                italic: labelItalic,
-                fontSize: hit.sizePx,
-                rasterFontSize: this.opts.rasterFontSize,
-                color: p.def.color ?? [0, 0, 0, 1],
-                halo: haloLive,
-                letterSpacingPx: hit.letterSpacingPx,
-                rotateRad: hit.rotateRad,
-                glyphOffsets: hit.glyphOffsets,
-                sdfRadius: this.opts.sdfRadius,
+            layouts: [
+              {
+                draw: {
+                  anchorX: drawX,
+                  anchorY: drawY,
+                  glyphs: hit.glyphs,
+                  italic: labelItalic,
+                  fontSize: hit.sizePx,
+                  rasterFontSize: this.opts.rasterFontSize,
+                  color: p.def.color ?? [0, 0, 0, 1],
+                  halo: haloLive,
+                  letterSpacingPx: hit.letterSpacingPx,
+                  rotateRad: hit.rotateRad,
+                  glyphOffsets: hit.glyphOffsets,
+                  sdfRadius: this.opts.sdfRadius,
+                },
+                bbox: {
+                  minX: drawX - hit.padding,
+                  minY: drawY + hit.blockTop - hit.padding,
+                  maxX: drawX + hit.totalAdvance + hit.padding,
+                  maxY: drawY + hit.blockBottom + hit.padding,
+                },
               },
-              bbox: {
-                minX: drawX - hit.padding,
-                minY: drawY + hit.blockTop - hit.padding,
-                maxX: drawX + hit.totalAdvance + hit.padding,
-                maxY: drawY + hit.blockBottom + hit.padding,
-              },
-            }],
+            ],
             allowOverlap: p.def.allowOverlap === true,
             ignorePlacement: p.def.ignorePlacement === true,
             sortKey: p.def.sortKey,
@@ -1032,9 +1163,13 @@ export class TextStage {
         this._layoutCacheMisses++
       }
 
-      const layouts: Array<{ draw: TextDraw; bbox: typeof shaped[number]['layouts'][number]['bbox'] }> = []
+      const layouts: Array<{
+        draw: TextDraw
+        bbox: (typeof shaped)[number]['layouts'][number]['bbox']
+      }> = []
       for (const anchor of candidates) {
-        let dx = 0, dy = 0
+        let dx = 0,
+          dy = 0
         if (anchor === 'left' || anchor.endsWith('-left')) dx = 0
         else if (anchor === 'right' || anchor.endsWith('-right')) dx = -totalAdvance
         else dx = -totalAdvance / 2
@@ -1045,9 +1180,11 @@ export class TextStage {
         // ink-metric anchor term — it's purely text-offset / translate
         // / variable below; the per-line baseline comes from `vlay`.
         const vAlign: 0 | 0.5 | 1 =
-          (anchor === 'top' || anchor.startsWith('top-')) ? 0
-          : (anchor === 'bottom' || anchor.startsWith('bottom-')) ? 1
-          : 0.5
+          anchor === 'top' || anchor.startsWith('top-')
+            ? 0
+            : anchor === 'bottom' || anchor.startsWith('bottom-')
+              ? 1
+              : 0.5
         // iter-242 (Plan AAA B.2) — pass arena so baselineY scratches
         // from FrameArena instead of allocating a fresh `new Array`.
         const vlay = mlVerticalLayout(vAlign, lines.length, lineHeightPx, sizePx, this._frameArena)
@@ -1057,16 +1194,16 @@ export class TextStage {
           // text-offset. Supersedes the plain text-offset add: MapLibre
           // folds text-offset INTO the variable offset and drops it
           // when text-radial-offset is also present.
-          let vx = 0, vy = 0
+          let vx = 0,
+            vy = 0
           if (vao) {
-            const pair = vao.find(pr => pr[0] === anchor)
-            const off = pair ? pair[1] : [0, 0] as [number, number]
+            const pair = vao.find((pr) => pr[0] === anchor)
+            const off = pair ? pair[1] : ([0, 0] as [number, number])
             ;[vx, vy] = variableAnchorOffsetEm(anchor, off)
           } else if (p.def.radialOffset !== undefined) {
             ;[vx, vy] = evaluateVariableOffsetEm(anchor, [p.def.radialOffset, 0], true)
           } else {
-            ;[vx, vy] = evaluateVariableOffsetEm(
-              anchor, p.def.offset ?? [0, 0], false)
+            ;[vx, vy] = evaluateVariableOffsetEm(anchor, p.def.offset ?? [0, 0], false)
           }
           dx += vx * sizePx
           dy += vy * sizePx
@@ -1109,9 +1246,14 @@ export class TextStage {
           // left, right-anchors → right, else center.
           const isLeftAnchor = anchor === 'left' || anchor.endsWith('-left')
           const isRightAnchor = anchor === 'right' || anchor.endsWith('-right')
-          const effectiveJustify = justify === 'auto'
-            ? (isLeftAnchor ? 'left' : isRightAnchor ? 'right' : 'center')
-            : justify
+          const effectiveJustify =
+            justify === 'auto'
+              ? isLeftAnchor
+                ? 'left'
+                : isRightAnchor
+                  ? 'right'
+                  : 'center'
+              : justify
           // #608 — vertical-placement parity with MapLibre. MapLibre's
           // `SHAPING_DEFAULT_OFFSET = -17` baseline term exists to convert
           // from its glyph-metric origin (MapLibre `metrics.top` is
@@ -1142,10 +1284,11 @@ export class TextStage {
           const isIconPaired = p.pairKey !== undefined
           let centreShift = -shapingBaselineOff
           if (isIconPaired && vAlign === 0.5) {
-            let maxAsc = 0, maxDesc = 0
+            let maxAsc = 0,
+              maxDesc = 0
             for (let gi = 0; gi < glyphs.length; gi++) {
               const g = glyphs[gi]!
-              if (g.height <= 0) continue  // skip blanks (junk metrics)
+              if (g.height <= 0) continue // skip blanks (junk metrics)
               const sc = sizePx / (g.rasterFontSize ?? this.opts.rasterFontSize)
               const asc = g.bearingY * sc
               const desc = (g.height - g.bearingY) * sc
@@ -1187,7 +1330,7 @@ export class TextStage {
             color: p.def.color ?? [0, 0, 0, 1],
             halo: haloOut,
             letterSpacingPx,
-            rotateRad: p.def.rotate ? p.def.rotate * Math.PI / 180 : undefined,
+            rotateRad: p.def.rotate ? (p.def.rotate * Math.PI) / 180 : undefined,
             glyphOffsets,
             sdfRadius: this.opts.sdfRadius,
           },
@@ -1206,11 +1349,14 @@ export class TextStage {
           // `new Float32Array(view)` copies the underlying data.
           const cachedGlyphOffsets = new Float32Array(glyphOffsets)
           this._layoutCache.set(_layoutKey, {
-            dx, dy,
-            totalAdvance, padding,
+            dx,
+            dy,
+            totalAdvance,
+            padding,
             blockTop: vlay.blockTop,
             blockBottom: vlay.blockBottom,
-            glyphOffsets: cachedGlyphOffsets, glyphs,
+            glyphOffsets: cachedGlyphOffsets,
+            glyphs,
             generation: this.host.getGeneration(),
             // Audit ④ B1 — `_isCacheable` here ⟹ `_srcKey` was assigned
             // above; `?? ''` only satisfies the `string | undefined` type.
@@ -1221,8 +1367,9 @@ export class TextStage {
                   ...(haloOut.blur !== undefined ? { blur: haloOut.blur } : {}),
                 }
               : undefined,
-            sizePx, letterSpacingPx,
-            rotateRad: p.def.rotate ? p.def.rotate * Math.PI / 180 : undefined,
+            sizePx,
+            letterSpacingPx,
+            rotateRad: p.def.rotate ? (p.def.rotate * Math.PI) / 180 : undefined,
           })
         }
       }
@@ -1262,7 +1409,11 @@ export class TextStage {
     // road/transportation heavy fixtures (Liberty highways at z>=12).
     perfMarkStart('stage-prepare.line-loop')
     for (const p of this.pendingLine) {
-      const glyphs = this.host.ensureString(p.fontKey, p.text, cjkBucketFor(p.text, p.def.size, dpr))
+      const glyphs = this.host.ensureString(
+        p.fontKey,
+        p.text,
+        cjkBucketFor(p.text, p.def.size, dpr),
+      )
       if (glyphs.length === 0) continue
       // Mirror the point-loop CJK display-size floor (~:716): a dense Han
       // glyph minified from the 24-px atlas to the low-zoom size renders as
@@ -1287,15 +1438,15 @@ export class TextStage {
       let totalAdvancePx = 0
       for (let gi = 0; gi < glyphs.length; gi++) {
         const gg = glyphs[gi]!
-        const adv = gg.advanceWidth
-          * (sizePx / (gg.rasterFontSize ?? this.opts.rasterFontSize))
+        const adv = gg.advanceWidth * (sizePx / (gg.rasterFontSize ?? this.opts.rasterFontSize))
         advances[gi] = adv
         totalAdvancePx += adv
       }
       totalAdvancePx += letterSpacingPx * Math.max(0, glyphs.length - 1)
       // Cumulative polyline length + per-vertex distance for fast
       // distance-to-position lookup.
-      const px = p.polylineX, py = p.polylineY
+      const px = p.polylineX,
+        py = p.polylineY
       const n = px.length
       if (n < 2) continue
       if (_cumLenScratch.length < n) {
@@ -1353,8 +1504,10 @@ export class TextStage {
         while (segIdx > 0 && cumLen[segIdx]! > sFwd) segIdx--
         const segLen = cumLen[segIdx + 1]! - cumLen[segIdx]!
         const t = segLen > 0 ? (sFwd - cumLen[segIdx]!) / segLen : 0
-        const ax = px[segIdx]!, ay = py[segIdx]!
-        const bx = px[segIdx + 1]!, by = py[segIdx + 1]!
+        const ax = px[segIdx]!,
+          ay = py[segIdx]!
+        const bx = px[segIdx + 1]!,
+          by = py[segIdx + 1]!
         _sampleOut[0] = ax + (bx - ax) * t
         _sampleOut[1] = ay + (by - ay) * t
         let angle = Math.atan2(by - ay, bx - ax)
@@ -1391,11 +1544,15 @@ export class TextStage {
       // (X-GIS' historical behaviour); a label whose style doesn't author
       // text-max-angle still places exactly as before. Compared in
       // radians against the wrapped per-glyph rotation delta.
-      const maxAngleRad = p.def.maxAngle !== undefined ? p.def.maxAngle * Math.PI / 180 : undefined
+      const maxAngleRad =
+        p.def.maxAngle !== undefined ? (p.def.maxAngle * Math.PI) / 180 : undefined
       let prevGlyphAngle = NaN
       let angleGateRejected = false
       let cursor = startS
-      let gminX = Infinity, gmaxX = -Infinity, gminY = Infinity, gmaxY = -Infinity
+      let gminX = Infinity,
+        gmaxX = -Infinity,
+        gminY = Infinity,
+        gmaxY = -Infinity
       for (let gi = 0; gi < glyphs.length; gi++) {
         const adv = advances[gi]!
         // Sample at the LEFT edge of the advance box, NOT its centre.
@@ -1409,7 +1566,9 @@ export class TextStage {
         // vary, gap distance varied too — visible as "Tr o pi c of
         // Cancer" with wide / narrow alternations.
         sampleAt(cursor)
-        const sx = _sampleOut[0], sy = _sampleOut[1], sAngle = _sampleOut[2]
+        const sx = _sampleOut[0],
+          sy = _sampleOut[1],
+          sAngle = _sampleOut[2]
         // Perpendicular shift: rotate (0, verticalOffsetPx) by the
         // sample's tangent angle. cos/sin of (angle + 90°) =
         // (-sin angle, cos angle). Multiply by the desired offset.
@@ -1425,7 +1584,10 @@ export class TextStage {
             // not a spurious ~358° one.
             let d = sAngle - prevGlyphAngle
             d = Math.atan2(Math.sin(d), Math.cos(d))
-            if (Math.abs(d) > maxAngleRad) { angleGateRejected = true; break }
+            if (Math.abs(d) > maxAngleRad) {
+              angleGateRejected = true
+              break
+            }
           }
           prevGlyphAngle = sAngle
         }
@@ -1466,15 +1628,17 @@ export class TextStage {
         sdfRadius: this.opts.sdfRadius,
       }
       shaped.push({
-        layouts: [{
-          draw,
-          bbox: {
-            minX: gminX - halfH - padding,
-            minY: gminY - halfH - padding,
-            maxX: gmaxX + halfH + padding,
-            maxY: gmaxY + halfH + padding,
+        layouts: [
+          {
+            draw,
+            bbox: {
+              minX: gminX - halfH - padding,
+              minY: gminY - halfH - padding,
+              maxX: gmaxX + halfH + padding,
+              maxY: gmaxY + halfH + padding,
+            },
           },
-        }],
+        ],
         allowOverlap: p.def.allowOverlap === true,
         ignorePlacement: p.def.ignorePlacement === true,
         sortKey: p.def.sortKey,
@@ -1528,7 +1692,7 @@ export class TextStage {
     // dense-label scenes (low-z world view) spend a chunk here.
     perfMarkStart('stage-prepare.collision')
     const collisionInput: CollisionItem[] = shaped.map((s, idx) => ({
-      bboxes: s.layouts.map(l => l.bbox),
+      bboxes: s.layouts.map((l) => l.bbox),
       allowOverlap: s.allowOverlap,
       ignorePlacement: s.ignorePlacement,
       sortKey: s.sortKey,
@@ -1568,7 +1732,10 @@ export class TextStage {
     // sort-key only decides what `auto` resolves to, handled at convert).
     let zOrderMode: 'legacy' | 'viewport-y' | 'source' = 'legacy'
     for (const s of shaped) {
-      if (s.symbolZOrder === 'viewport-y') { zOrderMode = 'viewport-y'; break }
+      if (s.symbolZOrder === 'viewport-y') {
+        zOrderMode = 'viewport-y'
+        break
+      }
       if (s.symbolZOrder === 'source') zOrderMode = 'source'
     }
     let placements
@@ -1599,7 +1766,7 @@ export class TextStage {
       // authority). Map placements back to original shaped indices.
       // #605 — carry lineId/anchorDistancePx through so same-route along-line
       // spacing still applies under an explicit symbol-z-order.
-      const orderedInput: CollisionItem[] = order.map(i => ({
+      const orderedInput: CollisionItem[] = order.map((i) => ({
         bboxes: collisionInput[i]!.bboxes,
         allowOverlap: collisionInput[i]!.allowOverlap,
         ignorePlacement: collisionInput[i]!.ignorePlacement,
@@ -1607,7 +1774,10 @@ export class TextStage {
         lineId: collisionInput[i]!.lineId,
         anchorDistancePx: collisionInput[i]!.anchorDistancePx,
       }))
-      const orderedPlacements = greedyPlaceBboxes(orderedInput, { obstacles: iconObstacles, minLineSpacingPx: MIN_LINE_SPACING_PX })
+      const orderedPlacements = greedyPlaceBboxes(orderedInput, {
+        obstacles: iconObstacles,
+        minLineSpacingPx: MIN_LINE_SPACING_PX,
+      })
       placements = new Array(shaped.length) as typeof orderedPlacements
       for (let k = 0; k < order.length; k++) placements[order[k]!] = orderedPlacements[k]!
       // Painter order: viewport-y draws bottom-on-top (reverse of the
@@ -1615,13 +1785,23 @@ export class TextStage {
       drawOrder = zOrderMode === 'viewport-y' ? [...order].reverse() : order
     } else {
       let anySortKey = false
-      for (const s of shaped) if (s.sortKey !== undefined) { anySortKey = true; break }
+      for (const s of shaped)
+        if (s.sortKey !== undefined) {
+          anySortKey = true
+          break
+        }
       if (anySortKey) {
-        placements = greedyPlaceBboxes(collisionInput, { obstacles: iconObstacles, minLineSpacingPx: MIN_LINE_SPACING_PX })
+        placements = greedyPlaceBboxes(collisionInput, {
+          obstacles: iconObstacles,
+          minLineSpacingPx: MIN_LINE_SPACING_PX,
+        })
       } else {
         const reversed: CollisionItem[] = []
         for (let i = collisionInput.length - 1; i >= 0; i--) reversed.push(collisionInput[i]!)
-        const placementsReversed = greedyPlaceBboxes(reversed, { obstacles: iconObstacles, minLineSpacingPx: MIN_LINE_SPACING_PX })
+        const placementsReversed = greedyPlaceBboxes(reversed, {
+          obstacles: iconObstacles,
+          minLineSpacingPx: MIN_LINE_SPACING_PX,
+        })
         placements = new Array(shaped.length) as typeof placementsReversed
         for (let i = 0; i < placementsReversed.length; i++) {
           placements[shaped.length - 1 - i] = placementsReversed[i]!
@@ -1707,4 +1887,3 @@ export class TextStage {
     this.gpu.destroy()
   }
 }
-

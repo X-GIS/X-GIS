@@ -32,11 +32,21 @@ import { PROJECTIONS } from '../../engine/src/projection/projections-table'
 // shader-dsl projections are host-injected — configure before any emit / cpu use.
 configureProjections(PROJECTIONS)
 
-const PROJ_NAMES = ['mercator', 'equirectangular', 'natural_earth', 'orthographic', 'azimuthal_equidistant', 'stereographic', 'oblique_mercator'] as const
+const PROJ_NAMES = [
+  'mercator',
+  'equirectangular',
+  'natural_earth',
+  'orthographic',
+  'azimuthal_equidistant',
+  'stereographic',
+  'oblique_mercator',
+] as const
 
-const CLON = 0, CLAT = 0
+const CLON = 0,
+  CLAT = 0
 const GRID: Array<[number, number]> = []
-for (let lon = -75; lon <= 75; lon += 15) for (let lat = -75; lat <= 75; lat += 15) GRID.push([lon, lat])
+for (let lon = -75; lon <= 75; lon += 15)
+  for (let lat = -75; lat <= 75; lat += 15) GRID.push([lon, lat])
 
 const SOFTWARE_GPU = process.env.XGIS_SOFTWARE_GPU === '1'
 const tolFor = (cpuVal: number): number =>
@@ -58,49 +68,86 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }`
 
 test.describe('optimizer GPU parity (executed optimized WGSL vs CPU oracle)', () => {
-  test('optimize(PROJECTION_MODULE) project() matches the oracle on the GPU for projType 0-6', async ({ page }) => {
+  test('optimize(PROJECTION_MODULE) project() matches the oracle on the GPU for projType 0-6', async ({
+    page,
+  }) => {
     test.setTimeout(60_000)
     await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
 
-    const gpu = await page.evaluate(async (args: { wgsl: string; grid: Array<[number, number]>; clon: number; clat: number }) => {
-      const nav = navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }
-      if (!nav.gpu) return { error: 'no navigator.gpu' as const }
-      const adapter = await (nav.gpu.requestAdapter() as Promise<GPUAdapter | null>)
-      if (!adapter) return { error: 'no adapter' as const }
-      const device = await adapter.requestDevice()
-      const errors: string[] = []
-      device.addEventListener('uncapturederror', (e) => { errors.push((e as GPUUncapturedErrorEvent).error.message) })
-      const module = device.createShaderModule({ code: args.wgsl })
-      const info = await module.getCompilationInfo()
-      const fatals = info.messages.filter((m) => m.type === 'error')
-      if (fatals.length > 0) return { error: 'compile: ' + fatals.map((m) => `${m.lineNum}:${m.message}`).join(' | ') }
-      const pipeline = device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'main' } })
-      const n = args.grid.length
-      const inData = new Float32Array(n * 2)
-      for (let i = 0; i < n; i++) { inData[i * 2] = args.grid[i][0]; inData[i * 2 + 1] = args.grid[i][1] }
-      const inBuf = device.createBuffer({ size: inData.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST })
-      device.queue.writeBuffer(inBuf, 0, inData)
-      const outBuf = device.createBuffer({ size: n * 2 * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC })
-      const readBuf = device.createBuffer({ size: n * 2 * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ })
-      const ppBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
-      const out: Record<number, number[]> = {}
-      for (let projType = 0; projType <= 6; projType++) {
-        device.queue.writeBuffer(ppBuf, 0, new Float32Array([projType, args.clon, args.clat, 0]))
-        const bind = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [
-          { binding: 0, resource: { buffer: inBuf } }, { binding: 1, resource: { buffer: outBuf } }, { binding: 2, resource: { buffer: ppBuf } }] })
-        const enc = device.createCommandEncoder()
-        const pass = enc.beginComputePass()
-        pass.setPipeline(pipeline); pass.setBindGroup(0, bind); pass.dispatchWorkgroups(Math.ceil(n / 64)); pass.end()
-        enc.copyBufferToBuffer(outBuf, 0, readBuf, 0, n * 2 * 4)
-        device.queue.submit([enc.finish()])
-        await readBuf.mapAsync(GPUMapMode.READ)
-        out[projType] = Array.from(new Float32Array(readBuf.getMappedRange().slice(0)))
-        readBuf.unmap()
-      }
-      return { out, errors }
-    }, { wgsl: OPT_WGSL, grid: GRID, clon: CLON, clat: CLAT })
+    const gpu = await page.evaluate(
+      async (args: { wgsl: string; grid: Array<[number, number]>; clon: number; clat: number }) => {
+        const nav = navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }
+        if (!nav.gpu) return { error: 'no navigator.gpu' as const }
+        const adapter = await (nav.gpu.requestAdapter() as Promise<GPUAdapter | null>)
+        if (!adapter) return { error: 'no adapter' as const }
+        const device = await adapter.requestDevice()
+        const errors: string[] = []
+        device.addEventListener('uncapturederror', (e) => {
+          errors.push((e as GPUUncapturedErrorEvent).error.message)
+        })
+        const module = device.createShaderModule({ code: args.wgsl })
+        const info = await module.getCompilationInfo()
+        const fatals = info.messages.filter((m) => m.type === 'error')
+        if (fatals.length > 0)
+          return { error: 'compile: ' + fatals.map((m) => `${m.lineNum}:${m.message}`).join(' | ') }
+        const pipeline = device.createComputePipeline({
+          layout: 'auto',
+          compute: { module, entryPoint: 'main' },
+        })
+        const n = args.grid.length
+        const inData = new Float32Array(n * 2)
+        for (let i = 0; i < n; i++) {
+          inData[i * 2] = args.grid[i][0]
+          inData[i * 2 + 1] = args.grid[i][1]
+        }
+        const inBuf = device.createBuffer({
+          size: inData.byteLength,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        })
+        device.queue.writeBuffer(inBuf, 0, inData)
+        const outBuf = device.createBuffer({
+          size: n * 2 * 4,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+        })
+        const readBuf = device.createBuffer({
+          size: n * 2 * 4,
+          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        })
+        const ppBuf = device.createBuffer({
+          size: 16,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        })
+        const out: Record<number, number[]> = {}
+        for (let projType = 0; projType <= 6; projType++) {
+          device.queue.writeBuffer(ppBuf, 0, new Float32Array([projType, args.clon, args.clat, 0]))
+          const bind = device.createBindGroup({
+            layout: pipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: inBuf } },
+              { binding: 1, resource: { buffer: outBuf } },
+              { binding: 2, resource: { buffer: ppBuf } },
+            ],
+          })
+          const enc = device.createCommandEncoder()
+          const pass = enc.beginComputePass()
+          pass.setPipeline(pipeline)
+          pass.setBindGroup(0, bind)
+          pass.dispatchWorkgroups(Math.ceil(n / 64))
+          pass.end()
+          enc.copyBufferToBuffer(outBuf, 0, readBuf, 0, n * 2 * 4)
+          device.queue.submit([enc.finish()])
+          await readBuf.mapAsync(GPUMapMode.READ)
+          out[projType] = Array.from(new Float32Array(readBuf.getMappedRange().slice(0)))
+          readBuf.unmap()
+        }
+        return { out, errors }
+      },
+      { wgsl: OPT_WGSL, grid: GRID, clon: CLON, clat: CLAT },
+    )
 
-    expect(gpu, `GPU compute failed: ${'error' in gpu ? gpu.error : ''}`).not.toHaveProperty('error')
+    expect(gpu, `GPU compute failed: ${'error' in gpu ? gpu.error : ''}`).not.toHaveProperty(
+      'error',
+    )
     if ('error' in gpu) return
     expect(gpu.errors, `uncaptured GPU errors: ${gpu.errors.join(' | ')}`).toEqual([])
 
@@ -110,17 +157,26 @@ test.describe('optimizer GPU parity (executed optimized WGSL vs CPU oracle)', ()
       const flat = gpu.out[projType]
       for (let i = 0; i < GRID.length; i++) {
         const [lon, lat] = GRID[i]
-        const gx = flat[i * 2], gy = flat[i * 2 + 1]
+        const gx = flat[i * 2],
+          gy = flat[i * 2 + 1]
         const c = optCpu.fns.project(lon, lat, [projType, CLON, CLAT, 0]) as number[]
-        const cx = c[0], cy = c[1]
+        const cx = c[0],
+          cy = c[1]
         if (![gx, gy, cx, cy].every(Number.isFinite)) continue
         compared++
         if (Math.abs(gx - cx) > tolFor(cx) || Math.abs(gy - cy) > tolFor(cy)) {
-          failures.push(`${PROJ_NAMES[projType]} (${lon},${lat}): GPU=(${gx.toFixed(1)},${gy.toFixed(1)}) oracle=(${cx.toFixed(1)},${cy.toFixed(1)})`)
+          failures.push(
+            `${PROJ_NAMES[projType]} (${lon},${lat}): GPU=(${gx.toFixed(1)},${gy.toFixed(1)}) oracle=(${cx.toFixed(1)},${cy.toFixed(1)})`,
+          )
         }
       }
     }
-    expect(compared, 'no finite point pairs compared — kernel produced no output').toBeGreaterThan(300)
-    expect(failures, `optimized WGSL drifted from the optimized-module oracle beyond tolerance (${SOFTWARE_GPU ? 'software' : 'hardware'} GPU):\n${failures.slice(0, 20).join('\n')}`).toEqual([])
+    expect(compared, 'no finite point pairs compared — kernel produced no output').toBeGreaterThan(
+      300,
+    )
+    expect(
+      failures,
+      `optimized WGSL drifted from the optimized-module oracle beyond tolerance (${SOFTWARE_GPU ? 'software' : 'hardware'} GPU):\n${failures.slice(0, 20).join('\n')}`,
+    ).toEqual([])
   })
 })

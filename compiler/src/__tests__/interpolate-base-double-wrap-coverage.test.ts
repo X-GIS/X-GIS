@@ -20,9 +20,13 @@ describe('interpolate exponential base double-wrap', () => {
           paint: {
             'line-color': '#000',
             'line-width': [
-              'interpolate', ['exponential', ['literal', ['literal', 2]]], ['zoom'],
-              5, 1,
-              14, 8,
+              'interpolate',
+              ['exponential', ['literal', ['literal', 2]]],
+              ['zoom'],
+              5,
+              1,
+              14,
+              8,
             ],
           },
         },
@@ -45,9 +49,13 @@ describe('interpolate exponential base double-wrap', () => {
           paint: {
             'circle-color': '#000',
             'circle-radius': [
-              'interpolate', ['exponential', ['literal', ['literal', 1.5]]], ['get', 'mag'],
-              0, 1,
-              10, 50,
+              'interpolate',
+              ['exponential', ['literal', ['literal', 1.5]]],
+              ['get', 'mag'],
+              0,
+              1,
+              10,
+              50,
             ],
           },
         },

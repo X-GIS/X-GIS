@@ -20,8 +20,8 @@ import { WGSL_PROJECTION_FNS } from '@xgis/map'
 import { cosC, needsBackfaceCullWgsl, emitRasterWgsl } from '@xgis/map'
 
 const AZIMUTHAL = PROJECTIONS[4]!.cullThreshold! // -0.85
-const STEREO = PROJECTIONS[5]!.cullThreshold!    // -0.8
-const ORTHO = PROJECTIONS[3]!.cullThreshold!     // 0.0
+const STEREO = PROJECTIONS[5]!.cullThreshold! // -0.8
+const ORTHO = PROJECTIONS[3]!.cullThreshold! // 0.0
 
 /** Captures every `group` match in order. */
 function allMatches(src: string, re: RegExp): number[] {
@@ -42,10 +42,7 @@ describe('projection threshold drift gate', () => {
   it('WGSL needs_backface_cull select() thresholds == table', () => {
     // DSL-emitted form: `select(-1.0, 1.0, (cc > -0.85))` (fully parenthesised),
     // azimuthal then stereo.
-    const found = allMatches(
-      WGSL_PROJECTION_FNS(),
-      /select\(-1\.0, 1\.0, \(\w+ > (-?[\d.]+)\)\)/g,
-    )
+    const found = allMatches(WGSL_PROJECTION_FNS(), /select\(-1\.0, 1\.0, \(\w+ > (-?[\d.]+)\)\)/g)
     expect(found).toEqual([AZIMUTHAL, STEREO])
   })
 
@@ -53,10 +50,7 @@ describe('projection threshold drift gate', () => {
     // DSL emits `smoothstep(LO, HI, <cos_c>)` with bounds precomputed (RIM_FADE
     // inlined). Match only the LO/HI bounds, which is what this gate pins.
     // Order: ortho, azimuthal, stereo, globe.
-    const found = allMatches(
-      WGSL_PROJECTION_FNS(),
-      /smoothstep\((-?[\d.]+), -?[\d.]+, /g,
-    )
+    const found = allMatches(WGSL_PROJECTION_FNS(), /smoothstep\((-?[\d.]+), -?[\d.]+, /g)
     // #600 — globe's rim is now `smoothstep(0, RIM, globe_eye_horizon_cos(...))`,
     // a DIFFERENT 3rd arg from ortho's `smoothstep(0, RIM, center_cos_c)`, so the
     // two no longer cse-merge: 4 distinct smoothsteps emit (ortho, azimuthal,
@@ -71,8 +65,12 @@ describe('projection threshold drift gate', () => {
     // value — drift-impossible by construction. Probe: azimuthal (4) visible
     // iff cc > AZIMUTHAL, stereographic (5) iff cc > STEREO. (Replaces the old
     // regex over the hand-written mirror, now deleted.)
-    const CL = 0, CT = 20
-    for (const [pt, thr] of [[4, AZIMUTHAL], [5, STEREO]] as const) {
+    const CL = 0,
+      CT = 20
+    for (const [pt, thr] of [
+      [4, AZIMUTHAL],
+      [5, STEREO],
+    ] as const) {
       for (let i = 0; i < 12; i++) {
         for (let j = 0; j < 12; j++) {
           const lon = -180 + (i / 11) * 360
@@ -93,7 +91,9 @@ describe('projection threshold drift gate', () => {
     // a hand-written threshold literal in the raster shader, the table is
     // the place to wire it. ORTHO/AZIMUTHAL/STEREO referenced here to keep
     // the table-anchor link explicit for grep/review.
-    void ORTHO; void AZIMUTHAL; void STEREO
+    void ORTHO
+    void AZIMUTHAL
+    void STEREO
     const raster = emitRasterWgsl(false)
     const found = allMatches(raster, /threshold(?:: f32)? = (-?[\d.]+);/g)
     expect(found).toEqual([])
@@ -103,8 +103,9 @@ describe('projection threshold drift gate', () => {
     // The DSL inlines RIM_FADE (no `let RIM_FADE`), so each emitted smoothstep
     // band must be exactly 0.02 wide (HI − LO). (3rd arg is the cse-hoisted cos_c
     // temp; match only the LO/HI bounds.)
-    const bands = [...WGSL_PROJECTION_FNS().matchAll(/smoothstep\((-?[\d.]+), (-?[\d.]+), /g)]
-      .map((m) => Math.round((parseFloat(m[2]!) - parseFloat(m[1]!)) * 1000) / 1000)
+    const bands = [...WGSL_PROJECTION_FNS().matchAll(/smoothstep\((-?[\d.]+), (-?[\d.]+), /g)].map(
+      (m) => Math.round((parseFloat(m[2]!) - parseFloat(m[1]!)) * 1000) / 1000,
+    )
     expect(bands).toEqual([0.02, 0.02, 0.02, 0.02]) // #600 — ortho/azi/stereo/globe (globe no longer cse-merges with ortho)
     const raster = emitRasterWgsl(false)
     // raster applies `smoothstep(0.0, 0.02, input.vis)` — same fade width.

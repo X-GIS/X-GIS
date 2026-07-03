@@ -27,38 +27,63 @@
 // density is the heatmap signal.
 
 import {
-  fn, module, transformMat4, arrayLit,
-  f32, u32, toU32, vec2, vec3, vec4, exp, max, select,
-  Let, when,
-  f32T, u32T, vec2fT, vec4fT, mat4x4fT,
+  fn,
+  module,
+  transformMat4,
+  arrayLit,
+  f32,
+  u32,
+  toU32,
+  vec2,
+  vec3,
+  vec4,
+  exp,
+  max,
+  select,
+  Let,
+  when,
+  f32T,
+  u32T,
+  vec2fT,
+  vec4fT,
+  mat4x4fT,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, storageBuffer } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
-import { flat_rel, needs_backface_cull, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
+import {
+  flat_rel,
+  needs_backface_cull,
+  PROJECTION_CONSTS,
+  getGpuProjectionFuncs,
+} from './projections'
 
 // Exported (as heatmapAccumU below — distinct barrel name) for the renderer's
 // UniformBlock (#733 P2): the CPU packer derives its typed write surface from
 // this SAME declaration the WGSL struct is emitted from.
-const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
-  // ECEF-MVP (Camera.getECEFFrameView) for globe / 3D; the matching
-  // flat-Mercator MVP (Camera.getViewForProjection) on the flat path.
-  mvp: mat4x4fT,
-  // proj_params: x=projType, y=centerLon, z=centerLat, w=unused.
-  proj_params: vec4fT,
-  // viewport: x=width px, y=height px, z=meters/px, w=unused.
-  viewport: vec4fT,
-  // Camera anchor (DSFUN hi/lo) — ECEF (getECEFCenter) on globe; the 2D
-  // Mercator centre in .xy on the flat path. Mirrors the point uniform.
-  cam_ecef_h: vec4fT,
-  cam_ecef_l: vec4fT,
-  // #600 — globe(7) eye-horizon cull. xyz = normalize(eye_ecef), w =
-  // EARTH_R/|eye_ecef|. The VS back-hemisphere cull (#595) passes this to
-  // needs_backface_cull; the globe arm uses the eye-horizon cap (not the
-  // pitch-invariant centre hemisphere). Written by heatmap-renderer; ALL-ZERO
-  // on flat / disc paths (those arms ignore globe_eye).
-  globe_eye: vec4fT,
-})
+const U = uniformStruct(
+  'Uniforms',
+  { group: 0, binding: 0, as: 'u' },
+  {
+    // ECEF-MVP (Camera.getECEFFrameView) for globe / 3D; the matching
+    // flat-Mercator MVP (Camera.getViewForProjection) on the flat path.
+    mvp: mat4x4fT,
+    // proj_params: x=projType, y=centerLon, z=centerLat, w=unused.
+    proj_params: vec4fT,
+    // viewport: x=width px, y=height px, z=meters/px, w=unused.
+    viewport: vec4fT,
+    // Camera anchor (DSFUN hi/lo) — ECEF (getECEFCenter) on globe; the 2D
+    // Mercator centre in .xy on the flat path. Mirrors the point uniform.
+    cam_ecef_h: vec4fT,
+    cam_ecef_l: vec4fT,
+    // #600 — globe(7) eye-horizon cull. xyz = normalize(eye_ecef), w =
+    // EARTH_R/|eye_ecef|. The VS back-hemisphere cull (#595) passes this to
+    // needs_backface_cull; the globe arm uses the eye-horizon cap (not the
+    // pitch-invariant centre hemisphere). Written by heatmap-renderer; ALL-ZERO
+    // on flat / disc paths (those arms ignore globe_eye).
+    globe_eye: vec4fT,
+  },
+)
 export { U as heatmapAccumU }
 
 const HeatOut = ioStruct('HeatOut', {
@@ -74,85 +99,94 @@ const featData = featDataB.node
 // can reuse the same ECEF / Mercator DSFUN expansion.
 const STRIDE = u32(24)
 
-const vs = fn('vs_heatmap', {
-  center: location(0, vec2fT),
-  quad_id: location(1, u32T),
-  feat_id: location(2, f32T),
-}, (p) => {
-  const offsets = arrayLit(vec2fT,
-    vec2(-1, -1),
-    vec2(1, -1),
-    vec2(1, 1),
-    vec2(-1, 1),
-  )
-  const fid = toU32(p.feat_id)
-  const radiusPx = max(featData.at(fid.mul(STRIDE).add(0), f32T), 1)
-  const weight = featData.at(fid.mul(STRIDE).add(1), f32T)
-  const viewport = U.field.viewport
-  const mvp = U.field.mvp
+const vs = fn(
+  'vs_heatmap',
+  {
+    center: location(0, vec2fT),
+    quad_id: location(1, u32T),
+    feat_id: location(2, f32T),
+  },
+  (p) => {
+    const offsets = arrayLit(vec2fT, vec2(-1, -1), vec2(1, -1), vec2(1, 1), vec2(-1, 1))
+    const fid = toU32(p.feat_id)
+    const radiusPx = max(featData.at(fid.mul(STRIDE).add(0), f32T), 1)
+    const weight = featData.at(fid.mul(STRIDE).add(1), f32T)
+    const viewport = U.field.viewport
+    const mvp = U.field.mvp
 
-  // Per-feature ECEF DSFUN centre (slots 11..16) + abs lon/lat (17/18).
-  const ecefH = vec3(
-    featData.at(fid.mul(STRIDE).add(11), f32T),
-    featData.at(fid.mul(STRIDE).add(12), f32T),
-    featData.at(fid.mul(STRIDE).add(13), f32T),
-  )
-  const ecefL = vec3(
-    featData.at(fid.mul(STRIDE).add(14), f32T),
-    featData.at(fid.mul(STRIDE).add(15), f32T),
-    featData.at(fid.mul(STRIDE).add(16), f32T),
-  )
-  const camH = U.field.cam_ecef_h.swizzle('xyz')
-  const camL = U.field.cam_ecef_l.swizzle('xyz')
-  const ecefRtc = ecefH.sub(camH).add(ecefL.sub(camL))
-  const absLon = featData.at(fid.mul(STRIDE).add(17), f32T)
-  const absLat = featData.at(fid.mul(STRIDE).add(18), f32T)
+    // Per-feature ECEF DSFUN centre (slots 11..16) + abs lon/lat (17/18).
+    const ecefH = vec3(
+      featData.at(fid.mul(STRIDE).add(11), f32T),
+      featData.at(fid.mul(STRIDE).add(12), f32T),
+      featData.at(fid.mul(STRIDE).add(13), f32T),
+    )
+    const ecefL = vec3(
+      featData.at(fid.mul(STRIDE).add(14), f32T),
+      featData.at(fid.mul(STRIDE).add(15), f32T),
+      featData.at(fid.mul(STRIDE).add(16), f32T),
+    )
+    const camH = U.field.cam_ecef_h.swizzle('xyz')
+    const camL = U.field.cam_ecef_l.swizzle('xyz')
+    const ecefRtc = ecefH.sub(camH).add(ecefL.sub(camL))
+    const absLon = featData.at(fid.mul(STRIDE).add(17), f32T)
+    const absLat = featData.at(fid.mul(STRIDE).add(18), f32T)
 
-  // Three-way projType branch — faithful clone of the point VS.
-  const centerClip = when([
-    [U.field.proj_params.x.lt(0.5), () => {
-      // Flat Mercator: precise absolute-Mercator DSFUN tail (slots 20..23),
-      // camera-recentered in DSFUN space.
-      const mxH = featData.at(fid.mul(STRIDE).add(20), f32T)
-      const mxL = featData.at(fid.mul(STRIDE).add(21), f32T)
-      const myH = featData.at(fid.mul(STRIDE).add(22), f32T)
-      const myL = featData.at(fid.mul(STRIDE).add(23), f32T)
-      const camMercH = U.field.cam_ecef_h.swizzle('xy')
-      const camMercL = U.field.cam_ecef_l.swizzle('xy')
-      const relX = mxH.sub(camMercH.x).add(mxL.sub(camMercL.x))
-      const relY = myH.sub(camMercH.y).add(myL.sub(camMercL.y))
-      return transformMat4(mvp, vec4(relX, relY, 0, 1))
-    }],
-    [U.field.proj_params.x.lt(6.5), () => {
-      // Flat non-Mercator (1..6): shared flat_rel (self-ref lon for nearest copy).
-      const pp = U.field.proj_params
-      const relG = flat_rel(absLon, absLat, pp, absLon)
-      return transformMat4(mvp, vec4(relG.x, relG.y, 0, 1))
-    }],
-  ], () => transformMat4(mvp, vec4(ecefRtc, 1)))
+    // Three-way projType branch — faithful clone of the point VS.
+    const centerClip = when(
+      [
+        [
+          U.field.proj_params.x.lt(0.5),
+          () => {
+            // Flat Mercator: precise absolute-Mercator DSFUN tail (slots 20..23),
+            // camera-recentered in DSFUN space.
+            const mxH = featData.at(fid.mul(STRIDE).add(20), f32T)
+            const mxL = featData.at(fid.mul(STRIDE).add(21), f32T)
+            const myH = featData.at(fid.mul(STRIDE).add(22), f32T)
+            const myL = featData.at(fid.mul(STRIDE).add(23), f32T)
+            const camMercH = U.field.cam_ecef_h.swizzle('xy')
+            const camMercL = U.field.cam_ecef_l.swizzle('xy')
+            const relX = mxH.sub(camMercH.x).add(mxL.sub(camMercL.x))
+            const relY = myH.sub(camMercH.y).add(myL.sub(camMercL.y))
+            return transformMat4(mvp, vec4(relX, relY, 0, 1))
+          },
+        ],
+        [
+          U.field.proj_params.x.lt(6.5),
+          () => {
+            // Flat non-Mercator (1..6): shared flat_rel (self-ref lon for nearest copy).
+            const pp = U.field.proj_params
+            const relG = flat_rel(absLon, absLat, pp, absLon)
+            return transformMat4(mvp, vec4(relG.x, relG.y, 0, 1))
+          },
+        ],
+      ],
+      () => transformMat4(mvp, vec4(ecefRtc, 1)),
+    )
 
-  // Back-hemisphere cull for globe/sphere projections (#595): collapse the
-  // entire splat quad to a degenerate clip position (w=0) so the GPU discards
-  // it before rasterisation. needs_backface_cull returns negative cos_c on the
-  // back hemisphere for globe (projType ≥ 6.5) and returns +1 for flat
-  // projections (no regression). Degenerate w=0 is outside NDC on every
-  // implementation so no accum contribution lands from a back-facing point.
-  const cosC = needs_backface_cull(absLon, absLat, U.field.proj_params, U.field.globe_eye)
-  const isVisible = cosC.ge(0)
+    // Back-hemisphere cull for globe/sphere projections (#595): collapse the
+    // entire splat quad to a degenerate clip position (w=0) so the GPU discards
+    // it before rasterisation. needs_backface_cull returns negative cos_c on the
+    // back hemisphere for globe (projType ≥ 6.5) and returns +1 for flat
+    // projections (no regression). Degenerate w=0 is outside NDC on every
+    // implementation so no accum contribution lands from a back-facing point.
+    const cosC = needs_backface_cull(absLon, absLat, U.field.proj_params, U.field.globe_eye)
+    const isVisible = cosC.ge(0)
 
-  // Expand a screen-space billboard quad of `radius_px` (NDC-corrected by
-  // clip.w). uv runs −1..1 across the quad; the FS Gaussian is radial in uv.
-  const offXY = offsets.at(p.quad_id, vec2fT)
-  const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
-  const offsetPx = vec2(offXY.x.mul(radiusPx), offXY.y.mul(radiusPx))
-  const offsetNdc = offsetPx.mul(pxToNdc)
-  const expandedClip = centerClip.add(vec4(offsetNdc.mul(centerClip.w), 0, 0))
-  // Degenerate clip (all zeros, w=0) is outside NDC — GPU discards entirely.
-  // select(cond, ifTrue, ifFalse): front-facing → expanded; back-facing → degenerate.
-  const quadClip = Let(select(isVisible, expandedClip, vec4(0, 0, 0, 0)))
+    // Expand a screen-space billboard quad of `radius_px` (NDC-corrected by
+    // clip.w). uv runs −1..1 across the quad; the FS Gaussian is radial in uv.
+    const offXY = offsets.at(p.quad_id, vec2fT)
+    const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
+    const offsetPx = vec2(offXY.x.mul(radiusPx), offXY.y.mul(radiusPx))
+    const offsetNdc = offsetPx.mul(pxToNdc)
+    const expandedClip = centerClip.add(vec4(offsetNdc.mul(centerClip.w), 0, 0))
+    // Degenerate clip (all zeros, w=0) is outside NDC — GPU discards entirely.
+    // select(cond, ifTrue, ifFalse): front-facing → expanded; back-facing → degenerate.
+    const quadClip = Let(select(isVisible, expandedClip, vec4(0, 0, 0, 0)))
 
-  return HeatOut.construct({ position: quadClip, uv: offXY, weight })
-}, { stage: 'vertex' })
+    return HeatOut.construct({ position: quadClip, uv: offXY, weight })
+  },
+  { stage: 'vertex' },
+)
 
 // Fragment: radial Gaussian falloff × weight → R channel. The accum pipeline
 // uses additive blend so the writes sum across overlapping splats.
@@ -161,30 +195,33 @@ const vs = fn('vs_heatmap', {
 // contribution = weight · (exp(GAUSS_COEF · d²) − ZERO) over the unit disc
 // d=|uv|, with GAUSS_COEF = −1.5 and ZERO = exp(GAUSS_COEF) so the edge of
 // the disc contributes ~0 (continuous falloff to the quad boundary).
-const fs = fn('fs_heatmap', { in: HeatOut }, (p) => {
-  const pin = p.in
-  const uv = pin.uv
-  const d2 = uv.x.mul(uv.x).add(uv.y.mul(uv.y))
-  const ZERO = f32(0.22313016) // exp(-1.5)
-  const gauss = max(exp(d2.mul(-1.5)).sub(ZERO), 0)
-  const density = gauss.mul(pin.weight)
-  // R16Float target — only .r carries density; gba unused.
-  return vec4(density, 0, 0, 1)
-}, { stage: 'fragment', retAttr: '@location(0)' })
+const fs = fn(
+  'fs_heatmap',
+  { in: HeatOut },
+  (p) => {
+    const pin = p.in
+    const uv = pin.uv
+    const d2 = uv.x.mul(uv.x).add(uv.y.mul(uv.y))
+    const ZERO = f32(0.22313016) // exp(-1.5)
+    const gauss = max(exp(d2.mul(-1.5)).sub(ZERO), 0)
+    const density = gauss.mul(pin.weight)
+    // R16Float target — only .r carries density; gba unused.
+    return vec4(density, 0, 0, 1)
+  },
+  { stage: 'fragment', retAttr: '@location(0)' },
+)
 
 // A build-fn (not a top-level const) so the injection-deferred getGpuProjectionFuncs() is
 // gathered at emit time, post-configureProjections().
-export const buildHeatmapAccumModule = (): ModuleDecl => module({
-  // Shared projection constants merged in (was the getProjectionWgslConsts() string prepend).
-  consts: [...PROJECTION_CONSTS],
-  structs: [U.struct, HeatOut.decl],
-  bindings: [
-    U.binding,
-    featDataB.binding,
-  ],
-  // Projection fn decls lead (was the getProjectionWgslFns() prepend), then the accum funcs.
-  funcs: [...getGpuProjectionFuncs(), vs, fs],
-})
+export const buildHeatmapAccumModule = (): ModuleDecl =>
+  module({
+    // Shared projection constants merged in (was the getProjectionWgslConsts() string prepend).
+    consts: [...PROJECTION_CONSTS],
+    structs: [U.struct, HeatOut.decl],
+    bindings: [U.binding, featDataB.binding],
+    // Projection fn decls lead (was the getProjectionWgslFns() prepend), then the accum funcs.
+    funcs: [...getGpuProjectionFuncs(), vs, fs],
+  })
 
 /** Full heatmap accumulation shader: one module — shared projection consts + fns merged
  *  ahead of the accum module (Uniforms + feat_data storage + vs_heatmap/fs_heatmap). */

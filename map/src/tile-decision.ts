@@ -147,9 +147,16 @@ const DROP_NO_ARCHIVE_DECISION: TileDecision = Object.freeze({ kind: 'drop-no-ar
 /** Pure tile-resolution classifier. Replaces the per-tile loop's
  *  branched `if … continue` chain with a single decision return. */
 export function classifyTile(input: ClassifyTileInputs): TileDecision {
-  const { visible, visibleKey, maxLevel, parentAtMaxLevel,
-    layerCache, hasSliceInCatalog, hasAnySliceInCatalog,
-    sliceLayer } = input
+  const {
+    visible,
+    visibleKey,
+    maxLevel,
+    parentAtMaxLevel,
+    layerCache,
+    hasSliceInCatalog,
+    hasAnySliceInCatalog,
+    sliceLayer,
+  } = input
   // Default the non-empty predicate to hasSliceInCatalog (back-compat:
   // multi-layer sources never store an empty placeholder under a named
   // slice, so the two predicates coincide there).
@@ -234,8 +241,12 @@ export function classifyTile(input: ClassifyTileInputs): TileDecision {
   //    thisSlicePresentButEmpty captures the default-slice empty tile
   //    that the `sliceLayer && hasAnySliceInCatalog` multi-layer guard
   //    would otherwise skip.
-  const thisSlicePresentButEmpty = hasSliceInCatalog(visibleKey) && !hasNonEmptySliceInCatalog(visibleKey)
-  if (tileZ <= maxLevel && (thisSlicePresentButEmpty || (sliceLayer && hasAnySliceInCatalog(visibleKey)))) {
+  const thisSlicePresentButEmpty =
+    hasSliceInCatalog(visibleKey) && !hasNonEmptySliceInCatalog(visibleKey)
+  if (
+    tileZ <= maxLevel &&
+    (thisSlicePresentButEmpty || (sliceLayer && hasAnySliceInCatalog(visibleKey)))
+  ) {
     const fb = classifyFallback(input)
     if (fb.kind === 'parent-fallback' || fb.kind === 'child-fallback') {
       return fb
@@ -282,8 +293,15 @@ export function computeProtectedKeys(
  *  pending. Shared between path 3 (queued-with-fallback) and path 5
  *  (cold) so both produce the same fallback structure. */
 function classifyFallback(input: ClassifyTileInputs): TileDecision {
-  const { visibleKey, maxLevel, archiveAncestor, layerCache,
-    hasSliceInCatalog, hasAnySliceInCatalog, hasEntryInIndex } = input
+  const {
+    visibleKey,
+    maxLevel,
+    archiveAncestor,
+    layerCache,
+    hasSliceInCatalog,
+    hasAnySliceInCatalog,
+    hasEntryInIndex,
+  } = input
   const tileZ = input.visible.z
 
   // Per-layer walk: find the highest cached ancestor for this slice.
@@ -293,7 +311,10 @@ function classifyFallback(input: ClassifyTileInputs): TileDecision {
     let walkKey = visibleKey
     for (let pz = tileZ - 1; pz >= 0; pz--) {
       walkKey = tileKeyParent(walkKey)
-      if (hasSliceInCatalog(walkKey)) { cachedAncestorKey = walkKey; break }
+      if (hasSliceInCatalog(walkKey)) {
+        cachedAncestorKey = walkKey
+        break
+      }
     }
   }
 
@@ -364,19 +385,23 @@ function classifyFallback(input: ClassifyTileInputs): TileDecision {
       if (walk <= 1) break
       walk = tileKeyParent(walk)
     }
-    chain.reverse()  // root → visible
+    chain.reverse() // root → visible
   }
   let requestKey: number | null = null
   for (const k of chain) {
-    if (hasAnySliceInCatalog(k)) continue   // already loaded; deeper level is the next frontier
-    if (!hasEntryInIndex(k)) continue        // this z not in archive (below sourceMinzoom etc.)
+    if (hasAnySliceInCatalog(k)) continue // already loaded; deeper level is the next frontier
+    if (!hasEntryInIndex(k)) continue // this z not in archive (below sourceMinzoom etc.)
     requestKey = k
     break
   }
   // Fallback to the legacy choice if the walk found nothing indexed
   // (defensive: archiveAncestor>=0 implies the loop should have hit it).
   if (requestKey === null) {
-    requestKey = hasEntryInIndex(visibleKey) ? visibleKey : (archiveAncestor >= 0 ? archiveAncestor : null)
+    requestKey = hasEntryInIndex(visibleKey)
+      ? visibleKey
+      : archiveAncestor >= 0
+        ? archiveAncestor
+        : null
   }
   return { kind: 'pending', requestKey }
 }
@@ -552,9 +577,22 @@ export function computeZoomDirectionPrefetchKeys(input: {
   isCached: (k: number) => boolean
 }): number[] {
   const {
-    camera, cameraZoom, currentZ, maxSubTileZ, projType, globeMode,
-    centerX, centerY, pitch, bearing,
-    canvasWidth, canvasHeight, dpr, selectorProj, offsetMarginPx, isCached,
+    camera,
+    cameraZoom,
+    currentZ,
+    maxSubTileZ,
+    projType,
+    globeMode,
+    centerX,
+    centerY,
+    pitch,
+    bearing,
+    canvasWidth,
+    canvasHeight,
+    dpr,
+    selectorProj,
+    offsetMarginPx,
+    isCached,
   } = input
   let prefetchZ = -1
   if (cameraZoom > currentZ + 0.5 && currentZ + 1 <= maxSubTileZ) {
@@ -571,30 +609,45 @@ export function computeZoomDirectionPrefetchKeys(input: {
   const prefetchTiles = routeToSphereSelector(projType, globeMode)
     ? (() => {
         const R = 6378137
-        const lonPF = centerX / R * (180 / Math.PI)
+        const lonPF = (centerX / R) * (180 / Math.PI)
         // For sphere-family projections read the true centre latitude from
         // camera.centerLatDeg — it reaches the pole (±90°) past the Mercator
         // saturation limit of ±85.051129.  Mirrors the same fix in
         // tile-selection-cache.ts so prefetch and render stay in lockstep.
-        const latPF = representsCenterAs(projType) === 'lat-deg'
-          ? camera.centerLatDeg
-          : mercatorYToLat(centerY)
+        const latPF =
+          representsCenterAs(projType) === 'lat-deg' ? camera.centerLatDeg : mercatorYToLat(centerY)
         const cssWPF = canvasWidth / dpr
         const cssHPF = canvasHeight / dpr
         return globeVisibleTiles(
-          lonPF, latPF, cameraZoom, prefetchZ, cssWPF, cssHPF,
-          pitch, bearing,
-        ).map(t => makeTileCoord(t.z, t.x, t.y, 0))
+          lonPF,
+          latPF,
+          cameraZoom,
+          prefetchZ,
+          cssWPF,
+          cssHPF,
+          pitch,
+          bearing,
+        ).map((t) => makeTileCoord(t.z, t.x, t.y, 0))
       })()
     : pitch < 30
-    ? visibleTilesFrustumSampled(
-        camera, selectorProj, prefetchZ,
-        canvasWidth, canvasHeight, offsetMarginPx, dpr,
-      )
-    : visibleTilesFrustum(
-        camera, selectorProj, prefetchZ,
-        canvasWidth, canvasHeight, offsetMarginPx, dpr,
-      )
+      ? visibleTilesFrustumSampled(
+          camera,
+          selectorProj,
+          prefetchZ,
+          canvasWidth,
+          canvasHeight,
+          offsetMarginPx,
+          dpr,
+        )
+      : visibleTilesFrustum(
+          camera,
+          selectorProj,
+          prefetchZ,
+          canvasWidth,
+          canvasHeight,
+          offsetMarginPx,
+          dpr,
+        )
   const prefetchKeys: number[] = []
   for (const t of prefetchTiles) {
     const k = tileKey(t.z, t.x, t.y)

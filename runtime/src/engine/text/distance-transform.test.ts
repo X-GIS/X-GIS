@@ -35,14 +35,16 @@ function maskToField(mask: Uint8Array): Float64Array {
 
 describe('distanceTransform2D', () => {
   it('identity: all zeros stays at zero distance', () => {
-    const w = 4, h = 4
-    const f = new Float64Array(w * h)  // all zero
+    const w = 4,
+      h = 4
+    const f = new Float64Array(w * h) // all zero
     distanceTransform2D(f, w, h)
     for (let i = 0; i < f.length; i++) expect(f[i]).toBe(0)
   })
 
   it('single zero at center → ring of squared distances', () => {
-    const w = 5, h = 5
+    const w = 5,
+      h = 5
     const mask = new Uint8Array(w * h).fill(255)
     mask[2 * w + 2] = 0
     const f = maskToField(mask)
@@ -58,14 +60,15 @@ describe('distanceTransform2D', () => {
   })
 
   it('matches brute force on a random mask', () => {
-    const w = 16, h = 12
+    const w = 16,
+      h = 12
     const mask = new Uint8Array(w * h)
     // Seed pseudo-randomly with a deterministic LCG so the test
     // doesn't flake.
-    let s = 0xDEADBEEF
+    let s = 0xdeadbeef
     for (let i = 0; i < mask.length; i++) {
       s = (s * 1664525 + 1013904223) >>> 0
-      mask[i] = (s & 0xFF) < 64 ? 0 : 255
+      mask[i] = (s & 0xff) < 64 ? 0 : 255
     }
     const expected = bruteForceDT(mask, w, h)
     const f = maskToField(mask)
@@ -76,7 +79,8 @@ describe('distanceTransform2D', () => {
   })
 
   it('fully unset (all INF) leaves field unchanged', () => {
-    const w = 5, h = 5
+    const w = 5,
+      h = 5
     const f = new Float64Array(w * h).fill(INF)
     distanceTransform2D(f, w, h)
     // No zero-set point — every cell should still be infinite.
@@ -86,8 +90,9 @@ describe('distanceTransform2D', () => {
 
 describe('computeSDF', () => {
   it('all outside → all max-OUT byte', () => {
-    const w = 8, h = 8
-    const alpha = new Uint8Array(w * h)  // all zero (= outside)
+    const w = 8,
+      h = 8
+    const alpha = new Uint8Array(w * h) // all zero (= outside)
     const sdf = computeSDF(alpha, w, h, 8)
     // No inside pixels means inside-distance is +∞ → signed
     // distance is `INF - 0 = INF` → byte clamps to 0
@@ -97,14 +102,16 @@ describe('computeSDF', () => {
   })
 
   it('all inside → all max-IN byte (255)', () => {
-    const w = 8, h = 8
+    const w = 8,
+      h = 8
     const alpha = new Uint8Array(w * h).fill(255)
     const sdf = computeSDF(alpha, w, h, 8)
     expect(sdf[0]).toBe(255)
   })
 
   it('half-and-half edge maps to ~192 at the boundary', () => {
-    const w = 8, h = 4
+    const w = 8,
+      h = 4
     const alpha = new Uint8Array(w * h)
     // Left half outside, right half inside
     for (let y = 0; y < h; y++) {
@@ -122,11 +129,12 @@ describe('computeSDF', () => {
     const v4 = sdf[1 * w + 4]!
     expect(Math.abs(v3 - 192)).toBeLessThan(45)
     expect(Math.abs(v4 - 192)).toBeLessThan(45)
-    expect(v3).toBeLessThan(v4)  // outside < edge < inside in this packing
+    expect(v3).toBeLessThan(v4) // outside < edge < inside in this packing
   })
 
   it('output dimensions match input', () => {
-    const w = 13, h = 7
+    const w = 13,
+      h = 7
     const sdf = computeSDF(new Uint8Array(w * h), w, h, 4)
     expect(sdf.length).toBe(w * h)
   })

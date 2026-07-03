@@ -27,67 +27,100 @@ interface ViewSpec {
 }
 
 const VIEWS: ViewSpec[] = [
-  { id: 'liberty-korea-z5',
+  {
+    id: 'liberty-korea-z5',
     style: 'openfreemap-liberty',
     hash: '#4.96/36.91054/128.15566/0.8/1.0',
-    expected: 'tile zoom offset just fixed (floor z+0.7 -> floor z)' },
-  { id: 'liberty-korea-z5-pitch45',
+    expected: 'tile zoom offset just fixed (floor z+0.7 -> floor z)',
+  },
+  {
+    id: 'liberty-korea-z5-pitch45',
     style: 'openfreemap-liberty',
     hash: '#4.96/36.91054/128.15566/0/45',
-    expected: 'pitched view of korea-z5 — frustum tile selection at angle' },
-  { id: 'liberty-korea-z5-pitch60',
+    expected: 'pitched view of korea-z5 — frustum tile selection at angle',
+  },
+  {
+    id: 'liberty-korea-z5-pitch60',
     style: 'openfreemap-liberty',
     hash: '#4.96/36.91054/128.15566/0/60',
-    expected: 'higher pitch — horizon-side tile fan-out' },
-  { id: 'liberty-korea-z7',
+    expected: 'higher pitch — horizon-side tile fan-out',
+  },
+  {
+    id: 'liberty-korea-z7',
     style: 'openfreemap-liberty',
     hash: '#7.00/36.91054/128.15566',
-    expected: 'integer-zoom case — tile LOD boundary should match ML exactly' },
-  { id: 'liberty-korea-z7-pitch45',
+    expected: 'integer-zoom case — tile LOD boundary should match ML exactly',
+  },
+  {
+    id: 'liberty-korea-z7-pitch45',
     style: 'openfreemap-liberty',
     hash: '#7.00/36.91054/128.15566/0/45',
-    expected: 'integer-zoom + pitch — combination check' },
-  { id: 'liberty-gangwon-z10',
+    expected: 'integer-zoom + pitch — combination check',
+  },
+  {
+    id: 'liberty-gangwon-z10',
     style: 'openfreemap-liberty',
     hash: '#10.10/37.35371/128.17283',
-    expected: 'stroke + dash patterns' },
-  { id: 'liberty-gangwon-z10-pitch50',
+    expected: 'stroke + dash patterns',
+  },
+  {
+    id: 'liberty-gangwon-z10-pitch50',
     style: 'openfreemap-liberty',
     hash: '#10.10/37.35371/128.17283/0/50',
-    expected: 'pitched mid-zoom road network' },
-  { id: 'liberty-highway-z175',
+    expected: 'pitched mid-zoom road network',
+  },
+  {
+    id: 'liberty-highway-z175',
     style: 'openfreemap-liberty',
     hash: '#17.50/37.44536/128.10118',
-    expected: 'orange motorway extra middle line' },
-  { id: 'liberty-tokyo-z14',
+    expected: 'orange motorway extra middle line',
+  },
+  {
+    id: 'liberty-tokyo-z14',
     style: 'openfreemap-liberty',
     hash: '#14.00/35.6762/139.6503',
-    expected: 'urban dense view at integer zoom' },
-  { id: 'liberty-tokyo-z14-pitch55',
+    expected: 'urban dense view at integer zoom',
+  },
+  {
+    id: 'liberty-tokyo-z14-pitch55',
     style: 'openfreemap-liberty',
     hash: '#14.00/35.6762/139.6503/0/55',
-    expected: 'pitched urban — building/road density' },
-  { id: 'liberty-tokyo-z19',
+    expected: 'pitched urban — building/road density',
+  },
+  {
+    id: 'liberty-tokyo-z19',
     style: 'openfreemap-liberty',
     hash: '#19.49/35.87387/139.95634',
-    expected: 'missing river / drainage / road-name labels' },
-  { id: 'bright-korea-z5',
+    expected: 'missing river / drainage / road-name labels',
+  },
+  {
+    id: 'bright-korea-z5',
     style: 'openfreemap-bright',
     hash: '#4.96/36.61525/127.95946/0.8/1.0',
-    expected: 'water_name italic blue color + white halo (user-reported)' },
-  { id: 'bright-korea-z8',
+    expected: 'water_name italic blue color + white halo (user-reported)',
+  },
+  {
+    id: 'bright-korea-z8',
     style: 'openfreemap-bright',
     hash: '#8.0/36.61525/127.95946',
-    expected: 'water_name halo at larger size — halo should be obvious' },
-  { id: 'bright-yellowsea-z7',
+    expected: 'water_name halo at larger size — halo should be obvious',
+  },
+  {
+    id: 'bright-yellowsea-z7',
     style: 'openfreemap-bright',
     hash: '#7.0/36.0/124.0',
-    expected: 'Yellow Sea water_name label at larger size — halo prominence check' },
+    expected: 'Yellow Sea water_name label at larger size — halo prominence check',
+  },
 ]
 
 interface Buckets {
-  eq0: number; le8: number; le16: number; le32: number
-  le64: number; le128: number; gt128: number
+  eq0: number
+  le8: number
+  le16: number
+  le32: number
+  le64: number
+  le128: number
+  gt128: number
 }
 
 function diffBuckets(a: PNG, b: PNG, w: number, h: number): { buckets: Buckets; diffPng: PNG } {
@@ -114,15 +147,23 @@ function diffBuckets(a: PNG, b: PNG, w: number, h: number): { buckets: Buckets; 
       //   32 < d ≤ 64 → light orange (small drift)
       //   64 < d ≤ 128 → orange (visible)
       //   d > 128      → bright red (clearly different)
-      const gray = (a.data[i]! + a.data[i + 1]! + a.data[i + 2]!) / 3 * 0.4 + 80
+      const gray = ((a.data[i]! + a.data[i + 1]! + a.data[i + 2]!) / 3) * 0.4 + 80
       if (m <= 32) {
-        diff.data[i] = gray; diff.data[i + 1] = gray; diff.data[i + 2] = gray
+        diff.data[i] = gray
+        diff.data[i + 1] = gray
+        diff.data[i + 2] = gray
       } else if (m <= 64) {
-        diff.data[i] = 240; diff.data[i + 1] = 200; diff.data[i + 2] = 120
+        diff.data[i] = 240
+        diff.data[i + 1] = 200
+        diff.data[i + 2] = 120
       } else if (m <= 128) {
-        diff.data[i] = 250; diff.data[i + 1] = 150; diff.data[i + 2] = 60
+        diff.data[i] = 250
+        diff.data[i + 1] = 150
+        diff.data[i + 2] = 60
       } else {
-        diff.data[i] = 255; diff.data[i + 1] = 50; diff.data[i + 2] = 50
+        diff.data[i] = 255
+        diff.data[i + 1] = 50
+        diff.data[i + 2] = 50
       }
       diff.data[i + 3] = 255
     }
@@ -170,25 +211,39 @@ for (const view of VIEWS) {
         const w = window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }
         return w.__xgisReady === true && w.__mlReady === true
       },
-      null, { timeout: 90_000 },
+      null,
+      { timeout: 90_000 },
     )
     // Wait for MapLibre's idle + a settle window for PBF glyph fetches.
-    await page.evaluate(() => new Promise<void>((resolve) => {
-      interface MlMap { loaded(): boolean; once(ev: string, fn: () => void): void }
-      const ml = (window as unknown as { __mlMap?: MlMap }).__mlMap
-      if (!ml) { resolve(); return }
-      if (ml.loaded()) { resolve(); return }
-      ml.once('idle', () => resolve())
-      setTimeout(resolve, 12_000)
-    }))
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          interface MlMap {
+            loaded(): boolean
+            once(ev: string, fn: () => void): void
+          }
+          const ml = (window as unknown as { __mlMap?: MlMap }).__mlMap
+          if (!ml) {
+            resolve()
+            return
+          }
+          if (ml.loaded()) {
+            resolve()
+            return
+          }
+          ml.once('idle', () => resolve())
+          setTimeout(resolve, 12_000)
+        }),
+    )
     // Longer settle than the standard survey — at higher zooms the
     // PBF glyph ranges for non-Latin text take 5-10 s to land and
     // X-GIS renders them invisible (zero SDF) until atlas.invalidate
     // fires the next-frame upgrade. Without the wait the diff is
     // dominated by "labels exist on ML, blank on XG" noise.
     await page.waitForTimeout(12_000)
-    await page.evaluate(() => new Promise<void>(r =>
-      requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+    await page.evaluate(
+      () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+    )
 
     const mlPng = await page.locator('#ml-map canvas').first().screenshot()
     const xgPng = await page.locator('#xg-canv').screenshot()
@@ -202,8 +257,13 @@ for (const view of VIEWS) {
     const { buckets, diffPng } = diffBuckets(mlNorm, xgNorm, w, h)
     const totalPx = w * h
     results.push({
-      id: view.id, hash: view.hash, expected: view.expected,
-      canvasW: w, canvasH: h, totalPx, buckets,
+      id: view.id,
+      hash: view.hash,
+      expected: view.expected,
+      canvasW: w,
+      canvasH: h,
+      totalPx,
+      buckets,
     })
 
     const viewDir = join(OUT, view.id)
@@ -211,15 +271,26 @@ for (const view of VIEWS) {
     writeFileSync(join(viewDir, 'maplibre.png'), PNG.sync.write(mlNorm))
     writeFileSync(join(viewDir, 'xgis.png'), PNG.sync.write(xgNorm))
     writeFileSync(join(viewDir, 'diff.png'), PNG.sync.write(diffPng))
-    writeFileSync(join(viewDir, 'buckets.json'), JSON.stringify({
-      buckets, totalPx, canvasW: w, canvasH: h, hash: view.hash,
-    }, null, 2))
+    writeFileSync(
+      join(viewDir, 'buckets.json'),
+      JSON.stringify(
+        {
+          buckets,
+          totalPx,
+          canvasW: w,
+          canvasH: h,
+          hash: view.hash,
+        },
+        null,
+        2,
+      ),
+    )
 
     // eslint-disable-next-line no-console
     console.log(
-      `[${view.id}] eq=${((buckets.eq0 / totalPx) * 100).toFixed(2)}% `
-      + `le32=${(((buckets.eq0 + buckets.le8 + buckets.le16 + buckets.le32) / totalPx) * 100).toFixed(2)}% `
-      + `gt128=${buckets.gt128}px (${((buckets.gt128 / totalPx) * 100).toFixed(2)}%)`,
+      `[${view.id}] eq=${((buckets.eq0 / totalPx) * 100).toFixed(2)}% ` +
+        `le32=${(((buckets.eq0 + buckets.le8 + buckets.le16 + buckets.le32) / totalPx) * 100).toFixed(2)}% ` +
+        `gt128=${buckets.gt128}px (${((buckets.gt128 / totalPx) * 100).toFixed(2)}%)`,
     )
   })
 }
@@ -240,9 +311,9 @@ test.afterAll(async () => {
     const cle32 = cle8 + r.buckets.le16 + r.buckets.le32
     const cle128 = cle32 + r.buckets.le64 + r.buckets.le128
     lines.push(
-      `| ${r.id} | \`${r.hash}\` | ${((eq / t) * 100).toFixed(2)}% | `
-      + `${((cle8 / t) * 100).toFixed(2)}% | ${((cle32 / t) * 100).toFixed(2)}% | `
-      + `${((cle128 / t) * 100).toFixed(2)}% | ${r.buckets.gt128.toLocaleString()} | ${r.expected} |`,
+      `| ${r.id} | \`${r.hash}\` | ${((eq / t) * 100).toFixed(2)}% | ` +
+        `${((cle8 / t) * 100).toFixed(2)}% | ${((cle32 / t) * 100).toFixed(2)}% | ` +
+        `${((cle128 / t) * 100).toFixed(2)}% | ${r.buckets.gt128.toLocaleString()} | ${r.expected} |`,
     )
   }
   writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))

@@ -63,5 +63,14 @@ export function writeFrameProjectionUniform(
   eye?: readonly [number, number, number],
 ): void {
   const S = polygonUniformSlots().slot
-  writeProjectionCull(f32, S.proj_params, S.globe_eye, projType, projCenterLon, projCenterLat, eye, 0)
+  writeProjectionCull(
+    f32,
+    S.proj_params,
+    S.globe_eye,
+    projType,
+    projCenterLon,
+    projCenterLat,
+    eye,
+    0,
+  )
 }

@@ -30,9 +30,14 @@ export class LabelFeatureSource {
    *  ({xs, ys, props, len} per featId) are camera-independent → cache
    *  them. Key: `${sliceLayer ?? '_'}:${tileKey}`. LRU-capped; stale
    *  entries for tiles no longer in `seen` evict naturally via LRU. */
-  private readonly _lineLabelRunsCache = new Map<string, ReadonlyArray<{
-    xs: Float64Array; ys: Float64Array; props: Record<string, unknown>
-  }>>()
+  private readonly _lineLabelRunsCache = new Map<
+    string,
+    ReadonlyArray<{
+      xs: Float64Array
+      ys: Float64Array
+      props: Record<string, unknown>
+    }>
+  >()
   private static readonly LINE_LABEL_RUNS_CACHE_MAX = 4096
   /** iter-236 (Plan A.2) — Scratch Map for forEachLabelFeature's
    *  per-tile `bestByFeatId`. Pre-iter-236 this was allocated fresh
@@ -40,11 +45,16 @@ export class LabelFeatureSource {
    *  that's 16 k Map allocations per second on Bright z=14 Seoul.
    *  Hoisted to a single instance + `.clear()` per tile, mirroring
    *  the `best` Map scratch pattern just below (line ~1382). */
-  private readonly _scratchBestByFeatId = new Map<number, { mercX: number; mercY: number; firstIdx: number }>()
+  private readonly _scratchBestByFeatId = new Map<
+    number,
+    { mercX: number; mercY: number; firstIdx: number }
+  >()
   /** iter-236 — Scratch array for the per-tile featId-emission
    *  ordering. Used to replace `[...map.entries()].sort()` (which
    *  allocates a fresh Array per tile). Cleared via `length = 0`. */
-  private readonly _scratchOrderedFeatEntries: Array<[number, { mercX: number; mercY: number; firstIdx: number }]> = []
+  private readonly _scratchOrderedFeatEntries: Array<
+    [number, { mercX: number; mercY: number; firstIdx: number }]
+  > = []
   /** iter-252 (Plan AAA A.2) — Scratch Map for forEachLineLabelFeature's
    *  per-call `best` Map. Pre-iter-252 each function call (per
    *  ShowCommand per frame) allocated fresh. Cleared at function
@@ -156,8 +166,8 @@ export class LabelFeatureSource {
       // preferring centres away from the antimeridian seam). Second
       // pass emits in featId-encounter order so callers see a
       // deterministic sequence.
-      const WORLD_MERC_HALF = Math.PI * EARTH.sphereR  // π × earth_radius
-      const ANTIMERIDIAN_TOL = 1.0  // metres; tile-edge wrap copies sit at exactly ±half
+      const WORLD_MERC_HALF = Math.PI * EARTH.sphereR // π × earth_radius
+      const ANTIMERIDIAN_TOL = 1.0 // metres; tile-edge wrap copies sit at exactly ±half
       // iter-236 (Plan A.2) — scratch Map reuse; clear per tile.
       // Pre-iter-236 was `new Map()` per tile = 270 alloc / frame
       // on Bright z=14 Seoul + GC pressure proportional.
@@ -176,8 +186,10 @@ export class LabelFeatureSource {
           bestByFeatId.set(featId, { mercX, mercY, firstIdx: i })
         } else if (isInner) {
           // Real centroid beats any wrap-edge copy already stored.
-          const existingIsInner = Math.abs(Math.abs(existing.mercX) - WORLD_MERC_HALF) > ANTIMERIDIAN_TOL
-          if (!existingIsInner) bestByFeatId.set(featId, { mercX, mercY, firstIdx: existing.firstIdx })
+          const existingIsInner =
+            Math.abs(Math.abs(existing.mercX) - WORLD_MERC_HALF) > ANTIMERIDIAN_TOL
+          if (!existingIsInner)
+            bestByFeatId.set(featId, { mercX, mercY, firstIdx: existing.firstIdx })
         }
       }
       // Emit in featId-first-encounter order for caller determinism.
@@ -252,8 +264,10 @@ export class LabelFeatureSource {
     neededKeys: Iterable<number> | undefined,
     sliceLayer: string | undefined,
     fn: (
-      p1MercX: number, p1MercY: number,
-      p2MercX: number, p2MercY: number,
+      p1MercX: number,
+      p1MercY: number,
+      p2MercX: number,
+      p2MercY: number,
       props: Record<string, unknown>,
     ) => void,
   ): void {
@@ -264,7 +278,7 @@ export class LabelFeatureSource {
     const R = activeBody().sphereR
     const LAT_LIMIT = 85.051129
     const clampLat = (v: number): number => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
-    const STRIDE = 10  // [mx_h, my_h, mx_l, my_l, feat_id, arc, tin_x, tin_y, tout_x, tout_y]
+    const STRIDE = 10 // [mx_h, my_h, mx_l, my_l, feat_id, arc, tin_x, tin_y, tout_x, tout_y]
 
     // Same visible-only walk as forEachLabelFeature. Iter 133 perf:
     // reuse _labelKeyScratch Set for dedup.
@@ -286,7 +300,8 @@ export class LabelFeatureSource {
       const li = tileData.lineIndices
       if (lv.length < STRIDE * 2 || li.length < 2) continue
       const tileMercX = tileData.tileWest * DEG2RAD * R
-      const tileMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(tileData.tileSouth) * DEG2RAD / 2)) * R
+      const tileMercY =
+        Math.log(Math.tan(Math.PI / 4 + (clampLat(tileData.tileSouth) * DEG2RAD) / 2)) * R
       const tileProps = tileData.featureProps
       best.clear()
       for (let i = 0; i < li.length; i += 2) {
@@ -299,8 +314,8 @@ export class LabelFeatureSource {
         if ((lv[b + 4]! | 0) !== featId) continue
         // Squared mercator length is fine for max-comparison and
         // avoids a sqrt per segment.
-        const dx = (lv[b]! + lv[b + 2]!) - (lv[a]! + lv[a + 2]!)
-        const dy = (lv[b + 1]! + lv[b + 3]!) - (lv[a + 1]! + lv[a + 3]!)
+        const dx = lv[b]! + lv[b + 2]! - (lv[a]! + lv[a + 2]!)
+        const dy = lv[b + 1]! + lv[b + 3]! - (lv[a + 1]! + lv[a + 3]!)
         const len2 = dx * dx + dy * dy
         const cur = best.get(featId)
         if (cur === undefined || len2 > cur.len2) {
@@ -396,7 +411,8 @@ export class LabelFeatureSource {
       const li = tileData.lineIndices
       if (lv.length < STRIDE * 2 || li.length < 2) continue
       const tileMercX = tileData.tileWest * DEG2RAD * R
-      const tileMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(tileData.tileSouth) * DEG2RAD / 2)) * R
+      const tileMercY =
+        Math.log(Math.tan(Math.PI / 4 + (clampLat(tileData.tileSouth) * DEG2RAD) / 2)) * R
       const tileProps = tileData.featureProps
 
       // Walk segments, accumulate runs that form a contiguous polyline
@@ -413,12 +429,17 @@ export class LabelFeatureSource {
       // likely to be a corner clip artifact), and emit only that.
       // Cross-tile dedupe is a separate concern handled in map.ts via
       // featId-Set tracking — featIds are tile-local in PMTiles MVT.
-      type RunEntry = { xs: Float64Array; ys: Float64Array; len: number; props: Record<string, unknown> }
+      type RunEntry = {
+        xs: Float64Array
+        ys: Float64Array
+        len: number
+        props: Record<string, unknown>
+      }
       bumpAlloc('vtr.forEachLineLabelPolyline.tileRuns.Map')
       const tileRuns = new Map<number, RunEntry>()
       let runFeatId = -1
       let runEndIdx = -1
-      let runLen = 0  // number of vertices in xs/ys
+      let runLen = 0 // number of vertices in xs/ys
       let runProps: Record<string, unknown> | null = null
       const flushRun = () => {
         if (runProps !== null && runLen >= 2) {
@@ -463,8 +484,10 @@ export class LabelFeatureSource {
         bumpAlloc('vtr.forEachLineLabelPolyline.xsys.FrameArena.grow')
         const nx = this._frameArena.allocF64(cap)
         const ny = this._frameArena.allocF64(cap)
-        nx.set(xs); ny.set(ys)
-        xs = nx; ys = ny
+        nx.set(xs)
+        ny.set(ys)
+        xs = nx
+        ys = ny
       }
 
       for (let i = 0; i < li.length; i += 2) {
@@ -500,7 +523,8 @@ export class LabelFeatureSource {
       // skip the walk entirely. tileRuns Map is local to this
       // iteration; the array holds the runs (xs/ys are already
       // independent Float64Array slices made by flushRun).
-      const runsArr: Array<{ xs: Float64Array; ys: Float64Array; props: Record<string, unknown> }> = []
+      const runsArr: Array<{ xs: Float64Array; ys: Float64Array; props: Record<string, unknown> }> =
+        []
       for (const run of tileRuns.values()) {
         runsArr.push({ xs: run.xs, ys: run.ys, props: run.props })
         fn(run.xs, run.ys, run.props)

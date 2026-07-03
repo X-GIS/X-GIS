@@ -37,7 +37,10 @@ import {
 // different geometry.
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const TRIANGLE_PATH = resolve(__dirname, '../../../../playground/public/data/fixture-triangle.geojson')
+const TRIANGLE_PATH = resolve(
+  __dirname,
+  '../../../../playground/public/data/fixture-triangle.geojson',
+)
 
 function loadTriangle(): GeoJSONFeatureCollection {
   return JSON.parse(readFileSync(TRIANGLE_PATH, 'utf8')) as GeoJSONFeatureCollection
@@ -55,8 +58,10 @@ const LINE_STRIDE = 10
  *  `ecef-precision-fuzz.test.ts`). The quantized position is not read here.
  *  Reproject those to tile-local Mercator so fill + outline share space. */
 function polyVertex(
-  vertices: Float32Array, i: number,
-  _tileMx: number, _tileMy: number,
+  vertices: Float32Array,
+  i: number,
+  _tileMx: number,
+  _tileMy: number,
 ): [number, number] {
   // Float slots 4/5 now store TILE-LOCAL Mercator (vertex_merc − tileOriginMerc)
   // directly — relative to the same origin `tileOriginMerc()` computes — so read
@@ -96,7 +101,11 @@ function extractPolygonBoundaryEdges(tile: CompiledTile): Array<[number, number,
     const p0 = polyVertex(tile.vertices, i0, tileMx, tileMy)
     const p1 = polyVertex(tile.vertices, i1, tileMx, tileMy)
     const p2 = polyVertex(tile.vertices, i2, tileMx, tileMy)
-    for (const [a, b] of [[p0, p1], [p1, p2], [p2, p0]] as const) {
+    for (const [a, b] of [
+      [p0, p1],
+      [p1, p2],
+      [p2, p0],
+    ] as const) {
       const k = keyOf(a, b)
       const existing = edgeCount.get(k)
       if (existing) existing.count++
@@ -129,26 +138,36 @@ function extractOutlineSegments(tile: CompiledTile): Array<[number, number, numb
 }
 
 /** Squared distance from point p to segment ab. */
-function pointToSegmentSqDist(p: [number, number], a: [number, number], b: [number, number]): number {
-  const dx = b[0] - a[0], dy = b[1] - a[1]
+function pointToSegmentSqDist(
+  p: [number, number],
+  a: [number, number],
+  b: [number, number],
+): number {
+  const dx = b[0] - a[0],
+    dy = b[1] - a[1]
   const lenSq = dx * dx + dy * dy
   if (lenSq < 1e-12) {
-    const ex = p[0] - a[0], ey = p[1] - a[1]
+    const ex = p[0] - a[0],
+      ey = p[1] - a[1]
     return ex * ex + ey * ey
   }
   let t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / lenSq
   t = Math.max(0, Math.min(1, t))
-  const cx = a[0] + t * dx, cy = a[1] + t * dy
-  const ex = p[0] - cx, ey = p[1] - cy
+  const cx = a[0] + t * dx,
+    cy = a[1] + t * dy
+  const ex = p[0] - cx,
+    ey = p[1] - cy
   return ex * ex + ey * ey
 }
 
 // Which z=9 tile the user's camera sits in.
 function cameraTile(z: number, lat: number, lon: number): { z: number; x: number; y: number } {
   const n = Math.pow(2, z)
-  const x = Math.floor((lon + 180) / 360 * n)
+  const x = Math.floor(((lon + 180) / 360) * n)
   const clampedLat = Math.max(-85.051129, Math.min(85.051129, lat))
-  const y = Math.floor((1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * Math.PI / 360)) / Math.PI) / 2 * n)
+  const y = Math.floor(
+    ((1 - Math.log(Math.tan(Math.PI / 4 + (clampedLat * Math.PI) / 360)) / Math.PI) / 2) * n,
+  )
   return { z, x, y }
 }
 
@@ -192,7 +211,10 @@ describe('Polygon fill vs stroke alignment (user bug repro)', () => {
       const TOL_SQ = TOL * TOL
       const misaligned: Array<{ ox: number; oy: number; minDist: number }> = []
       for (const seg of outlineSegments) {
-        for (const [ox, oy] of [[seg[0], seg[1]], [seg[2], seg[3]]] as const) {
+        for (const [ox, oy] of [
+          [seg[0], seg[1]],
+          [seg[2], seg[3]],
+        ] as const) {
           let minSq = Infinity
           for (const e of boundaryEdges) {
             const d = pointToSegmentSqDist([ox, oy], [e[0], e[1]], [e[2], e[3]])
@@ -205,24 +227,37 @@ describe('Polygon fill vs stroke alignment (user bug repro)', () => {
       }
 
       if (misaligned.length > 0) {
-        const summary = misaligned.slice(0, 5).map(m =>
-          `  (${m.ox.toFixed(2)}, ${m.oy.toFixed(2)}) → ${m.minDist.toFixed(2)} m from nearest fill edge`
-        ).join('\n')
+        const summary = misaligned
+          .slice(0, 5)
+          .map(
+            (m) =>
+              `  (${m.ox.toFixed(2)}, ${m.oy.toFixed(2)}) → ${m.minDist.toFixed(2)} m from nearest fill edge`,
+          )
+          .join('\n')
         console.log(
-          `[z=${z}] ${misaligned.length}/${outlineSegments.length * 2} outline endpoints off the fill boundary (max ${Math.max(...misaligned.map(m => m.minDist)).toFixed(2)} m):\n${summary}`,
+          `[z=${z}] ${misaligned.length}/${outlineSegments.length * 2} outline endpoints off the fill boundary (max ${Math.max(...misaligned.map((m) => m.minDist)).toFixed(2)} m):\n${summary}`,
         )
         // Debug: dump the fill boundary + outline segments so we can
         // see HOW they diverge geometrically.
-        const fillSummary = boundaryEdges.slice(0, 4).map(e =>
-          `    fill  (${e[0].toFixed(2)}, ${e[1].toFixed(2)}) → (${e[2].toFixed(2)}, ${e[3].toFixed(2)})`
-        ).join('\n')
-        const lineSummary = outlineSegments.slice(0, 4).map(s =>
-          `    line  (${s[0].toFixed(2)}, ${s[1].toFixed(2)}) → (${s[2].toFixed(2)}, ${s[3].toFixed(2)})`
-        ).join('\n')
+        const fillSummary = boundaryEdges
+          .slice(0, 4)
+          .map(
+            (e) =>
+              `    fill  (${e[0].toFixed(2)}, ${e[1].toFixed(2)}) → (${e[2].toFixed(2)}, ${e[3].toFixed(2)})`,
+          )
+          .join('\n')
+        const lineSummary = outlineSegments
+          .slice(0, 4)
+          .map(
+            (s) =>
+              `    line  (${s[0].toFixed(2)}, ${s[1].toFixed(2)}) → (${s[2].toFixed(2)}, ${s[3].toFixed(2)})`,
+          )
+          .join('\n')
         console.log(`  [z=${z}] fill boundary edges (first 4):\n${fillSummary}`)
         console.log(`  [z=${z}] outline segments (first 4):\n${lineSummary}`)
       }
-      expect(misaligned.length,
+      expect(
+        misaligned.length,
         `${misaligned.length} outline endpoints > ${TOL} m from nearest fill edge`,
       ).toBe(0)
     })
@@ -238,14 +273,17 @@ describe('Polygon fill vs stroke alignment: clip-space disparity diagnostic', ()
   it('reports the metric distance between lon/lat-clipped corners and Mercator-clipped corners', () => {
     const gj = loadTriangle()
     const parts = decomposeFeatures(gj.features)
-    const { x, y } = cameraTile(9, 27.43511, -1.14730)
+    const { x, y } = cameraTile(9, 27.43511, -1.1473)
     const tile = compileSingleTile(parts, 9, x, y, 22)
     if (!tile) return
 
     // Just report bounding boxes — useful "is there any divergence at
     // all" signal even if the main assertion above is lenient.
     const [tileMxBB, tileMyBB] = tileOriginMerc(tile)
-    let fillMinX = Infinity, fillMaxX = -Infinity, fillMinY = Infinity, fillMaxY = -Infinity
+    let fillMinX = Infinity,
+      fillMaxX = -Infinity,
+      fillMinY = Infinity,
+      fillMaxY = -Infinity
     const count = tile.vertices.length / POLY_STRIDE
     for (let i = 0; i < count; i++) {
       const [mx, my] = polyVertex(tile.vertices, i, tileMxBB, tileMyBB)
@@ -254,7 +292,10 @@ describe('Polygon fill vs stroke alignment: clip-space disparity diagnostic', ()
       if (my < fillMinY) fillMinY = my
       if (my > fillMaxY) fillMaxY = my
     }
-    let lineMinX = Infinity, lineMaxX = -Infinity, lineMinY = Infinity, lineMaxY = -Infinity
+    let lineMinX = Infinity,
+      lineMaxX = -Infinity,
+      lineMinY = Infinity,
+      lineMaxY = -Infinity
     const lcount = tile.outlineVertices.length / LINE_STRIDE
     for (let i = 0; i < lcount; i++) {
       const [mx, my] = lineVertex(tile.outlineVertices, i)
@@ -265,15 +306,15 @@ describe('Polygon fill vs stroke alignment: clip-space disparity diagnostic', ()
     }
     console.log(
       `[z=9 tile ${x}/${y}] fill bbox: (${fillMinX.toFixed(1)}..${fillMaxX.toFixed(1)}, ` +
-      `${fillMinY.toFixed(1)}..${fillMaxY.toFixed(1)})`,
+        `${fillMinY.toFixed(1)}..${fillMaxY.toFixed(1)})`,
     )
     console.log(
       `[z=9 tile ${x}/${y}] line bbox: (${lineMinX.toFixed(1)}..${lineMaxX.toFixed(1)}, ` +
-      `${lineMinY.toFixed(1)}..${lineMaxY.toFixed(1)})`,
+        `${lineMinY.toFixed(1)}..${lineMaxY.toFixed(1)})`,
     )
     console.log(
       `[z=9 tile ${x}/${y}] Δ bbox: x=(${(lineMinX - fillMinX).toFixed(2)}, ${(lineMaxX - fillMaxX).toFixed(2)}) ` +
-      `y=(${(lineMinY - fillMinY).toFixed(2)}, ${(lineMaxY - fillMaxY).toFixed(2)}) m`,
+        `y=(${(lineMinY - fillMinY).toFixed(2)}, ${(lineMaxY - fillMaxY).toFixed(2)}) m`,
     )
   })
 })

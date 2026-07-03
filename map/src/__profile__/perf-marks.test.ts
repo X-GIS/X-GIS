@@ -2,7 +2,11 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
-  markStart, markEnd, getPhaseAverages, resetPhaseTimings, setPerfMarksEnabled,
+  markStart,
+  markEnd,
+  getPhaseAverages,
+  resetPhaseTimings,
+  setPerfMarksEnabled,
 } from './perf-marks'
 
 beforeEach(() => {
@@ -21,7 +25,9 @@ describe('PerfMarks — basic flow', () => {
     markStart('test.phase')
     // Simulate work via a synchronous busy loop to advance the clock.
     const t0 = performance.now()
-    while (performance.now() - t0 < 2) { /* spin */ }
+    while (performance.now() - t0 < 2) {
+      /* spin */
+    }
     markEnd('test.phase')
     const profile = getPhaseAverages()
     expect(profile.length).toBe(1)
@@ -41,7 +47,7 @@ describe('PerfMarks — basic flow', () => {
     markStart('b')
     markEnd('b')
     const profile = getPhaseAverages()
-    expect(profile.map(p => p.name).sort()).toEqual(['a', 'b'])
+    expect(profile.map((p) => p.name).sort()).toEqual(['a', 'b'])
   })
 
   it('repeat samples accumulate', () => {
@@ -73,19 +79,24 @@ describe('PerfMarks — ring buffer', () => {
     markEnd('fast')
     markStart('slow')
     const t0 = performance.now()
-    while (performance.now() - t0 < 3) { /* spin */ }
+    while (performance.now() - t0 < 3) {
+      /* spin */
+    }
     markEnd('slow')
     // Without a flush, per-frame ring still empty, perFrameMs = 0
     // for both. Fall back to meanMs ordering.
     const profile = getPhaseAverages()
-    expect(profile.find(p => p.name === 'slow')!.meanMs)
-      .toBeGreaterThanOrEqual(profile.find(p => p.name === 'fast')!.meanMs)
+    expect(profile.find((p) => p.name === 'slow')!.meanMs).toBeGreaterThanOrEqual(
+      profile.find((p) => p.name === 'fast')!.meanMs,
+    )
   })
 })
 
 describe('PerfMarks — global API exposure', () => {
   it('globalThis.__xgisPerfPhases.getPhaseAverages works', () => {
-    interface API { getPhaseAverages: typeof getPhaseAverages }
+    interface API {
+      getPhaseAverages: typeof getPhaseAverages
+    }
     const api = (globalThis as { __xgisPerfPhases?: API }).__xgisPerfPhases
     expect(api).toBeDefined()
     expect(typeof api!.getPhaseAverages).toBe('function')

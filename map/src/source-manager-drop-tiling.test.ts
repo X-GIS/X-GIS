@@ -52,8 +52,14 @@ function makeManager() {
     invalidate,
     fitZoomToLonSpan: () => 0,
     runBoundsFitGate: () => false,
-    rebuildLayers: () => { order.push('rebuild'); rebuildLayers() },
-    teardownSource: (id) => { order.push('teardown'); teardownSource(id) },
+    rebuildLayers: () => {
+      order.push('rebuild')
+      rebuildLayers()
+    },
+    teardownSource: (id) => {
+      order.push('teardown')
+      teardownSource(id)
+    },
     deleteFeatureIndex,
   })
   return { mgr, rawDatasets, teardownSource, rebuildLayers, order }
@@ -68,7 +74,8 @@ beforeEach(() => {
   dropSource.mockClear()
   mintCount = 0
   vi.spyOn(xgisData, 'newTilingInstanceId').mockImplementation(() => `gjt-test-${++mintCount}`)
-  vi.spyOn(xgisData, 'dropSource').mockImplementation(((...a: unknown[]) => dropSource(...a)) as never)
+  vi.spyOn(xgisData, 'dropSource').mockImplementation(((...a: unknown[]) =>
+    dropSource(...a)) as never)
   vi.spyOn(xgisData, 'setSource').mockImplementation((() => {}) as never)
   vi.spyOn(xgisData, 'getTile').mockImplementation((() => {}) as never)
 })

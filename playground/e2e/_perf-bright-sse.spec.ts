@@ -28,10 +28,13 @@ interface Sample {
 async function measureAt(page: Page, pitch: number, _useSSE: boolean): Promise<Sample> {
   // Toggle is installed via context.addInitScript before page creation
   // (see test body). All we do here is navigate, settle, and sample.
-  await page.goto(`/demo.html?id=__import#14/35.68/139.76/0/${pitch}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/demo.html?id=__import#14/35.68/139.76/0/${pitch}`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   await page.waitForTimeout(5_000)
 
@@ -46,9 +49,11 @@ async function measureAt(page: Page, pitch: number, _useSSE: boolean): Promise<S
         last = now
         if (now - start < durationMs) requestAnimationFrame(tick)
         else {
-          const map = (window as unknown as {
-            __xgisMap?: { inspectPipeline?: () => unknown }
-          }).__xgisMap
+          const map = (
+            window as unknown as {
+              __xgisMap?: { inspectPipeline?: () => unknown }
+            }
+          ).__xgisMap
           const pipeline = map?.inspectPipeline?.()
           res({ frames, pipeline })
         }
@@ -60,10 +65,13 @@ async function measureAt(page: Page, pitch: number, _useSSE: boolean): Promise<S
   const sorted = [...out.frames].sort((a, b) => a - b)
   const median = sorted[Math.floor(sorted.length / 2)] ?? 0
   const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 0
-  const pipeline = out.pipeline as { sources?: Array<{ frame?: { tilesVisible?: number; drawCalls?: number } }> } | null
+  const pipeline = out.pipeline as {
+    sources?: Array<{ frame?: { tilesVisible?: number; drawCalls?: number } }>
+  } | null
   const f = pipeline?.sources?.[0]?.frame
   return {
-    median, p95,
+    median,
+    p95,
     frames: out.frames.length,
     tilesVisible: f?.tilesVisible ?? -1,
     drawCalls: f?.drawCalls ?? -1,

@@ -24,7 +24,7 @@ function parseExpr(src: string): { kind: string } {
   const ast = new Parser(tokens).parse() as {
     body: Array<{ kind: string; value?: { kind: string } }>
   }
-  const stmt = ast.body.find(s => s.kind === 'LetStatement')
+  const stmt = ast.body.find((s) => s.kind === 'LetStatement')
   if (!stmt || !stmt.value) throw new Error('let stmt missing')
   return stmt.value
 }
@@ -79,10 +79,7 @@ describe('BUG B — ternary arm must not swallow the ?? fallback', () => {
     // ["case", true, null, "B"] → null (cond true → first value null).
     // Coalesce must then fall through to "FB". Pre-fix the "FB" migrated
     // into the case else-branch and the whole expression yielded null.
-    const out = exprToXgis(
-      ['coalesce', ['case', ['==', 1, 1], null, 'B'], 'FB'],
-      [],
-    )
+    const out = exprToXgis(['coalesce', ['case', ['==', 1, 1], null, 'B'], 'FB'], [])
     expect(out).not.toBeNull()
     expect(evaluate(parseExpr(out!) as never, {})).toBe('FB')
   })

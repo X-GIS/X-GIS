@@ -51,7 +51,9 @@ export function convertSource(
   // so we pick `tiles[0]` here and warn so style authors aren't
   // surprised by the missing parallelism.
   if (Array.isArray(src.tiles) && src.tiles.length > 1) {
-    warnings.push(`Source "${id}" declares ${src.tiles.length} tile endpoint mirrors (subdomain rotation); the runtime uses only the first — others are ignored. Affects fetch parallelism, not correctness.`)
+    warnings.push(
+      `Source "${id}" declares ${src.tiles.length} tile endpoint mirrors (subdomain rotation); the runtime uses only the first — others are ignored. Affects fetch parallelism, not correctness.`,
+    )
   }
   // Defensive: spec requires src.tiles to be an array of URL strings.
   // A malformed style that passes `tiles: "https://…"` as a bare
@@ -61,7 +63,9 @@ export function convertSource(
   // mis-typed value and warn; downstream `src.url` fallback still
   // works.
   if (src.tiles !== undefined && !Array.isArray(src.tiles)) {
-    warnings.push(`Source "${id}" tiles must be an array of URL strings — ignoring non-array value (was ${typeof src.tiles}).`)
+    warnings.push(
+      `Source "${id}" tiles must be an array of URL strings — ignoring non-array value (was ${typeof src.tiles}).`,
+    )
     ;(src as { tiles?: unknown }).tiles = undefined
   }
   // Defensive: spec requires src.url to be a string. A non-string url
@@ -71,7 +75,9 @@ export function convertSource(
   // mis-typed value so downstream falls back to tiles[0] (or the
   // placeholder).
   if (src.url !== undefined && src.url !== null && typeof src.url !== 'string') {
-    warnings.push(`Source "${id}" url must be a string — ignoring non-string value (was ${typeof src.url}).`)
+    warnings.push(
+      `Source "${id}" url must be a string — ignoring non-string value (was ${typeof src.url}).`,
+    )
     ;(src as { url?: unknown }).url = undefined
   }
   // Also drop empty-string url. Mirror of the tiles[] empty-string
@@ -90,9 +96,13 @@ export function convertSource(
     // passed the string-only filter then `tiles?.[0]` returned an
     // empty string, the URL-fallback chain saw a truthy empty value
     // and emitted `url: ""` — runtime fetch on "" 404s on every tile.
-    const filtered = src.tiles.filter((t: unknown): t is string => typeof t === 'string' && t.length > 0)
+    const filtered = src.tiles.filter(
+      (t: unknown): t is string => typeof t === 'string' && t.length > 0,
+    )
     if (filtered.length < src.tiles.length) {
-      warnings.push(`Source "${id}" tiles[] contains non-string or empty entries — dropped ${src.tiles.length - filtered.length}.`)
+      warnings.push(
+        `Source "${id}" tiles[] contains non-string or empty entries — dropped ${src.tiles.length - filtered.length}.`,
+      )
     }
     ;(src as { tiles?: unknown }).tiles = filtered.length > 0 ? filtered : undefined
   }
@@ -104,13 +114,17 @@ export function convertSource(
   // MapLibre / OFM all use the default XYZ. Surface the mismatch so the
   // user doesn't silently get an upside-down map.
   if (src.scheme === 'tms') {
-    warnings.push(`Source "${id}" declares scheme: "tms" but the X-GIS tile selector assumes XYZ (top-left origin) — tiles will render Y-flipped. Convert the URL template to XYZ form, or wait for native scheme support.`)
+    warnings.push(
+      `Source "${id}" declares scheme: "tms" but the X-GIS tile selector assumes XYZ (top-left origin) — tiles will render Y-flipped. Convert the URL template to XYZ form, or wait for native scheme support.`,
+    )
   } else if (typeof src.scheme === 'string' && src.scheme !== 'xyz') {
     // Mapbox spec accepts only "xyz" (default) or "tms". An unknown
     // scheme value silently falls through to xyz with no diagnostic;
     // surface so a typo like "XYZ" / "wms" / "TMS" is visible at
     // compile time rather than a mysteriously-misoriented map.
-    warnings.push(`Source "${id}" declares scheme: "${src.scheme.slice(0, 40)}" but Mapbox spec recognises only "xyz" (default) or "tms". Falling back to xyz; check the spelling.`)
+    warnings.push(
+      `Source "${id}" declares scheme: "${src.scheme.slice(0, 40)}" but Mapbox spec recognises only "xyz" (default) or "tms". Falling back to xyz; check the spelling.`,
+    )
   }
 
   // Mapbox source-level `minzoom` / `maxzoom` constrain which tile
@@ -122,7 +136,9 @@ export function convertSource(
   // 404 and fall back to parent ancestors. Wasteful, not incorrect —
   // surface so the style author knows fetch volume isn't optimal.
   if (typeof src.minzoom === 'number' || typeof src.maxzoom === 'number') {
-    warnings.push(`Source "${id}" declares minzoom/maxzoom (${src.minzoom ?? '-'}…${src.maxzoom ?? '-'}); the runtime tile selector doesn't yet honour source-level zoom bounds, so out-of-range tiles will be requested and 404. Use layer-level minzoom/maxzoom to limit fetch volume.`)
+    warnings.push(
+      `Source "${id}" declares minzoom/maxzoom (${src.minzoom ?? '-'}…${src.maxzoom ?? '-'}); the runtime tile selector doesn't yet honour source-level zoom bounds, so out-of-range tiles will be requested and 404. Use layer-level minzoom/maxzoom to limit fetch volume.`,
+    )
   }
 
   // Mapbox source-level `bounds: [west, south, east, north]` is the
@@ -136,9 +152,11 @@ export function convertSource(
     // (e.g. ['west', 'south', 'east', 'north'] as strings) used to
     // emit the original warning verbatim and the runtime later
     // crashed on the non-numeric compare in tileIntersectsBounds.
-    const allNumeric = src.bounds.every(b => typeof b === 'number' && Number.isFinite(b))
+    const allNumeric = src.bounds.every((b) => typeof b === 'number' && Number.isFinite(b))
     if (!allNumeric) {
-      warnings.push(`Source "${id}" bounds must contain 4 finite numbers; got ${JSON.stringify(src.bounds).slice(0, 80)} — ignored.`)
+      warnings.push(
+        `Source "${id}" bounds must contain 4 finite numbers; got ${JSON.stringify(src.bounds).slice(0, 80)} — ignored.`,
+      )
     } else {
       // Mapbox bounds format = [west, south, east, north]. Sanity
       // checks BEYOND finiteness:
@@ -151,21 +169,31 @@ export function convertSource(
       // +180 / -180 (Bering-strait, dateline-crossing extents).
       const [west, south, east, north] = src.bounds as [number, number, number, number]
       if (south > north) {
-        warnings.push(`Source "${id}" bounds south=${south} > north=${north} — inverted latitude box never intersects any tile; the source is dead. Verify [west, south, east, north] order.`)
+        warnings.push(
+          `Source "${id}" bounds south=${south} > north=${north} — inverted latitude box never intersects any tile; the source is dead. Verify [west, south, east, north] order.`,
+        )
       }
       if (south < -90 || south > 90 || north < -90 || north > 90) {
-        warnings.push(`Source "${id}" bounds latitude out of [-90, 90]: south=${south}, north=${north}. Likely a swapped lon/lat axis.`)
+        warnings.push(
+          `Source "${id}" bounds latitude out of [-90, 90]: south=${south}, north=${north}. Likely a swapped lon/lat axis.`,
+        )
       }
       if (west < -180 || west > 180 || east < -180 || east > 180) {
-        warnings.push(`Source "${id}" bounds longitude out of [-180, 180]: west=${west}, east=${east}. Likely a swapped lon/lat axis.`)
+        warnings.push(
+          `Source "${id}" bounds longitude out of [-180, 180]: west=${west}, east=${east}. Likely a swapped lon/lat axis.`,
+        )
       }
-      warnings.push(`Source "${id}" declares bounds [${src.bounds.join(', ')}]; the runtime tile selector doesn't yet clip requests to the spatial extent, so tiles outside the box will be requested and 404. Filter coverage at the host (geojson clip / pre-cropped PMTiles archive) until native bounds support lands.`)
+      warnings.push(
+        `Source "${id}" declares bounds [${src.bounds.join(', ')}]; the runtime tile selector doesn't yet clip requests to the spatial extent, so tiles outside the box will be requested and 404. Filter coverage at the host (geojson clip / pre-cropped PMTiles archive) until native bounds support lands.`,
+      )
     }
   } else if (Array.isArray(src.bounds)) {
     // Malformed bounds (wrong length) silently slipped past the spec
     // gate. Warn so style authors know the bounds field is being
     // ignored entirely.
-    warnings.push(`Source "${id}" bounds must be [west, south, east, north] (4 numbers); got length ${src.bounds.length} — ignored.`)
+    warnings.push(
+      `Source "${id}" bounds must be [west, south, east, north] (4 numbers); got length ${src.bounds.length} — ignored.`,
+    )
   }
 
   // Mapbox source-level `tileSize` declares the native pixel size of
@@ -179,7 +207,9 @@ export function convertSource(
   // ends up coarser than MapLibre's reference rendering.
   const tileSize = (src as { tileSize?: unknown }).tileSize
   if (typeof tileSize === 'number' && tileSize !== 512) {
-    warnings.push(`Source "${id}" declares tileSize: ${tileSize}; the runtime tile selector hardcodes 512 px tiles, so this source renders at the wrong zoom scale (typically one zoom level too coarse for 256-px sources). Visible as low-resolution shaded-relief / older OSM-style raster underlays.`)
+    warnings.push(
+      `Source "${id}" declares tileSize: ${tileSize}; the runtime tile selector hardcodes 512 px tiles, so this source renders at the wrong zoom scale (typically one zoom level too coarse for 256-px sources). Visible as low-resolution shaded-relief / older OSM-style raster underlays.`,
+    )
   }
 
   // Strip the Protomaps-tooling `pmtiles://` scheme prefix + trim
@@ -220,17 +250,23 @@ export function convertSource(
     for (const t of tilesArr) {
       if (typeof t !== 'string') continue
       if (t.includes('{quadkey}')) {
-        warnings.push(`Source "${id}" tiles URL uses {quadkey} placeholder (Bing tile scheme); X-GIS runtime substitutes only {z}/{x}/{y} so the request fetches the unsubstituted URL and 404s. Convert the endpoint to the XYZ form.`)
+        warnings.push(
+          `Source "${id}" tiles URL uses {quadkey} placeholder (Bing tile scheme); X-GIS runtime substitutes only {z}/{x}/{y} so the request fetches the unsubstituted URL and 404s. Convert the endpoint to the XYZ form.`,
+        )
       }
       if (t.includes('{bbox-epsg-3857}')) {
-        warnings.push(`Source "${id}" tiles URL uses {bbox-epsg-3857} placeholder (WMS-style bbox); X-GIS runtime substitutes only {z}/{x}/{y} so the request fetches the unsubstituted URL and 404s. Use an XYZ tile endpoint instead of WMS.`)
+        warnings.push(
+          `Source "${id}" tiles URL uses {bbox-epsg-3857} placeholder (WMS-style bbox); X-GIS runtime substitutes only {z}/{x}/{y} so the request fetches the unsubstituted URL and 404s. Use an XYZ tile endpoint instead of WMS.`,
+        )
       }
       if (t.includes('{ratio}')) {
         // Runtime substitutes `{ratio}` → "" (1x DPR) at fetch time.
         // No DPR switching yet, so retina endpoints render at 1x;
         // surface as informational so the author knows the @2x
         // ramp isn't picked up.
-        warnings.push(`Source "${id}" tiles URL uses {ratio} placeholder (Mapbox DPR suffix); runtime substitutes "" (1x DPR) — retina @2x tiles will not be requested until per-DPR selection lands.`)
+        warnings.push(
+          `Source "${id}" tiles URL uses {ratio} placeholder (Mapbox DPR suffix); runtime substitutes "" (1x DPR) — retina @2x tiles will not be requested until per-DPR selection lands.`,
+        )
       }
     }
   }
@@ -255,10 +291,12 @@ export function convertSource(
         const hasX = url.includes('{x}')
         const hasY = url.includes('{y}')
         if (!hasZ || !hasX || !hasY) {
-          const missing = [
-            !hasZ && '{z}', !hasX && '{x}', !hasY && '{y}',
-          ].filter(Boolean).join(', ')
-          warnings.push(`Vector source "${id}" tiles[0] is missing required URL placeholder${missing.includes(',') ? 's' : ''}: ${missing}. Without {z}/{x}/{y} the runtime tile-format detector returns null and the loader crashes with "Wrong magic number" on the fetched bytes.`)
+          const missing = [!hasZ && '{z}', !hasX && '{x}', !hasY && '{y}']
+            .filter(Boolean)
+            .join(', ')
+          warnings.push(
+            `Vector source "${id}" tiles[0] is missing required URL placeholder${missing.includes(',') ? 's' : ''}: ${missing}. Without {z}/{x}/{y} the runtime tile-format detector returns null and the loader crashes with "Wrong magic number" on the fetched bytes.`,
+          )
         }
       }
       lines.push('  type: tilejson')
@@ -313,10 +351,12 @@ export function convertSource(
         const hasX = url.includes('{x}')
         const hasY = url.includes('{y}')
         if (!hasZ || !hasX || !hasY) {
-          const missing = [
-            !hasZ && '{z}', !hasX && '{x}', !hasY && '{y}',
-          ].filter(Boolean).join(', ')
-          warnings.push(`Raster source "${id}" tiles[0] is missing required URL placeholder${missing.includes(',') ? 's' : ''}: ${missing}. The runtime will fetch the same URL for every tile coordinate; expected a template like https://host/{z}/{x}/{y}.png.`)
+          const missing = [!hasZ && '{z}', !hasX && '{x}', !hasY && '{y}']
+            .filter(Boolean)
+            .join(', ')
+          warnings.push(
+            `Raster source "${id}" tiles[0] is missing required URL placeholder${missing.includes(',') ? 's' : ''}: ${missing}. The runtime will fetch the same URL for every tile coordinate; expected a template like https://host/{z}/{x}/{y}.png.`,
+          )
         }
       }
       lines.push('  type: raster')
@@ -341,15 +381,19 @@ export function convertSource(
         const hasX = url.includes('{x}')
         const hasY = url.includes('{y}')
         if (!hasZ || !hasX || !hasY) {
-          const missing = [
-            !hasZ && '{z}', !hasX && '{x}', !hasY && '{y}',
-          ].filter(Boolean).join(', ')
-          warnings.push(`raster-dem source "${id}" tiles[0] is missing required URL placeholder${missing.includes(',') ? 's' : ''}: ${missing}. Expected a template like https://host/{z}/{x}/{y}.png.`)
+          const missing = [!hasZ && '{z}', !hasX && '{x}', !hasY && '{y}']
+            .filter(Boolean)
+            .join(', ')
+          warnings.push(
+            `raster-dem source "${id}" tiles[0] is missing required URL placeholder${missing.includes(',') ? 's' : ''}: ${missing}. Expected a template like https://host/{z}/{x}/{y}.png.`,
+          )
         }
       }
       lines.push('  type: raster-dem')
       lines.push(`  url: ${JSON.stringify(url)}`)
-      lines.push('  // NOTE: raster-dem rendering (hillshade / 3D terrain) — Batch 4 of the Mapbox compatibility roadmap.')
+      lines.push(
+        '  // NOTE: raster-dem rendering (hillshade / 3D terrain) — Batch 4 of the Mapbox compatibility roadmap.',
+      )
       // Mapbox raster-dem encoding: 'mapbox' (default — RGB-packed
       // elevation à la Terrain RGB) vs 'terrarium' (Mapzen / Stamen
       // alternative encoding). 'custom' uses redFactor/greenFactor/
@@ -358,9 +402,13 @@ export function convertSource(
       // instead of assuming Mapbox-RGB.
       const dem = src as { encoding?: unknown }
       if (typeof dem.encoding === 'string' && dem.encoding !== 'mapbox') {
-        warnings.push(`raster-dem source "${id}" uses non-default encoding="${dem.encoding}" — when hillshade lands, the renderer needs the matching pack formula (mapbox=(R*256+G+B/256)*0.1-10000; terrarium=R*256+G+B/256-32768).`)
+        warnings.push(
+          `raster-dem source "${id}" uses non-default encoding="${dem.encoding}" — when hillshade lands, the renderer needs the matching pack formula (mapbox=(R*256+G+B/256)*0.1-10000; terrarium=R*256+G+B/256-32768).`,
+        )
       }
-      warnings.push(`Source "${id}" type="raster-dem" registered but rendering not yet supported (Batch 4 — hillshade + 3D terrain).`)
+      warnings.push(
+        `Source "${id}" type="raster-dem" registered but rendering not yet supported (Batch 4 — hillshade + 3D terrain).`,
+      )
     } else {
       lines.push('  // TODO: raster-dem source missing url/tiles')
       warnings.push(`raster-dem source "${id}" has no URL.`)
@@ -381,12 +429,16 @@ export function convertSource(
     }
     // Treat null the same as undefined per Mapbox spec — both mean
     // "field omitted" and shouldn't trigger the cluster warning.
-    if (clusterCfg.cluster === true
-        || (clusterCfg.clusterRadius !== undefined && clusterCfg.clusterRadius !== null)
-        || (clusterCfg.clusterMaxZoom !== undefined && clusterCfg.clusterMaxZoom !== null)
-        || (clusterCfg.clusterMinPoints !== undefined && clusterCfg.clusterMinPoints !== null)
-        || (clusterCfg.clusterProperties !== undefined && clusterCfg.clusterProperties !== null)) {
-      warnings.push(`GeoJSON source "${id}" declares clustering (cluster / clusterRadius / clusterMaxZoom / clusterMinPoints / clusterProperties); X-GIS has no point-clustering pipeline today, so all features render at their authored positions. Pre-cluster the data at the host until native cluster support lands.`)
+    if (
+      clusterCfg.cluster === true ||
+      (clusterCfg.clusterRadius !== undefined && clusterCfg.clusterRadius !== null) ||
+      (clusterCfg.clusterMaxZoom !== undefined && clusterCfg.clusterMaxZoom !== null) ||
+      (clusterCfg.clusterMinPoints !== undefined && clusterCfg.clusterMinPoints !== null) ||
+      (clusterCfg.clusterProperties !== undefined && clusterCfg.clusterProperties !== null)
+    ) {
+      warnings.push(
+        `GeoJSON source "${id}" declares clustering (cluster / clusterRadius / clusterMaxZoom / clusterMinPoints / clusterProperties); X-GIS has no point-clustering pipeline today, so all features render at their authored positions. Pre-cluster the data at the host until native cluster support lands.`,
+      )
     }
     // Mapbox GeoJSON tuning fields: `tolerance` (Douglas-Peucker
     // simplification), `buffer` (tile-clip padding), `lineMetrics`
@@ -414,7 +466,9 @@ export function convertSource(
     // source data carries on the id slot, undefined when absent.
     const promoteId = (src as { promoteId?: unknown }).promoteId
     if (promoteId !== undefined && promoteId !== null) {
-      warnings.push(`GeoJSON source "${id}" declares promoteId; the runtime doesn't promote feature properties to feature.id, so the ["id"] accessor reads the original id slot only.`)
+      warnings.push(
+        `GeoJSON source "${id}" declares promoteId; the runtime doesn't promote feature properties to feature.id, so the ["id"] accessor reads the original id slot only.`,
+      )
     }
     const data = (src as { data?: string | unknown }).data
     if (typeof data === 'string') {
@@ -446,7 +500,11 @@ export function convertSource(
         options.inlineGeoJSON.set(safeId, normaliseInlineGeoJSON(data))
         lines.push('  // inline data captured by importer (auto-pushed via setSourceData)')
       } else {
-        lines.push('  // inline data — call map.setSourceData("' + safeId + '", <FeatureCollection>) after run()')
+        lines.push(
+          '  // inline data — call map.setSourceData("' +
+            safeId +
+            '", <FeatureCollection>) after run()',
+        )
         // Catch circular references — JSON.stringify throws TypeError
         // on cycles. Pre-fix the throw propagated up and crashed the
         // whole convertMapboxStyle call. Inline preview is purely
@@ -458,15 +516,21 @@ export function convertSource(
           json = `[unserialisable: ${(e as Error).message.slice(0, 60)}]`
         }
         if (json.length > 2000) {
-          lines.push(`  // data: ${json.slice(0, 2000)}...  (truncated, ${json.length} bytes total)`)
+          lines.push(
+            `  // data: ${json.slice(0, 2000)}...  (truncated, ${json.length} bytes total)`,
+          )
         } else {
           lines.push(`  // data: ${json}`)
         }
-        warnings.push(`GeoJSON source "${id}" has inline data — emitted as no-URL stub; call map.setSourceData() after run().`)
+        warnings.push(
+          `GeoJSON source "${id}" has inline data — emitted as no-URL stub; call map.setSourceData() after run().`,
+        )
       }
     } else if (data === undefined || data === null) {
       lines.push('  // TODO: GeoJSON source missing data field')
-      warnings.push(`GeoJSON source "${id}" has no data field. Set source.data to a URL string OR an inline FeatureCollection / Feature / Geometry object.`)
+      warnings.push(
+        `GeoJSON source "${id}" has no data field. Set source.data to a URL string OR an inline FeatureCollection / Feature / Geometry object.`,
+      )
     } else {
       // data is some other type (boolean, number, etc.) — distinct
       // from missing. Mapbox spec requires data to be string (URL)
@@ -474,11 +538,15 @@ export function convertSource(
       // fell to the "missing" warning, sending users chasing the
       // wrong fix when the real issue was a wrong-shape value.
       lines.push(`  // TODO: GeoJSON source data field has invalid type (${typeof data})`)
-      warnings.push(`GeoJSON source "${id}" data field must be a URL string or inline object; got ${typeof data}.`)
+      warnings.push(
+        `GeoJSON source "${id}" data field must be a URL string or inline object; got ${typeof data}.`,
+      )
     }
   } else if (src.type === 'image' || src.type === 'video') {
     lines.push(`  // SKIPPED: ${src.type} source not yet supported by X-GIS engine`)
-    warnings.push(`Source "${id}" type="${src.type}" — image/video sources not yet supported (no roadmap entry; file an issue if needed).`)
+    warnings.push(
+      `Source "${id}" type="${src.type}" — image/video sources not yet supported (no roadmap entry; file an issue if needed).`,
+    )
   } else if (src.type === undefined || src.type === null) {
     // Mapbox spec requires `type` per source — undefined/null is a
     // distinct failure mode from "unsupported type string". Pre-fix
@@ -487,7 +555,9 @@ export function convertSource(
     // real fix is "add a type field" not "switch to a different
     // type string".
     lines.push('  // TODO: source missing required `type` field')
-    warnings.push(`Source "${id}" is missing the required type field. Mapbox spec requires type: vector|raster|raster-dem|geojson|image|video.`)
+    warnings.push(
+      `Source "${id}" is missing the required type field. Mapbox spec requires type: vector|raster|raster-dem|geojson|image|video.`,
+    )
   } else if (typeof src.type !== 'string') {
     // Non-string type — same isolated failure path. Note the actual
     // typeof in the warning so the user sees the shape mismatch.
@@ -513,7 +583,13 @@ function normaliseInlineGeoJSON(data: unknown): unknown {
   if (data === null || typeof data !== 'object') {
     return { type: 'FeatureCollection', features: [] }
   }
-  const obj = data as { type?: string; features?: unknown[]; geometry?: unknown; properties?: unknown; geometries?: unknown[] }
+  const obj = data as {
+    type?: string
+    features?: unknown[]
+    geometry?: unknown
+    properties?: unknown
+    geometries?: unknown[]
+  }
   if (obj.type === 'FeatureCollection' && Array.isArray(obj.features)) return obj
   if (obj.type === 'Feature') {
     return { type: 'FeatureCollection', features: [obj] }

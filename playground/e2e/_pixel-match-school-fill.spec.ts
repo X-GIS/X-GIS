@@ -31,16 +31,16 @@ mkdirSync(OUT, { recursive: true })
 test('ofm-bright school fill pixel match — labels off', async ({ page }) => {
   test.setTimeout(120_000)
   await page.setViewportSize({ width: 1280, height: 800 })
-  await page.goto(
-    `/compare.html?style=openfreemap-bright#17.85/37.12665/126.92430`,
-    { waitUntil: 'domcontentloaded' },
-  )
+  await page.goto(`/compare.html?style=openfreemap-bright#17.85/37.12665/126.92430`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => {
       const w = window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }
       return w.__xgisReady === true && w.__mlReady === true
     },
-    null, { timeout: 60_000 },
+    null,
+    { timeout: 60_000 },
   )
 
   // Hide every symbol (text + icon) layer on the MapLibre side.
@@ -72,7 +72,9 @@ test('ofm-bright school fill pixel match — labels off', async ({ page }) => {
       targetName: string
       visible?: boolean
     }
-    interface XGISLayer { style?: { visible?: boolean } }
+    interface XGISLayer {
+      style?: { visible?: boolean }
+    }
     interface XGISMap {
       vectorTileShows?: Array<{ show: XGISShow }>
       commands?: { shows: XGISShow[] }
@@ -113,17 +115,30 @@ test('ofm-bright school fill pixel match — labels off', async ({ page }) => {
   console.log('[pixel-match] hidden symbols:', xgisHidden)
 
   // Wait for both sides to settle after the visibility change.
-  await page.evaluate(() => new Promise<void>((resolve) => {
-    interface MlMap { loaded(): boolean; once(ev: string, fn: () => void): void }
-    const ml = (window as unknown as { __mlMap?: MlMap }).__mlMap
-    if (!ml) { resolve(); return }
-    if (ml.loaded()) { resolve(); return }
-    ml.once('idle', () => resolve())
-    setTimeout(resolve, 15_000)
-  }))
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        interface MlMap {
+          loaded(): boolean
+          once(ev: string, fn: () => void): void
+        }
+        const ml = (window as unknown as { __mlMap?: MlMap }).__mlMap
+        if (!ml) {
+          resolve()
+          return
+        }
+        if (ml.loaded()) {
+          resolve()
+          return
+        }
+        ml.once('idle', () => resolve())
+        setTimeout(resolve, 15_000)
+      }),
+  )
   await page.waitForTimeout(4_000)
-  await page.evaluate(() => new Promise<void>(r =>
-    requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+  await page.evaluate(
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+  )
 
   const mlPng = await page.locator('#ml-map canvas').first().screenshot()
   const xgPng = await page.locator('#xg-canv').screenshot()
@@ -197,18 +212,27 @@ test('ofm-bright school fill pixel match — labels off', async ({ page }) => {
 
   // Pixelmatch diff PNG for visual eyeballing (red where it differs).
   const diff = new PNG({ width: w, height: h })
-  const diffPixels = pixelmatch(mlNorm.data, xgNorm.data, diff.data, w, h,
-    { threshold: 0.15, includeAA: false })
+  const diffPixels = pixelmatch(mlNorm.data, xgNorm.data, diff.data, w, h, {
+    threshold: 0.15,
+    includeAA: false,
+  })
 
   writeFileSync(join(OUT, 'ml.png'), PNG.sync.write(mlNorm))
   writeFileSync(join(OUT, 'xg.png'), PNG.sync.write(xgNorm))
   writeFileSync(join(OUT, 'diff.png'), PNG.sync.write(diff))
   writeFileSync(join(OUT, 'report.json'), JSON.stringify(report, null, 2))
-  writeFileSync(join(OUT, 'pixelmatch.json'), JSON.stringify({
-    diffPixels,
-    diffRatio: diffPixels / totalPx,
-    threshold: 0.15,
-  }, null, 2))
+  writeFileSync(
+    join(OUT, 'pixelmatch.json'),
+    JSON.stringify(
+      {
+        diffPixels,
+        diffRatio: diffPixels / totalPx,
+        threshold: 0.15,
+      },
+      null,
+      2,
+    ),
+  )
 
   // No hard gate — this is a measurement, not a regression test.
   // The report.json is the contract.

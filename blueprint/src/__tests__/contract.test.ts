@@ -24,7 +24,18 @@ const FIELD_KEYS: Record<string, string[]> = {
 describe('@xgis/blueprint codegen contract', () => {
   it('all editor node types are present', () => {
     expect(Object.keys(NODE_SPECS).sort()).toEqual(
-      ['background', 'fn', 'import', 'layer', 'map', 'preset', 'reroute', 'source', 'style', 'symbol'].sort(),
+      [
+        'background',
+        'fn',
+        'import',
+        'layer',
+        'map',
+        'preset',
+        'reroute',
+        'source',
+        'style',
+        'symbol',
+      ].sort(),
     )
   })
 
@@ -68,9 +79,28 @@ describe('@xgis/blueprint codegen contract', () => {
   })
 
   it('reroute knots are transparent in codegen', () => {
-    const s = { id: uid('n'), type: 'source' as const, x: 0, y: 0, data: { name: 'world', type: 'geojson', url: 'w.geojson', layers: '' } }
+    const s = {
+      id: uid('n'),
+      type: 'source' as const,
+      x: 0,
+      y: 0,
+      data: { name: 'world', type: 'geojson', url: 'w.geojson', layers: '' },
+    }
     const r1 = { id: uid('n'), type: 'reroute' as const, x: 0, y: 0, data: {} }
-    const l = { id: uid('n'), type: 'layer' as const, x: 0, y: 0, data: { name: 'countries', sourceLayer: '', minzoom: '', maxzoom: '', filter: '', pipe: 'fill-blue-400' } }
+    const l = {
+      id: uid('n'),
+      type: 'layer' as const,
+      x: 0,
+      y: 0,
+      data: {
+        name: 'countries',
+        sourceLayer: '',
+        minzoom: '',
+        maxzoom: '',
+        filter: '',
+        pipe: 'fill-blue-400',
+      },
+    }
     const r2 = { id: uid('n'), type: 'reroute' as const, x: 0, y: 0, data: {} }
     const m = { id: uid('n'), type: 'map' as const, x: 0, y: 0, data: { order: '' } }
     const g: BPGraph = {

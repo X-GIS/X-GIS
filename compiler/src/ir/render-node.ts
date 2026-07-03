@@ -63,7 +63,7 @@ export interface SymbolDef {
  */
 export interface SourceDef {
   name: string
-  type: string      // 'geojson', 'vector', 'raster', 'raster-dem', 'binary'
+  type: string // 'geojson', 'vector', 'raster', 'raster-dem', 'binary'
   url: string
   /** Optional MVT layer-name subset (PMTiles only). When set, the
    *  decoder filters features by `_layer` before decompose+compile.
@@ -241,9 +241,15 @@ export interface RenderNodeHeatmapPaint {
 }
 
 export interface RenderNode
-  extends RenderNodeFillPaint, RenderNodeLinePaint, RenderNodeCirclePaint, RenderNodeExtrudePaint, RenderNodeRasterPaint, RenderNodeHeatmapPaint {
+  extends
+    RenderNodeFillPaint,
+    RenderNodeLinePaint,
+    RenderNodeCirclePaint,
+    RenderNodeExtrudePaint,
+    RenderNodeRasterPaint,
+    RenderNodeHeatmapPaint {
   name: string
-  sourceRef: string  // references SourceDef.name
+  sourceRef: string // references SourceDef.name
   /** Optional MVT layer slice within the referenced source. When set,
    *  the runtime draws only this layer's geometry from each tile —
    *  Mapbox/MapLibre's `source-layer` semantics (lexer prefers
@@ -273,10 +279,10 @@ export interface RenderNode
    *  this layer's pickId write (writeMask:0 variant) so picks fall
    *  through to the layer beneath. 'auto' (default) is pickable. */
   pointerEvents: 'auto' | 'none'
-  filter: DataExpr | null  // per-feature filter expression (e.g., .pop > 1000000)
-  geometry: DataExpr | null  // procedural geometry expression (e.g., circle(.lon, .lat, .r))
-  billboard: boolean         // true = faces camera (default), false = flat on ground
-  shape: ShapeRef            // point shape (circle default, or named/user-defined)
+  filter: DataExpr | null // per-feature filter expression (e.g., .pop > 1000000)
+  geometry: DataExpr | null // procedural geometry expression (e.g., circle(.lon, .lat, .r))
+  billboard: boolean // true = faces camera (default), false = flat on ground
+  shape: ShapeRef // point shape (circle default, or named/user-defined)
   /** Billboard anchor: which edge of the quad sits on the projected point.
    *  `center` (default) puts the quad centered on the point; `bottom` makes
    *  the marker stand above the ground like a pin; `top` is its symmetric
@@ -356,12 +362,9 @@ export interface FormatSpec {
 }
 
 export type TextPart =
-  | { kind: 'literal'; value: string }
-  | { kind: 'interp'; expr: DataExpr; spec?: FormatSpec }
+  { kind: 'literal'; value: string } | { kind: 'interp'; expr: DataExpr; spec?: FormatSpec }
 
-export type TextValue =
-  | { kind: 'expr'; expr: DataExpr }
-  | { kind: 'template'; parts: TextPart[] }
+export type TextValue = { kind: 'expr'; expr: DataExpr } | { kind: 'template'; parts: TextPart[] }
 
 // ─── LabelDef ─────────────────────────────────────────────────────
 
@@ -445,16 +448,30 @@ export interface LabelDef {
   spacing?: number
   /** Mapbox `text-anchor`. Default `center`. */
   anchor?:
-    | 'center' | 'top' | 'bottom' | 'left' | 'right'
-    | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+    | 'center'
+    | 'top'
+    | 'bottom'
+    | 'left'
+    | 'right'
+    | 'top-left'
+    | 'top-right'
+    | 'bottom-left'
+    | 'bottom-right'
   /** Mapbox `text-variable-anchor` candidates. When set, the runtime
    *  tries each in order during collision and uses the first that
    *  doesn't overlap an existing label. The static `anchor` field
    *  carries the first candidate as a fallback for IR consumers
    *  that don't implement variable placement. */
   anchorCandidates?: Array<
-    | 'center' | 'top' | 'bottom' | 'left' | 'right'
-    | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+    | 'center'
+    | 'top'
+    | 'bottom'
+    | 'left'
+    | 'right'
+    | 'top-left'
+    | 'top-right'
+    | 'bottom-left'
+    | 'bottom-right'
   >
   /** Mapbox `text-offset` in em units `[dx, dy]`. */
   offset?: [number, number]
@@ -478,11 +495,22 @@ export interface LabelDef {
    *  runtime applies the matching pair's offset (plus MapLibre's
    *  top/bottom baseline shift) for whichever candidate wins
    *  collision. Supersedes `offset` / `radialOffset` when present. */
-  variableAnchorOffset?: Array<[
-    'center' | 'top' | 'bottom' | 'left' | 'right'
-    | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
-    [number, number],
-  ]>
+  variableAnchorOffset?: Array<
+    [
+      (
+        | 'center'
+        | 'top'
+        | 'bottom'
+        | 'left'
+        | 'right'
+        | 'top-left'
+        | 'top-right'
+        | 'bottom-left'
+        | 'bottom-right'
+      ),
+      [number, number],
+    ]
+  >
   /** Mapbox `text-rotate` in degrees clockwise. */
   rotate?: number
   /** Padding (px) around the text bbox for collision testing.
@@ -561,8 +589,15 @@ export interface LabelDef {
   iconSize?: number
   /** Mapbox `icon-anchor`. Default `center`. */
   iconAnchor?:
-    | 'center' | 'top' | 'bottom' | 'left' | 'right'
-    | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+    | 'center'
+    | 'top'
+    | 'bottom'
+    | 'left'
+    | 'right'
+    | 'top-left'
+    | 'top-right'
+    | 'bottom-left'
+    | 'bottom-right'
   /** Mapbox `icon-offset` in display pixels `[dx, dy]`. Default [0,0]. */
   iconOffset?: [number, number]
   /** Mapbox `paint.icon-translate` — CSS-px viewport offset applied to
@@ -615,9 +650,9 @@ export interface LabelDef {
  * Shape reference for point rendering.
  */
 export type ShapeRef =
-  | { kind: 'none' }                         // circle (analytical default)
-  | { kind: 'named'; name: string }          // built-in or user-defined shape
-  | { kind: 'data-driven'; expr: DataExpr }  // per-feature shape selection
+  | { kind: 'none' } // circle (analytical default)
+  | { kind: 'named'; name: string } // built-in or user-defined shape
+  | { kind: 'data-driven'; expr: DataExpr } // per-feature shape selection
 
 // ═══ Value types — designed for Phase 1 extension ═══
 
@@ -717,14 +752,22 @@ export interface StrokeValue {
   /** WS-1 — per-frame zoom-interp dasharray. Inline zoom-interpolated form
    *  (avoids a circular PropertyShape import); the runtime STEPs to the
    *  nearest zoom stop (Mapbox line-dasharray is `interpolated: false`). */
-  dashArrayShape?: { kind: 'zoom-interpolated'; stops: { zoom: number; value: number[] }[]; base?: number }
+  dashArrayShape?: {
+    kind: 'zoom-interpolated'
+    stops: { zoom: number; value: number[] }[]
+    base?: number
+  }
   /** WS-1 — per-frame zoom-interp circle-stroke-opacity. Inline
    *  zoom-interpolated form (avoids a circular PropertyShape import); the
    *  point renderer resolves it per frame and multiplies the result into
    *  the circle's baked stroke alpha (feat_data slot 8). Only the circle
    *  layer path consumes this — the line/VTR path ignores it. Stops carry
    *  the 0..1 alpha (already divided from the converter's 0..100 scale). */
-  strokeOpacityShape?: { kind: 'zoom-interpolated'; stops: { zoom: number; value: number }[]; base?: number }
+  strokeOpacityShape?: {
+    kind: 'zoom-interpolated'
+    stops: { zoom: number; value: number }[]
+    base?: number
+  }
   dashOffset?: number
   /** Up to 3 pattern slots rendered along the line. */
   patterns?: StrokePattern[]
@@ -827,8 +870,8 @@ export type ExtrudeValue =
  * A conditional branch: applies when a data field matches a value.
  */
 export interface ConditionalBranch<T> {
-  field: string   // the property/modifier name (e.g., "friendly", "hostile")
-  value: T        // the value when condition matches
+  field: string // the property/modifier name (e.g., "friendly", "hostile")
+  value: T // the value when condition matches
 }
 
 /**

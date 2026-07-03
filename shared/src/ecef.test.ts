@@ -8,12 +8,7 @@
 // (A = 6378137, 1/F = 298.257223563), not invented.
 
 import { describe, expect, it } from 'vitest'
-import {
-  lonLatToECEF,
-  ecefToLonLat,
-  lonLatToECEFSphere,
-  WGS84,
-} from './ecef'
+import { lonLatToECEF, ecefToLonLat, lonLatToECEFSphere, WGS84 } from './ecef'
 import { quantizeAxis } from './quantize'
 
 const { A, F, E2 } = WGS84

@@ -9,8 +9,8 @@ import { Lexer } from '../lexer/lexer'
 function parseExpr(src: string): unknown {
   const tokens = new Lexer(`let __t = ${src}`).tokenize()
   const ast = new Parser(tokens).parse() as { body: Array<{ kind: string; value?: unknown }> }
-  const stmt = ast.body.find(s => s.kind === 'LetStatement') as
-    | { kind: string; value?: unknown } | undefined
+  const stmt = ast.body.find((s) => s.kind === 'LetStatement') as
+    { kind: string; value?: unknown } | undefined
   if (!stmt) throw new Error('let stmt missing')
   return stmt.value
 }

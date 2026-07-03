@@ -92,9 +92,12 @@ export class ExpressionParser extends ParserCursor {
     let left = this.parseAdditive()
 
     while (
-      this.check(TokenType.EqEq) || this.check(TokenType.BangEq) ||
-      this.check(TokenType.Lt) || this.check(TokenType.Gt) ||
-      this.check(TokenType.LtEq) || this.check(TokenType.GtEq)
+      this.check(TokenType.EqEq) ||
+      this.check(TokenType.BangEq) ||
+      this.check(TokenType.Lt) ||
+      this.check(TokenType.Gt) ||
+      this.check(TokenType.LtEq) ||
+      this.check(TokenType.GtEq)
     ) {
       const op = this.advance().value
       const right = this.parseAdditive()
@@ -121,7 +124,11 @@ export class ExpressionParser extends ParserCursor {
   protected parseMultiplicative(): AST.Expr {
     let left = this.parseUnary()
 
-    while (this.check(TokenType.Star) || this.check(TokenType.Slash) || this.check(TokenType.Percent)) {
+    while (
+      this.check(TokenType.Star) ||
+      this.check(TokenType.Slash) ||
+      this.check(TokenType.Percent)
+    ) {
       const op = this.advance().value
       const right = this.parseUnary()
       left = { kind: 'BinaryExpr', op, left, right }
@@ -154,8 +161,11 @@ export class ExpressionParser extends ParserCursor {
         // but a value-mapping match makes sense in any expression
         // context (filter:, paint utility brackets, ternaries…), so
         // pick up the block uniformly here.
-        if (call.callee.kind === 'Identifier' && call.callee.name === 'match' &&
-            this.check(TokenType.LBrace)) {
+        if (
+          call.callee.kind === 'Identifier' &&
+          call.callee.name === 'match' &&
+          this.check(TokenType.LBrace)
+        ) {
           call.matchBlock = this.parseMatchBlock()
         }
         expr = call
@@ -194,9 +204,12 @@ export class ExpressionParser extends ParserCursor {
 
       // Check for unit token immediately after
       if (
-        this.check(TokenType.Px) || this.check(TokenType.M) ||
-        this.check(TokenType.Km) || this.check(TokenType.Nm) ||
-        this.check(TokenType.Deg) || this.check(TokenType.S) ||
+        this.check(TokenType.Px) ||
+        this.check(TokenType.M) ||
+        this.check(TokenType.Km) ||
+        this.check(TokenType.Nm) ||
+        this.check(TokenType.Deg) ||
+        this.check(TokenType.S) ||
         this.check(TokenType.Ms)
       ) {
         unit = this.advance().value
@@ -258,7 +271,9 @@ export class ExpressionParser extends ParserCursor {
         } else if (this.check(TokenType.Identifier)) {
           key = this.advance().value
         } else {
-          this.error(`Expected object key (string or identifier), got ${TokenType[this.current().type]} ('${this.current().value}')`)
+          this.error(
+            `Expected object key (string or identifier), got ${TokenType[this.current().type]} ('${this.current().value}')`,
+          )
         }
         this.expect(TokenType.Colon)
         const value = this.parseExpr()
@@ -309,8 +324,10 @@ export class ExpressionParser extends ParserCursor {
         pattern = this.advance().value
       } else if (this.check(TokenType.Number)) {
         pattern = this.advance().value
-      } else if (this.check(TokenType.Minus) &&
-                 this.tokens[this.pos + 1]?.type === TokenType.Number) {
+      } else if (
+        this.check(TokenType.Minus) &&
+        this.tokens[this.pos + 1]?.type === TokenType.Number
+      ) {
         // Converter emits bare negative numeric keys (e.g. `-3 -> v`).
         this.advance()
         pattern = '-' + this.advance().value
@@ -327,8 +344,10 @@ export class ExpressionParser extends ParserCursor {
       let value: AST.Expr
       if (this.check(TokenType.Color)) {
         value = { kind: 'ColorLiteral', value: this.advance().value }
-      } else if (this.check(TokenType.Identifier) &&
-                 this.tokens[this.pos + 1]?.type === TokenType.Minus) {
+      } else if (
+        this.check(TokenType.Identifier) &&
+        this.tokens[this.pos + 1]?.type === TokenType.Minus
+      ) {
         const colorName = this.parseUtilityName()
         value = { kind: 'Identifier', name: colorName }
       } else {
@@ -352,14 +371,22 @@ export class ExpressionParser extends ParserCursor {
   /** Check if token can start or continue a utility name (identifiers + keywords used as names) */
   protected isUtilityNameToken(): boolean {
     const t = this.current().type
-    return t === TokenType.Identifier || t === TokenType.SymbolDef ||
-      t === TokenType.Source || t === TokenType.Layer || t === TokenType.Preset ||
-      t === TokenType.View || t === TokenType.On ||
+    return (
+      t === TokenType.Identifier ||
+      t === TokenType.SymbolDef ||
+      t === TokenType.Source ||
+      t === TokenType.Layer ||
+      t === TokenType.Preset ||
+      t === TokenType.View ||
+      t === TokenType.On ||
       // Short keywords that naturally appear inside utility names, e.g.
       // `ease-in-out`, `ease-in`, `from-red-500`, `to-blue-500`, `fade-in`.
       // Without these, `in` / `from` / `to` would short-circuit the
       // hyphen-joined name accumulator and break utility parsing.
-      t === TokenType.In || t === TokenType.From || t === TokenType.To
+      t === TokenType.In ||
+      t === TokenType.From ||
+      t === TokenType.To
+    )
   }
 
   protected parseUtilityName(): string {
@@ -372,7 +399,9 @@ export class ExpressionParser extends ParserCursor {
       name = this.advance().value
       return name
     } else {
-      this.error(`Expected utility name, got ${TokenType[this.current().type]} ('${this.current().value}')`)
+      this.error(
+        `Expected utility name, got ${TokenType[this.current().type]} ('${this.current().value}')`,
+      )
     }
 
     // Continue consuming -identifier, -number, -color segments
@@ -380,7 +409,8 @@ export class ExpressionParser extends ParserCursor {
       // Peek ahead: if next after minus is not part of utility name, stop
       const next = this.tokens[this.pos + 1]
       if (!next) break
-      const isNamePart = next.type === TokenType.Identifier ||
+      const isNamePart =
+        next.type === TokenType.Identifier ||
         next.type === TokenType.Number ||
         next.type === TokenType.Color ||
         next.type === TokenType.SymbolDef ||
@@ -403,9 +433,13 @@ export class ExpressionParser extends ParserCursor {
 
     // Absorb trailing unit token (px, m, km, etc.) into name
     // e.g., size-500 + km → "size-500km"
-    if (this.check(TokenType.Px) || this.check(TokenType.M) ||
-        this.check(TokenType.Km) || this.check(TokenType.Nm) ||
-        this.check(TokenType.Deg)) {
+    if (
+      this.check(TokenType.Px) ||
+      this.check(TokenType.M) ||
+      this.check(TokenType.Km) ||
+      this.check(TokenType.Nm) ||
+      this.check(TokenType.Deg)
+    ) {
       name += this.advance().value
     }
 

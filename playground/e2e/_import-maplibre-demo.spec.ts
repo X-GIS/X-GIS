@@ -49,7 +49,8 @@ test('import "maplibre-demo-style" loads + renders without compile errors', asyn
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // Tiles fetch over the wire — give them time to land before the
   // canvas-content check.
@@ -60,9 +61,7 @@ test('import "maplibre-demo-style" loads + renders without compile errors', asyn
 
   const stats = await page.evaluate(async () => {
     const canvas = document.getElementById('map') as HTMLCanvasElement
-    const blob = await new Promise<Blob | null>((res) =>
-      canvas.toBlob((b) => res(b), 'image/png'),
-    )
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob((b) => res(b), 'image/png'))
     if (!blob) return { error: 'canvas.toBlob null' }
     const bitmap = await createImageBitmap(blob)
     const off = new OffscreenCanvas(bitmap.width, bitmap.height)
@@ -76,7 +75,7 @@ test('import "maplibre-demo-style" loads + renders without compile errors', asyn
       // Bucket by (R, G, B) coarsened to ~5 bits/channel. If one
       // bucket holds > 95 % of pixels, canvas is essentially a flat
       // fill (= broken render: background-only or worse).
-      const key = (data[i] >> 3) << 10 | (data[i + 1] >> 3) << 5 | (data[i + 2] >> 3)
+      const key = ((data[i] >> 3) << 10) | ((data[i + 1] >> 3) << 5) | (data[i + 2] >> 3)
       colorCounts.set(key, (colorCounts.get(key) ?? 0) + 1)
     }
     let dominant = 0
@@ -92,22 +91,27 @@ test('import "maplibre-demo-style" loads + renders without compile errors', asyn
 
   if ('error' in stats) throw new Error(stats.error as string)
   // eslint-disable-next-line no-console
-  console.log(`[import-maplibre-demo] canvas ${stats.width}×${stats.height}  ` +
-    `uniqueColorBuckets=${stats.uniqueColorBuckets}  dominantFraction=${(stats.dominantFraction * 100).toFixed(1)}%`)
+  console.log(
+    `[import-maplibre-demo] canvas ${stats.width}×${stats.height}  ` +
+      `uniqueColorBuckets=${stats.uniqueColorBuckets}  dominantFraction=${(stats.dominantFraction * 100).toFixed(1)}%`,
+  )
 
   // Compile / parse errors caught here. Network failures on TILE
   // fetches (after style.json resolved) aren't fatal — style.json +
   // first paint can succeed even if some tiles drop.
-  expect(errors,
+  expect(
+    errors,
     `Console / pageerror during MapLibre demo style import: ${errors.join('; ')}`,
   ).toEqual([])
 
-  expect(stats.uniqueColorBuckets,
+  expect(
+    stats.uniqueColorBuckets,
     `canvas appears uniform (only ${stats.uniqueColorBuckets} color buckets) — ` +
-    `style.json may have rendered as an empty shell`,
+      `style.json may have rendered as an empty shell`,
   ).toBeGreaterThan(5)
-  expect(stats.dominantFraction,
+  expect(
+    stats.dominantFraction,
     `single color dominates ${(stats.dominantFraction * 100).toFixed(1)}% of pixels — ` +
-    `likely background-only render with no vector layers drawn`,
+      `likely background-only render with no vector layers drawn`,
   ).toBeLessThan(0.95)
 })

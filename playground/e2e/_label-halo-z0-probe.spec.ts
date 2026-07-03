@@ -20,15 +20,16 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const fixture = readFileSync(
-  resolve(__dirname, '__convert-fixtures', 'bright.json'), 'utf8',
-)
+const fixture = readFileSync(resolve(__dirname, '__convert-fixtures', 'bright.json'), 'utf8')
 const OUT = resolve(__dirname, '__label-halo-z0-probe__')
 mkdirSync(OUT, { recursive: true })
 
 interface HaloRow {
-  text: string; fontSize: number; rasterFontSize: number
-  haloWidth: number; haloWidthNorm: number
+  text: string
+  fontSize: number
+  rasterFontSize: number
+  haloWidth: number
+  haloWidthNorm: number
 }
 
 async function setup(page: Page, hash: string): Promise<void> {
@@ -40,31 +41,36 @@ async function setup(page: Page, hash: string): Promise<void> {
   await page.goto(`/demo.html?id=__import${hash}`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   await page.waitForTimeout(3_000)
 }
 
 async function readHalo(page: Page): Promise<HaloRow[]> {
   return page.evaluate(() => {
-    const m = (window as unknown as {
-      __xgisMap?: { getHaloDebug?: () => HaloRow[] | null }
-    }).__xgisMap
+    const m = (
+      window as unknown as {
+        __xgisMap?: { getHaloDebug?: () => HaloRow[] | null }
+      }
+    ).__xgisMap
     return m?.getHaloDebug?.() ?? []
   }) as Promise<HaloRow[]>
 }
 
 function summarise(rows: HaloRow[]): {
-  n: number; maxNorm: number; medNorm: number
+  n: number
+  maxNorm: number
+  medNorm: number
   sample: HaloRow | undefined
 } {
-  const haloed = rows.filter(r => r.haloWidth > 0)
-  const norms = haloed.map(r => r.haloWidthNorm).sort((a, b) => a - b)
+  const haloed = rows.filter((r) => r.haloWidth > 0)
+  const norms = haloed.map((r) => r.haloWidthNorm).sort((a, b) => a - b)
   return {
     n: haloed.length,
     maxNorm: norms.length ? +norms[norms.length - 1]!.toFixed(4) : 0,
     medNorm: norms.length ? +norms[Math.floor(norms.length / 2)]!.toFixed(4) : 0,
-    sample: haloed.find(r => r.haloWidthNorm === norms[norms.length - 1]),
+    sample: haloed.find((r) => r.haloWidthNorm === norms[norms.length - 1]),
   }
 }
 
@@ -107,7 +113,7 @@ test('label-halo z0 vs z6 — OFM bright', async ({ page }) => {
   writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))
   // eslint-disable-next-line no-console
   console.log(
-    `[halo-z0] z0 n=${z0.n} medNorm=${z0.medNorm} maxNorm=${z0.maxNorm}`
-    + ` | z6 n=${z6.n} medNorm=${z6.medNorm} maxNorm=${z6.maxNorm}`,
+    `[halo-z0] z0 n=${z0.n} medNorm=${z0.medNorm} maxNorm=${z0.maxNorm}` +
+      ` | z6 n=${z6.n} medNorm=${z6.medNorm} maxNorm=${z6.maxNorm}`,
   )
 })

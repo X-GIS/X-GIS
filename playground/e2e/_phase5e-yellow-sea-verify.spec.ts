@@ -23,48 +23,69 @@ mkdirSync(ART, { recursive: true })
 
 const REPRO_HASH = '#7.06/37.13808/126.52451/352.4/8.7'
 
-async function captureDarkRatio(page: Page, query: string): Promise<{ darkRatio: number; oceanRatio: number; total: number; virtRouted: boolean }> {
+async function captureDarkRatio(
+  page: Page,
+  query: string,
+): Promise<{ darkRatio: number; oceanRatio: number; total: number; virtRouted: boolean }> {
   const sep = query.length > 0 ? '&' : ''
-  await page.goto(`/demo.html?id=styled_world${sep}${query.replace(/^\?/, '')}${REPRO_HASH}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/demo.html?id=styled_world${sep}${query.replace(/^\?/, '')}${REPRO_HASH}`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   // Generous settle for tile compile cascade (worker round-trips +
   // MVT decode + upload).
   await page.waitForTimeout(5_000)
 
-  return await page.evaluate(async () => {
-    const canvas = document.querySelector('canvas') as HTMLCanvasElement
-    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(b => res(b), 'image/png'))
-    if (!blob) return { darkRatio: 1, oceanRatio: 0, total: 0 }
-    const buf = await blob.arrayBuffer()
-    const img = new Image()
-    img.src = URL.createObjectURL(new Blob([buf], { type: 'image/png' }))
-    await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error('decode')) })
-    const off = new OffscreenCanvas(img.width, img.height)
-    const ctx = off.getContext('2d')!
-    ctx.drawImage(img, 0, 0)
-    const data = ctx.getImageData(0, 0, img.width, img.height).data
-    let ocean = 0, dark = 0, total = 0
-    for (let i = 0; i < data.length; i += 4) {
-      total++
-      const r = data[i], g = data[i + 1], b = data[i + 2]
-      // sky-950 #082f49 — ocean fill (wide tolerance for GPU blend).
-      if (r < 40 && g >= 35 && g <= 80 && b >= 60 && b <= 100) ocean++
-      // background near-black bleed-through.
-      else if (r < 35 && g < 35 && b < 40) dark++
-    }
-    return { darkRatio: dark / total, oceanRatio: ocean / total, total }
-  }).then(async (r) => {
-    const virtRouted = await page.evaluate(() =>
-      (window as unknown as { __xgisVirtualPMTilesActive?: boolean }).__xgisVirtualPMTilesActive === true,
-    )
-    return { ...r, virtRouted }
-  })
+  return await page
+    .evaluate(async () => {
+      const canvas = document.querySelector('canvas') as HTMLCanvasElement
+      const blob = await new Promise<Blob | null>((res) =>
+        canvas.toBlob((b) => res(b), 'image/png'),
+      )
+      if (!blob) return { darkRatio: 1, oceanRatio: 0, total: 0 }
+      const buf = await blob.arrayBuffer()
+      const img = new Image()
+      img.src = URL.createObjectURL(new Blob([buf], { type: 'image/png' }))
+      await new Promise<void>((res, rej) => {
+        img.onload = () => res()
+        img.onerror = () => rej(new Error('decode'))
+      })
+      const off = new OffscreenCanvas(img.width, img.height)
+      const ctx = off.getContext('2d')!
+      ctx.drawImage(img, 0, 0)
+      const data = ctx.getImageData(0, 0, img.width, img.height).data
+      let ocean = 0,
+        dark = 0,
+        total = 0
+      for (let i = 0; i < data.length; i += 4) {
+        total++
+        const r = data[i],
+          g = data[i + 1],
+          b = data[i + 2]
+        // sky-950 #082f49 — ocean fill (wide tolerance for GPU blend).
+        if (r < 40 && g >= 35 && g <= 80 && b >= 60 && b <= 100) ocean++
+        // background near-black bleed-through.
+        else if (r < 35 && g < 35 && b < 40) dark++
+      }
+      return { darkRatio: dark / total, oceanRatio: ocean / total, total }
+    })
+    .then(async (r) => {
+      const virtRouted = await page.evaluate(
+        () =>
+          (window as unknown as { __xgisVirtualPMTilesActive?: boolean })
+            .__xgisVirtualPMTilesActive === true,
+      )
+      return { ...r, virtRouted }
+    })
 }
 
-test('phase5e — Yellow Sea ocean tile coverage with vs without VirtualPMTilesBackend', async ({ page }) => {
+test('phase5e — Yellow Sea ocean tile coverage with vs without VirtualPMTilesBackend', async ({
+  page,
+}) => {
   test.setTimeout(90_000)
   await page.setViewportSize({ width: 1000, height: 1200 })
 

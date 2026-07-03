@@ -21,7 +21,11 @@ function mockCanvas(): HTMLCanvasElement {
   return { width: 1200, height: 800 } as unknown as HTMLCanvasElement
 }
 
-interface StubVariantPipelines { fillPipeline: object; linePipeline: object; fillPipelineNoPick: object }
+interface StubVariantPipelines {
+  fillPipeline: object
+  linePipeline: object
+  fillPipelineNoPick: object
+}
 interface StubRenderer {
   getOrCreateVariantPipelines(variant: unknown): StubVariantPipelines
   getOrBuildVariantLayout(variant: unknown): object
@@ -38,8 +42,12 @@ interface MapInternals {
   _reResolveVariantPipelines(): void
 }
 
-function mountStubRenderer(map: XGISMap, onCall: (kind: 'pipelines' | 'layout', v: unknown) => void): {
-  baseLayout: object; featureLayout: object
+function mountStubRenderer(
+  map: XGISMap,
+  onCall: (kind: 'pipelines' | 'layout', v: unknown) => void,
+): {
+  baseLayout: object
+  featureLayout: object
 } {
   const baseLayout = { __label: 'base' }
   const featureLayout = { __label: 'feature' }
@@ -49,8 +57,14 @@ function mountStubRenderer(map: XGISMap, onCall: (kind: 'pipelines' | 'layout', 
     fillPipelineNoPick: { __label: 'fillPipelineNoPick-feature' },
   }
   ;(map as unknown as MapInternals).renderer = {
-    getOrCreateVariantPipelines: (v: unknown) => { onCall('pipelines', v); return pipelines },
-    getOrBuildVariantLayout: (v: unknown) => { onCall('layout', v); return featureLayout },
+    getOrCreateVariantPipelines: (v: unknown) => {
+      onCall('pipelines', v)
+      return pipelines
+    },
+    getOrBuildVariantLayout: (v: unknown) => {
+      onCall('layout', v)
+      return featureLayout
+    },
   }
   return { baseLayout, featureLayout }
 }
@@ -80,7 +94,12 @@ describe('XGISMap._reResolveVariantPipelines invariant', () => {
     mountStubRenderer(map, () => {})
     const internals = map as unknown as MapInternals
     internals.vectorTileShows = [
-      { sourceName: 'a', show: { shaderVariant: undefined }, pipelines: { stale: true }, layout: { stale: true } },
+      {
+        sourceName: 'a',
+        show: { shaderVariant: undefined },
+        pipelines: { stale: true },
+        layout: { stale: true },
+      },
     ]
     internals._reResolveVariantPipelines()
     const e = internals.vectorTileShows[0]!
@@ -92,11 +111,14 @@ describe('XGISMap._reResolveVariantPipelines invariant', () => {
     const map = new XGISMap(mockCanvas())
     mountStubRenderer(map, () => {})
     const internals = map as unknown as MapInternals
-    internals.vectorTileShows = [{
-      sourceName: 'a',
-      show: { shaderVariant: { key: 'k', preamble: '', needsFeatureBuffer: false } },
-      pipelines: { stale: true }, layout: { stale: true },
-    }]
+    internals.vectorTileShows = [
+      {
+        sourceName: 'a',
+        show: { shaderVariant: { key: 'k', preamble: '', needsFeatureBuffer: false } },
+        pipelines: { stale: true },
+        layout: { stale: true },
+      },
+    ]
     internals._reResolveVariantPipelines()
     const e = internals.vectorTileShows[0]!
     expect(e.pipelines).toBeNull()
@@ -107,14 +129,19 @@ describe('XGISMap._reResolveVariantPipelines invariant', () => {
     const map = new XGISMap(mockCanvas())
     const internals = map as unknown as MapInternals
     internals.renderer = {
-      getOrCreateVariantPipelines: () => { throw new Error('boom') },
+      getOrCreateVariantPipelines: () => {
+        throw new Error('boom')
+      },
       getOrBuildVariantLayout: () => ({ __label: 'never' }),
     }
-    internals.vectorTileShows = [{
-      sourceName: 'a',
-      show: { shaderVariant: { key: 'k', preamble: 'foo', needsFeatureBuffer: false } },
-      pipelines: { stale: true }, layout: { stale: true },
-    }]
+    internals.vectorTileShows = [
+      {
+        sourceName: 'a',
+        show: { shaderVariant: { key: 'k', preamble: 'foo', needsFeatureBuffer: false } },
+        pipelines: { stale: true },
+        layout: { stale: true },
+      },
+    ]
     internals._reResolveVariantPipelines()
     const e = internals.vectorTileShows[0]!
     expect(e.pipelines).toBeNull()
@@ -127,21 +154,34 @@ describe('XGISMap._reResolveVariantPipelines invariant', () => {
     const internals = map as unknown as MapInternals
     internals.vectorTileShows = [
       // 0: variant w/ feature buffer → both set
-      { sourceName: 'feat', show: { shaderVariant: { key: 'k1', needsFeatureBuffer: true } },
-        pipelines: null, layout: null },
+      {
+        sourceName: 'feat',
+        show: { shaderVariant: { key: 'k1', needsFeatureBuffer: true } },
+        pipelines: null,
+        layout: null,
+      },
       // 1: no variant → both null
-      { sourceName: 'plain', show: { shaderVariant: undefined },
-        pipelines: { stale: true }, layout: { stale: true } },
+      {
+        sourceName: 'plain',
+        show: { shaderVariant: undefined },
+        pipelines: { stale: true },
+        layout: { stale: true },
+      },
       // 2: variant w/ preamble → both set
-      { sourceName: 'pre', show: { shaderVariant: { key: 'k2', preamble: 'wgsl' } },
-        pipelines: null, layout: null },
+      {
+        sourceName: 'pre',
+        show: { shaderVariant: { key: 'k2', preamble: 'wgsl' } },
+        pipelines: null,
+        layout: null,
+      },
     ]
     internals._reResolveVariantPipelines()
     for (const e of internals.vectorTileShows) {
       // The invariant.
-      expect((e.pipelines === null) === (e.layout === null),
+      expect(
+        (e.pipelines === null) === (e.layout === null),
         `${e.sourceName}: invariant violated (pipelines=${e.pipelines === null ? 'null' : 'set'}, ` +
-        `layout=${e.layout === null ? 'null' : 'set'})`,
+          `layout=${e.layout === null ? 'null' : 'set'})`,
       ).toBe(true)
     }
   })

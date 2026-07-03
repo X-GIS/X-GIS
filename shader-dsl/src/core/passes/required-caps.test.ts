@@ -8,9 +8,19 @@ import { builtin } from '../sot'
 // #9 — the capability model wired into emit. A module declares the GPU features
 // it needs (requiredCaps); emit asserts the target backend covers them and fails
 // closed (UnsupportedFeatureError) otherwise — never a silent mis-emit.
-const storageMod = () => module({
-  bindings: [{ group: 0, binding: 0, name: 'buf', space: 'storage' as const, access: 'read' as const, type: arrayT(f32T) }],
-})
+const storageMod = () =>
+  module({
+    bindings: [
+      {
+        group: 0,
+        binding: 0,
+        name: 'buf',
+        space: 'storage' as const,
+        access: 'read' as const,
+        type: arrayT(f32T),
+      },
+    ],
+  })
 
 describe('capabilities — requiredCaps + assertCaps (#9)', () => {
   it('a storage binding requires storageBuffer', () => {
@@ -18,12 +28,30 @@ describe('capabilities — requiredCaps + assertCaps (#9)', () => {
   })
 
   it('a @compute entry requires compute', () => {
-    const m = module({ funcs: [fn('cs', { gid: builtin('global_invocation_id', vec3uT) }, voidT, () => { /* empty */ }, { stage: 'compute', workgroupSize: 64 })] })
+    const m = module({
+      funcs: [
+        fn(
+          'cs',
+          { gid: builtin('global_invocation_id', vec3uT) },
+          voidT,
+          () => {
+            /* empty */
+          },
+          { stage: 'compute', workgroupSize: 64 },
+        ),
+      ],
+    })
     expect(requiredCaps(m)).toContain('compute')
   })
 
   it('a pure module requires nothing', () => {
-    const m = module({ funcs: [fn('k', {}, f32T, (_p, b) => { b.ret(f32(1)) })] })
+    const m = module({
+      funcs: [
+        fn('k', {}, f32T, (_p, b) => {
+          b.ret(f32(1))
+        }),
+      ],
+    })
     expect(requiredCaps(m)).toHaveLength(0)
   })
 

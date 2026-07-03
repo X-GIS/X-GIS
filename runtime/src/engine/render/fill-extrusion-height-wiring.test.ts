@@ -41,14 +41,19 @@ let stubCtx: Awaited<ReturnType<typeof initGPU>>
 beforeEach(async () => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
   stubCtx = await makeCtx()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<Awaited<ReturnType<typeof initGPU>>> {
   const canvas = { width: 1024, height: 720 } as unknown as HTMLCanvasElement
@@ -63,7 +68,7 @@ function makeRecordingRing(): { ring: UniformRing; staging: () => Float32Array }
   // Stride derived from reflect() (lazy: safe here, after configureProjections).
   const UNIFORM_SLOT = polygonUniformStride()
   const device = {
-    createBuffer: () => ({ destroy() {} } as unknown as GPUBuffer),
+    createBuffer: () => ({ destroy() {} }) as unknown as GPUBuffer,
     queue: { writeBuffer: () => {} },
   } as unknown as GPUDevice
   const ring = new UniformRing(device, UNIFORM_SLOT, 8, 'test-ring', () => {})
@@ -80,10 +85,15 @@ function makeRecordingRing(): { ring: UniformRing; staging: () => Float32Array }
 function stubTile() {
   return {
     lastUsedFrame: 0,
-    tileWest: 0, tileSouth: 0, tileZoom: 4,
-    indexCount: 0, lineIndexCount: 0,
-    outlineSegmentCount: 0, lineSegmentCount: 0,
-    dequantScale: 1, dequantHalf: 0,
+    tileWest: 0,
+    tileSouth: 0,
+    tileZoom: 4,
+    indexCount: 0,
+    lineIndexCount: 0,
+    outlineSegmentCount: 0,
+    lineSegmentCount: 0,
+    dequantScale: 1,
+    dequantHalf: 0,
     extruded: true,
     featureBindGroup: null,
   } as unknown as import('@xgis/map').GPUTile
@@ -123,19 +133,19 @@ function stageOneTile(extrudeHeight: number): Float32Array {
 
   ;(vtr.renderTileKeys as (...a: unknown[]) => void).call(
     vtr,
-    [KEY],                   // keys
-    passStub,                // pass
+    [KEY], // keys
+    passStub, // pass
     {} as GPURenderPipeline, // fillPipeline (never used: indexCount 0)
     {} as GPURenderPipeline, // linePipeline
-    0,                       // projCenterLon
-    0,                       // projCenterLat
-    undefined,               // worldOffsets
-    0,                       // lineLayerOffset
-    -1,                      // lineLayerOffsetGap
-    'fills',                 // phase
-    layerCache,              // layerCache
-    null,                    // fillPipelineExtruded
-    layoutSentinel,          // fillBindGroupLayout (=== baseLayout())
+    0, // projCenterLon
+    0, // projCenterLat
+    undefined, // worldOffsets
+    0, // lineLayerOffset
+    -1, // lineLayerOffsetGap
+    'fills', // phase
+    layerCache, // layerCache
+    null, // fillPipelineExtruded
+    layoutSentinel, // fillBindGroupLayout (=== baseLayout())
   )
 
   return staging()

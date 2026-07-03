@@ -15,8 +15,11 @@ import { fn, module, vec4, Return, type ModuleDecl } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
 
 const fsOverdraw = fn(
-  'fs_overdraw', {},
-  (_p) => { Return(vec4(1, 0, 0, 0)) },
+  'fs_overdraw',
+  {},
+  (_p) => {
+    Return(vec4(1, 0, 0, 0))
+  },
   { stage: 'fragment', retAttr: '@location(0)' },
 )
 

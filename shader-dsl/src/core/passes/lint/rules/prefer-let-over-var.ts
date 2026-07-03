@@ -8,7 +8,10 @@ function rootVarref(e: Expr): string | undefined {
   let cur: Expr = e
   for (;;) {
     if (cur.op === 'varref') return cur.name
-    if (cur.op === 'member' || cur.op === 'index') { cur = cur.base; continue }
+    if (cur.op === 'member' || cur.op === 'index') {
+      cur = cur.base
+      continue
+    }
     return undefined
   }
 }
@@ -66,7 +69,9 @@ export const preferLetOverVar: LintRule = {
       collectVars(f.body, vars)
       for (const v of vars) {
         if (!reassigned.has(v.name)) {
-          ctx.report(`var '${v.name}' in fn '${f.name}' is never reassigned — use let`, { fn: f.name })
+          ctx.report(`var '${v.name}' in fn '${f.name}' is never reassigned — use let`, {
+            fn: f.name,
+          })
         }
       }
     },

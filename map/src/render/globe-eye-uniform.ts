@@ -29,14 +29,22 @@ const _scratch: [number, number, number, number] = [0, 0, 0, 0]
  *  all-zero (never reached for a real orbit camera, but keeps the divide safe).
  *
  *  Returns a SHARED scratch tuple — read it out before the next call. */
-export function globeEyeUniform(eye?: readonly [number, number, number]): readonly [number, number, number, number] {
+export function globeEyeUniform(
+  eye?: readonly [number, number, number],
+): readonly [number, number, number, number] {
   if (!eye) {
-    _scratch[0] = 0; _scratch[1] = 0; _scratch[2] = 0; _scratch[3] = 0
+    _scratch[0] = 0
+    _scratch[1] = 0
+    _scratch[2] = 0
+    _scratch[3] = 0
     return _scratch
   }
   const len = Math.hypot(eye[0], eye[1], eye[2])
   if (len <= 0) {
-    _scratch[0] = 0; _scratch[1] = 0; _scratch[2] = 0; _scratch[3] = 0
+    _scratch[0] = 0
+    _scratch[1] = 0
+    _scratch[2] = 0
+    _scratch[3] = 0
     return _scratch
   }
   _scratch[0] = eye[0] / len

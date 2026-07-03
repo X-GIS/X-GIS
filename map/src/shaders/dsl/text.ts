@@ -18,22 +18,37 @@
 // at 0, fill_color at 16 (vec4 alignment pads the 8 B gap after viewport).
 
 import {
-  fn, vec4, f32, max, smoothstep, textureSample, select,
-  module, f32T, vec2fT, vec4fT, texture2dfT, samplerT,
+  fn,
+  vec4,
+  f32,
+  max,
+  smoothstep,
+  textureSample,
+  select,
+  module,
+  f32T,
+  vec2fT,
+  vec4fT,
+  texture2dfT,
+  samplerT,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
 
-const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
-  viewport: vec2fT,
-  fill_color: vec4fT,
-  halo_color: vec4fT,
-  halo_width: f32T,
-  halo_blur: f32T,
-  font_size_px: f32T,
-  _pad1: f32T,
-})
+const U = uniformStruct(
+  'Uniforms',
+  { group: 0, binding: 0, as: 'u' },
+  {
+    viewport: vec2fT,
+    fill_color: vec4fT,
+    halo_color: vec4fT,
+    halo_width: f32T,
+    halo_blur: f32T,
+    font_size_px: f32T,
+    _pad1: f32T,
+  },
+)
 const VsOut = ioStruct('VsOut', {
   clip_pos: builtin('position', vec4fT),
   uv: location(0, vec2fT),
@@ -41,49 +56,59 @@ const VsOut = ioStruct('VsOut', {
 const atlasTex = resource('atlas_tex', texture2dfT, { group: 0, binding: 1 })
 const atlasSmp = resource('atlas_smp', samplerT, { group: 0, binding: 2 })
 
-const vs = fn('vs', {
-  pos_px: location(0, vec2fT),
-  uv: location(1, vec2fT),
-}, (p) => {
-  const vp = U.field.viewport
-  const ndc_x = p.pos_px.x.div(vp.x).mul(2).sub(1)
-  const ndc_y = f32(1).sub(p.pos_px.y.div(vp.y).mul(2))
-  return VsOut.construct({
-    clip_pos: vec4(ndc_x, ndc_y, 0, 1),
-    uv: p.uv,
-  })
-}, { stage: 'vertex' })
+const vs = fn(
+  'vs',
+  {
+    pos_px: location(0, vec2fT),
+    uv: location(1, vec2fT),
+  },
+  (p) => {
+    const vp = U.field.viewport
+    const ndc_x = p.pos_px.x.div(vp.x).mul(2).sub(1)
+    const ndc_y = f32(1).sub(p.pos_px.y.div(vp.y).mul(2))
+    return VsOut.construct({
+      clip_pos: vec4(ndc_x, ndc_y, 0, 1),
+      uv: p.uv,
+    })
+  },
+  { stage: 'vertex' },
+)
 
-const fs = fn('fs', { in: VsOut }, (p) => {
-  const sdf = textureSample(atlasTex.node, atlasSmp.node, p.in.uv).r
-  const fill = U.field.fill_color
-  const halo = U.field.halo_color
-  const edge = f32(0.75)
-  const soft = max(f32(2.52).div(max(U.field.font_size_px, 1)), f32(1).div(255))
-  const fillA = smoothstep(edge.sub(soft), edge.add(soft), sdf)
-  const fillOnly = vec4(fill.rgb, fill.a.mul(fillA))
-  // Halo behind fill: smoothstep at the inward-shifted halo edge, then the
-  // (1 - fill_w) factor masks the region the fill already covers.
-  const aaHalo = U.field.halo_blur.add(soft)
-  // #601 — bound the halo edge so it cannot descend into the background SDF.
-  // halo_width is packed per-fontScale (text-renderer.ts: halo.width*3/fontSize),
-  // so at SMALL text it inflates and pushes (edge - halo_width) far below the
-  // 0.75 glyph edge; combined with the AA half-width (aaHalo, which also grows
-  // ~1/fontSize via `soft`), the lower smoothstep edge (haloEdge - aaHalo) drops
-  // to <= 0 and the halo smoothstep covers the whole glyph cell's background
-  // (sdf~0) — the user-reported opaque WHITE BOX behind small country labels at
-  // z0. Flooring haloEdge at aaHalo keeps (haloEdge - aaHalo) >= 0 (never reaches
-  // the sdf=0 background), so the halo stays a thin outline that naturally thins
-  // as text shrinks — matching MapLibre, whose halo band is likewise bounded to
-  // the SDF radius. No effect on normal/large text (there haloEdge >> aaHalo).
-  const haloEdge = max(edge.sub(U.field.halo_width), aaHalo)
-  const haloA = smoothstep(haloEdge.sub(aaHalo), haloEdge.add(aaHalo), sdf)
-  const fillW = fill.a.mul(fillA)
-  const haloW = halo.a.mul(haloA).mul(f32(1).sub(fillW))
-  const withHalo = vec4(fill.rgb.mul(fillW).add(halo.rgb.mul(haloW)), fillW.add(haloW))
-  // single-exit: no halo (halo_width<=0) → fill only; else halo behind fill.
-  return select(U.field.halo_width.le(0), fillOnly, withHalo)
-}, { stage: 'fragment', retAttr: '@location(0)' })
+const fs = fn(
+  'fs',
+  { in: VsOut },
+  (p) => {
+    const sdf = textureSample(atlasTex.node, atlasSmp.node, p.in.uv).r
+    const fill = U.field.fill_color
+    const halo = U.field.halo_color
+    const edge = f32(0.75)
+    const soft = max(f32(2.52).div(max(U.field.font_size_px, 1)), f32(1).div(255))
+    const fillA = smoothstep(edge.sub(soft), edge.add(soft), sdf)
+    const fillOnly = vec4(fill.rgb, fill.a.mul(fillA))
+    // Halo behind fill: smoothstep at the inward-shifted halo edge, then the
+    // (1 - fill_w) factor masks the region the fill already covers.
+    const aaHalo = U.field.halo_blur.add(soft)
+    // #601 — bound the halo edge so it cannot descend into the background SDF.
+    // halo_width is packed per-fontScale (text-renderer.ts: halo.width*3/fontSize),
+    // so at SMALL text it inflates and pushes (edge - halo_width) far below the
+    // 0.75 glyph edge; combined with the AA half-width (aaHalo, which also grows
+    // ~1/fontSize via `soft`), the lower smoothstep edge (haloEdge - aaHalo) drops
+    // to <= 0 and the halo smoothstep covers the whole glyph cell's background
+    // (sdf~0) — the user-reported opaque WHITE BOX behind small country labels at
+    // z0. Flooring haloEdge at aaHalo keeps (haloEdge - aaHalo) >= 0 (never reaches
+    // the sdf=0 background), so the halo stays a thin outline that naturally thins
+    // as text shrinks — matching MapLibre, whose halo band is likewise bounded to
+    // the SDF radius. No effect on normal/large text (there haloEdge >> aaHalo).
+    const haloEdge = max(edge.sub(U.field.halo_width), aaHalo)
+    const haloA = smoothstep(haloEdge.sub(aaHalo), haloEdge.add(aaHalo), sdf)
+    const fillW = fill.a.mul(fillA)
+    const haloW = halo.a.mul(haloA).mul(f32(1).sub(fillW))
+    const withHalo = vec4(fill.rgb.mul(fillW).add(halo.rgb.mul(haloW)), fillW.add(haloW))
+    // single-exit: no halo (halo_width<=0) → fill only; else halo behind fill.
+    return select(U.field.halo_width.le(0), fillOnly, withHalo)
+  },
+  { stage: 'fragment', retAttr: '@location(0)' },
+)
 
 export const TEXT_MODULE: ModuleDecl = module({
   structs: [U.struct, VsOut.decl],

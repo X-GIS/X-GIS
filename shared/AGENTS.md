@@ -4,18 +4,19 @@
 # shared
 
 ## Purpose
+
 `@xgis/shared` is the dependency-free math kernel at the bottom of the X-GIS monorepo DAG. It exports the cross-package math both `@xgis/compiler` (tiler) and `@xgis/runtime` (engine) must agree on byte-for-byte: `src/ecef.ts` (WGS84/ECEF coordinate math) and `src/quantize.ts` (shared vertex quantization). Before this package existed, the tiler hand-mirrored ECEF constants from `runtime/src/engine/projection/ecef.ts`; those copies are now real imports of a single source of truth. The package has no npm dependencies by design — no engine, DOM, or compiler graph can be introduced here.
 
 ## Key Files
 
-| File | Description |
-| --- | --- |
-| `src/ecef.ts` | All WGS84/ECEF math: ellipsoidal and sphere-variant forward/inverse (`lonLatToECEF`, `ecefToLonLat`, `mercatorToECEF`, `lonLatToECEFSphere`, `mercatorToECEFSphere`), per-tile anchor helper (`tileEcefCenterFromMerc`), DSFUN hi/lo f32 precision split (`dsfunSplitECEF`), ECEF→ENU rotation matrix (`ecefToENURotation`), and exported `WGS84` constants (`A`, `F`, `E2`, `RAD2DEG`). |
-| `src/quantize.ts` | `quantizeAxis(axis, halfRange, invSpan)` — pure-integer vertex-position quantization into a double-u16 `[hi, lo]` pair, shared bit-for-bit by the compiler tiler and the runtime synthetic-earth packer (a divergence here is a silent CPU-side vertex-drift bug). |
-| `src/index.ts` | Single barrel: `export * from './ecef'` + `export * from './quantize'`. Entry point for both consumers. |
-| `README.md` | Human-readable public surface doc: why the package exists, full export table (types, forward/inverse, sphere variants, GPU-precision helpers), build instructions, and cross-references to ADR-0001, MODULES.md, and COORDINATES.md. |
-| `package.json` | Workspace package `@xgis/shared` (`private: true`, `license: "MIT"`, not published). `"main"` and `"exports"` both point directly to `src/index.ts`; build output goes to `dist/`. |
-| `tsconfig.json` | Composite TypeScript project (`outDir: ./dist`, `rootDir: ./src`, `types: []`), extends `../tsconfig.base.json`. |
+| File              | Description                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/ecef.ts`     | All WGS84/ECEF math: ellipsoidal and sphere-variant forward/inverse (`lonLatToECEF`, `ecefToLonLat`, `mercatorToECEF`, `lonLatToECEFSphere`, `mercatorToECEFSphere`), per-tile anchor helper (`tileEcefCenterFromMerc`), DSFUN hi/lo f32 precision split (`dsfunSplitECEF`), ECEF→ENU rotation matrix (`ecefToENURotation`), and exported `WGS84` constants (`A`, `F`, `E2`, `RAD2DEG`). |
+| `src/quantize.ts` | `quantizeAxis(axis, halfRange, invSpan)` — pure-integer vertex-position quantization into a double-u16 `[hi, lo]` pair, shared bit-for-bit by the compiler tiler and the runtime synthetic-earth packer (a divergence here is a silent CPU-side vertex-drift bug).                                                                                                                       |
+| `src/index.ts`    | Single barrel: `export * from './ecef'` + `export * from './quantize'`. Entry point for both consumers.                                                                                                                                                                                                                                                                                  |
+| `README.md`       | Human-readable public surface doc: why the package exists, full export table (types, forward/inverse, sphere variants, GPU-precision helpers), build instructions, and cross-references to ADR-0001, MODULES.md, and COORDINATES.md.                                                                                                                                                     |
+| `package.json`    | Workspace package `@xgis/shared` (`private: true`, `license: "MIT"`, not published). `"main"` and `"exports"` both point directly to `src/index.ts`; build output goes to `dist/`.                                                                                                                                                                                                       |
+| `tsconfig.json`   | Composite TypeScript project (`outDir: ./dist`, `rootDir: ./src`, `types: []`), extends `../tsconfig.base.json`.                                                                                                                                                                                                                                                                         |
 
 ## For AI Agents
 

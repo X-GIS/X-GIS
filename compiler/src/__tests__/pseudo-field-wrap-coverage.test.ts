@@ -12,7 +12,9 @@ import { filterToXgis } from '../convert/expressions'
 describe('$type/$id wrapped pseudo-field', () => {
   it('wrapped $type routes to geometry-type accessor (no warning)', () => {
     const w: string[] = []
-    expect(filterToXgis(['==', ['literal', '$type'], 'Polygon'], w)).toBe('get("$geometryType") == "Polygon"')
+    expect(filterToXgis(['==', ['literal', '$type'], 'Polygon'], w)).toBe(
+      'get("$geometryType") == "Polygon"',
+    )
     expect(w).toHaveLength(0)
   })
 

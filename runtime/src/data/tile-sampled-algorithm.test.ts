@@ -22,8 +22,10 @@ import { mercator } from '@xgis/engine'
 // that sampled is strictly better than quadtree — both algorithms
 // have failure modes and this suite records them explicitly.
 
-const W_LS = 1280, H_LS = 720     // default landscape
-const W_IP = 390,  H_IP = 844     // iPhone portrait (~0.46 aspect)
+const W_LS = 1280,
+  H_LS = 720 // default landscape
+const W_IP = 390,
+  H_IP = 844 // iPhone portrait (~0.46 aspect)
 
 function cam(zoom: number, pitch: number, lon: number, lat: number, bearing = 0): Camera {
   const c = new Camera(lon, lat, zoom)
@@ -34,18 +36,20 @@ function cam(zoom: number, pitch: number, lon: number, lat: number, bearing = 0)
 
 describe('visibleTilesFrustumSampled: basic invariants', () => {
   it('returns the camera tile at low pitch + low zoom', () => {
-    const lon = 2.3522, lat = 48.8566, z = 8
+    const lon = 2.3522,
+      lat = 48.8566,
+      z = 8
     const c = cam(z, 30, lon, lat)
     const tiles = visibleTilesFrustumSampled(c, mercator, z, W_LS, H_LS)
     expect(tiles.length).toBeGreaterThan(0)
     // Compute expected camera tile index directly — avoids
     // hardcoded coord mistakes.
     const n = Math.pow(2, z)
-    const expX = Math.floor((lon + 180) / 360 * n)
+    const expX = Math.floor(((lon + 180) / 360) * n)
     const expY = Math.floor(
-      (1 - Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)) / Math.PI) / 2 * n,
+      ((1 - Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) / Math.PI) / 2) * n,
     )
-    const hasCam = tiles.some(t => t.z === z && t.x === expX && t.y === expY)
+    const hasCam = tiles.some((t) => t.z === z && t.x === expX && t.y === expY)
     expect(hasCam, `missing camera tile (${expX}, ${expY}) at z=${z}`).toBe(true)
   })
 
@@ -90,12 +94,14 @@ describe('visibleTilesFrustumSampled: vs quadtree comparison at the user-bug URL
     expect(sampled.length).toBeLessThan(quadtree.length)
     // Both should include the camera-center tile.
     const n = Math.pow(2, 10)
-    const cx = Math.floor((BUG.lon + 180) / 360 * n)
+    const cx = Math.floor(((BUG.lon + 180) / 360) * n)
     const cy = Math.floor(
-      (1 - Math.log(Math.tan(Math.PI / 4 + BUG.lat * Math.PI / 360)) / Math.PI) / 2 * n,
+      ((1 - Math.log(Math.tan(Math.PI / 4 + (BUG.lat * Math.PI) / 360)) / Math.PI) / 2) * n,
     )
-    expect(sampled.some(t => t.z === 10 && t.x === cx && t.y === cy),
-      'sampled must include camera-center tile').toBe(true)
+    expect(
+      sampled.some((t) => t.z === 10 && t.x === cx && t.y === cy),
+      'sampled must include camera-center tile',
+    ).toBe(true)
   })
 
   it.skip('iPhone viewport: sampled returns MORE than old quadtree (bug fix direction)', () => {
@@ -126,9 +132,9 @@ describe('visibleTilesFrustumSampled: vs quadtree comparison at the user-bug URL
     const c2 = cam(BUG.zoom, 84.0, BUG.lon, BUG.lat, BUG.bearing)
     const s1 = visibleTilesFrustumSampled(c1, mercator, 10, W_IP, H_IP)
     const s2 = visibleTilesFrustumSampled(c2, mercator, 10, W_IP, H_IP)
-    const keys1 = new Set(s1.map(t => `${t.x},${t.y}`))
-    const keys2 = new Set(s2.map(t => `${t.x},${t.y}`))
-    const common = [...keys1].filter(k => keys2.has(k)).length
+    const keys1 = new Set(s1.map((t) => `${t.x},${t.y}`))
+    const keys2 = new Set(s2.map((t) => `${t.x},${t.y}`))
+    const common = [...keys1].filter((k) => keys2.has(k)).length
     const overlap = common / Math.max(keys1.size, keys2.size)
     console.log(`[stability 83.9 vs 84.0 overlap] ${(overlap * 100).toFixed(1)}%`)
     // Just assert it ran; no overlap threshold. Upgrade to a real

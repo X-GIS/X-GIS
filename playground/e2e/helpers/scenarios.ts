@@ -78,7 +78,10 @@ export function loadScenario(name: string): Scenario {
   const s = data as Record<string, unknown>
   if (typeof s.name !== 'string') throw new Error(`${name}: missing name`)
   if (typeof s.description !== 'string') throw new Error(`${name}: missing description`)
-  if (typeof s.projection !== 'string' || !VALID_PROJECTIONS.has(s.projection as Scenario['projection'])) {
+  if (
+    typeof s.projection !== 'string' ||
+    !VALID_PROJECTIONS.has(s.projection as Scenario['projection'])
+  ) {
     throw new Error(`${name}: invalid projection "${String(s.projection)}"`)
   }
   validateCameraState(s.startCamera, `${name}.startCamera`)
@@ -87,7 +90,9 @@ export function loadScenario(name: string): Scenario {
     throw new Error(`${name}.durationMs: expected positive number, got ${s.durationMs}`)
   }
   if (typeof s.easing !== 'string' || !VALID_EASING.has(s.easing as Scenario['easing'])) {
-    throw new Error(`${name}.easing: expected one of ${[...VALID_EASING].join(' / ')}, got "${String(s.easing)}"`)
+    throw new Error(
+      `${name}.easing: expected one of ${[...VALID_EASING].join(' / ')}, got "${String(s.easing)}"`,
+    )
   }
   return s as unknown as Scenario
 }

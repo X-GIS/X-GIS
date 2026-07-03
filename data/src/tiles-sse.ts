@@ -51,7 +51,7 @@ import type { TileCoord } from './tile-select-types'
 
 const EARTH_CIRC_M = 40075016.686
 const PI_R = Math.PI * 6378137
-const FOV_DEG = 45  // Camera.FOV — fixed in this engine
+const FOV_DEG = 45 // Camera.FOV — fixed in this engine
 
 /** Default screen-space-error target in pixels.
  *
@@ -105,7 +105,7 @@ const MAX_EMITTED = 600
 function maxTilesCap(): number | null {
   if (typeof window !== 'undefined') {
     const rt = (window as { __xgisMaxTiles?: number | null }).__xgisMaxTiles
-    if (rt !== undefined) return (typeof rt === 'number' && rt >= 1) ? Math.floor(rt) : null
+    if (rt !== undefined) return typeof rt === 'number' && rt >= 1 ? Math.floor(rt) : null
   }
   return urlMaxTiles()
 }
@@ -120,7 +120,9 @@ function urlMaxTiles(): number | null {
         const n = Number(v)
         if (Number.isFinite(n) && n >= 1) _maxTilesFlag = Math.floor(n)
       }
-    } catch { /* non-browser / bad URL → no cap */ }
+    } catch {
+      /* non-browser / bad URL → no cap */
+    }
   }
   return _maxTilesFlag
 }
@@ -184,7 +186,7 @@ export function visibleTilesSSE(
   // 170 tiles, target=12 → ~110 tiles. ~35 % drop with no visible
   // detail loss in the foreground.
   const baseTarget = opts.targetSSEPx ?? DEFAULT_TARGET_SSE_PX
-  const pitchDeg = (camera.pitch ?? 0)
+  const pitchDeg = camera.pitch ?? 0
   // High-pitch horizon protection. base=1 gives Mapbox-style native
   // zoom at low pitch but the foreshortened ground at pitch>60° emits
   // too many horizon tiles (table above: target=1 pitch=80° → 154 ms).
@@ -218,9 +220,9 @@ export function visibleTilesSSE(
   // viewport (matches camera.ts:120 — must stay DPR-invariant so the
   // selector and renderer compute the same world view).
   const cssHeight = canvasHeight / dpr
-  const halfFovRad = (FOV_DEG * Math.PI / 180) / 2
+  const halfFovRad = (FOV_DEG * Math.PI) / 180 / 2
   const tanHalfFov = Math.tan(halfFovRad)
-  const metersPerPixelGround = (EARTH_CIRC_M / TILE_PX) / Math.pow(2, camera.zoom)
+  const metersPerPixelGround = EARTH_CIRC_M / TILE_PX / Math.pow(2, camera.zoom)
   const viewHeightMetersGround = cssHeight * metersPerPixelGround
   const altitude = viewHeightMetersGround / 2 / tanHalfFov
 
@@ -278,8 +280,7 @@ export function visibleTilesSSE(
   const camLon = (camMx / earthR) * RAD2DEG
   // Match the GPU's projection centre (renderFrame clamps centerLat to
   // ±85 before feeding it as proj_params.z).
-  const camLat = Math.max(-85, Math.min(85,
-    mercatorYToLat(camMy)))
+  const camLat = Math.max(-85, Math.min(85, mercatorYToLat(camMy)))
   const centerProj = projType === 0 ? [0, 0] : projection.forward(camLon, camLat)
   // Frustum cull via the camera's MVP — same matrix the renderer uses
   // to draw, so cull and rasterisation agree on screen space at any DPR.
@@ -287,7 +288,8 @@ export function visibleTilesSSE(
   const toScreen = (mx: number, my: number): [number, number] | null => {
     let rx: number, ry: number
     if (projType === 0) {
-      rx = mx - camMx; ry = my - camMy
+      rx = mx - camMx
+      ry = my - camMy
     } else {
       const lonAbs = (mx / earthR) * RAD2DEG
       const lat = mercatorYToLat(my)
@@ -301,7 +303,7 @@ export function visibleTilesSSE(
       ry = p[1] - centerProj[1]!
     }
     const cw = mvp[3]! * rx + mvp[7]! * ry + mvp[15]!
-    if (cw <= 1e-6) return null  // behind camera
+    if (cw <= 1e-6) return null // behind camera
     const cx = mvp[0]! * rx + mvp[4]! * ry + mvp[12]!
     const cy = mvp[1]! * rx + mvp[5]! * ry + mvp[13]!
     return [(cx / cw + 1) * 0.5 * canvasWidth, (1 - cy / cw) * 0.5 * canvasHeight]
@@ -346,8 +348,14 @@ export function visibleTilesSSE(
       toScreen(mxMax, myMax),
     ]
     let allBehind = true
-    let allLeft = true, allRight = true, allTop = true, allBottom = true
-    let minSx = Infinity, maxSx = -Infinity, minSy = Infinity, maxSy = -Infinity
+    let allLeft = true,
+      allRight = true,
+      allTop = true,
+      allBottom = true
+    let minSx = Infinity,
+      maxSx = -Infinity,
+      minSy = Infinity,
+      maxSy = -Infinity
     let cornersOnScreen = 0
     for (const c of corners) {
       if (!c) continue
@@ -422,8 +430,8 @@ export function visibleTilesSSE(
     // covers the camera's footprint. Cesium uses distance-to-bounding-
     // volume (sphere or OBB); for our flat-Mercator quadtree the
     // bounding rect's closest point is `clamp(cam, tileBounds)`.
-    const closestX = camMx < mxMin ? mxMin : (camMx > mxMax ? mxMax : camMx)
-    const closestY = camMy < myMin ? myMin : (camMy > myMax ? myMax : camMy)
+    const closestX = camMx < mxMin ? mxMin : camMx > mxMax ? mxMax : camMx
+    const closestY = camMy < myMin ? myMin : camMy > myMax ? myMax : camMy
     const dx = closestX - camMx
     const dy = closestY - camMy
     const dz = altitude
@@ -457,7 +465,8 @@ export function visibleTilesSSE(
         const childTileSize = tileSize / 2
         const ccx = -PI_R + (cx + 0.5) * childTileSize + xOffset
         const ccy = PI_R - (cy + 0.5) * childTileSize
-        const cdx = ccx - camMx, cdy = ccy - camMy
+        const cdx = ccx - camMx,
+          cdy = ccy - camMy
         children.push({ cx, cy, idx: cdx * cdx + cdy * cdy })
       }
       children.sort((a, b) => a.idx - b.idx)
@@ -473,14 +482,20 @@ export function visibleTilesSSE(
       // when the primary slice hasn't uploaded yet. De-duped via
       // `injectedParents` so the SAME coord across siblings doesn't
       // emit twice.
-      let pz = z, px = x, py = y
+      let pz = z,
+        px = x,
+        py = y
       for (let depth = 0; depth < FALLBACK_PARENT_DEPTH && pz > 0; depth++) {
-        pz -= 1; px >>>= 1; py >>>= 1
+        pz -= 1
+        px >>>= 1
+        py >>>= 1
         const k = parentKey(pz, px, py, worldCopy)
         if (injectedParents.has(k)) break
         injectedParents.add(k)
         result.push({
-          z: pz, x: px, y: py,
+          z: pz,
+          x: px,
+          y: py,
           ox: px + worldCopy * (1 << pz),
           fallbackOnly: true,
         })

@@ -34,8 +34,10 @@ export function convertHeatmapLayer(layer: MapboxLayer, warnings: string[]): str
   const lines: string[] = [`layer ${sanitizeId(layer.id)} {`]
   if (layer.source) lines.push(`  source: ${sanitizeId(layer.source)}`)
   if (layer['source-layer']) lines.push(`  sourceLayer: ${JSON.stringify(layer['source-layer'])}`)
-  if (typeof layer.minzoom === 'number' && Number.isFinite(layer.minzoom)) lines.push(`  minzoom: ${layer.minzoom}`)
-  if (typeof layer.maxzoom === 'number' && Number.isFinite(layer.maxzoom)) lines.push(`  maxzoom: ${layer.maxzoom}`)
+  if (typeof layer.minzoom === 'number' && Number.isFinite(layer.minzoom))
+    lines.push(`  minzoom: ${layer.minzoom}`)
+  if (typeof layer.maxzoom === 'number' && Number.isFinite(layer.maxzoom))
+    lines.push(`  maxzoom: ${layer.maxzoom}`)
   // Authored-but-unconvertible filter fails CLOSED (filter: false →
   // match nothing), not open — see filterLineOrFailClosed.
   const heatmapFilterLine = filterLineOrFailClosed(layer.filter, warnings)
@@ -44,7 +46,9 @@ export function convertHeatmapLayer(layer: MapboxLayer, warnings: string[]): str
   if (visibility === 'none') {
     lines.push(`  visible: false`)
   } else if (typeof visibility === 'string' && visibility !== 'visible') {
-    warnings.push(`Heatmap layer "${layer.id}" — visibility "${visibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`)
+    warnings.push(
+      `Heatmap layer "${layer.id}" — visibility "${visibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`,
+    )
   }
 
   // The `heatmap` marker utility — routes this layer to the runtime
@@ -56,10 +60,16 @@ export function convertHeatmapLayer(layer: MapboxLayer, warnings: string[]): str
   if (typeof radius === 'number' && Number.isFinite(radius)) {
     utils.push(`heatmap-radius-${Math.max(1, radius)}`)
   } else if (radius !== undefined && radius !== null) {
-    const interp = interpolateZoomCall(paint['heatmap-radius'], warnings,
-      (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(1, val)) : null)
+    const interp = interpolateZoomCall(paint['heatmap-radius'], warnings, (val) =>
+      typeof val === 'number' && Number.isFinite(val) ? String(Math.max(1, val)) : null,
+    )
     if (interp !== null) utils.push(`heatmap-radius-[${interp}]`)
-    else { warnings.push(`Heatmap layer "${layer.id}" — heatmap-radius: non-constant form not supported — default 30 used.`); utils.push('heatmap-radius-30') }
+    else {
+      warnings.push(
+        `Heatmap layer "${layer.id}" — heatmap-radius: non-constant form not supported — default 30 used.`,
+      )
+      utils.push('heatmap-radius-30')
+    }
   } else {
     utils.push('heatmap-radius-30')
   }
@@ -82,10 +92,16 @@ export function convertHeatmapLayer(layer: MapboxLayer, warnings: string[]): str
   if (typeof intensity === 'number' && Number.isFinite(intensity)) {
     utils.push(`heatmap-intensity-${Math.max(0, intensity)}`)
   } else if (intensity !== undefined && intensity !== null) {
-    const interp = interpolateZoomCall(paint['heatmap-intensity'], warnings,
-      (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
+    const interp = interpolateZoomCall(paint['heatmap-intensity'], warnings, (val) =>
+      typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null,
+    )
     if (interp !== null) utils.push(`heatmap-intensity-[${interp}]`)
-    else { warnings.push(`Heatmap layer "${layer.id}" — heatmap-intensity: non-constant form not supported — default 1 used.`); utils.push('heatmap-intensity-1') }
+    else {
+      warnings.push(
+        `Heatmap layer "${layer.id}" — heatmap-intensity: non-constant form not supported — default 1 used.`,
+      )
+      utils.push('heatmap-intensity-1')
+    }
   } else {
     utils.push('heatmap-intensity-1')
   }
@@ -95,10 +111,18 @@ export function convertHeatmapLayer(layer: MapboxLayer, warnings: string[]): str
   if (typeof opacity === 'number' && Number.isFinite(opacity)) {
     utils.push(`heatmap-opacity-${Math.max(0, Math.min(1, opacity))}`)
   } else if (opacity !== undefined && opacity !== null) {
-    const interp = interpolateZoomCall(paint['heatmap-opacity'], warnings,
-      (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, Math.min(1, val))) : null)
+    const interp = interpolateZoomCall(paint['heatmap-opacity'], warnings, (val) =>
+      typeof val === 'number' && Number.isFinite(val)
+        ? String(Math.max(0, Math.min(1, val)))
+        : null,
+    )
     if (interp !== null) utils.push(`heatmap-opacity-[${interp}]`)
-    else { warnings.push(`Heatmap layer "${layer.id}" — heatmap-opacity: non-constant form not supported — default 1 used.`); utils.push('heatmap-opacity-1') }
+    else {
+      warnings.push(
+        `Heatmap layer "${layer.id}" — heatmap-opacity: non-constant form not supported — default 1 used.`,
+      )
+      utils.push('heatmap-opacity-1')
+    }
   } else {
     utils.push('heatmap-opacity-1')
   }
@@ -110,7 +134,9 @@ export function convertHeatmapLayer(layer: MapboxLayer, warnings: string[]): str
   // the property so the coverage drift detector tracks it.
   const color = paint['heatmap-color']
   if (!isOmittedValue(color)) {
-    warnings.push(`Heatmap layer "${layer.id}" — custom heatmap-color ramp not yet honoured; the runtime default density→colour ramp is applied.`)
+    warnings.push(
+      `Heatmap layer "${layer.id}" — custom heatmap-color ramp not yet honoured; the runtime default density→colour ramp is applied.`,
+    )
   }
 
   lines.push('  | ' + utils.join(' '))

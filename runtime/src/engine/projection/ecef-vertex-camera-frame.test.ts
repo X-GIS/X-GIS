@@ -36,8 +36,8 @@ import { lonLatToECEF, lonLatToECEFSphere, WGS84 } from '@xgis/engine'
 /** Distance between the vertex frame (tiler ellipsoid = lonLatToECEF) and the
  *  camera frame (sphere = lonLatToECEFSphere) for the same lon/lat. */
 function frameDelta(lon: number, lat: number): number {
-  const e = lonLatToECEF(lon, lat, 0)        // vertex frame (tiler ellipsoid)
-  const s = lonLatToECEFSphere(lon, lat, 0)  // camera frame (sphere)
+  const e = lonLatToECEF(lon, lat, 0) // vertex frame (tiler ellipsoid)
+  const s = lonLatToECEFSphere(lon, lat, 0) // camera frame (sphere)
   return Math.hypot(e[0] - s[0], e[1] - s[1], e[2] - s[2])
 }
 

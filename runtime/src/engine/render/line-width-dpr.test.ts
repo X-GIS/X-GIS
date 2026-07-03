@@ -20,8 +20,19 @@ describe('line stroke width — dpr', () => {
   it('packs dpr into uniform slot 46', () => {
     // Slot 46 per the LineLayerUniform layout doc (line-pattern.ts).
     const buf = packLineLayerUniform(
-      [1, 1, 1, 1], 4, 1, 1000,
-      undefined, undefined, undefined, null, [], 0, 1080, 0, 2,
+      [1, 1, 1, 1],
+      4,
+      1,
+      1000,
+      undefined,
+      undefined,
+      undefined,
+      null,
+      [],
+      0,
+      1080,
+      0,
+      2,
     )
     expect(buf[46]).toBe(2)
   })
@@ -37,7 +48,9 @@ describe('line stroke width — dpr', () => {
     // target expression — the hand `let target_ndc` binding was dropped (inlined
     // or cse-temp'd), but the * layer.dpr and / layer.viewport_height nodes
     // survive in the same chained multiply/divide expression.
-    expect(wgsl).toMatch(/layer\.dpr[\s\S]*?layer\.viewport_height|layer\.viewport_height[\s\S]*?layer\.dpr/)
+    expect(wgsl).toMatch(
+      /layer\.dpr[\s\S]*?layer\.viewport_height|layer\.viewport_height[\s\S]*?layer\.dpr/,
+    )
   })
 
   // The screen-width clamp's target_ndc is miscalibrated against the

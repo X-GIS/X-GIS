@@ -44,13 +44,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<GPUContext> {
   const canvas = { width: 1024, height: 768 } as unknown as HTMLCanvasElement
@@ -62,7 +67,11 @@ async function makeCtx(): Promise<GPUContext> {
 // `atlas.size()` (must be non-zero so the build proceeds); the constructor
 // keeps a reference but its other members (ensure/sampler) are only touched
 // by draw(), which this test never calls.
-function makeStubAtlas(): { size: () => { width: number; height: number }; ensure: () => null; sampler: unknown } {
+function makeStubAtlas(): {
+  size: () => { width: number; height: number }
+  ensure: () => null
+  sampler: unknown
+} {
   return {
     size: () => ({ width: 256, height: 256 }),
     ensure: () => null,
@@ -71,7 +80,13 @@ function makeStubAtlas(): { size: () => { width: number; height: number }; ensur
 }
 
 const SPRITE: SpriteInfo = {
-  name: 'r', x: 0, y: 0, width: 20, height: 10, pixelRatio: 1, sdf: false,
+  name: 'r',
+  x: 0,
+  y: 0,
+  width: 20,
+  height: 10,
+  pixelRatio: 1,
+  sdf: false,
 }
 const ANCHOR_X = 100
 const ANCHOR_Y = 200
@@ -99,22 +114,37 @@ function capturedFirstCorner(ctx: GPUContext, rotateRad: number | undefined): [n
 
   let corner: [number, number] = [Number.NaN, Number.NaN]
   const device = ctx.device as unknown as {
-    queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer, dataOff?: number, sz?: number) => void }
+    queue: {
+      writeBuffer: (
+        buf: unknown,
+        off: number,
+        data: ArrayBufferView | ArrayBuffer,
+        dataOff?: number,
+        sz?: number,
+      ) => void
+    }
   }
   device.queue.writeBuffer = (
-    buf: unknown, _off: number,
-    data: ArrayBufferView | ArrayBuffer, dataOff?: number, _sz?: number,
+    buf: unknown,
+    _off: number,
+    data: ArrayBufferView | ArrayBuffer,
+    dataOff?: number,
+    _sz?: number,
   ): void => {
     if ((buf as { size?: number })?.size === UNIFORM_BYTES) return // not the vertex buffer
     const ab = data instanceof ArrayBuffer ? data : (data as ArrayBufferView).buffer
-    const baseOff = data instanceof ArrayBuffer ? (dataOff ?? 0) : (data as ArrayBufferView).byteOffset
+    const baseOff =
+      data instanceof ArrayBuffer ? (dataOff ?? 0) : (data as ArrayBufferView).byteOffset
     const f32 = new Float32Array(ab, baseOff, 2) // first vertex pos_px (slots 0,1)
     corner = [f32[0]!, f32[1]!]
   }
 
   const draw: IconDraw = {
-    anchorX: ANCHOR_X, anchorY: ANCHOR_Y,
-    sprite: SPRITE, sizeScale: 1, anchor: 'center',
+    anchorX: ANCHOR_X,
+    anchorY: ANCHOR_Y,
+    sprite: SPRITE,
+    sizeScale: 1,
+    anchor: 'center',
     ...(rotateRad === undefined ? {} : { rotateRad }),
   }
   renderer.setDraws([draw])

@@ -11,10 +11,8 @@ import type { ClassifiedShow, OpaqueGroup } from '@xgis/map'
 import type { FrameContext } from '@xgis/engine'
 
 // Minimal stand-ins — buildSceneView only reads array length / identity.
-const cs = (n: number): ClassifiedShow[] =>
-  Array.from({ length: n }, () => ({} as ClassifiedShow))
-const groups = (n: number): OpaqueGroup[] =>
-  Array.from({ length: n }, () => ({} as OpaqueGroup))
+const cs = (n: number): ClassifiedShow[] => Array.from({ length: n }, () => ({}) as ClassifiedShow)
+const groups = (n: number): OpaqueGroup[] => Array.from({ length: n }, () => ({}) as OpaqueGroup)
 
 interface HostStub {
   opaque: ClassifiedShow[]
@@ -45,7 +43,13 @@ function makeCtx(oitTexturesPresent: boolean): FrameContext {
 describe('buildSceneView', () => {
   it('groups opaque shows by source (length passthrough)', () => {
     const scene = buildSceneView(
-      makeHost({ opaque: cs(3), translucent: [], oit: [], lineRenderer: {}, pointHasLayers: false }),
+      makeHost({
+        opaque: cs(3),
+        translucent: [],
+        oit: [],
+        lineRenderer: {},
+        pointHasLayers: false,
+      }),
       makeCtx(false),
     )
     expect(scene.opaque).toHaveLength(3)
@@ -54,13 +58,25 @@ describe('buildSceneView', () => {
 
   it('hasTranslucent requires both translucent shows AND a lineRenderer', () => {
     const withLine = buildSceneView(
-      makeHost({ opaque: [], translucent: cs(1), oit: [], lineRenderer: {}, pointHasLayers: false }),
+      makeHost({
+        opaque: [],
+        translucent: cs(1),
+        oit: [],
+        lineRenderer: {},
+        pointHasLayers: false,
+      }),
       makeCtx(false),
     )
     expect(withLine.hasTranslucent).toBe(true)
 
     const noLine = buildSceneView(
-      makeHost({ opaque: [], translucent: cs(1), oit: [], lineRenderer: null, pointHasLayers: false }),
+      makeHost({
+        opaque: [],
+        translucent: cs(1),
+        oit: [],
+        lineRenderer: null,
+        pointHasLayers: false,
+      }),
       makeCtx(false),
     )
     expect(noLine.hasTranslucent).toBe(false)
@@ -72,7 +88,13 @@ describe('buildSceneView', () => {
     // the lazy path). It is now purely `oit.length > 0`, independent of
     // whether the RT handles are populated yet.
     const withShows = buildSceneView(
-      makeHost({ opaque: [], translucent: [], oit: cs(2), lineRenderer: {}, pointHasLayers: false }),
+      makeHost({
+        opaque: [],
+        translucent: [],
+        oit: cs(2),
+        lineRenderer: {},
+        pointHasLayers: false,
+      }),
       makeCtx(false),
     )
     expect(withShows.hasOit).toBe(true)
@@ -94,19 +116,37 @@ describe('buildSceneView', () => {
 
   it('resolveOwner priority: points > composite > opaque', () => {
     const points = buildSceneView(
-      makeHost({ opaque: cs(1), translucent: cs(1), oit: [], lineRenderer: {}, pointHasLayers: true }),
+      makeHost({
+        opaque: cs(1),
+        translucent: cs(1),
+        oit: [],
+        lineRenderer: {},
+        pointHasLayers: true,
+      }),
       makeCtx(false),
     )
     expect(points.resolveOwner).toBe('points')
 
     const composite = buildSceneView(
-      makeHost({ opaque: cs(1), translucent: cs(1), oit: [], lineRenderer: {}, pointHasLayers: false }),
+      makeHost({
+        opaque: cs(1),
+        translucent: cs(1),
+        oit: [],
+        lineRenderer: {},
+        pointHasLayers: false,
+      }),
       makeCtx(false),
     )
     expect(composite.resolveOwner).toBe('composite')
 
     const opaque = buildSceneView(
-      makeHost({ opaque: cs(1), translucent: [], oit: [], lineRenderer: {}, pointHasLayers: false }),
+      makeHost({
+        opaque: cs(1),
+        translucent: [],
+        oit: [],
+        lineRenderer: {},
+        pointHasLayers: false,
+      }),
       makeCtx(false),
     )
     expect(opaque.resolveOwner).toBe('opaque')

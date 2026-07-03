@@ -9,21 +9,37 @@ const ids = (m: ReturnType<typeof module>) => lint(m, [preferLetOverVar]).map((d
 describe('prefer-let-over-var', () => {
   it('flags a var that is declared, never reassigned, and just returned', () => {
     const m = module({
-      funcs: [fn('only_var', { x: f32T }, f32T, ({ x }, b) => {
-        const v = b.var('v', f32T, f32(0))
-        b.ret(v.add(x))
-      }, { allowEarlyReturn: true })],
+      funcs: [
+        fn(
+          'only_var',
+          { x: f32T },
+          f32T,
+          ({ x }, b) => {
+            const v = b.var('v', f32T, f32(0))
+            b.ret(v.add(x))
+          },
+          { allowEarlyReturn: true },
+        ),
+      ],
     })
     expect(ids(m)).toContain('prefer-let-over-var')
   })
 
   it('does not flag a var that IS reassigned', () => {
     const m = module({
-      funcs: [fn('reassigned', { x: f32T }, f32T, ({ x }, b) => {
-        const v = b.var('v', f32T, f32(0))
-        b.assign(v, x)
-        b.ret(v)
-      }, { allowEarlyReturn: true })],
+      funcs: [
+        fn(
+          'reassigned',
+          { x: f32T },
+          f32T,
+          ({ x }, b) => {
+            const v = b.var('v', f32T, f32(0))
+            b.assign(v, x)
+            b.ret(v)
+          },
+          { allowEarlyReturn: true },
+        ),
+      ],
     })
     expect(ids(m)).not.toContain('prefer-let-over-var')
   })
@@ -35,10 +51,18 @@ describe('prefer-let-over-var', () => {
 
   it('auto-fix rewrites a never-reassigned var to a let', () => {
     const m = module({
-      funcs: [fn('only_var', { x: f32T }, f32T, ({ x }, b) => {
-        const v = b.var('v', f32T, f32(0))
-        b.ret(v.add(x))
-      }, { allowEarlyReturn: true })],
+      funcs: [
+        fn(
+          'only_var',
+          { x: f32T },
+          f32T,
+          ({ x }, b) => {
+            const v = b.var('v', f32T, f32(0))
+            b.ret(v.add(x))
+          },
+          { allowEarlyReturn: true },
+        ),
+      ],
     })
     expect(ids(m)).toContain('prefer-let-over-var') // before
     const { module: fixed, applied } = applyFixes(m, [preferLetOverVar])

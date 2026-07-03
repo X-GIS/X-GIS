@@ -17,7 +17,8 @@ test('fixture_picking — 3 distinct featureIds, same layerId', async ({ page })
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 15_000 },
+    null,
+    { timeout: 15_000 },
   )
   await page.waitForTimeout(1500)
 
@@ -30,7 +31,8 @@ test('fixture_picking — 3 distinct featureIds, same layerId', async ({ page })
   // 9×3 sweep across the canvas (more cells horizontally to span the
   // three quadrants). Returns every non-null hit.
   const hits = await page.evaluate(async (lid) => {
-    const m = (window as { __xgisMap?: { pickAt(x: number, y: number): Promise<unknown> } }).__xgisMap!
+    const m = (window as { __xgisMap?: { pickAt(x: number, y: number): Promise<unknown> } })
+      .__xgisMap!
     const c = document.querySelector('#map') as HTMLCanvasElement
     const r = c.getBoundingClientRect()
     const out: Array<{ x: number; y: number; featureId: number; layerId: number }> = []
@@ -38,9 +40,14 @@ test('fixture_picking — 3 distinct featureIds, same layerId', async ({ page })
       for (let ix = 1; ix <= 9; ix++) {
         const x = r.left + (r.width * ix) / 10
         const y = r.top + (r.height * iy) / 4
-        const result = await m.pickAt(x, y) as { featureId: number; layerId: number } | null
+        const result = (await m.pickAt(x, y)) as { featureId: number; layerId: number } | null
         if (result && result.layerId === lid) {
-          out.push({ x: x - r.left, y: y - r.top, featureId: result.featureId, layerId: result.layerId })
+          out.push({
+            x: x - r.left,
+            y: y - r.top,
+            featureId: result.featureId,
+            layerId: result.layerId,
+          })
         }
       }
     }
@@ -52,12 +59,12 @@ test('fixture_picking — 3 distinct featureIds, same layerId', async ({ page })
   // At least 3 hits (one per quadrant; usually many more).
   expect(hits.length).toBeGreaterThanOrEqual(3)
   // Every hit shares the layerId.
-  expect(hits.every(h => h.layerId === quadrantsId)).toBe(true)
+  expect(hits.every((h) => h.layerId === quadrantsId)).toBe(true)
   // Three DISTINCT featureIds — one per quadrant. (The leftmost feature
   // in the geojson has index 0, which the sentinel filter drops, so we
   // see featureIds 1 and 2 plus possibly 0 disguised as null elsewhere
   // — so the contract is "at least 2 distinct ids" to be robust against
   // index-0 sentinel collision in the test scene.)
-  const featureIds = new Set(hits.map(h => h.featureId))
+  const featureIds = new Set(hits.map((h) => h.featureId))
   expect(featureIds.size).toBeGreaterThanOrEqual(2)
 })

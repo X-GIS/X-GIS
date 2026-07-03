@@ -14,10 +14,13 @@ test.describe('snapshot copy button', () => {
       permissions: ['clipboard-read', 'clipboard-write'],
     })
     const page = await ctx.newPage()
-    await page.goto('/demo.html?id=osm_style#16/35.6585/139.7454/0/45', { waitUntil: 'domcontentloaded' })
+    await page.goto('/demo.html?id=osm_style#16/35.6585/139.7454/0/45', {
+      waitUntil: 'domcontentloaded',
+    })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 30_000 },
+      null,
+      { timeout: 30_000 },
     )
     await page.waitForTimeout(5_000)
 
@@ -27,7 +30,9 @@ test.describe('snapshot copy button', () => {
 
     // Wait for the button label to flip to "Copied X KB" — confirms
     // the click handler ran through to the success branch.
-    await expect(btn.locator('#snapshot-btn-label')).toContainText(/Copied \d+ KB/, { timeout: 10_000 })
+    await expect(btn.locator('#snapshot-btn-label')).toContainText(/Copied \d+ KB/, {
+      timeout: 10_000,
+    })
     await expect(btn).toHaveAttribute('data-state', 'ok')
 
     // Read clipboard, parse, sanity-check the snapshot fields.
@@ -49,7 +54,10 @@ test.describe('snapshot copy button', () => {
     expect(parsed.viewport.width).toBeGreaterThan(0)
     expect(parsed.pageViewport.width).toBe(1280)
     expect(Object.keys(parsed.sources).length).toBeGreaterThan(0)
-    expect(parsed.renderOrder.length, 'snapshot must include render-order trace from the click-armed frame').toBeGreaterThan(0)
+    expect(
+      parsed.renderOrder.length,
+      'snapshot must include render-order trace from the click-armed frame',
+    ).toBeGreaterThan(0)
     expect(parsed.pixelHash.length).toBeGreaterThan(0)
 
     await ctx.close()

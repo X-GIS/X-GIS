@@ -57,8 +57,8 @@ describe('ecefToLonLat — round-trip', () => {
     [-90, 0, 0],
     [180, 0, 0],
     [0, 89.999, 0],
-    [126.97797, 37.56583, 0],   // Seoul
-    [-122.4194, 37.7749, 100],  // San Francisco with altitude
+    [126.97797, 37.56583, 0], // Seoul
+    [-122.4194, 37.7749, 100], // San Francisco with altitude
     [0, -89.999, 0],
     [45, 45, 1000],
   ]
@@ -72,13 +72,13 @@ describe('ecefToLonLat — round-trip', () => {
       // but f64 round-trip noise prevents asserting at the nanometre level.
       expect(lon2).toBeCloseTo(lon === 180 ? 180 : lon, 9)
       expect(lat2).toBeCloseTo(lat, 9)
-      expect(h2).toBeCloseTo(h, 4)  // height in metres, 0.1 mm precision
+      expect(h2).toBeCloseTo(h, 4) // height in metres, 0.1 mm precision
     })
   }
 })
 
 describe('ecefToLonLat — polar singularity (exact pole, p≈0)', () => {
-  const B = WGS84.A * (1 - WGS84.F)  // semi-minor axis = a(1-f)
+  const B = WGS84.A * (1 - WGS84.F) // semi-minor axis = a(1-f)
 
   it('exact north pole (0, 0, +b) → finite lat=90, height≈0 (was NaN)', () => {
     const [lon, lat, h] = ecefToLonLat(0, 0, B)
@@ -86,7 +86,7 @@ describe('ecefToLonLat — polar singularity (exact pole, p≈0)', () => {
     expect(Number.isFinite(h)).toBe(true)
     expect(lat).toBeCloseTo(90, 9)
     expect(lon).toBe(0)
-    expect(h).toBeCloseTo(0, 4)  // on the polar surface → height ~0
+    expect(h).toBeCloseTo(0, 4) // on the polar surface → height ~0
   })
 
   it('exact south pole (0, 0, -b) → finite lat=-90, height≈0 (was NaN)', () => {
@@ -130,12 +130,10 @@ describe('mercatorToECEF — composes Mercator inverse + lonLatToECEF', () => {
     const seoulLat = 37.56583
     // Forward Mercator to get the Mercator coords (mirrors projection.ts).
     const mx = seoulLon * (Math.PI / 180) * WGS84.A
-    const my = Math.log(
-      Math.tan(Math.PI / 4 + (seoulLat * Math.PI) / 360),
-    ) * WGS84.A
+    const my = Math.log(Math.tan(Math.PI / 4 + (seoulLat * Math.PI) / 360)) * WGS84.A
     const fromMerc = mercatorToECEF(mx, my)
     const direct = lonLatToECEF(seoulLon, seoulLat)
-    expect(fromMerc[0]).toBeCloseTo(direct[0], 3)  // 1 mm
+    expect(fromMerc[0]).toBeCloseTo(direct[0], 3) // 1 mm
     expect(fromMerc[1]).toBeCloseTo(direct[1], 3)
     expect(fromMerc[2]).toBeCloseTo(direct[2], 3)
   })
@@ -154,7 +152,7 @@ describe('dsfunSplitECEF — sub-mm precision via hi/lo split (AC2.5a)', () => {
     const rtc = [hi[0] + lo[0], hi[1] + lo[1], hi[2] + lo[2]]
     const ref = [offset[0] - center[0], offset[1] - center[1], offset[2] - center[2]]
     const errMetres = Math.hypot(rtc[0] - ref[0], rtc[1] - ref[1], rtc[2] - ref[2])
-    expect(errMetres).toBeLessThan(1e-3)  // 1 mm
+    expect(errMetres).toBeLessThan(1e-3) // 1 mm
   })
 
   it('hi component is exactly f32-representable (Math.fround round-trip)', () => {
@@ -178,8 +176,7 @@ describe('dsfunSplitECEF — sub-mm precision via hi/lo split (AC2.5a)', () => {
 
 describe('ecefToENURotation — local tangent-plane basis', () => {
   // Helper: read column-major Float32Array(16) as a 4x4 in [row][col] order.
-  const at = (m: Float32Array, row: number, col: number): number =>
-    m[col * 4 + row]
+  const at = (m: Float32Array, row: number, col: number): number => m[col * 4 + row]
 
   it('lon=0, lat=0 (equator + prime meridian) — known reference', () => {
     const r = ecefToENURotation(0, 0)
@@ -200,7 +197,7 @@ describe('ecefToENURotation — local tangent-plane basis', () => {
   })
 
   it('rotation matrix is orthonormal for arbitrary anchor', () => {
-    const r = ecefToENURotation(126.97797, 37.56583)  // Seoul
+    const r = ecefToENURotation(126.97797, 37.56583) // Seoul
     // The matrix is stored as Float32Array — f32 precision is ~7 sig figs,
     // so orthonormality holds within f32 rounding (not f64). 6 dp tolerance
     // keeps the test honest about the storage class.
@@ -231,7 +228,7 @@ describe('ecefToENURotation — local tangent-plane basis', () => {
     // WGS84 ellipsoid: the surface normal is NOT exactly parallel to the
     // position vector except at equator/poles, but the angle is small at
     // mid-latitudes (max ~0.2° in either direction).
-    expect(cosAngle).toBeGreaterThan(0.99995)  // within ~0.6° of parallel
+    expect(cosAngle).toBeGreaterThan(0.99995) // within ~0.6° of parallel
   })
 
   it('homogeneous identity row preserved (4x4 form)', () => {

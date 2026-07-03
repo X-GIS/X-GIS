@@ -124,8 +124,11 @@ export function predictTilePipeline(
   const requestedZ = Math.max(0, Math.min(maxRequestable, Math.round(camera.zoom)))
 
   const visibleTiles = visibleTilesFrustum(
-    cam, mercatorProj,
-    requestedZ, canvasW, canvasH,
+    cam,
+    mercatorProj,
+    requestedZ,
+    canvasW,
+    canvasH,
     0, // no extra margin — the raw frustum
   )
 
@@ -154,7 +157,7 @@ export function predictTilePipeline(
 
   return {
     requestedZ,
-    visibleTiles: visibleTiles.map(t => ({ z: t.z, x: t.x, y: t.y })),
+    visibleTiles: visibleTiles.map((t) => ({ z: t.z, x: t.x, y: t.y })),
     overzoom,
     overzoomLevels,
     parentTiles: [...parentSet.values()],

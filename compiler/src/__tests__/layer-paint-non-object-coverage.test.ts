@@ -12,9 +12,7 @@ describe('layer.paint non-object coercion', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
-      layers: [
-        { id: 'l', type: 'fill', source: 's', paint: 'oops' as unknown },
-      ],
+      layers: [{ id: 'l', type: 'fill', source: 's', paint: 'oops' as unknown }],
     }
     expect(() => convertMapboxStyle(style as never)).not.toThrow()
     const code = convertMapboxStyle(style as never)
@@ -27,9 +25,7 @@ describe('layer.paint non-object coercion', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
-      layers: [
-        { id: 'l', type: 'fill', source: 's', paint: ['oops'] as unknown },
-      ],
+      layers: [{ id: 'l', type: 'fill', source: 's', paint: ['oops'] as unknown }],
     }
     expect(() => convertMapboxStyle(style as never)).not.toThrow()
   })
@@ -38,9 +34,7 @@ describe('layer.paint non-object coercion', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
-      layers: [
-        { id: 'l', type: 'fill', source: 's', paint: null as unknown },
-      ],
+      layers: [{ id: 'l', type: 'fill', source: 's', paint: null as unknown }],
     }
     expect(() => convertMapboxStyle(style as never)).not.toThrow()
   })
@@ -49,9 +43,7 @@ describe('layer.paint non-object coercion', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
-      layers: [
-        { id: 'l', type: 'fill', source: 's', paint: { 'fill-color': '#f00' } },
-      ],
+      layers: [{ id: 'l', type: 'fill', source: 's', paint: { 'fill-color': '#f00' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toContain('fill-#f00')

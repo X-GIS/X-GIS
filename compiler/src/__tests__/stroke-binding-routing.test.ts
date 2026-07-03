@@ -22,19 +22,28 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'road',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'transportation',
-        paint: {
-          'line-color': '#fff',
-          'line-width': ['interpolate', ['exponential', 1.2], ['zoom'],
-            13.5, 0,
-            14, 2.5,
-            20, 11.5],
+      layers: [
+        {
+          id: 'road',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
+          paint: {
+            'line-color': '#fff',
+            'line-width': [
+              'interpolate',
+              ['exponential', 1.2],
+              ['zoom'],
+              13.5,
+              0,
+              14,
+              2.5,
+              20,
+              11.5,
+            ],
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     const tokens = new Lexer(xgis).tokenize()
@@ -54,17 +63,18 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'road',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'transportation',
-        paint: {
-          'line-color': '#fff',
-          'line-width': ['interpolate', ['exponential', 1.2], ['zoom'],
-            14, 2.5, 20, 11.5],
+      layers: [
+        {
+          id: 'road',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
+          paint: {
+            'line-color': '#fff',
+            'line-width': ['interpolate', ['exponential', 1.2], ['zoom'], 14, 2.5, 20, 11.5],
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     const cmds = emitCommands(lower(new Parser(new Lexer(xgis).tokenize()).parse()))
@@ -78,13 +88,15 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'road',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'transportation',
-        paint: { 'line-color': '#fff', 'line-width': 3.5 },
-      }],
+      layers: [
+        {
+          id: 'road',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
+          paint: { 'line-color': '#fff', 'line-width': 3.5 },
+        },
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     const cmds = emitCommands(lower(new Parser(new Lexer(xgis).tokenize()).parse()))
@@ -97,18 +109,18 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'road',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'transportation',
-        paint: {
-          'line-color': ['interpolate', ['linear'], ['zoom'],
-            10, '#fff',
-            18, '#888'],
-          'line-width': 2,
+      layers: [
+        {
+          id: 'road',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
+          paint: {
+            'line-color': ['interpolate', ['linear'], ['zoom'], 10, '#fff', 18, '#888'],
+            'line-width': 2,
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     const scene = lower(new Parser(new Lexer(xgis).tokenize()).parse())
@@ -135,24 +147,31 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'roads_by_class',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'transportation',
-        paint: {
-          'line-color': ['match', ['get', 'class'],
-            'primary',   '#ff0000',
-            'secondary', '#00ff00',
-            '#000000'],
-          'line-width': 2,
+      layers: [
+        {
+          id: 'roads_by_class',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
+          paint: {
+            'line-color': [
+              'match',
+              ['get', 'class'],
+              'primary',
+              '#ff0000',
+              'secondary',
+              '#00ff00',
+              '#000000',
+            ],
+            'line-width': 2,
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis, 'converter must emit a stroke utility for data-driven colour').toMatch(/stroke-\[/)
     const scene = lower(new Parser(new Lexer(xgis).tokenize()).parse())
-    const node = scene.renderNodes.find(n => n.name === 'roads_by_class')
+    const node = scene.renderNodes.find((n) => n.name === 'roads_by_class')
     expect(node, 'roads_by_class render node must survive lower').toBeDefined()
     // The lowered ColorValue must carry the data-driven shape — the
     // match arms (or at minimum the default arm). The pre-fix
@@ -168,9 +187,12 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     expect(node!.stroke.colorExpr, 'stroke colorExpr (per-feature AST)').toBeDefined()
     // And confirm it flows through emit-commands.
     const cmds = emitCommands(scene)
-    const show = cmds.shows.find(s => s.layerName === 'roads_by_class')
+    const show = cmds.shows.find((s) => s.layerName === 'roads_by_class')
     expect(show, 'ShowCommand must exist').toBeDefined()
-    expect(show!.strokeColorExpr, 'ShowCommand.strokeColorExpr (consumed by worker color_packed slot)').toBeDefined()
+    expect(
+      show!.strokeColorExpr,
+      'ShowCommand.strokeColorExpr (consumed by worker color_packed slot)',
+    ).toBeDefined()
   })
 
   it('Mapbox line-color ["coalesce", …, hex-default] resolves as colour', () => {
@@ -181,23 +203,27 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'fallback_line',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'transportation',
-        paint: {
-          'line-color': ['coalesce',
-            ['get', 'colorOverride'],
-            ['get', 'colorFallback'],
-            '#888888'],
-          'line-width': 2,
+      layers: [
+        {
+          id: 'fallback_line',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
+          paint: {
+            'line-color': [
+              'coalesce',
+              ['get', 'colorOverride'],
+              ['get', 'colorFallback'],
+              '#888888',
+            ],
+            'line-width': 2,
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     const scene = lower(new Parser(new Lexer(xgis).tokenize()).parse())
-    const node = scene.renderNodes.find(n => n.name === 'fallback_line')
+    const node = scene.renderNodes.find((n) => n.name === 'fallback_line')
     expect(node).toBeDefined()
     expect(node!.stroke.color.kind).not.toBe('none')
     expect(node!.stroke.colorExpr, 'coalesce should land in stroke.colorExpr').toBeDefined()
@@ -216,21 +242,21 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'toggle_fill',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'landuse',
-        paint: {
-          'fill-color': ['case',
-            ['==', ['get', 'class'], 'park'], '#00ff00',
-            '#cccccc'],
+      layers: [
+        {
+          id: 'toggle_fill',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'landuse',
+          paint: {
+            'fill-color': ['case', ['==', ['get', 'class'], 'park'], '#00ff00', '#cccccc'],
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     const scene = lower(new Parser(new Lexer(xgis).tokenize()).parse())
-    const node = scene.renderNodes.find(n => n.name === 'toggle_fill')
+    const node = scene.renderNodes.find((n) => n.name === 'toggle_fill')
     expect(node, 'toggle_fill render node must survive lower').toBeDefined()
     // Default arm = #cccccc → leading byte 0xcc.
     expect(node!.fill.kind).not.toBe('none')
@@ -248,22 +274,22 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'toggle_line',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'transportation',
-        paint: {
-          'line-color': ['case',
-            ['==', ['get', 'active'], true], '#ff0000',
-            '#888888'],
-          'line-width': 2,
+      layers: [
+        {
+          id: 'toggle_line',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
+          paint: {
+            'line-color': ['case', ['==', ['get', 'active'], true], '#ff0000', '#888888'],
+            'line-width': 2,
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     const scene = lower(new Parser(new Lexer(xgis).tokenize()).parse())
-    const node = scene.renderNodes.find(n => n.name === 'toggle_line')
+    const node = scene.renderNodes.find((n) => n.name === 'toggle_line')
     expect(node, 'toggle_line render node must survive lower').toBeDefined()
     // Same "kind: 'none' = silent drop" trap the match-shape test
     // covers — a ternary case() landing as kind=none means lower

@@ -3,7 +3,9 @@ import { Lexer } from '../lexer/lexer'
 import { TokenType } from '../lexer/tokens'
 
 function lex(source: string) {
-  return new Lexer(source).tokenize().filter((t) => t.type !== TokenType.Newline && t.type !== TokenType.EOF)
+  return new Lexer(source)
+    .tokenize()
+    .filter((t) => t.type !== TokenType.Newline && t.type !== TokenType.EOF)
 }
 
 function types(source: string) {
@@ -23,15 +25,32 @@ describe('Lexer', () => {
     it('numbers with units', () => {
       const tokens = lex('20px 5km 100m 30deg 2s 500ms')
       expect(tokens.map((t) => t.type)).toEqual([
-        TokenType.Number, TokenType.Px,
-        TokenType.Number, TokenType.Km,
-        TokenType.Number, TokenType.M,
-        TokenType.Number, TokenType.Deg,
-        TokenType.Number, TokenType.S,
-        TokenType.Number, TokenType.Ms,
+        TokenType.Number,
+        TokenType.Px,
+        TokenType.Number,
+        TokenType.Km,
+        TokenType.Number,
+        TokenType.M,
+        TokenType.Number,
+        TokenType.Deg,
+        TokenType.Number,
+        TokenType.S,
+        TokenType.Number,
+        TokenType.Ms,
       ])
       expect(tokens.map((t) => t.value)).toEqual([
-        '20', 'px', '5', 'km', '100', 'm', '30', 'deg', '2', 's', '500', 'ms',
+        '20',
+        'px',
+        '5',
+        'km',
+        '100',
+        'm',
+        '30',
+        'deg',
+        '2',
+        's',
+        '500',
+        'ms',
       ])
     })
 
@@ -59,15 +78,25 @@ describe('Lexer', () => {
   describe('keywords', () => {
     it('recognizes all keywords', () => {
       expect(types('let fn show place view on if else for in return')).toEqual([
-        TokenType.Let, TokenType.Fn, TokenType.Show, TokenType.Place,
-        TokenType.View, TokenType.On, TokenType.If, TokenType.Else,
-        TokenType.For, TokenType.In, TokenType.Return,
+        TokenType.Let,
+        TokenType.Fn,
+        TokenType.Show,
+        TokenType.Place,
+        TokenType.View,
+        TokenType.On,
+        TokenType.If,
+        TokenType.Else,
+        TokenType.For,
+        TokenType.In,
+        TokenType.Return,
       ])
     })
 
     it('identifiers are not keywords', () => {
       expect(types('myVar _private foo123')).toEqual([
-        TokenType.Identifier, TokenType.Identifier, TokenType.Identifier,
+        TokenType.Identifier,
+        TokenType.Identifier,
+        TokenType.Identifier,
       ])
     })
   })
@@ -75,23 +104,39 @@ describe('Lexer', () => {
   describe('symbols', () => {
     it('single-char symbols', () => {
       expect(types('( ) { } [ ] : , . = < > + - * / % & | !')).toEqual([
-        TokenType.LParen, TokenType.RParen,
-        TokenType.LBrace, TokenType.RBrace,
-        TokenType.LBracket, TokenType.RBracket,
-        TokenType.Colon, TokenType.Comma, TokenType.Dot,
-        TokenType.Eq, TokenType.Lt, TokenType.Gt,
-        TokenType.Plus, TokenType.Minus,
-        TokenType.Star, TokenType.Slash, TokenType.Percent,
-        TokenType.Amp, TokenType.Pipe, TokenType.Bang,
+        TokenType.LParen,
+        TokenType.RParen,
+        TokenType.LBrace,
+        TokenType.RBrace,
+        TokenType.LBracket,
+        TokenType.RBracket,
+        TokenType.Colon,
+        TokenType.Comma,
+        TokenType.Dot,
+        TokenType.Eq,
+        TokenType.Lt,
+        TokenType.Gt,
+        TokenType.Plus,
+        TokenType.Minus,
+        TokenType.Star,
+        TokenType.Slash,
+        TokenType.Percent,
+        TokenType.Amp,
+        TokenType.Pipe,
+        TokenType.Bang,
       ])
     })
 
     it('two-char symbols', () => {
       expect(types('== != <= >= && || -> ..')).toEqual([
-        TokenType.EqEq, TokenType.BangEq,
-        TokenType.LtEq, TokenType.GtEq,
-        TokenType.AmpAmp, TokenType.PipePipe,
-        TokenType.Arrow, TokenType.DotDot,
+        TokenType.EqEq,
+        TokenType.BangEq,
+        TokenType.LtEq,
+        TokenType.GtEq,
+        TokenType.AmpAmp,
+        TokenType.PipePipe,
+        TokenType.Arrow,
+        TokenType.DotDot,
       ])
     })
   })
@@ -116,10 +161,25 @@ show world {
       const vals = tokens.map((t) => t.value)
 
       expect(vals).toEqual([
-        'let', 'world', '=', 'load', '(', 'countries.geojson', ')',
-        'show', 'world', '{',
-        'fill', ':', '#f2efe9',
-        'stroke', ':', '#ccc', ',', '1', 'px',
+        'let',
+        'world',
+        '=',
+        'load',
+        '(',
+        'countries.geojson',
+        ')',
+        'show',
+        'world',
+        '{',
+        'fill',
+        ':',
+        '#f2efe9',
+        'stroke',
+        ':',
+        '#ccc',
+        ',',
+        '1',
+        'px',
         '}',
       ])
     })

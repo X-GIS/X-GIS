@@ -43,7 +43,9 @@ export function emitLinePaint(
     if (typeof v === 'string') {
       out.push(`stroke-image-${v}`)
     } else {
-      warnings.push(`Layer "${layer.id}" — line-pattern non-constant form (expression / interpolate) not yet wired through the IR; the constant string form is supported (iter-178). The layer falls back to line-color or transparent.`)
+      warnings.push(
+        `Layer "${layer.id}" — line-pattern non-constant form (expression / interpolate) not yet wired through the IR; the constant string form is supported (iter-178). The layer falls back to line-color or transparent.`,
+      )
     }
   }
   // line-gradient — value-aware: when present, surface the specific
@@ -51,7 +53,9 @@ export function emitLinePaint(
   // generic ignored-properties warn. Removed from surfaceIgnoredPaint
   // candidates so the specific message isn't duplicated.
   if (p['line-gradient'] !== undefined && p['line-gradient'] !== null) {
-    warnings.push(`Layer "${layer.id}" — line-gradient set but requires the line-progress accessor + per-fragment arc-length varying through the line renderer; not implemented (Plan §4 deferred). Layer falls back to solid line-color.`)
+    warnings.push(
+      `Layer "${layer.id}" — line-gradient set but requires the line-progress accessor + per-fragment arc-length varying through the line renderer; not implemented (Plan §4 deferred). Layer falls back to solid line-color.`,
+    )
   }
   addLineTranslate(out, p['line-translate'], warnings)
   // line-translate-anchor: viewport (default) = screen-space (today's
@@ -104,13 +108,17 @@ function addStrokeWidth(out: string[], v: unknown, warnings: string[]): void {
     // slipped past the type gate and `Math.max(0, NaN) = NaN` emitted
     // a literal `stroke-NaN` utility that the parser rejected.
     if (v < 0) {
-      warnings.push(`paint.line-width: value ${v} is negative; Mapbox spec requires >= 0. Clamped to 0 (line won't render at this zoom).`)
+      warnings.push(
+        `paint.line-width: value ${v} is negative; Mapbox spec requires >= 0. Clamped to 0 (line won't render at this zoom).`,
+      )
     }
     const clamped = Math.max(0, v)
     out.push(`stroke-${clamped}`)
     return
   }
-  const interp = interpolateZoomCall(v, warnings, (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
+  const interp = interpolateZoomCall(v, warnings, (val) =>
+    typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null,
+  )
   if (interp !== null) {
     out.push(`stroke-[${interp}]`)
     return
@@ -153,7 +161,9 @@ function addLineOffset(out: string[], v: unknown, warnings: string[]): void {
   }
   // Non-constant — interpolate-by-zoom or per-feature expression.
   // No binding-form handler in lower.ts yet; warn and skip.
-  warnings.push(`paint.line-offset: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
+  warnings.push(
+    `paint.line-offset: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`,
+  )
 }
 
 /** Mapbox `paint.line-gap-width` (gap WIDTH between two parallel
@@ -176,13 +186,16 @@ function addLineGapWidth(out: string[], v: unknown, warnings: string[]): void {
     out.push(`stroke-gap-${v}`)
     return
   }
-  const interp = interpolateZoomCall(v, warnings,
-    (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
+  const interp = interpolateZoomCall(v, warnings, (val) =>
+    typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null,
+  )
   if (interp !== null) {
     out.push(`stroke-gap-[${interp}]`)
     return
   }
-  warnings.push(`paint.line-gap-width: non-constant non-zoom form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
+  warnings.push(
+    `paint.line-gap-width: non-constant non-zoom form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`,
+  )
 }
 
 /** Mapbox `paint.line-translate: [dx, dy]` → xgis
@@ -203,10 +216,15 @@ function addLineTranslate(out: string[], v: unknown, warnings: string[]): void {
   while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
     v = v[1]
   }
-  if (Array.isArray(v) && v.length === 2
-      && typeof v[0] === 'number' && Number.isFinite(v[0])
-      && typeof v[1] === 'number' && Number.isFinite(v[1])) {
-    const fmt = (n: number): string => n < 0 ? `[${n}]` : `${n}`
+  if (
+    Array.isArray(v) &&
+    v.length === 2 &&
+    typeof v[0] === 'number' &&
+    Number.isFinite(v[0]) &&
+    typeof v[1] === 'number' &&
+    Number.isFinite(v[1])
+  ) {
+    const fmt = (n: number): string => (n < 0 ? `[${n}]` : `${n}`)
     if (v[0] !== 0) out.push(`stroke-translate-x-${fmt(v[0])}`)
     if (v[1] !== 0) out.push(`stroke-translate-y-${fmt(v[1])}`)
     return
@@ -223,7 +241,9 @@ function addLineTranslate(out: string[], v: unknown, warnings: string[]): void {
       return
     }
   }
-  warnings.push(`paint.line-translate: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
+  warnings.push(
+    `paint.line-translate: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`,
+  )
 }
 
 /** Mapbox `paint.line-blur` (edge feathering, CSS px) → xgis
@@ -238,13 +258,17 @@ function addLineBlur(out: string[], v: unknown, warnings: string[]): void {
     // a NaN blur would fall through the v <= 0 skip and emit
     // `stroke-blur-NaN`.
     if (v < 0) {
-      warnings.push(`paint.line-blur: value ${v} is negative; Mapbox spec requires >= 0. Clamped to 0 (line renders without blur).`)
+      warnings.push(
+        `paint.line-blur: value ${v} is negative; Mapbox spec requires >= 0. Clamped to 0 (line renders without blur).`,
+      )
     }
     if (v <= 0) return
     out.push(`stroke-blur-${v}`)
     return
   }
-  warnings.push(`paint.line-blur: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
+  warnings.push(
+    `paint.line-blur: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`,
+  )
 }
 
 function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
@@ -264,9 +288,12 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
     // (`literal` is intentionally NOT in this list — the literal
     //  wrapper got unwrapped above.)
     const first = v[0]
-    const looksLikeExpression = typeof first === 'string'
-      && /^[a-z][a-z-]+$/.test(first)
-      && /^(interpolate|interpolate-exp|interpolate-lab|interpolate-hcl|step|case|match|coalesce|to-number)$/.test(first)
+    const looksLikeExpression =
+      typeof first === 'string' &&
+      /^[a-z][a-z-]+$/.test(first) &&
+      /^(interpolate|interpolate-exp|interpolate-lab|interpolate-hcl|step|case|match|coalesce|to-number)$/.test(
+        first,
+      )
     if (!looksLikeExpression) {
       // Mapbox spec: dash values are non-negative. Clamp at convert
       // time so a typo'd negative doesn't emit
@@ -278,17 +305,21 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
       // above gave the inner array but each element may still be a
       // `["literal", 4]` scalar wrap. Without this, the typeof === 'number'
       // filter rejected every element and the dash silently dropped.
-      const unwrapped = v.map(n => {
+      const unwrapped = v.map((n) => {
         while (Array.isArray(n) && n.length === 2 && n[0] === 'literal') n = n[1]
         return n
       })
-      const nums = unwrapped.filter(n => typeof n === 'number').map(n => Math.max(0, n as number))
+      const nums = unwrapped
+        .filter((n) => typeof n === 'number')
+        .map((n) => Math.max(0, n as number))
       // Surface partial-drop: a dash array with one non-numeric entry
       // (typo'd `[4, "two", 2]` from hand-edited JSON) would otherwise
       // silently emit a `stroke-dasharray-4-2` that doesn't match the
       // authored intent. Warn so the conversion notes record the gap.
       if (nums.length !== unwrapped.length) {
-        warnings.push(`paint.line-dasharray: dropped ${unwrapped.length - nums.length} non-numeric entr${unwrapped.length - nums.length === 1 ? 'y' : 'ies'}; emitted dash pattern differs from authored value.`)
+        warnings.push(
+          `paint.line-dasharray: dropped ${unwrapped.length - nums.length} non-numeric entr${unwrapped.length - nums.length === 1 ? 'y' : 'ies'}; emitted dash pattern differs from authored value.`,
+        )
       }
       if (nums.length >= 2) {
         out.push('stroke-dasharray-' + nums.join('-'))
@@ -306,13 +337,19 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
     const interp = interpolateZoomCall(v, warnings, (val) => {
       let inner: unknown = val
       while (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') inner = inner[1]
-      if (Array.isArray(inner) && inner.length >= 2
-          && inner.every(n => typeof n === 'number' && Number.isFinite(n))) {
-        return '[' + (inner as number[]).map(n => Math.max(0, n)).join(', ') + ']'
+      if (
+        Array.isArray(inner) &&
+        inner.length >= 2 &&
+        inner.every((n) => typeof n === 'number' && Number.isFinite(n))
+      ) {
+        return '[' + (inner as number[]).map((n) => Math.max(0, n)).join(', ') + ']'
       }
       return null
     })
-    if (interp !== null) { out.push(`stroke-dasharray-[${interp}]`); return }
+    if (interp !== null) {
+      out.push(`stroke-dasharray-[${interp}]`)
+      return
+    }
   }
   // Remaining non-constant shapes (data-driven, malformed) drop with a
   // warning so the gap is visible in conversion notes rather than
@@ -331,5 +368,7 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
       shape = 'data-driven (needs per-feature dash plumbing)'
     }
   }
-  warnings.push(`paint.line-dasharray: ${shape} form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
+  warnings.push(
+    `paint.line-dasharray: ${shape} form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`,
+  )
 }

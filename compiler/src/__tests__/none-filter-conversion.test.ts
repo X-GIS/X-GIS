@@ -16,8 +16,9 @@ describe('legacy none-filter conversion', () => {
 
   it('multiple children → negated OR', () => {
     const w: string[] = []
-    expect(filterToXgis(['none', ['==', 'cls', 'lake'], ['==', 'cls', 'river']], w))
-      .toBe('!((.cls == "lake") || (.cls == "river"))')
+    expect(filterToXgis(['none', ['==', 'cls', 'lake'], ['==', 'cls', 'river']], w)).toBe(
+      '!((.cls == "lake") || (.cls == "river"))',
+    )
     expect(w).toEqual([])
   })
 
@@ -44,10 +45,16 @@ describe('legacy none-filter conversion', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'vector', url: 'https://x/t.json' } },
-      layers: [{
-        id: 'not_lakes', type: 'fill', source: 's', 'source-layer': 'water',
-        filter: ['none', ['==', 'cls', 'lake']], paint: { 'fill-color': '#00f' },
-      }],
+      layers: [
+        {
+          id: 'not_lakes',
+          type: 'fill',
+          source: 's',
+          'source-layer': 'water',
+          filter: ['none', ['==', 'cls', 'lake']],
+          paint: { 'fill-color': '#00f' },
+        },
+      ],
     }
     const xgis = convertMapboxStyle(style)
     expect(xgis).toContain('filter: !((.cls == "lake"))')

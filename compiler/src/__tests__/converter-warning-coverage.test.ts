@@ -13,8 +13,14 @@ function warningsOf(style: unknown): string[] {
   const warnings: string[] = []
   let inNotes = false
   for (const l of lines) {
-    if (l.includes('Conversion notes')) { inNotes = true; continue }
-    if (l.trim() === '*/') { inNotes = false; continue }
+    if (l.includes('Conversion notes')) {
+      inNotes = true
+      continue
+    }
+    if (l.trim() === '*/') {
+      inNotes = false
+      continue
+    }
     if (inNotes && l.includes('• ')) warnings.push(l.split('• ')[1] ?? '')
   }
   return warnings
@@ -30,18 +36,21 @@ describe('converter warning coverage', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'wetland',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'landcover',
-        paint: { 'fill-pattern': 'wetland_bg_11' },
-      }],
+      layers: [
+        {
+          id: 'wetland',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'landcover',
+          paint: { 'fill-pattern': 'wetland_bg_11' },
+        },
+      ],
     })
-    expect(w.some(s =>
-      s.includes('fill-pattern declared without')
-      || s.includes('Batch 2 sprite-atlas')))
-      .toBe(false)
+    expect(
+      w.some(
+        (s) => s.includes('fill-pattern declared without') || s.includes('Batch 2 sprite-atlas'),
+      ),
+    ).toBe(false)
   })
 
   it('line-pattern without line-color → no Batch 2 warning (iter-178 Stage 1)', () => {
@@ -52,34 +61,38 @@ describe('converter warning coverage', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'road_pattern',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'transportation',
-        paint: { 'line-pattern': 'dashed_white' },
-      }],
+      layers: [
+        {
+          id: 'road_pattern',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
+          paint: { 'line-pattern': 'dashed_white' },
+        },
+      ],
     })
-    expect(w.some(s =>
-      s.includes('line-pattern declared without')
-      || s.includes('Batch 2 sprite-atlas')))
-      .toBe(false)
+    expect(
+      w.some(
+        (s) => s.includes('line-pattern declared without') || s.includes('Batch 2 sprite-atlas'),
+      ),
+    ).toBe(false)
   })
 
   it('fill-pattern WITH fill-color → no warning (pattern is supplement)', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'park',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'park',
-        paint: { 'fill-color': '#0f0', 'fill-pattern': 'park_dots' },
-      }],
+      layers: [
+        {
+          id: 'park',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'park',
+          paint: { 'fill-color': '#0f0', 'fill-pattern': 'park_dots' },
+        },
+      ],
     })
-    expect(w.some(s => s.includes('fill-pattern declared without')))
-      .toBe(false)
+    expect(w.some((s) => s.includes('fill-pattern declared without'))).toBe(false)
   })
 
   it('source scheme: "tms" → Y-flip warning', () => {
@@ -94,8 +107,7 @@ describe('converter warning coverage', () => {
       },
       layers: [{ id: 'r', type: 'raster', source: 'legacy' }],
     })
-    expect(w.some(s => s.includes('legacy') && s.includes('tms')))
-      .toBe(true)
+    expect(w.some((s) => s.includes('legacy') && s.includes('tms'))).toBe(true)
   })
 
   it('multiple tile mirrors → subdomain-rotation warning', () => {
@@ -113,8 +125,7 @@ describe('converter warning coverage', () => {
       },
       layers: [{ id: 'r', type: 'raster', source: 'm' }],
     })
-    expect(w.some(s => s.includes('"m"') && s.includes('mirrors')))
-      .toBe(true)
+    expect(w.some((s) => s.includes('"m"') && s.includes('mirrors'))).toBe(true)
   })
 
   it('top-level fog → ignored-fields warning (projection + light host-applied, WS-8/WS-9)', () => {
@@ -126,12 +137,14 @@ describe('converter warning coverage', () => {
       fog: { range: [0.5, 10] },
       light: { intensity: 0.3 },
     })
-    expect(w.some(s => s.startsWith('Top-level style fields ignored'))).toBe(true)
-    const note = w.find(s => s.startsWith('Top-level style fields ignored'))!
+    expect(w.some((s) => s.startsWith('Top-level style fields ignored'))).toBe(true)
+    const note = w.find((s) => s.startsWith('Top-level style fields ignored'))!
     // WS-8: top-level `projection` is now host-applied (demo-runner /
     // compare-runner read it off the raw style JSON and call
     // XGISMap.setProjection), so it must NOT appear in the ignored list.
-    expect(note, `projection should be host-applied, not ignored: ${note}`).not.toContain('projection')
+    expect(note, `projection should be host-applied, not ignored: ${note}`).not.toContain(
+      'projection',
+    )
     // WS-9: top-level `light` is now host-applied (XGISMap.setLight via the
     // demo-runner / compare-runner), so it must NOT appear in the ignored list.
     expect(note, `light should be host-applied, not ignored: ${note}`).not.toContain('light')
@@ -157,8 +170,7 @@ describe('converter warning coverage', () => {
       },
       layers: [{ id: 'p', type: 'circle', source: 'poi' }],
     })
-    expect(w.some(s => s.includes('"poi"') && s.includes('clustering')))
-      .toBe(true)
+    expect(w.some((s) => s.includes('"poi"') && s.includes('clustering'))).toBe(true)
   })
 
   it('GeoJSON source tuning fields → ignored-tuning warning', () => {
@@ -178,7 +190,7 @@ describe('converter warning coverage', () => {
       },
       layers: [{ id: 'l', type: 'line', source: 'lines' }],
     })
-    const note = w.find(s => s.includes('"lines"') && s.includes('ignored tuning fields'))
+    const note = w.find((s) => s.includes('"lines"') && s.includes('ignored tuning fields'))
     expect(note, `expected ignored-tuning note: ${JSON.stringify(w)}`).toBeDefined()
     for (const k of ['tolerance', 'buffer', 'lineMetrics', 'generateId']) {
       expect(note, `expected "${k}" in: ${note}`).toContain(k)
@@ -200,10 +212,8 @@ describe('converter warning coverage', () => {
       },
       layers: [{ id: 'r', type: 'raster', source: 'regional' }],
     })
-    expect(w.some(s => s.includes('"regional"') && s.includes('minzoom/maxzoom')))
-      .toBe(true)
-    expect(w.some(s => s.includes('"regional"') && s.includes('bounds')))
-      .toBe(true)
+    expect(w.some((s) => s.includes('"regional"') && s.includes('minzoom/maxzoom'))).toBe(true)
+    expect(w.some((s) => s.includes('"regional"') && s.includes('bounds'))).toBe(true)
   })
 
   it('interpolate-lab colour spec → compile-time densification warning (iter 61)', () => {
@@ -214,46 +224,52 @@ describe('converter warning coverage', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'lab_fade',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'landuse',
-        paint: {
-          'fill-color': ['interpolate-lab', ['linear'], ['zoom'],
-            0, '#fff',
-            18, '#888'],
+      layers: [
+        {
+          id: 'lab_fade',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'landuse',
+          paint: {
+            'fill-color': ['interpolate-lab', ['linear'], ['zoom'], 0, '#fff', 18, '#888'],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s =>
-      s.includes('interpolate-lab')
-      && s.includes('dense piecewise-linear')
-      && s.includes('Lab space'),
-    )).toBe(true)
+    expect(
+      w.some(
+        (s) =>
+          s.includes('interpolate-lab') &&
+          s.includes('dense piecewise-linear') &&
+          s.includes('Lab space'),
+      ),
+    ).toBe(true)
   })
 
   it('interpolate-hcl colour spec → compile-time densification warning (iter 61)', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'hcl_fade',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'landuse',
-        paint: {
-          'fill-color': ['interpolate-hcl', ['linear'], ['zoom'],
-            0, '#f00',
-            18, '#00f'],
+      layers: [
+        {
+          id: 'hcl_fade',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'landuse',
+          paint: {
+            'fill-color': ['interpolate-hcl', ['linear'], ['zoom'], 0, '#f00', 18, '#00f'],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s =>
-      s.includes('interpolate-hcl')
-      && s.includes('dense piecewise-linear')
-      && s.includes('LCh space'),
-    )).toBe(true)
+    expect(
+      w.some(
+        (s) =>
+          s.includes('interpolate-hcl') &&
+          s.includes('dense piecewise-linear') &&
+          s.includes('LCh space'),
+      ),
+    ).toBe(true)
   })
 
   it('cubic-bezier zoom interp with numeric stops → compile-time densification warning (iter 60)', () => {
@@ -263,23 +279,30 @@ describe('converter warning coverage', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'bezier_width',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'roads',
-        paint: {
-          'line-color': '#000',
-          'line-width': ['interpolate', ['cubic-bezier', 0.42, 0, 0.58, 1], ['zoom'],
-            10, 1,
-            20, 8],
+      layers: [
+        {
+          id: 'bezier_width',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'roads',
+          paint: {
+            'line-color': '#000',
+            'line-width': [
+              'interpolate',
+              ['cubic-bezier', 0.42, 0, 0.58, 1],
+              ['zoom'],
+              10,
+              1,
+              20,
+              8,
+            ],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s =>
-      s.includes('cubic-bezier')
-      && s.includes('dense piecewise-linear'),
-    )).toBe(true)
+    expect(w.some((s) => s.includes('cubic-bezier') && s.includes('dense piecewise-linear'))).toBe(
+      true,
+    )
   })
 
   it('source "type": "pmtiles" routes through to xgis pmtiles source', () => {
@@ -295,15 +318,19 @@ describe('converter warning coverage', () => {
           url: 'https://example.com/regions.pmtiles',
         },
       },
-      layers: [{
-        id: 'water',
-        type: 'fill',
-        source: 'protomaps',
-        'source-layer': 'water',
-        paint: { 'fill-color': '#aef' },
-      }],
+      layers: [
+        {
+          id: 'water',
+          type: 'fill',
+          source: 'protomaps',
+          'source-layer': 'water',
+          paint: { 'fill-color': '#aef' },
+        },
+      ],
     } as never)
-    expect(out, 'xgis output should declare a pmtiles source').toMatch(/source\s+protomaps\s*\{[^}]*type:\s*pmtiles/)
+    expect(out, 'xgis output should declare a pmtiles source').toMatch(
+      /source\s+protomaps\s*\{[^}]*type:\s*pmtiles/,
+    )
     // And the layer block survives the conversion (sanity that the
     // dropped-source path isn't re-routed here).
     expect(out).toContain('layer water')
@@ -313,7 +340,7 @@ describe('converter warning coverage', () => {
       sources: { protomaps: { type: 'pmtiles', url: 'https://example.com/x.pmtiles' } },
       layers: [],
     })
-    expect(w.some(s => s.includes('"protomaps"') && s.includes('unsupported type'))).toBe(false)
+    expect(w.some((s) => s.includes('"protomaps"') && s.includes('unsupported type'))).toBe(false)
   })
 
   it('background-pattern → ignored-properties warning (constant background-opacity folded into hex)', () => {
@@ -325,17 +352,19 @@ describe('converter warning coverage', () => {
     const w = warningsOf({
       version: 8,
       sources: {},
-      layers: [{
-        id: 'bg',
-        type: 'background',
-        paint: {
-          'background-color': '#f8f4f0',
-          'background-opacity': 0.7,
-          'background-pattern': 'paper',
+      layers: [
+        {
+          id: 'bg',
+          type: 'background',
+          paint: {
+            'background-color': '#f8f4f0',
+            'background-opacity': 0.7,
+            'background-pattern': 'paper',
+          },
         },
-      }],
+      ],
     })
-    const note = w.find(s => s.includes('"bg"') && s.includes('ignored properties'))
+    const note = w.find((s) => s.includes('"bg"') && s.includes('ignored properties'))
     expect(note, `expected background ignored-properties note: ${JSON.stringify(w)}`).toBeDefined()
     // Constant background-opacity is now FOLDED, not surfaced.
     expect(note).not.toContain('background-opacity')
@@ -350,17 +379,22 @@ describe('converter warning coverage', () => {
     const w = warningsOf({
       version: 8,
       sources: {},
-      layers: [{
-        id: 'bg',
-        type: 'background',
-        paint: {
-          'background-color': '#f8f4f0',
-          'background-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.5, 10, 1],
+      layers: [
+        {
+          id: 'bg',
+          type: 'background',
+          paint: {
+            'background-color': '#f8f4f0',
+            'background-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.5, 10, 1],
+          },
         },
-      }],
+      ],
     })
-    const note = w.find(s => s.includes('"bg"') && s.includes('background-opacity'))
-    expect(note, `expected no background-opacity warning, got: ${JSON.stringify(w)}`).toBeUndefined()
+    const note = w.find((s) => s.includes('"bg"') && s.includes('background-opacity'))
+    expect(
+      note,
+      `expected no background-opacity warning, got: ${JSON.stringify(w)}`,
+    ).toBeUndefined()
   })
 
   it('GeoJSON promoteId → reserved-id warning', () => {
@@ -376,7 +410,7 @@ describe('converter warning coverage', () => {
       },
       layers: [{ id: 'l', type: 'circle', source: 'd' }],
     })
-    expect(w.some(s => s.includes('"d"') && s.includes('promoteId'))).toBe(true)
+    expect(w.some((s) => s.includes('"d"') && s.includes('promoteId'))).toBe(true)
   })
 
   it('source tileSize: 256 → wrong-zoom-scale warning', () => {
@@ -392,8 +426,7 @@ describe('converter warning coverage', () => {
       },
       layers: [{ id: 'r', type: 'raster', source: 'relief' }],
     })
-    expect(w.some(s => s.includes('"relief"') && s.includes('tileSize: 256')))
-      .toBe(true)
+    expect(w.some((s) => s.includes('"relief"') && s.includes('tileSize: 256'))).toBe(true)
   })
 
   it('fill-extrusion-base non-zero → NO unhonoured-base warning (iter 489 + 493 — vertex shader now honors u.extrude_base_m)', () => {
@@ -406,20 +439,23 @@ describe('converter warning coverage', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'floating_building',
-        type: 'fill-extrusion',
-        source: 'v',
-        'source-layer': 'building',
-        paint: {
-          'fill-extrusion-height': 40,
-          'fill-extrusion-base': 10,
-          'fill-extrusion-color': '#888',
+      layers: [
+        {
+          id: 'floating_building',
+          type: 'fill-extrusion',
+          source: 'v',
+          'source-layer': 'building',
+          paint: {
+            'fill-extrusion-height': 40,
+            'fill-extrusion-base': 10,
+            'fill-extrusion-color': '#888',
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('"floating_building"') && s.includes('fill-extrusion-base')))
-      .toBe(false)
+    expect(
+      w.some((s) => s.includes('"floating_building"') && s.includes('fill-extrusion-base')),
+    ).toBe(false)
   })
 
   it('fill-extrusion-base: 0 → no unhonoured warning', () => {
@@ -427,20 +463,23 @@ describe('converter warning coverage', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'ground_building',
-        type: 'fill-extrusion',
-        source: 'v',
-        'source-layer': 'building',
-        paint: {
-          'fill-extrusion-height': 40,
-          'fill-extrusion-base': 0,
-          'fill-extrusion-color': '#888',
+      layers: [
+        {
+          id: 'ground_building',
+          type: 'fill-extrusion',
+          source: 'v',
+          'source-layer': 'building',
+          paint: {
+            'fill-extrusion-height': 40,
+            'fill-extrusion-base': 0,
+            'fill-extrusion-color': '#888',
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('ground_building') && s.includes('fill-extrusion-base')))
-      .toBe(false)
+    expect(w.some((s) => s.includes('ground_building') && s.includes('fill-extrusion-base'))).toBe(
+      false,
+    )
   })
 
   it('literal-wrapped line-dasharray emits the dash utility (no warning)', () => {
@@ -452,19 +491,22 @@ describe('converter warning coverage', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'literal_dash',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'transportation',
-        paint: {
-          'line-color': '#000',
-          'line-dasharray': ['literal', [4, 2]],
+      layers: [
+        {
+          id: 'literal_dash',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
+          paint: {
+            'line-color': '#000',
+            'line-dasharray': ['literal', [4, 2]],
+          },
         },
-      }],
+      ],
     } as never)
-    expect(out, 'literal-wrapped dasharray should emit stroke-dasharray-4-2')
-      .toContain('stroke-dasharray-4-2')
+    expect(out, 'literal-wrapped dasharray should emit stroke-dasharray-4-2').toContain(
+      'stroke-dasharray-4-2',
+    )
     // No "non-constant" warning either.
     expect(out.includes('paint.line-dasharray: non-constant')).toBe(false)
   })
@@ -476,15 +518,17 @@ describe('converter warning coverage', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: {},
-      layers: [{
-        id: 'wrapped',
-        type: 'symbol',
-        source: 'x',
-        layout: {
-          'text-field': 'A',
-          'text-offset': ['literal', [0, -1.5]],
+      layers: [
+        {
+          id: 'wrapped',
+          type: 'symbol',
+          source: 'x',
+          layout: {
+            'text-field': 'A',
+            'text-offset': ['literal', [0, -1.5]],
+          },
         },
-      }],
+      ],
     } as never)
     // Negative y should ride the bracket binding form per fmtSigned.
     expect(out).toMatch(/label-offset-y-\[-1\.5\]/)
@@ -494,15 +538,17 @@ describe('converter warning coverage', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: {},
-      layers: [{
-        id: 'shield',
-        type: 'symbol',
-        source: 'x',
-        layout: {
-          'icon-image': 'shield',
-          'icon-offset': ['literal', [3, 4]],
+      layers: [
+        {
+          id: 'shield',
+          type: 'symbol',
+          source: 'x',
+          layout: {
+            'icon-image': 'shield',
+            'icon-offset': ['literal', [3, 4]],
+          },
         },
-      }],
+      ],
     } as never)
     expect(out).toContain('label-icon-offset-x-3')
     expect(out).toContain('label-icon-offset-y-4')
@@ -514,13 +560,15 @@ describe('converter warning coverage', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'to_color_fill',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'park',
-        paint: { 'fill-color': ['to-color', '#aef'] },
-      }],
+      layers: [
+        {
+          id: 'to_color_fill',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'park',
+          paint: { 'fill-color': ['to-color', '#aef'] },
+        },
+      ],
     } as never)
     expect(out).toContain('fill-#aef')
     expect(out).not.toMatch(/fill-\["#aef"\]/)
@@ -532,14 +580,16 @@ describe('converter warning coverage', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'hidden',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'park',
-        layout: { 'visibility': ['literal', 'none'] },
-        paint: { 'fill-color': '#0f0' },
-      }],
+      layers: [
+        {
+          id: 'hidden',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'park',
+          layout: { visibility: ['literal', 'none'] },
+          paint: { 'fill-color': '#0f0' },
+        },
+      ],
     } as never)
     expect(out).toContain('visible: false')
   })
@@ -548,14 +598,16 @@ describe('converter warning coverage', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'rounded',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'transportation',
-        layout: { 'line-cap': ['literal', 'round'] },
-        paint: { 'line-color': '#000' },
-      }],
+      layers: [
+        {
+          id: 'rounded',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
+          layout: { 'line-cap': ['literal', 'round'] },
+          paint: { 'line-color': '#000' },
+        },
+      ],
     } as never)
     expect(out).toContain('stroke-round-cap')
   })
@@ -564,15 +616,17 @@ describe('converter warning coverage', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: {},
-      layers: [{
-        id: 'corner_label',
-        type: 'symbol',
-        source: 'x',
-        layout: {
-          'text-field': 'L',
-          'text-anchor': ['literal', 'top-left'],
+      layers: [
+        {
+          id: 'corner_label',
+          type: 'symbol',
+          source: 'x',
+          layout: {
+            'text-field': 'L',
+            'text-anchor': ['literal', 'top-left'],
+          },
         },
-      }],
+      ],
     } as never)
     expect(out).toContain('label-anchor-top-left')
   })
@@ -581,14 +635,16 @@ describe('converter warning coverage', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: {},
-      layers: [{
-        id: 'sprite_layer',
-        type: 'symbol',
-        source: 'x',
-        layout: {
-          'icon-image': ['literal', 'shield-us'],
+      layers: [
+        {
+          id: 'sprite_layer',
+          type: 'symbol',
+          source: 'x',
+          layout: {
+            'icon-image': ['literal', 'shield-us'],
+          },
         },
-      }],
+      ],
     } as never)
     expect(out).toContain('label-icon-image-shield-us')
   })
@@ -601,13 +657,15 @@ describe('converter warning coverage', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'literal_fill',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'park',
-        paint: { 'fill-color': ['literal', '#aef'] },
-      }],
+      layers: [
+        {
+          id: 'literal_fill',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'park',
+          paint: { 'fill-color': ['literal', '#aef'] },
+        },
+      ],
     } as never)
     // Constant fill, not bracket binding.
     expect(out).toContain('fill-#aef')
@@ -621,18 +679,22 @@ describe('converter warning coverage', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: {},
-      layers: [{
-        id: 'vao_literal',
-        type: 'symbol',
-        source: 'x',
-        layout: {
-          'text-field': 'L',
-          'text-variable-anchor-offset': [
-            'top', ['literal', [0, -1]],
-            'bottom', ['literal', [0, 1]],
-          ],
+      layers: [
+        {
+          id: 'vao_literal',
+          type: 'symbol',
+          source: 'x',
+          layout: {
+            'text-field': 'L',
+            'text-variable-anchor-offset': [
+              'top',
+              ['literal', [0, -1]],
+              'bottom',
+              ['literal', [0, 1]],
+            ],
+          },
         },
-      }],
+      ],
     } as never)
     expect(out).toContain('label-anchor-top')
     expect(out).toContain('label-anchor-bottom')
@@ -647,22 +709,30 @@ describe('converter warning coverage', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'dashed_zoom',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'transportation',
-        paint: {
-          'line-color': '#000',
-          'line-dasharray': ['interpolate', ['linear'], ['zoom'],
-            8, ['literal', [4, 2]],
-            16, ['literal', [8, 2]]],
+      layers: [
+        {
+          id: 'dashed_zoom',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
+          paint: {
+            'line-color': '#000',
+            'line-dasharray': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              8,
+              ['literal', [4, 2]],
+              16,
+              ['literal', [8, 2]],
+            ],
+          },
         },
-      }],
+      ],
     })
     // WS-1: the zoom-interp form is handled (bracket binding), so no
     // line-dasharray warning is emitted.
-    expect(w.some(s => s.includes('paint.line-dasharray'))).toBe(false)
+    expect(w.some((s) => s.includes('paint.line-dasharray'))).toBe(false)
   })
 
   it('glyphs / sprite must NOT appear in the top-level warning (host-integration handled)', () => {
@@ -676,7 +746,7 @@ describe('converter warning coverage', () => {
       glyphs: 'https://example.com/fonts/{fontstack}/{range}.pbf',
       sprite: 'https://example.com/sprites/standard',
     })
-    const note = w.find(s => s.startsWith('Top-level style fields ignored'))
+    const note = w.find((s) => s.startsWith('Top-level style fields ignored'))
     if (note) {
       expect(note).not.toContain('glyphs')
       expect(note).not.toContain('sprite')
@@ -690,35 +760,39 @@ describe('converter warning coverage', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'parcels',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'parcel',
-        paint: {
-          'fill-color': '#336699',
-          'fill-opacity': ['match', ['get', 'zoned'], 'yes', 0.9, 0.2],
+      layers: [
+        {
+          id: 'parcels',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'parcel',
+          paint: {
+            'fill-color': '#336699',
+            'fill-opacity': ['match', ['get', 'zoned'], 'yes', 0.9, 0.2],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('data-driven (per-feature) opacity'))).toBe(true)
+    expect(w.some((s) => s.includes('data-driven (per-feature) opacity'))).toBe(true)
   })
 
   it('zoom-only interpolated fill-opacity stays warning-free (fully supported)', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'suburb',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'landuse',
-        paint: {
-          'fill-color': '#eee0d0',
-          'fill-opacity': ['interpolate', ['linear'], ['zoom'], 10, 0, 12, 1],
+      layers: [
+        {
+          id: 'suburb',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'landuse',
+          paint: {
+            'fill-color': '#eee0d0',
+            'fill-opacity': ['interpolate', ['linear'], ['zoom'], 10, 0, 12, 1],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('data-driven (per-feature) opacity'))).toBe(false)
+    expect(w.some((s) => s.includes('data-driven (per-feature) opacity'))).toBe(false)
   })
 })

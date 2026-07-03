@@ -20,11 +20,7 @@ describe('addOpacity interp-callback clamp', () => {
           source: 's',
           paint: {
             'fill-color': '#000',
-            'fill-opacity': [
-              'interpolate', ['linear'], ['zoom'],
-              5, -0.5,
-              14, 1,
-            ],
+            'fill-opacity': ['interpolate', ['linear'], ['zoom'], 5, -0.5, 14, 1],
           },
         },
       ],
@@ -52,11 +48,7 @@ describe('addOpacity interp-callback clamp', () => {
           source: 's',
           paint: {
             'fill-color': '#000',
-            'fill-opacity': [
-              'interpolate', ['linear'], ['zoom'],
-              5, 50,
-              14, 100,
-            ],
+            'fill-opacity': ['interpolate', ['linear'], ['zoom'], 5, 50, 14, 100],
           },
         },
       ],

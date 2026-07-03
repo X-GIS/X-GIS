@@ -29,8 +29,8 @@ import type { PropertyShape, RGBA } from './property-types'
 const RED: RGBA = [1, 0, 0, 1]
 const BLUE: RGBA = [0, 0, 1, 1]
 
-const zoomStop = <T,>(zoom: number, value: T): ZoomStop<T> => ({ zoom, value })
-const timeStop = <T,>(timeMs: number, value: T): TimeStop<T> => ({ timeMs, value })
+const zoomStop = <T>(zoom: number, value: T): ZoomStop<T> => ({ zoom, value })
+const timeStop = <T>(timeMs: number, value: T): TimeStop<T> => ({ timeMs, value })
 
 describe('deps — bitset constants', () => {
   it('NONE is zero', () => {

@@ -3,7 +3,14 @@
 
 import { describe, it, expect } from 'vitest'
 import { foldTrivialCasePass } from './fold-trivial-case'
-import type { Scene, RenderNode, ColorValue, OpacityValue, SizeValue, StrokeWidthValue } from '../render-node'
+import type {
+  Scene,
+  RenderNode,
+  ColorValue,
+  OpacityValue,
+  SizeValue,
+  StrokeWidthValue,
+} from '../render-node'
 import type * as AST from '../../parser/ast'
 
 function matchAst(armValues: AST.Expr[]): AST.Expr {
@@ -13,7 +20,10 @@ function matchAst(armValues: AST.Expr[]): AST.Expr {
     args: [],
     matchBlock: {
       kind: 'MatchBlock',
-      arms: armValues.map((v, i) => ({ pattern: i === armValues.length - 1 ? '_' : `p${i}`, value: v })),
+      arms: armValues.map((v, i) => ({
+        pattern: i === armValues.length - 1 ? '_' : `p${i}`,
+        value: v,
+      })),
     },
   } as AST.Expr
 }
@@ -125,7 +135,9 @@ describe('fold-trivial-case — stroke width match', () => {
       kind: 'data-driven',
       expr: { ast: matchAst([NUM_5, NUM_5]) },
     }
-    const out = foldTrivialCasePass.run(sceneOf([makeNode({ stroke: { color: { kind: 'constant', rgba: [0, 0, 0, 1] }, width } })]))
+    const out = foldTrivialCasePass.run(
+      sceneOf([makeNode({ stroke: { color: { kind: 'constant', rgba: [0, 0, 0, 1] }, width } })]),
+    )
     expect(out.renderNodes[0]!.stroke.width.kind).toBe('constant')
     expect((out.renderNodes[0]!.stroke.width as { value: number }).value).toBe(5)
   })
@@ -154,9 +166,7 @@ describe('fold-trivial-case — identity preservation', () => {
 describe('fold-trivial-case — pass metadata', () => {
   it('declares the right name and depends on merge-layers + fold-trivial-stops', () => {
     expect(foldTrivialCasePass.name).toBe('fold-trivial-case')
-    expect(foldTrivialCasePass.dependencies).toEqual([
-      'merge-layers', 'fold-trivial-stops',
-    ])
+    expect(foldTrivialCasePass.dependencies).toEqual(['merge-layers', 'fold-trivial-stops'])
   })
 })
 

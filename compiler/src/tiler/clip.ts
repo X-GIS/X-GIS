@@ -39,11 +39,11 @@ export function clipPolygonToRect(
 
   for (const ring of rings) {
     let clipped = ring
-    clipped = clipRingToEdge(clipped, west, 0, true, precision)   // keep lon >= west
+    clipped = clipRingToEdge(clipped, west, 0, true, precision) // keep lon >= west
     if (clipped.length < 3) continue
-    clipped = clipRingToEdge(clipped, east, 0, false, precision)  // keep lon <= east
+    clipped = clipRingToEdge(clipped, east, 0, false, precision) // keep lon <= east
     if (clipped.length < 3) continue
-    clipped = clipRingToEdge(clipped, south, 1, true, precision)  // keep lat >= south
+    clipped = clipRingToEdge(clipped, south, 1, true, precision) // keep lat >= south
     if (clipped.length < 3) continue
     clipped = clipRingToEdge(clipped, north, 1, false, precision) // keep lat <= north
     if (clipped.length < 3) continue
@@ -85,26 +85,28 @@ export function splitBoundaryBacktracks(
   // can match two edges; we prefer the edge whose tag the SEGMENT
   // (both endpoints) shares, so corner ambiguity is resolved by the
   // segment-classification step below.
-  const onEdges = (p: number[]): Array<'E'|'W'|'N'|'S'> => {
-    const out: Array<'E'|'W'|'N'|'S'> = []
-    if (Math.abs(p[0]! - east)  < eps) out.push('E')
-    if (Math.abs(p[0]! - west)  < eps) out.push('W')
+  const onEdges = (p: number[]): Array<'E' | 'W' | 'N' | 'S'> => {
+    const out: Array<'E' | 'W' | 'N' | 'S'> = []
+    if (Math.abs(p[0]! - east) < eps) out.push('E')
+    if (Math.abs(p[0]! - west) < eps) out.push('W')
     if (Math.abs(p[1]! - north) < eps) out.push('N')
     if (Math.abs(p[1]! - south) < eps) out.push('S')
     return out
   }
 
-  type BSeg = { i: number; edge: 'E'|'W'|'N'|'S'; pStart: number; pEnd: number }
+  type BSeg = { i: number; edge: 'E' | 'W' | 'N' | 'S'; pStart: number; pEnd: number }
   const segs: BSeg[] = []
   for (let i = 0; i < n; i++) {
-    const a = ring[i]!, b = ring[(i + 1) % n]!
-    const ea = onEdges(a), eb = onEdges(b)
+    const a = ring[i]!,
+      b = ring[(i + 1) % n]!
+    const ea = onEdges(a),
+      eb = onEdges(b)
     // The segment lies on an edge iff both endpoints share that tag.
     for (const tag of ea) {
       if (eb.includes(tag)) {
         const param = tag === 'E' || tag === 'W' ? 1 : 0
         segs.push({ i, edge: tag, pStart: a[param]!, pEnd: b[param]! })
-        break  // one segment can match at most one shared edge tag
+        break // one segment can match at most one shared edge tag
       }
     }
   }
@@ -112,13 +114,16 @@ export function splitBoundaryBacktracks(
   // Find the first opposing-direction pair with parameter overlap.
   for (let i1 = 0; i1 < segs.length; i1++) {
     for (let i2 = i1 + 1; i2 < segs.length; i2++) {
-      const s1 = segs[i1]!, s2 = segs[i2]!
+      const s1 = segs[i1]!,
+        s2 = segs[i2]!
       if (s1.edge !== s2.edge) continue
       const d1 = Math.sign(s1.pEnd - s1.pStart)
       const d2 = Math.sign(s2.pEnd - s2.pStart)
       if (d1 === 0 || d2 === 0 || d1 === d2) continue
-      const lo1 = Math.min(s1.pStart, s1.pEnd), hi1 = Math.max(s1.pStart, s1.pEnd)
-      const lo2 = Math.min(s2.pStart, s2.pEnd), hi2 = Math.max(s2.pStart, s2.pEnd)
+      const lo1 = Math.min(s1.pStart, s1.pEnd),
+        hi1 = Math.max(s1.pStart, s1.pEnd)
+      const lo2 = Math.min(s2.pStart, s2.pEnd),
+        hi2 = Math.max(s2.pStart, s2.pEnd)
       if (Math.max(lo1, lo2) >= Math.min(hi1, hi2) - eps) continue
 
       // Back-track confirmed at segments s1 (ring[s1.i..s1.i+1]) and
@@ -134,8 +139,10 @@ export function splitBoundaryBacktracks(
       for (let j = 0; j <= s1.i; j++) outer.push(ring[j]!)
       for (let j = s2.i + 1; j < n; j++) outer.push(ring[j]!)
 
-      const outerOut = outer.length >= 3 ? splitBoundaryBacktracks(outer, west, south, east, north, eps) : []
-      const innerOut = inner.length >= 3 ? splitBoundaryBacktracks(inner, west, south, east, north, eps) : []
+      const outerOut =
+        outer.length >= 3 ? splitBoundaryBacktracks(outer, west, south, east, north, eps) : []
+      const innerOut =
+        inner.length >= 3 ? splitBoundaryBacktracks(inner, west, south, east, north, eps) : []
       return [...outerOut, ...innerOut]
     }
   }
@@ -325,7 +332,13 @@ function snapToGrid(v: number, precision: number): number {
  *  along the tile boundary (#360 land outline). Clamping keeps the snapped
  *  corner on the rect; adjacent tiles share the segment so the clamp is
  *  identical on both sides → seam consistency is preserved. */
-function intersect(a: number[], b: number[], value: number, axis: 0 | 1, precision?: number): number[] {
+function intersect(
+  a: number[],
+  b: number[],
+  value: number,
+  axis: 0 | 1,
+  precision?: number,
+): number[] {
   const t = (value - a[axis]) / (b[axis] - a[axis])
   const other = a[1 - axis] + t * (b[1 - axis] - a[1 - axis])
   let snapped = other
@@ -365,7 +378,10 @@ export function clipLineToRect(
       } else {
         // Check if this segment continues from the previous
         const last = current[current.length - 1]
-        if (Math.abs(last[0] - clipped[0][0]) < 1e-10 && Math.abs(last[1] - clipped[0][1]) < 1e-10) {
+        if (
+          Math.abs(last[0] - clipped[0][0]) < 1e-10 &&
+          Math.abs(last[1] - clipped[0][1]) < 1e-10
+        ) {
           current.push(clipped[1])
         } else {
           // Discontinuity — start new segment
@@ -456,14 +472,26 @@ function clipSegment(
   // between adjacent tiles.
   if (a.length >= 7 && b.length >= 7) {
     if (tMin < 1e-10) {
-      p0[3] = a[3]; p0[4] = a[4]; p0[5] = a[5]; p0[6] = a[6]
+      p0[3] = a[3]
+      p0[4] = a[4]
+      p0[5] = a[5]
+      p0[6] = a[6]
     } else {
-      p0[3] = 0; p0[4] = 0; p0[5] = 0; p0[6] = 0
+      p0[3] = 0
+      p0[4] = 0
+      p0[5] = 0
+      p0[6] = 0
     }
     if (tMax > 1 - 1e-10) {
-      p1[3] = b[3]; p1[4] = b[4]; p1[5] = b[5]; p1[6] = b[6]
+      p1[3] = b[3]
+      p1[4] = b[4]
+      p1[5] = b[5]
+      p1[6] = b[6]
     } else {
-      p1[3] = 0; p1[4] = 0; p1[5] = 0; p1[6] = 0
+      p1[3] = 0
+      p1[4] = 0
+      p1[5] = 0
+      p1[6] = 0
     }
   }
 

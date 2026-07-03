@@ -5,10 +5,7 @@
 import type { Scene, RenderNode, ColorValue, TimeStop, Easing, DataExpr } from './render-node'
 import { rgbaToHex } from './render-node'
 import type { PaintShapes, PropertyShape } from './property-types'
-import {
-  colorValueToShape,
-  sizeValueToShape,
-} from './to-property-shape'
+import { colorValueToShape, sizeValueToShape } from './to-property-shape'
 import { generateShaderVariant, type ShaderVariant } from '../codegen/shader-gen'
 import { collectPalette, type Palette } from '../codegen/palette'
 import { planComputeKernels, type ComputePlanEntry } from '../codegen/compute-plan'
@@ -383,7 +380,7 @@ export interface EmitOptions {
 }
 
 export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
-  const loads: LoadCommand[] = scene.sources.map(src => ({
+  const loads: LoadCommand[] = scene.sources.map((src) => ({
     name: src.name,
     url: src.url,
     type: src.type,
@@ -458,7 +455,10 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
   }
 
   return {
-    loads, shows, symbols: scene.symbols, palette,
+    loads,
+    shows,
+    symbols: scene.symbols,
+    palette,
     ...(computePlan.length > 0 ? { computePlan } : {}),
   }
 }
@@ -538,7 +538,10 @@ function emitShow(
     geometryExpr: node.geometry,
     minzoom: node.minzoom,
     maxzoom: node.maxzoom,
-    sizeUnit: (node.size.kind === 'constant' || node.size.kind === 'data-driven') ? (node.size.unit ?? null) : null,
+    sizeUnit:
+      node.size.kind === 'constant' || node.size.kind === 'data-driven'
+        ? (node.size.unit ?? null)
+        : null,
     sizeExpr: node.size.kind === 'data-driven' ? node.size.expr : null,
     billboard: node.billboard,
     anchor: node.anchor,

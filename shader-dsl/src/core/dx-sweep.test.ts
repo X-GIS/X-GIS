@@ -1,8 +1,26 @@
 import { describe, it, expect } from 'vitest'
 import {
-  fn, module, f32, u32, vec3, vec4, Var, Let, matchExpr, lift,
-  f32T, u32T, vec2fT, vec3fT, vec4fT, texture2dfT, samplerT,
-  dot, length, smoothstep, textureSample,
+  fn,
+  module,
+  f32,
+  u32,
+  vec3,
+  vec4,
+  Var,
+  Let,
+  matchExpr,
+  lift,
+  f32T,
+  u32T,
+  vec2fT,
+  vec3fT,
+  vec4fT,
+  texture2dfT,
+  samplerT,
+  dot,
+  length,
+  smoothstep,
+  textureSample,
   type ReadonlyNode,
 } from './ir'
 import { structDecl, uniformStruct, arrayOf, resource } from './sot'
@@ -85,9 +103,13 @@ describe('#763 X — type-surface sweep', () => {
   })
 
   it('X11: arrayOf(vec4fT, n) uniform fields expose a typed .at(i)', () => {
-    const U = uniformStruct('X11U', { group: 0, binding: 0, as: 'xu11' }, {
-      dash: arrayOf(vec4fT, 2),
-    })
+    const U = uniformStruct(
+      'X11U',
+      { group: 0, binding: 0, as: 'xu11' },
+      {
+        dash: arrayOf(vec4fT, 2),
+      },
+    )
     expect(U.struct.fields[0]!.type).toEqual({ kind: 'array', elem: vec4fT, size: 2 })
     const g = fn('x11', {}, () => U.field.dash.at(1).x)
     const w = emitModule(module({ structs: [U.struct], bindings: [U.binding], funcs: { g } }))
@@ -110,7 +132,15 @@ describe('#763 X — type-surface sweep', () => {
 
   it('X17: matchExpr accepts thunk arms (the when/matchEnum symmetry)', () => {
     const g = fn('x17', { k: u32T }, ({ k }) =>
-      matchExpr(k, [[0, () => f32(1)], [1, f32(2)]], () => f32(9)))
+      matchExpr(
+        k,
+        [
+          [0, () => f32(1)],
+          [1, f32(2)],
+        ],
+        () => f32(9),
+      ),
+    )
     const w = emitF(g)
     expect(w).toContain('switch')
   })

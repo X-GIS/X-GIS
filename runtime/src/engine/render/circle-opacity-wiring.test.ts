@@ -33,13 +33,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<GPUContext> {
   const canvas = { width: 1024, height: 768 } as unknown as HTMLCanvasElement
@@ -71,14 +76,27 @@ function capturedFeatData(ctx: GPUContext, opacity: number): Float32Array | unde
   const device = ctx.device as unknown as {
     queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer) => void }
   }
-  device.queue.writeBuffer = (buf: unknown, _off: number, data: ArrayBufferView | ArrayBuffer): void => {
+  device.queue.writeBuffer = (
+    buf: unknown,
+    _off: number,
+    data: ArrayBufferView | ArrayBuffer,
+  ): void => {
     if ((buf as { size?: number })?.size !== FEAT_BYTES) return
-    feat = data instanceof ArrayBuffer
-      ? new Float32Array(data)
-      : new Float32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset, STRIDE)
+    feat =
+      data instanceof ArrayBuffer
+        ? new Float32Array(data)
+        : new Float32Array(
+            (data as ArrayBufferView).buffer,
+            (data as ArrayBufferView).byteOffset,
+            STRIDE,
+          )
   }
 
-  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
+  const renderer = new PointRenderer({
+    device: ctx.device,
+    format: ctx.format,
+    rhi: new WebGpuDevice(ctx.device),
+  })
   // addLayer(features, fill, stroke, strokeWidth, radiusPx, opacity, …)
   renderer.addLayer(FEATURES as never, FILL, STROKE, STROKE_WIDTH, RADIUS_PX, opacity)
   return feat

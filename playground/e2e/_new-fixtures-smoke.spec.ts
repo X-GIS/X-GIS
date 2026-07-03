@@ -24,7 +24,8 @@ for (const id of NEW_FIXTURES) {
     await page.goto(`/demo.html?id=${id}&e2e=1`, { waitUntil: 'domcontentloaded' })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 15_000 },
+      null,
+      { timeout: 15_000 },
     )
     // Let the render loop tick once more so anything from the first
     // frame is definitely on the compositor before we screenshot.
@@ -37,10 +38,11 @@ for (const id of NEW_FIXTURES) {
     // pixels in the canvas region.
     const png = await page.locator('#map').screenshot()
     const painted = await page.evaluate(async (b64) => {
-      const blob = await fetch(`data:image/png;base64,${b64}`).then(r => r.blob())
+      const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())
       const bmp = await createImageBitmap(blob)
       const c = document.createElement('canvas')
-      c.width = bmp.width; c.height = bmp.height
+      c.width = bmp.width
+      c.height = bmp.height
       const ctx2 = c.getContext('2d')!
       ctx2.drawImage(bmp, 0, 0)
       const d = ctx2.getImageData(0, 0, bmp.width, bmp.height).data
@@ -53,7 +55,7 @@ for (const id of NEW_FIXTURES) {
     // Filter out the "404 countries-sample.geojson" style errors that
     // some fixtures legitimately produce when their inline data path
     // doesn't resolve — not a regression of the fixture itself.
-    const realErrors = errors.filter(e => !/404|countries-sample|Failed to load/.test(e))
+    const realErrors = errors.filter((e) => !/404|countries-sample|Failed to load/.test(e))
     expect(realErrors, `errors: ${realErrors.join(' | ')}`).toHaveLength(0)
     expect(painted, 'canvas should paint non-background pixels').toBeGreaterThan(100)
   })

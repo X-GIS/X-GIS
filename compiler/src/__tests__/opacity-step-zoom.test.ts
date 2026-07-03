@@ -54,7 +54,7 @@ describe('step(zoom, …) opacity — issue #607 v2', () => {
     const node = nodeFor('opacity-[step(zoom, 1, 7, 0)]')
     if (node.opacity.kind !== 'zoom-interpolated') throw new Error('expected zoom-interpolated')
     // The stop just before z7 must have value 1.0 (fully visible below z7).
-    const belowStop = node.opacity.stops.find(s => s.zoom < 7)
+    const belowStop = node.opacity.stops.find((s) => s.zoom < 7)
     expect(belowStop).toBeDefined()
     expect(belowStop!.value).toBeCloseTo(1.0, 3)
   })
@@ -66,11 +66,11 @@ describe('step(zoom, …) opacity — issue #607 v2', () => {
     const node = nodeFor('opacity-[step(zoom, 1, 7, 0)]')
     if (node.opacity.kind !== 'zoom-interpolated') throw new Error('expected zoom-interpolated')
     // The stop AT z7 must have value 0.0 (hidden at and above z7).
-    const atStop = node.opacity.stops.find(s => Math.abs(s.zoom - 7) < 1e-9)
+    const atStop = node.opacity.stops.find((s) => Math.abs(s.zoom - 7) < 1e-9)
     expect(atStop).toBeDefined()
     expect(atStop!.value).toBeCloseTo(0.0, 3)
     // And all stops with zoom >= 7 must also be 0.0.
-    const aboveStops = node.opacity.stops.filter(s => s.zoom >= 7)
+    const aboveStops = node.opacity.stops.filter((s) => s.zoom >= 7)
     for (const s of aboveStops) {
       expect(s.value).toBeCloseTo(0.0, 3)
     }
@@ -80,9 +80,9 @@ describe('step(zoom, …) opacity — issue #607 v2', () => {
     // Inverse pattern: hidden below z7, visible at and above.
     const node = nodeFor('opacity-[step(zoom, 0, 7, 1)]')
     if (node.opacity.kind !== 'zoom-interpolated') throw new Error('expected zoom-interpolated')
-    const belowStop = node.opacity.stops.find(s => s.zoom < 7)
+    const belowStop = node.opacity.stops.find((s) => s.zoom < 7)
     expect(belowStop!.value).toBeCloseTo(0.0, 3)
-    const atStop = node.opacity.stops.find(s => Math.abs(s.zoom - 7) < 1e-9)
+    const atStop = node.opacity.stops.find((s) => Math.abs(s.zoom - 7) < 1e-9)
     expect(atStop!.value).toBeCloseTo(1.0, 3)
   })
 

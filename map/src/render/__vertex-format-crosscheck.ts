@@ -6,7 +6,10 @@
 import type { VertexFormat } from '@xgis/compiler'
 
 /** Parse `@location(N) name: type` inputs a WGSL fn declares → location→type. */
-export function parseVertexFnParamTypes(shaderSrc: string, fnName: string): Map<number, string> | null {
+export function parseVertexFnParamTypes(
+  shaderSrc: string,
+  fnName: string,
+): Map<number, string> | null {
   const re = new RegExp(`fn ${fnName}\\s*\\(([\\s\\S]*?)\\)\\s*->`)
   const m = shaderSrc.match(re)
   if (!m) return null
@@ -21,14 +24,20 @@ export function parseVertexFnParamTypes(shaderSrc: string, fnName: string): Map<
  *  entry that consumes it: a field whose @location is missing or whose WGSL
  *  type differs, plus any shader location not present in the spec. Empty array
  *  == spec and shader agree exactly. The caller asserts `=== []`. */
-export function specShaderMismatches(fmt: VertexFormat, shaderSrc: string, fnName: string): string[] {
+export function specShaderMismatches(
+  fmt: VertexFormat,
+  shaderSrc: string,
+  fnName: string,
+): string[] {
   const shaderTypes = parseVertexFnParamTypes(shaderSrc, fnName)
   if (!shaderTypes) return [`WGSL fn ${fnName} not found in emit`]
   const issues: string[] = []
   for (const f of fmt.fields) {
     const got = shaderTypes.get(f.location)
     if (got !== f.wgslType) {
-      issues.push(`loc${f.location} (${f.name}): spec '${f.wgslType}' vs shader '${got ?? 'absent'}'`)
+      issues.push(
+        `loc${f.location} (${f.name}): spec '${f.wgslType}' vs shader '${got ?? 'absent'}'`,
+      )
     }
   }
   const specLocs = new Set(fmt.fields.map((f) => f.location))

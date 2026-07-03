@@ -8,32 +8,62 @@ import { getPROJECTION_MODULE } from './projections'
 // and correctness-preserving; correctness is pinned by oracle value-equality.
 describe('optimize — constant folding', () => {
   it('folds a literal-only binop: 2.0 * 3.0 -> 6.0', () => {
-    const m = module({ funcs: [fn('k', {}, f32T, (_p, b) => { b.ret(f32(2).mul(3)) })] })
+    const m = module({
+      funcs: [
+        fn('k', {}, f32T, (_p, b) => {
+          b.ret(f32(2).mul(3))
+        }),
+      ],
+    })
     const wgsl = emitModule(constFold(m))
     expect(wgsl).toContain('6.0')
     expect(wgsl).not.toMatch(/2\.0\s*\*\s*3\.0/)
   })
 
   it('folds nested literals: (2+3)*4 -> 20.0', () => {
-    const m = module({ funcs: [fn('k', {}, f32T, (_p, b) => { b.ret(f32(2).add(3).mul(4)) })] })
+    const m = module({
+      funcs: [
+        fn('k', {}, f32T, (_p, b) => {
+          b.ret(f32(2).add(3).mul(4))
+        }),
+      ],
+    })
     expect(emitModule(constFold(m))).toContain('20.0')
   })
 
   it('leaves a non-constant expr alone: x * 2 is preserved', () => {
-    const m = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => { b.ret(x.mul(2)) })] })
+    const m = module({
+      funcs: [
+        fn('k', { x: f32T }, f32T, ({ x }, b) => {
+          b.ret(x.mul(2))
+        }),
+      ],
+    })
     const wgsl = emitModule(constFold(m))
     expect(wgsl).toMatch(/x\s*\*\s*2\.0/)
   })
 
   it('preserves oracle value-equality (optimized == original)', () => {
-    const m = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => { b.ret(x.add(f32(2).mul(3))) })] })
+    const m = module({
+      funcs: [
+        fn('k', { x: f32T }, f32T, ({ x }, b) => {
+          b.ret(x.add(f32(2).mul(3)))
+        }),
+      ],
+    })
     const before = compileModule(m).fns.k(10)
     const after = compileModule(constFold(m)).fns.k(10)
     expect(after).toBe(before) // 10 + (2*3) = 16 both ways
   })
 
   it('optimize(m) runs the default pipeline (includes const-fold)', () => {
-    const m = module({ funcs: [fn('k', {}, f32T, (_p, b) => { b.ret(f32(2).mul(3)) })] })
+    const m = module({
+      funcs: [
+        fn('k', {}, f32T, (_p, b) => {
+          b.ret(f32(2).mul(3))
+        }),
+      ],
+    })
     expect(emitModule(optimize(m))).toContain('6.0')
   })
 
@@ -59,7 +89,9 @@ describe('optimize — constant folding', () => {
           const b = opt[f.name]!(...args)
           if (Array.isArray(a)) {
             expect((b as number[]).length, f.name).toBe(a.length)
-            a.forEach((v, i) => expect((b as number[])[i], `${f.name}[${i}] @ (${args.join(',')})`).toBe(v))
+            a.forEach((v, i) =>
+              expect((b as number[])[i], `${f.name}[${i}] @ (${args.join(',')})`).toBe(v),
+            )
           } else {
             expect(b, `${f.name} @ (${args.join(',')})`).toBe(a)
           }

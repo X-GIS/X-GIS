@@ -64,7 +64,7 @@ export function mercatorYToLat(y: number): number {
 export function lonLatToMercator(lon: number, lat: number): [number, number] {
   const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
   const x = lon * (Math.PI / 180) * EARTH_RADIUS
-  const y = Math.log(Math.tan(Math.PI / 4 + (clampedLat * Math.PI / 180) / 2)) * EARTH_RADIUS
+  const y = Math.log(Math.tan(Math.PI / 4 + (clampedLat * Math.PI) / 180 / 2)) * EARTH_RADIUS
   return [x, y]
 }
 
@@ -141,7 +141,9 @@ export function naturalEarth(centralLon = 0): Projection {
       const lat4 = lat2 * lat2
       const lat6 = lat2 * lat4
       const xScale = 0.8707 - 0.131979 * lat2 + 0.013791 * lat4 - 0.0081435 * lat6
-      const yVal = latR * (1.007226 + lat2 * (0.015085 + lat2 * (-0.044475 + 0.028874 * lat2 - 0.005916 * lat4)))
+      const yVal =
+        latR *
+        (1.007226 + lat2 * (0.015085 + lat2 * (-0.044475 + 0.028874 * lat2 - 0.005916 * lat4)))
       return [wrapLonDelta(lon - centralLon) * DEG2RAD * xScale * EARTH_RADIUS, yVal * EARTH_RADIUS]
     },
 
@@ -154,7 +156,8 @@ export function naturalEarth(centralLon = 0): Projection {
         const t4 = t2 * t2
         const t6 = t2 * t4
         const t8 = t4 * t4
-        const yVal = t * (1.007226 + t2 * (0.015085 + t2 * (-0.044475 + 0.028874 * t2 - 0.005916 * t4)))
+        const yVal =
+          t * (1.007226 + t2 * (0.015085 + t2 * (-0.044475 + 0.028874 * t2 - 0.005916 * t4)))
         const f = yVal - goalY
         const dy = 1.007226 + 0.045255 * t2 - 0.222375 * t4 + 0.202118 * t6 - 0.053244 * t8
         if (Math.abs(dy) < 1e-10) break
@@ -196,7 +199,8 @@ export function orthographic(centerLon: number, centerLat: number): Projection {
       if (cosC < 0) return [NaN, NaN]
 
       const x = EARTH_RADIUS * Math.cos(phi) * Math.sin(lam - lam0)
-      const y = EARTH_RADIUS * (cosPhi0 * Math.sin(phi) - sinPhi0 * Math.cos(phi) * Math.cos(lam - lam0))
+      const y =
+        EARTH_RADIUS * (cosPhi0 * Math.sin(phi) - sinPhi0 * Math.cos(phi) * Math.cos(lam - lam0))
       return [x, y]
     },
 
@@ -236,7 +240,10 @@ export function azimuthalEquidistant(centerLon: number, centerLat: number): Proj
       if (c < 0.0001) return [0, 0]
       const k = c / Math.sin(c)
       const x = EARTH_RADIUS * k * Math.cos(phi) * Math.sin(lam - lam0)
-      const y = EARTH_RADIUS * k * (cosPhi0 * Math.sin(phi) - sinPhi0 * Math.cos(phi) * Math.cos(lam - lam0))
+      const y =
+        EARTH_RADIUS *
+        k *
+        (cosPhi0 * Math.sin(phi) - sinPhi0 * Math.cos(phi) * Math.cos(lam - lam0))
       return [x, y]
     },
 
@@ -271,7 +278,10 @@ export function stereographic(centerLon: number, centerLat: number): Projection 
       if (cosC < -0.9) return [NaN, NaN]
       const k = 2.0 / (1.0 + cosC)
       const x = EARTH_RADIUS * k * Math.cos(phi) * Math.sin(lam - lam0)
-      const y = EARTH_RADIUS * k * (cosPhi0 * Math.sin(phi) - sinPhi0 * Math.cos(phi) * Math.cos(lam - lam0))
+      const y =
+        EARTH_RADIUS *
+        k *
+        (cosPhi0 * Math.sin(phi) - sinPhi0 * Math.cos(phi) * Math.cos(lam - lam0))
       return [x, y]
     },
 
@@ -304,9 +314,12 @@ export function obliqueMercator(centerLon: number, centerLat: number): Projectio
       const phi = lat * DEG2RAD
       const dLam = lam - lam0
       // Rotated latitude: tilt sphere so (centerLon, centerLat) sits on the equator.
-      const phiRot = Math.asin(Math.max(-1, Math.min(1,
-        Math.sin(phi) * cosPhi0 - Math.cos(phi) * sinPhi0 * Math.cos(dLam),
-      )))
+      const phiRot = Math.asin(
+        Math.max(
+          -1,
+          Math.min(1, Math.sin(phi) * cosPhi0 - Math.cos(phi) * sinPhi0 * Math.cos(dLam)),
+        ),
+      )
       // Rotated longitude in same frame.
       const lamRot = Math.atan2(
         Math.cos(phi) * Math.sin(dLam),
@@ -333,13 +346,20 @@ export function obliqueMercator(centerLon: number, centerLat: number): Projectio
       // around the same axis).
       const phiRot = mercatorYToLatRad(y)
       const lamRot = x / EARTH_RADIUS
-      const lat = Math.asin(Math.max(-1, Math.min(1,
-        Math.sin(phiRot) * cosPhi0 + Math.cos(phiRot) * Math.cos(lamRot) * sinPhi0,
-      ))) * RAD2DEG
-      const lon = (lam0 + Math.atan2(
-        Math.cos(phiRot) * Math.sin(lamRot),
-        -Math.sin(phiRot) * sinPhi0 + Math.cos(phiRot) * Math.cos(lamRot) * cosPhi0,
-      )) * RAD2DEG
+      const lat =
+        Math.asin(
+          Math.max(
+            -1,
+            Math.min(1, Math.sin(phiRot) * cosPhi0 + Math.cos(phiRot) * Math.cos(lamRot) * sinPhi0),
+          ),
+        ) * RAD2DEG
+      const lon =
+        (lam0 +
+          Math.atan2(
+            Math.cos(phiRot) * Math.sin(lamRot),
+            -Math.sin(phiRot) * sinPhi0 + Math.cos(phiRot) * Math.cos(lamRot) * cosPhi0,
+          )) *
+        RAD2DEG
       return [lon, lat]
     },
   }
@@ -360,7 +380,9 @@ const PROJECTIONS: Record<string, Projection | ((...args: number[]) => Projectio
 export function getProjection(name: string, ...args: number[]): Projection {
   const proj = PROJECTIONS[name]
   if (!proj) {
-    throw new Error(`Unknown projection: ${name}. Available: ${Object.keys(PROJECTIONS).join(', ')}`)
+    throw new Error(
+      `Unknown projection: ${name}. Available: ${Object.keys(PROJECTIONS).join(', ')}`,
+    )
   }
   if (typeof proj === 'function') {
     return proj(...args)

@@ -41,20 +41,20 @@ sessionable phases.
 The sampled algorithm's per-sample work is independent —
 parallel-friendly. Port to WGSL compute:
 
-  - `src/engine/compute/gpu-tile-cull.ts`
-  - WGSL shader: reads camera MVP + viewport from uniform, reads
-    tile bbox storage buffer, writes "visible tile mask" storage
-    buffer.
-  - Dispatches one workgroup per tile chunk.
-  - CPU reads back the visible indices (async via `mapAsync`) OR
-    uses them with `drawIndexedIndirect` (no CPU round-trip).
+- `src/engine/compute/gpu-tile-cull.ts`
+- WGSL shader: reads camera MVP + viewport from uniform, reads
+  tile bbox storage buffer, writes "visible tile mask" storage
+  buffer.
+- Dispatches one workgroup per tile chunk.
+- CPU reads back the visible indices (async via `mapAsync`) OR
+  uses them with `drawIndexedIndirect` (no CPU round-trip).
 
 WebGPU-unique value:
 
-  * GPU-side culling — CPU is free for other work.
-  * Aspect-agnostic by construction (compute shader operates on
-    raw MVP math, no margin fudge).
-  * Sets up the Phase 4 indirect-draw architecture.
+- GPU-side culling — CPU is free for other work.
+- Aspect-agnostic by construction (compute shader operates on
+  raw MVP math, no margin fudge).
+- Sets up the Phase 4 indirect-draw architecture.
 
 ## Phase 4 — Indirect draw (1 session)
 
@@ -105,11 +105,11 @@ each raised new edge cases.
 The architectural end-state (Phases 3-6) structurally eliminates
 these bug classes:
 
-  * Frustum selection bugs → GPU compute is aspect-agnostic, no
-    margin heuristics (Phase 3).
-  * Upload budget bugs → buffer persistence + indirect draw
-    (Phase 6).
-  * Sub-tile scheduling bugs → compute parallelism (Phase 5).
+- Frustum selection bugs → GPU compute is aspect-agnostic, no
+  margin heuristics (Phase 3).
+- Upload budget bugs → buffer persistence + indirect draw
+  (Phase 6).
+- Sub-tile scheduling bugs → compute parallelism (Phase 5).
 
 Roughly 5-8 sessions of focused work. Each phase is independently
 shippable. The alternative (keep patching) has no endpoint.

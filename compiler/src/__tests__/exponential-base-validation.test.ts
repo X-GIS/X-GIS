@@ -20,87 +20,82 @@ describe('exponential base validation', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'line-color': '#fff',
-          'line-width': ['interpolate', ['exponential', 0], ['zoom'],
-            5, 1, 15, 8],
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'line-color': '#fff',
+            'line-width': ['interpolate', ['exponential', 0], ['zoom'], 5, 1, 15, 8],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s =>
-      s.includes('exponential')
-      && s.includes('must be > 0'),
-    )).toBe(true)
+    expect(w.some((s) => s.includes('exponential') && s.includes('must be > 0'))).toBe(true)
   })
 
   it('zoom-interp with base=-2 warns + falls back to linear', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'line-color': '#fff',
-          'line-width': ['interpolate', ['exponential', -2], ['zoom'],
-            5, 1, 15, 8],
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'line-color': '#fff',
+            'line-width': ['interpolate', ['exponential', -2], ['zoom'], 5, 1, 15, 8],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s =>
-      s.includes('exponential')
-      && s.includes('must be > 0'),
-    )).toBe(true)
+    expect(w.some((s) => s.includes('exponential') && s.includes('must be > 0'))).toBe(true)
   })
 
   it('data-driven with base=0 warns', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'circle',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'circle-color': '#000',
-          'circle-stroke-color': '#000',
-          'circle-stroke-width': 1,
-          'circle-radius': ['interpolate', ['exponential', 0], ['get', 'rank'],
-            0, 1, 10, 20],
+      layers: [
+        {
+          id: 'l',
+          type: 'circle',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'circle-color': '#000',
+            'circle-stroke-color': '#000',
+            'circle-stroke-width': 1,
+            'circle-radius': ['interpolate', ['exponential', 0], ['get', 'rank'], 0, 1, 10, 20],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s =>
-      s.includes('exponential')
-      && s.includes('must be > 0'),
-    )).toBe(true)
+    expect(w.some((s) => s.includes('exponential') && s.includes('must be > 0'))).toBe(true)
   })
 
   it('valid exponential base > 0 does NOT warn', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'line-color': '#fff',
-          'line-width': ['interpolate', ['exponential', 1.5], ['zoom'],
-            5, 1, 15, 8],
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'line-color': '#fff',
+            'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 5, 1, 15, 8],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('must be > 0'))).toBe(false)
+    expect(w.some((s) => s.includes('must be > 0'))).toBe(false)
   })
 
   it('base=1 (= linear collapse) does NOT warn', () => {
@@ -109,18 +104,19 @@ describe('exponential base validation', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'line-color': '#fff',
-          'line-width': ['interpolate', ['exponential', 1], ['zoom'],
-            5, 1, 15, 8],
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'line-color': '#fff',
+            'line-width': ['interpolate', ['exponential', 1], ['zoom'], 5, 1, 15, 8],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('must be > 0'))).toBe(false)
+    expect(w.some((s) => s.includes('must be > 0'))).toBe(false)
   })
 })

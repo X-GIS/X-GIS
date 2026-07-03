@@ -18,10 +18,6 @@
       "@xgis/shared": ["../shared/dist/index.d.ts"]
     }
   },
-  "references": [
-    { "path": "../engine" },
-    { "path": "../compiler" },
-    { "path": "../shared" }
-  ],
+  "references": [{ "path": "../engine" }, { "path": "../compiler" }, { "path": "../shared" }],
   "include": ["src/**/*.ts"]
 }

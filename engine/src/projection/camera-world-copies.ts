@@ -7,7 +7,12 @@
 // L0 module: imports only other L0 projection files (no upward edges).
 
 import { EARTH_R } from './globe'
-import { isGlobeProj, isMercatorProj, worldCopiesFor, enumerateWorldCopies } from './projections-table'
+import {
+  isGlobeProj,
+  isMercatorProj,
+  worldCopiesFor,
+  enumerateWorldCopies,
+} from './projections-table'
 
 /** Mutable cache object owned by the caller (Camera). Passed by reference so
  *  the pure function can read + update the hit/miss state without keeping its
@@ -69,9 +74,7 @@ export function computeVisibleWorldCopies(
   // corner-unprojection path below; azimuthal/globe (3/4/5/7) return [0] via
   // enumerateWorldCopies(periodic=false).
   if (!isMercatorProj(cam.projType)) {
-    return enumerateWorldCopies(cam.projType, cam.zoom)
-      ? worldCopiesFor(cam.projType)
-      : [0]
+    return enumerateWorldCopies(cam.projType, cam.zoom) ? worldCopiesFor(cam.projType) : [0]
   }
   // Build matrix (also bumps the generation counter when matrix changed). Use
   // the post-build generation as a "matrix identity" hash for the cache — if
@@ -82,7 +85,8 @@ export function computeVisibleWorldCopies(
   // samples help when extreme pitch makes the canvas corners
   // project behind-camera (returns null) — at least one mid-edge
   // usually still hits the ground plane.
-  const w = canvasWidth, h = canvasHeight
+  const w = canvasWidth,
+    h = canvasHeight
   const samples: Array<[number, number] | null> = [
     cam.unprojectToZ0(0, 0, w, h, dpr),
     cam.unprojectToZ0(w, 0, w, h, dpr),
@@ -96,7 +100,8 @@ export function computeVisibleWorldCopies(
   ]
   const R = EARTH_R
   const DEG_PER_M = 180 / Math.PI / R
-  let lonMin = Infinity, lonMax = -Infinity
+  let lonMin = Infinity,
+    lonMax = -Infinity
   for (const s of samples) {
     if (!s) continue
     const absMercX = s[0] + cam.centerX

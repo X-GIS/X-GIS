@@ -28,15 +28,19 @@ function makeCam(zoom: number, pitch: number, lon = 0, lat = 0, bearing = 0): Ca
 
 function tileContains(t: { z: number; x: number; y: number }, lon: number, lat: number): boolean {
   const n = Math.pow(2, t.z)
-  const tLonW = t.x / n * 360 - 180
-  const tLonE = (t.x + 1) / n * 360 - 180
-  const tLatN = Math.atan(Math.sinh(Math.PI * (1 - 2 * t.y / n))) * 180 / Math.PI
-  const tLatS = Math.atan(Math.sinh(Math.PI * (1 - 2 * (t.y + 1) / n))) * 180 / Math.PI
+  const tLonW = (t.x / n) * 360 - 180
+  const tLonE = ((t.x + 1) / n) * 360 - 180
+  const tLatN = (Math.atan(Math.sinh(Math.PI * (1 - (2 * t.y) / n))) * 180) / Math.PI
+  const tLatS = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (t.y + 1)) / n))) * 180) / Math.PI
   return lon >= tLonW && lon < tLonE && lat >= tLatS && lat < tLatN
 }
 
-function anyTileCovers(tiles: Array<{ z: number; x: number; y: number }>, lon: number, lat: number): boolean {
-  return tiles.some(t => tileContains(t, lon, lat))
+function anyTileCovers(
+  tiles: Array<{ z: number; x: number; y: number }>,
+  lon: number,
+  lat: number,
+): boolean {
+  return tiles.some((t) => tileContains(t, lon, lat))
 }
 
 // ═══ Inclusion oracles: tiles that MUST be loaded ═══
@@ -78,10 +82,9 @@ describe('Animation: pan (tiles follow the camera across the world)', () => {
       for (let lon = -150; lon <= 150; lon += 30) {
         const cam = makeCam(6, 0, lon, lat)
         const tiles = visibleTilesFrustum(cam, mercator, 6, W, H)
-        expect(
-          anyTileCovers(tiles, lon, lat),
-          `pan state (${lon}, ${lat}): camera uncovered`,
-        ).toBe(true)
+        expect(anyTileCovers(tiles, lon, lat), `pan state (${lon}, ${lat}): camera uncovered`).toBe(
+          true,
+        )
       }
     }
   })
@@ -90,10 +93,7 @@ describe('Animation: pan (tiles follow the camera across the world)', () => {
     for (let bearing = 0; bearing < 360; bearing += 30) {
       const cam = makeCam(8, 30, 10, 50, bearing)
       const tiles = visibleTilesFrustum(cam, mercator, 8, W, H)
-      expect(
-        anyTileCovers(tiles, 10, 50),
-        `bearing=${bearing}: center uncovered`,
-      ).toBe(true)
+      expect(anyTileCovers(tiles, 10, 50), `bearing=${bearing}: center uncovered`).toBe(true)
     }
   })
 })
@@ -114,27 +114,34 @@ describe('Animation: zoom + pitch combined (practical camera flights)', () => {
       const fracs = [0.25, 0.5, 0.75]
       let samplesChecked = 0
       let samplesCovered = 0
-      for (const fy of fracs) for (const fx of fracs) {
-        const rel = cam.unprojectToZ0(fx * W, fy * H, W, H)
-        if (!rel) continue
-        samplesChecked++
-        const mx = cam.centerX + rel[0]
-        const my = cam.centerY + rel[1]
-        const lon = (mx / R) / DEG2RAD
-        const lat = (2 * Math.atan(Math.exp(my / R)) - Math.PI / 2) / DEG2RAD
-        if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
+      for (const fy of fracs)
+        for (const fx of fracs) {
+          const rel = cam.unprojectToZ0(fx * W, fy * H, W, H)
+          if (!rel) continue
+          samplesChecked++
+          const mx = cam.centerX + rel[0]
+          const my = cam.centerY + rel[1]
+          const lon = mx / R / DEG2RAD
+          const lat = (2 * Math.atan(Math.exp(my / R)) - Math.PI / 2) / DEG2RAD
+          if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
 
-        // Walk the quadtree for a covering tile at any zoom.
-        let covered = false
-        for (let tz = Math.round(zoom); tz >= 0; tz--) {
-          const n = Math.pow(2, tz)
-          const tx = Math.floor((lon + 180) / 360 * n)
-          const clampedLat = Math.max(-85.051129, Math.min(85.051129, lat))
-          const ty = Math.floor((1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) / Math.PI) / 2 * n)
-          if (tiles.some(t => t.z === tz && t.x === tx && t.y === ty)) { covered = true; break }
+          // Walk the quadtree for a covering tile at any zoom.
+          let covered = false
+          for (let tz = Math.round(zoom); tz >= 0; tz--) {
+            const n = Math.pow(2, tz)
+            const tx = Math.floor(((lon + 180) / 360) * n)
+            const clampedLat = Math.max(-85.051129, Math.min(85.051129, lat))
+            const ty = Math.floor(
+              ((1 - Math.log(Math.tan(Math.PI / 4 + (clampedLat * DEG2RAD) / 2)) / Math.PI) / 2) *
+                n,
+            )
+            if (tiles.some((t) => t.z === tz && t.x === tx && t.y === ty)) {
+              covered = true
+              break
+            }
+          }
+          if (covered) samplesCovered++
         }
-        if (covered) samplesCovered++
-      }
       // Require at least half of the checked samples to be covered
       // (some horizon-adjacent samples may legitimately miss due to
       // frustum margin).
@@ -232,18 +239,19 @@ describe('Animation continuity: neighboring frames share central coverage', () =
     const fracs = [0.3, 0.4, 0.5, 0.6, 0.7]
     let both = 0
     let sampled = 0
-    for (const fy of fracs) for (const fx of fracs) {
-      const rel1 = cam1.unprojectToZ0(fx * W, fy * H, W, H)
-      const rel2 = cam2.unprojectToZ0(fx * W, fy * H, W, H)
-      if (!rel1 || !rel2) continue
-      const lon1 = ((cam1.centerX + rel1[0]) / R) / DEG2RAD
-      const lat1 = (2 * Math.atan(Math.exp((cam1.centerY + rel1[1]) / R)) - Math.PI / 2) / DEG2RAD
-      const lon2 = ((cam2.centerX + rel2[0]) / R) / DEG2RAD
-      const lat2 = (2 * Math.atan(Math.exp((cam2.centerY + rel2[1]) / R)) - Math.PI / 2) / DEG2RAD
-      if (!Number.isFinite(lon1 + lat1 + lon2 + lat2)) continue
-      sampled++
-      if (anyTileCovers(prevTiles, lon1, lat1) && anyTileCovers(nextTiles, lon2, lat2)) both++
-    }
+    for (const fy of fracs)
+      for (const fx of fracs) {
+        const rel1 = cam1.unprojectToZ0(fx * W, fy * H, W, H)
+        const rel2 = cam2.unprojectToZ0(fx * W, fy * H, W, H)
+        if (!rel1 || !rel2) continue
+        const lon1 = (cam1.centerX + rel1[0]) / R / DEG2RAD
+        const lat1 = (2 * Math.atan(Math.exp((cam1.centerY + rel1[1]) / R)) - Math.PI / 2) / DEG2RAD
+        const lon2 = (cam2.centerX + rel2[0]) / R / DEG2RAD
+        const lat2 = (2 * Math.atan(Math.exp((cam2.centerY + rel2[1]) / R)) - Math.PI / 2) / DEG2RAD
+        if (!Number.isFinite(lon1 + lat1 + lon2 + lat2)) continue
+        sampled++
+        if (anyTileCovers(prevTiles, lon1, lat1) && anyTileCovers(nextTiles, lon2, lat2)) both++
+      }
     expect(both * 10).toBeGreaterThanOrEqual(sampled * 9)
   })
 })

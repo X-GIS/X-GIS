@@ -42,7 +42,7 @@ describe('firstIndexedAncestor', () => {
     // return z=5 (nearer) — if it returned z=0 we'd lose the higher-
     // resolution fallback and render blurrier tiles than necessary.
     const leaf = tileKey(20, 500000, 500000)
-    const z0Root = 0  // tileKey(0, 0, 0) === 0 per Morton encoding
+    const z0Root = 0 // tileKey(0, 0, 0) === 0 per Morton encoding
     let walk = leaf
     for (let i = 0; i < 15; i++) walk = tileKeyParent(walk)
     const z5 = walk
@@ -77,7 +77,10 @@ describe('firstIndexedAncestor', () => {
       for (let dy = 0; dy < 4; dy++) {
         const leaf = tileKey(20, (parentX << DEPTH) + dx, (parentY << DEPTH) + dy)
         const found = firstIndexedAncestor(leaf, (k) => k === indexedParent)
-        if (found !== indexedParent) { allResolve = false; break }
+        if (found !== indexedParent) {
+          allResolve = false
+          break
+        }
       }
       if (!allResolve) break
     }

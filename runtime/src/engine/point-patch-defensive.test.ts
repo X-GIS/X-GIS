@@ -8,18 +8,21 @@ import { pointPatchToFeatureCollection } from '@xgis/data'
 
 describe('pointPatchToFeatureCollection defensive guards', () => {
   it('null data throws clear error', () => {
-    expect(() => pointPatchToFeatureCollection(null as never))
-      .toThrow(/data must be \{ lon: ArrayLike<number>, lat: ArrayLike<number>/)
+    expect(() => pointPatchToFeatureCollection(null as never)).toThrow(
+      /data must be \{ lon: ArrayLike<number>, lat: ArrayLike<number>/,
+    )
   })
 
   it('missing lon throws clear error', () => {
-    expect(() => pointPatchToFeatureCollection({ lat: [1] } as never))
-      .toThrow(/data must be \{ lon:/)
+    expect(() => pointPatchToFeatureCollection({ lat: [1] } as never)).toThrow(
+      /data must be \{ lon:/,
+    )
   })
 
   it('missing lat throws clear error', () => {
-    expect(() => pointPatchToFeatureCollection({ lon: [1] } as never))
-      .toThrow(/data must be \{ lon: ArrayLike<number>, lat:/)
+    expect(() => pointPatchToFeatureCollection({ lon: [1] } as never)).toThrow(
+      /data must be \{ lon: ArrayLike<number>, lat:/,
+    )
   })
 
   it('empty arrays produce empty FeatureCollection (regression guard)', () => {

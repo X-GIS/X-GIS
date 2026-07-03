@@ -192,9 +192,13 @@ export function convertMapboxStyle(
   // else → loud warning.
   const styleVer = styleAny.version
   if (styleVer === undefined || styleVer === null) {
-    warnings.push(`Style is missing top-level "version" field — Mapbox spec requires version: 8; converter assumed v8 schema.`)
+    warnings.push(
+      `Style is missing top-level "version" field — Mapbox spec requires version: 8; converter assumed v8 schema.`,
+    )
   } else if (styleVer !== 8) {
-    warnings.push(`Style declares version: ${JSON.stringify(styleVer).slice(0, 40)} — only Mapbox style v8 is supported; conversion output may be partial / wrong.`)
+    warnings.push(
+      `Style declares version: ${JSON.stringify(styleVer).slice(0, 40)} — only Mapbox style v8 is supported; conversion output may be partial / wrong.`,
+    )
   }
 
   const topLevelGaps: string[] = []
@@ -222,10 +226,10 @@ export function convertMapboxStyle(
   // produce garbage entries (string iterates chars, array iterates
   // indices). Coerce to {} when malformed.
   const stylesSources = style.sources
-  const sourcesObj = stylesSources !== null && typeof stylesSources === 'object'
-    && !Array.isArray(stylesSources)
-    ? stylesSources
-    : {}
+  const sourcesObj =
+    stylesSources !== null && typeof stylesSources === 'object' && !Array.isArray(stylesSources)
+      ? stylesSources
+      : {}
   // Pre-walk: source minzoom > maxzoom inversion + out-of-range bounds.
   validateSourceZoom(sourcesObj as Record<string, unknown>, warnings)
 
@@ -266,10 +270,14 @@ export function convertMapboxStyle(
     if (dropUnusedSources && !referencedSourceIds.has(id)) {
       // Drop + warn. Type guard mirrors convertSource's null-tolerant
       // contract — a string `type` aids the diagnostic but isn't required.
-      const t = (src !== null && typeof src === 'object' && !Array.isArray(src))
-        ? (src as { type?: unknown }).type : undefined
+      const t =
+        src !== null && typeof src === 'object' && !Array.isArray(src)
+          ? (src as { type?: unknown }).type
+          : undefined
       const tStr = typeof t === 'string' ? ` (type=${t})` : ''
-      warnings.push(`Source "${id.slice(0, 60)}"${tStr} is declared but never referenced by any layer; dropped from emit (saves a tile fetch + IR slot). Layers may have been removed in the style but the source declaration was left behind.`)
+      warnings.push(
+        `Source "${id.slice(0, 60)}"${tStr} is declared but never referenced by any layer; dropped from emit (saves a tile fetch + IR slot). Layers may have been removed in the style but the source declaration was left behind.`,
+      )
       continue
     }
     const before = warnings.length
@@ -309,14 +317,18 @@ export function convertMapboxStyle(
     lines.push('')
     if (options?.coverage) {
       const reasons = warnings.slice(before)
-      const srcType = src !== null && typeof src === 'object' && !Array.isArray(src)
-        ? (src as { type?: string }).type
-        : undefined
+      const srcType =
+        src !== null && typeof src === 'object' && !Array.isArray(src)
+          ? (src as { type?: string }).type
+          : undefined
       options.coverage.sources.push({
         id,
         type: srcType as never,
-        action: block.includes('// SKIPPED') ? 'skipped'
-          : reasons.length > 0 ? 'lossy' : 'converted',
+        action: block.includes('// SKIPPED')
+          ? 'skipped'
+          : reasons.length > 0
+            ? 'lossy'
+            : 'converted',
         reasons,
       })
     }
@@ -333,7 +345,7 @@ export function convertMapboxStyle(
   // for...of. Coerce to [] when malformed.
   const layersArr = Array.isArray(style.layers) ? style.layers : []
   const bgLayer = layersArr.find(
-    l => l !== null && typeof l === 'object' && (l as { type?: unknown }).type === 'background',
+    (l) => l !== null && typeof l === 'object' && (l as { type?: unknown }).type === 'background',
   )
   if (bgLayer) {
     convertBackgroundLayer(bgLayer, lines, warnings, options?.coverage)
@@ -380,7 +392,9 @@ export function convertMapboxStyle(
         ? null
         : expandPerFeatureColorMatch(layer as MapboxLayer, warnings)
     } catch (e) {
-      warnings.push(`Layer "${(layer as { id?: unknown }).id ?? '<unknown>'}" expand-color-match threw: ${(e as Error).message}`)
+      warnings.push(
+        `Layer "${(layer as { id?: unknown }).id ?? '<unknown>'}" expand-color-match threw: ${(e as Error).message}`,
+      )
     }
     const sublayers = expanded ?? [layer as MapboxLayer]
     let anyEmitted = false
@@ -390,7 +404,9 @@ export function convertMapboxStyle(
       try {
         block = convertLayer(sub, warnings)
       } catch (e) {
-        warnings.push(`Layer "${(sub as { id?: unknown }).id ?? '<unknown>'}" conversion threw: ${(e as Error).message}`)
+        warnings.push(
+          `Layer "${(sub as { id?: unknown }).id ?? '<unknown>'}" conversion threw: ${(e as Error).message}`,
+        )
         // Sanitize newlines + carriage returns in the placeholder
         // comment — a `//` line comment terminates at newline, so an
         // id or throw-message containing `\n` would close the
@@ -414,8 +430,7 @@ export function convertMapboxStyle(
       options.coverage.layers.push({
         layerId: layer.id,
         type: layer.type,
-        action: isSkipped || anyLossy ? 'skipped'
-          : reasons.length > 0 ? 'lossy' : 'converted',
+        action: isSkipped || anyLossy ? 'skipped' : reasons.length > 0 ? 'lossy' : 'converted',
         reasons,
       })
     }

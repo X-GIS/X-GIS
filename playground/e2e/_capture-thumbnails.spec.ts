@@ -32,31 +32,67 @@ const __dirname_eq = dirname(__filename_eq)
 // no-cycle rule we intentionally maintain.)
 const GALLERY_DEMOS = [
   // Basics
-  'minimal', 'ocean_land', 'dark', 'styled_world', 'inline_data',
+  'minimal',
+  'ocean_land',
+  'dark',
+  'styled_world',
+  'inline_data',
   // PMTiles + MVT
-  'pmtiles_source', 'pmtiles_layered', 'osm_style', 'pmtiles_only_landuse', 'pmtiles_v4',
+  'pmtiles_source',
+  'pmtiles_layered',
+  'osm_style',
+  'pmtiles_only_landuse',
+  'pmtiles_v4',
   'openfreemap_bright',
   // Data-driven styling
-  'continent_match', 'continent_outlines', 'filter_gdp', 'gdp_gradient',
-  'income_match', 'population_gradient', 'megacities', 'categorical',
+  'continent_match',
+  'continent_outlines',
+  'filter_gdp',
+  'gdp_gradient',
+  'income_match',
+  'population_gradient',
+  'megacities',
+  'categorical',
   // Lines & strokes
-  'bold_borders', 'dashed_borders', 'dashed_lines', 'layered_borders',
-  'line_offset', 'line_styles', 'pattern_lines', 'stroke_align',
-  'translucent_lines', 'multi_layer_line',
+  'bold_borders',
+  'dashed_borders',
+  'dashed_lines',
+  'layered_borders',
+  'line_offset',
+  'line_styles',
+  'pattern_lines',
+  'stroke_align',
+  'translucent_lines',
+  'multi_layer_line',
   // Symbols & points
-  'custom_symbol', 'custom_shapes', 'gradient_points', 'populated_places',
-  'procedural_circles', 'sdf_points', 'shape_gallery', 'heatmap',
+  'custom_symbol',
+  'custom_shapes',
+  'gradient_points',
+  'populated_places',
+  'procedural_circles',
+  'sdf_points',
+  'shape_gallery',
+  'heatmap',
   // Animation
-  'animation_pulse', 'animation_showcase',
+  'animation_pulse',
+  'animation_showcase',
   // Zoom behavior
-  'zoom', 'zoom_lod',
+  'zoom',
+  'zoom_lod',
   // Interaction
   'picking_demo',
   // Raster basemaps
-  'raster', 'raster_overlay',
+  'raster',
+  'raster_overlay',
   // Geographic compositions
-  'physical_map', 'physical_map_10m', 'physical_map_50m', 'night_map',
-  'rivers_lakes', 'rivers_10m', 'states_provinces', 'coastline',
+  'physical_map',
+  'physical_map_10m',
+  'physical_map_50m',
+  'night_map',
+  'rivers_lakes',
+  'rivers_10m',
+  'states_provinces',
+  'coastline',
 ]
 
 // Resolve once so multiple specs running in parallel don't all do
@@ -108,20 +144,36 @@ test.describe('Capture demo thumbnails for site/examples gallery', () => {
       // empty. Wait for at least one VT source to report visible
       // tiles, then re-capture.
       if (id in HASH_OVERRIDE) {
-        await page.waitForFunction(
-          () => {
-            const m = (window as unknown as { __xgisMap?: { vtSources?: Map<string, { renderer: { getDrawStats?: () => { tilesVisible: number } } }> } }).__xgisMap
-            if (!m?.vtSources) return false
-            for (const s of m.vtSources.values()) {
-              const stats = s.renderer.getDrawStats?.()
-              if (stats && stats.tilesVisible > 0) return true
-            }
-            return false
-          },
-          null,
-          { timeout: 20_000 },
-        ).catch(() => { /* still emit whatever painted */ })
-        await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+        await page
+          .waitForFunction(
+            () => {
+              const m = (
+                window as unknown as {
+                  __xgisMap?: {
+                    vtSources?: Map<
+                      string,
+                      { renderer: { getDrawStats?: () => { tilesVisible: number } } }
+                    >
+                  }
+                }
+              ).__xgisMap
+              if (!m?.vtSources) return false
+              for (const s of m.vtSources.values()) {
+                const stats = s.renderer.getDrawStats?.()
+                if (stats && stats.tilesVisible > 0) return true
+              }
+              return false
+            },
+            null,
+            { timeout: 20_000 },
+          )
+          .catch(() => {
+            /* still emit whatever painted */
+          })
+        await page.evaluate(
+          () =>
+            new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+        )
       }
       const finalPng = id in HASH_OVERRIDE ? await page.locator('#map').screenshot() : png
 
@@ -144,7 +196,7 @@ async function encodeJpeg(
 ): Promise<Buffer> {
   const b64Out = await page.evaluate(
     async ({ b64, w, h, q }) => {
-      const blob = await fetch(`data:image/png;base64,${b64}`).then(r => r.blob())
+      const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())
       const bmp = await createImageBitmap(blob)
       const canvas = document.createElement('canvas')
       canvas.width = w
@@ -154,7 +206,10 @@ async function encodeJpeg(
       // never has letterbox bars regardless of source canvas shape.
       const srcAspect = bmp.width / bmp.height
       const dstAspect = w / h
-      let sx = 0, sy = 0, sw = bmp.width, sh = bmp.height
+      let sx = 0,
+        sy = 0,
+        sw = bmp.width,
+        sh = bmp.height
       if (srcAspect > dstAspect) {
         // source wider — crop horizontally
         sw = Math.round(bmp.height * dstAspect)
@@ -165,8 +220,8 @@ async function encodeJpeg(
         sy = Math.round((bmp.height - sh) / 2)
       }
       ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, w, h)
-      const out: Blob = await new Promise(resolve =>
-        canvas.toBlob(b => resolve(b!), 'image/jpeg', q),
+      const out: Blob = await new Promise((resolve) =>
+        canvas.toBlob((b) => resolve(b!), 'image/jpeg', q),
       )
       const ab = await out.arrayBuffer()
       const u8 = new Uint8Array(ab)

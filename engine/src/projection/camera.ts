@@ -7,7 +7,13 @@ import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
 import { EARTH_R } from './globe'
 import { mercatorYToLat, mercatorYToLatRad, mercator } from './projection'
-import { isGlobeProj, flatViewHeightCapM, poleLimit, promotesToGlobeWhenTilted, representsCenterAs } from './projections-table'
+import {
+  isGlobeProj,
+  flatViewHeightCapM,
+  poleLimit,
+  promotesToGlobeWhenTilted,
+  representsCenterAs,
+} from './projections-table'
 import { discAnchorFor, invert4x4, convergeFlatAnchor } from './camera-helpers'
 import {
   type CameraView,
@@ -56,7 +62,9 @@ export class Camera {
    *  (projection/globe.ts) where pitch is meaningful. */
   pitchLocked = false
   /** Camera pitch/tilt in degrees (0 = top-down, 85 = nearly horizontal) */
-  get pitch(): number { return this.pitchLocked ? 0 : this._pitch }
+  get pitch(): number {
+    return this.pitchLocked ? 0 : this._pitch
+  }
   set pitch(deg: number) {
     // Reject non-finite (NaN/Infinity) inputs. A pointer event with
     // unexpected values, a deserialized hash with a malformed pitch
@@ -121,7 +129,7 @@ export class Camera {
    *  views are FOV-invariant (altitude derives from FOV to fit the
    *  zoom-determined ground viewport), so this change is visually
    *  inert at pitch=0 and tightens horizon parity at pitch>0. */
-  static readonly FOV = 0.6435011087932844 * 180 / Math.PI
+  static readonly FOV = (0.6435011087932844 * 180) / Math.PI
 
   constructor(lon = 0, lat = 0, zoom = 2) {
     const [mx, my] = lonLatToMercator(lon, lat)
@@ -165,8 +173,24 @@ export class Camera {
    *  metre minY/maxY saturate at ±85.051129° (mercator.forward clamps), so the
    *  sphere family — whose centre legitimately reaches the pole — clamps
    *  centerLatDeg against these instead of the saturated metre Y. */
-  private _maxBoundsMerc: { minX: number; maxX: number; minY: number; maxY: number; northLat: number; southLat: number } | null = null
-  setMaxBoundsMerc(b: { minX: number; maxX: number; minY: number; maxY: number; northLat: number; southLat: number } | null): void {
+  private _maxBoundsMerc: {
+    minX: number
+    maxX: number
+    minY: number
+    maxY: number
+    northLat: number
+    southLat: number
+  } | null = null
+  setMaxBoundsMerc(
+    b: {
+      minX: number
+      maxX: number
+      minY: number
+      maxY: number
+      northLat: number
+      southLat: number
+    } | null,
+  ): void {
     this._maxBoundsMerc = b
   }
 
@@ -196,7 +220,7 @@ export class Camera {
   getMatrix(canvasWidth: number, canvasHeight: number): Float32Array {
     // Scale: at zoom 0, the whole world (~40M meters) fits in the viewport
     // Each zoom level doubles the scale
-    const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
+    const metersPerPixel = WORLD_MERC / TILE_PX / Math.pow(2, this.zoom)
     const scaleX = 2 / (canvasWidth * metersPerPixel)
     const scaleY = 2 / (canvasHeight * metersPerPixel)
 
@@ -282,7 +306,12 @@ export class Camera {
     }
   }
 
-  private _buildRTCMatrix(canvasWidth: number, canvasHeight: number, dpr: number = 1, viewHeightCap: number = WORLD_MERC): number {
+  private _buildRTCMatrix(
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number = 1,
+    viewHeightCap: number = WORLD_MERC,
+  ): number {
     if (
       canvasWidth === this._cacheW &&
       canvasHeight === this._cacheH &&
@@ -300,7 +329,14 @@ export class Camera {
     // the MVP into the preallocated `rtcMatrix` buffer and returns far; the
     // cache shadow + invalidation below stay on the camera. The bearing-sign /
     // altitude-cap / near-far rationale is documented at the builder.
-    const { far } = buildRTCMatrix(this._view(), canvasWidth, canvasHeight, dpr, viewHeightCap, this.rtcMatrix)
+    const { far } = buildRTCMatrix(
+      this._view(),
+      canvasWidth,
+      canvasHeight,
+      dpr,
+      viewHeightCap,
+      this.rtcMatrix,
+    )
     this._cacheW = canvasWidth
     this._cacheH = canvasHeight
     this._cacheDpr = dpr
@@ -333,13 +369,23 @@ export class Camera {
   /** Globe orbit view-projection (RTC, focus-relative) from the current
    *  camera state. centerLon/Lat are the Mercator-inverse of centerX/Y
    *  so existing pan/zoom (which move centerX/Y) recenter the globe. */
-  private _globeFrame(canvasWidth: number, canvasHeight: number, dpr: number): { matrix: Float32Array; far: number; eye: ECEF } {
+  private _globeFrame(
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number,
+  ): { matrix: Float32Array; far: number; eye: ECEF } {
     // Pure builder (view-matrix.ts → buildGlobeFrame) derives lon from the
     // Mercator centerX, reads the maintained true centre latitude, delegates to
     // buildGlobeMatrix, and writes the RTC matrix into the preallocated
     // `_globeMatrix` buffer. `eye` is the orbit camera position in ABSOLUTE
     // sphere-ECEF metres (surfaced for the label back-face/horizon cull).
-    const { far, eye } = buildGlobeFrame(this._view(), canvasWidth, canvasHeight, dpr, this._globeMatrix)
+    const { far, eye } = buildGlobeFrame(
+      this._view(),
+      canvasWidth,
+      canvasHeight,
+      dpr,
+      this._globeMatrix,
+    )
     return { matrix: this._globeMatrix, far, eye }
   }
 
@@ -423,7 +469,11 @@ export class Camera {
    *  Independent of `getFrameView` — pure read, no mutation of the
    *  cached matrix beyond the standard `_buildRTCMatrix` call that
    *  every render path already issues. */
-  getDebugSnapshot(canvasWidth: number, canvasHeight: number, dpr: number = 1): {
+  getDebugSnapshot(
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number = 1,
+  ): {
     matrix: number[]
     far: number
     altitude: number
@@ -441,7 +491,12 @@ export class Camera {
     // the matrix defaulted to WORLD_MERC while the GPU used flatViewHeightCapM
     // (2·EARTH_R for projType 3) → the snapshot reported a matrix for a DIFFERENT
     // camera than it rendered (internally inconsistent vs its cap-correct altitude).
-    const far = this._buildRTCMatrix(canvasWidth, canvasHeight, dpr, flatViewHeightCapM(this.projType, WORLD_MERC))
+    const far = this._buildRTCMatrix(
+      canvasWidth,
+      canvasHeight,
+      dpr,
+      flatViewHeightCapM(this.projType, WORLD_MERC),
+    )
     // iter-338 — report the ACTUAL matrix the renderer uses: in globe
     // mode that's the orbit-camera `_globeFrame`, not the Mercator RTC.
     // Without this the snapshot (and any continuity gate built on it)
@@ -453,14 +508,17 @@ export class Camera {
     // method uses; avoids exposing a private field. `metersPerPixel`
     // mirrors the build's local — kept in sync via comment if either
     // ever changes shape.
-    const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
-    const halfFovRad = (Camera.FOV * Math.PI / 180) / 2
+    const metersPerPixel = WORLD_MERC / TILE_PX / Math.pow(2, this.zoom)
+    const halfFovRad = (Camera.FOV * Math.PI) / 180 / 2
     // Mirror the per-projType cap in `_buildRTCMatrix` so this debug
     // snapshot reports the altitude the production matrix actually uses
     // (WORLD_MERC for the cylindrical family; 2·EARTH_R for ortho — post-fix
     // for project_mercator_z0_pitch_render_2026_05_20 + the z0 disc cap).
     const rawViewHeightMeters = (canvasHeight / dpr) * metersPerPixel
-    const viewHeightMeters = Math.min(rawViewHeightMeters, flatViewHeightCapM(this.projType, WORLD_MERC))
+    const viewHeightMeters = Math.min(
+      rawViewHeightMeters,
+      flatViewHeightCapM(this.projType, WORLD_MERC),
+    )
     const altitude = viewHeightMeters / 2 / Math.tan(halfFovRad)
     return {
       matrix,
@@ -510,7 +568,12 @@ export class Camera {
    *
    *  Production callers go through `getViewForProjection`, which routes
    *  flat Mercator here and 3D / globe to `getECEFFrameView()`. */
-  getFrameView(canvasWidth: number, canvasHeight: number, dpr: number = 1, viewHeightCap: number = WORLD_MERC): {
+  getFrameView(
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number = 1,
+    viewHeightCap: number = WORLD_MERC,
+  ): {
     matrix: Float32Array
     far: number
     logDepthFc: number
@@ -557,7 +620,11 @@ export class Camera {
    *  its own math; ECEF migration deferred to a later sub-PR).
    *
    *  Cache: separate `_ecefCache*` shadow (architect P1 #10 alt-B). */
-  getECEFFrameView(canvasWidth: number, canvasHeight: number, dpr: number = 1): {
+  getECEFFrameView(
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number = 1,
+  ): {
     matrix: Float32Array
     far: number
     logDepthFc: number
@@ -635,7 +702,12 @@ export class Camera {
    *  flat, `rtcMatrixECEF` / globe for 3D) — copy contents into your own
    *  uniform immediately; a subsequent call from the same camera overwrites
    *  it. */
-  getViewForProjection(projType: number, canvasWidth: number, canvasHeight: number, dpr: number = 1): {
+  getViewForProjection(
+    projType: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number = 1,
+  ): {
     matrix: Float32Array
     far: number
     logDepthFc: number
@@ -645,7 +717,12 @@ export class Camera {
     eye?: ECEF
   } {
     if (!this.globeMode && !isGlobeProj(projType)) {
-      return this.getFrameView(canvasWidth, canvasHeight, dpr, flatViewHeightCapM(projType, WORLD_MERC))
+      return this.getFrameView(
+        canvasWidth,
+        canvasHeight,
+        dpr,
+        flatViewHeightCapM(projType, WORLD_MERC),
+      )
     }
     return this.getECEFFrameView(canvasWidth, canvasHeight, dpr)
   }
@@ -666,7 +743,12 @@ export class Camera {
     // the render. Without this, ortho's unproject would use the WORLD_MERC
     // default while its render uses the 2·EARTH_R cap — a ~π mismatch in
     // zoomAt/drag (this.projType is set every frame by the render loop).
-    this._buildRTCMatrix(canvasWidth, canvasHeight, dpr, flatViewHeightCapM(this.projType, WORLD_MERC))
+    this._buildRTCMatrix(
+      canvasWidth,
+      canvasHeight,
+      dpr,
+      flatViewHeightCapM(this.projType, WORLD_MERC),
+    )
     if (this._invDirty) {
       invert4x4(this.rtcMatrix, this.rtcMatrixInv)
       this._invDirty = false
@@ -676,7 +758,13 @@ export class Camera {
 
   /** Unproject screen pixel to z=0 world plane (RTC-relative).
    *  Returns [x, y] in projection meters relative to camera center, or null if behind horizon. */
-  unprojectToZ0(screenX: number, screenY: number, canvasWidth: number, canvasHeight: number, dpr: number = 1): [number, number] | null {
+  unprojectToZ0(
+    screenX: number,
+    screenY: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number = 1,
+  ): [number, number] | null {
     // Fetch the cached inverse (this method owns getRTCMatrixInverse + the
     // rtcMatrixInv buffer + _invDirty), then defer the pure inverse math to
     // unproject.ts.
@@ -707,7 +795,13 @@ export class Camera {
    *  Returns null for projType 3/4/5 (azimuthal discs — limb singularity,
    *  deferred) and globe (7) so callers keep their existing behaviour for
    *  those; returns null when the ray misses the ground plane. */
-  unprojectToLonLat(screenX: number, screenY: number, canvasWidth: number, canvasHeight: number, dpr: number = 1): [number, number] | null {
+  unprojectToLonLat(
+    screenX: number,
+    screenY: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number = 1,
+  ): [number, number] | null {
     // Wrapper: fetch the cached inverse (keeps getRTCMatrixInverse plumbing on
     // the camera), then run the pure compose. Equivalent to
     // unprojectToZ0 → _relToLonLat but threads the same inverse once.
@@ -723,7 +817,13 @@ export class Camera {
    *  wrong `mercCentre + nonMercRel`). Returns null when the ray misses the
    *  ground or the projType is out of the flat-merc-composer scope (3/4/5/7),
    *  letting callers keep their existing behaviour there. */
-  unprojectToMercatorAnchor(screenX: number, screenY: number, canvasWidth: number, canvasHeight: number, dpr: number = 1): [number, number] | null {
+  unprojectToMercatorAnchor(
+    screenX: number,
+    screenY: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number = 1,
+  ): [number, number] | null {
     // Wrapper: fetch the cached inverse, defer the pure anchor compose.
     const inv = this.getRTCMatrixInverse(canvasWidth, canvasHeight, dpr)
     return unprojectToMercatorAnchorPure(this, inv, screenX, screenY, canvasWidth, canvasHeight)
@@ -746,15 +846,20 @@ export class Camera {
    *  `computeVisibleWorldCopies` (camera-world-copies.ts); this method owns
    *  the per-Camera cache object and delegates. */
   private _vwcCache: WorldCopiesCache = { matrixId: -1, cached: [0] }
-  getVisibleWorldCopies(canvasWidth: number, canvasHeight: number, dpr: number = 1): readonly number[] {
+  getVisibleWorldCopies(
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number = 1,
+  ): readonly number[] {
     return computeVisibleWorldCopies(this, this._vwcCache, canvasWidth, canvasHeight, dpr)
   }
 
   /** Compute the maximum camera Y offset for the current zoom (content stays on screen) */
   private maxCameraY(canvasHeight: number): number {
-    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-    const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
-    const visibleHalf = (canvasHeight / dpr) * metersPerPixel / 2
+    const dpr =
+      typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+    const metersPerPixel = WORLD_MERC / TILE_PX / Math.pow(2, this.zoom)
+    const visibleHalf = ((canvasHeight / dpr) * metersPerPixel) / 2
     // Camera can move until the Mercator edge reaches the screen edge
     return Math.max(0, Camera.MAX_Y - visibleHalf)
   }
@@ -769,9 +874,10 @@ export class Camera {
     // disc fallback off the cursor (the anchored drag was already correct, #602).
     if (representsCenterAs(this.projType) === 'lat-deg') {
       const R = EARTH_R
-      const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
-      const rb = this.bearing * Math.PI / 180
-      const cb = Math.cos(rb), sb = Math.sin(rb)
+      const mpp = WORLD_MERC / TILE_PX / Math.pow(2, this.zoom)
+      const rb = (this.bearing * Math.PI) / 180
+      const cb = Math.cos(rb),
+        sb = Math.sin(rb)
       // Rot(+θ) — matches the flat pan path (camera.ts ~819-823) and the
       // anchored panGlobeToScreenAnchor ground-truth.  The prior Rot(−θ) form
       // gave gdy = −dx·sin(θ) which flings the globe the wrong N/S direction
@@ -780,7 +886,7 @@ export class Camera {
       const gdx = dx * cb - dy * sb
       const gdy = dx * sb + dy * cb
       const degPerPx = (mpp / R) * (180 / Math.PI)
-      let lon = this.centerX / R * (180 / Math.PI) - gdx * degPerPx
+      let lon = (this.centerX / R) * (180 / Math.PI) - gdx * degPerPx
       // Read the TRUE centre latitude (centerLatDeg), NOT mercatorYToLat(centerY)
       // which saturates at ±85.051129 — otherwise a drag that started past the
       // Mercator limit (a pole-ward centre placed by setCenter / a prior drag)
@@ -789,7 +895,7 @@ export class Camera {
       // drag rolls the globe all the way to the pole (roadmap S12).
       const pl = poleLimit(this.projType)
       const lat = Math.max(-pl, Math.min(pl, this.centerLatDeg + gdy * degPerPx))
-      lon = ((lon + 180) % 360 + 360) % 360 - 180
+      lon = ((((lon + 180) % 360) + 360) % 360) - 180
       this.centerX = lon * (Math.PI / 180) * R
       // centerLatDeg is authoritative for the sphere; centerY keeps the
       // Mercator-representable mirror (clamped ±85.05) for the 2D / tile-pyramid
@@ -797,7 +903,7 @@ export class Camera {
       // which would reset it back to ≤85.05 and undo the pole reach).
       this.centerLatDeg = lat
       const mercLat = Math.max(-85.051129, Math.min(85.051129, lat))
-      this.centerY = Math.log(Math.tan(Math.PI / 4 + mercLat * (Math.PI / 180) / 2)) * R
+      this.centerY = Math.log(Math.tan(Math.PI / 4 + (mercLat * (Math.PI / 180)) / 2)) * R
       this.clampCenterToBounds()
       return
     }
@@ -812,7 +918,7 @@ export class Camera {
     // semantic (1 CSS px = mpp × dpr m); leaving it in now would make
     // the map pan DPR× too fast — symptom: the user-reported "pan
     // feels DPR× more sensitive" on a DPR=3 phone.
-    const metersPerInputPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
+    const metersPerInputPixel = WORLD_MERC / TILE_PX / Math.pow(2, this.zoom)
 
     // Rotate the screen delta by +bearing to get the map-space delta. This
     // MUST match the drag-anchor path (panToScreenAnchor, which inverts the
@@ -821,7 +927,7 @@ export class Camera {
     // θ=0/180, so inertia flung the wrong way on a rotated map (drag was fine
     // because it uses panToScreenAnchor; inertia + the above-horizon fallback
     // use this path).
-    const rad = this.bearing * Math.PI / 180
+    const rad = (this.bearing * Math.PI) / 180
     const cos = Math.cos(rad)
     const sin = Math.sin(rad)
     const mapDx = dx * cos - dy * sin
@@ -841,7 +947,7 @@ export class Camera {
 
   /** Rotate by delta degrees */
   rotate(deltaDeg: number): void {
-    this.bearing = ((this.bearing + deltaDeg) % 360 + 360) % 360
+    this.bearing = (((this.bearing + deltaDeg) % 360) + 360) % 360
   }
 
   /** Reset bearing to north-up */
@@ -853,7 +959,13 @@ export class Camera {
    *  world point under the cursor: unproject via the BEFORE-zoom MVP, apply
    *  the delta, re-unproject, shift centerX/Y by the difference. Any
    *  pitch/bearing (unprojectToZ0 walks the full MVP). */
-  zoomAt(delta: number, screenX: number, screenY: number, canvasWidth: number, canvasHeight: number): void {
+  zoomAt(
+    delta: number,
+    screenX: number,
+    screenY: number,
+    canvasWidth: number,
+    canvasHeight: number,
+  ): void {
     // A pure zoom must NOT move the centre latitude. Capture the TRUE centre
     // latitude and the Mercator-derived latitude BEFORE any centerY mutation,
     // so the trailing sync can carry centerLatDeg by the same delta centerY
@@ -861,7 +973,8 @@ export class Camera {
     // _carryCenterLatThroughZoom.
     const _latPreserve = this.centerLatDeg
     const _mercLatPreserve = mercatorYToLat(this.centerY)
-    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+    const dpr =
+      typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
     // unprojectToZ0 takes DEVICE-pixel screen coords (it scales by
     // canvasWidth which is device-px). Convert CSS clientX/Y → device.
     const sxDev = screenX * dpr
@@ -913,20 +1026,24 @@ export class Camera {
         // single-pass) — iterate like the flat non-merc arm below. STEP_LIM
         // clamps the TOTAL per-call rotation; LAT_LIM = Map's centerLat clamp.
         const STEP_LIM = 0.12 // rad ≈ 6.9° — invisibly large for real pinch
-        const LAT_LIM = 85.051129 * Math.PI / 180
+        const LAT_LIM = (85.051129 * Math.PI) / 180
         const lim = (v: number) => Math.max(-STEP_LIM, Math.min(STEP_LIM, v))
         for (let iter = 0; iter < 6; iter++) {
           const q = this.unprojectToZ0(sxDev, syDev, canvasWidth, canvasHeight, dpr)
-          const lonC = this.centerX / R, latC = mercatorYToLatRad(this.centerY)
+          const lonC = this.centerX / R,
+            latC = mercatorYToLatRad(this.centerY)
           const cur = onDisc(q) ? disc.inv(q![0], q![1], lonC, latC) : null
           if (!cur) break
-          const dLon = anchor[0] - cur[0], dLat = anchor[1] - cur[1]
+          const dLon = anchor[0] - cur[0],
+            dLat = anchor[1] - cur[1]
           // Wrap the total before clamping — centerX may X-wrap mid-loop.
-          const tot = ((lonC + dLon - lon0 + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI
+          const tot =
+            ((((lonC + dLon - lon0 + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) -
+            Math.PI
           let newLon = lon0 + lim(tot)
           const newLat = Math.max(-LAT_LIM, Math.min(LAT_LIM, lat0 + lim(latC + dLat - lat0)))
           // Wrap longitude to (-π, π].
-          newLon = ((newLon + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI
+          newLon = ((((newLon + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI
           this.centerX = newLon * R
           this.centerY = R * Math.log(Math.tan(Math.PI / 4 + newLat / 2))
           if (Math.abs(dLon) < 1e-9 && Math.abs(dLat) < 1e-9) break // ≈6 mm ground: converged
@@ -983,7 +1100,16 @@ export class Camera {
         const beforeGeo = this._relToLonLat(before)
         if (beforeGeo) {
           const targetM = mercator.forward(beforeGeo[0], beforeGeo[1])
-          convergeFlatAnchor(this, targetM[0], targetM[1], sxDev, syDev, canvasWidth, canvasHeight, dpr)
+          convergeFlatAnchor(
+            this,
+            targetM[0],
+            targetM[1],
+            sxDev,
+            syDev,
+            canvasWidth,
+            canvasHeight,
+            dpr,
+          )
         }
       } else {
         // Mercator (0) + globe (7): raw Mercator-metre delta (exact for
@@ -1015,15 +1141,28 @@ export class Camera {
    *  GLOBE MODE: `anchorWorldX/Y` are the anchored LON/LAT degrees instead
    *  (captured via the ray↔sphere inverse) — globe-anchor.ts. */
   panToScreenAnchor(
-    anchorWorldX: number, anchorWorldY: number,
-    cursorX: number, cursorY: number,
-    canvasWidth: number, canvasHeight: number,
+    anchorWorldX: number,
+    anchorWorldY: number,
+    cursorX: number,
+    cursorY: number,
+    canvasWidth: number,
+    canvasHeight: number,
   ): void {
-    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+    const dpr =
+      typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
     if (this.globeMode) {
       // #11: ground-track the sphere via centerLatDeg (the Mercator path
       // below would clamp a pole-ward centre back to ±85.05).
-      panGlobeToScreenAnchor(this, anchorWorldX, anchorWorldY, cursorX * dpr, cursorY * dpr, canvasWidth, canvasHeight, dpr)
+      panGlobeToScreenAnchor(
+        this,
+        anchorWorldX,
+        anchorWorldY,
+        cursorX * dpr,
+        cursorY * dpr,
+        canvasWidth,
+        canvasHeight,
+        dpr,
+      )
       this.clampCenterToBounds()
       return
     }
@@ -1040,7 +1179,16 @@ export class Camera {
       // grabbed point hundreds of px over a 30-step drag; gate: interaction-
       // contract-gates G1c). Guarded so 0/3/4/5/7 keep the raw subtraction
       // byte-identical.
-      convergeFlatAnchor(this, anchorWorldX, anchorWorldY, cursorX * dpr, cursorY * dpr, canvasWidth, canvasHeight, dpr)
+      convergeFlatAnchor(
+        this,
+        anchorWorldX,
+        anchorWorldY,
+        cursorX * dpr,
+        cursorY * dpr,
+        canvasWidth,
+        canvasHeight,
+        dpr,
+      )
     } else {
       this.centerX = anchorWorldX - cur[0]
       this.centerY = anchorWorldY - cur[1]
@@ -1065,8 +1213,10 @@ export class Camera {
    *  radius, and applies the inverse to recover [lon, lat] radians, then
    *  converts to degrees for the controller's anchor store. */
   discDragAnchorAt(
-    cursorX: number, cursorY: number,
-    canvasWidth: number, canvasHeight: number,
+    cursorX: number,
+    cursorY: number,
+    canvasWidth: number,
+    canvasHeight: number,
     dpr: number,
   ): { lon: number; lat: number } | null {
     if (!promotesToGlobeWhenTilted(this.projType)) return null
@@ -1091,9 +1241,12 @@ export class Camera {
    *  STEP_LIM / LAT_LIM + lon-wrap logic is byte-identical to that loop so the
    *  two gestures cannot drift apart. */
   panDiscToScreenAnchor(
-    lon: number, lat: number,
-    cursorX: number, cursorY: number,
-    canvasWidth: number, canvasHeight: number,
+    lon: number,
+    lat: number,
+    cursorX: number,
+    cursorY: number,
+    canvasWidth: number,
+    canvasHeight: number,
     dpr: number,
   ): void {
     if (!promotesToGlobeWhenTilted(this.projType)) return
@@ -1106,18 +1259,21 @@ export class Camera {
     const lon0 = this.centerX / R
     const lat0 = mercatorYToLatRad(this.centerY)
     const STEP_LIM = 0.12 // rad ≈ 6.9° — mirrors zoomAt disc loop
-    const LAT_LIM = 85.051129 * Math.PI / 180
+    const LAT_LIM = (85.051129 * Math.PI) / 180
     const lim = (v: number) => Math.max(-STEP_LIM, Math.min(STEP_LIM, v))
     for (let iter = 0; iter < 6; iter++) {
       const q = this.unprojectToZ0(cursorX, cursorY, canvasWidth, canvasHeight, dpr)
-      const lonC = this.centerX / R, latC = mercatorYToLatRad(this.centerY)
+      const lonC = this.centerX / R,
+        latC = mercatorYToLatRad(this.centerY)
       const cur = onDisc(q) ? disc.inv(q![0], q![1], lonC, latC) : null
       if (!cur) break
-      const dLon = anchorLon - cur[0], dLat = anchorLat - cur[1]
-      const tot = ((lonC + dLon - lon0 + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI
+      const dLon = anchorLon - cur[0],
+        dLat = anchorLat - cur[1]
+      const tot =
+        ((((lonC + dLon - lon0 + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI
       let newLon = lon0 + lim(tot)
       const newLat = Math.max(-LAT_LIM, Math.min(LAT_LIM, lat0 + lim(latC + dLat - lat0)))
-      newLon = ((newLon + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI
+      newLon = ((((newLon + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI
       this.centerX = newLon * R
       this.centerY = R * Math.log(Math.tan(Math.PI / 4 + newLat / 2))
       if (Math.abs(dLon) < 1e-9 && Math.abs(dLat) < 1e-9) break

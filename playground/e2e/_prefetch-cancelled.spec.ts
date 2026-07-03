@@ -38,27 +38,31 @@ test.describe('Tier 2 prefetch must survive per-frame cancelStale', () => {
       }
     })
 
-    await page.goto(
-      `/demo.html?id=pmtiles_layered#3.0/35.68/139.76`,
-      { waitUntil: 'domcontentloaded' },
-    )
+    await page.goto(`/demo.html?id=pmtiles_layered#3.0/35.68/139.76`, {
+      waitUntil: 'domcontentloaded',
+    })
 
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 30_000 },
+      null,
+      { timeout: 30_000 },
     )
-    await page.waitForFunction(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const map = (window as any).__xgisMap
-      if (!map?.vtSources) return false
-      let totalVisible = 0
-      let pending = 0
-      for (const { renderer } of map.vtSources.values()) {
-        totalVisible += renderer.getDrawStats?.().tilesVisible ?? 0
-        pending += renderer.getPendingUploadCount?.() ?? 0
-      }
-      return totalVisible > 0 && pending === 0
-    }, null, { timeout: 60_000 })
+    await page.waitForFunction(
+      () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const map = (window as any).__xgisMap
+        if (!map?.vtSources) return false
+        let totalVisible = 0
+        let pending = 0
+        for (const { renderer } of map.vtSources.values()) {
+          totalVisible += renderer.getDrawStats?.().tilesVisible ?? 0
+          pending += renderer.getPendingUploadCount?.() ?? 0
+        }
+        return totalVisible > 0 && pending === 0
+      },
+      null,
+      { timeout: 60_000 },
+    )
     await page.waitForTimeout(2000)
 
     // Step camera to zoom 3.6: hysteresis keeps currentZ=3, but

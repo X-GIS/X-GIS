@@ -23,7 +23,10 @@ describe('rim_alpha rollout coverage', () => {
     // fs_fill_extrude, fs_stroke) — composer emits each callFn unique to
     // that entry. The floor 3 catches a future shader edit that drops any
     // one of the discard-then-rim pairs.
-    expect(occurrences, 'fs_fill + fs_stroke + fs_oit_translucent should each call polygon_rim_alpha').toBeGreaterThanOrEqual(3)
+    expect(
+      occurrences,
+      'fs_fill + fs_stroke + fs_oit_translucent should each call polygon_rim_alpha',
+    ).toBeGreaterThanOrEqual(3)
   })
 
   it('line shader calls line_rim_alpha in fs_line and fs_line_max', () => {
@@ -63,6 +66,8 @@ describe('rim_alpha rollout coverage', () => {
     // check the emitted string carries the fn — not the source file text.
     // #600 — rim_alpha gained a globe_eye vec4 param (the globe arm fades across
     // the eye-horizon boundary, matching the eye-horizon cull).
-    expect(WGSL_PROJECTION_FNS()).toContain('fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, globe_eye: vec4<f32>) -> f32')
+    expect(WGSL_PROJECTION_FNS()).toContain(
+      'fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, globe_eye: vec4<f32>) -> f32',
+    )
   })
 })

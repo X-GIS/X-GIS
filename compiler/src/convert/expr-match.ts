@@ -41,17 +41,80 @@ export function convertMatch(
   // Pre-fix the code treated such arrays as `[k1, k2]` shorthand —
   // e.g. `["get", "k"]` matched features with property "get" or "k".
   const EXPR_OPS = new Set([
-    'get', 'has', '!has', 'in', '!in', 'literal', 'var', 'let',
-    'case', 'match', 'coalesce', 'step', 'interpolate', 'interpolate-lab',
-    'interpolate-hcl', 'concat', 'format', 'rgb', 'rgba', 'hsl', 'hsla',
-    'to-color', 'to-number', 'to-string', 'to-boolean', 'typeof',
-    'zoom', 'pi', 'e', 'ln2', 'all', 'any', '!',
-    '==', '!=', '<', '<=', '>', '>=', '+', '-', '*', '/', '%', '^',
-    'abs', 'ceil', 'floor', 'round', 'sqrt', 'sin', 'cos', 'tan',
-    'asin', 'acos', 'atan', 'ln', 'log10', 'log2', 'min', 'max',
-    'length', 'upcase', 'downcase', 'slice', 'index-of', 'at',
-    'geometry-type', 'id', 'properties', 'feature-state',
-    'image', 'number-format', 'array',
+    'get',
+    'has',
+    '!has',
+    'in',
+    '!in',
+    'literal',
+    'var',
+    'let',
+    'case',
+    'match',
+    'coalesce',
+    'step',
+    'interpolate',
+    'interpolate-lab',
+    'interpolate-hcl',
+    'concat',
+    'format',
+    'rgb',
+    'rgba',
+    'hsl',
+    'hsla',
+    'to-color',
+    'to-number',
+    'to-string',
+    'to-boolean',
+    'typeof',
+    'zoom',
+    'pi',
+    'e',
+    'ln2',
+    'all',
+    'any',
+    '!',
+    '==',
+    '!=',
+    '<',
+    '<=',
+    '>',
+    '>=',
+    '+',
+    '-',
+    '*',
+    '/',
+    '%',
+    '^',
+    'abs',
+    'ceil',
+    'floor',
+    'round',
+    'sqrt',
+    'sin',
+    'cos',
+    'tan',
+    'asin',
+    'acos',
+    'atan',
+    'ln',
+    'log10',
+    'log2',
+    'min',
+    'max',
+    'length',
+    'upcase',
+    'downcase',
+    'slice',
+    'index-of',
+    'at',
+    'geometry-type',
+    'id',
+    'properties',
+    'feature-state',
+    'image',
+    'number-format',
+    'array',
   ])
   for (let i = 0; i < args.length - 1; i += 2) {
     // Mapbox v8 strict tooling can emit `["literal", [k1, k2]]`
@@ -66,8 +129,13 @@ export function convertMatch(
     // (e.g. `["get", "k"]`, `["case", …]`). After literal unwrap
     // a still-array key whose first elt is a known operator name
     // is an expression, not a literal-array shorthand.
-    if (Array.isArray(key) && key.length > 0 && typeof key[0] === 'string'
-        && EXPR_OPS.has(key[0]) && key[0] !== 'literal') {
+    if (
+      Array.isArray(key) &&
+      key.length > 0 &&
+      typeof key[0] === 'string' &&
+      EXPR_OPS.has(key[0]) &&
+      key[0] !== 'literal'
+    ) {
       invalidKeyArms++
       continue
     }
@@ -75,7 +143,10 @@ export function convertMatch(
       key = key[1]
     }
     const val = recurse(args[i + 1], warnings)
-    if (val === null) { droppedArms++; continue }
+    if (val === null) {
+      droppedArms++
+      continue
+    }
     const keyStrs = Array.isArray(key) ? key : [key]
     for (let k of keyStrs) {
       // Inner per-element literal-wrap. Mapbox v8 strict tooling
@@ -103,7 +174,9 @@ export function convertMatch(
     }
   }
   if (invalidKeyArms > 0) {
-    warnings.push(`["match"] dropped ${invalidKeyArms} arm key(s) that are not literal string/number; Mapbox spec requires literal labels. Matching values for those keys will fall through to default.`)
+    warnings.push(
+      `["match"] dropped ${invalidKeyArms} arm key(s) that are not literal string/number; Mapbox spec requires literal labels. Matching values for those keys will fall through to default.`,
+    )
   }
   // Mapbox spec: match labels must be unique within a single
   // expression. Duplicates produce undefined behaviour (MapLibre
@@ -128,7 +201,14 @@ export function convertMatch(
       }
     }
     if (duplicates.length > 0) {
-      warnings.push(`["match"] duplicate label(s) ${duplicates.slice(0, 4).map(d => `"${d}"`).join(', ')}${duplicates.length > 4 ? ` + ${duplicates.length - 4} more` : ''}. Mapbox spec requires unique labels; only the FIRST occurrence wins, the rest are dead arms.`)
+      warnings.push(
+        `["match"] duplicate label(s) ${duplicates
+          .slice(0, 4)
+          .map((d) => `"${d}"`)
+          .join(
+            ', ',
+          )}${duplicates.length > 4 ? ` + ${duplicates.length - 4} more` : ''}. Mapbox spec requires unique labels; only the FIRST occurrence wins, the rest are dead arms.`,
+      )
     }
   }
   const defXgis = recurse(def, warnings)
@@ -139,7 +219,9 @@ export function convertMatch(
   // diagnostic; surfacing the count makes it obvious which arms
   // disappeared from the authored ladder.
   if (droppedArms > 0) {
-    warnings.push(`["match"] dropped ${droppedArms} arm(s) whose value failed to convert; matching keys will fall through to default.`)
+    warnings.push(
+      `["match"] dropped ${droppedArms} arm(s) whose value failed to convert; matching keys will fall through to default.`,
+    )
   }
   return `match(${inputXgis}) {\n${arms.join(',\n')}\n  }`
 }
@@ -248,13 +330,18 @@ function matchToTernary(
       key = key[1]
     }
     const val = recurse(args[i + 1], warnings)
-    if (val === null) { droppedArms++; continue }
+    if (val === null) {
+      droppedArms++
+      continue
+    }
     const keyStrs = Array.isArray(key) ? key : [key]
-    const cond = keyStrs.map(k => {
-      // Inner per-element literal-wrap, mirror of the main match handler.
-      while (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
-      return `${inputXgis} == ${typeof k === 'string' ? JSON.stringify(k) : k}`
-    }).join(' || ')
+    const cond = keyStrs
+      .map((k) => {
+        // Inner per-element literal-wrap, mirror of the main match handler.
+        while (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
+        return `${inputXgis} == ${typeof k === 'string' ? JSON.stringify(k) : k}`
+      })
+      .join(' || ')
     result = `(${cond}) ? ${val} : ${result}`
   }
   // Mirror of the main match + case + coalesce partial-drop warnings.
@@ -263,7 +350,9 @@ function matchToTernary(
   // dropped here would otherwise collapse silently to the default
   // for the affected keys.
   if (droppedArms > 0) {
-    warnings.push(`["match"] (chained-ternary path) dropped ${droppedArms} arm(s) whose value failed to convert; matching keys will fall through to default.`)
+    warnings.push(
+      `["match"] (chained-ternary path) dropped ${droppedArms} arm(s) whose value failed to convert; matching keys will fall through to default.`,
+    )
   }
   return result
 }

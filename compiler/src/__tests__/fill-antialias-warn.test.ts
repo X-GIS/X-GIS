@@ -19,16 +19,18 @@ function buildStyle(value: unknown) {
   return {
     version: 8,
     sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-    layers: [{
-      id: 'land',
-      type: 'fill',
-      source: 'v',
-      'source-layer': 'land',
-      paint: {
-        'fill-color': '#ddd',
-        'fill-antialias': value,
+    layers: [
+      {
+        id: 'land',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'land',
+        paint: {
+          'fill-color': '#ddd',
+          'fill-antialias': value,
+        },
       },
-    }],
+    ],
   }
 }
 
@@ -46,7 +48,7 @@ describe('fill-antialias surface + opt-out propagation', () => {
     const style = buildStyle(undefined)
     delete (style.layers[0]!.paint as Record<string, unknown>)['fill-antialias']
     convertMapboxStyle(style as never, { coverage })
-    expect(coverage.warnings.some(w => w.includes('fill-antialias'))).toBe(false)
+    expect(coverage.warnings.some((w) => w.includes('fill-antialias'))).toBe(false)
     const shows = compileToShows(style)
     expect(shows[0]!.fillAntialias).toBeUndefined()
   })
@@ -54,21 +56,21 @@ describe('fill-antialias surface + opt-out propagation', () => {
   it('explicit true (spec default) → no warning, fillAntialias undefined', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
     convertMapboxStyle(buildStyle(true) as never, { coverage })
-    expect(coverage.warnings.some(w => w.includes('fill-antialias'))).toBe(false)
+    expect(coverage.warnings.some((w) => w.includes('fill-antialias'))).toBe(false)
     expect(compileToShows(buildStyle(true))[0]!.fillAntialias).toBeUndefined()
   })
 
   it('["literal", true] → no warning (v8 strict wrap)', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
     convertMapboxStyle(buildStyle(['literal', true]) as never, { coverage })
-    expect(coverage.warnings.some(w => w.includes('fill-antialias'))).toBe(false)
+    expect(coverage.warnings.some((w) => w.includes('fill-antialias'))).toBe(false)
   })
 
   it('false → no warn, fillAntialias=false propagated to ShowCommand', () => {
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
     convertMapboxStyle(buildStyle(false) as never, { coverage })
     // Implemented now — the false case no longer surfaces a gap warning.
-    expect(coverage.warnings.some(w => w.includes('fill-antialias'))).toBe(false)
+    expect(coverage.warnings.some((w) => w.includes('fill-antialias'))).toBe(false)
     const shows = compileToShows(buildStyle(false))
     expect(shows[0]!.fillAntialias).toBe(false)
   })

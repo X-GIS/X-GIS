@@ -17,8 +17,13 @@
 
 import { describe, it, expect } from 'vitest'
 import {
-  mercator, equirectangular, naturalEarth,
-  orthographic, azimuthalEquidistant, stereographic, obliqueMercator,
+  mercator,
+  equirectangular,
+  naturalEarth,
+  orthographic,
+  azimuthalEquidistant,
+  stereographic,
+  obliqueMercator,
   type Projection,
 } from '@xgis/engine'
 
@@ -45,10 +50,13 @@ function assertRoundTrip(proj: Projection, lonLats: [number, number][], ctx: str
   let tested = 0
   for (const [lon, lat] of lonLats) {
     const [x, y] = proj.forward(lon, lat)
-    if (!Number.isFinite(x) || !Number.isFinite(y)) continue  // culled — skip
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue // culled — skip
     const [lon2, lat2] = proj.inverse(x, y)
     assertInverseInRange(lon2, lat2, `${ctx} fwd(${lon},${lat})→inv`)
-    expect(Math.abs(lat2 - lat), `${ctx} lat round-trip drift @(${lon},${lat}): ${lat}→${lat2}`).toBeLessThan(TOL_DEG)
+    expect(
+      Math.abs(lat2 - lat),
+      `${ctx} lat round-trip drift @(${lon},${lat}): ${lat}→${lat2}`,
+    ).toBeLessThan(TOL_DEG)
     // Longitude is DEGENERATE at the poles — every meridian collapses to
     // one point, so a recovered lon there carries no information. Only
     // check lon round-trip away from the poles.
@@ -56,7 +64,10 @@ function assertRoundTrip(proj: Projection, lonLats: [number, number][], ctx: str
       let dLon = lon2 - lon
       if (dLon > 180) dLon -= 360
       if (dLon < -180) dLon += 360
-      expect(Math.abs(dLon), `${ctx} lon round-trip drift @(${lon},${lat}): ${lon}→${lon2}`).toBeLessThan(TOL_DEG)
+      expect(
+        Math.abs(dLon),
+        `${ctx} lon round-trip drift @(${lon},${lat}): ${lon}→${lon2}`,
+      ).toBeLessThan(TOL_DEG)
     }
     tested++
   }
@@ -67,12 +78,26 @@ function assertRoundTrip(proj: Projection, lonLats: [number, number][], ctx: str
 
 // Well-conditioned sample points per domain class.
 const CYLINDRICAL_PTS: [number, number][] = [
-  [0, 0], [45, 30], [-90, -45], [120, 60], [-150, -60], [179, 10], [-179, -10], [30, 80], [30, -80],
+  [0, 0],
+  [45, 30],
+  [-90, -45],
+  [120, 60],
+  [-150, -60],
+  [179, 10],
+  [-179, -10],
+  [30, 80],
+  [30, -80],
 ]
 // Mercator must stay inside ±85.05 (forward clamps beyond → round-trip
 // would fail at the clamp, which is correct behaviour not a bug).
 const MERCATOR_PTS: [number, number][] = [
-  [0, 0], [45, 30], [-90, -45], [120, 60], [-150, -60], [179, 84], [-179, -84],
+  [0, 0],
+  [45, 30],
+  [-90, -45],
+  [120, 60],
+  [-150, -60],
+  [179, 84],
+  [-179, -84],
 ]
 
 describe('iter-323 cylindrical projection inverse round-trip', () => {
@@ -138,7 +163,11 @@ describe('iter-323 azimuthal-family inverse round-trip + centre singularity', ()
   it('centre singularity: inverse(0,0) returns the projection centre', () => {
     // The rho→0 guard. Each azimuthal inverse must map the origin back
     // to its centre, not divide-by-zero into NaN.
-    for (const [clon, clat] of [[0, 20], [135, -40], [-100, 60]] as [number, number][]) {
+    for (const [clon, clat] of [
+      [0, 20],
+      [135, -40],
+      [-100, 60],
+    ] as [number, number][]) {
       for (const make of [orthographic, azimuthalEquidistant, stereographic]) {
         const [lon, lat] = make(clon, clat).inverse(0, 0)
         expect(lon, `${make.name}(${clon},${clat}).inverse(0,0) lon`).toBeCloseTo(clon, 6)
@@ -175,7 +204,14 @@ describe('iter-323 inverse never emits Infinity / out-of-range (random projected
   // returns garbage on out-of-domain input (the silent-corruption class).
   const R = 6378137
   let s = 0x5eed1
-  const rng = () => { s ^= s << 13; s |= 0; s ^= s >>> 17; s ^= s << 5; s |= 0; return (s >>> 0) / 0x1_0000_0000 }
+  const rng = () => {
+    s ^= s << 13
+    s |= 0
+    s ^= s >>> 17
+    s ^= s << 5
+    s |= 0
+    return (s >>> 0) / 0x1_0000_0000
+  }
 
   const projs: [string, Projection][] = [
     ['mercator', mercator],

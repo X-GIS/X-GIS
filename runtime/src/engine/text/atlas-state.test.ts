@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { AtlasState, type GlyphKey } from '@xgis/map'
 
-const k = (codepoint: number, fontKey = 'noto-sans', sdfRadius = 8): GlyphKey =>
-  ({ fontKey, codepoint, sdfRadius })
+const k = (codepoint: number, fontKey = 'noto-sans', sdfRadius = 8): GlyphKey => ({
+  fontKey,
+  codepoint,
+  sdfRadius,
+})
 
 describe('AtlasState', () => {
   describe('config validation', () => {
@@ -23,7 +26,7 @@ describe('AtlasState', () => {
       const a = new AtlasState({ slotSize: 32, pageSize: 64 })
       a.ensure(k(65))
       expect(a.pageCount).toBe(1)
-      expect(a.capacity).toBe(4)  // 2x2 slots
+      expect(a.capacity).toBe(4) // 2x2 slots
     })
   })
 
@@ -73,7 +76,7 @@ describe('AtlasState', () => {
       a.ensure(k(4))
       // peek(1) — does NOT bump it; LRU eviction should still take 1
       expect(a.peek(k(1))).toBeDefined()
-      a.ensure(k(5))  // evicts the LRU — should be k(1)
+      a.ensure(k(5)) // evicts the LRU — should be k(1)
       expect(a.peek(k(1))).toBeUndefined()
       expect(a.peek(k(2))).toBeDefined()
     })
@@ -112,7 +115,7 @@ describe('AtlasState', () => {
       // Add k(5) → evicts the new oldest, which is k(2)
       const r = a.ensure(k(5))
       expect(r.evictedKey).toEqual(k(2))
-      expect(a.peek(k(1))).toBeDefined()  // saved by the touch
+      expect(a.peek(k(1))).toBeDefined() // saved by the touch
       expect(a.peek(k(2))).toBeUndefined()
     })
 
@@ -136,20 +139,20 @@ describe('AtlasState', () => {
       // Add 100 more — should keep evicting + reusing the same 4 slots.
       for (let i = 5; i < 100; i++) a.ensure(k(i))
       expect(a.pageCount).toBe(1)
-      expect(a.size).toBe(4)  // Always full, never grew
+      expect(a.size).toBe(4) // Always full, never grew
     })
   })
 
   describe('stats', () => {
     it('tracks hits / misses / evictions / hitRate', () => {
       const a = new AtlasState({ slotSize: 32, pageSize: 64 })
-      a.ensure(k(1))   // miss
-      a.ensure(k(2))   // miss
-      a.ensure(k(1))   // hit
-      a.ensure(k(1))   // hit
-      a.ensure(k(3))   // miss
-      a.ensure(k(4))   // miss
-      a.ensure(k(5))   // miss + eviction
+      a.ensure(k(1)) // miss
+      a.ensure(k(2)) // miss
+      a.ensure(k(1)) // hit
+      a.ensure(k(1)) // hit
+      a.ensure(k(3)) // miss
+      a.ensure(k(4)) // miss
+      a.ensure(k(5)) // miss + eviction
       const s = a.stats
       expect(s.hits).toBe(2)
       expect(s.misses).toBe(5)
@@ -160,7 +163,7 @@ describe('AtlasState', () => {
 
   describe('slot geometry', () => {
     it('slot pxX/pxY map correctly to cell coords', () => {
-      const a = new AtlasState({ slotSize: 32, pageSize: 96 })  // 3x3 = 9 slots
+      const a = new AtlasState({ slotSize: 32, pageSize: 96 }) // 3x3 = 9 slots
       const slots: Array<{ cellX: number; cellY: number; pxX: number; pxY: number }> = []
       for (let i = 0; i < 9; i++) {
         const r = a.ensure(k(i))
@@ -174,7 +177,7 @@ describe('AtlasState', () => {
         expect(s.pxY).toBeLessThan(96)
       }
       // 9 unique slot coords
-      const ids = new Set(slots.map(s => `${s.cellX},${s.cellY}`))
+      const ids = new Set(slots.map((s) => `${s.cellX},${s.cellY}`))
       expect(ids.size).toBe(9)
     })
   })

@@ -47,10 +47,11 @@ async function analyzeDisc(
 }> {
   return await page.evaluate(
     async ({ b64, fr, fg, fb, tol }) => {
-      const blob = await fetch(`data:image/png;base64,${b64}`).then(r => r.blob())
+      const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())
       const bmp = await createImageBitmap(blob)
       const c = document.createElement('canvas')
-      c.width = bmp.width; c.height = bmp.height
+      c.width = bmp.width
+      c.height = bmp.height
       const ctx = c.getContext('2d')!
       ctx.drawImage(bmp, 0, 0)
       const d = ctx.getImageData(0, 0, bmp.width, bmp.height).data
@@ -69,7 +70,12 @@ async function analyzeDisc(
       // Fill ratio across entire canvas
       let fillCount = 0
       for (let i = 0; i < d.length; i += 4) {
-        if (Math.abs(d[i] - fr) <= tol && Math.abs(d[i+1] - fg) <= tol && Math.abs(d[i+2] - fb) <= tol) fillCount++
+        if (
+          Math.abs(d[i] - fr) <= tol &&
+          Math.abs(d[i + 1] - fg) <= tol &&
+          Math.abs(d[i + 2] - fb) <= tol
+        )
+          fillCount++
       }
       const fillRatio = fillCount / (w * h)
 
@@ -79,7 +85,10 @@ async function analyzeDisc(
       for (let x = 0; x < w; x++) {
         let anyFill = false
         for (let y = 0; y < topRows; y++) {
-          if (isFill(x, y)) { anyFill = true; break }
+          if (isFill(x, y)) {
+            anyFill = true
+            break
+          }
         }
         if (!anyFill) topBlackCols++
       }
@@ -89,7 +98,10 @@ async function analyzeDisc(
       let discPresent = false
       const midY = Math.round(h / 2)
       for (let x = 0; x < w; x++) {
-        if (isFill(x, midY)) { discPresent = true; break }
+        if (isFill(x, midY)) {
+          discPresent = true
+          break
+        }
       }
 
       // Facet width: horizontal gap scan along top disc arc
@@ -102,7 +114,10 @@ async function analyzeDisc(
         let prevFill = false
         for (let x = 0; x < w; x++) {
           const fill = isFill(x, y)
-          if (prevFill && !fill) { inGap = true; gapStart = x }
+          if (prevFill && !fill) {
+            inGap = true
+            gapStart = x
+          }
           if (!prevFill && fill && inGap) {
             const gapWidth = x - gapStart
             if (gapWidth > maxFacetPx) maxFacetPx = gapWidth
@@ -128,13 +143,18 @@ async function pixelDiffRatio(
   return await page.evaluate(
     async ({ a64, b64, tol }) => {
       const decode = async (encoded: string) => {
-        const blob = await fetch(`data:image/png;base64,${encoded}`).then(r => r.blob())
+        const blob = await fetch(`data:image/png;base64,${encoded}`).then((r) => r.blob())
         const bmp = await createImageBitmap(blob)
         const c = document.createElement('canvas')
-        c.width = bmp.width; c.height = bmp.height
+        c.width = bmp.width
+        c.height = bmp.height
         const ctx = c.getContext('2d')!
         ctx.drawImage(bmp, 0, 0)
-        return { data: ctx.getImageData(0, 0, bmp.width, bmp.height).data, w: bmp.width, h: bmp.height }
+        return {
+          data: ctx.getImageData(0, 0, bmp.width, bmp.height).data,
+          w: bmp.width,
+          h: bmp.height,
+        }
       }
       const A = await decode(a64)
       const B = await decode(b64)
@@ -145,7 +165,8 @@ async function pixelDiffRatio(
           Math.abs(A.data[i] - B.data[i]) > tol ||
           Math.abs(A.data[i + 1] - B.data[i + 1]) > tol ||
           Math.abs(A.data[i + 2] - B.data[i + 2]) > tol
-        ) differing++
+        )
+          differing++
       }
       return differing / (A.w * A.h)
     },
@@ -176,24 +197,25 @@ async function setupPage(page: import('@playwright/test').Page): Promise<void> {
       m.camera.centerY = 0
     }
   })
-  await page.evaluate(() => new Promise<void>(r =>
-    requestAnimationFrame(() => requestAnimationFrame(() => r())),
-  ))
+  await page.evaluate(
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+  )
   await page.waitForTimeout(800)
 }
 
 // ════════════════════════════════════════════════════════════════════
 
 test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)', () => {
-
   // ── Test 1: Infrastructure wiring assertions (all PASS in WIP) ────
   test('ortho z=0 pitch=80: backend infrastructure wired correctly', async ({ page }) => {
     test.setTimeout(60_000)
     await page.setViewportSize({ width: W, height: H })
 
     const errors: string[] = []
-    page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
-    page.on('pageerror', e => errors.push(`[pageerror] ${e.message}`))
+    page.on('console', (m) => {
+      if (m.type() === 'error') errors.push(m.text())
+    })
+    page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`))
 
     await setupPage(page)
 
@@ -209,11 +231,12 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
         vtSourcesHasSynth: m.vtSources?.has('__synthetic_earth_surface__') ?? false,
         showCommandsCount: m.showCommands?.length ?? 0,
         showTargets: m.showCommands?.map((s: any) => s.targetName) ?? [],
-        drawStats: m.vtSources?.get('__synthetic_earth_surface__')?.renderer?.getDrawStats?.() ?? null,
+        drawStats:
+          m.vtSources?.get('__synthetic_earth_surface__')?.renderer?.getDrawStats?.() ?? null,
       }
     })
 
-    const real = errors.filter(e => !e.includes('powerPreference') && !e.includes('favicon'))
+    const real = errors.filter((e) => !e.includes('powerPreference') && !e.includes('favicon'))
     expect(real, `console errors: ${real.join(' | ')}`).toHaveLength(0)
 
     expect(state, 'map state readable').not.toBeNull()
@@ -223,8 +246,12 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
     expect(state!.backgroundColorSet, '_backgroundColor set from style').toBe(true)
     expect(state!.syntheticBackendInstalled, '_syntheticBackend installed at run()').toBe(true)
     expect(state!.vtSourcesHasSynth, 'vtSources contains synthetic source').toBe(true)
-    expect(state!.showCommandsCount, 'showCommands has the synthetic show').toBeGreaterThanOrEqual(1)
-    expect(state!.showTargets, 'show targets include synthetic').toContain('__synthetic_earth_surface__')
+    expect(state!.showCommandsCount, 'showCommands has the synthetic show').toBeGreaterThanOrEqual(
+      1,
+    )
+    expect(state!.showTargets, 'show targets include synthetic').toContain(
+      '__synthetic_earth_surface__',
+    )
 
     // The tile is selected (globeTilesSelected=1) confirming the VTR's
     // tile-selection path runs. drawCalls=0 is the known WIP bug
@@ -238,23 +265,33 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
     if (ds!.drawCalls === 0) {
       console.warn(
         '[AC2c.3.2] NEEDS-CHANGES: drawCalls=0 despite globeTilesSelected=1. ' +
-        'Root cause: slice-key mismatch — uploadTile stores under sourceLayer="" ' +
-        'but render() looks up via show.targetName="__synthetic_earth_surface__". ' +
-        'Fix: set sourceLayer:"" in buildSyntheticEarthSurfaceShow() in ' +
-        'runtime/src/engine/synthetic-earth-surface-show.ts',
+          'Root cause: slice-key mismatch — uploadTile stores under sourceLayer="" ' +
+          'but render() looks up via show.targetName="__synthetic_earth_surface__". ' +
+          'Fix: set sourceLayer:"" in buildSyntheticEarthSurfaceShow() in ' +
+          'runtime/src/engine/synthetic-earth-surface-show.ts',
       )
     }
 
-    writeFileSync(join(ART, 'infrastructure-state.json'), JSON.stringify({
-      state,
-      wipBug: ds!.drawCalls === 0 ? {
-        issue: 'slice-key mismatch',
-        uploadKey: '',
-        renderLookupKey: '__synthetic_earth_surface__',
-        fix: 'set sourceLayer:"" in buildSyntheticEarthSurfaceShow()',
-        file: 'runtime/src/engine/synthetic-earth-surface-show.ts',
-      } : null,
-    }, null, 2))
+    writeFileSync(
+      join(ART, 'infrastructure-state.json'),
+      JSON.stringify(
+        {
+          state,
+          wipBug:
+            ds!.drawCalls === 0
+              ? {
+                  issue: 'slice-key mismatch',
+                  uploadKey: '',
+                  renderLookupKey: '__synthetic_earth_surface__',
+                  fix: 'set sourceLayer:"" in buildSyntheticEarthSurfaceShow()',
+                  file: 'runtime/src/engine/synthetic-earth-surface-show.ts',
+                }
+              : null,
+        },
+        null,
+        2,
+      ),
+    )
   })
 
   // ── Test 2: Curvature + facet check ───────────────────────────────
@@ -263,8 +300,10 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
     await page.setViewportSize({ width: W, height: H })
 
     const errors: string[] = []
-    page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
-    page.on('pageerror', e => errors.push(`[pageerror] ${e.message}`))
+    page.on('console', (m) => {
+      if (m.type() === 'error') errors.push(m.text())
+    })
+    page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`))
 
     await setupPage(page)
 
@@ -275,23 +314,34 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
 
     console.log('[AC2c.3.2] curvature+facet analysis:')
     console.log(`  discPresent         = ${discPresent}  [expected: true]`)
-    console.log(`  fillRatio           = ${(fillRatio * 100).toFixed(2)}%  [expected: ≥1% (half-disc at pitch=80)]`)
-    console.log(`  topRowBlackFraction = ${(topRowBlackFraction * 100).toFixed(1)}%  [expected: ≥80% = curved disc]`)
+    console.log(
+      `  fillRatio           = ${(fillRatio * 100).toFixed(2)}%  [expected: ≥1% (half-disc at pitch=80)]`,
+    )
+    console.log(
+      `  topRowBlackFraction = ${(topRowBlackFraction * 100).toFixed(1)}%  [expected: ≥80% = curved disc]`,
+    )
     console.log(`  maxFacetPx          = ${maxFacetPx} px  [expected: ≤2 px = 32×16 smooth]`)
 
-    writeFileSync(join(ART, 'ortho-z0-pitch80-32x16-metrics.json'), JSON.stringify({
-      density: '32x16',
-      vertexCount: 33 * 17,
-      indexCount: 32 * 16 * 6,
-      topRowBlackFraction,
-      maxFacetPx,
-      discPresent,
-      fillRatio,
-      fillColorRGB: [FILL_R, FILL_G, FILL_B],
-      consoleErrors: errors.filter(e => !e.includes('powerPreference')),
-    }, null, 2))
+    writeFileSync(
+      join(ART, 'ortho-z0-pitch80-32x16-metrics.json'),
+      JSON.stringify(
+        {
+          density: '32x16',
+          vertexCount: 33 * 17,
+          indexCount: 32 * 16 * 6,
+          topRowBlackFraction,
+          maxFacetPx,
+          discPresent,
+          fillRatio,
+          fillColorRGB: [FILL_R, FILL_G, FILL_B],
+          consoleErrors: errors.filter((e) => !e.includes('powerPreference')),
+        },
+        null,
+        2,
+      ),
+    )
 
-    const real = errors.filter(e => !e.includes('powerPreference') && !e.includes('favicon'))
+    const real = errors.filter((e) => !e.includes('powerPreference') && !e.includes('favicon'))
     expect(real, `console errors: ${real.join(' | ')}`).toHaveLength(0)
 
     // Fill must be visible.
@@ -309,21 +359,21 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
     expect(
       topRowBlackFraction,
       `top-8% rows: ${(topRowBlackFraction * 100).toFixed(1)}% non-fill — ` +
-      `curved disc must leave top rows mostly black`,
-    ).toBeGreaterThanOrEqual(0.80)
+        `curved disc must leave top rows mostly black`,
+    ).toBeGreaterThanOrEqual(0.8)
 
     // FACET CHECK: no horizontal gap >2 px at disc edge.
     const FACET_THRESHOLD_PX = 2
     if (maxFacetPx > FACET_THRESHOLD_PX) {
       console.warn(
         `[AC2c.3.2] ESCALATION NEEDED: maxFacetPx=${maxFacetPx} > ${FACET_THRESHOLD_PX}px. ` +
-        `Escalate SyntheticEarthSurfaceBackend to 64×32 density (2145 verts).`,
+          `Escalate SyntheticEarthSurfaceBackend to 64×32 density (2145 verts).`,
       )
     }
     expect(
       maxFacetPx,
       `maxFacetPx=${maxFacetPx} > ${FACET_THRESHOLD_PX}px — visible polygonal facets. ` +
-      `Escalate mesh density to 64×32.`,
+        `Escalate mesh density to 64×32.`,
     ).toBeLessThanOrEqual(FACET_THRESHOLD_PX)
   })
 
@@ -333,7 +383,9 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
     await page.setViewportSize({ width: W, height: H })
 
     const errors: string[] = []
-    page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
+    page.on('console', (m) => {
+      if (m.type() === 'error') errors.push(m.text())
+    })
 
     await setupPage(page)
 
@@ -353,18 +405,25 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
     const diffPct = (diffRatio * 100).toFixed(3)
     console.log(`[AC2c.3.2] pixel-diff vs baseline: ${diffPct}%`)
 
-    writeFileSync(join(ART, 'ortho-z0-pitch80-diff-metrics.json'), JSON.stringify({
-      diffRatio,
-      diffPct: Number(diffPct),
-      threshold: 0.005,
-      pass: diffRatio <= 0.005,
-      note: 'In WIP state, canvas is all-black (fill not rendering). ' +
+    writeFileSync(
+      join(ART, 'ortho-z0-pitch80-diff-metrics.json'),
+      JSON.stringify(
+        {
+          diffRatio,
+          diffPct: Number(diffPct),
+          threshold: 0.005,
+          pass: diffRatio <= 0.005,
+          note:
+            'In WIP state, canvas is all-black (fill not rendering). ' +
             'Diff reflects run-to-run variance in that state.',
-    }, null, 2))
+        },
+        null,
+        2,
+      ),
+    )
 
-    expect(
-      diffRatio,
-      `pixel-diff ${diffPct}% exceeds 0.5% ceiling (AC2c.2.9)`,
-    ).toBeLessThanOrEqual(0.005)
+    expect(diffRatio, `pixel-diff ${diffPct}% exceeds 0.5% ceiling (AC2c.2.9)`).toBeLessThanOrEqual(
+      0.005,
+    )
   })
 })

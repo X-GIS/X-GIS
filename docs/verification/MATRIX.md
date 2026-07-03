@@ -3,7 +3,7 @@
 A permanent, real-GPU **tripwire** across the render output space. X-GIS has no
 large user base to crowd-source the combinatorial bug tail, so this gate is the
 replacement: math-derived and human-reviewed baselines sampled across
-*projection × pitch × zoom × representative data × render surface*, run
+_projection × pitch × zoom × representative data × render surface_, run
 **pre-push on a real GPU** (CI has no GPU — SwiftShader only — so it cannot
 raster the pipeline; see ADR-0004 and `docs/verification/STRATEGY.md`).
 
@@ -19,16 +19,16 @@ committed PNG baselines yet.
 
 ## Files
 
-| Path | Role |
-|---|---|
-| `playground/render-verify/matrix-types.ts` | Cell + oracle schema; `effectiveGate()` (the anti-blessing coercion). |
-| `playground/render-verify/matrix.manifest.ts` | The declarative cell list (seed = ~6 cells). |
-| `playground/render-verify/matrix-oracles.ts` | `runOracle` dispatch — reuses the existing harness (d3 ref, pixelmatch, histograms). |
-| `playground/e2e/_matrix-gate.spec.ts` | The runner: drive each cell, capture, run oracles, report. Opt-in via `XGIS_MATRIX=1`. |
-| `playground/render-verify/baselines/` | The **reviewed, committed** baseline corpus (only `matrix:accept` writes here). |
-| `playground/e2e/__matrix__/` | Per-run **candidate** PNGs + `report.json` (gitignored scratch). |
-| `scripts/matrix-accept.ts` | The one path that promotes a candidate → baseline (`matrix:accept`). |
-| `scripts/matrix-report.ts` | Pretty-prints the last run's `report.json` (`matrix:report`). |
+| Path                                          | Role                                                                                   |
+| --------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `playground/render-verify/matrix-types.ts`    | Cell + oracle schema; `effectiveGate()` (the anti-blessing coercion).                  |
+| `playground/render-verify/matrix.manifest.ts` | The declarative cell list (seed = ~6 cells).                                           |
+| `playground/render-verify/matrix-oracles.ts`  | `runOracle` dispatch — reuses the existing harness (d3 ref, pixelmatch, histograms).   |
+| `playground/e2e/_matrix-gate.spec.ts`         | The runner: drive each cell, capture, run oracles, report. Opt-in via `XGIS_MATRIX=1`. |
+| `playground/render-verify/baselines/`         | The **reviewed, committed** baseline corpus (only `matrix:accept` writes here).        |
+| `playground/e2e/__matrix__/`                  | Per-run **candidate** PNGs + `report.json` (gitignored scratch).                       |
+| `scripts/matrix-accept.ts`                    | The one path that promotes a candidate → baseline (`matrix:accept`).                   |
+| `scripts/matrix-report.ts`                    | Pretty-prints the last run's `report.json` (`matrix:report`).                          |
 
 ---
 
@@ -83,15 +83,15 @@ Each cell in `matrix.manifest.ts` is pure data:
 
 ### Oracle kinds
 
-| kind | reference | needs human bless? |
-|---|---|---|
-| `numeric_forward` | live GPU MVP vs CPU/d3 mirror (screen-px drift). Flat proj only — **skipped** for non-flat. | no |
-| `pixel_ref` | pixelmatch vs in-page d3-geo Canvas2D render. Flat proj only — **skipped** otherwise. | no |
-| `ink_family` | per-family pixel-count floor (`colorHistogram`). Catches a dropped thin/sparse layer. | no |
-| `disc_fraction` | measured disc fill-fraction vs an expected band (azimuthal framing). | no |
-| `black_ratio` | pure-black pixel fraction ≤ max (every pixel must have a defined source). | no |
-| `label_onscreen` | placed label anchors within viewport+margin (gross mis-dispatch). | no |
-| `screenshot_diff` | **committed PNG baseline** diff (`pixelDiffRatio`). | **YES** |
+| kind              | reference                                                                                   | needs human bless? |
+| ----------------- | ------------------------------------------------------------------------------------------- | ------------------ |
+| `numeric_forward` | live GPU MVP vs CPU/d3 mirror (screen-px drift). Flat proj only — **skipped** for non-flat. | no                 |
+| `pixel_ref`       | pixelmatch vs in-page d3-geo Canvas2D render. Flat proj only — **skipped** otherwise.       | no                 |
+| `ink_family`      | per-family pixel-count floor (`colorHistogram`). Catches a dropped thin/sparse layer.       | no                 |
+| `disc_fraction`   | measured disc fill-fraction vs an expected band (azimuthal framing).                        | no                 |
+| `black_ratio`     | pure-black pixel fraction ≤ max (every pixel must have a defined source).                   | no                 |
+| `label_onscreen`  | placed label anchors within viewport+margin (gross mis-dispatch).                           | no                 |
+| `screenshot_diff` | **committed PNG baseline** diff (`pixelDiffRatio`).                                         | **YES**            |
 
 Math/closed-form oracles regenerate their reference every run, so they are
 `green`/`hard` from day one and nothing goes stale. Only `screenshot_diff`
@@ -123,7 +123,7 @@ anti-blessing gate.
    block a push.
 
 2. **REVIEW** — a human opens `e2e/__matrix__/<id>.png` and confirms the render
-   is **CORRECT** — not merely *present*. (Use the `visual-verdict` skill /
+   is **CORRECT** — not merely _present_. (Use the `visual-verdict` skill /
    `playground/compare.html` against d3 / MapLibre / the expected mental model.)
    A busy-but-wrong candidate must be **rejected here** — once accepted it
    becomes the truth every future run is measured against.
@@ -150,7 +150,7 @@ anti-blessing gate.
    re-stamp). `meta.json`'s `commit`/`reviewedAt` make a stale baseline
    auditable in `git blame`.
 
-> **Critical rule:** `matrix:accept` is the *only* writer of `baselines/`. The
+> **Critical rule:** `matrix:accept` is the _only_ writer of `baselines/`. The
 > runner never writes there. A baseline becomes truth only by an explicit human
 > command **plus** a manifest `green` flip visible in the PR diff.
 
@@ -182,6 +182,7 @@ azimuthal `expected_red` disc, natural-earth deep-zoom real data, high-pitch
 mercator, globe antimeridian, label-heavy position oracle.
 
 **Increment 2+ (deferred):**
+
 - Review + `matrix:accept` the candidate cells (natearth-z12, merc-z8-p60,
   globe-dateline) → flip to `green`/`hard`.
 - Port the `_disc-coverage-matrix` azimuthal-family math from the harness

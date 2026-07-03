@@ -12,20 +12,24 @@ import { describe, it, expect } from 'vitest'
 import { convertMapboxStyle, Lexer, Parser, lower, emitCommands } from '../index'
 
 function compileShow(paint: Record<string, unknown>): {
-  show: { label?: { iconOpacity?: number; shapes?: { icon?: { iconOpacity?: { kind: string } | null } } } }
+  show: {
+    label?: { iconOpacity?: number; shapes?: { icon?: { iconOpacity?: { kind: string } | null } } }
+  }
   warnings: string
 } {
   const style = {
     version: 8,
     sources: { v: { type: 'vector' as const, url: 'x.pmtiles' } },
-    layers: [{
-      id: 'sym',
-      type: 'symbol' as const,
-      source: 'v',
-      'source-layer': 'poi',
-      layout: { 'icon-image': 'marker' },
-      paint,
-    }],
+    layers: [
+      {
+        id: 'sym',
+        type: 'symbol' as const,
+        source: 'v',
+        'source-layer': 'poi',
+        layout: { 'icon-image': 'marker' },
+        paint,
+      },
+    ],
   }
   const warnings: string[] = []
   const xgis = convertMapboxStyle(style as never, {
@@ -34,7 +38,10 @@ function compileShow(paint: Record<string, unknown>): {
   const cmds = emitCommands(lower(new Parser(new Lexer(xgis).tokenize()).parse()))
   return {
     show: cmds.shows[0] as unknown as {
-      label?: { iconOpacity?: number; shapes?: { icon?: { iconOpacity?: { kind: string } | null } } }
+      label?: {
+        iconOpacity?: number
+        shapes?: { icon?: { iconOpacity?: { kind: string } | null } }
+      }
     },
     warnings: warnings.join('\n'),
   }

@@ -60,8 +60,14 @@ if (RUN_SMOKE) {
   steps.push({
     label: 'playwright projection-coverage (smoke)',
     cmd: 'bun',
-    args: ['x', 'playwright', 'test', 'e2e/_projection-coverage.spec.ts',
-      '--workers=3', '--reporter=line'],
+    args: [
+      'x',
+      'playwright',
+      'test',
+      'e2e/_projection-coverage.spec.ts',
+      '--workers=3',
+      '--reporter=line',
+    ],
     cwd: 'playground',
   })
 }
@@ -72,14 +78,15 @@ if (RUN_MATRIX) {
   // gate against OLD code. Clear it before the run (same fix as evaluator.ts).
   try {
     rmSync('playground/node_modules/.vite', { recursive: true, force: true })
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
   steps.push({
     label: 'playwright matrix-gate (real-GPU, LOCAL)',
     cmd: 'bun',
     // serial (GPU contention) + XGIS_MATRIX=1 (via `env` below) so the opt-in
     // test.skip lifts. NO XGIS_SOFTWARE_GPU → inherits HEADED real GPU.
-    args: ['x', 'playwright', 'test', 'e2e/_matrix-gate.spec.ts',
-      '--workers=1', '--reporter=line'],
+    args: ['x', 'playwright', 'test', 'e2e/_matrix-gate.spec.ts', '--workers=1', '--reporter=line'],
     cwd: 'playground',
     env: { XGIS_MATRIX: '1' },
   })

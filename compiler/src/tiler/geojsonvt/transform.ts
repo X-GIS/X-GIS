@@ -2,7 +2,11 @@
 // space → (extent × extent) tile-local integer coordinates.
 
 import type {
-  InternalTile, TransformedTile, TileFeature, TransformedTileFeature, FlatLine,
+  InternalTile,
+  TransformedTile,
+  TileFeature,
+  TransformedTileFeature,
+  FlatLine,
 } from './types'
 
 export function transformTile(tile: InternalTile, extent: number): TransformedTile {
@@ -22,7 +26,9 @@ export function transformTile(tile: InternalTile, extent: number): TransformedTi
     if (type === 1) {
       const flat = geom as FlatLine
       for (let j = 0; j < flat.length; j += 2) {
-        (tFeature.geometry as [number, number][]).push(transformPoint(flat[j], flat[j + 1], extent, z2, tx, ty))
+        ;(tFeature.geometry as [number, number][]).push(
+          transformPoint(flat[j], flat[j + 1], extent, z2, tx, ty),
+        )
       }
     } else {
       const rings = geom as FlatLine[]
@@ -42,13 +48,12 @@ export function transformTile(tile: InternalTile, extent: number): TransformedTi
 }
 
 function transformPoint(
-  x: number, y: number,
+  x: number,
+  y: number,
   extent: number,
   z2: number,
-  tx: number, ty: number,
+  tx: number,
+  ty: number,
 ): [number, number] {
-  return [
-    Math.round(extent * (x * z2 - tx)),
-    Math.round(extent * (y * z2 - ty)),
-  ]
+  return [Math.round(extent * (x * z2 - tx)), Math.round(extent * (y * z2 - ty))]
 }

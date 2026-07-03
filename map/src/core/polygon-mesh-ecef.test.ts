@@ -27,16 +27,21 @@ const DEG2RAD = Math.PI / 180
 // equals the tile-local coordinate the test passes into the ring.
 function lonLatToMerc(lon: number, lat: number): [number, number] {
   const mx = lon * DEG2RAD * A
-  const my = Math.log(Math.tan(Math.PI / 4 + lat * DEG2RAD / 2)) * A
+  const my = Math.log(Math.tan(Math.PI / 4 + (lat * DEG2RAD) / 2)) * A
   return [mx, my]
 }
 
 interface UnpackedVertex {
   /** Dequanted ECEF RTC residual (metres), reconstructed via the GPU's math. */
-  rx: number; ry: number; rz: number
+  rx: number
+  ry: number
+  rz: number
   fid: number
-  abs_lon: number; abs_lat: number
-  fn_x: number; fn_y: number; fn_z: number
+  abs_lon: number
+  abs_lat: number
+  fn_x: number
+  fn_y: number
+  fn_z: number
   wall_height: number
   is_top: number
 }
@@ -54,18 +59,27 @@ function unpack(mesh: MeshLike, i: number): UnpackedVertex {
   const u16 = new Uint16Array(v.buffer, v.byteOffset)
   const lane = i * STRIDE * 2
   const deq = (axis: number): number =>
-    (u16[lane + axis * 2]! * 65536 + u16[lane + axis * 2 + 1]!) * mesh.dequantScale - mesh.dequantHalf
+    (u16[lane + axis * 2]! * 65536 + u16[lane + axis * 2 + 1]!) * mesh.dequantScale -
+    mesh.dequantHalf
   return {
-    rx: deq(0), ry: deq(1), rz: deq(2),
+    rx: deq(0),
+    ry: deq(1),
+    rz: deq(2),
     fid: v[o + 3]!,
-    abs_lon: v[o + 4]!, abs_lat: v[o + 5]!,
-    fn_x: v[o + 6]!, fn_y: v[o + 7]!, fn_z: v[o + 8]!,
+    abs_lon: v[o + 4]!,
+    abs_lat: v[o + 5]!,
+    fn_x: v[o + 6]!,
+    fn_y: v[o + 7]!,
+    fn_z: v[o + 8]!,
     wall_height: v[o + 9]!,
     is_top: v[o + 10]!,
   }
 }
 
-function reconstructECEF(v: UnpackedVertex, center: readonly [number, number, number]): [number, number, number] {
+function reconstructECEF(
+  v: UnpackedVertex,
+  center: readonly [number, number, number],
+): [number, number, number] {
   return [center[0] + v.rx, center[1] + v.ry, center[2] + v.rz]
 }
 
@@ -74,18 +88,20 @@ describe('generateWallMeshExtrudedECEF', () => {
     // 1° × 1° quad straddling (0, 0). CCW outer ring (positive area in
     // mx/my). 4 unique verts; ring is CLOSED (last == first).
     const p0 = lonLatToMerc(-0.5, -0.5)
-    const p1 = lonLatToMerc( 0.5, -0.5)
-    const p2 = lonLatToMerc( 0.5,  0.5)
-    const p3 = lonLatToMerc(-0.5,  0.5)
-    const polygons: RingPolygon[] = [{
-      featId: 42,
-      rings: [[p0, p1, p2, p3, p0]],  // CCW
-    }]
+    const p1 = lonLatToMerc(0.5, -0.5)
+    const p2 = lonLatToMerc(0.5, 0.5)
+    const p3 = lonLatToMerc(-0.5, 0.5)
+    const polygons: RingPolygon[] = [
+      {
+        featId: 42,
+        rings: [[p0, p1, p2, p3, p0]], // CCW
+      },
+    ]
     const heights = new Map<number, number>([[42, 100]])
     // Use the polygon centroid (approximately (0, 0)) as the tile
     // origin so synthetic-edge detection doesn't fire on the test
     // (extents differ from the bbox).
-    const tileMx = 0  // far western world edge
+    const tileMx = 0 // far western world edge
     const tileMy = 0
     const center = tileEcefCenterFromMerc(0, 0)
 
@@ -100,7 +116,8 @@ describe('generateWallMeshExtrudedECEF', () => {
 
     // First 16 verts = walls in (a_bot, b_bot, a_top, b_top) order.
     // a_bot + b_bot = is_top 0; a_top + b_top = is_top 1.
-    let wallBottom = 0, wallTop = 0
+    let wallBottom = 0,
+      wallTop = 0
     for (let i = 0; i < 16; i++) {
       const v = unpack(mesh, i)
       if (v.is_top === 0) wallBottom++
@@ -129,7 +146,8 @@ describe('generateWallMeshExtrudedECEF', () => {
 
   it('roof ECEF magnitude matches lonLatToECEF (WGS84 ellipsoid) within 1 mm at lat=45°', () => {
     // 0.01° × 0.01° quad around (lon=10, lat=45), height 50m.
-    const cx = 10, cy = 45
+    const cx = 10,
+      cy = 45
     const d = 0.005
     const corners = [
       lonLatToMerc(cx - d, cy - d),
@@ -137,10 +155,12 @@ describe('generateWallMeshExtrudedECEF', () => {
       lonLatToMerc(cx + d, cy + d),
       lonLatToMerc(cx - d, cy + d),
     ]
-    const polygons: RingPolygon[] = [{
-      featId: 7,
-      rings: [[corners[0], corners[1], corners[2], corners[3], corners[0]]],
-    }]
+    const polygons: RingPolygon[] = [
+      {
+        featId: 7,
+        rings: [[corners[0], corners[1], corners[2], corners[3], corners[0]]],
+      },
+    ]
     const heights = new Map<number, number>([[7, 50]])
     // Tile origin far from bbox so synthetic-edge detection is inert.
     const tileMx = 0
@@ -166,7 +186,9 @@ describe('generateWallMeshExtrudedECEF', () => {
       const v = unpack(mesh, 16 + i)
       const [ex, ey, ez] = reconstructECEF(v, center)
       const [refX, refY, refZ] = refCorners[i]
-      const dx = ex - refX, dy = ey - refY, dz = ez - refZ
+      const dx = ex - refX,
+        dy = ey - refY,
+        dz = ez - refZ
       const err = Math.hypot(dx, dy, dz)
       // DSFUN-reconstructed ECEF carries sub-mm precision relative to
       // the per-tile centre. 1 mm is the agreed gate (`AGENTS.md`
@@ -178,7 +200,8 @@ describe('generateWallMeshExtrudedECEF', () => {
   it('roof face_normal points outward (dot with ECEF position > 0.9)', () => {
     // Larger building footprint so vertex ECEF magnitudes are well
     // above floating-point noise. Centred at (lon=120, lat=30).
-    const cx = 120, cy = 30
+    const cx = 120,
+      cy = 30
     const d = 0.01
     const corners = [
       lonLatToMerc(cx - d, cy - d),
@@ -186,10 +209,12 @@ describe('generateWallMeshExtrudedECEF', () => {
       lonLatToMerc(cx + d, cy + d),
       lonLatToMerc(cx - d, cy + d),
     ]
-    const polygons: RingPolygon[] = [{
-      featId: 1,
-      rings: [[corners[0], corners[1], corners[2], corners[3], corners[0]]],
-    }]
+    const polygons: RingPolygon[] = [
+      {
+        featId: 1,
+        rings: [[corners[0], corners[1], corners[2], corners[3], corners[0]]],
+      },
+    ]
     const heights = new Map<number, number>([[1, 200]])
     const tileMx = 0
     const tileMy = 0
@@ -209,7 +234,8 @@ describe('generateWallMeshExtrudedECEF', () => {
   })
 
   it('wall face_normal is horizontal (|fn · radial_up| < 0.1)', () => {
-    const cx = 120, cy = 30
+    const cx = 120,
+      cy = 30
     const d = 0.01
     const corners = [
       lonLatToMerc(cx - d, cy - d),
@@ -217,10 +243,12 @@ describe('generateWallMeshExtrudedECEF', () => {
       lonLatToMerc(cx + d, cy + d),
       lonLatToMerc(cx - d, cy + d),
     ]
-    const polygons: RingPolygon[] = [{
-      featId: 1,
-      rings: [[corners[0], corners[1], corners[2], corners[3], corners[0]]],
-    }]
+    const polygons: RingPolygon[] = [
+      {
+        featId: 1,
+        rings: [[corners[0], corners[1], corners[2], corners[3], corners[0]]],
+      },
+    ]
     const heights = new Map<number, number>([[1, 200]])
     const tileMx = 0
     const tileMy = 0
@@ -233,7 +261,9 @@ describe('generateWallMeshExtrudedECEF', () => {
       const v = unpack(mesh, i)
       const [ex, ey, ez] = reconstructECEF(v, center)
       const pmag = Math.hypot(ex, ey, ez)
-      const upX = ex / pmag, upY = ey / pmag, upZ = ez / pmag
+      const upX = ex / pmag,
+        upY = ey / pmag,
+        upZ = ez / pmag
       const dot = Math.abs(v.fn_x * upX + v.fn_y * upY + v.fn_z * upZ)
       expect(dot).toBeLessThan(0.1)
     }
@@ -241,14 +271,16 @@ describe('generateWallMeshExtrudedECEF', () => {
 
   it('missing height entries default to 0 (no degenerate failure)', () => {
     const p0 = lonLatToMerc(-0.5, -0.5)
-    const p1 = lonLatToMerc( 0.5, -0.5)
-    const p2 = lonLatToMerc( 0.5,  0.5)
-    const p3 = lonLatToMerc(-0.5,  0.5)
-    const polygons: RingPolygon[] = [{
-      featId: 99,
-      rings: [[p0, p1, p2, p3, p0]],
-    }]
-    const heights = new Map<number, number>()  // empty
+    const p1 = lonLatToMerc(0.5, -0.5)
+    const p2 = lonLatToMerc(0.5, 0.5)
+    const p3 = lonLatToMerc(-0.5, 0.5)
+    const polygons: RingPolygon[] = [
+      {
+        featId: 99,
+        rings: [[p0, p1, p2, p3, p0]],
+      },
+    ]
+    const heights = new Map<number, number>() // empty
     const tileMx = 0
     const tileMy = 0
     const center = tileEcefCenterFromMerc(0, 0)

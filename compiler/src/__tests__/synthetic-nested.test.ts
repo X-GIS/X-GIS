@@ -46,7 +46,7 @@ describe('synthetic-nested expression fixture', () => {
     const style = readFixture()
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
     convertMapboxStyle(style, { coverage })
-    expect(coverage.warnings.some(w => w.includes('depth exceeded'))).toBe(false)
+    expect(coverage.warnings.some((w) => w.includes('depth exceeded'))).toBe(false)
   })
 
   it('does not warn about match-label or interpolate-stop violations', () => {
@@ -57,7 +57,7 @@ describe('synthetic-nested expression fixture', () => {
     const style = readFixture()
     const coverage = { sources: [], layers: [], warnings: [] as string[] }
     convertMapboxStyle(style, { coverage })
-    expect(coverage.warnings.some(w => w.includes('not literal'))).toBe(false)
-    expect(coverage.warnings.some(w => w.includes('literal finite number'))).toBe(false)
+    expect(coverage.warnings.some((w) => w.includes('not literal'))).toBe(false)
+    expect(coverage.warnings.some((w) => w.includes('literal finite number'))).toBe(false)
   })
 })

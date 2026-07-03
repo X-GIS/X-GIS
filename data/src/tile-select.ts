@@ -161,12 +161,15 @@ export function visibleTilesFrustum(
   // views demand more low-z horizon tiles on top of the foreground.
   const MAX_FRUSTUM_TILES = maxFrustumTilesFor(cssWidth, cssHeight, pitchDegFn)
   if ((globalThis as { __DBG_FRUSTUM?: boolean }).__DBG_FRUSTUM) {
-    console.log(`[FRUSTUM cap] canvas=${canvasWidth}×${canvasHeight} (css ${cssWidth}×${cssHeight} dpr=${dpr}) mobile=${isMobileViewport(cssWidth, cssHeight)} cap=${MAX_FRUSTUM_TILES} pitch=${pitchDegFn.toFixed(1)}`)
+    console.log(
+      `[FRUSTUM cap] canvas=${canvasWidth}×${canvasHeight} (css ${cssWidth}×${cssHeight} dpr=${dpr}) mobile=${isMobileViewport(cssWidth, cssHeight)} cap=${MAX_FRUSTUM_TILES} pitch=${pitchDegFn.toFixed(1)}`,
+    )
   }
 
   // Project Mercator coords → screen pixel (returns null if behind camera)
   const toScreen = (mx: number, my: number): [number, number] | null => {
-    const rx = mx - camMercX, ry = my - camMercY
+    const rx = mx - camMercX,
+      ry = my - camMercY
     const cw = mvp[3] * rx + mvp[7] * ry + mvp[15]
     if (cw <= 1e-6) return null
     const cx = mvp[0] * rx + mvp[4] * ry + mvp[12]
@@ -178,12 +181,12 @@ export function visibleTilesFrustum(
   const lonToMerc = (lon: number) => lon * DEG2RAD * R
   const latToMerc = (lat: number) => {
     const cl = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
-    return Math.log(Math.tan(Math.PI / 4 + cl * DEG2RAD / 2)) * R
+    return Math.log(Math.tan(Math.PI / 4 + (cl * DEG2RAD) / 2)) * R
   }
 
   // Tile y → latitude (north edge)
   const tileYToLat = (y: number, n: number) =>
-    Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI
+    (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n))) * 180) / Math.PI
 
   // Camera position in lon/lat for "camera inside tile" test below.
   const camLon = (camMercX / R) * (180 / Math.PI)
@@ -203,8 +206,8 @@ export function visibleTilesFrustum(
     if (tz <= 3 && tz < maxZ) return SUBDIVIDE_THRESHOLD + 1
 
     const tn = Math.pow(2, tz)
-    const lonW = ox / tn * 360 - 180
-    const lonE = (ox + 1) / tn * 360 - 180
+    const lonW = (ox / tn) * 360 - 180
+    const lonE = ((ox + 1) / tn) * 360 - 180
     const latN = tileYToLat(y, tn)
     const latS = tileYToLat(y + 1, tn)
 
@@ -219,8 +222,10 @@ export function visibleTilesFrustum(
       return SUBDIVIDE_THRESHOLD + 1
     }
 
-    const mw = lonToMerc(lonW), me = lonToMerc(lonE)
-    const mn = latToMerc(latN), ms = latToMerc(latS)
+    const mw = lonToMerc(lonW),
+      me = lonToMerc(lonE)
+    const mn = latToMerc(latN),
+      ms = latToMerc(latS)
 
     // Sample 9 points: 4 corners + 4 edge midpoints + 1 center. Rotated
     // projections (bearing + pitch) can turn the tile's on-screen shape
@@ -230,15 +235,27 @@ export function visibleTilesFrustum(
     const mmid_h = (mw + me) * 0.5
     const mmid_v = (mn + ms) * 0.5
     const corners = [
-      toScreen(mw, ms), toScreen(me, ms), toScreen(me, mn), toScreen(mw, mn),
-      toScreen(mmid_h, ms), toScreen(me, mmid_v), toScreen(mmid_h, mn), toScreen(mw, mmid_v),
+      toScreen(mw, ms),
+      toScreen(me, ms),
+      toScreen(me, mn),
+      toScreen(mw, mn),
+      toScreen(mmid_h, ms),
+      toScreen(me, mmid_v),
+      toScreen(mmid_h, mn),
+      toScreen(mw, mmid_v),
       toScreen(mmid_h, mmid_v),
     ]
-    let sxMin = Infinity, sxMax = -Infinity, syMin = Infinity, syMax = -Infinity
+    let sxMin = Infinity,
+      sxMax = -Infinity,
+      syMin = Infinity,
+      syMax = -Infinity
     let validCount = 0
     let behindCount = 0
     for (const c of corners) {
-      if (!c) { behindCount++; continue }
+      if (!c) {
+        behindCount++
+        continue
+      }
       validCount++
       if (c[0] < sxMin) sxMin = c[0]
       if (c[0] > sxMax) sxMax = c[0]
@@ -285,17 +302,15 @@ export function visibleTilesFrustum(
     // Tile-selection-pitch tests cover 75°+ and pin specific
     // counts under the high-pitch (0.25, 256) values, so those
     // are preserved exactly.
-    const marginPctOfMax = pitchDegFn < 30 ? 0.05
-      : pitchDegFn < 60 ? 0.15
-      : 0.25
-    const pitchFloor = pitchDegFn < 30 ? 32
-      : pitchDegFn < 60 ? 128
-      : 256
+    const marginPctOfMax = pitchDegFn < 30 ? 0.05 : pitchDegFn < 60 ? 0.15 : 0.25
+    const pitchFloor = pitchDegFn < 30 ? 32 : pitchDegFn < 60 ? 128 : 256
     const baseMargin = Math.max(canvasWidth, canvasHeight) * marginPctOfMax
     const margin = Math.max(baseMargin, pitchFloor * dpr) + Math.max(0, extraMarginPx) * dpr
     const overlapsViewport =
-      sxMax >= -margin && sxMin <= canvasWidth + margin &&
-      syMax >= -margin && syMin <= canvasHeight + margin
+      sxMax >= -margin &&
+      sxMin <= canvasWidth + margin &&
+      syMax >= -margin &&
+      syMin <= canvasHeight + margin
 
     // If any corner is behind camera, we only know the AABB of the VISIBLE
     // corners — the tile's true extent could be larger. Use a GENEROUS
@@ -307,8 +322,10 @@ export function visibleTilesFrustum(
     const baseWide = Math.max(canvasWidth, canvasHeight) * 2
     const wideMargin = Math.max(baseWide, 2048 * dpr)
     const nearViewport =
-      sxMax >= -wideMargin && sxMin <= canvasWidth + wideMargin &&
-      syMax >= -wideMargin && syMin <= canvasHeight + wideMargin
+      sxMax >= -wideMargin &&
+      sxMin <= canvasWidth + wideMargin &&
+      syMax >= -wideMargin &&
+      syMin <= canvasHeight + wideMargin
     if (behindCount > 0) {
       return nearViewport ? SUBDIVIDE_THRESHOLD * 2 : -1
     }
@@ -375,9 +392,18 @@ export function visibleTilesFrustum(
       // pushing on the budget. See fixture-cap-arrow-bug.test.ts for
       // the regression case.
       const childN = tn * 2
-      const camChildX = Math.floor((camLon + 180) / 360 * childN)
+      const camChildX = Math.floor(((camLon + 180) / 360) * childN)
       const camChildY = Math.floor(
-        (1 - Math.log(Math.tan(Math.PI / 4 + Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, camLat)) * DEG2RAD / 2)) / Math.PI) / 2 * childN,
+        ((1 -
+          Math.log(
+            Math.tan(
+              Math.PI / 4 +
+                (Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, camLat)) * DEG2RAD) / 2,
+            ),
+          ) /
+            Math.PI) /
+          2) *
+          childN,
       )
       const idealDx = camChildX <= ox * 2 ? 0 : 1
       const idealDy = camChildY <= y * 2 ? 0 : 1
@@ -452,14 +478,15 @@ export function visibleTilesFrustum(
   //                for fixture-cap-arrow-bug + the filter_gdp 83.9°
   //                ground-renders regression.
   const camN = Math.pow(2, maxZ)
-  const camTXf = (camLon + 180) / 360 * camN
+  const camTXf = ((camLon + 180) / 360) * camN
   const camLatClamped = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, camLat))
-  const camTYf = (1 - Math.log(Math.tan(Math.PI / 4 + camLatClamped * DEG2RAD / 2)) / Math.PI) / 2 * camN
+  const camTYf =
+    ((1 - Math.log(Math.tan(Math.PI / 4 + (camLatClamped * DEG2RAD) / 2)) / Math.PI) / 2) * camN
   let minTX: number, maxTX: number, minTY: number, maxTY: number
   if (pitchDegFn < 30) {
     const tileSizePx = TILE_PX * Math.pow(2, (camera.zoom ?? maxZ) - maxZ)
-    const halfTilesX = (cssWidth / 2) / tileSizePx
-    const halfTilesY = (cssHeight / 2) / tileSizePx
+    const halfTilesX = cssWidth / 2 / tileSizePx
+    const halfTilesY = cssHeight / 2 / tileSizePx
     minTX = Math.floor(camTXf - halfTilesX)
     maxTX = Math.floor(camTXf + halfTilesX)
     minTY = Math.floor(camTYf - halfTilesY)
@@ -514,14 +541,14 @@ export function visibleTilesFrustum(
     const pMaxTY = Math.floor(maxTY / 2)
     const parentSeen = new Set<number>()
     for (const t of result) {
-      if (t.z === parentZ) parentSeen.add((t.y * 4194304) + (t.ox + parentN))
+      if (t.z === parentZ) parentSeen.add(t.y * 4194304 + (t.ox + parentN))
     }
     for (let pty = pMinTY; pty <= pMaxTY; pty++) {
       if (pty < 0 || pty >= parentN) continue
       for (let ptx = pMinTX; ptx <= pMaxTX; ptx++) {
         const wrappedX = ((ptx % parentN) + parentN) % parentN
         const pox = ptx
-        const k = (pty * 4194304) + (pox + parentN)
+        const k = pty * 4194304 + (pox + parentN)
         if (parentSeen.has(k)) continue
         parentSeen.add(k)
         result.push({ z: parentZ, x: wrappedX, y: pty, ox: pox, fallbackOnly: true })
@@ -622,8 +649,7 @@ export function visibleTilesFrustumSampled(
   const WORLD_W = 2 * Math.PI * R
   const camLon = (camera.centerX / R) * RAD2DEG
   // Match the GPU's projection centre (renderFrame clamps centerLat to ±85).
-  const camLat = Math.max(-85, Math.min(85,
-    mercatorYToLat(camera.centerY)))
+  const camLat = Math.max(-85, Math.min(85, mercatorYToLat(camera.centerY)))
   const centerProj = isMerc ? [0, 0] : projection.forward(camLon, camLat)
 
   // CONTINUOUS lon (may exceed ±180 for world copies) + lat in degrees.
@@ -634,8 +660,9 @@ export function visibleTilesFrustumSampled(
   const decodeLonLat = (lon: number, lat: number): void => {
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) return
     const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
-    const absTileFx = (lon + 180) / 360 * n
-    const tileFy = (1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) / Math.PI) / 2 * n
+    const absTileFx = ((lon + 180) / 360) * n
+    const tileFy =
+      ((1 - Math.log(Math.tan(Math.PI / 4 + (clampedLat * DEG2RAD) / 2)) / Math.PI) / 2) * n
     const tileXFloor = Math.floor(absTileFx)
     const ox = Math.floor(tileXFloor / n)
     const tx = ((tileXFloor % n) + n) % n
@@ -646,10 +673,7 @@ export function visibleTilesFrustumSampled(
   // Convert an unprojected sample (relative to camera centre) → lon/lat.
   const decodeSample = (relX: number, relY: number): void => {
     if (isMerc) {
-      decodeLonLat(
-        ((camera.centerX + relX) / R) * RAD2DEG,
-        mercatorYToLat(camera.centerY + relY),
-      )
+      decodeLonLat(((camera.centerX + relX) / R) * RAD2DEG, mercatorYToLat(camera.centerY + relY))
     } else {
       const [lonW, lat] = projection.inverse(centerProj[0]! + relX, centerProj[1]! + relY)
       // projection.inverse wraps lon to ±180; restore the continuous lon
@@ -669,7 +693,13 @@ export function visibleTilesFrustumSampled(
     const fy = iy / (SAMPLES_PER_AXIS - 1)
     for (let ix = 0; ix < SAMPLES_PER_AXIS; ix++) {
       const fx = ix / (SAMPLES_PER_AXIS - 1)
-      const rel = camera.unprojectToZ0(fx * canvasWidth, fy * canvasHeight, canvasWidth, canvasHeight, dpr)
+      const rel = camera.unprojectToZ0(
+        fx * canvasWidth,
+        fy * canvasHeight,
+        canvasWidth,
+        canvasHeight,
+        dpr,
+      )
       if (!rel) continue // sample ray misses ground (at/above horizon)
       decodeSample(rel[0], rel[1])
     }
@@ -722,7 +752,10 @@ export async function loadImageTexture(
     const texture = device.createTexture({
       size: { width: bitmap.width, height: bitmap.height },
       format: 'rgba8unorm',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+      usage:
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_DST |
+        GPUTextureUsage.RENDER_ATTACHMENT,
     })
 
     device.queue.copyExternalImageToTexture(

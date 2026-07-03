@@ -9,7 +9,10 @@ import type { RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { Material, executeItems } from './material'
 import { emitPointWgsl } from '@xgis/map'
 
-type VertexBuffers = ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
+type VertexBuffers = ReadonlyArray<{
+  stride: number
+  attributes: ReadonlyArray<{ location: number; offset: number; format: string }>
+}>
 
 /** The buffers + draw params for one tile-point batch. All handles are RHI
  *  buffers (§4 batch-seam migration): the renderer builds its own uniform/feat/
@@ -36,17 +39,34 @@ export class PointDraper {
   constructor(rhi: RhiDevice, format: string, sampleCount: number, vertexBuffers: VertexBuffers) {
     const bias = { constant: -10, slopeScale: -1, clamp: 0 }
     this.material = new Material(rhi, {
-      shader: emitPointWgsl(), vsEntry: 'vs_point', fsEntry: 'fs_point',
-      format: format as 'bgra8unorm', sampleCount,
-      groups: [[
-        { binding: 0, kind: 'uniform' }, { binding: 1, kind: 'storage' },
-        { binding: 2, kind: 'storage' }, { binding: 3, kind: 'storage' },
-      ]],
+      shader: emitPointWgsl(),
+      vsEntry: 'vs_point',
+      fsEntry: 'fs_point',
+      format: format as 'bgra8unorm',
+      sampleCount,
+      groups: [
+        [
+          { binding: 0, kind: 'uniform' },
+          { binding: 1, kind: 'storage' },
+          { binding: 2, kind: 'storage' },
+          { binding: 3, kind: 'storage' },
+        ],
+      ],
       colorTargets: [{ format: format as 'bgra8unorm', blend: 'alpha' }],
       vertexBuffers,
       variants: [
-        { depthWrite: true, depthCompare: 'less-equal', depthBias: bias, label: 'sdf-point-pipeline-rhi' },
-        { depthWrite: false, depthCompare: 'less-equal', depthBias: bias, label: 'sdf-point-pipeline-translucent-rhi' },
+        {
+          depthWrite: true,
+          depthCompare: 'less-equal',
+          depthBias: bias,
+          label: 'sdf-point-pipeline-rhi',
+        },
+        {
+          depthWrite: false,
+          depthCompare: 'less-equal',
+          depthBias: bias,
+          label: 'sdf-point-pipeline-translucent-rhi',
+        },
         // flat: depth-read, NO write, NO bias — flat ground-plane circles (painter's order).
         { depthWrite: false, depthCompare: 'less-equal', label: 'sdf-point-pipeline-flat-rhi' },
       ],
@@ -60,13 +80,15 @@ export class PointDraper {
       { binding: 2, resource: { buffer: b.shape } },
       { binding: 3, resource: { buffer: b.seg } },
     ])
-    executeItems(this.material, pass, [{
-      variant: b.variant,
-      bindGroups: [bg],
-      vertex: b.vertex,
-      index: { buffer: b.index, format: 'uint32' },
-      count: b.indexCount,
-      indexed: true,
-    }])
+    executeItems(this.material, pass, [
+      {
+        variant: b.variant,
+        bindGroups: [bg],
+        vertex: b.vertex,
+        index: { buffer: b.index, format: 'uint32' },
+        count: b.indexCount,
+        indexed: true,
+      },
+    ])
   }
 }

@@ -17,12 +17,17 @@
 
 import {
   TILE_FLAG_FULL_COVER,
-  tileKey, tileKeyUnpack,
+  tileKey,
+  tileKeyUnpack,
   lonLatToMercF64,
-  packECEFPolygonVertices, tileEcefCenterFromMerc,
-  type XGVTIndex, type TileIndexEntry,
-  type PropertyTable, type RingPolygon,
-  type CompiledTileSet, type TileLevel,
+  packECEFPolygonVertices,
+  tileEcefCenterFromMerc,
+  type XGVTIndex,
+  type TileIndexEntry,
+  type PropertyTable,
+  type RingPolygon,
+  type CompiledTileSet,
+  type TileLevel,
   type GeometryPart,
 } from '@xgis/compiler'
 import { xlog } from '@xgis/shared'
@@ -31,17 +36,25 @@ import { VirtualCatalogAdapter } from './sources/virtual-catalog-adapter'
 import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
 import { SubTileGenerator } from './sub-tile-generator'
 import {
-  TILE_LAYOUT_VERSION, TILE_LAYOUT_VERSION_BASE,
-  type TileSource, type TileSourceSink, type BackendTileResult, type TileScheme,
+  TILE_LAYOUT_VERSION,
+  TILE_LAYOUT_VERSION_BASE,
+  type TileSource,
+  type TileSourceSink,
+  type BackendTileResult,
+  type TileScheme,
 } from './tile-source'
 // Step 0 of the layer-type refactor: shared types live in tile-types.ts so
 // per-format backend modules can import them without pulling in catalog
 // runtime state. Re-exported below for back-compat with external callers
 // (loadPMTilesSource etc. import these from xgvt-source.ts today).
 import {
-  type TileData, type TileState, type CacheTileDataDescriptor,
-  DSFUN_POLY_STRIDE, DSFUN_LINE_STRIDE,
-  maxConcurrentLoads, defaultSkeletonDepth,
+  type TileData,
+  type TileState,
+  type CacheTileDataDescriptor,
+  DSFUN_POLY_STRIDE,
+  DSFUN_LINE_STRIDE,
+  maxConcurrentLoads,
+  defaultSkeletonDepth,
   type VirtualCatalog,
 } from './tile-types'
 import { unionBounds } from './tile-catalog-helpers'
@@ -173,7 +186,11 @@ export class TileCatalog {
    *  (protomaps v4 `roads` z≥6, `buildings` z≥14). */
   getLayerZoomRange(sourceLayer: string): { minzoom: number; maxzoom: number } | null {
     for (const b of this.backends) {
-      const fn = (b as TileSource & { getLayerZoomRange?: (s: string) => { minzoom: number; maxzoom: number } | null }).getLayerZoomRange
+      const fn = (
+        b as TileSource & {
+          getLayerZoomRange?: (s: string) => { minzoom: number; maxzoom: number } | null
+        }
+      ).getLayerZoomRange
       if (typeof fn === 'function') {
         const r = fn.call(b, sourceLayer)
         if (r) return r
@@ -190,10 +207,15 @@ export class TileCatalog {
   private makeSink(backend: TileSource): TileSourceSink {
     return {
       hasTileData: (key) => this.cache.has(key),
-      trackLoading: (key) => { this.loadingTiles.add(key) },
-      releaseLoading: (key) => { this.loadingTiles.delete(key) },
+      trackLoading: (key) => {
+        this.loadingTiles.add(key)
+      },
+      releaseLoading: (key) => {
+        this.loadingTiles.delete(key)
+      },
       getLoadingCount: () => this.loadingTiles.size,
-      acceptResult: (key, result, sourceLayer) => this.acceptResult(key, result, sourceLayer, backend),
+      acceptResult: (key, result, sourceLayer) =>
+        this.acceptResult(key, result, sourceLayer, backend),
     }
   }
 
@@ -225,14 +247,15 @@ export class TileCatalog {
    *  backend) pair via `_layoutMismatchWarned`. */
   private checkLayoutVersion(backend: TileSource): void {
     const v = backend.meta.layoutVersion
-    const mismatch = v === undefined
-      ? TILE_LAYOUT_VERSION > TILE_LAYOUT_VERSION_BASE
-      : v !== TILE_LAYOUT_VERSION
+    const mismatch =
+      v === undefined ? TILE_LAYOUT_VERSION > TILE_LAYOUT_VERSION_BASE : v !== TILE_LAYOUT_VERSION
     if (!mismatch) return
     this.evictTilesForBackend(backend)
     if (!this._layoutMismatchWarned.has(backend)) {
       this._layoutMismatchWarned.add(backend)
-      xlog.warn(`[X-GIS] tile-layout-version mismatch for source: cached=${v ?? TILE_LAYOUT_VERSION_BASE}, running=${TILE_LAYOUT_VERSION} — evicting cache + re-decoding`)
+      xlog.warn(
+        `[X-GIS] tile-layout-version mismatch for source: cached=${v ?? TILE_LAYOUT_VERSION_BASE}, running=${TILE_LAYOUT_VERSION} — evicting cache + re-decoding`,
+      )
     }
   }
 
@@ -290,8 +313,10 @@ export class TileCatalog {
           levelCount: 0,
           maxLevel: meta.maxZoom,
           bounds: meta.bounds,
-          indexOffset: 0, indexLength: 0,
-          propTableOffset: 0, propTableLength: 0,
+          indexOffset: 0,
+          indexLength: 0,
+          propTableOffset: 0,
+          propTableLength: 0,
         },
         entries: [],
         entryByHash: new Map(),
@@ -324,13 +349,23 @@ export class TileCatalog {
    *  sink (see makeSink) so `backend` is always the exact TileSource
    *  that produced this result. Pass null for empty placeholder
    *  (backend determined no data for this key). */
-  private acceptResult(key: number, result: BackendTileResult | null, sourceLayer = '', backend?: TileSource): void {
+  private acceptResult(
+    key: number,
+    result: BackendTileResult | null,
+    sourceLayer = '',
+    backend?: TileSource,
+  ): void {
     if (!result) {
       const empty = new Float32Array(0)
       const emptyI = new Uint32Array(0)
       this.cacheTileData({
-        key, vertices: empty, indices: emptyI, lineVertices: empty, lineIndices: emptyI,
-        sourceLayer, originBackend: backend,
+        key,
+        vertices: empty,
+        indices: emptyI,
+        lineVertices: empty,
+        lineIndices: emptyI,
+        sourceLayer,
+        originBackend: backend,
       })
       return
     }
@@ -341,12 +376,15 @@ export class TileCatalog {
     const tileFullCoverFid = result.fullCoverFeatureId ?? 0
     if (this.index && !this.index.entryByHash.has(key)) {
       const entry: TileIndexEntry = {
-        tileHash: key, dataOffset: 0, compactSize: 0, gpuReadySize: 0,
+        tileHash: key,
+        dataOffset: 0,
+        compactSize: 0,
+        gpuReadySize: 0,
         vertexCount: result.vertices.length / DSFUN_POLY_STRIDE,
         indexCount: result.indices.length,
         lineVertexCount: result.lineVertices.length / DSFUN_LINE_STRIDE,
         lineIndexCount: result.lineIndices.length,
-        flags: tileFullCover ? (TILE_FLAG_FULL_COVER | (tileFullCoverFid << 1)) : 0,
+        flags: tileFullCover ? TILE_FLAG_FULL_COVER | (tileFullCoverFid << 1) : 0,
         fullCoverFeatureId: tileFullCoverFid,
       }
       this.index.entries.push(entry)
@@ -355,15 +393,24 @@ export class TileCatalog {
     if (tileFullCover && result.vertices.length === 0) {
       const entry = this.index?.entryByHash.get(key)
       if (entry) {
-        this.createFullCoverTileData(key, entry, result.lineVertices, result.lineIndices, sourceLayer, backend)
+        this.createFullCoverTileData(
+          key,
+          entry,
+          result.lineVertices,
+          result.lineIndices,
+          sourceLayer,
+          backend,
+        )
         return
       }
     }
     this.cacheTileData({
       key,
       polygons: result.polygons,
-      vertices: result.vertices, indices: result.indices,
-      lineVertices: result.lineVertices, lineIndices: result.lineIndices,
+      vertices: result.vertices,
+      indices: result.indices,
+      lineVertices: result.lineVertices,
+      lineIndices: result.lineIndices,
       pointVertices: result.pointVertices,
       outlineIndices: result.outlineIndices,
       outlineVertices: result.outlineVertices,
@@ -525,9 +572,15 @@ export class TileCatalog {
   /** Diagnostic accessors — let inspectPipeline() + CPU debug tests
    *  read the budget/queue state without reaching into private fields.
    *  Not part of the public API.  */
-  getSubTileBudgetUsed(): number { return this.budget.subTileCountThisFrame }
-  getCompileBudgetUsed(): number { return this.budget.compileCountThisFrame }
-  getPendingLoadCount(): number { return this.loadingTiles.size }
+  getSubTileBudgetUsed(): number {
+    return this.budget.subTileCountThisFrame
+  }
+  getCompileBudgetUsed(): number {
+    return this.budget.compileCountThisFrame
+  }
+  getPendingLoadCount(): number {
+    return this.loadingTiles.size
+  }
 
   hasEntryInIndex(key: number): boolean {
     if (this.index?.entryByHash.has(key)) return true
@@ -575,7 +628,7 @@ export class TileCatalog {
           indexCount: tile.indices.length,
           lineVertexCount: tile.lineVertices.length / DSFUN_LINE_STRIDE,
           lineIndexCount: tile.lineIndices.length,
-          flags: isFullCover ? (TILE_FLAG_FULL_COVER | (fid << 1)) : 0,
+          flags: isFullCover ? TILE_FLAG_FULL_COVER | (fid << 1) : 0,
           fullCoverFeatureId: fid,
         }
         entries.push(entry)
@@ -585,14 +638,19 @@ export class TileCatalog {
         if (isFullCover && tile.vertices.length === 0) {
           this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
         } else {
-          const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({
-            rings: p.rings, featId: p.featId,
+          const polygons: RingPolygon[] | undefined = tile.polygons?.map((p) => ({
+            rings: p.rings,
+            featId: p.featId,
           }))
           this.cacheTileData({
-            key, polygons,
-            vertices: tile.vertices, indices: tile.indices,
-            lineVertices: tile.lineVertices, lineIndices: tile.lineIndices,
-            pointVertices: tile.pointVertices, outlineIndices: tile.outlineIndices,
+            key,
+            polygons,
+            vertices: tile.vertices,
+            indices: tile.indices,
+            lineVertices: tile.lineVertices,
+            lineIndices: tile.lineIndices,
+            pointVertices: tile.pointVertices,
+            outlineIndices: tile.outlineIndices,
             dequant: { scale: tile.dequantScale, half: tile.dequantHalf },
           })
         }
@@ -616,7 +674,9 @@ export class TileCatalog {
       propertyTable: tileSet.propertyTable,
     }
 
-    console.log(`[X-GIS] In-memory tiles loaded: ${tileCount} tiles from ${tileSet.featureCount} features`)
+    console.log(
+      `[X-GIS] In-memory tiles loaded: ${tileCount} tiles from ${tileSet.featureCount} features`,
+    )
     // No auto-prewarm: every tile in the compiled set is already in
     // dataCache by the loop above, so a prefetchTiles pump would only
     // produce duplicate cache hits — and on backends that route
@@ -632,16 +692,25 @@ export class TileCatalog {
    * Progressively add a single zoom level (from onLevel callback).
    * Creates/extends the index and caches tiles immediately.
    */
-  addTileLevel(level: TileLevel, bounds: [number, number, number, number], propertyTable: PropertyTable): void {
+  addTileLevel(
+    level: TileLevel,
+    bounds: [number, number, number, number],
+    propertyTable: PropertyTable,
+  ): void {
     if (!this.index) {
       this.index = {
         header: {
           levelCount: 1,
           maxLevel: level.zoom,
-          bounds, indexOffset: 0, indexLength: 0,
-          propTableOffset: 0, propTableLength: 0,
+          bounds,
+          indexOffset: 0,
+          indexLength: 0,
+          propTableOffset: 0,
+          propTableLength: 0,
         },
-        entries: [], entryByHash: new Map(), propertyTable,
+        entries: [],
+        entryByHash: new Map(),
+        propertyTable,
       }
     }
     const idx = this.index!
@@ -655,10 +724,15 @@ export class TileCatalog {
       const isFullCover = !!tile.fullCover
       const fid = tile.fullCoverFeatureId ?? 0
       const entry: TileIndexEntry = {
-        tileHash: key, dataOffset: 0, compactSize: 0, gpuReadySize: 0,
-        vertexCount: tile.vertices.length / DSFUN_POLY_STRIDE, indexCount: tile.indices.length,
-        lineVertexCount: tile.lineVertices.length / DSFUN_LINE_STRIDE, lineIndexCount: tile.lineIndices.length,
-        flags: isFullCover ? (TILE_FLAG_FULL_COVER | (fid << 1)) : 0,
+        tileHash: key,
+        dataOffset: 0,
+        compactSize: 0,
+        gpuReadySize: 0,
+        vertexCount: tile.vertices.length / DSFUN_POLY_STRIDE,
+        indexCount: tile.indices.length,
+        lineVertexCount: tile.lineVertices.length / DSFUN_LINE_STRIDE,
+        lineIndexCount: tile.lineIndices.length,
+        flags: isFullCover ? TILE_FLAG_FULL_COVER | (fid << 1) : 0,
         fullCoverFeatureId: fid,
       }
       idx.entries.push(entry)
@@ -667,12 +741,19 @@ export class TileCatalog {
       if (isFullCover && tile.vertices.length === 0) {
         this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
       } else {
-        const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId }))
+        const polygons: RingPolygon[] | undefined = tile.polygons?.map((p) => ({
+          rings: p.rings,
+          featId: p.featId,
+        }))
         this.cacheTileData({
-          key, polygons,
-          vertices: tile.vertices, indices: tile.indices,
-          lineVertices: tile.lineVertices, lineIndices: tile.lineIndices,
-          pointVertices: tile.pointVertices, outlineIndices: tile.outlineIndices,
+          key,
+          polygons,
+          vertices: tile.vertices,
+          indices: tile.indices,
+          lineVertices: tile.lineVertices,
+          lineIndices: tile.lineIndices,
+          pointVertices: tile.pointVertices,
+          outlineIndices: tile.outlineIndices,
           dequant: { scale: tile.dequantScale, half: tile.dequantHalf },
         })
       }
@@ -752,11 +833,13 @@ export class TileCatalog {
    *  waves; distance-from-camera ordering inside the backend's queue
    *  handles top-down sorting for free. Fire-and-forget — caller
    *  doesn't await. */
-  prewarmSkeleton(opts: {
-    depth?: number
-    minzoom?: number
-    maxzoom?: number
-  } = {}): void {
+  prewarmSkeleton(
+    opts: {
+      depth?: number
+      minzoom?: number
+      maxzoom?: number
+    } = {},
+  ): void {
     const depth = opts.depth ?? defaultSkeletonDepth()
     const sourceMinzoom = opts.minzoom ?? 0
     const sourceMaxzoom = opts.maxzoom ?? this.index?.header.maxLevel ?? 0
@@ -780,7 +863,7 @@ export class TileCatalog {
     this.markSkeleton(keys)
     const tick = (): void => {
       if (this._stopped) return
-      const remaining = keys.filter(k => !this.hasTileData(k))
+      const remaining = keys.filter((k) => !this.hasTileData(k))
       if (remaining.length === 0) return
       this.prefetchTiles(remaining)
       this._skeletonTimer = setTimeout(tick, 250)
@@ -809,9 +892,7 @@ export class TileCatalog {
    *  current camera centre. */
   setFetchPriority(distanceFromCamera: (key: number) => number): void {
     for (const b of this.backends) {
-      b.setFetchPriorityCallback?.(
-        (a, c) => distanceFromCamera(c) - distanceFromCamera(a),
-      )
+      b.setFetchPriorityCallback?.((a, c) => distanceFromCamera(c) - distanceFromCamera(a))
     }
   }
 
@@ -884,13 +965,16 @@ export class TileCatalog {
         const entry = this.index.entryByHash.get(key)!
         // Full-cover tiles with no data: synthesise quad immediately
         // from the cached entry — no fetch needed.
-        if ((entry.flags & TILE_FLAG_FULL_COVER) && entry.compactSize === 0) {
+        if (entry.flags & TILE_FLAG_FULL_COVER && entry.compactSize === 0) {
           this.createFullCoverTileData(key, entry, new Float32Array(0), new Uint32Array(0))
           continue
         }
         if (owner.loadTilesBatch) {
           let batch = batches.get(owner)
-          if (!batch) { batch = []; batches.set(owner, batch) }
+          if (!batch) {
+            batch = []
+            batches.set(owner, batch)
+          }
           batch.push(key)
         } else {
           owner.loadTile(key)
@@ -928,8 +1012,10 @@ export class TileCatalog {
   }
 
   private createFullCoverTileData(
-    key: number, entry: TileIndexEntry,
-    lineVertices: Float32Array, lineIndices: Uint32Array,
+    key: number,
+    entry: TileIndexEntry,
+    lineVertices: Float32Array,
+    lineIndices: Uint32Array,
     /** Per-MVT-layer slot. '' for single-layer sources; layer name
      *  for sliced sources (PMTiles water/landuse/etc.). The synthesised
      *  full-cover quad must land in the same slot the requesting xgis
@@ -943,10 +1029,10 @@ export class TileCatalog {
   ): void {
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
-    const tileWest = tx / tn * 360 - 180
-    const tileEast = (tx + 1) / tn * 360 - 180
-    const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tn))) * 180 / Math.PI
-    const tileNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / tn))) * 180 / Math.PI
+    const tileWest = (tx / tn) * 360 - 180
+    const tileEast = ((tx + 1) / tn) * 360 - 180
+    const tileSouth = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (ty + 1)) / tn))) * 180) / Math.PI
+    const tileNorth = (Math.atan(Math.sinh(Math.PI * (1 - (2 * ty) / tn))) * 180) / Math.PI
     const fid = entry.fullCoverFeatureId
 
     // Quantized-ECEF quad (POLYGON_FILL_FORMAT, stride 28 B) spanning the tile,
@@ -961,10 +1047,18 @@ export class TileCatalog {
     const [nwMx, nwMy] = lonLatToMercF64(tileWest, tileNorth)
 
     const scratchPv = [
-      swMx, swMy, fid,  // corner 0 (SW)
-      seMx, seMy, fid,  // corner 1 (SE)
-      neMx, neMy, fid,  // corner 2 (NE)
-      nwMx, nwMy, fid,  // corner 3 (NW)
+      swMx,
+      swMy,
+      fid, // corner 0 (SW)
+      seMx,
+      seMy,
+      fid, // corner 1 (SE)
+      neMx,
+      neMy,
+      fid, // corner 2 (NE)
+      nwMx,
+      nwMy,
+      fid, // corner 3 (NW)
     ]
     // tileOriginMerc = [merc(tileWest), merc(tileSouth)] = [swMx, swMy] — MUST
     // match the renderer's per-tile `tile_origin_merc` uniform. The packer
@@ -972,15 +1066,21 @@ export class TileCatalog {
     // this arg defaulted it to [0,0], so the tail held ABSOLUTE Mercator and the
     // flat fill VS double-counted the origin → the full-cover quad rendered at
     // the wrong place (pure-ocean tiles showed the background color, #449).
-    const quant = packECEFPolygonVertices(
-      scratchPv, tileEcefCenterFromMerc(swMx, swMy), [swMx, swMy],
-    )
+    const quant = packECEFPolygonVertices(scratchPv, tileEcefCenterFromMerc(swMx, swMy), [
+      swMx,
+      swMy,
+    ])
     const vertices = quant.vertices
     const indices = new Uint32Array([0, 1, 2, 0, 2, 3])
 
     this.cacheTileData({
-      key, vertices, indices, lineVertices, lineIndices,
-      sourceLayer, originBackend,
+      key,
+      vertices,
+      indices,
+      lineVertices,
+      lineIndices,
+      sourceLayer,
+      originBackend,
       dequant: { scale: quant.dequantScale, half: quant.dequantHalf },
     })
   }
@@ -996,23 +1096,34 @@ export class TileCatalog {
     const dequant = d.dequant ?? { scale: 1, half: 0 }
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
-    const tileWest = tx / tn * 360 - 180
-    const tileEast = (tx + 1) / tn * 360 - 180
-    const tileNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / tn))) * 180 / Math.PI
-    const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tn))) * 180 / Math.PI
+    const tileWest = (tx / tn) * 360 - 180
+    const tileEast = ((tx + 1) / tn) * 360 - 180
+    const tileNorth = (Math.atan(Math.sinh(Math.PI * (1 - (2 * ty) / tn))) * 180) / Math.PI
+    const tileSouth = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (ty + 1)) / tn))) * 180) / Math.PI
 
     const data: TileData = {
       vertices: d.vertices,
       dequantScale: dequant.scale,
       dequantHalf: dequant.half,
-      indices: d.indices, lineVertices: d.lineVertices, lineIndices: d.lineIndices,
+      indices: d.indices,
+      lineVertices: d.lineVertices,
+      lineIndices: d.lineIndices,
       outlineIndices: d.outlineIndices ?? new Uint32Array(0),
-      outlineVertices: d.outlineVertices && d.outlineVertices.length > 0 ? d.outlineVertices : undefined,
-      outlineLineIndices: d.outlineLineIndices && d.outlineLineIndices.length > 0 ? d.outlineLineIndices : undefined,
+      outlineVertices:
+        d.outlineVertices && d.outlineVertices.length > 0 ? d.outlineVertices : undefined,
+      outlineLineIndices:
+        d.outlineLineIndices && d.outlineLineIndices.length > 0 ? d.outlineLineIndices : undefined,
       pointVertices: d.pointVertices,
-      prebuiltLineSegments: d.prebuiltLineSegments && d.prebuiltLineSegments.length > 0 ? d.prebuiltLineSegments : undefined,
-      prebuiltOutlineSegments: d.prebuiltOutlineSegments && d.prebuiltOutlineSegments.length > 0 ? d.prebuiltOutlineSegments : undefined,
-      tileWest, tileSouth,
+      prebuiltLineSegments:
+        d.prebuiltLineSegments && d.prebuiltLineSegments.length > 0
+          ? d.prebuiltLineSegments
+          : undefined,
+      prebuiltOutlineSegments:
+        d.prebuiltOutlineSegments && d.prebuiltOutlineSegments.length > 0
+          ? d.prebuiltOutlineSegments
+          : undefined,
+      tileWest,
+      tileSouth,
       tileWidth: tileEast - tileWest,
       tileHeight: tileNorth - tileSouth,
       tileZoom: tz,
@@ -1024,8 +1135,11 @@ export class TileCatalog {
     }
 
     this.setSlice(key, sourceLayer, data)
-    try { this.onTileLoaded?.(key, data, sourceLayer) }
-    catch (e) { xlog.error('[onTileLoaded]', (e as Error)?.stack ?? e) }
+    try {
+      this.onTileLoaded?.(key, data, sourceLayer)
+    } catch (e) {
+      xlog.error('[onTileLoaded]', (e as Error)?.stack ?? e)
+    }
   }
 
   // ── Sub-tile generation (overzoom CPU clipping) ──
@@ -1060,11 +1174,13 @@ export class TileCatalog {
 
     this.setSlice(subKey, sourceLayer, subData)
     this.budget.chargeSubTile()
-    try { this.onTileLoaded?.(subKey, subData, sourceLayer) }
-    catch (e) { xlog.error('[onTileLoaded sub]', (e as Error)?.stack ?? e) }
+    try {
+      this.onTileLoaded?.(subKey, subData, sourceLayer)
+    } catch (e) {
+      xlog.error('[onTileLoaded sub]', (e as Error)?.stack ?? e)
+    }
     return true
   }
-
 
   // ── Prefetch ──
 
@@ -1081,13 +1197,18 @@ export class TileCatalog {
     //
     // Fix: only consider visTiles at `zoom` when computing the AABB. Tiles
     // at other zoom levels are already covered by their own prefetch pass.
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+    let minX = Infinity,
+      maxX = -Infinity,
+      minY = Infinity,
+      maxY = -Infinity
     let matched = 0
     for (const t of visTiles) {
       if (t.z !== zoom) continue
       matched++
-      if (t.x < minX) minX = t.x; if (t.x > maxX) maxX = t.x
-      if (t.y < minY) minY = t.y; if (t.y > maxY) maxY = t.y
+      if (t.x < minX) minX = t.x
+      if (t.x > maxX) maxX = t.x
+      if (t.y < minY) minY = t.y
+      if (t.y > maxY) maxY = t.y
     }
     if (matched === 0) return
 
@@ -1101,7 +1222,7 @@ export class TileCatalog {
     if (maxX - minX > MAX_SPAN || maxY - minY > MAX_SPAN) return
 
     for (let rawX = minX - 1; rawX <= maxX + 1; rawX++) {
-      const x = ((rawX % n) + n) % n  // wrap X for world wrapping
+      const x = ((rawX % n) + n) % n // wrap X for world wrapping
       for (let y = Math.max(0, minY - 1); y <= Math.min(n - 1, maxY + 1); y++) {
         if (rawX >= minX && rawX <= maxX && y >= minY && y <= maxY) continue
         const key = tileKey(zoom, x, y)
@@ -1123,8 +1244,11 @@ export class TileCatalog {
   }
 
   prefetchNextZoom(
-    centerLon: number, centerLat: number,
-    currentZ: number, canvasWidth: number, canvasHeight: number,
+    centerLon: number,
+    centerLat: number,
+    currentZ: number,
+    canvasWidth: number,
+    canvasHeight: number,
     cameraZoom: number,
   ): void {
     const _capNext = maxConcurrentLoads()
@@ -1134,7 +1258,14 @@ export class TileCatalog {
     const maxSubZ = this.index.header.maxLevel + 6
     if (nextZ > maxSubZ) return
 
-    const nextTiles = visibleTiles(centerLon, centerLat, nextZ, canvasWidth, canvasHeight, cameraZoom)
+    const nextTiles = visibleTiles(
+      centerLon,
+      centerLat,
+      nextZ,
+      canvasWidth,
+      canvasHeight,
+      cameraZoom,
+    )
     const prefetchKeys: number[] = []
 
     for (const t of nextTiles) {
@@ -1157,4 +1288,3 @@ export class TileCatalog {
     this.eviction.evictTiles(this.cache, protectedKeys)
   }
 }
-

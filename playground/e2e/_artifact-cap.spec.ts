@@ -11,18 +11,32 @@ test('capture compare panes', async ({ page }) => {
   mkdirSync(OUT, { recursive: true })
   const errs: string[] = []
   page.on('pageerror', (e) => errs.push('[PAGEERROR] ' + e.message))
-  page.on('console', (m) => { if (m.type() === 'error') errs.push('[err] ' + m.text().slice(0, 240)) })
+  page.on('console', (m) => {
+    if (m.type() === 'error') errs.push('[err] ' + m.text().slice(0, 240))
+  })
   await page.goto(`/compare.html?style=${STYLE}${PROJ}${HASH}`)
   await page.waitForFunction(
     () => (window as any).__xgisReady === true && (window as any).__mlReady === true,
-    null, { timeout: 40_000 },
+    null,
+    { timeout: 40_000 },
   )
-  await page.evaluate(() => new Promise<void>((res) => {
-    const m = (window as any).__xgisMap; const t0 = performance.now(); let s = 0
-    const tick = () => { let ok = false; try { ok = m?.hasPendingSourceWork?.() === false } catch {}
-      s = ok ? s + 1 : 0; (s >= 8 || performance.now() - t0 > 15_000) ? res() : requestAnimationFrame(tick) }
-    requestAnimationFrame(tick)
-  }))
+  await page.evaluate(
+    () =>
+      new Promise<void>((res) => {
+        const m = (window as any).__xgisMap
+        const t0 = performance.now()
+        let s = 0
+        const tick = () => {
+          let ok = false
+          try {
+            ok = m?.hasPendingSourceWork?.() === false
+          } catch {}
+          s = ok ? s + 1 : 0
+          s >= 8 || performance.now() - t0 > 15_000 ? res() : requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
+      }),
+  )
   await page.waitForTimeout(2500)
   const panes = page.locator('#panes .pane')
   writeFileSync(`${OUT}/${TAG}_ml.png`, await panes.nth(0).screenshot())

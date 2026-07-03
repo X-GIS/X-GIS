@@ -16,18 +16,20 @@ function circleStyle(strokeColor: string, strokeOpacity: number) {
   return {
     version: 8,
     sources: { p: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
-    layers: [{
-      id: 'pts',
-      type: 'circle',
-      source: 'p',
-      paint: {
-        'circle-radius': 5,
-        'circle-color': '#ff0000',
-        'circle-stroke-color': strokeColor,
-        'circle-stroke-width': 2,
-        'circle-stroke-opacity': strokeOpacity,
+    layers: [
+      {
+        id: 'pts',
+        type: 'circle',
+        source: 'p',
+        paint: {
+          'circle-radius': 5,
+          'circle-color': '#ff0000',
+          'circle-stroke-color': strokeColor,
+          'circle-stroke-width': 2,
+          'circle-stroke-opacity': strokeOpacity,
+        },
       },
-    }],
+    ],
   } as const
 }
 
@@ -70,14 +72,16 @@ function bgStyle(bgColor: string, bgOpacity: number) {
   return {
     version: 8,
     sources: {},
-    layers: [{
-      id: 'bg',
-      type: 'background',
-      paint: {
-        'background-color': bgColor,
-        'background-opacity': bgOpacity,
+    layers: [
+      {
+        id: 'bg',
+        type: 'background',
+        paint: {
+          'background-color': bgColor,
+          'background-opacity': bgOpacity,
+        },
       },
-    }],
+    ],
   } as const
 }
 

@@ -7,21 +7,26 @@ import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
 
 function convert(paint: Record<string, unknown>): { src: string; warnings: string[] } {
   const coverage = { sources: [], layers: [] as never[], warnings: [] as string[] }
-  const src = convertMapboxStyle({
-    version: 8,
-    sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-    layers: [{
-      id: 'c',
-      type: 'circle',
-      source: 'v',
-      'source-layer': 'p',
-      paint: {
-        'circle-color': '#ff0000',
-        'circle-radius': 6,
-        ...paint,
-      },
-    }],
-  } as never, { coverage })
+  const src = convertMapboxStyle(
+    {
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [
+        {
+          id: 'c',
+          type: 'circle',
+          source: 'v',
+          'source-layer': 'p',
+          paint: {
+            'circle-color': '#ff0000',
+            'circle-radius': 6,
+            ...paint,
+          },
+        },
+      ],
+    } as never,
+    { coverage },
+  )
   return { src, warnings: coverage.warnings }
 }
 
@@ -30,7 +35,7 @@ describe('circle-translate emit', () => {
     const { src, warnings } = convert({ 'circle-translate': [5, 10] })
     expect(src).toContain('circle-translate-x-5')
     expect(src).toContain('circle-translate-y-10')
-    expect(warnings.some(w => w.includes('dropped') || w.includes('no per-frame'))).toBe(false)
+    expect(warnings.some((w) => w.includes('dropped') || w.includes('no per-frame'))).toBe(false)
   })
 
   it('negative values use bracket form', () => {
@@ -58,38 +63,49 @@ describe('circle-translate emit', () => {
 
   it('zoom-interp vec2 → per-axis bracket bindings, no warning (WS-1 part 5)', () => {
     const { src, warnings } = convert({
-      'circle-translate': ['interpolate', ['linear'], ['zoom'],
-        5, ['literal', [0, 0]], 15, ['literal', [10, -6]]],
+      'circle-translate': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        5,
+        ['literal', [0, 0]],
+        15,
+        ['literal', [10, -6]],
+      ],
     })
     expect(src).toContain('circle-translate-x-[interpolate(zoom, 5, 0, 15, 10)]')
     expect(src).toContain('circle-translate-y-[interpolate(zoom, 5, 0, 15, -6)]')
     // No last-stop-approximation warning any more — resolved per frame.
-    expect(warnings.some(w =>
-      w.includes('circle-translate')
-      && (w.includes('last stop') || w.includes('dropped') || w.includes('not yet')))).toBe(false)
+    expect(
+      warnings.some(
+        (w) =>
+          w.includes('circle-translate') &&
+          (w.includes('last stop') || w.includes('dropped') || w.includes('not yet')),
+      ),
+    ).toBe(false)
   })
 })
 
 describe('circle-translate-anchor emit', () => {
-  it("viewport anchor with translate → no warning (spec default, honoured)", () => {
+  it('viewport anchor with translate → no warning (spec default, honoured)', () => {
     const { warnings } = convert({
       'circle-translate': [2, 2],
       'circle-translate-anchor': 'viewport',
     })
-    expect(warnings.some(w => w.includes('circle-translate-anchor'))).toBe(false)
+    expect(warnings.some((w) => w.includes('circle-translate-anchor'))).toBe(false)
   })
 
-  it("map anchor with translate → warning (unsupported mode)", () => {
+  it('map anchor with translate → warning (unsupported mode)', () => {
     const { warnings } = convert({
       'circle-translate': [2, 2],
       'circle-translate-anchor': 'map',
     })
-    expect(warnings.some(w => w.includes('circle-translate-anchor'))).toBe(true)
+    expect(warnings.some((w) => w.includes('circle-translate-anchor'))).toBe(true)
   })
 
-  it("anchor without translate → silent no-op", () => {
+  it('anchor without translate → silent no-op', () => {
     const { warnings } = convert({ 'circle-translate-anchor': 'map' })
-    expect(warnings.some(w => w.includes('circle-translate-anchor'))).toBe(false)
+    expect(warnings.some((w) => w.includes('circle-translate-anchor'))).toBe(false)
   })
 })
 
@@ -97,7 +113,7 @@ describe('circle-blur emit', () => {
   it('positive value → circle-blur-N utility', () => {
     const { src, warnings } = convert({ 'circle-blur': 2 })
     expect(src).toContain('circle-blur-2')
-    expect(warnings.some(w => w.includes('circle-blur') && w.includes('dropped'))).toBe(false)
+    expect(warnings.some((w) => w.includes('circle-blur') && w.includes('dropped'))).toBe(false)
   })
 
   it('fractional value → circle-blur-0.75 utility', () => {
@@ -118,11 +134,11 @@ describe('circle-blur emit', () => {
   it('negative value → clamped to 0, warning emitted', () => {
     const { src, warnings } = convert({ 'circle-blur': -1 })
     expect(src).not.toContain('circle-blur-')
-    expect(warnings.some(w => w.includes('circle-blur') && w.includes('negative'))).toBe(true)
+    expect(warnings.some((w) => w.includes('circle-blur') && w.includes('negative'))).toBe(true)
   })
 
   it('no gap warning about Plan §4 for a valid constant blur', () => {
     const { warnings } = convert({ 'circle-blur': 1 })
-    expect(warnings.some(w => w.includes('Plan §4') && w.includes('circle-blur'))).toBe(false)
+    expect(warnings.some((w) => w.includes('Plan §4') && w.includes('circle-blur'))).toBe(false)
   })
 })

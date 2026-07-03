@@ -34,7 +34,16 @@ import { decomposeFeatures, compileSingleTile } from '../tiler/vector-tiler'
 import type { GeoJSONFeature } from '../tiler/geojson-types'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const NE_110M = join(HERE, '..', '..', '..', 'playground', 'public', 'data', 'ne_110m_countries.geojson')
+const NE_110M = join(
+  HERE,
+  '..',
+  '..',
+  '..',
+  'playground',
+  'public',
+  'data',
+  'ne_110m_countries.geojson',
+)
 
 interface FeatureCol {
   features: Array<{
@@ -89,11 +98,13 @@ describe('BUG T4 — boundary-split hole distribution never drops a hole', () =>
     const hole = holeLonLat()
 
     const donut: GeoJSONFeature = {
-      type: 'Feature', properties: {},
+      type: 'Feature',
+      properties: {},
       geometry: { type: 'Polygon', coordinates: [south, hole] },
     }
     const solid: GeoJSONFeature = {
-      type: 'Feature', properties: {},
+      type: 'Feature',
+      properties: {},
       geometry: { type: 'Polygon', coordinates: [south] },
     }
 

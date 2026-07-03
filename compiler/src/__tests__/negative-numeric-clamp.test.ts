@@ -18,106 +18,118 @@ describe('negative numeric clamp warnings', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'lbl',
-        type: 'symbol',
-        source: 'v',
-        'source-layer': 'a',
-        layout: { 'text-field': '{name}', 'text-size': -10 },
-        paint: { 'text-color': '#000' },
-      }],
+      layers: [
+        {
+          id: 'lbl',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'a',
+          layout: { 'text-field': '{name}', 'text-size': -10 },
+          paint: { 'text-color': '#000' },
+        },
+      ],
     })
-    expect(w.some(s => s.includes('text-size') && s.includes('negative'))).toBe(true)
+    expect(w.some((s) => s.includes('text-size') && s.includes('negative'))).toBe(true)
   })
 
   it('line-width with negative literal warns + still emits clamped utility', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'line-color': '#fff',
-          'line-width': -3,
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'line-color': '#fff',
+            'line-width': -3,
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('line-width') && s.includes('negative'))).toBe(true)
+    expect(w.some((s) => s.includes('line-width') && s.includes('negative'))).toBe(true)
   })
 
   it('text-size with valid positive literal does NOT warn', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'lbl',
-        type: 'symbol',
-        source: 'v',
-        'source-layer': 'a',
-        layout: { 'text-field': '{name}', 'text-size': 16 },
-        paint: { 'text-color': '#000' },
-      }],
+      layers: [
+        {
+          id: 'lbl',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'a',
+          layout: { 'text-field': '{name}', 'text-size': 16 },
+          paint: { 'text-color': '#000' },
+        },
+      ],
     })
-    expect(w.some(s => s.includes('text-size') && s.includes('negative'))).toBe(false)
+    expect(w.some((s) => s.includes('text-size') && s.includes('negative'))).toBe(false)
   })
 
   it('circle-radius with negative literal warns + emits clamped utility', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'c',
-        type: 'circle',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'circle-color': '#000',
-          'circle-stroke-color': '#000',
-          'circle-stroke-width': 1,
-          'circle-radius': -5,
+      layers: [
+        {
+          id: 'c',
+          type: 'circle',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'circle-color': '#000',
+            'circle-stroke-color': '#000',
+            'circle-stroke-width': 1,
+            'circle-radius': -5,
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('circle-radius') && s.includes('negative'))).toBe(true)
+    expect(w.some((s) => s.includes('circle-radius') && s.includes('negative'))).toBe(true)
   })
 
   it('fill-extrusion-height with negative literal warns', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'e',
-        type: 'fill-extrusion',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'fill-extrusion-color': '#888',
-          'fill-extrusion-height': -10,
+      layers: [
+        {
+          id: 'e',
+          type: 'fill-extrusion',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'fill-extrusion-color': '#888',
+            'fill-extrusion-height': -10,
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('fill-extrusion-height') && s.includes('negative'))).toBe(true)
+    expect(w.some((s) => s.includes('fill-extrusion-height') && s.includes('negative'))).toBe(true)
   })
 
   it('fill-opacity = -0.5 (negative) warns + clamps to 0', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'fill-color': '#000',
-          'fill-opacity': -0.5,
+      layers: [
+        {
+          id: 'l',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'fill-color': '#000',
+            'fill-opacity': -0.5,
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('opacity') && s.includes('out of range'))).toBe(true)
+    expect(w.some((s) => s.includes('opacity') && s.includes('out of range'))).toBe(true)
   })
 
   it('fill-opacity = 150 (out of percent range) warns + clamps to 1', () => {
@@ -126,247 +138,275 @@ describe('negative numeric clamp warnings', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'fill-color': '#000',
-          'fill-opacity': 150,
+      layers: [
+        {
+          id: 'l',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'fill-color': '#000',
+            'fill-opacity': 150,
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('opacity') && s.includes('out of range'))).toBe(true)
+    expect(w.some((s) => s.includes('opacity') && s.includes('out of range'))).toBe(true)
   })
 
   it('fill-opacity = 50 (auto-detect percent) does NOT warn', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'fill-color': '#000',
-          'fill-opacity': 50,
+      layers: [
+        {
+          id: 'l',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'fill-color': '#000',
+            'fill-opacity': 50,
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('opacity') && s.includes('out of range'))).toBe(false)
+    expect(w.some((s) => s.includes('opacity') && s.includes('out of range'))).toBe(false)
   })
 
   it('text-padding with negative literal warns', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'lbl',
-        type: 'symbol',
-        source: 'v',
-        'source-layer': 'a',
-        layout: { 'text-field': '{name}', 'text-padding': -2 },
-        paint: { 'text-color': '#000' },
-      }],
+      layers: [
+        {
+          id: 'lbl',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'a',
+          layout: { 'text-field': '{name}', 'text-padding': -2 },
+          paint: { 'text-color': '#000' },
+        },
+      ],
     })
-    expect(w.some(s => s.includes('text-padding') && s.includes('negative'))).toBe(true)
+    expect(w.some((s) => s.includes('text-padding') && s.includes('negative'))).toBe(true)
   })
 
   it('text-line-height with negative literal warns', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'lbl',
-        type: 'symbol',
-        source: 'v',
-        'source-layer': 'a',
-        layout: { 'text-field': '{name}', 'text-line-height': -1.2 },
-        paint: { 'text-color': '#000' },
-      }],
+      layers: [
+        {
+          id: 'lbl',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'a',
+          layout: { 'text-field': '{name}', 'text-line-height': -1.2 },
+          paint: { 'text-color': '#000' },
+        },
+      ],
     })
-    expect(w.some(s => s.includes('text-line-height') && s.includes('negative'))).toBe(true)
+    expect(w.some((s) => s.includes('text-line-height') && s.includes('negative'))).toBe(true)
   })
 
   it('fill-extrusion-base with negative literal warns', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'e',
-        type: 'fill-extrusion',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'fill-extrusion-color': '#888',
-          'fill-extrusion-height': 50,
-          'fill-extrusion-base': -5,
+      layers: [
+        {
+          id: 'e',
+          type: 'fill-extrusion',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'fill-extrusion-color': '#888',
+            'fill-extrusion-height': 50,
+            'fill-extrusion-base': -5,
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('fill-extrusion-base') && s.includes('negative'))).toBe(true)
+    expect(w.some((s) => s.includes('fill-extrusion-base') && s.includes('negative'))).toBe(true)
   })
 
   it('line-blur with negative literal warns', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'line-color': '#fff',
-          'line-width': 2,
-          'line-blur': -1.5,
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'line-color': '#fff',
+            'line-width': 2,
+            'line-blur': -1.5,
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('line-blur') && s.includes('negative'))).toBe(true)
+    expect(w.some((s) => s.includes('line-blur') && s.includes('negative'))).toBe(true)
   })
 
   it('text-halo-width with negative literal warns', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'lbl',
-        type: 'symbol',
-        source: 'v',
-        'source-layer': 'a',
-        layout: { 'text-field': '{name}' },
-        paint: { 'text-color': '#000', 'text-halo-width': -2 },
-      }],
+      layers: [
+        {
+          id: 'lbl',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'a',
+          layout: { 'text-field': '{name}' },
+          paint: { 'text-color': '#000', 'text-halo-width': -2 },
+        },
+      ],
     })
-    expect(w.some(s => s.includes('text-halo-width') && s.includes('negative'))).toBe(true)
+    expect(w.some((s) => s.includes('text-halo-width') && s.includes('negative'))).toBe(true)
   })
 
   it('circle-stroke-width with negative literal warns', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'c',
-        type: 'circle',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'circle-color': '#000',
-          'circle-stroke-color': '#000',
-          'circle-stroke-width': -1,
-          'circle-radius': 5,
+      layers: [
+        {
+          id: 'c',
+          type: 'circle',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'circle-color': '#000',
+            'circle-stroke-color': '#000',
+            'circle-stroke-width': -1,
+            'circle-radius': 5,
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('circle-stroke-width') && s.includes('negative'))).toBe(true)
+    expect(w.some((s) => s.includes('circle-stroke-width') && s.includes('negative'))).toBe(true)
   })
 
   it('text-halo-blur with negative literal warns', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'lbl',
-        type: 'symbol',
-        source: 'v',
-        'source-layer': 'a',
-        layout: { 'text-field': '{name}' },
-        paint: { 'text-color': '#000', 'text-halo-blur': -0.5 },
-      }],
+      layers: [
+        {
+          id: 'lbl',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'a',
+          layout: { 'text-field': '{name}' },
+          paint: { 'text-color': '#000', 'text-halo-blur': -0.5 },
+        },
+      ],
     })
-    expect(w.some(s => s.includes('text-halo-blur') && s.includes('negative'))).toBe(true)
+    expect(w.some((s) => s.includes('text-halo-blur') && s.includes('negative'))).toBe(true)
   })
 
   it('symbol-spacing with zero on line placement warns', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'lbl',
-        type: 'symbol',
-        source: 'v',
-        'source-layer': 'a',
-        layout: {
-          'text-field': '{name}',
-          'symbol-placement': 'line',
-          'symbol-spacing': 0,
+      layers: [
+        {
+          id: 'lbl',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'a',
+          layout: {
+            'text-field': '{name}',
+            'symbol-placement': 'line',
+            'symbol-spacing': 0,
+          },
+          paint: { 'text-color': '#000' },
         },
-        paint: { 'text-color': '#000' },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('symbol-spacing') && s.includes('not positive'))).toBe(true)
+    expect(w.some((s) => s.includes('symbol-spacing') && s.includes('not positive'))).toBe(true)
   })
 
   it('symbol-spacing with negative on line placement warns', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'lbl',
-        type: 'symbol',
-        source: 'v',
-        'source-layer': 'a',
-        layout: {
-          'text-field': '{name}',
-          'symbol-placement': 'line',
-          'symbol-spacing': -50,
+      layers: [
+        {
+          id: 'lbl',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'a',
+          layout: {
+            'text-field': '{name}',
+            'symbol-placement': 'line',
+            'symbol-spacing': -50,
+          },
+          paint: { 'text-color': '#000' },
         },
-        paint: { 'text-color': '#000' },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('symbol-spacing') && s.includes('not positive'))).toBe(true)
+    expect(w.some((s) => s.includes('symbol-spacing') && s.includes('not positive'))).toBe(true)
   })
 
   it('line-miter-limit with negative literal warns', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        layout: { 'line-miter-limit': -2 },
-        paint: { 'line-color': '#fff', 'line-width': 2 },
-      }],
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          layout: { 'line-miter-limit': -2 },
+          paint: { 'line-color': '#fff', 'line-width': 2 },
+        },
+      ],
     })
-    expect(w.some(s => s.includes('line-miter-limit') && s.includes('negative'))).toBe(true)
+    expect(w.some((s) => s.includes('line-miter-limit') && s.includes('negative'))).toBe(true)
   })
 
   it('text-max-width with negative literal warns', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'lbl',
-        type: 'symbol',
-        source: 'v',
-        'source-layer': 'a',
-        layout: { 'text-field': '{name}', 'text-max-width': -5 },
-        paint: { 'text-color': '#000' },
-      }],
+      layers: [
+        {
+          id: 'lbl',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'a',
+          layout: { 'text-field': '{name}', 'text-max-width': -5 },
+          paint: { 'text-color': '#000' },
+        },
+      ],
     })
-    expect(w.some(s => s.includes('text-max-width') && s.includes('negative'))).toBe(true)
+    expect(w.some((s) => s.includes('text-max-width') && s.includes('negative'))).toBe(true)
   })
 
   it('line-width=0 (valid, hides line) does NOT warn', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'line-color': '#fff',
-          'line-width': 0,
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'line-color': '#fff',
+            'line-width': 0,
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('line-width') && s.includes('negative'))).toBe(false)
+    expect(w.some((s) => s.includes('line-width') && s.includes('negative'))).toBe(false)
   })
 })

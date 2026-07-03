@@ -37,27 +37,31 @@ describe('classifyTile', () => {
   it('returns overzoom-parent when tileZ > maxLevel', () => {
     const visible = tile(16, 12345, 6789)
     const parentAtMaxLevel = tileKey(14, 3086, 1697)
-    const d = classifyTile(baseInputs({
-      visible,
-      visibleKey: tileKey(visible.z, visible.x, visible.y),
-      maxLevel: 14,
-      parentAtMaxLevel,
-    }))
+    const d = classifyTile(
+      baseInputs({
+        visible,
+        visibleKey: tileKey(visible.z, visible.x, visible.y),
+        maxLevel: 14,
+        parentAtMaxLevel,
+      }),
+    )
     expect(d.kind).toBe('overzoom-parent')
     if (d.kind === 'overzoom-parent') {
       expect(d.parentKey).toBe(parentAtMaxLevel)
-      expect(d.parentNeedsFetch).toBe(true)  // hasSliceInCatalog returns false
+      expect(d.parentNeedsFetch).toBe(true) // hasSliceInCatalog returns false
     }
   })
 
   it('overzoom-parent flags parentNeedsUpload when slice cached but not GPU', () => {
     const parentAtMaxLevel = 999
-    const d = classifyTile(baseInputs({
-      visible: tile(16, 0, 0),
-      visibleKey: tileKey(16, 0, 0),
-      parentAtMaxLevel,
-      hasSliceInCatalog: (k) => k === parentAtMaxLevel,
-    }))
+    const d = classifyTile(
+      baseInputs({
+        visible: tile(16, 0, 0),
+        visibleKey: tileKey(16, 0, 0),
+        parentAtMaxLevel,
+        hasSliceInCatalog: (k) => k === parentAtMaxLevel,
+      }),
+    )
     expect(d.kind).toBe('overzoom-parent')
     if (d.kind === 'overzoom-parent') {
       expect(d.parentNeedsFetch).toBe(false)
@@ -67,11 +71,13 @@ describe('classifyTile', () => {
 
   it('returns drop-empty-slice when this layer empty but tile loaded AND no ancestor has slice', () => {
     const visibleKey = tileKey(8, 100, 50)
-    const d = classifyTile(baseInputs({
-      visibleKey,
-      hasSliceInCatalog: () => false,         // this layer empty everywhere
-      hasAnySliceInCatalog: () => true,        // tile loaded for some other layer
-    }))
+    const d = classifyTile(
+      baseInputs({
+        visibleKey,
+        hasSliceInCatalog: () => false, // this layer empty everywhere
+        hasAnySliceInCatalog: () => true, // tile loaded for some other layer
+      }),
+    )
     expect(d.kind).toBe('drop-empty-slice')
   })
 
@@ -80,17 +86,19 @@ describe('classifyTile', () => {
     // NO water features; the z=1 ancestor HAS water clipped to its
     // bounds. Pre-fix: drop-empty silently dropped water — visible as
     // missing blue ocean. Fix: render ancestor stretched.
-    const visibleKey = tileKey(2, 1, 2)        // z=2 S. Atlantic-ish tile
+    const visibleKey = tileKey(2, 1, 2) // z=2 S. Atlantic-ish tile
     const ancestorKey = tileKeyParent(visibleKey) // z=1
-    const d = classifyTile(baseInputs({
-      visible: tile(2, 1, 2),
-      visibleKey,
-      // This-layer slice exists for the ancestor, NOT for visible.
-      hasSliceInCatalog: (k) => k === ancestorKey,
-      // Tile loaded (other slices present) — so drop-empty would fire
-      // pre-fix.
-      hasAnySliceInCatalog: () => true,
-    }))
+    const d = classifyTile(
+      baseInputs({
+        visible: tile(2, 1, 2),
+        visibleKey,
+        // This-layer slice exists for the ancestor, NOT for visible.
+        hasSliceInCatalog: (k) => k === ancestorKey,
+        // Tile loaded (other slices present) — so drop-empty would fire
+        // pre-fix.
+        hasAnySliceInCatalog: () => true,
+      }),
+    )
     expect(d.kind).toBe('parent-fallback')
     if (d.kind === 'parent-fallback') {
       expect(d.parentKey).toBe(ancestorKey)
@@ -104,22 +112,26 @@ describe('classifyTile', () => {
     // parent-fallback nor child-fallback) → DROP_EMPTY remains the
     // correct decision.
     const visibleKey = tileKey(8, 100, 50)
-    const d = classifyTile(baseInputs({
-      visibleKey,
-      hasSliceInCatalog: () => false,         // empty everywhere
-      hasAnySliceInCatalog: () => true,        // tile loaded
-      hasEntryInIndex: () => false,           // no archive entry → no pending refetch
-    }))
+    const d = classifyTile(
+      baseInputs({
+        visibleKey,
+        hasSliceInCatalog: () => false, // empty everywhere
+        hasAnySliceInCatalog: () => true, // tile loaded
+        hasEntryInIndex: () => false, // no archive entry → no pending refetch
+      }),
+    )
     expect(d.kind).toBe('drop-empty-slice')
   })
 
   it('returns parent-fallback when ancestor cached', () => {
     const visibleKey = tileKey(8, 100, 50)
-    const parentKey = tileKeyParent(visibleKey)  // z=7
-    const d = classifyTile(baseInputs({
-      visibleKey,
-      hasSliceInCatalog: (k) => k === parentKey,
-    }))
+    const parentKey = tileKeyParent(visibleKey) // z=7
+    const d = classifyTile(
+      baseInputs({
+        visibleKey,
+        hasSliceInCatalog: (k) => k === parentKey,
+      }),
+    )
     expect(d.kind).toBe('parent-fallback')
     if (d.kind === 'parent-fallback') {
       expect(d.parentKey).toBe(parentKey)
@@ -132,14 +144,20 @@ describe('classifyTile', () => {
     const visibleKey = tileKey(visible.z, visible.x, visible.y)
     // z=9 children of (8, 100, 50)
     const childKeys = [
-      tileKey(9, 200, 100), tileKey(9, 201, 100),
-      tileKey(9, 200, 101), tileKey(9, 201, 101),
+      tileKey(9, 200, 100),
+      tileKey(9, 201, 100),
+      tileKey(9, 200, 101),
+      tileKey(9, 201, 101),
     ]
     const cachedChild = childKeys[0]
-    const d = classifyTile(baseInputs({
-      visible, visibleKey, maxLevel: 14,
-      hasSliceInCatalog: (k) => k === cachedChild,
-    }))
+    const d = classifyTile(
+      baseInputs({
+        visible,
+        visibleKey,
+        maxLevel: 14,
+        hasSliceInCatalog: (k) => k === cachedChild,
+      }),
+    )
     expect(d.kind).toBe('child-fallback')
     if (d.kind === 'child-fallback') {
       expect(d.childKeys).toEqual([cachedChild])
@@ -148,12 +166,14 @@ describe('classifyTile', () => {
   })
 
   it('returns drop-no-archive when no ancestor + no archive entry', () => {
-    const d = classifyTile(baseInputs({
-      visible: tile(5, 0, 0),
-      visibleKey: tileKey(5, 0, 0),
-      hasEntryInIndex: () => false,
-      archiveAncestor: -1,
-    }))
+    const d = classifyTile(
+      baseInputs({
+        visible: tile(5, 0, 0),
+        visibleKey: tileKey(5, 0, 0),
+        hasEntryInIndex: () => false,
+        archiveAncestor: -1,
+      }),
+    )
     expect(d.kind).toBe('drop-no-archive')
   })
 
@@ -162,10 +182,12 @@ describe('classifyTile', () => {
     // request frontier is the root — never request a child until its
     // parent has loaded. Visible at z=8 → request the z=0 root key.
     const visibleKey = tileKey(8, 100, 50)
-    const d = classifyTile(baseInputs({
-      visibleKey,
-      hasEntryInIndex: () => true,
-    }))
+    const d = classifyTile(
+      baseInputs({
+        visibleKey,
+        hasEntryInIndex: () => true,
+      }),
+    )
     expect(d.kind).toBe('pending')
     if (d.kind === 'pending') expect(d.requestKey).toBe(tileKey(0, 0, 0))
   })
@@ -184,12 +206,14 @@ describe('classifyTile', () => {
     }
     chain.reverse() // [root z=0, z=1, ..., z=8 visible]
     const loaded = new Set(chain.slice(0, 5)) // z=0..z=4 cached
-    const d = classifyTile(baseInputs({
-      visible,
-      visibleKey,
-      hasEntryInIndex: () => true,
-      hasAnySliceInCatalog: (k) => loaded.has(k),
-    }))
+    const d = classifyTile(
+      baseInputs({
+        visible,
+        visibleKey,
+        hasEntryInIndex: () => true,
+        hasAnySliceInCatalog: (k) => loaded.has(k),
+      }),
+    )
     expect(d.kind).toBe('pending')
     if (d.kind === 'pending') expect(d.requestKey).toBe(chain[5]) // z=5 ancestor
   })
@@ -197,11 +221,13 @@ describe('classifyTile', () => {
   it('returns pending with archive ancestor when visible not in index', () => {
     const visibleKey = tileKey(8, 100, 50)
     const archiveAncestor = tileKey(5, 12, 6)
-    const d = classifyTile(baseInputs({
-      visibleKey,
-      hasEntryInIndex: (k) => k === archiveAncestor,
-      archiveAncestor,
-    }))
+    const d = classifyTile(
+      baseInputs({
+        visibleKey,
+        hasEntryInIndex: (k) => k === archiveAncestor,
+        archiveAncestor,
+      }),
+    )
     expect(d.kind).toBe('pending')
     if (d.kind === 'pending') expect(d.requestKey).toBe(archiveAncestor)
   })
@@ -209,10 +235,12 @@ describe('classifyTile', () => {
   it('queued-with-fallback wraps a fallback decision when slice in catalog', () => {
     const visibleKey = tileKey(8, 100, 50)
     const parentKey = tileKeyParent(visibleKey)
-    const d = classifyTile(baseInputs({
-      visibleKey,
-      hasSliceInCatalog: (k) => k === visibleKey || k === parentKey,
-    }))
+    const d = classifyTile(
+      baseInputs({
+        visibleKey,
+        hasSliceInCatalog: (k) => k === visibleKey || k === parentKey,
+      }),
+    )
     expect(d.kind).toBe('queued-with-fallback')
     if (d.kind === 'queued-with-fallback') {
       expect(d.uploadVisible).toBe(true)
@@ -234,10 +262,15 @@ describe('classifyTile', () => {
       const visible = tile(14, 100, 50)
       const visibleKey = tileKey(visible.z, visible.x, visible.y)
       const layerCache = new Map<number, unknown>([[visibleKey, {}]])
-      const d = classifyTile(baseInputs({
-        visible, visibleKey, maxLevel: 14, layerCache,
-      }))
-      expect(d.kind).toBe('primary')  // NOT overzoom-parent
+      const d = classifyTile(
+        baseInputs({
+          visible,
+          visibleKey,
+          maxLevel: 14,
+          layerCache,
+        }),
+      )
+      expect(d.kind).toBe('primary') // NOT overzoom-parent
     })
 
     it('tileZ === maxLevel + 1: IS over-zoom (just past boundary)', () => {
@@ -247,12 +280,14 @@ describe('classifyTile', () => {
       // the strict-greater contract.
       const visible = tile(15, 200, 100)
       const parentAtMaxLevel = tileKey(14, 100, 50)
-      const d = classifyTile(baseInputs({
-        visible,
-        visibleKey: tileKey(visible.z, visible.x, visible.y),
-        maxLevel: 14,
-        parentAtMaxLevel,
-      }))
+      const d = classifyTile(
+        baseInputs({
+          visible,
+          visibleKey: tileKey(visible.z, visible.x, visible.y),
+          maxLevel: 14,
+          parentAtMaxLevel,
+        }),
+      )
       expect(d.kind).toBe('overzoom-parent')
     })
 
@@ -266,11 +301,13 @@ describe('classifyTile', () => {
       //   hasSliceInCatalog(visible)=false, hasEntryInIndex(visible)=false.
       //   AND  = false → wantsRequestKey = null
       //   OR   = true  → wantsRequestKey = visibleKey  (mutant)
-      const d1 = classifyTile(baseInputs({
-        visibleKey,
-        hasSliceInCatalog: (k) => k === parentKey,
-        hasEntryInIndex: () => false,
-      }))
+      const d1 = classifyTile(
+        baseInputs({
+          visibleKey,
+          hasSliceInCatalog: (k) => k === parentKey,
+          hasEntryInIndex: () => false,
+        }),
+      )
       expect(d1.kind).toBe('parent-fallback')
       if (d1.kind === 'parent-fallback') {
         expect(d1.wantsRequestKey).toBe(null)
@@ -281,11 +318,13 @@ describe('classifyTile', () => {
       const visibleKey = tileKey(8, 100, 50)
       const parentKey = tileKeyParent(visibleKey)
       // Both: visible NOT cached AND visible in archive.
-      const d = classifyTile(baseInputs({
-        visibleKey,
-        hasSliceInCatalog: (k) => k === parentKey,
-        hasEntryInIndex: () => true,
-      }))
+      const d = classifyTile(
+        baseInputs({
+          visibleKey,
+          hasSliceInCatalog: (k) => k === parentKey,
+          hasEntryInIndex: () => true,
+        }),
+      )
       expect(d.kind).toBe('parent-fallback')
       if (d.kind === 'parent-fallback') {
         expect(d.wantsRequestKey).toBe(visibleKey)
@@ -299,14 +338,16 @@ describe('classifyTile', () => {
       // flip the meaning.
       const visible = tile(16, 12345, 6789)
       const parentAtMaxLevel = tileKey(14, 3086, 1697)
-      const d = classifyTile(baseInputs({
-        visible,
-        visibleKey: tileKey(visible.z, visible.x, visible.y),
-        maxLevel: 14,
-        parentAtMaxLevel,
-        hasSliceInCatalog: (k) => k === parentAtMaxLevel,  // cached
-        layerCache: new Map([[parentAtMaxLevel, {}]]),  // also on GPU
-      }))
+      const d = classifyTile(
+        baseInputs({
+          visible,
+          visibleKey: tileKey(visible.z, visible.x, visible.y),
+          maxLevel: 14,
+          parentAtMaxLevel,
+          hasSliceInCatalog: (k) => k === parentAtMaxLevel, // cached
+          layerCache: new Map([[parentAtMaxLevel, {}]]), // also on GPU
+        }),
+      )
       expect(d.kind).toBe('overzoom-parent')
       if (d.kind === 'overzoom-parent') {
         expect(d.parentNeedsFetch).toBe(false)
@@ -321,13 +362,15 @@ describe('classifyTile', () => {
     // is computed by structure.
     const visibleKey = tileKey(8, 100, 50)
     const parentKey = tileKeyParent(visibleKey)
-    const d = classifyTile(baseInputs({
-      visibleKey,
-      hasSliceInCatalog: (k) => k === visibleKey || k === parentKey,
-      // Visible NOT in layerCache (queued) — uploadVisible should fire
-      // AND the fallback should be parent-fallback to keep the area
-      // covered until the upload lands.
-    }))
+    const d = classifyTile(
+      baseInputs({
+        visibleKey,
+        hasSliceInCatalog: (k) => k === visibleKey || k === parentKey,
+        // Visible NOT in layerCache (queued) — uploadVisible should fire
+        // AND the fallback should be parent-fallback to keep the area
+        // covered until the upload lands.
+      }),
+    )
     expect(d.kind).toBe('queued-with-fallback')
     if (d.kind === 'queued-with-fallback') {
       expect(d.fallback.kind).toBe('parent-fallback')
@@ -339,9 +382,13 @@ describe('classifyTile — hasOtherSliceHeld coherence override', () => {
   it('hasOtherSliceHeld=false + GPU hit → primary (back-compat)', () => {
     const visibleKey = tileKey(8, 100, 50)
     const layerCache = new Map<number, unknown>([[visibleKey, {}]])
-    const d = classifyTile(baseInputs({
-      visibleKey, layerCache, hasOtherSliceHeld: false,
-    }))
+    const d = classifyTile(
+      baseInputs({
+        visibleKey,
+        layerCache,
+        hasOtherSliceHeld: false,
+      }),
+    )
     expect(d.kind).toBe('primary')
   })
 
@@ -361,14 +408,16 @@ describe('classifyTile — hasOtherSliceHeld coherence override', () => {
     const parentKey = tileKeyParent(visibleKey)
     const layerCache = new Map<number, unknown>([
       [visibleKey, {}],
-      [parentKey, {}],   // ancestor on GPU too — no upload needed
+      [parentKey, {}], // ancestor on GPU too — no upload needed
     ])
-    const d = classifyTile(baseInputs({
-      visibleKey,
-      layerCache,
-      hasSliceInCatalog: (k) => k === visibleKey || k === parentKey,
-      hasOtherSliceHeld: true,
-    }))
+    const d = classifyTile(
+      baseInputs({
+        visibleKey,
+        layerCache,
+        hasSliceInCatalog: (k) => k === visibleKey || k === parentKey,
+        hasOtherSliceHeld: true,
+      }),
+    )
     expect(d.kind).toBe('parent-fallback')
     if (d.kind === 'parent-fallback') {
       expect(d.parentKey).toBe(parentKey)
@@ -383,12 +432,14 @@ describe('classifyTile — hasOtherSliceHeld coherence override', () => {
     const visibleKey = tileKey(8, 100, 50)
     const parentKey = tileKeyParent(visibleKey)
     const layerCache = new Map<number, unknown>([[parentKey, {}]])
-    const d = classifyTile(baseInputs({
-      visibleKey,
-      layerCache,
-      hasSliceInCatalog: (k) => k === visibleKey || k === parentKey,
-      hasOtherSliceHeld: true,
-    }))
+    const d = classifyTile(
+      baseInputs({
+        visibleKey,
+        layerCache,
+        hasSliceInCatalog: (k) => k === visibleKey || k === parentKey,
+        hasOtherSliceHeld: true,
+      }),
+    )
     expect(d.kind).toBe('queued-with-fallback')
     if (d.kind === 'queued-with-fallback') {
       expect(d.fallback.kind).toBe('parent-fallback')
@@ -427,17 +478,17 @@ describe('computeProtectedKeys', () => {
   })
 
   it('handles z=0 root correctly (no parent to walk)', () => {
-    const rootKey = tileKey(0, 0, 0)  // = 1
+    const rootKey = tileKey(0, 0, 0) // = 1
     const protect = computeProtectedKeys([rootKey], 4, tileKeyParent)
     expect(protect.size).toBe(1)
     expect(protect.has(rootKey)).toBe(true)
   })
 
   it('reuses provided output Set (avoids allocation)', () => {
-    const out = new Set<number>([999])  // sentinel
+    const out = new Set<number>([999]) // sentinel
     const ret = computeProtectedKeys([tileKey(8, 100, 50)], 2, tileKeyParent, out)
     expect(ret).toBe(out)
-    expect(out.has(999)).toBe(true)  // sentinel preserved
-    expect(out.size).toBe(4)  // sentinel + key + 2 ancestors
+    expect(out.has(999)).toBe(true) // sentinel preserved
+    expect(out.size).toBe(4) // sentinel + key + 2 ancestors
   })
 })

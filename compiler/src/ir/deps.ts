@@ -93,8 +93,10 @@ export const DEPS_ZOOM_FEATURE: DepBits = Dep.ZOOM | Dep.FEATURE
 export function getDataExprDeps(expr: DataExpr, fnEnv?: FnEnv): DepBits {
   const cls = classifyExpr(expr.ast, fnEnv)
   switch (cls) {
-    case 'constant': return Dep.NONE
-    case 'zoom-dependent': return Dep.ZOOM
+    case 'constant':
+      return Dep.NONE
+    case 'zoom-dependent':
+      return Dep.ZOOM
     case 'per-feature-gpu':
     case 'per-feature-cpu':
       // FEATURE alone — the existing classifier doesn't split out
@@ -138,16 +140,18 @@ export function getColorDeps(value: ColorValue, fnEnv?: FnEnv): DepBits {
 /** Derive any PropertyShape<T>'s dependency bitset. The five kinds
  *  map one-to-one onto axis bits; data-driven recurses through
  *  classifyExpr like ColorValue. */
-export function getPropertyShapeDeps<T>(
-  shape: PropertyShape<T>,
-  fnEnv?: FnEnv,
-): DepBits {
+export function getPropertyShapeDeps<T>(shape: PropertyShape<T>, fnEnv?: FnEnv): DepBits {
   switch (shape.kind) {
-    case 'constant': return Dep.NONE
-    case 'zoom-interpolated': return Dep.ZOOM
-    case 'time-interpolated': return Dep.TIME
-    case 'zoom-time': return DEPS_ZOOM_TIME
-    case 'data-driven': return getDataExprDeps(shape.expr, fnEnv)
+    case 'constant':
+      return Dep.NONE
+    case 'zoom-interpolated':
+      return Dep.ZOOM
+    case 'time-interpolated':
+      return Dep.TIME
+    case 'zoom-time':
+      return DEPS_ZOOM_TIME
+    case 'data-driven':
+      return getDataExprDeps(shape.expr, fnEnv)
   }
 }
 

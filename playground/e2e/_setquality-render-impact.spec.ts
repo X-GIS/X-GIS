@@ -12,7 +12,11 @@ async function countNonBg(page: import('@playwright/test').Page): Promise<number
     const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' })
     const url = URL.createObjectURL(blob)
     const img = new Image()
-    await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error('img')); img.src = url })
+    await new Promise<void>((res, rej) => {
+      img.onload = () => res()
+      img.onerror = () => rej(new Error('img'))
+      img.src = url
+    })
     const off = new OffscreenCanvas(img.width, img.height)
     const ctx = off.getContext('2d')!
     ctx.drawImage(img, 0, 0)
@@ -28,7 +32,11 @@ test('setQuality({picking:true}) on multi_layer mid-flight', async ({ page }) =>
   test.setTimeout(30_000)
   await page.setViewportSize({ width: 1024, height: 720 })
   await page.goto('/demo.html?id=multi_layer', { waitUntil: 'domcontentloaded' })
-  await page.waitForFunction(() => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true, null, { timeout: 15_000 })
+  await page.waitForFunction(
+    () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
+    null,
+    { timeout: 15_000 },
+  )
   await page.waitForTimeout(2500)
 
   const before = await countNonBg(page)
@@ -37,7 +45,8 @@ test('setQuality({picking:true}) on multi_layer mid-flight', async ({ page }) =>
   // Programmatic setQuality call mid-flight — same path the picking demo
   // hits at boot when `picking: true` is in DEMOS.
   await page.evaluate(() => {
-    const m = (window as unknown as { __xgisMap?: { setQuality(q: { picking: boolean }): void } }).__xgisMap
+    const m = (window as unknown as { __xgisMap?: { setQuality(q: { picking: boolean }): void } })
+      .__xgisMap
     m?.setQuality({ picking: true })
   })
   await page.waitForTimeout(2500)

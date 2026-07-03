@@ -46,15 +46,15 @@ import type { ShaderVariant, Scene } from '@xgis/compiler'
 
 각 스테이지의 1줄 요약 — 상세는 디렉터리별 AGENTS.md로 링크한다.
 
-| Stage | 역할 | Detail |
-|-------|------|--------|
-| `convert/` | Mapbox/MapLibre 스타일 → `.xgis` 소스 임포터 (`convertMapboxStyle`) | [convert/AGENTS.md](./src/convert/AGENTS.md) |
-| `lexer/` · `parser/` | 토크나이저 + 재귀하강 파서, AST 노드 타입 생성 | [parser/AGENTS.md](./src/parser/AGENTS.md) |
-| `ir/` | AST→IR `lower()`, `optimize()`, 표현식 분류(`classify`), const-fold, deps, `emitCommands` | [ir/AGENTS.md](./src/ir/AGENTS.md) · [ir/passes/AGENTS.md](./src/ir/passes/AGENTS.md) |
-| `tiler/` | GeoJSON → GPU-ready 타일 피라미드 (clip · simplify · earcut · geodesic · DSFUN/ECEF pack) | [tiler/AGENTS.md](./src/tiler/AGENTS.md) · [geojsonvt/AGENTS.md](./src/tiler/geojsonvt/AGENTS.md) |
-| `input/` | MVT(.pbf) 타일 디코더 — 타일러 파이프라인 입력 (`decodeMvtTile`) | [input/AGENTS.md](./src/input/AGENTS.md) |
-| `codegen/` | WGSL `ShaderVariant` + compute 커널 + 팔레트 방출 | [codegen/AGENTS.md](./src/codegen/AGENTS.md) |
-| `eval/` · `format/` | 컴파일/런타임 표현식 평가기, 값 포매터/텍스트 템플릿 파서 | [eval/AGENTS.md](./src/eval/AGENTS.md) · [format/AGENTS.md](./src/format/AGENTS.md) |
+| Stage                | 역할                                                                                      | Detail                                                                                            |
+| -------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `convert/`           | Mapbox/MapLibre 스타일 → `.xgis` 소스 임포터 (`convertMapboxStyle`)                       | [convert/AGENTS.md](./src/convert/AGENTS.md)                                                      |
+| `lexer/` · `parser/` | 토크나이저 + 재귀하강 파서, AST 노드 타입 생성                                            | [parser/AGENTS.md](./src/parser/AGENTS.md)                                                        |
+| `ir/`                | AST→IR `lower()`, `optimize()`, 표현식 분류(`classify`), const-fold, deps, `emitCommands` | [ir/AGENTS.md](./src/ir/AGENTS.md) · [ir/passes/AGENTS.md](./src/ir/passes/AGENTS.md)             |
+| `tiler/`             | GeoJSON → GPU-ready 타일 피라미드 (clip · simplify · earcut · geodesic · DSFUN/ECEF pack) | [tiler/AGENTS.md](./src/tiler/AGENTS.md) · [geojsonvt/AGENTS.md](./src/tiler/geojsonvt/AGENTS.md) |
+| `input/`             | MVT(.pbf) 타일 디코더 — 타일러 파이프라인 입력 (`decodeMvtTile`)                          | [input/AGENTS.md](./src/input/AGENTS.md)                                                          |
+| `codegen/`           | WGSL `ShaderVariant` + compute 커널 + 팔레트 방출                                         | [codegen/AGENTS.md](./src/codegen/AGENTS.md)                                                      |
+| `eval/` · `format/`  | 컴파일/런타임 표현식 평가기, 값 포매터/텍스트 템플릿 파서                                 | [eval/AGENTS.md](./src/eval/AGENTS.md) · [format/AGENTS.md](./src/format/AGENTS.md)               |
 
 표현식은 세 가지 실행 클래스로 나뉘어 대부분의 설계를 결정한다: `constant`(컴파일 타임
 폴딩), `zoom-dependent`(유니폼/팔레트로 프레임당 CPU 보간), `per-feature-gpu/cpu`(WGSL
@@ -95,7 +95,7 @@ Morton 키 정렬 타일 인덱스, 프로퍼티 테이블, 타일 데이터의 
 
 현재 모든 X-GIS 소스는 MVT/PBF를 거치므로(GeoJSON은 in-worker geojson-vt 포트로 인-메모리
 타일링) **on-disk `.xgvt` 바이너리 컨테이너와 그 직렬화기/역직렬화기는 제거됐다**.
-`src/tiler/tile-format.ts`에는 런타임 `TileCatalog`와 공유하는 인-메모리 타일 인덱스 *형태*
+`src/tiler/tile-format.ts`에는 런타임 `TileCatalog`와 공유하는 인-메모리 타일 인덱스 _형태_
 (`XGVTIndex`, `XGVTHeader`, `TileIndexEntry`, `TILE_FLAG_FULL_COVER`)만 남아 있다.
 
 earcut은 의도적으로 **Mercator-투영 좌표계**에서 실행되어 CPU 삼각분할 에지가 GPU 렌더링과

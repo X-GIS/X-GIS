@@ -23,7 +23,8 @@ for (const [name, flag] of [
     })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 15_000 },
+      null,
+      { timeout: 15_000 },
     )
     await page.waitForTimeout(1500)
     const png = await page.locator('#map').screenshot()

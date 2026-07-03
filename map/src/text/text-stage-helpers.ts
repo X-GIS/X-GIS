@@ -25,25 +25,32 @@ export function resolveTypography(
   const familyList = fontKey.startsWith(FONT_KEY_SENTINEL)
     ? (fontKey.split(FONT_KEY_SENTINEL)[3] ?? '')
     : fontKey
-  const primary = familyList.split(',')[0]!.trim().replace(/^["']|["']$/g, '')
+  const primary = familyList
+    .split(',')[0]!
+    .trim()
+    .replace(/^["']|["']$/g, '')
   return table.get(primary) ?? { letterSpacingEm: 0, lineHeightScale: 1 }
 }
 
 /** Mapbox `text-transform` — uppercase / lowercase / none.
  *  Note for CJK: case mapping is undefined for ideographs and
  *  hangul — Unicode default-cased mappings pass them through. */
-export function applyTextTransform(
-  s: string,
-  t?: 'none' | 'uppercase' | 'lowercase',
-): string {
+export function applyTextTransform(s: string, t?: 'none' | 'uppercase' | 'lowercase'): string {
   if (t === 'uppercase') return s.toUpperCase()
   if (t === 'lowercase') return s.toLowerCase()
   return s
 }
 
 export type LabelAnchor =
-  | 'center' | 'top' | 'bottom' | 'left' | 'right'
-  | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+  | 'center'
+  | 'top'
+  | 'bottom'
+  | 'left'
+  | 'right'
+  | 'top-left'
+  | 'top-right'
+  | 'bottom-left'
+  | 'bottom-right'
 
 // MapLibre's `baselineOffset`: the radial offset is to the EDGE of the
 // text box, but vertically glyphs "start" at the baseline, not the box
@@ -70,26 +77,43 @@ export function evaluateVariableOffsetEm(
   offset: [number, number],
   isRadial: boolean,
 ): [number, number] {
-  let x = 0, y = 0
+  let x = 0,
+    y = 0
   if (isRadial) {
     let r = offset[0]
     if (r < 0) r = 0 // Mapbox ignores a negative radial offset.
     const hyp = r / Math.SQRT2 // solve r^2 + r^2 = radialOffset^2
     switch (anchor) {
       case 'top-right':
-      case 'top-left': y = hyp - BASELINE_OFFSET_EM; break
+      case 'top-left':
+        y = hyp - BASELINE_OFFSET_EM
+        break
       case 'bottom-right':
-      case 'bottom-left': y = -hyp + BASELINE_OFFSET_EM; break
-      case 'bottom': y = -r + BASELINE_OFFSET_EM; break
-      case 'top': y = r - BASELINE_OFFSET_EM; break
+      case 'bottom-left':
+        y = -hyp + BASELINE_OFFSET_EM
+        break
+      case 'bottom':
+        y = -r + BASELINE_OFFSET_EM
+        break
+      case 'top':
+        y = r - BASELINE_OFFSET_EM
+        break
     }
     switch (anchor) {
       case 'top-right':
-      case 'bottom-right': x = -hyp; break
+      case 'bottom-right':
+        x = -hyp
+        break
       case 'top-left':
-      case 'bottom-left': x = hyp; break
-      case 'left': x = r; break
-      case 'right': x = -r; break
+      case 'bottom-left':
+        x = hyp
+        break
+      case 'left':
+        x = r
+        break
+      case 'right':
+        x = -r
+        break
     }
     return [x, y]
   }
@@ -99,18 +123,26 @@ export function evaluateVariableOffsetEm(
   switch (anchor) {
     case 'top-right':
     case 'top-left':
-    case 'top': y = oy - BASELINE_OFFSET_EM; break
+    case 'top':
+      y = oy - BASELINE_OFFSET_EM
+      break
     case 'bottom-right':
     case 'bottom-left':
-    case 'bottom': y = -oy + BASELINE_OFFSET_EM; break
+    case 'bottom':
+      y = -oy + BASELINE_OFFSET_EM
+      break
   }
   switch (anchor) {
     case 'top-right':
     case 'bottom-right':
-    case 'right': x = -ox; break
+    case 'right':
+      x = -ox
+      break
     case 'top-left':
     case 'bottom-left':
-    case 'left': x = ox; break
+    case 'left':
+      x = ox
+      break
   }
   return [x, y]
 }
@@ -146,21 +178,37 @@ export function stripCurveLineExtraScripts(text: string): string {
  *  entry (same convention as pretextCacheKey). 32-bit hash, 4096-
  *  entry cap — collision probability well below pixel-visible. */
 const _ANCHOR_ORDINAL: Record<string, number> = {
-  center: 0, top: 1, bottom: 2, left: 3, right: 4,
-  'top-left': 5, 'top-right': 6, 'bottom-left': 7, 'bottom-right': 8,
+  center: 0,
+  top: 1,
+  bottom: 2,
+  left: 3,
+  right: 4,
+  'top-left': 5,
+  'top-right': 6,
+  'bottom-left': 7,
+  'bottom-right': 8,
 }
 const _JUSTIFY_ORDINAL: Record<string, number> = {
-  center: 0, left: 1, right: 2, auto: 3,
+  center: 0,
+  left: 1,
+  right: 2,
+  auto: 3,
 }
 export function layoutCacheKey(
   glyphsKey: number,
-  sizePx: number, letterSpacingPx: number, maxWidthPx: number,
+  sizePx: number,
+  letterSpacingPx: number,
+  maxWidthPx: number,
   lineHeightPx: number,
-  justify: string, anchor: string,
-  offsetX: number, offsetY: number,
-  translateX: number, translateY: number,
+  justify: string,
+  anchor: string,
+  offsetX: number,
+  offsetY: number,
+  translateX: number,
+  translateY: number,
   padding: number,
-  haloWidth: number, haloBlur: number,
+  haloWidth: number,
+  haloBlur: number,
   // #608-scope — whether the label is icon-paired (a shield). Paired center-
   // anchored text recentres its ink BAND onto the anchor (box-centred); a
   // standalone label hangs the ink below. Same font/text/size/anchor but
@@ -240,8 +288,10 @@ export const SHAPING_DEFAULT_OFFSET = -17
  *  metrics (bilingual Latin+Hangul). `vAlign` is MapLibre
  *  `getAnchorAlignment`: top→0, bottom→1, else 0.5. */
 export function mlVerticalLayout(
-  vAlign: 0 | 0.5 | 1, lineCount: number,
-  lineHeightPx: number, sizePx: number,
+  vAlign: 0 | 0.5 | 1,
+  lineCount: number,
+  lineHeightPx: number,
+  sizePx: number,
   // iter-242 (Plan AAA B.2) — optional FrameArena for baselineY
   // scratch. When provided, the per-line baseline array carves from
   // the arena (no per-call allocation); when undefined (test seam),
@@ -273,8 +323,10 @@ export function mlVerticalLayout(
 
 /** Test seam for `mlVerticalLayout`. */
 export function verticalLayoutForTesting(
-  vAlign: 0 | 0.5 | 1, lineCount: number,
-  lineHeightPx: number, sizePx: number,
+  vAlign: 0 | 0.5 | 1,
+  lineCount: number,
+  lineHeightPx: number,
+  sizePx: number,
 ): MlVerticalLayout {
   return mlVerticalLayout(vAlign, lineCount, lineHeightPx, sizePx)
 }
@@ -290,7 +342,8 @@ export function verticalLayoutForTesting(
 // Hangul/Han correctly on every host OS we ship on (macOS / Win /
 // Linux). Per-label font stacks coming from Mapbox styles get the
 // same fallback chain appended in composeFontKey.
-export const CJK_FALLBACK_CHAIN = '"Noto Sans CJK KR","Apple SD Gothic Neo","Malgun Gothic","Microsoft YaHei","Noto Sans CJK JP","Hiragino Sans","Yu Gothic",sans-serif'
+export const CJK_FALLBACK_CHAIN =
+  '"Noto Sans CJK KR","Apple SD Gothic Neo","Malgun Gothic","Microsoft YaHei","Noto Sans CJK JP","Hiragino Sans","Yu Gothic",sans-serif'
 
 /** Compose the rasterizer-visible font key for one label.
  *
@@ -313,10 +366,10 @@ export const CJK_FALLBACK_CHAIN = '"Noto Sans CJK KR","Apple SD Gothic Neo","Mal
  *  still pick up a Korean / Japanese / Chinese font from the host
  *  OS for glyphs the primary family lacks. */
 export function composeFontKey(def: LabelDef, defaultFamily: string): string {
-  const family = def.font && def.font.length > 0
-    ? def.font.map(f => f.includes(' ') ? `"${f}"` : f).join(',')
-      + ',' + CJK_FALLBACK_CHAIN
-    : defaultFamily
+  const family =
+    def.font && def.font.length > 0
+      ? def.font.map((f) => (f.includes(' ') ? `"${f}"` : f)).join(',') + ',' + CJK_FALLBACK_CHAIN
+      : defaultFamily
   if (def.fontStyle === undefined && def.fontWeight === undefined) {
     return family
   }

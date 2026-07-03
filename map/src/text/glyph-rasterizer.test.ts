@@ -10,7 +10,7 @@ import {
 const baseReq: GlyphRasterRequest = {
   fontKey: 'noto-sans-regular',
   fontSize: 16,
-  codepoint: 65,  // 'A'
+  codepoint: 65, // 'A'
   sdfRadius: 6,
   slotSize: 24,
 }
@@ -34,7 +34,10 @@ describe('MockRasterizer', () => {
     const b = r.rasterize({ ...baseReq, codepoint: 66 })
     let differs = false
     for (let i = 0; i < a.sdf.length; i++) {
-      if (a.sdf[i] !== b.sdf[i]) { differs = true; break }
+      if (a.sdf[i] !== b.sdf[i]) {
+        differs = true
+        break
+      }
     }
     expect(differs).toBe(true)
   })
@@ -97,7 +100,9 @@ describe('parseFontKey', () => {
   it('malformed sentinel key still yields safe defaults (no throw)', () => {
     // Defensive — a sentinel-prefixed key with missing pieces should
     // rasterise as 400/normal rather than throw mid-frame.
-    const out = parseFontKey(`${FONT_KEY_SENTINEL}${FONT_KEY_SENTINEL}${FONT_KEY_SENTINEL}"Noto Sans"`)
+    const out = parseFontKey(
+      `${FONT_KEY_SENTINEL}${FONT_KEY_SENTINEL}${FONT_KEY_SENTINEL}"Noto Sans"`,
+    )
     expect(out.style).toBe('normal')
     expect(out.weight).toBe('400')
     expect(out.family).toBe('"Noto Sans"')

@@ -8,22 +8,56 @@
 'use strict'
 
 let input = ''
-process.stdin.on('data', (d) => { input += d })
+process.stdin.on('data', (d) => {
+  input += d
+})
 process.stdin.on('end', () => {
   let prompt = ''
-  try { prompt = String(JSON.parse(input).prompt || '') } catch { prompt = input }
+  try {
+    prompt = String(JSON.parse(input).prompt || '')
+  } catch {
+    prompt = input
+  }
   const p = prompt.toLowerCase()
 
   // Adjudication-intent triggers (KR + EN). Narrow on purpose.
   const TRIGGERS = [
-    'prove', 'refute', 'disprove', 'proof', 'adjudicate',
-    '증명', '반증', '반례', '귀납', '수학적 증명', '엄밀',
-    'regression', '회귀',
-    'is this a bug', 'is it a bug', 'real bug', 'confirm the bug', 'confirm or refute',
-    '버그 맞', '버그인지', '버그가 맞', '진짜 버그',
-    'does this fix', 'does the fix', 'does this work', 'does it actually',
-    '진짜 되', '진짜 맞', '정말 되', '제대로 되', '진짜 고쳐',
-    'fail-before', 'witness', 'invariant', '불변식', 'rigorous proof',
+    'prove',
+    'refute',
+    'disprove',
+    'proof',
+    'adjudicate',
+    '증명',
+    '반증',
+    '반례',
+    '귀납',
+    '수학적 증명',
+    '엄밀',
+    'regression',
+    '회귀',
+    'is this a bug',
+    'is it a bug',
+    'real bug',
+    'confirm the bug',
+    'confirm or refute',
+    '버그 맞',
+    '버그인지',
+    '버그가 맞',
+    '진짜 버그',
+    'does this fix',
+    'does the fix',
+    'does this work',
+    'does it actually',
+    '진짜 되',
+    '진짜 맞',
+    '정말 되',
+    '제대로 되',
+    '진짜 고쳐',
+    'fail-before',
+    'witness',
+    'invariant',
+    '불변식',
+    'rigorous proof',
   ]
 
   if (!TRIGGERS.some((k) => p.includes(k))) return
@@ -56,7 +90,9 @@ process.stdin.on('end', () => {
     '.claude/skills/prove-or-refute/SKILL.md',
   ].join(' ')
 
-  process.stdout.write(JSON.stringify({
-    hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: ctx },
-  }))
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: ctx },
+    }),
+  )
 })

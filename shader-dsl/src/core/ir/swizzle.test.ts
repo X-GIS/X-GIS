@@ -15,7 +15,9 @@ describe('ir — multi-component swizzle getters', () => {
     expect(emitExpr(v.xyz.expr)).toBe(emitExpr(v.swizzle('xyz').expr))
     expect(emitExpr(v.zyx.expr)).toBe(emitExpr(v.swizzle('zyx').expr))
     expect(emitExpr(v.xy.expr)).toBe(emitExpr(v.swizzle('xy').expr))
-    expect(emitExpr(param('c', vec4fT).bgra.expr)).toBe(emitExpr(param('c', vec4fT).swizzle('bgra').expr))
+    expect(emitExpr(param('c', vec4fT).bgra.expr)).toBe(
+      emitExpr(param('c', vec4fT).swizzle('bgra').expr),
+    )
   })
 
   it('the emitted WGSL is the dotted swizzle', () => {
@@ -24,13 +26,15 @@ describe('ir — multi-component swizzle getters', () => {
   })
 
   it('CPU eval reorders components per the swizzle', () => {
-    const m = compileModule(module({
-      funcs: [
-        fn('zxy', { p: vec3fT }, vec3fT, ({ p }, _b) => p.zxy),
-        fn('yzx', { p: vec3fT }, vec3fT, ({ p }, _b) => p.yzx),
-        fn('xy', { p: vec3fT }, vec2fT, ({ p }, _b) => p.xy),
-      ],
-    }))
+    const m = compileModule(
+      module({
+        funcs: [
+          fn('zxy', { p: vec3fT }, vec3fT, ({ p }, _b) => p.zxy),
+          fn('yzx', { p: vec3fT }, vec3fT, ({ p }, _b) => p.yzx),
+          fn('xy', { p: vec3fT }, vec2fT, ({ p }, _b) => p.xy),
+        ],
+      }),
+    )
     expect(m.fns.zxy([1, 2, 3])).toEqual([3, 1, 2]) // [z,x,y]
     expect(m.fns.yzx([1, 2, 3])).toEqual([2, 3, 1]) // [y,z,x]
     expect(m.fns.xy([1, 2, 3])).toEqual([1, 2]) //     [x,y]

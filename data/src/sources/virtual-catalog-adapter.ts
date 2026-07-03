@@ -16,7 +16,10 @@ import { xlog } from '@xgis/shared'
 import { tileKeyUnpack } from '@xgis/compiler'
 import {
   TILE_LAYOUT_VERSION,
-  type TileSource, type TileSourceSink, type TileSourceMeta, type BackendTileResult,
+  type TileSource,
+  type TileSourceSink,
+  type TileSourceMeta,
+  type BackendTileResult,
 } from '../tile-source'
 import type { VirtualCatalog } from '../tile-types'
 
@@ -63,32 +66,42 @@ export class VirtualCatalogAdapter implements TileSource {
     const [z, x, y] = tileKeyUnpack(key)
     const sink = this.sink
     sink.trackLoading(key)
-    this.catalog.fetcher(z, x, y).then(tile => {
-      sink.releaseLoading(key)
-      sink.acceptResult(key, tile ? {
-        vertices: tile.vertices,
-        dequantScale: tile.dequantScale,
-        dequantHalf: tile.dequantHalf,
-        indices: tile.indices,
-        lineVertices: tile.lineVertices,
-        lineIndices: tile.lineIndices,
-        pointVertices: tile.pointVertices,
-        outlineIndices: tile.outlineIndices,
-        outlineVertices: tile.outlineVertices,
-        outlineLineIndices: tile.outlineLineIndices,
-        polygons: tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId })),
-        fullCover: tile.fullCover,
-        fullCoverFeatureId: tile.fullCoverFeatureId,
-      } satisfies BackendTileResult : null)
-    }).catch(err => {
-      sink.releaseLoading(key)
-      xlog.error('[virtual-catalog fetch]', (err as Error)?.stack ?? err)
-    })
+    this.catalog
+      .fetcher(z, x, y)
+      .then((tile) => {
+        sink.releaseLoading(key)
+        sink.acceptResult(
+          key,
+          tile
+            ? ({
+                vertices: tile.vertices,
+                dequantScale: tile.dequantScale,
+                dequantHalf: tile.dequantHalf,
+                indices: tile.indices,
+                lineVertices: tile.lineVertices,
+                lineIndices: tile.lineIndices,
+                pointVertices: tile.pointVertices,
+                outlineIndices: tile.outlineIndices,
+                outlineVertices: tile.outlineVertices,
+                outlineLineIndices: tile.outlineLineIndices,
+                polygons: tile.polygons?.map((p) => ({ rings: p.rings, featId: p.featId })),
+                fullCover: tile.fullCover,
+                fullCoverFeatureId: tile.fullCoverFeatureId,
+              } satisfies BackendTileResult)
+            : null,
+        )
+      })
+      .catch((err) => {
+        sink.releaseLoading(key)
+        xlog.error('[virtual-catalog fetch]', (err as Error)?.stack ?? err)
+      })
   }
 }
 
 function tileIntersectsBounds(
-  z: number, x: number, y: number,
+  z: number,
+  x: number,
+  y: number,
   bounds: [number, number, number, number],
 ): boolean {
   const n = 1 << z
@@ -100,6 +113,10 @@ function tileIntersectsBounds(
   }
   const tileNorth = yToLat(y)
   const tileSouth = yToLat(y + 1)
-  return !(tileEast < bounds[0] || tileWest > bounds[2] ||
-           tileNorth < bounds[1] || tileSouth > bounds[3])
+  return !(
+    tileEast < bounds[0] ||
+    tileWest > bounds[2] ||
+    tileNorth < bounds[1] ||
+    tileSouth > bounds[3]
+  )
 }

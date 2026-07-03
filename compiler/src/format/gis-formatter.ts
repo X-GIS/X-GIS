@@ -47,12 +47,24 @@ export function formatDMS(deg: number, axis: Axis = undefined, precision = 1): s
   const { str: sStr, carry } = carryFixed(s, precision)
   if (carry) {
     m += 1
-    if (m === 60) { m = 0; d += 1 }
+    if (m === 60) {
+      m = 0
+      d += 1
+    }
   }
-  const suffix = axis === 'lat' ? (sign < 0 ? 'S' : 'N')
-    : axis === 'lon' ? (sign < 0 ? 'W' : 'E')
-    : (sign < 0 ? '-' : '')
-  const prefix = axis ? '' : (sign < 0 ? '' : '')
+  const suffix =
+    axis === 'lat'
+      ? sign < 0
+        ? 'S'
+        : 'N'
+      : axis === 'lon'
+        ? sign < 0
+          ? 'W'
+          : 'E'
+        : sign < 0
+          ? '-'
+          : ''
+  const prefix = axis ? '' : sign < 0 ? '' : ''
   return `${prefix}${d}°${m}'${sStr}"${suffix}`
 }
 
@@ -65,9 +77,18 @@ export function formatDM(deg: number, axis: Axis = undefined, precision = 3): st
   const minTotal = (abs - d) * 60
   const { str: mStr, carry } = carryFixed(minTotal, precision)
   if (carry) d += 1
-  const suffix = axis === 'lat' ? (sign < 0 ? 'S' : 'N')
-    : axis === 'lon' ? (sign < 0 ? 'W' : 'E')
-    : (sign < 0 ? '-' : '')
+  const suffix =
+    axis === 'lat'
+      ? sign < 0
+        ? 'S'
+        : 'N'
+      : axis === 'lon'
+        ? sign < 0
+          ? 'W'
+          : 'E'
+        : sign < 0
+          ? '-'
+          : ''
   return `${d}°${mStr}'${suffix}`
 }
 

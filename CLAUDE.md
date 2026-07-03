@@ -5,6 +5,7 @@ Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-s
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
 > ## ⏳ This is a 5+ YEAR library — architect for that horizon
+>
 > X-GIS is a long-lived library (a Google-Earth-grade 3D globe engine), not a throwaway script. **Every
 > architectural decision must hold for 5+ years of use.** Benchmark against mature engines
 > (Unreal/Unity/Godot/three.js/Frostbite); prefer single-authority, zero-coupling, and
@@ -23,6 +24,7 @@ Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-s
 **Don't assume. Don't hide confusion. Surface tradeoffs.**
 
 Before implementing:
+
 - State your assumptions explicitly. If uncertain, ask.
 - If multiple interpretations exist, present them - don't pick silently.
 - If a simpler approach exists, say so. Push back when warranted.
@@ -45,12 +47,14 @@ Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, sim
 **Touch only what you must. Clean up only your own mess.**
 
 When editing existing code:
+
 - Don't "improve" adjacent code, comments, or formatting.
 - Don't refactor things that aren't broken.
 - Match existing style, even if you'd do it differently.
 - If you notice unrelated dead code, mention it - don't delete it.
 
 When your changes create orphans:
+
 - Remove imports/variables/functions that YOUR changes made unused.
 - Don't remove pre-existing dead code unless asked.
 
@@ -61,11 +65,13 @@ The test: Every changed line should trace directly to the user's request.
 **Define success criteria. Loop until verified.**
 
 Transform tasks into verifiable goals:
+
 - "Add validation" → "Write tests for invalid inputs, then make them pass"
 - "Fix the bug" → "Write a test that reproduces it, then make it pass"
 - "Refactor X" → "Ensure tests pass before and after"
 
 For multi-step tasks, state a brief plan:
+
 ```
 1. [Step] → verify: [check]
 2. [Step] → verify: [check]
@@ -94,6 +100,7 @@ sub-pixel offsets, seams, missing shields, and width changes that real bugs live
 Eyeballing a downscaled composite is NOT verification.
 
 **Required, every time:**
+
 1. **Directional pixel-diff** with `.claude/skills/compare-parity-pixeldiff/compare-diff.py`
    — before-vs-after (DC: proves what changed) and vs MapLibre (D0/D1: proves direction).
    The ML↔X-GIS absolute diff is noisy; gate on DC>0 and D1<D0, never on an absolute %.
@@ -117,15 +124,16 @@ recurring mistake; the graph surfaces the cross-path consumers and call chains a
 search misses (exactly the blast radius this codebase's bugs hide in).
 
 **Use first (project="D-X-GIS"):**
+
 - `search_graph` (name_pattern / label / qn_pattern / query) — find definitions & symbols
 - `trace_path` (mode: calls | data_flow | cross_service) — callers, callees, impact, data flow
 - `get_code_snippet` (qualified_name) — exact symbol source
 - `query_graph` (Cypher) — complex relationship queries
 - `search_code` — graph-augmented grep when you must text-match
 - `get_architecture` — package/module structure
-If the project is not indexed yet, run `index_repository` first.
+  If the project is not indexed yet, run `index_repository` first.
 
 **Grep / Glob / Read remain correct for:** non-code text, configs, comments, docs; and you
-must ALWAYS `Read` a file before editing it. The rule is graph-first for *finding* code —
+must ALWAYS `Read` a file before editing it. The rule is graph-first for _finding_ code —
 not a ban on Read. Pairs with the `flow-first` skill: graph the call/data flow + blast
 radius before editing.

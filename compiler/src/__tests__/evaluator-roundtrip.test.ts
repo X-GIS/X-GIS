@@ -24,16 +24,18 @@
 // fails CI before the user can spot hair-thin roads on a screenshot.
 
 import { describe, it, expect } from 'vitest'
-import {
-  convertMapboxStyle, Lexer, Parser, lower, emitCommands, evaluate,
-} from '../index'
+import { convertMapboxStyle, Lexer, Parser, lower, emitCommands, evaluate } from '../index'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const OFM_BRIGHT = JSON.parse(readFileSync(join(HERE, 'fixtures', 'openfreemap-bright.json'), 'utf8'))
-const MAPLIBRE_DEMO = JSON.parse(readFileSync(join(HERE, 'fixtures', 'maplibre-demotiles.json'), 'utf8'))
+const OFM_BRIGHT = JSON.parse(
+  readFileSync(join(HERE, 'fixtures', 'openfreemap-bright.json'), 'utf8'),
+)
+const MAPLIBRE_DEMO = JSON.parse(
+  readFileSync(join(HERE, 'fixtures', 'maplibre-demotiles.json'), 'utf8'),
+)
 
 // Representative zooms spanning OFM Bright's typical curves (most
 // road widths cover z=4 .. z=20; place labels z=2 .. z=18).
@@ -98,7 +100,7 @@ function checkExprFiniteAtZoom(
     return `${label} at z=${z}: evaluator threw — ${(e as Error).message}`
   }
   if (v === null || v === undefined) return `${label} at z=${z}: returned null/undefined`
-  if (typeof v !== 'number') return null  // colour stops resolve to strings — covered elsewhere
+  if (typeof v !== 'number') return null // colour stops resolve to strings — covered elsewhere
   if (!Number.isFinite(v)) return `${label} at z=${z}: returned ${v} (NaN / Inf)`
   // Numeric expressions for widths/sizes/opacities should be > 0 at
   // typical zooms. Below the first stop the eval clamps to the first
@@ -117,9 +119,11 @@ function runRoundtrip(name: string, style: unknown): void {
       for (const s of shows) {
         const props = sampleFeatureProps(s.sourceLayer)
         const checks: Array<[unknown, string]> = []
-        if (s.strokeWidthExpr?.ast) checks.push([s.strokeWidthExpr.ast, `${s.layerName}.strokeWidthExpr`])
+        if (s.strokeWidthExpr?.ast)
+          checks.push([s.strokeWidthExpr.ast, `${s.layerName}.strokeWidthExpr`])
         if (s.sizeExpr?.ast) checks.push([s.sizeExpr.ast, `${s.layerName}.sizeExpr`])
-        if (s.label?.sizeExpr?.ast) checks.push([s.label.sizeExpr.ast, `${s.layerName}.label.sizeExpr`])
+        if (s.label?.sizeExpr?.ast)
+          checks.push([s.label.sizeExpr.ast, `${s.layerName}.label.sizeExpr`])
         for (const [ast, label] of checks) {
           for (const z of ZOOM_SAMPLES) {
             const fail = checkExprFiniteAtZoom(ast, z, props, label)
@@ -128,12 +132,15 @@ function runRoundtrip(name: string, style: unknown): void {
         }
       }
       fails.sort()
-      expect(fails, `Expressions evaluate to NaN / null / negative — likely an evaluator-key mismatch or unhandled AST node:\n${fails.join('\n')}`).toEqual([])
+      expect(
+        fails,
+        `Expressions evaluate to NaN / null / negative — likely an evaluator-key mismatch or unhandled AST node:\n${fails.join('\n')}`,
+      ).toEqual([])
     })
 
     it('OFM Bright highway_minor stroke-width grows monotonically with zoom (sanity)', () => {
       if (name !== 'OFM Bright') return
-      const minor = shows.find(s => s.layerName === 'highway_minor')
+      const minor = shows.find((s) => s.layerName === 'highway_minor')
       if (!minor) return
       // Width can now flow through EITHER strokeWidthExpr (per-feature
       // worker bake) OR paintShapes.line.strokeWidth ZoomShape (per-frame
@@ -153,11 +160,13 @@ function runRoundtrip(name: string, style: unknown): void {
           if (z >= stops[stops.length - 1].zoom) return stops[stops.length - 1].value
           for (let i = 0; i < stops.length - 1; i++) {
             if (z >= stops[i].zoom && z <= stops[i + 1].zoom) {
-              const z0 = stops[i].zoom, z1 = stops[i + 1].zoom
+              const z0 = stops[i].zoom,
+                z1 = stops[i + 1].zoom
               const span = z1 - z0
-              const t = (base === 1 || Math.abs(base - 1) < 1e-6)
-                ? (z - z0) / span
-                : (Math.pow(base, z - z0) - 1) / (Math.pow(base, span) - 1)
+              const t =
+                base === 1 || Math.abs(base - 1) < 1e-6
+                  ? (z - z0) / span
+                  : (Math.pow(base, z - z0) - 1) / (Math.pow(base, span) - 1)
               return stops[i].value + t * (stops[i + 1].value - stops[i].value)
             }
           }
@@ -166,15 +175,18 @@ function runRoundtrip(name: string, style: unknown): void {
         widths = [12, 14, 15, 16, 18, 20].map(interp)
       } else if (minor.strokeWidthExpr?.ast) {
         const props = sampleFeatureProps('transportation')
-        widths = [12, 14, 15, 16, 18, 20].map(z =>
-          evaluate(minor.strokeWidthExpr!.ast as never, { ...props, $zoom: z }) as number)
+        widths = [12, 14, 15, 16, 18, 20].map(
+          (z) => evaluate(minor.strokeWidthExpr!.ast as never, { ...props, $zoom: z }) as number,
+        )
       } else {
-        return  // style without highway-minor or with constant width — covered above
+        return // style without highway-minor or with constant width — covered above
       }
       // Monotonically non-decreasing as zoom rises.
       for (let i = 1; i < widths.length; i++) {
-        expect(widths[i], `${widths.join(' → ')} not monotonic at index ${i}`)
-          .toBeGreaterThanOrEqual(widths[i - 1])
+        expect(
+          widths[i],
+          `${widths.join(' → ')} not monotonic at index ${i}`,
+        ).toBeGreaterThanOrEqual(widths[i - 1])
       }
       // At z=20 the road should be visibly thick (last stop = 11.5 in
       // OFM source). Pin the value so a future regression of the

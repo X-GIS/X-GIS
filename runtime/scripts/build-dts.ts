@@ -25,8 +25,7 @@ const here = (rel: string) => fileURLToPath(new URL(rel, import.meta.url))
 
 const bundle = await rollup({
   input: here('../src/index.ts'),
-  external: (id) =>
-    EXTERNAL.includes(id) || EXTERNAL.some((d) => id.startsWith(d + '/')),
+  external: (id) => EXTERNAL.includes(id) || EXTERNAL.some((d) => id.startsWith(d + '/')),
   plugins: [
     dts({
       tsconfig: here('../tsconfig.json'),

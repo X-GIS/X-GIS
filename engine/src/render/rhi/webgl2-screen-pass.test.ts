@@ -7,17 +7,31 @@ import { WebGl2Device } from './rhi-webgl2'
 // records the calls beginScreenPass / endScreenPass make, so the FBO-0 target +
 // viewport + clear + error-drain semantics are pinned without a real context.
 
-interface Call { fn: string; args: unknown[] }
+interface Call {
+  fn: string
+  args: unknown[]
+}
 
 function fakeGl(): { gl: WebGL2RenderingContext; calls: Call[]; errors: number[] } {
   const calls: Call[] = []
   const errors: number[] = [] // queue of gl.getError() returns (0 = NO_ERROR terminates)
-  const rec = (fn: string) => (...args: unknown[]) => { calls.push({ fn, args }) }
+  const rec =
+    (fn: string) =>
+    (...args: unknown[]) => {
+      calls.push({ fn, args })
+    }
   const gl = {
     // constants (distinct non-zero so the device constructor's SAMPLER set is happy)
-    FRAMEBUFFER: 0x8d40, SCISSOR_TEST: 0x0c11,
-    COLOR_BUFFER_BIT: 0x4000, DEPTH_BUFFER_BIT: 0x0100, STENCIL_BUFFER_BIT: 0x0400, NO_ERROR: 0,
-    SAMPLER_2D: 0x8b5e, SAMPLER_CUBE: 0x8b60, SAMPLER_3D: 0x8b5f, SAMPLER_2D_ARRAY: 0x8dc1,
+    FRAMEBUFFER: 0x8d40,
+    SCISSOR_TEST: 0x0c11,
+    COLOR_BUFFER_BIT: 0x4000,
+    DEPTH_BUFFER_BIT: 0x0100,
+    STENCIL_BUFFER_BIT: 0x0400,
+    NO_ERROR: 0,
+    SAMPLER_2D: 0x8b5e,
+    SAMPLER_CUBE: 0x8b60,
+    SAMPLER_3D: 0x8b5f,
+    SAMPLER_2D_ARRAY: 0x8dc1,
     bindFramebuffer: rec('bindFramebuffer'),
     viewport: rec('viewport'),
     disable: rec('disable'),
@@ -29,7 +43,9 @@ function fakeGl(): { gl: WebGL2RenderingContext; calls: Call[]; errors: number[]
     depthMask: rec('depthMask'),
     clear: rec('clear'),
     flush: rec('flush'),
-    getError(): number { return errors.length ? errors.shift()! : 0 },
+    getError(): number {
+      return errors.length ? errors.shift()! : 0
+    },
   } as unknown as WebGL2RenderingContext
   return { gl, calls, errors }
 }
@@ -42,7 +58,7 @@ describe('WebGl2Device screen-pass lifecycle (US-002)', () => {
 
     const bind = calls.find((c) => c.fn === 'bindFramebuffer')!
     expect(bind.args[0]).toBe(0x8d40) // FRAMEBUFFER
-    expect(bind.args[1]).toBeNull()   // FBO 0 = the default framebuffer the canvas presents
+    expect(bind.args[1]).toBeNull() // FBO 0 = the default framebuffer the canvas presents
     expect(calls.find((c) => c.fn === 'viewport')!.args).toEqual([0, 0, 320, 200])
     expect(calls.find((c) => c.fn === 'clearColor')!.args).toEqual([0, 0, 0, 1])
     expect(calls.some((c) => c.fn === 'clear')).toBe(true)

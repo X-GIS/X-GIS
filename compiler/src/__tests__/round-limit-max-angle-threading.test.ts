@@ -26,7 +26,10 @@ function convert(layer: Record<string, unknown>): string {
 
 function lineLayer(extraLayout: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    id: 'road', type: 'line', source: 'v', 'source-layer': 'roads',
+    id: 'road',
+    type: 'line',
+    source: 'v',
+    'source-layer': 'roads',
     layout: { 'line-join': 'round', ...extraLayout },
     paint: { 'line-color': '#000', 'line-width': 2 },
   }
@@ -34,7 +37,10 @@ function lineLayer(extraLayout: Record<string, unknown> = {}): Record<string, un
 
 function symbolLayer(extraLayout: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    id: 'lbl', type: 'symbol', source: 'v', 'source-layer': 'roads',
+    id: 'lbl',
+    type: 'symbol',
+    source: 'v',
+    'source-layer': 'roads',
     layout: { 'text-field': '{name}', 'symbol-placement': 'line', ...extraLayout },
     paint: { 'text-color': '#000' },
   }

@@ -32,7 +32,9 @@ import { setLogSink } from '@xgis/shared'
 function makeController(cam: Camera): CameraController {
   const deps: CameraControllerDeps = {
     invalidate: () => {},
-    getCanvas: () => { throw new Error('getCanvas not used in this test') },
+    getCanvas: () => {
+      throw new Error('getCanvas not used in this test')
+    },
     getCtxCanvas: () => undefined,
   }
   return new CameraController(cam, deps)
@@ -42,9 +44,13 @@ function makeController(cam: Camera): CameraController {
 let warnings: string[]
 beforeEach(() => {
   warnings = []
-  setLogSink((level, message) => { if (level === 'warn') warnings.push(message) })
+  setLogSink((level, message) => {
+    if (level === 'warn') warnings.push(message)
+  })
 })
-afterEach(() => { setLogSink(null) })
+afterEach(() => {
+  setLogSink(null)
+})
 
 describe('CameraController public-API validation', () => {
   describe('B1: setMinZoom / setMaxZoom reconcile (min <= max)', () => {
@@ -91,7 +97,10 @@ describe('CameraController public-API validation', () => {
       // west=170, east=-170 crosses the antimeridian. Intended centre ≈ ±180.
       // Before the fix lonSpan collapsed to 1e-9 → fallback zoom 4, and
       // centerLon = (170 + -170)/2 = 0 (the antipode).
-      ctrl.fitBounds([[170, 30], [-170, 40]])
+      ctrl.fitBounds([
+        [170, 30],
+        [-170, 40],
+      ])
 
       const after = ctrl.getCameraState()
       // Loud reject: a warn fired AND the camera is unchanged (no silent
@@ -107,7 +116,10 @@ describe('CameraController public-API validation', () => {
 
       // getCtxCanvas() returns undefined → fitBounds uses the 800 CSS default,
       // never touching getCanvas. A normal bbox must NOT be rejected.
-      ctrl.fitBounds([[120, 30], [130, 40]])
+      ctrl.fitBounds([
+        [120, 30],
+        [130, 40],
+      ])
 
       expect(warnings.some((w) => w.includes('antimeridian'))).toBe(false)
       expect(ctrl.getCenter()[0]).toBeCloseTo(125, 6) // centred on the bbox

@@ -99,9 +99,8 @@ function synthesizePaintShapes(show: LegacyShowFixture): PaintShapes {
 
   // Stroke colour: time only (no zoom stops field exists today)
   const st = show.timeStrokeStops ?? null
-  const stroke: PropertyShape<readonly [number, number, number, number]> | null = st !== null
-    ? { kind: 'time-interpolated', stops: st, loop, easing, delayMs }
-    : null
+  const stroke: PropertyShape<readonly [number, number, number, number]> | null =
+    st !== null ? { kind: 'time-interpolated', stops: st, loop, easing, delayMs } : null
 
   // Stroke width: composeStrokeWidthShape mirror.
   const swz = show.zoomStrokeWidthStops ?? null
@@ -110,7 +109,11 @@ function synthesizePaintShapes(show: LegacyShowFixture): PaintShapes {
   if (swz !== null && swt !== null) {
     strokeWidth = { kind: 'zoom-time', zoomStops: swz, timeStops: swt, loop, easing, delayMs }
   } else if (swz !== null) {
-    strokeWidth = { kind: 'zoom-interpolated', stops: swz, base: show.zoomStrokeWidthStopsBase ?? 1 }
+    strokeWidth = {
+      kind: 'zoom-interpolated',
+      stops: swz,
+      base: show.zoomStrokeWidthStopsBase ?? 1,
+    }
   } else if (swt !== null) {
     strokeWidth = { kind: 'time-interpolated', stops: swt, loop, easing, delayMs }
   } else {
@@ -200,8 +203,11 @@ function makeShow(overrides: Partial<ShowCommand> & LegacyShowFixture = {}): Sho
   let dashOffsetShape: Shape = null
   if (base.timeDashOffsetStops !== null && base.timeDashOffsetStops !== undefined) {
     dashOffsetShape = {
-      kind: 'time-interpolated', stops: base.timeDashOffsetStops,
-      loop, easing, delayMs,
+      kind: 'time-interpolated',
+      stops: base.timeDashOffsetStops,
+      loop,
+      easing,
+      delayMs,
     }
   } else if (typeof base.dashOffset === 'number') {
     dashOffsetShape = { kind: 'constant', value: base.dashOffset }
@@ -213,10 +219,7 @@ function makeShow(overrides: Partial<ShowCommand> & LegacyShowFixture = {}): Sho
   } as unknown as ShowCommand
 }
 
-function makeEntry(
-  sourceName: string,
-  show: ShowCommand,
-): ClassifierShowEntry {
+function makeEntry(sourceName: string, show: ShowCommand): ClassifierShowEntry {
   return { sourceName, show, pipelines: null, layout: null }
 }
 
@@ -243,23 +246,19 @@ function makeInput(
 
 describe('classifyVectorTileShows — base cases', () => {
   it('skips entries whose VT source has no data yet', () => {
-    const sources = new Map<string, ClassifierVTSource>([
-      ['src', makeVTSource(false)],
-    ])
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', makeShow({ fill: '#ff0000' }))],
-      sources,
-    ))
+    const sources = new Map<string, ClassifierVTSource>([['src', makeVTSource(false)]])
+    const result = classifyVectorTileShows(
+      makeInput([makeEntry('src', makeShow({ fill: '#ff0000' }))], sources),
+    )
     expect(result.opaque).toHaveLength(0)
     expect(result.translucent).toHaveLength(0)
   })
 
   it('skips entries with effectively-invisible opacity (< 0.005)', () => {
     const sources = new Map([['src', makeVTSource()]])
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', makeShow({ opacity: 0.001 }))],
-      sources,
-    ))
+    const result = classifyVectorTileShows(
+      makeInput([makeEntry('src', makeShow({ opacity: 0.001 }))], sources),
+    )
     expect(result.opaque).toHaveLength(0)
   })
 
@@ -269,20 +268,21 @@ describe('classifyVectorTileShows — base cases', () => {
     // the WebGPU draw path ignored the flag and only the canvas-fallback
     // renderer honoured it.
     const sources = new Map([['src', makeVTSource()]])
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', makeShow({ visible: false, fill: '#ff0000' }))],
-      sources,
-    ))
+    const result = classifyVectorTileShows(
+      makeInput([makeEntry('src', makeShow({ visible: false, fill: '#ff0000' }))], sources),
+    )
     expect(result.opaque).toHaveLength(0)
     expect(result.translucent).toHaveLength(0)
   })
 
   it('classifies a fully-opaque layer into the opaque bucket only', () => {
     const sources = new Map([['src', makeVTSource()]])
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', makeShow({ fill: '#ff0000', stroke: '#00ff00', opacity: 1 }))],
-      sources,
-    ))
+    const result = classifyVectorTileShows(
+      makeInput(
+        [makeEntry('src', makeShow({ fill: '#ff0000', stroke: '#00ff00', opacity: 1 }))],
+        sources,
+      ),
+    )
     expect(result.opaque).toHaveLength(1)
     expect(result.translucent).toHaveLength(0)
     expect(result.opaque[0].fillPhase).toBe('all')
@@ -291,10 +291,12 @@ describe('classifyVectorTileShows — base cases', () => {
 
   it('classifies a translucent-stroke layer into BOTH buckets', () => {
     const sources = new Map([['src', makeVTSource()]])
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', makeShow({ fill: '#ff0000', stroke: '#00ff00', opacity: 0.5 }))],
-      sources,
-    ))
+    const result = classifyVectorTileShows(
+      makeInput(
+        [makeEntry('src', makeShow({ fill: '#ff0000', stroke: '#00ff00', opacity: 0.5 }))],
+        sources,
+      ),
+    )
     expect(result.opaque).toHaveLength(1)
     expect(result.translucent).toHaveLength(1)
     expect(result.opaque[0].fillPhase).toBe('fills')
@@ -313,10 +315,12 @@ describe('classifyVectorTileShows — base cases', () => {
     // (mirrors MapLibre), so this layer must NOT enter the translucent
     // bucket and must draw fills+strokes together ('all').
     const sources = new Map([['src', makeVTSource()]])
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', makeShow({ fill: null, stroke: '#888888', opacity: 0.5 }))],
-      sources,
-    ))
+    const result = classifyVectorTileShows(
+      makeInput(
+        [makeEntry('src', makeShow({ fill: null, stroke: '#888888', opacity: 0.5 }))],
+        sources,
+      ),
+    )
     expect(result.opaque).toHaveLength(1)
     expect(result.opaque[0].isTranslucentStroke).toBe(false)
     expect(result.opaque[0].fillPhase).toBe('all')
@@ -325,19 +329,23 @@ describe('classifyVectorTileShows — base cases', () => {
 
   it('does NOT mark as translucent-stroke when opacity is high enough (≥ 0.999)', () => {
     const sources = new Map([['src', makeVTSource()]])
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', makeShow({ fill: '#ff0000', stroke: '#00ff00', opacity: 0.9999 }))],
-      sources,
-    ))
+    const result = classifyVectorTileShows(
+      makeInput(
+        [makeEntry('src', makeShow({ fill: '#ff0000', stroke: '#00ff00', opacity: 0.9999 }))],
+        sources,
+      ),
+    )
     expect(result.opaque[0].isTranslucentStroke).toBe(false)
   })
 
   it('does NOT mark as translucent-stroke when there is no stroke', () => {
     const sources = new Map([['src', makeVTSource()]])
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', makeShow({ fill: '#ff0000', stroke: null, opacity: 0.3 }))],
-      sources,
-    ))
+    const result = classifyVectorTileShows(
+      makeInput(
+        [makeEntry('src', makeShow({ fill: '#ff0000', stroke: null, opacity: 0.3 }))],
+        sources,
+      ),
+    )
     expect(result.opaque[0].isTranslucentStroke).toBe(false)
     expect(result.translucent).toHaveLength(0)
   })
@@ -401,11 +409,13 @@ describe('classifyVectorTileShows — base cases', () => {
 
   it('safeMode disables translucent-stroke classification', () => {
     const sources = new Map([['src', makeVTSource()]])
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', makeShow({ fill: '#ff0000', stroke: '#00ff00', opacity: 0.5 }))],
-      sources,
-      { safeMode: true },
-    ))
+    const result = classifyVectorTileShows(
+      makeInput(
+        [makeEntry('src', makeShow({ fill: '#ff0000', stroke: '#00ff00', opacity: 0.5 }))],
+        sources,
+        { safeMode: true },
+      ),
+    )
     expect(result.opaque[0].isTranslucentStroke).toBe(false)
     expect(result.translucent).toHaveLength(0)
   })
@@ -414,36 +424,56 @@ describe('classifyVectorTileShows — base cases', () => {
 describe('classifyVectorTileShows — animation resolution (Bug 1 territory)', () => {
   it('composes zoom × time opacity multiplicatively', () => {
     const sources = new Map([['src', makeVTSource()]])
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', makeShow({
-        opacity: 1,
-        zoomOpacityStops: [{ zoom: 0, value: 0.5 }, { zoom: 10, value: 0.5 }],
-        timeOpacityStops: [{ timeMs: 0, value: 0.6 }, { timeMs: 1000, value: 0.6 }],
-        animLoop: true,
-        animEasing: 'linear',
-        animDelayMs: 0,
-      }))],
-      sources,
-      { cameraZoom: 5, elapsedMs: 500 },
-    ))
+    const result = classifyVectorTileShows(
+      makeInput(
+        [
+          makeEntry(
+            'src',
+            makeShow({
+              opacity: 1,
+              zoomOpacityStops: [
+                { zoom: 0, value: 0.5 },
+                { zoom: 10, value: 0.5 },
+              ],
+              timeOpacityStops: [
+                { timeMs: 0, value: 0.6 },
+                { timeMs: 1000, value: 0.6 },
+              ],
+              animLoop: true,
+              animEasing: 'linear',
+              animDelayMs: 0,
+            }),
+          ),
+        ],
+        sources,
+        { cameraZoom: 5, elapsedMs: 500 },
+      ),
+    )
     // zoom = 0.5, time = 0.6 → opacity = 0.3
     expect(result.opaque[0].resolvedShow.opacity).toBeCloseTo(0.3, 6)
   })
 
   it('resolves animated fill into resolvedFillRgba per frame', () => {
     const sources = new Map([['src', makeVTSource()]])
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', makeShow({
-        fill: '#ff0000',
-        timeFillStops: [
-          { timeMs: 0, value: [1, 0, 0, 1] },
-          { timeMs: 1000, value: [0, 0, 1, 1] },
+    const result = classifyVectorTileShows(
+      makeInput(
+        [
+          makeEntry(
+            'src',
+            makeShow({
+              fill: '#ff0000',
+              timeFillStops: [
+                { timeMs: 0, value: [1, 0, 0, 1] },
+                { timeMs: 1000, value: [0, 0, 1, 1] },
+              ],
+              animLoop: true,
+            }),
+          ),
         ],
-        animLoop: true,
-      }))],
-      sources,
-      { elapsedMs: 500 },
-    ))
+        sources,
+        { elapsedMs: 500 },
+      ),
+    )
     const rgba = result.opaque[0].resolvedShow.fill!
     // Halfway between red [1,0,0,1] and blue [0,0,1,1]
     expect(rgba[0]).toBeCloseTo(0.5, 6)
@@ -453,35 +483,49 @@ describe('classifyVectorTileShows — animation resolution (Bug 1 territory)', (
 
   it('overrides strokeWidth from timeStrokeWidthStops', () => {
     const sources = new Map([['src', makeVTSource()]])
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', makeShow({
-        strokeWidth: 2,
-        timeStrokeWidthStops: [
-          { timeMs: 0, value: 2 },
-          { timeMs: 1000, value: 8 },
+    const result = classifyVectorTileShows(
+      makeInput(
+        [
+          makeEntry(
+            'src',
+            makeShow({
+              strokeWidth: 2,
+              timeStrokeWidthStops: [
+                { timeMs: 0, value: 2 },
+                { timeMs: 1000, value: 8 },
+              ],
+              animLoop: true,
+            }),
+          ),
         ],
-        animLoop: true,
-      }))],
-      sources,
-      { elapsedMs: 500 },
-    ))
+        sources,
+        { elapsedMs: 500 },
+      ),
+    )
     expect(result.opaque[0].resolvedShow.strokeWidth).toBe(5) // halfway 2→8
   })
 
   it('overrides dashOffset from timeDashOffsetStops', () => {
     const sources = new Map([['src', makeVTSource()]])
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', makeShow({
-        dashOffset: 0,
-        timeDashOffsetStops: [
-          { timeMs: 0, value: 0 },
-          { timeMs: 1000, value: 60 },
+    const result = classifyVectorTileShows(
+      makeInput(
+        [
+          makeEntry(
+            'src',
+            makeShow({
+              dashOffset: 0,
+              timeDashOffsetStops: [
+                { timeMs: 0, value: 0 },
+                { timeMs: 1000, value: 60 },
+              ],
+              animLoop: true,
+            }),
+          ),
         ],
-        animLoop: true,
-      }))],
-      sources,
-      { elapsedMs: 250 },
-    ))
+        sources,
+        { elapsedMs: 250 },
+      ),
+    )
     expect(result.opaque[0].resolvedShow.dashOffset).toBeCloseTo(15, 6)
   })
 
@@ -494,18 +538,25 @@ describe('classifyVectorTileShows — animation resolution (Bug 1 territory)', (
     // resolved color reflects the correct cycle position.
     const sources = new Map([['src', makeVTSource()]])
     const sampleAt = (elapsedMs: number) => {
-      const r = classifyVectorTileShows(makeInput(
-        [makeEntry('src', makeShow({
-          timeFillStops: [
-            { timeMs: 0, value: [1, 0, 0, 1] },
-            { timeMs: 500, value: [0, 1, 0, 1] },
-            { timeMs: 1000, value: [1, 0, 0, 1] },
+      const r = classifyVectorTileShows(
+        makeInput(
+          [
+            makeEntry(
+              'src',
+              makeShow({
+                timeFillStops: [
+                  { timeMs: 0, value: [1, 0, 0, 1] },
+                  { timeMs: 500, value: [0, 1, 0, 1] },
+                  { timeMs: 1000, value: [1, 0, 0, 1] },
+                ],
+                animLoop: true,
+              }),
+            ),
           ],
-          animLoop: true,
-        }))],
-        sources,
-        { elapsedMs },
-      ))
+          sources,
+          { elapsedMs },
+        ),
+      )
       return r.opaque[0].resolvedShow.fill!
     }
     // t=0, t=500, t=1000 = first cycle: red, green, red
@@ -514,7 +565,7 @@ describe('classifyVectorTileShows — animation resolution (Bug 1 territory)', (
     const tMid1 = sampleAt(500)
     const tEnd1 = sampleAt(1000)
     const tMid3 = sampleAt(2500)
-    expect(t0[0]).toBeCloseTo(1, 6)    // red
+    expect(t0[0]).toBeCloseTo(1, 6) // red
     expect(tMid1[1]).toBeCloseTo(1, 6) // green
     expect(tEnd1[0]).toBeCloseTo(1, 6) // red again (cycle 1 end)
     expect(tMid3[1]).toBeCloseTo(1, 6) // green again (cycle 3 mid) ← this is the loop check
@@ -523,10 +574,7 @@ describe('classifyVectorTileShows — animation resolution (Bug 1 territory)', (
   it('does NOT clone the show object when no animation is attached (zero-alloc fast path)', () => {
     const sources = new Map([['src', makeVTSource()]])
     const baseShow = makeShow({ fill: '#ff0000' })
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', baseShow)],
-      sources,
-    ))
+    const result = classifyVectorTileShows(makeInput([makeEntry('src', baseShow)], sources))
     // Object identity: when no animation/zoom override is needed
     // the classifier must reuse the original show reference to
     // avoid per-frame GC pressure on static layers.
@@ -540,11 +588,16 @@ describe('groupOpaqueBySource', () => {
       ['a', makeVTSource()],
       ['b', makeVTSource()],
     ])
-    const r = classifyVectorTileShows(makeInput([
-      makeEntry('a', makeShow({ fill: '#111111' })),
-      makeEntry('a', makeShow({ fill: '#222222' })),
-      makeEntry('b', makeShow({ fill: '#333333' })),
-    ], sources))
+    const r = classifyVectorTileShows(
+      makeInput(
+        [
+          makeEntry('a', makeShow({ fill: '#111111' })),
+          makeEntry('a', makeShow({ fill: '#222222' })),
+          makeEntry('b', makeShow({ fill: '#333333' })),
+        ],
+        sources,
+      ),
+    )
     const groups = groupOpaqueBySource(r.opaque)
     expect(groups).toHaveLength(2)
     expect(groups[0].sourceName).toBe('a')
@@ -560,14 +613,19 @@ describe('groupOpaqueBySource', () => {
       ['a', makeVTSource()],
       ['b', makeVTSource()],
     ])
-    const r = classifyVectorTileShows(makeInput([
-      makeEntry('a', makeShow({ fill: '#111111' })),
-      makeEntry('b', makeShow({ fill: '#222222' })),
-      makeEntry('a', makeShow({ fill: '#333333' })),
-    ], sources))
+    const r = classifyVectorTileShows(
+      makeInput(
+        [
+          makeEntry('a', makeShow({ fill: '#111111' })),
+          makeEntry('b', makeShow({ fill: '#222222' })),
+          makeEntry('a', makeShow({ fill: '#333333' })),
+        ],
+        sources,
+      ),
+    )
     const groups = groupOpaqueBySource(r.opaque)
     expect(groups).toHaveLength(3)
-    expect(groups.map(g => g.sourceName)).toEqual(['a', 'b', 'a'])
+    expect(groups.map((g) => g.sourceName)).toEqual(['a', 'b', 'a'])
   })
 
   it('returns an empty array when the opaque bucket is empty', () => {
@@ -584,8 +642,8 @@ describe('planFrameSchedule — bucket flags + resolveOwner', () => {
 
   it('opaque-only: resolveOwner = opaque, no other buckets', () => {
     const plan = planFrameSchedule(
-      { opaque: [FAKE_OPAQUE], translucent: [], oit: []  },
-      true,  // hasLineRenderer
+      { opaque: [FAKE_OPAQUE], translucent: [], oit: [] },
+      true, // hasLineRenderer
       false, // hasDirectLayerPoints
     )
     expect(plan.hasTranslucent).toBe(false)
@@ -595,7 +653,7 @@ describe('planFrameSchedule — bucket flags + resolveOwner', () => {
 
   it('translucent-only: resolveOwner = composite', () => {
     const plan = planFrameSchedule(
-      { opaque: [FAKE_TRANSLUCENT], translucent: [FAKE_TRANSLUCENT], oit: []  },
+      { opaque: [FAKE_TRANSLUCENT], translucent: [FAKE_TRANSLUCENT], oit: [] },
       true,
       false,
     )
@@ -608,7 +666,7 @@ describe('planFrameSchedule — bucket flags + resolveOwner', () => {
     // offscreen-stroke pass, so even though there are translucent
     // shows in the input the plan must NOT enable bucket 2.
     const plan = planFrameSchedule(
-      { opaque: [FAKE_TRANSLUCENT], translucent: [FAKE_TRANSLUCENT], oit: []  },
+      { opaque: [FAKE_TRANSLUCENT], translucent: [FAKE_TRANSLUCENT], oit: [] },
       false, // hasLineRenderer
       false,
     )
@@ -624,7 +682,7 @@ describe('planFrameSchedule — bucket flags + resolveOwner', () => {
     // demo. The fix promotes the scheduler to ALWAYS run bucket 3
     // when direct-layer points exist.
     const plan = planFrameSchedule(
-      { opaque: [FAKE_OPAQUE], translucent: [], oit: []  },
+      { opaque: [FAKE_OPAQUE], translucent: [], oit: [] },
       true,
       true, // hasDirectLayerPoints
     )
@@ -634,7 +692,7 @@ describe('planFrameSchedule — bucket flags + resolveOwner', () => {
 
   it('points + translucent: resolveOwner = points (last bucket wins)', () => {
     const plan = planFrameSchedule(
-      { opaque: [FAKE_TRANSLUCENT], translucent: [FAKE_TRANSLUCENT], oit: []  },
+      { opaque: [FAKE_TRANSLUCENT], translucent: [FAKE_TRANSLUCENT], oit: [] },
       true,
       true,
     )
@@ -649,11 +707,7 @@ describe('planFrameSchedule — bucket flags + resolveOwner', () => {
     // Pure points-only case (no vector tile shows at all). The
     // bucket scheduler still emits an empty opaque pass to clear
     // the canvas, then the points pass handles the rest.
-    const plan = planFrameSchedule(
-      { opaque: [], translucent: [], oit: []  },
-      true,
-      true,
-    )
+    const plan = planFrameSchedule({ opaque: [], translucent: [], oit: [] }, true, true)
     expect(plan.resolveOwner).toBe('points')
   })
 })
@@ -665,32 +719,49 @@ describe('classifyVectorTileShows — ResolvedShow snapshot (Phase 4b/4c)', () =
 
   it('resolvedShow.opacity reflects the per-frame zoom resolution', () => {
     const sources = new Map([['src', makeVTSource()]])
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', makeShow({
-        opacity: 1,
-        zoomOpacityStops: [{ zoom: 0, value: 0 }, { zoom: 10, value: 1 }],
-      }))],
-      sources,
-      { cameraZoom: 5 },
-    ))
+    const result = classifyVectorTileShows(
+      makeInput(
+        [
+          makeEntry(
+            'src',
+            makeShow({
+              opacity: 1,
+              zoomOpacityStops: [
+                { zoom: 0, value: 0 },
+                { zoom: 10, value: 1 },
+              ],
+            }),
+          ),
+        ],
+        sources,
+        { cameraZoom: 5 },
+      ),
+    )
     const cs = result.opaque[0]!
     expect(cs.resolvedShow.opacity).toBeCloseTo(0.5, 3)
   })
 
   it('resolvedShow.fill carries the time-interpolated RGBA', () => {
     const sources = new Map([['src', makeVTSource()]])
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', makeShow({
-        fill: '#ff0000',
-        timeFillStops: [
-          { timeMs: 0, value: [1, 0, 0, 1] },
-          { timeMs: 1000, value: [0, 0, 1, 1] },
+    const result = classifyVectorTileShows(
+      makeInput(
+        [
+          makeEntry(
+            'src',
+            makeShow({
+              fill: '#ff0000',
+              timeFillStops: [
+                { timeMs: 0, value: [1, 0, 0, 1] },
+                { timeMs: 1000, value: [0, 0, 1, 1] },
+              ],
+              animLoop: true,
+            }),
+          ),
         ],
-        animLoop: true,
-      }))],
-      sources,
-      { elapsedMs: 500 },
-    ))
+        sources,
+        { elapsedMs: 500 },
+      ),
+    )
     const snap = result.opaque[0]!.resolvedShow.fill!
     // Halfway between red and blue.
     expect(snap[0]).toBeCloseTo(0.5, 6)
@@ -700,10 +771,9 @@ describe('classifyVectorTileShows — ResolvedShow snapshot (Phase 4b/4c)', () =
 
   it('resolvedShow.layerName comes from the show', () => {
     const sources = new Map([['src', makeVTSource()]])
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', makeShow({ layerName: 'countries-boundary' }))],
-      sources,
-    ))
+    const result = classifyVectorTileShows(
+      makeInput([makeEntry('src', makeShow({ layerName: 'countries-boundary' }))], sources),
+    )
     expect(result.opaque[0]!.resolvedShow.layerName).toBe('countries-boundary')
   })
 
@@ -714,14 +784,15 @@ describe('classifyVectorTileShows — ResolvedShow snapshot (Phase 4b/4c)', () =
     // value (which now lives on cs.resolvedShow).
     const sources = new Map([['src', makeVTSource()]])
     const source = makeShow({
-      opacity: 0.9,  // static base
-      zoomOpacityStops: [{ zoom: 0, value: 0 }, { zoom: 10, value: 1 }],
+      opacity: 0.9, // static base
+      zoomOpacityStops: [
+        { zoom: 0, value: 0 },
+        { zoom: 10, value: 1 },
+      ],
     })
-    const result = classifyVectorTileShows(makeInput(
-      [makeEntry('src', source)],
-      sources,
-      { cameraZoom: 5 },
-    ))
+    const result = classifyVectorTileShows(
+      makeInput([makeEntry('src', source)], sources, { cameraZoom: 5 }),
+    )
     const cs = result.opaque[0]!
     // The per-frame value goes on resolvedShow…
     expect(cs.resolvedShow.opacity).toBeCloseTo(0.5, 3)

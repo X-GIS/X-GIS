@@ -77,8 +77,12 @@ function numbersEqual(a: number, b: number): boolean {
 }
 
 function rgbaEqual(a: RGBA, b: RGBA): boolean {
-  return numbersEqual(a[0], b[0]) && numbersEqual(a[1], b[1])
-    && numbersEqual(a[2], b[2]) && numbersEqual(a[3], b[3])
+  return (
+    numbersEqual(a[0], b[0]) &&
+    numbersEqual(a[1], b[1]) &&
+    numbersEqual(a[2], b[2]) &&
+    numbersEqual(a[3], b[3])
+  )
 }
 
 /** Canonical string for a zoom-stop array. Two gradients dedup iff
@@ -88,9 +92,9 @@ function colorGradientKey(g: ColorGradient): string {
   const parts: string[] = [`b=${g.base.toFixed(6)}`]
   for (const s of g.stops) {
     parts.push(
-      `z=${s.zoom.toFixed(6)},r=${s.value[0].toFixed(6)},`
-      + `g=${s.value[1].toFixed(6)},b=${s.value[2].toFixed(6)},`
-      + `a=${s.value[3].toFixed(6)}`,
+      `z=${s.zoom.toFixed(6)},r=${s.value[0].toFixed(6)},` +
+        `g=${s.value[1].toFixed(6)},b=${s.value[2].toFixed(6)},` +
+        `a=${s.value[3].toFixed(6)}`,
     )
   }
   return parts.join('|')

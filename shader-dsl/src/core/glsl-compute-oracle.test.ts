@@ -13,8 +13,15 @@
 import { describe, it, expect } from 'vitest'
 import { compileModule, lowerComputeToFragment } from '@xgis/shader-dsl'
 import {
-  f32T, u32T, vec3uT, vec4uT, vec4fT, voidT,
-  type ShaderType, type Expr, type ModuleDecl,
+  f32T,
+  u32T,
+  vec3uT,
+  vec4uT,
+  vec4fT,
+  voidT,
+  type ShaderType,
+  type Expr,
+  type ModuleDecl,
 } from '@xgis/shader-dsl'
 
 const boolT = { kind: 'scalar', scalar: 'bool' } as ShaderType
@@ -22,7 +29,12 @@ const arrF32 = { kind: 'array', elem: f32T } as ShaderType
 const arrU32 = { kind: 'array', elem: u32T } as ShaderType
 const lit = (value: number, type: ShaderType): Expr => ({ op: 'lit', type, value })
 const varref = (name: string, type: ShaderType): Expr => ({ op: 'varref', type, name })
-const member = (base: Expr, field: string, type: ShaderType): Expr => ({ op: 'member', type, base, field })
+const member = (base: Expr, field: string, type: ShaderType): Expr => ({
+  op: 'member',
+  type,
+  base,
+  field,
+})
 const index = (base: Expr, idx: Expr, type: ShaderType): Expr => ({ op: 'index', type, base, idx })
 
 // The per-feature paint kernel shell (compute-gen.ts shape): out_color[fid] = pack4x8unorm(
@@ -31,23 +43,47 @@ const gid = { op: 'param', type: vec3uT, name: 'gid' } as Expr
 const fid = member(gid, 'x', u32T)
 const count = member(varref('u_count', vec4uT), 'x', u32T)
 const feat = index(varref('feat_data', arrF32), fid, f32T)
-const color: Expr = { op: 'construct', type: vec4fT, args: [feat, lit(0, f32T), lit(0, f32T), lit(1, f32T)] }
+const color: Expr = {
+  op: 'construct',
+  type: vec4fT,
+  args: [feat, lit(0, f32T), lit(0, f32T), lit(1, f32T)],
+}
 const packed: Expr = { op: 'call', type: u32T, fn: 'pack4x8unorm', args: [color] }
 const computeMod: ModuleDecl = {
-  consts: [], structs: [],
+  consts: [],
+  structs: [],
   bindings: [
     { group: 0, binding: 0, name: 'feat_data', space: 'storage', access: 'read', type: arrF32 },
-    { group: 0, binding: 1, name: 'out_color', space: 'storage', access: 'read_write', type: arrU32 },
+    {
+      group: 0,
+      binding: 1,
+      name: 'out_color',
+      space: 'storage',
+      access: 'read_write',
+      type: arrU32,
+    },
     { group: 0, binding: 2, name: 'u_count', space: 'uniform', type: vec4uT },
   ],
-  funcs: [{
-    name: 'paint', attrs: ['@compute', '@workgroup_size(64)'],
-    params: [{ name: 'gid', type: vec3uT, builtin: 'global_invocation_id' }], ret: voidT,
-    body: [
-      { s: 'if', arms: [{ cond: { op: 'compare', type: boolT, cop: '>=', a: fid, b: count }, body: [{ s: 'return' }] }] },
-      { s: 'assign', target: index(varref('out_color', arrU32), fid, u32T), expr: packed },
-    ],
-  }],
+  funcs: [
+    {
+      name: 'paint',
+      attrs: ['@compute', '@workgroup_size(64)'],
+      params: [{ name: 'gid', type: vec3uT, builtin: 'global_invocation_id' }],
+      ret: voidT,
+      body: [
+        {
+          s: 'if',
+          arms: [
+            {
+              cond: { op: 'compare', type: boolT, cop: '>=', a: fid, b: count },
+              body: [{ s: 'return' }],
+            },
+          ],
+        },
+        { s: 'assign', target: index(varref('out_color', arrU32), fid, u32T), expr: packed },
+      ],
+    },
+  ],
 }
 
 // Run the original VOID @compute kernel: gid=[fid,0,0], in-place writes into out_color[].
@@ -72,7 +108,7 @@ function runFragment(featData: number[], n: number, w: number): number[] {
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const f = x + y * w
-      if (f >= n) continue                    // over-grid padding texel → discard path
+      if (f >= n) continue // over-grid padding texel → discard path
       out[f] = fm.fns.paint([x + 0.5, y + 0.5, 0, 1]) as number
     }
   }
@@ -92,16 +128,18 @@ describe('M2b — compute→fragment lowering preserves out_color byte-for-byte 
   }
 
   it('multi-row grid (H_out>1) — exercises the u_count.y width contract (critique #4)', () => {
-    const n = 10, w = 4                        // H = ceil(10/4) = 3 rows; last row partial
-    const data = Array.from({ length: n }, (_, i) => (i * 7 % 11) / 11)
+    const n = 10,
+      w = 4 // H = ceil(10/4) = 3 rows; last row partial
+    const data = Array.from({ length: n }, (_, i) => ((i * 7) % 11) / 11)
     expect(runFragment(data, n, w)).toEqual(runCompute(data, n))
   })
 
   it('boundary fid==count-1 is written; an over-grid texel (fid>=count) writes nothing', () => {
-    const n = 5, w = 4                         // grid 4×2=8 texels; texels 5,6,7 are over-grid
+    const n = 5,
+      w = 4 // grid 4×2=8 texels; texels 5,6,7 are over-grid
     const data = Array.from({ length: n }, (_, i) => (i + 1) / 6)
     const out = runFragment(data, n, w)
     expect(out.length).toBe(n)
-    expect(out[n - 1]).toBe(runCompute(data, n)[n - 1])   // last in-range fid written
+    expect(out[n - 1]).toBe(runCompute(data, n)[n - 1]) // last in-range fid written
   })
 })

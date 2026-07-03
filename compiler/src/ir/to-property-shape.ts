@@ -9,9 +9,7 @@
 // PropertyShape; those collapse to `null` or fold to a fallback during
 // conversion.
 
-import type {
-  ColorValue, SizeValue,
-} from './render-node'
+import type { ColorValue, SizeValue } from './render-node'
 import type { PropertyShape, RGBA } from './property-types'
 
 /** Convert a ColorValue to a PropertyShape<RGBA>. `kind: 'none'`
@@ -21,15 +19,19 @@ import type { PropertyShape, RGBA } from './property-types'
  *  that the renderer doesn't wire through per-frame evaluation. */
 export function colorValueToShape(v: ColorValue): PropertyShape<RGBA> | null {
   switch (v.kind) {
-    case 'none': return null
-    case 'constant': return { kind: 'constant', value: v.rgba }
+    case 'none':
+      return null
+    case 'constant':
+      return { kind: 'constant', value: v.rgba }
     case 'zoom-interpolated':
       return { kind: 'zoom-interpolated', stops: v.stops, base: v.base }
     case 'time-interpolated':
       return {
         kind: 'time-interpolated',
         stops: v.stops,
-        loop: v.loop, easing: v.easing, delayMs: v.delayMs,
+        loop: v.loop,
+        easing: v.easing,
+        delayMs: v.delayMs,
       }
     case 'data-driven':
       return { kind: 'data-driven', expr: v.expr }
@@ -45,14 +47,19 @@ export function colorValueToShape(v: ColorValue): PropertyShape<RGBA> | null {
  *  evaluation. */
 export function sizeValueToShape(v: SizeValue): PropertyShape<number> | null {
   switch (v.kind) {
-    case 'none': return null
-    case 'constant': return { kind: 'constant', value: v.value }
+    case 'none':
+      return null
+    case 'constant':
+      return { kind: 'constant', value: v.value }
     case 'zoom-interpolated':
       return { kind: 'zoom-interpolated', stops: v.stops, base: v.base }
     case 'time-interpolated':
       return {
         kind: 'time-interpolated',
-        stops: v.stops, loop: v.loop, easing: v.easing, delayMs: v.delayMs,
+        stops: v.stops,
+        loop: v.loop,
+        easing: v.easing,
+        delayMs: v.delayMs,
       }
     case 'data-driven':
       return { kind: 'data-driven', expr: v.expr }

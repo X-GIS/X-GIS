@@ -30,7 +30,10 @@ import { compileGeoJSONToTiles, lonLatToMercF64, type CompiledTile } from '../ti
 // simplification tolerance is large enough to remove from the fill. The shape
 // spans several degrees so it crosses tile boundaries at low/mid zoom.
 function wavyPolygon() {
-  const cx = 126, cy = 37, W = 4, H = 4
+  const cx = 126,
+    cy = 37,
+    W = 4,
+    H = 4
   const ring: [number, number][] = []
   for (let lon = cx - W; lon <= cx + W; lon += 0.5) ring.push([lon, cy - H])
   for (let lat = cy - H; lat <= cy + H; lat += 0.02) {
@@ -41,7 +44,14 @@ function wavyPolygon() {
   ring.push(ring[0]!)
   return {
     type: 'FeatureCollection' as const,
-    features: [{ type: 'Feature' as const, id: 1, geometry: { type: 'Polygon' as const, coordinates: [ring] }, properties: { name: 'wavy' } }],
+    features: [
+      {
+        type: 'Feature' as const,
+        id: 1,
+        geometry: { type: 'Polygon' as const, coordinates: [ring] },
+        properties: { name: 'wavy' },
+      },
+    ],
   }
 }
 
@@ -52,11 +62,14 @@ function wavyPolygon() {
 // and the shape is large enough to cross tile boundaries (the divergence
 // the loose-tolerance test below can't see lives at those crossings).
 function notchPolygon() {
-  const cx = 126, cy = 37, W = 4, H = 4
+  const cx = 126,
+    cy = 37,
+    W = 4,
+    H = 4
   const ring: [number, number][] = []
   for (let lon = cx - W; lon <= cx + W; lon += 0.5) ring.push([lon, cy - H])
   ring.push([cx + W, cy - 1])
-  ring.push([cx + W - 1.3, cy])  // notch tip (concave corner)
+  ring.push([cx + W - 1.3, cy]) // notch tip (concave corner)
   ring.push([cx + W, cy + 1])
   ring.push([cx + W, cy + H])
   for (let lon = cx + W; lon >= cx - W; lon -= 0.5) ring.push([lon, cy + H])
@@ -64,13 +77,22 @@ function notchPolygon() {
   ring.push(ring[0]!)
   return {
     type: 'FeatureCollection' as const,
-    features: [{ type: 'Feature' as const, id: 1, geometry: { type: 'Polygon' as const, coordinates: [ring] }, properties: { name: 'notch' } }],
+    features: [
+      {
+        type: 'Feature' as const,
+        id: 1,
+        geometry: { type: 'Polygon' as const, coordinates: [ring] },
+        properties: { name: 'notch' },
+      },
+    ],
   }
 }
 
 /** Distance (MM) from point P to segment AB. */
 function distToSeg(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
-  const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy
+  const dx = bx - ax,
+    dy = by - ay,
+    L2 = dx * dx + dy * dy
   if (L2 === 0) return Math.hypot(px - ax, py - ay)
   let t = ((px - ax) * dx + (py - ay) * dy) / L2
   t = Math.max(0, Math.min(1, t))
@@ -85,7 +107,8 @@ function fillEdges(tile: CompiledTile): Array<[number, number, number, number]> 
   for (const p of tile.polygons ?? []) {
     for (const ring of p.rings) {
       for (let i = 0; i < ring.length; i++) {
-        const a = ring[i]!, b = ring[(i + 1) % ring.length]!
+        const a = ring[i]!,
+          b = ring[(i + 1) % ring.length]!
         edges.push([a[0]!, a[1]!, b[0]!, b[1]!])
       }
     }
@@ -95,18 +118,32 @@ function fillEdges(tile: CompiledTile): Array<[number, number, number, number]> 
 
 /** Max distance (MM) from any outline vertex/midpoint to the nearest fill edge
  *  in this tile, plus counts that prove the assertion is NON-VACUOUS. */
-function maxOutlineOffFill(tile: CompiledTile): { max: number; outSegs: number; nFillEdges: number } {
-  const olv = tile.outlineVertices, oli = tile.outlineLineIndices
+function maxOutlineOffFill(tile: CompiledTile): {
+  max: number
+  outSegs: number
+  nFillEdges: number
+} {
+  const olv = tile.outlineVertices,
+    oli = tile.outlineLineIndices
   const edges = fillEdges(tile)
-  if (!olv || !oli || oli.length === 0 || edges.length === 0) return { max: 0, outSegs: 0, nFillEdges: edges.length }
+  if (!olv || !oli || oli.length === 0 || edges.length === 0)
+    return { max: 0, outSegs: 0, nFillEdges: edges.length }
   const [twMx, tsMy] = lonLatToMercF64(tile.tileWest, tile.tileSouth)
-  let max = 0, outSegs = 0
+  let max = 0,
+    outSegs = 0
   for (let i = 0; i < oli.length; i += 2) {
-    const ia = oli[i]! * STRIDE, ib = oli[i + 1]! * STRIDE
-    const ax = twMx + olv[ia]! + olv[ia + 2]!, ay = tsMy + olv[ia + 1]! + olv[ia + 3]!
-    const bx = twMx + olv[ib]! + olv[ib + 2]!, by = tsMy + olv[ib + 1]! + olv[ib + 3]!
+    const ia = oli[i]! * STRIDE,
+      ib = oli[i + 1]! * STRIDE
+    const ax = twMx + olv[ia]! + olv[ia + 2]!,
+      ay = tsMy + olv[ia + 1]! + olv[ia + 3]!
+    const bx = twMx + olv[ib]! + olv[ib + 2]!,
+      by = tsMy + olv[ib + 1]! + olv[ib + 3]!
     outSegs++
-    for (const [px, py] of [[ax, ay], [bx, by], [(ax + bx) / 2, (ay + by) / 2]] as const) {
+    for (const [px, py] of [
+      [ax, ay],
+      [bx, by],
+      [(ax + bx) / 2, (ay + by) / 2],
+    ] as const) {
       let best = Infinity
       for (const [ex, ey, fx, fy] of edges) {
         const d = distToSeg(px, py, ex, ey, fx, fy)
@@ -126,10 +163,12 @@ describe('polygon fill/outline coincidence (d34aed2)', () => {
   it('z == maxZoom: every outline vertex lies on the fill boundary (boundary-crossing)', () => {
     const maxZoom = 6
     const set = compileGeoJSONToTiles(wavyPolygon(), { minZoom: 0, maxZoom })
-    const level = set.levels.find(l => l.zoom === maxZoom)
+    const level = set.levels.find((l) => l.zoom === maxZoom)
     expect(level, 'maxZoom level compiled').toBeDefined()
 
-    let tilesWithBoth = 0, worst = 0, totalOutSegs = 0
+    let tilesWithBoth = 0,
+      worst = 0,
+      totalOutSegs = 0
     for (const [, tile] of level!.tiles) {
       const r = maxOutlineOffFill(tile)
       if (r.outSegs === 0 || r.nFillEdges === 0) continue
@@ -139,7 +178,10 @@ describe('polygon fill/outline coincidence (d34aed2)', () => {
     }
     // NON-VACUITY: a boundary-crossing polygon must populate outline+fill in
     // MULTIPLE tiles (proves we exercise a real tile crossing, not one interior tile).
-    expect(tilesWithBoth, 'outline+fill present across multiple tiles (real crossing)').toBeGreaterThanOrEqual(2)
+    expect(
+      tilesWithBoth,
+      'outline+fill present across multiple tiles (real crossing)',
+    ).toBeGreaterThanOrEqual(2)
     expect(totalOutSegs, 'has stroked outline segments').toBeGreaterThan(10)
     expect(worst, `max outline-off-fill at z==maxZoom = ${worst.toFixed(1)}m`).toBeLessThan(TOL_MM)
   })
@@ -152,12 +194,17 @@ describe('polygon fill/outline coincidence (d34aed2)', () => {
     // lived (and grew on zoom-out). All must coincide post-fix.
     for (const level of set.levels) {
       if (level.zoom >= maxZoom) continue
-      let tilesWithBoth = 0, worst = 0, worstTile = ''
+      let tilesWithBoth = 0,
+        worst = 0,
+        worstTile = ''
       for (const [, tile] of level.tiles) {
         const r = maxOutlineOffFill(tile)
         if (r.outSegs === 0 || r.nFillEdges === 0) continue
         tilesWithBoth++
-        if (r.max > worst) { worst = r.max; worstTile = `${tile.z}/${tile.x}/${tile.y}` }
+        if (r.max > worst) {
+          worst = r.max
+          worstTile = `${tile.z}/${tile.x}/${tile.y}`
+        }
       }
       if (tilesWithBoth === 0) continue // some very low z may full-cover (quad) → no outline
       expect(
@@ -187,14 +234,20 @@ describe('polygon fill/outline coincidence (d34aed2)', () => {
   ] as const) {
     it(`STRICT: ${name} — every outline vertex lies on a fill edge (≤${EPS_STRICT} m) at all zooms`, () => {
       const set = compileGeoJSONToTiles(makeFC(), { minZoom: 0, maxZoom })
-      let scannedTiles = 0, scannedSegs = 0, worstAll = 0, worstAt = ''
+      let scannedTiles = 0,
+        scannedSegs = 0,
+        worstAll = 0,
+        worstAt = ''
       for (const level of set.levels) {
         for (const [, tile] of level.tiles) {
           const r = maxOutlineOffFill(tile)
           if (r.outSegs === 0 || r.nFillEdges === 0) continue
           scannedTiles++
           scannedSegs += r.outSegs
-          if (r.max > worstAll) { worstAll = r.max; worstAt = `${tile.z}/${tile.x}/${tile.y}` }
+          if (r.max > worstAll) {
+            worstAll = r.max
+            worstAt = `${tile.z}/${tile.x}/${tile.y}`
+          }
         }
       }
       // NON-VACUITY: must actually exercise outline+fill tiles, including
@@ -204,7 +257,7 @@ describe('polygon fill/outline coincidence (d34aed2)', () => {
       expect(
         worstAll,
         `${name}: max outline-vertex-off-fill = ${worstAll.toFixed(3)}m at ${worstAt} ` +
-        `(pre-fix the line-clip path diverged ~3.8 m at tile crossings; the unify makes them identical)`,
+          `(pre-fix the line-clip path diverged ~3.8 m at tile crossings; the unify makes them identical)`,
       ).toBeLessThan(EPS_STRICT)
     })
   }

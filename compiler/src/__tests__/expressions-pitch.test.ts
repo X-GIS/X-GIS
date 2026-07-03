@@ -16,14 +16,14 @@ function convert(mapbox: unknown): { result: string | null; warnings: string[] }
 
 /** Build a bare identifier AST node — the form `["pitch"]` lowers to and
  *  the evaluator special-cases. Mirror of evaluator-builtins-fuzz's `id`. */
-const id = (name: string): AST.Expr => ({ kind: 'Identifier', name } as AST.Expr)
+const id = (name: string): AST.Expr => ({ kind: 'Identifier', name }) as AST.Expr
 
 describe('Mapbox ["pitch"] expression accessor', () => {
   it('["pitch"] → bare `pitch` identifier (no warning)', () => {
     const { result, warnings } = convert(['pitch'])
     expect(result).toBe('pitch')
-    expect(warnings.some(w => w.includes('Camera pitch accessor'))).toBe(false)
-    expect(warnings.some(w => w.startsWith('Expression not converted'))).toBe(false)
+    expect(warnings.some((w) => w.includes('Camera pitch accessor'))).toBe(false)
+    expect(warnings.some((w) => w.startsWith('Expression not converted'))).toBe(false)
   })
 
   it('["pitch"] nested in a `case` / arithmetic still converts', () => {
@@ -35,7 +35,7 @@ describe('Mapbox ["pitch"] expression accessor', () => {
   it('malformed ["pitch", 1] warns about extra args but still returns pitch', () => {
     const { result, warnings } = convert(['pitch', 1])
     expect(result).toBe('pitch')
-    expect(warnings.some(w => w.includes('Malformed ["pitch"]'))).toBe(true)
+    expect(warnings.some((w) => w.includes('Malformed ["pitch"]'))).toBe(true)
   })
 
   it('evaluator resolves `pitch` identifier via injected camera pitch', () => {

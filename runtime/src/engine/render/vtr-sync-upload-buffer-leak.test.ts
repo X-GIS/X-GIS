@@ -38,9 +38,16 @@ import type { TileData } from '@xgis/data'
 beforeAll(() => {
   if (typeof (globalThis as Record<string, unknown>).GPUBufferUsage === 'undefined') {
     ;(globalThis as Record<string, unknown>).GPUBufferUsage = {
-      MAP_READ: 0x0001, MAP_WRITE: 0x0002, COPY_SRC: 0x0004, COPY_DST: 0x0008,
-      INDEX: 0x0010, VERTEX: 0x0020, UNIFORM: 0x0040, STORAGE: 0x0080,
-      INDIRECT: 0x0100, QUERY_RESOLVE: 0x0200,
+      MAP_READ: 0x0001,
+      MAP_WRITE: 0x0002,
+      COPY_SRC: 0x0004,
+      COPY_DST: 0x0008,
+      INDEX: 0x0010,
+      VERTEX: 0x0020,
+      UNIFORM: 0x0040,
+      STORAGE: 0x0080,
+      INDIRECT: 0x0100,
+      QUERY_RESOLVE: 0x0200,
     }
   }
 })
@@ -63,7 +70,9 @@ function makeTrackedBuffer(kind: 'pooled' | 'segment', label?: string): TrackedB
     destroyed: false,
     size: 256,
     usage: 0,
-    destroy() { b.destroyed = true },
+    destroy() {
+      b.destroyed = true
+    },
   }
   return b
 }
@@ -78,8 +87,14 @@ function makeArenaStub() {
   return {
     buffer,
     freed,
-    alloc(bytes: number): number { const off = bump; bump += Math.max(bytes, 4); return off },
-    free(off: number, bytes: number): void { freed.push({ off, bytes }) },
+    alloc(bytes: number): number {
+      const off = bump
+      bump += Math.max(bytes, 4)
+      return off
+    },
+    free(off: number, bytes: number): void {
+      freed.push({ off, bytes })
+    },
   }
 }
 
@@ -93,7 +108,7 @@ function makeTileData(): TileData {
     dequantScale: 1,
     dequantHalf: 0,
     indices: new Uint32Array([0, 1, 2]),
-    lineVertices: new Float32Array(20),   // 2 verts × stride 10
+    lineVertices: new Float32Array(20), // 2 verts × stride 10
     lineIndices: new Uint32Array([0, 1]),
     outlineIndices: new Uint32Array([0, 1]),
     outlineVertices: new Float32Array(20),
@@ -216,8 +231,9 @@ describe('UploadCoordinator.uploadSync — line/outline/segment buffer leak on m
     const data = makeTileData()
     // Patch the lineRenderer so NO createLayerBindGroup throws — the upload
     // completes and layerCache.set records the buffers.
-    ;(ctx.lineRenderer as unknown as { createLayerBindGroup(b: GPUBuffer): unknown })
-      .createLayerBindGroup = () => ({})
+    ;(
+      ctx.lineRenderer as unknown as { createLayerBindGroup(b: GPUBuffer): unknown }
+    ).createLayerBindGroup = () => ({})
 
     ctx.coord.uploadSync(2, data, '')
 

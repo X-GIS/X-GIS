@@ -13,7 +13,10 @@ export const noSelfAssign: LintRule = {
   create: (ctx) => ({
     Stmt(s, fn) {
       if (isSelfAssign(s)) {
-        ctx.report(`self-assignment in fn '${fn.name}' — target and value are identical (likely typo)`, { fn: fn.name })
+        ctx.report(
+          `self-assignment in fn '${fn.name}' — target and value are identical (likely typo)`,
+          { fn: fn.name },
+        )
       }
     },
   }),
@@ -23,7 +26,10 @@ export const noSelfAssign: LintRule = {
     const funcs = m.funcs.map((f) => ({
       ...f,
       body: mapStmts(f.body, (s) => {
-        if (isSelfAssign(s)) { changed = true; return null }
+        if (isSelfAssign(s)) {
+          changed = true
+          return null
+        }
         return s
       }),
     }))

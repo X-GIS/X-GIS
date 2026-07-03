@@ -18,7 +18,10 @@ import { computeMiterPadRatio } from './line-segment-build'
  *  by θ. Arriving = +x. */
 function tangents(interiorDeg: number): [[number, number], [number, number]] {
   const theta = ((180 - interiorDeg) * Math.PI) / 180
-  return [[1, 0], [Math.cos(theta), Math.sin(theta)]]
+  return [
+    [1, 0],
+    [Math.cos(theta), Math.sin(theta)],
+  ]
 }
 
 describe('computeMiterPadRatio — miter-limit bevel threshold (#432)', () => {

@@ -17,9 +17,13 @@ import {
   unprojectGlobe,
 } from './globe'
 
-const W = 1280, H = 720
+const W = 1280,
+  H = 720
 
-function mulVec4(m: Float32Array, v: [number, number, number, number]): [number, number, number, number] {
+function mulVec4(
+  m: Float32Array,
+  v: [number, number, number, number],
+): [number, number, number, number] {
   const r: [number, number, number, number] = [0, 0, 0, 0]
   for (let row = 0; row < 4; row++) {
     let s = 0
@@ -140,7 +144,12 @@ describe('globe — orbit camera', () => {
 
 describe('globe — unproject (ray ↔ sphere)', () => {
   it('screen centre unprojects back to the camera centre', () => {
-    for (const [lon, lat, pitch] of [[0, 0, 0], [127, 37, 0], [127, 37, 45], [-150, -20, 30]] as const) {
+    for (const [lon, lat, pitch] of [
+      [0, 0, 0],
+      [127, 37, 0],
+      [127, 37, 45],
+      [-150, -20, 30],
+    ] as const) {
       const v = buildGlobeMatrix(lon, lat, 4, pitch, 0, W, H)
       const hit = unprojectGlobe(W / 2, H / 2, W, H, v)
       expect(hit).not.toBeNull()
@@ -152,7 +161,8 @@ describe('globe — unproject (ray ↔ sphere)', () => {
   it('round-trips an off-centre screen pixel', () => {
     const v = buildGlobeMatrix(20, 10, 4, 20, 45, W, H)
     // A point we know is on the visible front hemisphere.
-    const truthLon = 24, truthLat = 13
+    const truthLon = 24,
+      truthLat = 13
     const p = globeForward(truthLon, truthLat)
     const clip = mulVec4(v.matrix, [p[0], p[1], p[2], 1])
     const sx = (clip[0] / clip[3] + 1) * 0.5 * W
@@ -176,8 +186,8 @@ describe('globe — dateline-wrapping tile selection', () => {
     const n = (z: number) => Math.pow(2, z)
     // West-of-dateline tiles have lon near -180 → small x;
     // east-of-dateline tiles have lon near +180 → large x.
-    const hasWest = tiles.some(t => t.x / n(t.z) < 0.15)
-    const hasEast = tiles.some(t => (t.x + 1) / n(t.z) > 0.85)
+    const hasWest = tiles.some((t) => t.x / n(t.z) < 0.15)
+    const hasEast = tiles.some((t) => (t.x + 1) / n(t.z) > 0.85)
     expect(hasWest).toBe(true)
     expect(hasEast).toBe(true)
   })
@@ -187,8 +197,8 @@ describe('globe — dateline-wrapping tile selection', () => {
     expect(tiles.length).toBeGreaterThan(0)
     for (const t of tiles) {
       const n = Math.pow(2, t.z)
-      const lonW = t.x / n * 360 - 180
-      const lonE = (t.x + 1) / n * 360 - 180
+      const lonW = (t.x / n) * 360 - 180
+      const lonE = ((t.x + 1) / n) * 360 - 180
       // No selected tile should be entirely on the far side (|lon|>110).
       expect(Math.min(Math.abs(lonW), Math.abs(lonE))).toBeLessThan(120)
     }
@@ -204,7 +214,11 @@ describe('globe — dateline-wrapping tile selection', () => {
 
 describe('globe — RTC matrix (renderer feeds proj_globe(v) − proj_globe(center))', () => {
   it('the focus point (rtc origin) projects to NDC (0,0)', () => {
-    for (const [lon, lat, p] of [[0, 0, 0], [127, 37, 40], [-150, -20, 70]] as const) {
+    for (const [lon, lat, p] of [
+      [0, 0, 0],
+      [127, 37, 40],
+      [-150, -20, 70],
+    ] as const) {
       const v = buildGlobeMatrix(lon, lat, 4, p, 0, W, H)
       const c = mulVec4(v.rtcMatrix, [0, 0, 0, 1]) // focus − focus = 0
       expect(c[3]).toBeGreaterThan(0)
@@ -221,7 +235,11 @@ describe('globe — RTC matrix (renderer feeds proj_globe(v) − proj_globe(cent
     // absolute path is still trustworthy.
     const v = buildGlobeMatrix(30, 15, 5, 35, 50, W, H)
     const focus = globeForward(30, 15)
-    for (const [lon, lat] of [[30.5, 15.5], [29.5, 14.5], [31, 16]] as const) {
+    for (const [lon, lat] of [
+      [30.5, 15.5],
+      [29.5, 14.5],
+      [31, 16],
+    ] as const) {
       const p = globeForward(lon, lat)
       const a = mulVec4(v.matrix, [p[0], p[1], p[2], 1])
       const r = mulVec4(v.rtcMatrix, [p[0] - focus[0], p[1] - focus[1], p[2] - focus[2], 1])
@@ -240,10 +258,13 @@ describe('globe — Cesium-style pitch', () => {
   const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
   const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
   const len = (a: number[]) => Math.sqrt(dot(a, a))
-  const norm = (a: number[]) => { const l = len(a) || 1; return [a[0] / l, a[1] / l, a[2] / l] }
+  const norm = (a: number[]) => {
+    const l = len(a) || 1
+    return [a[0] / l, a[1] / l, a[2] / l]
+  }
 
   it('orbits at a CONSTANT range to the focus as pitch changes', () => {
-    const ranges = [0, 20, 45, 70, 85].map(p => {
+    const ranges = [0, 20, 45, 70, 85].map((p) => {
       const v = buildGlobeMatrix(127, 37, 4, p, 0, W, H)
       return len(sub(v.eye, v.target))
     })
@@ -251,7 +272,11 @@ describe('globe — Cesium-style pitch', () => {
   })
 
   it('pitch 0 = nadir (straight down); raising pitch sweeps toward the horizon', () => {
-    for (const lonlat of [[0, 0], [127, 37], [-150, -25]] as const) {
+    for (const lonlat of [
+      [0, 0],
+      [127, 37],
+      [-150, -25],
+    ] as const) {
       const focusN = norm(globeForward(lonlat[0], lonlat[1])) // surface normal
       let prev = -Infinity
       for (const p of [0, 30, 60, 85]) {
@@ -259,7 +284,7 @@ describe('globe — Cesium-style pitch', () => {
         const viewDir = norm(sub(v.target, v.eye))
         // dot(view, normal) == -cos(pitch): -1 at nadir → 0 at horizon.
         const d = dot(viewDir, focusN)
-        expect(d).toBeCloseTo(-Math.cos(p * Math.PI / 180), 2)
+        expect(d).toBeCloseTo(-Math.cos((p * Math.PI) / 180), 2)
         expect(d).toBeGreaterThan(prev) // monotone tilt toward the horizon
         prev = d
       }
@@ -314,7 +339,10 @@ describe('globe — Cesium-style pitch', () => {
 describe('globe — orthographic (telephoto) orbit camera', () => {
   const d2r = Math.PI / 180
   const projOrtho = (lon: number, lat: number, clon: number, clat: number) => {
-    const lam = lon * d2r, phi = lat * d2r, l0 = clon * d2r, p0 = clat * d2r
+    const lam = lon * d2r,
+      phi = lat * d2r,
+      l0 = clon * d2r,
+      p0 = clat * d2r
     return [
       EARTH_R * Math.cos(phi) * Math.sin(lam - l0),
       EARTH_R * (Math.cos(p0) * Math.sin(phi) - Math.sin(p0) * Math.cos(phi) * Math.cos(lam - l0)),
@@ -330,14 +358,23 @@ describe('globe — orthographic (telephoto) orbit camera', () => {
 
   it('pitch=0 telephoto-globe ≈ flat 2D orthographic, far closer than perspective', async () => {
     const { Camera } = await import('./camera')
-    const clon = 10, clat = 30, zoom = 2
+    const clon = 10,
+      clat = 30,
+      zoom = 2
     const cam = new Camera(clon, clat, zoom)
     cam.projType = 3 // flat 2D azimuthal path
     const m2d = cam.getRTCMatrix(W, H, 1)
-    const tele = buildGlobeMatrix(clon, clat, zoom, 0, 0, W, H, true)  // ortho/telephoto
+    const tele = buildGlobeMatrix(clon, clat, zoom, 0, 0, W, H, true) // ortho/telephoto
     const persp = buildGlobeMatrix(clon, clat, zoom, 0, 0, W, H, false) // plain perspective
     const fc = globeForward(clon, clat)
-    for (const [lon, lat] of [[10, 30], [15, 35], [5, 25], [30, 10], [-10, 50], [40, -5]]) {
+    for (const [lon, lat] of [
+      [10, 30],
+      [15, 35],
+      [5, 25],
+      [30, 10],
+      [-10, 50],
+      [40, -5],
+    ]) {
       const a = ndc(m2d, [...projOrtho(lon, lat, clon, clat), 0, 1])
       const g = globeForward(lon, lat)
       const rel = [g[0] - fc[0], g[1] - fc[1], g[2] - fc[2], 1]
@@ -371,7 +408,8 @@ describe('globe — orthographic (telephoto) orbit camera', () => {
     expect(wFront).toBeGreaterThan(0)
     expect(wBack - wFront).toBeGreaterThan(EARTH_R) // clearly ordered in depth
     // Tilting still moves an off-centre point vertically on screen.
-    expect(Math.abs(ndc(tilt.rtcMatrix, rel(0, 10))[1] - ndc(flat.rtcMatrix, rel(0, 10))[1]))
-      .toBeGreaterThan(0.05)
+    expect(
+      Math.abs(ndc(tilt.rtcMatrix, rel(0, 10))[1] - ndc(flat.rtcMatrix, rel(0, 10))[1]),
+    ).toBeGreaterThan(0.05)
   })
 })

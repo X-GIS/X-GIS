@@ -8,16 +8,13 @@ import { describe, it, expect } from 'vitest'
 import { evaluate } from './evaluator'
 import type * as AST from '../parser/ast'
 
-const num = (value: number): AST.Expr =>
-  ({ kind: 'NumberLiteral', value } as AST.Expr)
-const str = (value: string): AST.Expr =>
-  ({ kind: 'StringLiteral', value } as AST.Expr)
-const id = (name: string): AST.Expr =>
-  ({ kind: 'Identifier', name } as AST.Expr)
+const num = (value: number): AST.Expr => ({ kind: 'NumberLiteral', value }) as AST.Expr
+const str = (value: string): AST.Expr => ({ kind: 'StringLiteral', value }) as AST.Expr
+const id = (name: string): AST.Expr => ({ kind: 'Identifier', name }) as AST.Expr
 const field = (name: string): AST.Expr =>
-  ({ kind: 'FieldAccess', object: null, field: name } as AST.Expr)
+  ({ kind: 'FieldAccess', object: null, field: name }) as AST.Expr
 const bin = (op: string, left: AST.Expr, right: AST.Expr): AST.Expr =>
-  ({ kind: 'BinaryExpr', op, left, right } as AST.Expr)
+  ({ kind: 'BinaryExpr', op, left, right }) as AST.Expr
 
 describe('iter-293 evaluator fuzz — sneaky edge inputs', () => {
   it('NaN field operand: any ordered compare returns false (spec)', () => {
@@ -87,18 +84,16 @@ describe('iter-293 evaluator fuzz — sneaky edge inputs', () => {
   it('short-circuit && on false LHS skips RHS exceptions', () => {
     // RHS would divide by zero if evaluated.
     const props = { x: 0 }
-    const e = bin('&&',
-      bin('==', field('x'), num(1)),       // false
-      bin('==', bin('/', num(1), field('x')), num(0)),  // would be 1/0=Infinity
+    const e = bin(
+      '&&',
+      bin('==', field('x'), num(1)), // false
+      bin('==', bin('/', num(1), field('x')), num(0)), // would be 1/0=Infinity
     )
     expect(evaluate(e, props)).toBe(false)
   })
 
   it('short-circuit || on true LHS skips RHS', () => {
-    const e = bin('||',
-      bin('==', num(1), num(1)),
-      bin('==', bin('/', num(1), num(0)), num(0)),
-    )
+    const e = bin('||', bin('==', num(1), num(1)), bin('==', bin('/', num(1), num(0)), num(0)))
     expect(evaluate(e, {})).toBe(true)
   })
 
@@ -136,7 +131,9 @@ describe('iter-293 evaluator fuzz — sneaky edge inputs', () => {
       elements: [num(1), num(2), num(3)],
     } as AST.Expr
     const access: AST.Expr = {
-      kind: 'ArrayAccess', array: arr, index: num(-1),
+      kind: 'ArrayAccess',
+      array: arr,
+      index: num(-1),
     } as AST.Expr
     expect(evaluate(access, {})).toBe(null)
   })
@@ -147,7 +144,9 @@ describe('iter-293 evaluator fuzz — sneaky edge inputs', () => {
       elements: [num(1), num(2)],
     } as AST.Expr
     const access: AST.Expr = {
-      kind: 'ArrayAccess', array: arr, index: num(99),
+      kind: 'ArrayAccess',
+      array: arr,
+      index: num(99),
     } as AST.Expr
     expect(evaluate(access, {})).toBe(null)
   })
@@ -158,7 +157,9 @@ describe('iter-293 evaluator fuzz — sneaky edge inputs', () => {
       elements: [num(10), num(20), num(30)],
     } as AST.Expr
     const access: AST.Expr = {
-      kind: 'ArrayAccess', array: arr, index: num(1.7),
+      kind: 'ArrayAccess',
+      array: arr,
+      index: num(1.7),
     } as AST.Expr
     expect(evaluate(access, {})).toBe(20)
   })
@@ -172,7 +173,9 @@ describe('iter-293 evaluator fuzz — sneaky edge inputs', () => {
       elements: [num(10), num(20)],
     } as AST.Expr
     const access: AST.Expr = {
-      kind: 'ArrayAccess', array: arr, index: num(NaN),
+      kind: 'ArrayAccess',
+      array: arr,
+      index: num(NaN),
     } as AST.Expr
     expect(evaluate(access, {})).toBe(10)
   })

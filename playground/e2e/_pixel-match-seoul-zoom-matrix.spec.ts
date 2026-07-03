@@ -28,8 +28,13 @@ const ZOOMS = [0, 4, 8, 12, 16, 19] as const
 const PITCHES = [0, 60] as const
 
 interface Buckets {
-  eq0: number; le8: number; le16: number; le32: number
-  le64: number; le128: number; gt128: number
+  eq0: number
+  le8: number
+  le16: number
+  le32: number
+  le64: number
+  le128: number
+  gt128: number
 }
 
 function diffBuckets(a: PNG, b: PNG, w: number, h: number): Buckets {
@@ -84,8 +89,14 @@ async function hideSymbolLayers(page: Page): Promise<void> {
     }
   })
   await page.evaluate(() => {
-    interface XGISShow { label?: unknown; visible?: boolean }
-    interface XGISLayer { name?: string; style?: { visible?: boolean } }
+    interface XGISShow {
+      label?: unknown
+      visible?: boolean
+    }
+    interface XGISLayer {
+      name?: string
+      style?: { visible?: boolean }
+    }
     interface XGISMap {
       vectorTileShows?: Array<{ show: XGISShow }>
       getLayers?(): readonly XGISLayer[]
@@ -106,13 +117,17 @@ async function hideSymbolLayers(page: Page): Promise<void> {
     map.invalidate?.()
   })
   await page.waitForTimeout(3_500)
-  await page.evaluate(() => new Promise<void>(r =>
-    requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+  await page.evaluate(
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+  )
 }
 
 interface CellResult {
-  zoom: number; pitch: number
-  canvasW: number; canvasH: number; totalPx: number
+  zoom: number
+  pitch: number
+  canvasW: number
+  canvasH: number
+  totalPx: number
   buckets: Buckets
 }
 const results: CellResult[] = []
@@ -126,16 +141,16 @@ test.describe('pixel-match-seoul-zoom-matrix (mercator only)', () => {
         test.setTimeout(180_000)
         await page.setViewportSize({ width: 1280, height: 800 })
         const hash = `#${zoom}/${SEOUL.lat}/${SEOUL.lon}/0/${pitch}`
-        await page.goto(
-          `/compare.html?style=openfreemap-bright${hash}`,
-          { waitUntil: 'domcontentloaded' },
-        )
+        await page.goto(`/compare.html?style=openfreemap-bright${hash}`, {
+          waitUntil: 'domcontentloaded',
+        })
         await page.waitForFunction(
           () => {
             const w = window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }
             return w.__xgisReady === true && w.__mlReady === true
           },
-          null, { timeout: 90_000 },
+          null,
+          { timeout: 90_000 },
         )
         await hideSymbolLayers(page)
 
@@ -156,15 +171,25 @@ test.describe('pixel-match-seoul-zoom-matrix (mercator only)', () => {
         mkdirSync(cellDir, { recursive: true })
         writeFileSync(join(cellDir, 'maplibre.png'), PNG.sync.write(mlNorm))
         writeFileSync(join(cellDir, 'xgis.png'), PNG.sync.write(xgNorm))
-        writeFileSync(join(cellDir, 'buckets.json'), JSON.stringify({
-          buckets, totalPx, canvasW: w, canvasH: h,
-        }, null, 2))
+        writeFileSync(
+          join(cellDir, 'buckets.json'),
+          JSON.stringify(
+            {
+              buckets,
+              totalPx,
+              canvasW: w,
+              canvasH: h,
+            },
+            null,
+            2,
+          ),
+        )
 
         const le32 = buckets.eq0 + buckets.le8 + buckets.le16 + buckets.le32
         // eslint-disable-next-line no-console
         console.log(
-          `[matrix z=${zoom} p=${pitch}] eq=${((buckets.eq0 / totalPx) * 100).toFixed(2)}% `
-          + `le32=${((le32 / totalPx) * 100).toFixed(2)}% gt128=${buckets.gt128}px`,
+          `[matrix z=${zoom} p=${pitch}] eq=${((buckets.eq0 / totalPx) * 100).toFixed(2)}% ` +
+            `le32=${((le32 / totalPx) * 100).toFixed(2)}% gt128=${buckets.gt128}px`,
         )
       })
     }
@@ -186,9 +211,9 @@ test.describe('pixel-match-seoul-zoom-matrix (mercator only)', () => {
     for (const r of results) {
       const le32 = r.buckets.eq0 + r.buckets.le8 + r.buckets.le16 + r.buckets.le32
       lines.push(
-        `| ${r.zoom} | ${r.pitch}° | ${r.canvasW}×${r.canvasH} | `
-        + `${((r.buckets.eq0 / r.totalPx) * 100).toFixed(2)} | `
-        + `${((le32 / r.totalPx) * 100).toFixed(2)} | ${r.buckets.gt128} |`,
+        `| ${r.zoom} | ${r.pitch}° | ${r.canvasW}×${r.canvasH} | ` +
+          `${((r.buckets.eq0 / r.totalPx) * 100).toFixed(2)} | ` +
+          `${((le32 / r.totalPx) * 100).toFixed(2)} | ${r.buckets.gt128} |`,
       )
     }
     lines.push('')

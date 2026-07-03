@@ -40,11 +40,11 @@ describe('dev-assert', () => {
   it('devWatch fires onChange the tick a value moves beyond eps', () => {
     devWatchReset('t')
     const onChange = vi.fn()
-    devWatch('t', 10, 0, onChange)   // first reading — no prior, no fire
+    devWatch('t', 10, 0, onChange) // first reading — no prior, no fire
     expect(onChange).not.toHaveBeenCalled()
-    devWatch('t', 10, 0, onChange)   // unchanged — no fire
+    devWatch('t', 10, 0, onChange) // unchanged — no fire
     expect(onChange).not.toHaveBeenCalled()
-    devWatch('t', 12, 0, onChange)   // moved — fire with (prev,next)
+    devWatch('t', 12, 0, onChange) // moved — fire with (prev,next)
     expect(onChange).toHaveBeenCalledWith(10, 12)
   })
 
@@ -54,7 +54,7 @@ describe('dev-assert', () => {
     devWatch('j', 100, 1, onChange)
     devWatch('j', 100.4, 1, onChange) // within eps — no fire
     expect(onChange).not.toHaveBeenCalled()
-    devWatch('j', 102, 1, onChange)   // beyond eps — fire
+    devWatch('j', 102, 1, onChange) // beyond eps — fire
     expect(onChange).toHaveBeenCalledOnce()
   })
 })

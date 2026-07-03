@@ -8,7 +8,10 @@ import { describe, it, expect } from 'vitest'
 import { interpolateZoom } from '@xgis/map'
 
 describe('interpolateZoom — linear (no base)', () => {
-  const stops = [{ zoom: 0, value: 0 }, { zoom: 10, value: 100 }]
+  const stops = [
+    { zoom: 0, value: 0 },
+    { zoom: 10, value: 100 },
+  ]
 
   it('endpoints clamp', () => {
     expect(interpolateZoom(stops, -1)).toBe(0)
@@ -23,7 +26,10 @@ describe('interpolateZoom — linear (no base)', () => {
 })
 
 describe('interpolateZoom — exponential (base > 1)', () => {
-  const stops = [{ zoom: 0, value: 0 }, { zoom: 10, value: 100 }]
+  const stops = [
+    { zoom: 0, value: 0 },
+    { zoom: 10, value: 100 },
+  ]
   const base = 2
 
   it('endpoints still clamp', () => {
@@ -59,7 +65,10 @@ describe('interpolateZoom — exponential (base > 1)', () => {
 })
 
 describe('interpolateZoom — exponential (0 < base < 1, decelerating)', () => {
-  const stops = [{ zoom: 0, value: 0 }, { zoom: 10, value: 100 }]
+  const stops = [
+    { zoom: 0, value: 0 },
+    { zoom: 10, value: 100 },
+  ]
   const base = 0.5
 
   it('midpoint above linear (curve accelerates near lower stop)', () => {
@@ -73,7 +82,10 @@ describe('interpolateZoom — exponential (0 < base < 1, decelerating)', () => {
 
 describe('interpolateZoom — OFM Bright realistic road-width curve', () => {
   // Typical OFM Bright road width: base=1.3, 11→1, 19→2.5.
-  const stops = [{ zoom: 11, value: 1 }, { zoom: 19, value: 2.5 }]
+  const stops = [
+    { zoom: 11, value: 1 },
+    { zoom: 19, value: 2.5 },
+  ]
   const base = 1.3
 
   it('low-zoom edge is the start value', () => {

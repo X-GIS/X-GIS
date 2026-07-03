@@ -41,9 +41,19 @@ const TAG_LABELS: Record<string, string> = {
 // large `fixture` bucket goes last because it's a reference corpus
 // rather than a learning path.
 const TAG_ORDER: string[] = [
-  'basic', 'style', 'raster', 'zoom', 'layer',
-  'line', 'point', 'per-feature', 'data-driven',
-  'xgvt', 'natural-earth', '10m', 'thematic',
+  'basic',
+  'style',
+  'raster',
+  'zoom',
+  'layer',
+  'line',
+  'point',
+  'per-feature',
+  'data-driven',
+  'xgvt',
+  'natural-earth',
+  '10m',
+  'thematic',
   'fixture',
 ]
 
@@ -66,7 +76,9 @@ for (const [id, demo] of entries) {
 // "whatever order demos.ts has" — the rules change as fixtures are
 // added, so insertion order is not a stable sort key.
 for (const list of groups.values()) {
-  list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
+  list.sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }),
+  )
 }
 
 // Produce an ordered [tag, demos] list that respects TAG_ORDER, with
@@ -76,9 +88,12 @@ const orderedGroups: [string, { id: string; name: string; description: string }[
 const seen = new Set<string>()
 for (const tag of TAG_ORDER) {
   const list = groups.get(tag)
-  if (list) { orderedGroups.push([tag, list]); seen.add(tag) }
+  if (list) {
+    orderedGroups.push([tag, list])
+    seen.add(tag)
+  }
 }
-const leftovers = [...groups.keys()].filter(t => !seen.has(t)).sort()
+const leftovers = [...groups.keys()].filter((t) => !seen.has(t)).sort()
 for (const tag of leftovers) orderedGroups.push([tag, groups.get(tag)!])
 
 // Build sections

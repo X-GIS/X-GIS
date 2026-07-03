@@ -35,8 +35,10 @@ function checkGolden(file: string, emitted: string): void {
     return
   }
   expect(existsSync(path), `${file}: golden missing — bake with UPDATE_EMIT_GOLDENS=1`).toBe(true)
-  expect(lf(emitted), `${file}: emit drifted from the committed golden — if intentional, re-bake with UPDATE_EMIT_GOLDENS=1 and commit the diff`)
-    .toBe(lf(readFileSync(path, 'utf8')))
+  expect(
+    lf(emitted),
+    `${file}: emit drifted from the committed golden — if intentional, re-bake with UPDATE_EMIT_GOLDENS=1 and commit the diff`,
+  ).toBe(lf(readFileSync(path, 'utf8')))
 }
 
 describe('shader-dsl examples — emit goldens', () => {

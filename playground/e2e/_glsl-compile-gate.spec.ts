@@ -18,8 +18,16 @@ import { test, expect } from '@playwright/test'
 // (_wgsl-compile-gate.spec.ts) imports runtime shaders the same relative way.
 import {
   emitGlslModule,
-  mat4x4fT, vec4fT, vec2fT, vec3fT, f32T, structT,
-  type ShaderType, type Expr, type ModuleDecl, type StructDecl,
+  mat4x4fT,
+  vec4fT,
+  vec2fT,
+  vec3fT,
+  f32T,
+  structT,
+  type ShaderType,
+  type Expr,
+  type ModuleDecl,
+  type StructDecl,
 } from '../../shader-dsl/src/index'
 
 // ── a representative vertex+fragment module with a std140 uniform struct ──
@@ -46,11 +54,19 @@ const VsOut: StructDecl = {
     { name: 'uv', type: vec2fT, attr: '@location(0)' },
   ],
 }
-const FsOut: StructDecl = { name: 'FsOut', fields: [{ name: 'color', type: vec4fT, attr: '@location(0)' }] }
+const FsOut: StructDecl = {
+  name: 'FsOut',
+  fields: [{ name: 'color', type: vec4fT, attr: '@location(0)' }],
+}
 
 const param = (name: string, type: ShaderType): Expr => ({ op: 'param', type, name })
 const varref = (name: string, type: ShaderType): Expr => ({ op: 'varref', type, name })
-const fld = (base: Expr, field: string, type: ShaderType): Expr => ({ op: 'member', type, base, field })
+const fld = (base: Expr, field: string, type: ShaderType): Expr => ({
+  op: 'member',
+  type,
+  base,
+  field,
+})
 const lit = (value: number): Expr => ({ op: 'lit', type: f32T, value })
 const v4 = (...args: Expr[]): Expr => ({ op: 'construct', type: vec4fT, args })
 
@@ -60,35 +76,49 @@ const module: ModuleDecl = {
   bindings: [{ group: 0, binding: 0, name: 'u', space: 'uniform', type: structT('Uniforms') }],
   funcs: [
     {
-      name: 'vs', attrs: ['@vertex'],
-      params: [{ name: 'inp', type: structT('VsIn') }], ret: structT('VsOut'),
+      name: 'vs',
+      attrs: ['@vertex'],
+      params: [{ name: 'inp', type: structT('VsIn') }],
+      ret: structT('VsOut'),
       body: [
         { s: 'var', name: 'o', type: structT('VsOut') },
         {
-          s: 'assign', target: fld(varref('o', structT('VsOut')), 'position', vec4fT),
+          s: 'assign',
+          target: fld(varref('o', structT('VsOut')), 'position', vec4fT),
           expr: v4(
             fld(fld(param('inp', structT('VsIn')), 'pos', vec2fT), 'x', f32T),
             fld(fld(param('inp', structT('VsIn')), 'pos', vec2fT), 'y', f32T),
-            lit(0), lit(1),
+            lit(0),
+            lit(1),
           ),
         },
-        { s: 'assign', target: fld(varref('o', structT('VsOut')), 'uv', vec2fT), expr: fld(param('inp', structT('VsIn')), 'uv', vec2fT) },
+        {
+          s: 'assign',
+          target: fld(varref('o', structT('VsOut')), 'uv', vec2fT),
+          expr: fld(param('inp', structT('VsIn')), 'uv', vec2fT),
+        },
         { s: 'return', expr: varref('o', structT('VsOut')) },
       ],
     },
     {
-      name: 'fs', attrs: ['@fragment'],
-      params: [{ name: 'inp', type: structT('VsOut') }], ret: structT('FsOut'),
+      name: 'fs',
+      attrs: ['@fragment'],
+      params: [{ name: 'inp', type: structT('VsOut') }],
+      ret: structT('FsOut'),
       body: [
         {
           s: 'return',
           expr: {
-            op: 'construct', type: structT('FsOut'),
-            args: [v4(
-              fld(fld(param('inp', structT('VsOut')), 'uv', vec2fT), 'x', f32T),
-              fld(fld(param('inp', structT('VsOut')), 'uv', vec2fT), 'y', f32T),
-              lit(0), lit(1),
-            )],
+            op: 'construct',
+            type: structT('FsOut'),
+            args: [
+              v4(
+                fld(fld(param('inp', structT('VsOut')), 'uv', vec2fT), 'x', f32T),
+                fld(fld(param('inp', structT('VsOut')), 'uv', vec2fT), 'y', f32T),
+                lit(0),
+                lit(1),
+              ),
+            ],
           },
         },
       ],
@@ -97,7 +127,9 @@ const module: ModuleDecl = {
 }
 
 test.describe('GLSL ES 3.00 compile gate (emitGlslModule output compiles on real WebGL2)', () => {
-  test('the @vertex + @fragment GLSL compiles + links with zero info-log errors', async ({ page }) => {
+  test('the @vertex + @fragment GLSL compiles + links with zero info-log errors', async ({
+    page,
+  }) => {
     const vertex = emitGlslModule(module, 'vertex')
     const fragment = emitGlslModule(module, 'fragment')
     // sanity: non-trivial emit (a silently-empty emit would pass the gate vacuously).
@@ -107,42 +139,60 @@ test.describe('GLSL ES 3.00 compile gate (emitGlslModule output compiles on real
 
     await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
 
-    const result = await page.evaluate(({ vertex, fragment }) => {
-      const canvas = document.createElement('canvas')
-      const gl = canvas.getContext('webgl2')
-      if (!gl) return { fatal: 'no webgl2 context' as const }
+    const result = await page.evaluate(
+      ({ vertex, fragment }) => {
+        const canvas = document.createElement('canvas')
+        const gl = canvas.getContext('webgl2')
+        if (!gl) return { fatal: 'no webgl2 context' as const }
 
-      const compile = (type: number, src: string): { ok: boolean; log: string } => {
-        const sh = gl.createShader(type)!
-        gl.shaderSource(sh, src)
-        gl.compileShader(sh)
-        const ok = gl.getShaderParameter(sh, gl.COMPILE_STATUS) as boolean
-        const log = gl.getShaderInfoLog(sh) ?? ''
-        return { ok, log }
-      }
+        const compile = (type: number, src: string): { ok: boolean; log: string } => {
+          const sh = gl.createShader(type)!
+          gl.shaderSource(sh, src)
+          gl.compileShader(sh)
+          const ok = gl.getShaderParameter(sh, gl.COMPILE_STATUS) as boolean
+          const log = gl.getShaderInfoLog(sh) ?? ''
+          return { ok, log }
+        }
 
-      const vs = compile(gl.VERTEX_SHADER, vertex)
-      const fs = compile(gl.FRAGMENT_SHADER, fragment)
-      let linkOk = false
-      let linkLog = ''
-      if (vs.ok && fs.ok) {
-        const prog = gl.createProgram()!
-        const vsh = gl.createShader(gl.VERTEX_SHADER)!; gl.shaderSource(vsh, vertex); gl.compileShader(vsh)
-        const fsh = gl.createShader(gl.FRAGMENT_SHADER)!; gl.shaderSource(fsh, fragment); gl.compileShader(fsh)
-        gl.attachShader(prog, vsh); gl.attachShader(prog, fsh); gl.linkProgram(prog)
-        linkOk = gl.getProgramParameter(prog, gl.LINK_STATUS) as boolean
-        linkLog = gl.getProgramInfoLog(prog) ?? ''
-      }
-      return { vs, fs, linkOk, linkLog }
-    }, { vertex, fragment })
+        const vs = compile(gl.VERTEX_SHADER, vertex)
+        const fs = compile(gl.FRAGMENT_SHADER, fragment)
+        let linkOk = false
+        let linkLog = ''
+        if (vs.ok && fs.ok) {
+          const prog = gl.createProgram()!
+          const vsh = gl.createShader(gl.VERTEX_SHADER)!
+          gl.shaderSource(vsh, vertex)
+          gl.compileShader(vsh)
+          const fsh = gl.createShader(gl.FRAGMENT_SHADER)!
+          gl.shaderSource(fsh, fragment)
+          gl.compileShader(fsh)
+          gl.attachShader(prog, vsh)
+          gl.attachShader(prog, fsh)
+          gl.linkProgram(prog)
+          linkOk = gl.getProgramParameter(prog, gl.LINK_STATUS) as boolean
+          linkLog = gl.getProgramInfoLog(prog) ?? ''
+        }
+        return { vs, fs, linkOk, linkLog }
+      },
+      { vertex, fragment },
+    )
 
     // WebGL2 must be available in the test browser (a Chromium with no WebGL2 is a
     // gate failure, not a skip — every dev/CI browser has WebGL2).
-    expect(result, `WebGL2 unavailable: ${'fatal' in result ? result.fatal : ''}`).not.toHaveProperty('fatal')
+    expect(
+      result,
+      `WebGL2 unavailable: ${'fatal' in result ? result.fatal : ''}`,
+    ).not.toHaveProperty('fatal')
     if ('fatal' in result) return
 
-    expect(result.vs.ok, `vertex shader failed to compile:\n${result.vs.log}\n--- GLSL ---\n${vertex}`).toBe(true)
-    expect(result.fs.ok, `fragment shader failed to compile:\n${result.fs.log}\n--- GLSL ---\n${fragment}`).toBe(true)
+    expect(
+      result.vs.ok,
+      `vertex shader failed to compile:\n${result.vs.log}\n--- GLSL ---\n${vertex}`,
+    ).toBe(true)
+    expect(
+      result.fs.ok,
+      `fragment shader failed to compile:\n${result.fs.log}\n--- GLSL ---\n${fragment}`,
+    ).toBe(true)
     expect(result.linkOk, `program failed to link:\n${result.linkLog}`).toBe(true)
   })
 })

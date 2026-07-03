@@ -48,7 +48,10 @@ function expectedLonFitZoom(w: number, e: number, cssWidthPx: number): number {
 }
 
 /** Build a CameraController with a 800×600 CSS canvas (DPR=1). */
-function makeController(cssW = 800, cssH = 600): {
+function makeController(
+  cssW = 800,
+  cssH = 600,
+): {
   ctrl: CameraController
   cam: Camera
 } {
@@ -71,7 +74,10 @@ describe('Bug #1: fitBounds picks the MORE CONSTRAINING axis (lon vs lat)', () =
     // lon span = 1°, lat span = 5° — on an 800×600 CSS canvas the lat axis
     // is the tighter constraint, so the fit-zoom must equal the lat-fit zoom.
     const { ctrl } = makeController(800, 600)
-    ctrl.fitBounds([[126, 33], [127, 38]])
+    ctrl.fitBounds([
+      [126, 33],
+      [127, 38],
+    ])
 
     const z = ctrl.getCameraState().zoom
     const lonZ = expectedLonFitZoom(126, 127, 800)
@@ -91,7 +97,10 @@ describe('Bug #1: fitBounds picks the MORE CONSTRAINING axis (lon vs lat)', () =
   it('wide bbox [[0,0],[90,1]] on 800×600 → zoom is lon-constrained', () => {
     // lon span = 90°, lat span = 1° — lon axis is the tighter constraint.
     const { ctrl } = makeController(800, 600)
-    ctrl.fitBounds([[0, 0], [90, 1]])
+    ctrl.fitBounds([
+      [0, 0],
+      [90, 1],
+    ])
 
     const z = ctrl.getCameraState().zoom
     const lonZ = expectedLonFitZoom(0, 90, 800)
@@ -103,7 +112,10 @@ describe('Bug #1: fitBounds picks the MORE CONSTRAINING axis (lon vs lat)', () =
 
   it('after fitBounds on tall bbox, center lat is the bbox midpoint', () => {
     const { ctrl } = makeController(800, 600)
-    ctrl.fitBounds([[126, 33], [127, 38]])
+    ctrl.fitBounds([
+      [126, 33],
+      [127, 38],
+    ])
     const state = ctrl.getCameraState()
     expect(state.center[1]).toBeCloseTo((33 + 38) / 2, 3)
     expect(state.center[0]).toBeCloseTo((126 + 127) / 2, 3)
@@ -126,7 +138,7 @@ describe('Bug #5: panBy fast-path wraps X and clamps Y', () => {
     // At zoom 0: mpp = WORLD_MERC / TILE_PX / 2^0 = 40075016.686 / 512 ≈ 78271
     // WORLD_MERC/2 ≈ 20037508m; push 0.4 * WORLD_MERC in X → should wrap
     const bigDx = 0.4 * WORLD_MERC // in CSS px at zoom 0 → ≈0.4 * WORLD_MERC in merc meters
-    ctrl.panBy([bigDx / ((WORLD_MERC / TILE_PX) / Math.pow(2, 0)), 0])
+    ctrl.panBy([bigDx / (WORLD_MERC / TILE_PX / Math.pow(2, 0)), 0])
 
     // centerX must be within ±WORLD_MERC/2 after the fast-path fix
     expect(cam.centerX).toBeGreaterThanOrEqual(-WORLD_MERC / 2 - 1)
@@ -139,7 +151,7 @@ describe('Bug #5: panBy fast-path wraps X and clamps Y', () => {
     ctrl.setZoom(0)
 
     const bigDx = -0.4 * WORLD_MERC
-    ctrl.panBy([bigDx / ((WORLD_MERC / TILE_PX) / Math.pow(2, 0)), 0])
+    ctrl.panBy([bigDx / (WORLD_MERC / TILE_PX / Math.pow(2, 0)), 0])
 
     expect(cam.centerX).toBeGreaterThanOrEqual(-WORLD_MERC / 2 - 1)
     expect(cam.centerX).toBeLessThanOrEqual(WORLD_MERC / 2 + 1)
@@ -153,9 +165,9 @@ describe('Bug #5: panBy fast-path wraps X and clamps Y', () => {
     // Pan south (positive dy moves map down = camera center moves north in mercator Y -)
     // Actually: centerY -= dyMap. Large positive dyMerc → centerY decreases (moves toward -MAX_Y)
     // We want to test clamp. Let's push toward +MAX_Y by panning with negative dy.
-    const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, 0)
+    const mpp = WORLD_MERC / TILE_PX / Math.pow(2, 0)
     // Negative CSS dy → dyMap is negative → centerY -= negative → centerY increases
-    const bigDy = -2 * MAX_Y / mpp
+    const bigDy = (-2 * MAX_Y) / mpp
     ctrl.panBy([0, bigDy])
 
     expect(cam.centerY).toBeLessThanOrEqual(MAX_Y + 1)
@@ -167,8 +179,8 @@ describe('Bug #5: panBy fast-path wraps X and clamps Y', () => {
     ctrl.setCenter(0, 0)
     ctrl.setZoom(0)
 
-    const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, 0)
-    const bigDy = 2 * MAX_Y / mpp
+    const mpp = WORLD_MERC / TILE_PX / Math.pow(2, 0)
+    const bigDy = (2 * MAX_Y) / mpp
     ctrl.panBy([0, bigDy])
 
     expect(cam.centerY).toBeLessThanOrEqual(MAX_Y + 1)
@@ -181,7 +193,7 @@ describe('Bug #5: panBy fast-path wraps X and clamps Y', () => {
     ctrl.setCenter(0, 0)
     ctrl.setZoom(5)
 
-    const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, 5)
+    const mpp = WORLD_MERC / TILE_PX / Math.pow(2, 5)
     ctrl.panBy([10, 0]) // pan 10px east
     // dxMerc=10*mpp, bearingRad=0, dxMap=dxMerc, centerX+=dxMap → centerX increases by 10*mpp
     expect(cam.centerX).toBeCloseTo(10 * mpp, 3)

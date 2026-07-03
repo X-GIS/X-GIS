@@ -43,7 +43,9 @@ describe('cssToDevicePixel (Audit ⑩ B2 — DPR pick-coord rounding)', () => {
 })
 
 // ── B1: invisible⇒unclickable, enforced at the readback boundary ──
-function makeController(layers: Record<number, { name: string; visible: boolean }>): InteractionController {
+function makeController(
+  layers: Record<number, { name: string; visible: boolean }>,
+): InteractionController {
   const idToName = new Map<number, string>()
   const xgisLayers = new Map<string, XGISLayer>()
   for (const [idStr, { name, visible }] of Object.entries(layers)) {

@@ -51,25 +51,44 @@ import type { TextDraw } from '@xgis/map'
 const g = globalThis as Record<string, unknown>
 g.GPUShaderStage ??= { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 }
 g.GPUBufferUsage ??= {
-  MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8, INDEX: 16,
-  VERTEX: 32, UNIFORM: 64, STORAGE: 128, INDIRECT: 256, QUERY_RESOLVE: 512,
+  MAP_READ: 1,
+  MAP_WRITE: 2,
+  COPY_SRC: 4,
+  COPY_DST: 8,
+  INDEX: 16,
+  VERTEX: 32,
+  UNIFORM: 64,
+  STORAGE: 128,
+  INDIRECT: 256,
+  QUERY_RESOLVE: 512,
 }
 g.GPUTextureUsage ??= {
-  COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8, RENDER_ATTACHMENT: 16,
+  COPY_SRC: 1,
+  COPY_DST: 2,
+  TEXTURE_BINDING: 4,
+  STORAGE_BINDING: 8,
+  RENDER_ATTACHMENT: 16,
 }
 g.GPUColorWrite ??= { RED: 1, GREEN: 2, BLUE: 4, ALPHA: 8, ALL: 15 }
 
 function stubDevice(): GPUDevice {
-  const stub: unknown = new Proxy(function () { return stub }, {
-    get(_t, p) {
-      if (p === 'size') return 1 << 22
-      if (p === 'width' || p === 'height') return 4096
-      if (p === 'limits') return { maxTextureDimension2D: 8192 }
-      if (p === Symbol.toPrimitive) return () => 0
+  const stub: unknown = new Proxy(
+    function () {
       return stub
     },
-    apply() { return stub },
-  })
+    {
+      get(_t, p) {
+        if (p === 'size') return 1 << 22
+        if (p === 'width' || p === 'height') return 4096
+        if (p === 'limits') return { maxTextureDimension2D: 8192 }
+        if (p === Symbol.toPrimitive) return () => 0
+        return stub
+      },
+      apply() {
+        return stub
+      },
+    },
+  )
   return stub as GPUDevice
 }
 
@@ -85,12 +104,36 @@ function litValue(s: string): TextValue {
 // sharing the same `name` field (POI categories, road shields)
 // which the layout cache should collapse to one entry per text.
 const NAMES = [
-  'Seoul', 'Gangnam', 'Jongno', 'Yongsan', 'Mapo',
-  '서울', '강남', '종로', '용산', '마포',
-  'Itaewon', 'Hongdae', 'Sinchon', 'Apgujeong', 'Cheongdam',
-  '이태원', '홍대', '신촌', '압구정', '청담',
-  'Bus Stop', 'Subway', 'School', 'Park', 'Cafe',
-  'Restaurant', 'Hospital', 'Hotel', 'Bank', 'Pharmacy',
+  'Seoul',
+  'Gangnam',
+  'Jongno',
+  'Yongsan',
+  'Mapo',
+  '서울',
+  '강남',
+  '종로',
+  '용산',
+  '마포',
+  'Itaewon',
+  'Hongdae',
+  'Sinchon',
+  'Apgujeong',
+  'Cheongdam',
+  '이태원',
+  '홍대',
+  '신촌',
+  '압구정',
+  '청담',
+  'Bus Stop',
+  'Subway',
+  'School',
+  'Park',
+  'Cafe',
+  'Restaurant',
+  'Hospital',
+  'Hotel',
+  'Bank',
+  'Pharmacy',
 ] as const
 
 // iter-#10 production scale: Liberty Seoul z17 dispatches ~180-300
@@ -112,23 +155,28 @@ function buildLabelDef(textStr: string): { value: TextValue; def: LabelDef } {
 
 describe('Mercator high-pitch drag p95 — across-frame layout cache (#10)', () => {
   it('prepare() p95 + ensure() call count gates over 120 pan frames', () => {
-    const stage = new TextStage(
-      stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm',
-      { rasterizer: new MockRasterizer() },
-    )
+    const stage = new TextStage(stubDevice(), new WebGpuDevice(stubDevice()), 'bgra8unorm', {
+      rasterizer: new MockRasterizer(),
+    })
     // Capture TextDraws so renderer.draw isn't required.
-    ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws =
-      (_d: TextDraw[]) => { /* noop */ }
+    ;(stage as unknown as { renderer: { setDraws(d: TextDraw[]): void } }).renderer.setDraws = (
+      _d: TextDraw[],
+    ) => {
+      /* noop */
+    }
     // Disable the real GPU upload — `prepare()` calls `gpu.flush()`
     // which would walk into the WebGPU stub.
-    ;(stage as unknown as { gpu: { flush(): void } }).gpu.flush = () => { /* noop */ }
+    ;(stage as unknown as { gpu: { flush(): void } }).gpu.flush = () => {
+      /* noop */
+    }
 
     // Per-frame ensure() call counter — the iter-161 CPU profile pinned
     // 21.5 % of drag CPU on `ensure` (atlas-state.ts:44). A correct
     // across-frame fast path on (preloadString + hasAllGlyphs) collapses
     // those calls from O(labels × chars) per frame to O(unique-text)
     // per frame (small + slow-growing). Spy on the host's `ensure`.
-    const host = (stage as unknown as { host: { ensure: (fk: string, cp: number) => unknown } }).host
+    const host = (stage as unknown as { host: { ensure: (fk: string, cp: number) => unknown } })
+      .host
     let ensureCalls = 0
     const realEnsure = host.ensure.bind(host)
     host.ensure = (fk: string, cp: number) => {
@@ -147,13 +195,13 @@ describe('Mercator high-pitch drag p95 — across-frame layout cache (#10)', () 
     // bbox checks. Anchor coords are in physical px (1920x1080@dpr2).
     const baseAnchors: Array<[number, number]> = []
     for (let i = 0; i < LABELS_PER_FRAME; i++) {
-      const x = 100 + (i * 53) % 3500
-      const y = 100 + (i * 71) % 1900
+      const x = 100 + ((i * 53) % 3500)
+      const y = 100 + ((i * 71) % 1900)
       baseAnchors.push([x, y])
     }
 
     const FRAMES = 120
-    const PAN_DX = 10  // px/frame — matches a steady drag-pan
+    const PAN_DX = 10 // px/frame — matches a steady drag-pan
     const PAN_DY = 0
     const perFrameMs: number[] = []
 
@@ -203,12 +251,12 @@ describe('Mercator high-pitch drag p95 — across-frame layout cache (#10)', () 
     const ensurePerFrame = ensureCalls / FRAMES
     // eslint-disable-next-line no-console
     console.log(
-      `[merc-pitch-drag-perf] frames=${FRAMES} labels/frame=${LABELS_PER_FRAME} `
-      + `mean=${mean.toFixed(2)}ms median=${median.toFixed(2)}ms `
-      + `p95=${p95.toFixed(2)}ms max=${max.toFixed(2)}ms `
-      + `cacheHits=${stats.hits} cacheMisses=${stats.misses} `
-      + `hitRate=${(stats.hitRate * 100).toFixed(1)}% `
-      + `ensure/frame=${ensurePerFrame.toFixed(0)}`,
+      `[merc-pitch-drag-perf] frames=${FRAMES} labels/frame=${LABELS_PER_FRAME} ` +
+        `mean=${mean.toFixed(2)}ms median=${median.toFixed(2)}ms ` +
+        `p95=${p95.toFixed(2)}ms max=${max.toFixed(2)}ms ` +
+        `cacheHits=${stats.hits} cacheMisses=${stats.misses} ` +
+        `hitRate=${(stats.hitRate * 100).toFixed(1)}% ` +
+        `ensure/frame=${ensurePerFrame.toFixed(0)}`,
     )
 
     // Steady-state pan p95 target. The browser drag (#10) p95 goal

@@ -34,10 +34,10 @@ function lonLatToEcefDSFUN(lon: number, lat: number, featId: number, out: number
 
 /** Determine major/minor grid spacing based on zoom level */
 function stepsForZoom(zoom: number): { major: number; minor: number | null } {
-  if (zoom < 3)  return { major: 30, minor: null }
-  if (zoom < 5)  return { major: 15, minor: null }
-  if (zoom < 7)  return { major: 10, minor: 5 }
-  if (zoom < 9)  return { major: 5,  minor: 1 }
+  if (zoom < 3) return { major: 30, minor: null }
+  if (zoom < 5) return { major: 15, minor: null }
+  if (zoom < 7) return { major: 10, minor: 5 }
+  if (zoom < 9) return { major: 5, minor: 1 }
   return { major: 1, minor: 0.5 }
 }
 

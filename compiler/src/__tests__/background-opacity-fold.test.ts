@@ -11,21 +11,24 @@ function build(opacity: unknown) {
   return {
     version: 8,
     sources: {},
-    layers: [{
-      id: 'bg',
-      type: 'background',
-      paint: {
-        'background-color': '#ff8000',
-        'background-opacity': opacity,
+    layers: [
+      {
+        id: 'bg',
+        type: 'background',
+        paint: {
+          'background-color': '#ff8000',
+          'background-opacity': opacity,
+        },
       },
-    }],
+    ],
   }
 }
 
 describe('background-opacity constant fold', () => {
   it('omitted → emits 6-char hex (alpha=1)', () => {
     const xgis = convertMapboxStyle({
-      version: 8, sources: {},
+      version: 8,
+      sources: {},
       layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#ff8000' } }],
     } as never)
     expect(xgis).toContain('background { fill: #ff8000 }')

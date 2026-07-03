@@ -14,13 +14,27 @@
 // impl (rhi-webgpu.ts) wraps the native objects; a future WebGL2 impl wraps gl.
 
 /** Opaque GPU resource handles — backend types stay hidden behind the impl. */
-export interface RhiBuffer { readonly __rhi: 'buffer' }
-export interface RhiTexture { readonly __rhi: 'texture' }
-export interface RhiTextureView { readonly __rhi: 'view' }
-export interface RhiSampler { readonly __rhi: 'sampler' }
-export interface RhiBindGroup { readonly __rhi: 'bindgroup' }
-export interface RhiBindGroupLayout { readonly __rhi: 'bindlayout' }
-export interface RhiPipeline { readonly __rhi: 'pipeline' }
+export interface RhiBuffer {
+  readonly __rhi: 'buffer'
+}
+export interface RhiTexture {
+  readonly __rhi: 'texture'
+}
+export interface RhiTextureView {
+  readonly __rhi: 'view'
+}
+export interface RhiSampler {
+  readonly __rhi: 'sampler'
+}
+export interface RhiBindGroup {
+  readonly __rhi: 'bindgroup'
+}
+export interface RhiBindGroupLayout {
+  readonly __rhi: 'bindlayout'
+}
+export interface RhiPipeline {
+  readonly __rhi: 'pipeline'
+}
 
 /** Semantic buffer roles (impl maps to backend usage flags). */
 export type RhiBufferUsage = 'uniform' | 'vertex' | 'index' | 'storage'
@@ -43,7 +57,14 @@ export interface RhiBufferDesc {
  *  `rgba16float` is the OIT weighted-blend accum target (gpu-shared
  *  OIT_ACCUM_FORMAT); WebGL2 fail-closes on it (rendering to it needs
  *  EXT_color_buffer_float — deferred to the WebGL2 full-frame phase). */
-export type RhiTextureFormat = 'rgba8unorm' | 'bgra8unorm' | 'depth24plus-stencil8' | 'rg32uint' | 'r32uint' | 'r16float' | 'rgba16float'
+export type RhiTextureFormat =
+  | 'rgba8unorm'
+  | 'bgra8unorm'
+  | 'depth24plus-stencil8'
+  | 'rg32uint'
+  | 'r32uint'
+  | 'r16float'
+  | 'rgba16float'
 
 export interface RhiTextureDesc {
   width: number
@@ -55,7 +76,11 @@ export interface RhiTextureDesc {
 }
 
 export type RhiFilter = 'nearest' | 'linear'
-export interface RhiSamplerDesc { mag: RhiFilter; min: RhiFilter; label?: string }
+export interface RhiSamplerDesc {
+  mag: RhiFilter
+  min: RhiFilter
+  label?: string
+}
 
 /** One entry in a bind-group LAYOUT — what kind of resource lives at a slot.
  *  Derived from the shader's reflection (DSL), not hand-authored, in the full
@@ -82,7 +107,10 @@ export type RhiBindResource =
   | { view: RhiTextureView }
   | { sampler: RhiSampler }
 
-export interface RhiBindEntry { binding: number; resource: RhiBindResource }
+export interface RhiBindEntry {
+  binding: number
+  resource: RhiBindResource
+}
 
 /** Backend-agnostic blend/depth/target state (pilot: raster = alpha, no depth). */
 export interface RhiPipelineDesc {
@@ -103,20 +131,34 @@ export interface RhiPipelineDesc {
    *  default 0 (the raster/line non-pickable pattern — they write vec2u(0,0)), every other target
    *  defaults 0xf. A PICKABLE primitive (VTR polygon fill writes the feature id) sets the pick
    *  target's writeMask to 0xf explicitly to override the default. */
-  colorTargets: ReadonlyArray<{ format: RhiTextureFormat; blend?: 'alpha' | 'premult' | 'additive' | 'max' | 'none'; writeMask?: number }>
+  colorTargets: ReadonlyArray<{
+    format: RhiTextureFormat
+    blend?: 'alpha' | 'premult' | 'additive' | 'max' | 'none'
+    writeMask?: number
+  }>
   depthStencil?: {
-    format: RhiTextureFormat; write: boolean; compare: 'always' | 'less' | 'less-equal'
+    format: RhiTextureFormat
+    write: boolean
+    compare: 'always' | 'less' | 'less-equal'
     /** Polygon-offset depth bias (point markers pull toward camera). */
     bias?: { constant: number; slopeScale: number; clamp: number }
     /** Per-tile clip-mask stencil state. Absent = inert stencil (byte-identical
      *  to the renderers' STENCIL_DISABLED). `compare`/`passOp` + the masks mirror
      *  the gpu-shared STENCIL_WRITE / STENCIL_TEST / STENCIL_CLIPMASK_* states;
      *  the runtime sets the reference per-draw via `setStencilReference`. */
-    stencil?: { compare: 'always' | 'equal'; passOp: 'keep' | 'replace'; writeMask: number; readMask: number }
+    stencil?: {
+      compare: 'always' | 'equal'
+      passOp: 'keep' | 'replace'
+      writeMask: number
+      readMask: number
+    }
   }
   sampleCount?: number
   /** Procedural-grid draws (raster/drape) have no vertex buffers. */
-  vertexBuffers?: ReadonlyArray<{ stride: number; attributes: ReadonlyArray<{ location: number; offset: number; format: string }> }>
+  vertexBuffers?: ReadonlyArray<{
+    stride: number
+    attributes: ReadonlyArray<{ location: number; offset: number; format: string }>
+  }>
   /** Triangle face culling. Default 'none' (byte-identical to the prior hardcoded primitive). The
    *  VTR ground-fill variants cull 'back' (GPU back-cull of the far hemisphere on the globe). */
   cullMode?: 'none' | 'back' | 'front'
@@ -136,7 +178,12 @@ export interface RhiRenderPass {
    *  size; WebGL2: `offset` is added to each attribute's `vertexAttribPointer` byte
    *  offset (`size` is implied by the draw count). */
   setVertexBuffer(slot: number, buffer: RhiBuffer, offset?: number, size?: number): void
-  setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32', offset?: number, size?: number): void
+  setIndexBuffer(
+    buffer: RhiBuffer,
+    format: 'uint16' | 'uint32',
+    offset?: number,
+    size?: number,
+  ): void
   draw(vertexCount: number, instanceCount?: number, firstVertex?: number): void
   drawIndexed(indexCount: number, instanceCount?: number): void
   /** Per-draw stencil reference value (the per-tile clip-mask ID). Inert on a
@@ -234,7 +281,9 @@ export interface RhiRenderPassDesc {
 // data-texture emulation). Additive + inert + OPTIONAL: no caller routes through
 // here until the P1 compute flip — `WebGpuDevice` implements these, `WebGl2Device`
 // throws.
-export interface RhiComputePipeline { readonly __rhi: 'computepipeline' }
+export interface RhiComputePipeline {
+  readonly __rhi: 'computepipeline'
+}
 
 /** A compute-pipeline source. The bind-group layout is auto-derived (mirroring the
  *  live `layout: 'auto'`) and fetched via `RhiDevice.computeBindGroupLayout`. */
@@ -260,7 +309,9 @@ export interface RhiComputePass {
 /** Optional compute-pass parameters. Timestamp writes are intentionally NOT
  *  modelled — a WebGPU-encoder profiling concern layered at the call-site's
  *  gpuTimer seam (exactly like the render pass). */
-export interface RhiComputePassDesc { label?: string }
+export interface RhiComputePassDesc {
+  label?: string
+}
 
 /** A command encoder — the scope offscreen passes are recorded into and
  *  submitted from. WebGPU wraps `GPUCommandEncoder` (begin-pass + finish→
@@ -280,7 +331,13 @@ export interface RhiCommandEncoder {
    *  `GPUCommandEncoder.copyBufferToBuffer`; WebGL2 binds the two buffers to
    *  COPY_READ/COPY_WRITE and issues `gl.copyBufferSubData` immediately. `size`
    *  + the offsets must be 4-byte aligned (WebGPU requirement; the arena aligns). */
-  copyBufferToBuffer(src: RhiBuffer, srcOffset: number, dst: RhiBuffer, dstOffset: number, size: number): void
+  copyBufferToBuffer(
+    src: RhiBuffer,
+    srcOffset: number,
+    dst: RhiBuffer,
+    dstOffset: number,
+    size: number,
+  ): void
   /** Finish recording + submit this encoder's work (WebGPU: queue.submit of
    *  encoder.finish()). One encoder → one submit, matching the loop's single
    *  per-frame submit. WebGL2 is immediate-mode (copies already executed) → no-op. */
@@ -300,7 +357,13 @@ export interface RhiDevice {
    *  was — resource lifetime is the caller's, not centralized by the RHI. */
   destroyBuffer(buffer: RhiBuffer): void
   createTexture(desc: RhiTextureDesc): RhiTexture
-  writeTexture(texture: RhiTexture, data: BufferSource, bytesPerRow: number, width: number, height: number): void
+  writeTexture(
+    texture: RhiTexture,
+    data: BufferSource,
+    bytesPerRow: number,
+    width: number,
+    height: number,
+  ): void
   /** Release a texture's GPU memory (#782 — closes the `create*` ×N / `destroyBuffer`-only
    *  asymmetry). WebGPU `GPUTexture.destroy()`; WebGL2 `gl.deleteTexture`. Called at the SAME
    *  teardown sites the caller would otherwise reach behind the opaque handle for — lifetime is
@@ -370,7 +433,9 @@ export interface RhiScreenPassDevice {
 /** Narrow an `RhiDevice` to its screen-pass capability, or `null` when the backend
  *  doesn't provide it (#783). The single source of the `backend === 'webgl2' &&
  *  beginScreenPass && endScreenPass` check the render loop used to inline + `!`-assert. */
-export function asScreenPassDevice(d: RhiDevice | undefined): (RhiDevice & RhiScreenPassDevice) | null {
+export function asScreenPassDevice(
+  d: RhiDevice | undefined,
+): (RhiDevice & RhiScreenPassDevice) | null {
   return d && d.backend === 'webgl2' && d.beginScreenPass && d.endScreenPass
     ? (d as RhiDevice & RhiScreenPassDevice)
     : null

@@ -13,13 +13,15 @@ function emitSymbolWithVisibility(visibility: unknown): string {
   return convertMapboxStyle({
     version: 8,
     sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-    layers: [{
-      id: 'hidden_label',
-      type: 'symbol',
-      source: 'v',
-      'source-layer': 'place',
-      layout: { 'text-field': '{name}', visibility },
-    }],
+    layers: [
+      {
+        id: 'hidden_label',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 'place',
+        layout: { 'text-field': '{name}', visibility },
+      },
+    ],
   } as never)
 }
 
@@ -27,14 +29,16 @@ function emitCircleWithVisibility(visibility: unknown): string {
   return convertMapboxStyle({
     version: 8,
     sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-    layers: [{
-      id: 'hidden_circle',
-      type: 'circle',
-      source: 'v',
-      'source-layer': 'poi',
-      paint: { 'circle-color': '#f00', 'circle-radius': 4 },
-      layout: { visibility },
-    }],
+    layers: [
+      {
+        id: 'hidden_circle',
+        type: 'circle',
+        source: 'v',
+        'source-layer': 'poi',
+        paint: { 'circle-color': '#f00', 'circle-radius': 4 },
+        layout: { visibility },
+      },
+    ],
   } as never)
 }
 
@@ -42,14 +46,16 @@ function emitLineWithVisibility(visibility: unknown): string {
   return convertMapboxStyle({
     version: 8,
     sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-    layers: [{
-      id: 'hidden_road',
-      type: 'line',
-      source: 'v',
-      'source-layer': 'transportation',
-      paint: { 'line-color': '#000', 'line-width': 2 },
-      layout: { visibility },
-    }],
+    layers: [
+      {
+        id: 'hidden_road',
+        type: 'line',
+        source: 'v',
+        'source-layer': 'transportation',
+        paint: { 'line-color': '#000', 'line-width': 2 },
+        layout: { visibility },
+      },
+    ],
   } as never)
 }
 
@@ -89,12 +95,14 @@ describe('layout.visibility: "none" propagates as visible: false', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: {},
-      layers: [{
-        id: 'bg',
-        type: 'background',
-        paint: { 'background-color': '#fff' },
-        layout: { visibility: 'none' },
-      }],
+      layers: [
+        {
+          id: 'bg',
+          type: 'background',
+          paint: { 'background-color': '#fff' },
+          layout: { visibility: 'none' },
+        },
+      ],
     } as never)
     expect(out).not.toMatch(/^background\s*\{/m)
   })
@@ -103,12 +111,14 @@ describe('layout.visibility: "none" propagates as visible: false', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: {},
-      layers: [{
-        id: 'bg',
-        type: 'background',
-        paint: { 'background-color': '#fff' },
-        layout: { visibility: ['literal', 'none'] },
-      }],
+      layers: [
+        {
+          id: 'bg',
+          type: 'background',
+          paint: { 'background-color': '#fff' },
+          layout: { visibility: ['literal', 'none'] },
+        },
+      ],
     } as never)
     expect(out).not.toMatch(/^background\s*\{/m)
   })
@@ -117,11 +127,13 @@ describe('layout.visibility: "none" propagates as visible: false', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: {},
-      layers: [{
-        id: 'bg',
-        type: 'background',
-        paint: { 'background-color': '#abc' },
-      }],
+      layers: [
+        {
+          id: 'bg',
+          type: 'background',
+          paint: { 'background-color': '#abc' },
+        },
+      ],
     } as never)
     expect(out).toMatch(/background\s*\{[\s\S]*fill:\s*#abc/m)
   })
@@ -130,13 +142,15 @@ describe('layout.visibility: "none" propagates as visible: false', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'shown_label',
-        type: 'symbol',
-        source: 'v',
-        'source-layer': 'place',
-        layout: { 'text-field': '{name}' },
-      }],
+      layers: [
+        {
+          id: 'shown_label',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'place',
+          layout: { 'text-field': '{name}' },
+        },
+      ],
     } as never)
     expect(out).not.toMatch(/visible:\s*false/)
   })

@@ -11,28 +11,57 @@ import { emitModule } from '../../backends/wgsl'
 // for a written binding.
 const buf = bindingRef('buf', structT('Buf'))
 
-const cseWitness = (): ModuleDecl => module({
-  structs: [{ name: 'Buf', fields: [{ name: 'v', type: f32T }] }],
-  bindings: [{ group: 0, binding: 0, name: 'buf', space: 'storage' as const, access: 'read_write' as const, type: structT('Buf') }],
-  funcs: [fn('k', {}, f32T, (_p, b) => {
-    const a = b.let('a', member(buf, 'v', f32T).add(member(buf, 'v', f32T))) // buf.v read 2x
-    b.assign(member(buf, 'v', f32T), f32(7)) // store to buf.v
-    b.ret(a)
-  })],
-})
+const cseWitness = (): ModuleDecl =>
+  module({
+    structs: [{ name: 'Buf', fields: [{ name: 'v', type: f32T }] }],
+    bindings: [
+      {
+        group: 0,
+        binding: 0,
+        name: 'buf',
+        space: 'storage' as const,
+        access: 'read_write' as const,
+        type: structT('Buf'),
+      },
+    ],
+    funcs: [
+      fn('k', {}, f32T, (_p, b) => {
+        const a = b.let('a', member(buf, 'v', f32T).add(member(buf, 'v', f32T))) // buf.v read 2x
+        b.assign(member(buf, 'v', f32T), f32(7)) // store to buf.v
+        b.ret(a)
+      }),
+    ],
+  })
 
-const licmWitness = (): ModuleDecl => module({
-  structs: [{ name: 'Buf', fields: [{ name: 'v', type: f32T }] }],
-  bindings: [{ group: 0, binding: 0, name: 'buf', space: 'storage' as const, access: 'read_write' as const, type: structT('Buf') }],
-  funcs: [fn('k', {}, f32T, (_p, b) => {
-    const acc = b.var('acc', f32T, f32(0))
-    b.forRange('i', i32(0), (i) => i.lt(i32(4)), (cb) => {
-      cb.addAssign(acc, member(buf, 'v', f32T)) // read buf.v in the loop
-      cb.assign(member(buf, 'v', f32T), member(buf, 'v', f32T).add(1)) // ...and mutate it
-    })
-    b.ret(acc)
-  })],
-})
+const licmWitness = (): ModuleDecl =>
+  module({
+    structs: [{ name: 'Buf', fields: [{ name: 'v', type: f32T }] }],
+    bindings: [
+      {
+        group: 0,
+        binding: 0,
+        name: 'buf',
+        space: 'storage' as const,
+        access: 'read_write' as const,
+        type: structT('Buf'),
+      },
+    ],
+    funcs: [
+      fn('k', {}, f32T, (_p, b) => {
+        const acc = b.var('acc', f32T, f32(0))
+        b.forRange(
+          'i',
+          i32(0),
+          (i) => i.lt(i32(4)),
+          (cb) => {
+            cb.addAssign(acc, member(buf, 'v', f32T)) // read buf.v in the loop
+            cb.assign(member(buf, 'v', f32T), member(buf, 'v', f32T).add(1)) // ...and mutate it
+          },
+        )
+        b.ret(acc)
+      }),
+    ],
+  })
 
 describe('optimizer — written bindings are not invariant (lvalue regression)', () => {
   it('CSE does not hoist a read of a written read_write binding', () => {

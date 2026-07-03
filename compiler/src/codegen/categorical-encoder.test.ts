@@ -19,7 +19,9 @@ describe('categorical-encoder — CAT_PALETTE single-source size (#724)', () => 
     // The construct expression emits exactly CAT_PALETTE_SIZE vec4 colours.
     // Double-cast through unknown: valueExpr is Expr (a union); only the
     // 'construct' variant carries args, TypeScript won't narrow from union alone.
-    expect((c.valueExpr as unknown as { args: readonly unknown[] }).args).toHaveLength(CAT_PALETTE_SIZE)
+    expect((c.valueExpr as unknown as { args: readonly unknown[] }).args).toHaveLength(
+      CAT_PALETTE_SIZE,
+    )
   })
 
   it('the current palette holds 20 colours (byte-identical to the pre-#724 cap)', () => {

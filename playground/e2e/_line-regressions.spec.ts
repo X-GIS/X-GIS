@@ -28,7 +28,8 @@ for (const c of CASES) {
     await page.goto(`/demo.html?id=${c.id}&e2e=1`, { waitUntil: 'domcontentloaded' })
     await page.waitForFunction(
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-      null, { timeout: 15_000 },
+      null,
+      { timeout: 15_000 },
     )
     await page.waitForTimeout(400)
     // Animation fixtures need multiple captures through a full cycle

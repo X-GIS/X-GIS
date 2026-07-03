@@ -150,10 +150,7 @@ export class SourceManager {
    *  Public (underscore-prefixed) as a test seam — same convention as
    *  `_runBoundsFitGate` — so integration tests can drive the ingest
    *  reprojection without a GPU device (AC3/AC7/AC8). */
-  _reprojectIngest(
-    sourceName: string,
-    fc: GeoJSONFeatureCollection,
-  ): GeoJSONFeatureCollection {
+  _reprojectIngest(sourceName: string, fc: GeoJSONFeatureCollection): GeoJSONFeatureCollection {
     const fromEPSG = this.sourceCRS.get(sourceName)
     if (fromEPSG === undefined) return fc // no declared CRS ⇒ 4326 / no-op
     try {
@@ -169,7 +166,6 @@ export class SourceManager {
       throw err
     }
   }
-
 
   /** Attach one declared `load:` from the parsed program — dispatches
    *  by URL/format into the four supported branches:
@@ -200,11 +196,15 @@ export class SourceManager {
     // frame even tiled+camera-fit). `data:` wins over `url:` (compiler warns).
     if (load.inlineData !== undefined && load.inlineData !== null) {
       await this._attachGeoJSONViaVirtualPMTiles(
-        load.name, load.inlineData as GeoJSONFeatureCollection, maps, cameraFitState,
+        load.name,
+        load.inlineData as GeoJSONFeatureCollection,
+        maps,
+        cameraFitState,
       )
       return
     }
-    const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
+    const url =
+      load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
     console.log(`[X-GIS] Loading: ${load.name} from ${url}`)
 
     // Source `type:` from the DSL takes precedence over URL-extension
@@ -219,11 +219,9 @@ export class SourceManager {
     // for MVT XYZ endpoints whose URL contains the `{z}/{x}/{y}` template.
     // Don't let the template-shape heuristic re-route those into the
     // raster path — declared vector-family type wins.
-    const isDeclaredVector = declaredType === 'vector'
-      || declaredType === 'tilejson'
-      || declaredType === 'pmtiles'
-    const looksLikeRaster = declaredType === 'raster'
-      || (!isDeclaredVector && isTileTemplate(url))
+    const isDeclaredVector =
+      declaredType === 'vector' || declaredType === 'tilejson' || declaredType === 'pmtiles'
+    const looksLikeRaster = declaredType === 'raster' || (!isDeclaredVector && isTileTemplate(url))
     const vectorTileFormat = detectVectorTileFormat(url, asVectorTileKind(declaredType))
 
     if (looksLikeRaster) {
@@ -235,14 +233,32 @@ export class SourceManager {
       const source = new TileCatalog()
       const vtRenderer = new VectorTileRenderer(this.getCtx())
       vtRenderer.setBindGroupLayout(this.getRenderer().bindGroupLayout)
-    vtRenderer.setPaletteResources(this.getRenderer().paletteColorAtlasView, this.getRenderer().paletteSampler) // must be set before any tile uploads
-    vtRenderer.setSpriteAtlasView(this.getRenderer().spriteAtlasView)
-      vtRenderer.setPaletteResources(this.getRenderer().paletteColorAtlasView, this.getRenderer().paletteSampler)
-    vtRenderer.setSpriteAtlasView(this.getRenderer().spriteAtlasView)
-      vtRenderer.setExtrudedPipelines(this.getRenderer().fillPipelineExtruded, this.getRenderer().fillPipelineExtrudedFallback)
-      vtRenderer.setGroundPipelines(this.getRenderer().fillPipelineGround, this.getRenderer().fillPipelineGroundFallback)
-    vtRenderer.setPatternPipelines(this.getRenderer().fillPipelinePatternGround, this.getRenderer().fillPipelinePatternGroundFallback)
-    vtRenderer.setPatternExtrudedPipelines(this.getRenderer().fillPipelinePatternExtruded, this.getRenderer().fillPipelinePatternExtrudedFallback)
+      vtRenderer.setPaletteResources(
+        this.getRenderer().paletteColorAtlasView,
+        this.getRenderer().paletteSampler,
+      ) // must be set before any tile uploads
+      vtRenderer.setSpriteAtlasView(this.getRenderer().spriteAtlasView)
+      vtRenderer.setPaletteResources(
+        this.getRenderer().paletteColorAtlasView,
+        this.getRenderer().paletteSampler,
+      )
+      vtRenderer.setSpriteAtlasView(this.getRenderer().spriteAtlasView)
+      vtRenderer.setExtrudedPipelines(
+        this.getRenderer().fillPipelineExtruded,
+        this.getRenderer().fillPipelineExtrudedFallback,
+      )
+      vtRenderer.setGroundPipelines(
+        this.getRenderer().fillPipelineGround,
+        this.getRenderer().fillPipelineGroundFallback,
+      )
+      vtRenderer.setPatternPipelines(
+        this.getRenderer().fillPipelinePatternGround,
+        this.getRenderer().fillPipelinePatternGroundFallback,
+      )
+      vtRenderer.setPatternExtrudedPipelines(
+        this.getRenderer().fillPipelinePatternExtruded,
+        this.getRenderer().fillPipelinePatternExtrudedFallback,
+      )
       vtRenderer.setOITPipeline(this.getRenderer().fillPipelineExtrudedOIT)
       if (this.getLineRenderer()) vtRenderer.setLineRenderer(this.getLineRenderer()!)
       vtRenderer.setFillRhi?.(this.getRenderer().fillRhiState?.() ?? null)
@@ -251,9 +267,12 @@ export class SourceManager {
       // Inferred set + explicit `layers:` merge: explicit wins for any
       // layer not in the inferred set; inferred is typically a subset.
       const inferred = maps.usedSourceLayers.get(load.name)
-      const filterLayers = load.layers && load.layers.length > 0
-        ? load.layers
-        : (inferred && inferred.size > 0 ? [...inferred] : undefined)
+      const filterLayers =
+        load.layers && load.layers.length > 0
+          ? load.layers
+          : inferred && inferred.size > 0
+            ? [...inferred]
+            : undefined
       await attachPMTilesSource(source, {
         url: fullUrl,
         kind: vectorTileFormat,
@@ -285,7 +304,10 @@ export class SourceManager {
             this.camera.centerY = cy
             // Keep centerLatDeg consistent with the fitted centerY (≤85, byte-safe).
             this.camera.syncCenterLat()
-            const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+            const dpr =
+              typeof window !== 'undefined'
+                ? Math.min(window.devicePixelRatio || 1, getMaxDpr())
+                : 1
             const cssW = this.canvas.width / dpr
             this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
           })
@@ -311,15 +333,19 @@ export class SourceManager {
     if (!response.ok) {
       throw new Error(
         `[X-GIS] Failed to load "${load.name}" from ${url} — HTTP ${response.status}. ` +
-        `Check that the file exists at that path (iOS Safari otherwise surfaces this as the opaque ` +
-        `"string did not match the expected pattern" when response.json() runs on an HTML 404 body).`,
+          `Check that the file exists at that path (iOS Safari otherwise surfaces this as the opaque ` +
+          `"string did not match the expected pattern" when response.json() runs on an HTML 404 body).`,
       )
     }
     // DoS guard: bound the RAW body before JSON.parse (a multi-GB body
     // would OOM response.json() before the feature/vertex cap below runs),
     // then bound the parsed collection semantically. 256 MB is far above any
     // interactive dataset; larger sources should be tiled server-side.
-    const rawBytes = await readBodyCapped(response, 256 * 1024 * 1024, `GeoJSON source "${load.name}"`)
+    const rawBytes = await readBodyCapped(
+      response,
+      256 * 1024 * 1024,
+      `GeoJSON source "${load.name}"`,
+    )
     const data = JSON.parse(new TextDecoder().decode(rawBytes)) as GeoJSONFeatureCollection
     assertIngestBudget((data as { features?: unknown }).features, `GeoJSON source "${load.name}"`)
 
@@ -333,17 +359,20 @@ export class SourceManager {
     // path is stable across every demo + fixture. Once the e2e
     // suite has run green for a stretch, the legacy path comes
     // out entirely (Phase 5f follow-up).
-    const useLegacy = typeof window !== 'undefined' && (
-      (window as unknown as { __XGIS_USE_LEGACY_GEOJSON?: boolean }).__XGIS_USE_LEGACY_GEOJSON === true
-      || /[?&]legacy=1\b/.test(window.location.search)
-    )
+    const useLegacy =
+      typeof window !== 'undefined' &&
+      ((window as unknown as { __XGIS_USE_LEGACY_GEOJSON?: boolean }).__XGIS_USE_LEGACY_GEOJSON ===
+        true ||
+        /[?&]legacy=1\b/.test(window.location.search))
     const useVirtualPMTiles = !useLegacy
     if (useVirtualPMTiles) {
       // Diagnostic flag — set on `window` so the Phase 5e regression
       // spec can assert the route taken without parsing console
       // output. Cheap: one property write at attach time.
       if (typeof window !== 'undefined') {
-        (window as unknown as { __xgisVirtualPMTilesActive?: boolean }).__xgisVirtualPMTilesActive = true
+        ;(
+          window as unknown as { __xgisVirtualPMTilesActive?: boolean }
+        ).__xgisVirtualPMTilesActive = true
       }
       await this._attachGeoJSONViaVirtualPMTiles(load.name, data, maps, cameraFitState)
       return
@@ -382,13 +411,19 @@ export class SourceManager {
     // compile callback uses; the bounds come from a sync walk
     // because we don't get a tileSet callback in this path.
     this._runBoundsFitGate(() => {
-      let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity
+      let minLon = Infinity,
+        minLat = Infinity,
+        maxLon = -Infinity,
+        maxLat = -Infinity
       const visit = (c: unknown): void => {
         if (!Array.isArray(c)) return
         if (typeof c[0] === 'number' && typeof c[1] === 'number') {
-          const lon = c[0] as number, lat = c[1] as number
-          if (lon < minLon) minLon = lon; if (lon > maxLon) maxLon = lon
-          if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat
+          const lon = c[0] as number,
+            lat = c[1] as number
+          if (lon < minLon) minLon = lon
+          if (lon > maxLon) maxLon = lon
+          if (lat < minLat) minLat = lat
+          if (lat > maxLat) maxLat = lat
           return
         }
         for (const inner of c) visit(inner)
@@ -403,7 +438,8 @@ export class SourceManager {
         this.camera.centerY = cy
         // Keep centerLatDeg consistent with the fitted centerY (≤85, byte-safe).
         this.camera.syncCenterLat()
-        const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+        const dpr =
+          typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
         const cssW = this.canvas.width / dpr
         this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
       }
@@ -438,12 +474,27 @@ export class SourceManager {
     const source = new TileCatalog()
     const vtRenderer = new VectorTileRenderer(this.getCtx())
     vtRenderer.setBindGroupLayout(this.getRenderer().bindGroupLayout)
-    vtRenderer.setPaletteResources(this.getRenderer().paletteColorAtlasView, this.getRenderer().paletteSampler)
+    vtRenderer.setPaletteResources(
+      this.getRenderer().paletteColorAtlasView,
+      this.getRenderer().paletteSampler,
+    )
     vtRenderer.setSpriteAtlasView(this.getRenderer().spriteAtlasView)
-    vtRenderer.setExtrudedPipelines(this.getRenderer().fillPipelineExtruded, this.getRenderer().fillPipelineExtrudedFallback)
-    vtRenderer.setGroundPipelines(this.getRenderer().fillPipelineGround, this.getRenderer().fillPipelineGroundFallback)
-    vtRenderer.setPatternPipelines(this.getRenderer().fillPipelinePatternGround, this.getRenderer().fillPipelinePatternGroundFallback)
-    vtRenderer.setPatternExtrudedPipelines(this.getRenderer().fillPipelinePatternExtruded, this.getRenderer().fillPipelinePatternExtrudedFallback)
+    vtRenderer.setExtrudedPipelines(
+      this.getRenderer().fillPipelineExtruded,
+      this.getRenderer().fillPipelineExtrudedFallback,
+    )
+    vtRenderer.setGroundPipelines(
+      this.getRenderer().fillPipelineGround,
+      this.getRenderer().fillPipelineGroundFallback,
+    )
+    vtRenderer.setPatternPipelines(
+      this.getRenderer().fillPipelinePatternGround,
+      this.getRenderer().fillPipelinePatternGroundFallback,
+    )
+    vtRenderer.setPatternExtrudedPipelines(
+      this.getRenderer().fillPipelinePatternExtruded,
+      this.getRenderer().fillPipelinePatternExtrudedFallback,
+    )
     vtRenderer.setOITPipeline(this.getRenderer().fillPipelineExtrudedOIT)
     if (this.getLineRenderer()) vtRenderer.setLineRenderer(this.getLineRenderer()!)
     vtRenderer.setFillRhi?.(this.getRenderer().fillRhiState?.() ?? null)
@@ -473,7 +524,11 @@ export class SourceManager {
     const heatmapPts = (data.features ?? []).filter(
       (f) => f.geometry?.type === 'Point' || f.geometry?.type === 'MultiPoint',
     )
-    if (heatmapPts.length) this.heatmapPointData.set(sourceName, { type: 'FeatureCollection', features: heatmapPts } as GeoJSONFeatureCollection)
+    if (heatmapPts.length)
+      this.heatmapPointData.set(sourceName, {
+        type: 'FeatureCollection',
+        features: heatmapPts,
+      } as GeoJSONFeatureCollection)
     else this.heatmapPointData.delete(sourceName)
     this.rawDatasets.set(sourceName, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
 
@@ -494,7 +549,8 @@ export class SourceManager {
           this.camera.centerY = cy
           // Keep centerLatDeg consistent with the fitted centerY (≤85, byte-safe).
           this.camera.syncCenterLat()
-          const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+          const dpr =
+            typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
           const cssW = this.canvas.width / dpr
           this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
         })
@@ -525,13 +581,23 @@ export class SourceManager {
     // Also accept a bare Geometry (`{ type: 'Point', coordinates: … }`)
     // by wrapping it in a Feature inside a FeatureCollection.
     let normalized: GeoJSONFeatureCollection = data
-    const shape = data as { type?: string; features?: unknown; geometry?: unknown; coordinates?: unknown }
+    const shape = data as {
+      type?: string
+      features?: unknown
+      geometry?: unknown
+      coordinates?: unknown
+    }
     if (shape.type === 'Feature' && !Array.isArray(shape.features)) {
-      normalized = { type: 'FeatureCollection', features: [data as never] } as GeoJSONFeatureCollection
-    } else if (typeof shape.type === 'string'
-        && shape.type !== 'FeatureCollection'
-        && shape.type !== 'Feature'
-        && shape.coordinates !== undefined) {
+      normalized = {
+        type: 'FeatureCollection',
+        features: [data as never],
+      } as GeoJSONFeatureCollection
+    } else if (
+      typeof shape.type === 'string' &&
+      shape.type !== 'FeatureCollection' &&
+      shape.type !== 'Feature' &&
+      shape.coordinates !== undefined
+    ) {
       // Bare Geometry (Point / LineString / Polygon / Multi*).
       normalized = {
         type: 'FeatureCollection',
@@ -539,11 +605,16 @@ export class SourceManager {
       } as GeoJSONFeatureCollection
     }
     if (!Array.isArray((normalized as { features?: unknown }).features)) {
-      throw new Error(`[X-GIS] setSourceData: data.features must be an array (got ${typeof (normalized as { features?: unknown }).features})`)
+      throw new Error(
+        `[X-GIS] setSourceData: data.features must be an array (got ${typeof (normalized as { features?: unknown }).features})`,
+      )
     }
     // DoS guard: refuse a pathological host-pushed collection before it
     // is reprojected / retiled / uploaded (unbounded feature/vertex OOM).
-    assertIngestBudget((normalized as { features?: unknown }).features, `setSourceData("${sourceId}")`)
+    assertIngestBudget(
+      (normalized as { features?: unknown }).features,
+      `setSourceData("${sourceId}")`,
+    )
     // Reproject declared-CRS host-pushed data → WGS84 LL after the shape
     // normalize above and BEFORE polar-cap injection / tiling (AC9). The
     // declared CRS is looked up by sourceId in the run()-time registry;

@@ -62,6 +62,17 @@ describe('exprToXgis — literal array unwrapping', () => {
     // ambiguous — could be an expression. Reject explicitly so the
     // caller sees a real failure rather than a half-converted form.
     const w: string[] = []
-    expect(exprToXgis(['literal', [[1, 2], [3, 4]]], w)).toBeNull()
+    expect(
+      exprToXgis(
+        [
+          'literal',
+          [
+            [1, 2],
+            [3, 4],
+          ],
+        ],
+        w,
+      ),
+    ).toBeNull()
   })
 })

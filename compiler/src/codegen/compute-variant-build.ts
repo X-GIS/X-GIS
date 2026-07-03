@@ -50,7 +50,7 @@ export function buildPerShowMergedVariant(
 ): ShaderVariant {
   if (!scenePlan || scenePlan.length === 0) return showVariant
 
-  const entries = scenePlan.filter(e => e.renderNodeIndex === renderNodeIndex)
+  const entries = scenePlan.filter((e) => e.renderNodeIndex === renderNodeIndex)
   if (entries.length === 0) return showVariant
 
   const addendum = buildComputeVariantAddendum(entries, bindGroup, baseBinding)

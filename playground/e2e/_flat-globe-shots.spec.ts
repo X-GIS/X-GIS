@@ -10,25 +10,40 @@ const OUT = 'D:/X-GIS/.omc/shots'
 mkdirSync(OUT, { recursive: true })
 
 const PROJECTIONS = [
-  'mercator', 'equirectangular', 'natural_earth',
-  'orthographic', 'azimuthal_equidistant', 'stereographic', 'globe',
+  'mercator',
+  'equirectangular',
+  'natural_earth',
+  'orthographic',
+  'azimuthal_equidistant',
+  'stereographic',
+  'globe',
 ]
 
 const waitFrames = (page: import('@playwright/test').Page) =>
-  page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+  page.evaluate(
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+  )
 
 // Wait until at least one vector-tile source reports visible tiles, so the
 // capture isn't taken on an empty (still-loading) frame.
 const waitTiles = (page: import('@playwright/test').Page) =>
-  page.waitForFunction(() => {
-    const m = (window as any).__xgisMap
-    if (!m?.vtSources) return false
-    for (const s of m.vtSources.values()) {
-      const st = s.renderer?.getDrawStats?.()
-      if (st && st.tilesVisible > 0) return true
-    }
-    return false
-  }, null, { timeout: 15_000 }).catch(() => { /* still emit whatever painted */ })
+  page
+    .waitForFunction(
+      () => {
+        const m = (window as any).__xgisMap
+        if (!m?.vtSources) return false
+        for (const s of m.vtSources.values()) {
+          const st = s.renderer?.getDrawStats?.()
+          if (st && st.tilesVisible > 0) return true
+        }
+        return false
+      },
+      null,
+      { timeout: 15_000 },
+    )
+    .catch(() => {
+      /* still emit whatever painted */
+    })
 
 test.use({ viewport: { width: 860, height: 860 } })
 

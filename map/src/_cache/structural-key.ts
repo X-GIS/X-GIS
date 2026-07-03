@@ -123,7 +123,7 @@ function hashValue(h: number, root: unknown): number {
       for (let i = keys.length - 1; i >= 0; i--) {
         const k = keys[i]!
         stack.push(o[k])
-        stack.push(k)  // string — gets hashed via hashString branch
+        stack.push(k) // string — gets hashed via hashString branch
       }
       continue
     }

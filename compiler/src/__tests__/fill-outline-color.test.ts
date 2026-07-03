@@ -13,16 +13,18 @@ describe('fill-outline-color conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'wood',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'landcover',
-        paint: {
-          'fill-color': '#cfe7c1',
-          'fill-outline-color': '#5c8c4a',
+      layers: [
+        {
+          id: 'wood',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'landcover',
+          paint: {
+            'fill-color': '#cfe7c1',
+            'fill-outline-color': '#5c8c4a',
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toContain('fill-#cfe7c1')
@@ -37,13 +39,15 @@ describe('fill-outline-color conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'park',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'landuse',
-        paint: { 'fill-color': '#e0e8d4' },
-      }],
+      layers: [
+        {
+          id: 'park',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'landuse',
+          paint: { 'fill-color': '#e0e8d4' },
+        },
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toContain('fill-#e0e8d4')
@@ -54,18 +58,18 @@ describe('fill-outline-color conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'building',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'building',
-        paint: {
-          'fill-color': '#d4d4d4',
-          'fill-outline-color': ['interpolate', ['linear'], ['zoom'],
-            13, '#999',
-            18, '#555'],
+      layers: [
+        {
+          id: 'building',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'building',
+          paint: {
+            'fill-color': '#d4d4d4',
+            'fill-outline-color': ['interpolate', ['linear'], ['zoom'], 13, '#999', 18, '#555'],
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toMatch(/stroke-\[interpolate\(zoom, 13, #999, 18, #555\)\]/)
@@ -78,17 +82,19 @@ describe('fill-outline-color conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'highway-area',
-        type: 'fill',
-        source: 'v',
-        'source-layer': 'transportation',
-        filter: ['==', ['get', 'class'], 'service'],
-        paint: {
-          'fill-color': '#f9f5ed',
-          'fill-outline-color': '#dfdbd0',
+      layers: [
+        {
+          id: 'highway-area',
+          type: 'fill',
+          source: 'v',
+          'source-layer': 'transportation',
+          filter: ['==', ['get', 'class'], 'service'],
+          paint: {
+            'fill-color': '#f9f5ed',
+            'fill-outline-color': '#dfdbd0',
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).toContain('fill-#f9f5ed')
@@ -103,18 +109,20 @@ describe('fill-outline-color conversion', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-      layers: [{
-        id: 'building3d',
-        type: 'fill-extrusion',
-        source: 'v',
-        'source-layer': 'building',
-        paint: {
-          'fill-extrusion-color': '#d4d4d4',
-          // Hypothetical author error — Mapbox spec doesn't accept this
-          // on fill-extrusion; we still shouldn't pick it up.
-          'fill-outline-color': '#000',
+      layers: [
+        {
+          id: 'building3d',
+          type: 'fill-extrusion',
+          source: 'v',
+          'source-layer': 'building',
+          paint: {
+            'fill-extrusion-color': '#d4d4d4',
+            // Hypothetical author error — Mapbox spec doesn't accept this
+            // on fill-extrusion; we still shouldn't pick it up.
+            'fill-outline-color': '#000',
+          },
         },
-      }],
+      ],
     }
     const xgis = convertMapboxStyle(style as never)
     expect(xgis).not.toMatch(/stroke-/)

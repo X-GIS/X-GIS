@@ -37,7 +37,9 @@ describe('pow + zero-arg constant arity warnings', () => {
       ],
     }
     const code = convertMapboxStyle(style as never)
-    expect(code).toMatch(/Malformed \["pi"\] expression: zero-arg constant takes no arguments, got 1/)
+    expect(code).toMatch(
+      /Malformed \["pi"\] expression: zero-arg constant takes no arguments, got 1/,
+    )
   })
 
   it('correct ^ + pi arity does NOT warn (regression guard)', () => {

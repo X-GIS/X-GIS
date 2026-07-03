@@ -47,7 +47,8 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { Camera } from '@xgis/engine'
 import { PanZoomController } from './controller'
 
-const W = 800, H = 800
+const W = 800,
+  H = 800
 
 function makeStubCanvas(): {
   canvas: HTMLCanvasElement
@@ -132,7 +133,10 @@ describe('FIX 1 — two-finger asymmetric pinch must NOT pitch (distChange disam
 
       // Genuine guard suppresses the tilt — distChange (≈168.8) dominates the
       // small (40px) vertical centre drift. Pre-fix this asserted pitch ≈ 12°.
-      expect(cam.pitch, `asymmetric pinch wrongly tilted the map to ${cam.pitch}° (dead distChange guard)`).toBe(0)
+      expect(
+        cam.pitch,
+        `asymmetric pinch wrongly tilted the map to ${cam.pitch}° (dead distChange guard)`,
+      ).toBe(0)
     } finally {
       ctrl.detach()
     }
@@ -160,7 +164,10 @@ describe('FIX 1 — two-finger asymmetric pinch must NOT pitch (distChange disam
       // Guard: 20 > 2 (yes) AND 20 > 2.0*2=4.0 (yes) → pitch -= (-20)*0.3 = +6°.
       fire('pointermove', ptr(1, 200, 360))
 
-      expect(cam.pitch, `genuine vertical two-finger drag failed to pitch (got ${cam.pitch}°)`).toBeGreaterThan(0)
+      expect(
+        cam.pitch,
+        `genuine vertical two-finger drag failed to pitch (got ${cam.pitch}°)`,
+      ).toBeGreaterThan(0)
     } finally {
       ctrl.detach()
     }
@@ -211,7 +218,9 @@ describe('FIX 2 — detach() cancels inertia + smooth-zoom RAFs (no post-teardow
         for (const [handle, cb] of queued) last = { handle, cb }
         return last
       },
-      allQueuedHandles(): number[] { return [...queued.keys()] },
+      allQueuedHandles(): number[] {
+        return [...queued.keys()]
+      },
     }
   }
 
@@ -226,13 +235,16 @@ describe('FIX 2 — detach() cancels inertia + smooth-zoom RAFs (no post-teardow
     // applyInertia runs ONE synchronous body (camera.pan + schedules rAF) — the
     // recording stub captures that pending handle without firing it.
     fire('pointerdown', ptr(1, 400, 400))
-    fire('pointermove', ptr(1, 460, 400))   // dx=60 → large velocity (capped 15)
-    fire('pointermove', ptr(1, 520, 400))   // keep velocity above the >2 flick gate
+    fire('pointermove', ptr(1, 460, 400)) // dx=60 → large velocity (capped 15)
+    fire('pointermove', ptr(1, 520, 400)) // keep velocity above the >2 flick gate
     fire('pointerup', ptr(1, 520, 400))
 
     // An inertia frame must be in flight (one queued handle, not yet cancelled).
     const pending = raf.lastQueued()
-    expect(pending, 'inertia did not schedule a RAF (flick velocity too low to start the loop)').not.toBeNull()
+    expect(
+      pending,
+      'inertia did not schedule a RAF (flick velocity too low to start the loop)',
+    ).not.toBeNull()
 
     const cxBefore = cam.centerX
     const cyBefore = cam.centerY
@@ -241,8 +253,10 @@ describe('FIX 2 — detach() cancels inertia + smooth-zoom RAFs (no post-teardow
     ctrl.detach()
 
     // The scheduled inertia handle was cancelled.
-    expect(raf.cancelled, `detach() did not cancelAnimationFrame the inertia handle ${pending!.handle}`)
-      .toContain(pending!.handle)
+    expect(
+      raf.cancelled,
+      `detach() did not cancelAnimationFrame the inertia handle ${pending!.handle}`,
+    ).toContain(pending!.handle)
 
     // A frame that was ALREADY queued before cancel still fires in the browser
     // (cancel only prevents FUTURE delivery of an un-run callback; a frame the
@@ -272,8 +286,10 @@ describe('FIX 2 — detach() cancels inertia + smooth-zoom RAFs (no post-teardow
 
     ctrl.detach()
 
-    expect(raf.cancelled, `detach() did not cancelAnimationFrame the zoom handle ${pending!.handle}`)
-      .toContain(pending!.handle)
+    expect(
+      raf.cancelled,
+      `detach() did not cancelAnimationFrame the zoom handle ${pending!.handle}`,
+    ).toContain(pending!.handle)
 
     // Stale queued frame must bail on the `detached` guard, not zoom.
     pending!.cb(0)

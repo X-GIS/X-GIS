@@ -12,8 +12,12 @@ declare global {
   interface Window {
     __xgisCaptureDrawOrder?: boolean
     __xgisDrawOrderResult?: Array<{
-      seq: number; slice: string; phase: string; extrude: string
-      tileKey?: number; isFill?: boolean
+      seq: number
+      slice: string
+      phase: string
+      extrude: string
+      tileKey?: number
+      isFill?: boolean
     }>
   }
 }
@@ -30,7 +34,9 @@ test.describe('VTR draw order at high pitch', () => {
 
     // Arm one-frame capture, then nudge the canvas with a tiny pan so
     // the render loop wakes (idle camera doesn't redraw).
-    await page.evaluate(() => { window.__xgisCaptureDrawOrder = true })
+    await page.evaluate(() => {
+      window.__xgisCaptureDrawOrder = true
+    })
     const map = page.locator('#map')
     const box = await map.boundingBox()
     if (!box) throw new Error('no map bounds')
@@ -40,7 +46,9 @@ test.describe('VTR draw order at high pitch', () => {
     await page.mouse.down()
     await page.mouse.move(cx + 1, cy + 1)
     await page.mouse.up()
-    await page.waitForFunction(() => Array.isArray(window.__xgisDrawOrderResult), null, { timeout: 10_000 })
+    await page.waitForFunction(() => Array.isArray(window.__xgisDrawOrderResult), null, {
+      timeout: 10_000,
+    })
     const trace = await page.evaluate(() => window.__xgisDrawOrderResult)
 
     const events = trace ?? []
@@ -83,7 +91,9 @@ test.describe('VTR draw order at high pitch', () => {
       }
     }
     // eslint-disable-next-line no-console
-    console.log(`lastNoneFillSeq=${lastNoneFillSeq} firstExtrudedFillSeq=${firstExtrudedFillSeq} violations=${violations.length}`)
+    console.log(
+      `lastNoneFillSeq=${lastNoneFillSeq} firstExtrudedFillSeq=${firstExtrudedFillSeq} violations=${violations.length}`,
+    )
     if (violations.length > 0) {
       // eslint-disable-next-line no-console
       console.log('Violations (2D fill AFTER 3D fill started):', violations)

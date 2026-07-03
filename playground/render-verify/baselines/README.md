@@ -5,7 +5,7 @@ matrix cells, plus a `<id>.meta.json` provenance stamp per baseline.
 
 **The only thing that writes here is `bun run matrix:accept <cell.id>`.** The
 runner (`playground/e2e/_matrix-gate.spec.ts`) never writes here — it writes
-*candidate* PNGs to `playground/e2e/__matrix__/` (gitignored). A candidate
+_candidate_ PNGs to `playground/e2e/__matrix__/` (gitignored). A candidate
 becomes a baseline only by an explicit human command after the render was
 reviewed as **correct, not merely present**.
 

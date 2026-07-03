@@ -108,11 +108,7 @@ export function applyCSE(scene: Scene): CSEAnnotation {
 /** Predicate — true iff two Expr nodes share a cseId. Returns false
  *  when either node lacks an entry in the annotation. Useful at
  *  consumer sites: "should I dedup this with that?" */
-export function sameCSE(
-  annotation: CSEAnnotation,
-  a: Expr,
-  b: Expr,
-): boolean {
+export function sameCSE(annotation: CSEAnnotation, a: Expr, b: Expr): boolean {
   const ia = annotation.cseIdByExpr.get(a)
   if (ia === undefined) return false
   const ib = annotation.cseIdByExpr.get(b)

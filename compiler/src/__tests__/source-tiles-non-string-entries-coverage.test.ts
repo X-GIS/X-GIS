@@ -38,7 +38,10 @@ describe('source.tiles non-string entries dropped', () => {
     const style = {
       version: 8,
       sources: {
-        s: { type: 'raster', tiles: ['https://a.example.com/{z}/{x}/{y}.png', 'https://b.example.com/{z}/{x}/{y}.png'] },
+        s: {
+          type: 'raster',
+          tiles: ['https://a.example.com/{z}/{x}/{y}.png', 'https://b.example.com/{z}/{x}/{y}.png'],
+        },
       },
       layers: [],
     }

@@ -40,14 +40,14 @@ introspection; the CPU mirror is the only proxy and it drifts).
 
 ## gdb (C) → X-GIS capability map
 
-| gdb / C | X-GIS today | gap |
-|---|---|---|
-| breakpoint + step/next | Chrome DevTools (headed, JS only), not agent-scriptable | no scriptable step debugger |
-| bt (backtrace) | `new Error().stack` / `console.trace()` | **have it** |
-| print expr | `console.log` / dump-accessor | **have it** |
-| assert / `#ifdef DEBUG` | `devAssert` (this skill) | build-strip wired |
-| **watch var (watchpoint)** | `devWatch` (this skill) | emulated — see below |
-| call hierarchy (outgoing) | LSP `document_symbols` ranges + read body; ast-grep if napi installed | no built-in ordered extractor |
+| gdb / C                    | X-GIS today                                                           | gap                           |
+| -------------------------- | --------------------------------------------------------------------- | ----------------------------- |
+| breakpoint + step/next     | Chrome DevTools (headed, JS only), not agent-scriptable               | no scriptable step debugger   |
+| bt (backtrace)             | `new Error().stack` / `console.trace()`                               | **have it**                   |
+| print expr                 | `console.log` / dump-accessor                                         | **have it**                   |
+| assert / `#ifdef DEBUG`    | `devAssert` (this skill)                                              | build-strip wired             |
+| **watch var (watchpoint)** | `devWatch` (this skill)                                               | emulated — see below          |
+| call hierarchy (outgoing)  | LSP `document_symbols` ranges + read body; ast-grep if napi installed | no built-in ordered extractor |
 
 `trace_timeline` is an **OMC agent-flow** trace (hooks/skills/agents), NOT a
 code-execution tracer — useless for call order.
@@ -77,8 +77,12 @@ from both sibling paths back to a common frame and assert equality.
 
 ```ts
 // fires ⇒ divergence is in the DATA (CPU); passes ⇒ it's in the SHADER (GPU)
-devAssertClose(decodeFillVtx(fillBuf, i), decodeOutlineVtx(outBuf, j), 1e-9,
-  () => `tile ${key}: fill/outline geo split`)
+devAssertClose(
+  decodeFillVtx(fillBuf, i),
+  decodeOutlineVtx(outBuf, j),
+  1e-9,
+  () => `tile ${key}: fill/outline geo split`,
+)
 ```
 
 ### 2. GPU readback-parity (data was clean → the shader disagrees)

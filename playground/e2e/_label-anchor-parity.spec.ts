@@ -30,41 +30,85 @@ const VIEW = { style: 'openfreemap-positron', hash: '#14.16/37.57197/126.98361' 
 test('label anchor vertical parity vs MapLibre (point labels)', async ({ page }) => {
   test.setTimeout(120_000)
   const errs: string[] = []
-  page.on('pageerror', e => errs.push(String(e)))
+  page.on('pageerror', (e) => errs.push(String(e)))
   await page.setViewportSize({ width: 1400, height: 760 })
-  await page.goto(`/compare.html?style=${VIEW.style}${VIEW.hash}`, { waitUntil: 'domcontentloaded' })
-  await page.waitForFunction(() => {
-    const w = window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }
-    return w.__xgisReady === true && w.__mlReady === true
-  }, null, { timeout: 60_000 })
+  await page.goto(`/compare.html?style=${VIEW.style}${VIEW.hash}`, {
+    waitUntil: 'domcontentloaded',
+  })
+  await page.waitForFunction(
+    () => {
+      const w = window as unknown as { __xgisReady?: boolean; __mlReady?: boolean }
+      return w.__xgisReady === true && w.__mlReady === true
+    },
+    null,
+    { timeout: 60_000 },
+  )
   await page.waitForTimeout(8000)
   // Trigger the label dump, then wait a frame so getDumpedLabels populates.
   await page.evaluate(() => {
-    const w = window as unknown as { __xgisMap: { setLabelDumpFilter(s: string): void; invalidate?(): void } }
-    w.__xgisMap.setLabelDumpFilter(''); w.__xgisMap.invalidate?.()
+    const w = window as unknown as {
+      __xgisMap: { setLabelDumpFilter(s: string): void; invalidate?(): void }
+    }
+    w.__xgisMap.setLabelDumpFilter('')
+    w.__xgisMap.invalidate?.()
   })
   await page.waitForTimeout(900)
 
   const out = await page.evaluate(() => {
     const w = window as unknown as {
-      __xgisMap: { getDumpedLabels(): Array<{ text: string; anchorX: number; anchorY: number; curved: boolean }> | null }
-      __mlMap: { queryRenderedFeatures(g?: unknown, o?: unknown): Array<{ geometry: { type: string; coordinates: number[] }; layer: { type: string } ; properties: Record<string, unknown> }>; project(ll: [number, number]): { x: number; y: number } }
+      __xgisMap: {
+        getDumpedLabels(): Array<{
+          text: string
+          anchorX: number
+          anchorY: number
+          curved: boolean
+        }> | null
+      }
+      __mlMap: {
+        queryRenderedFeatures(
+          g?: unknown,
+          o?: unknown,
+        ): Array<{
+          geometry: { type: string; coordinates: number[] }
+          layer: { type: string }
+          properties: Record<string, unknown>
+        }>
+        project(ll: [number, number]): { x: number; y: number }
+      }
     }
     const dpr = window.devicePixelRatio || 1
     const NL = String.fromCharCode(10)
     const xl = w.__xgisMap.getDumpedLabels() ?? []
-    const feats = w.__mlMap.queryRenderedFeatures(undefined, {}).filter(f => f.layer.type === 'symbol' && f.geometry.type === 'Point')
-    const norm = (s: unknown) => String(s ?? '').trim().toLowerCase().split(' ').filter(Boolean).join(' ')
+    const feats = w.__mlMap
+      .queryRenderedFeatures(undefined, {})
+      .filter((f) => f.layer.type === 'symbol' && f.geometry.type === 'Point')
+    const norm = (s: unknown) =>
+      String(s ?? '')
+        .trim()
+        .toLowerCase()
+        .split(' ')
+        .filter(Boolean)
+        .join(' ')
     const mlMap = new Map<string, [number, number]>()
-    for (const f of feats) for (const k of ['name', 'name:latin', 'name_en', 'name:en', 'name:ko', 'name:nonlatin']) {
-      const v = f.properties[k]; if (typeof v === 'string' && v.trim()) { const key = norm(v); if (!mlMap.has(key)) mlMap.set(key, f.geometry.coordinates as [number, number]) }
-    }
+    for (const f of feats)
+      for (const k of ['name', 'name:latin', 'name_en', 'name:en', 'name:ko', 'name:nonlatin']) {
+        const v = f.properties[k]
+        if (typeof v === 'string' && v.trim()) {
+          const key = norm(v)
+          if (!mlMap.has(key)) mlMap.set(key, f.geometry.coordinates as [number, number])
+        }
+      }
     const rys: number[] = []
     for (const l of xl) {
       if (l.curved) continue
       const lines = l.text.split(NL).join(' ').split(' ').map(norm).filter(Boolean)
       let ll: [number, number] | undefined
-      for (const ln of lines) { if (mlMap.has(ln)) { ll = mlMap.get(ln); break } }
+      for (const ln of lines) {
+        if (mlMap.has(ln)) {
+          ll = mlMap.get(ln)
+          break
+        }
+      }
       if (!ll) continue
       const ry = Math.abs(l.anchorY / dpr - w.__mlMap.project(ll).y)
       if (ry < 40) rys.push(ry) // drop same-name text-collision mismatches
@@ -74,7 +118,7 @@ test('label anchor vertical parity vs MapLibre (point labels)', async ({ page })
       matched: rys.length,
       ryMedian: rys.length ? rys[Math.floor(rys.length / 2)]! : -1,
       ryP75: rys.length ? rys[Math.floor(rys.length * 0.75)]! : -1,
-      under2pct: rys.length ? 100 * rys.filter(r => r < 2).length / rys.length : -1,
+      under2pct: rys.length ? (100 * rys.filter((r) => r < 2).length) / rys.length : -1,
     }
   })
   // eslint-disable-next-line no-console

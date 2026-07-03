@@ -19,13 +19,15 @@ function compile(layout: Record<string, unknown>): string[] {
   const style = {
     version: 8,
     sources: { v: { type: 'vector' as const, url: 'x.pmtiles' } },
-    layers: [{
-      id: 'sym',
-      type: 'symbol' as const,
-      source: 'v',
-      'source-layer': 'poi',
-      layout: { 'icon-image': 'marker', ...layout },
-    }],
+    layers: [
+      {
+        id: 'sym',
+        type: 'symbol' as const,
+        source: 'v',
+        'source-layer': 'poi',
+        layout: { 'icon-image': 'marker', ...layout },
+      },
+    ],
   }
   const warnings: string[] = []
   convertMapboxStyle(style as never, {
@@ -37,17 +39,17 @@ function compile(layout: Record<string, unknown>): string[] {
 describe('icon-padding warning gate — iter 518', () => {
   it('default value 2 → no warning (matches Mapbox spec default)', () => {
     const warnings = compile({ 'icon-padding': 2 })
-    expect(warnings.filter(w => w.includes('icon-padding'))).toEqual([])
+    expect(warnings.filter((w) => w.includes('icon-padding'))).toEqual([])
   })
 
   it('omitted → no warning (default applied implicitly)', () => {
     const warnings = compile({})
-    expect(warnings.filter(w => w.includes('icon-padding'))).toEqual([])
+    expect(warnings.filter((w) => w.includes('icon-padding'))).toEqual([])
   })
 
   it('non-default 8 → warning explaining Phase C.9 gap', () => {
     const warnings = compile({ 'icon-padding': 8 })
-    const hits = warnings.filter(w => w.includes('icon-padding'))
+    const hits = warnings.filter((w) => w.includes('icon-padding'))
     expect(hits.length).toBe(1)
     expect(hits[0]).toContain('icon-padding 8')
     expect(hits[0]).toContain('Phase C.9')
@@ -55,14 +57,14 @@ describe('icon-padding warning gate — iter 518', () => {
 
   it('0 → warning (zero is non-default; spec-valid; author meant "no padding")', () => {
     const warnings = compile({ 'icon-padding': 0 })
-    expect(warnings.filter(w => w.includes('icon-padding')).length).toBe(1)
+    expect(warnings.filter((w) => w.includes('icon-padding')).length).toBe(1)
   })
 
   it('zoom-interp → non-constant warning', () => {
     const warnings = compile({
       'icon-padding': ['interpolate', ['linear'], ['zoom'], 10, 2, 14, 6],
     })
-    const hits = warnings.filter(w => w.includes('icon-padding'))
+    const hits = warnings.filter((w) => w.includes('icon-padding'))
     expect(hits.length).toBe(1)
     expect(hits[0]).toContain('non-constant form')
   })
@@ -71,6 +73,6 @@ describe('icon-padding warning gate — iter 518', () => {
     // OFM authors `"icon-padding": 2` bare; tooling that strict-wraps
     // could emit `["literal", 2]`. unwrapLiteralScalar handles it.
     const warnings = compile({ 'icon-padding': ['literal', 2] })
-    expect(warnings.filter(w => w.includes('icon-padding'))).toEqual([])
+    expect(warnings.filter((w) => w.includes('icon-padding'))).toEqual([])
   })
 })

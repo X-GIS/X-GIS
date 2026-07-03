@@ -39,11 +39,14 @@ async function captureTrace(page: Page, hash: string, style: string): Promise<Fr
   await page.goto(`/compare.html?style=${style}${hash}`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   await page.waitForTimeout(8_000)
   return await page.evaluate(async () => {
-    const map = (window as unknown as { __xgisMap?: { captureNextFrameTrace?: () => Promise<FrameTrace> } }).__xgisMap
+    const map = (
+      window as unknown as { __xgisMap?: { captureNextFrameTrace?: () => Promise<FrameTrace> } }
+    ).__xgisMap
     if (!map?.captureNextFrameTrace) throw new Error('captureNextFrameTrace missing')
     return await map.captureNextFrameTrace()
   })
@@ -53,8 +56,8 @@ function findBoundary(trace: FrameTrace) {
   // X-GIS lowercases / underscores Mapbox layer ids — countries-boundary
   // → countries_boundary. The trace also records the original Mapbox id
   // under .layerName for compound layers; match on either spelling.
-  return trace.layers.find(l =>
-    /countries[-_]boundary/.test(l.layerName) && l.fillPhase !== 'fill',
+  return trace.layers.find(
+    (l) => /countries[-_]boundary/.test(l.layerName) && l.fillPhase !== 'fill',
   )
 }
 
@@ -110,7 +113,6 @@ test.describe('countries-boundary paint resolution', () => {
     expect(b, 'countries-boundary must be in trace at z=8').toBeDefined()
     expect(b!.resolvedStrokeWidth).toBeCloseTo(3.0, 2)
   })
-
 })
 
 // NOTE on `resolvedStroke`: the trace recorder reports `null` when the

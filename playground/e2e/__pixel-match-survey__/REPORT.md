@@ -2,16 +2,17 @@
 
 Labels + icons hidden on both sides to isolate fill / line / outline parity.
 
-| View | Identical | ≤8 cumul | ≤32 cumul | ≤128 cumul | >128 px |
-|---|---:|---:|---:|---:|---:|
-| `bright-seoul-school` | 97.28% | 98.27% | 99.28% | 100.00% | 0 |
-| `bright-tokyo-z14` | 31.31% | 63.85% | 92.45% | 100.00% | 6 |
-| `liberty-paris-z14` | 22.30% | 65.49% | 86.15% | 99.93% | 306 |
-| `demotiles-europe-z2` | 87.71% | 89.66% | 94.90% | 99.68% | 1433 |
+| View                  | Identical | ≤8 cumul | ≤32 cumul | ≤128 cumul | >128 px |
+| --------------------- | --------: | -------: | --------: | ---------: | ------: |
+| `bright-seoul-school` |    97.28% |   98.27% |    99.28% |    100.00% |       0 |
+| `bright-tokyo-z14`    |    31.31% |   63.85% |    92.45% |    100.00% |       6 |
+| `liberty-paris-z14`   |    22.30% |   65.49% |    86.15% |     99.93% |     306 |
+| `demotiles-europe-z2` |    87.71% |   89.66% |    94.90% |     99.68% |    1433 |
 
 ## View details
 
 ### bright-seoul-school
+
 - **Style**: `openfreemap-bright`
 - **Hash**: `#17.85/37.12665/126.92430`
 - **Description**: OFM Bright, Seoul 행정초등학교 — P1 verification gate (school fill)
@@ -19,6 +20,7 @@ Labels + icons hidden on both sides to isolate fill / line / outline parity.
 - **Buckets**: `{"eq0":437639,"le8":4433,"le16":2015,"le32":2518,"le64":1679,"le128":1572,"gt128":0}`
 
 ### bright-tokyo-z14
+
 - **Style**: `openfreemap-bright`
 - **Hash**: `#14/35.6585/139.7454`
 - **Description**: OFM Bright, Tokyo z=14 — landuse + water fills
@@ -26,6 +28,7 @@ Labels + icons hidden on both sides to isolate fill / line / outline parity.
 - **Buckets**: `{"eq0":140857,"le8":146360,"le16":76081,"le32":52596,"le64":27875,"le128":6081,"gt128":6}`
 
 ### liberty-paris-z14
+
 - **Style**: `openfreemap-liberty`
 - **Hash**: `#14/48.8534/2.3488`
 - **Description**: OFM Liberty, Paris z=14 — interpolate-zoom heavy
@@ -33,6 +36,7 @@ Labels + icons hidden on both sides to isolate fill / line / outline parity.
 - **Buckets**: `{"eq0":100301,"le8":194293,"le16":40898,"le32":52062,"le64":41843,"le128":20153,"gt128":306}`
 
 ### demotiles-europe-z2
+
 - **Style**: `maplibre-demotiles`
 - **Hash**: `#2.5/48/15`
 - **Description**: MapLibre demotiles, Europe z=2 — 214-arm ADM0_A3 country palette

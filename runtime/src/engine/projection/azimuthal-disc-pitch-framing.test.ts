@@ -25,7 +25,9 @@ import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { flatViewHeightCapM } from '@xgis/engine'
 import { projectGeomCpu, projectCpu } from '@xgis/map'
 
-const W = 800, H = 800, DPR = 1
+const W = 800,
+  H = 800,
+  DPR = 1
 const FOV_RAD = 0.6435011087932844 // == Camera.FOV
 
 /** The flat-disc camera altitude for a projType at a zoom: the EXACT value
@@ -33,7 +35,7 @@ const FOV_RAD = 0.6435011087932844 // == Camera.FOV
  *  per-projType flat view-height cap. This is the scale the globeOrtho path
  *  must match across the pitch=0 boundary. */
 function flatDiscAltitude(zoom: number, projType: number): number {
-  const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, zoom)
+  const mpp = WORLD_MERC / TILE_PX / Math.pow(2, zoom)
   const raw = H * mpp
   const vh = Math.min(raw, flatViewHeightCapM(projType, WORLD_MERC))
   return vh / 2 / Math.tan(FOV_RAD / 2)
@@ -66,7 +68,12 @@ function flatScreenX(cam: Camera, projType: number, lon: number): number | null 
 /** Screen-X (px) of (lon, 0) through the globeOrtho RTC matrix at a given
  *  pitch — the camera-relative sphere vertex (globeForward(lon,0) − focus)
  *  fed into buildGlobeMatrix(ortho=true), camera centred at (0, 0). */
-function globeOrthoScreenX(zoom: number, projType: number, pitch: number, lon: number): number | null {
+function globeOrthoScreenX(
+  zoom: number,
+  projType: number,
+  pitch: number,
+  lon: number,
+): number | null {
   const v = buildGlobeMatrix(0, 0, zoom, pitch, 0, W, H, true, projType)
   const fc = globeForward(0, 0)
   const g = globeForward(lon, 0)
@@ -123,7 +130,7 @@ describe('azimuthal disc pitch-framing continuity (globeOrtho altitude == flat-d
     // WORLD_MERC-capped azi alt. #450 removed that z<1 cap from the perspective
     // globe (globeAltitude ortho=false), so compute the historical capped value
     // inline rather than via the now-uncapped production path.
-    const mppZ0 = (WORLD_MERC / TILE_PX) / Math.pow(2, 0)
+    const mppZ0 = WORLD_MERC / TILE_PX / Math.pow(2, 0)
     const oldCappedAltZ0 = Math.min(H * mppZ0, 2 * 6378137) / 2 / Math.tan(FOV_RAD / 2)
     const oldAziZ0 = oldCappedAltZ0 / flatDiscAltitude(0, 4)
     expect(oldAziZ0).toBeLessThan(0.4)
@@ -200,8 +207,14 @@ describe('azimuthal disc pitch-framing continuity (globeOrtho altitude == flat-d
         const clip = mulMat4Vec4(v.rtcMatrix, [0, 0, 0, 1]) // focus = RTC origin
         const sx = (clip[0] / clip[3] + 1) * 0.5 * W
         const sy = (1 - clip[1] / clip[3]) * 0.5 * H
-        expect(Math.abs(sx - W / 2), `projType=${projType} pitch=${pitch} centreX drift`).toBeLessThan(1)
-        expect(Math.abs(sy - H / 2), `projType=${projType} pitch=${pitch} centreY drift`).toBeLessThan(1)
+        expect(
+          Math.abs(sx - W / 2),
+          `projType=${projType} pitch=${pitch} centreX drift`,
+        ).toBeLessThan(1)
+        expect(
+          Math.abs(sy - H / 2),
+          `projType=${projType} pitch=${pitch} centreY drift`,
+        ).toBeLessThan(1)
       }
     }
   })

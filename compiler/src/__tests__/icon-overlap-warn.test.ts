@@ -15,13 +15,15 @@ function buildStyle(layout: Record<string, unknown>) {
   return {
     version: 8,
     sources: { v: { type: 'vector', url: 'x.pmtiles' } },
-    layers: [{
-      id: 'poi',
-      type: 'symbol',
-      source: 'v',
-      'source-layer': 'poi',
-      layout: { 'icon-image': 'marker', 'text-field': '{name}', ...layout },
-    }],
+    layers: [
+      {
+        id: 'poi',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 'poi',
+        layout: { 'icon-image': 'marker', 'text-field': '{name}', ...layout },
+      },
+    ],
   }
 }
 
@@ -33,32 +35,44 @@ function warningsFor(layout: Record<string, unknown>): string[] {
 
 describe('icon-overlap / icon-allow-overlap value-aware warnings', () => {
   it("icon-overlap 'always' → silent (matches X-GIS default)", () => {
-    expect(warningsFor({ 'icon-overlap': 'always' }).some(w => w.includes('icon-overlap'))).toBe(false)
+    expect(warningsFor({ 'icon-overlap': 'always' }).some((w) => w.includes('icon-overlap'))).toBe(
+      false,
+    )
   })
 
   it("icon-overlap 'never' → silent (collision now implemented)", () => {
-    expect(warningsFor({ 'icon-overlap': 'never' }).some(w => w.includes('icon-overlap'))).toBe(false)
+    expect(warningsFor({ 'icon-overlap': 'never' }).some((w) => w.includes('icon-overlap'))).toBe(
+      false,
+    )
   })
 
   it("icon-overlap 'cooperative' → warns (approximated as 'never')", () => {
-    const hits = warningsFor({ 'icon-overlap': 'cooperative' }).filter(w => w.includes('icon-overlap'))
+    const hits = warningsFor({ 'icon-overlap': 'cooperative' }).filter((w) =>
+      w.includes('icon-overlap'),
+    )
     expect(hits.length).toBe(1)
     expect(hits[0]).toContain('cooperative')
   })
 
-  it("icon-overlap unrecognised value → warns", () => {
-    expect(warningsFor({ 'icon-overlap': 'wat' }).some(w => w.includes('unrecognised icon-overlap'))).toBe(true)
+  it('icon-overlap unrecognised value → warns', () => {
+    expect(
+      warningsFor({ 'icon-overlap': 'wat' }).some((w) => w.includes('unrecognised icon-overlap')),
+    ).toBe(true)
   })
 
   it('icon-allow-overlap: true → silent (matches default)', () => {
-    expect(warningsFor({ 'icon-allow-overlap': true }).some(w => w.includes('icon-allow-overlap'))).toBe(false)
+    expect(
+      warningsFor({ 'icon-allow-overlap': true }).some((w) => w.includes('icon-allow-overlap')),
+    ).toBe(false)
   })
 
   it('icon-allow-overlap: false → silent (collision now implemented)', () => {
-    expect(warningsFor({ 'icon-allow-overlap': false }).some(w => w.includes('icon-allow-overlap'))).toBe(false)
+    expect(
+      warningsFor({ 'icon-allow-overlap': false }).some((w) => w.includes('icon-allow-overlap')),
+    ).toBe(false)
   })
 
   it('icon-allow-overlap omitted → silent', () => {
-    expect(warningsFor({}).some(w => w.includes('icon-allow-overlap'))).toBe(false)
+    expect(warningsFor({}).some((w) => w.includes('icon-allow-overlap'))).toBe(false)
   })
 })

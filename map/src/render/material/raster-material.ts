@@ -16,10 +16,13 @@ import { emitGlslModule } from '@xgis/shader-dsl'
  *  backend-agnostic: a raw `GPUTexture` (the WebGPU pilot — bridged to a view here)
  *  or an `RhiTexture` (the forced-WebGL2 path — built via `rhi.createTexture`). The
  *  draper resolves either to an `RhiTextureView` once per texture (cached). */
-export interface RasterTile { texture: GPUTexture | RhiTexture; tileBytes: Float32Array }
+export interface RasterTile {
+  texture: GPUTexture | RhiTexture
+  tileBytes: Float32Array
+}
 
 export class RasterDraper {
-  private readonly material: Material  // non-pick: single colour target
+  private readonly material: Material // non-pick: single colour target
   // pick pass: colour + rg32uint pick MRT (writes 0 — raster isn't pickable). LAZY — built on the
   // first pick draw so the non-pick path (incl. the WebGl2 checker, which fail-closes on an
   // rg32uint MRT) never triggers the pick pipeline.
@@ -34,19 +37,30 @@ export class RasterDraper {
    *  or `rhi.createView(rhiTex)` is made ONCE per texture, not per frame. */
   private readonly viewByTex = new Map<GPUTexture | RhiTexture, RhiTextureView>()
 
-  constructor(private readonly rhi: RhiDevice, private readonly format: string, private readonly sampleCount: number) {
+  constructor(
+    private readonly rhi: RhiDevice,
+    private readonly format: string,
+    private readonly sampleCount: number,
+  ) {
     // WGSL for WebGPU; split GLSL ES for WebGl2Device (createPipeline picks by backend).
     // Raster is texture-only (uniform + texture + sampler) — no storage buffers — so the
     // GLSL emit needs no data-texture emulation, and group 0's single UBO + single texture
     // bind correctly by ORDER (no reflection name needed).
     const rasterModule = buildRasterModule(false)
     this.material = new Material(rhi, {
-      shader: emitRasterWgsl(false), vsEntry: 'vs_tile', fsEntry: 'fs_tile',
+      shader: emitRasterWgsl(false),
+      vsEntry: 'vs_tile',
+      fsEntry: 'fs_tile',
       vsCode: emitGlslModule(rasterModule, 'vertex'),
       fsCode: emitGlslModule(rasterModule, 'fragment'),
-      format: format as 'bgra8unorm', sampleCount,
+      format: format as 'bgra8unorm',
+      sampleCount,
       groups: [
-        [{ binding: 0, kind: 'uniform' }, { binding: 1, kind: 'texture' }, { binding: 2, kind: 'sampler' }],
+        [
+          { binding: 0, kind: 'uniform' },
+          { binding: 1, kind: 'texture' },
+          { binding: 2, kind: 'sampler' },
+        ],
         [{ binding: 0, kind: 'uniform' }],
       ],
       colorTargets: [{ format: format as 'bgra8unorm', blend: 'alpha' }],
@@ -62,15 +76,25 @@ export class RasterDraper {
    *  including the WebGl2 checker, which fail-closes on an rg32uint MRT — never builds it. */
   private pickMat(): Material {
     return (this._pickMaterial ??= new Material(this.rhi, {
-      shader: emitRasterWgsl(true), vsEntry: 'vs_tile', fsEntry: 'fs_tile',
+      shader: emitRasterWgsl(true),
+      vsEntry: 'vs_tile',
+      fsEntry: 'fs_tile',
       vsCode: emitGlslModule(buildRasterModule(true), 'vertex'),
       fsCode: emitGlslModule(buildRasterModule(true), 'fragment'),
-      format: this.format as 'bgra8unorm', sampleCount: this.sampleCount,
+      format: this.format as 'bgra8unorm',
+      sampleCount: this.sampleCount,
       groups: [
-        [{ binding: 0, kind: 'uniform' }, { binding: 1, kind: 'texture' }, { binding: 2, kind: 'sampler' }],
+        [
+          { binding: 0, kind: 'uniform' },
+          { binding: 1, kind: 'texture' },
+          { binding: 2, kind: 'sampler' },
+        ],
         [{ binding: 0, kind: 'uniform' }],
       ],
-      colorTargets: [{ format: this.format as 'bgra8unorm', blend: 'alpha' }, { format: 'rg32uint' }],
+      colorTargets: [
+        { format: this.format as 'bgra8unorm', blend: 'alpha' },
+        { format: 'rg32uint' },
+      ],
       variants: [{ depthWrite: false, depthCompare: 'always', label: 'raster-pick-pipeline-rhi' }],
       pool: { group: 1, slotSize: rasterTileBytes() }, // 48 — the canonical TileUniforms size
       globalUniformSize: 160,
@@ -85,17 +109,26 @@ export class RasterDraper {
   private viewOf(texture: GPUTexture | RhiTexture): RhiTextureView {
     let view = this.viewByTex.get(texture)
     if (!view) {
-      view = typeof (texture as { createView?: unknown }).createView === 'function'
-        ? wrapWebGpuTextureView((texture as GPUTexture).createView())
-        : this.rhi.createView(texture as RhiTexture)
+      view =
+        typeof (texture as { createView?: unknown }).createView === 'function'
+          ? wrapWebGpuTextureView((texture as GPUTexture).createView())
+          : this.rhi.createView(texture as RhiTexture)
       this.viewByTex.set(texture, view)
     }
     return view
   }
 
-  private globalBG(material: Material, texture: GPUTexture | RhiTexture, nearest: boolean, pick: boolean): RhiBindGroup {
+  private globalBG(
+    material: Material,
+    texture: GPUTexture | RhiTexture,
+    nearest: boolean,
+    pick: boolean,
+  ): RhiBindGroup {
     let m = this.globalBGByTex.get(texture)
-    if (!m) { m = new Map(); this.globalBGByTex.set(texture, m) }
+    if (!m) {
+      m = new Map()
+      this.globalBGByTex.set(texture, m)
+    }
     const key = `${pick ? 'p' : 'n'}${nearest ? 'N' : 'L'}`
     let bg = m.get(key)
     if (!bg) {
@@ -110,7 +143,13 @@ export class RasterDraper {
   }
 
   /** Build draw items from visible tiles + issue them through the generic executor. */
-  draw(pass: import('@xgis/engine').RhiRenderPass, globalBytes: BufferSource, tiles: ReadonlyArray<RasterTile>, nearest = false, pick = false): void {
+  draw(
+    pass: import('@xgis/engine').RhiRenderPass,
+    globalBytes: BufferSource,
+    tiles: ReadonlyArray<RasterTile>,
+    nearest = false,
+    pick = false,
+  ): void {
     const material = pick ? this.pickMat() : this.material
     material.writeGlobal(globalBytes)
     const items: DrawItem[] = tiles.map((t) => ({

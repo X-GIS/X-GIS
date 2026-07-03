@@ -44,10 +44,10 @@ lines.push('')
 // ───── Section 2: spec-coverage status breakdown ─────
 const cov = flattenCoverage()
 const byStatus = {
-  supported: cov.filter(e => e.status === 'supported').length,
-  partial: cov.filter(e => e.status === 'partial').length,
-  unsupported: cov.filter(e => e.status === 'unsupported').length,
-  na: cov.filter(e => e.status === 'na').length,
+  supported: cov.filter((e) => e.status === 'supported').length,
+  partial: cov.filter((e) => e.status === 'partial').length,
+  unsupported: cov.filter((e) => e.status === 'unsupported').length,
+  na: cov.filter((e) => e.status === 'na').length,
 }
 lines.push('## Spec-coverage status breakdown')
 lines.push('')
@@ -63,7 +63,9 @@ lines.push('')
 // ───── Section 3: high-impact unsupported entries ─────
 lines.push('## High-impact unsupported entries')
 lines.push('')
-lines.push('Properties marked `unsupported` with `impact: high` — these are the most visible gaps to close next.')
+lines.push(
+  'Properties marked `unsupported` with `impact: high` — these are the most visible gaps to close next.',
+)
 lines.push('')
 lines.push('| Property | Note |')
 lines.push('|---|---|')
@@ -77,7 +79,9 @@ lines.push('')
 // ───── Section 4: partial entries (most actionable) ─────
 lines.push('## Partial entries')
 lines.push('')
-lines.push('Properties marked `partial` — converter accepts but runtime degrades. These need either runtime extension or downgrading to `unsupported`.')
+lines.push(
+  'Properties marked `partial` — converter accepts but runtime degrades. These need either runtime extension or downgrading to `unsupported`.',
+)
 lines.push('')
 lines.push('| Property | Impact | Note |')
 lines.push('|---|---|---|')

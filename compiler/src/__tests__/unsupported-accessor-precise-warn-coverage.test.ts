@@ -68,7 +68,20 @@ describe('precise unsupported-accessor warnings', () => {
           id: 'l',
           type: 'fill',
           source: 's',
-          filter: ['within', { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] }],
+          filter: [
+            'within',
+            {
+              type: 'Polygon',
+              coordinates: [
+                [
+                  [0, 0],
+                  [1, 0],
+                  [1, 1],
+                  [0, 0],
+                ],
+              ],
+            },
+          ],
           paint: { 'fill-color': '#abc' },
         },
       ],

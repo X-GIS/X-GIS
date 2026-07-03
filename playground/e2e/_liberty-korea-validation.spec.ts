@@ -25,12 +25,12 @@ test('liberty over Korea: no WebGPU pipeline validation errors', async ({ page }
 
   const consoleErrors: string[] = []
   const validationErrors: string[] = []
-  page.on('console', m => {
+  page.on('console', (m) => {
     const t = m.text()
     if (m.type() === 'error') consoleErrors.push(t)
     if (/validation|pipeline|attachment/i.test(t)) validationErrors.push(`[${m.type()}] ${t}`)
   })
-  page.on('pageerror', e => consoleErrors.push(`[pageerror] ${e.message}`))
+  page.on('pageerror', (e) => consoleErrors.push(`[pageerror] ${e.message}`))
 
   // User's URL — zoom into Korea (Sejong area earlier; try Seoul too).
   await page.goto('/demo.html?id=__import#13/37.5665/126.978/0/45', {
@@ -38,7 +38,8 @@ test('liberty over Korea: no WebGPU pipeline validation errors', async ({ page }
   })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   await page.waitForTimeout(8_000)
 
@@ -57,6 +58,8 @@ test('liberty over Korea: no WebGPU pipeline validation errors', async ({ page }
 
   await page.locator('#map').screenshot({ path: 'test-results/liberty-korea.png' })
 
-  const pipelineErrors = consoleErrors.filter(s => /attachment state of render pipeline|line-pipeline-max|compatible with render pass/i.test(s))
+  const pipelineErrors = consoleErrors.filter((s) =>
+    /attachment state of render pipeline|line-pipeline-max|compatible with render pass/i.test(s),
+  )
   expect(pipelineErrors, 'no pipeline-attachment-state validation errors').toEqual([])
 })

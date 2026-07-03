@@ -19,18 +19,20 @@ import { packECEFPolygonVertices } from './ecef-packing'
 import { dequantVertex, dequantVertexF32 } from './dequant-mirror'
 
 // ── WGS84 constants (mirrors runtime/src/engine/projection/ecef.ts) ─────────
-const A = 6378137               // semi-major axis (m)
+const A = 6378137 // semi-major axis (m)
 const F = 1 / 298.257223563
-const E2 = F * (2 - F)          // first eccentricity squared
+const E2 = F * (2 - F) // first eccentricity squared
 const DEG2RAD = Math.PI / 180
 
 // ── Deterministic LCG RNG ────────────────────────────────────────────────────
 function makeRng(seed: number): () => number {
   let s = seed | 0
   return () => {
-    s ^= s << 13; s |= 0
+    s ^= s << 13
+    s |= 0
     s ^= s >>> 17
-    s ^= s << 5;  s |= 0
+    s ^= s << 5
+    s |= 0
     return (s >>> 0) / 0x1_0000_0000
   }
 }
@@ -47,11 +49,7 @@ function lonLatRadToECEF(lon: number, lat: number): [number, number, number] {
   const sinLat = Math.sin(lat)
   const cosLat = Math.cos(lat)
   const N = A / Math.sqrt(1 - E2 * sinLat * sinLat)
-  return [
-    N * cosLat * Math.cos(lon),
-    N * cosLat * Math.sin(lon),
-    N * (1 - E2) * sinLat,
-  ]
+  return [N * cosLat * Math.cos(lon), N * cosLat * Math.sin(lon), N * (1 - E2) * sinLat]
 }
 
 /** WGS84 ECEF (m) → lon (rad), lat (rad) via Bowring iteration (4 iters) */
@@ -66,7 +64,10 @@ function ecefToLonLatRad(x: number, y: number, z: number): [number, number] {
     N = A / Math.sqrt(1 - E2 * sinLat * sinLat)
     height = p / Math.cos(lat) - N
     const newLat = Math.atan2(z, p * (1 - (E2 * N) / (N + height)))
-    if (Math.abs(newLat - lat) < 1e-12) { lat = newLat; break }
+    if (Math.abs(newLat - lat) < 1e-12) {
+      lat = newLat
+      break
+    }
     lat = newLat
   }
   return [lon, lat]
@@ -121,7 +122,6 @@ function roundTripError(
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
-
   it('quantized stride-28 output: fid passes through unchanged at float slot 3', () => {
     const [lon_rad, lat_rad] = mercatorToLonLatRad(0, 0)
     const center = lonLatRadToECEF(lon_rad, lat_rad)
@@ -141,8 +141,14 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
     const ext = tileExtentM(15)
     const [tLon, tLat] = mercatorToLonLatRad(ext * 7, ext * 3)
     const center = lonLatRadToECEF(tLon, tLat)
-    const pv = [ext * 7 + ext * 0.5, ext * 3 + ext * 0.5, 0,
-                ext * 7 - ext * 0.5, ext * 3 - ext * 0.5, 1]
+    const pv = [
+      ext * 7 + ext * 0.5,
+      ext * 3 + ext * 0.5,
+      0,
+      ext * 7 - ext * 0.5,
+      ext * 3 - ext * 0.5,
+      1,
+    ]
     const quant = packECEFPolygonVertices(pv, center)
     const u16 = new Uint16Array(quant.vertices.buffer)
     // #398: stride is now 14 u16/vert (28 B). The 6 position lanes (0..5) of
@@ -152,13 +158,14 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
     for (let vi = 0; vi < 2; vi++) {
       for (let lane = 0; lane < 6; lane++) {
         const v = u16[vi * U16_PER_VERT + lane]!
-        expect(v >= 0 && v <= 0xFFFF).toBe(true)
+        expect(v >= 0 && v <= 0xffff).toBe(true)
       }
     }
     // Round-trip both verts: sub-mm.
     for (let vi = 0; vi < 2; vi++) {
       const [ax, ay, az] = dequantVertex(quant, vi)
-      const mxRef = pv[vi * 3], myRef = pv[vi * 3 + 1]
+      const mxRef = pv[vi * 3],
+        myRef = pv[vi * 3 + 1]
       const [refLon, refLat] = mercatorToLonLatRad(mxRef, myRef)
       const [recLon, recLat] = ecefToLonLatRad(ax + center[0], ay + center[1], az + center[2])
       expect(arcLengthM(refLon, refLat, recLon, recLat)).toBeLessThan(1e-3)
@@ -180,7 +187,7 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
     const center = lonLatRadToECEF(tLon, tLat)
 
     const err = roundTripError(mx, my, center)
-    expect(err).toBeLessThan(1e-3)  // 1 mm
+    expect(err).toBeLessThan(1e-3) // 1 mm
   })
 
   it('1e4 random points — z=22: worst-case ≤ 1 mm', () => {
@@ -207,7 +214,7 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
 
     // Report worst observed for diagnostics.
     console.log(`[z=22] worst reconstruction error: ${(worst * 1000).toFixed(6)} mm`)
-    expect(worst).toBeLessThan(1e-3)   // 1 mm
+    expect(worst).toBeLessThan(1e-3) // 1 mm
   })
 
   it('1e4 random points — z=15: worst-case ≤ 1 mm', () => {
@@ -232,7 +239,7 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
     }
 
     console.log(`[z=15] worst reconstruction error: ${(worst * 1000).toFixed(6)} mm`)
-    expect(worst).toBeLessThan(1e-3)   // 1 mm
+    expect(worst).toBeLessThan(1e-3) // 1 mm
   })
 
   it('1e4 random points — z=8: worst-case ≤ 1 cm', () => {
@@ -256,7 +263,7 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
     }
 
     console.log(`[z=8] worst reconstruction error: ${(worst * 1000).toFixed(6)} mm`)
-    expect(worst).toBeLessThan(1e-2)   // 1 cm
+    expect(worst).toBeLessThan(1e-2) // 1 cm
   })
 
   it('1e4 random points — z=0: worst-case ≤ 1 cm', () => {
@@ -266,7 +273,7 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
     // The ECEF-RTC residual at z=0 can be large (up to ~10Mm) — the
     // f32 high half covers that, and lo corrects the f32 error term.
     // We test reconstruction is still ≤ 1 cm globally.
-    const HALF = Math.PI * A * 0.4   // ±40% world extent as scatter radius
+    const HALF = Math.PI * A * 0.4 // ±40% world extent as scatter radius
     const MX_MAX = Math.PI * A
     const MY_MAX = Math.PI * A * 0.85
     let worst = 0
@@ -276,10 +283,8 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
       const baseMx = (rng() * 2 - 1) * MX_MAX * 0.5
       const baseMy = (rng() * 2 - 1) * MY_MAX * 0.5
       // Vertex within ±HALF of center, clamped to valid range.
-      const mx = Math.max(-MX_MAX, Math.min(MX_MAX,
-        baseMx + (rng() * 2 - 1) * HALF))
-      const my = Math.max(-MY_MAX, Math.min(MY_MAX,
-        baseMy + (rng() * 2 - 1) * HALF))
+      const mx = Math.max(-MX_MAX, Math.min(MX_MAX, baseMx + (rng() * 2 - 1) * HALF))
+      const my = Math.max(-MY_MAX, Math.min(MY_MAX, baseMy + (rng() * 2 - 1) * HALF))
 
       const [tLon, tLat] = mercatorToLonLatRad(baseMx, baseMy)
       const center = lonLatRadToECEF(tLon, tLat)
@@ -289,7 +294,7 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
     }
 
     console.log(`[z=0] worst reconstruction error: ${(worst * 1000).toFixed(6)} mm`)
-    expect(worst).toBeLessThan(1e-2)   // 1 cm
+    expect(worst).toBeLessThan(1e-2) // 1 cm
   })
 
   it('AC2c.2.3 local_merc round-trip: tile-local Mercator slots reconstruct absolute Mercator to < 1 mm', () => {
@@ -301,7 +306,7 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
     // displaced the fill from its outline).
     const A_local = 6378137
     const MX_MAX = Math.PI * A_local
-    const MY_MAX = Math.PI * A_local * 0.85  // ~±85.0511°
+    const MY_MAX = Math.PI * A_local * 0.85 // ~±85.0511°
     const rng = makeRng(0x2c_2a)
     let worst = 0
 
@@ -309,7 +314,7 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
       // A realistic deep-zoom tile origin + a vertex within ~one z14 tile of it.
       const originMx = (rng() * 2 - 1) * MX_MAX * 0.98
       const originMy = (rng() * 2 - 1) * MY_MAX * 0.98
-      const mx = originMx + (rng() * 2 - 1) * 2500  // ≤ ~2.5 km tile extent
+      const mx = originMx + (rng() * 2 - 1) * 2500 // ≤ ~2.5 km tile extent
       const my = originMy + (rng() * 2 - 1) * 2500
 
       const [tLon, tLat] = mercatorToLonLatRad(0, 0)
@@ -326,14 +331,14 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
     // Single f32 at ≤ tile-extent magnitude (~2.5 km) → ulp ~3e-4 m, so the
     // f64-origin + f32-slot reconstruction is sub-mm. The renderer's DSFUN
     // cam_h/cam_l cancel the origin in the live position path identically.
-    expect(worst).toBeLessThan(1e-3)  // < 1 mm at every zoom
+    expect(worst).toBeLessThan(1e-3) // < 1 mm at every zoom
   })
 
   it('DSFUN beats naive single-f32 at z=22 (the whole point)', () => {
     // A vertex deep inside a tile: absolute ECEF ~6.4e6 m, tile-local ~few m.
     // Naive f32: store absolute ECEF axis as f32, reconstruct abs-center.
     // DSFUN: hi+lo reconstruct sub-mm.
-    const lon = 0.1 * DEG2RAD  // near-equator, round numbers
+    const lon = 0.1 * DEG2RAD // near-equator, round numbers
     const lat = 0.1 * DEG2RAD
     const mx = A * lon
     const my = A * Math.log(Math.tan(Math.PI / 4 + lat / 2))
@@ -354,11 +359,14 @@ describe('AC2c.1.1 packECEFPolygonVertices precision round-trip', () => {
     const naiveY = Math.fround(ey) - center[1]
     const naiveZ = Math.fround(ez) - center[2]
     const [naiveLon, naiveLat] = ecefToLonLatRad(
-      naiveX + center[0], naiveY + center[1], naiveZ + center[2])
+      naiveX + center[0],
+      naiveY + center[1],
+      naiveZ + center[2],
+    )
     const naiveErr = arcLengthM(sLon, sLat, naiveLon, naiveLat)
 
     expect(dsfunErr).toBeLessThanOrEqual(naiveErr)
-    expect(dsfunErr).toBeLessThan(1e-3)  // sub-mm absolute
+    expect(dsfunErr).toBeLessThan(1e-3) // sub-mm absolute
   })
 })
 
@@ -386,10 +394,10 @@ describe('PR 2f — GPU f32 in-shader dequant precision (true shader-side bounds
   // Bounds reflect the GPU's actual arithmetic (validated screen-invisible),
   // NOT the optimistic f64 quantization-only error.
   const cases: ReadonlyArray<{ z: number; seed: number; boundM: number }> = [
-    { z: 22, seed: 0x2f_22, boundM: 1e-5 },   // ~1 µm — high zoom, near-perfect
-    { z: 15, seed: 0x2f_15, boundM: 1e-3 },   // sub-mm
-    { z: 8,  seed: 0x2f_08, boundM: 5e-2 },   // ~2 cm — coarsened by f32
-    { z: 0,  seed: 0x2f_00, boundM: 3.0 },    // ~1.6 m — screen-invisible (2.5e-7 of R)
+    { z: 22, seed: 0x2f_22, boundM: 1e-5 }, // ~1 µm — high zoom, near-perfect
+    { z: 15, seed: 0x2f_15, boundM: 1e-3 }, // sub-mm
+    { z: 8, seed: 0x2f_08, boundM: 5e-2 }, // ~2 cm — coarsened by f32
+    { z: 0, seed: 0x2f_00, boundM: 3.0 }, // ~1.6 m — screen-invisible (2.5e-7 of R)
   ]
 
   for (const { z, seed, boundM } of cases) {

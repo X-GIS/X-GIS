@@ -16,8 +16,19 @@ import type * as AST from '../parser/ast'
 import type { NodeLike } from './node-types'
 import { nodeToWgslString } from './node-to-wgsl'
 import {
-  f32Lit, featDataField, negF32, callF32, maxF32, compareToBool, selectF32,
-  binaryVerbatimF32, f32Add, f32Sub, f32Mul, f32Div, f32Mod,
+  f32Lit,
+  featDataField,
+  negF32,
+  callF32,
+  maxF32,
+  compareToBool,
+  selectF32,
+  binaryVerbatimF32,
+  f32Add,
+  f32Sub,
+  f32Mul,
+  f32Div,
+  f32Mod,
 } from './_util/node-builders'
 
 /** GPU-safe builtin allowlist. Every name maps to the IDENTITY WGSL spelling
@@ -26,9 +37,26 @@ import {
  *  SEMANTIC gate deciding which calls are permitted on the GPU expression path;
  *  unknown names fall through to user-fn inlining or the `0.0` default. */
 const WGSL_BUILTIN_FNS: ReadonlySet<string> = new Set([
-  'clamp', 'min', 'max', 'round', 'floor', 'ceil', 'abs', 'sqrt',
-  'log', 'log2', 'exp', 'exp2', 'pow',
-  'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2',
+  'clamp',
+  'min',
+  'max',
+  'round',
+  'floor',
+  'ceil',
+  'abs',
+  'sqrt',
+  'log',
+  'log2',
+  'exp',
+  'exp2',
+  'pow',
+  'sin',
+  'cos',
+  'tan',
+  'asin',
+  'acos',
+  'atan',
+  'atan2',
 ])
 
 /** User-defined function environment for inlining */
@@ -71,16 +99,28 @@ export function astToNode(
       const left = astToNode(expr.left, fieldMap, fnEnv)
       const right = astToNode(expr.right, fieldMap, fnEnv)
       switch (expr.op) {
-        case '+': return f32Add(left, right)
-        case '-': return f32Sub(left, right)
-        case '*': return f32Mul(left, right)
-        case '/': return f32Div(left, right)
-        case '%': return f32Mod(left, right)
+        case '+':
+          return f32Add(left, right)
+        case '-':
+          return f32Sub(left, right)
+        case '*':
+          return f32Mul(left, right)
+        case '/':
+          return f32Div(left, right)
+        case '%':
+          return f32Mod(left, right)
         // Comparison ops return bool → bridge to f32 via select(0, 1, cond)
-        case '==': case '!=': case '<': case '>': case '<=': case '>=':
+        case '==':
+        case '!=':
+        case '<':
+        case '>':
+        case '<=':
+        case '>=':
           return selectF32(f32Lit(0), f32Lit(1), compareToBool(left, expr.op, right))
-        case '&&': return f32Mul(left, right) // both non-zero = truthy
-        case '||': return maxF32(left, right)
+        case '&&':
+          return f32Mul(left, right) // both non-zero = truthy
+        case '||':
+          return maxF32(left, right)
         default:
           // verbatim `(a op b)` — matches the legacy string default arm
           return binaryVerbatimF32(left, expr.op, right)
@@ -125,11 +165,15 @@ export function exprToWGSL(
   return nodeToWgslString(astToNode(expr, fieldMap, fnEnv))
 }
 
-function fnCallToNode(expr: AST.FnCall, fieldMap: Map<string, number>, fnEnv?: WGSLFnEnv): NodeLike<'f32'> {
+function fnCallToNode(
+  expr: AST.FnCall,
+  fieldMap: Map<string, number>,
+  fnEnv?: WGSLFnEnv,
+): NodeLike<'f32'> {
   const name = expr.callee.kind === 'Identifier' ? expr.callee.name : null
   if (!name) return f32Lit(0)
 
-  const args = expr.args.map(a => astToNode(a, fieldMap, fnEnv))
+  const args = expr.args.map((a) => astToNode(a, fieldMap, fnEnv))
 
   // Special cases
   if (name === 'scale') {
@@ -137,10 +181,17 @@ function fnCallToNode(expr: AST.FnCall, fieldMap: Map<string, number>, fnEnv?: W
   }
   if (name === 'step') {
     // step(value, threshold, below, above)
-    return selectF32(args[3] ?? f32Lit(1), args[2] ?? f32Lit(0), compareToBool(args[0] ?? f32Lit(0), '<', args[1] ?? f32Lit(0)))
+    return selectF32(
+      args[3] ?? f32Lit(1),
+      args[2] ?? f32Lit(0),
+      compareToBool(args[0] ?? f32Lit(0), '<', args[1] ?? f32Lit(0)),
+    )
   }
   if (name === 'log10') {
-    return f32Div(callF32('log', [maxF32(args[0] ?? f32Lit(0), f32Lit(1e-10))]), callF32('log', [f32Lit(10)]))
+    return f32Div(
+      callF32('log', [maxF32(args[0] ?? f32Lit(0), f32Lit(1e-10))]),
+      callF32('log', [f32Lit(10)]),
+    )
   }
 
   // WGSL built-in
@@ -156,20 +207,28 @@ function fnCallToNode(expr: AST.FnCall, fieldMap: Map<string, number>, fnEnv?: W
   return f32Lit(0)
 }
 
-function pipeToNode(expr: AST.PipeExpr, fieldMap: Map<string, number>, fnEnv?: WGSLFnEnv): NodeLike<'f32'> {
+function pipeToNode(
+  expr: AST.PipeExpr,
+  fieldMap: Map<string, number>,
+  fnEnv?: WGSLFnEnv,
+): NodeLike<'f32'> {
   let result = astToNode(expr.input, fieldMap, fnEnv)
 
   for (const transform of expr.transforms) {
     const name = transform.callee.kind === 'Identifier' ? transform.callee.name : null
     if (!name) continue
 
-    const extraArgs = transform.args.map(a => astToNode(a, fieldMap, fnEnv))
+    const extraArgs = transform.args.map((a) => astToNode(a, fieldMap, fnEnv))
 
     // Pipe passes result as first arg
     if (name === 'scale') {
       result = f32Mul(result, extraArgs[0] ?? f32Lit(1))
     } else if (name === 'step') {
-      result = selectF32(extraArgs[2] ?? f32Lit(1), extraArgs[1] ?? f32Lit(0), compareToBool(result, '<', extraArgs[0] ?? f32Lit(0)))
+      result = selectF32(
+        extraArgs[2] ?? f32Lit(1),
+        extraArgs[1] ?? f32Lit(0),
+        compareToBool(result, '<', extraArgs[0] ?? f32Lit(0)),
+      )
     } else if (name === 'log10') {
       result = f32Div(callF32('log', [maxF32(result, f32Lit(1e-10))]), callF32('log', [f32Lit(10)]))
     } else if (WGSL_BUILTIN_FNS.has(name)) {
@@ -197,8 +256,8 @@ function inlineUserFn(
   })
 
   // Check if body has control flow (if/return)
-  const hasControlFlow = fn.body.some(s =>
-    s.kind === 'IfStatement' || s.kind === 'ReturnStatement'
+  const hasControlFlow = fn.body.some(
+    (s) => s.kind === 'IfStatement' || s.kind === 'ReturnStatement',
   )
 
   if (!hasControlFlow) {
@@ -281,11 +340,15 @@ function substituteParams(
 
     case 'FnCall': {
       const name = expr.callee.kind === 'Identifier' ? expr.callee.name : null
-      const args = expr.args.map(a => substituteParams(a, paramMap, fieldMap, fnEnv))
+      const args = expr.args.map((a) => substituteParams(a, paramMap, fieldMap, fnEnv))
       if (!name) return f32Lit(0)
 
       if (name === 'scale') return f32Mul(args[0] ?? f32Lit(0), args[1] ?? f32Lit(1))
-      if (name === 'log10') return f32Div(callF32('log', [maxF32(args[0] ?? f32Lit(0), f32Lit(1e-10))]), callF32('log', [f32Lit(10)]))
+      if (name === 'log10')
+        return f32Div(
+          callF32('log', [maxF32(args[0] ?? f32Lit(0), f32Lit(1e-10))]),
+          callF32('log', [f32Lit(10)]),
+        )
 
       if (WGSL_BUILTIN_FNS.has(name)) return callF32(name, args)
       return f32Lit(0)
@@ -333,11 +396,11 @@ function walkExpr(expr: AST.Expr, fields: Set<string>): void {
       walkExpr(expr.operand, fields)
       break
     case 'FnCall':
-      expr.args.forEach(a => walkExpr(a, fields))
+      expr.args.forEach((a) => walkExpr(a, fields))
       break
     case 'PipeExpr':
       walkExpr(expr.input, fields)
-      expr.transforms.forEach(t => t.args.forEach(a => walkExpr(a, fields)))
+      expr.transforms.forEach((t) => t.args.forEach((a) => walkExpr(a, fields)))
       break
   }
 }
@@ -388,7 +451,13 @@ function walkStrict(expr: AST.Expr, fields: Set<string>): boolean {
     case 'Identifier':
       // 'zoom' is the camera builtin; null/true/false are keyword literals
       // (the grammar has no Null/Bool-as-Identifier node) — none is a field.
-      if (expr.name !== 'zoom' && expr.name !== 'null' && expr.name !== 'true' && expr.name !== 'false') fields.add(expr.name)
+      if (
+        expr.name !== 'zoom' &&
+        expr.name !== 'null' &&
+        expr.name !== 'true' &&
+        expr.name !== 'false'
+      )
+        fields.add(expr.name)
       return true
     case 'FieldAccess':
       fields.add(expr.field)
@@ -407,9 +476,15 @@ function walkStrict(expr: AST.Expr, fields: Set<string>): boolean {
       // (broke OFM Bright non-latin labels, #375 follow-up). `has` is handled
       // defensively: the converter lowers has(...) to `.field != null` /
       // get(...) != null today, but a direct has("k") reads the same key.
-      if (expr.callee.kind === 'Identifier' && (expr.callee.name === 'get' || expr.callee.name === 'has')) {
+      if (
+        expr.callee.kind === 'Identifier' &&
+        (expr.callee.name === 'get' || expr.callee.name === 'has')
+      ) {
         const a0 = expr.args[0]
-        if (a0 && a0.kind === 'StringLiteral') { fields.add(a0.value); return true }
+        if (a0 && a0.kind === 'StringLiteral') {
+          fields.add(a0.value)
+          return true
+        }
         // Dynamic key (e.g. get(concat("name:", get("lang")))) — the accessed
         // field is unknowable statically; bail so the slice keeps full props.
         return false
@@ -449,9 +524,11 @@ function walkStrict(expr: AST.Expr, fields: Set<string>): boolean {
     case 'ArrayAccess':
       return walkStrict(expr.array, fields) && walkStrict(expr.index, fields)
     case 'ConditionalExpr':
-      return walkStrict(expr.condition, fields)
-        && walkStrict(expr.thenExpr, fields)
-        && walkStrict(expr.elseExpr, fields)
+      return (
+        walkStrict(expr.condition, fields) &&
+        walkStrict(expr.thenExpr, fields) &&
+        walkStrict(expr.elseExpr, fields)
+      )
     default:
       // Unrecognised node kind — bail conservatively.
       return false

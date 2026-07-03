@@ -97,7 +97,9 @@ test.describe('WGSL compile gate (every emitted variant compiles on a GPU)', () 
           const info = await module.getCompilationInfo()
           const errs = info.messages.filter((m) => m.type === 'error')
           if (errs.length > 0) {
-            failures.push(`${v.name}: ${errs.map((e) => `L${e.lineNum}: ${e.message}`).join(' | ')}`)
+            failures.push(
+              `${v.name}: ${errs.map((e) => `L${e.lineNum}: ${e.message}`).join(' | ')}`,
+            )
           }
         } catch (e) {
           failures.push(`${v.name}: threw ${(e as Error).message}`)
@@ -108,7 +110,9 @@ test.describe('WGSL compile gate (every emitted variant compiles on a GPU)', () 
 
     // A missing adapter is a failure in CI (SwiftShader MUST enumerate one);
     // mirror _shader-math-parity's no-property-then-return contract.
-    expect(result, `GPU unavailable: ${'fatal' in result ? result.fatal : ''}`).not.toHaveProperty('fatal')
+    expect(result, `GPU unavailable: ${'fatal' in result ? result.fatal : ''}`).not.toHaveProperty(
+      'fatal',
+    )
     if ('fatal' in result) return
     expect(
       result.failures,

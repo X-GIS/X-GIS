@@ -26,7 +26,8 @@ test('Bright pitch=0 z=14 — text DISABLED', async ({ page }) => {
   await page.goto('/demo.html?id=__import#14/35.68/139.76/0/0', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null, { timeout: 30_000 },
+    null,
+    { timeout: 30_000 },
   )
   await page.waitForTimeout(5_000)
 
@@ -50,5 +51,7 @@ test('Bright pitch=0 z=14 — text DISABLED', async ({ page }) => {
   const median = sorted[Math.floor(sorted.length / 2)]!
   const p95 = sorted[Math.floor(sorted.length * 0.95)]!
   // eslint-disable-next-line no-console
-  console.log(`[no-labels] median=${median.toFixed(1)}ms (${(1000 / median).toFixed(0)} fps) p95=${p95.toFixed(1)}ms frames=${sample.frames.length}`)
+  console.log(
+    `[no-labels] median=${median.toFixed(1)}ms (${(1000 / median).toFixed(0)} fps) p95=${p95.toFixed(1)}ms frames=${sample.frames.length}`,
+  )
 })

@@ -12,9 +12,7 @@ describe('layer references undeclared source', () => {
       sources: {
         present: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       },
-      layers: [
-        { id: 'l', type: 'fill', source: 'missing', paint: { 'fill-color': '#abc' } },
-      ],
+      layers: [{ id: 'l', type: 'fill', source: 'missing', paint: { 'fill-color': '#abc' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).toMatch(/references undeclared source "missing"/)
@@ -26,9 +24,7 @@ describe('layer references undeclared source', () => {
       sources: {
         present: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       },
-      layers: [
-        { id: 'l', type: 'fill', source: 'present', paint: { 'fill-color': '#abc' } },
-      ],
+      layers: [{ id: 'l', type: 'fill', source: 'present', paint: { 'fill-color': '#abc' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).not.toMatch(/undeclared source/)
@@ -38,9 +34,7 @@ describe('layer references undeclared source', () => {
     const style = {
       version: 8,
       sources: {},
-      layers: [
-        { id: 'bg', type: 'background', paint: { 'background-color': '#fff' } },
-      ],
+      layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#fff' } }],
     }
     const code = convertMapboxStyle(style as never)
     expect(code).not.toMatch(/undeclared source/)

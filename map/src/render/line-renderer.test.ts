@@ -9,13 +9,13 @@ import {
 } from './line-renderer'
 
 // Layer uniform layout (matches WGSL LineLayer struct)
-const F32_COLOR = 0         // vec4<f32>  @ 0
-const F32_WIDTH_PX = 4      // f32        @ 16
-const F32_AA_WIDTH = 5      // f32        @ 20
-const F32_MPP = 6           // f32        @ 24
-const U32_FLAGS = 8         // u32        @ 32
-const U32_DASH_COUNT = 9    // u32        @ 36
-const F32_DASH_CYCLE = 10   // f32        @ 40
+const F32_COLOR = 0 // vec4<f32>  @ 0
+const F32_WIDTH_PX = 4 // f32        @ 16
+const F32_AA_WIDTH = 5 // f32        @ 20
+const F32_MPP = 6 // f32        @ 24
+const U32_FLAGS = 8 // u32        @ 32
+const U32_DASH_COUNT = 9 // u32        @ 36
+const F32_DASH_CYCLE = 10 // f32        @ 40
 const F32_DASH_ARRAY_0 = 12 // array<vec4<f32>,2> @ 48-79
 
 // ═══ DSFUN segment layout (LINE_SEGMENT_STRIDE_F32 = 16) ═══
@@ -106,17 +106,15 @@ describe('packLineLayerUniform', () => {
     // omits line-cap renders FLAT (butt), not round — matching MapLibre.
     const buf = packLineLayerUniform([1, 0, 0, 1], 4, 1, 1000) // cap/join/miter omitted
     const u32 = new Uint32Array(buf.buffer)
-    expect(u32[U32_FLAGS] & 0x7).toBe(LINE_CAP_BUTT)          // cap bits 0-2 = butt (0)
+    expect(u32[U32_FLAGS] & 0x7).toBe(LINE_CAP_BUTT) // cap bits 0-2 = butt (0)
     expect((u32[U32_FLAGS] >>> 3) & 0x3).toBe(LINE_JOIN_MITER) // join bits 3-4 = miter (0)
-    expect(buf[7]).toBeCloseTo(2.0, 6)                         // miter_limit slot = spec default 2
+    expect(buf[7]).toBeCloseTo(2.0, 6) // miter_limit slot = spec default 2
   })
 
   it('packs a 2-value dash array and sets dash_enable + dash_count + cycle', () => {
-    const buf = packLineLayerUniform(
-      [1, 1, 1, 1], 2, 1, 100,
-      LINE_CAP_BUTT, LINE_JOIN_MITER, 4,
-      { array: [20, 10] },
-    )
+    const buf = packLineLayerUniform([1, 1, 1, 1], 2, 1, 100, LINE_CAP_BUTT, LINE_JOIN_MITER, 4, {
+      array: [20, 10],
+    })
     const u32 = new Uint32Array(buf.buffer)
 
     // Flags bit 5 (dash_enable) must be set
@@ -137,11 +135,9 @@ describe('packLineLayerUniform', () => {
   })
 
   it('packs a 4-value composite dash array', () => {
-    const buf = packLineLayerUniform(
-      [1, 1, 1, 1], 2, 1, 100,
-      LINE_CAP_BUTT, LINE_JOIN_MITER, 4,
-      { array: [6, 2, 1, 2] },
-    )
+    const buf = packLineLayerUniform([1, 1, 1, 1], 2, 1, 100, LINE_CAP_BUTT, LINE_JOIN_MITER, 4, {
+      array: [6, 2, 1, 2],
+    })
     const u32 = new Uint32Array(buf.buffer)
     expect(u32[U32_DASH_COUNT]).toBe(4)
     expect(buf[F32_DASH_CYCLE]).toBeCloseTo(11)
@@ -156,16 +152,30 @@ describe('packLineLayerUniform', () => {
     const mpp = 100
     // offset = 5px → 500 m
     const buf = packLineLayerUniform(
-      [1, 1, 1, 1], 2, 1, mpp,
-      LINE_CAP_BUTT, LINE_JOIN_MITER, 4,
-      null, [], 5,
+      [1, 1, 1, 1],
+      2,
+      1,
+      mpp,
+      LINE_CAP_BUTT,
+      LINE_JOIN_MITER,
+      4,
+      null,
+      [],
+      5,
     )
     expect(buf[F32_OFFSET]).toBeCloseTo(500)
     // negative (right side)
     const buf2 = packLineLayerUniform(
-      [1, 1, 1, 1], 2, 1, mpp,
-      LINE_CAP_BUTT, LINE_JOIN_MITER, 4,
-      null, [], -3,
+      [1, 1, 1, 1],
+      2,
+      1,
+      mpp,
+      LINE_CAP_BUTT,
+      LINE_JOIN_MITER,
+      4,
+      null,
+      [],
+      -3,
     )
     expect(buf2[F32_OFFSET]).toBeCloseTo(-300)
   })
@@ -178,17 +188,29 @@ describe('packLineLayerUniform', () => {
     const FLAG_PATTERN = 1 << 6
     // No patterns → bit clear.
     const empty = packLineLayerUniform(
-      [1, 1, 1, 1], 2, 1, 100,
-      LINE_CAP_BUTT, LINE_JOIN_MITER, 4,
-      null, [], 0,
+      [1, 1, 1, 1],
+      2,
+      1,
+      100,
+      LINE_CAP_BUTT,
+      LINE_JOIN_MITER,
+      4,
+      null,
+      [],
+      0,
     )
     const emptyU32 = new Uint32Array(empty.buffer)
     expect((emptyU32[U32_FLAGS] & FLAG_PATTERN) !== 0).toBe(false)
 
     // One active slot → bit set.
     const withPat = packLineLayerUniform(
-      [1, 1, 1, 1], 2, 1, 100,
-      LINE_CAP_BUTT, LINE_JOIN_MITER, 4,
+      [1, 1, 1, 1],
+      2,
+      1,
+      100,
+      LINE_CAP_BUTT,
+      LINE_JOIN_MITER,
+      4,
       null,
       [{ shapeId: 3, spacing: 20, size: 12 }],
       0,
@@ -198,8 +220,13 @@ describe('packLineLayerUniform', () => {
 
     // Slot with shapeId=0 is inactive — bit stays clear.
     const inactive = packLineLayerUniform(
-      [1, 1, 1, 1], 2, 1, 100,
-      LINE_CAP_BUTT, LINE_JOIN_MITER, 4,
+      [1, 1, 1, 1],
+      2,
+      1,
+      100,
+      LINE_CAP_BUTT,
+      LINE_JOIN_MITER,
+      4,
       null,
       [{ shapeId: 0, spacing: 20, size: 12 }],
       0,
@@ -211,26 +238,47 @@ describe('packLineLayerUniform', () => {
   it('sets has_offset bit only when offsetPx is non-zero', () => {
     const FLAG_OFFSET = 1 << 7
     const zero = packLineLayerUniform(
-      [1, 1, 1, 1], 2, 1, 100,
-      LINE_CAP_BUTT, LINE_JOIN_MITER, 4,
-      null, [], 0,
+      [1, 1, 1, 1],
+      2,
+      1,
+      100,
+      LINE_CAP_BUTT,
+      LINE_JOIN_MITER,
+      4,
+      null,
+      [],
+      0,
     )
     const zeroU32 = new Uint32Array(zero.buffer)
     expect((zeroU32[U32_FLAGS] & FLAG_OFFSET) !== 0).toBe(false)
 
     const off = packLineLayerUniform(
-      [1, 1, 1, 1], 2, 1, 100,
-      LINE_CAP_BUTT, LINE_JOIN_MITER, 4,
-      null, [], 5,
+      [1, 1, 1, 1],
+      2,
+      1,
+      100,
+      LINE_CAP_BUTT,
+      LINE_JOIN_MITER,
+      4,
+      null,
+      [],
+      5,
     )
     const offU32 = new Uint32Array(off.buffer)
     expect((offU32[U32_FLAGS] & FLAG_OFFSET) !== 0).toBe(true)
 
     // Negative offset (right-side) still flags.
     const offNeg = packLineLayerUniform(
-      [1, 1, 1, 1], 2, 1, 100,
-      LINE_CAP_BUTT, LINE_JOIN_MITER, 4,
-      null, [], -3,
+      [1, 1, 1, 1],
+      2,
+      1,
+      100,
+      LINE_CAP_BUTT,
+      LINE_JOIN_MITER,
+      4,
+      null,
+      [],
+      -3,
     )
     const offNegU32 = new Uint32Array(offNeg.buffer)
     expect((offNegU32[U32_FLAGS] & FLAG_OFFSET) !== 0).toBe(true)
@@ -252,14 +300,17 @@ describe('buildLineSegments', () => {
     const vertices = new Float32Array(7 * 6)
     for (let i = 0; i < 4; i++) {
       vertices[i * 6 + 0] = i * 100
-      vertices[i * 6 + 4] = 0  // featId
+      vertices[i * 6 + 4] = 0 // featId
     }
     for (let i = 4; i < 7; i++) {
       vertices[i * 6 + 0] = i * 100
-      vertices[i * 6 + 4] = 1  // featId
+      vertices[i * 6 + 4] = 1 // featId
     }
     const indices = new Uint32Array([0, 1, 1, 2, 2, 3, 4, 5, 5, 6])
-    const widths = new Map<number, number>([[0, 0.5], [1, 2.5]])
+    const widths = new Map<number, number>([
+      [0, 0.5],
+      [1, 2.5],
+    ])
     const seg = buildLineSegments(vertices, indices, 6, 0, 0, undefined, widths)
     // First 3 segments belong to featId=0 → width 0.5
     for (let s = 0; s < 3; s++) {
@@ -273,8 +324,10 @@ describe('buildLineSegments', () => {
 
   it('leaves segment.width_px_override at 0 when no widths map supplied', () => {
     const vertices = new Float32Array(2 * 6)
-    vertices[0 * 6 + 0] = 0; vertices[0 * 6 + 4] = 0
-    vertices[1 * 6 + 0] = 100; vertices[1 * 6 + 4] = 0
+    vertices[0 * 6 + 0] = 0
+    vertices[0 * 6 + 4] = 0
+    vertices[1 * 6 + 0] = 100
+    vertices[1 * 6 + 4] = 0
     const indices = new Uint32Array([0, 1])
     const seg = buildLineSegments(vertices, indices, 6)
     // 0 = "no override" sentinel — line shader falls through to
@@ -291,14 +344,21 @@ describe('buildLineSegments', () => {
     // belongs to a single feature (segment colour samples featId
     // from p0, see line-segment-build.ts:347).
     const vertices = new Float32Array(4 * 6)
-    vertices[0 * 6 + 0] = 0;   vertices[0 * 6 + 4] = 0
-    vertices[1 * 6 + 0] = 100; vertices[1 * 6 + 4] = 0
-    vertices[2 * 6 + 0] = 500; vertices[2 * 6 + 4] = 1
-    vertices[3 * 6 + 0] = 600; vertices[3 * 6 + 4] = 1
+    vertices[0 * 6 + 0] = 0
+    vertices[0 * 6 + 4] = 0
+    vertices[1 * 6 + 0] = 100
+    vertices[1 * 6 + 4] = 0
+    vertices[2 * 6 + 0] = 500
+    vertices[2 * 6 + 4] = 1
+    vertices[3 * 6 + 0] = 600
+    vertices[3 * 6 + 4] = 1
     const indices = new Uint32Array([0, 1, 2, 3])
     const f0Color = (0xff << 24) | (0x00 << 16) | (0x88 << 8) | 0xff
     const f1Color = (0x80 << 24) | (0xff << 16) | (0xaa << 8) | 0x00
-    const colors = new Map<number, number>([[0, f0Color >>> 0], [1, f1Color >>> 0]])
+    const colors = new Map<number, number>([
+      [0, f0Color >>> 0],
+      [1, f1Color >>> 0],
+    ])
     const seg = buildLineSegments(vertices, indices, 6, 0, 0, undefined, undefined, colors)
     const segU32 = new Uint32Array(seg.buffer)
     expect(segU32[0 * LINE_SEGMENT_STRIDE_F32 + OFF_COLOR_PACKED]).toBe(f0Color >>> 0)
@@ -311,9 +371,9 @@ describe('buildLineSegments', () => {
     //   v0 arc=0, v1 arc=100m, v2 arc=250m
     // DSFUN layout: [mx_h, my_h, mx_l, my_l, feat_id, arc_start]
     const vertices = dsfunLineVerts([
-      [0,    0, 0],     // v0: 0 m along feature
-      [1000, 0, 100],   // v1: 1 km east, arc=100
-      [2000, 0, 250],   // v2: 2 km east, arc=250
+      [0, 0, 0], // v0: 0 m along feature
+      [1000, 0, 100], // v1: 1 km east, arc=100
+      [2000, 0, 250], // v2: 2 km east, arc=250
     ])
     const indices = new Uint32Array([0, 1, 1, 2])
 
@@ -332,7 +392,7 @@ describe('buildLineSegments', () => {
 
   it('computes prev_tangent/next_tangent for adjacent segments that share a vertex', () => {
     const vertices = dsfunLineVerts([
-      [0,    0],
+      [0, 0],
       [1000, 0],
       [2000, 0],
     ])
@@ -363,7 +423,7 @@ describe('buildLineSegments', () => {
     it('caps: start segment with no prev → pad_p0 = 1 (cap margin, not 4)', () => {
       // Single-segment polyline from (0,0) to (1000,0): both endpoints are caps.
       const vertices = dsfunLineVerts([
-        [0,    0],
+        [0, 0],
         [1000, 0],
       ])
       const indices = new Uint32Array([0, 1])
@@ -377,7 +437,7 @@ describe('buildLineSegments', () => {
       // continuation, so both segments' p1 (seg 0) / p0 (seg 1) should
       // collapse to pad = 1 instead of the worst-case 4.
       const vertices = dsfunLineVerts([
-        [0,    0],
+        [0, 0],
         [1000, 0],
         [2000, 0],
       ])
@@ -396,7 +456,7 @@ describe('buildLineSegments', () => {
       // pad_along = |tan(θ/2)| where θ = 90° → tan(45°) = 1.0.
       // (Previously 1/sin(45°) ≈ 1.414, which over-estimated the along-dir pad.)
       const vertices = dsfunLineVerts([
-        [0,    0],
+        [0, 0],
         [1000, 0],
         [1000, 1000],
       ])
@@ -413,11 +473,11 @@ describe('buildLineSegments', () => {
       // 1/cos(80°) ≈ 5.76 > miter_limit 4, so the miter overshoots and the CPU
       // falls back to pad = 1 (bevel). (#432: the bevel test is on cos(θ/2), not
       // sin — a GENTLE turn miters; only a genuinely sharp one bevels.)
-      const a = 160 * Math.PI / 180
+      const a = (160 * Math.PI) / 180
       const vertices = dsfunLineVerts([
-        [0,                          0],
-        [1000,                       0],
-        [1000 + 1000 * Math.cos(a),  1000 * Math.sin(a)],
+        [0, 0],
+        [1000, 0],
+        [1000 + 1000 * Math.cos(a), 1000 * Math.sin(a)],
       ])
       const indices = new Uint32Array([0, 1, 1, 2])
       const segData = buildLineSegments(vertices, indices, 6)
@@ -429,7 +489,7 @@ describe('buildLineSegments', () => {
       // Loop every segment in a randomly shaped polyline and assert pads are
       // in the valid range [1, 4]. Smoke test for unexpected values.
       const vertices = dsfunLineVerts([
-        [0,    0],
+        [0, 0],
         [1000, 0],
         [1000, 1000],
         [2000, 1000],
@@ -458,7 +518,7 @@ describe('buildLineSegments', () => {
     // stride < 6 now throws — surfacing any stale call site loudly
     // instead of silently producing zero-arc dashes that drift.
     const vertices = dsfunPolyVerts([
-      [0,    0],
+      [0, 0],
       [1000, 0],
       [2000, 0],
     ])
@@ -500,16 +560,13 @@ describe('buildLineSegments', () => {
       const hOff = which === 'p0' ? OFF_P0_H : OFF_P1_H
       // low pair comes 4 slots after the high pair in the stride-16 layout
       const lOff = hOff + 4
-      return [
-        seg[off + hOff] + seg[off + lOff],
-        seg[off + hOff + 1] + seg[off + lOff + 1],
-      ]
+      return [seg[off + hOff] + seg[off + lOff], seg[off + hOff + 1] + seg[off + lOff + 1]]
     }
 
     it('two right-angle adjacent segments share the outer miter vertex', () => {
       // Chain v0=(0,0) → v1=(1000,0) → v2=(1000,1000). 90° left turn at v1.
       const vertices = dsfunLineVerts([
-        [0,    0],
+        [0, 0],
         [1000, 0],
         [1000, 1000],
       ])
@@ -521,17 +578,11 @@ describe('buildLineSegments', () => {
 
       const p0Seg0 = readP(segData, s0, 'p0')
       const p1Seg0 = readP(segData, s0, 'p1')
-      const nextSeg0: V2 = [
-        segData[s0 + OFF_NEXT_TANGENT + 0],
-        segData[s0 + OFF_NEXT_TANGENT + 1],
-      ]
+      const nextSeg0: V2 = [segData[s0 + OFF_NEXT_TANGENT + 0], segData[s0 + OFF_NEXT_TANGENT + 1]]
 
       const p0Seg1 = readP(segData, s1, 'p0')
       const p1Seg1 = readP(segData, s1, 'p1')
-      const prevSeg1: V2 = [
-        segData[s1 + OFF_PREV_TANGENT + 0],
-        segData[s1 + OFF_PREV_TANGENT + 1],
-      ]
+      const prevSeg1: V2 = [segData[s1 + OFF_PREV_TANGENT + 0], segData[s1 + OFF_PREV_TANGENT + 1]]
 
       // Shared endpoint must match
       expect(p1Seg0[0]).toBeCloseTo(p0Seg1[0], 4)
@@ -573,7 +624,7 @@ describe('buildLineSegments', () => {
 
     it('sharp fold beyond miter_limit falls back to bevel (offset = perp × half_w)', () => {
       // 170° deflection — path almost doubles back, miter ratio goes to ~12
-      const rad = Math.PI / 180 * 170
+      const rad = (Math.PI / 180) * 170
       const dir: V2 = [Math.cos(rad), Math.sin(rad)]
       const neighbor: V2 = [1, 0]
       const halfW = 100
@@ -607,7 +658,7 @@ describe('buildLineSegments', () => {
       // Build a real right-angle chain via buildLineSegments to exercise
       // the same prev_tangent / next_tangent values the shader sees.
       const vertices = dsfunLineVerts([
-        [0,    0],
+        [0, 0],
         [1000, 0],
         [1000, 1000],
       ])
@@ -620,10 +671,7 @@ describe('buildLineSegments', () => {
       const p1Seg0 = readP(seg, s0, 'p1')
       const dir0: V2 = [p1Seg0[0] - p0Seg0[0], p1Seg0[1] - p0Seg0[1]]
       const dir0Unit: V2 = mul(dir0, 1 / len(dir0))
-      const nextSeg0: V2 = [
-        seg[s0 + OFF_NEXT_TANGENT + 0],
-        seg[s0 + OFF_NEXT_TANGENT + 1],
-      ]
+      const nextSeg0: V2 = [seg[s0 + OFF_NEXT_TANGENT + 0], seg[s0 + OFF_NEXT_TANGENT + 1]]
 
       // Seg 1: start side (p0 = shared join vertex), use prev_tangent
       const s1 = 1 * LINE_SEGMENT_STRIDE_F32
@@ -631,10 +679,7 @@ describe('buildLineSegments', () => {
       const p1Seg1 = readP(seg, s1, 'p1')
       const dir1: V2 = [p1Seg1[0] - p0Seg1[0], p1Seg1[1] - p0Seg1[1]]
       const dir1Unit: V2 = mul(dir1, 1 / len(dir1))
-      const prevSeg1: V2 = [
-        seg[s1 + OFF_PREV_TANGENT + 0],
-        seg[s1 + OFF_PREV_TANGENT + 1],
-      ]
+      const prevSeg1: V2 = [seg[s1 + OFF_PREV_TANGENT + 0], seg[s1 + OFF_PREV_TANGENT + 1]]
 
       const offsetM = 50
 
@@ -670,13 +715,17 @@ describe('buildLineSegments', () => {
     const mul = (a: V2, s: number): V2 => [a[0] * s, a[1] * s]
     const len = (v: V2) => Math.hypot(v[0], v[1])
     const perp = (v: V2): V2 => [-v[1], v[0]]
-    const normalize = (v: V2): V2 => { const l = len(v); return [v[0] / l, v[1] / l] }
+    const normalize = (v: V2): V2 => {
+      const l = len(v)
+      return [v[0] / l, v[1] / l]
+    }
 
     /** Compute the miter SDF at a point p, matching the WGSL logic in
      *  compute_line_color for JOIN_MITER at p1. */
     function miterSDF(
       p: V2,
-      p0: V2, p1: V2,
+      p0: V2,
+      p1: V2,
       nextTangent: V2,
       halfW: number,
       offsetM: number,
@@ -752,8 +801,8 @@ describe('buildLineSegments', () => {
       // A very gentle turn (10°) → miter ratio ≈ 11.5, exceeds limit 4.
       // CPU sets pad_ratio = 1, so fragment shader miter_d should be > 0
       // at the would-be tip.
-      const cos10 = Math.cos(10 * Math.PI / 180)
-      const sin10 = Math.sin(10 * Math.PI / 180)
+      const cos10 = Math.cos((10 * Math.PI) / 180)
+      const sin10 = Math.sin((10 * Math.PI) / 180)
       const p0: V2 = [0, 0]
       const p1: V2 = [100, 0]
       const nextT: V2 = [cos10, sin10]
@@ -789,7 +838,10 @@ describe('buildLineSegments', () => {
     const mul = (a: V2, s: number): V2 => [a[0] * s, a[1] * s]
     const len = (v: V2) => Math.hypot(v[0], v[1])
     const perp = (v: V2): V2 => [-v[1], v[0]]
-    const normalize = (v: V2): V2 => { const l = len(v); return [v[0] / l, v[1] / l] }
+    const normalize = (v: V2): V2 => {
+      const l = len(v)
+      return [v[0] / l, v[1] / l]
+    }
 
     /** Compute the bevel edge clip distance at point p. Matches the WGSL
      *  bevel-edge clip in the bisector section of compute_line_color.
@@ -856,7 +908,9 @@ describe('buildLineSegments', () => {
   describe('miter quad extension uses pad_ratio', () => {
     it('miter pad at 90° is exactly 1.0 (= |tan(45°)|)', () => {
       const vertices = dsfunLineVerts([
-        [0, 0], [1000, 0], [1000, 1000],
+        [0, 0],
+        [1000, 0],
+        [1000, 1000],
       ])
       const indices = new Uint32Array([0, 1, 1, 2])
       const segData = buildLineSegments(vertices, indices, 6)
@@ -868,7 +922,9 @@ describe('buildLineSegments', () => {
       // V-shape: (-30,0) → (0,40) → (30,0). θ between dirs ≈ 106°.
       // pad_along = |tan(θ/2)| > 1/sin(θ/2) for this angle.
       const vertices = dsfunLineVerts([
-        [-3000, 0], [0, 4000], [3000, 0],
+        [-3000, 0],
+        [0, 4000],
+        [3000, 0],
       ])
       const indices = new Uint32Array([0, 1, 1, 2])
       const segData = buildLineSegments(vertices, indices, 6)
@@ -895,7 +951,12 @@ describe('buildLineSegments', () => {
     // blend, which the regression guards against.
     const JOIN_MITER = 0
     const JOIN_ROUND = 1
-    function alongPad(halfWSide: number, halfWmAa: number, endpointPad: number, joinType: number): number {
+    function alongPad(
+      halfWSide: number,
+      halfWmAa: number,
+      endpointPad: number,
+      joinType: number,
+    ): number {
       const joinPad = joinType === JOIN_MITER ? endpointPad : halfWmAa
       return Math.max(halfWSide, joinPad)
     }
@@ -905,7 +966,7 @@ describe('buildLineSegments', () => {
       const halfWmAa = 6.5
       const offsetM = -11
       const across = +1
-      const halfWSide = halfWmAa + offsetM * across  // = -4.5
+      const halfWSide = halfWmAa + offsetM * across // = -4.5
       expect(halfWSide).toBeLessThan(0)
       // Collinear pad_ratio = 1 → endpointPad = halfWmAa.
       const pad = alongPad(halfWSide, halfWmAa, /* endpointPad */ halfWmAa, JOIN_ROUND)
@@ -922,11 +983,11 @@ describe('buildLineSegments', () => {
       const halfWmAa = 6.5
       const halfWSide = halfWmAa
       const padRatioSharp = 3.7
-      const endpointPadSharp = padRatioSharp * halfWmAa  // 24.05
+      const endpointPadSharp = padRatioSharp * halfWmAa // 24.05
       const round = alongPad(halfWSide, halfWmAa, endpointPadSharp, JOIN_ROUND)
       const miter = alongPad(halfWSide, halfWmAa, endpointPadSharp, JOIN_MITER)
-      expect(round).toBe(halfWmAa)          // ROUND ignores pad_ratio
-      expect(miter).toBe(endpointPadSharp)  // MITER still covers the miter tip
+      expect(round).toBe(halfWmAa) // ROUND ignores pad_ratio
+      expect(miter).toBe(endpointPadSharp) // MITER still covers the miter tip
       expect(miter).toBeGreaterThan(round)
     })
 
@@ -934,7 +995,7 @@ describe('buildLineSegments', () => {
       const halfWmAa = 6.5
       const offsetM = +11
       const across = -1
-      const halfWSide = halfWmAa + offsetM * across  // = -4.5
+      const halfWSide = halfWmAa + offsetM * across // = -4.5
       expect(halfWSide).toBeLessThan(0)
       const pad = alongPad(halfWSide, halfWmAa, halfWmAa, JOIN_ROUND)
       expect(pad).toBeGreaterThan(0)
@@ -964,9 +1025,14 @@ describe('buildLineSegments', () => {
     // matches the shader convention (stroke-outset uses -halfW on our
     // CCW polygon fixture).
     function roundJoinDM(
-      p: V2, p0: V2, p1: V2,
-      prevTan: V2, nextTan: V2,
-      halfW: number, offsetM: number, miterLimit: number,
+      p: V2,
+      p0: V2,
+      p1: V2,
+      prevTan: V2,
+      nextTan: V2,
+      halfW: number,
+      offsetM: number,
+      miterLimit: number,
       joinType: Join,
     ): { dM: number; branch: string } {
       const dir: V2 = (() => {
@@ -1008,7 +1074,10 @@ describe('buildLineSegments', () => {
           const alongP0 = dot(sub(p, p0JoinCenter), bisUnitP0)
           if (alongP0 < 0) {
             const newDM = Math.max(dM, -alongP0)
-            if (newDM !== dM) { dM = newDM; branch = 'bisector_p0_prev_side' }
+            if (newDM !== dM) {
+              dM = newDM
+              branch = 'bisector_p0_prev_side'
+            }
           }
         }
         // Bevel-edge clip at p0 (1257-1280).
@@ -1031,7 +1100,10 @@ describe('buildLineSegments', () => {
               const bclip0 = dot(sub(p, oc0), bo0)
               if (bclip0 > 0) {
                 const newDM = Math.max(dM, bclip0)
-                if (newDM !== dM) { dM = newDM; branch = 'bevel_p0' }
+                if (newDM !== dM) {
+                  dM = newDM
+                  branch = 'bevel_p0'
+                }
               }
             }
           }
@@ -1047,7 +1119,10 @@ describe('buildLineSegments', () => {
           const alongP1 = dot(sub(p, p1JoinCenter), bisUnitP1)
           if (alongP1 > 0) {
             const newDM = Math.max(dM, alongP1)
-            if (newDM !== dM) { dM = newDM; branch = 'bisector_p1_next_side' }
+            if (newDM !== dM) {
+              dM = newDM
+              branch = 'bisector_p1_next_side'
+            }
           }
         }
         const crossP1Mag = Math.abs(dir[0] * nextTan[1] - dir[1] * nextTan[0])
@@ -1069,7 +1144,10 @@ describe('buildLineSegments', () => {
               const bclip1 = dot(sub(p, oc1), bo1)
               if (bclip1 > 0) {
                 const newDM = Math.max(dM, bclip1)
-                if (newDM !== dM) { dM = newDM; branch = 'bevel_p1' }
+                if (newDM !== dM) {
+                  dM = newDM
+                  branch = 'bevel_p1'
+                }
               }
             }
           }
@@ -1125,10 +1203,10 @@ describe('buildLineSegments', () => {
     const e0P1: V2 = [0, 0]
     const e1P0: V2 = [0, 0]
     const e1P1: V2 = [0, L]
-    const e0Prev: V2 = [0, 0]          // e0 is line start, cap at p0
-    const e0Next: V2 = [0, 1]          // next seg direction
-    const e1Prev: V2 = [1, 0]          // prev seg direction
-    const e1Next: V2 = [0, 0]          // e1 is line end, cap at p1
+    const e0Prev: V2 = [0, 0] // e0 is line start, cap at p0
+    const e0Next: V2 = [0, 1] // next seg direction
+    const e1Prev: V2 = [1, 0] // prev seg direction
+    const e1Next: V2 = [0, 0] // e1 is line end, cap at p1
     const miterVertex: V2 = [halfW, -halfW]
 
     // Whisker lives on the outer bisector (SE direction for this turn).

@@ -18,66 +18,69 @@ describe('let duplicate-binding spec gate', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'line-color': '#fff',
-          'line-width': ['let',
-            'r', 1,
-            'r', 5,  // duplicate
-            ['var', 'r']],
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'line-color': '#fff',
+            'line-width': [
+              'let',
+              'r',
+              1,
+              'r',
+              5, // duplicate
+              ['var', 'r'],
+            ],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('duplicate binding') && s.includes('"r"'))).toBe(true)
+    expect(w.some((s) => s.includes('duplicate binding') && s.includes('"r"'))).toBe(true)
   })
 
   it('let with unique binding names does NOT warn', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'line',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'line-color': '#fff',
-          'line-width': ['let',
-            'r', 1,
-            's', 5,
-            ['+', ['var', 'r'], ['var', 's']]],
+      layers: [
+        {
+          id: 'l',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'line-color': '#fff',
+            'line-width': ['let', 'r', 1, 's', 5, ['+', ['var', 'r'], ['var', 's']]],
+          },
         },
-      }],
+      ],
     })
-    expect(w.some(s => s.includes('duplicate binding'))).toBe(false)
+    expect(w.some((s) => s.includes('duplicate binding'))).toBe(false)
   })
 
   it('triple duplicate emits a single warning naming all collisions', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
-      layers: [{
-        id: 'l',
-        type: 'circle',
-        source: 'v',
-        'source-layer': 'a',
-        paint: {
-          'circle-color': '#000',
-          'circle-stroke-color': '#000',
-          'circle-stroke-width': 1,
-          'circle-radius': ['let',
-            'x', 1,
-            'x', 2,
-            'x', 3,
-            ['var', 'x']],
+      layers: [
+        {
+          id: 'l',
+          type: 'circle',
+          source: 'v',
+          'source-layer': 'a',
+          paint: {
+            'circle-color': '#000',
+            'circle-stroke-color': '#000',
+            'circle-stroke-width': 1,
+            'circle-radius': ['let', 'x', 1, 'x', 2, 'x', 3, ['var', 'x']],
+          },
         },
-      }],
+      ],
     })
-    const dupes = w.filter(s => s.includes('duplicate binding'))
+    const dupes = w.filter((s) => s.includes('duplicate binding'))
     expect(dupes.length).toBe(1)
     // The warning should mention "x" only once even though it was
     // duplicated twice (set semantics).

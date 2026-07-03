@@ -1,9 +1,14 @@
 import type { Stmt } from '../../../ir'
 import type { LintRule } from '../engine'
 
-function reportUnreachable(body: readonly Stmt[], fnName: string, report: (m: string, o?: { fn?: string }) => void): void {
+function reportUnreachable(
+  body: readonly Stmt[],
+  fnName: string,
+  report: (m: string, o?: { fn?: string }) => void,
+): void {
   body.forEach((s, i) => {
-    const terminator = s.s === 'return' || s.s === 'discard' || s.s === 'break' || s.s === 'continue'
+    const terminator =
+      s.s === 'return' || s.s === 'discard' || s.s === 'break' || s.s === 'continue'
     if (terminator && i < body.length - 1) {
       report(`unreachable statement after '${s.s}' in fn '${fnName}'`, { fn: fnName })
     }
@@ -25,5 +30,9 @@ export const noUnreachable: LintRule = {
   description: 'no statements after a return / discard / break / continue in the same block',
   severity: 'error',
   category: 'correctness',
-  create: (ctx) => ({ Func(f) { reportUnreachable(f.body, f.name, ctx.report) } }),
+  create: (ctx) => ({
+    Func(f) {
+      reportUnreachable(f.body, f.name, ctx.report)
+    },
+  }),
 }

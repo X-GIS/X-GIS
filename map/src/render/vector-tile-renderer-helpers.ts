@@ -39,7 +39,7 @@ export function getMaxGpuTiles(): number {
  *  unchanged. Placed next to getMaxGpuTiles so a future mobile-specific
  *  band is easy. */
 export const ARENA_HIGH_WATER = 0.75
-export const ARENA_LOW_WATER = 0.60
+export const ARENA_LOW_WATER = 0.6
 /** Max tiles promoted from data cache to GPU per frame. Chosen empirically:
  *  crossing a z-boundary produces ~16 newly-visible tiles, and uploading
  *  them all in one frame caused ~250 ms stalls (perf-scenarios benchmark,

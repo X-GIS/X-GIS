@@ -18,7 +18,11 @@ export class LineCompositeDraper {
   private _material?: Material
   private readonly sampler
 
-  constructor(private readonly rhi: RhiDevice, private readonly format: string, private readonly sampleCount: number) {
+  constructor(
+    private readonly rhi: RhiDevice,
+    private readonly format: string,
+    private readonly sampleCount: number,
+  ) {
     this.sampler = { sampler: rhi.createSampler({ mag: 'linear', min: 'linear' }) }
   }
 
@@ -26,13 +30,18 @@ export class LineCompositeDraper {
    *  a dynamic-offset opacity uniform; fs_full emits PREMULTIPLIED rgb so the target blends 'premult'. */
   private mat(): Material {
     return (this._material ??= new Material(this.rhi, {
-      shader: emitCompositeWgsl(), vsEntry: 'vs_full', fsEntry: 'fs_full',
-      format: this.format as 'bgra8unorm', sampleCount: this.sampleCount,
-      groups: [[
-        { binding: 0, kind: 'sampler' },
-        { binding: 1, kind: 'texture' },
-        { binding: 2, kind: 'uniform', dynamic: true },
-      ]],
+      shader: emitCompositeWgsl(),
+      vsEntry: 'vs_full',
+      fsEntry: 'fs_full',
+      format: this.format as 'bgra8unorm',
+      sampleCount: this.sampleCount,
+      groups: [
+        [
+          { binding: 0, kind: 'sampler' },
+          { binding: 1, kind: 'texture' },
+          { binding: 2, kind: 'uniform', dynamic: true },
+        ],
+      ],
       colorTargets: [{ format: this.format as 'bgra8unorm', blend: 'premult' }],
       variants: [{ label: 'line-composite-rhi' }], // no depth-stencil (fullscreen composite)
     }))
@@ -50,6 +59,8 @@ export class LineCompositeDraper {
       { binding: 1, resource: { view: wrapWebGpuTextureView(offscreenView) } },
       { binding: 2, resource: { buffer: ring, size: COMPOSITE_SLOT } },
     ])
-    executeItems(m, pass, [{ variant: 0, bindGroups: [bg], dynamicOffsets: [[offset]], count: 3, indexed: false }])
+    executeItems(m, pass, [
+      { variant: 0, bindGroups: [bg], dynamicOffsets: [[offset]], count: 3, indexed: false },
+    ])
   }
 }

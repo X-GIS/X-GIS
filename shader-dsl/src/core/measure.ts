@@ -55,7 +55,8 @@ function walkExpr(e: Expr, c: { calls: number; arith: number }): void {
     case 'compare':
     case 'logical':
       c.arith++
-      walkExpr(e.a, c); walkExpr(e.b, c)
+      walkExpr(e.a, c)
+      walkExpr(e.b, c)
       break
     case 'unop':
       c.arith++
@@ -65,15 +66,22 @@ function walkExpr(e: Expr, c: { calls: number; arith: number }): void {
       for (const a of e.args) walkExpr(a, c) // a vector ctor is not an ALU op; still recurse its args
       break
     case 'member':
-      walkExpr(e.base, c); break
+      walkExpr(e.base, c)
+      break
     case 'index':
-      walkExpr(e.base, c); walkExpr(e.idx, c); break
+      walkExpr(e.base, c)
+      walkExpr(e.idx, c)
+      break
     case 'select':
-      walkExpr(e.cond, c); walkExpr(e.ifTrue, c); walkExpr(e.ifFalse, c); break
+      walkExpr(e.cond, c)
+      walkExpr(e.ifTrue, c)
+      walkExpr(e.ifFalse, c)
+      break
     case 'matchExpr':
       walkExpr(e.scrutinee, c)
       for (const [, v] of e.cases) walkExpr(v, c)
-      walkExpr(e.default, c); break
+      walkExpr(e.default, c)
+      break
     case 'lit':
     case 'constref':
     case 'param':
@@ -88,12 +96,20 @@ function walkExpr(e: Expr, c: { calls: number; arith: number }): void {
 
 function walkStmt(s: Stmt, c: { calls: number; arith: number }): void {
   switch (s.s) {
-    case 'let': walkExpr(s.expr, c); break
-    case 'var': if (s.init !== undefined) walkExpr(s.init, c); break
+    case 'let':
+      walkExpr(s.expr, c)
+      break
+    case 'var':
+      if (s.init !== undefined) walkExpr(s.init, c)
+      break
     case 'assign':
     case 'assignOp':
-      walkExpr(s.target, c); walkExpr(s.expr, c); break
-    case 'return': if (s.expr !== undefined) walkExpr(s.expr, c); break
+      walkExpr(s.target, c)
+      walkExpr(s.expr, c)
+      break
+    case 'return':
+      if (s.expr !== undefined) walkExpr(s.expr, c)
+      break
     case 'if':
       for (const arm of s.arms) {
         walkExpr(arm.cond, c)
@@ -102,7 +118,9 @@ function walkStmt(s: Stmt, c: { calls: number; arith: number }): void {
       if (s.elseBody) for (const b of s.elseBody) walkStmt(b, c)
       break
     case 'for':
-      walkStmt(s.init, c); walkExpr(s.cond, c); walkStmt(s.update, c)
+      walkStmt(s.init, c)
+      walkExpr(s.cond, c)
+      walkStmt(s.update, c)
       for (const b of s.body) walkStmt(b, c)
       break
     case 'switch':
@@ -140,7 +158,12 @@ export function countOps(m: ModuleDecl): OpCount {
 
 export interface OptimizerReport {
   /** Source size at O0 vs O2; `saved*` may be NEGATIVE (CSE trades bytes for ops). */
-  readonly size: { readonly o0: EmitSize; readonly o2: EmitSize; readonly savedChars: number; readonly savedLines: number }
+  readonly size: {
+    readonly o0: EmitSize
+    readonly o2: EmitSize
+    readonly savedChars: number
+    readonly savedLines: number
+  }
   /** Operation count at O0 vs O2; the optimizer never INCREASES either axis. */
   readonly ops: {
     readonly o0: OpCount
@@ -160,7 +183,12 @@ export function optimizerReport(m: ModuleDecl): OptimizerReport {
   const opsO0 = countOps(lowerWgsl(m, 'O0'))
   const opsO2 = countOps(lowerWgsl(m, 'O2'))
   return {
-    size: { o0: sizeO0, o2: sizeO2, savedChars: sizeO0.chars - sizeO2.chars, savedLines: sizeO0.lines - sizeO2.lines },
+    size: {
+      o0: sizeO0,
+      o2: sizeO2,
+      savedChars: sizeO0.chars - sizeO2.chars,
+      savedLines: sizeO0.lines - sizeO2.lines,
+    },
     ops: {
       o0: opsO0,
       o2: opsO2,

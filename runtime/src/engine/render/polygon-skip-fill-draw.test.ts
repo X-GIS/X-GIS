@@ -21,11 +21,21 @@ import { varRefVec4 } from '@xgis/compiler'
 
 function v(opts: Partial<ShaderVariant>): ShaderVariant {
   return {
-    key: 'k', preamble: {}, fillExpr: varRefVec4('u.fill_color'), strokeExpr: varRefVec4('u.stroke_color'),
-    needsFeatureBuffer: false, featureFields: [], uniformFields: [],
-    categoryOrder: {}, paletteColorGradients: [], paletteScalarGradients: [],
-    fillUsesPalette: false, strokeUsesPalette: false, opacityUsesPalette: false,
-    fillIsDefault: true, strokeIsDefault: true,
+    key: 'k',
+    preamble: {},
+    fillExpr: varRefVec4('u.fill_color'),
+    strokeExpr: varRefVec4('u.stroke_color'),
+    needsFeatureBuffer: false,
+    featureFields: [],
+    uniformFields: [],
+    categoryOrder: {},
+    paletteColorGradients: [],
+    paletteScalarGradients: [],
+    fillUsesPalette: false,
+    strokeUsesPalette: false,
+    opacityUsesPalette: false,
+    fillIsDefault: true,
+    strokeIsDefault: true,
     ...opts,
   }
 }

@@ -14,13 +14,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { tileKey } from '@xgis/compiler'
 import { TileCatalog } from '@xgis/data'
-import {
-  type TileData,
-  MAX_CACHED_TILES,
-} from '@xgis/data'
-import {
-  type TileSource, type TileSourceMeta, type TileSourceSink,
-} from '@xgis/data'
+import { type TileData, MAX_CACHED_TILES } from '@xgis/data'
+import { type TileSource, type TileSourceMeta, type TileSourceSink } from '@xgis/data'
 
 // Minimal TileData with controllable byte cost. sizeOfTileData sums
 // vertices + indices + lineVertices + lineIndices + outlineIndices, so
@@ -37,16 +32,22 @@ function makeStubTileData(floats: number): TileData {
     lineVertices: lineVerts,
     lineIndices: idx,
     outlineIndices: idx,
-    tileWest: 0, tileSouth: 0, tileWidth: 1, tileHeight: 1, tileZoom: 0,
+    tileWest: 0,
+    tileSouth: 0,
+    tileWidth: 1,
+    tileHeight: 1,
+    tileZoom: 0,
   }
 }
 
 // Reach into the private setSlice for direct cache injection — same
 // escape hatch the multi-layer-overzoom test uses.
 function injectSlice(catalog: TileCatalog, key: number, data: TileData): void {
-  const slice = (catalog as unknown as {
-    setSlice(k: number, layer: string, d: TileData): void
-  }).setSlice.bind(catalog)
+  const slice = (
+    catalog as unknown as {
+      setSlice(k: number, layer: string, d: TileData): void
+    }
+  ).setSlice.bind(catalog)
   slice(key, '', data)
 }
 
@@ -59,7 +60,9 @@ function makeStubBackend(): {
 } {
   const cancelStale = vi.fn<(activeKeys: Set<number>) => void>()
   const meta: TileSourceMeta = {
-    bounds: [-180, -85, 180, 85], minZoom: 0, maxZoom: 14,
+    bounds: [-180, -85, 180, 85],
+    minZoom: 0,
+    maxZoom: 14,
     scheme: 'web-mercator-xyz',
   }
   const backend: TileSource = {
@@ -79,9 +82,10 @@ describe('TileCatalog skeleton (Cesium permanent-root pattern)', () => {
     injectSlice(catalog, keep, makeStubTileData(8))
     catalog.markSkeleton([keep])
     catalog.evictTiles(new Set())
-    expect(catalog.hasTileData(keep),
-      'skeleton key must survive eviction with no frame-protectedKeys')
-      .toBe(true)
+    expect(
+      catalog.hasTileData(keep),
+      'skeleton key must survive eviction with no frame-protectedKeys',
+    ).toBe(true)
   })
 
   it('non-skeleton keys evict normally when count cap is exceeded', () => {
@@ -99,16 +103,15 @@ describe('TileCatalog skeleton (Cesium permanent-root pattern)', () => {
       overflow.push(k)
     }
     catalog.evictTiles(new Set())
-    expect(catalog.hasTileData(skeletonKey),
-      'skeleton survives count-cap-driven LRU eviction')
-      .toBe(true)
+    expect(
+      catalog.hasTileData(skeletonKey),
+      'skeleton survives count-cap-driven LRU eviction',
+    ).toBe(true)
     let evicted = 0
     for (const k of overflow) {
       if (!catalog.hasTileData(k)) evicted++
     }
-    expect(evicted,
-      'count-cap eviction must drop ≥ 5 non-skeleton keys')
-      .toBeGreaterThanOrEqual(5)
+    expect(evicted, 'count-cap eviction must drop ≥ 5 non-skeleton keys').toBeGreaterThanOrEqual(5)
   })
 
   it('skeleton survives eviction even after _evictShield TTL would have expired', () => {
@@ -128,15 +131,14 @@ describe('TileCatalog skeleton (Cesium permanent-root pattern)', () => {
     // Sanity: shield is empty here (we never called prefetchTiles), so
     // the only thing standing between this key and eviction is the
     // skeleton filter.
-    const shield = (catalog as unknown as { eviction: { shieldMap: Map<number, number> } }).eviction.shieldMap
+    const shield = (catalog as unknown as { eviction: { shieldMap: Map<number, number> } }).eviction
+      .shieldMap
     expect(shield.has(k)).toBe(false)
     catalog.evictTiles(new Set())
-    expect(catalog.hasTileData(k),
-      'skeleton must survive without any shield protection')
-      .toBe(true)
+    expect(catalog.hasTileData(k), 'skeleton must survive without any shield protection').toBe(true)
   })
 
-  it('cancelStale unions skeleton keys into the backend\'s active set', () => {
+  it("cancelStale unions skeleton keys into the backend's active set", () => {
     // The pump's 250ms gap collides with the catalog's 12-frame
     // _prefetchAge wipe; without skeleton union here, in-flight
     // skeleton fetches would be aborted between retries.
@@ -151,9 +153,7 @@ describe('TileCatalog skeleton (Cesium permanent-root pattern)', () => {
     catalog.cancelStale(new Set())
     expect(cancelStale).toHaveBeenCalledTimes(1)
     const merged = cancelStale.mock.calls[0][0]
-    expect(merged.has(k1),
-      'skeleton key 1 must be in cancelStale merged set').toBe(true)
-    expect(merged.has(k2),
-      'skeleton key 2 must be in cancelStale merged set').toBe(true)
+    expect(merged.has(k1), 'skeleton key 1 must be in cancelStale merged set').toBe(true)
+    expect(merged.has(k2), 'skeleton key 2 must be in cancelStale merged set').toBe(true)
   })
 })

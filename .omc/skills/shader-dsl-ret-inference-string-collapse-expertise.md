@@ -2,17 +2,18 @@
 name: shader-dsl-ret-inference-string-collapse
 description: shader-dsl fn() return-type inference collapses to bare `string` for void-Return bodies and propagates — fix the deepest root's final Return→native return
 triggers:
-  - "fn return type inference"
-  - "Node<string> not assignable to Node"
-  - "R extends string"
-  - "inferReturnType"
-  - "fn ret token"
-  - "shader-dsl fn()"
+  - 'fn return type inference'
+  - 'Node<string> not assignable to Node'
+  - 'R extends string'
+  - 'inferReturnType'
+  - 'fn ret token'
+  - 'shader-dsl fn()'
 ---
 
 # shader-dsl fn() ret-inference — the `R extends string` collapse
 
 ## The Insight
+
 `@xgis/shader-dsl`'s `fn()` infers its WGSL return type from the body (`inferReturnType(result, stmts)` in
 core/ir/builder.ts). TS cannot REVERSE the `KeyOf<R>` mapped type (key→ShaderType), so the FnHandle is keyed
 by the return-KEY string `R extends string`, and the call returns `Node<R>`. The trap: when a body returns
@@ -22,17 +23,20 @@ result is `void`, so TS infers `R = string` (bare) — and `Node<string>` is NOT
 another now-`string` fn also collapses to `string`.
 
 ## Why This Matters
+
 Dropping the explicit ret token from a fn whose body ends in `Return(x)` (not `return x`) silently widens
 every downstream typed consumer to `Node<string>`, producing a cascade of `TS2345 number/Node<string> not
 assignable` errors that look unrelated to the fn you changed.
 
 ## Recognition Pattern
+
 - You removed the explicit ret token from `fn('name', params, RET, body)` → `fn('name', params, body)`.
 - tsc errors `Node<string> is not assignable to parameter of type Node<'…'>` appear at the fn's CALL sites
   (and at callers of those callers), not at the fn itself.
 - The offending fns use `Return(x)` / `ReturnIf(c, x)` as their final return, or end in an if/else guard.
 
 ## The Approach
+
 1. Find the DEEPEST root fn (the one whose own body returns a concrete value) and convert its FINAL
    `Return(x)` → native `return x`. This lowers to the IDENTICAL `{s:'return', expr}` Stmt, so the emit is
    byte-identical — only the TS inference changes (now `Node<KeyOf<x>>`, not void→string).

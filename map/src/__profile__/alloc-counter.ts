@@ -63,7 +63,7 @@ export function snapshotAllocProfile(): Record<string, number> {
 /** Test-only: control flag for unit tests. Production callers set
  *  `globalThis.__xgisAllocProfileEnabled` directly. */
 export function _setEnabled(on: boolean): void {
-  (globalThis as { __xgisAllocProfileEnabled?: boolean }).__xgisAllocProfileEnabled = on
+  ;(globalThis as { __xgisAllocProfileEnabled?: boolean }).__xgisAllocProfileEnabled = on
 }
 
 // iter-240 — module-side-effect expose for harness + DevTools.
@@ -71,14 +71,16 @@ export function _setEnabled(on: boolean): void {
 // at `globalThis.__xgisAllocProfile`. Production cost: a single
 // object literal at module init. Disabled-by-default flag means
 // no per-frame overhead until the user opts in.
-;(globalThis as {
-  __xgisAllocProfile?: {
-    getAllocProfile: typeof getAllocProfile
-    snapshotAllocProfile: typeof snapshotAllocProfile
-    resetAllocProfile: typeof resetAllocProfile
-    setEnabled: typeof _setEnabled
+;(
+  globalThis as {
+    __xgisAllocProfile?: {
+      getAllocProfile: typeof getAllocProfile
+      snapshotAllocProfile: typeof snapshotAllocProfile
+      resetAllocProfile: typeof resetAllocProfile
+      setEnabled: typeof _setEnabled
+    }
   }
-}).__xgisAllocProfile = {
+).__xgisAllocProfile = {
   getAllocProfile,
   snapshotAllocProfile,
   resetAllocProfile,

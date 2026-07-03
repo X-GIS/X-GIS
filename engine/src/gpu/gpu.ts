@@ -9,8 +9,11 @@
  *  MSAA / offscreen path. */
 function readSafeFlag(): boolean {
   if (typeof window === 'undefined') return false
-  try { return new URL(window.location.href).searchParams.get('safe') === '1' }
-  catch { return false }
+  try {
+    return new URL(window.location.href).searchParams.get('safe') === '1'
+  } catch {
+    return false
+  }
 }
 export const SAFE_MODE: boolean = readSafeFlag()
 
@@ -39,7 +42,9 @@ export const MAX_DPR: number = QUALITY.maxDpr
 export const PICK: boolean = QUALITY.picking
 
 if (typeof window !== 'undefined' && SAFE_MODE) {
-  console.warn('[X-GIS] safe mode active (?safe=1) — translucent offscreen disabled (quality preset = battery)')
+  console.warn(
+    '[X-GIS] safe mode active (?safe=1) — translucent offscreen disabled (quality preset = battery)',
+  )
 }
 
 export interface GPUContext {
@@ -98,8 +103,11 @@ export interface GPUContext {
  *  reject device creation on hardware/drivers that lack it. */
 function readGpuProfFlag(): boolean {
   if (typeof window === 'undefined') return false
-  try { return new URL(window.location.href).searchParams.get('gpuprof') === '1' }
-  catch { return false }
+  try {
+    return new URL(window.location.href).searchParams.get('gpuprof') === '1'
+  } catch {
+    return false
+  }
 }
 export const GPU_PROF: boolean = readGpuProfFlag()
 
@@ -111,8 +119,11 @@ export const GPU_PROF: boolean = readGpuProfFlag()
  *  through `host.ctx.rhi` (a `WebGl2Device`) instead of the raw `GPUDevice`. */
 function readForceGl2Flag(): boolean {
   if (typeof window === 'undefined') return false
-  try { return new URL(window.location.href).searchParams.get('forcegl2') === '1' }
-  catch { return false }
+  try {
+    return new URL(window.location.href).searchParams.get('forcegl2') === '1'
+  } catch {
+    return false
+  }
 }
 export const FORCE_GL2: boolean = readForceGl2Flag()
 
@@ -164,7 +175,10 @@ export class WebGPUUnavailableError extends Error {
   }
 }
 
-export async function initGPU(canvas: HTMLCanvasElement, opts: InitGPUOptions = {}): Promise<GPUContext> {
+export async function initGPU(
+  canvas: HTMLCanvasElement,
+  opts: InitGPUOptions = {},
+): Promise<GPUContext> {
   // WebGL2 boot path. Resolved from the caller's backend choice (explicit
   // `'webgl2'`, or `'auto'` under the `?forcegl2=1` dev override) via the single
   // `resolveBackend` authority. Additive EARLY RETURN — the WebGPU body below stays
@@ -203,12 +217,16 @@ export async function initGPU(canvas: HTMLCanvasElement, opts: InitGPUOptions = 
     // Inside-passes timestamps are a Chromium-experimental superset.
     // Cast through `as` because the standard `GPUFeatureName` type
     // doesn't list the chromium-experimental-* names.
-    if (adapter.features.has('chromium-experimental-timestamp-query-inside-passes' as GPUFeatureName)) {
+    if (
+      adapter.features.has('chromium-experimental-timestamp-query-inside-passes' as GPUFeatureName)
+    ) {
       requiredFeatures.push('chromium-experimental-timestamp-query-inside-passes' as GPUFeatureName)
       timestampInsidePassesSupported = true
     }
   } else if (GPU_PROF) {
-    console.warn('[X-GIS] ?gpuprof=1 requested but adapter lacks timestamp-query feature — GPU timing disabled')
+    console.warn(
+      '[X-GIS] ?gpuprof=1 requested but adapter lacks timestamp-query feature — GPU timing disabled',
+    )
   }
   // r32float linear filtering. Where present (Chrome 121+ / Safari TP
   // desktop) the scalar gradient atlas samples via textureSampleLevel
@@ -253,7 +271,10 @@ export async function initGPU(canvas: HTMLCanvasElement, opts: InitGPUOptions = 
   // handler so the handler can push into the per-context queue
   // (tests read `ctx._validationErrors` to assert no errors fired).
   const ctx: GPUContext = {
-    device, context, format, canvas,
+    device,
+    context,
+    format,
+    canvas,
     sampleCount: SAMPLE_COUNT,
     rhi: new WebGpuDevice(device),
     timestampQuerySupported,
@@ -267,16 +288,20 @@ export async function initGPU(canvas: HTMLCanvasElement, opts: InitGPUOptions = 
   // issuing work into the dead device) and fire the optional host hook.
   // 'destroyed' is our own device.destroy() teardown — not a fault — so
   // it's logged but not forwarded to onDeviceLost.
-  device.lost.then((info) => {
-    ctx.deviceLost = true
-    // 'destroyed' is our own map.destroy()/device.destroy() teardown — a
-    // normal unmount, not a fault. Stay silent so every SPA unmount doesn't
-    // print a red console.error that looks like a GPU crash.
-    if (info.reason !== 'destroyed') {
-      console.error('[X-GIS] WebGPU device lost:', info.reason, info.message)
-      ctx.onDeviceLost?.(info)
-    }
-  }).catch(() => { /* device GC'd before lost resolved — ignore */ })
+  device.lost
+    .then((info) => {
+      ctx.deviceLost = true
+      // 'destroyed' is our own map.destroy()/device.destroy() teardown — a
+      // normal unmount, not a fault. Stay silent so every SPA unmount doesn't
+      // print a red console.error that looks like a GPU crash.
+      if (info.reason !== 'destroyed') {
+        console.error('[X-GIS] WebGPU device lost:', info.reason, info.message)
+        ctx.onDeviceLost?.(info)
+      }
+    })
+    .catch(() => {
+      /* device GC'd before lost resolved — ignore */
+    })
 
   // Surface validation errors via TWO sinks:
   //   (1) console.error for human visibility (existing behavior)
@@ -319,15 +344,25 @@ export function initGPUForcedWebGL2(
   // preserveDrawingBuffer keeps the rendered frame readable via gl.readPixels after the
   // rAF turn — the US-004 live-render gate reads the checker pixels back. (This slice is a
   // dev/test path; the minor compositor cost is acceptable.)
-  const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: true, stencil: true })
-  if (!gl) throw new WebGPUUnavailableError('?forcegl2=1 set but canvas.getContext("webgl2") returned null')
+  const gl = canvas.getContext('webgl2', {
+    alpha: true,
+    premultipliedAlpha: true,
+    preserveDrawingBuffer: true,
+    stencil: true,
+  })
+  if (!gl)
+    throw new WebGPUUnavailableError(
+      '?forcegl2=1 set but canvas.getContext("webgl2") returned null',
+    )
   const rhi = makeRhi(gl)
 
   if (typeof window !== 'undefined') {
     // Page-readable backend marker for the e2e gate (mirrors the interface-member
     // truth `host.ctx.rhi.backend`; the gate reads this from the page).
     ;(window as unknown as { __xgisActiveBackend?: string }).__xgisActiveBackend = 'webgl2'
-    console.warn('[X-GIS] forced WebGL2 backend active (?forcegl2=1) — single-sample isolated raster slice')
+    console.warn(
+      '[X-GIS] forced WebGL2 backend active (?forcegl2=1) — single-sample isolated raster slice',
+    )
   }
 
   // Recursive no-op stub for the WebGPU device/context. The renderer CONSTRUCTORS build
@@ -341,9 +376,15 @@ export function initGPUForcedWebGL2(
   // is a function) and `await device.createRenderPipelineAsync(…)` hangs forever (the fake
   // `.then` never calls resolve). Returning undefined for `then` makes the proxy a plain
   // value, so `await noop` resolves to it immediately.
-  const noop = new Proxy(function () { /* no-op */ }, {
-    get: (_t, p) => (p === 'then' ? undefined : noop), apply: () => noop,
-  }) as unknown
+  const noop = new Proxy(
+    function () {
+      /* no-op */
+    },
+    {
+      get: (_t, p) => (p === 'then' ? undefined : noop),
+      apply: () => noop,
+    },
+  ) as unknown
   return {
     device: noop as GPUDevice,
     context: noop as GPUCanvasContext,
@@ -370,9 +411,7 @@ export function initGPUForcedWebGL2(
 export function effectiveDpr(interacting = false): number {
   // Use the LIVE getter so runtime `map.setQuality({ maxDpr })` propagates
   // on the very next resize without touching anything else.
-  const cap = interacting && QUALITY.interactionDpr !== null
-    ? QUALITY.interactionDpr
-    : getMaxDpr()
+  const cap = interacting && QUALITY.interactionDpr !== null ? QUALITY.interactionDpr : getMaxDpr()
   if (typeof window === 'undefined') return 1
   return Math.min(window.devicePixelRatio || 1, cap)
 }

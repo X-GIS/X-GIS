@@ -38,13 +38,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<GPUContext> {
   const canvas = { width: 1024, height: 768 } as unknown as HTMLCanvasElement
@@ -80,7 +85,7 @@ function addPoint(renderer: PointRenderer, lon: number, lat: number): void {
   const [ezH, ezL] = split(ecef[2])
   const mx = lon * DEG2RAD * R_MERC
   const myC = Math.max(-85.051129, Math.min(85.051129, lat))
-  const my = Math.log(Math.tan(Math.PI / 4 + myC * DEG2RAD / 2)) * R_MERC
+  const my = Math.log(Math.tan(Math.PI / 4 + (myC * DEG2RAD) / 2)) * R_MERC
   const [mxH, mxL] = split(mx)
   const [myH, myL] = split(my)
   renderer.addTilePoint(exH, eyH, ezH, exL, eyL, ezL, 0, lon, lat, mxH, mxL, myH, myL)
@@ -91,11 +96,20 @@ function addPoint(renderer: PointRenderer, lon: number, lat: number): void {
 function capturedFlags(
   ctx: GPUContext,
   show: {
-    fill?: string | null; stroke?: string | null; size?: number | null; opacity?: number
-    sizeUnit?: string | null; anchor?: 'center' | 'bottom' | 'top'; billboard?: boolean
+    fill?: string | null
+    stroke?: string | null
+    size?: number | null
+    opacity?: number
+    sizeUnit?: string | null
+    anchor?: 'center' | 'bottom' | 'top'
+    billboard?: boolean
   },
 ): number {
-  const renderer = new PointRenderer({ device: ctx.device, format: ctx.format, rhi: new WebGpuDevice(ctx.device) })
+  const renderer = new PointRenderer({
+    device: ctx.device,
+    format: ctx.format,
+    rhi: new WebGpuDevice(ctx.device),
+  })
 
   const camera = new Camera(LON, LAT, ZOOM)
   camera.projType = 0
@@ -110,17 +124,28 @@ function capturedFlags(
   const device = ctx.device as unknown as {
     queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer) => void }
   }
-  device.queue.writeBuffer = (buf: unknown, _off: number, data: ArrayBufferView | ArrayBuffer): void => {
+  device.queue.writeBuffer = (
+    buf: unknown,
+    _off: number,
+    data: ArrayBufferView | ArrayBuffer,
+  ): void => {
     if ((buf as { size?: number })?.size !== FEAT_BYTES) return
-    const f32 = data instanceof ArrayBuffer
-      ? new Float32Array(data)
-      : new Float32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset, totalN * STRIDE)
+    const f32 =
+      data instanceof ArrayBuffer
+        ? new Float32Array(data)
+        : new Float32Array(
+            (data as ArrayBufferView).buffer,
+            (data as ArrayBufferView).byteOffset,
+            totalN * STRIDE,
+          )
     flags = f32[FLAGS_SLOT] // globalIdx 0
   }
 
-  const encoder = (ctx.device as unknown as {
-    createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
-  }).createCommandEncoder()
+  const encoder = (
+    ctx.device as unknown as {
+      createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
+    }
+  ).createCommandEncoder()
   const pass = encoder.beginRenderPass()
   renderer.flushTilePoints(pass, camera, 0, LON, LAT, W, H, show, 1)
 
@@ -132,8 +157,12 @@ describe('tile-point flag feat_data slot-10 wiring (#722 S3, GPU-free)', () => {
     const ctx = await makeCtx()
     // Fail-before: with fill/stroke-only flags the anchor/size bits read back 0.
     const flags = capturedFlags(ctx, {
-      fill: '#ff8800', stroke: null, size: 6, opacity: 1,
-      anchor: 'bottom', sizeUnit: 'm',
+      fill: '#ff8800',
+      stroke: null,
+      size: 6,
+      opacity: 1,
+      anchor: 'bottom',
+      sizeUnit: 'm',
     })
     const anchorBits = (flags >>> 8) & 3
     const sizeBits = (flags >>> 4) & 0xf

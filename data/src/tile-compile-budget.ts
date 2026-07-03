@@ -94,11 +94,19 @@ export class CompileBudget {
   }
 
   /** Charge one compile against this frame's budget. */
-  chargeCompile(): void { this._compileCountThisFrame++ }
+  chargeCompile(): void {
+    this._compileCountThisFrame++
+  }
 
   /** Charge one sub-tile clip against this frame's budget. */
-  chargeSubTile(): void { this._subTileCountThisFrame++ }
+  chargeSubTile(): void {
+    this._subTileCountThisFrame++
+  }
 
-  get subTileCountThisFrame(): number { return this._subTileCountThisFrame }
-  get compileCountThisFrame(): number { return this._compileCountThisFrame }
+  get subTileCountThisFrame(): number {
+    return this._subTileCountThisFrame
+  }
+  get compileCountThisFrame(): number {
+    return this._compileCountThisFrame
+  }
 }

@@ -50,10 +50,7 @@
 import type { ComputePlanEntry, ShaderVariant } from '@xgis/compiler'
 import { ComputeDispatcher } from '@xgis/engine'
 import { TileComputeResources } from './tile-compute-resources'
-import {
-  buildComputeBindGroupEntries,
-  type ComputeBindEntry,
-} from '@xgis/engine'
+import { buildComputeBindGroupEntries, type ComputeBindEntry } from '@xgis/engine'
 import type { FeaturePropertyBag } from './compute-feature-packer'
 
 /** One layer's compute lifecycle. Construct once per addLayer when
@@ -78,12 +75,12 @@ export class ComputeLayerHandle {
     // the filter produces a different count, the (compiler-emitted
     // variant) ↔ (runtime scene plan) drifted somewhere upstream —
     // surface it as a thrown error rather than silently mis-binding.
-    const entries = (scenePlan ?? []).filter(e => e.renderNodeIndex === renderNodeIndex)
+    const entries = (scenePlan ?? []).filter((e) => e.renderNodeIndex === renderNodeIndex)
     const expected = variant.computeBindings?.length ?? 0
     if (entries.length !== expected) {
       throw new Error(
-        `ComputeLayerHandle: plan entries (${entries.length}) don't match `
-        + `variant.computeBindings (${expected}) for renderNodeIndex=${renderNodeIndex}`,
+        `ComputeLayerHandle: plan entries (${entries.length}) don't match ` +
+          `variant.computeBindings (${expected}) for renderNodeIndex=${renderNodeIndex}`,
       )
     }
     this.resources = new TileComputeResources(dispatcher, entries)

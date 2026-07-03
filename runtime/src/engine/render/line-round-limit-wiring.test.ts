@@ -25,9 +25,15 @@
 import { describe, expect, it } from 'vitest'
 // WebGPU globals don't exist under happy-dom — stub the few constants
 // LineRenderer touches in its constructor (mirrors line-renderer-layer-ring.test.ts).
-;(globalThis as unknown as { GPUShaderStage: { VERTEX: number; FRAGMENT: number } }).GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 }
+;(
+  globalThis as unknown as { GPUShaderStage: { VERTEX: number; FRAGMENT: number } }
+).GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 }
 ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
-  UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16,
+  UNIFORM: 1,
+  COPY_DST: 2,
+  STORAGE: 4,
+  VERTEX: 8,
+  INDEX: 16,
 }
 import { LineRenderer } from '@xgis/map'
 import { lineLayerUniformStride } from '@xgis/map'
@@ -64,20 +70,29 @@ function makeRenderer(): { lr: LineRenderer; flushes: Flush[] } {
     createTexture: () => ({ createView: () => ({}) }) as unknown as GPUTexture,
     queue: {
       writeBuffer: (
-        _buf: GPUBuffer, _offset: number, data: ArrayBufferView | ArrayBuffer,
-        dataOffset = 0, size?: number,
+        _buf: GPUBuffer,
+        _offset: number,
+        data: ArrayBufferView | ArrayBuffer,
+        dataOffset = 0,
+        size?: number,
       ) => {
         const ab = data instanceof ArrayBuffer ? data : (data as ArrayBufferView).buffer
         const baseOff = data instanceof ArrayBuffer ? 0 : (data as ArrayBufferView).byteOffset
-        const byteLen = size ?? (data instanceof ArrayBuffer
-          ? data.byteLength
-          : (data as ArrayBufferView).byteLength)
+        const byteLen =
+          size ??
+          (data instanceof ArrayBuffer ? data.byteLength : (data as ArrayBufferView).byteLength)
         flushes.push({ buffer: ab as ArrayBuffer, dataOffset: baseOff + dataOffset, size: byteLen })
       },
     },
   }
   const lr = new LineRenderer(
-    { device: fakeDevice as unknown as GPUDevice, format: 'bgra8unorm', canvas: {} as HTMLCanvasElement, context: {} as GPUCanvasContext, rhi: new WebGpuDevice(fakeDevice as unknown as GPUDevice) } as unknown as GPUContext,
+    {
+      device: fakeDevice as unknown as GPUDevice,
+      format: 'bgra8unorm',
+      canvas: {} as HTMLCanvasElement,
+      context: {} as GPUCanvasContext,
+      rhi: new WebGpuDevice(fakeDevice as unknown as GPUDevice),
+    } as unknown as GPUContext,
     {} as GPUBindGroupLayout,
   )
   return { lr, flushes }
@@ -90,14 +105,21 @@ function capturedRoundLimit(roundLimit: number): number {
   // writeLayerSlot positional tail: …, lineTranslateX, lineTranslateY, roundLimit.
   lr.writeLayerSlot(
     [1, 0, 0, 1], // strokeColor
-    4,            // strokeWidthPx
-    1,            // opacity
-    1,            // mppAtCenter
-    0, 0, 2.0,    // cap, join, miterLimit
-    null, [], 0, 1, // dash, patterns, offsetPx, viewportHeight
-    0, 1,         // blurPx, dpr
-    0, 0,         // lineTranslateX, lineTranslateY
-    roundLimit,   // line-round-limit
+    4, // strokeWidthPx
+    1, // opacity
+    1, // mppAtCenter
+    0,
+    0,
+    2.0, // cap, join, miterLimit
+    null,
+    [],
+    0,
+    1, // dash, patterns, offsetPx, viewportHeight
+    0,
+    1, // blurPx, dpr
+    0,
+    0, // lineTranslateX, lineTranslateY
+    roundLimit, // line-round-limit
   )
   lr.endFrame()
   expect(flushes, 'endFrame() should flush exactly one layer-ring write').toHaveLength(1)

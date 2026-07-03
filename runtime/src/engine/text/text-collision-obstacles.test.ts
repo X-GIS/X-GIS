@@ -18,14 +18,25 @@ import { describe, it, expect } from 'vitest'
 import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from '@xgis/map'
 import { IconStage } from '@xgis/map'
 
-const box = (x: number, y: number, w = 10, h = 10) => ({ minX: x, minY: y, maxX: x + w, maxY: y + h })
-const label = (b: ReturnType<typeof box>, extra: Partial<CollisionItem> = {}): CollisionItem => ({ bboxes: [b], ...extra })
+const box = (x: number, y: number, w = 10, h = 10) => ({
+  minX: x,
+  minY: y,
+  maxX: x + w,
+  maxY: y + h,
+})
+const label = (b: ReturnType<typeof box>, extra: Partial<CollisionItem> = {}): CollisionItem => ({
+  bboxes: [b],
+  ...extra,
+})
 
 describe('greedyPlaceBboxes — icon obstacles (#609 icon↔text cross-collision)', () => {
   it('a label overlapping a seeded icon obstacle is DROPPED', () => {
     const obstacles: CollisionObstacle[] = [{ bbox: box(5, 5) }]
     // fail-before (no obstacle seeding): the label places despite the icon.
-    expect(greedyPlaceBboxes([label(box(0, 0))], { obstacles })[0]).toEqual({ placed: false, chosen: -1 })
+    expect(greedyPlaceBboxes([label(box(0, 0))], { obstacles })[0]).toEqual({
+      placed: false,
+      chosen: -1,
+    })
   })
 
   it('without the obstacle the same label PLACES (control)', () => {
@@ -35,18 +46,24 @@ describe('greedyPlaceBboxes — icon obstacles (#609 icon↔text cross-collision
   it('an obstacle does NOT drop a label of its OWN group (paired icon vs its text)', () => {
     // A POI icon (groupKey="poi:1") must not block its own text label.
     const obstacles: CollisionObstacle[] = [{ bbox: box(5, 5), groupKey: 'poi:1' }]
-    expect(greedyPlaceBboxes([label(box(0, 0), { groupKey: 'poi:1' })], { obstacles })[0].placed).toBe(true)
+    expect(
+      greedyPlaceBboxes([label(box(0, 0), { groupKey: 'poi:1' })], { obstacles })[0].placed,
+    ).toBe(true)
   })
 
   it('an obstacle blocks a DIFFERENT-group label (road name vs POI icon)', () => {
     const obstacles: CollisionObstacle[] = [{ bbox: box(5, 5), groupKey: 'poi:1' }]
-    expect(greedyPlaceBboxes([label(box(0, 0), { groupKey: 'road:9' })], { obstacles })[0].placed).toBe(false)
+    expect(
+      greedyPlaceBboxes([label(box(0, 0), { groupKey: 'road:9' })], { obstacles })[0].placed,
+    ).toBe(false)
   })
 
   it('an obstacle with no groupKey blocks ALL labels (ungrouped icon)', () => {
     const obstacles: CollisionObstacle[] = [{ bbox: box(5, 5) }]
     // Even a grouped label is blocked by an ungrouped obstacle.
-    expect(greedyPlaceBboxes([label(box(0, 0), { groupKey: 'any:1' })], { obstacles })[0].placed).toBe(false)
+    expect(
+      greedyPlaceBboxes([label(box(0, 0), { groupKey: 'any:1' })], { obstacles })[0].placed,
+    ).toBe(false)
   })
 
   it('a non-overlapping label is unaffected by an obstacle', () => {
@@ -88,7 +105,9 @@ describe('greedyPlaceBboxes — icon obstacles (#609 icon↔text cross-collision
     // allowOverlap bypasses the collision check entirely — obstacles don't
     // override author intent (Mapbox parity: allow-overlap always places).
     const obstacles: CollisionObstacle[] = [{ bbox: box(5, 5) }]
-    expect(greedyPlaceBboxes([label(box(0, 0), { allowOverlap: true })], { obstacles })[0].placed).toBe(true)
+    expect(
+      greedyPlaceBboxes([label(box(0, 0), { allowOverlap: true })], { obstacles })[0].placed,
+    ).toBe(true)
   })
 })
 

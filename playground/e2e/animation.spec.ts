@@ -1,8 +1,5 @@
 import { test, expect, type ConsoleMessage } from '@playwright/test'
-import {
-  captureCanvas, hashScreenshot, colorHistogram,
-  type ColorBucket,
-} from './helpers/visual'
+import { captureCanvas, hashScreenshot, colorHistogram, type ColorBucket } from './helpers/visual'
 
 // ═══ X-GIS animation regression suite ═══
 //
@@ -23,7 +20,9 @@ import {
 // interactions.spec.ts.
 
 test.describe('X-GIS animation regression', () => {
-  test('animation_pulse: cycles past first iteration + amber stroke visible at peak', async ({ page }) => {
+  test('animation_pulse: cycles past first iteration + amber stroke visible at peak', async ({
+    page,
+  }) => {
     test.setTimeout(30_000)
     const cycleMs = 1500
     await page.goto('/demo.html?id=animation_pulse', { waitUntil: 'domcontentloaded' })
@@ -60,22 +59,26 @@ test.describe('X-GIS animation regression', () => {
     }
 
     const unique = new Set(hashes).size
-    expect(unique,
-      `animation_pulse: only ${unique}/6 distinct frames — animation frozen`)
-      .toBeGreaterThanOrEqual(4)
+    expect(
+      unique,
+      `animation_pulse: only ${unique}/6 distinct frames — animation frozen`,
+    ).toBeGreaterThanOrEqual(4)
 
     // Amber must reach a non-trivial peak across the cycle —
     // catches "stroke vanished entirely" silent failures the
     // cycle hash test can't see.
     const maxAmber = Math.max(...amberPoints)
-    expect(maxAmber,
+    expect(
+      maxAmber,
       `animation_pulse: amber peak ${(maxAmber * 100).toFixed(2)}% across 6 samples ` +
-      `(${amberPoints.map(r => (r * 100).toFixed(1) + '%').join(', ')}) — ` +
-      `coastline stroke not reaching the canvas`)
-      .toBeGreaterThan(0.01)
+        `(${amberPoints.map((r) => (r * 100).toFixed(1) + '%').join(', ')}) — ` +
+        `coastline stroke not reaching the canvas`,
+    ).toBeGreaterThan(0.01)
   })
 
-  test('animation_showcase: cycles + rose ratio varies across cycle (proves heat keyframe morphs)', async ({ page }) => {
+  test('animation_showcase: cycles + rose ratio varies across cycle (proves heat keyframe morphs)', async ({
+    page,
+  }) => {
     test.setTimeout(40_000)
     const cycleMs = 2000
     await page.goto('/demo.html?id=animation_showcase', { waitUntil: 'domcontentloaded' })
@@ -83,17 +86,15 @@ test.describe('X-GIS animation regression', () => {
     // 6-sample cycle continuity check (hash-based).
     const sampleTimes = [
       Math.round(cycleMs * 0.15),
-      Math.round(cycleMs * 0.50),
+      Math.round(cycleMs * 0.5),
       Math.round(cycleMs * 0.85),
-      Math.round(cycleMs * 1.40),
-      Math.round(cycleMs * 2.10),
+      Math.round(cycleMs * 1.4),
+      Math.round(cycleMs * 2.1),
       Math.round(cycleMs * 2.85),
     ]
     const hashes: string[] = []
     const rosePoints: number[] = []
-    const buckets: ColorBucket[] = [
-      { name: 'rose', rgb: [225, 29, 72], tolerance: 80 },
-    ]
+    const buckets: ColorBucket[] = [{ name: 'rose', rgb: [225, 29, 72], tolerance: 80 }]
     for (const t of sampleTimes) {
       const png = await captureCanvas(page, { elapsedMsAtLeast: t })
       hashes.push(await hashScreenshot(page, png))
@@ -102,9 +103,10 @@ test.describe('X-GIS animation regression', () => {
     }
 
     const unique = new Set(hashes).size
-    expect(unique,
-      `animation_showcase: only ${unique}/6 distinct frames — animation frozen`)
-      .toBeGreaterThanOrEqual(4)
+    expect(
+      unique,
+      `animation_showcase: only ${unique}/6 distinct frames — animation frozen`,
+    ).toBeGreaterThanOrEqual(4)
 
     // Bug 1 mirror via histogram: the rose ratio should swing
     // significantly across the 6 samples. If the heat keyframe
@@ -112,18 +114,20 @@ test.describe('X-GIS animation regression', () => {
     // would be near zero. Empirically: peak ~15%, trough ~0% →
     // range ≈ 15%. Assert range > 4% with plenty of headroom.
     const range = Math.max(...rosePoints) - Math.min(...rosePoints)
-    expect(range,
+    expect(
+      range,
       `animation_showcase: rose ratio range ${(range * 100).toFixed(1)}% across 6 samples ` +
-      `(${rosePoints.map(r => (r * 100).toFixed(1) + '%').join(', ')}) — ` +
-      `heat keyframe not morphing`)
-      .toBeGreaterThan(0.04)
+        `(${rosePoints.map((r) => (r * 100).toFixed(1) + '%').join(', ')}) — ` +
+        `heat keyframe not morphing`,
+    ).toBeGreaterThan(0.04)
 
     // The rose ratio must also reach a non-trivial peak — proves
     // the rose-600 keyframe value is actually visited, not just
     // "anything changes" which a tiny pixel jitter could fake.
-    expect(Math.max(...rosePoints),
+    expect(
+      Math.max(...rosePoints),
       `animation_showcase: rose ratio peak ${(Math.max(...rosePoints) * 100).toFixed(1)}% — ` +
-      `country fills never reached the rose-600 keyframe value`)
-      .toBeGreaterThan(0.05)
+        `country fills never reached the rose-600 keyframe value`,
+    ).toBeGreaterThan(0.05)
   })
 })

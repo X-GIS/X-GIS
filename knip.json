@@ -18,7 +18,13 @@
       "ignore": ["src/vite-shims.ts", "src/earcut.d.ts"]
     },
     "playground": {
-      "entry": ["*.html", "render-verify/**/*.ts", "e2e/**/*.spec.ts", "e2e/**/*.ts", "scripts/*.ts"],
+      "entry": [
+        "*.html",
+        "render-verify/**/*.ts",
+        "e2e/**/*.spec.ts",
+        "e2e/**/*.ts",
+        "scripts/*.ts"
+      ],
       "project": ["src/**/*.ts", "render-verify/**/*.ts"]
     },
     "blueprint": {

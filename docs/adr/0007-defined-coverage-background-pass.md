@@ -14,7 +14,7 @@ rendered as a raw black void. This is the user's original complaint ("빈 영역
 
 [ADR-0005](0005-synthetic-earth-surface-background.md) made that black
 **deliberate**: the synthetic earth-surface paints the style `background-color`
-only *inside* the world band, and the opaque pass's first sub-pass cleared the
+only _inside_ the world band, and the opaque pass's first sub-pass cleared the
 colour target to pure black `{0,0,0,1}`, "the iter-196 MapLibre parity contract"
 (opaque-pass.ts:86-95) — MapLibre shows black for the "no world here" region, so
 matching it restored pixel parity at the z=0 + pitch cell.
@@ -22,7 +22,7 @@ matching it restored pixel parity at the z=0 + pitch cell.
 So the void was **not an accident** — it was a chosen MapLibre-parity convention.
 The redesign vision (§1, §4, §5 gap #1) reframes the goal: for the CORE
 (`mercator`, `globe`) and SHOWCASE (pseudo-cylindrical) tiers, **every viewport
-pixel must have a *defined* source — none may fall to black by accident.** That
+pixel must have a _defined_ source — none may fall to black by accident.** That
 requirement outranks MapLibre pixel-parity at the letterbox / above-horizon
 cells. This ADR records the deliberate reversal.
 
@@ -40,12 +40,12 @@ colour clear, with a projection-aware clear colour.**
 - The clear colour is a pure function of the resolved projection + the style
   background — `backgroundClearValue(projType, bg, overdraw)`:
 
-  | case | clear |
-  |---|---|
-  | `?debug=overdraw` (any proj) | `{0,0,0,0}` — r16float accumulator starts at 0 |
+  | case                                                                                                    | clear                                                               |
+  | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+  | `?debug=overdraw` (any proj)                                                                            | `{0,0,0,0}` — r16float accumulator starts at 0                      |
   | flat / cylindrical (`worldBand ≠ 'sphere-full'`: mercator 0 / equirect 1 / natural_earth 2 / oblique 6) | the style `background-color` — the WHOLE viewport is the background |
-  | disc / globe (`worldBand === 'sphere-full'`: ortho 3 / azimuthal 4 / stereo 5 / globe 7) | defined pure-black **space** |
-  | flat with no `background` block (`bg = null`) | defined black |
+  | disc / globe (`worldBand === 'sphere-full'`: ortho 3 / azimuthal 4 / stereo 5 / globe 7)                | defined pure-black **space**                                        |
+  | flat with no `background` block (`bg = null`)                                                           | defined black                                                       |
 
   For flat projections the inside-band synthetic earth-surface (ADR-0005)
   redraws the same colour on top of the clear, so the band and its surround are
@@ -70,7 +70,7 @@ colour clear, with a projection-aware clear colour.**
 
 ## Verification
 
-The screenshot is only how we *see* it; the gate is a deterministic numeric
+The screenshot is only how we _see_ it; the gate is a deterministic numeric
 invariant (VISION §6, re-anchoring on `docs/verification/STRATEGY.md`):
 
 - **`backgroundClearValue` behavioural unit test**
@@ -100,11 +100,11 @@ invariant (VISION §6, re-anchoring on `docs/verification/STRATEGY.md`):
 
 - **Scope / deferred.** (1) Disc/globe "space" is flat black — the atmosphere
   scattering pass is deferred (VISION §2.3). (2) Flat coverage is a clear
-  *colour*, not a fullscreen quad — it handles the common opaque-`background`
+  _colour_, not a fullscreen quad — it handles the common opaque-`background`
   case; a `background-color` with alpha < 1 clears premultiplied-ish (rare edge).
   (3) The MSAA resolve-owner centralization (VISION's original "Step 0") was
   **deferred**: a first-running pass is never the last colour writer, so it never
-  claims `resolveTarget` — centralization is only needed when a *late* colour
+  claims `resolveTarget` — centralization is only needed when a _late_ colour
   pass (the atmosphere pass) is added, and is tracked with that work.
 
 - **Supersedes ADR-0005's clear semantics.** ADR-0005 §Consequences said "Clear

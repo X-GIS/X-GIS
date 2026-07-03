@@ -10,11 +10,7 @@
 
 import { describe, expect, it } from 'vitest'
 import proj4 from 'proj4'
-import {
-  normalizeEPSG,
-  resolveEPSG,
-  REGISTERED_EPSG_CODES,
-} from './epsg-defs'
+import { normalizeEPSG, resolveEPSG, REGISTERED_EPSG_CODES } from './epsg-defs'
 
 describe('epsg-defs registry', () => {
   it('resolves registered Korea codes', () => {

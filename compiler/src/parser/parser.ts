@@ -42,7 +42,7 @@ export class Parser extends StatementParser {
       const tok = this.current()
       throw new Error(
         `Expected end of expression, got ${TokenType[tok.type]} ` +
-        `'${tok.value}' at line ${tok.line}, col ${tok.col}`,
+          `'${tok.value}' at line ${tok.line}, col ${tok.col}`,
       )
     }
     return expr

@@ -31,7 +31,11 @@ function stubTileData(): TileData {
     lineVertices: new Float32Array(0),
     lineIndices: new Uint32Array(0),
     outlineIndices: new Uint32Array(0),
-    tileWest: 0, tileSouth: 0, tileWidth: 1, tileHeight: 1, tileZoom: 0,
+    tileWest: 0,
+    tileSouth: 0,
+    tileWidth: 1,
+    tileHeight: 1,
+    tileZoom: 0,
   }
 }
 
@@ -77,7 +81,7 @@ describe('UploadCoordinator — _heldUploadKeys tracking for coherent fallback',
     const kA = tileKey(14, 14000, 6500)
     const kB = tileKey(14, 14001, 6500)
     c.enqueue(kA, stubTileData(), 'water')
-    c.enqueue(kA, stubTileData(), 'landcover')   // same key, different slice
+    c.enqueue(kA, stubTileData(), 'landcover') // same key, different slice
     c.enqueue(kB, stubTileData(), 'water')
 
     const heldKeys = heldKeysOf(c)

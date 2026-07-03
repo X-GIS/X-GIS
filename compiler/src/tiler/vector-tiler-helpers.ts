@@ -25,7 +25,7 @@ const MAX_TILE_ZOOM = 22
  *  total frame time on Bright). Accumulate the power-of-4 instead. */
 function spreadBits22(v: number): number {
   let result = 0
-  let pow = 1  // 4^0
+  let pow = 1 // 4^0
   for (let i = 0; i < MAX_TILE_ZOOM; i++) {
     if ((v & (1 << i)) !== 0) result += pow
     pow *= 4
@@ -50,9 +50,9 @@ function collectBits22(morton: number, startBit: number): number {
     // bottom bit. When morton ≥ 2^32 (z > 15), fall back to the slower
     // arithmetic form.
     if (pow <= 0x80000000) {
-      if (((morton / pow) | 0) & 1) result |= (1 << i)
+      if (((morton / pow) | 0) & 1) result |= 1 << i
     } else {
-      if (Math.floor(morton / pow) % 2 === 1) result |= (1 << i)
+      if (Math.floor(morton / pow) % 2 === 1) result |= 1 << i
     }
     pow *= 4
   }
@@ -105,9 +105,9 @@ export function tileKeyChildren(key: number): [number, number, number, number] {
   const cx = x * 2
   const cy = y * 2
   return [
-    tileKey(cz, cx,     cy),
+    tileKey(cz, cx, cy),
     tileKey(cz, cx + 1, cy),
-    tileKey(cz, cx,     cy + 1),
+    tileKey(cz, cx, cy + 1),
     tileKey(cz, cx + 1, cy + 1),
   ]
 }

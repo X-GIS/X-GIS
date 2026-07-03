@@ -78,10 +78,18 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
         break
       }
       case 'LayerStatement': {
-        const node = lowerLayer(stmt, sourceMap, presetMap, styleMap, keyframesMap, diagnostics, options)
+        const node = lowerLayer(
+          stmt,
+          sourceMap,
+          presetMap,
+          styleMap,
+          keyframesMap,
+          diagnostics,
+          options,
+        )
         if (node) {
           // If the source was referenced but not yet added, add it
-          if (!sources.find(s => s.name === node.sourceRef)) {
+          if (!sources.find((s) => s.name === node.sourceRef)) {
             const src = sourceMap.get(node.sourceRef)
             if (src) sources.push(src)
           }
@@ -135,8 +143,8 @@ function lowerSource(
       if (prop.value.kind !== 'ObjectLiteral') {
         throw new Error(
           `Source '${stmt.name}' (line ${stmt.line}): 'data' must be an inline ` +
-          `GeoJSON object literal (e.g. \`data: { "type": "FeatureCollection", ` +
-          `"features": [...] }\`).`,
+            `GeoJSON object literal (e.g. \`data: { "type": "FeatureCollection", ` +
+            `"features": [...] }\`).`,
         )
       }
       inlineData = astLiteralToJS(prop.value, stmt.name, stmt.line)
@@ -150,8 +158,8 @@ function lowerSource(
         // implemented — MVP supports constant EPSG strings only.
         throw new Error(
           `Source '${stmt.name}' (line ${stmt.line}): 'crs' must be a constant ` +
-          `string (e.g. "EPSG:5179"). Per-feature/expression CRS is not ` +
-          `implemented — constant EPSG only is supported in this version.`,
+            `string (e.g. "EPSG:5179"). Per-feature/expression CRS is not ` +
+            `implemented — constant EPSG only is supported in this version.`,
         )
       }
     } else if (prop.name === 'layers') {
@@ -177,8 +185,8 @@ function lowerSource(
   if (crs && type === 'vector') {
     throw new Error(
       `Source '${stmt.name}' (line ${stmt.line}): 'crs' is not supported on ` +
-      `type:vector sources — input reprojection only applies to type:geojson. ` +
-      `Remove the crs property or use a geojson source.`,
+        `type:vector sources — input reprojection only applies to type:geojson. ` +
+        `Remove the crs property or use a geojson source.`,
     )
   }
   // GeoJSON sources default to WGS84 (EPSG:4326), i.e. a no-op
@@ -239,15 +247,15 @@ function astLiteralToJS(expr: AST.Expr, sourceName: string, line: number): unkno
       }
       throw new Error(
         `Source '${sourceName}' (line ${line}): inline \`data\` unary '${expr.op}' ` +
-        `is only valid on a number literal.`,
+          `is only valid on a number literal.`,
       )
     }
     default:
       throw new Error(
         `Source '${sourceName}' (line ${line}): inline \`data\` must be literal ` +
-        `GeoJSON — got a '${expr.kind}' expression. Only JSON literals ` +
-        `(objects, arrays, numbers, strings, booleans) are allowed; ` +
-        `field access, function calls, and other expressions are not.`,
+          `GeoJSON — got a '${expr.kind}' expression. Only JSON literals ` +
+          `(objects, arrays, numbers, strings, booleans) are allowed; ` +
+          `field access, function calls, and other expressions are not.`,
       )
   }
 }
@@ -331,7 +339,7 @@ function lowerLayer(
       message:
         `Layer "${stmt.name}" references unknown source "${sourceRef}". ` +
         (known.length > 0
-          ? `Known sources: ${known.map(k => `"${k}"`).join(', ')}. `
+          ? `Known sources: ${known.map((k) => `"${k}"`).join(', ')}. `
           : 'No sources are declared in this program. ') +
         `The layer is dropped from the scene; check for a typo or ` +
         `re-order the file so the \`source\` block precedes the \`layer\`.`,
@@ -395,7 +403,11 @@ function lowerLayer(
   // WS-1 — per-frame zoom-interp translate (per-axis scalar shape).
   // Inline stop type (structurally a ZoomStop<number>[]) keeps lower.ts
   // free of a ZoomStop import dependency.
-  type TranslateShape = { kind: 'zoom-interpolated'; stops: { zoom: number; value: number }[]; base?: number }
+  type TranslateShape = {
+    kind: 'zoom-interpolated'
+    stops: { zoom: number; value: number }[]
+    base?: number
+  }
   let fillTranslateXShape: TranslateShape | undefined
   let fillTranslateYShape: TranslateShape | undefined
   let circleTranslateXShape: TranslateShape | undefined
@@ -434,11 +446,15 @@ function lowerLayer(
   let strokeAlign: 'center' | 'inset' | 'outset' | undefined
   let strokeBlur: number | undefined
   // WS-1 — per-frame zoom-interp dasharray (PropertyShape<number[]>, STEP).
-  let dashArrayShape: { kind: 'zoom-interpolated'; stops: { zoom: number; value: number[] }[]; base?: number } | undefined
+  let dashArrayShape:
+    | { kind: 'zoom-interpolated'; stops: { zoom: number; value: number[] }[]; base?: number }
+    | undefined
   // WS-1 — per-frame zoom-interp circle-stroke-opacity (PropertyShape<number>).
   // The converter emits the 0..100 scale (same as opacity); divide back to
   // 0..1 here so the runtime resolves a plain alpha multiplier.
-  let strokeOpacityShape: { kind: 'zoom-interpolated'; stops: { zoom: number; value: number }[]; base?: number } | undefined
+  let strokeOpacityShape:
+    | { kind: 'zoom-interpolated'; stops: { zoom: number; value: number }[]; base?: number }
+    | undefined
   /** Mapbox `line-gap-width` — px gap between the two parallel
    *  strokes that make up a "double line" casing. Constant form
    *  only at the moment; zoom-interp lands later (the converter
@@ -459,23 +475,36 @@ function lowerLayer(
     const unitRe = /^(-?[\d.]+)(m|px|km|nm)?$/
     if (rest.startsWith('spacing-')) {
       const m = rest.slice('spacing-'.length).match(unitRe)
-      if (m) { p.spacing = parseFloat(m[1]); p.spacingUnit = (m[2] as 'm' | 'px' | 'km' | 'nm' | undefined) ?? 'm'; patternDirty[slotIdx] = true }
+      if (m) {
+        p.spacing = parseFloat(m[1])
+        p.spacingUnit = (m[2] as 'm' | 'px' | 'km' | 'nm' | undefined) ?? 'm'
+        patternDirty[slotIdx] = true
+      }
       return
     }
     if (rest.startsWith('size-')) {
       const m = rest.slice('size-'.length).match(unitRe)
-      if (m) { p.size = parseFloat(m[1]); p.sizeUnit = (m[2] as 'm' | 'px' | 'km' | 'nm' | undefined) ?? 'm'; patternDirty[slotIdx] = true }
+      if (m) {
+        p.size = parseFloat(m[1])
+        p.sizeUnit = (m[2] as 'm' | 'px' | 'km' | 'nm' | undefined) ?? 'm'
+        patternDirty[slotIdx] = true
+      }
       return
     }
     if (rest.startsWith('offset-')) {
       const m = rest.slice('offset-'.length).match(unitRe)
-      if (m) { p.offset = parseFloat(m[1]); p.offsetUnit = (m[2] as 'm' | 'px' | 'km' | 'nm' | undefined) ?? 'm'; patternDirty[slotIdx] = true }
+      if (m) {
+        p.offset = parseFloat(m[1])
+        p.offsetUnit = (m[2] as 'm' | 'px' | 'km' | 'nm' | undefined) ?? 'm'
+        patternDirty[slotIdx] = true
+      }
       return
     }
     if (rest.startsWith('anchor-')) {
       const v = rest.slice('anchor-'.length)
       if (v === 'repeat' || v === 'start' || v === 'end' || v === 'center') {
-        p.anchor = v; patternDirty[slotIdx] = true
+        p.anchor = v
+        patternDirty[slotIdx] = true
       }
       return
     }
@@ -497,9 +526,21 @@ function lowerLayer(
   if (styleRef) {
     const namedProps = styleMap.get(styleRef)
     if (namedProps) {
-      const result = applyStyleProperties(namedProps, fill, strokeColor, strokeWidth, opacity, projection, visible)
-      fill = result.fill; strokeColor = result.strokeColor; strokeWidth = result.strokeWidth
-      opacity = result.opacity; projection = result.projection; visible = result.visible
+      const result = applyStyleProperties(
+        namedProps,
+        fill,
+        strokeColor,
+        strokeWidth,
+        opacity,
+        projection,
+        visible,
+      )
+      fill = result.fill
+      strokeColor = result.strokeColor
+      strokeWidth = result.strokeWidth
+      opacity = result.opacity
+      projection = result.projection
+      visible = result.visible
       if (result.linecap) linecap = result.linecap
       if (result.linejoin) linejoin = result.linejoin
       if (result.miterlimit !== undefined) miterlimit = result.miterlimit
@@ -516,9 +557,21 @@ function lowerLayer(
 
   // 2. Apply inline CSS-like properties (overrides named style)
   if (stmt.styleProperties.length > 0) {
-    const result = applyStyleProperties(stmt.styleProperties, fill, strokeColor, strokeWidth, opacity, projection, visible)
-    fill = result.fill; strokeColor = result.strokeColor; strokeWidth = result.strokeWidth
-    opacity = result.opacity; projection = result.projection; visible = result.visible
+    const result = applyStyleProperties(
+      stmt.styleProperties,
+      fill,
+      strokeColor,
+      strokeWidth,
+      opacity,
+      projection,
+      visible,
+    )
+    fill = result.fill
+    strokeColor = result.strokeColor
+    strokeWidth = result.strokeWidth
+    opacity = result.opacity
+    projection = result.projection
+    visible = result.visible
     if (result.linecap) linecap = result.linecap
     if (result.linejoin) linejoin = result.linejoin
     if (result.miterlimit !== undefined) miterlimit = result.miterlimit
@@ -569,26 +622,80 @@ function lowerLayer(
   // it back into the locals after the loop so the promotion + return literal
   // below stay byte-identical. See lower-bindings.ts for the registry design.
   const acc: LayerAccumulator = {
-    fill, extrude, extrudeBase,
-    fillPattern, linePattern,
-    fillTranslateX, fillTranslateY, fillAntialias, fillExtrusionVerticalGradient,
-    circleTranslateX, circleTranslateY, circleBlur, circlePitchScaleMap,
-    strokeTranslateX, strokeTranslateY,
-    fillTranslateAnchorMap, strokeTranslateAnchorMap,
-    fillTranslateXShape, fillTranslateYShape,
-    circleTranslateXShape, circleTranslateYShape,
-    strokeTranslateXShape, strokeTranslateYShape,
-    strokeColor, strokeWidth, strokeWidthExpr, strokeColorExpr,
-    strokeWidthZoomStops, strokeWidthZoomStopsBase,
-    linecap, linejoin, miterlimit, roundLimit, dashArray, dashOffset, strokeOffset, strokeAlign,
-    strokeBlur, dashArrayShape, strokeOpacityShape, strokeGapWidth,
-    patternSlots, patternDirty, parsePatternAttr,
-    opacity, size, projection, visible, pointerEvents, billboard, anchor, shape,
-    fillBranches, opacityZoomStops, sizeZoomStops, opacityZoomStopsBase, sizeZoomStopsBase,
-    animationName, animationDurationMs, animationEasing, animationDelayMs, animationLoop,
-    rasterHueRotate, rasterBrightnessMin, rasterBrightnessMax, rasterSaturation, rasterContrast,
+    fill,
+    extrude,
+    extrudeBase,
+    fillPattern,
+    linePattern,
+    fillTranslateX,
+    fillTranslateY,
+    fillAntialias,
+    fillExtrusionVerticalGradient,
+    circleTranslateX,
+    circleTranslateY,
+    circleBlur,
+    circlePitchScaleMap,
+    strokeTranslateX,
+    strokeTranslateY,
+    fillTranslateAnchorMap,
+    strokeTranslateAnchorMap,
+    fillTranslateXShape,
+    fillTranslateYShape,
+    circleTranslateXShape,
+    circleTranslateYShape,
+    strokeTranslateXShape,
+    strokeTranslateYShape,
+    strokeColor,
+    strokeWidth,
+    strokeWidthExpr,
+    strokeColorExpr,
+    strokeWidthZoomStops,
+    strokeWidthZoomStopsBase,
+    linecap,
+    linejoin,
+    miterlimit,
+    roundLimit,
+    dashArray,
+    dashOffset,
+    strokeOffset,
+    strokeAlign,
+    strokeBlur,
+    dashArrayShape,
+    strokeOpacityShape,
+    strokeGapWidth,
+    patternSlots,
+    patternDirty,
+    parsePatternAttr,
+    opacity,
+    size,
+    projection,
+    visible,
+    pointerEvents,
+    billboard,
+    anchor,
+    shape,
+    fillBranches,
+    opacityZoomStops,
+    sizeZoomStops,
+    opacityZoomStopsBase,
+    sizeZoomStopsBase,
+    animationName,
+    animationDurationMs,
+    animationEasing,
+    animationDelayMs,
+    animationLoop,
+    rasterHueRotate,
+    rasterBrightnessMin,
+    rasterBrightnessMax,
+    rasterSaturation,
+    rasterContrast,
     rasterResamplingNearest,
-    isHeatmap, heatmapRadius, heatmapWeight, heatmapIntensity, heatmapOpacity, heatmapColorStops,
+    isHeatmap,
+    heatmapRadius,
+    heatmapWeight,
+    heatmapIntensity,
+    heatmapOpacity,
+    heatmapColorStops,
   }
 
   for (const line of expandedUtilities) {
@@ -641,7 +748,11 @@ function lowerLayer(
       //    All `label-*` binding items are owned by lowerLabelProps and
       //    skipped here so they never reach the X-GIS0005 catch-all.
       if (ctx.item.binding) {
-        if (ctx.name === 'label' || ctx.name === 'label-icon-image' || ctx.name.startsWith('label-')) {
+        if (
+          ctx.name === 'label' ||
+          ctx.name === 'label-icon-image' ||
+          ctx.name.startsWith('label-')
+        ) {
           continue
         }
         // The registry walks the binding ladder first-match-wins and ends
@@ -737,9 +848,20 @@ function lowerLayer(
   // arrays consumed by the promotion block below. The call stays here —
   // AFTER the utility loop (so animationName/Duration are set) and
   // BEFORE the promotion (DO-NOT-SPLIT #2).
-  const { opacityTimeStops, fillTimeStops, strokeColorTimeStops,
-          strokeWidthTimeStops, sizeTimeStops, dashOffsetTimeStops }
-    = expandKeyframeTimeStops(animationName, animationDurationMs, keyframesMap, stmt.name, stmt.line)
+  const {
+    opacityTimeStops,
+    fillTimeStops,
+    strokeColorTimeStops,
+    strokeWidthTimeStops,
+    sizeTimeStops,
+    dashOffsetTimeStops,
+  } = expandKeyframeTimeStops(
+    animationName,
+    animationDurationMs,
+    keyframesMap,
+    stmt.name,
+    stmt.line,
+  )
 
   // Build conditional fill if branches exist
   if (fillBranches.length > 0) {
@@ -830,7 +952,7 @@ function lowerLayer(
   if (sizeTimeStops.length >= 2) {
     sizeTimeStops.sort((a, b) => a.timeMs - b.timeMs)
     const baseUnit =
-      (size.kind === 'constant' || size.kind === 'data-driven') ? (size.unit ?? null) : null
+      size.kind === 'constant' || size.kind === 'data-driven' ? (size.unit ?? null) : null
     size = {
       kind: 'time-interpolated',
       stops: sizeTimeStops,
@@ -860,8 +982,12 @@ function lowerLayer(
     maxzoom,
     fill,
     stroke: (() => {
-      const validPatterns = patternSlots.filter((p, i) =>
-        patternDirty[i] && p.shape && p.size > 0 && (p.spacing > 0 || p.anchor !== 'repeat' && p.anchor !== undefined)
+      const validPatterns = patternSlots.filter(
+        (p, i) =>
+          patternDirty[i] &&
+          p.shape &&
+          p.size > 0 &&
+          (p.spacing > 0 || (p.anchor !== 'repeat' && p.anchor !== undefined)),
       )
       // Resolve the three local accumulators into a single
       // discriminated union. Priority — per-feature AST wins over
@@ -872,9 +998,14 @@ function lowerLayer(
       if (strokeWidthExpr !== undefined) {
         widthSource = { kind: 'data-driven', expr: strokeWidthExpr }
       } else if (strokeWidthZoomStops !== undefined && strokeWidthZoomStops.length > 0) {
-        widthSource = strokeWidthZoomStopsBase !== undefined
-          ? { kind: 'zoom-interpolated', stops: strokeWidthZoomStops, base: strokeWidthZoomStopsBase }
-          : { kind: 'zoom-interpolated', stops: strokeWidthZoomStops }
+        widthSource =
+          strokeWidthZoomStopsBase !== undefined
+            ? {
+                kind: 'zoom-interpolated',
+                stops: strokeWidthZoomStops,
+                base: strokeWidthZoomStopsBase,
+              }
+            : { kind: 'zoom-interpolated', stops: strokeWidthZoomStops }
       } else {
         widthSource = { kind: 'constant', value: strokeWidth }
       }
@@ -882,8 +1013,13 @@ function lowerLayer(
         color: strokeColor,
         width: widthSource,
         ...(strokeColorExpr !== undefined ? { colorExpr: strokeColorExpr } : {}),
-        linecap, linejoin, miterlimit, roundLimit,
-        dashArray, dashArrayShape, dashOffset,
+        linecap,
+        linejoin,
+        miterlimit,
+        roundLimit,
+        dashArray,
+        dashArrayShape,
+        dashOffset,
         strokeOpacityShape,
         patterns: validPatterns.length > 0 ? validPatterns : undefined,
         offset: strokeOffset,
@@ -891,7 +1027,9 @@ function lowerLayer(
         // pure lines (fill is colorNone) keep Mapbox CENTER. Test `kind !==
         // 'none'` NOT `!== undefined` — both default to colorNone() so
         // `!== undefined` was always true and wrongly inset every line (#439).
-        align: strokeAlign ?? (fill.kind !== 'none' && strokeColor.kind !== 'none' ? 'inset' : undefined),
+        align:
+          strokeAlign ??
+          (fill.kind !== 'none' && strokeColor.kind !== 'none' ? 'inset' : undefined),
         blur: strokeBlur,
         gapWidth: strokeGapWidth,
         timeWidthStops: strokeWidthTimeStops.length >= 2 ? strokeWidthTimeStops : undefined,
@@ -948,7 +1086,6 @@ function lowerLayer(
     label: lowerLabelProps(expandedUtilities, diagnostics, stmt.line),
   }
 }
-
 
 /**
  * Apply CSS-like style properties to rendering values.
@@ -1026,7 +1163,10 @@ function applyStyleProperties(
       }
       case 'stroke-dasharray': {
         // "10 5" or "6 2 1 2" — whitespace or comma separated
-        const nums = prop.value.split(/[\s,]+/).map(parseFloat).filter(n => !isNaN(n))
+        const nums = prop.value
+          .split(/[\s,]+/)
+          .map(parseFloat)
+          .filter((n) => !isNaN(n))
         if (nums.length >= 2) dashArray = nums
         break
       }
@@ -1053,23 +1193,36 @@ function applyStyleProperties(
       }
       case 'stroke-pattern-spacing': {
         const pv = parseCssUnitValue(prop.value)
-        if (pv) { pattern.spacing = pv.num; pattern.spacingUnit = pv.unit; patternDirtyCss = true }
+        if (pv) {
+          pattern.spacing = pv.num
+          pattern.spacingUnit = pv.unit
+          patternDirtyCss = true
+        }
         break
       }
       case 'stroke-pattern-size': {
         const pv = parseCssUnitValue(prop.value)
-        if (pv) { pattern.size = pv.num; pattern.sizeUnit = pv.unit; patternDirtyCss = true }
+        if (pv) {
+          pattern.size = pv.num
+          pattern.sizeUnit = pv.unit
+          patternDirtyCss = true
+        }
         break
       }
       case 'stroke-pattern-offset': {
         const pv = parseCssUnitValue(prop.value)
-        if (pv) { pattern.offset = pv.num; pattern.offsetUnit = pv.unit; patternDirtyCss = true }
+        if (pv) {
+          pattern.offset = pv.num
+          pattern.offsetUnit = pv.unit
+          patternDirtyCss = true
+        }
         break
       }
       case 'stroke-pattern-anchor': {
         const v = prop.value.trim()
         if (v === 'repeat' || v === 'start' || v === 'end' || v === 'center') {
-          pattern.anchor = v; patternDirtyCss = true
+          pattern.anchor = v
+          patternDirtyCss = true
         }
         break
       }
@@ -1092,9 +1245,26 @@ function applyStyleProperties(
     }
   }
   return {
-    fill, strokeColor, strokeWidth, opacity, projection, visible,
-    linecap, linejoin, miterlimit, dashArray, dashOffset, strokeOffset, strokeAlign,
-    pattern: patternDirtyCss && pattern.shape && pattern.size > 0 && (pattern.spacing > 0 || pattern.anchor) ? pattern : undefined,
+    fill,
+    strokeColor,
+    strokeWidth,
+    opacity,
+    projection,
+    visible,
+    linecap,
+    linejoin,
+    miterlimit,
+    dashArray,
+    dashOffset,
+    strokeOffset,
+    strokeAlign,
+    pattern:
+      patternDirtyCss &&
+      pattern.shape &&
+      pattern.size > 0 &&
+      (pattern.spacing > 0 || pattern.anchor)
+        ? pattern
+        : undefined,
   }
 }
 

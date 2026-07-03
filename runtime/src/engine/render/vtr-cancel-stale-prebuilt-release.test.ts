@@ -36,9 +36,13 @@ function tileDataWithPrebuilt(): TileData {
     lineVertices: new Float32Array(0),
     lineIndices: new Uint32Array(0),
     outlineIndices: new Uint32Array(0),
-    prebuiltLineSegments: new Float32Array(1024),    // multi-element → "real" uncounted bytes
+    prebuiltLineSegments: new Float32Array(1024), // multi-element → "real" uncounted bytes
     prebuiltOutlineSegments: new Float32Array(512),
-    tileWest: 0, tileSouth: 0, tileWidth: 1, tileHeight: 1, tileZoom: 0,
+    tileWest: 0,
+    tileSouth: 0,
+    tileWidth: 1,
+    tileHeight: 1,
+    tileZoom: 0,
   }
 }
 
@@ -64,7 +68,8 @@ function makeCoordinator() {
 }
 
 function heldUploadsOf(c: UploadCoordinator) {
-  return (c as unknown as { _heldUploads: { key: number; data: TileData; sourceLayer: string }[] })._heldUploads
+  return (c as unknown as { _heldUploads: { key: number; data: TileData; sourceLayer: string }[] })
+    ._heldUploads
 }
 function heldIdsOf(c: UploadCoordinator) {
   return (c as unknown as { _heldUploadIds: Set<string> })._heldUploadIds
@@ -73,7 +78,11 @@ function heldKeysOf(c: UploadCoordinator) {
   return (c as unknown as { _heldUploadKeys: Set<number> })._heldUploadKeys
 }
 function itemDataOf(c: UploadCoordinator) {
-  return (c as unknown as { uploadItemData: Map<string, { key: number; data: TileData; sourceLayer: string }> }).uploadItemData
+  return (
+    c as unknown as {
+      uploadItemData: Map<string, { key: number; data: TileData; sourceLayer: string }>
+    }
+  ).uploadItemData
 }
 
 describe('BUG D4 — UploadCoordinator.cancelStale releases prebuilt segments on dropped uploads', () => {

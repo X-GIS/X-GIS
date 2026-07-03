@@ -14,7 +14,9 @@ describe('Phase-2 icon shader — DSL emission (texture IR surface)', () => {
     expect(w).toContain('@group(0) @binding(2) var atlas_smp: sampler;')
   })
   it('vertex @location inputs + flat varying', () => {
-    expect(w).toContain('@vertex\nfn vs(@location(0) pos_px: vec2<f32>, @location(1) uv: vec2<f32>, @location(2) opacity: f32, @location(3) tint: vec3<f32>, @location(4) sdf: f32) -> VsOut')
+    expect(w).toContain(
+      '@vertex\nfn vs(@location(0) pos_px: vec2<f32>, @location(1) uv: vec2<f32>, @location(2) opacity: f32, @location(3) tint: vec3<f32>, @location(4) sdf: f32) -> VsOut',
+    )
     expect(w).toContain('@location(3) @interpolate(flat) sdf: f32,')
   })
   it('textured fragment: bare @location(0) return + textureSample + fwidth + swizzle', () => {
@@ -38,7 +40,18 @@ describe('Phase-2 icon shader — cpu vertex stage (px → NDC)', () => {
     const M = compileModule(ICON_MODULE)
     M.setBinding('u', { viewport: [800, 600], _pad0: 0, _pad1: 0 } as unknown as never)
     const cases: Array<[[number, number], [number, number]]> = [
-      [[400, 300], [0, 0]], [[0, 0], [-1, 1]], [[800, 600], [1, -1]],
+      [
+        [400, 300],
+        [0, 0],
+      ],
+      [
+        [0, 0],
+        [-1, 1],
+      ],
+      [
+        [800, 600],
+        [1, -1],
+      ],
     ]
     for (const [[px, py], [nx, ny]] of cases) {
       const out = M.fns.vs([px, py], [0.5, 0.5], 1, [1, 1, 1], 0) as { clip_pos: number[] }

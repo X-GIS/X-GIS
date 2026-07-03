@@ -27,17 +27,17 @@ const OUT_DIR = process.env.RELOC_DC0_DIR ?? 'test-results/relocation-dc0'
 // back-face, SDF billboard, fill-pattern material, uniform-ring boundary, match().
 const FIXTURES: Array<{ id: string; extra?: string }> = [
   { id: 'fixture_stress_all_renderers' }, // polygon + SDF line + SDF point (merc, 3 renderers)
-  { id: 'fixture_extrude_local' },        // VTR + 3D extrude (merc)
-  { id: 'fixture_flat_local' },           // VTR fill flat (merc)
+  { id: 'fixture_extrude_local' }, // VTR + 3D extrude (merc)
+  { id: 'fixture_flat_local' }, // VTR fill flat (merc)
   { id: 'fixture_projection_orthographic' }, // globe / back-face cull
-  { id: 'fixture_sdf_point' },            // SDF billboard (OPAQUE pin) — copy-count-invariant, unlike
-                                          // the translucent fixture_sdf_glow whose halo overdraws once
-                                          // per visible world copy and flips with sub-pixel zoom at the
-                                          // getVisibleWorldCopies 4↔6 boundary (non-deterministic → bad gate)
+  { id: 'fixture_sdf_point' }, // SDF billboard (OPAQUE pin) — copy-count-invariant, unlike
+  // the translucent fixture_sdf_glow whose halo overdraws once
+  // per visible world copy and flips with sub-pixel zoom at the
+  // getVisibleWorldCopies 4↔6 boundary (non-deterministic → bad gate)
   { id: 'fixture_fill_pattern', extra: '&sprite=/fixture-sprite' }, // pattern material twin
-  { id: 'fixture_stress_many_layers' },   // 8 layers — uniform ring boundary
-  { id: 'fixture_categorical' },          // match() data-driven fill
-  { id: 'fixture_raster_local' },         // offline raster tile — raster global+tile uniform path (#733 P2b)
+  { id: 'fixture_stress_many_layers' }, // 8 layers — uniform ring boundary
+  { id: 'fixture_categorical' }, // match() data-driven fill
+  { id: 'fixture_raster_local' }, // offline raster tile — raster global+tile uniform path (#733 P2b)
 ]
 
 type W = {
@@ -72,10 +72,15 @@ async function captureSettled(page: import('@playwright/test').Page, out: string
     await page.waitForTimeout(350)
     buf = await canvas.screenshot()
     if (prev && Buffer.compare(prev, buf) === 0) stable++
-    else { stable = 0; prev = buf }
+    else {
+      stable = 0
+      prev = buf
+    }
   }
   fs.writeFileSync(path.join(out, `${id}.png`), buf)
-  console.log(`[reloc-dc0] ${id} ${stable >= 3 ? 'SETTLED' : 'UNSETTLED'} after ${i} polls, ${buf.length}B`)
+  console.log(
+    `[reloc-dc0] ${id} ${stable >= 3 ? 'SETTLED' : 'UNSETTLED'} after ${i} polls, ${buf.length}B`,
+  )
 }
 
 test('capture relocation DC=0 fixture set (settled frame, real-GPU)', async ({ page }) => {
@@ -91,14 +96,21 @@ test('capture relocation DC=0 fixture set (settled frame, real-GPU)', async ({ p
     // transition timing produced the recurring DC>0 false positives the canvas-only
     // capture was meant to end — hide it for the gate (map pixels only).
     await page.addStyleTag({ content: '#status { visibility: hidden !important; }' })
-    await page.waitForFunction(() => (window as unknown as W).__xgisReady === true, null, { timeout: 30_000 })
+    await page.waitForFunction(() => (window as unknown as W).__xgisReady === true, null, {
+      timeout: 30_000,
+    })
 
     // Freeze the (already-instant) camera so a stray re-fit can't perturb the frame, then wait
     // for the scene to fully settle before capturing.
     await page.evaluate(() => {
       const m = (window as unknown as W).__xgisMap
       if (!m?.jumpTo || !m.getCenter) return
-      m.jumpTo({ center: m.getCenter(), zoom: m.getZoom?.(), bearing: m.getBearing?.(), pitch: m.getPitch?.() })
+      m.jumpTo({
+        center: m.getCenter(),
+        zoom: m.getZoom?.(),
+        bearing: m.getBearing?.(),
+        pitch: m.getPitch?.(),
+      })
     })
     await captureSettled(page, OUT_DIR, fx.id)
   }

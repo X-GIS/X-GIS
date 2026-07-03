@@ -58,7 +58,8 @@ import { PanZoomController } from './controller'
 import { InteractionController, type InteractionControllerDeps } from './interaction-controller'
 import type { GPUContext } from '@xgis/engine'
 
-const W = 800, H = 800
+const W = 800,
+  H = 800
 
 // ── Stub canvas that REALLY registers listeners so synthetic events reach the
 //    controller's own handlers (the no-op stubs in map-interaction-dpr.test.ts
@@ -135,14 +136,17 @@ describe('GATE 2A — PanZoomController drag wiring (projType 1/2/6 route throug
     const ctrl = new PanZoomController()
     ctrl.attach(canvas, cam, () => ({ projectionName: 'mercator' }))
     try {
-      const sx = 500, sy = 450
+      const sx = 500,
+        sy = 450
       const g0 = cam.unprojectToLonLat(sx, sy, W, H, 1)
       expect(g0, 'mercator: geo under start pointer is null').not.toBeNull()
 
       fire('pointerdown', ptr(1, sx, sy))
-      let px = sx, py = sy
+      let px = sx,
+        py = sy
       for (let s = 0; s < 30; s++) {
-        px += 2; py -= 1.5
+        px += 2
+        py -= 1.5
         fire('pointermove', ptr(1, px, py))
       }
       // NOTE: deliberately no `pointerup` — release starts the rAF-driven
@@ -158,7 +162,10 @@ describe('GATE 2A — PanZoomController drag wiring (projType 1/2/6 route throug
       if (dLon > 180) dLon -= 360
       if (dLon < -180) dLon += 360
       expect(Math.abs(dLon), `mercator under-cursor lon drift ${dLon}°`).toBeLessThan(1e-6)
-      expect(Math.abs(g0![1] - gEnd![1]), `mercator under-cursor lat drift ${g0![1] - gEnd![1]}°`).toBeLessThan(1e-6)
+      expect(
+        Math.abs(g0![1] - gEnd![1]),
+        `mercator under-cursor lat drift ${g0![1] - gEnd![1]}°`,
+      ).toBeLessThan(1e-6)
     } finally {
       ctrl.detach()
     }
@@ -186,14 +193,17 @@ describe('GATE 2A — PanZoomController drag wiring (projType 1/2/6 route throug
         const clat = Math.max(-85.051129, Math.min(85.051129, mercatorYToLat(cam.centerY)))
         return buildGlobeMatrix(clon, clat, cam.zoom, cam.pitch, cam.bearing, W, H, cam.globeOrtho)
       }
-      const sx = 500, sy = 450
+      const sx = 500,
+        sy = 450
       const g0 = unprojectGlobe(sx, sy, W, H, globeView())
       expect(g0, 'globe: sphere point under start pointer is null').not.toBeNull()
 
       fire('pointerdown', ptr(1, sx, sy))
-      let px = sx, py = sy
+      let px = sx,
+        py = sy
       for (let s = 0; s < 30; s++) {
-        px += 2; py -= 1.5
+        px += 2
+        py -= 1.5
         fire('pointermove', ptr(1, px, py))
       }
       // No `pointerup` — see the mercator control's note above.
@@ -206,7 +216,10 @@ describe('GATE 2A — PanZoomController drag wiring (projType 1/2/6 route throug
       // 5e-3° ≈ 0.5 px at z6 — measured ~7e-5° lon / 7e-6° lat through the
       // wired path (70× headroom), vs ~0.06° for the pre-fix phantom anchor.
       expect(Math.abs(dLon), `globe under-cursor lon drift ${dLon}°`).toBeLessThan(5e-3)
-      expect(Math.abs(g0![1] - gEnd![1]), `globe under-cursor lat drift ${g0![1] - gEnd![1]}°`).toBeLessThan(5e-3)
+      expect(
+        Math.abs(g0![1] - gEnd![1]),
+        `globe under-cursor lat drift ${g0![1] - gEnd![1]}°`,
+      ).toBeLessThan(5e-3)
     } finally {
       ctrl.detach()
     }
@@ -226,19 +239,26 @@ describe('GATE 2A — PanZoomController drag wiring (projType 1/2/6 route throug
       const ctrl = new PanZoomController()
       ctrl.attach(canvas, cam, () => ({ projectionName: name }))
       try {
-        const sx = 500, sy = 450
+        const sx = 500,
+          sy = 450
         // The new branch's anchor must be a finite Mercator-metre pair for
         // 1/2/6 (the routing condition in controller.ts:158). If it were null,
         // the controller would fall to delta-pan and the new path is dead.
         const anchor = cam.unprojectToMercatorAnchor(sx, sy, W, H, 1)
-        expect(anchor, `${name}: unprojectToMercatorAnchor is null (new drag branch would be skipped)`).not.toBeNull()
+        expect(
+          anchor,
+          `${name}: unprojectToMercatorAnchor is null (new drag branch would be skipped)`,
+        ).not.toBeNull()
         expect(anchor!.every(Number.isFinite), `${name}: anchor not finite ${anchor}`).toBe(true)
 
-        const cx0 = cam.centerX, cy0 = cam.centerY
+        const cx0 = cam.centerX,
+          cy0 = cam.centerY
         fire('pointerdown', ptr(1, sx, sy))
-        let px = sx, py = sy
+        let px = sx,
+          py = sy
         for (let s = 0; s < 30; s++) {
-          px += 2; py -= 1.5
+          px += 2
+          py -= 1.5
           fire('pointermove', ptr(1, px, py))
         }
         // No `pointerup` — see the mercator control's note: release triggers
@@ -249,10 +269,16 @@ describe('GATE 2A — PanZoomController drag wiring (projType 1/2/6 route throug
         // motion; assert it is clearly non-trivial (the anchored path ran and
         // moved the camera), not a no-op. The Mercator control above pins that
         // this same wiring is exact for projType 0.
-        expect(moved, `${name}: camera centre barely moved (${moved.toFixed(1)} m) — drag wiring did not drive the Camera`).toBeGreaterThan(1000)
+        expect(
+          moved,
+          `${name}: camera centre barely moved (${moved.toFixed(1)} m) — drag wiring did not drive the Camera`,
+        ).toBeGreaterThan(1000)
         // Finiteness guard: the move must not have produced NaN centre (a
         // wrong-space subtraction in the new branch would).
-        expect(Number.isFinite(cam.centerX) && Number.isFinite(cam.centerY), `${name}: camera centre went non-finite after drag`).toBe(true)
+        expect(
+          Number.isFinite(cam.centerX) && Number.isFinite(cam.centerY),
+          `${name}: camera centre went non-finite after drag`,
+        ).toBe(true)
       } finally {
         ctrl.detach()
       }
@@ -266,7 +292,8 @@ describe('GATE 2A — PanZoomController drag wiring (projType 1/2/6 route throug
 describe('GATE 2B — PanZoomController wheel wiring (drives camera.zoomAt)', () => {
   const prevRAF = (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame
   afterEach(() => {
-    if (prevRAF === undefined) delete (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame
+    if (prevRAF === undefined)
+      delete (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame
     else (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = prevRAF
   })
 
@@ -287,8 +314,17 @@ describe('GATE 2B — PanZoomController wheel wiring (drives camera.zoomAt)', ()
       try {
         const z0 = cam.zoom
         // deltaY<0 = wheel up = zoom in. deltaMode 0 = pixel deltas.
-        fire('wheel', { clientX: 560, clientY: 410, deltaY: -120, deltaMode: 0, preventDefault() {} })
-        expect(cam.zoom, `${name}: wheel did not change zoom (z0=${z0}, now=${cam.zoom})`).toBeGreaterThan(z0)
+        fire('wheel', {
+          clientX: 560,
+          clientY: 410,
+          deltaY: -120,
+          deltaMode: 0,
+          preventDefault() {},
+        })
+        expect(
+          cam.zoom,
+          `${name}: wheel did not change zoom (z0=${z0}, now=${cam.zoom})`,
+        ).toBeGreaterThan(z0)
         expect(Number.isFinite(cam.zoom), `${name}: zoom went non-finite after wheel`).toBe(true)
       } finally {
         ctrl.detach()
@@ -309,11 +345,12 @@ describe('GATE 2B — PanZoomController wheel wiring (drives camera.zoomAt)', ()
     // converges within the wheel handler's synchronous call) with a hard frame
     // cap so a non-converging loop can't hang the test.
     let frames = 0
-    ;(globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame =
-      (cb: FrameRequestCallback) => {
-        if (frames++ < 2000) cb(0)
-        return 0
-      }
+    ;(globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = (
+      cb: FrameRequestCallback,
+    ) => {
+      if (frames++ < 2000) cb(0)
+      return 0
+    }
 
     const cam = makeFlatCamera(0, 10)
     cam.minZoom = 8
@@ -324,10 +361,21 @@ describe('GATE 2B — PanZoomController wheel wiring (drives camera.zoomAt)', ()
       // deltaY>0 = wheel down = zoom OUT. Fire enough to overshoot the floor by
       // a wide margin (each event moves the target by at most 1 zoom level).
       for (let i = 0; i < 40; i++) {
-        fire('wheel', { clientX: 400, clientY: 400, deltaY: +120, deltaMode: 0, preventDefault() {} })
+        fire('wheel', {
+          clientX: 400,
+          clientY: 400,
+          deltaY: +120,
+          deltaMode: 0,
+          preventDefault() {},
+        })
       }
-      expect(cam.zoom, `mercator: wheel zoom-out fell below minZoom (zoom=${cam.zoom}, minZoom=${cam.minZoom})`).toBeGreaterThanOrEqual(8)
-      expect(Number.isFinite(cam.zoom), 'mercator: zoom went non-finite after streamed wheel').toBe(true)
+      expect(
+        cam.zoom,
+        `mercator: wheel zoom-out fell below minZoom (zoom=${cam.zoom}, minZoom=${cam.minZoom})`,
+      ).toBeGreaterThanOrEqual(8)
+      expect(Number.isFinite(cam.zoom), 'mercator: zoom went non-finite after streamed wheel').toBe(
+        true,
+      )
     } finally {
       ctrl.detach()
     }
@@ -368,8 +416,14 @@ describe('GATE 2C — InteractionController.clientToLngLat routing (1/2/6 finite
       const cam = makeFlatCamera(projType)
       const ic = makeInteractionController(cam, name)
       const ll = ic.clientToLngLat(500, 450)
-      expect(ll, `${name}: clientToLngLat returned null (the #200 1/2/6 branch was not reached)`).not.toBeNull()
-      expect(Number.isFinite(ll![0]) && Number.isFinite(ll![1]), `${name}: clientToLngLat not finite ${ll}`).toBe(true)
+      expect(
+        ll,
+        `${name}: clientToLngLat returned null (the #200 1/2/6 branch was not reached)`,
+      ).not.toBeNull()
+      expect(
+        Number.isFinite(ll![0]) && Number.isFinite(ll![1]),
+        `${name}: clientToLngLat not finite ${ll}`,
+      ).toBe(true)
       // Sanity: the recovered point is near the camera centre (20,30) for an
       // on-canvas pixel — bound it loosely so this is a wiring check, not a
       // precision re-test of unprojectToLonLat (G1 owns that).
@@ -388,8 +442,14 @@ describe('GATE 2C — InteractionController.clientToLngLat routing (1/2/6 finite
     cam.globeMode = true
     const ic = makeInteractionController(cam, 'globe')
     const ll = ic.clientToLngLat(500, 450)
-    expect(ll, 'globe: clientToLngLat returned null on the visible sphere (the globeMode branch was not reached)').not.toBeNull()
-    expect(Number.isFinite(ll![0]) && Number.isFinite(ll![1]), `globe: clientToLngLat not finite ${ll}`).toBe(true)
+    expect(
+      ll,
+      'globe: clientToLngLat returned null on the visible sphere (the globeMode branch was not reached)',
+    ).not.toBeNull()
+    expect(
+      Number.isFinite(ll![0]) && Number.isFinite(ll![1]),
+      `globe: clientToLngLat not finite ${ll}`,
+    ).toBe(true)
     // Near the (20,30) camera centre for an on-canvas pixel — a wiring check,
     // not a precision re-test (G5c/G5d pin the inverse's fidelity).
     expect(Math.abs(ll![0] - 20), `globe: lon ${ll![0]} far from centre`).toBeLessThan(60)
@@ -417,7 +477,10 @@ describe('GATE 2C — InteractionController.clientToLngLat routing (1/2/6 finite
       // so even the legacy fallback arm returns null.
       const ic = makeInteractionController(cam, name)
       const ll = ic.clientToLngLat(500, 450)
-      expect(ll, `${name}: clientToLngLat should be null for the deferred untilted disc set, got ${ll}`).toBeNull()
+      expect(
+        ll,
+        `${name}: clientToLngLat should be null for the deferred untilted disc set, got ${ll}`,
+      ).toBeNull()
     })
   }
 })

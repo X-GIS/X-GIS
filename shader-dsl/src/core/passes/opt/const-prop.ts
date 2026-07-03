@@ -20,12 +20,23 @@ import { bodyHasRaw, collectMutatedRoots } from './expr-utils'
 
 /** Collect every `let name = <lit>` (recursively, incl. nested bodies) whose name
  *  is never mutated. Function-wide collection is safe — names are unique per fn. */
-function collectConstLets(body: readonly Stmt[], mutated: ReadonlySet<string>, out: Map<string, Expr>): void {
+function collectConstLets(
+  body: readonly Stmt[],
+  mutated: ReadonlySet<string>,
+  out: Map<string, Expr>,
+): void {
   for (const s of body) {
     if (s.s === 'let' && s.expr.op === 'lit' && !mutated.has(s.name)) out.set(s.name, s.expr)
-    else if (s.s === 'if') { for (const a of s.arms) collectConstLets(a.body, mutated, out); if (s.elseBody) collectConstLets(s.elseBody, mutated, out) }
-    else if (s.s === 'for') { collectConstLets([s.init], mutated, out); collectConstLets(s.body, mutated, out) }
-    else if (s.s === 'switch') { for (const c of s.cases) collectConstLets(c.body, mutated, out); if (s.defaultBody) collectConstLets(s.defaultBody, mutated, out) }
+    else if (s.s === 'if') {
+      for (const a of s.arms) collectConstLets(a.body, mutated, out)
+      if (s.elseBody) collectConstLets(s.elseBody, mutated, out)
+    } else if (s.s === 'for') {
+      collectConstLets([s.init], mutated, out)
+      collectConstLets(s.body, mutated, out)
+    } else if (s.s === 'switch') {
+      for (const c of s.cases) collectConstLets(c.body, mutated, out)
+      if (s.defaultBody) collectConstLets(s.defaultBody, mutated, out)
+    }
   }
 }
 

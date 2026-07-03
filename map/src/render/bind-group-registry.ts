@@ -50,7 +50,9 @@ import { polygonUniformSlots } from './polygon-uniform-slots'
 // constant: hand constants silently diverge when the DSL struct grows.
 // LAZY: polygonUniformSlots() requires configureProjections() to have run,
 // which is post-GPU-init. The size is computed on first rebuildBase() call.
-function uniformSize(): number { return polygonUniformSlots().slots * 4 }
+function uniformSize(): number {
+  return polygonUniformSlots().slots * 4
+}
 
 export class BindGroupRegistry {
   private device: GPUDevice
@@ -203,15 +205,33 @@ export class BindGroupRegistry {
   }
 
   // ── Fill-pipeline getters (cheap monomorphic field derefs) ──
-  extrudedPipeline(): GPURenderPipeline | null { return this.fillPipelineExtruded }
-  extrudedPipelineFallback(): GPURenderPipeline | null { return this.fillPipelineExtrudedFallback }
-  groundPipeline(): GPURenderPipeline | null { return this.fillPipelineGround }
-  groundPipelineFallback(): GPURenderPipeline | null { return this.fillPipelineGroundFallback }
-  extrudedOITPipeline(): GPURenderPipeline | null { return this.fillPipelineExtrudedOIT }
-  patternGroundPipeline(): GPURenderPipeline | null { return this.fillPipelinePatternGround }
-  patternGroundPipelineFallback(): GPURenderPipeline | null { return this.fillPipelinePatternGroundFallback }
-  patternExtrudedPipeline(): GPURenderPipeline | null { return this.fillPipelinePatternExtruded }
-  patternExtrudedPipelineFallback(): GPURenderPipeline | null { return this.fillPipelinePatternExtrudedFallback }
+  extrudedPipeline(): GPURenderPipeline | null {
+    return this.fillPipelineExtruded
+  }
+  extrudedPipelineFallback(): GPURenderPipeline | null {
+    return this.fillPipelineExtrudedFallback
+  }
+  groundPipeline(): GPURenderPipeline | null {
+    return this.fillPipelineGround
+  }
+  groundPipelineFallback(): GPURenderPipeline | null {
+    return this.fillPipelineGroundFallback
+  }
+  extrudedOITPipeline(): GPURenderPipeline | null {
+    return this.fillPipelineExtrudedOIT
+  }
+  patternGroundPipeline(): GPURenderPipeline | null {
+    return this.fillPipelinePatternGround
+  }
+  patternGroundPipelineFallback(): GPURenderPipeline | null {
+    return this.fillPipelinePatternGroundFallback
+  }
+  patternExtrudedPipeline(): GPURenderPipeline | null {
+    return this.fillPipelinePatternExtruded
+  }
+  patternExtrudedPipelineFallback(): GPURenderPipeline | null {
+    return this.fillPipelinePatternExtrudedFallback
+  }
 
   /** Rebuild the two SOURCE-level bind groups (`tileBgDefault` +
    *  `tileBgFeature`) against the CURRENT uniform ring + feature data

@@ -19,18 +19,22 @@ import { decodeGlyphsPbf } from '@xgis/map'
 const TIMEOUT = { timeout: 1500 }
 
 describe('decodeGlyphsPbf — malformed / truncated input must not hang', () => {
-  it('len-delimited submessage overruns the buffer (field 1, wire 2, len=100, 2 bytes)', TIMEOUT, () => {
-    // tag 0x0a = field 1, wire 2 (a `stacks` fontstack submessage).
-    // declared submessage length 100, but only 2 trailing bytes exist.
-    // readMessage computes end = pos + 100 (past EOF); the inner loop then
-    // walks past `len`, readTag returns {0,0}, skip(0) re-reads a 0 varint
-    // with no progress → original infinite loop.
-    const buf = new Uint8Array([0x0a, 100, 0x01, 0x02])
-    const stacks = decodeGlyphsPbf(buf)
-    // Post-fix: decode terminates. Result is whatever could be parsed —
-    // we only require that it returns an array and does not hang.
-    expect(Array.isArray(stacks)).toBe(true)
-  })
+  it(
+    'len-delimited submessage overruns the buffer (field 1, wire 2, len=100, 2 bytes)',
+    TIMEOUT,
+    () => {
+      // tag 0x0a = field 1, wire 2 (a `stacks` fontstack submessage).
+      // declared submessage length 100, but only 2 trailing bytes exist.
+      // readMessage computes end = pos + 100 (past EOF); the inner loop then
+      // walks past `len`, readTag returns {0,0}, skip(0) re-reads a 0 varint
+      // with no progress → original infinite loop.
+      const buf = new Uint8Array([0x0a, 100, 0x01, 0x02])
+      const stacks = decodeGlyphsPbf(buf)
+      // Post-fix: decode terminates. Result is whatever could be parsed —
+      // we only require that it returns an array and does not hang.
+      expect(Array.isArray(stacks)).toBe(true)
+    },
+  )
 
   it('nested glyph submessage overruns at the glyph level (field 3, wire 2)', TIMEOUT, () => {
     // glyphs (top) -> fontstack(field 1, wire 2, len = rest) -> within it a

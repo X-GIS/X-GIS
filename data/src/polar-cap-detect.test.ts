@@ -6,7 +6,13 @@
 //   - distinguish north vs south pole boundary
 
 import { describe, it, expect } from 'vitest'
-import { findClampBoundarySpans, injectPolarCaps, synthesizeCapRing, vertexOnClampBoundary, type CapSpan } from './polar-cap-detect'
+import {
+  findClampBoundarySpans,
+  injectPolarCaps,
+  synthesizeCapRing,
+  vertexOnClampBoundary,
+  type CapSpan,
+} from './polar-cap-detect'
 
 const LIMIT = 85.0511287798066
 
@@ -30,20 +36,26 @@ describe('vertexOnClampBoundary', () => {
 
 describe('findClampBoundarySpans', () => {
   it('returns empty for ring fully inside clamp band', () => {
-    const ring: Array<[number, number]> = [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]
+    const ring: Array<[number, number]> = [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [0, 10],
+      [0, 0],
+    ]
     expect(findClampBoundarySpans(ring)).toEqual([])
   })
 
   it('detects single south-pole span', () => {
     // Antarctica-like: most ring outside boundary, segment along -85°.
     const ring: Array<[number, number]> = [
-      [0, -80],          // off-boundary
+      [0, -80], // off-boundary
       [10, -80],
-      [20, -85.0511],   // boundary start
+      [20, -85.0511], // boundary start
       [30, -85.0511],
-      [40, -85.0511],   // boundary end
-      [50, -80],         // off-boundary
-      [0, -80],          // close
+      [40, -85.0511], // boundary end
+      [50, -80], // off-boundary
+      [0, -80], // close
     ]
     const spans = findClampBoundarySpans(ring)
     expect(spans).toHaveLength(1)
@@ -66,19 +78,19 @@ describe('findClampBoundarySpans', () => {
     ]
     const spans = findClampBoundarySpans(ring)
     expect(spans).toHaveLength(2)
-    expect(spans.find(s => s.pole === 1)?.startLon).toBe(10)
-    expect(spans.find(s => s.pole === -1)?.startLon).toBe(40)
+    expect(spans.find((s) => s.pole === 1)?.startLon).toBe(10)
+    expect(spans.find((s) => s.pole === -1)?.startLon).toBe(40)
   })
 
   it('handles span that wraps the ring start', () => {
     // First two and last two vertices are on the south clamp.
     const ring: Array<[number, number]> = [
-      [-170, -LIMIT],   // wrap-end of southern span
+      [-170, -LIMIT], // wrap-end of southern span
       [-160, -LIMIT],
-      [-150, -80],       // off-boundary
+      [-150, -80], // off-boundary
       [-140, -80],
       [-130, -80],
-      [-180, -LIMIT],   // wrap-start of southern span
+      [-180, -LIMIT], // wrap-start of southern span
     ]
     const spans = findClampBoundarySpans(ring)
     expect(spans).toHaveLength(1)
@@ -87,8 +99,11 @@ describe('findClampBoundarySpans', () => {
 
   it('whole ring on boundary reports single span covering it all', () => {
     const ring: Array<[number, number]> = [
-      [-180, -LIMIT], [-90, -LIMIT], [0, -LIMIT],
-      [90, -LIMIT], [180, -LIMIT],
+      [-180, -LIMIT],
+      [-90, -LIMIT],
+      [0, -LIMIT],
+      [90, -LIMIT],
+      [180, -LIMIT],
     ]
     const spans = findClampBoundarySpans(ring)
     expect(spans).toHaveLength(1)
@@ -107,8 +122,10 @@ describe('synthesizeCapRing', () => {
   it('south-pole span produces a closed ring with pole vertex at lat=-90', () => {
     const span: CapSpan = {
       pole: -1,
-      startIdx: 0, endIdx: 4,
-      startLon: -180, endLon: 180,
+      startIdx: 0,
+      endIdx: 4,
+      startLon: -180,
+      endLon: 180,
     }
     const ring = synthesizeCapRing(span, 8)
     expect(ring.length).toBeGreaterThan(2)
@@ -120,8 +137,10 @@ describe('synthesizeCapRing', () => {
   it('north-pole span produces ring with pole vertex at lat=+90', () => {
     const span: CapSpan = {
       pole: 1,
-      startIdx: 0, endIdx: 1,
-      startLon: -10, endLon: 10,
+      startIdx: 0,
+      endIdx: 1,
+      startLon: -10,
+      endLon: 10,
     }
     const ring = synthesizeCapRing(span, 4)
     expect(ring.find(([, lat]) => lat === 90)).toBeDefined()
@@ -130,8 +149,10 @@ describe('synthesizeCapRing', () => {
   it('boundary vertices interpolated at MERCATOR_LAT_LIMIT', () => {
     const span: CapSpan = {
       pole: -1,
-      startIdx: 0, endIdx: 1,
-      startLon: 0, endLon: 90,
+      startIdx: 0,
+      endIdx: 1,
+      startLon: 0,
+      endLon: 90,
     }
     const ring = synthesizeCapRing(span, 4)
     const boundaryPoints = ring.filter(([, lat]) => Math.abs(lat + LIMIT) < 1e-6)
@@ -141,8 +162,10 @@ describe('synthesizeCapRing', () => {
   it('subdivision count controls ring vertex density', () => {
     const span: CapSpan = {
       pole: -1,
-      startIdx: 0, endIdx: 0,
-      startLon: -180, endLon: 180,
+      startIdx: 0,
+      endIdx: 0,
+      startLon: -180,
+      endLon: 180,
     }
     const ring4 = synthesizeCapRing(span, 4)
     const ring32 = synthesizeCapRing(span, 32)
@@ -153,8 +176,10 @@ describe('synthesizeCapRing', () => {
     // startLon=170, endLon=-170 — span crosses antimeridian.
     const span: CapSpan = {
       pole: -1,
-      startIdx: 0, endIdx: 1,
-      startLon: 170, endLon: -170,
+      startIdx: 0,
+      endIdx: 1,
+      startLon: 170,
+      endLon: -170,
     }
     const ring = synthesizeCapRing(span, 4)
     // All longitudes must be in [-180, 180].
@@ -169,20 +194,24 @@ describe('injectPolarCaps', () => {
   it('appends cap feature for antarctica-like polygon', () => {
     const fc = {
       type: 'FeatureCollection' as const,
-      features: [{
-        type: 'Feature' as const,
-        geometry: {
-          type: 'Polygon' as const,
-          coordinates: [[
-            [-180, -80] as [number, number],
-            [180, -80] as [number, number],
-            [180, -85.0511] as [number, number],
-            [-180, -85.0511] as [number, number],
-            [-180, -80] as [number, number],
-          ]],
+      features: [
+        {
+          type: 'Feature' as const,
+          geometry: {
+            type: 'Polygon' as const,
+            coordinates: [
+              [
+                [-180, -80] as [number, number],
+                [180, -80] as [number, number],
+                [180, -85.0511] as [number, number],
+                [-180, -85.0511] as [number, number],
+                [-180, -80] as [number, number],
+              ],
+            ],
+          },
+          properties: { name: 'Antarctica' },
         },
-        properties: { name: 'Antarctica' },
-      }],
+      ],
     }
     const result = injectPolarCaps(fc, 8)
     expect(result.features.length).toBe(2)
@@ -197,14 +226,23 @@ describe('injectPolarCaps', () => {
   it('passes through FC unchanged when no polygon touches boundary', () => {
     const fc = {
       type: 'FeatureCollection' as const,
-      features: [{
-        type: 'Feature' as const,
-        geometry: {
-          type: 'Polygon' as const,
-          coordinates: [[[0, 0] as [number, number], [10, 0] as [number, number], [10, 10] as [number, number], [0, 0] as [number, number]]],
+      features: [
+        {
+          type: 'Feature' as const,
+          geometry: {
+            type: 'Polygon' as const,
+            coordinates: [
+              [
+                [0, 0] as [number, number],
+                [10, 0] as [number, number],
+                [10, 10] as [number, number],
+                [0, 0] as [number, number],
+              ],
+            ],
+          },
+          properties: {},
         },
-        properties: {},
-      }],
+      ],
     }
     const result = injectPolarCaps(fc)
     expect(result).toBe(fc) // same reference — short-circuit
@@ -213,17 +251,34 @@ describe('injectPolarCaps', () => {
   it('handles MultiPolygon geometry', () => {
     const fc = {
       type: 'FeatureCollection' as const,
-      features: [{
-        type: 'Feature' as const,
-        geometry: {
-          type: 'MultiPolygon' as const,
-          coordinates: [
-            [[[0, 0] as [number, number], [10, 0] as [number, number], [10, 10] as [number, number], [0, 0] as [number, number]]],
-            [[[170, -80] as [number, number], [-170, -80] as [number, number], [-170, -85.0511] as [number, number], [170, -85.0511] as [number, number], [170, -80] as [number, number]]],
-          ],
+      features: [
+        {
+          type: 'Feature' as const,
+          geometry: {
+            type: 'MultiPolygon' as const,
+            coordinates: [
+              [
+                [
+                  [0, 0] as [number, number],
+                  [10, 0] as [number, number],
+                  [10, 10] as [number, number],
+                  [0, 0] as [number, number],
+                ],
+              ],
+              [
+                [
+                  [170, -80] as [number, number],
+                  [-170, -80] as [number, number],
+                  [-170, -85.0511] as [number, number],
+                  [170, -85.0511] as [number, number],
+                  [170, -80] as [number, number],
+                ],
+              ],
+            ],
+          },
+          properties: {},
         },
-        properties: {},
-      }],
+      ],
     }
     const result = injectPolarCaps(fc)
     // Original feature + 1 cap from the boundary-touching sub-polygon.
@@ -234,7 +289,11 @@ describe('injectPolarCaps', () => {
     const fc = {
       type: 'FeatureCollection' as const,
       features: [
-        { type: 'Feature' as const, geometry: { type: 'Point', coordinates: [0, -85] }, properties: {} },
+        {
+          type: 'Feature' as const,
+          geometry: { type: 'Point', coordinates: [0, -85] },
+          properties: {},
+        },
         { type: 'Feature' as const, geometry: null, properties: {} },
       ],
     }
@@ -248,31 +307,33 @@ describe('injectPolarCaps', () => {
     // would erroneously fill the carved-out area.
     const fc = {
       type: 'FeatureCollection' as const,
-      features: [{
-        type: 'Feature' as const,
-        geometry: {
-          type: 'Polygon' as const,
-          coordinates: [
-            // Outer ring — no boundary touch
-            [
-              [-180, -80] as [number, number],
-              [180, -80] as [number, number],
-              [180, -82] as [number, number],
-              [-180, -82] as [number, number],
-              [-180, -80] as [number, number],
+      features: [
+        {
+          type: 'Feature' as const,
+          geometry: {
+            type: 'Polygon' as const,
+            coordinates: [
+              // Outer ring — no boundary touch
+              [
+                [-180, -80] as [number, number],
+                [180, -80] as [number, number],
+                [180, -82] as [number, number],
+                [-180, -82] as [number, number],
+                [-180, -80] as [number, number],
+              ],
+              // Inner ring (hole) — touches south boundary
+              [
+                [-90, -85.0511] as [number, number],
+                [90, -85.0511] as [number, number],
+                [90, -83] as [number, number],
+                [-90, -83] as [number, number],
+                [-90, -85.0511] as [number, number],
+              ],
             ],
-            // Inner ring (hole) — touches south boundary
-            [
-              [-90, -85.0511] as [number, number],
-              [90, -85.0511] as [number, number],
-              [90, -83] as [number, number],
-              [-90, -83] as [number, number],
-              [-90, -85.0511] as [number, number],
-            ],
-          ],
+          },
+          properties: {},
         },
-        properties: {},
-      }],
+      ],
     }
     const result = injectPolarCaps(fc)
     // Outer doesn't touch boundary, inner is skipped → no caps added.
@@ -282,20 +343,24 @@ describe('injectPolarCaps', () => {
   it('cap feature inherits source feature properties', () => {
     const fc = {
       type: 'FeatureCollection' as const,
-      features: [{
-        type: 'Feature' as const,
-        id: 'aq',
-        geometry: {
-          type: 'Polygon' as const,
-          coordinates: [[
-            [-180, -80] as [number, number],
-            [-180, -85.0511] as [number, number],
-            [0, -85.0511] as [number, number],
-            [-180, -80] as [number, number],
-          ]],
+      features: [
+        {
+          type: 'Feature' as const,
+          id: 'aq',
+          geometry: {
+            type: 'Polygon' as const,
+            coordinates: [
+              [
+                [-180, -80] as [number, number],
+                [-180, -85.0511] as [number, number],
+                [0, -85.0511] as [number, number],
+                [-180, -80] as [number, number],
+              ],
+            ],
+          },
+          properties: { class: 'land', color: 'green' },
         },
-        properties: { class: 'land', color: 'green' },
-      }],
+      ],
     }
     const result = injectPolarCaps(fc)
     const cap = result.features[result.features.length - 1]!

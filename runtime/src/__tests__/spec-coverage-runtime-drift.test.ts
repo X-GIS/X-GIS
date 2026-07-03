@@ -36,13 +36,19 @@ describe('spec-coverage ↔ runtime capability drift', () => {
     const drifts: string[] = []
     for (const cap of RUNTIME_CAPABILITIES) {
       if (cap.variant !== 'constant' || !cap.supported) continue
-      const specEntry = flattenCoverage().find(e => e.name === specName(cap.layerType, cap.property))
+      const specEntry = flattenCoverage().find(
+        (e) => e.name === specName(cap.layerType, cap.property),
+      )
       if (!specEntry) {
-        drifts.push(`${cap.layerType}.${cap.property} → runtime supports constant, but no spec-coverage entry`)
+        drifts.push(
+          `${cap.layerType}.${cap.property} → runtime supports constant, but no spec-coverage entry`,
+        )
         continue
       }
       if (specEntry.status === 'unsupported') {
-        drifts.push(`${cap.layerType}.${cap.property} → runtime supports constant, spec-coverage says unsupported`)
+        drifts.push(
+          `${cap.layerType}.${cap.property} → runtime supports constant, spec-coverage says unsupported`,
+        )
       }
     }
     expect(drifts, drifts.join('\n')).toEqual([])
@@ -55,27 +61,112 @@ describe('spec-coverage ↔ runtime capability drift', () => {
     // "version", "metadata") or properties handled at IR-lowering
     // time (e.g. layout `visibility`). Filter those out by name.
     const NON_RENDERABLE = new Set([
-      'version', 'name', 'metadata', 'center', 'zoom', 'bearing', 'pitch',
-      'sources', 'layers', 'sprite', 'glyphs', 'transition',
-      'visibility', 'minzoom', 'maxzoom', 'filter', 'id', 'type',
+      'version',
+      'name',
+      'metadata',
+      'center',
+      'zoom',
+      'bearing',
+      'pitch',
+      'sources',
+      'layers',
+      'sprite',
+      'glyphs',
+      'transition',
+      'visibility',
+      'minzoom',
+      'maxzoom',
+      'filter',
+      'id',
+      'type',
       // Legacy filter pseudo-fields ($type/$id) handled at expression lowering,
       // not renderable paint/layout props — no capabilities row (#430).
-      '$type', '$id',
-      'source', 'source-layer', 'paint', 'layout',
+      '$type',
+      '$id',
+      'source',
+      'source-layer',
+      'paint',
+      'layout',
       // Expression operators tracked in a different section.
-      'literal', 'get', 'has', '!has', 'in', '!in', 'all', 'any', '!',
-      '==', '!=', '<', '<=', '>', '>=', 'coalesce', 'case', 'match',
-      'step', 'interpolate', 'interpolate (linear)', 'interpolate (exponential)',
-      'interpolate (cubic-bezier)', 'interpolate-hcl', 'interpolate-lab',
-      'concat', 'format', 'rgb / rgba', 'hsl / hsla', 'image',
-      'to-number / number', 'to-string / to-boolean / to-color',
-      'geometry-type', 'id', 'properties', 'feature-state', 'typeof',
-      'number-format', 'collator', 'resolved-locale', 'is-supported-script',
-      'distance-from-center', 'distance', 'within', 'pitch (expr)',
-      'array', 'at', 'min', 'max', 'length', 'upcase', 'downcase',
-      'slice', 'index-of', 'let', 'var', '+', '-', '*', '/', '%', '^',
-      'abs', 'ceil', 'floor', 'round', 'sqrt', 'sin', 'cos', 'tan',
-      'asin', 'acos', 'atan', 'ln', 'log10', 'log2', 'pi', 'e', 'ln2',
+      'literal',
+      'get',
+      'has',
+      '!has',
+      'in',
+      '!in',
+      'all',
+      'any',
+      '!',
+      '==',
+      '!=',
+      '<',
+      '<=',
+      '>',
+      '>=',
+      'coalesce',
+      'case',
+      'match',
+      'step',
+      'interpolate',
+      'interpolate (linear)',
+      'interpolate (exponential)',
+      'interpolate (cubic-bezier)',
+      'interpolate-hcl',
+      'interpolate-lab',
+      'concat',
+      'format',
+      'rgb / rgba',
+      'hsl / hsla',
+      'image',
+      'to-number / number',
+      'to-string / to-boolean / to-color',
+      'geometry-type',
+      'id',
+      'properties',
+      'feature-state',
+      'typeof',
+      'number-format',
+      'collator',
+      'resolved-locale',
+      'is-supported-script',
+      'distance-from-center',
+      'distance',
+      'within',
+      'pitch (expr)',
+      'array',
+      'at',
+      'min',
+      'max',
+      'length',
+      'upcase',
+      'downcase',
+      'slice',
+      'index-of',
+      'let',
+      'var',
+      '+',
+      '-',
+      '*',
+      '/',
+      '%',
+      '^',
+      'abs',
+      'ceil',
+      'floor',
+      'round',
+      'sqrt',
+      'sin',
+      'cos',
+      'tan',
+      'asin',
+      'acos',
+      'atan',
+      'ln',
+      'log10',
+      'log2',
+      'pi',
+      'e',
+      'ln2',
       'pow',
       // Grouped operator-set entries in spec-coverage (single coverage
       // row covers multiple closely-related operators).
@@ -96,14 +187,32 @@ describe('spec-coverage ↔ runtime capability drift', () => {
       // Layer-type rows that aggregate over all properties of a type
       'symbol (text)',
       // Source types
-      'vector (.pmtiles)', 'vector (TileJSON)', 'pmtiles', 'tilejson (explicit)',
-      'raster', 'geojson (URL)', 'geojson (inline)', 'raster-dem',
-      'image', 'video',
+      'vector (.pmtiles)',
+      'vector (TileJSON)',
+      'pmtiles',
+      'tilejson (explicit)',
+      'raster',
+      'geojson (URL)',
+      'geojson (inline)',
+      'raster-dem',
+      'image',
+      'video',
       // Layer types
-      'fill', 'line', 'symbol', 'circle', 'fill-extrusion', 'background',
-      'heatmap', 'hillshade', 'sky',
+      'fill',
+      'line',
+      'symbol',
+      'circle',
+      'fill-extrusion',
+      'background',
+      'heatmap',
+      'hillshade',
+      'sky',
       // Top-level
-      'light', 'fog', 'terrain', 'projection', 'imports',
+      'light',
+      'fog',
+      'terrain',
+      'projection',
+      'imports',
     ])
     const orphans: string[] = []
     for (const entry of flattenCoverage()) {
@@ -111,16 +220,20 @@ describe('spec-coverage ↔ runtime capability drift', () => {
       if (NON_RENDERABLE.has(entry.name)) continue
       // For Mapbox paint/layout properties, the capability table
       // entry IS scoped by layer-type. Search across all layer types.
-      const anyCap = RUNTIME_CAPABILITIES.find(c => c.property === entry.name)
+      const anyCap = RUNTIME_CAPABILITIES.find((c) => c.property === entry.name)
       if (!anyCap) {
-        orphans.push(`spec-coverage says ${entry.name} supported, but capability table has no entry`)
+        orphans.push(
+          `spec-coverage says ${entry.name} supported, but capability table has no entry`,
+        )
       }
     }
     // Soft assertion: log orphans for visibility but don't fail —
     // some legitimately runtime-implicit properties (e.g. things
     // baked into PaintShapes) may not need a capability row.
     if (orphans.length > 0) {
-      console.warn(`[spec-coverage-runtime-drift] ${orphans.length} orphan entries:\n${orphans.slice(0, 10).join('\n')}`)
+      console.warn(
+        `[spec-coverage-runtime-drift] ${orphans.length} orphan entries:\n${orphans.slice(0, 10).join('\n')}`,
+      )
     }
     // Hard gate: orphan count shouldn't BALLOON. Iter 59 lowered
     // ceiling 80 → 10 after capability-table expansion drained the
@@ -149,7 +262,9 @@ describe('spec-coverage ↔ runtime capability drift', () => {
     const contradictions: string[] = []
     for (const e of flattenCoverage()) {
       if (e.status !== 'supported') continue
-      const cap = RUNTIME_CAPABILITIES.find(c => c.property === e.name && c.variant === 'constant')
+      const cap = RUNTIME_CAPABILITIES.find(
+        (c) => c.property === e.name && c.variant === 'constant',
+      )
       if (!cap) continue // no capability row for this property (e.g. expression operator) — orphan test handles
       if (!cap.supported) {
         contradictions.push(
@@ -173,7 +288,9 @@ describe('spec-coverage ↔ runtime capability drift', () => {
       if (cap.note) {
         for (const b of BAD) {
           if (cap.note.toLowerCase().includes(b.toLowerCase())) {
-            expect.fail(`${cap.layerType}.${cap.property}:${cap.variant} marked supported=true but note contains "${b}": ${cap.note}`)
+            expect.fail(
+              `${cap.layerType}.${cap.property}:${cap.variant} marked supported=true but note contains "${b}": ${cap.note}`,
+            )
           }
         }
       }

@@ -16,9 +16,16 @@ import { varRefVec4 } from '@xgis/compiler'
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {
     ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
-      MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8,
-      INDEX: 16, VERTEX: 32, UNIFORM: 64, STORAGE: 128,
-      INDIRECT: 256, QUERY_RESOLVE: 512,
+      MAP_READ: 1,
+      MAP_WRITE: 2,
+      COPY_SRC: 4,
+      COPY_DST: 8,
+      INDEX: 16,
+      VERTEX: 32,
+      UNIFORM: 64,
+      STORAGE: 128,
+      INDIRECT: 256,
+      QUERY_RESOLVE: 512,
     }
   }
 })
@@ -35,18 +42,31 @@ function makeFakeContext() {
       const ep = (d.compute as { entryPoint: string }).entryPoint
       return {
         _ep: ep,
-        getBindGroupLayout() { return { _l: ep } as unknown as GPUBindGroupLayout },
+        getBindGroupLayout() {
+          return { _l: ep } as unknown as GPUBindGroupLayout
+        },
       } as unknown as GPUComputePipeline
     },
-    createBindGroup(_d: GPUBindGroupDescriptor) { return { _stub: true } as unknown as GPUBindGroup },
+    createBindGroup(_d: GPUBindGroupDescriptor) {
+      return { _stub: true } as unknown as GPUBindGroup
+    },
     createBuffer(d: GPUBufferDescriptor) {
       return {
-        _label: d.label, _size: d.size,
-        get size() { return d.size },
-        destroy() { destroyedCount++ },
+        _label: d.label,
+        _size: d.size,
+        get size() {
+          return d.size
+        },
+        destroy() {
+          destroyedCount++
+        },
       } as unknown as GPUBuffer
     },
-    queue: { writeBuffer() { /* no-op */ } },
+    queue: {
+      writeBuffer() {
+        /* no-op */
+      },
+    },
   } as unknown as GPUDevice
 
   const encoder = {
@@ -54,10 +74,18 @@ function makeFakeContext() {
       let ep = ''
       let workgroups = 0
       return {
-        setPipeline(p: GPUComputePipeline) { ep = (p as unknown as { _ep: string })._ep },
-        setBindGroup() { /* no-op */ },
-        dispatchWorkgroups(n: number) { workgroups = n },
-        end() { dispatches.push({ entryPoint: ep, workgroups }) },
+        setPipeline(p: GPUComputePipeline) {
+          ep = (p as unknown as { _ep: string })._ep
+        },
+        setBindGroup() {
+          /* no-op */
+        },
+        dispatchWorkgroups(n: number) {
+          workgroups = n
+        },
+        end() {
+          dispatches.push({ entryPoint: ep, workgroups })
+        },
       } as unknown as GPUComputePassEncoder
     },
   } as unknown as GPUCommandEncoder
@@ -72,12 +100,22 @@ function makeFakeContext() {
 
 function legacyVariant(): ShaderVariant {
   return {
-    key: 'L', preamble: {}, fillExpr: varRefVec4('u.fill_color'), strokeExpr: varRefVec4('u.stroke_color'),
-    needsFeatureBuffer: false, featureFields: [], uniformFields: [],
-    categoryOrder: {}, paletteColorGradients: [], paletteScalarGradients: [],
-    fillUsesPalette: false, strokeUsesPalette: false, opacityUsesPalette: false,
+    key: 'L',
+    preamble: {},
+    fillExpr: varRefVec4('u.fill_color'),
+    strokeExpr: varRefVec4('u.stroke_color'),
+    needsFeatureBuffer: false,
+    featureFields: [],
+    uniformFields: [],
+    categoryOrder: {},
+    paletteColorGradients: [],
+    paletteScalarGradients: [],
+    fillUsesPalette: false,
+    strokeUsesPalette: false,
+    opacityUsesPalette: false,
     // Phase 2.5 US-002 — default-sentinel flags replacing the string compare.
-    fillIsDefault: true, strokeIsDefault: true,
+    fillIsDefault: true,
+    strokeIsDefault: true,
   }
 }
 
@@ -88,8 +126,11 @@ function makeMatchEntry(field: string, renderNodeIndex: number): ComputePlanEntr
     defaultColorHex: '#000000',
   })
   return {
-    renderNodeIndex, paintAxis: 'fill', kernel,
-    fieldOrder: kernel.fieldOrder, categoryOrder: kernel.categoryOrder ?? {},
+    renderNodeIndex,
+    paintAxis: 'fill',
+    kernel,
+    fieldOrder: kernel.fieldOrder,
+    categoryOrder: kernel.categoryOrder ?? {},
   }
 }
 
@@ -107,19 +148,17 @@ describe('ComputeLayerHandle — construction', () => {
     expect(handle.kernelCount).toBe(1)
   })
 
-  it('filters scene plan to the show\'s renderNodeIndex', () => {
+  it("filters scene plan to the show's renderNodeIndex", () => {
     const { dispatcher } = makeFakeContext()
     const thisShow = makeMatchEntry('class', 5)
     const otherShow = makeMatchEntry('rank', 9)
     const variant = mergedVariantFor([thisShow])
     // Plan has entries for two shows; the handle keeps only ours.
-    const handle = new ComputeLayerHandle(
-      dispatcher, variant, [thisShow, otherShow], 5,
-    )
+    const handle = new ComputeLayerHandle(dispatcher, variant, [thisShow, otherShow], 5)
     expect(handle.kernelCount).toBe(1)
   })
 
-  it('throws when plan filter count doesn\'t match variant computeBindings', () => {
+  it("throws when plan filter count doesn't match variant computeBindings", () => {
     // Drift detection — variant says "I expect 1 compute binding"
     // but the plan filter produced 0 entries → upstream bug.
     const { dispatcher } = makeFakeContext()
@@ -159,7 +198,7 @@ describe('ComputeLayerHandle — uploadFromProps + dispatch', () => {
     expect(dispatches).toHaveLength(0)
   })
 
-  it('idempotent: second uploadFromProps with same count doesn\'t allocate', () => {
+  it("idempotent: second uploadFromProps with same count doesn't allocate", () => {
     const { dispatcher } = makeFakeContext()
     const entry = makeMatchEntry('class', 0)
     const handle = new ComputeLayerHandle(dispatcher, mergedVariantFor([entry]), [entry], 0)

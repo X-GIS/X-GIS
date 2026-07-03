@@ -38,12 +38,14 @@ BlueprintEditor (그래프 저작)
 
 ```ts
 import { BlueprintEditor, graphToXgis, starterGraph } from '@xgis/blueprint'
-import '@xgis/blueprint/blueprint.css'   // 에디터 chrome 스타일 (필수)
+import '@xgis/blueprint/blueprint.css' // 에디터 chrome 스타일 (필수)
 
 const editor = new BlueprintEditor({
   viewport: document.getElementById('canvas')!,
   inspector: document.getElementById('inspector')!,
-  onChange: () => { /* 그래프 변경 시 호출 */ },
+  onChange: () => {
+    /* 그래프 변경 시 호출 */
+  },
 })
 ```
 
@@ -51,36 +53,36 @@ const editor = new BlueprintEditor({
 
 `index.ts`는 네 모듈을 re-export 한다: `types`, `codegen`, `import`, `editor`.
 
-| 심볼 | 출처 | 설명 |
-|------|------|------|
-| `BlueprintEditor` | `editor.ts` | 에디터 클래스. 생성자는 `{ viewport, inspector, onChange }`. 팬/줌, 와이어 드래그, marquee 다중선택, 노드 CRUD, comment frame, reroute knot, snap-to-grid, align/distribute, copy-paste, undo/redo, inspector를 전부 vanilla DOM/SVG로 처리. |
-| `graphToXgis(g: BPGraph): string` | `codegen.ts` | 그래프를 언어 정의 순서(imports → sources → symbols → styles → fns → presets → background → layers)로 걸어 `.xgis` 소스를 emit. reroute knot은 와이어 해석 시 투명하게 통과. |
-| `xgisToGraph(src: string): BPGraph` | `import.ts` | codegen의 역방향. raw `.xgis` 텍스트를 brace/문자열/주석 인식 스캐너로 블록 분할해 그래프로 복원. |
-| `styleToGraph(style: unknown): BPGraph` | `import.ts` | MapLibre/Mapbox `style.json`을 `convertMapboxStyle`로 `.xgis`화한 뒤 `xgisToGraph`로 변환. |
-| `importText(text: string): BPGraph` | `import.ts` | 붙여넣기 박스용 휴리스틱 디스패치 — `{`로 시작하면 style JSON, 아니면 raw `.xgis`. |
-| `BPNode` / `BPEdge` / `BPGraph` / `BPFrame` | `types.ts` | 그래프 모델 타입. JSON round-trippable (undo/redo 스냅샷·localStorage 영속화에 의존). |
-| `NODE_SPECS` | `types.ts` | `LANGUAGE_SCHEMA`에서 파생된 노드 카탈로그. |
-| `PinType` / `PinSpec` / `FieldSpec` / `PIN_COLOR` / `pinCompatible` | `types.ts` | 타입드 핀 모델과 Unreal 스타일 와이어 색. |
-| `uid(prefix)` / `defaultData(type)` / `starterGraph()` | `types.ts` | 노드 ID 생성, 노드 zero-value 필드 맵, `map + source + layer` 최소 시작 그래프. |
+| 심볼                                                                | 출처         | 설명                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BlueprintEditor`                                                   | `editor.ts`  | 에디터 클래스. 생성자는 `{ viewport, inspector, onChange }`. 팬/줌, 와이어 드래그, marquee 다중선택, 노드 CRUD, comment frame, reroute knot, snap-to-grid, align/distribute, copy-paste, undo/redo, inspector를 전부 vanilla DOM/SVG로 처리. |
+| `graphToXgis(g: BPGraph): string`                                   | `codegen.ts` | 그래프를 언어 정의 순서(imports → sources → symbols → styles → fns → presets → background → layers)로 걸어 `.xgis` 소스를 emit. reroute knot은 와이어 해석 시 투명하게 통과.                                                                 |
+| `xgisToGraph(src: string): BPGraph`                                 | `import.ts`  | codegen의 역방향. raw `.xgis` 텍스트를 brace/문자열/주석 인식 스캐너로 블록 분할해 그래프로 복원.                                                                                                                                            |
+| `styleToGraph(style: unknown): BPGraph`                             | `import.ts`  | MapLibre/Mapbox `style.json`을 `convertMapboxStyle`로 `.xgis`화한 뒤 `xgisToGraph`로 변환.                                                                                                                                                   |
+| `importText(text: string): BPGraph`                                 | `import.ts`  | 붙여넣기 박스용 휴리스틱 디스패치 — `{`로 시작하면 style JSON, 아니면 raw `.xgis`.                                                                                                                                                           |
+| `BPNode` / `BPEdge` / `BPGraph` / `BPFrame`                         | `types.ts`   | 그래프 모델 타입. JSON round-trippable (undo/redo 스냅샷·localStorage 영속화에 의존).                                                                                                                                                        |
+| `NODE_SPECS`                                                        | `types.ts`   | `LANGUAGE_SCHEMA`에서 파생된 노드 카탈로그.                                                                                                                                                                                                  |
+| `PinType` / `PinSpec` / `FieldSpec` / `PIN_COLOR` / `pinCompatible` | `types.ts`   | 타입드 핀 모델과 Unreal 스타일 와이어 색.                                                                                                                                                                                                    |
+| `uid(prefix)` / `defaultData(type)` / `starterGraph()`              | `types.ts`   | 노드 ID 생성, 노드 zero-value 필드 맵, `map + source + layer` 최소 시작 그래프.                                                                                                                                                              |
 
 ## 주요 내부 모듈
 
 자세한 파일별 책임과 작업 규칙은 [`src/AGENTS.md`](src/AGENTS.md) 및 패키지 루트
 [`AGENTS.md`](AGENTS.md) 참고. 요약:
 
-| 파일 | 한 줄 설명 |
-|------|-----------|
-| `src/types.ts` | 그래프 모델 + `LANGUAGE_SCHEMA` 파생 `NODE_SPECS` + 핀/필드 스펙 + 헬퍼. |
-| `src/editor.ts` | `BlueprintEditor` — 모든 포인터 상호작용을 담은 대형 단일 클래스. drag 상태는 discriminated union `Drag`. |
-| `src/codegen.ts` | `graphToXgis` — 그래프 → `.xgis`. 와이어 해석은 reroute 투명 `incoming()` 헬퍼 사용. |
-| `src/import.ts` | `.xgis` / style.json → `BPGraph`. brace/문자열/주석 인식 `splitBlocks` 스캐너. |
-| `src/diagnostics.ts` | `computeNodeIssues` — 순수 per-node lint (빈 이름, 미연결 source, 중복 이름 등), DOM 없음. |
-| `src/history.ts` | `History` — 100 entry 상한 undo/redo 스택 (불투명 string 스냅샷). |
-| `src/minimap.ts` | `renderMinimap` — 노드 ≥12개일 때만 그리는 코너 오버뷰 캔버스. |
-| `src/palette.ts` | `openSearchPalette` — 컨텍스트 검색/생성 오버레이 (순수 view). |
-| `src/geometry.ts` | `bezier` — 와이어용 수평 탄젠트 cubic Bézier SVG path 문자열. |
-| `src/datapeek.ts` | `peekData` — GeoJSON source URL을 fetch해 feature 수/속성 키를 inspector에 표시. |
-| `src/blueprint.css` | 에디터 chrome 스타일. JS와 함께 import 필요. |
+| 파일                 | 한 줄 설명                                                                                                |
+| -------------------- | --------------------------------------------------------------------------------------------------------- |
+| `src/types.ts`       | 그래프 모델 + `LANGUAGE_SCHEMA` 파생 `NODE_SPECS` + 핀/필드 스펙 + 헬퍼.                                  |
+| `src/editor.ts`      | `BlueprintEditor` — 모든 포인터 상호작용을 담은 대형 단일 클래스. drag 상태는 discriminated union `Drag`. |
+| `src/codegen.ts`     | `graphToXgis` — 그래프 → `.xgis`. 와이어 해석은 reroute 투명 `incoming()` 헬퍼 사용.                      |
+| `src/import.ts`      | `.xgis` / style.json → `BPGraph`. brace/문자열/주석 인식 `splitBlocks` 스캐너.                            |
+| `src/diagnostics.ts` | `computeNodeIssues` — 순수 per-node lint (빈 이름, 미연결 source, 중복 이름 등), DOM 없음.                |
+| `src/history.ts`     | `History` — 100 entry 상한 undo/redo 스택 (불투명 string 스냅샷).                                         |
+| `src/minimap.ts`     | `renderMinimap` — 노드 ≥12개일 때만 그리는 코너 오버뷰 캔버스.                                            |
+| `src/palette.ts`     | `openSearchPalette` — 컨텍스트 검색/생성 오버레이 (순수 view).                                            |
+| `src/geometry.ts`    | `bezier` — 와이어용 수평 탄젠트 cubic Bézier SVG path 문자열.                                             |
+| `src/datapeek.ts`    | `peekData` — GeoJSON source URL을 fetch해 feature 수/속성 키를 inspector에 표시.                          |
+| `src/blueprint.css`  | 에디터 chrome 스타일. JS와 함께 import 필요.                                                              |
 
 `codegen.ts`와 `import.ts`는 **항상 동기화**되어야 한다 — 새 노드 타입은 codegen emitter와
 import 블록 인식기를 둘 다 요구한다 (`src/AGENTS.md` 참고).

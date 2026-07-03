@@ -76,7 +76,9 @@ describe('updateFeature: tile-backed source warns once instead of silent drop', 
   it('warns once for a `{_tileUrl}` raster marker too', () => {
     const map = new XGISMap(stubCanvas())
     const m = map as unknown as MapInternals
-    m.rawDatasets.set('raster', { _tileUrl: 'https://x/{z}/{x}/{y}.pbf' } as unknown as GeoJSONFeatureCollection)
+    m.rawDatasets.set('raster', {
+      _tileUrl: 'https://x/{z}/{x}/{y}.pbf',
+    } as unknown as GeoJSONFeatureCollection)
 
     map.updateFeature('raster', 1, { properties: { a: 1 } })
 
@@ -105,7 +107,12 @@ describe('updateFeature: tile-backed source warns once instead of silent drop', 
     m.rawDatasets.set('geo', {
       type: 'FeatureCollection',
       features: [
-        { type: 'Feature', id: 7, geometry: { type: 'Point', coordinates: [1, 2] }, properties: {} },
+        {
+          type: 'Feature',
+          id: 7,
+          geometry: { type: 'Point', coordinates: [1, 2] },
+          properties: {},
+        },
       ],
     } as unknown as GeoJSONFeatureCollection)
 

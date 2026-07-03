@@ -42,10 +42,7 @@ export type {
   ComputeOutputBindingSpec,
   ComputeOutputBindGroupEntry,
 } from './compute-output-binding'
-export {
-  buildComputeVariantAddendum,
-  FRAGMENT_FEAT_ID_EXPR,
-} from './compute-variant'
+export { buildComputeVariantAddendum, FRAGMENT_FEAT_ID_EXPR } from './compute-variant'
 export type { ComputeVariantAddendum } from './compute-variant'
 export { mergeComputeAddendumIntoVariant } from './compute-variant-merge'
 export { buildPerShowMergedVariant } from './compute-variant-build'

@@ -59,13 +59,18 @@ let stub: StubInstallation
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
     ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
-      width = 800; height = 600
-      getContext(_t: string): unknown { return null }
+      width = 800
+      height = 600
+      getContext(_t: string): unknown {
+        return null
+      }
     } as never
   }
   stub = installWebGPUStub()
 })
-afterEach(() => { stub.uninstall() })
+afterEach(() => {
+  stub.uninstall()
+})
 
 async function makeCtx(): Promise<GPUContext> {
   const canvas = { width: 2000, height: 800 } as unknown as HTMLCanvasElement
@@ -106,8 +111,8 @@ function selectorWorldPositions(camera: Camera): string[] {
   for (const t of tiles) {
     const rn = Math.pow(2, t.z)
     const ox = t.ox ?? t.x
-    const west = ox / rn * 360 - 180
-    const south = Math.atan(Math.sinh(Math.PI * (1 - 2 * (t.y + 1) / rn))) * 180 / Math.PI
+    const west = (ox / rn) * 360 - 180
+    const south = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (t.y + 1)) / rn))) * 180) / Math.PI
     set.add(posKey(west, south))
   }
   return [...set].sort()
@@ -128,9 +133,14 @@ function capturedDrawWorldPositions(ctx: GPUContext): string[] {
   // call the renderer makes internally.
   const currentZ = Math.max(0, Math.min(18, Math.round(camera.zoom)))
   const tiles = visibleTilesFrustum(camera, mercatorProj, currentZ, W, H, 0, DPR)
-  const cache = (renderer as unknown as {
-    tileCache: Map<string, { texture: unknown; lastUsedFrame: number; firstShownFrame: number; globalBG?: unknown }>
-  }).tileCache
+  const cache = (
+    renderer as unknown as {
+      tileCache: Map<
+        string,
+        { texture: unknown; lastUsedFrame: number; firstShownFrame: number; globalBG?: unknown }
+      >
+    }
+  ).tileCache
   const fakeTexture = { createView: () => ({}), destroy: () => undefined }
   for (const t of tiles) {
     const key = `${t.z}/${t.x}/${t.y}`
@@ -144,19 +154,30 @@ function capturedDrawWorldPositions(ctx: GPUContext): string[] {
   const device = ctx.device as unknown as {
     queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer) => void }
   }
-  device.queue.writeBuffer = (buf: unknown, _off: number, data: ArrayBufferView | ArrayBuffer): void => {
+  device.queue.writeBuffer = (
+    buf: unknown,
+    _off: number,
+    data: ArrayBufferView | ArrayBuffer,
+  ): void => {
     const size = (buf as { size?: number })?.size
     if (size !== 48) return // skip the 128-byte global uniform write
-    const f32 = data instanceof ArrayBuffer
-      ? new Float32Array(data)
-      : new Float32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset, 12)
+    const f32 =
+      data instanceof ArrayBuffer
+        ? new Float32Array(data)
+        : new Float32Array(
+            (data as ArrayBufferView).buffer,
+            (data as ArrayBufferView).byteOffset,
+            12,
+          )
     // tf[0] = west, tf[1] = south — the draw's world-copy ground footprint.
     drawPositions.push(posKey(f32[0], f32[1]))
   }
 
-  const encoder = (ctx.device as unknown as {
-    createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
-  }).createCommandEncoder()
+  const encoder = (
+    ctx.device as unknown as {
+      createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
+    }
+  ).createCommandEncoder()
   const pass = encoder.beginRenderPass()
 
   renderer.render(pass, camera, PROJ_TYPE, 0, 0, W, H, DPR)
@@ -173,7 +194,7 @@ describe('raster flat-Mercator world-copy single-source fan-out', () => {
     camera.projType = PROJ_TYPE
     const currentZ = Math.max(0, Math.min(18, Math.round(camera.zoom)))
     const tiles = visibleTilesFrustum(camera, mercatorProj, currentZ, W, H, 0, DPR)
-    const oxCopies = new Set(tiles.map(t => Math.floor((t.ox ?? t.x) / Math.pow(2, t.z))))
+    const oxCopies = new Set(tiles.map((t) => Math.floor((t.ox ?? t.x) / Math.pow(2, t.z))))
     const wo = camera.getVisibleWorldCopies(W, H, DPR)
     expect(oxCopies.size, 'selector must emit >1 world copy (baked into ox)').toBeGreaterThan(1)
     expect(wo.length, 'getVisibleWorldCopies must return >1 wo').toBeGreaterThan(1)
