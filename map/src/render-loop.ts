@@ -26,7 +26,8 @@ import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
 import { type FrameContext } from '@xgis/engine'
 import { makeProjectionToken, setProjectionToken } from '@xgis/engine'
-import type { RhiDevice } from '@xgis/engine'
+import type { RhiDevice, RhiScreenPassDevice } from '@xgis/engine'
+import { asScreenPassDevice } from '@xgis/engine'
 import { buildSceneView } from './render/scene-view'
 import type { RenderNode } from './render/render-node'
 import type { XGISMap } from './map'
@@ -212,8 +213,8 @@ export class RenderLoop {
     // Story-5/6 scope). device/context are stubbed-undefined on this path
     // (gpu.ts initGPUForcedWebGL2), so the raw calls at :199-200 must NOT run. The WebGPU
     // path below is UNTOUCHED — this is a pure pre-guard. Rollback = delete this block.
-    const rhi = this.host.ctx.rhi
-    if (rhi?.beginScreenPass && rhi.endScreenPass) {
+    const rhi = asScreenPassDevice(this.host.ctx.rhi)
+    if (rhi) {
       this.renderFrameViaRhi(rhi, w, h, projType, centerLon, centerLat, dpr)
       // Mirror the WebGPU path's end-of-frame idle bookkeeping (#746): snapshot
       // the camera signature + clear _needsRender. Without this the early return
@@ -649,12 +650,12 @@ export class RenderLoop {
    *  This is the WHOLE forced-WebGL2 hot path — none of the WebGPU multi-pass machinery runs
    *  (storage/MSAA renderers are Story-5/6). */
   private renderFrameViaRhi(
-    rhi: RhiDevice, w: number, h: number,
+    rhi: RhiDevice & RhiScreenPassDevice, w: number, h: number,
     projType: number, centerLon: number, centerLat: number, dpr: number,
   ): void {
-    const pass = rhi.beginScreenPass!({ width: w, height: h, clear: [0, 0, 0, 1] })
+    const pass = rhi.beginScreenPass({ width: w, height: h, clear: [0, 0, 0, 1] })
     this.host.rasterRenderer.renderRhiChecker(rhi, pass, this.host.camera, projType, centerLon, centerLat, w, h, dpr)
-    rhi.endScreenPass!(pass)
+    rhi.endScreenPass(pass)
     const errs = rhi.takeGlErrors?.() ?? []
     for (const message of errs) {
       this.host.ctx._validationErrors.push({ message, t: Date.now() })
