@@ -301,11 +301,26 @@ export interface RhiDevice {
   destroyBuffer(buffer: RhiBuffer): void
   createTexture(desc: RhiTextureDesc): RhiTexture
   writeTexture(texture: RhiTexture, data: BufferSource, bytesPerRow: number, width: number, height: number): void
+  /** Release a texture's GPU memory (#782 — closes the `create*` ×N / `destroyBuffer`-only
+   *  asymmetry). WebGPU `GPUTexture.destroy()`; WebGL2 `gl.deleteTexture`. Called at the SAME
+   *  teardown sites the caller would otherwise reach behind the opaque handle for — lifetime is
+   *  the caller's, not centralized by the RHI (mirrors `destroyBuffer`). */
+  destroyTexture(texture: RhiTexture): void
   createView(texture: RhiTexture): RhiTextureView
   createSampler(desc: RhiSamplerDesc): RhiSampler
+  /** Release a sampler (#782). WebGL2 `gl.deleteSampler`; on WebGPU a `GPUSampler` has NO native
+   *  destroy (GC-owned) → no-op. A texture VIEW likewise has no destroy (WebGL2: the view IS the
+   *  texture; WebGPU: `GPUTextureView` is GC-owned), so there is deliberately no `destroyView`. */
+  destroySampler(sampler: RhiSampler): void
   createBindGroupLayout(entries: RhiBindLayoutEntry[]): RhiBindGroupLayout
   createBindGroup(layout: RhiBindGroupLayout, entries: RhiBindEntry[]): RhiBindGroup
   createPipeline(desc: RhiPipelineDesc): RhiPipeline
+  /** Release a pipeline (#782). WebGL2 `gl.deleteProgram` — reclaims the linked `WebGLProgram`;
+   *  without it a WebGL2 pipeline leaks its GL program on repeat creation. On WebGPU a
+   *  `GPURenderPipeline` has NO native destroy (GC-owned) → no-op. Bind groups + bind-group
+   *  layouts hold no ownable GPU resource (WebGL2: plain JS records; WebGPU: GC-owned), so they
+   *  stay GC-owned with no `destroy` — the documented exception to the create/destroy pairing. */
+  destroyPipeline(pipeline: RhiPipeline): void
 
   // ── Screen-pass lifecycle (additive, OPTIONAL) ───────────────────────────────
   // The render loop does device-creation / swapchain-acquire / begin-pass / submit

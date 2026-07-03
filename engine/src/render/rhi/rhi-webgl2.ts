@@ -513,6 +513,12 @@ export class WebGl2Device implements RhiDevice {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, format, type, data as ArrayBufferView)
   }
 
+  destroyTexture(texture: RhiTexture): void {
+    // Delete the GL texture object (#782 — the RHI's create/destroyBuffer-only asymmetry meant a
+    // texture created here had no RHI-level free → gl.deleteTexture leak). WebGPU twin: GPUTexture.destroy().
+    this.gl.deleteTexture(un<Gl2Texture>(texture).tex)
+  }
+
   // WebGL2 has no texture views — the texture is its own view.
   createView(texture: RhiTexture): RhiTextureView { return wrap<RhiTextureView>({ texture: un<Gl2Texture>(texture) } satisfies Gl2View) }
 
@@ -525,6 +531,11 @@ export class WebGl2Device implements RhiDevice {
     gl.samplerParameteri(samp, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.samplerParameteri(samp, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
     return wrap<RhiSampler>({ samp } satisfies Gl2Sampler)
+  }
+
+  destroySampler(sampler: RhiSampler): void {
+    // Delete the GL sampler object (#782). WebGPU twin is a no-op (GPUSampler is GC-owned).
+    this.gl.deleteSampler(un<Gl2Sampler>(sampler).samp)
   }
 
   // A 'storage' entry is allowed — it is emulated as a data-texture sampler (see
@@ -625,6 +636,13 @@ export class WebGl2Device implements RhiDevice {
       vertexBuffers: desc.vertexBuffers ?? [],
       layouts,
     } satisfies Gl2Pipeline)
+  }
+
+  destroyPipeline(pipeline: RhiPipeline): void {
+    // Reclaim the linked WebGLProgram (#782). WebGPU's twin is GC-owned (no-op); a WebGL2 program
+    // is NOT GC-collected, so without this delete repeated pipeline creation (e.g. the compute-webgl2
+    // dispatch path once it goes live) accumulates GL programs unboundedly.
+    this.gl.deleteProgram(un<Gl2Pipeline>(pipeline).program)
   }
 
   /** Run a compute-as-draw (the M2 compute→fragment-GPGPU lowering) into an offscreen
