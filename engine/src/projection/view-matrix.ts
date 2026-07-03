@@ -54,6 +54,14 @@ export interface CameraView {
 const _t1 = new Array(16).fill(0)
 const _t2 = new Array(16).fill(0)
 const _t3 = new Array(16).fill(0)
+/** Scratch for the operand matrices (perspective P, translate T, rotate
+ *  Rx/Rz) so the builders reuse storage instead of allocating a fresh
+ *  16-element literal per matrix each frame. Every index is rewritten
+ *  before use, so cross-call / cross-builder reuse is value-safe. */
+const _P = new Array(16).fill(0)
+const _T = new Array(16).fill(0)
+const _Rx = new Array(16).fill(0)
+const _Rz = new Array(16).fill(0)
 
 /** Core flat/Mercator RTC matrix builder. Writes the column-major MVP into
  *  `out` and returns the far-plane value. Byte-identical to the body of
@@ -94,33 +102,30 @@ export function buildRTCMatrix(
 
   // Perspective matrix (column-major)
   const f = 1 / Math.tan(halfFov)
-  const P = perspectiveMatrix(f, near, far, aspect)
+  const P = perspectiveMatrix(f, near, far, aspect, _P)
 
   // Translate(0, 0, -altitude)
-  const T = [
-    1, 0, 0, 0,
-    0, 1, 0, 0,
-    0, 0, 1, 0,
-    0, 0, -altitude, 1,
-  ]
+  const T = _T
+  T[0] = 1; T[1] = 0; T[2] = 0; T[3] = 0
+  T[4] = 0; T[5] = 1; T[6] = 0; T[7] = 0
+  T[8] = 0; T[9] = 0; T[10] = 1; T[11] = 0
+  T[12] = 0; T[13] = 0; T[14] = -altitude; T[15] = 1
 
   // RotateX(-pitch) — tilt camera backward (look down at map from ahead)
   const cp = Math.cos(-pitchRad), sp = Math.sin(-pitchRad)
-  const Rx = [
-    1, 0, 0, 0,
-    0, cp, sp, 0,
-    0, -sp, cp, 0,
-    0, 0, 0, 1,
-  ]
+  const Rx = _Rx
+  Rx[0] = 1; Rx[1] = 0; Rx[2] = 0; Rx[3] = 0
+  Rx[4] = 0; Rx[5] = cp; Rx[6] = sp; Rx[7] = 0
+  Rx[8] = 0; Rx[9] = -sp; Rx[10] = cp; Rx[11] = 0
+  Rx[12] = 0; Rx[13] = 0; Rx[14] = 0; Rx[15] = 1
 
   // RotateZ(bearing)
   const cb = Math.cos(bearingRad), sb = Math.sin(bearingRad)
-  const Rz = [
-    cb, sb, 0, 0,
-    -sb, cb, 0, 0,
-    0, 0, 1, 0,
-    0, 0, 0, 1,
-  ]
+  const Rz = _Rz
+  Rz[0] = cb; Rz[1] = sb; Rz[2] = 0; Rz[3] = 0
+  Rz[4] = -sb; Rz[5] = cb; Rz[6] = 0; Rz[7] = 0
+  Rz[8] = 0; Rz[9] = 0; Rz[10] = 1; Rz[11] = 0
+  Rz[12] = 0; Rz[13] = 0; Rz[14] = 0; Rz[15] = 1
 
   // MVP = P × T × Rx × Rz  (right-to-left: bearing → pitch → translate → project)
   mul4(_t1, Rx, Rz)      // t1 = Rx × Rz
@@ -203,44 +208,36 @@ export function buildECEFFrameView(
 
   // Perspective (column-major).
   const f = 1 / Math.tan(halfFov)
-  const P = perspectiveMatrix(f, near, far, aspect)
+  const P = perspectiveMatrix(f, near, far, aspect, _P)
   // Translate(0, 0, -altitude_true).
-  const T = [
-    1, 0, 0, 0,
-    0, 1, 0, 0,
-    0, 0, 1, 0,
-    0, 0, -altitude_true, 1,
-  ]
+  const T = _T
+  T[0] = 1; T[1] = 0; T[2] = 0; T[3] = 0
+  T[4] = 0; T[5] = 1; T[6] = 0; T[7] = 0
+  T[8] = 0; T[9] = 0; T[10] = 1; T[11] = 0
+  T[12] = 0; T[13] = 0; T[14] = -altitude_true; T[15] = 1
   // RotateX(-pitch).
   const cp = Math.cos(-pitchRad), sp = Math.sin(-pitchRad)
-  const Rx = [
-    1, 0, 0, 0,
-    0, cp, sp, 0,
-    0, -sp, cp, 0,
-    0, 0, 0, 1,
-  ]
+  const Rx = _Rx
+  Rx[0] = 1; Rx[1] = 0; Rx[2] = 0; Rx[3] = 0
+  Rx[4] = 0; Rx[5] = cp; Rx[6] = sp; Rx[7] = 0
+  Rx[8] = 0; Rx[9] = -sp; Rx[10] = cp; Rx[11] = 0
+  Rx[12] = 0; Rx[13] = 0; Rx[14] = 0; Rx[15] = 1
   // RotateZ(bearing).
   const cb = Math.cos(bearingRad), sb = Math.sin(bearingRad)
-  const Rz = [
-    cb, sb, 0, 0,
-    -sb, cb, 0, 0,
-    0, 0, 1, 0,
-    0, 0, 0, 1,
-  ]
+  const Rz = _Rz
+  Rz[0] = cb; Rz[1] = sb; Rz[2] = 0; Rz[3] = 0
+  Rz[4] = -sb; Rz[5] = cb; Rz[6] = 0; Rz[7] = 0
+  Rz[8] = 0; Rz[9] = 0; Rz[10] = 1; Rz[11] = 0
+  Rz[12] = 0; Rz[13] = 0; Rz[14] = 0; Rz[15] = 1
   // ECEF→ENU rotation at camera anchor (column-major Float32Array(16),
-  // homogeneous identity row/column). Convert to plain array for mul4.
+  // homogeneous identity row/column). Passed straight to mul4 (widened to
+  // ArrayLike<number>) — no plain-array copy needed.
   const RenuF = ecefToENURotation(cam_lon, cam_lat)
-  const Renu: number[] = [
-    RenuF[0],  RenuF[1],  RenuF[2],  RenuF[3],
-    RenuF[4],  RenuF[5],  RenuF[6],  RenuF[7],
-    RenuF[8],  RenuF[9],  RenuF[10], RenuF[11],
-    RenuF[12], RenuF[13], RenuF[14], RenuF[15],
-  ]
 
   // M = P × T × Rx × Rz × Renu (right-to-left: ECEF→ENU first, then
   // legacy 2D-camera chain).
   mul4(_t1, Rx, Rz)          // t1 = Rx × Rz
-  mul4(_t2, _t1, Renu)        // t2 = Rx × Rz × Renu
+  mul4(_t2, _t1, RenuF)       // t2 = Rx × Rz × Renu
   mul4(_t1, T, _t2)           // t1 = T × Rx × Rz × Renu
   mul4(_t3, P, _t1)           // t3 = P × T × Rx × Rz × Renu
 

@@ -90,7 +90,16 @@ export class StagingBufferPool {
       const slot = list.pop()!
       // Re-map the buffer for write. mapAsync waits for any prior GPU
       // copy from this buffer to finish — natural serialisation.
-      await slot.buffer.mapAsync(GPUMapMode.WRITE)
+      try {
+        await slot.buffer.mapAsync(GPUMapMode.WRITE)
+      } catch (e) {
+        // mapAsync rejected (e.g. device loss). Return the slot to the
+        // free-list before rethrowing so the buffer is not stranded
+        // off-list (#782). The pool's dispose() will clean it up on
+        // context recovery.
+        list.push(slot)
+        throw e
+      }
       return slot
     }
 
