@@ -6,6 +6,8 @@ import { optimize } from '../ir/optimize'
 import { emitCommands } from '../ir/emit-commands'
 import { exprToWGSL, collectFields } from '../codegen/wgsl-expr'
 import { generateShaderVariant } from '../codegen/shader-gen'
+import { nodeToWgslString } from '../codegen/node-to-wgsl'
+import { CAT_PALETTE_SIZE } from '../codegen/categorical-encoder'
 import type * as AST from '../parser/ast'
 
 function parseExpr(source: string): AST.Expr {
@@ -115,6 +117,30 @@ describe('Shader Variant Generator', () => {
     expect(constNames).toContain('OPACITY')
     expect(variant.needsFeatureBuffer).toBe(false)
     expect(variant.uniformFields).not.toContain('fill_color')
+  })
+
+  it('categorical(field): shader modulo bound === CAT_PALETTE array length (#724)', () => {
+    // #724 — the `% N` index wrap and the CAT_PALETTE const array length are
+    // BOTH single-sourced from CAT_PALETTE_SIZE, so they can never drift into
+    // silent colour collisions. This asserts a real compiled variant agrees.
+    const scene = compileOptimized(`
+      source data { type: geojson, url: "x.geojson" }
+      layer countries {
+        source: data
+        | fill categorical(name)
+      }
+    `)
+    const variant = generateShaderVariant(scene.renderNodes[0])
+
+    // Shader seam: CAT_PALETTE[u32(field) % CAT_PALETTE_SIZE u].
+    const fillWgsl = variant.fillExpr ? nodeToWgslString(variant.fillExpr) : ''
+    expect(fillWgsl).toContain('CAT_PALETTE[')
+    expect(fillWgsl).toContain(`% ${CAT_PALETTE_SIZE}u`)
+
+    // Const-array seam: array<vec4<f32>, CAT_PALETTE_SIZE>.
+    const catConst = (variant.preamble.consts ?? []).find(c => c.name === 'CAT_PALETTE')
+    expect(catConst).toBeDefined()
+    expect((catConst!.type as { size?: number }).size).toBe(CAT_PALETTE_SIZE)
   })
 
   it('generates variant with no fill (none)', () => {
