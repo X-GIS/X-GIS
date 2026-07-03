@@ -45,7 +45,7 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/engine'
 import { TileSelectionCache } from '@xgis/map'
-import { FrameDrawStats } from '@xgis/engine'
+import { FrameDrawStats } from '@xgis/map'
 import type { TileCatalog } from '@xgis/data'
 
 // Minimal catalog stub. On the fresh-cache mercator high-pitch path

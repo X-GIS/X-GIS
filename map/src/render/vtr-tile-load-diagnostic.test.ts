@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { VectorTileRenderer } from './vector-tile-renderer'
-import { FrameDrawStats } from '@xgis/engine'
+import { FrameDrawStats } from './frame-draw-stats'
 
 // `needed`/`missed` now live on the FrameDrawStats collaborator (Cluster G,
 // vtr-decomposition §4 Step 2). getTileLoadDiagnostic reads them back via

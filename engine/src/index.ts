@@ -44,7 +44,6 @@ export * from './projection/camera'
 export * from './render/render-targets'
 export * from './render/projection-token'
 export * from './render/frame-context'
-export * from './render/frame-draw-stats'
 
 // ── Pipeline/bind/upload/compute machinery (P3 Step 5, content-blind only) ─
 export * from './render/reflection-to-webgpu'
