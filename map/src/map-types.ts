@@ -102,6 +102,27 @@ export interface XGISMapOptions {
    *  swap keeps the original backend. NOTE: the WebGL2 backend is currently a
    *  limited single-sample raster slice, not full render parity. */
   backend?: BackendChoice
+  /** Initial camera center `[lon, lat]`, applied at construction so the FIRST
+   *  rendered frame is already framed — no default-view flash-then-jump. Routes
+   *  through the same `setCenter()` as the runtime API (single mutation
+   *  authority) and latches the camera as explicitly-positioned, so the
+   *  post-compile bounds-auto-fit will NOT override it (call `fitBounds()`
+   *  yourself for data-driven framing). Default `[0, 20]`. */
+  center?: [number, number]
+  /** Initial zoom, applied at construction (see `center`). Latches the
+   *  positioned flag. Clamped to the active min/max zoom. Default `2`. */
+  zoom?: number
+  /** Initial bearing in degrees, applied at construction. Latches the
+   *  positioned flag. Wrapped to `[0, 360)`. Default `0`. */
+  bearing?: number
+  /** Initial pitch in degrees, applied at construction. Latches the positioned
+   *  flag. Clamped to `[0, 85]`. Default `0`. */
+  pitch?: number
+  /** Initial projection — same names as `setProjection()` (e.g. `'mercator'`,
+   *  `'globe'`, `'natural_earth'`). Unlike the camera fields it does NOT latch
+   *  the positioned flag (projection is orthogonal to data-bounds framing).
+   *  Default `'mercator'`. */
+  projection?: string
   /** Glyph sources. `url` points at a MapLibre PBF server template;
    *  `inline` seeds the cache with pre-loaded PBF range bytes per
    *  fontstack — useful for air-gapped deployments. */

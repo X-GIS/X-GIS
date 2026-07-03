@@ -997,6 +997,30 @@ export class XGISMap {
     // construction via setGraticuleEnabled — held on the viewport controller
     // until renderer exists (initGPU resolves in run()).
     this._viewport.graticuleInitial = options.graticule === true
+    // Initial view (#795 P2): seed the camera at construction so the FIRST frame
+    // is already framed — no default-then-jump. Routed through the SAME setters
+    // as runtime mutation (single mutation authority), so a ctor-seeded view is
+    // byte-identical to the equivalent post-construction setter calls. Projection
+    // first — it rewrites camera projType, which setCenter's pole-limit clamp
+    // reads. Any camera field provided latches _cameraExplicitlyPositioned so the
+    // post-compile bounds-fit no-ops (setCenter/setZoom latch on their own;
+    // markCameraPositioned() covers a bearing/pitch-only seed). Projection stays
+    // orthogonal to framing — it does not latch. All ctor-safe pre-run():
+    // invalidate() guards on _destroyed and only tags dirty bits; the setters
+    // touch the camera only; setProjection's world-band callback early-returns
+    // (renderer null + no sources yet).
+    if (options.projection !== undefined) this.setProjection(options.projection)
+    if (options.center !== undefined) this.setCenter(options.center[0], options.center[1])
+    if (options.zoom !== undefined) this.setZoom(options.zoom)
+    if (options.bearing !== undefined) this.setBearing(options.bearing)
+    if (options.pitch !== undefined) this.setPitch(options.pitch)
+    if (
+      options.center !== undefined ||
+      options.zoom !== undefined ||
+      options.bearing !== undefined ||
+      options.pitch !== undefined
+    )
+      this.markCameraPositioned()
     // RenderLoop owns the per-frame GPU render method (extracted from map.ts).
     // Content registers the frozen-order RenderNode pass chain it iterates
     // (P2-carve Step 4); nodes capture this map + read it fresh at render time.
