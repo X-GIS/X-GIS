@@ -339,3 +339,24 @@ export interface RhiDevice {
    *  WebGPU). WebGL2 returns a copy-only encoder (beginRenderPass throws). */
   createCommandEncoder?(label?: string): RhiCommandEncoder
 }
+
+/** The screen-pass lifecycle as a NON-optional capability (#783). The methods are
+ *  `?`-optional on `RhiDevice` because only the WebGl2Device slice implements them
+ *  today (the WebGPU path keeps its raw loop — Story-7 convergence). A consumer that
+ *  reaches for them must narrow through `asScreenPassDevice` FIRST, so presence is
+ *  proven by the type instead of asserted with `!` (the footgun: `device.beginScreenPass!`
+ *  compiles green and throws at runtime on a device that omits it). */
+export interface RhiScreenPassDevice {
+  beginScreenPass(desc: RhiScreenPassDesc): RhiRenderPass
+  endScreenPass(pass: RhiRenderPass): void
+  takeGlErrors?(): string[]
+}
+
+/** Narrow an `RhiDevice` to its screen-pass capability, or `null` when the backend
+ *  doesn't provide it (#783). The single source of the `backend === 'webgl2' &&
+ *  beginScreenPass && endScreenPass` check the render loop used to inline + `!`-assert. */
+export function asScreenPassDevice(d: RhiDevice | undefined): (RhiDevice & RhiScreenPassDevice) | null {
+  return d && d.backend === 'webgl2' && d.beginScreenPass && d.endScreenPass
+    ? (d as RhiDevice & RhiScreenPassDevice)
+    : null
+}
