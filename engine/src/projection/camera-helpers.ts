@@ -163,7 +163,7 @@ export function mulVec4(m: Float32Array, v: number[]): number[] {
 
 /** Multiply two 4×4 column-major matrices: out = a × b. (Verbatim of the
  *  loop previously inlined identically in camera.ts ×2 and globe.ts.) */
-export function mul4(out: number[], a: number[], b: number[]): void {
+export function mul4(out: number[], a: ArrayLike<number>, b: ArrayLike<number>): void {
   for (let c = 0; c < 4; c++)
     for (let r = 0; r < 4; r++) {
       let s = 0
@@ -175,9 +175,19 @@ export function mul4(out: number[], a: number[], b: number[]): void {
 /** Column-major perspective projection matrix. `f = 1/tan(halfFov)` is
  *  passed in so each caller applies its own focal adjustment (e.g. the
  *  globe's telephoto factor); `near`/`far` frame the depth range. The
- *  array body was byte-identical in camera.ts ×2 and globe.ts. */
-export function perspectiveMatrix(f: number, near: number, far: number, aspect: number): number[] {
+ *  array body was byte-identical in camera.ts ×2 and globe.ts. When `out`
+ *  is supplied its 16 elements are written in place (same values, same
+ *  indices) and `out` is returned, letting per-frame callers avoid the
+ *  allocation; otherwise a fresh array is returned. */
+export function perspectiveMatrix(f: number, near: number, far: number, aspect: number, out?: number[]): number[] {
   const nf = 1 / (near - far)
+  if (out) {
+    out[0] = f / aspect; out[1] = 0; out[2] = 0; out[3] = 0
+    out[4] = 0; out[5] = f; out[6] = 0; out[7] = 0
+    out[8] = 0; out[9] = 0; out[10] = (far + near) * nf; out[11] = -1
+    out[12] = 0; out[13] = 0; out[14] = 2 * far * near * nf; out[15] = 0
+    return out
+  }
   return [
     f / aspect, 0, 0, 0,
     0, f, 0, 0,

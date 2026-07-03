@@ -63,6 +63,7 @@
 //   Callers don't need to pre-align their byte lengths.
 
 import type { RhiBuffer, RhiBufferDesc, RhiBufferUsage } from '../render/rhi/rhi'
+import { DEV } from '@xgis/shared'
 
 /** Configuration for a new arena. */
 export interface GPUArenaOptions {
@@ -204,6 +205,10 @@ export class GPUArena {
    *  preserves GPU-cache locality during steady-state pan / zoom (same
    *  offsets reused frame after frame). */
   private freeList = new Map<number, number[]>()
+  /** DEV-only set of currently live offsets. Populated on alloc(),
+   *  cleared on free() / reset() / destroy() / compact(). All
+   *  operations are guarded by `if (DEV)` — zero prod overhead. */
+  private _liveOffsets = new Set<number>()
 
   /** Bump high-water mark in bytes. Allocation-free O(1) field read.
    *  Gates the OOM throw, so this is the TRIGGER signal (overflow
@@ -268,6 +273,7 @@ export class GPUArena {
       this.liveBytes += aligned
       this.allocCount++
       this.reuseHits++
+      if (DEV) this._liveOffsets.add(offset)
       return offset
     }
 
@@ -294,6 +300,7 @@ export class GPUArena {
     this.bumpPtr += aligned
     this.liveBytes += aligned
     this.allocCount++
+    if (DEV) this._liveOffsets.add(offset)
     return offset
   }
 
@@ -310,6 +317,12 @@ export class GPUArena {
    *  fragmentation-only. Tests pin the alloc/free symmetry. */
   free(offset: number, bytes: number): void {
     if (bytes <= 0) return  // silent no-op for caller convenience
+    if (DEV) {
+      if (!this._liveOffsets.has(offset)) {
+        throw new Error('gpu-arena: double-free or free of un-alloc\'d offset ' + offset)
+      }
+      this._liveOffsets.delete(offset)
+    }
     const aligned = align4(bytes)
     let stack = this.freeList.get(aligned)
     if (stack === undefined) {
@@ -328,6 +341,7 @@ export class GPUArena {
     this.bumpPtr = 0
     this.liveBytes = 0
     this.freeList.clear()
+    if (DEV) this._liveOffsets.clear()
     // allocCount / freeCount / reuseHits stay monotonic for diagnostics.
   }
 
@@ -339,6 +353,7 @@ export class GPUArena {
     this.bumpPtr = 0
     this.liveBytes = 0
     this.freeList.clear()
+    if (DEV) this._liveOffsets.clear()
   }
 
   /** O(1) serviceability probe: can a request of `bytes` be satisfied
@@ -454,6 +469,10 @@ export class GPUArena {
     this.liveBytes = packed
     this.freeList.clear()
     this.compactionCount++
+    if (DEV) {
+      this._liveOffsets.clear()
+      for (const off of newOffsets) this._liveOffsets.add(off)
+    }
     return { newOffsets, oldBuffer }
   }
 

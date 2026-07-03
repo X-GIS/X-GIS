@@ -66,6 +66,11 @@ interface Gl2BindGroup { layout: Gl2BindGroupLayout; entries: ReadonlyArray<RhiB
 interface Gl2Pipeline {
   program: WebGLProgram
   blend: 'alpha' | 'premult' | 'additive' | 'max' | 'none' | undefined
+  /** Per-channel color write mask (#782) — RGBA booleans applied via gl.colorMask at
+   *  setPipeline. WebGL2 colorMask is GLOBAL, so without an explicit apply a prior
+   *  pipeline's mask leaks: an empty colorTargets (stencil-only clip-mask pass) or a
+   *  writeMask-0 pick target → all-false; the normal color path → all-true. */
+  colorWriteMask: [boolean, boolean, boolean, boolean]
   cullMode?: 'none' | 'back' | 'front'
   depth?: { write: boolean; compare: 'always' | 'less' | 'less-equal'; bias?: { constant: number; slopeScale: number; clamp: number } }
   /** Per-tile clip-mask stencil state (#746). Mirrors rhi-webgpu's rhiStencilToGpu:
@@ -140,6 +145,13 @@ const SAMPLER_TYPES = new Set<number>()
 // of WebGL2's MAX_UNIFORM_BUFFER_BINDINGS (≥ 24).
 const GROUP_BINDING_STRIDE = 8
 
+// Scratch for the storage-buffer partial-write padding (#784): the storage writeBuffer path
+// pads a short f32 array up to the W×H data-texture size. A fresh Float32Array(cap) per
+// partial upload churned the GC — reuse a lazily-grown module-level buffer instead (grown to
+// 2× so it settles after the largest storage buffer seen; contents are always re-zeroed +
+// re-set per write, so cross-write staleness cannot leak).
+let _storagePadScratch = new Float32Array(0)
+
 class WebGl2RenderPass implements RhiRenderPass {
   private cur?: Gl2Pipeline
   private vbuf?: Gl2Buffer
@@ -155,6 +167,9 @@ class WebGl2RenderPass implements RhiRenderPass {
     const gl = this.gl
     gl.useProgram(pl.program)
     applyBlend(gl, pl.blend)
+    // Color write mask (#782): re-apply every setPipeline — WebGL2 colorMask is global,
+    // so a pick / clip-mask pipeline's all-false mask must not leak onto the next draw.
+    gl.colorMask(pl.colorWriteMask[0], pl.colorWriteMask[1], pl.colorWriteMask[2], pl.colorWriteMask[3])
     if (pl.depth) {
       gl.enable(gl.DEPTH_TEST)
       gl.depthMask(pl.depth.write)
@@ -203,9 +218,9 @@ class WebGl2RenderPass implements RhiRenderPass {
     const kindOf = (binding: number) => bg.layout.entries.find((e) => e.binding === binding)
     let lastTexUnit = 0
     let dynIdx = 0
-    // iterate in binding order so a sampler sees its paired texture's unit first.
-    const sorted = [...bg.entries].sort((a, b) => a.binding - b.binding)
-    for (const e of sorted) {
+    // entries are pre-sorted by binding at createBindGroup (immutable order), so a sampler
+    // sees its paired texture's unit first — no per-draw spread+sort (#784).
+    for (const e of bg.entries) {
       const le = kindOf(e.binding)
       const r = e.resource
       if (le?.kind === 'uniform' && 'buffer' in r) {
@@ -360,10 +375,15 @@ export class WebGl2Device implements RhiDevice {
     if (desc.clear) {
       const [r, g, b, a] = desc.clear
       gl.clearColor(r, g, b, a)
-      // Stencil too (#746): clears honor stencilMask, so unmask first — a prior
-      // pipeline's inert 0x00 mask would silently skip the stencil clear.
+      // Stencil AND depth clears honor their write masks (#746, #780): glClear masks the
+      // stencil clear by stencilMask and the DEPTH clear by depthMask, so unmask both first
+      // — a prior pipeline's inert 0x00 stencil mask, or its depthMask=false (setPipeline
+      // leaves a non-depth pipeline with depthMask off, :166), would silently skip the
+      // clear and leave frame≥2 with stale depth. No restore: setPipeline re-sets both
+      // depthMask and stencilMask on every draw.
       gl.stencilMask(0xff)
       gl.clearStencil(0)
+      gl.depthMask(true)
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
     }
     return new WebGl2RenderPass(gl)
@@ -439,7 +459,19 @@ export class WebGl2Device implements RhiDevice {
       // reads 0 past the array end. byteOffset 0 = whole-array write (the storage-buffer case).
       const f32 = data instanceof Float32Array ? data : new Float32Array(data instanceof ArrayBuffer ? data : (data as ArrayBufferView).buffer)
       const cap = b.width * b.height
-      const padded = f32.length === cap ? f32 : (() => { const p = new Float32Array(cap); p.set(f32.subarray(0, Math.min(f32.length, cap)), byteOffset / 4); return p })()
+      let padded: Float32Array
+      if (f32.length === cap) {
+        padded = f32
+      } else {
+        // reuse a lazily-grown scratch instead of a fresh Float32Array(cap) per write (#784);
+        // zero-fill [0,cap) then set the input at byteOffset/4 — byte-identical to the old
+        // fresh-zero-array padding (the remainder past the input reads 0). subarray(0,cap)
+        // hands texSubImage2D exactly W×H texels even when the scratch is grown larger.
+        if (cap > _storagePadScratch.length) _storagePadScratch = new Float32Array(cap * 2)
+        _storagePadScratch.fill(0, 0, cap)
+        _storagePadScratch.set(f32.subarray(0, Math.min(f32.length, cap)), byteOffset / 4)
+        padded = _storagePadScratch.subarray(0, cap)
+      }
       gl.bindTexture(gl.TEXTURE_2D, b.storageTex)
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, b.width, b.height, gl.RED, gl.FLOAT, padded)
@@ -503,7 +535,11 @@ export class WebGl2Device implements RhiDevice {
   }
 
   createBindGroup(layout: RhiBindGroupLayout, entries: RhiBindEntry[]): RhiBindGroup {
-    return wrap<RhiBindGroup>({ layout: un<Gl2BindGroupLayout>(layout), entries: [...entries] } satisfies Gl2BindGroup)
+    // Sort by binding ONCE at construction — the binding order is immutable per bind group,
+    // so setBindGroup can iterate in order without a per-draw spread+sort (#784). A sampler
+    // still sees its paired texture's unit first (the fused-sampler pair).
+    const sorted = [...entries].sort((a, b) => a.binding - b.binding)
+    return wrap<RhiBindGroup>({ layout: un<Gl2BindGroupLayout>(layout), entries: sorted } satisfies Gl2BindGroup)
   }
 
   createPipeline(desc: RhiPipelineDesc): RhiPipeline {
@@ -569,9 +605,20 @@ export class WebGl2Device implements RhiDevice {
       }
     }
 
+    // Color write mask (#782). Mirror rhi-webgpu's per-target default EXACTLY (rg32uint
+    // pick target → 0 = no color write, every other format → 0xf = ALL) so the two
+    // backends stay byte-parity; an empty colorTargets (stencil-only clip-mask pass) → 0.
+    // GPUColorWrite bits: R=1 G=2 B=4 A=8 — so the normal rgba8 path (undefined → 0xf)
+    // resolves to all-true, byte-identical to today's implicit all-channels-enabled.
+    const ct0 = desc.colorTargets[0]
+    const cwMask = ct0 ? (ct0.writeMask ?? (ct0.format === 'rg32uint' ? 0 : 0xf)) : 0
+    const colorWriteMask: [boolean, boolean, boolean, boolean] =
+      [(cwMask & 1) !== 0, (cwMask & 2) !== 0, (cwMask & 4) !== 0, (cwMask & 8) !== 0]
+
     return wrap<RhiPipeline>({
       program,
       blend: desc.colorTargets[0]?.blend,
+      colorWriteMask,
       cullMode: desc.cullMode,
       depth: desc.depthStencil ? { write: desc.depthStencil.write, compare: desc.depthStencil.compare, bias: desc.depthStencil.bias } : undefined,
       stencil: desc.depthStencil?.stencil,
@@ -591,26 +638,33 @@ export class WebGl2Device implements RhiDevice {
     const gl = this.gl
     const outTex = un<Gl2Texture>(this.createTexture({ format: 'r32uint', width: wOut, height: hOut, usage: ['render', 'copy-src'] }))
     const fbo = gl.createFramebuffer()
-    if (!fbo) throw new Error('webgl2: createFramebuffer (compute) failed')
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, outTex.tex, 0)
-    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
-    if (status !== gl.FRAMEBUFFER_COMPLETE) throw new Error(`webgl2: compute R32UI FBO incomplete (0x${status.toString(16)})`)
-    gl.viewport(0, 0, wOut, hOut)
-    gl.disable(gl.BLEND) // blending is illegal on an integer attachment
-    gl.clearBufferuiv(gl.COLOR, 0, new Uint32Array([0, 0, 0, 0]))
-    const pass = new WebGl2RenderPass(gl)
-    pass.setPipeline(pipeline)
-    pass.setBindGroup(0, bindGroup)
-    const loc = gl.getUniformLocation(un<Gl2Pipeline>(pipeline).program, 'u_count')
-    if (loc) gl.uniform4uiv(loc, uCount)
-    pass.draw(3) // gl_VertexID fullscreen triangle — no VBO
-    gl.readBuffer(gl.COLOR_ATTACHMENT0)
-    const out = new Uint32Array(wOut * hOut)
-    gl.readPixels(0, 0, wOut, hOut, gl.RED_INTEGER, gl.UNSIGNED_INT, out)
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    gl.deleteFramebuffer(fbo)
-    gl.deleteTexture(outTex.tex)
-    return out
+    // Free the already-created outTex on the createFramebuffer-fail path (#782) — the
+    // try/finally below only covers exits after fbo exists.
+    if (!fbo) { gl.deleteTexture(outTex.tex); throw new Error('webgl2: createFramebuffer (compute) failed') }
+    // The framebuffer + outTex must be freed on EVERY exit (the FBO-incomplete throw used
+    // to leak both, the success path deleted both). finally covers all paths (#782).
+    try {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, outTex.tex, 0)
+      const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
+      if (status !== gl.FRAMEBUFFER_COMPLETE) throw new Error(`webgl2: compute R32UI FBO incomplete (0x${status.toString(16)})`)
+      gl.viewport(0, 0, wOut, hOut)
+      gl.disable(gl.BLEND) // blending is illegal on an integer attachment
+      gl.clearBufferuiv(gl.COLOR, 0, new Uint32Array([0, 0, 0, 0]))
+      const pass = new WebGl2RenderPass(gl)
+      pass.setPipeline(pipeline)
+      pass.setBindGroup(0, bindGroup)
+      const loc = gl.getUniformLocation(un<Gl2Pipeline>(pipeline).program, 'u_count')
+      if (loc) gl.uniform4uiv(loc, uCount)
+      pass.draw(3) // gl_VertexID fullscreen triangle — no VBO
+      gl.readBuffer(gl.COLOR_ATTACHMENT0)
+      const out = new Uint32Array(wOut * hOut)
+      gl.readPixels(0, 0, wOut, hOut, gl.RED_INTEGER, gl.UNSIGNED_INT, out)
+      return out
+    } finally {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      gl.deleteFramebuffer(fbo)
+      gl.deleteTexture(outTex.tex)
+    }
   }
 }

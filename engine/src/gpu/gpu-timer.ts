@@ -88,6 +88,7 @@ export class GPUTimer {
   private querySet: GPUQuerySet | null = null
   private resolveBuf: GPUBuffer | null = null
   private slots: Slot[] = []
+  private _disposed = false
   private writeIdx = 0
   private firstPassMarkers: number
   private totalMarkers: number
@@ -367,5 +368,16 @@ export class GPUTimer {
   /** Drop all collected samples. */
   resetTimings(): void {
     for (const ring of this.segmentSamples) ring.length = 0
+  }
+
+  /** Release all GPU resources created by the constructor. Safe to call
+   *  multiple times (second call is a no-op). Should be called on map
+   *  destroy when ?gpuprof=1 is active to avoid query-set / buffer leaks. */
+  dispose(): void {
+    if (this._disposed) return
+    this._disposed = true
+    this.querySet?.destroy()
+    this.resolveBuf?.destroy()
+    for (const slot of this.slots) slot.buf.destroy()
   }
 }

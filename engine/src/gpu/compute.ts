@@ -35,12 +35,34 @@ function kernelCacheKey(wgsl: string, entryPoint: string): string {
   return `${entryPoint}\x1F${wgsl}`
 }
 
+// FIX B (#784): Single scratch buffer for writeCount — queue.writeBuffer
+// copies synchronously so this is safe on the single JS thread.
+const _writeCountScratch = new Uint32Array(1)
+
 /**
  * Dispatches GPU compute shaders for per-feature data processing.
  */
 export class ComputeDispatcher {
   private device: GPUDevice
   private pipelineCache = new Map<string, GPUComputePipeline>()
+
+  // FIX C (#784): Bind-group caches keyed by actual buffer object identity
+  // (nested WeakMaps) so a replaced/reallocated buffer (new object) causes a
+  // cache miss and a fresh bind group is created. Label-based keying is
+  // unsafe here because createBuffer() and createFeatDataBuffer() use
+  // identical default labels across distinct allocations.
+  //
+  // Outer key is the GPUComputePipeline so the cached layout stays consistent
+  // with the pipeline that was used to create the bind group (different WGSL
+  // → different pipeline object → different outer WeakMap entry).
+  private _dispatchBGCache = new WeakMap<
+    GPUComputePipeline,
+    WeakMap<GPUBuffer, WeakMap<GPUBuffer, GPUBindGroup>>
+  >()
+  private _kernelBGCache = new WeakMap<
+    GPUComputePipeline,
+    WeakMap<GPUBuffer, WeakMap<GPUBuffer, WeakMap<GPUBuffer, GPUBindGroup>>>
+  >()
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
@@ -80,13 +102,21 @@ export class ComputeDispatcher {
     const workgroupSize = task.workgroupSize ?? 64
     const pipeline = this.getOrCreatePipeline(task.shader)
 
-    const bindGroup = this.device.createBindGroup({
-      layout: pipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: task.inputBuffer } },
-        { binding: 1, resource: { buffer: task.outputBuffer } },
-      ],
-    })
+    let byInput = this._dispatchBGCache.get(pipeline)
+    if (!byInput) { byInput = new WeakMap(); this._dispatchBGCache.set(pipeline, byInput) }
+    let byOutput = byInput.get(task.inputBuffer)
+    if (!byOutput) { byOutput = new WeakMap(); byInput.set(task.inputBuffer, byOutput) }
+    let bindGroup = byOutput.get(task.outputBuffer)
+    if (!bindGroup) {
+      bindGroup = this.device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: task.inputBuffer } },
+          { binding: 1, resource: { buffer: task.outputBuffer } },
+        ],
+      })
+      byOutput.set(task.outputBuffer, bindGroup)
+    }
 
     const pass = encoder.beginComputePass({ label: 'feature-compute' })
     pass.setPipeline(pipeline)
@@ -176,9 +206,8 @@ export class ComputeDispatcher {
    *  `createCountBuffer`. Only the first u32 slot is updated; the
    *  trailing 12 bytes stay at their last value (don't care). */
   writeCount(buffer: GPUBuffer, count: number): void {
-    const data = new Uint32Array(1)
-    data[0] = count
-    this.device.queue.writeBuffer(buffer, 0, data.buffer, 0, 4)
+    _writeCountScratch[0] = count
+    this.device.queue.writeBuffer(buffer, 0, _writeCountScratch.buffer, 0, 4)
   }
 
   /** Allocate a storage buffer sized for the kernel's per-feature
@@ -244,15 +273,25 @@ export class ComputeDispatcher {
 
     const pipeline = this.getOrCreateKernelPipeline(kernel)
 
-    const bindGroup = this.device.createBindGroup({
-      layout: pipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: inputBuffer } },
-        { binding: 1, resource: { buffer: outputBuffer } },
-        { binding: 2, resource: { buffer: countBuffer } },
-      ],
-      label: `kernel-bind:${kernel.entryPoint}`,
-    })
+    let kByInput = this._kernelBGCache.get(pipeline)
+    if (!kByInput) { kByInput = new WeakMap(); this._kernelBGCache.set(pipeline, kByInput) }
+    let kByOutput = kByInput.get(inputBuffer)
+    if (!kByOutput) { kByOutput = new WeakMap(); kByInput.set(inputBuffer, kByOutput) }
+    let kByCount = kByOutput.get(outputBuffer)
+    if (!kByCount) { kByCount = new WeakMap(); kByOutput.set(outputBuffer, kByCount) }
+    let bindGroup = kByCount.get(countBuffer)
+    if (!bindGroup) {
+      bindGroup = this.device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: inputBuffer } },
+          { binding: 1, resource: { buffer: outputBuffer } },
+          { binding: 2, resource: { buffer: countBuffer } },
+        ],
+        label: `kernel-bind:${kernel.entryPoint}`,
+      })
+      kByCount.set(countBuffer, bindGroup)
+    }
 
     const passDesc: GPUComputePassDescriptor = {
       label: `kernel-pass:${kernel.entryPoint}`,

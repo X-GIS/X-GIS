@@ -16,12 +16,17 @@ function fakeGl(): { gl: WebGL2RenderingContext; calls: Call[]; errors: number[]
   const gl = {
     // constants (distinct non-zero so the device constructor's SAMPLER set is happy)
     FRAMEBUFFER: 0x8d40, SCISSOR_TEST: 0x0c11,
-    COLOR_BUFFER_BIT: 0x4000, DEPTH_BUFFER_BIT: 0x0100, NO_ERROR: 0,
+    COLOR_BUFFER_BIT: 0x4000, DEPTH_BUFFER_BIT: 0x0100, STENCIL_BUFFER_BIT: 0x0400, NO_ERROR: 0,
     SAMPLER_2D: 0x8b5e, SAMPLER_CUBE: 0x8b60, SAMPLER_3D: 0x8b5f, SAMPLER_2D_ARRAY: 0x8dc1,
     bindFramebuffer: rec('bindFramebuffer'),
     viewport: rec('viewport'),
     disable: rec('disable'),
     clearColor: rec('clearColor'),
+    // The clear block unmasks stencil (#746) + depth (#778 P/#780) before glClear,
+    // since glClear honors the write masks — the fake must stub them.
+    stencilMask: rec('stencilMask'),
+    clearStencil: rec('clearStencil'),
+    depthMask: rec('depthMask'),
     clear: rec('clear'),
     flush: rec('flush'),
     getError(): number { return errors.length ? errors.shift()! : 0 },
