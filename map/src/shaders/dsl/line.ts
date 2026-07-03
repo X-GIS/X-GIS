@@ -20,30 +20,83 @@
 // sampling the offscreen RT) is emitted alongside via emitCompositeWgsl().
 
 import {
-  fn, module, transformMat4,
-  f32, i32, u32, toF32, vec2, vec3, vec4, vec2u, clamp, fract, sign,
-  length, dot, min, max, smoothstep, abs, floor, select, textureSample,
-  bitcastU32, unpack4x8unorm,
-  atan, exp, degrees,
-  If, when, Loop, Let, Var, Continue, Break, Discard, madd, outsideRange,
-  ReturnIf, Switch,
-  f32T, u32T, vec2fT, vec3fT, vec4fT, vec2uT, mat4x4fT, texture2dfT, samplerT,
+  fn,
+  module,
+  transformMat4,
+  f32,
+  i32,
+  u32,
+  toF32,
+  vec2,
+  vec3,
+  vec4,
+  vec2u,
+  clamp,
+  fract,
+  sign,
+  length,
+  dot,
+  min,
+  max,
+  smoothstep,
+  abs,
+  floor,
+  select,
+  textureSample,
+  bitcastU32,
+  unpack4x8unorm,
+  atan,
+  exp,
+  degrees,
+  If,
+  when,
+  Loop,
+  Let,
+  Var,
+  Continue,
+  Break,
+  Discard,
+  madd,
+  outsideRange,
+  ReturnIf,
+  Switch,
+  f32T,
+  u32T,
+  vec2fT,
+  vec3fT,
+  vec4fT,
+  vec2uT,
+  mat4x4fT,
+  texture2dfT,
+  samplerT,
   arrayT,
-  type Node, type ReadonlyNode,
+  type Node,
+  type ReadonlyNode,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
-import { ioStruct, builtin, location, uniformStruct, structDecl, storageBuffer, resource, arrayOf } from '@xgis/shader-dsl'
+import {
+  ioStruct,
+  builtin,
+  location,
+  uniformStruct,
+  structDecl,
+  storageBuffer,
+  resource,
+  arrayOf,
+} from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
-import { inv_merc_lat_rad, flat_rel, needs_backface_cull, rim_alpha, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
+import {
+  inv_merc_lat_rad,
+  flat_rel,
+  needs_backface_cull,
+  rim_alpha,
+  PROJECTION_CONSTS,
+  getGpuProjectionFuncs,
+} from './projections'
 import { ECEF_CONSTS, lonlatToEcef } from './ecef'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import { PI, EARTH_R, DEG2RAD } from './consts'
-import {
-  dist_to_segment,
-  dist_to_quadratic,
-  dist_to_cubic,
-  winding_line,
-} from './sdf'
+import { dist_to_segment, dist_to_quadratic, dist_to_cubic, winding_line } from './sdf'
 
 // Round-join acute-fold threshold on |prevTan + dir| (unit vectors → length is
 // 2·sin(interiorAngle/2)). 0.6 ⇒ interior angle ≲ 35°, well clear of normal road
@@ -52,64 +105,68 @@ const JOIN_ACUTE_BIS = 0.6
 
 // ── Struct declarations ──
 
-const TILE = uniformStruct('TileUniforms', { group: 0, binding: 0, as: 'tile' }, {
-  // Phase 2 PR 2d.5 closeout: `mvp` holds the ECEF-MVP from
-  // Camera.getECEFFrameView() — the legacy Mercator-RTC `mvp` slot was
-  // retired and the dual-slot layout collapsed (struct shrunk 256 → 192
-  // bytes). The line shader's hybrid VS still emits `world_local` as
-  // tile-local Mercator metres for the FS distance/clip math; only the
-  // clip transform changed: `u.mvp * vec4(ecef_corner, 1)`.
-  //
-  // Slot mirrors the polygon Uniforms layout byte-for-byte (the line
-  // shader shares group(0) with VTR's polygon bind group, so the line
-  // TileUniforms struct must match polygon Uniforms field offsets up
-  // through `clip_bounds`).
-  mvp: mat4x4fT,
-  fill_color: vec4fT,
-  stroke_color: vec4fT,
-  proj_params: vec4fT,
-  // DSFUN camera offset in tile-local Mercator meters, split high/low.
-  cam_h: vec2fT,
-  cam_l: vec2fT,
-  tile_origin_merc: vec2fT,
-  opacity: f32T,
-  // Log-depth factor: 1.0 / log2(cam_far + 1.0). Reuses the old DSFUN _pad0.
-  log_depth_fc: f32T,
-  // Trailing pads mirror the polygon Uniforms tail. The line shader only
-  // reads outline_z_lift_m — the others are padding so the WGSL struct
-  // lines up with the shared 192-byte uniform block.
-  _pad_pick: u32T,
-  _pad_layer_offset: f32T,
-  tile_extent_m: f32T,
-  outline_z_lift_m: f32T,
-  // Per-tile clip mask in absolute Mercator meters (west, south, east, north).
-  clip_bounds: vec4fT,
-  // Pad to mirror polygon Uniforms offsets 44..51 (zoom / extrude_base /
-  // fill_translate xy / tile_dequant scale+half) so the shared VTR uniform
-  // slot's cam_ecef_off lands at the SAME byte offset (f32 52/56) for both
-  // the line and polygon shaders. The line VS doesn't read these pads.
-  _pad_tail0: vec4fT,
-  _pad_tail1: vec4fT,
-  // Camera-relative RTC (ECEF): tileEcefCenter(WGS84 ellipsoid) −
-  // cameraCenter(sphere), DSFUN hi/lo. VTR writes this per tile at f32
-  // 52-54 / 56-58 (recordTileFill). The line VS adds it to ecef_rtc so
-  // strokes project vertex−cameraCenter through the camera-at-ENU-origin
-  // MVP — the same fix as polygon's cam_ecef_off (fixes the line↔fill
-  // position mismatch, since line was projecting vertex−tileEcefCenter).
-  cam_ecef_off_h: vec4fT,
-  cam_ecef_off_l: vec4fT,
-  // Pad to mirror polygon Uniforms' light_dir_ecef @240 (the extrude light;
-  // the line shader never extrudes, so this is dead padding) — so the shared
-  // VTR uniform buffer's globe_eye lands at the SAME byte offset (256) for both
-  // the line and polygon shaders. The line VS/FS doesn't read this pad.
-  _pad_light_dir: vec4fT,
-  // #600 — globe(7) eye-horizon cull. xyz = normalize(eye_ecef), w =
-  // EARTH_R/|eye_ecef|. endpoint_cos_c + compute_line_color's per-fragment cull
-  // pass this to needs_backface_cull (globe arm uses the eye-horizon cap, not
-  // the pitch-invariant centre hemisphere). MUST sit at byte 256 = polygon
-  // Uniforms.globe_eye (shared VTR buffer). Struct grows 240→272.
-  globe_eye: vec4fT,
-})
+const TILE = uniformStruct(
+  'TileUniforms',
+  { group: 0, binding: 0, as: 'tile' },
+  {
+    // Phase 2 PR 2d.5 closeout: `mvp` holds the ECEF-MVP from
+    // Camera.getECEFFrameView() — the legacy Mercator-RTC `mvp` slot was
+    // retired and the dual-slot layout collapsed (struct shrunk 256 → 192
+    // bytes). The line shader's hybrid VS still emits `world_local` as
+    // tile-local Mercator metres for the FS distance/clip math; only the
+    // clip transform changed: `u.mvp * vec4(ecef_corner, 1)`.
+    //
+    // Slot mirrors the polygon Uniforms layout byte-for-byte (the line
+    // shader shares group(0) with VTR's polygon bind group, so the line
+    // TileUniforms struct must match polygon Uniforms field offsets up
+    // through `clip_bounds`).
+    mvp: mat4x4fT,
+    fill_color: vec4fT,
+    stroke_color: vec4fT,
+    proj_params: vec4fT,
+    // DSFUN camera offset in tile-local Mercator meters, split high/low.
+    cam_h: vec2fT,
+    cam_l: vec2fT,
+    tile_origin_merc: vec2fT,
+    opacity: f32T,
+    // Log-depth factor: 1.0 / log2(cam_far + 1.0). Reuses the old DSFUN _pad0.
+    log_depth_fc: f32T,
+    // Trailing pads mirror the polygon Uniforms tail. The line shader only
+    // reads outline_z_lift_m — the others are padding so the WGSL struct
+    // lines up with the shared 192-byte uniform block.
+    _pad_pick: u32T,
+    _pad_layer_offset: f32T,
+    tile_extent_m: f32T,
+    outline_z_lift_m: f32T,
+    // Per-tile clip mask in absolute Mercator meters (west, south, east, north).
+    clip_bounds: vec4fT,
+    // Pad to mirror polygon Uniforms offsets 44..51 (zoom / extrude_base /
+    // fill_translate xy / tile_dequant scale+half) so the shared VTR uniform
+    // slot's cam_ecef_off lands at the SAME byte offset (f32 52/56) for both
+    // the line and polygon shaders. The line VS doesn't read these pads.
+    _pad_tail0: vec4fT,
+    _pad_tail1: vec4fT,
+    // Camera-relative RTC (ECEF): tileEcefCenter(WGS84 ellipsoid) −
+    // cameraCenter(sphere), DSFUN hi/lo. VTR writes this per tile at f32
+    // 52-54 / 56-58 (recordTileFill). The line VS adds it to ecef_rtc so
+    // strokes project vertex−cameraCenter through the camera-at-ENU-origin
+    // MVP — the same fix as polygon's cam_ecef_off (fixes the line↔fill
+    // position mismatch, since line was projecting vertex−tileEcefCenter).
+    cam_ecef_off_h: vec4fT,
+    cam_ecef_off_l: vec4fT,
+    // Pad to mirror polygon Uniforms' light_dir_ecef @240 (the extrude light;
+    // the line shader never extrudes, so this is dead padding) — so the shared
+    // VTR uniform buffer's globe_eye lands at the SAME byte offset (256) for both
+    // the line and polygon shaders. The line VS/FS doesn't read this pad.
+    _pad_light_dir: vec4fT,
+    // #600 — globe(7) eye-horizon cull. xyz = normalize(eye_ecef), w =
+    // EARTH_R/|eye_ecef|. endpoint_cos_c + compute_line_color's per-fragment cull
+    // pass this to needs_backface_cull (globe arm uses the eye-horizon cap, not
+    // the pitch-invariant centre hemisphere). MUST sit at byte 256 = polygon
+    // Uniforms.globe_eye (shared VTR buffer). Struct grows 240→272.
+    globe_eye: vec4fT,
+  },
+)
 
 const PatternSlot = structDecl('PatternSlot', {
   id: u32T,
@@ -122,36 +179,40 @@ const PatternSlot = structDecl('PatternSlot', {
   _pad1: f32T,
 })
 
-const LAYER = uniformStruct('LineLayer', { group: 1, binding: 0, as: 'layer' }, {
-  color: vec4fT,
-  width_px: f32T,
-  aa_width_px: f32T,
-  mpp: f32T,
-  miter_limit: f32T,
-  // cap(0-1) | join(2-3) | dash_enable(4) | has_pattern(6) | has_offset(7)
-  flags: u32T,
-  dash_count: u32T,
-  dash_cycle_m: f32T,
-  dash_offset_m: f32T,
-  dash_array: arrayT(vec4fT, 2),
-  patterns: arrayOf(PatternSlot, 3),
-  offset_m: f32T,
-  viewport_height: f32T,
-  // Device-pixel ratio. The screen-width clamp (vs_line) divides the
-  // pixel target by viewport_height (DEVICE px) but the width target is
-  // in CSS px, so it must be scaled by dpr to land on the right NDC span.
-  dpr: f32T,
-  // Mapbox line-translate viewport offset — NDC-per-pixel, pre-baked
-  // by the runtime baker (px * 2 / canvasDim). Applied post-MVP in
-  // vs_line: clip.x += layer.line_translate_x * clip.w (mirrors
-  // fill-translate's per-tile uniform path). Default 0 = no-op.
-  line_translate_x: f32T,
-  line_translate_y: f32T,
-  // Mapbox line-round-limit (0 = use the historical JOIN_ACUTE_BIS fold
-  // constant, byte-identical default; >0 scales the fold threshold).
-  round_limit: f32T,
-  _pad_e: f32T,
-})
+const LAYER = uniformStruct(
+  'LineLayer',
+  { group: 1, binding: 0, as: 'layer' },
+  {
+    color: vec4fT,
+    width_px: f32T,
+    aa_width_px: f32T,
+    mpp: f32T,
+    miter_limit: f32T,
+    // cap(0-1) | join(2-3) | dash_enable(4) | has_pattern(6) | has_offset(7)
+    flags: u32T,
+    dash_count: u32T,
+    dash_cycle_m: f32T,
+    dash_offset_m: f32T,
+    dash_array: arrayT(vec4fT, 2),
+    patterns: arrayOf(PatternSlot, 3),
+    offset_m: f32T,
+    viewport_height: f32T,
+    // Device-pixel ratio. The screen-width clamp (vs_line) divides the
+    // pixel target by viewport_height (DEVICE px) but the width target is
+    // in CSS px, so it must be scaled by dpr to land on the right NDC span.
+    dpr: f32T,
+    // Mapbox line-translate viewport offset — NDC-per-pixel, pre-baked
+    // by the runtime baker (px * 2 / canvasDim). Applied post-MVP in
+    // vs_line: clip.x += layer.line_translate_x * clip.w (mirrors
+    // fill-translate's per-tile uniform path). Default 0 = no-op.
+    line_translate_x: f32T,
+    line_translate_y: f32T,
+    // Mapbox line-round-limit (0 = use the historical JOIN_ACUTE_BIS fold
+    // constant, byte-identical default; >0 scales the fold threshold).
+    round_limit: f32T,
+    _pad_e: f32T,
+  },
+)
 
 const LineSegment = structDecl('LineSegment', {
   // DSFUN endpoint pairs in tile-local Mercator meters.
@@ -206,17 +267,22 @@ const LineOut = ioStruct('LineOut', {
   cos_c: location(3, f32T),
 })
 
-const lineFragmentOutput = (pickEnabled: boolean) => ioStruct('LineFragmentOutput', {
-  color: location(0, vec4fT),
-  ...(pickEnabled ? { pick: location(1, vec2uT, 'flat') } : {}),
-  depth: builtin('frag_depth', f32T),
-})
+const lineFragmentOutput = (pickEnabled: boolean) =>
+  ioStruct('LineFragmentOutput', {
+    color: location(0, vec4fT),
+    ...(pickEnabled ? { pick: location(1, vec2uT, 'flat') } : {}),
+    depth: builtin('frag_depth', f32T),
+  })
 
 // ── Binding refs ──
 
 const segmentsB = storageBuffer('segments', LineSegment, { group: 1, binding: 1, access: 'read' })
 const shapesB = storageBuffer('shapes', ShapeDesc, { group: 1, binding: 2, access: 'read' })
-const shapeSegmentsB = storageBuffer('shape_segments', ShapeSegment, { group: 1, binding: 3, access: 'read' })
+const shapeSegmentsB = storageBuffer('shape_segments', ShapeSegment, {
+  group: 1,
+  binding: 3,
+  access: 'read',
+})
 const spriteAtlasB = resource('sprite_atlas', texture2dfT, { group: 0, binding: 5 })
 const sprite_atlas = spriteAtlasB.node
 const spriteSampB = resource('sprite_samp', samplerT, { group: 0, binding: 6 })
@@ -248,8 +314,9 @@ const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, (p) => {
   const absLon = absMerc.x.div(DEG2RAD.mul(EARTH_R))
   const latRad = inv_merc_lat_rad(absMerc.y)
   const absLat = degrees(latRad)
-  const tileRefLon = tileOrigin.x.add(f32(0.5).mul(TILE.field.tile_extent_m))
-      .div(DEG2RAD.mul(EARTH_R))
+  const tileRefLon = tileOrigin.x
+    .add(f32(0.5).mul(TILE.field.tile_extent_m))
+    .div(DEG2RAD.mul(EARTH_R))
   // single-exit: Mercator (proj<0.5) passes the corner through; else the reprojected
   // flat_rel. flat_rel is pure, so computing it on the Mercator path (selected away) is harmless.
   const flatRel = flat_rel(absLon, absLat, projParams, tileRefLon)
@@ -276,46 +343,54 @@ const patternUnitToM = fn('pattern_unit_to_m', { v: f32T, unit: u32T, mpp: f32T 
 // Inlined SDF shape sampler — uses our `shape_segments` (binding 3) instead
 // of the shared SDF module's `segments` name (which would collide with the
 // line segment storage buffer on binding 1).
-const sdfShape = fn('sdf_shape', { uv_in: vec2fT, shape_id: u32T }, (p) => {
-  const uv = vec2(p.uv_in.x, p.uv_in.y.neg())
-  const so = shapesB.at(p.shape_id)
-  const bMinX = so.bbox_min_x
-  const bMinY = so.bbox_min_y
-  const bMaxX = so.bbox_max_x
-  const bMaxY = so.bbox_max_y
-  ReturnIf(
-    uv.x.lt(bMinX).or(uv.x.gt(bMaxX)).or(uv.y.lt(bMinY)).or(uv.y.gt(bMaxY)),
-    f32(2),
-  )
-  const minDist = f32(1e10)
-  const winding = i32(0)
-  const segStart = so.seg_start
-  const segCount = so.seg_count
-  const end = min(segStart.add(segCount), segStart.add(32))
-  Loop(segStart, (i) => i.lt(end), (i) => {
-    const sseg = shapeSegmentsB.at(i)
-    const p0 = sseg.p0
-    const p1 = sseg.p1
-    const p2 = sseg.p2
-    const p3 = sseg.p3
-    Switch(sseg.kind)
-      .case(0, () => {
-        minDist.assign(min(minDist, dist_to_segment(uv, p0, p1)))
-        winding.assign(winding.add(winding_line(uv, p0, p1)))
-      })
-      .case(1, () => {
-        minDist.assign(min(minDist, dist_to_quadratic(uv, p0, p1, p2)))
-        winding.assign(winding.add(winding_line(uv, p0, p2)))
-      })
-      .case(2, () => {
-        minDist.assign(min(minDist, dist_to_cubic(uv, p0, p1, p2, p3)))
-        winding.assign(winding.add(winding_line(uv, p0, p3)))
-      })
-      .default(() => { /* default: empty */ })
-  })
-  ReturnIf(winding.ne(0), f32(1).sub(minDist))
-  return f32(1).add(minDist)
-}, { allowEarlyReturn: true }) // MISRA single-exit DEVIATION — the out-of-bbox guard skips a 32-iter segment loop (perf)
+const sdfShape = fn(
+  'sdf_shape',
+  { uv_in: vec2fT, shape_id: u32T },
+  (p) => {
+    const uv = vec2(p.uv_in.x, p.uv_in.y.neg())
+    const so = shapesB.at(p.shape_id)
+    const bMinX = so.bbox_min_x
+    const bMinY = so.bbox_min_y
+    const bMaxX = so.bbox_max_x
+    const bMaxY = so.bbox_max_y
+    ReturnIf(uv.x.lt(bMinX).or(uv.x.gt(bMaxX)).or(uv.y.lt(bMinY)).or(uv.y.gt(bMaxY)), f32(2))
+    const minDist = f32(1e10)
+    const winding = i32(0)
+    const segStart = so.seg_start
+    const segCount = so.seg_count
+    const end = min(segStart.add(segCount), segStart.add(32))
+    Loop(
+      segStart,
+      (i) => i.lt(end),
+      (i) => {
+        const sseg = shapeSegmentsB.at(i)
+        const p0 = sseg.p0
+        const p1 = sseg.p1
+        const p2 = sseg.p2
+        const p3 = sseg.p3
+        Switch(sseg.kind)
+          .case(0, () => {
+            minDist.assign(min(minDist, dist_to_segment({ p: uv, a: p0, b: p1 })))
+            winding.assign(winding.add(winding_line({ p: uv, a: p0, b: p1 })))
+          })
+          .case(1, () => {
+            minDist.assign(min(minDist, dist_to_quadratic({ p: uv, a: p0, b: p1, c: p2 })))
+            winding.assign(winding.add(winding_line({ p: uv, a: p0, b: p2 })))
+          })
+          .case(2, () => {
+            minDist.assign(min(minDist, dist_to_cubic({ p: uv, a: p0, b: p1, c: p2, d: p3 })))
+            winding.assign(winding.add(winding_line({ p: uv, a: p0, b: p3 })))
+          })
+          .default(() => {
+            /* default: empty */
+          })
+      },
+    )
+    ReturnIf(winding.ne(0), f32(1).sub(minDist))
+    return f32(1).add(minDist)
+  },
+  { allowEarlyReturn: true },
+) // MISRA single-exit DEVIATION — the out-of-bbox guard skips a 32-iter segment loop (perf)
 
 // ── compute_line_color: shared body for fs_line / fs_line_max / fs_line_pattern ──
 //
@@ -335,37 +410,52 @@ const computeLineColor = fn('compute_line_color', { input: LineOut }, (p) => {
     const absLon = absMerc.x.div(DEG2RAD.mul(EARTH_R))
     const latRad = inv_merc_lat_rad(absMerc.y)
     const absLat = degrees(latRad)
-    If(needs_backface_cull(absLon, absLat, projParams, TILE.field.globe_eye).lt(0), () => { Discard() })
+    If(needs_backface_cull(absLon, absLat, projParams, TILE.field.globe_eye).lt(0), () => {
+      Discard()
+    })
   })
 
   // Per-tile clip mask (sentinel -1e30 skips). Reconstruct absolute Mercator
   // depending on projection — Mercator branch is cam-relative, non-Merc is
   // tile-local source Mercator.
-  const clipValid = clipBounds.x.gt(-1e29)
-      .and(clipBounds.z.gt(clipBounds.x))
-      .and(clipBounds.w.gt(clipBounds.y))
+  const clipValid = clipBounds.x
+    .gt(-1e29)
+    .and(clipBounds.z.gt(clipBounds.x))
+    .and(clipBounds.w.gt(clipBounds.y))
   If(clipValid, () => {
     const camOffset = select(
-        projParams.x.lt(0.5),
-        TILE.field.cam_h.add(TILE.field.cam_l),
-        vec2(0, 0),
-      )
+      projParams.x.lt(0.5),
+      TILE.field.cam_h.add(TILE.field.cam_l),
+      vec2(0, 0),
+    )
     const absMercClip = inp.world_local.add(camOffset).add(tileOrigin)
-    If(absMercClip.x.lt(clipBounds.x), () => { Discard() })
-    If(absMercClip.x.gt(clipBounds.z), () => { Discard() })
-    If(absMercClip.y.lt(clipBounds.y), () => { Discard() })
-    If(absMercClip.y.gt(clipBounds.w), () => { Discard() })
+    If(absMercClip.x.lt(clipBounds.x), () => {
+      Discard()
+    })
+    If(absMercClip.x.gt(clipBounds.z), () => {
+      Discard()
+    })
+    If(absMercClip.y.lt(clipBounds.y), () => {
+      Discard()
+    })
+    If(absMercClip.y.gt(clipBounds.w), () => {
+      Discard()
+    })
   })
 
   const sego = segmentsB.at(inp.seg_id)
   const segP = inp.world_local
-  const p0 = lineEndpoint(sego.p0_h, sego.p0_l)
-  const p1 = lineEndpoint(sego.p1_h, sego.p1_l)
+  const p0 = lineEndpoint({ p_h: sego.p0_h, p_l: sego.p0_l })
+  const p1 = lineEndpoint({ p_h: sego.p1_h, p_l: sego.p1_l })
 
   // Segment direction / normal in tile-local meters.
   const segVec = p1.sub(p0)
   const segLen = length(segVec)
-  const dir = when(segLen.lt(1e-6), () => vec2(1, 0), () => segVec.div(segLen))
+  const dir = when(
+    segLen.lt(1e-6),
+    () => vec2(1, 0),
+    () => segVec.div(segLen),
+  )
 
   // Per-segment width override falls through to layer.width_px when 0.
   const layerWidthPx = LAYER.field.width_px
@@ -406,19 +496,27 @@ const computeLineColor = fn('compute_line_color', { input: LineOut }, (p) => {
   // Early-discard guard: outside the body AND inside segment range.
   const patExtentFs = f32(0)
   If(layerFlags.bitAnd(u32(64)).ne(0), () => {
-    Loop(u32(0), (pk) => pk.lt(3), (pk) => {
-      const patFs = LAYER.field.patterns.at(pk)
-      If(patFs.id.eq(0), () => { Continue() })
-      const szUnit = patFs.flags.shr(u32(2)).bitAnd(u32(3))
-      const ofUnit = patFs.flags.shr(u32(4)).bitAnd(u32(3))
-      const sizeM = patternUnitToM(patFs.size, szUnit, layerMpp)
-      const offM = abs(patternUnitToM(patFs.offset, ofUnit, layerMpp))
-      patExtentFs.assign(max(patExtentFs, sizeM.mul(0.5).add(offM)))
-    })
+    Loop(
+      u32(0),
+      (pk) => pk.lt(3),
+      (pk) => {
+        const patFs = LAYER.field.patterns.at(pk)
+        If(patFs.id.eq(0), () => {
+          Continue()
+        })
+        const szUnit = patFs.flags.shr(u32(2)).bitAnd(u32(3))
+        const ofUnit = patFs.flags.shr(u32(4)).bitAnd(u32(3))
+        const sizeM = patternUnitToM({ v: patFs.size, unit: szUnit, mpp: layerMpp })
+        const offM = abs(patternUnitToM({ v: patFs.offset, unit: ofUnit, mpp: layerMpp }))
+        patExtentFs.assign(max(patExtentFs, sizeM.mul(0.5).add(offM)))
+      },
+    )
   })
   const aaMarginM = f32(2).mul(LAYER.field.aa_width_px).mul(layerMpp)
   const earlyPerpThresh = Let(max(halfWm, patExtentFs).add(aaMarginM))
-  If(perpM.gt(earlyPerpThresh).and(distP0Vs.lt(0)).and(distP1Vs.lt(0)), () => { Discard() })
+  If(perpM.gt(earlyPerpThresh).and(distP0Vs.lt(0)).and(distP1Vs.lt(0)), () => {
+    Discard()
+  })
 
   // 2. Cap/join feasibility flags + cap-type extraction.
   const hasPrev = length(prevTan).gt(0.001)
@@ -441,9 +539,11 @@ const computeLineColor = fn('compute_line_color', { input: LineOut }, (p) => {
   // A positive value scales the fold threshold by round_limit / 1.05,
   // so the spec default 1.05 also reproduces JOIN_ACUTE_BIS (1.05/1.05=1).
   const layerRoundLimit = LAYER.field.round_limit
-  const acuteFoldBis = select(layerRoundLimit.gt(0),
-      f32(JOIN_ACUTE_BIS).mul(layerRoundLimit.div(1.05)),
-      f32(JOIN_ACUTE_BIS))
+  const acuteFoldBis = select(
+    layerRoundLimit.gt(0),
+    f32(JOIN_ACUTE_BIS).mul(layerRoundLimit.div(1.05)),
+    f32(JOIN_ACUTE_BIS),
+  )
 
   // ── Bisector clip + bevel-edge clip at p0 ──
   If(hasPrev, () => {
@@ -474,7 +574,9 @@ const computeLineColor = fn('compute_line_color', { input: LineOut }, (p) => {
           const bd0 = be0.div(bl0)
           const bo0 = vec2(bd0.y.neg(), bd0.x).mul(s0)
           const bclip0 = dot(segP.sub(oc0), bo0)
-          If(bclip0.gt(0), () => { dM.assign(max(dM, bclip0)) })
+          If(bclip0.gt(0), () => {
+            dM.assign(max(dM, bclip0))
+          })
         })
       })
     })
@@ -508,7 +610,9 @@ const computeLineColor = fn('compute_line_color', { input: LineOut }, (p) => {
           const bd1 = be1.div(bl1)
           const bo1 = vec2(bd1.y.neg(), bd1.x).mul(s1)
           const bclip1 = dot(segP.sub(oc1), bo1)
-          If(bclip1.gt(0), () => { dM.assign(max(dM, bclip1)) })
+          If(bclip1.gt(0), () => {
+            dM.assign(max(dM, bclip1))
+          })
         })
       })
     })
@@ -522,8 +626,12 @@ const computeLineColor = fn('compute_line_color', { input: LineOut }, (p) => {
 
   If(noPrev, () => {
     // CAP_BUTT
-    If(capType.eq(0), () => { dM.assign(max(dM, distP0)) })
-      .elif(capType.eq(2), () => { dM.assign(max(dM, distP0.sub(halfWm))) })
+    If(capType.eq(0), () => {
+      dM.assign(max(dM, distP0))
+    })
+      .elif(capType.eq(2), () => {
+        dM.assign(max(dM, distP0.sub(halfWm)))
+      })
       .elif(capType.eq(3), () => {
         // CAP_ARROW: analytical tapered half-width.
         If(distP0.gt(0), () => {
@@ -571,8 +679,12 @@ const computeLineColor = fn('compute_line_color', { input: LineOut }, (p) => {
 
   // ── Handle p1 end (cap or join) — symmetric ──
   If(noNext, () => {
-    If(capType.eq(0), () => { dM.assign(max(dM, distP1)) })
-      .elif(capType.eq(2), () => { dM.assign(max(dM, distP1.sub(halfWm))) })
+    If(capType.eq(0), () => {
+      dM.assign(max(dM, distP1))
+    })
+      .elif(capType.eq(2), () => {
+        dM.assign(max(dM, distP1.sub(halfWm)))
+      })
       .elif(capType.eq(3), () => {
         If(distP1.gt(0), () => {
           const t = clamp(distP1.div(arrowL), 0, 1)
@@ -627,102 +739,135 @@ const computeLineColor = fn('compute_line_color', { input: LineOut }, (p) => {
   const dashCount = LAYER.field.dash_count
   const dashCycleM = LAYER.field.dash_cycle_m
   const dashOffsetM = LAYER.field.dash_offset_m
-  const dashEnabled = layerFlags.shr(u32(5)).bitAnd(u32(1)).eq(1)
-      .and(dashCount.gt(0))
-      .and(dashCycleM.gt(1e-6))
-      .and(notInCap)
+  const dashEnabled = layerFlags
+    .shr(u32(5))
+    .bitAnd(u32(1))
+    .eq(1)
+    .and(dashCount.gt(0))
+    .and(dashCycleM.gt(1e-6))
+    .and(notInCap)
   If(dashEnabled, () => {
     const phase0 = arcPos.add(dashOffsetM).div(dashCycleM)
     const phase = phase0.sub(floor(phase0)).mul(dashCycleM)
     const acc = f32(0)
     const visible = f32(0) // 0=hidden, 1=visible — bool via f32
-    Loop(u32(0), (i) => i.lt(dashCount), (i) => {
-      const idx = i.div(4)
-      const sub = i.mod(4)
-      const segV = LAYER.field.dash_array.at(idx, vec4fT)
-      const lenV = f32(0)
-      If(sub.eq(0), () => { lenV.assign(segV.x) })
-        .elif(sub.eq(1), () => { lenV.assign(segV.y) })
-        .elif(sub.eq(2), () => { lenV.assign(segV.z) })
-        .else(() => { lenV.assign(segV.w) })
-      If(phase.ge(acc).and(phase.lt(acc.add(lenV))), () => {
-        visible.assign(select(i.bitAnd(u32(1)).eq(0), f32(1), f32(0)))
-        Break()
-      })
-      acc.assign(acc.add(lenV))
+    Loop(
+      u32(0),
+      (i) => i.lt(dashCount),
+      (i) => {
+        const idx = i.div(4)
+        const sub = i.mod(4)
+        const segV = LAYER.field.dash_array.at(idx, vec4fT)
+        const lenV = f32(0)
+        If(sub.eq(0), () => {
+          lenV.assign(segV.x)
+        })
+          .elif(sub.eq(1), () => {
+            lenV.assign(segV.y)
+          })
+          .elif(sub.eq(2), () => {
+            lenV.assign(segV.z)
+          })
+          .else(() => {
+            lenV.assign(segV.w)
+          })
+        If(phase.ge(acc).and(phase.lt(acc.add(lenV))), () => {
+          visible.assign(select(i.bitAnd(u32(1)).eq(0), f32(1), f32(0)))
+          Break()
+        })
+        acc.assign(acc.add(lenV))
+      },
+    )
+    If(visible.lt(0.5), () => {
+      Discard()
     })
-    If(visible.lt(0.5), () => { Discard() })
   })
 
   // ── Pattern stack ──
   const patDm = f32(1e10)
   If(layerFlags.bitAnd(u32(64)).ne(0), () => {
-    Loop(u32(0), (k) => k.lt(3), (k) => {
-      const pat = LAYER.field.patterns.at(k)
-      If(pat.id.eq(0), () => { Continue() })
-
-      const patF = pat.flags
-      const spUnit = patF.bitAnd(u32(3))
-      const szUnit = patF.shr(u32(2)).bitAnd(u32(3))
-      const ofUnit = patF.shr(u32(4)).bitAnd(u32(3))
-      const anchor = patF.shr(u32(6)).bitAnd(u32(3))
-      const spacingM = max(patternUnitToM(pat.spacing, spUnit, layerMpp), 1e-3)
-      const sizeM = max(patternUnitToM(pat.size, szUnit, layerMpp), 1e-3)
-      const offM = patternUnitToM(pat.offset, ofUnit, layerMpp)
-      const startM = pat.start_offset
-      const halfS = sizeM.mul(0.5)
-
-      // CANARY (C2 readability): the ambient free-function surface — If/Loop/Let/
-      // Continue/assign route to the innermost scope, so no cb/d/cb2/e param
-      // threading; the composite helpers (madd / outsideRange) name the arithmetic.
-      // Emits byte-identically to the old passed-builder form (verified).
-      If(anchor.eq(0), () => {
-        // PAT_ANCHOR_REPEAT — sample nearest instance + both neighbours.
-        const kCenter = floor(arcPos.sub(startM).div(spacingM).add(0.5))
-        Loop(i32(-1), (idk) => idk.le(1), (dk) => {
-          const centerArcK = madd(kCenter.add(toF32(dk)), spacingM, startM)
-          const arcOnSegK = centerArcK.sub(sego.arc_start)
-          If(outsideRange(arcOnSegK, halfS.mul(-2), segLen.add(halfS.mul(2))), () => Continue())
-          const centerWorldK = Let(p0.add(dir.mul(arcOnSegK)))
-          const localK = Let(vec2(
-            dot(segP.sub(centerWorldK), dir).div(halfS),
-            dot(segP.sub(centerWorldK), nrmFs).sub(offM).div(halfS),
-          ))
-          If(abs(localK.x).gt(1.2).or(abs(localK.y).gt(1.2)), () => Continue())
-          const shapeVK = sdfShape(localK, pat.id.sub(1))
-          const pdK = shapeVK.sub(1).mul(halfS)
-          patDm.assign(min(patDm, pdK))
+    Loop(
+      u32(0),
+      (k) => k.lt(3),
+      (k) => {
+        const pat = LAYER.field.patterns.at(k)
+        If(pat.id.eq(0), () => {
+          Continue()
         })
-        // PAT_ANCHOR_REPEAT is fully handled by the k-loop; skip the single-instance
-        // block. Continue() targets the enclosing segment loop — the old cb/d/cb2/e
-        // wrong-builder footgun (which once silently dropped ALL line patterns) is now
-        // unrepresentable: there is no second builder to address.
-        Continue()
-      })
 
-      // START / END / CENTER — single instance.
-      const lineLength = sego.line_length
-      const centerArc = Var(lineLength.mul(0.5)) // default (anchor 0 / other)
-      Switch(anchor)
-        .case(1, () => centerArc.assign(startM))
-        .case(2, () => centerArc.assign(lineLength.sub(startM)))
-        .default(() => {})
+        const patF = pat.flags
+        const spUnit = patF.bitAnd(u32(3))
+        const szUnit = patF.shr(u32(2)).bitAnd(u32(3))
+        const ofUnit = patF.shr(u32(4)).bitAnd(u32(3))
+        const anchor = patF.shr(u32(6)).bitAnd(u32(3))
+        const spacingM = max(patternUnitToM({ v: pat.spacing, unit: spUnit, mpp: layerMpp }), 1e-3)
+        const sizeM = max(patternUnitToM({ v: pat.size, unit: szUnit, mpp: layerMpp }), 1e-3)
+        const offM = patternUnitToM({ v: pat.offset, unit: ofUnit, mpp: layerMpp })
+        const startM = pat.start_offset
+        const halfS = sizeM.mul(0.5)
 
-      const arcOnSeg = Let(centerArc.sub(sego.arc_start))
-      If(outsideRange(arcOnSeg, halfS.mul(-2), segLen.add(halfS.mul(2))), () => Continue())
-      const centerWorld = Let(p0.add(dir.mul(arcOnSeg)))
-      const localUv = Let(vec2(
-        dot(segP.sub(centerWorld), dir).div(halfS),
-        dot(segP.sub(centerWorld), nrmFs).sub(offM).div(halfS),
-      ))
-      If(abs(localUv.x).gt(1.2).or(abs(localUv.y).gt(1.2)), () => Continue())
+        // CANARY (C2 readability): the ambient free-function surface — If/Loop/Let/
+        // Continue/assign route to the innermost scope, so no cb/d/cb2/e param
+        // threading; the composite helpers (madd / outsideRange) name the arithmetic.
+        // Emits byte-identically to the old passed-builder form (verified).
+        If(anchor.eq(0), () => {
+          // PAT_ANCHOR_REPEAT — sample nearest instance + both neighbours.
+          const kCenter = floor(arcPos.sub(startM).div(spacingM).add(0.5))
+          Loop(
+            i32(-1),
+            (idk) => idk.le(1),
+            (dk) => {
+              const centerArcK = madd(kCenter.add(toF32(dk)), spacingM, startM)
+              const arcOnSegK = centerArcK.sub(sego.arc_start)
+              If(outsideRange(arcOnSegK, halfS.mul(-2), segLen.add(halfS.mul(2))), () => Continue())
+              const centerWorldK = Let(p0.add(dir.mul(arcOnSegK)))
+              const localK = Let(
+                vec2(
+                  dot(segP.sub(centerWorldK), dir).div(halfS),
+                  dot(segP.sub(centerWorldK), nrmFs).sub(offM).div(halfS),
+                ),
+              )
+              If(abs(localK.x).gt(1.2).or(abs(localK.y).gt(1.2)), () => Continue())
+              const shapeVK = sdfShape({ uv_in: localK, shape_id: pat.id.sub(1) })
+              const pdK = shapeVK.sub(1).mul(halfS)
+              patDm.assign(min(patDm, pdK))
+            },
+          )
+          // PAT_ANCHOR_REPEAT is fully handled by the k-loop; skip the single-instance
+          // block. Continue() targets the enclosing segment loop — the old cb/d/cb2/e
+          // wrong-builder footgun (which once silently dropped ALL line patterns) is now
+          // unrepresentable: there is no second builder to address.
+          Continue()
+        })
 
-      const shapeV = sdfShape(localUv, pat.id.sub(1))
-      const pd = shapeV.sub(1).mul(halfS)
-      patDm.assign(min(patDm, pd))
-    })
+        // START / END / CENTER — single instance.
+        const lineLength = sego.line_length
+        const centerArc = Var(lineLength.mul(0.5)) // default (anchor 0 / other)
+        Switch(anchor)
+          .case(1, () => centerArc.assign(startM))
+          .case(2, () => centerArc.assign(lineLength.sub(startM)))
+          .default(() => {})
+
+        const arcOnSeg = Let(centerArc.sub(sego.arc_start))
+        If(outsideRange(arcOnSeg, halfS.mul(-2), segLen.add(halfS.mul(2))), () => Continue())
+        const centerWorld = Let(p0.add(dir.mul(arcOnSeg)))
+        const localUv = Let(
+          vec2(
+            dot(segP.sub(centerWorld), dir).div(halfS),
+            dot(segP.sub(centerWorld), nrmFs).sub(offM).div(halfS),
+          ),
+        )
+        If(abs(localUv.x).gt(1.2).or(abs(localUv.y).gt(1.2)), () => Continue())
+
+        const shapeV = sdfShape({ uv_in: localUv, shape_id: pat.id.sub(1) })
+        const pd = shapeV.sub(1).mul(halfS)
+        patDm.assign(min(patDm, pd))
+      },
+    )
   })
-  If(patDm.lt(1e9), () => { dM.assign(min(dM, patDm)) })
+  If(patDm.lt(1e9), () => {
+    dM.assign(min(dM, patDm))
+  })
 
   // Convert to pixels + dpr-aware edge AA: half-band 0.5/dpr outer + blur inner (#606; line-thin-width-dpr.test).
   const dPx = Let(dM.div(layerMpp))
@@ -750,340 +895,386 @@ const lineRimAlpha = fn('line_rim_alpha', { input: LineOut }, (p) => {
 
 // ── vs_line ──
 
-const vsLine = fn('vs_line', {
-  seg_id: builtin('instance_index', u32T),
-  vi: builtin('vertex_index', u32T),
-}, (p) => {
-  const sego = segmentsB.at(p.seg_id)
-  const p0 = lineEndpoint(sego.p0_h, sego.p0_l)
-  const p1 = lineEndpoint(sego.p1_h, sego.p1_l)
+const vsLine = fn(
+  'vs_line',
+  {
+    seg_id: builtin('instance_index', u32T),
+    vi: builtin('vertex_index', u32T),
+  },
+  (p) => {
+    const sego = segmentsB.at(p.seg_id)
+    const p0 = lineEndpoint({ p_h: sego.p0_h, p_l: sego.p0_l })
+    const p1 = lineEndpoint({ p_h: sego.p1_h, p_l: sego.p1_l })
 
-  const segVec = p1.sub(p0)
-  const segLen = length(segVec)
-  const dir = when(segLen.lt(1e-6), () => vec2(1, 0), () => segVec.div(segLen))
-  const nrm = Let(vec2(dir.y.neg(), dir.x))
+    const segVec = p1.sub(p0)
+    const segLen = length(segVec)
+    const dir = when(
+      segLen.lt(1e-6),
+      () => vec2(1, 0),
+      () => segVec.div(segLen),
+    )
+    const nrm = Let(vec2(dir.y.neg(), dir.x))
 
-  const layerWidthPx = LAYER.field.width_px
-  const layerMpp = LAYER.field.mpp
-  const layerAaPx = LAYER.field.aa_width_px
-  const layerOffsetM = LAYER.field.offset_m
-  const layerFlags = LAYER.field.flags
-  const layerVpH = LAYER.field.viewport_height
-  const layerDpr = LAYER.field.dpr
+    const layerWidthPx = LAYER.field.width_px
+    const layerMpp = LAYER.field.mpp
+    const layerAaPx = LAYER.field.aa_width_px
+    const layerOffsetM = LAYER.field.offset_m
+    const layerFlags = LAYER.field.flags
+    const layerVpH = LAYER.field.viewport_height
+    const layerDpr = LAYER.field.dpr
 
-  const segWidthOv = sego.width_px_override
-  const effectiveWidthPx = select(segWidthOv.gt(0), segWidthOv, layerWidthPx)
-  const halfWm = effectiveWidthPx.mul(0.5).add(layerAaPx).mul(layerMpp)
+    const segWidthOv = sego.width_px_override
+    const effectiveWidthPx = select(segWidthOv.gt(0), segWidthOv, layerWidthPx)
+    const halfWm = effectiveWidthPx.mul(0.5).add(layerAaPx).mul(layerMpp)
 
-  // Per-endpoint pad ratios (precomputed CPU side).
-  const padP0m = sego.pad_ratio_p0.mul(halfWm)
-  const padP1m = sego.pad_ratio_p1.mul(halfWm)
+    // Per-endpoint pad ratios (precomputed CPU side).
+    const padP0m = sego.pad_ratio_p0.mul(halfWm)
+    const padP1m = sego.pad_ratio_p1.mul(halfWm)
 
-  // Pattern extent scan.
-  const patExtentM = f32(0)
-  If(layerFlags.bitAnd(u32(64)).ne(0), () => {
-    Loop(u32(0), (pk) => pk.lt(3), (pk) => {
-      const pat = LAYER.field.patterns.at(pk)
-      If(pat.id.eq(0), () => { Continue() })
-      const szUnit = pat.flags.shr(u32(2)).bitAnd(u32(3))
-      const offUnit = pat.flags.shr(u32(4)).bitAnd(u32(3))
-      const sizeM = patternUnitToM(pat.size, szUnit, layerMpp)
-      const offM = abs(patternUnitToM(pat.offset, offUnit, layerMpp))
-      patExtentM.assign(max(patExtentM, sizeM.mul(0.5).add(offM)))
+    // Pattern extent scan.
+    const patExtentM = f32(0)
+    If(layerFlags.bitAnd(u32(64)).ne(0), () => {
+      Loop(
+        u32(0),
+        (pk) => pk.lt(3),
+        (pk) => {
+          const pat = LAYER.field.patterns.at(pk)
+          If(pat.id.eq(0), () => {
+            Continue()
+          })
+          const szUnit = pat.flags.shr(u32(2)).bitAnd(u32(3))
+          const offUnit = pat.flags.shr(u32(4)).bitAnd(u32(3))
+          const sizeM = patternUnitToM({ v: pat.size, unit: szUnit, mpp: layerMpp })
+          const offM = abs(patternUnitToM({ v: pat.offset, unit: offUnit, mpp: layerMpp }))
+          patExtentM.assign(max(patExtentM, sizeM.mul(0.5).add(offM)))
+        },
+      )
     })
-  })
 
-  // Arrow cap pad.
-  const capTypeVs = layerFlags.bitAnd(u32(7))
-  const arrowLen = halfWm.mul(4)
-  const acrossM = max(halfWm, patExtentM)
-  padP0m.assign(max(padP0m, patExtentM))
-  padP1m.assign(max(padP1m, patExtentM))
-  If(capTypeVs.eq(3), () => {
-    If(length(sego.prev_tangent).lt(0.001), () => {
-      padP0m.assign(max(padP0m, arrowLen))
+    // Arrow cap pad.
+    const capTypeVs = layerFlags.bitAnd(u32(7))
+    const arrowLen = halfWm.mul(4)
+    const acrossM = max(halfWm, patExtentM)
+    padP0m.assign(max(padP0m, patExtentM))
+    padP1m.assign(max(padP1m, patExtentM))
+    If(capTypeVs.eq(3), () => {
+      If(length(sego.prev_tangent).lt(0.001), () => {
+        padP0m.assign(max(padP0m, arrowLen))
+      })
+      If(length(sego.next_tangent).lt(0.001), () => {
+        padP1m.assign(max(padP1m, arrowLen))
+      })
     })
-    If(length(sego.next_tangent).lt(0.001), () => {
-      padP1m.assign(max(padP1m, arrowLen))
-    })
-  })
 
-  // 6-vert quad → along/across.
-  const along = f32(0)
-  const across = f32(0)
-  Switch(p.vi)
-    .case(0, () => { along.assign(f32(-1)); across.assign(f32(-1)) })
-    .case(1, () => { along.assign(f32(1));  across.assign(f32(-1)) })
-    .case(2, () => { along.assign(f32(1));  across.assign(f32(1)) })
-    .case(3, () => { along.assign(f32(-1)); across.assign(f32(-1)) })
-    .case(4, () => { along.assign(f32(1));  across.assign(f32(1)) })
-    .case(5, () => { along.assign(f32(-1)); across.assign(f32(1)) })
-    .default(() => { /* default: empty */ })
+    // 6-vert quad → along/across.
+    const along = f32(0)
+    const across = f32(0)
+    Switch(p.vi)
+      .case(0, () => {
+        along.assign(f32(-1))
+        across.assign(f32(-1))
+      })
+      .case(1, () => {
+        along.assign(f32(1))
+        across.assign(f32(-1))
+      })
+      .case(2, () => {
+        along.assign(f32(1))
+        across.assign(f32(1))
+      })
+      .case(3, () => {
+        along.assign(f32(-1))
+        across.assign(f32(-1))
+      })
+      .case(4, () => {
+        along.assign(f32(1))
+        across.assign(f32(1))
+      })
+      .case(5, () => {
+        along.assign(f32(-1))
+        across.assign(f32(1))
+      })
+      .default(() => {
+        /* default: empty */
+      })
 
-  const isStart = Let(along.lt(0))
-  const base = select(isStart, p0, p1)
-  const perpCur = Let(nrm.mul(across))
+    const isStart = Let(along.lt(0))
+    const base = select(isStart, p0, p1)
+    const perpCur = Let(nrm.mul(across))
 
-  const prevTan = sego.prev_tangent
-  const nextTan = sego.next_tangent
-  const hasPrev = length(prevTan).gt(0.001)
-  const hasNext = length(nextTan).gt(0.001)
-  const hasNeighbor = select(isStart, hasPrev, hasNext)
+    const prevTan = sego.prev_tangent
+    const nextTan = sego.next_tangent
+    const hasPrev = length(prevTan).gt(0.001)
+    const hasNext = length(nextTan).gt(0.001)
+    const hasNeighbor = select(isStart, hasPrev, hasNext)
 
-  // Pattern across scale.
-  const acrossScale = Let(max(f32(1), acrossM.div(max(halfWm, 1e-6))))
+    // Pattern across scale.
+    const acrossScale = Let(max(f32(1), acrossM.div(max(halfWm, 1e-6))))
 
-  // Lateral parallel offset.
-  const halfWside = Let(halfWm.add(layerOffsetM.mul(across)))
+    // Lateral parallel offset.
+    const halfWside = Let(halfWm.add(layerOffsetM.mul(across)))
 
-  const offset = perpCur.mul(halfWside).mul(acrossScale)
-  If(hasNeighbor, () => {
-    const padRatio = select(isStart, sego.pad_ratio_p0, sego.pad_ratio_p1)
-    const basePad = Let(select(isStart, padP0m, padP1m))
-    const offsetExtentM = halfWm.add(abs(layerOffsetM))
-    const endpointPad = max(basePad, padRatio.mul(offsetExtentM))
-    const joinTypeVs = layerFlags.shr(u32(3)).bitAnd(u32(3))
-    const joinPad = halfWm.add(abs(layerOffsetM).mul(padRatio))
-    If(joinTypeVs.eq(0), () => { joinPad.assign(endpointPad) })
-    joinPad.assign(joinPad.add(f32(0.5).mul(layerMpp)))
-    const alongPad = Let(max(halfWside, joinPad))
-    offset.assign(offset.add(dir.mul(along).mul(alongPad).mul(acrossScale)))
-  }).else(() => {
-    const endpointPad = Let(select(isStart, padP0m, padP1m))
-    offset.assign(offset.add(dir.mul(along).mul(endpointPad)))
-  })
-
-  const cornerLocal = base.add(offset)
-
-  // ── ECEF-RTC corner reconstruction (Phase 2 PR 2d.1C) ────────────────
-  //
-  // Hybrid VS: emit clip via `u.mvp * vec4(ecef_rtc, 1)` while still
-  // emitting `world_local` as tile-local Mercator metres for the FS
-  // distance / clip / backface / pattern math (`compute_line_color` reads
-  // `world_local` at 6 sites — backface cull, clip-bounds, segment dist,
-  // bevel/cap geometry, rim alpha, pattern repeat). The Mercator path is
-  // unchanged; only the clip transform swaps from
-  // `u.mvp * project_geom(corner)` to `u.mvp * ecef_rtc(corner)`.
-  //
-  // Math chain:
-  //   1. corner abs Mercator = cornerLocal + tile_origin_merc
-  //   2. inverse Mercator     → (abs_lon_rad, abs_lat_rad)
-  //   3. WGS84 forward ECEF   → ecef_corner
-  //   4. tile ECEF center same chain on tile_origin_merc
-  //   5. ecef_rtc             = ecef_corner - tile_ecef_center
-  //   6. clip                 = u.mvp * vec4(ecef_rtc, 1)
-  //
-  // Mirrors the polygon ECEF VS (vs_main_ecef) contract: the runtime
-  // builds `u.mvp` (ECEF-MVP) once per frame and the per-tile vertices are
-  // RTC-relative to the tile ECEF center. The WGS84 forward is the shared
-  // `lonlat_to_ecef` primitive (ecef.ts) — the same one the raster VS calls —
-  // so the constants (WGS84_A / WGS84_E2) live in one place. NB: the shared
-  // WGS84_E2 (0.0066943799901975955) is f32-equal to the former inline literal
-  // (0.006694379990197561) — both truncate to the same f32, so this is not a
-  // precision regression despite the differing source digits. Per-vertex cost:
-  // 2 sin + 2 cos + 1 sqrt (inside lonlat_to_ecef) + 1 tan + 1 exp — modest on
-  // modern GPUs and isolated to the line VS.
-
-  const earthR = EARTH_R
-  const pi = PI
-
-  // Helper: build local ECEF for an absolute Mercator (x_m, y_m) input via the
-  // shared `lonlat_to_ecef(lon, lat, height)` (same as the raster VS path).
-  // `height` lifts along the GEODETIC NORMAL — the frame the CPU lonLatToECEF
-  // uses for the extruded roof ring (polygon-mesh.ts). The previous form added
-  // z_lift to ECEF Z AFTER conversion (polar axis), displacing extruded
-  // outlines h·cos(lat) north + h·(1−sin lat) below the roof (~37 px at z16).
-  type FNode = ReadonlyNode<'f32'>
-  const ecefFromMerc = (
-    _builder: unknown,
-    _name: string,
-    absMercX: FNode,
-    absMercY: FNode,
-    height: FNode = f32(0),
-  ): Node<'vec3<f32>'> => {
-    const lonRad = toF32(absMercX.div(earthR))
-    const latRad = toF32(f32(2).mul(atan(exp(absMercY.div(earthR)))).sub(pi.div(2)))
-    return lonlatToEcef(lonRad, latRad, height) as Node<'vec3<f32>'>
-  }
-
-  // Camera-relative RTC offset (tileEcefCenter − cameraCenter), DSFUN hi+lo,
-  // written by VTR per tile at f32 52/56. addCamOff converts a tile-relative
-  // ECEF into vertex−cameraCenter for the camera-at-ENU-origin MVP — the same
-  // two-add form as polygon vs_main_ecef. Applied to BOTH the width-clamp
-  // draft (so its on-screen distance estimate uses the true position) and the
-  // final clip, keeping them consistent.
-  const camOffH = TILE.field.cam_ecef_off_h
-  const camOffL = TILE.field.cam_ecef_off_l
-  const addCamOff = (v: Node<'vec3<f32>'>): Node<'vec3<f32>'> => v
-    .add(vec3(camOffH.x, camOffH.y, camOffH.z))
-    .add(vec3(camOffL.x, camOffL.y, camOffL.z)) as Node<'vec3<f32>'>
-
-  // Screen-pixel-width stroke geometry clamp. Pre-clamp draft via ECEF
-  // round-trip on the candidate corner (matches polygon convention).
-  If(layerVpH.gt(0), () => {
-    const zLift = sego.z_lift_m
-    const mvp = TILE.field.mvp
-    const projParamsW = TILE.field.proj_params
-    // Same MVP transform for center (base) + candidate (cornerLocal) so the
-    // screen-space width estimate matches the final clip exactly.
-    const centerClip = vec4(0, 0, 0, 0)
-    const cornerClip = vec4(0, 0, 0, 0)
-    If(projParamsW.x.lt(6.5), () => {
-      // FLAT (projType 0-6): finalize_corner passes Mercator through (already
-      // camera-relative) and reprojects the other flat forms (project_geom −
-      // projected camera centre). Same flat 2D-plane MVP for center +
-      // candidate so the screen-space width estimate matches the final clip.
-      const baseFc = finalizeCorner(base)
-      const cornerFc = Let(finalizeCorner(cornerLocal))
-      centerClip.assign(transformMat4(mvp, vec4(baseFc.x, baseFc.y, zLift, 1)))
-      cornerClip.assign(transformMat4(mvp, vec4(cornerFc.x, cornerFc.y, zLift, 1)))
+    const offset = perpCur.mul(halfWside).mul(acrossScale)
+    If(hasNeighbor, () => {
+      const padRatio = select(isStart, sego.pad_ratio_p0, sego.pad_ratio_p1)
+      const basePad = Let(select(isStart, padP0m, padP1m))
+      const offsetExtentM = halfWm.add(abs(layerOffsetM))
+      const endpointPad = max(basePad, padRatio.mul(offsetExtentM))
+      const joinTypeVs = layerFlags.shr(u32(3)).bitAnd(u32(3))
+      const joinPad = halfWm.add(abs(layerOffsetM).mul(padRatio))
+      If(joinTypeVs.eq(0), () => {
+        joinPad.assign(endpointPad)
+      })
+      joinPad.assign(joinPad.add(f32(0.5).mul(layerMpp)))
+      const alongPad = Let(max(halfWside, joinPad))
+      offset.assign(offset.add(dir.mul(along).mul(alongPad).mul(acrossScale)))
     }).else(() => {
-      // 3D ECEF round-trip on the candidate corner (matches polygon convention).
-      const tileOrigin = TILE.field.tile_origin_merc
-      const tileAbsX = toF32(tileOrigin.x)
-      const tileAbsY = toF32(tileOrigin.y)
-      const tileEcef = ecefFromMerc(null, 'clamp_tile', tileAbsX, tileAbsY)
-      const baseAbsX = toF32(base.x.add(tileOrigin.x))
-      const baseAbsY = toF32(base.y.add(tileOrigin.y))
-      // z_lift rides INTO lonlat_to_ecef as geodetic height (tileEcef anchor
-      // stays height-0 = the polygon tile_ecef_center RTC frame).
-      const baseEcef = ecefFromMerc(null, 'clamp_base', baseAbsX, baseAbsY, zLift)
-      const baseRtc = baseEcef.sub(tileEcef)
-      centerClip.assign(transformMat4(mvp, vec4(addCamOff(baseRtc as Node<'vec3<f32>'>), 1)))
-      const cornerAbsX = Let(toF32(cornerLocal.x.add(tileOrigin.x)))
-      const cornerAbsY = Let(toF32(cornerLocal.y.add(tileOrigin.y)))
-      const cornerEcef = ecefFromMerc(null, 'clamp_corner', cornerAbsX, cornerAbsY, zLift)
-      const cornerRtc = cornerEcef.sub(tileEcef)
-      cornerClip.assign(transformMat4(mvp, vec4(addCamOff(cornerRtc as Node<'vec3<f32>'>), 1)))
+      const endpointPad = Let(select(isStart, padP0m, padP1m))
+      offset.assign(offset.add(dir.mul(along).mul(endpointPad)))
     })
-    const centerXY = Let(vec2(centerClip.x, centerClip.y))
-    const cornerXY = Let(vec2(cornerClip.x, cornerClip.y))
-    const centerNdc = Let(centerXY.div(max(abs(centerClip.w), 1e-6)).mul(sign(centerClip.w)))
-    const cornerNdc = Let(cornerXY.div(max(abs(cornerClip.w), 1e-6)).mul(sign(cornerClip.w)))
-    const screenDist = length(cornerNdc.sub(centerNdc))
-    // width target is CSS px; viewport_height is DEVICE px → scale by dpr.
-    const targetNdc = effectiveWidthPx.add(f32(2).mul(layerAaPx)).mul(layerDpr).div(layerVpH)
-    // The screen-width clamp may only GROW the quad to counter projection
-    // foreshortening — never SHRINK it below the base quad. The base offset is
-    // (w/2+aa)·mpp tile-local metres, which the FS distance field (world_local
-    // / mpp) renders at exactly the intended CSS-px width; a quad smaller than
-    // that clips the fragment coverage and the stroke renders far too thin.
-    // (targetNdc is miscalibrated against the perspective viewport scale — it
-    // under-targets ~4×, so the raw scale was shrinking every flat stroke to a
-    // fraction of its width. Capping at 1 restores the correct base width and
-    // keeps the legitimate grow-for-foreshortening path.)
-    If(screenDist.gt(1e-8), () => {
-      const scale = max(targetNdc.div(screenDist), 1)
-      cornerLocal.assign(base.add(offset.mul(scale)))
+
+    const cornerLocal = base.add(offset)
+
+    // ── ECEF-RTC corner reconstruction (Phase 2 PR 2d.1C) ────────────────
+    //
+    // Hybrid VS: emit clip via `u.mvp * vec4(ecef_rtc, 1)` while still
+    // emitting `world_local` as tile-local Mercator metres for the FS
+    // distance / clip / backface / pattern math (`compute_line_color` reads
+    // `world_local` at 6 sites — backface cull, clip-bounds, segment dist,
+    // bevel/cap geometry, rim alpha, pattern repeat). The Mercator path is
+    // unchanged; only the clip transform swaps from
+    // `u.mvp * project_geom(corner)` to `u.mvp * ecef_rtc(corner)`.
+    //
+    // Math chain:
+    //   1. corner abs Mercator = cornerLocal + tile_origin_merc
+    //   2. inverse Mercator     → (abs_lon_rad, abs_lat_rad)
+    //   3. WGS84 forward ECEF   → ecef_corner
+    //   4. tile ECEF center same chain on tile_origin_merc
+    //   5. ecef_rtc             = ecef_corner - tile_ecef_center
+    //   6. clip                 = u.mvp * vec4(ecef_rtc, 1)
+    //
+    // Mirrors the polygon ECEF VS (vs_main_ecef) contract: the runtime
+    // builds `u.mvp` (ECEF-MVP) once per frame and the per-tile vertices are
+    // RTC-relative to the tile ECEF center. The WGS84 forward is the shared
+    // `lonlat_to_ecef` primitive (ecef.ts) — the same one the raster VS calls —
+    // so the constants (WGS84_A / WGS84_E2) live in one place. NB: the shared
+    // WGS84_E2 (0.0066943799901975955) is f32-equal to the former inline literal
+    // (0.006694379990197561) — both truncate to the same f32, so this is not a
+    // precision regression despite the differing source digits. Per-vertex cost:
+    // 2 sin + 2 cos + 1 sqrt (inside lonlat_to_ecef) + 1 tan + 1 exp — modest on
+    // modern GPUs and isolated to the line VS.
+
+    const earthR = EARTH_R
+    const pi = PI
+
+    // Helper: build local ECEF for an absolute Mercator (x_m, y_m) input via the
+    // shared `lonlat_to_ecef(lon, lat, height)` (same as the raster VS path).
+    // `height` lifts along the GEODETIC NORMAL — the frame the CPU lonLatToECEF
+    // uses for the extruded roof ring (polygon-mesh.ts). The previous form added
+    // z_lift to ECEF Z AFTER conversion (polar axis), displacing extruded
+    // outlines h·cos(lat) north + h·(1−sin lat) below the roof (~37 px at z16).
+    type FNode = ReadonlyNode<'f32'>
+    const ecefFromMerc = (
+      _builder: unknown,
+      _name: string,
+      absMercX: FNode,
+      absMercY: FNode,
+      height: FNode = f32(0),
+    ): Node<'vec3<f32>'> => {
+      const lonRad = toF32(absMercX.div(earthR))
+      const latRad = toF32(
+        f32(2)
+          .mul(atan(exp(absMercY.div(earthR))))
+          .sub(pi.div(2)),
+      )
+      return lonlatToEcef({ lon_rad: lonRad, lat_rad: latRad, height }) as Node<'vec3<f32>'>
+    }
+
+    // Camera-relative RTC offset (tileEcefCenter − cameraCenter), DSFUN hi+lo,
+    // written by VTR per tile at f32 52/56. addCamOff converts a tile-relative
+    // ECEF into vertex−cameraCenter for the camera-at-ENU-origin MVP — the same
+    // two-add form as polygon vs_main_ecef. Applied to BOTH the width-clamp
+    // draft (so its on-screen distance estimate uses the true position) and the
+    // final clip, keeping them consistent.
+    const camOffH = TILE.field.cam_ecef_off_h
+    const camOffL = TILE.field.cam_ecef_off_l
+    const addCamOff = (v: Node<'vec3<f32>'>): Node<'vec3<f32>'> =>
+      v
+        .add(vec3(camOffH.x, camOffH.y, camOffH.z))
+        .add(vec3(camOffL.x, camOffL.y, camOffL.z)) as Node<'vec3<f32>'>
+
+    // Screen-pixel-width stroke geometry clamp. Pre-clamp draft via ECEF
+    // round-trip on the candidate corner (matches polygon convention).
+    If(layerVpH.gt(0), () => {
+      const zLift = sego.z_lift_m
+      const mvp = TILE.field.mvp
+      const projParamsW = TILE.field.proj_params
+      // Same MVP transform for center (base) + candidate (cornerLocal) so the
+      // screen-space width estimate matches the final clip exactly.
+      const centerClip = vec4(0, 0, 0, 0)
+      const cornerClip = vec4(0, 0, 0, 0)
+      If(projParamsW.x.lt(6.5), () => {
+        // FLAT (projType 0-6): finalize_corner passes Mercator through (already
+        // camera-relative) and reprojects the other flat forms (project_geom −
+        // projected camera centre). Same flat 2D-plane MVP for center +
+        // candidate so the screen-space width estimate matches the final clip.
+        const baseFc = finalizeCorner({ corner: base })
+        const cornerFc = Let(finalizeCorner({ corner: cornerLocal }))
+        centerClip.assign(transformMat4(mvp, vec4(baseFc.x, baseFc.y, zLift, 1)))
+        cornerClip.assign(transformMat4(mvp, vec4(cornerFc.x, cornerFc.y, zLift, 1)))
+      }).else(() => {
+        // 3D ECEF round-trip on the candidate corner (matches polygon convention).
+        const tileOrigin = TILE.field.tile_origin_merc
+        const tileAbsX = toF32(tileOrigin.x)
+        const tileAbsY = toF32(tileOrigin.y)
+        const tileEcef = ecefFromMerc(null, 'clamp_tile', tileAbsX, tileAbsY)
+        const baseAbsX = toF32(base.x.add(tileOrigin.x))
+        const baseAbsY = toF32(base.y.add(tileOrigin.y))
+        // z_lift rides INTO lonlat_to_ecef as geodetic height (tileEcef anchor
+        // stays height-0 = the polygon tile_ecef_center RTC frame).
+        const baseEcef = ecefFromMerc(null, 'clamp_base', baseAbsX, baseAbsY, zLift)
+        const baseRtc = baseEcef.sub(tileEcef)
+        centerClip.assign(transformMat4(mvp, vec4(addCamOff(baseRtc as Node<'vec3<f32>'>), 1)))
+        const cornerAbsX = Let(toF32(cornerLocal.x.add(tileOrigin.x)))
+        const cornerAbsY = Let(toF32(cornerLocal.y.add(tileOrigin.y)))
+        const cornerEcef = ecefFromMerc(null, 'clamp_corner', cornerAbsX, cornerAbsY, zLift)
+        const cornerRtc = cornerEcef.sub(tileEcef)
+        cornerClip.assign(transformMat4(mvp, vec4(addCamOff(cornerRtc as Node<'vec3<f32>'>), 1)))
+      })
+      const centerXY = Let(vec2(centerClip.x, centerClip.y))
+      const cornerXY = Let(vec2(cornerClip.x, cornerClip.y))
+      const centerNdc = Let(centerXY.div(max(abs(centerClip.w), 1e-6)).mul(sign(centerClip.w)))
+      const cornerNdc = Let(cornerXY.div(max(abs(cornerClip.w), 1e-6)).mul(sign(cornerClip.w)))
+      const screenDist = length(cornerNdc.sub(centerNdc))
+      // width target is CSS px; viewport_height is DEVICE px → scale by dpr.
+      const targetNdc = effectiveWidthPx.add(f32(2).mul(layerAaPx)).mul(layerDpr).div(layerVpH)
+      // The screen-width clamp may only GROW the quad to counter projection
+      // foreshortening — never SHRINK it below the base quad. The base offset is
+      // (w/2+aa)·mpp tile-local metres, which the FS distance field (world_local
+      // / mpp) renders at exactly the intended CSS-px width; a quad smaller than
+      // that clips the fragment coverage and the stroke renders far too thin.
+      // (targetNdc is miscalibrated against the perspective viewport scale — it
+      // under-targets ~4×, so the raw scale was shrinking every flat stroke to a
+      // fraction of its width. Capping at 1 restores the correct base width and
+      // keeps the legitimate grow-for-foreshortening path.)
+      If(screenDist.gt(1e-8), () => {
+        const scale = max(targetNdc.div(screenDist), 1)
+        cornerLocal.assign(base.add(offset.mul(scale)))
+      })
     })
-  })
 
-  // Final corner → clip. Flat Mercator (proj_params.x < 0.5) feeds the flat
-  // 2D-plane MVP directly — cornerLocal is ALREADY camera-relative Mercator
-  // metres (line_endpoint subtracted the camera for proj<0.5), so no ECEF
-  // round-trip / addCamOff. 3D / globe keeps the WGS84-ECEF chain (cornerLocal
-  // is tile-local there). u.mvp is the matching matrix (getViewForProjection);
-  // zLift is the outline/extrude lift. world_local stays cornerLocal so the
-  // FS distance / clip-bounds math is unchanged.
-  const tileOrigin2 = TILE.field.tile_origin_merc
-  const mvp = TILE.field.mvp
-  const zLift = sego.z_lift_m
-  const projParamsF = TILE.field.proj_params
+    // Final corner → clip. Flat Mercator (proj_params.x < 0.5) feeds the flat
+    // 2D-plane MVP directly — cornerLocal is ALREADY camera-relative Mercator
+    // metres (line_endpoint subtracted the camera for proj<0.5), so no ECEF
+    // round-trip / addCamOff. 3D / globe keeps the WGS84-ECEF chain (cornerLocal
+    // is tile-local there). u.mvp is the matching matrix (getViewForProjection);
+    // zLift is the outline/extrude lift. world_local stays cornerLocal so the
+    // FS distance / clip-bounds math is unchanged.
+    const tileOrigin2 = TILE.field.tile_origin_merc
+    const mvp = TILE.field.mvp
+    const zLift = sego.z_lift_m
+    const projParamsF = TILE.field.proj_params
 
-  const clip = vec4(0, 0, 0, 0)
-  If(projParamsF.x.lt(6.5), () => {
-    // FLAT (0-6): finalize_corner (Mercator pass-through + non-Mercator
-    // project_geom reproject − projected camera centre) → flat 2D-plane MVP.
-    const cornerFc = Let(finalizeCorner(cornerLocal))
-    clip.assign(transformMat4(mvp, vec4(cornerFc.x, cornerFc.y, zLift, 1)))
-  }).else(() => {
-    const tileAbsX = toF32(tileOrigin2.x)
-    const tileAbsY = toF32(tileOrigin2.y)
-    const tileEcef = ecefFromMerc(null, 'final_tile', tileAbsX, tileAbsY)
-    const cornerAbsX = Let(toF32(cornerLocal.x.add(tileOrigin2.x)))
-    const cornerAbsY = Let(toF32(cornerLocal.y.add(tileOrigin2.y)))
-    // z_lift = geodetic height inside lonlat_to_ecef (matches the CPU
-    // lonLatToECEF roof-ring lift); the tile anchor stays height-0.
-    const cornerEcef = ecefFromMerc(null, 'final_corner', cornerAbsX, cornerAbsY, zLift)
-    const ecefRtc = cornerEcef.sub(tileEcef)
-    // Camera-relative RTC — without addCamOff, line projects vertex−
-    // tileEcefCenter and collapses toward each tile's origin.
-    const ecefCam = addCamOff(ecefRtc as Node<'vec3<f32>'>)
-    clip.assign(transformMat4(mvp, vec4(ecefCam, 1)))
-  })
-  // Mapbox fill-translate for POLYGON OUTLINES: a fill's outline draws through
-  // the line pipeline sharing the fill's per-tile slot, so slots 46/47
-  // (`_pad_tail0.zw`) already carry its NDC translate. Apply the SAME viewport
-  // offset the polygon VS does (polygon.ts:345) so an outline stays glued to a
-  // translated fill (OFM building-top roof) — MapLibre parity. Standalone lines
-  // write 0 → no-op; the <0.25 guard skips the pattern-repeat-metres overload.
-  const fillT = TILE.field._pad_tail0
-  If(fillT.z.mul(fillT.z).add(fillT.w.mul(fillT.w)).lt(0.25), () => {
-    clip.x.assign(clip.x.add(fillT.z.mul(clip.w)))
-    clip.y.assign(clip.y.sub(fillT.w.mul(clip.w)))
-  })
-  // Mapbox line-translate viewport offset — applied post-MVP so the pixel
-  // shift stays constant regardless of depth (mirrors fill-translate logic).
-  // Default 0 → no-op; non-zero shifts the entire line layer in screen space.
-  const ltx = LAYER.field.line_translate_x
-  const lty = LAYER.field.line_translate_y
-  If(ltx.mul(ltx).add(lty.mul(lty)).gt(0), () => {
-    clip.x.assign(clip.x.add(ltx.mul(clip.w)))
-    clip.y.assign(clip.y.sub(lty.mul(clip.w)))
-  })
-  const cosCp0 = endpointCosC(sego.p0_h, sego.p0_l)
-  const cosCp1 = endpointCosC(sego.p1_h, sego.p1_l)
-  return LineOut.construct({
-    position: apply_log_depth(clip, TILE.field.log_depth_fc),
-    world_local: cornerLocal,
-    seg_id: p.seg_id,
-    view_w: clip.w,
-    cos_c: select(isStart, cosCp0, cosCp1),
-  })
-}, { stage: 'vertex' })
+    const clip = vec4(0, 0, 0, 0)
+    If(projParamsF.x.lt(6.5), () => {
+      // FLAT (0-6): finalize_corner (Mercator pass-through + non-Mercator
+      // project_geom reproject − projected camera centre) → flat 2D-plane MVP.
+      const cornerFc = Let(finalizeCorner({ corner: cornerLocal }))
+      clip.assign(transformMat4(mvp, vec4(cornerFc.x, cornerFc.y, zLift, 1)))
+    }).else(() => {
+      const tileAbsX = toF32(tileOrigin2.x)
+      const tileAbsY = toF32(tileOrigin2.y)
+      const tileEcef = ecefFromMerc(null, 'final_tile', tileAbsX, tileAbsY)
+      const cornerAbsX = Let(toF32(cornerLocal.x.add(tileOrigin2.x)))
+      const cornerAbsY = Let(toF32(cornerLocal.y.add(tileOrigin2.y)))
+      // z_lift = geodetic height inside lonlat_to_ecef (matches the CPU
+      // lonLatToECEF roof-ring lift); the tile anchor stays height-0.
+      const cornerEcef = ecefFromMerc(null, 'final_corner', cornerAbsX, cornerAbsY, zLift)
+      const ecefRtc = cornerEcef.sub(tileEcef)
+      // Camera-relative RTC — without addCamOff, line projects vertex−
+      // tileEcefCenter and collapses toward each tile's origin.
+      const ecefCam = addCamOff(ecefRtc as Node<'vec3<f32>'>)
+      clip.assign(transformMat4(mvp, vec4(ecefCam, 1)))
+    })
+    // Mapbox fill-translate for POLYGON OUTLINES: a fill's outline draws through
+    // the line pipeline sharing the fill's per-tile slot, so slots 46/47
+    // (`_pad_tail0.zw`) already carry its NDC translate. Apply the SAME viewport
+    // offset the polygon VS does (polygon.ts:345) so an outline stays glued to a
+    // translated fill (OFM building-top roof) — MapLibre parity. Standalone lines
+    // write 0 → no-op; the <0.25 guard skips the pattern-repeat-metres overload.
+    const fillT = TILE.field._pad_tail0
+    If(fillT.z.mul(fillT.z).add(fillT.w.mul(fillT.w)).lt(0.25), () => {
+      clip.x.assign(clip.x.add(fillT.z.mul(clip.w)))
+      clip.y.assign(clip.y.sub(fillT.w.mul(clip.w)))
+    })
+    // Mapbox line-translate viewport offset — applied post-MVP so the pixel
+    // shift stays constant regardless of depth (mirrors fill-translate logic).
+    // Default 0 → no-op; non-zero shifts the entire line layer in screen space.
+    const ltx = LAYER.field.line_translate_x
+    const lty = LAYER.field.line_translate_y
+    If(ltx.mul(ltx).add(lty.mul(lty)).gt(0), () => {
+      clip.x.assign(clip.x.add(ltx.mul(clip.w)))
+      clip.y.assign(clip.y.sub(lty.mul(clip.w)))
+    })
+    const cosCp0 = endpointCosC({ p_h: sego.p0_h, p_l: sego.p0_l })
+    const cosCp1 = endpointCosC({ p_h: sego.p1_h, p_l: sego.p1_l })
+    return LineOut.construct({
+      position: apply_log_depth({ pos: clip, fc: TILE.field.log_depth_fc }),
+      world_local: cornerLocal,
+      seg_id: p.seg_id,
+      view_w: clip.w,
+      cos_c: select(isStart, cosCp0, cosCp1),
+    })
+  },
+  { stage: 'vertex' },
+)
 
 // ── Fragment entries (3 variants share compute_line_color) ──
 
 const buildFsLine = (pickEnabled: boolean) =>
-  fn('fs_line', { input: LineOut }, (p) => {
-    const color = computeLineColor(p.input)
-    const rim = lineRimAlpha(p.input)
-    return lineFragmentOutput(pickEnabled).construct({
-      color: vec4(color.rgb, color.a.mul(rim)),
-      ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
-      depth: compute_log_frag_depth(p.input.view_w, TILE.field.log_depth_fc),
-    })
-  }, { stage: 'fragment' })
+  fn(
+    'fs_line',
+    { input: LineOut },
+    (p) => {
+      const color = computeLineColor({ input: p.input })
+      const rim = lineRimAlpha({ input: p.input })
+      return lineFragmentOutput(pickEnabled).construct({
+        color: vec4(color.rgb, color.a.mul(rim)),
+        ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
+        depth: compute_log_frag_depth({ view_w: p.input.view_w, fc: TILE.field.log_depth_fc }),
+      })
+    },
+    { stage: 'fragment' },
+  )
 
 const buildFsLinePattern = (pickEnabled: boolean) =>
-  fn('fs_line_pattern', { input: LineOut }, (p) => {
-    const inp = p.input
-    const base = computeLineColor(p.input)
-    const tileOrigin = TILE.field.tile_origin_merc
-    const absMerc = inp.world_local.add(tileOrigin)
-    const repeatX = max(LAYER.field.color.r, 1)
-    const repeatY = max(LAYER.field.color.a, 1)
-    const uvLocal = vec2(
-      fract(absMerc.x.div(repeatX)),
-      fract(absMerc.y.div(repeatY)),
-    )
-    const sc = TILE.field.stroke_color
-    const u0 = sc.r
-    const v0 = sc.g
-    const u1 = sc.b
-    const v1 = sc.a
-    const atlasUv = vec2(
-      u0.add(uvLocal.x.mul(u1.sub(u0))),
-      v0.add(uvLocal.y.mul(v1.sub(v0))),
-    )
-    const sampled = textureSample(sprite_atlas, sprite_samp, atlasUv)
-    const rim = lineRimAlpha(p.input)
-    return lineFragmentOutput(pickEnabled).construct({
-      color: vec4(sampled.rgb, sampled.a.mul(base.a).mul(rim)),
-      ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
-      depth: compute_log_frag_depth(inp.view_w, TILE.field.log_depth_fc),
-    })
-  }, { stage: 'fragment' })
+  fn(
+    'fs_line_pattern',
+    { input: LineOut },
+    (p) => {
+      const inp = p.input
+      const base = computeLineColor({ input: p.input })
+      const tileOrigin = TILE.field.tile_origin_merc
+      const absMerc = inp.world_local.add(tileOrigin)
+      const repeatX = max(LAYER.field.color.r, 1)
+      const repeatY = max(LAYER.field.color.a, 1)
+      const uvLocal = vec2(fract(absMerc.x.div(repeatX)), fract(absMerc.y.div(repeatY)))
+      const sc = TILE.field.stroke_color
+      const u0 = sc.r
+      const v0 = sc.g
+      const u1 = sc.b
+      const v1 = sc.a
+      const atlasUv = vec2(u0.add(uvLocal.x.mul(u1.sub(u0))), v0.add(uvLocal.y.mul(v1.sub(v0))))
+      const sampled = textureSample(sprite_atlas, sprite_samp, atlasUv)
+      const rim = lineRimAlpha({ input: p.input })
+      return lineFragmentOutput(pickEnabled).construct({
+        color: vec4(sampled.rgb, sampled.a.mul(base.a).mul(rim)),
+        ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
+        depth: compute_log_frag_depth({ view_w: inp.view_w, fc: TILE.field.log_depth_fc }),
+      })
+    },
+    { stage: 'fragment' },
+  )
 
 // Max-blend offscreen path: bare @location(0) vec4 return, no log-depth (the
 // offscreen RT has no depth attachment).
@@ -1091,8 +1282,8 @@ const fsLineMax = fn(
   'fs_line_max',
   { input: LineOut },
   (p) => {
-    const c = computeLineColor(p.input)
-    const rim = lineRimAlpha(p.input)
+    const c = computeLineColor({ input: p.input })
+    const rim = lineRimAlpha({ input: p.input })
     c.a.assign(c.a.mul(rim))
     return c
   },
@@ -1101,49 +1292,63 @@ const fsLineMax = fn(
 
 // ── Module assembly ──
 
-export const buildLineModule = (pickEnabled: boolean): ModuleDecl => module({
-  // Shared projection + ecef constants merged in (was the getProjectionWgslConsts() /
-  // ECEF_WGSL_CONSTS string prepend in emitLineWgsl). emitModule hoists them above all funcs.
-  consts: [...PROJECTION_CONSTS, ...ECEF_CONSTS],
-  structs: [
-    TILE.struct, PatternSlot.decl, LAYER.struct, LineSegment.decl,
-    ShapeDesc.decl, ShapeSegment.decl, LineOut.decl, lineFragmentOutput(pickEnabled).decl,
-  ],
-  bindings: [
-    TILE.binding,
-    spriteAtlasB.binding,
-    spriteSampB.binding,
-    LAYER.binding,
-    segmentsB.binding,
-    shapesB.binding,
-    shapeSegmentsB.binding,
-  ],
-  funcs: [
-    // Injection seam ONLY (#740 R1): the projection fns are extern-called (no
-    // declRef) so module() cannot auto-collect them. Everything else — log-depth,
-    // ECEF, the SDF distance/winding helpers, the line color/corner machinery —
-    // is reached through handle calls and collected callee-first automatically.
-    ...getGpuProjectionFuncs(),
-    vsLine,
-    buildFsLine(pickEnabled), buildFsLinePattern(pickEnabled), fsLineMax,
-  ],
-})
+export const buildLineModule = (pickEnabled: boolean): ModuleDecl =>
+  module({
+    // Shared projection + ecef constants merged in (was the getProjectionWgslConsts() /
+    // ECEF_WGSL_CONSTS string prepend in emitLineWgsl). emitModule hoists them above all funcs.
+    consts: [...PROJECTION_CONSTS, ...ECEF_CONSTS],
+    structs: [
+      TILE.struct,
+      PatternSlot.decl,
+      LAYER.struct,
+      LineSegment.decl,
+      ShapeDesc.decl,
+      ShapeSegment.decl,
+      LineOut.decl,
+      lineFragmentOutput(pickEnabled).decl,
+    ],
+    bindings: [
+      TILE.binding,
+      spriteAtlasB.binding,
+      spriteSampB.binding,
+      LAYER.binding,
+      segmentsB.binding,
+      shapesB.binding,
+      shapeSegmentsB.binding,
+    ],
+    funcs: [
+      // Injection seam ONLY (#740 R1): the projection fns are extern-called (no
+      // declRef) so module() cannot auto-collect them. Everything else — log-depth,
+      // ECEF, the SDF distance/winding helpers, the line color/corner machinery —
+      // is reached through handle calls and collected callee-first automatically.
+      ...getGpuProjectionFuncs(),
+      vsLine,
+      buildFsLine(pickEnabled),
+      buildFsLinePattern(pickEnabled),
+      fsLineMax,
+    ],
+  })
 
 /** Full line shader: shared DSL-emitted projection consts + log-depth fns +
  *  projection fns + SDF distance/winding helpers, then the line module.
  *  `pickEnabled` toggles the pick attachment field + writes (replaces the old
  *  __PICK_FIELD__ / __PICK_WRITE__ regex markers). */
-export const emitLineWgsl = (pickEnabled: boolean): string => emitModule(buildLineModule(pickEnabled))
+export const emitLineWgsl = (pickEnabled: boolean): string =>
+  emitModule(buildLineModule(pickEnabled))
 
 // ── Compositor (fullscreen-triangle sampling the translucent offscreen RT) ──
 //
 // Standalone — different bind group + a single uniform (opacity). Pairs with
 // pipelineMax in line-renderer.ts.
 
-const CompUniform = uniformStruct('CompUniform', { group: 0, binding: 2, as: 'cu' }, {
-  opacity: f32T,
-  _pad: vec3fT,
-})
+const CompUniform = uniformStruct(
+  'CompUniform',
+  { group: 0, binding: 2, as: 'cu' },
+  {
+    opacity: f32T,
+    _pad: vec3fT,
+  },
+)
 
 const VsFullOut = ioStruct('VsFullOut', {
   pos: builtin('position', vec4fT),
@@ -1155,7 +1360,8 @@ const compSamp = compSampB.node
 const compSrcB = resource('src', texture2dfT, { group: 0, binding: 1 })
 const compSrc = compSrcB.node
 
-const vsFull = fn('vs_full',
+const vsFull = fn(
+  'vs_full',
   { vi: builtin('vertex_index', u32T) },
   (p) => {
     const pos = vec2(-1, -1)
@@ -1176,7 +1382,8 @@ const vsFull = fn('vs_full',
   { stage: 'vertex' },
 )
 
-const fsFull = fn('fs_full',
+const fsFull = fn(
+  'fs_full',
   { input: VsFullOut },
   (p) => {
     const c = textureSample(compSrc, compSamp, p.input.uv)
@@ -1189,11 +1396,7 @@ const fsFull = fn('fs_full',
 
 const compositeModule: ModuleDecl = module({
   structs: [CompUniform.struct, VsFullOut.decl],
-  bindings: [
-    compSampB.binding,
-    compSrcB.binding,
-    CompUniform.binding,
-  ],
+  bindings: [compSampB.binding, compSrcB.binding, CompUniform.binding],
   funcs: [vsFull, fsFull],
 })
 

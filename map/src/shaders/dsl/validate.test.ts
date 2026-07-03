@@ -1,9 +1,22 @@
 import { describe, it, expect } from 'vitest'
 import {
-  validate, ValidationError,
-  module, fn, f32, param, callFn, constRef, bindingRef, member, structT,
-  f32T, u32T, vec4fT, compileModule,
-  type ModuleDecl, type Stmt,
+  validate,
+  ValidationError,
+  module,
+  fn,
+  f32,
+  param,
+  externFn,
+  constRef,
+  bindingRef,
+  member,
+  structT,
+  f32T,
+  u32T,
+  vec4fT,
+  compileModule,
+  type ModuleDecl,
+  type Stmt,
 } from '@xgis/shader-dsl'
 import { getPROJECTION_MODULE } from './projections'
 
@@ -71,8 +84,12 @@ describe('validate', () => {
   it('throws on a duplicate func name', () => {
     const bad = module({
       funcs: [
-        fn('foo', {}, f32T, (_p, bld) => { bld.ret(f32(1)) }),
-        fn('foo', {}, f32T, (_p, bld) => { bld.ret(f32(2)) }),
+        fn('foo', {}, f32T, (_p, bld) => {
+          bld.ret(f32(1))
+        }),
+        fn('foo', {}, f32T, (_p, bld) => {
+          bld.ret(f32(2))
+        }),
       ],
     })
     expect(() => validate(bad)).toThrow(ValidationError)
@@ -96,8 +113,12 @@ describe('validate', () => {
     // WGSL/GLSL writers reject (here: a duplicate function name).
     const bad = module({
       funcs: [
-        fn('dup', {}, f32T, (_p, b) => { b.ret(f32(1)) }),
-        fn('dup', {}, f32T, (_p, b) => { b.ret(f32(2)) }),
+        fn('dup', {}, f32T, (_p, b) => {
+          b.ret(f32(1))
+        }),
+        fn('dup', {}, f32T, (_p, b) => {
+          b.ret(f32(2))
+        }),
       ],
     })
     expect(() => compileModule(bad)).toThrow(ValidationError)
@@ -124,24 +145,28 @@ describe('validate', () => {
 
   it('does not throw on a fn with a raw Stmt and no explicit return', () => {
     const m: ModuleDecl = module({
-      funcs: [{
-        name: 'raw_fn',
-        params: [],
-        ret: f32T,
-        body: [{ s: 'raw', wgsl: 'return 1.0;' } as Stmt],
-      }],
+      funcs: [
+        {
+          name: 'raw_fn',
+          params: [],
+          ret: f32T,
+          body: [{ s: 'raw', wgsl: 'return 1.0;' } as Stmt],
+        },
+      ],
     })
     expect(() => validate(m)).not.toThrow()
   })
 
   it('does not throw on a fn with a placeholder Stmt', () => {
     const m: ModuleDecl = module({
-      funcs: [{
-        name: 'ph_fn',
-        params: [],
-        ret: vec4fT,
-        body: [{ s: 'placeholder', tag: 'fill-return' } as Stmt],
-      }],
+      funcs: [
+        {
+          name: 'ph_fn',
+          params: [],
+          ret: vec4fT,
+          body: [{ s: 'placeholder', tag: 'fill-return' } as Stmt],
+        },
+      ],
     })
     expect(() => validate(m)).not.toThrow()
   })
@@ -178,25 +203,30 @@ describe('validate', () => {
     // then a structured varref references _mcSS. validate cannot parse raw WGSL,
     // so RULE a' is skipped for any fn containing a raw Stmt.
     const m: ModuleDecl = module({
-      funcs: [{
-        name: 'fs_fill',
-        params: [],
-        ret: vec4fT,
-        body: [
-          { s: 'raw', wgsl: 'var _mcSS: vec4f = vec4f(0.0);' } as Stmt,
-          { s: 'return', expr: { op: 'varref', type: vec4fT, name: '_mcSS' } } as Stmt,
-        ],
-      }],
+      funcs: [
+        {
+          name: 'fs_fill',
+          params: [],
+          ret: vec4fT,
+          body: [
+            { s: 'raw', wgsl: 'var _mcSS: vec4f = vec4f(0.0);' } as Stmt,
+            { s: 'return', expr: { op: 'varref', type: vec4fT, name: '_mcSS' } } as Stmt,
+          ],
+        },
+      ],
     })
     expect(() => validate(m)).not.toThrow()
   })
 
   it('does not throw on a cross-module callFn target not in module.funcs', () => {
+    // proj_globe is prepended as raw WGSL, never in m.funcs — model it as an
+    // externFn handle (the blessed form for a not-yet-built / cross-module target);
+    // its call emits the identical `proj_globe(lon, lat)` node the raw callFn did.
+    const proj_globe = externFn('proj_globe', { lon: f32T, lat: f32T }, vec4fT)
     const m = module({
       funcs: [
         fn('caller', { lon: f32T, lat: f32T }, vec4fT, ({ lon, lat }, bld) => {
-          // proj_globe is prepended as raw WGSL, never in m.funcs.
-          bld.ret(callFn('proj_globe', vec4fT, lon, lat))
+          bld.ret(proj_globe({ lon, lat }))
         }),
       ],
     })

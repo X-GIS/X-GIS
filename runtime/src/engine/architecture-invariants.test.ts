@@ -31,7 +31,8 @@ function walkTs(absDir: string): string[] {
     if (name === 'node_modules' || name === 'dist' || name === '.vite') continue
     const p = join(absDir, name)
     if (statSync(p).isDirectory()) out.push(...walkTs(p))
-    else if (name.endsWith('.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts')) out.push(p)
+    else if (name.endsWith('.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts'))
+      out.push(p)
   }
   return out
 }
@@ -236,7 +237,8 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1194→1219 (#598): finalize_corner threads the (p_h, p_l) DSFUN split
   // through all three call sites to kill the high-zoom f32 jitter (the lossy
   // pre-summed corner is replaced by the precise hi/lo reconstruction).
-  'map/src/shaders/dsl/line.ts': 1219,
+  // Bumped 1219→1406 (#804): positional→typed-object-param shader-DSL call migration + prettier one-property-per-line formatting; emit is byte-identical (goldens green), no new logic. line.ts stays the #1 decomposition debt (separate epic).
+  'map/src/shaders/dsl/line.ts': 1406,
   // Bumped 1171→1176 (#274 CSS color-fn whitespace), then 1176→1178 (#317) for
   // the two irreducible numeric match()-label arm-pattern cases (Number, and
   // Minus+Number). Lowered 1178→50 (Tier-C5): the Parser god-file was split
@@ -274,7 +276,8 @@ const LOC_CEILINGS: Record<string, number> = {
   // decomposition stays the same tracked priority it was in the package.
   // Bumped 1198→1205 (#600): the globe_eye Uniforms-struct lane + its doc
   // comment, and threading globe_eye into polygon_cos_c_fragment / polygon_rim_alpha.
-  'map/src/shaders/dsl/polygon.ts': 1205,
+  // Bumped 1205→1292 (#804): positional→typed-object-param shader-DSL call migration + prettier one-property-per-line formatting; emit is byte-identical (goldens green), no new logic.
+  'map/src/shaders/dsl/polygon.ts': 1292,
   // camera.ts relocated to @xgis/engine (engine/src/projection/camera.ts) in
   // P3 Step 3 — no longer under a SRC_DIRS walk, so its LOC ceiling is tracked
   // by the engine package's own ratchet, not this runtime gate.
@@ -337,13 +340,15 @@ describe('arch ratchet: file size (shrink-only god-files, no new ones)', () => {
     const grown = Object.entries(LOC_CEILINGS)
       .map(([path, ceil]) => ({ path, n: lineCount(join(ROOT, path)), ceil }))
       .filter((x) => x.n > x.ceil)
-      .map((x) => `${x.path}: ${x.n} > ceiling ${x.ceil} — extract, don't grow (then lower the ceiling)`)
+      .map(
+        (x) =>
+          `${x.path}: ${x.n} > ceiling ${x.ceil} — extract, don't grow (then lower the ceiling)`,
+      )
     expect(grown, grown.join('\n')).toEqual([])
   })
 
   it(`no non-baselined source file exceeds ${NEW_FILE_CAP} LOC`, () => {
-    const tooBig = ALL_TS
-      .filter((f) => !(rel(f) in LOC_CEILINGS))
+    const tooBig = ALL_TS.filter((f) => !(rel(f) in LOC_CEILINGS))
       .map((f) => ({ r: rel(f), n: lineCount(f) }))
       .filter((x) => x.n > NEW_FILE_CAP)
       .map((x) => `${x.r}: ${x.n} > ${NEW_FILE_CAP} — split it before it becomes a god-file`)
@@ -400,12 +405,16 @@ describe('arch ratchet: layer import-direction (downward-only spine)', () => {
         const m = /\bfrom\s+['"](\.[^'"]+)['"]/.exec(line)
         if (!m) continue
         if (/^\s*(?:import|export)\s+type\b/.test(line)) continue // erased by tsc
-        let tgt = relative(ROOT, resolve(dirname(f), m[1])).split('\\').join('/')
+        let tgt = relative(ROOT, resolve(dirname(f), m[1]))
+          .split('\\')
+          .join('/')
         if (!tgt.endsWith('.ts')) tgt += '.ts'
         const tgtLayer = LAYER_OF(tgt)
         if (tgtLayer === null) continue
         if (tgtLayer > srcLayer && !UPWARD_EDGE_ALLOWLIST.has(`${srcRel}=>${tgt}`)) {
-          violations.push(`${srcRel} (L${srcLayer}) → ${tgt} (L${tgtLayer}): NEW upward edge — import downward or sever it (redesign §2)`)
+          violations.push(
+            `${srcRel} (L${srcLayer}) → ${tgt} (L${tgtLayer}): NEW upward edge — import downward or sever it (redesign §2)`,
+          )
         }
       }
     }
@@ -440,7 +449,9 @@ describe('arch ratchet: projType branching confined to projections-table', () =>
       const count = (readFileSync(f, 'utf8').match(/projType\s*[!=]==/g) || []).length
       const allowed = PROJTYPE_ALLOWLIST[r] ?? 0
       if (count > allowed) {
-        violations.push(`${r}: ${count} projType comparisons > allowed ${allowed} — route through projections-table membership accessors`)
+        violations.push(
+          `${r}: ${count} projType comparisons > allowed ${allowed} — route through projections-table membership accessors`,
+        )
       }
     }
     expect(violations, violations.join('\n')).toEqual([])
