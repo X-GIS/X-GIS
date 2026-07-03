@@ -19,6 +19,7 @@ import { evaluate, makeEvalProps, resolveColor } from '@xgis/compiler'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__profile__/perf-marks'
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
+import { activeBody } from '@xgis/shared'
 import { mercatorYToLat } from '@xgis/engine'
 import { isGlobeProj } from '@xgis/engine'
 import { projMercatorCpu } from '../../shaders/dsl/cpu-projections'
@@ -750,7 +751,7 @@ class LabelPass implements RenderPass {
           const vtEntry = host.vtSources.get(show.targetName)
           if (vtEntry) {
             const DEG2RAD = Math.PI / 180
-            const R = 6378137
+            const R = activeBody().sphereR
             const mercToLonLat = (mx: number, my: number): [number, number] => [
               (mx / R) / DEG2RAD,
               mercatorYToLat(my),

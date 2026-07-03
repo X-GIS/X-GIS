@@ -17,7 +17,7 @@
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '@xgis/engine'
 import type { TileCatalog } from '@xgis/data'
-import { EARTH } from '@xgis/shared'
+import { EARTH, activeBody } from '@xgis/shared'
 
 export class LabelFeatureSource {
   // Iter 132 perf: reused dedupe Set for forEachLabelFeature.
@@ -261,7 +261,7 @@ export class LabelFeatureSource {
     const fieldNames = table?.fieldNames ?? []
     const values = table?.values ?? []
     const DEG2RAD = Math.PI / 180
-    const R = 6378137
+    const R = activeBody().sphereR
     const LAT_LIMIT = 85.051129
     const clampLat = (v: number): number => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
     const STRIDE = 10  // [mx_h, my_h, mx_l, my_l, feat_id, arc, tin_x, tin_y, tout_x, tout_y]
@@ -357,7 +357,7 @@ export class LabelFeatureSource {
     const fieldNames = table?.fieldNames ?? []
     const values = table?.values ?? []
     const DEG2RAD = Math.PI / 180
-    const R = 6378137
+    const R = activeBody().sphereR
     const LAT_LIMIT = 85.051129
     const clampLat = (v: number): number => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
     const STRIDE = 10
