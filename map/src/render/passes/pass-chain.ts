@@ -11,7 +11,7 @@
 // ORDER IS THE BYTE-FROZEN PASS SEQUENCE — DO NOT REORDER. It reproduces the
 // former hardcoded dispatch in render-loop.ts exactly:
 //   background → opaque → oit → translucent → points → label → heatmap →
-//   overdraw-compose
+//   overdraw-compose → graphics (#797 P1, appended — inert unless host batches)
 // background / opaque / label keep `shouldRun()===true` (unconditional); the
 // rest carry their original predicate. The OIT node is registered at its
 // historical slot but is RUNTIME-DEAD — `oitPass.shouldRun` is immutably false
@@ -31,6 +31,7 @@ import { pointsPass } from './points-pass'
 import { labelPass } from './label-pass'
 import { heatmapPass } from './heatmap-pass'
 import { overdrawComposePass } from './overdraw-compose-pass'
+import { graphicsPass } from './graphics-pass'
 
 /** Wrap a `RenderPass` singleton (which still takes a `Pick<XGISMap>` host as
  *  its third `execute` arg) into a content-blind `RenderNode` that captures the
@@ -58,5 +59,9 @@ export function buildRenderNodes(map: XGISMap): RenderNode[] {
     adapt(labelPass, map),
     adapt(heatmapPass, map),
     adapt(overdrawComposePass, map),
+    // #797 P1 — retained host-drawing icons composite LAST (single-sample onto the
+    // resolved swapchain), so they read on top of every layer. Gated by
+    // scene.hasGraphics → inert (no pass) when no host batch exists.
+    adapt(graphicsPass, map),
   ]
 }

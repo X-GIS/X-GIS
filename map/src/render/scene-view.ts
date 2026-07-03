@@ -43,6 +43,10 @@ export interface SceneView {
    *  heatmap pass + its density-target allocation — false (the default) keeps
    *  the frame byte-identical (no target alloc, no pass). */
   readonly hasHeatmap: boolean
+  /** GraphicsManager has ≥1 retained host-drawing batch (#797 P1). Gates the
+   *  graphics pass — false (the default) means the pass never runs, so a map
+   *  with no host batches is byte-identical. */
+  readonly hasGraphics: boolean
   /** Which pass claims the MSAA resolveTarget this frame. */
   readonly resolveOwner: ResolveOwner
 }
@@ -55,6 +59,7 @@ type SceneHost = Pick<
   | 'lineRenderer'
   | 'pointRenderer'
   | 'heatmapRenderer'
+  | 'graphics'
 >
 
 /** Build the per-frame SceneView from the bucket scheduler. Mirrors the
@@ -72,6 +77,7 @@ export function buildSceneView(host: SceneHost, _ctx: FrameContext): SceneView {
   const hasOit = oit.length > 0
   const hasPoints = host.pointRenderer?.hasLayers() ?? false
   const hasHeatmap = host.heatmapRenderer?.hasLayers() ?? false
+  const hasGraphics = host.graphics?.hasRetainedBatches() ?? false
   // Which pass owns the MSAA resolveTarget? The last pass that writes the
   // color target. Priority: dedicated points > last composite > last opaque.
   // The heatmap pass composites AFTER labels onto the resolved swapchain, so
@@ -86,6 +92,7 @@ export function buildSceneView(host: SceneHost, _ctx: FrameContext): SceneView {
     hasOit,
     hasPoints,
     hasHeatmap,
+    hasGraphics,
     resolveOwner,
   }
 }
