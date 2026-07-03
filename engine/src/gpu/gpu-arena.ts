@@ -212,9 +212,11 @@ export class GPUArena {
 
   /** Bump high-water mark in bytes. Allocation-free O(1) field read.
    *  Gates the OOM throw, so this is the TRIGGER signal (overflow
-   *  risk). NOTE: does NOT fall on free() — free() only repopulates
-   *  the free-list — so it is the WRONG signal for the eviction loop. */
-  get usedBytes(): number {
+   *  risk). Does NOT fall on free() — free() only repopulates the
+   *  free-list — so it is the WRONG signal for an eviction LOOP; the
+   *  name says so now (#783: was the ambiguous `usedBytes`). Use
+   *  `liveUsedBytes` for loop termination. */
+  get highWaterBytes(): number {
     return this.bumpPtr
   }
   pressure(): number {

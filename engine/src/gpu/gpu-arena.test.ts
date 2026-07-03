@@ -278,15 +278,15 @@ describe('GPUArena — lifecycle', () => {
 describe('GPUArena — byte-pressure getters (Lane A signals)', () => {
   it('usedBytes equals bumpPtr: rises on alloc, does NOT fall on free', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 1024, usage: VERTEX_USAGE })
-    expect(a.usedBytes).toBe(0)
+    expect(a.highWaterBytes).toBe(0)
     a.alloc(64)  // bumpPtr → 64
-    expect(a.usedBytes).toBe(64)
+    expect(a.highWaterBytes).toBe(64)
     a.alloc(32)  // bumpPtr → 96
-    expect(a.usedBytes).toBe(96)
+    expect(a.highWaterBytes).toBe(96)
     const o = a.alloc(128)  // bumpPtr → 224
-    expect(a.usedBytes).toBe(224)
+    expect(a.highWaterBytes).toBe(224)
     a.free(o, 128)           // liveBytes falls, but bumpPtr/usedBytes stays at 224
-    expect(a.usedBytes).toBe(224)  // MONOTONIC — this is the OOM trigger signal
+    expect(a.highWaterBytes).toBe(224)  // MONOTONIC — this is the OOM trigger signal
   })
 
   it('liveUsedBytes equals net in-flight bytes: rises on alloc, falls on free', () => {
@@ -341,7 +341,7 @@ describe('GPUArena — byte-pressure getters (Lane A signals)', () => {
     const off1 = a.alloc(512)  // align4(512)=512
     const off2 = a.alloc(308)  // align4(308)=308; bumpPtr=820 ≈ 80%
     a.free(off1, 512)           // liveBytes=308, bumpPtr=820
-    expect(a.usedBytes / cap).toBeGreaterThan(HIGH_WATER)   // trigger fires ✓
+    expect(a.highWaterBytes / cap).toBeGreaterThan(HIGH_WATER)   // trigger fires ✓
     expect(a.liveUsedBytes / cap).toBeLessThan(HIGH_WATER)  // loop signal correct ✓
     void off2  // suppress unused warning
   })
@@ -350,14 +350,14 @@ describe('GPUArena — byte-pressure getters (Lane A signals)', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 1024, usage: VERTEX_USAGE })
     const o1 = a.alloc(256)
     const o2 = a.alloc(256)
-    expect(a.usedBytes).toBe(512)
+    expect(a.highWaterBytes).toBe(512)
     a.free(o1, 256)
     a.free(o2, 256)
     expect(a.liveUsedBytes).toBe(0)
-    expect(a.usedBytes).toBe(512)  // bumpPtr pinned until reclaim
+    expect(a.highWaterBytes).toBe(512)  // bumpPtr pinned until reclaim
     const reclaimed = a.reclaimIfDrained()
     expect(reclaimed).toBe(true)
-    expect(a.usedBytes).toBe(0)    // bumpPtr reset — next alloc starts fresh
+    expect(a.highWaterBytes).toBe(0)    // bumpPtr reset — next alloc starts fresh
     expect(a.liveUsedBytes).toBe(0)
     // Arena is usable again from the top
     expect(a.alloc(256)).toBe(0)
@@ -371,7 +371,7 @@ describe('GPUArena — byte-pressure getters (Lane A signals)', () => {
     expect(a.liveUsedBytes).toBe(128)
     const reclaimed = a.reclaimIfDrained()
     expect(reclaimed).toBe(false)  // refused: live allocs would dangle
-    expect(a.usedBytes).toBe(384)  // bumpPtr unchanged
+    expect(a.highWaterBytes).toBe(384)  // bumpPtr unchanged
   })
 })
 
@@ -513,7 +513,7 @@ describe('GPUArena — compaction (defrag relocation)', () => {
     expect(a.buffer).not.toBe(oldBuffer)
     expect(result.oldBuffer).toBe(oldBuffer)
     // bumpPtr + liveBytes collapse to the packed total (600), NOT 640.
-    expect(a.usedBytes).toBe(600)
+    expect(a.highWaterBytes).toBe(600)
     expect(a.liveUsedBytes).toBe(600)
     // Free-list cleared — no stranded bytes remain.
     expect(a.getStats().freeBytes).toBe(0)
@@ -548,7 +548,7 @@ describe('GPUArena — compaction (defrag relocation)', () => {
     expect(copies[0].size).toBe(16)
     expect(copies[1].size).toBe(20)
     // Packed offsets honour the aligned footprints.
-    expect(a.usedBytes).toBe(36)
+    expect(a.highWaterBytes).toBe(36)
   })
 
   it('post-compaction arena is immediately allocatable from the packed top', () => {
@@ -559,10 +559,10 @@ describe('GPUArena — compaction (defrag relocation)', () => {
     const { enc } = recordingEncoder()
     // Only the second alloc is live (offset 64).
     a.compact([{ oldOffset: 64, bytes: 64 }], enc)
-    expect(a.usedBytes).toBe(64)
+    expect(a.highWaterBytes).toBe(64)
     // Next alloc extends from the packed top, not the old 128 bump.
     expect(a.alloc(64)).toBe(64)
-    expect(a.usedBytes).toBe(128)
+    expect(a.highWaterBytes).toBe(128)
   })
 
   it('compacting an empty live set yields a fresh empty buffer', () => {
@@ -575,7 +575,7 @@ describe('GPUArena — compaction (defrag relocation)', () => {
     expect(copies).toHaveLength(0)
     expect(result.newOffsets).toEqual([])
     expect(result.oldBuffer).toBe(oldBuffer)
-    expect(a.usedBytes).toBe(0)
+    expect(a.highWaterBytes).toBe(0)
     expect(a.liveUsedBytes).toBe(0)
     expect(a.alloc(64)).toBe(0)
   })
