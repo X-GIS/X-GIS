@@ -20,6 +20,7 @@ import type { GPUContext } from '@xgis/engine'
 import type { Camera } from '@xgis/engine'
 import type { MeshData, LineMeshData } from '@xgis/data'
 import { DEBUG_OVERDRAW } from '../debug-flags'
+import { activeBody } from '@xgis/shared'
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from './renderer-types'
 import { parseColor } from './renderer-helpers'
@@ -675,7 +676,7 @@ export class MapRendererContent {
       // cam_h/cam_l = splitF64(cam_merc). The DSFUN subtraction in vs_main
       // then yields camera-relative meters exactly like the tiled path.
       const DEG2RAD = Math.PI / 180
-      const R = 6378137
+      const R = activeBody().sphereR
       const cx = projCenterLon * DEG2RAD * R
       const cy = projType < 0.5
         ? Math.log(Math.tan(Math.PI / 4 + Math.max(-85.051129, Math.min(85.051129, projCenterLat)) * DEG2RAD / 2)) * R  // Mercator

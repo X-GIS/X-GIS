@@ -24,6 +24,7 @@
 // guard; `_zoom-transition-*.spec.ts` are the hysteresis/readiness guards.
 
 import { Camera } from '@xgis/engine'
+import { activeBody } from '@xgis/shared'
 import {
   visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority, makeTileCoord,
 } from '@xgis/data'
@@ -205,7 +206,7 @@ export class TileSelectionCache {
     drawStats: FrameDrawStats,
   ): Selection | null {
     const { centerX, centerY } = camera
-    const R = 6378137
+    const R = activeBody().sphereR
     const centerLon = (centerX / R) * (180 / Math.PI)
     const centerLat = mercatorYToLat(centerY)
 
@@ -600,7 +601,7 @@ export class TileSelectionCache {
         // downstream code expects) but culls by sphere visibility
         // and keeps tiles on BOTH sides of the dateline when the
         // camera faces the antimeridian.
-        const R = 6378137
+        const R = activeBody().sphereR
         const lon = camera.centerX / R * (180 / Math.PI)
         // Sphere family reads the true centre latitude (centerLatDeg reaches the
         // pole; mercatorYToLat(centerY) saturates at ±85.051, diverging from the

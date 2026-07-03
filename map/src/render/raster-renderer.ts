@@ -4,6 +4,7 @@ import type { GPUContext } from '@xgis/engine'
 import type { Camera } from '@xgis/engine'
 import { visibleTilesFrustum, tileUrl, loadImageTexture } from '@xgis/data'
 import { mercator as mercatorProj, mercatorYToLat } from '@xgis/engine'
+import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/engine'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { RasterDraper, type RasterTile } from './material/raster-material'
@@ -333,7 +334,7 @@ export class RasterRenderer {
     // which culls by sphere visibility. The flat frustum selector is blind to
     // the sphere cap — it produces a 2D rect cull that misses cap-edge tiles,
     // causing blank coverage gaps on the globe (#596).
-    const R = 6378137
+    const R = activeBody().sphereR
     const centerLon = camera.centerX / R * (180 / Math.PI)
     const centerLat = mercatorYToLat(camera.centerY)
     const cssW = canvasWidth / dpr
