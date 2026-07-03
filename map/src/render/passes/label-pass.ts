@@ -320,6 +320,33 @@ class LabelPass implements RenderPass {
           sc,
         )
       }
+      // #797 P0 — host DRAWING API icons. When the style has NO sprite URL but
+      // host images were pushed via `map.graphics.addImage` AND a label show
+      // references icons, build the IconStage over the host atlas instead of a
+      // fetched URL sprite. Mutually exclusive with the URL branch above
+      // (spriteUrl === null here); URL/host coexistence is Phase 1.
+      if (
+        host.iconStage === null &&
+        host.spriteUrl === null &&
+        host.graphics.hasAnyImage() &&
+        labelShows.some(
+          (s) =>
+            s.label?.iconImage !== undefined ||
+            (s.label as { iconImageExpr?: unknown } | undefined)?.iconImageExpr !== undefined,
+        )
+      ) {
+        const hostAtlas = host.graphics.hostAtlas()
+        if (hostAtlas !== null) {
+          // TODO(#797 P0): real-GPU DC=0 sprite-render gate — interactive session.
+          host.iconStage = IconStage.forHostAtlas(
+            device,
+            host.ctx.rhi,
+            host.ctx.format,
+            hostAtlas,
+            sc,
+          )
+        }
+      }
       const iStage = host.iconStage
       // Anchors are projected against canvas.width/height (physical
       // px); LabelDef.size etc. are CSS-px convention. Telling the

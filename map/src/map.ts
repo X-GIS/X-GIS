@@ -79,6 +79,7 @@ import { TextStage } from './text/text-stage'
 import type { TextStageOptions } from './text/text-stage-types'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
 import { IconStage } from './sprite/icon-stage'
+import { GraphicsManager } from './graphics/graphics-manager'
 import {
   LayerIdRegistry,
   XGISLayer,
@@ -292,6 +293,15 @@ export class XGISMap {
   /** Icon overlay stage — lazy, constructed on first frame after a
    *  spriteUrl is set. */
   iconStage: IconStage | null = null
+  /** Host DRAWING API (#797 P0) — sprite-atlas registry for images pushed
+   *  via `map.graphics.addImage`. DEVICE-FREE ctor (map-lifetime); its GPU
+   *  atlas mirror is (re)attached after each initGPU and dropped on scene
+   *  swap, while the registry survives so host images persist across a
+   *  re-load. */
+  private readonly _graphics = new GraphicsManager()
+  get graphics(): GraphicsManager {
+    return this._graphics
+  }
   /** iter-183 — one-shot guard so the sprite atlas view is pushed
    *  into MapRenderer + every VTR exactly once after the iconStage
    *  uploads it. Stays true for the session life since the atlas
@@ -1314,11 +1324,22 @@ export class XGISMap {
   removeSource(_id: string): void {
     this._warnUnsupported('removeSource', 'Remove the source from your .xgis source and recompile.')
   }
-  addImage(_id: string, _image: unknown): void {
-    this._warnUnsupported(
-      'addImage',
-      'Sprite atlas is not implemented yet (Batch 2 roadmap). Embed icon data in feature properties for now.',
-    )
+  /** Register a host image into the sprite atlas (Mapbox `addImage` parity,
+   *  #797 P0). See {@link GraphicsManager.addImage} for the HOST-ONLY /
+   *  no-URL-coexistence / no-eviction Phase-0 limitations. */
+  addImage(id: string, image: ImageBitmap | ImageData): void {
+    this.graphics.addImage(id, image)
+    // A host image lands like a font/glyph resource — re-arm the label pass so an
+    // idle map repaints and lazily builds the host-atlas IconStage on the next
+    // frame (mirrors the fontsReady re-raster re-arm). Without this an addImage on
+    // an idle map would not appear until the next interaction.
+    this.markLabelDirty()
+  }
+  hasImage(id: string): boolean {
+    return this.graphics.hasImage(id)
+  }
+  removeImage(id: string): void {
+    this.graphics.removeImage(id)
   }
 
   /** Notify the map that its container resized (Mapbox-API parity). Just
@@ -2510,6 +2531,8 @@ export class XGISMap {
     }
     this.ctx = result
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
+    // #797 P0 — (re)attach the host DRAWING API GPU atlas to this run's device.
+    this.graphics.attachDevice(this.ctx.device)
     this.renderer = new MapRendererContent(this.ctx)
     this.renderer.setGraticuleEnabled(this._viewport.graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
@@ -3355,6 +3378,8 @@ export class XGISMap {
     }
     this.ctx = ctx
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
+    // #797 P0 — (re)attach the host DRAWING API GPU atlas to this run's device.
+    this.graphics.attachDevice(this.ctx.device)
     this.renderer = new MapRendererContent(this.ctx)
     this.renderer.setGraticuleEnabled(this._viewport.graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
@@ -3855,6 +3880,9 @@ export class XGISMap {
     this.textStage = null
     this.iconStage?.destroy()
     this.iconStage = null
+    // #797 P0 — drop the per-run host-atlas GPU mirror; KEEP the registry so
+    // host images survive the scene swap and re-pack on the next run.
+    this.graphics.destroyGpu()
 
     // Heatmap density targets + per-layer buffers (Phase R). The trailing
     // device.destroy() frees the GPU memory; null the refs so a re-run
@@ -3937,6 +3965,9 @@ export class XGISMap {
     this.textStage = null
     this.iconStage?.destroy()
     this.iconStage = null
+    // #797 P0 — drop the per-run host-atlas GPU mirror; KEEP the registry so
+    // host images survive a re-load.
+    this.graphics.destroyGpu()
 
     // Heatmap density targets + per-layer buffers (Phase R).
     this.heatmapRenderer?.clearLayers()

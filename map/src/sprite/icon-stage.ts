@@ -11,6 +11,31 @@ import { SpriteAtlasGPU } from './sprite-atlas-gpu'
 import { IconRenderer, type IconDraw, type IconAnchor } from './icon-renderer'
 import type { RhiDevice } from '@xgis/engine'
 
+/** Minimal sprite-metadata read surface IconStage resolves icons through.
+ *  Satisfied structurally by SpriteAtlasHost (URL sprite atlas) and by
+ *  HostSpriteAtlasGPU (the host DRAWING API atlas, #797). Extracting it lets
+ *  IconStage be built from an injected atlas instead of only a spriteUrl. */
+export interface SpriteMetadataSource {
+  get(name: string): SpriteInfo | undefined
+  getState(): { status: 'idle' | 'loading' | 'loaded' | 'failed' }
+  whenReady(): Promise<void>
+  /** Fill-/line-pattern Stage-1 centre-pixel readback — only the URL
+   *  SpriteAtlasHost implements it; the host DRAWING API atlas (#797) does
+   *  not (host fill-pattern coexistence is Phase 1), so callers use `?.`. */
+  getSpriteCenterColor?(name: string): [number, number, number, number] | null
+}
+
+/** Minimal GPU-atlas surface the icon + fill-pattern renderers consume
+ *  (size/ensure/getView/sampler + teardown). Satisfied structurally by
+ *  SpriteAtlasGPU (URL sprite atlas) and by HostSpriteAtlasGPU (#797). */
+export interface IconAtlasGpu {
+  size(): { width: number; height: number }
+  ensure(): GPUTexture | null
+  getView(): GPUTextureView | null
+  readonly sampler: GPUSampler
+  destroy(): void
+}
+
 export interface IconStageOptions {
   spriteUrl: string
   /** Device pixel ratio — affects whether to try `@2x` sprite first. */
@@ -50,8 +75,8 @@ interface PendingIcon {
 }
 
 export class IconStage {
-  readonly host: SpriteAtlasHost
-  readonly gpu: SpriteAtlasGPU
+  readonly host: SpriteMetadataSource
+  readonly gpu: IconAtlasGpu
   readonly renderer: IconRenderer
   private pending: PendingIcon[] = []
   private dpr: number = 1
@@ -119,17 +144,40 @@ export class IconStage {
     device: GPUDevice,
     rhi: RhiDevice,
     presentationFormat: GPUTextureFormat,
-    options: IconStageOptions,
+    options: IconStageOptions | { hostAtlas: IconAtlasGpu & SpriteMetadataSource },
     sampleCount: number = 1,
   ) {
-    this.host = new SpriteAtlasHost({
-      spriteUrl: options.spriteUrl,
-      fetch: options.fetch,
-      dpr: options.dpr ?? 1,
-      onLanded: options.onLanded,
-    })
-    this.gpu = new SpriteAtlasGPU(device, this.host)
+    if ('hostAtlas' in options) {
+      // Host DRAWING API path (#797) — the injected atlas plays BOTH the
+      // metadata-source and GPU roles. No SpriteAtlasHost fetch, no
+      // SpriteAtlasGPU allocation.
+      this.host = options.hostAtlas
+      this.gpu = options.hostAtlas
+    } else {
+      // URL sprite path — byte-identical to the pre-#797 construction.
+      const host = new SpriteAtlasHost({
+        spriteUrl: options.spriteUrl,
+        fetch: options.fetch,
+        dpr: options.dpr ?? 1,
+        onLanded: options.onLanded,
+      })
+      this.host = host
+      this.gpu = new SpriteAtlasGPU(device, host)
+    }
     this.renderer = new IconRenderer(device, rhi, this.gpu, presentationFormat, sampleCount)
+  }
+
+  /** Host DRAWING API construction form (#797 Phase 0). Builds an IconStage
+   *  whose metadata + GPU atlas are the injected host atlas instead of a
+   *  fetched URL sprite. The URL constructor path stays untouched. */
+  static forHostAtlas(
+    device: GPUDevice,
+    rhi: RhiDevice,
+    presentationFormat: GPUTextureFormat,
+    hostAtlas: IconAtlasGpu & SpriteMetadataSource,
+    sampleCount: number = 1,
+  ): IconStage {
+    return new IconStage(device, rhi, presentationFormat, { hostAtlas }, sampleCount)
   }
 
   setDpr(dpr: number): void {
