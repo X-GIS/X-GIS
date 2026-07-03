@@ -1000,6 +1000,16 @@ export class VectorTileRenderer {
    *  which we re-apply identically to subsequent same-slice shows. */
   private _frameClassifyMemo: Map<string, Map<number, TileDecision>> = new Map()
 
+  /** #778 <P5>: single-entry memo for the per-frame scaled dash array.
+   *  `dashSrc.map(v => v * dashWidthScalePx * mpp)` allocated a fresh array
+   *  every line-layer every frame. Both scale factors only move on zoom /
+   *  stroke-width transitions, so a bearing/pan (unchanged zoom + width)
+   *  reuses the cached array. `src` identity + BOTH factors are stored and
+   *  compared bit-exact — a combined product key would be unsafe because
+   *  float multiply is non-associative, so only equal individual factors
+   *  guarantee the re-mapped array is byte-identical to a fresh recompute. */
+  private _dashArrayCache: { src: readonly number[]; scalePx: number; mpp: number; result: number[] } | null = null
+
   getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number; tilesVisible: number; missedTiles: number; globeTilesSelected: number } {
     return this._drawStats.getDrawStats()
   }
@@ -1497,9 +1507,24 @@ export class VectorTileRenderer {
       // Prefer the PER-FRAME resolved dash array (zoom-interp STEP) over
       // the static one; constant dash falls through unchanged.
       const dashSrc = resolvedShow.dashArray ?? show.dashArray
-      const dash = (dashSrc && dashSrc.length >= 2)
+      let dashArray: number[] | null = null
+      if (dashSrc && dashSrc.length >= 2) {
+        // #778 <P5>: reuse the cached scaled array when the source-array
+        // identity AND both scale factors are bit-identical (unchanged
+        // zoom + stroke-width → byte-identical map); else recompute + cache.
+        // Factors compared separately, not as a product (float multiply is
+        // non-associative → equal product would NOT guarantee equal values).
+        const c = this._dashArrayCache
+        if (c !== null && c.src === dashSrc && c.scalePx === dashWidthScalePx && c.mpp === mpp) {
+          dashArray = c.result
+        } else {
+          dashArray = dashSrc.map(v => v * dashWidthScalePx * mpp)
+          this._dashArrayCache = { src: dashSrc, scalePx: dashWidthScalePx, mpp, result: dashArray }
+        }
+      }
+      const dash = dashArray !== null
         ? {
-            array: dashSrc.map(v => v * dashWidthScalePx * mpp),
+            array: dashArray,
             offset: resolvedShow.dashOffset * dashWidthScalePx * mpp,
           }
         : null

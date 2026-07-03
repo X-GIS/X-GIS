@@ -153,6 +153,25 @@ export function dispatchCenterKey(centerX: number, centerY: number, zoom: number
   return `${(centerX / mpp) | 0},${(centerY / mpp) | 0}`
 }
 
+/** #778 P3 — the numeric fields of the former label-dispatch signature STRING,
+ *  held per host for the S16 skip pre-check. Every field is the exact integer the
+ *  old sig embedded (`(x*100)|0`, the dispatchCenterKey pixel ints, the canvas ints,
+ *  labelShows.length); `vtrSig` is the one variable-length sub-signature (per-source
+ *  name + getCacheSize) that stays a string. Field-wise equality is byte-identical to
+ *  the old full-string equality: no field's decimal form contains the `|` / `x` / `,`
+ *  delimiters, so a per-field diff can never alias the concatenated form. */
+interface LabelDispatchSkipState {
+  zoomKey: number
+  ckx: number
+  cky: number
+  bearingKey: number
+  pitchKey: number
+  canvasW: number
+  canvasH: number
+  showsLen: number
+  vtrSig: string
+}
+
 class LabelPass implements RenderPass {
   readonly label = 'labels'
 
@@ -175,6 +194,18 @@ class LabelPass implements RenderPass {
   // refilled from the caller's own `host.showCommands` each call, so there is
   // no cross-map bleed.
   private readonly _labelShowsScratch: ShowCommand[] = []
+
+  // #778 P3 — per-host last-frame dispatch scalars, replacing the per-frame
+  // `_dispatchSig` STRING allocation that fed the S16 skip check. `labelPass` is a
+  // MODULE-LEVEL SINGLETON (`export const labelPass = new LabelPass()`, adapted
+  // per-map in pass-chain.ts), so this skip state MUST be keyed per host — plain
+  // instance fields would bleed one map's camera signature into another map's skip
+  // check (the same cross-map hazard the `_labelShowsScratch` note guards against;
+  // the old code stored the sig on the HOST, i.e. map.ts `_prevLabelDispatchSig`,
+  // precisely because it is per-map). A WeakMap<host> keeps the state on the pass
+  // instance while staying per-map correct; the record is created once per host and
+  // mutated in place thereafter, so there is no per-frame allocation.
+  private readonly _skipState = new WeakMap<LabelPassHost, LabelDispatchSkipState>()
 
   // Internal disableLabels / empty-overlays-and-shows checks short-circuit
   // the body, so this pass is always "run" from the chain.
@@ -448,15 +479,30 @@ class LabelPass implements RenderPass {
         // the prior frame, a future Phase L.1 implementation would
         // skip the entire dispatch loop and replay cached pending.
         const c = host.camera
+        // #778 P3 — build the numeric dispatch fields directly instead of the
+        // per-frame `_dispatchSig` STRING (and the `dispatchCenterKey` string it
+        // embedded). Each field is the exact integer the old sig concatenated; they
+        // are diffed against the per-host last-frame scalars below. `_mpp`/`_ckx`/
+        // `_cky` mirror dispatchCenterKey(c.centerX, c.centerY, c.zoom) verbatim so
+        // the pixel-quantised centre key stays byte-identical.
+        const _mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, c.zoom)
+        const _zoomKey = (c.zoom * 100) | 0
+        const _ckx = (c.centerX / _mpp) | 0
+        const _cky = (c.centerY / _mpp) | 0
+        const _bearingKey = (c.bearing * 100) | 0
+        const _pitchKey = (c.pitch * 100) | 0
+        const _canvasW = host.ctx.canvas.width
+        const _canvasH = host.ctx.canvas.height
+        const _showsLen = labelShows.length
+        // The vtSources sub-signature is variable-length (per-source name +
+        // getCacheSize), so it stays a small per-frame string — a full numeric
+        // conversion is not tractable here (P3 half-done, per the note). This is the
+        // same concat the old code built; only the fixed-field `_dispatchSig`
+        // allocation is gone.
         let _vtrSig = ''
         for (const [name, e] of host.vtSources) {
           _vtrSig += `${name}:${e.renderer.getCacheSize()};`
         }
-        const _dispatchSig =
-          `${(c.zoom * 100) | 0}|${dispatchCenterKey(c.centerX, c.centerY, c.zoom)}`
-          + `|${(c.bearing * 100) | 0}|${(c.pitch * 100) | 0}`
-          + `|${host.ctx.canvas.width}x${host.ctx.canvas.height}`
-          + `|${labelShows.length}|${_vtrSig}`
         // S16 — first consumer skip. Read-and-clear the LABEL dirty domain
         // (overlay add/remove, scene rebuild, any invalidate() all re-tag it),
         // and combine it with the dispatch signature: when neither the sig nor
@@ -483,8 +529,20 @@ class LabelPass implements RenderPass {
         const labelResourcesPending =
           !stage.wasLastPrepareFullyResolved()
           || (iStage !== null && !iStage.isAtlasTerminal())
+        // #778 P3 — numeric-field diff against the per-host last-frame scalars,
+        // byte-identical to the old `host._prevLabelDispatchSig === _dispatchSig`
+        // string compare (an undefined prev record ⇒ first frame ⇒ definite miss,
+        // matching the old `null` sentinel). Stored ONLY on a miss, mirroring the old
+        // `_prevLabelDispatchSig = _dispatchSig`; since the hit precondition already
+        // implies equality, that keeps stored == current after every frame.
+        const _prevSkip = this._skipState.get(host)
+        const _sigSame = _prevSkip !== undefined
+          && _prevSkip.zoomKey === _zoomKey && _prevSkip.ckx === _ckx && _prevSkip.cky === _cky
+          && _prevSkip.bearingKey === _bearingKey && _prevSkip.pitchKey === _pitchKey
+          && _prevSkip.canvasW === _canvasW && _prevSkip.canvasH === _canvasH
+          && _prevSkip.showsLen === _showsLen && _prevSkip.vtrSig === _vtrSig
         const canSkipLabelPrepare =
-          host._prevLabelDispatchSig === _dispatchSig
+          _sigSame
           && !labelDirty
           && !labelResourcesPending
           && !host._labelsHaveTimeAnimation
@@ -492,7 +550,24 @@ class LabelPass implements RenderPass {
           host._labelDispatchHits++
         } else {
           host._labelDispatchMisses++
-          host._prevLabelDispatchSig = _dispatchSig
+          if (_prevSkip === undefined) {
+            this._skipState.set(host, {
+              zoomKey: _zoomKey, ckx: _ckx, cky: _cky,
+              bearingKey: _bearingKey, pitchKey: _pitchKey,
+              canvasW: _canvasW, canvasH: _canvasH,
+              showsLen: _showsLen, vtrSig: _vtrSig,
+            })
+          } else {
+            _prevSkip.zoomKey = _zoomKey
+            _prevSkip.ckx = _ckx
+            _prevSkip.cky = _cky
+            _prevSkip.bearingKey = _bearingKey
+            _prevSkip.pitchKey = _pitchKey
+            _prevSkip.canvasW = _canvasW
+            _prevSkip.canvasH = _canvasH
+            _prevSkip.showsLen = _showsLen
+            _prevSkip.vtrSig = _vtrSig
+          }
         }
         // _showIdx = draw order (later show = higher layer) — point-label dedup precedence (#458).
         for (let _showIdx = 0; _showIdx < labelShows.length; _showIdx++) {
