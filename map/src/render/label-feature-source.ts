@@ -17,6 +17,7 @@
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '@xgis/engine'
 import type { TileCatalog } from '@xgis/data'
+import { EARTH } from '@xgis/shared'
 
 export class LabelFeatureSource {
   // Iter 132 perf: reused dedupe Set for forEachLabelFeature.
@@ -155,7 +156,7 @@ export class LabelFeatureSource {
       // preferring centres away from the antimeridian seam). Second
       // pass emits in featId-encounter order so callers see a
       // deterministic sequence.
-      const WORLD_MERC_HALF = 20037508.342789244  // π × earth_radius
+      const WORLD_MERC_HALF = Math.PI * EARTH.sphereR  // π × earth_radius
       const ANTIMERIDIAN_TOL = 1.0  // metres; tile-edge wrap copies sit at exactly ±half
       // iter-236 (Plan A.2) — scratch Map reuse; clear per tile.
       // Pre-iter-236 was `new Map()` per tile = 270 alloc / frame

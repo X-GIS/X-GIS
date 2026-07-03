@@ -650,8 +650,8 @@ export class Camera {
     return this.getECEFFrameView(canvasWidth, canvasHeight, dpr)
   }
 
-  // Mercator Y limit: ±85.051129° → ±20037508.34m
-  private static readonly MAX_Y = 20037508.34
+  // Mercator Y limit: ±85.051129° → WORLD_MERC/2 (≈ ±20037508.34m)
+  private static readonly MAX_Y = WORLD_MERC / 2
 
   // ── MVP Inverse (for screen → world unprojection) ──
   private rtcMatrixInv = new Float32Array(16)

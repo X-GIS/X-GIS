@@ -269,8 +269,9 @@ export const MSAA_4X = MSAA_STATE
 
 // ── World Wrapping ──
 
-/** Earth circumference in Mercator meters */
-export const WORLD_MERC = 40075016.686
+import { EARTH } from '@xgis/shared'
+/** Earth circumference in Mercator meters (pinned literal, from the shared Body). */
+export const WORLD_MERC = EARTH.worldMerc
 
 /** Tile pixel size used as the anchor of the
  *  `metersPerPixel = WORLD_MERC / TILE_PX / 2^zoom` formula.

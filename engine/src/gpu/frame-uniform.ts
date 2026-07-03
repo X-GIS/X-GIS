@@ -42,6 +42,7 @@
 // dual-API rationale.
 
 import type { Camera } from '../projection/camera'
+import { EARTH } from '@xgis/shared'
 
 export const FRAME_UNIFORM_SIZE_BYTES = 128
 
@@ -74,7 +75,7 @@ export class FrameUniform {
   /** Compute meters-per-pixel at the camera's current zoom. Mirrors the
    *  WORLD_MERC / TILE_PX / 2^zoom formula every renderer already had. */
   private static metersPerPixel(zoom: number): number {
-    const WORLD_MERC = 40075016.686
+    const WORLD_MERC = EARTH.worldMerc
     const TILE_PX = 512
     return (WORLD_MERC / TILE_PX) / Math.pow(2, zoom)
   }

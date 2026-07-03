@@ -20,7 +20,7 @@ import { poleLimit, representsCenterAs } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { getMaxDpr } from '@xgis/engine'
 import { lonLatToMercator } from '@xgis/data'
-import { xlog } from '@xgis/shared'
+import { xlog, activeBody } from '@xgis/shared'
 
 /** Dependencies CameraController needs from the host XGISMap. */
 export interface CameraControllerDeps {
@@ -320,7 +320,7 @@ export class CameraController {
     // applies. Convert the new Mercator center back to lon/lat first
     // since setCenter expects lon/lat, then setCenter re-projects.
     if (this._maxBounds) {
-      const EARTH = 6378137, D2R = Math.PI / 180
+      const EARTH = activeBody().sphereR, D2R = Math.PI / 180
       const newMercX = this.camera.centerX + dxMap
       const newMercY = this.camera.centerY - dyMap // screen-y inverted
       const newLon = newMercX / (D2R * EARTH)
@@ -451,7 +451,7 @@ export class CameraController {
     // upstream (the renderFrame defensive reset doesn't fire until
     // the next frame), report 0/0 instead of NaN coords. Otherwise
     // getCameraState → jumpTo round-trip locks the camera into NaN.
-    const EARTH_RADIUS = 6378137
+    const EARTH_RADIUS = activeBody().sphereR
     const DEG2RAD = Math.PI / 180
     const cx = Number.isFinite(this.camera.centerX) ? this.camera.centerX : 0
     const cy = Number.isFinite(this.camera.centerY) ? this.camera.centerY : 0
@@ -500,7 +500,7 @@ export class CameraController {
    *  Used by fitBounds to pick the MORE CONSTRAINING axis (lon vs lat). */
   _fitZoomToMercYSpan(latS: number, latN: number, cssHeightPx: number): number {
     if (!(cssHeightPx > 0)) return 4
-    const EARTH = 6378137, D2R = Math.PI / 180, LAT_LIMIT = 85.051129
+    const EARTH = activeBody().sphereR, D2R = Math.PI / 180, LAT_LIMIT = 85.051129
     const clampS = Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, latS))
     const clampN = Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, latN))
     const yS = Math.log(Math.tan(Math.PI / 4 + (clampS * D2R) / 2)) * EARTH

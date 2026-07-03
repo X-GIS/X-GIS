@@ -2,6 +2,7 @@
 
 import { mercator } from './projection'
 import { WORLD_MERC } from '../gpu/gpu-shared'
+import { activeBody, EARTH } from '@xgis/shared'
 
 /** Minimal camera surface `convergeFlatAnchor` mutates — satisfied
  *  structurally by `Camera` (it re-reads the LIVE centre each pass through
@@ -63,7 +64,7 @@ export function convergeFlatAnchor(
  *  inverse. Returns the centre itself for points at/near the origin and
  *  clamps the limb so a finger just off the disc still resolves. */
 export function invOrthographic(x: number, y: number, lon0: number, lat0: number): [number, number] {
-  const R = 6378137
+  const R = activeBody().sphereR
   const rho = Math.hypot(x, y)
   if (rho < 1e-6) return [lon0, lat0]
   const c = Math.asin(Math.min(1, rho / R))
@@ -88,7 +89,7 @@ export function invOrthographic(x: number, y: number, lon0: number, lat0: number
  *  rounding may overshoot into NaN, which would poison zoomAt's centre
  *  write. */
 export function invAzimuthalEquidistant(x: number, y: number, lon0: number, lat0: number): [number, number] {
-  const R = 6378137
+  const R = activeBody().sphereR
   const rho = Math.hypot(x, y)
   if (rho < 1e-6) return [lon0, lat0]
   const c = Math.min(Math.PI, rho / R)
@@ -108,7 +109,7 @@ export function invAzimuthalEquidistant(x: number, y: number, lon0: number, lat0
  *  so no domain clamp is needed. Same centre conventions + asin clamp as
  *  invAzimuthalEquidistant. */
 export function invStereographic(x: number, y: number, lon0: number, lat0: number): [number, number] {
-  const R = 6378137
+  const R = activeBody().sphereR
   const rho = Math.hypot(x, y)
   if (rho < 1e-6) return [lon0, lat0]
   const c = 2 * Math.atan2(rho, 2 * R)
@@ -135,7 +136,7 @@ export interface DiscAnchor {
   safeRho: number
 }
 
-const DISC_R = 6378137
+const DISC_R = EARTH.sphereR
 const DISC_ANCHORS: Readonly<Record<number, DiscAnchor>> = {
   3: { inv: invOrthographic, safeRho: 0.85 * DISC_R },
   4: { inv: invAzimuthalEquidistant, safeRho: 0.85 * Math.PI * DISC_R },

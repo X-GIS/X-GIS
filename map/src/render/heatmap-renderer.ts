@@ -23,6 +23,7 @@
 import type { Camera } from '@xgis/engine'
 import { lonLatToECEF } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
+import { activeBody } from '@xgis/shared'
 import { getSampleCount } from '@xgis/engine'
 import { FrameArena } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
@@ -348,7 +349,7 @@ export class HeatmapRenderer {
     const layer = this.layers[layerIndex]
     if (!layer) return
     const DEG2RAD = Math.PI / 180
-    const R_MERC = 6378137
+    const R_MERC = activeBody().sphereR
     const N = layer.pointCount
     this._frameArena.beginFrame()
     const verts = this._frameArena.allocF32(N * 4 * 4)
