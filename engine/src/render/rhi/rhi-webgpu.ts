@@ -241,6 +241,10 @@ export class WebGpuDevice implements RhiDevice {
     this.device.queue.writeTexture({ texture: u<GPUTexture>(texture) }, data, { bytesPerRow }, { width, height })
   }
 
+  destroyTexture(texture: RhiTexture): void {
+    u<GPUTexture>(texture).destroy()
+  }
+
   createView(texture: RhiTexture): RhiTextureView {
     return wrap(u<GPUTexture>(texture).createView()) as unknown as RhiTextureView
   }
@@ -251,6 +255,10 @@ export class WebGpuDevice implements RhiDevice {
       addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge', label: desc.label,
     })) as unknown as RhiSampler
   }
+
+  // GPUSampler is GC-owned — WebGPU exposes no native destroy — so this is a no-op
+  // (documented on RhiDevice.destroySampler, #782); the WebGL2 twin deletes the GL sampler.
+  destroySampler(_sampler: RhiSampler): void {}
 
   createBindGroupLayout(entries: RhiBindLayoutEntry[]): RhiBindGroupLayout {
     const vis = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT
@@ -313,4 +321,8 @@ export class WebGpuDevice implements RhiDevice {
       label: desc.label,
     })) as unknown as RhiPipeline
   }
+
+  // GPURenderPipeline is GC-owned — WebGPU exposes no native destroy — so this is a no-op
+  // (documented on RhiDevice.destroyPipeline, #782); the WebGL2 twin deletes the GL program.
+  destroyPipeline(_pipeline: RhiPipeline): void {}
 }
