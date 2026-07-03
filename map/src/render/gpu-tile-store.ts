@@ -404,9 +404,9 @@ export class GpuTileStore {
     // trigger tracks an auto-grown arena — else a grown arena would re-trigger
     // eviction the moment usedBytes passed 0.75× the OLD cap (over-eviction).
     const vHi = this.polyVertexArena !== null
-      && this.polyVertexArena.usedBytes >= this.polyVertexArena.capacityBytes * ARENA_HIGH_WATER
+      && this.polyVertexArena.highWaterBytes >= this.polyVertexArena.capacityBytes * ARENA_HIGH_WATER
     const iHi = this.polyIndexArena !== null
-      && this.polyIndexArena.usedBytes >= this.polyIndexArena.capacityBytes * ARENA_HIGH_WATER
+      && this.polyIndexArena.highWaterBytes >= this.polyIndexArena.capacityBytes * ARENA_HIGH_WATER
     // Drain arena buffers retired by a PRIOR frame's compaction. A full
     // frame has elapsed since they were swapped out (their copy submit +
     // every render that referenced them has long drained), so destroying

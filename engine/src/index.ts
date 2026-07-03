@@ -19,7 +19,12 @@ export * from './gpu/quality'
 export * from './gpu/bind-tiers'
 // P3 Step 3: GPU machinery deferred at Step 2 (imported projection / shaders-dsl).
 export * from './gpu/gpu-shared'
-export * from './gpu/frame-uniform'
+// #783 — `gpu/frame-uniform` (the FrameUniform class + WGSL_FRAME_UNIFORM +
+// FRAME_UNIFORM_SIZE_BYTES) is DORMANT scaffolding (every renderer packs its own
+// Uniforms struct; its 128-byte layout doesn't match the live 192-byte structs) and
+// has ZERO consumers outside its own test. Kept internal — NOT re-exported — so a
+// consumer can't wire to a dead path from autocomplete. Re-add when the shared-uniform
+// consolidation actually lands.
 export * from './gpu/compute-webgl2'
 
 // ── Projection / camera math (P3 Step 3) ─────────────────────────────

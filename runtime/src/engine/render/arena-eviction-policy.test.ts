@@ -84,7 +84,7 @@ describe('arena byte-pressure eviction — Lane A trigger gate', () => {
       const off = arena.alloc(TILE_BYTES)
       offsets.push(off)
       // The production beginFrame trigger: usedBytes >= capacity * HIGH_WATER
-      if (triggerFiredAt < 0 && arena.usedBytes >= CAPACITY * ARENA_HIGH_WATER) {
+      if (triggerFiredAt < 0 && arena.highWaterBytes >= CAPACITY * ARENA_HIGH_WATER) {
         triggerFiredAt = i
       }
     }
@@ -101,7 +101,7 @@ describe('arena byte-pressure eviction — Lane A trigger gate', () => {
     const uniqueTileCount = 30
     const MAX_GPU_TILES_DESKTOP = 256
     expect(uniqueTileCount).toBeLessThan(MAX_GPU_TILES_DESKTOP)  // count cap NOT reached
-    expect(arena.usedBytes).toBeGreaterThan(CAPACITY * ARENA_HIGH_WATER)  // byte cap IS crossed
+    expect(arena.highWaterBytes).toBeGreaterThan(CAPACITY * ARENA_HIGH_WATER)  // byte cap IS crossed
     void offsets
   })
 
@@ -121,7 +121,7 @@ describe('arena byte-pressure eviction — Lane A trigger gate', () => {
     }
 
     // Confirm trigger would fire (production beginFrame check)
-    expect(arena.usedBytes >= CAPACITY * ARENA_HIGH_WATER).toBe(true)
+    expect(arena.highWaterBytes >= CAPACITY * ARENA_HIGH_WATER).toBe(true)
 
     // Simulate eviction: free LRU (oldest) tiles until liveUsedBytes ≤ LOW_WATER
     const LOW_WATER_BYTES = CAPACITY * ARENA_LOW_WATER
@@ -138,7 +138,7 @@ describe('arena byte-pressure eviction — Lane A trigger gate', () => {
     expect(arena.liveUsedBytes).toBeLessThanOrEqual(LOW_WATER_BYTES)
     // liveUsedBytes (not usedBytes/bumpPtr) is the termination signal.
     // bumpPtr can stay high — it does NOT fall with free().
-    expect(arena.usedBytes).toBeGreaterThan(arena.liveUsedBytes)
+    expect(arena.highWaterBytes).toBeGreaterThan(arena.liveUsedBytes)
   })
 
   it('after eviction drain the arena accepts new large allocs without throwing', () => {
@@ -158,7 +158,7 @@ describe('arena byte-pressure eviction — Lane A trigger gate', () => {
       offsets.push(arena.alloc(TILE_BYTES))
     }
     // Confirm HIGH_WATER is crossed (or just at the boundary)
-    expect(arena.usedBytes).toBeGreaterThanOrEqual(CAPACITY * ARENA_HIGH_WATER)
+    expect(arena.highWaterBytes).toBeGreaterThanOrEqual(CAPACITY * ARENA_HIGH_WATER)
 
     // Eviction: free oldest 5 tiles (20 MB freed → live drops to 28 MB ≈ 43.75%)
     for (let i = 0; i < 5; i++) {
@@ -279,8 +279,8 @@ describe('async upload path (FIX 1) — _allocPolyPair leak-free + OOM-safe', ()
     // the slots did NOT leak (a leaked slot would refuse the reclaim).
     expect(vArena.reclaimIfDrained()).toBe(true)
     expect(iArena.reclaimIfDrained()).toBe(true)
-    expect(vArena.usedBytes).toBe(0)
-    expect(iArena.usedBytes).toBe(0)
+    expect(vArena.highWaterBytes).toBe(0)
+    expect(iArena.highWaterBytes).toBe(0)
   })
 
   it('persistent OOM after forced eviction degrades to skip (null), never throws', () => {
@@ -323,23 +323,23 @@ describe('arena byte-pressure eviction — reclaimIfDrained gate', () => {
     for (let i = 0; i < 7; i++) {        // 56 MB → 87.5% bump
       offsets.push(arena.alloc(TILE_BYTES))
     }
-    expect(arena.usedBytes).toBe(7 * TILE_BYTES)
+    expect(arena.highWaterBytes).toBe(7 * TILE_BYTES)
 
     // Evict all tiles
     for (const off of offsets) arena.free(off, TILE_BYTES)
     expect(arena.liveUsedBytes).toBe(0)
-    expect(arena.usedBytes).toBe(7 * TILE_BYTES)  // bumpPtr still pinned
+    expect(arena.highWaterBytes).toBe(7 * TILE_BYTES)  // bumpPtr still pinned
 
     // reclaimIfDrained should reset bump
     const reclaimed = arena.reclaimIfDrained()
     expect(reclaimed).toBe(true)
-    expect(arena.usedBytes).toBe(0)       // bumpPtr reset
+    expect(arena.highWaterBytes).toBe(0)       // bumpPtr reset
     expect(arena.liveUsedBytes).toBe(0)
 
     // New uploads use offset 0 again — arena fully available
     const fresh = arena.alloc(TILE_BYTES)
     expect(fresh).toBe(0)
-    expect(arena.usedBytes).toBe(TILE_BYTES)
+    expect(arena.highWaterBytes).toBe(TILE_BYTES)
   })
 
   it('reclaimIfDrained is refused when any live alloc remains (dangling-offset safety)', () => {
@@ -355,7 +355,7 @@ describe('arena byte-pressure eviction — reclaimIfDrained gate', () => {
     expect(arena.liveUsedBytes).toBe(TILE_BYTES)  // one still live
     const reclaimed = arena.reclaimIfDrained()
     expect(reclaimed).toBe(false)                 // refused
-    expect(arena.usedBytes).toBe(2 * TILE_BYTES)  // bumpPtr unchanged
+    expect(arena.highWaterBytes).toBe(2 * TILE_BYTES)  // bumpPtr unchanged
   })
 })
 
