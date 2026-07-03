@@ -3,7 +3,18 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "workspaces": ["shared", "compiler", "blueprint", "shader-dsl", "engine", "data", "map", "runtime", "playground", "site"],
+  "workspaces": [
+    "shared",
+    "compiler",
+    "blueprint",
+    "shader-dsl",
+    "engine",
+    "data",
+    "map",
+    "runtime",
+    "playground",
+    "site"
+  ],
   "scripts": {
     "build": "bun run --filter '@xgis/shared' build && bun run --filter '@xgis/shader-dsl' build && bun run --filter '@xgis/compiler' build && bun run --filter '@xgis/engine' build && bun run --filter '*' build",
     "test": "vitest run",
@@ -19,12 +30,26 @@
     "precheck:matrix": "bun scripts/precheck.ts --matrix",
     "matrix:accept": "bun scripts/matrix-accept.ts",
     "matrix:report": "bun scripts/matrix-report.ts",
-    "setup:hooks": "git config core.hooksPath .githooks && echo Pre-push hook armed. Skip with --no-verify."
+    "setup:hooks": "git config core.hooksPath .githooks && echo Pre-push hook armed. Skip with --no-verify.",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "@commitlint/cli": "^19.6.1",
+    "@commitlint/config-conventional": "^19.6.0",
+    "@eslint/js": "^9.17.0",
     "@types/node": "^25.6.0",
     "@webgpu/types": "^0.1.69",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.3.0",
+    "prettier": "^3.4.2",
     "typescript": "5.6.3",
+    "typescript-eslint": "^8.19.0",
     "vitest": "^3.0.0"
   },
   "dependencies": {

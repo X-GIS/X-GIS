@@ -1,0 +1,2 @@
+# Lint + format only the STAGED files (existing tree is not retro-flagged).
+bunx lint-staged
