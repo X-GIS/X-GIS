@@ -95,9 +95,10 @@ export interface XGISMapOptions {
    *  uses WebGPU, honouring the `?forcegl2=1` dev override; `'webgpu'` /
    *  `'webgl2'` hard-pin the backend in code and ignore the URL flag. Since
    *  compiled materials are dual-backend (they carry both WebGPU and WebGL2
-   *  code), this is a pure construction-time selection — two maps on one page
-   *  can run different backends. Construction-immutable: the canvas context
-   *  type is sticky, so there is no runtime `setBackend()`; a re-`run()` scene
+   *  code), this is a pure construction-time selection — two maps, each on its
+   *  OWN canvas, can run different backends on one page (a single canvas's
+   *  context type is sticky, so the same canvas cannot switch).
+   *  Construction-immutable: there is no runtime `setBackend()`; a re-`run()` scene
    *  swap keeps the original backend. NOTE: the WebGL2 backend is currently a
    *  limited single-sample raster slice, not full render parity. */
   backend?: BackendChoice
