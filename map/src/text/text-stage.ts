@@ -454,6 +454,40 @@ export class TextStage {
     this.prewarm(set, fontKey)
   }
 
+  /** #790 (#778 P4) — reused 2-slot holder returned by
+   *  internCurvedPolyline so each per-polyline intern mints no new
+   *  object. Overwritten on every call; the caller reads both slots
+   *  immediately and never retains the holder itself. */
+  private readonly _internedPolyline: [Float32Array, Float32Array] = [
+    new Float32Array(0), new Float32Array(0),
+  ]
+
+  /** #790 (#778 P4) — copy a caller-projected polyline (held in a
+   *  shared, over-length scratch) into this stage's per-frame
+   *  FrameArena and return stable views of exactly `count` points.
+   *
+   *  Replaces the label pass's per-polyline `scratch.slice(0, count)`
+   *  ×2 (two GC-heap typed arrays per curved polyline per frame — the
+   *  #778 P4 finding) with an arena bump that resets at beginFrame().
+   *  All stops emitted from one polyline share the returned pair;
+   *  addCurvedLineLabel stores the views and prepare() consumes them
+   *  within the SAME frame. Curved labels are never cached (see the
+   *  line-loop note in prepare), so the arena view never outlives the
+   *  frame — the arena's lifetime contract holds. The returned tuple
+   *  is the reused `_internedPolyline` holder: read both slots before
+   *  the next call. */
+  internCurvedPolyline(
+    srcX: Float32Array, srcY: Float32Array, count: number,
+  ): readonly [Float32Array, Float32Array] {
+    bumpAlloc('text-stage.curved.polyline.FrameArena')
+    const px = this._frameArena.allocF32(count)
+    const py = this._frameArena.allocF32(count)
+    for (let i = 0; i < count; i++) { px[i] = srcX[i]!; py[i] = srcY[i]! }
+    this._internedPolyline[0] = px
+    this._internedPolyline[1] = py
+    return this._internedPolyline
+  }
+
   /** Queue a curved label that follows a screen-projected polyline.
    *  Each glyph is placed at a different sample point along the
    *  polyline with rotation matching the local tangent — the
