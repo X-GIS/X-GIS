@@ -78,6 +78,7 @@ export class HostSpriteAtlasGPU implements IconAtlasGpu, SpriteMetadataSource {
       usage:
         GPUTextureUsage.TEXTURE_BINDING |
         GPUTextureUsage.COPY_DST |
+        GPUTextureUsage.COPY_SRC |
         GPUTextureUsage.RENDER_ATTACHMENT,
       label: 'host-sprite-atlas',
     })
