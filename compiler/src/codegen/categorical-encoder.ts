@@ -15,6 +15,20 @@ const AUTO_PALETTE_TOKENS = [
   'violet-500', 'fuchsia-500', 'stone-500', 'slate-500', 'zinc-500',
 ]
 
+/**
+ * Number of colours in the auto-categorical palette — the SINGLE source of
+ * truth for the `CAT_PALETTE[u32(field) % N]` index wrap. The shader modulo
+ * bound (`shader-gen.ts`) and this const array's length are BOTH derived from
+ * it, so they can never silently diverge into color collisions (issue #724).
+ *
+ * NOTE (remaining wrap): a field with MORE than `CAT_PALETTE_SIZE` distinct
+ * categories still wraps — category id `CAT_PALETTE_SIZE` maps to slot 0,
+ * painting it the same colour as category 0. Eliminating that wrap entirely
+ * requires a data-sized palette (synthesize N colours to the actual distinct-
+ * category count), a larger, separate change tracked in #724.
+ */
+export const CAT_PALETTE_SIZE = AUTO_PALETTE_TOKENS.length
+
 let autoPalette: [number, number, number, number][] | null = null
 
 function getAutoPalette(): [number, number, number, number][] {
@@ -33,7 +47,7 @@ function getAutoPalette(): [number, number, number, number][] {
  * so the palette is authored as IR rather than a hand-assembled WGSL string;
  * the backend `emitConst` spells it.
  */
-export function buildCatPaletteConst(paletteSize = 20): ConstDecl {
+export function buildCatPaletteConst(paletteSize = CAT_PALETTE_SIZE): ConstDecl {
   const palette = getAutoPalette()
   const type = arrayT(vec4fT, paletteSize)
   const args = palette.slice(0, paletteSize).map(rgba => vec4fFromRgba(rgba).expr as Expr)

@@ -5,7 +5,7 @@
 import type { RenderNode, ColorValue, OpacityValue } from '../ir/render-node'
 import { rgbaToHex } from '../ir/render-node'
 import { astToNode, collectFields, type WGSLFnEnv } from './wgsl-expr'
-import { buildCatPaletteConst } from './categorical-encoder'
+import { buildCatPaletteConst, CAT_PALETTE_SIZE } from './categorical-encoder'
 import type { Palette } from './palette'
 import {
   emitColorGradientSampleNode,
@@ -217,14 +217,16 @@ function processColorValue(
     // ── categorical(field) → auto palette ──
     if (ast.kind === 'FnCall' && ast.callee.kind === 'Identifier' && ast.callee.name === 'categorical') {
       const fieldExpr = ast.args[0]
-      // categorical(field) → CAT_PALETTE[u32(field) % 20]. `astToNode`
-      // converts ANY field-argument AST shape (direct FieldAccess /
+      // categorical(field) → CAT_PALETTE[u32(field) % CAT_PALETTE_SIZE].
+      // `astToNode` converts ANY field-argument AST shape (direct FieldAccess /
       // Identifier, but also arithmetic / builtin-call / pipe) to IR, so the
-      // Node path always carries the colour — no string fallback.
+      // Node path always carries the colour — no string fallback. The modulo
+      // bound is single-sourced from CAT_PALETTE_SIZE (the palette array length)
+      // so it can never diverge from buildCatPaletteConst's array (#724).
       const fieldNode = astToNode(fieldExpr, fieldMap, fnEnv)
       const nodeExpr = arrayIndex<'vec4<f32>'>(
         constRefVec4('CAT_PALETTE') as NodeLike<string>,
-        u32Mod(toU32(fieldNode), u32Lit(20)),
+        u32Mod(toU32(fieldNode), u32Lit(CAT_PALETTE_SIZE)),
         'vec4<f32>',
       )
       return {
@@ -330,7 +332,7 @@ function processColorValue(
       const fieldNode = astToNode(ast, fieldMap, fnEnv)
       const nodeExpr = arrayIndex<'vec4<f32>'>(
         constRefVec4('CAT_PALETTE') as NodeLike<string>,
-        u32Mod(toU32(fieldNode), u32Lit(20)),
+        u32Mod(toU32(fieldNode), u32Lit(CAT_PALETTE_SIZE)),
         'vec4<f32>',
       )
       return {
