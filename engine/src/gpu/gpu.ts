@@ -116,6 +116,31 @@ function readForceGl2Flag(): boolean {
 }
 export const FORCE_GL2: boolean = readForceGl2Flag()
 
+/** The GPU backend a map runs on. Selected at construction via
+ *  `XGISMapOptions.backend`; `'auto'` (the default) honours the `?forcegl2=1`
+ *  dev override, otherwise WebGPU. Construction-immutable — the canvas context
+ *  type is sticky (see `readForceGl2Flag`). */
+export type BackendChoice = 'auto' | 'webgpu' | 'webgl2'
+
+/** Per-call options for `initGPU`. Backend is the only knob today. */
+export interface InitGPUOptions {
+  backend?: BackendChoice
+}
+
+/** SINGLE precedence authority for the GPU backend, resolving a caller's choice
+ *  to a concrete backend. Precedence: an explicit `'webgpu'`/`'webgl2'` ALWAYS
+ *  wins (a host that hard-pins in code ignores a stray `?forcegl2=1`); only
+ *  `'auto'` consults the `?forcegl2=1` dev/bisect override, then defaults to
+ *  WebGPU. `'auto'` deliberately does NOT descend into the reduced WebGL2 slice
+ *  on a missing adapter — a present-but-adapter-null WebGPU still throws
+ *  `WebGPUUnavailableError` → `onWebGPUUnavailable()` (the graceful path),
+ *  intentional until the WebGL2 backend reaches full render parity. This is the
+ *  ONLY consumer of `FORCE_GL2` on the programmatic path. */
+export function resolveBackend(requested: BackendChoice): 'webgpu' | 'webgl2' {
+  if (requested === 'webgpu' || requested === 'webgl2') return requested
+  return FORCE_GL2 ? 'webgl2' : 'webgpu'
+}
+
 /** Inspect the validation error queue without mutating it. */
 export function getValidationErrors(ctx: GPUContext): { message: string; t: number }[] {
   return [...ctx._validationErrors]
@@ -139,12 +164,14 @@ export class WebGPUUnavailableError extends Error {
   }
 }
 
-export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
-  // Forced-WebGL2 boot path (`?forcegl2=1`). Additive EARLY RETURN — the WebGPU
-  // body below stays byte-identical (Principle 1 / S2: the sacred path is untouched
-  // when the flag is off). Bypasses the WebGPU adapter entirely so the produced frame
-  // provably originates on `WebGl2Device` (the gate asserts `host.ctx.rhi.backend`).
-  if (FORCE_GL2) {
+export async function initGPU(canvas: HTMLCanvasElement, opts: InitGPUOptions = {}): Promise<GPUContext> {
+  // WebGL2 boot path. Resolved from the caller's backend choice (explicit
+  // `'webgl2'`, or `'auto'` under the `?forcegl2=1` dev override) via the single
+  // `resolveBackend` authority. Additive EARLY RETURN — the WebGPU body below stays
+  // byte-identical when the backend resolves to `'webgpu'` (Principle 1 / S2: the
+  // sacred path is untouched). Bypasses the WebGPU adapter entirely so the produced
+  // frame provably originates on `WebGl2Device` (the gate asserts `host.ctx.rhi.backend`).
+  if (resolveBackend(opts.backend ?? 'auto') === 'webgl2') {
     // Lazy-load the WebGL2 backend: only the rare `?forcegl2=1` boot pays for rhi-webgl2,
     // and it keeps gpu.ts (layer 1) off a STATIC upward import edge to the render layer
     // (rhi-webgl2 is L3). The device is injected as a factory so the arch spine stays
