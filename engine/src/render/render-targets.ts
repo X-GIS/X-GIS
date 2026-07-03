@@ -113,6 +113,9 @@ export class RenderTargets {
   private oitWidth = 0
   private oitHeight = 0
   private oitSampleCount = 0
+  /** The GPUDevice every currently-cached target was allocated on. `null`
+   *  until the first `ensure*`. Drives the device-identity guard below. */
+  private _device: GPUDevice | null = null
 
   private readonly getCtx: () => GPUContext
 
@@ -128,6 +131,44 @@ export class RenderTargets {
     this.msaaHeight = 0
   }
 
+  /** Device-identity guard, run at the top of every `ensure*`. Each cached
+   *  render target is bound to the GPUDevice it was allocated on. A
+   *  `map.run()` re-entry (scene swap) tears down the old device
+   *  (`_teardownForReinit` → `device.destroy()`) and acquires a NEW one, but
+   *  the canvas size is unchanged — so the size-keyed recreate gates below
+   *  all short-circuit and hand a render pass on the NEW device a color /
+   *  stencil attachment still owned by the DESTROYED device ("TextureView …
+   *  associated with [Device], cannot be used with [Device]" → the frame
+   *  fails at BeginRenderPass and the map blanks, #737). Keying every
+   *  `ensure*` on the device makes this class self-heal on ANY device swap
+   *  (re-run today, device-lost recovery tomorrow) with no caller
+   *  bookkeeping: on a new device, drop every cached texture + zero every
+   *  size tracker so the next `ensure*` reallocates fresh on the live device.
+   *  The old textures are already freed with the destroyed device, so they
+   *  are nulled (not destroyed) here — the `_viewCache` WeakMap sheds their
+   *  entries with them. A no-op on the first call and on every same-device
+   *  frame (`===` early-out), so the steady-state path is byte-identical. */
+  private syncDevice(device: GPUDevice): void {
+    if (device === this._device) return
+    this._device = device
+    this.stencilTexture = null
+    this.msaaTexture = null
+    this.pickTexture = null
+    this.overdrawAccumTexture = null
+    this.oitAccumTexture = null
+    this.oitRevealageTexture = null
+    this.offscreenExtrudeDepth = null
+    this.heatmapAccumTexture = null
+    this.heatmapBlurTexture = null
+    this.msaaWidth = 0
+    this.msaaHeight = 0
+    this.oitWidth = 0
+    this.oitHeight = 0
+    this.oitSampleCount = 0
+    this.heatmapWidth = 0
+    this.heatmapHeight = 0
+  }
+
   /** (Re)allocate the render-target textures when missing or resized, then
    *  return the per-frame colorView decision. VERBATIM port of the inline
    *  MSAA/stencil management block + colorView choice: same formats, usages,
@@ -141,6 +182,7 @@ export class RenderTargets {
     screenView: GPUTextureView,
   ): EnsureResult {
     const { device, format } = this.getCtx()
+    this.syncDevice(device)
     const sc = sampleCount
     const useResolve = sc > 1
     if (!this.stencilTexture || this.msaaWidth !== w || this.msaaHeight !== h) {
@@ -225,8 +267,9 @@ export class RenderTargets {
    *  pass samples accum). Recreates on resize via the dedicated size tracker
    *  so it never disturbs the MSAA block's gate. No per-frame allocation. */
   ensureHeatmap(w: number, h: number): void {
-    if (this.heatmapAccumTexture && this.heatmapWidth === w && this.heatmapHeight === h) return
     const { device } = this.getCtx()
+    this.syncDevice(device)
+    if (this.heatmapAccumTexture && this.heatmapWidth === w && this.heatmapHeight === h) return
     this.heatmapAccumTexture?.destroy()
     this.heatmapBlurTexture?.destroy()
     const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
@@ -256,9 +299,10 @@ export class RenderTargets {
    *  pass so the OIT fill can share the opaque depth attachment. Recreates on
    *  resize or sample-count change via the dedicated tracker. */
   ensureOit(w: number, h: number, sampleCount: number): void {
+    const { device } = this.getCtx()
+    this.syncDevice(device)
     if (this.oitAccumTexture
       && this.oitWidth === w && this.oitHeight === h && this.oitSampleCount === sampleCount) return
-    const { device } = this.getCtx()
     this.oitAccumTexture?.destroy()
     this.oitRevealageTexture?.destroy()
     this.offscreenExtrudeDepth?.destroy()
