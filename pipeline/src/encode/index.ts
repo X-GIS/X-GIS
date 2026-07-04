@@ -132,10 +132,25 @@ export function bubble(
  *  reads `${origin}.lon` / `${origin}.lat` etc.). No `assertGeographic` — gazetteer
  *  centroids are WGS84 by the join contract. `lift` (default 0) is written to
  *  `properties.lift` on every feature as a reserved arc-bulge hint for a future
- *  curved-draper integration; the current straight-line render path ignores it. */
+ *  curved-draper integration; the current straight-line render path ignores it.
+ *  `purpose` and `segment` are optional column names whose numeric values are
+ *  written into feature properties under the same key; omitting them keeps existing
+ *  `{weight, lift}` behaviour byte-identical.
+ *  `oName` and `dName` are optional string column names (e.g. `'origin.name'` /
+ *  `'dest.name'` from a gazetteer join) written as feature properties for hover/tooltip
+ *  use; omitting them is byte-identical. */
 export function odFlow(
   t: Table,
-  o: { origin: string; dest: string; weight: string; lift?: number },
+  o: {
+    origin: string
+    dest: string
+    weight: string
+    lift?: number
+    purpose?: string
+    segment?: string
+    oName?: string
+    dName?: string
+  },
 ): EncodeResult {
   const oLon = numCol(t, `${o.origin}.lon`)
   const oLat = numCol(t, `${o.origin}.lat`)
@@ -143,6 +158,10 @@ export function odFlow(
   const dLat = numCol(t, `${o.dest}.lat`)
   const weight = numCol(t, o.weight)
   const lift = o.lift ?? 0
+  const purposeVals = o.purpose != null ? numCol(t, o.purpose) : null
+  const segmentVals = o.segment != null ? numCol(t, o.segment) : null
+  const oNameVals = o.oName != null ? t.col(o.oName) : null
+  const dNameVals = o.dName != null ? t.col(o.dName) : null
   const features = Array.from({ length: t.length }, (_, i) => ({
     type: 'Feature' as const,
     geometry: {
@@ -152,7 +171,14 @@ export function odFlow(
         [dLon[i], dLat[i]],
       ],
     },
-    properties: { weight: weight[i], lift },
+    properties: {
+      weight: weight[i],
+      lift,
+      ...(purposeVals != null ? { purpose: purposeVals[i] } : {}),
+      ...(segmentVals != null ? { segment: segmentVals[i] } : {}),
+      ...(oNameVals != null ? { oName: String(oNameVals[i] ?? '') } : {}),
+      ...(dNameVals != null ? { dName: String(dNameVals[i] ?? '') } : {}),
+    },
   }))
   const fc: FeatureCollectionLike = { type: 'FeatureCollection', features }
   return {

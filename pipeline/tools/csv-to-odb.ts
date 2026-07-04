@@ -35,6 +35,8 @@ interface Opts {
   hour: string
   pop: string
   avgtime?: string
+  purpose?: string
+  segment?: string
   rollup?: number
   brotli: boolean
   /** Keep only rows whose origin AND dest code start with one of these prefixes
@@ -64,7 +66,15 @@ function parseArgs(argv: string[]): { input: string; output: string; opts: Opts 
       else if (k === 'hourbucket') opts.hourBucket = Number(v)
       else if (k === 'top') opts.top = Number(v)
       else if (k === 'region') opts.region = v!.split(',').map((s) => s.trim())
-      else if (k === 'origin' || k === 'dest' || k === 'hour' || k === 'pop' || k === 'avgtime')
+      else if (
+        k === 'origin' ||
+        k === 'dest' ||
+        k === 'hour' ||
+        k === 'pop' ||
+        k === 'avgtime' ||
+        k === 'purpose' ||
+        k === 'segment'
+      )
         opts[k] = v
     } else positional.push(a)
   }
@@ -93,6 +103,12 @@ function splitCSV(line: string): string[] {
   return out
 }
 
+const SEGMENT_MAP = new Map<string, number>([
+  ['내국인', 0],
+  ['단기외국인', 1],
+  ['장기외국인', 2],
+])
+
 async function main(): Promise<void> {
   const { input, output, opts } = parseArgs(process.argv.slice(2))
   const roll = (code: string): string =>
@@ -107,10 +123,14 @@ async function main(): Promise<void> {
   let iHour = -1
   let iPop = -1
   let iAvg = -1
+  let iPurpose = -1
+  let iSegment = -1
 
-  // Aggregate: key = origin|dest|hour → { pop, avgWeightedSum, popForAvg }.
+  // Aggregate: key = origin|dest|hour[|purpose|segment] → { pop, avgWeightedSum }.
   const agg = new Map<string, { pop: number; avgW: number }>()
   let rawRows = 0
+  let unknownSegmentRows = 0
+  let outOfRangePurposeRows = 0
 
   for await (const line of rl) {
     if (line.trim() === '') continue
@@ -122,6 +142,8 @@ async function main(): Promise<void> {
       iHour = header.indexOf(opts.hour)
       iPop = header.indexOf(opts.pop)
       iAvg = opts.avgtime ? header.indexOf(opts.avgtime) : -1
+      iPurpose = opts.purpose ? header.indexOf(opts.purpose) : -1
+      iSegment = opts.segment ? header.indexOf(opts.segment) : -1
       for (const [name, idx] of [
         [opts.origin, iOrigin],
         [opts.dest, iDest],
@@ -145,7 +167,22 @@ async function main(): Promise<void> {
     if (!origin || !dest || !Number.isFinite(hour) || !Number.isFinite(pop)) continue
     if (!inRegion(origin) || !inRegion(dest)) continue // region filter (both endpoints)
     if (opts.hourBucket) hour = Math.floor((hour * opts.hourBucket) / 24) // bucket the day
-    const key = `${origin}|${dest}|${hour}`
+    let purpose: number | undefined
+    if (iPurpose >= 0) {
+      const pRaw = Number(cells[iPurpose]!.trim())
+      if (!Number.isFinite(pRaw) || pRaw < 1 || pRaw > 7) outOfRangePurposeRows++
+      purpose = pRaw
+    }
+    let segment: number | undefined
+    if (iSegment >= 0) {
+      const mapped = SEGMENT_MAP.get(cells[iSegment]!.trim())
+      if (mapped === undefined) unknownSegmentRows++
+      segment = mapped ?? 0
+    }
+    const useDims = iPurpose >= 0 || iSegment >= 0
+    const key = useDims
+      ? `${origin}|${dest}|${hour}|${purpose ?? ''}|${segment ?? ''}`
+      : `${origin}|${dest}|${hour}`
     let a = agg.get(key)
     if (!a) {
       a = { pop: 0, avgW: 0 }
@@ -155,11 +192,31 @@ async function main(): Promise<void> {
     if (iAvg >= 0) a.avgW += pop * Number(cells[iAvg]!.trim())
   }
 
+  if (unknownSegmentRows > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[csv-to-odb] ${unknownSegmentRows} rows had an unrecognized segment value → defaulted to 내국인 (0); check for NFD/2-value schema`,
+    )
+  }
+  if (outOfRangePurposeRows > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[csv-to-odb] ${outOfRangePurposeRows} rows had an out-of-range purpose value (expected 1–7) → value kept as-is; check source data`,
+    )
+  }
+
   let flows: ODFlow[] = []
   for (const [key, a] of agg) {
-    const [origin, dest, hourStr] = key.split('|')
+    const parts = key.split('|')
+    const [origin, dest, hourStr] = parts
     const f: ODFlow = { origin: origin!, dest: dest!, hour: Number(hourStr), pop: a.pop }
     if (iAvg >= 0 && a.pop > 0) f.avgTime = a.avgW / a.pop
+    const purposeStr = parts[3]
+    const segmentStr = parts[4]
+    if (iPurpose >= 0 && purposeStr !== undefined && purposeStr !== '')
+      f.purpose = Number(purposeStr)
+    if (iSegment >= 0 && segmentStr !== undefined && segmentStr !== '')
+      f.segment = Number(segmentStr)
     flows.push(f)
   }
   if (opts.top && flows.length > opts.top) {

@@ -30,6 +30,10 @@
 export const ODB_MAGIC = 0x42444f58 // "XODB" little-endian
 export const ODB_VERSION = 1
 export const ODB_FLAG_AVGTIME = 0x0001
+export const ODB_FLAG_PURPOSE = 0x0002
+export const ODB_FLAG_SEGMENT = 0x0004
+/** Segment codes for the 내국인/단기외국인/장기외국인 dimension (in_forn_div_nm). */
+export const SEGMENT = { 내국인: 0, 단기외국인: 1, 장기외국인: 2 } as const
 /** hour-column sentinel for "not bucketed / all-day" (NOT a dict index). */
 export const ODB_HOUR_ALLDAY = 255
 
@@ -40,6 +44,8 @@ export interface ODFlow {
   hour: number // 0–23, or ODB_HOUR_ALLDAY
   pop: number // summed population
   avgTime?: number // mean travel minutes (if the payload carries it)
+  purpose?: number // move_purpose code 1–7 (if the payload carries it)
+  segment?: number // SEGMENT value 0–2 (if the payload carries it)
 }
 
 /** Decoded payload: parallel typed columns + the code dictionary. Columns are
@@ -54,6 +60,8 @@ export interface ODBData {
   readonly hour: Uint8Array
   readonly pop: Uint32Array
   readonly avgTime: Float32Array | null
+  readonly purpose: Uint8Array | null
+  readonly segment: Uint8Array | null
   /** Materialise row i as an ODFlow (resolves dict codes). */
   flow(i: number): ODFlow
 }
@@ -66,6 +74,8 @@ const HEADER_BYTES = 4 + 2 + 2 + 4 + 2 // magic+version+flags+rowCount+dictCount
 export function encodeODB(flows: readonly ODFlow[]): ArrayBuffer {
   const rowCount = flows.length
   const hasAvgTime = rowCount > 0 && flows.every((f) => f.avgTime !== undefined)
+  const hasPurpose = rowCount > 0 && flows.every((f) => f.purpose !== undefined)
+  const hasSegment = rowCount > 0 && flows.every((f) => f.segment !== undefined)
 
   // Build the code dictionary (first-seen order) + the index columns.
   const codeToIndex = new Map<string, number>()
@@ -103,7 +113,8 @@ export function encodeODB(flows: readonly ODFlow[]): ArrayBuffer {
     dictBytes += 1 + b.length
   }
 
-  const colBytes = rowCount * (2 + 2 + 1 + 4 + (hasAvgTime ? 4 : 0))
+  const colBytes =
+    rowCount * (2 + 2 + 1 + 4 + (hasAvgTime ? 4 : 0) + (hasPurpose ? 1 : 0) + (hasSegment ? 1 : 0))
   const buf = new ArrayBuffer(HEADER_BYTES + dictBytes + colBytes)
   const view = new DataView(buf)
   let o = 0
@@ -112,7 +123,13 @@ export function encodeODB(flows: readonly ODFlow[]): ArrayBuffer {
   o += 4
   view.setUint16(o, ODB_VERSION, true)
   o += 2
-  view.setUint16(o, hasAvgTime ? ODB_FLAG_AVGTIME : 0, true)
+  view.setUint16(
+    o,
+    (hasAvgTime ? ODB_FLAG_AVGTIME : 0) |
+      (hasPurpose ? ODB_FLAG_PURPOSE : 0) |
+      (hasSegment ? ODB_FLAG_SEGMENT : 0),
+    true,
+  )
   o += 2
   view.setUint32(o, rowCount, true)
   o += 4
@@ -149,6 +166,18 @@ export function encodeODB(flows: readonly ODFlow[]): ArrayBuffer {
     for (let i = 0; i < rowCount; i++) {
       view.setFloat32(o, flows[i]!.avgTime!, true)
       o += 4
+    }
+  }
+  if (hasPurpose) {
+    for (let i = 0; i < rowCount; i++) {
+      view.setUint8(o, flows[i]!.purpose!)
+      o += 1
+    }
+  }
+  if (hasSegment) {
+    for (let i = 0; i < rowCount; i++) {
+      view.setUint8(o, flows[i]!.segment!)
+      o += 1
     }
   }
   return buf
@@ -195,7 +224,10 @@ export function decodeODB(buf: ArrayBuffer): ODBData {
   }
 
   const hasAvgTime = (flags & ODB_FLAG_AVGTIME) !== 0
-  const need = rowCount * (2 + 2 + 1 + 4 + (hasAvgTime ? 4 : 0))
+  const hasPurpose = (flags & ODB_FLAG_PURPOSE) !== 0
+  const hasSegment = (flags & ODB_FLAG_SEGMENT) !== 0
+  const need =
+    rowCount * (2 + 2 + 1 + 4 + (hasAvgTime ? 4 : 0) + (hasPurpose ? 1 : 0) + (hasSegment ? 1 : 0))
   if (o + need > buf.byteLength) {
     throw new Error(`[.odb] truncated columns: need ${need} bytes, have ${buf.byteLength - o}`)
   }
@@ -220,6 +252,16 @@ export function decodeODB(buf: ArrayBuffer): ODBData {
     avgTime = new Float32Array(rowCount)
     for (let i = 0; i < rowCount; i++, o += 4) avgTime[i] = view.getFloat32(o, true)
   }
+  let purpose: Uint8Array | null = null
+  if (hasPurpose) {
+    purpose = new Uint8Array(rowCount)
+    for (let i = 0; i < rowCount; i++, o += 1) purpose[i] = view.getUint8(o)
+  }
+  let segment: Uint8Array | null = null
+  if (hasSegment) {
+    segment = new Uint8Array(rowCount)
+    for (let i = 0; i < rowCount; i++, o += 1) segment[i] = view.getUint8(o)
+  }
 
   return {
     version,
@@ -230,6 +272,8 @@ export function decodeODB(buf: ArrayBuffer): ODBData {
     hour,
     pop,
     avgTime,
+    purpose,
+    segment,
     flow(i: number): ODFlow {
       const f: ODFlow = {
         origin: dict[origin[i]!]!,
@@ -238,6 +282,8 @@ export function decodeODB(buf: ArrayBuffer): ODBData {
         pop: pop[i]!,
       }
       if (avgTime) f.avgTime = avgTime[i]!
+      if (purpose) f.purpose = purpose[i]!
+      if (segment) f.segment = segment[i]!
       return f
     },
   }

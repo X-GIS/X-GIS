@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { encodeODB, decodeODB, ODB_MAGIC, ODB_HOUR_ALLDAY, type ODFlow } from './format'
+import {
+  encodeODB,
+  decodeODB,
+  ODB_MAGIC,
+  ODB_HOUR_ALLDAY,
+  ODB_FLAG_PURPOSE,
+  ODB_FLAG_SEGMENT,
+  type ODFlow,
+} from './format'
 
 // A synthetic 시군구-scale OD set: 25 codes × 25 codes × 24 hours = 15000 flows,
 // the shape a 수도권 생활이동 hero aggregate takes after rollup to 시군구.
@@ -48,7 +56,7 @@ describe('@xgis/pipeline · odb format', () => {
       'origin,dest,hour,pop\n' +
       flows.map((f) => `${f.origin},${f.dest},${f.hour},${f.pop}`).join('\n')
     const csvBytes = new TextEncoder().encode(csv).byteLength
-    // eslint-disable-next-line no-console
+
     console.log(
       `[.odb] ${flows.length} flows: odb=${(odb / 1024).toFixed(1)}KB csv=${(csvBytes / 1024).toFixed(1)}KB ` +
         `ratio=${(csvBytes / odb).toFixed(1)}x`,
@@ -74,5 +82,62 @@ describe('@xgis/pipeline · odb format', () => {
     const full = encodeODB(synthFlows())
     const cut = full.slice(0, 40) // header + partial dict
     expect(() => decodeODB(cut)).toThrow(/truncated|too small/)
+  })
+
+  it('round-trips purpose + segment columns (encode → decode)', () => {
+    // 3 flows covering the full segment range and two distinct purpose values.
+    const flows: ODFlow[] = [
+      { origin: '11110', dest: '11120', hour: 8, pop: 100, purpose: 1, segment: 0 },
+      { origin: '11120', dest: '11130', hour: 9, pop: 200, purpose: 3, segment: 1 },
+      { origin: '11130', dest: '11110', hour: 18, pop: 50, purpose: 7, segment: 2 },
+    ]
+    const buf = encodeODB(flows)
+    const flags = new DataView(buf).getUint16(6, true)
+    expect(flags & ODB_FLAG_PURPOSE).toBeTruthy()
+    expect(flags & ODB_FLAG_SEGMENT).toBeTruthy()
+    const data = decodeODB(buf)
+    expect(data.purpose).not.toBeNull()
+    expect(data.segment).not.toBeNull()
+    expect(Array.from(data.purpose!)).toEqual([1, 3, 7])
+    expect(Array.from(data.segment!)).toEqual([0, 1, 2])
+    for (let i = 0; i < flows.length; i++) {
+      expect(data.flow(i).purpose).toBe(flows[i]!.purpose)
+      expect(data.flow(i).segment).toBe(flows[i]!.segment)
+    }
+  })
+
+  it('round-trips avgTime + purpose + segment all set simultaneously', () => {
+    const flows: ODFlow[] = [
+      { origin: '11110', dest: '11120', hour: 8, pop: 100, avgTime: 12.5, purpose: 1, segment: 0 },
+      { origin: '11120', dest: '11130', hour: 9, pop: 200, avgTime: 8.0, purpose: 3, segment: 1 },
+      { origin: '11130', dest: '11110', hour: 18, pop: 50, avgTime: 20.0, purpose: 7, segment: 2 },
+    ]
+    const data = decodeODB(encodeODB(flows))
+    expect(data.avgTime).not.toBeNull()
+    expect(data.purpose).not.toBeNull()
+    expect(data.segment).not.toBeNull()
+    for (let i = 0; i < flows.length; i++) {
+      const f = data.flow(i)
+      expect(f.avgTime).toBeCloseTo(flows[i]!.avgTime!)
+      expect(f.purpose).toBe(flows[i]!.purpose)
+      expect(f.segment).toBe(flows[i]!.segment)
+    }
+  })
+
+  it('back-compat: old-shape flows (no purpose/segment) decode to null arrays', () => {
+    // Flows without purpose/segment — mirrors a v1 file written before this extension.
+    const flows: ODFlow[] = [
+      { origin: '11110', dest: '11120', hour: 8, pop: 100 },
+      { origin: '11120', dest: '11130', hour: 9, pop: 200 },
+    ]
+    const buf = encodeODB(flows)
+    const flags = new DataView(buf).getUint16(6, true)
+    expect(flags & ODB_FLAG_PURPOSE).toBe(0)
+    expect(flags & ODB_FLAG_SEGMENT).toBe(0)
+    const data = decodeODB(buf)
+    expect(data.purpose).toBeNull()
+    expect(data.segment).toBeNull()
+    expect(data.flow(0).purpose).toBeUndefined()
+    expect(data.flow(0).segment).toBeUndefined()
   })
 })
