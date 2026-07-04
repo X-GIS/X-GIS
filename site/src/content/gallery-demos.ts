@@ -399,6 +399,26 @@ export const galleryCategories: Category[] = [
       },
     ],
   },
+  {
+    title: 'Real-world data',
+    body: 'Public origin-destination data, processed the way real geo-viz work demands: a 345MB raw CSV aggregated OFFLINE to a tiny binary, decoded in-browser, and rendered live. This is the @xgis/pipeline story end-to-end.',
+    demos: [
+      {
+        id: 'seoul-arc-hero',
+        title: '수도권 생활이동 flow-map',
+        body: 'Real Seoul OD data (OA-22300, 5.2M rows/day) as origin→destination flow-lines pulsing over the day. 345MB raw → a 26KB .odb decoded in the browser.',
+        standaloneUrl: 'seoul-arc-hero.html',
+        noThumb: true,
+      },
+      {
+        id: 'seoul-odb-hero',
+        title: '생활이동 inflow bubbles',
+        body: 'The same .odb payload, summed to per-자치구 inflow bubbles — the compact-binary source-loader path rendered on the real GPU.',
+        standaloneUrl: 'seoul-odb-hero.html',
+        noThumb: true,
+      },
+    ],
+  },
 ]
 
 export const featuredDemos: Demo[] = [
