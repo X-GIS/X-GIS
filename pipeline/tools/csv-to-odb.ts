@@ -129,6 +129,8 @@ async function main(): Promise<void> {
   // Aggregate: key = origin|dest|hour[|purpose|segment] → { pop, avgWeightedSum }.
   const agg = new Map<string, { pop: number; avgW: number }>()
   let rawRows = 0
+  let unknownSegmentRows = 0
+  let outOfRangePurposeRows = 0
 
   for await (const line of rl) {
     if (line.trim() === '') continue
@@ -165,8 +167,18 @@ async function main(): Promise<void> {
     if (!origin || !dest || !Number.isFinite(hour) || !Number.isFinite(pop)) continue
     if (!inRegion(origin) || !inRegion(dest)) continue // region filter (both endpoints)
     if (opts.hourBucket) hour = Math.floor((hour * opts.hourBucket) / 24) // bucket the day
-    const purpose = iPurpose >= 0 ? Number(cells[iPurpose]!.trim()) : undefined
-    const segment = iSegment >= 0 ? (SEGMENT_MAP.get(cells[iSegment]!.trim()) ?? 0) : undefined
+    let purpose: number | undefined
+    if (iPurpose >= 0) {
+      const pRaw = Number(cells[iPurpose]!.trim())
+      if (!Number.isFinite(pRaw) || pRaw < 1 || pRaw > 7) outOfRangePurposeRows++
+      purpose = pRaw
+    }
+    let segment: number | undefined
+    if (iSegment >= 0) {
+      const mapped = SEGMENT_MAP.get(cells[iSegment]!.trim())
+      if (mapped === undefined) unknownSegmentRows++
+      segment = mapped ?? 0
+    }
     const useDims = iPurpose >= 0 || iSegment >= 0
     const key = useDims
       ? `${origin}|${dest}|${hour}|${purpose ?? ''}|${segment ?? ''}`
@@ -178,6 +190,19 @@ async function main(): Promise<void> {
     }
     a.pop += pop
     if (iAvg >= 0) a.avgW += pop * Number(cells[iAvg]!.trim())
+  }
+
+  if (unknownSegmentRows > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[csv-to-odb] ${unknownSegmentRows} rows had an unrecognized segment value → defaulted to 내국인 (0); check for NFD/2-value schema`,
+    )
+  }
+  if (outOfRangePurposeRows > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[csv-to-odb] ${outOfRangePurposeRows} rows had an out-of-range purpose value (expected 1–7) → value kept as-is; check source data`,
+    )
   }
 
   let flows: ODFlow[] = []

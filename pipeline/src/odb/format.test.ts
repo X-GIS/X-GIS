@@ -106,6 +106,24 @@ describe('@xgis/pipeline · odb format', () => {
     }
   })
 
+  it('round-trips avgTime + purpose + segment all set simultaneously', () => {
+    const flows: ODFlow[] = [
+      { origin: '11110', dest: '11120', hour: 8, pop: 100, avgTime: 12.5, purpose: 1, segment: 0 },
+      { origin: '11120', dest: '11130', hour: 9, pop: 200, avgTime: 8.0, purpose: 3, segment: 1 },
+      { origin: '11130', dest: '11110', hour: 18, pop: 50, avgTime: 20.0, purpose: 7, segment: 2 },
+    ]
+    const data = decodeODB(encodeODB(flows))
+    expect(data.avgTime).not.toBeNull()
+    expect(data.purpose).not.toBeNull()
+    expect(data.segment).not.toBeNull()
+    for (let i = 0; i < flows.length; i++) {
+      const f = data.flow(i)
+      expect(f.avgTime).toBeCloseTo(flows[i]!.avgTime!)
+      expect(f.purpose).toBe(flows[i]!.purpose)
+      expect(f.segment).toBe(flows[i]!.segment)
+    }
+  })
+
   it('back-compat: old-shape flows (no purpose/segment) decode to null arrays', () => {
     // Flows without purpose/segment — mirrors a v1 file written before this extension.
     const flows: ODFlow[] = [

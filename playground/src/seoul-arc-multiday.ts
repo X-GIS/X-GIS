@@ -114,7 +114,7 @@ const PURPOSE_LABELS: Record<number, string> = {
   7: '기타',
 }
 
-type BandRow = { o_code: string; d_code: string; pop: number }
+type BandRow = { o_code: string; d_code: string; pop: number; purpose: number }
 type HourEntry = {
   o_code: string
   d_code: string
@@ -146,6 +146,7 @@ function applyBand(sourceId: string, rows: BandRow[]): void {
     weight: 'pop',
     oName: 'origin.name',
     dName: 'dest.name',
+    purpose: 'purpose',
   }).apply(map, sourceId)
 }
 
@@ -210,7 +211,7 @@ async function main(): Promise<void> {
       const p = r.purpose
       if (p === 1 || p === 2) sumCommute += r.pop
       else if (p === 3 || p === 4) sumShop += r.pop
-      else sumLife += r.pop // purpose 5, 6, 7
+      else if (p === 5 || p === 6 || p === 7) sumLife += r.pop
     }
     const dominant =
       sumCommute >= sumShop && sumCommute >= sumLife
@@ -228,11 +229,11 @@ async function main(): Promise<void> {
     for (const r of sorted) {
       const p = r.purpose
       if ((p === 1 || p === 2) && commute.length < TOP_N_FOCUS) {
-        commute.push({ o_code: r.o_code, d_code: r.d_code, pop: r.pop })
+        commute.push({ o_code: r.o_code, d_code: r.d_code, pop: r.pop, purpose: r.purpose })
       } else if ((p === 3 || p === 4) && shop.length < TOP_N_FOCUS) {
-        shop.push({ o_code: r.o_code, d_code: r.d_code, pop: r.pop })
+        shop.push({ o_code: r.o_code, d_code: r.d_code, pop: r.pop, purpose: r.purpose })
       } else if ((p === 5 || p === 6 || p === 7) && life.length < TOP_N_LIFE) {
-        life.push({ o_code: r.o_code, d_code: r.d_code, pop: r.pop })
+        life.push({ o_code: r.o_code, d_code: r.d_code, pop: r.pop, purpose: r.purpose })
       }
       if (commute.length >= TOP_N_FOCUS && shop.length >= TOP_N_FOCUS && life.length >= TOP_N_LIFE)
         break
