@@ -417,6 +417,13 @@ export const galleryCategories: Category[] = [
         standaloneUrl: 'seoul-odb-hero.html',
         noThumb: true,
       },
+      {
+        id: 'seoul-arc-multiday',
+        title: '생활이동 multi-day (date×hour)',
+        body: 'Three real OA-22300 days on one date×hour scrubber — proving the n-day timeline. 1247 days is the same UI, just more fixtures behind the slider.',
+        standaloneUrl: 'seoul-arc-multiday.html',
+        noThumb: true,
+      },
     ],
   },
 ]

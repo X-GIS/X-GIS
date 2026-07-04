@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>X-GIS · 수도권 생활이동 multi-day (date × hour)</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #020617;
+        overflow: hidden;
+        font-family: system-ui, sans-serif;
+      }
+      #map {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+      }
+      #title {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        color: #e2e8f0;
+        font-size: 13px;
+        line-height: 1.5;
+        background: rgba(2, 6, 23, 0.6);
+        padding: 10px 14px;
+        border-radius: 8px;
+        max-width: 340px;
+      }
+      #title b {
+        color: #fb923c;
+      }
+      #clock {
+        position: fixed;
+        top: 16px;
+        right: 20px;
+        text-align: right;
+      }
+      #date-label {
+        color: #e2e8f0;
+        font-size: 15px;
+        font-variant-numeric: tabular-nums;
+      }
+      #hour-label {
+        color: #fb923c;
+        font-size: 30px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      #controls {
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: rgba(2, 6, 23, 0.7);
+        backdrop-filter: blur(8px);
+        padding: 10px 16px;
+        border-radius: 10px;
+        border: 1px solid #1e293b;
+      }
+      #play {
+        background: #fb923c;
+        color: #020617;
+        border: none;
+        border-radius: 6px;
+        width: 34px;
+        height: 34px;
+        font-size: 15px;
+        cursor: pointer;
+      }
+      #scrubber {
+        width: min(60vw, 520px);
+        accent-color: #fb923c;
+      }
+      code {
+        color: #fbbf24;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="map"></canvas>
+    <div id="title">
+      <b>수도권 생활이동 · multi-day</b><br />
+      3 days of real OA-22300 (each a ~190KB <code>.odb</code>) on one date×hour
+      scrubber. 1247 days is the same UI — just more fixtures (or a server range query).
+    </div>
+    <div id="clock">
+      <div id="date-label">2026-05-29</div>
+      <div id="hour-label">00:00</div>
+    </div>
+    <div id="controls">
+      <button id="play" title="play/pause">▶</button>
+      <input id="scrubber" type="range" min="0" max="71" value="0" step="1" />
+    </div>
+    <script type="module" src="/src/seoul-arc-multiday.ts"></script>
+  </body>
+</html>
