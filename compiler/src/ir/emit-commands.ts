@@ -38,6 +38,10 @@ export interface LoadCommand {
    *  through the geojson ingest path instead of fetching `url`. Mirror
    *  field on the runtime `interpreter.ts` LoadCommand (two-sibling rule). */
   inlineData?: unknown
+  /** Non-reserved source-block props for a CUSTOM `type`, threaded from IR
+   *  `SourceDef.options`. The runtime hands these to a registered `SourceLoader`'s
+   *  `ctx.options`. Undefined for built-in sources (byte-identical). */
+  options?: Record<string, string | number | readonly string[]>
 }
 
 // ─── Paint sub-bundles (Tier-B B2, rows 3/5) ───────────────────────
@@ -387,6 +391,7 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
     layers: src.layers,
     crs: src.crs,
     inlineData: src.inlineData,
+    options: src.options,
   }))
 
   // Walk the IR once to collect every ZOOM-only paint literal /

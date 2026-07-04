@@ -12,6 +12,7 @@
     "data",
     "map",
     "runtime",
+    "pipeline",
     "playground",
     "site"
   ],

@@ -81,6 +81,10 @@ export interface LoadCommand {
    *  The legacy `interpret(ast)` path never sets it (no `data:` in the
    *  old `let`/`show` grammar); it exists purely for the type contract. */
   inlineData?: unknown
+  /** Non-reserved custom-`type` source-block props (source-loader-seam §5),
+   *  threaded from the compiler LoadCommand. Sibling of emit-commands.ts's field
+   *  (two-sibling rule) so `source-manager` sees it on `SceneCommands['loads'][0]`. */
+  options?: Record<string, string | number | readonly string[]>
 }
 
 export interface SceneCommands {
@@ -180,8 +184,12 @@ function extractSource(stmt: AST.SourceStatement): SourceDef | null {
   let layers: string[] | undefined
 
   for (const prop of stmt.properties) {
-    if (prop.name === 'type' && prop.value.kind === 'Identifier') {
-      type = prop.value.name
+    if (prop.name === 'type') {
+      // Bare identifier for a built-in (`type: geojson`); a QUOTED STRING for a
+      // custom registry type (`type: "x-kr-admin"`) — hyphens aren't legal in the
+      // identifier grammar. Sibling of the compiler lowerSource rule.
+      if (prop.value.kind === 'Identifier') type = prop.value.name
+      else if (prop.value.kind === 'StringLiteral') type = prop.value.value
     } else if (prop.name === 'url' && prop.value.kind === 'StringLiteral') {
       url = prop.value.value
     } else if (prop.name === 'layers') {

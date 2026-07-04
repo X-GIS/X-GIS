@@ -44,6 +44,17 @@ import { VirtualPMTilesBackend } from '@xgis/data'
 import { detectCapPoles, type CapPoles } from '@xgis/data'
 import * as tilingPool from '@xgis/data'
 import { reprojectFeatureCollection } from '@xgis/data'
+import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
+import { SOURCE_TYPES } from '@xgis/compiler'
+import type { SourceLoader } from './source-loader'
+
+/** The built-in source `type:` values the dispatch handles natively; anything else
+ *  routes to the per-map custom source-loader registry (source-loader-seam §4).
+ *  DERIVED from the compiler's authoritative `SOURCE_TYPES` (the grammar-accepted
+ *  set — single authority, no hand-copy to drift) plus `'xgvt'`, the
+ *  runtime-internal vector-tile token that has no grammar spelling but the
+ *  dispatch must still treat as built-in. */
+const BUILTIN_SOURCE_TYPES = new Set<string>([...SOURCE_TYPES, 'xgvt'])
 
 /** Dependencies SourceManager needs from the host XGISMap. */
 export interface SourceManagerDeps {
@@ -88,6 +99,9 @@ export interface SourceManagerDeps {
   teardownSource(sourceId: string): void
   /** XGISMap's `_featureIndex.delete(sourceId)`. */
   deleteFeatureIndex(sourceId: string): void
+  /** Per-map custom source-loader registry (`XGISMapOptions.sources`), consulted by
+   *  the attach dispatch when a declared `type` is not a built-in (source-loader-seam §3). */
+  sourceLoaders?: Readonly<Record<string, SourceLoader>>
 }
 
 export class SourceManager {
@@ -108,6 +122,7 @@ export class SourceManager {
   private readonly rebuildLayers: () => void
   private readonly teardownSource: (sourceId: string) => void
   private readonly deleteFeatureIndex: (sourceId: string) => void
+  private readonly sourceLoaders?: Readonly<Record<string, SourceLoader>>
 
   /** Per-SourceManager (≈ per-map) id used to namespace this map's GeoJSON
    *  tiling-worker indexes. The tiling worker is a process-global singleton
@@ -133,6 +148,7 @@ export class SourceManager {
     this.rebuildLayers = deps.rebuildLayers
     this.teardownSource = deps.teardownSource
     this.deleteFeatureIndex = deps.deleteFeatureIndex
+    this.sourceLoaders = deps.sourceLoaders
   }
 
   /** Reproject a real-FC ingest from its declared source CRS to WGS84
@@ -215,6 +231,44 @@ export class SourceManager {
     // FeatureCollection — which then crashes `applyFilter` because
     // there's no `.features` array.
     const declaredType = load.type
+
+    // ── Custom source-loader registry (source-loader-seam §3.3) ──────────────
+    // Hoisted BEFORE the URL-shape heuristics so a registered custom type is
+    // AUTHORITATIVE — a custom source whose URL looks like a tile template (or
+    // ends `.pmtiles`) must not be hijacked into the raster / PMTiles branch
+    // (architect Finding D). The loader output routes through the SAME
+    // `_attachGeoJSONViaVirtualPMTiles` path the geojson branch uses; a bare
+    // `rawDatasets.set` seed renders a BLANK frame (see the inline-data note above).
+    if (declaredType !== undefined && !BUILTIN_SOURCE_TYPES.has(declaredType)) {
+      const loader = this.sourceLoaders?.[declaredType]
+      if (!loader) {
+        const registered = Object.keys(this.sourceLoaders ?? {})
+        throw new Error(
+          `[X-GIS] no loader registered for source type '${declaredType}' ` +
+            `(source "${load.name}"); registered: [${registered.join(', ')}] — ` +
+            `pass it in XGISMapOptions.sources.`,
+        )
+      }
+      const result = await loader({
+        id: load.name,
+        url,
+        options: load.options ?? {},
+        fetch: (u: string) => safeFetch(u, undefined, `custom source "${load.name}"`),
+      })
+      const fc =
+        result.kind === 'points'
+          ? pointPatchToFeatureCollection(result.data as unknown as PointPatch)
+          : (result.data as unknown as GeoJSONFeatureCollection)
+      // Route seam marker (mirrors the geojson-URL branch's `__xgisVirtualPMTilesActive`)
+      // so a real-GPU gate can assert the CUSTOM branch actually ran for this type —
+      // not merely that some pixels appeared.
+      if (typeof window !== 'undefined') {
+        ;(window as unknown as { __xgisCustomLoaderRan?: string }).__xgisCustomLoaderRan =
+          declaredType
+      }
+      await this._attachGeoJSONViaVirtualPMTiles(load.name, fc, maps, cameraFitState)
+      return
+    }
     // Mapbox styles declare `type: vector` / converted to `type: tilejson`
     // for MVT XYZ endpoints whose URL contains the `{z}/{x}/{y}` template.
     // Don't let the template-shape heuristic re-route those into the

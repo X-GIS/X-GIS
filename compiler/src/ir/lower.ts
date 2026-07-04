@@ -130,10 +130,18 @@ function lowerSource(
    *  ObjectLiteral AST to a plain JS object; the runtime seeds it
    *  instead of fetching `url`. */
   let inlineData: unknown
+  /** Non-reserved props for a custom `type` — collected into `SourceDef.options`
+   *  (docs/architecture/source-loader-seam.md §5). Undefined for built-in sources. */
+  let options: Record<string, string | number | readonly string[]> | undefined
 
   for (const prop of stmt.properties) {
-    if (prop.name === 'type' && prop.value.kind === 'Identifier') {
-      type = prop.value.name
+    if (prop.name === 'type') {
+      // Built-in types are bare identifiers (`type: geojson`); a CUSTOM registry
+      // type is a QUOTED STRING (`type: "x-kr-admin"`) so a hyphenated key does not
+      // collide with the identifier grammar ([a-zA-Z_][a-zA-Z0-9_]*, no hyphen —
+      // `x-kr-admin` would otherwise tokenise as the expression `x - kr - admin`).
+      if (prop.value.kind === 'Identifier') type = prop.value.name
+      else if (prop.value.kind === 'StringLiteral') type = prop.value.value
     } else if (prop.name === 'url' && prop.value.kind === 'StringLiteral') {
       url = prop.value.value
     } else if (prop.name === 'data') {
@@ -176,6 +184,23 @@ function lowerSource(
         }
         if (out.length > 0) layers = out
       }
+    } else {
+      // Non-reserved property → the custom-loader options bag (source-loader-seam §5).
+      // Reserved keys (type/url/data/layers/crs) are claimed by the branches above, so
+      // only genuinely custom fields reach here. Scalars + string-arrays only, so the
+      // `.xgis` source block stays serialisable.
+      let v: string | number | readonly string[] | undefined
+      if (prop.value.kind === 'StringLiteral') v = prop.value.value
+      else if (prop.value.kind === 'NumberLiteral') v = prop.value.value
+      else if (prop.value.kind === 'ArrayLiteral') {
+        const arr: string[] = []
+        for (const el of prop.value.elements) if (el.kind === 'StringLiteral') arr.push(el.value)
+        if (arr.length > 0) v = arr
+      }
+      if (v !== undefined) {
+        if (!options) options = {}
+        options[prop.name] = v
+      }
     }
   }
 
@@ -210,7 +235,7 @@ function lowerSource(
   // Inline source (no url) — runtime seeds with an empty FeatureCollection
   // and the host fills it via setSourceData / setSourcePoints. An inline
   // `data:` source carries its GeoJSON in `inlineData` for the runtime to seed.
-  return { name: stmt.name, type, url, layers, crs: resolvedCrs, inlineData }
+  return { name: stmt.name, type, url, layers, crs: resolvedCrs, inlineData, options }
 }
 
 /** Convert a literal-only AST expression subtree (the `data: {...}` inline

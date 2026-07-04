@@ -12,6 +12,7 @@ export default defineConfig({
       'data/src/**/*.test.ts',
       'map/src/**/*.test.ts',
       'runtime/src/**/*.test.ts',
+      'pipeline/src/**/*.test.ts',
     ],
     // shader-dsl projections are host-injected (configureProjections); configure
     // once before any suite touches the projection emit / cpu-projection path.
