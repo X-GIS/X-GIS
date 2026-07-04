@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>X-GIS · custom source loader (declarative)</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #020617;
+        overflow: hidden;
+        font-family: system-ui, sans-serif;
+      }
+      #map {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+      }
+      #title {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        color: #e2e8f0;
+        font-size: 13px;
+        line-height: 1.5;
+        background: rgba(2, 6, 23, 0.6);
+        padding: 10px 14px;
+        border-radius: 8px;
+        max-width: 320px;
+      }
+      #title b {
+        color: #fb923c;
+      }
+      code {
+        color: #fbbf24;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="map"></canvas>
+    <div id="title">
+      <b>Custom source loader</b> — declarative<br />
+      <code>source flows { type: x-kr-admin }</code> resolved by a per-map
+      <code>krAdminLoader</code>: a code-keyed CSV → 시군구 centroids → bubbles.
+    </div>
+    <script type="module" src="/src/seoul-loader.ts"></script>
+  </body>
+</html>

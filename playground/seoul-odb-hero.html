@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>X-GIS · 수도권 생활이동 (real OD, .odb pipeline)</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #020617;
+        overflow: hidden;
+        font-family: system-ui, sans-serif;
+      }
+      #map {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+      }
+      #title {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        color: #e2e8f0;
+        font-size: 13px;
+        line-height: 1.5;
+        background: rgba(2, 6, 23, 0.6);
+        padding: 10px 14px;
+        border-radius: 8px;
+        max-width: 340px;
+      }
+      #title b {
+        color: #fb923c;
+      }
+      code {
+        color: #fbbf24;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="map"></canvas>
+    <div id="title">
+      <b>수도권 생활이동</b> — real OD data<br />
+      345MB raw CSV (5.2M rows/day) → aggregated offline to a tiny
+      <code>.odb</code> (~26KB fixture) → this page fetches + decodes it
+      immediately. <code>source { type: "x-seoul-odb" }</code> → per-자치구 inflow
+      bubbles.
+    </div>
+    <script type="module" src="/src/seoul-odb-hero.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <title>@xgis/pipeline — 수도권 생활이동 (샘플)</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        background: #020617;
+        color: #e2e8f0;
+        font: 13px/1.5 'DM Mono', ui-monospace, monospace;
+        overflow: hidden;
+      }
+      #map {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        display: block;
+      }
+      .panel {
+        position: fixed;
+        z-index: 10;
+        background: rgba(2, 6, 23, 0.78);
+        backdrop-filter: blur(8px);
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        border-radius: 10px;
+        padding: 12px 14px;
+      }
+      #title {
+        top: 16px;
+        left: 16px;
+        max-width: 340px;
+      }
+      #title h1 {
+        font-size: 15px;
+        font-weight: 600;
+        color: #f8fafc;
+        margin-bottom: 4px;
+      }
+      #title p {
+        color: #94a3b8;
+        font-size: 11px;
+      }
+      #title .sample {
+        color: #fbbf24;
+        font-size: 11px;
+        margin-top: 6px;
+      }
+      #hud {
+        top: 16px;
+        right: 16px;
+        text-align: right;
+      }
+      #hour-label {
+        font-size: 28px;
+        font-weight: 600;
+        color: #fb923c;
+        letter-spacing: 0.02em;
+      }
+      #hud .cap {
+        font-size: 10px;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      #legend {
+        bottom: 16px;
+        left: 16px;
+        display: flex;
+        gap: 14px;
+        align-items: center;
+      }
+      #legend .dot {
+        display: inline-block;
+        border-radius: 50%;
+        margin-right: 5px;
+        vertical-align: middle;
+      }
+      #legend .row {
+        color: #cbd5e1;
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="map"></canvas>
+
+    <div id="title" class="panel">
+      <h1>수도권 생활이동</h1>
+      <p>자치구별 시간대 인구 유출 · 버블 크기 = 유출량</p>
+      <p class="sample">⚠ 샘플 데이터 (실 KT 데이터셋 대체) · @xgis/pipeline 시연</p>
+    </div>
+
+    <div id="hud" class="panel">
+      <div id="hour-label">08:00</div>
+      <div class="cap">daily pulse</div>
+    </div>
+
+    <div id="legend" class="panel">
+      <span class="row"
+        ><span class="dot" style="width: 8px; height: 8px; background: #fcd34d"></span>낮음</span
+      >
+      <span class="row"
+        ><span class="dot" style="width: 12px; height: 12px; background: #fb923c"></span>중간</span
+      >
+      <span class="row"
+        ><span class="dot" style="width: 18px; height: 18px; background: #f97316"></span>높음</span
+      >
+      <span class="row"
+        ><span class="dot" style="width: 24px; height: 24px; background: #ef4444"></span>최고</span
+      >
+    </div>
+
+    <script type="module" src="/src/seoul-pipeline.ts"></script>
+  </body>
+</html>

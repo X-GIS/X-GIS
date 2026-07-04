@@ -89,12 +89,17 @@
         "@xgis/shared": "workspace:*",
       },
     },
+    "pipeline": {
+      "name": "@xgis/pipeline",
+      "version": "0.0.1",
+    },
     "playground": {
       "name": "@xgis/playground",
       "version": "0.0.1",
       "dependencies": {
         "@xgis/compiler": "workspace:*",
         "@xgis/map": "workspace:*",
+        "@xgis/pipeline": "workspace:*",
         "@xgis/runtime": "workspace:*",
         "@xgis/shader-dsl": "workspace:*",
       },
@@ -702,6 +707,8 @@
     "@xgis/engine": ["@xgis/engine@workspace:engine"],
 
     "@xgis/map": ["@xgis/map@workspace:map"],
+
+    "@xgis/pipeline": ["@xgis/pipeline@workspace:pipeline"],
 
     "@xgis/playground": ["@xgis/playground@workspace:playground"],
 

@@ -122,6 +122,15 @@ export type {
   XGISMapOptions,
   FontTypographyMap,
 } from './map-types'
+// Custom source-loader contract (docs/architecture/source-loader-seam.md) — public
+// so a host can author a loader for `XGISMapOptions.sources`.
+export type {
+  SourceLoader,
+  SourceLoadContext,
+  SourceLoadResult,
+  LoaderFeatureCollection,
+  LoaderPointPatch,
+} from './source-loader'
 import {
   asVectorTileKind,
   sceneHasAnyAnimation,
@@ -933,6 +942,7 @@ export class XGISMap {
     // via accessors; camera / canvas are stable ctor-time instances.
     this.sourceManager = new SourceManager({
       rawDatasets: this.rawDatasets,
+      sourceLoaders: options.sources,
       vtSources: this.vtSources,
       sourceCRS: this.sourceCRS,
       geojsonCapPoles: this.geojsonCapPoles,

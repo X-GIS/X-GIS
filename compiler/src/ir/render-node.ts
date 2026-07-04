@@ -80,6 +80,13 @@ export interface SourceDef {
   /** Inline GeoJSON embedded in the source block via `data: {...}` —
    *  runtime seeds this instead of fetching `url`. */
   inlineData?: unknown
+  /** Non-reserved source-block properties for a CUSTOM (registry-resolved)
+   *  `type`. `lowerSource` collects every prop whose name is not a reserved
+   *  key (name/type/url/data/layers/crs); undefined for built-in sources, so
+   *  their lowering stays byte-identical. The runtime hands this to a
+   *  registered `SourceLoader`'s `ctx.options` (docs/architecture/source-loader-seam.md §5).
+   *  Scalars / string-arrays only — `.xgis` stays serialisable. */
+  options?: Record<string, string | number | readonly string[]>
 }
 
 // ─── RenderNode paint sub-bundles (Tier-B B2, row 5) ───────────────

@@ -24,6 +24,11 @@ export default defineConfig({
       '@xgis/runtime': fileURLToPath(new URL('../runtime/src/index.ts', import.meta.url)),
       '@xgis/engine': fileURLToPath(new URL('../engine/src/index.ts', import.meta.url)),
       '@xgis/map': fileURLToPath(new URL('../map/src/index.ts', import.meta.url)),
+      // More-specific subpath BEFORE the package root (vite matches in order).
+      '@xgis/pipeline/gazetteer/kr': fileURLToPath(
+        new URL('../pipeline/src/gazetteer/kr.ts', import.meta.url),
+      ),
+      '@xgis/pipeline': fileURLToPath(new URL('../pipeline/src/index.ts', import.meta.url)),
     },
   },
   server: {
