@@ -6,12 +6,11 @@
 // icon-retained's geo→clip ladder VERBATIM (the same injected getGpuProjectionFuncs() +
 // the same `pointU` frame uniform + the same per-copy world_offset in circle_params.x).
 //
-// The ONLY differences from the icon shader:
-//   • the procedural mesh is a 9-vertex ARROW (shaft quad 6 + head triangle 3) built from
-//     vertex_index, tail at the geo anchor, pointing +x before the per-instance rotation —
-//     instead of a 6-vertex textured quad;
-//   • the fragment is a SOLID per-instance tint (no atlas sample) — the silhouette is the
-//     mesh, so a vector field of oriented arrows stays crisp at any zoom/scale.
+// The arrow silhouette is an analytic SDF over a BOUNDING QUAD (#824): the vertex emits a
+// 6-vertex quad sized (length × width) around the arrow, and the fragment evaluates a
+// tapered-half-width arrow profile with fwidth-based coverage — resolution-independent,
+// crisp AA at the graphics pass's single-sample (no MSAA needed). The fill is a solid
+// per-instance tint.
 
 import {
   fn,
@@ -19,6 +18,11 @@ import {
   transformMat4,
   f32,
   u32,
+  abs,
+  max,
+  clamp,
+  select,
+  fwidth,
   vec2,
   vec3,
   vec4,
@@ -30,6 +34,7 @@ import {
   If,
   f32T,
   u32T,
+  vec2fT,
   vec4fT,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
@@ -51,18 +56,22 @@ const featB = storageBuffer('feat_data', f32T, { group: 1, binding: 0, access: '
 const tintB = storageBuffer('tint_data', vec4fT, { group: 1, binding: 1, access: 'read' })
 const featData = featB.node
 
+// Unit arrow profile (tail at origin, tip at +x = 1; coords in units of LENGTH). The shaft
+// spans x∈[0,HB] at half-width SH; the head x∈[HB,1] tapers linearly from HH to 0 at the tip.
+// HH is also the bounding quad's half-height (the quad's local y ∈ [-HH, +HH]).
+const SH = 0.09 // shaft half-width
+const HH = 0.26 // head half-width = quad half-height
+const HB = 0.6 // head base x (shaft→head junction)
+const HEAD_SLOPE = HH / (1 - HB) // half-width per unit x along the head taper
+
 const ArrowOut = ioStruct('ArrowRetainedOut', {
   position: builtin('position', vec4fT),
-  tint: location(0, vec4fT),
+  // Arrow-local coordinate (x∈[0,1] along, y∈[-HH,HH] across) for the fragment SDF.
+  loc: location(0, vec2fT),
+  tint: location(1, vec4fT),
   // +1 for flat projections; the globe eye-horizon sign for ECEF. FS discards < 0.
-  cos_c: location(1, f32T, 'flat'),
+  cos_c: location(2, f32T, 'flat'),
 })
-
-// Unit arrow silhouette (tail at origin, tip at +x = 1). Shaft spans x∈[0, HB], the head
-// triangle x∈[HB, 1]. Half-widths in the same unit-length metric.
-const SH = 0.09 // shaft half-width
-const HH = 0.24 // head half-width
-const HB = 0.6 // head base x (shaft→head junction)
 
 const vs = fn(
   'vs_arrow_retained',
@@ -111,56 +120,43 @@ const vs = fn(
       () => transformMat4(mvp, vec4(ecefRtc, 1)),
     )
 
-    // ── procedural arrow corner from vertex_index (tail at origin, tip at +x). ──
-    // Shaft quad: 0,1,2 / 3,4,5. Head triangle: 6,7,8. ay = across (screen +y down).
-    const ax = f32(0)
-    const ay = f32(0)
+    // ── bounding quad (6 verts) in unit-arrow space: qx∈{0,1} along, qy∈{-HH,HH} across. ──
+    const qx = f32(0)
+    const qy = f32(0)
     Switch(p.vi)
       .case(0, () => {
-        ax.assign(f32(0))
-        ay.assign(f32(-SH))
+        qx.assign(f32(0))
+        qy.assign(f32(-HH))
       })
       .case(1, () => {
-        ax.assign(f32(0))
-        ay.assign(f32(SH))
+        qx.assign(f32(0))
+        qy.assign(f32(HH))
       })
       .case(2, () => {
-        ax.assign(f32(HB))
-        ay.assign(f32(SH))
+        qx.assign(f32(1))
+        qy.assign(f32(HH))
       })
       .case(3, () => {
-        ax.assign(f32(0))
-        ay.assign(f32(-SH))
+        qx.assign(f32(0))
+        qy.assign(f32(-HH))
       })
       .case(4, () => {
-        ax.assign(f32(HB))
-        ay.assign(f32(SH))
+        qx.assign(f32(1))
+        qy.assign(f32(HH))
       })
       .case(5, () => {
-        ax.assign(f32(HB))
-        ay.assign(f32(-SH))
-      })
-      .case(6, () => {
-        ax.assign(f32(HB))
-        ay.assign(f32(-HH))
-      })
-      .case(7, () => {
-        ax.assign(f32(1))
-        ay.assign(f32(0))
-      })
-      .case(8, () => {
-        ax.assign(f32(HB))
-        ay.assign(f32(HH))
+        qx.assign(f32(1))
+        qy.assign(f32(-HH))
       })
       .default(() => {
-        /* vi ∈ 0..8 */
+        /* vi ∈ 0..5 */
       })
 
-    // Scale by the per-instance length (px), rotate around the tail (the geo anchor) by
-    // the screen-space rotation (+y down clockwise — same convention as icon-retained).
+    // Scale by the per-instance length (px), rotate around the tail (the geo anchor) by the
+    // screen-space rotation (+y down clockwise — same convention as icon-retained).
     const size = rd(F.size)
-    const lx = ax.mul(size)
-    const ly = ay.mul(size)
+    const lx = qx.mul(size)
+    const ly = qy.mul(size)
     const rot = rd(F.rot_rad)
     const cc = cos(rot)
     const ss = sin(rot)
@@ -174,6 +170,7 @@ const vs = fn(
 
     const o = ArrowOut.var()
     o.position.assign(clip)
+    o.loc.assign(vec2(qx, qy))
     o.tint.assign(tintB.node.at(p.inst, vec4fT))
     o.cos_c.assign(
       needs_backface_cull(absLon, absLat, pointU.field.proj_params, pointU.field.globe_eye),
@@ -192,8 +189,18 @@ const fs = fn(
     If(pin.cos_c.lt(0), () => {
       Discard()
     })
-    const out = pin.tint
-    If(out.a.lt(f32(0.004)), () => {
+    // Arrow profile: half-width is SH along the shaft, then a linear taper to 0 at the tip.
+    const ax = pin.loc.x
+    const ay = abs(pin.loc.y)
+    const hwHead = max(f32(1).sub(ax), 0).mul(HEAD_SLOPE)
+    const hw = select(ax.lt(HB), f32(SH), hwHead)
+    // Outside-distance in unit space: width edge, tail base (x≥0), tip (x≤1).
+    const d = max(ay.sub(hw), max(ax.neg(), ax.sub(1)))
+    // fwidth gives the on-screen pixel size in unit space → resolution-independent AA.
+    const aa = fwidth(pin.loc.x).add(fwidth(pin.loc.y)).mul(0.7).add(f32(1e-5))
+    const cov = clamp(f32(0.5).sub(d.div(aa)), 0, 1)
+    const out = vec4(pin.tint.swizzle('xyz'), pin.tint.w.mul(cov))
+    If(out.w.lt(f32(0.004)), () => {
       Discard()
     })
     return out
@@ -212,5 +219,5 @@ export const buildArrowRetainedModule = (): ModuleDecl =>
   })
 
 /** Full retained-arrow shader: shared projection consts + injected projection fns + the
- *  instanced geo-anchored arrow VS + solid-tint FS. */
+ *  instanced geo-anchored arrow quad VS + analytic-SDF anti-aliased solid-tint FS. */
 export const emitArrowRetainedWgsl = (): string => emitModule(buildArrowRetainedModule())

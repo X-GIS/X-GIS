@@ -7,8 +7,8 @@
 // uniform. The ONLY differences from the icon draper:
 //   • group 1 is TWO storage buffers (feat + tint) — no atlas texture/sampler (the arrow
 //     silhouette is procedural in the shader, not a sprite).
-//   • draw = draw(9, count): a 9-vertex procedural arrow (shaft quad + head triangle) from
-//     vertex_index, one instanced draw per world copy.
+//   • draw = draw(6, count): a 6-vertex bounding quad from vertex_index (the arrow silhouette
+//     is an analytic SDF in the fragment), one instanced draw per world copy.
 
 import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { Material, executeItems, type DrawItem } from './material'
@@ -64,7 +64,7 @@ export class RetainedArrowDraper {
       variant: 0,
       bindGroups: [null, batchBindGroup],
       poolBytes: bytes,
-      count: 9, // 9-vertex procedural arrow (shaft quad 6 + head triangle 3)
+      count: 6, // 6-vertex bounding quad (the arrow shape is an analytic SDF in the fragment)
       indexed: false,
       instanceCount: count,
     }))
