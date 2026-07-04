@@ -114,6 +114,29 @@
         border-radius: 3px;
         flex-shrink: 0;
       }
+      .ramp-row {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        margin-bottom: 4px;
+      }
+      .ramp-label {
+        font-size: 11px;
+        color: #cbd5e1;
+        font-weight: 600;
+        padding: 0 4px;
+      }
+      .sw {
+        width: 16px;
+        height: 12px;
+        display: inline-block;
+      }
+      .sw:first-of-type {
+        border-radius: 3px 0 0 3px;
+      }
+      .sw:last-of-type {
+        border-radius: 0 3px 3px 0;
+      }
       .filter-row input[type='checkbox'] {
         accent-color: #fb923c;
         width: 14px;
@@ -163,28 +186,30 @@
   <body>
     <canvas id="map"></canvas>
     <div id="title">
-      <b>수도권 생활이동 · purpose × hour</b><br />
-      20260531 98,837 flows — width&thinsp;=&thinsp;이동량, color&thinsp;=&thinsp;목적.<br />
-      Top&thinsp;35·35·15 per band via <code>stroke-[sqrt(.weight)*0.07+1]</code>.
+      <b>서울 생활이동 · 숨쉬는 도시</b><br />
+      20260531 · 자치구 색 = 시간대별 <b>순유입</b>(유입−유출) · 화살표 = 이동 벡터장(유출
+      방향·양).<br />
+      전체 이동의 54.7%는 구내부 이동이라 순유입엔 안 잡힘 — 각 구 자체 활동.
     </div>
     <div id="clock">
       <div id="hour-label">00:00</div>
     </div>
     <div id="legend">
+      <div class="ramp-row">
+        <span class="ramp-label">유출</span>
+        <span class="sw" style="background: #2563eb"></span>
+        <span class="sw" style="background: #60a5fa"></span>
+        <span class="sw" style="background: #7dd3fc"></span>
+        <span class="sw" style="background: #334155"></span>
+        <span class="sw" style="background: #fdba74"></span>
+        <span class="sw" style="background: #f97316"></span>
+        <span class="sw" style="background: #dc2626"></span>
+        <span class="ramp-label">유입</span>
+      </div>
       <label class="filter-row">
-        <span class="chip" style="background: #fb923c"></span>
-        <input type="checkbox" id="cb-commute" checked />
-        <span>출근·통학</span>
-      </label>
-      <label class="filter-row">
-        <span class="chip" style="background: #22d3ee"></span>
-        <input type="checkbox" id="cb-shop" checked />
-        <span>쇼핑·여가</span>
-      </label>
-      <label class="filter-row">
-        <span class="chip" style="background: #64748b"></span>
-        <input type="checkbox" id="cb-life" checked />
-        <span>생활·기타</span>
+        <span class="chip" style="background: #fef3c7"></span>
+        <input type="checkbox" id="cb-field" checked />
+        <span>이동 벡터장 (유출 방향)</span>
       </label>
       <div class="seg-sep"></div>
       <select id="seg-select" title="구분 필터">

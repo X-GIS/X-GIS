@@ -60,6 +60,28 @@ export interface IconDrawSpec<D> {
   readonly updateTriggers?: Partial<Record<IconUpdateTrigger, unknown>>
 }
 
+/** Declarative spec for a retained geo-anchored ARROW batch — the movement vector-field
+ *  glyph (`map.graphics.add`). Same retained/N-independent contract as `IconDrawSpec`, but
+ *  the silhouette is a procedural oriented arrow mesh (no sprite): per item a geo anchor
+ *  (the arrow tail), a screen-space rotation, a length, and a colour. */
+export interface ArrowDrawSpec<D> {
+  readonly type: 'arrow'
+  readonly data: readonly D[]
+  /** Geo anchor per item (the arrow TAIL) — the ONE required accessor. */
+  readonly getPosition: Packed<Position, D>
+  /** Arrow rotation in radians (screen-space clockwise, +x at 0). Default 0. */
+  readonly getRotation?: Packed<number, D>
+  /** Arrow LENGTH in px (tail→tip). Default 1. */
+  readonly getSize?: Packed<number, D>
+  /** Solid fill colour. Default white. */
+  readonly getColor?: Packed<IconColor, D>
+  /** Marks which attributes a later `update({ triggers })` will re-pack. */
+  readonly updateTriggers?: Partial<Record<IconUpdateTrigger, unknown>>
+}
+
+/** Any retained batch spec accepted by `map.graphics.add` — discriminated by `type`. */
+export type DrawSpec<D> = IconDrawSpec<D> | ArrowDrawSpec<D>
+
 /** Handle to a live retained batch. */
 export interface DrawHandle {
   /** Icons currently in the batch. */

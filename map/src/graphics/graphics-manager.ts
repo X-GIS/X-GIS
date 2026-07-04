@@ -14,8 +14,10 @@ import { HostImageRegistry } from '../sprite/host-image-registry'
 import { HostSpriteAtlasGPU } from '../sprite/host-sprite-atlas-gpu'
 import { HostSpriteAtlasRhi } from '../sprite/host-sprite-atlas-rhi'
 import { RetainedIconDraper } from '../render/material/icon-retained-material'
+import { RetainedArrowDraper } from '../render/material/arrow-retained-material'
 import { packRetainedIconFeat, packRetainedIconTint } from './retained-icon-packer'
-import type { IconDrawSpec, DrawHandle, IconUpdateTrigger } from './graphics-types'
+import { packRetainedArrowFeat, packRetainedArrowTint } from './retained-arrow-packer'
+import type { DrawSpec, DrawHandle, IconUpdateTrigger } from './graphics-types'
 import {
   writePointFrameUniform,
   pointUniformBytes,
@@ -42,7 +44,7 @@ const WORLD_WIDTH = worldCopyMercX(0, 1)
  *  accessors; the GPU buffers + bind group are null until materialised (a device
  *  exists). */
 interface RetainedIconBatch {
-  spec: IconDrawSpec<unknown>
+  spec: DrawSpec<unknown>
   count: number
   featBuf: RhiBuffer | null
   tintBuf: RhiBuffer | null
@@ -59,6 +61,7 @@ export class GraphicsManager {
   // ── Phase 1 retained-batch state (per-run, built in attachDevice). ──
   private rhi: RhiDevice | null = null
   private draper: RetainedIconDraper | null = null
+  private arrowDraper: RetainedArrowDraper | null = null
   private frameBlock: UniformBlockOf<typeof pointU> | null = null
   private _blockView: Float32Array | null = null
   private readonly batches: RetainedIconBatch[] = []
@@ -130,9 +133,9 @@ export class GraphicsManager {
    *  GPU buffers materialise immediately when a device exists, else on the next
    *  attachDevice. Register images (addImage) BEFORE add() so their sprites
    *  resolve (a missing sprite packs an invisible instance + warns). */
-  add<D>(spec: IconDrawSpec<D>): DrawHandle {
+  add<D>(spec: DrawSpec<D>): DrawHandle {
     const batch: RetainedIconBatch = {
-      spec: spec as IconDrawSpec<unknown>,
+      spec: spec as DrawSpec<unknown>,
       count: spec.data.length,
       featBuf: null,
       tintBuf: null,
@@ -164,16 +167,20 @@ export class GraphicsManager {
   /** Build (or rebuild) a batch's GPU buffers + cached bind group. No-op until a
    *  device is attached (deferred materialisation for pre-run add()). */
   private materialise(batch: RetainedIconBatch): void {
-    if (!this.rhi || !this.atlas || !this.draper) return
-    const feat = packRetainedIconFeat(batch.spec, this.atlas, this.dpr)
-    const tint = packRetainedIconTint(batch.spec)
+    if (!this.rhi || !this.atlas || !this.draper || !this.arrowDraper) return
+    const spec = batch.spec
+    const feat =
+      spec.type === 'arrow'
+        ? packRetainedArrowFeat(spec, this.dpr)
+        : packRetainedIconFeat(spec, this.atlas, this.dpr)
+    const tint = spec.type === 'arrow' ? packRetainedArrowTint(spec) : packRetainedIconTint(spec)
     if (batch.featBuf) this._retired.push(batch.featBuf)
     if (batch.tintBuf) this._retired.push(batch.tintBuf)
     batch.featBuf = this.rhi.createBuffer({
       size: Math.max(feat.byteLength, 16),
       usage: 'storage',
       writable: true,
-      label: 'retained-icon-feat',
+      label: spec.type === 'arrow' ? 'retained-arrow-feat' : 'retained-icon-feat',
     })
     this.rhi.writeBuffer(batch.featBuf, 0, feat)
     this._featWrites++
@@ -181,19 +188,23 @@ export class GraphicsManager {
       size: Math.max(tint.byteLength, 16),
       usage: 'storage',
       writable: true,
-      label: 'retained-icon-tint',
+      label: spec.type === 'arrow' ? 'retained-arrow-tint' : 'retained-icon-tint',
     })
     this.rhi.writeBuffer(batch.tintBuf, 0, tint)
     this._tintWrites++
-    // Atlas view/sampler are Phase-0 stable-identity → the bind group is built ONCE.
-    // rhiView/rhiSampler are backend-blind (the WebGPU atlas wraps its native
-    // handles; the RHI atlas hands its own through).
-    batch.bindGroup = this.draper.makeBatchBindGroup(
-      batch.featBuf,
-      batch.tintBuf,
-      this.atlas.rhiView(),
-      this.atlas.rhiSampler(),
-    )
+    // Bind group built ONCE (stable buffers; icon's atlas view/sampler are stable-identity;
+    // the arrow has no atlas). A camera-only frame never rebuilds it. rhiView/rhiSampler are
+    // backend-blind (the WebGPU atlas wraps its native handles; the RHI atlas hands its own
+    // through).
+    batch.bindGroup =
+      spec.type === 'arrow'
+        ? this.arrowDraper.makeBatchBindGroup(batch.featBuf, batch.tintBuf)
+        : this.draper.makeBatchBindGroup(
+            batch.featBuf,
+            batch.tintBuf,
+            this.atlas.rhiView(),
+            this.atlas.rhiSampler(),
+          )
     batch.count = batch.spec.data.length
   }
 
@@ -214,12 +225,23 @@ export class GraphicsManager {
       )
       return
     }
+    const spec = batch.spec
     if (triggers.includes('color')) {
-      this.rhi.writeBuffer(batch.tintBuf, 0, packRetainedIconTint(batch.spec))
+      this.rhi.writeBuffer(
+        batch.tintBuf,
+        0,
+        spec.type === 'arrow' ? packRetainedArrowTint(spec) : packRetainedIconTint(spec),
+      )
       this._tintWrites++
     }
     if (triggers.some((t) => t !== 'color')) {
-      this.rhi.writeBuffer(batch.featBuf, 0, packRetainedIconFeat(batch.spec, this.atlas, this.dpr))
+      this.rhi.writeBuffer(
+        batch.featBuf,
+        0,
+        spec.type === 'arrow'
+          ? packRetainedArrowFeat(spec, this.dpr)
+          : packRetainedIconFeat(spec, this.atlas, this.dpr),
+      )
       this._featWrites++
     }
     this.repaintHook?.()
@@ -299,7 +321,10 @@ export class GraphicsManager {
     // pool slot ends holding its own copy's world_offset at draw time. If a future
     // change makes the frame uniform batch-specific (e.g. per-batch opacity), this
     // reuse must be revisited (write the pool once, rebind per batch).
-    for (const b of drawable) this.draper.draw(pass, b.bindGroup!, perCopy, b.count)
+    for (const b of drawable) {
+      const draper = b.spec.type === 'arrow' ? this.arrowDraper : this.draper
+      draper?.draw(pass, b.bindGroup!, perCopy, b.count)
+    }
 
     if (this._timeSamples !== null) this._timeSamples.push(performance.now() - t0)
   }
@@ -317,7 +342,12 @@ export class GraphicsManager {
       // Same fixed-size contract as updateBatch — skip a batch whose data length
       // drifted from its buffer capacity (out-of-contract mutation; updateBatch warns).
       if (b.spec.data.length !== b.count) continue
-      this.rhi.writeBuffer(b.featBuf, 0, packRetainedIconFeat(b.spec, this.atlas, d))
+      const s = b.spec
+      this.rhi.writeBuffer(
+        b.featBuf,
+        0,
+        s.type === 'arrow' ? packRetainedArrowFeat(s, d) : packRetainedIconFeat(s, this.atlas, d),
+      )
       this._featWrites++
     }
   }
@@ -343,6 +373,7 @@ export class GraphicsManager {
         : new HostSpriteAtlasGPU(device, this.registry)
     this.rhi = rhi
     this.draper = new RetainedIconDraper(rhi, format, 1, pointUniformBytes())
+    this.arrowDraper = new RetainedArrowDraper(rhi, format, 1, pointUniformBytes())
     this.frameBlock = uniformBlock(pointU)
     this._blockView = new Float32Array(this.frameBlock.buffer)
     for (const b of this.batches) this.materialise(b)
@@ -375,6 +406,7 @@ export class GraphicsManager {
     }
     this.rhi = null
     this.draper = null
+    this.arrowDraper = null
     this.frameBlock = null
     this._blockView = null
   }
