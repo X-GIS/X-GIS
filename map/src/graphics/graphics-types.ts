@@ -69,8 +69,10 @@ export interface ArrowDrawSpec<D> {
   readonly data: readonly D[]
   /** Geo anchor per item (the arrow TAIL) — the ONE required accessor. */
   readonly getPosition: Packed<Position, D>
-  /** Arrow rotation in radians (screen-space clockwise, +x at 0). Default 0. */
-  readonly getRotation?: Packed<number, D>
+  /** GEOGRAPHIC bearing the arrow points along, in degrees (0 = north, clockwise). Projected on
+   *  the GPU from two geo points, so it stays correct under camera bearing / pitch / globe.
+   *  Default 0 (north). */
+  readonly getBearing?: Packed<number, D>
   /** Arrow LENGTH in px (tail→tip). Default 1. */
   readonly getSize?: Packed<number, D>
   /** Solid fill colour. Default white. */

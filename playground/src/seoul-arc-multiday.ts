@@ -209,10 +209,11 @@ async function main(): Promise<void> {
       const c = CENTROID.get(name)!
       return [c.lon, c.lat]
     },
-    // Screen bearing of the outflow (Mercator conformal ⇒ ground bearing = screen bearing).
-    getRotation: (name) => {
+    // Geographic bearing of the outflow (0°=north, CW). Projected on the GPU → correct under
+    // any camera. f.fx = east component, f.fy = north component.
+    getBearing: (name) => {
       const f = field.get(name)
-      return f ? Math.atan2(-f.fy, f.fx) : 0
+      return f ? (Math.atan2(f.fx, f.fy) * 180) / Math.PI : 0
     },
     // Arrow LENGTH (px) ∝ √outflow-volume; 0 = invisible (weak / field off).
     getSize: (name) => {
