@@ -66,6 +66,8 @@ export default defineConfig({
         demo: 'demo.html',
         compare: 'compare.html',
         debugLabels: 'debug-labels.html',
+        seoulArcHero: 'seoul-arc-hero.html',
+        seoulOdbHero: 'seoul-odb-hero.html',
       },
     },
   },
