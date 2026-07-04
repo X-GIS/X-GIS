@@ -19,7 +19,7 @@ export type { AdminLevel, GazetteerMeta, Gazetteer, GazEntry } from './join'
 export { makeGazetteer, join } from './join'
 
 export type { PointPatch, FeatureCollectionLike, PipelineSink, EncodeResult } from './encode'
-export { bubble, points } from './encode'
+export { bubble, points, odFlow } from './encode'
 
 // Declarative orchestrator — the essence surface (which / how-loaded / how-shown) over the verbs.
 export type { JoinSpec, LoadSpec } from './load'

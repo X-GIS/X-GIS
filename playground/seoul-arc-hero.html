@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>X-GIS · 수도권 생활이동 flow-lines (daily pulse)</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #020617;
+        overflow: hidden;
+        font-family: system-ui, sans-serif;
+      }
+      #map {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+      }
+      #title {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        color: #e2e8f0;
+        font-size: 13px;
+        line-height: 1.5;
+        background: rgba(2, 6, 23, 0.6);
+        padding: 10px 14px;
+        border-radius: 8px;
+        max-width: 340px;
+      }
+      #title b {
+        color: #fb923c;
+      }
+      #hour-label {
+        position: fixed;
+        top: 16px;
+        right: 20px;
+        color: #fb923c;
+        font-size: 28px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      code {
+        color: #fbbf24;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="map"></canvas>
+    <div id="title">
+      <b>수도권 생활이동 flow-lines</b> — daily pulse<br />
+      real OA-22300 aggregated to a ~26KB <code>.odb</code>, decoded ONCE, then each
+      hour re-injected as origin→destination <code>odFlow</code> LineStrings. The city
+      breathes on a 2.5s cycle.
+    </div>
+    <div id="hour-label">08:00</div>
+    <script type="module" src="/src/seoul-arc-hero.ts"></script>
+  </body>
+</html>

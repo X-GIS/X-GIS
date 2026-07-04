@@ -127,6 +127,41 @@ export function bubble(
   return pointResult(lon, lat, { value, radius })
 }
 
+/** Origin-destination flow: one LineString per row connecting origin centroid to
+ *  destination centroid. `origin` and `dest` are join `as` handles (the encoder
+ *  reads `${origin}.lon` / `${origin}.lat` etc.). No `assertGeographic` — gazetteer
+ *  centroids are WGS84 by the join contract. `lift` (default 0) is written to
+ *  `properties.lift` on every feature as a reserved arc-bulge hint for a future
+ *  curved-draper integration; the current straight-line render path ignores it. */
+export function odFlow(
+  t: Table,
+  o: { origin: string; dest: string; weight: string; lift?: number },
+): EncodeResult {
+  const oLon = numCol(t, `${o.origin}.lon`)
+  const oLat = numCol(t, `${o.origin}.lat`)
+  const dLon = numCol(t, `${o.dest}.lon`)
+  const dLat = numCol(t, `${o.dest}.lat`)
+  const weight = numCol(t, o.weight)
+  const lift = o.lift ?? 0
+  const features = Array.from({ length: t.length }, (_, i) => ({
+    type: 'Feature' as const,
+    geometry: {
+      type: 'LineString' as const,
+      coordinates: [
+        [oLon[i], oLat[i]],
+        [dLon[i], dLat[i]],
+      ],
+    },
+    properties: { weight: weight[i], lift },
+  }))
+  const fc: FeatureCollectionLike = { type: 'FeatureCollection', features }
+  return {
+    kind: 'fc',
+    apply: (sink, id) => sink.setSourceData(id, fc),
+    toFeatureCollection: () => fc,
+  }
+}
+
 /** Plain points (no magnitude channel). */
 export function points(
   t: Table,

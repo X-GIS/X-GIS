@@ -83,6 +83,45 @@ describe('@xgis/pipeline · loaders · krAdminLoader', () => {
     expect(result.data.features.length).toBe(1) // only the hour-8 flow survives
   })
 
+  it('odbLoader arc mode emits a LineString FC, feature count = rows passing hour filter, endpoints in Seoul', async () => {
+    const gaz = seoulSigunguGazetteer({ vintage: '2026' })
+    const flows: ODFlow[] = [
+      { origin: '11110', dest: '11680', hour: 8, pop: 5000 },
+      { origin: '11350', dest: '11680', hour: 8, pop: 3000 },
+      { origin: '11110', dest: '11680', hour: 18, pop: 2000 }, // filtered out by hour: 8
+    ]
+    const buf = encodeODB(flows)
+    const loader = odbLoader(gaz, { mode: 'arc', hour: 8 })
+    const result = await loader({
+      id: 'arcs',
+      url: 'seoul.odb',
+      options: {},
+      fetch: async (_u: string) => new Response(buf),
+    })
+
+    expect(result.kind).toBe('fc')
+    if (result.kind !== 'fc') throw new Error('expected fc')
+    const fc = result.data
+
+    // 2 rows survive the hour:8 filter → 2 LineString features
+    expect(fc.features.length).toBe(2)
+
+    for (const feat of fc.features as {
+      geometry: { type: string; coordinates: number[][] }
+      properties: { weight: number }
+    }[]) {
+      expect(feat.geometry.type).toBe('LineString')
+      expect(feat.geometry.coordinates).toHaveLength(2)
+      // Both endpoints must resolve to Seoul centroids (lon 126–128)
+      expect(feat.geometry.coordinates[0]![0]).toBeGreaterThan(126)
+      expect(feat.geometry.coordinates[0]![0]).toBeLessThan(128)
+      expect(feat.geometry.coordinates[1]![0]).toBeGreaterThan(126)
+      expect(feat.geometry.coordinates[1]![0]).toBeLessThan(128)
+      // weight property carried through
+      expect(feat.properties.weight).toBeGreaterThan(0)
+    }
+  })
+
   it('throws a clear HTTP error on a non-ok fetch (not a downstream parse error)', async () => {
     // safeFetch returns 4xx/5xx without throwing; the loader must guard status
     // BEFORE parsing so a 404 blames the fetch, not `join` (code-review MEDIUM).

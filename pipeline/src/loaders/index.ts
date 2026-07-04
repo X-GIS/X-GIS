@@ -9,7 +9,7 @@
 
 import { fromCSV, fromRows } from '../ingest'
 import { join, type Gazetteer } from '../join'
-import { bubble, type FeatureCollectionLike, type PointPatch } from '../encode'
+import { bubble, odFlow, type FeatureCollectionLike, type PointPatch } from '../encode'
 import { decodeODB } from '../odb/format'
 
 /** What a loader receives at source-attach time (structural mirror of @xgis/map's
@@ -69,7 +69,7 @@ export function krAdminLoader(
  *  re-invoke this (that re-fetches + re-decodes) — decode once + index by hour. */
 export function odbLoader(
   gaz: Gazetteer,
-  opts: { mode?: 'inflow' | 'outflow'; hour?: number } = {},
+  opts: { mode?: 'inflow' | 'outflow' | 'arc'; hour?: number } = {},
 ): SourceLoader {
   const mode = opts.mode ?? 'inflow'
   return async ({ url, fetch }) => {
@@ -80,6 +80,25 @@ export function odbLoader(
       )
     }
     const data = decodeODB(await resp.arrayBuffer())
+    if (mode === 'arc') {
+      const rows: { o_code: string; d_code: string; pop: number }[] = []
+      for (let i = 0; i < data.rowCount; i++) {
+        if (opts.hour !== undefined && data.hour[i] !== opts.hour) continue
+        rows.push({
+          o_code: data.dict[data.origin[i]!]!,
+          d_code: data.dict[data.dest[i]!]!,
+          pop: data.pop[i]!,
+        })
+      }
+      const t = fromRows(rows, { vintage: gaz.vintage })
+      const j = join(join(t, { code: 'o_code', gaz, as: 'origin' }), {
+        code: 'd_code',
+        gaz,
+        as: 'dest',
+      })
+      const enc = odFlow(j, { origin: 'origin', dest: 'dest', weight: 'pop' })
+      return { kind: 'fc', data: enc.toFeatureCollection() }
+    }
     const codeCol = mode === 'inflow' ? data.dest : data.origin
     const byCode = new Map<string, number>()
     for (let i = 0; i < data.rowCount; i++) {
