@@ -13,6 +13,11 @@ playground/public/data/*
 # Tiny .odb OD-flow fixture (real OA-22300 aggregated to 서울 top-2000, ~26KB)
 # so the .odb hero demo + its e2e gate render without the 345MB raw CSV.
 !playground/public/data/fixture-*.odb
+# Seoul demo backdrop (자치구 boundary) + custom-loader CSV sample — the 생활이동
+# hero demos load these; without whitelisting they deploy as 404 (the bulk-data ignore
+# above catches them, and CI's git checkout never sees the local-only files).
+!playground/public/data/seoul_gu.geojson
+!playground/public/data/seoul_outflow.csv
 
 # Natural Earth 110m countries (~700 KB) — referenced by 19+ demo
 # .xgis files (filter-gdp, continent-match, layered-borders, etc.).
