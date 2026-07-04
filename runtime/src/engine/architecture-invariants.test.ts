@@ -338,7 +338,9 @@ const LOC_CEILINGS: Record<string, number> = {
   // and SourceDef.inlineData field + JSDoc (+3, same additive source-field class
   // as crs).
   // Bumped 858→901 (full-repo prettier adopt): formatting-only growth, no new logic.
-  'compiler/src/ir/render-node.ts': 901,
+  // Bumped 901→908: SourceDef.options bag field + JSDoc (+7, same additive source-field
+  // class as crs/inlineData — the custom source-loader seam's compile-time carrier).
+  'compiler/src/ir/render-node.ts': 908,
   // Crossed 800 purely via the full-repo prettier adoption (one-property-per-line /
   // call-arg wrapping) — not a hand-grown god-file; baselined at the formatted size,
   // shrink as it converges.
