@@ -68,6 +68,7 @@ export default defineConfig({
         debugLabels: 'debug-labels.html',
         seoulArcHero: 'seoul-arc-hero.html',
         seoulOdbHero: 'seoul-odb-hero.html',
+        seoulArcMultiday: 'seoul-arc-multiday.html',
       },
     },
   },
