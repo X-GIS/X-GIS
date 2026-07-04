@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>X-GIS · 수도권 생활이동 multi-day (date × hour)</title>
+    <title>X-GIS · 수도권 생활이동 flow-map (purpose × hour)</title>
     <style>
       html,
       body {
@@ -46,9 +46,10 @@
       }
       #hour-label {
         color: #fb923c;
-        font-size: 30px;
+        font-size: 17px;
         font-weight: 700;
         font-variant-numeric: tabular-nums;
+        white-space: nowrap;
       }
       #controls {
         position: fixed;
@@ -78,6 +79,82 @@
         width: min(60vw, 520px);
         accent-color: #fb923c;
       }
+      #legend {
+        position: fixed;
+        bottom: 80px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        background: rgba(2, 6, 23, 0.75);
+        backdrop-filter: blur(8px);
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid #1e293b;
+        white-space: nowrap;
+      }
+      .filter-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        cursor: pointer;
+        color: #cbd5e1;
+        font-size: 12px;
+        font-weight: 600;
+        user-select: none;
+      }
+      .filter-row:hover {
+        color: #e2e8f0;
+      }
+      .chip {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        flex-shrink: 0;
+      }
+      .filter-row input[type='checkbox'] {
+        accent-color: #fb923c;
+        width: 14px;
+        height: 14px;
+        cursor: pointer;
+        margin: 0;
+      }
+      .seg-sep {
+        height: 1px;
+        background: #1e293b;
+        margin: 2px 0;
+      }
+      #seg-select {
+        background: #0f172a;
+        color: #cbd5e1;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        font-size: 11px;
+        padding: 2px 6px;
+        cursor: pointer;
+        outline: none;
+        width: 100%;
+      }
+      #seg-select:hover {
+        border-color: #475569;
+      }
+      #tooltip {
+        position: fixed;
+        pointer-events: none;
+        background: rgba(2, 6, 23, 0.92);
+        border: 1px solid #334155;
+        border-radius: 6px;
+        padding: 6px 10px;
+        color: #e2e8f0;
+        font-size: 12px;
+        line-height: 1.6;
+        display: none;
+        max-width: 220px;
+        backdrop-filter: blur(4px);
+        z-index: 10;
+      }
       code {
         color: #fbbf24;
       }
@@ -86,17 +163,41 @@
   <body>
     <canvas id="map"></canvas>
     <div id="title">
-      <b>수도권 생활이동 · multi-day</b><br />
-      3 days of real OA-22300 (each a ~190KB <code>.odb</code>) on one date×hour
-      scrubber. 1247 days is the same UI — just more fixtures (or a server range query).
+      <b>수도권 생활이동 · purpose × hour</b><br />
+      20260531 98,837 flows — width&thinsp;=&thinsp;이동량, color&thinsp;=&thinsp;목적.<br />
+      Top&thinsp;30 per band via <code>stroke-[sqrt(.weight)*0.07+1]</code>.
     </div>
     <div id="clock">
-      <div id="date-label">2026-05-29</div>
+      <div id="date-label">2026-05-31</div>
       <div id="hour-label">00:00</div>
     </div>
+    <div id="legend">
+      <label class="filter-row">
+        <span class="chip" style="background: #fb923c"></span>
+        <input type="checkbox" id="cb-commute" checked />
+        <span>출근·통학</span>
+      </label>
+      <label class="filter-row">
+        <span class="chip" style="background: #22d3ee"></span>
+        <input type="checkbox" id="cb-shop" checked />
+        <span>쇼핑·여가</span>
+      </label>
+      <label class="filter-row">
+        <span class="chip" style="background: #64748b"></span>
+        <input type="checkbox" id="cb-life" checked />
+        <span>생활·기타</span>
+      </label>
+      <div class="seg-sep"></div>
+      <select id="seg-select" title="구분 필터">
+        <option value="all">전체</option>
+        <option value="domestic">내국인</option>
+        <option value="foreign">외국인</option>
+      </select>
+    </div>
+    <div id="tooltip"></div>
     <div id="controls">
       <button id="play" title="play/pause">▶</button>
-      <input id="scrubber" type="range" min="0" max="71" value="0" step="1" />
+      <input id="scrubber" type="range" min="0" max="23" value="0" step="1" />
     </div>
     <script type="module" src="/src/seoul-arc-multiday.ts"></script>
   </body>

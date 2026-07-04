@@ -69,7 +69,12 @@ export function krAdminLoader(
  *  re-invoke this (that re-fetches + re-decodes) — decode once + index by hour. */
 export function odbLoader(
   gaz: Gazetteer,
-  opts: { mode?: 'inflow' | 'outflow' | 'arc'; hour?: number } = {},
+  opts: {
+    mode?: 'inflow' | 'outflow' | 'arc'
+    hour?: number
+    purpose?: number
+    segment?: number
+  } = {},
 ): SourceLoader {
   const mode = opts.mode ?? 'inflow'
   return async ({ url, fetch }) => {
@@ -84,6 +89,8 @@ export function odbLoader(
       const rows: { o_code: string; d_code: string; pop: number }[] = []
       for (let i = 0; i < data.rowCount; i++) {
         if (opts.hour !== undefined && data.hour[i] !== opts.hour) continue
+        if (opts.purpose !== undefined && data.purpose && data.purpose[i] !== opts.purpose) continue
+        if (opts.segment !== undefined && data.segment && data.segment[i] !== opts.segment) continue
         rows.push({
           o_code: data.dict[data.origin[i]!]!,
           d_code: data.dict[data.dest[i]!]!,
@@ -103,6 +110,8 @@ export function odbLoader(
     const byCode = new Map<string, number>()
     for (let i = 0; i < data.rowCount; i++) {
       if (opts.hour !== undefined && data.hour[i] !== opts.hour) continue
+      if (opts.purpose !== undefined && data.purpose && data.purpose[i] !== opts.purpose) continue
+      if (opts.segment !== undefined && data.segment && data.segment[i] !== opts.segment) continue
       const code = data.dict[codeCol[i]!]!
       byCode.set(code, (byCode.get(code) ?? 0) + data.pop[i]!)
     }
