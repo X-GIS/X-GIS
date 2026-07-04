@@ -135,7 +135,12 @@ async function main(): Promise<void> {
     rawRows++
     const origin = roll(cells[iOrigin]!.trim())
     const dest = roll(cells[iDest]!.trim())
-    let hour = Number(cells[iHour]!.trim())
+    // The hour column is MIXED: "HH" (2-digit hourly) OR "HHMM" (4-digit, 20-minute
+    // buckets on commute hours 07-09/17-19, e.g. "0820"). Normalise to the hour (HH)
+    // so it (a) fits u8 0-23 instead of overflowing (Number("0800")=800 → 800%256=32),
+    // and (b) aggregates the 20-min sub-buckets into one hour for a clean daily pulse.
+    const rawH = cells[iHour]!.trim()
+    let hour = Number(rawH.length >= 4 ? rawH.slice(0, 2) : rawH)
     const pop = Number(cells[iPop]!.trim())
     if (!origin || !dest || !Number.isFinite(hour) || !Number.isFinite(pop)) continue
     if (!inRegion(origin) || !inRegion(dest)) continue // region filter (both endpoints)
