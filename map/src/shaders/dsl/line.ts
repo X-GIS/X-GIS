@@ -84,7 +84,7 @@ import {
   resource,
   arrayOf,
 } from '@xgis/shader-dsl'
-import { emitModule } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule } from '@xgis/shader-dsl'
 import {
   inv_merc_lat_rad,
   flat_rel,
@@ -1335,6 +1335,48 @@ export const buildLineModule = (pickEnabled: boolean): ModuleDecl =>
  *  __PICK_FIELD__ / __PICK_WRITE__ regex markers). */
 export const emitLineWgsl = (pickEnabled: boolean): string =>
   emitModule(buildLineModule(pickEnabled))
+
+/** GLSL ES 3.00 twin of the line shader (#834 M5 slice 1 — mirrors
+ *  emitPolygonGlsl / emitIconRetainedGlsl). Single-main-per-stage split:
+ *  GLSL has one entry per stage, so each stage keeps only its own entry
+ *  (`vs_line` / `fs_line`) plus the stage-neutral helpers. The three
+ *  array<Struct> storage buffers (segments / shapes / shape_segments)
+ *  lower to R32F data textures via `emulateStorage` — the same path the
+ *  WebGL2 render-gate proves for scalar-field lane reads. */
+export const emitLineGlsl = (pickEnabled: boolean, stage: 'vertex' | 'fragment'): string => {
+  // Per-stage module ASSEMBLY (not a post-hoc func filter): module() collects
+  // the kept entry's transitive callees automatically, so the vertex stage
+  // never sees the fragment-only SDF helpers — they contain `discard`, which
+  // GLSL rejects in a vertex shader even when unreached.
+  const entry = stage === 'vertex' ? vsLine : buildFsLine(pickEnabled)
+  return emitGlslModule(
+    module({
+      consts: [...PROJECTION_CONSTS, ...ECEF_CONSTS],
+      structs: [
+        TILE.struct,
+        PatternSlot.decl,
+        LAYER.struct,
+        LineSegment.decl,
+        ShapeDesc.decl,
+        ShapeSegment.decl,
+        LineOut.decl,
+        lineFragmentOutput(pickEnabled).decl,
+      ],
+      bindings: [
+        TILE.binding,
+        spriteAtlasB.binding,
+        spriteSampB.binding,
+        LAYER.binding,
+        segmentsB.binding,
+        shapesB.binding,
+        shapeSegmentsB.binding,
+      ],
+      funcs: [...getGpuProjectionFuncs(), entry],
+    }),
+    stage,
+    { emulateStorage: true },
+  )
+}
 
 // ── Compositor (fullscreen-triangle sampling the translucent offscreen RT) ──
 //
