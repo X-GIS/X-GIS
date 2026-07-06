@@ -29,7 +29,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { GpuTileStore } from '@xgis/map'
-import { WebGpuDevice } from '@xgis/rhi-webgpu'
+import { WebGpuDevice, wrapWebGpuBuffer } from '@xgis/rhi-webgpu'
 
 interface MockBuffer {
   destroyed: boolean
@@ -74,8 +74,10 @@ function seedTile(
     lineVertexBuffer: null,
     lineIndexBuffer: null,
     outlineIndexBuffer: null,
-    outlineSegmentBuffer: outline as unknown as GPUBuffer,
-    lineSegmentBuffer: line as unknown as GPUBuffer,
+    // #834 M5 — the segment fields are RhiBuffer now; wrap the tracked
+    // mocks so the store's rhi.destroyBuffer unwraps back to them.
+    outlineSegmentBuffer: wrapWebGpuBuffer(outline as unknown as GPUBuffer),
+    lineSegmentBuffer: wrapWebGpuBuffer(line as unknown as GPUBuffer),
     featureDataBuffer: feat as unknown as GPUBuffer,
     lastUsedFrame: 0,
   }

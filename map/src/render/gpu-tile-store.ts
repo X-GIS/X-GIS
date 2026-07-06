@@ -929,6 +929,8 @@ export class GpuTileStore {
     // not reach them).
     for (const b of this._retiredTileBuffers) b.destroy()
     this._retiredTileBuffers.length = 0
+    for (const b of this._retiredTileRhiBuffers) this.rhi.destroyBuffer(b)
+    this._retiredTileRhiBuffers.length = 0
     // Drain the pooled-buffer recycler: pooled line/index/outline buffers are
     // standalone GPUBuffers (NOT arena slices), so the arena destroys above do
     // not reclaim them. Without this they leak until device loss across SPA

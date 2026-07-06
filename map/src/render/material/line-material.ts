@@ -19,8 +19,9 @@ import { emitLineGlsl } from '../../shaders/dsl/line-glsl'
 // (storage lowers to R32F data textures named <buffer>_tex by emulateStorage).
 const LINE_TILE_ENTRIES: RhiBindLayoutEntry[] = [
   { binding: 0, kind: 'uniform', dynamic: true, name: 'TileUniforms' },
-  { binding: 5, kind: 'texture', name: 'sprite_atlas' },
-  { binding: 6, kind: 'sampler', name: 'sprite_samp' },
+  // sprite_atlas/sprite_samp (bindings 5/6) are pattern-only; the solid
+  // fs_line twin never samples them, so slice 1 omits the entries — the
+  // pattern variant extends this when it lands on WebGL2.
 ]
 const LINE_LAYER_ENTRIES: RhiBindLayoutEntry[] = [
   { binding: 0, kind: 'uniform', dynamic: true, name: 'LineLayer' },
