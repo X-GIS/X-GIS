@@ -94,8 +94,8 @@ export const CODES = {
   },
   SD0043: {
     code: 'SD0043',
-    summary: "the 'df64_' function-name prefix is reserved",
-    hint: 'fp64Lower injects df64_* emulation helpers under that prefix — rename the function',
+    summary: 'reserved fp64 name',
+    hint: 'fp64Lower injects df64_* emulation fns and DF64VecN structs under those names — rename the colliding declaration',
   },
   SD0044: {
     code: 'SD0044',

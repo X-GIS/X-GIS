@@ -39,9 +39,13 @@ import {
   floor,
   member,
   bindingRef,
+  construct,
   structT,
   f32T,
   vec2fT,
+  vec3fT,
+  vec4fT,
+  type Node,
   type ReadonlyNode,
   type StructDecl,
   type BindingDecl,
@@ -292,6 +296,121 @@ const df64_fract = fn('df64_fract', { a: vec2fT }, (p) =>
  *  f32 → f64 needs no helper — fp64-lower emits `vec2<f32>(x, 0.0)`.) */
 const df64_narrow = fn('df64_narrow', { a: vec2fT }, (p) => p.a.x.add(p.a.y))
 
+// ── Vectorized df64 (vecN<f64> — the DF64VecN hi/lo-plane form) ──
+//
+// The EFTs are valid PER LANE, so the vector arithmetic runs the exact scalar
+// formulas on whole vecN hi/lo planes (one twoSum for all lanes — no unroll).
+// A vecN<f64> value lowers to `struct DF64VecN { hi: vecN<f32>, lo: vecN<f32> }`;
+// these helpers take/return that struct. dot/length/distance are NOT here —
+// they need cross-lane accumulation and are composed from the SCALAR df64 fns
+// by the lowering pass (numerically the standard approach anyway).
+
+const VEC_F32_T = { 2: vec2fT, 3: vec3fT, 4: vec4fT } as const
+
+/** DF64VecN struct decls, keyed by lane count — injected by fp64-lower
+ *  alongside the helpers whenever a module carries a vecN<f64>. */
+export const DF64_VEC_STRUCTS: ReadonlyMap<2 | 3 | 4, StructDecl> = new Map(
+  ([2, 3, 4] as const).map((n) => [
+    n,
+    {
+      name: `DF64Vec${n}`,
+      fields: [
+        { name: 'hi', type: VEC_F32_T[n] },
+        { name: 'lo', type: VEC_F32_T[n] },
+      ],
+    },
+  ]),
+)
+
+function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
+  const vT: ShaderType = VEC_F32_T[n]
+  const sT = structT(`DF64Vec${n}`)
+  // INTERNAL type-level pinning: the bodies are width-generic (every op is
+  // componentwise / a scalar broadcast), but a union-keyed node defeats the
+  // method overloads — pin the phantom key to one width; the RUNTIME type is
+  // always the true vT carried by the param/member exprs.
+  type V = ReadonlyNode<'vec2<f32>'>
+  const asV = (x: ReadonlyNode): V => x as unknown as V
+  const pair = (hi: ReadonlyNode, lo: ReadonlyNode): Node => construct(sT, [hi, lo])
+  const hi = (x: ReadonlyNode): V => asV(member(x, 'hi', vT))
+  const lo = (x: ReadonlyNode): V => asV(member(x, 'lo', vT))
+
+  // The scalar EFT formulas verbatim, on vecN operands (broadcast `* one`).
+  const twoSum = fn(`df64_v${n}_twoSum`, { a: vT, b: vT }, (raw) => {
+    const [a, b] = [asV(raw.a), asV(raw.b)]
+    const s = Let(a.add(b))
+    const v = Let(s.mul(one).sub(a).mul(one))
+    const e = Let(a.sub(s.sub(v).mul(one)).mul(one).mul(one).mul(one).add(b.sub(v)))
+    return pair(s, e)
+  })
+  const quickTwoSum = fn(`df64_v${n}_quickTwoSum`, { a: vT, b: vT }, (raw) => {
+    const [a, b] = [asV(raw.a), asV(raw.b)]
+    const s = Let(a.add(b).mul(one))
+    const e = Let(b.sub(s.sub(a).mul(one)))
+    return pair(s, e)
+  })
+  const split = fn(`df64_v${n}_split`, { a: vT }, (raw) => {
+    const a = asV(raw.a)
+    const t = Let(a.mul(one.mul(4097.0)))
+    const h = Let(t.mul(one).sub(t.sub(a)))
+    const l = Let(a.mul(one).sub(h))
+    return pair(h, l)
+  })
+  const twoProd = fn(`df64_v${n}_twoProd`, { a: vT, b: vT }, (raw) => {
+    const [a, b] = [asV(raw.a), asV(raw.b)]
+    const prod = Let(a.mul(b))
+    const aS = Let(split({ a }))
+    const bS = Let(split({ a: b }))
+    const e = Let(
+      hi(aS)
+        .mul(hi(bS))
+        .sub(prod)
+        .add(hi(aS).mul(lo(bS)))
+        .add(lo(aS).mul(hi(bS)))
+        .add(lo(aS).mul(lo(bS))),
+    )
+    return pair(prod, e)
+  })
+  const add = fn(`df64_v${n}_add`, { a: sT, b: sT }, (p) => {
+    const s1 = Let(twoSum({ a: hi(p.a), b: hi(p.b) }))
+    const t = Let(twoSum({ a: lo(p.a), b: lo(p.b) }))
+    const s2 = Let(lo(s1).add(hi(t)))
+    const r1 = Let(quickTwoSum({ a: hi(s1), b: s2 }))
+    const s3 = Let(lo(r1).add(lo(t)))
+    return quickTwoSum({ a: hi(r1), b: s3 })
+  })
+  const sub = fn(`df64_v${n}_sub`, { a: sT, b: sT }, (p) =>
+    add({ a: p.a, b: pair(hi(p.b).neg(), lo(p.b).neg()) }),
+  )
+  const mul = fn(`df64_v${n}_mul`, { a: sT, b: sT }, (p) => {
+    const p0 = Let(twoProd({ a: hi(p.a), b: hi(p.b) }))
+    const py = Let(
+      lo(p0)
+        .add(hi(p.a).mul(lo(p.b)))
+        .add(lo(p.a).mul(hi(p.b))),
+    )
+    return quickTwoSum({ a: hi(p0), b: py })
+  })
+  const div = fn(`df64_v${n}_div`, { a: sT, b: sT }, (p) => {
+    const xn = Let(one.div(hi(p.b)))
+    const yn = Let(pair(hi(p.a).mul(xn), lo(p.a).mul(xn)))
+    const diff = Let(hi(sub({ a: p.a, b: mul({ a: p.b, b: yn }) })))
+    const prod = Let(twoProd({ a: xn, b: diff }))
+    return add({ a: yn, b: prod })
+  })
+
+  return [
+    twoSum.decl,
+    quickTwoSum.decl,
+    split.decl,
+    twoProd.decl,
+    add.decl,
+    sub.decl,
+    mul.decl,
+    div.decl,
+  ]
+}
+
 // ── Registry (the fp64-lower pass's injection SoT) ──
 
 /** Every emulation fn, in the FIXED dependency-first order they are appended
@@ -322,6 +441,9 @@ export const DF64_ORDER: readonly FuncDecl[] = [
   df64_floor.decl,
   df64_fract.decl,
   df64_narrow.decl,
+  ...defVecHelpers(2),
+  ...defVecHelpers(3),
+  ...defVecHelpers(4),
 ]
 
 /** name → FuncDecl for the lowering pass's used-set closure. */

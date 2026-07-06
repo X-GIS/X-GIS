@@ -745,8 +745,24 @@ all agree). What to know:
 - **Layout & packing.** An f64 uniform field / vertex attribute occupies a plain
   `vec2<f32>` slot (size 8, align 8); pack it with `splitF64(x)` (hi, lo). An f64
   VARYING is rejected (`SD0044`) — interpolating hi/lo pairs is numerically wrong.
-- **Names.** The `df64_` fn-name prefix is reserved for the injected helpers (`SD0043`).
+- **Names.** The `df64_` fn prefix and `DF64VecN` struct names are reserved for the
+  injected emulation (`SD0043`).
 - **Cost.** Each op is several-to-10× an f32 op — opt in per VALUE, not per shader.
+
+### Vectors — `vec2f64T` / `vec3f64T` / `vec4f64T`
+
+`vecNf64(x, y, …)` builds an emulated-double vector; components (`v.x`), swizzles
+(`v.zyx`), componentwise `+ − ×` (with `f64`/`f32`/number broadcast), `÷`, `neg`, and
+the reductions `dot`/`length`/`distance` (→ `f64`) all use the unchanged surface. A
+vec64 lowers to `struct DF64VecN { hi: vecN<f32>, lo: vecN<f32> }` — componentwise
+arithmetic runs the same EFTs on whole hi/lo planes (one twoSum for all lanes);
+`dot`/`length`/`distance` accumulate through the SCALAR df64 chain (extended-precision
+accumulation is the point). Everything else on a vec64 (`normalize`, `abs`, `mix`,
+…) is `SD0041` — narrow per lane (`toF32(v.x)`) or divide by `length(v)` explicitly.
+A vec64 uniform field occupies its struct layout (n=2: 16 B, n=3/4: 32 B under
+std140); a vec64 vertex ATTRIBUTE is rejected (`SD0041`) — pass hi/lo as two
+`vecN<f32>` `@location`s (the existing DSFUN lane convention) and rebuild lanes with
+`f64FromParts`.
 
 See `examples/fp64-deep-zoom.ts` for the full picture (f32 collapse vs f64 stripes).
 

@@ -16,8 +16,12 @@ import {
   isScalar,
   isMat,
   isF64,
+  isVec64,
   f32T,
   f64T,
+  vec2f64T,
+  vec3f64T,
+  vec4f64T,
   i32T,
   u32T,
   boolT,
@@ -48,7 +52,7 @@ export type NodeLike = ReadonlyNode<any> | number
  *  f32 (implicit exact widen) / number — never int/bool (SD0004 at runtime,
  *  rejected here at tsc). */
 export type ArithArg<K extends string> = K extends `vec${string}`
-  ? ReadonlyNode<K> | ReadonlyNode<ScalarKey> | number
+  ? ReadonlyNode<K> | ReadonlyNode<ScalarKey | 'f64'> | number
   : K extends 'f64'
     ? ReadonlyNode<'f64'> | ReadonlyNode<ScalarKey> | number
     : ReadonlyNode<ScalarKey> | number
@@ -115,6 +119,19 @@ function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
   }
   if (isVec(a) && isScalar(b)) return a
   if (isScalar(a) && isVec(b)) return b
+  // vec64 (emulated-double vectors): vec64∘same-vec64 → vec64; vec64∘(f64|f32)
+  // scalar broadcasts. Everything else (ints, mixed widths, f32 vecs) rejects.
+  // `%` has no emulation; `/` lowers to the vectorized NR division.
+  if (isVec64(a) || isVec64(b)) {
+    if (ctx === '%') throw dslError('SD0041', `binary op '%' on ${typeKey(a)} / ${typeKey(b)}`)
+    if (isVec64(a) && isVec64(b)) {
+      if (a.n !== b.n) throw dslError('SD0002', `${ctx}: ${typeKey(a)} vs ${typeKey(b)}`)
+      return a
+    }
+    const [v, other] = isVec64(a) ? [a, b] : [b, a]
+    if (isF64(other) || (isScalar(other) && other.scalar === 'f32')) return v
+    throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`)
+  }
   // f64 (emulated double): f64∘f64 → f64; f64∘f32 → f64 (implicit EXACT widen —
   // the fp64-lower pass wraps the f32 side as vec2<f32>(x, 0.0)). Anything else
   // (int/bool/vec/mat) is rejected — no implicit narrowing, no int promotion.
@@ -179,7 +196,7 @@ export class ReadonlyNode<K extends string = string> {
     // An f64 context lifts a bare number to an f64 LITERAL carrying the full
     // JS-double value — the fp64-lower pass splits it into (hi, lo) f32 halves
     // at build time, so `x.add(0.1)` on an f64 x loses nothing.
-    if (typeof o === 'number' && isF64(t)) return f64(o)
+    if (typeof o === 'number' && (isF64(t) || isVec64(t))) return f64(o)
     return lift(o)
   }
 
@@ -346,6 +363,12 @@ export class ReadonlyNode<K extends string = string> {
   /** Vector component access — `.x`/`.y`/`.z`/`.w` → elem scalar. */
   comp(field: 'x' | 'y' | 'z' | 'w'): Node<ElemKey<K>> {
     const t = this.type
+    // A vec64 component is an f64 scalar (fp64-lower reassembles the lane's
+    // hi/lo pair from the struct planes).
+    if (isVec64(t)) {
+      if (VEC_FIELD_INDEX[field] >= t.n) throw dslError('SD0007', `.${field} on ${typeKey(t)}`)
+      return new Node<ElemKey<K>>({ op: 'member', type: f64T, base: this.expr, field })
+    }
     if (!isVec(t)) throw dslError('SD0006', `.${field} on ${typeKey(t)}`)
     if (VEC_FIELD_INDEX[field] >= t.n) throw dslError('SD0007', `.${field} on ${typeKey(t)}`)
     return new Node<ElemKey<K>>({
@@ -380,7 +403,7 @@ export class ReadonlyNode<K extends string = string> {
   swizzle<R extends string>(comps: string): Node<R>
   swizzle(comps: string): Node {
     const t = this.type
-    if (!isVec(t)) throw dslError('SD0008', `.${comps} on ${typeKey(t)}`)
+    if (!isVec(t) && !isVec64(t)) throw dslError('SD0008', `.${comps} on ${typeKey(t)}`)
     const n = comps.length
     if (n < 1 || n > 4) throw dslError('SD0008', `.${comps} — a swizzle takes 1-4 components`)
     let family: 'xyzw' | 'rgba' | undefined
@@ -396,8 +419,11 @@ export class ReadonlyNode<K extends string = string> {
         throw dslError('SD0008', `.${comps} — '${c}' is not a component (xyzw/rgba)`)
       if (idx >= t.n) throw dslError('SD0007', `.${comps} on ${typeKey(t)}`)
     }
-    const type: ShaderType =
-      n === 1
+    const type: ShaderType = isVec64(t)
+      ? n === 1
+        ? f64T
+        : { kind: 'vec64', n: n as 2 | 3 | 4 }
+      : n === 1
         ? { kind: 'scalar', scalar: t.elem }
         : { kind: 'vec', n: n as 2 | 3 | 4, elem: t.elem }
     return new Node({ op: 'member', type, base: this.expr, field: comps })
@@ -643,20 +669,37 @@ export const step = <K extends string>(edge: NoInfer<ArithArg<K>>, x: ReadonlyNo
   call('step', x.type, edge, x) as Node<K>
 // K-constrained like `cross` (#763 X7) — dot(v2, v3) used to COMPILE and die at
 // naga; the shared K pins both operands to one float-vector key.
-export const length = <K extends `vec${number}<f32>`>(v: ReadonlyNode<K>): Node<'f32'> =>
-  call('length', f32T, v) as Node<'f32'>
-export const dot = <K extends `vec${number}<f32>`>(
+export function length<K extends `vec${number}<f64>`>(v: ReadonlyNode<K>): Node<'f64'>
+export function length<K extends `vec${number}<f32>`>(v: ReadonlyNode<K>): Node<'f32'>
+export function length(v: ReadonlyNode<string>): Node<string> {
+  return call('length', isVec64(v.type) ? f64T : f32T, v)
+}
+export function dot<K extends `vec${number}<f64>`>(
   a: ReadonlyNode<K>,
   b: NoInfer<ReadonlyNode<K>>,
-): Node<'f32'> => call('dot', f32T, a, b) as Node<'f32'>
+): Node<'f64'>
+export function dot<K extends `vec${number}<f32>`>(
+  a: ReadonlyNode<K>,
+  b: NoInfer<ReadonlyNode<K>>,
+): Node<'f32'>
+export function dot(a: ReadonlyNode<string>, b: ReadonlyNode<string>): Node<string> {
+  return call('dot', isVec64(a.type) ? f64T : f32T, a, b)
+}
 /** `normalize(v)` — v/|v|; preserves the vector key (vec2/3/4). */
 export const normalize = genType1('normalize')
 /** `distance(a, b)` — |a − b| (vector → scalar), the built-in spelling of the
  *  hand-rolled `length(a.sub(b))`. */
-export const distance = <K extends `vec${number}<f32>`>(
+export function distance<K extends `vec${number}<f64>`>(
   a: ReadonlyNode<K>,
   b: NoInfer<ReadonlyNode<K>>,
-): Node<'f32'> => call('distance', f32T, a, b) as Node<'f32'>
+): Node<'f64'>
+export function distance<K extends `vec${number}<f32>`>(
+  a: ReadonlyNode<K>,
+  b: NoInfer<ReadonlyNode<K>>,
+): Node<'f32'>
+export function distance(a: ReadonlyNode<string>, b: ReadonlyNode<string>): Node<string> {
+  return call('distance', isVec64(a.type) ? f64T : f32T, a, b)
+}
 /** `cross(a, b)` — 3-D cross product (vec3 only). */
 export const cross = (
   a: ReadonlyNode<'vec3<f32>'>,
@@ -853,10 +896,12 @@ export const construct = (type: ShaderType, args: NodeLike[]): Node => {
   const elem =
     type.kind === 'vec'
       ? type.elem
-      : type.kind === 'array' && type.elem.kind === 'scalar'
-        ? type.elem.scalar
-        : 'f32'
-  const elemT = elem === 'u32' ? u32T : elem === 'i32' ? i32T : f32T
+      : type.kind === 'vec64'
+        ? 'f64'
+        : type.kind === 'array' && type.elem.kind === 'scalar'
+          ? type.elem.scalar
+          : 'f32'
+  const elemT = elem === 'u32' ? u32T : elem === 'i32' ? i32T : elem === 'f64' ? f64T : f32T
   return new Node({
     op: 'construct',
     type,
@@ -883,6 +928,16 @@ export const vec2u = (...a: NodeLike[]): Node<'vec2<u32>'> =>
   construct(vec2uT, a) as Node<'vec2<u32>'>
 export const vec2i = (...a: NodeLike[]): Node<'vec2<i32>'> =>
   construct(vec2iT, a) as Node<'vec2<i32>'>
+// Emulated-double vector constructors. Components are f64 nodes (or bare
+// numbers, split losslessly at build time); an f32 component widens exactly
+// during lowering. A single argument splats, WGSL-style.
+type Vec64Arg = ReadonlyNode<'f64' | 'f32'> | number
+export const vec2f64 = (...a: Vec64Arg[]): Node<'vec2<f64>'> =>
+  construct(vec2f64T, a) as Node<'vec2<f64>'>
+export const vec3f64 = (...a: Vec64Arg[]): Node<'vec3<f64>'> =>
+  construct(vec3f64T, a) as Node<'vec3<f64>'>
+export const vec4f64 = (...a: Vec64Arg[]): Node<'vec4<f64>'> =>
+  construct(vec4f64T, a) as Node<'vec4<f64>'>
 
 /** mat4x4 × vec4 → vec4 (the generic `.mul` correctly rejects mat×vec since a
  *  matrix is not a scalar/matching-vector operand — this is the explicit MVP

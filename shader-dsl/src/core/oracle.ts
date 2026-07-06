@@ -285,7 +285,8 @@ function mixVal(a: CpuValue, b: CpuValue, t: CpuValue): CpuValue {
 }
 
 function zeroOf(type: { kind: string; n?: number }): CpuValue {
-  if (type.kind === 'vec') return new Array(type.n as number).fill(0)
+  // vec64 evaluates natively as a plain number[] (like vec — JS numbers ARE f64).
+  if (type.kind === 'vec' || type.kind === 'vec64') return new Array(type.n as number).fill(0)
   if (type.kind === 'mat') return new Array((type.n as number) * (type.n as number)).fill(0)
   if (type.kind === 'struct') return {} // fields populated by member assignments
   if (type.kind === 'scalar') return 0
@@ -423,7 +424,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         else out.push(v as number)
       }
       // WGSL splat: vecN<T>(singleScalar) fills all N components (e.g. vec3(0.5) = [0.5,0.5,0.5]).
-      if (e.type.kind === 'vec' && out.length === 1)
+      if ((e.type.kind === 'vec' || e.type.kind === 'vec64') && out.length === 1)
         return new Array(e.type.n as number).fill(out[0])
       return out
     }

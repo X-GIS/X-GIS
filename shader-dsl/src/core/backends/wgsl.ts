@@ -34,11 +34,14 @@ export function wgslType(t: ShaderType): string {
   switch (t.kind) {
     case 'scalar':
       return t.scalar
-    // f64 is a PRE-LOWERING type only: fp64Lower (run inside lowerForBackend)
-    // rewrites every f64 to vec2<f32> before any backend spells a type. Reaching
-    // this arm means the lowering pass was bypassed — fail loud, never emit.
+    // f64/vec64 are PRE-LOWERING types only: fp64Lower (run inside
+    // lowerForBackend) rewrites them to vec2<f32> / DF64VecN structs before any
+    // backend spells a type. Reaching these arms means the pass was bypassed —
+    // fail loud, never emit.
     case 'f64':
       throw dslError('SD0040', 'wgslType(f64)')
+    case 'vec64':
+      throw dslError('SD0040', `wgslType(vec${t.n}<f64>)`)
     case 'vec':
       return `vec${t.n}<${t.elem}>`
     case 'mat':

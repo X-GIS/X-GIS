@@ -42,10 +42,12 @@ function glslType(t: ShaderType): string {
   switch (t.kind) {
     case 'scalar':
       return ({ f32: 'float', i32: 'int', u32: 'uint', bool: 'bool' } as const)[t.scalar]
-    // Pre-lowering type only — fp64Lower rewrites every f64 to vec2<f32> before
-    // emit (see wgslType's twin arm). Reaching here = the pass was bypassed.
+    // Pre-lowering types only — fp64Lower rewrites f64/vec64 before emit (see
+    // wgslType's twin arms). Reaching here = the pass was bypassed.
     case 'f64':
       throw dslError('SD0040', 'glslType(f64)')
+    case 'vec64':
+      throw dslError('SD0040', `glslType(vec${t.n}<f64>)`)
     case 'vec':
       return `${({ f32: 'vec', i32: 'ivec', u32: 'uvec' } as const)[t.elem]}${t.n}`
     case 'mat':

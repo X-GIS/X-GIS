@@ -45,6 +45,24 @@ function typeLayout(
     // splitF64 (core/fp64/df64-lib.ts).
     case 'f64':
       return { size: 8, align: 8 }
+    // vec64 lowers to `struct { hi: vecN<f32>, lo: vecN<f32> }` — derive the
+    // layout from THAT struct through the same engine (single authority), so
+    // authored and lowered reflections agree byte-for-byte here too.
+    case 'vec64': {
+      const vecT: ShaderType = { kind: 'vec', n: t.n, elem: 'f32' }
+      const sl = structLayout(
+        {
+          name: `DF64Vec${t.n}`,
+          fields: [
+            { name: 'hi', type: vecT },
+            { name: 'lo', type: vecT },
+          ],
+        },
+        layout,
+        structs,
+      )
+      return { size: sl.size, align: sl.align }
+    }
     case 'vec':
       // vec2 → 8/8, vec3 → 12/16, vec4 → 16/16 (elem is always 4 bytes)
       return t.n === 2

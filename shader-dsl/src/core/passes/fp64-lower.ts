@@ -45,11 +45,12 @@ import type {
   CmpOp,
 } from '../ir/nodes'
 import { stageOf } from '../ir/nodes'
-import { type ShaderType, f32T, boolT, vec2fT, isF64, typeKey } from '../ir/types'
+import { type ShaderType, f32T, boolT, vec2fT, isF64, isVec64, structT, typeKey } from '../ir/types'
 import { dslError } from '../diagnostics/error'
 import {
   DF64_FNS,
   DF64_ORDER,
+  DF64_VEC_STRUCTS,
   FP64_GUARD_NAME,
   FP64_GUARD_STRUCT,
   FP64_GUARD_DECL,
@@ -60,16 +61,21 @@ import { isKnownIntrinsic } from '../intrinsics'
 
 // ── Type mapping ──
 
-/** Does this type contain f64 anywhere (directly or through arrays)? */
+/** Does this type contain f64 / vec64 anywhere (directly or through arrays)? */
 function containsF64(t: ShaderType): boolean {
-  if (isF64(t)) return true
+  if (isF64(t) || isVec64(t)) return true
   if (t.kind === 'array') return containsF64(t.elem)
   return false
 }
 
-/** f64 → vec2<f32>, recursively through arrays; everything else unchanged. */
+const vec64StructName = (n: 2 | 3 | 4): string => `DF64Vec${n}`
+const vecFT = (n: 2 | 3 | 4): ShaderType => ({ kind: 'vec', n, elem: 'f32' })
+
+/** f64 → vec2<f32>, vecN<f64> → its DF64VecN struct, recursively through
+ *  arrays; everything else unchanged. */
 function mapType(t: ShaderType): ShaderType {
   if (isF64(t)) return vec2fT
+  if (isVec64(t)) return structT(vec64StructName(t.n))
   if (t.kind === 'array' && containsF64(t.elem))
     return {
       kind: 'array',
@@ -113,11 +119,52 @@ const pairLit = (v: number): Expr => {
 /** vec2<f32>(x, 0.0) — the exact f32 → f64 widen. */
 const widen = (x: Expr): Expr => ({ op: 'construct', type: vec2fT, args: [x, litF32(0)] })
 
+// ── vec64 expr utilities (post-lowering shapes over the DF64VecN struct) ──
+
+const VEC_BINOP_FN: Partial<Record<BinOp, string>> = {
+  '+': 'add',
+  '-': 'sub',
+  '*': 'mul',
+  '/': 'div',
+}
+/** base.hi / base.lo (base = a LOWERED DF64VecN expr). */
+const plane = (base: Expr, n: 2 | 3 | 4, which: 'hi' | 'lo'): Expr => ({
+  op: 'member',
+  type: vecFT(n),
+  base,
+  field: which,
+})
+/** The f64 pair of one lane / a swizzle of lanes, reassembled from the planes.
+ *  `base` is a pure lowered expr — it appears in BOTH planes (cse dedupes). */
+const laneSwizzle = (base: Expr, n: 2 | 3 | 4, comps: string): Expr => {
+  const pick = (which: 'hi' | 'lo'): Expr => ({
+    op: 'member',
+    type: comps.length === 1 ? f32T : vecFT(comps.length as 2 | 3 | 4),
+    base: plane(base, n, which),
+    field: comps,
+  })
+  return comps.length === 1
+    ? { op: 'construct', type: vec2fT, args: [pick('hi'), pick('lo')] }
+    : {
+        op: 'construct',
+        type: structT(vec64StructName(comps.length as 2 | 3 | 4)),
+        args: [pick('hi'), pick('lo')],
+      }
+}
+/** Splat a lowered f64 PAIR onto n lanes: DF64VecN(vecN(p.x), vecN(p.y)). */
+const splatPair = (pair: Expr, n: 2 | 3 | 4): Expr => {
+  const comp = (c: 'x' | 'y'): Expr => ({ op: 'member', type: f32T, base: pair, field: c })
+  const fill = (c: 'x' | 'y'): Expr => ({ op: 'construct', type: vecFT(n), args: [comp(c)] })
+  return { op: 'construct', type: structT(vec64StructName(n)), args: [fill('x'), fill('y')] }
+}
+
 // ── The per-module rewriter ──
 
 interface LowerCtx {
   /** df64 helper names the rewrite referenced (pre-closure). */
   readonly used: Set<string>
+  /** vec64 lane counts seen anywhere — drives DF64VecN struct injection. */
+  readonly vecWidths: Set<2 | 3 | 4>
 }
 
 function callHelper(ctx: LowerCtx, name: string, type: ShaderType, args: Expr[]): Expr {
@@ -127,6 +174,7 @@ function callHelper(ctx: LowerCtx, name: string, type: ShaderType, args: Expr[])
 
 function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
   const walk = (x: Expr): Expr => lowerExpr(x, ctx)
+  if (isVec64(e.type)) ctx.vecWidths.add(e.type.n)
   /** Lower an expr that must land as an f64 PAIR: an f64 operand lowers to its
    *  vec2 form; a (legal) f32 operand widens exactly. Anything else is a gate
    *  bug upstream — binResultType/cmp admit only f64 and f32-scalar here. */
@@ -135,6 +183,14 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
     if (x.type.kind === 'scalar' && x.type.scalar === 'f32') return widen(walk(x))
     throw dslError('SD0041', `f64 op with a ${typeKey(x.type)} operand`)
   }
+  /** Lower an expr that must land as a DF64VecN struct: a vec64 operand lowers
+   *  directly; an f64 / f32 scalar broadcasts onto the lanes. */
+  const vecOperand = (x: Expr, n: 2 | 3 | 4): Expr => {
+    if (isVec64(x.type)) return walk(x)
+    return splatPair(pairOperand(x), n)
+  }
+  /** The f64 pair of lane i of a lowered vec64 expr. */
+  const lane = (lowered: Expr, n: 2 | 3 | 4, i: number): Expr => laneSwizzle(lowered, n, 'xyzw'[i]!)
 
   switch (e.op) {
     case 'lit':
@@ -144,6 +200,15 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
     case 'varref':
       return containsF64(e.type) ? { ...e, type: mapType(e.type) } : e
     case 'binop': {
+      if (isVec64(e.type)) {
+        const n = e.type.n
+        const op = VEC_BINOP_FN[e.bop]
+        if (op === undefined) throw dslError('SD0041', `binary op '${e.bop}' on ${typeKey(e.type)}`)
+        return callHelper(ctx, `df64_v${n}_${op}`, structT(vec64StructName(n)), [
+          vecOperand(e.a, n),
+          vecOperand(e.b, n),
+        ])
+      }
       if (isF64(e.type)) {
         const fnName = BINOP_FN[e.bop]
         if (fnName === undefined)
@@ -152,10 +217,25 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
       }
       return { ...e, a: walk(e.a), b: walk(e.b) }
     }
-    case 'unop':
+    case 'unop': {
       // Componentwise negation of a (hi, lo) pair is exact — no helper needed.
       if (isF64(e.type)) return { op: 'unop', type: vec2fT, a: pairOperand(e.a) }
+      if (isVec64(e.type)) {
+        const n = e.type.n
+        const base = walk(e.a)
+        const negPlane = (which: 'hi' | 'lo'): Expr => ({
+          op: 'unop',
+          type: vecFT(n),
+          a: plane(base, n, which),
+        })
+        return {
+          op: 'construct',
+          type: structT(vec64StructName(n)),
+          args: [negPlane('hi'), negPlane('lo')],
+        }
+      }
       return { ...e, a: walk(e.a) }
+    }
     case 'compare':
       if (isF64(e.a.type) || isF64(e.b.type)) {
         return callHelper(ctx, CMP_FN[e.cop], boolT, [pairOperand(e.a), pairOperand(e.b)])
@@ -180,6 +260,53 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
       // toF32 on an f64 argument — the explicit narrow (hi + lo).
       if (e.fn === 'f32' && e.args.length === 1 && isF64(e.args[0]!.type)) {
         return callHelper(ctx, 'df64_narrow', f32T, [walk(e.args[0]!)])
+      }
+      // Cross-lane reductions on vec64 — composed from the SCALAR df64 fns
+      // (dot must accumulate in extended precision anyway). The walked base
+      // exprs repeat per lane; they are pure, and cse/the driver dedupe them.
+      if (
+        (e.fn === 'dot' || e.fn === 'length' || e.fn === 'distance') &&
+        isVec64(e.args[0]!.type)
+      ) {
+        const n = (e.args[0]!.type as Extract<ShaderType, { kind: 'vec64' }>).n
+        const sumSquares = (laneAt: (i: number) => Expr): Expr => {
+          let acc: Expr | undefined
+          for (let i = 0; i < n; i++) {
+            const li = laneAt(i)
+            const sq = callHelper(ctx, 'df64_mul', vec2fT, [li, li])
+            acc = acc === undefined ? sq : callHelper(ctx, 'df64_add', vec2fT, [acc, sq])
+          }
+          return acc!
+        }
+        if (e.fn === 'dot') {
+          const a = walk(e.args[0]!)
+          const b = walk(e.args[1]!)
+          let acc: Expr | undefined
+          for (let i = 0; i < n; i++) {
+            const prod = callHelper(ctx, 'df64_mul', vec2fT, [lane(a, n, i), lane(b, n, i)])
+            acc = acc === undefined ? prod : callHelper(ctx, 'df64_add', vec2fT, [acc, prod])
+          }
+          return acc!
+        }
+        if (e.fn === 'length') {
+          const a = walk(e.args[0]!)
+          return callHelper(ctx, 'df64_sqrt', vec2fT, [sumSquares((i) => lane(a, n, i))])
+        }
+        // distance: √Σ (aᵢ − bᵢ)²  — per-lane scalar subtraction.
+        const a = walk(e.args[0]!)
+        const b = walk(e.args[1]!)
+        return callHelper(ctx, 'df64_sqrt', vec2fT, [
+          sumSquares((i) => callHelper(ctx, 'df64_sub', vec2fT, [lane(a, n, i), lane(b, n, i)])),
+        ])
+      }
+      // Any OTHER builtin over a vec64 is unsupported — fail loud. (normalize
+      // included: reassembling N division results would evaluate each division
+      // twice; narrow the lanes with toF32(v.x) etc. and normalize in f32, or
+      // divide by length(v) explicitly.)
+      if (isVec64(e.type) || e.args.some((a) => isVec64(a.type))) {
+        if (isKnownIntrinsic(e.fn) || e.fn === 'i32' || e.fn === 'u32' || e.fn === 'f32') {
+          throw dslError('SD0041', `${e.fn}() on vec64 operands`)
+        }
       }
       const touchesF64 = isF64(e.type) || e.args.some((a) => isF64(a.type))
       if (touchesF64) {
@@ -210,12 +337,37 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
       return { ...e, type: mapType(e.type), args: e.args.map(walk) }
     }
     case 'member':
+      // A component / swizzle of a vec64 reassembles from the hi/lo planes:
+      // v.x → vec2<f32>(v.hi.x, v.lo.x); v.xy → DF64Vec2(v.hi.xy, v.lo.xy).
+      if (isVec64(e.base.type)) {
+        return laneSwizzle(walk(e.base), e.base.type.n, e.field)
+      }
       return { ...e, type: mapType(e.type), base: walk(e.base) }
     case 'construct': {
+      // vecNf64(…) — gather the lowered lane pairs into the two planes:
+      // DF64VecN(vecN(p0.x, p1.x, …), vecN(p0.y, p1.y, …)). A single argument
+      // splats (WGSL-style) via the same shape.
+      if (e.type.kind === 'vec64') {
+        const n = e.type.n
+        const pairs = e.args.map(pairOperand)
+        const planeOf = (c: 'x' | 'y'): Expr => ({
+          op: 'construct',
+          type: vecFT(n),
+          args: pairs.map((pr): Expr => ({ op: 'member', type: f32T, base: pr, field: c })),
+        })
+        return {
+          op: 'construct',
+          type: structT(vec64StructName(n)),
+          args: [planeOf('x'), planeOf('y')],
+        }
+      }
       // array<f64, N>(…) and struct constructors may legally take f64 args
       // (the element/field types map alongside); a vec/mat construct with an
-      // f64 component has no meaning — reject.
-      if ((e.type.kind === 'vec' || e.type.kind === 'mat') && e.args.some((a) => isF64(a.type))) {
+      // f64 / vec64 component has no meaning — reject.
+      if (
+        (e.type.kind === 'vec' || e.type.kind === 'mat') &&
+        e.args.some((a) => isF64(a.type) || isVec64(a.type))
+      ) {
         throw dslError('SD0041', `${typeKey(e.type)} constructor with an f64 component`)
       }
       return { ...e, type: mapType(e.type), args: e.args.map(walk) }
@@ -259,6 +411,14 @@ function lowerStmt(s: Stmt, ctx: LowerCtx): Stmt {
         ...(s.init !== undefined ? { init: walk(s.init) } : {}),
       }
     case 'assign': {
+      // A vec64 target takes a vec64 value only (no implicit scalar splat on
+      // assignment — WGSL has none either).
+      if (isVec64(s.target.type) && !isVec64(s.expr.type)) {
+        throw dslError(
+          'SD0041',
+          `assign of ${typeKey(s.expr.type)} to a ${typeKey(s.target.type)} target`,
+        )
+      }
       // An f64 target may legally receive an f32 value (ArithArg widen) —
       // wrap it here, the one widen authority.
       if (isF64(s.target.type) && !isF64(s.expr.type)) {
@@ -273,6 +433,30 @@ function lowerStmt(s: Stmt, ctx: LowerCtx): Stmt {
       return { ...s, target: walk(s.target), expr: walk(s.expr) }
     }
     case 'assignOp': {
+      // `x += v` on a vec64 target — rewrite to `x = df64_vN_add(x, v)`.
+      if (isVec64(s.target.type)) {
+        const n = s.target.type.n
+        const op = VEC_BINOP_FN[s.bop]
+        if (op === undefined)
+          throw dslError('SD0041', `compound assign '${s.bop}=' on ${typeKey(s.target.type)}`)
+        const target = lowerExpr(s.target, ctx)
+        ctx.used.add(`df64_v${n}_${op}`)
+        const rhs = isVec64(s.expr.type)
+          ? lowerExpr(s.expr, ctx)
+          : (() => {
+              throw dslError('SD0041', `'${s.bop}=' of ${typeKey(s.expr.type)} on vec64`)
+            })()
+        return {
+          s: 'assign',
+          target,
+          expr: {
+            op: 'call',
+            type: structT(vec64StructName(n)),
+            fn: `df64_v${n}_${op}`,
+            args: [target, rhs],
+          },
+        }
+      }
       // `x += v` on an f64 target has no native spelling — rewrite to
       // `x = df64_add(x, v)`.
       if (isF64(s.target.type)) {
@@ -561,11 +745,19 @@ export function fp64Lower(m: ModuleDecl): ModuleDecl {
   for (const f of m.funcs) {
     if (f.name.startsWith('df64_')) throw dslError('SD0043', `fn '${f.name}'`)
   }
+  for (const st of m.structs) {
+    if (st.name.startsWith('DF64Vec')) throw dslError('SD0043', `struct '${st.name}'`)
+  }
 
-  const ctx: LowerCtx = { used: new Set() }
+  const ctx: LowerCtx = { used: new Set(), vecWidths: new Set() }
+  const recordWidths = (t: ShaderType): void => {
+    if (isVec64(t)) ctx.vecWidths.add(t.n)
+    else if (t.kind === 'array') recordWidths(t.elem)
+  }
 
   const consts: ConstDecl[] = m.consts.map((c) => {
     if (!containsF64(c.type)) return c
+    recordWidths(c.type)
     // An f64 module const becomes a vec2 pair const. The scalar dual-value
     // form splits its full-precision cpuValue; a valueExpr lowers recursively.
     const valueExpr = c.valueExpr !== undefined ? lowerExpr(c.valueExpr, ctx) : pairLit(c.cpuValue)
@@ -581,34 +773,52 @@ export function fp64Lower(m: ModuleDecl): ModuleDecl {
         // Interpolating a (hi, lo) pair is numerically wrong — an f64 varying
         // (an @location IO-struct field) is rejected, not silently averaged.
         if (f.location !== undefined) throw dslError('SD0044', `${s.name}.${f.name}`)
+        recordWidths(f.type)
         return { ...f, type: mapType(f.type) }
       }),
     }
   })
 
-  const bindings: BindingDecl[] = m.bindings.map((b) =>
-    containsF64(b.type) ? { ...b, type: mapType(b.type) } : b,
-  )
+  const bindings: BindingDecl[] = m.bindings.map((b) => {
+    if (!containsF64(b.type)) return b
+    recordWidths(b.type)
+    return { ...b, type: mapType(b.type) }
+  })
 
   const funcs: FuncDecl[] = m.funcs.map((f) => {
     const stage = stageOf(f)
     const params = f.params.map((p) => {
       if (!containsF64(p.type)) return p
-      // A vertex @location param is an ATTRIBUTE (one vec2<f32> slot — fine);
+      // A vertex @location param is an ATTRIBUTE (one vec2<f32> slot — fine
+      // for SCALAR f64; a vec64 would need two slots — pass hi/lo lanes as
+      // two vecN<f32> @locations and rebuild with f64FromParts per lane);
       // a fragment @location param is an interpolated varying — rejected.
       if (stage === 'fragment' && p.location !== undefined)
         throw dslError('SD0044', `fragment input '${p.name}'`)
+      if (p.location !== undefined && isVec64(p.type))
+        throw dslError(
+          'SD0041',
+          `vec64 vertex attribute '${p.name}' — pass hi/lo as two vecN<f32> @locations and rebuild lanes with f64FromParts`,
+        )
+      recordWidths(p.type)
       return { ...p, type: mapType(p.type) }
     })
     let ret = f.ret
     if (containsF64(f.ret)) {
       // A stage output f64 is a varying / render-target write — meaningless.
       if (stage !== undefined) throw dslError('SD0044', `${stage} entry '${f.name}' return`)
+      recordWidths(f.ret)
       ret = mapType(f.ret)
     }
     const body = f.body.map((s) => lowerStmt(s, ctx))
     return { ...f, params, ret, body }
   })
+
+  // DF64VecN struct decls for every lane width the module carries (needed
+  // even for type-only pass-through, where no helper fires).
+  for (const n of [2, 3, 4] as const) {
+    if (ctx.vecWidths.has(n)) structs.push(DF64_VEC_STRUCTS.get(n)!)
+  }
 
   const helpers = helperClosure(ctx.used)
   if (helpers.length > 0) injectGuard(structs, bindings)
