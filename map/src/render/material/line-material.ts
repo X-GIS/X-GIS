@@ -7,10 +7,27 @@
 // group layout (so its pipeline is layout-compatible with VTR-built tile groups).
 // The translucent MAX-blend / composite pass is a render-graph concern, separate.
 
-import type { RhiBindGroup, RhiDevice, RhiRenderPass } from '@xgis/engine'
+import type { RhiBindGroup, RhiBindLayoutEntry, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from './material'
 import { emitLineWgsl } from '@xgis/map'
+import { emitLineGlsl } from '../../shaders/dsl/line-glsl'
+
+// WebGL2 by-name bind-layout entries (#834 M5 slice 1) — the RHI-native twin
+// of the two raw GPUBindGroupLayouts. Names come from the DSL: a uniform
+// block's tag = its struct name; texture/storage names = the binding names
+// (storage lowers to R32F data textures named <buffer>_tex by emulateStorage).
+const LINE_TILE_ENTRIES: RhiBindLayoutEntry[] = [
+  { binding: 0, kind: 'uniform', dynamic: true, name: 'TileUniforms' },
+  { binding: 5, kind: 'texture', name: 'sprite_atlas' },
+  { binding: 6, kind: 'sampler', name: 'sprite_samp' },
+]
+const LINE_LAYER_ENTRIES: RhiBindLayoutEntry[] = [
+  { binding: 0, kind: 'uniform', dynamic: true, name: 'LineLayer' },
+  { binding: 1, kind: 'storage', name: 'segments' },
+  { binding: 2, kind: 'storage', name: 'shapes' },
+  { binding: 3, kind: 'storage', name: 'shape_segments' },
+]
 
 /** One line-segment batch (§4 batch-seam). Both bind groups arrive as RhiBindGroup:
  *  the layer group is built via `rhi.createBindGroup` (LineRenderer.createLayer-
@@ -48,16 +65,21 @@ export class LineDraper {
   }
 
   private buildMaterial(pick: boolean): Material {
+    // WebGL2: entry-array groups (by-name reflection) + the GLSL twins; the
+    // raw GPUBindGroupLayouts are proxy no-ops under ?forcegl2 and never
+    // wrapped. Pick stays WebGPU-only (fail-closed on WebGl2Device).
+    const gl2 = this.rhi.backend === 'webgl2'
     return new Material(this.rhi, {
       shader: emitLineWgsl(pick),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',
+      vsCode: gl2 ? emitLineGlsl(pick, 'vertex') : undefined,
+      fsCode: gl2 ? emitLineGlsl(pick, 'fragment') : undefined,
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
-      groups: [
-        wrapWebGpuBindGroupLayout(this.tileLayout),
-        wrapWebGpuBindGroupLayout(this.layerLayout),
-      ],
+      groups: gl2
+        ? [LINE_TILE_ENTRIES, LINE_LAYER_ENTRIES]
+        : [wrapWebGpuBindGroupLayout(this.tileLayout), wrapWebGpuBindGroupLayout(this.layerLayout)],
       colorTargets: pick
         ? [{ format: this.format as 'bgra8unorm', blend: 'alpha' }, { format: 'rg32uint' }]
         : [{ format: this.format as 'bgra8unorm', blend: 'alpha' }],
