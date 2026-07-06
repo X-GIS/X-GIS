@@ -224,6 +224,14 @@ Arithmetic, comparison, bitwise, swizzle, and index are **methods** on a Node:
 | index      | `.at(i, elemType)`                                                       |
 | ternary    | `cond.select(a, b)` (WGSL `select`)                                      |
 
+> **The `.mod` METHOD is `%` — trunc-mod on WGSL floats and INVALID on GLSL
+> ES 3.00 floats (integer-only there).** For float modulo use the free function
+> **`mod(x, y)`** (#839): FLOOR-mod with identical semantics on both targets
+> (WGSL spells it inline as `x − y·⌊x/y⌋`, GLSL as native `mod()`), so negative
+> operands wrap into `[0, y)` — what domain repetition and angle folds need.
+> Named after GLSL/TSL `mod` — deliberately not `fmod`, which in C/HLSL is
+> trunc-mod. Component-wise; `y` may be a scalar broadcast over a vector `x`.
+
 **A bare number literal lifts to the operand's type from context** — drop the `f32()` /
 `u32()` / `i32()` wrapper:
 

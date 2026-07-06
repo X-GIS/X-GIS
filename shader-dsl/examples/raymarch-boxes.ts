@@ -4,8 +4,8 @@
 // boxes, flown through forever. The step up from raymarch-sphere.ts: a reusable
 // scene-SDF helper fn (called by the march AND six more times for the
 // finite-difference normal), per-cell hashing for colour, and exponential fog.
-// The floor-mod is spelled explicitly (p − c·⌊p/c⌋) because WGSL `%` is
-// trunc-mod while GLSL mod() is floor-mod — they disagree on negatives.
+// Domain repetition uses `mod` (#839) — the portable FLOOR-mod; WGSL `%` is
+// trunc-mod and GLSL `%` is integer-only, so both would break on negatives.
 // WGSL (WebGPU) + GLSL ES 3.00 (WebGL2).
 
 import {
@@ -25,6 +25,7 @@ import {
   mix,
   abs,
   exp,
+  mod,
   normalize,
   length,
   Loop,
@@ -38,10 +39,10 @@ import { VsOut, vs, fullscreenUniforms } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
 const U = fullscreenUniforms({ speed: f32T })
 
-// scene SDF: a rounded box repeated every 2.6 units in all three axes.
-// Explicit floor-mod (p − c·⌊p/c⌋) keeps WGSL and GLSL agreeing on negatives.
+// scene SDF: a rounded box repeated every 2.6 units in all three axes —
+// mod's floor-mod keeps WGSL and GLSL agreeing on negative coordinates.
 const scene = fn('scene', { p: vec3fT }, ({ p }) => {
-  const q = Let(p.sub(vec3(2.6).mul(floor(p.div(2.6)))).sub(vec3(1.3)))
+  const q = Let(mod(p, 2.6).sub(vec3(1.3)))
   const b = abs(q).sub(vec3(0.62))
   return length(max(b, vec3(0, 0, 0))).sub(0.14)
 })

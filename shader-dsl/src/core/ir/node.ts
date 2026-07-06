@@ -543,6 +543,15 @@ export const max = <K extends string>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>
  *  binResultType for parity with `min` / `max`. */
 export const pow = <K extends string>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>): Node<K> =>
   call('pow', binResultType(a.type, lift(b).type, 'pow'), a, b) as Node<K>
+/** `mod(x, y)` — FLOOR-mod (x − y·⌊x/y⌋) with identical semantics on both
+ *  targets, matching GLSL/TSL `mod()` (#839). Float `%` (the `.mod` METHOD) is
+ *  TRUNC-mod on WGSL and integer-only in GLSL ES 3.00, so this free fn is THE
+ *  portable float modulo — reach for it wherever a negative operand is possible
+ *  (domain repetition, angle folds). Deliberately not named `fmod`: C/HLSL
+ *  `fmod` is TRUNC-mod, the opposite semantics. Component-wise; `y` may be a
+ *  scalar broadcast over a vector `x`. */
+export const mod = <K extends string>(x: ReadonlyNode<K>, y: NoInfer<ArithArg<K>>): Node<K> =>
+  call('mod', binResultType(x.type, lift(y).type, 'mod'), x, y) as Node<K>
 export const clamp = <K extends string>(
   x: ReadonlyNode<K>,
   lo: NoInfer<ArithArg<K>>,

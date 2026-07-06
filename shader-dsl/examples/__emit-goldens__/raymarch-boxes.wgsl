@@ -12,7 +12,7 @@ struct VsOut {
 @group(0) @binding(0) var<uniform> U: Uniforms;
 
 fn scene(p: vec3<f32>) -> f32 {
-  let _v0 = ((p - (vec3<f32>(2.6) * floor((p / 2.6)))) - vec3<f32>(1.3));
+  let _v0 = ((p - 2.6 * floor(p / 2.6)) - vec3<f32>(1.3));
   return (length(max((abs(_v0) - vec3<f32>(0.62)), vec3<f32>(0.0, 0.0, 0.0))) - 0.14);
 }
 
