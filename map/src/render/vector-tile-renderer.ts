@@ -877,21 +877,51 @@ export class VectorTileRenderer {
     // One LineLayer slot for this show; flush the layer ring NOW — the RHI
     // draws below execute immediately on WebGL2, unlike the WebGPU frame
     // where endFrame()'s flush precedes the submit that consumes it.
+    // cap/join/miter + DASH mirror render()'s derivation verbatim (Mapbox
+    // omitted-property defaults; dash values are in LINE-WIDTH UNITS and the
+    // scaled array reuses the same identity cache — #834 M5 slice 5: the
+    // slice-1 hardcoded dash=null rendered every dashed stroke SOLID, caught
+    // by the cross-backend stroke-mask ratio ≈ 3/2 on stroke-dasharray-20-10).
+    const capMap = { butt: 0, round: 1, square: 2, arrow: 3 } as const
+    const joinMap = { miter: 0, round: 1, bevel: 2 } as const
+    const cap = capMap[show.linecap ?? 'butt']
+    const join = joinMap[show.linejoin ?? 'miter']
+    const miterLimit = show.miterlimit ?? 2.0
+    const roundLimit = show.roundLimit ?? 0
     const mpp = WORLD_MERC / TILE_PX / Math.pow(2, camera.zoom)
+    const dashWidthScalePx = strokeWidthPx
+    const dashSrc = resolvedShow.dashArray ?? show.dashArray
+    let dashArray: number[] | null = null
+    if (dashSrc && dashSrc.length >= 2) {
+      const c = this._dashArrayCache
+      if (c !== null && c.src === dashSrc && c.scalePx === dashWidthScalePx && c.mpp === mpp) {
+        dashArray = c.result
+      } else {
+        dashArray = dashSrc.map((v) => v * dashWidthScalePx * mpp)
+        this._dashArrayCache = { src: dashSrc, scalePx: dashWidthScalePx, mpp, result: dashArray }
+      }
+    }
+    const dash =
+      dashArray !== null
+        ? { array: dashArray, offset: resolvedShow.dashOffset * dashWidthScalePx * mpp }
+        : null
     const layerOffset = this.lineRenderer.writeLayerSlot(
       [stroke[0], stroke[1], stroke[2], stroke[3]],
       strokeWidthPx,
       opacity,
       mpp,
-      undefined,
-      undefined,
-      undefined,
-      null,
+      cap,
+      join,
+      miterLimit,
+      dash,
       [],
       0,
       canvasHeight,
       show.strokeBlur ?? 0,
       dpr,
+      0,
+      0,
+      roundLimit,
     )
     this.lineRenderer.endFrame()
 
