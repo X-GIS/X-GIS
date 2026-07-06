@@ -75,6 +75,12 @@ describe('MvtWorkerPool — per-worker error isolation', () => {
     // Force a deterministic pool size >= 2 so two compiles round-robin to
     // distinct workers. size = max(2, min(ceiling, hc - 1)); hc = 4 -> 3.
     vi.stubGlobal('navigator', { hardwareConcurrency: 4 })
+    // Belt-and-braces for environments where the `?worker` vi.mock's module-id
+    // matching misses (worker-plugin id rewrite): Vite's real WorkerWrapper then
+    // reaches for the GLOBAL `Worker` at construction — stub it with the SAME
+    // FakeWorker so both interception points converge on FakeWorker.instances.
+    // Mirrors the sibling geojson-compile-pool tests.
+    vi.stubGlobal('Worker', FakeWorker)
   })
   afterEach(() => {
     vi.unstubAllGlobals()

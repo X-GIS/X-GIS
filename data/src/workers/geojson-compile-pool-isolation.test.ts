@@ -99,6 +99,12 @@ describe('GeoJSONCompilePool — per-worker error isolation (#323 sibling)', () 
     // size = max(1, min(4, floor(hc / 2))). hc = 8 -> 4 distinct workers so
     // four compiles round-robin to workers 0..3 (one job each).
     vi.stubGlobal('navigator', { hardwareConcurrency: 8 })
+    // Belt-and-braces for environments where the `?worker` vi.mock's module-id
+    // matching misses (worker-plugin id rewrite): Vite's real WorkerWrapper then
+    // reaches for the GLOBAL `Worker` at construction — stub it with the SAME
+    // FakeWorker so both interception points converge on FakeWorker.instances.
+    // Mirrors the sibling geojson-compile-pool / mvt-worker-pool tests.
+    vi.stubGlobal('Worker', FakeWorker)
   })
   afterEach(() => {
     vi.unstubAllGlobals()
