@@ -7,7 +7,7 @@
 // routes through the Material seam (executeItems, arena vertex/index sub-ranges, pick MRT); §4 is closed,
 // so a pipeline with no built Material twin throws (the raw fallback draw + kill-switch were deleted).
 
-import type { RhiBuffer, RhiDevice } from '@xgis/engine'
+import type { RhiBindLayoutEntry, RhiBuffer, RhiDevice } from '@xgis/engine'
 import {
   wrapWebGpuBindGroupLayout,
   wrapWebGpuBindGroup,
@@ -77,7 +77,8 @@ export interface FillMaterialInputs {
   shader: string
   format: string
   sampleCount: number
-  bindGroupLayout: GPUBindGroupLayout
+  /** Native WebGPU layout (wrapped) — required unless `rhiGroups` is given. */
+  bindGroupLayout?: GPUBindGroupLayout
   vertexLayout: GPUVertexBufferLayout
   /** Extruded-fill vertex layout (POLYGON_EXTRUDED). Only buildPatternFillMaterials reads it — it twins
    *  BOTH the ground (flat `vertexLayout` above) + extruded pattern pipelines in a single call. */
@@ -91,6 +92,11 @@ export interface FillMaterialInputs {
    *  keeps WebGL2's explicit fail-closed error. */
   vsCode?: string
   fsCode?: string
+  /** RHI-native bind-group layout entries (#832 M2). When present they REPLACE the
+   *  wrapped native `bindGroupLayout` — the WebGL2 fill Material builds its layout
+   *  through rhi.createBindGroupLayout with by-name reflection entries (the block
+   *  tag is the struct name 'Uniforms'). WebGPU callers omit this (byte-identical). */
+  rhiGroups?: RhiBindLayoutEntry[][]
 }
 
 const toMatVB = (l: GPUVertexBufferLayout) => ({
@@ -110,7 +116,7 @@ export function buildFlatFillMaterials(inp: FillMaterialInputs): {
 } {
   const rhi: RhiDevice = inp.rhi
   const fmt = inp.format as 'bgra8unorm'
-  const groups = [wrapWebGpuBindGroupLayout(inp.bindGroupLayout)]
+  const groups = inp.rhiGroups ?? [wrapWebGpuBindGroupLayout(inp.bindGroupLayout!)]
   const vertexBuffers = [toMatVB(inp.vertexLayout)]
   const colorTargets = inp.pickEnabled
     ? [
@@ -180,7 +186,7 @@ export function buildExtrudeMaterial(inp: FillMaterialInputs): Material {
     fsEntry: 'fs_fill_extrude',
     format: fmt,
     sampleCount: inp.sampleCount,
-    groups: [wrapWebGpuBindGroupLayout(inp.bindGroupLayout)],
+    groups: [wrapWebGpuBindGroupLayout(inp.bindGroupLayout!)],
     vertexBuffers: [toMatVB(inp.vertexLayout)],
     colorTargets: inp.pickEnabled
       ? [
@@ -218,7 +224,7 @@ export function buildPatternFillMaterials(inp: FillMaterialInputs): {
 } {
   const rhi: RhiDevice = inp.rhi
   const fmt = inp.format as 'bgra8unorm'
-  const groups = [wrapWebGpuBindGroupLayout(inp.bindGroupLayout)]
+  const groups = inp.rhiGroups ?? [wrapWebGpuBindGroupLayout(inp.bindGroupLayout!)]
   const colorTargets = inp.pickEnabled
     ? [
         { format: fmt, blend: 'alpha' as const },
