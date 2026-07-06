@@ -378,6 +378,11 @@ export class MapRendererContent {
    *  via the `uniformBuffer` getter). At init the layer loop is empty
    *  (no layers yet), so this matches the original inline init build. */
   private rebuildUniformBindGroups(): void {
+    // #832 M2 — these are NATIVE WebGPU bind groups for the WebGPU frame path;
+    // on the webgl2 backend that path never runs (renderFrameViaRhi renders the
+    // frame) and reading the native uniformBuffer getter would unwrap-throw at
+    // boot. Skip: the WebGL2 fill draws bind RHI-native groups instead.
+    if (this.ctx.rhi.backend === 'webgl2') return
     const { device } = this.ctx
     this.bindGroup = device.createBindGroup({
       layout: this.bindGroupLayout,

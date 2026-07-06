@@ -3,7 +3,7 @@
 // Data loading/caching/sub-tiling is handled by TileCatalog.
 // This class manages GPU buffers, bind groups, and draw calls only.
 
-import type { GPUContext } from '@xgis/engine'
+import type { GPUContext, RhiDevice, WebGpuDevice } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { Camera } from '@xgis/engine'
 import type { ShowCommand } from './renderer-types'
@@ -151,7 +151,9 @@ export function rotateTranslateForAnchor(
  *     diagnostics, dedup, trace stash.
  */
 export class VectorTileRenderer {
-  private device: GPUDevice
+  /** Backend-blind RHI device (#832 M2) — the uniform ring + arena/store route
+   *  through it; the native WebGPU seams unwrap via ringBufferNative(). */
+  private rhi: RhiDevice
   private source: TileCatalog | null = null
 
   /** Max tile level of the backing source (0 if none), for camera zoom
@@ -352,13 +354,13 @@ export class VectorTileRenderer {
   private readonly _featureBinder: FeatureDataBinder
 
   constructor(ctx: GPUContext) {
-    this.device = ctx.device
     this.format = ctx.format
     this.stagingPool = new StagingBufferPool(ctx.device)
     this.bundleCache = new BundleCache(ctx.device)
     this._featureBinder = new FeatureDataBinder(ctx.device)
     // GpuTileStore's arena core is backend-neutral (#832): create / compaction /
     // retire all route through the injected RhiDevice — no WebGpuDevice narrowing.
+    this.rhi = ctx.rhi
     this._store = new GpuTileStore(ctx.device, ctx.rhi)
     this._bindGroups = new BindGroupRegistry(ctx.device)
     // Renderer-side GPU upload pipeline (priority queue + per-frame cap +
@@ -375,7 +377,7 @@ export class VectorTileRenderer {
       buildPerTileFeatureData: (featureProps, handleKey) =>
         this._featureBinder.buildPerTileFeatureData(
           featureProps,
-          this.uniformRing?.buffer,
+          this.ringBufferNative(),
           this._bindGroups.paletteResources(),
           handleKey,
         ),
@@ -534,7 +536,7 @@ export class VectorTileRenderer {
   private ensureUniformRing(): void {
     if (this.uniformRing) return
     this.uniformRing = new UniformRing(
-      this.device,
+      this.rhi,
       this.frameBlock.std140Stride(),
       1024,
       'vtr-uniform-ring',
@@ -560,8 +562,14 @@ export class VectorTileRenderer {
    *  data-driven fills read stale uniform colours (user-reported high-pitch
    *  "land flashes water-blue" while moving). Order (base then per-tile)
    *  must match the prior inline `rebuildTileBindGroups`. */
+  private ringBufferNative(): GPUBuffer | undefined {
+    const rb = this.uniformRing?.rhiBuffer
+    if (!rb || this.rhi.backend === 'webgl2') return undefined
+    return (this.rhi as WebGpuDevice).unwrapBuffer(rb)
+  }
+
   private _onUniformRingGrow(): void {
-    const ringBuf = this.uniformRing?.buffer
+    const ringBuf = this.ringBufferNative()
     this._bindGroups.rebuildBase(
       ringBuf,
       this._featureBinder.featureBindGroupLayout(),
@@ -2912,7 +2920,7 @@ export class VectorTileRenderer {
     // bind group resolution happens inside the keys loop. baseBindGroup
     // is constant-fill and never per-tile, so its absence still aborts.
     if (fillBindGroupLayout === this._bindGroups.baseLayout() && !fillBg) return
-    if (!this.uniformRing?.buffer) return
+    if (!this.uniformRing?.rhiBuffer) return
     // Stroke draws are batched and emitted AFTER every fill in this
     // pass has written depth, so per-tile outlines depth-test against
     // the layer's full geometry (not just whatever was drawn before

@@ -99,7 +99,7 @@ function makeVtr(lastZoom: number, cameraZoom: number) {
     baseGroup: () => group,
     featureGroup: () => group,
   })
-  set('uniformRing', { buffer: {}, allocSlot: () => 0, stageSlot: () => {}, flush: () => {} })
+  set('uniformRing', { rhiBuffer: {}, allocSlot: () => 0, stageSlot: () => {}, flush: () => {} })
 
   return { vtr, f32, layout }
 }

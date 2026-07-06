@@ -151,7 +151,7 @@ interface RebuildMocks {
   rasterRenderer: {
     setUrlTemplate: ReturnType<typeof vi.fn>
   }
-  ctx: { device: object; format: string }
+  ctx: { device: object; rhi: object; format: string }
 }
 
 function makeMocks(): RebuildMocks {
@@ -179,7 +179,18 @@ function makeMocks(): RebuildMocks {
     rasterRenderer: {
       setUrlTemplate: vi.fn(),
     },
-    ctx: { device: mockDevice(), format: 'bgra8unorm' },
+    ctx: {
+      device: mockDevice(),
+      // #832 M2 — the uniform ring + tile store now route through ctx.rhi.
+      rhi: {
+        backend: 'webgpu',
+        createBuffer: vi.fn(() => ({})),
+        writeBuffer: vi.fn(),
+        destroyBuffer: vi.fn(),
+        unwrapBuffer: vi.fn((b: unknown) => b),
+      },
+      format: 'bgra8unorm',
+    },
   }
 }
 
