@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest'
 import { tileKey } from '@xgis/compiler'
 import { PriorityQueue } from '@xgis/shared'
 import { UploadCoordinator, type UploadHost, type UploadStore } from '@xgis/map'
-import type { StagingBufferPool } from '@xgis/engine'
+import type { RhiDevice, StagingBufferPool } from '@xgis/engine'
 import type { TileData } from '@xgis/data'
 
 // Stub TileData — none of the real upload code paths run here, so the fields
@@ -50,6 +50,7 @@ function makeCoordinator(): UploadCoordinator {
   const store = { getLayer: () => undefined } as unknown as UploadStore
   const host: UploadHost = {
     device: {} as unknown as GPUDevice,
+    rhi: { backend: 'webgpu', writeBuffer: () => {}, unwrapBuffer: (b: unknown) => b } as unknown as RhiDevice,
     stagingPool: {} as unknown as StagingBufferPool,
     store,
     lineRenderer: () => null,

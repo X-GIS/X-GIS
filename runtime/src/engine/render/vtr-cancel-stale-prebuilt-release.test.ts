@@ -22,7 +22,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { tileKey } from '@xgis/compiler'
 import { PriorityQueue } from '@xgis/shared'
 import { UploadCoordinator, type UploadHost, type UploadStore } from '@xgis/map'
-import type { StagingBufferPool } from '@xgis/engine'
+import type { RhiDevice, StagingBufferPool } from '@xgis/engine'
 import type { TileData } from '@xgis/data'
 
 /** TileData carrying non-empty prebuilt SDF segment buffers — the bytes the
@@ -53,6 +53,7 @@ function makeCoordinator() {
   const queue = { removeByFilter } as unknown as PriorityQueue<string, void>
   const host: UploadHost = {
     device: {} as unknown as GPUDevice,
+    rhi: { backend: 'webgpu', writeBuffer: () => {}, unwrapBuffer: (b: unknown) => b } as unknown as RhiDevice,
     stagingPool: {} as unknown as StagingBufferPool,
     store: {} as unknown as UploadStore,
     lineRenderer: () => null,

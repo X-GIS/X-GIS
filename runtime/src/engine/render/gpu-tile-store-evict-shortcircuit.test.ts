@@ -66,13 +66,10 @@ function arenaDevice(): GPUArenaDevice {
           b.destroyed = true
         },
       }
-      return { native: b } as unknown as RhiBuffer
+      return b as unknown as RhiBuffer
     },
     destroyBuffer(h) {
-      ;(h as unknown as { native: MockBuffer }).native.destroy()
-    },
-    unwrapBuffer(h) {
-      return (h as unknown as { native: MockBuffer }).native as unknown as GPUBuffer
+      ;(h as unknown as MockBuffer).destroy()
     },
   }
 }
@@ -143,8 +140,8 @@ function atCeilingProtected(store: GpuTileStore): {
     outlineSegmentBuffer: null,
     lineSegmentBuffer: null,
     featureDataBuffer: null,
-    vertexBuffer: arena.buffer,
-    indexBuffer: arena.buffer,
+    vertexBuffer: arena.rhiBuffer,
+    indexBuffer: arena.rhiBuffer,
     lastUsedFrame: 1,
   })
   inj._gpuCacheCount++

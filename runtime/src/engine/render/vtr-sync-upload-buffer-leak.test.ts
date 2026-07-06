@@ -28,7 +28,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { UploadCoordinator, type UploadHost, type UploadStore } from '@xgis/map'
 import type { LineRenderer } from '@xgis/map'
-import type { StagingBufferPool } from '@xgis/engine'
+import type { RhiDevice, StagingBufferPool } from '@xgis/engine'
 import type { TileData } from '@xgis/data'
 
 // vitest runs in Node, where the WebGPU `GPUBufferUsage` global doesn't
@@ -178,6 +178,7 @@ function makeCoordinator(opts: { perTileFeat?: () => null } = {}) {
 
   const host: UploadHost = {
     device,
+    rhi: { backend: 'webgpu', writeBuffer: () => {}, unwrapBuffer: (b: unknown) => b } as unknown as RhiDevice,
     stagingPool: {} as unknown as StagingBufferPool,
     store,
     lineRenderer: () => lineRenderer,

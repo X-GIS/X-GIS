@@ -64,13 +64,10 @@ function arenaDevice(): GPUArenaDevice {
           b.destroyed = true
         },
       }
-      return { native: b } as unknown as RhiBuffer
+      return b as unknown as RhiBuffer
     },
     destroyBuffer(h) {
-      ;(h as unknown as { native: MockBuffer }).native.destroy()
-    },
-    unwrapBuffer(h) {
-      return (h as unknown as { native: MockBuffer }).native as unknown as GPUBuffer
+      ;(h as unknown as MockBuffer).destroy()
     },
   }
 }
@@ -118,8 +115,8 @@ function fillProtected(store: GpuTileStore, arena: GPUArena, n: number, bytes: n
       outlineSegmentBuffer: null,
       lineSegmentBuffer: null,
       featureDataBuffer: null,
-      vertexBuffer: arena.buffer,
-      indexBuffer: arena.buffer,
+      vertexBuffer: arena.rhiBuffer,
+      indexBuffer: arena.rhiBuffer,
       lastUsedFrame: 1,
     })
     inj._gpuCacheCount++
@@ -170,7 +167,7 @@ describe('GpuTileStore arena auto-grow (US-003)', () => {
     inj.forceEvictBytes(arena, TILE, keys, () => {})
     const target = inj._pendingArenaGrowV
     expect(target).toBeGreaterThan(CAP)
-    const oldBuffer = arena.buffer
+    const oldBuffer = arena.rhiBuffer
 
     // Drain in the post-submit safe window. uploadActive=false so it runs now.
     const moved = inj.runFrameMaintenance(
@@ -182,7 +179,7 @@ describe('GpuTileStore arena auto-grow (US-003)', () => {
     expect(moved).toBe(true) // relocation happened → bundles invalidate
     expect(arena.capacityBytes).toBe(target) // arena GREW
     expect(inj._pendingArenaGrowV).toBe(0) // flag consumed
-    expect(arena.buffer).not.toBe(oldBuffer) // swapped to the larger buffer
+    expect(arena.rhiBuffer).not.toBe(oldBuffer) // swapped to the larger buffer
     // The previously-failing alloc now succeeds against the grown arena.
     expect(() => arena.alloc(TILE)).not.toThrow()
   })
@@ -220,8 +217,8 @@ describe('GpuTileStore arena auto-grow (US-003)', () => {
       outlineSegmentBuffer: null,
       lineSegmentBuffer: null,
       featureDataBuffer: null,
-      vertexBuffer: arena.buffer,
-      indexBuffer: arena.buffer,
+      vertexBuffer: arena.rhiBuffer,
+      indexBuffer: arena.rhiBuffer,
       lastUsedFrame: 1,
     })
     inj._gpuCacheCount++
