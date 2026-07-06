@@ -145,6 +145,8 @@ function texFmt(
   switch (f) {
     case 'rgba8unorm':
       return { internal: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE }
+    case 'r8unorm':
+      return { internal: gl.R8, format: gl.RED, type: gl.UNSIGNED_BYTE } // SDF glyph atlas pages
     case 'bgra8unorm':
       return { internal: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE } // WebGL2 has no BGRA8 storage; host orders bytes
     case 'r16float':

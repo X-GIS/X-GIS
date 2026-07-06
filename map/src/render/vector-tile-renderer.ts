@@ -978,6 +978,59 @@ export class VectorTileRenderer {
     return missing
   }
 
+  /** Selection + tile ACQUISITION only, for label-bearing shows on the
+   *  forced-WebGL2 frame (#834 M5 slice 3). A label-only show never enters
+   *  the fills/lines RHI passes' acquisition (both bail on missing paint),
+   *  but the label dispatch reads THIS selection's frameTileCache + the
+   *  source's CPU tile payloads — so acquire here. Returns the missing-tile
+   *  count (loop-hot contract). */
+  ensureLabelTilesRhi(
+    camera: Camera,
+    projType: number,
+    projCenterLon: number,
+    projCenterLat: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number,
+    show: ShowCommand,
+  ): number {
+    if (!this.source?.hasData() || !this.source.getIndex()) return 0
+    const effectiveSourceLayer = show.sourceLayer || show.targetName || ''
+    const sliceLayer = computeSliceKey(effectiveSourceLayer, show.filterExpr?.ast ?? null)
+    const layerCache = this.getOrCreateLayerCache(sliceLayer)
+    const sel = this._selection.selectForFrame(
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      dpr,
+      this.currentFrameId,
+      this.source,
+      sliceLayer,
+      2,
+      this.source.maxLevel,
+      this._drawStats,
+    )
+    if (!sel) return 0
+    this.resetUploadFrameCap()
+    const toLoad: number[] = []
+    let missing = 0
+    for (const key of sel.neededKeys) {
+      if (layerCache.has(key)) continue
+      missing++
+      if (this.source.hasTileData(key, sliceLayer)) {
+        const d = this.source.getTileData(key, sliceLayer)
+        if (d) this.uploadTile(key, d, sliceLayer)
+      } else if (this.source.hasEntryInIndex(key)) {
+        toLoad.push(key)
+      }
+    }
+    if (toLoad.length > 0) this.source.requestTiles(toLoad)
+    return missing
+  }
+
   /** Line-material tile bind group over the VTR uniform ring (mirrors
    *  fillTileBgRhi — the line TILE block shares the 192-byte layout, so the
    *  binding size is the same polygonUniformBytes contract). Cached per ring

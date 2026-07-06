@@ -59,6 +59,7 @@ export interface RhiBufferDesc {
  *  EXT_color_buffer_float — deferred to the WebGL2 full-frame phase). */
 export type RhiTextureFormat =
   | 'rgba8unorm'
+  | 'r8unorm'
   | 'bgra8unorm'
   | 'depth24plus-stencil8'
   | 'rg32uint'

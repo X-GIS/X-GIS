@@ -35,7 +35,7 @@ import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
 import { TextRenderer } from './text-renderer'
 import type { TextDraw } from './text-renderer-types'
-import type { RhiDevice } from '@xgis/engine'
+import type { RhiDevice , RhiRenderPass } from '@xgis/engine'
 import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from './text-collision'
 import {
   applyTextTransform,
@@ -412,7 +412,7 @@ export class TextStage {
       rasterizer,
       hostOpts,
     )
-    this.gpu = new GlyphAtlasGPU(device, this.host, { pageSize: this.opts.pageSize })
+    this.gpu = new GlyphAtlasGPU(rhi, this.host, { pageSize: this.opts.pageSize })
     this.renderer = new TextRenderer(device, rhi, this.gpu, presentationFormat, sampleCount)
   }
 
@@ -729,6 +729,11 @@ export class TextStage {
     layerName?: string,
     pairKey?: string,
   ): void {
+    const _ast = ((globalThis as Record<string, unknown>).__xgisLabelsRhi ??= {}) as Record<
+      string,
+      number
+    >
+    _ast.addLabel = (_ast.addLabel ?? 0) + 1
     const text = resolveText(value, props, this.cameraZoom)
     if (text.length === 0) return
     const transformed = applyTextTransform(text, def.transform)
@@ -1864,7 +1869,10 @@ export class TextStage {
 
   /** Encode the prepared draws onto the pass. Safe to call without
    *  a prior prepare() — emits nothing in that case. */
-  render(pass: GPURenderPassEncoder, viewport: { width: number; height: number }): void {
+  render(
+    pass: GPURenderPassEncoder | RhiRenderPass,
+    viewport: { width: number; height: number },
+  ): void {
     this.renderer.draw(pass, viewport)
   }
 

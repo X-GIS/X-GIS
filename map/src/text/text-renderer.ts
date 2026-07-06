@@ -20,8 +20,8 @@ import { FrameArena } from '@xgis/rhi-webgpu'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import type { TextDraw } from './text-renderer-types'
 import { codePointIsIdeographic } from './text-wrap'
-import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '@xgis/rhi-webgpu'
-import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
+import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
+import type { RhiBuffer, RhiBindGroup, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { TextDraper, type TextSlice } from '../render/material/text-material'
 import { vertexField } from '@xgis/compiler'
 import { TEXT_FORMAT } from './text-vertex-format'
@@ -190,7 +190,7 @@ export class TextRenderer {
     this.drawSlices = []
 
     let glyphIdx = 0
-    const pageSize = this.atlas.pageCount > 0 ? this.atlas.getPage(0)!.width : 1 // never used when no glyphs, but keeps types happy
+    const pageSize = this.atlas.pageCount > 0 ? this.atlas.pageSizePx : 1 // never used when no glyphs, but keeps types happy
 
     for (const d of draws) {
       let penX = d.anchorX
@@ -417,7 +417,17 @@ export class TextRenderer {
   }
 
   /** Encode draw commands. `viewport` is in physical pixels. */
-  draw(pass: GPURenderPassEncoder, viewport: { width: number; height: number }): void {
+  draw(
+    pass: GPURenderPassEncoder | RhiRenderPass,
+    viewport: { width: number; height: number },
+  ): void {
+    const _tst = ((globalThis as Record<string, unknown>).__xgisLabelsRhi ??= {}) as Record<
+      string,
+      number
+    >
+    _tst.drawCalls = (_tst.drawCalls ?? 0) + 1
+    _tst.vertexCount = this.vertexCount
+    _tst.drawSlices = this.drawSlices.length
     if (this.vertexCount === 0 || this.vertexBuf === null) return
     if (this.atlas.pageCount === 0) return // no glyphs uploaded yet
 
@@ -452,17 +462,19 @@ export class TextRenderer {
       if (!page) continue // page evicted between flush and draw — skip
       let bg = this.bindGroupsByPage[slice.page]
       if (!bg) {
-        // Bind group routes through the RHI seam (§4): binding 0 is the RhiBuffer
-        // uniform window; the atlas page texture VIEW (binding 1) + sampler (binding 2)
-        // stay raw, adopted via wrapWebGpuTextureView / wrapWebGpuSampler. Byte-identical
-        // to the prior device.createBindGroup (the debug label is the only drop).
-        bg = this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bgLayout), [
+        // Fully RHI-native since #834 M5 slice 3: the atlas hands back RHI
+        // view/sampler handles, and the layout is the TextDraper Material's
+        // OWN group 0 (on WebGPU that IS the wrapped bgLayout passed at
+        // construction — byte-identical; on WebGl2Device it is the by-name
+        // entry-array layout).
+        this.ensureTextDraper()
+        bg = this.rhi.createBindGroup(this._textDraper!.layoutRhi(), [
           // Use minBindingSize-sized window (64 B) into the shared
           // uniform buffer. The dynamic offset picks which slice's
           // pack is visible to the draw.
           { binding: 0, resource: { buffer: this.uniformBuf, offset: 0, size: UNIFORM_BYTES } },
-          { binding: 1, resource: { view: wrapWebGpuTextureView(page.createView()) } },
-          { binding: 2, resource: { sampler: wrapWebGpuSampler(this.atlas.sampler) } },
+          { binding: 1, resource: { view: this.atlas.pageView(slice.page)! } },
+          { binding: 2, resource: { sampler: this.atlas.sampler } },
         ])
         this.bindGroupsByPage[slice.page] = bg
       }
@@ -473,9 +485,17 @@ export class TextRenderer {
         first: slice.first,
       })
     }
+
     if (rhiSlices.length > 0) {
       this.ensureTextDraper()
-      this._textDraper!.draw(wrapWebGpuPass(pass), this.vertexBuf!, rhiSlices)
+      // A WebGl2Device frame hands in an RhiRenderPass already (#834 M5 s3).
+      this._textDraper!.draw(
+        this.rhi.backend === 'webgl2'
+          ? (pass as RhiRenderPass)
+          : wrapWebGpuPass(pass as GPURenderPassEncoder),
+        this.vertexBuf!,
+        rhiSlices,
+      )
     }
   }
 

@@ -34,7 +34,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
-import { emitModule } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule, stageOf } from '@xgis/shader-dsl'
 
 const U = uniformStruct(
   'Uniforms',
@@ -117,3 +117,16 @@ export const TEXT_MODULE: ModuleDecl = module({
 })
 
 export const emitTextWgsl = (): string => emitModule(TEXT_MODULE)
+
+/** GLSL ES 3.00 twin (#834 M5 slice 3 — mirrors emitIconRetainedGlsl).
+ *  Single-main-per-stage split; no storage buffers, so no emulation opts. */
+export const emitTextGlsl = (stage: 'vertex' | 'fragment'): string => {
+  const keep = stage === 'vertex' ? 'vs' : 'fs'
+  return emitGlslModule(
+    {
+      ...TEXT_MODULE,
+      funcs: TEXT_MODULE.funcs.filter((f) => stageOf(f) === undefined || f.name === keep),
+    },
+    stage,
+  )
+}

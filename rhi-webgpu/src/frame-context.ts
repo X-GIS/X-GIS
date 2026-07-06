@@ -20,6 +20,11 @@ import type { ProjectionToken } from '@xgis/engine'
  *  fields are (re)populated at the start of each `render()` at the same
  *  points the equivalent locals were computed before this struct existed. */
 export interface FrameContext {
+  /** Set ONLY by the forced-WebGL2 frame (#834 M5 slice 3): the live RHI
+   *  screen pass. A pass that draws overlay content (labels) branches on it
+   *  instead of encoding a WebGPU render pass — the other FrameContext
+   *  fields (`encoder`, `colorView`, …) are proxy no-ops there. */
+  rhiPass?: import('@xgis/rhi').RhiRenderPass
   /** The WebGPU device (from `host.ctx.device`). */
   device: GPUDevice
   /** This frame's command encoder (`device.createCommandEncoder()`). */

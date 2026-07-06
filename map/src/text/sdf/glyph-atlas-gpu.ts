@@ -18,6 +18,7 @@
 // host's pageCount to grow and call addPage on demand).
 
 import type { GlyphAtlasHost } from './glyph-atlas-host'
+import type { RhiDevice, RhiSampler, RhiTexture, RhiTextureView } from '@xgis/engine'
 
 export interface GlyphAtlasGPUOptions {
   /** Side length in pixels of each atlas page. Must match the
@@ -28,26 +29,27 @@ export interface GlyphAtlasGPUOptions {
 }
 
 export class GlyphAtlasGPU {
-  private readonly device: GPUDevice
+  private readonly rhi: RhiDevice
   private readonly host: GlyphAtlasHost
   private readonly pageSize: number
   private readonly label: string
-  private readonly pages: GPUTexture[] = []
-  /** Sampler shared by all atlas reads. Linear magnify so SDF
-   *  upscales smoothly; clamp-to-edge so a near-edge sample never
-   *  bleeds into a neighbouring slot. */
-  readonly sampler: GPUSampler
+  private readonly pages: RhiTexture[] = []
+  private readonly views: RhiTextureView[] = []
+  /** Sampler shared by all atlas reads. Linear magnify so SDF upscales
+   *  smoothly; clamp-to-edge (both backends' RHI sampler convention) so a
+   *  near-edge sample never bleeds into a neighbouring slot. Backend-blind
+   *  since #834 M5 slice 3 — on WebGPU rhi.createSampler IS
+   *  device.createSampler with the same (default) clamp addressing. */
+  readonly sampler: RhiSampler
 
-  constructor(device: GPUDevice, host: GlyphAtlasHost, opts: GlyphAtlasGPUOptions) {
-    this.device = device
+  constructor(rhi: RhiDevice, host: GlyphAtlasHost, opts: GlyphAtlasGPUOptions) {
+    this.rhi = rhi
     this.host = host
     this.pageSize = opts.pageSize
     this.label = opts.label ?? 'glyph-atlas'
-    this.sampler = device.createSampler({
-      magFilter: 'linear',
-      minFilter: 'linear',
-      addressModeU: 'clamp-to-edge',
-      addressModeV: 'clamp-to-edge',
+    this.sampler = rhi.createSampler({
+      mag: 'linear',
+      min: 'linear',
       label: `${this.label}-sampler`,
     })
   }
@@ -55,20 +57,32 @@ export class GlyphAtlasGPU {
   /** GPUTexture for the given page, or undefined if not allocated.
    *  The renderer uses page 0 for now (multi-page extends naturally
    *  once the host needs it). */
-  getPage(index: number): GPUTexture | undefined {
+  getPage(index: number): RhiTexture | undefined {
     return this.pages[index]
+  }
+
+  /** Cached RHI view for a page — one createView per page, not per frame. */
+  pageView(index: number): RhiTextureView | undefined {
+    const tex = this.pages[index]
+    if (!tex) return undefined
+    return (this.views[index] ??= this.rhi.createView(tex))
   }
   get pageCount(): number {
     return this.pages.length
+  }
+  /** Page side length in pixels (all pages are square and same-sized). */
+  get pageSizePx(): number {
+    return this.pageSize
   }
 
   /** Allocate a new page texture. Lazy — the host calls this when
    *  its own pageCount grows. */
   addPage(): void {
-    const tex = this.device.createTexture({
-      size: { width: this.pageSize, height: this.pageSize },
+    const tex = this.rhi.createTexture({
+      width: this.pageSize,
+      height: this.pageSize,
       format: 'r8unorm',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      usage: ['sample', 'copy-dst'],
       label: `${this.label}-page-${this.pages.length}`,
     })
     this.pages.push(tex)
@@ -97,18 +111,14 @@ export class GlyphAtlasGPU {
         this.addPage()
         continue
       }
-      this.device.queue.writeTexture(
-        { texture: tex, origin: { x: d.slot.pxX, y: d.slot.pxY } },
-        d.sdf,
-        { bytesPerRow: d.slot.size },
-        { width: d.slot.size, height: d.slot.size },
-      )
+      this.rhi.writeTexture(tex, d.sdf, d.slot.size, d.slot.size, d.slot.size, d.slot.pxX, d.slot.pxY)
     }
     return dirty.length
   }
 
   destroy(): void {
-    for (const tex of this.pages) tex.destroy()
+    for (const tex of this.pages) this.rhi.destroyTexture(tex)
     this.pages.length = 0
+    this.views.length = 0
   }
 }

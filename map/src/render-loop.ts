@@ -35,6 +35,7 @@ import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
 import { backgroundClearValue } from './render/passes/background-pass'
+import { labelPass } from './render/passes/label-pass'
 import { resolveColorShape, resolveNumberShape } from './render/paint-shape-resolve'
 import { type FrameContext } from '@xgis/rhi-webgpu'
 import { makeProjectionToken, setProjectionToken } from '@xgis/engine'
@@ -805,6 +806,55 @@ export class RenderLoop {
         c.resolvedShow,
       )
     }
+    // #834 M5 slice 3 — tile ACQUISITION for label-bearing shows: a
+    // label-only show never reaches the fills/lines acquisition (both bail
+    // on missing paint), but the label dispatch below reads the selection
+    // cache + the source's CPU tile payloads.
+    for (const show of this.host.showCommands) {
+      if (show.label === undefined || show.visible === false) continue
+      const vt = this.host.vtSources.get(show.targetName)
+      if (!vt) continue
+      missingTiles += vt.renderer.ensureLabelTilesRhi(
+        this.host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        w,
+        h,
+        dpr,
+        show,
+      )
+    }
+
+    // #834 M5 slice 3 — LABELS on WebGL2. The SAME labelPass the WebGPU
+    // frame runs (dispatch → collision → TextStage) with a minimal
+    // FrameContext whose `rhiPass` short-circuits the WebGPU encoder tail:
+    // the text overlay draws directly on this screen pass. The WebGPU-only
+    // fields (encoder / views) are inert on that branch; sprite ICONS
+    // (iStage) are a follow-up slice.
+    labelPass.execute(
+      {
+        device: this.host.ctx.device,
+        encoder: null as unknown as GPUCommandEncoder,
+        screenView: null as unknown as GPUTextureView,
+        colorView: null as unknown as GPUTextureView,
+        camera: this.host.camera,
+        projection: makeProjectionToken(projType, centerLon, centerLat),
+        w,
+        h,
+        dpr,
+        elapsedMs: this.host._elapsedMs,
+        frameCount: this.host._frameCount,
+        sampleCount: 1,
+        useResolve: false,
+        passScope: (_label: string, fn: () => void) => fn(),
+        rt: this.host.renderTargets,
+        rhiPass: pass,
+      },
+      null as unknown as Parameters<typeof labelPass.shouldRun>[0],
+      this.host as unknown as Parameters<typeof labelPass.execute>[2],
+    )
+
     // #823 — retained host-drawing icon batches (map.graphics.add) on WebGL2.
     // Mirrors the WebGPU graphics pass's placement (LAST, on the presented
     // target) + its hasGraphics gate: a map with no retained batch draws
