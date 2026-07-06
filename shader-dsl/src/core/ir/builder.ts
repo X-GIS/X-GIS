@@ -197,7 +197,7 @@ export class Builder {
    *  place by subsequent .elif/.else. */
   if(cond: ReadonlyNode<'bool'>, body: (b: Builder) => ReadonlyNode | void): IfChain {
     const arms: Array<{ cond: Expr; body: Stmt[] }> = [
-      { cond: cond.expr, body: subBody(this, body) },
+      { cond: cond.expr, body: subBody(this, body, 'If body') },
     ]
     const stmt = { s: 'if' as const, arms, elseBody: undefined as Stmt[] | undefined }
     // Push a mutable-shaped object; the readonly Stmt typing is a compile-time
@@ -255,7 +255,7 @@ export class Builder {
       init: initStmt,
       cond: cond(i).expr,
       update: updateStmt,
-      body: subBody(this, (b) => body(b, i)),
+      body: subBody(this, (b) => body(b, i), 'Loop body'),
     })
   }
 
@@ -267,8 +267,8 @@ export class Builder {
     this.push({
       s: 'switch',
       scrut: scrut.expr,
-      cases: cases.map(([value, fn]) => ({ value, body: subBody(this, fn) })),
-      defaultBody: defaultBody ? subBody(this, defaultBody) : undefined,
+      cases: cases.map(([value, fn]) => ({ value, body: subBody(this, fn, 'Switch case body') })),
+      defaultBody: defaultBody ? subBody(this, defaultBody, 'Switch default body') : undefined,
     })
   }
 }
@@ -280,11 +280,11 @@ export class IfChain {
     private readonly setElse: (body: Stmt[]) => void,
   ) {}
   elif(cond: ReadonlyNode<'bool'>, body: (b: Builder) => ReadonlyNode | void): IfChain {
-    this.arms.push({ cond: cond.expr, body: subBody(this.parent, body) })
+    this.arms.push({ cond: cond.expr, body: subBody(this.parent, body, 'elif body') })
     return this
   }
   else(body: (b: Builder) => ReadonlyNode | void): void {
-    this.setElse(subBody(this.parent, body))
+    this.setElse(subBody(this.parent, body, 'else body'))
   }
 }
 
@@ -339,14 +339,38 @@ installStmtSink({
   assign: (target, value) => currentBuilder().assign(target, value),
 })
 
-function subBody(parent: Builder, fn: (b: Builder) => ReadonlyNode | void): Stmt[] {
+// ═══ #843 — authoring-error context ═══
+// When an author's callback throws (a JS ReferenceError, a sot field typo, …) the
+// stack leads with builder internals and the failing fn / statement is invisible.
+// Each callback boundary prefixes the SAME error object's message once — symbol-
+// tagged so nested scopes don't stack a prefix per level — preserving the error's
+// class (instanceof, coded SD#### diagnostics, substring-matching tests all hold).
+const AUTHOR_KIND_TAGGED = Symbol('shader-dsl authoring kind tagged')
+const AUTHOR_FN_TAGGED = Symbol('shader-dsl authoring fn tagged')
+
+function tagAuthoringError(e: unknown, tag: symbol, prefix: string): void {
+  if (e instanceof Error && !(tag in e)) {
+    ;(e as unknown as Record<symbol, boolean>)[tag] = true
+    e.message = `${prefix}: ${e.message}`
+  }
+}
+
+function subBody(parent: Builder, fn: (b: Builder) => ReadonlyNode | void, kind?: string): Stmt[] {
   // child() shares the parent's auto-name counter, so an omitted binding name inside this
   // nested scope keeps incrementing the same `_v{n}` sequence (no inner-shadows-outer).
   const b = parent.child()
   // A control-flow body does NOT capture a native `return value`: `If(c, () => x)` would
   // then be an INVISIBLE early return that reads as fall-through. Early returns are
   // explicit — `ReturnIf(cond, value)` (a guard clause) or `Return()` inside the branch.
-  withScope(b, () => fn(b))
+  withScope(b, () => {
+    try {
+      return fn(b)
+    } catch (e) {
+      // innermost statement kind wins (the tag blocks outer scopes' re-prefixing)
+      if (kind !== undefined) tagAuthoringError(e, AUTHOR_KIND_TAGGED, `in ${kind}`)
+      throw e
+    }
+  })
   return b.stmts
 }
 
@@ -402,6 +426,7 @@ function makeCallFactory<R extends ShaderType>(
   declRef?: FuncDecl,
 ): (...args: NodeLike[]) => Node<KeyOf<R>> {
   const mk = (args: NodeLike[]): Node<KeyOf<R>> => {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- callFn's own JSDoc: "Kept for the call factories' internal use" — this IS that factory
     const n = callFn(declRef?.name ?? name, ret, ...args)
     if (declRef) (n.expr as { declRef?: FuncDecl }).declRef = declRef
     return n
@@ -613,7 +638,16 @@ export function fn(
   // A body may `return value` (native TS) for its FINAL return — fn appends the
   // ret Stmt, so authoring reads like a normal function. Early returns inside
   // control flow still use Return() (a native return there only exits the closure).
-  const rawResult = withScope(bld, () => body(paramNodes, bld))
+  const rawResult = withScope(bld, () => {
+    try {
+      return body(paramNodes, bld)
+    } catch (e) {
+      // #843 — outermost authoring context: name the fn whose body threw, once
+      // (a nested subBody has already tagged the statement kind by this point).
+      tagAuthoringError(e, AUTHOR_FN_TAGGED, `while building fn '${name}'`)
+      throw e
+    }
+  })
   // A struct field proxy returned directly (`return o` — #763 X14) forwards
   // `.expr`/`.type` to its base var, so it reads like a node from here on.
   const result = rawResult as ReadonlyNode | void
