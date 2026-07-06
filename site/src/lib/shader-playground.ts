@@ -81,6 +81,18 @@ export function mountShader(
     }
   }
 
+  // The fp64 anti-fast-math guard (`Fp64Guard { one: f32 }`, bound as `_fp64`)
+  // is injected at LOWERING, so it never appears in the authored reflection —
+  // probe the linked program instead and feed it the required 1.0f.
+  const guardIdx = gl.getUniformBlockIndex(prog, 'Fp64Guard')
+  if (guardIdx !== 0xffffffff) {
+    const gbuf = gl.createBuffer()
+    gl.bindBuffer(gl.UNIFORM_BUFFER, gbuf)
+    gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([1, 0, 0, 0]), gl.STATIC_DRAW)
+    gl.uniformBlockBinding(prog, guardIdx, 1)
+    gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, gbuf)
+  }
+
   const vao = gl.createVertexArray()
   gl.bindVertexArray(vao)
 

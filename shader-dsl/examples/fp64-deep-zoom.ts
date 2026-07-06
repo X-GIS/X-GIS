@@ -10,11 +10,10 @@
 // into df64_* calls against the injected emulation library.
 //
 // f64 lowering auto-injects the `_fp64` guard uniform (the anti-fast-math
-// guard, see core/fp64/df64-lib.ts) — nothing to declare; the host writes
-// 1.0f into it (it appears in reflect() as an ordinary uniform buffer). The
-// example-site harness binds a single uniform block, so this example is not
-// live-rendered there (renderable: false); the real-GPU gate for fp64 is the
-// dedicated playground/e2e/_fp64-known-answer.spec.ts.
+// guard, see core/fp64/df64-lib.ts) — nothing to declare; the render
+// harnesses bind 1.0f into it by probing the program for the Fp64Guard block
+// (it is injected at LOWERING, so it is absent from the authored reflect()).
+// The numeric real-GPU gate for fp64 is playground/e2e/_fp64-known-answer.spec.ts.
 
 import {
   fn,
@@ -105,9 +104,7 @@ export const fp64DeepZoom: ShaderExample = {
   category: 'cartographic',
   file: 'fp64-deep-zoom.ts',
   module: fp64DeepZoomModule,
-  // The example-site harness binds ONE uniform block; fp64 needs its guard
-  // block too. The dedicated e2e spec covers the real-GPU rendering.
-  renderable: false,
+  renderable: true,
   controls: {
     origin: { kind: 'const', value: [...splitF64(ORIGIN)] },
     span: { kind: 'slider', label: 'World span', min: 1, max: 8, step: 0.5, value: 4 },

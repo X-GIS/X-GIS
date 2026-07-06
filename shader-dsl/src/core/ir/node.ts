@@ -481,6 +481,16 @@ export class ReadonlyNode<K extends string = string> {
 
   /** `this ? a : b` (only valid on a bool node — enforced via `this:`).
    *  Both branches must share a key. Mirrors WGSL select(b, a, this). */
+  // Number-number branches PIN R to 'f32' (the runtime lift). Without this
+  // overload the unconstrained R is open to CONTEXTUAL inference: an inline
+  // `x.sub(cond.select(0.0, 1.0))` lets the scalar×vec broadcast overload of
+  // `sub` infer R = `vec${'${number}'}<f32>` and mistype the whole chain.
+  select(this: ReadonlyNode<'bool'>, a: number, b: number): Node<'f32'>
+  select<R extends string>(
+    this: ReadonlyNode<'bool'>,
+    a: ReadonlyNode<R> | number,
+    b: ReadonlyNode<R> | number,
+  ): Node<R>
   select<R extends string = 'f32'>(
     this: ReadonlyNode<'bool'>,
     a: ReadonlyNode<R> | number,
@@ -746,12 +756,22 @@ export const textureDimensions = (
  *  on the CPU; the interpreter stubs it to 0). */
 export const fwidth = genType1('fwidth')
 
-/** select(cond, ifTrue, ifFalse) — free-function form of Node.select. */
-export const select = <R extends string>(
+/** select(cond, ifTrue, ifFalse) — free-function form of Node.select. The
+ *  number-number overload pins R to 'f32' (see Node.select — keeps contextual
+ *  inference from widening R to a vec key inside a broadcast-overload arg). */
+export function select(cond: ReadonlyNode<'bool'>, ifTrue: number, ifFalse: number): Node<'f32'>
+export function select<R extends string>(
   cond: ReadonlyNode<'bool'>,
   ifTrue: ReadonlyNode<R> | number,
   ifFalse: ReadonlyNode<R> | number,
-): Node<R> => cond.select(ifTrue, ifFalse)
+): Node<R>
+export function select<R extends string>(
+  cond: ReadonlyNode<'bool'>,
+  ifTrue: ReadonlyNode<R> | number,
+  ifFalse: ReadonlyNode<R> | number,
+): Node<R> {
+  return cond.select(ifTrue, ifFalse)
+}
 
 /**
  * `match (scrutinee) { case v0: r0; ...; default: dflt }` — a typed multi-arm

@@ -52,12 +52,7 @@ describe('shader-dsl examples — emit goldens', () => {
     })
   }
 
-  // GLSL golden coverage extends past `renderable`: fp64-deep-zoom is a valid
-  // GLSL ES 3.00 target (its two uniform blocks just exceed the example-site
-  // harness, which binds one) — its GLSL bytes are exactly what the fp64
-  // lowering must keep stable.
-  const GLSL_GOLDEN_EXTRAS = new Set(['fp64-deep-zoom'])
-  for (const ex of examples.filter((e) => e.renderable || GLSL_GOLDEN_EXTRAS.has(e.id))) {
+  for (const ex of examples.filter((e) => e.renderable)) {
     it(`${ex.id}: GLSL ES 3.00 emits (vertex + fragment) are byte-stable`, () => {
       checkGolden(`${ex.id}.vertex.glsl`, emitGlslModule(ex.module, 'vertex'))
       checkGolden(`${ex.id}.fragment.glsl`, emitGlslModule(ex.module, 'fragment'))

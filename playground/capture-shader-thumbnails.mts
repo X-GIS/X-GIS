@@ -64,6 +64,15 @@ const code = `(() => {
       const idx = gl.getUniformBlockIndex(prog, u.name);
       if (idx !== 0xFFFFFFFF) { gl.uniformBlockBinding(prog, idx, 0); gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, ubo); }
     }
+    // fp64 guard block (injected at lowering; absent from authored reflect()).
+    const gIdx = gl.getUniformBlockIndex(prog, 'Fp64Guard');
+    if (gIdx !== 0xFFFFFFFF) {
+      const gbuf = gl.createBuffer();
+      gl.bindBuffer(gl.UNIFORM_BUFFER, gbuf);
+      gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([1, 0, 0, 0]), gl.STATIC_DRAW);
+      gl.uniformBlockBinding(prog, gIdx, 1);
+      gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, gbuf);
+    }
     gl.bindVertexArray(gl.createVertexArray());
     gl.viewport(0, 0, W, H);
     gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
