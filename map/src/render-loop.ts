@@ -236,7 +236,7 @@ export class RenderLoop {
     // path below is UNTOUCHED — this is a pure pre-guard. Rollback = delete this block.
     const rhi = asScreenPassDevice(this.host.ctx.rhi)
     if (rhi) {
-      this.renderFrameViaRhi(rhi, w, h, projType, centerLon, centerLat, dpr)
+      const rhiWorkPending = this.renderFrameViaRhi(rhi, w, h, projType, centerLon, centerLat, dpr)
       // Mirror the WebGPU path's end-of-frame idle bookkeeping (#746): snapshot
       // the camera signature + clear _needsRender. Without this the early return
       // left shouldRenderThisFrame() true forever, so the forced-WebGL2 loop
@@ -248,7 +248,7 @@ export class RenderLoop {
       this.host._lastSigPitch = this.host.camera.pitch
       this.host._lastSigW = this.host.ctx.canvas.width
       this.host._lastSigH = this.host.ctx.canvas.height
-      this.host._needsRender = false
+      this.host._needsRender = rhiWorkPending
       requestAnimationFrame(this.host.renderLoop)
       return
     }
@@ -709,7 +709,7 @@ export class RenderLoop {
     centerLon: number,
     centerLat: number,
     dpr: number,
-  ): void {
+  ): boolean {
     // #832 — clear with the style's background, mirroring background-pass.ts
     // execute() exactly: constant `_backgroundColor`, overridden by the
     // zoom-interpolated colour shape, then the opacity shape multiplied into
@@ -745,6 +745,32 @@ export class RenderLoop {
       h,
       dpr,
     )
+    // #832 M2 — vector-tile polygon FILLS on WebGL2. The classifier is the
+    // same per-frame authority the WebGPU frame uses (visibility, min/max
+    // zoom, ResolvedShow paint snapshots); each opaque show's fills draw
+    // through the VTR's RHI fills-only path (GLSL twins, GPUArena buffers,
+    // DSFUN uniform pack). Lines / labels / OIT are later M5 slices.
+    for (const [, { renderer: vtR }] of this.host.vtSources) {
+      vtR.beginFrame(this.host._frameCount)
+    }
+    const classified = this.host.classifyVectorTileShows()
+    let missingTiles = 0
+    for (const c of classified.opaque) {
+      const vt = this.host.vtSources.get(c.sourceName)
+      if (!vt) continue
+      missingTiles += vt.renderer.renderFillsRhi(
+        pass,
+        this.host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        w,
+        h,
+        dpr,
+        c.show,
+        c.resolvedShow,
+      )
+    }
     // #823 — retained host-drawing icon batches (map.graphics.add) on WebGL2.
     // Mirrors the WebGPU graphics pass's placement (LAST, on the presented
     // target) + its hasGraphics gate: a map with no retained batch draws
@@ -769,6 +795,10 @@ export class RenderLoop {
     for (const message of errs) {
       this.host.ctx._validationErrors.push({ message, t: Date.now() })
     }
+    // True while vector tiles are still compiling/uploading — the caller keeps
+    // _needsRender armed so the loop re-renders until the scene converges
+    // (upload completion alone never repaints this isolated path, #832 M2).
+    return missingTiles > 0
   }
 
   private _resolveFillPatterns(): void {

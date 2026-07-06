@@ -3,7 +3,17 @@
 // Data loading/caching/sub-tiling is handled by TileCatalog.
 // This class manages GPU buffers, bind groups, and draw calls only.
 
-import type { GPUContext, RhiDevice, WebGpuDevice } from '@xgis/engine'
+import type {
+  GPUContext,
+  RhiBindGroup,
+  RhiBuffer,
+  RhiDevice,
+  RhiRenderPass,
+  WebGpuDevice,
+} from '@xgis/engine'
+import { toVertexBufferLayout } from '@xgis/engine'
+import { POLYGON_FILL_FORMAT } from '@xgis/compiler'
+import { polygonUniformBytes } from './polygon-uniform-slots'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { Camera } from '@xgis/engine'
 import type { ShowCommand } from './renderer-types'
@@ -13,7 +23,13 @@ import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
 import { globeEyeUniform } from './globe-eye-uniform'
 import { xlog, activeBody, EARTH } from '@xgis/shared'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
-import { recordFillDraw, type FillRhiState } from './material/polygon-fill-material'
+import {
+  recordFillDraw,
+  buildFlatFillMaterials,
+  type FillRhiState,
+} from './material/polygon-fill-material'
+import { executeItems, type Material } from './material/material'
+import { emitPolygonWgsl, emitPolygonGlsl } from '../shaders/dsl/polygon'
 
 // Per-tile uniform packing goes through a typed UniformBlock over the polygon
 // 'Uniforms' struct (#733 P2d): layout from wgslLayout(polygonU.struct) — the
@@ -587,6 +603,214 @@ export class VectorTileRenderer {
    *  budget can short-circuit duplicate resets when one source feeds
    *  multiple layer ShowCommands within the same frame. */
   private currentFrameId = 0
+
+  // ═══ #832 M2 — WebGL2 fills-only frame path ═══════════════════════════════
+  // A fills-only sibling of render() for the forced-WebGL2 frame
+  // (renderFrameViaRhi): same selection collaborator, same DSFUN per-tile
+  // uniform pack, same GPUArena buffers — but the draw goes straight through
+  // the RHI-generic Material/executeItems seam (no native pipelines, no
+  // recordFillDraw indirection, no fallback/line/label/bundle machinery).
+  // Primary tiles only, stencil variant 0 (STENCIL_WRITE) — with no fallback
+  // ancestors competing for pixels the clip mask has nothing to clip.
+  private _fillMatRhi: Material | null = null
+  private _fillTileBgRhi: { buf: RhiBuffer; bg: RhiBindGroup } | null = null
+
+  /** The default flat-fill Material with GLSL twins — built lazily ONCE on the
+   *  webgl2 backend (emitPolygonGlsl null-variant, no pick, single-sample). */
+  private ensureFillMaterialRhi(): Material {
+    if (this._fillMatRhi) return this._fillMatRhi
+    this._fillMatRhi = buildFlatFillMaterials({
+      rhi: this.rhi,
+      shader: emitPolygonWgsl(null, false),
+      vsCode: emitPolygonGlsl(null, false, 'vertex'),
+      fsCode: emitPolygonGlsl(null, false, 'fragment'),
+      format: this.format,
+      sampleCount: 1,
+      rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
+      vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT),
+      pickEnabled: false,
+    }).flat
+    return this._fillMatRhi
+  }
+
+  /** RHI tile bind group over the uniform ring (dynamic offset @0). Cached per
+   *  ring-buffer identity — a mid-frame ring grow swaps rhiBuffer, so fetch
+   *  this per draw and it rebuilds automatically. */
+  private fillTileBgRhi(): RhiBindGroup | null {
+    const buf = this.uniformRing?.rhiBuffer
+    if (!buf) return null
+    if (this._fillTileBgRhi?.buf === buf) return this._fillTileBgRhi.bg
+    const mat = this.ensureFillMaterialRhi()
+    const bg = this.rhi.createBindGroup(mat.layout(0), [
+      { binding: 0, resource: { buffer: buf, offset: 0, size: polygonUniformBytes() } },
+    ])
+    this._fillTileBgRhi = { buf, bg }
+    return bg
+  }
+
+  /** Fills-only render for the forced-WebGL2 frame (#832 M2). Caller runs
+   *  beginFrame(frameId) once per frame first (slot cursor + drawn-set reset). */
+  renderFillsRhi(
+    pass: RhiRenderPass,
+    camera: Camera,
+    projType: number,
+    projCenterLon: number,
+    projCenterLat: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number,
+    show: ShowCommand,
+    resolvedShow: ResolvedShow,
+  ): number {
+    if (!this.source?.hasData() || !this.source.getIndex()) return 0
+    this.frameCount++
+    this.source.resetCompileBudget(this.currentFrameId)
+    this.ensureUniformRing()
+    this.drainPendingUploads()
+
+    const effectiveSourceLayer = show.sourceLayer || show.targetName || ''
+    const sliceLayer = computeSliceKey(effectiveSourceLayer, show.filterExpr?.ast ?? null)
+    const layerCache = this.getOrCreateLayerCache(sliceLayer)
+    const sel = this._selection.selectForFrame(
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      dpr,
+      this.currentFrameId,
+      this.source,
+      sliceLayer,
+      2, // fills-only margin (no stroke width)
+      this.source.maxLevel,
+      this._drawStats,
+    )
+    if (!sel) return 0
+    const { neededKeys, worldOffDeg, currentZ } = sel
+    if (currentZ !== this.lastZoom) this.lastZoom = currentZ
+    this.currentCameraZoom = camera.zoom
+
+    const fill = resolvedShow.fill ?? (show.fill ? parseHexColor(show.fill) : null)
+    if (!fill) return 0
+    const opacity = resolvedShow.opacity
+    const fillA = fill[3] * opacity
+    if (fillA <= 0.005) return 0
+
+    const mat = this.ensureFillMaterialRhi()
+    const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
+    this.logDepthFc = frame.logDepthFc
+    const B = this.frameBlock
+    B.set.mvp(frame.matrix)
+    B.set.fill_color(fill[0], fill[1], fill[2], fillA)
+    B.set.proj_params(projType, projCenterLon, projCenterLat, 0)
+    const ge = globeEyeUniform(frame.eye)
+    B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
+    // Variant 0 = STENCIL_WRITE (compare 'always') — the ref value is inert,
+    // set once for determinism.
+    pass.setStencilReference(1)
+
+    // Release the per-frame upload cap (the WebGPU frame body does this via
+    // its own beginFrame ordering) and acquire missing tiles: catalog-hit →
+    // queue the GPU upload (pops next frame); index-miss → batch a worker
+    // request. Mirrors the classify 'primary' acquisition minus fallbacks.
+    this.resetUploadFrameCap()
+    const toLoad: number[] = []
+    let missing = 0
+    for (const key of neededKeys) {
+      if (layerCache.has(key)) continue
+      missing++
+      if (this.source.hasTileData(key, sliceLayer)) {
+        const d = this.source.getTileData(key, sliceLayer)
+        if (d) this.uploadTile(key, d, sliceLayer)
+      } else if (this.source.hasEntryInIndex(key)) {
+        toLoad.push(key)
+      }
+    }
+    if (toLoad.length > 0) this.source.requestTiles(toLoad)
+
+    const DEG2RAD = Math.PI / 180
+    const R = activeBody().sphereR
+    const MERC_LIMIT = 85.051129
+    const clampLat = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
+    const camMercX = projCenterLon * DEG2RAD * R
+    const camMercY = Math.log(Math.tan(Math.PI / 4 + (clampLat(projCenterLat) * DEG2RAD) / 2)) * R
+
+    for (let ki = 0; ki < neededKeys.length; ki++) {
+      const key = neededKeys[ki]!
+      const worldOff = worldOffDeg?.[ki] ?? 0
+      // World-copy composite dedup key (mirrors renderTileKeys) — dedup on the
+      // bare key would blank the wrapped copies.
+      const drawKey = worldOff === 0 ? key : key + worldOff * 1000000
+      if (this._drawStats.hasDrawn(drawKey)) continue
+      const cached = layerCache.get(key)
+      if (!cached || cached.indexCount === 0 || cached.extruded) continue
+      cached.lastUsedFrame = this.frameCount
+
+      // DSFUN camera anchor (verbatim math from renderTileKeys — the tiler
+      // bakes vertices relative to THIS tile origin).
+      const tileMercX = (cached.tileWest + worldOff) * DEG2RAD * R
+      const tileMercY =
+        Math.log(Math.tan(Math.PI / 4 + (clampLat(cached.tileSouth) * DEG2RAD) / 2)) * R
+      const camRelX = camMercX - tileMercX
+      const camRelY = camMercY - tileMercY
+      const cxh = Math.fround(camRelX)
+      const cyh = Math.fround(camRelY)
+      B.set.cam_h(cxh, cyh)
+      B.set.cam_l(Math.fround(camRelX - cxh), Math.fround(camRelY - cyh))
+      // Flat projections ignore the ECEF anchor xyz; .w lanes carry the
+      // antialias / vertical-gradient flags (antialias on, gradient inert).
+      B.set.cam_ecef_off_h(0, 0, 0, 1)
+      B.set.cam_ecef_off_l(0, 0, 0, 1)
+      B.set.tile_origin_merc(Math.fround(tileMercX), Math.fround(tileMercY))
+      B.set.opacity(opacity)
+      B.set.log_depth_fc(this.logDepthFc)
+      B.set.pick_id(0)
+      B.set.layer_depth_offset(0)
+      B.set.tile_extent_m(TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom))
+      B.set.extrude_height_m(0)
+      B.set.extrude_base_m(0)
+      B.set.clip_bounds(-1e30, 0, 0, 0) // sentinel = no clip
+      B.set.zoom(this.currentCameraZoom)
+      B.set.fill_translate_x(0)
+      B.set.fill_translate_y(0)
+      B.set.tile_dequant_scale(cached.dequantScale)
+      B.set.tile_dequant_half(cached.dequantHalf)
+
+      const slotOffset = this.allocUniformSlot()
+      this.stageUniformSlot(slotOffset, this.frameBlock.buffer)
+      // WebGL2 is IMMEDIATE-mode: the draw below executes at call time, so the
+      // staged slot must land in the GL buffer BEFORE the draw — flush per
+      // tile (dirty-range, one bufferSubData). The WebGPU path defers to one
+      // end-of-pass flush only because submit-ordering guarantees it there.
+      this.flushUniformStaging()
+      const tileBg = this.fillTileBgRhi()
+      if (!tileBg) continue
+      executeItems(mat, pass, [
+        {
+          variant: 0,
+          bindGroups: [tileBg],
+          dynamicOffsets: [[slotOffset]],
+          vertex: cached.vertexBuffer,
+          vertexOffset: cached.polyVertexOffset,
+          vertexSize: cached.polyVertexByteLength,
+          index: {
+            buffer: cached.indexBuffer,
+            format: 'uint32',
+            offset: cached.polyIndexOffset,
+            size: cached.polyIndexByteLength,
+          },
+          count: cached.indexCount,
+          indexed: true,
+        },
+      ])
+      this._drawStats.markDrawn(drawKey, cached.indexCount, 0, cached.indexCount, cached.tileZoom)
+    }
+    // Missing tiles (not yet compiled/uploaded) — the caller keeps the frame
+    // loop hot until this reaches 0, because upload completion alone never
+    // repaints the forced-WebGL2 loop (#832 M2).
+    return missing
+  }
 
   beginFrame(frameId: number = 0): void {
     this.currentFrameId = frameId

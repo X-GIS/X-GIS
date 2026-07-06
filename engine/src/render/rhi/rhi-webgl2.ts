@@ -422,7 +422,9 @@ class WebGl2RenderPass implements RhiRenderPass {
   drawIndexed(indexCount: number, instanceCount = 1): void {
     this.bindAttributes()
     if (!this.ibuf) throw new Error('webgl2: drawIndexed without an index buffer')
-    this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.ibuf.buf)
+    // .buf is the Gl2Buffer RECORD; the GL object is record.buf (#832 M2 — the
+    // fill draw is the first indexed consumer, which is why this laid dormant).
+    this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.ibuf.buf.buf)
     if (instanceCount > 1)
       this.gl.drawElementsInstanced(
         this.gl.TRIANGLES,
