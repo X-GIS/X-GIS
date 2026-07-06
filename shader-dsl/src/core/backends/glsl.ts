@@ -27,6 +27,7 @@ import type { ShaderType, ModuleDecl, StructDecl, BindingDecl, FuncDecl, Expr, S
 import { texture2dfT, u32T, f32T, vec4fT, stageOf } from '../ir'
 import { Capabilities, UnsupportedFeatureError, type Backend } from '../backend'
 import { spellIntrinsic } from '../intrinsics'
+import { dslError } from '../diagnostics/error'
 import { f32Lit } from './wgsl'
 import { emitBody, emitExpr as emitExprNeutral, lowerForBackend } from '../emit'
 import { wgslLayout } from '../reflect'
@@ -41,6 +42,10 @@ function glslType(t: ShaderType): string {
   switch (t.kind) {
     case 'scalar':
       return ({ f32: 'float', i32: 'int', u32: 'uint', bool: 'bool' } as const)[t.scalar]
+    // Pre-lowering type only — fp64Lower rewrites every f64 to vec2<f32> before
+    // emit (see wgslType's twin arm). Reaching here = the pass was bypassed.
+    case 'f64':
+      throw dslError('SD0040', 'glslType(f64)')
     case 'vec':
       return `${({ f32: 'vec', i32: 'ivec', u32: 'uvec' } as const)[t.elem]}${t.n}`
     case 'mat':

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { INTRINSICS, PORTABLE_INTRINSICS, isKnownIntrinsic } from './intrinsics'
+import {
+  INTRINSICS,
+  PORTABLE_INTRINSICS,
+  PRE_EMIT_INTRINSICS,
+  isKnownIntrinsic,
+} from './intrinsics'
 import {
   f32,
   u32,
@@ -46,12 +51,22 @@ import {
   toF32,
   toI32,
   toU32,
+  toF64,
+  f64FromParts,
+  f64Parts,
   type Node,
 } from './ir'
 
 describe('intrinsic registry coverage (the spelling agreement surface)', () => {
   it('no id is BOTH divergent and portable (single classification)', () => {
     const overlap = Object.keys(INTRINSICS).filter((k) => PORTABLE_INTRINSICS.has(k))
+    expect(overlap).toEqual([])
+  })
+
+  it('pre-emit ids overlap NEITHER emit classification (they must never be spellable)', () => {
+    const overlap = [...PRE_EMIT_INTRINSICS].filter(
+      (k) => Object.prototype.hasOwnProperty.call(INTRINSICS, k) || PORTABLE_INTRINSICS.has(k),
+    )
     expect(overlap).toEqual([])
   })
 
@@ -66,7 +81,11 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
   // Deliberate-diff catalogue: adding/removing a classified builtin must touch this snapshot,
   // which forces the author to classify a new builtin as divergent (INTRINSICS) or portable.
   it('the full known-intrinsic catalogue is stable', () => {
-    const catalogue = [...Object.keys(INTRINSICS), ...PORTABLE_INTRINSICS].sort()
+    const catalogue = [
+      ...Object.keys(INTRINSICS),
+      ...PORTABLE_INTRINSICS,
+      ...PRE_EMIT_INTRINSICS,
+    ].sort()
     expect(catalogue).toMatchInlineSnapshot(`
       [
         "abs",
@@ -85,6 +104,9 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "exp",
         "exp2",
         "f32",
+        "f64",
+        "f64FromParts",
+        "f64Parts",
         "floor",
         "fract",
         "fwidth",
@@ -166,12 +188,15 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
       toF32(u),
       toI32(f),
       toU32(f),
+      toF64(f),
+      f64FromParts(f, f),
+      f64Parts(toF64(f)),
     ]
     const unclassified = samples
       .map((n) => n.expr)
       .filter((e): e is Extract<typeof e, { op: 'call' }> => e.op === 'call')
       .map((e) => e.fn)
-      .filter((id) => !isKnownIntrinsic(id))
+      .filter((id) => !isKnownIntrinsic(id) && !PRE_EMIT_INTRINSICS.has(id))
     expect(unclassified).toEqual([])
   })
 })

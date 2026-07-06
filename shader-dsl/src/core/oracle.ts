@@ -194,6 +194,17 @@ const BUILTINS: Record<string, Builtin> = {
     ]
   },
   f32: (x) => Number(x),
+  // toF64 widen — a no-op here: the oracle evaluates f64 natively as a JS
+  // number (JS numbers ARE f64), which is why compileModule deliberately does
+  // NOT run fp64Lower. `oracle(fp64Lower(m)) ≈ oracle(m)` is the metamorphic
+  // gate on that pass (EFT error terms are exactly 0 in exact arithmetic).
+  f64: (x) => Number(x),
+  // hi/lo pair ↔ f64 (the DSFUN lane bridge): natively a sum / a fround split.
+  f64FromParts: (hi, lo) => (hi as number) + (lo as number),
+  f64Parts: (x) => {
+    const hi = Math.fround(x as number)
+    return [hi, Math.fround((x as number) - hi)]
+  },
   i32: (x) => Math.trunc(x as number),
   u32: (x) => Math.trunc(x as number) >>> 0,
   // #763 O1 — pure-math builtins the catalogue claims portable but the oracle

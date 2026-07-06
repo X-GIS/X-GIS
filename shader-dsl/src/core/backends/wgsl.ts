@@ -27,11 +27,18 @@ import {
 import { lowerModule } from '../passes/match-lower'
 import { fixpoint, autoVars, type OptLevel } from '../passes/opt'
 import { spellIntrinsic } from '../intrinsics'
+import { fp64Lower } from '../passes/fp64-lower'
+import { dslError } from '../diagnostics/error'
 
 export function wgslType(t: ShaderType): string {
   switch (t.kind) {
     case 'scalar':
       return t.scalar
+    // f64 is a PRE-LOWERING type only: fp64Lower (run inside lowerForBackend)
+    // rewrites every f64 to vec2<f32> before any backend spells a type. Reaching
+    // this arm means the lowering pass was bypassed — fail loud, never emit.
+    case 'f64':
+      throw dslError('SD0040', 'wgslType(f64)')
     case 'vec':
       return `vec${t.n}<${t.elem}>`
     case 'mat':
@@ -156,7 +163,7 @@ export const emitFunc = (f: FuncDecl): string => wgslBackend.emitFunc(f)
  *  (fixpoint) so this stays byte-identical to the func section of emitModule.) */
 export function emitFuncs(funcs: readonly FuncDecl[]): string {
   const lowered = fixpoint(
-    lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] })),
+    fp64Lower(lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] }))),
   )
   return lowered.funcs.map((f) => wgslBackend.emitFunc(f)).join('\n\n')
 }

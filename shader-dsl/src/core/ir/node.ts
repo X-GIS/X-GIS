@@ -15,7 +15,9 @@ import {
   isVec,
   isScalar,
   isMat,
+  isF64,
   f32T,
+  f64T,
   i32T,
   u32T,
   boolT,
@@ -42,9 +44,23 @@ export type NodeLike = ReadonlyNode<any> | number
 
 /** Operand a binary arithmetic op accepts: a matching vector or any scalar
  *  (WGSL vec∘scalar broadcast) for a vector LHS; any scalar for a scalar LHS.
- *  A `vec2`+`vec3` mismatch is therefore a TS error. */
+ *  A `vec2`+`vec3` mismatch is therefore a TS error. An f64 LHS accepts f64 /
+ *  f32 (implicit exact widen) / number — never int/bool (SD0004 at runtime,
+ *  rejected here at tsc). */
 export type ArithArg<K extends string> = K extends `vec${string}`
   ? ReadonlyNode<K> | ReadonlyNode<ScalarKey> | number
+  : K extends 'f64'
+    ? ReadonlyNode<'f64'> | ReadonlyNode<ScalarKey> | number
+    : ReadonlyNode<ScalarKey> | number
+
+/** Operand a comparison accepts — the scalar set, plus f64 for an f64 LHS
+ *  (compared lexicographically after lowering). NB: like the vec branch above,
+ *  the f64 branch must stay a SUPERSET of the generic ScalarKey form so
+ *  `Node<'f64'>` remains assignable to `ReadonlyNode<string>` (method
+ *  bivariance); mixing f64 with an int therefore rejects at AUTHOR-RUN time
+ *  (SD0004 from binResultType), not at tsc. */
+export type CmpArg<K extends string> = K extends 'f64'
+  ? ReadonlyNode<'f64'> | ReadonlyNode<ScalarKey> | number
   : ReadonlyNode<ScalarKey> | number
 
 /** Rejects COMPOSITE keys (vec/mat) as a `this:` bound while keeping scalar AND
@@ -99,6 +115,18 @@ function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
   }
   if (isVec(a) && isScalar(b)) return a
   if (isScalar(a) && isVec(b)) return b
+  // f64 (emulated double): f64∘f64 → f64; f64∘f32 → f64 (implicit EXACT widen —
+  // the fp64-lower pass wraps the f32 side as vec2<f32>(x, 0.0)). Anything else
+  // (int/bool/vec/mat) is rejected — no implicit narrowing, no int promotion.
+  // `%` has no df64 emulation; fail at author time, not at lowering.
+  if (isF64(a) || isF64(b)) {
+    const other = isF64(a) ? b : a
+    if (isF64(other) || (isScalar(other) && other.scalar === 'f32')) {
+      if (ctx === '%') throw dslError('SD0041', `binary op '%' on ${typeKey(a)} / ${typeKey(b)}`)
+      return f64T
+    }
+    throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`)
+  }
   if (isScalar(a) && isScalar(b)) {
     const order: Scalar[] = ['f32', 'i32', 'u32']
     const as = a.scalar,
@@ -148,6 +176,10 @@ export class ReadonlyNode<K extends string = string> {
     ) {
       return t.scalar === 'u32' ? u32(o) : i32(o)
     }
+    // An f64 context lifts a bare number to an f64 LITERAL carrying the full
+    // JS-double value — the fp64-lower pass splits it into (hi, lo) f32 halves
+    // at build time, so `x.add(0.1)` on an f64 x loses nothing.
+    if (typeof o === 'number' && isF64(t)) return f64(o)
     return lift(o)
   }
 
@@ -223,32 +255,37 @@ export class ReadonlyNode<K extends string = string> {
     // VECTOR comparison in WGSL yields vecN<bool>, so a vec LHS here would emit
     // invalid-typed WGSL with no earlier check (mixed-scalar lint reads binops
     // only). The `this:` bounds below reject it at tsc; hand-built calls land here.
-    if (this.type.kind !== 'scalar')
+    // An f64 LHS is a legal scalar comparison (lowered lexicographically).
+    if (this.type.kind !== 'scalar' && !isF64(this.type))
       throw dslError('SD0002', `compare '${cop}' needs scalar operands, got ${typeKey(this.type)}`)
+    const b = this.liftArg(o)
+    // f64 operand-compatibility gate (the arithmetic methods get this from
+    // binResultType inside bin(); comparisons build their Expr directly).
+    if (isF64(this.type) || isF64(b.type)) binResultType(this.type, b.type, cop)
     return new Node<'bool'>({
       op: 'compare',
       type: boolT,
       cop,
       a: this.expr,
-      b: this.liftArg(o).expr,
+      b: b.expr,
     })
   }
-  lt(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<ScalarKey> | number): Node<'bool'> {
+  lt(this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>): Node<'bool'> {
     return this.cmp('<', o)
   }
-  gt(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<ScalarKey> | number): Node<'bool'> {
+  gt(this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>): Node<'bool'> {
     return this.cmp('>', o)
   }
-  le(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<ScalarKey> | number): Node<'bool'> {
+  le(this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>): Node<'bool'> {
     return this.cmp('<=', o)
   }
-  ge(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<ScalarKey> | number): Node<'bool'> {
+  ge(this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>): Node<'bool'> {
     return this.cmp('>=', o)
   }
-  eq(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<ScalarKey> | number): Node<'bool'> {
+  eq(this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>): Node<'bool'> {
     return this.cmp('==', o)
   }
-  ne(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<ScalarKey> | number): Node<'bool'> {
+  ne(this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>): Node<'bool'> {
     return this.cmp('!=', o)
   }
 
@@ -460,6 +497,11 @@ export const i32 = (v: number): Node<'i32'> =>
   new Node<'i32'>({ op: 'lit', type: i32T, value: litNum(v, 'i32') })
 export const u32 = (v: number): Node<'u32'> =>
   new Node<'u32'>({ op: 'lit', type: u32T, value: litNum(v, 'u32') })
+/** An f64 (emulated double) literal. The lit carries the FULL JS-double value —
+ *  the fp64-lower pass splits it into (hi, lo) f32 halves at build time, so the
+ *  authored constant round-trips losslessly (JS numbers ARE f64). */
+export const f64 = (v: number): Node<'f64'> =>
+  new Node<'f64'>({ op: 'lit', type: f64T, value: litNum(v, 'f64') })
 export const bool = (v: boolean): Node<'bool'> => {
   if (typeof v !== 'boolean')
     throw new TypeError(`shader-dsl: bool() takes a boolean literal, got ${typeof v}`)
@@ -737,8 +779,28 @@ export function matchEnum<M extends Record<string, number>, R extends string>(
 }
 
 // Casts
+/** Narrow to f32. On an f64 argument this is the EXPLICIT precision-losing
+ *  narrow (lowered to hi + lo); f64 never narrows implicitly. */
 export const toF32 = (x: ReadonlyNode<string> | number): Node<'f32'> =>
   call('f32', f32T, x) as Node<'f32'>
+/** Widen f32 → f64 — exact (lowered to vec2<f32>(x, 0.0)). The explicit
+ *  spelling of the widen the arithmetic methods apply implicitly. */
+export const toF64 = (x: ReadonlyNode<'f32'> | number): Node<'f64'> =>
+  call('f64', f64T, x) as Node<'f64'>
+/** Assemble an f64 from its (hi, lo) f32 halves — the shader-side twin of
+ *  `splitF64` for values arriving as two f32 lanes (a DSFUN hi/lo vertex
+ *  attribute pair, a packed buffer). Lowered to `vec2<f32>(hi, lo)` — free.
+ *  The halves must be a NORMALIZED split (lo = x − hi as produced by
+ *  splitF64); un-normalized pairs weaken the arithmetic's error bounds. */
+export const f64FromParts = (
+  hi: ReadonlyNode<'f32'> | number,
+  lo: ReadonlyNode<'f32'> | number,
+): Node<'f64'> => call('f64FromParts', f64T, hi, lo) as Node<'f64'>
+/** The (hi, lo) pair of an f64 as a plain vec2<f32> — for STORING an f64 into
+ *  a vec2 buffer field / IO slot. Lowered to the identity (an f64 already IS
+ *  its pair post-lowering); `f64FromParts(v.x, v.y)` round-trips it. */
+export const f64Parts = (x: ReadonlyNode<'f64'>): Node<'vec2<f32>'> =>
+  call('f64Parts', vec2fT, x) as Node<'vec2<f32>'>
 export const toI32 = (x: ReadonlyNode<string> | number): Node<'i32'> =>
   call('i32', i32T, x) as Node<'i32'>
 export const toU32 = (x: ReadonlyNode<string> | number): Node<'u32'> =>

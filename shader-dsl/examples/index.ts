@@ -15,12 +15,14 @@ import { fbmClouds } from './fbm-clouds.ts'
 import { raymarchSphere } from './raymarch-sphere.ts'
 import { gradient } from './gradient-pass.ts'
 import { computeReduction } from './compute-reduction.ts'
+import { fp64DeepZoom } from './fp64-deep-zoom.ts'
 import type { ShaderExample } from './_shared.ts'
 
 export type { ShaderExample, Control } from './_shared.ts'
 export {
   graticule,
   hillshade,
+  fp64DeepZoom,
   colorRamp,
   plasma,
   voronoi,
@@ -35,6 +37,7 @@ export {
 export const examples: readonly ShaderExample[] = [
   graticule,
   hillshade,
+  fp64DeepZoom,
   colorRamp,
   plasma,
   voronoi,
