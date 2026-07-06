@@ -3,3 +3,4 @@
 // type (no @webgpu/types, no WebGL2 lib types beyond TS DOM lib), so any
 // package that depends on it alone is backend-neutral by construction.
 export * from './rhi'
+export * from './rhi-provider'

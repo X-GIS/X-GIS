@@ -6,6 +6,7 @@
 // render targets, reflection-to-WebGPU, bundle cache, bind tiers).
 export * from './rhi-webgpu'
 export * from './gpu'
+export * from './backend-providers'
 export * from './gpu-shared'
 export * from './gpu-timer'
 export * from './compute'

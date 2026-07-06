@@ -131,24 +131,11 @@ export const FORCE_GL2: boolean = readForceGl2Flag()
  *  type is sticky (see `readForceGl2Flag`). */
 export type BackendChoice = 'auto' | 'webgpu' | 'webgl2'
 
-/** Per-call options for `initGPU`. Backend is the only knob today. */
-export interface InitGPUOptions {
-  backend?: BackendChoice
-}
-
-/** SINGLE precedence authority for the GPU backend, resolving a caller's choice
- *  to a concrete backend. Precedence: an explicit `'webgpu'`/`'webgl2'` ALWAYS
- *  wins (a host that hard-pins in code ignores a stray `?forcegl2=1`); only
- *  `'auto'` consults the `?forcegl2=1` dev/bisect override, then defaults to
- *  WebGPU. `'auto'` deliberately does NOT descend into the reduced WebGL2 slice
- *  on a missing adapter — a present-but-adapter-null WebGPU still throws
- *  `WebGPUUnavailableError` → `onWebGPUUnavailable()` (the graceful path),
- *  intentional until the WebGL2 backend reaches full render parity. This is the
- *  ONLY consumer of `FORCE_GL2` on the programmatic path. */
-export function resolveBackend(requested: BackendChoice): 'webgpu' | 'webgl2' {
-  if (requested === 'webgpu' || requested === 'webgl2') return requested
-  return FORCE_GL2 ? 'webgl2' : 'webgpu'
-}
+// Backend PRECEDENCE moved out of this module (#833 M4): the composition root
+// expresses it as an ordered RhiBackendProvider array — see
+// backend-providers.ts (`backendProviderChain` derives the array from a
+// BackendChoice; `initGPUViaProviders` walks it). The old `resolveBackend`
+// function authority is retired.
 
 /** Inspect the validation error queue without mutating it. */
 export function getValidationErrors(ctx: GPUContext): { message: string; t: number }[] {
@@ -173,25 +160,11 @@ export class WebGPUUnavailableError extends Error {
   }
 }
 
-export async function initGPU(
-  canvas: HTMLCanvasElement,
-  opts: InitGPUOptions = {},
-): Promise<GPUContext> {
-  // WebGL2 boot path. Resolved from the caller's backend choice (explicit
-  // `'webgl2'`, or `'auto'` under the `?forcegl2=1` dev override) via the single
-  // `resolveBackend` authority. Additive EARLY RETURN — the WebGPU body below stays
-  // byte-identical when the backend resolves to `'webgpu'` (Principle 1 / S2: the
-  // sacred path is untouched). Bypasses the WebGPU adapter entirely so the produced
-  // frame provably originates on `WebGl2Device` (the gate asserts `host.ctx.rhi.backend`).
-  if (resolveBackend(opts.backend ?? 'auto') === 'webgl2') {
-    // Lazy-load the WebGL2 backend: only the rare `?forcegl2=1` boot pays for rhi-webgl2,
-    // and it keeps gpu.ts (layer 1) off a STATIC upward import edge to the render layer
-    // (rhi-webgl2 is L3). The device is injected as a factory so the arch spine stays
-    // downward-only; the WebGPU body below is unreached on this path.
-    const { WebGl2Device } = await import('@xgis/rhi-webgl2')
-    return initGPUForcedWebGL2(canvas, (gl) => new WebGl2Device(gl))
-  }
-
+/** Boot the WebGPU backend on `canvas` — the `webGpuBackendProvider.create`
+ *  body (#833 M4). This IS the pre-inversion `initGPU` WebGPU path, verbatim:
+ *  the provider extraction moved backend SELECTION out (see
+ *  backend-providers.ts) and left this boot byte-identical. */
+export async function createWebGpuContext(canvas: HTMLCanvasElement): Promise<GPUContext> {
   if (typeof navigator === 'undefined' || !navigator.gpu) {
     throw new WebGPUUnavailableError('WebGPU is not supported in this browser')
   }
@@ -332,8 +305,8 @@ export async function initGPU(
  *  `GPU*` read sites recompile. Slice-1 topology is single-sample + isolated (S4): the
  *  shared opaque-pass MSAA path is Story-5 scope, so `sampleCount` is 1 here.
  *  Exported for the unit gate (context-shape + backend-marker ACs); production
- *  reaches it only via `initGPU`'s `FORCE_GL2` early return. The RHI device is
- *  INJECTED (`makeRhi`) — `initGPU` lazy-imports `WebGl2Device` and passes the
+ *  reaches it only via `webGl2BackendProvider.create` (#833 M4). The RHI device is
+ *  INJECTED (`makeRhi`) — the provider lazy-imports `WebGl2Device` and passes the
  *  factory, so this layer-1 module never statically depends on the render layer. */
 export function initGPUForcedWebGL2(
   canvas: HTMLCanvasElement,
