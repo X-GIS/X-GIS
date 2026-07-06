@@ -15,7 +15,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc --build && tsc -p tsconfig.tests.json"
+    "build": "tsc --build && tsc -p tsconfig.tests.json",
+    "bake:goldens": "cd .. && UPDATE_EMIT_GOLDENS=1 bunx vitest run shader-dsl/examples/emit-goldens.test.ts"
   },
   "publishConfig": {
     "main": "./dist/index.js",
