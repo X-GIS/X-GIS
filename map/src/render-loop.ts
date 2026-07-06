@@ -735,17 +735,34 @@ export class RenderLoop {
     }
     const cv = backgroundClearValue(projType, bg, DEBUG_OVERDRAW)
     const pass = rhi.beginScreenPass({ width: w, height: h, clear: [cv.r, cv.g, cv.b, cv.a] })
-    this.host.rasterRenderer.renderRhiChecker(
-      rhi,
-      pass,
-      this.host.camera,
-      projType,
-      centerLon,
-      centerLat,
-      w,
-      h,
-      dpr,
-    )
+    // #834 M5 slice 2 — real raster tile sources on WebGL2. With a source
+    // configured, the SAME render() the WebGPU frame uses draws the tiles
+    // (RHI texture upload + RasterDraper on this pass); without one, the
+    // analytic checker stays (the US-003/US-004 gate fixture).
+    if (this.host.rasterRenderer.hasSource()) {
+      this.host.rasterRenderer.render(
+        pass,
+        this.host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        w,
+        h,
+        dpr,
+      )
+    } else {
+      this.host.rasterRenderer.renderRhiChecker(
+        rhi,
+        pass,
+        this.host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        w,
+        h,
+        dpr,
+      )
+    }
     // #832 M2 — vector-tile polygon FILLS on WebGL2. The classifier is the
     // same per-frame authority the WebGPU frame uses (visibility, min/max
     // zoom, ResolvedShow paint snapshots); each opaque show's fills draw
@@ -815,7 +832,7 @@ export class RenderLoop {
     // True while vector tiles are still compiling/uploading — the caller keeps
     // _needsRender armed so the loop re-renders until the scene converges
     // (upload completion alone never repaints this isolated path, #832 M2).
-    return missingTiles > 0
+    return missingTiles > 0 || this.host.rasterRenderer.hasPendingLoads()
   }
 
   private _resolveFillPatterns(): void {

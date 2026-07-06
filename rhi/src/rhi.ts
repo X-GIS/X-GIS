@@ -374,6 +374,17 @@ export interface RhiDevice {
    *  teardown sites the caller would otherwise reach behind the opaque handle for — lifetime is
    *  the caller's, not centralized by the RHI (mirrors `destroyBuffer`). */
   destroyTexture(texture: RhiTexture): void
+  /** Upload a decoded browser image (ImageBitmap / canvas) into a texture —
+   *  the backend-neutral `copyExternalImageToTexture` (#834 M5 slice 2: raster
+   *  tile images). Top-left origin on both backends: WebGPU
+   *  `queue.copyExternalImageToTexture`; WebGL2 `texSubImage2D` with the
+   *  bitmap source (no CPU readback). */
+  copyExternalImage(
+    texture: RhiTexture,
+    source: ImageBitmap | HTMLCanvasElement,
+    width: number,
+    height: number,
+  ): void
   createView(texture: RhiTexture): RhiTextureView
   createSampler(desc: RhiSamplerDesc): RhiSampler
   /** Release a sampler (#782). WebGL2 `gl.deleteSampler`; on WebGPU a `GPUSampler` has NO native

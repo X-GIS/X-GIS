@@ -688,6 +688,21 @@ export class WebGl2Device implements RhiDevice {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, width, height, format, type, data as ArrayBufferView)
   }
 
+  copyExternalImage(
+    texture: RhiTexture,
+    source: ImageBitmap | HTMLCanvasElement,
+    width: number,
+    height: number,
+  ): void {
+    const t = un<Gl2Texture>(texture)
+    const gl = this.gl
+    gl.bindTexture(gl.TEXTURE_2D, t.tex)
+    // Top-left origin to match WebGPU copyExternalImageToTexture — no flip.
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+    const { format, type } = texFmt(gl, t.format)
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, format, type, source)
+  }
+
   destroyTexture(texture: RhiTexture): void {
     // Delete the GL texture object (#782 — the RHI's create/destroyBuffer-only asymmetry meant a
     // texture created here had no RHI-level free → gl.deleteTexture leak). WebGPU twin: GPUTexture.destroy().

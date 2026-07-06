@@ -338,6 +338,19 @@ export class WebGpuDevice implements RhiDevice {
     )
   }
 
+  copyExternalImage(
+    texture: RhiTexture,
+    source: ImageBitmap | HTMLCanvasElement,
+    width: number,
+    height: number,
+  ): void {
+    this.device.queue.copyExternalImageToTexture(
+      { source },
+      { texture: u<GPUTexture>(texture) },
+      { width, height },
+    )
+  }
+
   destroyTexture(texture: RhiTexture): void {
     u<GPUTexture>(texture).destroy()
   }
