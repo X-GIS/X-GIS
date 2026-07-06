@@ -2,7 +2,7 @@
 
 import { lonLatToMercator } from './projection'
 import { type ECEF } from './ecef'
-import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
+import { WORLD_MERC, TILE_PX } from '../gpu/world-scale'
 import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
 import { EARTH_R } from './globe'

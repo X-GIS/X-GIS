@@ -17,7 +17,7 @@
 // This module must NOT import camera.ts (no cycle); camera.ts imports it.
 
 import { lonLatToECEFSphere, ecefToENURotation, type ECEF } from './ecef'
-import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
+import { WORLD_MERC, TILE_PX } from '../gpu/world-scale'
 import { buildGlobeMatrix, EARTH_R } from './globe'
 import { mercatorYToLatRad } from './projection'
 import { mul4, perspectiveMatrix } from './camera-helpers'

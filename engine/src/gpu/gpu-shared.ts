@@ -269,21 +269,10 @@ export const MSAA_4X = MSAA_STATE
 
 // ── World Wrapping ──
 
-import { EARTH } from '@xgis/shared'
-/** Earth circumference in Mercator meters (pinned literal, from the shared Body). */
-export const WORLD_MERC = EARTH.worldMerc
-
-/** Tile pixel size used as the anchor of the
- *  `metersPerPixel = WORLD_MERC / TILE_PX / 2^zoom` formula.
- *
- *  Set to 512 to match the Mapbox / MapLibre convention — sharing
- *  the same numeric `zoom` value between the two engines now
- *  produces the same `m/px` ground sampling, so hash URLs and
- *  authored `view zoom: N` values transfer 1:1 between X-GIS and
- *  the reference implementation. Previously this lived as a literal
- *  `256` scattered across 8+ call sites, which made X-GIS render at
- *  one effective zoom level closer than MapLibre for the same hash. */
-export const TILE_PX = 512
+// WORLD_MERC / TILE_PX moved to the NEUTRAL core (world-scale.ts, #832) so the
+// projection/camera core no longer imports this WebGPU-zone module; re-exported
+// here so every existing import site is unchanged.
+export { WORLD_MERC, TILE_PX } from './world-scale'
 
 /** World-copy / sphere-routing helpers now DERIVE from the PROJECTIONS
  *  table (the authority flip — see projections-table.ts). Re-exported here

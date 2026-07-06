@@ -19,7 +19,7 @@
 // a deliberately separate slice: it needs a GPU to verify and this
 // environment has none.
 
-import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
+import { WORLD_MERC, TILE_PX } from '../gpu/world-scale'
 import { MERCATOR_LAT_LIMIT } from './projection'
 import { flatViewHeightCapM } from './projections-table'
 import { mul4, perspectiveMatrix } from './camera-helpers'
