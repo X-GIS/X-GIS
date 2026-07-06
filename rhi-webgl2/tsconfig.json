@@ -1,0 +1,19 @@
+{
+  // ═══ @xgis/rhi-webgl2 — WebGL2 RHI backend (#833 M3) ═══
+  //
+  // `types: []` like @xgis/rhi: WebGL2RenderingContext comes from the DOM lib,
+  // so this backend compiles with zero ambient type packages — @webgpu/types
+  // cannot leak in.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "types": [],
+    "paths": {
+      "@xgis/rhi": ["../rhi/dist/index.d.ts"]
+    }
+  },
+  "references": [{ "path": "../rhi" }],
+  "include": ["src/**/*.ts"]
+}

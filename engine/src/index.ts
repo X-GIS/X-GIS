@@ -5,7 +5,6 @@
 // ── RHI (render hardware interface) ──────────────────────────────────
 export * from '@xgis/rhi'
 export * from './render/rhi/rhi-webgpu'
-export * from './render/rhi/rhi-webgl2'
 
 // ── GPU layer ────────────────────────────────────────────────────────
 export * from './gpu/gpu'

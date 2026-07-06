@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { initGPUForcedWebGL2, resizeCanvas } from './gpu'
-import { WebGl2Device } from '../render/rhi/rhi-webgl2'
+import { WebGl2Device } from '@xgis/rhi-webgl2'
 
 // US-001 (WebGL2 live-render milestone, Story 1): the forced-WebGL2 boot
 // (`?forcegl2=1`) builds a WebGL2-backed GPUContext. These are the GPU-free

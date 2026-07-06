@@ -188,7 +188,7 @@ export async function initGPU(
     // and it keeps gpu.ts (layer 1) off a STATIC upward import edge to the render layer
     // (rhi-webgl2 is L3). The device is injected as a factory so the arch spine stays
     // downward-only; the WebGPU body below is unreached on this path.
-    const { WebGl2Device } = await import('../render/rhi/rhi-webgl2')
+    const { WebGl2Device } = await import('@xgis/rhi-webgl2')
     return initGPUForcedWebGL2(canvas, (gl) => new WebGl2Device(gl))
   }
 

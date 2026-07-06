@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { WebGpuDevice } from './rhi-webgpu'
-import { WebGl2Device } from './rhi-webgl2'
+import { WebGl2Device } from '@xgis/rhi-webgl2'
 import type { RhiTexture, RhiSampler, RhiPipeline } from '@xgis/rhi'
 
 // A fake WebGL2 context supporting the create + destroy paths of texture / sampler /

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { rhiRenderPassToGpu, wrapWebGpuTextureView } from './rhi-webgpu'
-import { WebGl2Device } from './rhi-webgl2'
+import { WebGl2Device } from '@xgis/rhi-webgl2'
 import type { RhiTextureView } from '@xgis/rhi'
 
 // P0.3 (engine/content split — RHI contract gap #2) byte-identity gate.

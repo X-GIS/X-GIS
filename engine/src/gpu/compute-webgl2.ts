@@ -10,7 +10,7 @@
 
 import { emitGlslModule } from '@xgis/shader-dsl'
 import type { ComputeKernel } from '@xgis/compiler'
-import type { WebGl2Device } from '../render/rhi/rhi-webgl2'
+import type { WebGl2Device } from '@xgis/rhi-webgl2'
 import { overdrawComposeModule } from '../shaders/dsl/overdraw-compose'
 
 // The fullscreen-triangle vertex shader, DSL-authored (NOT a raw GLSL string) — reuses

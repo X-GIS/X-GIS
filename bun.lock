@@ -68,6 +68,7 @@
       "dependencies": {
         "@webgpu/types": "^0.1.69",
         "@xgis/rhi": "workspace:*",
+        "@xgis/rhi-webgl2": "workspace:*",
       },
       "devDependencies": {
         "@xgis/compiler": "workspace:*",
@@ -119,6 +120,13 @@
     "rhi": {
       "name": "@xgis/rhi",
       "version": "0.0.1",
+    },
+    "rhi-webgl2": {
+      "name": "@xgis/rhi-webgl2",
+      "version": "0.0.1",
+      "dependencies": {
+        "@xgis/rhi": "workspace:*",
+      },
     },
     "runtime": {
       "name": "@xgis/runtime",
@@ -718,6 +726,8 @@
     "@xgis/playground": ["@xgis/playground@workspace:playground"],
 
     "@xgis/rhi": ["@xgis/rhi@workspace:rhi"],
+
+    "@xgis/rhi-webgl2": ["@xgis/rhi-webgl2@workspace:rhi-webgl2"],
 
     "@xgis/runtime": ["@xgis/runtime@workspace:runtime"],
 

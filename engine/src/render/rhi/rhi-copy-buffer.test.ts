@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeAll } from 'vitest'
 import { WebGpuDevice, wrapWebGpuBuffer } from './rhi-webgpu'
-import { WebGl2Device } from './rhi-webgl2'
+import { WebGl2Device } from '@xgis/rhi-webgl2'
 
 beforeAll(() => {
   // bufUsage reads the GPUBufferUsage globals (absent under node/vitest).
