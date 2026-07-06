@@ -14,7 +14,7 @@ import { test, expect } from '@playwright/test'
 // Relative imports (NOT workspace aliases): Playwright transpiles specs in raw
 // Node — same convention as _polygon-glsl-compile-gate.spec.ts.
 import { configureProjections } from '../../map/src/shaders/dsl/projections'
-import { emitLineGlsl } from '../../map/src/shaders/dsl/line'
+import { emitLineGlsl } from '../../map/src/shaders/dsl/line-glsl'
 import { PROJECTIONS } from '../../engine/src/index'
 
 test.describe('line GLSL twin compiles on real WebGL2 (#834 M5)', () => {

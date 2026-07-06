@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { emitLineGlsl } from './line'
+import { emitLineGlsl } from './line-glsl'
 
 // #834 M5 slice 1 — the GLSL ES 3.00 twin of the line shader emits, splits
 // per stage, and lowers its three array<Struct> storage buffers (segments /
