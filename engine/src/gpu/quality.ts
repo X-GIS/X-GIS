@@ -266,3 +266,26 @@ if (typeof window !== 'undefined') {
     )
   }
 }
+
+// ── Live accessors (#832 M1 — backend-NEUTRAL, moved from gpu.ts) ──────────────
+// Function-accessor form so runtime `map.setQuality(patch)` mutations propagate
+// to every read site (a `const X = QUALITY.msaa` would snapshot at module load).
+// They live HERE (the neutral core) so camera/projection code can read the
+// quality knobs without importing the WebGPU-zone boot module; gpu.ts
+// re-exports all four, so every existing import site is unchanged.
+
+export const getSampleCount = (): number => QUALITY.msaa
+export const getMaxDpr = (): number => QUALITY.maxDpr
+export const isPickEnabled = (): boolean => QUALITY.picking
+
+/** The devicePixelRatio the swapchain is (re)sized to. During an interaction
+ *  it drops to `QUALITY.interactionDpr` (when set), otherwise the full
+ *  `getMaxDpr()` cap. The render loop MUST derive its per-frame `dpr` from
+ *  this SAME value — a divergent cap makes `canvasHeight/dpr` disagree with
+ *  the actual buffer size and the zoom-scale jumps on every gesture under
+ *  presets that set `interactionDpr`. Single source of truth. SSR/no-GPU → 1. */
+export function effectiveDpr(interacting = false): number {
+  const cap = interacting && QUALITY.interactionDpr !== null ? QUALITY.interactionDpr : getMaxDpr()
+  if (typeof window === 'undefined') return 1
+  return Math.min(window.devicePixelRatio || 1, cap)
+}

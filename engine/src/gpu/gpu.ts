@@ -23,15 +23,13 @@ export const SAFE_MODE: boolean = readSafeFlag()
 // At runtime `map.setQuality(patch)` mutates QUALITY in place and
 // dispatches rebuilds; these exports stay as thin getters so every read
 // site sees the current value (no stale snapshots).
-import { QUALITY } from './quality'
+import { QUALITY, effectiveDpr } from './quality'
 import type { RhiDevice } from '../render/rhi/rhi'
 
-// Function-accessor form for values that change at runtime. A plain
-// `export const X = QUALITY.msaa` would snapshot at module load and
-// stay stale after runtime updates.
-export const getSampleCount = (): number => QUALITY.msaa
-export const getMaxDpr = (): number => QUALITY.maxDpr
-export const isPickEnabled = (): boolean => QUALITY.picking
+// The live quality accessors moved to the NEUTRAL quality module (#832 M1) so
+// core code reads them without touching this WebGPU-zone boot module;
+// re-exported here so every existing import site is unchanged.
+export { getSampleCount, getMaxDpr, isPickEnabled, effectiveDpr } from './quality'
 
 /** @deprecated Use `getSampleCount()` — this binding reflects the
  *  module-load value only and does NOT follow runtime quality updates. */
@@ -407,15 +405,9 @@ export function initGPUForcedWebGL2(
  *  from the SAME value — a divergent cap makes `canvasHeight/dpr` disagree
  *  with the actual buffer size and the zoom-scale jumps on every gesture
  *  under presets that set `interactionDpr` (balanced/battery/?adaptiveDpr).
- *  Single source of truth so the two can never drift. SSR/no-GPU → 1. */
-export function effectiveDpr(interacting = false): number {
-  // Use the LIVE getter so runtime `map.setQuality({ maxDpr })` propagates
-  // on the very next resize without touching anything else.
-  const cap = interacting && QUALITY.interactionDpr !== null ? QUALITY.interactionDpr : getMaxDpr()
-  if (typeof window === 'undefined') return 1
-  return Math.min(window.devicePixelRatio || 1, cap)
-}
-
+ *  Single source of truth so the two can never drift. SSR/no-GPU → 1.
+ *  (`effectiveDpr` itself lives in the neutral quality module — see the
+ *  re-export above.) */
 export function resizeCanvas(ctx: GPUContext, interacting = false): void {
   const dpr = effectiveDpr(interacting)
   const w = Math.floor(ctx.canvas.clientWidth * dpr)

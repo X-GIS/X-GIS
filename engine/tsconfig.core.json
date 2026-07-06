@@ -1,20 +1,19 @@
 {
-  // ═══ The engine's WebGPU ZONE project (#832 M1) ═══
+  // ═══ The backend-NEUTRAL engine core (#832 M1) ═══
   //
-  // The ONLY engine compilation unit where @webgpu/types is visible. Every
-  // file listed here is, by definition, the WebGPU-coupled (== WebGL2-
-  // unsupported) area; everything else compiles in tsconfig.core.json with
-  // `types: []`, where any GPU* usage is a COMPILE ERROR. Dependents keep
-  // referencing this config (it references the core, so `tsc --build` builds
-  // both). A file leaves the zone by deleting it from BOTH lists (this
-  // `files` list and the core's `exclude` — kept in lockstep).
+  // `types: []` — WebGPU's ambient globals are NOT visible here, so ANY use of
+  // a GPU* type in these files is a TypeScript COMPILE ERROR. That is the
+  // enforcement: the compiler enumerates, in one build, every location still
+  // coupled to WebGPU (== the WebGL2-unsupported area). WebGPU-typed modules
+  // live in the sibling ZONE project (tsconfig.json's `files` list), which
+  // opts back into @webgpu/types and references this core.
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": ["@webgpu/types"],
-    "tsBuildInfoFile": "./dist/.webgpu-zone.tsbuildinfo",
+    "types": [],
+    "tsBuildInfoFile": "./dist/.core.tsbuildinfo",
     "paths": {
       "@xgis/compiler": ["../compiler/dist/index.d.ts"],
       "@xgis/compiler/tiler/geodesic": ["../compiler/dist/tiler/geodesic.d.ts"],
@@ -23,13 +22,10 @@
       "@xgis/shader-dsl/*": ["../shader-dsl/dist/*"]
     }
   },
-  "references": [
-    { "path": "./tsconfig.core.json" },
-    { "path": "../compiler" },
-    { "path": "../shared" },
-    { "path": "../shader-dsl" }
-  ],
-  "files": [
+  "references": [{ "path": "../compiler" }, { "path": "../shared" }, { "path": "../shader-dsl" }],
+  "include": ["src/**/*.ts"],
+  // The WebGPU ZONE — keep in lockstep with tsconfig.json's `files` list.
+  "exclude": [
     "src/index.ts",
     "src/gpu/bind-tiers.ts",
     "src/gpu/bind-tiers.test.ts",

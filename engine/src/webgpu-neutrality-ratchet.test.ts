@@ -31,20 +31,20 @@ const WEBGPU_IDENT =
 
 /** Pinned per-file counts (2026-07 baseline, #832). ONLY DECREASE these. */
 const BASELINE: ReadonlyMap<string, number> = new Map([
-  ['gpu/bind-tiers.ts', 23],
+  ['gpu/bind-tiers.ts', 12],
   ['gpu/compute.ts', 34],
   ['gpu/frame-uniform.ts', 5],
   ['gpu/gpu-shared.ts', 19],
-  ['gpu/gpu-timer.ts', 16],
-  ['gpu/gpu.ts', 22],
-  ['gpu/palette-texture.ts', 10],
+  ['gpu/gpu-timer.ts', 11],
+  ['gpu/gpu.ts', 13],
+  ['gpu/palette-texture.ts', 9],
   ['gpu/staging-buffer-pool.ts', 10],
-  ['render/bundle-cache.ts', 12],
-  ['render/compute-bind-layout.ts', 10],
+  ['render/bundle-cache.ts', 7],
+  ['render/compute-bind-layout.ts', 5],
   ['render/frame-context.ts', 4],
-  ['render/reflection-to-webgpu.ts', 8],
+  ['render/reflection-to-webgpu.ts', 2],
   ['render/render-targets.ts', 39],
-  ['render/vertex-buffer-layout.ts', 3],
+  ['render/vertex-buffer-layout.ts', 2],
 ])
 
 /** Strip block + line comments (naive but sufficient: the engine has no

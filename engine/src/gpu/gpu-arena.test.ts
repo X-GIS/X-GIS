@@ -454,9 +454,9 @@ describe('GPUArena — steady-state simulation', () => {
 // ── Compaction (Phase 6a.5) ──────────────────────────────────────────
 // Recording encoder for copyBufferToBuffer assertions.
 interface RecordedCopy {
-  source: GPUBuffer
+  source: MockBuffer
   sourceOffset: number
-  destination: GPUBuffer
+  destination: MockBuffer
   destinationOffset: number
   size: number
 }
@@ -474,9 +474,9 @@ function recordingEncoder() {
       size: number,
     ): void {
       copies.push({
-        source: unwrap(source) as unknown as GPUBuffer,
+        source: unwrap(source),
         sourceOffset,
-        destination: unwrap(destination) as unknown as GPUBuffer,
+        destination: unwrap(destination),
         destinationOffset,
         size,
       })
