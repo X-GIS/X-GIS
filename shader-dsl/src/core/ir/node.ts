@@ -649,6 +649,11 @@ export const textureDimensions = (
 /** Screen-space derivative magnitude — GPU-only (uncomputable per-invocation
  *  on the CPU; the interpreter stubs it to 0). */
 export const fwidth = genType1('fwidth')
+/** Screen-space partial derivatives (#846) — GPU-only like `fwidth` (the
+ *  interpreter stubs them to 0). Divergent spelling handled by the intrinsic
+ *  registry: WGSL `dpdx`/`dpdy`, GLSL ES 3.00 `dFdx`/`dFdy`. */
+export const dpdx = genType1('dpdx')
+export const dpdy = genType1('dpdy')
 
 /** select(cond, ifTrue, ifFalse) — free-function form of Node.select. */
 export const select = <R extends string>(
