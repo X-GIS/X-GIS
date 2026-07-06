@@ -17,8 +17,8 @@ import { describe, expect, it } from 'vitest'
   TEXTURE_BINDING: 4,
 }
 import { LineRenderer } from '@xgis/map'
-import { WebGpuDevice } from '@xgis/engine'
-import type { GPUContext } from '@xgis/engine'
+import { WebGpuDevice } from '@xgis/rhi-webgpu'
+import type { GPUContext } from '@xgis/rhi-webgpu'
 
 // ── Regression: translucent composite opacity must NOT clobber across layers ──
 //

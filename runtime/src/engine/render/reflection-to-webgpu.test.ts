@@ -6,11 +6,7 @@
 import { describe, it, expect } from 'vitest'
 import { reflect, type Reflection } from '@xgis/shader-dsl'
 import { buildPointModule } from '@xgis/map'
-import {
-  reflectionToBindGroupLayoutEntries,
-  uniformFieldSlots,
-  type VisibilityMap,
-} from '@xgis/engine'
+import { reflectionToBindGroupLayoutEntries, uniformFieldSlots, type VisibilityMap } from '@xgis/rhi-webgpu'
 
 const V = 1 // GPUShaderStage.VERTEX
 const F = 2 // GPUShaderStage.FRAGMENT

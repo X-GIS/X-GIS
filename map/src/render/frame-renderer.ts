@@ -11,10 +11,10 @@
 // and reaches this machinery ONLY through the public methods / getters below.
 // FrameRenderer holds NO back-reference to content.
 
-import type { GPUContext, WebGpuDevice } from '@xgis/engine'
-import { ComputeDispatcher } from '@xgis/engine'
+import type { GPUContext, WebGpuDevice } from '@xgis/rhi-webgpu'
+import { ComputeDispatcher } from '@xgis/rhi-webgpu'
 import { ComputeLayerRegistry } from './compute-layer-registry'
-import { extendBindGroupLayoutEntriesForCompute } from '@xgis/engine'
+import { extendBindGroupLayoutEntriesForCompute } from '@xgis/rhi-webgpu'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { UniformRing } from './uniform-ring'
 import { PipelineFactory } from './pipeline-factory'

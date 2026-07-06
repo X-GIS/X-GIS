@@ -11,9 +11,18 @@
     "rootDir": "./src",
     "types": [],
     "paths": {
-      "@xgis/rhi": ["../rhi/dist/index.d.ts"]
+      "@xgis/rhi": ["../rhi/dist/index.d.ts"],
+      "@xgis/engine": ["../engine/dist/index.d.ts"],
+      "@xgis/compiler": ["../compiler/dist/index.d.ts"],
+      "@xgis/shader-dsl": ["../shader-dsl/dist/index.d.ts"],
+      "@xgis/shader-dsl/*": ["../shader-dsl/dist/*"]
     }
   },
-  "references": [{ "path": "../rhi" }],
+  "references": [
+    { "path": "../rhi" },
+    { "path": "../engine" },
+    { "path": "../compiler" },
+    { "path": "../shader-dsl" }
+  ],
   "include": ["src/**/*.ts"]
 }

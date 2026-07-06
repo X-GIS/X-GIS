@@ -28,7 +28,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../../__test-support__/webgpu-stub'
-import { initGPU, type GPUContext } from '@xgis/engine'
+import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import {
   LineRenderer,
   LINE_CAP_BUTT,

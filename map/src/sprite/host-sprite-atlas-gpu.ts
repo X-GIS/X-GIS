@@ -17,12 +17,8 @@
 // Per-run (dies with the GPUDevice on a scene swap); the DEVICE-FREE
 // HostImageRegistry it mirrors survives so host images outlive the atlas.
 
-import {
-  wrapWebGpuSampler,
-  wrapWebGpuTextureView,
-  type RhiSampler,
-  type RhiTextureView,
-} from '@xgis/engine'
+import { type RhiSampler, type RhiTextureView } from '@xgis/engine'
+import { wrapWebGpuSampler, wrapWebGpuTextureView } from '@xgis/rhi-webgpu'
 import type { SpriteInfo } from './sprite-atlas-host'
 import type { HostImageRegistry } from './host-image-registry'
 import type { IconAtlasGpu, SpriteMetadataSource } from './icon-stage'

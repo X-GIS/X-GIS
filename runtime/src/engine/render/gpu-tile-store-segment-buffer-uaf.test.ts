@@ -29,7 +29,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { GpuTileStore } from '@xgis/map'
-import { WebGpuDevice } from '@xgis/engine'
+import { WebGpuDevice } from '@xgis/rhi-webgpu'
 
 interface MockBuffer {
   destroyed: boolean

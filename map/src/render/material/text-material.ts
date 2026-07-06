@@ -7,7 +7,7 @@
 // the text renderer's bind-group layout.
 
 import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
-import { wrapWebGpuBindGroupLayout } from '@xgis/engine'
+import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from './material'
 import { emitTextWgsl } from '@xgis/map'
 

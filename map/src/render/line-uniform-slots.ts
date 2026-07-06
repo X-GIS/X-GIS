@@ -21,7 +21,7 @@
 
 import { reflect } from '@xgis/shader-dsl'
 import { buildLineModule } from '@xgis/map'
-import { uniformFieldSlots, type UniformFieldSlots } from '@xgis/engine'
+import { uniformFieldSlots, type UniformFieldSlots } from '@xgis/rhi-webgpu'
 
 let _layer: UniformFieldSlots | undefined
 

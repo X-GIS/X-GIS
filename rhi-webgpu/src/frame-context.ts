@@ -12,9 +12,9 @@
 // arena / scratch-reuse patterns elsewhere in the path. The fields are all
 // `let`-style (mutable) for that reason.
 
-import type { Camera } from '../projection/camera'
+import type { Camera } from '@xgis/engine'
 import type { RenderTargets } from './render-targets'
-import type { ProjectionToken } from './projection-token'
+import type { ProjectionToken } from '@xgis/engine'
 
 /** Per-frame render state. One reused instance lives on RenderLoop; its
  *  fields are (re)populated at the start of each `render()` at the same

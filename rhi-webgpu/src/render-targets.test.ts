@@ -15,7 +15,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { RenderTargets } from './render-targets'
-import type { GPUContext } from '../gpu/gpu'
+import type { GPUContext } from './gpu'
 
 // `ensure*` reads GPUTextureUsage flags; stub them for the node test env.
 ;(globalThis as unknown as { GPUTextureUsage?: Record<string, number> }).GPUTextureUsage ??= {

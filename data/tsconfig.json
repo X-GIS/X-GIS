@@ -13,6 +13,8 @@
     // engine in the layer order, so this is a valid downward dependency.
     "paths": {
       "@xgis/rhi": ["../rhi/dist/index.d.ts"],
+      "@xgis/rhi-webgpu": ["../rhi-webgpu/dist/index.d.ts"],
+      "@xgis/rhi-webgl2": ["../rhi-webgl2/dist/index.d.ts"],
       "@xgis/engine": ["../engine/dist/index.d.ts"],
       "@xgis/compiler": ["../compiler/dist/index.d.ts"],
       "@xgis/compiler/tiler/geodesic": ["../compiler/dist/tiler/geodesic.d.ts"],
@@ -21,6 +23,8 @@
   },
   "references": [
     { "path": "../rhi" },
+    { "path": "../rhi-webgpu" },
+    { "path": "../rhi-webgl2" },
     { "path": "../engine" },
     { "path": "../compiler" },
     { "path": "../shared" }

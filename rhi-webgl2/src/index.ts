@@ -2,3 +2,4 @@
 // Implements the @xgis/rhi surface on WebGL2RenderingContext (DOM lib types
 // only — no @webgpu/types anywhere in this package's tree).
 export * from './rhi-webgl2'
+export * from './compute-webgl2'

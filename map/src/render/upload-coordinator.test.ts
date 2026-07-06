@@ -11,7 +11,8 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { PriorityQueue } from '@xgis/shared'
 import { UploadCoordinator, type UploadHost, type UploadStore } from './upload-coordinator'
-import type { RhiBuffer, RhiDevice, StagingBufferPool } from '@xgis/engine'
+import type { RhiBuffer, RhiDevice } from '@xgis/engine'
+import type { StagingBufferPool } from '@xgis/rhi-webgpu'
 import type { TileData } from '@xgis/data'
 
 beforeAll(() => {

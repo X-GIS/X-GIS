@@ -38,16 +38,12 @@
 //    parallel arc length would require per-segment numerical integration
 //    and is deferred.
 
-import { isPickEnabled, getSampleCount, type GPUContext } from '@xgis/engine'
+import { isPickEnabled, getSampleCount } from '@xgis/engine'
+import { type GPUContext } from '@xgis/rhi-webgpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
-import { asyncWriteBuffer, type StagingBufferPool } from '@xgis/engine'
+import { asyncWriteBuffer, type StagingBufferPool } from '@xgis/rhi-webgpu'
 import { xlog } from '@xgis/shared'
-import {
-  wrapWebGpuPass,
-  wrapWebGpuBuffer,
-  wrapWebGpuBindGroup,
-  wrapWebGpuBindGroupLayout,
-} from '@xgis/engine'
+import { wrapWebGpuPass, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { LineDraper } from './material/line-material'
 import { LineCompositeDraper } from './material/line-composite-material'

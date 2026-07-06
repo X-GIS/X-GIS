@@ -16,21 +16,16 @@
 // it (BMP-only Latin maps fit in one page comfortably).
 
 import type { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
-import { FrameArena } from '@xgis/engine'
+import { FrameArena } from '@xgis/rhi-webgpu'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import type { TextDraw } from './text-renderer-types'
 import { codePointIsIdeographic } from './text-wrap'
-import {
-  wrapWebGpuPass,
-  wrapWebGpuBindGroupLayout,
-  wrapWebGpuTextureView,
-  wrapWebGpuSampler,
-} from '@xgis/engine'
+import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '@xgis/rhi-webgpu'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { TextDraper, type TextSlice } from '../render/material/text-material'
 import { vertexField } from '@xgis/compiler'
 import { TEXT_FORMAT } from './text-vertex-format'
-import { toVertexBufferLayout } from '@xgis/engine'
+import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
 
 export type { TextDraw } from './text-renderer-types'
 

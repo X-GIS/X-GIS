@@ -41,7 +41,7 @@
 // class's GPU buffer yet. See `camera.ts` `getFrameView` JSDoc for the
 // dual-API rationale.
 
-import type { Camera } from '../projection/camera'
+import type { Camera } from '@xgis/engine'
 import { EARTH } from '@xgis/shared'
 
 export const FRAME_UNIFORM_SIZE_BYTES = 128
@@ -51,7 +51,7 @@ export const FRAME_UNIFORM_SIZE_BYTES = 128
  *  writer below. Replace `__FRAME_GROUP__` / `__FRAME_BINDING__` with
  *  the renderer's chosen group+binding indices when concatenating.
  *  WGSL emitted from the polygon DSL — see runtime/src/engine/shaders/dsl/frame-uniform.ts for the StructDecl + emit helper. */
-import { emitFrameUniformWgsl } from '../shaders/dsl/frame-uniform'
+import { emitFrameUniformWgsl } from '@xgis/engine'
 export const WGSL_FRAME_UNIFORM = emitFrameUniformWgsl()
 
 export class FrameUniform {

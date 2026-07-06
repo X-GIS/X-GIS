@@ -23,6 +23,7 @@
   "dependencies": {
     "@mapbox/vector-tile": "^2.0.4",
     "@webgpu/types": "^0.1.69",
+    "@xgis/rhi-webgpu": "workspace:*",
     "earcut": "^3.0.2",
     "pbf": "^4.0.1",
     "pmtiles": "^4.4.1",

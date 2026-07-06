@@ -15,7 +15,7 @@
 // owns those, not this collaborator.
 
 import { bumpAlloc } from '../__profile__/alloc-counter'
-import { FrameArena } from '@xgis/engine'
+import { FrameArena } from '@xgis/rhi-webgpu'
 import type { TileCatalog } from '@xgis/data'
 import { EARTH, activeBody } from '@xgis/shared'
 

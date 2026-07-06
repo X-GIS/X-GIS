@@ -8,7 +8,7 @@
 
 import type { TextStageOptions } from './text/text-stage-types'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
-import type { BackendChoice } from '@xgis/engine'
+import type { BackendChoice } from '@xgis/rhi-webgpu'
 import type { SourceLoader } from './source-loader'
 
 export type { BackendChoice }

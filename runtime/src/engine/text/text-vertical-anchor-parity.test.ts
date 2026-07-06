@@ -24,7 +24,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { TextStage } from '@xgis/map'
-import { WebGpuDevice } from '@xgis/engine'
+import { WebGpuDevice } from '@xgis/rhi-webgpu'
 import { computeSDF } from '@xgis/map'
 import type { GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult } from '@xgis/map'
 import type { LabelDef, TextValue } from '@xgis/compiler'

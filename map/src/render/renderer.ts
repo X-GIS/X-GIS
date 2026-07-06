@@ -16,7 +16,7 @@
 // thin delegations to the FrameRenderer — byte-identical external API, ZERO
 // call-site changes.
 
-import type { GPUContext } from '@xgis/engine'
+import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { Camera } from '@xgis/engine'
 import type { MeshData, LineMeshData } from '@xgis/data'
 import { DEBUG_OVERDRAW } from '../debug-flags'

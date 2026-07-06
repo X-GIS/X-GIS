@@ -13,6 +13,8 @@
     // cross-package TS6059 rootDir errors and source type-drift.
     "paths": {
       "@xgis/rhi": ["../rhi/dist/index.d.ts"],
+      "@xgis/rhi-webgpu": ["../rhi-webgpu/dist/index.d.ts"],
+      "@xgis/rhi-webgl2": ["../rhi-webgl2/dist/index.d.ts"],
       "@xgis/compiler": ["../compiler/dist/index.d.ts"],
       "@xgis/compiler/tiler/geodesic": ["../compiler/dist/tiler/geodesic.d.ts"],
       "@xgis/engine": ["../engine/dist/index.d.ts"],
@@ -25,6 +27,8 @@
   },
   "references": [
     { "path": "../rhi" },
+    { "path": "../rhi-webgpu" },
+    { "path": "../rhi-webgl2" },
     { "path": "../compiler" },
     { "path": "../shared" },
     { "path": "../shader-dsl" },

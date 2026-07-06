@@ -8,11 +8,7 @@
 // so a pipeline with no built Material twin throws (the raw fallback draw + kill-switch were deleted).
 
 import type { RhiBindLayoutEntry, RhiBuffer, RhiDevice } from '@xgis/engine'
-import {
-  wrapWebGpuBindGroupLayout,
-  wrapWebGpuBindGroup,
-  wrapWebGpuPass,
-} from '@xgis/engine'
+import { wrapWebGpuBindGroupLayout, wrapWebGpuBindGroup, wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from './material'
 
 /** The per-tile GPUArena fill buffers recordFillDraw reads (structural — a VTR

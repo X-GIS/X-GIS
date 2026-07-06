@@ -9,7 +9,7 @@
 // `encoder` → `ctx.encoder`.
 
 import { DEBUG_OVERDRAW } from '../../debug-flags'
-import type { FrameContext } from '@xgis/engine'
+import type { FrameContext } from '@xgis/rhi-webgpu'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, OitPassHost } from './pass'
 

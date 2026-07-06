@@ -1,6 +1,6 @@
 // ═══ Raster Tile Renderer — 텍스처 타일을 GPU 투영으로 렌더링 ═══
 
-import type { GPUContext } from '@xgis/engine'
+import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { Camera } from '@xgis/engine'
 import { visibleTilesFrustum, tileUrl, loadImageTexture } from '@xgis/data'
 import { mercator as mercatorProj, mercatorYToLat } from '@xgis/engine'
@@ -8,7 +8,7 @@ import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/engine'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { RasterDraper, type RasterTile } from './material/raster-material'
-import { wrapWebGpuPass } from '@xgis/engine'
+import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { routeToSphereSelector, enumerateWorldCopies } from '@xgis/engine'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'

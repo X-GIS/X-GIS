@@ -14,18 +14,13 @@
 // stage just converts viewport-px → NDC.
 
 import type { IconAtlasGpu } from './icon-stage'
-import {
-  wrapWebGpuPass,
-  wrapWebGpuBindGroupLayout,
-  wrapWebGpuTextureView,
-  wrapWebGpuSampler,
-} from '@xgis/engine'
+import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '@xgis/rhi-webgpu'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { IconDraper } from '../render/material/icon-material'
 import type { SpriteInfo } from './sprite-atlas-host'
 import { vertexField } from '@xgis/compiler'
 import { ICON_FORMAT } from './icon-vertex-format'
-import { toVertexBufferLayout } from '@xgis/engine'
+import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
 
 export interface IconDraw {
   /** Anchor in screen pixels (caller-projected). */

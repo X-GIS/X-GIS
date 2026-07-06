@@ -28,7 +28,7 @@
 import type { Camera } from '@xgis/engine'
 import { unprojectGlobeFromCamera } from '@xgis/engine'
 import { mercatorYToLat } from '@xgis/engine'
-import type { GPUContext } from '@xgis/engine'
+import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { LayerIdRegistry, XGISLayer, XGISFeature } from './layer'
 import type { SceneCommands } from './interpreter'
 import type { GeoJSONFeature, GeoJSONFeatureCollection } from '@xgis/data'

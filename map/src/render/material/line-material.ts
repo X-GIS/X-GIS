@@ -8,7 +8,7 @@
 // The translucent MAX-blend / composite pass is a render-graph concern, separate.
 
 import type { RhiBindGroup, RhiDevice, RhiRenderPass } from '@xgis/engine'
-import { wrapWebGpuBindGroupLayout } from '@xgis/engine'
+import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from './material'
 import { emitLineWgsl } from '@xgis/map'
 

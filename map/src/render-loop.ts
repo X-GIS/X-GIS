@@ -28,14 +28,15 @@ import {
   promotesToGlobeWhenTilted,
   poleLimit,
 } from '@xgis/engine'
-import { resizeCanvas, effectiveDpr, getSampleCount, isPickEnabled } from '@xgis/engine'
+import { effectiveDpr, getSampleCount, isPickEnabled } from '@xgis/engine'
+import { resizeCanvas } from '@xgis/rhi-webgpu'
 import { DEBUG_OVERDRAW } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
 import { backgroundClearValue } from './render/passes/background-pass'
 import { resolveColorShape, resolveNumberShape } from './render/paint-shape-resolve'
-import { type FrameContext } from '@xgis/engine'
+import { type FrameContext } from '@xgis/rhi-webgpu'
 import { makeProjectionToken, setProjectionToken } from '@xgis/engine'
 import type { RhiDevice, RhiScreenPassDevice } from '@xgis/engine'
 import { asScreenPassDevice } from '@xgis/engine'

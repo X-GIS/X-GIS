@@ -1,21 +1,20 @@
 {
+  // ═══ @xgis/rhi-webgpu — WebGPU RHI backend + former engine WebGPU zone (#833 M3) ═══
+  //
+  // The ONLY workspace package whose compilation sees @webgpu/types. The
+  // package graph is now the neutrality enforcement the M1 tsconfig
+  // core/zone split provided intra-engine: @xgis/engine compiles with
+  // `types: []`, so a WebGPU identifier there is a compile error.
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
     "outDir": "./dist",
     "rootDir": "./src",
     "types": ["@webgpu/types"],
-    // Consume the emitted declarations of the referenced packages (built first
-    // via the project references below) instead of recompiling their source
-    // under map's rootDir — same pattern as runtime/tsconfig.json. @xgis/engine
-    // is a sibling reference here so the build order is shader-dsl → compiler →
-    // engine → map.
     "paths": {
       "@xgis/rhi": ["../rhi/dist/index.d.ts"],
-      "@xgis/rhi-webgpu": ["../rhi-webgpu/dist/index.d.ts"],
       "@xgis/rhi-webgl2": ["../rhi-webgl2/dist/index.d.ts"],
       "@xgis/engine": ["../engine/dist/index.d.ts"],
-      "@xgis/data": ["../data/src/index.ts"],
       "@xgis/compiler": ["../compiler/dist/index.d.ts"],
       "@xgis/compiler/tiler/geodesic": ["../compiler/dist/tiler/geodesic.d.ts"],
       "@xgis/shared": ["../shared/dist/index.d.ts"],
@@ -25,10 +24,8 @@
   },
   "references": [
     { "path": "../rhi" },
-    { "path": "../rhi-webgpu" },
     { "path": "../rhi-webgl2" },
     { "path": "../engine" },
-    { "path": "../data" },
     { "path": "../compiler" },
     { "path": "../shared" },
     { "path": "../shader-dsl" }

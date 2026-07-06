@@ -7,7 +7,7 @@
 // orchestration stays legacy (render-graph). Reuses the accum bind-group layout.
 
 import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
-import { wrapWebGpuBindGroupLayout } from '@xgis/engine'
+import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from './material'
 import { emitHeatmapAccumWgsl } from '@xgis/map'
 

@@ -5,7 +5,7 @@
 // icon renderer's bind-group layout so its pipeline is layout-compatible.
 
 import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
-import { wrapWebGpuBindGroupLayout } from '@xgis/engine'
+import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from './material'
 import { emitIconWgsl } from '@xgis/map'
 

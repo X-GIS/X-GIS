@@ -17,7 +17,7 @@ import {
   extractInterpolateZoomColorStops,
   extractInterpolateZoomStops,
 } from '@xgis/compiler'
-import { packPalette, uploadPalette, type PaletteTextures } from '@xgis/engine'
+import { packPalette, uploadPalette, type PaletteTextures } from '@xgis/rhi-webgpu'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/engine'
@@ -37,17 +37,10 @@ import {
 } from './geojson-polar-cap-show'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { getSharedGeoJSONCompilePool } from '@xgis/data'
-import {
-  initGPU,
-  GPU_PROF,
-  getMaxDpr,
-  effectiveDpr,
-  WebGPUUnavailableError,
-  type GPUContext,
-  type BackendChoice,
-} from '@xgis/engine'
+import { getMaxDpr, effectiveDpr } from '@xgis/engine'
+import { initGPU, GPU_PROF, WebGPUUnavailableError, type GPUContext, type BackendChoice } from '@xgis/rhi-webgpu'
 import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
-import { GPUTimer } from '@xgis/engine'
+import { GPUTimer } from '@xgis/rhi-webgpu'
 import { Camera } from '@xgis/engine'
 import { CameraController } from './camera-controller'
 import { ViewportModeController } from './render/viewport-mode-controller'
@@ -58,7 +51,7 @@ import type { ShowCommand } from './render/renderer-types'
 import { resolveNumberShape } from './render/paint-shape-resolve'
 import { RenderLoop } from './render-loop'
 import { buildRenderNodes } from './render/passes/pass-chain'
-import { RenderTargets } from '@xgis/engine'
+import { RenderTargets } from '@xgis/rhi-webgpu'
 import {
   classifyVectorTileShows as classifyVectorTileShowsImpl,
   groupOpaqueBySource as groupOpaqueBySourceImpl,

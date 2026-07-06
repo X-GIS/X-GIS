@@ -23,13 +23,13 @@ export const SAFE_MODE: boolean = readSafeFlag()
 // At runtime `map.setQuality(patch)` mutates QUALITY in place and
 // dispatches rebuilds; these exports stay as thin getters so every read
 // site sees the current value (no stale snapshots).
-import { QUALITY, effectiveDpr } from './quality'
+import { QUALITY, effectiveDpr } from '@xgis/engine'
 import type { RhiDevice } from '@xgis/rhi'
 
 // The live quality accessors moved to the NEUTRAL quality module (#832 M1) so
 // core code reads them without touching this WebGPU-zone boot module;
 // re-exported here so every existing import site is unchanged.
-export { getSampleCount, getMaxDpr, isPickEnabled, effectiveDpr } from './quality'
+export { getSampleCount, getMaxDpr, isPickEnabled, effectiveDpr } from '@xgis/engine'
 
 /** @deprecated Use `getSampleCount()` — this binding reflects the
  *  module-load value only and does NOT follow runtime quality updates. */
@@ -263,7 +263,7 @@ export async function initGPU(
   // upward import edge to the render layer (rhi-webgpu is L3); `initGPU` is async, so the
   // one-time dynamic import is free. This is the SINGLE backend device every renderer routes
   // through (ctx.rhi) — no renderer self-instantiates `new WebGpuDevice`.
-  const { WebGpuDevice } = await import('../render/rhi/rhi-webgpu')
+  const { WebGpuDevice } = await import('./rhi-webgpu')
 
   // Build the GPUContext bundle BEFORE wiring the validation
   // handler so the handler can push into the per-context queue

@@ -3,15 +3,9 @@
 // Data loading/caching/sub-tiling is handled by TileCatalog.
 // This class manages GPU buffers, bind groups, and draw calls only.
 
-import type {
-  GPUContext,
-  RhiBindGroup,
-  RhiBuffer,
-  RhiDevice,
-  RhiRenderPass,
-  WebGpuDevice,
-} from '@xgis/engine'
-import { toVertexBufferLayout } from '@xgis/engine'
+import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
+import type { GPUContext, WebGpuDevice } from '@xgis/rhi-webgpu'
+import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
 import { POLYGON_FILL_FORMAT } from '@xgis/compiler'
 import { polygonUniformBytes } from './polygon-uniform-slots'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -59,8 +53,8 @@ import { FeatureDataBinder } from './feature-data-binder'
 import { GpuTileStore } from './gpu-tile-store'
 import { BindGroupRegistry } from './bind-group-registry'
 import { tileKeyParent, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
-import { StagingBufferPool } from '@xgis/engine'
-import { BundleCache, type BundleEncodeDescriptor } from '@xgis/engine'
+import { StagingBufferPool } from '@xgis/rhi-webgpu'
+import { BundleCache, type BundleEncodeDescriptor } from '@xgis/rhi-webgpu'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { UploadCoordinator } from './upload-coordinator'

@@ -1,23 +1,19 @@
 {
-  // ═══ The engine's WebGPU ZONE project (#832 M1) ═══
+  // ═══ @xgis/engine — backend-NEUTRAL engine core (#832 M1 → #833 M3) ═══
   //
-  // The ONLY engine compilation unit where @webgpu/types is visible. Every
-  // file listed here is, by definition, the WebGPU-coupled (== WebGL2-
-  // unsupported) area; everything else compiles in tsconfig.core.json with
-  // `types: []`, where any GPU* usage is a COMPILE ERROR. Dependents keep
-  // referencing this config (it references the core, so `tsc --build` builds
-  // both). A file leaves the zone by deleting it from BOTH lists (this
-  // `files` list and the core's `exclude` — kept in lockstep).
+  // `types: []` — WebGPU's ambient globals are NOT visible anywhere in this
+  // package, so ANY use of a GPU* type is a TypeScript COMPILE ERROR. Since
+  // #833 M3 the enforcement is the package graph itself: the WebGPU-typed
+  // machinery lives in @xgis/rhi-webgpu (the only package that sees
+  // @webgpu/types), and this package depends only on @xgis/rhi.
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": ["@webgpu/types"],
-    "tsBuildInfoFile": "./dist/.webgpu-zone.tsbuildinfo",
+    "types": [],
     "paths": {
       "@xgis/rhi": ["../rhi/dist/index.d.ts"],
-      "@xgis/rhi-webgl2": ["../rhi-webgl2/dist/index.d.ts"],
       "@xgis/compiler": ["../compiler/dist/index.d.ts"],
       "@xgis/compiler/tiler/geodesic": ["../compiler/dist/tiler/geodesic.d.ts"],
       "@xgis/shared": ["../shared/dist/index.d.ts"],
@@ -27,41 +23,9 @@
   },
   "references": [
     { "path": "../rhi" },
-    { "path": "../rhi-webgl2" },
-    { "path": "./tsconfig.core.json" },
     { "path": "../compiler" },
     { "path": "../shared" },
     { "path": "../shader-dsl" }
   ],
-  "files": [
-    "src/index.ts",
-    "src/gpu/bind-tiers.ts",
-    "src/gpu/bind-tiers.test.ts",
-    "src/gpu/compute.test.ts",
-    "src/gpu/frame-arena.test.ts",
-    "src/gpu/frame-uniform.test.ts",
-    "src/gpu/palette-texture.test.ts",
-    "src/gpu/staging-buffer-pool.test.ts",
-    "src/render/rhi/rhi-copy-buffer.test.ts",
-    "src/render/rhi/rhi-destroy.test.ts",
-    "src/render/rhi/rhi-renderpass-parity.test.ts",
-    "src/gpu/compute.ts",
-    "src/gpu/frame-arena.ts",
-    "src/gpu/frame-uniform.ts",
-    "src/gpu/gpu-shared.ts",
-    "src/gpu/gpu-timer.ts",
-    "src/gpu/gpu.ts",
-    "src/gpu/backend-resolve.test.ts",
-    "src/gpu/forcegl2-context.test.ts",
-    "src/gpu/palette-texture.ts",
-    "src/gpu/staging-buffer-pool.ts",
-    "src/render/bundle-cache.ts",
-    "src/render/compute-bind-layout.ts",
-    "src/render/frame-context.ts",
-    "src/render/reflection-to-webgpu.ts",
-    "src/render/render-targets.ts",
-    "src/render/render-targets.test.ts",
-    "src/render/vertex-buffer-layout.ts",
-    "src/render/rhi/rhi-webgpu.ts"
-  ]
+  "include": ["src/**/*.ts"]
 }

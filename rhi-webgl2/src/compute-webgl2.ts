@@ -11,7 +11,7 @@
 import { emitGlslModule } from '@xgis/shader-dsl'
 import type { ComputeKernel } from '@xgis/compiler'
 import type { WebGl2Device } from '@xgis/rhi-webgl2'
-import { overdrawComposeModule } from '../shaders/dsl/overdraw-compose'
+import { overdrawComposeModule } from '@xgis/engine'
 
 // The fullscreen-triangle vertex shader, DSL-authored (NOT a raw GLSL string) — reuses
 // the proven vs_full entry; emitGlslModule(m,'vertex') keeps only its @vertex entry.

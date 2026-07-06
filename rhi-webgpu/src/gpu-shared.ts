@@ -272,7 +272,7 @@ export const MSAA_4X = MSAA_STATE
 // WORLD_MERC / TILE_PX moved to the NEUTRAL core (world-scale.ts, #832) so the
 // projection/camera core no longer imports this WebGPU-zone module; re-exported
 // here so every existing import site is unchanged.
-export { WORLD_MERC, TILE_PX } from './world-scale'
+export { WORLD_MERC, TILE_PX } from '@xgis/engine'
 
 /** World-copy / sphere-routing helpers now DERIVE from the PROJECTIONS
  *  table (the authority flip — see projections-table.ts). Re-exported here
@@ -284,4 +284,4 @@ export {
   worldCopiesFor,
   enumerateWorldCopies,
   routeToSphereSelector,
-} from '../projection/projections-table'
+} from '@xgis/engine'

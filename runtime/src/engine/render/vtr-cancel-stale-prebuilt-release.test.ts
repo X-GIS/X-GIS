@@ -22,7 +22,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { tileKey } from '@xgis/compiler'
 import { PriorityQueue } from '@xgis/shared'
 import { UploadCoordinator, type UploadHost, type UploadStore } from '@xgis/map'
-import type { RhiDevice, StagingBufferPool } from '@xgis/engine'
+import type { RhiDevice } from '@xgis/engine'
+import type { StagingBufferPool } from '@xgis/rhi-webgpu'
 import type { TileData } from '@xgis/data'
 
 /** TileData carrying non-empty prebuilt SDF segment buffers — the bytes the

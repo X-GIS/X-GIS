@@ -28,7 +28,8 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { UploadCoordinator, type UploadHost, type UploadStore } from '@xgis/map'
 import type { LineRenderer } from '@xgis/map'
-import type { RhiDevice, StagingBufferPool } from '@xgis/engine'
+import type { RhiDevice } from '@xgis/engine'
+import type { StagingBufferPool } from '@xgis/rhi-webgpu'
 import type { TileData } from '@xgis/data'
 
 // vitest runs in Node, where the WebGPU `GPUBufferUsage` global doesn't

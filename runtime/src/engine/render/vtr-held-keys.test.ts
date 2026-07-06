@@ -16,7 +16,8 @@ import { describe, expect, it } from 'vitest'
 import { tileKey } from '@xgis/compiler'
 import { PriorityQueue } from '@xgis/shared'
 import { UploadCoordinator, type UploadHost, type UploadStore } from '@xgis/map'
-import type { RhiDevice, StagingBufferPool } from '@xgis/engine'
+import type { RhiDevice } from '@xgis/engine'
+import type { StagingBufferPool } from '@xgis/rhi-webgpu'
 import type { TileData } from '@xgis/data'
 
 // Stub TileData — none of the real upload code paths run here, so the fields

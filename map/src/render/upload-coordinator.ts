@@ -31,7 +31,7 @@
 //   the two routes diverge.
 
 import { GPUArena } from '@xgis/engine'
-import { StagingBufferPool, asyncWriteBuffer } from '@xgis/engine'
+import { StagingBufferPool, asyncWriteBuffer } from '@xgis/rhi-webgpu'
 import { PriorityQueue, PriorityQueueItemRemovedError } from '@xgis/shared'
 import { buildLineSegments } from '@xgis/data'
 import type { LineRenderer } from './line-renderer'
@@ -40,7 +40,8 @@ import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile
 import { xlog } from '@xgis/shared'
 import type { TileData } from '@xgis/data'
 import type { GPUTile } from './vector-tile-renderer-types'
-import type { RhiBindGroup, RhiBuffer, RhiDevice, WebGpuDevice } from '@xgis/engine'
+import type { RhiBindGroup, RhiBuffer, RhiDevice } from '@xgis/engine'
+import type { WebGpuDevice } from '@xgis/rhi-webgpu'
 
 /** The subset of `GpuTileStore` the upload pipeline drives. Declared
  *  structurally so the real store satisfies it without an explicit

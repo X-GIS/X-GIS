@@ -16,7 +16,7 @@ import { worldBandForProjType } from '@xgis/engine'
 import { PROJECTION_NAME_TO_TYPE } from '@xgis/engine'
 import type { MapRendererContent } from './render/renderer'
 import type { LineRenderer } from './render/line-renderer'
-import type { GPUContext } from '@xgis/engine'
+import type { GPUContext } from '@xgis/rhi-webgpu'
 import { parseHexColor } from './feature-helpers'
 import type { GeoJSONFeatureCollection } from '@xgis/data'
 

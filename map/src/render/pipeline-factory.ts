@@ -29,21 +29,11 @@
 //      references this.bindGroupLayout). Order: layouts → pipelines → atlas
 //      stubs → (back on MapRenderer) ring → first bind-group build.
 
-import type { GPUContext } from '@xgis/engine'
-import {
-  BLEND_ALPHA,
-  STENCIL_WRITE,
-  STENCIL_TEST,
-  STENCIL_WRITE_NO_DEPTH,
-  STENCIL_TEST_NO_DEPTH,
-  BLEND_OIT_ACCUM,
-  BLEND_OIT_REVEALAGE,
-  OIT_ACCUM_FORMAT,
-  OIT_REVEALAGE_FORMAT,
-} from '@xgis/engine'
+import type { GPUContext } from '@xgis/rhi-webgpu'
+import { BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST, STENCIL_WRITE_NO_DEPTH, STENCIL_TEST_NO_DEPTH, BLEND_OIT_ACCUM, BLEND_OIT_REVEALAGE, OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT } from '@xgis/rhi-webgpu'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
-import { toVertexBufferLayout } from '@xgis/engine'
+import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
 import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'

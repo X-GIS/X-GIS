@@ -25,6 +25,7 @@ export default defineConfig({
       '@xgis/engine': fileURLToPath(new URL('../engine/src/index.ts', import.meta.url)),
       '@xgis/rhi': fileURLToPath(new URL('../rhi/src/index.ts', import.meta.url)),
       '@xgis/rhi-webgl2': fileURLToPath(new URL('../rhi-webgl2/src/index.ts', import.meta.url)),
+      '@xgis/rhi-webgpu': fileURLToPath(new URL('../rhi-webgpu/src/index.ts', import.meta.url)),
       '@xgis/map': fileURLToPath(new URL('../map/src/index.ts', import.meta.url)),
       // More-specific subpath BEFORE the package root (vite matches in order).
       '@xgis/pipeline/gazetteer/kr': fileURLToPath(
@@ -60,6 +61,7 @@ export default defineConfig({
       '@xgis/engine',
       '@xgis/rhi',
       '@xgis/rhi-webgl2',
+      '@xgis/rhi-webgpu',
       '@xgis/map',
     ],
   },
