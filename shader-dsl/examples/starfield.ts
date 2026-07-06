@@ -31,7 +31,7 @@ import {
   f32T,
   vec2fT,
 } from '../src/index.ts'
-import { VsOut, vs, fullscreenUniforms } from './_fullscreen.ts'
+import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
 const U = fullscreenUniforms({ density: f32T })
 
@@ -46,8 +46,7 @@ const fs = fn(
   ({ vo }) => {
     const t = U.field.time
     const res = U.field.resolution
-    const asp = res.x.div(res.y)
-    const p = vec2(vo.uv.x.mul(2).sub(1).mul(asp), vo.uv.y.mul(2).sub(1))
+    const p = screenCoords(vo.uv, res)
     const col = Var(vec3(0, 0, 0))
     // three parallax layers — nearer (coarser) layers drift faster
     Loop(

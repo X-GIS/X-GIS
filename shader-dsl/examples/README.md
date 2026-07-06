@@ -14,6 +14,20 @@ and the fullscreen-triangle vertex stage — is shared from [`_fullscreen.ts`](.
 (`fullscreenUniforms(extra)` / `VsOut` / `vs`), so a fullscreen example declares only its
 fragment stage and extra uniform fields.
 
+## Coordinate spaces
+
+Three spaces appear in these shaders — name the one you are in (#842):
+
+1. **uv** — `vo.uv`, `[0,1]²`, origin bottom-left. What the vertex stage hands you.
+2. **centred isotropic** — `screenCoords(vo.uv, res)` (from `_fullscreen.ts`): y spans ±1
+   over the height, x spans ±aspect over the width, so **one unit covers the same number of
+   pixels on both axes**. Compute distances / angles / shapes here — a circle stays a circle.
+3. **pattern space** — whatever a shader scales/warps those into (tiles, polar, fractal plane).
+
+Never mix units across spaces in one measurement: the ocean example once measured the
+sun-disc distance between an aspect-scaled x and a raw uv y — units differed 2× and the sun
+rendered as an ellipse. Every gate passed; only visual review caught it.
+
 | File                   | Category     | What it shows                                                                                                                                                        |
 | ---------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `graticule.ts`         | cartographic | A lon/lat graticule — anti-aliased grid lines (screen-constant width via `fwidth`), a gold equator, spinning over `time`.                                            |

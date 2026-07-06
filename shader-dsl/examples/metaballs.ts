@@ -27,7 +27,7 @@ import {
   Let,
   f32T,
 } from '../src/index.ts'
-import { VsOut, vs, fullscreenUniforms } from './_fullscreen.ts'
+import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
 const U = fullscreenUniforms({ count: f32T })
 
@@ -42,8 +42,7 @@ const fs = fn(
   ({ vo }) => {
     const t = U.field.time
     const res = U.field.resolution
-    const asp = res.x.div(res.y)
-    const p = vec2(vo.uv.x.mul(2).sub(1).mul(asp), vo.uv.y.mul(2).sub(1))
+    const p = screenCoords(vo.uv, res)
     // sum the inverse-square fields; hue accumulates field-weighted so merged
     // blobs blend their colours in proportion to who dominates the pixel
     const field = Var(f32(0))

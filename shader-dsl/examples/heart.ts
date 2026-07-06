@@ -9,12 +9,7 @@
 import {
   fn,
   module,
-  uniformStruct,
-  ioStruct,
-  u32,
   f32,
-  toF32,
-  vec2,
   vec3,
   vec4,
   sin,
@@ -26,41 +21,13 @@ import {
   clamp,
   smoothstep,
   fwidth,
-  location,
-  builtin,
   Let,
   f32T,
-  vec2fT,
-  vec4fT,
-  u32T,
 } from '../src/index.ts'
+import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
 
-const U = uniformStruct(
-  'Uniforms',
-  { group: 0, binding: 0, as: 'U' },
-  { time: f32T, resolution: vec2fT, beat: f32T },
-)
-
-const VsOut = ioStruct('VsOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
-
-const vs = fn(
-  'vs',
-  { vi: builtin('vertex_index', u32T) },
-  ({ vi }) => {
-    const x = toF32(vi.bitAnd(u32(1)))
-      .mul(4)
-      .sub(1)
-    const y = toF32(vi.shr(u32(1)))
-      .mul(4)
-      .sub(1)
-    return VsOut.construct({
-      pos: vec4(x, y, 0, 1),
-      uv: vec2(x.mul(0.5).add(0.5), y.mul(0.5).add(0.5)),
-    })
-  },
-  { stage: 'vertex' },
-)
+const U = fullscreenUniforms({ beat: f32T })
 
 const fs = fn(
   'fs',
@@ -68,8 +35,7 @@ const fs = fn(
   ({ vo }) => {
     const t = U.field.time
     const res = U.field.resolution
-    const asp = res.x.div(res.y)
-    const p = vec2(vo.uv.x.mul(2).sub(1).mul(asp), vo.uv.y.mul(2).sub(1))
+    const p = screenCoords(vo.uv, res)
     // heartbeat: |sin|⁸ sharpens the sine into a thump per half-period
     const beat = Let(pow(abs(sin(t.mul(3.14159).mul(U.field.beat))), 8).mul(0.12))
     const s = Let(f32(0.72).add(beat))

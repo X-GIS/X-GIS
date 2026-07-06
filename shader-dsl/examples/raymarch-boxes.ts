@@ -13,7 +13,6 @@ import {
   module,
   u32,
   f32,
-  vec2,
   vec3,
   vec4,
   sin,
@@ -35,7 +34,7 @@ import {
   f32T,
   vec3fT,
 } from '../src/index.ts'
-import { VsOut, vs, fullscreenUniforms } from './_fullscreen.ts'
+import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
 const U = fullscreenUniforms({ speed: f32T })
 
@@ -58,8 +57,7 @@ const fs = fn(
   ({ vo }) => {
     const time = U.field.time
     const res = U.field.resolution
-    const asp = res.x.div(res.y)
-    const ndc = vec2(vo.uv.x.mul(2).sub(1).mul(asp), vo.uv.y.mul(2).sub(1))
+    const ndc = screenCoords(vo.uv, res)
     // camera: weaving gently down the corridor BETWEEN the boxes. Boxes are
     // centred at 1.3 + 2.6k per axis and reach ±0.76, so the free corridor is
     // ±0.54 around the axis — a ±0.4 wobble never enters a box.

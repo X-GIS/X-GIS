@@ -30,7 +30,7 @@ import {
   Let,
   f32T,
 } from '../src/index.ts'
-import { VsOut, vs, fullscreenUniforms } from './_fullscreen.ts'
+import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
 const U = fullscreenUniforms({ zoom: f32T })
 
@@ -45,8 +45,7 @@ const fs = fn(
   { vo: VsOut },
   ({ vo }) => {
     const res = U.field.resolution
-    const asp = res.x.div(res.y)
-    const p = vec2(vo.uv.x.mul(2).sub(1).mul(asp), vo.uv.y.mul(2).sub(1))
+    const p = screenCoords(vo.uv, res)
     // breathing zoom into the seahorse valley (−0.7453 + 0.1127i)
     const s = Let(
       exp(U.field.zoom.add(sin(U.field.time.mul(0.2)).mul(0.75).add(0.75)).neg()).mul(2.4),

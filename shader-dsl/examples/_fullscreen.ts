@@ -24,6 +24,8 @@ import {
   vec2fT,
   vec4fT,
   u32T,
+  type Node,
+  type ReadonlyNode,
   type ShaderType,
   type UniformStruct,
 } from '../src/index.ts'
@@ -57,6 +59,21 @@ export const vs = fn(
 /** The standard {time, resolution, …extra} uniform at @group(0) @binding(0),
  *  std140 layout recovered by reflect(). Extra fields keep declaration order
  *  AFTER time/resolution — field order is the byte layout. */
+/** Centred, ISOTROPIC screen coordinates from the fullscreen uv (#842): y spans
+ *  ±1 over the height and x spans ±aspect over the width, so ONE unit covers
+ *  the same number of pixels on both axes — distances and shapes computed in
+ *  this space render undistorted (a circle stays a circle). Mixing this space
+ *  with raw [0,1] uv units caused a real bug (the ocean example's elliptical
+ *  sun). Pure node-graph sugar — it builds the exact ops of the hand-written
+ *  form, so adopting it is emit-byte-identical. */
+export function screenCoords(
+  uv: ReadonlyNode<'vec2<f32>'>,
+  resolution: ReadonlyNode<'vec2<f32>'>,
+): Node<'vec2<f32>'> {
+  const asp = resolution.x.div(resolution.y)
+  return vec2(uv.x.mul(2).sub(1).mul(asp), uv.y.mul(2).sub(1))
+}
+
 export function fullscreenUniforms<F extends Record<string, ShaderType>>(
   extra?: F,
 ): UniformStruct<{ time: typeof f32T; resolution: typeof vec2fT } & F> {
