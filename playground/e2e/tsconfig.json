@@ -1,0 +1,17 @@
+{
+  // Editor / typed-lint project for the e2e specs. playground/tsconfig.json
+  // includes only src/, so the TS project service — which discovers projects
+  // by walking tsconfig.json files — could not resolve ANY spec, and typed
+  // ESLint (the pre-commit lint-staged pass) failed to parse newly staged
+  // specs. Playwright transpiles specs itself at run time; this project is a
+  // noEmit resolution surface only. Same pattern as shader-dsl/examples/tsconfig.json.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "declaration": false,
+    "sourceMap": false,
+    "types": ["node"]
+  },
+  "include": ["**/*.ts"]
+}
