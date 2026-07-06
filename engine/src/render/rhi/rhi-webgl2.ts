@@ -165,13 +165,20 @@ function texFmt(
   }
 }
 
-const VFMT: Readonly<Record<string, { size: number; type: 'f32' | 'u8'; normalized: boolean }>> = {
+const VFMT: Readonly<
+  Record<string, { size: number; type: 'f32' | 'u8' | 'u16'; normalized: boolean; integer?: boolean }>
+> = {
   float32: { size: 1, type: 'f32', normalized: false },
   float32x2: { size: 2, type: 'f32', normalized: false },
   float32x3: { size: 3, type: 'f32', normalized: false },
   float32x4: { size: 4, type: 'f32', normalized: false },
   unorm8x4: { size: 4, type: 'u8', normalized: true },
   uint8x4: { size: 4, type: 'u8', normalized: false },
+  // INTEGER attributes (#832 M2) — read as uvec in the shader, so they must
+  // bind via vertexAttribIPointer (the float pointer would silently convert).
+  // The polygon fill's quantized-ECEF position lanes (q_xy/q_z) use these.
+  uint16x2: { size: 2, type: 'u16', normalized: false, integer: true },
+  uint16x4: { size: 4, type: 'u16', normalized: false, integer: true },
 }
 
 function applyBlend(gl: WebGL2RenderingContext, mode: Gl2Pipeline['blend']): void {
@@ -376,16 +383,24 @@ class WebGl2RenderPass implements RhiRenderPass {
         const fmt = VFMT[a.format]
         if (!fmt) throw new Error(`webgl2: unsupported vertex format '${a.format}'`)
         gl.enableVertexAttribArray(a.location)
+        const glType =
+          fmt.type === 'f32' ? gl.FLOAT : fmt.type === 'u16' ? gl.UNSIGNED_SHORT : gl.UNSIGNED_BYTE
         // `vbufOffset` (default 0) shifts the per-tile arena sub-range start into the
         // attribute byte offset — default 0 is byte-identical to the no-offset bind.
-        gl.vertexAttribPointer(
-          a.location,
-          fmt.size,
-          fmt.type === 'f32' ? gl.FLOAT : gl.UNSIGNED_BYTE,
-          fmt.normalized,
-          vb.stride,
-          a.offset + this.vbufOffset,
-        )
+        if (fmt.integer) {
+          // uvec/ivec shader inputs — the I-pointer keeps the integer bits;
+          // vertexAttribPointer would float-convert them silently (#832 M2).
+          gl.vertexAttribIPointer(a.location, fmt.size, glType, vb.stride, a.offset + this.vbufOffset)
+        } else {
+          gl.vertexAttribPointer(
+            a.location,
+            fmt.size,
+            glType,
+            fmt.normalized,
+            vb.stride,
+            a.offset + this.vbufOffset,
+          )
+        }
       }
     }
   }
