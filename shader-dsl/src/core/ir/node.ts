@@ -208,6 +208,11 @@ export class ReadonlyNode<K extends string = string> {
     this: ReadonlyNode<NonComposite<K>>,
     o: ReadonlyNode<K2>,
   ): Node<K2>
+  // f32 LHS ∘ f64 RHS widens to f64 (binResultType is symmetric; without this
+  // overload only the f64-LHS order type-checked, and the phantom key must be
+  // truthful — the runtime result IS f64). The `this:` bound keeps it out of
+  // every other receiver's candidate set.
+  add(this: ReadonlyNode<'f32'>, o: ReadonlyNode<'f64'>): Node<'f64'>
   add(o: ArithArg<K>): Node<K>
   add(o: NodeLike): Node {
     return this.bin('+', o)
@@ -216,6 +221,11 @@ export class ReadonlyNode<K extends string = string> {
     this: ReadonlyNode<NonComposite<K>>,
     o: ReadonlyNode<K2>,
   ): Node<K2>
+  // f32 LHS ∘ f64 RHS widens to f64 (binResultType is symmetric; without this
+  // overload only the f64-LHS order type-checked, and the phantom key must be
+  // truthful — the runtime result IS f64). The `this:` bound keeps it out of
+  // every other receiver's candidate set.
+  sub(this: ReadonlyNode<'f32'>, o: ReadonlyNode<'f64'>): Node<'f64'>
   sub(o: ArithArg<K>): Node<K>
   sub(o: NodeLike): Node {
     return this.bin('-', o)
@@ -224,6 +234,11 @@ export class ReadonlyNode<K extends string = string> {
     this: ReadonlyNode<NonComposite<K>>,
     o: ReadonlyNode<K2>,
   ): Node<K2>
+  // f32 LHS ∘ f64 RHS widens to f64 (binResultType is symmetric; without this
+  // overload only the f64-LHS order type-checked, and the phantom key must be
+  // truthful — the runtime result IS f64). The `this:` bound keeps it out of
+  // every other receiver's candidate set.
+  mul(this: ReadonlyNode<'f32'>, o: ReadonlyNode<'f64'>): Node<'f64'>
   mul(o: ArithArg<K>): Node<K>
   mul(o: NodeLike): Node {
     return this.bin('*', o)
@@ -232,6 +247,11 @@ export class ReadonlyNode<K extends string = string> {
     this: ReadonlyNode<NonComposite<K>>,
     o: ReadonlyNode<K2>,
   ): Node<K2>
+  // f32 LHS ∘ f64 RHS widens to f64 (binResultType is symmetric; without this
+  // overload only the f64-LHS order type-checked, and the phantom key must be
+  // truthful — the runtime result IS f64). The `this:` bound keeps it out of
+  // every other receiver's candidate set.
+  div(this: ReadonlyNode<'f32'>, o: ReadonlyNode<'f64'>): Node<'f64'>
   div(o: ArithArg<K>): Node<K>
   div(o: NodeLike): Node {
     return this.bin('/', o)
