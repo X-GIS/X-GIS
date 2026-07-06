@@ -90,10 +90,6 @@ export interface GPUArenaOptions {
 export interface GPUArenaDevice {
   createBuffer(desc: RhiBufferDesc): RhiBuffer
   destroyBuffer(buffer: RhiBuffer): void
-  /** Unwrap an RHI handle to the native GPUBuffer the arena exposes to its raw
-   *  consumers (the VTR fill draw). Injected so gpu/ never imports a backend
-   *  module (downward-spine: arena depends only on this port). */
-  unwrapBuffer(buffer: RhiBuffer): GPUBuffer
 }
 
 /** Minimal subset of `RhiCommandEncoder` used by compaction. The real
@@ -129,9 +125,11 @@ export interface ArenaReloc {
 export interface ArenaCompactionResult {
   /** New packed offset for relocations[i], same order as input. */
   newOffsets: number[]
-  /** The pre-compaction GPUBuffer. Destroy ONLY after queue.submit()
-   *  of the encoder that recorded the copies has returned. */
-  oldBuffer: GPUBuffer
+  /** The pre-compaction buffer (RHI handle — the engine is backend-neutral;
+   *  a WebGPU caller that needs the native identity unwraps at ITS seam).
+   *  Destroy via the device ONLY after the submit of the encoder that
+   *  recorded the copies has returned. */
+  oldBuffer: RhiBuffer
 }
 
 /** Allocator diagnostics. Read via `getStats()`. */
@@ -171,17 +169,14 @@ export class GPUArena {
    *  through the RHI device with `copySrc` set. Mutable internally so `compact()`
    *  can ping-pong to a freshly-packed buffer. */
   private _rhiBuffer: RhiBuffer
-  /** The same buffer unwrapped to its native GPUBuffer — the handle the RAW
-   *  consumers still bind (the VTR fill draw sets `tile.vertexBuffer` on the raw
-   *  `GPURenderPassEncoder`; that raw path retires with the VTR cluster, after
-   *  which the arena buffer can flip end-to-end to RhiBuffer). Identity on WebGPU,
-   *  so exposing it is byte-identical to the pre-RHI `device.createBuffer` handle.
-   *  Externally exposed read-only via the `buffer` getter; callers that cache
-   *  `arena.buffer` across a frame must re-read it after any compaction (the VTR
-   *  re-reads it when it rewrites each relocated tile's `vertexBuffer`). */
-  private _buffer: GPUBuffer
-  get buffer(): GPUBuffer {
-    return this._buffer
+  /** The backing buffer as an RHI handle — the ONLY handle the arena exposes
+   *  (backend-neutral by construction; a WebGPU consumer that must bind the
+   *  native buffer unwraps at its own seam via `WebGpuDevice.unwrapBuffer`).
+   *  Callers that cache `arena.rhiBuffer` across a frame must re-read it after
+   *  any compaction (the VTR re-reads it when it rewrites each relocated
+   *  tile's `vertexBuffer`). */
+  get rhiBuffer(): RhiBuffer {
+    return this._rhiBuffer
   }
   /** Logical capacity in bytes. MUTABLE: `compact(…, targetCapacity)` can
    *  grow it by relocating the live set into a larger buffer (Phase 6a.5
@@ -247,7 +242,6 @@ export class GPUArena {
       copySrc: opts.copySrc,
       label: opts.label,
     })
-    this._buffer = device.unwrapBuffer(this._rhiBuffer)
     this._capacityBytes = opts.capacityBytes
     this.device = device
     this.usage = opts.usage
@@ -453,14 +447,13 @@ export class GPUArena {
       newOffsets[i] = packed
       packed += aligned
     }
-    // The caller retires the OLD buffer's NATIVE handle (it destroys it post-
-    // submit + the bundle-invalidation path identity-checks it raw).
-    const oldBuffer = this._buffer
+    // The caller retires the OLD buffer post-submit (RHI handle; the bundle-
+    // invalidation path identity-checks the handle — stable per arena epoch).
+    const oldBuffer = this._rhiBuffer
     this._rhiBuffer = newRhiBuffer
-    this._buffer = this.device.unwrapBuffer(newRhiBuffer)
     // Adopt the new buffer's capacity (defaults to current = same-size
     // defrag; larger = auto-grow). Written synchronously with the buffer
-    // swap so capacity and _buffer never disagree across a frame.
+    // swap so capacity and the buffer never disagree across a frame.
     this._capacityBytes = targetCapacity
     // Reset bookkeeping to the packed state. bumpPtr falls from the
     // (near-capacity) high-water mark to the live total; the stranded

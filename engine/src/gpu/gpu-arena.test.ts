@@ -24,7 +24,8 @@ interface MockBuffer {
 
 // The arena now drives the RHI device subset: createBuffer({desc}) → RhiBuffer
 // ({native} shape, the same WebGpuDevice wrap the arena unwraps) + destroyBuffer.
-const unwrap = (h: unknown): MockBuffer => (h as { native: MockBuffer }).native
+// RhiBuffer is opaque — the mock hands the MockBuffer through as the handle.
+const unwrap = (h: unknown): MockBuffer => h as MockBuffer
 
 function mockDevice(): GPUArenaDevice {
   return {
@@ -39,13 +40,10 @@ function mockDevice(): GPUArenaDevice {
           b.destroyed = true
         },
       }
-      return { native: b } as unknown as RhiBuffer
+      return b as unknown as RhiBuffer
     },
     destroyBuffer(h) {
       unwrap(h).destroy()
-    },
-    unwrapBuffer(h) {
-      return unwrap(h) as unknown as GPUBuffer
     },
   }
 }
@@ -59,7 +57,7 @@ describe('GPUArena — construction', () => {
       usage: VERTEX_USAGE,
       label: 'test',
     })
-    const buf = a.buffer as unknown as MockBuffer
+    const buf = a.rhiBuffer as unknown as MockBuffer
     expect(buf.size).toBe(1024)
     expect(buf.usage).toBe(VERTEX_USAGE)
     expect(buf.label).toBe('test')
@@ -267,7 +265,7 @@ describe('GPUArena — lifecycle', () => {
     expect(s.totalAllocatedBytes).toBe(0)
     expect(s.liveBytes).toBe(0)
     expect(s.freeBytes).toBe(0)
-    expect((a.buffer as unknown as MockBuffer).destroyed).toBe(false)
+    expect((a.rhiBuffer as unknown as MockBuffer).destroyed).toBe(false)
     // Post-reset alloc starts from offset 0 again.
     expect(a.alloc(16)).toBe(0)
   })
@@ -276,7 +274,7 @@ describe('GPUArena — lifecycle', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 1024, usage: VERTEX_USAGE })
     a.alloc(16)
     a.destroy()
-    expect((a.buffer as unknown as MockBuffer).destroyed).toBe(true)
+    expect((a.rhiBuffer as unknown as MockBuffer).destroyed).toBe(true)
     expect(a.getStats().liveBytes).toBe(0)
   })
 })
@@ -467,7 +465,7 @@ function recordingEncoder() {
   const enc = {
     // The arena passes RHI handles ({native} wraps); unwrap to the underlying
     // MockBuffer so the source/destination identity assertions compare against
-    // `a.buffer` (which the arena exposes already-unwrapped).
+    // `a.rhiBuffer` (which the arena exposes already-unwrapped).
     copyBufferToBuffer(
       source: RhiBuffer,
       sourceOffset: number,
@@ -507,7 +505,7 @@ describe('GPUArena — compaction (defrag relocation)', () => {
 
     // Live set = o1(100), o3(200), and the last 300 B alloc. Caller passes
     // exactly the live slots.
-    const oldBuffer = a.buffer
+    const oldBuffer = a.rhiBuffer
     const { enc, copies } = recordingEncoder()
     const result = a.compact(
       [
@@ -519,7 +517,7 @@ describe('GPUArena — compaction (defrag relocation)', () => {
     )
 
     // New buffer is a distinct GPUBuffer (ping-pong, not in-place).
-    expect(a.buffer).not.toBe(oldBuffer)
+    expect(a.rhiBuffer).not.toBe(oldBuffer)
     expect(result.oldBuffer).toBe(oldBuffer)
     // bumpPtr + liveBytes collapse to the packed total (600), NOT 640.
     expect(a.highWaterBytes).toBe(600)
@@ -536,21 +534,21 @@ describe('GPUArena — compaction (defrag relocation)', () => {
     expect(copies[0]).toMatchObject({
       source: oldBuffer,
       sourceOffset: o1,
-      destination: a.buffer,
+      destination: a.rhiBuffer,
       destinationOffset: 0,
       size: 100,
     })
     expect(copies[1]).toMatchObject({
       source: oldBuffer,
       sourceOffset: o3,
-      destination: a.buffer,
+      destination: a.rhiBuffer,
       destinationOffset: 100,
       size: 200,
     })
     expect(copies[2]).toMatchObject({
       source: oldBuffer,
       sourceOffset: 340,
-      destination: a.buffer,
+      destination: a.rhiBuffer,
       destinationOffset: 300,
       size: 300,
     })
@@ -593,7 +591,7 @@ describe('GPUArena — compaction (defrag relocation)', () => {
     const a = new GPUArena(mockDevice(), { capacityBytes: 256, usage: VERTEX_USAGE })
     const o1 = a.alloc(64)
     a.free(o1, 64) // nothing live, bumpPtr still 64
-    const oldBuffer = a.buffer
+    const oldBuffer = a.rhiBuffer
     const { enc, copies } = recordingEncoder()
     const result = a.compact([], enc)
     expect(copies).toHaveLength(0)
@@ -624,7 +622,7 @@ describe('GPUArena — compaction (defrag relocation)', () => {
     a.alloc(32)
     const { enc } = recordingEncoder()
     a.compact([{ oldOffset: 0, bytes: 32 }], enc)
-    const nb = a.buffer as unknown as MockBuffer
+    const nb = a.rhiBuffer as unknown as MockBuffer
     expect(nb.usage).toBe(VERTEX_USAGE)
     expect(nb.label).toBe('poly-vertex-arena')
     expect(nb.size).toBe(256)

@@ -7,24 +7,25 @@
 // routes through the Material seam (executeItems, arena vertex/index sub-ranges, pick MRT); §4 is closed,
 // so a pipeline with no built Material twin throws (the raw fallback draw + kill-switch were deleted).
 
-import type { RhiDevice } from '@xgis/engine'
+import type { RhiBuffer, RhiDevice } from '@xgis/engine'
 import {
   wrapWebGpuBindGroupLayout,
-  wrapWebGpuBuffer,
   wrapWebGpuBindGroup,
   wrapWebGpuPass,
 } from '@xgis/engine'
 import { Material, executeItems } from './material'
 
-/** The per-tile GPUArena fill buffers recordFillDraw reads (structural — a VTR GPUTile satisfies it). */
+/** The per-tile GPUArena fill buffers recordFillDraw reads (structural — a VTR
+ *  GPUTile satisfies it). RHI handles (#832): the arena is backend-neutral and
+ *  the draw flows through executeItems, so no native buffer appears here. */
 export interface FillTileBuffers {
-  vertexBuffer: GPUBuffer
+  vertexBuffer: RhiBuffer
   polyVertexOffset: number
   polyVertexByteLength: number
-  zBuffer: GPUBuffer | null
+  zBuffer: RhiBuffer | null
   zBufferOffset: number
   zBufferByteLength: number
-  indexBuffer: GPUBuffer
+  indexBuffer: RhiBuffer
   polyIndexOffset: number
   polyIndexByteLength: number
   indexCount: number
@@ -386,11 +387,11 @@ export function recordFillDraw(
           variant,
           bindGroups: [wrapWebGpuBindGroup(tileBg)],
           dynamicOffsets: [[slotOffset]],
-          vertex: wrapWebGpuBuffer(cached.vertexBuffer),
+          vertex: cached.vertexBuffer,
           vertexOffset: cached.polyVertexOffset,
           vertexSize: cached.polyVertexByteLength,
           index: {
-            buffer: wrapWebGpuBuffer(cached.indexBuffer),
+            buffer: cached.indexBuffer,
             format: 'uint32',
             offset: cached.polyIndexOffset,
             size: cached.polyIndexByteLength,

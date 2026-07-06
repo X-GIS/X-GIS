@@ -40,7 +40,7 @@ import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile
 import { xlog } from '@xgis/shared'
 import type { TileData } from '@xgis/data'
 import type { GPUTile } from './vector-tile-renderer-types'
-import type { RhiBindGroup } from '@xgis/engine'
+import type { RhiBindGroup, RhiBuffer, RhiDevice, WebGpuDevice } from '@xgis/engine'
 
 /** The subset of `GpuTileStore` the upload pipeline drives. Declared
  *  structurally so the real store satisfies it without an explicit
@@ -72,6 +72,9 @@ export interface UploadStore {
  *  live state at call time. */
 export interface UploadHost {
   readonly device: GPUDevice
+  /** Backend-blind RHI device — the poly-arena writes route through it (#832;
+   *  byte-identical on WebGPU where rhi.writeBuffer IS queue.writeBuffer). */
+  readonly rhi: RhiDevice
   readonly stagingPool: StagingBufferPool
   readonly store: UploadStore
   /** SDF line renderer (set externally on VTR; null until wired). */
@@ -106,6 +109,10 @@ interface TileWriteSink {
    *  Async: stage into this tile's command encoder (batched, submitted in
    *  `submit()`). */
   write(dst: GPUBuffer, offset: number, data: ArrayBuffer | ArrayBufferView): void
+  /** Land `data` into an RHI-handled buffer (the poly arenas, #832). Sync:
+   *  `rhi.writeBuffer` now (=== queue.writeBuffer on WebGPU). Async: unwraps
+   *  at this WebGPU-only seam and stages like write(). */
+  writeRhi(dst: RhiBuffer, offset: number, data: ArrayBuffer | ArrayBufferView): void
   /** Create + write a line-segment STORAGE buffer, returning it. Sync
    *  returns the buffer directly; async returns a promise that resolves
    *  once the segment write is encoded (the buffer is created eagerly so
@@ -128,10 +135,15 @@ class SyncWriteSink implements TileWriteSink {
   readonly deferred = false
   constructor(
     private readonly device: GPUDevice,
+    private readonly rhi: RhiDevice,
     private readonly lineRenderer: LineRenderer | null,
   ) {}
   write(dst: GPUBuffer, offset: number, data: ArrayBuffer | ArrayBufferView): void {
     this.device.queue.writeBuffer(dst, offset, data as BufferSource)
+  }
+  writeRhi(dst: RhiBuffer, offset: number, data: ArrayBuffer | ArrayBufferView): void {
+    // === queue.writeBuffer on WebGPU (byte-identical); bufferSubData on WebGL2.
+    this.rhi.writeBuffer(dst, offset, data as BufferSource)
   }
   uploadSegment(segData: Float32Array): GPUBuffer {
     return this.lineRenderer!.uploadSegmentBuffer(segData)
@@ -153,6 +165,7 @@ class AsyncWriteSink implements TileWriteSink {
   constructor(
     private readonly pool: StagingBufferPool,
     private readonly device: GPUDevice,
+    private readonly rhi: WebGpuDevice,
     private readonly lineRenderer: LineRenderer | null,
     key: number,
   ) {
@@ -162,6 +175,11 @@ class AsyncWriteSink implements TileWriteSink {
   }
   write(dst: GPUBuffer, offset: number, data: ArrayBuffer | ArrayBufferView): void {
     this.writeHandles.push(asyncWriteBuffer(this.pool, this.encoder, dst, offset, data))
+  }
+  writeRhi(dst: RhiBuffer, offset: number, data: ArrayBuffer | ArrayBufferView): void {
+    // This sink is inherently WebGPU (staging pool + native encoder), so the
+    // native unwrap lives HERE — the map's WebGPU seam — not in the engine.
+    this.write(this.rhi.unwrapBuffer(dst), offset, data)
   }
   async uploadSegment(segData: Float32Array): Promise<GPUBuffer> {
     const seg = await this.lineRenderer!.uploadSegmentBufferAsync(segData, this.encoder, this.pool)
@@ -251,12 +269,18 @@ export class UploadCoordinator {
         const item = this.uploadItemData.get(id)
         this.uploadItemData.delete(id)
         if (!item) return
-        const sink = new AsyncWriteSink(
-          this.host.stagingPool,
-          this.host.device,
-          this.host.lineRenderer(),
-          item.key,
-        )
+        // #832 — the async sink is WebGPU staging machinery; on the WebGL2
+        // backend the RHI sync sink lands the bytes directly (bufferSubData).
+        const sink =
+          this.host.rhi.backend === 'webgl2'
+            ? new SyncWriteSink(this.host.device, this.host.rhi, this.host.lineRenderer())
+            : new AsyncWriteSink(
+                this.host.stagingPool,
+                this.host.device,
+                this.host.rhi as WebGpuDevice,
+                this.host.lineRenderer(),
+                item.key,
+              )
         await this._dispatch(item.key, item.data, item.sourceLayer, sink)
       })
       .catch((err: unknown) => {
@@ -391,7 +415,7 @@ export class UploadCoordinator {
    *  returns — `_dispatch` reaches no await under the sync sink, so the
    *  caller's immediate `layerCache` read sees the entry. */
   uploadSync(key: number, data: TileData, sourceLayer = ''): void {
-    const sink = new SyncWriteSink(this.host.device, this.host.lineRenderer())
+    const sink = new SyncWriteSink(this.host.device, this.host.rhi, this.host.lineRenderer())
     // No await is hit under the sync sink → the returned promise is already
     // resolved and every side effect (cache.set) has run synchronously.
     void this._dispatch(key, data, sourceLayer, sink)
@@ -563,15 +587,15 @@ export class UploadCoordinator {
       polyIndexOffset = pair.i
       polyVertexFreeBytes = polyVertexByteLength
       polyIndexFreeBytes = polyIndexByteLength
-      const vertexBuffer = vArena.buffer
-      const indexBuffer = iArena.buffer
-      sink.write(vertexBuffer, polyVertexOffset, polyVerts)
-      sink.write(indexBuffer, polyIndexOffset, polyIndices)
+      const vertexBuffer = vArena.rhiBuffer
+      const indexBuffer = iArena.rhiBuffer
+      sink.writeRhi(vertexBuffer, polyVertexOffset, polyVerts)
+      sink.writeRhi(indexBuffer, polyIndexOffset, polyIndices)
 
       // The parallel z attribute is retired — per-vertex height + face_normal
       // + is_top live inside the unified stride-14 vertex buffer. Cache schema
       // keeps zBuffer-shaped sentinel fields so layer-routing compiles.
-      const zBuffer: GPUBuffer | null = null
+      const zBuffer: RhiBuffer | null = null
       const zBufferOffset = 0
       const zBufferByteLength = 0
 
@@ -710,8 +734,8 @@ export class UploadCoordinator {
         // the old buffer, so its slot range is irrelevant.)
         if (
           this._destroyed ||
-          store.polyVertexArenaOrNull()?.buffer !== vertexBuffer ||
-          store.polyIndexArenaOrNull()?.buffer !== indexBuffer
+          store.polyVertexArenaOrNull()?.rhiBuffer !== vertexBuffer ||
+          store.polyIndexArenaOrNull()?.rhiBuffer !== indexBuffer
         ) {
           sink.releaseAll()
           cleanupLineBuffers()
