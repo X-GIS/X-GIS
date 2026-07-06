@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compileModule } from './oracle'
-import { module, fn, f32, f32T, vec3, vec3fT, clamp, mix, type Node } from './ir'
+import { module, fn, f32, f32T, mod, vec3, vec3fT, clamp, mix, type Node } from './ir'
 
 // #13 (remaining half) — the oracle is the CPU half of a two-oracle contract; the
 // GPU computes f32. Its `==` / `!=` must therefore reflect f32 rounding, not exact
@@ -91,5 +91,26 @@ describe('oracle — vecN(scalar) splat matches WGSL', () => {
       ],
     })
     expect(compileModule(m).fns.mxb([0, 0.5, 1])).toEqual([0.5, 0.75, 1])
+  })
+})
+
+// #839 — mod is FLOOR-mod on both targets; the oracle must match on the
+// negative operands where floor-mod and JS/WGSL trunc-mod disagree.
+describe('oracle — mod floor-mod semantics (#839)', () => {
+  it('negative x wraps into [0, y) (trunc-mod would return a negative)', () => {
+    const m = module({
+      funcs: [fn('fm', { x: f32T, y: f32T }, f32T, ({ x, y }) => mod(x, y))],
+    })
+    const fm = compileModule(m).fns.fm
+    expect(fm(-1.3, 2.6)).toBeCloseTo(1.3, 6) // JS -1.3 % 2.6 === -1.3
+    expect(fm(5.2, 2.6)).toBeCloseTo(0, 6)
+    expect(fm(-0.25, 1)).toBeCloseTo(0.75, 6)
+  })
+
+  it('broadcasts a scalar divisor over a vector component-wise', () => {
+    const m = module({
+      funcs: [fn('fmv', { p: vec3fT }, vec3fT, ({ p }) => mod(p, 2) as Node<'vec3<f32>'>)],
+    })
+    expect(compileModule(m).fns.fmv([-1, 3, 2])).toEqual([1, 1, 0])
   })
 })

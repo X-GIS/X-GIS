@@ -3,9 +3,9 @@
 // The kaleidoscope fold: convert to polar, floor-mod the angle into one
 // sector, mirror about the sector's midline, convert back — every sector now
 // shows the same wedge of pattern, seamlessly. The pattern inside the wedge is
-// swirling fbm + concentric rings through a cosine palette. The explicit
-// floor-mod keeps WGSL `%` (trunc) and GLSL mod() (floor) agreeing on the
-// negative angles atan2 produces. WGSL (WebGPU) + GLSL ES 3.00 (WebGL2).
+// swirling fbm + concentric rings through a cosine palette. The fold uses
+// `mod` (#839), the portable FLOOR-mod, so the negative angles atan2
+// produces wrap identically on both targets. WGSL + GLSL ES 3.00 (WebGL2).
 
 import {
   fn,
@@ -21,6 +21,7 @@ import {
   dot,
   mix,
   abs,
+  mod,
   length,
   atan2,
   smoothstep,
@@ -75,7 +76,7 @@ const fs = fn(
     const a0 = Let(atan2(p.y, p.x))
     // fold: floor-mod the angle into one sector, mirror about its midline
     const sector = Let(f32(6.2831853).div(U.field.segments))
-    const am = a0.sub(sector.mul(floor(a0.div(sector))))
+    const am = mod(a0, sector)
     const af = Let(abs(am.sub(sector.mul(0.5))))
     const q = vec2(cos(af), sin(af)).mul(r)
     // wedge pattern: swirling fbm + concentric rings

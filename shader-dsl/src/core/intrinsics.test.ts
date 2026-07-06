@@ -9,6 +9,13 @@ describe('intrinsics — neutral registry (#3a)', () => {
     expect(spellIntrinsic('glsl', 'atan2', ['y', 'x'])).toBe('atan(y, x)')
   })
 
+  // #839 — float `%` is trunc-mod on WGSL and integer-only in GLSL ES 3.00;
+  // mod is the portable FLOOR-mod: inline x − y·⌊x/y⌋ on WGSL, native mod() on GLSL.
+  it('mod: inline floor-mod on wgsl, mod() on glsl', () => {
+    expect(spellIntrinsic('wgsl', 'mod', ['x', 'y'])).toBe('(x - y * floor(x / y))')
+    expect(spellIntrinsic('glsl', 'mod', ['x', 'y'])).toBe('mod(x, y)')
+  })
+
   it('bitcastU32: bitcast<u32> on wgsl, floatBitsToUint on glsl (no WGSL syntax in the id)', () => {
     expect(spellIntrinsic('wgsl', 'bitcastU32', ['f'])).toBe('bitcast<u32>(f)')
     expect(spellIntrinsic('glsl', 'bitcastU32', ['f'])).toBe('floatBitsToUint(f)')

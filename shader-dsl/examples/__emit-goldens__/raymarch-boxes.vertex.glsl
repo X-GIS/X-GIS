@@ -14,7 +14,7 @@ layout(std140) uniform Uniforms {
 float scene(vec3 p);
 vec3 palette(float t);
 float scene(vec3 p) {
-  vec3 _v0 = ((p - (vec3(2.6) * floor((p / 2.6)))) - vec3(1.3));
+  vec3 _v0 = (mod(p, 2.6) - vec3(1.3));
   return (length(max((abs(_v0) - vec3(0.62)), vec3(0.0, 0.0, 0.0))) - 0.14);
 }
 
