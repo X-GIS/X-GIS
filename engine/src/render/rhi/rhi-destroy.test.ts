@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest'
 import { WebGpuDevice } from './rhi-webgpu'
 import { WebGl2Device } from './rhi-webgl2'
-import type { RhiTexture, RhiSampler, RhiPipeline } from './rhi'
+import type { RhiTexture, RhiSampler, RhiPipeline } from '@xgis/rhi'
 
 // A fake WebGL2 context supporting the create + destroy paths of texture / sampler /
 // pipeline. Every create* returns a UNIQUE sentinel so a round-trip test can assert

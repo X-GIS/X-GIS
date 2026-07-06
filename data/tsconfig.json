@@ -12,12 +12,18 @@
     // world-copies) the tile-selection + geojson-ingest layers need — data sits ABOVE
     // engine in the layer order, so this is a valid downward dependency.
     "paths": {
+      "@xgis/rhi": ["../rhi/dist/index.d.ts"],
       "@xgis/engine": ["../engine/dist/index.d.ts"],
       "@xgis/compiler": ["../compiler/dist/index.d.ts"],
       "@xgis/compiler/tiler/geodesic": ["../compiler/dist/tiler/geodesic.d.ts"],
       "@xgis/shared": ["../shared/dist/index.d.ts"]
     }
   },
-  "references": [{ "path": "../engine" }, { "path": "../compiler" }, { "path": "../shared" }],
+  "references": [
+    { "path": "../rhi" },
+    { "path": "../engine" },
+    { "path": "../compiler" },
+    { "path": "../shared" }
+  ],
   "include": ["src/**/*.ts"]
 }

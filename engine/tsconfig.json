@@ -16,6 +16,7 @@
     "types": ["@webgpu/types"],
     "tsBuildInfoFile": "./dist/.webgpu-zone.tsbuildinfo",
     "paths": {
+      "@xgis/rhi": ["../rhi/dist/index.d.ts"],
       "@xgis/compiler": ["../compiler/dist/index.d.ts"],
       "@xgis/compiler/tiler/geodesic": ["../compiler/dist/tiler/geodesic.d.ts"],
       "@xgis/shared": ["../shared/dist/index.d.ts"],
@@ -24,6 +25,7 @@
     }
   },
   "references": [
+    { "path": "../rhi" },
     { "path": "./tsconfig.core.json" },
     { "path": "../compiler" },
     { "path": "../shared" },

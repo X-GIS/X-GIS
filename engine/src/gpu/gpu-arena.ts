@@ -62,7 +62,7 @@
 //   every alloc by rounding the request size up to a multiple of 4.
 //   Callers don't need to pre-align their byte lengths.
 
-import type { RhiBuffer, RhiBufferDesc, RhiBufferUsage } from '../render/rhi/rhi'
+import type { RhiBuffer, RhiBufferDesc, RhiBufferUsage } from '@xgis/rhi'
 import { DEV } from '@xgis/shared'
 
 /** Configuration for a new arena. */

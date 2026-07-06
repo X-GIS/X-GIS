@@ -20,7 +20,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { GPUArena, type GPUArenaDevice } from './gpu-arena'
-import type { RhiBuffer } from '../render/rhi/rhi'
+import type { RhiBuffer } from '@xgis/rhi'
 
 interface MockBuffer {
   size: number

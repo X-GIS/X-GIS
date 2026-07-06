@@ -24,7 +24,7 @@ export const SAFE_MODE: boolean = readSafeFlag()
 // dispatches rebuilds; these exports stay as thin getters so every read
 // site sees the current value (no stale snapshots).
 import { QUALITY, effectiveDpr } from './quality'
-import type { RhiDevice } from '../render/rhi/rhi'
+import type { RhiDevice } from '@xgis/rhi'
 
 // The live quality accessors moved to the NEUTRAL quality module (#832 M1) so
 // core code reads them without touching this WebGPU-zone boot module;

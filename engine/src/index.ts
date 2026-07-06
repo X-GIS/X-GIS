@@ -3,7 +3,7 @@
 // no logic changes. Consumers import these symbols via `@xgis/engine`.
 
 // ── RHI (render hardware interface) ──────────────────────────────────
-export * from './render/rhi/rhi'
+export * from '@xgis/rhi'
 export * from './render/rhi/rhi-webgpu'
 export * from './render/rhi/rhi-webgl2'
 

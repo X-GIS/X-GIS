@@ -67,6 +67,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@webgpu/types": "^0.1.69",
+        "@xgis/rhi": "workspace:*",
       },
       "devDependencies": {
         "@xgis/compiler": "workspace:*",
@@ -114,6 +115,10 @@
         "pngjs": "^7.0.0",
         "vite": "^8.0.8",
       },
+    },
+    "rhi": {
+      "name": "@xgis/rhi",
+      "version": "0.0.1",
     },
     "runtime": {
       "name": "@xgis/runtime",
@@ -711,6 +716,8 @@
     "@xgis/pipeline": ["@xgis/pipeline@workspace:pipeline"],
 
     "@xgis/playground": ["@xgis/playground@workspace:playground"],
+
+    "@xgis/rhi": ["@xgis/rhi@workspace:rhi"],
 
     "@xgis/runtime": ["@xgis/runtime@workspace:runtime"],
 

@@ -1,0 +1,15 @@
+{
+  // ═══ @xgis/rhi — backend-neutral RHI interfaces (#833 M3) ═══
+  //
+  // `types: []` — like the engine core, NO ambient GPU globals are visible, so
+  // the interface package cannot accidentally reference a WebGPU type. Zero
+  // package dependencies, by design.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "types": []
+  },
+  "include": ["src/**/*.ts"]
+}

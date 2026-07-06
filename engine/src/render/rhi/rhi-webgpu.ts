@@ -22,7 +22,7 @@ import type {
   RhiPipelineDesc,
   RhiRenderPassDesc,
   RhiCommandEncoder,
-} from './rhi'
+} from '@xgis/rhi'
 
 // Each opaque handle carries its native object on a `native` field (hidden from
 // callers by the opaque RHI types). unwrap() casts back inside this module.

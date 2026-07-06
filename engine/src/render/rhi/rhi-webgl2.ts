@@ -62,7 +62,7 @@ import type {
   RhiScreenPassDesc,
   RhiCommandEncoder,
   RhiRenderPassDesc,
-} from './rhi'
+} from '@xgis/rhi'
 
 // Each opaque RHI handle stores a rich GL record (cast both ways inside this
 // module). WebGL2 needs MORE per-handle metadata than WebGPU (a buffer's GL

@@ -11,6 +11,7 @@
     // is a sibling reference here so the build order is shader-dsl → compiler →
     // engine → map.
     "paths": {
+      "@xgis/rhi": ["../rhi/dist/index.d.ts"],
       "@xgis/engine": ["../engine/dist/index.d.ts"],
       "@xgis/data": ["../data/src/index.ts"],
       "@xgis/compiler": ["../compiler/dist/index.d.ts"],
@@ -21,6 +22,7 @@
     }
   },
   "references": [
+    { "path": "../rhi" },
     { "path": "../engine" },
     { "path": "../data" },
     { "path": "../compiler" },
