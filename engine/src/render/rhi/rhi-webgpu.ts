@@ -327,9 +327,11 @@ export class WebGpuDevice implements RhiDevice {
     bytesPerRow: number,
     width: number,
     height: number,
+    x = 0,
+    y = 0,
   ): void {
     this.device.queue.writeTexture(
-      { texture: u<GPUTexture>(texture) },
+      { texture: u<GPUTexture>(texture), origin: { x, y, z: 0 } },
       data,
       { bytesPerRow },
       { width, height },

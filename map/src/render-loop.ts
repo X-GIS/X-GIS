@@ -693,8 +693,9 @@ export class RenderLoop {
   }
 
   /** Forced-WebGL2 slice frame (?forcegl2=1): an isolated single-sample WebGL2 screen
-   *  pass that clears, draws the analytic raster checker tile on the WebGl2Device (US-003),
-   *  then presents. gl.getError is drained into the shared `_validationErrors` sink (R4)
+   *  pass that clears, draws the analytic raster checker tile on the WebGl2Device (US-003)
+   *  plus any retained host-drawing icon batches (map.graphics.add, #823), then presents.
+   *  gl.getError is drained into the shared `_validationErrors` sink (R4)
    *  so a forced-WebGL2 frame is held to the no-error bar the WebGPU tests already assert.
    *  This is the WHOLE forced-WebGL2 hot path — none of the WebGPU multi-pass machinery runs
    *  (storage/MSAA renderers are Story-5/6). */
@@ -719,6 +720,25 @@ export class RenderLoop {
       h,
       dpr,
     )
+    // #823 — retained host-drawing icon batches (map.graphics.add) on WebGL2.
+    // Mirrors the WebGPU graphics pass's placement (LAST, on the presented
+    // target) + its hasGraphics gate: a map with no retained batch draws
+    // byte-identically to the pre-#823 checker frame. The draper's Material
+    // carries GLSL twins on this backend, so the draw is RHI-native throughout.
+    if (this.host.graphics.hasRetainedBatches()) {
+      const frame = this.host.camera.getViewForProjection(projType, w, h, dpr)
+      this.host.graphics.renderRetained(
+        pass,
+        frame,
+        this.host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        w,
+        h,
+        dpr,
+      )
+    }
     rhi.endScreenPass(pass)
     const errs = rhi.takeGlErrors?.() ?? []
     for (const message of errs) {

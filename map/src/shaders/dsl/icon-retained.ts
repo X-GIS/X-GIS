@@ -51,7 +51,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, storageBuffer, resource } from '@xgis/shader-dsl'
-import { emitModule } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule, stageOf } from '@xgis/shader-dsl'
 import {
   flat_rel,
   needs_backface_cull,
@@ -302,3 +302,19 @@ export const buildIconRetainedModule = (): ModuleDecl =>
 /** Full retained-icon shader: one module — shared projection consts + injected
  *  projection fns + the instanced geo-anchored quad VS + atlas-tint FS. */
 export const emitIconRetainedWgsl = (): string => emitModule(buildIconRetainedModule())
+
+/** GLSL ES 3.00 twin for the WebGL2 backend (#823) — same module, split per stage
+ *  (GLSL is single-main-per-unit; mirrors emitPolygonGlsl). `emulateStorage` lowers
+ *  the feat (array<f32>) + tint (array<vec4f>) storage buffers to R32F data
+ *  textures, matching WebGl2Device's storage-buffer emulation. Consumed by
+ *  RetainedIconDraper behind a live `rhi.backend === 'webgl2'` guard — the WebGPU
+ *  boot never pays for this emit (#778 P6). */
+export const emitIconRetainedGlsl = (stage: 'vertex' | 'fragment'): string => {
+  const m = buildIconRetainedModule()
+  const keep = stage === 'vertex' ? 'vs_icon_retained' : 'fs_icon_retained'
+  return emitGlslModule(
+    { ...m, funcs: m.funcs.filter((f) => stageOf(f) === undefined || f.name === keep) },
+    stage,
+    { emulateStorage: true },
+  )
+}

@@ -328,6 +328,11 @@ class WebGl2RenderPass implements RhiRenderPass {
         lastTexUnit = unit
         gl.activeTexture(gl.TEXTURE0 + unit)
         gl.bindTexture(gl.TEXTURE_2D, un<Gl2View>(r.view).texture.tex)
+        // Clear any sampler OBJECT a prior draw left on this unit (#823) — sampler
+        // bindings are CONTEXT state (per unit), not program state, so a leaked
+        // linear sampler would override this texture's own parameters. A paired
+        // 'sampler' entry (sorted after its texture) re-binds the real one below.
+        gl.bindSampler(unit, null)
       } else if (le?.kind === 'sampler' && 'sampler' in r) {
         gl.bindSampler(lastTexUnit, un<Gl2Sampler>(r.sampler).samp)
       } else if (le?.kind === 'storage' && 'buffer' in r) {
@@ -336,6 +341,12 @@ class WebGl2RenderPass implements RhiRenderPass {
         lastTexUnit = unit
         gl.activeTexture(gl.TEXTURE0 + unit)
         gl.bindTexture(gl.TEXTURE_2D, un<Gl2StorageBuffer>(r.buffer).storageTex)
+        // #823 — a leaked per-unit sampler object with LINEAR filtering makes an
+        // R32F data texture INCOMPLETE (R32F is not filterable in core WebGL2), and
+        // texelFetch on an incomplete texture silently returns 0 — a zero-area quad
+        // instead of an error. The data texture must always sample through its own
+        // NEAREST texture parameters, so drop any stale unit sampler here.
+        gl.bindSampler(unit, null)
       }
     }
   }
@@ -649,13 +660,15 @@ export class WebGl2Device implements RhiDevice {
     _bytesPerRow: number,
     width: number,
     height: number,
+    x = 0,
+    y = 0,
   ): void {
     const t = un<Gl2Texture>(texture)
     const gl = this.gl
     gl.bindTexture(gl.TEXTURE_2D, t.tex)
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
     const { format, type } = texFmt(gl, t.format)
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, format, type, data as ArrayBufferView)
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, width, height, format, type, data as ArrayBufferView)
   }
 
   destroyTexture(texture: RhiTexture): void {

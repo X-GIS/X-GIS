@@ -357,12 +357,17 @@ export interface RhiDevice {
    *  was — resource lifetime is the caller's, not centralized by the RHI. */
   destroyBuffer(buffer: RhiBuffer): void
   createTexture(desc: RhiTextureDesc): RhiTexture
+  /** Write a width×height region of texels. `x`/`y` (default 0) place the region's
+   *  top-left origin (the host-sprite-atlas region upload, #823); omitting them is
+   *  byte-identical to the pre-origin signature. */
   writeTexture(
     texture: RhiTexture,
     data: BufferSource,
     bytesPerRow: number,
     width: number,
     height: number,
+    x?: number,
+    y?: number,
   ): void
   /** Release a texture's GPU memory (#782 — closes the `create*` ×N / `destroyBuffer`-only
    *  asymmetry). WebGPU `GPUTexture.destroy()`; WebGL2 `gl.deleteTexture`. Called at the SAME

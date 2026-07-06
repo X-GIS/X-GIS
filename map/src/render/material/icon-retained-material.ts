@@ -29,27 +29,38 @@ import type {
   RhiTextureView,
 } from '@xgis/engine'
 import { Material, executeItems, type DrawItem } from './material'
-import { emitIconRetainedWgsl } from '@xgis/map'
+import { emitIconRetainedWgsl, emitIconRetainedGlsl } from '@xgis/map'
 
 export class RetainedIconDraper {
   private readonly material: Material
 
   constructor(rhi: RhiDevice, format: string, sampleCount: number, uniformSlotSize: number) {
+    // #823 — GLSL ES 3.00 twins for the WebGL2 backend, emitted behind a LIVE
+    // backend guard so the WebGPU boot never pays the double emit (#778 P6).
+    // WebGl2Device.createPipeline requires the split sources; WebGPU ignores them.
+    const glsl =
+      rhi.backend === 'webgl2'
+        ? { vsCode: emitIconRetainedGlsl('vertex'), fsCode: emitIconRetainedGlsl('fragment') }
+        : {}
     this.material = new Material(rhi, {
       shader: emitIconRetainedWgsl(),
+      ...glsl,
       vsEntry: 'vs_icon_retained',
       fsEntry: 'fs_icon_retained',
       format: format as 'bgra8unorm',
       sampleCount,
+      // Entry `name`s = the DSL binding names — the WebGL2 backend reflects the
+      // linked program BY NAME with them (multi-resource group 1 binds correctly
+      // regardless of declaration order); WebGPU ignores them.
       groups: [
-        // group 0 — the per-copy frame uniform (pooled).
-        [{ binding: 0, kind: 'uniform' }],
+        // group 0 — the per-copy frame uniform (pooled). GLSL UBO tag = struct name.
+        [{ binding: 0, kind: 'uniform', name: 'Uniforms' }],
         // group 1 — the per-batch resources (built once, cached by the caller).
         [
-          { binding: 0, kind: 'storage' }, // feat_data (position DSFUN + quad geometry)
-          { binding: 1, kind: 'storage' }, // tint_data (rgba, its own buffer)
-          { binding: 2, kind: 'texture' }, // atlas
-          { binding: 3, kind: 'sampler' },
+          { binding: 0, kind: 'storage', name: 'feat_data' }, // position DSFUN + quad geometry
+          { binding: 1, kind: 'storage', name: 'tint_data' }, // rgba, its own buffer
+          { binding: 2, kind: 'texture', name: 'atlas_tex' }, // atlas
+          { binding: 3, kind: 'sampler', name: 'atlas_smp' },
         ],
       ],
       colorTargets: [{ format: format as 'bgra8unorm', blend: 'alpha' }],
