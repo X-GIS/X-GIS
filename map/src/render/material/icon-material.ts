@@ -6,6 +6,14 @@
 
 import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
+import { emitIconGlsl } from '../../shaders/dsl/icon'
+
+// WebGL2 by-name entries (#834 M5 slice 4) — same shape as the text draper's.
+const ICON_ENTRIES: import('@xgis/engine').RhiBindLayoutEntry[] = [
+  { binding: 0, kind: 'uniform', name: 'Uniforms' },
+  { binding: 1, kind: 'texture', name: 'atlas_tex' },
+  { binding: 2, kind: 'sampler', name: 'atlas_smp' },
+]
 import { Material, executeItems } from './material'
 import { emitIconWgsl } from '@xgis/map'
 
@@ -35,17 +43,26 @@ export class IconDraper {
     bgLayout: GPUBindGroupLayout,
     vertexBuffers: VertexBuffers,
   ) {
+    const gl2 = rhi.backend === 'webgl2'
     this.material = new Material(rhi, {
       shader: emitIconWgsl(),
       vsEntry: 'vs',
       fsEntry: 'fs',
+      vsCode: gl2 ? emitIconGlsl('vertex') : undefined,
+      fsCode: gl2 ? emitIconGlsl('fragment') : undefined,
       format: format as 'bgra8unorm',
       sampleCount,
-      groups: [wrapWebGpuBindGroupLayout(bgLayout)],
+      groups: [gl2 ? ICON_ENTRIES : wrapWebGpuBindGroupLayout(bgLayout)],
       colorTargets: [{ format: format as 'bgra8unorm', blend: 'alpha' }],
       vertexBuffers,
       variants: [{ label: 'icon-pipeline-rhi' }], // no depth-stencil
     })
+  }
+
+  /** Group-0 layout — the renderer builds its bind group against it (on
+   *  WebGPU this IS the wrapped raw layout passed at construction). */
+  layoutRhi(): import('@xgis/engine').RhiBindGroupLayout {
+    return this.material.layout(0)
   }
 
   draw(pass: RhiRenderPass, b: IconBatch): void {
