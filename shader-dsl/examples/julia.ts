@@ -9,55 +9,23 @@
 import {
   fn,
   module,
-  uniformStruct,
-  ioStruct,
   u32,
   f32,
-  toF32,
   vec2,
   vec3,
   vec4,
   sin,
   cos,
   dot,
-  location,
-  builtin,
   Loop,
   If,
   Break,
   Var,
   f32T,
-  vec2fT,
-  vec4fT,
-  u32T,
 } from '../src/index.ts'
+import { VsOut, vs, fullscreenUniforms } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
-
-const U = uniformStruct(
-  'Uniforms',
-  { group: 0, binding: 0, as: 'U' },
-  { time: f32T, resolution: vec2fT, zoom: f32T },
-)
-
-const VsOut = ioStruct('VsOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
-
-const vs = fn(
-  'vs',
-  { vi: builtin('vertex_index', u32T) },
-  ({ vi }) => {
-    const x = toF32(vi.bitAnd(u32(1)))
-      .mul(4)
-      .sub(1)
-    const y = toF32(vi.shr(u32(1)))
-      .mul(4)
-      .sub(1)
-    return VsOut.construct({
-      pos: vec4(x, y, 0, 1),
-      uv: vec2(x.mul(0.5).add(0.5), y.mul(0.5).add(0.5)),
-    })
-  },
-  { stage: 'vertex' },
-)
+const U = fullscreenUniforms({ zoom: f32T })
 
 // Iridescent cosine palette: 0.5 + 0.5·cos(2π(t + phase)).
 const palette = fn('palette', { t: f32T }, ({ t }) => {

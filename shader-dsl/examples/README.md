@@ -9,6 +9,11 @@ Every example is also exported (`module` + metadata) from [`index.ts`](./index.t
 sources power the interactive **/shader-dsl** site page (which renders the renderable ones live
 on a WebGL2 canvas) and the CLI printer.
 
+The fullscreen boilerplate — the `{time, resolution, …}` uniform head, the `VsOut` ioStruct,
+and the fullscreen-triangle vertex stage — is shared from [`_fullscreen.ts`](./_fullscreen.ts)
+(`fullscreenUniforms(extra)` / `VsOut` / `vs`), so a fullscreen example declares only its
+fragment stage and extra uniform fields.
+
 | File                   | Category     | What it shows                                                                                                                                                        |
 | ---------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `graticule.ts`         | cartographic | A lon/lat graticule — anti-aliased grid lines (screen-constant width via `fwidth`), a gold equator, spinning over `time`.                                            |

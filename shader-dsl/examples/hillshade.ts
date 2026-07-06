@@ -8,10 +8,6 @@
 import {
   fn,
   module,
-  uniformStruct,
-  ioStruct,
-  u32,
-  toF32,
   vec2,
   vec3,
   vec4,
@@ -24,49 +20,16 @@ import {
   mix,
   smoothstep,
   f32,
-  location,
-  builtin,
   f32T,
   vec2fT,
-  vec4fT,
-  u32T,
 } from '../src/index.ts'
+import { VsOut, vs, fullscreenUniforms } from './_fullscreen.ts'
 import type { Node } from '../src/index.ts'
 import type { ShaderExample } from './_shared.ts'
-
-const U = uniformStruct(
-  'Uniforms',
-  { group: 0, binding: 0, as: 'U' },
-  {
-    time: f32T,
-    resolution: vec2fT,
-    sun_az: f32T,
-    exaggeration: f32T,
-  },
-)
-
-const VsOut = ioStruct('VsOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
+const U = fullscreenUniforms({ sun_az: f32T, exaggeration: f32T })
 
 // normalize() isn't a DSL builtin — it's just v · (1/|v|). The author spells it inline.
 const normalize3 = (v: Node<'vec3<f32>'>): Node<'vec3<f32>'> => v.mul(f32(1).div(length(v)))
-
-const vs = fn(
-  'vs',
-  { vi: builtin('vertex_index', u32T) },
-  ({ vi }) => {
-    const x = toF32(vi.bitAnd(u32(1)))
-      .mul(4)
-      .sub(1)
-    const y = toF32(vi.shr(u32(1)))
-      .mul(4)
-      .sub(1)
-    return VsOut.construct({
-      pos: vec4(x, y, 0, 1),
-      uv: vec2(x.mul(0.5).add(0.5), y.mul(0.5).add(0.5)),
-    })
-  },
-  { stage: 'vertex' },
-)
 
 // Reusable terrain height field, ~[0,1]. Emitted once, called 3× — a real DSL function.
 const terrain = fn('terrain', { p: vec2fT, t: f32T }, ({ p, t }) => {
