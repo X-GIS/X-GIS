@@ -44,7 +44,7 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import { asyncWriteBuffer, type StagingBufferPool } from '@xgis/rhi-webgpu'
 import { xlog } from '@xgis/shared'
 import { wrapWebGpuPass, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
-import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
+import type { RhiBuffer, RhiBindGroup, RhiBindGroupLayout, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { LineDraper } from './material/line-material'
 import { LineCompositeDraper } from './material/line-composite-material'
 import type { ShapeRegistry } from '../text/sdf-shape'
@@ -609,6 +609,38 @@ export class LineRenderer {
       },
       translucent ? 'max' : isPickEnabled() ? 'pick' : 'opaque',
     )
+  }
+
+  /** RHI-native sibling of `drawSegments` for the forced-WebGL2 screen pass
+   *  (#834 M5 slice 1): the pass and BOTH bind groups arrive as RHI handles
+   *  (the tile group is built by VTR against the line Material's own group-0
+   *  layout), so nothing is wrapped. Solid opaque only — pattern/max/pick are
+   *  WebGPU-path concerns until their twins land. */
+  drawSegmentsRhi(
+    pass: RhiRenderPass,
+    tileBG: RhiBindGroup,
+    layerBG: RhiBindGroup,
+    segmentCount: number,
+    tileOffset: number,
+    layerOffset: number,
+  ): void {
+    if (segmentCount === 0) return
+    this.ensureLineDraper()
+    this._lineDraper!.draw(pass, {
+      tileBG,
+      layerBG,
+      tileOffset,
+      layerOffset,
+      pattern: false,
+      segmentCount,
+    })
+  }
+
+  /** The line Material's group-0 (tile) layout — VTR builds its WebGL2 tile
+   *  bind group against it (#834 M5). */
+  tileLayoutRhi(): RhiBindGroupLayout {
+    this.ensureLineDraper()
+    return this._lineDraper!.tileLayoutRhi()
   }
 
   private _lineDraper?: LineDraper

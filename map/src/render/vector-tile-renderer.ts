@@ -806,6 +806,202 @@ export class VectorTileRenderer {
     return missing
   }
 
+  /** WebGL2 stroke pass (#834 M5 slice 1) — SOLID opaque lines/outlines on
+   *  the forced-WebGL2 screen pass. Mirrors renderFillsRhi's skeleton
+   *  (selection → acquisition → per-tile DSFUN anchors → RHI draws) with the
+   *  line-specific pieces: one LineLayer ring slot per show (flushed BEFORE
+   *  the draws — GL is immediate-mode) and per-tile segment bind groups from
+   *  the upload path. Dash / pattern / translucent-composite stay WebGPU-only
+   *  until their twins land. Returns the missing-tile count (same loop-hot
+   *  contract as fills). */
+  renderLinesRhi(
+    pass: RhiRenderPass,
+    camera: Camera,
+    projType: number,
+    projCenterLon: number,
+    projCenterLat: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number,
+    show: ShowCommand,
+    resolvedShow: ResolvedShow,
+  ): number {
+    const st = ((globalThis as Record<string, unknown>).__xgisLinesRhi ??= {
+      calls: 0, lr: 0, sel: 0, cached: 0, draws: 0,
+    }) as Record<string, number>
+    st.calls++
+    if (!this.lineRenderer) return 0
+    st.lr++
+    if (!this.source?.hasData() || !this.source.getIndex()) return 0
+    this.ensureUniformRing()
+
+    const stroke = resolvedShow.stroke ?? (show.stroke ? parseHexColor(show.stroke) : null)
+    if (!stroke) return 0
+    const opacity = resolvedShow.opacity
+    const strokeWidthPx = resolvedShow.strokeWidth
+    if (stroke[3] * opacity <= 0.005 || strokeWidthPx <= 0) return 0
+
+    const effectiveSourceLayer = show.sourceLayer || show.targetName || ''
+    const sliceLayer = computeSliceKey(effectiveSourceLayer, show.filterExpr?.ast ?? null)
+    const layerCache = this.getOrCreateLayerCache(sliceLayer)
+    const sel = this._selection.selectForFrame(
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      dpr,
+      this.currentFrameId,
+      this.source,
+      sliceLayer,
+      Math.ceil(strokeWidthPx / 2 + 2),
+      this.source.maxLevel,
+      this._drawStats,
+    )
+    if (!sel) return 0
+    st.sel++
+    const { neededKeys, worldOffDeg } = sel
+
+    // Acquisition — fills usually ran first this frame and already queued
+    // these keys, but a stroke-only show must acquire on its own.
+    this.resetUploadFrameCap()
+    const toLoad: number[] = []
+    let missing = 0
+    for (const key of neededKeys) {
+      if (layerCache.has(key)) continue
+      missing++
+      if (this.source.hasTileData(key, sliceLayer)) {
+        const d = this.source.getTileData(key, sliceLayer)
+        if (d) this.uploadTile(key, d, sliceLayer)
+      } else if (this.source.hasEntryInIndex(key)) {
+        toLoad.push(key)
+      }
+    }
+    if (toLoad.length > 0) this.source.requestTiles(toLoad)
+
+    // One LineLayer slot for this show; flush the layer ring NOW — the RHI
+    // draws below execute immediately on WebGL2, unlike the WebGPU frame
+    // where endFrame()'s flush precedes the submit that consumes it.
+    const mpp = WORLD_MERC / TILE_PX / Math.pow(2, camera.zoom)
+    const layerOffset = this.lineRenderer.writeLayerSlot(
+      [stroke[0], stroke[1], stroke[2], stroke[3]],
+      strokeWidthPx,
+      opacity,
+      mpp,
+      undefined,
+      undefined,
+      undefined,
+      null,
+      [],
+      0,
+      canvasHeight,
+      show.strokeBlur ?? 0,
+      dpr,
+    )
+    this.lineRenderer.endFrame()
+
+    const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
+    this.logDepthFc = frame.logDepthFc
+    const B = this.frameBlock
+    B.set.mvp(frame.matrix)
+    B.set.fill_color(0, 0, 0, 0)
+    B.set.proj_params(projType, projCenterLon, projCenterLat, 0)
+    const ge = globeEyeUniform(frame.eye)
+    B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
+
+    const DEG2RAD = Math.PI / 180
+    const R = activeBody().sphereR
+    const MERC_LIMIT = 85.051129
+    const clampLat = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
+    const camMercX = projCenterLon * DEG2RAD * R
+    const camMercY = Math.log(Math.tan(Math.PI / 4 + (clampLat(projCenterLat) * DEG2RAD) / 2)) * R
+
+    for (let ki = 0; ki < neededKeys.length; ki++) {
+      const key = neededKeys[ki]!
+      const worldOff = worldOffDeg?.[ki] ?? 0
+      const cached = layerCache.get(key)
+      if (!cached) continue
+      const outlineN = cached.outlineSegmentCount
+      const lineN = cached.lineSegmentCount
+      if (
+        (outlineN === 0 || !cached.outlineSegmentBindGroup) &&
+        (lineN === 0 || !cached.lineSegmentBindGroup)
+      )
+        continue
+      cached.lastUsedFrame = this.frameCount
+      st.cached++
+
+      const tileMercX = (cached.tileWest + worldOff) * DEG2RAD * R
+      const tileMercY =
+        Math.log(Math.tan(Math.PI / 4 + (clampLat(cached.tileSouth) * DEG2RAD) / 2)) * R
+      const camRelX = camMercX - tileMercX
+      const camRelY = camMercY - tileMercY
+      const cxh = Math.fround(camRelX)
+      const cyh = Math.fround(camRelY)
+      B.set.cam_h(cxh, cyh)
+      B.set.cam_l(Math.fround(camRelX - cxh), Math.fround(camRelY - cyh))
+      B.set.cam_ecef_off_h(0, 0, 0, 1)
+      B.set.cam_ecef_off_l(0, 0, 0, 1)
+      B.set.tile_origin_merc(Math.fround(tileMercX), Math.fround(tileMercY))
+      B.set.opacity(opacity)
+      B.set.log_depth_fc(this.logDepthFc)
+      B.set.pick_id(0)
+      B.set.layer_depth_offset(0)
+      B.set.tile_extent_m(TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom))
+      B.set.extrude_height_m(0)
+      B.set.extrude_base_m(0)
+      B.set.clip_bounds(-1e30, 0, 0, 0)
+      B.set.zoom(this.currentCameraZoom)
+      B.set.fill_translate_x(0)
+      B.set.fill_translate_y(0)
+      B.set.tile_dequant_scale(cached.dequantScale)
+      B.set.tile_dequant_half(cached.dequantHalf)
+
+      const slotOffset = this.allocUniformSlot()
+      this.stageUniformSlot(slotOffset, this.frameBlock.buffer)
+      this.flushUniformStaging()
+      const tileBg = this.lineTileBgRhi()
+      if (!tileBg) continue
+      if (outlineN > 0 && cached.outlineSegmentBindGroup)
+        this.lineRenderer.drawSegmentsRhi(
+          pass,
+          tileBg,
+          cached.outlineSegmentBindGroup,
+          outlineN,
+          slotOffset,
+          layerOffset,
+        )
+      if (lineN > 0 && cached.lineSegmentBindGroup)
+        this.lineRenderer.drawSegmentsRhi(
+          pass,
+          tileBg,
+          cached.lineSegmentBindGroup,
+          lineN,
+          slotOffset,
+          layerOffset,
+        )
+      st.draws++
+    }
+    return missing
+  }
+
+  /** Line-material tile bind group over the VTR uniform ring (mirrors
+   *  fillTileBgRhi — the line TILE block shares the 192-byte layout, so the
+   *  binding size is the same polygonUniformBytes contract). Cached per ring
+   *  identity; a ring grow invalidates it. */
+  private _lineTileBgRhi: { buf: RhiBuffer; bg: RhiBindGroup } | null = null
+  private lineTileBgRhi(): RhiBindGroup | null {
+    const buf = this.uniformRing?.rhiBuffer
+    if (!buf || !this.lineRenderer) return null
+    if (this._lineTileBgRhi?.buf === buf) return this._lineTileBgRhi.bg
+    const bg = this.rhi.createBindGroup(this.lineRenderer.tileLayoutRhi(), [
+      { binding: 0, resource: { buffer: buf, offset: 0, size: polygonUniformBytes() } },
+    ])
+    this._lineTileBgRhi = { buf, bg }
+    return bg
+  }
+
   beginFrame(frameId: number = 0): void {
     this.currentFrameId = frameId
     this.uniformRing?.resetSlot()

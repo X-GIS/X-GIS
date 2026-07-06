@@ -755,11 +755,27 @@ export class RenderLoop {
       vtR.beginFrame(this.host._frameCount)
     }
     const classified = this.host.classifyVectorTileShows()
+    this.host.lineRenderer?.beginFrame()
     let missingTiles = 0
     for (const c of classified.opaque) {
       const vt = this.host.vtSources.get(c.sourceName)
       if (!vt) continue
       missingTiles += vt.renderer.renderFillsRhi(
+        pass,
+        this.host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        w,
+        h,
+        dpr,
+        c.show,
+        c.resolvedShow,
+      )
+      // #834 M5 slice 1 — solid opaque strokes after this show's fills (the
+      // WebGPU frame's fill→stroke order within a show). Missing tiles are
+      // already counted by the fills pass over the same selection.
+      vt.renderer.renderLinesRhi(
         pass,
         this.host.camera,
         projType,

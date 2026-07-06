@@ -124,6 +124,11 @@ export class LineDraper {
     return this.material.layout(1)
   }
 
+  /** The tile (group 0) layout — same consumer as `layerLayoutRhi`. */
+  tileLayoutRhi(): RhiBindGroupLayout {
+    return this.material.layout(0)
+  }
+
   draw(pass: RhiRenderPass, b: LineBatch, mode: 'opaque' | 'pick' | 'max' = 'opaque'): void {
     const material =
       mode === 'pick'
