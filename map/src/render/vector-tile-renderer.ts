@@ -826,12 +826,7 @@ export class VectorTileRenderer {
     show: ShowCommand,
     resolvedShow: ResolvedShow,
   ): number {
-    const st = ((globalThis as Record<string, unknown>).__xgisLinesRhi ??= {
-      calls: 0, lr: 0, sel: 0, cached: 0, draws: 0,
-    }) as Record<string, number>
-    st.calls++
     if (!this.lineRenderer) return 0
-    st.lr++
     if (!this.source?.hasData() || !this.source.getIndex()) return 0
     this.ensureUniformRing()
 
@@ -860,7 +855,6 @@ export class VectorTileRenderer {
       this._drawStats,
     )
     if (!sel) return 0
-    st.sel++
     const { neededKeys, worldOffDeg } = sel
 
     // Acquisition — fills usually ran first this frame and already queued
@@ -930,7 +924,6 @@ export class VectorTileRenderer {
       )
         continue
       cached.lastUsedFrame = this.frameCount
-      st.cached++
 
       const tileMercX = (cached.tileWest + worldOff) * DEG2RAD * R
       const tileMercY =
@@ -981,7 +974,6 @@ export class VectorTileRenderer {
           slotOffset,
           layerOffset,
         )
-      st.draws++
     }
     return missing
   }

@@ -29,6 +29,7 @@ import { Capabilities, UnsupportedFeatureError, type Backend } from '../backend'
 import { spellIntrinsic } from '../intrinsics'
 import { f32Lit } from './wgsl'
 import { emitBody, emitExpr as emitExprNeutral, lowerForBackend } from '../emit'
+import { autoVars } from '../passes/opt'
 import { wgslLayout } from '../reflect'
 import { sanitizeReservedIdents } from './glsl-sanitize'
 import { fixpoint } from '../passes/opt'
@@ -916,10 +917,17 @@ export function emitGlslModule(
   // read_write `out_color` binding, which lowerStorageToDataTexture would throw on),
   // then storage→data-texture converts the remaining `feat_data` read. emulateCompute
   // IMPLIES emulateStorage.
+  // autoVars must run BEFORE any cloning IR→IR pre-pass: it materialises
+  // assigned plain-value bindings by Expr OBJECT IDENTITY (see auto-vars.ts),
+  // and the storage/compute lowerings clone expression trees — running them
+  // first orphans every read of an assigned temp from its assignments (the
+  // emitted GLSL then reads the CSE'd INITIALIZER forever; the #834 M5 line
+  // twin returned position = vec4(0) this way). autoVars is a no-op on an
+  // already-materialised module, so lowerForBackend's own autoVars stays.
   const src = opts?.emulateCompute
-    ? lowerStorageToDataTexture(lowerComputeToFragment(m))
+    ? lowerStorageToDataTexture(lowerComputeToFragment(autoVars(m)))
     : opts?.emulateStorage
-      ? lowerStorageToDataTexture(m)
+      ? lowerStorageToDataTexture(autoVars(m))
       : m
   // GLSL-local: rename any param/var identifier colliding with a GLSL reserved word
   // (e.g. an entry param `input` / `in`) — does NOT affect the WGSL backend.
