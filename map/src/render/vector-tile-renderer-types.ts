@@ -62,14 +62,14 @@ export interface GPUTile {
   outlineIndexBuffer: GPUBuffer | null
   outlineIndexCount: number
   // SDF line segment buffers for polygon outlines and line features
-  outlineSegmentBuffer: GPUBuffer | null
+  outlineSegmentBuffer: RhiBuffer | null
   outlineSegmentCount: number
   // §4 seam: the layer bind group is built via the RHI (LineRenderer.create-
   // LayerBindGroup) → RhiBindGroup. The segment BUFFER above stays a raw
   // GPUBuffer (owned + destroyed by GpuTileStore's retire queue — flips with
   // the VTR/GPUArena cluster).
   outlineSegmentBindGroup: RhiBindGroup | null
-  lineSegmentBuffer: GPUBuffer | null
+  lineSegmentBuffer: RhiBuffer | null
   lineSegmentCount: number
   lineSegmentBindGroup: RhiBindGroup | null
   tileWest: number

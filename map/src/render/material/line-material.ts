@@ -7,7 +7,7 @@
 // group layout (so its pipeline is layout-compatible with VTR-built tile groups).
 // The translucent MAX-blend / composite pass is a render-graph concern, separate.
 
-import type { RhiBindGroup, RhiBindLayoutEntry, RhiDevice, RhiRenderPass } from '@xgis/engine'
+import type { RhiBindGroup, RhiBindGroupLayout, RhiBindLayoutEntry, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from './material'
 import { emitLineWgsl } from '@xgis/map'
@@ -115,6 +115,12 @@ export class LineDraper {
       colorTargets: [{ format: this.format as 'bgra8unorm', blend: 'max' }],
       variants: [{ label: 'line-pipeline-max-rhi' }], // no depth-stencil (offscreen accum)
     }))
+  }
+
+  /** The layer (group 1) bind-group layout of the main material — the
+   *  WebGL2 path builds per-tile layer bind groups against it (#834 M5). */
+  layerLayoutRhi(): RhiBindGroupLayout {
+    return this.material.layout(1)
   }
 
   draw(pass: RhiRenderPass, b: LineBatch, mode: 'opaque' | 'pick' | 'max' = 'opaque'): void {

@@ -118,7 +118,7 @@ interface TileWriteSink {
    *  returns the buffer directly; async returns a promise that resolves
    *  once the segment write is encoded (the buffer is created eagerly so
    *  the caller can bind it immediately). */
-  uploadSegment(segData: Float32Array): GPUBuffer | Promise<GPUBuffer>
+  uploadSegment(segData: Float32Array): RhiBuffer | Promise<RhiBuffer>
   /** Await every staged write (async only; no-op-shaped for sync — never
    *  called on the sync path). Collects the staging-slot releases. */
   awaitWrites(): Promise<void>
@@ -146,7 +146,7 @@ class SyncWriteSink implements TileWriteSink {
     // === queue.writeBuffer on WebGPU (byte-identical); bufferSubData on WebGL2.
     this.rhi.writeBuffer(dst, offset, data as BufferSource)
   }
-  uploadSegment(segData: Float32Array): GPUBuffer {
+  uploadSegment(segData: Float32Array): RhiBuffer {
     return this.lineRenderer!.uploadSegmentBuffer(segData)
   }
   // eslint-disable-next-line @typescript-eslint/no-empty-function
@@ -182,7 +182,7 @@ class AsyncWriteSink implements TileWriteSink {
     // native unwrap lives HERE — the map's WebGPU seam — not in the engine.
     this.write(this.rhi.unwrapBuffer(dst), offset, data)
   }
-  async uploadSegment(segData: Float32Array): Promise<GPUBuffer> {
+  async uploadSegment(segData: Float32Array): Promise<RhiBuffer> {
     const seg = await this.lineRenderer!.uploadSegmentBufferAsync(segData, this.encoder, this.pool)
     this.releases.push(seg.release)
     return seg.buffer
@@ -476,8 +476,8 @@ export class UploadCoordinator {
     let lineVertexBuffer: GPUBuffer | null = null
     let lineIndexBuffer: GPUBuffer | null = null
     let outlineIndexBuffer: GPUBuffer | null = null
-    let outlineSegmentBuffer: GPUBuffer | null = null
-    let lineSegmentBuffer: GPUBuffer | null = null
+    let outlineSegmentBuffer: RhiBuffer | null = null
+    let lineSegmentBuffer: RhiBuffer | null = null
     // Bail-site cleanup: the early-returns below (UAF/compaction guard,
     // same-key race guard) and the catch all return BEFORE layerCache.set,
     // so the line/outline + segment buffers are never recorded and the tile-
@@ -487,8 +487,8 @@ export class UploadCoordinator {
       store.releaseBuffer(lineVertexBuffer)
       store.releaseBuffer(lineIndexBuffer)
       store.releaseBuffer(outlineIndexBuffer)
-      outlineSegmentBuffer?.destroy()
-      lineSegmentBuffer?.destroy()
+      if (outlineSegmentBuffer) this.host.rhi.destroyBuffer(outlineSegmentBuffer)
+      if (lineSegmentBuffer) this.host.rhi.destroyBuffer(lineSegmentBuffer)
     }
 
     try {

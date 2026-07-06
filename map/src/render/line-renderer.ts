@@ -386,14 +386,14 @@ export class LineRenderer {
    *  is owned + destroyed by GpuTileStore's raw `_retiredTileBuffers: GPUBuffer[]`
    *  retire queue (the VTR/GPUArena cluster), so it flips to RhiBuffer with that
    *  cluster, not in this line step. createLayerBindGroup wraps it transiently. */
-  uploadSegmentBuffer(segments: Float32Array): GPUBuffer {
+  uploadSegmentBuffer(segments: Float32Array): RhiBuffer {
     const size = Math.max(segments.byteLength, LINE_SEGMENT_STRIDE_BYTES)
-    const buf = this.device.createBuffer({
-      size,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      label: 'line-segments',
-    })
-    this.device.queue.writeBuffer(buf, 0, segments)
+    // Backend-blind (#834 M5): on WebGPU rhi.createBuffer IS device.createBuffer
+    // (usage 'storage' → STORAGE|COPY_DST) and rhi.writeBuffer IS
+    // queue.writeBuffer — byte-identical; on WebGl2Device the storage buffer
+    // lands as the R32F data-texture backing the emulated `segments` array.
+    const buf = this.rhi.createBuffer({ size, usage: 'storage', label: 'line-segments' })
+    this.rhi.writeBuffer(buf, 0, segments)
     return buf
   }
 
@@ -408,7 +408,7 @@ export class LineRenderer {
     segments: Float32Array,
     encoder: GPUCommandEncoder,
     pool: StagingBufferPool,
-  ): Promise<{ buffer: GPUBuffer; release: () => void }> {
+  ): Promise<{ buffer: RhiBuffer; release: () => void }> {
     const size = Math.max(segments.byteLength, LINE_SEGMENT_STRIDE_BYTES)
     const buf = this.device.createBuffer({
       size,
@@ -416,7 +416,9 @@ export class LineRenderer {
       label: 'line-segments-async',
     })
     const handle = await asyncWriteBuffer(pool, encoder, buf, 0, segments)
-    return { buffer: buf, release: handle.release }
+    // This path is inherently WebGPU (staging pool + native encoder); the raw
+    // dst is wrapped at return so the tile cache stores RhiBuffer uniformly.
+    return { buffer: wrapWebGpuBuffer(buf), release: handle.release }
   }
 
   /** Reset the layer + composite ring slot cursors. Call once per frame. */
@@ -533,7 +535,7 @@ export class LineRenderer {
 
   /** Create a bind group for the line layer + segments + shape registry.
    *  Binding 0 uses a dynamic offset — actual slot is chosen at draw time. */
-  createLayerBindGroup(segmentBuffer: GPUBuffer): RhiBindGroup {
+  createLayerBindGroup(segmentBuffer: RhiBuffer): RhiBindGroup {
     // §4 seam: built via the RHI. binding 0 = line's PRIVATE layer ring (RhiBuffer);
     // binding 1 = the per-tile segment buffer, still a raw GpuTileStore-owned
     // GPUBuffer (flips with the VTR/GPUArena cluster, unit 4) → wrapped transiently;
@@ -543,9 +545,16 @@ export class LineRenderer {
     // the VTR/GPUArena cluster.
     const shapeBuf = this.shapeRegistry?.shapeBuffer
     const shapeSegBuf = this.shapeRegistry?.segmentBuffer
-    return this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.layerBindGroupLayout), [
+    // WebGl2Device: the raw layerBindGroupLayout is a ?forcegl2 proxy no-op —
+    // use the line Material's OWN group-1 layout (entry-array construction,
+    // #834 M5) so reflection-by-name binds the emulated storage textures.
+    const layout =
+      this.rhi.backend === 'webgl2'
+        ? (this.ensureLineDraper(), this._lineDraper!.layerLayoutRhi())
+        : wrapWebGpuBindGroupLayout(this.layerBindGroupLayout)
+    return this.rhi.createBindGroup(layout, [
       { binding: 0, resource: { buffer: this.layerRing, offset: 0, size: lineUniformSize() } },
-      { binding: 1, resource: { buffer: wrapWebGpuBuffer(segmentBuffer) } },
+      { binding: 1, resource: { buffer: segmentBuffer } },
       { binding: 2, resource: { buffer: shapeBuf ?? this.emptyShapeBuffer } },
       { binding: 3, resource: { buffer: shapeSegBuf ?? this.emptyShapeBuffer } },
     ])

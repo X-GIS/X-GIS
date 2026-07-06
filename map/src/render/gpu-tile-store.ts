@@ -203,6 +203,9 @@ export class GpuTileStore {
    *  freed by range, not pooled), so deferral is the only safe teardown.
    *  Mirrors `_retiredArenaBuffers` + PointRenderer.retiredTilePointBuffers. */
   private _retiredTileBuffers: GPUBuffer[] = []
+  /** RhiBuffer siblings of _retiredTileBuffers (#834 M5 — the segment buffers
+   *  flipped to RhiBuffer); drained at the same deferred-destroy point. */
+  private _retiredTileRhiBuffers: RhiBuffer[] = []
 
   private getOrCreatePolyVertexArena(): GPUArena {
     if (this.polyVertexArena === null) {
@@ -363,8 +366,8 @@ export class GpuTileStore {
         tile.lineVertexBuffer?.destroy()
         tile.lineIndexBuffer?.destroy()
         tile.outlineIndexBuffer?.destroy()
-        tile.outlineSegmentBuffer?.destroy()
-        tile.lineSegmentBuffer?.destroy()
+        if (tile.outlineSegmentBuffer) this.rhi.destroyBuffer(tile.outlineSegmentBuffer)
+        if (tile.lineSegmentBuffer) this.rhi.destroyBuffer(tile.lineSegmentBuffer)
         tile.featureDataBuffer?.destroy()
       }
     }
@@ -435,6 +438,10 @@ export class GpuTileStore {
     if (this._retiredTileBuffers.length > 0) {
       for (const b of this._retiredTileBuffers) b.destroy()
       this._retiredTileBuffers.length = 0
+    }
+    if (this._retiredTileRhiBuffers.length > 0) {
+      for (const b of this._retiredTileRhiBuffers) this.rhi.destroyBuffer(b)
+      this._retiredTileRhiBuffers.length = 0
     }
     // (a1) New frame: clear the per-arena eviction-futility latch so a moved
     // camera (which unprotects last frame's tiles) re-attempts a real evict.
@@ -643,8 +650,8 @@ export class GpuTileStore {
     // frame's render encoder raised `[Buffer "line-segments"] used in submit
     // while destroyed` at the frame submit. RETIRE them — destroyed in the
     // post-submit safe window (next runFrameMaintenance / destroy()).
-    if (tile.outlineSegmentBuffer) this._retiredTileBuffers.push(tile.outlineSegmentBuffer)
-    if (tile.lineSegmentBuffer) this._retiredTileBuffers.push(tile.lineSegmentBuffer)
+    if (tile.outlineSegmentBuffer) this._retiredTileRhiBuffers.push(tile.outlineSegmentBuffer)
+    if (tile.lineSegmentBuffer) this._retiredTileRhiBuffers.push(tile.lineSegmentBuffer)
     // Per-tile feature data is ALSO render-bound (bound at featureBindGroup
     // binding 1, drawn via renderTileKeys), so it shares the segment buffers'
     // mid-render-destroy hazard on the forceEvictBytes path. Retire it through
@@ -898,8 +905,8 @@ export class GpuTileStore {
         tile.lineVertexBuffer?.destroy()
         tile.lineIndexBuffer?.destroy()
         tile.outlineIndexBuffer?.destroy()
-        tile.outlineSegmentBuffer?.destroy()
-        tile.lineSegmentBuffer?.destroy()
+        if (tile.outlineSegmentBuffer) this.rhi.destroyBuffer(tile.outlineSegmentBuffer)
+        if (tile.lineSegmentBuffer) this.rhi.destroyBuffer(tile.lineSegmentBuffer)
         tile.featureDataBuffer?.destroy()
       }
     }
