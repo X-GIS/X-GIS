@@ -1,0 +1,17 @@
+{
+  // Editor / typed-lint project for examples/. The PACKAGE tsconfig.json includes
+  // only src/ (examples never reach dist/), so without this file the TS project
+  // service — which discovers projects by walking tsconfig.json files — cannot
+  // resolve any examples file, and typed ESLint (pre-commit lint-staged) fails to
+  // parse them. The canonical type GATE for examples stays the package build's
+  // `tsc -p tsconfig.tests.json` noEmit pass; this project mirrors its options.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "declaration": false,
+    "sourceMap": false,
+    "types": ["node"]
+  },
+  "include": ["**/*.ts"]
+}

@@ -11,8 +11,18 @@ import { colorRamp } from './color-ramp.ts'
 import { plasma } from './shadertoy-plasma.ts'
 import { voronoi } from './voronoi.ts'
 import { julia } from './julia.ts'
+import { mandelbrot } from './mandelbrot.ts'
 import { fbmClouds } from './fbm-clouds.ts'
+import { domainWarp } from './domain-warp.ts'
 import { raymarchSphere } from './raymarch-sphere.ts'
+import { raymarchBoxes } from './raymarch-boxes.ts'
+import { tunnel } from './tunnel.ts'
+import { metaballs } from './metaballs.ts'
+import { ocean } from './ocean.ts'
+import { starfield } from './starfield.ts'
+import { truchet } from './truchet.ts'
+import { kaleidoscope } from './kaleidoscope.ts'
+import { heart } from './heart.ts'
 import { gradient } from './gradient-pass.ts'
 import { computeReduction } from './compute-reduction.ts'
 import type { ShaderExample } from './_shared.ts'
@@ -25,8 +35,18 @@ export {
   plasma,
   voronoi,
   julia,
+  mandelbrot,
   fbmClouds,
+  domainWarp,
   raymarchSphere,
+  raymarchBoxes,
+  tunnel,
+  metaballs,
+  ocean,
+  starfield,
+  truchet,
+  kaleidoscope,
+  heart,
   gradient,
   computeReduction,
 }
@@ -39,8 +59,18 @@ export const examples: readonly ShaderExample[] = [
   plasma,
   voronoi,
   julia,
+  mandelbrot,
   fbmClouds,
+  domainWarp,
   raymarchSphere,
+  raymarchBoxes,
+  tunnel,
+  metaballs,
+  ocean,
+  starfield,
+  truchet,
+  kaleidoscope,
+  heart,
   gradient,
   computeReduction,
 ]

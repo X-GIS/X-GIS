@@ -188,9 +188,11 @@ cannot change an emitted byte. The std140/std430 offset engine is also exposed s
 ## Examples
 
 Runnable, runtime-free shaders live in [`examples/`](./examples) — three cartographic
-(graticule, hillshade, choropleth ramp), six generic (plasma, voronoi, julia, fBm clouds,
-raymarched sphere, gradient), and one compute kernel. Each emits WGSL + GLSL ES 3.00 +
-reflection from one source:
+(graticule, hillshade, choropleth ramp), sixteen generic covering the classic
+ShaderToy-era effects (plasma, voronoi, julia, mandelbrot, fBm clouds, domain warping,
+raymarched sphere, raymarched box field, tunnel, metaballs, ocean, starfield, truchet,
+kaleidoscope, beating heart, gradient), and one compute kernel. Each emits
+WGSL + GLSL ES 3.00 + reflection from one source:
 
 ```bash
 npx tsx examples/print.ts            # print WGSL / GLSL / reflection for every example
