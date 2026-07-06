@@ -33,6 +33,8 @@ import { DEBUG_OVERDRAW } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
+import { backgroundClearValue } from './render/passes/background-pass'
+import { resolveColorShape, resolveNumberShape } from './render/paint-shape-resolve'
 import { type FrameContext } from '@xgis/engine'
 import { makeProjectionToken, setProjectionToken } from '@xgis/engine'
 import type { RhiDevice, RhiScreenPassDevice } from '@xgis/engine'
@@ -708,7 +710,30 @@ export class RenderLoop {
     centerLat: number,
     dpr: number,
   ): void {
-    const pass = rhi.beginScreenPass({ width: w, height: h, clear: [0, 0, 0, 1] })
+    // #832 — clear with the style's background, mirroring background-pass.ts
+    // execute() exactly: constant `_backgroundColor`, overridden by the
+    // zoom-interpolated colour shape, then the opacity shape multiplied into
+    // alpha, all fed through the same pure backgroundClearValue (sphere-full
+    // projections stay black; no `background` block stays black).
+    let bg = this.host._backgroundColor
+    if (this.host._backgroundColorShape) {
+      const r = resolveColorShape(
+        this.host._backgroundColorShape,
+        this.host.camera.zoom,
+        this.host._elapsedMs,
+      )
+      if (r) bg = [r.value[0], r.value[1], r.value[2], r.value[3]]
+    }
+    if (this.host._backgroundOpacityShape && bg) {
+      const a = resolveNumberShape(
+        this.host._backgroundOpacityShape,
+        this.host.camera.zoom,
+        this.host._elapsedMs,
+      ).value
+      bg = [bg[0], bg[1], bg[2], bg[3] * a]
+    }
+    const cv = backgroundClearValue(projType, bg, DEBUG_OVERDRAW)
+    const pass = rhi.beginScreenPass({ width: w, height: h, clear: [cv.r, cv.g, cv.b, cv.a] })
     this.host.rasterRenderer.renderRhiChecker(
       rhi,
       pass,
