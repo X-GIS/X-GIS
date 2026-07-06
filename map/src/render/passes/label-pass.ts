@@ -1676,10 +1676,10 @@ class LabelPass implements RenderPass {
       // a text debug pipeline so glyph + halo overdraw counts.
       if (!DEBUG_OVERDRAW) {
         if (ctx.rhiPass) {
-          // Forced-WebGL2 frame (#834 M5 slice 3): draw on the live RHI
-          // screen pass — no WebGPU encoder exists on this path. Sprite
-          // ICONS (iStage) are a follow-up slice: their draper/atlas twins
-          // haven't landed, so only text draws here.
+          // Forced-WebGL2 frame (#834 M5 slices 3-4): draw on the live RHI
+          // screen pass — no WebGPU encoder exists on this path. Icons
+          // BEFORE text, matching the WebGPU ordering below.
+          iStage?.render(ctx.rhiPass, { width: ctx.w, height: ctx.h })
           stage.render(ctx.rhiPass, { width: ctx.w, height: ctx.h })
         } else {
           ctx.passScope('text-overlay', () => {

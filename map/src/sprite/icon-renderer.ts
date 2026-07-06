@@ -15,7 +15,7 @@
 
 import type { IconAtlasGpu } from './icon-stage'
 import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '@xgis/rhi-webgpu'
-import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
+import type { RhiBuffer, RhiBindGroup, RhiDevice , RhiRenderPass } from '@xgis/engine'
 import { IconDraper } from '../render/material/icon-material'
 import type { SpriteInfo } from './sprite-atlas-host'
 import { vertexField } from '@xgis/compiler'
@@ -388,20 +388,41 @@ export class IconRenderer {
 
   /** Encode the icon draw call. Returns silently when nothing to draw
    *  or when the atlas hasn't loaded yet. */
-  draw(pass: GPURenderPassEncoder, viewport: { width: number; height: number }): void {
+  draw(
+    pass: GPURenderPassEncoder | RhiRenderPass,
+    viewport: { width: number; height: number },
+  ): void {
     if (this.vertexCount === 0 || this.vertexBuf === null) return
-    const tex = this.atlas.ensure()
-    if (!tex) return
-    if (!this.bindGroup) {
-      // Bind group routes through the RHI seam (§4): binding 0 is the RhiBuffer
-      // uniform; the atlas TEXTURE view (binding 1) + sampler (binding 2) stay raw,
-      // adopted via wrapWebGpuTextureView / wrapWebGpuSampler. Byte-identical to the
-      // prior device.createBindGroup (the debug label is the only drop).
-      this.bindGroup = this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bgLayout), [
-        { binding: 0, resource: { buffer: this.uniformBuf } },
-        { binding: 1, resource: { view: wrapWebGpuTextureView(tex.createView()) } },
-        { binding: 2, resource: { sampler: wrapWebGpuSampler(this.atlas.sampler) } },
-      ])
+    const gl2 = this.rhi.backend === 'webgl2'
+    if (gl2) {
+      // WebGl2Device path (#834 M5 slice 4): the atlas must expose the RHI
+      // twins; fail-closed (skip the draw) when it doesn't — a bespoke
+      // WebGPU-only atlas keeps working on WebGPU unchanged.
+      const view = this.atlas.rhiView?.()
+      const sampler = this.atlas.rhiSampler?.()
+      if (!view || !sampler) return
+      if (!this.bindGroup) {
+        this.ensureIconDraper()
+        this.bindGroup = this.rhi.createBindGroup(this._iconDraper!.layoutRhi(), [
+          { binding: 0, resource: { buffer: this.uniformBuf } },
+          { binding: 1, resource: { view } },
+          { binding: 2, resource: { sampler } },
+        ])
+      }
+    } else {
+      const tex = this.atlas.ensure()
+      if (!tex) return
+      if (!this.bindGroup) {
+        // Bind group routes through the RHI seam (§4): binding 0 is the RhiBuffer
+        // uniform; the atlas TEXTURE view (binding 1) + sampler (binding 2) stay raw,
+        // adopted via wrapWebGpuTextureView / wrapWebGpuSampler. Byte-identical to the
+        // prior device.createBindGroup (the debug label is the only drop).
+        this.bindGroup = this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bgLayout), [
+          { binding: 0, resource: { buffer: this.uniformBuf } },
+          { binding: 1, resource: { view: wrapWebGpuTextureView(tex.createView()) } },
+          { binding: 2, resource: { sampler: wrapWebGpuSampler(this.atlas.sampler) } },
+        ])
+      }
     }
     // iter-234 — reuse a pre-allocated 4-float scratch instead of
     // `new Float32Array([...])` per draw. The 16-byte alloc per
@@ -417,11 +438,14 @@ export class IconRenderer {
     // path. (The raw kill-switch branch + the standalone native pipeline were
     // deleted in the §4 seam migration.)
     this.ensureIconDraper()
-    this._iconDraper!.draw(wrapWebGpuPass(pass), {
-      bindGroup: this.bindGroup,
-      vertexBuf: this.vertexBuf,
-      vertexCount: this.vertexCount,
-    })
+    this._iconDraper!.draw(
+      gl2 ? (pass as RhiRenderPass) : wrapWebGpuPass(pass as GPURenderPassEncoder),
+      {
+        bindGroup: this.bindGroup,
+        vertexBuf: this.vertexBuf,
+        vertexCount: this.vertexCount,
+      },
+    )
   }
 
   destroy(): void {

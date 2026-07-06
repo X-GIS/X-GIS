@@ -7,17 +7,23 @@
 // limits, no paging needed).
 
 import { SpriteAtlasHost } from './sprite-atlas-host'
+import type { RhiDevice, RhiSampler, RhiTexture, RhiTextureView } from '@xgis/engine'
 
 export class SpriteAtlasGPU {
   private readonly device: GPUDevice
+  private readonly rhi: RhiDevice | null
   private readonly host: SpriteAtlasHost
+  private rhiTexture: RhiTexture | null = null
+  private _rhiView: RhiTextureView | null = null
+  private _rhiSampler: RhiSampler | null = null
   /** Lazy — populated on first `ensure()` after the host transitions
    *  to 'loaded'. Null when the atlas hasn't been uploaded yet. */
   private texture: GPUTexture | null = null
   readonly sampler: GPUSampler
 
-  constructor(device: GPUDevice, host: SpriteAtlasHost) {
+  constructor(device: GPUDevice, host: SpriteAtlasHost, rhi: RhiDevice | null = null) {
     this.device = device
+    this.rhi = rhi
     this.host = host
     // Linear filter so non-integer-scale icons (icon-size != 1) stay
     // smooth; clamp-to-edge so atlas neighbours never bleed.
@@ -83,8 +89,42 @@ export class SpriteAtlasGPU {
   private _cachedView: GPUTextureView | null = null
   private _cachedViewTexture: GPUTexture | null = null
 
+  /** RHI atlas twin accessors (#834 M5 slice 4 — same naming as the host
+   *  atlas twins' rhiView/rhiSampler). Upload goes through the slice-2
+   *  copyExternalImage seam (WebGL2 texSubImage2D, no CPU readback). Null
+   *  until the host loads, or when no rhi was injected (legacy ctor). */
+  rhiView(): RhiTextureView | null {
+    if (!this.rhi) return null
+    if (this._rhiView) return this._rhiView
+    if (this.host.getState().status !== 'loaded') return null
+    const image = this.host.getImage()
+    if (!image) return null
+    this.rhiTexture = this.rhi.createTexture({
+      width: image.width,
+      height: image.height,
+      format: 'rgba8unorm',
+      usage: ['sample', 'copy-dst'],
+      label: 'sprite-atlas',
+    })
+    this.rhi.copyExternalImage(this.rhiTexture, image as ImageBitmap, image.width, image.height)
+    this._rhiView = this.rhi.createView(this.rhiTexture)
+    return this._rhiView
+  }
+
+  rhiSampler(): RhiSampler | null {
+    if (!this.rhi) return null
+    return (this._rhiSampler ??= this.rhi.createSampler({
+      mag: 'linear',
+      min: 'linear',
+      label: 'sprite-atlas-sampler-rhi',
+    }))
+  }
+
   destroy(): void {
     this.texture?.destroy()
     this.texture = null
+    if (this.rhiTexture && this.rhi) this.rhi.destroyTexture(this.rhiTexture)
+    this.rhiTexture = null
+    this._rhiView = null
   }
 }

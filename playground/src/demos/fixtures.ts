@@ -19,6 +19,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Single SDF point at (0, 0). Used by e2e fixture tests to validate the pointRenderer code path in isolation.',
     source: load('fixture-point.xgis'),
   },
+  fixture_symbol_icon: {
+    name: 'Fixture: symbol icon (host image)',
+    tag: 'fixture',
+    description:
+      'Label + host-image icon (label-icon-image-*) over the spriteUrl-less host-atlas path — push data + addImage from the host.',
+    source: load('fixture-symbol-icon.xgis'),
+  },
   fixture_raster_local: {
     name: 'Fixture: raster (local checker)',
     tag: 'fixture',
