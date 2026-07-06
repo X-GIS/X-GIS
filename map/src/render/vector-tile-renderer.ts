@@ -905,6 +905,27 @@ export class VectorTileRenderer {
       dashArray !== null
         ? { array: dashArray, offset: resolvedShow.dashOffset * dashWidthScalePx * mpp }
         : null
+    // Procedural stroke patterns (shape-registry SDF slots) — render()'s
+    // mapping verbatim (#834 M5 slice 5). The shape/shape_segments buffers
+    // are RhiBuffer already, so the same slots flow through the WebGL2
+    // layer bind group; Mapbox IMAGE line-pattern (fs_line_pattern + sprite
+    // atlas) stays a follow-up.
+    const unitMap = { m: 0, px: 1, km: 2, nm: 3 } as const
+    const anchorMap = { repeat: 0, start: 1, end: 2, center: 3 } as const
+    const patternSlots = (show.patterns ?? [])
+      .slice(0, 3)
+      .map((p) => ({
+        shapeId: this.lineRenderer!.resolveShapeId(p.shape),
+        spacing: p.spacing,
+        spacingUnit: unitMap[p.spacingUnit ?? 'm'],
+        size: p.size,
+        sizeUnit: unitMap[p.sizeUnit ?? 'm'],
+        offset: p.offset ?? 0,
+        offsetUnit: unitMap[p.offsetUnit ?? 'm'],
+        startOffset: p.startOffset ?? 0,
+        anchor: anchorMap[p.anchor ?? 'repeat'],
+      }))
+      .filter((p) => p.shapeId > 0)
     const layerOffset = this.lineRenderer.writeLayerSlot(
       [stroke[0], stroke[1], stroke[2], stroke[3]],
       strokeWidthPx,
@@ -914,7 +935,7 @@ export class VectorTileRenderer {
       join,
       miterLimit,
       dash,
-      [],
+      patternSlots,
       0,
       canvasHeight,
       show.strokeBlur ?? 0,
