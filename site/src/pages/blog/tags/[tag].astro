@@ -1,0 +1,48 @@
+---
+import Base from '../../../layouts/Base.astro'
+import Header from '../../../components/Header.astro'
+import Footer from '../../../components/Footer.astro'
+import BlogPostCard from '../../../components/BlogPostCard.astro'
+import { publishedPosts } from '../../../lib/blog'
+
+export async function getStaticPaths() {
+  const posts = await publishedPosts()
+  const tags = [...new Set(posts.flatMap((p) => p.data.tags))]
+  return tags.map((tag) => ({
+    params: { tag },
+    props: { tag, posts: posts.filter((p) => p.data.tags.includes(tag)) },
+  }))
+}
+
+const { tag, posts } = Astro.props
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+---
+
+<Base
+  title={`#${tag} — X-GIS Blog`}
+  description={`Engineering notes tagged "${tag}" — ${posts.length} post${posts.length === 1 ? '' : 's'}.`}
+>
+  <Header />
+  <main class="pt-28 sm:pt-36 pb-32">
+    <div class="max-w-[1200px] mx-auto px-6">
+      <a href={`${base}/blog`} class="font-mono text-[12px] tracking-[0.14em] uppercase text-fg-mute hover:text-accent transition-colors inline-flex items-center gap-1.5">
+        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+        Blog
+      </a>
+      <header class="mt-8 mb-16 sm:mb-24">
+        <p class="font-mono text-[12px] tracking-[0.22em] uppercase text-accent mb-4">Tag</p>
+        <h1 class="font-display font-normal text-fg leading-[0.92] tracking-[-0.02em] text-[52px] sm:text-[72px] lg:text-[88px]">
+          {tag}
+        </h1>
+        <p class="mt-6 text-[17px] sm:text-[19px] leading-[1.6] text-fg-dim">
+          {posts.length} post{posts.length === 1 ? '' : 's'}
+        </p>
+      </header>
+
+      <ul class="divide-y divide-line border-t border-line">
+        {posts.map((post) => <BlogPostCard post={post} />)}
+      </ul>
+    </div>
+  </main>
+  <Footer />
+</Base>
