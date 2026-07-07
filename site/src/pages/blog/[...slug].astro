@@ -56,9 +56,14 @@ const articleLd = {
     <!-- Same composition grammar as the Docs shell: one site-standard
          1200 band, content + TOC as grid columns (#738 follow-up — the
          old free-floating 680 column left ~380px voids per side at 1440,
-         far wider than the ~120px the 1200 standard produces elsewhere). -->
-    <div class="max-w-[1200px] mx-auto px-6 xl:grid xl:grid-cols-[minmax(0,1fr)_220px] xl:gap-x-16">
-      <article class="max-w-[720px] w-full min-w-0 mx-auto xl:justify-self-center">
+         far wider than the ~120px the 1200 standard produces elsewhere).
+         The content COLUMN is fixed at 720px (not minmax(0,1fr)) and the
+         grid is justify-center'd, so the article+TOC pair centers as one
+         1004px block within the 1200 band — a 1fr content column would
+         claim all the leftover width and leave the (centered) 720px
+         article floating in a lopsided gap in front of the TOC instead. -->
+    <div class="max-w-[1200px] mx-auto px-6 xl:grid xl:grid-cols-[720px_220px] xl:gap-x-16 xl:justify-center">
+      <article class="max-w-[720px] w-full mx-auto xl:mx-0">
       <a href={`${base}/blog`} class="font-mono text-[12px] tracking-[0.14em] uppercase text-fg-mute hover:text-accent transition-colors inline-flex items-center gap-1.5">
         <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
         Blog
