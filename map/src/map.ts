@@ -2551,7 +2551,16 @@ export class XGISMap {
     // P3 Step 3c — upload the scene-level color gradient palette to GPU
     // so MapRenderer + freshly-built VTRs sample the real atlas instead
     // of the 1×1 stub installed at MapRenderer init.
-    if (commands.palette && commands.palette.colorGradients.length > 0) {
+    if (
+      commands.palette &&
+      commands.palette.colorGradients.length > 0 &&
+      // #834 device retirement S5 — the gradient atlas feeds the VARIANT
+      // fill shaders, which never run on webgl2 (per-style pipelines are
+      // the inert S4 sentinel; renderFillsRhi resolves colours CPU-side),
+      // and setPaletteColorAtlas would rebuild NATIVE bind groups. Skip so
+      // scene compile keeps ctx.device untouched on that backend.
+      this.ctx.rhi.backend !== 'webgl2'
+    ) {
       // Guard with try/catch — palette upload races scene compile and a
       // transient GPU error (cold device, low-memory) shouldn't kill the
       // whole map. Falls back to the 1×1 stub atlas; legacy

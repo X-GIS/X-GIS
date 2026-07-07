@@ -470,6 +470,17 @@ export class MapRendererContent {
       pickId,
     }
 
+    // #834 device retirement S5 — every block below is a NATIVE upload
+    // (feature-data storage + per-layer bind group + polygon/line mesh
+    // buffers) consumed only by the WebGPU frame path. On webgl2 the layer
+    // RECORD still registers (bookkeeping: show/props/pickId), with null
+    // buffers — exactly the state the palette/sprite rebuild loops and the
+    // draw path already treat as "nothing uploaded".
+    if (this.ctx.rhi.backend === 'webgl2') {
+      this.layers.push(layer)
+      return
+    }
+
     // Build per-feature storage buffer if needed
     if (variant?.needsFeatureBuffer && polygons.features.length > 0) {
       const fieldCount = variant.featureFields.length
