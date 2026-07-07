@@ -1,7 +1,7 @@
 ---
 title: 'The flickering Mandelbrot: a driver defeats the fast-math guard'
-description: "Incident report: the fp64 demo alternated between correct and f32-collapsed frames under byte-identical inputs. Root cause: driver pipeline re-optimization specializing on uniform values. Fixes: render-on-demand and a texel-fetched guard."
-date: 2026-07-07
+description: 'Incident report: the fp64 demo alternated between correct and f32-collapsed frames under byte-identical inputs. Root cause: driver pipeline re-optimization specializing on uniform values. Fixes: render-on-demand and a texel-fetched guard.'
+date: 2026-07-07T06:38:00Z
 tags: ['shader-dsl', 'precision', 'debugging', 'gpu-drivers']
 lang: en
 ---
@@ -25,7 +25,7 @@ GPU/driver stacks has independent field reports [3]. On our CI GPU
 (SwiftShader) the deployed page was frame-stable: ten consecutive frames,
 zero differing pixels. The bug reproduced only on the reporter's machine.
 
-The demo ships an `fp64 emulation` toggle whose *off* state routes the whole
+The demo ships an `fp64 emulation` toggle whose _off_ state routes the whole
 screen through the plain-f32 branch of the same shader — same canvas, same
 loop, same uniform upload. One observation from the reporter settled it:
 
@@ -37,7 +37,7 @@ the df64 code path, and since the uniform bytes were identical every frame,
 the remaining variable was the compiled code itself: drivers ship a fast
 pipeline build, re-optimize in the background, and hot-swap variants — and
 some **specialize pipelines on observed uniform values**. The guard uniform's
-value is *always exactly 1.0*; specialized, $(s \cdot \mathrm{one} - a)
+value is _always exactly 1.0_; specialized, $(s \cdot \mathrm{one} - a)
 \cdot \mathrm{one}$ becomes $s - a$ and the EFTs legally cancel. Variant
 swapping mid-session produces exactly the observed alternation.
 
@@ -90,7 +90,7 @@ Deployed; the reporter's machine is clean at rest and during interaction.
   guard defeats ahead-of-time folding; it does not defeat uniform-value
   specialization in a background re-optimizer. Texel fetches defeat both.
 - **Render-on-demand is a correctness feature.** Skipping redundant draws
-  structurally removes any nondeterminism the driver introduces *between*
+  structurally removes any nondeterminism the driver introduces _between_
   draws — the battery savings are incidental.
 - **Ship one-click experiments.** The fp64 toggle turned an unreproducible
   report into a controlled A/B on the only machine that mattered.

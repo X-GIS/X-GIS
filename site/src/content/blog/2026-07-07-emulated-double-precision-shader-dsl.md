@@ -1,7 +1,7 @@
 ---
 title: 'Emulated double precision in the shader DSL'
-description: "f64 and vecN<f64> as first-class shader-dsl types, emulated as two-f32 double-float pairs — same authoring syntax as f32, one lowering pass, ~48 significand bits."
-date: 2026-07-07
+description: 'f64 and vecN<f64> as first-class shader-dsl types, emulated as two-f32 double-float pairs — same authoring syntax as f32, one lowering pass, ~48 significand bits.'
+date: 2026-07-07T03:32:00Z
 tags: ['shader-dsl', 'precision', 'compiler', 'webgpu']
 lang: en
 ---
@@ -12,15 +12,19 @@ none; GLSL ES never did), so map engines accumulate hand-rolled hi/lo
 workarounds — relative-to-center encoding, DSFUN lane packing.
 
 `@xgis/shader-dsl` now has the general mechanism: first-class **`f64`** and
-**`vec2/3/4<f64>`** types, emulated as *double-float* (df64) pairs of f32s,
+**`vec2/3/4<f64>`** types, emulated as _double-float_ (df64) pairs of f32s,
 ~48 significand bits. The design constraint: **authoring syntax is identical
 to f32** — only the declared type differs.
 
 ```ts
-const U = uniformStruct('U', { group: 0, binding: 0, as: 'u' }, {
-  origin: vec3f64T, // ← the only fp64-specific line in the module
-  scale: f64T,
-})
+const U = uniformStruct(
+  'U',
+  { group: 0, binding: 0, as: 'u' },
+  {
+    origin: vec3f64T, // ← the only fp64-specific line in the module
+    scale: f64T,
+  },
+)
 const k = fn('k', { p: vec3f64T }, (args) =>
   toF32(length(args.p.sub(U.field.origin).mul(U.field.scale))),
 )
@@ -34,7 +38,7 @@ $$
 x = x_{hi} + x_{lo}, \qquad |x_{lo}| \le \tfrac{1}{2}\,\mathrm{ulp}(x_{hi}),
 $$
 
-carried as a `vec2<f32>`. Arithmetic uses *error-free transformations* (EFTs):
+carried as a `vec2<f32>`. Arithmetic uses _error-free transformations_ (EFTs):
 Knuth's 2Sum [2], Dekker's Fast2Sum and the Veltkamp split [1] (×4097 —
 FMA-based twoProd is deliberately avoided; WGSL `fma()` accuracy is only
 "inherited from x*y+z"). 2Sum is the archetype: for any floats $a, b$,
@@ -57,7 +61,7 @@ shared backend pipeline so WGSL and GLSL lower identically and the optimizer
 only ever sees ordinary IR plus opaque `df64_*` calls:
 
 - `f64` → `vec2<f32>`; literals split losslessly at build time (a JS number
-  *is* an f64)
+  _is_ an f64)
 - `vecN<f64>` → `struct DF64VecN { hi: vecN<f32>, lo: vecN<f32> }`;
   componentwise `+ − × ÷` run the same EFTs on whole hi/lo planes
 - `abs/min/max/mix/floor/fract/normalize` on vectors compose the verified
@@ -131,7 +135,7 @@ Supported today: `+ − × ÷`, comparisons, `neg`, `abs`, `min`, `max`, `sqrt`,
 `mix` (f32 interpolant), `floor`, `fract`, and on vectors additionally
 `dot`, `length`, `distance`, `normalize`. Transcendentals and two-slot vec64
 attributes are deferred and fail loud. Each df64 op costs several-to-10× its
-f32 counterpart — opt in per *value*, not per shader.
+f32 counterpart — opt in per _value_, not per shader.
 
 How a numeric type like this gets tested without native f64 on the GPU or
 native f32 on the CPU is its own topic:
@@ -140,16 +144,16 @@ native f32 on the CPU is its own topic:
 ## References
 
 1. T. J. Dekker, ["A Floating-Point Technique for Extending the Available
-   Precision,"](https://doi.org/10.1007/BF01397083) *Numerische Mathematik*
+   Precision,"](https://doi.org/10.1007/BF01397083) _Numerische Mathematik_
    18 (1971), 224–242 — Fast2Sum, the split, and double-length arithmetic.
-2. D. E. Knuth, *The Art of Computer Programming*, Vol. 2:
-   *Seminumerical Algorithms*, §4.2.2 — the 2Sum algorithm.
+2. D. E. Knuth, _The Art of Computer Programming_, Vol. 2:
+   _Seminumerical Algorithms_, §4.2.2 — the 2Sum algorithm.
 3. J. R. Shewchuk, ["Adaptive Precision Floating-Point Arithmetic and Fast
    Robust Geometric Predicates,"](https://people.eecs.berkeley.edu/~jrs/papers/robust-predicates.pdf)
-   *Discrete & Computational Geometry* 18 (1997), 305–363.
+   _Discrete & Computational Geometry_ 18 (1997), 305–363.
 4. Y. Hida, X. S. Li, D. H. Bailey, ["Algorithms for Quad-Double Precision
    Floating Point Arithmetic,"](https://www.davidhbailey.com/dhbpapers/arith15.pdf)
-   *Proc. ARITH-15* (2001), 155–162.
+   _Proc. ARITH-15_ (2001), 155–162.
 5. D. H. Bailey, [DSFUN90: a double-single floating-point
    package](https://www.davidhbailey.com/dhbsoftware/).
 6. NVIDIA, [CUDA Samples — Mandelbrot](https://github.com/NVIDIA/cuda-samples)

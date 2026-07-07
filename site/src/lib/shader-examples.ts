@@ -42,9 +42,8 @@ export interface ShaderCard {
   thumb: string | null
   source: string
   wgsl: string
-  /** Combined VS+FS listing — kept for side-by-side WGSL↔GLSL comparisons
-   *  (shader-dsl/concepts.astro). The detail page shows the split fields. */
-  glsl: string | null
+  /** GLSL ES 3.00 compiles as two separate sources (unlike the single WGSL
+   *  module) — every consumer shows them as separate stage tabs. */
   glslVertex: string | null
   glslFragment: string | null
   /** Pretty-printed reflection JSON for the "Reflection" tab. */
@@ -61,9 +60,6 @@ export const shaderCards: ShaderCard[] = examples.map((ex) => {
   const renderable = ex.renderable
   const glslVertex = renderable ? emitGlslModule(ex.module, 'vertex') : null
   const glslFragment = renderable ? emitGlslModule(ex.module, 'fragment') : null
-  const glsl = renderable
-    ? `// ─────────── vertex ───────────\n${glslVertex}\n\n// ────────── fragment ──────────\n${glslFragment}`
-    : null
   return {
     id: ex.id,
     title: ex.title,
@@ -74,7 +70,6 @@ export const shaderCards: ShaderCard[] = examples.map((ex) => {
     thumb: renderable ? `${base}/shader/${ex.id}.jpg` : null,
     source: sourceByFile[ex.file] ?? '',
     wgsl: emitModule(ex.module),
-    glsl,
     glslVertex,
     glslFragment,
     reflectionJson: JSON.stringify(reflect(ex.module), null, 2),

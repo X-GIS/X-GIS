@@ -1,7 +1,7 @@
 ---
 title: 'Porting the ShaderToy classics — and letting them review our shader DSL'
 description: "We rebuilt ten classic ShaderToy effects in X-GIS's typed shader DSL. The renders were the easy part: authoring them surfaced eleven concrete DX issues, and every one was fixed the same day — with gates so they stay fixed."
-date: 2026-07-07
+date: 2026-07-07T02:29:00Z
 tags: ['shader-dsl', 'examples', 'dx', 'testing']
 lang: en
 ---
