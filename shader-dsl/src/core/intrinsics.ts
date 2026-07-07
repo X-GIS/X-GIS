@@ -117,6 +117,20 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   },
 }
 
+// ── Spelling-embedded binding references ──
+//
+// Bindings an intrinsic's SPELLING references TEXTUALLY, with no Expr arg
+// carrying them (f64Guard is zero-arg; its fetch names `_fp64` directly).
+// Reference collection over the IR (ir/collect-refs) cannot see these — any
+// consumer that decides "is this binding used?" (the GLSL per-stage emit
+// scope) must also keep every binding listed here for each intrinsic it
+// calls. An intrinsic that gains a hardcoded binding name MUST register it
+// here, or per-stage emit drops the binding while the spelling still names it
+// (a GPU compile error, caught by the compile gates).
+export const INTRINSIC_BINDING_REFS: Readonly<Record<string, readonly string[]>> = {
+  f64Guard: ['_fp64'],
+}
+
 /** Spell an intrinsic / call for a target. Registry id -> mapped spelling;
  *  otherwise identity `name(args)` (portable builtins + user-defined fn calls). */
 export function spellIntrinsic(

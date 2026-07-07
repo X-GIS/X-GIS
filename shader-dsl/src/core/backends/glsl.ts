@@ -25,8 +25,10 @@
 
 import type { ShaderType, ModuleDecl, StructDecl, BindingDecl, FuncDecl, Expr, Stmt } from '../ir'
 import { texture2dfT, u32T, f32T, vec4fT, stageOf } from '../ir'
+import { collectFnRefs, emptyRefSet, typeStructNames } from '../ir/collect-refs'
 import { Capabilities, UnsupportedFeatureError, type Backend } from '../backend'
-import { spellIntrinsic } from '../intrinsics'
+import { spellIntrinsic, INTRINSIC_BINDING_REFS } from '../intrinsics'
+import { bodyHasRaw } from '../passes/opt/dce'
 import { dslError } from '../diagnostics/error'
 import { f32Lit } from './wgsl'
 import { emitBody, emitExpr as emitExprNeutral, lowerForBackend } from '../emit'
@@ -879,6 +881,74 @@ export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
   }
 }
 
+// ── Per-stage emit scope (stage reachability) ──
+//
+// emitGlslModule compiles ONE stage per call, but the lowered module carries
+// BOTH stages' functions, bindings, and structs — WGSL emits one module for
+// all stages (Tint dead-strips per entry), so nothing upstream trims per
+// stage. Emitting everything into every stage leaks fragment-only machinery
+// into the vertex shader (e.g. the whole df64 helper set + the `_fp64` guard
+// sampler when f64 is used only in fragment). Scope each stage's emit to what
+// its entries transitively reach:
+//   • fns      — call-graph closure from the stage's entries
+//   • bindings — varref'd by a reachable fn (a binding reference IS a varref;
+//                a same-named local only over-keeps), or named textually by a
+//                called intrinsic's spelling (INTRINSIC_BINDING_REFS —
+//                f64Guard's zero-arg fetch from `_fp64`)
+//   • structs  — spelled by a reachable fn (signature / var-decl / expr
+//                types), plus every kept binding's block struct and every
+//                module const's type (consts are NOT stage-filtered), closed
+//                over nested field types
+// Returns null → no filtering (the historical emit-everything behavior) when
+// the scope is not computable: a `raw` stmt (textual references the IR walk
+// cannot see) or no entry for the selected stage (helper-only emit paths).
+function stageScope(
+  m: ModuleDecl,
+  entries: readonly FuncDecl[],
+): { fns: Set<string>; bindings: Set<string>; structs: Set<string> } | null {
+  if (entries.length === 0) return null
+  if (m.funcs.some((f) => bodyHasRaw(f.body))) return null
+
+  const byName = new Map(m.funcs.map((f) => [f.name, f]))
+  const refs = emptyRefSet()
+  const fns = new Set(entries.map((f) => f.name))
+  const stack = [...entries]
+  while (stack.length > 0) {
+    collectFnRefs(stack.pop()!, refs)
+    for (const name of refs.calls) {
+      const f = byName.get(name)
+      if (f && !fns.has(name)) {
+        fns.add(name)
+        stack.push(f)
+      }
+    }
+  }
+
+  const bindings = new Set<string>()
+  for (const b of m.bindings) if (refs.vars.has(b.name)) bindings.add(b.name)
+  for (const call of refs.calls)
+    for (const bound of INTRINSIC_BINDING_REFS[call] ?? []) bindings.add(bound)
+
+  const structs = new Set(refs.structs)
+  for (const b of m.bindings) if (bindings.has(b.name)) typeStructNames(b.type, structs)
+  for (const c of m.consts) typeStructNames(c.type, structs)
+  const structByNameMap = new Map(m.structs.map((s) => [s.name, s]))
+  const work = [...structs]
+  while (work.length > 0) {
+    const s = structByNameMap.get(work.pop()!)
+    if (!s) continue
+    const fieldStructs = new Set<string>()
+    for (const f of s.fields) typeStructNames(f.type, fieldStructs)
+    for (const n of fieldStructs)
+      if (!structs.has(n)) {
+        structs.add(n)
+        work.push(n)
+      }
+  }
+
+  return { fns, bindings, structs }
+}
+
 export function emitGlslModule(
   m: ModuleDecl,
   stage?: 'vertex' | 'fragment',
@@ -907,7 +977,13 @@ export function emitGlslModule(
   const entries = lowered.funcs.filter(
     (f) => isEntry(f) && (stage === undefined || stageOf(f) === stage),
   )
-  const helpers = lowered.funcs.filter((f) => !isEntry(f))
+  // Stage-scoped emit (see stageScope) — only when compiling ONE stage; the
+  // whole-module form (stage === undefined, a string-shape artifact used by
+  // tests) keeps the emit-everything contract. null = scope not computable.
+  const scope = stage === undefined ? null : stageScope(lowered, entries)
+  const helpers = lowered.funcs.filter(
+    (f) => !isEntry(f) && (scope === null || scope.fns.has(f.name)),
+  )
 
   // A struct consumed as a uniform/storage BINDING type becomes a UBO/SSBO block, NOT a
   // GLSL `struct` decl — reusing its name for both a `struct` and a `uniform <Name> {…}`
@@ -930,7 +1006,9 @@ export function emitGlslModule(
   // nested struct must be DEFINED before the struct that embeds it. WGSL accepts
   // any order; helper fns got prototypes in #745 — structs get a topo sort.
   const plainStructs = topoSortStructs(
-    lowered.structs.filter((s) => !bindingStructNames.has(s.name)),
+    lowered.structs.filter(
+      (s) => !bindingStructNames.has(s.name) && (scope === null || scope.structs.has(s.name)),
+    ),
   )
   if (plainStructs.length)
     parts.push(plainStructs.map((s) => glslEs300Backend.emitStruct(s)).join('\n\n'))
@@ -938,6 +1016,10 @@ export function emitGlslModule(
   // Uniform UBO blocks (std140, reflection-fed) + texture/sampler uniforms.
   const bindingLines: string[] = []
   for (const b of lowered.bindings) {
+    // Stage-scoped: a binding no reachable fn references emits nothing in this
+    // stage (the other stage still declares it; GL uniform lookups link by name
+    // across the program, so hosts bind unchanged).
+    if (scope !== null && !scope.bindings.has(b.name)) continue
     if (b.type.kind === 'texture') bindingLines.push(`uniform ${glslType(b.type)} ${b.name};`)
     // A standalone WGSL sampler binding is FUSED into the texture's combined
     // sampler2D (textureSample(tex,samp,uv) → texture(tex,uv)), so it emits no
