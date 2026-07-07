@@ -514,6 +514,21 @@ export class PipelineFactory {
    *  BEFORE pipelines BEFORE stubs (plan §6 DO-NOT-SPLIT #2) — a reorder
    *  risks a WebGPU "layout used before creation" validation throw. */
   build(): void {
+    // #834 device retirement S3 — the ENTIRE build is WebGPU-native (22 raw
+    // device.create* calls: shader module, layouts, base pipelines, atlas
+    // stubs, OIT compose; zero RHI-seam resources). On the forced-WebGL2
+    // boot every product ran against the no-op device Proxy and every
+    // consumer is either the WebGPU frame path (never runs on gl2) or an
+    // inert closure capture (bucket-scheduler pipeline fields, which the
+    // renderFillsRhi/renderLinesRhi draw path never dereferences). Skipping
+    // the whole build is the prerequisite for `ctx.device` becoming null on
+    // this backend (S6, which deletes the Proxy). This subsumes the earlier
+    // #746 fill-Material-twins guard (previously placed after the native
+    // pipeline builds). Fields keep their `!` declarations — recordFillDraw
+    // stays fail-LOUD on an untwinned pipeline, so a gl2 code path that
+    // wrongly reaches a native consumer still surfaces, not silently no-ops.
+    if (this.ctx.rhi.backend === 'webgl2') return
+
     const { device, format } = this.ctx
 
     // Phase 2.5 US-008 iter-8b — base-pipeline pick shader routes through
@@ -823,14 +838,8 @@ export class PipelineFactory {
     this.fillPipelinePatternExtruded = pickable.fillPatternExtruded
     this.fillPipelinePatternExtrudedFallback = pickable.fillPatternExtrudedFallback
 
-    // #746 — the fill Material twins still couple to WebGPU-NATIVE objects (the shared
-    // bindGroupLayout / tile bind groups / uniform-ring buffer), which on the forced-WebGL2
-    // slice are boot Proxy stubs — building them kills the whole boot before the raster
-    // slice ever renders. The WebGL2 frame path never consumes these twins (the render
-    // loop's rhi branch draws the isolated raster slice only), and recordFillDraw stays
-    // fail-LOUD on an untwinned pipeline, so skipping the builds is explicit, not silent.
-    // Re-basing the twins onto RHI-native layouts/bind-groups is the WebGL2 full-frame phase.
-    if (this.ctx.rhi.backend === 'webgl2') return
+    // (#746 fill-Material-twins guard removed — subsumed by the whole-build
+    // webgl2 fence at the top of build(), #834 device retirement S3.)
 
     // P1.6/§4 — build the flat-fill Material twins (default shader), always. recordFillDraw routes the
     // flat/ground non-extrude fill through them (the raw fallback is deleted; an untwinned pipeline throws).
