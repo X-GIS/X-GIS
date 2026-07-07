@@ -46,7 +46,6 @@ import {
   location,
   uniformStruct,
 } from '../src/index.ts'
-import type { ShaderType, KeyOf, Node, ReadonlyNode } from '../src/index.ts'
 import type { ShaderExample } from './_shared.ts'
 
 // A filament point on the needle spike — a period-3 minibrot neighbourhood
@@ -71,23 +70,26 @@ const U = uniformStruct(
   },
 )
 
-// ── Escape-time iterate, authored ONCE ─────────────────────────────────────
-// The f32 and f64 twins run the IDENTICAL z ← z² + c recurrence; the ONLY
-// difference is the working precision (double or not — that IS the demo). So
-// the body lives in one place and is instantiated per scalar type below, and
-// the fragment shader's split is a clean f32-fn vs f64-fn if/else. `iters` is
-// the dynamic budget (from `max_iter`); the loop bound is no longer baked.
-// Returns vec2(it, |z|²@escape) so the smooth colouring reads both twins
-// through one path.
-const escapeIterate = <T extends ShaderType>(
-  name: string,
-  scalar: T,
-  zero: () => Node<KeyOf<T>>,
-  narrow: (m2: ReadonlyNode<KeyOf<T>>) => ReadonlyNode<'f32'>,
-) =>
-  fn(name, { cx: scalar, cy: scalar, iters: u32T }, vec2fT, ({ cx, cy, iters }) => {
-    const zx = Var(zero())
-    const zy = Var(zero())
+// ── Escape-time iterate — the f32 and f64 twins ────────────────────────────
+// Both run the IDENTICAL z ← z² + c recurrence; the ONLY difference is the
+// working precision (double or not — that IS the demo), so the fragment
+// shader's split is a clean f32-fn vs f64-fn if/else instead of two inline
+// loops. `iters` is the dynamic budget (from `max_iter`); the loop bound is no
+// longer baked. Each returns vec2(it, |z|²@escape) so the smooth colouring
+// reads both twins through one path.
+//
+// The DSL types its arithmetic per CONCRETE scalar (`ArithArg<K>` is a
+// conditional type that doesn't reduce over an unresolved type param), so the
+// shared body can't collapse into one generic fn — the twins are spelled out
+// and kept line-for-line in sync, differing only in the scalar type, the zero
+// literal, and the final f32 narrow.
+const escapeF32 = fn(
+  'escape_f32',
+  { cx: f32T, cy: f32T, iters: u32T },
+  vec2fT,
+  ({ cx, cy, iters }) => {
+    const zx = Var(f32(0))
+    const zy = Var(f32(0))
     const it = Var(f32(0))
     Loop(
       u32(0),
@@ -101,23 +103,33 @@ const escapeIterate = <T extends ShaderType>(
         })
       },
     )
-    return vec2(it, narrow(zx.mul(zx).add(zy.mul(zy))))
-  })
-
-// f32 twin — |z|² is already f32, so the narrow is the identity.
-const escapeF32 = escapeIterate(
-  'escape_f32',
-  f32T,
-  () => f32(0),
-  (m2) => m2,
+    // |z|² is already f32 — no narrow needed.
+    return vec2(it, zx.mul(zx).add(zy.mul(zy)))
+  },
 )
-// f64 twin — same authoring, only the value types differ; the |z|² result is
-// narrowed to f32 for the shared colouring.
-const escapeF64 = escapeIterate(
+const escapeF64 = fn(
   'escape_f64',
-  f64T,
-  () => f64(0),
-  (m2) => toF32(m2),
+  { cx: f64T, cy: f64T, iters: u32T },
+  vec2fT,
+  ({ cx, cy, iters }) => {
+    const zx = Var(f64(0))
+    const zy = Var(f64(0))
+    const it = Var(f32(0))
+    Loop(
+      u32(0),
+      (j) => j.lt(iters),
+      () => {
+        If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
+          const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(cx))
+          zy.assign(zx.mul(zy).mul(2.0).add(cy))
+          zx.assign(nzx)
+          it.assign(it.add(1.0))
+        })
+      },
+    )
+    // Narrow the f64 |z|² to f32 for the shared colouring.
+    return vec2(it, toF32(zx.mul(zx).add(zy.mul(zy))))
+  },
 )
 
 const VsOut = ioStruct('VsOut', {
