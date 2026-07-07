@@ -44,7 +44,16 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import { asyncWriteBuffer, type StagingBufferPool } from '@xgis/rhi-webgpu'
 import { xlog } from '@xgis/shared'
 import { wrapWebGpuPass, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
-import type { RhiBuffer, RhiBindGroup, RhiBindGroupLayout, RhiDevice, RhiRenderPass } from '@xgis/engine'
+import type {
+  RhiBuffer,
+  RhiBindGroup,
+  RhiBindGroupLayout,
+  RhiDevice,
+  RhiRenderPass,
+  RhiScreenPassDevice,
+  RhiTexture,
+  RhiTextureView,
+} from '@xgis/engine'
 import { LineDraper } from './material/line-material'
 import { LineCompositeDraper } from './material/line-composite-material'
 import type { ShapeRegistry } from '../text/sdf-shape'
@@ -322,6 +331,66 @@ export class LineRenderer {
     // LineCompositeDraper now — nothing to pre-build here.
   }
 
+  // ── RHI (forced-WebGL2) offscreen twins (#834 M5) ──
+  /** RHI twin of the offscreen RT — rgba8unorm render+sample texture sized to
+   *  the screen. Lazily allocated + resized, mirroring `ensureOffscreen`. */
+  private _offscreenTexRhi: RhiTexture | null = null
+  private _offscreenViewRhi: RhiTextureView | null = null
+  private _offscreenWRhi = 0
+  private _offscreenHRhi = 0
+  private ensureOffscreenRhi(width: number, height: number): RhiTextureView {
+    if (this._offscreenViewRhi && this._offscreenWRhi === width && this._offscreenHRhi === height)
+      return this._offscreenViewRhi
+    if (this._offscreenTexRhi) this.rhi.destroyTexture(this._offscreenTexRhi)
+    this._offscreenTexRhi = this.rhi.createTexture({
+      width,
+      height,
+      format: 'rgba8unorm',
+      usage: ['render', 'sample'],
+      label: 'line-translucent-offscreen-rhi',
+    })
+    this._offscreenViewRhi = this.rhi.createView(this._offscreenTexRhi)
+    this._offscreenWRhi = width
+    this._offscreenHRhi = height
+    return this._offscreenViewRhi
+  }
+
+  /** RHI twin of `beginTranslucentPass`: clear-load the offscreen RT and return
+   *  the pass; the caller draws MAX-blend strokes then `pass.end()` (which
+   *  restores the screen FBO + viewport on WebGL2). */
+  beginTranslucentPassRhi(
+    device: RhiScreenPassDevice,
+    width: number,
+    height: number,
+  ): RhiRenderPass {
+    const view = this.ensureOffscreenRhi(width, height)
+    return device.beginOffscreenPass({
+      label: 'line-translucent-pass-rhi',
+      colorAttachments: [
+        { view, loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] },
+      ],
+    })
+  }
+
+  /** RHI twin of `composite`: same ring-slot discipline, but the offscreen view
+   *  is the RHI texture and the target pass is the forced-WebGL2 screen pass. */
+  compositeRhi(mainPass: RhiRenderPass, opacity: number): void {
+    if (!this._offscreenViewRhi) return
+    const off =
+      this.compositeSlot < this.compositeRingCapacity
+        ? this.compositeSlot * LineRenderer.COMPOSITE_SLOT
+        : (this.compositeRingCapacity - 1) * LineRenderer.COMPOSITE_SLOT
+    if (this.compositeSlot >= this.compositeRingCapacity) {
+      xlog.warn(
+        '[LineRenderer] composite ring overflow — capping at capacity; opacity bleed possible',
+      )
+    } else {
+      this.compositeSlot++
+    }
+    this.rhi.writeBuffer(this.compositeRing, off, new Float32Array([opacity, 0, 0, 0]))
+    this.ensureCompositeDraper().drawRhi(mainPass, this._offscreenViewRhi, this.compositeRing, off)
+  }
+
   /** Begin a translucent line render pass against the offscreen RT. */
   beginTranslucentPass(encoder: GPUCommandEncoder): GPURenderPassEncoder {
     if (!this.offscreenView) throw new Error('LineRenderer: offscreen not initialised')
@@ -370,10 +439,13 @@ export class LineRenderer {
 
   private _compositeDraper?: LineCompositeDraper
   private ensureCompositeDraper(): LineCompositeDraper {
+    // The forced-WebGL2 screen pass is single-sample (the raster draper
+    // learned this the hard way — a 4-sample pipeline on a 1-sample pass
+    // draws nothing); WebGPU keeps the live MSAA count.
     return (this._compositeDraper ??= new LineCompositeDraper(
       this.rhi,
       this.format,
-      getSampleCount(),
+      this.rhi.backend === 'webgl2' ? 1 : getSampleCount(),
     ))
   }
 
@@ -614,9 +686,10 @@ export class LineRenderer {
   /** RHI-native sibling of `drawSegments` for the forced-WebGL2 screen pass
    *  (#834 M5 slice 1): the pass and BOTH bind groups arrive as RHI handles
    *  (the tile group is built by VTR against the line Material's own group-0
-   *  layout), so nothing is wrapped. Opaque only — `pattern` selects the
-   *  fs_line_pattern variant (#834 M5 slice 5); max/pick stay WebGPU-path
-   *  concerns until their twins land. */
+   *  layout), so nothing is wrapped. `pattern` selects the fs_line_pattern
+   *  variant (#834 M5 slice 5); mode 'max' routes to the offscreen MAX-blend
+   *  material (the translucent bucket, #834 M5 slice 6); pick stays a
+   *  WebGPU-path concern until its twin lands. */
   drawSegmentsRhi(
     pass: RhiRenderPass,
     tileBG: RhiBindGroup,
@@ -625,17 +698,22 @@ export class LineRenderer {
     tileOffset: number,
     layerOffset: number,
     pattern = false,
+    mode: 'opaque' | 'max' = 'opaque',
   ): void {
     if (segmentCount === 0) return
     this.ensureLineDraper()
-    this._lineDraper!.draw(pass, {
-      tileBG,
-      layerBG,
-      tileOffset,
-      layerOffset,
-      pattern,
-      segmentCount,
-    })
+    this._lineDraper!.draw(
+      pass,
+      {
+        tileBG,
+        layerBG,
+        tileOffset,
+        layerOffset,
+        pattern,
+        segmentCount,
+      },
+      mode,
+    )
   }
 
   /** The line Material's group-0 (tile) layout — VTR builds its WebGL2 tile

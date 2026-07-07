@@ -9,7 +9,16 @@
 
 import { module, emitGlslModule } from '@xgis/shader-dsl'
 import { getGpuProjectionFuncs } from './projections'
-import { buildLineModule, vsLine, buildFsLine, buildFsLinePattern } from './line'
+import {
+  buildLineModule,
+  vsLine,
+  buildFsLine,
+  buildFsLinePattern,
+  fsLineMax,
+  compositeModule,
+  vsFull,
+  fsFull,
+} from './line'
 
 /** GLSL ES 3.00 twin of the line shader (mirrors emitPolygonGlsl /
  *  emitIconRetainedGlsl). Per-stage module ASSEMBLY (not a post-hoc func
@@ -23,7 +32,7 @@ import { buildLineModule, vsLine, buildFsLine, buildFsLinePattern } from './line
  *  shape_segments) lower to R32F data textures via `emulateStorage`. */
 export const emitLineGlsl = (
   pickEnabled: boolean,
-  stage: 'vertex' | 'fragment' | 'fragment-pattern',
+  stage: 'vertex' | 'fragment' | 'fragment-pattern' | 'fragment-max',
 ): string => {
   const full = buildLineModule(pickEnabled)
   const entry =
@@ -31,7 +40,9 @@ export const emitLineGlsl = (
       ? vsLine
       : stage === 'fragment-pattern'
         ? buildFsLinePattern(pickEnabled)
-        : buildFsLine(pickEnabled)
+        : stage === 'fragment-max'
+          ? fsLineMax
+          : buildFsLine(pickEnabled)
   return emitGlslModule(
     module({
       consts: full.consts,
@@ -43,3 +54,17 @@ export const emitLineGlsl = (
     { emulateStorage: true },
   )
 }
+
+/** GLSL ES 3.00 twin of the translucent-line COMPOSITOR (fullscreen triangle
+ *  sampling the MAX-blend offscreen RT — pairs with emitCompositeWgsl). Same
+ *  per-stage assembly discipline as emitLineGlsl, reusing the WGSL authority
+ *  module's structs/bindings verbatim. No storage buffers → no emulation. */
+export const emitCompositeGlsl = (stage: 'vertex' | 'fragment'): string =>
+  emitGlslModule(
+    module({
+      structs: compositeModule.structs,
+      bindings: compositeModule.bindings,
+      funcs: [stage === 'vertex' ? vsFull : fsFull],
+    }),
+    stage,
+  )

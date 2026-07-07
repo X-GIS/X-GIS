@@ -1,0 +1,24 @@
+/* Fixture: TRANSLUCENT polygon outline — fill + stroke + opacity < 1 routes
+ * the stroke half through the translucent bucket (offscreen MAX-blend +
+ * composite; a PURE line layer would stay opaque-bucketed per #415). The
+ * stroke is OFFSET one full width inward (offset-right for this ring's
+ * winding) so the band lies entirely over the layer's own fill: the blended
+ * stroke colour is then background-independent, which the cross-backend
+ * parity gate needs (the forced-WebGL2 frame draws an analytic checker where
+ * WebGPU draws the default background — a band over the background would
+ * composite to different colours by design). */
+source sq { type: geojson, url: "fixture-square.geojson" }
+
+/* Opaque backdrop under the translucent layer: with the whole layer at
+ * opacity-60 its FILL also alpha-blends with whatever is beneath — over this
+ * opaque same-colour base the fill stays exactly slate-800 on both backends,
+ * so every stroke pixel blends against a known constant. */
+layer base {
+  source: sq
+  | fill-slate-800
+}
+
+layer tl_outline {
+  source: sq
+  | fill-slate-800 stroke-amber-300 stroke-12 stroke-offset-right-12 opacity-60
+}

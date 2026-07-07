@@ -1231,6 +1231,17 @@ export const vsLine = fn(
 
 // ── Fragment entries (3 variants share compute_line_color) ──
 
+// Coplanar-fill bias: the polygon fill fragment writes base log-depth PLUS a
+// per-feature jitter of up to ±7.68e-6 (emitLogDepthJitter — shared-wall
+// z-fight fix), while the bare line depth ties it. Whether a stroke drawn
+// AFTER its coplanar fill survives 'less-equal' then hangs on driver float
+// luck — visibly wrong on SwiftShader GLES (the whole land-side half of every
+// coastline dash vanished, _dash-parity IoU 0.958 → 0.34). Pull every stroke
+// fragment 1e-5 closer: larger than any fill jitter, orders of magnitude
+// below real 3D separation, and lines never WRITE depth so painter's order
+// between layers is untouched.
+const LINE_COPLANAR_DEPTH_BIAS = 1e-5
+
 export const buildFsLine = (pickEnabled: boolean) =>
   fn(
     'fs_line',
@@ -1241,7 +1252,9 @@ export const buildFsLine = (pickEnabled: boolean) =>
       return lineFragmentOutput(pickEnabled).construct({
         color: vec4(color.rgb, color.a.mul(rim)),
         ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
-        depth: compute_log_frag_depth({ view_w: p.input.view_w, fc: TILE.field.log_depth_fc }),
+        depth: compute_log_frag_depth({ view_w: p.input.view_w, fc: TILE.field.log_depth_fc }).sub(
+          LINE_COPLANAR_DEPTH_BIAS,
+        ),
       })
     },
     { stage: 'fragment' },
@@ -1270,7 +1283,9 @@ export const buildFsLinePattern = (pickEnabled: boolean) =>
       return lineFragmentOutput(pickEnabled).construct({
         color: vec4(sampled.rgb, sampled.a.mul(base.a).mul(rim)),
         ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
-        depth: compute_log_frag_depth({ view_w: inp.view_w, fc: TILE.field.log_depth_fc }),
+        depth: compute_log_frag_depth({ view_w: inp.view_w, fc: TILE.field.log_depth_fc }).sub(
+          LINE_COPLANAR_DEPTH_BIAS,
+        ),
       })
     },
     { stage: 'fragment' },
@@ -1278,7 +1293,7 @@ export const buildFsLinePattern = (pickEnabled: boolean) =>
 
 // Max-blend offscreen path: bare @location(0) vec4 return, no log-depth (the
 // offscreen RT has no depth attachment).
-const fsLineMax = fn(
+export const fsLineMax = fn(
   'fs_line_max',
   { input: LineOut },
   (p) => {
@@ -1360,7 +1375,7 @@ const compSamp = compSampB.node
 const compSrcB = resource('src', texture2dfT, { group: 0, binding: 1 })
 const compSrc = compSrcB.node
 
-const vsFull = fn(
+export const vsFull = fn(
   'vs_full',
   { vi: builtin('vertex_index', u32T) },
   (p) => {
@@ -1382,7 +1397,7 @@ const vsFull = fn(
   { stage: 'vertex' },
 )
 
-const fsFull = fn(
+export const fsFull = fn(
   'fs_full',
   { input: VsFullOut },
   (p) => {
@@ -1394,7 +1409,7 @@ const fsFull = fn(
   { stage: 'fragment', retAttr: '@location(0)' },
 )
 
-const compositeModule: ModuleDecl = module({
+export const compositeModule: ModuleDecl = module({
   structs: [CompUniform.struct, VsFullOut.decl],
   bindings: [compSampB.binding, compSrcB.binding, CompUniform.binding],
   funcs: [vsFull, fsFull],

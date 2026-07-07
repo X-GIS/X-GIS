@@ -415,6 +415,14 @@ export interface RhiDevice {
   beginScreenPass?(desc: RhiScreenPassDesc): RhiRenderPass
   /** Finish + present the screen pass. WebGL2: `gl.flush()` + drain `gl.getError()`. */
   endScreenPass?(pass: RhiRenderPass): void
+  /** Begin an OFFSCREEN pass nested inside the frame's screen pass (#834 M5 —
+   *  the translucent-line MAX accumulation target). WebGL2: bind an FBO with the
+   *  attachment's texture, set the viewport to the texture's size, optionally
+   *  clear; the returned pass's `end()` restores FBO 0 + the screen viewport so
+   *  subsequent screen-pass draws continue unaffected. Slice scope: exactly ONE
+   *  single-sample colour attachment, no depth-stencil, no resolve — the MRT
+   *  shapes (pick / OIT) stay fail-closed until their slice. */
+  beginOffscreenPass?(desc: RhiRenderPassDesc): RhiRenderPass
   /** Drain accumulated GL errors (WebGL2) so the loop can surface them into the same
    *  `_validationErrors` sink the WebGPU path uses. Returns + clears the queue. */
   takeGlErrors?(): string[]
@@ -444,6 +452,7 @@ export interface RhiDevice {
 export interface RhiScreenPassDevice {
   beginScreenPass(desc: RhiScreenPassDesc): RhiRenderPass
   endScreenPass(pass: RhiRenderPass): void
+  beginOffscreenPass(desc: RhiRenderPassDesc): RhiRenderPass
   takeGlErrors?(): string[]
 }
 
@@ -453,7 +462,7 @@ export interface RhiScreenPassDevice {
 export function asScreenPassDevice(
   d: RhiDevice | undefined,
 ): (RhiDevice & RhiScreenPassDevice) | null {
-  return d && d.backend === 'webgl2' && d.beginScreenPass && d.endScreenPass
+  return d && d.backend === 'webgl2' && d.beginScreenPass && d.endScreenPass && d.beginOffscreenPass
     ? (d as RhiDevice & RhiScreenPassDevice)
     : null
 }

@@ -256,6 +256,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     description: '2-slot pattern stack (dot + cross).',
     source: load('fixture-pattern-multi.xgis'),
   },
+  fixture_translucent_outline: {
+    name: 'Fixture: translucent outline (MAX+composite)',
+    tag: 'fixture',
+    description:
+      'Polygon with fill + inset stroke at opacity-60 — the stroke half routes through the translucent offscreen MAX-blend + composite bucket.',
+    source: load('fixture-translucent-outline.xgis'),
+  },
   fixture_line_image_pattern: {
     name: 'Fixture: line image pattern (local sprite)',
     tag: 'fixture',

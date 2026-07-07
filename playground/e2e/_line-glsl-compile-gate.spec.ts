@@ -14,8 +14,43 @@ import { test, expect } from '@playwright/test'
 // Relative imports (NOT workspace aliases): Playwright transpiles specs in raw
 // Node — same convention as _polygon-glsl-compile-gate.spec.ts.
 import { configureProjections } from '../../map/src/shaders/dsl/projections'
-import { emitLineGlsl } from '../../map/src/shaders/dsl/line-glsl'
+import { emitLineGlsl, emitCompositeGlsl } from '../../map/src/shaders/dsl/line-glsl'
 import { PROJECTIONS } from '../../engine/src/index'
+
+/** Compile both stages + link on a scratch WebGL2 context (page side). */
+const COMPILE_LINK = ({ vertex, fragment }: { vertex: string; fragment: string }) => {
+  const canvas = document.createElement('canvas')
+  const gl = canvas.getContext('webgl2')
+  if (!gl) return { fatal: 'no webgl2 context' as const }
+  const compile = (type: number, src: string): { ok: boolean; log: string } => {
+    const sh = gl.createShader(type)!
+    gl.shaderSource(sh, src)
+    gl.compileShader(sh)
+    return {
+      ok: gl.getShaderParameter(sh, gl.COMPILE_STATUS) as boolean,
+      log: gl.getShaderInfoLog(sh) ?? '',
+    }
+  }
+  const vs = compile(gl.VERTEX_SHADER, vertex)
+  const fs = compile(gl.FRAGMENT_SHADER, fragment)
+  let linkOk = false
+  let linkLog = ''
+  if (vs.ok && fs.ok) {
+    const prog = gl.createProgram()!
+    const vsh = gl.createShader(gl.VERTEX_SHADER)!
+    gl.shaderSource(vsh, vertex)
+    gl.compileShader(vsh)
+    const fsh = gl.createShader(gl.FRAGMENT_SHADER)!
+    gl.shaderSource(fsh, fragment)
+    gl.compileShader(fsh)
+    gl.attachShader(prog, vsh)
+    gl.attachShader(prog, fsh)
+    gl.linkProgram(prog)
+    linkOk = gl.getProgramParameter(prog, gl.LINK_STATUS) as boolean
+    linkLog = gl.getProgramInfoLog(prog) ?? ''
+  }
+  return { vs, fs, linkOk, linkLog }
+}
 
 test.describe('line GLSL twin compiles on real WebGL2 (#834 M5)', () => {
   test('vs_line + fs_line (no pick) compile + link cleanly', async ({ page }) => {
@@ -141,5 +176,34 @@ test.describe('line GLSL twin compiles on real WebGL2 (#834 M5)', () => {
       `line pattern fragment GLSL failed to compile:\n${result.fs.log}\n--- GLSL ---\n${fragment}`,
     ).toBe(true)
     expect(result.linkOk, `line pattern program failed to link:\n${result.linkLog}`).toBe(true)
+  })
+
+  test('vs_line + fs_line_max and the compositor compile + link cleanly', async ({ page }) => {
+    // #834 M5 slice 6 — the translucent offscreen MAX fragment twin + the
+    // fullscreen compositor pair (vs_full/fs_full).
+    configureProjections(PROJECTIONS)
+    const maxPair = { vertex: emitLineGlsl(false, 'vertex'), fragment: emitLineGlsl(false, 'fragment-max') }
+    const compPair = { vertex: emitCompositeGlsl('vertex'), fragment: emitCompositeGlsl('fragment') }
+    expect(maxPair.fragment.length).toBeGreaterThan(200)
+    expect(compPair.fragment).toContain('src') // the fused offscreen sampler
+
+    await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
+    for (const [name, pair] of [
+      ['line-max', maxPair],
+      ['composite', compPair],
+    ] as const) {
+      const result = await page.evaluate(COMPILE_LINK, pair)
+      expect(result, `WebGL2 unavailable`).not.toHaveProperty('fatal')
+      if ('fatal' in result) return
+      expect(
+        result.vs.ok,
+        `${name} vertex GLSL failed to compile:\n${result.vs.log}\n--- GLSL ---\n${pair.vertex}`,
+      ).toBe(true)
+      expect(
+        result.fs.ok,
+        `${name} fragment GLSL failed to compile:\n${result.fs.log}\n--- GLSL ---\n${pair.fragment}`,
+      ).toBe(true)
+      expect(result.linkOk, `${name} program failed to link:\n${result.linkLog}`).toBe(true)
+    }
   })
 })

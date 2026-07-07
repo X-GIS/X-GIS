@@ -666,6 +666,13 @@ export class VectorTileRenderer {
     if (!this.source?.hasData() || !this.source.getIndex()) return 0
     this.frameCount++
     this.source.resetCompileBudget(this.currentFrameId)
+    // renderedDraws is RENDER-scoped (per ShowCommand — frame-draw-stats.ts):
+    // render() resets it at every call, and this sibling must too. Without
+    // the reset the dedup set persisted across shows AND frames, so from the
+    // second rendered frame every fill tile deduped away — masked until the
+    // slice-5 work-pending fix because the converged loop never re-rendered
+    // (frame 1 simply stayed on screen). #834 M5 slice 6.
+    this._drawStats.resetRenderedDraws()
     this.ensureUniformRing()
     this.drainPendingUploads()
 
@@ -775,7 +782,10 @@ export class VectorTileRenderer {
       B.set.opacity(opacity)
       B.set.log_depth_fc(this.logDepthFc)
       B.set.pick_id(0)
-      B.set.layer_depth_offset(0)
+      // Per-layer NDC-z bias in style declaration order — render():3748's
+      // slot write, mirrored verbatim (#834 M5 s6; the earlier hardcoded 0
+      // diverged from the WebGPU slot contents).
+      B.set.layer_depth_offset(((show.pickId ?? 0) & 0xffff) * 1e-3)
       B.set.tile_extent_m(TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom))
       B.set.extrude_height_m(0)
       B.set.extrude_base_m(0)
@@ -840,6 +850,9 @@ export class VectorTileRenderer {
     dpr: number,
     show: ShowCommand,
     resolvedShow: ResolvedShow,
+    /** 'max' draws through the offscreen MAX-blend material — the translucent
+     *  bucket renders onto the offscreen pass, not the screen (#834 M5 s6). */
+    mode: 'opaque' | 'max' = 'opaque',
   ): number {
     if (!this.lineRenderer) return 0
     if (!this.source?.hasData() || !this.source.getIndex()) return 0
@@ -957,17 +970,33 @@ export class VectorTileRenderer {
     const lineSlotColor: [number, number, number, number] = linePatternActive
       ? [show.linePatternRepeatM![0], 0, 0, show.linePatternRepeatM![1]]
       : [stroke[0], stroke[1], stroke[2], stroke[3]]
+    // Stroke alignment → effective perpendicular offset (render():2274's
+    // derivation verbatim): inset/outset shift by ±half-width, additive with
+    // an explicit stroke-offset-N. The slice-1 hardcoded 0 drew every inset/
+    // outset stroke centred (#834 M5 slice 6, _translucent-outline-parity).
+    // line-gap-width's double-draw stays a follow-up.
+    const explicitOffset = show.strokeOffset ?? 0
+    const alignDelta =
+      show.strokeAlign === 'inset'
+        ? strokeWidthPx / 2
+        : show.strokeAlign === 'outset'
+          ? -strokeWidthPx / 2
+          : 0
+    const effectiveOffset = explicitOffset + alignDelta
+    // Translucent bucket ('max'): the show's opacity applies ONCE, at
+    // composite time — the accumulation draws at 1.0 (render():2269).
+    const layerOpacity = mode === 'max' ? 1.0 : opacity
     const layerOffset = this.lineRenderer.writeLayerSlot(
       lineSlotColor,
       strokeWidthPx,
-      opacity,
+      layerOpacity,
       mpp,
       cap,
       join,
       miterLimit,
       dash,
       patternSlots,
-      0,
+      effectiveOffset,
       canvasHeight,
       show.strokeBlur ?? 0,
       dpr,
@@ -1028,10 +1057,13 @@ export class VectorTileRenderer {
       B.set.cam_ecef_off_h(0, 0, 0, 1)
       B.set.cam_ecef_off_l(0, 0, 0, 1)
       B.set.tile_origin_merc(Math.fround(tileMercX), Math.fround(tileMercY))
-      B.set.opacity(opacity)
+      B.set.opacity(layerOpacity)
       B.set.log_depth_fc(this.logDepthFc)
       B.set.pick_id(0)
-      B.set.layer_depth_offset(0)
+      // render():3748's slot write, mirrored verbatim (the line shader itself
+      // only pads this lane; the stroke-over-fill z-fight is solved by the
+      // LINE_COPLANAR_DEPTH_BIAS in the line fragment — line.ts, #834 M5 s6).
+      B.set.layer_depth_offset(((show.pickId ?? 0) & 0xffff) * 1e-3)
       B.set.tile_extent_m(TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom))
       B.set.extrude_height_m(0)
       B.set.extrude_base_m(0)
@@ -1056,6 +1088,7 @@ export class VectorTileRenderer {
           slotOffset,
           layerOffset,
           linePatternActive,
+          mode,
         )
       if (lineN > 0 && cached.lineSegmentBindGroup)
         this.lineRenderer.drawSegmentsRhi(
@@ -1066,6 +1099,7 @@ export class VectorTileRenderer {
           slotOffset,
           layerOffset,
           linePatternActive,
+          mode,
         )
     }
     return missing

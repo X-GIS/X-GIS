@@ -108,18 +108,21 @@ export class LineDraper {
   }
 
   /** Build the offscreen translucent MAX-blend Material — fs_line_max into the single-sample
-   *  offscreen RT (BLEND_MAX, no depth). One fragment variant (no pattern). LAZY. */
+   *  offscreen RT (BLEND_MAX, no depth). One fragment variant (no pattern). LAZY.
+   *  On webgl2 the twin carries entry-array groups + the fs_line_max GLSL (#834 M5). */
   private maxMat(): Material {
+    const gl2 = this.rhi.backend === 'webgl2'
     return (this._maxMaterial ??= new Material(this.rhi, {
       shader: emitLineWgsl(false),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line_max',
+      vsCode: gl2 ? emitLineGlsl(false, 'vertex') : undefined,
+      fsCode: gl2 ? emitLineGlsl(false, 'fragment-max') : undefined,
       format: this.format as 'bgra8unorm',
       sampleCount: 1,
-      groups: [
-        wrapWebGpuBindGroupLayout(this.tileLayout),
-        wrapWebGpuBindGroupLayout(this.layerLayout),
-      ],
+      groups: gl2
+        ? [LINE_TILE_ENTRIES, LINE_LAYER_ENTRIES]
+        : [wrapWebGpuBindGroupLayout(this.tileLayout), wrapWebGpuBindGroupLayout(this.layerLayout)],
       colorTargets: [{ format: this.format as 'bgra8unorm', blend: 'max' }],
       variants: [{ label: 'line-pipeline-max-rhi' }], // no depth-stencil (offscreen accum)
     }))

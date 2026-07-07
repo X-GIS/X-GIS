@@ -17,7 +17,11 @@ const OUT = 'test-results/dash-parity'
 
 async function shoot(page: import('@playwright/test').Page, gl2: boolean): Promise<Buffer> {
   await page.setViewportSize({ width: 900, height: 700 })
-  await page.goto(`/demo.html?id=dashed_lines&e2e=1${gl2 ? '&forcegl2=1' : ''}`, { waitUntil: 'domcontentloaded' })
+  // Camera PINNED via the location hash: the demo has no camera block, so the
+  // boot camera falls out of the two sources' bounds-fit RACE — the two
+  // backends (and two runs) can settle on different centres, which shears the
+  // dash masks apart (observed IoU 0.958 → 0.098 with identical rendering).
+  await page.goto(`/demo.html?id=dashed_lines&e2e=1${gl2 ? '&forcegl2=1' : ''}#0.50/0.00000/0.00000`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(() => (window as any).__xgisReady === true, { timeout: 35_000 })
   await page.waitForTimeout(9000)
   await page.evaluate(() => (window as any).__xgisMap?.invalidate?.())

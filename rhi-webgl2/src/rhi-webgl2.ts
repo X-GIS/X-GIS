@@ -242,7 +242,12 @@ class WebGl2RenderPass implements RhiRenderPass {
   private ibuf?: { buf: Gl2Buffer; type: GLenum; offset: number }
   /** Per-draw stencil reference (WebGPU setStencilReference analog; folded into stencilFunc). */
   private stencilRef = 0
-  constructor(private readonly gl: WebGL2RenderingContext) {}
+  constructor(
+    private readonly gl: WebGL2RenderingContext,
+    /** Offscreen passes restore FBO 0 + the screen viewport here (#834 M5);
+     *  absent on the screen pass (finished via endScreenPass instead). */
+    private readonly onEnd?: () => void,
+  ) {}
 
   setPipeline(p: RhiPipeline): void {
     const pl = un<Gl2Pipeline>(p)
@@ -438,10 +443,12 @@ class WebGl2RenderPass implements RhiRenderPass {
     else this.gl.drawElements(this.gl.TRIANGLES, indexCount, this.ibuf.type, this.ibuf.offset)
   }
 
-  // WebGL2 is immediate-mode: there is no pass object to close, so ending is a
-  // no-op (the next pass rebinds its FBO + viewport). The screen pass is finished
-  // via WebGl2Device.endScreenPass instead.
-  end(): void {}
+  // WebGL2 is immediate-mode: an OFFSCREEN pass's end() restores FBO 0 + the
+  // screen viewport (the onEnd hook); the screen pass has no hook and is
+  // finished via WebGl2Device.endScreenPass instead.
+  end(): void {
+    this.onEnd?.()
+  }
 }
 
 /** A COPY-SCOPED command encoder for WebGL2. `copyBufferToBuffer` is supported
@@ -520,6 +527,9 @@ export class WebGl2Device implements RhiDevice {
    *  records draws against the returned pass, then calls endScreenPass. */
   beginScreenPass(desc: RhiScreenPassDesc): RhiRenderPass {
     const gl = this.gl
+    // Remembered so a nested offscreen pass's end() can restore the screen viewport.
+    this._screenW = desc.width
+    this._screenH = desc.height
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.viewport(0, 0, desc.width, desc.height)
     gl.disable(gl.SCISSOR_TEST)
@@ -538,6 +548,45 @@ export class WebGl2Device implements RhiDevice {
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
     }
     return new WebGl2RenderPass(gl)
+  }
+
+  /** Screen viewport remembered by beginScreenPass; restored when a nested
+   *  offscreen pass ends (#834 M5). */
+  private _screenW = 0
+  private _screenH = 0
+  /** One FBO reused for every offscreen pass — the attachment is re-pointed at
+   *  begin (attach calls are cheap; the frame runs a handful of these). */
+  private _offscreenFbo: WebGLFramebuffer | null = null
+
+  /** Begin an offscreen pass nested inside the screen pass (#834 M5 — the
+   *  translucent-line MAX accumulation target). Slice scope: exactly ONE
+   *  single-sample colour attachment, no depth-stencil, no resolve — the MRT
+   *  shapes (pick / OIT) FAIL-CLOSE until their slice, so a topology this
+   *  backend cannot honour can never silently render wrong. The returned
+   *  pass's end() restores FBO 0 + the screen viewport. */
+  beginOffscreenPass(desc: RhiRenderPassDesc): RhiRenderPass {
+    const gl = this.gl
+    if (desc.colorAttachments.length !== 1)
+      throw new Error(`webgl2: beginOffscreenPass supports exactly 1 colour attachment (got ${desc.colorAttachments.length})`)
+    if (desc.depthStencilAttachment)
+      throw new Error('webgl2: beginOffscreenPass depth-stencil attachment unsupported (fail-closed)')
+    const att = desc.colorAttachments[0]
+    if (att.resolveTarget) throw new Error('webgl2: beginOffscreenPass resolve unsupported (fail-closed)')
+    const tex = un<Gl2View>(att.view).texture
+    this._offscreenFbo ??= gl.createFramebuffer()
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this._offscreenFbo)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex.tex, 0)
+    gl.viewport(0, 0, tex.width, tex.height)
+    gl.disable(gl.SCISSOR_TEST)
+    if (att.loadOp === 'clear') {
+      const [r, g, b, a] = att.clearValue ?? [0, 0, 0, 0]
+      gl.clearColor(r, g, b, a)
+      gl.clear(gl.COLOR_BUFFER_BIT)
+    }
+    return new WebGl2RenderPass(gl, () => {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      gl.viewport(0, 0, this._screenW, this._screenH)
+    })
   }
 
   /** Finish + present the screen pass. WebGL2 presents the default framebuffer

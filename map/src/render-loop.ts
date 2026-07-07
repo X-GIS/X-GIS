@@ -796,8 +796,34 @@ export class RenderLoop {
       // acquisition, so dropping this return froze a half-loaded frame — the
       // straggler tiles' worker slices arrived with _needsRender already
       // cleared and nothing repainted (#834 M5 slice 5, _pattern-parity).
+      // fillPhase 'fills' = a translucent-stroke show whose stroke half
+      // renders in the translucent bucket below — drawing it here too would
+      // double-paint it opaquely (#834 M5 slice 6).
+      if (c.fillPhase !== 'fills')
+        missingTiles += vt.renderer.renderLinesRhi(
+          pass,
+          this.host.camera,
+          projType,
+          centerLon,
+          centerLat,
+          w,
+          h,
+          dpr,
+          c.show,
+          c.resolvedShow,
+        )
+    }
+    // #834 M5 slice 6 — TRANSLUCENT bucket (the same offscreen MAX-blend +
+    // composite topology the WebGPU translucent-pass runs, in declaration
+    // order after the whole opaque bucket): accumulate each show's strokes
+    // into the offscreen RT (clear-loaded per show), then composite onto the
+    // screen pass at the show's resolved opacity.
+    for (const c of classified.translucent) {
+      const vt = this.host.vtSources.get(c.sourceName)
+      if (!vt || !this.host.lineRenderer) continue
+      const offPass = this.host.lineRenderer.beginTranslucentPassRhi(rhi, w, h)
       missingTiles += vt.renderer.renderLinesRhi(
-        pass,
+        offPass,
         this.host.camera,
         projType,
         centerLon,
@@ -807,7 +833,10 @@ export class RenderLoop {
         dpr,
         c.show,
         c.resolvedShow,
+        'max',
       )
+      offPass.end()
+      this.host.lineRenderer.compositeRhi(pass, c.resolvedShow.opacity)
     }
     // #834 M5 slice 3 — tile ACQUISITION for label-bearing shows: a
     // label-only show never reaches the fills/lines acquisition (both bail
