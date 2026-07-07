@@ -2,14 +2,10 @@
 import Base from '../../layouts/Base.astro'
 import Header from '../../components/Header.astro'
 import Footer from '../../components/Footer.astro'
-import { getCollection } from 'astro:content'
+import { publishedPosts, readingTimeMin } from '../../lib/blog'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
-// Newest first. Same-day posts should carry a TIME in their frontmatter date
-// (e.g. 2026-07-07T06:26:00Z) — the id tie-breaker below only makes a
-// missing-time tie DETERMINISTIC (the glob loader's file order is not).
-const posts = (await getCollection('blog', (e) => !e.data.draft && e.data.lang === 'en'))
-  .sort((a, b) => b.data.date.getTime() - a.data.date.getTime() || b.id.localeCompare(a.id))
+const posts = await publishedPosts()
 const fmt = (d: Date) =>
   d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
 ---
@@ -39,9 +35,10 @@ const fmt = (d: Date) =>
           {posts.map((post) => (
             <li>
               <a href={`${base}/blog/${post.id}`} class="group block py-8 sm:py-10">
-                <time datetime={post.data.date.toISOString()} class="font-mono text-[12px] tracking-[0.14em] uppercase text-fg-mute">
-                  {fmt(post.data.date)}
-                </time>
+                <p class="font-mono text-[12px] tracking-[0.14em] uppercase text-fg-mute">
+                  <time datetime={post.data.date.toISOString()}>{fmt(post.data.date)}</time>
+                  <span> · {readingTimeMin(post.body)} min read</span>
+                </p>
                 <h2 class="mt-2 font-display font-normal text-fg text-[28px] sm:text-[36px] leading-[1.05] tracking-[-0.02em] group-hover:text-accent transition-colors">
                   {post.data.title}
                 </h2>

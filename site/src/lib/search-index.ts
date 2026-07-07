@@ -14,9 +14,9 @@ interface SearchRecord {
   title: string
   /** One-line body excerpt — what the result is, in plain English. */
   body: string
-  /** "doc" for docs pages/sections, "demo" for gallery demos. The
-   *  result list groups by this. */
-  type: 'doc' | 'demo'
+  /** "doc" for docs pages/sections, "demo" for gallery demos, "post"
+   *  for blog posts. The result list groups by this. */
+  type: 'doc' | 'demo' | 'post'
   /** Short tag shown beside the title (e.g., "Reference", "Concept",
    *  "API", or the demo category like "Animation"). */
   tag: string
@@ -24,11 +24,21 @@ interface SearchRecord {
   url: string
 }
 
+/** Blog post fields the index needs — the caller (Search.astro) flattens
+ *  them from `astro:content` entries, keeping this module free of the
+ *  astro:content virtual import so it stays a plain library. */
+export interface BlogPostRecord {
+  id: string
+  title: string
+  description: string
+  tags: string[]
+}
+
 /**
  * Build the search index. Pure — pass a `base` so call-sites can use
  * Astro's `import.meta.env.BASE_URL` instead of hard-coding.
  */
-function buildSearchIndex(base: string): SearchRecord[] {
+function buildSearchIndex(base: string, posts: BlogPostRecord[]): SearchRecord[] {
   const out: SearchRecord[] = []
 
   // ─── Top-level docs pages ───
@@ -600,11 +610,25 @@ function buildSearchIndex(base: string): SearchRecord[] {
     }
   }
 
+  // ─── Blog posts (one record per published post) ───
+  // Tags join the searchable body so a query like "precision" or
+  // "shader-dsl" surfaces the posts alongside docs.
+  for (const p of posts) {
+    out.push({
+      id: `post:${p.id}`,
+      title: p.title,
+      body: `${p.description} ${p.tags.join(' ')}`,
+      type: 'post',
+      tag: 'Blog',
+      url: `${base}/blog/${p.id}`,
+    })
+  }
+
   return out
 }
 
 /** Returns a JSON-encoded string suitable for embedding in an
  *  Astro `<script type="application/json">` block. */
-export function buildSearchIndexJSON(base: string): string {
-  return JSON.stringify(buildSearchIndex(base))
+export function buildSearchIndexJSON(base: string, posts: BlogPostRecord[]): string {
+  return JSON.stringify(buildSearchIndex(base, posts))
 }
