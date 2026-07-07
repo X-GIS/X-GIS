@@ -22,7 +22,8 @@ import { test, expect } from '@playwright/test'
 // Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { FIXTURES, emitForFixture } from '../../map/src/shaders/dsl/_polygon-fixtures'
 // NOT the `@xgis/map` BARREL (see _shader-math-parity.spec.ts — #765 loader death).
-import { emitLineWgsl, emitCompositeWgsl } from '../../map/src/shaders/dsl/line'
+import { emitLineWgsl } from '../../map/src/shaders/dsl/line'
+import { emitCompositeWgsl } from '../../map/src/shaders/dsl/line-composite'
 import { emitPointWgsl } from '../../map/src/shaders/dsl/point'
 import { emitRasterWgsl } from '../../map/src/shaders/dsl/raster'
 import { emitIconWgsl } from '../../map/src/shaders/dsl/icon'
