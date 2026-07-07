@@ -24,7 +24,11 @@ export const SAFE_MODE: boolean = readSafeFlag()
 // dispatches rebuilds; these exports stay as thin getters so every read
 // site sees the current value (no stale snapshots).
 import { QUALITY, effectiveDpr } from '@xgis/engine'
-import type { RhiDevice } from '@xgis/rhi'
+import type { RhiDevice, RhiContext, RhiTextureFormat } from '@xgis/rhi'
+// BackendChoice relocated to the neutral @xgis/rhi surface (#834 M-B2); it is
+// map's public XGISMapOptions.backend type, so it must not live in a concrete
+// backend package. Re-exported below for existing rhi-webgpu import sites.
+export type { BackendChoice } from '@xgis/rhi'
 
 // The live quality accessors moved to the NEUTRAL quality module (#832 M1) so
 // core code reads them without touching this WebGPU-zone boot module;
@@ -45,55 +49,16 @@ if (typeof window !== 'undefined' && SAFE_MODE) {
   )
 }
 
-export interface GPUContext {
+/** The WebGPU composition-root handle = the neutral `RhiContext` (#834 M-B2 —
+ *  the surface `@xgis/map` threads) PLUS the two native WebGPU objects the
+ *  backend zone owns. Map annotates its device-free consumers as `RhiContext`
+ *  from `@xgis/engine`; only the native creation/present code (this package)
+ *  names `device`/`context`. Every neutral field (format, rhi, sampleCount,
+ *  deviceLost, onDeviceLost with `RhiDeviceLostInfo`, timestamp/float32 flags,
+ *  `_validationErrors`) is inherited from `RhiContext` — its docs live there. */
+export interface GPUContext extends RhiContext {
   device: GPUDevice
   context: GPUCanvasContext
-  format: GPUTextureFormat
-  canvas: HTMLCanvasElement
-  sampleCount: number
-  /** The chosen backend's RHI device, injected ONCE at boot — the SINGLE instance every
-   *  renderer routes resource creation through (no renderer self-instantiates a backend
-   *  device). A `WebGpuDevice` over `device` on the normal WebGPU path; a `WebGl2Device`
-   *  under the `?forcegl2=1` toggle (backend==='webgl2' is how a real layer renders on
-   *  WebGL2). Always present — the composition root (initGPU / initGPUForcedWebGL2) sets it. */
-  rhi: RhiDevice
-  /** True when the device was created with the `timestamp-query`
-   *  feature enabled. Gated by `?gpuprof=1` so production users don't
-   *  pay the always-on adapter feature requirement. Consumers (`GPUTimer`)
-   *  no-op when this is false. */
-  timestampQuerySupported: boolean
-  /** True when the device additionally has Chromium's
-   *  `chromium-experimental-timestamp-query-inside-passes` — lets us
-   *  call `pass.writeTimestamp(querySet, idx)` mid-pass to break a
-   *  pass's GPU time into per-pipeline buckets (raster vs polygon
-   *  fill vs line vs extruded). Strictly a superset of
-   *  `timestamp-query`. */
-  timestampInsidePassesSupported: boolean
-  /** True when the device was created with `float32-filterable`. Used
-   *  by palette-emit's scalar-gradient sample emission to pick between
-   *  HW linear filtering (`textureSampleLevel`) and a `textureLoad`
-   *  ×2 + `mix` manual interpolation. iPhone Safari + iPhone Chrome
-   *  do NOT advertise the feature (2026 status), so the manual path
-   *  is the universal fallback — chosen at shader emit time via a
-   *  build-time string substitution rather than a runtime branch. */
-  float32FilterableSupported: boolean
-  /** Validation error queue — the global `uncapturederror` handler
-   *  pushes every WebGPU validation error here. Tests poll this
-   *  via `getValidationErrors(ctx)` and assert it stays empty;
-   *  production code can ignore it (the queue grows unbounded but
-   *  errors are also still logged to console for visibility). */
-  _validationErrors: { message: string; t: number }[]
-  /** Set true once `device.lost` resolves. The render loop checks this
-   *  and stops issuing GPU work into the dead device — without the guard
-   *  a lost device (driver reset, tab backgrounding, OOM) turns every
-   *  subsequent frame into a cascade of "device is lost" errors. */
-  deviceLost: boolean
-  /** Optional host hook fired once when the device is lost (after
-   *  `deviceLost` is set). Lets the embedding app surface a "GPU lost —
-   *  reload" affordance or trigger its own re-init. Wired via
-   *  XGISMap.onDeviceLost(). 'destroyed' reason (explicit device.destroy())
-   *  is NOT forwarded — that is an intentional teardown, not a fault. */
-  onDeviceLost?: (info: GPUDeviceLostInfo) => void
 }
 
 /** `?gpuprof=1` — opt in to timestamp-query GPU profiling. We only
@@ -125,11 +90,9 @@ function readForceGl2Flag(): boolean {
 }
 export const FORCE_GL2: boolean = readForceGl2Flag()
 
-/** The GPU backend a map runs on. Selected at construction via
- *  `XGISMapOptions.backend`; `'auto'` (the default) honours the `?forcegl2=1`
- *  dev override, otherwise WebGPU. Construction-immutable — the canvas context
- *  type is sticky (see `readForceGl2Flag`). */
-export type BackendChoice = 'auto' | 'webgpu' | 'webgl2'
+// `BackendChoice` moved to @xgis/rhi (#834 M-B2) and is re-exported at the top
+// of this file — it is map's public XGISMapOptions.backend type and must live
+// on the neutral surface, not in a concrete backend package.
 
 // Backend PRECEDENCE moved out of this module (#833 M4): the composition root
 // expresses it as an ordered RhiBackendProvider array — see
@@ -218,7 +181,10 @@ export async function createWebGpuContext(canvas: HTMLCanvasElement): Promise<GP
   const context = canvas.getContext('webgpu')
   if (!context) throw new Error('Failed to get WebGPU context')
 
-  const format = navigator.gpu.getPreferredCanvasFormat()
+  // getPreferredCanvasFormat() is typed GPUTextureFormat but only ever returns
+  // 'bgra8unorm' | 'rgba8unorm' — both members of RhiTextureFormat, which is
+  // GPUContext.format's type since M-B2 (extends RhiContext). Cast is safe.
+  const format = navigator.gpu.getPreferredCanvasFormat() as RhiTextureFormat
   // Colour pipeline (DELIBERATE — verified by the 2026-06 rendering audit, not a
   // gap): the canvas uses the preferred NON-srgb unorm format with NO `-srgb`
   // view. Shaders emit sRGB-encoded colours directly (hexToRgba → 0..1 sRGB, no

@@ -474,3 +474,51 @@ export function asScreenPassDevice(
     ? (d as RhiDevice & RhiScreenPassDevice)
     : null
 }
+
+// ═══ Neutral render context (#834 map→engine, M-B2) ═══
+//
+// The backend-neutral half of the composition-root handle. `@xgis/map`'s
+// renderers thread THIS instead of the concrete `GPUContext` (which extends it
+// with the native `device`/`context` fields) so map names no `@webgpu/types`
+// symbol. Backend selection stays with the injected provider; map only sees
+// `rhi` + neutral frame metadata. The concrete WebGPU context in
+// `@xgis/rhi-webgpu` is `interface GPUContext extends RhiContext { device;
+// context }`, so a real `GPUContext` is structurally an `RhiContext`.
+
+/** Backend-neutral device-lost payload. WebGPU's `GPUDeviceLostInfo`
+ *  (`reason: 'destroyed' | 'unknown'`) is structurally assignable to this
+ *  (its `reason` narrows `string`), so the WebGPU boot forwards it unchanged. */
+export interface RhiDeviceLostInfo {
+  readonly reason: string
+  readonly message: string
+}
+
+/** The GPU backend a map runs on. `'auto'` honours the `?forcegl2=1` dev
+ *  override, else WebGPU. Construction-immutable (the canvas context type is
+ *  sticky). Relocated from `@xgis/rhi-webgpu` (was `gpu.ts`) so it is part of
+ *  the neutral surface `@xgis/map`'s public `XGISMapOptions.backend` names. */
+export type BackendChoice = 'auto' | 'webgpu' | 'webgl2'
+
+/** Backend-neutral render context — everything the map layer legitimately
+ *  reads that is NOT a native WebGPU handle. `format` is the neutral swapchain
+ *  format (always a member of {@link RhiTextureFormat}); `rhi` is the injected
+ *  backend device; the rest is frame/host metadata + the device-lost signals.
+ *  `GPUContext` (rhi-webgpu) extends this with `device`/`context`. */
+export interface RhiContext {
+  format: RhiTextureFormat
+  canvas: HTMLCanvasElement
+  sampleCount: number
+  /** The injected backend RHI device — the SINGLE instance every renderer
+   *  routes resource creation through. */
+  rhi: RhiDevice
+  timestampQuerySupported: boolean
+  timestampInsidePassesSupported: boolean
+  float32FilterableSupported: boolean
+  /** Validation error queue (WebGPU `uncapturederror` sink; empty/inert on
+   *  backends without validation). Tests poll it; production ignores it. */
+  _validationErrors: { message: string; t: number }[]
+  /** Set once the device is lost; the render loop stops issuing GPU work. */
+  deviceLost: boolean
+  /** Host hook fired once on device loss. */
+  onDeviceLost?: (info: RhiDeviceLostInfo) => void
+}

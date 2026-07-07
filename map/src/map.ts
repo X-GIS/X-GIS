@@ -38,7 +38,11 @@ import {
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { getSharedGeoJSONCompilePool } from '@xgis/data'
 import { getMaxDpr, effectiveDpr } from '@xgis/engine'
-import { initGPUViaProviders, backendProviderChain, GPU_PROF, WebGPUUnavailableError, type GPUContext, type BackendChoice } from '@xgis/rhi-webgpu'
+// #834 M-B2 — the neutral surface (BackendChoice = public XGISMapOptions.backend
+// type; RhiDeviceLostInfo = onDeviceLost payload) comes from @xgis/engine, not
+// the concrete backend. GPUContext + boot providers stay on rhi-webgpu (Layer 2).
+import type { BackendChoice, RhiDeviceLostInfo } from '@xgis/engine'
+import { initGPUViaProviders, backendProviderChain, GPU_PROF, WebGPUUnavailableError, type GPUContext } from '@xgis/rhi-webgpu'
 import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/rhi-webgpu'
 import { Camera } from '@xgis/engine'
@@ -1222,11 +1226,11 @@ export class XGISMap {
    *  a "GPU lost — reload" affordance or trigger app-level re-init. Safe
    *  to call before or after init: stored and applied when the GPU
    *  context resolves. */
-  onDeviceLost(cb: (info: GPUDeviceLostInfo) => void): void {
+  onDeviceLost(cb: (info: RhiDeviceLostInfo) => void): void {
     this._onDeviceLost = cb
     if (this.ctx) this.ctx.onDeviceLost = cb
   }
-  private _onDeviceLost?: (info: GPUDeviceLostInfo) => void
+  private _onDeviceLost?: (info: RhiDeviceLostInfo) => void
 
   /** Host hook fired once if WebGPU is unavailable when the map tries to
    *  mount — no `navigator.gpu` (unsupported browser) or no GPU adapter.
