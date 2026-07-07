@@ -188,7 +188,11 @@ export class LineRenderer {
   private readonly rhi: RhiDevice
   private format: GPUTextureFormat
   private tileBindGroupLayout: GPUBindGroupLayout
-  private layerBindGroupLayout: GPUBindGroupLayout
+  /** Native layer BGL, created LAZILY (#834 device retirement S1): its only
+   *  consumers are the WebGPU branches (createLayerBindGroup's wrap + the
+   *  LineDraper native-group arm), so the constructor never touches
+   *  ctx.device — prerequisite for retiring the ?forcegl2 device Proxy. */
+  private _layerBgl: GPUBindGroupLayout | null = null
   private shapeRegistry: ShapeRegistry | null = null
   /** Deduped warnings for bad pattern parameter combos. Key: stable string
    *  describing the violation. Survives per LineRenderer instance — reset on
@@ -234,32 +238,6 @@ export class LineRenderer {
     // Ctor runs post-configureProjections(), so reflecting the LineLayer
     // stride here is safe (unlike a `static` field, which evaluates at import).
     this.layerStride = lineLayerUniformStride()
-
-    this.layerBindGroupLayout = this.device.createBindGroupLayout({
-      label: 'line-layer-bgl',
-      entries: [
-        {
-          binding: 0,
-          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-          buffer: { type: 'uniform', hasDynamicOffset: true },
-        },
-        {
-          binding: 1,
-          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-          buffer: { type: 'read-only-storage' },
-        },
-        {
-          binding: 2,
-          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-          buffer: { type: 'read-only-storage' },
-        },
-        {
-          binding: 3,
-          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-          buffer: { type: 'read-only-storage' },
-        },
-      ],
-    })
 
     // Layer uniform ring. 256-byte slots → dynamic offsets prevent
     // multi-layer writeBuffer clobbering within a single frame.
@@ -607,6 +585,35 @@ export class LineRenderer {
 
   /** Create a bind group for the line layer + segments + shape registry.
    *  Binding 0 uses a dynamic offset — actual slot is chosen at draw time. */
+  /** Lazy native layer BGL — see `_layerBgl`. WebGPU-branch consumers only. */
+  private layerBgl(): GPUBindGroupLayout {
+    return (this._layerBgl ??= this.device.createBindGroupLayout({
+      label: 'line-layer-bgl',
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'uniform', hasDynamicOffset: true },
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'read-only-storage' },
+        },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'read-only-storage' },
+        },
+        {
+          binding: 3,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'read-only-storage' },
+        },
+      ],
+    }))
+  }
+
   createLayerBindGroup(segmentBuffer: RhiBuffer): RhiBindGroup {
     // §4 seam: built via the RHI. binding 0 = line's PRIVATE layer ring (RhiBuffer);
     // binding 1 = the per-tile segment buffer, still a raw GpuTileStore-owned
@@ -623,7 +630,7 @@ export class LineRenderer {
     const layout =
       this.rhi.backend === 'webgl2'
         ? (this.ensureLineDraper(), this._lineDraper!.layerLayoutRhi())
-        : wrapWebGpuBindGroupLayout(this.layerBindGroupLayout)
+        : wrapWebGpuBindGroupLayout(this.layerBgl())
     return this.rhi.createBindGroup(layout, [
       { binding: 0, resource: { buffer: this.layerRing, offset: 0, size: lineUniformSize() } },
       { binding: 1, resource: { buffer: segmentBuffer } },
@@ -726,12 +733,18 @@ export class LineRenderer {
   private _lineDraper?: LineDraper
   private ensureLineDraper(): void {
     if (this._lineDraper) return
+    // LineDraper wraps the native layouts ONLY on its WebGPU branch (the gl2
+    // arm builds entry-array groups); on webgl2 pass an inert placeholder so
+    // the lazy layerBgl() never touches ctx.device on that backend (#834
+    // device retirement S1 — same inert-field pattern as renderFrameViaRhi's
+    // FrameContext).
+    const gl2 = this.rhi.backend === 'webgl2'
     this._lineDraper = new LineDraper(
       this.rhi,
       this.format,
       getSampleCount(),
       this.tileBindGroupLayout,
-      this.layerBindGroupLayout,
+      gl2 ? (null as unknown as GPUBindGroupLayout) : this.layerBgl(),
     )
   }
 
