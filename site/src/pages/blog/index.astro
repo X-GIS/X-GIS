@@ -13,7 +13,7 @@ const allTags = [...new Set(posts.flatMap((p) => p.data.tags))].sort()
 const featured = posts[0]
 const rest = posts.slice(1)
 const fmt = (d: Date) =>
-  d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+  d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
 ---
 
 <Base
@@ -33,15 +33,18 @@ const fmt = (d: Date) =>
           math, the WebGPU render graph.
         </p>
         {allTags.length > 0 && (
-          <div class="mt-8 flex flex-wrap gap-2">
-            {allTags.map((t) => (
-              <a
-                href={`${base}/blog/tags/${t}`}
-                class="font-mono text-[11px] tracking-[0.1em] uppercase text-fg-mute border border-line rounded-full px-2.5 py-0.5 hover:text-fg hover:border-line-strong transition-colors"
-              >
-                {t}
-              </a>
-            ))}
+          <div class="mt-9">
+            <p class="font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute mb-3">Browse by tag</p>
+            <div class="flex flex-wrap gap-2">
+              {allTags.map((t) => (
+                <a
+                  href={`${base}/blog/tags/${t}`}
+                  class="font-mono text-[11px] tracking-[0.1em] uppercase text-fg-mute border border-line rounded-full px-2.5 py-0.5 hover:text-fg hover:border-line-strong transition-colors"
+                >
+                  {t}
+                </a>
+              ))}
+            </div>
           </div>
         )}
       </header>
@@ -50,55 +53,54 @@ const fmt = (d: Date) =>
         <p class="text-fg-mute text-[15px]">No posts yet — check back soon.</p>
       ) : (
         <>
-          {/* Featured: the newest post, given a full-width two-column card. */}
-          <article class="group relative bg-bg-card border border-line rounded-[12px] p-8 sm:p-10 hover:border-line-strong transition-colors lg:grid lg:grid-cols-[1.5fr_1fr] lg:gap-x-12 lg:items-center">
-            <div>
-              <p class="font-mono text-[11px] tracking-[0.16em] uppercase text-accent">
-                Latest
-                <span class="text-fg-mute">
-                  {' · '}<time datetime={featured.data.date.toISOString()}>{fmt(featured.data.date)}</time>
-                  {' · '}{readingTimeMin(featured.body)} min read
-                </span>
-              </p>
-              <h2 class="mt-4 font-display font-normal text-fg text-[32px] sm:text-[44px] leading-[1.03] tracking-[-0.02em]">
-                <a
-                  href={`${base}/blog/${featured.id}`}
-                  class="after:absolute after:inset-0 after:content-[''] group-hover:text-accent transition-colors"
-                >
-                  {featured.data.title}
-                </a>
-              </h2>
-            </div>
-            <div class="mt-6 lg:mt-0">
-              <p class="text-[16px] leading-[1.6] text-fg-dim">{featured.data.description}</p>
-              {featured.data.tags.length > 0 && (
-                <div class="relative z-[1] mt-5 flex flex-wrap gap-2">
-                  {featured.data.tags.map((t) => (
-                    <a
-                      href={`${base}/blog/tags/${t}`}
-                      class="font-mono text-[11px] tracking-[0.1em] uppercase text-fg-mute border border-line rounded-full px-2.5 py-0.5 hover:text-fg hover:border-line-strong transition-colors"
-                    >
-                      {t}
-                    </a>
-                  ))}
-                </div>
-              )}
-              <span class="mt-7 inline-flex items-center gap-1.5 font-mono text-[12px] tracking-[0.12em] uppercase text-fg group-hover:text-accent transition-colors">
+          {/* Featured: the newest post as a single-column editorial lede —
+              eyebrow → title → hook → tags → CTA read as one vertical
+              rhythm. Lifted above the grid with the elevated fill and the
+              accent "Latest" kicker rather than by size alone. */}
+          <article class="group relative bg-bg-elev border border-line rounded-[8px] p-8 sm:p-10 transition-[border-color,transform] duration-200 hover:border-line-strong hover:-translate-y-0.5">
+            <p class="font-mono text-[11px] tracking-[0.16em] uppercase text-accent">
+              Latest
+              <span class="text-fg-mute">
+                {' · '}{readingTimeMin(featured.body)} min read
+                {' · '}<time datetime={featured.data.date.toISOString()}>{fmt(featured.data.date)}</time>
+              </span>
+            </p>
+            <h2 class="mt-4 max-w-[20ch] font-display font-normal text-fg text-[32px] sm:text-[42px] leading-[1.04] tracking-[-0.02em] text-balance">
+              <a
+                href={`${base}/blog/${featured.id}`}
+                class="after:absolute after:inset-0 after:content-[''] group-hover:text-accent transition-colors"
+              >
+                {featured.data.title}
+              </a>
+            </h2>
+            <p class="mt-5 max-w-[68ch] text-[16px] leading-[1.6] text-fg-dim">{featured.data.description}</p>
+            <div class="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
+              <span class="inline-flex items-center gap-1.5 font-mono text-[12px] tracking-[0.12em] uppercase text-fg group-hover:text-accent transition-colors">
                 Read post
                 <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
               </span>
+              {featured.data.tags.length > 0 && (
+                <div class="relative z-[1] flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] tracking-[0.12em] uppercase text-fg-mute">
+                  {featured.data.tags.slice(0, 3).map((t, i) => (
+                    <>
+                      {i > 0 && <span aria-hidden="true">·</span>}
+                      <a href={`${base}/blog/tags/${t}`} class="hover:text-fg transition-colors">{t}</a>
+                    </>
+                  ))}
+                </div>
+              )}
             </div>
           </article>
 
           {rest.length > 0 && (
-            <>
-              <p class="font-mono text-[12px] tracking-[0.2em] uppercase text-fg-mute mt-16 sm:mt-20 mb-6">
+            <section class="mt-16 sm:mt-20 pt-12 border-t border-line">
+              <p class="font-mono text-[12px] tracking-[0.18em] uppercase text-fg-mute mb-6">
                 More notes
               </p>
               <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
                 {rest.map((post) => <BlogPostCard post={post} />)}
               </div>
-            </>
+            </section>
           )}
         </>
       )}
