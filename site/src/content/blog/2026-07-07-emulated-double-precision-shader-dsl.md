@@ -34,19 +34,21 @@ $$
 x = x_{hi} + x_{lo}, \qquad |x_{lo}| \le \tfrac{1}{2}\,\mathrm{ulp}(x_{hi}),
 $$
 
-carried as a `vec2<f32>`. Arithmetic uses *error-free transformations*:
-Knuth's twoSum, Dekker's quickTwoSum, the Veltkamp split (×4097 — FMA-based
-twoProd is deliberately avoided; WGSL `fma()` accuracy is only "inherited
-from x*y+z"). twoSum is the archetype: for any floats $a, b$,
+carried as a `vec2<f32>`. Arithmetic uses *error-free transformations* (EFTs):
+Knuth's 2Sum [2], Dekker's Fast2Sum and the Veltkamp split [1] (×4097 —
+FMA-based twoProd is deliberately avoided; WGSL `fma()` accuracy is only
+"inherited from x*y+z"). 2Sum is the archetype: for any floats $a, b$,
 
 $$
 s = \mathrm{fl}(a + b), \qquad a + b = s + e \;\; \textit{exactly},
 $$
 
-with the error $e$ recovered by six ordinary additions. Division and square
-root use an f32 seed plus one Newton–Raphson correction. Lineage: DSFUN90 →
-the NVIDIA CUDA SDK Mandelbrot sample (`dsadd`/`dsmul`) → Thall's df64 paper
-→ luma.gl's GLSL module.
+with the error $e$ recovered by six ordinary additions — the same expansion
+machinery behind Shewchuk's robust geometric predicates [3] and the
+double-double/quad-double libraries [4]. Division and square root use an f32
+seed plus one Newton–Raphson correction, following luma.gl's formulation [7].
+The GPU lineage runs DSFUN90 [5] → the NVIDIA CUDA SDK Mandelbrot sample's
+`dsadd`/`dsmul` [6] → Thall's df64/qf128 paper [8] → luma.gl [7].
 
 ## One lowering pass
 
@@ -68,14 +70,28 @@ only ever sees ordinary IR plus opaque `df64_*` calls:
 
 ## The anti-fast-math guard
 
-The EFT error terms are algebraically zero, and both WGSL (§15.7.5) and
-common driver stacks permit reassociation that would legally delete them. The
-lowering therefore threads a runtime-opaque `one` (value 1.0) through every
-error-compensation term, and injects its source automatically: a **1×1
-texture** bound as `_fp64`, fetched with `textureLoad`/`texelFetch`. A texel
-is the strongest opacity WebGL offers — a uniform-sourced guard is defeated
-by drivers that specialize pipelines on observed uniform values, which we
-learned from a production bug report;
+The EFT error terms are algebraically zero, and the WGSL specification
+explicitly permits implementations to reassociate and fuse floating-point
+operations [9][10] — a legal transformation that deletes the whole mechanism.
+The lowering therefore threads a runtime-opaque `one` (value 1.0) through
+every error-compensation term — luma.gl's
+`LUMA_FP64_CODE_ELIMINATION_WORKAROUND` [7] — and injects its source
+automatically: a **1×1 texture** bound as `_fp64`. The emitted 2Sum shows the
+shape (the fetch is CSE-hoisted once per helper body):
+
+```wgsl
+fn df64_twoSum(a: f32, b: f32) -> vec2<f32> {
+  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
+  let _v0 = (a + b);
+  let _v1 = (((_v0 * _cse0) - a) * _cse0);
+  let _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
+  return vec2<f32>(_v0, _v2);
+}
+```
+
+A texel is the strongest opacity WebGL offers: a uniform-sourced guard is
+defeated by drivers that specialize pipelines on observed uniform values,
+which we learned from a production bug report —
 [the incident write-up](/blog/2026-07-07-the-flickering-mandelbrot) covers
 that investigation. Hosts bind a texture whose texel reads exactly 1.0;
 `fp64Guard({ group, binding })` pins the slot when a fixed bind-group layout
@@ -120,3 +136,30 @@ f32 counterpart — opt in per *value*, not per shader.
 How a numeric type like this gets tested without native f64 on the GPU or
 native f32 on the CPU is its own topic:
 [Testing emulated doubles](/blog/2026-07-07-testing-emulated-doubles).
+
+## References
+
+1. T. J. Dekker, ["A Floating-Point Technique for Extending the Available
+   Precision,"](https://doi.org/10.1007/BF01397083) *Numerische Mathematik*
+   18 (1971), 224–242 — Fast2Sum, the split, and double-length arithmetic.
+2. D. E. Knuth, *The Art of Computer Programming*, Vol. 2:
+   *Seminumerical Algorithms*, §4.2.2 — the 2Sum algorithm.
+3. J. R. Shewchuk, ["Adaptive Precision Floating-Point Arithmetic and Fast
+   Robust Geometric Predicates,"](https://people.eecs.berkeley.edu/~jrs/papers/robust-predicates.pdf)
+   *Discrete & Computational Geometry* 18 (1997), 305–363.
+4. Y. Hida, X. S. Li, D. H. Bailey, ["Algorithms for Quad-Double Precision
+   Floating Point Arithmetic,"](https://www.davidhbailey.com/dhbpapers/arith15.pdf)
+   *Proc. ARITH-15* (2001), 155–162.
+5. D. H. Bailey, [DSFUN90: a double-single floating-point
+   package](https://www.davidhbailey.com/dhbsoftware/).
+6. NVIDIA, [CUDA Samples — Mandelbrot](https://github.com/NVIDIA/cuda-samples)
+   (`dsadd`/`dsmul`, the original GPU double-single port).
+7. luma.gl, [fp64 shader module](https://luma.gl/docs/api-reference/shadertools/shader-modules/fp64)
+   — GLSL df64 with the `ONE`-threading code-elimination workaround.
+8. A. Thall, ["Extended-Precision Floating-Point Numbers for GPU
+   Computation"](https://andrewthall.org/papers/df64_qf128.pdf) (2006) —
+   df64/qf128 on graphics hardware.
+9. W3C, [WebGPU Shading Language — Reassociation and
+   fusion](https://www.w3.org/TR/WGSL/#reassociation).
+10. gpuweb/gpuweb, [issue #2402: "reassociation is always
+    allowed"](https://github.com/gpuweb/gpuweb/issues/2402).
