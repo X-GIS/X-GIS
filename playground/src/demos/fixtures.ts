@@ -256,6 +256,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     description: '2-slot pattern stack (dot + cross).',
     source: load('fixture-pattern-multi.xgis'),
   },
+  ofm_bright_local: {
+    name: 'OFM Bright (offline mirror, Tokyo z14)',
+    tag: 'fixture',
+    description:
+      'OpenFreeMap Bright from the local /ofm-mirror snapshot — the #834 M5 forcegl2 final-gate fixture. Only valid at #14/35.68/139.76.',
+    source: load('ofm-bright-local.xgis'),
+  },
   fixture_translucent_outline: {
     name: 'Fixture: translucent outline (MAX+composite)',
     tag: 'fixture',
