@@ -20,12 +20,15 @@ const fmt = (d: Date) =>
 ---
 
 <article class="group relative flex flex-col h-full bg-bg-card border border-line rounded-[8px] p-6 transition-[border-color,transform] duration-200 hover:border-line-strong hover:-translate-y-0.5">
-  <p class="font-mono text-[11px] tracking-[0.14em] uppercase text-fg-mute">
+  {post.data.tags[0] && (
+    <p class="font-mono text-[11px] tracking-[0.16em] uppercase text-accent">{post.data.tags[0]}</p>
+  )}
+  <p class="mt-2 font-mono text-[11px] tracking-[0.14em] uppercase text-fg-mute">
     {readingTimeMin(post.body)} min read
-    <span> · </span>
+    <span aria-hidden="true"> · </span>
     <time datetime={post.data.date.toISOString()}>{fmt(post.data.date)}</time>
   </p>
-  <h3 class="mt-2 font-display font-normal text-fg text-[21px] leading-[1.15] tracking-[-0.015em] text-balance">
+  <h3 class="mt-2.5 font-display font-normal text-fg text-[21px] leading-[1.15] tracking-[-0.015em] text-balance">
     <a
       href={`${base}/blog/${post.id}`}
       class="after:absolute after:inset-0 after:content-[''] group-hover:text-accent transition-colors"
@@ -36,9 +39,9 @@ const fmt = (d: Date) =>
   <p class="mt-3 text-[14.5px] leading-[1.55] text-fg-dim line-clamp-3">
     {post.data.description}
   </p>
-  {post.data.tags.length > 0 && (
+  {post.data.tags.length > 1 && (
     <div class="relative z-[1] mt-auto pt-5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] tracking-[0.12em] uppercase text-fg-mute">
-      {post.data.tags.slice(0, 3).map((t, i) => (
+      {post.data.tags.slice(1, 4).map((t, i) => (
         <>
           {i > 0 && <span aria-hidden="true">·</span>}
           <a href={`${base}/blog/tags/${t}`} class="hover:text-fg transition-colors">{t}</a>

@@ -3,6 +3,7 @@ import Base from '../../layouts/Base.astro'
 import Header from '../../components/Header.astro'
 import Footer from '../../components/Footer.astro'
 import OnThisPage from '../../components/OnThisPage.astro'
+import BlogPostCard from '../../components/BlogPostCard.astro'
 import { getCollection, render } from 'astro:content'
 import { publishedPosts, readingTimeMin } from '../../lib/blog'
 // KaTeX layout CSS for $…$ math rendered by rehype-katex (build-time HTML —
@@ -22,15 +23,22 @@ const fmt = (d: Date) =>
 
 const readingMin = readingTimeMin(post.body)
 
-// Prev/next within the post's own locale, in the /blog list order
-// (publishedPosts is the shared authority for that order).
+// Sibling posts in the post's own locale, in the shared /blog order
+// (publishedPosts is the authority for that order).
 const siblings = await publishedPosts(post.data.lang)
-const idx = siblings.findIndex((p) => p.id === post.id)
-const newer = idx > 0 ? siblings[idx - 1] : null
-const older = idx >= 0 && idx < siblings.length - 1 ? siblings[idx + 1] : null
 
 // Left-rail "Recent posts": the newest siblings other than this one.
 const recent = siblings.filter((p) => p.id !== post.id).slice(0, 6)
+
+// "Read next": siblings ranked by shared-tag count, newest breaking ties —
+// so a post with no tag overlap still falls back to the newest siblings
+// rather than showing nothing.
+const related = siblings
+  .filter((p) => p.id !== post.id)
+  .map((p) => ({ p, shared: p.data.tags.filter((t) => post.data.tags.includes(t)).length }))
+  .sort((a, b) => b.shared - a.shared || b.p.data.date.getTime() - a.p.data.date.getTime())
+  .slice(0, 3)
+  .map((x) => x.p)
 
 // Article structured data — Base emits the site-wide WebSite/SoftwareSourceCode
 // graph; this BlogPosting rides in via the head slot alongside article:* OG.
@@ -55,6 +63,7 @@ const articleLd = {
     <script type="application/ld+json" set:html={JSON.stringify(articleLd)} />
   </Fragment>
   <Header />
+  <div id="read-progress" class="fixed top-0 left-0 h-[2px] bg-accent origin-left z-50" style="transform: scaleX(0)"></div>
   <main class="pt-28 sm:pt-36 pb-32">
     <!-- 3-zone shell on the site's 1400 standard band (same band as the
          blog index and Header), so the post stops being a layout one-off:
@@ -96,16 +105,20 @@ const articleLd = {
         Blog
       </a>
       <header class="mt-8 mb-12 pb-10 border-b border-line">
-        <p class="font-mono text-[12px] tracking-[0.14em] uppercase">
-          <time datetime={post.data.date.toISOString()} class="text-accent">
-            {fmt(post.data.date)}
-          </time>
-          <span class="text-fg-mute"> · {readingMin} min read</span>
-        </p>
-        <h1 class="mt-3 font-display font-normal text-fg text-[40px] sm:text-[56px] leading-[1.02] tracking-[-0.02em]">
+        {post.data.tags[0] && (
+          <p class="font-mono text-[12px] tracking-[0.16em] uppercase text-accent">{post.data.tags[0]}</p>
+        )}
+        <h1 class="mt-4 font-display font-normal text-fg text-[40px] sm:text-[56px] leading-[1.02] tracking-[-0.02em]">
           {post.data.title}
         </h1>
         <p class="mt-5 max-w-[640px] text-[21px] leading-[1.45] text-fg">{post.data.description}</p>
+        <p class="mt-6 font-mono text-[12px] tracking-[0.06em] text-fg-mute flex flex-wrap items-center gap-x-2">
+          <span class="text-fg-dim">By the X-GIS team</span>
+          <span aria-hidden="true">·</span>
+          <time datetime={post.data.date.toISOString()}>{fmt(post.data.date)}</time>
+          <span aria-hidden="true">·</span>
+          <span>{readingMin} min read</span>
+        </p>
         {post.data.tags.length > 0 && (
           <div class="mt-5 flex flex-wrap gap-2">
             {post.data.tags.map((t) => (
@@ -122,27 +135,20 @@ const articleLd = {
       <div class="blog-prose">
         <Content />
       </div>
-      {(older || newer) && (
-        <nav class="mt-16 pt-8 border-t border-line grid sm:grid-cols-2 gap-4" aria-label="Adjacent posts">
-          {older ? (
-            <a href={`${base}/blog/${older.id}`} class="group block">
-              <p class="font-mono text-[11px] tracking-[0.14em] uppercase text-fg-mute">← Older</p>
-              <p class="mt-1.5 text-[16px] leading-[1.4] text-fg group-hover:text-accent transition-colors">
-                {older.data.title}
-              </p>
-            </a>
-          ) : (
-            <span />
-          )}
-          {newer && (
-            <a href={`${base}/blog/${newer.id}`} class="group block sm:text-right">
-              <p class="font-mono text-[11px] tracking-[0.14em] uppercase text-fg-mute">Newer →</p>
-              <p class="mt-1.5 text-[16px] leading-[1.4] text-fg group-hover:text-accent transition-colors">
-                {newer.data.title}
-              </p>
-            </a>
-          )}
-        </nav>
+      <aside class="mt-16 pt-8 border-t border-line text-[15px] leading-[1.6]">
+        <p class="max-w-[640px] text-fg-dim">
+          <span class="text-fg">Written by the X-GIS team.</span> X-GIS is an open-source,
+          GPU-first map engine — a declarative style language, a typed shader IR, and the
+          globe math, compiled to WebGPU. <a href={`${base}/`} class="text-accent hover:text-accent-hover transition-colors">About the project →</a>
+        </p>
+      </aside>
+      {related.length > 0 && (
+        <section class="mt-14 pt-10 border-t border-line">
+          <p class="font-mono text-[12px] tracking-[0.16em] uppercase text-fg-mute mb-6">Read next</p>
+          <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {related.map((p) => <BlogPostCard post={p} />)}
+          </div>
+        </section>
       )}
       </article>
       <OnThisPage headings={headings} />
@@ -178,15 +184,29 @@ const articleLd = {
   }
   syncOverflow()
   window.addEventListener('resize', syncOverflow)
+
+  // Reading-progress hairline — most useful on mobile, where the TOC is
+  // hidden. A 2px accent line; scaleX tracks scroll position through the
+  // document. Pure enhancement, no layout cost.
+  const bar = document.getElementById('read-progress')
+  if (bar) {
+    const onScroll = () => {
+      const h = document.documentElement.scrollHeight - window.innerHeight
+      bar.style.transform = `scaleX(${h > 0 ? window.scrollY / h : 0})`
+    }
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+  }
 </script>
 
 <style is:global>
   /* Apple-style long-form reading: generous measure, calm hierarchy, hairline
      rules. Code fences are handled by astro-expressive-code; this styles the
      prose around them. */
-  .blog-prose { font-size: 18px; line-height: 1.65; color: var(--color-fg-dim); }
+  .blog-prose { font-size: 19px; line-height: 1.70; color: var(--color-fg-dim); }
   .blog-prose > * + * { margin-top: 1.6em; }
-  /* Prose caps at the 700px measure (~68–72 chars at 18px) and centers
+  /* Prose caps at the 700px measure (~66–73 chars at 19px) and centers
      while the layout is a single column (< lg). Once the grid engages
      (lg+) the article lives in its own track, so prose left-aligns and the
      wide children — code fences (.expressive-code), tables (.table-scroll),
@@ -217,7 +237,7 @@ const articleLd = {
   .blog-prose h3 {
     font-weight: 400;
     color: var(--color-fg);
-    font-size: 22px;
+    font-size: 23px;
     margin-top: 1.8em;
     margin-bottom: 0.35em;
   }
@@ -256,6 +276,22 @@ const articleLd = {
     padding-left: 1em;
     color: var(--color-fg-mute);
     font-style: italic;
+  }
+  /* Figures / images — hairline-framed on the dark surface, with a quiet
+     mono caption (matches the meta/eyebrow voice). Latent until a post
+     embeds one; figures already break out to the full column at lg. */
+  .blog-prose figure img,
+  .blog-prose :not(figure) > img {
+    width: 100%;
+    border: 1px solid var(--color-line);
+    border-radius: 6px;
+  }
+  .blog-prose figcaption {
+    margin-top: 0.7em;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    color: var(--color-fg-mute);
   }
   /* Citation markers ([1], [2][3]) — linked to the matching #ref-N item in
      "## References" by rehypeCitations (astro.config.mjs). Superscript so
