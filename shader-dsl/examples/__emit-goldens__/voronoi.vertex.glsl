@@ -6,16 +6,6 @@ struct VsOut {
   vec4 pos;
   vec2 uv;
 };
-layout(std140) uniform Uniforms {
-  float time;
-  vec2 resolution;
-  float cells;
-} U;
-vec2 hash2(vec2 c);
-vec2 hash2(vec2 c) {
-  vec2 _cse0 = vec2(dot(c, vec2(127.1, 311.7)), dot(c, vec2(269.5, 183.3)));
-  return fract((vec2(sin(_cse0.x), sin(_cse0.y)) * 43758.5453));
-}
 out vec2 uv;
 
 VsOut vs_impl(uint vi) {
