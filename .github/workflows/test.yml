@@ -260,10 +260,8 @@ jobs:
   # built the site (as a side effect of `bun run build`), so gating that matrix
   # off for site-only PRs would have left the site UNvalidated on exactly the
   # PRs that change it. This dedicated job builds the site when `site` files
-  # change — one runner instead of the 7 engine legs. `bun run build` builds
-  # every workspace (incl. `astro build` for the site), catching site build
-  # breaks; the astro.config aliases @xgis/* to source, so no publish step is
-  # needed. Skipped (→ pass via test-result) when no site files changed.
+  # change — one runner instead of the 7 engine legs. Skipped (→ pass via
+  # test-result) when no site files changed.
   site:
     name: site
     needs: changes
@@ -280,7 +278,20 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
           restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
-      - run: bun run build
+      # Site-scoped build, NOT the full-monorepo `bun run build`. astro.config
+      # aliases @xgis/runtime|engine|map|shader-dsl to SOURCE, so their dist
+      # builds are dead weight here; only the packages the site imports through
+      # package `exports` (compiler, blueprint) need dist, plus their upstream
+      # chain (shared, shader-dsl). Proven 2026-07-07: site builds green with
+      # engine/runtime/map/playground dist deleted — 29s vs 72s for the full
+      # build. If the site ever imports a NEW workspace package without a
+      # source alias, add its build to this chain.
+      - run: >-
+          bun run --filter '@xgis/shared' build &&
+          bun run --filter '@xgis/shader-dsl' build &&
+          bun run --filter '@xgis/compiler' build &&
+          bun run --filter '@xgis/blueprint' build &&
+          bun run --filter '@xgis/site' build
 
   # Single stable status context that aggregates the matrix + typecheck. Branch
   # protection (if ever enabled) should require `test-result`, NOT the per-leg
