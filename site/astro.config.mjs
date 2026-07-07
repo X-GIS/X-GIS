@@ -5,6 +5,8 @@ import react from '@astrojs/react'
 import tailwindcss from '@tailwindcss/vite'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import expressiveCode from 'astro-expressive-code'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
 import xgisGrammar from './src/lib/xgis-grammar.json' with { type: 'json' }
 
 const isCI = !!process.env.GITHUB_ACTIONS
@@ -15,20 +17,22 @@ const BASE = (isCI ? '/X-GIS' : '/').replace(/\/$/, '')
 // only rewrites links built from import.meta.env.BASE_URL in .astro/JSX;
 // plain markdown hrefs are emitted verbatim and 404 under the GitHub Pages
 // base. This walks the rendered HAST and prepends BASE to any site-root-
-// absolute href (skipping protocol-relative `//`, already-based, and the
-// local case where BASE is empty). Zero-dep tree-walk — no unist import.
+// absolute `a href` or `img src` (skipping protocol-relative `//`,
+// already-based, and the local case where BASE is empty). Zero-dep
+// tree-walk — no unist import.
 function rehypeBaseLinks() {
+  const rebase = (url) =>
+    BASE && url.startsWith('/') && !url.startsWith('//') && !url.startsWith(BASE + '/')
+      ? BASE + url
+      : url
   return (tree) => {
     const walk = (node) => {
-      if (node.tagName === 'a' && node.properties && typeof node.properties.href === 'string') {
-        const href = node.properties.href
-        if (
-          BASE &&
-          href.startsWith('/') &&
-          !href.startsWith('//') &&
-          !href.startsWith(BASE + '/')
-        ) {
-          node.properties.href = BASE + href
+      if (node.properties) {
+        if (node.tagName === 'a' && typeof node.properties.href === 'string') {
+          node.properties.href = rebase(node.properties.href)
+        }
+        if (node.tagName === 'img' && typeof node.properties.src === 'string') {
+          node.properties.src = rebase(node.properties.src)
         }
       }
       if (node.children) for (const c of node.children) walk(c)
@@ -41,7 +45,11 @@ export default defineConfig({
   site: 'https://x-gis.github.io',
   base: isCI ? '/X-GIS' : '/',
   markdown: {
-    rehypePlugins: [rehypeBaseLinks],
+    // remark-math + rehype-katex: $…$ / $$…$$ LaTeX in blog markdown renders
+    // to KaTeX HTML at build time (no client JS; katex.min.css is imported by
+    // the blog post layout).
+    remarkPlugins: [remarkMath],
+    rehypePlugins: [rehypeKatex, rehypeBaseLinks],
   },
   // English is the default and stays at the root (/docs, /blog, …);
   // Korean is served under /ko (/ko/docs, /ko/blog, …). prefixDefaultLocale:
