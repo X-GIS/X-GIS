@@ -256,11 +256,25 @@ export function wrapWebGpuBindGroup(group: GPUBindGroup): RhiBindGroup {
  *  one submit, matching the render loop's per-frame submit). */
 class WebGpuCommandEncoder implements RhiCommandEncoder {
   private readonly enc: GPUCommandEncoder
+  /** false when this RHI encoder WRAPS an externally-owned native encoder
+   *  (the render loop's per-frame `ctx.encoder`): `finish()` must NOT submit
+   *  — the loop owns the single submit of the underlying encoder. The
+   *  incremental #834 M-B4 seam: a pass records its render pass through this
+   *  RHI encoder while the surrounding native passes still use `ctx.encoder`
+   *  directly; both target the SAME native encoder, so the single command
+   *  stream + submit ordering are preserved. */
+  private readonly ownsSubmit: boolean
   constructor(
     private readonly device: GPUDevice,
-    label?: string,
+    labelOrWrap?: string | { wrap: GPUCommandEncoder },
   ) {
-    this.enc = device.createCommandEncoder(label !== undefined ? { label } : undefined)
+    if (typeof labelOrWrap === 'object') {
+      this.enc = labelOrWrap.wrap
+      this.ownsSubmit = false
+    } else {
+      this.enc = device.createCommandEncoder(labelOrWrap !== undefined ? { label: labelOrWrap } : undefined)
+      this.ownsSubmit = true
+    }
   }
   beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
     return new WebGpuRenderPass(this.enc.beginRenderPass(rhiRenderPassToGpu(desc)))
@@ -275,8 +289,19 @@ class WebGpuCommandEncoder implements RhiCommandEncoder {
     this.enc.copyBufferToBuffer(u<GPUBuffer>(src), srcOffset, u<GPUBuffer>(dst), dstOffset, size)
   }
   finish(): void {
-    this.device.queue.submit([this.enc.finish()])
+    if (this.ownsSubmit) this.device.queue.submit([this.enc.finish()])
   }
+}
+
+/** Wrap the render loop's EXISTING native `GPUCommandEncoder` as an
+ *  `RhiCommandEncoder` (#834 M-B4). `finish()` is a no-op — the loop owns the
+ *  submit. Lets a WebGPU-frame pass record through the RHI seam incrementally
+ *  (same underlying encoder as the yet-unconverted native passes). */
+export function wrapWebGpuCommandEncoder(
+  device: GPUDevice,
+  enc: GPUCommandEncoder,
+): RhiCommandEncoder {
+  return new WebGpuCommandEncoder(device, { wrap: enc })
 }
 
 export class WebGpuDevice implements RhiDevice {
