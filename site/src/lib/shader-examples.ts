@@ -51,6 +51,8 @@ export interface ShaderCard {
   reflectionJson: string
   /** Live-render spec for the client (renderable only). */
   spec: RenderSpec | null
+  /** Split-screen comparison badges ([left, right]) overlaid on the canvas. */
+  splitLabels: readonly [string, string] | null
 }
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
@@ -85,6 +87,7 @@ export const shaderCards: ShaderCard[] = examples.map((ex) => {
           controls: ex.controls ?? {},
         }
       : null,
+    splitLabels: ex.splitLabels ?? null,
   }
 })
 

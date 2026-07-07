@@ -22,9 +22,11 @@ import {
   f32,
   f64,
   pow,
-  sqrt,
-  fract,
+  cos,
+  log2,
+  max,
   mix,
+  step,
   toF32,
   toF64,
   f32T,
@@ -46,9 +48,10 @@ import type { ShaderExample } from './_shared.ts'
 
 // A filament point on the needle spike — escape times stay under ~96
 // iterations at deep zoom (a period-3 minibrot neighbourhood), so the
-// structure is visible without an expensive iteration budget.
+// structure is visible without an expensive iteration budget. Centering on
+// the real axis (y = 0) keeps the minibrot chain mid-frame at every zoom.
 const CENTER_X = -1.7490368500591792
-const CENTER_Y = 0.0000000281
+const CENTER_Y = 0
 const ITER = 96
 
 const U = uniformStruct(
@@ -103,6 +106,7 @@ const fsMandel = fn(
     )
 
     const it = Var(f32(0))
+    const m2 = Var(f32(0)) // |z|² at escape (frozen once the guard fails)
     // fp64 toggle off → BOTH halves take the f32 branch: the right half
     // collapses flat in place, making the emulation's contribution tangible.
     If(p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)), () => {
@@ -116,7 +120,7 @@ const fsMandel = fn(
         u32(0),
         (j) => j.lt(u32(ITER)),
         () => {
-          If(zx.mul(zx).add(zy.mul(zy)).le(4.0), () => {
+          If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
             const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(cx))
             zy.assign(zx.mul(zy).mul(2.0).add(cy))
             zx.assign(nzx)
@@ -124,6 +128,7 @@ const fsMandel = fn(
           })
         },
       )
+      m2.assign(zx.mul(zx).add(zy.mul(zy)))
     }).else(() => {
       // f64 — identical authoring, only the value types differ.
       const cx = Let(U.field.center.x.add(toF64(dx)))
@@ -134,7 +139,7 @@ const fsMandel = fn(
         u32(0),
         (j) => j.lt(u32(ITER)),
         () => {
-          If(zx.mul(zx).add(zy.mul(zy)).le(4.0), () => {
+          If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
             const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(cx))
             zy.assign(zx.mul(zy).mul(2.0).add(cy))
             zx.assign(nzx)
@@ -142,14 +147,21 @@ const fsMandel = fn(
           })
         },
       )
+      m2.assign(toF32(zx.mul(zx).add(zy.mul(zy))))
     })
 
-    // Interior (never escaped) stays dark; banded escape time keeps local
-    // contrast high across the narrow escape range of a deep-zoom window.
-    const esc = Let(it.lt(ITER).select(it, f32(0)))
-    const band = Let(fract(esc.mul(0.11)))
-    const t = Let(sqrt(esc.div(ITER)).mul(0.35).add(band.mul(0.65)))
-    const rgb = mix(vec3(0.02, 0.03, 0.1), vec3(1.0, 0.83, 0.36), t)
+    // Smooth escape-time colouring (log₂ log₂ |z|² kills the discrete bands —
+    // same treatment as mandelbrot.ts) so zooming reads as a continuous dive
+    // instead of strobing colour bands; a LOW-contrast cosine shimmer over the
+    // smooth count keeps the iso-contour structure readable without the churn.
+    // Interior (never escaped) stays black.
+    const sn = Let(it.sub(log2(max(log2(max(m2, 1.0001)), 0.0001))).add(1.0))
+    const inside = Let(step(f32(ITER).sub(0.5), it))
+    const s = Let(sn.div(ITER))
+    const shade = Let(f32(0.82).add(cos(sn.mul(0.55)).mul(0.18)))
+    const rgb = mix(vec3(0.03, 0.05, 0.12), vec3(1.0, 0.83, 0.36), s)
+      .mul(shade)
+      .mul(f32(1).sub(inside))
     return vec4(rgb, f32(1))
   },
   { stage: 'fragment', retAttr: '@location(0)' },
@@ -175,6 +187,7 @@ export const fp64Mandelbrot: ShaderExample = {
   file: 'fp64-mandelbrot.ts',
   module: fp64MandelbrotModule,
   renderable: true,
+  splitLabels: ['f32', 'f64 (emulated)'],
   controls: {
     // Drag pans the center in full double precision; a full-canvas-width drag
     // moves 2 × span (each half maps span across half the width).
