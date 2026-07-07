@@ -9,18 +9,29 @@
 
 import { module, emitGlslModule } from '@xgis/shader-dsl'
 import { getGpuProjectionFuncs } from './projections'
-import { buildLineModule, vsLine, buildFsLine } from './line'
+import { buildLineModule, vsLine, buildFsLine, buildFsLinePattern } from './line'
 
-/** GLSL ES 3.00 twin of the solid line shader (mirrors emitPolygonGlsl /
+/** GLSL ES 3.00 twin of the line shader (mirrors emitPolygonGlsl /
  *  emitIconRetainedGlsl). Per-stage module ASSEMBLY (not a post-hoc func
  *  filter): module() collects the kept entry's transitive callees, so the
  *  vertex stage never sees the fragment-only SDF helpers — they contain
  *  `discard`, which GLSL rejects in a vertex shader even when unreached.
- *  The three array<Struct> storage buffers (segments / shapes /
+ *  'fragment-pattern' emits the fs_line_pattern entry (Mapbox line-pattern;
+ *  sprite atlas sample) — GLSL has one `main` per stage, so the pattern
+ *  pipeline variant needs its own fragment source rather than an entry-name
+ *  override. The three array<Struct> storage buffers (segments / shapes /
  *  shape_segments) lower to R32F data textures via `emulateStorage`. */
-export const emitLineGlsl = (pickEnabled: boolean, stage: 'vertex' | 'fragment'): string => {
+export const emitLineGlsl = (
+  pickEnabled: boolean,
+  stage: 'vertex' | 'fragment' | 'fragment-pattern',
+): string => {
   const full = buildLineModule(pickEnabled)
-  const entry = stage === 'vertex' ? vsLine : buildFsLine(pickEnabled)
+  const entry =
+    stage === 'vertex'
+      ? vsLine
+      : stage === 'fragment-pattern'
+        ? buildFsLinePattern(pickEnabled)
+        : buildFsLine(pickEnabled)
   return emitGlslModule(
     module({
       consts: full.consts,
@@ -28,7 +39,7 @@ export const emitLineGlsl = (pickEnabled: boolean, stage: 'vertex' | 'fragment')
       bindings: full.bindings,
       funcs: [...getGpuProjectionFuncs(), entry],
     }),
-    stage,
+    stage === 'vertex' ? 'vertex' : 'fragment',
     { emulateStorage: true },
   )
 }

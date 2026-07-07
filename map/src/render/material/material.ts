@@ -35,6 +35,11 @@ export interface PipelineVariant {
    *  extruded variant swaps the vertex entry to vs_main_ecef_extruded). */
   fsEntry?: string
   vsEntry?: string
+  /** Per-variant GLSL twin overrides. GLSL ES has one `main` per stage, so a
+   *  variant that swaps its WGSL entry (fs_line_pattern) must carry its own
+   *  emitted source on the WebGL2 backend; WebGPU ignores these. */
+  vsCode?: string
+  fsCode?: string
   /** Per-tile clip-mask stencil state (the VTR fill fallback variants — STENCIL_WRITE / STENCIL_TEST).
    *  Forwarded to the RHI pipeline's depthStencil.stencil; absent = inert stencil (byte-identical). */
   stencil?: {
@@ -129,8 +134,8 @@ export class Material {
         code: desc.shader,
         vsEntry: v.vsEntry ?? desc.vsEntry,
         fsEntry: v.fsEntry ?? desc.fsEntry,
-        vsCode: desc.vsCode,
-        fsCode: desc.fsCode,
+        vsCode: v.vsCode ?? desc.vsCode,
+        fsCode: v.fsCode ?? desc.fsCode,
         bindGroupLayouts: this.layouts,
         colorTargets: desc.colorTargets,
         depthStencil:

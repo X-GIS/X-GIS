@@ -1247,7 +1247,7 @@ export const buildFsLine = (pickEnabled: boolean) =>
     { stage: 'fragment' },
   )
 
-const buildFsLinePattern = (pickEnabled: boolean) =>
+export const buildFsLinePattern = (pickEnabled: boolean) =>
   fn(
     'fs_line_pattern',
     { input: LineOut },

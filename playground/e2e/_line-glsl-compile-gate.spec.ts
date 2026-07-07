@@ -83,4 +83,63 @@ test.describe('line GLSL twin compiles on real WebGL2 (#834 M5)', () => {
     ).toBe(true)
     expect(result.linkOk, `line program failed to link:\n${result.linkLog}`).toBe(true)
   })
+
+  test('vs_line + fs_line_pattern compile + link cleanly', async ({ page }) => {
+    // #834 M5 slice 5 — the Mapbox line-pattern fragment twin (sprite-atlas
+    // sample; the pattern pipeline variant's own fsCode).
+    configureProjections(PROJECTIONS)
+    const vertex = emitLineGlsl(false, 'vertex')
+    const fragment = emitLineGlsl(false, 'fragment-pattern')
+    expect(fragment.length).toBeGreaterThan(200)
+    // The pattern fragment samples the sprite atlas through the fused
+    // combined sampler named after the texture binding.
+    expect(fragment).toContain('sprite_atlas')
+
+    await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
+
+    const result = await page.evaluate(
+      ({ vertex, fragment }) => {
+        const canvas = document.createElement('canvas')
+        const gl = canvas.getContext('webgl2')
+        if (!gl) return { fatal: 'no webgl2 context' as const }
+        const compile = (type: number, src: string): { ok: boolean; log: string } => {
+          const sh = gl.createShader(type)!
+          gl.shaderSource(sh, src)
+          gl.compileShader(sh)
+          return {
+            ok: gl.getShaderParameter(sh, gl.COMPILE_STATUS) as boolean,
+            log: gl.getShaderInfoLog(sh) ?? '',
+          }
+        }
+        const vs = compile(gl.VERTEX_SHADER, vertex)
+        const fs = compile(gl.FRAGMENT_SHADER, fragment)
+        let linkOk = false
+        let linkLog = ''
+        if (vs.ok && fs.ok) {
+          const prog = gl.createProgram()!
+          const vsh = gl.createShader(gl.VERTEX_SHADER)!
+          gl.shaderSource(vsh, vertex)
+          gl.compileShader(vsh)
+          const fsh = gl.createShader(gl.FRAGMENT_SHADER)!
+          gl.shaderSource(fsh, fragment)
+          gl.compileShader(fsh)
+          gl.attachShader(prog, vsh)
+          gl.attachShader(prog, fsh)
+          gl.linkProgram(prog)
+          linkOk = gl.getProgramParameter(prog, gl.LINK_STATUS) as boolean
+          linkLog = gl.getProgramInfoLog(prog) ?? ''
+        }
+        return { vs, fs, linkOk, linkLog }
+      },
+      { vertex, fragment },
+    )
+
+    expect(result, `WebGL2 unavailable`).not.toHaveProperty('fatal')
+    if ('fatal' in result) return
+    expect(
+      result.fs.ok,
+      `line pattern fragment GLSL failed to compile:\n${result.fs.log}\n--- GLSL ---\n${fragment}`,
+    ).toBe(true)
+    expect(result.linkOk, `line pattern program failed to link:\n${result.linkLog}`).toBe(true)
+  })
 })

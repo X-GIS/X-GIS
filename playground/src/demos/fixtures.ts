@@ -256,6 +256,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     description: '2-slot pattern stack (dot + cross).',
     source: load('fixture-pattern-multi.xgis'),
   },
+  fixture_line_image_pattern: {
+    name: 'Fixture: line image pattern (local sprite)',
+    tag: 'fixture',
+    description:
+      'Line stroked via Mapbox line-pattern (stroke-image-, fs_line_pattern) sampling a local sprite atlas. Load with &sprite=/fixture-sprite.',
+    source: load('fixture-line-image-pattern.xgis'),
+  },
   fixture_stroke_inset: {
     name: 'Fixture: stroke inset',
     tag: 'fixture',

@@ -614,8 +614,9 @@ export class LineRenderer {
   /** RHI-native sibling of `drawSegments` for the forced-WebGL2 screen pass
    *  (#834 M5 slice 1): the pass and BOTH bind groups arrive as RHI handles
    *  (the tile group is built by VTR against the line Material's own group-0
-   *  layout), so nothing is wrapped. Solid opaque only — pattern/max/pick are
-   *  WebGPU-path concerns until their twins land. */
+   *  layout), so nothing is wrapped. Opaque only — `pattern` selects the
+   *  fs_line_pattern variant (#834 M5 slice 5); max/pick stay WebGPU-path
+   *  concerns until their twins land. */
   drawSegmentsRhi(
     pass: RhiRenderPass,
     tileBG: RhiBindGroup,
@@ -623,6 +624,7 @@ export class LineRenderer {
     segmentCount: number,
     tileOffset: number,
     layerOffset: number,
+    pattern = false,
   ): void {
     if (segmentCount === 0) return
     this.ensureLineDraper()
@@ -631,7 +633,7 @@ export class LineRenderer {
       layerBG,
       tileOffset,
       layerOffset,
-      pattern: false,
+      pattern,
       segmentCount,
     })
   }

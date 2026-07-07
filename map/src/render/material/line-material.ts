@@ -19,9 +19,13 @@ import { emitLineGlsl } from '../../shaders/dsl/line-glsl'
 // (storage lowers to R32F data textures named <buffer>_tex by emulateStorage).
 const LINE_TILE_ENTRIES: RhiBindLayoutEntry[] = [
   { binding: 0, kind: 'uniform', dynamic: true, name: 'TileUniforms' },
-  // sprite_atlas/sprite_samp (bindings 5/6) are pattern-only; the solid
-  // fs_line twin never samples them, so slice 1 omits the entries — the
-  // pattern variant extends this when it lands on WebGL2.
+  // sprite_atlas/sprite_samp — the fs_line_pattern variant samples the sprite
+  // atlas (Mapbox line-pattern, #834 M5 slice 5). The solid fs_line program
+  // has no such uniform: the by-name reflection resolves a null location and
+  // skips the wiring, so the extra entries are inert on variant 0. Every tile
+  // bind group supplies a view/sampler (the real atlas or VTR's white stub).
+  { binding: 5, kind: 'texture', name: 'sprite_atlas' },
+  { binding: 6, kind: 'sampler', name: 'sprite_samp' },
 ]
 const LINE_LAYER_ENTRIES: RhiBindLayoutEntry[] = [
   { binding: 0, kind: 'uniform', dynamic: true, name: 'LineLayer' },
@@ -94,6 +98,9 @@ export class LineDraper {
           depthWrite: false,
           depthCompare: 'less-equal',
           fsEntry: 'fs_line_pattern',
+          // GLSL has one main per stage — the pattern variant carries its own
+          // emitted fragment twin (#834 M5 slice 5).
+          fsCode: gl2 ? emitLineGlsl(pick, 'fragment-pattern') : undefined,
           label: pick ? 'line-pipeline-pattern-pick-rhi' : 'line-pipeline-pattern-rhi',
         },
       ],

@@ -899,13 +899,29 @@ export class RenderLoop {
     // iconStage creation) because the GPU buffer + bind groups are
     // wired by this point.
     if (!this.host._spriteAtlasViewPushed) {
-      const view = this.host.iconStage?.gpu.getView()
-      if (view) {
-        this.host.renderer.setSpriteAtlas(view)
-        for (const { renderer: vtRenderer } of this.host.vtSources.values()) {
-          vtRenderer.setSpriteAtlasView(view)
+      if (this.host.ctx.rhi.backend === 'webgl2') {
+        // #834 M5 slice 5 — the webgl2 twin: push the atlas's RHI handles so
+        // the VTR line-pattern tile bind group samples the real sprite atlas
+        // (the native GPUTextureView push below rebuilds WebGPU bind groups,
+        // which are proxy no-ops on this backend).
+        const gpu = this.host.iconStage?.gpu
+        const rhiView = gpu?.rhiView?.()
+        const rhiSampler = gpu?.rhiSampler?.()
+        if (rhiView && rhiSampler) {
+          for (const { renderer: vtRenderer } of this.host.vtSources.values()) {
+            vtRenderer.setSpriteAtlasRhi(rhiView, rhiSampler)
+          }
+          this.host._spriteAtlasViewPushed = true
         }
-        this.host._spriteAtlasViewPushed = true
+      } else {
+        const view = this.host.iconStage?.gpu.getView()
+        if (view) {
+          this.host.renderer.setSpriteAtlas(view)
+          for (const { renderer: vtRenderer } of this.host.vtSources.values()) {
+            vtRenderer.setSpriteAtlasView(view)
+          }
+          this.host._spriteAtlasViewPushed = true
+        }
       }
     }
     // iter-183 — compute the sprite atlas UV bbox + the world-anchored

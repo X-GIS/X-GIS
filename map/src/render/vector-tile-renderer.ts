@@ -3,7 +3,14 @@
 // Data loading/caching/sub-tiling is handled by TileCatalog.
 // This class manages GPU buffers, bind groups, and draw calls only.
 
-import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
+import type {
+  RhiBindGroup,
+  RhiBuffer,
+  RhiDevice,
+  RhiRenderPass,
+  RhiSampler,
+  RhiTextureView,
+} from '@xgis/engine'
 import type { GPUContext, WebGpuDevice } from '@xgis/rhi-webgpu'
 import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
 import { POLYGON_FILL_FORMAT } from '@xgis/compiler'
@@ -942,8 +949,16 @@ export class VectorTileRenderer {
         anchor: anchorMap[p.anchor ?? 'repeat'],
       }))
       .filter((p) => p.shapeId > 0)
+    // Mapbox IMAGE line-pattern (#834 M5 slice 5) — render()'s slot reuse
+    // verbatim: fs_line_pattern reads layer.color.r/.a as the x/y repeat
+    // metres and tile.stroke_color as the sprite-atlas UV bbox, so the
+    // pattern show trades its solid stroke colour for the atlas sample.
+    const linePatternActive = show.linePatternUV != null && show.linePatternRepeatM != null
+    const lineSlotColor: [number, number, number, number] = linePatternActive
+      ? [show.linePatternRepeatM![0], 0, 0, show.linePatternRepeatM![1]]
+      : [stroke[0], stroke[1], stroke[2], stroke[3]]
     const layerOffset = this.lineRenderer.writeLayerSlot(
-      [stroke[0], stroke[1], stroke[2], stroke[3]],
+      lineSlotColor,
       strokeWidthPx,
       opacity,
       mpp,
@@ -967,6 +982,15 @@ export class VectorTileRenderer {
     const B = this.frameBlock
     B.set.mvp(frame.matrix)
     B.set.fill_color(0, 0, 0, 0)
+    // fs_line_pattern reads the sprite-atlas UV bbox from tile.stroke_color
+    // (render()'s slot reuse); solid fs_line never reads the lane — zero it
+    // for determinism.
+    if (linePatternActive) {
+      const lu = show.linePatternUV!
+      B.set.stroke_color(lu[0]!, lu[1]!, lu[2]!, lu[3]!)
+    } else {
+      B.set.stroke_color(0, 0, 0, 0)
+    }
     B.set.proj_params(projType, projCenterLon, projCenterLat, 0)
     const ge = globeEyeUniform(frame.eye)
     B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
@@ -1031,6 +1055,7 @@ export class VectorTileRenderer {
           outlineN,
           slotOffset,
           layerOffset,
+          linePatternActive,
         )
       if (lineN > 0 && cached.lineSegmentBindGroup)
         this.lineRenderer.drawSegmentsRhi(
@@ -1040,6 +1065,7 @@ export class VectorTileRenderer {
           lineN,
           slotOffset,
           layerOffset,
+          linePatternActive,
         )
     }
     return missing
@@ -1103,17 +1129,51 @@ export class VectorTileRenderer {
     return missing
   }
 
+  /** Sprite atlas as RHI handles for the WebGL2 line-pattern tile bind group
+   *  (#834 M5 slice 5) — the webgl2 twin of `setSpriteAtlasView`, pushed by
+   *  render-loop's `_resolveFillPatterns` once the atlas loads. */
+  private _spriteAtlasRhi: { view: RhiTextureView; sampler: RhiSampler } | null = null
+  setSpriteAtlasRhi(view: RhiTextureView, sampler: RhiSampler): void {
+    if (this._spriteAtlasRhi?.view === view) return
+    this._spriteAtlasRhi = { view, sampler }
+    this._lineTileBgRhi = null // rebuild the tile group with the real atlas
+  }
+  /** 1×1 white stub bound at sprite_atlas until the real atlas loads —
+   *  mirrors the WebGPU tile group's stub (iter-181). Lazy, webgl2-only. */
+  private _stubAtlasRhi: { view: RhiTextureView; sampler: RhiSampler } | null = null
+  private stubAtlasRhi(): { view: RhiTextureView; sampler: RhiSampler } {
+    if (this._stubAtlasRhi) return this._stubAtlasRhi
+    const tex = this.rhi.createTexture({
+      width: 1,
+      height: 1,
+      format: 'rgba8unorm',
+      usage: ['sample', 'copy-dst'],
+      label: 'vtr-line-atlas-stub',
+    })
+    this.rhi.writeTexture(tex, new Uint8Array([255, 255, 255, 255]), 4, 1, 1)
+    this._stubAtlasRhi = {
+      view: this.rhi.createView(tex),
+      sampler: this.rhi.createSampler({ mag: 'nearest', min: 'nearest' }),
+    }
+    return this._stubAtlasRhi
+  }
+
   /** Line-material tile bind group over the VTR uniform ring (mirrors
    *  fillTileBgRhi — the line TILE block shares the 192-byte layout, so the
    *  binding size is the same polygonUniformBytes contract). Cached per ring
-   *  identity; a ring grow invalidates it. */
+   *  identity; a ring grow or an atlas push invalidates it. On webgl2 the
+   *  layout carries sprite_atlas/sprite_samp (bindings 5/6) for the
+   *  fs_line_pattern variant — bound to the pushed atlas or the white stub. */
   private _lineTileBgRhi: { buf: RhiBuffer; bg: RhiBindGroup } | null = null
   private lineTileBgRhi(): RhiBindGroup | null {
     const buf = this.uniformRing?.rhiBuffer
     if (!buf || !this.lineRenderer) return null
     if (this._lineTileBgRhi?.buf === buf) return this._lineTileBgRhi.bg
+    const atlas = this._spriteAtlasRhi ?? this.stubAtlasRhi()
     const bg = this.rhi.createBindGroup(this.lineRenderer.tileLayoutRhi(), [
       { binding: 0, resource: { buffer: buf, offset: 0, size: polygonUniformBytes() } },
+      { binding: 5, resource: { view: atlas.view } },
+      { binding: 6, resource: { sampler: atlas.sampler } },
     ])
     this._lineTileBgRhi = { buf, bg }
     return bg
