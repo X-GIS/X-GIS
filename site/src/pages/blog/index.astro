@@ -3,11 +3,17 @@ import Base from '../../layouts/Base.astro'
 import Header from '../../components/Header.astro'
 import Footer from '../../components/Footer.astro'
 import BlogPostCard from '../../components/BlogPostCard.astro'
-import { publishedPosts } from '../../lib/blog'
+import { publishedPosts, readingTimeMin } from '../../lib/blog'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const posts = await publishedPosts()
 const allTags = [...new Set(posts.flatMap((p) => p.data.tags))].sort()
+
+// The newest post is featured; the rest fill the card grid below.
+const featured = posts[0]
+const rest = posts.slice(1)
+const fmt = (d: Date) =>
+  d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
 ---
 
 <Base
@@ -17,7 +23,7 @@ const allTags = [...new Set(posts.flatMap((p) => p.data.tags))].sort()
   <Header />
   <main class="pt-28 sm:pt-36 pb-32">
     <div class="max-w-[1400px] mx-auto px-6">
-      <header class="mb-16 sm:mb-24">
+      <header class="mb-12 sm:mb-16">
         <p class="font-mono text-[12px] tracking-[0.22em] uppercase text-accent mb-4">Blog</p>
         <h1 class="font-display font-normal text-fg leading-[0.92] tracking-[-0.02em] text-[52px] sm:text-[72px] lg:text-[88px]">
           Engineering notes.
@@ -27,15 +33,18 @@ const allTags = [...new Set(posts.flatMap((p) => p.data.tags))].sort()
           math, the WebGPU render graph.
         </p>
         {allTags.length > 0 && (
-          <div class="mt-8 flex flex-wrap gap-2">
-            {allTags.map((t) => (
-              <a
-                href={`${base}/blog/tags/${t}`}
-                class="font-mono text-[11px] tracking-[0.1em] uppercase text-fg-mute border border-line rounded-full px-2.5 py-0.5 hover:text-fg hover:border-line-strong transition-colors"
-              >
-                {t}
-              </a>
-            ))}
+          <div class="mt-9">
+            <p class="font-mono text-[11px] tracking-[0.16em] uppercase text-fg-mute mb-3">Browse by tag</p>
+            <div class="flex flex-wrap gap-2">
+              {allTags.map((t) => (
+                <a
+                  href={`${base}/blog/tags/${t}`}
+                  class="font-mono text-[11px] tracking-[0.1em] uppercase text-fg-mute border border-line rounded-full px-2.5 py-0.5 hover:text-fg hover:border-line-strong transition-colors"
+                >
+                  {t}
+                </a>
+              ))}
+            </div>
           </div>
         )}
       </header>
@@ -43,9 +52,57 @@ const allTags = [...new Set(posts.flatMap((p) => p.data.tags))].sort()
       {posts.length === 0 ? (
         <p class="text-fg-mute text-[15px]">No posts yet — check back soon.</p>
       ) : (
-        <ul class="divide-y divide-line border-t border-line">
-          {posts.map((post) => <BlogPostCard post={post} />)}
-        </ul>
+        <>
+          {/* Featured: the newest post as a single-column editorial lede —
+              eyebrow → title → hook → tags → CTA read as one vertical
+              rhythm. Lifted above the grid with the elevated fill and the
+              accent "Latest" kicker rather than by size alone. */}
+          <article class="group relative bg-bg-elev border border-line rounded-[8px] p-8 sm:p-10 transition-[border-color,transform] duration-200 hover:border-line-strong hover:-translate-y-0.5">
+            <p class="font-mono text-[11px] tracking-[0.16em] uppercase text-accent">
+              Latest
+              <span class="text-fg-mute">
+                {' · '}{readingTimeMin(featured.body)} min read
+                {' · '}<time datetime={featured.data.date.toISOString()}>{fmt(featured.data.date)}</time>
+              </span>
+            </p>
+            <h2 class="mt-4 max-w-[20ch] font-display font-normal text-fg text-[32px] sm:text-[42px] leading-[1.04] tracking-[-0.02em] text-balance">
+              <a
+                href={`${base}/blog/${featured.id}`}
+                class="after:absolute after:inset-0 after:content-[''] group-hover:text-accent transition-colors"
+              >
+                {featured.data.title}
+              </a>
+            </h2>
+            <p class="mt-5 max-w-[68ch] text-[16px] leading-[1.6] text-fg-dim">{featured.data.description}</p>
+            <div class="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
+              <span class="inline-flex items-center gap-1.5 font-mono text-[12px] tracking-[0.12em] uppercase text-fg group-hover:text-accent transition-colors">
+                Read post
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+              </span>
+              {featured.data.tags.length > 0 && (
+                <div class="relative z-[1] flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] tracking-[0.12em] uppercase text-fg-mute">
+                  {featured.data.tags.slice(0, 3).map((t, i) => (
+                    <>
+                      {i > 0 && <span aria-hidden="true">·</span>}
+                      <a href={`${base}/blog/tags/${t}`} class="hover:text-fg transition-colors">{t}</a>
+                    </>
+                  ))}
+                </div>
+              )}
+            </div>
+          </article>
+
+          {rest.length > 0 && (
+            <section class="mt-16 sm:mt-20 pt-12 border-t border-line">
+              <p class="font-mono text-[12px] tracking-[0.18em] uppercase text-fg-mute mb-6">
+                More notes
+              </p>
+              <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {rest.map((post) => <BlogPostCard post={post} />)}
+              </div>
+            </section>
+          )}
+        </>
       )}
     </div>
   </main>
