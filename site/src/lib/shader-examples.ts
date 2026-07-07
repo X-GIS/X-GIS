@@ -42,7 +42,11 @@ export interface ShaderCard {
   thumb: string | null
   source: string
   wgsl: string
+  /** Combined VS+FS listing — kept for side-by-side WGSL↔GLSL comparisons
+   *  (shader-dsl/concepts.astro). The detail page shows the split fields. */
   glsl: string | null
+  glslVertex: string | null
+  glslFragment: string | null
   /** Pretty-printed reflection JSON for the "Reflection" tab. */
   reflectionJson: string
   /** Live-render spec for the client (renderable only). */
@@ -53,8 +57,10 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 
 export const shaderCards: ShaderCard[] = examples.map((ex) => {
   const renderable = ex.renderable
+  const glslVertex = renderable ? emitGlslModule(ex.module, 'vertex') : null
+  const glslFragment = renderable ? emitGlslModule(ex.module, 'fragment') : null
   const glsl = renderable
-    ? `// ─────────── vertex ───────────\n${emitGlslModule(ex.module, 'vertex')}\n\n// ────────── fragment ──────────\n${emitGlslModule(ex.module, 'fragment')}`
+    ? `// ─────────── vertex ───────────\n${glslVertex}\n\n// ────────── fragment ──────────\n${glslFragment}`
     : null
   return {
     id: ex.id,
@@ -67,12 +73,14 @@ export const shaderCards: ShaderCard[] = examples.map((ex) => {
     source: sourceByFile[ex.file] ?? '',
     wgsl: emitModule(ex.module),
     glsl,
+    glslVertex,
+    glslFragment,
     reflectionJson: JSON.stringify(reflect(ex.module), null, 2),
     spec: renderable
       ? {
           id: ex.id,
-          vertex: emitGlslModule(ex.module, 'vertex'),
-          fragment: emitGlslModule(ex.module, 'fragment'),
+          vertex: glslVertex!,
+          fragment: glslFragment!,
           reflection: reflect(ex.module),
           controls: ex.controls ?? {},
         }

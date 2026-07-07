@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { wgslLayout, reflect } from './reflect'
-import { mat4x4fT, vec4fT, vec3fT, f32T, type StructDecl, type ModuleDecl } from './ir'
+import { mat4x4fT, vec4fT, vec3fT, f32T, f64T, u32T, type StructDecl, type ModuleDecl } from './ir'
 
 const struct = (
   name: string,
@@ -50,6 +50,48 @@ describe('wgslLayout — std140 / std430 offset engine', () => {
     ])
     expect(wgslLayout(Inner, 'std140')).toMatchObject({ align: 16, size: 16 })
     expect(wgslLayout(Inner, 'std430')).toMatchObject({ align: 4, size: 8 })
+  })
+
+  it('f64 occupies its lowered vec2<f32> slot (8/8) — authored and lowered layouts agree', () => {
+    const S = struct('S', [
+      ['a', f32T], // @0
+      ['origin', f64T], // aligns to 8 → @8, size 8 (hi, lo)
+      ['b', f32T], // @16
+    ])
+    const L = wgslLayout(S, 'std140')
+    expect(L.fields.map((f) => f.offset)).toEqual([0, 8, 16])
+    // Hosts pack the pair with splitF64: hi at offset, lo at offset+4.
+    expect(L.fields[1]).toMatchObject({ size: 8, align: 8 })
+  })
+})
+
+describe('reflect — f64 vertex attribute', () => {
+  it('an f64 @location param reflects as one 8-byte (vec2<f32>) attribute slot', () => {
+    const m: ModuleDecl = {
+      consts: [],
+      structs: [],
+      bindings: [],
+      funcs: [
+        {
+          name: 'vs',
+          params: [
+            { name: 'idx', type: u32T, builtin: 'vertex_index' },
+            { name: 'pos_x', type: f64T, location: 0 },
+            { name: 'weight', type: f32T, location: 1 },
+          ],
+          ret: { kind: 'void' },
+          attrs: ['@vertex'],
+          stage: 'vertex',
+          body: [],
+        },
+      ],
+    }
+    const v = reflect(m).vertex!
+    expect(v.attributes).toEqual([
+      { name: 'pos_x', location: 0, type: 'f64', offset: 0 },
+      { name: 'weight', location: 1, type: 'f32', offset: 8 },
+    ])
+    expect(v.arrayStride).toBe(12)
   })
 })
 

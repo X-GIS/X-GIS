@@ -3,6 +3,9 @@ import Base from '../../layouts/Base.astro'
 import Header from '../../components/Header.astro'
 import Footer from '../../components/Footer.astro'
 import { getCollection, render } from 'astro:content'
+// KaTeX layout CSS for $…$ math rendered by rehype-katex (build-time HTML —
+// this stylesheet is the only client-side piece).
+import 'katex/dist/katex.min.css'
 
 export async function getStaticPaths() {
   const posts = await getCollection('blog', (e) => !e.data.draft)
@@ -86,4 +89,8 @@ const fmt = (d: Date) =>
     color: var(--color-fg-mute);
     font-style: italic;
   }
+  /* KaTeX on the dark surface: inherit the prose color, keep display math
+     scrollable on narrow screens instead of overflowing the measure. */
+  .blog-prose .katex { color: var(--color-fg); font-size: 1.06em; }
+  .blog-prose .katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.2em 0; }
 </style>

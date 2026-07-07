@@ -13,17 +13,17 @@ package like any other consumer.)
 
 ## Capability taxonomy (honest)
 
-| Capability                                                                                                                                                         | Standing                                                                                                                                                    |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Author** (typed IR, SoT layout declarators, control-flow + value combinators)                                                                                    | **STRONG**                                                                                                                                                  |
-| **Type-check** (compile-time `Node<K>` keys; wrong-typed return / field is a TS error)                                                                             | **STRONG**                                                                                                                                                  |
-| **Optimize** (CSE, DCE, LICM, const-fold, algebraic, auto-var/auto-let)                                                                                            | STRONG                                                                                                                                                      |
-| **Validate / lint** (lint engine + capability gate; coded errors `SD####`, aggregated `validate`, unified `diagnose()`/`formatReport()` + opt-in source locations) | **STRONG**                                                                                                                                                  |
-| **CPU-oracle parity** (compile the same module to an f64 CPU fn for cross-checking)                                                                                | **DISTINCTIVE**                                                                                                                                             |
-| **Reflect** (`reflect(module)` → bind-groups + std140/std430 layouts + entry signatures)                                                                           | **NEW**                                                                                                                                                     |
-| **WGSL backend**                                                                                                                                                   | real, byte-stable                                                                                                                                           |
-| **GLSL backend**                                                                                                                                                   | **real for render pipelines** — vertex+fragment entry-IO + std140 UBO, WebGL2 compile+render-verified (see `examples/`); compute/SSBO/MSAA-load fail closed |
-| **Multi-target** (SPIR-V / MSL / HLSL)                                                                                                                             | **aspirational** — mono-target (WGSL) but credible for v1                                                                                                   |
+| Capability                                                                                                                                                         | Standing                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Author** (typed IR, SoT layout declarators, control-flow + value combinators)                                                                                    | **STRONG**                                                                                                                                                                           |
+| **Type-check** (compile-time `Node<K>` keys; wrong-typed return / field is a TS error)                                                                             | **STRONG**                                                                                                                                                                           |
+| **Optimize** (CSE, DCE, LICM, const-fold, algebraic, auto-var/auto-let)                                                                                            | STRONG                                                                                                                                                                               |
+| **Validate / lint** (lint engine + capability gate; coded errors `SD####`, aggregated `validate`, unified `diagnose()`/`formatReport()` + opt-in source locations) | **STRONG**                                                                                                                                                                           |
+| **CPU-oracle parity** (compile the same module to an f64 CPU fn for cross-checking)                                                                                | **DISTINCTIVE**                                                                                                                                                                      |
+| **Reflect** (`reflect(module)` → bind-groups + std140/std430 layouts + entry signatures)                                                                           | **NEW**                                                                                                                                                                              |
+| **WGSL backend**                                                                                                                                                   | real, byte-stable                                                                                                                                                                    |
+| **GLSL backend**                                                                                                                                                   | **real for render pipelines** — vertex+fragment entry-IO + std140 UBO + MRT draw buffers, WebGL2 compile+render-verified (see `examples/`, #847); compute/SSBO/MSAA-load fail closed |
+| **Multi-target** (SPIR-V / MSL / HLSL)                                                                                                                             | **aspirational** — mono-target (WGSL) but credible for v1                                                                                                                            |
 
 ## Install / build
 
@@ -188,9 +188,11 @@ cannot change an emitted byte. The std140/std430 offset engine is also exposed s
 ## Examples
 
 Runnable, runtime-free shaders live in [`examples/`](./examples) — three cartographic
-(graticule, hillshade, choropleth ramp), six generic (plasma, voronoi, julia, fBm clouds,
-raymarched sphere, gradient), and one compute kernel. Each emits WGSL + GLSL ES 3.00 +
-reflection from one source:
+(graticule, hillshade, choropleth ramp), sixteen generic covering the classic
+ShaderToy-era effects (plasma, voronoi, julia, mandelbrot, fBm clouds, domain warping,
+raymarched sphere, raymarched box field, tunnel, metaballs, ocean, starfield, truchet,
+kaleidoscope, beating heart, gradient), and one compute kernel. Each emits
+WGSL + GLSL ES 3.00 + reflection from one source:
 
 ```bash
 npx tsx examples/print.ts            # print WGSL / GLSL / reflection for every example

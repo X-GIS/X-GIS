@@ -186,6 +186,26 @@ min_dist.assign(min(min_dist, d)) // …auto-materialises as `var`
 binding (a derivative like `fwidth` that WGSL requires in uniform control flow, or a
 mutable accumulator you want to name), but the default is a plain `const`.
 
+**When a `Let` is load-bearing, not stylistic** (#838): CSE cannot hoist a subexpression
+that reads a **mutated** `var` — the value differs per read site — so a shared
+subexpression inside a mutation loop **re-emits at every use** unless you materialise it:
+
+```ts
+Loop(
+  u32(0),
+  (i) => i.lt(u32(72)),
+  () => {
+    const p = ro.add(rd.mul(t)) // t is mutated below → CSE can't cache anything reading it
+    const d = Let(length(p).sub(1)) // materialise ONCE; without Let the SDF re-emits per read
+    If(d.lt(0.001), () => Break())
+    t.assign(t.add(d))
+  },
+)
+```
+
+Rule of thumb: inside a loop that mutates a `var`, `Let` any value derived from that `var`
+that you read more than once.
+
 ### `.assign(v)` — the one mutation method
 
 JS cannot overload `=`, so mutation is a method on the lvalue Node (mirrors three.js TSL's
@@ -224,6 +244,14 @@ Arithmetic, comparison, bitwise, swizzle, and index are **methods** on a Node:
 | index      | `.at(i, elemType)`                                                       |
 | ternary    | `cond.select(a, b)` (WGSL `select`)                                      |
 
+> **The `.mod` METHOD is `%` — trunc-mod on WGSL floats and INVALID on GLSL
+> ES 3.00 floats (integer-only there).** For float modulo use the free function
+> **`mod(x, y)`** (#839): FLOOR-mod with identical semantics on both targets
+> (WGSL spells it inline as `x − y·⌊x/y⌋`, GLSL as native `mod()`), so negative
+> operands wrap into `[0, y)` — what domain repetition and angle folds need.
+> Named after GLSL/TSL `mod` — deliberately not `fmod`, which in C/HLSL is
+> trunc-mod. Component-wise; `y` may be a scalar broadcast over a vector `x`.
+
 **A bare number literal lifts to the operand's type from context** — drop the `f32()` /
 `u32()` / `i32()` wrapper:
 
@@ -239,6 +267,11 @@ The same lift applies inside vector/struct constructors (`vec2/vec3/vec4/vec2u/v
 `construct`) and inside `min/max/clamp/mix/pow/smoothstep`. You only keep an explicit
 `f32(0.5)` / `u32(16)` when there is **no** context to infer from (a standalone constant or
 the type-anchor first arg of a math built-in).
+
+**Negative literals lift too** (#845) — `x.mul(-6)`, `.add(-0.25)`, `vec3(-1, 0, 1)` all
+emit the signed literal directly (`x * -6.0`) on both targets. There is no need for the
+defensive `.neg()` / `.sub()` spellings some older examples used; write the sign in the
+number.
 
 ### `radians()` / `degrees()`
 
@@ -277,6 +310,27 @@ If(p.idx.eq(1), () => {
 `If` / `elif` / `else` bodies are zero-arg closures `() => …` that author into the
 **innermost** active scope (no `Builder` is threaded). They are **statements** — a body
 should not "return" a value as a fall-through; for early exits use `Return()` / `ReturnIf()`.
+
+### `Loop` — the C-style for
+
+```ts
+Loop(
+  u32(0),
+  (i) => i.lt(u32(64)), // cond receives the counter…
+  (i) => {
+    // …and so does the BODY — declare `(i)` here too (#837)
+    acc.assign(acc.add(toF32(i)))
+  },
+)
+```
+
+`Loop(init, cond, body, step?)` (optional leading name string names the WGSL counter;
+`step` defaults to `+1`). **Both** callbacks receive the counter — a body written `() => {}`
+that references `i` compiles as JS closure syntax but `i` is not in scope: `tsc` flags it
+(`Cannot find name 'i'`), and a transpile-only runner (vitest) surfaces it at build time as
+`while building fn '…': in Loop body: i is not defined` (#843). `Continue()` / `Break()`
+are the loop terminators; the counter is a mutable `Node` (loop-var reassignment is legal
+WGSL).
 
 ### `Switch` — statement dispatch
 
@@ -700,6 +754,72 @@ emit path and **never** appear in emitted WGSL/GLSL (emit is byte-identical whet
 or off). They resolve only on the **authored** module (before the optimizer/lowering rebuild
 nodes), which is exactly where `validate()` / `lintModule()` / `diagnose()` run.
 
+## 7. fp64 — emulated double precision (`f64`)
+
+GPUs have no `f64`; the DSL emulates it as an unevaluated **two-f32 pair** (hi + lo,
+"double-float"/df64 — DSFUN90 → NVIDIA CUDA `dsadd`/`dsmul` → Thall lineage), giving
+**~48 significand bits** at f32 exponent range. The authoring surface is IDENTICAL to
+f32 — only the declared type differs:
+
+```ts
+import { f64T, f64, toF64, toF32, splitF64 } from '@xgis/shader-dsl'
+
+const U = uniformStruct('U', { group: 0, binding: 0, as: 'u' }, {
+  origin: f64T, // one vec2<f32> slot — host packs splitF64(value)
+})
+
+const k = fn('k', { x: f64T, s: f32T }, (p) =>
+  toF32(sqrt(p.x.add(U.field.origin).mul(p.s))), // .add/.mul/sqrt — unchanged syntax
+)
+const m = module({ funcs: [k], uses: [U] }) // nothing fp64-specific to declare
+```
+
+The pre-emit `fp64Lower` pass rewrites every `f64` into `vec2<f32>` + injected
+`df64_*` emulation calls (WGSL, GLSL, and — natively, as JS numbers — the CPU oracle
+all agree). What to know:
+
+- **Conversions.** `f32 → f64` widens implicitly in arithmetic (exact) or explicitly
+  via `toF64(x)` / a bare number literal (split losslessly at build time — JS numbers
+  ARE f64). Narrowing is ONLY explicit: `toF32(x)` (= hi + lo, precision-losing).
+  Mixing f64 with ints/bools is an author-time `SD0004`.
+- **Supported ops.** `+ − × ÷`, all comparisons (lexicographic), `neg`, `abs`, `min`,
+  `max`, `sqrt`, `mix` (f32 interpolant), `floor`, `fract`. Anything else on an f64
+  operand fails loud at emit (`SD0041`) — narrow explicitly first. `%` and bitwise are
+  rejected at author time.
+- **The guard uniform (auto-injected).** Every f64-arithmetic module gets a
+  `struct Fp64Guard { one: f32 }` uniform bound as `_fp64` injected automatically
+  (deterministically at group 0, first free binding; it appears in `reflect()` as an
+  ordinary uniform buffer). The host must write **1.0f** into it — WGSL §15.7.5
+  permits reassociation and Metal defaults to fast-math, and without the
+  runtime-opaque `one` threaded through the error-compensation terms a downstream
+  compiler can legally fold df64 back to f32 precision (the luma.gl
+  CODE_ELIMINATION_WORKAROUND, built in here). To pin the slot to an engine's fixed
+  bind-group layout, declare `fp64Guard({ group, binding })` in `uses:`; a
+  conflicting `_fp64`/`Fp64Guard` declaration is `SD0042`.
+- **Layout & packing.** An f64 uniform field / vertex attribute occupies a plain
+  `vec2<f32>` slot (size 8, align 8); pack it with `splitF64(x)` (hi, lo). An f64
+  VARYING is rejected (`SD0044`) — interpolating hi/lo pairs is numerically wrong.
+- **Names.** The `df64_` fn prefix and `DF64VecN` struct names are reserved for the
+  injected emulation (`SD0043`).
+- **Cost.** Each op is several-to-10× an f32 op — opt in per VALUE, not per shader.
+
+### Vectors — `vec2f64T` / `vec3f64T` / `vec4f64T`
+
+`vecNf64(x, y, …)` builds an emulated-double vector; components (`v.x`), swizzles
+(`v.zyx`), componentwise `+ − ×` (with `f64`/`f32`/number broadcast), `÷`, `neg`, and
+the reductions `dot`/`length`/`distance` (→ `f64`) all use the unchanged surface. A
+vec64 lowers to `struct DF64VecN { hi: vecN<f32>, lo: vecN<f32> }` — componentwise
+arithmetic runs the same EFTs on whole hi/lo planes (one twoSum for all lanes);
+`dot`/`length`/`distance` accumulate through the SCALAR df64 chain (extended-precision
+accumulation is the point). Everything else on a vec64 (`normalize`, `abs`, `mix`,
+…) is `SD0041` — narrow per lane (`toF32(v.x)`) or divide by `length(v)` explicitly.
+A vec64 uniform field occupies its struct layout (n=2: 16 B, n=3/4: 32 B under
+std140); a vec64 vertex ATTRIBUTE is rejected (`SD0041`) — pass hi/lo as two
+`vecN<f32>` `@location`s (the existing DSFUN lane convention) and rebuild lanes with
+`f64FromParts`.
+
+See `examples/fp64-deep-zoom.ts` for the full picture (f32 collapse vs f64 stripes).
+
 ## Quick reference
 
 | Need                        | Write                                                                                                 |
@@ -723,6 +843,7 @@ nodes), which is exactly where `validate()` / `lintModule()` / `diagnose()` run.
 | Storage buffer              | `storageBuffer(name, Element, at)` → `buf.at(i).f`                                                    |
 | Texture / sampler           | `resource(name, type, at)` → `.node`, `.binding`                                                      |
 | A shared const              | import the handle (`PI`, `EARTH_R`) — not `constRef('NAME')`                                          |
+| Double precision            | declare values as `f64T` — same operators; `toF64`/`toF32` to convert; write 1.0 to the auto `_fp64`  |
 | A non-scalar const          | `constExpr(name, type, valueNode)` — `vec4` / `arrayLit` / struct literal                             |
 | Call a function             | import the `FnHandle`, call directly — not `callFn('name')`                                           |
 | Diagnose a module           | `diagnose(m, { backend })` → `formatReport(report)` (lint + caps, no throw)                           |

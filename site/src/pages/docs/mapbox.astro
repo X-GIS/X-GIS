@@ -92,7 +92,8 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
         road / waterway / highway names along their geometry, rotated
         to the local tangent (Batch 1d v1 — single-segment placement
         per feature; per-glyph along-curve and repeat-along-line
-        ship in v2). Icons depend on the upcoming sprite atlas.
+        ship in v2). Icon symbols render via the sprite-atlas pipeline
+        (icon-image / -size / -color / -opacity / -rotate).
       </Callout>
     </section>
 
@@ -146,7 +147,7 @@ const xgis = convertMapboxStyle(style)
           <div class="text-emerald-300 text-[11px] uppercase tracking-[0.16em] mb-2 font-mono">Supported</div>
           <ul class="cov-mx-list cov-mx-ok space-y-1.5 text-fg-dim leading-[1.55]">
             <li>Sources: vector (PMTiles + TileJSON), raster, GeoJSON</li>
-            <li>Layers: background, fill, line, fill-extrusion, symbol (text)</li>
+            <li>Layers: background, fill, line, fill-extrusion, symbol (text + icons), circle, heatmap</li>
             <li>Paint: fill-color/-opacity, line-color/-width/-dasharray/-opacity, fill-extrusion-color/-opacity/-height/-base</li>
             <li>Symbol text: text-field, text-color, text-size (zoom-interpolated), text-halo-color/-width, text-anchor (5-way), text-transform, text-offset, text-rotate, text-letter-spacing, text-max-width + text-line-height + text-justify (multiline), text-font stack, text-allow-overlap, text-ignore-placement, text-padding (collision), <code class="font-mono">symbol-placement: line</code> + <code class="font-mono">line-center</code> (along-path)</li>
             <li>Filters: legacy + expression form (==/!=/&lt;/&gt;/all/any/in/!in/has/!has)</li>
@@ -163,20 +164,19 @@ const xgis = convertMapboxStyle(style)
             <li><code class="font-mono">$type</code> / <code class="font-mono">$id</code> filters dropped (geometry type implied by utility)</li>
             <li><code class="font-mono">text-anchor</code> diagonals (top-left / etc.) collapse to dominant axis</li>
             <li><code class="font-mono">text-font</code> resolved by browser glyph-fallback chain (no opentype-sdf bake step)</li>
-            <li><code class="font-mono">fill-pattern</code> / <code class="font-mono">line-pattern</code> dropped (bitmap atlases unimplemented)</li>
+            <li><code class="font-mono">fill-pattern</code> / <code class="font-mono">line-pattern</code> supported in constant-string form (data-driven pattern selection is a follow-up)</li>
           </ul>
         </div>
         <div class="border border-line rounded-md p-4 bg-bg-elev">
           <div class="text-rose-300 text-[11px] uppercase tracking-[0.16em] mb-2 font-mono">Unsupported (engine)</div>
           <ul class="cov-mx-list cov-mx-bad space-y-1.5 text-fg-dim leading-[1.55]">
-            <li>Icon symbols + sprite atlas (icon-image / icon-size / icon-color)</li>
             <li><code class="font-mono">text-keep-upright</code> per-glyph flip on curves</li>
             <li><code class="font-mono">symbol-spacing</code> repeat-along-line (single-label per feature in v1)</li>
             <li><code class="font-mono">text-writing-mode: vertical</code> (CJK vertical text)</li>
-            <li>Circle, heatmap, hillshade, sky layers</li>
+            <li>Hillshade, sky layers</li>
             <li><code class="font-mono">number-format</code>, <code class="font-mono">format</code> (rich text)</li>
             <li><code class="font-mono">distance</code>, <code class="font-mono">within</code> (geometry predicates)</li>
-            <li>Top-level <code class="font-mono">light</code>, <code class="font-mono">fog</code>, <code class="font-mono">terrain</code></li>
+            <li>Top-level <code class="font-mono">fog</code>, <code class="font-mono">terrain</code></li>
           </ul>
         </div>
       </div>

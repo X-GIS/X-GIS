@@ -63,3 +63,16 @@ export { composeModule, type ComposeOptions } from './core/passes/compose'
 export { lowerModule } from './core/passes/match-lower'
 export { cse } from './core/passes/opt/cse'
 export { autoVars } from './core/passes/opt/auto-vars'
+
+// fp64 (emulated double precision): the host-side split, the anti-fast-math
+// guard declarator (REQUIRED by f64-using modules — see SD0042), and the
+// lowering pass itself (runs automatically inside every emit; exported for
+// tests / direct IR consumers).
+export {
+  splitF64,
+  fp64Guard,
+  FP64_GUARD_NAME,
+  FP64_GUARD_STRUCT,
+  type Fp64GuardHandle,
+} from './core/fp64/df64-lib'
+export { fp64Lower } from './core/passes/fp64-lower'

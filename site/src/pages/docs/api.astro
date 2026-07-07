@@ -46,8 +46,9 @@ interface ApiGroup {
 const slugOf = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
 // Hand-written from `runtime/src/index.ts` exports. Keep this in sync
-// when adding/removing entries from the runtime's public surface — the
-// list is small enough (<20 symbols) that a doc generator is overkill.
+// when adding/removing entries from the runtime's public surface. This
+// page documents the symbols apps actually reach for — the barrel also
+// exports lower-level loaders/sources/capability tables not listed here.
 const groups: ApiGroup[] = [
   {
     title: 'Core',
@@ -55,10 +56,11 @@ const groups: ApiGroup[] = [
     entries: [
       {
         name: 'XGISMap',
-        signature: 'new XGISMap(canvas: HTMLCanvasElement)',
+        signature: 'new XGISMap(canvas: HTMLCanvasElement, options?: XGISMapOptions)',
         body: 'Owns the GPU device, the camera, the renderers, and the source catalog. Construct once per canvas.',
         params: [
           { name: 'canvas', type: 'HTMLCanvasElement', body: 'Target canvas to render into. Must already be attached to the DOM — the constructor reads its `clientWidth` / `clientHeight` to size the WebGPU swap chain.' },
+          { name: 'options', type: 'XGISMapOptions', body: 'Optional bag: initial `center` / `zoom` / `bearing` / `pitch`, `projection`, `backend`, `glyphs`, `spriteUrl`, `fonts`, `sources`, and related knobs. Everything has a default — `new XGISMap(canvas)` alone is valid.' },
         ],
         example: `import { XGISMap } from "@xgis/runtime"
 const map = new XGISMap(canvas)
@@ -283,9 +285,10 @@ map.setProjection("orthographic")`,
       JavaScript API.
     </h1>
     <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
-      Every public symbol exported from <code class="font-mono text-[15px] text-fg">@xgis/runtime</code>.
-      Most apps only need <code class="font-mono text-[15px] text-fg">XGISMap</code>;
-      the rest is here for advanced extension.
+      The <code class="font-mono text-[15px] text-fg">@xgis/runtime</code> symbols
+      most apps use. Most only need <code class="font-mono text-[15px] text-fg">XGISMap</code>;
+      the barrel also exports lower-level loaders, sources, and capability tables
+      for advanced extension.
     </p>
 
     <RuntimeSupport rows={[

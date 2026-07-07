@@ -58,6 +58,12 @@ const visibleCategories = showDevOnly
 const visibleFeatured = showDevOnly
   ? featuredDemos
   : featuredDemos.filter(d => !d.devOnly)
+
+// Anchor slug for a category section, derived from its title so
+// gallery-demos.ts stays the single source of truth without growing
+// an id field ("PMTiles + MVT" → "pmtiles-mvt").
+const slugOf = (title: string): string =>
+  title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 ---
 
 <Base
@@ -127,14 +133,43 @@ const visibleFeatured = showDevOnly
     </section>
 
     <!-- Section divider -->
-    <div class="max-w-[1200px] mx-auto px-6 mb-12">
+    <div class="max-w-[1200px] mx-auto px-6 mb-6">
       <Eyebrow label="All examples" />
     </div>
 
-    <!-- Categories -->
-    <div class="max-w-[1200px] mx-auto px-6 space-y-20">
+    <!-- Sticky range: category jump-nav + the category sections it
+         navigates. The wrapper bounds position:sticky so the strip
+         releases after the last category (before the footer pointer). -->
+    <div>
+      <!-- Category jump-nav — the gallery is a ~50-card, 14-section
+           scroll with no way to land on a topic. A single row of
+           anchor pills that scrolls horizontally instead of wrapping
+           (hidden scrollbar, same idiom as the mobile docs
+           breadcrumb) and sticks just below the fixed header. Each
+           pill carries the demo count in mono. -->
+      <nav
+        aria-label="Example categories"
+        class="sticky top-12 z-40 bg-bg/85 backdrop-blur-xl border-y border-line"
+      >
+        <div class="max-w-[1200px] mx-auto px-6 py-2.5 flex items-center gap-2 overflow-x-auto no-scrollbar">
+          {visibleCategories.map(cat => (
+            <a
+              href={`#${slugOf(cat.title)}`}
+              class="flex-none inline-flex items-baseline gap-1.5 px-3 py-1 rounded-full border border-line
+                     text-[12.5px] leading-[1.6] text-fg-dim whitespace-nowrap
+                     hover:text-fg hover:border-line-strong transition-colors"
+            >
+              {cat.title}
+              <span class="font-mono text-[10.5px] text-fg-mute">{cat.demos.length}</span>
+            </a>
+          ))}
+        </div>
+      </nav>
+
+      <!-- Categories -->
+      <div class="max-w-[1200px] mx-auto px-6 space-y-20 pt-12">
       {visibleCategories.map(cat => (
-        <section>
+        <section id={slugOf(cat.title)} class="scroll-mt-12">
           <h2 class="font-display text-[26px] sm:text-[30px] font-normal text-fg leading-[1.2] tracking-[-0.02em] mb-2">
             {cat.title}
           </h2>
@@ -215,6 +250,7 @@ const visibleFeatured = showDevOnly
           </div>
         </section>
       ))}
+      </div>
     </div>
 
     <!-- Footer pointer -->

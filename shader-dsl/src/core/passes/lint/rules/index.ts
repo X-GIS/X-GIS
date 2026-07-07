@@ -25,6 +25,7 @@ import { maxFunctionLength } from './max-function-length'
 import { preferLetOverVar } from './prefer-let-over-var'
 import { noDeadBinding } from './no-dead-binding'
 import { callSignature } from './call-signature'
+import { smoothstepEdgeOrder } from './smoothstep-edge-order'
 
 /** The registered ruleset. Order is the diagnostic order (module checks, then per-fn in
  *  declaration order). Append new rules here. */
@@ -49,6 +50,7 @@ export const RULES: readonly LintRule[] = [
   preferLetOverVar,
   noDeadBinding,
   callSignature,
+  smoothstepEdgeOrder,
 ]
 
 export {
@@ -72,6 +74,7 @@ export {
   preferLetOverVar,
   noDeadBinding,
   callSignature,
+  smoothstepEdgeOrder,
 }
 
 /** The subset run by validate() at EVERY emit (incl. runtime-composed + compute modules

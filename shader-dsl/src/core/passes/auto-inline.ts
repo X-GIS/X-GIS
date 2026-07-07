@@ -81,6 +81,12 @@ function countCalls(m: ModuleDecl, name: string): number {
 function pickCandidate(m: ModuleDecl): string | undefined {
   for (const f of m.funcs) {
     if (isEntry(f)) continue
+    // df64_* emulation helpers are PERMANENTLY opaque (never inlined): their
+    // bodies are error-free transformations that the algebraic/const-fold
+    // passes could legally cancel once exposed at a call site — see
+    // core/fp64/df64-lib.ts. (autoInline is unwired today; this pins the
+    // invariant against a future wiring.)
+    if (f.name.startsWith('df64_')) continue
     const ret = singleReturnExpr(f)
     if (ret === undefined) continue
     // Recursive single-return fn — inlineFn keeps it (infinite expansion otherwise); skip.

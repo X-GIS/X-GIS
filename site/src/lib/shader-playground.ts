@@ -9,8 +9,29 @@
 export type Control =
   | { kind: 'time' }
   | { kind: 'resolution' }
+  // Pointer state → vec4 [x, y, down, used]: x/y in device pixels (bottom-left
+  // origin, matching uv), down = button/touch held, used = 1 once the pointer
+  // has ever entered — the shader's autopilot flag. Mirrors examples/_shared.ts.
+  | { kind: 'mouse' }
   | { kind: 'const'; value: number[] }
-  | { kind: 'slider'; label: string; min: number; max: number; step: number; value: number }
+  | {
+      kind: 'slider'
+      label: string
+      min: number
+      max: number
+      step: number
+      value: number
+      wheel?: boolean // page also drives this slider from wheel over the canvas
+    }
+  // On/off switch → f32 1/0. Live state rides the same SliderValues record the
+  // sliders use (the page writes 1/0 under the field name). Mirrors _shared.ts.
+  | { kind: 'toggle'; label: string; value: boolean }
+  // Drag-to-pan camera → a vec2<f64> uniform (DF64Vec2 hi/lo planes). The
+  // camera center accumulates drags in FULL JS-double precision here and is
+  // split into [hi.x, hi.y, lo.x, lo.y] each frame — the host-side half of the
+  // fp64 story. Drag scale: unitsPerWidth × 10^(−zoomExpField's live value)
+  // per full canvas width. Mirrors _shared.ts.
+  | { kind: 'pan2d'; value: [number, number]; zoomExpField: string; unitsPerWidth: number }
 
 export interface ReflField {
   name: string
@@ -30,6 +51,17 @@ export type SliderValues = Record<string, number>
 
 export interface Mounted {
   destroy(): void
+  /** Pause/resume the shader clock (rendering keeps running so sliders,
+   *  resize, and pointer input stay live on the frozen frame). */
+  setPlaying(playing: boolean): void
+  /** Shader-clock rate multiplier (1 = real time). */
+  setSpeed(speed: number): void
+  /** Jump the shader clock to `t` seconds. */
+  setTime(t: number): void
+  getTime(): number
+  isPlaying(): boolean
+  /** Restore every pan2d camera to its declared default center. */
+  resetCamera(): void
 }
 
 function compileShader(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader {
@@ -81,16 +113,116 @@ export function mountShader(
     }
   }
 
+  // The fp64 anti-fast-math guard (`Fp64Guard { one: f32 }`, bound as `_fp64`)
+  // is injected at LOWERING, so it never appears in the authored reflection —
+  // probe the linked program instead and feed it the required 1.0f.
+  const guardIdx = gl.getUniformBlockIndex(prog, 'Fp64Guard')
+  if (guardIdx !== 0xffffffff) {
+    const gbuf = gl.createBuffer()
+    gl.bindBuffer(gl.UNIFORM_BUFFER, gbuf)
+    gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([1, 0, 0, 0]), gl.STATIC_DRAW)
+    gl.uniformBlockBinding(prog, guardIdx, 1)
+    gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, gbuf)
+  }
+
   const vao = gl.createVertexArray()
   gl.bindVertexArray(vao)
 
-  const start = performance.now()
+  // Controllable shader clock: accumulates real time × speed while playing.
+  // The render loop itself never pauses (sliders / resize / pointer stay live).
+  let timeSec = 0
+  let speed = 1
+  let playing = true
+  let lastNow = performance.now()
   let raf = 0
   let visible = true
   // Respect prefers-reduced-motion: freeze the `time` uniform so nothing animates,
   // while sliders + resolution stay live. (Re-evaluated each frame so an OS toggle applies.)
   const reduceMotion = (): boolean =>
     typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  // Pointer state for {kind:'mouse'} controls: [x, y, down, used] in device px,
+  // bottom-left origin (divides straight into uv space). Updated on hover as
+  // well as drag; `used` flips to 1 on first entry and stays.
+  const mouse = [0, 0, 0, 0]
+  const toCanvasXY = (e: PointerEvent): void => {
+    const rect = canvas.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return
+    mouse[0] = ((e.clientX - rect.left) / rect.width) * canvas.width
+    mouse[1] = (1 - (e.clientY - rect.top) / rect.height) * canvas.height
+    mouse[3] = 1
+  }
+  const onPointerMove = (e: PointerEvent): void => toCanvasXY(e)
+  const onPointerDown = (e: PointerEvent): void => {
+    mouse[2] = 1
+    toCanvasXY(e)
+    canvas.setPointerCapture(e.pointerId)
+  }
+  const onPointerUp = (): void => {
+    mouse[2] = 0
+  }
+  const hasMouse = Object.values(spec.controls).some((c) => c.kind === 'mouse')
+  if (hasMouse) {
+    canvas.addEventListener('pointermove', onPointerMove)
+    canvas.addEventListener('pointerdown', onPointerDown)
+    canvas.addEventListener('pointerup', onPointerUp)
+    canvas.addEventListener('pointercancel', onPointerUp)
+  }
+
+  // pan2d cameras: per-field [x, y] centers held as FULL JS doubles — the
+  // drag deltas below can be ~1e-13 while the center is ~1, exactly the
+  // regime the DF64Vec2 split preserves and plain f32 cannot.
+  const cameras: Record<string, [number, number]> = {}
+  const pan2ds = Object.entries(spec.controls).filter(
+    (e): e is [string, Extract<Control, { kind: 'pan2d' }>] => e[1].kind === 'pan2d',
+  )
+  for (const [field, c] of pan2ds) cameras[field] = [c.value[0], c.value[1]]
+  let dragging = false
+  let dragX = 0
+  let dragY = 0
+  const onPanDown = (e: PointerEvent): void => {
+    dragging = true
+    dragX = e.clientX
+    dragY = e.clientY
+    canvas.setPointerCapture(e.pointerId)
+    canvas.style.cursor = 'grabbing'
+  }
+  const onPanMove = (e: PointerEvent): void => {
+    if (!dragging) return
+    const rect = canvas.getBoundingClientRect()
+    if (rect.width === 0) return
+    const pxPerClient = canvas.width / rect.width
+    const dxPx = (e.clientX - dragX) * pxPerClient
+    const dyPx = (e.clientY - dragY) * pxPerClient
+    dragX = e.clientX
+    dragY = e.clientY
+    for (const [field, c] of pan2ds) {
+      const zoomCtl = spec.controls[c.zoomExpField]
+      const zoomDefault = zoomCtl && zoomCtl.kind === 'slider' ? zoomCtl.value : 0
+      const unitsPerPx = (c.unitsPerWidth * Math.pow(10, -(sliders[c.zoomExpField] ?? zoomDefault))) / canvas.width
+      const cam = cameras[field]
+      // Grab semantics: content follows the cursor. Screen y is down, uv y is
+      // up, so a downward drag moves the center UP the complex plane.
+      cam[0] -= dxPx * unitsPerPx
+      cam[1] += dyPx * unitsPerPx
+    }
+  }
+  const onPanUp = (): void => {
+    dragging = false
+    canvas.style.cursor = 'grab'
+  }
+  if (pan2ds.length > 0) {
+    canvas.style.cursor = 'grab'
+    canvas.addEventListener('pointerdown', onPanDown)
+    canvas.addEventListener('pointermove', onPanMove)
+    canvas.addEventListener('pointerup', onPanUp)
+    canvas.addEventListener('pointercancel', onPanUp)
+  }
+
+  // splitF64: lossless double → (hi, lo) f32 pair (hi = fround(x), lo = the
+  // f32-rounded remainder) — the same packing shader-dsl's splitF64 export does.
+  const fr = Math.fround
+  const df64 = (x: number): [number, number] => [fr(x), fr(x - fr(x))]
 
   const resize = (): void => {
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
@@ -104,15 +236,23 @@ export function mountShader(
 
   const packUniforms = (): void => {
     if (!block || !f32) return
-    const tSec = reduceMotion() ? 3 : (performance.now() - start) / 1000
+    const tSec = reduceMotion() ? 3 : timeSec
     for (const field of block.fields) {
       const c = spec.controls[field.name]
       let v: number[]
       if (!c) v = [0]
       else if (c.kind === 'time') v = [tSec]
       else if (c.kind === 'resolution') v = [canvas.width, canvas.height]
+      else if (c.kind === 'mouse') v = mouse
       else if (c.kind === 'slider') v = [sliders[field.name] ?? c.value]
-      else v = c.value
+      else if (c.kind === 'toggle') v = [sliders[field.name] ?? (c.value ? 1 : 0)]
+      else if (c.kind === 'pan2d') {
+        // DF64Vec2 std140 planes: [hi.x, hi.y, lo.x, lo.y]
+        const cam = cameras[field.name]
+        const [hx, lx] = df64(cam[0])
+        const [hy, ly] = df64(cam[1])
+        v = [hx, hy, lx, ly]
+      } else v = c.value
       for (let i = 0; i < v.length; i++) f32[field.offset / 4 + i] = v[i]
     }
     gl.bindBuffer(gl.UNIFORM_BUFFER, ubo)
@@ -121,6 +261,9 @@ export function mountShader(
 
   const frame = (): void => {
     raf = requestAnimationFrame(frame)
+    const now = performance.now()
+    if (playing) timeSec += ((now - lastNow) / 1000) * speed
+    lastNow = now
     if (!visible) return
     resize()
     packUniforms()
@@ -152,7 +295,39 @@ export function mountShader(
       cancelAnimationFrame(raf)
       io.disconnect()
       canvas.removeEventListener('webglcontextlost', onLost)
+      if (hasMouse) {
+        canvas.removeEventListener('pointermove', onPointerMove)
+        canvas.removeEventListener('pointerdown', onPointerDown)
+        canvas.removeEventListener('pointerup', onPointerUp)
+        canvas.removeEventListener('pointercancel', onPointerUp)
+      }
+      if (pan2ds.length > 0) {
+        canvas.removeEventListener('pointerdown', onPanDown)
+        canvas.removeEventListener('pointermove', onPanMove)
+        canvas.removeEventListener('pointerup', onPanUp)
+        canvas.removeEventListener('pointercancel', onPanUp)
+      }
       gl.getExtension('WEBGL_lose_context')?.loseContext()
+    },
+    setPlaying(p: boolean): void {
+      playing = p
+      lastNow = performance.now()
+    },
+    setSpeed(s: number): void {
+      speed = s
+    },
+    setTime(t: number): void {
+      timeSec = t
+      lastNow = performance.now()
+    },
+    getTime(): number {
+      return timeSec
+    },
+    isPlaying(): boolean {
+      return playing
+    },
+    resetCamera(): void {
+      for (const [field, c] of pan2ds) cameras[field] = [c.value[0], c.value[1]]
     },
   }
 }

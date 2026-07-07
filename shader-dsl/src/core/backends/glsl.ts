@@ -27,6 +27,7 @@ import type { ShaderType, ModuleDecl, StructDecl, BindingDecl, FuncDecl, Expr, S
 import { texture2dfT, u32T, f32T, vec4fT, stageOf } from '../ir'
 import { Capabilities, UnsupportedFeatureError, type Backend } from '../backend'
 import { spellIntrinsic } from '../intrinsics'
+import { dslError } from '../diagnostics/error'
 import { f32Lit } from './wgsl'
 import { emitBody, emitExpr as emitExprNeutral, lowerForBackend } from '../emit'
 import { autoVars } from '../passes/opt'
@@ -42,6 +43,12 @@ function glslType(t: ShaderType): string {
   switch (t.kind) {
     case 'scalar':
       return ({ f32: 'float', i32: 'int', u32: 'uint', bool: 'bool' } as const)[t.scalar]
+    // Pre-lowering types only — fp64Lower rewrites f64/vec64 before emit (see
+    // wgslType's twin arms). Reaching here = the pass was bypassed.
+    case 'f64':
+      throw dslError('SD0040', 'glslType(f64)')
+    case 'vec64':
+      throw dslError('SD0040', `glslType(vec${t.n}<f64>)`)
     case 'vec':
       return `${({ f32: 'vec', i32: 'ivec', u32: 'uvec' } as const)[t.elem]}${t.n}`
     case 'mat':
@@ -320,12 +327,12 @@ export const glslEs300Backend: Backend = {
 function emitGlslUbo(
   b: BindingDecl,
   struct: StructDecl,
-  structs: ReadonlyMap<string, StructDecl> = new Map(),
+  structs: ReadonlyMap<string, StructDecl>,
 ): string {
   // offset oracle + host-shareable-field guard; offsets are the contract. The
-  // module struct map lets a NESTED struct field (e.g. LineLayer's
-  // array<PatternSlot, 3>) resolve — its GLSL decl is emitted by the topo-
-  // sorted plain-struct pass above the UBO block.
+  // module's struct map resolves NESTED struct fields (fp64's DF64VecN;
+  // LineLayer's array<PatternSlot, 3>) — their GLSL decls are emitted by the
+  // topo-sorted plain-struct pass above the UBO block.
   wgslLayout(struct, 'std140', structs)
   const fields = struct.fields.map((f) => `  ${glslType(f.type)} ${f.name};`).join('\n')
   return `layout(std140) uniform ${struct.name} {\n${fields}\n} ${b.name};`

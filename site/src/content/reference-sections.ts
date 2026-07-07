@@ -40,7 +40,7 @@ layer countries {
   {
     id: 'sources',
     title: 'Sources',
-    body: 'A `source` block declares where data comes from. Three transports are supported. The runtime picks the loader from the `type` keyword, not the URL extension.',
+    body: 'A `source` block declares where data comes from. Four transports are supported (GeoJSON, PMTiles, TileJSON, raster XYZ). The runtime picks the loader from the `type` keyword, not the URL extension.',
     demoId: 'pmtiles_source',
     demoHash: '13/43.77/11.25', // Florence — pmtiles_source uses the Firenze sample
     code: `// GeoJSON — full-file load, runtime tessellation
@@ -204,7 +204,7 @@ layer pulsing_coast {
   {
     id: 'js-api',
     title: 'JavaScript API',
-    body: 'Call `new XGISMap(canvas)` then `await map.run(source, baseUrl)` where `source` is a `.xgis` source string and `baseUrl` resolves any relative `url:` references in your declarations. WebGPU is preferred; Canvas 2D engages as a fallback when no adapter is available.',
+    body: 'Call `new XGISMap(canvas)` then `await map.run(source, baseUrl)` where `source` is a `.xgis` source string and `baseUrl` resolves any relative `url:` references in your declarations. WebGPU is required — there is no Canvas 2D fallback: with no adapter the map fires `onWebGPUUnavailable` (or shows a default notice) instead of rendering.',
     demoId: 'minimal',
     code: `import { XGISMap } from "@xgis/runtime"
 

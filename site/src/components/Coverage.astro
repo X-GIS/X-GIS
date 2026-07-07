@@ -1,8 +1,8 @@
 ---
 // Beat 5 · "Mapbox-compatible" — the drop-in story, told HONESTLY. The
 // numbers are the real spec-coverage figures, counted from the authority
-// (compiler/src/convert/spec-coverage/*): 175 of 235 style-spec
-// properties fully supported (+14 partial) ≈ 74%. We never claim "100%".
+// (compiler/src/convert/spec-coverage/*): 176 of 236 style-spec
+// properties fully supported (+18 partial) ≈ 75%. We never claim "100%".
 // The /docs/mapbox-spec page derives the SAME totals from MAPBOX_COVERAGE
 // at build time, so this stays in sync. (REBUILD §6.)
 import { ContentBand, SectionHead } from '@/components/kit'
@@ -10,12 +10,12 @@ import { ContentBand, SectionHead } from '@/components/kit'
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 
 // Real coverage figures — supported / partial / total-excluding-n/a.
-// Source: compiler/src/convert/spec-coverage/ (175 supported, 14 partial,
-// 46 unsupported, 7 n/a → 235 applicable). Stated, not rounded up.
+// Source: compiler/src/convert/spec-coverage/ (176 supported, 18 partial,
+// 42 unsupported, 7 n/a → 236 applicable). Stated, not rounded up.
 const stats = [
-  { value: '175', label: 'Properties supported', sub: 'of 235 applicable · 74%' },
-  { value: '+14', label: 'Partial', sub: 'lossy or runtime gap' },
-  { value: '93', label: 'Layer basemap', sub: 'OpenFreeMap, rendered today' },
+  { value: '176', label: 'Properties supported', sub: 'of 236 applicable · 75%' },
+  { value: '+18', label: 'Partial', sub: 'lossy or runtime gap' },
+  { value: '119', label: 'Layer basemap', sub: 'OpenFreeMap, rendered today' },
 ]
 
 // The shipped surface — what a skeptical engineer can scan for. Real,

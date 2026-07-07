@@ -14,6 +14,17 @@ import type { ModuleDecl } from '../src/index.ts'
 export type Control =
   | { readonly kind: 'time' } // elapsed seconds → an f32 field
   | { readonly kind: 'resolution' } // canvas size in px → a vec2<f32> field
+  // Pointer state → a vec4<f32> field: [x, y, down, used].
+  //   x, y — last known pointer position in PIXELS (same units as `resolution`,
+  //          bottom-left origin so it divides straight into uv space); updates on
+  //          hover as well as drag, so a gallery visitor gets interactivity
+  //          without clicking.
+  //   down — 1 while a button/touch is held, else 0.
+  //   used — 0 until the pointer first enters, 1 forever after: the shader's
+  //          autopilot flag (`mix(autopilot, interactive, m.w)`), so a frame
+  //          that has never been touched renders the canonical view (thumbnails,
+  //          render gates, and reduced-motion all see used = 0).
+  | { readonly kind: 'mouse' }
   | { readonly kind: 'const'; readonly value: readonly number[] } // fixed scalar / vec value
   | {
       readonly kind: 'slider'
@@ -22,6 +33,24 @@ export type Control =
       readonly max: number
       readonly step: number
       readonly value: number
+      /** Also drive this slider from the mouse wheel over the canvas (zoom UX). */
+      readonly wheel?: boolean
+    }
+  // On/off switch → an f32 field (1 / 0). `value` is the default state — it is
+  // what thumbnails, render gates, and an untouched page all see.
+  | { readonly kind: 'toggle'; readonly label: string; readonly value: boolean }
+  // Drag-to-pan 2D camera → a vec2<f64> uniform field. `value` is the default
+  // center as TWO full-precision JS doubles; the host accumulates drags in
+  // double precision and packs the DF64Vec2 hi/lo planes with splitF64 each
+  // frame (an untouched canvas renders the default center — thumbnails and
+  // render gates see the canonical view). Drag scale: a full-canvas-width drag
+  // moves the center by `unitsPerWidth × 10^(−v)` where v is the live value of
+  // the `zoomExpField` control (the wheel-zoom slider).
+  | {
+      readonly kind: 'pan2d'
+      readonly value: readonly [number, number]
+      readonly zoomExpField: string
+      readonly unitsPerWidth: number
     }
 
 export interface ShaderExample {
