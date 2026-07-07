@@ -2,7 +2,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { minifyShaderText } from './emit-minify'
-import { fn, module, vec2, vec4, sin, f32T, u32T, vec2fT, vec4fT } from './ir'
+import { fn, module, vec2, vec4, sin, u32T, vec2fT, vec4fT } from './ir'
 import { ioStruct, builtin, location } from './sot'
 import { emitModule } from './backends/wgsl'
 import { emitGlslModule } from './backends/glsl'
