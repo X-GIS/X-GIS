@@ -30,6 +30,11 @@ export * from './render/projection-token'
 // Reflect-derived typed std140 pack target (#733): write() full-struct pack with
 // compile-time completeness + set.* zero-alloc per-field setters.
 export * from './render/uniform-block'
+// Pure-CPU bump allocator (per-frame scratch, no GPU coupling). Relocated
+// from @xgis/rhi-webgpu (#834 map→engine-only): @webgpu/types-free, so it
+// belongs in the backend-neutral core; rhi-webgpu re-exports it for its own
+// barrel consumers.
+export * from './render/frame-arena'
 
 // ── Shader machinery: CPU log-depth + content-blind shader-DSL leaves ─
 export * from './shaders/log-depth'

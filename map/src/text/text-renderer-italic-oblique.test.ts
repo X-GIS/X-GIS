@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest'
 import { TextRenderer } from './text-renderer'
 import type { TextDraw } from './text-renderer'
 import type { GlyphInfo } from './sdf/glyph-atlas-host'
-import { FrameArena } from '@xgis/rhi-webgpu'
+import { FrameArena } from '@xgis/engine'
 import { WebGpuDevice } from '@xgis/rhi-webgpu'
 import type { RhiBuffer, RhiBindGroup } from '@xgis/engine'
 

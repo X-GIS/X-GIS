@@ -16,7 +16,7 @@
 // it (BMP-only Latin maps fit in one page comfortably).
 
 import type { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
-import { FrameArena } from '@xgis/rhi-webgpu'
+import { FrameArena } from '@xgis/engine'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import type { TextDraw } from './text-renderer-types'
 import { codePointIsIdeographic } from './text-wrap'

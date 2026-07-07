@@ -29,7 +29,7 @@ import {
 } from './sdf/glyph-rasterizer'
 import { GlyphPbfCache } from './sdf/pbf/glyph-pbf-cache'
 import { bumpAlloc } from '../__profile__/alloc-counter'
-import { FrameArena } from '@xgis/rhi-webgpu'
+import { FrameArena } from '@xgis/engine'
 import { InlineGlyphProvider } from './sdf/pbf/inline-glyph-provider'
 import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'

@@ -10,7 +10,10 @@ export * from './backend-providers'
 export * from './gpu-shared'
 export * from './gpu-timer'
 export * from './compute'
-export * from './frame-arena'
+// FrameArena moved to @xgis/engine (backend-neutral CPU allocator, #834
+// map→engine-only). Re-exported here so this package's barrel consumers
+// (runtime tests, etc.) resolve the SAME class without an import churn.
+export { FrameArena, type FrameArenaStats } from '@xgis/engine'
 export * from './staging-buffer-pool'
 export * from './palette-texture'
 export * from './bind-tiers'
