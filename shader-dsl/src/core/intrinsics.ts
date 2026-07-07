@@ -166,10 +166,26 @@ export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
   'cross',
 ])
 
+// ── Pre-emit-consumed builtins (the THIRD classification) ──
+//
+// Ids the authoring surface emits that are consumed ENTIRELY by a pre-emit
+// pass and must NEVER reach spellIntrinsic on any target: the fp64 widen
+// `'f64'` (toF64 / the implicit f32→f64 widen), `'f64FromParts'` (hi/lo lane
+// pair → f64), and `'f64Parts'` (f64 → its vec2 pair) are rewritten by
+// fp64Lower into constructs / the identity. The CPU oracle evaluates them
+// natively (BUILTINS); if one leaked to a backend the emitted call is invalid
+// GLSL — the wgslType/glslType SD0040 backstops make the leak loud.
+export const PRE_EMIT_INTRINSICS: ReadonlySet<string> = new Set([
+  'f64',
+  'f64FromParts',
+  'f64Parts',
+])
+
 /** True if `name` is a builtin the registry knows how to spell on every target — either a
  *  DIVERGENT id (INTRINSICS) or an asserted-portable identity id (PORTABLE_INTRINSICS). A `call`
  *  id that is neither is EITHER a user/extern fn (fine — same spelling everywhere) OR an
  *  unclassified builtin (a latent silent-wrong-emit). The catalogue test uses this to assert the
- *  DSL's own builtin surface is fully classified. */
+ *  DSL's own builtin surface is fully classified. (PRE_EMIT_INTRINSICS ids are deliberately NOT
+ *  "known" here — they are unspellable by construction.) */
 export const isKnownIntrinsic = (name: string): boolean =>
   Object.prototype.hasOwnProperty.call(INTRINSICS, name) || PORTABLE_INTRINSICS.has(name)

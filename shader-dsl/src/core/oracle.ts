@@ -205,6 +205,17 @@ const BUILTINS: Record<string, Builtin> = {
     ]
   },
   f32: (x) => Number(x),
+  // toF64 widen — a no-op here: the oracle evaluates f64 natively as a JS
+  // number (JS numbers ARE f64), which is why compileModule deliberately does
+  // NOT run fp64Lower. `oracle(fp64Lower(m)) ≈ oracle(m)` is the metamorphic
+  // gate on that pass (EFT error terms are exactly 0 in exact arithmetic).
+  f64: (x) => Number(x),
+  // hi/lo pair ↔ f64 (the DSFUN lane bridge): natively a sum / a fround split.
+  f64FromParts: (hi, lo) => (hi as number) + (lo as number),
+  f64Parts: (x) => {
+    const hi = Math.fround(x as number)
+    return [hi, Math.fround((x as number) - hi)]
+  },
   i32: (x) => Math.trunc(x as number),
   u32: (x) => Math.trunc(x as number) >>> 0,
   // #763 O1 — pure-math builtins the catalogue claims portable but the oracle
@@ -287,7 +298,8 @@ function mixVal(a: CpuValue, b: CpuValue, t: CpuValue): CpuValue {
 }
 
 function zeroOf(type: { kind: string; n?: number }): CpuValue {
-  if (type.kind === 'vec') return new Array(type.n as number).fill(0)
+  // vec64 evaluates natively as a plain number[] (like vec — JS numbers ARE f64).
+  if (type.kind === 'vec' || type.kind === 'vec64') return new Array(type.n as number).fill(0)
   if (type.kind === 'mat') return new Array((type.n as number) * (type.n as number)).fill(0)
   if (type.kind === 'struct') return {} // fields populated by member assignments
   if (type.kind === 'scalar') return 0
@@ -425,7 +437,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         else out.push(v as number)
       }
       // WGSL splat: vecN<T>(singleScalar) fills all N components (e.g. vec3(0.5) = [0.5,0.5,0.5]).
-      if (e.type.kind === 'vec' && out.length === 1)
+      if ((e.type.kind === 'vec' || e.type.kind === 'vec64') && out.length === 1)
         return new Array(e.type.n as number).fill(out[0])
       return out
     }

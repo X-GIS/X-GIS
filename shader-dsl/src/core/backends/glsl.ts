@@ -27,6 +27,7 @@ import type { ShaderType, ModuleDecl, StructDecl, BindingDecl, FuncDecl, Expr, S
 import { texture2dfT, u32T, f32T, vec4fT, stageOf } from '../ir'
 import { Capabilities, UnsupportedFeatureError, type Backend } from '../backend'
 import { spellIntrinsic } from '../intrinsics'
+import { dslError } from '../diagnostics/error'
 import { f32Lit } from './wgsl'
 import { emitBody, emitExpr as emitExprNeutral, lowerForBackend } from '../emit'
 import { wgslLayout } from '../reflect'
@@ -41,6 +42,12 @@ function glslType(t: ShaderType): string {
   switch (t.kind) {
     case 'scalar':
       return ({ f32: 'float', i32: 'int', u32: 'uint', bool: 'bool' } as const)[t.scalar]
+    // Pre-lowering types only — fp64Lower rewrites f64/vec64 before emit (see
+    // wgslType's twin arms). Reaching here = the pass was bypassed.
+    case 'f64':
+      throw dslError('SD0040', 'glslType(f64)')
+    case 'vec64':
+      throw dslError('SD0040', `glslType(vec${t.n}<f64>)`)
     case 'vec':
       return `${({ f32: 'vec', i32: 'ivec', u32: 'uvec' } as const)[t.elem]}${t.n}`
     case 'mat':
@@ -316,8 +323,14 @@ export const glslEs300Backend: Backend = {
  *  so the std140 default IS the offset contract. Calling wgslLayout here binds the
  *  emitter to the same Phase-0 offset engine the host packs against (and throws on a
  *  non-host-shareable field, e.g. a texture, before producing invalid GLSL). */
-function emitGlslUbo(b: BindingDecl, struct: StructDecl): string {
-  wgslLayout(struct, 'std140') // offset oracle + host-shareable-field guard; offsets are the contract
+function emitGlslUbo(
+  b: BindingDecl,
+  struct: StructDecl,
+  structs: ReadonlyMap<string, StructDecl>,
+): string {
+  // offset oracle + host-shareable-field guard; offsets are the contract. The
+  // module's struct map resolves NESTED struct fields (e.g. the fp64 DF64VecN).
+  wgslLayout(struct, 'std140', structs)
   const fields = struct.fields.map((f) => `  ${glslType(f.type)} ${f.name};`).join('\n')
   return `layout(std140) uniform ${struct.name} {\n${fields}\n} ${b.name};`
 }
@@ -937,7 +950,7 @@ export function emitGlslModule(
         'glsl-es300: storage buffer (SSBO) — GLSL ES 3.00 has no SSBO; fail-closed',
       )
     else if (b.type.kind === 'struct')
-      bindingLines.push(emitGlslUbo(b, structByName(structs, b.type.name)))
+      bindingLines.push(emitGlslUbo(b, structByName(structs, b.type.name), structs))
     // compute-GPGPU only: a bare scalar/vec uniform (u_count: uvec4) emits as a
     // default-block uniform (set via glUniform*). Gated behind emulateCompute so the
     // existing "uniform binding must be a struct" invariant is unchanged for every

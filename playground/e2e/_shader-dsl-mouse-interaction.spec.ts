@@ -57,6 +57,18 @@ test.describe('shader-dsl mouse controls change the frame', () => {
             throw new Error(gl.getProgramInfoLog(prog) ?? 'link failed')
           gl.useProgram(prog)
 
+          // fp64 examples: the lowering auto-injects the `_fp64` guard uniform
+          // (absent from the authored reflect()) — probe for its block and bind
+          // 1.0f, same pattern as the site/thumbnail/render-gate harnesses.
+          const gIdx = gl.getUniformBlockIndex(prog, 'Fp64Guard')
+          if (gIdx !== 0xffffffff) {
+            const gbuf = gl.createBuffer()
+            gl.bindBuffer(gl.UNIFORM_BUFFER, gbuf)
+            gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([1, 0, 0, 0]), gl.STATIC_DRAW)
+            gl.uniformBlockBinding(prog, gIdx, 1)
+            gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, gbuf)
+          }
+
           const u = (
             reflection as {
               uniforms: Array<{
@@ -77,15 +89,22 @@ test.describe('shader-dsl mouse controls change the frame', () => {
 
           const draw = (mouse: number[]): Uint8Array => {
             for (const field of u.fields) {
-              const c = (controls as Record<string, { kind: string; value?: number | number[] }>)[
-                field.name
-              ]
+              const c = (controls as Record<
+                string,
+                { kind: string; value?: number | number[] | boolean }
+              >)[field.name]
               let v: number[] = [0]
               if (c?.kind === 'time') v = [2.0]
               else if (c?.kind === 'resolution') v = [S, S]
               else if (c?.kind === 'mouse') v = mouse
               else if (c?.kind === 'slider') v = [c.value as number]
-              else if (c?.kind === 'const') v = c.value as number[]
+              else if (c?.kind === 'toggle') v = [c.value ? 1 : 0]
+              else if (c?.kind === 'pan2d') {
+                // default center → DF64Vec2 planes [hi.x, hi.y, lo.x, lo.y]
+                const fr = Math.fround
+                const [x, y] = c.value as number[]
+                v = [fr(x), fr(y), fr(x - fr(x)), fr(y - fr(y))]
+              } else if (c?.kind === 'const') v = c.value as number[]
               for (let i = 0; i < v.length; i++) f32[field.offset / 4 + i] = v[i]
             }
             gl.bindBuffer(gl.UNIFORM_BUFFER, ubo)

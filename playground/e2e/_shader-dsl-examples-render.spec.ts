@@ -81,14 +81,21 @@ test.describe('shader-dsl examples render on real WebGL2', () => {
             const buf = new ArrayBuffer(Math.ceil(u.size / 16) * 16)
             const f32 = new Float32Array(buf)
             for (const field of u.fields) {
-              const c = (controls as Record<string, { kind: string; value?: number | number[] }>)[
-                field.name
-              ]
+              const c = (controls as Record<
+                string,
+                { kind: string; value?: number | number[] | boolean }
+              >)[field.name]
               let v: number[] = [0]
               if (c?.kind === 'time') v = [1.0]
               else if (c?.kind === 'resolution') v = [128, 128]
               else if (c?.kind === 'slider') v = [c.value as number]
-              else if (c?.kind === 'const') v = c.value as number[]
+              else if (c?.kind === 'toggle') v = [c.value ? 1 : 0]
+              else if (c?.kind === 'pan2d') {
+                // default center → DF64Vec2 planes [hi.x, hi.y, lo.x, lo.y]
+                const fr = Math.fround
+                const [x, y] = c.value as number[]
+                v = [fr(x), fr(y), fr(x - fr(x)), fr(y - fr(y))]
+              } else if (c?.kind === 'const') v = c.value as number[]
               for (let i = 0; i < v.length; i++) f32[field.offset / 4 + i] = v[i]
             }
             const ubo = gl.createBuffer()
@@ -99,6 +106,17 @@ test.describe('shader-dsl examples render on real WebGL2', () => {
               gl.uniformBlockBinding(prog, blockIdx, 0)
               gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, ubo)
             }
+          }
+
+          // The fp64 anti-fast-math guard is injected at LOWERING, so it is
+          // absent from the authored reflection — probe the program directly.
+          const gIdx = gl.getUniformBlockIndex(prog, 'Fp64Guard')
+          if (gIdx !== 0xffffffff) {
+            const gbuf = gl.createBuffer()
+            gl.bindBuffer(gl.UNIFORM_BUFFER, gbuf)
+            gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([1, 0, 0, 0]), gl.STATIC_DRAW)
+            gl.uniformBlockBinding(prog, gIdx, 1)
+            gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, gbuf)
           }
 
           gl.bindVertexArray(gl.createVertexArray())

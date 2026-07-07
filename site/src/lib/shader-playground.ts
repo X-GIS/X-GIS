@@ -14,7 +14,24 @@ export type Control =
   // has ever entered — the shader's autopilot flag. Mirrors examples/_shared.ts.
   | { kind: 'mouse' }
   | { kind: 'const'; value: number[] }
-  | { kind: 'slider'; label: string; min: number; max: number; step: number; value: number }
+  | {
+      kind: 'slider'
+      label: string
+      min: number
+      max: number
+      step: number
+      value: number
+      wheel?: boolean // page also drives this slider from wheel over the canvas
+    }
+  // On/off switch → f32 1/0. Live state rides the same SliderValues record the
+  // sliders use (the page writes 1/0 under the field name). Mirrors _shared.ts.
+  | { kind: 'toggle'; label: string; value: boolean }
+  // Drag-to-pan camera → a vec2<f64> uniform (DF64Vec2 hi/lo planes). The
+  // camera center accumulates drags in FULL JS-double precision here and is
+  // split into [hi.x, hi.y, lo.x, lo.y] each frame — the host-side half of the
+  // fp64 story. Drag scale: unitsPerWidth × 10^(−zoomExpField's live value)
+  // per full canvas width. Mirrors _shared.ts.
+  | { kind: 'pan2d'; value: [number, number]; zoomExpField: string; unitsPerWidth: number }
 
 export interface ReflField {
   name: string
@@ -43,6 +60,8 @@ export interface Mounted {
   setTime(t: number): void
   getTime(): number
   isPlaying(): boolean
+  /** Restore every pan2d camera to its declared default center. */
+  resetCamera(): void
 }
 
 function compileShader(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader {
@@ -94,6 +113,18 @@ export function mountShader(
     }
   }
 
+  // The fp64 anti-fast-math guard (`Fp64Guard { one: f32 }`, bound as `_fp64`)
+  // is injected at LOWERING, so it never appears in the authored reflection —
+  // probe the linked program instead and feed it the required 1.0f.
+  const guardIdx = gl.getUniformBlockIndex(prog, 'Fp64Guard')
+  if (guardIdx !== 0xffffffff) {
+    const gbuf = gl.createBuffer()
+    gl.bindBuffer(gl.UNIFORM_BUFFER, gbuf)
+    gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([1, 0, 0, 0]), gl.STATIC_DRAW)
+    gl.uniformBlockBinding(prog, guardIdx, 1)
+    gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, gbuf)
+  }
+
   const vao = gl.createVertexArray()
   gl.bindVertexArray(vao)
 
@@ -138,6 +169,61 @@ export function mountShader(
     canvas.addEventListener('pointercancel', onPointerUp)
   }
 
+  // pan2d cameras: per-field [x, y] centers held as FULL JS doubles — the
+  // drag deltas below can be ~1e-13 while the center is ~1, exactly the
+  // regime the DF64Vec2 split preserves and plain f32 cannot.
+  const cameras: Record<string, [number, number]> = {}
+  const pan2ds = Object.entries(spec.controls).filter(
+    (e): e is [string, Extract<Control, { kind: 'pan2d' }>] => e[1].kind === 'pan2d',
+  )
+  for (const [field, c] of pan2ds) cameras[field] = [c.value[0], c.value[1]]
+  let dragging = false
+  let dragX = 0
+  let dragY = 0
+  const onPanDown = (e: PointerEvent): void => {
+    dragging = true
+    dragX = e.clientX
+    dragY = e.clientY
+    canvas.setPointerCapture(e.pointerId)
+    canvas.style.cursor = 'grabbing'
+  }
+  const onPanMove = (e: PointerEvent): void => {
+    if (!dragging) return
+    const rect = canvas.getBoundingClientRect()
+    if (rect.width === 0) return
+    const pxPerClient = canvas.width / rect.width
+    const dxPx = (e.clientX - dragX) * pxPerClient
+    const dyPx = (e.clientY - dragY) * pxPerClient
+    dragX = e.clientX
+    dragY = e.clientY
+    for (const [field, c] of pan2ds) {
+      const zoomCtl = spec.controls[c.zoomExpField]
+      const zoomDefault = zoomCtl && zoomCtl.kind === 'slider' ? zoomCtl.value : 0
+      const unitsPerPx = (c.unitsPerWidth * Math.pow(10, -(sliders[c.zoomExpField] ?? zoomDefault))) / canvas.width
+      const cam = cameras[field]
+      // Grab semantics: content follows the cursor. Screen y is down, uv y is
+      // up, so a downward drag moves the center UP the complex plane.
+      cam[0] -= dxPx * unitsPerPx
+      cam[1] += dyPx * unitsPerPx
+    }
+  }
+  const onPanUp = (): void => {
+    dragging = false
+    canvas.style.cursor = 'grab'
+  }
+  if (pan2ds.length > 0) {
+    canvas.style.cursor = 'grab'
+    canvas.addEventListener('pointerdown', onPanDown)
+    canvas.addEventListener('pointermove', onPanMove)
+    canvas.addEventListener('pointerup', onPanUp)
+    canvas.addEventListener('pointercancel', onPanUp)
+  }
+
+  // splitF64: lossless double → (hi, lo) f32 pair (hi = fround(x), lo = the
+  // f32-rounded remainder) — the same packing shader-dsl's splitF64 export does.
+  const fr = Math.fround
+  const df64 = (x: number): [number, number] => [fr(x), fr(x - fr(x))]
+
   const resize = (): void => {
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
     const w = Math.max(1, Math.round(canvas.clientWidth * dpr))
@@ -159,7 +245,14 @@ export function mountShader(
       else if (c.kind === 'resolution') v = [canvas.width, canvas.height]
       else if (c.kind === 'mouse') v = mouse
       else if (c.kind === 'slider') v = [sliders[field.name] ?? c.value]
-      else v = c.value
+      else if (c.kind === 'toggle') v = [sliders[field.name] ?? (c.value ? 1 : 0)]
+      else if (c.kind === 'pan2d') {
+        // DF64Vec2 std140 planes: [hi.x, hi.y, lo.x, lo.y]
+        const cam = cameras[field.name]
+        const [hx, lx] = df64(cam[0])
+        const [hy, ly] = df64(cam[1])
+        v = [hx, hy, lx, ly]
+      } else v = c.value
       for (let i = 0; i < v.length; i++) f32[field.offset / 4 + i] = v[i]
     }
     gl.bindBuffer(gl.UNIFORM_BUFFER, ubo)
@@ -208,6 +301,12 @@ export function mountShader(
         canvas.removeEventListener('pointerup', onPointerUp)
         canvas.removeEventListener('pointercancel', onPointerUp)
       }
+      if (pan2ds.length > 0) {
+        canvas.removeEventListener('pointerdown', onPanDown)
+        canvas.removeEventListener('pointermove', onPanMove)
+        canvas.removeEventListener('pointerup', onPanUp)
+        canvas.removeEventListener('pointercancel', onPanUp)
+      }
       gl.getExtension('WEBGL_lose_context')?.loseContext()
     },
     setPlaying(p: boolean): void {
@@ -226,6 +325,9 @@ export function mountShader(
     },
     isPlaying(): boolean {
       return playing
+    },
+    resetCamera(): void {
+      for (const [field, c] of pan2ds) cameras[field] = [c.value[0], c.value[1]]
     },
   }
 }

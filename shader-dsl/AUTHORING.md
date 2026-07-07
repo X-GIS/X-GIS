@@ -754,6 +754,72 @@ emit path and **never** appear in emitted WGSL/GLSL (emit is byte-identical whet
 or off). They resolve only on the **authored** module (before the optimizer/lowering rebuild
 nodes), which is exactly where `validate()` / `lintModule()` / `diagnose()` run.
 
+## 7. fp64 — emulated double precision (`f64`)
+
+GPUs have no `f64`; the DSL emulates it as an unevaluated **two-f32 pair** (hi + lo,
+"double-float"/df64 — DSFUN90 → NVIDIA CUDA `dsadd`/`dsmul` → Thall lineage), giving
+**~48 significand bits** at f32 exponent range. The authoring surface is IDENTICAL to
+f32 — only the declared type differs:
+
+```ts
+import { f64T, f64, toF64, toF32, splitF64 } from '@xgis/shader-dsl'
+
+const U = uniformStruct('U', { group: 0, binding: 0, as: 'u' }, {
+  origin: f64T, // one vec2<f32> slot — host packs splitF64(value)
+})
+
+const k = fn('k', { x: f64T, s: f32T }, (p) =>
+  toF32(sqrt(p.x.add(U.field.origin).mul(p.s))), // .add/.mul/sqrt — unchanged syntax
+)
+const m = module({ funcs: [k], uses: [U] }) // nothing fp64-specific to declare
+```
+
+The pre-emit `fp64Lower` pass rewrites every `f64` into `vec2<f32>` + injected
+`df64_*` emulation calls (WGSL, GLSL, and — natively, as JS numbers — the CPU oracle
+all agree). What to know:
+
+- **Conversions.** `f32 → f64` widens implicitly in arithmetic (exact) or explicitly
+  via `toF64(x)` / a bare number literal (split losslessly at build time — JS numbers
+  ARE f64). Narrowing is ONLY explicit: `toF32(x)` (= hi + lo, precision-losing).
+  Mixing f64 with ints/bools is an author-time `SD0004`.
+- **Supported ops.** `+ − × ÷`, all comparisons (lexicographic), `neg`, `abs`, `min`,
+  `max`, `sqrt`, `mix` (f32 interpolant), `floor`, `fract`. Anything else on an f64
+  operand fails loud at emit (`SD0041`) — narrow explicitly first. `%` and bitwise are
+  rejected at author time.
+- **The guard uniform (auto-injected).** Every f64-arithmetic module gets a
+  `struct Fp64Guard { one: f32 }` uniform bound as `_fp64` injected automatically
+  (deterministically at group 0, first free binding; it appears in `reflect()` as an
+  ordinary uniform buffer). The host must write **1.0f** into it — WGSL §15.7.5
+  permits reassociation and Metal defaults to fast-math, and without the
+  runtime-opaque `one` threaded through the error-compensation terms a downstream
+  compiler can legally fold df64 back to f32 precision (the luma.gl
+  CODE_ELIMINATION_WORKAROUND, built in here). To pin the slot to an engine's fixed
+  bind-group layout, declare `fp64Guard({ group, binding })` in `uses:`; a
+  conflicting `_fp64`/`Fp64Guard` declaration is `SD0042`.
+- **Layout & packing.** An f64 uniform field / vertex attribute occupies a plain
+  `vec2<f32>` slot (size 8, align 8); pack it with `splitF64(x)` (hi, lo). An f64
+  VARYING is rejected (`SD0044`) — interpolating hi/lo pairs is numerically wrong.
+- **Names.** The `df64_` fn prefix and `DF64VecN` struct names are reserved for the
+  injected emulation (`SD0043`).
+- **Cost.** Each op is several-to-10× an f32 op — opt in per VALUE, not per shader.
+
+### Vectors — `vec2f64T` / `vec3f64T` / `vec4f64T`
+
+`vecNf64(x, y, …)` builds an emulated-double vector; components (`v.x`), swizzles
+(`v.zyx`), componentwise `+ − ×` (with `f64`/`f32`/number broadcast), `÷`, `neg`, and
+the reductions `dot`/`length`/`distance` (→ `f64`) all use the unchanged surface. A
+vec64 lowers to `struct DF64VecN { hi: vecN<f32>, lo: vecN<f32> }` — componentwise
+arithmetic runs the same EFTs on whole hi/lo planes (one twoSum for all lanes);
+`dot`/`length`/`distance` accumulate through the SCALAR df64 chain (extended-precision
+accumulation is the point). Everything else on a vec64 (`normalize`, `abs`, `mix`,
+…) is `SD0041` — narrow per lane (`toF32(v.x)`) or divide by `length(v)` explicitly.
+A vec64 uniform field occupies its struct layout (n=2: 16 B, n=3/4: 32 B under
+std140); a vec64 vertex ATTRIBUTE is rejected (`SD0041`) — pass hi/lo as two
+`vecN<f32>` `@location`s (the existing DSFUN lane convention) and rebuild lanes with
+`f64FromParts`.
+
+See `examples/fp64-deep-zoom.ts` for the full picture (f32 collapse vs f64 stripes).
+
 ## Quick reference
 
 | Need                        | Write                                                                                                 |
@@ -777,6 +843,7 @@ nodes), which is exactly where `validate()` / `lintModule()` / `diagnose()` run.
 | Storage buffer              | `storageBuffer(name, Element, at)` → `buf.at(i).f`                                                    |
 | Texture / sampler           | `resource(name, type, at)` → `.node`, `.binding`                                                      |
 | A shared const              | import the handle (`PI`, `EARTH_R`) — not `constRef('NAME')`                                          |
+| Double precision            | declare values as `f64T` — same operators; `toF64`/`toF32` to convert; write 1.0 to the auto `_fp64`  |
 | A non-scalar const          | `constExpr(name, type, valueNode)` — `vec4` / `arrayLit` / struct literal                             |
 | Call a function             | import the `FnHandle`, call directly — not `callFn('name')`                                           |
 | Diagnose a module           | `diagnose(m, { backend })` → `formatReport(report)` (lint + caps, no throw)                           |

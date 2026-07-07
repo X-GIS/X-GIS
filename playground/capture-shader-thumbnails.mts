@@ -55,6 +55,13 @@ const code = `(() => {
         if (c && c.kind === 'time') v = [TIME];
         else if (c && c.kind === 'resolution') v = [W, H];
         else if (c && c.kind === 'slider') v = [c.value];
+        else if (c && c.kind === 'toggle') v = [c.value ? 1 : 0];
+        else if (c && c.kind === 'pan2d') {
+          // default center → DF64Vec2 planes [hi.x, hi.y, lo.x, lo.y]
+          const fr = Math.fround;
+          const [x, y] = c.value;
+          v = [fr(x), fr(y), fr(x - fr(x)), fr(y - fr(y))];
+        }
         else if (c && c.kind === 'const') v = c.value;
         for (let i = 0; i < v.length; i++) f32[f.offset / 4 + i] = v[i];
       }
@@ -63,6 +70,15 @@ const code = `(() => {
       gl.bufferData(gl.UNIFORM_BUFFER, buf, gl.STATIC_DRAW);
       const idx = gl.getUniformBlockIndex(prog, u.name);
       if (idx !== 0xFFFFFFFF) { gl.uniformBlockBinding(prog, idx, 0); gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, ubo); }
+    }
+    // fp64 guard block (injected at lowering; absent from authored reflect()).
+    const gIdx = gl.getUniformBlockIndex(prog, 'Fp64Guard');
+    if (gIdx !== 0xFFFFFFFF) {
+      const gbuf = gl.createBuffer();
+      gl.bindBuffer(gl.UNIFORM_BUFFER, gbuf);
+      gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([1, 0, 0, 0]), gl.STATIC_DRAW);
+      gl.uniformBlockBinding(prog, gIdx, 1);
+      gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, gbuf);
     }
     gl.bindVertexArray(gl.createVertexArray());
     gl.viewport(0, 0, W, H);

@@ -11,6 +11,7 @@ import type { Expr, Stmt, ModuleDecl } from './ir'
 import { validate } from './passes/validate'
 import { assertCaps } from './passes/required-caps'
 import { lowerModule } from './passes/match-lower'
+import { fp64Lower } from './passes/fp64-lower'
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt'
 import { reflect, type Reflection } from './reflect'
 
@@ -153,12 +154,15 @@ export function lowerForBackend(m: ModuleDecl, be: Backend, level?: OptLevel): M
   validate(m)
   assertCaps(be, m) // principled fail-closed gate
   // matchExpr→{var slot, Stmt.switch} lowering first so the rest of the emitter stays
-  // matchExpr-unaware (identity for modules with no matchExpr); auto-cache (cse, in the
+  // matchExpr-unaware (identity for modules with no matchExpr); fp64Lower then rewrites
+  // every f64 into vec2<f32> + df64_* calls (identity for modules with no f64) — HERE,
+  // before the optimizer, so every backend lowers identically and the optimizer only
+  // sees ordinary vec2/f32 IR plus opaque df64_* calls. Auto-cache (cse, in the
   // WGSL backend's optimize) then hoists any input-only subexpression reused ≥2x into one
   // shared `let`, so authors write plain inline expressions and the reuse is bound for them.
   // `level` overrides the backend's default optimizer tier (used by the measurement A/B and
   // debug emit); omitted → the backend's own `optimize` (= O2 fixpoint), the production path.
-  const pre = lowerModule(autoVars(m))
+  const pre = fp64Lower(lowerModule(autoVars(m)))
   return level === undefined ? be.optimize(pre) : optimizeAt(pre, level)
 }
 
@@ -196,9 +200,12 @@ export function emitModuleAt(m: ModuleDecl, be: Backend, level: OptLevel): strin
 /** Emit a ModuleDecl AND recover its pipeline reflection, BOTH derived from the SAME
  *  lowered module (`lowerForBackend(m, be)`) so the emitted string and the reflection
  *  metadata cannot desync. `.code` is byte-identical to `emitModule(m, be)`; `.reflection`
- *  is `reflect()` of the lowered module — equal to `reflect(m)` because the pre-emit passes
- *  (autoVars/lowerModule/cse) rewrite only function BODIES, never the structs / bindings /
- *  func signatures that reflection reads. */
+ *  is `reflect()` of the lowered module — equal to `reflect(m)` for f64-free modules
+ *  (autoVars/lowerModule/cse rewrite only function BODIES). For a module using f64,
+ *  fp64Lower rewrites decl TYPES too (f64 → vec2<f32>), but the BYTE layout is unchanged
+ *  by construction — typeLayout gives f64 the same {size 8, align 8} as its lowered
+ *  vec2<f32> slot — so reflect(m) and this reflection still report identical offsets;
+ *  only the reported type STRING differs ('f64' vs 'vec2<f32>'). */
 export function emitModuleWithReflection(
   m: ModuleDecl,
   be: Backend,

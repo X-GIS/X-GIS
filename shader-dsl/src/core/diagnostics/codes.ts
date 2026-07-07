@@ -76,6 +76,33 @@ export const CODES = {
   SD0020: { code: 'SD0020', summary: 'module validation failed' },
   SD0030: { code: 'SD0030', summary: 'unsupported feature for this backend' },
 
+  // ── fp64 (emulated double precision) — passes/fp64-lower.ts ──
+  SD0040: {
+    code: 'SD0040',
+    summary: 'f64 type leaked past fp64Lower into a backend emitter',
+    hint: 'internal invariant — the fp64 lowering pass must rewrite every f64 before emit; report a shader-dsl bug',
+  },
+  SD0041: {
+    code: 'SD0041',
+    summary: 'unsupported operation on f64 operands',
+    hint: 'only + - * / compare, abs, min, max, sqrt, mix, floor, fract are emulated — narrow explicitly with toF32(x) first',
+  },
+  SD0042: {
+    code: 'SD0042',
+    summary: 'conflicting fp64 guard declaration',
+    hint: "the '_fp64' binding / 'Fp64Guard' struct are reserved for the auto-injected guard uniform — remove the conflicting declaration, or pin the slot with fp64Guard({ group, binding })",
+  },
+  SD0043: {
+    code: 'SD0043',
+    summary: 'reserved fp64 name',
+    hint: 'fp64Lower injects df64_* emulation fns and DF64VecN structs under those names — rename the colliding declaration',
+  },
+  SD0044: {
+    code: 'SD0044',
+    summary: 'f64 in an interpolated @location IO field',
+    hint: 'interpolating hi/lo pairs is numerically wrong — narrow with toF32, or carry two f32 varyings explicitly',
+  },
+
   // ── Lint-rule diagnostics surfaced through diagnose() ──
   SD0107: {
     code: 'SD0107',
