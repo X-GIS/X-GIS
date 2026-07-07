@@ -67,6 +67,16 @@ const tabs = [
             Pointer-interactive
           </span>
         )}
+        {card.splitLabels && (
+          <>
+            <span class="absolute bottom-3 left-3 px-2 py-0.5 rounded-full bg-bg/80 backdrop-blur border border-line text-fg-dim text-[10px] font-mono tracking-[0.16em] uppercase pointer-events-none">
+              ← {card.splitLabels[0]}
+            </span>
+            <span class="absolute bottom-3 right-3 px-2 py-0.5 rounded-full bg-bg/80 backdrop-blur border border-line text-fg-dim text-[10px] font-mono tracking-[0.16em] uppercase pointer-events-none">
+              {card.splitLabels[1]} →
+            </span>
+          </>
+        )}
         <div data-error hidden class="absolute inset-0 flex items-center justify-center p-6 text-center text-fg-mute text-[12px] font-mono bg-bg-elev"></div>
       </div>
 

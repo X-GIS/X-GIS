@@ -6,15 +6,6 @@ struct VsOut {
   vec4 pos;
   vec2 uv;
 };
-layout(std140) uniform Uniforms {
-  float time;
-  vec2 resolution;
-  float density;
-} U;
-float hash(vec2 p);
-float hash(vec2 p) {
-  return fract((sin(dot(p, vec2(127.1, 311.7))) * 43758.5453));
-}
 out vec2 uv;
 
 VsOut vs_impl(uint vi) {

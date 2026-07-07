@@ -10,6 +10,7 @@
 //   a < <= > >= == != b   → df64_lt/le/gt/ge/eq/ne(a, b)
 //   -a                    → -(vec2 pair)                 (componentwise, exact)
 //   sqrt/abs/min/max/mix/floor/fract → df64_*
+//   abs/min/max/mix/floor/fract/normalize on vecN<f64> → df64_vN_*
 //   f64(x)  (toF64)       → vec2<f32>(x, 0.0)            (exact widen)
 //   f32(x)  (toF32 on f64)→ df64_narrow(x)               (hi + lo)
 //   f64 param/var/field/binding/const → vec2<f32>        (type map)
@@ -52,8 +53,6 @@ import {
   DF64_ORDER,
   DF64_VEC_STRUCTS,
   FP64_GUARD_NAME,
-  FP64_GUARD_STRUCT,
-  FP64_GUARD_DECL,
   FP64_GUARD_TYPE,
   splitF64,
 } from '../fp64/df64-lib'
@@ -108,6 +107,16 @@ const CALL_FN: Record<string, string> = {
   min: 'df64_min',
   max: 'df64_max',
   mix: 'df64_mix',
+}
+/** Whitelisted componentwise builtins on vec64 → their df64_vN_* twin shape. */
+const VEC_CALL_KIND: Record<string, 'unary' | 'binary' | 'mix'> = {
+  abs: 'unary',
+  floor: 'unary',
+  fract: 'unary',
+  normalize: 'unary',
+  min: 'binary',
+  max: 'binary',
+  mix: 'mix',
 }
 
 const litF32 = (v: number): Expr => ({ op: 'lit', type: f32T, value: v })
@@ -299,10 +308,40 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
           sumSquares((i) => callHelper(ctx, 'df64_sub', vec2fT, [lane(a, n, i), lane(b, n, i)])),
         ])
       }
-      // Any OTHER builtin over a vec64 is unsupported — fail loud. (normalize
-      // included: reassembling N division results would evaluate each division
-      // twice; narrow the lanes with toF32(v.x) etc. and normalize in f32, or
-      // divide by length(v) explicitly.)
+      // Componentwise vec64 builtins → their df64_vN_* twins. Each helper
+      // composes the verified SCALAR df64 fns lane by lane INSIDE its body
+      // (abs/min/max/floor branch per lane — no whole-plane form exists
+      // without a per-lane select), so the operand is evaluated exactly once
+      // as the call argument.
+      if (isVec64(e.type) && VEC_CALL_KIND[e.fn] !== undefined) {
+        const n = e.type.n
+        const sTy = structT(vec64StructName(n))
+        const kind = VEC_CALL_KIND[e.fn]!
+        if (kind === 'unary') {
+          return callHelper(ctx, `df64_v${n}_${e.fn}`, sTy, [vecOperand(e.args[0]!, n)])
+        }
+        if (kind === 'binary') {
+          return callHelper(ctx, `df64_v${n}_${e.fn}`, sTy, [
+            vecOperand(e.args[0]!, n),
+            vecOperand(e.args[1]!, n),
+          ])
+        }
+        // mix(a, b, t): a/b are vec64 (or broadcast); t stays a SCALAR f32 —
+        // the same contract as the scalar df64_mix (per-lane vec t unsupported).
+        const t = e.args[2]!
+        if (!(t.type.kind === 'scalar' && t.type.scalar === 'f32')) {
+          throw dslError(
+            'SD0041',
+            `mix() on vec64 needs a scalar f32 interpolant, got ${typeKey(t.type)}`,
+          )
+        }
+        return callHelper(ctx, `df64_v${n}_mix`, sTy, [
+          vecOperand(e.args[0]!, n),
+          vecOperand(e.args[1]!, n),
+          walk(t),
+        ])
+      }
+      // Any OTHER builtin over a vec64 is unsupported — fail loud.
       if (isVec64(e.type) || e.args.some((a) => isVec64(a.type))) {
         if (isKnownIntrinsic(e.fn) || e.fn === 'i32' || e.fn === 'u32' || e.fn === 'f32') {
           throw dslError('SD0041', `${e.fn}() on vec64 operands`)
@@ -689,22 +728,24 @@ function helperClosure(used: ReadonlySet<string>): FuncDecl[] {
 
 // ── Guard auto-injection ──
 //
-// The df64 helper bodies read the runtime-opaque `_fp64.one` uniform (the
-// anti-fast-math guard — see df64-lib's header for WHY it must be a runtime
-// input). Authors declare NOTHING: any module whose lowering used a helper
-// gets the `Fp64Guard` struct + `_fp64` binding injected here, at a
-// DETERMINISTIC slot — group 0, first binding index past the module's own
-// group-0 bindings — so emit stays byte-stable and can never collide with the
-// module's declared bindings. An author who must pin the slot to an engine's
-// fixed bind-group layout declares `fp64Guard({ group, binding })` in
-// `uses:`, which this function honours (matching name + shape). A CONFLICTING
-// `_fp64` / `Fp64Guard` declaration (wrong space/type/fields) is SD0042 —
-// the emulation would be precision-dead against a mis-shaped guard.
+// The df64 helper bodies read a runtime-opaque 1.0 via the `f64Guard`
+// intrinsic, which spells as a texel fetch on the `_fp64` TEXTURE binding
+// (the anti-fast-math guard — see df64-lib's header for WHY it must be a
+// runtime input a driver can never constant-fold; a uniform is defeated by
+// uniform-value pipeline specialization). Authors declare NOTHING: any module
+// whose lowering used a helper gets the `_fp64` texture_2d<f32> binding
+// injected here, at a DETERMINISTIC slot — group 0, first binding index past
+// the module's own group-0 bindings — so emit stays byte-stable and can never
+// collide with the module's declared bindings. An author who must pin the
+// slot to an engine's fixed bind-group layout declares
+// `fp64Guard({ group, binding })` in `uses:`, which this function honours
+// (matching name + type). A CONFLICTING `_fp64` declaration (wrong type) is
+// SD0042 — the emulation would be precision-dead against a mis-shaped guard.
 
-function injectGuard(structs: StructDecl[], bindings: BindingDecl[]): void {
+function injectGuard(bindings: BindingDecl[]): void {
   const existing = bindings.find((b) => b.name === FP64_GUARD_NAME)
   if (existing) {
-    if (existing.space !== 'uniform' || typeKey(existing.type) !== typeKey(FP64_GUARD_TYPE)) {
+    if (typeKey(existing.type) !== typeKey(FP64_GUARD_TYPE)) {
       throw dslError(
         'SD0042',
         `binding '${FP64_GUARD_NAME}' exists but is ${existing.space} ${typeKey(existing.type)}`,
@@ -720,15 +761,6 @@ function injectGuard(structs: StructDecl[], bindings: BindingDecl[]): void {
       space: 'uniform',
       type: FP64_GUARD_TYPE,
     })
-  }
-  const struct = structs.find((s) => s.name === FP64_GUARD_STRUCT)
-  if (struct) {
-    const f = struct.fields
-    if (f.length !== 1 || f[0]!.name !== 'one' || typeKey(f[0]!.type) !== 'f32') {
-      throw dslError('SD0042', `struct '${FP64_GUARD_STRUCT}' exists with a different shape`)
-    }
-  } else {
-    structs.push(FP64_GUARD_DECL)
   }
 }
 
@@ -821,7 +853,7 @@ export function fp64Lower(m: ModuleDecl): ModuleDecl {
   }
 
   const helpers = helperClosure(ctx.used)
-  if (helpers.length > 0) injectGuard(structs, bindings)
+  if (helpers.length > 0) injectGuard(bindings)
 
   return { consts, structs, bindings, funcs: [...funcs, ...helpers] }
 }

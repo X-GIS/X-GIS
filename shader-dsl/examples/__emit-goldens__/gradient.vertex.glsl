@@ -6,11 +6,6 @@ struct VsOut {
   vec4 pos;
   vec2 uv;
 };
-layout(std140) uniform Uniforms {
-  vec4 top;
-  vec4 bottom;
-  float mix_bias;
-} u;
 out vec2 uv;
 
 VsOut vs_full_impl(uint idx) {

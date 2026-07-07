@@ -34,6 +34,12 @@ export * from './core/backends/glsl'
 // Neutral intrinsic-spelling registry.
 export * from './core/intrinsics'
 
+// Production-emit text options ({ minify, mangle, renames? }) accepted by BOTH
+// emitModule (WGSL) and emitGlslModule, plus the standalone text minifier for
+// consumers holding an already-emitted string.
+export { type EmitTextOptions } from './core/emit'
+export { minifyShaderText } from './core/emit-minify'
+
 // CPU f64 oracle (compileModule + CpuModule types).
 export * from './core/oracle'
 
@@ -72,7 +78,6 @@ export {
   splitF64,
   fp64Guard,
   FP64_GUARD_NAME,
-  FP64_GUARD_STRUCT,
   type Fp64GuardHandle,
 } from './core/fp64/df64-lib'
 export { fp64Lower } from './core/passes/fp64-lower'

@@ -6,16 +6,6 @@ struct VsOut {
   vec4 pos;
   vec2 uv;
 };
-layout(std140) uniform Uniforms {
-  float time;
-  vec2 resolution;
-  float sun_az;
-  float exaggeration;
-} U;
-float terrain(vec2 p, float t);
-float terrain(vec2 p, float t) {
-  return (((((sin(((p.x * 3.0) + t)) * cos((p.y * 3.0))) + ((sin(((p.x * 6.1) - (t * 0.7))) * cos((p.y * 5.3))) * 0.5)) + ((sin((p.x * 12.7)) * cos((p.y * 11.1))) * 0.25)) * 0.28) + 0.5);
-}
 out vec2 uv;
 
 VsOut vs_impl(uint vi) {

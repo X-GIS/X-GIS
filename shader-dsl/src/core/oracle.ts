@@ -210,6 +210,10 @@ const BUILTINS: Record<string, Builtin> = {
   // NOT run fp64Lower. `oracle(fp64Lower(m)) ≈ oracle(m)` is the metamorphic
   // gate on that pass (EFT error terms are exactly 0 in exact arithmetic).
   f64: (x) => Number(x),
+  // The anti-fast-math guard value in LOWERED modules — semantically exactly
+  // 1.0 (on the GPU it is a texel fetch, opaque to shader compilers; here it
+  // is just the number, so the f32-rounding test oracle runs the same IR).
+  f64Guard: () => 1,
   // hi/lo pair ↔ f64 (the DSFUN lane bridge): natively a sum / a fround split.
   f64FromParts: (hi, lo) => (hi as number) + (lo as number),
   f64Parts: (x) => {

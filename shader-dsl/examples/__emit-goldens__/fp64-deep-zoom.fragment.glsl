@@ -12,9 +12,7 @@ layout(std140) uniform Uniforms {
   float fp64;
 } u;
 
-layout(std140) uniform Fp64Guard {
-  float one;
-} _fp64;
+uniform sampler2D _fp64;
 vec2 df64_twoSum(float a, float b);
 vec2 df64_quickTwoSum(float a, float b);
 vec2 df64_add(vec2 a, vec2 b);
@@ -23,15 +21,17 @@ vec2 df64_floor(vec2 a);
 vec2 df64_fract(vec2 a);
 float df64_narrow(vec2 a);
 vec2 df64_twoSum(float a, float b) {
+  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v0 = (a + b);
-  float _v1 = (((_v0 * _fp64.one) - a) * _fp64.one);
-  float _v2 = (((((a - ((_v0 - _v1) * _fp64.one)) * _fp64.one) * _fp64.one) * _fp64.one) + (b - _v1));
+  float _v1 = (((_v0 * _cse0) - a) * _cse0);
+  float _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
   return vec2(_v0, _v2);
 }
 
 vec2 df64_quickTwoSum(float a, float b) {
-  float _v0 = ((a + b) * _fp64.one);
-  float _v1 = (b - ((_v0 - a) * _fp64.one));
+  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
+  float _v0 = ((a + b) * _cse0);
+  float _v1 = (b - ((_v0 - a) * _cse0));
   return vec2(_v0, _v1);
 }
 

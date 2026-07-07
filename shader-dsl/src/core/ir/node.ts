@@ -756,6 +756,12 @@ export const textureLoad = (
   coord: NodeLike,
   level: NodeLike,
 ): Node<'vec4<f32>'> => call('textureLoad', vec4fT, tex, coord, level) as Node<'vec4<f32>'>
+/** INTERNAL (core/fp64/df64-lib.ts): the fp64 anti-fast-math guard value — a
+ *  runtime-opaque 1.0. Spelled per target as a texel fetch from the injected
+ *  `_fp64` texture (intrinsics.ts `f64Guard`); the CPU oracle evaluates it as
+ *  exactly 1. Not part of the authoring surface. */
+export const f64GuardOne = (): Node<'f32'> =>
+  call('f64Guard', { kind: 'scalar', scalar: 'f32' }) as Node<'f32'>
 /** Texture extent in texels → vec2<u32>. Cost: one query per fragment in
  *  fullscreen-triangle compose passes; cached in a `let` by the caller. */
 export const textureDimensions = (

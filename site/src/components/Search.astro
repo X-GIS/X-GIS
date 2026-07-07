@@ -1,8 +1,18 @@
 ---
 import { buildSearchIndexJSON } from '../lib/search-index'
+import { publishedPosts } from '../lib/blog'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
-const indexJson = buildSearchIndexJSON(base)
+const posts = await publishedPosts()
+const indexJson = buildSearchIndexJSON(
+  base,
+  posts.map((p) => ({
+    id: p.id,
+    title: p.data.title,
+    description: p.data.description,
+    tags: p.data.tags,
+  })),
+)
 ---
 
 <!-- Trigger button. Hidden on mobile (the mobile drawer handles
@@ -14,7 +24,7 @@ const indexJson = buildSearchIndexJSON(base)
   class="hidden sm:inline-flex items-center gap-2 px-2.5 h-7 rounded-md
          bg-bg-card hover:bg-bg-hover border border-line hover:border-line-strong
          text-fg-mute hover:text-fg-dim text-[12px] font-mono transition-colors"
-  aria-label="Search docs and examples"
+  aria-label="Search docs, examples, and blog"
 >
   <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <circle cx="11" cy="11" r="7"/>
@@ -45,7 +55,7 @@ const indexJson = buildSearchIndexJSON(base)
       <input
         type="text"
         id="search-input"
-        placeholder="Search docs and examples…"
+        placeholder="Search docs, examples, and blog…"
         class="flex-1 bg-transparent text-fg text-[15px] placeholder:text-fg-mute outline-none"
         autocomplete="off"
         spellcheck="false"
@@ -78,7 +88,7 @@ const indexJson = buildSearchIndexJSON(base)
     id: string
     title: string
     body: string
-    type: 'doc' | 'demo'
+    type: 'doc' | 'demo' | 'post'
     tag: string
     url: string
   }
@@ -179,6 +189,7 @@ const indexJson = buildSearchIndexJSON(base)
       'Utilities': 11,
       'Overview': 12,
       'Language': 13,
+      'Blog': 14,
     }
     // Demo tags (gallery categories) all go last.
 

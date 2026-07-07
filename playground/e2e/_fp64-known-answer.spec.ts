@@ -14,7 +14,8 @@
 //     under SwiftShader in CI — same charter as _shader-math-parity.spec.ts).
 //   • GLSL ES 3.00: a WebGL2 fragment pass (exercises ANGLE) rendering one
 //     pass/fail pixel per test vector, plus a compile+link gate over the
-//     fp64-deep-zoom example's emitted GLSL.
+//     fp64-deep-zoom example's emitted GLSL, plus a vec64 execution pixel
+//     (whole-plane df64_vN_* arithmetic + the componentwise builtins).
 //
 // Every numeric case carries a DISCRIMINATIVE half: the plain-f32 result
 // differs from the expected value by far more than the tolerance, so a
@@ -49,9 +50,16 @@ import {
   storageBuffer,
   builtin,
   ioStruct,
-  FP64_GUARD_STRUCT,
   f32,
   emitGlslModule,
+  vec3f64,
+  normalize,
+  min,
+  max,
+  mix,
+  fract,
+  dot,
+  length,
   type ReadonlyNode,
   type Node,
 } from '../../shader-dsl/src/index'
@@ -174,6 +182,34 @@ const fsCheck = fn(
 )
 const fragModule = module({ funcs: [vsFull, fsCheck], uses: [VsOut] })
 
+// ── vec64 execution gate (one pass/fail pixel) ──
+// The whole-plane df64_vN_* arithmetic AND the per-lane componentwise builtins
+// (abs/min/max/mix/floor via fract/normalize) executed on the real GPU. The
+// chain's expected value 0.5 lives entirely in the pairs' lo words: a plain-f32
+// (or fast-math-collapsed) evaluation quantizes lane 0 to 1e8 and the fract
+// term to 0 — the pixel turns red, no vacuous pass.
+const fsVec = fn(
+  'fs_vec',
+  { frag: builtin('position', vec4fT) },
+  () => {
+    const v1 = vec3f64(1e8 + 0.5, -2.25, 3)
+    const v2 = abs(vec3f64(-(1e8 + 0.5), 2.25, -3)) // (1e8+0.5, 2.25, 3)
+    // Plane arithmetic round-trip: (v1 + v2) − v2 == v1 to df64 precision.
+    const w = v1.add(v2).sub(v2)
+    const mid = mix(min(w, v2), max(w, v2), f32(0.5)) // (1e8+0.5, 0, 3)
+    // fract keeps the lo-word 0.5 of lane 0; dot(…, 1⃗) reduces it to a scalar.
+    const r1 = toF32(dot(fract(mid), vec3f64(1, 1, 1)))
+    const r2 = toF32(length(normalize(w)))
+    const pass = abs(r1.sub(0.5))
+      .lt(f32(2 ** -20))
+      .and(abs(r2.sub(1.0)).lt(f32(1e-6)))
+      .select(1.0, 0.0)
+    return vec4(f32(1).sub(pass), pass, 0, 1)
+  },
+  { stage: 'fragment', retAttr: '@location(0)' },
+)
+const vecModule = module({ funcs: [vsFull, fsVec], uses: [VsOut] })
+
 test.describe('fp64 known answers on the real GPU', () => {
   test('WGSL compute: emitted df64 module reproduces f64 answers (fast-math survival)', async ({
     page,
@@ -210,17 +246,24 @@ test.describe('fp64 known answers on the real GPU', () => {
           size: args.n * 8,
           usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         })
-        // The auto-injected anti-fast-math guard: _fp64.one = 1.0f.
-        const guardBuf = device.createBuffer({
-          size: 16,
-          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        // The auto-injected anti-fast-math guard: a 1×1 texture whose texel
+        // reads exactly 1.0 (rgba8unorm 255 → 1.0).
+        const guardTex = device.createTexture({
+          size: [1, 1],
+          format: 'rgba8unorm',
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
         })
-        device.queue.writeBuffer(guardBuf, 0, new Float32Array([1, 0, 0, 0]))
+        device.queue.writeTexture(
+          { texture: guardTex },
+          new Uint8Array([255, 255, 255, 255]),
+          { bytesPerRow: 4 },
+          [1, 1],
+        )
         const bind = device.createBindGroup({
           layout: pipeline.getBindGroupLayout(0),
           entries: [
             { binding: 0, resource: { buffer: outBuf } },
-            { binding: 1, resource: { buffer: guardBuf } },
+            { binding: 1, resource: guardTex.createView() },
           ],
         })
         const enc = device.createCommandEncoder()
@@ -282,7 +325,8 @@ test.describe('fp64 known answers on the real GPU', () => {
       fs: emitGlslModule(fragModule, 'fragment'),
       exVs: emitGlslModule(fp64DeepZoom.module, 'vertex'),
       exFs: emitGlslModule(fp64DeepZoom.module, 'fragment'),
-      guardBlock: FP64_GUARD_STRUCT,
+      vecVs: emitGlslModule(vecModule, 'vertex'),
+      vecFs: emitGlslModule(vecModule, 'fragment'),
       n: N,
     }
     const res = await page.evaluate((a: typeof args) => {
@@ -321,23 +365,55 @@ test.describe('fp64 known answers on the real GPU', () => {
       const exProg = compile(gl, a.exVs, a.exFs)
       if (typeof exProg === 'string') return { error: `example ${exProg}` }
 
+      // The auto-injected guard: a 1×1 texture whose texel reads exactly 1.0,
+      // bound to the `_fp64` sampler (texel values are opaque to every
+      // downstream compiler — the point of the texture-based guard).
+      const bindGuard = (p: WebGLProgram): string | null => {
+        const loc = gl.getUniformLocation(p, '_fp64')
+        if (!loc) return 'sampler _fp64 not found'
+        const t = gl.createTexture()
+        gl.activeTexture(gl.TEXTURE7)
+        gl.bindTexture(gl.TEXTURE_2D, t)
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          gl.RGBA8,
+          1,
+          1,
+          0,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          new Uint8Array([255, 255, 255, 255]),
+        )
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+        gl.uniform1i(loc, 7)
+        gl.activeTexture(gl.TEXTURE0)
+        return null
+      }
+
       // 2) The per-case checker: draw N pass/fail pixels and read them back.
       const prog = compile(gl, a.vs, a.fs)
       if (typeof prog === 'string') return { error: prog }
       gl.useProgram(prog)
-      // Bind the auto-injected guard UBO (std140: one f32 in 16 bytes) = 1.0f.
-      const idx = gl.getUniformBlockIndex(prog, a.guardBlock)
-      if (idx === gl.INVALID_INDEX) return { error: `uniform block ${a.guardBlock} not found` }
-      gl.uniformBlockBinding(prog, idx, 0)
-      const ubo = gl.createBuffer()
-      gl.bindBuffer(gl.UNIFORM_BUFFER, ubo)
-      gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([1, 0, 0, 0]), gl.STATIC_DRAW)
-      gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, ubo)
+      const gErr = bindGuard(prog)
+      if (gErr) return { error: gErr }
       gl.viewport(0, 0, a.n, 1)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
       const px = new Uint8Array(a.n * 4)
       gl.readPixels(0, 0, a.n, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
-      return { px: Array.from(px) }
+
+      // 3) vec64 execution gate: whole-plane df64_vN_* arithmetic + the
+      // componentwise builtins as one pass/fail pixel (same guard binding).
+      const vecProg = compile(gl, a.vecVs, a.vecFs)
+      if (typeof vecProg === 'string') return { error: `vec64 ${vecProg}` }
+      gl.useProgram(vecProg)
+      const vErr = bindGuard(vecProg)
+      if (vErr) return { error: `vec64: ${vErr}` }
+      gl.drawArrays(gl.TRIANGLES, 0, 3)
+      const vecPx = new Uint8Array(4)
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, vecPx)
+      return { px: Array.from(px), vecPx: Array.from(vecPx) }
     }, args)
 
     expect(res, `WebGL2 failed: ${'error' in res ? res.error : ''}`).not.toHaveProperty('error')
@@ -348,6 +424,12 @@ test.describe('fp64 known answers on the real GPU', () => {
       if (!(g > 200 && r < 50)) {
         failures.push(`${CASES[i]!.name}: pixel (r=${r}, g=${g}) — df64 check failed on ANGLE`)
       }
+    }
+    const [vr, vg] = [res.vecPx![0]!, res.vecPx![1]!]
+    if (!(vg > 200 && vr < 50)) {
+      failures.push(
+        `vec64 builtins: pixel (r=${vr}, g=${vg}) — df64_vN_* chain failed on ANGLE`,
+      )
     }
     expect(failures, `df64 GLSL known-answer pixels not green:\n${failures.join('\n')}`).toEqual([])
   })

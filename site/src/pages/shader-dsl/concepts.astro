@@ -2,12 +2,23 @@
 import ShaderDsl from '../../layouts/ShaderDsl.astro'
 import { Code } from 'astro-expressive-code/components'
 import { shaderCards } from '../../lib/shader-examples.ts'
+import { examples } from '@xgis/shader-dsl/examples'
+import { emitGlslModule } from '@xgis/shader-dsl'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const root = `${base}/shader-dsl`
 
 // A concrete dual-backend contrast: the gradient example, emitted both ways from one module.
 const gradient = shaderCards.find((c) => c.id === 'gradient')!
+
+// Shipping demo — kaleidoscope has a real authored vocabulary (hash / noise /
+// fbm / palette), so the mangle+minify contrast is visible. Both strings are
+// produced at BUILD time by the real emit; the byte counts are measurements,
+// not copy.
+const kal = examples.find((e) => e.id === 'kaleidoscope')!
+const kalPlainFs = emitGlslModule(kal.module, 'fragment')
+const kalShippedFs = emitGlslModule(kal.module, 'fragment', { minify: true, mangle: true })
+const savedPct = Math.round((1 - kalShippedFs.length / kalPlainFs.length) * 100)
 
 const sections = [
   {
@@ -38,7 +49,7 @@ const sections = [
   {
     id: 'optimize',
     title: 'Optimize + lint',
-    body: 'Before emit, a pass pipeline runs CSE, DCE, LICM, const-fold, algebraic simplification, and auto-var/auto-let materialisation, plus a 20-rule lint engine (no-float-eq, single-exit, naming, dead-binding, …). The optimizer is WGSL-side so the byte-stable WGSL stays canonical; GLSL emit is an identity pass over the lowered tree.',
+    body: 'Before emit, a pass pipeline runs CSE, DCE, LICM, const-fold, algebraic simplification, and auto-var/auto-let materialisation, plus a 21-rule lint engine (no-float-eq, single-exit, naming, dead-binding, …). The optimizer is WGSL-side so the byte-stable WGSL stays canonical; GLSL emit is an identity pass over the lowered tree.',
   },
 ]
 ---
@@ -77,8 +88,49 @@ const sections = [
         <Code code={gradient.wgsl} lang="wgsl" />
       </div>
       <div>
-        <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">GLSL ES 3.00 — emitGlslModule(m, …)</p>
-        <Code code={gradient.glsl ?? ''} lang="glsl" />
+        <div class="flex items-center justify-between gap-3 mb-2">
+          <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em]">GLSL ES 3.00 — emitGlslModule(m, …)</p>
+          <!-- GLSL compiles as two separate sources (unlike the single WGSL
+               module), so each stage gets its own tab instead of one dump. -->
+          <div class="flex gap-1" role="group" aria-label="GLSL stage">
+            <button type="button" data-glsl-stage="vs" aria-pressed="true"
+              class="font-mono text-[10.5px] px-2 py-0.5 rounded-full border border-line-strong text-fg transition-colors">vertex</button>
+            <button type="button" data-glsl-stage="fs" aria-pressed="false"
+              class="font-mono text-[10.5px] px-2 py-0.5 rounded-full border border-line text-fg-mute hover:text-fg transition-colors">fragment</button>
+          </div>
+        </div>
+        <div data-glsl-panel="vs"><Code code={gradient.glslVertex ?? ''} lang="glsl" /></div>
+        <div data-glsl-panel="fs" hidden><Code code={gradient.glslFragment ?? ''} lang="glsl" /></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="mt-14" id="shipping">
+    <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">Shipping shaders</h2>
+    <p class="text-[14.5px] leading-[1.65] text-fg-dim max-w-[700px] mb-5">
+      Your bundler minifies every byte of JS — and none of the shader text it hands to
+      <code class="font-mono text-[13px] text-fg">gl.shaderSource</code>. The emit functions take production options:
+      <code class="font-mono text-[13px] text-fg">{'{ minify: true, mangle: true }'}</code> compacts the text and renames the
+      authored vocabulary (helpers, plain structs, consts → <code class="font-mono text-[13px] text-fg">_f0/_S0/_k0</code>),
+      while the <em>ABI boundary</em> — entry points, binding names, UBO block tags, struct fields — is never touched,
+      so reflection-driven hosts bind unchanged. Below, the kaleidoscope fragment shader as authored and as shipped:
+      <strong class="text-fg">{kalPlainFs.length.toLocaleString()} B → {kalShippedFs.length.toLocaleString()} B
+      (−{savedPct}%)</strong>, with <code class="font-mono text-[13px] text-fg">hash/noise/fbm/palette</code> gone and
+      <code class="font-mono text-[13px] text-fg">Uniforms</code>/<code class="font-mono text-[13px] text-fg">uv</code> intact.
+      Details in the <a href={`${root}/reference`} class="text-accent hover:text-accent-hover transition-colors">reference</a>.
+    </p>
+    <div class="sd-code grid lg:grid-cols-2 gap-4 items-start">
+      <div>
+        <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">
+          authored — emitGlslModule(m, 'fragment') · {kalPlainFs.length.toLocaleString()} B
+        </p>
+        <Code code={kalPlainFs} lang="glsl" />
+      </div>
+      <div>
+        <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">
+          shipped — {'{ minify: true, mangle: true }'} · {kalShippedFs.length.toLocaleString()} B
+        </p>
+        <Code code={kalShippedFs} lang="glsl" wrap />
       </div>
     </div>
   </section>
@@ -91,3 +143,22 @@ const sections = [
     </p>
   </div>
 </ShaderDsl>
+
+<script>
+  const stageBtns = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-glsl-stage]'))
+  const stagePanels = Array.from(document.querySelectorAll<HTMLElement>('[data-glsl-panel]'))
+  stageBtns.forEach((b) =>
+    b.addEventListener('click', () => {
+      const stage = b.dataset.glslStage
+      stagePanels.forEach((p) => { p.hidden = p.dataset.glslPanel !== stage })
+      stageBtns.forEach((o) => {
+        const on = o === b
+        o.setAttribute('aria-pressed', String(on))
+        o.classList.toggle('border-line-strong', on)
+        o.classList.toggle('text-fg', on)
+        o.classList.toggle('border-line', !on)
+        o.classList.toggle('text-fg-mute', !on)
+      })
+    }),
+  )
+</script>
