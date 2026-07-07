@@ -47,6 +47,7 @@ const U = uniformStruct(
   {
     origin: f64T, // occupies one vec2<f32> slot — host packs splitF64(ORIGIN)
     span: f32T, // world units swept across the screen
+    fp64: f32T, // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
   },
 )
 
@@ -83,7 +84,9 @@ const fsStripes = fn(
     const stripes64 = toF32(fract(U.field.origin.add(toF64(sweep))))
     // f32 twin — SAME formula, origin narrowed: the fraction is unrepresentable.
     const stripes32 = fract(toF32(U.field.origin).add(sweep))
-    const v = p.vo.uv.x.lt(0.5).select(stripes32, stripes64)
+    // fp64 toggle off → the WHOLE screen takes the f32 path: the right half
+    // collapses flat in place, making the emulation's contribution tangible.
+    const v = p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)).select(stripes32, stripes64)
     return vec4(v, v, v, 1.0)
   },
   { stage: 'fragment', retAttr: '@location(0)' },
@@ -100,13 +103,14 @@ export const fp64DeepZoom: ShaderExample = {
   id: 'fp64-deep-zoom',
   title: 'fp64 deep zoom',
   blurb:
-    'Emulated double precision (two-f32 df64): a world coordinate near 1e8 renders as fract() stripes — plain f32 (left) collapses flat, the f64 type (right) keeps them, with identical authoring syntax. The auto-injected _fp64 guard uniform must be set to 1.0.',
+    'Emulated double precision (two-f32 df64): a world coordinate near 1e8 renders as fract() stripes — plain f32 (left) collapses flat, the f64 type (right) keeps them, with identical authoring syntax. Flip the fp64 toggle off to watch the right half collapse too. The auto-injected _fp64 guard uniform must be set to 1.0.',
   category: 'cartographic',
   file: 'fp64-deep-zoom.ts',
   module: fp64DeepZoomModule,
   renderable: true,
   controls: {
     origin: { kind: 'const', value: [...splitF64(ORIGIN)] },
-    span: { kind: 'slider', label: 'World span', min: 1, max: 8, step: 0.5, value: 4 },
+    span: { kind: 'slider', label: 'World span', min: 1, max: 8, step: 0.5, value: 4, wheel: true },
+    fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },
   },
 }

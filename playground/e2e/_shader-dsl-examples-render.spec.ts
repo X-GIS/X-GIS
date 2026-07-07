@@ -81,14 +81,21 @@ test.describe('shader-dsl examples render on real WebGL2', () => {
             const buf = new ArrayBuffer(Math.ceil(u.size / 16) * 16)
             const f32 = new Float32Array(buf)
             for (const field of u.fields) {
-              const c = (controls as Record<string, { kind: string; value?: number | number[] }>)[
-                field.name
-              ]
+              const c = (controls as Record<
+                string,
+                { kind: string; value?: number | number[] | boolean }
+              >)[field.name]
               let v: number[] = [0]
               if (c?.kind === 'time') v = [1.0]
               else if (c?.kind === 'resolution') v = [128, 128]
               else if (c?.kind === 'slider') v = [c.value as number]
-              else if (c?.kind === 'const') v = c.value as number[]
+              else if (c?.kind === 'toggle') v = [c.value ? 1 : 0]
+              else if (c?.kind === 'pan2d') {
+                // default center → DF64Vec2 planes [hi.x, hi.y, lo.x, lo.y]
+                const fr = Math.fround
+                const [x, y] = c.value as number[]
+                v = [fr(x), fr(y), fr(x - fr(x)), fr(y - fr(y))]
+              } else if (c?.kind === 'const') v = c.value as number[]
               for (let i = 0; i < v.length; i++) f32[field.offset / 4 + i] = v[i]
             }
             const ubo = gl.createBuffer()

@@ -9,6 +9,7 @@ struct VsOut {
 layout(std140) uniform Uniforms {
   vec2 origin;
   float span;
+  float fp64;
 } u;
 
 layout(std140) uniform Fp64Guard {
@@ -65,7 +66,7 @@ layout(location = 0) out vec4 _ret;
 
 vec4 fs_stripes_impl(VsOut vo) {
   float _cse1 = (vo.uv.x * u.span);
-  float _cse0 = ((vo.uv.x < 0.5) ? fract((df64_narrow(u.origin) + _cse1)) : df64_narrow(df64_fract(df64_add(u.origin, vec2(_cse1, 0.0)))));
+  float _cse0 = (((vo.uv.x < 0.5) || (u.fp64 < 0.5)) ? fract((df64_narrow(u.origin) + _cse1)) : df64_narrow(df64_fract(df64_add(u.origin, vec2(_cse1, 0.0)))));
   return vec4(_cse0, _cse0, _cse0, 1.0);
 }
 

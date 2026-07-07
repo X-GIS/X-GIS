@@ -22,8 +22,11 @@ const detailHref = (id: string) => `${base}/shader-dsl/examples/${id}`
 const sliderControls = Object.entries(card.spec?.controls ?? {}).filter(
   ([, c]) => (c as { kind: string }).kind === 'slider',
 ) as [string, { kind: 'slider'; label: string; min: number; max: number; step: number; value: number }][]
+const toggleControls = Object.entries(card.spec?.controls ?? {}).filter(
+  ([, c]) => (c as { kind: string }).kind === 'toggle',
+) as [string, { kind: 'toggle'; label: string; value: boolean }][]
 const hasMouse = Object.values(card.spec?.controls ?? {}).some(
-  (c) => (c as { kind: string }).kind === 'mouse',
+  (c) => (c as { kind: string }).kind === 'mouse' || (c as { kind: string }).kind === 'pan2d',
 )
 
 const tabs = [
@@ -95,7 +98,7 @@ const tabs = [
         </button>
       </div>
 
-      {sliderControls.length > 0 && (
+      {(sliderControls.length > 0 || toggleControls.length > 0) && (
         <div class="mt-5 grid sm:grid-cols-2 gap-x-8 gap-y-4">
           {sliderControls.map(([field, ctl]) => (
             <label class="block">
@@ -104,6 +107,16 @@ const tabs = [
                 <span class="font-mono text-fg-mute" data-value={field}>{ctl.value}</span>
               </span>
               <input type="range" data-field={field} min={ctl.min} max={ctl.max} step={ctl.step} value={ctl.value} class="shader-range w-full" />
+            </label>
+          ))}
+          {toggleControls.map(([field, ctl]) => (
+            <label class="flex items-center justify-between gap-3 cursor-pointer select-none">
+              <span class="text-[12px] text-fg-dim">{ctl.label}</span>
+              <span class="relative inline-flex items-center">
+                <input type="checkbox" data-toggle-field={field} checked={ctl.value} class="peer sr-only" />
+                <span class="pointer-events-none w-9 h-5 rounded-full bg-bg-card border border-line peer-checked:bg-accent/25 peer-checked:border-accent transition-colors"></span>
+                <span class="pointer-events-none absolute left-0.5 w-4 h-4 rounded-full bg-fg-mute peer-checked:bg-accent peer-checked:translate-x-4 transition-transform"></span>
+              </span>
             </label>
           ))}
         </div>
@@ -212,8 +225,40 @@ const tabs = [
         if (out) out.textContent = input.value
       })
     })
+    // Toggles ride the same live-values record as sliders, as f32 1/0.
+    const toggleInputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-toggle-field]'),
+    )
+    toggleInputs.forEach((input) => {
+      const field = input.dataset.toggleField!
+      sliders[field] = input.checked ? 1 : 0
+      input.addEventListener('change', () => {
+        sliders[field] = input.checked ? 1 : 0
+      })
+    })
     try {
       const mounted = mountShader(canvas, spec, sliders)
+
+      // Wheel-zoomable sliders ({kind:'slider', wheel:true}): wheel over the
+      // canvas drives the same input the slider UI owns, so the readout, the
+      // live-values record, and reset all stay coherent.
+      for (const [field, c] of Object.entries(spec.controls)) {
+        if (c.kind !== 'slider' || !c.wheel) continue
+        const input = sliderInputs.find((i) => i.dataset.field === field)
+        if (!input) continue
+        canvas.addEventListener(
+          'wheel',
+          (e) => {
+            e.preventDefault()
+            const cur = parseFloat(input.value)
+            // ~4 steps per wheel notch, clamped to the slider's range.
+            const next = Math.min(c.max, Math.max(c.min, cur - Math.sign(e.deltaY) * c.step * 4))
+            input.value = String(next)
+            input.dispatchEvent(new Event('input'))
+          },
+          { passive: false },
+        )
+      }
 
       // ── Transport chrome: play/pause · scrub · speed · reset · fullscreen ──
       const playBtn = document.querySelector<HTMLButtonElement>('[data-play]')
@@ -262,9 +307,14 @@ const tabs = [
       )
       resetBtn?.addEventListener('click', () => {
         mounted.setTime(0)
+        mounted.resetCamera()
         sliderInputs.forEach((input) => {
           input.value = input.defaultValue
           input.dispatchEvent(new Event('input'))
+        })
+        toggleInputs.forEach((input) => {
+          input.checked = input.defaultChecked
+          input.dispatchEvent(new Event('change'))
         })
       })
       fsBtn?.addEventListener('click', () => {

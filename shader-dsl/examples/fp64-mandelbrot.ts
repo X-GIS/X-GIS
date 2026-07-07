@@ -41,7 +41,6 @@ import {
   builtin,
   location,
   uniformStruct,
-  splitF64,
 } from '../src/index.ts'
 import type { ShaderExample } from './_shared.ts'
 
@@ -59,7 +58,7 @@ const U = uniformStruct(
     center: vec2f64T, // one DF64Vec2 slot — host packs [hi.x, hi.y, lo.x, lo.y]
     resolution: vec2fT,
     zoom_exp: f32T, // view span = 10^-zoom_exp complex units
-    mouse: vec4fT, // [x, y, down, used] — pointer pans the window
+    fp64: f32T, // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
   },
 )
 
@@ -92,22 +91,21 @@ const fsMandel = fn(
   (p) => {
     const span = Let(pow(f32(10.0), U.field.zoom_exp.neg()))
     // Each half maps its own 0..1 sub-range onto the SAME complex window.
+    // Panning lives on the HOST (the pan2d control drags `center` itself, in
+    // full double precision) — the shader only ever sees per-pixel offsets,
+    // which f32 carries fine at ~span magnitude; the extended-precision add
+    // against `center` below is where f64 wins.
     const half = Let(p.vo.uv.x.mul(2.0))
     const sx = Let(half.sub(p.vo.uv.x.lt(0.5).select(0.0, 1.0)))
-    const aspect2 = Let(U.field.resolution.y.div(U.field.resolution.x).mul(2.0))
-    // Pointer pans the window (gated on mu.w — an untouched frame keeps the
-    // canonical framing). The pan rides the SAME f32 offset path as the
-    // per-pixel dx/dy: its magnitude is ~span, which f32 carries fine — the
-    // extended-precision add against `center` below is where f64 wins, so the
-    // f64 half tracks the cursor smoothly while the f32 half stays collapsed.
-    const mu = U.field.mouse
-    const panX = Let(mu.x.div(U.field.resolution.x).sub(0.5).mul(span).mul(2.0).mul(mu.w))
-    const panY = Let(mu.y.div(U.field.resolution.y).sub(0.5).mul(span).mul(aspect2).mul(mu.w))
-    const dx = Let(sx.sub(0.5).mul(span).add(panX))
-    const dy = Let(p.vo.uv.y.sub(0.5).mul(span).mul(aspect2).add(panY))
+    const dx = Let(sx.sub(0.5).mul(span))
+    const dy = Let(
+      p.vo.uv.y.sub(0.5).mul(span).mul(U.field.resolution.y.div(U.field.resolution.x).mul(2.0)),
+    )
 
     const it = Var(f32(0))
-    If(p.vo.uv.x.lt(0.5), () => {
+    // fp64 toggle off → BOTH halves take the f32 branch: the right half
+    // collapses flat in place, making the emulation's contribution tangible.
+    If(p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)), () => {
       // f32 twin — the SAME iteration with the center narrowed: at deep zoom
       // cx/cy quantize to f32 ulps and whole pixel columns collapse.
       const cx = Let(toF32(U.field.center.x).add(dx))
@@ -164,23 +162,32 @@ const fp64MandelbrotModule = module({
 })
 
 // DF64Vec2 std140 buffer order is PLANE-major: [hi.x, hi.y, lo.x, lo.y]
-// (hi vec2 at offset 0, lo vec2 at offset 8) — NOT lane-major pairs.
-const [cxHi, cxLo] = splitF64(CENTER_X)
-const [cyHi, cyLo] = splitF64(CENTER_Y)
+// (hi vec2 at offset 0, lo vec2 at offset 8) — NOT lane-major pairs. The
+// pan2d host does this packing (via splitF64) every frame as drags move the
+// double-precision camera.
 
 export const fp64Mandelbrot: ShaderExample = {
   id: 'fp64-mandelbrot',
   title: 'fp64 Mandelbrot',
   blurb:
-    'The classic double-float demo: a Mandelbrot needle-spike filament zoomed to a ~1e-7 span — narrower than one f32 ulp, so the plain-f32 left half collapses flat while the emulated-double f64 right half keeps the structure. Move the pointer to pan: the f64 half tracks it smoothly, the f32 half cannot. Identical authoring syntax; the center is one vec2<f64> uniform.',
+    'The classic double-float demo: a Mandelbrot needle-spike filament zoomed to a ~1e-7 span — narrower than one f32 ulp, so the plain-f32 left half collapses flat while the emulated-double f64 right half keeps the structure. Drag to pan and wheel to zoom, map-style — the camera accumulates in full double precision and lands in the vec2<f64> center uniform, so the f64 half stays sharp all the way to the df64 floor (~1e-13) while the f32 half died six orders of magnitude earlier. Flip the fp64 toggle to collapse the right half in place.',
   category: 'generic',
   file: 'fp64-mandelbrot.ts',
   module: fp64MandelbrotModule,
   renderable: true,
   controls: {
-    center: { kind: 'const', value: [cxHi, cyHi, cxLo, cyLo] },
+    // Drag pans the center in full double precision; a full-canvas-width drag
+    // moves 2 × span (each half maps span across half the width).
+    center: {
+      kind: 'pan2d',
+      value: [CENTER_X, CENTER_Y],
+      zoomExpField: 'zoom_exp',
+      unitsPerWidth: 2,
+    },
     resolution: { kind: 'resolution' },
-    zoom_exp: { kind: 'slider', label: 'Zoom 10^-x', min: 2, max: 8.5, step: 0.1, value: 7 },
-    mouse: { kind: 'mouse' },
+    // Wheel-zoomable, open past the f32 floor (~7.5) down to where even the
+    // df64 emulation runs out of bits (~13) — the collapse IS the demo.
+    zoom_exp: { kind: 'slider', label: 'Zoom 10^-x', min: 1, max: 14, step: 0.05, value: 7, wheel: true },
+    fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },
   },
 }

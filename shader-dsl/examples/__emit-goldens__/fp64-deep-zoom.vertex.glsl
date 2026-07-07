@@ -9,6 +9,7 @@ struct VsOut {
 layout(std140) uniform Uniforms {
   vec2 origin;
   float span;
+  float fp64;
 } u;
 
 layout(std140) uniform Fp64Guard {

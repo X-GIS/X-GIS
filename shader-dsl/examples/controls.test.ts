@@ -19,6 +19,8 @@ const AUTO_KIND_TYPE: Record<string, string> = {
   time: 'f32',
   resolution: 'vec2<f32>',
   mouse: 'vec4<f32>',
+  toggle: 'f32',
+  pan2d: 'vec2<f64>', // host packs the DF64Vec2 hi/lo planes via splitF64
 }
 
 describe('shader-dsl examples — controls ↔ reflection', () => {

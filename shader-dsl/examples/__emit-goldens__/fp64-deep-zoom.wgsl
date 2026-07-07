@@ -1,6 +1,7 @@
 struct Uniforms {
   origin: vec2<f32>,
   span: f32,
+  fp64: f32,
 }
 
 struct VsOut {
@@ -29,7 +30,7 @@ fn vs_full(@builtin(vertex_index) idx: u32) -> VsOut {
 @fragment
 fn fs_stripes(vo: VsOut) -> @location(0) vec4<f32> {
   let _cse1 = (vo.uv.x * u.span);
-  let _cse0 = select(df64_narrow(df64_fract(df64_add(u.origin, vec2<f32>(_cse1, 0.0)))), fract((df64_narrow(u.origin) + _cse1)), (vo.uv.x < 0.5));
+  let _cse0 = select(df64_narrow(df64_fract(df64_add(u.origin, vec2<f32>(_cse1, 0.0)))), fract((df64_narrow(u.origin) + _cse1)), ((vo.uv.x < 0.5) || (u.fp64 < 0.5)));
   return vec4<f32>(_cse0, _cse0, _cse0, 1.0);
 }
 

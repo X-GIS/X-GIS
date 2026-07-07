@@ -15,7 +15,7 @@ layout(std140) uniform Uniforms {
   DF64Vec2 center;
   vec2 resolution;
   float zoom_exp;
-  vec4 mouse;
+  float fp64;
 } u;
 
 layout(std140) uniform Fp64Guard {
@@ -99,43 +99,40 @@ vec4 fs_mandel_impl(VsOut vo) {
   float _v0 = pow(10.0, (-u.zoom_exp));
   float _v1 = (vo.uv.x * 2.0);
   float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
-  float _v3 = ((u.resolution.y / u.resolution.x) * 2.0);
-  float _v4 = (((((u.mouse.x / u.resolution.x) - 0.5) * _v0) * 2.0) * u.mouse.w);
-  float _v5 = (((((u.mouse.y / u.resolution.y) - 0.5) * _v0) * _v3) * u.mouse.w);
-  float _v6 = (((_v2 - 0.5) * _v0) + _v4);
-  float _v7 = ((((vo.uv.y - 0.5) * _v0) * _v3) + _v5);
-  float _v8 = 0.0;
-  if (_cse0) {
-    float _v9 = (df64_narrow(_cse1) + _v6);
-    float _v10 = (df64_narrow(_cse2) + _v7);
-    float _v11 = 0.0;
-    float _v12 = 0.0;
-    for (uint _v13 = 0u; (_v13 < 96u); _v13 = (_v13 + 1u)) {
-      if ((((_v11 * _v11) + (_v12 * _v12)) <= 4.0)) {
-        float _v14 = (((_v11 * _v11) - (_v12 * _v12)) + _v9);
-        _v12 = (((_v11 * _v12) * 2.0) + _v10);
-        _v11 = _v14;
-        _v8 = (_v8 + 1.0);
+  float _v3 = ((_v2 - 0.5) * _v0);
+  float _v4 = (((vo.uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
+  float _v5 = 0.0;
+  if ((_cse0 || (u.fp64 < 0.5))) {
+    float _v6 = (df64_narrow(_cse1) + _v3);
+    float _v7 = (df64_narrow(_cse2) + _v4);
+    float _v8 = 0.0;
+    float _v9 = 0.0;
+    for (uint _v10 = 0u; (_v10 < 96u); _v10 = (_v10 + 1u)) {
+      if ((((_v8 * _v8) + (_v9 * _v9)) <= 4.0)) {
+        float _v11 = (((_v8 * _v8) - (_v9 * _v9)) + _v6);
+        _v9 = (((_v8 * _v9) * 2.0) + _v7);
+        _v8 = _v11;
+        _v5 = (_v5 + 1.0);
       }
     }
   } else {
-    vec2 _v15 = df64_add(_cse1, vec2(_v6, 0.0));
-    vec2 _v16 = df64_add(_cse2, vec2(_v7, 0.0));
-    vec2 _v17 = _cse3;
-    vec2 _v18 = _cse3;
-    for (uint _v19 = 0u; (_v19 < 96u); _v19 = (_v19 + 1u)) {
-      if (df64_le(df64_add(df64_mul(_v17, _v17), df64_mul(_v18, _v18)), _licm0)) {
-        vec2 _v20 = df64_add(df64_sub(df64_mul(_v17, _v17), df64_mul(_v18, _v18)), _v15);
-        _v18 = df64_add(df64_mul(df64_mul(_v17, _v18), _licm1), _v16);
-        _v17 = _v20;
-        _v8 = (_v8 + 1.0);
+    vec2 _v12 = df64_add(_cse1, vec2(_v3, 0.0));
+    vec2 _v13 = df64_add(_cse2, vec2(_v4, 0.0));
+    vec2 _v14 = _cse3;
+    vec2 _v15 = _cse3;
+    for (uint _v16 = 0u; (_v16 < 96u); _v16 = (_v16 + 1u)) {
+      if (df64_le(df64_add(df64_mul(_v14, _v14), df64_mul(_v15, _v15)), _licm0)) {
+        vec2 _v17 = df64_add(df64_sub(df64_mul(_v14, _v14), df64_mul(_v15, _v15)), _v12);
+        _v15 = df64_add(df64_mul(df64_mul(_v14, _v15), _licm1), _v13);
+        _v14 = _v17;
+        _v5 = (_v5 + 1.0);
       }
     }
   }
-  float _v21 = ((_v8 < 96.0) ? _v8 : 0.0);
-  float _v22 = fract((_v21 * 0.11));
-  float _v23 = ((sqrt((_v21 / 96.0)) * 0.35) + (_v22 * 0.65));
-  return vec4(mix(vec3(0.02, 0.03, 0.1), vec3(1.0, 0.83, 0.36), _v23), 1.0);
+  float _v18 = ((_v5 < 96.0) ? _v5 : 0.0);
+  float _v19 = fract((_v18 * 0.11));
+  float _v20 = ((sqrt((_v18 / 96.0)) * 0.35) + (_v19 * 0.65));
+  return vec4(mix(vec3(0.02, 0.03, 0.1), vec3(1.0, 0.83, 0.36), _v20), 1.0);
 }
 
 void main() {

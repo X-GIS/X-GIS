@@ -33,6 +33,24 @@ export type Control =
       readonly max: number
       readonly step: number
       readonly value: number
+      /** Also drive this slider from the mouse wheel over the canvas (zoom UX). */
+      readonly wheel?: boolean
+    }
+  // On/off switch → an f32 field (1 / 0). `value` is the default state — it is
+  // what thumbnails, render gates, and an untouched page all see.
+  | { readonly kind: 'toggle'; readonly label: string; readonly value: boolean }
+  // Drag-to-pan 2D camera → a vec2<f64> uniform field. `value` is the default
+  // center as TWO full-precision JS doubles; the host accumulates drags in
+  // double precision and packs the DF64Vec2 hi/lo planes with splitF64 each
+  // frame (an untouched canvas renders the default center — thumbnails and
+  // render gates see the canonical view). Drag scale: a full-canvas-width drag
+  // moves the center by `unitsPerWidth × 10^(−v)` where v is the live value of
+  // the `zoomExpField` control (the wheel-zoom slider).
+  | {
+      readonly kind: 'pan2d'
+      readonly value: readonly [number, number]
+      readonly zoomExpField: string
+      readonly unitsPerWidth: number
     }
 
 export interface ShaderExample {
