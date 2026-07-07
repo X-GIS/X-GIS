@@ -969,6 +969,9 @@ export class XGISMap {
       getPickTextureDevice: () => this.renderTargets.device,
       getProjectionName: () => this.projectionName,
       getVectorTileShows: () => this.vectorTileShows,
+      // #834 M5 s6 — the forced-WebGL2 on-demand pick pass (offscreen
+      // colour+rg32uint MRT + synchronous readback). WebGPU never calls it.
+      pickRhi: (px, py) => this.renderLoopInstance.pickViaRhi(px, py),
     })
     // Apply resource options BEFORE the first render frame so the
     // lazy TextStage construction sees the full bundle. Setters

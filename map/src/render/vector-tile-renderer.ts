@@ -634,6 +634,26 @@ export class VectorTileRenderer {
     return this._fillMatRhi
   }
 
+  /** The PICK flat-fill Material — colour + rg32uint MRT with the pick-enabled
+   *  GLSL twins (fs_fill writes R = feat_id, G = tile.pick_id). Drawn by the
+   *  on-demand WebGL2 pick pass, never the presented frame (#834 M5 s6). */
+  private _fillPickMatRhi: Material | null = null
+  private ensureFillPickMaterialRhi(): Material {
+    if (this._fillPickMatRhi) return this._fillPickMatRhi
+    this._fillPickMatRhi = buildFlatFillMaterials({
+      rhi: this.rhi,
+      shader: emitPolygonWgsl(null, true),
+      vsCode: emitPolygonGlsl(null, true, 'vertex'),
+      fsCode: emitPolygonGlsl(null, true, 'fragment'),
+      format: this.format,
+      sampleCount: 1,
+      rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
+      vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT),
+      pickEnabled: true,
+    }).flat
+    return this._fillPickMatRhi
+  }
+
   /** RHI tile bind group over the uniform ring (dynamic offset @0). Cached per
    *  ring-buffer identity — a mid-frame ring grow swaps rhiBuffer, so fetch
    *  this per draw and it rebuilds automatically. */
@@ -662,6 +682,9 @@ export class VectorTileRenderer {
     dpr: number,
     show: ShowCommand,
     resolvedShow: ResolvedShow,
+    /** 'pick' draws the same tiles through the colour+rg32uint MRT pick
+     *  material with the show's pick_id in the tile slot (#834 M5 s6). */
+    mode: 'color' | 'pick' = 'color',
   ): number {
     if (!this.source?.hasData() || !this.source.getIndex()) return 0
     this.frameCount++
@@ -705,7 +728,7 @@ export class VectorTileRenderer {
     const fillA = fill[3] * opacity
     if (fillA <= 0.005) return 0
 
-    const mat = this.ensureFillMaterialRhi()
+    const mat = mode === 'pick' ? this.ensureFillPickMaterialRhi() : this.ensureFillMaterialRhi()
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     this.logDepthFc = frame.logDepthFc
     const B = this.frameBlock
@@ -781,7 +804,14 @@ export class VectorTileRenderer {
       B.set.tile_origin_merc(Math.fround(tileMercX), Math.fround(tileMercY))
       B.set.opacity(opacity)
       B.set.log_depth_fc(this.logDepthFc)
-      B.set.pick_id(0)
+      // pick_id packs (instanceId<<16)|layerId — the pick fragment writes it
+      // to the rg32uint target's G channel; the colour pass leaves it 0. A
+      // pointer-events:none show writes pick_id 0 (the layerId-0 miss
+      // sentinel) while still writing DEPTH, mirroring the WebGPU noPick
+      // pipelines' writeMask-0 behaviour (occludes, never hits).
+      B.set.pick_id(
+        mode === 'pick' && show.pointerEvents !== 'none' ? (show.pickId ?? 0) : 0,
+      )
       // Per-layer NDC-z bias in style declaration order — render():3748's
       // slot write, mirrored verbatim (#834 M5 s6; the earlier hardcoded 0
       // diverged from the WebGPU slot contents).

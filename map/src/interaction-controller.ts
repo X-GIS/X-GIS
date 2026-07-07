@@ -70,6 +70,10 @@ export interface InteractionControllerDeps {
   getProjectionName(): string
   /** The vectorTileShows array, read fresh (reassigned in rebuildLayers). */
   getVectorTileShows(): VectorTileShowEntry[]
+  /** WebGL2 pick seam (#834 M5 s6): the on-demand offscreen pick pass +
+   *  synchronous readback (RenderLoop.pickViaRhi). Returns the raw
+   *  [featureId, packed] pair or null. Absent on WebGPU-only hosts. */
+  pickRhi?(px: number, py: number): [number, number] | null
 }
 
 /** Map a CSS-pixel coordinate to the device-pixel index to sample, at the
@@ -104,6 +108,8 @@ export class InteractionController {
    *  off the hot path. */
   private pickReadbackPool: { buf: GPUBuffer; inUse: boolean }[] = []
 
+  private readonly pickRhi?: (px: number, py: number) => [number, number] | null
+
   constructor(deps: InteractionControllerDeps) {
     this.camera = deps.camera
     this.layerIds = deps.layerIds
@@ -115,6 +121,7 @@ export class InteractionController {
     this.getPickTextureDevice = deps.getPickTextureDevice
     this.getProjectionName = deps.getProjectionName
     this.getVectorTileShows = deps.getVectorTileShows
+    this.pickRhi = deps.pickRhi
   }
 
   /** Read the feature + instance ID under the given CSS pixel coordinate.
@@ -134,9 +141,25 @@ export class InteractionController {
     clientX: number,
     clientY: number,
   ): Promise<{ featureId: number; layerId: number; instanceId: number } | null> {
-    const pickTexture = this.getPickTexture()
     const ctx = this.getCtx()
-    if (!pickTexture || !ctx) return null
+    if (!ctx) return null
+    // #834 M5 s6 — forced-WebGL2: no continuous pick MRT exists (the frame
+    // renders to FBO 0); the injected seam renders an on-demand offscreen
+    // pick pass and reads the texel synchronously. Same decode + resolve.
+    if (ctx.rhi?.backend === 'webgl2') {
+      if (!this.pickRhi) return null
+      const canvas = ctx.canvas
+      const rect = canvas.getBoundingClientRect()
+      const px = cssToDevicePixel(clientX - rect.left, rect.width, canvas.width)
+      const py = cssToDevicePixel(clientY - rect.top, rect.height, canvas.height)
+      if (px < 0 || py < 0) return null
+      const rg = this.pickRhi(px, py)
+      if (!rg) return null
+      const [featureId, packed] = rg
+      return this.resolvePick(featureId, packed & 0xffff, (packed >>> 16) & 0xffff)
+    }
+    const pickTexture = this.getPickTexture()
+    if (!pickTexture) return null
     // #792 — the pick RT is minted inside `RenderTargets.ensure*` on that
     // class's tracked device. After a `map.run()` re-init the context swaps to
     // a NEW device but the pick RT is not reallocated until the first

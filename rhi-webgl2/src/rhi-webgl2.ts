@@ -558,35 +558,112 @@ export class WebGl2Device implements RhiDevice {
    *  begin (attach calls are cheap; the frame runs a handful of these). */
   private _offscreenFbo: WebGLFramebuffer | null = null
 
-  /** Begin an offscreen pass nested inside the screen pass (#834 M5 — the
-   *  translucent-line MAX accumulation target). Slice scope: exactly ONE
-   *  single-sample colour attachment, no depth-stencil, no resolve — the MRT
-   *  shapes (pick / OIT) FAIL-CLOSE until their slice, so a topology this
-   *  backend cannot honour can never silently render wrong. The returned
-   *  pass's end() restores FBO 0 + the screen viewport. */
+  /** Attachment bookkeeping so a narrower pass detaches a wider predecessor's
+   *  stale images (WebGL2 completeness requires consistent attachments). */
+  private _offscreenColorCount = 0
+  private _offscreenHasDepth = false
+
+  /** Begin an offscreen pass nested inside the screen pass (#834 M5): the
+   *  translucent-line MAX accumulation target (1 colour attachment) and the
+   *  on-demand PICK pass (colour + rg32uint MRT + depth-stencil). Integer
+   *  attachments clear via clearBufferuiv; resolve targets stay fail-closed
+   *  (no MSAA on this isolated slice). The returned pass's end() restores
+   *  FBO 0 + the screen viewport (drawBuffers is per-FBO state — no restore
+   *  needed for the backbuffer). */
   beginOffscreenPass(desc: RhiRenderPassDesc): RhiRenderPass {
     const gl = this.gl
-    if (desc.colorAttachments.length !== 1)
-      throw new Error(`webgl2: beginOffscreenPass supports exactly 1 colour attachment (got ${desc.colorAttachments.length})`)
-    if (desc.depthStencilAttachment)
-      throw new Error('webgl2: beginOffscreenPass depth-stencil attachment unsupported (fail-closed)')
-    const att = desc.colorAttachments[0]
-    if (att.resolveTarget) throw new Error('webgl2: beginOffscreenPass resolve unsupported (fail-closed)')
-    const tex = un<Gl2View>(att.view).texture
+    const n = desc.colorAttachments.length
+    if (n < 1 || n > 4)
+      throw new Error(`webgl2: beginOffscreenPass supports 1..4 colour attachments (got ${n})`)
     this._offscreenFbo ??= gl.createFramebuffer()
     gl.bindFramebuffer(gl.FRAMEBUFFER, this._offscreenFbo)
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex.tex, 0)
-    gl.viewport(0, 0, tex.width, tex.height)
+    const bufs: GLenum[] = []
+    let w = 0
+    let h = 0
+    for (let i = 0; i < n; i++) {
+      const att = desc.colorAttachments[i]
+      if (att.resolveTarget)
+        throw new Error('webgl2: beginOffscreenPass resolve unsupported (fail-closed)')
+      const tex = un<Gl2View>(att.view).texture
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, tex.tex, 0)
+      bufs.push(gl.COLOR_ATTACHMENT0 + i)
+      if (i === 0) {
+        w = tex.width
+        h = tex.height
+      }
+    }
+    for (let i = n; i < this._offscreenColorCount; i++)
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, null, 0)
+    this._offscreenColorCount = n
+    gl.drawBuffers(bufs)
+    const ds = desc.depthStencilAttachment
+    if (ds) {
+      const dtex = un<Gl2View>(ds.view).texture
+      gl.framebufferTexture2D(
+        gl.FRAMEBUFFER,
+        gl.DEPTH_STENCIL_ATTACHMENT,
+        gl.TEXTURE_2D,
+        dtex.tex,
+        0,
+      )
+      this._offscreenHasDepth = true
+    } else if (this._offscreenHasDepth) {
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.TEXTURE_2D, null, 0)
+      this._offscreenHasDepth = false
+    }
+    gl.viewport(0, 0, w, h)
     gl.disable(gl.SCISSOR_TEST)
-    if (att.loadOp === 'clear') {
+    // Per-attachment clears. clearBuffer* honours the write masks, and a prior
+    // pipeline may have left colorMask dark (a rg32uint-target pipeline defaults
+    // writeMask 0) — unmask first; setPipeline re-sets the mask on every draw.
+    gl.colorMask(true, true, true, true)
+    for (let i = 0; i < n; i++) {
+      const att = desc.colorAttachments[i]
+      if (att.loadOp !== 'clear') continue
       const [r, g, b, a] = att.clearValue ?? [0, 0, 0, 0]
-      gl.clearColor(r, g, b, a)
-      gl.clear(gl.COLOR_BUFFER_BIT)
+      const fmt = un<Gl2View>(att.view).texture.format
+      if (fmt === 'rg32uint' || fmt === 'r32uint')
+        gl.clearBufferuiv(gl.COLOR, i, new Uint32Array([r, g, b, a]))
+      else gl.clearBufferfv(gl.COLOR, i, new Float32Array([r, g, b, a]))
+    }
+    if (ds && (ds.depthLoadOp === 'clear' || ds.stencilLoadOp === 'clear')) {
+      gl.depthMask(true)
+      gl.stencilMask(0xff)
+      gl.clearBufferfi(
+        gl.DEPTH_STENCIL,
+        0,
+        ds.depthClearValue ?? 1,
+        ds.stencilClearValue ?? 0,
+      )
     }
     return new WebGl2RenderPass(gl, () => {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null)
       gl.viewport(0, 0, this._screenW, this._screenH)
     })
+  }
+
+  /** Read one RG32UI texel (the pick readback — R = featureId, G = packed
+   *  (instanceId<<16)|layerId). Synchronous by GL nature; binds the shared
+   *  offscreen FBO to the texture and readPixels. `y` is in TEXTURE rows
+   *  (bottom-up) — the caller flips from screen coords. */
+  readPixelRg32ui(texture: RhiTexture, x: number, y: number): [number, number] {
+    const gl = this.gl
+    const t = un<Gl2Texture>(texture)
+    this._offscreenFbo ??= gl.createFramebuffer()
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this._offscreenFbo)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t.tex, 0)
+    for (let i = 1; i < this._offscreenColorCount; i++)
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, null, 0)
+    this._offscreenColorCount = 1
+    if (this._offscreenHasDepth) {
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.TEXTURE_2D, null, 0)
+      this._offscreenHasDepth = false
+    }
+    gl.readBuffer(gl.COLOR_ATTACHMENT0)
+    const out = new Uint32Array(4)
+    gl.readPixels(x, y, 1, 1, gl.RGBA_INTEGER, gl.UNSIGNED_INT, out)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    return [out[0], out[1]]
   }
 
   /** Finish + present the screen pass. WebGL2 presents the default framebuffer
@@ -897,7 +974,14 @@ export class WebGl2Device implements RhiDevice {
 
     return wrap<RhiPipeline>({
       program,
-      blend: desc.colorTargets[0]?.blend,
+      // ES 3.00 has no per-draw-buffer blending: BLEND enabled with ANY
+      // integer draw buffer is a draw-time INVALID_OPERATION, so a pipeline
+      // whose target list carries an integer format (the pick MRT) forces
+      // blending off — the WebGPU twin blends only the colour target, and
+      // the pick pass's colour output is a scratch nobody presents (#834 M5).
+      blend: desc.colorTargets.some((t) => t.format === 'rg32uint' || t.format === 'r32uint')
+        ? 'none'
+        : desc.colorTargets[0]?.blend,
       colorWriteMask,
       cullMode: desc.cullMode,
       depth: desc.depthStencil

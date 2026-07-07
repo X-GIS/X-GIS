@@ -39,7 +39,7 @@ import { labelPass } from './render/passes/label-pass'
 import { resolveColorShape, resolveNumberShape } from './render/paint-shape-resolve'
 import { type FrameContext } from '@xgis/rhi-webgpu'
 import { makeProjectionToken, setProjectionToken } from '@xgis/engine'
-import type { RhiDevice, RhiScreenPassDevice } from '@xgis/engine'
+import type { RhiDevice, RhiScreenPassDevice, RhiTexture, RhiTextureView } from '@xgis/engine'
 import { asScreenPassDevice } from '@xgis/engine'
 import { buildSceneView } from './render/scene-view'
 import type { RenderNode } from './render/render-node'
@@ -703,6 +703,122 @@ export class RenderLoop {
    *  so a forced-WebGL2 frame is held to the no-error bar the WebGPU tests already assert.
    *  This is the WHOLE forced-WebGL2 hot path — none of the WebGPU multi-pass machinery runs
    *  (storage/MSAA renderers are Story-5/6). */
+  // ── #834 M5 s6 — on-demand WebGL2 PICK pass ─────────────────────────────────
+  /** Frame params snapshotted by renderFrameViaRhi so a pick samples the last
+   *  presented frame's camera/projection state. */
+  private _lastRhiFrame: {
+    projType: number
+    centerLon: number
+    centerLat: number
+    dpr: number
+    w: number
+    h: number
+  } | null = null
+  /** The pick render targets: a scratch colour (MRT slot 0 nobody presents),
+   *  the rg32uint pick attachment, and a depth-stencil (the fill pick variant
+   *  depth-writes + stencils exactly like the colour pass). */
+  private _pickRtRhi: {
+    color: RhiTexture
+    colorView: RhiTextureView
+    pick: RhiTexture
+    pickView: RhiTextureView
+    depth: RhiTexture
+    depthView: RhiTextureView
+    w: number
+    h: number
+  } | null = null
+
+  /** Render the pickable fills into the offscreen colour+rg32uint MRT and read
+   *  the one texel under (px, py) — device pixels, top-left origin. Returns the
+   *  raw [featureId, packed] pair (packed = (instanceId<<16)|layerId) or null
+   *  when no frame has been presented yet. Synchronous by GL nature — the
+   *  interaction-controller's WebGPU mapAsync pool is not involved. */
+  pickViaRhi(px: number, py: number): [number, number] | null {
+    const rhi = asScreenPassDevice(this.host.ctx.rhi)
+    const f = this._lastRhiFrame
+    if (!rhi || !f) return null
+    if (px < 0 || py < 0 || px >= f.w || py >= f.h) return null
+    let rt = this._pickRtRhi
+    if (!rt || rt.w !== f.w || rt.h !== f.h) {
+      if (rt) {
+        rhi.destroyTexture(rt.color)
+        rhi.destroyTexture(rt.pick)
+        rhi.destroyTexture(rt.depth)
+      }
+      const color = rhi.createTexture({
+        width: f.w,
+        height: f.h,
+        format: 'rgba8unorm',
+        usage: ['render'],
+        label: 'pick-scratch-color-rhi',
+      })
+      const pick = rhi.createTexture({
+        width: f.w,
+        height: f.h,
+        format: 'rg32uint',
+        usage: ['render', 'copy-src'],
+        label: 'pick-rg32-rhi',
+      })
+      const depth = rhi.createTexture({
+        width: f.w,
+        height: f.h,
+        format: 'depth24plus-stencil8',
+        usage: ['render'],
+        label: 'pick-depth-rhi',
+      })
+      rt = this._pickRtRhi = {
+        color,
+        colorView: rhi.createView(color),
+        pick,
+        pickView: rhi.createView(pick),
+        depth,
+        depthView: rhi.createView(depth),
+        w: f.w,
+        h: f.h,
+      }
+    }
+    const pass = rhi.beginOffscreenPass({
+      label: 'pick-pass-rhi',
+      colorAttachments: [
+        { view: rt.colorView, loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] },
+        { view: rt.pickView, loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] },
+      ],
+      depthStencilAttachment: {
+        view: rt.depthView,
+        depthLoadOp: 'clear',
+        depthClearValue: 1,
+        depthStoreOp: 'store',
+        stencilLoadOp: 'clear',
+        stencilClearValue: 0,
+        stencilStoreOp: 'store',
+      },
+    })
+    for (const [, { renderer: vtR }] of this.host.vtSources) {
+      vtR.beginFrame(this.host._frameCount)
+    }
+    const classified = this.host.classifyVectorTileShows()
+    for (const c of classified.opaque) {
+      const vt = this.host.vtSources.get(c.sourceName)
+      if (!vt) continue
+      vt.renderer.renderFillsRhi(
+        pass,
+        this.host.camera,
+        f.projType,
+        f.centerLon,
+        f.centerLat,
+        f.w,
+        f.h,
+        f.dpr,
+        c.show,
+        c.resolvedShow,
+        'pick',
+      )
+    }
+    pass.end()
+    // The FBO image is bottom-up (GL window coords) — flip from screen rows.
+    return rhi.readPixelRg32ui(rt.pick, px, f.h - 1 - py)
+  }
+
   private renderFrameViaRhi(
     rhi: RhiDevice & RhiScreenPassDevice,
     w: number,
@@ -712,6 +828,9 @@ export class RenderLoop {
     centerLat: number,
     dpr: number,
   ): boolean {
+    // Snapshot the frame params for the on-demand pick pass (#834 M5 s6) —
+    // a pick samples the LAST PRESENTED frame's camera/projection state.
+    this._lastRhiFrame = { projType, centerLon, centerLat, dpr, w, h }
     // #832 — clear with the style's background, mirroring background-pass.ts
     // execute() exactly: constant `_backgroundColor`, overridden by the
     // zoom-interpolated colour shape, then the opacity shape multiplied into

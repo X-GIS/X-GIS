@@ -416,13 +416,20 @@ export interface RhiDevice {
   /** Finish + present the screen pass. WebGL2: `gl.flush()` + drain `gl.getError()`. */
   endScreenPass?(pass: RhiRenderPass): void
   /** Begin an OFFSCREEN pass nested inside the frame's screen pass (#834 M5 —
-   *  the translucent-line MAX accumulation target). WebGL2: bind an FBO with the
-   *  attachment's texture, set the viewport to the texture's size, optionally
-   *  clear; the returned pass's `end()` restores FBO 0 + the screen viewport so
-   *  subsequent screen-pass draws continue unaffected. Slice scope: exactly ONE
-   *  single-sample colour attachment, no depth-stencil, no resolve — the MRT
-   *  shapes (pick / OIT) stay fail-closed until their slice. */
+   *  the translucent-line MAX accumulation target; the on-demand pick pass's
+   *  colour+rg32uint MRT + depth-stencil). WebGL2: bind an FBO with the
+   *  attachments' textures, set the viewport to the first attachment's size,
+   *  clear per attachment (integer formats via clearBufferuiv); the returned
+   *  pass's `end()` restores FBO 0 + the screen viewport so subsequent
+   *  screen-pass draws continue unaffected. Resolve targets stay fail-closed
+   *  (no MSAA on this isolated slice). */
   beginOffscreenPass?(desc: RhiRenderPassDesc): RhiRenderPass
+  /** Read one RG32UI texel — the pick readback (R = featureId, G = packed
+   *  (instanceId<<16)|layerId). WebGL2: synchronous readPixels off an FBO
+   *  bound to the texture; `y` is in TEXTURE rows (bottom-up — the caller
+   *  flips from screen coords). WebGPU omits it (its pick readback is the
+   *  async copyTextureToBuffer + mapAsync pool in interaction-controller). */
+  readPixelRg32ui?(texture: RhiTexture, x: number, y: number): [number, number]
   /** Drain accumulated GL errors (WebGL2) so the loop can surface them into the same
    *  `_validationErrors` sink the WebGPU path uses. Returns + clears the queue. */
   takeGlErrors?(): string[]
@@ -453,6 +460,7 @@ export interface RhiScreenPassDevice {
   beginScreenPass(desc: RhiScreenPassDesc): RhiRenderPass
   endScreenPass(pass: RhiRenderPass): void
   beginOffscreenPass(desc: RhiRenderPassDesc): RhiRenderPass
+  readPixelRg32ui(texture: RhiTexture, x: number, y: number): [number, number]
   takeGlErrors?(): string[]
 }
 
