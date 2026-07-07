@@ -14,6 +14,17 @@ import type { ModuleDecl } from '../src/index.ts'
 export type Control =
   | { readonly kind: 'time' } // elapsed seconds → an f32 field
   | { readonly kind: 'resolution' } // canvas size in px → a vec2<f32> field
+  // Pointer state → a vec4<f32> field: [x, y, down, used].
+  //   x, y — last known pointer position in PIXELS (same units as `resolution`,
+  //          bottom-left origin so it divides straight into uv space); updates on
+  //          hover as well as drag, so a gallery visitor gets interactivity
+  //          without clicking.
+  //   down — 1 while a button/touch is held, else 0.
+  //   used — 0 until the pointer first enters, 1 forever after: the shader's
+  //          autopilot flag (`mix(autopilot, interactive, m.w)`), so a frame
+  //          that has never been touched renders the canonical view (thumbnails,
+  //          render gates, and reduced-motion all see used = 0).
+  | { readonly kind: 'mouse' }
   | { readonly kind: 'const'; readonly value: readonly number[] } // fixed scalar / vec value
   | {
       readonly kind: 'slider'

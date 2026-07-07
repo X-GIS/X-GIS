@@ -14,6 +14,14 @@ and the fullscreen-triangle vertex stage — is shared from [`_fullscreen.ts`](.
 (`fullscreenUniforms(extra)` / `VsOut` / `vs`), so a fullscreen example declares only its
 fragment stage and extra uniform fields.
 
+Interactivity: the site host fills a `{ kind: 'mouse' }` control with pointer state
+(`vec4 [x, y, down, used]` — the contract lives in [`_shared.ts`](./_shared.ts)). Shaders
+gate the interactive path on `m.w`, so an untouched frame renders the canonical autopilot
+view — what thumbnails, the render gates, and reduced-motion users see. The e2e gate
+`_shader-dsl-mouse-interaction.spec.ts` asserts every mouse example visibly responds to the
+pointer. Transport controls (play/pause, scrub, speed, reset, fullscreen) are host chrome
+on the site detail page and need nothing from the example.
+
 ## Coordinate spaces
 
 Three spaces appear in these shaders — name the one you are in (#842):

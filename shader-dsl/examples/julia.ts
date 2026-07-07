@@ -17,15 +17,18 @@ import {
   sin,
   cos,
   dot,
+  mix,
   Loop,
   If,
   Break,
   Var,
+  Let,
   f32T,
+  vec4fT,
 } from '../src/index.ts'
 import { VsOut, vs, fullscreenUniforms } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
-const U = fullscreenUniforms({ zoom: f32T })
+const U = fullscreenUniforms({ zoom: f32T, mouse: vec4fT })
 
 // Iridescent cosine palette: 0.5 + 0.5·cos(2π(t + phase)).
 const palette = fn('palette', { t: f32T }, ({ t }) => {
@@ -41,11 +44,17 @@ const fs = fn(
     const uv = vo.uv
     // centre the plane, scale by the zoom uniform
     const z = Var(vec2(uv.x.mul(2).sub(1), uv.y.mul(2).sub(1)).mul(U.field.zoom))
-    // the orbiting Julia constant
-    const c = vec2(
+    // the Julia constant: orbits on autopilot; once the pointer has entered
+    // (m.w = 1) it maps to the pointer instead — sweep the cursor to morph the
+    // set by hand. The pointer is normalised to c-space ≈ [−0.8, 0.8]².
+    const m = U.field.mouse
+    const res = U.field.resolution
+    const orbit = vec2(
       cos(U.field.time.mul(0.31)).mul(0.39).sub(0.4),
       sin(U.field.time.mul(0.41)).mul(0.39),
     )
+    const held = vec2(m.x.div(res.x).mul(2).sub(1).mul(0.8), m.y.div(res.y).mul(2).sub(1).mul(0.8))
+    const c = Let(mix(orbit, held, m.w))
     const it = Var(f32(0))
     Loop(
       u32(0),
@@ -76,7 +85,7 @@ export const julia: ShaderExample = {
   id: 'julia',
   title: 'Julia set',
   blurb:
-    'Escape-time Julia fractal — z ← z² + c iterated per pixel, coloured by iteration count through a cosine palette. The constant c orbits over time so the set morphs. Built on Loop + Break.',
+    'Escape-time Julia fractal — z ← z² + c iterated per pixel, coloured by iteration count through a cosine palette. The constant c orbits on autopilot; move the pointer over the canvas to steer it by hand.',
   category: 'generic',
   file: 'julia.ts',
   module: juliaModule,
@@ -85,5 +94,6 @@ export const julia: ShaderExample = {
     time: { kind: 'time' },
     resolution: { kind: 'resolution' },
     zoom: { kind: 'slider', label: 'Zoom', min: 0.4, max: 2.0, step: 0.05, value: 1.4 },
+    mouse: { kind: 'mouse' },
   },
 }
