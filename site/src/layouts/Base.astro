@@ -7,11 +7,15 @@ import { koRoutes, toLogicalPath, hasKoTwin, localeOf } from '../lib/i18n'
 interface Props {
   title?: string
   description?: string
+  /** og:type — blog posts pass 'article' (and add article:* tags via the
+   *  head slot); everything else is the default 'website'. */
+  ogType?: 'website' | 'article'
 }
 
 const {
   title = 'X-GIS — A language for cartography',
   description = 'A domain-specific language and WebGPU rendering engine for GIS maps. Declare what your map should look like; the compiler emits the WGSL.',
+  ogType = 'website',
 } = Astro.props
 
 const siteUrl = 'https://x-gis.github.io/X-GIS/'
@@ -81,7 +85,7 @@ const jsonLd = {
     <!-- Open Graph -->
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content={ogType} />
     <meta property="og:url" content={canonical} />
     <meta property="og:image" content={`${siteUrl}og.svg`} />
     <meta property="og:image:width" content="1200" />
@@ -95,6 +99,7 @@ const jsonLd = {
     <meta name="twitter:image" content={`${siteUrl}og.svg`} />
 
     <link rel="icon" type="image/svg+xml" href={logoUrl} />
+    <link rel="alternate" type="application/rss+xml" title="X-GIS Blog" href={`${base}/rss.xml`} />
     <!-- Fonts are self-hosted via @fontsource-variable (Big Shoulders
          Display / Archivo / Spline Sans Mono) — no preconnect to
          fonts.googleapis.com / fonts.gstatic.com needed. -->
@@ -127,6 +132,10 @@ const jsonLd = {
     </script>
 
     <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+
+    <!-- Page-specific head extras (e.g. blog posts inject article:* meta
+         and their BlogPosting JSON-LD). -->
+    <slot name="head" />
   </head>
   <body class="overflow-x-hidden">
     <slot />
