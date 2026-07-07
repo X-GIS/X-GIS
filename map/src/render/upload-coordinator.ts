@@ -600,7 +600,14 @@ export class UploadCoordinator {
       const zBufferOffset = 0
       const zBufferByteLength = 0
 
-      if (data.lineVertices.length > 0) {
+      // #834 device retirement S6 — the legacy thin-line vertex/index and
+      // outline-index buffers come from the RAW device pool
+      // (store.acquireBuffer) and feed only render()'s line-list fallback,
+      // which never runs on webgl2 (the rhi frame draws SDF segment buffers
+      // built below via the rhi-native uploadSegment). Skip them there so
+      // tile dispatch never touches ctx.device.
+      const _nativeLineBufs = this.host.rhi.backend !== 'webgl2'
+      if (_nativeLineBufs && data.lineVertices.length > 0) {
         lineVertexBuffer = store.acquireBuffer(
           data.lineVertices.byteLength,
           GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
@@ -618,7 +625,7 @@ export class UploadCoordinator {
 
       // Outline indices (polygon edges, reuses polygon vertex buffer)
       let outlineIndexCount = 0
-      if (data.outlineIndices && data.outlineIndices.length > 0) {
+      if (_nativeLineBufs && data.outlineIndices && data.outlineIndices.length > 0) {
         outlineIndexBuffer = store.acquireBuffer(
           Math.max(data.outlineIndices.byteLength, 4),
           GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,

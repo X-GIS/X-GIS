@@ -38,17 +38,25 @@ describe('initGPUForcedWebGL2 — forced-WebGL2 boot context (US-001)', () => {
     expect(ctx.sampleCount).toBe(1)
   })
 
-  it('stubs the WebGPU device/context as a no-op proxy (renderer constructors must not crash)', () => {
+  it('stubs the WebGPU device/context FAIL-LOUD (#834 S6 — any property access throws)', () => {
     const ctx = initGPUForcedWebGL2(
       fakeCanvas({} as WebGL2RenderingContext),
       (gl) => new WebGl2Device(gl),
     )
-    // device/context are a recursive no-op proxy (not undefined) so the WebGPU renderer
-    // constructors can build their dummy resources at map-init without crashing; the forced
-    // frame routes through ctx.rhi and never uses them. Any access/call no-ops.
-    expect(() => ctx.device.createShaderModule({ code: '' })).not.toThrow()
-    expect(() => ctx.device.queue.writeBuffer({} as GPUBuffer, 0, new Uint8Array())).not.toThrow()
-    expect(() => ctx.context.configure({ device: ctx.device, format: ctx.format })).not.toThrow()
+    // #834 device retirement S6: the recursive no-op proxy is gone. Every
+    // map-init / scene-compile path is fenced off ctx.device on this backend,
+    // so the stub may be STORED (reference passing stays safe) but any
+    // property ACCESS is a missing fence and must throw actionably.
+    expect(() => ctx.device.createShaderModule({ code: '' })).toThrow(/forcegl2|webgl2/)
+    expect(() => ctx.device.queue).toThrow(/route through ctx\.rhi/)
+    expect(() => ctx.context.configure({ device: ctx.device, format: ctx.format })).toThrow(
+      /webgl2/,
+    )
+    // `then` stays undefined (benign thenable probe: `await ctx.device` must
+    // not hang or throw) and symbol keys stay safe so console/inspect can
+    // print the ctx during diagnostics.
+    expect((ctx.device as unknown as { then?: unknown }).then).toBeUndefined()
+    expect(() => JSON.stringify({ probe: (ctx.device as never)[Symbol.toStringTag] })).not.toThrow()
     expect(ctx.deviceLost).toBe(false)
     expect(ctx._validationErrors).toEqual([])
   })

@@ -19,21 +19,27 @@ export class SpriteAtlasGPU {
   /** Lazy — populated on first `ensure()` after the host transitions
    *  to 'loaded'. Null when the atlas hasn't been uploaded yet. */
   private texture: GPUTexture | null = null
-  readonly sampler: GPUSampler
+  private _sampler: GPUSampler | null = null
 
   constructor(device: GPUDevice, host: SpriteAtlasHost, rhi: RhiDevice | null = null) {
     this.device = device
     this.rhi = rhi
     this.host = host
-    // Linear filter so non-integer-scale icons (icon-size != 1) stay
-    // smooth; clamp-to-edge so atlas neighbours never bleed.
-    this.sampler = device.createSampler({
+  }
+
+  /** Native sampler, created LAZILY (#834 device retirement S6): its only
+   *  consumers are the WebGPU icon branch — the webgl2 arm reads
+   *  rhiSampler() — so construction must not touch the device. Linear
+   *  filter so non-integer-scale icons (icon-size != 1) stay smooth;
+   *  clamp-to-edge so atlas neighbours never bleed. */
+  get sampler(): GPUSampler {
+    return (this._sampler ??= this.device.createSampler({
       magFilter: 'linear',
       minFilter: 'linear',
       addressModeU: 'clamp-to-edge',
       addressModeV: 'clamp-to-edge',
       label: 'sprite-atlas-sampler',
-    })
+    }))
   }
 
   /** Returns the cached texture once the host has loaded the atlas.

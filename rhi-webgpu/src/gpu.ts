@@ -336,29 +336,30 @@ export function initGPUForcedWebGL2(
     )
   }
 
-  // Recursive no-op stub for the WebGPU device/context. The renderer CONSTRUCTORS build
-  // pipelines/buffers/layouts from `ctx.device` (createShaderModule / createBindGroupLayout
-  // / createBuffer …) at map-init time, BEFORE any frame — so an `undefined` device crashes
-  // the boot. This proxy makes every property access AND call return itself, so the
-  // constructors get harmless dummies they store but never use: the forced-WebGL2 frame
-  // renders through `rhi` via the render loop's early return, and the WebGPU multi-pass that
-  // would consume these never runs. (Principle 3: the field types stay GPUDevice/GPUCanvasContext.)
-  // `then` MUST return undefined: otherwise the proxy looks like a thenable (its `.then`
-  // is a function) and `await device.createRenderPipelineAsync(…)` hangs forever (the fake
-  // `.then` never calls resolve). Returning undefined for `then` makes the proxy a plain
-  // value, so `await noop` resolves to it immediately.
-  const noop = new Proxy(
-    function () {
-      /* no-op */
-    },
-    {
-      get: (_t, p) => (p === 'then' ? undefined : noop),
-      apply: () => noop,
-    },
-  ) as unknown
+  // FAIL-LOUD stub for the WebGPU device/context (#834 device retirement S6 —
+  // replaces the recursive no-op Proxy). Every map-init / scene-compile /
+  // frame path that used to touch ctx.device on this backend is now fenced
+  // (PipelineFactory build + variant builders, palette upload, addLayer
+  // uploads, renderer bind-group rebuilds, heatmap/line ctor natives) —
+  // constructors may still STORE the reference, but any property ACCESS is a
+  // bug and throws with an actionable message instead of silently producing
+  // dummy objects that masked missing fences for months. `then` stays
+  // undefined (benign thenable probe on await); symbol keys return undefined
+  // so console/inspect diagnostics can print the ctx without detonating.
+  const unavailable = (what: string): unknown =>
+    new Proxy(Object.create(null), {
+      get: (_t, p) => {
+        if (typeof p === 'symbol' || p === 'then') return undefined
+        throw new Error(
+          `[X-GIS] ctx.${what}.${String(p)} accessed on the webgl2 backend — ` +
+            `native WebGPU objects do not exist under ?forcegl2 (#834); route through ctx.rhi ` +
+            `or fence the caller behind backend === 'webgpu'.`,
+        )
+      },
+    })
   return {
-    device: noop as GPUDevice,
-    context: noop as GPUCanvasContext,
+    device: unavailable('device') as GPUDevice,
+    context: unavailable('context') as GPUCanvasContext,
     format: 'rgba8unorm',
     canvas,
     sampleCount: 1,

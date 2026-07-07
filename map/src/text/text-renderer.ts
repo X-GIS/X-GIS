@@ -59,7 +59,11 @@ export class TextRenderer {
    *  GPUBuffer.destroy()`, so the GPU command stream is unchanged. */
   private readonly rhi: RhiDevice
   private readonly atlas: GlyphAtlasGPU
-  private readonly bgLayout: GPUBindGroupLayout
+  private readonly device: GPUDevice
+  /** Native BGL, created LAZILY (#834 device retirement S6): its only
+   *  consumer is TextDraper's WebGPU arm (the gl2 arm builds by-name
+   *  entry-array groups) — the constructor must not touch the device. */
+  private _bgl: GPUBindGroupLayout | null = null
   private uniformBuf: RhiBuffer
   private uniformBufCapacityBytes: number
   private vertexBuf: RhiBuffer | null = null
@@ -120,24 +124,17 @@ export class TextRenderer {
       this.rhi,
       this._textFmt,
       this._textSamples,
-      this.bgLayout,
+      // TextDraper wraps the native layout ONLY on its WebGPU arm; on webgl2
+      // pass an inert placeholder so the lazy bgl() never touches the device
+      // (#834 S6 — same pattern as LineRenderer.ensureLineDraper).
+      this.rhi.backend === 'webgl2' ? (null as unknown as GPUBindGroupLayout) : this.bgl(),
       vertexBuffers,
     )
   }
 
-  constructor(
-    device: GPUDevice,
-    rhi: RhiDevice,
-    atlas: GlyphAtlasGPU,
-    presentationFormat: GPUTextureFormat,
-    sampleCount: number = 1,
-  ) {
-    this.rhi = rhi
-    this.atlas = atlas
-    this._textFmt = presentationFormat
-    this._textSamples = sampleCount
-
-    this.bgLayout = device.createBindGroupLayout({
+  /** Lazy native BGL — see `_bgl`. WebGPU-arm consumers only. */
+  private bgl(): GPUBindGroupLayout {
+    return (this._bgl ??= this.device.createBindGroupLayout({
       label: 'text-renderer-bgl',
       entries: [
         // hasDynamicOffset lets every draw point at its own UNIFORM_STRIDE
@@ -154,7 +151,21 @@ export class TextRenderer {
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
       ],
-    })
+    }))
+  }
+
+  constructor(
+    device: GPUDevice,
+    rhi: RhiDevice,
+    atlas: GlyphAtlasGPU,
+    presentationFormat: GPUTextureFormat,
+    sampleCount: number = 1,
+  ) {
+    this.rhi = rhi
+    this.atlas = atlas
+    this.device = device
+    this._textFmt = presentationFormat
+    this._textSamples = sampleCount
 
     // Initial capacity covers a single slot — grows on demand in setDraws().
     this.uniformBufCapacityBytes = UNIFORM_STRIDE

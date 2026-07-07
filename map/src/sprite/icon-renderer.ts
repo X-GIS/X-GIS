@@ -92,7 +92,11 @@ export class IconRenderer {
    *  GPUBuffer.destroy()`, so the GPU command stream is unchanged. */
   private readonly rhi: RhiDevice
   private readonly atlas: IconAtlasGpu
-  private readonly bgLayout: GPUBindGroupLayout
+  private readonly device: GPUDevice
+  /** Native BGL, created LAZILY (#834 device retirement S6): consumers are
+   *  IconDraper's WebGPU arm + the non-gl2 bind-group branch — the
+   *  constructor must not touch the device. */
+  private _bgl: GPUBindGroupLayout | null = null
   private readonly uniformBuf: RhiBuffer
   private vertexBuf: RhiBuffer | null = null
   private vertexBufCapacityBytes = 0
@@ -172,9 +176,24 @@ export class IconRenderer {
       this.rhi,
       this._iconFmt,
       this._iconSamples,
-      this.bgLayout,
+      // IconDraper wraps the native layout ONLY on its WebGPU arm; on webgl2
+      // pass an inert placeholder so the lazy bgl() never touches the device
+      // (#834 S6 — same pattern as LineRenderer.ensureLineDraper).
+      this.rhi.backend === 'webgl2' ? (null as unknown as GPUBindGroupLayout) : this.bgl(),
       vertexBuffers,
     )
+  }
+
+  /** Lazy native BGL — see `_bgl`. WebGPU-arm consumers only. */
+  private bgl(): GPUBindGroupLayout {
+    return (this._bgl ??= this.device.createBindGroupLayout({
+      label: 'icon-renderer-bgl',
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+      ],
+    }))
   }
 
   constructor(
@@ -186,17 +205,9 @@ export class IconRenderer {
   ) {
     this.rhi = rhi
     this.atlas = atlas
+    this.device = device
     this._iconFmt = presentationFormat
     this._iconSamples = sampleCount
-
-    this.bgLayout = device.createBindGroupLayout({
-      label: 'icon-renderer-bgl',
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
-      ],
-    })
 
     // Uniform — UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
     this.uniformBuf = this.rhi.createBuffer({
@@ -417,7 +428,7 @@ export class IconRenderer {
         // uniform; the atlas TEXTURE view (binding 1) + sampler (binding 2) stay raw,
         // adopted via wrapWebGpuTextureView / wrapWebGpuSampler. Byte-identical to the
         // prior device.createBindGroup (the debug label is the only drop).
-        this.bindGroup = this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bgLayout), [
+        this.bindGroup = this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bgl()), [
           { binding: 0, resource: { buffer: this.uniformBuf } },
           { binding: 1, resource: { view: wrapWebGpuTextureView(tex.createView()) } },
           { binding: 2, resource: { sampler: wrapWebGpuSampler(this.atlas.sampler) } },

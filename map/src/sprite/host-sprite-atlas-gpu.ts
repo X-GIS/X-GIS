@@ -37,7 +37,7 @@ function isImageData(source: ImageBitmap | ImageData): source is ImageData {
 export class HostSpriteAtlasGPU implements IconAtlasGpu, SpriteMetadataSource {
   private readonly device: GPUDevice
   private readonly packer: HostAtlasPacker
-  readonly sampler: GPUSampler
+  private _sampler: GPUSampler | null = null
 
   /** The fixed page. Allocated lazily on first ensure() and then held for
    *  the atlas's life — NEVER recreated. */
@@ -48,16 +48,21 @@ export class HostSpriteAtlasGPU implements IconAtlasGpu, SpriteMetadataSource {
   constructor(device: GPUDevice, registry: HostImageRegistry) {
     this.device = device
     this.packer = new HostAtlasPacker(registry)
-    // Sampler config copied verbatim from SpriteAtlasGPU (sprite-atlas-gpu.ts):
-    // linear filtering so non-integer-scale icons stay smooth; clamp-to-edge so
-    // atlas neighbours never bleed.
-    this.sampler = device.createSampler({
+  }
+
+  /** Native sampler, created LAZILY (#834 device retirement S6 — the webgl2
+   *  path reads the RHI twin, so construction must not touch the device).
+   *  Sampler config copied verbatim from SpriteAtlasGPU (sprite-atlas-gpu.ts):
+   *  linear filtering so non-integer-scale icons stay smooth; clamp-to-edge so
+   *  atlas neighbours never bleed. */
+  get sampler(): GPUSampler {
+    return (this._sampler ??= this.device.createSampler({
       magFilter: 'linear',
       minFilter: 'linear',
       addressModeU: 'clamp-to-edge',
       addressModeV: 'clamp-to-edge',
       label: 'host-sprite-atlas-sampler',
-    })
+    }))
   }
 
   /** Eagerly allocate the fixed 1024² page. Idempotent — the texture is
