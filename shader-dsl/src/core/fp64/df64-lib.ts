@@ -10,18 +10,25 @@
 // Computation" (twoSum / quickTwoSum / Veltkamp split / twoProd) → luma.gl's
 // fp64 GLSL module, whose GUARDED formulation these bodies mirror.
 //
-// ── The ONE-uniform guard (why every body threads `_fp64.one`) ──
+// ── The ONE guard (why every body threads a runtime-opaque `one`) ──
 // The error-free transformations below are algebraically trivial (e.g.
 // `e = b - (s - a)` is 0 in real arithmetic). WGSL §15.7.5 explicitly PERMITS
 // reassociation/fusion, Metal defaults to fast-math, and ANGLE's D3D compiler
 // reassociates — any of which folds the error terms away and silently
 // collapses df64 to f32 precision. Neither WGSL nor GLSL ES 3.00 has a
-// `precise` qualifier. The one portable defense (proven by luma.gl's
-// LUMA_FP64_CODE_ELIMINATION_WORKAROUND) is a runtime-opaque uniform ONE
+// `precise` qualifier. The portable defense (luma.gl's
+// LUMA_FP64_CODE_ELIMINATION_WORKAROUND lineage) is a runtime-opaque ONE
 // (value 1.0) multiplied through the EFT intermediates, so no compiler can
-// cancel them at compile time. The uniform is AUTO-INJECTED by fp64Lower into
-// any module that uses these helpers (pin its slot with `fp64Guard()` when an
-// engine's bind-group layout demands it); the host MUST write 1.0f into it.
+// cancel them at compile time. The value is fetched from a 1×1 TEXTURE (the
+// `f64Guard` intrinsic → textureLoad/texelFetch on the injected `_fp64`
+// binding), NOT a uniform: uniforms are defeated by drivers that SPECIALIZE
+// pipelines on observed uniform values and hot-swap background-reoptimized
+// variants (seen in the field on Windows/NVIDIA — the f64 half alternated
+// with an f32-collapsed rendering mid-session); no driver constant-folds
+// texel values. The binding is AUTO-INJECTED by fp64Lower into any module
+// that uses these helpers (pin its slot with `fp64Guard()` when an engine's
+// bind-group layout demands it); the host MUST bind a 1×1 texture whose texel
+// reads back exactly 1.0 (e.g. RGBA8 255 or R32F 1.0).
 // FMA-based twoProd is deliberately NOT used — WGSL fma()'s accuracy is
 // "inherited from x*y+z" (fusion not guaranteed).
 //
@@ -38,13 +45,14 @@ import {
   sqrt,
   floor,
   member,
-  bindingRef,
   construct,
   structT,
   f32T,
   vec2fT,
   vec3fT,
   vec4fT,
+  texture2dfT,
+  f64GuardOne,
   type Node,
   type ReadonlyNode,
   type StructDecl,
@@ -65,40 +73,30 @@ export function splitF64(x: number): [hi: number, lo: number] {
   return [hi, lo]
 }
 
-// ── The anti-fast-math guard uniform ──
+// ── The anti-fast-math guard texture ──
 
 export const FP64_GUARD_NAME = '_fp64'
-export const FP64_GUARD_STRUCT = 'Fp64Guard'
-
-/** The guard struct decl — fp64Lower injects it (with the binding) into any
- *  module that uses df64 helpers; exported for the pass and for tests. */
-export const FP64_GUARD_DECL: StructDecl = {
-  name: FP64_GUARD_STRUCT,
-  fields: [{ name: 'one', type: f32T }],
-}
-export const FP64_GUARD_TYPE: ShaderType = structT(FP64_GUARD_STRUCT)
+/** The guard binding's type: a 1×1 2D texture whose only texel reads 1.0. */
+export const FP64_GUARD_TYPE: ShaderType = texture2dfT
 
 export interface Fp64GuardHandle {
-  readonly struct: StructDecl
-  /** Alias of `struct` — the `.decl` spelling every other declarator uses. */
-  readonly decl: StructDecl
   readonly type: ShaderType
   readonly binding: BindingDecl
 }
 
-/** OPTIONAL pin for the fp64 guard uniform's slot. A module that uses f64
- *  arithmetic gets `struct Fp64Guard { one: f32 }` bound as `_fp64`
- *  AUTO-INJECTED by fp64Lower (deterministically at group 0, first free
- *  binding) — authors declare NOTHING for the default. Use this declarator in
+/** OPTIONAL pin for the fp64 guard texture's slot. A module that uses f64
+ *  arithmetic gets a `texture_2d<f32>` binding named `_fp64` AUTO-INJECTED by
+ *  fp64Lower (deterministically at group 0, first free binding) — authors
+ *  declare NOTHING for the default. Use this declarator in
  *  `module({ uses: [...] })` only to pin the (group, binding) to an engine's
  *  fixed bind-group layout. Either way the binding shows up in reflect() as an
- *  ordinary uniform buffer, and the host MUST write 1.0f into it — the value
- *  is semantically 1.0; it exists only so downstream shader compilers cannot
- *  constant-fold the df64 error-compensation terms (see the file header). */
+ *  ordinary 2D texture, and the host MUST bind a 1×1 texture whose texel
+ *  reads back exactly 1.0 (RGBA8 white / R32F 1.0) — the value is
+ *  semantically 1.0; it lives in a texture only so downstream shader
+ *  compilers can never treat it as a compile-time constant (see the file
+ *  header). */
 export function fp64Guard(at: { group: number; binding: number }): Fp64GuardHandle {
   return {
-    struct: FP64_GUARD_DECL,
-    decl: FP64_GUARD_DECL,
     type: FP64_GUARD_TYPE,
     binding: {
       group: at.group,
@@ -110,8 +108,10 @@ export function fp64Guard(at: { group: number; binding: number }): Fp64GuardHand
   }
 }
 
-/** The runtime-opaque 1.0 every helper body threads through its EFT terms. */
-const one = member(bindingRef(FP64_GUARD_NAME, FP64_GUARD_TYPE), 'one', f32T) as ReadonlyNode<'f32'>
+/** The runtime-opaque 1.0 every helper body threads through its EFT terms —
+ *  the `f64Guard` intrinsic (a texel fetch on the GPU, exactly 1 on the CPU
+ *  oracle). One shared node; the emit CSE hoists a single fetch per body. */
+const one = f64GuardOne() as ReadonlyNode<'f32'>
 
 // ── Error-free transformation primitives ──
 

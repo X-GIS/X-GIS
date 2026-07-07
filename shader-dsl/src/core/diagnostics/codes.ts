@@ -90,7 +90,7 @@ export const CODES = {
   SD0042: {
     code: 'SD0042',
     summary: 'conflicting fp64 guard declaration',
-    hint: "the '_fp64' binding / 'Fp64Guard' struct are reserved for the auto-injected guard uniform — remove the conflicting declaration, or pin the slot with fp64Guard({ group, binding })",
+    hint: "the '_fp64' binding is reserved for the auto-injected guard texture (texture_2d<f32>) — remove the conflicting declaration, or pin the slot with fp64Guard({ group, binding })",
   },
   SD0043: {
     code: 'SD0043',

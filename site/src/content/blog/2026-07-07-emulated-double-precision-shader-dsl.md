@@ -85,14 +85,22 @@ collapsing df64 back to f32 precision. Your tests on one GPU pass; a user's
 Mac quietly loses 24 bits.
 
 The only portable defense (battle-tested by luma.gl) is to make the values
-*runtime-opaque*: thread a uniform `one` — that the compiler cannot prove is
-1.0 — through the EFT intermediates: `(s * one - a) * one`. We bake this in
-from the start, and the guard uniform is **auto-injected by the lowering** at
-a deterministic binding slot. Authors declare nothing; hosts write `1.0f` into
-the buffer. The one failure mode no CPU-side test can see is covered by a
-real-GPU gate: known-answer vectors on WebGPU/Tint and WebGL2/ANGLE, each with
-a *discriminative* assertion that plain f32 provably fails — so the test can't
-pass vacuously.
+*runtime-opaque*: thread a `one` — that the compiler cannot prove is 1.0 —
+through the EFT intermediates: `(s * one - a) * one`. We bake this in from the
+start, and the guard is **auto-injected by the lowering** at a deterministic
+binding slot; authors declare nothing.
+
+One field report made it stricter. On Windows/NVIDIA, a user watched the f64
+half of the demo *alternate* with an f32-collapsed rendering — the driver was
+hot-swapping background-reoptimized shader variants, and the optimized variant
+had folded the EFTs even through a uniform-sourced `one` (drivers may
+*specialize* pipelines on observed uniform values, and the observed value is
+always exactly 1.0). So the guard now lives in a **1×1 texture** and every
+helper reads it with a texel fetch: no compiler, on any driver, treats texel
+values as compile-time constants. The one failure mode no CPU-side test can
+see is covered by a real-GPU gate: known-answer vectors on WebGPU/Tint and
+WebGL2/ANGLE, each with a *discriminative* assertion that plain f32 provably
+fails — so the test can't pass vacuously.
 
 ## Testing a type you can't run natively
 

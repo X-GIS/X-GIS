@@ -110,13 +110,16 @@ test.describe('shader-dsl examples render on real WebGL2', () => {
 
           // The fp64 anti-fast-math guard is injected at LOWERING, so it is
           // absent from the authored reflection — probe the program directly.
-          const gIdx = gl.getUniformBlockIndex(prog, 'Fp64Guard')
-          if (gIdx !== 0xffffffff) {
-            const gbuf = gl.createBuffer()
-            gl.bindBuffer(gl.UNIFORM_BUFFER, gbuf)
-            gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([1, 0, 0, 0]), gl.STATIC_DRAW)
-            gl.uniformBlockBinding(prog, gIdx, 1)
-            gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, gbuf)
+          const gLoc = gl.getUniformLocation(prog, '_fp64')
+          if (gLoc) {
+            const gtex = gl.createTexture()
+            gl.activeTexture(gl.TEXTURE7)
+            gl.bindTexture(gl.TEXTURE_2D, gtex)
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]))
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+            gl.uniform1i(gLoc, 7)
+            gl.activeTexture(gl.TEXTURE0)
           }
 
           gl.bindVertexArray(gl.createVertexArray())

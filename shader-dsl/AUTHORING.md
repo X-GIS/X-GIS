@@ -786,16 +786,19 @@ all agree). What to know:
   `max`, `sqrt`, `mix` (f32 interpolant), `floor`, `fract`. Anything else on an f64
   operand fails loud at emit (`SD0041`) — narrow explicitly first. `%` and bitwise are
   rejected at author time.
-- **The guard uniform (auto-injected).** Every f64-arithmetic module gets a
-  `struct Fp64Guard { one: f32 }` uniform bound as `_fp64` injected automatically
-  (deterministically at group 0, first free binding; it appears in `reflect()` as an
-  ordinary uniform buffer). The host must write **1.0f** into it — WGSL §15.7.5
-  permits reassociation and Metal defaults to fast-math, and without the
-  runtime-opaque `one` threaded through the error-compensation terms a downstream
-  compiler can legally fold df64 back to f32 precision (the luma.gl
-  CODE_ELIMINATION_WORKAROUND, built in here). To pin the slot to an engine's fixed
-  bind-group layout, declare `fp64Guard({ group, binding })` in `uses:`; a
-  conflicting `_fp64`/`Fp64Guard` declaration is `SD0042`.
+- **The guard texture (auto-injected).** Every f64-arithmetic module gets a
+  `texture_2d<f32>` binding named `_fp64` injected automatically (deterministically
+  at group 0, first free binding). The host must bind a **1×1 texture whose texel
+  reads exactly 1.0** (RGBA8 white / R32F 1.0) — WGSL §15.7.5 permits reassociation
+  and Metal defaults to fast-math, and without a runtime-opaque `one` threaded
+  through the error-compensation terms a downstream compiler can legally fold df64
+  back to f32 precision (the luma.gl CODE_ELIMINATION_WORKAROUND lineage). It is a
+  TEXTURE rather than a uniform because some drivers specialize pipelines on
+  observed uniform values and hot-swap re-optimized variants that fold the terms
+  anyway (seen in the field on Windows/NVIDIA); no compiler treats texel values as
+  constants. To pin the slot to an engine's fixed bind-group layout, declare
+  `fp64Guard({ group, binding })` in `uses:`; a conflicting `_fp64` declaration is
+  `SD0042`.
 - **Layout & packing.** An f64 uniform field / vertex attribute occupies a plain
   `vec2<f32>` slot (size 8, align 8); pack it with `splitF64(x)` (hi, lo). An f64
   VARYING is rejected (`SD0044`) — interpolating hi/lo pairs is numerically wrong.

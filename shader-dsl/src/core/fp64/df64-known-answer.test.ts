@@ -35,7 +35,7 @@ import type { Expr, ModuleDecl, ShaderType } from '../ir'
 import { compileModule, type CpuValue } from '../oracle'
 import { fp64Lower } from '../passes/fp64-lower'
 import { mapModuleExprs } from '../passes/opt/ir-transform'
-import { splitF64, FP64_GUARD_NAME } from './df64-lib'
+import { splitF64 } from './df64-lib'
 
 // ── The f32-rounding oracle ──
 
@@ -57,7 +57,6 @@ function f32Oracle(m: ModuleDecl): ReturnType<typeof compileModule> {
   const cpu = compileModule(mapModuleExprs(fp64Lower(m), froundWrap))
   cpu.fns['__fround'] = (x: CpuValue) =>
     Array.isArray(x) ? (x as number[]).map(Math.fround) : Math.fround(x as number)
-  cpu.setBinding(FP64_GUARD_NAME, { one: 1 })
   return cpu
 }
 
@@ -196,7 +195,6 @@ describe('metamorphic gate — oracle(fp64Lower(m)) ≈ oracle(m)', () => {
   // cross terms df64 legitimately drops, ~2^-48 relative).
   const authored = compileModule(m)
   const lowered = compileModule(fp64Lower(m))
-  lowered.setBinding(FP64_GUARD_NAME, { one: 1 })
 
   const CASES: Array<[number, number]> = [
     [1e8 + 0.5, -1e8],

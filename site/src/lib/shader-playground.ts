@@ -113,16 +113,31 @@ export function mountShader(
     }
   }
 
-  // The fp64 anti-fast-math guard (`Fp64Guard { one: f32 }`, bound as `_fp64`)
+  // The fp64 anti-fast-math guard (a 1×1 texture bound as `_fp64`, texel 1.0)
   // is injected at LOWERING, so it never appears in the authored reflection —
-  // probe the linked program instead and feed it the required 1.0f.
-  const guardIdx = gl.getUniformBlockIndex(prog, 'Fp64Guard')
-  if (guardIdx !== 0xffffffff) {
-    const gbuf = gl.createBuffer()
-    gl.bindBuffer(gl.UNIFORM_BUFFER, gbuf)
-    gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([1, 0, 0, 0]), gl.STATIC_DRAW)
-    gl.uniformBlockBinding(prog, guardIdx, 1)
-    gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, gbuf)
+  // probe the linked program instead. A texture, not a uniform: some drivers
+  // specialize pipelines on observed uniform values and hot-swap re-optimized
+  // variants that fold the df64 error terms; texel values stay opaque.
+  const guardLoc = gl.getUniformLocation(prog, '_fp64')
+  if (guardLoc) {
+    const gtex = gl.createTexture()
+    gl.activeTexture(gl.TEXTURE7)
+    gl.bindTexture(gl.TEXTURE_2D, gtex)
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA8,
+      1,
+      1,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      new Uint8Array([255, 255, 255, 255]),
+    )
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    gl.uniform1i(guardLoc, 7)
+    gl.activeTexture(gl.TEXTURE0)
   }
 
   const vao = gl.createVertexArray()
@@ -247,6 +262,11 @@ export function mountShader(
   const prevU = f32 ? new Float32Array(f32.length) : null
   let hasDrawn = false
   let forceDraw = true
+  // One extra draw shortly after the inputs settle: on drivers that hot-swap
+  // re-optimized shader variants mid-interaction, the LAST interactive frame
+  // can land on a bad variant and would otherwise freeze on screen — the
+  // settle draw gives the final frame a second chance on the settled pipeline.
+  let settleAt = 0
 
   /** Pack the uniforms; upload and report true only when the bytes changed. */
   const packUniforms = (): boolean => {
@@ -292,7 +312,9 @@ export function mountShader(
     if (!visible) return
     const resized = resize()
     const changed = packUniforms()
-    if (hasDrawn && !changed && !resized && !forceDraw) return
+    const settle = settleAt !== 0 && now >= settleAt
+    if (hasDrawn && !changed && !resized && !forceDraw && !settle) return
+    settleAt = changed || resized ? now + 300 : 0
     forceDraw = false
     hasDrawn = true
     gl.viewport(0, 0, canvas.width, canvas.height)
