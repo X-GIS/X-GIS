@@ -207,10 +207,14 @@ const headings = [
       </h2>
       <p class="mb-4 max-w-[700px]">
         The engine's render path is a fixed linear chain of passes —
-        <code class="font-mono text-fg">compute → opaque → OIT → translucent →
-        points → labels → overdraw-compose</code>. Each pass is a stateless
-        object that emits its GPU commands for the frame; today those commands
-        record into a raw WebGPU command encoder.
+        <code class="font-mono text-fg">background → opaque → translucent →
+        points → labels → heatmap → overdraw-compose → graphics</code> — with
+        the per-feature compute dispatch running as a separate pre-pass before
+        the chain. (An OIT node is registered at its historical slot but is
+        runtime-dead — its <code class="font-mono text-fg">shouldRun</code> is
+        immutably false.) Each pass is a stateless object that emits its GPU
+        commands for the frame; today those commands record into a raw WebGPU
+        command encoder.
       </p>
       <p class="mb-4 max-w-[700px]">
         The RHI models that topology backend-agnostically. A

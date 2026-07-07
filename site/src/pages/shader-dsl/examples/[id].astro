@@ -29,7 +29,10 @@ const hasMouse = Object.values(card.spec?.controls ?? {}).some(
 const tabs = [
   { id: 'dsl', label: 'DSL (TypeScript)' },
   { id: 'wgsl', label: 'WGSL' },
-  ...(card.glsl ? [{ id: 'glsl', label: 'GLSL ES 3.00' }] : []),
+  // WGSL is one module carrying both entry points; GLSL ES 3.00 compiles as two
+  // separate sources, so they get separate tabs instead of one concatenated dump.
+  ...(card.glslVertex ? [{ id: 'glsl-vs', label: 'GLSL · vertex' }] : []),
+  ...(card.glslFragment ? [{ id: 'glsl-fs', label: 'GLSL · fragment' }] : []),
   { id: 'reflect', label: 'Reflection' },
 ]
 ---
@@ -130,7 +133,8 @@ const tabs = [
     <div class="sd-code">
       <div data-panel="dsl" id="panel-dsl" role="tabpanel" aria-labelledby="tab-dsl" tabindex="0"><Code code={card.source} lang="ts" /></div>
       <div data-panel="wgsl" id="panel-wgsl" role="tabpanel" aria-labelledby="tab-wgsl" tabindex="0" hidden><Code code={card.wgsl} lang="wgsl" /></div>
-      {card.glsl && <div data-panel="glsl" id="panel-glsl" role="tabpanel" aria-labelledby="tab-glsl" tabindex="0" hidden><Code code={card.glsl} lang="glsl" /></div>}
+      {card.glslVertex && <div data-panel="glsl-vs" id="panel-glsl-vs" role="tabpanel" aria-labelledby="tab-glsl-vs" tabindex="0" hidden><Code code={card.glslVertex} lang="glsl" /></div>}
+      {card.glslFragment && <div data-panel="glsl-fs" id="panel-glsl-fs" role="tabpanel" aria-labelledby="tab-glsl-fs" tabindex="0" hidden><Code code={card.glslFragment} lang="glsl" /></div>}
       <div data-panel="reflect" id="panel-reflect" role="tabpanel" aria-labelledby="tab-reflect" tabindex="0" hidden><Code code={card.reflectionJson} lang="json" /></div>
     </div>
   </section>

@@ -33,7 +33,7 @@ const headings = [
 <Docs
   current="concepts/projections"
   title="X-GIS — Projection switching"
-  description="Seven projections, one source. How X-GIS switches via a single GPU uniform write — no re-tessellation, no re-render of source data."
+  description="Eight projections — the 3D globe plus seven flat maps — from one source. How X-GIS switches via a single GPU uniform write — no re-tessellation, no re-render of source data."
   headings={headings}
 >
   <header class="mb-12">
@@ -44,7 +44,7 @@ const headings = [
       Projection switching.
     </h1>
     <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
-      Seven projections ship with X-GIS. Switching from Mercator to
+      Eight projections ship with X-GIS — the true 3D globe plus seven flat maps. Switching from Mercator to
       Orthographic is a single uniform write — same GeoJSON, no
       re-tessellation, no fresh tile fetches.
     </p>
@@ -106,7 +106,7 @@ const headings = [
             <rect x="580" y="40" width="280" height="80" rx="8" fill="var(--color-bg-card)" stroke="var(--color-line)" stroke-width="1"/>
             <text x="720" y="68" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="12" font-weight="500" fill="var(--color-fg)">Clip-space position</text>
             <text x="720" y="86" text-anchor="middle" font-family="DM Mono, monospace" font-size="11" fill="#c79a63">u.mvp · vec4(projected, 0, 1)</text>
-            <text x="720" y="104" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10" fill="var(--color-fg-mute)">7 projections · same GeoJSON</text>
+            <text x="720" y="104" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10" fill="var(--color-fg-mute)">8 projections · same GeoJSON</text>
           </g>
         </svg>
       </div>
@@ -181,7 +181,7 @@ let clip = u.mvp * vec4(projected, 0.0, 1.0)</code></pre>
 const map = new XGISMap(canvas)
 await map.run(source, baseUrl)
 
-// Switch to globe view centered on Seoul:
+// Switch to an orthographic (azimuthal disc) view centered on Seoul:
 map.setProjection(getProjection("orthographic", 127, 37.5))</code></pre>
       </div>
     </section>
@@ -219,7 +219,7 @@ map.setProjection(getProjection("orthographic", 127, 37.5))</code></pre>
       <p>
         Each projection has paired CPU + WGSL implementations. They're
         kept in lockstep by
-        <code class="font-mono text-fg">runtime/src/__tests__/projection-wgsl-consistency.test.ts</code>,
+        <code class="font-mono text-fg">runtime/src/engine/projection/projection-wgsl-consistency.test.ts</code>,
         which forwards a sample grid through both and asserts they
         agree to f32 epsilon. Pick-correctness on a globe map relies
         on this — the CPU resolves the picked feature; the GPU draws
@@ -238,7 +238,7 @@ map.setProjection(getProjection("orthographic", 127, 37.5))</code></pre>
 
   <SeeAlso links={[
     { label: 'JavaScript API — projections', href: `${base}/docs/api#projections`, body: 'The seven projection objects and `getProjection()`.' },
-    { label: 'RTC + DSFUN precision', href: `${base}/docs/concepts/rtc`, body: 'How the same vertex stays sub-cm-accurate across all seven projections.' },
+    { label: 'RTC + DSFUN precision', href: `${base}/docs/concepts/rtc`, body: 'How the same vertex stays sub-cm-accurate across all eight projections.' },
     { label: 'Compile pipeline', href: `${base}/docs/concepts/pipeline`, body: 'Where the per-frame uniform write fits in the render loop.' },
   ]} />
 </Docs>

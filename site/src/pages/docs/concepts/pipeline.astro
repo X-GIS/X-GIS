@@ -110,7 +110,7 @@ const headings = [
           </g>
 
           <!-- Runtime label spanning bottom -->
-          <text x="430" y="316" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="11" fill="var(--color-fg-mute)">→ Runtime + GPU / Canvas 2D fallback ←</text>
+          <text x="430" y="316" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="11" fill="var(--color-fg-mute)">→ Runtime + GPU (WebGPU · WebGL2 via the RHI) ←</text>
         </svg>
       </div>
     </section>
@@ -274,8 +274,13 @@ const headings = [
         <code class="font-mono text-fg">@xgis/runtime</code> consumes the
         emitted SceneCommands and ShaderVariants, owns the GPU device,
         manages tile catalogs (PMTiles MVT / GeoJSON), and
-        dispatches per-frame draws. WebGPU is the primary backend; Canvas
-        2D engages as fallback when no adapter is available.
+        dispatches per-frame draws. WebGPU is the production backend —
+        there is <em>no</em> Canvas 2D fallback: with no adapter the map
+        shows an "unavailable" notice (the host's
+        <code class="font-mono text-fg">onWebGPUUnavailable</code> hook)
+        instead of a degraded render. A WebGL2 backend implements the same
+        <a href={`${base}/docs/concepts/rendering`} class="text-accent underline">RHI</a>
+        and is being brought to full-frame parity.
       </p>
       <p>
         The runtime is the only component that touches the GPU. Compiler

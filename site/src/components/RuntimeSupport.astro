@@ -5,9 +5,9 @@
 // caveats in prose.
 //
 // Categories chosen to match X-GIS's actual deployment surface:
-//   - WebGPU       (Chrome 113+, Safari 17.4+, Firefox 130+, Edge 113+)
-//   - Canvas 2D    (universal fallback — limited features)
-//   - Mobile       (iOS Safari 17.4+, Android Chrome / WebGPU-enabled)
+//   - WebGPU       (Chrome 113+, Edge 113+, Safari 18+, Firefox 141+)
+//   - No WebGPU    (no Canvas 2D fallback — unavailable notice, no render)
+//   - Mobile       (iOS Safari 18+, Android Chrome / WebGPU-enabled)
 //   - Worker       (universal — used for tile decoding)
 //
 // Each row reports a state — "yes" / "no" / "limited" — plus an
@@ -15,7 +15,7 @@
 // stacked rows on narrow viewports.
 
 interface Support {
-  /** Short label — e.g. "WebGPU", "Canvas 2D fallback", "Mobile". */
+  /** Short label — e.g. "WebGPU", "No WebGPU", "Mobile". */
   label: string
   /** Tri-state. "yes" = full support, "limited" = partial / caveats,
    *  "no" = unsupported. */

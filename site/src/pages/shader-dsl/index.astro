@@ -8,7 +8,7 @@ const capabilities = [
   { label: 'One source → many targets', body: 'Author once; emit WGSL for WebGPU and GLSL ES 3.00 for WebGL2. The WGSL is byte-stable.' },
   { label: 'Type-checked', body: 'Nodes carry compile-time keys — a wrong-typed field or return is a TypeScript error, not a shader-compile surprise.' },
   { label: 'Reflection', body: 'reflect(module) recovers bind groups, std140/std430 layouts, and entry signatures — the host binds without hand-derived offsets.' },
-  { label: 'Optimize + lint', body: 'CSE, DCE, LICM, const-fold and auto-vars, plus a 20-rule lint engine and a capability gate.' },
+  { label: 'Optimize + lint', body: 'CSE, DCE, LICM, const-fold and auto-vars, plus a 21-rule lint engine and a capability gate.' },
   { label: 'CPU f64 oracle', body: 'Compile the same module to an f64 CPU function to cross-check the GPU result — the parity gate X-GIS rendering relies on.' },
   { label: 'Content-free', body: 'It ships the authoring + emit surface, not any app’s shaders. X-GIS authors its own map shaders through it.' },
 ]
