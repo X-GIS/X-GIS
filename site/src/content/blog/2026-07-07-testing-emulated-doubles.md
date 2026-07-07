@@ -18,7 +18,12 @@ others cannot.
 The df64 kernels (twoSum, twoProd, …) only work if every intermediate rounds
 to f32 _exactly once_. JS numbers are IEEE doubles, but
 $\mathrm{fround}(x \circ y)$ — round-to-f32 after a double-precision op — is
-bit-exact f32 arithmetic for `+ − × ÷` and `sqrt`.
+bit-exact f32 arithmetic for `+ − × ÷` and `sqrt`. That is not an accident of
+testing luck: for binary32 operands, computing in binary64 and then rounding
+to binary32 provably equals the single rounding, because binary64 carries
+more than $2p + 2$ significand bits — Figueroa's classic _innocuous double
+rounding_ result [1]. It is the same theorem that lets JS engines implement
+`Math.fround`-typed code with native float32 instructions [2].
 
 So the test harness takes the **actual lowered IR** (the same modules the
 GPU receives), wraps every f32-typed operation in a synthetic `__fround`
@@ -52,7 +57,8 @@ implementation could also pass proves nothing.
 
 The CPU oracle evaluates _authored_ f64 natively — a JS number **is** an
 IEEE double, so the authored module is its own specification. Lowering is
-meant to preserve semantics, giving one property over arbitrary inputs:
+meant to preserve semantics, giving one metamorphic relation [3] over
+arbitrary inputs:
 
 $$
 \mathrm{oracle}(\texttt{fp64Lower}(m)) \approx \mathrm{oracle}(m)
@@ -100,3 +106,20 @@ passes, and layer 4 is the only reason the
 could be fixed with confidence — when the guard's representation changed
 from a uniform to a texel fetch, the intrinsic kept a CPU spelling of
 exactly `1`, and every layer re-ran unchanged over the new lowered IR.
+
+## References
+
+1. S. A. Figueroa, ["When is Double Rounding
+   Innocuous?"](https://dl.acm.org/doi/10.1145/221332.221334) _ACM SIGNUM
+   Newsletter_ 30(3) (1995), 21–26 — why binary64-then-binary32 rounding
+   equals a single binary32 rounding for the basic operations.
+2. Mozilla, ["Efficient float32 arithmetic in
+   JavaScript"](https://blog.mozilla.org/javascript/2013/11/07/efficient-float32-arithmetic-in-javascript/)
+   — the `Math.fround` design and the same double-rounding argument in
+   engine practice.
+3. T. Y. Chen, S. C. Cheung, S. M. Yiu, "Metamorphic Testing: A New Approach
+   for Generating Next Test Cases," Technical Report HKUST-CS98-01 (1998) —
+   testing without an output oracle via relations between runs.
+4. W3C, [WebGPU Shading Language — Reassociation and
+   fusion](https://www.w3.org/TR/WGSL/#reassociation) — the license the
+   real-GPU layer exists to catch.
