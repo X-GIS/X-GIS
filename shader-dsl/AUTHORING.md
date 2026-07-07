@@ -186,6 +186,26 @@ min_dist.assign(min(min_dist, d)) // …auto-materialises as `var`
 binding (a derivative like `fwidth` that WGSL requires in uniform control flow, or a
 mutable accumulator you want to name), but the default is a plain `const`.
 
+**When a `Let` is load-bearing, not stylistic** (#838): CSE cannot hoist a subexpression
+that reads a **mutated** `var` — the value differs per read site — so a shared
+subexpression inside a mutation loop **re-emits at every use** unless you materialise it:
+
+```ts
+Loop(
+  u32(0),
+  (i) => i.lt(u32(72)),
+  () => {
+    const p = ro.add(rd.mul(t)) // t is mutated below → CSE can't cache anything reading it
+    const d = Let(length(p).sub(1)) // materialise ONCE; without Let the SDF re-emits per read
+    If(d.lt(0.001), () => Break())
+    t.assign(t.add(d))
+  },
+)
+```
+
+Rule of thumb: inside a loop that mutates a `var`, `Let` any value derived from that `var`
+that you read more than once.
+
 ### `.assign(v)` — the one mutation method
 
 JS cannot overload `=`, so mutation is a method on the lvalue Node (mirrors three.js TSL's
@@ -224,6 +244,14 @@ Arithmetic, comparison, bitwise, swizzle, and index are **methods** on a Node:
 | index      | `.at(i, elemType)`                                                       |
 | ternary    | `cond.select(a, b)` (WGSL `select`)                                      |
 
+> **The `.mod` METHOD is `%` — trunc-mod on WGSL floats and INVALID on GLSL
+> ES 3.00 floats (integer-only there).** For float modulo use the free function
+> **`mod(x, y)`** (#839): FLOOR-mod with identical semantics on both targets
+> (WGSL spells it inline as `x − y·⌊x/y⌋`, GLSL as native `mod()`), so negative
+> operands wrap into `[0, y)` — what domain repetition and angle folds need.
+> Named after GLSL/TSL `mod` — deliberately not `fmod`, which in C/HLSL is
+> trunc-mod. Component-wise; `y` may be a scalar broadcast over a vector `x`.
+
 **A bare number literal lifts to the operand's type from context** — drop the `f32()` /
 `u32()` / `i32()` wrapper:
 
@@ -239,6 +267,11 @@ The same lift applies inside vector/struct constructors (`vec2/vec3/vec4/vec2u/v
 `construct`) and inside `min/max/clamp/mix/pow/smoothstep`. You only keep an explicit
 `f32(0.5)` / `u32(16)` when there is **no** context to infer from (a standalone constant or
 the type-anchor first arg of a math built-in).
+
+**Negative literals lift too** (#845) — `x.mul(-6)`, `.add(-0.25)`, `vec3(-1, 0, 1)` all
+emit the signed literal directly (`x * -6.0`) on both targets. There is no need for the
+defensive `.neg()` / `.sub()` spellings some older examples used; write the sign in the
+number.
 
 ### `radians()` / `degrees()`
 
@@ -277,6 +310,27 @@ If(p.idx.eq(1), () => {
 `If` / `elif` / `else` bodies are zero-arg closures `() => …` that author into the
 **innermost** active scope (no `Builder` is threaded). They are **statements** — a body
 should not "return" a value as a fall-through; for early exits use `Return()` / `ReturnIf()`.
+
+### `Loop` — the C-style for
+
+```ts
+Loop(
+  u32(0),
+  (i) => i.lt(u32(64)), // cond receives the counter…
+  (i) => {
+    // …and so does the BODY — declare `(i)` here too (#837)
+    acc.assign(acc.add(toF32(i)))
+  },
+)
+```
+
+`Loop(init, cond, body, step?)` (optional leading name string names the WGSL counter;
+`step` defaults to `+1`). **Both** callbacks receive the counter — a body written `() => {}`
+that references `i` compiles as JS closure syntax but `i` is not in scope: `tsc` flags it
+(`Cannot find name 'i'`), and a transpile-only runner (vitest) surfaces it at build time as
+`while building fn '…': in Loop body: i is not defined` (#843). `Continue()` / `Break()`
+are the loop terminators; the counter is a mutable `Node` (loop-var reassignment is legal
+WGSL).
 
 ### `Switch` — statement dispatch
 

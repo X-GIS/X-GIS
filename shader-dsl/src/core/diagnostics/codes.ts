@@ -109,6 +109,11 @@ export const CODES = {
     summary: "assignment to an immutable 'let' binding",
     hint: 'declare the binding with Var() instead of Let() to mutate it',
   },
+  SD0108: {
+    code: 'SD0108',
+    summary: 'smoothstep with constant edge0 >= edge1 (undefined in GLSL ES)',
+    hint: 'write 1 − smoothstep(lo, hi, x) instead of reversing the edges',
+  },
 } as const satisfies Record<string, ErrorCodeDef>
 
 export type ErrorCode = keyof typeof CODES

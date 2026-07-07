@@ -143,6 +143,17 @@ const BUILTINS: Record<string, Builtin> = {
   radians: map1((d) => (d * Math.PI) / 180),
   degrees: map1((r) => (r * 180) / Math.PI),
   atan2: (y, x) => Math.atan2(y as number, x as number),
+  // mod(x, y) — FLOOR-mod, matching the registry spelling on both targets
+  // (WGSL x − y·⌊x/y⌋, GLSL mod()). Deliberately NOT JS `%` (trunc-mod).
+  // Component-wise; y may be a scalar broadcast over a vector x.
+  mod: (x, y) => {
+    const fm = (a: number, b: number): number => a - b * Math.floor(a / b)
+    return isArr(x)
+      ? (x as number[]).map((v, i) =>
+          fm(v as number, isArr(y) ? ((y as number[])[i] as number) : (y as number)),
+        )
+      : fm(x as number, y as number)
+  },
   min: (a, b) =>
     isArr(a) || isArr(b) ? applyMinMax(Math.min, a, b) : Math.min(a as number, b as number),
   max: (a, b) =>
@@ -245,6 +256,8 @@ const _bitcastView = new DataView(new ArrayBuffer(4))
 const GPU_STUBS: Record<string, Builtin> = {
   textureSample: () => [0, 0, 0, 1],
   fwidth: () => 0,
+  dpdx: () => 0,
+  dpdy: () => 0,
   textureLoad: () => [0, 0, 0, 1],
   textureDimensions: () => [1, 1], // 1×1, not 0×0 — a divide-by-dimensions stays finite
 }

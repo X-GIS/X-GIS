@@ -36,6 +36,22 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: (a) => `texture(${a[0]}, ${a[2]})`,
   },
   atan2: { wgsl: (a) => `atan2(${join(a)})`, glsl: (a) => `atan(${join(a)})` },
+  // Screen-space partial derivatives (#846) — WGSL dpdx/dpdy, GLSL dFdx/dFdy.
+  // (fwidth is spelled identically on both targets and stays portable.)
+  dpdx: { wgsl: (a) => `dpdx(${join(a)})`, glsl: (a) => `dFdx(${join(a)})` },
+  dpdy: { wgsl: (a) => `dpdy(${join(a)})`, glsl: (a) => `dFdy(${join(a)})` },
+  // mod(x, y) — FLOOR-mod with identical semantics on both targets (#839).
+  // Float `%` is TRUNC-mod on WGSL and integer-only (invalid on floats) in
+  // GLSL ES 3.00; GLSL's mod() IS floor-mod. Spelling WGSL inline as
+  // x − y·⌊x/y⌋ makes the targets agree on negative operands (domain
+  // repetition, polar folds). Named after GLSL/TSL `mod` — deliberately NOT
+  // `fmod`, which in C/HLSL is TRUNC-mod (the opposite semantics). The WGSL
+  // spelling repeats each operand's text — operands are pure expressions
+  // (CSE hoists shared work), so this costs characters, not semantics.
+  mod: {
+    wgsl: (a) => `(${a[0]} - ${a[1]} * floor(${a[0]} / ${a[1]}))`,
+    glsl: (a) => `mod(${join(a)})`,
+  },
   inverseSqrt: { wgsl: (a) => `inverseSqrt(${join(a)})`, glsl: (a) => `inversesqrt(${join(a)})` },
   // GLSL ES 3.00 (WebGL2) has NO packUnorm4x8/unpackUnorm4x8 — those are GLSL 4.00 /
   // ES 3.10 only. Inline the WGSL semantics by hand (round(clamp(v,0,1)*255), byte 0 in

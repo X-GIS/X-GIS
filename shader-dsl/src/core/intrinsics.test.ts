@@ -9,6 +9,21 @@ describe('intrinsics — neutral registry (#3a)', () => {
     expect(spellIntrinsic('glsl', 'atan2', ['y', 'x'])).toBe('atan(y, x)')
   })
 
+  // #839 — float `%` is trunc-mod on WGSL and integer-only in GLSL ES 3.00;
+  // mod is the portable FLOOR-mod: inline x − y·⌊x/y⌋ on WGSL, native mod() on GLSL.
+  it('mod: inline floor-mod on wgsl, mod() on glsl', () => {
+    expect(spellIntrinsic('wgsl', 'mod', ['x', 'y'])).toBe('(x - y * floor(x / y))')
+    expect(spellIntrinsic('glsl', 'mod', ['x', 'y'])).toBe('mod(x, y)')
+  })
+
+  // #846 — screen-space partial derivatives; WGSL and GLSL name them differently.
+  it('dpdx/dpdy: dpdx/dpdy on wgsl, dFdx/dFdy on glsl', () => {
+    expect(spellIntrinsic('wgsl', 'dpdx', ['v'])).toBe('dpdx(v)')
+    expect(spellIntrinsic('glsl', 'dpdx', ['v'])).toBe('dFdx(v)')
+    expect(spellIntrinsic('wgsl', 'dpdy', ['v'])).toBe('dpdy(v)')
+    expect(spellIntrinsic('glsl', 'dpdy', ['v'])).toBe('dFdy(v)')
+  })
+
   it('bitcastU32: bitcast<u32> on wgsl, floatBitsToUint on glsl (no WGSL syntax in the id)', () => {
     expect(spellIntrinsic('wgsl', 'bitcastU32', ['f'])).toBe('bitcast<u32>(f)')
     expect(spellIntrinsic('glsl', 'bitcastU32', ['f'])).toBe('floatBitsToUint(f)')

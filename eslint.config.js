@@ -30,7 +30,31 @@ export default tseslint.config(
     files: ['**/*.{ts,tsx,mts,cts}'],
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        // shader-dsl's src tests are EXCLUDED from the package tsconfig.json
+        // (compiled test JS must not ride into dist/ — #763 V6) and live only
+        // in tsconfig.tests.json, which project-service discovery (it walks
+        // tsconfig.json files only) cannot see. Without this, typed lint fails
+        // to parse any newly STAGED src test file in pre-commit. Lint them via
+        // the default project; their real type gate stays the package build's
+        // `tsc -p tsconfig.tests.json` noEmit pass. (examples/ and
+        // playground/e2e/ solved the same gap with their own tsconfig.json —
+        // possible there because those directories contain no non-test files
+        // a nested tsconfig would hijack from the package project.)
+        projectService: {
+          allowDefaultProject: [
+            'shader-dsl/src/core/*.test.ts',
+            'shader-dsl/src/core/backends/*.test.ts',
+            'shader-dsl/src/core/diagnostics/*.test.ts',
+            'shader-dsl/src/core/ir/*.test.ts',
+            'shader-dsl/src/core/passes/*.test.ts',
+            'shader-dsl/src/core/passes/lint/*.test.ts',
+            'shader-dsl/src/core/passes/lint/rules/*.test.ts',
+            'shader-dsl/src/core/passes/opt/*.test.ts',
+          ],
+          // the default cap is 8 matched files per run; a refactor staging many
+          // test files at once must still lint (70 test files exist today).
+          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 96,
+        },
         tsconfigRootDir: import.meta.dirname,
       },
     },
