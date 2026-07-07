@@ -710,15 +710,23 @@ export class VectorTileRenderer {
     // request. Mirrors the classify 'primary' acquisition minus fallbacks.
     this.resetUploadFrameCap()
     const toLoad: number[] = []
+    // `missing` counts only keys that can still MATERIALIZE — a queued/capped
+    // upload or an in-flight worker slice. Index-absent keys (the line never
+    // crosses them) must NOT count: they never resolve, so counting them held
+    // the returned work-pending signal high forever and the loop span at
+    // 60 fps on a fully-converged frame (#834 M5 slice 5).
     let missing = 0
     for (const key of neededKeys) {
       if (layerCache.has(key)) continue
-      missing++
       if (this.source.hasTileData(key, sliceLayer)) {
         const d = this.source.getTileData(key, sliceLayer)
-        if (d) this.uploadTile(key, d, sliceLayer)
+        if (d) {
+          this.uploadTile(key, d, sliceLayer)
+          if (!layerCache.has(key)) missing++
+        }
       } else if (this.source.hasEntryInIndex(key)) {
         toLoad.push(key)
+        missing++
       }
     }
     if (toLoad.length > 0) this.source.requestTiles(toLoad)
@@ -861,15 +869,23 @@ export class VectorTileRenderer {
     // these keys, but a stroke-only show must acquire on its own.
     this.resetUploadFrameCap()
     const toLoad: number[] = []
+    // Same missing semantics as the fills acquisition above: count only keys
+    // that can still materialize (queued upload / in-flight slice) — for a
+    // STROKE-ONLY show this return value is the frame's ONLY work-pending
+    // signal, so an index-absent key counted here would spin the loop forever
+    // and a dropped count would freeze a half-loaded frame (#834 M5 slice 5).
     let missing = 0
     for (const key of neededKeys) {
       if (layerCache.has(key)) continue
-      missing++
       if (this.source.hasTileData(key, sliceLayer)) {
         const d = this.source.getTileData(key, sliceLayer)
-        if (d) this.uploadTile(key, d, sliceLayer)
+        if (d) {
+          this.uploadTile(key, d, sliceLayer)
+          if (!layerCache.has(key)) missing++
+        }
       } else if (this.source.hasEntryInIndex(key)) {
         toLoad.push(key)
+        missing++
       }
     }
     if (toLoad.length > 0) this.source.requestTiles(toLoad)
@@ -1067,15 +1083,20 @@ export class VectorTileRenderer {
     if (!sel) return 0
     this.resetUploadFrameCap()
     const toLoad: number[] = []
+    // Same missing semantics as the fills/lines acquisitions (#834 M5
+    // slice 5): count only keys that can still materialize.
     let missing = 0
     for (const key of sel.neededKeys) {
       if (layerCache.has(key)) continue
-      missing++
       if (this.source.hasTileData(key, sliceLayer)) {
         const d = this.source.getTileData(key, sliceLayer)
-        if (d) this.uploadTile(key, d, sliceLayer)
+        if (d) {
+          this.uploadTile(key, d, sliceLayer)
+          if (!layerCache.has(key)) missing++
+        }
       } else if (this.source.hasEntryInIndex(key)) {
         toLoad.push(key)
+        missing++
       }
     }
     if (toLoad.length > 0) this.source.requestTiles(toLoad)

@@ -791,9 +791,12 @@ export class RenderLoop {
         c.resolvedShow,
       )
       // #834 M5 slice 1 — solid opaque strokes after this show's fills (the
-      // WebGPU frame's fill→stroke order within a show). Missing tiles are
-      // already counted by the fills pass over the same selection.
-      vt.renderer.renderLinesRhi(
+      // WebGPU frame's fill→stroke order within a show). The missing count
+      // MUST fold in: for a stroke-only show the fills pass bails before its
+      // acquisition, so dropping this return froze a half-loaded frame — the
+      // straggler tiles' worker slices arrived with _needsRender already
+      // cleared and nothing repainted (#834 M5 slice 5, _pattern-parity).
+      missingTiles += vt.renderer.renderLinesRhi(
         pass,
         this.host.camera,
         projType,
