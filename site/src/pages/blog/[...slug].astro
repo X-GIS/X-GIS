@@ -54,16 +54,17 @@ const articleLd = {
   <Header />
   <main class="pt-28 sm:pt-36 pb-32">
     <!-- Same composition grammar as the Docs shell: one site-standard
-         1200 band, content + TOC as grid columns (#738 follow-up — the
-         old free-floating 680 column left ~380px voids per side at 1440,
-         far wider than the ~120px the 1200 standard produces elsewhere).
-         The content COLUMN is fixed at 720px (not minmax(0,1fr)) and the
-         grid is justify-center'd, so the article+TOC pair centers as one
-         1004px block within the 1200 band — a 1fr content column would
-         claim all the leftover width and leave the (centered) 720px
-         article floating in a lopsided gap in front of the TOC instead. -->
-    <div class="max-w-[1200px] mx-auto px-6 xl:grid xl:grid-cols-[720px_220px] xl:gap-x-16 xl:justify-center">
-      <article class="max-w-[720px] w-full mx-auto xl:mx-0">
+         1200 band, content + TOC as grid columns. The content COLUMN is
+         fluid (minmax(0,1fr), like Docs) rather than a fixed 720px track —
+         a fixed track left 148px of UNUSED space inside the 1200 band on
+         top of the band's own site-standard margin, doubling up on empty
+         space and reading as "way too much left margin" at wide viewports.
+         Reading measure is capped per PROSE ELEMENT instead (.blog-prose
+         below), not on the column: headings/paragraphs/lists stay a
+         comfortable ~720px, while code blocks, tables, and the LiveShader
+         embed use the full fluid column width. -->
+    <div class="max-w-[1200px] mx-auto px-6 xl:grid xl:grid-cols-[minmax(0,1fr)_220px] xl:gap-x-16">
+      <article class="w-full min-w-0">
       <a href={`${base}/blog`} class="font-mono text-[12px] tracking-[0.14em] uppercase text-fg-mute hover:text-accent transition-colors inline-flex items-center gap-1.5">
         <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
         Blog
@@ -78,7 +79,7 @@ const articleLd = {
         <h1 class="mt-3 font-display font-normal text-fg text-[40px] sm:text-[56px] leading-[1.02] tracking-[-0.02em]">
           {post.data.title}
         </h1>
-        <p class="mt-5 text-[18px] leading-[1.6] text-fg-dim">{post.data.description}</p>
+        <p class="mt-5 max-w-[720px] text-[18px] leading-[1.6] text-fg-dim">{post.data.description}</p>
         {post.data.tags.length > 0 && (
           <div class="mt-5 flex flex-wrap gap-2">
             {post.data.tags.map((t) => (
@@ -159,6 +160,14 @@ const articleLd = {
      prose around them. */
   .blog-prose { font-size: 17px; line-height: 1.75; color: var(--color-fg-dim); }
   .blog-prose > * + * { margin-top: 1.4em; }
+  /* Reading measure lives on the prose elements, not the column (which is
+     fluid — the <article> fills whatever the grid leaves after the TOC).
+     Headings/paragraphs/lists/blockquotes stay a comfortable ~720px;
+     code blocks (astro-expressive-code's <figure class="frame">), tables
+     (.table-scroll), and the LiveShader embed use the full column width. */
+  .blog-prose > :not(figure.frame):not(.table-scroll):not([data-live-shader]) {
+    max-width: 720px;
+  }
   .blog-prose h2 {
     font-family: var(--font-display);
     font-weight: 400;
