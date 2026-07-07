@@ -57,6 +57,18 @@ test.describe('shader-dsl mouse controls change the frame', () => {
             throw new Error(gl.getProgramInfoLog(prog) ?? 'link failed')
           gl.useProgram(prog)
 
+          // fp64 examples: the lowering auto-injects the `_fp64` guard uniform
+          // (absent from the authored reflect()) — probe for its block and bind
+          // 1.0f, same pattern as the site/thumbnail/render-gate harnesses.
+          const gIdx = gl.getUniformBlockIndex(prog, 'Fp64Guard')
+          if (gIdx !== 0xffffffff) {
+            const gbuf = gl.createBuffer()
+            gl.bindBuffer(gl.UNIFORM_BUFFER, gbuf)
+            gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([1, 0, 0, 0]), gl.STATIC_DRAW)
+            gl.uniformBlockBinding(prog, gIdx, 1)
+            gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, gbuf)
+          }
+
           const u = (
             reflection as {
               uniforms: Array<{

@@ -2,6 +2,7 @@ struct Uniforms {
   center: DF64Vec2,
   resolution: vec2<f32>,
   zoom_exp: f32,
+  mouse: vec4<f32>,
 }
 
 struct VsOut {
@@ -43,40 +44,43 @@ fn fs_mandel(vo: VsOut) -> @location(0) vec4<f32> {
   let _v0 = pow(10.0, (-u.zoom_exp));
   let _v1 = (vo.uv.x * 2.0);
   let _v2 = (_v1 - select(1.0, 0.0, _cse0));
-  let _v3 = ((_v2 - 0.5) * _v0);
-  let _v4 = (((vo.uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
-  var _v5: f32 = 0.0;
+  let _v3 = ((u.resolution.y / u.resolution.x) * 2.0);
+  let _v4 = (((((u.mouse.x / u.resolution.x) - 0.5) * _v0) * 2.0) * u.mouse.w);
+  let _v5 = (((((u.mouse.y / u.resolution.y) - 0.5) * _v0) * _v3) * u.mouse.w);
+  let _v6 = (((_v2 - 0.5) * _v0) + _v4);
+  let _v7 = ((((vo.uv.y - 0.5) * _v0) * _v3) + _v5);
+  var _v8: f32 = 0.0;
   if (_cse0) {
-    let _v6 = (df64_narrow(_cse1) + _v3);
-    let _v7 = (df64_narrow(_cse2) + _v4);
-    var _v8: f32 = 0.0;
-    var _v9: f32 = 0.0;
-    for (var _v10: u32 = 0u; (_v10 < 96u); _v10 = (_v10 + 1u)) {
-      if ((((_v8 * _v8) + (_v9 * _v9)) <= 4.0)) {
-        let _v11 = (((_v8 * _v8) - (_v9 * _v9)) + _v6);
-        _v9 = (((_v8 * _v9) * 2.0) + _v7);
-        _v8 = _v11;
-        _v5 = (_v5 + 1.0);
+    let _v9 = (df64_narrow(_cse1) + _v6);
+    let _v10 = (df64_narrow(_cse2) + _v7);
+    var _v11: f32 = 0.0;
+    var _v12: f32 = 0.0;
+    for (var _v13: u32 = 0u; (_v13 < 96u); _v13 = (_v13 + 1u)) {
+      if ((((_v11 * _v11) + (_v12 * _v12)) <= 4.0)) {
+        let _v14 = (((_v11 * _v11) - (_v12 * _v12)) + _v9);
+        _v12 = (((_v11 * _v12) * 2.0) + _v10);
+        _v11 = _v14;
+        _v8 = (_v8 + 1.0);
       }
     }
   } else {
-    let _v12 = df64_add(_cse1, vec2<f32>(_v3, 0.0));
-    let _v13 = df64_add(_cse2, vec2<f32>(_v4, 0.0));
-    var _v14: vec2<f32> = _cse3;
-    var _v15: vec2<f32> = _cse3;
-    for (var _v16: u32 = 0u; (_v16 < 96u); _v16 = (_v16 + 1u)) {
-      if (df64_le(df64_add(df64_mul(_v14, _v14), df64_mul(_v15, _v15)), _licm0)) {
-        let _v17 = df64_add(df64_sub(df64_mul(_v14, _v14), df64_mul(_v15, _v15)), _v12);
-        _v15 = df64_add(df64_mul(df64_mul(_v14, _v15), _licm1), _v13);
-        _v14 = _v17;
-        _v5 = (_v5 + 1.0);
+    let _v15 = df64_add(_cse1, vec2<f32>(_v6, 0.0));
+    let _v16 = df64_add(_cse2, vec2<f32>(_v7, 0.0));
+    var _v17: vec2<f32> = _cse3;
+    var _v18: vec2<f32> = _cse3;
+    for (var _v19: u32 = 0u; (_v19 < 96u); _v19 = (_v19 + 1u)) {
+      if (df64_le(df64_add(df64_mul(_v17, _v17), df64_mul(_v18, _v18)), _licm0)) {
+        let _v20 = df64_add(df64_sub(df64_mul(_v17, _v17), df64_mul(_v18, _v18)), _v15);
+        _v18 = df64_add(df64_mul(df64_mul(_v17, _v18), _licm1), _v16);
+        _v17 = _v20;
+        _v8 = (_v8 + 1.0);
       }
     }
   }
-  let _v18 = select(0.0, _v5, (_v5 < 96.0));
-  let _v19 = fract((_v18 * 0.11));
-  let _v20 = ((sqrt((_v18 / 96.0)) * 0.35) + (_v19 * 0.65));
-  return vec4<f32>(mix(vec3<f32>(0.02, 0.03, 0.1), vec3<f32>(1.0, 0.83, 0.36), _v20), 1.0);
+  let _v21 = select(0.0, _v8, (_v8 < 96.0));
+  let _v22 = fract((_v21 * 0.11));
+  let _v23 = ((sqrt((_v21 / 96.0)) * 0.35) + (_v22 * 0.65));
+  return vec4<f32>(mix(vec3<f32>(0.02, 0.03, 0.1), vec3<f32>(1.0, 0.83, 0.36), _v23), 1.0);
 }
 
 fn df64_twoSum(a: f32, b: f32) -> vec2<f32> {

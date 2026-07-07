@@ -59,6 +59,7 @@ const U = uniformStruct(
     center: vec2f64T, // one DF64Vec2 slot — host packs [hi.x, hi.y, lo.x, lo.y]
     resolution: vec2fT,
     zoom_exp: f32T, // view span = 10^-zoom_exp complex units
+    mouse: vec4fT, // [x, y, down, used] — pointer pans the window
   },
 )
 
@@ -93,10 +94,17 @@ const fsMandel = fn(
     // Each half maps its own 0..1 sub-range onto the SAME complex window.
     const half = Let(p.vo.uv.x.mul(2.0))
     const sx = Let(half.sub(p.vo.uv.x.lt(0.5).select(0.0, 1.0)))
-    const dx = Let(sx.sub(0.5).mul(span))
-    const dy = Let(
-      p.vo.uv.y.sub(0.5).mul(span).mul(U.field.resolution.y.div(U.field.resolution.x).mul(2.0)),
-    )
+    const aspect2 = Let(U.field.resolution.y.div(U.field.resolution.x).mul(2.0))
+    // Pointer pans the window (gated on mu.w — an untouched frame keeps the
+    // canonical framing). The pan rides the SAME f32 offset path as the
+    // per-pixel dx/dy: its magnitude is ~span, which f32 carries fine — the
+    // extended-precision add against `center` below is where f64 wins, so the
+    // f64 half tracks the cursor smoothly while the f32 half stays collapsed.
+    const mu = U.field.mouse
+    const panX = Let(mu.x.div(U.field.resolution.x).sub(0.5).mul(span).mul(2.0).mul(mu.w))
+    const panY = Let(mu.y.div(U.field.resolution.y).sub(0.5).mul(span).mul(aspect2).mul(mu.w))
+    const dx = Let(sx.sub(0.5).mul(span).add(panX))
+    const dy = Let(p.vo.uv.y.sub(0.5).mul(span).mul(aspect2).add(panY))
 
     const it = Var(f32(0))
     If(p.vo.uv.x.lt(0.5), () => {
@@ -164,7 +172,7 @@ export const fp64Mandelbrot: ShaderExample = {
   id: 'fp64-mandelbrot',
   title: 'fp64 Mandelbrot',
   blurb:
-    'The classic double-float demo: a Mandelbrot needle-spike filament zoomed to a ~1e-7 span — narrower than one f32 ulp, so the plain-f32 left half collapses flat while the emulated-double f64 right half keeps the structure. Identical authoring syntax; the center is one vec2<f64> uniform.',
+    'The classic double-float demo: a Mandelbrot needle-spike filament zoomed to a ~1e-7 span — narrower than one f32 ulp, so the plain-f32 left half collapses flat while the emulated-double f64 right half keeps the structure. Move the pointer to pan: the f64 half tracks it smoothly, the f32 half cannot. Identical authoring syntax; the center is one vec2<f64> uniform.',
   category: 'generic',
   file: 'fp64-mandelbrot.ts',
   module: fp64MandelbrotModule,
@@ -173,5 +181,6 @@ export const fp64Mandelbrot: ShaderExample = {
     center: { kind: 'const', value: [cxHi, cyHi, cxLo, cyLo] },
     resolution: { kind: 'resolution' },
     zoom_exp: { kind: 'slider', label: 'Zoom 10^-x', min: 2, max: 8.5, step: 0.1, value: 7 },
+    mouse: { kind: 'mouse' },
   },
 }

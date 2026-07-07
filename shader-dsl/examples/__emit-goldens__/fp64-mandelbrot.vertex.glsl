@@ -15,6 +15,7 @@ layout(std140) uniform Uniforms {
   DF64Vec2 center;
   vec2 resolution;
   float zoom_exp;
+  vec4 mouse;
 } u;
 
 layout(std140) uniform Fp64Guard {
