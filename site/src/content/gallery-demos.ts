@@ -115,7 +115,7 @@ export const galleryCategories: Category[] = [
         body: 'Protomaps v4 daily world basemap — earth source-layer + vector_layers metadata.',
         defaultHash: '3/30/0',
       },
-      // `noThumb: true`: openfreemap-bright's 93-layer style takes
+      // `noThumb: true`: openfreemap-bright's 119-layer style takes
       // longer than the capture spec's 20 s tile-settle to render the
       // first visible frame, so the captured JPG comes out as the
       // background fill. Until either the capture path is fixed (longer
@@ -126,7 +126,7 @@ export const galleryCategories: Category[] = [
         id: 'openfreemap-bright',
         runId: 'openfreemap_bright',
         title: 'OpenFreeMap · Bright',
-        body: 'Live OpenFreeMap "bright" Mapbox style, run through the /convert pipeline. 93 layers from a real-world cartographic style.',
+        body: 'Live OpenFreeMap "bright" Mapbox style, run through the /convert pipeline. 119 layers from a real-world cartographic style.',
         defaultHash: '14/35.68/139.76',
         noThumb: true,
       },
