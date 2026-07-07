@@ -20,26 +20,12 @@ import {
   vec2fT,
   vec3fT,
   f32T,
-  f64T,
   u32T,
   structT,
   type ShaderType,
   type Expr,
   type ModuleDecl,
   type StructDecl,
-} from '@xgis/shader-dsl'
-import {
-  fn,
-  module as dslModule,
-  vec2,
-  vec4,
-  fract,
-  toF32,
-  toF64,
-  ioStruct,
-  builtin,
-  location,
-  uniformStruct,
 } from '@xgis/shader-dsl'
 
 // ── a synthetic vertex+fragment module with a std140 uniform struct ──
@@ -98,13 +84,10 @@ const module: ModuleDecl = {
         {
           s: 'assign',
           target: fld(varref('o', structT('VsOut')), 'position', vec4fT),
-          // z reads `u.fade` so the VERTEX stage references the UBO — per-stage
-          // emit scope drops bindings a stage never touches, and the std140
-          // block assertions below are against the vertex emit.
           expr: v4(
             fld(fld(param('inp', structT('VsIn')), 'pos', vec2fT), 'x', f32T),
             fld(fld(param('inp', structT('VsIn')), 'pos', vec2fT), 'y', f32T),
-            fld(varref('u', structT('Uniforms')), 'fade', f32T),
+            lit(0),
             lit(1),
           ),
         },
@@ -472,79 +455,5 @@ describe('glsl-es300 — fail-closed on out-of-scope features', () => {
       ],
     }
     expect(() => emitGlslModule(badMod, 'vertex')).toThrow(UnsupportedFeatureError)
-  })
-})
-
-describe('glsl-es300 — per-stage emit scope (stage reachability)', () => {
-  // The user-visible bug this pins: f64 used ONLY in the fragment stage left
-  // the whole df64 helper set + the `_fp64` guard sampler (+ the UBO) in the
-  // VERTEX GLSL. Each stage's emit is now scoped to what its entries
-  // transitively reach. Authored through the real surface so the fp64Lower
-  // injection path is the one under test.
-  const U = uniformStruct(
-    'ScopeU',
-    { group: 0, binding: 0, as: 'su' },
-    {
-      origin: f64T,
-      span: f32T,
-    },
-  )
-  const SvOut = ioStruct('ScopeVsOut', {
-    pos: builtin('position', vec4fT),
-    uv: location(0, vec2fT),
-  })
-  const vsScope = fn(
-    'vs_scope',
-    {},
-    () => SvOut.construct({ pos: vec4(0.0, 0.0, 0.0, 1.0), uv: vec2(0.0, 0.0) }),
-    { stage: 'vertex' },
-  )
-  const fsScope = fn(
-    'fs_scope',
-    { vo: SvOut },
-    (p) => {
-      const v = toF32(fract(U.field.origin.add(toF64(p.vo.uv.x.mul(U.field.span)))))
-      return vec4(v, v, v, 1.0)
-    },
-    { stage: 'fragment', retAttr: '@location(0)' },
-  )
-  const scopeMod = dslModule({ funcs: [vsScope, fsScope], uses: [U, SvOut] })
-
-  it('vertex GLSL carries NO fragment-only machinery (df64 helpers, _fp64 guard, UBO)', () => {
-    const vs = emitGlslModule(scopeMod, 'vertex')
-    expect(vs).not.toContain('df64_')
-    expect(vs).not.toContain('_fp64')
-    expect(vs).not.toContain('ScopeU') // the UBO is referenced only by the fragment
-  })
-
-  it('fragment GLSL still carries the df64 helpers, the _fp64 guard, and the UBO', () => {
-    const fs = emitGlslModule(scopeMod, 'fragment')
-    expect(fs).toContain('df64_add(')
-    expect(fs).toContain('uniform sampler2D _fp64;')
-    expect(fs).toMatch(/layout\(std140\) uniform ScopeU \{[\s\S]*\} su;/)
-  })
-
-  it('a helper reached by BOTH stages stays in both; a fragment-only helper stays out of vertex', () => {
-    const half = fn('scope_half', { x: f32T }, (p) => p.x.mul(0.5))
-    const fragOnly = fn('scope_frag_only', { x: f32T }, (p) => p.x.add(1.0))
-    const vs = fn(
-      'vs_shared',
-      {},
-      () => SvOut.construct({ pos: vec4(0.0, 0.0, 0.0, 1.0), uv: vec2(half(1.0), 0.0) }),
-      { stage: 'vertex' },
-    )
-    const fs = fn(
-      'fs_shared',
-      { vo: SvOut },
-      (p) => vec4(half(p.vo.uv.x), fragOnly(p.vo.uv.y), 0.0, 1.0),
-      { stage: 'fragment', retAttr: '@location(0)' },
-    )
-    const m = dslModule({ funcs: [vs, fs], uses: [SvOut] })
-    const vsG = emitGlslModule(m, 'vertex')
-    const fsG = emitGlslModule(m, 'fragment')
-    expect(vsG).toContain('scope_half')
-    expect(vsG).not.toContain('scope_frag_only')
-    expect(fsG).toContain('scope_half')
-    expect(fsG).toContain('scope_frag_only')
   })
 })

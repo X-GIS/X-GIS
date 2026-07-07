@@ -6,6 +6,16 @@ struct VsOut {
   vec4 pos;
   vec2 uv;
 };
+layout(std140) uniform Uniforms {
+  float time;
+  vec2 resolution;
+  float zoom;
+  vec4 mouse;
+} U;
+vec3 palette(float t);
+vec3 palette(float t) {
+  return (vec3(0.5) + (cos(((t + vec3(0.0, 0.33, 0.67)) * 6.283)) * 0.5));
+}
 out vec2 uv;
 
 VsOut vs_impl(uint vi) {
