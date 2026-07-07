@@ -38,7 +38,7 @@ const sections = [
   {
     id: 'optimize',
     title: 'Optimize + lint',
-    body: 'Before emit, a pass pipeline runs CSE, DCE, LICM, const-fold, algebraic simplification, and auto-var/auto-let materialisation, plus a 20-rule lint engine (no-float-eq, single-exit, naming, dead-binding, …). The optimizer is WGSL-side so the byte-stable WGSL stays canonical; GLSL emit is an identity pass over the lowered tree.',
+    body: 'Before emit, a pass pipeline runs CSE, DCE, LICM, const-fold, algebraic simplification, and auto-var/auto-let materialisation, plus a 21-rule lint engine (no-float-eq, single-exit, naming, dead-binding, …). The optimizer is WGSL-side so the byte-stable WGSL stays canonical; GLSL emit is an identity pass over the lowered tree.',
   },
 ]
 ---
@@ -77,8 +77,19 @@ const sections = [
         <Code code={gradient.wgsl} lang="wgsl" />
       </div>
       <div>
-        <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">GLSL ES 3.00 — emitGlslModule(m, …)</p>
-        <Code code={gradient.glsl ?? ''} lang="glsl" />
+        <div class="flex items-center justify-between gap-3 mb-2">
+          <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em]">GLSL ES 3.00 — emitGlslModule(m, …)</p>
+          <!-- GLSL compiles as two separate sources (unlike the single WGSL
+               module), so each stage gets its own tab instead of one dump. -->
+          <div class="flex gap-1" role="group" aria-label="GLSL stage">
+            <button type="button" data-glsl-stage="vs" aria-pressed="true"
+              class="font-mono text-[10.5px] px-2 py-0.5 rounded-full border border-line-strong text-fg transition-colors">vertex</button>
+            <button type="button" data-glsl-stage="fs" aria-pressed="false"
+              class="font-mono text-[10.5px] px-2 py-0.5 rounded-full border border-line text-fg-mute hover:text-fg transition-colors">fragment</button>
+          </div>
+        </div>
+        <div data-glsl-panel="vs"><Code code={gradient.glslVertex ?? ''} lang="glsl" /></div>
+        <div data-glsl-panel="fs" hidden><Code code={gradient.glslFragment ?? ''} lang="glsl" /></div>
       </div>
     </div>
   </section>
@@ -91,3 +102,22 @@ const sections = [
     </p>
   </div>
 </ShaderDsl>
+
+<script>
+  const stageBtns = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-glsl-stage]'))
+  const stagePanels = Array.from(document.querySelectorAll<HTMLElement>('[data-glsl-panel]'))
+  stageBtns.forEach((b) =>
+    b.addEventListener('click', () => {
+      const stage = b.dataset.glslStage
+      stagePanels.forEach((p) => { p.hidden = p.dataset.glslPanel !== stage })
+      stageBtns.forEach((o) => {
+        const on = o === b
+        o.setAttribute('aria-pressed', String(on))
+        o.classList.toggle('border-line-strong', on)
+        o.classList.toggle('text-fg', on)
+        o.classList.toggle('border-line', !on)
+        o.classList.toggle('text-fg-mute', !on)
+      })
+    }),
+  )
+</script>
