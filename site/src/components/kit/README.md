@@ -80,7 +80,7 @@ hairline divider, a centered max-width container, and `px-6` gutters. Renders a
 | Prop    | Type                              | Default      | Notes                                                               |
 | ------- | --------------------------------- | ------------ | ------------------------------------------------------------------- |
 | `id`    | `string`                          | —            | Anchor id on the `<section>`.                                       |
-| `width` | `'standard' \| 'prose' \| 'wide'` | `'standard'` | `standard` 1100px · `prose` 680px · `wide` 1280px.                  |
+| `width` | `'standard' \| 'prose' \| 'wide'` | `'standard'` | `standard` 1400px · `prose` 680px · `wide` 1480px.                  |
 | `class` | `string`                          | `''`         | Merged onto the `<section>` (e.g. `border-t-0` for the first band). |
 
 ```astro
