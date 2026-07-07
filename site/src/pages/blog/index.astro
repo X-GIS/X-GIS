@@ -2,12 +2,12 @@
 import Base from '../../layouts/Base.astro'
 import Header from '../../components/Header.astro'
 import Footer from '../../components/Footer.astro'
-import { publishedPosts, readingTimeMin } from '../../lib/blog'
+import BlogPostCard from '../../components/BlogPostCard.astro'
+import { publishedPosts } from '../../lib/blog'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const posts = await publishedPosts()
-const fmt = (d: Date) =>
-  d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+const allTags = [...new Set(posts.flatMap((p) => p.data.tags))].sort()
 ---
 
 <Base
@@ -26,37 +26,25 @@ const fmt = (d: Date) =>
           How X-GIS works under the hood — the compiler, the shader IR, the globe
           math, the WebGPU render graph.
         </p>
+        {allTags.length > 0 && (
+          <div class="mt-8 flex flex-wrap gap-2">
+            {allTags.map((t) => (
+              <a
+                href={`${base}/blog/tags/${t}`}
+                class="font-mono text-[11px] tracking-[0.1em] uppercase text-fg-mute border border-line rounded-full px-2.5 py-0.5 hover:text-fg hover:border-line-strong transition-colors"
+              >
+                {t}
+              </a>
+            ))}
+          </div>
+        )}
       </header>
 
       {posts.length === 0 ? (
         <p class="text-fg-mute text-[15px]">No posts yet — check back soon.</p>
       ) : (
         <ul class="divide-y divide-line border-t border-line">
-          {posts.map((post) => (
-            <li>
-              <a href={`${base}/blog/${post.id}`} class="group block py-8 sm:py-10">
-                <p class="font-mono text-[12px] tracking-[0.14em] uppercase text-fg-mute">
-                  <time datetime={post.data.date.toISOString()}>{fmt(post.data.date)}</time>
-                  <span> · {readingTimeMin(post.body)} min read</span>
-                </p>
-                <h2 class="mt-2 font-display font-normal text-fg text-[28px] sm:text-[36px] leading-[1.05] tracking-[-0.02em] group-hover:text-accent transition-colors">
-                  {post.data.title}
-                </h2>
-                <p class="mt-3 text-[16px] leading-[1.6] text-fg-dim max-w-[640px]">
-                  {post.data.description}
-                </p>
-                {post.data.tags.length > 0 && (
-                  <div class="mt-4 flex flex-wrap gap-2">
-                    {post.data.tags.map((t) => (
-                      <span class="font-mono text-[11px] tracking-[0.1em] uppercase text-fg-mute border border-line rounded-full px-2.5 py-0.5">
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </a>
-            </li>
-          ))}
+          {posts.map((post) => <BlogPostCard post={post} />)}
         </ul>
       )}
     </div>

@@ -77,9 +77,12 @@ const articleLd = {
         {post.data.tags.length > 0 && (
           <div class="mt-5 flex flex-wrap gap-2">
             {post.data.tags.map((t) => (
-              <span class="font-mono text-[11px] tracking-[0.1em] uppercase text-fg-mute border border-line rounded-full px-2.5 py-0.5">
+              <a
+                href={`${base}/blog/tags/${t}`}
+                class="font-mono text-[11px] tracking-[0.1em] uppercase text-fg-mute border border-line rounded-full px-2.5 py-0.5 hover:text-fg hover:border-line-strong transition-colors"
+              >
                 {t}
-              </span>
+              </a>
             ))}
           </div>
         )}
