@@ -617,7 +617,16 @@ export class VectorTileRenderer {
   private _fillTileBgRhi: { buf: RhiBuffer; bg: RhiBindGroup } | null = null
 
   /** The default flat-fill Material with GLSL twins — built lazily ONCE on the
-   *  webgl2 backend (emitPolygonGlsl null-variant, no pick, single-sample). */
+   *  webgl2 backend (emitPolygonGlsl null-variant, no pick, single-sample).
+   *
+   *  GROUND variant (depthCompare 'always', depthWrite off), NOT flat: render()
+   *  substitutes the depth-disabled ground pipeline for EVERY flat fill when
+   *  currentExtrudeMode === 'none' (:2896), so basemap fill layering is pure
+   *  painter's order on WebGPU. The fill fragment overrides the vertex z bias
+   *  with compute_log_frag_depth(view_w) ± per-feature jitter, so with the
+   *  depth-testing 'flat' twin here the jitter — not style order — decided
+   *  which overlapping fill survived (OFM Bright: landuse_residential erased
+   *  the later landcover_grass over Hibiya Park under ?forcegl2=1). */
   private ensureFillMaterialRhi(): Material {
     if (this._fillMatRhi) return this._fillMatRhi
     this._fillMatRhi = buildFlatFillMaterials({
@@ -630,13 +639,16 @@ export class VectorTileRenderer {
       rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
       vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT),
       pickEnabled: false,
-    }).flat
+    }).ground
     return this._fillMatRhi
   }
 
   /** The PICK flat-fill Material — colour + rg32uint MRT with the pick-enabled
    *  GLSL twins (fs_fill writes R = feat_id, G = tile.pick_id). Drawn by the
-   *  on-demand WebGL2 pick pass, never the presented frame (#834 M5 s6). */
+   *  on-demand WebGL2 pick pass, never the presented frame (#834 M5 s6).
+   *  GROUND variant for the same reason as ensureFillMaterialRhi: painter's
+   *  order (later show overwrites the pick ids), matching WebGPU's ground-
+   *  substituted flat fills. */
   private _fillPickMatRhi: Material | null = null
   private ensureFillPickMaterialRhi(): Material {
     if (this._fillPickMatRhi) return this._fillPickMatRhi
@@ -650,7 +662,7 @@ export class VectorTileRenderer {
       rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
       vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT),
       pickEnabled: true,
-    }).flat
+    }).ground
     return this._fillPickMatRhi
   }
 
@@ -762,6 +774,14 @@ export class VectorTileRenderer {
           if (!layerCache.has(key)) missing++
         }
       } else if (this.source.hasEntryInIndex(key)) {
+        // Tile already parsed with SOME slice but not this one → the worker
+        // emitted no bucket for this (sourceLayer, filter): legitimately empty
+        // here. render()'s classifyTile calls this 'drop-empty-slice';
+        // requesting it again is a no-op (requestTiles skips cached keys), so
+        // counting it as missing span the forced-WebGL2 loop at 60 fps forever
+        // on any style with a feature-less layer in view (OFM Bright: park /
+        // aeroway / intermittent-water at Tokyo z14).
+        if (this.source.hasTileData(key)) continue
         toLoad.push(key)
         missing++
       }
@@ -934,6 +954,10 @@ export class VectorTileRenderer {
           if (!layerCache.has(key)) missing++
         }
       } else if (this.source.hasEntryInIndex(key)) {
+        // Parsed tile without this slice = empty here (drop-empty-slice twin —
+        // see renderFillsRhi); re-requesting a cached key is a no-op and the
+        // missing count would spin the loop forever.
+        if (this.source.hasTileData(key)) continue
         toLoad.push(key)
         missing++
       }
@@ -1185,6 +1209,10 @@ export class VectorTileRenderer {
           if (!layerCache.has(key)) missing++
         }
       } else if (this.source.hasEntryInIndex(key)) {
+        // Parsed tile without this slice = empty here (drop-empty-slice twin —
+        // see renderFillsRhi); re-requesting a cached key is a no-op and the
+        // missing count would spin the loop forever.
+        if (this.source.hasTileData(key)) continue
         toLoad.push(key)
         missing++
       }

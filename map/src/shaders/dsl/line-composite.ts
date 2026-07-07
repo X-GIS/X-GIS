@@ -71,6 +71,36 @@ export const vsFull = fn(
   { stage: 'vertex' },
 )
 
+/** GL twin of vs_full with the V axis flipped. WebGPU textures put v=0 at the
+ *  top row, and clip y=-1 is the screen bottom, so vs_full maps bottom→v=1.
+ *  A GL FBO stores clip y=-1 at texture ROW 0 and samples it at v=0 — reusing
+ *  the WGSL uv constants on WebGL2 composited the whole offscreen RT
+ *  VERTICALLY MIRRORED (masked in the s6 gate by its vertically-centred band;
+ *  visible on OFM Bright as building_top/highway_area stroke tint landing on
+ *  the wrong half of the frame). Same fn NAME so the Material vsEntry and the
+ *  emitted GLSL entry stay 'vs_full'. */
+export const vsFullGl = fn(
+  'vs_full',
+  { vi: builtin('vertex_index', u32T) },
+  (p) => {
+    const pos = vec2(-1, -1)
+    const uv = vec2(0, 0)
+    If(p.vi.eq(1), () => {
+      pos.assign(vec2(3, -1))
+      uv.assign(vec2(2, 0))
+    })
+    If(p.vi.eq(2), () => {
+      pos.assign(vec2(-1, 3))
+      uv.assign(vec2(0, 2))
+    })
+    return VsFullOut.construct({
+      pos: vec4(pos, 0, 1),
+      uv,
+    })
+  },
+  { stage: 'vertex' },
+)
+
 export const fsFull = fn(
   'fs_full',
   { input: VsFullOut },

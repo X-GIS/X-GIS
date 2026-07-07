@@ -891,6 +891,15 @@ export class RenderLoop {
     for (const [, { renderer: vtR }] of this.host.vtSources) {
       vtR.beginFrame(this.host._frameCount)
     }
+    // iter-280 twin (#834 M5 final) — frame-scoped point-label dedup. The
+    // WebGPU prelude clears these at frame start; this isolated path
+    // early-returns before that, so without its own clear the Map persists
+    // across frames and shouldEmitPointDedup treats every named point label
+    // as a same-priority duplicate from the second frame on (Bright place /
+    // POI names vanished under ?forcegl2=1 while line labels — deduped by
+    // the per-show-cleared _scratchEmittedTextNames — survived).
+    this.host._scratchEmittedPointNames.clear()
+    this.host._scratchEmittedTextNames.clear()
     const classified = this.host.classifyVectorTileShows()
     this.host.lineRenderer?.beginFrame()
     let missingTiles = 0
