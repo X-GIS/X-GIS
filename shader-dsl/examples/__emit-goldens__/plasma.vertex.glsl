@@ -6,10 +6,6 @@ struct VsOut {
   vec4 pos;
   vec2 uv;
 };
-layout(std140) uniform Uniforms {
-  float time;
-  vec2 resolution;
-} U;
 out vec2 uv;
 
 VsOut vs_impl(uint vi) {
