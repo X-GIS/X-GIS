@@ -29,7 +29,9 @@ import {
   step,
   toF32,
   toF64,
+  toU32,
   f32T,
+  f64T,
   u32T,
   vec2fT,
   vec4fT,
@@ -44,15 +46,18 @@ import {
   location,
   uniformStruct,
 } from '../src/index.ts'
+import type { ShaderType, KeyOf, Node, ReadonlyNode } from '../src/index.ts'
 import type { ShaderExample } from './_shared.ts'
 
-// A filament point on the needle spike — escape times stay under ~96
-// iterations at deep zoom (a period-3 minibrot neighbourhood), so the
-// structure is visible without an expensive iteration budget. Centering on
-// the real axis (y = 0) keeps the minibrot chain mid-frame at every zoom.
-const CENTER_X = -1.7490368500591792
+// A filament point on the needle spike — a period-3 minibrot neighbourhood
+// that stays mid-frame at every zoom (centered on the real axis, y = 0). At
+// shallow zoom the escape times sit under ~96 iterations, but zooming toward
+// the df64 floor grows them, so the iteration budget is a live uniform
+// (`max_iter`, wired to the slider) instead of a baked constant — crank it
+// past 96 to keep the deep filament structure resolved.
+const CENTER_X = -1.7490368500591793
 const CENTER_Y = 0
-const ITER = 96
+const DEFAULT_ITER = 256
 
 const U = uniformStruct(
   'Uniforms',
@@ -62,7 +67,57 @@ const U = uniformStruct(
     resolution: vec2fT,
     zoom_exp: f32T, // view span = 10^-zoom_exp complex units
     fp64: f32T, // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
+    max_iter: f32T, // dynamic escape-time budget; loop bound = toU32(max_iter)
   },
+)
+
+// ── Escape-time iterate, authored ONCE ─────────────────────────────────────
+// The f32 and f64 twins run the IDENTICAL z ← z² + c recurrence; the ONLY
+// difference is the working precision (double or not — that IS the demo). So
+// the body lives in one place and is instantiated per scalar type below, and
+// the fragment shader's split is a clean f32-fn vs f64-fn if/else. `iters` is
+// the dynamic budget (from `max_iter`); the loop bound is no longer baked.
+// Returns vec2(it, |z|²@escape) so the smooth colouring reads both twins
+// through one path.
+const escapeIterate = <T extends ShaderType>(
+  name: string,
+  scalar: T,
+  zero: () => Node<KeyOf<T>>,
+  narrow: (m2: ReadonlyNode<KeyOf<T>>) => ReadonlyNode<'f32'>,
+) =>
+  fn(name, { cx: scalar, cy: scalar, iters: u32T }, vec2fT, ({ cx, cy, iters }) => {
+    const zx = Var(zero())
+    const zy = Var(zero())
+    const it = Var(f32(0))
+    Loop(
+      u32(0),
+      (j) => j.lt(iters),
+      () => {
+        If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
+          const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(cx))
+          zy.assign(zx.mul(zy).mul(2.0).add(cy))
+          zx.assign(nzx)
+          it.assign(it.add(1.0))
+        })
+      },
+    )
+    return vec2(it, narrow(zx.mul(zx).add(zy.mul(zy))))
+  })
+
+// f32 twin — |z|² is already f32, so the narrow is the identity.
+const escapeF32 = escapeIterate(
+  'escape_f32',
+  f32T,
+  () => f32(0),
+  (m2) => m2,
+)
+// f64 twin — same authoring, only the value types differ; the |z|² result is
+// narrowed to f32 for the shared colouring.
+const escapeF64 = escapeIterate(
+  'escape_f64',
+  f64T,
+  () => f64(0),
+  (m2) => toF32(m2),
 )
 
 const VsOut = ioStruct('VsOut', {
@@ -105,50 +160,27 @@ const fsMandel = fn(
       p.vo.uv.y.sub(0.5).mul(span).mul(U.field.resolution.y.div(U.field.resolution.x).mul(2.0)),
     )
 
-    const it = Var(f32(0))
-    const m2 = Var(f32(0)) // |z|² at escape (frozen once the guard fails)
+    // The live iteration budget, truncated once to the u32 loop bound both
+    // twins share (the slider hands us an f32).
+    const iters = Let(toU32(U.field.max_iter))
+    const esc = Var(vec2(0, 0)) // (it, |z|²@escape) — filled by whichever twin runs
     // fp64 toggle off → BOTH halves take the f32 branch: the right half
     // collapses flat in place, making the emulation's contribution tangible.
     If(p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)), () => {
-      // f32 twin — the SAME iteration with the center narrowed: at deep zoom
-      // cx/cy quantize to f32 ulps and whole pixel columns collapse.
+      // f32 twin — the center narrowed to f32: at deep zoom cx/cy quantize to
+      // f32 ulps and whole pixel columns collapse.
       const cx = Let(toF32(U.field.center.x).add(dx))
       const cy = Let(toF32(U.field.center.y).add(dy))
-      const zx = Var(f32(0))
-      const zy = Var(f32(0))
-      Loop(
-        u32(0),
-        (j) => j.lt(u32(ITER)),
-        () => {
-          If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
-            const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(cx))
-            zy.assign(zx.mul(zy).mul(2.0).add(cy))
-            zx.assign(nzx)
-            it.assign(it.add(1.0))
-          })
-        },
-      )
-      m2.assign(zx.mul(zx).add(zy.mul(zy)))
+      esc.assign(escapeF32({ cx, cy, iters }))
     }).else(() => {
-      // f64 — identical authoring, only the value types differ.
+      // f64 — the extended-precision add against the vec2<f64> center is where
+      // the emulation earns its keep.
       const cx = Let(U.field.center.x.add(toF64(dx)))
       const cy = Let(U.field.center.y.add(toF64(dy)))
-      const zx = Var(f64(0))
-      const zy = Var(f64(0))
-      Loop(
-        u32(0),
-        (j) => j.lt(u32(ITER)),
-        () => {
-          If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
-            const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(cx))
-            zy.assign(zx.mul(zy).mul(2.0).add(cy))
-            zx.assign(nzx)
-            it.assign(it.add(1.0))
-          })
-        },
-      )
-      m2.assign(toF32(zx.mul(zx).add(zy.mul(zy))))
+      esc.assign(escapeF64({ cx, cy, iters }))
     })
+    const it = Let(esc.x)
+    const m2 = Let(esc.y) // |z|² at escape (frozen once the guard fails)
 
     // Smooth escape-time colouring (log₂ log₂ |z|² kills the discrete bands —
     // same treatment as mandelbrot.ts) so zooming reads as a continuous dive
@@ -156,8 +188,8 @@ const fsMandel = fn(
     // smooth count keeps the iso-contour structure readable without the churn.
     // Interior (never escaped) stays black.
     const sn = Let(it.sub(log2(max(log2(max(m2, 1.0001)), 0.0001))).add(1.0))
-    const inside = Let(step(f32(ITER).sub(0.5), it))
-    const s = Let(sn.div(ITER))
+    const inside = Let(step(U.field.max_iter.sub(0.5), it))
+    const s = Let(sn.div(U.field.max_iter))
     const shade = Let(f32(0.82).add(cos(sn.mul(0.55)).mul(0.18)))
     const rgb = mix(vec3(0.03, 0.05, 0.12), vec3(1.0, 0.83, 0.36), s)
       .mul(shade)
@@ -169,7 +201,7 @@ const fsMandel = fn(
 
 // `_fp64` guard lands at (group 0, binding 1) automatically.
 const fp64MandelbrotModule = module({
-  funcs: [vsFull, fsMandel],
+  funcs: [escapeF32, escapeF64, vsFull, fsMandel],
   uses: [U, VsOut],
 })
 
@@ -182,7 +214,7 @@ export const fp64Mandelbrot: ShaderExample = {
   id: 'fp64-mandelbrot',
   title: 'fp64 Mandelbrot',
   blurb:
-    'The classic double-float demo: a Mandelbrot needle-spike filament zoomed to a ~1e-7 span — narrower than one f32 ulp, so the plain-f32 left half collapses flat while the emulated-double f64 right half keeps the structure. Drag to pan and wheel to zoom, map-style — the camera accumulates in full double precision and lands in the vec2<f64> center uniform, so the f64 half stays sharp all the way to the df64 floor (~1e-13) while the f32 half died six orders of magnitude earlier. Flip the fp64 toggle to collapse the right half in place.',
+    'The classic double-float demo: a Mandelbrot needle-spike filament zoomed to a ~1e-7 span — narrower than one f32 ulp, so the plain-f32 left half collapses flat while the emulated-double f64 right half keeps the structure. Drag to pan and wheel to zoom, map-style — the camera accumulates in full double precision and lands in the vec2<f64> center uniform, so the f64 half stays sharp all the way to the df64 floor (~1e-13) while the f32 half died six orders of magnitude earlier. Raise the iterations slider past the old 96 to keep deep-zoom filaments resolved, or flip the fp64 toggle to collapse the right half in place.',
   category: 'generic',
   file: 'fp64-mandelbrot.ts',
   module: fp64MandelbrotModule,
@@ -200,7 +232,25 @@ export const fp64Mandelbrot: ShaderExample = {
     resolution: { kind: 'resolution' },
     // Wheel-zoomable, open past the f32 floor (~7.5) down to where even the
     // df64 emulation runs out of bits (~13) — the collapse IS the demo.
-    zoom_exp: { kind: 'slider', label: 'Zoom 10^-x', min: 1, max: 14, step: 0.05, value: 7, wheel: true },
+    zoom_exp: {
+      kind: 'slider',
+      label: 'Zoom 10^-x',
+      min: 1,
+      max: 14,
+      step: 0.05,
+      value: 7,
+      wheel: true,
+    },
     fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },
+    // Escape-time budget — open well past the old baked 96 so deep-zoom
+    // filaments stay resolved as the escape times grow toward the df64 floor.
+    max_iter: {
+      kind: 'slider',
+      label: 'Iterations',
+      min: 32,
+      max: 1024,
+      step: 16,
+      value: DEFAULT_ITER,
+    },
   },
 }
