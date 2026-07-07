@@ -831,6 +831,41 @@ std140); a vec64 vertex ATTRIBUTE is rejected (`SD0041`) — pass hi/lo as two
 
 See `examples/fp64-deep-zoom.ts` for the full picture (f32 collapse vs f64 stripes).
 
+## 8. Production emit — `{ minify, mangle }`
+
+Your bundler minifies the JS and never touches the shader text it hands to
+`gl.shaderSource` / `createShaderModule`. Both emit entries take the same
+opt-in `EmitTextOptions` (default off — the plain emit stays byte-identical):
+
+```ts
+const renames = new Map<string, string>()
+const wgsl = emitModule(m, { minify: true, mangle: true, renames })
+const vs = emitGlslModule(m, 'vertex', { minify: true, mangle: true })
+const fs = emitGlslModule(m, 'fragment', { minify: true, mangle: true })
+```
+
+- **`minify`** — whitespace/comment compaction of the emitted string.
+  Token-safe by construction (neither language has string literals; `#`
+  directives keep their own line). `minifyShaderText(code)` is the standalone
+  form for a string you already hold.
+- **`mangle`** — renames the authored vocabulary: helper fn names, plain
+  struct names, module consts (including the injected `df64_*` library) become
+  `_f0`/`_S0`/`_k0`. Deterministic per module — the two GLSL stage emits
+  (separate calls) always agree on shared names, so programs still link.
+- **`renames`** — pass a `Map` to receive authored → emitted names: the shader
+  "source map" for decoding production driver logs and GPU captures. Keep it
+  out of the shipped bundle.
+
+**The ABI boundary — never renamed:** entry-point names (WebGPU `entryPoint`),
+binding names including the `_fp64` guard (hosts resolve by name),
+binding-struct names (the GLSL UBO block tag), and struct FIELD names (std140
+packing + GLSL varyings link vertex↔fragment by name). `reflect()`-driven
+hosts bind unchanged. A fn containing a `raw` stmt makes `mangle` a no-op for
+the whole module (textual references are invisible to the rename).
+
+Every renderable example is compiled `{ minify: true, mangle: true }` on real
+Tint + ANGLE by `playground/e2e/_emit-obfuscate-gate.spec.ts`.
+
 ## Quick reference
 
 | Need                        | Write                                                                                                 |

@@ -31,7 +31,14 @@ import { spellIntrinsic, INTRINSIC_BINDING_REFS } from '../intrinsics'
 import { bodyHasRaw } from '../passes/opt/dce'
 import { dslError } from '../diagnostics/error'
 import { f32Lit } from './wgsl'
-import { emitBody, emitExpr as emitExprNeutral, lowerForBackend } from '../emit'
+import {
+  emitBody,
+  emitExpr as emitExprNeutral,
+  lowerForBackend,
+  applyMangle,
+  applyMinify,
+  type EmitTextOptions,
+} from '../emit'
 import { wgslLayout } from '../reflect'
 import { sanitizeReservedIdents } from './glsl-sanitize'
 import { fixpoint } from '../passes/opt'
@@ -952,7 +959,7 @@ function stageScope(
 export function emitGlslModule(
   m: ModuleDecl,
   stage?: 'vertex' | 'fragment',
-  opts?: { emulateStorage?: boolean; emulateCompute?: boolean },
+  opts?: { emulateStorage?: boolean; emulateCompute?: boolean } & EmitTextOptions,
 ): string {
   // autoVars BEFORE lowerModule (inside lowerForBackend), same order as the WGSL backend /
   // CPU oracle — materialising assigned plain-value bindings into real vars is BACKEND-NEUTRAL.
@@ -969,7 +976,10 @@ export function emitGlslModule(
       : m
   // GLSL-local: rename any param/var identifier colliding with a GLSL reserved word
   // (e.g. an entry param `input` / `in`) — does NOT affect the WGSL backend.
-  const lowered = sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend))
+  // applyMangle (opt-in, default identity) runs LAST in the IR chain — it is
+  // deterministic on the lowered module, so the vertex and fragment emits
+  // (separate calls over the same module) agree on every shared mangled name.
+  const lowered = applyMangle(sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend)), opts)
   const structs = new Map(lowered.structs.map((s) => [s.name, s]))
 
   // Stage filter through the shared predicate (#763 S3) — the old attr-string
@@ -1068,5 +1078,5 @@ export function emitGlslModule(
   if (helpers.length) parts.push(helpers.map((f) => glslEs300Backend.emitFunc(f)).join('\n\n'))
   if (entries.length) parts.push(entries.map((f) => emitGlslEntry(f, structs)).join('\n\n'))
 
-  return parts.join('\n') + '\n'
+  return applyMinify(parts.join('\n') + '\n', opts)
 }
