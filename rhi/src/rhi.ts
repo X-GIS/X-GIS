@@ -102,6 +102,20 @@ export interface RhiBindLayoutEntry {
   name?: string
 }
 
+/** A backend-neutral routing handle for a render pipeline (#834 M-B3). Some
+ *  map paths (the VTR tile fill/line draw) receive a pipeline object ONLY to
+ *  route it to its built RHI Material twin by stable factory `label` — they
+ *  never issue a native `setPipeline` on it (the draw runs the Material's own
+ *  pipeline via `executeItems`). Those pass-through/route-by-label params type
+ *  as `RhiPipelineHandle` so the VTR path names no `@webgpu/types` symbol; the
+ *  concrete `GPURenderPipeline` (which has `label`) is structurally one of
+ *  these. Paths that genuinely `setPipeline` a native pipeline (MapRenderer
+ *  direct-geometry, graticule, compose passes) keep the native type until
+ *  their pass topology moves to the RHI (Layer-2 M-B4). */
+export interface RhiPipelineHandle {
+  readonly label: string
+}
+
 /** A concrete resource bound at a slot when building a bind GROUP. */
 export type RhiBindResource =
   | { buffer: RhiBuffer; offset?: number; size?: number }

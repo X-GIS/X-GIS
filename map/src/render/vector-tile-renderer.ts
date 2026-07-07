@@ -7,6 +7,7 @@ import type {
   RhiBindGroup,
   RhiBuffer,
   RhiDevice,
+  RhiPipelineHandle,
   RhiRenderPass,
   RhiSampler,
   RhiTextureView,
@@ -430,7 +431,7 @@ export class VectorTileRenderer {
    *  per frame from map.ts immediately before render() so VTR can
    *  pick between flat and extruded fill paths on a per-tile basis
    *  without threading another parameter through `render()`. */
-  setExtrudedPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
+  setExtrudedPipelines(main: RhiPipelineHandle, fallback: RhiPipelineHandle): void {
     this._bindGroups.setExtrudedPipelines(main, fallback)
   }
 
@@ -454,7 +455,7 @@ export class VectorTileRenderer {
    *  command order — the way painter's order is supposed to work,
    *  without log-depth precision noise + layer_depth_offset
    *  arithmetic fighting at coplanar fragments. */
-  setGroundPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
+  setGroundPipelines(main: RhiPipelineHandle, fallback: RhiPipelineHandle): void {
     this._bindGroups.setGroundPipelines(main, fallback)
   }
 
@@ -463,13 +464,13 @@ export class VectorTileRenderer {
    *  selects them in place of the regular ground pipelines when
    *  `show.fillPatternUV` is populated (the iconStage has resolved the
    *  sprite atlas UV bbox via map.ts). */
-  setPatternPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
+  setPatternPipelines(main: RhiPipelineHandle, fallback: RhiPipelineHandle): void {
     this._bindGroups.setPatternPipelines(main, fallback)
   }
 
   /** Fill-extrusion-pattern variants. Mirror of setPatternPipelines for
    *  the extruded (per-feature z attribute) vertex path. */
-  setPatternExtrudedPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
+  setPatternExtrudedPipelines(main: RhiPipelineHandle, fallback: RhiPipelineHandle): void {
     this._bindGroups.setPatternExtrudedPipelines(main, fallback)
   }
 
@@ -478,7 +479,7 @@ export class VectorTileRenderer {
    *  draw their fills into the accum + revealage MRT pair so a
    *  later compose pass can blend them order-independently onto
    *  the opaque framebuffer. */
-  setOITPipeline(p: GPURenderPipeline): void {
+  setOITPipeline(p: RhiPipelineHandle): void {
     this._bindGroups.setOITPipeline(p)
   }
 
@@ -1829,12 +1830,12 @@ export class VectorTileRenderer {
     canvasWidth: number,
     canvasHeight: number,
     show: ShowCommand,
-    fillPipeline: GPURenderPipeline,
-    linePipeline: GPURenderPipeline,
+    fillPipeline: RhiPipelineHandle,
+    linePipeline: RhiPipelineHandle,
     _uniformBuffer: GPUBuffer,
     bindGroupLayout: GPUBindGroupLayout,
-    fillPipelineFallback: GPURenderPipeline | undefined,
-    linePipelineFallback: GPURenderPipeline | undefined,
+    fillPipelineFallback: RhiPipelineHandle | undefined,
+    linePipelineFallback: RhiPipelineHandle | undefined,
     pointRenderer: PointRenderer | null | undefined,
     /** Which draws to emit for this layer.
      *  - 'all':     fills + strokes in the current pass (opaque default)
@@ -1858,8 +1859,8 @@ export class VectorTileRenderer {
      *  fighting. Pass `undefined` to fall back to the renderer-level
      *  `fillPipelineGround` (base-layout only — for legacy / test
      *  paths). */
-    fillPipelineGroundOverride: GPURenderPipeline | undefined,
-    fillPipelineGroundFallbackOverride: GPURenderPipeline | undefined,
+    fillPipelineGroundOverride: RhiPipelineHandle | undefined,
+    fillPipelineGroundFallbackOverride: RhiPipelineHandle | undefined,
     /** True when the caller's pass is the translucent offscreen
      *  MAX-blend RT (no depth attachment) — line draws must use
      *  `pipelineMax`. False when the pass has a depth attachment
@@ -2871,7 +2872,7 @@ export class VectorTileRenderer {
       // swapchain format, but the caller's `fillPipelineGroundOverride`
       // is the r16float debug variant. Always prefer the override here
       // so the entire opaque pass agrees on the r16float attachment.
-      const groundForLayout: GPURenderPipeline | null = DEBUG_OVERDRAW
+      const groundForLayout: RhiPipelineHandle | null = DEBUG_OVERDRAW
         ? (fillPipelineGroundOverride ?? fillPipeline)
         : groundIsBase
           ? this._bindGroups.groundPipeline()
@@ -3128,7 +3129,7 @@ export class VectorTileRenderer {
       // base layout uses the renderer-level fallback ground; feature
       // layout uses the variant's fallback ground override.
       const fallbackGroundIsBase = bindGroupLayout === this._bindGroups.baseLayout()
-      const fallbackGroundForLayout: GPURenderPipeline | null = DEBUG_OVERDRAW
+      const fallbackGroundForLayout: RhiPipelineHandle | null = DEBUG_OVERDRAW
         ? (fillPipelineGroundFallbackOverride ?? fillPipelineFallback ?? null)
         : fallbackGroundIsBase
           ? this._bindGroups.groundPipelineFallback()
@@ -3484,7 +3485,7 @@ export class VectorTileRenderer {
    *  draws. */
   private recordTileFill(
     encoder: GPURenderPassEncoder | GPURenderBundleEncoder,
-    pipeline: GPURenderPipeline,
+    pipeline: RhiPipelineHandle,
     tileBg: GPUBindGroup,
     slotOffset: number,
     cached: GPUTile,
@@ -3533,8 +3534,8 @@ export class VectorTileRenderer {
   private renderTileKeys(
     keys: number[],
     pass: GPURenderPassEncoder | GPURenderBundleEncoder,
-    fillPipeline: GPURenderPipeline,
-    _linePipeline: GPURenderPipeline,
+    fillPipeline: RhiPipelineHandle,
+    _linePipeline: RhiPipelineHandle,
     projCenterLon: number,
     projCenterLat: number,
     worldOffsets: number[] | undefined,
@@ -3546,7 +3547,7 @@ export class VectorTileRenderer {
     lineLayerOffsetGap: number,
     phase: LayerDrawPhase,
     layerCache: Map<number, GPUTile>,
-    fillPipelineExtruded: GPURenderPipeline | null,
+    fillPipelineExtruded: RhiPipelineHandle | null,
     fillBindGroupLayout: GPUBindGroupLayout,
     /** Same disambiguation as the public render() — `'strokes'`
      *  phase is reused by both the offscreen translucent pass and

@@ -7,7 +7,7 @@
 // routes through the Material seam (executeItems, arena vertex/index sub-ranges, pick MRT); §4 is closed,
 // so a pipeline with no built Material twin throws (the raw fallback draw + kill-switch were deleted).
 
-import type { RhiBindLayoutEntry, RhiBuffer, RhiDevice } from '@xgis/engine'
+import type { RhiBindLayoutEntry, RhiBuffer, RhiDevice, RhiPipelineHandle } from '@xgis/engine'
 import { wrapWebGpuBindGroupLayout, wrapWebGpuBindGroup, wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from './material'
 
@@ -32,25 +32,25 @@ export interface FillRhiState {
   flat: Material | null
   ground: Material | null
   pipes: {
-    write: GPURenderPipeline
-    test: GPURenderPipeline
-    groundWrite: GPURenderPipeline
-    groundTest: GPURenderPipeline
+    write: RhiPipelineHandle
+    test: RhiPipelineHandle
+    groundWrite: RhiPipelineHandle
+    groundTest: RhiPipelineHandle
   } | null
   /** Per-STYLE (data-driven) fills compile their own shader → their own pipeline; this LIVE map
    *  (grown by PipelineFactory as layers are added) routes each per-style fill pipeline to its
    *  Material twin + variant. Checked before the default `pipes` above. */
-  perStyle: Map<GPURenderPipeline, { mat: Material; variant: number }> | null
+  perStyle: Map<RhiPipelineHandle, { mat: Material; variant: number }> | null
   /** Opaque 3D-extruded fill (default shader): the extrude Material + the two native pipelines it
    *  twins. Routed on the bindZBuffer path. The *NoPick fields twin the pointer-events:none extrude
    *  pipelines (only built when picking is on; null otherwise). null = extrude stays raw. */
   extrude: {
     mat: Material
-    write: GPURenderPipeline
-    test: GPURenderPipeline
+    write: RhiPipelineHandle
+    test: RhiPipelineHandle
     matNoPick?: Material
-    writeNoPick?: GPURenderPipeline
-    testNoPick?: GPURenderPipeline
+    writeNoPick?: RhiPipelineHandle
+    testNoPick?: RhiPipelineHandle
   } | null
   /** Fill-pattern (fs_fill_pattern) twins of the native fillPipelinePattern{Ground,Extruded}* pipelines.
    *  ground = cull-none / depth-off stencil (twins fillPipelinePatternGround + fallback); extruded =
@@ -58,11 +58,11 @@ export interface FillRhiState {
    *  before the raw else when a show resolves fillPatternUV. null = pattern stays raw. */
   pattern: {
     ground: Material
-    groundWrite: GPURenderPipeline
-    groundTest: GPURenderPipeline
+    groundWrite: RhiPipelineHandle
+    groundTest: RhiPipelineHandle
     extruded: Material
-    extrudedWrite: GPURenderPipeline
-    extrudedTest: GPURenderPipeline
+    extrudedWrite: RhiPipelineHandle
+    extrudedTest: RhiPipelineHandle
   } | null
 }
 
@@ -287,7 +287,7 @@ export function buildPatternFillMaterials(inp: FillMaterialInputs): {
 export function recordFillDraw(
   fillRhi: FillRhiState | null,
   encoder: GPURenderPassEncoder | GPURenderBundleEncoder,
-  pipeline: GPURenderPipeline,
+  pipeline: RhiPipelineHandle,
   tileBg: GPUBindGroup,
   slotOffset: number,
   cached: FillTileBuffers,
@@ -308,7 +308,7 @@ export function recordFillDraw(
     // / …, all variant-distinct — pipeline-factory.ts). `pipeline` is used ONLY to pick the twin+variant;
     // executeItems runs the twin's OWN (descriptor-equivalent) pipeline, so a label match is exact.
     // Empty label → identity only (never label-matches, so distinct-label pipelines can't collide).
-    const eq = (a: GPURenderPipeline | undefined | null): boolean =>
+    const eq = (a: RhiPipelineHandle | undefined | null): boolean =>
       pipeline === a || (!!pipeline.label && !!a && pipeline.label === a.label)
     if (!bindZBuffer) {
       // Flat fill. Per-style (data-driven) pipelines route via their own cached Material twin; the
@@ -406,6 +406,6 @@ export function recordFillDraw(
     }
   }
   throw new Error(
-    `recordFillDraw: fill pipeline has no RHI Material twin — every fill draw must route through the RHI seam (§4 closed). label=${(pipeline as GPURenderPipeline).label ?? '?'} bindZBuffer=${bindZBuffer}`,
+    `recordFillDraw: fill pipeline has no RHI Material twin — every fill draw must route through the RHI seam (§4 closed). label=${(pipeline as RhiPipelineHandle).label ?? '?'} bindZBuffer=${bindZBuffer}`,
   )
 }
