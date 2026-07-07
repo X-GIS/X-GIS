@@ -132,6 +132,20 @@ const articleLd = {
     a.textContent = '#'
     h.appendChild(a)
   })
+
+  // Only show a table's scroll-fade when it's actually wider than its box —
+  // a table that fits shouldn't hint at hidden content. Re-checked on
+  // resize since the same table can overflow on mobile and fit on desktop.
+  const tableScrolls = document.querySelectorAll<HTMLElement>('.blog-prose .table-scroll')
+  const syncOverflow = () => {
+    tableScrolls.forEach((wrap) => {
+      const inner = wrap.querySelector<HTMLElement>('.table-scroll-inner')
+      if (!inner) return
+      wrap.classList.toggle('has-overflow', inner.scrollWidth > inner.clientWidth)
+    })
+  }
+  syncOverflow()
+  window.addEventListener('resize', syncOverflow)
 </script>
 
 <style is:global>
@@ -208,12 +222,37 @@ const articleLd = {
   /* Reference-list targets land below the fixed header, same as headings. */
   .blog-prose ol li[id^='ref-'] { scroll-margin-top: 6rem; }
   /* Tables (comparison/reference tables in a few posts) — the browser
-     default is borderless and unreadable on the dark surface. `block` +
-     overflow-x turns a too-wide table into a horizontally scrollable box
-     instead of blowing out the 720px measure. */
-  .blog-prose table {
-    display: block;
+     default is borderless and unreadable on the dark surface. rehypeWrapTables
+     (astro.config.mjs) wraps each <table> in .table-scroll > .table-scroll-inner
+     so a too-wide table doesn't blow out the 720px measure; the OUTER static
+     box paints a right-edge fade that stays pinned to the visible edge while
+     the INNER box scrolls — see astro.config.mjs for why the fade can't live
+     on the scrolling element itself. */
+  .blog-prose .table-scroll {
+    position: relative;
+  }
+  .blog-prose .table-scroll::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 28px;
+    background: linear-gradient(to right, transparent, var(--color-bg));
+    pointer-events: none;
+    /* Hidden until script below confirms the table actually overflows —
+       a table that fits shouldn't show a "there's more" hint. Visible by
+       default so a table still reads as scrollable without JS. */
+    opacity: 1;
+    transition: opacity 0.15s;
+  }
+  .blog-prose .table-scroll:not(.has-overflow)::after {
+    opacity: 0;
+  }
+  .blog-prose .table-scroll-inner {
     overflow-x: auto;
+  }
+  .blog-prose table {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.9em;
@@ -223,6 +262,13 @@ const articleLd = {
     padding: 0.55em 0.9em;
     text-align: left;
     vertical-align: top;
+    /* Gives the row a background lighter than the page, so the .table-scroll
+       right-edge fade (which fades TO the page's --color-bg) has something
+       to fade FROM — an empty <td> is otherwise transparent, showing the
+       page background straight through, which is the SAME color the fade
+       ends on and would make the fade invisible everywhere it isn't
+       overlapping a glyph. */
+    background: var(--color-bg-elev);
   }
   .blog-prose th {
     background: var(--color-bg-card);

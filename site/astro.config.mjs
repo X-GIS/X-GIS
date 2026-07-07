@@ -118,6 +118,49 @@ function rehypeCitations() {
   }
 }
 
+// A comparison table wider than the 720px prose measure needs to scroll
+// horizontally on narrow/mobile viewports — but a bare `overflow-x: auto`
+// on the table itself gives no visual sign there's more to the right, so a
+// reader just sees the last column cut off and reads it as broken.
+//
+// Wraps each <table> in TWO nested divs: an outer `.table-scroll` (static,
+// position: relative — its CSS ::after paints a right-edge fade) around an
+// inner `.table-scroll-inner` (the actual `overflow-x: auto` scroller). The
+// fade has to live on the OUTER, non-scrolling box: an absolutely-positioned
+// pseudo-element on the SAME element that scrolls is part of that element's
+// scrollable content and scrolls away with it (measured — the one-wrapper
+// version put the fade at the table's right edge, not the viewport's, so it
+// only lined up with the visible edge at scrollLeft 0 and vanished the
+// moment a reader actually scrolled).
+function rehypeWrapTables() {
+  return (tree) => {
+    const walk = (node) => {
+      if (!node.children) return
+      for (let i = 0; i < node.children.length; i++) {
+        const child = node.children[i]
+        if (child.tagName === 'table') {
+          node.children[i] = {
+            type: 'element',
+            tagName: 'div',
+            properties: { className: ['table-scroll'] },
+            children: [
+              {
+                type: 'element',
+                tagName: 'div',
+                properties: { className: ['table-scroll-inner'] },
+                children: [child],
+              },
+            ],
+          }
+          continue
+        }
+        walk(child)
+      }
+    }
+    walk(tree)
+  }
+}
+
 export default defineConfig({
   site: 'https://x-gis.github.io',
   base: isCI ? '/X-GIS' : '/',
@@ -126,7 +169,7 @@ export default defineConfig({
     // to KaTeX HTML at build time (no client JS; katex.min.css is imported by
     // the blog post layout).
     remarkPlugins: [remarkMath],
-    rehypePlugins: [rehypeKatex, rehypeBaseLinks, rehypeCitations],
+    rehypePlugins: [rehypeKatex, rehypeBaseLinks, rehypeCitations, rehypeWrapTables],
   },
   // English is the default and stays at the root (/docs, /blog, …);
   // Korean is served under /ko (/ko/docs, /ko/blog, …). prefixDefaultLocale:
