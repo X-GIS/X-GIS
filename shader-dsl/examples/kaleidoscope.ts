@@ -29,7 +29,7 @@ import {
   f32T,
   vec2fT,
 } from '../src/index.ts'
-import { VsOut, vs, fullscreenUniforms } from './_fullscreen.ts'
+import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
 const U = fullscreenUniforms({ segments: f32T })
 
@@ -70,8 +70,7 @@ const fs = fn(
   ({ vo }) => {
     const t = U.field.time
     const res = U.field.resolution
-    const asp = res.x.div(res.y)
-    const p = vec2(vo.uv.x.mul(2).sub(1).mul(asp), vo.uv.y.mul(2).sub(1))
+    const p = screenCoords(vo.uv, res)
     const r = Let(length(p))
     const a0 = Let(atan2(p.y, p.x))
     // fold: floor-mod the angle into one sector, mirror about its midline

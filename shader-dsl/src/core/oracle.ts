@@ -245,6 +245,8 @@ const _bitcastView = new DataView(new ArrayBuffer(4))
 const GPU_STUBS: Record<string, Builtin> = {
   textureSample: () => [0, 0, 0, 1],
   fwidth: () => 0,
+  dpdx: () => 0,
+  dpdy: () => 0,
   textureLoad: () => [0, 0, 0, 1],
   textureDimensions: () => [1, 1], // 1×1, not 0×0 — a divide-by-dimensions stays finite
 }

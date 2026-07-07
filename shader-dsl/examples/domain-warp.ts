@@ -25,7 +25,7 @@ import {
   f32T,
   vec2fT,
 } from '../src/index.ts'
-import { VsOut, vs, fullscreenUniforms } from './_fullscreen.ts'
+import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
 const U = fullscreenUniforms({ warp: f32T })
 
@@ -61,8 +61,7 @@ const fs = fn(
   ({ vo }) => {
     const t = U.field.time
     const res = U.field.resolution
-    const asp = res.x.div(res.y)
-    const p = vec2(vo.uv.x.mul(2).sub(1).mul(asp), vo.uv.y.mul(2).sub(1)).mul(1.8)
+    const p = screenCoords(vo.uv, res).mul(1.8)
     const w = U.field.warp
     // first warp: q = (fbm(p), fbm(p + k₁))
     const q = Let(vec2(fbm({ p }), fbm({ p: p.add(vec2(5.2, 1.3)) })))

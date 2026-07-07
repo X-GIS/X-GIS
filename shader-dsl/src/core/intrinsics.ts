@@ -36,6 +36,10 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: (a) => `texture(${a[0]}, ${a[2]})`,
   },
   atan2: { wgsl: (a) => `atan2(${join(a)})`, glsl: (a) => `atan(${join(a)})` },
+  // Screen-space partial derivatives (#846) — WGSL dpdx/dpdy, GLSL dFdx/dFdy.
+  // (fwidth is spelled identically on both targets and stays portable.)
+  dpdx: { wgsl: (a) => `dpdx(${join(a)})`, glsl: (a) => `dFdx(${join(a)})` },
+  dpdy: { wgsl: (a) => `dpdy(${join(a)})`, glsl: (a) => `dFdy(${join(a)})` },
   // mod(x, y) — FLOOR-mod with identical semantics on both targets (#839).
   // Float `%` is TRUNC-mod on WGSL and integer-only (invalid on floats) in
   // GLSL ES 3.00; GLSL's mod() IS floor-mod. Spelling WGSL inline as

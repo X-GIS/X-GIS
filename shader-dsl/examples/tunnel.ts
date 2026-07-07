@@ -10,7 +10,6 @@ import {
   fn,
   module,
   f32,
-  vec2,
   vec3,
   vec4,
   sin,
@@ -23,7 +22,7 @@ import {
   Let,
   f32T,
 } from '../src/index.ts'
-import { VsOut, vs, fullscreenUniforms } from './_fullscreen.ts'
+import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
 const U = fullscreenUniforms({ twist: f32T })
 
@@ -34,8 +33,7 @@ const fs = fn(
     const t = U.field.time
     const res = U.field.resolution
     // centred, aspect-corrected plane
-    const asp = res.x.div(res.y)
-    const p = vec2(vo.uv.x.mul(2).sub(1).mul(asp), vo.uv.y.mul(2).sub(1))
+    const p = screenCoords(vo.uv, res)
     const r = Let(length(p))
     const a = atan2(p.y, p.x)
     // tunnel-surface coordinates: 1/r is the distance into the bore, the
