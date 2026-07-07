@@ -1,7 +1,7 @@
 ---
 title: 'Emulated double precision in the shader DSL'
 description: "GPUs don't have f64 — so we taught the shader IR to fake it with pairs of f32s, without changing a line of authoring syntax. On surviving fast-math compilers, testing a numeric type you can't run natively, and a Mandelbrot you can feel."
-date: 2026-07-07
+date: 2026-07-07T06:26:00Z
 tags: ['shader-dsl', 'precision', 'compiler', 'webgpu']
 lang: en
 ---
@@ -14,15 +14,19 @@ map engines grow hand-rolled hi/lo tricks: relative-to-center encoding, DSFUN
 lane packing, per-case workarounds scattered through the shaders.
 
 We just landed the general version in `@xgis/shader-dsl`: a first-class **f64
-type** — plus `vec2/3/4<f64>` — emulated as *double-float* (df64) pairs of
+type** — plus `vec2/3/4<f64>` — emulated as _double-float_ (df64) pairs of
 f32s, good for ~48 significand bits. The hard constraint we set ourselves:
 **authoring syntax must not change.** Only the declared type differs.
 
 ```ts
-const U = uniformStruct('U', { group: 0, binding: 0, as: 'u' }, {
-  origin: vec3f64T, // ← the only fp64-specific line in the module
-  scale: f64T,
-})
+const U = uniformStruct(
+  'U',
+  { group: 0, binding: 0, as: 'u' },
+  {
+    origin: vec3f64T, // ← the only fp64-specific line in the module
+    scale: f64T,
+  },
+)
 const k = fn('k', { p: vec3f64T }, (args) =>
   toF32(length(args.p.sub(U.field.origin).mul(U.field.scale))),
 )
@@ -40,7 +44,7 @@ $$
 x = x_{hi} + x_{lo}, \qquad |x_{lo}| \le \tfrac{1}{2}\,\mathrm{ulp}(x_{hi}),
 $$
 
-and use *error-free transformations* — Knuth's twoSum, Dekker's quickTwoSum,
+and use _error-free transformations_ — Knuth's twoSum, Dekker's quickTwoSum,
 the Veltkamp split — to keep the rounding error of every operation as an
 explicit second term. twoSum is the archetype: for any two floats $a, b$,
 
@@ -58,7 +62,7 @@ rewrites every f64 into `vec2<f32>` (vectors into a `{hi, lo}` plane struct)
 and every operation into a call against an injected `df64_*` helper library —
 itself authored in the DSL. The pass sits inside the shared backend pipeline,
 so WGSL and GLSL lower identically, the optimizer never sees an f64, and a
-module that doesn't use f64 passes through as the *same object* — the existing
+module that doesn't use f64 passes through as the _same object_ — the existing
 emit goldens moved by zero bytes.
 
 ## The compiler is allowed to delete your algorithm
@@ -71,7 +75,7 @@ v = s - a
 e = (a - (s - v)) + (b - v)   // the rounding error of s = a + b
 ```
 
-In *real-number* algebra that error term collapses:
+In _real-number_ algebra that error term collapses:
 
 $$
 (a - (s - v)) + (b - v) \;=\; a + b - s \;=\; 0.
@@ -85,21 +89,21 @@ collapsing df64 back to f32 precision. Your tests on one GPU pass; a user's
 Mac quietly loses 24 bits.
 
 The only portable defense (battle-tested by luma.gl) is to make the values
-*runtime-opaque*: thread a `one` — that the compiler cannot prove is 1.0 —
+_runtime-opaque_: thread a `one` — that the compiler cannot prove is 1.0 —
 through the EFT intermediates: `(s * one - a) * one`. We bake this in from the
 start, and the guard is **auto-injected by the lowering** at a deterministic
 binding slot; authors declare nothing.
 
 One field report made it stricter. On Windows/NVIDIA, a user watched the f64
-half of the demo *alternate* with an f32-collapsed rendering — the driver was
+half of the demo _alternate_ with an f32-collapsed rendering — the driver was
 hot-swapping background-reoptimized shader variants, and the optimized variant
 had folded the EFTs even through a uniform-sourced `one` (drivers may
-*specialize* pipelines on observed uniform values, and the observed value is
+_specialize_ pipelines on observed uniform values, and the observed value is
 always exactly 1.0). So the guard now lives in a **1×1 texture** and every
 helper reads it with a texel fetch: no compiler, on any driver, treats texel
 values as compile-time constants. The one failure mode no CPU-side test can
 see is covered by a real-GPU gate: known-answer vectors on WebGPU/Tint and
-WebGL2/ANGLE, each with a *discriminative* assertion that plain f32 provably
+WebGL2/ANGLE, each with a _discriminative_ assertion that plain f32 provably
 fails — so the test can't pass vacuously.
 
 ## Testing a type you can't run natively
@@ -107,7 +111,7 @@ fails — so the test can't pass vacuously.
 How do you unit-test f64 emulation without a GPU in CI? Two tricks carried the
 whole feature:
 
-**A correctly-rounding f32 machine, for free.** Take the *actual lowered IR*,
+**A correctly-rounding f32 machine, for free.** Take the _actual lowered IR_,
 wrap every f32-typed operation in `Math.fround`, and evaluate it on the CPU
 oracle. JS numbers are IEEE doubles, and
 $\mathrm{fround}(x \circ y) = \mathrm{fl}_{32}(x \circ y)$ — exactly f32
@@ -115,13 +119,13 @@ arithmetic — so the known-answer suite executes the very code the GPU will
 run, under a bit-exact f32 model, against vectors like
 $(10^8 + 0.5) - 10^8 = 0.5$ that single precision provably cannot produce.
 
-**A metamorphic gate.** The CPU oracle evaluates f64 *natively* (a JS number
+**A metamorphic gate.** The CPU oracle evaluates f64 _natively_ (a JS number
 IS an f64), and lowering is meant to preserve semantics — so
 `oracle(fp64Lower(m)) ≈ oracle(m)` must hold for any module. One property,
 every rewrite rule covered.
 
-Below those sit byte-stable emit goldens (the guard threading is *pinned as
-text*) and optimizer invariants (df64 helpers are never inlined, `* _fp64.one`
+Below those sit byte-stable emit goldens (the guard threading is _pinned as
+text_) and optimizer invariants (df64 helpers are never inlined, `* _fp64.one`
 survives the fixpoint).
 
 ## A Mandelbrot you can feel
@@ -139,8 +143,8 @@ field (the fraction is unrepresentable), f64 renders clean stripes.
 [![fp64 Mandelbrot — the needle-spike filament at a 1e-7 span](/shader/fp64-mandelbrot.jpg)](/shader-dsl/examples/fp64-mandelbrot)
 
 [fp64 Mandelbrot](/shader-dsl/examples/fp64-mandelbrot) zooms a needle-spike
-filament to a $\sim 10^{-7}$ span — *narrower than one f32 ulp at
-$x \approx -1.749$*, so the f32 half cannot distinguish any two pixels in the
+filament to a $\sim 10^{-7}$ span — _narrower than one f32 ulp at
+$x \approx -1.749$_, so the f32 half cannot distinguish any two pixels in the
 window. **Drag to pan and wheel to zoom, map-style.** The camera is the
 host-side half of the story: drags accumulate in full JS-double precision and
 land in the `vec2<f64>` center uniform via `splitF64` every frame, so the f64
