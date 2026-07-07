@@ -106,8 +106,12 @@ const cs = fn('cs_match', { gid: builtin('global_invocation_id', vec3uT) }, (p) 
 module({ consts, structs, bindings, funcs })
 ```
 
-Each field is an array; any omitted field defaults to `[]`. Order in `funcs:` is the WGSL
-emit order, so **callees come before callers** (WGSL requires forward declaration order):
+Each field is an array; any omitted field defaults to `[]`. Order in `funcs:` is the emit
+order — keep **callees before callers**. Not for WGSL's sake (final-spec WGSL resolves
+module-scope declarations out of order; it has no prototype syntax at all), but because
+(a) GLSL ES 3.00 requires declare-before-use — the GLSL backend emits forward prototypes
+as a safety net, and dependency order keeps working even without them — and (b) a stable
+order keeps snapshot/golden bytes deterministic:
 
 ```ts
 export const buildRasterModule = (pickEnabled: boolean): ModuleDecl =>
@@ -786,16 +790,19 @@ all agree). What to know:
   `max`, `sqrt`, `mix` (f32 interpolant), `floor`, `fract`. Anything else on an f64
   operand fails loud at emit (`SD0041`) — narrow explicitly first. `%` and bitwise are
   rejected at author time.
-- **The guard uniform (auto-injected).** Every f64-arithmetic module gets a
-  `struct Fp64Guard { one: f32 }` uniform bound as `_fp64` injected automatically
-  (deterministically at group 0, first free binding; it appears in `reflect()` as an
-  ordinary uniform buffer). The host must write **1.0f** into it — WGSL §15.7.5
-  permits reassociation and Metal defaults to fast-math, and without the
-  runtime-opaque `one` threaded through the error-compensation terms a downstream
-  compiler can legally fold df64 back to f32 precision (the luma.gl
-  CODE_ELIMINATION_WORKAROUND, built in here). To pin the slot to an engine's fixed
-  bind-group layout, declare `fp64Guard({ group, binding })` in `uses:`; a
-  conflicting `_fp64`/`Fp64Guard` declaration is `SD0042`.
+- **The guard texture (auto-injected).** Every f64-arithmetic module gets a
+  `texture_2d<f32>` binding named `_fp64` injected automatically (deterministically
+  at group 0, first free binding). The host must bind a **1×1 texture whose texel
+  reads exactly 1.0** (RGBA8 white / R32F 1.0) — WGSL §15.7.5 permits reassociation
+  and Metal defaults to fast-math, and without a runtime-opaque `one` threaded
+  through the error-compensation terms a downstream compiler can legally fold df64
+  back to f32 precision (the luma.gl CODE_ELIMINATION_WORKAROUND lineage). It is a
+  TEXTURE rather than a uniform because some drivers specialize pipelines on
+  observed uniform values and hot-swap re-optimized variants that fold the terms
+  anyway (seen in the field on Windows/NVIDIA); no compiler treats texel values as
+  constants. To pin the slot to an engine's fixed bind-group layout, declare
+  `fp64Guard({ group, binding })` in `uses:`; a conflicting `_fp64` declaration is
+  `SD0042`.
 - **Layout & packing.** An f64 uniform field / vertex attribute occupies a plain
   `vec2<f32>` slot (size 8, align 8); pack it with `splitF64(x)` (hi, lo). An f64
   VARYING is rejected (`SD0044`) — interpolating hi/lo pairs is numerically wrong.
@@ -806,19 +813,58 @@ all agree). What to know:
 ### Vectors — `vec2f64T` / `vec3f64T` / `vec4f64T`
 
 `vecNf64(x, y, …)` builds an emulated-double vector; components (`v.x`), swizzles
-(`v.zyx`), componentwise `+ − ×` (with `f64`/`f32`/number broadcast), `÷`, `neg`, and
-the reductions `dot`/`length`/`distance` (→ `f64`) all use the unchanged surface. A
-vec64 lowers to `struct DF64VecN { hi: vecN<f32>, lo: vecN<f32> }` — componentwise
-arithmetic runs the same EFTs on whole hi/lo planes (one twoSum for all lanes);
-`dot`/`length`/`distance` accumulate through the SCALAR df64 chain (extended-precision
-accumulation is the point). Everything else on a vec64 (`normalize`, `abs`, `mix`,
-…) is `SD0041` — narrow per lane (`toF32(v.x)`) or divide by `length(v)` explicitly.
+(`v.zyx`), componentwise `+ − ×` (with `f64`/`f32`/number broadcast), `÷`, `neg`,
+the componentwise builtins `abs`/`min`/`max`/`mix` (scalar f32 interpolant)/`floor`/
+`fract`/`normalize`, and the reductions `dot`/`length`/`distance` (→ `f64`) all use
+the unchanged surface. A vec64 lowers to
+`struct DF64VecN { hi: vecN<f32>, lo: vecN<f32> }` — componentwise arithmetic runs
+the same EFTs on whole hi/lo planes (one twoSum for all lanes); the builtins with
+per-lane branching (`abs`, `min`, …) and `normalize` compose the verified SCALAR
+df64 fns lane by lane inside one `df64_vN_*` helper body, and
+`dot`/`length`/`distance` accumulate through the SCALAR df64 chain
+(extended-precision accumulation is the point). Everything else on a vec64
+(`sin`, `clamp`, …) is `SD0041` — narrow per lane (`toF32(v.x)`) first.
 A vec64 uniform field occupies its struct layout (n=2: 16 B, n=3/4: 32 B under
 std140); a vec64 vertex ATTRIBUTE is rejected (`SD0041`) — pass hi/lo as two
 `vecN<f32>` `@location`s (the existing DSFUN lane convention) and rebuild lanes with
 `f64FromParts`.
 
 See `examples/fp64-deep-zoom.ts` for the full picture (f32 collapse vs f64 stripes).
+
+## 8. Production emit — `{ minify, mangle }`
+
+Your bundler minifies the JS and never touches the shader text it hands to
+`gl.shaderSource` / `createShaderModule`. Both emit entries take the same
+opt-in `EmitTextOptions` (default off — the plain emit stays byte-identical):
+
+```ts
+const renames = new Map<string, string>()
+const wgsl = emitModule(m, { minify: true, mangle: true, renames })
+const vs = emitGlslModule(m, 'vertex', { minify: true, mangle: true })
+const fs = emitGlslModule(m, 'fragment', { minify: true, mangle: true })
+```
+
+- **`minify`** — whitespace/comment compaction of the emitted string.
+  Token-safe by construction (neither language has string literals; `#`
+  directives keep their own line). `minifyShaderText(code)` is the standalone
+  form for a string you already hold.
+- **`mangle`** — renames the authored vocabulary: helper fn names, plain
+  struct names, module consts (including the injected `df64_*` library) become
+  `_f0`/`_S0`/`_k0`. Deterministic per module — the two GLSL stage emits
+  (separate calls) always agree on shared names, so programs still link.
+- **`renames`** — pass a `Map` to receive authored → emitted names: the shader
+  "source map" for decoding production driver logs and GPU captures. Keep it
+  out of the shipped bundle.
+
+**The ABI boundary — never renamed:** entry-point names (WebGPU `entryPoint`),
+binding names including the `_fp64` guard (hosts resolve by name),
+binding-struct names (the GLSL UBO block tag), and struct FIELD names (std140
+packing + GLSL varyings link vertex↔fragment by name). `reflect()`-driven
+hosts bind unchanged. A fn containing a `raw` stmt makes `mangle` a no-op for
+the whole module (textual references are invisible to the rename).
+
+Every renderable example is compiled `{ minify: true, mangle: true }` on real
+Tint + ANGLE by `playground/e2e/_emit-obfuscate-gate.spec.ts`.
 
 ## Quick reference
 

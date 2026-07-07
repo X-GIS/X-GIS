@@ -2,7 +2,9 @@
 import Base from '../../layouts/Base.astro'
 import Header from '../../components/Header.astro'
 import Footer from '../../components/Footer.astro'
+import OnThisPage from '../../components/OnThisPage.astro'
 import { getCollection, render } from 'astro:content'
+import { publishedPosts, readingTimeMin } from '../../lib/blog'
 // KaTeX layout CSS for $…$ math rendered by rehype-katex (build-time HTML —
 // this stylesheet is the only client-side piece).
 import 'katex/dist/katex.min.css'
@@ -13,36 +15,143 @@ export async function getStaticPaths() {
 }
 
 const { post } = Astro.props
-const { Content } = await render(post)
+const { Content, headings } = await render(post)
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const fmt = (d: Date) =>
   d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+
+const readingMin = readingTimeMin(post.body)
+
+// Prev/next within the post's own locale, in the /blog list order
+// (publishedPosts is the shared authority for that order).
+const siblings = await publishedPosts(post.data.lang)
+const idx = siblings.findIndex((p) => p.id === post.id)
+const newer = idx > 0 ? siblings[idx - 1] : null
+const older = idx >= 0 && idx < siblings.length - 1 ? siblings[idx + 1] : null
+
+// Article structured data — Base emits the site-wide WebSite/SoftwareSourceCode
+// graph; this BlogPosting rides in via the head slot alongside article:* OG.
+const canonical = new URL(Astro.url.pathname, Astro.site ?? 'https://x-gis.github.io/X-GIS/')
+const articleLd = {
+  '@context': 'https://schema.org',
+  '@type': 'BlogPosting',
+  headline: post.data.title,
+  description: post.data.description,
+  datePublished: post.data.date.toISOString(),
+  keywords: post.data.tags.join(', '),
+  inLanguage: post.data.lang,
+  mainEntityOfPage: canonical.toString(),
+  author: { '@type': 'Organization', name: 'X-GIS' },
+}
 ---
 
-<Base title={`${post.data.title} — X-GIS Blog`} description={post.data.description}>
+<Base title={`${post.data.title} — X-GIS Blog`} description={post.data.description} ogType="article">
+  <Fragment slot="head">
+    <meta property="article:published_time" content={post.data.date.toISOString()} />
+    {post.data.tags.map((t) => <meta property="article:tag" content={t} />)}
+    <script type="application/ld+json" set:html={JSON.stringify(articleLd)} />
+  </Fragment>
   <Header />
   <main class="pt-28 sm:pt-36 pb-32">
-    <article class="max-w-[680px] mx-auto px-6">
+    <!-- Same composition grammar as the Docs shell: one site-standard
+         1200 band, content + TOC as grid columns (#738 follow-up — the
+         old free-floating 680 column left ~380px voids per side at 1440,
+         far wider than the ~120px the 1200 standard produces elsewhere).
+         The content COLUMN is fixed at 720px (not minmax(0,1fr)) and the
+         grid is justify-center'd, so the article+TOC pair centers as one
+         1004px block within the 1200 band — a 1fr content column would
+         claim all the leftover width and leave the (centered) 720px
+         article floating in a lopsided gap in front of the TOC instead. -->
+    <div class="max-w-[1200px] mx-auto px-6 xl:grid xl:grid-cols-[720px_220px] xl:gap-x-16 xl:justify-center">
+      <article class="max-w-[720px] w-full mx-auto xl:mx-0">
       <a href={`${base}/blog`} class="font-mono text-[12px] tracking-[0.14em] uppercase text-fg-mute hover:text-accent transition-colors inline-flex items-center gap-1.5">
         <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
         Blog
       </a>
       <header class="mt-8 mb-12 pb-10 border-b border-line">
-        <time datetime={post.data.date.toISOString()} class="font-mono text-[12px] tracking-[0.14em] uppercase text-accent">
-          {fmt(post.data.date)}
-        </time>
+        <p class="font-mono text-[12px] tracking-[0.14em] uppercase">
+          <time datetime={post.data.date.toISOString()} class="text-accent">
+            {fmt(post.data.date)}
+          </time>
+          <span class="text-fg-mute"> · {readingMin} min read</span>
+        </p>
         <h1 class="mt-3 font-display font-normal text-fg text-[40px] sm:text-[56px] leading-[1.02] tracking-[-0.02em]">
           {post.data.title}
         </h1>
         <p class="mt-5 text-[18px] leading-[1.6] text-fg-dim">{post.data.description}</p>
+        {post.data.tags.length > 0 && (
+          <div class="mt-5 flex flex-wrap gap-2">
+            {post.data.tags.map((t) => (
+              <a
+                href={`${base}/blog/tags/${t}`}
+                class="font-mono text-[11px] tracking-[0.1em] uppercase text-fg-mute border border-line rounded-full px-2.5 py-0.5 hover:text-fg hover:border-line-strong transition-colors"
+              >
+                {t}
+              </a>
+            ))}
+          </div>
+        )}
       </header>
       <div class="blog-prose">
         <Content />
       </div>
-    </article>
+      {(older || newer) && (
+        <nav class="mt-16 pt-8 border-t border-line grid sm:grid-cols-2 gap-4" aria-label="Adjacent posts">
+          {older ? (
+            <a href={`${base}/blog/${older.id}`} class="group block">
+              <p class="font-mono text-[11px] tracking-[0.14em] uppercase text-fg-mute">← Older</p>
+              <p class="mt-1.5 text-[16px] leading-[1.4] text-fg group-hover:text-accent transition-colors">
+                {older.data.title}
+              </p>
+            </a>
+          ) : (
+            <span />
+          )}
+          {newer && (
+            <a href={`${base}/blog/${newer.id}`} class="group block sm:text-right">
+              <p class="font-mono text-[11px] tracking-[0.14em] uppercase text-fg-mute">Newer →</p>
+              <p class="mt-1.5 text-[16px] leading-[1.4] text-fg group-hover:text-accent transition-colors">
+                {newer.data.title}
+              </p>
+            </a>
+          )}
+        </nav>
+      )}
+      </article>
+      <OnThisPage headings={headings} />
+    </div>
   </main>
   <Footer />
 </Base>
+
+<script>
+  // Decorate h2/h3 with hover "#" permalinks. Astro already stamps ids on
+  // markdown headings at build time; decorating client-side keeps the
+  // markdown pipeline free of an extra rehype dependency. Pure enhancement —
+  // without JS the headings still have ids and the TOC links still work.
+  document.querySelectorAll('.blog-prose h2[id], .blog-prose h3[id]').forEach((h) => {
+    const a = document.createElement('a')
+    a.href = `#${h.id}`
+    a.className = 'heading-anchor'
+    a.setAttribute('aria-label', 'Link to this heading')
+    a.textContent = '#'
+    h.appendChild(a)
+  })
+
+  // Only show a table's scroll-fade when it's actually wider than its box —
+  // a table that fits shouldn't hint at hidden content. Re-checked on
+  // resize since the same table can overflow on mobile and fit on desktop.
+  const tableScrolls = document.querySelectorAll<HTMLElement>('.blog-prose .table-scroll')
+  const syncOverflow = () => {
+    tableScrolls.forEach((wrap) => {
+      const inner = wrap.querySelector<HTMLElement>('.table-scroll-inner')
+      if (!inner) return
+      wrap.classList.toggle('has-overflow', inner.scrollWidth > inner.clientWidth)
+    })
+  }
+  syncOverflow()
+  window.addEventListener('resize', syncOverflow)
+</script>
 
 <style is:global>
   /* Apple-style long-form reading: generous measure, calm hierarchy, hairline
@@ -66,6 +175,20 @@ const fmt = (d: Date) =>
     font-size: 21px;
     margin-top: 1.8em;
   }
+  /* Anchor targets land below the fixed header. */
+  .blog-prose h2, .blog-prose h3 { scroll-margin-top: 6rem; }
+  /* Hover "#" permalink appended by rehypeHeadingAnchors (astro.config). */
+  .blog-prose .heading-anchor {
+    margin-left: 0.4em;
+    color: var(--color-fg-mute);
+    text-decoration: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .blog-prose h2:hover .heading-anchor,
+  .blog-prose h3:hover .heading-anchor,
+  .blog-prose .heading-anchor:focus-visible { opacity: 1; }
+  .blog-prose .heading-anchor:hover { color: var(--color-accent); }
   .blog-prose p { color: var(--color-fg-dim); }
   .blog-prose strong { color: var(--color-fg); font-weight: 400; }
   .blog-prose a { color: var(--color-accent); text-decoration: underline; text-underline-offset: 3px; }
@@ -88,6 +211,75 @@ const fmt = (d: Date) =>
     padding-left: 1em;
     color: var(--color-fg-mute);
     font-style: italic;
+  }
+  /* Citation markers ([1], [2][3]) — linked to the matching #ref-N item in
+     "## References" by rehypeCitations (astro.config.mjs). Superscript so
+     they read as references, not body text. */
+  .blog-prose a.citation {
+    font-size: 0.72em;
+    vertical-align: super;
+    line-height: 0;
+    text-decoration: none;
+    color: var(--color-accent);
+    font-family: var(--font-mono);
+  }
+  .blog-prose a.citation:hover { text-decoration: underline; }
+  /* Reference-list targets land below the fixed header, same as headings. */
+  .blog-prose ol li[id^='ref-'] { scroll-margin-top: 6rem; }
+  /* Tables (comparison/reference tables in a few posts) — the browser
+     default is borderless and unreadable on the dark surface. rehypeWrapTables
+     (astro.config.mjs) wraps each <table> in .table-scroll > .table-scroll-inner
+     so a too-wide table doesn't blow out the 720px measure; the OUTER static
+     box paints a right-edge fade that stays pinned to the visible edge while
+     the INNER box scrolls — see astro.config.mjs for why the fade can't live
+     on the scrolling element itself. */
+  .blog-prose .table-scroll {
+    position: relative;
+  }
+  .blog-prose .table-scroll::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 28px;
+    background: linear-gradient(to right, transparent, var(--color-bg));
+    pointer-events: none;
+    /* Hidden until script below confirms the table actually overflows —
+       a table that fits shouldn't show a "there's more" hint. Visible by
+       default so a table still reads as scrollable without JS. */
+    opacity: 1;
+    transition: opacity 0.15s;
+  }
+  .blog-prose .table-scroll:not(.has-overflow)::after {
+    opacity: 0;
+  }
+  .blog-prose .table-scroll-inner {
+    overflow-x: auto;
+  }
+  .blog-prose table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9em;
+  }
+  .blog-prose th, .blog-prose td {
+    border: 1px solid var(--color-line);
+    padding: 0.55em 0.9em;
+    text-align: left;
+    vertical-align: top;
+    /* Gives the row a background lighter than the page, so the .table-scroll
+       right-edge fade (which fades TO the page's --color-bg) has something
+       to fade FROM — an empty <td> is otherwise transparent, showing the
+       page background straight through, which is the SAME color the fade
+       ends on and would make the fade invisible everywhere it isn't
+       overlapping a glyph. */
+    background: var(--color-bg-elev);
+  }
+  .blog-prose th {
+    background: var(--color-bg-card);
+    color: var(--color-fg);
+    font-weight: 500;
+    white-space: nowrap;
   }
   /* KaTeX on the dark surface: inherit the prose color, keep display math
      scrollable on narrow screens instead of overflowing the measure. */

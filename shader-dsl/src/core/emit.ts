@@ -13,6 +13,8 @@ import { assertCaps } from './passes/required-caps'
 import { lowerModule } from './passes/match-lower'
 import { fp64Lower } from './passes/fp64-lower'
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt'
+import { mangleModule } from './passes/mangle'
+import { minifyShaderText } from './emit-minify'
 import { reflect, type Reflection } from './reflect'
 
 const pad = (depth: number): string => '  '.repeat(depth)
@@ -179,12 +181,42 @@ function assembleLowered(lowered: ModuleDecl, be: Backend): string {
   return parts.join('\n\n') + '\n'
 }
 
+/** Production-emit text options (both backends). `mangle` renames the authored
+ *  vocabulary (helper fns, plain structs, consts) via passes/mangle — the ABI
+ *  names (entries, bindings, UBO block tags, struct fields) are never touched,
+ *  so reflection-driven hosts bind unchanged. `minify` compacts the emitted
+ *  text (emit-minify). Both default off: the plain emit stays byte-identical.
+ *  Pass a Map as `renames` to receive authored→emitted names (the shader
+ *  "source map" for decoding production driver logs). */
+export interface EmitTextOptions {
+  readonly minify?: boolean
+  readonly mangle?: boolean
+  readonly renames?: Map<string, string>
+}
+
+/** Mangle (opt-in) an already-lowered module + fill the caller's rename map.
+ *  Shared by the WGSL driver path below and the GLSL backend's own assembly. */
+export function applyMangle(lowered: ModuleDecl, opts?: EmitTextOptions): ModuleDecl {
+  if (!opts?.mangle) return lowered
+  const { module, renames } = mangleModule(lowered)
+  if (opts.renames) for (const [from, to] of renames) opts.renames.set(from, to)
+  return module
+}
+
+/** Minify (opt-in) an emitted string — the GLSL backend calls this on its own
+ *  assembly output too, so both targets share one minifier. */
+export function applyMinify(code: string, opts?: EmitTextOptions): string {
+  return opts?.minify ? minifyShaderText(code) : code
+}
+
 /** Emit a ModuleDecl to a target string: shared preamble (`lowerForBackend`) then the
  *  declaration assembly (consts → structs → bindings → funcs, only non-empty sections),
  *  joined `\n\n` with a trailing newline. Each backend's public module entry
- *  (`emitModule` for WGSL) routes through here, so the assembly lives once. */
-export function emitModule(m: ModuleDecl, be: Backend): string {
-  return assembleLowered(lowerForBackend(m, be), be)
+ *  (`emitModule` for WGSL) routes through here, so the assembly lives once.
+ *  `opts` (all default-off) applies the production text transforms — mangle on
+ *  the lowered IR, minify on the assembled string. */
+export function emitModule(m: ModuleDecl, be: Backend, opts?: EmitTextOptions): string {
+  return applyMinify(assembleLowered(applyMangle(lowerForBackend(m, be), opts), be), opts)
 }
 
 /** Emit a ModuleDecl at an explicit optimization level (O0/O1/O2) instead of the

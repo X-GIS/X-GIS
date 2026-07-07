@@ -27,6 +27,16 @@ import { gradient } from './gradient-pass.ts'
 import { computeReduction } from './compute-reduction.ts'
 import { fp64DeepZoom } from './fp64-deep-zoom.ts'
 import { fp64Mandelbrot } from './fp64-mandelbrot.ts'
+import { fp64CheckerPlane } from './fp64-checker-plane.ts'
+import { fp64Loran } from './fp64-loran.ts'
+import { fp64MercatorTiles } from './fp64-mercator-tiles.ts'
+import { fp64Rtc } from './fp64-rtc.ts'
+import { fp64Julia } from './fp64-julia.ts'
+import { fp64BurningShip } from './fp64-burning-ship.ts'
+import { fp64Newton } from './fp64-newton.ts'
+import { fp64MandelbrotDe } from './fp64-mandelbrot-de.ts'
+import { fp64Clock } from './fp64-clock.ts'
+import { fp64Cancellation } from './fp64-cancellation.ts'
 import type { ShaderExample } from './_shared.ts'
 
 export type { ShaderExample, Control } from './_shared.ts'
@@ -34,6 +44,10 @@ export {
   graticule,
   hillshade,
   fp64DeepZoom,
+  fp64CheckerPlane,
+  fp64Loran,
+  fp64MercatorTiles,
+  fp64Rtc,
   colorRamp,
   plasma,
   voronoi,
@@ -51,6 +65,12 @@ export {
   kaleidoscope,
   heart,
   fp64Mandelbrot,
+  fp64Julia,
+  fp64BurningShip,
+  fp64Newton,
+  fp64MandelbrotDe,
+  fp64Clock,
+  fp64Cancellation,
   gradient,
   computeReduction,
 }
@@ -60,6 +80,10 @@ export const examples: readonly ShaderExample[] = [
   graticule,
   hillshade,
   fp64DeepZoom,
+  fp64CheckerPlane,
+  fp64Loran,
+  fp64MercatorTiles,
+  fp64Rtc,
   colorRamp,
   plasma,
   voronoi,
@@ -77,6 +101,12 @@ export const examples: readonly ShaderExample[] = [
   kaleidoscope,
   heart,
   fp64Mandelbrot,
+  fp64Julia,
+  fp64BurningShip,
+  fp64Newton,
+  fp64MandelbrotDe,
+  fp64Clock,
+  fp64Cancellation,
   gradient,
   computeReduction,
 ]

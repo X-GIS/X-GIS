@@ -85,12 +85,12 @@ export const CODES = {
   SD0041: {
     code: 'SD0041',
     summary: 'unsupported operation on f64 operands',
-    hint: 'only + - * / compare, abs, min, max, sqrt, mix, floor, fract are emulated — narrow explicitly with toF32(x) first',
+    hint: 'only + - * / compare, abs, min, max, sqrt, mix, floor, fract (and on vectors dot, length, distance, normalize) are emulated — narrow explicitly with toF32(x) first',
   },
   SD0042: {
     code: 'SD0042',
     summary: 'conflicting fp64 guard declaration',
-    hint: "the '_fp64' binding / 'Fp64Guard' struct are reserved for the auto-injected guard uniform — remove the conflicting declaration, or pin the slot with fp64Guard({ group, binding })",
+    hint: "the '_fp64' binding is reserved for the auto-injected guard texture (texture_2d<f32>) — remove the conflicting declaration, or pin the slot with fp64Guard({ group, binding })",
   },
   SD0043: {
     code: 'SD0043',

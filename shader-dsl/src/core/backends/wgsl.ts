@@ -23,6 +23,7 @@ import {
   emitModule as emitModuleDriver,
   emitModuleAt as emitModuleAtDriver,
   lowerForBackend,
+  type EmitTextOptions,
 } from '../emit'
 import { lowerModule } from '../passes/match-lower'
 import { fixpoint, autoVars, type OptLevel } from '../passes/opt'
@@ -176,8 +177,10 @@ export function emitFuncs(funcs: readonly FuncDecl[]): string {
 export const emitFuncsCsed = emitFuncs
 
 /** Emit a ModuleDecl as a WGSL string. Thin wrapper over the shared backend-parameterised
- *  driver (core/emit.ts) bound to wgslBackend — the module assembly lives once. */
-export const emitModule = (m: ModuleDecl): string => emitModuleDriver(m, wgslBackend)
+ *  driver (core/emit.ts) bound to wgslBackend — the module assembly lives once. `opts`
+ *  (default off) applies the production text transforms: mangle + minify (EmitTextOptions). */
+export const emitModule = (m: ModuleDecl, opts?: EmitTextOptions): string =>
+  emitModuleDriver(m, wgslBackend, opts)
 
 /** Emit WGSL at an explicit optimization level (O0/O1/O2). `emitModuleAt(m, 'O2')` is
  *  byte-identical to `emitModule(m)`; O0 is the naive (un-optimized) emit. Drives the

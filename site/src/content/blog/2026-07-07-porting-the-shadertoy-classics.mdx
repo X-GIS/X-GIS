@@ -1,10 +1,12 @@
 ---
 title: 'Porting the ShaderToy classics — and letting them review our shader DSL'
 description: "We rebuilt ten classic ShaderToy effects in X-GIS's typed shader DSL. The renders were the easy part: authoring them surfaced eleven concrete DX issues, and every one was fixed the same day — with gates so they stay fixed."
-date: 2026-07-07
+date: 2026-07-07T02:29:00Z
 tags: ['shader-dsl', 'examples', 'dx', 'testing']
 lang: en
 ---
+
+import LiveShader from '../../components/LiveShader.astro'
 
 Every shader playground eventually ports the classics: the plasma, the tunnel,
 the Mandelbrot zoom, the raymarched field. We just did it for
@@ -89,6 +91,8 @@ controls: {
   mouse: { kind: 'mouse' }, // vec4 [x, y, down, used]
 }
 ```
+
+<LiveShader id="mandelbrot" />
 
 The host recovers each field's std140 byte offset from `reflect(module)` and
 packs live values every frame — the same reflection-driven packing the unit

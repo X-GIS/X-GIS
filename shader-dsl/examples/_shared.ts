@@ -65,4 +65,7 @@ export interface ShaderExample {
   readonly renderable: boolean
   /** Per-uniform-field fill strategy, keyed by the uniform struct's field name. */
   readonly controls?: Readonly<Record<string, Control>>
+  /** For split-screen comparison examples: on-canvas badges naming the halves
+   *  ([left, right]) — the host overlays them so the comparison reads at a glance. */
+  readonly splitLabels?: readonly [string, string]
 }

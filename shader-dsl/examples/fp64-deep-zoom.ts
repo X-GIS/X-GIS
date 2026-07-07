@@ -108,6 +108,7 @@ export const fp64DeepZoom: ShaderExample = {
   file: 'fp64-deep-zoom.ts',
   module: fp64DeepZoomModule,
   renderable: true,
+  splitLabels: ['f32', 'f64 (emulated)'],
   controls: {
     origin: { kind: 'const', value: [...splitF64(ORIGIN)] },
     span: { kind: 'slider', label: 'World span', min: 1, max: 8, step: 0.5, value: 4, wheel: true },

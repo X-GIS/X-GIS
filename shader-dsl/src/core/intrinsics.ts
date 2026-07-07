@@ -92,6 +92,17 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
         ? `uvec2(textureSize(${a[0]}, int(${a[1]})))`
         : `uvec2(textureSize(${a[0]}, 0))`,
   },
+  // The fp64 anti-fast-math guard VALUE (runtime 1.0), spelled as a texel
+  // fetch from the injected `_fp64` 1×1 texture (passes/fp64-lower.ts owns
+  // the binding; the name is reserved). A UBO-sourced guard is defeated by
+  // drivers that SPECIALIZE pipelines on observed uniform values and hot-swap
+  // re-optimized variants (seen in the field: Windows/NVIDIA folding the df64
+  // error-free-transformation terms mid-session) — no driver constant-folds
+  // texel values. Zero-arg; the CPU oracle evaluates it as exactly 1.
+  f64Guard: {
+    wgsl: () => 'textureLoad(_fp64, vec2<i32>(0, 0), 0).x',
+    glsl: () => 'texelFetch(_fp64, ivec2(0, 0), 0).x',
+  },
   // Storage-buffer emulation (WebGL2 has no SSBO): GLSL-only synthetic. A storage read
   // data[i] lowers to a fetch from a DATA TEXTURE — a[0]=the sampler, a[1]=the element index.
   // 2D-TILED: the linear index maps to (i % W, i / W) where W = the texture's own width
@@ -104,6 +115,20 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: (a) =>
       `texelFetch(${a[0]}, ivec2(int(${a[1]}) % textureSize(${a[0]}, 0).x, int(${a[1]}) / textureSize(${a[0]}, 0).x), 0).r`,
   },
+}
+
+// ── Spelling-embedded binding references ──
+//
+// Bindings an intrinsic's SPELLING references TEXTUALLY, with no Expr arg
+// carrying them (f64Guard is zero-arg; its fetch names `_fp64` directly).
+// Reference collection over the IR (ir/collect-refs) cannot see these — any
+// consumer that decides "is this binding used?" (the GLSL per-stage emit
+// scope) must also keep every binding listed here for each intrinsic it
+// calls. An intrinsic that gains a hardcoded binding name MUST register it
+// here, or per-stage emit drops the binding while the spelling still names it
+// (a GPU compile error, caught by the compile gates).
+export const INTRINSIC_BINDING_REFS: Readonly<Record<string, readonly string[]>> = {
+  f64Guard: ['_fp64'],
 }
 
 /** Spell an intrinsic / call for a target. Registry id -> mapped spelling;

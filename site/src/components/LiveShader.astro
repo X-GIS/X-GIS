@@ -1,0 +1,186 @@
+---
+// Embed a live, running shader-dsl example inside prose (blog posts, docs).
+// Reuses the exact WebGL2 runner + reflection-driven uniform packing the
+// /shader-dsl/examples/[id] detail pages use — same client code path, a
+// smaller chrome (canvas + play/pause + sliders, no source/reflection tabs).
+//
+// Usage in a .md/.mdx blog post (component shorthand via content collections
+// needs the file to opt into MDX; until then, embed from a .astro wrapper or
+// call this directly from another .astro page):
+//   <LiveShader id="mandelbrot" />
+
+import { shaderCards } from '../lib/shader-examples'
+
+interface Props {
+  /** shader-dsl example id (site/src/lib/shader-examples.ts / shader-dsl/examples/index.ts). */
+  id: string
+}
+
+const { id } = Astro.props
+const card = shaderCards.find((c) => c.id === id)
+// Fail the BUILD, not the page: a typo'd id must not silently render an
+// empty box in a published post. Mirrors the missing-thumbnail gate in
+// shader-examples.ts.
+if (!card) {
+  throw new Error(
+    `[LiveShader] unknown shader-dsl example id "${id}" — check site/src/lib/shader-examples.ts`,
+  )
+}
+if (!card.renderable || !card.spec) {
+  throw new Error(
+    `[LiveShader] example "${id}" is WGSL-only/compute and has no live GLSL render to embed`,
+  )
+}
+const spec = card.spec
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const detailHref = `${base}/shader-dsl/examples/${card.id}`
+
+// Unique DOM scope per instance — a post can embed more than one example (or
+// the same one twice), so every query below is scoped to this container.
+const instanceId = `live-shader-${card.id}-${Math.random().toString(36).slice(2, 8)}`
+
+const sliderControls = Object.entries(spec.controls).filter(
+  ([, c]) => c.kind === 'slider',
+) as [string, Extract<(typeof spec.controls)[string], { kind: 'slider' }>][]
+const toggleControls = Object.entries(spec.controls).filter(
+  ([, c]) => c.kind === 'toggle',
+) as [string, Extract<(typeof spec.controls)[string], { kind: 'toggle' }>][]
+const hasMouse = Object.values(spec.controls).some(
+  (c) => c.kind === 'mouse' || c.kind === 'pan2d',
+)
+---
+
+<figure id={instanceId} class="live-shader not-prose my-8" data-live-shader>
+  <div class="relative rounded-[8px] overflow-hidden bg-bg-elev border border-line" style="aspect-ratio: 16 / 10;">
+    <canvas data-canvas class="block w-full h-full" style="touch-action: none;"></canvas>
+    <span class="absolute top-3 left-3 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-bg/80 backdrop-blur border border-line text-fg-dim text-[10px] font-mono tracking-[0.16em] uppercase pointer-events-none">
+      <span class="w-1.5 h-1.5 rounded-full bg-fg inline-block animate-pulse"></span>
+      Live · WebGL2
+    </span>
+    {hasMouse && (
+      <span class="absolute top-3 right-3 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-bg/80 backdrop-blur border border-line text-fg-dim text-[10px] font-mono tracking-[0.16em] uppercase pointer-events-none">
+        <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4l7 17 2.5-7.5L21 11z"/></svg>
+        Pointer-interactive
+      </span>
+    )}
+    <div data-error hidden class="absolute inset-0 flex items-center justify-center p-6 text-center text-fg-mute text-[12px] font-mono bg-bg-elev"></div>
+  </div>
+
+  <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+    <button type="button" data-play aria-label="Pause"
+      class="inline-flex items-center justify-center w-8 h-8 rounded-full border border-line text-fg-dim hover:text-fg hover:border-line-strong transition-colors shrink-0">
+      <svg data-icon-pause viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+      <svg data-icon-play viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true" style="display: none;"><path d="M8 5.5v13l11-6.5z"/></svg>
+    </button>
+
+    {sliderControls.map(([field, c]) => (
+      <label class="flex items-center gap-2 text-[11px] font-mono text-fg-mute">
+        {c.label}
+        <input type="range" data-field={field} min={c.min} max={c.max} step={c.step} value={c.value} class="shader-range w-24" />
+        <span data-value={field} class="w-[3.5ch] text-right text-fg-dim">{c.value}</span>
+      </label>
+    ))}
+    {toggleControls.map(([field, c]) => (
+      <label class="flex items-center gap-1.5 text-[11px] font-mono text-fg-mute">
+        <input type="checkbox" data-toggle-field={field} checked={c.value} />
+        {c.label}
+      </label>
+    ))}
+
+    <a href={detailHref} class="ml-auto text-[12px] text-fg-mute hover:text-accent transition-colors inline-flex items-center gap-1">
+      Full example
+      <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+    </a>
+  </div>
+  <figcaption class="mt-2 text-[13px] text-fg-mute">{card.blurb}</figcaption>
+  <!-- Nested INSIDE the figure — the mount script scopes every query to its
+       own instance via root.querySelector, so this must be a descendant of
+       [data-live-shader], not a page-level sibling. -->
+  <script type="application/json" class="live-shader-spec" set:html={JSON.stringify(spec)} is:inline />
+</figure>
+
+<script>
+  import { mountShader, type RenderSpec } from '../lib/shader-playground'
+
+  // Every <figure data-live-shader> on the page mounts independently — a
+  // post can embed several examples, and this script runs once total (not
+  // once per instance) since it's a single <script> module per component
+  // usage... Astro dedupes identical inline module scripts per page, so
+  // guard with a data flag instead of relying on "only one instance".
+  document.querySelectorAll<HTMLElement>('[data-live-shader]').forEach((root) => {
+    if (root.dataset.mounted) return
+    root.dataset.mounted = '1'
+
+    const raw = root.querySelector('script.live-shader-spec')?.textContent
+    const spec: RenderSpec | null = raw ? JSON.parse(raw) : null
+    const canvas = root.querySelector<HTMLCanvasElement>('canvas[data-canvas]')
+    const errorBox = root.querySelector<HTMLElement>('[data-error]')
+    if (!spec || !canvas) return
+
+    const sliders: Record<string, number> = {}
+    root.querySelectorAll<HTMLInputElement>('input[type="range"][data-field]').forEach((input) => {
+      const field = input.dataset.field!
+      sliders[field] = parseFloat(input.value)
+      const out = root.querySelector<HTMLElement>(`[data-value="${field}"]`)
+      input.addEventListener('input', () => {
+        sliders[field] = parseFloat(input.value)
+        if (out) out.textContent = input.value
+      })
+    })
+    root.querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-toggle-field]').forEach((input) => {
+      const field = input.dataset.toggleField!
+      sliders[field] = input.checked ? 1 : 0
+      input.addEventListener('change', () => {
+        sliders[field] = input.checked ? 1 : 0
+      })
+    })
+
+    try {
+      const mounted = mountShader(canvas, spec, sliders)
+      const playBtn = root.querySelector<HTMLButtonElement>('[data-play]')
+      const iconPlay = root.querySelector<SVGElement>('[data-icon-play]')
+      const iconPause = root.querySelector<SVGElement>('[data-icon-pause]')
+      playBtn?.addEventListener('click', () => {
+        const next = !mounted.isPlaying()
+        mounted.setPlaying(next)
+        if (iconPlay) iconPlay.style.display = next ? 'none' : ''
+        if (iconPause) iconPause.style.display = next ? '' : 'none'
+      })
+    } catch (err) {
+      canvas.style.display = 'none'
+      if (errorBox) {
+        errorBox.hidden = false
+        errorBox.textContent = err instanceof Error ? err.message : String(err)
+      }
+    }
+  })
+</script>
+
+<style>
+  .shader-range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--color-line);
+    outline: none;
+  }
+  .shader-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--color-fg);
+    cursor: pointer;
+  }
+  .shader-range::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border: none;
+    border-radius: 50%;
+    background: var(--color-fg);
+    cursor: pointer;
+  }
+</style>
