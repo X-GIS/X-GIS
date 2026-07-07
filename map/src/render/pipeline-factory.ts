@@ -1259,6 +1259,8 @@ export class PipelineFactory {
   }
 
   async createVariantPipelinesAsync(variant: ShaderVariantInfo): Promise<CachedPipeline> {
+    // #834 S4 — same inert sentinel as the sync builder (see GL2_VARIANT_SENTINEL).
+    if (this.ctx.rhi.backend === 'webgl2') return PipelineFactory.GL2_VARIANT_SENTINEL
     const { device } = this.ctx
     const { descriptors, pickEnabled } = this.buildVariantDescriptors(variant, this._layoutFor)
     const built = await Promise.all(
@@ -1289,7 +1291,18 @@ export class PipelineFactory {
     }
   }
 
+  /** Inert per-style pipeline set for the webgl2 backend (#834 device
+   *  retirement S4). Style resolution calls the variant builders on BOTH
+   *  backends; on webgl2 every product previously came from the no-op
+   *  device Proxy AND paid a real per-variant CPU cost (buildShader emit +
+   *  optimize — ~13 variants on OFM Bright). Consumers only carry the set
+   *  as inert closure captures (`entry.pipelines?.x ?? defaults.x`; the
+   *  rhi draw path never dereferences), so a frozen empty sentinel is
+   *  behaviourally identical and lets S6 null the device. */
+  private static readonly GL2_VARIANT_SENTINEL = Object.freeze({}) as unknown as CachedPipeline
+
   createVariantPipelines(variant: ShaderVariantInfo): CachedPipeline {
+    if (this.ctx.rhi.backend === 'webgl2') return PipelineFactory.GL2_VARIANT_SENTINEL
     const { device, format } = this.ctx
     const wgsl = buildShader(variant)
     const msaaState: GPUMultisampleState = { count: getSampleCount() }
