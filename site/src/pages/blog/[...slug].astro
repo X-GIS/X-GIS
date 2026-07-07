@@ -53,17 +53,17 @@ const articleLd = {
   </Fragment>
   <Header />
   <main class="pt-28 sm:pt-36 pb-32">
-    <!-- Same composition grammar as the Docs shell: one site-standard
-         1200 band, content + TOC as grid columns. The content COLUMN is
+    <!-- Same composition grammar as the Docs shell: one site-wide
+         1480 band, content + TOC as grid columns. The content COLUMN is
          fluid (minmax(0,1fr), like Docs) rather than a fixed 720px track —
-         a fixed track left 148px of UNUSED space inside the 1200 band on
-         top of the band's own site-standard margin, doubling up on empty
-         space and reading as "way too much left margin" at wide viewports.
-         Reading measure is capped per PROSE ELEMENT instead (.blog-prose
-         below), not on the column: headings/paragraphs/lists stay a
-         comfortable ~720px, while code blocks, tables, and the LiveShader
-         embed use the full fluid column width. -->
-    <div class="max-w-[1200px] mx-auto px-6 xl:grid xl:grid-cols-[minmax(0,1fr)_220px] xl:gap-x-16">
+         a fixed track would leave unused space inside the band on top of
+         the band's own margin, doubling up on empty space and reading as
+         "way too much left margin" at wide viewports. Reading measure is
+         capped per PROSE ELEMENT instead (.blog-prose below), not on the
+         column: headings/paragraphs/lists stay a comfortable ~720px, while
+         code blocks, tables, and the LiveShader embed use the full fluid
+         column width. -->
+    <div class="max-w-[1480px] mx-auto px-6 xl:grid xl:grid-cols-[minmax(0,1fr)_220px] xl:gap-x-16">
       <article class="w-full min-w-0">
       <a href={`${base}/blog`} class="font-mono text-[12px] tracking-[0.14em] uppercase text-fg-mute hover:text-accent transition-colors inline-flex items-center gap-1.5">
         <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
@@ -163,9 +163,11 @@ const articleLd = {
   /* Reading measure lives on the prose elements, not the column (which is
      fluid — the <article> fills whatever the grid leaves after the TOC).
      Headings/paragraphs/lists/blockquotes stay a comfortable ~720px;
-     code blocks (astro-expressive-code's <figure class="frame">), tables
-     (.table-scroll), and the LiveShader embed use the full column width. */
-  .blog-prose > :not(figure.frame):not(.table-scroll):not([data-live-shader]) {
+     code blocks (astro-expressive-code wraps <figure class="frame"> in a
+     .expressive-code div — that div, not the figure, is the direct child),
+     tables (.table-scroll), and the LiveShader embed use the full column
+     width. */
+  .blog-prose > :not(.expressive-code):not(.table-scroll):not([data-live-shader]) {
     max-width: 720px;
   }
   .blog-prose h2 {

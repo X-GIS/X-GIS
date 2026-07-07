@@ -86,7 +86,7 @@ const slugOf = (title: string): string =>
     <!-- Featured starter — three big cards for the most representative
          entry points. Helps a first-time visitor pick a path without
          scanning the full ~50-card gallery. -->
-    <section class="max-w-[1200px] mx-auto px-6 mb-20">
+    <section class="max-w-[1400px] mx-auto px-6 mb-20">
       <Eyebrow label="Start here" class="mb-5" />
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {visibleFeatured.map(d => (
@@ -133,7 +133,7 @@ const slugOf = (title: string): string =>
     </section>
 
     <!-- Section divider -->
-    <div class="max-w-[1200px] mx-auto px-6 mb-6">
+    <div class="max-w-[1400px] mx-auto px-6 mb-6">
       <Eyebrow label="All examples" />
     </div>
 
@@ -151,7 +151,7 @@ const slugOf = (title: string): string =>
         aria-label="Example categories"
         class="sticky top-12 z-40 bg-bg/85 backdrop-blur-xl border-y border-line"
       >
-        <div class="max-w-[1200px] mx-auto px-6 py-2.5 flex items-center gap-2 overflow-x-auto no-scrollbar">
+        <div class="max-w-[1400px] mx-auto px-6 py-2.5 flex items-center gap-2 overflow-x-auto no-scrollbar">
           {visibleCategories.map(cat => (
             <a
               href={`#${slugOf(cat.title)}`}
@@ -167,7 +167,7 @@ const slugOf = (title: string): string =>
       </nav>
 
       <!-- Categories -->
-      <div class="max-w-[1200px] mx-auto px-6 space-y-20 pt-12">
+      <div class="max-w-[1400px] mx-auto px-6 space-y-20 pt-12">
       {visibleCategories.map(cat => (
         <section id={slugOf(cat.title)} class="scroll-mt-12">
           <h2 class="font-display text-[26px] sm:text-[30px] font-normal text-fg leading-[1.2] tracking-[-0.02em] mb-2">

@@ -166,7 +166,7 @@ export default function Hero({ docsUrl, examplesUrl, convertUrl }: Props) {
 
   return (
     <section className="relative flex min-h-[100svh] items-center justify-center overflow-hidden pb-20 pt-24">
-      <div className="relative mx-auto w-full max-w-[1200px] px-6 text-center">
+      <div className="relative mx-auto w-full max-w-[1400px] px-6 text-center">
         <p
           className="fade-up mb-7 inline-flex items-center gap-2.5 font-mono text-[11px] uppercase tracking-[0.22em] text-muted-foreground"
           style={{ animationDelay: '80ms' }}
