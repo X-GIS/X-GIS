@@ -6,6 +6,8 @@ tags: ['shader-dsl', 'examples', 'dx', 'testing']
 lang: en
 ---
 
+import LiveShader from '../../components/LiveShader.astro'
+
 Every shader playground eventually ports the classics: the plasma, the tunnel,
 the Mandelbrot zoom, the raymarched field. We just did it for
 [`@xgis/shader-dsl`](/shader-dsl) — ten new examples, each authored **once** in
@@ -89,6 +91,8 @@ controls: {
   mouse: { kind: 'mouse' }, // vec4 [x, y, down, used]
 }
 ```
+
+<LiveShader id="mandelbrot" />
 
 The host recovers each field's std140 byte offset from `reflect(module)` and
 packs live values every frame — the same reflection-driven packing the unit

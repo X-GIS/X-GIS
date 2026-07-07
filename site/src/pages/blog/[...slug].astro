@@ -190,6 +190,43 @@ const articleLd = {
     color: var(--color-fg-mute);
     font-style: italic;
   }
+  /* Citation markers ([1], [2][3]) — linked to the matching #ref-N item in
+     "## References" by rehypeCitations (astro.config.mjs). Superscript so
+     they read as references, not body text. */
+  .blog-prose a.citation {
+    font-size: 0.72em;
+    vertical-align: super;
+    line-height: 0;
+    text-decoration: none;
+    color: var(--color-accent);
+    font-family: var(--font-mono);
+  }
+  .blog-prose a.citation:hover { text-decoration: underline; }
+  /* Reference-list targets land below the fixed header, same as headings. */
+  .blog-prose ol li[id^='ref-'] { scroll-margin-top: 6rem; }
+  /* Tables (comparison/reference tables in a few posts) — the browser
+     default is borderless and unreadable on the dark surface. `block` +
+     overflow-x turns a too-wide table into a horizontally scrollable box
+     instead of blowing out the 720px measure. */
+  .blog-prose table {
+    display: block;
+    overflow-x: auto;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9em;
+  }
+  .blog-prose th, .blog-prose td {
+    border: 1px solid var(--color-line);
+    padding: 0.55em 0.9em;
+    text-align: left;
+    vertical-align: top;
+  }
+  .blog-prose th {
+    background: var(--color-bg-card);
+    color: var(--color-fg);
+    font-weight: 500;
+    white-space: nowrap;
+  }
   /* KaTeX on the dark surface: inherit the prose color, keep display math
      scrollable on narrow screens instead of overflowing the measure. */
   .blog-prose .katex { color: var(--color-fg); font-size: 1.06em; }
