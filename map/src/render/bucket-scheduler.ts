@@ -32,6 +32,7 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { RenderTraceRecorder, RGBA } from '../diagnostics/render-trace'
 import type { FrameContext } from '@xgis/rhi-webgpu'
 import { unwrapProjection } from '@xgis/engine'
+import type { RhiPipelineHandle } from '@xgis/engine'
 import type { PointRenderer } from './point-renderer'
 
 // ── Output: post-classification show with all animation resolved ──
@@ -41,7 +42,7 @@ import type { PointRenderer } from './point-renderer'
  *  pipelines, bind-group layout — incl. the ?debug=overdraw
  *  substitution) plus the source's renderer + per-frame paint snapshot,
  *  so an engine render pass can draw the show WITHOUT ever naming a
- *  GPURenderPipeline / GPUBindGroupLayout. The engine supplies only the
+ *  RhiPipelineHandle / GPUBindGroupLayout. The engine supplies only the
  *  per-draw context: the sub-pass encoder, the per-frame FrameContext,
  *  the uniform ring buffer, the point renderer (or null), the layer's
  *  draw phase, and the translucent-bucket (no-depth) flag.
@@ -94,7 +95,7 @@ export interface ClassifiedShow {
    *  line / fallback / depth-disabled ground variants + the
    *  ?debug=overdraw substitution), the bind-group layout, the source's
    *  VTR, and the paint snapshot. The engine render passes invoke it
-   *  through {@link ShowDrawFn} WITHOUT ever touching a GPURenderPipeline /
+   *  through {@link ShowDrawFn} WITHOUT ever touching a RhiPipelineHandle /
    *  GPUBindGroupLayout — so SceneView carries no content-typed GPU
    *  object. */
   draw: ShowDrawFn
@@ -138,18 +139,18 @@ export interface ClassifierShowEntry {
  *  callers may omit them (the classifier falls back to the pickable
  *  pipeline + a console warning). */
 interface ClassifierVariantPipelines {
-  fillPipeline: GPURenderPipeline
-  fillPipelineGround?: GPURenderPipeline
-  linePipeline: GPURenderPipeline
-  fillPipelineFallback?: GPURenderPipeline
-  fillPipelineGroundFallback?: GPURenderPipeline
-  linePipelineFallback?: GPURenderPipeline
-  fillPipelineNoPick?: GPURenderPipeline
-  fillPipelineGroundNoPick?: GPURenderPipeline
-  linePipelineNoPick?: GPURenderPipeline
-  fillPipelineFallbackNoPick?: GPURenderPipeline
-  fillPipelineGroundFallbackNoPick?: GPURenderPipeline
-  linePipelineFallbackNoPick?: GPURenderPipeline
+  fillPipeline: RhiPipelineHandle
+  fillPipelineGround?: RhiPipelineHandle
+  linePipeline: RhiPipelineHandle
+  fillPipelineFallback?: RhiPipelineHandle
+  fillPipelineGroundFallback?: RhiPipelineHandle
+  linePipelineFallback?: RhiPipelineHandle
+  fillPipelineNoPick?: RhiPipelineHandle
+  fillPipelineGroundNoPick?: RhiPipelineHandle
+  linePipelineNoPick?: RhiPipelineHandle
+  fillPipelineFallbackNoPick?: RhiPipelineHandle
+  fillPipelineGroundFallbackNoPick?: RhiPipelineHandle
+  linePipelineFallbackNoPick?: RhiPipelineHandle
 }
 
 /** The default GPU resources shared across every layer. Pulled off
@@ -158,19 +159,19 @@ interface ClassifierVariantPipelines {
  *  `pointer-events: none` layers — when picking is globally off they
  *  alias the pickable pipelines. */
 interface ClassifierRendererDefaults {
-  fillPipeline: GPURenderPipeline
-  fillPipelineGround?: GPURenderPipeline
-  linePipeline: GPURenderPipeline
+  fillPipeline: RhiPipelineHandle
+  fillPipelineGround?: RhiPipelineHandle
+  linePipeline: RhiPipelineHandle
   bindGroupLayout: GPUBindGroupLayout
-  fillPipelineFallback?: GPURenderPipeline
-  fillPipelineGroundFallback?: GPURenderPipeline
-  linePipelineFallback?: GPURenderPipeline
-  fillPipelineNoPick?: GPURenderPipeline
-  fillPipelineGroundNoPick?: GPURenderPipeline
-  linePipelineNoPick?: GPURenderPipeline
-  fillPipelineFallbackNoPick?: GPURenderPipeline
-  fillPipelineGroundFallbackNoPick?: GPURenderPipeline
-  linePipelineFallbackNoPick?: GPURenderPipeline
+  fillPipelineFallback?: RhiPipelineHandle
+  fillPipelineGroundFallback?: RhiPipelineHandle
+  linePipelineFallback?: RhiPipelineHandle
+  fillPipelineNoPick?: RhiPipelineHandle
+  fillPipelineGroundNoPick?: RhiPipelineHandle
+  linePipelineNoPick?: RhiPipelineHandle
+  fillPipelineFallbackNoPick?: RhiPipelineHandle
+  fillPipelineGroundFallbackNoPick?: RhiPipelineHandle
+  linePipelineFallbackNoPick?: RhiPipelineHandle
   /** ?debug=overdraw substitution handles — read ONLY when DEBUG_OVERDRAW
    *  is active. The classifier bakes the overdraw pipeline into each
    *  show's draw closure (replacing the layer's own fill/line pipelines);
@@ -178,9 +179,9 @@ interface ClassifierRendererDefaults {
    *  for data-driven shows. Optional: the production non-debug path never
    *  reads them, so test fixtures can omit them. */
   featureBindGroupLayout?: GPUBindGroupLayout
-  fillPipelineOverdraw?: GPURenderPipeline | null
-  fillPipelineOverdrawFeature?: GPURenderPipeline | null
-  linePipelineOverdraw?: GPURenderPipeline | null
+  fillPipelineOverdraw?: RhiPipelineHandle | null
+  fillPipelineOverdrawFeature?: RhiPipelineHandle | null
+  linePipelineOverdraw?: RhiPipelineHandle | null
 }
 
 /** Full input bundle. Keeping it a single param object means callers
@@ -409,7 +410,7 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     // content pipelines + bind-group layout + the source's VTR + the
     // paint snapshot, so the engine passes can iterate SceneView.opaque /
     // .translucent / .oit as ShowDrawFn[] and draw WITHOUT ever naming a
-    // GPURenderPipeline / GPUBindGroupLayout (Step 2 inversion).
+    // RhiPipelineHandle / GPUBindGroupLayout (Step 2 inversion).
     //
     // The ?debug=overdraw pipeline substitution (formerly inline in
     // opaque-pass.ts) bakes HERE: DEBUG_OVERDRAW is frame-constant, and
