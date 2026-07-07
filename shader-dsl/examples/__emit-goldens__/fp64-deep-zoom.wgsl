@@ -9,12 +9,8 @@ struct VsOut {
   @location(0) uv: vec2<f32>,
 }
 
-struct Fp64Guard {
-  one: f32,
-}
-
 @group(0) @binding(0) var<uniform> u: Uniforms;
-@group(0) @binding(1) var<uniform> _fp64: Fp64Guard;
+@group(0) @binding(1) var _fp64: texture_2d<f32>;
 
 @vertex
 fn vs_full(@builtin(vertex_index) idx: u32) -> VsOut {
@@ -35,15 +31,17 @@ fn fs_stripes(vo: VsOut) -> @location(0) vec4<f32> {
 }
 
 fn df64_twoSum(a: f32, b: f32) -> vec2<f32> {
+  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let _v0 = (a + b);
-  let _v1 = (((_v0 * _fp64.one) - a) * _fp64.one);
-  let _v2 = (((((a - ((_v0 - _v1) * _fp64.one)) * _fp64.one) * _fp64.one) * _fp64.one) + (b - _v1));
+  let _v1 = (((_v0 * _cse0) - a) * _cse0);
+  let _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
   return vec2<f32>(_v0, _v2);
 }
 
 fn df64_quickTwoSum(a: f32, b: f32) -> vec2<f32> {
-  let _v0 = ((a + b) * _fp64.one);
-  let _v1 = (b - ((_v0 - a) * _fp64.one));
+  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
+  let _v0 = ((a + b) * _cse0);
+  let _v1 = (b - ((_v0 - a) * _cse0));
   return vec2<f32>(_v0, _v1);
 }
 

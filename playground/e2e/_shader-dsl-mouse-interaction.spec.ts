@@ -60,13 +60,16 @@ test.describe('shader-dsl mouse controls change the frame', () => {
           // fp64 examples: the lowering auto-injects the `_fp64` guard uniform
           // (absent from the authored reflect()) — probe for its block and bind
           // 1.0f, same pattern as the site/thumbnail/render-gate harnesses.
-          const gIdx = gl.getUniformBlockIndex(prog, 'Fp64Guard')
-          if (gIdx !== 0xffffffff) {
-            const gbuf = gl.createBuffer()
-            gl.bindBuffer(gl.UNIFORM_BUFFER, gbuf)
-            gl.bufferData(gl.UNIFORM_BUFFER, new Float32Array([1, 0, 0, 0]), gl.STATIC_DRAW)
-            gl.uniformBlockBinding(prog, gIdx, 1)
-            gl.bindBufferBase(gl.UNIFORM_BUFFER, 1, gbuf)
+          const gLoc = gl.getUniformLocation(prog, '_fp64')
+          if (gLoc) {
+            const gtex = gl.createTexture()
+            gl.activeTexture(gl.TEXTURE7)
+            gl.bindTexture(gl.TEXTURE_2D, gtex)
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]))
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+            gl.uniform1i(gLoc, 7)
+            gl.activeTexture(gl.TEXTURE0)
           }
 
           const u = (

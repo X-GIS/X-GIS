@@ -111,6 +111,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "f32",
         "f64",
         "f64FromParts",
+        "f64Guard",
         "f64Parts",
         "floor",
         "fract",

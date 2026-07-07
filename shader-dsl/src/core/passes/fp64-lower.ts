@@ -53,8 +53,6 @@ import {
   DF64_ORDER,
   DF64_VEC_STRUCTS,
   FP64_GUARD_NAME,
-  FP64_GUARD_STRUCT,
-  FP64_GUARD_DECL,
   FP64_GUARD_TYPE,
   splitF64,
 } from '../fp64/df64-lib'
@@ -730,22 +728,24 @@ function helperClosure(used: ReadonlySet<string>): FuncDecl[] {
 
 // ── Guard auto-injection ──
 //
-// The df64 helper bodies read the runtime-opaque `_fp64.one` uniform (the
-// anti-fast-math guard — see df64-lib's header for WHY it must be a runtime
-// input). Authors declare NOTHING: any module whose lowering used a helper
-// gets the `Fp64Guard` struct + `_fp64` binding injected here, at a
-// DETERMINISTIC slot — group 0, first binding index past the module's own
-// group-0 bindings — so emit stays byte-stable and can never collide with the
-// module's declared bindings. An author who must pin the slot to an engine's
-// fixed bind-group layout declares `fp64Guard({ group, binding })` in
-// `uses:`, which this function honours (matching name + shape). A CONFLICTING
-// `_fp64` / `Fp64Guard` declaration (wrong space/type/fields) is SD0042 —
-// the emulation would be precision-dead against a mis-shaped guard.
+// The df64 helper bodies read a runtime-opaque 1.0 via the `f64Guard`
+// intrinsic, which spells as a texel fetch on the `_fp64` TEXTURE binding
+// (the anti-fast-math guard — see df64-lib's header for WHY it must be a
+// runtime input a driver can never constant-fold; a uniform is defeated by
+// uniform-value pipeline specialization). Authors declare NOTHING: any module
+// whose lowering used a helper gets the `_fp64` texture_2d<f32> binding
+// injected here, at a DETERMINISTIC slot — group 0, first binding index past
+// the module's own group-0 bindings — so emit stays byte-stable and can never
+// collide with the module's declared bindings. An author who must pin the
+// slot to an engine's fixed bind-group layout declares
+// `fp64Guard({ group, binding })` in `uses:`, which this function honours
+// (matching name + type). A CONFLICTING `_fp64` declaration (wrong type) is
+// SD0042 — the emulation would be precision-dead against a mis-shaped guard.
 
-function injectGuard(structs: StructDecl[], bindings: BindingDecl[]): void {
+function injectGuard(bindings: BindingDecl[]): void {
   const existing = bindings.find((b) => b.name === FP64_GUARD_NAME)
   if (existing) {
-    if (existing.space !== 'uniform' || typeKey(existing.type) !== typeKey(FP64_GUARD_TYPE)) {
+    if (typeKey(existing.type) !== typeKey(FP64_GUARD_TYPE)) {
       throw dslError(
         'SD0042',
         `binding '${FP64_GUARD_NAME}' exists but is ${existing.space} ${typeKey(existing.type)}`,
@@ -761,15 +761,6 @@ function injectGuard(structs: StructDecl[], bindings: BindingDecl[]): void {
       space: 'uniform',
       type: FP64_GUARD_TYPE,
     })
-  }
-  const struct = structs.find((s) => s.name === FP64_GUARD_STRUCT)
-  if (struct) {
-    const f = struct.fields
-    if (f.length !== 1 || f[0]!.name !== 'one' || typeKey(f[0]!.type) !== 'f32') {
-      throw dslError('SD0042', `struct '${FP64_GUARD_STRUCT}' exists with a different shape`)
-    }
-  } else {
-    structs.push(FP64_GUARD_DECL)
   }
 }
 
@@ -862,7 +853,7 @@ export function fp64Lower(m: ModuleDecl): ModuleDecl {
   }
 
   const helpers = helperClosure(ctx.used)
-  if (helpers.length > 0) injectGuard(structs, bindings)
+  if (helpers.length > 0) injectGuard(bindings)
 
   return { consts, structs, bindings, funcs: [...funcs, ...helpers] }
 }

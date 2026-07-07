@@ -72,7 +72,6 @@ export {
   splitF64,
   fp64Guard,
   FP64_GUARD_NAME,
-  FP64_GUARD_STRUCT,
   type Fp64GuardHandle,
 } from './core/fp64/df64-lib'
 export { fp64Lower } from './core/passes/fp64-lower'

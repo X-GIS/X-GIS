@@ -174,7 +174,6 @@ function f32Oracle(m: ModuleDecl): ReturnType<typeof compileModule> {
   const cpu = compileModule(mapModuleExprs(fp64Lower(m), froundWrap))
   cpu.fns['__fround'] = (x: CpuValue) =>
     Array.isArray(x) ? (x as number[]).map(Math.fround) : Math.fround(x as number)
-  cpu.setBinding(FP64_GUARD_NAME, { one: 1 })
   return cpu
 }
 
@@ -300,7 +299,6 @@ describe('vec64 known answers (f32-rounding oracle)', () => {
 describe('vec64 metamorphic gate — oracle(fp64Lower(m)) ≈ oracle(m)', () => {
   const authored = compileModule(m)
   const lowered = compileModule(fp64Lower(m))
-  lowered.setBinding(FP64_GUARD_NAME, { one: 1 })
 
   it('componentwise + reductions agree across the two paths', () => {
     const a: [number, number, number] = [123456.789, -0.000123, 9876.5]

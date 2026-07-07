@@ -2,7 +2,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { fn, module, f64T, f32T, vec4fT, toF32, toF64, sqrt, sin } from '../ir'
-import { fp64Guard, FP64_GUARD_NAME, FP64_GUARD_STRUCT } from '../fp64/df64-lib'
+import { fp64Guard, FP64_GUARD_NAME } from '../fp64/df64-lib'
 import { ioStruct, location, builtin, uniformStruct, resource } from '../sot'
 import { fp64Lower } from './fp64-lower'
 import { emitModule } from '../backends/wgsl'
@@ -82,7 +82,7 @@ describe('rewrite shapes', () => {
 })
 
 describe('guard auto-injection', () => {
-  it('injects _fp64 at (0, 0) when the module declares no bindings', () => {
+  it('injects the _fp64 guard TEXTURE at (0, 0) when the module declares no bindings', () => {
     const k = fn('k', { a: f64T, b: f64T }, (p) => p.a.add(p.b))
     const lowered = fp64Lower(module({ funcs: [k] }))
     expect(lowered.bindings).toEqual([
@@ -91,10 +91,15 @@ describe('guard auto-injection', () => {
         binding: 0,
         name: FP64_GUARD_NAME,
         space: 'uniform',
-        type: { kind: 'struct', name: FP64_GUARD_STRUCT },
+        type: { kind: 'texture', dim: '2d', elem: 'f32' },
       },
     ])
-    expect(lowered.structs.some((s) => s.name === FP64_GUARD_STRUCT)).toBe(true)
+    // The guard value is a texel fetch — opaque to every downstream compiler
+    // (a UBO-sourced guard is defeated by uniform-value pipeline
+    // specialization; observed on Windows/NVIDIA).
+    const wgsl = emitModule(module({ funcs: [k] }))
+    expect(wgsl).toContain(`var ${FP64_GUARD_NAME}: texture_2d<f32>;`)
+    expect(wgsl).toContain(`textureLoad(${FP64_GUARD_NAME}, vec2<i32>(0, 0), 0).x`)
   })
 
   it('injects past the module’s own group-0 bindings (deterministic, collision-free)', () => {
@@ -161,17 +166,18 @@ describe('fail-loud gates', () => {
 })
 
 describe('optimizer invariants (the guard survives O2)', () => {
-  it('df64_* calls stay opaque and every injected helper still threads _fp64.one after the fixpoint', () => {
+  it('df64_* calls stay opaque and every injected helper still threads the guard after the fixpoint', () => {
     const k = fn('k', { a: f64T, b: f64T }, (p) => sqrt(p.a.add(p.b).mul(p.a).div(p.b)))
     const wgsl = emitModule(module({ funcs: [k] }))
     // The entry still CALLS the helpers (nothing inlined the EFT bodies).
     expect(wgsl).toMatch(/df64_sqrt\(/)
     expect(wgsl).toMatch(/df64_div\(/)
     // Every EFT-bearing helper body still multiplies through the opaque one —
-    // the algebraic pass must never treat `* _fp64.one` as `* 1.0`.
+    // the algebraic pass must never treat the guard fetch as `* 1.0`. (The
+    // fetch may be CSE-hoisted, so assert the texture ref survives per body.)
     for (const name of ['df64_twoSum', 'df64_quickTwoSum', 'df64_split']) {
       const body = wgsl.split(`fn ${name}(`)[1]!.split('\nfn ')[0]!
-      expect(body).toContain('_fp64.one')
+      expect(body).toContain('_fp64')
     }
   })
 })
