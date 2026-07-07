@@ -39,9 +39,9 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
         </p>
       </header>
 
-      <ul class="divide-y divide-line border-t border-line">
+      <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {posts.map((post) => <BlogPostCard post={post} />)}
-      </ul>
+      </div>
     </div>
   </main>
   <Footer />

@@ -1,8 +1,9 @@
 ---
-// Shared blog list-item card — used by /blog and /blog/tags/[tag] so the two
-// listings can't drift. Tags are real links (to their own tag page), so they
-// sit OUTSIDE the title/description anchor rather than nested inside it
-// (nested <a> is invalid HTML and breaks click behavior).
+// Shared blog post card — a bordered grid card used by /blog and
+// /blog/tags/[tag] so the two listings can't drift. The whole card links
+// to the post via a stretched link on the title (`after:inset-0`); the
+// tag chips stay independently clickable by sitting on their own stacking
+// layer (relative z-[1]) above that overlay.
 import { readingTimeMin } from '../lib/blog'
 import type { CollectionEntry } from 'astro:content'
 
@@ -16,31 +17,32 @@ const fmt = (d: Date) =>
   d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
 ---
 
-<li>
-  <div class="py-8 sm:py-10">
-    <a href={`${base}/blog/${post.id}`} class="group block">
-      <p class="font-mono text-[12px] tracking-[0.14em] uppercase text-fg-mute">
-        <time datetime={post.data.date.toISOString()}>{fmt(post.data.date)}</time>
-        <span> · {readingTimeMin(post.body)} min read</span>
-      </p>
-      <h2 class="mt-2 font-display font-normal text-fg text-[28px] sm:text-[36px] leading-[1.05] tracking-[-0.02em] group-hover:text-accent transition-colors">
-        {post.data.title}
-      </h2>
-      <p class="mt-3 text-[16px] leading-[1.6] text-fg-dim max-w-[640px]">
-        {post.data.description}
-      </p>
+<article class="group relative flex flex-col h-full bg-bg-card border border-line rounded-[10px] p-6 hover:border-line-strong transition-colors">
+  <p class="font-mono text-[11px] tracking-[0.14em] uppercase text-fg-mute">
+    <time datetime={post.data.date.toISOString()}>{fmt(post.data.date)}</time>
+    <span> · {readingTimeMin(post.body)} min read</span>
+  </p>
+  <h3 class="mt-2.5 font-display font-normal text-fg text-[21px] leading-[1.15] tracking-[-0.01em]">
+    <a
+      href={`${base}/blog/${post.id}`}
+      class="after:absolute after:inset-0 after:content-[''] group-hover:text-accent transition-colors"
+    >
+      {post.data.title}
     </a>
-    {post.data.tags.length > 0 && (
-      <div class="mt-4 flex flex-wrap gap-2">
-        {post.data.tags.map((t) => (
-          <a
-            href={`${base}/blog/tags/${t}`}
-            class="font-mono text-[11px] tracking-[0.1em] uppercase text-fg-mute border border-line rounded-full px-2.5 py-0.5 hover:text-fg hover:border-line-strong transition-colors"
-          >
-            {t}
-          </a>
-        ))}
-      </div>
-    )}
-  </div>
-</li>
+  </h3>
+  <p class="mt-2.5 text-[14.5px] leading-[1.55] text-fg-dim line-clamp-3">
+    {post.data.description}
+  </p>
+  {post.data.tags.length > 0 && (
+    <div class="relative z-[1] mt-auto pt-5 flex flex-wrap gap-1.5">
+      {post.data.tags.slice(0, 4).map((t) => (
+        <a
+          href={`${base}/blog/tags/${t}`}
+          class="font-mono text-[10.5px] tracking-[0.1em] uppercase text-fg-mute border border-line rounded-full px-2 py-0.5 hover:text-fg hover:border-line-strong transition-colors"
+        >
+          {t}
+        </a>
+      ))}
+    </div>
+  )}
+</article>
