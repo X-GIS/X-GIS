@@ -10,6 +10,7 @@
 //   a < <= > >= == != b   → df64_lt/le/gt/ge/eq/ne(a, b)
 //   -a                    → -(vec2 pair)                 (componentwise, exact)
 //   sqrt/abs/min/max/mix/floor/fract → df64_*
+//   abs/min/max/mix/floor/fract/normalize on vecN<f64> → df64_vN_*
 //   f64(x)  (toF64)       → vec2<f32>(x, 0.0)            (exact widen)
 //   f32(x)  (toF32 on f64)→ df64_narrow(x)               (hi + lo)
 //   f64 param/var/field/binding/const → vec2<f32>        (type map)
@@ -108,6 +109,16 @@ const CALL_FN: Record<string, string> = {
   min: 'df64_min',
   max: 'df64_max',
   mix: 'df64_mix',
+}
+/** Whitelisted componentwise builtins on vec64 → their df64_vN_* twin shape. */
+const VEC_CALL_KIND: Record<string, 'unary' | 'binary' | 'mix'> = {
+  abs: 'unary',
+  floor: 'unary',
+  fract: 'unary',
+  normalize: 'unary',
+  min: 'binary',
+  max: 'binary',
+  mix: 'mix',
 }
 
 const litF32 = (v: number): Expr => ({ op: 'lit', type: f32T, value: v })
@@ -299,10 +310,40 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
           sumSquares((i) => callHelper(ctx, 'df64_sub', vec2fT, [lane(a, n, i), lane(b, n, i)])),
         ])
       }
-      // Any OTHER builtin over a vec64 is unsupported — fail loud. (normalize
-      // included: reassembling N division results would evaluate each division
-      // twice; narrow the lanes with toF32(v.x) etc. and normalize in f32, or
-      // divide by length(v) explicitly.)
+      // Componentwise vec64 builtins → their df64_vN_* twins. Each helper
+      // composes the verified SCALAR df64 fns lane by lane INSIDE its body
+      // (abs/min/max/floor branch per lane — no whole-plane form exists
+      // without a per-lane select), so the operand is evaluated exactly once
+      // as the call argument.
+      if (isVec64(e.type) && VEC_CALL_KIND[e.fn] !== undefined) {
+        const n = e.type.n
+        const sTy = structT(vec64StructName(n))
+        const kind = VEC_CALL_KIND[e.fn]!
+        if (kind === 'unary') {
+          return callHelper(ctx, `df64_v${n}_${e.fn}`, sTy, [vecOperand(e.args[0]!, n)])
+        }
+        if (kind === 'binary') {
+          return callHelper(ctx, `df64_v${n}_${e.fn}`, sTy, [
+            vecOperand(e.args[0]!, n),
+            vecOperand(e.args[1]!, n),
+          ])
+        }
+        // mix(a, b, t): a/b are vec64 (or broadcast); t stays a SCALAR f32 —
+        // the same contract as the scalar df64_mix (per-lane vec t unsupported).
+        const t = e.args[2]!
+        if (!(t.type.kind === 'scalar' && t.type.scalar === 'f32')) {
+          throw dslError(
+            'SD0041',
+            `mix() on vec64 needs a scalar f32 interpolant, got ${typeKey(t.type)}`,
+          )
+        }
+        return callHelper(ctx, `df64_v${n}_mix`, sTy, [
+          vecOperand(e.args[0]!, n),
+          vecOperand(e.args[1]!, n),
+          walk(t),
+        ])
+      }
+      // Any OTHER builtin over a vec64 is unsupported — fail loud.
       if (isVec64(e.type) || e.args.some((a) => isVec64(a.type))) {
         if (isKnownIntrinsic(e.fn) || e.fn === 'i32' || e.fn === 'u32' || e.fn === 'f32') {
           throw dslError('SD0041', `${e.fn}() on vec64 operands`)

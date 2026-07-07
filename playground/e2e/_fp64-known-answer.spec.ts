@@ -14,7 +14,8 @@
 //     under SwiftShader in CI — same charter as _shader-math-parity.spec.ts).
 //   • GLSL ES 3.00: a WebGL2 fragment pass (exercises ANGLE) rendering one
 //     pass/fail pixel per test vector, plus a compile+link gate over the
-//     fp64-deep-zoom example's emitted GLSL.
+//     fp64-deep-zoom example's emitted GLSL, plus a vec64 execution pixel
+//     (whole-plane df64_vN_* arithmetic + the componentwise builtins).
 //
 // Every numeric case carries a DISCRIMINATIVE half: the plain-f32 result
 // differs from the expected value by far more than the tolerance, so a
@@ -52,6 +53,14 @@ import {
   FP64_GUARD_STRUCT,
   f32,
   emitGlslModule,
+  vec3f64,
+  normalize,
+  min,
+  max,
+  mix,
+  fract,
+  dot,
+  length,
   type ReadonlyNode,
   type Node,
 } from '../../shader-dsl/src/index'
@@ -174,6 +183,34 @@ const fsCheck = fn(
 )
 const fragModule = module({ funcs: [vsFull, fsCheck], uses: [VsOut] })
 
+// ── vec64 execution gate (one pass/fail pixel) ──
+// The whole-plane df64_vN_* arithmetic AND the per-lane componentwise builtins
+// (abs/min/max/mix/floor via fract/normalize) executed on the real GPU. The
+// chain's expected value 0.5 lives entirely in the pairs' lo words: a plain-f32
+// (or fast-math-collapsed) evaluation quantizes lane 0 to 1e8 and the fract
+// term to 0 — the pixel turns red, no vacuous pass.
+const fsVec = fn(
+  'fs_vec',
+  { frag: builtin('position', vec4fT) },
+  () => {
+    const v1 = vec3f64(1e8 + 0.5, -2.25, 3)
+    const v2 = abs(vec3f64(-(1e8 + 0.5), 2.25, -3)) // (1e8+0.5, 2.25, 3)
+    // Plane arithmetic round-trip: (v1 + v2) − v2 == v1 to df64 precision.
+    const w = v1.add(v2).sub(v2)
+    const mid = mix(min(w, v2), max(w, v2), f32(0.5)) // (1e8+0.5, 0, 3)
+    // fract keeps the lo-word 0.5 of lane 0; dot(…, 1⃗) reduces it to a scalar.
+    const r1 = toF32(dot(fract(mid), vec3f64(1, 1, 1)))
+    const r2 = toF32(length(normalize(w)))
+    const pass = abs(r1.sub(0.5))
+      .lt(f32(2 ** -20))
+      .and(abs(r2.sub(1.0)).lt(f32(1e-6)))
+      .select(1.0, 0.0)
+    return vec4(f32(1).sub(pass), pass, 0, 1)
+  },
+  { stage: 'fragment', retAttr: '@location(0)' },
+)
+const vecModule = module({ funcs: [vsFull, fsVec], uses: [VsOut] })
+
 test.describe('fp64 known answers on the real GPU', () => {
   test('WGSL compute: emitted df64 module reproduces f64 answers (fast-math survival)', async ({
     page,
@@ -282,6 +319,8 @@ test.describe('fp64 known answers on the real GPU', () => {
       fs: emitGlslModule(fragModule, 'fragment'),
       exVs: emitGlslModule(fp64DeepZoom.module, 'vertex'),
       exFs: emitGlslModule(fp64DeepZoom.module, 'fragment'),
+      vecVs: emitGlslModule(vecModule, 'vertex'),
+      vecFs: emitGlslModule(vecModule, 'fragment'),
       guardBlock: FP64_GUARD_STRUCT,
       n: N,
     }
@@ -337,7 +376,19 @@ test.describe('fp64 known answers on the real GPU', () => {
       gl.drawArrays(gl.TRIANGLES, 0, 3)
       const px = new Uint8Array(a.n * 4)
       gl.readPixels(0, 0, a.n, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
-      return { px: Array.from(px) }
+
+      // 3) vec64 execution gate: whole-plane df64_vN_* arithmetic + the
+      // componentwise builtins as one pass/fail pixel (same guard binding).
+      const vecProg = compile(gl, a.vecVs, a.vecFs)
+      if (typeof vecProg === 'string') return { error: `vec64 ${vecProg}` }
+      gl.useProgram(vecProg)
+      const vIdx = gl.getUniformBlockIndex(vecProg, a.guardBlock)
+      if (vIdx === gl.INVALID_INDEX) return { error: `vec64: uniform block ${a.guardBlock} not found` }
+      gl.uniformBlockBinding(vecProg, vIdx, 0)
+      gl.drawArrays(gl.TRIANGLES, 0, 3)
+      const vecPx = new Uint8Array(4)
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, vecPx)
+      return { px: Array.from(px), vecPx: Array.from(vecPx) }
     }, args)
 
     expect(res, `WebGL2 failed: ${'error' in res ? res.error : ''}`).not.toHaveProperty('error')
@@ -348,6 +399,12 @@ test.describe('fp64 known answers on the real GPU', () => {
       if (!(g > 200 && r < 50)) {
         failures.push(`${CASES[i]!.name}: pixel (r=${r}, g=${g}) — df64 check failed on ANGLE`)
       }
+    }
+    const [vr, vg] = [res.vecPx![0]!, res.vecPx![1]!]
+    if (!(vg > 200 && vr < 50)) {
+      failures.push(
+        `vec64 builtins: pixel (r=${vr}, g=${vg}) — df64_vN_* chain failed on ANGLE`,
+      )
     }
     expect(failures, `df64 GLSL known-answer pixels not green:\n${failures.join('\n')}`).toEqual([])
   })

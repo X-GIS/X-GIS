@@ -85,7 +85,7 @@ export const CODES = {
   SD0041: {
     code: 'SD0041',
     summary: 'unsupported operation on f64 operands',
-    hint: 'only + - * / compare, abs, min, max, sqrt, mix, floor, fract are emulated — narrow explicitly with toF32(x) first',
+    hint: 'only + - * / compare, abs, min, max, sqrt, mix, floor, fract (and on vectors dot, length, distance, normalize) are emulated — narrow explicitly with toF32(x) first',
   },
   SD0042: {
     code: 'SD0042',

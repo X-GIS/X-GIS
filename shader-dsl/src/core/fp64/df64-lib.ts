@@ -399,6 +399,57 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
     return add({ a: yn, b: prod })
   })
 
+  // ── Componentwise builtins with PER-LANE branching ──
+  // abs/min/max select a side per lane and floor's integrality test is per
+  // lane, so there is no whole-plane EFT form without a per-lane select
+  // (which neither WGSL-via-this-IR nor GLSL ES 3.00 gives us). Instead each
+  // helper composes the VERIFIED scalar df64 fns lane by lane INSIDE its own
+  // body: the struct argument is a param (evaluated once at the call), each
+  // lane result is Let-bound once, and the planes gather the components.
+  const LANES = 'xyzw'.slice(0, n).split('')
+  type P = ReadonlyNode<'vec2<f32>'>
+  const laneOf = (x: ReadonlyNode, c: string): P =>
+    vec2(member(member(x, 'hi', vT), c, f32T), member(member(x, 'lo', vT), c, f32T)) as P
+  const gather = (ls: readonly ReadonlyNode[]): Node =>
+    pair(
+      construct(
+        vT,
+        ls.map((l) => member(l, 'x', f32T)),
+      ),
+      construct(
+        vT,
+        ls.map((l) => member(l, 'y', f32T)),
+      ),
+    )
+
+  const vAbs = fn(`df64_v${n}_abs`, { a: sT }, (p) =>
+    gather(LANES.map((c) => Let(df64_abs({ a: laneOf(p.a, c) })))),
+  )
+  const vMin = fn(`df64_v${n}_min`, { a: sT, b: sT }, (p) =>
+    gather(LANES.map((c) => Let(df64_min({ a: laneOf(p.a, c), b: laneOf(p.b, c) })))),
+  )
+  const vMax = fn(`df64_v${n}_max`, { a: sT, b: sT }, (p) =>
+    gather(LANES.map((c) => Let(df64_max({ a: laneOf(p.a, c), b: laneOf(p.b, c) })))),
+  )
+  const vMix = fn(`df64_v${n}_mix`, { a: sT, b: sT, t: f32T }, (p) =>
+    gather(LANES.map((c) => Let(df64_mix({ a: laneOf(p.a, c), b: laneOf(p.b, c), t: p.t })))),
+  )
+  const vFloor = fn(`df64_v${n}_floor`, { a: sT }, (p) =>
+    gather(LANES.map((c) => Let(df64_floor({ a: laneOf(p.a, c) })))),
+  )
+  const vFract = fn(`df64_v${n}_fract`, { a: sT }, (p) =>
+    gather(LANES.map((c) => Let(df64_fract({ a: laneOf(p.a, c) })))),
+  )
+  /** v / |v| — the length accumulates through the SCALAR df64 chain (the same
+   *  composition the lowering uses for length()), then each lane divides by it. */
+  const vNormalize = fn(`df64_v${n}_normalize`, { a: sT }, (p) => {
+    const ls = LANES.map((c) => Let(laneOf(p.a, c)))
+    let sq = df64_mul({ a: ls[0]!, b: ls[0]! })
+    for (let i = 1; i < n; i++) sq = df64_add({ a: sq, b: df64_mul({ a: ls[i]!, b: ls[i]! }) })
+    const len = Let(df64_sqrt({ a: sq }))
+    return gather(ls.map((l) => Let(df64_div({ a: l, b: len }))))
+  })
+
   return [
     twoSum.decl,
     quickTwoSum.decl,
@@ -408,6 +459,13 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
     sub.decl,
     mul.decl,
     div.decl,
+    vAbs.decl,
+    vMin.decl,
+    vMax.decl,
+    vMix.decl,
+    vFloor.decl,
+    vFract.decl,
+    vNormalize.decl,
   ]
 }
 

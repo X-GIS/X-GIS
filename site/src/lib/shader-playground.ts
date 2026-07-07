@@ -224,18 +224,33 @@ export function mountShader(
   const fr = Math.fround
   const df64 = (x: number): [number, number] => [fr(x), fr(x - fr(x))]
 
-  const resize = (): void => {
+  const resize = (): boolean => {
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
     const w = Math.max(1, Math.round(canvas.clientWidth * dpr))
     const h = Math.max(1, Math.round(canvas.clientHeight * dpr))
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w
       canvas.height = h
+      return true
     }
+    return false
   }
 
-  const packUniforms = (): void => {
-    if (!block || !f32) return
+  // Draw-on-demand: skip the draw entirely when nothing changed since the last
+  // frame. Every live input (clock, sliders, toggles, pointer, camera, canvas
+  // size) flows through the uniform buffer, so "the packed bytes are
+  // identical" IS "the frame would be identical" — and a frame that is not
+  // re-drawn cannot flicker, whatever the driver does with the shader between
+  // draws (some drivers hot-swap re-optimized shader variants; an fp64 EFT
+  // that survives one variant and not another otherwise alternates at rest).
+  // Static examples also stop burning GPU while idle.
+  const prevU = f32 ? new Float32Array(f32.length) : null
+  let hasDrawn = false
+  let forceDraw = true
+
+  /** Pack the uniforms; upload and report true only when the bytes changed. */
+  const packUniforms = (): boolean => {
+    if (!block || !f32 || !prevU) return false
     const tSec = reduceMotion() ? 3 : timeSec
     for (const field of block.fields) {
       const c = spec.controls[field.name]
@@ -255,8 +270,18 @@ export function mountShader(
       } else v = c.value
       for (let i = 0; i < v.length; i++) f32[field.offset / 4 + i] = v[i]
     }
+    let changed = false
+    for (let i = 0; i < f32.length; i++) {
+      if (f32[i] !== prevU[i]) {
+        changed = true
+        break
+      }
+    }
+    if (!changed) return false
+    prevU.set(f32)
     gl.bindBuffer(gl.UNIFORM_BUFFER, ubo)
     gl.bufferSubData(gl.UNIFORM_BUFFER, 0, f32)
+    return true
   }
 
   const frame = (): void => {
@@ -265,8 +290,11 @@ export function mountShader(
     if (playing) timeSec += ((now - lastNow) / 1000) * speed
     lastNow = now
     if (!visible) return
-    resize()
-    packUniforms()
+    const resized = resize()
+    const changed = packUniforms()
+    if (hasDrawn && !changed && !resized && !forceDraw) return
+    forceDraw = false
+    hasDrawn = true
     gl.viewport(0, 0, canvas.width, canvas.height)
     gl.clearColor(0, 0, 0, 1)
     gl.clear(gl.COLOR_BUFFER_BIT)
@@ -274,13 +302,22 @@ export function mountShader(
   }
 
   // Pause the loop while the canvas is scrolled out of view (battery / mobile).
+  // Regaining visibility (or the tab) forces one draw — the compositor's
+  // retained copy of a non-preserved drawing buffer can be dropped while
+  // hidden, and a skipped-draw canvas would otherwise stay blank.
   const io = new IntersectionObserver(
     (entries) => {
-      visible = entries[0]?.isIntersecting ?? true
+      const nowVisible = entries[0]?.isIntersecting ?? true
+      if (nowVisible && !visible) forceDraw = true
+      visible = nowVisible
     },
     { threshold: 0 },
   )
   io.observe(canvas)
+  const onVisibility = (): void => {
+    if (!document.hidden) forceDraw = true
+  }
+  document.addEventListener('visibilitychange', onVisibility)
 
   const onLost = (e: Event): void => {
     e.preventDefault()
@@ -294,6 +331,7 @@ export function mountShader(
     destroy(): void {
       cancelAnimationFrame(raf)
       io.disconnect()
+      document.removeEventListener('visibilitychange', onVisibility)
       canvas.removeEventListener('webglcontextlost', onLost)
       if (hasMouse) {
         canvas.removeEventListener('pointermove', onPointerMove)

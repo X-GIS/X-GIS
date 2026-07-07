@@ -12,6 +12,8 @@ import {
   f64,
   f64T,
   f32,
+  f32T,
+  vec3fT,
   vec2f64,
   vec3f64,
   vec3f64T,
@@ -20,6 +22,13 @@ import {
   dot,
   length,
   distance,
+  normalize,
+  abs,
+  min,
+  max,
+  mix,
+  fract,
+  floor,
   sin,
   toF32,
   type Expr,
@@ -102,6 +111,35 @@ describe('vec64 lowering', () => {
     expect(wgsl).toContain('origin: DF64Vec3,')
   })
 
+  it('componentwise builtins lower to df64_vN_* and pull the scalar helpers', () => {
+    const k = fn('k', { a: vec3f64T, b: vec3f64T }, (p) =>
+      normalize(abs(p.a).add(min(p.a, max(p.a, p.b)))),
+    )
+    const lowered = fp64Lower(module({ funcs: [k] }))
+    const names = lowered.funcs.map((f) => f.name)
+    expect(names).toContain('df64_v3_abs')
+    expect(names).toContain('df64_v3_min')
+    expect(names).toContain('df64_v3_max')
+    expect(names).toContain('df64_v3_normalize')
+    // per-lane composition inside the helper bodies → closure pulls the
+    // scalar fns (and normalize's length chain needs sqrt).
+    expect(names).toContain('df64_abs')
+    expect(names).toContain('df64_min')
+    expect(names).toContain('df64_sqrt')
+    const wgsl = emitModule(module({ funcs: [k] }))
+    expect(wgsl).toContain('df64_v3_normalize(')
+  })
+
+  it('vec64 mix broadcasts a/b operands and takes a SCALAR f32 interpolant only', () => {
+    const ok = fn('k', { a: vec3f64T, t: f32T }, (p) => mix(p.a, f64(1), p.t))
+    const names = fp64Lower(module({ funcs: [ok] })).funcs.map((f) => f.name)
+    expect(names).toContain('df64_v3_mix')
+    const bad = fn('k', { a: vec3f64T, b: vec3f64T, t: vec3fT }, (p) =>
+      mix(p.a, p.b, p.t as never),
+    )
+    expect(() => fp64Lower(module({ funcs: [bad] }))).toThrow(/SD0041/)
+  })
+
   it('unsupported builtins / attributes / assigns fail loud', () => {
     const s = fn('s', { a: vec3f64T }, (p) => sin(p.a))
     expect(() => fp64Lower(module({ funcs: [s] }))).toThrow(/SD0041/)
@@ -146,6 +184,12 @@ const m = module({
     fn('v_mul', { a: vec3f64T, b: vec3f64T }, (p) => p.a.mul(p.b)),
     fn('v_dot', { a: vec3f64T, b: vec3f64T }, (p) => dot(p.a, p.b)),
     fn('v_len', { a: vec3f64T }, (p) => length(p.a)),
+    fn('v_abs', { a: vec3f64T }, (p) => abs(p.a)),
+    fn('v_min', { a: vec3f64T, b: vec3f64T }, (p) => min(p.a, p.b)),
+    fn('v_mix', { a: vec3f64T, b: vec3f64T, t: f32T }, (p) => mix(p.a, p.b, p.t)),
+    fn('v_fract', { a: vec3f64T }, (p) => fract(p.a)),
+    fn('v_floor', { a: vec3f64T }, (p) => floor(p.a)),
+    fn('v_norm', { a: vec3f64T }, (p) => normalize(p.a)),
   ],
 })
 const cpu = f32Oracle(m)
@@ -193,6 +237,64 @@ describe('vec64 known answers (f32-rounding oracle)', () => {
     const got = sum(cpu.fns.v_len!(packV3(a)))
     expect(Math.abs(got - exact)).toBeLessThan(exact * 2 ** -40)
   })
+
+  it('abs preserves the lo word f32 loses', () => {
+    const x = 1e8 + 0.5 // splits exactly: (1e8, 0.5)
+    const r = cpu.fns.v_abs!(packV3([-x, 2 ** -30, -2])) as { hi: number[]; lo: number[] }
+    expect(r.hi[0]! + r.lo[0]!).toBe(x)
+    expect(r.hi[1]! + r.lo[1]!).toBe(2 ** -30)
+    expect(r.hi[2]! + r.lo[2]!).toBe(2)
+    expect(Math.fround(Math.abs(Math.fround(-x)))).toBe(1e8) // f32 loses the 0.5
+  })
+
+  it('min breaks per-lane ties through the lo word (invisible to f32)', () => {
+    const lo3 = Math.fround(0.3)
+    const lo4 = Math.fround(0.4)
+    // lane 0: hi ties at 1e8, lo decides; lane 1: plain; lane 2: negatives.
+    const a: [number, number, number] = [1e8 + lo3, 1, -6]
+    const b: [number, number, number] = [1e8 + lo4, 2, -5]
+    const r = cpu.fns.v_min!(packV3(a), packV3(b)) as { hi: number[]; lo: number[] }
+    expect(r.hi[0]! + r.lo[0]!).toBe(1e8 + lo3)
+    expect(r.hi[1]! + r.lo[1]!).toBe(1)
+    expect(r.hi[2]! + r.lo[2]!).toBe(-6)
+    expect(Math.fround(1e8 + lo3)).toBe(Math.fround(1e8 + lo4)) // f32 cannot order them
+  })
+
+  it('mix lands on midpoints f32 collapses', () => {
+    const b = 1e8 + 0.5
+    const r = cpu.fns.v_mix!(packV3([0, 0, 0]), packV3([b, 2, 4]), 0.5) as {
+      hi: number[]
+      lo: number[]
+    }
+    expect(r.hi[0]! + r.lo[0]!).toBe(5e7 + 0.25)
+    expect(r.hi[1]! + r.lo[1]!).toBe(1)
+    expect(Math.fround(Math.fround(b) * 0.5)).toBe(5e7) // f32 drops the 0.25
+  })
+
+  it('floor/fract recover the sub-integer part at 1e8 (f32 renders it 0)', () => {
+    const frac = Math.fround(0.7)
+    const a: [number, number, number] = [1e8 + frac, -1.5, 2]
+    const rFloor = cpu.fns.v_floor!(packV3(a)) as { hi: number[]; lo: number[] }
+    expect(rFloor.hi[0]! + rFloor.lo[0]!).toBe(1e8)
+    expect(rFloor.hi[1]! + rFloor.lo[1]!).toBe(-2)
+    const rFract = cpu.fns.v_fract!(packV3(a)) as { hi: number[]; lo: number[] }
+    expect(rFract.hi[0]! + rFract.lo[0]!).toBe(frac)
+    expect(rFract.hi[1]! + rFract.lo[1]!).toBe(0.5)
+    expect(Math.fround(Math.fround(1e8 + frac) - Math.floor(Math.fround(1e8 + frac)))).toBe(0)
+  })
+
+  it('normalize holds unit length to df64 precision (f32 sits ~2^-23)', () => {
+    const a: [number, number, number] = [3e7, 4e7, 0.25]
+    const exact = Math.hypot(...a)
+    const r = cpu.fns.v_norm!(packV3(a)) as { hi: number[]; lo: number[] }
+    let sq = 0
+    for (let i = 0; i < 3; i++) {
+      const lane = r.hi[i]! + r.lo[i]!
+      expect(Math.abs(lane - a[i]! / exact)).toBeLessThanOrEqual(Math.abs(a[i]! / exact) * 2 ** -40)
+      sq += lane * lane
+    }
+    expect(Math.abs(Math.sqrt(sq) - 1)).toBeLessThan(2 ** -40)
+  })
 })
 
 describe('vec64 metamorphic gate — oracle(fp64Lower(m)) ≈ oracle(m)', () => {
@@ -212,6 +314,36 @@ describe('vec64 metamorphic gate — oracle(fp64Lower(m)) ≈ oracle(m)', () => 
       expect(Math.abs(lowAdd.hi[i]! + lowAdd.lo[i]! - exactAdd[i]!)).toBeLessThanOrEqual(
         Math.abs(exactAdd[i]!) * 2 ** -40,
       )
+    }
+  })
+
+  it('componentwise builtins agree across the two paths', () => {
+    const a: [number, number, number] = [-123456.789, 0.000123, -9876.5]
+    const b: [number, number, number] = [Math.PI, -Math.E, 12345.678]
+    const perLane = (
+      name: string,
+      args: CpuValue[],
+      lowArgs: CpuValue[],
+    ): { exact: number[]; low: { hi: number[]; lo: number[] } } => ({
+      exact: authored.fns[name]!(...args) as number[],
+      low: lowered.fns[name]!(...lowArgs) as { hi: number[]; lo: number[] },
+    })
+    for (const [name, args, lowArgs] of [
+      ['v_abs', [a], [packV3(a)]],
+      ['v_min', [a, b], [packV3(a), packV3(b)]],
+      ['v_mix', [a, b, 0.25], [packV3(a), packV3(b), 0.25]],
+      ['v_fract', [a], [packV3(a)]],
+      ['v_floor', [a], [packV3(a)]],
+      ['v_norm', [a], [packV3(a)]],
+    ] as [string, CpuValue[], CpuValue[]][]) {
+      const { exact, low } = perLane(name, args, lowArgs)
+      for (let i = 0; i < 3; i++) {
+        const got = low.hi[i]! + low.lo[i]!
+        expect(
+          Math.abs(got - exact[i]!),
+          `${name} lane ${i}`,
+        ).toBeLessThanOrEqual(Math.max(Math.abs(exact[i]!), 1) * 2 ** -40)
+      }
     }
   })
 })
