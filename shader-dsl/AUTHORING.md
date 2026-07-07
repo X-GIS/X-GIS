@@ -806,13 +806,17 @@ all agree). What to know:
 ### Vectors — `vec2f64T` / `vec3f64T` / `vec4f64T`
 
 `vecNf64(x, y, …)` builds an emulated-double vector; components (`v.x`), swizzles
-(`v.zyx`), componentwise `+ − ×` (with `f64`/`f32`/number broadcast), `÷`, `neg`, and
-the reductions `dot`/`length`/`distance` (→ `f64`) all use the unchanged surface. A
-vec64 lowers to `struct DF64VecN { hi: vecN<f32>, lo: vecN<f32> }` — componentwise
-arithmetic runs the same EFTs on whole hi/lo planes (one twoSum for all lanes);
-`dot`/`length`/`distance` accumulate through the SCALAR df64 chain (extended-precision
-accumulation is the point). Everything else on a vec64 (`normalize`, `abs`, `mix`,
-…) is `SD0041` — narrow per lane (`toF32(v.x)`) or divide by `length(v)` explicitly.
+(`v.zyx`), componentwise `+ − ×` (with `f64`/`f32`/number broadcast), `÷`, `neg`,
+the componentwise builtins `abs`/`min`/`max`/`mix` (scalar f32 interpolant)/`floor`/
+`fract`/`normalize`, and the reductions `dot`/`length`/`distance` (→ `f64`) all use
+the unchanged surface. A vec64 lowers to
+`struct DF64VecN { hi: vecN<f32>, lo: vecN<f32> }` — componentwise arithmetic runs
+the same EFTs on whole hi/lo planes (one twoSum for all lanes); the builtins with
+per-lane branching (`abs`, `min`, …) and `normalize` compose the verified SCALAR
+df64 fns lane by lane inside one `df64_vN_*` helper body, and
+`dot`/`length`/`distance` accumulate through the SCALAR df64 chain
+(extended-precision accumulation is the point). Everything else on a vec64
+(`sin`, `clamp`, …) is `SD0041` — narrow per lane (`toF32(v.x)`) first.
 A vec64 uniform field occupies its struct layout (n=2: 16 B, n=3/4: 32 B under
 std140); a vec64 vertex ATTRIBUTE is rejected (`SD0041`) — pass hi/lo as two
 `vecN<f32>` `@location`s (the existing DSFUN lane convention) and rebuild lanes with
