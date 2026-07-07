@@ -29,10 +29,11 @@ import {
   Var,
   Let,
   f32T,
+  vec4fT,
 } from '../src/index.ts'
 import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
-const U = fullscreenUniforms({ zoom: f32T })
+const U = fullscreenUniforms({ zoom: f32T, mouse: vec4fT })
 
 // Iridescent cosine palette: 0.5 + 0.5·cos(2π(t + phase)).
 const palette = fn('palette', { t: f32T }, ({ t }) => {
@@ -50,7 +51,16 @@ const fs = fn(
     const s = Let(
       exp(U.field.zoom.add(sin(U.field.time.mul(0.2)).mul(0.75).add(0.75)).neg()).mul(2.4),
     )
-    const c = vec2(p.x.mul(s).sub(0.7453), p.y.mul(s).add(0.1127))
+    // pointer pans the view: the pointer maps into the same isotropic space as
+    // p and offsets the centre, scaled by the current zoom. mu.w = 0 (never
+    // touched) keeps the canonical seahorse-valley framing.
+    const mu = U.field.mouse
+    const pan = Let(
+      screenCoords(vec2(mu.x.div(res.x), mu.y.div(res.y)), res)
+        .mul(s)
+        .mul(mu.w),
+    )
+    const c = vec2(p.x.mul(s).sub(0.7453).add(pan.x), p.y.mul(s).add(0.1127).add(pan.y))
     const z = Var(vec2(0, 0))
     const it = Var(f32(0))
     Loop(
@@ -85,7 +95,7 @@ export const mandelbrot: ShaderExample = {
   id: 'mandelbrot',
   title: 'Mandelbrot set',
   blurb:
-    'The Mandelbrot set with smooth escape-time colouring — log₂ log₂ |z|² removes the iteration banding — breathing in and out of the seahorse valley. The zoom slider sets how deep the breath goes (f32 bounds the floor).',
+    'The Mandelbrot set with smooth escape-time colouring — log₂ log₂ |z|² removes the iteration banding — breathing in and out of the seahorse valley. Move the pointer to pan the view; the zoom slider sets how deep the breath goes (f32 bounds the floor).',
   category: 'generic',
   file: 'mandelbrot.ts',
   module: mandelbrotModule,
@@ -94,5 +104,6 @@ export const mandelbrot: ShaderExample = {
     time: { kind: 'time' },
     resolution: { kind: 'resolution' },
     zoom: { kind: 'slider', label: 'Zoom', min: 0, max: 4, step: 0.1, value: 1.5 },
+    mouse: { kind: 'mouse' },
   },
 }

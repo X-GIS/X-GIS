@@ -33,10 +33,11 @@ import {
   Let,
   f32T,
   vec3fT,
+  vec4fT,
 } from '../src/index.ts'
 import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
-const U = fullscreenUniforms({ speed: f32T })
+const U = fullscreenUniforms({ speed: f32T, mouse: vec4fT })
 
 // scene SDF: a rounded box repeated every 2.6 units in all three axes —
 // mod's floor-mod keeps WGSL and GLSL agreeing on negative coordinates.
@@ -68,7 +69,23 @@ const fs = fn(
         time.mul(U.field.speed).neg(),
       ),
     )
-    const rd = Let(normalize(vec3(ndc.x, ndc.y, f32(1.6).neg())))
+    const rd0 = Let(normalize(vec3(ndc.x, ndc.y, f32(1.6).neg())))
+    // pointer looks around: yaw (about y) from pointer x, pitch (about x) from
+    // pointer y. m.w = 0 (never touched) makes both angles exactly 0, so gates
+    // and thumbnails see the straight-down-the-corridor view.
+    const m = U.field.mouse
+    const yaw = Let(m.x.div(res.x).sub(0.5).mul(1.6).mul(m.w))
+    const pit = Let(m.y.div(res.y).sub(0.5).mul(m.w))
+    const cy = Let(cos(yaw))
+    const sy = Let(sin(yaw))
+    const cp = Let(cos(pit))
+    const sp = Let(sin(pit))
+    // rotY(yaw) then rotX(pitch)
+    const rx = Let(rd0.x.mul(cy).add(rd0.z.mul(sy)))
+    const rz1 = Let(rd0.z.mul(cy).sub(rd0.x.mul(sy)))
+    const ry = Let(rd0.y.mul(cp).sub(rz1.mul(sp)))
+    const rz = Let(rz1.mul(cp).add(rd0.y.mul(sp)))
+    const rd = Let(vec3(rx, ry, rz))
     const t = f32(0)
     const hit = f32(0)
     Loop(
@@ -128,7 +145,7 @@ export const raymarchBoxes: ShaderExample = {
   id: 'raymarch-boxes',
   title: 'Raymarched box field',
   blurb:
-    'Domain repetition — one rounded-box SDF floor-modded into an infinite lattice, flown through forever. A reusable scene() helper serves the march and the six-tap normal; per-cell hashing tints the boxes. Fly speed is live.',
+    'Domain repetition — one rounded-box SDF floor-modded into an infinite lattice, flown through forever. Move the pointer to look around the corridor; a reusable scene() helper serves the march and the six-tap normal. Fly speed is live.',
   category: 'generic',
   file: 'raymarch-boxes.ts',
   module: boxesModule,
@@ -137,5 +154,6 @@ export const raymarchBoxes: ShaderExample = {
     time: { kind: 'time' },
     resolution: { kind: 'resolution' },
     speed: { kind: 'slider', label: 'Fly speed', min: 0, max: 3, step: 0.1, value: 1.4 },
+    mouse: { kind: 'mouse' },
   },
 }
