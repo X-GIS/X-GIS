@@ -106,8 +106,12 @@ const cs = fn('cs_match', { gid: builtin('global_invocation_id', vec3uT) }, (p) 
 module({ consts, structs, bindings, funcs })
 ```
 
-Each field is an array; any omitted field defaults to `[]`. Order in `funcs:` is the WGSL
-emit order, so **callees come before callers** (WGSL requires forward declaration order):
+Each field is an array; any omitted field defaults to `[]`. Order in `funcs:` is the emit
+order — keep **callees before callers**. Not for WGSL's sake (final-spec WGSL resolves
+module-scope declarations out of order; it has no prototype syntax at all), but because
+(a) GLSL ES 3.00 requires declare-before-use — the GLSL backend emits forward prototypes
+as a safety net, and dependency order keeps working even without them — and (b) a stable
+order keeps snapshot/golden bytes deterministic:
 
 ```ts
 export const buildRasterModule = (pickEnabled: boolean): ModuleDecl =>
