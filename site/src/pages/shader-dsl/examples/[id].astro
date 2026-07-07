@@ -22,6 +22,9 @@ const detailHref = (id: string) => `${base}/shader-dsl/examples/${id}`
 const sliderControls = Object.entries(card.spec?.controls ?? {}).filter(
   ([, c]) => (c as { kind: string }).kind === 'slider',
 ) as [string, { kind: 'slider'; label: string; min: number; max: number; step: number; value: number }][]
+const hasMouse = Object.values(card.spec?.controls ?? {}).some(
+  (c) => (c as { kind: string }).kind === 'mouse',
+)
 
 const tabs = [
   { id: 'dsl', label: 'DSL (TypeScript)' },
@@ -46,13 +49,50 @@ const tabs = [
 
   {card.renderable && card.spec && (
     <section class="mt-7">
-      <div class="relative rounded-[8px] overflow-hidden bg-bg-elev border border-line" style="aspect-ratio: 16 / 10;">
+      <div data-shader-frame class="relative rounded-[8px] overflow-hidden bg-bg-elev border border-line" style="aspect-ratio: 16 / 10;">
         <canvas data-shader={card.id} class="block w-full h-full" style="touch-action: none;"></canvas>
         <span class="absolute top-3 left-3 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-bg/80 backdrop-blur border border-line text-fg-dim text-[10px] font-mono tracking-[0.16em] uppercase pointer-events-none">
           <span class="w-1.5 h-1.5 rounded-full bg-fg inline-block animate-pulse"></span>
           Live · WebGL2
         </span>
+        {hasMouse && (
+          <span class="absolute top-3 right-3 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-bg/80 backdrop-blur border border-line text-fg-dim text-[10px] font-mono tracking-[0.16em] uppercase pointer-events-none">
+            <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4l7 17 2.5-7.5L21 11z"/></svg>
+            Pointer-interactive
+          </span>
+        )}
         <div data-error hidden class="absolute inset-0 flex items-center justify-center p-6 text-center text-fg-mute text-[12px] font-mono bg-bg-elev"></div>
+      </div>
+
+      <!-- Transport chrome: shader-clock controls shared by every renderable
+           example — the descriptor's {kind:'time'} is host-filled, so these need
+           no shader/uniform change. -->
+      <div data-transport class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <button type="button" data-play aria-label="Pause" title="Play / pause"
+          class="inline-flex items-center justify-center w-8 h-8 rounded-full border border-line text-fg-dim hover:text-fg hover:border-line-strong transition-colors">
+          <svg data-icon-pause viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+          <svg data-icon-play viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true" style="display: none;"><path d="M8 5.5v13l11-6.5z"/></svg>
+        </button>
+        <input type="range" data-scrub min="0" max="30" step="0.05" value="0" aria-label="Shader time"
+          class="shader-range flex-1 min-w-[120px]" />
+        <span data-clock class="font-mono text-[11px] text-fg-mute w-[4.5ch] text-right">0.0s</span>
+        <div class="flex items-center gap-1" role="group" aria-label="Playback speed">
+          {[0.25, 0.5, 1, 2].map((s) => (
+            <button type="button" data-speed={s} aria-pressed={s === 1 ? 'true' : 'false'}
+              class={`speed-btn font-mono text-[10.5px] px-2 py-0.5 rounded-full border transition-colors ${s === 1 ? 'border-line-strong text-fg' : 'border-line text-fg-mute hover:text-fg'}`}>
+              {s}×
+            </button>
+          ))}
+        </div>
+        <button type="button" data-reset title="Reset time and controls"
+          class="inline-flex items-center gap-1.5 font-mono text-[10.5px] px-2.5 py-1 rounded-full border border-line text-fg-mute hover:text-fg hover:border-line-strong transition-colors">
+          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+          Reset
+        </button>
+        <button type="button" data-fullscreen title="Fullscreen"
+          class="inline-flex items-center justify-center w-8 h-8 rounded-full border border-line text-fg-dim hover:text-fg hover:border-line-strong transition-colors">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+        </button>
       </div>
 
       {sliderControls.length > 0 && (
@@ -160,7 +200,10 @@ const tabs = [
 
   if (spec && canvas) {
     const sliders: Record<string, number> = {}
-    document.querySelectorAll<HTMLInputElement>('input[type="range"][data-field]').forEach((input) => {
+    const sliderInputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[type="range"][data-field]'),
+    )
+    sliderInputs.forEach((input) => {
       const field = input.dataset.field!
       sliders[field] = parseFloat(input.value)
       const out = document.querySelector<HTMLElement>(`[data-value="${field}"]`)
@@ -170,13 +213,80 @@ const tabs = [
       })
     })
     try {
-      mountShader(canvas, spec, sliders)
+      const mounted = mountShader(canvas, spec, sliders)
+
+      // ── Transport chrome: play/pause · scrub · speed · reset · fullscreen ──
+      const playBtn = document.querySelector<HTMLButtonElement>('[data-play]')
+      const iconPlay = document.querySelector<SVGElement>('[data-icon-play]')
+      const iconPause = document.querySelector<SVGElement>('[data-icon-pause]')
+      const scrub = document.querySelector<HTMLInputElement>('[data-scrub]')
+      const clock = document.querySelector<HTMLElement>('[data-clock]')
+      const speedBtns = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-speed]'))
+      const resetBtn = document.querySelector<HTMLButtonElement>('[data-reset]')
+      const fsBtn = document.querySelector<HTMLButtonElement>('[data-fullscreen]')
+      const frame = document.querySelector<HTMLElement>('[data-shader-frame]')
+
+      const SCRUB_SPAN = 30 // seconds mapped across the scrub bar
+      const reflectPlaying = (): void => {
+        const p = mounted.isPlaying()
+        if (iconPlay) iconPlay.style.display = p ? 'none' : ''
+        if (iconPause) iconPause.style.display = p ? '' : 'none'
+        playBtn?.setAttribute('aria-label', p ? 'Pause' : 'Play')
+      }
+      playBtn?.addEventListener('click', () => {
+        mounted.setPlaying(!mounted.isPlaying())
+        reflectPlaying()
+      })
+      let scrubbing = false
+      scrub?.addEventListener('pointerdown', () => {
+        scrubbing = true
+      })
+      scrub?.addEventListener('pointerup', () => {
+        scrubbing = false
+      })
+      scrub?.addEventListener('input', () => {
+        mounted.setTime(parseFloat(scrub.value))
+      })
+      speedBtns.forEach((b) =>
+        b.addEventListener('click', () => {
+          mounted.setSpeed(parseFloat(b.dataset.speed!))
+          speedBtns.forEach((o) => {
+            const on = o === b
+            o.setAttribute('aria-pressed', String(on))
+            o.classList.toggle('border-line-strong', on)
+            o.classList.toggle('text-fg', on)
+            o.classList.toggle('border-line', !on)
+            o.classList.toggle('text-fg-mute', !on)
+          })
+        }),
+      )
+      resetBtn?.addEventListener('click', () => {
+        mounted.setTime(0)
+        sliderInputs.forEach((input) => {
+          input.value = input.defaultValue
+          input.dispatchEvent(new Event('input'))
+        })
+      })
+      fsBtn?.addEventListener('click', () => {
+        if (document.fullscreenElement) void document.exitFullscreen()
+        else void frame?.requestFullscreen()
+      })
+      // The clock readout + scrub thumb follow the shader clock while playing.
+      const tick = (): void => {
+        requestAnimationFrame(tick)
+        const t = mounted.getTime()
+        if (clock) clock.textContent = `${t.toFixed(1)}s`
+        if (scrub && !scrubbing) scrub.value = String(t % SCRUB_SPAN)
+      }
+      requestAnimationFrame(tick)
+      reflectPlaying()
     } catch (err) {
       const overlay = document.querySelector<HTMLElement>('[data-error]')
       if (overlay) {
         overlay.textContent = err instanceof Error ? err.message : 'Failed to render this shader.'
         overlay.hidden = false
       }
+      document.querySelector<HTMLElement>('[data-transport]')?.setAttribute('hidden', '')
     }
   }
 </script>

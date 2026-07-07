@@ -10,6 +10,7 @@ layout(std140) uniform Uniforms {
   float time;
   vec2 resolution;
   float count;
+  vec4 mouse;
 } U;
 vec3 palette(float t);
 vec3 palette(float t) {
