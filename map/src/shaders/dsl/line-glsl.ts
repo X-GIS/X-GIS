@@ -9,16 +9,8 @@
 
 import { module, emitGlslModule } from '@xgis/shader-dsl'
 import { getGpuProjectionFuncs } from './projections'
-import {
-  buildLineModule,
-  vsLine,
-  buildFsLine,
-  buildFsLinePattern,
-  fsLineMax,
-  compositeModule,
-  vsFull,
-  fsFull,
-} from './line'
+import { buildLineModule, vsLine, buildFsLine, buildFsLinePattern, fsLineMax } from './line'
+import { compositeModule, vsFull, fsFull } from './line-composite'
 
 /** GLSL ES 3.00 twin of the line shader (mirrors emitPolygonGlsl /
  *  emitIconRetainedGlsl). Per-stage module ASSEMBLY (not a post-hoc func

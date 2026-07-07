@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { emitLineWgsl, emitCompositeWgsl } from './line'
+import { emitLineWgsl } from './line'
+import { emitCompositeWgsl } from './line-composite'
 
 // Phase-2 line (SDF stroke) shader — the biggest production shader in the
 // codebase (1314 LOC straight WGSL). Three fragment entry points share one

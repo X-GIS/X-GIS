@@ -63,7 +63,6 @@ import {
   f32T,
   u32T,
   vec2fT,
-  vec3fT,
   vec4fT,
   vec2uT,
   mat4x4fT,
@@ -1351,71 +1350,6 @@ export const buildLineModule = (pickEnabled: boolean): ModuleDecl =>
 export const emitLineWgsl = (pickEnabled: boolean): string =>
   emitModule(buildLineModule(pickEnabled))
 
-// ── Compositor (fullscreen-triangle sampling the translucent offscreen RT) ──
-//
-// Standalone — different bind group + a single uniform (opacity). Pairs with
-// pipelineMax in line-renderer.ts.
-
-const CompUniform = uniformStruct(
-  'CompUniform',
-  { group: 0, binding: 2, as: 'cu' },
-  {
-    opacity: f32T,
-    _pad: vec3fT,
-  },
-)
-
-const VsFullOut = ioStruct('VsFullOut', {
-  pos: builtin('position', vec4fT),
-  uv: location(0, vec2fT),
-})
-
-const compSampB = resource('samp', samplerT, { group: 0, binding: 0 })
-const compSamp = compSampB.node
-const compSrcB = resource('src', texture2dfT, { group: 0, binding: 1 })
-const compSrc = compSrcB.node
-
-export const vsFull = fn(
-  'vs_full',
-  { vi: builtin('vertex_index', u32T) },
-  (p) => {
-    const pos = vec2(-1, -1)
-    const uv = vec2(0, 1)
-    If(p.vi.eq(1), () => {
-      pos.assign(vec2(3, -1))
-      uv.assign(vec2(2, 1))
-    })
-    If(p.vi.eq(2), () => {
-      pos.assign(vec2(-1, 3))
-      uv.assign(vec2(0, -1))
-    })
-    return VsFullOut.construct({
-      pos: vec4(pos, 0, 1),
-      uv,
-    })
-  },
-  { stage: 'vertex' },
-)
-
-export const fsFull = fn(
-  'fs_full',
-  { input: VsFullOut },
-  (p) => {
-    const c = textureSample(compSrc, compSamp, p.input.uv)
-    const op = CompUniform.field.opacity
-    // MAX-blend offscreen stores non-premultiplied (rgb, a_aa); premultiply here.
-    return vec4(c.rgb.mul(c.a).mul(op), c.a.mul(op))
-  },
-  { stage: 'fragment', retAttr: '@location(0)' },
-)
-
-export const compositeModule: ModuleDecl = module({
-  structs: [CompUniform.struct, VsFullOut.decl],
-  bindings: [compSampB.binding, compSrcB.binding, CompUniform.binding],
-  funcs: [vsFull, fsFull],
-})
-
-/** Translucent-line compositor: fullscreen triangle that samples the max-blend
- *  offscreen RT and composites onto the main framebuffer with per-layer
- *  opacity. Pairs with pipelineMax in line-renderer.ts. */
-export const emitCompositeWgsl = (): string => emitModule(compositeModule)
+// The compositor (fullscreen triangle sampling the translucent offscreen RT)
+// lives in line-composite.ts — extracted for the arch ratchet; it is a
+// standalone assembly concern (own bind group + a single opacity uniform).
