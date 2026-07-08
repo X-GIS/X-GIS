@@ -24,7 +24,7 @@ import {
   stereographic,
   obliqueMercator,
 } from '@xgis/engine'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 
 const PROJECTIONS = [
   { name: 'mercator', proj: mercator, projType: 0, factory: () => mercator },

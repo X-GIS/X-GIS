@@ -23,7 +23,7 @@
 // (§5 items 2 + 6). `merc-high-pitch-drag-perf.test.ts` is the scratch
 // guard; `_zoom-transition-*.spec.ts` are the hysteresis/readiness guards.
 
-import { Camera } from '@xgis/engine'
+import { Camera } from '../camera'
 import { activeBody } from '@xgis/shared'
 import {
   visibleTilesFrustum,

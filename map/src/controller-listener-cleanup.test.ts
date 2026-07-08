@@ -18,7 +18,7 @@
 // that was added.
 
 import { describe, it, expect } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from './camera'
 import { PanZoomController } from './controller'
 
 const W = 800,

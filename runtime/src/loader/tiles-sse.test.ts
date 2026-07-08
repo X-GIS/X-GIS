@@ -5,7 +5,7 @@
 // frustum cull, fallback inject) doesn't silently regress the basics.
 
 import { describe, expect, it } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 import { mercator } from '@xgis/engine'
 import { visibleTilesSSE } from '@xgis/data'
 

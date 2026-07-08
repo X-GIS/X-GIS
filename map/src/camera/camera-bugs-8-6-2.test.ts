@@ -4,8 +4,8 @@
 //   #2  discDragAnchorAt / panDiscToScreenAnchor round-trip
 
 import { describe, it, expect } from 'vitest'
-import { Camera } from '../camera'
-import { panGlobeToScreenAnchor } from '../globe-anchor'
+import { Camera } from './camera'
+import { panGlobeToScreenAnchor } from './globe-anchor'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 

@@ -17,7 +17,7 @@
 // call-site changes.
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
-import type { Camera } from '@xgis/engine'
+import type { Camera } from '../camera'
 import type { MeshData, LineMeshData } from '@xgis/data'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { activeBody } from '@xgis/shared'

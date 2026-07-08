@@ -4,15 +4,15 @@
 // The cache state (matrixId + result) is owned by the caller via the
 // `WorldCopiesCache` object; this module contains ZERO mutable state.
 //
-// L0 module: imports only other L0 projection files (no upward edges).
+// Imports shared geo primitives (globe, projections-table) from @xgis/engine.
 
-import { EARTH_R } from './globe'
 import {
+  EARTH_R,
   isGlobeProj,
   isMercatorProj,
   worldCopiesFor,
   enumerateWorldCopies,
-} from './projections-table'
+} from '@xgis/engine'
 
 /** Mutable cache object owned by the caller (Camera). Passed by reference so
  *  the pure function can read + update the hit/miss state without keeping its

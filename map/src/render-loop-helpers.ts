@@ -21,7 +21,7 @@ import {
   projMercatorCpu,
 } from './shaders/dsl/cpu-projections'
 import { isGlobeProj } from '@xgis/engine'
-import type { Camera } from '@xgis/engine'
+import type { Camera } from './camera'
 import { WORLD_MERC } from '@xgis/engine'
 import { xlog } from '@xgis/shared'
 

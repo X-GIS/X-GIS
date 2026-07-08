@@ -10,7 +10,7 @@
 // `polygon-ecef-mvp-latitude-parity.test.ts` is the correctness gate.
 
 import { describe, it, expect } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 import { mercatorToECEFSphere } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 

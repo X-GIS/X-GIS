@@ -18,7 +18,7 @@
 // the tangent-plane curvature term — sub-pixel at all 24 cells.
 
 import { describe, it, expect } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 import { mercatorToECEFSphere } from '@xgis/engine'
 import { WORLD_MERC } from '@xgis/engine'
 

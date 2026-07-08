@@ -1,7 +1,7 @@
 // ═══ Raster Tile Renderer — 텍스처 타일을 GPU 투영으로 렌더링 ═══
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
-import type { Camera } from '@xgis/engine'
+import type { Camera } from '../camera'
 import { visibleTilesFrustum, tileUrl, loadImageTexture, loadImageBitmap } from '@xgis/data'
 import { mercator as mercatorProj, mercatorYToLat } from '@xgis/engine'
 import { activeBody } from '@xgis/shared'

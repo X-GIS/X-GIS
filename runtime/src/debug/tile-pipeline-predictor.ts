@@ -19,7 +19,7 @@
 // reproduce a reported state; use `inspectPipeline` in DevTools to
 // confirm the live instance matches.
 
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 import { mercator as mercatorProj } from '@xgis/engine'
 import { visibleTilesFrustum } from '@xgis/data'
 

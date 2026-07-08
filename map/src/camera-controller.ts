@@ -14,7 +14,7 @@
 //   - `this.ctx?.canvas`    → injected `getCtxCanvas` accessor
 //   - `this._maxBounds` / `this._cameraExplicitlyPositioned` → owned here
 
-import { Camera } from '@xgis/engine'
+import { Camera } from './camera'
 import { MERCATOR_LAT_LIMIT, mercatorYToLat, mercatorYToLatRad, mercator } from '@xgis/engine'
 import { poleLimit, representsCenterAs } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'

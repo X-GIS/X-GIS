@@ -58,7 +58,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { getProjection, mercator, mercatorYToLat, type Projection } from '@xgis/engine'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 import { globeForward, buildGlobeMatrix, unprojectGlobe } from '@xgis/engine'
 import { lonLatToECEF } from '@xgis/engine'
 

@@ -7,7 +7,7 @@
 // Behavior is a verbatim relocation of the former XGISMap methods —
 // same execution order, same conditions, same event payloads.
 
-import type { Camera } from '@xgis/engine'
+import type { Camera } from './camera'
 import {
   ListenerRegistry,
   MapEventRegistry,

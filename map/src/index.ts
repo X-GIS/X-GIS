@@ -187,6 +187,9 @@ export * from './text/text-stage-diagnostics'
 // SELECTIVE: its back-compat re-exports (resolveTypography / wrapForTesting / layoutCacheEntryValid
 // / mlVerticalLayout / verticalLayoutForTesting / composeFontKey) resolve via their real homes above.
 export { TextStage } from './text/text-stage'
+// Camera cluster (relocated from @xgis/engine, #781 3b): Camera state machine,
+// view-matrix builders, globe-anchor / unproject interaction geo, world-copies.
+export * from './camera'
 // XGISMap facade guts: controller / source / layer / interpreter / event / show / map-type modules.
 export * from './auto-resize'
 export * from './stats'
