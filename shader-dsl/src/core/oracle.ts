@@ -204,6 +204,9 @@ const BUILTINS: Record<string, Builtin> = {
       u[0]! * w[1]! - u[1]! * w[0]!,
     ]
   },
+  // transpose(M) — a column-major n² matrix (used by the mat64 authoring path;
+  // n is recovered from the flat length). Native for f32 matrices too.
+  transpose: (m) => matTranspose(m as number[]),
   f32: (x) => Number(x),
   // toF64 widen — a no-op here: the oracle evaluates f64 natively as a JS
   // number (JS numbers ARE f64), which is why compileModule deliberately does
@@ -320,6 +323,27 @@ function matVec(m: number[], v: number[]): number[] {
   return out
 }
 
+// matNxN × matNxN (both column-major, flat n²). C[col*n+row] = Σ_k A[k*n+row]·B[col*n+k].
+function matMul(a: number[], b: number[]): number[] {
+  const n = Math.round(Math.sqrt(a.length))
+  const out = new Array<number>(n * n).fill(0)
+  for (let col = 0; col < n; col++)
+    for (let row = 0; row < n; row++) {
+      let s = 0
+      for (let k = 0; k < n; k++) s += a[k * n + row]! * b[col * n + k]!
+      out[col * n + row] = s
+    }
+  return out
+}
+
+// Transpose of a column-major n² matrix: out[i*n+j] = in[j*n+i].
+function matTranspose(m: number[]): number[] {
+  const n = Math.round(Math.sqrt(m.length))
+  const out = new Array<number>(n * n).fill(0)
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) out[i * n + j] = m[j * n + i]!
+  return out
+}
+
 function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
   switch (e.op) {
     case 'lit':
@@ -340,17 +364,18 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         bv = evalExpr(e.b, env, ctx)
       // mat * vec (column-major) — the MVP transform. Dispatched by the
       // operand's static type since values are type-blind number[] at runtime.
-      if (e.bop === '*' && e.a.type.kind === 'mat' && e.b.type.kind === 'vec') {
+      if (
+        e.bop === '*' &&
+        e.a.type.kind === 'mat' &&
+        (e.b.type.kind === 'vec' || e.b.type.kind === 'vec64')
+      ) {
         return matVec(av as number[], bv as number[])
       }
-      // #763 O2 — fail LOUD on the matrix shapes this interpreter does not
-      // implement. Falling through to applyBin computed element-wise Hadamard
-      // for mat*mat (silently wrong vs both GPU backends) and misordered
-      // vec*mat entirely.
+      // A real column-major matrix product — needed for the mat64 (emulated
+      // double) matmul path, whose metamorphic gate evaluates the AUTHORED
+      // module here. (The native-mat*mat case stays supported by the same code.)
       if (e.bop === '*' && e.a.type.kind === 'mat' && e.b.type.kind === 'mat') {
-        throw new Error(
-          'shader-dsl/cpu: mat*mat is not implemented (element-wise would be silently wrong) — decompose into mat*vec or add a real matrix product first',
-        )
+        return matMul(av as number[], bv as number[])
       }
       if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat') {
         throw new Error(

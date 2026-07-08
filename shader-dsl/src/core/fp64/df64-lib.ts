@@ -469,6 +469,80 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
   ]
 }
 
+// ── Matrix df64 (matNxN<f64> — the DF64MatN column-struct form) ──
+//
+// A matNxN<f64> lowers to `struct DF64MatN { c0..c(N-1): DF64VecN }` (columns,
+// matching GPU column-major). mat·vec / matmul / transpose are the textbook
+// linear-algebra compositions of the SCALAR df64 EFTs — result lane i = Σⱼ
+// M[i][j] ⊗ v[j], each ⊗/⊕ a df64 twoProd/twoSum — the same extended-precision
+// accumulation dot()/length() use, so no new numerics, only new shapes.
+
+/** DF64MatN struct decls, keyed by dimension — injected by fp64-lower alongside
+ *  the mat helpers (and the DF64VecN structs they nest). */
+export const DF64_MAT_STRUCTS: ReadonlyMap<2 | 3 | 4, StructDecl> = new Map(
+  ([2, 3, 4] as const).map((n) => [
+    n,
+    {
+      name: `DF64Mat${n}`,
+      fields: Array.from({ length: n }, (_, j) => ({
+        name: `c${j}`,
+        type: structT(`DF64Vec${n}`),
+      })),
+    },
+  ]),
+)
+
+function defMatHelpers(n: 2 | 3 | 4): FuncDecl[] {
+  const mT = structT(`DF64Mat${n}`)
+  const vT = structT(`DF64Vec${n}`)
+  const vecFT: ShaderType = VEC_F32_T[n]
+  const LANES = 'xyzw'.slice(0, n).split('')
+  type P = ReadonlyNode<'vec2<f32>'>
+  const col = (m: ReadonlyNode, j: number): Node => member(m, `c${j}`, vT)
+  // lane c of a DF64VecN → the df64 scalar (hi.c, lo.c).
+  const laneOf = (v: ReadonlyNode, c: string): P =>
+    vec2(member(member(v, 'hi', vecFT), c, f32T), member(member(v, 'lo', vecFT), c, f32T)) as P
+  const gatherVec = (ls: readonly ReadonlyNode[]): Node =>
+    construct(vT, [
+      construct(
+        vecFT,
+        ls.map((l) => member(l, 'x', f32T)),
+      ),
+      construct(
+        vecFT,
+        ls.map((l) => member(l, 'y', f32T)),
+      ),
+    ])
+
+  // M·v : result lane i = Σⱼ (column j, lane i) ⊗ v[j], accumulated in df64.
+  const matVec = fn(`df64_m${n}_matvec`, { m: mT, v: vT }, (p) => {
+    const cols = LANES.map((_, j) => Let(col(p.m, j)))
+    const vl = LANES.map((c) => Let(laneOf(p.v, c)))
+    const out = LANES.map((ci) => {
+      let acc: P = df64_mul({ a: laneOf(cols[0]!, ci), b: vl[0]! })
+      for (let j = 1; j < n; j++)
+        acc = df64_add({ a: acc, b: df64_mul({ a: laneOf(cols[j]!, ci), b: vl[j]! }) })
+      return Let(acc)
+    })
+    return gatherVec(out)
+  })
+  // A·B : each result column = A · (the matching column of B).
+  const matMul = fn(`df64_m${n}_matmul`, { a: mT, b: mT }, (p) =>
+    construct(
+      mT,
+      LANES.map((_, k) => Let(matVec({ m: p.a, v: col(p.b, k) }))),
+    ),
+  )
+  // Mᵀ : new column i gathers lane i of every old column.
+  const transpose = fn(`df64_m${n}_transpose`, { m: mT }, (p) =>
+    construct(
+      mT,
+      LANES.map((_, i) => gatherVec(LANES.map((_, j) => Let(laneOf(col(p.m, j), LANES[i]!))))),
+    ),
+  )
+  return [matVec.decl, matMul.decl, transpose.decl]
+}
+
 // ── Registry (the fp64-lower pass's injection SoT) ──
 
 /** Every emulation fn, in the FIXED dependency-first order they are appended
@@ -502,6 +576,9 @@ export const DF64_ORDER: readonly FuncDecl[] = [
   ...defVecHelpers(2),
   ...defVecHelpers(3),
   ...defVecHelpers(4),
+  ...defMatHelpers(2),
+  ...defMatHelpers(3),
+  ...defMatHelpers(4),
 ]
 
 /** name → FuncDecl for the lowering pass's used-set closure. */

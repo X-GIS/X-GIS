@@ -69,11 +69,13 @@ describe('#763 O — oracle backend parity', () => {
     expect(out).toEqual([10, 40, 90]) // fail-before: [NaN, NaN, NaN]
   })
 
-  it('O2: mat × mat and vec × mat fail LOUD instead of element-wise-wrong', () => {
+  it('O2: mat × mat computes the real column-major product; vec × mat fails LOUD', () => {
+    // mat*mat is now a real column-major product (the mat64 matmul path needs it;
+    // it matches both GPU backends' native mat*mat). diag(1,2,3)² = diag(1,4,9).
     const mm = compileModule(module({ funcs: [matBinFn('o2mm', mat3T, mat3T, mat3T)] }))
-    expect(() => mm.fns['o2mm']!([1, 0, 0, 0, 1, 0, 0, 0, 1], [1, 0, 0, 0, 1, 0, 0, 0, 1])).toThrow(
-      /mat\*mat is not implemented/,
-    )
+    const diag = [1, 0, 0, 0, 2, 0, 0, 0, 3]
+    expect(mm.fns['o2mm']!(diag, diag)).toEqual([1, 0, 0, 0, 4, 0, 0, 0, 9])
+    // vec × mat (row-vector form) is still unimplemented — fail loud, not wrong.
     const vm = compileModule(module({ funcs: [matBinFn('o2vm', vec3T, mat3T, vec3T)] }))
     expect(() => vm.fns['o2vm']!([1, 2, 3], [1, 0, 0, 0, 1, 0, 0, 0, 1])).toThrow(/vec\*mat/)
   })

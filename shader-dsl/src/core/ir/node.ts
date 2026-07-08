@@ -15,6 +15,7 @@ import {
   isVec,
   isScalar,
   isMat,
+  isMat64,
   isF64,
   isVec64,
   f32T,
@@ -22,6 +23,9 @@ import {
   vec2f64T,
   vec3f64T,
   vec4f64T,
+  mat2f64T,
+  mat3f64T,
+  mat4f64T,
   i32T,
   u32T,
   boolT,
@@ -107,6 +111,22 @@ const stmtSink = (): StmtSink => {
  *  vec op a different vec is a type error (returned as a poisoned mismatch
  *  that the WGSL/CPU backend never sees because typecheck fails first). */
 function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
+  // mat64 (emulated-double matrices): the ONLY binary op is `*` — M*v → vecN<f64>
+  // (matvec) and M*M → matNxN<f64> (matmul). Decided before the native mat arms
+  // since `isMat` also matches mat64. A left mat64 with any other op / operand is
+  // rejected here at author time (no df64 mat add/sub helpers exist).
+  if (isMat64(a)) {
+    if (ctx !== '*') throw dslError('SD0041', `${ctx}: '${ctx}' on ${typeKey(a)}`)
+    if (isMat64(b)) {
+      if (a.n !== b.n) throw dslError('SD0002', `${ctx}: ${typeKey(a)} vs ${typeKey(b)}`)
+      return a
+    }
+    if (isVec64(b)) {
+      if (a.n !== b.n) throw dslError('SD0001', `${ctx}: mat${a.n} * vec${b.n}`)
+      return b
+    }
+    throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`)
+  }
   // mat * vec → vec (matN x vecN); mat * mat → mat.
   if (isMat(a) && isVec(b)) {
     if (a.n !== b.n) throw dslError('SD0001', `${ctx}: mat${a.n} * vec${b.n}`)
@@ -978,6 +998,48 @@ export const vec3f64 = (...a: Vec64Arg[]): Node<'vec3<f64>'> =>
   construct(vec3f64T, a) as Node<'vec3<f64>'>
 export const vec4f64 = (...a: Vec64Arg[]): Node<'vec4<f64>'> =>
   construct(vec4f64T, a) as Node<'vec4<f64>'>
+
+// Emulated-double matrix constructors — column-major, one vecN<f64> per column
+// (the same convention as WGSL `matNxN(col0, …)`). They lower to a DF64MatN
+// column struct; matmul / mat·vec / transpose compose the SCALAR df64 EFTs.
+type Mat64Col<N extends 2 | 3 | 4> = ReadonlyNode<`vec${N}<f64>`>
+export const mat2f64 = (...cols: [Mat64Col<2>, Mat64Col<2>]): Node<'mat2x2<f64>'> =>
+  construct(mat2f64T, cols) as Node<'mat2x2<f64>'>
+export const mat3f64 = (...cols: [Mat64Col<3>, Mat64Col<3>, Mat64Col<3>]): Node<'mat3x3<f64>'> =>
+  construct(mat3f64T, cols) as Node<'mat3x3<f64>'>
+export const mat4f64 = (
+  ...cols: [Mat64Col<4>, Mat64Col<4>, Mat64Col<4>, Mat64Col<4>]
+): Node<'mat4x4<f64>'> => construct(mat4f64T, cols) as Node<'mat4x4<f64>'>
+
+/** matNxN<f64> × vecN<f64> → vecN<f64> — the emulated-double MVP transform (the
+ *  generic `.mul` rejects mat×vec, exactly as `transformMat4` covers f32). */
+export const transformMat64 = <N extends 2 | 3 | 4>(
+  m: ReadonlyNode<`mat${N}x${N}<f64>`>,
+  v: ReadonlyNode<`vec${N}<f64>`>,
+): Node<`vec${N}<f64>`> =>
+  new Node({
+    op: 'binop',
+    type: binResultType(m.type, v.type, '*'),
+    bop: '*',
+    a: m.expr,
+    b: v.expr,
+  }) as Node<`vec${N}<f64>`>
+/** matNxN<f64> × matNxN<f64> → matNxN<f64> — emulated-double matrix product. */
+export const mulMat64 = <N extends 2 | 3 | 4>(
+  a: ReadonlyNode<`mat${N}x${N}<f64>`>,
+  b: ReadonlyNode<`mat${N}x${N}<f64>`>,
+): Node<`mat${N}x${N}<f64>`> =>
+  new Node({
+    op: 'binop',
+    type: binResultType(a.type, b.type, '*'),
+    bop: '*',
+    a: a.expr,
+    b: b.expr,
+  }) as Node<`mat${N}x${N}<f64>`>
+/** Transpose of an emulated-double matrix (new column i = lane i of every old column). */
+export const transpose64 = <N extends 2 | 3 | 4>(
+  m: ReadonlyNode<`mat${N}x${N}<f64>`>,
+): Node<`mat${N}x${N}<f64>`> => call('transpose', m.type, m) as Node<`mat${N}x${N}<f64>`>
 
 /** mat4x4 × vec4 → vec4 (the generic `.mul` correctly rejects mat×vec since a
  *  matrix is not a scalar/matching-vector operand — this is the explicit MVP

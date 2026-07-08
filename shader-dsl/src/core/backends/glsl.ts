@@ -61,6 +61,8 @@ function glslType(t: ShaderType): string {
     case 'vec':
       return `${({ f32: 'vec', i32: 'ivec', u32: 'uvec' } as const)[t.elem]}${t.n}`
     case 'mat':
+      // matNxN<f64> → DF64MatN before emit; reaching here = fp64Lower bypassed.
+      if (t.elem === 'f64') throw dslError('SD0040', `glslType(mat${t.n}<f64>)`)
       return `mat${t.n}`
     case 'struct':
       return t.name

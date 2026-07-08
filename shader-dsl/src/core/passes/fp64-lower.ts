@@ -46,12 +46,23 @@ import type {
   CmpOp,
 } from '../ir/nodes'
 import { stageOf } from '../ir/nodes'
-import { type ShaderType, f32T, boolT, vec2fT, isF64, isVec64, structT, typeKey } from '../ir/types'
+import {
+  type ShaderType,
+  f32T,
+  boolT,
+  vec2fT,
+  isF64,
+  isVec64,
+  isMat64,
+  structT,
+  typeKey,
+} from '../ir/types'
 import { dslError } from '../diagnostics/error'
 import {
   DF64_FNS,
   DF64_ORDER,
   DF64_VEC_STRUCTS,
+  DF64_MAT_STRUCTS,
   FP64_GUARD_NAME,
   FP64_GUARD_TYPE,
   splitF64,
@@ -60,21 +71,23 @@ import { isKnownIntrinsic } from '../intrinsics'
 
 // ── Type mapping ──
 
-/** Does this type contain f64 / vec64 anywhere (directly or through arrays)? */
+/** Does this type contain f64 / vec64 / mat64 anywhere (directly or via arrays)? */
 function containsF64(t: ShaderType): boolean {
-  if (isF64(t) || isVec64(t)) return true
+  if (isF64(t) || isVec64(t) || isMat64(t)) return true
   if (t.kind === 'array') return containsF64(t.elem)
   return false
 }
 
 const vec64StructName = (n: 2 | 3 | 4): string => `DF64Vec${n}`
+const mat64StructName = (n: 2 | 3 | 4): string => `DF64Mat${n}`
 const vecFT = (n: 2 | 3 | 4): ShaderType => ({ kind: 'vec', n, elem: 'f32' })
 
-/** f64 → vec2<f32>, vecN<f64> → its DF64VecN struct, recursively through
- *  arrays; everything else unchanged. */
+/** f64 → vec2<f32>, vecN<f64> → DF64VecN, matNxN<f64> → DF64MatN, recursively
+ *  through arrays; everything else unchanged. */
 function mapType(t: ShaderType): ShaderType {
   if (isF64(t)) return vec2fT
   if (isVec64(t)) return structT(vec64StructName(t.n))
+  if (isMat64(t)) return structT(mat64StructName(t.n))
   if (t.kind === 'array' && containsF64(t.elem))
     return {
       kind: 'array',
@@ -174,6 +187,9 @@ interface LowerCtx {
   readonly used: Set<string>
   /** vec64 lane counts seen anywhere — drives DF64VecN struct injection. */
   readonly vecWidths: Set<2 | 3 | 4>
+  /** mat64 dimensions seen — drives DF64MatN struct injection (and forces the
+   *  matching DF64VecN, since a DF64MatN nests DF64VecN columns). */
+  readonly matWidths: Set<2 | 3 | 4>
 }
 
 function callHelper(ctx: LowerCtx, name: string, type: ShaderType, args: Expr[]): Expr {
@@ -184,6 +200,11 @@ function callHelper(ctx: LowerCtx, name: string, type: ShaderType, args: Expr[])
 function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
   const walk = (x: Expr): Expr => lowerExpr(x, ctx)
   if (isVec64(e.type)) ctx.vecWidths.add(e.type.n)
+  // A DF64MatN nests DF64VecN columns, so a mat width forces its vec width too.
+  if (isMat64(e.type)) {
+    ctx.matWidths.add(e.type.n)
+    ctx.vecWidths.add(e.type.n)
+  }
   /** Lower an expr that must land as an f64 PAIR: an f64 operand lowers to its
    *  vec2 form; a (legal) f32 operand widens exactly. Anything else is a gate
    *  bug upstream — binResultType/cmp admit only f64 and f32-scalar here. */
@@ -209,6 +230,25 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
     case 'varref':
       return containsF64(e.type) ? { ...e, type: mapType(e.type) } : e
     case 'binop': {
+      // mat64 as the LEFT operand: M*v (→ vec64) or M*M (→ mat64). Intercepted
+      // on the operand type, not e.type — a matvec RESULT is itself a vec64 and
+      // would misroute into the componentwise vec64 branch below.
+      if (isMat64(e.a.type)) {
+        if (e.bop !== '*')
+          throw dslError('SD0041', `binary op '${e.bop}' on ${typeKey(e.a.type)}`)
+        const n = e.a.type.n
+        if (isMat64(e.b.type))
+          return callHelper(ctx, `df64_m${n}_matmul`, structT(mat64StructName(n)), [
+            walk(e.a),
+            walk(e.b),
+          ])
+        if (isVec64(e.b.type))
+          return callHelper(ctx, `df64_m${n}_matvec`, structT(vec64StructName(n)), [
+            walk(e.a),
+            walk(e.b),
+          ])
+        throw dslError('SD0041', `matNxN<f64> '*' with a ${typeKey(e.b.type)} operand`)
+      }
       if (isVec64(e.type)) {
         const n = e.type.n
         const op = VEC_BINOP_FN[e.bop]
@@ -269,6 +309,19 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
       // toF32 on an f64 argument — the explicit narrow (hi + lo).
       if (e.fn === 'f32' && e.args.length === 1 && isF64(e.args[0]!.type)) {
         return callHelper(ctx, 'df64_narrow', f32T, [walk(e.args[0]!)])
+      }
+      // transpose(M) on a mat64 → df64_mN_transpose (gathers lane i of every
+      // old column into new column i — no new numerics, only a reshuffle).
+      if (e.fn === 'transpose' && isMat64(e.args[0]!.type)) {
+        const n = e.args[0]!.type.n
+        return callHelper(ctx, `df64_m${n}_transpose`, structT(mat64StructName(n)), [
+          walk(e.args[0]!),
+        ])
+      }
+      // Any OTHER builtin over a mat64 operand is unsupported — fail loud rather
+      // than leak a bare `transpose`/`inverse`/… call the backend can't spell.
+      if (isMat64(e.type) || e.args.some((a) => isMat64(a.type))) {
+        if (isKnownIntrinsic(e.fn)) throw dslError('SD0041', `${e.fn}() on mat64 operands`)
       }
       // Cross-lane reductions on vec64 — composed from the SCALAR df64 fns
       // (dot must accumulate in extended precision anyway). The walked base
@@ -398,6 +451,17 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
           op: 'construct',
           type: structT(vec64StructName(n)),
           args: [planeOf('x'), planeOf('y')],
+        }
+      }
+      // matNf64(col0, …, col(N-1)) — gather the lowered vec64 columns into a
+      // DF64MatN. Each column arg lowers via vecOperand (vec64 direct, scalar
+      // broadcast), so the column-major struct is assembled directly.
+      if (e.type.kind === 'mat' && e.type.elem === 'f64') {
+        const n = e.type.n
+        return {
+          op: 'construct',
+          type: structT(mat64StructName(n)),
+          args: e.args.map((a) => vecOperand(a, n)),
         }
       }
       // array<f64, N>(…) and struct constructors may legally take f64 args
@@ -778,13 +842,18 @@ export function fp64Lower(m: ModuleDecl): ModuleDecl {
     if (f.name.startsWith('df64_')) throw dslError('SD0043', `fn '${f.name}'`)
   }
   for (const st of m.structs) {
-    if (st.name.startsWith('DF64Vec')) throw dslError('SD0043', `struct '${st.name}'`)
+    if (st.name.startsWith('DF64Vec') || st.name.startsWith('DF64Mat'))
+      throw dslError('SD0043', `struct '${st.name}'`)
   }
 
-  const ctx: LowerCtx = { used: new Set(), vecWidths: new Set() }
+  const ctx: LowerCtx = { used: new Set(), vecWidths: new Set(), matWidths: new Set() }
   const recordWidths = (t: ShaderType): void => {
     if (isVec64(t)) ctx.vecWidths.add(t.n)
-    else if (t.kind === 'array') recordWidths(t.elem)
+    // A mat width forces its vec width — DF64MatN nests DF64VecN columns.
+    else if (isMat64(t)) {
+      ctx.matWidths.add(t.n)
+      ctx.vecWidths.add(t.n)
+    } else if (t.kind === 'array') recordWidths(t.elem)
   }
 
   const consts: ConstDecl[] = m.consts.map((c) => {
@@ -850,6 +919,11 @@ export function fp64Lower(m: ModuleDecl): ModuleDecl {
   // even for type-only pass-through, where no helper fires).
   for (const n of [2, 3, 4] as const) {
     if (ctx.vecWidths.has(n)) structs.push(DF64_VEC_STRUCTS.get(n)!)
+  }
+  // DF64MatN decls AFTER the vec structs — a DF64MatN nests DF64VecN columns
+  // and GLSL needs define-before-use (recordWidths forced the vec width above).
+  for (const n of [2, 3, 4] as const) {
+    if (ctx.matWidths.has(n)) structs.push(DF64_MAT_STRUCTS.get(n)!)
   }
 
   const helpers = helperClosure(ctx.used)
