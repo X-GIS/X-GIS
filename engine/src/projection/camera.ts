@@ -14,7 +14,8 @@ import {
   promotesToGlobeWhenTilted,
   representsCenterAs,
 } from './projections-table'
-import { discAnchorFor, invert4x4, convergeFlatAnchor } from './camera-helpers'
+import { discAnchorFor, convergeFlatAnchor } from './camera-helpers'
+import { invert4x4 } from '@xgis/shared'
 import {
   type CameraView,
   buildRTCMatrix,

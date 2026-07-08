@@ -21,7 +21,7 @@
 
 import { WORLD_MERC, TILE_PX } from '../gpu/world-scale'
 import { flatViewHeightCapM } from './projections-table'
-import { mul4, perspectiveMatrix } from './camera-helpers'
+import { mul4, perspectiveMatrix } from '@xgis/shared'
 import { EARTH } from '@xgis/shared'
 
 // Matches projection.ts EARTH_RADIUS exactly — the same sphere the 2D
