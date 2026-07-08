@@ -234,8 +234,16 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
             continue
           }
           let diff = 0
-          for (let i = 0; i < plain.length; i++) if (plain[i] !== obf[i]) diff++
-          if (diff > 0) failures.push(`${c.name}: ${diff} bytes differ between plain and obfuscated`)
+          let maxd = 0
+          for (let i = 0; i < plain.length; i++) {
+            const d = Math.abs(plain[i]! - obf[i]!)
+            if (d > 0) diff++
+            if (d > maxd) maxd = d
+          }
+          if (diff > 0)
+            failures.push(
+              `${c.name}: ${diff}/${plain.length} bytes differ (max channel delta ${maxd})`,
+            )
           // non-vacuous: the frame must not be one flat colour
           let flat = true
           for (let i = 4; i < plain.length; i += 4)

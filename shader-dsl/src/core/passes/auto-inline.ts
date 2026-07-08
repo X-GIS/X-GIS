@@ -111,13 +111,6 @@ function pickCandidate(m: ModuleDecl): string | undefined {
   return undefined
 }
 
-/** Pick the next helper to inline UNCONDITIONALLY (obfuscation) — any safely
- *  inlinable single-return helper, regardless of call count or size. */
-function pickAny(m: ModuleDecl): string | undefined {
-  for (const f of m.funcs) if (inlinableRet(m, f) !== undefined) return f.name
-  return undefined
-}
-
 /** Auto-inline small / single-call helpers throughout a module. Pure (module -> module). */
 export function autoInline(m: ModuleDecl): ModuleDecl {
   // A raw WGSL stmt may call a helper textually (invisible to the IR walk) — bail.
@@ -127,26 +120,6 @@ export function autoInline(m: ModuleDecl): ModuleDecl {
   // the fn-count bound is a belt-and-suspenders cap on the loop.
   for (let i = 0; i < m.funcs.length; i++) {
     const name = pickCandidate(cur)
-    if (name === undefined) break
-    cur = inlineFn(cur, name)
-  }
-  return cur
-}
-
-/** Inline EVERY safely-inlinable single-return helper at all its call sites,
- *  erasing those functions from the output (call-graph flattening for
- *  OBFUSCATION — `@xgis/shader-dsl/emit-prod`'s inline() plugin). Reuses
- *  inlineFn's proven substitution and the same safety filter as autoInline, so
- *  it inherits the oracle value-equality; multi-statement / control-flow helpers
- *  (inlineFn is single-return only) and the df64 library are left intact. Unlike
- *  autoInline this is NOT a size win — a multi-call helper's expression is
- *  duplicated at each site; the following minify() recovers the whitespace, and
- *  the point is structure removal, not bytes. Pure (module -> module). */
-export function inlineAll(m: ModuleDecl): ModuleDecl {
-  if (m.funcs.some((f) => bodyHasRaw(f.body))) return m
-  let cur = m
-  for (let i = 0; i < m.funcs.length; i++) {
-    const name = pickAny(cur)
     if (name === undefined) break
     cur = inlineFn(cur, name)
   }

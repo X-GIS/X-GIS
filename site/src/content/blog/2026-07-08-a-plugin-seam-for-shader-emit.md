@@ -74,10 +74,12 @@ toolchains import it; the runtime emit path does not.
 
 A seam you designed around two known transforms can still be the wrong seam. The way
 to find out is to add a *different kind* of transform and see what breaks. So: `inline()`
-— flatten the call graph by inlining every single-return helper into its call sites,
-so the functions disappear from the shader. Structurally unlike minify (it rewrites
-the IR, not the text) and unlike mangle (it removes declarations, not just renames
-them).
+— flatten the call graph by inlining helpers into their call sites (single-return ones
+by substitution, and linear multi-statement ones — a `let` prelude then a `return`,
+sound to lift because shader code is pure — by splicing their statements into the
+caller), so the functions disappear from the shader. Structurally unlike minify (it
+rewrites the IR, not the text) and unlike mangle (it removes declarations, not just
+renames them).
 
 Here is the entire plugin:
 

@@ -20,8 +20,8 @@ const gradient = shaderCards.find((c) => c.id === 'gradient')!
 const kal = examples.find((e) => e.id === 'kaleidoscope')!
 // All 2³ combinations of the three IR/text plugins, emitted at build time; the
 // key is the bit-string inline·mangle·minify. inline() flattens the call graph
-// (hash/fbm/palette vanish; only the multi-statement noise survives), so the
-// three toggles compose visibly.
+// entirely — hash/fbm/palette AND the multi-statement noise are all lifted into
+// the fragment body — so the three toggles compose visibly.
 const shipCombos = [false, true]
   .flatMap((i) => [false, true].flatMap((m) => [false, true].map((n) => ({ i, m, n }))))
   .map(({ i, m, n }) => {
@@ -131,9 +131,10 @@ const sections = [
       renames the authored vocabulary (helpers, plain structs, consts → <code class="font-mono text-[13px] text-fg">_f0/_S0/_k0</code>);
       <strong class="text-fg">minify</strong> compacts the text. The <em>ABI boundary</em> — entry points, binding names, UBO
       block tags, struct fields — is never touched, so reflection-driven hosts bind unchanged. A third plugin,
-      <strong class="text-fg">inline</strong>, flattens the call graph — single-return helpers vanish into their call sites
-      (it trades a few bytes for structure a reader can't follow). Toggle the plugins below and watch the kaleidoscope
-      fragment shader change live (every combination is emitted at build time — the DSL never ships to your browser).
+      <strong class="text-fg">inline</strong>, flattens the call graph — every helper (single-return and multi-statement alike)
+      is lifted into its call sites and disappears (it trades bytes for structure a reader can't follow). Toggle the plugins
+      below and watch the kaleidoscope fragment shader change live (every combination is emitted at build time — the DSL never
+      ships to your browser).
       Details in the <a href={`${root}/reference`} class="text-accent hover:text-accent-hover transition-colors">reference</a>.
     </p>
 

@@ -863,14 +863,17 @@ const fs = emitGlslModule(m, 'fragment', { plugins: obfuscate() })
   their own line). `minifyShaderText(code)` is the raw function it wraps, for a
   string you already hold.
 - **`inline()`** — an `EmitPlugin` that flattens the call graph (obfuscation):
-  every safely-inlinable single-return helper is inlined at all its call sites,
-  so those functions vanish. Reuses the proven `inlineFn` substitution and
-  leaves the `df64_*` library, entry points, recursive fns, and multi-statement
-  / control-flow helpers intact. NOT a size win — a multi-call helper's
-  expression is duplicated per site (the following `minify()` recovers the
-  whitespace); the point is removing structure a reader could follow. Opt-in,
-  and NOT part of `obfuscate()`, so no existing output changes. Place it before
-  `mangle()`: `{ plugins: [inline(), ...obfuscate()] }`.
+  every safely-inlinable helper is inlined at all its call sites, so those
+  functions vanish. Single-return helpers inline by expression substitution;
+  LINEAR multi-statement helpers (a `let`/`var` prelude then one trailing
+  `return`, e.g. a value-noise fn) inline by lifting their statements into the
+  caller — sound because shader code is pure, so hoisting a computation earlier
+  in its block changes no result. Leaves the `df64_*` library, entry points,
+  recursive fns, and control-flow / for-header-called helpers intact. NOT a size
+  win — a multi-call helper is duplicated per site (the following `minify()`
+  recovers the whitespace); the point is removing structure a reader could
+  follow. Opt-in, and NOT part of `obfuscate()`, so no existing output changes.
+  Place it before `mangle()`: `{ plugins: [inline(), ...obfuscate()] }`.
 - **`obfuscate({ renames? })`** — the standard preset, `[mangle(opts),
   minify()]`. Spread it into `{ plugins }`.
 
