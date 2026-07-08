@@ -232,20 +232,17 @@ const payload = { values, tests }
     held on this GPU</strong>. Run it, then hit <strong class="text-fg">Copy</strong> and paste the digest back (per device).
   </p>
 
-  <!-- Loading -->
-  <div id="probe-loading" class="mt-10 flex items-center gap-2.5 text-fg-mute text-[13px]">
-    <span class="inline-block w-3.5 h-3.5 rounded-full border-2 border-line border-t-fg animate-spin motion-reduce:animate-none"></span>
-    <span>Running tests on WebGL2 + WebGPU…</span>
-  </div>
-
-  <!-- Results — faded in when the run resolves -->
-  <div id="probe-out" class="opacity-0 transition-opacity duration-200 motion-reduce:transition-none">
+  <!-- Results — the table skeleton renders on load (you see WHAT is being tested
+       right away); each backend cell starts as a spinner and is swapped in place
+       for the value the moment that test resolves, so completed vs in-progress is
+       visible per row. No full-page loading gate. -->
+  <div id="probe-out">
     <div class="mt-10 flex items-start justify-between gap-4">
       <div id="probe-summary" class="min-w-0 flex-1" aria-live="polite"></div>
       <button
         id="probe-copy"
         type="button"
-        class="shrink-0 inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-[12px] font-medium text-fg-dim hover:text-fg border border-line hover:border-line-strong transition-colors"
+        class="shrink-0 inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-[12px] font-medium text-fg-dim hover:text-fg border border-line hover:border-line-strong transition-colors opacity-40 pointer-events-none"
         aria-label="Copy df64 digest"
       >
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -255,14 +252,10 @@ const payload = { values, tests }
       </button>
     </div>
 
-    <!-- Results table — grouped by family, failures first within each (built from the same results objects as the digest) -->
+    <!-- Results table — built once from the test list; cells are updated in place.
+         The table IS the view now; the old raw-digest dump duplicated it, so it's
+         gone. Copy still emits the same frozen text digest (for pasting back). -->
     <div id="probe-table" class="mt-8 max-w-full overflow-x-auto"></div>
-
-    <!-- Raw digest — the copy-pasteable artifact the dev parses; format is frozen -->
-    <details class="mt-8">
-      <summary class="cursor-pointer select-none text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] hover:text-fg-dim transition-colors">Raw digest</summary>
-      <pre id="probe-digest" class="mt-3 max-w-full overflow-x-auto rounded-[8px] border border-line bg-bg-card p-4 font-mono text-[12px] leading-[1.6] text-fg-dim whitespace-pre"></pre>
-    </details>
   </div>
 
   <p class="mt-8 text-[13px] leading-[1.6] text-fg-mute max-w-full">
@@ -279,9 +272,6 @@ const payload = { values, tests }
     vertexEntry: string; fragmentEntry: string; guardBinding: number | null
     reflection: Refl; golden: number; circular: boolean
   }
-  const digest = document.getElementById('probe-digest')!
-  const loading = document.getElementById('probe-loading')!
-  const out = document.getElementById('probe-out')!
   const summary = document.getElementById('probe-summary')!
   const tableEl = document.getElementById('probe-table')!
   const copyBtn = document.getElementById('probe-copy') as HTMLButtonElement
@@ -295,183 +285,191 @@ const payload = { values, tests }
     for (const fld of block.fields) { const v = values[fld.name] ?? [0]; for (let i = 0; i < v.length; i++) f[fld.offset / 4 + i] = v[i] }
     return buf
   }
-
-  // WebGL2 (GLSL): render each test to an 8×8 target, read back the grey level.
-  function runWebGL(tests: T[], values: Record<string, number[]>): { guard: boolean; results: Record<string, number | null> } {
-    const canvas = document.createElement('canvas'); canvas.width = 8; canvas.height = 8
-    const gl = canvas.getContext('webgl2')
-    const results: Record<string, number | null> = {}
-    if (!gl) return { guard: false, results }
-    const gtex = gl.createTexture()
-    gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, gtex)
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]))
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-    gl.activeTexture(gl.TEXTURE0); gl.bindVertexArray(gl.createVertexArray()); gl.viewport(0, 0, 8, 8)
-    let guard = false
-    for (const t of tests) {
-      try {
-        const c = (ty: number, src: string) => { const s = gl.createShader(ty)!; gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) || ''); return s }
-        const p = gl.createProgram()!
-        gl.attachShader(p, c(gl.VERTEX_SHADER, t.glslVertex)); gl.attachShader(p, c(gl.FRAGMENT_SHADER, t.glslFragment)); gl.linkProgram(p)
-        if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p) || '')
-        gl.useProgram(p)
-        const block = t.reflection.uniforms[0]
-        if (block) { const ubo = gl.createBuffer(); gl.bindBuffer(gl.UNIFORM_BUFFER, ubo); gl.bufferData(gl.UNIFORM_BUFFER, pack(block, values), gl.STATIC_DRAW); const i = gl.getUniformBlockIndex(p, block.name); if (i !== 0xffffffff) { gl.uniformBlockBinding(p, i, 0); gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, ubo) } }
-        const gLoc = gl.getUniformLocation(p, '_fp64'); if (gLoc) { gl.uniform1i(gLoc, 7); guard = true }
-        gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLES, 0, 3)
-        const px = new Uint8Array(4); gl.readPixels(4, 4, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
-        results[t.name] = decode(px[0], px[1], px[2])
-      } catch (e) { results[t.name] = null }
-    }
-    return { guard, results }
-  }
-
-  // WebGPU (WGSL): same modules, render to an 8×8 target, copy → buffer, read the grey level.
-  async function runWebGPU(tests: T[], values: Record<string, number[]>): Promise<{ ok: boolean; note: string; guard: boolean; results: Record<string, number | null> }> {
-    const g = (navigator as any).gpu
-    const results: Record<string, number | null> = {}
-    if (!g) return { ok: false, note: 'WebGPU unavailable (no navigator.gpu)', guard: false, results }
-    let adapter: any
-    try { adapter = await g.requestAdapter() } catch { return { ok: false, note: 'requestAdapter threw', guard: false, results } }
-    if (!adapter) return { ok: false, note: 'no adapter', guard: false, results }
-    const device = await adapter.requestDevice()
-    const TU = (globalThis as any).GPUTextureUsage, BU = (globalThis as any).GPUBufferUsage, MM = (globalThis as any).GPUMapMode
-    const guardTex = device.createTexture({ size: [1, 1], format: 'rgba8unorm', usage: TU.TEXTURE_BINDING | TU.COPY_DST })
-    device.queue.writeTexture({ texture: guardTex }, new Uint8Array([255, 255, 255, 255]), { bytesPerRow: 4, rowsPerImage: 1 }, [1, 1])
-    const guardView = guardTex.createView()
-    let guard = false
-    for (const t of tests) {
-      try {
-        const mod = device.createShaderModule({ code: t.wgsl })
-        const target = device.createTexture({ size: [8, 8], format: 'rgba8unorm', usage: TU.RENDER_ATTACHMENT | TU.COPY_SRC })
-        const ab = pack(t.reflection.uniforms[0], values)
-        const ubuf = device.createBuffer({ size: ab.byteLength, usage: BU.UNIFORM | BU.COPY_DST }); device.queue.writeBuffer(ubuf, 0, ab)
-        const pipeline = device.createRenderPipeline({ layout: 'auto', vertex: { module: mod, entryPoint: t.vertexEntry }, fragment: { module: mod, entryPoint: t.fragmentEntry, targets: [{ format: 'rgba8unorm' }] }, primitive: { topology: 'triangle-list' } })
-        const entries: any[] = [{ binding: 0, resource: { buffer: ubuf } }]
-        if (t.guardBinding != null) { entries.push({ binding: t.guardBinding, resource: guardView }); guard = true }
-        const bg = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries })
-        const rb = device.createBuffer({ size: 256 * 8, usage: BU.COPY_DST | BU.MAP_READ })
-        const enc = device.createCommandEncoder()
-        const pass = enc.beginRenderPass({ colorAttachments: [{ view: target.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] })
-        pass.setPipeline(pipeline); pass.setBindGroup(0, bg); pass.draw(3); pass.end()
-        enc.copyTextureToBuffer({ texture: target }, { buffer: rb, bytesPerRow: 256, rowsPerImage: 8 }, [8, 8])
-        device.queue.submit([enc.finish()])
-        await rb.mapAsync(MM.READ)
-        const arr = new Uint8Array(rb.getMappedRange().slice(0)); const o = 4 * 256 + 4 * 4
-        rb.unmap()
-        results[t.name] = decode(arr[o], arr[o + 1], arr[o + 2])
-      } catch (e) { results[t.name] = null }
-    }
-    const info = adapter.info || {}
-    return { ok: true, note: `adapter ${info.vendor || ''} ${info.architecture || ''}`.trim(), guard, results }
-  }
-
   const verdict = (r: number | null, gold: number, circular: boolean): string => {
     if (r == null) return 'ERR'
     let d = Math.abs(r - gold); if (circular) d = Math.min(d, 1 - d)
     return d < 0.06 ? 'PASS' : Math.abs(r) < 0.06 ? 'FAIL(→0)' : 'FAIL'
   }
+  const isFail = (vr: string): boolean => vr !== 'PASS' && vr !== 'n/a'
+
+  // Families group the tests so a block pattern (e.g. "vec64 collapsed as a unit")
+  // reads at a glance. Order within a family is DEFINITION order and stays put —
+  // rows must not reshuffle under the reader as results land, so unlike the old
+  // one-shot table there is no failures-first sort; the left rust tick flags fails.
+  const famOf = (n: string): 'scalar' | 'vector' | 'comparison' | 'composed' =>
+    n === 'loran' ? 'composed'
+    : /^(lt|le|gt|ge|eq|ne)$/.test(n) ? 'comparison'
+    : /^vec_|^(dot|length|distance|normalize)$/.test(n) ? 'vector'
+    : 'scalar'
+  const FAMS: [string, string][] = [['scalar', 'Scalar'], ['vector', 'Vector · vec64'], ['comparison', 'Comparison'], ['composed', 'Composed']]
+
+  // A RESOLVED cell: the value carries the only hue (rust on fail), the reason is
+  // grey lowercase meta. A PENDING cell is a small spinner, swapped out in place.
+  const cell = (v: number | null, vr: string): string => {
+    if (vr === 'n/a') return '<span class="text-fg-faint">—</span>'
+    if (v == null) return '<span class="font-mono text-[11px] text-destructive">err</span>'
+    const num = `<span class="font-mono tabular-nums text-[13px] ${vr === 'PASS' ? 'text-fg-mute' : 'text-destructive'}">${v.toFixed(4)}</span>`
+    if (vr === 'PASS') return num
+    const why = Math.abs(v) < 0.06 ? 'collapsed→0' : Math.abs(v + 2) < 0.06 ? 'no draw' : 'wrong'
+    return `${num} <span class="font-mono text-[11px] text-fg-mute">${why}</span>`
+  }
+  const PENDING = '<span class="inline-block w-3 h-3 align-middle rounded-full border-2 border-line border-t-fg-mute animate-spin motion-reduce:animate-none"></span>'
+  const GRID = 'grid grid-cols-[minmax(84px,1fr)_140px_140px] gap-x-4 items-center'
 
   ;(async () => {
     try {
       const { values, tests } = JSON.parse(document.getElementById('probe-payload')!.textContent!) as { values: Record<string, number[]>; tests: T[] }
-      const gl = runWebGL(tests, values)
-      const gpu = await runWebGPU(tests, values)
-      type Rec = { name: string; gold: number; gv: number | null; pv: number | null; vGl: string; vGpu: string }
-      const rec: Rec[] = []
-      const rows: string[] = []
-      let glPass = 0, gpuPass = 0
-      for (const t of tests) {
-        const vGl = verdict(gl.results[t.name] ?? null, t.golden, t.circular)
-        const vGpu = gpu.ok ? verdict(gpu.results[t.name] ?? null, t.golden, t.circular) : 'n/a'
-        if (vGl === 'PASS') glPass++
-        if (vGpu === 'PASS') gpuPass++
-        const gv = gl.results[t.name] ?? null, pv = gpu.results[t.name] ?? null
-        const gs = gv == null ? '  ERR ' : gv.toFixed(4)
-        const ps = !gpu.ok ? '   —  ' : pv == null ? '  ERR ' : pv.toFixed(4)
-        // Digest row — the copy-pasteable artifact the dev parses; format is FROZEN.
-        rows.push(`${t.name.padEnd(9)} gold=${t.golden.toFixed(4)}  WebGL2 ${gs} ${vGl.padEnd(8)} | WebGPU ${ps} ${vGpu}`)
-        rec.push({ name: t.name, gold: t.golden, gv, pv, vGl, vGpu })
-      }
-      const header =
-        `df64 GPU probe\n` +
-        `  WebGL2: ${glPass}/${tests.length} pass · guard=${gl.guard ? 'bound' : 'MISSING'}\n` +
-        `  WebGPU: ${gpu.ok ? `${gpuPass}/${tests.length} pass · guard=${gpu.guard ? 'bound' : 'MISSING'} · ${gpu.note}` : gpu.note}\n` +
-        `  UA: ${navigator.userAgent}\n`
-      digest.textContent = header + '\n' + rows.join('\n')
+      const total = tests.length
 
-      // ── Visual views (shader-dsl idiom: h2 section + rounded row card, per
-      // reference.astro) — built from the SAME results objects, never re-parsed.
-      // Families group the tests so the diagnostic PATTERN (e.g. "vec64 collapsed
-      // as a block") survives; failures sort first WITHIN a family.
-      const famOf = (n: string): 'scalar' | 'vector' | 'comparison' | 'composed' =>
-        n === 'loran' ? 'composed'
-        : /^(lt|le|gt|ge|eq|ne)$/.test(n) ? 'comparison'
-        : /^vec_|^(dot|length|distance|normalize)$/.test(n) ? 'vector'
-        : 'scalar'
-      const FAMS: [string, string][] = [['scalar', 'Scalar'], ['vector', 'Vector · vec64'], ['comparison', 'Comparison'], ['composed', 'Composed']]
-      const isFail = (vr: string): boolean => vr !== 'PASS' && vr !== 'n/a'
-
-      // A failing df64 result reads ~0 (error term folded) or ~-2 (undrawn pixel);
-      // the value carries the only hue (rust), the reason is grey lowercase meta.
-      const cell = (v: number | null, vr: string): string => {
-        if (vr === 'n/a') return '<span class="text-fg-faint">—</span>'
-        if (v == null) return '<span class="font-mono text-[11px] text-destructive">err</span>'
-        const num = `<span class="font-mono tabular-nums text-[13px] ${vr === 'PASS' ? 'text-fg-mute' : 'text-destructive'}">${v.toFixed(4)}</span>`
-        if (vr === 'PASS') return num
-        const why = Math.abs(v) < 0.06 ? 'collapsed→0' : Math.abs(v + 2) < 0.06 ? 'no draw' : 'wrong'
-        return `${num} <span class="font-mono text-[11px] text-fg-mute">${why}</span>`
-      }
-
-      // Summary — restrained, per backend, on the section's own type scale.
-      const line = (label: string, pass: number, guard: boolean, nFail: number, avail: boolean): string => `
-        <div class="flex items-baseline gap-x-3 gap-y-1 flex-wrap">
-          <span class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] w-[104px] shrink-0">${label}</span>
-          ${avail
-            ? `<span class="font-display text-[22px] leading-none text-fg tabular-nums">${pass}<span class="text-fg-mute text-[14px]">/${tests.length}</span></span>
-               ${nFail ? `<span class="text-[12px] text-destructive">${nFail} failed</span>` : '<span class="text-[12px] text-fg-mute">all pass</span>'}
-               ${guard ? '' : '<span class="text-[12px] text-destructive">guard missing</span>'}`
-            : '<span class="text-[13px] text-fg-mute">not available on this browser</span>'}
-        </div>`
-      summary.innerHTML = `<div class="space-y-3">
-        ${line('WebGL2 · GLSL', glPass, gl.guard, rec.filter((r) => r.vGl !== 'PASS').length, true)}
-        ${line('WebGPU · WGSL', gpuPass, gpu.guard, rec.filter((r) => r.vGpu !== 'PASS').length, gpu.ok)}
-      </div>`
-
-      // Results — one section (h2 + rounded divided-row card) per family. A left
-      // rust tick marks a failing row; result columns are fixed-width to align.
-      const GRID = 'grid grid-cols-[minmax(84px,1fr)_140px_140px] gap-x-4 items-center'
-      const rank = (vr: string): number => (vr === 'PASS' ? 3 : vr === 'n/a' ? 2 : vr === 'ERR' ? 1 : 0)
-      const rowHtml = (r: Rec): string => {
-        const differ = gpu.ok && r.vGl !== r.vGpu
-        const fail = isFail(r.vGl) || (gpu.ok && isFail(r.vGpu))
-        return `<div class="${GRID} py-2.5 pl-4 pr-4 border-l-2 ${fail ? 'border-destructive' : 'border-transparent'} hover:bg-bg-hover transition-colors">
-          <code class="font-mono text-[13px] text-fg leading-[1.5]">${r.name}${differ ? ' <span class="font-mono text-[11px] text-destructive lowercase">differ</span>' : ''}</code>
-          <div class="text-right">${cell(r.gv, r.vGl)}</div>
-          <div class="text-right ${gpu.ok ? '' : 'text-fg-faint'}">${cell(r.pv, r.vGpu)}</div>
-        </div>`
-      }
-      const sections = FAMS.map(([key, label]) => {
-        const items = rec.filter((r) => famOf(r.name) === key)
-          .sort((a, b) => Math.min(rank(a.vGl), rank(a.vGpu)) - Math.min(rank(b.vGl), rank(b.vGpu)))
-        return items.length
-          ? `<section>
-               <h2 class="font-display text-[20px] font-normal text-fg tracking-[-0.015em] mb-2">${label}</h2>
-               <div class="rounded-[8px] border border-line overflow-hidden divide-y divide-[var(--color-line)]">${items.map(rowHtml).join('')}</div>
-             </section>`
-          : ''
-      }).join('')
+      // ── Skeleton: render EVERY test immediately (you see what is tested before
+      // anything runs), each backend cell a "pending" spinner. Built once; cells
+      // are then swapped in place — the table never re-renders wholesale. ──
+      const groups = FAMS
+        .map(([key, label]) => ({ label, items: tests.filter((t) => famOf(t.name) === key) }))
+        .filter((g) => g.items.length)
       const colhead = `<div class="${GRID} pl-4 pr-4 border-l-2 border-transparent mb-3 text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em]">
-        <span>Test</span><span class="text-right">WebGL2</span><span class="text-right ${gpu.ok ? '' : 'text-fg-faint'}">WebGPU</span>
+        <span>Test</span><span class="text-right">WebGL2</span><span class="text-right">WebGPU</span>
       </div>`
-      tableEl.innerHTML = colhead + `<div class="space-y-8">${sections}</div>`
+      tableEl.innerHTML = colhead + '<div class="space-y-8">' + groups.map((g) => `
+        <section>
+          <h2 class="font-display text-[20px] font-normal text-fg tracking-[-0.015em] mb-2">${g.label}</h2>
+          <div class="rounded-[8px] border border-line overflow-hidden divide-y divide-[var(--color-line)]">${g.items.map((t) => `<div data-row="${t.name}" class="${GRID} py-2.5 pl-4 pr-4 border-l-2 border-transparent hover:bg-bg-hover transition-colors">
+            <code class="font-mono text-[13px] text-fg leading-[1.5]">${t.name}<span data-differ="${t.name}"></span></code>
+            <div class="text-right" data-gl="${t.name}">${PENDING}</div>
+            <div class="text-right" data-gpu="${t.name}">${PENDING}</div>
+          </div>`).join('')}</div>
+        </section>`).join('') + '</div>'
+      const q = (sel: string) => tableEl.querySelector(sel) as HTMLElement
 
-      // Reveal (fade), then wire copy of the FROZEN digest text.
-      loading.style.display = 'none'
-      requestAnimationFrame(() => { out.classList.remove('opacity-0'); out.classList.add('opacity-100') })
+      // ── Live state — also feeds the frozen text digest built at the end. ──
+      const glRes: Record<string, number | null> = {}, gpuRes: Record<string, number | null> = {}
+      const glVer: Record<string, string> = {}, gpuVer: Record<string, string> = {}
+      let glPass = 0, gpuPass = 0, glDone = 0, gpuDone = 0
+      let glAvail = true, gpuAvail = true, glGuard = false, gpuGuard = false, gpuNote = ''
+
+      // Summary ticks the pass count up live; a trailing spinner + n/total marks a
+      // backend still in progress, resolved to "all pass" / "N failed" when done.
+      const summaryLine = (label: string, pass: number, done: number, avail: boolean, guard: boolean): string => {
+        const running = done < total
+        const body = !avail
+          ? '<span class="text-[13px] text-fg-mute">not available on this browser</span>'
+          : `<span class="font-display text-[22px] leading-none text-fg tabular-nums">${pass}<span class="text-fg-mute text-[14px]">/${total}</span></span>`
+            + (running
+              ? `<span class="inline-flex items-center gap-1.5 text-[12px] text-fg-mute">${PENDING}${done}/${total}</span>`
+              : (total - pass ? `<span class="text-[12px] text-destructive">${total - pass} failed</span>` : '<span class="text-[12px] text-fg-mute">all pass</span>')
+                + (guard ? '' : '<span class="text-[12px] text-destructive">guard missing</span>'))
+        return `<div class="flex items-baseline gap-x-3 gap-y-1 flex-wrap"><span class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] w-[104px] shrink-0">${label}</span>${body}</div>`
+      }
+      const renderSummary = () => {
+        summary.innerHTML = `<div class="space-y-3">${summaryLine('WebGL2 · GLSL', glPass, glDone, glAvail, glGuard)}${summaryLine('WebGPU · WGSL', gpuPass, gpuDone, gpuAvail, gpuGuard)}</div>`
+      }
+      const markFail = (name: string) => { const r = q(`[data-row="${name}"]`); r.classList.remove('border-transparent'); r.classList.add('border-destructive') }
+      const showDiffer = (name: string) => {
+        if (!gpuAvail || glVer[name] === undefined || gpuVer[name] === undefined || glVer[name] === gpuVer[name]) return
+        const s = q(`[data-differ="${name}"]`); if (s) s.outerHTML = `<span data-differ="${name}" class="font-mono text-[11px] text-destructive lowercase"> differ</span>`
+      }
+      // Swap one cell from spinner → resolved value the moment its test lands.
+      const report = (side: 'gl' | 'gpu', name: string, v: number | null, vr: string) => {
+        q(`[data-${side}="${name}"]`).innerHTML = vr === 'n/a' ? '<span class="text-fg-faint">—</span>' : cell(v, vr)
+        if (side === 'gl') { glRes[name] = v; glVer[name] = vr; glDone++; if (vr === 'PASS') glPass++ }
+        else { gpuRes[name] = v; gpuVer[name] = vr; gpuDone++; if (vr === 'PASS') gpuPass++ }
+        if (isFail(vr)) markFail(name)
+        showDiffer(name); renderSummary()
+      }
+      renderSummary()
+      const raf = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
+
+      // WebGL2 (GLSL): each test → 8×8 draw, read back, report, yield so the just-
+      // filled cell paints before the next runs (progress is visible, not a freeze).
+      const runWebGL = async () => {
+        const canvas = document.createElement('canvas'); canvas.width = 8; canvas.height = 8
+        const gl = canvas.getContext('webgl2')
+        if (!gl) { glAvail = false; for (const t of tests) report('gl', t.name, null, 'n/a'); return }
+        const gtex = gl.createTexture()
+        gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, gtex)
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]))
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+        gl.activeTexture(gl.TEXTURE0); gl.bindVertexArray(gl.createVertexArray()); gl.viewport(0, 0, 8, 8)
+        for (const t of tests) {
+          try {
+            const c = (ty: number, src: string) => { const s = gl.createShader(ty)!; gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) || ''); return s }
+            const p = gl.createProgram()!
+            gl.attachShader(p, c(gl.VERTEX_SHADER, t.glslVertex)); gl.attachShader(p, c(gl.FRAGMENT_SHADER, t.glslFragment)); gl.linkProgram(p)
+            if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p) || '')
+            gl.useProgram(p)
+            const block = t.reflection.uniforms[0]
+            if (block) { const ubo = gl.createBuffer(); gl.bindBuffer(gl.UNIFORM_BUFFER, ubo); gl.bufferData(gl.UNIFORM_BUFFER, pack(block, values), gl.STATIC_DRAW); const i = gl.getUniformBlockIndex(p, block.name); if (i !== 0xffffffff) { gl.uniformBlockBinding(p, i, 0); gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, ubo) } }
+            const gLoc = gl.getUniformLocation(p, '_fp64'); if (gLoc) { gl.uniform1i(gLoc, 7); glGuard = true }
+            gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLES, 0, 3)
+            const px = new Uint8Array(4); gl.readPixels(4, 4, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
+            const v = decode(px[0], px[1], px[2]); report('gl', t.name, v, verdict(v, t.golden, t.circular))
+          } catch (e) { report('gl', t.name, null, 'ERR') }
+          await raf()
+        }
+      }
+
+      // WebGPU (WGSL): same modules; each test awaits a real GPU readback, then reports.
+      const runWebGPU = async () => {
+        const g = (navigator as any).gpu
+        if (!g) { gpuAvail = false; gpuNote = 'WebGPU unavailable (no navigator.gpu)'; for (const t of tests) report('gpu', t.name, null, 'n/a'); return }
+        let adapter: any
+        try { adapter = await g.requestAdapter() } catch { gpuAvail = false; gpuNote = 'requestAdapter threw'; for (const t of tests) report('gpu', t.name, null, 'n/a'); return }
+        if (!adapter) { gpuAvail = false; gpuNote = 'no adapter'; for (const t of tests) report('gpu', t.name, null, 'n/a'); return }
+        let device: any
+        try { device = await adapter.requestDevice() } catch { gpuAvail = false; gpuNote = 'requestDevice threw'; for (const t of tests) report('gpu', t.name, null, 'n/a'); return }
+        const TU = (globalThis as any).GPUTextureUsage, BU = (globalThis as any).GPUBufferUsage, MM = (globalThis as any).GPUMapMode
+        const guardTex = device.createTexture({ size: [1, 1], format: 'rgba8unorm', usage: TU.TEXTURE_BINDING | TU.COPY_DST })
+        device.queue.writeTexture({ texture: guardTex }, new Uint8Array([255, 255, 255, 255]), { bytesPerRow: 4, rowsPerImage: 1 }, [1, 1])
+        const guardView = guardTex.createView()
+        for (const t of tests) {
+          try {
+            const mod = device.createShaderModule({ code: t.wgsl })
+            const target = device.createTexture({ size: [8, 8], format: 'rgba8unorm', usage: TU.RENDER_ATTACHMENT | TU.COPY_SRC })
+            const ab = pack(t.reflection.uniforms[0], values)
+            const ubuf = device.createBuffer({ size: ab.byteLength, usage: BU.UNIFORM | BU.COPY_DST }); device.queue.writeBuffer(ubuf, 0, ab)
+            const pipeline = device.createRenderPipeline({ layout: 'auto', vertex: { module: mod, entryPoint: t.vertexEntry }, fragment: { module: mod, entryPoint: t.fragmentEntry, targets: [{ format: 'rgba8unorm' }] }, primitive: { topology: 'triangle-list' } })
+            const entries: any[] = [{ binding: 0, resource: { buffer: ubuf } }]
+            if (t.guardBinding != null) { entries.push({ binding: t.guardBinding, resource: guardView }); gpuGuard = true }
+            const bg = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries })
+            const rb = device.createBuffer({ size: 256 * 8, usage: BU.COPY_DST | BU.MAP_READ })
+            const enc = device.createCommandEncoder()
+            const pass = enc.beginRenderPass({ colorAttachments: [{ view: target.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] })
+            pass.setPipeline(pipeline); pass.setBindGroup(0, bg); pass.draw(3); pass.end()
+            enc.copyTextureToBuffer({ texture: target }, { buffer: rb, bytesPerRow: 256, rowsPerImage: 8 }, [8, 8])
+            device.queue.submit([enc.finish()])
+            await rb.mapAsync(MM.READ)
+            const arr = new Uint8Array(rb.getMappedRange().slice(0)); const o = 4 * 256 + 4 * 4
+            rb.unmap()
+            const v = decode(arr[o], arr[o + 1], arr[o + 2]); report('gpu', t.name, v, verdict(v, t.golden, t.circular))
+          } catch (e) { report('gpu', t.name, null, 'ERR') }
+        }
+        const info = adapter.info || {}
+        gpuNote = `adapter ${info.vendor || ''} ${info.architecture || ''}`.trim()
+      }
+
+      // Both backends fill their own column concurrently.
+      await Promise.all([runWebGL(), runWebGPU()])
+      renderSummary()
+
+      // ── Frozen text digest (format unchanged — the dev's parser reads it),
+      // built in-memory now that the on-page dump is gone; Copy emits this. ──
+      const rows = tests.map((t) => {
+        const gv = glRes[t.name] ?? null, pv = gpuRes[t.name] ?? null
+        const gs = gv == null ? '  ERR ' : gv.toFixed(4)
+        const ps = !gpuAvail ? '   —  ' : pv == null ? '  ERR ' : pv.toFixed(4)
+        return `${t.name.padEnd(9)} gold=${t.golden.toFixed(4)}  WebGL2 ${gs} ${(glVer[t.name] ?? 'ERR').padEnd(8)} | WebGPU ${ps} ${gpuAvail ? (gpuVer[t.name] ?? 'ERR') : 'n/a'}`
+      })
+      const digestText =
+        `df64 GPU probe\n` +
+        `  WebGL2: ${glPass}/${total} pass · guard=${glGuard ? 'bound' : 'MISSING'}\n` +
+        `  WebGPU: ${gpuAvail ? `${gpuPass}/${total} pass · guard=${gpuGuard ? 'bound' : 'MISSING'} · ${gpuNote}` : gpuNote}\n` +
+        `  UA: ${navigator.userAgent}\n\n` +
+        rows.join('\n')
+
+      copyBtn.classList.remove('opacity-40', 'pointer-events-none')
       copyBtn.addEventListener('click', async () => {
         try {
-          await navigator.clipboard.writeText(digest.textContent ?? '')
+          await navigator.clipboard.writeText(digestText)
           const l = copyBtn.querySelector('.copy-label')
           if (!l) return
           const o = l.textContent
@@ -482,11 +480,7 @@ const payload = { values, tests }
       })
     } catch (e) {
       const msg = 'ERROR: ' + (e instanceof Error ? e.message : String(e))
-      loading.style.display = 'none'
-      out.classList.remove('opacity-0')
-      digest.textContent = msg
-      digest.classList.add('text-destructive')
-      summary.innerHTML = `<p class="text-[13px] text-destructive">${msg}</p>`
+      summary.innerHTML = `<p class="text-[13px] text-destructive font-mono">${msg}</p>`
     }
   })()
 </script>
