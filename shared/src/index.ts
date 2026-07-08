@@ -17,3 +17,6 @@ export * from './priority-queue'
 // gated, stripped from any `vite build`. Lives at the shared LCA so @xgis/engine
 // (UniformBlock) and @xgis/map can both assert without importing the runtime.
 export * from './dev-assert'
+// Generic 4×4 matrix ops (column-major) — content-blind linear algebra relocated
+// from @xgis/engine (#781) so @xgis/geo / @xgis/map / @xgis/data share one impl.
+export * from './mat4'

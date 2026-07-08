@@ -22,7 +22,7 @@
 import { mercatorYToLat, mercator, getProjection } from './projection'
 import { EARTH_R } from './globe'
 import { SELECTOR_PROJ_NAMES, poleLimit } from './projections-table'
-import { mulVec4 } from './camera-helpers'
+import { mulVec4 } from '@xgis/shared'
 
 /** Resolved camera state read by the pure inverse functions. The Camera fills
  *  this from its `this.*` fields (the wrappers pass `this` directly — the class

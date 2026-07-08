@@ -20,7 +20,7 @@ import { lonLatToECEFSphere, ecefToENURotation, type ECEF } from './ecef'
 import { WORLD_MERC, TILE_PX } from '../gpu/world-scale'
 import { buildGlobeMatrix, EARTH_R } from './globe'
 import { mercatorYToLatRad } from './projection'
-import { mul4, perspectiveMatrix } from './camera-helpers'
+import { mul4, perspectiveMatrix } from '@xgis/shared'
 
 /** Resolved camera state read by the pure matrix builders. The Camera fills
  *  this from its `this.*` fields (reading the accessor-gated `pitch` once) so
