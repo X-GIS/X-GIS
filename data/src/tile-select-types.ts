@@ -48,3 +48,35 @@ export interface LoadedTile {
   east: number
   north: number
 }
+
+/** The read-only camera surface the tile selectors consume.
+ *
+ *  `@xgis/data` selects tiles for the current view but must NOT depend on the
+ *  concrete geo `Camera` class (it lives in `@xgis/engine` today and relocates
+ *  in the #781 Camera generic-split). Declaring the exact members the selectors
+ *  read — as data's OWN contract — keeps this package free of that class: a real
+ *  `Camera` satisfies this structurally, so callers pass one unchanged and
+ *  relocating the class never touches `@xgis/data`.
+ *
+ *  Members mirror `Camera` exactly (Web-Mercator centre metres, zoom, pitch, the
+ *  RTC view-projection matrix, and the ground-plane unproject). */
+export interface TileSelectionCamera {
+  /** Zoom level (0 = whole world, higher = closer). */
+  zoom: number
+  /** Camera centre in Web Mercator metres. */
+  centerX: number
+  centerY: number
+  /** Pitch/tilt in degrees (0 = top-down). */
+  pitch: number
+  /** RTC (focus-relative) view-projection matrix, column-major 4x4. */
+  getRTCMatrix(canvasWidth: number, canvasHeight: number, dpr?: number): Float32Array
+  /** Unproject a device-pixel screen point onto the projected z=0 ground plane;
+   *  null when the ray misses the ground (above the horizon). */
+  unprojectToZ0(
+    screenX: number,
+    screenY: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr?: number,
+  ): [number, number] | null
+}

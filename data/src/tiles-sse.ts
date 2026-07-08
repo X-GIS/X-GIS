@@ -42,12 +42,11 @@
 // (window-level) so we can A/B against the existing selector with
 // real data + measurements before flipping the default.
 
-import type { Camera } from '@xgis/engine'
 import type { Projection } from '@xgis/engine'
 import { mercatorYToLat } from '@xgis/engine'
 import { worldCopiesFor, TILE_PX } from '@xgis/engine'
 import { PROJECTION_NAME_TO_TYPE } from '@xgis/engine'
-import type { TileCoord } from './tile-select-types'
+import type { TileCoord, TileSelectionCamera } from './tile-select-types'
 
 const EARTH_CIRC_M = 40075016.686
 const PI_R = Math.PI * 6378137
@@ -165,7 +164,7 @@ const FALLBACK_PARENT_DEPTH = 2
 const _injectedParentsScratch = new Set<number>()
 
 export function visibleTilesSSE(
-  camera: Camera,
+  camera: TileSelectionCamera,
   projection: Projection,
   maxZ: number,
   canvasWidth: number,
