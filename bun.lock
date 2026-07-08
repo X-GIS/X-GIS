@@ -57,6 +57,7 @@
       "devDependencies": {
         "@xgis/compiler": "workspace:*",
         "@xgis/engine": "workspace:*",
+        "@xgis/geo": "workspace:*",
         "@xgis/shared": "workspace:*",
         "geojson-vt": "^4.0.2",
         "vt-pbf": "^3.1.3",
@@ -74,6 +75,13 @@
         "@xgis/shared": "workspace:*",
       },
     },
+    "geo": {
+      "name": "@xgis/geo",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@xgis/shared": "workspace:*",
+      },
+    },
     "map": {
       "name": "@xgis/map",
       "version": "0.0.1",
@@ -86,6 +94,7 @@
         "@xgis/compiler": "workspace:*",
         "@xgis/data": "workspace:*",
         "@xgis/engine": "workspace:*",
+        "@xgis/geo": "workspace:*",
         "@xgis/shader-dsl": "workspace:*",
         "@xgis/shared": "workspace:*",
       },
@@ -163,6 +172,7 @@
         "@xgis/compiler": "workspace:*",
         "@xgis/data": "workspace:*",
         "@xgis/engine": "workspace:*",
+        "@xgis/geo": "workspace:*",
         "@xgis/map": "workspace:*",
         "@xgis/shader-dsl": "workspace:*",
         "@xgis/shared": "workspace:*",
@@ -759,6 +769,8 @@
     "@xgis/data": ["@xgis/data@workspace:data"],
 
     "@xgis/engine": ["@xgis/engine@workspace:engine"],
+
+    "@xgis/geo": ["@xgis/geo@workspace:geo"],
 
     "@xgis/map": ["@xgis/map@workspace:map"],
 

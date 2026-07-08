@@ -1,0 +1,18 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    // @xgis/geo is a pure cartography package: it depends ONLY on @xgis/shared
+    // (EARTH + the generic mat4 ops), never on the engine or any RHI/GPU type.
+    // `types: []` keeps @webgpu/types + @types/node out, so a WebGPU or Node
+    // identifier here is a compile error — geo is content-blind math.
+    "types": [],
+    "paths": {
+      "@xgis/shared": ["../shared/dist/index.d.ts"]
+    }
+  },
+  "references": [{ "path": "../shared" }],
+  "include": ["src/**/*.ts"]
+}

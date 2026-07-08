@@ -40,6 +40,6 @@ export {
   type VectorTileFormat,
 } from '@xgis/data'
 export { XGISMapElement, registerXGISElement } from './web/component'
-export { mercator, equirectangular, naturalEarth, orthographic, getProjection } from '@xgis/engine'
+export { mercator, equirectangular, naturalEarth, orthographic, getProjection } from '@xgis/geo'
 export { ComputeDispatcher, type ComputeTask } from '@xgis/rhi-webgpu'
 export { createColorRampTexture, createRampSampler, availableRamps } from '@xgis/map'

@@ -19,7 +19,7 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/map'
 import { CameraController, type CameraControllerDeps } from '@xgis/map'
-import { mercatorYToLat, mercator } from '@xgis/engine'
+import { mercatorYToLat, mercator } from '@xgis/geo'
 
 const MERC_LIMIT = 85.051129
 

@@ -27,7 +27,7 @@ import { tileKey } from '@xgis/compiler'
 import { Camera } from '@xgis/map'
 import { CameraController, type CameraControllerDeps } from '@xgis/map'
 import { globeVisibleTiles } from '@xgis/data'
-import { mercatorYToLat, mercator as mercatorProj } from '@xgis/engine'
+import { mercatorYToLat, mercator as mercatorProj } from '@xgis/geo'
 import { computeZoomDirectionPrefetchKeys } from '@xgis/map'
 
 const W = 800

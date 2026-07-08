@@ -17,10 +17,10 @@ import { tileKey, tileKeyChildren, tileKeyParent } from '@xgis/compiler'
 import type { TileCoord } from '@xgis/data'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord } from '@xgis/data'
 import type { Camera } from './camera'
-import { type Projection, mercatorYToLat } from '@xgis/engine'
-import { routeToSphereSelector } from '@xgis/engine'
+import { type Projection, mercatorYToLat } from '@xgis/geo'
+import { routeToSphereSelector } from '@xgis/geo'
 import { globeVisibleTiles } from '@xgis/data'
-import { representsCenterAs } from '@xgis/engine'
+import { representsCenterAs } from '@xgis/geo'
 
 /** What to do with a visible tile this frame. Tagged union so the
  *  TypeScript exhaustiveness check covers every branch — adding a new

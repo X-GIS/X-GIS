@@ -7,7 +7,7 @@
 // primitives it drives (buildGlobeMatrix, unprojectGlobe) stay in
 // @xgis/engine and are imported here.
 
-import { buildGlobeMatrix, unprojectGlobe, EARTH_R, MERCATOR_LAT_LIMIT } from '@xgis/engine'
+import { buildGlobeMatrix, unprojectGlobe, EARTH_R, MERCATOR_LAT_LIMIT } from '@xgis/geo'
 
 // Redeclared locally (trivial constants; the engine's copies are module-private).
 const DEG2RAD = Math.PI / 180

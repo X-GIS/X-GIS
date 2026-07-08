@@ -16,16 +16,8 @@
 //
 // This module must NOT import camera.ts (no cycle); camera.ts imports it.
 
-import {
-  lonLatToECEFSphere,
-  ecefToENURotation,
-  type ECEF,
-  WORLD_MERC,
-  TILE_PX,
-  buildGlobeMatrix,
-  EARTH_R,
-  mercatorYToLatRad,
-} from '@xgis/engine'
+import { lonLatToECEFSphere, ecefToENURotation, type ECEF } from '@xgis/engine'
+import { WORLD_MERC, TILE_PX, buildGlobeMatrix, EARTH_R, mercatorYToLatRad } from '@xgis/geo'
 import { mul4, perspectiveMatrix } from '@xgis/shared'
 
 /** Resolved camera state read by the pure matrix builders. The Camera fills

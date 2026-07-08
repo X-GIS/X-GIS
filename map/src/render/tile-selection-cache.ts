@@ -34,14 +34,9 @@ import {
 import { visibleTilesSSE } from '@xgis/data'
 import { globeVisibleTiles } from '@xgis/data'
 import { tileKey, tileKeyParent } from '@xgis/compiler'
-import { enumerateWorldCopies, routeToSphereSelector } from '@xgis/engine'
-import {
-  mercator as mercatorProj,
-  getProjection,
-  type Projection,
-  mercatorYToLat,
-} from '@xgis/engine'
-import { SELECTOR_PROJ_NAMES, promotesToGlobeWhenTilted, representsCenterAs } from '@xgis/engine'
+import { enumerateWorldCopies, routeToSphereSelector } from '@xgis/geo'
+import { mercator as mercatorProj, getProjection, type Projection, mercatorYToLat } from '@xgis/geo'
+import { SELECTOR_PROJ_NAMES, promotesToGlobeWhenTilted, representsCenterAs } from '@xgis/geo'
 import type { TileCatalog } from '@xgis/data'
 import type { FrameDrawStats } from './frame-draw-stats'
 

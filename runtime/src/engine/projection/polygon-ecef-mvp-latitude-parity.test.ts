@@ -20,7 +20,7 @@
 import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/map'
 import { mercatorToECEFSphere } from '@xgis/engine'
-import { WORLD_MERC } from '@xgis/engine'
+import { WORLD_MERC } from '@xgis/geo'
 
 const EARTH_R = 6378137
 const DEG2RAD = Math.PI / 180

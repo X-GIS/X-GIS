@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/map'
 import { visibleTilesFrustum } from '@xgis/data'
-import { mercator } from '@xgis/engine'
+import { mercator } from '@xgis/geo'
 
 // Reproduces the user-reported bug: when lowering pitch to near 0 (top-down),
 // tile selection should still return a sensible set of tiles overlapping the

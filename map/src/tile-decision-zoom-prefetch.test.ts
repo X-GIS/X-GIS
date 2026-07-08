@@ -28,13 +28,8 @@ import { tileKey } from '@xgis/compiler'
 import { Camera } from './camera'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord } from '@xgis/data'
 import { globeVisibleTiles } from '@xgis/data'
-import {
-  mercator as mercatorProj,
-  getProjection,
-  type Projection,
-  mercatorYToLat,
-} from '@xgis/engine'
-import { routeToSphereSelector } from '@xgis/engine'
+import { mercator as mercatorProj, getProjection, type Projection, mercatorYToLat } from '@xgis/geo'
+import { routeToSphereSelector } from '@xgis/geo'
 import { computeZoomDirectionPrefetchKeys } from './tile-decision'
 
 const W = 1024

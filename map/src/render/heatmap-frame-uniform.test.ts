@@ -8,7 +8,8 @@
 
 import { describe, it, expect } from 'vitest'
 import type { Camera } from '../camera'
-import { WORLD_MERC, TILE_PX, uniformBlock } from '@xgis/engine'
+import { uniformBlock } from '@xgis/engine'
+import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { reflect } from '@xgis/shader-dsl'
 import { buildHeatmapAccumModule, heatmapAccumU as HEATMAP_U } from '../shaders/dsl/heatmap-accum'
 import { writeHeatmapFrameUniform } from './heatmap-renderer'

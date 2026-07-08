@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path'
 
 import { Camera } from '@xgis/map'
 import { visibleTilesFrustum } from '@xgis/data'
-import { mercator } from '@xgis/engine'
+import { mercator } from '@xgis/geo'
 import { TileCatalog } from '@xgis/data'
 import {
   decomposeFeatures,

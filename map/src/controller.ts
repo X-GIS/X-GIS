@@ -2,7 +2,7 @@
 
 import type { Camera } from './camera'
 import { unprojectGlobeFromCamera } from './camera'
-import { promotesToGlobeWhenTilted } from '@xgis/engine'
+import { promotesToGlobeWhenTilted } from '@xgis/geo'
 import { getMaxDpr } from '@xgis/engine'
 import { xlog } from '@xgis/shared'
 

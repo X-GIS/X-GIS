@@ -1,6 +1,6 @@
 // ═══ Matrix Utilities — pure helpers extracted from camera.ts ═══
 
-import { mercator, WORLD_MERC } from '@xgis/engine'
+import { mercator, WORLD_MERC } from '@xgis/geo'
 import { activeBody, EARTH } from '@xgis/shared'
 
 /** Minimal camera surface `convergeFlatAnchor` mutates — satisfied

@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest'
 import { globeVisibleTiles } from '@xgis/data'
 import { visibleTilesSSE } from '@xgis/data'
-import { mercator } from '@xgis/engine'
+import { mercator } from '@xgis/geo'
 import { Camera } from '@xgis/map'
 
 const W = 800

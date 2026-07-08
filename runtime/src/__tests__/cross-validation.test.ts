@@ -10,8 +10,8 @@ import {
   orthographic,
   azimuthalEquidistant,
   stereographic,
-} from '@xgis/engine'
-import type { Projection } from '@xgis/engine'
+} from '@xgis/geo'
+import type { Projection } from '@xgis/geo'
 import { compileGeoJSONToTiles, tileKey, simplify as xgisSimplify } from '@xgis/compiler'
 import type { GeoJSONFeatureCollection } from '@xgis/compiler'
 

@@ -10,16 +10,14 @@ export * from '@xgis/rhi'
 // ── GPU layer (backend-blind) ─────────────────────────────────────────
 export * from './gpu/gpu-arena'
 export * from './gpu/quality'
-export * from './gpu/world-scale'
 
-// ── Geo primitives (projection leaves) ───────────────────────────────
-// The map-only camera cluster (camera, view-matrix, globe-anchor, unproject,
-// camera-world-copies, camera-helpers) moved to @xgis/map in #781 (3b). These
-// remaining leaves become @xgis/geo in 3c; the engine holds no projection then.
-export * from './projection/projection'
-export * from './projection/projections-table'
+// ── ECEF coordinate shim (last geo residue) ──────────────────────────
+// The projection leaves (projection, projections-table, globe) + world-scale
+// moved to the new @xgis/geo package in #781 (3c): the engine is now geo-free.
+// Only this ECEF re-export remains — a thin passthrough to @xgis/shared (where
+// the ellipsoid math lives so the @xgis/compiler tiler shares one source).
+// Dropping the shim (import ECEF from @xgis/shared directly) is 3d cleanup.
 export * from './projection/ecef'
-export * from './projection/globe'
 
 // ── Frame / render core machinery ─────────────────────────────────────
 export * from './render/projection-token'

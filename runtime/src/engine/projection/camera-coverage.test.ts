@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/map'
-import { PROJECTION_NAME_TO_TYPE } from '@xgis/engine'
+import { PROJECTION_NAME_TO_TYPE } from '@xgis/geo'
 
 const PROJECTIONS = [
   // (name, projType, globeMode, globeOrtho)

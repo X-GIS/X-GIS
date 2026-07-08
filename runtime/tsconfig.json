@@ -18,6 +18,7 @@
       "@xgis/compiler": ["../compiler/dist/index.d.ts"],
       "@xgis/compiler/tiler/geodesic": ["../compiler/dist/tiler/geodesic.d.ts"],
       "@xgis/engine": ["../engine/dist/index.d.ts"],
+      "@xgis/geo": ["../geo/dist/index.d.ts"],
       "@xgis/data": ["../data/src/index.ts"],
       "@xgis/map": ["../map/src/index.ts"],
       "@xgis/shared": ["../shared/dist/index.d.ts"],
@@ -33,6 +34,7 @@
     { "path": "../shared" },
     { "path": "../shader-dsl" },
     { "path": "../engine" },
+    { "path": "../geo" },
     { "path": "../data" },
     { "path": "../map" }
   ],

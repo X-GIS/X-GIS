@@ -12,7 +12,7 @@ import {
   isMercatorProj,
   worldCopiesFor,
   enumerateWorldCopies,
-} from '@xgis/engine'
+} from '@xgis/geo'
 
 /** Mutable cache object owned by the caller (Camera). Passed by reference so
  *  the pure function can read + update the hit/miss state without keeping its

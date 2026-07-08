@@ -52,8 +52,8 @@
 
 import { describe, it, expect, afterEach } from 'vitest'
 import { Camera } from './camera'
-import { buildGlobeMatrix, unprojectGlobe } from '@xgis/engine'
-import { mercatorYToLat } from '@xgis/engine'
+import { buildGlobeMatrix, unprojectGlobe } from '@xgis/geo'
+import { mercatorYToLat } from '@xgis/geo'
 import { PanZoomController } from './controller'
 import { InteractionController, type InteractionControllerDeps } from './interaction-controller'
 import type { GPUContext } from '@xgis/rhi-webgpu'

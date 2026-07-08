@@ -1021,7 +1021,7 @@ const initialPreset = presets[0]
     // page has no map, so configure it once at module load before any composer runs —
     // otherwise emitPolygonWgsl throws "configureProjections() must be called …".
     import { configureProjections } from '@xgis/map'
-    import { PROJECTIONS } from '../../../../../engine/src/projection/projections-table'
+    import { PROJECTIONS } from '../../../../../geo/src/projections-table'
     configureProjections(PROJECTIONS)
 
     const presetSources = (window as unknown as { __xgisComputePresets: Record<string, string> }).__xgisComputePresets

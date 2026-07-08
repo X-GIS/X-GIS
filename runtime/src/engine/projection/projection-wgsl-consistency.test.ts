@@ -7,7 +7,7 @@ import {
   azimuthalEquidistant,
   stereographic,
   obliqueMercator,
-} from '@xgis/engine'
+} from '@xgis/geo'
 import {
   projMercatorWgsl,
   projEquirectangularWgsl,
@@ -26,7 +26,7 @@ import {
   wrapLonDelta,
   needsBackfaceCullWgsl,
 } from '@xgis/map'
-import { globeForward } from '@xgis/engine'
+import { globeForward } from '@xgis/geo'
 import { globeEyeUniform } from '@xgis/map'
 
 const EARTH_R = 6378137

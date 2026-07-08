@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/map'
 import { visibleTilesFrustum } from '@xgis/data'
-import { mercator } from '@xgis/engine'
+import { mercator } from '@xgis/geo'
 
 // Animation-driven tile-selection oracles. Each test walks the camera
 // through a sequence of states and asserts invariants PER FRAME.

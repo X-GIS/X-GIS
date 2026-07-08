@@ -20,9 +20,9 @@
 
 import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/map'
-import { buildGlobeMatrix, globeForward, globeAltitude } from '@xgis/engine'
-import { WORLD_MERC, TILE_PX } from '@xgis/engine'
-import { flatViewHeightCapM } from '@xgis/engine'
+import { buildGlobeMatrix, globeForward, globeAltitude } from '@xgis/geo'
+import { WORLD_MERC, TILE_PX } from '@xgis/geo'
+import { flatViewHeightCapM } from '@xgis/geo'
 import { projectGeomCpu, projectCpu } from '@xgis/map'
 
 const W = 800,

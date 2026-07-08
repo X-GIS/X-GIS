@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'fs'
 import { join } from 'path'
-import { PROJECTIONS } from '@xgis/engine'
+import { PROJECTIONS } from '@xgis/geo'
 
 describe('setProjection validity set', () => {
   it('every ALIASES entry maps to a VALID name', () => {

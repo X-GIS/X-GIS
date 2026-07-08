@@ -27,7 +27,7 @@
 // composite / points) and the label pass own the MSAA resolve unchanged.
 
 import { DEBUG_OVERDRAW } from '../../debug-flags'
-import { worldBandForProjType } from '@xgis/engine'
+import { worldBandForProjType } from '@xgis/geo'
 import { resolveColorShape, resolveNumberShape } from '../paint-shape-resolve'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '@xgis/engine'

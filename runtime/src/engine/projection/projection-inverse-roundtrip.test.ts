@@ -25,7 +25,7 @@ import {
   stereographic,
   obliqueMercator,
   type Projection,
-} from '@xgis/engine'
+} from '@xgis/geo'
 
 // Round-trip tolerance in degrees. Points are chosen well inside each
 // projection's well-conditioned domain (away from rim / pole / clamp),

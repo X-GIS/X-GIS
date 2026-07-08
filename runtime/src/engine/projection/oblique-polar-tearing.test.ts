@@ -20,7 +20,7 @@
 // pole.
 
 import { describe, expect, it } from 'vitest'
-import { obliqueMercator } from '@xgis/engine'
+import { obliqueMercator } from '@xgis/geo'
 
 const R = 6378137
 const HALF_CIRC = Math.PI * R

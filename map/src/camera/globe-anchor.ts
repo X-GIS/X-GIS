@@ -22,7 +22,7 @@
 // ±85.05 and undo the S12 pole-reach); `centerY` keeps the Mercator-bounded
 // mirror for the 2D / tile-pyramid readers.
 
-import { buildGlobeMatrix, unprojectGlobe, EARTH_R, type GlobeView, poleLimit } from '@xgis/engine'
+import { buildGlobeMatrix, unprojectGlobe, EARTH_R, type GlobeView, poleLimit } from '@xgis/geo'
 
 const DEG2RAD = Math.PI / 180
 const RAD2DEG = 180 / Math.PI

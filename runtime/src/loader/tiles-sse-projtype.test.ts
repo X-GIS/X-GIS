@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/map'
-import { getProjection } from '@xgis/engine'
+import { getProjection } from '@xgis/geo'
 import { visibleTilesSSE } from '@xgis/data'
 
 describe('visibleTilesSSE — projType resolution (single-world disc)', () => {
