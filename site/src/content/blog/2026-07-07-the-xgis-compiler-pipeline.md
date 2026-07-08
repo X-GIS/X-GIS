@@ -6,10 +6,13 @@ tags: ['compiler', 'engine', 'webgpu', 'shader-dsl']
 lang: en
 ---
 
-The [first post on this blog](/blog/2026-06-26-why-a-gpu-first-map-engine)
-claimed that an X-GIS style is _source code_ — compiled once, not interpreted
-per frame. This post is the anatomy of that compiler in `@xgis/compiler`: five
-stages, and one design rule that shapes everything downstream.
+A polygon category comes out the right colour in one tile and the wrong colour
+in the tile right next to it — a seam that moves as you pan, and it traces back
+to a single design decision inside the compiler that turns a declarative map
+style into GPU programs. The
+[first post on this blog](/blog/2026-06-26-why-a-gpu-first-map-engine) claimed
+that an X-GIS style is _source code_ — compiled once, not interpreted per
+frame; this post is the anatomy of that compiler in `@xgis/compiler`.
 
 ## The stages
 
@@ -138,11 +141,9 @@ output was already IR those gates could run.
 
 ## What generalizes
 
-- Put a **typed IR at every seam** where one system hands programs to
-  another; strings type-check nothing.
-- **Classify paint by its dependency set** (constant / per-feature /
-  per-frame) and pick the cheapest home for each class: fold it, precompute
-  it in a kernel, or bake it into a texture.
-- Make every cross-system agreement (category IDs, buffer layouts) a
-  **single exported authority** — the bugs live wherever two copies can
-  drift.
+The lesson that outlives this compiler is to classify paint by what it
+_depends on_ — constant, per-feature, or per-frame — rather than by what it
+is, because each dependency class has a different cheapest home (fold it away,
+precompute it once in a kernel, or bake it into a texture), and reaching for
+one general mechanism to serve all three is exactly what makes data-driven
+paint cost more than it needs to.

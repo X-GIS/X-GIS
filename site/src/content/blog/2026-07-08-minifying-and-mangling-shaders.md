@@ -1,6 +1,6 @@
 ---
 title: 'Your bundler minifies everything except your shaders'
-description: "Emitted WGSL/GLSL ships to gl.shaderSource with its authored vocabulary intact — no JS minifier reaches it. A Vite/Webpack-style emit-plugin pass (mangle + minify) that compacts and obfuscates the shader text, the ABI boundary it must never cross, and why compile-and-link is not enough to trust it."
+description: 'Emitted WGSL/GLSL ships to gl.shaderSource with its authored vocabulary intact — no JS minifier reaches it. A Vite/Webpack-style emit-plugin pass (mangle + minify) that compacts and obfuscates the shader text, the ABI boundary it must never cross, and why compile-and-link is not enough to trust it.'
 date: 2026-07-08
 tags: ['shader-dsl', 'compiler', 'tooling', 'webgpu']
 lang: en
@@ -9,8 +9,8 @@ lang: en
 Run your production bundle through devtools and look at a shader. The
 TypeScript that built it is minified to `_a`, `_b`, `t0` — but the string it
 handed to `createShaderModule` / `gl.shaderSource` still reads
-`float terrain_height(vec2 p)`, `struct DF64Vec2`, `df64_twoSum`. Every
-authored name in the shader survives, because it is *data* the bundler never
+`float noise(vec2 p)`, `struct DF64Vec2`, `df64_twoSum`. Every
+authored name in the shader survives, because it is _data_ the bundler never
 parses — a string literal it copies byte-for-byte into the output.
 
 `@xgis/shader-dsl` emits WGSL and GLSL ES 3.00 from a
@@ -38,11 +38,11 @@ staged hooks:
 interface EmitPlugin {
   name: string
   transformIR?: (lowered: ModuleDecl) => ModuleDecl // before assembly
-  transformText?: (code: string) => string          // on the emitted string
+  transformText?: (code: string) => string // on the emitted string
 }
 ```
 
-Hooks fire *staged across all plugins*, the way Vite runs every plugin's
+Hooks fire _staged across all plugins_, the way Vite runs every plugin's
 `resolveId` before any `load`: every `transformIR` runs (in array order) on the
 lowered module, the backend assembles it to a string, then every
 `transformText` runs. Composing is an array:
@@ -57,7 +57,7 @@ const fs = emitGlslModule(m, 'fragment', { plugins: obfuscate() }) // the [mangl
 
 The **core emit knows nothing about mangle or minify** — it only folds the
 plugin arrays. The implementations live on a separate entry point,
-`@xgis/shader-dsl/emit-prod`, so a consumer that emits shaders *at runtime*
+`@xgis/shader-dsl/emit-prod`, so a consumer that emits shaders _at runtime_
 (the map engine itself does) and never imports the subpath bundles zero bytes
 of the transform code. That matters because the weight is real: the mangle pass
 is ~210 lines of identifier-walking and the minifier another ~60, none of which
@@ -70,7 +70,7 @@ the lint/measure tooling uses (`/dev`).
 Mangling renames the authored vocabulary — helper functions, plain structs,
 module constants (including the injected
 [df64 emulation library](/blog/2026-07-07-emulated-double-precision-shader-dsl):
-a software 64-bit float built from a *pair* of 32-bit floats, the trick that
+a software 64-bit float built from a _pair_ of 32-bit floats, the trick that
 stops globe coordinates from jittering at the earth's radius) — to
 `_f0` / `_S0` / `_k0`, in declaration order. Local variables were already
 machine-named by the optimizer; what leaks identity is the top-level names.
@@ -79,17 +79,17 @@ The interesting half is what mangling must **never** touch. These names are an
 ABI — a contract with code outside the shader — and renaming one silently
 breaks a program that still compiles:
 
-| Never renamed | Who reads the name |
-|---|---|
-| entry-point functions | WebGPU `createRenderPipeline({ entryPoint })` names them |
-| binding variables (incl. the `_fp64` guard) | the host's `getUniformLocation` / bind-group wiring |
-| binding-struct tags | the GLSL UBO block name (`getUniformBlockIndex`) |
-| struct **field** names | std140 host packing; GLSL varyings link vertex↔fragment **by name** |
+| Never renamed                               | Who reads the name                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------- |
+| entry-point functions                       | WebGPU `createRenderPipeline({ entryPoint })` names them            |
+| binding variables (incl. the `_fp64` guard) | the host's `getUniformLocation` / bind-group wiring                 |
+| binding-struct tags                         | the GLSL UBO block name (`getUniformBlockIndex`)                    |
+| struct **field** names                      | std140 host packing; GLSL varyings link vertex↔fragment **by name** |
 
-That last one has teeth on WebGL2. GLSL compiles the two stages as *separate*
+That last one has teeth on WebGL2. GLSL compiles the two stages as _separate_
 strings and links them by matching `out`/`in` varying names — so the vertex
 and fragment emits, which are two independent `emitGlslModule` calls, must
-rename every shared helper to the *same* symbol or the program fails to link.
+rename every shared helper to the _same_ symbol or the program fails to link.
 The mangler is therefore deterministic per module (assignment follows
 declaration order), and that determinism is a correctness requirement, not a
 nicety. Reflection is derived from the same IR the mangler leaves untouched at
@@ -97,7 +97,7 @@ the boundary, so hosts bind exactly as before.
 
 An optional `Map` collects the authored→emitted renames — a source map for the
 shader, so a production driver log naming `_f2` can be read back to
-`terrain_height`.
+`noise`.
 
 ## minify: whitespace, proven safe
 
@@ -114,12 +114,12 @@ minify; the win scales with how much the authored names and formatting weighed.
 ## Compile-and-link is not enough to trust it
 
 The trap: a mangled, minified shader that **compiles and links** can still be
-*wrong*. And the two ways it goes wrong aren't hypothetical hand-waving — they
+_wrong_. And the two ways it goes wrong aren't hypothetical hand-waving — they
 are exactly the two mechanisms the sections above had to engineer around. A
 whitespace rule one character too greedy merges `a - -b` into the decrement
 `a--b`: still valid syntax, different arithmetic. A mangler that assigned names
 in a non-deterministic order desyncs the vertex and fragment stages, which link
-by matching varying names: the program links to *something* and samples the
+by matching varying names: the program links to _something_ and samples the
 wrong varying. Both produce a string the driver happily accepts and then draws
 incorrectly, and compilation — which validates syntax, not semantics — waves
 both through. That is the specific failure the gate is built to catch, which is
@@ -133,23 +133,8 @@ real Tint (WebGPU) and ANGLE (WebGL2) compilers under
 [SwiftShader](/blog/2026-07-07-what-a-software-gpu-can-verify). Byte-identical
 pixels are the only evidence that the transform preserved meaning; the frame is
 also checked to be non-flat so a blank draw can't pass vacuously. The UBO and
-sampler bindings in that harness are addressed by *index*, not name — so the
+sampler bindings in that harness are addressed by _index_, not name — so the
 check itself can't accidentally depend on a name the mangler changed.
-
-## Takeaways
-
-- **Your shader strings are a blind spot in the bundle.** The minifier that
-  processes every other byte skips them; they need their own pass.
-- **Name it minification, not protection.** The text reaches the driver as
-  source. The realistic goal is the JS one — smaller, harder to read — and
-  saying so keeps the feature honest.
-- **Obfuscation has an ABI.** Every name some *other* system resolves — entry
-  points, bindings, UBO tags, varying fields — is untouchable; the rest is free
-  to rename. Enumerate that boundary explicitly or a renamed shader will
-  compile and mislink.
-- **Semantics-preserving transforms need a semantic gate.** Compile-and-link
-  proves syntax. Only rendering the before and after and diffing the pixels
-  proves the meaning survived.
 
 ## References
 

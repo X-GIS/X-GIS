@@ -50,6 +50,14 @@ None
 
 ## Blog authoring (AI end-of-session write-ups)
 
+> **Audience = every engineer, not this repo (user directive, 2026-07-08).** Write
+> each post so it is **generally useful to a senior engineer at ANY company** who
+> has never heard of X-GIS. The transferable, broadly-useful lesson IS the post;
+> X-GIS is only the incident that surfaced it — the concrete example, never the
+> subject. If the draft would interest only someone who works in this repo, it has
+> failed — rewrite it around the general lesson. Treat the "strip X-GIS" test below
+> as the PRIMARY goal, not a footnote.
+
 When you write a `blog/` post at the end of a work session, **start from the
 skeleton**: copy `blog/_TEMPLATE.md` to `blog/YYYY-MM-DD-slug.md` and fill it in.
 The template (excluded from the published collection by the `!_*` glob in
