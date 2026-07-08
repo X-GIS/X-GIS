@@ -13,8 +13,6 @@ import { assertCaps } from './passes/required-caps'
 import { lowerModule } from './passes/match-lower'
 import { fp64Lower } from './passes/fp64-lower'
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt'
-import { mangleModule } from './passes/mangle'
-import { minifyShaderText } from './emit-minify'
 import { reflect, type Reflection } from './reflect'
 
 const pad = (depth: number): string => '  '.repeat(depth)
@@ -181,42 +179,60 @@ function assembleLowered(lowered: ModuleDecl, be: Backend): string {
   return parts.join('\n\n') + '\n'
 }
 
-/** Production-emit text options (both backends). `mangle` renames the authored
- *  vocabulary (helper fns, plain structs, consts) via passes/mangle — the ABI
- *  names (entries, bindings, UBO block tags, struct fields) are never touched,
- *  so reflection-driven hosts bind unchanged. `minify` compacts the emitted
- *  text (emit-minify). Both default off: the plain emit stays byte-identical.
- *  Pass a Map as `renames` to receive authored→emitted names (the shader
- *  "source map" for decoding production driver logs). */
-export interface EmitTextOptions {
-  readonly minify?: boolean
-  readonly mangle?: boolean
-  readonly renames?: Map<string, string>
+/** An emit plugin — the Vite/Webpack-style unit production-emit tooling composes
+ *  through. The CORE knows nothing about what a plugin does; the implementations
+ *  (mangle/minify — `@xgis/shader-dsl/emit-prod`) live on their own subpath so a
+ *  runtime-emit consumer that never imports them bundles ZERO bytes of them.
+ *
+ *  Two staged hooks, both optional (a plugin may use either or both):
+ *   - `transformIR` receives the fully LOWERED module (post match-lower /
+ *     fp64Lower / optimize; on GLSL also post reserved-ident sanitisation) and
+ *     returns a module the backend can spell. It must be DETERMINISTIC per
+ *     module — the GLSL vertex/fragment emits are separate calls that must
+ *     agree on every shared name.
+ *   - `transformText` receives the assembled string.
+ *
+ *  Like Vite, hooks fire STAGED across all plugins: every plugin's `transformIR`
+ *  runs (in `plugins` order) before the module is assembled, then every plugin's
+ *  `transformText` runs (in `plugins` order) on the string. `name` identifies
+ *  the plugin (debugging / error context), same as a Vite/Webpack plugin name. */
+export interface EmitPlugin {
+  readonly name: string
+  readonly transformIR?: (lowered: ModuleDecl) => ModuleDecl
+  readonly transformText?: (code: string) => string
 }
 
-/** Mangle (opt-in) an already-lowered module + fill the caller's rename map.
- *  Shared by the WGSL driver path below and the GLSL backend's own assembly. */
-export function applyMangle(lowered: ModuleDecl, opts?: EmitTextOptions): ModuleDecl {
-  if (!opts?.mangle) return lowered
-  const { module, renames } = mangleModule(lowered)
-  if (opts.renames) for (const [from, to] of renames) opts.renames.set(from, to)
-  return module
+/** Emit configuration — a Vite/Webpack-style `{ plugins: [...] }` bag. A config
+ *  object (rather than a bare array) leaves room for future top-level emit
+ *  options without another signature change. Absent/empty ⇒ the plain emit,
+ *  byte-identical. */
+export interface EmitOptions {
+  readonly plugins?: readonly EmitPlugin[]
 }
 
-/** Minify (opt-in) an emitted string — the GLSL backend calls this on its own
- *  assembly output too, so both targets share one minifier. */
-export function applyMinify(code: string, opts?: EmitTextOptions): string {
-  return opts?.minify ? minifyShaderText(code) : code
+/** Fold every plugin's `transformIR` over the lowered module, in `plugins`
+ *  order. Shared by the WGSL driver below and the GLSL backend's own assembly. */
+export function applyIRPlugins(lowered: ModuleDecl, opts?: EmitOptions): ModuleDecl {
+  let m = lowered
+  for (const p of opts?.plugins ?? []) if (p.transformIR) m = p.transformIR(m)
+  return m
+}
+
+/** Fold every plugin's `transformText` over the emitted string, in `plugins` order. */
+export function applyTextPlugins(code: string, opts?: EmitOptions): string {
+  let c = code
+  for (const p of opts?.plugins ?? []) if (p.transformText) c = p.transformText(c)
+  return c
 }
 
 /** Emit a ModuleDecl to a target string: shared preamble (`lowerForBackend`) then the
  *  declaration assembly (consts → structs → bindings → funcs, only non-empty sections),
  *  joined `\n\n` with a trailing newline. Each backend's public module entry
  *  (`emitModule` for WGSL) routes through here, so the assembly lives once.
- *  `opts` (all default-off) applies the production text transforms — mangle on
- *  the lowered IR, minify on the assembled string. */
-export function emitModule(m: ModuleDecl, be: Backend, opts?: EmitTextOptions): string {
-  return applyMinify(assembleLowered(applyMangle(lowerForBackend(m, be), opts), be), opts)
+ *  `opts.plugins` run staged around the assembly (all transformIR, then all transformText). */
+export function emitModule(m: ModuleDecl, be: Backend, opts?: EmitOptions): string {
+  const lowered = applyIRPlugins(lowerForBackend(m, be), opts)
+  return applyTextPlugins(assembleLowered(lowered, be), opts)
 }
 
 /** Emit a ModuleDecl at an explicit optimization level (O0/O1/O2) instead of the

@@ -34,11 +34,12 @@ export * from './core/backends/glsl'
 // Neutral intrinsic-spelling registry.
 export * from './core/intrinsics'
 
-// Production-emit text options ({ minify, mangle, renames? }) accepted by BOTH
-// emitModule (WGSL) and emitGlslModule, plus the standalone text minifier for
-// consumers holding an already-emitted string.
-export { type EmitTextOptions } from './core/emit'
-export { minifyShaderText } from './core/emit-minify'
+// The emit PLUGIN seam accepted by BOTH emitModule (WGSL) and emitGlslModule:
+// `EmitOptions = { plugins?: EmitPlugin[] }`, composed the Vite/Webpack way.
+// Types only — the production plugin implementations (mangle / minify /
+// obfuscate) live on the `@xgis/shader-dsl/emit-prod` subpath so runtime-emit
+// consumers that never import them bundle zero bytes of them.
+export { type EmitPlugin, type EmitOptions } from './core/emit'
 
 // CPU f64 oracle (compileModule + CpuModule types).
 export * from './core/oracle'

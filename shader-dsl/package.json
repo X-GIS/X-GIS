@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./dev": "./src/dev.ts",
+    "./emit-prod": "./src/emit-prod.ts",
     "./core/ir": "./src/core/ir/index.ts",
     "./examples": "./examples/index.ts"
   },
@@ -30,6 +31,10 @@
       "./dev": {
         "types": "./dist/dev.d.ts",
         "default": "./dist/dev.js"
+      },
+      "./emit-prod": {
+        "types": "./dist/emit-prod.d.ts",
+        "default": "./dist/emit-prod.js"
       },
       "./core/ir": {
         "types": "./dist/core/ir/index.d.ts",

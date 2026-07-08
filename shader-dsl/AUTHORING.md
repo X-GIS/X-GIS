@@ -831,40 +831,54 @@ std140); a vec64 vertex ATTRIBUTE is rejected (`SD0041`) — pass hi/lo as two
 
 See `examples/fp64-deep-zoom.ts` for the full picture (f32 collapse vs f64 stripes).
 
-## 8. Production emit — `{ minify, mangle }`
+## 8. Production emit — `@xgis/shader-dsl/emit-prod`
 
 Your bundler minifies the JS and never touches the shader text it hands to
-`gl.shaderSource` / `createShaderModule`. Both emit entries take the same
-opt-in `EmitTextOptions` (default off — the plain emit stays byte-identical):
+`gl.shaderSource` / `createShaderModule`. The ship-time transforms compose the
+Vite/Webpack way — a `{ plugins: [...] }` bag of named plugins — and live on
+their OWN subpath (like `/dev` for the lint/measure tooling): the core emit
+carries only the neutral plugin seam (`EmitPlugin` / `EmitOptions`), so a
+runtime-emit consumer that never imports the subpath bundles **zero bytes** of
+them, and the plain emit stays byte-identical.
 
 ```ts
+import { mangle, minify, obfuscate } from '@xgis/shader-dsl/emit-prod'
+
 const renames = new Map<string, string>()
-const wgsl = emitModule(m, { minify: true, mangle: true, renames })
-const vs = emitGlslModule(m, 'vertex', { minify: true, mangle: true })
-const fs = emitGlslModule(m, 'fragment', { minify: true, mangle: true })
+const wgsl = emitModule(m, { plugins: [mangle({ renames }), minify()] })
+// obfuscate() is the standard [mangle, minify] preset:
+const vs = emitGlslModule(m, 'vertex', { plugins: obfuscate() })
+const fs = emitGlslModule(m, 'fragment', { plugins: obfuscate() })
 ```
 
-- **`minify`** — whitespace/comment compaction of the emitted string.
-  Token-safe by construction (neither language has string literals; `#`
-  directives keep their own line). `minifyShaderText(code)` is the standalone
-  form for a string you already hold.
-- **`mangle`** — renames the authored vocabulary: helper fn names, plain
-  struct names, module consts (including the injected `df64_*` library) become
-  `_f0`/`_S0`/`_k0`. Deterministic per module — the two GLSL stage emits
-  (separate calls) always agree on shared names, so programs still link.
-- **`renames`** — pass a `Map` to receive authored → emitted names: the shader
-  "source map" for decoding production driver logs and GPU captures. Keep it
-  out of the shipped bundle.
+- **`mangle({ renames? })`** — an `EmitPlugin` (a Vite-style factory). Renames
+  helper fn names, plain struct names, and module consts (including the
+  injected `df64_*` library) to `_f0`/`_S0`/`_k0`. Deterministic per module —
+  the two GLSL stage emits (separate calls) always agree on shared names, so
+  programs still link. Pass a `Map` as `renames` to receive authored → emitted
+  names: the shader "source map" for decoding production driver logs and GPU
+  captures. Keep it out of the shipped bundle.
+- **`minify()`** — an `EmitPlugin` that compacts the emitted string. Token-safe
+  by construction (neither language has string literals; `#` directives keep
+  their own line). `minifyShaderText(code)` is the raw function it wraps, for a
+  string you already hold.
+- **`obfuscate({ renames? })`** — the standard preset, `[mangle(opts),
+  minify()]`. Spread it into `{ plugins }`.
+
+Plugins fire STAGED like Vite: every plugin's `transformIR` (IR stage) runs in
+array order before the module is assembled, then every plugin's `transformText`
+(string stage) runs in array order. A forced-inline plugin is the planned next
+resident — it slots into the array with no API change.
 
 **The ABI boundary — never renamed:** entry-point names (WebGPU `entryPoint`),
 binding names including the `_fp64` guard (hosts resolve by name),
 binding-struct names (the GLSL UBO block tag), and struct FIELD names (std140
 packing + GLSL varyings link vertex↔fragment by name). `reflect()`-driven
-hosts bind unchanged. A fn containing a `raw` stmt makes `mangle` a no-op for
-the whole module (textual references are invisible to the rename).
+hosts bind unchanged. A fn containing a `raw` stmt makes the mangle a no-op
+for the whole module (textual references are invisible to the rename).
 
-Every renderable example is compiled `{ minify: true, mangle: true }` on real
-Tint + ANGLE by `playground/e2e/_emit-obfuscate-gate.spec.ts`.
+Every renderable example is compiled AND pixel-compared through `obfuscate()`
+on real Tint + ANGLE by `playground/e2e/_emit-obfuscate-gate.spec.ts`.
 
 ## Quick reference
 

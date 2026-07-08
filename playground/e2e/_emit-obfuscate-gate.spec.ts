@@ -1,11 +1,11 @@
-// ═══ Obfuscated-emit compile gate: { minify, mangle } output runs on real compilers ═══
+// ═══ Obfuscated-emit compile gate: emit-prod obfuscate() output runs on real compilers ═══
 //
 // The unit suite (mangle.test.ts / emit-minify.test.ts) pins the rename scope,
 // the ABI boundary, and the minifier's token-safety rules AS STRINGS — but a
 // whitespace rule that is subtly wrong (a merged token, a directive swallowed)
 // or a rename that desyncs the two GLSL stages produces a string only a real
 // shader compiler rejects. This gate emits EVERY renderable shader-dsl example
-// twice-transformed ({ minify: true, mangle: true }) and:
+// twice-transformed (emit-prod's obfuscate() — mangle + minify) and:
 //   • WGSL — createShaderModule + getCompilationInfo (Tint), zero errors;
 //   • GLSL — compileShader for BOTH stages + linkProgram (ANGLE), zero errors —
 //     linking proves the per-call mangle is deterministic across the separate
@@ -16,17 +16,18 @@ import { test, expect } from '@playwright/test'
 // Relative deep imports (charter): Playwright transpiles specs in raw Node — the
 // @xgis/* workspace alias does not resolve here (see _glsl-compile-gate.spec.ts).
 import { emitModule, emitGlslModule } from '../../shader-dsl/src/index'
+import { obfuscate } from '../../shader-dsl/src/emit-prod'
 import { examples } from '../../shader-dsl/examples/index'
 
 const renderable = examples.filter((ex) => ex.renderable)
 
-test.describe('obfuscated emit ({ minify, mangle }) compiles on real Tint + ANGLE', () => {
-  test('WGSL: every renderable example, minified + mangled, compiles with zero errors', async ({
+test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + ANGLE', () => {
+  test('WGSL: every renderable example, obfuscated, compiles with zero errors', async ({
     page,
   }) => {
     const variants = renderable.map((ex) => ({
       name: ex.id,
-      wgsl: emitModule(ex.module, { minify: true, mangle: true }),
+      wgsl: emitModule(ex.module, { plugins: obfuscate() }),
     }))
     expect(variants.length).toBeGreaterThan(10)
     for (const v of variants) {
@@ -68,13 +69,13 @@ test.describe('obfuscated emit ({ minify, mangle }) compiles on real Tint + ANGL
     ).toEqual([])
   })
 
-  test('GLSL: every renderable example, minified + mangled, compiles AND links', async ({
+  test('GLSL: every renderable example, obfuscated, compiles AND links', async ({
     page,
   }) => {
     const pairs = renderable.map((ex) => ({
       name: ex.id,
-      vertex: emitGlslModule(ex.module, 'vertex', { minify: true, mangle: true }),
-      fragment: emitGlslModule(ex.module, 'fragment', { minify: true, mangle: true }),
+      vertex: emitGlslModule(ex.module, 'vertex', { plugins: obfuscate() }),
+      fragment: emitGlslModule(ex.module, 'fragment', { plugins: obfuscate() }),
     }))
     for (const p of pairs)
       expect(p.vertex.startsWith('#version 300 es\n'), `${p.name}: directive lost`).toBe(true)
@@ -127,7 +128,7 @@ test.describe('obfuscated emit ({ minify, mangle }) compiles on real Tint + ANGL
     ).toEqual([])
   })
 
-  test('pixel identity: plain vs { minify, mangle } draw BYTE-IDENTICAL frames', async ({
+  test('pixel identity: plain vs obfuscate() draw BYTE-IDENTICAL frames', async ({
     page,
   }) => {
     // Compile+link proves the text is valid; only a draw proves the transforms
@@ -140,7 +141,7 @@ test.describe('obfuscated emit ({ minify, mangle }) compiles on real Tint + ANGL
       const ex = renderable.find((e) => e.id === id)
       if (!ex) throw new Error(`example '${id}' missing from the renderable set`)
       const emit = (stage: 'vertex' | 'fragment', obf: boolean) =>
-        emitGlslModule(ex.module, stage, obf ? { minify: true, mangle: true } : undefined)
+        emitGlslModule(ex.module, stage, obf ? { plugins: obfuscate() } : undefined)
       return {
         name: id,
         plainVs: emit('vertex', false),
