@@ -17,13 +17,12 @@ function readSafeFlag(): boolean {
 }
 export const SAFE_MODE: boolean = readSafeFlag()
 
-// QUALITY drives SAMPLE_COUNT (MSAA), MAX_DPR, and PICK. Defaults are
-// preserved (msaa=4, dpr=2 on desktop) — change only when ?msaa=N,
-// ?dpr=N, ?quality=preset, ?picking=1, or ?safe=1 is explicitly passed.
-// At runtime `map.setQuality(patch)` mutates QUALITY in place and
-// dispatches rebuilds; these exports stay as thin getters so every read
-// site sees the current value (no stale snapshots).
-import { QUALITY, effectiveDpr } from '@xgis/engine'
+// Quality is owned by @xgis/engine (engine/src/gpu/quality.ts — the single
+// authority since #832). This boot module only READS it: `getSampleCount()`
+// seeds the initial ctx.sampleCount, `effectiveDpr()` sizes the canvas. It
+// no longer re-exports the getters or holds module-load snapshots of them —
+// every consumer imports quality from @xgis/engine directly.
+import { effectiveDpr, getSampleCount } from '@xgis/engine'
 import type { RhiDevice, RhiTextureFormat } from '@xgis/rhi'
 import type { RenderContext } from '@xgis/engine'
 // BackendChoice + the neutral render context live in @xgis/engine (#834
@@ -32,18 +31,6 @@ import type { RenderContext } from '@xgis/engine'
 // backend package either. Re-exported below for existing rhi-webgpu import sites.
 export type { BackendChoice } from '@xgis/engine'
 
-// The live quality accessors moved to the NEUTRAL quality module (#832 M1) so
-// core code reads them without touching this WebGPU-zone boot module;
-// re-exported here so every existing import site is unchanged.
-export { getSampleCount, getMaxDpr, isPickEnabled, effectiveDpr } from '@xgis/engine'
-
-/** @deprecated Use `getSampleCount()` — this binding reflects the
- *  module-load value only and does NOT follow runtime quality updates. */
-export const SAMPLE_COUNT: number = QUALITY.msaa
-/** @deprecated Use `getMaxDpr()` — module-load snapshot only. */
-export const MAX_DPR: number = QUALITY.maxDpr
-/** @deprecated Use `isPickEnabled()` — module-load snapshot only. */
-export const PICK: boolean = QUALITY.picking
 
 if (typeof window !== 'undefined' && SAFE_MODE) {
   console.warn(
@@ -214,7 +201,7 @@ export async function createWebGpuContext(canvas: HTMLCanvasElement): Promise<GP
     context,
     format,
     canvas,
-    sampleCount: SAMPLE_COUNT,
+    sampleCount: getSampleCount(),
     rhi: new WebGpuDevice(device),
     timestampQuerySupported,
     timestampInsidePassesSupported,
