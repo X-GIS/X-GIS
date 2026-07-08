@@ -790,6 +790,97 @@ function helperClosure(used: ReadonlySet<string>): FuncDecl[] {
   return DF64_ORDER.filter((d) => need.has(d.name))
 }
 
+/** Does any helper body actually fetch the `f64Guard` intrinsic? The EFT helpers
+ *  (add/mul/twoSum/…) do; the comparisons (df64_lt/le/gt/ge/eq/ne) and df64_narrow
+ *  do NOT — they carry no error term to protect. Injecting the `_fp64` binding for
+ *  a comparison-ONLY closure would declare a binding the shader never reads, which
+ *  WebGPU `layout:'auto'` (Tint/Dawn) strips from the derived bind-group layout →
+ *  a bind-group mismatch → a no-op draw on D3D12/NVIDIA (WebKit keeps the unused
+ *  binding, GLSL has no such layout — hence the WGSL-only, vendor-specific break).
+ *  So only inject when a used helper truly references the guard. */
+function helpersUseGuard(decls: readonly FuncDecl[]): boolean {
+  let found = false
+  const expr = (e: Expr): void => {
+    if (found) return
+    switch (e.op) {
+      case 'call':
+        if (e.fn === 'f64Guard') found = true
+        else e.args.forEach(expr)
+        break
+      case 'binop':
+      case 'compare':
+      case 'logical':
+        expr(e.a)
+        expr(e.b)
+        break
+      case 'unop':
+        expr(e.a)
+        break
+      case 'construct':
+        e.args.forEach(expr)
+        break
+      case 'member':
+        expr(e.base)
+        break
+      case 'select':
+        expr(e.cond)
+        expr(e.ifTrue)
+        expr(e.ifFalse)
+        break
+      case 'index':
+        expr(e.base)
+        expr(e.idx)
+        break
+      default:
+        break
+    }
+  }
+  const stmt = (s: Stmt): void => {
+    if (found) return
+    switch (s.s) {
+      case 'let':
+        expr(s.expr)
+        break
+      case 'var':
+        if (s.init) expr(s.init)
+        break
+      case 'assign':
+      case 'assignOp':
+        expr(s.target)
+        expr(s.expr)
+        break
+      case 'return':
+        if (s.expr) expr(s.expr)
+        break
+      case 'if':
+        s.arms.forEach((a) => {
+          expr(a.cond)
+          a.body.forEach(stmt)
+        })
+        s.elseBody?.forEach(stmt)
+        break
+      case 'for':
+        stmt(s.init)
+        expr(s.cond)
+        stmt(s.update)
+        s.body.forEach(stmt)
+        break
+      case 'switch':
+        expr(s.scrut)
+        s.cases.forEach((c) => c.body.forEach(stmt))
+        s.defaultBody?.forEach(stmt)
+        break
+      default:
+        break
+    }
+  }
+  for (const d of decls) {
+    d.body.forEach(stmt)
+    if (found) return true
+  }
+  return found
+}
+
 // ── Guard auto-injection ──
 //
 // The df64 helper bodies read a runtime-opaque 1.0 via the `f64Guard`
@@ -927,7 +1018,7 @@ export function fp64Lower(m: ModuleDecl): ModuleDecl {
   }
 
   const helpers = helperClosure(ctx.used)
-  if (helpers.length > 0) injectGuard(bindings)
+  if (helpers.length > 0 && helpersUseGuard(helpers)) injectGuard(bindings)
 
   return { consts, structs, bindings, funcs: [...funcs, ...helpers] }
 }

@@ -127,6 +127,24 @@ describe('guard auto-injection', () => {
     const lowered = fp64Lower(module({ funcs: [outer] }))
     expect(lowered.bindings).toEqual([])
   })
+
+  it('a comparison-ONLY module injects the comparator but NO guard binding', () => {
+    // df64_lt/le/gt/ge/eq/ne carry no error term, so they never fetch f64Guard.
+    // A declared-but-unused `_fp64` binding is what WebGPU `layout:'auto'` (Tint/
+    // Dawn) strips from the derived bind-group layout → a bind-group mismatch →
+    // a no-op draw on D3D12/NVIDIA (WebKit keeps it; GLSL has no such layout).
+    const k = fn('k', { a: f64T, b: f64T }, (p) => p.a.lt(p.b).select(1.0, 0.0))
+    const lowered = fp64Lower(module({ funcs: [k] }))
+    expect(lowered.funcs.map((f) => f.name)).toContain('df64_lt')
+    expect(lowered.bindings).toEqual([])
+    expect(emitModule(module({ funcs: [k] }))).not.toContain(FP64_GUARD_NAME)
+  })
+
+  it('an arithmetic op alongside a comparison still injects the guard', () => {
+    const k = fn('k', { a: f64T, b: f64T }, (p) => p.a.add(p.b).lt(p.b).select(1.0, 0.0))
+    const lowered = fp64Lower(module({ funcs: [k] }))
+    expect(lowered.bindings.some((b) => b.name === FP64_GUARD_NAME)).toBe(true)
+  })
 })
 
 describe('fail-loud gates', () => {
