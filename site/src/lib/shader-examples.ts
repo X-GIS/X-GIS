@@ -105,20 +105,39 @@ for (const c of shaderCards) {
   }
 }
 
-export const categoryGroups = [
+// Gallery grouping. Each group carries a `match` predicate (not just a category key) so the
+// fp64 split-screen examples — the engine's headline differentiator — surface FIRST as one
+// coherent pitch instead of scattered through the cartographic + generic buckets by subject.
+// The three subject groups explicitly exclude split examples, so every card lands in exactly
+// one group (no duplicates, no drops).
+export const categoryGroups: ReadonlyArray<{
+  key: string
+  title: string
+  body: string
+  match: (c: ShaderCard) => boolean
+}> = [
   {
-    key: 'cartographic' as const,
+    key: 'precision',
+    title: 'Extended precision (fp64)',
+    body: 'Emulated double precision on hardware that only has f32. Each card renders the same scene twice — plain f32 on the left, emulated double-float (df64) on the right — then dives until the f32 half shatters into blocky artefacts and the f64 half keeps going. This is what keeps a globe sharp at street level.',
+    match: (c) => c.splitLabels != null,
+  },
+  {
+    key: 'cartographic',
     title: 'Cartographic shaders',
     body: 'The GPU code behind a map — a graticule, shaded relief, a choropleth colour ramp. Procedural, so they render with no data and no tiles.',
+    match: (c) => c.category === 'cartographic' && c.splitLabels == null,
   },
   {
-    key: 'generic' as const,
+    key: 'generic',
     title: 'General shaders',
-    body: 'The DSL is content-free: the same authoring surface, used as a plain shader toolkit.',
+    body: 'The DSL isn’t map-specific. The same authoring surface, pointed at raymarched SDFs, escape-time fractals, fBm noise, and classic demo effects — proof the IR handles real shaders, not just map primitives.',
+    match: (c) => c.category === 'generic' && c.splitLabels == null,
   },
   {
-    key: 'compute' as const,
+    key: 'compute',
     title: 'Compute (WebGPU)',
     body: 'GPGPU kernels. GLSL ES 3.00 has no compute, so the DSL fails closed for WebGL2 — these show the WGSL + reflection face of the same source.',
+    match: (c) => c.category === 'compute' && c.splitLabels == null,
   },
 ]

@@ -11,16 +11,19 @@ const gradient = shaderCards.find((c) => c.id === 'gradient')!
 
 // Each body: a bold lead (the payoff) + one tight sentence. Ordered pitch-first
 // (IR, backends) then the supporting layers. Deep detail lives in the reference.
+// Ordered readers-then-guarantees: the four consumers of the one IR (IR, backends,
+// reflection, oracle) first, then the two emit-time guarantees (optimize+lint,
+// fail-closed). Row-major in the 2-col grid, so each row is a meaningful pair.
 const sections = [
   {
     id: 'ir',
     title: 'One typed IR',
-    body: '<strong class="text-fg">One representation feeds everything downstream.</strong> Value-nodes carry their type key (<code>vec3&lt;f32&gt;</code>) in the TypeScript type, so a vec2 used where a vec3 belongs is a compile error — before any shader compiler runs.',
+    body: '<strong class="text-fg">The type is the guardrail.</strong> Value-nodes carry their type key (<code>vec3&lt;f32&gt;</code>) in the TypeScript type, so a vec2 used where a vec3 belongs is a compile error before any shader compiler runs. That one IR is what the backends, reflection, and oracle below all read — they cannot disagree.',
   },
   {
     id: 'backends',
     title: 'Two backends, one source',
-    body: '<strong class="text-fg">The same IR lowers to WGSL and GLSL.</strong> <strong>WGSL</strong> is canonical and byte-stable for WebGPU; <strong>GLSL ES 3.00</strong> targets WebGL2, turning uniform structs into std140 blocks, entry-IO into <code>in</code>/<code>out</code> varyings, and divergent spellings (<code>atan2</code>→<code>atan</code>) through one intrinsic registry.',
+    body: '<strong class="text-fg">WGSL is canonical; GLSL is translated from it.</strong> WGSL emits byte-stable for WebGPU; GLSL ES 3.00 re-spells the same IR for WebGL2 — std140 blocks, <code>in</code>/<code>out</code> varyings, remapped intrinsics (<code>atan2</code>→<code>atan</code>) — none of it authored twice.',
   },
   {
     id: 'reflection',
@@ -28,14 +31,14 @@ const sections = [
     body: '<strong class="text-fg">Binding layout is derived, never emitted.</strong> <code>reflect(module)</code> reads the IR to recover bind groups, std140/std430 byte offsets, and entry signatures; the host packs its uniforms straight from those offsets.',
   },
   {
-    id: 'optimize',
-    title: 'Optimize + lint',
-    body: '<strong class="text-fg">Every module is optimized and linted before emit.</strong> CSE, DCE, LICM, and const-fold run on the WGSL side so its output stays byte-stable; a 21-rule linter guards naming, dead bindings, and float-equality.',
-  },
-  {
     id: 'oracle',
     title: 'CPU f64 oracle',
     body: '<strong class="text-fg">The same module also runs on the CPU in f64.</strong> Diffing the GPU shader against that mirror on identical inputs catches sibling-path divergences (fill vs outline, CPU vs GPU projection) that hide sub-pixel until zoom amplifies them.',
+  },
+  {
+    id: 'optimize',
+    title: 'Optimize + lint',
+    body: '<strong class="text-fg">Emit is deterministic: optimized, then linted.</strong> Standard passes (CSE, DCE, LICM, const-fold) run before WGSL is written, so identical input yields byte-identical output; a linter blocks dead bindings and float-equality before anything ships.',
   },
   {
     id: 'fail-closed',
@@ -51,28 +54,32 @@ const sections = [
   description="How the shader DSL works: one typed IR, two backends (WGSL + GLSL ES 3.00), reflection, a CPU f64 oracle, and an optimizer + lint pipeline."
 >
   <h1 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em] text-[40px] sm:text-[52px] lg:text-[64px]">Concepts</h1>
-  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-[820px]">
+  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-full">
     One typed IR, read by everything downstream — the type checker, both backends, reflection, and a
     CPU oracle — so they cannot disagree.
   </p>
 
-  <div class="mt-10 max-w-[820px] grid sm:grid-cols-2 gap-x-8 gap-y-7">
+  <div class="mt-10 max-w-full grid sm:grid-cols-2 gap-x-8 gap-y-7">
     {sections.map((s) => (
       <section id={s.id} class="border-t border-line pt-3.5">
         <h2 class="font-display text-[17px] font-normal text-fg tracking-[-0.015em] mb-1.5">{s.title}</h2>
-        <p class="text-[14px] leading-[1.6] text-fg-mute" set:html={s.body}></p>
+        <p class="text-[14px] leading-[1.6] text-fg-dim" set:html={s.body}></p>
       </section>
     ))}
   </div>
 
   <section class="mt-20 pt-10 border-t border-line">
     <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">See it both ways</h2>
-    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[820px] mb-5">
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full mb-5">
       One <a href={`${root}/examples/gradient`} class="text-accent hover:text-accent-hover transition-colors">gradient</a>
-      module, emitted twice — WGSL for WebGPU and GLSL ES 3.00 for WebGL2. The backends diverge
+      module — the source once, then the two emissions it produces. The backends diverge
       (<code class="font-mono text-[13px] text-fg">vec4&lt;f32&gt;</code> → <code class="font-mono text-[13px] text-fg">vec4</code>,
       the std140 block, the synthesised <code class="font-mono text-[13px] text-fg">main()</code>); the source doesn’t.
     </p>
+    <div class="mb-4">
+      <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">gradient.ts — one source</p>
+      <div class="sd-code"><Code code={gradient.source} lang="ts" /></div>
+    </div>
     <div class="sd-code grid lg:grid-cols-2 gap-4 items-start">
       <div>
         <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">WGSL — emitModule(m)</p>
@@ -96,7 +103,7 @@ const sections = [
     </div>
   </section>
 
-  <div class="mt-16 max-w-[820px] rounded-[8px] border border-line p-5 bg-bg-card">
+  <div class="mt-16 max-w-full rounded-[8px] border border-line p-5 bg-bg-card">
     <p class="text-[14px] leading-[1.6] text-fg-dim">
       Each <a href={`${root}/examples`} class="text-accent hover:text-accent-hover transition-colors">example</a>
       shows these concepts end to end: the DSL source, the emitted WGSL and GLSL, and the reflection JSON —

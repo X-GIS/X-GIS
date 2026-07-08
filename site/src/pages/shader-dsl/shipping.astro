@@ -26,6 +26,14 @@ const shipCombos = [false, true]
     return { key: `${+i}${+m}${+n}`, i, m, n, code, bytes: code.length, label }
   })
 const shipPlainBytes = shipCombos.find((c) => c.key === '000')!.bytes
+
+const usageSnippet = `import { emitModule, emitGlslModule } from '@xgis/shader-dsl'
+import { inline, mangle, minify } from '@xgis/shader-dsl/emit-prod'
+
+// A Vite/Webpack-style { plugins: [...] } bag. Order is execution order:
+// inline() flattens the call graph, mangle() renames the survivors, minify() compacts.
+const glsl = emitGlslModule(m, 'fragment', { plugins: [inline(), mangle(), minify()] })
+const wgsl = emitModule(m, { plugins: [inline(), mangle(), minify()] }) // WGSL ships the same way`
 ---
 
 <ShaderDsl
@@ -34,53 +42,64 @@ const shipPlainBytes = shipCombos.find((c) => c.key === '000')!.bytes
   description="Build-time plugins that minify, mangle, and inline the emitted WGSL/GLSL — the way your bundler treats JS — without touching the ABI names reflection depends on."
 >
   <h1 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em] text-[40px] sm:text-[52px] lg:text-[64px]">Shipping shaders</h1>
-  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-[820px]">
+  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-full">
     Your bundler minifies every byte of JS — but never the shader text handed to
     <code class="font-mono text-[14px] text-fg">gl.shaderSource</code>. Build-time plugins fix that.
   </p>
 
   <section class="mt-10">
-    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[820px] mb-4">
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full mb-4">
       The production tooling lives on its own subpath
       (<code class="font-mono text-[13px] text-fg">@xgis/shader-dsl/emit-prod</code>) and composes the
       Vite/Webpack way — a <code class="font-mono text-[13px] text-fg">{'{ plugins: [...] }'}</code> bag you pass to the emit call.
       A consumer that never imports the subpath bundles zero bytes of it.
     </p>
-    <ul class="text-[14.5px] leading-[1.55] text-fg-dim max-w-[820px] space-y-2">
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full mb-3">Two compact the text; one reshapes the program:</p>
+    <ul class="text-[14.5px] leading-[1.55] text-fg-dim max-w-full space-y-2">
       <li><strong class="text-fg font-mono text-[13px]">mangle</strong> — renames the authored vocabulary (helpers, plain structs, consts → <code class="font-mono text-[13px] text-fg">_f0/_S0/_k0</code>); pass a <code class="font-mono text-[13px] text-fg">Map</code> to get the reverse mapping back for decoding driver logs.</li>
       <li><strong class="text-fg font-mono text-[13px]">minify</strong> — strips whitespace and comments; token-safe by construction (WGSL/GLSL have no string literals).</li>
-      <li><strong class="text-fg font-mono text-[13px]">inline</strong> — lifts every helper (single-return and linear multi-statement alike) into its call sites, so the call graph disappears. Trades bytes for structure a reader can’t follow.</li>
+      <li class="pt-1"><strong class="text-fg font-mono text-[13px]">inline</strong> — a different kind of transform: it rewrites the IR, lifting every helper (single-return and linear multi-statement alike) into its call sites so the call graph disappears. Semantics-preserving, but it can <em>grow</em> bytes — the point is removing structure, not size.</li>
     </ul>
+    <p class="mt-5 text-[14px] leading-[1.6] text-fg-dim max-w-full">
+      The goal is narrow and honest: shrink the payload and raise the cost of reading or lifting your
+      shader techniques. It is <strong class="text-fg">not encryption</strong> — a determined reader can
+      still recover behaviour. These plugins make that expensive, not impossible.
+    </p>
+    <div class="sd-code mt-5 max-w-full"><Code code={usageSnippet} lang="ts" /></div>
   </section>
 
   <section class="mt-10">
     <h2 class="font-display text-[19px] font-normal text-fg tracking-[-0.015em] mb-2">The ABI boundary</h2>
-    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[820px]">
-      Some names are a contract with code outside the shader and are <strong class="text-fg">never renamed</strong>:
-      entry points (WebGPU <code class="font-mono text-[13px] text-fg">entryPoint</code>), binding names (including the
-      <code class="font-mono text-[13px] text-fg">_fp64</code> guard), UBO block tags, and struct fields (std140 packing +
-      GLSL varyings link by name). Reflection-driven hosts bind exactly as before. Full rules in the
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      The rule is simple: <strong class="text-fg">if a host looks a name up by string, we never change it.</strong>
+      That freezes four categories — entry points (WebGPU <code class="font-mono text-[13px] text-fg">entryPoint</code>),
+      binding names (including the <code class="font-mono text-[13px] text-fg">_fp64</code> fast-math guard the
+      df64 helpers thread through), UBO block tags, and struct field names (std140 packing + GLSL varyings
+      link vertex↔fragment by name). Reflection-driven hosts bind exactly as before. Full rules in the
       <a href={`${root}/reference`} class="text-accent hover:text-accent-hover transition-colors">reference</a>.
     </p>
   </section>
 
   <section class="mt-10">
     <h2 class="font-display text-[19px] font-normal text-fg tracking-[-0.015em] mb-2">Try it</h2>
-    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[820px] mb-5">
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full mb-5">
       Toggle the plugins and watch the kaleidoscope fragment shader change live. Every combination is emitted at
       build time, so nothing here runs the DSL in your browser — the client just swaps the precomputed string.
+      Heads-up: toggling <code class="font-mono text-[13px] text-fg">inline</code> can <em>grow</em> the byte count (a
+      multi-call helper is duplicated at each site) — the badge shows a signed delta, and that growth is expected,
+      not a regression. Structure removal is the point.
     </p>
 
     <div
       id="ship-demo"
       data-plain-bytes={String(shipPlainBytes)}
-      class="max-w-[820px] rounded-[10px] border border-line overflow-hidden"
+      class="max-w-full rounded-[10px] border border-line overflow-hidden"
     >
       <div class="flex flex-wrap items-center gap-x-5 gap-y-3 px-4 py-3 border-b border-line bg-bg-card">
         {['inline', 'mangle', 'minify'].map((name) => (
           <label class="inline-flex items-center gap-2 cursor-pointer select-none">
             <input type="checkbox" data-ship-toggle={name} class="peer sr-only" />
-            <span class="w-9 h-5 rounded-full bg-line-strong peer-checked:bg-accent transition-colors relative after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4"></span>
+            <span class="w-9 h-5 rounded-full bg-line-strong peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-bg-card transition-colors relative after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4"></span>
             <span class="font-mono text-[12.5px] text-fg">{name}()</span>
           </label>
         ))}
@@ -97,10 +116,6 @@ const shipPlainBytes = shipCombos.find((c) => c.key === '000')!.bytes
         ))}
       </div>
     </div>
-    <p class="mt-3 text-[13px] leading-[1.55] text-fg-mute max-w-[820px]">
-      <code class="font-mono text-[12.5px]">inline</code> can grow the pre-minify text (a multi-call helper is duplicated
-      at each site) — the badge shows a signed delta. Structure removal is the point, not bytes.
-    </p>
   </section>
 </ShaderDsl>
 

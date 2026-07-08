@@ -9,22 +9,23 @@ const detailHref = (id: string) => `${base}/shader-dsl/examples/${id}`
 <ShaderDsl
   current="examples"
   title="X-GIS Shader DSL — Examples"
-  description="A gallery of shader-DSL examples — cartographic (graticule, hillshade, colour ramp), generic, and compute. Open one to run it live on a WebGL2 canvas."
+  description="A gallery of shader-DSL examples — emulated-fp64 deep-zoom (f32 vs f64 split-screen), cartographic, generic, and compute. Open one to run it live on a WebGL2 canvas."
 >
   <h1 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em] text-[40px] sm:text-[52px] lg:text-[64px]">Examples</h1>
-  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-[680px]">
+  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-full">
     Open any card to view it on its own page — a live WebGL2 render, sliders, and the emitted
-    WGSL / GLSL / reflection, all from one DSL source.
+    WGSL / GLSL / reflection, all from one DSL source. Start with the <span class="text-fg font-medium">extended-precision</span>
+    set: the same scene in f32 and emulated f64, side by side, diving until only the f64 half survives.
   </p>
 
-  <div class="mt-10 space-y-14">
+  <div class="mt-10 max-w-full space-y-14">
     {categoryGroups.map((group) => {
-      const cards = shaderCards.filter((c) => c.category === group.key)
+      const cards = shaderCards.filter(group.match)
       if (cards.length === 0) return null
       return (
         <section>
           <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.015em] mb-1.5">{group.title}</h2>
-          <p class="text-[14px] leading-[1.55] text-fg-dim mb-6 max-w-[680px]">{group.body}</p>
+          <p class="text-[14px] leading-[1.55] text-fg-dim mb-6 max-w-full">{group.body}</p>
           <div class="grid sm:grid-cols-2 gap-4">
             {cards.map((c) => (
               <a href={detailHref(c.id)} class="shader-card group block rounded-[8px] bg-bg-card border border-line hover:border-line-strong overflow-hidden">
@@ -36,7 +37,12 @@ const detailHref = (id: string) => `${base}/shader-dsl/examples/${id}`
                       <span class="font-mono text-[11px] text-fg-mute uppercase tracking-[0.16em]">WGSL · compute</span>
                     </div>
                   )}
-                  <span class="absolute top-2.5 left-2.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-bg/80 backdrop-blur border border-line text-fg-dim text-[10px] font-mono tracking-[0.16em] uppercase">{c.category}</span>
+                  <div class="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-bg/80 backdrop-blur border border-line text-fg-dim text-[10px] font-mono tracking-[0.16em] uppercase">{c.category}</span>
+                    {c.splitLabels && (
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent/85 backdrop-blur border border-accent text-bg text-[10px] font-mono tracking-[0.12em] uppercase">f32 vs f64</span>
+                    )}
+                  </div>
                 </div>
                 <div class="p-5">
                   <p class="font-mono text-[11px] text-fg-mute mb-2 truncate">{c.id}.ts</p>
