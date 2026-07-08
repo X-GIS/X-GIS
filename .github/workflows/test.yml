@@ -84,6 +84,14 @@ jobs:
               - 'shared/**'
               - 'blueprint/**'
               - 'shader-dsl/**'
+              # rhi*/data/pipeline were CI-dark: absent from `code`, so a change
+              # there ran NO vitest leg or typecheck. The new `engine-rhi-data`
+              # test leg covers their suites; list them here so a change fires it.
+              - 'rhi/**'
+              - 'rhi-webgl2/**'
+              - 'rhi-webgpu/**'
+              - 'data/**'
+              - 'pipeline/**'
               - 'playground/**'
               - 'bun.lock'
               - 'bun.lockb'
@@ -187,10 +195,21 @@ jobs:
           # The moved shaders/dsl tests + future map content tests live here; the
           # local vitest.config includes map/src, but this CI matrix shards by
           # directory, so without its own leg the map suite silently stops running.
-          # (engine/src has the same gap from the P3 engine extraction — tracked
-          # separately; add an `engine` leg when its GPU tests are CI-safe.)
           - id: map
             args: map/src
+          # Backend + data + pipeline packages (@xgis/engine, @xgis/rhi-webgl2,
+          # @xgis/rhi-webgpu, @xgis/data, @xgis/pipeline). These were CI-DARK:
+          # sharded by directory, the matrix never named them, and the `code`
+          # path-filter didn't list rhi*/data/pipeline, so a change there
+          # triggered NO vitest leg at all — exactly the gap the P3/M-B
+          # relocations widen as code moves INTO engine/src + rhi. Verified
+          # 2026-07-08 CI-safe: 62 test files / 618 tests pass under plain vitest
+          # (no GPU — WebGl2Device/render-target/provider suites are pure logic),
+          # well under the ~110-file onTaskUpdate RPC threshold, so they share ONE
+          # leg (rhi/src has no tests). If a future growth pushes this over ~110
+          # files, SPLIT the id per the playbook above (do NOT merge legs back).
+          - id: engine-rhi-data
+            args: engine/src rhi-webgl2/src rhi-webgpu/src data/src pipeline/src
     # Distinct per-leg check name in the GitHub UI / status API, e.g.
     # "test (engine-render-a)". The single stable context for branch protection
     # is `test-result` below — require THAT, not these per-leg names.

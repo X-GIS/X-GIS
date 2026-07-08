@@ -37,8 +37,10 @@
 // caller-supplied predicate so the store never references the queue.
 
 import { GPUArena } from '@xgis/engine'
-// Type-only: store needs WebGpuDevice's unwrapBuffer + createCommandEncoder (not on RhiDevice); the injected ctx.rhi is narrowed to it (never self-instantiated).
-import type { WebGpuDevice } from '@xgis/engine'
+// Backend-blind: the store's arena create/compaction/retire all route through the
+// RhiDevice (#832 — the engine arena no longer exposes native buffers); `device`
+// stays raw only for the pooled per-tile buffers + retire queue (later phase).
+import type { RhiDevice, RhiBuffer } from '@xgis/engine'
 import { getMaxGpuTiles, ARENA_HIGH_WATER, ARENA_LOW_WATER } from './vector-tile-renderer-helpers'
 import type { GPUTile } from './vector-tile-renderer-types'
 
@@ -59,7 +61,7 @@ export class GpuTileStore {
   private device: GPUDevice
   /** RHI device the ARENA routes createBuffer + compaction-copy through; `device`
    *  stays raw for the pooled per-tile buffers + retire queue (§4 coupling rule). */
-  private rhi: WebGpuDevice
+  private rhi: RhiDevice
 
   /** GPU tile cache keyed by `${tileKey}|${sourceLayer}`. The `sourceLayer`
    *  segment is the MVT layer slot — '' for single-layer sources
@@ -186,7 +188,7 @@ export class GpuTileStore {
    *  (one full frame later), by which point the compaction's copy submit AND
    *  any command that referenced the old buffer have drained. Mirrors the
    *  uniform-ring retired-pool pattern. */
-  private _retiredArenaBuffers: GPUBuffer[] = []
+  private _retiredArenaBuffers: RhiBuffer[] = []
 
   /** Standalone per-tile render-bound GPUBuffers (SDF line/outline SEGMENT
    *  buffers — label "line-segments" — plus per-tile feature-data buffers)
@@ -201,6 +203,9 @@ export class GpuTileStore {
    *  freed by range, not pooled), so deferral is the only safe teardown.
    *  Mirrors `_retiredArenaBuffers` + PointRenderer.retiredTilePointBuffers. */
   private _retiredTileBuffers: GPUBuffer[] = []
+  /** RhiBuffer siblings of _retiredTileBuffers (#834 M5 — the segment buffers
+   *  flipped to RhiBuffer); drained at the same deferred-destroy point. */
+  private _retiredTileRhiBuffers: RhiBuffer[] = []
 
   private getOrCreatePolyVertexArena(): GPUArena {
     if (this.polyVertexArena === null) {
@@ -239,7 +244,7 @@ export class GpuTileStore {
    *  tiles (e.g. fill-extrusion buildings) write here. */
   private zBufferArena: GPUArena | null = null
 
-  constructor(device: GPUDevice, rhi: WebGpuDevice) {
+  constructor(device: GPUDevice, rhi: RhiDevice) {
     this.device = device
     this.rhi = rhi
   }
@@ -361,8 +366,8 @@ export class GpuTileStore {
         tile.lineVertexBuffer?.destroy()
         tile.lineIndexBuffer?.destroy()
         tile.outlineIndexBuffer?.destroy()
-        tile.outlineSegmentBuffer?.destroy()
-        tile.lineSegmentBuffer?.destroy()
+        if (tile.outlineSegmentBuffer) this.rhi.destroyBuffer(tile.outlineSegmentBuffer)
+        if (tile.lineSegmentBuffer) this.rhi.destroyBuffer(tile.lineSegmentBuffer)
         tile.featureDataBuffer?.destroy()
       }
     }
@@ -421,7 +426,7 @@ export class GpuTileStore {
     // them now is safe — and must happen BEFORE this frame's compaction
     // pushes new entries, so the list never grows unbounded.
     if (this._retiredArenaBuffers.length > 0) {
-      for (const b of this._retiredArenaBuffers) b.destroy()
+      for (const b of this._retiredArenaBuffers) this.rhi.destroyBuffer(b)
       this._retiredArenaBuffers.length = 0
     }
     // Drain standalone tile buffers (segment + feature-data) retired by a PRIOR
@@ -433,6 +438,10 @@ export class GpuTileStore {
     if (this._retiredTileBuffers.length > 0) {
       for (const b of this._retiredTileBuffers) b.destroy()
       this._retiredTileBuffers.length = 0
+    }
+    if (this._retiredTileRhiBuffers.length > 0) {
+      for (const b of this._retiredTileRhiBuffers) this.rhi.destroyBuffer(b)
+      this._retiredTileRhiBuffers.length = 0
     }
     // (a1) New frame: clear the per-arena eviction-futility latch so a moved
     // camera (which unprotects last frame's tiles) re-attempts a real evict.
@@ -641,8 +650,8 @@ export class GpuTileStore {
     // frame's render encoder raised `[Buffer "line-segments"] used in submit
     // while destroyed` at the frame submit. RETIRE them — destroyed in the
     // post-submit safe window (next runFrameMaintenance / destroy()).
-    if (tile.outlineSegmentBuffer) this._retiredTileBuffers.push(tile.outlineSegmentBuffer)
-    if (tile.lineSegmentBuffer) this._retiredTileBuffers.push(tile.lineSegmentBuffer)
+    if (tile.outlineSegmentBuffer) this._retiredTileRhiBuffers.push(tile.outlineSegmentBuffer)
+    if (tile.lineSegmentBuffer) this._retiredTileRhiBuffers.push(tile.lineSegmentBuffer)
     // Per-tile feature data is ALSO render-bound (bound at featureBindGroup
     // binding 1, drawn via renderTileKeys), so it shares the segment buffers'
     // mid-render-destroy hazard on the forceEvictBytes path. Retire it through
@@ -839,7 +848,11 @@ export class GpuTileStore {
       ? tiles.map((t) => ({ oldOffset: t.polyIndexOffset, bytes: t.polyIndexByteLength }))
       : null
 
-    // One encoder records ALL copies for both arenas; one finish() = atomic submit.
+    // One encoder records ALL copies for both arenas; one finish() = atomic
+    // submit. Optional on the RHI port — both real backends implement it; a
+    // stub without it must not silently skip compaction, so fail loud.
+    if (!this.rhi.createCommandEncoder)
+      throw new Error('GpuTileStore.compact: RhiDevice.createCommandEncoder is required')
     const encoder = this.rhi.createCommandEncoder('arena-compact-grow')
     const vResult = vArena && vReloc ? vArena.compact(vReloc, encoder, vTarget) : null
     const iResult = iArena && iReloc ? iArena.compact(iReloc, encoder, iTarget) : null
@@ -850,8 +863,8 @@ export class GpuTileStore {
     // no frame can be rendered against a half-compacted arena. The NEXT
     // frame's draw loop reads cached.vertexBuffer + cached.polyVertexOffset,
     // which now point at the freshly-packed buffer.
-    const newVBuffer = vArena?.buffer
-    const newIBuffer = iArena?.buffer
+    const newVBuffer = vArena?.rhiBuffer
+    const newIBuffer = iArena?.rhiBuffer
     for (let k = 0; k < tiles.length; k++) {
       const t = tiles[k]
       if (vResult && newVBuffer) {
@@ -892,8 +905,8 @@ export class GpuTileStore {
         tile.lineVertexBuffer?.destroy()
         tile.lineIndexBuffer?.destroy()
         tile.outlineIndexBuffer?.destroy()
-        tile.outlineSegmentBuffer?.destroy()
-        tile.lineSegmentBuffer?.destroy()
+        if (tile.outlineSegmentBuffer) this.rhi.destroyBuffer(tile.outlineSegmentBuffer)
+        if (tile.lineSegmentBuffer) this.rhi.destroyBuffer(tile.lineSegmentBuffer)
         tile.featureDataBuffer?.destroy()
       }
     }
@@ -908,7 +921,7 @@ export class GpuTileStore {
     this.zBufferArena = null
     // Phase 6a.5 — destroy any arena buffers retired by a compaction that
     // haven't yet been drained by a subsequent beginFrame.
-    for (const b of this._retiredArenaBuffers) b.destroy()
+    for (const b of this._retiredArenaBuffers) this.rhi.destroyBuffer(b)
     this._retiredArenaBuffers.length = 0
     // Drain standalone tile buffers (segment + feature-data) retired by an
     // eviction but not yet destroyed by a subsequent runFrameMaintenance (their
@@ -916,6 +929,8 @@ export class GpuTileStore {
     // not reach them).
     for (const b of this._retiredTileBuffers) b.destroy()
     this._retiredTileBuffers.length = 0
+    for (const b of this._retiredTileRhiBuffers) this.rhi.destroyBuffer(b)
+    this._retiredTileRhiBuffers.length = 0
     // Drain the pooled-buffer recycler: pooled line/index/outline buffers are
     // standalone GPUBuffers (NOT arena slices), so the arena destroys above do
     // not reclaim them. Without this they leak until device loss across SPA

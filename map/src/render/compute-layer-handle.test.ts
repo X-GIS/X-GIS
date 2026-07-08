@@ -4,7 +4,7 @@
 
 import { beforeAll, describe, expect, it } from 'vitest'
 import { ComputeLayerHandle } from './compute-layer-handle'
-import { ComputeDispatcher } from '@xgis/engine'
+import { ComputeDispatcher } from '@xgis/rhi-webgpu'
 import {
   emitMatchComputeKernel,
   buildComputeVariantAddendum,

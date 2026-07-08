@@ -18,18 +18,19 @@
 //     policy to the returned list.
 
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
+import type { RhiBuffer, RhiDevice } from '@xgis/engine'
 
 export class UniformRing {
-  private _buffer: GPUBuffer | null = null
+  private _buffer: RhiBuffer | null = null
   private capacity: number
   private slot = 0
   private staging: Uint8Array
   private dirtyLo = 0
   private dirtyHi = 0
-  private retired: GPUBuffer[] = []
+  private retired: RhiBuffer[] = []
 
   constructor(
-    private readonly device: GPUDevice,
+    private readonly rhi: RhiDevice,
     private readonly slotSize: number,
     initialCapacity: number,
     private readonly label: string,
@@ -41,17 +42,19 @@ export class UniformRing {
     this.staging = new Uint8Array(initialCapacity * slotSize)
   }
 
-  /** The live GPU buffer, or null before `ensure()`. */
-  get buffer(): GPUBuffer | null {
+  /** The live ring buffer as an RHI handle, or null before `ensure()` (#832 M2
+   *  — backend-neutral; a WebGPU consumer that must bind the native buffer
+   *  unwraps at ITS seam via WebGpuDevice.unwrapBuffer). */
+  get rhiBuffer(): RhiBuffer | null {
     return this._buffer
   }
 
   /** Lazily create the ring buffer and build the caller's bind groups. */
   ensure(): void {
     if (this._buffer) return
-    this._buffer = this.device.createBuffer({
+    this._buffer = this.rhi.createBuffer({
       size: this.capacity * this.slotSize,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      usage: 'uniform',
       label: this.label,
     })
     this.onGrow()
@@ -66,7 +69,7 @@ export class UniformRing {
   /** Hand the caller the buffers retired by grows since the last call, and
    *  clear the internal list. The caller destroys or drops them per its
    *  own lifecycle policy. */
-  takeRetired(): GPUBuffer[] {
+  takeRetired(): RhiBuffer[] {
     if (this.retired.length === 0) return []
     const r = this.retired
     this.retired = []
@@ -100,13 +103,10 @@ export class UniformRing {
     if (this.dirtyHi === this.dirtyLo || !this._buffer) return
     const lo = this.dirtyLo,
       hi = this.dirtyHi
-    this.device.queue.writeBuffer(
-      this._buffer,
-      lo,
-      this.staging.buffer,
-      this.staging.byteOffset + lo,
-      hi - lo,
-    )
+    // rhi.writeBuffer(buffer, offset, view) — the subarray view carries the
+    // sub-range the (dataOffset, size) tail params expressed before; on WebGPU
+    // this IS queue.writeBuffer, byte-identical.
+    this.rhi.writeBuffer(this._buffer, lo, this.staging.subarray(lo, hi))
     this.dirtyLo = 0
     this.dirtyHi = 0
   }
@@ -124,20 +124,14 @@ export class UniformRing {
       // blue" transient). Push this frame's staged slots into the old
       // buffer before retiring it.
       if (this.slot > 0) {
-        this.device.queue.writeBuffer(
-          this._buffer,
-          0,
-          this.staging.buffer,
-          this.staging.byteOffset,
-          this.slot * this.slotSize,
-        )
+        this.rhi.writeBuffer(this._buffer, 0, this.staging.subarray(0, this.slot * this.slotSize))
       }
       this.retired.push(this._buffer)
     }
     this.capacity = newCap
-    this._buffer = this.device.createBuffer({
+    this._buffer = this.rhi.createBuffer({
       size: newCap * this.slotSize,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      usage: 'uniform',
       label: this.label,
     })
     // Resize the CPU staging mirror in lockstep; preserve already-written
@@ -151,9 +145,9 @@ export class UniformRing {
 
   /** Full teardown: destroy the live buffer + any retired buffers. */
   destroy(): void {
-    this._buffer?.destroy()
+    if (this._buffer) this.rhi.destroyBuffer(this._buffer)
     this._buffer = null
-    for (const r of this.retired) r.destroy()
+    for (const r of this.retired) this.rhi.destroyBuffer(r)
     this.retired = []
   }
 }

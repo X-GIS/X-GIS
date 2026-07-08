@@ -20,7 +20,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { GPUArena, type GPUArenaDevice } from './gpu-arena'
-import type { RhiBuffer } from '../render/rhi/rhi'
+import type { RhiBuffer } from '@xgis/rhi'
 
 interface MockBuffer {
   size: number
@@ -28,7 +28,8 @@ interface MockBuffer {
   destroy(): void
 }
 
-const unwrap = (h: unknown): MockBuffer => (h as { native: MockBuffer }).native
+// RhiBuffer is opaque — the mock hands the MockBuffer through as the handle.
+const unwrap = (h: unknown): MockBuffer => h as MockBuffer
 
 function mockDevice(): { dev: GPUArenaDevice; created: MockBuffer[] } {
   const created: MockBuffer[] = []
@@ -42,13 +43,10 @@ function mockDevice(): { dev: GPUArenaDevice; created: MockBuffer[] } {
         },
       }
       created.push(b)
-      return { native: b } as unknown as RhiBuffer
+      return b as unknown as RhiBuffer
     },
     destroyBuffer(h) {
       unwrap(h).destroy()
-    },
-    unwrapBuffer(h) {
-      return unwrap(h) as unknown as GPUBuffer
     },
   }
   return { dev, created }

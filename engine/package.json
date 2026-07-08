@@ -12,7 +12,7 @@
     "build": "tsc --build"
   },
   "dependencies": {
-    "@webgpu/types": "^0.1.69"
+    "@xgis/rhi": "workspace:*"
   },
   "devDependencies": {
     "@xgis/compiler": "workspace:*",

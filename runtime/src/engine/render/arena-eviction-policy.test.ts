@@ -39,7 +39,8 @@ interface MockBuffer {
   destroy(): void
 }
 
-const unwrap = (h: unknown): MockBuffer => (h as { native: MockBuffer }).native
+// RhiBuffer is opaque — the mock hands the MockBuffer through as the handle.
+const unwrap = (h: unknown): MockBuffer => h as MockBuffer
 
 function mockDevice(): GPUArenaDevice {
   return {
@@ -54,13 +55,10 @@ function mockDevice(): GPUArenaDevice {
           b.destroyed = true
         },
       }
-      return { native: b } as unknown as RhiBuffer
+      return b as unknown as RhiBuffer
     },
     destroyBuffer(h) {
       unwrap(h).destroy()
-    },
-    unwrapBuffer(h) {
-      return unwrap(h) as unknown as GPUBuffer
     },
   }
 }

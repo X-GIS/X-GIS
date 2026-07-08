@@ -36,9 +36,9 @@ import {
 } from '@xgis/compiler'
 import type { PropertyShape } from '@xgis/compiler'
 import { nodeToWgslString } from '@xgis/compiler'
-import { ComputeDispatcher } from '@xgis/engine'
+import { ComputeDispatcher } from '@xgis/rhi-webgpu'
 import { ComputeLayerRegistry } from '@xgis/map'
-import { extendBindGroupLayoutEntriesForCompute } from '@xgis/engine'
+import { extendBindGroupLayoutEntriesForCompute } from '@xgis/rhi-webgpu'
 
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {

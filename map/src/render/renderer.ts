@@ -16,7 +16,7 @@
 // thin delegations to the FrameRenderer — byte-identical external API, ZERO
 // call-site changes.
 
-import type { GPUContext } from '@xgis/engine'
+import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { Camera } from '@xgis/engine'
 import type { MeshData, LineMeshData } from '@xgis/data'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -378,6 +378,11 @@ export class MapRendererContent {
    *  via the `uniformBuffer` getter). At init the layer loop is empty
    *  (no layers yet), so this matches the original inline init build. */
   private rebuildUniformBindGroups(): void {
+    // #832 M2 — these are NATIVE WebGPU bind groups for the WebGPU frame path;
+    // on the webgl2 backend that path never runs (renderFrameViaRhi renders the
+    // frame) and reading the native uniformBuffer getter would unwrap-throw at
+    // boot. Skip: the WebGL2 fill draws bind RHI-native groups instead.
+    if (this.ctx.rhi.backend === 'webgl2') return
     const { device } = this.ctx
     this.bindGroup = device.createBindGroup({
       layout: this.bindGroupLayout,
@@ -463,6 +468,17 @@ export class MapRendererContent {
       featureDataBuffer: null,
       perLayerBindGroup: null,
       pickId,
+    }
+
+    // #834 device retirement S5 — every block below is a NATIVE upload
+    // (feature-data storage + per-layer bind group + polygon/line mesh
+    // buffers) consumed only by the WebGPU frame path. On webgl2 the layer
+    // RECORD still registers (bookkeeping: show/props/pickId), with null
+    // buffers — exactly the state the palette/sprite rebuild loops and the
+    // draw path already treat as "nothing uploaded".
+    if (this.ctx.rhi.backend === 'webgl2') {
+      this.layers.push(layer)
+      return
     }
 
     // Build per-feature storage buffer if needed

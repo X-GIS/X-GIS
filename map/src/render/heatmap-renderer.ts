@@ -27,7 +27,7 @@ import { activeBody } from '@xgis/shared'
 import { getSampleCount } from '@xgis/engine'
 import { FrameArena } from '@xgis/engine'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
-import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/engine'
+import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { HeatmapDraper } from './material/heatmap-material'
 import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
 import { heatmapAccumU as HEATMAP_U } from '../shaders/dsl/heatmap-accum'
@@ -154,25 +154,41 @@ export class HeatmapRenderer {
    *  `createBindGroup === device.createBindGroup`, `destroyBuffer === GPUBuffer.destroy()`,
    *  so the GPU command stream is unchanged. */
   private rhi: RhiDevice
-  private bindGroupLayout: GPUBindGroupLayout
   private uniformBuffer: RhiBuffer
   private frameBlock = heatmapBlock() // typed std140 pack target (mvp/proj/viewport/cam_h/cam_l/globe_eye, #600)
   private readonly _frameArena = new FrameArena(64 * 1024)
   private layers: HeatmapLayer[] = []
-  /** Blur direction uniforms (allocated once; the heatmap pass picks H/V).
-   *  Two 16-byte buffers so a single command encoder can bind both without
-   *  a mid-frame writeBuffer overwriting the other pass's direction. */
-  private blurDirH: GPUBuffer
-  private blurDirV: GPUBuffer
-  /** Linear sampler for the ramp LUT (filtering). */
-  private rampSampler: GPUSampler
+  /** Native WebGPU resources, created LAZILY at first use (#834 device
+   *  retirement S1). Every consumer is on the WebGPU frame path (the heatmap
+   *  pass getters, the accum bind group, the HeatmapDraper layout), so the
+   *  constructor no longer touches `ctx.device` — a prerequisite for the
+   *  forced-WebGL2 boot dropping its no-op device Proxy. blurDirH/V are the
+   *  blur direction uniforms (two 16-byte buffers so one encoder can bind
+   *  both without a mid-frame overwrite); rampSampler filters the ramp LUT. */
+  private _native: {
+    bindGroupLayout: GPUBindGroupLayout
+    blurDirH: GPUBuffer
+    blurDirV: GPUBuffer
+    rampSampler: GPUSampler
+  } | null = null
 
   constructor(ctx: { device: GPUDevice; rhi: RhiDevice }) {
     this.device = ctx.device
-    const { device } = ctx
     this.rhi = ctx.rhi
 
-    this.bindGroupLayout = device.createBindGroupLayout({
+    // Accum uniform — UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
+    // Backend-neutral (RHI), so it stays in the constructor.
+    this.uniformBuffer = this.rhi.createBuffer({
+      size: this.frameBlock.byteLength, // reflected std140 size (144 = 36 f32 × 4, #600 globe_eye)
+      usage: 'uniform',
+      writable: true,
+    })
+  }
+
+  private native(): NonNullable<HeatmapRenderer['_native']> {
+    if (this._native) return this._native
+    const device = this.device
+    const bindGroupLayout = device.createBindGroupLayout({
       label: 'heatmap-accum-bgl',
       entries: [
         { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
@@ -181,45 +197,37 @@ export class HeatmapRenderer {
     })
     // The accum draw goes through the RHI Material seam (HeatmapDraper, which owns the
     // additive r16float single-sample pipeline); the shared bind-group layout feeds it.
-
-    // Accum uniform — UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
-    this.uniformBuffer = this.rhi.createBuffer({
-      size: this.frameBlock.byteLength, // reflected std140 size (144 = 36 f32 × 4, #600 globe_eye)
-      usage: 'uniform',
-      writable: true,
-    })
-
-    // Blur direction uniforms (vec4: x,y = texel step direction). Written
-    // once at construction — the pass never mutates them per-frame.
-    this.blurDirH = device.createBuffer({
+    const blurDirH = device.createBuffer({
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: 'heatmap-blur-dir-h',
     })
-    this.blurDirV = device.createBuffer({
+    const blurDirV = device.createBuffer({
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: 'heatmap-blur-dir-v',
     })
-    device.queue.writeBuffer(this.blurDirH, 0, new Float32Array([1, 0, 0, 0]))
-    device.queue.writeBuffer(this.blurDirV, 0, new Float32Array([0, 1, 0, 0]))
-
-    this.rampSampler = device.createSampler({
+    device.queue.writeBuffer(blurDirH, 0, new Float32Array([1, 0, 0, 0]))
+    device.queue.writeBuffer(blurDirV, 0, new Float32Array([0, 1, 0, 0]))
+    const rampSampler = device.createSampler({
       magFilter: 'linear',
       minFilter: 'linear',
       label: 'heatmap-ramp-sampler',
     })
+    this._native = { bindGroupLayout, blurDirH, blurDirV, rampSampler }
+    return this._native
   }
 
   /** Blur direction uniform buffers (H / V) — read by the heatmap pass. */
   getBlurDirBuffers(): { h: GPUBuffer; v: GPUBuffer } {
-    return { h: this.blurDirH, v: this.blurDirV }
+    const n = this.native()
+    return { h: n.blurDirH, v: n.blurDirV }
   }
 
   /** Ramp sampler — read by the heatmap pass for the compose bind group. The
    *  per-layer compose-params buffer lives on each layer (getLayers()). */
   getRampSampler(): GPUSampler {
-    return this.rampSampler
+    return this.native().rampSampler
   }
 
   hasLayers(): boolean {
@@ -475,10 +483,13 @@ export class HeatmapRenderer {
         writable: true,
         label: 'heatmap-features',
       })
-      layer._bindGroup = this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bindGroupLayout), [
-        { binding: 0, resource: { buffer: this.uniformBuffer } },
-        { binding: 1, resource: { buffer: layer._featBuf } },
-      ])
+      layer._bindGroup = this.rhi.createBindGroup(
+        wrapWebGpuBindGroupLayout(this.native().bindGroupLayout),
+        [
+          { binding: 0, resource: { buffer: this.uniformBuffer } },
+          { binding: 1, resource: { buffer: layer._featBuf } },
+        ],
+      )
       layer._capacity = N
     }
     this.rhi.writeBuffer(layer._vertBuf!, 0, verts)
@@ -499,7 +510,7 @@ export class HeatmapRenderer {
   private _heatmapDraper?: HeatmapDraper
   private ensureHeatmapDraper(): void {
     if (this._heatmapDraper) return
-    this._heatmapDraper = new HeatmapDraper(this.rhi, this.bindGroupLayout)
+    this._heatmapDraper = new HeatmapDraper(this.rhi, this.native().bindGroupLayout)
   }
 
   /** Rebuild the accum pipeline for a quality change. Heatmap accum is always

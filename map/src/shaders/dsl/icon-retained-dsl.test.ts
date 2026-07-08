@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { emitIconRetainedWgsl } from './icon-retained'
+import { emitIconRetainedWgsl, emitIconRetainedGlsl } from './icon-retained'
 
 // #797 P1 retained geo-anchored icon shader — instanced procedural quad
 // (instance_index + vertex_index), the point.ts geo→clip ladder (reused
@@ -44,5 +44,40 @@ describe('#797 P1 retained-icon shader — DSL emission', () => {
   it('flat-Mercator branch adds the per-copy world_offset (circle_params.x)', () => {
     // world_offset rides circle_params.x — assert the flat-Merc relX reads it.
     expect(w).toContain('circle_params')
+  })
+})
+
+// #823 — the WebGL2/GLSL twin. Same module split per stage, storage buffers
+// lowered to R32F data textures (feat = array<f32> strided lanes; tint =
+// array<vec4f> → 4 lanes + vec4 ctor). String-shape gate; the real-WebGL2
+// compile+draw gate is playground/e2e/_graphics-retained-gl2-gate.spec.ts.
+describe('#823 retained-icon shader — GLSL ES 3.00 twin', () => {
+  const vs = emitIconRetainedGlsl('vertex')
+  const fs = emitIconRetainedGlsl('fragment')
+
+  it('emits one entry per stage with the gl_* builtin glue', () => {
+    expect(vs).toContain('#version 300 es')
+    expect(vs).toContain('gl_InstanceID')
+    expect(vs).toContain('gl_VertexID')
+    expect(vs).toContain('void main()')
+    expect(fs).toContain('#version 300 es')
+    expect(fs).toContain('void main()')
+    expect(fs).toContain('discard;')
+  })
+
+  it('storage buffers are lowered to data textures (no SSBO in ES 3.00)', () => {
+    expect(vs).toContain('uniform sampler2D feat_data;')
+    expect(vs).toContain('uniform sampler2D tint_data;')
+    expect(vs).toContain('texelFetch(feat_data,')
+    expect(vs).toContain('texelFetch(tint_data,')
+    expect(vs).not.toMatch(/\bbuffer\b/) // no SSBO declaration survives
+  })
+
+  it('frame uniform stays the shared pointU block (UBO tag = struct name)', () => {
+    expect(vs).toContain('uniform Uniforms')
+  })
+
+  it('FS samples the atlas (fused sampler) and keeps the tint modulation', () => {
+    expect(fs).toContain('texture(atlas_tex,')
   })
 })

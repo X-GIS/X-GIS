@@ -31,9 +31,9 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
-import { initGPU, type GPUContext } from '@xgis/engine'
+import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { TextRenderer } from '@xgis/map'
-import { WebGpuDevice } from '@xgis/engine'
+import { WebGpuDevice } from '@xgis/rhi-webgpu'
 import type { TextDraw } from '@xgis/map'
 import type { GlyphInfo } from '@xgis/map'
 

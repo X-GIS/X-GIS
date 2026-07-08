@@ -7,10 +7,32 @@
 // group layout (so its pipeline is layout-compatible with VTR-built tile groups).
 // The translucent MAX-blend / composite pass is a render-graph concern, separate.
 
-import type { RhiBindGroup, RhiDevice, RhiRenderPass } from '@xgis/engine'
-import { wrapWebGpuBindGroupLayout } from '@xgis/engine'
+import type { RhiBindGroup, RhiBindGroupLayout, RhiBindLayoutEntry, RhiDevice, RhiRenderPass } from '@xgis/engine'
+import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from './material'
 import { emitLineWgsl } from '@xgis/map'
+import { emitLineGlsl } from '../../shaders/dsl/line-glsl'
+
+// WebGL2 by-name bind-layout entries (#834 M5 slice 1) — the RHI-native twin
+// of the two raw GPUBindGroupLayouts. Names come from the DSL: a uniform
+// block's tag = its struct name; texture/storage names = the binding names
+// (storage lowers to R32F data textures named <buffer>_tex by emulateStorage).
+const LINE_TILE_ENTRIES: RhiBindLayoutEntry[] = [
+  { binding: 0, kind: 'uniform', dynamic: true, name: 'TileUniforms' },
+  // sprite_atlas/sprite_samp — the fs_line_pattern variant samples the sprite
+  // atlas (Mapbox line-pattern, #834 M5 slice 5). The solid fs_line program
+  // has no such uniform: the by-name reflection resolves a null location and
+  // skips the wiring, so the extra entries are inert on variant 0. Every tile
+  // bind group supplies a view/sampler (the real atlas or VTR's white stub).
+  { binding: 5, kind: 'texture', name: 'sprite_atlas' },
+  { binding: 6, kind: 'sampler', name: 'sprite_samp' },
+]
+const LINE_LAYER_ENTRIES: RhiBindLayoutEntry[] = [
+  { binding: 0, kind: 'uniform', dynamic: true, name: 'LineLayer' },
+  { binding: 1, kind: 'storage', name: 'segments' },
+  { binding: 2, kind: 'storage', name: 'shapes' },
+  { binding: 3, kind: 'storage', name: 'shape_segments' },
+]
 
 /** One line-segment batch (§4 batch-seam). Both bind groups arrive as RhiBindGroup:
  *  the layer group is built via `rhi.createBindGroup` (LineRenderer.createLayer-
@@ -48,16 +70,21 @@ export class LineDraper {
   }
 
   private buildMaterial(pick: boolean): Material {
+    // WebGL2: entry-array groups (by-name reflection) + the GLSL twins; the
+    // raw GPUBindGroupLayouts are proxy no-ops under ?forcegl2 and never
+    // wrapped. Pick stays WebGPU-only (fail-closed on WebGl2Device).
+    const gl2 = this.rhi.backend === 'webgl2'
     return new Material(this.rhi, {
       shader: emitLineWgsl(pick),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',
+      vsCode: gl2 ? emitLineGlsl(pick, 'vertex') : undefined,
+      fsCode: gl2 ? emitLineGlsl(pick, 'fragment') : undefined,
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
-      groups: [
-        wrapWebGpuBindGroupLayout(this.tileLayout),
-        wrapWebGpuBindGroupLayout(this.layerLayout),
-      ],
+      groups: gl2
+        ? [LINE_TILE_ENTRIES, LINE_LAYER_ENTRIES]
+        : [wrapWebGpuBindGroupLayout(this.tileLayout), wrapWebGpuBindGroupLayout(this.layerLayout)],
       colorTargets: pick
         ? [{ format: this.format as 'bgra8unorm', blend: 'alpha' }, { format: 'rg32uint' }]
         : [{ format: this.format as 'bgra8unorm', blend: 'alpha' }],
@@ -71,6 +98,9 @@ export class LineDraper {
           depthWrite: false,
           depthCompare: 'less-equal',
           fsEntry: 'fs_line_pattern',
+          // GLSL has one main per stage — the pattern variant carries its own
+          // emitted fragment twin (#834 M5 slice 5).
+          fsCode: gl2 ? emitLineGlsl(pick, 'fragment-pattern') : undefined,
           label: pick ? 'line-pipeline-pattern-pick-rhi' : 'line-pipeline-pattern-rhi',
         },
       ],
@@ -78,21 +108,35 @@ export class LineDraper {
   }
 
   /** Build the offscreen translucent MAX-blend Material — fs_line_max into the single-sample
-   *  offscreen RT (BLEND_MAX, no depth). One fragment variant (no pattern). LAZY. */
+   *  offscreen RT (BLEND_MAX, no depth). One fragment variant (no pattern). LAZY.
+   *  On webgl2 the twin carries entry-array groups + the fs_line_max GLSL (#834 M5). */
   private maxMat(): Material {
+    const gl2 = this.rhi.backend === 'webgl2'
     return (this._maxMaterial ??= new Material(this.rhi, {
       shader: emitLineWgsl(false),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line_max',
+      vsCode: gl2 ? emitLineGlsl(false, 'vertex') : undefined,
+      fsCode: gl2 ? emitLineGlsl(false, 'fragment-max') : undefined,
       format: this.format as 'bgra8unorm',
       sampleCount: 1,
-      groups: [
-        wrapWebGpuBindGroupLayout(this.tileLayout),
-        wrapWebGpuBindGroupLayout(this.layerLayout),
-      ],
+      groups: gl2
+        ? [LINE_TILE_ENTRIES, LINE_LAYER_ENTRIES]
+        : [wrapWebGpuBindGroupLayout(this.tileLayout), wrapWebGpuBindGroupLayout(this.layerLayout)],
       colorTargets: [{ format: this.format as 'bgra8unorm', blend: 'max' }],
       variants: [{ label: 'line-pipeline-max-rhi' }], // no depth-stencil (offscreen accum)
     }))
+  }
+
+  /** The layer (group 1) bind-group layout of the main material — the
+   *  WebGL2 path builds per-tile layer bind groups against it (#834 M5). */
+  layerLayoutRhi(): RhiBindGroupLayout {
+    return this.material.layout(1)
+  }
+
+  /** The tile (group 0) layout — same consumer as `layerLayoutRhi`. */
+  tileLayoutRhi(): RhiBindGroupLayout {
+    return this.material.layout(0)
   }
 
   draw(pass: RhiRenderPass, b: LineBatch, mode: 'opaque' | 'pick' | 'max' = 'opaque'): void {

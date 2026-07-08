@@ -19,6 +19,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Single SDF point at (0, 0). Used by e2e fixture tests to validate the pointRenderer code path in isolation.',
     source: load('fixture-point.xgis'),
   },
+  fixture_symbol_icon: {
+    name: 'Fixture: symbol icon (host image)',
+    tag: 'fixture',
+    description:
+      'Label + host-image icon (label-icon-image-*) over the spriteUrl-less host-atlas path — push data + addImage from the host.',
+    source: load('fixture-symbol-icon.xgis'),
+  },
   fixture_raster_local: {
     name: 'Fixture: raster (local checker)',
     tag: 'fixture',
@@ -248,6 +255,27 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     tag: 'fixture',
     description: '2-slot pattern stack (dot + cross).',
     source: load('fixture-pattern-multi.xgis'),
+  },
+  ofm_bright_local: {
+    name: 'OFM Bright (offline mirror, Tokyo z14)',
+    tag: 'fixture',
+    description:
+      'OpenFreeMap Bright from the local /ofm-mirror snapshot — the #834 M5 forcegl2 final-gate fixture. Only valid at #14/35.68/139.76.',
+    source: load('ofm-bright-local.xgis'),
+  },
+  fixture_translucent_outline: {
+    name: 'Fixture: translucent outline (MAX+composite)',
+    tag: 'fixture',
+    description:
+      'Polygon with fill + inset stroke at opacity-60 — the stroke half routes through the translucent offscreen MAX-blend + composite bucket.',
+    source: load('fixture-translucent-outline.xgis'),
+  },
+  fixture_line_image_pattern: {
+    name: 'Fixture: line image pattern (local sprite)',
+    tag: 'fixture',
+    description:
+      'Line stroked via Mapbox line-pattern (stroke-image-, fs_line_pattern) sampling a local sprite atlas. Load with &sprite=/fixture-sprite.',
+    source: load('fixture-line-image-pattern.xgis'),
   },
   fixture_stroke_inset: {
     name: 'Fixture: stroke inset',

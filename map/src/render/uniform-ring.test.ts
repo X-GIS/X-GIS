@@ -5,6 +5,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { UniformRing } from './uniform-ring'
+import type { RhiBuffer, RhiDevice } from '@xgis/engine'
 
 ;(globalThis as { GPUBufferUsage?: unknown }).GPUBufferUsage ??= {
   UNIFORM: 0x40,
@@ -27,29 +28,22 @@ function makeRing(initialCapacity: number) {
   const created: FakeBuffer[] = []
   let n = 0
   let onGrowCalls = 0
+  // RHI-shaped stub (#832 M2) — the ring now creates/writes/destroys through
+  // the backend-blind RhiDevice port (writeBuffer receives a subarray VIEW, so
+  // dataLen = view.byteLength, same value the queue-tail `size` param carried).
   const device = {
     createBuffer: () => {
-      const b: FakeBuffer = {
-        id: `buf${n++}`,
-        destroy() {
-          ;(this as FakeBuffer).destroyed = true
-        },
-      } as FakeBuffer
+      const b: FakeBuffer = { id: `buf${n++}` }
       created.push(b)
-      return b as unknown as GPUBuffer
+      return b as unknown as RhiBuffer
     },
-    queue: {
-      writeBuffer: (
-        buf: FakeBuffer,
-        bufOffset: number,
-        _d: ArrayBuffer,
-        _o: number,
-        size: number,
-      ) => {
-        writes.push({ buf, bufOffset, dataLen: size })
-      },
+    writeBuffer: (buf: FakeBuffer, bufOffset: number, view: Uint8Array) => {
+      writes.push({ buf, bufOffset, dataLen: view.byteLength })
     },
-  } as unknown as GPUDevice
+    destroyBuffer: (buf: FakeBuffer) => {
+      buf.destroyed = true
+    },
+  } as unknown as RhiDevice
   const ring = new UniformRing(device, SLOT, initialCapacity, 'test-ring', () => {
     onGrowCalls++
   })
@@ -59,9 +53,9 @@ function makeRing(initialCapacity: number) {
 describe('UniformRing', () => {
   it('ensure() lazily creates the buffer and fires onGrow once (idempotent)', () => {
     const { ring, created, getOnGrow } = makeRing(8)
-    expect(ring.buffer).toBeNull()
+    expect(ring.rhiBuffer).toBeNull()
     ring.ensure()
-    expect(ring.buffer).toBe(created[0] as unknown)
+    expect(ring.rhiBuffer).toBe(created[0] as unknown)
     expect(getOnGrow()).toBe(1)
     ring.ensure()
     expect(created.length).toBe(1)
@@ -134,6 +128,6 @@ describe('UniformRing', () => {
     ring.allocSlot()
     ring.allocSlot()
     ring.destroy()
-    expect(ring.buffer).toBeNull()
+    expect(ring.rhiBuffer).toBeNull()
   })
 })

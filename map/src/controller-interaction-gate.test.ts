@@ -56,7 +56,7 @@ import { buildGlobeMatrix, unprojectGlobe } from '@xgis/engine'
 import { mercatorYToLat } from '@xgis/engine'
 import { PanZoomController } from './controller'
 import { InteractionController, type InteractionControllerDeps } from './interaction-controller'
-import type { GPUContext } from '@xgis/engine'
+import type { GPUContext } from '@xgis/rhi-webgpu'
 
 const W = 800,
   H = 800

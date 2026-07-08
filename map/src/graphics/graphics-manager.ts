@@ -12,6 +12,7 @@
 
 import { HostImageRegistry } from '../sprite/host-image-registry'
 import { HostSpriteAtlasGPU } from '../sprite/host-sprite-atlas-gpu'
+import { HostSpriteAtlasRhi } from '../sprite/host-sprite-atlas-rhi'
 import { RetainedIconDraper } from '../render/material/icon-retained-material'
 import { packRetainedIconFeat, packRetainedIconTint } from './retained-icon-packer'
 import type { IconDrawSpec, DrawHandle, IconUpdateTrigger } from './graphics-types'
@@ -25,8 +26,6 @@ import { xlog } from '@xgis/shared'
 import { pointU } from '../shaders/dsl/point'
 import {
   uniformBlock,
-  wrapWebGpuTextureView,
-  wrapWebGpuSampler,
   type UniformBlockOf,
   type RhiDevice,
   type RhiBuffer,
@@ -52,7 +51,10 @@ interface RetainedIconBatch {
 
 export class GraphicsManager {
   private readonly registry = new HostImageRegistry()
-  private atlas: HostSpriteAtlasGPU | null = null
+  /** The per-run GPU atlas mirror: the WebGPU-native twin, or the RHI-native
+   *  twin on the WebGL2 backend (#823) — both pack through the shared
+   *  HostAtlasPacker, so sprite coordinates are backend-identical. */
+  private atlas: HostSpriteAtlasGPU | HostSpriteAtlasRhi | null = null
 
   // ── Phase 1 retained-batch state (per-run, built in attachDevice). ──
   private rhi: RhiDevice | null = null
@@ -184,11 +186,13 @@ export class GraphicsManager {
     this.rhi.writeBuffer(batch.tintBuf, 0, tint)
     this._tintWrites++
     // Atlas view/sampler are Phase-0 stable-identity → the bind group is built ONCE.
+    // rhiView/rhiSampler are backend-blind (the WebGPU atlas wraps its native
+    // handles; the RHI atlas hands its own through).
     batch.bindGroup = this.draper.makeBatchBindGroup(
       batch.featBuf,
       batch.tintBuf,
-      wrapWebGpuTextureView(this.atlas.getView()),
-      wrapWebGpuSampler(this.atlas.sampler),
+      this.atlas.rhiView(),
+      this.atlas.rhiSampler(),
     )
     batch.count = batch.spec.data.length
   }
@@ -330,7 +334,13 @@ export class GraphicsManager {
    *  Icons need no MSAA (raster edges are texture-alpha; there is no SDF host
    *  path yet), so this sidesteps the resolve-ownership hazard entirely. */
   attachDevice(device: GPUDevice, rhi: RhiDevice, format: GPUTextureFormat): void {
-    this.atlas = new HostSpriteAtlasGPU(device, this.registry)
+    // #823 — on the WebGL2 backend `device` is the no-op Proxy stub
+    // (initGPUForcedWebGL2), so the WebGPU atlas would silently upload nothing;
+    // build the RHI-native twin instead (same shared packer → same coordinates).
+    this.atlas =
+      rhi.backend === 'webgl2'
+        ? new HostSpriteAtlasRhi(rhi, this.registry)
+        : new HostSpriteAtlasGPU(device, this.registry)
     this.rhi = rhi
     this.draper = new RetainedIconDraper(rhi, format, 1, pointUniformBytes())
     this.frameBlock = uniformBlock(pointU)
@@ -338,9 +348,11 @@ export class GraphicsManager {
     for (const b of this.batches) this.materialise(b)
   }
 
-  /** The per-run GPU atlas mirror, or null before attachDevice. */
+  /** The per-run WebGPU atlas mirror, or null before attachDevice — and null on
+   *  the WebGL2 backend (#823), whose consumers (label pass / icon stage) never
+   *  run there. The retained-icon path reads `this.atlas` directly instead. */
   hostAtlas(): HostSpriteAtlasGPU | null {
-    return this.atlas
+    return this.atlas instanceof HostSpriteAtlasGPU ? this.atlas : null
   }
 
   /** True when at least one host image is registered. */

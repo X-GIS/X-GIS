@@ -11,6 +11,9 @@
     // is a sibling reference here so the build order is shader-dsl → compiler →
     // engine → map.
     "paths": {
+      "@xgis/rhi": ["../rhi/dist/index.d.ts"],
+      "@xgis/rhi-webgpu": ["../rhi-webgpu/dist/index.d.ts"],
+      "@xgis/rhi-webgl2": ["../rhi-webgl2/dist/index.d.ts"],
       "@xgis/engine": ["../engine/dist/index.d.ts"],
       "@xgis/data": ["../data/src/index.ts"],
       "@xgis/compiler": ["../compiler/dist/index.d.ts"],
@@ -21,6 +24,9 @@
     }
   },
   "references": [
+    { "path": "../rhi" },
+    { "path": "../rhi-webgpu" },
+    { "path": "../rhi-webgl2" },
     { "path": "../engine" },
     { "path": "../data" },
     { "path": "../compiler" },

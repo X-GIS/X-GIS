@@ -1,0 +1,12 @@
+/* OpenFreeMap "Bright" — OFFLINE mirror import for the #834 M5 final gate.
+ *
+ * Identical to openfreemap-bright.xgis but the style, tilejson, vector
+ * tiles (Tokyo z12-14 around #14/35.68/139.76), sprite and Noto Sans glyph
+ * ranges are served from /ofm-mirror (playground/public — NOT committed;
+ * regenerate with the mirror script in the #834 notes). The ne2 raster
+ * source is dropped (z<=6 world raster, invisible at z14).
+ *
+ * Use ONLY at the mirrored camera: #14/35.68/139.76 (Tokyo).
+ */
+
+import "/ofm-mirror/bright-local.json"

@@ -11,7 +11,8 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { PriorityQueue } from '@xgis/shared'
 import { UploadCoordinator, type UploadHost, type UploadStore } from './upload-coordinator'
-import type { StagingBufferPool } from '@xgis/engine'
+import type { RhiBuffer, RhiDevice } from '@xgis/engine'
+import type { StagingBufferPool } from '@xgis/rhi-webgpu'
 import type { TileData } from '@xgis/data'
 
 beforeAll(() => {
@@ -157,8 +158,8 @@ describe('UploadCoordinator — queue surface', () => {
 describe('UploadCoordinator — async dispatch end-to-end (staging write strategy)', () => {
   it('queued upload caches the tile via the staging pool + a single submit', async () => {
     const layerCache = new Map<number, unknown>()
-    const vArena = { buffer: { id: 'v' } as unknown as GPUBuffer, alloc: () => 0, free: vi.fn() }
-    const iArena = { buffer: { id: 'i' } as unknown as GPUBuffer, alloc: () => 0, free: vi.fn() }
+    const vArena = { rhiBuffer: { id: 'v' } as unknown as RhiBuffer, alloc: () => 0, free: vi.fn() }
+    const iArena = { rhiBuffer: { id: 'i' } as unknown as RhiBuffer, alloc: () => 0, free: vi.fn() }
     const store = {
       getLayer: () => undefined,
       getOrCreateLayer: () => layerCache,
@@ -201,6 +202,7 @@ describe('UploadCoordinator — async dispatch end-to-end (staging write strateg
 function makeHost(store: UploadStore, over: Partial<UploadHost> = {}): UploadHost {
   return {
     device: { queue: { writeBuffer: () => {} } } as unknown as GPUDevice,
+    rhi: { backend: 'webgpu', writeBuffer: () => {}, unwrapBuffer: (b: unknown) => b } as unknown as RhiDevice,
     stagingPool: {} as unknown as StagingBufferPool,
     store,
     lineRenderer: () => null,

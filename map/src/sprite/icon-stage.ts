@@ -9,7 +9,7 @@
 import { SpriteAtlasHost, type SpriteInfo } from './sprite-atlas-host'
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
 import { IconRenderer, type IconDraw, type IconAnchor } from './icon-renderer'
-import type { RhiDevice } from '@xgis/engine'
+import type { RhiDevice , RhiSampler, RhiTextureView , RhiRenderPass } from '@xgis/engine'
 
 /** Minimal sprite-metadata read surface IconStage resolves icons through.
  *  Satisfied structurally by SpriteAtlasHost (URL sprite atlas) and by
@@ -34,6 +34,12 @@ export interface IconAtlasGpu {
   getView(): GPUTextureView | null
   readonly sampler: GPUSampler
   destroy(): void
+  /** RHI twins (#834 M5 slice 4) — the WebGL2 icon path binds these; the
+   *  host atlas twins (M0) and SpriteAtlasGPU implement them. Optional so a
+   *  bespoke WebGPU-only atlas keeps compiling; the webgl2 draw fail-closes
+   *  (skips) when absent. */
+  rhiView?(): RhiTextureView | null
+  rhiSampler?(): RhiSampler | null
 }
 
 export interface IconStageOptions {
@@ -162,7 +168,7 @@ export class IconStage {
         onLanded: options.onLanded,
       })
       this.host = host
-      this.gpu = new SpriteAtlasGPU(device, host)
+      this.gpu = new SpriteAtlasGPU(device, host, rhi)
     }
     this.renderer = new IconRenderer(device, rhi, this.gpu, presentationFormat, sampleCount)
   }
@@ -330,7 +336,10 @@ export class IconStage {
 
   /** Encode draw commands. No-op when nothing was prepared or the
    *  atlas hasn't loaded. */
-  render(pass: GPURenderPassEncoder, viewport: { width: number; height: number }): void {
+  render(
+    pass: GPURenderPassEncoder | RhiRenderPass,
+    viewport: { width: number; height: number },
+  ): void {
     this.renderer.draw(pass, viewport)
   }
 

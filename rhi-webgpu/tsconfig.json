@@ -1,0 +1,34 @@
+{
+  // ═══ @xgis/rhi-webgpu — WebGPU RHI backend + former engine WebGPU zone (#833 M3) ═══
+  //
+  // The ONLY workspace package whose compilation sees @webgpu/types. The
+  // package graph is now the neutrality enforcement the M1 tsconfig
+  // core/zone split provided intra-engine: @xgis/engine compiles with
+  // `types: []`, so a WebGPU identifier there is a compile error.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "types": ["@webgpu/types"],
+    "paths": {
+      "@xgis/rhi": ["../rhi/dist/index.d.ts"],
+      "@xgis/rhi-webgl2": ["../rhi-webgl2/dist/index.d.ts"],
+      "@xgis/engine": ["../engine/dist/index.d.ts"],
+      "@xgis/compiler": ["../compiler/dist/index.d.ts"],
+      "@xgis/compiler/tiler/geodesic": ["../compiler/dist/tiler/geodesic.d.ts"],
+      "@xgis/shared": ["../shared/dist/index.d.ts"],
+      "@xgis/shader-dsl": ["../shader-dsl/dist/index.d.ts"],
+      "@xgis/shader-dsl/*": ["../shader-dsl/dist/*"]
+    }
+  },
+  "references": [
+    { "path": "../rhi" },
+    { "path": "../rhi-webgl2" },
+    { "path": "../engine" },
+    { "path": "../compiler" },
+    { "path": "../shared" },
+    { "path": "../shader-dsl" }
+  ],
+  "include": ["src/**/*.ts"]
+}

@@ -22,7 +22,7 @@
 import { describe, it, expect } from 'vitest'
 import { reflect } from '@xgis/shader-dsl'
 import { emitPointWgsl, buildPointModule } from '@xgis/map'
-import { uniformFieldSlots } from '@xgis/engine'
+import { uniformFieldSlots } from '@xgis/rhi-webgpu'
 
 const WGSL_TYPES: Record<string, [number, number]> = {
   'mat4x4<f32>': [64, 16],

@@ -6,7 +6,7 @@
 // pool/global-uniform + the draw loop are the shared generic core (material.ts).
 
 import type { RhiDevice, RhiBindGroup, RhiTexture, RhiTextureView } from '@xgis/engine'
-import { wrapWebGpuTextureView } from '@xgis/engine'
+import { wrapWebGpuTextureView } from '@xgis/rhi-webgpu'
 import { Material, executeItems, type DrawItem } from './material'
 import { emitRasterWgsl, buildRasterModule } from '@xgis/map'
 import { rasterTileBytes } from '../raster-uniform-slots'

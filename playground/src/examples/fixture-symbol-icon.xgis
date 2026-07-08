@@ -1,0 +1,12 @@
+/* Deterministic symbol-icon fixture (#834 M5 slice 4). The layer references
+ * a HOST image (`label-icon-image-e2e-marker`) that the driving test (or a
+ * gallery visitor via console) registers with map.addImage() and feeds with
+ * setSourceData() — zero network, mirrors fixture-inline-push. The icon
+ * stage then builds over the host atlas (spriteUrl-less path, #797). */
+source pois { type: geojson }
+
+layer poi_icons {
+  source: pois
+  | label-[.name] label-color-#fff label-size-14
+    label-icon-image-e2e-marker
+}

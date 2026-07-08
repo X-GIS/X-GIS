@@ -43,6 +43,7 @@
 
 import { Epoch } from '../_cache/versioned-state'
 import { polygonUniformSlots } from './polygon-uniform-slots'
+import type { RhiPipelineHandle } from '@xgis/engine'
 
 // Bind-group binding range size for binding 0 (the uniform ring). Derived
 // lazily from reflect(buildPolygonModule()) — the SAME IR the shader is emitted
@@ -85,29 +86,29 @@ export class BindGroupRegistry {
    *  for the fill draw when the cached tile carries extruded geometry. Null
    *  before `setExtrudedPipelines` runs — flat-only render still works
    *  because the branch checks `cached.extruded` first. */
-  private fillPipelineExtruded: GPURenderPipeline | null = null
-  private fillPipelineExtrudedFallback: GPURenderPipeline | null = null
+  private fillPipelineExtruded: RhiPipelineHandle | null = null
+  private fillPipelineExtrudedFallback: RhiPipelineHandle | null = null
   /** Ground-layer fill pipelines — depth test/write disabled.
    *  Selected when `currentExtrudeMode === 'none'` so coplanar
    *  ground polygons (water, landuse, roads-as-fill, etc.) resolve
    *  via painter's order instead of the layer_depth_offset NDC
    *  bias hack. Null until setGroundPipelines runs. */
-  private fillPipelineGround: GPURenderPipeline | null = null
-  private fillPipelineGroundFallback: GPURenderPipeline | null = null
+  private fillPipelineGround: RhiPipelineHandle | null = null
+  private fillPipelineGroundFallback: RhiPipelineHandle | null = null
   /** OIT translucent extrude pipeline — Weighted-Blended OIT MRT
    *  output. Selected when render() runs with phase='oit-fill'
    *  (translucent extrude bucket). Null until setOITPipeline runs. */
-  private fillPipelineExtrudedOIT: GPURenderPipeline | null = null
-  private fillPipelinePatternGround: GPURenderPipeline | null = null
-  private fillPipelinePatternGroundFallback: GPURenderPipeline | null = null
-  private fillPipelinePatternExtruded: GPURenderPipeline | null = null
-  private fillPipelinePatternExtrudedFallback: GPURenderPipeline | null = null
+  private fillPipelineExtrudedOIT: RhiPipelineHandle | null = null
+  private fillPipelinePatternGround: RhiPipelineHandle | null = null
+  private fillPipelinePatternGroundFallback: RhiPipelineHandle | null = null
+  private fillPipelinePatternExtruded: RhiPipelineHandle | null = null
+  private fillPipelinePatternExtrudedFallback: RhiPipelineHandle | null = null
 
   /** Provide the per-feature extrusion fill pipelines. Called once
    *  per frame from map.ts immediately before render() so VTR can
    *  pick between flat and extruded fill paths on a per-tile basis
    *  without threading another parameter through `render()`. */
-  setExtrudedPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
+  setExtrudedPipelines(main: RhiPipelineHandle, fallback: RhiPipelineHandle): void {
     this.fillPipelineExtruded = main
     this.fillPipelineExtrudedFallback = fallback
   }
@@ -118,7 +119,7 @@ export class BindGroupRegistry {
    *  command order — the way painter's order is supposed to work,
    *  without log-depth precision noise + layer_depth_offset
    *  arithmetic fighting at coplanar fragments. */
-  setGroundPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
+  setGroundPipelines(main: RhiPipelineHandle, fallback: RhiPipelineHandle): void {
     this.fillPipelineGround = main
     this.fillPipelineGroundFallback = fallback
   }
@@ -128,7 +129,7 @@ export class BindGroupRegistry {
    *  MapRenderer. VTR selects them in place of the regular ground
    *  pipelines when `show.fillPatternUV` is populated (the iconStage
    *  has resolved the sprite atlas UV bbox via map.ts). */
-  setPatternPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
+  setPatternPipelines(main: RhiPipelineHandle, fallback: RhiPipelineHandle): void {
     this.fillPipelinePatternGround = main
     this.fillPipelinePatternGroundFallback = fallback
   }
@@ -136,7 +137,7 @@ export class BindGroupRegistry {
   /** iter-186 — fill-extrusion-pattern Stage 2 variants. Mirror of
    *  setPatternPipelines for the extruded (per-feature z attribute)
    *  vertex path. */
-  setPatternExtrudedPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
+  setPatternExtrudedPipelines(main: RhiPipelineHandle, fallback: RhiPipelineHandle): void {
     this.fillPipelinePatternExtruded = main
     this.fillPipelinePatternExtrudedFallback = fallback
   }
@@ -146,7 +147,7 @@ export class BindGroupRegistry {
    *  draw their fills into the accum + revealage MRT pair so a
    *  later compose pass can blend them order-independently onto
    *  the opaque framebuffer. */
-  setOITPipeline(p: GPURenderPipeline): void {
+  setOITPipeline(p: RhiPipelineHandle): void {
     this.fillPipelineExtrudedOIT = p
   }
 
@@ -205,31 +206,31 @@ export class BindGroupRegistry {
   }
 
   // ── Fill-pipeline getters (cheap monomorphic field derefs) ──
-  extrudedPipeline(): GPURenderPipeline | null {
+  extrudedPipeline(): RhiPipelineHandle | null {
     return this.fillPipelineExtruded
   }
-  extrudedPipelineFallback(): GPURenderPipeline | null {
+  extrudedPipelineFallback(): RhiPipelineHandle | null {
     return this.fillPipelineExtrudedFallback
   }
-  groundPipeline(): GPURenderPipeline | null {
+  groundPipeline(): RhiPipelineHandle | null {
     return this.fillPipelineGround
   }
-  groundPipelineFallback(): GPURenderPipeline | null {
+  groundPipelineFallback(): RhiPipelineHandle | null {
     return this.fillPipelineGroundFallback
   }
-  extrudedOITPipeline(): GPURenderPipeline | null {
+  extrudedOITPipeline(): RhiPipelineHandle | null {
     return this.fillPipelineExtrudedOIT
   }
-  patternGroundPipeline(): GPURenderPipeline | null {
+  patternGroundPipeline(): RhiPipelineHandle | null {
     return this.fillPipelinePatternGround
   }
-  patternGroundPipelineFallback(): GPURenderPipeline | null {
+  patternGroundPipelineFallback(): RhiPipelineHandle | null {
     return this.fillPipelinePatternGroundFallback
   }
-  patternExtrudedPipeline(): GPURenderPipeline | null {
+  patternExtrudedPipeline(): RhiPipelineHandle | null {
     return this.fillPipelinePatternExtruded
   }
-  patternExtrudedPipelineFallback(): GPURenderPipeline | null {
+  patternExtrudedPipelineFallback(): RhiPipelineHandle | null {
     return this.fillPipelinePatternExtrudedFallback
   }
 

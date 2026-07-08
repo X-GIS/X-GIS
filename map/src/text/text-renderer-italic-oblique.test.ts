@@ -16,7 +16,7 @@ import { TextRenderer } from './text-renderer'
 import type { TextDraw } from './text-renderer'
 import type { GlyphInfo } from './sdf/glyph-atlas-host'
 import { FrameArena } from '@xgis/engine'
-import { WebGpuDevice } from '@xgis/engine'
+import { WebGpuDevice } from '@xgis/rhi-webgpu'
 import type { RhiBuffer, RhiBindGroup } from '@xgis/engine'
 
 const g = globalThis as Record<string, unknown>

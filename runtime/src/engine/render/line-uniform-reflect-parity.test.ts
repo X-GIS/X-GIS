@@ -16,12 +16,12 @@
 import { describe, it, expect } from 'vitest'
 import { reflect } from '@xgis/shader-dsl'
 import { buildLineModule } from '@xgis/map'
-import { uniformFieldSlots } from '@xgis/engine'
+import { uniformFieldSlots } from '@xgis/rhi-webgpu'
 import { lineLayerUniformBytes, lineLayerUniformStride } from '@xgis/map'
 import { polygonUniformBytes } from '@xgis/map'
 import { LineRenderer, packLineLayerUniform } from '@xgis/map'
-import { WebGpuDevice } from '@xgis/engine'
-import type { GPUContext } from '@xgis/engine'
+import { WebGpuDevice } from '@xgis/rhi-webgpu'
+import type { GPUContext } from '@xgis/rhi-webgpu'
 
 // WebGPU globals don't exist under happy-dom — stub the few the LineRenderer
 // ctor touches (createBindGroupLayout's visibility flags + createBuffer's usage

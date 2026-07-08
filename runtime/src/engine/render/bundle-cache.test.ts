@@ -7,7 +7,7 @@
 //   - Stats (hits / misses / size / hitRate)
 
 import { describe, it, expect } from 'vitest'
-import { BundleCache, type BundleEncodeDescriptor } from '@xgis/engine'
+import { BundleCache, type BundleEncodeDescriptor } from '@xgis/rhi-webgpu'
 
 interface MockBundle {
   __mock: true

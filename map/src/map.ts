@@ -17,7 +17,7 @@ import {
   extractInterpolateZoomColorStops,
   extractInterpolateZoomStops,
 } from '@xgis/compiler'
-import { packPalette, uploadPalette, type PaletteTextures } from '@xgis/engine'
+import { packPalette, uploadPalette, type PaletteTextures } from '@xgis/rhi-webgpu'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/engine'
@@ -37,17 +37,14 @@ import {
 } from './geojson-polar-cap-show'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { getSharedGeoJSONCompilePool } from '@xgis/data'
-import {
-  initGPU,
-  GPU_PROF,
-  getMaxDpr,
-  effectiveDpr,
-  WebGPUUnavailableError,
-  type GPUContext,
-  type BackendChoice,
-} from '@xgis/engine'
+import { getMaxDpr, effectiveDpr } from '@xgis/engine'
+// #834 M-B2 — the neutral surface (BackendChoice = public XGISMapOptions.backend
+// type; RhiDeviceLostInfo = onDeviceLost payload) comes from @xgis/engine, not
+// the concrete backend. GPUContext + boot providers stay on rhi-webgpu (Layer 2).
+import type { BackendChoice, RhiDeviceLostInfo } from '@xgis/engine'
+import { initGPUViaProviders, backendProviderChain, GPU_PROF, WebGPUUnavailableError, type GPUContext } from '@xgis/rhi-webgpu'
 import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
-import { GPUTimer } from '@xgis/engine'
+import { GPUTimer } from '@xgis/rhi-webgpu'
 import { Camera } from '@xgis/engine'
 import { CameraController } from './camera-controller'
 import { ViewportModeController } from './render/viewport-mode-controller'
@@ -58,7 +55,7 @@ import type { ShowCommand } from './render/renderer-types'
 import { resolveNumberShape } from './render/paint-shape-resolve'
 import { RenderLoop } from './render-loop'
 import { buildRenderNodes } from './render/passes/pass-chain'
-import { RenderTargets } from '@xgis/engine'
+import { RenderTargets } from '@xgis/rhi-webgpu'
 import {
   classifyVectorTileShows as classifyVectorTileShowsImpl,
   groupOpaqueBySource as groupOpaqueBySourceImpl,
@@ -976,6 +973,9 @@ export class XGISMap {
       getPickTextureDevice: () => this.renderTargets.device,
       getProjectionName: () => this.projectionName,
       getVectorTileShows: () => this.vectorTileShows,
+      // #834 M5 s6 — the forced-WebGL2 on-demand pick pass (offscreen
+      // colour+rg32uint MRT + synchronous readback). WebGPU never calls it.
+      pickRhi: (px, py) => this.renderLoopInstance.pickViaRhi(px, py),
     })
     // Apply resource options BEFORE the first render frame so the
     // lazy TextStage construction sees the full bundle. Setters
@@ -1226,11 +1226,11 @@ export class XGISMap {
    *  a "GPU lost — reload" affordance or trigger app-level re-init. Safe
    *  to call before or after init: stored and applied when the GPU
    *  context resolves. */
-  onDeviceLost(cb: (info: GPUDeviceLostInfo) => void): void {
+  onDeviceLost(cb: (info: RhiDeviceLostInfo) => void): void {
     this._onDeviceLost = cb
     if (this.ctx) this.ctx.onDeviceLost = cb
   }
-  private _onDeviceLost?: (info: GPUDeviceLostInfo) => void
+  private _onDeviceLost?: (info: RhiDeviceLostInfo) => void
 
   /** Host hook fired once if WebGPU is unavailable when the map tries to
    *  mount — no `navigator.gpu` (unsupported browser) or no GPU adapter.
@@ -2252,7 +2252,7 @@ export class XGISMap {
     // GPU init has no dependency on the IR result — it just needs
     // `this.canvas`. Errors propagate exactly as before via the awaited
     // catch.
-    const gpuInit = initGPU(this.canvas, { backend: this._backend }).catch((err) => {
+    const gpuInit = initGPUViaProviders(this.canvas, backendProviderChain(this._backend)).catch((err) => {
       // Hold the rejection here so the await below converts it to a
       // sync throw at the same call site as the previous code. We
       // don't want unhandled-rejection noise if step 1 errors out
@@ -2555,7 +2555,16 @@ export class XGISMap {
     // P3 Step 3c — upload the scene-level color gradient palette to GPU
     // so MapRenderer + freshly-built VTRs sample the real atlas instead
     // of the 1×1 stub installed at MapRenderer init.
-    if (commands.palette && commands.palette.colorGradients.length > 0) {
+    if (
+      commands.palette &&
+      commands.palette.colorGradients.length > 0 &&
+      // #834 device retirement S5 — the gradient atlas feeds the VARIANT
+      // fill shaders, which never run on webgl2 (per-style pipelines are
+      // the inert S4 sentinel; renderFillsRhi resolves colours CPU-side),
+      // and setPaletteColorAtlas would rebuild NATIVE bind groups. Skip so
+      // scene compile keeps ctx.device untouched on that backend.
+      this.ctx.rhi.backend !== 'webgl2'
+    ) {
       // Guard with try/catch — palette upload races scene compile and a
       // transient GPU error (cold device, low-memory) shouldn't kill the
       // whole map. Falls back to the 1×1 stub atlas; legacy
@@ -3371,7 +3380,7 @@ export class XGISMap {
 
     let ctx: GPUContext
     try {
-      ctx = await initGPU(this.canvas, { backend: this._backend })
+      ctx = await initGPUViaProviders(this.canvas, backendProviderChain(this._backend))
     } catch (e) {
       if (e instanceof WebGPUUnavailableError) {
         // Graceful: no WebGPU / no adapter. Fire the host hook, or show a

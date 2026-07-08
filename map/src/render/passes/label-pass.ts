@@ -31,7 +31,7 @@ import { IconStage } from '../../sprite/icon-stage'
 import { resolveText } from '../../text/text-resolver'
 import { hexToRgba, featureAnchor } from '../../feature-helpers'
 import { type ShowCommand } from '../renderer-types'
-import type { FrameContext } from '@xgis/engine'
+import type { FrameContext } from '@xgis/rhi-webgpu'
 import { unwrapProjection } from '@xgis/engine'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, LabelPassHost } from './pass'
@@ -1675,23 +1675,31 @@ class LabelPass implements RenderPass {
       // targets the swapchain format, not r16float. Phase 2 adds
       // a text debug pipeline so glyph + halo overdraw counts.
       if (!DEBUG_OVERDRAW) {
-        ctx.passScope('text-overlay', () => {
-          const tPass = encoder.beginRenderPass({
-            colorAttachments: [
-              {
-                view: ctx.colorView,
-                resolveTarget: ctx.useResolve ? ctx.screenView : undefined,
-                loadOp: 'load',
-                storeOp: 'store',
-              },
-            ],
+        if (ctx.rhiPass) {
+          // Forced-WebGL2 frame (#834 M5 slices 3-4): draw on the live RHI
+          // screen pass — no WebGPU encoder exists on this path. Icons
+          // BEFORE text, matching the WebGPU ordering below.
+          iStage?.render(ctx.rhiPass, { width: ctx.w, height: ctx.h })
+          stage.render(ctx.rhiPass, { width: ctx.w, height: ctx.h })
+        } else {
+          ctx.passScope('text-overlay', () => {
+            const tPass = encoder.beginRenderPass({
+              colorAttachments: [
+                {
+                  view: ctx.colorView,
+                  resolveTarget: ctx.useResolve ? ctx.screenView : undefined,
+                  loadOp: 'load',
+                  storeOp: 'store',
+                },
+              ],
+            })
+            // Icons render BEFORE text so labels read on top of their
+            // POI badges — matches MapLibre's symbol-stage ordering.
+            iStage?.render(tPass, { width: ctx.w, height: ctx.h })
+            stage.render(tPass, { width: ctx.w, height: ctx.h })
+            tPass.end()
           })
-          // Icons render BEFORE text so labels read on top of their
-          // POI badges — matches MapLibre's symbol-stage ordering.
-          iStage?.render(tPass, { width: ctx.w, height: ctx.h })
-          stage.render(tPass, { width: ctx.w, height: ctx.h })
-          tPass.end()
-        })
+        }
       }
       // Drop both stages' per-frame dispatch queues. iStage.reset() mirrors
       // stage.reset() so a frame that skipped iStage.prepare() (S16) cannot

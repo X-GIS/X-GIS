@@ -39,6 +39,7 @@ import {
   applyMinify,
   type EmitTextOptions,
 } from '../emit'
+import { autoVars } from '../passes/opt'
 import { wgslLayout } from '../reflect'
 import { sanitizeReservedIdents } from './glsl-sanitize'
 import { fixpoint } from '../passes/opt'
@@ -338,7 +339,9 @@ function emitGlslUbo(
   structs: ReadonlyMap<string, StructDecl>,
 ): string {
   // offset oracle + host-shareable-field guard; offsets are the contract. The
-  // module's struct map resolves NESTED struct fields (e.g. the fp64 DF64VecN).
+  // module's struct map resolves NESTED struct fields (fp64's DF64VecN;
+  // LineLayer's array<PatternSlot, 3>) — their GLSL decls are emitted by the
+  // topo-sorted plain-struct pass above the UBO block.
   wgslLayout(struct, 'std140', structs)
   const fields = struct.fields.map((f) => `  ${glslType(f.type)} ${f.name};`).join('\n')
   return `layout(std140) uniform ${struct.name} {\n${fields}\n} ${b.name};`
@@ -515,9 +518,11 @@ function emitGlslEntry(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): s
 // fail-closes storage. WGSL is untouched (only emitGlslModule calls this).
 //
 // SCOPE: array<f32> (any size, 2D-tiled) — covers the real feat_data path (indexed / strided
-// feat_data[base*STRIDE+lane] / bitcast<u32> lanes). The RESIDUAL (fail-closed below):
-// array<u32/i32/vecN/struct> — shapes/segments are array<Struct> and need a typed-texture /
-// multi-lane scheme (a documented follow-on, NOT yet implemented).
+// feat_data[base*STRIDE+lane] / bitcast<u32> lanes) — plus array<vecN<f32>> (the retained-icon
+// tint_data path, #823): element i reads its std430 stride worth of consecutive lanes
+// (vec2 = 2, vec3/vec4 = 4 — vec3 arrays pad to 16 B per std430) recombined with a vec ctor.
+// The RESIDUAL (fail-closed below): array<u32/i32> — needs a typed-texture / bitcast-lane
+// scheme (a documented follow-on, NOT yet implemented).
 // Struct-array storage layout: the std430 f32-lane offset of each field + the element stride
 // (f32 lanes). A scalar field is one lane (u32 lanes are bitcast back); a vecN<f32> field is N
 // consecutive lanes recombined with a vec ctor. mat / vec<u32> fields are excluded (throw on
@@ -532,6 +537,9 @@ interface StructStorage {
 function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
   const structsMap = new Map(m.structs.map((s) => [s.name, s]))
   const f32Names = new Set<string>() // array<f32> storage
+  // array<vecN<f32>> storage — element i = `stride` consecutive f32 lanes (std430:
+  // vec2 stride 2, vec3/vec4 stride 4), the first `n` recombined with a vec ctor.
+  const vecStorage = new Map<string, { n: number; stride: number }>()
   const structStorage = new Map<string, StructStorage>() // array<Struct> storage
   for (const b of m.bindings) {
     if (b.space !== 'storage') continue
@@ -542,6 +550,12 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
     const elem = b.type.elem
     if (elem.kind === 'scalar' && elem.scalar === 'f32') {
       f32Names.add(b.name)
+      continue
+    }
+    if (elem.kind === 'vec' && elem.elem === 'f32') {
+      // std430 array stride: vec2 = 8 B (2 lanes); vec3/vec4 = 16 B (4 lanes — vec3
+      // rounds up to its 16 B alignment). The CPU packs against the same std430.
+      vecStorage.set(b.name, { n: elem.n, stride: elem.n === 2 ? 2 : 4 })
       continue
     }
     if (elem.kind === 'struct') {
@@ -570,11 +584,11 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
       continue
     }
     throw new UnsupportedFeatureError(
-      `glsl-es300 storage-emul: binding '${b.name}' — array<f32> and array<Struct(scalar fields)> supported; a top-level array<u32/i32/vecN> needs typed packing`,
+      `glsl-es300 storage-emul: binding '${b.name}' — array<f32>, array<vecN<f32>> and array<Struct(scalar fields)> supported; a top-level array<u32/i32> needs typed packing`,
     )
   }
-  if (f32Names.size === 0 && structStorage.size === 0) return m
-  const allNames = new Set<string>([...f32Names, ...structStorage.keys()])
+  if (f32Names.size === 0 && vecStorage.size === 0 && structStorage.size === 0) return m
+  const allNames = new Set<string>([...f32Names, ...vecStorage.keys(), ...structStorage.keys()])
   // every storage binding → a sampler2D (R32F data texture) uniform; same name/group/binding.
   const bindings = m.bindings.map((b): BindingDecl =>
     allNames.has(b.name) ? { ...b, space: 'uniform', type: texture2dfT } : b,
@@ -624,6 +638,24 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
       case 'index':
         if (e.base.op === 'varref' && f32Names.has(e.base.name))
           return fetch(e.base.name, rE(e.idx))
+        if (e.base.op === 'varref' && vecStorage.has(e.base.name)) {
+          // tint[i] → vecN(fetch(i*stride), …, fetch(i*stride+n-1)).
+          const vs = vecStorage.get(e.base.name)!
+          const baseLane: Expr = {
+            op: 'binop',
+            type: u32T,
+            bop: '*',
+            a: rE(e.idx),
+            b: u32lit(vs.stride),
+          }
+          const comps: Expr[] = []
+          for (let k = 0; k < vs.n; k++) {
+            const lane: Expr =
+              k === 0 ? baseLane : { op: 'binop', type: u32T, bop: '+', a: baseLane, b: u32lit(k) }
+            comps.push(fetch(e.base.name, lane))
+          }
+          return { op: 'construct', type: e.type, args: comps }
+        }
         if (e.base.op === 'varref' && structStorage.has(e.base.name))
           throw new UnsupportedFeatureError(
             `glsl-es300 storage-emul: storage struct element '${e.base.name}[i]' used without a .field access`,
@@ -969,10 +1001,17 @@ export function emitGlslModule(
   // read_write `out_color` binding, which lowerStorageToDataTexture would throw on),
   // then storage→data-texture converts the remaining `feat_data` read. emulateCompute
   // IMPLIES emulateStorage.
+  // autoVars must run BEFORE any cloning IR→IR pre-pass: it materialises
+  // assigned plain-value bindings by Expr OBJECT IDENTITY (see auto-vars.ts),
+  // and the storage/compute lowerings clone expression trees — running them
+  // first orphans every read of an assigned temp from its assignments (the
+  // emitted GLSL then reads the CSE'd INITIALIZER forever; the #834 M5 line
+  // twin returned position = vec4(0) this way). autoVars is a no-op on an
+  // already-materialised module, so lowerForBackend's own autoVars stays.
   const src = opts?.emulateCompute
-    ? lowerStorageToDataTexture(lowerComputeToFragment(m))
+    ? lowerStorageToDataTexture(lowerComputeToFragment(autoVars(m)))
     : opts?.emulateStorage
-      ? lowerStorageToDataTexture(m)
+      ? lowerStorageToDataTexture(autoVars(m))
       : m
   // GLSL-local: rename any param/var identifier colliding with a GLSL reserved word
   // (e.g. an entry param `input` / `in`) — does NOT affect the WGSL backend.

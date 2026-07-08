@@ -39,8 +39,8 @@ import { describe, expect, it } from 'vitest'
 }
 
 import { LineRenderer, lineUniformSize } from '@xgis/map'
-import { WebGpuDevice } from '@xgis/engine'
-import type { GPUContext } from '@xgis/engine'
+import { WebGpuDevice } from '@xgis/rhi-webgpu'
+import type { GPUContext } from '@xgis/rhi-webgpu'
 
 // f32 slots in the 208-byte line layer uniform (see line-pattern.ts header):
 //   [47] line_translate_x, [48] line_translate_y.

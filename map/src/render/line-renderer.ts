@@ -38,17 +38,22 @@
 //    parallel arc length would require per-segment numerical integration
 //    and is deferred.
 
-import { isPickEnabled, getSampleCount, type GPUContext } from '@xgis/engine'
+import { isPickEnabled, getSampleCount } from '@xgis/engine'
+import { type GPUContext } from '@xgis/rhi-webgpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
-import { asyncWriteBuffer, type StagingBufferPool } from '@xgis/engine'
+import { asyncWriteBuffer, type StagingBufferPool } from '@xgis/rhi-webgpu'
 import { xlog } from '@xgis/shared'
-import {
-  wrapWebGpuPass,
-  wrapWebGpuBuffer,
-  wrapWebGpuBindGroup,
-  wrapWebGpuBindGroupLayout,
+import { wrapWebGpuPass, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
+import type {
+  RhiBuffer,
+  RhiBindGroup,
+  RhiBindGroupLayout,
+  RhiDevice,
+  RhiRenderPass,
+  RhiScreenPassDevice,
+  RhiTexture,
+  RhiTextureView,
 } from '@xgis/engine'
-import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { LineDraper } from './material/line-material'
 import { LineCompositeDraper } from './material/line-composite-material'
 import type { ShapeRegistry } from '../text/sdf-shape'
@@ -183,7 +188,11 @@ export class LineRenderer {
   private readonly rhi: RhiDevice
   private format: GPUTextureFormat
   private tileBindGroupLayout: GPUBindGroupLayout
-  private layerBindGroupLayout: GPUBindGroupLayout
+  /** Native layer BGL, created LAZILY (#834 device retirement S1): its only
+   *  consumers are the WebGPU branches (createLayerBindGroup's wrap + the
+   *  LineDraper native-group arm), so the constructor never touches
+   *  ctx.device — prerequisite for retiring the ?forcegl2 device Proxy. */
+  private _layerBgl: GPUBindGroupLayout | null = null
   private shapeRegistry: ShapeRegistry | null = null
   /** Deduped warnings for bad pattern parameter combos. Key: stable string
    *  describing the violation. Survives per LineRenderer instance — reset on
@@ -229,32 +238,6 @@ export class LineRenderer {
     // Ctor runs post-configureProjections(), so reflecting the LineLayer
     // stride here is safe (unlike a `static` field, which evaluates at import).
     this.layerStride = lineLayerUniformStride()
-
-    this.layerBindGroupLayout = this.device.createBindGroupLayout({
-      label: 'line-layer-bgl',
-      entries: [
-        {
-          binding: 0,
-          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-          buffer: { type: 'uniform', hasDynamicOffset: true },
-        },
-        {
-          binding: 1,
-          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-          buffer: { type: 'read-only-storage' },
-        },
-        {
-          binding: 2,
-          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-          buffer: { type: 'read-only-storage' },
-        },
-        {
-          binding: 3,
-          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-          buffer: { type: 'read-only-storage' },
-        },
-      ],
-    })
 
     // Layer uniform ring. 256-byte slots → dynamic offsets prevent
     // multi-layer writeBuffer clobbering within a single frame.
@@ -326,6 +309,66 @@ export class LineRenderer {
     // LineCompositeDraper now — nothing to pre-build here.
   }
 
+  // ── RHI (forced-WebGL2) offscreen twins (#834 M5) ──
+  /** RHI twin of the offscreen RT — rgba8unorm render+sample texture sized to
+   *  the screen. Lazily allocated + resized, mirroring `ensureOffscreen`. */
+  private _offscreenTexRhi: RhiTexture | null = null
+  private _offscreenViewRhi: RhiTextureView | null = null
+  private _offscreenWRhi = 0
+  private _offscreenHRhi = 0
+  private ensureOffscreenRhi(width: number, height: number): RhiTextureView {
+    if (this._offscreenViewRhi && this._offscreenWRhi === width && this._offscreenHRhi === height)
+      return this._offscreenViewRhi
+    if (this._offscreenTexRhi) this.rhi.destroyTexture(this._offscreenTexRhi)
+    this._offscreenTexRhi = this.rhi.createTexture({
+      width,
+      height,
+      format: 'rgba8unorm',
+      usage: ['render', 'sample'],
+      label: 'line-translucent-offscreen-rhi',
+    })
+    this._offscreenViewRhi = this.rhi.createView(this._offscreenTexRhi)
+    this._offscreenWRhi = width
+    this._offscreenHRhi = height
+    return this._offscreenViewRhi
+  }
+
+  /** RHI twin of `beginTranslucentPass`: clear-load the offscreen RT and return
+   *  the pass; the caller draws MAX-blend strokes then `pass.end()` (which
+   *  restores the screen FBO + viewport on WebGL2). */
+  beginTranslucentPassRhi(
+    device: RhiScreenPassDevice,
+    width: number,
+    height: number,
+  ): RhiRenderPass {
+    const view = this.ensureOffscreenRhi(width, height)
+    return device.beginOffscreenPass({
+      label: 'line-translucent-pass-rhi',
+      colorAttachments: [
+        { view, loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] },
+      ],
+    })
+  }
+
+  /** RHI twin of `composite`: same ring-slot discipline, but the offscreen view
+   *  is the RHI texture and the target pass is the forced-WebGL2 screen pass. */
+  compositeRhi(mainPass: RhiRenderPass, opacity: number): void {
+    if (!this._offscreenViewRhi) return
+    const off =
+      this.compositeSlot < this.compositeRingCapacity
+        ? this.compositeSlot * LineRenderer.COMPOSITE_SLOT
+        : (this.compositeRingCapacity - 1) * LineRenderer.COMPOSITE_SLOT
+    if (this.compositeSlot >= this.compositeRingCapacity) {
+      xlog.warn(
+        '[LineRenderer] composite ring overflow — capping at capacity; opacity bleed possible',
+      )
+    } else {
+      this.compositeSlot++
+    }
+    this.rhi.writeBuffer(this.compositeRing, off, new Float32Array([opacity, 0, 0, 0]))
+    this.ensureCompositeDraper().drawRhi(mainPass, this._offscreenViewRhi, this.compositeRing, off)
+  }
+
   /** Begin a translucent line render pass against the offscreen RT. */
   beginTranslucentPass(encoder: GPUCommandEncoder): GPURenderPassEncoder {
     if (!this.offscreenView) throw new Error('LineRenderer: offscreen not initialised')
@@ -374,10 +417,13 @@ export class LineRenderer {
 
   private _compositeDraper?: LineCompositeDraper
   private ensureCompositeDraper(): LineCompositeDraper {
+    // The forced-WebGL2 screen pass is single-sample (the raster draper
+    // learned this the hard way — a 4-sample pipeline on a 1-sample pass
+    // draws nothing); WebGPU keeps the live MSAA count.
     return (this._compositeDraper ??= new LineCompositeDraper(
       this.rhi,
       this.format,
-      getSampleCount(),
+      this.rhi.backend === 'webgl2' ? 1 : getSampleCount(),
     ))
   }
 
@@ -390,14 +436,14 @@ export class LineRenderer {
    *  is owned + destroyed by GpuTileStore's raw `_retiredTileBuffers: GPUBuffer[]`
    *  retire queue (the VTR/GPUArena cluster), so it flips to RhiBuffer with that
    *  cluster, not in this line step. createLayerBindGroup wraps it transiently. */
-  uploadSegmentBuffer(segments: Float32Array): GPUBuffer {
+  uploadSegmentBuffer(segments: Float32Array): RhiBuffer {
     const size = Math.max(segments.byteLength, LINE_SEGMENT_STRIDE_BYTES)
-    const buf = this.device.createBuffer({
-      size,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      label: 'line-segments',
-    })
-    this.device.queue.writeBuffer(buf, 0, segments)
+    // Backend-blind (#834 M5): on WebGPU rhi.createBuffer IS device.createBuffer
+    // (usage 'storage' → STORAGE|COPY_DST) and rhi.writeBuffer IS
+    // queue.writeBuffer — byte-identical; on WebGl2Device the storage buffer
+    // lands as the R32F data-texture backing the emulated `segments` array.
+    const buf = this.rhi.createBuffer({ size, usage: 'storage', label: 'line-segments' })
+    this.rhi.writeBuffer(buf, 0, segments)
     return buf
   }
 
@@ -412,7 +458,7 @@ export class LineRenderer {
     segments: Float32Array,
     encoder: GPUCommandEncoder,
     pool: StagingBufferPool,
-  ): Promise<{ buffer: GPUBuffer; release: () => void }> {
+  ): Promise<{ buffer: RhiBuffer; release: () => void }> {
     const size = Math.max(segments.byteLength, LINE_SEGMENT_STRIDE_BYTES)
     const buf = this.device.createBuffer({
       size,
@@ -420,7 +466,9 @@ export class LineRenderer {
       label: 'line-segments-async',
     })
     const handle = await asyncWriteBuffer(pool, encoder, buf, 0, segments)
-    return { buffer: buf, release: handle.release }
+    // This path is inherently WebGPU (staging pool + native encoder); the raw
+    // dst is wrapped at return so the tile cache stores RhiBuffer uniformly.
+    return { buffer: wrapWebGpuBuffer(buf), release: handle.release }
   }
 
   /** Reset the layer + composite ring slot cursors. Call once per frame. */
@@ -537,7 +585,36 @@ export class LineRenderer {
 
   /** Create a bind group for the line layer + segments + shape registry.
    *  Binding 0 uses a dynamic offset — actual slot is chosen at draw time. */
-  createLayerBindGroup(segmentBuffer: GPUBuffer): RhiBindGroup {
+  /** Lazy native layer BGL — see `_layerBgl`. WebGPU-branch consumers only. */
+  private layerBgl(): GPUBindGroupLayout {
+    return (this._layerBgl ??= this.device.createBindGroupLayout({
+      label: 'line-layer-bgl',
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'uniform', hasDynamicOffset: true },
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'read-only-storage' },
+        },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'read-only-storage' },
+        },
+        {
+          binding: 3,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'read-only-storage' },
+        },
+      ],
+    }))
+  }
+
+  createLayerBindGroup(segmentBuffer: RhiBuffer): RhiBindGroup {
     // §4 seam: built via the RHI. binding 0 = line's PRIVATE layer ring (RhiBuffer);
     // binding 1 = the per-tile segment buffer, still a raw GpuTileStore-owned
     // GPUBuffer (flips with the VTR/GPUArena cluster, unit 4) → wrapped transiently;
@@ -547,9 +624,16 @@ export class LineRenderer {
     // the VTR/GPUArena cluster.
     const shapeBuf = this.shapeRegistry?.shapeBuffer
     const shapeSegBuf = this.shapeRegistry?.segmentBuffer
-    return this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.layerBindGroupLayout), [
+    // WebGl2Device: the raw layerBindGroupLayout is a ?forcegl2 proxy no-op —
+    // use the line Material's OWN group-1 layout (entry-array construction,
+    // #834 M5) so reflection-by-name binds the emulated storage textures.
+    const layout =
+      this.rhi.backend === 'webgl2'
+        ? (this.ensureLineDraper(), this._lineDraper!.layerLayoutRhi())
+        : wrapWebGpuBindGroupLayout(this.layerBgl())
+    return this.rhi.createBindGroup(layout, [
       { binding: 0, resource: { buffer: this.layerRing, offset: 0, size: lineUniformSize() } },
-      { binding: 1, resource: { buffer: wrapWebGpuBuffer(segmentBuffer) } },
+      { binding: 1, resource: { buffer: segmentBuffer } },
       { binding: 2, resource: { buffer: shapeBuf ?? this.emptyShapeBuffer } },
       { binding: 3, resource: { buffer: shapeSegBuf ?? this.emptyShapeBuffer } },
     ])
@@ -606,15 +690,61 @@ export class LineRenderer {
     )
   }
 
+  /** RHI-native sibling of `drawSegments` for the forced-WebGL2 screen pass
+   *  (#834 M5 slice 1): the pass and BOTH bind groups arrive as RHI handles
+   *  (the tile group is built by VTR against the line Material's own group-0
+   *  layout), so nothing is wrapped. `pattern` selects the fs_line_pattern
+   *  variant (#834 M5 slice 5); mode 'max' routes to the offscreen MAX-blend
+   *  material (the translucent bucket, #834 M5 slice 6); pick stays a
+   *  WebGPU-path concern until its twin lands. */
+  drawSegmentsRhi(
+    pass: RhiRenderPass,
+    tileBG: RhiBindGroup,
+    layerBG: RhiBindGroup,
+    segmentCount: number,
+    tileOffset: number,
+    layerOffset: number,
+    pattern = false,
+    mode: 'opaque' | 'max' = 'opaque',
+  ): void {
+    if (segmentCount === 0) return
+    this.ensureLineDraper()
+    this._lineDraper!.draw(
+      pass,
+      {
+        tileBG,
+        layerBG,
+        tileOffset,
+        layerOffset,
+        pattern,
+        segmentCount,
+      },
+      mode,
+    )
+  }
+
+  /** The line Material's group-0 (tile) layout — VTR builds its WebGL2 tile
+   *  bind group against it (#834 M5). */
+  tileLayoutRhi(): RhiBindGroupLayout {
+    this.ensureLineDraper()
+    return this._lineDraper!.tileLayoutRhi()
+  }
+
   private _lineDraper?: LineDraper
   private ensureLineDraper(): void {
     if (this._lineDraper) return
+    // LineDraper wraps the native layouts ONLY on its WebGPU branch (the gl2
+    // arm builds entry-array groups); on webgl2 pass an inert placeholder so
+    // the lazy layerBgl() never touches ctx.device on that backend (#834
+    // device retirement S1 — same inert-field pattern as renderFrameViaRhi's
+    // FrameContext).
+    const gl2 = this.rhi.backend === 'webgl2'
     this._lineDraper = new LineDraper(
       this.rhi,
       this.format,
       getSampleCount(),
       this.tileBindGroupLayout,
-      this.layerBindGroupLayout,
+      gl2 ? (null as unknown as GPUBindGroupLayout) : this.layerBgl(),
     )
   }
 

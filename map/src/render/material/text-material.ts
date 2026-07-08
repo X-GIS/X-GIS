@@ -6,10 +6,27 @@
 // group. Premultiplied-alpha blend (the shader emits rgb*a, a), no depth. Reuses
 // the text renderer's bind-group layout.
 
-import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
-import { wrapWebGpuBindGroupLayout } from '@xgis/engine'
+import type {
+  RhiBindGroup,
+  RhiBindGroupLayout,
+  RhiBindLayoutEntry,
+  RhiBuffer,
+  RhiDevice,
+  RhiRenderPass,
+} from '@xgis/engine'
+import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from './material'
 import { emitTextWgsl } from '@xgis/map'
+import { emitTextGlsl } from '../../shaders/dsl/text'
+
+// WebGL2 by-name entries — the RHI-native twin of the raw text bind-group
+// layout (#834 M5 slice 3). Names from the DSL: UBO tag = struct name;
+// texture name = binding name (sampler fuses into the combined sampler2D).
+const TEXT_ENTRIES: RhiBindLayoutEntry[] = [
+  { binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' },
+  { binding: 1, kind: 'texture', name: 'atlas_tex' },
+  { binding: 2, kind: 'sampler', name: 'atlas_smp' },
+]
 
 type VertexBuffers = ReadonlyArray<{
   stride: number
@@ -38,17 +55,26 @@ export class TextDraper {
     bgLayout: GPUBindGroupLayout,
     vertexBuffers: VertexBuffers,
   ) {
+    const gl2 = rhi.backend === 'webgl2'
     this.material = new Material(rhi, {
       shader: emitTextWgsl(),
       vsEntry: 'vs',
       fsEntry: 'fs',
+      vsCode: gl2 ? emitTextGlsl('vertex') : undefined,
+      fsCode: gl2 ? emitTextGlsl('fragment') : undefined,
       format: format as 'bgra8unorm',
       sampleCount,
-      groups: [wrapWebGpuBindGroupLayout(bgLayout)],
+      groups: [gl2 ? TEXT_ENTRIES : wrapWebGpuBindGroupLayout(bgLayout)],
       colorTargets: [{ format: format as 'bgra8unorm', blend: 'premult' }],
       vertexBuffers,
       variants: [{ label: 'text-pipeline-rhi' }], // no depth-stencil
     })
+  }
+
+  /** Group-0 layout — the renderer builds its per-page bind groups against it
+   *  (on WebGPU this IS the wrapped raw layout passed at construction). */
+  layoutRhi(): RhiBindGroupLayout {
+    return this.material.layout(0)
   }
 
   draw(pass: RhiRenderPass, vertexBuf: RhiBuffer, slices: ReadonlyArray<TextSlice>): void {

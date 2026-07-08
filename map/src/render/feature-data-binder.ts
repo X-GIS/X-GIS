@@ -25,7 +25,7 @@
 // ARGUMENTS. The compute-output entries (`handle.getBindGroupEntries()`)
 // stay LAST in the entries array. Pinned by `feature-bindgroup-rebuild.test.ts`.
 
-import { ComputeDispatcher } from '@xgis/engine'
+import { ComputeDispatcher } from '@xgis/rhi-webgpu'
 import { ComputeLayerHandle } from './compute-layer-handle'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { GPUTile } from './vector-tile-renderer-types'

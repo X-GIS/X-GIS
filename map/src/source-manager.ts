@@ -27,7 +27,7 @@
 
 import { assertIngestBudget, readBodyCapped, safeFetch } from '@xgis/shared'
 import type { Camera } from '@xgis/engine'
-import type { GPUContext } from '@xgis/engine'
+import type { GPUContext } from '@xgis/rhi-webgpu'
 import { getMaxDpr } from '@xgis/engine'
 import type { MapRendererContent } from './render/renderer'
 import type { LineRenderer } from './render/line-renderer'

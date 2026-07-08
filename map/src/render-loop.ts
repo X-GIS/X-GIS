@@ -28,14 +28,18 @@ import {
   promotesToGlobeWhenTilted,
   poleLimit,
 } from '@xgis/engine'
-import { resizeCanvas, effectiveDpr, getSampleCount, isPickEnabled } from '@xgis/engine'
+import { effectiveDpr, getSampleCount, isPickEnabled } from '@xgis/engine'
+import { resizeCanvas } from '@xgis/rhi-webgpu'
 import { DEBUG_OVERDRAW } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
-import { type FrameContext } from '@xgis/engine'
+import { backgroundClearValue } from './render/passes/background-pass'
+import { labelPass } from './render/passes/label-pass'
+import { resolveColorShape, resolveNumberShape } from './render/paint-shape-resolve'
+import { type FrameContext } from '@xgis/rhi-webgpu'
 import { makeProjectionToken, setProjectionToken } from '@xgis/engine'
-import type { RhiDevice, RhiScreenPassDevice } from '@xgis/engine'
+import type { RhiDevice, RhiScreenPassDevice, RhiTexture, RhiTextureView } from '@xgis/engine'
 import { asScreenPassDevice } from '@xgis/engine'
 import { buildSceneView } from './render/scene-view'
 import type { RenderNode } from './render/render-node'
@@ -234,7 +238,7 @@ export class RenderLoop {
     // path below is UNTOUCHED — this is a pure pre-guard. Rollback = delete this block.
     const rhi = asScreenPassDevice(this.host.ctx.rhi)
     if (rhi) {
-      this.renderFrameViaRhi(rhi, w, h, projType, centerLon, centerLat, dpr)
+      const rhiWorkPending = this.renderFrameViaRhi(rhi, w, h, projType, centerLon, centerLat, dpr)
       // Mirror the WebGPU path's end-of-frame idle bookkeeping (#746): snapshot
       // the camera signature + clear _needsRender. Without this the early return
       // left shouldRenderThisFrame() true forever, so the forced-WebGL2 loop
@@ -246,7 +250,7 @@ export class RenderLoop {
       this.host._lastSigPitch = this.host.camera.pitch
       this.host._lastSigW = this.host.ctx.canvas.width
       this.host._lastSigH = this.host.ctx.canvas.height
-      this.host._needsRender = false
+      this.host._needsRender = rhiWorkPending
       requestAnimationFrame(this.host.renderLoop)
       return
     }
@@ -693,11 +697,128 @@ export class RenderLoop {
   }
 
   /** Forced-WebGL2 slice frame (?forcegl2=1): an isolated single-sample WebGL2 screen
-   *  pass that clears, draws the analytic raster checker tile on the WebGl2Device (US-003),
-   *  then presents. gl.getError is drained into the shared `_validationErrors` sink (R4)
+   *  pass that clears, draws the analytic raster checker tile on the WebGl2Device (US-003)
+   *  plus any retained host-drawing icon batches (map.graphics.add, #823), then presents.
+   *  gl.getError is drained into the shared `_validationErrors` sink (R4)
    *  so a forced-WebGL2 frame is held to the no-error bar the WebGPU tests already assert.
    *  This is the WHOLE forced-WebGL2 hot path — none of the WebGPU multi-pass machinery runs
    *  (storage/MSAA renderers are Story-5/6). */
+  // ── #834 M5 s6 — on-demand WebGL2 PICK pass ─────────────────────────────────
+  /** Frame params snapshotted by renderFrameViaRhi so a pick samples the last
+   *  presented frame's camera/projection state. */
+  private _lastRhiFrame: {
+    projType: number
+    centerLon: number
+    centerLat: number
+    dpr: number
+    w: number
+    h: number
+  } | null = null
+  /** The pick render targets: a scratch colour (MRT slot 0 nobody presents),
+   *  the rg32uint pick attachment, and a depth-stencil (the fill pick variant
+   *  depth-writes + stencils exactly like the colour pass). */
+  private _pickRtRhi: {
+    color: RhiTexture
+    colorView: RhiTextureView
+    pick: RhiTexture
+    pickView: RhiTextureView
+    depth: RhiTexture
+    depthView: RhiTextureView
+    w: number
+    h: number
+  } | null = null
+
+  /** Render the pickable fills into the offscreen colour+rg32uint MRT and read
+   *  the one texel under (px, py) — device pixels, top-left origin. Returns the
+   *  raw [featureId, packed] pair (packed = (instanceId<<16)|layerId) or null
+   *  when no frame has been presented yet. Synchronous by GL nature — the
+   *  interaction-controller's WebGPU mapAsync pool is not involved. */
+  pickViaRhi(px: number, py: number): [number, number] | null {
+    const rhi = asScreenPassDevice(this.host.ctx.rhi)
+    const f = this._lastRhiFrame
+    if (!rhi || !f) return null
+    if (px < 0 || py < 0 || px >= f.w || py >= f.h) return null
+    let rt = this._pickRtRhi
+    if (!rt || rt.w !== f.w || rt.h !== f.h) {
+      if (rt) {
+        rhi.destroyTexture(rt.color)
+        rhi.destroyTexture(rt.pick)
+        rhi.destroyTexture(rt.depth)
+      }
+      const color = rhi.createTexture({
+        width: f.w,
+        height: f.h,
+        format: 'rgba8unorm',
+        usage: ['render'],
+        label: 'pick-scratch-color-rhi',
+      })
+      const pick = rhi.createTexture({
+        width: f.w,
+        height: f.h,
+        format: 'rg32uint',
+        usage: ['render', 'copy-src'],
+        label: 'pick-rg32-rhi',
+      })
+      const depth = rhi.createTexture({
+        width: f.w,
+        height: f.h,
+        format: 'depth24plus-stencil8',
+        usage: ['render'],
+        label: 'pick-depth-rhi',
+      })
+      rt = this._pickRtRhi = {
+        color,
+        colorView: rhi.createView(color),
+        pick,
+        pickView: rhi.createView(pick),
+        depth,
+        depthView: rhi.createView(depth),
+        w: f.w,
+        h: f.h,
+      }
+    }
+    const pass = rhi.beginOffscreenPass({
+      label: 'pick-pass-rhi',
+      colorAttachments: [
+        { view: rt.colorView, loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] },
+        { view: rt.pickView, loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] },
+      ],
+      depthStencilAttachment: {
+        view: rt.depthView,
+        depthLoadOp: 'clear',
+        depthClearValue: 1,
+        depthStoreOp: 'store',
+        stencilLoadOp: 'clear',
+        stencilClearValue: 0,
+        stencilStoreOp: 'store',
+      },
+    })
+    for (const [, { renderer: vtR }] of this.host.vtSources) {
+      vtR.beginFrame(this.host._frameCount)
+    }
+    const classified = this.host.classifyVectorTileShows()
+    for (const c of classified.opaque) {
+      const vt = this.host.vtSources.get(c.sourceName)
+      if (!vt) continue
+      vt.renderer.renderFillsRhi(
+        pass,
+        this.host.camera,
+        f.projType,
+        f.centerLon,
+        f.centerLat,
+        f.w,
+        f.h,
+        f.dpr,
+        c.show,
+        c.resolvedShow,
+        'pick',
+      )
+    }
+    pass.end()
+    // The FBO image is bottom-up (GL window coords) — flip from screen rows.
+    return rhi.readPixelRg32ui(rt.pick, px, f.h - 1 - py)
+  }
+
   private renderFrameViaRhi(
     rhi: RhiDevice & RhiScreenPassDevice,
     w: number,
@@ -706,24 +827,222 @@ export class RenderLoop {
     centerLon: number,
     centerLat: number,
     dpr: number,
-  ): void {
-    const pass = rhi.beginScreenPass({ width: w, height: h, clear: [0, 0, 0, 1] })
-    this.host.rasterRenderer.renderRhiChecker(
-      rhi,
-      pass,
-      this.host.camera,
-      projType,
-      centerLon,
-      centerLat,
-      w,
-      h,
-      dpr,
+  ): boolean {
+    // Snapshot the frame params for the on-demand pick pass (#834 M5 s6) —
+    // a pick samples the LAST PRESENTED frame's camera/projection state.
+    this._lastRhiFrame = { projType, centerLon, centerLat, dpr, w, h }
+    // #832 — clear with the style's background, mirroring background-pass.ts
+    // execute() exactly: constant `_backgroundColor`, overridden by the
+    // zoom-interpolated colour shape, then the opacity shape multiplied into
+    // alpha, all fed through the same pure backgroundClearValue (sphere-full
+    // projections stay black; no `background` block stays black).
+    let bg = this.host._backgroundColor
+    if (this.host._backgroundColorShape) {
+      const r = resolveColorShape(
+        this.host._backgroundColorShape,
+        this.host.camera.zoom,
+        this.host._elapsedMs,
+      )
+      if (r) bg = [r.value[0], r.value[1], r.value[2], r.value[3]]
+    }
+    if (this.host._backgroundOpacityShape && bg) {
+      const a = resolveNumberShape(
+        this.host._backgroundOpacityShape,
+        this.host.camera.zoom,
+        this.host._elapsedMs,
+      ).value
+      bg = [bg[0], bg[1], bg[2], bg[3] * a]
+    }
+    const cv = backgroundClearValue(projType, bg, DEBUG_OVERDRAW)
+    const pass = rhi.beginScreenPass({ width: w, height: h, clear: [cv.r, cv.g, cv.b, cv.a] })
+    // #834 M5 slice 2 — real raster tile sources on WebGL2. With a source
+    // configured, the SAME render() the WebGPU frame uses draws the tiles
+    // (RHI texture upload + RasterDraper on this pass); without one, the
+    // analytic checker stays (the US-003/US-004 gate fixture).
+    if (this.host.rasterRenderer.hasSource()) {
+      this.host.rasterRenderer.render(
+        pass,
+        this.host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        w,
+        h,
+        dpr,
+      )
+    } else {
+      this.host.rasterRenderer.renderRhiChecker(
+        rhi,
+        pass,
+        this.host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        w,
+        h,
+        dpr,
+      )
+    }
+    // #832 M2 — vector-tile polygon FILLS on WebGL2. The classifier is the
+    // same per-frame authority the WebGPU frame uses (visibility, min/max
+    // zoom, ResolvedShow paint snapshots); each opaque show's fills draw
+    // through the VTR's RHI fills-only path (GLSL twins, GPUArena buffers,
+    // DSFUN uniform pack). Lines / labels / OIT are later M5 slices.
+    for (const [, { renderer: vtR }] of this.host.vtSources) {
+      vtR.beginFrame(this.host._frameCount)
+    }
+    // iter-280 twin (#834 M5 final) — frame-scoped point-label dedup. The
+    // WebGPU prelude clears these at frame start; this isolated path
+    // early-returns before that, so without its own clear the Map persists
+    // across frames and shouldEmitPointDedup treats every named point label
+    // as a same-priority duplicate from the second frame on (Bright place /
+    // POI names vanished under ?forcegl2=1 while line labels — deduped by
+    // the per-show-cleared _scratchEmittedTextNames — survived).
+    this.host._scratchEmittedPointNames.clear()
+    this.host._scratchEmittedTextNames.clear()
+    const classified = this.host.classifyVectorTileShows()
+    this.host.lineRenderer?.beginFrame()
+    let missingTiles = 0
+    for (const c of classified.opaque) {
+      const vt = this.host.vtSources.get(c.sourceName)
+      if (!vt) continue
+      missingTiles += vt.renderer.renderFillsRhi(
+        pass,
+        this.host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        w,
+        h,
+        dpr,
+        c.show,
+        c.resolvedShow,
+      )
+      // #834 M5 slice 1 — solid opaque strokes after this show's fills (the
+      // WebGPU frame's fill→stroke order within a show). The missing count
+      // MUST fold in: for a stroke-only show the fills pass bails before its
+      // acquisition, so dropping this return froze a half-loaded frame — the
+      // straggler tiles' worker slices arrived with _needsRender already
+      // cleared and nothing repainted (#834 M5 slice 5, _pattern-parity).
+      // fillPhase 'fills' = a translucent-stroke show whose stroke half
+      // renders in the translucent bucket below — drawing it here too would
+      // double-paint it opaquely (#834 M5 slice 6).
+      if (c.fillPhase !== 'fills')
+        missingTiles += vt.renderer.renderLinesRhi(
+          pass,
+          this.host.camera,
+          projType,
+          centerLon,
+          centerLat,
+          w,
+          h,
+          dpr,
+          c.show,
+          c.resolvedShow,
+        )
+    }
+    // #834 M5 slice 6 — TRANSLUCENT bucket (the same offscreen MAX-blend +
+    // composite topology the WebGPU translucent-pass runs, in declaration
+    // order after the whole opaque bucket): accumulate each show's strokes
+    // into the offscreen RT (clear-loaded per show), then composite onto the
+    // screen pass at the show's resolved opacity.
+    for (const c of classified.translucent) {
+      const vt = this.host.vtSources.get(c.sourceName)
+      if (!vt || !this.host.lineRenderer) continue
+      const offPass = this.host.lineRenderer.beginTranslucentPassRhi(rhi, w, h)
+      missingTiles += vt.renderer.renderLinesRhi(
+        offPass,
+        this.host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        w,
+        h,
+        dpr,
+        c.show,
+        c.resolvedShow,
+        'max',
+      )
+      offPass.end()
+      this.host.lineRenderer.compositeRhi(pass, c.resolvedShow.opacity)
+    }
+    // #834 M5 slice 3 — tile ACQUISITION for label-bearing shows: a
+    // label-only show never reaches the fills/lines acquisition (both bail
+    // on missing paint), but the label dispatch below reads the selection
+    // cache + the source's CPU tile payloads.
+    for (const show of this.host.showCommands) {
+      if (show.label === undefined || show.visible === false) continue
+      const vt = this.host.vtSources.get(show.targetName)
+      if (!vt) continue
+      missingTiles += vt.renderer.ensureLabelTilesRhi(
+        this.host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        w,
+        h,
+        dpr,
+        show,
+      )
+    }
+
+    // #834 M5 slice 3 — LABELS on WebGL2. The SAME labelPass the WebGPU
+    // frame runs (dispatch → collision → TextStage) with a minimal
+    // FrameContext whose `rhiPass` short-circuits the WebGPU encoder tail:
+    // the text overlay draws directly on this screen pass. The WebGPU-only
+    // fields (encoder / views) are inert on that branch; sprite ICONS
+    // (iStage) are a follow-up slice.
+    labelPass.execute(
+      {
+        device: this.host.ctx.device,
+        encoder: null as unknown as GPUCommandEncoder,
+        screenView: null as unknown as GPUTextureView,
+        colorView: null as unknown as GPUTextureView,
+        camera: this.host.camera,
+        projection: makeProjectionToken(projType, centerLon, centerLat),
+        w,
+        h,
+        dpr,
+        elapsedMs: this.host._elapsedMs,
+        frameCount: this.host._frameCount,
+        sampleCount: 1,
+        useResolve: false,
+        passScope: (_label: string, fn: () => void) => fn(),
+        rt: this.host.renderTargets,
+        rhiPass: pass,
+      },
+      null as unknown as Parameters<typeof labelPass.shouldRun>[0],
+      this.host as unknown as Parameters<typeof labelPass.execute>[2],
     )
+
+    // #823 — retained host-drawing icon batches (map.graphics.add) on WebGL2.
+    // Mirrors the WebGPU graphics pass's placement (LAST, on the presented
+    // target) + its hasGraphics gate: a map with no retained batch draws
+    // byte-identically to the pre-#823 checker frame. The draper's Material
+    // carries GLSL twins on this backend, so the draw is RHI-native throughout.
+    if (this.host.graphics.hasRetainedBatches()) {
+      const frame = this.host.camera.getViewForProjection(projType, w, h, dpr)
+      this.host.graphics.renderRetained(
+        pass,
+        frame,
+        this.host.camera,
+        projType,
+        centerLon,
+        centerLat,
+        w,
+        h,
+        dpr,
+      )
+    }
     rhi.endScreenPass(pass)
     const errs = rhi.takeGlErrors?.() ?? []
     for (const message of errs) {
       this.host.ctx._validationErrors.push({ message, t: Date.now() })
     }
+    // True while vector tiles are still compiling/uploading — the caller keeps
+    // _needsRender armed so the loop re-renders until the scene converges
+    // (upload completion alone never repaints this isolated path, #832 M2).
+    return missingTiles > 0 || this.host.rasterRenderer.hasPendingLoads()
   }
 
   private _resolveFillPatterns(): void {
@@ -737,13 +1056,29 @@ export class RenderLoop {
     // iconStage creation) because the GPU buffer + bind groups are
     // wired by this point.
     if (!this.host._spriteAtlasViewPushed) {
-      const view = this.host.iconStage?.gpu.getView()
-      if (view) {
-        this.host.renderer.setSpriteAtlas(view)
-        for (const { renderer: vtRenderer } of this.host.vtSources.values()) {
-          vtRenderer.setSpriteAtlasView(view)
+      if (this.host.ctx.rhi.backend === 'webgl2') {
+        // #834 M5 slice 5 — the webgl2 twin: push the atlas's RHI handles so
+        // the VTR line-pattern tile bind group samples the real sprite atlas
+        // (the native GPUTextureView push below rebuilds WebGPU bind groups,
+        // which are proxy no-ops on this backend).
+        const gpu = this.host.iconStage?.gpu
+        const rhiView = gpu?.rhiView?.()
+        const rhiSampler = gpu?.rhiSampler?.()
+        if (rhiView && rhiSampler) {
+          for (const { renderer: vtRenderer } of this.host.vtSources.values()) {
+            vtRenderer.setSpriteAtlasRhi(rhiView, rhiSampler)
+          }
+          this.host._spriteAtlasViewPushed = true
         }
-        this.host._spriteAtlasViewPushed = true
+      } else {
+        const view = this.host.iconStage?.gpu.getView()
+        if (view) {
+          this.host.renderer.setSpriteAtlas(view)
+          for (const { renderer: vtRenderer } of this.host.vtSources.values()) {
+            vtRenderer.setSpriteAtlasView(view)
+          }
+          this.host._spriteAtlasViewPushed = true
+        }
       }
     }
     // iter-183 — compute the sprite atlas UV bbox + the world-anchored

@@ -28,9 +28,9 @@ import {
   nodeToWgslString,
   type ComputePlanEntry,
 } from '@xgis/compiler'
-import { ComputeDispatcher } from '@xgis/engine'
+import { ComputeDispatcher } from '@xgis/rhi-webgpu'
 import { ComputeLayerRegistry } from '@xgis/map'
-import { extendBindGroupLayoutEntriesForCompute } from '@xgis/engine'
+import { extendBindGroupLayoutEntriesForCompute } from '@xgis/rhi-webgpu'
 
 beforeAll(() => {
   if (typeof globalThis.GPUBufferUsage === 'undefined') {

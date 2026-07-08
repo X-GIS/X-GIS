@@ -63,7 +63,6 @@ import {
   f32T,
   u32T,
   vec2fT,
-  vec3fT,
   vec4fT,
   vec2uT,
   mat4x4fT,
@@ -895,7 +894,7 @@ const lineRimAlpha = fn('line_rim_alpha', { input: LineOut }, (p) => {
 
 // ── vs_line ──
 
-const vsLine = fn(
+export const vsLine = fn(
   'vs_line',
   {
     seg_id: builtin('instance_index', u32T),
@@ -1231,7 +1230,18 @@ const vsLine = fn(
 
 // ── Fragment entries (3 variants share compute_line_color) ──
 
-const buildFsLine = (pickEnabled: boolean) =>
+// Coplanar-fill bias: the polygon fill fragment writes base log-depth PLUS a
+// per-feature jitter of up to ±7.68e-6 (emitLogDepthJitter — shared-wall
+// z-fight fix), while the bare line depth ties it. Whether a stroke drawn
+// AFTER its coplanar fill survives 'less-equal' then hangs on driver float
+// luck — visibly wrong on SwiftShader GLES (the whole land-side half of every
+// coastline dash vanished, _dash-parity IoU 0.958 → 0.34). Pull every stroke
+// fragment 1e-5 closer: larger than any fill jitter, orders of magnitude
+// below real 3D separation, and lines never WRITE depth so painter's order
+// between layers is untouched.
+const LINE_COPLANAR_DEPTH_BIAS = 1e-5
+
+export const buildFsLine = (pickEnabled: boolean) =>
   fn(
     'fs_line',
     { input: LineOut },
@@ -1241,13 +1251,15 @@ const buildFsLine = (pickEnabled: boolean) =>
       return lineFragmentOutput(pickEnabled).construct({
         color: vec4(color.rgb, color.a.mul(rim)),
         ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
-        depth: compute_log_frag_depth({ view_w: p.input.view_w, fc: TILE.field.log_depth_fc }),
+        depth: compute_log_frag_depth({ view_w: p.input.view_w, fc: TILE.field.log_depth_fc }).sub(
+          LINE_COPLANAR_DEPTH_BIAS,
+        ),
       })
     },
     { stage: 'fragment' },
   )
 
-const buildFsLinePattern = (pickEnabled: boolean) =>
+export const buildFsLinePattern = (pickEnabled: boolean) =>
   fn(
     'fs_line_pattern',
     { input: LineOut },
@@ -1270,7 +1282,9 @@ const buildFsLinePattern = (pickEnabled: boolean) =>
       return lineFragmentOutput(pickEnabled).construct({
         color: vec4(sampled.rgb, sampled.a.mul(base.a).mul(rim)),
         ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
-        depth: compute_log_frag_depth({ view_w: inp.view_w, fc: TILE.field.log_depth_fc }),
+        depth: compute_log_frag_depth({ view_w: inp.view_w, fc: TILE.field.log_depth_fc }).sub(
+          LINE_COPLANAR_DEPTH_BIAS,
+        ),
       })
     },
     { stage: 'fragment' },
@@ -1278,7 +1292,7 @@ const buildFsLinePattern = (pickEnabled: boolean) =>
 
 // Max-blend offscreen path: bare @location(0) vec4 return, no log-depth (the
 // offscreen RT has no depth attachment).
-const fsLineMax = fn(
+export const fsLineMax = fn(
   'fs_line_max',
   { input: LineOut },
   (p) => {
@@ -1336,71 +1350,6 @@ export const buildLineModule = (pickEnabled: boolean): ModuleDecl =>
 export const emitLineWgsl = (pickEnabled: boolean): string =>
   emitModule(buildLineModule(pickEnabled))
 
-// ── Compositor (fullscreen-triangle sampling the translucent offscreen RT) ──
-//
-// Standalone — different bind group + a single uniform (opacity). Pairs with
-// pipelineMax in line-renderer.ts.
-
-const CompUniform = uniformStruct(
-  'CompUniform',
-  { group: 0, binding: 2, as: 'cu' },
-  {
-    opacity: f32T,
-    _pad: vec3fT,
-  },
-)
-
-const VsFullOut = ioStruct('VsFullOut', {
-  pos: builtin('position', vec4fT),
-  uv: location(0, vec2fT),
-})
-
-const compSampB = resource('samp', samplerT, { group: 0, binding: 0 })
-const compSamp = compSampB.node
-const compSrcB = resource('src', texture2dfT, { group: 0, binding: 1 })
-const compSrc = compSrcB.node
-
-const vsFull = fn(
-  'vs_full',
-  { vi: builtin('vertex_index', u32T) },
-  (p) => {
-    const pos = vec2(-1, -1)
-    const uv = vec2(0, 1)
-    If(p.vi.eq(1), () => {
-      pos.assign(vec2(3, -1))
-      uv.assign(vec2(2, 1))
-    })
-    If(p.vi.eq(2), () => {
-      pos.assign(vec2(-1, 3))
-      uv.assign(vec2(0, -1))
-    })
-    return VsFullOut.construct({
-      pos: vec4(pos, 0, 1),
-      uv,
-    })
-  },
-  { stage: 'vertex' },
-)
-
-const fsFull = fn(
-  'fs_full',
-  { input: VsFullOut },
-  (p) => {
-    const c = textureSample(compSrc, compSamp, p.input.uv)
-    const op = CompUniform.field.opacity
-    // MAX-blend offscreen stores non-premultiplied (rgb, a_aa); premultiply here.
-    return vec4(c.rgb.mul(c.a).mul(op), c.a.mul(op))
-  },
-  { stage: 'fragment', retAttr: '@location(0)' },
-)
-
-const compositeModule: ModuleDecl = module({
-  structs: [CompUniform.struct, VsFullOut.decl],
-  bindings: [compSampB.binding, compSrcB.binding, CompUniform.binding],
-  funcs: [vsFull, fsFull],
-})
-
-/** Translucent-line compositor: fullscreen triangle that samples the max-blend
- *  offscreen RT and composites onto the main framebuffer with per-layer
- *  opacity. Pairs with pipelineMax in line-renderer.ts. */
-export const emitCompositeWgsl = (): string => emitModule(compositeModule)
+// The compositor (fullscreen triangle sampling the translucent offscreen RT)
+// lives in line-composite.ts — extracted for the arch ratchet; it is a
+// standalone assembly concern (own bind group + a single opacity uniform).

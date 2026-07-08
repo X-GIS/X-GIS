@@ -12,7 +12,7 @@
 // Passes are stateless singletons (no per-frame allocation). `shouldRun`
 // is the gate the inline `if (...)` used; `execute` is the block body.
 
-import type { FrameContext } from '@xgis/engine'
+import type { FrameContext } from '@xgis/rhi-webgpu'
 import type { SceneView } from '../scene-view'
 import type {
   BackgroundPassHost,

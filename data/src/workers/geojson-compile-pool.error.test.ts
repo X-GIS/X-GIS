@@ -15,8 +15,17 @@
 // triggers Vite's worker-constructor transform that vitest can't resolve. So
 // we mock that `?worker` import with a fake Worker that captures the registered
 // listeners and lets the test dispatch a synthetic 'error' event.
+//
+// BELT-AND-BRACES: the `?worker` vi.mock's module-id matching depends on how the
+// worker plugin rewrites the pool's import, which varies by environment — where
+// it misses, the pool gets Vite's real WorkerWrapper, whose constructor reaches
+// for the GLOBAL `Worker` (absent under node → silent main-thread fallback and
+// these assertions fail). Stubbing the global with the SAME FakeWorker makes
+// both interception points converge: mock hit → pool holds FakeWorker directly;
+// mock miss → WorkerWrapper extends the stub, and FakeWorker.instances still
+// records every spawn either way.
 
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 // `vi.mock` factories are hoisted to the top of the file, so the fake Worker
 // class has to be defined inside a `vi.hoisted` block (which runs before the
@@ -84,6 +93,12 @@ function pendingSize(pool: GeoJSONCompilePool): number {
 describe('GeoJSONCompilePool — worker error handling', () => {
   beforeEach(() => {
     FakeWorker.instances = []
+    // See the header note — covers the environments where the `?worker`
+    // vi.mock misses and Vite's WorkerWrapper reaches for the global.
+    vi.stubGlobal('Worker', FakeWorker)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('rejects the in-flight compile() and clears pending when the worker errors', async () => {

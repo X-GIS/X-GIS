@@ -9,7 +9,7 @@
 
 import { reflect } from '@xgis/shader-dsl'
 import { buildRasterModule } from '@xgis/map'
-import { uniformFieldSlots, type UniformFieldSlots } from '@xgis/engine'
+import { uniformFieldSlots, type UniformFieldSlots } from '@xgis/rhi-webgpu'
 
 let _u: UniformFieldSlots | undefined
 let _t: UniformFieldSlots | undefined

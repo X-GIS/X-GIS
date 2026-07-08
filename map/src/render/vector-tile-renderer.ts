@@ -3,7 +3,19 @@
 // Data loading/caching/sub-tiling is handled by TileCatalog.
 // This class manages GPU buffers, bind groups, and draw calls only.
 
-import type { GPUContext } from '@xgis/engine'
+import type {
+  RhiBindGroup,
+  RhiBuffer,
+  RhiDevice,
+  RhiPipelineHandle,
+  RhiRenderPass,
+  RhiSampler,
+  RhiTextureView,
+} from '@xgis/engine'
+import type { GPUContext, WebGpuDevice } from '@xgis/rhi-webgpu'
+import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
+import { POLYGON_FILL_FORMAT } from '@xgis/compiler'
+import { polygonUniformBytes } from './polygon-uniform-slots'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { Camera } from '@xgis/engine'
 import type { ShowCommand } from './renderer-types'
@@ -13,7 +25,13 @@ import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
 import { globeEyeUniform } from './globe-eye-uniform'
 import { xlog, activeBody, EARTH } from '@xgis/shared'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
-import { recordFillDraw, type FillRhiState } from './material/polygon-fill-material'
+import {
+  recordFillDraw,
+  buildFlatFillMaterials,
+  type FillRhiState,
+} from './material/polygon-fill-material'
+import { executeItems, type Material } from './material/material'
+import { emitPolygonWgsl, emitPolygonGlsl } from '../shaders/dsl/polygon'
 
 // Per-tile uniform packing goes through a typed UniformBlock over the polygon
 // 'Uniforms' struct (#733 P2d): layout from wgslLayout(polygonU.struct) — the
@@ -41,11 +59,10 @@ import { FrameDrawStats } from './frame-draw-stats'
 import { TileSelectionCache } from './tile-selection-cache'
 import { FeatureDataBinder } from './feature-data-binder'
 import { GpuTileStore } from './gpu-tile-store'
-import type { WebGpuDevice } from '@xgis/engine'
 import { BindGroupRegistry } from './bind-group-registry'
 import { tileKeyParent, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
-import { StagingBufferPool } from '@xgis/engine'
-import { BundleCache, type BundleEncodeDescriptor } from '@xgis/engine'
+import { StagingBufferPool } from '@xgis/rhi-webgpu'
+import { BundleCache, type BundleEncodeDescriptor } from '@xgis/rhi-webgpu'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { UploadCoordinator } from './upload-coordinator'
@@ -152,7 +169,9 @@ export function rotateTranslateForAnchor(
  *     diagnostics, dedup, trace stash.
  */
 export class VectorTileRenderer {
-  private device: GPUDevice
+  /** Backend-blind RHI device (#832 M2) — the uniform ring + arena/store route
+   *  through it; the native WebGPU seams unwrap via ringBufferNative(). */
+  private rhi: RhiDevice
   private source: TileCatalog | null = null
 
   /** Max tile level of the backing source (0 if none), for camera zoom
@@ -353,15 +372,14 @@ export class VectorTileRenderer {
   private readonly _featureBinder: FeatureDataBinder
 
   constructor(ctx: GPUContext) {
-    this.device = ctx.device
     this.format = ctx.format
     this.stagingPool = new StagingBufferPool(ctx.device)
     this.bundleCache = new BundleCache(ctx.device)
     this._featureBinder = new FeatureDataBinder(ctx.device)
-    // GpuTileStore is the WebGPU-coupled VTR memory core (it hands raw GPUBuffers to the fill
-    // draw + records the arena compaction encoder), so the injected backend device is narrowed
-    // to WebGpuDevice here — the SINGLE boot instance, never a freshly self-instantiated device.
-    this._store = new GpuTileStore(ctx.device, ctx.rhi as WebGpuDevice)
+    // GpuTileStore's arena core is backend-neutral (#832): create / compaction /
+    // retire all route through the injected RhiDevice — no WebGpuDevice narrowing.
+    this.rhi = ctx.rhi
+    this._store = new GpuTileStore(ctx.device, ctx.rhi)
     this._bindGroups = new BindGroupRegistry(ctx.device)
     // Renderer-side GPU upload pipeline (priority queue + per-frame cap +
     // stale-cancel + the SINGLE sync/async tile-upload dispatch body). Holds
@@ -370,13 +388,14 @@ export class VectorTileRenderer {
     // stableKeys) are getters read at call time.
     this._uploads = new UploadCoordinator({
       device: ctx.device,
+      rhi: ctx.rhi,
       stagingPool: this.stagingPool,
       store: this._store,
       lineRenderer: () => this.lineRenderer,
       buildPerTileFeatureData: (featureProps, handleKey) =>
         this._featureBinder.buildPerTileFeatureData(
           featureProps,
-          this.uniformRing?.buffer,
+          this.ringBufferNative(),
           this._bindGroups.paletteResources(),
           handleKey,
         ),
@@ -412,7 +431,7 @@ export class VectorTileRenderer {
    *  per frame from map.ts immediately before render() so VTR can
    *  pick between flat and extruded fill paths on a per-tile basis
    *  without threading another parameter through `render()`. */
-  setExtrudedPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
+  setExtrudedPipelines(main: RhiPipelineHandle, fallback: RhiPipelineHandle): void {
     this._bindGroups.setExtrudedPipelines(main, fallback)
   }
 
@@ -436,7 +455,7 @@ export class VectorTileRenderer {
    *  command order — the way painter's order is supposed to work,
    *  without log-depth precision noise + layer_depth_offset
    *  arithmetic fighting at coplanar fragments. */
-  setGroundPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
+  setGroundPipelines(main: RhiPipelineHandle, fallback: RhiPipelineHandle): void {
     this._bindGroups.setGroundPipelines(main, fallback)
   }
 
@@ -445,13 +464,13 @@ export class VectorTileRenderer {
    *  selects them in place of the regular ground pipelines when
    *  `show.fillPatternUV` is populated (the iconStage has resolved the
    *  sprite atlas UV bbox via map.ts). */
-  setPatternPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
+  setPatternPipelines(main: RhiPipelineHandle, fallback: RhiPipelineHandle): void {
     this._bindGroups.setPatternPipelines(main, fallback)
   }
 
   /** Fill-extrusion-pattern variants. Mirror of setPatternPipelines for
    *  the extruded (per-feature z attribute) vertex path. */
-  setPatternExtrudedPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
+  setPatternExtrudedPipelines(main: RhiPipelineHandle, fallback: RhiPipelineHandle): void {
     this._bindGroups.setPatternExtrudedPipelines(main, fallback)
   }
 
@@ -460,7 +479,7 @@ export class VectorTileRenderer {
    *  draw their fills into the accum + revealage MRT pair so a
    *  later compose pass can blend them order-independently onto
    *  the opaque framebuffer. */
-  setOITPipeline(p: GPURenderPipeline): void {
+  setOITPipeline(p: RhiPipelineHandle): void {
     this._bindGroups.setOITPipeline(p)
   }
 
@@ -535,7 +554,7 @@ export class VectorTileRenderer {
   private ensureUniformRing(): void {
     if (this.uniformRing) return
     this.uniformRing = new UniformRing(
-      this.device,
+      this.rhi,
       this.frameBlock.std140Stride(),
       1024,
       'vtr-uniform-ring',
@@ -561,8 +580,14 @@ export class VectorTileRenderer {
    *  data-driven fills read stale uniform colours (user-reported high-pitch
    *  "land flashes water-blue" while moving). Order (base then per-tile)
    *  must match the prior inline `rebuildTileBindGroups`. */
+  private ringBufferNative(): GPUBuffer | undefined {
+    const rb = this.uniformRing?.rhiBuffer
+    if (!rb || this.rhi.backend === 'webgl2') return undefined
+    return (this.rhi as WebGpuDevice).unwrapBuffer(rb)
+  }
+
   private _onUniformRingGrow(): void {
-    const ringBuf = this.uniformRing?.buffer
+    const ringBuf = this.ringBufferNative()
     this._bindGroups.rebuildBase(
       ringBuf,
       this._featureBinder.featureBindGroupLayout(),
@@ -580,6 +605,672 @@ export class VectorTileRenderer {
    *  budget can short-circuit duplicate resets when one source feeds
    *  multiple layer ShowCommands within the same frame. */
   private currentFrameId = 0
+
+  // ═══ #832 M2 — WebGL2 fills-only frame path ═══════════════════════════════
+  // A fills-only sibling of render() for the forced-WebGL2 frame
+  // (renderFrameViaRhi): same selection collaborator, same DSFUN per-tile
+  // uniform pack, same GPUArena buffers — but the draw goes straight through
+  // the RHI-generic Material/executeItems seam (no native pipelines, no
+  // recordFillDraw indirection, no fallback/line/label/bundle machinery).
+  // Primary tiles only, stencil variant 0 (STENCIL_WRITE) — with no fallback
+  // ancestors competing for pixels the clip mask has nothing to clip.
+  private _fillMatRhi: Material | null = null
+  private _fillTileBgRhi: { buf: RhiBuffer; bg: RhiBindGroup } | null = null
+
+  /** The default flat-fill Material with GLSL twins — built lazily ONCE on the
+   *  webgl2 backend (emitPolygonGlsl null-variant, no pick, single-sample).
+   *
+   *  GROUND variant (depthCompare 'always', depthWrite off), NOT flat: render()
+   *  substitutes the depth-disabled ground pipeline for EVERY flat fill when
+   *  currentExtrudeMode === 'none' (:2896), so basemap fill layering is pure
+   *  painter's order on WebGPU. The fill fragment overrides the vertex z bias
+   *  with compute_log_frag_depth(view_w) ± per-feature jitter, so with the
+   *  depth-testing 'flat' twin here the jitter — not style order — decided
+   *  which overlapping fill survived (OFM Bright: landuse_residential erased
+   *  the later landcover_grass over Hibiya Park under ?forcegl2=1). */
+  private ensureFillMaterialRhi(): Material {
+    if (this._fillMatRhi) return this._fillMatRhi
+    this._fillMatRhi = buildFlatFillMaterials({
+      rhi: this.rhi,
+      shader: emitPolygonWgsl(null, false),
+      vsCode: emitPolygonGlsl(null, false, 'vertex'),
+      fsCode: emitPolygonGlsl(null, false, 'fragment'),
+      format: this.format,
+      sampleCount: 1,
+      rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
+      vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT),
+      pickEnabled: false,
+    }).ground
+    return this._fillMatRhi
+  }
+
+  /** The PICK flat-fill Material — colour + rg32uint MRT with the pick-enabled
+   *  GLSL twins (fs_fill writes R = feat_id, G = tile.pick_id). Drawn by the
+   *  on-demand WebGL2 pick pass, never the presented frame (#834 M5 s6).
+   *  GROUND variant for the same reason as ensureFillMaterialRhi: painter's
+   *  order (later show overwrites the pick ids), matching WebGPU's ground-
+   *  substituted flat fills. */
+  private _fillPickMatRhi: Material | null = null
+  private ensureFillPickMaterialRhi(): Material {
+    if (this._fillPickMatRhi) return this._fillPickMatRhi
+    this._fillPickMatRhi = buildFlatFillMaterials({
+      rhi: this.rhi,
+      shader: emitPolygonWgsl(null, true),
+      vsCode: emitPolygonGlsl(null, true, 'vertex'),
+      fsCode: emitPolygonGlsl(null, true, 'fragment'),
+      format: this.format,
+      sampleCount: 1,
+      rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
+      vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT),
+      pickEnabled: true,
+    }).ground
+    return this._fillPickMatRhi
+  }
+
+  /** RHI tile bind group over the uniform ring (dynamic offset @0). Cached per
+   *  ring-buffer identity — a mid-frame ring grow swaps rhiBuffer, so fetch
+   *  this per draw and it rebuilds automatically. */
+  private fillTileBgRhi(): RhiBindGroup | null {
+    const buf = this.uniformRing?.rhiBuffer
+    if (!buf) return null
+    if (this._fillTileBgRhi?.buf === buf) return this._fillTileBgRhi.bg
+    const mat = this.ensureFillMaterialRhi()
+    const bg = this.rhi.createBindGroup(mat.layout(0), [
+      { binding: 0, resource: { buffer: buf, offset: 0, size: polygonUniformBytes() } },
+    ])
+    this._fillTileBgRhi = { buf, bg }
+    return bg
+  }
+
+  /** Fills-only render for the forced-WebGL2 frame (#832 M2). Caller runs
+   *  beginFrame(frameId) once per frame first (slot cursor + drawn-set reset). */
+  renderFillsRhi(
+    pass: RhiRenderPass,
+    camera: Camera,
+    projType: number,
+    projCenterLon: number,
+    projCenterLat: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number,
+    show: ShowCommand,
+    resolvedShow: ResolvedShow,
+    /** 'pick' draws the same tiles through the colour+rg32uint MRT pick
+     *  material with the show's pick_id in the tile slot (#834 M5 s6). */
+    mode: 'color' | 'pick' = 'color',
+  ): number {
+    if (!this.source?.hasData() || !this.source.getIndex()) return 0
+    this.frameCount++
+    this.source.resetCompileBudget(this.currentFrameId)
+    // renderedDraws is RENDER-scoped (per ShowCommand — frame-draw-stats.ts):
+    // render() resets it at every call, and this sibling must too. Without
+    // the reset the dedup set persisted across shows AND frames, so from the
+    // second rendered frame every fill tile deduped away — masked until the
+    // slice-5 work-pending fix because the converged loop never re-rendered
+    // (frame 1 simply stayed on screen). #834 M5 slice 6.
+    this._drawStats.resetRenderedDraws()
+    this.ensureUniformRing()
+    this.drainPendingUploads()
+
+    const effectiveSourceLayer = show.sourceLayer || show.targetName || ''
+    const sliceLayer = computeSliceKey(effectiveSourceLayer, show.filterExpr?.ast ?? null)
+    const layerCache = this.getOrCreateLayerCache(sliceLayer)
+    const sel = this._selection.selectForFrame(
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      dpr,
+      this.currentFrameId,
+      this.source,
+      sliceLayer,
+      2, // fills-only margin (no stroke width)
+      this.source.maxLevel,
+      this._drawStats,
+    )
+    if (!sel) return 0
+    const { neededKeys, worldOffDeg, currentZ } = sel
+    if (currentZ !== this.lastZoom) this.lastZoom = currentZ
+    this.currentCameraZoom = camera.zoom
+
+    const fill = resolvedShow.fill ?? (show.fill ? parseHexColor(show.fill) : null)
+    if (!fill) return 0
+    const opacity = resolvedShow.opacity
+    const fillA = fill[3] * opacity
+    if (fillA <= 0.005) return 0
+
+    const mat = mode === 'pick' ? this.ensureFillPickMaterialRhi() : this.ensureFillMaterialRhi()
+    const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
+    this.logDepthFc = frame.logDepthFc
+    const B = this.frameBlock
+    B.set.mvp(frame.matrix)
+    B.set.fill_color(fill[0], fill[1], fill[2], fillA)
+    B.set.proj_params(projType, projCenterLon, projCenterLat, 0)
+    const ge = globeEyeUniform(frame.eye)
+    B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
+    // Variant 0 = STENCIL_WRITE (compare 'always') — the ref value is inert,
+    // set once for determinism.
+    pass.setStencilReference(1)
+
+    // Release the per-frame upload cap (the WebGPU frame body does this via
+    // its own beginFrame ordering) and acquire missing tiles: catalog-hit →
+    // queue the GPU upload (pops next frame); index-miss → batch a worker
+    // request. Mirrors the classify 'primary' acquisition minus fallbacks.
+    this.resetUploadFrameCap()
+    const toLoad: number[] = []
+    // `missing` counts only keys that can still MATERIALIZE — a queued/capped
+    // upload or an in-flight worker slice. Index-absent keys (the line never
+    // crosses them) must NOT count: they never resolve, so counting them held
+    // the returned work-pending signal high forever and the loop span at
+    // 60 fps on a fully-converged frame (#834 M5 slice 5).
+    let missing = 0
+    for (const key of neededKeys) {
+      if (layerCache.has(key)) continue
+      if (this.source.hasTileData(key, sliceLayer)) {
+        const d = this.source.getTileData(key, sliceLayer)
+        if (d) {
+          this.uploadTile(key, d, sliceLayer)
+          if (!layerCache.has(key)) missing++
+        }
+      } else if (this.source.hasEntryInIndex(key)) {
+        // Tile already parsed with SOME slice but not this one → the worker
+        // emitted no bucket for this (sourceLayer, filter): legitimately empty
+        // here. render()'s classifyTile calls this 'drop-empty-slice';
+        // requesting it again is a no-op (requestTiles skips cached keys), so
+        // counting it as missing span the forced-WebGL2 loop at 60 fps forever
+        // on any style with a feature-less layer in view (OFM Bright: park /
+        // aeroway / intermittent-water at Tokyo z14).
+        if (this.source.hasTileData(key)) continue
+        toLoad.push(key)
+        missing++
+      }
+    }
+    if (toLoad.length > 0) this.source.requestTiles(toLoad)
+
+    const DEG2RAD = Math.PI / 180
+    const R = activeBody().sphereR
+    const MERC_LIMIT = 85.051129
+    const clampLat = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
+    const camMercX = projCenterLon * DEG2RAD * R
+    const camMercY = Math.log(Math.tan(Math.PI / 4 + (clampLat(projCenterLat) * DEG2RAD) / 2)) * R
+
+    for (let ki = 0; ki < neededKeys.length; ki++) {
+      const key = neededKeys[ki]!
+      const worldOff = worldOffDeg?.[ki] ?? 0
+      // World-copy composite dedup key (mirrors renderTileKeys) — dedup on the
+      // bare key would blank the wrapped copies.
+      const drawKey = worldOff === 0 ? key : key + worldOff * 1000000
+      if (this._drawStats.hasDrawn(drawKey)) continue
+      const cached = layerCache.get(key)
+      if (!cached || cached.indexCount === 0 || cached.extruded) continue
+      cached.lastUsedFrame = this.frameCount
+
+      // DSFUN camera anchor (verbatim math from renderTileKeys — the tiler
+      // bakes vertices relative to THIS tile origin).
+      const tileMercX = (cached.tileWest + worldOff) * DEG2RAD * R
+      const tileMercY =
+        Math.log(Math.tan(Math.PI / 4 + (clampLat(cached.tileSouth) * DEG2RAD) / 2)) * R
+      const camRelX = camMercX - tileMercX
+      const camRelY = camMercY - tileMercY
+      const cxh = Math.fround(camRelX)
+      const cyh = Math.fround(camRelY)
+      B.set.cam_h(cxh, cyh)
+      B.set.cam_l(Math.fround(camRelX - cxh), Math.fround(camRelY - cyh))
+      // Flat projections ignore the ECEF anchor xyz; .w lanes carry the
+      // antialias / vertical-gradient flags (antialias on, gradient inert).
+      B.set.cam_ecef_off_h(0, 0, 0, 1)
+      B.set.cam_ecef_off_l(0, 0, 0, 1)
+      B.set.tile_origin_merc(Math.fround(tileMercX), Math.fround(tileMercY))
+      B.set.opacity(opacity)
+      B.set.log_depth_fc(this.logDepthFc)
+      // pick_id packs (instanceId<<16)|layerId — the pick fragment writes it
+      // to the rg32uint target's G channel; the colour pass leaves it 0. A
+      // pointer-events:none show writes pick_id 0 (the layerId-0 miss
+      // sentinel) while still writing DEPTH, mirroring the WebGPU noPick
+      // pipelines' writeMask-0 behaviour (occludes, never hits).
+      B.set.pick_id(
+        mode === 'pick' && show.pointerEvents !== 'none' ? (show.pickId ?? 0) : 0,
+      )
+      // Per-layer NDC-z bias in style declaration order — render():3748's
+      // slot write, mirrored verbatim (#834 M5 s6; the earlier hardcoded 0
+      // diverged from the WebGPU slot contents).
+      B.set.layer_depth_offset(((show.pickId ?? 0) & 0xffff) * 1e-3)
+      B.set.tile_extent_m(TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom))
+      B.set.extrude_height_m(0)
+      B.set.extrude_base_m(0)
+      B.set.clip_bounds(-1e30, 0, 0, 0) // sentinel = no clip
+      B.set.zoom(this.currentCameraZoom)
+      B.set.fill_translate_x(0)
+      B.set.fill_translate_y(0)
+      B.set.tile_dequant_scale(cached.dequantScale)
+      B.set.tile_dequant_half(cached.dequantHalf)
+
+      const slotOffset = this.allocUniformSlot()
+      this.stageUniformSlot(slotOffset, this.frameBlock.buffer)
+      // WebGL2 is IMMEDIATE-mode: the draw below executes at call time, so the
+      // staged slot must land in the GL buffer BEFORE the draw — flush per
+      // tile (dirty-range, one bufferSubData). The WebGPU path defers to one
+      // end-of-pass flush only because submit-ordering guarantees it there.
+      this.flushUniformStaging()
+      const tileBg = this.fillTileBgRhi()
+      if (!tileBg) continue
+      executeItems(mat, pass, [
+        {
+          variant: 0,
+          bindGroups: [tileBg],
+          dynamicOffsets: [[slotOffset]],
+          vertex: cached.vertexBuffer,
+          vertexOffset: cached.polyVertexOffset,
+          vertexSize: cached.polyVertexByteLength,
+          index: {
+            buffer: cached.indexBuffer,
+            format: 'uint32',
+            offset: cached.polyIndexOffset,
+            size: cached.polyIndexByteLength,
+          },
+          count: cached.indexCount,
+          indexed: true,
+        },
+      ])
+      this._drawStats.markDrawn(drawKey, cached.indexCount, 0, cached.indexCount, cached.tileZoom)
+    }
+    // Missing tiles (not yet compiled/uploaded) — the caller keeps the frame
+    // loop hot until this reaches 0, because upload completion alone never
+    // repaints the forced-WebGL2 loop (#832 M2).
+    return missing
+  }
+
+  /** WebGL2 stroke pass (#834 M5 slice 1) — SOLID opaque lines/outlines on
+   *  the forced-WebGL2 screen pass. Mirrors renderFillsRhi's skeleton
+   *  (selection → acquisition → per-tile DSFUN anchors → RHI draws) with the
+   *  line-specific pieces: one LineLayer ring slot per show (flushed BEFORE
+   *  the draws — GL is immediate-mode) and per-tile segment bind groups from
+   *  the upload path. Dash / pattern / translucent-composite stay WebGPU-only
+   *  until their twins land. Returns the missing-tile count (same loop-hot
+   *  contract as fills). */
+  renderLinesRhi(
+    pass: RhiRenderPass,
+    camera: Camera,
+    projType: number,
+    projCenterLon: number,
+    projCenterLat: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number,
+    show: ShowCommand,
+    resolvedShow: ResolvedShow,
+    /** 'max' draws through the offscreen MAX-blend material — the translucent
+     *  bucket renders onto the offscreen pass, not the screen (#834 M5 s6). */
+    mode: 'opaque' | 'max' = 'opaque',
+  ): number {
+    if (!this.lineRenderer) return 0
+    if (!this.source?.hasData() || !this.source.getIndex()) return 0
+    this.ensureUniformRing()
+
+    const stroke = resolvedShow.stroke ?? (show.stroke ? parseHexColor(show.stroke) : null)
+    if (!stroke) return 0
+    const opacity = resolvedShow.opacity
+    const strokeWidthPx = resolvedShow.strokeWidth
+    if (stroke[3] * opacity <= 0.005 || strokeWidthPx <= 0) return 0
+
+    const effectiveSourceLayer = show.sourceLayer || show.targetName || ''
+    const sliceLayer = computeSliceKey(effectiveSourceLayer, show.filterExpr?.ast ?? null)
+    const layerCache = this.getOrCreateLayerCache(sliceLayer)
+    const sel = this._selection.selectForFrame(
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      dpr,
+      this.currentFrameId,
+      this.source,
+      sliceLayer,
+      Math.ceil(strokeWidthPx / 2 + 2),
+      this.source.maxLevel,
+      this._drawStats,
+    )
+    if (!sel) return 0
+    const { neededKeys, worldOffDeg } = sel
+
+    // Acquisition — fills usually ran first this frame and already queued
+    // these keys, but a stroke-only show must acquire on its own.
+    this.resetUploadFrameCap()
+    const toLoad: number[] = []
+    // Same missing semantics as the fills acquisition above: count only keys
+    // that can still materialize (queued upload / in-flight slice) — for a
+    // STROKE-ONLY show this return value is the frame's ONLY work-pending
+    // signal, so an index-absent key counted here would spin the loop forever
+    // and a dropped count would freeze a half-loaded frame (#834 M5 slice 5).
+    let missing = 0
+    for (const key of neededKeys) {
+      if (layerCache.has(key)) continue
+      if (this.source.hasTileData(key, sliceLayer)) {
+        const d = this.source.getTileData(key, sliceLayer)
+        if (d) {
+          this.uploadTile(key, d, sliceLayer)
+          if (!layerCache.has(key)) missing++
+        }
+      } else if (this.source.hasEntryInIndex(key)) {
+        // Parsed tile without this slice = empty here (drop-empty-slice twin —
+        // see renderFillsRhi); re-requesting a cached key is a no-op and the
+        // missing count would spin the loop forever.
+        if (this.source.hasTileData(key)) continue
+        toLoad.push(key)
+        missing++
+      }
+    }
+    if (toLoad.length > 0) this.source.requestTiles(toLoad)
+
+    // One LineLayer slot for this show; flush the layer ring NOW — the RHI
+    // draws below execute immediately on WebGL2, unlike the WebGPU frame
+    // where endFrame()'s flush precedes the submit that consumes it.
+    // cap/join/miter + DASH mirror render()'s derivation verbatim (Mapbox
+    // omitted-property defaults; dash values are in LINE-WIDTH UNITS and the
+    // scaled array reuses the same identity cache — #834 M5 slice 5: the
+    // slice-1 hardcoded dash=null rendered every dashed stroke SOLID, caught
+    // by the cross-backend stroke-mask ratio ≈ 3/2 on stroke-dasharray-20-10).
+    const capMap = { butt: 0, round: 1, square: 2, arrow: 3 } as const
+    const joinMap = { miter: 0, round: 1, bevel: 2 } as const
+    const cap = capMap[show.linecap ?? 'butt']
+    const join = joinMap[show.linejoin ?? 'miter']
+    const miterLimit = show.miterlimit ?? 2.0
+    const roundLimit = show.roundLimit ?? 0
+    const mpp = WORLD_MERC / TILE_PX / Math.pow(2, camera.zoom)
+    const dashWidthScalePx = strokeWidthPx
+    const dashSrc = resolvedShow.dashArray ?? show.dashArray
+    let dashArray: number[] | null = null
+    if (dashSrc && dashSrc.length >= 2) {
+      const c = this._dashArrayCache
+      if (c !== null && c.src === dashSrc && c.scalePx === dashWidthScalePx && c.mpp === mpp) {
+        dashArray = c.result
+      } else {
+        dashArray = dashSrc.map((v) => v * dashWidthScalePx * mpp)
+        this._dashArrayCache = { src: dashSrc, scalePx: dashWidthScalePx, mpp, result: dashArray }
+      }
+    }
+    const dash =
+      dashArray !== null
+        ? { array: dashArray, offset: resolvedShow.dashOffset * dashWidthScalePx * mpp }
+        : null
+    // Procedural stroke patterns (shape-registry SDF slots) — render()'s
+    // mapping verbatim (#834 M5 slice 5). The shape/shape_segments buffers
+    // are RhiBuffer already, so the same slots flow through the WebGL2
+    // layer bind group; Mapbox IMAGE line-pattern (fs_line_pattern + sprite
+    // atlas) stays a follow-up.
+    const unitMap = { m: 0, px: 1, km: 2, nm: 3 } as const
+    const anchorMap = { repeat: 0, start: 1, end: 2, center: 3 } as const
+    const patternSlots = (show.patterns ?? [])
+      .slice(0, 3)
+      .map((p) => ({
+        shapeId: this.lineRenderer!.resolveShapeId(p.shape),
+        spacing: p.spacing,
+        spacingUnit: unitMap[p.spacingUnit ?? 'm'],
+        size: p.size,
+        sizeUnit: unitMap[p.sizeUnit ?? 'm'],
+        offset: p.offset ?? 0,
+        offsetUnit: unitMap[p.offsetUnit ?? 'm'],
+        startOffset: p.startOffset ?? 0,
+        anchor: anchorMap[p.anchor ?? 'repeat'],
+      }))
+      .filter((p) => p.shapeId > 0)
+    // Mapbox IMAGE line-pattern (#834 M5 slice 5) — render()'s slot reuse
+    // verbatim: fs_line_pattern reads layer.color.r/.a as the x/y repeat
+    // metres and tile.stroke_color as the sprite-atlas UV bbox, so the
+    // pattern show trades its solid stroke colour for the atlas sample.
+    const linePatternActive = show.linePatternUV != null && show.linePatternRepeatM != null
+    const lineSlotColor: [number, number, number, number] = linePatternActive
+      ? [show.linePatternRepeatM![0], 0, 0, show.linePatternRepeatM![1]]
+      : [stroke[0], stroke[1], stroke[2], stroke[3]]
+    // Stroke alignment → effective perpendicular offset (render():2274's
+    // derivation verbatim): inset/outset shift by ±half-width, additive with
+    // an explicit stroke-offset-N. The slice-1 hardcoded 0 drew every inset/
+    // outset stroke centred (#834 M5 slice 6, _translucent-outline-parity).
+    // line-gap-width's double-draw stays a follow-up.
+    const explicitOffset = show.strokeOffset ?? 0
+    const alignDelta =
+      show.strokeAlign === 'inset'
+        ? strokeWidthPx / 2
+        : show.strokeAlign === 'outset'
+          ? -strokeWidthPx / 2
+          : 0
+    const effectiveOffset = explicitOffset + alignDelta
+    // Translucent bucket ('max'): the show's opacity applies ONCE, at
+    // composite time — the accumulation draws at 1.0 (render():2269).
+    const layerOpacity = mode === 'max' ? 1.0 : opacity
+    const layerOffset = this.lineRenderer.writeLayerSlot(
+      lineSlotColor,
+      strokeWidthPx,
+      layerOpacity,
+      mpp,
+      cap,
+      join,
+      miterLimit,
+      dash,
+      patternSlots,
+      effectiveOffset,
+      canvasHeight,
+      show.strokeBlur ?? 0,
+      dpr,
+      0,
+      0,
+      roundLimit,
+    )
+    this.lineRenderer.endFrame()
+
+    const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
+    this.logDepthFc = frame.logDepthFc
+    const B = this.frameBlock
+    B.set.mvp(frame.matrix)
+    B.set.fill_color(0, 0, 0, 0)
+    // fs_line_pattern reads the sprite-atlas UV bbox from tile.stroke_color
+    // (render()'s slot reuse); solid fs_line never reads the lane — zero it
+    // for determinism.
+    if (linePatternActive) {
+      const lu = show.linePatternUV!
+      B.set.stroke_color(lu[0]!, lu[1]!, lu[2]!, lu[3]!)
+    } else {
+      B.set.stroke_color(0, 0, 0, 0)
+    }
+    B.set.proj_params(projType, projCenterLon, projCenterLat, 0)
+    const ge = globeEyeUniform(frame.eye)
+    B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
+
+    const DEG2RAD = Math.PI / 180
+    const R = activeBody().sphereR
+    const MERC_LIMIT = 85.051129
+    const clampLat = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
+    const camMercX = projCenterLon * DEG2RAD * R
+    const camMercY = Math.log(Math.tan(Math.PI / 4 + (clampLat(projCenterLat) * DEG2RAD) / 2)) * R
+
+    for (let ki = 0; ki < neededKeys.length; ki++) {
+      const key = neededKeys[ki]!
+      const worldOff = worldOffDeg?.[ki] ?? 0
+      const cached = layerCache.get(key)
+      if (!cached) continue
+      const outlineN = cached.outlineSegmentCount
+      const lineN = cached.lineSegmentCount
+      if (
+        (outlineN === 0 || !cached.outlineSegmentBindGroup) &&
+        (lineN === 0 || !cached.lineSegmentBindGroup)
+      )
+        continue
+      cached.lastUsedFrame = this.frameCount
+
+      const tileMercX = (cached.tileWest + worldOff) * DEG2RAD * R
+      const tileMercY =
+        Math.log(Math.tan(Math.PI / 4 + (clampLat(cached.tileSouth) * DEG2RAD) / 2)) * R
+      const camRelX = camMercX - tileMercX
+      const camRelY = camMercY - tileMercY
+      const cxh = Math.fround(camRelX)
+      const cyh = Math.fround(camRelY)
+      B.set.cam_h(cxh, cyh)
+      B.set.cam_l(Math.fround(camRelX - cxh), Math.fround(camRelY - cyh))
+      B.set.cam_ecef_off_h(0, 0, 0, 1)
+      B.set.cam_ecef_off_l(0, 0, 0, 1)
+      B.set.tile_origin_merc(Math.fround(tileMercX), Math.fround(tileMercY))
+      B.set.opacity(layerOpacity)
+      B.set.log_depth_fc(this.logDepthFc)
+      B.set.pick_id(0)
+      // render():3748's slot write, mirrored verbatim (the line shader itself
+      // only pads this lane; the stroke-over-fill z-fight is solved by the
+      // LINE_COPLANAR_DEPTH_BIAS in the line fragment — line.ts, #834 M5 s6).
+      B.set.layer_depth_offset(((show.pickId ?? 0) & 0xffff) * 1e-3)
+      B.set.tile_extent_m(TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom))
+      B.set.extrude_height_m(0)
+      B.set.extrude_base_m(0)
+      B.set.clip_bounds(-1e30, 0, 0, 0)
+      B.set.zoom(this.currentCameraZoom)
+      B.set.fill_translate_x(0)
+      B.set.fill_translate_y(0)
+      B.set.tile_dequant_scale(cached.dequantScale)
+      B.set.tile_dequant_half(cached.dequantHalf)
+
+      const slotOffset = this.allocUniformSlot()
+      this.stageUniformSlot(slotOffset, this.frameBlock.buffer)
+      this.flushUniformStaging()
+      const tileBg = this.lineTileBgRhi()
+      if (!tileBg) continue
+      if (outlineN > 0 && cached.outlineSegmentBindGroup)
+        this.lineRenderer.drawSegmentsRhi(
+          pass,
+          tileBg,
+          cached.outlineSegmentBindGroup,
+          outlineN,
+          slotOffset,
+          layerOffset,
+          linePatternActive,
+          mode,
+        )
+      if (lineN > 0 && cached.lineSegmentBindGroup)
+        this.lineRenderer.drawSegmentsRhi(
+          pass,
+          tileBg,
+          cached.lineSegmentBindGroup,
+          lineN,
+          slotOffset,
+          layerOffset,
+          linePatternActive,
+          mode,
+        )
+    }
+    return missing
+  }
+
+  /** Selection + tile ACQUISITION only, for label-bearing shows on the
+   *  forced-WebGL2 frame (#834 M5 slice 3). A label-only show never enters
+   *  the fills/lines RHI passes' acquisition (both bail on missing paint),
+   *  but the label dispatch reads THIS selection's frameTileCache + the
+   *  source's CPU tile payloads — so acquire here. Returns the missing-tile
+   *  count (loop-hot contract). */
+  ensureLabelTilesRhi(
+    camera: Camera,
+    projType: number,
+    projCenterLon: number,
+    projCenterLat: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    dpr: number,
+    show: ShowCommand,
+  ): number {
+    if (!this.source?.hasData() || !this.source.getIndex()) return 0
+    const effectiveSourceLayer = show.sourceLayer || show.targetName || ''
+    const sliceLayer = computeSliceKey(effectiveSourceLayer, show.filterExpr?.ast ?? null)
+    const layerCache = this.getOrCreateLayerCache(sliceLayer)
+    const sel = this._selection.selectForFrame(
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      dpr,
+      this.currentFrameId,
+      this.source,
+      sliceLayer,
+      2,
+      this.source.maxLevel,
+      this._drawStats,
+    )
+    if (!sel) return 0
+    this.resetUploadFrameCap()
+    const toLoad: number[] = []
+    // Same missing semantics as the fills/lines acquisitions (#834 M5
+    // slice 5): count only keys that can still materialize.
+    let missing = 0
+    for (const key of sel.neededKeys) {
+      if (layerCache.has(key)) continue
+      if (this.source.hasTileData(key, sliceLayer)) {
+        const d = this.source.getTileData(key, sliceLayer)
+        if (d) {
+          this.uploadTile(key, d, sliceLayer)
+          if (!layerCache.has(key)) missing++
+        }
+      } else if (this.source.hasEntryInIndex(key)) {
+        // Parsed tile without this slice = empty here (drop-empty-slice twin —
+        // see renderFillsRhi); re-requesting a cached key is a no-op and the
+        // missing count would spin the loop forever.
+        if (this.source.hasTileData(key)) continue
+        toLoad.push(key)
+        missing++
+      }
+    }
+    if (toLoad.length > 0) this.source.requestTiles(toLoad)
+    return missing
+  }
+
+  /** Sprite atlas as RHI handles for the WebGL2 line-pattern tile bind group
+   *  (#834 M5 slice 5) — the webgl2 twin of `setSpriteAtlasView`, pushed by
+   *  render-loop's `_resolveFillPatterns` once the atlas loads. */
+  private _spriteAtlasRhi: { view: RhiTextureView; sampler: RhiSampler } | null = null
+  setSpriteAtlasRhi(view: RhiTextureView, sampler: RhiSampler): void {
+    if (this._spriteAtlasRhi?.view === view) return
+    this._spriteAtlasRhi = { view, sampler }
+    this._lineTileBgRhi = null // rebuild the tile group with the real atlas
+  }
+  /** 1×1 white stub bound at sprite_atlas until the real atlas loads —
+   *  mirrors the WebGPU tile group's stub (iter-181). Lazy, webgl2-only. */
+  private _stubAtlasRhi: { view: RhiTextureView; sampler: RhiSampler } | null = null
+  private stubAtlasRhi(): { view: RhiTextureView; sampler: RhiSampler } {
+    if (this._stubAtlasRhi) return this._stubAtlasRhi
+    const tex = this.rhi.createTexture({
+      width: 1,
+      height: 1,
+      format: 'rgba8unorm',
+      usage: ['sample', 'copy-dst'],
+      label: 'vtr-line-atlas-stub',
+    })
+    this.rhi.writeTexture(tex, new Uint8Array([255, 255, 255, 255]), 4, 1, 1)
+    this._stubAtlasRhi = {
+      view: this.rhi.createView(tex),
+      sampler: this.rhi.createSampler({ mag: 'nearest', min: 'nearest' }),
+    }
+    return this._stubAtlasRhi
+  }
+
+  /** Line-material tile bind group over the VTR uniform ring (mirrors
+   *  fillTileBgRhi — the line TILE block shares the 192-byte layout, so the
+   *  binding size is the same polygonUniformBytes contract). Cached per ring
+   *  identity; a ring grow or an atlas push invalidates it. On webgl2 the
+   *  layout carries sprite_atlas/sprite_samp (bindings 5/6) for the
+   *  fs_line_pattern variant — bound to the pushed atlas or the white stub. */
+  private _lineTileBgRhi: { buf: RhiBuffer; bg: RhiBindGroup } | null = null
+  private lineTileBgRhi(): RhiBindGroup | null {
+    const buf = this.uniformRing?.rhiBuffer
+    if (!buf || !this.lineRenderer) return null
+    if (this._lineTileBgRhi?.buf === buf) return this._lineTileBgRhi.bg
+    const atlas = this._spriteAtlasRhi ?? this.stubAtlasRhi()
+    const bg = this.rhi.createBindGroup(this.lineRenderer.tileLayoutRhi(), [
+      { binding: 0, resource: { buffer: buf, offset: 0, size: polygonUniformBytes() } },
+      { binding: 5, resource: { view: atlas.view } },
+      { binding: 6, resource: { sampler: atlas.sampler } },
+    ])
+    this._lineTileBgRhi = { buf, bg }
+    return bg
+  }
 
   beginFrame(frameId: number = 0): void {
     this.currentFrameId = frameId
@@ -1139,12 +1830,12 @@ export class VectorTileRenderer {
     canvasWidth: number,
     canvasHeight: number,
     show: ShowCommand,
-    fillPipeline: GPURenderPipeline,
-    linePipeline: GPURenderPipeline,
+    fillPipeline: RhiPipelineHandle,
+    linePipeline: RhiPipelineHandle,
     _uniformBuffer: GPUBuffer,
     bindGroupLayout: GPUBindGroupLayout,
-    fillPipelineFallback: GPURenderPipeline | undefined,
-    linePipelineFallback: GPURenderPipeline | undefined,
+    fillPipelineFallback: RhiPipelineHandle | undefined,
+    linePipelineFallback: RhiPipelineHandle | undefined,
     pointRenderer: PointRenderer | null | undefined,
     /** Which draws to emit for this layer.
      *  - 'all':     fills + strokes in the current pass (opaque default)
@@ -1168,8 +1859,8 @@ export class VectorTileRenderer {
      *  fighting. Pass `undefined` to fall back to the renderer-level
      *  `fillPipelineGround` (base-layout only — for legacy / test
      *  paths). */
-    fillPipelineGroundOverride: GPURenderPipeline | undefined,
-    fillPipelineGroundFallbackOverride: GPURenderPipeline | undefined,
+    fillPipelineGroundOverride: RhiPipelineHandle | undefined,
+    fillPipelineGroundFallbackOverride: RhiPipelineHandle | undefined,
     /** True when the caller's pass is the translucent offscreen
      *  MAX-blend RT (no depth attachment) — line draws must use
      *  `pipelineMax`. False when the pass has a depth attachment
@@ -2181,7 +2872,7 @@ export class VectorTileRenderer {
       // swapchain format, but the caller's `fillPipelineGroundOverride`
       // is the r16float debug variant. Always prefer the override here
       // so the entire opaque pass agrees on the r16float attachment.
-      const groundForLayout: GPURenderPipeline | null = DEBUG_OVERDRAW
+      const groundForLayout: RhiPipelineHandle | null = DEBUG_OVERDRAW
         ? (fillPipelineGroundOverride ?? fillPipeline)
         : groundIsBase
           ? this._bindGroups.groundPipeline()
@@ -2438,7 +3129,7 @@ export class VectorTileRenderer {
       // base layout uses the renderer-level fallback ground; feature
       // layout uses the variant's fallback ground override.
       const fallbackGroundIsBase = bindGroupLayout === this._bindGroups.baseLayout()
-      const fallbackGroundForLayout: GPURenderPipeline | null = DEBUG_OVERDRAW
+      const fallbackGroundForLayout: RhiPipelineHandle | null = DEBUG_OVERDRAW
         ? (fillPipelineGroundFallbackOverride ?? fillPipelineFallback ?? null)
         : fallbackGroundIsBase
           ? this._bindGroups.groundPipelineFallback()
@@ -2794,7 +3485,7 @@ export class VectorTileRenderer {
    *  draws. */
   private recordTileFill(
     encoder: GPURenderPassEncoder | GPURenderBundleEncoder,
-    pipeline: GPURenderPipeline,
+    pipeline: RhiPipelineHandle,
     tileBg: GPUBindGroup,
     slotOffset: number,
     cached: GPUTile,
@@ -2843,8 +3534,8 @@ export class VectorTileRenderer {
   private renderTileKeys(
     keys: number[],
     pass: GPURenderPassEncoder | GPURenderBundleEncoder,
-    fillPipeline: GPURenderPipeline,
-    _linePipeline: GPURenderPipeline,
+    fillPipeline: RhiPipelineHandle,
+    _linePipeline: RhiPipelineHandle,
     projCenterLon: number,
     projCenterLat: number,
     worldOffsets: number[] | undefined,
@@ -2856,7 +3547,7 @@ export class VectorTileRenderer {
     lineLayerOffsetGap: number,
     phase: LayerDrawPhase,
     layerCache: Map<number, GPUTile>,
-    fillPipelineExtruded: GPURenderPipeline | null,
+    fillPipelineExtruded: RhiPipelineHandle | null,
     fillBindGroupLayout: GPUBindGroupLayout,
     /** Same disambiguation as the public render() — `'strokes'`
      *  phase is reused by both the offscreen translucent pass and
@@ -2913,7 +3604,7 @@ export class VectorTileRenderer {
     // bind group resolution happens inside the keys loop. baseBindGroup
     // is constant-fill and never per-tile, so its absence still aborts.
     if (fillBindGroupLayout === this._bindGroups.baseLayout() && !fillBg) return
-    if (!this.uniformRing?.buffer) return
+    if (!this.uniformRing?.rhiBuffer) return
     // Stroke draws are batched and emitted AFTER every fill in this
     // pass has written depth, so per-tile outlines depth-test against
     // the layer's full geometry (not just whatever was drawn before

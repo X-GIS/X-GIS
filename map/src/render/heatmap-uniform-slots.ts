@@ -7,7 +7,7 @@
 
 import { reflect } from '@xgis/shader-dsl'
 import { buildHeatmapAccumModule } from '@xgis/map'
-import { uniformFieldSlots, type UniformFieldSlots } from '@xgis/engine'
+import { uniformFieldSlots, type UniformFieldSlots } from '@xgis/rhi-webgpu'
 
 let _slots: UniformFieldSlots | undefined
 

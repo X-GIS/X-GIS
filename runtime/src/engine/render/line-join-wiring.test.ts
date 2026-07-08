@@ -13,8 +13,8 @@ import { describe, expect, it } from 'vitest'
   INDEX: 16,
 }
 import { LineRenderer, LINE_JOIN_MITER, LINE_JOIN_ROUND, LINE_JOIN_BEVEL } from '@xgis/map'
-import { WebGpuDevice } from '@xgis/engine'
-import type { GPUContext } from '@xgis/engine'
+import { WebGpuDevice } from '@xgis/rhi-webgpu'
+import type { GPUContext } from '@xgis/rhi-webgpu'
 
 // line-join: layout-property wiring (GPU-free, fail-before).
 //

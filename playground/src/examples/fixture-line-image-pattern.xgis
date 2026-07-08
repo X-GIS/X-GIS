@@ -1,0 +1,23 @@
+/* Mapbox `line-pattern` (stroke-image-) fixture: the stroke's ONLY visual is
+ * the sprite-atlas sample — fs_line_pattern reads the UV bbox from
+ * tile.stroke_color and the repeat metres from layer.color.r/.a (iter-185).
+ * `stroke-image-pat` also trips the lazy IconStage sprite-atlas gate in
+ * label-pass.ts via its linePattern arm, so no label layer is needed.
+ *
+ * Load with: /demo.html?id=fixture_line_image_pattern&e2e=1&sprite=/fixture-sprite
+ */
+source l { type: geojson, url: "fixture-line.geojson" }
+
+layer img {
+  source: l
+  | stroke-image-pat stroke-14
+}
+
+/* A label show makes the label pass run, which hosts the lazy IconStage
+ * sprite-atlas gate (label-pass.ts) — its `showCommands.some(s =>
+ * s.linePattern)` arm then loads the atlas so the pattern UV resolves.
+ * Same workaround as fixture-fill-pattern.xgis (real styles carry labels). */
+layer img_label {
+  source: l
+  | label-["x"] label-size-12
+}

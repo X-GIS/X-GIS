@@ -5,8 +5,10 @@ import {
   SELECTOR_PROJ_NAMES,
   poleLimit,
   representsCenterAs,
+  worldCopiesFor,
+  enumerateWorldCopies,
+  routeToSphereSelector,
 } from './projections-table'
-import { worldCopiesFor, enumerateWorldCopies, routeToSphereSelector } from '../gpu/gpu-shared'
 import { MERCATOR_LAT_LIMIT } from './projection'
 
 // The PROJECTIONS table is the SINGLE SOURCE OF TRUTH (authority flip, P1):

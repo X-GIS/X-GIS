@@ -7,24 +7,21 @@
 // routes through the Material seam (executeItems, arena vertex/index sub-ranges, pick MRT); §4 is closed,
 // so a pipeline with no built Material twin throws (the raw fallback draw + kill-switch were deleted).
 
-import type { RhiDevice } from '@xgis/engine'
-import {
-  wrapWebGpuBindGroupLayout,
-  wrapWebGpuBuffer,
-  wrapWebGpuBindGroup,
-  wrapWebGpuPass,
-} from '@xgis/engine'
+import type { RhiBindLayoutEntry, RhiBuffer, RhiDevice, RhiPipelineHandle } from '@xgis/engine'
+import { wrapWebGpuBindGroupLayout, wrapWebGpuBindGroup, wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from './material'
 
-/** The per-tile GPUArena fill buffers recordFillDraw reads (structural — a VTR GPUTile satisfies it). */
+/** The per-tile GPUArena fill buffers recordFillDraw reads (structural — a VTR
+ *  GPUTile satisfies it). RHI handles (#832): the arena is backend-neutral and
+ *  the draw flows through executeItems, so no native buffer appears here. */
 export interface FillTileBuffers {
-  vertexBuffer: GPUBuffer
+  vertexBuffer: RhiBuffer
   polyVertexOffset: number
   polyVertexByteLength: number
-  zBuffer: GPUBuffer | null
+  zBuffer: RhiBuffer | null
   zBufferOffset: number
   zBufferByteLength: number
-  indexBuffer: GPUBuffer
+  indexBuffer: RhiBuffer
   polyIndexOffset: number
   polyIndexByteLength: number
   indexCount: number
@@ -35,25 +32,25 @@ export interface FillRhiState {
   flat: Material | null
   ground: Material | null
   pipes: {
-    write: GPURenderPipeline
-    test: GPURenderPipeline
-    groundWrite: GPURenderPipeline
-    groundTest: GPURenderPipeline
+    write: RhiPipelineHandle
+    test: RhiPipelineHandle
+    groundWrite: RhiPipelineHandle
+    groundTest: RhiPipelineHandle
   } | null
   /** Per-STYLE (data-driven) fills compile their own shader → their own pipeline; this LIVE map
    *  (grown by PipelineFactory as layers are added) routes each per-style fill pipeline to its
    *  Material twin + variant. Checked before the default `pipes` above. */
-  perStyle: Map<GPURenderPipeline, { mat: Material; variant: number }> | null
+  perStyle: Map<RhiPipelineHandle, { mat: Material; variant: number }> | null
   /** Opaque 3D-extruded fill (default shader): the extrude Material + the two native pipelines it
    *  twins. Routed on the bindZBuffer path. The *NoPick fields twin the pointer-events:none extrude
    *  pipelines (only built when picking is on; null otherwise). null = extrude stays raw. */
   extrude: {
     mat: Material
-    write: GPURenderPipeline
-    test: GPURenderPipeline
+    write: RhiPipelineHandle
+    test: RhiPipelineHandle
     matNoPick?: Material
-    writeNoPick?: GPURenderPipeline
-    testNoPick?: GPURenderPipeline
+    writeNoPick?: RhiPipelineHandle
+    testNoPick?: RhiPipelineHandle
   } | null
   /** Fill-pattern (fs_fill_pattern) twins of the native fillPipelinePattern{Ground,Extruded}* pipelines.
    *  ground = cull-none / depth-off stencil (twins fillPipelinePatternGround + fallback); extruded =
@@ -61,11 +58,11 @@ export interface FillRhiState {
    *  before the raw else when a show resolves fillPatternUV. null = pattern stays raw. */
   pattern: {
     ground: Material
-    groundWrite: GPURenderPipeline
-    groundTest: GPURenderPipeline
+    groundWrite: RhiPipelineHandle
+    groundTest: RhiPipelineHandle
     extruded: Material
-    extrudedWrite: GPURenderPipeline
-    extrudedTest: GPURenderPipeline
+    extrudedWrite: RhiPipelineHandle
+    extrudedTest: RhiPipelineHandle
   } | null
 }
 
@@ -76,7 +73,8 @@ export interface FillMaterialInputs {
   shader: string
   format: string
   sampleCount: number
-  bindGroupLayout: GPUBindGroupLayout
+  /** Native WebGPU layout (wrapped) — required unless `rhiGroups` is given. */
+  bindGroupLayout?: GPUBindGroupLayout
   vertexLayout: GPUVertexBufferLayout
   /** Extruded-fill vertex layout (POLYGON_EXTRUDED). Only buildPatternFillMaterials reads it — it twins
    *  BOTH the ground (flat `vertexLayout` above) + extruded pattern pipelines in a single call. */
@@ -90,6 +88,11 @@ export interface FillMaterialInputs {
    *  keeps WebGL2's explicit fail-closed error. */
   vsCode?: string
   fsCode?: string
+  /** RHI-native bind-group layout entries (#832 M2). When present they REPLACE the
+   *  wrapped native `bindGroupLayout` — the WebGL2 fill Material builds its layout
+   *  through rhi.createBindGroupLayout with by-name reflection entries (the block
+   *  tag is the struct name 'Uniforms'). WebGPU callers omit this (byte-identical). */
+  rhiGroups?: RhiBindLayoutEntry[][]
 }
 
 const toMatVB = (l: GPUVertexBufferLayout) => ({
@@ -109,7 +112,7 @@ export function buildFlatFillMaterials(inp: FillMaterialInputs): {
 } {
   const rhi: RhiDevice = inp.rhi
   const fmt = inp.format as 'bgra8unorm'
-  const groups = [wrapWebGpuBindGroupLayout(inp.bindGroupLayout)]
+  const groups = inp.rhiGroups ?? [wrapWebGpuBindGroupLayout(inp.bindGroupLayout!)]
   const vertexBuffers = [toMatVB(inp.vertexLayout)]
   const colorTargets = inp.pickEnabled
     ? [
@@ -179,7 +182,7 @@ export function buildExtrudeMaterial(inp: FillMaterialInputs): Material {
     fsEntry: 'fs_fill_extrude',
     format: fmt,
     sampleCount: inp.sampleCount,
-    groups: [wrapWebGpuBindGroupLayout(inp.bindGroupLayout)],
+    groups: [wrapWebGpuBindGroupLayout(inp.bindGroupLayout!)],
     vertexBuffers: [toMatVB(inp.vertexLayout)],
     colorTargets: inp.pickEnabled
       ? [
@@ -217,7 +220,7 @@ export function buildPatternFillMaterials(inp: FillMaterialInputs): {
 } {
   const rhi: RhiDevice = inp.rhi
   const fmt = inp.format as 'bgra8unorm'
-  const groups = [wrapWebGpuBindGroupLayout(inp.bindGroupLayout)]
+  const groups = inp.rhiGroups ?? [wrapWebGpuBindGroupLayout(inp.bindGroupLayout!)]
   const colorTargets = inp.pickEnabled
     ? [
         { format: fmt, blend: 'alpha' as const },
@@ -284,7 +287,7 @@ export function buildPatternFillMaterials(inp: FillMaterialInputs): {
 export function recordFillDraw(
   fillRhi: FillRhiState | null,
   encoder: GPURenderPassEncoder | GPURenderBundleEncoder,
-  pipeline: GPURenderPipeline,
+  pipeline: RhiPipelineHandle,
   tileBg: GPUBindGroup,
   slotOffset: number,
   cached: FillTileBuffers,
@@ -305,7 +308,7 @@ export function recordFillDraw(
     // / …, all variant-distinct — pipeline-factory.ts). `pipeline` is used ONLY to pick the twin+variant;
     // executeItems runs the twin's OWN (descriptor-equivalent) pipeline, so a label match is exact.
     // Empty label → identity only (never label-matches, so distinct-label pipelines can't collide).
-    const eq = (a: GPURenderPipeline | undefined | null): boolean =>
+    const eq = (a: RhiPipelineHandle | undefined | null): boolean =>
       pipeline === a || (!!pipeline.label && !!a && pipeline.label === a.label)
     if (!bindZBuffer) {
       // Flat fill. Per-style (data-driven) pipelines route via their own cached Material twin; the
@@ -386,11 +389,11 @@ export function recordFillDraw(
           variant,
           bindGroups: [wrapWebGpuBindGroup(tileBg)],
           dynamicOffsets: [[slotOffset]],
-          vertex: wrapWebGpuBuffer(cached.vertexBuffer),
+          vertex: cached.vertexBuffer,
           vertexOffset: cached.polyVertexOffset,
           vertexSize: cached.polyVertexByteLength,
           index: {
-            buffer: wrapWebGpuBuffer(cached.indexBuffer),
+            buffer: cached.indexBuffer,
             format: 'uint32',
             offset: cached.polyIndexOffset,
             size: cached.polyIndexByteLength,
@@ -403,6 +406,6 @@ export function recordFillDraw(
     }
   }
   throw new Error(
-    `recordFillDraw: fill pipeline has no RHI Material twin — every fill draw must route through the RHI seam (§4 closed). label=${(pipeline as GPURenderPipeline).label ?? '?'} bindZBuffer=${bindZBuffer}`,
+    `recordFillDraw: fill pipeline has no RHI Material twin — every fill draw must route through the RHI seam (§4 closed). label=${(pipeline as RhiPipelineHandle).label ?? '?'} bindZBuffer=${bindZBuffer}`,
   )
 }

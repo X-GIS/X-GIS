@@ -9,16 +9,23 @@
 // silently invalidate that cached bind group — hence the never-recreate
 // invariant in ensure().
 //
+// The atlas LAYOUT (shelf packing + SpriteInfo metadata) lives in the shared
+// HostAtlasPacker (#823) — the same packer the WebGL2-fallback
+// HostSpriteAtlasRhi uses, so both backends pack identical coordinates by
+// construction. This class owns only the WebGPU resources + region upload.
+//
 // Per-run (dies with the GPUDevice on a scene swap); the DEVICE-FREE
 // HostImageRegistry it mirrors survives so host images outlive the atlas.
 
-import { xlog } from '@xgis/shared'
+import { type RhiSampler, type RhiTextureView } from '@xgis/engine'
+import { wrapWebGpuSampler, wrapWebGpuTextureView } from '@xgis/rhi-webgpu'
 import type { SpriteInfo } from './sprite-atlas-host'
 import type { HostImageRegistry } from './host-image-registry'
 import type { IconAtlasGpu, SpriteMetadataSource } from './icon-stage'
+import { HostAtlasPacker, HOST_ATLAS_PAGE } from './host-atlas-packer'
 
 /** Fixed single-page dimensions. rgba8unorm, matching SpriteAtlasGPU. */
-const PAGE = 1024
+const PAGE = HOST_ATLAS_PAGE
 
 /** ImageData carries a `.data` byte array; ImageBitmap does not. Structural
  *  probe avoids `instanceof ImageData`, whose global is absent in non-DOM
@@ -29,8 +36,8 @@ function isImageData(source: ImageBitmap | ImageData): source is ImageData {
 
 export class HostSpriteAtlasGPU implements IconAtlasGpu, SpriteMetadataSource {
   private readonly device: GPUDevice
-  private readonly registry: HostImageRegistry
-  readonly sampler: GPUSampler
+  private readonly packer: HostAtlasPacker
+  private _sampler: GPUSampler | null = null
 
   /** The fixed page. Allocated lazily on first ensure() and then held for
    *  the atlas's life — NEVER recreated. */
@@ -38,32 +45,24 @@ export class HostSpriteAtlasGPU implements IconAtlasGpu, SpriteMetadataSource {
   private _cachedView: GPUTextureView | null = null
   private _cachedViewTexture: GPUTexture | null = null
 
-  /** Atlas-space metadata for every packed image, keyed by name. */
-  private readonly packed = new Map<string, SpriteInfo>()
-
-  // Shelf allocator cursor (row-based packing over the fixed page).
-  private shelfX = 0
-  private shelfY = 0
-  private shelfH = 0
-
-  /** Set when the registry gains an image; gates sync() so the pack +
-   *  upload only runs when there is new work. Starts true so the first
-   *  lookup packs any images registered before attachDevice. */
-  private dirty = true
-
   constructor(device: GPUDevice, registry: HostImageRegistry) {
     this.device = device
-    this.registry = registry
-    // Sampler config copied verbatim from SpriteAtlasGPU (sprite-atlas-gpu.ts):
-    // linear filtering so non-integer-scale icons stay smooth; clamp-to-edge so
-    // atlas neighbours never bleed.
-    this.sampler = device.createSampler({
+    this.packer = new HostAtlasPacker(registry)
+  }
+
+  /** Native sampler, created LAZILY (#834 device retirement S6 — the webgl2
+   *  path reads the RHI twin, so construction must not touch the device).
+   *  Sampler config copied verbatim from SpriteAtlasGPU (sprite-atlas-gpu.ts):
+   *  linear filtering so non-integer-scale icons stay smooth; clamp-to-edge so
+   *  atlas neighbours never bleed. */
+  get sampler(): GPUSampler {
+    return (this._sampler ??= this.device.createSampler({
       magFilter: 'linear',
       minFilter: 'linear',
       addressModeU: 'clamp-to-edge',
       addressModeV: 'clamp-to-edge',
       label: 'host-sprite-atlas-sampler',
-    })
+    }))
   }
 
   /** Eagerly allocate the fixed 1024² page. Idempotent — the texture is
@@ -95,6 +94,16 @@ export class HostSpriteAtlasGPU implements IconAtlasGpu, SpriteMetadataSource {
     return this._cachedView
   }
 
+  /** The page view/sampler as backend-blind RHI handles — the retained-icon
+   *  batch bind group binds through these, so GraphicsManager stays blind to
+   *  which atlas twin (WebGPU / RHI-native) it holds (#823). */
+  rhiView(): RhiTextureView {
+    return wrapWebGpuTextureView(this.getView())
+  }
+  rhiSampler(): RhiSampler {
+    return wrapWebGpuSampler(this.sampler)
+  }
+
   size(): { width: number; height: number } {
     return { width: PAGE, height: PAGE }
   }
@@ -111,63 +120,23 @@ export class HostSpriteAtlasGPU implements IconAtlasGpu, SpriteMetadataSource {
   }
 
   markDirty(): void {
-    this.dirty = true
+    this.packer.markDirty()
   }
 
   /** Sprite metadata lookup. Runs a lazy dirty-gated sync() first so a
    *  just-added image is packed + uploaded before its first lookup. */
   get(name: string): SpriteInfo | undefined {
     this.sync()
-    return this.packed.get(name)
+    return this.packer.get(name)
   }
 
-  /** Pack + region-upload every registry entry not yet in the atlas. Cheap
-   *  no-op when nothing changed (dirty flag). An image that cannot fit the
-   *  page is warned + skipped (bounded honest failure) — never partially
-   *  uploaded, never corrupting the page. */
+  /** Pack + region-upload every registry entry not yet in the atlas (the
+   *  shared HostAtlasPacker owns the layout; this provides the WebGPU
+   *  region upload). Cheap no-op when nothing changed. */
   sync(): void {
-    if (!this.dirty) return
-    const texture = this.ensure()
-    for (const [name, entry] of this.registry.entries()) {
-      if (this.packed.has(name)) continue
-      const pos = this.allocate(entry.w, entry.h)
-      if (pos === null) {
-        xlog.warn(
-          `[X-GIS graphics] "${name}" (${entry.w}×${entry.h}) does not fit the ${PAGE}×${PAGE} sprite atlas page — image skipped`,
-        )
-        continue
-      }
-      this.upload(texture, entry.source, pos.x, pos.y, entry.w, entry.h)
-      this.packed.set(name, {
-        name,
-        x: pos.x,
-        y: pos.y,
-        width: entry.w,
-        height: entry.h,
-        pixelRatio: 1,
-        sdf: false,
-      })
-    }
-    this.dirty = false
-  }
-
-  /** Row-based (shelf) allocator over the fixed page. Returns the top-left
-   *  atlas-pixel origin, or null when the image cannot fit the page (either
-   *  larger than the page, or the remaining page height is exhausted). */
-  private allocate(w: number, h: number): { x: number; y: number } | null {
-    if (w > PAGE || h > PAGE) return null
-    if (this.shelfX + w > PAGE) {
-      // Current shelf can't take this width — open a new shelf below it.
-      this.shelfY += this.shelfH
-      this.shelfX = 0
-      this.shelfH = 0
-    }
-    if (this.shelfY + h > PAGE) return null // page height exhausted
-    const x = this.shelfX
-    const y = this.shelfY
-    this.shelfX += w
-    if (h > this.shelfH) this.shelfH = h
-    return { x, y }
+    // ensure() inside the callback — packer.sync early-returns when clean, so a
+    // clean lookup allocates nothing (matches the pre-extraction dirty gate).
+    this.packer.sync((source, x, y, w, h) => this.upload(this.ensure(), source, x, y, w, h))
   }
 
   /** Region-upload one image into the page at (x, y). ImageBitmap goes
@@ -202,10 +171,6 @@ export class HostSpriteAtlasGPU implements IconAtlasGpu, SpriteMetadataSource {
     this.texture = null
     this._cachedView = null
     this._cachedViewTexture = null
-    this.packed.clear()
-    this.shelfX = 0
-    this.shelfY = 0
-    this.shelfH = 0
-    this.dirty = true
+    this.packer.reset()
   }
 }

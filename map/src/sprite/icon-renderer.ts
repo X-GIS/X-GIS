@@ -14,18 +14,13 @@
 // stage just converts viewport-px → NDC.
 
 import type { IconAtlasGpu } from './icon-stage'
-import {
-  wrapWebGpuPass,
-  wrapWebGpuBindGroupLayout,
-  wrapWebGpuTextureView,
-  wrapWebGpuSampler,
-} from '@xgis/engine'
-import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
+import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '@xgis/rhi-webgpu'
+import type { RhiBuffer, RhiBindGroup, RhiDevice , RhiRenderPass } from '@xgis/engine'
 import { IconDraper } from '../render/material/icon-material'
 import type { SpriteInfo } from './sprite-atlas-host'
 import { vertexField } from '@xgis/compiler'
 import { ICON_FORMAT } from './icon-vertex-format'
-import { toVertexBufferLayout } from '@xgis/engine'
+import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
 
 export interface IconDraw {
   /** Anchor in screen pixels (caller-projected). */
@@ -97,7 +92,11 @@ export class IconRenderer {
    *  GPUBuffer.destroy()`, so the GPU command stream is unchanged. */
   private readonly rhi: RhiDevice
   private readonly atlas: IconAtlasGpu
-  private readonly bgLayout: GPUBindGroupLayout
+  private readonly device: GPUDevice
+  /** Native BGL, created LAZILY (#834 device retirement S6): consumers are
+   *  IconDraper's WebGPU arm + the non-gl2 bind-group branch — the
+   *  constructor must not touch the device. */
+  private _bgl: GPUBindGroupLayout | null = null
   private readonly uniformBuf: RhiBuffer
   private vertexBuf: RhiBuffer | null = null
   private vertexBufCapacityBytes = 0
@@ -177,9 +176,24 @@ export class IconRenderer {
       this.rhi,
       this._iconFmt,
       this._iconSamples,
-      this.bgLayout,
+      // IconDraper wraps the native layout ONLY on its WebGPU arm; on webgl2
+      // pass an inert placeholder so the lazy bgl() never touches the device
+      // (#834 S6 — same pattern as LineRenderer.ensureLineDraper).
+      this.rhi.backend === 'webgl2' ? (null as unknown as GPUBindGroupLayout) : this.bgl(),
       vertexBuffers,
     )
+  }
+
+  /** Lazy native BGL — see `_bgl`. WebGPU-arm consumers only. */
+  private bgl(): GPUBindGroupLayout {
+    return (this._bgl ??= this.device.createBindGroupLayout({
+      label: 'icon-renderer-bgl',
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+      ],
+    }))
   }
 
   constructor(
@@ -191,17 +205,9 @@ export class IconRenderer {
   ) {
     this.rhi = rhi
     this.atlas = atlas
+    this.device = device
     this._iconFmt = presentationFormat
     this._iconSamples = sampleCount
-
-    this.bgLayout = device.createBindGroupLayout({
-      label: 'icon-renderer-bgl',
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
-      ],
-    })
 
     // Uniform — UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
     this.uniformBuf = this.rhi.createBuffer({
@@ -393,20 +399,41 @@ export class IconRenderer {
 
   /** Encode the icon draw call. Returns silently when nothing to draw
    *  or when the atlas hasn't loaded yet. */
-  draw(pass: GPURenderPassEncoder, viewport: { width: number; height: number }): void {
+  draw(
+    pass: GPURenderPassEncoder | RhiRenderPass,
+    viewport: { width: number; height: number },
+  ): void {
     if (this.vertexCount === 0 || this.vertexBuf === null) return
-    const tex = this.atlas.ensure()
-    if (!tex) return
-    if (!this.bindGroup) {
-      // Bind group routes through the RHI seam (§4): binding 0 is the RhiBuffer
-      // uniform; the atlas TEXTURE view (binding 1) + sampler (binding 2) stay raw,
-      // adopted via wrapWebGpuTextureView / wrapWebGpuSampler. Byte-identical to the
-      // prior device.createBindGroup (the debug label is the only drop).
-      this.bindGroup = this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bgLayout), [
-        { binding: 0, resource: { buffer: this.uniformBuf } },
-        { binding: 1, resource: { view: wrapWebGpuTextureView(tex.createView()) } },
-        { binding: 2, resource: { sampler: wrapWebGpuSampler(this.atlas.sampler) } },
-      ])
+    const gl2 = this.rhi.backend === 'webgl2'
+    if (gl2) {
+      // WebGl2Device path (#834 M5 slice 4): the atlas must expose the RHI
+      // twins; fail-closed (skip the draw) when it doesn't — a bespoke
+      // WebGPU-only atlas keeps working on WebGPU unchanged.
+      const view = this.atlas.rhiView?.()
+      const sampler = this.atlas.rhiSampler?.()
+      if (!view || !sampler) return
+      if (!this.bindGroup) {
+        this.ensureIconDraper()
+        this.bindGroup = this.rhi.createBindGroup(this._iconDraper!.layoutRhi(), [
+          { binding: 0, resource: { buffer: this.uniformBuf } },
+          { binding: 1, resource: { view } },
+          { binding: 2, resource: { sampler } },
+        ])
+      }
+    } else {
+      const tex = this.atlas.ensure()
+      if (!tex) return
+      if (!this.bindGroup) {
+        // Bind group routes through the RHI seam (§4): binding 0 is the RhiBuffer
+        // uniform; the atlas TEXTURE view (binding 1) + sampler (binding 2) stay raw,
+        // adopted via wrapWebGpuTextureView / wrapWebGpuSampler. Byte-identical to the
+        // prior device.createBindGroup (the debug label is the only drop).
+        this.bindGroup = this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bgl()), [
+          { binding: 0, resource: { buffer: this.uniformBuf } },
+          { binding: 1, resource: { view: wrapWebGpuTextureView(tex.createView()) } },
+          { binding: 2, resource: { sampler: wrapWebGpuSampler(this.atlas.sampler) } },
+        ])
+      }
     }
     // iter-234 — reuse a pre-allocated 4-float scratch instead of
     // `new Float32Array([...])` per draw. The 16-byte alloc per
@@ -422,11 +449,14 @@ export class IconRenderer {
     // path. (The raw kill-switch branch + the standalone native pipeline were
     // deleted in the §4 seam migration.)
     this.ensureIconDraper()
-    this._iconDraper!.draw(wrapWebGpuPass(pass), {
-      bindGroup: this.bindGroup,
-      vertexBuf: this.vertexBuf,
-      vertexCount: this.vertexCount,
-    })
+    this._iconDraper!.draw(
+      gl2 ? (pass as RhiRenderPass) : wrapWebGpuPass(pass as GPURenderPassEncoder),
+      {
+        bindGroup: this.bindGroup,
+        vertexBuf: this.vertexBuf,
+        vertexCount: this.vertexCount,
+      },
+    )
   }
 
   destroy(): void {

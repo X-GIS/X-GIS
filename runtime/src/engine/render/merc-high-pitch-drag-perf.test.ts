@@ -42,7 +42,7 @@
 import { describe, it, expect } from 'vitest'
 import { TextStage } from '@xgis/map'
 import { MockRasterizer } from '@xgis/map'
-import { WebGpuDevice } from '@xgis/engine'
+import { WebGpuDevice } from '@xgis/rhi-webgpu'
 import type { LabelDef, TextValue } from '@xgis/compiler'
 import type { TextDraw } from '@xgis/map'
 

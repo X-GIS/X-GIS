@@ -12,7 +12,7 @@
 // std140 UBO is genuinely LIVE (an unused block would be stripped at link, hiding
 // the UBO-upload half of the proof).
 
-import { WebGl2Device, wrapWebGl2Pass } from '@xgis/engine'
+import { WebGl2Device, wrapWebGl2Pass } from '@xgis/rhi-webgl2'
 import { Material, executeItems } from '@xgis/map'
 import { overdrawComposeModule } from '../../engine/src/shaders/dsl/overdraw-compose'
 import { buildPointModule } from '@xgis/map'

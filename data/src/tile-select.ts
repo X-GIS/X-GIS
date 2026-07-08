@@ -727,11 +727,14 @@ export function visibleTilesFrustumSampled(
 }
 
 /** Load an image as a GPU texture (supports AbortSignal for cancellation) */
-export async function loadImageTexture(
-  device: GPUDevice,
+/** Fetch + decode a raster tile image — the SSRF-guarded fetch/decode half of
+ *  loadImageTexture, extracted (#834 M5 slice 2) so backend-specific texture
+ *  upload lives at the caller (WebGPU copyExternalImageToTexture / RHI
+ *  copyExternalImage). The caller owns bitmap.close(). */
+export async function loadImageBitmap(
   url: string,
   signal?: AbortSignal,
-): Promise<GPUTexture | null> {
+): Promise<ImageBitmap | null> {
   // Defensive: empty / non-string URL would hit the current document
   // URL and createImageBitmap would fail on the HTML payload. Mirror
   // of fetchTileWithRetry empty-URL guard (iter 348).
@@ -747,8 +750,20 @@ export async function loadImageTexture(
     if (!response.ok) return null
     const blob = await response.blob()
     if (signal?.aborted) return null
-    const bitmap = await createImageBitmap(blob)
+    return await createImageBitmap(blob)
+  } catch {
+    return null
+  }
+}
 
+export async function loadImageTexture(
+  device: GPUDevice,
+  url: string,
+  signal?: AbortSignal,
+): Promise<GPUTexture | null> {
+  const bitmap = await loadImageBitmap(url, signal)
+  if (!bitmap) return null
+  try {
     const texture = device.createTexture({
       size: { width: bitmap.width, height: bitmap.height },
       format: 'rgba8unorm',

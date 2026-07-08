@@ -48,7 +48,7 @@
 //     propagate.
 
 import type { ComputePlanEntry, ShaderVariant } from '@xgis/compiler'
-import { ComputeDispatcher } from '@xgis/engine'
+import { ComputeDispatcher } from '@xgis/rhi-webgpu'
 import { ComputeLayerHandle } from './compute-layer-handle'
 
 export class ComputeLayerRegistry {

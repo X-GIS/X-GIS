@@ -1,17 +1,19 @@
 {
+  // ═══ @xgis/engine — backend-NEUTRAL engine core (#832 M1 → #833 M3) ═══
+  //
+  // `types: []` — WebGPU's ambient globals are NOT visible anywhere in this
+  // package, so ANY use of a GPU* type is a TypeScript COMPILE ERROR. Since
+  // #833 M3 the enforcement is the package graph itself: the WebGPU-typed
+  // machinery lives in @xgis/rhi-webgpu (the only package that sees
+  // @webgpu/types), and this package depends only on @xgis/rhi.
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": ["@webgpu/types"],
-    // Consume the emitted declarations of the referenced packages (built first
-    // via the project references below) instead of recompiling their source
-    // under engine's rootDir — same pattern as runtime/tsconfig.json: lets
-    // standalone `tsc` / VSCode resolve @xgis/* to their .d.ts the way the
-    // project-reference build does, avoiding cross-package TS6059 rootDir
-    // errors and source type-drift.
+    "types": [],
     "paths": {
+      "@xgis/rhi": ["../rhi/dist/index.d.ts"],
       "@xgis/compiler": ["../compiler/dist/index.d.ts"],
       "@xgis/compiler/tiler/geodesic": ["../compiler/dist/tiler/geodesic.d.ts"],
       "@xgis/shared": ["../shared/dist/index.d.ts"],
@@ -19,6 +21,11 @@
       "@xgis/shader-dsl/*": ["../shader-dsl/dist/*"]
     }
   },
-  "references": [{ "path": "../compiler" }, { "path": "../shared" }, { "path": "../shader-dsl" }],
+  "references": [
+    { "path": "../rhi" },
+    { "path": "../compiler" },
+    { "path": "../shared" },
+    { "path": "../shader-dsl" }
+  ],
   "include": ["src/**/*.ts"]
 }

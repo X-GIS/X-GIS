@@ -66,7 +66,7 @@
       "name": "@xgis/engine",
       "version": "0.0.1",
       "dependencies": {
-        "@webgpu/types": "^0.1.69",
+        "@xgis/rhi": "workspace:*",
       },
       "devDependencies": {
         "@xgis/compiler": "workspace:*",
@@ -79,6 +79,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@webgpu/types": "^0.1.69",
+        "@xgis/rhi-webgpu": "workspace:*",
         "earcut": "^3.0.2",
       },
       "devDependencies": {
@@ -115,12 +116,44 @@
         "vite": "^8.0.8",
       },
     },
+    "rhi": {
+      "name": "@xgis/rhi",
+      "version": "0.0.1",
+    },
+    "rhi-webgl2": {
+      "name": "@xgis/rhi-webgl2",
+      "version": "0.0.1",
+      "dependencies": {
+        "@xgis/engine": "workspace:*",
+        "@xgis/rhi": "workspace:*",
+      },
+      "devDependencies": {
+        "@xgis/compiler": "workspace:*",
+        "@xgis/shader-dsl": "workspace:*",
+      },
+    },
+    "rhi-webgpu": {
+      "name": "@xgis/rhi-webgpu",
+      "version": "0.0.1",
+      "dependencies": {
+        "@webgpu/types": "^0.1.69",
+        "@xgis/engine": "workspace:*",
+        "@xgis/rhi": "workspace:*",
+        "@xgis/rhi-webgl2": "workspace:*",
+      },
+      "devDependencies": {
+        "@xgis/compiler": "workspace:*",
+        "@xgis/shader-dsl": "workspace:*",
+        "@xgis/shared": "workspace:*",
+      },
+    },
     "runtime": {
       "name": "@xgis/runtime",
       "version": "0.0.1",
       "dependencies": {
         "@mapbox/vector-tile": "^2.0.4",
         "@webgpu/types": "^0.1.69",
+        "@xgis/rhi-webgpu": "workspace:*",
         "earcut": "^3.0.2",
         "pbf": "^4.0.1",
         "pmtiles": "^4.4.1",
@@ -731,6 +764,12 @@
     "@xgis/pipeline": ["@xgis/pipeline@workspace:pipeline"],
 
     "@xgis/playground": ["@xgis/playground@workspace:playground"],
+
+    "@xgis/rhi": ["@xgis/rhi@workspace:rhi"],
+
+    "@xgis/rhi-webgl2": ["@xgis/rhi-webgl2@workspace:rhi-webgl2"],
+
+    "@xgis/rhi-webgpu": ["@xgis/rhi-webgpu@workspace:rhi-webgpu"],
 
     "@xgis/runtime": ["@xgis/runtime@workspace:runtime"],
 

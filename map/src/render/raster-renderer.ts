@@ -1,14 +1,14 @@
 // ═══ Raster Tile Renderer — 텍스처 타일을 GPU 투영으로 렌더링 ═══
 
-import type { GPUContext } from '@xgis/engine'
+import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { Camera } from '@xgis/engine'
-import { visibleTilesFrustum, tileUrl, loadImageTexture } from '@xgis/data'
+import { visibleTilesFrustum, tileUrl, loadImageTexture, loadImageBitmap } from '@xgis/data'
 import { mercator as mercatorProj, mercatorYToLat } from '@xgis/engine'
 import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/engine'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { RasterDraper, type RasterTile } from './material/raster-material'
-import { wrapWebGpuPass } from '@xgis/engine'
+import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { routeToSphereSelector, enumerateWorldCopies } from '@xgis/engine'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -100,7 +100,7 @@ export function writeRasterTileUniform(
 }
 
 interface CachedTile {
-  texture: GPUTexture
+  texture: GPUTexture | RhiTexture
   lastUsedFrame: number
   firstShownFrame: number
   // Bind group referencing this tile's texture view. Immutable after load —
@@ -173,7 +173,13 @@ export class RasterRenderer {
    *  swapchain format + sample count; rebuilt on a quality (MSAA) change via invalidation. */
   private _rasterDraper?: RasterDraper
   private ensureRasterDraper(): RasterDraper {
-    return (this._rasterDraper ??= new RasterDraper(this.rhi, this.format, getSampleCount()))
+    // Forced-WebGL2 is the single-sample isolated screen pass (slice-1
+    // topology) — a getSampleCount()=4 pipeline would mismatch it.
+    return (this._rasterDraper ??= new RasterDraper(
+      this.rhi,
+      this.format,
+      this.rhi.backend === 'webgl2' ? 1 : getSampleCount(),
+    ))
   }
 
   constructor(ctx: GPUContext) {
@@ -247,6 +253,13 @@ export class RasterRenderer {
    *  polls this to keep ticking during load — newly-arrived textures need
    *  one more frame to show up, but arrivals don't fire a direct callback
    *  today, so we just keep the loop warm until the queue drains. */
+  /** True once a raster source's URL template is configured (#834 M5 slice 2
+   *  — the forced-WebGL2 frame draws real tiles instead of the analytic
+   *  checker when a source exists). */
+  hasSource(): boolean {
+    return this.urlTemplate !== ''
+  }
+
   hasPendingLoads(): boolean {
     return this.loadingTiles.size > 0
   }
@@ -332,8 +345,31 @@ export class RasterRenderer {
     ])
   }
 
+  /** Backend-appropriate raster tile load (#834 M5 slice 2): the WebGPU path
+   *  is the verbatim loadImageTexture (byte-identical); WebGl2Device decodes
+   *  via the shared SSRF-guarded loadImageBitmap and uploads through the RHI
+   *  copyExternalImage seam (texSubImage2D — no CPU readback). */
+  private async loadTileTexture(
+    url: string,
+    signal: AbortSignal,
+  ): Promise<GPUTexture | RhiTexture | null> {
+    if (this.rhi.backend !== 'webgl2') return loadImageTexture(this.device, url, signal)
+    const bitmap = await loadImageBitmap(url, signal)
+    if (!bitmap) return null
+    const tex = this.rhi.createTexture({
+      width: bitmap.width,
+      height: bitmap.height,
+      format: 'rgba8unorm',
+      usage: ['sample', 'copy-dst'],
+      label: 'raster-tile',
+    })
+    this.rhi.copyExternalImage(tex, bitmap, bitmap.width, bitmap.height)
+    bitmap.close()
+    return tex
+  }
+
   render(
-    pass: GPURenderPassEncoder,
+    pass: GPURenderPassEncoder | RhiRenderPass,
     camera: Camera,
     projType: number,
     projCenterLon: number,
@@ -436,7 +472,7 @@ export class RasterRenderer {
       this.loadingTiles.set(key, ctrl)
       const url = tileUrl(this.urlTemplate, coord)
 
-      loadImageTexture(this.device, url, ctrl.signal).then((texture) => {
+      this.loadTileTexture(url, ctrl.signal).then((texture) => {
         this.loadingTiles.delete(key)
         if (!texture) return
         this.tileCache.set(key, {
@@ -490,8 +526,7 @@ export class RasterRenderer {
         if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
         const ctrl = new AbortController()
         this.loadingTiles.set(parentKey, ctrl)
-        loadImageTexture(
-          this.device,
+        this.loadTileTexture(
           tileUrl(this.urlTemplate, { z: parentZ, x: parentX, y: parentY, ox: parentX }),
           ctrl.signal,
         ).then((texture) => {
@@ -603,8 +638,12 @@ export class RasterRenderer {
     // owns the per-tile pool + the global/texture/sampler bind group. pick = the opaque-pass MRT.
     // Always called (even with 0 visible tiles) so the global uniform is written every frame —
     // matching the legacy path (it wrote the global before the loop): 0 tiles → global write, no draws.
+    // A WebGl2Device frame hands in an RhiRenderPass already; the WebGPU frame
+    // still passes the raw encoder (wrapped here, flips with its cluster).
     this.ensureRasterDraper().draw(
-      wrapWebGpuPass(pass),
+      this.rhi.backend === 'webgl2'
+        ? (pass as RhiRenderPass)
+        : wrapWebGpuPass(pass as GPURenderPassEncoder),
       B.buffer,
       tilesArr,
       this._nearest,
@@ -640,7 +679,8 @@ export class RasterRenderer {
     const toEvict = this.tileCache.size - MAX_CACHED_TILES
     for (let i = 0; i < toEvict && i < entries.length; i++) {
       const [key, tile] = entries[i]
-      tile.texture.destroy()
+      if (this.rhi.backend === 'webgl2') this.rhi.destroyTexture(tile.texture as RhiTexture)
+      else (tile.texture as GPUTexture).destroy()
       this.tileCache.delete(key)
     }
   }

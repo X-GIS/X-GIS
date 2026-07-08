@@ -27,7 +27,7 @@
 //     dispatch later if profiling shows the per-tile overhead.
 
 import type { ComputeKernel, ComputePlanEntry } from '@xgis/compiler'
-import { ComputeDispatcher } from '@xgis/engine'
+import { ComputeDispatcher } from '@xgis/rhi-webgpu'
 import { packFeatureData, type FeaturePropertyBag } from './compute-feature-packer'
 
 /** One unique-kernel's GPU resources. Entries that share a kernel

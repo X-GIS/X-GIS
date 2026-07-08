@@ -28,7 +28,8 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { UploadCoordinator, type UploadHost, type UploadStore } from '@xgis/map'
 import type { LineRenderer } from '@xgis/map'
-import type { StagingBufferPool } from '@xgis/engine'
+import type { RhiBuffer, RhiDevice } from '@xgis/engine'
+import type { StagingBufferPool } from '@xgis/rhi-webgpu'
 import type { TileData } from '@xgis/data'
 
 // vitest runs in Node, where the WebGPU `GPUBufferUsage` global doesn't
@@ -159,12 +160,12 @@ function makeCoordinator(opts: { perTileFeat?: () => null } = {}) {
 
   let bindGroupCalls = 0
   const lineRenderer = {
-    uploadSegmentBuffer(_seg: Float32Array): GPUBuffer {
+    uploadSegmentBuffer(_seg: Float32Array): RhiBuffer {
       const b = makeTrackedBuffer('segment', 'line-segments')
       segmentBuffers.push(b)
-      return b as unknown as GPUBuffer
+      return b as unknown as RhiBuffer
     },
-    createLayerBindGroup(_buf: GPUBuffer): unknown {
+    createLayerBindGroup(_buf: RhiBuffer): unknown {
       bindGroupCalls++
       // First call (outline) succeeds; second call (line) throws — by then
       // outlineSegmentBuffer + lineSegmentBuffer are both acquired, and the 3
@@ -178,6 +179,13 @@ function makeCoordinator(opts: { perTileFeat?: () => null } = {}) {
 
   const host: UploadHost = {
     device,
+    rhi: {
+      backend: 'webgpu',
+      writeBuffer: () => {},
+      unwrapBuffer: (b: unknown) => b,
+      // #834 M5 — the bail cleanup destroys the RhiBuffer segment mocks here.
+      destroyBuffer: (b: unknown) => (b as { destroy(): void }).destroy(),
+    } as unknown as RhiDevice,
     stagingPool: {} as unknown as StagingBufferPool,
     store,
     lineRenderer: () => lineRenderer,

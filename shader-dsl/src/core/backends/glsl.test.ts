@@ -420,6 +420,51 @@ describe('glsl-es300 — storage → data-texture emulation (opt-in)', () => {
   it('storage still FAILS CLOSED without the opt-in (default contract preserved)', () => {
     expect(() => emitGlslModule(storageMod, 'fragment')).toThrow(UnsupportedFeatureError)
   })
+
+  // #823 — the retained-icon tint buffer shape: a top-level array<vec4<f32>> element
+  // reads its 4 consecutive std430 lanes (i*4 .. i*4+3) recombined with a vec4 ctor.
+  it('emulateStorage lowers a storage array<vec4f> to 4 texelFetch lanes + a vec4 ctor', () => {
+    const arrVec4 = { kind: 'array', elem: vec4fT } as ShaderType
+    const vecMod: ModuleDecl = {
+      consts: [],
+      structs: [FsOut],
+      bindings: [
+        { group: 0, binding: 0, name: 'tint', space: 'storage', access: 'read', type: arrVec4 },
+      ],
+      funcs: [
+        {
+          name: 'fs',
+          attrs: ['@fragment'],
+          params: [],
+          ret: structT('FsOut'),
+          body: [
+            {
+              s: 'return',
+              expr: {
+                op: 'construct',
+                type: structT('FsOut'),
+                args: [
+                  {
+                    op: 'index',
+                    type: vec4fT,
+                    base: varref('tint', arrVec4),
+                    idx: { op: 'lit', type: u32T, value: 3 },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    }
+    const fs = emitGlslModule(vecMod, 'fragment', { emulateStorage: true })
+    expect(fs).toContain('uniform sampler2D tint;') // storage binding → data texture
+    // element 3 → base lane 3u*4u, lanes +1/+2/+3, recombined into a vec4.
+    expect(fs).toMatch(/vec4\(/)
+    const fetches = fs.match(/texelFetch\(tint,/g) ?? []
+    expect(fetches.length).toBe(4)
+    expect(fs).not.toContain('tint[') // no raw array indexing survives
+  })
 })
 
 describe('glsl-es300 — fail-closed on out-of-scope features', () => {

@@ -4,7 +4,7 @@
 // no logic or symbol renames. `LayerDrawPhase` remains part of the
 // public surface and is re-exported from vector-tile-renderer.ts.
 
-import type { RhiBindGroup } from '@xgis/engine'
+import type { RhiBindGroup, RhiBuffer } from '@xgis/engine'
 
 /** Layer draw phase — replaces the prior `translucentLines: boolean` flag.
  *  'all' draws fill + stroke in one pass (opaque default).
@@ -14,7 +14,10 @@ import type { RhiBindGroup } from '@xgis/engine'
 export type LayerDrawPhase = 'all' | 'fills' | 'strokes' | 'oit-fill'
 
 export interface GPUTile {
-  vertexBuffer: GPUBuffer
+  /** Polygon vertex arena buffer as an RHI handle (#832 — the arena is
+   *  backend-neutral; every fill draw flows through the Material/executeItems
+   *  RHI seam, so no native handle is needed here). */
+  vertexBuffer: RhiBuffer
   /** Phase 6a.2 (iter-208) — polygon vertex byte offset into
    *  `vertexBuffer`. Pre-Phase-6 `vertexBuffer` was a per-tile
    *  `acquireBuffer` slice (offset always 0); starting Phase 6a.2
@@ -27,7 +30,7 @@ export interface GPUTile {
   /** Phase 6a.2 — aligned byte length of the polygon vertex slice.
    *  Together with `polyVertexOffset` defines the arena sub-range. */
   polyVertexByteLength: number
-  indexBuffer: GPUBuffer
+  indexBuffer: RhiBuffer
   /** Phase 6a.3 (iter-209) — polygon index byte offset into
    *  `indexBuffer`. Mirror of `polyVertexOffset` for the index
    *  arena. `pass.setIndexBuffer(indexBuffer, 'uint32',
@@ -41,7 +44,7 @@ export interface GPUTile {
    *  vertex buffer slot 1; vertex bit 15 of x is unused on this code
    *  path (z carries the bottom-vs-top distinction directly). Null on
    *  flat polygon tiles. */
-  zBuffer: GPUBuffer | null
+  zBuffer: RhiBuffer | null
   /** Phase 6a.4 (iter-210) — z-buffer byte offset into the shared
    *  z-arena. 0 when `zBuffer` is null (no extruded data). */
   zBufferOffset: number
@@ -59,14 +62,14 @@ export interface GPUTile {
   outlineIndexBuffer: GPUBuffer | null
   outlineIndexCount: number
   // SDF line segment buffers for polygon outlines and line features
-  outlineSegmentBuffer: GPUBuffer | null
+  outlineSegmentBuffer: RhiBuffer | null
   outlineSegmentCount: number
   // §4 seam: the layer bind group is built via the RHI (LineRenderer.create-
   // LayerBindGroup) → RhiBindGroup. The segment BUFFER above stays a raw
   // GPUBuffer (owned + destroyed by GpuTileStore's retire queue — flips with
   // the VTR/GPUArena cluster).
   outlineSegmentBindGroup: RhiBindGroup | null
-  lineSegmentBuffer: GPUBuffer | null
+  lineSegmentBuffer: RhiBuffer | null
   lineSegmentCount: number
   lineSegmentBindGroup: RhiBindGroup | null
   tileWest: number

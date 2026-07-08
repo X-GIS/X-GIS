@@ -49,7 +49,7 @@ describe('webgpu-stub', () => {
   })
 
   it('initGPU resolves end-to-end against the stub', async () => {
-    const { initGPU } = await import('@xgis/engine')
+    const { initGPU } = await import('@xgis/rhi-webgpu')
     const canvas = { width: 800, height: 600 } as unknown as HTMLCanvasElement
     Object.setPrototypeOf(canvas, HTMLCanvasElement.prototype)
     const ctx = await initGPU(canvas)

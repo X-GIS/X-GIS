@@ -11,10 +11,10 @@
 // and reaches this machinery ONLY through the public methods / getters below.
 // FrameRenderer holds NO back-reference to content.
 
-import type { GPUContext } from '@xgis/engine'
-import { ComputeDispatcher } from '@xgis/engine'
+import type { GPUContext, WebGpuDevice } from '@xgis/rhi-webgpu'
+import { ComputeDispatcher } from '@xgis/rhi-webgpu'
 import { ComputeLayerRegistry } from './compute-layer-registry'
-import { extendBindGroupLayoutEntriesForCompute } from '@xgis/engine'
+import { extendBindGroupLayoutEntriesForCompute } from '@xgis/rhi-webgpu'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { UniformRing } from './uniform-ring'
 import { PipelineFactory } from './pipeline-factory'
@@ -157,7 +157,10 @@ export class FrameRenderer {
    *  MapRendererContent's delegating getter). Delegates to the shared
    *  UniformRing so those callers keep working unchanged. */
   get uniformBuffer(): GPUBuffer {
-    return this.uniformRing.buffer!
+    // The ring is RHI-neutral (#832 M2); this getter is the WebGPU frame
+    // path's seam, so the native unwrap lives here (never called on webgl2 —
+    // the forced-WebGL2 frame renders via renderFrameViaRhi).
+    return (this.ctx.rhi as WebGpuDevice).unwrapBuffer(this.uniformRing.rhiBuffer!)
   }
   /** The shared UniformRing itself — MapRendererContent hands it to the
    *  graticule collaborator per frame (renderToPass). */
@@ -220,7 +223,7 @@ export class FrameRenderer {
    *  the inline build at the same point in init. */
   initUniformRing(onGrow: () => void): void {
     this.uniformRing = new UniformRing(
-      this.ctx.device,
+      this.ctx.rhi,
       polygonUniformStride(),
       256,
       'uniform-ring',
@@ -383,7 +386,7 @@ export class FrameRenderer {
   /** Reset the ring-buffer slot cursor. Call once per frame before any draws. */
   beginFrame(): void {
     this.uniformRing.resetSlot()
-    for (const b of this.uniformRing.takeRetired()) b.destroy()
+    for (const b of this.uniformRing.takeRetired()) this.ctx.rhi.destroyBuffer(b)
   }
 
   /** Copy a draw's uniform block into the staging mirror; tracked by

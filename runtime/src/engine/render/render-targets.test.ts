@@ -6,8 +6,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
-import { RenderTargets } from '@xgis/engine'
-import type { GPUContext } from '@xgis/engine'
+import { RenderTargets } from '@xgis/rhi-webgpu'
+import type { GPUContext } from '@xgis/rhi-webgpu'
 
 interface FakeTexture {
   id: number

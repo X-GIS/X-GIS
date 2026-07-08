@@ -16,14 +16,15 @@ import { buildPointModule, pointU as POINT_U } from '../shaders/dsl/point'
 import { packPointInstances } from './point-feature-packer'
 import { POINT_FEAT } from '../shaders/dsl/point-feat-layout'
 const F = POINT_FEAT.slot
-import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/engine'
+import { wrapWebGpuPass, wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import type { RhiBuffer, RhiBindGroup, RhiDevice } from '@xgis/engine'
 import { PointDraper } from './material/point-material'
 import { reflect } from '@xgis/shader-dsl'
 import { vertexField, evaluate, makeEvalProps } from '@xgis/compiler'
 import { POINT_FORMAT } from './point-vertex-format'
-import { toVertexBufferLayout } from '@xgis/engine'
-import { reflectionToBindGroupLayoutEntries, uniformBlock, type UniformBlockOf } from '@xgis/engine'
+import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
+import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
+import { reflectionToBindGroupLayoutEntries } from '@xgis/rhi-webgpu'
 import { globeEyeUniform } from './globe-eye-uniform'
 
 // Float-slot indices derived from the single-source POINT_FORMAT spec so the
@@ -189,7 +190,11 @@ export class PointRenderer {
    *  `writeBuffer === queue.writeBuffer`, `destroyBuffer === GPUBuffer.destroy()`,
    *  so the GPU command stream is byte-identical. */
   private readonly rhi: RhiDevice
-  private bindGroupLayout: GPUBindGroupLayout
+  private readonly device: GPUDevice
+  /** Native BGL, created LAZILY (#834 device retirement S6): its only
+   *  consumer is makeBindGroup's WebGPU wrap (points are not drawn by the
+   *  forced-WebGL2 frame) — the constructor must not touch the device. */
+  private _bgl: GPUBindGroupLayout | null = null
   private format: GPUTextureFormat = 'bgra8unorm'
   // Vertex buffer layout — cached so rebuildForQuality can reuse without
   // recomputing the stride/attribute map.
@@ -222,15 +227,7 @@ export class PointRenderer {
 
   constructor(ctx: { device: GPUDevice; format: GPUTextureFormat; rhi: RhiDevice }) {
     this.rhi = ctx.rhi
-    const { device } = ctx
-
-    this.bindGroupLayout = device.createBindGroupLayout({
-      // Entries sourced from reflect(buildPointModule()) — binding numbers +
-      // buffer types come from the shader's own IR (see buildPointBglEntries);
-      // the renderer supplies only the per-binding stage visibility.
-      entries: buildPointBglEntries(),
-    })
-
+    this.device = ctx.device
     this.format = ctx.format
 
     // Derived from the single-source POINT_FORMAT spec (vs_point @location + packer
@@ -260,10 +257,20 @@ export class PointRenderer {
    *  uniform + feat are point-owned; the shared ShapeRegistry shape/seg buffers
    *  are now RhiBuffer too (step 3c migrated them), with the point-owned
    *  emptyStorageBuf() fallback when no registry is attached. */
+  /** Lazy native BGL — see `_bgl`. WebGPU-arm consumers only. */
+  private bgl(): GPUBindGroupLayout {
+    return (this._bgl ??= this.device.createBindGroupLayout({
+      // Entries sourced from reflect(buildPointModule()) — binding numbers +
+      // buffer types come from the shader's own IR (see buildPointBglEntries);
+      // the renderer supplies only the per-binding stage visibility.
+      entries: buildPointBglEntries(),
+    }))
+  }
+
   private makeBindGroup(featBuffer: RhiBuffer): RhiBindGroup {
     const shapeBuf = this.shapeRegistry?.shapeBuffer
     const segBuf = this.shapeRegistry?.segmentBuffer
-    return this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bindGroupLayout), [
+    return this.rhi.createBindGroup(wrapWebGpuBindGroupLayout(this.bgl()), [
       { binding: 0, resource: { buffer: this.uniformBuffer } },
       { binding: 1, resource: { buffer: featBuffer } },
       { binding: 2, resource: { buffer: shapeBuf ?? this.emptyStorageBuf() } },
@@ -814,7 +821,15 @@ export class PointRenderer {
     })
     this.rhi.writeBuffer(featureBuffer, 0, featData)
 
-    const bindGroup = this.makeBindGroup(featureBuffer)
+    // #834 device retirement S6 — the bind group wraps the NATIVE bgl(),
+    // and points are not drawn by the forced-WebGL2 frame (no point slice in
+    // #834 M5): register the layer record with an inert placeholder there so
+    // scene compile never touches ctx.device. The RHI buffers above are
+    // backend-neutral and keep uploading (record shape stays identical).
+    const bindGroup =
+      this.rhi.backend === 'webgl2'
+        ? (null as unknown as RhiBindGroup)
+        : this.makeBindGroup(featureBuffer)
 
     // Translucent iff any channel's effective alpha is < ~1. Catches both
     // top-level opacity (e.g. `opacity-30`) and color-channel alpha such as

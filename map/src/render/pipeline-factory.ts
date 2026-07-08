@@ -29,21 +29,11 @@
 //      references this.bindGroupLayout). Order: layouts → pipelines → atlas
 //      stubs → (back on MapRenderer) ring → first bind-group build.
 
-import type { GPUContext } from '@xgis/engine'
-import {
-  BLEND_ALPHA,
-  STENCIL_WRITE,
-  STENCIL_TEST,
-  STENCIL_WRITE_NO_DEPTH,
-  STENCIL_TEST_NO_DEPTH,
-  BLEND_OIT_ACCUM,
-  BLEND_OIT_REVEALAGE,
-  OIT_ACCUM_FORMAT,
-  OIT_REVEALAGE_FORMAT,
-} from '@xgis/engine'
+import type { GPUContext } from '@xgis/rhi-webgpu'
+import { BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST, STENCIL_WRITE_NO_DEPTH, STENCIL_TEST_NO_DEPTH, BLEND_OIT_ACCUM, BLEND_OIT_REVEALAGE, OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT } from '@xgis/rhi-webgpu'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from '@xgis/compiler'
-import { toVertexBufferLayout } from '@xgis/engine'
+import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
 import { LINE_FORMAT } from './line-vertex-format'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
@@ -524,6 +514,21 @@ export class PipelineFactory {
    *  BEFORE pipelines BEFORE stubs (plan §6 DO-NOT-SPLIT #2) — a reorder
    *  risks a WebGPU "layout used before creation" validation throw. */
   build(): void {
+    // #834 device retirement S3 — the ENTIRE build is WebGPU-native (22 raw
+    // device.create* calls: shader module, layouts, base pipelines, atlas
+    // stubs, OIT compose; zero RHI-seam resources). On the forced-WebGL2
+    // boot every product ran against the no-op device Proxy and every
+    // consumer is either the WebGPU frame path (never runs on gl2) or an
+    // inert closure capture (bucket-scheduler pipeline fields, which the
+    // renderFillsRhi/renderLinesRhi draw path never dereferences). Skipping
+    // the whole build is the prerequisite for `ctx.device` becoming null on
+    // this backend (S6, which deletes the Proxy). This subsumes the earlier
+    // #746 fill-Material-twins guard (previously placed after the native
+    // pipeline builds). Fields keep their `!` declarations — recordFillDraw
+    // stays fail-LOUD on an untwinned pipeline, so a gl2 code path that
+    // wrongly reaches a native consumer still surfaces, not silently no-ops.
+    if (this.ctx.rhi.backend === 'webgl2') return
+
     const { device, format } = this.ctx
 
     // Phase 2.5 US-008 iter-8b — base-pipeline pick shader routes through
@@ -833,14 +838,8 @@ export class PipelineFactory {
     this.fillPipelinePatternExtruded = pickable.fillPatternExtruded
     this.fillPipelinePatternExtrudedFallback = pickable.fillPatternExtrudedFallback
 
-    // #746 — the fill Material twins still couple to WebGPU-NATIVE objects (the shared
-    // bindGroupLayout / tile bind groups / uniform-ring buffer), which on the forced-WebGL2
-    // slice are boot Proxy stubs — building them kills the whole boot before the raster
-    // slice ever renders. The WebGL2 frame path never consumes these twins (the render
-    // loop's rhi branch draws the isolated raster slice only), and recordFillDraw stays
-    // fail-LOUD on an untwinned pipeline, so skipping the builds is explicit, not silent.
-    // Re-basing the twins onto RHI-native layouts/bind-groups is the WebGL2 full-frame phase.
-    if (this.ctx.rhi.backend === 'webgl2') return
+    // (#746 fill-Material-twins guard removed — subsumed by the whole-build
+    // webgl2 fence at the top of build(), #834 device retirement S3.)
 
     // P1.6/§4 — build the flat-fill Material twins (default shader), always. recordFillDraw routes the
     // flat/ground non-extrude fill through them (the raw fallback is deleted; an untwinned pipeline throws).
@@ -1260,6 +1259,8 @@ export class PipelineFactory {
   }
 
   async createVariantPipelinesAsync(variant: ShaderVariantInfo): Promise<CachedPipeline> {
+    // #834 S4 — same inert sentinel as the sync builder (see GL2_VARIANT_SENTINEL).
+    if (this.ctx.rhi.backend === 'webgl2') return PipelineFactory.GL2_VARIANT_SENTINEL
     const { device } = this.ctx
     const { descriptors, pickEnabled } = this.buildVariantDescriptors(variant, this._layoutFor)
     const built = await Promise.all(
@@ -1290,7 +1291,18 @@ export class PipelineFactory {
     }
   }
 
+  /** Inert per-style pipeline set for the webgl2 backend (#834 device
+   *  retirement S4). Style resolution calls the variant builders on BOTH
+   *  backends; on webgl2 every product previously came from the no-op
+   *  device Proxy AND paid a real per-variant CPU cost (buildShader emit +
+   *  optimize — ~13 variants on OFM Bright). Consumers only carry the set
+   *  as inert closure captures (`entry.pipelines?.x ?? defaults.x`; the
+   *  rhi draw path never dereferences), so a frozen empty sentinel is
+   *  behaviourally identical and lets S6 null the device. */
+  private static readonly GL2_VARIANT_SENTINEL = Object.freeze({}) as unknown as CachedPipeline
+
   createVariantPipelines(variant: ShaderVariantInfo): CachedPipeline {
+    if (this.ctx.rhi.backend === 'webgl2') return PipelineFactory.GL2_VARIANT_SENTINEL
     const { device, format } = this.ctx
     const wgsl = buildShader(variant)
     const msaaState: GPUMultisampleState = { count: getSampleCount() }

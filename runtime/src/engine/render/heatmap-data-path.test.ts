@@ -20,9 +20,9 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
-import { initGPU, type GPUContext } from '@xgis/engine'
+import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { HeatmapRenderer } from '@xgis/map'
-import { WebGpuDevice } from '@xgis/engine'
+import { WebGpuDevice } from '@xgis/rhi-webgpu'
 import { Camera } from '@xgis/engine'
 
 let stub: StubInstallation
@@ -96,9 +96,17 @@ function captureHeatmapUploads(ctx: GPUContext): Captured {
             (data as ArrayBufferView).byteOffset,
             (data as ArrayBufferView).byteLength / 4,
           )
-    if (size === 16)
-      captured.params = f32.slice(0, 4) // compose-params
-    else if (size === N * STRIDE * 4) captured.feat = f32.slice(0, N * STRIDE) // feat_data
+    if (size === 16) {
+      // 16 B is ambiguous: compose-params AND the blur-direction uniforms.
+      // Pre-#834-S1 the blur-dir writes happened in the ctor (before this
+      // hook); the lazy-native deferral moved them AFTER addLayer (first
+      // accum draw), so last-16B-write-wins would capture a blur direction.
+      // Key on the label when the buffer carries one; otherwise keep the
+      // FIRST 16-B write (addLayer's params precedes the lazy blur-dirs).
+      const label = (buf as { label?: string })?.label
+      if (label === 'heatmap-compose-params' || (label === undefined && captured.params === undefined))
+        captured.params = f32.slice(0, 4) // compose-params
+    } else if (size === N * STRIDE * 4) captured.feat = f32.slice(0, N * STRIDE) // feat_data
   }
 
   const renderer = new HeatmapRenderer({ device: ctx.device, rhi: new WebGpuDevice(ctx.device) })

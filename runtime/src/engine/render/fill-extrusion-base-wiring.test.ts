@@ -23,7 +23,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { installWebGPUStub, type StubInstallation } from '../../__test-support__/webgpu-stub'
-import { initGPU } from '@xgis/engine'
+import { initGPU } from '@xgis/rhi-webgpu'
 import { VectorTileRenderer } from '@xgis/map'
 import { UniformRing } from '@xgis/map'
 import { polygonUniformStride } from '@xgis/map'
@@ -57,10 +57,12 @@ async function makeCtx(): Promise<Awaited<ReturnType<typeof initGPU>>> {
 function makeRecordingRing(): { ring: UniformRing; staging: () => Float32Array } {
   // Stride derived from reflect() (lazy: safe here, after configureProjections).
   const UNIFORM_SLOT = polygonUniformStride()
+  // RHI-shaped stub (#832 M2) — the ring creates/writes through RhiDevice now.
   const device = {
-    createBuffer: () => ({ destroy() {} }) as unknown as GPUBuffer,
-    queue: { writeBuffer: () => {} },
-  } as unknown as GPUDevice
+    createBuffer: () => ({}),
+    writeBuffer: () => {},
+    destroyBuffer: () => {},
+  } as unknown as import('@xgis/engine').RhiDevice
   const ring = new UniformRing(device, UNIFORM_SLOT, 8, 'test-ring', () => {})
   ring.ensure()
   const staging = () => {
