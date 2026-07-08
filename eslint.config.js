@@ -50,6 +50,11 @@ export default tseslint.config(
             'shader-dsl/src/core/passes/lint/*.test.ts',
             'shader-dsl/src/core/passes/lint/rules/*.test.ts',
             'shader-dsl/src/core/passes/opt/*.test.ts',
+            // Repo scripts (precheck, matrix tooling, snapshot capture) live
+            // outside every package tsconfig's `include`, so project-service
+            // discovery can't parse a newly STAGED one in pre-commit. Lint them
+            // via the default project, same as the src tests above.
+            'scripts/*.ts',
           ],
           // the default cap is 8 matched files per run; a refactor staging many
           // test files at once must still lint (70 test files exist today).
