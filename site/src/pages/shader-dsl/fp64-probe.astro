@@ -1,14 +1,16 @@
 ---
-// ═══ df64 GPU capability probe (diagnostic, not in nav) ═══
+// ═══ df64 GPU conformance probe (diagnostic, not in nav) ═══
 //
-// Renders known-answer df64 tests through the REAL emit + the REAL _fp64 guard,
-// so it reproduces exactly what the fp64 examples run — but instead of a scene it
-// paints a flat PASS/FAIL colour per test. Open on a device and read the colour:
-//   GREEN  = df64 is correct on this GPU
-//   BLUE   = the df64 result collapsed to 0 (the f32 answer) — the error terms
-//            were folded away (fast-math / FMA / precision loss)
-//   RED    = neither — corrupted value
-// SwiftShader (CI / headless) shows all-green; the point is real-GPU behaviour.
+// Runs a known-answer test PER df64 operation — plus the composed loran chain —
+// through the REAL emit + the REAL _fp64 guard, the exact path the fp64 examples
+// use. Each test's df64 result is rendered, read back as a real number, and
+// compared to the CPU f64 oracle (JS number == f64). Output is a copy-pasteable
+// text digest so the failing op(s) and the actual numbers are exact — no
+// screenshot reading. SwiftShader (CI / headless) passes everything; the point
+// is real-GPU behaviour, where driver fast-math can fold the error terms away.
+//
+// Every test is built so plain f32 would give a WRONG answer (a big magnitude +
+// a sub-ulp signal), so a PASS genuinely means df64 held on this GPU.
 import ShaderDsl from '../../layouts/ShaderDsl.astro'
 import {
   fn,
@@ -25,18 +27,28 @@ import {
   toF32,
   toF64,
   sqrt,
+  floor,
+  fract,
+  length,
+  distance,
+  normalize,
+  dot,
+  mix,
   abs,
+  min,
+  max,
+  vec2f64,
   Let,
   f32T,
   vec2fT,
   vec4fT,
   u32T,
   vec2f64T,
+  emitModule,
   emitGlslModule,
   reflect,
 } from '@xgis/shader-dsl'
 
-// Fullscreen triangle (self-contained copy of examples/_fullscreen).
 const VsOut = ioStruct('VsOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
 const vs = fn(
   'vs',
@@ -49,170 +61,303 @@ const vs = fn(
   { stage: 'vertex' },
 )
 
-// Runtime inputs (uniforms → no build-time const-fold; the df64 chain must run on the GPU).
+// loran stations + observer, so the composed test reproduces the real render.
+const ST_A: [number, number] = [1.2e7, 3.4e7]
+const ST_B: [number, number] = [1.9e7, 2.6e7]
+const OBS: [number, number] = [2.31e7 + 0.13, 3.07e7 + 0.57]
+
+// Shared inputs (uniforms → no const-fold; the df64 chain must run on the GPU).
 const U = uniformStruct(
   'Probe',
   { group: 0, binding: 0, as: 'u' },
   {
     big: f32T, // 1e8
-    small: f32T, // 0.5 (the expected answer of both tests)
+    small: f32T, // 0.5
     root: f32T, // 1e6
-    sq: vec2f64T, // df64 value of (root + small)^2 — its .x feeds the sqrt test
+    factor: vec2f64T, // df64 1 + 5e-9 (.x) — mul / div
+    val: vec2f64T, // df64 1e8 + 0.5 (.x) — sub / floor / fract / cmp
+    sq: vec2f64T, // df64 (1e6+0.5)^2 (.x) — sqrt
+    mulA: vec2f64T, // df64 B+0.5 (.x), B≈1.23e6 — mul_sq (genuine hi·hi product)
+    mulRef: vec2f64T, // df64 B²+B (.x) — the exact reference mul_sq subtracts
+    pt: vec2f64T, // df64 vec (1e6+0.5, 0) — length / distance / dot / normalize
+    vBig: vec2f64T, // df64 vec (1e8, 0) — vec64 add / sub / mul
+    center: vec2f64T, // df64 observer — loran
   },
 )
 
-const fsProbe = fn(
-  'fs_probe',
-  { vo: VsOut },
-  (p) => {
-    const big = U.field.big
-    const small = U.field.small
-    const root = U.field.root
-
-    // Test A (left half): the twoSum EFT. (big ⊕ small) ⊖ big must recover `small`.
-    // In plain f32, big+small rounds back to big and the subtraction yields 0.
-    const rA = Let(toF32(toF64(big).add(toF64(small)).sub(toF64(big))))
-    // Test B (right half): df64 sqrt (loran's demanding path). sqrt((root+small)^2) − root == small.
-    const rB = Let(toF32(sqrt(U.field.sq.x).sub(toF64(root))))
-
-    const left = Let(p.vo.uv.x.lt(f32(0.5)))
-    const r = Let(left.select(rA, rB))
-
-    const green = vec3(0.13, 0.82, 0.4)
-    const blue = vec3(0.24, 0.5, 0.98)
-    const red = vec3(0.95, 0.26, 0.24)
-    const okG = Let(abs(r.sub(small)).lt(f32(0.05)))
-    const zeroB = Let(abs(r).lt(f32(0.05)))
-    const col = Let(okG.select(green, zeroB.select(blue, red)))
-
-    // Thin black centre divider so the two halves read as separate tests.
-    const seam = Let(abs(p.vo.uv.x.sub(f32(0.5))).lt(f32(0.004)))
-    return vec4(seam.select(vec3(0.0), col), f32(1))
-  },
-  { stage: 'fragment', retAttr: '@location(0)' },
-)
-
-const probeModule = module({ funcs: [vs, fsProbe], uses: [U, VsOut] })
-const glslVertex = emitGlslModule(probeModule, 'vertex')
-const glslFragment = emitGlslModule(probeModule, 'fragment')
-const reflection = reflect(probeModule)
-
-// Host-side values (JS number == f64). splitF64: lossless double → (hi, lo) f32 pair.
-const fr = Math.fround
-const df64 = (x: number): [number, number] => [fr(x), fr(x - fr(x))]
-const BIG = 1e8
-const SMALL = 0.5
-const ROOT = 1e6
-const SQ = (ROOT + SMALL) * (ROOT + SMALL) // (1e6+0.5)^2 — exact in f64
-const sq = df64(SQ)
-const values: Record<string, number[]> = {
-  big: [BIG],
-  small: [SMALL],
-  root: [ROOT],
-  sq: [sq[0], 0, sq[1], 0], // std140 DF64Vec2 planes [hi.x, hi.y, lo.x, lo.y]
+// f: () => f32 node (the displayable result; every test targets 0.5 unless noted).
+// The fragment encodes r ∈ [-2,2] into an 8-bit grey level: t = (r+2)/4, read back
+// and decoded on the host (≈0.016 quantisation, well inside the 0.06 pass band).
+type Test = {
+  name: string
+  glslVertex: string
+  glslFragment: string
+  wgsl: string
+  vertexEntry: string
+  fragmentEntry: string
+  guardBinding: number | null
+  reflection: ReturnType<typeof reflect>
+  golden: number
+  circular: boolean
 }
-const payload = { glslVertex, glslFragment, reflection, values }
+const mk = (name: string, f: () => ReturnType<typeof toF32>, golden: number, circular = false): Test => {
+  const fs = fn(
+    `fs_${name}`,
+    { vo: VsOut },
+    () => {
+      const r = Let(f())
+      const t = Let(min(max(r.add(2).mul(0.25), f32(0)), f32(1)))
+      return vec4(vec3(t), f32(1))
+    },
+    { stage: 'fragment', retAttr: '@location(0)' },
+  )
+  const m = module({ funcs: [vs, fs], uses: [U, VsOut] })
+  const wgsl = emitModule(m)
+  const gb = wgsl.match(/@binding\((\d+)\)\s+var\s+_fp64/)
+  return {
+    name,
+    glslVertex: emitGlslModule(m, 'vertex'),
+    glslFragment: emitGlslModule(m, 'fragment'),
+    wgsl,
+    vertexEntry: 'vs',
+    fragmentEntry: `fs_${name}`,
+    guardBinding: gb ? Number(gb[1]) : null,
+    reflection: reflect(m),
+    golden,
+    circular,
+  }
+}
+
+const B = () => U.field.big
+const S = () => U.field.small
+const R = () => U.field.root
+
+// CPU f64 oracle (JS number == f64) for the composed loran chain.
+const d1 = Math.hypot(OBS[0] - ST_A[0], OBS[1] - ST_A[1])
+const d2 = Math.hypot(OBS[0] - ST_B[0], OBS[1] - ST_B[1])
+// fract semantics (x − ⌊x⌋, always in [0,1)) — matches the shader's fract, NOT the
+// truncated JS `%` (which returns a negative remainder for negative operands).
+const tLoran = (d1 - d2) * 0.25
+const THEXP = tLoran - Math.floor(tLoran)
+
+const tests: Test[] = [
+  // ── scalar arithmetic ──
+  mk('add', () => toF32(toF64(B()).add(toF64(S())).sub(toF64(B()))), 0.5), // (1e8⊕0.5)⊖1e8
+  mk('sub', () => toF32(U.field.val.x.sub(toF64(B()))), 0.5), // (1e8+0.5)⊖1e8
+  mk('mul', () => toF32(toF64(B()).mul(U.field.factor.x).sub(toF64(B()))), 0.5), // 1e8·(1+5e-9)⊖1e8
+  mk('div', () => toF32(U.field.val.x.div(toF64(B())).sub(toF64(1)).mul(toF64(B()))), 0.5), // ((1e8+.5)/1e8−1)·1e8
+  mk('neg', () => toF32(toF64(B()).sub(U.field.val.x).neg()), 0.5), // −(1e8 − (1e8+.5))
+  mk('abs', () => toF32(abs(U.field.val.x.sub(toF64(B())))), 0.5), // |(1e8+.5) − 1e8|
+  mk('sqrt', () => toF32(sqrt(U.field.sq.x).sub(toF64(R()))), 0.5), // √((1e6+.5)²)⊖1e6
+  // mul_sq: (B+0.5)² ⊖ (B²+B) = 0.25, ×2 → 0.5. Unlike `mul` above (whose big
+  // operand multiplies 1.0 — exact on any ALU), BOTH hi words here are ~1.23e6,
+  // so this exercises a genuine hi·hi f32 product — the split-based twoProd path
+  // luma.gl's Intel/Apple HIGH_BITS_OVERFLOW workaround (split2) protects. A GPU
+  // whose f32 multiply isn't correctly rounded fails HERE while `mul` passes.
+  mk('mul_sq', () => toF32(U.field.mulA.x.mul(U.field.mulA.x).sub(U.field.mulRef.x).mul(2)), 0.5),
+  mk('floor', () => toF32(U.field.val.x.sub(floor(U.field.val.x))), 0.5), // x − ⌊x⌋
+  mk('fract', () => toF32(fract(U.field.val.x)), 0.5),
+  mk('min', () => toF32(min(U.field.val.x, toF64(B()).add(2)).sub(toF64(B()))), 0.5),
+  mk('max', () => toF32(max(U.field.val.x, toF64(B()).sub(2)).sub(toF64(B()))), 0.5),
+  mk('mix', () => toF32(mix(toF64(B()), toF64(B()).add(1), S()).sub(toF64(B()))), 0.5), // t=0.5 → +.5
+  // ── comparisons (near-equal df64 vs the f32-equal pair) ──
+  mk('lt', () => toF64(B()).lt(U.field.val.x).select(f32(0.5), f32(0)), 0.5),
+  mk('le', () => toF64(B()).le(U.field.val.x).select(f32(0.5), f32(0)), 0.5),
+  mk('gt', () => U.field.val.x.gt(toF64(B())).select(f32(0.5), f32(0)), 0.5),
+  mk('ge', () => U.field.val.x.ge(toF64(B())).select(f32(0.5), f32(0)), 0.5),
+  mk('eq', () => U.field.val.x.eq(toF64(B())).select(f32(0), f32(0.5)), 0.5), // NOT equal in df64
+  mk('ne', () => U.field.val.x.ne(toF64(B())).select(f32(0.5), f32(0)), 0.5),
+  // ── vec64 (DF64VecN lane-wise) ──
+  mk('vec_add', () => toF32(U.field.vBig.add(vec2f64(0.5, 0)).x.sub(toF64(B()))), 0.5),
+  mk('vec_sub', () => toF32(U.field.vBig.add(vec2f64(0.5, 0)).sub(U.field.vBig).x), 0.5),
+  mk('vec_mul', () => toF32(U.field.vBig.mul(vec2f64(1 + 0.5 / 1e8, 1)).x.sub(toF64(B()))), 0.5),
+  mk('dot', () => toF32(dot(U.field.pt, vec2f64(1, 0)).sub(toF64(R()))), 0.5), // (1e6+.5)·1 ⊖ 1e6
+  mk('length', () => toF32(length(U.field.pt).sub(toF64(R()))), 0.5), // |(1e6+.5,0)| ⊖ 1e6
+  mk('distance', () => toF32(distance(U.field.pt, vec2f64(0, 0)).sub(toF64(R()))), 0.5),
+  mk('normalize', () => toF32(normalize(U.field.pt).x), 1.0), // (1e6+.5,0) → (1,0); code-path check
+  mk(
+    'loran',
+    () =>
+      toF32(
+        fract(
+          distance(U.field.center, vec2f64(ST_A[0], ST_A[1]))
+            .sub(distance(U.field.center, vec2f64(ST_B[0], ST_B[1])))
+            .mul(0.25),
+        ),
+      ),
+    THEXP,
+    true,
+  ),
+]
+
+// Host-side packed inputs. df64: lossless double → (hi, lo) f32 pair.
+const fr = Math.fround
+const df = (x: number): [number, number] => [fr(x), fr(x - fr(x))]
+const sc = (x: number): number[] => [df(x)[0], 0, df(x)[1], 0] // vec2f64 field, value only in .x
+const factor = 1 + 0.5 / 1e8
+// mul_sq base: a globe-magnitude integer so B+0.5 is f32-exact and B²+B stays
+// under 2⁵³ (packs losslessly into df64). B² ≈ 1.5e12 — length/distance square
+// coordinates of this size, so this is a realistic, not synthetic, stress.
+const MUL_B = 1234567
+const values: Record<string, number[]> = {
+  big: [1e8],
+  small: [0.5],
+  root: [1e6],
+  factor: sc(factor),
+  val: sc(1e8 + 0.5),
+  sq: sc((1e6 + 0.5) * (1e6 + 0.5)),
+  mulA: sc(MUL_B + 0.5),
+  mulRef: sc(MUL_B * MUL_B + MUL_B),
+  pt: [df(1e6 + 0.5)[0], 0, df(1e6 + 0.5)[1], 0],
+  vBig: [df(1e8)[0], 0, df(1e8)[1], 0],
+  center: [df(OBS[0])[0], df(OBS[1])[0], df(OBS[0])[1], df(OBS[1])[1]],
+}
+const payload = { values, tests }
 ---
 
-<ShaderDsl current="probe" hideSectionNav title="X-GIS Shader DSL — df64 GPU probe" description="Diagnostic: known-answer df64 tests through the real emit + guard, painting PASS/FAIL per GPU.">
-  <h1 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em] text-[32px] sm:text-[40px]">df64 GPU probe</h1>
+<ShaderDsl current="fp64-probe" hideSectionNav title="X-GIS Shader DSL — df64 GPU conformance probe" description="Per-op df64 known-answer tests on WebGPU + WebGL2 through the real emit + guard, GPU readback vs CPU oracle.">
+  <h1 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em] text-[30px] sm:text-[38px]">df64 GPU conformance probe</h1>
   <p class="mt-4 text-[15px] leading-[1.6] text-fg-dim max-w-full">
-    Two known-answer double-float tests, run through the same emit + <code class="font-mono text-[13px] text-fg">_fp64</code>
-    guard the fp64 examples use. Each half should recover <code class="font-mono text-[13px] text-fg">0.5</code>.
-    Read the colour on <strong class="text-fg">this device</strong>:
+    One known-answer test per df64 operation, plus the composed <strong class="text-fg">loran</strong> chain, run on
+    <strong class="text-fg">both backends — WebGPU (WGSL) and WebGL2 (GLSL)</strong> — through the same emit +
+    <code class="font-mono text-[13px] text-fg">_fp64</code> guard the examples use. Each result is read back as a real number
+    and compared to the CPU f64 oracle. Every test is built so plain f32 gives a wrong answer, so <strong class="text-fg">PASS means df64
+    held on this GPU</strong>. Copy the digest below and paste it back (per device).
   </p>
-  <ul class="mt-3 text-[14px] leading-[1.7] text-fg-dim max-w-full">
-    <li><span class="inline-block w-3 h-3 rounded-sm align-middle" style="background:#22d16a"></span> <strong class="text-fg">GREEN</strong> — df64 correct on this GPU.</li>
-    <li><span class="inline-block w-3 h-3 rounded-sm align-middle" style="background:#3d80fa"></span> <strong class="text-fg">BLUE</strong> — result collapsed to 0 (the plain-f32 answer): the error terms were folded away (fast-math / precision).</li>
-    <li><span class="inline-block w-3 h-3 rounded-sm align-middle" style="background:#f24340"></span> <strong class="text-fg">RED</strong> — corrupted value (neither 0.5 nor 0).</li>
-  </ul>
-  <div class="mt-5 grid grid-cols-2 gap-0 max-w-[520px] text-center font-mono text-[11px] text-fg-mute">
-    <div class="pb-1">LEFT · add/sub EFT</div>
-    <div class="pb-1">RIGHT · sqrt EFT (loran-class)</div>
-  </div>
-  <div class="rounded-[10px] border border-line overflow-hidden max-w-[520px]">
-    <canvas id="probe" width="1040" height="360" class="block w-full" style="aspect-ratio: 1040 / 360;"></canvas>
-    <div id="probe-status" class="px-4 py-2 border-t border-line bg-bg-card font-mono text-[12px] text-fg-mute"></div>
-  </div>
-  <p class="mt-4 text-[13px] leading-[1.6] text-fg-mute max-w-full">
-    Screenshot this on each device (desktop + phone) so the failing half/colour is captured. SwiftShader (headless CI) shows all-green — the diagnostic value is on real GPUs.
+  <div id="probe-chips" class="mt-5 flex flex-wrap gap-1.5 max-w-full"></div>
+  <pre id="probe-digest" class="mt-4 max-w-full overflow-x-auto rounded-[10px] border border-line bg-bg-card p-4 font-mono text-[12px] leading-[1.6] text-fg-dim whitespace-pre">running…</pre>
+  <p class="mt-3 text-[13px] leading-[1.6] text-fg-mute max-w-full">
+    SwiftShader (CI / headless) passes everything — the diagnostic value is on real GPUs, where driver fast-math can fold the df64 error terms away.
   </p>
 </ShaderDsl>
 
 <script type="application/json" id="probe-payload" set:html={JSON.stringify(payload)}></script>
 
 <script>
-  type Reflection = { uniforms: { name: string; size: number; fields: { name: string; offset: number }[] }[] }
-  const raw = document.getElementById('probe-payload')?.textContent
-  const status = document.getElementById('probe-status')!
-  const fail = (m: string) => { status.textContent = 'ERROR: ' + m; status.style.color = '#f24340' }
-  try {
-    const { glslVertex, glslFragment, reflection, values } = JSON.parse(raw!) as {
-      glslVertex: string; glslFragment: string; reflection: Reflection; values: Record<string, number[]>
-    }
-    const canvas = document.getElementById('probe') as HTMLCanvasElement
-    const gl = canvas.getContext('webgl2')
-    if (!gl) throw new Error('WebGL2 not supported')
-
-    const compile = (type: number, src: string): WebGLShader => {
-      const sh = gl.createShader(type)!
-      gl.shaderSource(sh, src)
-      gl.compileShader(sh)
-      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh) || 'compile failed')
-      return sh
-    }
-    const prog = gl.createProgram()!
-    gl.attachShader(prog, compile(gl.VERTEX_SHADER, glslVertex))
-    gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, glslFragment))
-    gl.linkProgram(prog)
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) || 'link failed')
-    gl.useProgram(prog)
-
-    // Pack the std140 uniform block from reflection offsets.
-    const block = reflection.uniforms[0]
-    const buf = new ArrayBuffer(Math.ceil(block.size / 16) * 16)
-    const f32 = new Float32Array(buf)
-    for (const f of block.fields) {
-      const v = values[f.name] ?? [0]
-      for (let i = 0; i < v.length; i++) f32[f.offset / 4 + i] = v[i]
-    }
-    const ubo = gl.createBuffer()
-    gl.bindBuffer(gl.UNIFORM_BUFFER, ubo)
-    gl.bufferData(gl.UNIFORM_BUFFER, buf, gl.STATIC_DRAW)
-    const idx = gl.getUniformBlockIndex(prog, block.name)
-    if (idx !== 0xffffffff) { gl.uniformBlockBinding(prog, idx, 0); gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, ubo) }
-
-    // The _fp64 anti-fast-math guard: a 1×1 texel-1.0 texture bound as `_fp64`.
-    const guardLoc = gl.getUniformLocation(prog, '_fp64')
-    if (guardLoc) {
-      const tex = gl.createTexture()
-      gl.activeTexture(gl.TEXTURE7)
-      gl.bindTexture(gl.TEXTURE_2D, tex)
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]))
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-      gl.uniform1i(guardLoc, 7)
-      gl.activeTexture(gl.TEXTURE0)
-    }
-
-    gl.bindVertexArray(gl.createVertexArray())
-    gl.viewport(0, 0, canvas.width, canvas.height)
-    gl.clearColor(0, 0, 0, 1)
-    gl.clear(gl.COLOR_BUFFER_BIT)
-    gl.drawArrays(gl.TRIANGLES, 0, 3)
-
-    // Read back one pixel from each half to report the verdict in text too.
-    const read = (x: number): string => {
-      const px = new Uint8Array(4)
-      gl.readPixels(x, (canvas.height / 2) | 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
-      const [r, g, b] = px
-      if (g > 150 && r < 120) return 'GREEN (df64 ok)'
-      if (b > 150 && r < 120) return 'BLUE (collapsed to f32)'
-      if (r > 150) return 'RED (corrupted)'
-      return `rgb(${r},${g},${b})`
-    }
-    status.textContent = `guard=${guardLoc ? 'bound' : 'MISSING'} · add/sub: ${read((canvas.width * 0.25) | 0)} · sqrt: ${read((canvas.width * 0.75) | 0)}`
-  } catch (e) {
-    fail(e instanceof Error ? e.message : String(e))
+  type Refl = { uniforms: { name: string; size: number; fields: { name: string; offset: number }[] }[] }
+  type T = {
+    name: string; glslVertex: string; glslFragment: string; wgsl: string
+    vertexEntry: string; fragmentEntry: string; guardBinding: number | null
+    reflection: Refl; golden: number; circular: boolean
   }
+  const digest = document.getElementById('probe-digest')!
+  const chips = document.getElementById('probe-chips')!
+  const decode = (R: number) => (R / 255) * 4 - 2 // grey → r ∈ [-2,2]
+  const pack = (block: Refl['uniforms'][0], values: Record<string, number[]>): ArrayBuffer => {
+    const buf = new ArrayBuffer(Math.ceil(block.size / 16) * 16)
+    const f = new Float32Array(buf)
+    for (const fld of block.fields) { const v = values[fld.name] ?? [0]; for (let i = 0; i < v.length; i++) f[fld.offset / 4 + i] = v[i] }
+    return buf
+  }
+
+  // WebGL2 (GLSL): render each test to an 8×8 target, read back the grey level.
+  function runWebGL(tests: T[], values: Record<string, number[]>): { guard: boolean; results: Record<string, number | null> } {
+    const canvas = document.createElement('canvas'); canvas.width = 8; canvas.height = 8
+    const gl = canvas.getContext('webgl2')
+    const results: Record<string, number | null> = {}
+    if (!gl) return { guard: false, results }
+    const gtex = gl.createTexture()
+    gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, gtex)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]))
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    gl.activeTexture(gl.TEXTURE0); gl.bindVertexArray(gl.createVertexArray()); gl.viewport(0, 0, 8, 8)
+    let guard = false
+    for (const t of tests) {
+      try {
+        const c = (ty: number, src: string) => { const s = gl.createShader(ty)!; gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) || ''); return s }
+        const p = gl.createProgram()!
+        gl.attachShader(p, c(gl.VERTEX_SHADER, t.glslVertex)); gl.attachShader(p, c(gl.FRAGMENT_SHADER, t.glslFragment)); gl.linkProgram(p)
+        if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p) || '')
+        gl.useProgram(p)
+        const block = t.reflection.uniforms[0]
+        if (block) { const ubo = gl.createBuffer(); gl.bindBuffer(gl.UNIFORM_BUFFER, ubo); gl.bufferData(gl.UNIFORM_BUFFER, pack(block, values), gl.STATIC_DRAW); const i = gl.getUniformBlockIndex(p, block.name); if (i !== 0xffffffff) { gl.uniformBlockBinding(p, i, 0); gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, ubo) } }
+        const gLoc = gl.getUniformLocation(p, '_fp64'); if (gLoc) { gl.uniform1i(gLoc, 7); guard = true }
+        gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLES, 0, 3)
+        const px = new Uint8Array(4); gl.readPixels(4, 4, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
+        results[t.name] = decode(px[0])
+      } catch (e) { results[t.name] = null }
+    }
+    return { guard, results }
+  }
+
+  // WebGPU (WGSL): same modules, render to an 8×8 target, copy → buffer, read the grey level.
+  async function runWebGPU(tests: T[], values: Record<string, number[]>): Promise<{ ok: boolean; note: string; guard: boolean; results: Record<string, number | null> }> {
+    const g = (navigator as any).gpu
+    const results: Record<string, number | null> = {}
+    if (!g) return { ok: false, note: 'WebGPU unavailable (no navigator.gpu)', guard: false, results }
+    let adapter: any
+    try { adapter = await g.requestAdapter() } catch { return { ok: false, note: 'requestAdapter threw', guard: false, results } }
+    if (!adapter) return { ok: false, note: 'no adapter', guard: false, results }
+    const device = await adapter.requestDevice()
+    const TU = (globalThis as any).GPUTextureUsage, BU = (globalThis as any).GPUBufferUsage, MM = (globalThis as any).GPUMapMode
+    const guardTex = device.createTexture({ size: [1, 1], format: 'rgba8unorm', usage: TU.TEXTURE_BINDING | TU.COPY_DST })
+    device.queue.writeTexture({ texture: guardTex }, new Uint8Array([255, 255, 255, 255]), { bytesPerRow: 4, rowsPerImage: 1 }, [1, 1])
+    const guardView = guardTex.createView()
+    let guard = false
+    for (const t of tests) {
+      try {
+        const mod = device.createShaderModule({ code: t.wgsl })
+        const target = device.createTexture({ size: [8, 8], format: 'rgba8unorm', usage: TU.RENDER_ATTACHMENT | TU.COPY_SRC })
+        const ab = pack(t.reflection.uniforms[0], values)
+        const ubuf = device.createBuffer({ size: ab.byteLength, usage: BU.UNIFORM | BU.COPY_DST }); device.queue.writeBuffer(ubuf, 0, ab)
+        const pipeline = device.createRenderPipeline({ layout: 'auto', vertex: { module: mod, entryPoint: t.vertexEntry }, fragment: { module: mod, entryPoint: t.fragmentEntry, targets: [{ format: 'rgba8unorm' }] }, primitive: { topology: 'triangle-list' } })
+        const entries: any[] = [{ binding: 0, resource: { buffer: ubuf } }]
+        if (t.guardBinding != null) { entries.push({ binding: t.guardBinding, resource: guardView }); guard = true }
+        const bg = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries })
+        const rb = device.createBuffer({ size: 256 * 8, usage: BU.COPY_DST | BU.MAP_READ })
+        const enc = device.createCommandEncoder()
+        const pass = enc.beginRenderPass({ colorAttachments: [{ view: target.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] })
+        pass.setPipeline(pipeline); pass.setBindGroup(0, bg); pass.draw(3); pass.end()
+        enc.copyTextureToBuffer({ texture: target }, { buffer: rb, bytesPerRow: 256, rowsPerImage: 8 }, [8, 8])
+        device.queue.submit([enc.finish()])
+        await rb.mapAsync(MM.READ)
+        const R = new Uint8Array(rb.getMappedRange().slice(0))[4 * 256 + 4 * 4]
+        rb.unmap()
+        results[t.name] = decode(R)
+      } catch (e) { results[t.name] = null }
+    }
+    const info = adapter.info || {}
+    return { ok: true, note: `adapter ${info.vendor || ''} ${info.architecture || ''}`.trim(), guard, results }
+  }
+
+  const verdict = (r: number | null, gold: number, circular: boolean): string => {
+    if (r == null) return 'ERR'
+    let d = Math.abs(r - gold); if (circular) d = Math.min(d, 1 - d)
+    return d < 0.06 ? 'PASS' : Math.abs(r) < 0.06 ? 'FAIL(→0)' : 'FAIL'
+  }
+
+  ;(async () => {
+    try {
+      const { values, tests } = JSON.parse(document.getElementById('probe-payload')!.textContent!) as { values: Record<string, number[]>; tests: T[] }
+      const gl = runWebGL(tests, values)
+      const gpu = await runWebGPU(tests, values)
+      const rows: string[] = []
+      chips.innerHTML = ''
+      let glPass = 0, gpuPass = 0
+      for (const t of tests) {
+        const vGl = verdict(gl.results[t.name] ?? null, t.golden, t.circular)
+        const vGpu = gpu.ok ? verdict(gpu.results[t.name] ?? null, t.golden, t.circular) : 'n/a'
+        if (vGl === 'PASS') glPass++
+        if (vGpu === 'PASS') gpuPass++
+        const ok = vGl === 'PASS' && (vGpu === 'PASS' || vGpu === 'n/a')
+        const chip = document.createElement('span')
+        chip.className = 'font-mono text-[11px] px-2 py-0.5 rounded-full border'
+        chip.style.cssText = `border-color:${ok ? '#22d16a' : '#f24340'};color:${ok ? '#22d16a' : '#f24340'}`
+        chip.textContent = `${t.name} gl:${vGl === 'PASS' ? '✓' : '✗'} gpu:${vGpu === 'PASS' ? '✓' : vGpu === 'n/a' ? '–' : '✗'}`
+        chips.appendChild(chip)
+        const gv = gl.results[t.name], pv = gpu.results[t.name]
+        const gs = gv == null ? '  ERR ' : gv.toFixed(4)
+        const ps = !gpu.ok ? '   —  ' : pv == null ? '  ERR ' : pv.toFixed(4)
+        rows.push(`${t.name.padEnd(9)} gold=${t.golden.toFixed(4)}  WebGL2 ${gs} ${vGl.padEnd(8)} | WebGPU ${ps} ${vGpu}`)
+      }
+      const header =
+        `df64 GPU probe\n` +
+        `  WebGL2: ${glPass}/${tests.length} pass · guard=${gl.guard ? 'bound' : 'MISSING'}\n` +
+        `  WebGPU: ${gpu.ok ? `${gpuPass}/${tests.length} pass · guard=${gpu.guard ? 'bound' : 'MISSING'} · ${gpu.note}` : gpu.note}\n` +
+        `  UA: ${navigator.userAgent}\n`
+      digest.textContent = header + '\n' + rows.join('\n')
+    } catch (e) {
+      digest.textContent = 'ERROR: ' + (e instanceof Error ? e.message : String(e)); digest.style.color = '#f24340'
+    }
+  })()
 </script>

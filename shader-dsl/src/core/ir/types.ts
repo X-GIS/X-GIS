@@ -20,7 +20,12 @@ export type ShaderType =
   // arithmetic runs on whole vecN hi/lo planes. Own kind, same rationale.
   | { readonly kind: 'vec64'; readonly n: 2 | 3 | 4 }
   | { readonly kind: 'vec'; readonly n: 2 | 3 | 4; readonly elem: 'f32' | 'i32' | 'u32' }
-  | { readonly kind: 'mat'; readonly n: 2 | 3 | 4; readonly elem: 'f32' }
+  // A matrix. elem 'f32' is native (matNxN<f32>); elem 'f64' is emulated double
+  // precision — it lowers to `struct DF64MatN { c0..c(N-1): DF64VecN }` (columns
+  // of df64), and matmul / mat·vec / transpose compose the SCALAR df64 EFTs the
+  // same way length/dot do. Own elem arm, so every `t.kind === 'mat'` consumer is
+  // forced to decide about f64 (verified-by-construction).
+  | { readonly kind: 'mat'; readonly n: 2 | 3 | 4; readonly elem: 'f32' | 'f64' }
   | { readonly kind: 'struct'; readonly name: string }
   | { readonly kind: 'array'; readonly elem: ShaderType; readonly size?: number }
   | { readonly kind: 'texture'; readonly dim: '2d' | '2d-ms'; readonly elem: 'f32' }
@@ -47,6 +52,9 @@ export const vec4uT = { kind: 'vec', n: 4, elem: 'u32' } as const satisfies Shad
 export const vec2iT = { kind: 'vec', n: 2, elem: 'i32' } as const satisfies ShaderType
 export const vec4iT = { kind: 'vec', n: 4, elem: 'i32' } as const satisfies ShaderType
 export const mat4x4fT = { kind: 'mat', n: 4, elem: 'f32' } as const satisfies ShaderType
+export const mat2f64T = { kind: 'mat', n: 2, elem: 'f64' } as const satisfies ShaderType
+export const mat3f64T = { kind: 'mat', n: 3, elem: 'f64' } as const satisfies ShaderType
+export const mat4f64T = { kind: 'mat', n: 4, elem: 'f64' } as const satisfies ShaderType
 export const texture2dfT = { kind: 'texture', dim: '2d', elem: 'f32' } as const satisfies ShaderType
 export const texture2dMsfT = {
   kind: 'texture',
@@ -72,8 +80,8 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
       ? `vec${N}<f64>`
       : T extends { kind: 'vec'; n: infer N extends number; elem: infer E extends string }
         ? `vec${N}<${E}>`
-        : T extends { kind: 'mat'; n: infer N extends number }
-          ? `mat${N}x${N}<f32>`
+        : T extends { kind: 'mat'; n: infer N extends number; elem: infer E extends string }
+          ? `mat${N}x${N}<${E}>`
           : // #763 X6 — texture/sampler arms (spellings match typeKey()): resource()
             // promised a SPECIFIC key (`Node<'texture_2d<f32>'>`) but these fell through
             // to `string`, so a texture/sampler argument swap type-checked.
@@ -125,6 +133,11 @@ export const isVec = (t: ShaderType): t is Extract<ShaderType, { kind: 'vec' }> 
 export const isScalar = (t: ShaderType): t is Extract<ShaderType, { kind: 'scalar' }> =>
   t.kind === 'scalar'
 export const isMat = (t: ShaderType): t is Extract<ShaderType, { kind: 'mat' }> => t.kind === 'mat'
+/** An emulated-double matrix (`matNxN<f64>`), lowered to a DF64MatN column struct. */
+export const isMat64 = (
+  t: ShaderType,
+): t is Extract<ShaderType, { kind: 'mat' }> & { elem: 'f64' } =>
+  t.kind === 'mat' && t.elem === 'f64'
 export const isF64 = (t: ShaderType): t is Extract<ShaderType, { kind: 'f64' }> => t.kind === 'f64'
 export const isVec64 = (t: ShaderType): t is Extract<ShaderType, { kind: 'vec64' }> =>
   t.kind === 'vec64'

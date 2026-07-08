@@ -71,6 +71,33 @@ function typeLayout(
           ? { size: 12, align: 16 }
           : { size: 16, align: 16 }
     case 'mat': {
+      // mat64 (emulated double) lowers to `struct DF64MatN { c0..c(N-1): DF64VecN }`
+      // — derive the layout from THAT struct through the same engine (single
+      // authority), so authored and lowered reflections agree byte-for-byte.
+      if (t.elem === 'f64') {
+        const vecT: ShaderType = { kind: 'vec', n: t.n, elem: 'f32' }
+        const colStruct: StructDecl = {
+          name: `DF64Vec${t.n}`,
+          fields: [
+            { name: 'hi', type: vecT },
+            { name: 'lo', type: vecT },
+          ],
+        }
+        const nested = new Map(structs)
+        nested.set(colStruct.name, colStruct)
+        const sl = structLayout(
+          {
+            name: `DF64Mat${t.n}`,
+            fields: Array.from({ length: t.n }, (_, j) => ({
+              name: `c${j}`,
+              type: { kind: 'struct', name: colStruct.name } as ShaderType,
+            })),
+          },
+          layout,
+          nested,
+        )
+        return { size: sl.size, align: sl.align }
+      }
       // #763 P7 — mat2 std140 DIVERGES between WGSL uniform rules (column stride 8)
       // and real GLSL std140 (columns round to vec4 → stride 16). The GLSL UBO emit
       // declares this layout THE offset contract, so a mat2 field would drift host
