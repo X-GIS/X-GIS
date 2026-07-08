@@ -834,33 +834,41 @@ See `examples/fp64-deep-zoom.ts` for the full picture (f32 collapse vs f64 strip
 ## 8. Production emit — `@xgis/shader-dsl/emit-prod`
 
 Your bundler minifies the JS and never touches the shader text it hands to
-`gl.shaderSource` / `createShaderModule`. The ship-time transforms live on
+`gl.shaderSource` / `createShaderModule`. The ship-time transforms compose the
+Vite/Webpack way — a `{ plugins: [...] }` bag of named plugins — and live on
 their OWN subpath (like `/dev` for the lint/measure tooling): the core emit
-carries only a neutral seam — `EmitTransforms = { transformIR?,
-transformText? }` — so a runtime-emit consumer that never imports the subpath
-bundles **zero bytes** of them, and the plain emit stays byte-identical.
+carries only the neutral plugin seam (`EmitPlugin` / `EmitOptions`), so a
+runtime-emit consumer that never imports the subpath bundles **zero bytes** of
+them, and the plain emit stays byte-identical.
 
 ```ts
-import { obfuscate } from '@xgis/shader-dsl/emit-prod'
+import { mangle, minify, obfuscate } from '@xgis/shader-dsl/emit-prod'
 
 const renames = new Map<string, string>()
-const wgsl = emitModule(m, obfuscate({ renames }))
-const vs = emitGlslModule(m, 'vertex', obfuscate())
-const fs = emitGlslModule(m, 'fragment', obfuscate())
+const wgsl = emitModule(m, { plugins: [mangle({ renames }), minify()] })
+// obfuscate() is the standard [mangle, minify] preset:
+const vs = emitGlslModule(m, 'vertex', { plugins: obfuscate() })
+const fs = emitGlslModule(m, 'fragment', { plugins: obfuscate() })
 ```
 
-- **`obfuscate({ renames? })`** — the full production bundle (mangle + minify)
-  as an `EmitTransforms` object. Pass a `Map` as `renames` to receive
-  authored → emitted names: the shader "source map" for decoding production
-  driver logs and GPU captures. Keep it out of the shipped bundle.
-- **`mangleIR(renames?)`** — the rename side alone (a `transformIR`): helper
-  fn names, plain struct names, module consts (including the injected
-  `df64_*` library) become `_f0`/`_S0`/`_k0`. Deterministic per module — the
-  two GLSL stage emits (separate calls) always agree on shared names, so
-  programs still link.
-- **`minifyShaderText`** — the compaction side alone (a `transformText`;
-  also usable on a string you already hold). Token-safe by construction
-  (neither language has string literals; `#` directives keep their own line).
+- **`mangle({ renames? })`** — an `EmitPlugin` (a Vite-style factory). Renames
+  helper fn names, plain struct names, and module consts (including the
+  injected `df64_*` library) to `_f0`/`_S0`/`_k0`. Deterministic per module —
+  the two GLSL stage emits (separate calls) always agree on shared names, so
+  programs still link. Pass a `Map` as `renames` to receive authored → emitted
+  names: the shader "source map" for decoding production driver logs and GPU
+  captures. Keep it out of the shipped bundle.
+- **`minify()`** — an `EmitPlugin` that compacts the emitted string. Token-safe
+  by construction (neither language has string literals; `#` directives keep
+  their own line). `minifyShaderText(code)` is the raw function it wraps, for a
+  string you already hold.
+- **`obfuscate({ renames? })`** — the standard preset, `[mangle(opts),
+  minify()]`. Spread it into `{ plugins }`.
+
+Plugins fire STAGED like Vite: every plugin's `transformIR` (IR stage) runs in
+array order before the module is assembled, then every plugin's `transformText`
+(string stage) runs in array order. A forced-inline plugin is the planned next
+resident — it slots into the array with no API change.
 
 **The ABI boundary — never renamed:** entry-point names (WebGPU `entryPoint`),
 binding names including the `_fp64` guard (hosts resolve by name),

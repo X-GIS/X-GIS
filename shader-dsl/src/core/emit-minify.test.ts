@@ -1,7 +1,7 @@
 // ═══ minifyShaderText / emit-prod transformText — token safety, directives, idempotence ═══
 
 import { describe, it, expect } from 'vitest'
-import { minifyShaderText, obfuscate } from '../emit-prod'
+import { minifyShaderText, mangle, minify, obfuscate } from '../emit-prod'
 import { fn, module, vec2, vec4, sin, u32T, vec2fT, vec4fT } from './ir'
 import { ioStruct, builtin, location } from './sot'
 import { emitModule } from './backends/wgsl'
@@ -51,29 +51,39 @@ const fs = fn('fs_min', { vo: VsOut }, (p) => vec4(sin(p.vo.uv.x), 0.0, 0.0, 1.0
 })
 const m = module({ funcs: [vs, fs], uses: [VsOut] })
 
-describe('emit-prod transforms through the seam — integrated', () => {
-  it('WGSL minifies to a single line (no directives) and shrinks', () => {
+describe('emit-prod plugins through the { plugins } seam — integrated', () => {
+  it('WGSL minify() plugin makes a single line (no directives) and shrinks', () => {
     const plain = emitModule(m)
-    const min = emitModule(m, { transformText: minifyShaderText })
+    const min = emitModule(m, { plugins: [minify()] })
     expect(min.trimEnd().split('\n')).toHaveLength(1)
     expect(min.length).toBeLessThan(plain.length)
     expect(min).toContain('@vertex fn vs_min') // tokens intact, whitespace gone
   })
 
   it('GLSL keeps #version as line one; body is compacted; default emit is untouched', () => {
-    const min = emitGlslModule(m, 'fragment', { transformText: minifyShaderText })
+    const min = emitGlslModule(m, 'fragment', { plugins: [minify()] })
     expect(min.startsWith('#version 300 es\n')).toBe(true)
     expect(min.trimEnd().split('\n')).toHaveLength(2) // directive + one body line
     expect(min).toContain('precision highp float;')
     expect(emitGlslModule(m, 'fragment')).toContain('\n  ') // plain emit still indented
   })
 
-  it('obfuscate() bundles mangle + minify and keeps the ABI names', () => {
+  it('obfuscate() preset = [mangle, minify]: compacted, vocabulary gone, ABI intact', () => {
     const renames = new Map<string, string>()
-    const wgsl = emitModule(m, obfuscate({ renames }))
+    const wgsl = emitModule(m, { plugins: obfuscate({ renames }) })
     expect(wgsl.trimEnd().split('\n')).toHaveLength(1)
     expect(wgsl).not.toContain('MinVsOut') // plain struct mangled…
     expect(wgsl).toContain('fn vs_min') // …entry names intact
     expect(renames.get('MinVsOut')).toMatch(/^_S\d+$/)
+  })
+
+  it('plugin composition is order-sensitive on the text stage and staged across stages', () => {
+    // Two text plugins compose in array order; the IR-stage plugin (mangle)
+    // always runs before either, regardless of array position.
+    const upper = { name: 'upper', transformText: (c: string) => c }
+    const a = emitModule(m, { plugins: [mangle(), minify(), upper] })
+    const b = emitModule(m, { plugins: [upper, minify(), mangle()] })
+    expect(a).toBe(b) // mangle staged before all transformText; upper is identity here
+    expect(a.trimEnd().split('\n')).toHaveLength(1)
   })
 })

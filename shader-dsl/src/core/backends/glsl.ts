@@ -35,7 +35,9 @@ import {
   emitBody,
   emitExpr as emitExprNeutral,
   lowerForBackend,
-  type EmitTransforms,
+  applyIRPlugins,
+  applyTextPlugins,
+  type EmitOptions,
 } from '../emit'
 import { wgslLayout } from '../reflect'
 import { sanitizeReservedIdents } from './glsl-sanitize'
@@ -957,7 +959,7 @@ function stageScope(
 export function emitGlslModule(
   m: ModuleDecl,
   stage?: 'vertex' | 'fragment',
-  opts?: { emulateStorage?: boolean; emulateCompute?: boolean } & EmitTransforms,
+  opts?: { emulateStorage?: boolean; emulateCompute?: boolean } & EmitOptions,
 ): string {
   // autoVars BEFORE lowerModule (inside lowerForBackend), same order as the WGSL backend /
   // CPU oracle — materialising assigned plain-value bindings into real vars is BACKEND-NEUTRAL.
@@ -974,12 +976,14 @@ export function emitGlslModule(
       : m
   // GLSL-local: rename any param/var identifier colliding with a GLSL reserved word
   // (e.g. an entry param `input` / `in`) — does NOT affect the WGSL backend.
-  // The optional transformIR seam (production tooling — emit-prod's mangle) runs
-  // LAST in the IR chain; its contract requires determinism on the lowered
-  // module, so the vertex and fragment emits (separate calls over the same
-  // module) agree on every shared transformed name.
-  const sanitized = sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend))
-  const lowered = opts?.transformIR ? opts.transformIR(sanitized) : sanitized
+  // The transformIR plugins (production tooling — emit-prod's mangle) run LAST in
+  // the IR chain; their contract requires determinism on the lowered module, so
+  // the vertex and fragment emits (separate calls over the same module) agree on
+  // every shared transformed name.
+  const lowered = applyIRPlugins(
+    sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend)),
+    opts,
+  )
   const structs = new Map(lowered.structs.map((s) => [s.name, s]))
 
   // Stage filter through the shared predicate (#763 S3) — the old attr-string
@@ -1078,6 +1082,5 @@ export function emitGlslModule(
   if (helpers.length) parts.push(helpers.map((f) => glslEs300Backend.emitFunc(f)).join('\n\n'))
   if (entries.length) parts.push(entries.map((f) => emitGlslEntry(f, structs)).join('\n\n'))
 
-  const code = parts.join('\n') + '\n'
-  return opts?.transformText ? opts.transformText(code) : code
+  return applyTextPlugins(parts.join('\n') + '\n', opts)
 }

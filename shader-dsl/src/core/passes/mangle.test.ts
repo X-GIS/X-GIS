@@ -1,11 +1,11 @@
-// ═══ mangleModule / emit-prod mangleIR — rename scope, ABI boundary, determinism ═══
+// ═══ mangleModule / emit-prod mangle() plugin — rename scope, ABI boundary, determinism ═══
 
 import { describe, it, expect } from 'vitest'
 import { fn, module, vec2, vec4, fract, toF32, toF64, sin, f32T, f64T, vec2fT, vec4fT } from '../ir'
 import { ioStruct, builtin, location, uniformStruct } from '../sot'
 import { emitModule } from '../backends/wgsl'
 import { emitGlslModule } from '../backends/glsl'
-import { mangleIR } from '../../emit-prod'
+import { mangle } from '../../emit-prod'
 import { mangleModule } from './mangle'
 import type { ModuleDecl } from '../ir'
 
@@ -43,10 +43,10 @@ const fsEntry = fn(
 )
 const m = module({ funcs: [vsEntry, fsEntry], uses: [U, VsOut] })
 
-describe('emit-prod mangleIR through the EmitTransforms seam — authored vocabulary disappears', () => {
+describe('emit-prod mangle() plugin through the { plugins } seam — authored vocabulary disappears', () => {
   it('WGSL: helper + plain-struct names are renamed; the renames map records them', () => {
     const renames = new Map<string, string>()
-    const wgsl = emitModule(m, { transformIR: mangleIR(renames) })
+    const wgsl = emitModule(m, { plugins: [mangle({ renames })] })
     expect(wgsl).not.toContain('terrain_shade')
     expect(wgsl).not.toContain('MangleVsOut')
     expect(wgsl).not.toMatch(/\bdf64_/) // the injected df64 library is vocabulary too
@@ -55,7 +55,7 @@ describe('emit-prod mangleIR through the EmitTransforms seam — authored vocabu
   })
 
   it('WGSL: the ABI boundary survives — entries, binding names, UBO struct, fields, guard', () => {
-    const wgsl = emitModule(m, { transformIR: mangleIR() })
+    const wgsl = emitModule(m, { plugins: [mangle()] })
     expect(wgsl).toContain('fn vs_main') // WebGPU createRenderPipeline entryPoint
     expect(wgsl).toContain('fn fs_main')
     expect(wgsl).toContain('params') // binding name (reflection-driven host bind)
@@ -65,19 +65,17 @@ describe('emit-prod mangleIR through the EmitTransforms seam — authored vocabu
     expect(wgsl).toContain('sin(') // builtins are not module fns — never renamed
   })
 
-  it('is deterministic (same bytes twice) and default-off (no-opts emit unchanged)', () => {
-    expect(emitModule(m, { transformIR: mangleIR() })).toBe(
-      emitModule(m, { transformIR: mangleIR() }),
-    )
-    expect(emitModule(m)).toBe(emitModule(m, {}))
+  it('is deterministic (same bytes twice) and default-off (no-plugins emit unchanged)', () => {
+    expect(emitModule(m, { plugins: [mangle()] })).toBe(emitModule(m, { plugins: [mangle()] }))
+    expect(emitModule(m)).toBe(emitModule(m, { plugins: [] }))
     expect(emitModule(m)).toContain('terrain_shade')
   })
 
   it('GLSL: the two stage emits agree on every shared mangled name (link contract)', () => {
     const rv = new Map<string, string>()
     const rf = new Map<string, string>()
-    const vs = emitGlslModule(m, 'vertex', { transformIR: mangleIR(rv) })
-    const fs = emitGlslModule(m, 'fragment', { transformIR: mangleIR(rf) })
+    const vs = emitGlslModule(m, 'vertex', { plugins: [mangle({ renames: rv })] })
+    const fs = emitGlslModule(m, 'fragment', { plugins: [mangle({ renames: rf })] })
     expect(rv.get('terrain_shade')).toBe(rf.get('terrain_shade'))
     const shared = rv.get('terrain_shade')!
     expect(vs).toContain(`${shared}(`)

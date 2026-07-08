@@ -34,12 +34,12 @@ export * from './core/backends/glsl'
 // Neutral intrinsic-spelling registry.
 export * from './core/intrinsics'
 
-// The optional emit-transform SEAM ({ transformIR, transformText }) accepted by
-// BOTH emitModule (WGSL) and emitGlslModule. The type only — the production
-// implementations (mangle / minify / obfuscate) live on the
-// `@xgis/shader-dsl/emit-prod` subpath so runtime-emit consumers that never
-// import them bundle zero bytes of them.
-export { type EmitTransforms } from './core/emit'
+// The emit PLUGIN seam accepted by BOTH emitModule (WGSL) and emitGlslModule:
+// `EmitOptions = { plugins?: EmitPlugin[] }`, composed the Vite/Webpack way.
+// Types only — the production plugin implementations (mangle / minify /
+// obfuscate) live on the `@xgis/shader-dsl/emit-prod` subpath so runtime-emit
+// consumers that never import them bundle zero bytes of them.
+export { type EmitPlugin, type EmitOptions } from './core/emit'
 
 // CPU f64 oracle (compileModule + CpuModule types).
 export * from './core/oracle'

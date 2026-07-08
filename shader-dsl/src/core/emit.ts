@@ -179,30 +179,60 @@ function assembleLowered(lowered: ModuleDecl, be: Backend): string {
   return parts.join('\n\n') + '\n'
 }
 
-/** Optional emit transforms (both backends) — the seam production-emit tooling
- *  plugs into. The CORE knows nothing about what the transforms do; the
- *  implementations (mangle/minify — `@xgis/shader-dsl/emit-prod`) live on their
- *  own subpath so a runtime-emit consumer that never imports them bundles ZERO
- *  bytes of them. Contract: `transformIR` receives the fully LOWERED module
- *  (post match-lower / fp64Lower / optimize; on GLSL also post reserved-ident
- *  sanitisation) and must return a module the backend can spell; it must be
- *  deterministic per module — the GLSL vertex/fragment emits are separate calls
- *  that must agree on every shared name. `transformText` receives the final
- *  assembled string. Both default absent: the plain emit stays byte-identical. */
-export interface EmitTransforms {
+/** An emit plugin — the Vite/Webpack-style unit production-emit tooling composes
+ *  through. The CORE knows nothing about what a plugin does; the implementations
+ *  (mangle/minify — `@xgis/shader-dsl/emit-prod`) live on their own subpath so a
+ *  runtime-emit consumer that never imports them bundles ZERO bytes of them.
+ *
+ *  Two staged hooks, both optional (a plugin may use either or both):
+ *   - `transformIR` receives the fully LOWERED module (post match-lower /
+ *     fp64Lower / optimize; on GLSL also post reserved-ident sanitisation) and
+ *     returns a module the backend can spell. It must be DETERMINISTIC per
+ *     module — the GLSL vertex/fragment emits are separate calls that must
+ *     agree on every shared name.
+ *   - `transformText` receives the assembled string.
+ *
+ *  Like Vite, hooks fire STAGED across all plugins: every plugin's `transformIR`
+ *  runs (in `plugins` order) before the module is assembled, then every plugin's
+ *  `transformText` runs (in `plugins` order) on the string. `name` identifies
+ *  the plugin (debugging / error context), same as a Vite/Webpack plugin name. */
+export interface EmitPlugin {
+  readonly name: string
   readonly transformIR?: (lowered: ModuleDecl) => ModuleDecl
   readonly transformText?: (code: string) => string
+}
+
+/** Emit configuration — a Vite/Webpack-style `{ plugins: [...] }` bag. A config
+ *  object (rather than a bare array) leaves room for future top-level emit
+ *  options without another signature change. Absent/empty ⇒ the plain emit,
+ *  byte-identical. */
+export interface EmitOptions {
+  readonly plugins?: readonly EmitPlugin[]
+}
+
+/** Fold every plugin's `transformIR` over the lowered module, in `plugins`
+ *  order. Shared by the WGSL driver below and the GLSL backend's own assembly. */
+export function applyIRPlugins(lowered: ModuleDecl, opts?: EmitOptions): ModuleDecl {
+  let m = lowered
+  for (const p of opts?.plugins ?? []) if (p.transformIR) m = p.transformIR(m)
+  return m
+}
+
+/** Fold every plugin's `transformText` over the emitted string, in `plugins` order. */
+export function applyTextPlugins(code: string, opts?: EmitOptions): string {
+  let c = code
+  for (const p of opts?.plugins ?? []) if (p.transformText) c = p.transformText(c)
+  return c
 }
 
 /** Emit a ModuleDecl to a target string: shared preamble (`lowerForBackend`) then the
  *  declaration assembly (consts → structs → bindings → funcs, only non-empty sections),
  *  joined `\n\n` with a trailing newline. Each backend's public module entry
  *  (`emitModule` for WGSL) routes through here, so the assembly lives once.
- *  `opts` applies the optional EmitTransforms seam around the assembly. */
-export function emitModule(m: ModuleDecl, be: Backend, opts?: EmitTransforms): string {
-  const lowered = lowerForBackend(m, be)
-  const code = assembleLowered(opts?.transformIR ? opts.transformIR(lowered) : lowered, be)
-  return opts?.transformText ? opts.transformText(code) : code
+ *  `opts.plugins` run staged around the assembly (all transformIR, then all transformText). */
+export function emitModule(m: ModuleDecl, be: Backend, opts?: EmitOptions): string {
+  const lowered = applyIRPlugins(lowerForBackend(m, be), opts)
+  return applyTextPlugins(assembleLowered(lowered, be), opts)
 }
 
 /** Emit a ModuleDecl at an explicit optimization level (O0/O1/O2) instead of the

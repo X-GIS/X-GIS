@@ -27,7 +27,7 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
   }) => {
     const variants = renderable.map((ex) => ({
       name: ex.id,
-      wgsl: emitModule(ex.module, obfuscate()),
+      wgsl: emitModule(ex.module, { plugins: obfuscate() }),
     }))
     expect(variants.length).toBeGreaterThan(10)
     for (const v of variants) {
@@ -74,8 +74,8 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
   }) => {
     const pairs = renderable.map((ex) => ({
       name: ex.id,
-      vertex: emitGlslModule(ex.module, 'vertex', obfuscate()),
-      fragment: emitGlslModule(ex.module, 'fragment', obfuscate()),
+      vertex: emitGlslModule(ex.module, 'vertex', { plugins: obfuscate() }),
+      fragment: emitGlslModule(ex.module, 'fragment', { plugins: obfuscate() }),
     }))
     for (const p of pairs)
       expect(p.vertex.startsWith('#version 300 es\n'), `${p.name}: directive lost`).toBe(true)
@@ -141,7 +141,7 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
       const ex = renderable.find((e) => e.id === id)
       if (!ex) throw new Error(`example '${id}' missing from the renderable set`)
       const emit = (stage: 'vertex' | 'fragment', obf: boolean) =>
-        emitGlslModule(ex.module, stage, obf ? obfuscate() : undefined)
+        emitGlslModule(ex.module, stage, obf ? { plugins: obfuscate() } : undefined)
       return {
         name: id,
         plainVs: emit('vertex', false),
