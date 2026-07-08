@@ -1,0 +1,5 @@
+flowchart LR
+  map["@xgis/map"] --> engine["@xgis/engine"]
+  engine --> rhi["@xgis/rhi<br/>(interface, 0 deps)"]
+  rhi -. "engine selects<br/>at runtime" .-> webgpu["@xgis/rhi-webgpu"]
+  rhi -.-> webgl2["@xgis/rhi-webgl2"]

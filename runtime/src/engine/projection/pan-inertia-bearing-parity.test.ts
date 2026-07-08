@@ -14,7 +14,7 @@
 // {30,45,90,135,270} (the perpendicular component flips sign); bearing 0/180
 // are controls that pass either way.
 import { describe, it, expect } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 
 const W = 1280,
   H = 800

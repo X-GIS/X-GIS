@@ -20,7 +20,7 @@
 // MultiPoint fork). Tile-sourced heatmaps (addTilePoint/flushTilePoints) are
 // a deferred follow-up.
 
-import type { Camera } from '@xgis/engine'
+import type { Camera } from '../camera'
 import { lonLatToECEF } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { activeBody } from '@xgis/shared'

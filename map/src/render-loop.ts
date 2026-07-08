@@ -37,7 +37,7 @@ import { reportErrorScope } from './render-loop-helpers'
 import { backgroundClearValue } from './render/passes/background-pass'
 import { labelPass } from './render/passes/label-pass'
 import { resolveColorShape, resolveNumberShape } from './render/paint-shape-resolve'
-import { type FrameContext } from '@xgis/rhi-webgpu'
+import { type FrameContext } from './render/frame-context'
 import { makeProjectionToken, setProjectionToken } from '@xgis/engine'
 import type { RhiDevice, RhiScreenPassDevice, RhiTexture, RhiTextureView } from '@xgis/engine'
 import { asScreenPassDevice } from '@xgis/engine'
@@ -558,10 +558,9 @@ export class RenderLoop {
       }
       if (w.__xgisCaptureDrawOrder && w.__xgisDrawOrderTrace) {
         const trace = w.__xgisDrawOrderTrace
-        // eslint-disable-next-line no-console
+
         console.log('[XGIS-DRAW-ORDER] frame trace (' + trace.length + ' calls):')
         for (const e of trace) {
-          // eslint-disable-next-line no-console
           console.log(
             `  ${String(e.seq).padStart(2, ' ')}  extrude=${e.extrude.padEnd(10)}  phase=${e.phase.padEnd(8)}  slice="${e.slice}"`,
           )

@@ -17,7 +17,7 @@
 // N-independence gate).
 
 import { DEBUG_OVERDRAW } from '../../debug-flags'
-import type { FrameContext } from '@xgis/rhi-webgpu'
+import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '@xgis/engine'
 import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import type { SceneView } from '../scene-view'

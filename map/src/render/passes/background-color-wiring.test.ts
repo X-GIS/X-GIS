@@ -27,7 +27,7 @@
 import { describe, it, expect } from 'vitest'
 import { backgroundPass } from './background-pass'
 import type { BackgroundPassHost } from './pass'
-import type { FrameContext } from '@xgis/rhi-webgpu'
+import type { FrameContext } from '../frame-context'
 import { makeProjectionToken } from '@xgis/engine'
 
 // A deliberately non-trivial, asymmetric colour so each channel is its own

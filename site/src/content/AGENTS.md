@@ -47,3 +47,45 @@ Typed TypeScript data modules that serve as the single source of truth for struc
 None
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+
+## Blog authoring (AI end-of-session write-ups)
+
+When you write a `blog/` post at the end of a work session, **start from the
+skeleton**: copy `blog/_TEMPLATE.md` to `blog/YYYY-MM-DD-slug.md` and fill it in.
+The template (excluded from the published collection by the `!_*` glob in
+`src/content.config.ts`) encodes the house style inline; this is the short
+version of why it exists.
+
+The one bar every post must clear: **strip "X-GIS" and a transferable lesson
+must remain.** A post that only makes sense to someone who works on this repo is
+an internal changelog, not an article. Insight lives in the _specific_ — the
+concrete symptom, the wrong turn, the raw observation — not in the general maxim.
+
+**Ground everything; invent nothing.** You are writing about work you just did,
+so the facts exist: `git log --author=Claude <branch>`, `git show <sha>`, the
+code, the tests. Every number, symptom, error string, and code snippet comes
+from that record. If a fact isn't recoverable, leave it out or say "we infer /
+did not measure this" — a fabricated number or a made-up snippet is worse than an
+admitted gap (both have shipped here and been caught in review). The most
+valuable thing to recover is the **dead end** you actually hit this session — the
+first fix that failed, the wrong hypothesis — because it vanishes when the
+session ends and it is exactly what makes the post worth reading.
+
+The recurring failure to avoid (audited across every existing post):
+
+| Tell (generic)                                       | Fix (specific)                                                                     |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Danger in the conditional: "a rename _can_ mislink"  | Past tense if it fired: "a rename mislinked the two stages — here's the log"       |
+| The conclusion only: "a missing tile looked corrupt" | The observation that produced it: "we dumped the `.pbf` and saw `<!DOCTYPE html>`" |
+| A category list of bugs caught                       | The one failing input/value that makes it memorable                                |
+| Vanity numbers (`~37k lines`, `147 files`)           | Symptom numbers (`217 refs → 87`, `1687 → 1468 bytes`)                             |
+| A bulleted "Takeaways" ending of maxims              | One earned prose sentence — and only if the reader would have disagreed first      |
+| Topic-sentence opener ("precision matters")          | A concrete fact opener (the number, the error, the symptom)                        |
+
+Reading aids available in posts: `$…$` KaTeX math, ` ```lang ` highlighted code
+fences, `:::warning` / `:::note` / `:::tip` callouts (use for gotchas/traps),
+auto-scrolling tables, framed `![](…)` figures, pre-rendered Mermaid diagrams
+(author a `.mmd` in `site/diagrams/`, render to a committed SVG via
+`site/diagrams/render.sh`, embed as a `<figure>` — build-time only, no client
+JS), and `<LiveShader id="…"/>` in `.mdx` posts. Group a multi-part arc with the
+`series:` frontmatter field.

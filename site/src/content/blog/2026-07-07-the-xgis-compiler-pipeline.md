@@ -1,28 +1,22 @@
 ---
 title: 'The .xgis compiler pipeline: from style text to GPU programs'
-description: "How a declarative map style becomes GPU work: lexer → parser → a Scene IR → optimization passes → codegen that emits typed shader-dsl IR (never WGSL strings), per-feature compute kernels for match(), and a gradient atlas for zoom-dependent paint."
+description: 'How a declarative map style becomes GPU work: lexer → parser → a Scene IR → optimization passes → codegen that emits typed shader-dsl IR (never WGSL strings), per-feature compute kernels for match(), and a gradient atlas for zoom-dependent paint.'
 date: 2026-07-07
 tags: ['compiler', 'engine', 'webgpu', 'shader-dsl']
 lang: en
 ---
 
 The [first post on this blog](/blog/2026-06-26-why-a-gpu-first-map-engine)
-claimed that an X-GIS style is *source code* — compiled once, not interpreted
-per frame. This post is the anatomy of that compiler: ~37k lines in
-`@xgis/compiler`, five stages, and one design rule that shapes everything
-downstream.
+claimed that an X-GIS style is _source code_ — compiled once, not interpreted
+per frame. This post is the anatomy of that compiler in `@xgis/compiler`: five
+stages, and one design rule that shapes everything downstream.
 
 ## The stages
 
-```txt
-.xgis text
-  → lexer                (tokens)
-  → parser               (AST)
-  → lower                (Scene IR)
-  → optimize             (pass manager over the IR)
-  → codegen              (shader-dsl IR modules + palette + compute plan)
-  → emit                 (SceneCommands — the runtime handoff)
-```
+<figure>
+  <img src="/diagrams/compiler-pipeline.svg" alt="Compiler stages left to right: .xgis text, lexer, parser, lower to Scene IR, optimize pass manager, codegen to shader-dsl IR, emit to SceneCommands." />
+  <figcaption>Five stages plus the runtime handoff: text → lexer → parser → lower (Scene IR) → optimize → codegen (shader-dsl IR) → emit (SceneCommands).</figcaption>
+</figure>
 
 The IR is a **`Scene`**: sources, an array of render nodes, symbols. Each
 render node carries its paint as typed value unions (`ColorValue`,
@@ -31,22 +25,25 @@ which is exactly the shape the optimizer and codegen dispatch on.
 
 ## The optimizer
 
-A small LLVM-flavored pass manager runs over the Scene:
+A small LLVM-flavored pass manager runs over the Scene. Most of its passes
+are the obvious folds — a zoom `interpolate` whose stops are all identical
+collapses to a constant, a `match()` whose arms all yield the same literal
+collapses to that literal, scalar constant folding runs wherever expressions
+are classified. The value is mundane: paint that _can_ be static becomes
+static before any GPU decision, so the expensive machinery below only fires
+for paint that genuinely varies.
 
-- `fold-trivial-stops` — a zoom interpolation whose stops are all identical
-  is a constant.
-- `fold-trivial-case` — a `match()` whose every arm yields the same literal
-  is that literal.
-- `dead-layer-elim` / `dead-source-elim` — run as a fixpoint group: removing
-  a dead layer can orphan a source, which the next iteration removes.
-- `merge-layers` — same-source layer groups collapse into compound nodes.
-- `cse-annotate` / `expr-analyze` — side-tables (shared-subexpression and
-  purity metadata) that later stages consult for kernel deduplication.
-- Scalar constant folding runs inline wherever expressions are classified.
-
-Nothing exotic — the value is that paint which *can* be static becomes
-static before any GPU decision is made, so the expensive machinery below
-only fires for paint that genuinely varies.
+The one pass worth dwelling on is the one that has to iterate:
+`dead-layer-elim` and `dead-source-elim` run as a **fixpoint group**, not a
+single sweep, because the two eliminations feed each other. Consider a source
+`countries` consumed by exactly one layer, and that layer is dead — every arm
+folded to transparent, say, so nothing it draws is visible. Pass one removes
+the layer. Only _now_ is `countries` an orphan: it has zero consumers. A
+one-shot pipeline would stop there and hand the runtime a source nothing reads
+— a tile fetch and upload for no pixels. Running the group to a fixpoint lets
+the _next_ iteration see the freshly-orphaned source and drop it too. The
+ordering isn't decorative; the second removal only becomes legal _because_ the
+first one happened.
 
 ## Rule one: codegen emits IR, not strings
 
@@ -76,26 +73,54 @@ buffer read per vertex — the per-frame cost of data-driven paint collapses
 to a lookup.
 
 The same `match` AST also has a second emitter that inlines it into a
-fragment shader when compute isn't available — *two emitters, one canonical
-AST*, which keeps the two paths provably equivalent (the CPU oracle executes
+fragment shader when compute isn't available — _two emitters, one canonical
+AST_, which keeps the two paths provably equivalent (the CPU oracle executes
 the same IR both derive from).
 
-One subtlety worth stealing: the category-string → ID mapping
-(`categoryOrder`) is a **single authority** carried on the shader variant.
-The shader's comparison chain and the runtime's feature-data packer must
-agree on it byte-for-byte; deriving both from one sorted map is what
-prevents per-tile ID collisions.
+### The bug that `categoryOrder` exists to kill
 
-**`interpolate` over zoom** — continuous in a frame-varying input, so a
-kernel per zoom would be wasted work. Instead every zoom ramp in the style
-is baked into one **gradient atlas**: an N×1 texture row per ramp, sampled
-with hardware linear filtering at the current zoom. The entire cost of
-zoom-dependent paint at runtime is one `textureSampleLevel`.
+`match(.class)` doesn't compare strings on the GPU — the shader compares
+integer IDs. So somewhere a string like `"hospital"` becomes an `i32` the
+shader's `switch` has a `case` for, and _two_ pieces of code have to pick the
+same integer: the codegen that emits the case table, and the runtime packer
+that writes each feature's ID into the storage buffer. If they ever disagree,
+the shader compiles fine and draws the wrong colour.
+
+The tempting way to assign IDs is from the data — number the category values
+you actually see, in order. It's also the trap, because vector tiles arrive
+_per tile_. A tile containing `{cemetery, hospital, school}` numbers hospital
+`1`; the neighbouring tile, which happens to hold only `{cemetery, hospital}`,
+numbers the same hospital… also `1` here, but in a tile with
+`{cemetery, hospital, railway, school}` it might land on `2`. The shader's
+case table is fixed, so the _same category comes out the right colour in one
+tile and the wrong colour in the tile next to it_ — a seam of miscoloured
+polygons that moves as you pan.
+
+The fix is a **single authority**: IDs come not from the tile's data but from
+the _style's_ arm patterns, sorted alphabetically once —
+`['cemetery', 'hospital', 'railway', 'school'] → 0,1,2,3` — and that list
+(`categoryOrder`) is carried on the shader variant. Codegen builds its `case i`
+table from it; the runtime packer maps each feature string to its index in the
+exact same list (a miss packs `-1`, so the shader's `else` fires the default
+colour). Neither side ever looks at what a particular tile happens to contain,
+so tiles can't drift. The comparison chain and the packer agree byte-for-byte
+because they read one sorted map.
+
+**`interpolate` over zoom** — continuous in a frame-varying input. Zoom
+changes essentially every frame while the user navigates, so treating a zoom
+ramp like feature paint — re-dispatching a compute kernel to re-evaluate the
+ramp whenever zoom moves — pays a per-gradient dispatch _every frame_, and
+there's no discrete "zoom granularity" you can precompute at because zoom is
+continuous. So the ramp is baked _once_, at compile time, into a **gradient
+atlas**: an N×1 texture row per ramp, sampled with hardware linear filtering
+at the current zoom. The entire runtime cost of zoom-dependent paint collapses
+to one `textureSampleLevel` — the hardware sampler does the interpolation the
+rejected kernel would have recomputed frame after frame.
 
 ## The handoff
 
 The compiler's artifact is a `SceneCommands` list — load/show commands, each
-carrying its shader variant (a module *preamble* plus the fill/stroke
+carrying its shader variant (a module _preamble_ plus the fill/stroke
 expression nodes), the palette, and the compute plan. The runtime composes
 these fragments with its own geometry pipelines and only then does
 shader-dsl emit WGSL. No shader text exists until the last step, on the

@@ -3,7 +3,7 @@
 // using Signed Distance Field math in the fragment shader.
 // Single draw call for all points via per-feature storage buffer.
 
-import type { Camera } from '@xgis/engine'
+import type { Camera } from '../camera'
 import { isWebMercator } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { getSampleCount } from '@xgis/engine'

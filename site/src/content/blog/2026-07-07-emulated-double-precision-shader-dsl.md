@@ -4,12 +4,20 @@ description: 'f64 and vecN<f64> as first-class shader-dsl types, emulated as two
 date: 2026-07-07T03:32:00Z
 tags: ['shader-dsl', 'precision', 'compiler', 'webgpu']
 lang: en
+series: { name: 'Emulating f64 in shaders', order: 1 }
 ---
 
 At a world coordinate near $10^8$, f32's spacing is $\mathrm{ulp}_{f32}(10^8) = 8$:
 every sub-integer detail is unrepresentable. GPUs offer no `f64` (WGSL has
 none; GLSL ES never did), so map engines accumulate hand-rolled hi/lo
-workarounds — relative-to-center encoding, DSFUN lane packing.
+workarounds — relative-to-center encoding, DSFUN lane packing. Those hold
+while the precision only has to survive _into_ a coordinate: recenter once on
+the CPU, render f32 offsets. They break the moment the coordinate feeds
+_iterated_ nonlinear arithmetic — the fp64 Mandelbrot below squares
+$z \mapsto z^2 + c$ hundreds of times per pixel, and a once-recentered offset
+loses its tail on the first squaring. That is when you need precision carried
+_through_ the operations, which is a general df64 type, not a coordinate
+trick.
 
 `@xgis/shader-dsl` now has the general mechanism: first-class **`f64`** and
 **`vec2/3/4<f64>`** types, emulated as _double-float_ (df64) pairs of f32s,
@@ -93,9 +101,12 @@ fn df64_twoSum(a: f32, b: f32) -> vec2<f32> {
 }
 ```
 
-A texel is the strongest opacity WebGL offers: a uniform-sourced guard is
-defeated by drivers that specialize pipelines on observed uniform values,
-which we learned from a production bug report —
+A texel is the strongest opacity WebGL offers: a uniform's value is visible to
+the pipeline compiler and can be specialized on, whereas current WebGL2/WebGPU
+stacks never fold texture contents into a compile-time constant. A
+uniform-sourced guard is therefore defeated by drivers that specialize
+pipelines on observed uniform values, which we learned from a production bug
+report —
 [the incident write-up](/blog/2026-07-07-the-flickering-mandelbrot) covers
 that investigation. Hosts bind a texture whose texel reads exactly 1.0;
 `fp64Guard({ group, binding })` pins the slot when a fixed bind-group layout
@@ -134,8 +145,12 @@ A/B.
 Supported today: `+ − × ÷`, comparisons, `neg`, `abs`, `min`, `max`, `sqrt`,
 `mix` (f32 interpolant), `floor`, `fract`, and on vectors additionally
 `dot`, `length`, `distance`, `normalize`. Transcendentals and two-slot vec64
-attributes are deferred and fail loud. Each df64 op costs several-to-10× its
-f32 counterpart — opt in per _value_, not per shader.
+attributes are deferred and fail loud. Each df64 op expands to a chain of these
+EFTs — an add to two 2Sums plus two renormalizing quick-2Sums, a multiply to a
+two-Veltkamp-split 2Prod plus its cross terms — so the emitted body is on the
+order of a few dozen f32 ops, and the helpers stay out-of-line calls (they are
+never inlined, by design). Roughly an order of magnitude over the f32
+counterpart: opt in per _value_, not per shader.
 
 How a numeric type like this gets tested without native f64 on the GPU or
 native f32 on the CPU is its own topic:

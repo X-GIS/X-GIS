@@ -12,17 +12,14 @@ export * from './gpu/gpu-arena'
 export * from './gpu/quality'
 export * from './gpu/world-scale'
 
-// ── Projection / camera math (P3 Step 3) ─────────────────────────────
+// ── Geo primitives (projection leaves) ───────────────────────────────
+// The map-only camera cluster (camera, view-matrix, globe-anchor, unproject,
+// camera-world-copies, camera-helpers) moved to @xgis/map in #781 (3b). These
+// remaining leaves become @xgis/geo in 3c; the engine holds no projection then.
 export * from './projection/projection'
 export * from './projection/projections-table'
 export * from './projection/ecef'
 export * from './projection/globe'
-export * from './projection/globe-anchor'
-export * from './projection/camera-helpers'
-export * from './projection/camera-world-copies'
-export * from './projection/view-matrix'
-export * from './projection/unproject'
-export * from './projection/camera'
 
 // ── Frame / render core machinery ─────────────────────────────────────
 export * from './render/projection-token'

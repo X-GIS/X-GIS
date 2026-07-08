@@ -16,7 +16,7 @@
 import { tileKey, tileKeyChildren, tileKeyParent } from '@xgis/compiler'
 import type { TileCoord } from '@xgis/data'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord } from '@xgis/data'
-import type { Camera } from '@xgis/engine'
+import type { Camera } from './camera'
 import { type Projection, mercatorYToLat } from '@xgis/engine'
 import { routeToSphereSelector } from '@xgis/engine'
 import { globeVisibleTiles } from '@xgis/data'

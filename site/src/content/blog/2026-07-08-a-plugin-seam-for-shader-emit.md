@@ -7,19 +7,22 @@ lang: en
 ---
 
 The [previous post](/blog/2026-07-08-minifying-and-mangling-shaders) added two
-ship-time transforms to the shader emitter — minify and mangle. They worked, but
-the way they were wired was wrong, and fixing that wiring is a small story about
-where to put a seam.
+ship-time transforms to the shader emitter — minify and mangle. They worked, and
+they *shipped* — with the wiring wrong. This post is what the wiring was, why it
+was wrong, and the inversion that fixed it. (A [prior migration in this
+codebase](/blog/2026-07-08-your-pipeline-is-a-string) taught the same lesson from
+the other direction; putting a seam in the wrong place is the recurring mistake.)
 
-## The wrong shape
+## The wrong shape (as shipped)
 
-The first cut hardcoded the transforms into the emit function:
+The first version to land took the transforms as boolean options on the emit
+call and branched on them *inside* the core:
 
 ```ts
+// as shipped: emit core hardcodes mangle + minify
 function emitModule(m, be, opts) {
-  const lowered = lowerForBackend(m, be)
-  const code = assembleLowered(opts?.mangle ? mangleModule(lowered) : lowered, be)
-  return opts?.minify ? minifyShaderText(code) : code
+  const lowered = opts?.mangle ? mangleModule(lowerForBackend(m, be)) : lowerForBackend(m, be)
+  return opts?.minify ? minifyShaderText(assembleLowered(lowered, be)) : assembleLowered(lowered, be)
 }
 ```
 
@@ -27,48 +30,36 @@ Two problems, both structural. First, the `opts` check lives *inside* `emitModul
 so `mangleModule` and `minifyShaderText` are unconditional imports — every consumer
 bundles them even with the options off, and nothing tree-shakes. That matters here
 because this DSL emits shaders **at runtime** as well as at build time: the map
-engine compiles shader variants in the browser. A runtime consumer should not carry
-a build-time minifier it never calls. Second, the emit core now *knows about* mangle
-and minify by name — and the next transform, and the one after, each accreting onto
-the path the runtime pays for.
+engine compiles shader variants in the browser. So the shipped shape forced a
+browser that only ever wants a plain shader to download the whole build-time
+toolchain anyway — the ~210-line identifier mangler and the minifier — dead weight
+it can never call. Second, the emit core now *knows about* mangle and minify by
+name — and the next transform, and the one after, each accreting onto the path the
+runtime pays for. The tell that a transform is pretending not to be pluggable is
+that adding the *second* one edits the same core function; here the second one
+already had.
 
 ## The seam
 
-Invert it. The core exposes a neutral seam — the Vite/Webpack shape, a
-`{ plugins: [...] }` bag of named units — and knows nothing about what any plugin
-does:
+Invert it. The core stops naming any transform and just folds a `{ plugins: [...] }`
+bag of named units — the Vite/Webpack shape [1] — knowing nothing about what any
+of them does:
 
 ```ts
-interface EmitPlugin {
-  name: string
-  transformIR?: (lowered: ModuleDecl) => ModuleDecl // before assembly
-  transformText?: (code: string) => string          // on the emitted string
-}
-
 function emitModule(m, be, opts) {
-  const lowered = applyIRPlugins(lowerForBackend(m, be), opts)
-  return applyTextPlugins(assembleLowered(lowered, be), opts)
+  const lowered = applyIRPlugins(lowerForBackend(m, be), opts)   // every transformIR
+  return applyTextPlugins(assembleLowered(lowered, be), opts)    // then every transformText
 }
 ```
 
-Hooks fire **staged across all plugins**, the way Vite runs every plugin's
-`resolveId` before any `load` [1]: every `transformIR` runs (in array order) on the
-lowered module, the backend assembles it to a string, then every `transformText`
-runs. Two stages because the two natural places to transform a shader are *before*
-it's text (rename a symbol, inline a function — you want the IR) and *after* (compact
-the whitespace — you want the string).
-
-The implementations move to a separate entry point, `@xgis/shader-dsl/emit-prod`, and
-are Vite-style plugin factories:
-
-```ts
-import { mangle, minify, obfuscate } from '@xgis/shader-dsl/emit-prod'
-const wgsl = emitModule(m, { plugins: [mangle({ renames }), minify()] })
-```
-
-A consumer that never imports the subpath bundles **zero bytes** of the transform
-code — the same split the lint/measure tooling uses on `@xgis/shader-dsl/dev`. Build
-toolchains import it; the runtime emit path does not.
+The [previous post](/blog/2026-07-08-minifying-and-mangling-shaders) covers the
+rest of the shape and why it takes those forms: the `EmitPlugin` interface (two
+optional staged hooks, `transformIR` before assembly and `transformText` after);
+the Vite-style staging that runs *every* plugin's `transformIR` before any text
+hook; the `@xgis/shader-dsl/emit-prod` subpath that keeps a runtime consumer at
+**zero bundled bytes** of transform code. What that inversion *bought* — beyond
+deleting the two `if (opts.x)` branches — is everything below: the core never has
+to change again.
 
 ## The test of a seam: does the next thing fit?
 
@@ -88,6 +79,18 @@ export function inline(): EmitPlugin {
   return { name: 'inline', transformIR: inlineAll }
 }
 ```
+
+The tension going in was real. `inline()` doesn't tweak nodes the way mangle does
+(rename in place) or minify does (compact text) — it *deletes* declarations and
+rewrites who-calls-what, and it only stays correct if it runs **before** mangle,
+so mangle renames the survivors and not the functions that are about to vanish.
+I half-expected to need a hook the seam didn't have: a dedicated post-mangle
+"structural" stage, or a priority/ordering field on the plugin, or a whole-variant
+call-graph view that a single `ModuleDecl → ModuleDecl` couldn't express. It
+needed none of them. `transformIR` already hands each plugin the whole lowered
+module, and the stage already runs plugins in **array order** — so "inline before
+mangle" is just `[inline(), mangle(), minify()]`, ordering expressed as position,
+not as a new hook.
 
 It reuses an inliner that already existed for an unrelated reason (composing the
 polygon shader variants). Adding it to the production toolkit touched **no line of
@@ -120,13 +123,14 @@ type's doc and in the pass, not in the core:
 
 ## One gate covers every composition
 
-The risk of a plugin pipeline is that `[inline, mangle, minify]` compiles and links
-and still draws the wrong thing — a rewrite that broke *semantics*, not syntax. So the
-CI gate renders the plain shader and the fully-transformed shader with identical inputs
-and asserts the two framebuffers are **byte-identical**, on real Tint and ANGLE. It runs
-the whole pipeline, including the df64 path, so any plugin — present or future — that
-corrupts a pixel fails the gate regardless of how it composes. The seam made the
-transforms pluggable; the pixel-diff makes the composition trustworthy.
+The [byte-identical framebuffer gate](/blog/2026-07-08-minifying-and-mangling-shaders)
+— render the plain and the transformed shader with identical inputs, assert the
+pixels match on real Tint and ANGLE — was built for mangle + minify, but the
+pluggable seam changes what it *guarantees*. Because the gate runs the full
+`[inline, mangle, minify]` pipeline (including the df64 path), any plugin — present
+or future — that corrupts a pixel in any composition fails it, without the gate
+knowing the plugin exists. The seam made the transforms pluggable; the one
+pixel-diff makes every composition of them trustworthy.
 
 ## Takeaways
 

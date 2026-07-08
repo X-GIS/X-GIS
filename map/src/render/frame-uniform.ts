@@ -41,7 +41,7 @@
 // class's GPU buffer yet. See `camera.ts` `getFrameView` JSDoc for the
 // dual-API rationale.
 
-import type { Camera } from '@xgis/engine'
+import type { Camera } from '../camera'
 import { EARTH } from '@xgis/shared'
 
 export const FRAME_UNIFORM_SIZE_BYTES = 128

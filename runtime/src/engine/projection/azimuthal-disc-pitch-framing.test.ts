@@ -19,7 +19,7 @@
 // {3,4,5} × zoom grid where the old caps disagreed.
 
 import { describe, it, expect } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 import { buildGlobeMatrix, globeForward, globeAltitude } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX } from '@xgis/engine'
 import { flatViewHeightCapM } from '@xgis/engine'

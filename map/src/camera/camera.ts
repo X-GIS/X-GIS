@@ -1,21 +1,24 @@
 // ═══ Map Camera — 줌/패닝/회전/피치 ═══
 
-import { lonLatToMercator } from './projection'
-import { type ECEF } from './ecef'
-import { WORLD_MERC, TILE_PX } from '../gpu/world-scale'
-import { getMaxDpr } from '../gpu/quality'
-import { computeLogDepthFc } from '../shaders/log-depth'
-import { EARTH_R } from './globe'
-import { mercatorYToLat, mercatorYToLatRad, mercator } from './projection'
 import {
+  lonLatToMercator,
+  mercatorYToLat,
+  mercatorYToLatRad,
+  mercator,
+  type ECEF,
+  WORLD_MERC,
+  TILE_PX,
+  getMaxDpr,
+  computeLogDepthFc,
+  EARTH_R,
   isGlobeProj,
   flatViewHeightCapM,
   poleLimit,
   promotesToGlobeWhenTilted,
   representsCenterAs,
-} from './projections-table'
-import { discAnchorFor, convergeFlatAnchor } from './camera-helpers'
+} from '@xgis/engine'
 import { invert4x4 } from '@xgis/shared'
+import { discAnchorFor, convergeFlatAnchor } from './camera-helpers'
 import {
   type CameraView,
   buildRTCMatrix,

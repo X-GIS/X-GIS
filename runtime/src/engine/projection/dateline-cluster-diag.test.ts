@@ -10,7 +10,7 @@
 // rejected submissions.
 
 import { describe, it } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 import { WORLD_MERC } from '@xgis/engine'
 
 const DEG2RAD = Math.PI / 180

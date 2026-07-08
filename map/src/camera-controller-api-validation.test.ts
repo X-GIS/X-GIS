@@ -22,7 +22,7 @@
 // B2 rejects before any canvas read, B3 rejects before any camera write.
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from './camera'
 import { CameraController, type CameraControllerDeps } from './camera-controller'
 import { setLogSink } from '@xgis/shared'
 

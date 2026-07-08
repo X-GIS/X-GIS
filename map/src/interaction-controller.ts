@@ -25,8 +25,8 @@
 //     (reassigned to [] at rebuildLayers start, so read fresh).
 //   - `this.pickReadbackPool`   → owned here (only pickAt reads/mutates it).
 
-import type { Camera } from '@xgis/engine'
-import { unprojectGlobeFromCamera } from '@xgis/engine'
+import type { Camera } from './camera'
+import { unprojectGlobeFromCamera } from './camera'
 import { mercatorYToLat } from '@xgis/engine'
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { LayerIdRegistry, XGISLayer, XGISFeature } from './layer'

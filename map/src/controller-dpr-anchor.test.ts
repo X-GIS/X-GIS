@@ -32,7 +32,7 @@
 // (camera-dpr-units.test.ts), different file.
 
 import { describe, it, expect, afterEach } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from './camera'
 import { PanZoomController } from './controller'
 import { QUALITY, updateQuality } from '@xgis/engine'
 

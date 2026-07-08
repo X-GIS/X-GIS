@@ -187,6 +187,9 @@ export * from './text/text-stage-diagnostics'
 // SELECTIVE: its back-compat re-exports (resolveTypography / wrapForTesting / layoutCacheEntryValid
 // / mlVerticalLayout / verticalLayoutForTesting / composeFontKey) resolve via their real homes above.
 export { TextStage } from './text/text-stage'
+// Camera cluster (relocated from @xgis/engine, #781 3b): Camera state machine,
+// view-matrix builders, globe-anchor / unproject interaction geo, world-copies.
+export * from './camera'
 // XGISMap facade guts: controller / source / layer / interpreter / event / show / map-type modules.
 export * from './auto-resize'
 export * from './stats'
@@ -211,10 +214,12 @@ export * from './source-manager'
 //   - XGISMap + its load-path helpers extractConversionNotes / logConversionNotes. Blanket
 //     `export * from './map'` is AVOIDED: map re-exports the map-types surface already surfaced
 //     via './map-types' — a blanket re-export would be an ambiguous duplicate.
-//   - backgroundPass / BackgroundPassHost / SceneView / lineLabelDeduped / lineIconIsIconOnly —
-//     consumed by background-opacity-wiring.test.ts / icon-cross-tile-dedup.test.ts.
+//   - backgroundPass / BackgroundPassHost / SceneView / FrameContext / lineLabelDeduped /
+//     lineIconIsIconOnly — consumed by background-opacity-wiring.test.ts / icon-cross-tile-dedup.test.ts.
 export { XGISMap, extractConversionNotes, logConversionNotes } from './map'
 export { backgroundPass } from './render/passes/background-pass'
 export type { BackgroundPassHost } from './render/passes/pass-hosts'
 export type { SceneView } from './render/scene-view'
+// #781 — per-frame render-loop state (relocated from @xgis/rhi-webgpu; carries the geo Camera).
+export type { FrameContext } from './render/frame-context'
 export { lineLabelDeduped, lineIconIsIconOnly } from './render/passes/label-pass'

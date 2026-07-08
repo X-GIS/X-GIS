@@ -100,6 +100,60 @@ function fmt(ms: number): string {
   return `${m}m ${s}s`
 }
 
+// Files under a path the unit suite actually exercises — the SAME set the CI
+// `changes` job uses to decide whether to run the `test` matrix (test.yml). If
+// a push touches none of these, the vitest run below can't regress and CI won't
+// run it either, so we skip it locally too. Keep in sync with test.yml's `code`
+// filter.
+const CODE_PATH =
+  /^(compiler|runtime|engine|map|shared|blueprint|shader-dsl|rhi|rhi-webgl2|rhi-webgpu|data|pipeline|playground)\/|(^|\/)package\.json$|^bun\.lockb?$|^tsconfig.*\.json$|^vitest\.config\.ts$|^\.github\/workflows\/test\.yml$|^scripts\/precheck\.ts$/
+
+/**
+ * The files this push would add, or `null` if the range can't be determined
+ * (→ caller runs the suite, conservatively). The range is HEAD since its
+ * merge-base with the upstream tracking branch; for a branch with no upstream
+ * yet, it falls back to the merge-base with origin/main.
+ */
+function pushChangedFiles(): string[] | null {
+  const git = (a: string[]) => spawnSync('git', a, { encoding: 'utf8' })
+  let base = ''
+  const up = git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
+  if (up.status === 0 && up.stdout.trim()) {
+    base = up.stdout.trim()
+  } else {
+    for (const ref of ['origin/main', 'origin/HEAD']) {
+      const mb = git(['merge-base', 'HEAD', ref])
+      if (mb.status === 0 && mb.stdout.trim()) {
+        base = mb.stdout.trim()
+        break
+      }
+    }
+  }
+  if (!base) return null
+  const diff = git(['diff', '--name-only', `${base}...HEAD`])
+  if (diff.status !== 0) return null
+  return diff.stdout
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+// Path-relevance gate (default push path only — an explicit --smoke/--matrix or
+// PRECHECK_FORCE=1 always runs). A docs/site/diagrams-only push shares nothing
+// with the unit suite, and CI skips the test matrix for it too, so don't tax it
+// ~minutes of vitest. Skip with `git push --no-verify` to bypass the whole hook.
+if (!RUN_SMOKE && !RUN_MATRIX && process.env.PRECHECK_FORCE !== '1') {
+  const changed = pushChangedFiles()
+  if (changed !== null && changed.length > 0 && !changed.some((f) => CODE_PATH.test(f))) {
+    console.log(
+      `\n✓ precheck SKIPPED — ${changed.length} changed file(s), none under a tested code ` +
+        `path.\n  (compiler/runtime/engine/map/shared/blueprint/shader-dsl/rhi/data/pipeline/` +
+        `playground or a build/config file.)\n  Force with \`PRECHECK_FORCE=1 bun run precheck\`.`,
+    )
+    process.exit(0)
+  }
+}
+
 let totalMs = 0
 let failed = false
 

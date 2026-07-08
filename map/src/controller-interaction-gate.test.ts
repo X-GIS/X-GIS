@@ -51,7 +51,7 @@
 //   · 6 oblique_mercator · 7 globe
 
 import { describe, it, expect, afterEach } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from './camera'
 import { buildGlobeMatrix, unprojectGlobe } from '@xgis/engine'
 import { mercatorYToLat } from '@xgis/engine'
 import { PanZoomController } from './controller'

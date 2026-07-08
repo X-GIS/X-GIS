@@ -25,7 +25,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { tileKey } from '@xgis/compiler'
-import { Camera } from '@xgis/engine'
+import { Camera } from './camera'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord } from '@xgis/data'
 import { globeVisibleTiles } from '@xgis/data'
 import {

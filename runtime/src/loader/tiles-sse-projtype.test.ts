@@ -16,7 +16,7 @@
 // After: maxAbsLon ≈ 180.
 
 import { describe, expect, it } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 import { getProjection } from '@xgis/engine'
 import { visibleTilesSSE } from '@xgis/data'
 

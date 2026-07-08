@@ -18,7 +18,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { tileKey, tileKeyChildren } from '@xgis/compiler'
-import { Camera } from '@xgis/engine'
+import { Camera } from '../camera'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { PrefetchScheduler } from './prefetch-scheduler'
 import { TileSelectionCache, type FrameTileCache } from './tile-selection-cache'

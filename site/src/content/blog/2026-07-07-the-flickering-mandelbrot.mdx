@@ -4,7 +4,10 @@ description: 'Incident report: the fp64 demo alternated between correct and f32-
 date: 2026-07-07T06:38:00Z
 tags: ['shader-dsl', 'precision', 'debugging', 'gpu-drivers']
 lang: en
+series: { name: 'Emulating f64 in shaders', order: 3 }
 ---
+
+import LiveShader from '../../components/LiveShader.astro'
 
 **Report** (Windows 11, RTX 5060 Ti, Chrome, production): the f64 half of the
 [fp64 Mandelbrot](/shader-dsl/examples/fp64-mandelbrot) alternated between
@@ -12,6 +15,14 @@ correct rendering and an f32-collapsed one, frame to frame, with no
 interaction. The demo has no animation — every frame binds the same program
 with the same uniforms, so with deterministic GPU execution the output cannot
 change. Either the inputs or the code differed between draws.
+
+<LiveShader id="fp64-mandelbrot" />
+
+The `fp64 emulation` toggle above is the whole experiment in miniature: flip it
+and the right half of the screen re-routes through the plain-f32 branch. On the
+reporter's machine that one control turned an unreproducible flicker into a
+controlled A/B — off was stable, on alternated — which is what localized the
+bug to the df64 path.
 
 ## Localizing without a repro
 
@@ -41,6 +52,20 @@ value is _always exactly 1.0_; specialized, $(s \cdot \mathrm{one} - a)
 \cdot \mathrm{one}$ becomes $s - a$ and the EFTs legally cancel. Variant
 swapping mid-session produces exactly the observed alternation.
 
+This last step is an _inference_, not a captured fact: no WebGL or WebGPU API
+exposes the driver's specialized pipeline variant, so we never read back the
+collapsed shader. What we have is that the collapse is confined to the df64
+branch, is invariant to the (byte-identical) uniform bytes, and disappears
+under both fixes below — which the specialization theory predicts and no other
+hypothesis we tried does. We infer the cause from the fix; we did not observe
+it directly.
+
+The lesson the two fixes below share: **"runtime-opaque" has to hold across the
+pipeline's whole lifecycle, not just its first compile.** The uniform guard was
+opaque to ahead-of-time folding and still lost to a background re-optimizer that
+specializes on the value it observes at runtime. One fix removes the frames that
+can show the swap; the other removes the observability the swap depends on.
+
 ## Fix 1: render-on-demand
 
 The playground loop redrew every rAF tick with unchanged inputs. Every live
@@ -58,8 +83,9 @@ specialization theory held.
 ## Fix 2: a texel-fetched guard
 
 If the driver can observe the uniform, store the guard where observation
-doesn't help. No shader compiler treats **texture contents** as compile-time
-constants. The guard is now a 1×1 texture whose texel reads exactly 1.0:
+doesn't help. No WebGL2 or WebGPU compiler in current driver stacks treats
+**texture contents** as a compile-time constant it can fold the cancellation
+against. The guard is now a 1×1 texture whose texel reads exactly 1.0:
 
 ```glsl
 // GLSL ES 3.00
@@ -92,8 +118,6 @@ Deployed; the reporter's machine is clean at rest and during interaction.
 - **Render-on-demand is a correctness feature.** Skipping redundant draws
   structurally removes any nondeterminism the driver introduces _between_
   draws — the battery savings are incidental.
-- **Ship one-click experiments.** The fp64 toggle turned an unreproducible
-  report into a controlled A/B on the only machine that mattered.
 - **Give GPU-opaque values a CPU-exact twin.** Because the guard is an
   intrinsic with per-target spellings, changing its physical representation
   cost the test suite nothing.
