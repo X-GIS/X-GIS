@@ -17,7 +17,7 @@
 // (memory project_non_mercator_systemic_2026_05_19)
 
 import { describe, expect, it } from 'vitest'
-import { globeVisibleTiles } from '@xgis/engine'
+import { globeVisibleTiles } from '@xgis/data'
 
 const SEOUL_LON = 126.9776
 const SEOUL_LAT = 37.5558

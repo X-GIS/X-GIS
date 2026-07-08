@@ -32,7 +32,7 @@ import {
   makeTileCoord,
 } from '@xgis/data'
 import { visibleTilesSSE } from '@xgis/data'
-import { globeVisibleTiles } from '@xgis/engine'
+import { globeVisibleTiles } from '@xgis/data'
 import { tileKey, tileKeyParent } from '@xgis/compiler'
 import { enumerateWorldCopies, routeToSphereSelector } from '@xgis/engine'
 import {

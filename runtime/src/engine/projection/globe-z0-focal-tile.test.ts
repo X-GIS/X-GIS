@@ -17,7 +17,7 @@
 // tile generically; up to four when the centre lands exactly on a tile corner).
 
 import { describe, it, expect } from 'vitest'
-import { globeVisibleTiles } from '@xgis/engine'
+import { globeVisibleTiles } from '@xgis/data'
 
 const W = 800,
   H = 800

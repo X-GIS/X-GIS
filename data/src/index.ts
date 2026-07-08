@@ -63,3 +63,6 @@ export * from './sources/polar-cap-ecef-pack'
 export * from './workers/geojson-compile-pool'
 export * from './workers/geojson-tiling-pool'
 export * from './workers/mvt-worker-pool'
+
+// Globe visible-tile selection (relocated from @xgis/engine, #781).
+export * from './globe-visible-tiles'

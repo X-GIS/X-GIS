@@ -19,7 +19,7 @@ import { visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord } from '
 import type { Camera } from '@xgis/engine'
 import { type Projection, mercatorYToLat } from '@xgis/engine'
 import { routeToSphereSelector } from '@xgis/engine'
-import { globeVisibleTiles } from '@xgis/engine'
+import { globeVisibleTiles } from '@xgis/data'
 import { representsCenterAs } from '@xgis/engine'
 
 /** What to do with a visible tile this frame. Tagged union so the
