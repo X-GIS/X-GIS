@@ -1,6 +1,6 @@
 ---
 title: 'The flickering Mandelbrot: a driver defeats the fast-math guard'
-description: 'Incident report: the fp64 demo alternated between correct and f32-collapsed frames under byte-identical inputs. Root cause: driver pipeline re-optimization specializing on uniform values. Fixes: render-on-demand and a texel-fetched guard.'
+description: 'Incident report: the fp64 demo alternated between correct and f32-collapsed frames under byte-identical inputs. Inferred cause: driver pipeline re-optimization specializing on uniform values. Fixes: render-on-demand and a texel-fetched guard.'
 date: 2026-07-07T06:38:00Z
 tags: ['shader-dsl', 'precision', 'debugging', 'gpu-drivers']
 lang: en
@@ -110,17 +110,13 @@ cannot be one that landed on a bad in-flight variant.
 
 Deployed; the reporter's machine is clean at rest and during interaction.
 
-## Takeaways
+## What generalizes
 
-- **"Runtime-opaque" must cover the pipeline's whole lifecycle.** A uniform
-  guard defeats ahead-of-time folding; it does not defeat uniform-value
-  specialization in a background re-optimizer. Texel fetches defeat both.
-- **Render-on-demand is a correctness feature.** Skipping redundant draws
-  structurally removes any nondeterminism the driver introduces _between_
-  draws — the battery savings are incidental.
-- **Give GPU-opaque values a CPU-exact twin.** Because the guard is an
-  intrinsic with per-target spellings, changing its physical representation
-  cost the test suite nothing.
+Render-on-demand is a correctness feature, not just a battery optimization:
+skipping a redundant, byte-identical draw structurally removes any
+nondeterminism the driver can introduce between draws, just as giving a
+GPU-opaque value a CPU-exact twin let this guard move from uniform to texel
+without the verification stack registering the change.
 
 ## References
 
