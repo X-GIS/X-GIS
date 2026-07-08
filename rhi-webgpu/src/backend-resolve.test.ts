@@ -11,7 +11,8 @@ import type { RhiBackendProvider } from '@xgis/rhi'
 
 // #795 → #833 M4 — backend precedence is DATA now: `backendProviderChain`
 // derives an ordered RhiBackendProvider array from the caller's choice, and
-// `initGPUViaProviders` walks it (first passing probe() boots). The old
+// `initGPUViaProviders` walks it (first passing probe() boots; a passing probe
+// whose create() rejects falls back to the next — WebGPU→WebGL2). The old
 // `resolveBackend` function authority is retired; these tests pin the same
 // precedence contract on the chain CONTENTS, plus the chain-walk semantics.
 // In the vitest env there is no window/URL, so `FORCE_GL2` is false — the
@@ -35,14 +36,14 @@ describe('backendProviderChain — precedence as data (#833 M4)', () => {
     expect(backendProviderChain('webgl2').map((p) => p.id)).toEqual(['webgl2'])
   })
 
-  it("'auto' defaults to the WebGPU chain when the ?forcegl2 override is off", () => {
+  it("'auto' chains WebGPU→WebGL2 (fallback) when the ?forcegl2 override is off", () => {
     expect(FORCE_GL2).toBe(false) // vitest env: no window/URL flag
-    expect(backendProviderChain('auto').map((p) => p.id)).toEqual(['webgpu'])
+    expect(backendProviderChain('auto').map((p) => p.id)).toEqual(['webgpu', 'webgl2'])
   })
 
   it("'auto' tracks the FORCE_GL2 override (the ONLY consumer of the flag)", () => {
     expect(backendProviderChain('auto').map((p) => p.id)).toEqual(
-      FORCE_GL2 ? ['webgl2'] : ['webgpu'],
+      FORCE_GL2 ? ['webgl2'] : ['webgpu', 'webgl2'],
     )
   })
 
@@ -82,6 +83,34 @@ describe('initGPUViaProviders — chain-walk semantics (#833 M4)', () => {
     ])
     expect(ctx).toBe(booted)
     expect(log).toEqual(['probe:webgpu', 'probe:webgl2', 'create:webgl2'])
+  })
+
+  it("a passing probe whose create() REJECTS falls back to the next provider", async () => {
+    const log: string[] = []
+    const failing: RhiBackendProvider<GPUContext> = {
+      id: 'webgpu',
+      probe: async () => (log.push('probe:webgpu'), true),
+      create: async () => {
+        log.push('create:webgpu')
+        throw new Error('adapter-null') // the real WebGPU boot failure
+      },
+    }
+    const ctx = await initGPUViaProviders(fakeCanvas({}), [failing, provider('webgl2', true, log)])
+    expect(ctx).toBe(booted) // fell back to WebGL2 instead of dead-ending
+    expect(log).toEqual(['probe:webgpu', 'create:webgpu', 'probe:webgl2', 'create:webgl2'])
+  })
+
+  it('an explicit single-provider chain whose create() rejects fails loud (no fallback)', async () => {
+    const failing: RhiBackendProvider<GPUContext> = {
+      id: 'webgpu',
+      probe: async () => true,
+      create: async () => {
+        throw new Error('adapter-null')
+      },
+    }
+    await expect(initGPUViaProviders(fakeCanvas({}), [failing])).rejects.toBeInstanceOf(
+      WebGPUUnavailableError,
+    )
   })
 
   it('an exhausted chain throws WebGPUUnavailableError (the graceful-path type)', async () => {
