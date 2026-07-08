@@ -5,11 +5,10 @@ import { worldCopiesFor, TILE_PX } from '@xgis/engine'
 // (tile-select-types / tile-select-helpers) and are surfaced by the @xgis/data
 // barrel directly, so tile-select no longer re-exports them (that would make the
 // names ambiguous under the barrel's `export *`). It only needs TileCoord here.
-import type { TileCoord } from './tile-select-types'
+import type { TileCoord, TileSelectionCamera } from './tile-select-types'
 
 // ═══ Frustum-based tile selection ═══
 
-import type { Camera } from '@xgis/engine'
 import { type Projection, MERCATOR_LAT_LIMIT, mercatorYToLat } from '@xgis/engine'
 import { PROJECTION_NAME_TO_TYPE } from '@xgis/engine'
 import { EARTH_R } from '@xgis/engine'
@@ -100,7 +99,7 @@ function maxFrustumTilesFor(cssWidth: number, cssHeight: number, pitchDeg: numbe
  *  stroke-offset + half stroke-width) and pass it in; default 0
  *  preserves the existing culling envelope. */
 export function visibleTilesFrustum(
-  camera: Camera,
+  camera: TileSelectionCamera,
   projection: Projection,
   maxZ: number,
   canvasWidth: number,
@@ -598,7 +597,7 @@ export function visibleTilesFrustum(
  * Caller picks `targetZ`; usually `Math.round(camera.zoom)`.
  */
 export function visibleTilesFrustumSampled(
-  camera: Camera,
+  camera: TileSelectionCamera,
   projection: Projection,
   targetZ: number,
   canvasWidth: number,
