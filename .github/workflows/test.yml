@@ -2,24 +2,25 @@ name: test
 
 on:
   pull_request:
-    # Pure-documentation changes can neither break vitest nor the shader
-    # gate, so skip the WHOLE workflow for them. SAFE because (measured
-    # 2026-06-18) main has NO required status checks and NO rulesets — a
-    # workflow that never runs posts no check, and no merge is gated on
-    # these contexts, so PRs do NOT get stuck on "Expected". If branch
-    # protection is ever added with a required test/render check, REMOVE
-    # this paths-ignore (a never-running required check strands the PR) and
-    # rely on the per-job `if:` skip below (render-gate always posts a green
-    # check) plus the `test-result` aggregator (single stable required name).
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - '.gitignore'
+    # NO paths-ignore — deliberately. It used to skip the WHOLE workflow for
+    # pure-documentation changes (**/*.md, docs/**, LICENSE, .gitignore) purely
+    # to save runner-minutes, and that was SAFE only while main had NO required
+    # status checks (measured 2026-06-18). Branch protection now REQUIRES these
+    # contexts (typecheck / render-gate / site / the test (*) legs / test-result),
+    # so a workflow that never RAN posted no check and stranded every docs-only
+    # PR on "Expected — waiting" forever — exactly the deadlock the old comment
+    # here predicted, and the one that trapped the #781 blog PR (#895). Removed
+    # per that very prescription: each expensive job already `if`-skips itself via
+    # the `changes` filter when its area is untouched, a skipped required check
+    # counts as a PASS, and `test-result` aggregates the matrix under one stable
+    # name. A docs-only PR now runs just the sub-5s `changes` filter, skips the
+    # engine legs + typecheck (they post skipped → pass), posts render-gate green
+    # (all steps `if`-skipped), and — for a site/** change — runs the light site
+    # build. Cost: a few runner-seconds per docs PR; benefit: it can actually merge.
   # NOTE: no `push: main` trigger. Every change reaches main through a PR,
   # which already ran this whole workflow — re-running it on the post-merge
-  # push just duplicated the full matrix for no gating benefit (main has no
-  # required checks, and deploy-pages.yml runs independently of this one).
+  # push just duplicated the full matrix for no gating benefit (the PR run is
+  # what gates the merge, and deploy-pages.yml runs independently of this one).
   # `workflow_dispatch` keeps a manual on-demand run available for main if
   # ever needed. If direct pushes to main (bypassing PRs) become a thing and
   # need CI, add the `push: branches: [main]` trigger back.
