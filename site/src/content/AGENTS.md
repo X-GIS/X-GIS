@@ -84,5 +84,8 @@ The recurring failure to avoid (audited across every existing post):
 
 Reading aids available in posts: `$…$` KaTeX math, ` ```lang ` highlighted code
 fences, `:::warning` / `:::note` / `:::tip` callouts (use for gotchas/traps),
-auto-scrolling tables, framed `![](…)` figures, and `<LiveShader id="…"/>` in
-`.mdx` posts. Group a multi-part arc with the `series:` frontmatter field.
+auto-scrolling tables, framed `![](…)` figures, pre-rendered Mermaid diagrams
+(author a `.mmd` in `site/diagrams/`, render to a committed SVG via
+`site/diagrams/render.sh`, embed as a `<figure>` — build-time only, no client
+JS), and `<LiveShader id="…"/>` in `.mdx` posts. Group a multi-part arc with the
+`series:` frontmatter field.

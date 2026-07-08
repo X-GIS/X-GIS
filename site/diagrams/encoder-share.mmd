@@ -1,0 +1,4 @@
+flowchart LR
+  native["native passes"] --> enc[["one GPUCommandEncoder"]]
+  migrated["migrated pass<br/>(RHI calls)"] --> wrap["wrapWebGpuCommandEncoder<br/>ownsSubmit = false"] --> enc
+  enc --> submit(["one submit / frame"])

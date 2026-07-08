@@ -38,6 +38,11 @@ The naive sort is by type name: 217 `GPURenderPipeline`, ~90 `GPUBuffer`, ~28
 the same type can have completely different couplings. The useful sort is by
 **what the code does with the value.** Three buckets emerged:
 
+<figure>
+  <img src="/diagrams/ref-taxonomy.svg" alt="The ~700 GPU-star references split into three layers: Layer-0 routing keys retyped to a label handle (free); Layer-1 neutral symbols moved upstream; Layer-2 native handles that need real RHI-ification with a pixel gate each." />
+  <figcaption>Sorting ~700 references by how the value is <em>used</em>, not by its type: free retypes, upstream relocations, and the genuine rewrites — cheapest first.</figcaption>
+</figure>
+
 **Layer-0 — pure routing keys.** Values that are stored and compared but never
 _used_ as a backend object. The counterintuitive part: most of map's
 `GPURenderPipeline` references are never bound to a render pass. The

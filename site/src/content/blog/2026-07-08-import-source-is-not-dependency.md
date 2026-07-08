@@ -92,6 +92,11 @@ should have _no_ inbound edges from map at all.
 
 ## The right move
 
+<figure>
+  <img src="/diagrams/rhi-deps.svg" alt="Dependency arrows: map to engine to the rhi interface; rhi-webgpu and rhi-webgl2 hang off rhi as leaves the engine selects at runtime." />
+  <figcaption>The arrow points one way: map → engine → rhi. The concrete backends are leaves the engine selects at runtime — map has no inbound edge from either.</figcaption>
+</figure>
+
 The correct migration doesn't re-home the WebGPU types — it _replaces_ them with
 neutral types that already belong upstream:
 

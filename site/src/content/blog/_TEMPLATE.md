@@ -158,6 +158,9 @@ The observation, then the diagnosis it forced. Ground it in real code:
   - :::warning / :::note / :::tip   admonition callouts (great for gotchas/traps)
   - tables              auto-wrapped with a mobile scroll affordance
   - ![alt](/path.jpg)   figures render framed with a mono caption
+  - diagrams            author a Mermaid `.mmd` in site/diagrams/, render it to
+    a committed SVG (site/diagrams/render.sh), embed as a <figure><img>. Build-
+    time only, no client JS — same rule as KaTeX. See site/diagrams/README.md.
   - <LiveShader id=".."/> a live shader embed — but the file must be .mdx and
     import the component (see 2026-07-07-porting-the-shadertoy-classics.mdx)
 -->

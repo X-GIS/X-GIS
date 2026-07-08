@@ -26,6 +26,11 @@ Which means, mid-migration, the frame is half-and-half: some passes still record
 natively, some record through the RHI — **and they must share the same encoder
 and the same submit.**
 
+<figure>
+  <img src="/diagrams/encoder-share.svg" alt="Native passes and the migrated RHI pass both record into one GPUCommandEncoder; the RHI pass goes through a wrapWebGpuCommandEncoder with ownsSubmit false; the single encoder produces one submit per frame." />
+  <figcaption>Both recorders feed one native encoder: the migrated pass goes through a wrapper with <code>ownsSubmit = false</code>, so the frame still ends in exactly one submit.</figcaption>
+</figure>
+
 ## Why `createCommandEncoder` is the wrong tool
 
 The obvious RHI call is `rhi.createCommandEncoder()`. It exists; it returns an

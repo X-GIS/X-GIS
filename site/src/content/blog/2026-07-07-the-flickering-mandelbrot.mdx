@@ -7,12 +7,22 @@ lang: en
 series: { name: 'Emulating f64 in shaders', order: 3 }
 ---
 
+import LiveShader from '../../components/LiveShader.astro'
+
 **Report** (Windows 11, RTX 5060 Ti, Chrome, production): the f64 half of the
 [fp64 Mandelbrot](/shader-dsl/examples/fp64-mandelbrot) alternated between
 correct rendering and an f32-collapsed one, frame to frame, with no
 interaction. The demo has no animation — every frame binds the same program
 with the same uniforms, so with deterministic GPU execution the output cannot
 change. Either the inputs or the code differed between draws.
+
+<LiveShader id="fp64-mandelbrot" />
+
+The `fp64 emulation` toggle above is the whole experiment in miniature: flip it
+and the right half of the screen re-routes through the plain-f32 branch. On the
+reporter's machine that one control turned an unreproducible flicker into a
+controlled A/B — off was stable, on alternated — which is what localized the
+bug to the df64 path.
 
 ## Localizing without a repro
 
