@@ -25,11 +25,8 @@
 // 32×16 grid's ~1200 km cell spacing.
 
 import { tileKey, packECEFPolygonVertices } from '@xgis/compiler'
-import {
-  generateEarthSurfaceFillMesh,
-  worldBandForProjType,
-  type WorldBandKind,
-} from '@xgis/engine'
+import { generateEarthSurfaceFillMesh } from '../earth-surface-fill'
+import { worldBandForProjType, type WorldBandKind } from '@xgis/engine'
 import { tileEcefCenterFromMerc } from '@xgis/engine'
 import { packECEFWithPolarCaps, MERC_LAT_CLAMP } from './polar-cap-ecef-pack'
 import {

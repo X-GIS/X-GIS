@@ -22,7 +22,6 @@ export * from './projection/camera-helpers'
 export * from './projection/camera-world-copies'
 export * from './projection/view-matrix'
 export * from './projection/unproject'
-export * from './projection/earth-surface-fill'
 export * from './projection/camera'
 
 // ── Frame / render core machinery ─────────────────────────────────────
