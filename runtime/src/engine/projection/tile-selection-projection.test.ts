@@ -11,7 +11,7 @@
 // 5-7 fps over-select).
 
 import { describe, it, expect } from 'vitest'
-import { globeVisibleTiles } from '@xgis/engine'
+import { globeVisibleTiles } from '@xgis/data'
 import { visibleTilesFrustumSampled } from '@xgis/data'
 import { mercator, equirectangular, naturalEarth } from '@xgis/engine'
 import { Camera } from '@xgis/engine'

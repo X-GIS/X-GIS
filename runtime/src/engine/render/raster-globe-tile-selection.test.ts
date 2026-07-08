@@ -24,7 +24,7 @@ import { RasterRenderer } from '@xgis/map'
 import { Camera } from '@xgis/engine'
 import { visibleTilesFrustum } from '@xgis/data'
 import { mercator as mercatorProj } from '@xgis/engine'
-import { globeVisibleTiles } from '@xgis/engine'
+import { globeVisibleTiles } from '@xgis/data'
 import { routeToSphereSelector } from '@xgis/engine'
 
 let stub: StubInstallation
