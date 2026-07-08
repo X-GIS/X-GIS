@@ -36,36 +36,38 @@ const shipCombos = [false, true]
   })
 const shipPlainBytes = shipCombos.find((c) => c.key === '000')!.bytes
 
+// Each body: a bold lead (the payoff) + one tight sentence. Ordered pitch-first
+// (IR, backends) then the supporting layers. Deep detail lives in the reference.
 const sections = [
   {
     id: 'ir',
     title: 'One typed IR',
-    body: 'You build a tree of typed value-nodes (each carries a compile-time key like <code>vec3&lt;f32&gt;</code>) and imperative statements. Because the key is part of the TypeScript type, mixing a vec2 where a vec3 is wanted, or returning the wrong field, is a compile error — caught before any shader compiler runs. The IR is the single source every backend, the reflection, and the CPU oracle read from.',
+    body: '<strong class="text-fg">One representation feeds everything downstream.</strong> Value-nodes carry their type key (<code>vec3&lt;f32&gt;</code>) in the TypeScript type, so a vec2 used where a vec3 belongs is a compile error — before any shader compiler runs.',
   },
   {
     id: 'backends',
     title: 'Two backends, one source',
-    body: 'A backend is a writer over the shared IR walk. The <strong>WGSL</strong> backend is the canonical one (byte-stable output, the full validate → caps → optimize pipeline) for WebGPU. The <strong>GLSL ES 3.00</strong> backend targets WebGL2: a uniform struct lowers to a std140 UBO block, <code>@vertex</code>/<code>@fragment</code> entry-IO lowers to <code>in</code>/<code>out</code> varyings + a synthesised <code>main()</code>, and the divergent spellings (a scalar cast <code>f32(x)</code>→<code>float(x)</code>, <code>atan2</code>→<code>atan</code>, an integer builtin cast for <code>gl_VertexID</code>) come from one neutral intrinsic registry.',
-  },
-  {
-    id: 'fail-closed',
-    title: 'Fail-closed capabilities',
-    body: 'GLSL ES 3.00 has no compute, no SSBO, no multisampled-texture load. Rather than emit invalid GLSL, the GLSL backend’s capability set is empty for those, and a capability gate throws <code>UnsupportedFeatureError</code> up front. That is why the compute example shows WGSL + reflection only — the DSL refuses to pretend.',
+    body: '<strong class="text-fg">The same IR lowers to WGSL and GLSL.</strong> <strong>WGSL</strong> is canonical and byte-stable for WebGPU; <strong>GLSL ES 3.00</strong> targets WebGL2, turning uniform structs into std140 blocks, entry-IO into <code>in</code>/<code>out</code> varyings, and divergent spellings (<code>atan2</code>→<code>atan</code>) through one intrinsic registry.',
   },
   {
     id: 'reflection',
     title: 'Reflection',
-    body: '<code>reflect(module)</code> is additive and read-only over the IR — it never runs on the emit path, so it cannot change an emitted byte. It recovers the bind-group entries, the std140 / std430 struct byte layouts, and the entry-point signatures. The host packs its uniform buffer straight from those offsets; the live examples on this site do exactly that.',
-  },
-  {
-    id: 'oracle',
-    title: 'CPU f64 oracle',
-    body: 'The same module compiles to an f64 CPU function. Running the GPU shader and the CPU mirror on the same inputs and comparing is how X-GIS catches the sibling-path divergences (fill vs outline, CPU vs GPU projection) that hide sub-pixel until a zoom or projection axis amplifies them.',
+    body: '<strong class="text-fg">Binding layout is derived, never emitted.</strong> <code>reflect(module)</code> reads the IR to recover bind groups, std140/std430 byte offsets, and entry signatures; the host packs its uniforms straight from those offsets.',
   },
   {
     id: 'optimize',
     title: 'Optimize + lint',
-    body: 'Before emit, a pass pipeline runs CSE, DCE, LICM, const-fold, algebraic simplification, and auto-var/auto-let materialisation, plus a 21-rule lint engine (no-float-eq, single-exit, naming, dead-binding, …). The optimizer is WGSL-side so the byte-stable WGSL stays canonical; GLSL emit is an identity pass over the lowered tree.',
+    body: '<strong class="text-fg">Every module is optimized and linted before emit.</strong> CSE, DCE, LICM, and const-fold run on the WGSL side so its output stays byte-stable; a 21-rule linter guards naming, dead bindings, and float-equality.',
+  },
+  {
+    id: 'oracle',
+    title: 'CPU f64 oracle',
+    body: '<strong class="text-fg">The same module also runs on the CPU in f64.</strong> Diffing the GPU shader against that mirror on identical inputs catches sibling-path divergences (fill vs outline, CPU vs GPU projection) that hide sub-pixel until zoom amplifies them.',
+  },
+  {
+    id: 'fail-closed',
+    title: 'Fail-closed capabilities',
+    body: '<strong class="text-fg">Unsupported features throw — they never mis-emit.</strong> GLSL ES 3.00 has no compute, SSBO, or MSAA-load, so a capability gate raises <code>UnsupportedFeatureError</code> up front rather than emitting invalid GLSL.',
   },
 ]
 ---
@@ -77,26 +79,26 @@ const sections = [
 >
   <h1 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em] text-[40px] sm:text-[52px] lg:text-[64px]">Concepts</h1>
   <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-[680px]">
-    The DSL is a TSL-style graph with a real type checker, two backends, a reflection layer, a CPU
-    oracle, and an optimizer — all over one intermediate representation.
+    One typed IR, read by everything downstream — the type checker, both backends, reflection, and a
+    CPU oracle — so they cannot disagree.
   </p>
 
-  <div class="mt-10 space-y-10">
+  <div class="mt-10 grid sm:grid-cols-2 gap-x-8 gap-y-7">
     {sections.map((s) => (
-      <section id={s.id}>
-        <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">{s.title}</h2>
-        <p class="text-[14.5px] leading-[1.65] text-fg-dim max-w-[700px]" set:html={s.body}></p>
+      <section id={s.id} class="border-t border-line pt-3.5">
+        <h2 class="font-display text-[17px] font-normal text-fg tracking-[-0.015em] mb-1.5">{s.title}</h2>
+        <p class="text-[14px] leading-[1.6] text-fg-mute" set:html={s.body}></p>
       </section>
     ))}
   </div>
 
-  <section class="mt-14">
+  <section class="mt-20 pt-10 border-t border-line">
     <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">See it both ways</h2>
-    <p class="text-[14.5px] leading-[1.65] text-fg-dim max-w-[700px] mb-5">
-      The <a href={`${root}/examples/gradient`} class="text-accent hover:text-accent-hover transition-colors">gradient</a>
-      example, emitted from one module. Note the divergences the DSL handles: <code class="font-mono text-[13px] text-fg">vec4&lt;f32&gt;</code> →
-      <code class="font-mono text-[13px] text-fg">vec4</code>, the std140 <code class="font-mono text-[13px] text-fg">uniform</code> block,
-      and the entry-IO lowering to <code class="font-mono text-[13px] text-fg">in</code>/<code class="font-mono text-[13px] text-fg">out</code> varyings + <code class="font-mono text-[13px] text-fg">main()</code>.
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[680px] mb-5">
+      One <a href={`${root}/examples/gradient`} class="text-accent hover:text-accent-hover transition-colors">gradient</a>
+      module, emitted twice — WGSL for WebGPU and GLSL ES 3.00 for WebGL2. The backends diverge
+      (<code class="font-mono text-[13px] text-fg">vec4&lt;f32&gt;</code> → <code class="font-mono text-[13px] text-fg">vec4</code>,
+      the std140 block, the synthesised <code class="font-mono text-[13px] text-fg">main()</code>); the source doesn’t.
     </p>
     <div class="sd-code grid lg:grid-cols-2 gap-4 items-start">
       <div>
@@ -121,21 +123,23 @@ const sections = [
     </div>
   </section>
 
-  <section class="mt-14" id="shipping">
+  <section class="mt-20 pt-10 border-t border-line" id="shipping">
     <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">Shipping shaders</h2>
-    <p class="text-[14.5px] leading-[1.65] text-fg-dim max-w-[700px] mb-5">
-      Your bundler minifies every byte of JS — and none of the shader text it hands to
-      <code class="font-mono text-[13px] text-fg">gl.shaderSource</code>. The production tooling lives on its own subpath and
-      composes the Vite/Webpack way — <code class="font-mono text-[13px] text-fg">emitModule(m, {'{ plugins: [mangle(), minify()] }'})</code>
-      (<code class="font-mono text-[13px] text-fg">obfuscate()</code> is that pair as a preset). <strong class="text-fg">mangle</strong>
-      renames the authored vocabulary (helpers, plain structs, consts → <code class="font-mono text-[13px] text-fg">_f0/_S0/_k0</code>);
-      <strong class="text-fg">minify</strong> compacts the text. The <em>ABI boundary</em> — entry points, binding names, UBO
-      block tags, struct fields — is never touched, so reflection-driven hosts bind unchanged. A third plugin,
-      <strong class="text-fg">inline</strong>, flattens the call graph — every helper (single-return and multi-statement alike)
-      is lifted into its call sites and disappears (it trades bytes for structure a reader can't follow). Toggle the plugins
-      below and watch the kaleidoscope fragment shader change live (every combination is emitted at build time — the DSL never
-      ships to your browser).
-      Details in the <a href={`${root}/reference`} class="text-accent hover:text-accent-hover transition-colors">reference</a>.
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[680px] mb-4">
+      <strong class="text-fg">Your bundler minifies every byte of JS — but never the shader text handed to
+      <code class="font-mono text-[13px]">gl.shaderSource</code>.</strong> Build-time plugins
+      (<code class="font-mono text-[13px] text-fg">@xgis/shader-dsl/emit-prod</code>) fix that, composed the Vite/Webpack way:
+      <code class="font-mono text-[13px] text-fg">emitModule(m, {'{ plugins: […] }'})</code>.
+    </p>
+    <ul class="text-[14px] leading-[1.55] text-fg-mute max-w-[680px] mb-3 space-y-1.5">
+      <li><strong class="text-fg font-mono text-[13px]">mangle</strong> — renames authored names (helpers, structs, consts → <code class="font-mono text-[13px]">_f0/_S0/_k0</code>).</li>
+      <li><strong class="text-fg font-mono text-[13px]">minify</strong> — strips whitespace and comments.</li>
+      <li><strong class="text-fg font-mono text-[13px]">inline</strong> — lifts every helper into its call sites, so the call graph disappears.</li>
+    </ul>
+    <p class="text-[13.5px] leading-[1.6] text-fg-mute max-w-[680px] mb-5">
+      The ABI boundary (entry points, binding names, UBO tags, struct fields) is never renamed, so reflection-driven hosts
+      bind unchanged. Toggle below — every combination is emitted at build time, so the DSL never ships to the browser.
+      <a href={`${root}/reference`} class="text-accent hover:text-accent-hover transition-colors">Reference →</a>
     </p>
 
     <div
