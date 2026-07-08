@@ -44,8 +44,8 @@ export interface RhiBufferDesc {
   usage: RhiBufferUsage
   /** Buffer is written after creation via writeBuffer (the common case). */
   writable?: boolean
-  /** Buffer can be read as the SOURCE of a `copyBufferToBuffer` (the GPUArena
-   *  compaction/grow ping-pong reads the old arena buffer as the copy source).
+  /** Buffer can be read as the SOURCE of a `copyBufferToBuffer` (e.g. an
+   *  arena compaction/grow ping-pong reading the old buffer as the copy source).
    *  WebGPU ORs in `GPUBufferUsage.COPY_SRC`; WebGL2 ignores it (any GL buffer is
    *  a valid `copyBufferSubData` read source). Additive + default false: an
    *  un-set buffer's usage flags are byte-identical to before. */
@@ -54,9 +54,9 @@ export interface RhiBufferDesc {
 }
 
 /** Semantic texture formats — impl maps to backend (e.g. swapchain bgra8).
- *  `rgba16float` is the OIT weighted-blend accum target (gpu-shared
- *  OIT_ACCUM_FORMAT); WebGL2 fail-closes on it (rendering to it needs
- *  EXT_color_buffer_float — deferred to the WebGL2 full-frame phase). */
+ *  `rgba16float` is a half-float accumulation target (e.g. weighted-blend OIT);
+ *  WebGL2 fail-closes on it (rendering to it needs EXT_color_buffer_float —
+ *  deferred to the WebGL2 full-frame phase). */
 export type RhiTextureFormat =
   | 'rgba8unorm'
   | 'r8unorm'
@@ -88,10 +88,10 @@ export interface RhiSamplerDesc {
  *  design; the pilot passes it explicitly to keep the seam small. */
 export interface RhiBindLayoutEntry {
   binding: number
-  /** 'storage' = read-only storage buffer (point feat_data / shape / segment).
+  /** 'storage' = read-only storage buffer (e.g. per-instance attribute data).
    *  WebGPU-native; a WebGL2 backend would lower these to textures/UBOs. */
   kind: 'uniform' | 'texture' | 'sampler' | 'storage'
-  /** Uniform bound with a per-draw dynamic offset (per-tile slot pattern). */
+  /** Uniform bound with a per-draw dynamic offset (a shared-buffer slot pattern). */
   dynamic?: boolean
   /** The shader's reflection NAME for this binding (from the DSL). A WebGL2
    *  backend reflects the linked program BY NAME with it — a `uniform` block's
@@ -103,15 +103,14 @@ export interface RhiBindLayoutEntry {
 }
 
 /** A backend-neutral routing handle for a render pipeline (#834 M-B3). Some
- *  map paths (the VTR tile fill/line draw) receive a pipeline object ONLY to
- *  route it to its built RHI Material twin by stable factory `label` — they
- *  never issue a native `setPipeline` on it (the draw runs the Material's own
- *  pipeline via `executeItems`). Those pass-through/route-by-label params type
- *  as `RhiPipelineHandle` so the VTR path names no `@webgpu/types` symbol; the
- *  concrete `GPURenderPipeline` (which has `label`) is structurally one of
- *  these. Paths that genuinely `setPipeline` a native pipeline (MapRenderer
- *  direct-geometry, graticule, compose passes) keep the native type until
- *  their pass topology moves to the RHI (Layer-2 M-B4). */
+ *  consumers receive a pipeline object ONLY to route a draw to its pre-built
+ *  RHI Material twin by stable factory `label` — they never issue a native
+ *  `setPipeline` on it (the draw runs the twin's own pipeline). Those
+ *  pass-through / route-by-label params type as `RhiPipelineHandle` so that path
+ *  names no native GPU pipeline symbol; a concrete backend pipeline (which has a
+ *  `label`) is structurally one of these. Paths that genuinely `setPipeline` a
+ *  native pipeline keep the native type until their pass topology moves to the
+ *  RHI (Layer-2). */
 export interface RhiPipelineHandle {
   readonly label: string
 }
@@ -142,9 +141,9 @@ export interface RhiPipelineDesc {
   vsCode?: string
   fsCode?: string
   bindGroupLayouts: RhiBindGroupLayout[]
-  /** `writeMask` (GPUColorWrite bitmask; 0xf = ALL) defaults per format: rg32uint pick targets
-   *  default 0 (the raster/line non-pickable pattern — they write vec2u(0,0)), every other target
-   *  defaults 0xf. A PICKABLE primitive (VTR polygon fill writes the feature id) sets the pick
+  /** `writeMask` (colour-write bitmask; 0xf = ALL) defaults per format: rg32uint pick targets
+   *  default 0 (the non-pickable pattern — a primitive that writes vec2u(0,0)), every other target
+   *  defaults 0xf. A PICKABLE primitive (one that writes a feature id) sets the pick
    *  target's writeMask to 0xf explicitly to override the default. */
   colorTargets: ReadonlyArray<{
     format: RhiTextureFormat
@@ -155,12 +154,12 @@ export interface RhiPipelineDesc {
     format: RhiTextureFormat
     write: boolean
     compare: 'always' | 'less' | 'less-equal'
-    /** Polygon-offset depth bias (point markers pull toward camera). */
+    /** Polygon-offset depth bias (e.g. primitives pulled toward the camera). */
     bias?: { constant: number; slopeScale: number; clamp: number }
-    /** Per-tile clip-mask stencil state. Absent = inert stencil (byte-identical
-     *  to the renderers' STENCIL_DISABLED). `compare`/`passOp` + the masks mirror
-     *  the gpu-shared STENCIL_WRITE / STENCIL_TEST / STENCIL_CLIPMASK_* states;
-     *  the runtime sets the reference per-draw via `setStencilReference`. */
+    /** Clip-mask stencil state. Absent = inert stencil (byte-identical to a
+     *  disabled-stencil pipeline). `compare`/`passOp` + the masks express the
+     *  write / test / clip-mask stencil states; the runtime sets the reference
+     *  per-draw via `setStencilReference`. */
     stencil?: {
       compare: 'always' | 'equal'
       passOp: 'keep' | 'replace'
@@ -169,25 +168,25 @@ export interface RhiPipelineDesc {
     }
   }
   sampleCount?: number
-  /** Procedural-grid draws (raster/drape) have no vertex buffers. */
+  /** Draws with no vertex buffers (e.g. procedural full-screen / grid draws). */
   vertexBuffers?: ReadonlyArray<{
     stride: number
     attributes: ReadonlyArray<{ location: number; offset: number; format: string }>
   }>
-  /** Triangle face culling. Default 'none' (byte-identical to the prior hardcoded primitive). The
-   *  VTR ground-fill variants cull 'back' (GPU back-cull of the far hemisphere on the globe). */
+  /** Triangle face culling. Default 'none' (byte-identical to the prior hardcoded primitive).
+   *  'back' back-face culls (e.g. dropping a sphere's far hemisphere). */
   cullMode?: 'none' | 'back' | 'front'
   label?: string
 }
 
 /** A draw scope — the renderer records draws against this, never the native
  *  pass encoder. The WebGPU impl wraps GPURenderPassEncoder; a WebGL2 impl sets
- *  gl state + issues drawArrays. setBindGroup's dynamicOffsets back the per-tile
+ *  gl state + issues drawArrays. setBindGroup's dynamicOffsets back a shared-buffer
  *  uniform-slot pattern (WebGPU dynamic offset / WebGL2 bindBufferRange). */
 export interface RhiRenderPass {
   setPipeline(p: RhiPipeline): void
   setBindGroup(index: number, group: RhiBindGroup, dynamicOffsets?: number[]): void
-  /** Bind a vertex buffer, optionally a byte sub-range (the per-tile slice of a
+  /** Bind a vertex buffer, optionally a byte sub-range (a sub-slice of a
    *  shared arena buffer). `offset`/`size` default to the whole buffer (offset 0)
    *  — byte-identical to the no-offset bind. WebGPU: native setVertexBuffer offset/
    *  size; WebGL2: `offset` is added to each attribute's `vertexAttribPointer` byte
@@ -201,7 +200,7 @@ export interface RhiRenderPass {
   ): void
   draw(vertexCount: number, instanceCount?: number, firstVertex?: number): void
   drawIndexed(indexCount: number, instanceCount?: number): void
-  /** Per-draw stencil reference value (the per-tile clip-mask ID). Inert on a
+  /** Per-draw stencil reference value (the clip-mask ID). Inert on a
    *  pipeline built without a `depthStencil.stencil` config. WebGPU maps to
    *  `GPURenderPassEncoder.setStencilReference`; WebGL2 stencil-state binding is
    *  deferred to the WebGL2 full-frame phase (see rhi-webgl2.ts). */
@@ -230,12 +229,13 @@ export interface RhiScreenPassDesc {
 
 // ═══ Offscreen / MRT render-pass topology (passes/ — gap #2) ═══
 //
-// `beginScreenPass` covers ONLY the single-sample backbuffer. The whole
-// passes/ topology (opaque pick `@location1` MRT, OIT accum+revealage MRT,
-// MSAA-resolve, the offscreen MAX line pass, the heatmap r16float 3-pass)
-// runs RAW `encoder.beginRenderPass(GPURenderPassDescriptor)` today. These
-// descriptors express that topology backend-agnostically so passes can
-// originate through `RhiCommandEncoder.beginRenderPass` instead at P1.
+// `beginScreenPass` covers ONLY the single-sample backbuffer. A richer offscreen
+// topology (an MRT pass writing a pick target at `@location1`, a weighted-OIT
+// accum+revealage MRT, MSAA-resolve, an offscreen MAX-blend pass, a
+// single-channel-float multi-pass) runs RAW
+// `encoder.beginRenderPass(GPURenderPassDescriptor)` today. These descriptors
+// express that topology backend-agnostically so passes can originate through
+// `RhiCommandEncoder.beginRenderPass` instead at P1.
 //
 // The WebGPU impl maps these to a `GPURenderPassDescriptor` BYTE-IDENTICALLY
 // to the inline descriptors each pass builds (rhiRenderPassToGpu, gated by
@@ -276,8 +276,8 @@ export interface RhiDepthStencilAttachment {
 }
 
 /** A backend-agnostic offscreen / MRT render-pass request. Up to N colour
- *  attachments (the map's topology uses 1, or 2 for the opaque-pick and
- *  OIT-fill MRT pairs) + an optional depth-stencil. Timestamp profiling is
+ *  attachments (a consumer uses 1, or 2 for an opaque-pick or OIT-fill MRT
+ *  pair) + an optional depth-stencil. Timestamp profiling is
  *  intentionally NOT modelled here — it is a WebGPU-encoder concern layered at
  *  the migration call-site (the gpuTimer seam), not part of the topology. */
 export interface RhiRenderPassDesc {
@@ -287,15 +287,14 @@ export interface RhiRenderPassDesc {
 }
 
 // ── Compute (P0.4, gap #4) ───────────────────────────────────────────────────
-// The live ComputeDispatcher (gpu/compute.ts) runs RAW device.createComputePipeline
-// + encoder.beginComputePass + dispatchWorkgroups today (per-feature paint kernels:
-// match / case / interpolate). This contract expresses that dispatch backend-
-// agnostically. WebGPU maps 1:1 (byte-identical to the raw calls); WebGL2 FAIL-
-// CLOSES — ES 3.00 has no compute, so a kernel that tries to originate through the
-// RHI can never silently produce a wrong frame (the GLSL paint path is a separate
-// data-texture emulation). Additive + inert + OPTIONAL: no caller routes through
-// here until the P1 compute flip — `WebGpuDevice` implements these, `WebGl2Device`
-// throws.
+// A compute dispatcher runs RAW device.createComputePipeline +
+// encoder.beginComputePass + dispatchWorkgroups today. This contract expresses
+// that dispatch backend-agnostically. WebGPU maps 1:1 (byte-identical to the raw
+// calls); WebGL2 FAIL-CLOSES — ES 3.00 has no compute, so a kernel that tries to
+// originate through the RHI can never silently produce a wrong frame (a WebGL2
+// consumer emulates compute separately via data textures). Additive + inert +
+// OPTIONAL: no caller routes through here until the P1 compute flip —
+// `WebGpuDevice` implements these, `WebGl2Device` throws.
 export interface RhiComputePipeline {
   readonly __rhi: 'computepipeline'
 }
@@ -341,11 +340,11 @@ export interface RhiCommandEncoder {
    *  pass body already calls). */
   beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass
   /** GPU→GPU buffer copy of `size` bytes from `src[srcOffset]` to `dst[dstOffset]`
-   *  (the GPUArena defrag/grow ping-pong: relocate the live set from the old arena
+   *  (e.g. an arena defrag/grow ping-pong relocating the live set from the old
    *  buffer into a freshly-packed one). WebGPU maps 1:1 to
    *  `GPUCommandEncoder.copyBufferToBuffer`; WebGL2 binds the two buffers to
    *  COPY_READ/COPY_WRITE and issues `gl.copyBufferSubData` immediately. `size`
-   *  + the offsets must be 4-byte aligned (WebGPU requirement; the arena aligns). */
+   *  + the offsets must be 4-byte aligned (WebGPU requirement; the caller aligns). */
   copyBufferToBuffer(
     src: RhiBuffer,
     srcOffset: number,
@@ -373,7 +372,7 @@ export interface RhiDevice {
   destroyBuffer(buffer: RhiBuffer): void
   createTexture(desc: RhiTextureDesc): RhiTexture
   /** Write a width×height region of texels. `x`/`y` (default 0) place the region's
-   *  top-left origin (the host-sprite-atlas region upload, #823); omitting them is
+   *  top-left origin (e.g. a sub-region atlas upload); omitting them is
    *  byte-identical to the pre-origin signature. */
   writeTexture(
     texture: RhiTexture,
@@ -390,8 +389,8 @@ export interface RhiDevice {
    *  the caller's, not centralized by the RHI (mirrors `destroyBuffer`). */
   destroyTexture(texture: RhiTexture): void
   /** Upload a decoded browser image (ImageBitmap / canvas) into a texture —
-   *  the backend-neutral `copyExternalImageToTexture` (#834 M5 slice 2: raster
-   *  tile images). Top-left origin on both backends: WebGPU
+   *  the backend-neutral `copyExternalImageToTexture` (e.g. decoded raster
+   *  images). Top-left origin on both backends: WebGPU
    *  `queue.copyExternalImageToTexture`; WebGL2 `texSubImage2D` with the
    *  bitmap source (no CPU readback). */
   copyExternalImage(
@@ -429,17 +428,17 @@ export interface RhiDevice {
   beginScreenPass?(desc: RhiScreenPassDesc): RhiRenderPass
   /** Finish + present the screen pass. WebGL2: `gl.flush()` + drain `gl.getError()`. */
   endScreenPass?(pass: RhiRenderPass): void
-  /** Begin an OFFSCREEN pass nested inside the frame's screen pass (#834 M5 —
-   *  the translucent-line MAX accumulation target; the on-demand pick pass's
-   *  colour+rg32uint MRT + depth-stencil). WebGL2: bind an FBO with the
+  /** Begin an OFFSCREEN pass nested inside the frame's screen pass (e.g. a
+   *  MAX-blend accumulation target; an on-demand pick pass's colour+rg32uint MRT
+   *  + depth-stencil). WebGL2: bind an FBO with the
    *  attachments' textures, set the viewport to the first attachment's size,
    *  clear per attachment (integer formats via clearBufferuiv); the returned
    *  pass's `end()` restores FBO 0 + the screen viewport so subsequent
    *  screen-pass draws continue unaffected. Resolve targets stay fail-closed
    *  (no MSAA on this isolated slice). */
   beginOffscreenPass?(desc: RhiRenderPassDesc): RhiRenderPass
-  /** Read one RG32UI texel — the pick readback (R = featureId, G = packed
-   *  (instanceId<<16)|layerId). WebGL2: synchronous readPixels off an FBO
+  /** Read one RG32UI texel — a two-channel uint readback (e.g. a pick buffer:
+   *  R = id, G = packed metadata). WebGL2: synchronous readPixels off an FBO
    *  bound to the texture; `y` is in TEXTURE rows (bottom-up — the caller
    *  flips from screen coords). WebGPU omits it (its pick readback is the
    *  async copyTextureToBuffer + mapAsync pool in interaction-controller). */
@@ -455,7 +454,7 @@ export interface RhiDevice {
   // INERT: `WebGpuDevice` returns a wrapper over a native `GPUCommandEncoder`
   // (begin-pass via the byte-identical rhiRenderPassToGpu mapper). `WebGl2Device`
   // returns a COPY-SCOPED encoder: `copyBufferToBuffer` works (gl.copyBufferSubData)
-  // — the GPUArena compaction/grow path needs it — but `beginRenderPass` still
+  // — an arena compaction/grow path needs it — but `beginRenderPass` still
   // FAIL-CLOSES (MRT + offscreen FBOs are the WebGL2 full-frame phase).
 
   /** Create a command encoder for offscreen / MRT passes + buffer copies. The
@@ -489,50 +488,12 @@ export function asScreenPassDevice(
     : null
 }
 
-// ═══ Neutral render context (#834 map→engine, M-B2) ═══
+// ═══ Render context — NOT here ═══
 //
-// The backend-neutral half of the composition-root handle. `@xgis/map`'s
-// renderers thread THIS instead of the concrete `GPUContext` (which extends it
-// with the native `device`/`context` fields) so map names no `@webgpu/types`
-// symbol. Backend selection stays with the injected provider; map only sees
-// `rhi` + neutral frame metadata. The concrete WebGPU context in
-// `@xgis/rhi-webgpu` is `interface GPUContext extends RhiContext { device;
-// context }`, so a real `GPUContext` is structurally an `RhiContext`.
-
-/** Backend-neutral device-lost payload. WebGPU's `GPUDeviceLostInfo`
- *  (`reason: 'destroyed' | 'unknown'`) is structurally assignable to this
- *  (its `reason` narrows `string`), so the WebGPU boot forwards it unchanged. */
-export interface RhiDeviceLostInfo {
-  readonly reason: string
-  readonly message: string
-}
-
-/** The GPU backend a map runs on. `'auto'` honours the `?forcegl2=1` dev
- *  override, else WebGPU. Construction-immutable (the canvas context type is
- *  sticky). Relocated from `@xgis/rhi-webgpu` (was `gpu.ts`) so it is part of
- *  the neutral surface `@xgis/map`'s public `XGISMapOptions.backend` names. */
-export type BackendChoice = 'auto' | 'webgpu' | 'webgl2'
-
-/** Backend-neutral render context — everything the map layer legitimately
- *  reads that is NOT a native WebGPU handle. `format` is the neutral swapchain
- *  format (always a member of {@link RhiTextureFormat}); `rhi` is the injected
- *  backend device; the rest is frame/host metadata + the device-lost signals.
- *  `GPUContext` (rhi-webgpu) extends this with `device`/`context`. */
-export interface RhiContext {
-  format: RhiTextureFormat
-  canvas: HTMLCanvasElement
-  sampleCount: number
-  /** The injected backend RHI device — the SINGLE instance every renderer
-   *  routes resource creation through. */
-  rhi: RhiDevice
-  timestampQuerySupported: boolean
-  timestampInsidePassesSupported: boolean
-  float32FilterableSupported: boolean
-  /** Validation error queue (WebGPU `uncapturederror` sink; empty/inert on
-   *  backends without validation). Tests poll it; production ignores it. */
-  _validationErrors: { message: string; t: number }[]
-  /** Set once the device is lost; the render loop stops issuing GPU work. */
-  deviceLost: boolean
-  /** Host hook fired once on device loss. */
-  onDeviceLost?: (info: RhiDeviceLostInfo) => void
-}
+// The neutral render context (`RenderContext`) and its family
+// (`RhiDeviceLostInfo`, `BackendChoice`) live in @xgis/engine, not this package
+// (#834 map→engine). A render HARDWARE interface describes GPU resources —
+// buffers, textures, pipelines, passes — and must be justifiable without naming
+// a host canvas, a per-frame render-loop state, or any consumer. Bundling a
+// device with a canvas + frame metadata is an engine composition concern, so it
+// sits one layer up. Consumers import those from @xgis/engine.
