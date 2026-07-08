@@ -40,6 +40,10 @@ const navGroups: NavGroup[] = [
     title: 'Reference',
     items: [{ label: 'API reference', slug: 'reference', href: `${root}/reference` }],
   },
+  {
+    title: 'Diagnostics',
+    items: [{ label: 'df64 GPU probe', slug: 'fp64-probe', href: `${root}/fp64-probe` }],
+  },
 ]
 const flat = navGroups.flatMap((g) => g.items)
 ---
