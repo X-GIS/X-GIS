@@ -82,6 +82,10 @@ const U = uniformStruct(
     pt: vec2f64T, // df64 vec (1e6+0.5, 0) — length / distance / dot / normalize
     vBig: vec2f64T, // df64 vec (1e8, 0) — vec64 add / sub / mul
     center: vec2f64T, // df64 observer — loran
+    ra: vec2f64T, // df64 √2      ┐ tame irrational leaves for the random
+    rb: vec2f64T, // df64 π/4     │ composition sweep — each carries a real lo
+    rc: vec2f64T, // df64 e/2     │ word, so every EFT error term is exercised
+    rd: vec2f64T, // df64 1/3     ┘ (see the generator below)
   },
 )
 
@@ -218,8 +222,103 @@ const values: Record<string, number[]> = {
   pt: [df(1e6 + 0.5)[0], 0, df(1e6 + 0.5)[1], 0],
   vBig: [df(1e8)[0], 0, df(1e8)[1], 0],
   center: [df(OBS[0])[0], df(OBS[1])[0], df(OBS[0])[1], df(OBS[1])[1]],
+  ra: sc(Math.SQRT2),
+  rb: sc(Math.PI / 4),
+  rc: sc(Math.E / 2),
+  rd: sc(1 / 3),
 }
-const payload = { values, tests }
+
+// ── Random composition sweep ──
+//
+// The fixed tests above each exercise ONE df64 op. But a driver's fast-math has
+// the most room to reassociate — and so to delete the EFT error terms — inside a
+// COMPOSED expression (the loran chain and the Mandelbrot iteration that first
+// broke on real hardware were both compositions). So this generates seeded random
+// df64 expression TREES over the four irrational leaves and runs each on the GPU.
+//
+// Two invariants make each kept tree a clean pass/fail probe:
+//   1. well-conditioned — a catastrophic-cancellation add/sub is rejected, so a
+//      CORRECT df64 tracks the f64 golden to ~2^-46 (κ ≈ 1, no false failures);
+//   2. discriminative — plain f32 must get the tree wrong by ≥ 2^-23, so a df64
+//      collapse is unmistakable (the same "f32 provably fails" gate the unit tests
+//      use). Trees f32 already nails carry no signal and are skipped.
+// The kernel outputs the AMPLIFIED relative error vs the baked f64 golden: a
+// correct GPU reads ~0 (PASS), a fast-math / non-correctly-rounded-multiply
+// collapse saturates the channel (FAIL). The golden is the native-f64 value of
+// the same tree — more accurate than df64, so df64's own ~2^-46 is the residual.
+const RIN = [Math.SQRT2, Math.PI / 4, Math.E / 2, 1 / 3] // must match ra..rb..rc..rd above
+const RIN_DF = RIN.map((x) => df(x)[0] + df(x)[1]) // the exact df64 value the GPU reads
+const RLEAF = [U.field.ra.x, U.field.rb.x, U.field.rc.x, U.field.rd.x] as const
+
+const rprng = (seed: number): (() => number) => {
+  let s = seed >>> 0
+  return () => {
+    s = (s + 0x6d2b79f5) | 0
+    let t = Math.imul(s ^ (s >>> 15), 1 | s)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Df64Node = any
+// An abstract node carries its DSL builder plus its f64 (golden) and f32 (signal)
+// values at the fixed leaves — so the generator can reject cancellation and gate
+// on the f32 error without re-emitting.
+type RNode = { render: (L: readonly Df64Node[]) => Df64Node; v: number; vf: number }
+const RUN = ['neg', 'abs', 'sqrt'] as const
+const RBIN = ['add', 'sub', 'mul', 'min', 'max', 'div'] as const
+const frd = Math.fround
+const leaf = (i: number): RNode => ({ render: (L) => L[i], v: RIN_DF[i]!, vf: frd(RIN_DF[i]!) })
+const rgen = (rnd: () => number, depth: number): RNode => {
+  if (depth <= 0 || rnd() < 0.25) return leaf(Math.floor(rnd() * 4))
+  for (let attempt = 0; attempt < 8; attempt++) {
+    if (rnd() < 0.4) {
+      const op = RUN[Math.floor(rnd() * RUN.length)]
+      const x = rgen(rnd, depth - 1)
+      if (op === 'neg') return { render: (L) => x.render(L).neg(), v: -x.v, vf: frd(-x.vf) }
+      if (op === 'abs') return { render: (L) => abs(x.render(L)), v: Math.abs(x.v), vf: frd(Math.abs(x.vf)) }
+      return { render: (L) => sqrt(abs(x.render(L))), v: Math.sqrt(Math.abs(x.v)), vf: frd(Math.sqrt(Math.abs(x.vf))) }
+    }
+    const op = RBIN[Math.floor(rnd() * RBIN.length)]
+    const x = rgen(rnd, depth - 1)
+    const y = rgen(rnd, depth - 1)
+    if (op === 'add' || op === 'sub') {
+      const v = op === 'add' ? x.v + y.v : x.v - y.v
+      if (Math.abs(v) < 0.1 * Math.max(Math.abs(x.v), Math.abs(y.v))) continue // reject cancellation
+      const vf = frd(op === 'add' ? x.vf + y.vf : x.vf - y.vf)
+      return { render: (L) => (op === 'add' ? x.render(L).add(y.render(L)) : x.render(L).sub(y.render(L))), v, vf }
+    }
+    if (op === 'mul') return { render: (L) => x.render(L).mul(y.render(L)), v: x.v * y.v, vf: frd(x.vf * y.vf) }
+    if (op === 'min') return { render: (L) => min(x.render(L), y.render(L)), v: Math.min(x.v, y.v), vf: frd(Math.min(x.vf, y.vf)) }
+    if (op === 'max') return { render: (L) => max(x.render(L), y.render(L)), v: Math.max(x.v, y.v), vf: frd(Math.max(x.vf, y.vf)) }
+    // div guarded away from 0: divide by |y| + 1
+    return { render: (L) => x.render(L).div(abs(y.render(L)).add(toF64(1))), v: x.v / (Math.abs(y.v) + 1), vf: frd(x.vf / (Math.abs(y.vf) + 1)) }
+  }
+  return leaf(Math.floor(rnd() * 4))
+}
+
+const R_SCALE = 2 ** 25 // held ~2^-46 → ~2^-21 (≈0); collapse ~2^-24 → saturates
+const rrnd = rprng(0x5f3759df)
+const randomTests: Test[] = []
+for (let i = 0; i < 6000 && randomTests.length < 24; i++) {
+  const t = rgen(rrnd, 5)
+  const golden = t.v
+  if (!isFinite(golden) || Math.abs(golden) < 1e-3) continue
+  if (Math.abs((t.vf - golden) / golden) < 2 ** -23) continue // discriminative: f32 must provably fail
+  const idx = randomTests.length
+  randomTests.push(
+    mk(
+      `rand${String(idx).padStart(2, '0')}`,
+      () => {
+        const resid = toF32(t.render(RLEAF).sub(golden)) // df64(expr) − golden, narrowed to f32
+        return abs(resid).div(f32(Math.abs(golden) + 2 ** -30)).mul(R_SCALE) // amplified: 0 held, saturates on collapse
+      },
+      0,
+    ),
+  )
+}
+
+const payload = { values, tests: [...tests, ...randomTests] }
 ---
 
 <ShaderDsl current="fp64-probe" hideSectionNav title="X-GIS Shader DSL — df64 GPU conformance probe" description="Per-op df64 known-answer tests on WebGPU + WebGL2 through the real emit + guard, GPU readback vs CPU oracle.">
@@ -229,7 +328,9 @@ const payload = { values, tests }
     <strong class="text-fg">both backends — WebGPU (WGSL) and WebGL2 (GLSL)</strong> — through the same emit +
     <code class="font-mono text-[13px] text-fg">_fp64</code> guard the examples use. Each result is read back as a real number
     and compared to the CPU f64 oracle. Every test is built so plain f32 gives a wrong answer, so <strong class="text-fg">PASS means df64
-    held on this GPU</strong>. Run it, then hit <strong class="text-fg">Copy</strong> and paste the digest back (per device).
+    held on this GPU</strong>. The final <strong class="text-fg">Random composition</strong> family fuzzes seeded random df64
+    expression <em>trees</em> — where a driver's fast-math has a whole expression to reassociate, and so the most room to
+    delete the error terms single ops survive. Run it, then hit <strong class="text-fg">Copy</strong> and paste the digest back (per device).
   </p>
 
   <!-- Results — the table skeleton renders on load (you see WHAT is being tested
@@ -296,12 +397,13 @@ const payload = { values, tests }
   // reads at a glance. Order within a family is DEFINITION order and stays put —
   // rows must not reshuffle under the reader as results land, so unlike the old
   // one-shot table there is no failures-first sort; the left rust tick flags fails.
-  const famOf = (n: string): 'scalar' | 'vector' | 'comparison' | 'composed' =>
-    n === 'loran' ? 'composed'
+  const famOf = (n: string): 'scalar' | 'vector' | 'comparison' | 'composed' | 'random' =>
+    /^rand/.test(n) ? 'random'
+    : n === 'loran' ? 'composed'
     : /^(lt|le|gt|ge|eq|ne)$/.test(n) ? 'comparison'
     : /^vec_|^(dot|length|distance|normalize)$/.test(n) ? 'vector'
     : 'scalar'
-  const FAMS: [string, string][] = [['scalar', 'Scalar'], ['vector', 'Vector · vec64'], ['comparison', 'Comparison'], ['composed', 'Composed']]
+  const FAMS: [string, string][] = [['scalar', 'Scalar'], ['vector', 'Vector · vec64'], ['comparison', 'Comparison'], ['composed', 'Composed'], ['random', 'Random composition']]
 
   // A RESOLVED cell: the value carries the only hue (rust on fail), the reason is
   // grey lowercase meta. A PENDING cell is a small spinner, swapped out in place.
