@@ -115,26 +115,42 @@ and to avoid a `geo → engine` edge — they land in **`@xgis/shared`**, the ze
 cartography package, and not in the engine (whose core does not use it: no `engine/src/**` file
 outside `projection/` references these ops).
 
-## 6. Sequencing — five behavior-preserving PRs
+## 6. Sequencing — behavior-preserving PRs
 
 Each slice: move → repoint the barrel + consumers → `tsc` (via `bun run build`) → full `vitest` →
-real-render DC=0 where a render path is touched. The engine→map import-edge ratchet stays 0.
+real-render DC=0 where a render path is touched. The engine→map import-edge ratchet stays 0, and no
+intermediate step may introduce an `engine → geo` edge.
 
-- **3a — mat4 ops → `@xgis/shared`.** Extract the four matrix helpers from `camera-helpers.ts`.
-  Small, foundational; one external consumer (`globe-visible-tiles`). Gate: build + vitest.
-- **3b — create `@xgis/geo` + move the leaves `data` needs.** `projection.ts`,
-  `projections-table.ts`, `world-scale.ts` → geo. New `package.json` / `tsconfig`; slot in the
-  ordered build after `shared`, before `data`. Repoint `data` / `map` / `runtime` imports; drop from
-  the engine barrel. Gate: build + vitest + DC=0.
-- **3c — move `globe.ts` → geo.** Sphere / globe-matrix math. Repoint `data/globe-visible-tiles` +
-  the map globe path. Gate: build + vitest + DC=0.
-- **3d — move map-only geo → `@xgis/map`.** `camera.ts`, `view-matrix.ts`, camera-helpers geo,
-  `globe-anchor.ts`, `unproject.ts`, `camera-world-copies.ts`. Repoint the ~90 `Camera` import sites
-  (mostly tests) — the engine barrel's `export * from './projection/*'` lines are the single
-  cutover point. Gate: build + full vitest + real-render DC=0.
-- **3e — lock it.** A resident-content ratchet asserting `engine/src` has no
+**Ordering constraint — why the geo package comes _after_ the map extraction.** The engine-resident
+`camera.ts` / `view-matrix.ts` / `globe.ts` import the leaf geo files (`projection.ts`,
+`projections-table.ts`, `world-scale.ts`). If those leaves moved to `@xgis/geo` while their importers
+still lived in the engine, each importer would have to `import { … } from '@xgis/geo'` — a backwards
+`engine → geo` edge — and every intermediate PR must leave the tree in a valid state. So the map-only
+files exit the engine **first** (`map → engine` for the still-resident leaves is legal and
+direction-preserving); only then can the geo cluster move out without the engine ever depending on
+it. This inverts the naive "make the new package first" instinct.
+
+- **3a — mat4 ops → `@xgis/shared`.** ✅ #892. The four content-blind matrix helpers
+  (`mul4`/`mulVec4`/`perspectiveMatrix`/`invert4x4`) out of `camera-helpers.ts` — unblocks both
+  `@xgis/geo` and `@xgis/map` from needing engine matrix math. Gate: build + vitest (86 passed).
+- **3b — map-only geo → `@xgis/map`.** `camera.ts`, `view-matrix.ts`, the camera-helpers geo
+  remainder (Snyder inverses / disc anchors / `convergeFlatAnchor`), `globe-anchor.ts`,
+  `unproject.ts`, `camera-world-copies.ts`. They move **together** — one map-bound cluster (`camera`
+  imports the others), so splitting them would create an `engine → map` edge. Repoint the ~90
+  `Camera` / view-matrix import sites (mostly tests) `@xgis/engine` → `@xgis/map`. While resident in
+  map they import the leaves + `globe.ts` from `@xgis/engine` (`map → engine`, legal, unchanged).
+  Gate: build + full vitest + real-render DC=0.
+- **3c — create `@xgis/geo`; move the geo cluster as a unit.** `projection.ts`,
+  `projections-table.ts`, `world-scale.ts`, `globe.ts` → the new package (deps: `@xgis/shared` only —
+  the leaves are import-free, `world-scale` needs `EARTH`, `globe` imports the leaves, all internal
+  to geo). New `package.json` / `tsconfig`; slot in the ordered build after `shared`, before `data`.
+  Repoint `data` / `map` / `runtime` imports `@xgis/engine` → `@xgis/geo`; drop the three `export *`
+  lines from the engine barrel. The engine now holds no `projection/` file. Gate: build + vitest +
+  DC=0.
+- **3d — lock it.** A resident-content ratchet asserting `engine/src` has no
   `mercator`/`projection`/`globe`/`Camera` symbols; fix any `frame-context` / `projection-token`
-  residue. Gate: ratchet green in CI.
+  residue; verify no `engine → geo`, `engine → map`, or `data → engine`(-geo) edge survives. Gate:
+  ratchet green in CI.
 
 ## 7. Risks & open classifications
 
@@ -142,16 +158,20 @@ real-render DC=0 where a render path is touched. The engine→map import-edge ra
   / `mul4`; after 3a they import from `@xgis/shared`. Must stay byte-identical — verify with a
   real-render DC=0, not just `tsc`.
 - **`camera-world-copies` / `unproject` ownership.** Classified map-only from current callers. If a
-  `data` path reaches them, they promote to `@xgis/geo` instead. Re-verify at 3d.
+  `data` path reaches them, they promote to the `@xgis/geo` cluster (3c) instead of moving to map.
+  Re-verify at 3b.
 - **`@xgis/geo` package plumbing.** Needs its own `package.json`, `tsconfig` with the `dist` path
   mapping other packages use, and a slot in the root `build` script's ordered chain.
 - **No surviving `geo → engine` / `data → engine` edge.** After the move, verify with an import-edge
-  check at 3e (matches the existing engine→map ratchet discipline).
+  check at 3d (matches the existing engine→map ratchet discipline).
 
 ## 8. Progress
 
-| Slice                                                       | PR   | Status            |
-| ----------------------------------------------------------- | ---- | ----------------- |
-| 1 — `FrameContext`/`FrameUniform` out of `@xgis/rhi-webgpu` | #887 | ✅ merged-pending |
-| 2 — `data` → local `TileSelectionCamera` interface          | #889 | ✅ merged-pending |
-| 3a–3e — `@xgis/geo` extraction                              | —    | this plan         |
+| Slice                                                       | PR   | Status  |
+| ----------------------------------------------------------- | ---- | ------- |
+| 1 — `FrameContext`/`FrameUniform` out of `@xgis/rhi-webgpu` | #887 | ✅      |
+| 2 — `data` → local `TileSelectionCamera` interface          | #889 | ✅      |
+| 3a — mat4 ops → `@xgis/shared`                              | #892 | ✅      |
+| 3b — map-only geo → `@xgis/map` (~90 `Camera` repoints)     | —    | next    |
+| 3c — geo cluster → `@xgis/geo` (new package)                | —    | planned |
+| 3d — engine geo-free ratchet + residue cleanup              | —    | planned |
