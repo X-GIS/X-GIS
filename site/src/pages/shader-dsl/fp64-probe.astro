@@ -199,6 +199,17 @@ const tests: Test[] = [
     THEXP,
     true,
   ),
+  // ── Diagnostic bisect (Apple df64 collapse) ──
+  // On Apple, `add` (which builds 1e8+0.5 on-GPU via a twoSum) holds but `sub`
+  // (which loads the same df64 from a uniform) collapses — same cancellation,
+  // different lo-word source. These isolate that, and test whether laundering the
+  // uniform-loaded value through a real df64 op restores it (the candidate fix).
+  // All target 0.5; every one passes on a correctly-rounded GPU (SwiftShader).
+  mk('dg_sub_ld', () => toF32(U.field.val.x.sub(toF64(B()))), 0.5), // uniform lo → sub (Apple: expect FAIL)
+  mk('dg_sub_cp', () => toF32(toF64(B()).add(toF64(S())).sub(toF64(B()))), 0.5), // computed lo → sub (expect PASS)
+  mk('dg_launder', () => toF32(U.field.val.x.add(toF64(S())).sub(toF64(S())).sub(toF64(B()))), 0.5), // launder uniform lo (+.5−.5) → sub — the FIX test
+  mk('dg_launder0', () => toF32(U.field.val.x.add(toF64(f32(0))).sub(toF64(B()))), 0.5), // launder via +0 (does the guard block the x+0→x fold?)
+  mk('dg_mul_lnd', () => toF32(toF64(B()).mul(U.field.factor.x.add(toF64(S())).sub(toF64(S()))).sub(toF64(B()))), 0.5), // launder uniform factor → mul (FIX test, mul side)
 ]
 
 // Host-side packed inputs. df64: lossless double → (hi, lo) f32 pair.
@@ -397,13 +408,14 @@ const payload = { values, tests: [...tests, ...randomTests] }
   // reads at a glance. Order within a family is DEFINITION order and stays put —
   // rows must not reshuffle under the reader as results land, so unlike the old
   // one-shot table there is no failures-first sort; the left rust tick flags fails.
-  const famOf = (n: string): 'scalar' | 'vector' | 'comparison' | 'composed' | 'random' =>
-    /^rand/.test(n) ? 'random'
+  const famOf = (n: string): 'scalar' | 'vector' | 'comparison' | 'composed' | 'diag' | 'random' =>
+    /^dg_/.test(n) ? 'diag'
+    : /^rand/.test(n) ? 'random'
     : n === 'loran' ? 'composed'
     : /^(lt|le|gt|ge|eq|ne)$/.test(n) ? 'comparison'
     : /^vec_|^(dot|length|distance|normalize)$/.test(n) ? 'vector'
     : 'scalar'
-  const FAMS: [string, string][] = [['scalar', 'Scalar'], ['vector', 'Vector · vec64'], ['comparison', 'Comparison'], ['composed', 'Composed'], ['random', 'Random composition']]
+  const FAMS: [string, string][] = [['scalar', 'Scalar'], ['vector', 'Vector · vec64'], ['comparison', 'Comparison'], ['composed', 'Composed'], ['diag', 'Diagnostic — Apple bisect'], ['random', 'Random composition']]
 
   // A RESOLVED cell: the value carries the only hue (rust on fail), the reason is
   // grey lowercase meta. A PENDING cell is a small spinner, swapped out in place.
