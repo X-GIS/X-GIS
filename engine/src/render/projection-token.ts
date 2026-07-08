@@ -1,9 +1,9 @@
 // ═══ Opaque per-frame projection token (content-owned) ═══
 //
-// The engine `FrameContext` (frame-context.ts) carries ONE of these per frame
-// and transports it frame-to-frame, but it can NEVER decode it: `ProjectionToken`
-// exposes no readable members, so engine code that reaches for `.projType` /
-// `.centerLon` / `.centerLat` fails to type-check. Only content code — the draw
+// The map `FrameContext` (map/src/render/frame-context.ts) carries ONE of these
+// per frame and transports it frame-to-frame, but it can NEVER decode it:
+// `ProjectionToken` exposes no readable members, so engine code that reaches for
+// `.projType` / `.centerLon` / `.centerLat` fails to type-check. Only content code — the draw
 // closures + the background / opaque / points / heatmap / label passes that own
 // the projection-specific shader/draw signatures — unwraps it via
 // `unwrapProjection()`. This is the P2-carve §3 inversion: the engine frame

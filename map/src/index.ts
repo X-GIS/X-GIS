@@ -211,10 +211,12 @@ export * from './source-manager'
 //   - XGISMap + its load-path helpers extractConversionNotes / logConversionNotes. Blanket
 //     `export * from './map'` is AVOIDED: map re-exports the map-types surface already surfaced
 //     via './map-types' — a blanket re-export would be an ambiguous duplicate.
-//   - backgroundPass / BackgroundPassHost / SceneView / lineLabelDeduped / lineIconIsIconOnly —
-//     consumed by background-opacity-wiring.test.ts / icon-cross-tile-dedup.test.ts.
+//   - backgroundPass / BackgroundPassHost / SceneView / FrameContext / lineLabelDeduped /
+//     lineIconIsIconOnly — consumed by background-opacity-wiring.test.ts / icon-cross-tile-dedup.test.ts.
 export { XGISMap, extractConversionNotes, logConversionNotes } from './map'
 export { backgroundPass } from './render/passes/background-pass'
 export type { BackgroundPassHost } from './render/passes/pass-hosts'
 export type { SceneView } from './render/scene-view'
+// #781 — per-frame render-loop state (relocated from @xgis/rhi-webgpu; carries the geo Camera).
+export type { FrameContext } from './render/frame-context'
 export { lineLabelDeduped, lineIconIsIconOnly } from './render/passes/label-pass'
