@@ -41,6 +41,20 @@ value is _always exactly 1.0_; specialized, $(s \cdot \mathrm{one} - a)
 \cdot \mathrm{one}$ becomes $s - a$ and the EFTs legally cancel. Variant
 swapping mid-session produces exactly the observed alternation.
 
+This last step is an _inference_, not a captured fact: no WebGL or WebGPU API
+exposes the driver's specialized pipeline variant, so we never read back the
+collapsed shader. What we have is that the collapse is confined to the df64
+branch, is invariant to the (byte-identical) uniform bytes, and disappears
+under both fixes below — which the specialization theory predicts and no other
+hypothesis we tried does. We infer the cause from the fix; we did not observe
+it directly.
+
+The lesson the two fixes below share: **"runtime-opaque" has to hold across the
+pipeline's whole lifecycle, not just its first compile.** The uniform guard was
+opaque to ahead-of-time folding and still lost to a background re-optimizer that
+specializes on the value it observes at runtime. One fix removes the frames that
+can show the swap; the other removes the observability the swap depends on.
+
 ## Fix 1: render-on-demand
 
 The playground loop redrew every rAF tick with unchanged inputs. Every live
@@ -58,8 +72,9 @@ specialization theory held.
 ## Fix 2: a texel-fetched guard
 
 If the driver can observe the uniform, store the guard where observation
-doesn't help. No shader compiler treats **texture contents** as compile-time
-constants. The guard is now a 1×1 texture whose texel reads exactly 1.0:
+doesn't help. No WebGL2 or WebGPU compiler in current driver stacks treats
+**texture contents** as a compile-time constant it can fold the cancellation
+against. The guard is now a 1×1 texture whose texel reads exactly 1.0:
 
 ```glsl
 // GLSL ES 3.00
@@ -92,8 +107,6 @@ Deployed; the reporter's machine is clean at rest and during interaction.
 - **Render-on-demand is a correctness feature.** Skipping redundant draws
   structurally removes any nondeterminism the driver introduces _between_
   draws — the battery savings are incidental.
-- **Ship one-click experiments.** The fp64 toggle turned an unreproducible
-  report into a controlled A/B on the only machine that mattered.
 - **Give GPU-opaque values a CPU-exact twin.** Because the guard is an
   intrinsic with per-target spellings, changing its physical representation
   cost the test suite nothing.

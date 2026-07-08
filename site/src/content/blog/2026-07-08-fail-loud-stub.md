@@ -90,10 +90,23 @@ constructor doesn't *access* a property of the proxy). Only *using* it throws.
 That's the exact line we want: passing the handle around is legal; dereferencing
 a native WebGPU object on a backend that has none is a bug, and now it says so.
 
+This line is subtler than it reads, because storage and use are usually in
+*different methods*. Most frame-path renderers store `ctx.device` in their
+constructor and never touch it there — perfectly safe under the fail-loud stub.
+The throw surfaces later and elsewhere: `PipelineFactory.build()` takes that
+same stored device and calls `.createRenderPipeline` on it. So the stack trace
+points at the dereferencing call site, not the innocuous constructor that
+captured the handle — which is exactly the site you need to fence.
+
 ## What the stub screamed about
 
 We flipped the stub and ran the WebGL2 gate suite. It didn't render — it threw,
-with a stack trace, at every unfenced site. In order:
+with a stack trace, at every unfenced site. Counted up, the forced-WebGL2 boot
+had been making north of forty native device calls per boot into a device that
+does not exist — 22 in `PipelineFactory.build()` alone, another ~13 shader
+emits for per-style variants, plus three renderers, the sprite atlas, and the
+tile path. Every one of them had been silently succeeding against the proxy.
+In order:
 
 - `PipelineFactory.build()` — 22 `device.create*` calls (shader module, base
   layouts, every base pipeline, atlas stubs, OIT compose) that had been running
@@ -110,23 +123,19 @@ with a stack trace, at every unfenced site. In order:
 - The tile upload path — a raw device-pool buffer for the legacy thin-line
   draw (which never runs on the RHI frame). Skipped on WebGL2.
 
-None of these were *wrong* before — the proxy made them harmless. But each was
-a device touch on a backend that has no device, and each was invisible. The
-fail-loud stub turned "invisible and harmless-for-now" into "a stack trace
-pointing at the exact line." Every one got a proper fence; the boot now performs
-**zero** device calls on the WebGL2 path.
+None of these were *incorrect* before — the proxy made them harmless-looking.
+But harmless-looking is not free: each was real wasted work on every forced
+boot — a WGSL emit plus a `createRenderPipeline` per data-driven layer, native
+samplers, pool buffers — all allocated against a device that has no device, all
+invisible. The fail-loud stub turned "invisible and wasteful" into "a stack
+trace pointing at the exact line." Every one got a proper fence; the boot now
+performs **zero** device calls on the WebGL2 path.
 
 ## The lesson
 
-Stubs exist so that code written for one context can survive in another. The
-temptation is to make them maximally permissive — return something plausible,
-never complain, let the caller carry on. That optimises for *today's* green
-build and sabotages *tomorrow's* refactor: the permissive stub is exactly the
-thing that hides the work you're trying to do.
-
-If a stub represents "this capability is absent here," make absence *loud*.
-Throw, with a message that names the capability and the fix. Keep only the
-narrow escape hatches that diagnostics genuinely need (`then`, symbols). A stub
-that fails loud is a to-do list that writes itself — run the code, read the
-stack traces, fence what they point at, repeat until silent. A stub that fails
-quiet is a debt you can't even measure.
+If a stub represents "this capability is absent here," make absence *loud* —
+throw, with a message that names the capability and the fix, keeping only the
+escape hatches diagnostics need (`then`, symbols). A stub that fails loud is a
+to-do list that writes itself: run the code, read the stack traces, fence what
+they point at, repeat until silent. A stub that fails quiet is a debt you can't
+even measure.

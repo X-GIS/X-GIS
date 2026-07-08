@@ -94,7 +94,14 @@ It cascades exactly as far as the routing keys reach and no further:
 - `bucket-scheduler`: 30 refs.
 
 **87 references**, and the compiler stops there — because the *boundary* is
-clean. The pipeline **factory** still names `GPURenderPipeline` (it creates
+clean. There is a cost to naming the type by its `.label`, though: routing now
+rests entirely on that label being unique. `recordFillDraw` matches identity
+first and falls back to `.label`, so two Materials that ever collided on a label
+would be a latent footgun — the fallback could route a draw to the wrong twin.
+The stable factory-assigned labels make that safe today, but the invariant is
+now load-bearing where before it was merely convenient.
+
+The pipeline **factory** still names `GPURenderPipeline` (it creates
 them). `renderer.ts` (the direct-geometry path) and the compose passes still
 name it (they *do* call native `setPipeline`). But those are on the other side
 of the routing-key graph, and a native `GPURenderPipeline` assigns into an
@@ -116,19 +123,13 @@ is — *if* you've correctly identified what the types describe.
 ## The meta-lesson: name the thing by what's read off it
 
 The wrong migration (swap the create call) and the right one (collapse to a
-label handle) start from the same 217 references. The difference is entirely in
-having *proven* what those references are used for. A confident static read —
-"they're pipelines, they get drawn" — would have sent us swapping 217 create
-calls for no benefit, or worse, breaking the routing.
-
-The discriminator was a two-line search (`rg setPipeline` → both hits are
-comments) plus reading the six lines of `recordFillDraw`. That's the whole
-proof. It reframed "a pipeline" as "a label that happens to be carried on a
-pipeline object," and once you see the object by what's actually read off it,
-the neutral type writes itself.
-
-Types should describe the *contract a value is used under*, not the concrete
-class that happens to satisfy it. When a `GPURenderPipeline` is threaded through
-four files only to have its `.label` compared, its contract is `{ label:
-string }` — and saying so, out loud, in the type, is what lets the whole path
-cross a package boundary it looked hopelessly entangled with.
+label handle) start from the same 217 references; the entire difference is
+having *proven* what those references are used for instead of trusting the
+confident static read — "they're pipelines, they get drawn" — that would have
+sent us swapping 217 create calls for no benefit, or worse, breaking the
+routing. The whole proof was a two-line search (`rg setPipeline` → both hits are
+comments) plus six lines of `recordFillDraw`: **hunt for the witness that
+falsifies the confident read**, and when it turns up (the object is never
+bound, only its `.label` compared), the type describes the *contract the value
+is used under* — `{ label: string }` — not the concrete class that happens to
+satisfy it, and the neutral type writes itself.

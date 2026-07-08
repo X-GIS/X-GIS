@@ -59,15 +59,20 @@ The **core emit knows nothing about mangle or minify** — it only folds the
 plugin arrays. The implementations live on a separate entry point,
 `@xgis/shader-dsl/emit-prod`, so a consumer that emits shaders *at runtime*
 (the map engine itself does) and never imports the subpath bundles zero bytes
-of the transform code. A build-time toolchain imports it; the runtime path
-does not pay for it. Same split the lint/measure tooling uses (`/dev`).
+of the transform code. That matters because the weight is real: the mangle pass
+is ~210 lines of identifier-walking and the minifier another ~60, none of which
+a browser shipping the runtime emitter should ever download. A build-time
+toolchain imports the subpath; the runtime path does not pay for it. Same split
+the lint/measure tooling uses (`/dev`).
 
 ## mangle: rename everything except the contract
 
 Mangling renames the authored vocabulary — helper functions, plain structs,
 module constants (including the injected
-[df64 emulation library](/blog/2026-07-07-emulated-double-precision-shader-dsl))
-— to `_f0` / `_S0` / `_k0`, in declaration order. Local variables were already
+[df64 emulation library](/blog/2026-07-07-emulated-double-precision-shader-dsl):
+a software 64-bit float built from a *pair* of 32-bit floats, the trick that
+stops globe coordinates from jittering at the earth's radius) — to
+`_f0` / `_S0` / `_k0`, in declaration order. Local variables were already
 machine-named by the optimizer; what leaks identity is the top-level names.
 
 The interesting half is what mangling must **never** touch. These names are an
@@ -109,9 +114,16 @@ minify; the win scales with how much the authored names and formatting weighed.
 ## Compile-and-link is not enough to trust it
 
 The trap: a mangled, minified shader that **compiles and links** can still be
-*wrong*. A whitespace rule that merged two tokens, or a rename that desynced
-the two GLSL stages, can produce a string the driver accepts and then draws
-incorrectly. Compilation validates syntax, not semantics.
+*wrong*. And the two ways it goes wrong aren't hypothetical hand-waving — they
+are exactly the two mechanisms the sections above had to engineer around. A
+whitespace rule one character too greedy merges `a - -b` into the decrement
+`a--b`: still valid syntax, different arithmetic. A mangler that assigned names
+in a non-deterministic order desyncs the vertex and fragment stages, which link
+by matching varying names: the program links to *something* and samples the
+wrong varying. Both produce a string the driver happily accepts and then draws
+incorrectly, and compilation — which validates syntax, not semantics — waves
+both through. That is the specific failure the gate is built to catch, which is
+why it cannot stop at compilation.
 
 So the CI gate does not stop at compilation. It emits every example
 `{ minify, mangle }`, and for representative modules — including the df64 +

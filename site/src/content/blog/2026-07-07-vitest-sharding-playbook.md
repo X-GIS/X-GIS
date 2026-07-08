@@ -1,6 +1,6 @@
 ---
 title: 'All 2,592 tests passed and the job failed: a vitest sharding playbook'
-description: "Three rounds of CI failures where every test was green and the job was red — vitest's worker→main reporter RPC timing out under file-count pressure. The ~110-file threshold we measured, the matrix design that contains it, and the playbook for the next regrowth."
+description: "Three rounds of CI failures where every test was green and the job was red — vitest's worker→main reporter RPC timing out under file-count pressure. The ~110-file floor we split on (set below the lowest count we watched fail), the matrix design that contains it, and the playbook for the next regrowth."
 date: 2026-07-07
 tags: ['testing', 'ci', 'vitest', 'infrastructure']
 lang: en
@@ -14,8 +14,12 @@ Error: [vitest-worker]: Timeout calling "onTaskUpdate"
 ```
 
 Run 27242663060 is representative: 2,592/2,592 tests green, job failed —
-twice in a row. Nothing in the *tests* was wrong. This post is the diagnosis,
-the numbers we measured, and the playbook that has kept it contained since.
+twice in a row. The first red read like a flaky test, so the instinct was to
+re-run — and it came back red *identically*: same green count, same reporter
+error line. A flake that reproduces to the byte on re-run is not a flake, and
+that is what turned attention from the tests to the channel reporting them.
+This post is the diagnosis, the numbers we measured, and the playbook that has
+kept it contained since.
 
 ## The mechanism
 
@@ -37,7 +41,8 @@ Two mitigations don't require touching the pool at all:
   (Spell the value explicitly: bare `--silent <path>` makes the CLI parser
   eat the path filter as the flag's value.)
 - **Fresh pools** — separate vitest *invocations* each start a new worker
-  pool with zero accumulated RPC state.
+  pool: a new worker carries zero accumulated birpc backlog, so the timeout
+  budget effectively resets at every leg boundary.
 
 But the load-bearing variable is files-per-pool.
 
@@ -52,10 +57,15 @@ We never found a documented limit; we found ours empirically, three times:
 | 2026-06-16 | bug-hunt sweep | 156 + 156 | flaked again (run 27581620678) | four legs, each < 110 files |
 | 2026-06-26 | demo-QA sweep | engine-render at 122 | green tests, red job (run 28186666263) | `--shard=1/2` → two pools of ~61 |
 
-Everything at or under ~110 files per pool has been stable; everything that
-crept past it eventually flaked. The number is machine-dependent (slow CI
-runners hit it sooner — locally these runs pass), so treat it as a tripwire,
-not a spec.
+~110 is a chosen *floor*, not a measured ceiling — and the table is honest
+about the gap. The lowest count that has actually flaked here is 122 (the
+2026-06-26 engine-render leg), yet the two ~130-file runtime legs from
+2026-06-10 held until later growth pushed them past it. So there is no
+clean line: the real edge drifts with runner speed and how much RPC a run has
+already accumulated (slow CI hits it sooner; locally these all pass). We set
+the tripwire at ~110 — deliberately *below* the 122 we have watched fail — and
+split on approach rather than probing for the exact edge on someone else's PR.
+Treat it as a conservative budget, not a spec.
 
 ## Splitting without silently losing coverage
 

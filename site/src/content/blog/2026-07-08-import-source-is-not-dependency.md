@@ -34,9 +34,14 @@ and rewrote map's annotations to pull from it:
 import type { GPUDevice, GPUBuffer } from '@xgis/rhi-webgpu'
 ```
 
-`tsc` went green. Ambient `@webgpu/types` gone from map's tsconfig. The 700
-references now had an explicit import source. It *looked* like progress — the
-diff was all "add explicit import," the kind of change that reads as tightening.
+`tsc` went green. Ambient `@webgpu/types` gone from map's tsconfig. The ~700
+references — clustered in about forty files that actually annotate `GPU*`
+shapes — now had an explicit import source. It *looked* like progress: the diff
+was all "add explicit import," the kind of change that reads as tightening, and
+a green typecheck plus a cleaner tsconfig is exactly the signal that says *ship
+it*. I was one `git commit` away from doing so — the compiler had no way to tell
+me the arrow now pointed the wrong way, because to `tsc` a satisfied import is a
+satisfied import.
 
 The owner stopped it in one sentence: *map must depend on the engine only, and
 the backend is selected in the engine.* Re-exporting WebGPU types **from
@@ -65,6 +70,17 @@ package. I had converted "map happens to use a WebGPU-shaped type" into "map
 imports from the WebGPU backend," which is a worse architecture even though the
 tsconfig looked cleaner.
 
+The consequence is concrete, not aesthetic. The whole milestone exists so a
+build can ship *one* backend — the canary CI job already proves the engine
+compiles against `@xgis/rhi` alone. Picture a WebGL2-only bundle that pulls in
+`@xgis/rhi-webgl2` and drops `@xgis/rhi-webgpu` entirely. With the barrel,
+map's forty files still `import type … from '@xgis/rhi-webgpu'` — a package no
+longer in the build — and map fails to resolve its own type imports. The
+ambient-global version, ugly as it was, would have compiled fine: `@webgpu/types`
+is just a shape declaration, coupled to no package I need to ship. The barrel
+took a dependency that survived dropping the WebGPU backend and made it one that
+doesn't.
+
 The direction of a dependency is not decided by whether an import statement
 exists. It's decided by **which package owns the symbol and which package must
 change when it changes.** A neutral type that both map and the backend agree on
@@ -92,9 +108,16 @@ arrow points the right way: map → engine → rhi. The concrete `rhi-webgpu`
 package sits off to the side as a leaf that the engine selects at runtime, with
 **zero** inbound edges from map.
 
-The barrel got stashed and reverted in full. Nothing from that branch survived,
-and that's the correct outcome for a change that moved the architecture the wrong
-way — a clean revert beats a salvage when the premise was wrong.
+The barrel got stashed and reverted in full — and the fullness is the point.
+The tempting salvage was "keep the barrel for just the handful of files where
+defining an upstream type is more work, revert the rest." But a partial keep
+leaves a partial `map → rhi-webgpu` edge, and a partial version of the exact
+edge the milestone exists to delete is not a smaller problem — it's the same
+problem in fewer files, still enough to break the WebGL2-only build above. The
+revert was cheap precisely because the right move reuses none of it: replacing a
+type with a neutral one defined upstream shares no lines with re-exporting the
+concrete one downstream. When the premise is wrong, there's nothing to salvage,
+because every line encodes the wrong premise.
 
 ## The rule
 

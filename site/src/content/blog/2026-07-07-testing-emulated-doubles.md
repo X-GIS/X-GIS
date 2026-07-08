@@ -64,9 +64,11 @@ $$
 \mathrm{oracle}(\texttt{fp64Lower}(m)) \approx \mathrm{oracle}(m)
 $$
 
-This holds to $2^{-40}$ relative because in exact-enough arithmetic the EFT
-error terms are genuinely near zero. One property, every rewrite rule in the
-pass covered — no per-rule expectations to maintain.
+In exact-enough arithmetic the EFT error terms are genuinely near zero, so the
+pass reproduces the native-f64 oracle to roughly $2^{-45}$–$2^{-48}$ relative
+(df64 keeps ~48 bits, dropping only the lo·lo cross terms); the gate itself
+asserts a looser $2^{-40}$ so honest rounding never trips it. One property,
+every rewrite rule in the pass covered — no per-rule expectations to maintain.
 
 ## Layer 3: byte goldens and optimizer invariants
 
@@ -92,20 +94,41 @@ shaders on both backends:
   case (exercises ANGLE), plus one pixel that runs the whole-plane vec64
   arithmetic and componentwise builtins.
 
-The assertions reuse layer 1's discriminative structure: the result must
-beat the plain-f32 twin by ≥8×, so a fast-math collapse turns the gate red
-rather than passing vacuously.
+The assertions reuse layer 1's discriminative structure: the result must beat
+the plain-f32 twin by ≥8×, so a fast-math collapse turns the gate red rather
+than passing vacuously. The 8 is not a precision target — the CPU gate demands
+$10^4\times$; the real-GPU threshold is deliberately loosened to leave
+headroom for driver rounding on the collapsed path (and the total-cancellation
+cases, where the f32 twin is exactly 0, are gated on the absolute tolerance
+instead).
 
 ## What each layer caught
 
-The stack is not hypothetical: layer 1 caught tolerance mistakes in the
-kernels' expected values, layer 2 caught lowering-shape bugs during the
-vector milestone, layer 3 pinned the guard when the optimizer grew new
-passes, and layer 4 is the only reason the
-[driver-specialization incident](/blog/2026-07-07-the-flickering-mandelbrot)
-could be fixed with confidence — when the guard's representation changed
-from a uniform to a texel fetch, the intrinsic kept a CPU spelling of
-exactly `1`, and every layer re-ran unchanged over the new lowered IR.
+The stack is not hypothetical, and each layer is discriminative about a
+different shape of failure:
+
+- **Layer 1** pins exact answers with a paired f32-fails half:
+  $(2^{20}+2^{-20})-2^{20}$ must land on $2^{-20}$ (a 41-bit tail plain f32
+  flushes to $0$), the product $(1+2^{-30})^2$ must keep its $2^{-29}$ cross
+  term (f32 keeps $1$). Because every case also asserts the f32 twin missing
+  by orders of magnitude, a too-loose tolerance or a wrong expected value
+  cannot slip through as a vacuous pass.
+- **Layer 2** is where the vector milestone's lowering shapes get caught:
+  `vecN<f64>` lowers to hi/lo _planes_ (`struct DF64VecN { hi, lo }`), and a
+  swizzle or a `dot` that gathers the wrong plane or lane still type-checks.
+  The metamorphic relation $\mathrm{oracle}(\texttt{fp64Lower}(m)) \approx
+  \mathrm{oracle}(m)$ diverges the instant a lane is mis-indexed — no per-shape
+  golden to hand-maintain.
+- **Layer 3** asserts on the _optimized_ output that `df64_sqrt`/`df64_div`
+  are still called (nothing inlined the EFT bodies) and that each of
+  `df64_twoSum`/`quickTwoSum`/`split` still references `_fp64` after the O2
+  fixpoint — so a new algebraic pass that folds `* one` away turns the
+  assertion red instead of silently collapsing precision.
+- **Layer 4** is the only reason the
+  [driver-specialization incident](/blog/2026-07-07-the-flickering-mandelbrot)
+  could be fixed with confidence — when the guard's representation changed
+  from a uniform to a texel fetch, the intrinsic kept a CPU spelling of
+  exactly `1`, and every layer re-ran unchanged over the new lowered IR.
 
 ## References
 

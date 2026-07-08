@@ -34,24 +34,30 @@ per-frame cost collapses to "bind and draw."
 ## One shader layer, two backends
 
 Every shader — the geometry pipelines and the compute kernels — is authored in a
-typed **shader IR** (`@xgis/shader-dsl`), not hand-written WGSL strings. That IR
-emits **WGSL** for WebGPU and **GLSL ES 3.00** for the WebGL2 fallback from the
-same source, and runs an optimizer over it: constant folding, common-subexpression
-elimination, dead-code elimination. The compiler lowers your paint expressions
-into the very same IR, so a `match()` in your style and a hand-written polygon
-shader fold and dedupe the same way.
+typed **shader IR** (`@xgis/shader-dsl`), not hand-written WGSL strings, and the
+compiler lowers your paint expressions into that *same* IR — so a `match()` in
+your style and a hand-written polygon shader fold and dedupe together, and the
+one IR emits both WGSL (WebGPU) and GLSL ES 3.00 (the WebGL2 fallback). The
+[compiler-pipeline post](/blog/2026-07-07-the-xgis-compiler-pipeline) is the
+anatomy of that path.
 
 ## Built for a globe
 
-The target isn't a flat slippy map — it's a 3D globe with real geodesy: ECEF
-positioning, an ellipsoidal geoid, and precision math (relative-to-center
-encoding, logarithmic depth) so a building at street level and a continent at
-orbit both render crisp in the same frame.
+The target isn't a flat slippy map — it's a 3D globe with real geodesy, and that
+forces a precision problem the flat-map engines never hit. A surface point in
+ECEF coordinates runs to the earth's radius: **6,378,137 m**. Store that in a
+32-bit float — a 24-bit mantissa — and the representable grid near the surface is
+`6378137 / 2²⁴ ≈ 0.38 m`. A building drawn straight from f32 ECEF snaps and
+jitters on a ~0.4 m lattice, right at the scale you're looking at it. So position
+is never a raw f32: each vertex carries an ECEF **hi + lo float pair** relative to
+a per-tile center (the extra low word buys back the lost mantissa bits), and depth
+is logarithmic — so a building at street level and a continent at orbit both stay
+crisp in the same frame.
 
 ## What's next
 
 This blog will go deep on each layer — the compiler passes, the shader IR and its
 optimizer, the projection/globe math, the WebGPU render graph, and the
 performance work (GPU arenas, compute scheduling) that keeps it smooth. The
-[Concepts](/docs/concepts/pipeline) docs cover the architecture; here we'll cover
-the decisions and the war stories.
+[Concepts](/docs/concepts/pipeline) docs cover the architecture; this blog covers
+the decisions behind it — one subsystem, and the problem that shaped it, at a time.

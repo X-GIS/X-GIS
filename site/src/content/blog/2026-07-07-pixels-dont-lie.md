@@ -31,8 +31,10 @@ before you open the code.
 ## Bug 1: every place name vanished
 
 Point labels (city names, POIs) were missing on WebGL2 while road names and
-shields rendered fine. Slice data was byte-identical across backends; glyphs
-were rasterized. The tell: one POI layer dispatched 3 features instead of
+shields rendered fine. The first guess was the obvious one — a whole layer
+getting culled by a zoom or visibility gate on the GL path. Wrong: slice data
+was byte-identical across backends and glyphs were rasterized. The tell that
+killed the layer-gate theory: one POI layer dispatched 3 features instead of
 143 — not a per-layer gate, a per-*feature* filter.
 
 The culprit was a frame-scoped dedup map ("same resolved text near the same
@@ -42,14 +44,17 @@ cleared: frame 1 registered every name, and from frame 2 on every named
 label was suppressed as its own duplicate. The 3 survivors had empty
 resolved text — which bypasses dedup. Observation matched perfectly.
 
-Lesson: shared per-frame state plus an early-returning sibling frame path is
-a time bomb. When you fork a frame loop, enumerate everything the main
-prelude resets, first.
+The anti-pattern, named so you can grep your own code for it: *shared
+frame-scoped mutable state + a forked early-return path* that skips the reset.
+When you fork a frame loop, enumerate everything the main prelude resets
+before you branch above it.
 
 ## Bug 2: the park that lost a coin toss
 
-Hibiya Park rendered green on WebGPU, background-cream on WebGL2. Chasing it
-took three moves: exact pixel back-calculation (the WebGPU green was
+Hibiya Park rendered green on WebGPU, background-cream on WebGL2. A missing
+fill reads as geometry or blend state, so that's what we suspected first — a
+dropped draw, or a wrong blend factor eating the layer. Chasing it took three
+moves that walked away from both: exact pixel back-calculation (the WebGPU green was
 `#d8e8c8` at full alpha — an *opaque* landcover fill, not the translucent
 park layer), an isolation run (hide everything else → WebGL2 draws the same
 green, so geometry and draw are fine), and a bisection (hiding every layer
@@ -70,9 +75,10 @@ than the grass polygon's, the later-drawn park lost the depth test and
 vanished — an entire polygon erased because a per-feature hash was
 unlucky. You will not find that bug by reading code.
 
-Lesson: when mirroring a reference backend, the contract isn't just shaders
-and blend state — it's the *pipeline substitution policy*: which depth and
-stencil variant the reference actually selects, and when.
+So when you mirror a reference backend, the contract isn't just shaders and
+blend state — it's the *pipeline substitution policy*: which depth and stencil
+variant the reference actually selects, and when. That policy lives outside the
+shared shader IR, which is exactly why identical shader math didn't save us.
 
 ## Bug 3: the upside-down composite
 
@@ -90,9 +96,9 @@ fixture was a horizontal band centred on screen — *symmetric under the very
 flip it should have caught*. One GL-only vertex function with flipped V
 fixed it.
 
-Lesson: test fixtures must be asymmetric with respect to the transforms you
-fear. Centered, mirrored, or monochrome fixtures wave flips, mirrors, and
-channel swaps straight through.
+The takeaway is about fixtures, not compositing: a test fixture must be
+asymmetric with respect to the transform you fear. Centered, mirrored, or
+monochrome fixtures wave flips, mirrors, and channel swaps straight through.
 
 ## What's left in the 3.7%
 
