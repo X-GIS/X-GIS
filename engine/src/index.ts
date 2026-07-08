@@ -35,6 +35,10 @@ export * from './render/uniform-block'
 // belongs in the backend-neutral core; rhi-webgpu re-exports it for its own
 // barrel consumers.
 export * from './render/frame-arena'
+// Backend-neutral render context (RenderContext) + its family (RhiDeviceLostInfo,
+// BackendChoice), relocated from @xgis/rhi (#834 map→engine): a render HARDWARE
+// interface names GPU resources, not a host canvas / frame-loop state.
+export * from './render/render-context'
 
 // ── Shader machinery: CPU log-depth + content-blind shader-DSL leaves ─
 export * from './shaders/log-depth'

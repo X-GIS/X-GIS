@@ -24,11 +24,13 @@ export const SAFE_MODE: boolean = readSafeFlag()
 // dispatches rebuilds; these exports stay as thin getters so every read
 // site sees the current value (no stale snapshots).
 import { QUALITY, effectiveDpr } from '@xgis/engine'
-import type { RhiDevice, RhiContext, RhiTextureFormat } from '@xgis/rhi'
-// BackendChoice relocated to the neutral @xgis/rhi surface (#834 M-B2); it is
-// map's public XGISMapOptions.backend type, so it must not live in a concrete
-// backend package. Re-exported below for existing rhi-webgpu import sites.
-export type { BackendChoice } from '@xgis/rhi'
+import type { RhiDevice, RhiTextureFormat } from '@xgis/rhi'
+import type { RenderContext } from '@xgis/engine'
+// BackendChoice + the neutral render context live in @xgis/engine (#834
+// map→engine): they are engine composition concepts (a host canvas + frame
+// state), not a render HARDWARE interface, and must not live in a concrete
+// backend package either. Re-exported below for existing rhi-webgpu import sites.
+export type { BackendChoice } from '@xgis/engine'
 
 // The live quality accessors moved to the NEUTRAL quality module (#832 M1) so
 // core code reads them without touching this WebGPU-zone boot module;
@@ -49,14 +51,14 @@ if (typeof window !== 'undefined' && SAFE_MODE) {
   )
 }
 
-/** The WebGPU composition-root handle = the neutral `RhiContext` (#834 M-B2 —
+/** The WebGPU composition-root handle = the neutral `RenderContext` (#834 —
  *  the surface `@xgis/map` threads) PLUS the two native WebGPU objects the
- *  backend zone owns. Map annotates its device-free consumers as `RhiContext`
+ *  backend zone owns. Map annotates its device-free consumers as `RenderContext`
  *  from `@xgis/engine`; only the native creation/present code (this package)
  *  names `device`/`context`. Every neutral field (format, rhi, sampleCount,
  *  deviceLost, onDeviceLost with `RhiDeviceLostInfo`, timestamp/float32 flags,
- *  `_validationErrors`) is inherited from `RhiContext` — its docs live there. */
-export interface GPUContext extends RhiContext {
+ *  `_validationErrors`) is inherited from `RenderContext` — its docs live there. */
+export interface GPUContext extends RenderContext {
   device: GPUDevice
   context: GPUCanvasContext
 }
@@ -183,7 +185,7 @@ export async function createWebGpuContext(canvas: HTMLCanvasElement): Promise<GP
 
   // getPreferredCanvasFormat() is typed GPUTextureFormat but only ever returns
   // 'bgra8unorm' | 'rgba8unorm' — both members of RhiTextureFormat, which is
-  // GPUContext.format's type since M-B2 (extends RhiContext). Cast is safe.
+  // GPUContext.format's type (extends RenderContext). Cast is safe.
   const format = navigator.gpu.getPreferredCanvasFormat() as RhiTextureFormat
   // Colour pipeline (DELIBERATE — verified by the 2026-06 rendering audit, not a
   // gap): the canvas uses the preferred NON-srgb unorm format with NO `-srgb`
