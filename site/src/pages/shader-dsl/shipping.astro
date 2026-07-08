@@ -2,7 +2,8 @@
 import ShaderDsl from '../../layouts/ShaderDsl.astro'
 import { Code } from 'astro-expressive-code/components'
 import { examples } from '@xgis/shader-dsl/examples'
-import { emitGlslModule } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule } from '@xgis/shader-dsl'
+import type { EmitPlugin } from '@xgis/shader-dsl'
 import { inline, mangle, minify } from '@xgis/shader-dsl/emit-prod'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
@@ -15,17 +16,55 @@ const root = `${base}/shader-dsl`
 // flattens the call graph entirely (hash/fbm/palette AND multi-statement noise
 // lift into the fragment body); the byte counts are measurements, not copy.
 const kal = examples.find((e) => e.id === 'kaleidoscope')!
-const shipCombos = [false, true]
-  .flatMap((i) => [false, true].flatMap((m) => [false, true].map((n) => ({ i, m, n }))))
-  .map(({ i, m, n }) => {
+
+// The demo switches BOTH axes: the emit TARGET (WGSL, or GLSL per stage) and which
+// of the three plugins are on. Every target × plugin combination is emitted at BUILD
+// time by the real emit — the client only swaps the precomputed string, so the DSL
+// never runs in the browser. The byte baseline is per-target (WGSL ≠ GLSL sizes).
+const shipTargets: {
+  key: string
+  label: string
+  lang: 'wgsl' | 'glsl'
+  emit: (plugins: EmitPlugin[]) => string
+  call: (names: string[]) => string
+}[] = [
+  {
+    key: 'wgsl',
+    label: 'WGSL',
+    lang: 'wgsl',
+    emit: (plugins) => emitModule(kal.module, { plugins }),
+    call: (names) => (names.length ? `emitModule(m, { plugins: [${names.join(', ')}] })` : 'emitModule(m)'),
+  },
+  {
+    key: 'glsl-vs',
+    label: 'GLSL · vertex',
+    lang: 'glsl',
+    emit: (plugins) => emitGlslModule(kal.module, 'vertex', { plugins }),
+    call: (names) =>
+      names.length ? `emitGlslModule(m, 'vertex', { plugins: [${names.join(', ')}] })` : "emitGlslModule(m, 'vertex')",
+  },
+  {
+    key: 'glsl-fs',
+    label: 'GLSL · fragment',
+    lang: 'glsl',
+    emit: (plugins) => emitGlslModule(kal.module, 'fragment', { plugins }),
+    call: (names) =>
+      names.length ? `emitGlslModule(m, 'fragment', { plugins: [${names.join(', ')}] })` : "emitGlslModule(m, 'fragment')",
+  },
+]
+const pluginCombos = [false, true].flatMap((i) =>
+  [false, true].flatMap((m) => [false, true].map((n) => ({ i, m, n }))),
+)
+const shipCombos = shipTargets.flatMap((t) => {
+  const plainBytes = t.emit([]).length
+  return pluginCombos.map(({ i, m, n }) => {
     const plugins = [...(i ? [inline()] : []), ...(m ? [mangle()] : []), ...(n ? [minify()] : [])]
-    const code = emitGlslModule(kal.module, 'fragment', { plugins })
-    const names = [i && 'inline()', m && 'mangle()', n && 'minify()'].filter(Boolean)
-    const label =
-      names.length === 0 ? "emitGlslModule(m, 'fragment')" : `{ plugins: [${names.join(', ')}] }`
-    return { key: `${+i}${+m}${+n}`, i, m, n, code, bytes: code.length, label }
+    const code = t.emit(plugins)
+    const names = [i && 'inline()', m && 'mangle()', n && 'minify()'].filter(Boolean) as string[]
+    return { key: `${t.key}:${+i}${+m}${+n}`, lang: t.lang, n, code, bytes: code.length, plainBytes, label: t.call(names) }
   })
-const shipPlainBytes = shipCombos.find((c) => c.key === '000')!.bytes
+})
+const shipDefault = shipCombos.find((c) => c.key === 'wgsl:000')!
 
 const usageSnippet = `import { emitModule, emitGlslModule } from '@xgis/shader-dsl'
 import { inline, mangle, minify } from '@xgis/shader-dsl/emit-prod'
@@ -83,7 +122,8 @@ const wgsl = emitModule(m, { plugins: [inline(), mangle(), minify()] }) // WGSL 
   <section class="mt-10">
     <h2 class="font-display text-[19px] font-normal text-fg tracking-[-0.015em] mb-2">Try it</h2>
     <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full mb-5">
-      Toggle the plugins and watch the kaleidoscope fragment shader change live. Every combination is emitted at
+      Pick an emit target — <code class="font-mono text-[13px] text-fg">WGSL</code> for WebGPU, or GLSL ES 3.00 per stage —
+      and toggle the plugins; the kaleidoscope shader updates live. Every target × plugin combination is emitted at
       build time, so nothing here runs the DSL in your browser — the client just swaps the precomputed string.
       Heads-up: toggling <code class="font-mono text-[13px] text-fg">inline</code> can <em>grow</em> the byte count (a
       multi-call helper is duplicated at each site) — the badge shows a signed delta, and that growth is expected,
@@ -92,26 +132,35 @@ const wgsl = emitModule(m, { plugins: [inline(), mangle(), minify()] }) // WGSL 
 
     <div
       id="ship-demo"
-      data-plain-bytes={String(shipPlainBytes)}
       class="max-w-full rounded-[10px] border border-line overflow-hidden"
     >
-      <div class="flex flex-wrap items-center gap-x-5 gap-y-3 px-4 py-3 border-b border-line bg-bg-card">
-        {['inline', 'mangle', 'minify'].map((name) => (
-          <label class="inline-flex items-center gap-2 cursor-pointer select-none">
-            <input type="checkbox" data-ship-toggle={name} class="peer sr-only" />
-            <span class="w-9 h-5 rounded-full bg-line-strong peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-bg-card transition-colors relative after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4"></span>
-            <span class="font-mono text-[12.5px] text-fg">{name}()</span>
-          </label>
-        ))}
-        <span class="ml-auto flex items-center gap-3">
-          <code data-ship-call class="font-mono text-[11.5px] text-fg-mute hidden md:inline">{shipCombos[0].label}</code>
-          <span data-ship-badge class="font-mono text-[12px] text-fg tabular-nums">{shipPlainBytes.toLocaleString()} B</span>
-        </span>
+      <div class="px-4 py-3 border-b border-line bg-bg-card flex flex-col gap-3">
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div class="flex flex-wrap gap-1" role="group" aria-label="Emit target">
+            {shipTargets.map((t, i) => (
+              <button type="button" data-ship-target={t.key} aria-pressed={i === 0 ? 'true' : 'false'}
+                class={`font-mono text-[11px] px-2.5 py-1 rounded-full border transition-colors ${i === 0 ? 'border-line-strong text-fg' : 'border-line text-fg-mute hover:text-fg'}`}>{t.label}</button>
+            ))}
+          </div>
+          <span class="ml-auto flex items-center gap-3">
+            <code data-ship-call class="font-mono text-[11.5px] text-fg-mute hidden md:inline">{shipDefault.label}</code>
+            <span data-ship-badge class="font-mono text-[12px] text-fg tabular-nums">{shipDefault.plainBytes.toLocaleString()} B</span>
+          </span>
+        </div>
+        <div class="flex flex-wrap items-center gap-x-5 gap-y-2 pt-3 border-t border-line">
+          {['inline', 'mangle', 'minify'].map((name) => (
+            <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" data-ship-toggle={name} class="peer sr-only" />
+              <span class="w-9 h-5 rounded-full bg-line-strong peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-bg-card transition-colors relative after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4"></span>
+              <span class="font-mono text-[12.5px] text-fg">{name}()</span>
+            </label>
+          ))}
+        </div>
       </div>
       <div class="sd-code">
         {shipCombos.map((c) => (
-          <div data-ship-panel={c.key} data-bytes={String(c.bytes)} data-label={c.label} hidden={c.key !== '000'}>
-            <Code code={c.code} lang="glsl" wrap={c.n} />
+          <div data-ship-panel={c.key} data-bytes={String(c.bytes)} data-plain={String(c.plainBytes)} data-label={c.label} hidden={c.key !== 'wgsl:000'}>
+            <Code code={c.code} lang={c.lang} wrap={c.n} />
           </div>
         ))}
       </div>
@@ -120,29 +169,47 @@ const wgsl = emitModule(m, { plugins: [inline(), mangle(), minify()] }) // WGSL 
 </ShaderDsl>
 
 <script>
-  // Toggle the inline/mangle/minify plugins and show the matching build-time-
-  // emitted string, with a live (growth-aware) byte badge.
+  // Pick an emit target (WGSL / GLSL vertex / GLSL fragment) and toggle the
+  // inline/mangle/minify plugins; show the matching build-time-emitted string,
+  // with a live (growth-aware, per-target) byte badge.
   const demo = document.getElementById('ship-demo')
   if (demo) {
-    const plainBytes = Number(demo.dataset.plainBytes)
+    const targetBtns = Array.from(demo.querySelectorAll<HTMLButtonElement>('[data-ship-target]'))
     const toggles = Array.from(demo.querySelectorAll<HTMLInputElement>('[data-ship-toggle]'))
     const panels = Array.from(demo.querySelectorAll<HTMLElement>('[data-ship-panel]'))
     const badge = demo.querySelector<HTMLElement>('[data-ship-badge]')!
     const call = demo.querySelector<HTMLElement>('[data-ship-call]')
+    let target = targetBtns[0]?.dataset.shipTarget ?? 'wgsl'
     const bit = (name: string) =>
       toggles.find((t) => t.dataset.shipToggle === name)?.checked ? '1' : '0'
     const fmt = (n: number) => n.toLocaleString()
     const sync = () => {
-      const key = `${bit('inline')}${bit('mangle')}${bit('minify')}`
-      const active = panels.find((p) => p.dataset.shipPanel === key)!
+      const key = `${target}:${bit('inline')}${bit('mangle')}${bit('minify')}`
+      const active = panels.find((p) => p.dataset.shipPanel === key)
+      if (!active) return
       panels.forEach((p) => { p.hidden = p !== active })
       const bytes = Number(active.dataset.bytes)
-      const pct = Math.round((Math.abs(bytes - plainBytes) / plainBytes) * 100)
-      const sign = bytes <= plainBytes ? '−' : '+'
+      const plain = Number(active.dataset.plain)
+      const pct = Math.round((Math.abs(bytes - plain) / plain) * 100)
+      const sign = bytes <= plain ? '−' : '+'
       badge.textContent =
-        bytes === plainBytes ? `${fmt(bytes)} B` : `${fmt(plainBytes)} B → ${fmt(bytes)} B (${sign}${pct}%)`
+        bytes === plain ? `${fmt(bytes)} B` : `${fmt(plain)} B → ${fmt(bytes)} B (${sign}${pct}%)`
       if (call) call.textContent = active.dataset.label ?? ''
     }
+    targetBtns.forEach((b) =>
+      b.addEventListener('click', () => {
+        target = b.dataset.shipTarget!
+        targetBtns.forEach((o) => {
+          const on = o === b
+          o.setAttribute('aria-pressed', String(on))
+          o.classList.toggle('border-line-strong', on)
+          o.classList.toggle('text-fg', on)
+          o.classList.toggle('border-line', !on)
+          o.classList.toggle('text-fg-mute', !on)
+        })
+        sync()
+      }),
+    )
     toggles.forEach((t) => t.addEventListener('change', sync))
   }
 </script>
