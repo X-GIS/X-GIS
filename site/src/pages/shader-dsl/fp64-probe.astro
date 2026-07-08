@@ -77,6 +77,8 @@ const U = uniformStruct(
     factor: vec2f64T, // df64 1 + 5e-9 (.x) — mul / div
     val: vec2f64T, // df64 1e8 + 0.5 (.x) — sub / floor / fract / cmp
     sq: vec2f64T, // df64 (1e6+0.5)^2 (.x) — sqrt
+    mulA: vec2f64T, // df64 B+0.5 (.x), B≈1.23e6 — mul_sq (genuine hi·hi product)
+    mulRef: vec2f64T, // df64 B²+B (.x) — the exact reference mul_sq subtracts
     pt: vec2f64T, // df64 vec (1e6+0.5, 0) — length / distance / dot / normalize
     vBig: vec2f64T, // df64 vec (1e8, 0) — vec64 add / sub / mul
     center: vec2f64T, // df64 observer — loran
@@ -147,6 +149,12 @@ const tests: Test[] = [
   mk('neg', () => toF32(toF64(B()).sub(U.field.val.x).neg()), 0.5), // −(1e8 − (1e8+.5))
   mk('abs', () => toF32(abs(U.field.val.x.sub(toF64(B())))), 0.5), // |(1e8+.5) − 1e8|
   mk('sqrt', () => toF32(sqrt(U.field.sq.x).sub(toF64(R()))), 0.5), // √((1e6+.5)²)⊖1e6
+  // mul_sq: (B+0.5)² ⊖ (B²+B) = 0.25, ×2 → 0.5. Unlike `mul` above (whose big
+  // operand multiplies 1.0 — exact on any ALU), BOTH hi words here are ~1.23e6,
+  // so this exercises a genuine hi·hi f32 product — the split-based twoProd path
+  // luma.gl's Intel/Apple HIGH_BITS_OVERFLOW workaround (split2) protects. A GPU
+  // whose f32 multiply isn't correctly rounded fails HERE while `mul` passes.
+  mk('mul_sq', () => toF32(U.field.mulA.x.mul(U.field.mulA.x).sub(U.field.mulRef.x).mul(2)), 0.5),
   mk('floor', () => toF32(U.field.val.x.sub(floor(U.field.val.x))), 0.5), // x − ⌊x⌋
   mk('fract', () => toF32(fract(U.field.val.x)), 0.5),
   mk('min', () => toF32(min(U.field.val.x, toF64(B()).add(2)).sub(toF64(B()))), 0.5),
@@ -187,6 +195,10 @@ const fr = Math.fround
 const df = (x: number): [number, number] => [fr(x), fr(x - fr(x))]
 const sc = (x: number): number[] => [df(x)[0], 0, df(x)[1], 0] // vec2f64 field, value only in .x
 const factor = 1 + 0.5 / 1e8
+// mul_sq base: a globe-magnitude integer so B+0.5 is f32-exact and B²+B stays
+// under 2⁵³ (packs losslessly into df64). B² ≈ 1.5e12 — length/distance square
+// coordinates of this size, so this is a realistic, not synthetic, stress.
+const MUL_B = 1234567
 const values: Record<string, number[]> = {
   big: [1e8],
   small: [0.5],
@@ -194,6 +206,8 @@ const values: Record<string, number[]> = {
   factor: sc(factor),
   val: sc(1e8 + 0.5),
   sq: sc((1e6 + 0.5) * (1e6 + 0.5)),
+  mulA: sc(MUL_B + 0.5),
+  mulRef: sc(MUL_B * MUL_B + MUL_B),
   pt: [df(1e6 + 0.5)[0], 0, df(1e6 + 0.5)[1], 0],
   vBig: [df(1e8)[0], 0, df(1e8)[1], 0],
   center: [df(OBS[0])[0], df(OBS[1])[0], df(OBS[0])[1], df(OBS[1])[1]],
