@@ -4,6 +4,7 @@ import { Code } from 'astro-expressive-code/components'
 import { shaderCards } from '../../lib/shader-examples.ts'
 import { examples } from '@xgis/shader-dsl/examples'
 import { emitGlslModule } from '@xgis/shader-dsl'
+import { obfuscate } from '@xgis/shader-dsl/emit-prod'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const root = `${base}/shader-dsl`
@@ -17,7 +18,7 @@ const gradient = shaderCards.find((c) => c.id === 'gradient')!
 // not copy.
 const kal = examples.find((e) => e.id === 'kaleidoscope')!
 const kalPlainFs = emitGlslModule(kal.module, 'fragment')
-const kalShippedFs = emitGlslModule(kal.module, 'fragment', { minify: true, mangle: true })
+const kalShippedFs = emitGlslModule(kal.module, 'fragment', obfuscate())
 const savedPct = Math.round((1 - kalShippedFs.length / kalPlainFs.length) * 100)
 
 const sections = [
@@ -109,11 +110,13 @@ const sections = [
     <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">Shipping shaders</h2>
     <p class="text-[14.5px] leading-[1.65] text-fg-dim max-w-[700px] mb-5">
       Your bundler minifies every byte of JS — and none of the shader text it hands to
-      <code class="font-mono text-[13px] text-fg">gl.shaderSource</code>. The emit functions take production options:
-      <code class="font-mono text-[13px] text-fg">{'{ minify: true, mangle: true }'}</code> compacts the text and renames the
+      <code class="font-mono text-[13px] text-fg">gl.shaderSource</code>. The production tooling lives on its own subpath —
+      <code class="font-mono text-[13px] text-fg">import {'{ obfuscate }'} from '@xgis/shader-dsl/emit-prod'</code> — and plugs
+      into the emit functions' transform seam: it compacts the text and renames the
       authored vocabulary (helpers, plain structs, consts → <code class="font-mono text-[13px] text-fg">_f0/_S0/_k0</code>),
       while the <em>ABI boundary</em> — entry points, binding names, UBO block tags, struct fields — is never touched,
-      so reflection-driven hosts bind unchanged. Below, the kaleidoscope fragment shader as authored and as shipped:
+      so reflection-driven hosts bind unchanged. Runtime-emit consumers that never import the subpath bundle zero bytes
+      of it. Below, the kaleidoscope fragment shader as authored and as shipped:
       <strong class="text-fg">{kalPlainFs.length.toLocaleString()} B → {kalShippedFs.length.toLocaleString()} B
       (−{savedPct}%)</strong>, with <code class="font-mono text-[13px] text-fg">hash/noise/fbm/palette</code> gone and
       <code class="font-mono text-[13px] text-fg">Uniforms</code>/<code class="font-mono text-[13px] text-fg">uv</code> intact.
@@ -128,7 +131,7 @@ const sections = [
       </div>
       <div>
         <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">
-          shipped — {'{ minify: true, mangle: true }'} · {kalShippedFs.length.toLocaleString()} B
+          shipped — obfuscate() · {kalShippedFs.length.toLocaleString()} B
         </p>
         <Code code={kalShippedFs} lang="glsl" wrap />
       </div>

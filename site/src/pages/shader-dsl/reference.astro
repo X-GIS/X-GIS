@@ -77,22 +77,22 @@ const groups: Group[] = [
   {
     title: 'Emit & reflect',
     rows: [
-      { sig: 'emitModule(m, opts?)', desc: '→ WGSL string (WebGPU). Byte-stable. opts is the production-emit EmitTextOptions below.' },
-      { sig: 'emitGlslModule(m, "vertex" | "fragment", opts?)', desc: '→ GLSL ES 3.00 string (WebGL2). Throws on compute / SSBO / MSAA-load. Accepts the same EmitTextOptions.' },
+      { sig: 'emitModule(m, transforms?)', desc: '→ WGSL string (WebGPU). Byte-stable. transforms is the optional EmitTransforms seam below.' },
+      { sig: 'emitGlslModule(m, "vertex" | "fragment", transforms?)', desc: '→ GLSL ES 3.00 string (WebGL2). Throws on compute / SSBO / MSAA-load. Accepts the same EmitTransforms.' },
+      { sig: 'EmitTransforms — { transformIR?, transformText? }', desc: 'The seam production tooling plugs into: transformIR receives the fully LOWERED module (must be deterministic — the two GLSL stage emits are separate calls that must agree), transformText the final string. The core knows nothing about the implementations.' },
       { sig: 'emitModuleWithReflection(m, backend)', desc: '→ { code, reflection } (code byte-identical to emitModule). Dev tooling — import from @xgis/shader-dsl/dev (#740 R2b).' },
       { sig: 'reflect(m)', desc: '→ { bindGroups, uniforms (std140), storage (std430), entries }. Read-only over the IR.' },
       { sig: 'wgslLayout(struct, "std140" | "std430")', desc: 'The standalone offset engine reflect() uses.' },
     ],
   },
   {
-    title: 'Production emit (EmitTextOptions)',
-    note: 'Ship-time transforms for the emitted text, all default-off — the plain emit stays byte-identical. Your bundler minifies the JS; these do the same for the shader strings it can never reach.',
+    title: 'Production emit — @xgis/shader-dsl/emit-prod',
+    note: 'Ship-time transforms on their OWN subpath: your bundler minifies the JS, these do the same for the shader strings it can never reach — and a runtime-emit consumer that never imports the subpath bundles zero bytes of them. The plain emit stays byte-identical.',
     rows: [
-      { sig: '{ minify: true }', desc: 'Whitespace/comment compaction of the emitted string. Token-safe by construction (WGSL/GLSL have no string literals; # directives keep their own line). No semantic change — the CI gate compiles every example minified on real Tint + ANGLE.' },
-      { sig: '{ mangle: true }', desc: 'Renames the authored vocabulary — helper fn names, plain struct names, module consts (including the injected df64_* library) — to _f0/_S0/_k0. Deterministic per module, so the two GLSL stage emits always agree on shared names.' },
-      { sig: '{ renames: new Map() }', desc: 'With mangle on, the Map is filled with authored → emitted names: the shader "source map" for decoding production driver logs and GPU captures.' },
+      { sig: "obfuscate({ renames? })  → EmitTransforms", desc: 'The full production bundle: mangle the lowered IR + minify the emitted text. Pass the result straight as the emit call’s transforms argument. Pass a Map as renames to receive authored → emitted names — the shader "source map" for decoding production driver logs and GPU captures.' },
+      { sig: 'mangleIR(renames?)  → transformIR', desc: 'The rename side alone: helper fn names, plain struct names, module consts (including the injected df64_* library) become _f0/_S0/_k0. Deterministic per module, so the two GLSL stage emits always agree on shared names and programs link.' },
+      { sig: 'minifyShaderText(code)  → transformText', desc: 'The compaction side alone (also usable on a string you already hold). Token-safe by construction (WGSL/GLSL have no string literals; # directives keep their own line). No semantic change — the CI gate compiles AND pixel-compares obfuscated output on real Tint + ANGLE.' },
       { sig: 'never renamed (the ABI boundary)', desc: 'Entry-point names (WebGPU entryPoint refers to them) · binding names incl. the _fp64 guard (hosts resolve them by name) · binding-struct names (the GLSL UBO block tag, getUniformBlockIndex) · struct field names (std140 packing + GLSL varyings link vertex↔fragment BY NAME). Reflection-driven hosts bind unchanged.' },
-      { sig: 'minifyShaderText(code)', desc: 'The standalone minifier, for a shader string you already hold.' },
     ],
   },
   {

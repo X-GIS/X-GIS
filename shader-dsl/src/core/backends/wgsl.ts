@@ -23,7 +23,7 @@ import {
   emitModule as emitModuleDriver,
   emitModuleAt as emitModuleAtDriver,
   lowerForBackend,
-  type EmitTextOptions,
+  type EmitTransforms,
 } from '../emit'
 import { lowerModule } from '../passes/match-lower'
 import { fixpoint, autoVars, type OptLevel } from '../passes/opt'
@@ -177,9 +177,9 @@ export function emitFuncs(funcs: readonly FuncDecl[]): string {
 export const emitFuncsCsed = emitFuncs
 
 /** Emit a ModuleDecl as a WGSL string. Thin wrapper over the shared backend-parameterised
- *  driver (core/emit.ts) bound to wgslBackend — the module assembly lives once. `opts`
- *  (default off) applies the production text transforms: mangle + minify (EmitTextOptions). */
-export const emitModule = (m: ModuleDecl, opts?: EmitTextOptions): string =>
+ *  driver (core/emit.ts) bound to wgslBackend — the module assembly lives once. `opts` is
+ *  the optional EmitTransforms seam (production tooling: `@xgis/shader-dsl/emit-prod`). */
+export const emitModule = (m: ModuleDecl, opts?: EmitTransforms): string =>
   emitModuleDriver(m, wgslBackend, opts)
 
 /** Emit WGSL at an explicit optimization level (O0/O1/O2). `emitModuleAt(m, 'O2')` is

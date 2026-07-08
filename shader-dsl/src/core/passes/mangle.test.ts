@@ -1,10 +1,11 @@
-// ═══ mangleModule / emit { mangle } — rename scope, ABI boundary, determinism ═══
+// ═══ mangleModule / emit-prod mangleIR — rename scope, ABI boundary, determinism ═══
 
 import { describe, it, expect } from 'vitest'
 import { fn, module, vec2, vec4, fract, toF32, toF64, sin, f32T, f64T, vec2fT, vec4fT } from '../ir'
 import { ioStruct, builtin, location, uniformStruct } from '../sot'
 import { emitModule } from '../backends/wgsl'
 import { emitGlslModule } from '../backends/glsl'
+import { mangleIR } from '../../emit-prod'
 import { mangleModule } from './mangle'
 import type { ModuleDecl } from '../ir'
 
@@ -42,10 +43,10 @@ const fsEntry = fn(
 )
 const m = module({ funcs: [vsEntry, fsEntry], uses: [U, VsOut] })
 
-describe('emit { mangle } — authored vocabulary disappears', () => {
+describe('emit-prod mangleIR through the EmitTransforms seam — authored vocabulary disappears', () => {
   it('WGSL: helper + plain-struct names are renamed; the renames map records them', () => {
     const renames = new Map<string, string>()
-    const wgsl = emitModule(m, { mangle: true, renames })
+    const wgsl = emitModule(m, { transformIR: mangleIR(renames) })
     expect(wgsl).not.toContain('terrain_shade')
     expect(wgsl).not.toContain('MangleVsOut')
     expect(wgsl).not.toMatch(/\bdf64_/) // the injected df64 library is vocabulary too
@@ -54,7 +55,7 @@ describe('emit { mangle } — authored vocabulary disappears', () => {
   })
 
   it('WGSL: the ABI boundary survives — entries, binding names, UBO struct, fields, guard', () => {
-    const wgsl = emitModule(m, { mangle: true })
+    const wgsl = emitModule(m, { transformIR: mangleIR() })
     expect(wgsl).toContain('fn vs_main') // WebGPU createRenderPipeline entryPoint
     expect(wgsl).toContain('fn fs_main')
     expect(wgsl).toContain('params') // binding name (reflection-driven host bind)
@@ -65,7 +66,9 @@ describe('emit { mangle } — authored vocabulary disappears', () => {
   })
 
   it('is deterministic (same bytes twice) and default-off (no-opts emit unchanged)', () => {
-    expect(emitModule(m, { mangle: true })).toBe(emitModule(m, { mangle: true }))
+    expect(emitModule(m, { transformIR: mangleIR() })).toBe(
+      emitModule(m, { transformIR: mangleIR() }),
+    )
     expect(emitModule(m)).toBe(emitModule(m, {}))
     expect(emitModule(m)).toContain('terrain_shade')
   })
@@ -73,8 +76,8 @@ describe('emit { mangle } — authored vocabulary disappears', () => {
   it('GLSL: the two stage emits agree on every shared mangled name (link contract)', () => {
     const rv = new Map<string, string>()
     const rf = new Map<string, string>()
-    const vs = emitGlslModule(m, 'vertex', { mangle: true, renames: rv })
-    const fs = emitGlslModule(m, 'fragment', { mangle: true, renames: rf })
+    const vs = emitGlslModule(m, 'vertex', { transformIR: mangleIR(rv) })
+    const fs = emitGlslModule(m, 'fragment', { transformIR: mangleIR(rf) })
     expect(rv.get('terrain_shade')).toBe(rf.get('terrain_shade'))
     const shared = rv.get('terrain_shade')!
     expect(vs).toContain(`${shared}(`)

@@ -35,9 +35,7 @@ import {
   emitBody,
   emitExpr as emitExprNeutral,
   lowerForBackend,
-  applyMangle,
-  applyMinify,
-  type EmitTextOptions,
+  type EmitTransforms,
 } from '../emit'
 import { wgslLayout } from '../reflect'
 import { sanitizeReservedIdents } from './glsl-sanitize'
@@ -959,7 +957,7 @@ function stageScope(
 export function emitGlslModule(
   m: ModuleDecl,
   stage?: 'vertex' | 'fragment',
-  opts?: { emulateStorage?: boolean; emulateCompute?: boolean } & EmitTextOptions,
+  opts?: { emulateStorage?: boolean; emulateCompute?: boolean } & EmitTransforms,
 ): string {
   // autoVars BEFORE lowerModule (inside lowerForBackend), same order as the WGSL backend /
   // CPU oracle — materialising assigned plain-value bindings into real vars is BACKEND-NEUTRAL.
@@ -976,10 +974,12 @@ export function emitGlslModule(
       : m
   // GLSL-local: rename any param/var identifier colliding with a GLSL reserved word
   // (e.g. an entry param `input` / `in`) — does NOT affect the WGSL backend.
-  // applyMangle (opt-in, default identity) runs LAST in the IR chain — it is
-  // deterministic on the lowered module, so the vertex and fragment emits
-  // (separate calls over the same module) agree on every shared mangled name.
-  const lowered = applyMangle(sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend)), opts)
+  // The optional transformIR seam (production tooling — emit-prod's mangle) runs
+  // LAST in the IR chain; its contract requires determinism on the lowered
+  // module, so the vertex and fragment emits (separate calls over the same
+  // module) agree on every shared transformed name.
+  const sanitized = sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend))
+  const lowered = opts?.transformIR ? opts.transformIR(sanitized) : sanitized
   const structs = new Map(lowered.structs.map((s) => [s.name, s]))
 
   // Stage filter through the shared predicate (#763 S3) — the old attr-string
@@ -1078,5 +1078,6 @@ export function emitGlslModule(
   if (helpers.length) parts.push(helpers.map((f) => glslEs300Backend.emitFunc(f)).join('\n\n'))
   if (entries.length) parts.push(entries.map((f) => emitGlslEntry(f, structs)).join('\n\n'))
 
-  return applyMinify(parts.join('\n') + '\n', opts)
+  const code = parts.join('\n') + '\n'
+  return opts?.transformText ? opts.transformText(code) : code
 }
