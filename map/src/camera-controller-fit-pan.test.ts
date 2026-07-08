@@ -11,7 +11,7 @@
 //   past the antimeridian/pole drifted unboundedly. Fix mirrors Camera.pan.
 
 import { describe, expect, it, beforeEach } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from './camera'
 import { CameraController, type CameraControllerDeps } from './camera-controller'
 import { WORLD_MERC } from '@xgis/engine'
 

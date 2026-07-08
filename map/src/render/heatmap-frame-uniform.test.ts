@@ -7,7 +7,7 @@
 // handle-only wgslLayout path against reflect(buildHeatmapAccumModule()).
 
 import { describe, it, expect } from 'vitest'
-import type { Camera } from '@xgis/engine'
+import type { Camera } from '../camera'
 import { WORLD_MERC, TILE_PX, uniformBlock } from '@xgis/engine'
 import { reflect } from '@xgis/shader-dsl'
 import { buildHeatmapAccumModule, heatmapAccumU as HEATMAP_U } from '../shaders/dsl/heatmap-accum'

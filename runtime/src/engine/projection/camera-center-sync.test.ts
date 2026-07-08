@@ -17,7 +17,7 @@
 //   0 mercator · 1 equirectangular · 7 globe.
 
 import { describe, expect, it } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 import { CameraController, type CameraControllerDeps } from '@xgis/map'
 import { mercatorYToLat, mercator } from '@xgis/engine'
 

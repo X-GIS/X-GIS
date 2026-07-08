@@ -24,7 +24,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { tileKey } from '@xgis/compiler'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 import { CameraController, type CameraControllerDeps } from '@xgis/map'
 import { globeVisibleTiles } from '@xgis/data'
 import { mercatorYToLat, mercator as mercatorProj } from '@xgis/engine'

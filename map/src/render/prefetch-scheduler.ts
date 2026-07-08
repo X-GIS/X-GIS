@@ -25,7 +25,7 @@ import {
   type CameraSnapshot,
 } from '../tile-decision'
 import { visibleTilesFrustumSampled } from '@xgis/data'
-import { Camera } from '@xgis/engine'
+import { Camera } from '../camera'
 import { mercator as mercatorProj } from '@xgis/engine'
 import type { Projection } from '@xgis/engine'
 import { tileKey } from '@xgis/compiler'

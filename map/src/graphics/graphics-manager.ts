@@ -31,8 +31,8 @@ import {
   type RhiBuffer,
   type RhiBindGroup,
   type RhiRenderPass,
-  type Camera,
 } from '@xgis/engine'
+import type { Camera } from '../camera'
 
 /** One full Mercator world-width in metres — the per-copy `world_offset` step
  *  the flat-Mercator shader branch adds (worldCopyMercX(0,1) = 1×WORLD_WIDTH). */

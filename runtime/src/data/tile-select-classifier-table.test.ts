@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 import { visibleTilesFrustum, visibleTilesFrustumSampled } from '@xgis/data'
 import { mercator, naturalEarth } from '@xgis/engine'
 import { worldCopiesFor } from '@xgis/engine'

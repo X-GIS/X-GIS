@@ -32,7 +32,7 @@
 //      the bare path renders the vertex as if it were on the camera-origin tile.
 
 import { describe, it, expect } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 import { lonLatToECEF } from '@xgis/engine'
 import type { RingPolygon } from '@xgis/compiler'
 import { generateWallMeshExtrudedECEF } from '@xgis/map'

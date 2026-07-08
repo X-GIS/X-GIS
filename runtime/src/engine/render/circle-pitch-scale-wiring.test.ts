@@ -21,7 +21,7 @@ import { installWebGPUStub, type StubInstallation } from '../../__test-support__
 import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { PointRenderer, pointUniformBytes } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/rhi-webgpu'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 
 let stub: StubInstallation
 

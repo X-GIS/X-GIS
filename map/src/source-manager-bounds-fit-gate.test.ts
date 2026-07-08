@@ -57,7 +57,7 @@ class StubVirtualPMTilesBackend {
 import * as vtrModule from './render/vector-tile-renderer'
 import * as xgisData from '@xgis/data'
 import { SourceManager, type SourceManagerDeps } from './source-manager'
-import { Camera } from '@xgis/engine'
+import { Camera } from './camera'
 
 beforeEach(() => {
   vi.spyOn(vtrModule, 'VectorTileRenderer').mockImplementation(

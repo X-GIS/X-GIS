@@ -19,9 +19,14 @@
 // This module must NOT import camera.ts (no cycle); camera.ts imports it.
 // Mirrors the view-matrix.ts extraction (commit 60e26402).
 
-import { mercatorYToLat, mercator, getProjection } from './projection'
-import { EARTH_R } from './globe'
-import { SELECTOR_PROJ_NAMES, poleLimit } from './projections-table'
+import {
+  mercatorYToLat,
+  mercator,
+  getProjection,
+  EARTH_R,
+  SELECTOR_PROJ_NAMES,
+  poleLimit,
+} from '@xgis/engine'
 import { mulVec4 } from '@xgis/shared'
 
 /** Resolved camera state read by the pure inverse functions. The Camera fills

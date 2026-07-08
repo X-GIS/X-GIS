@@ -43,7 +43,7 @@
 //   skipped entirely.
 
 import { describe, expect, it } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 import { TileSelectionCache } from '@xgis/map'
 import { FrameDrawStats } from '@xgis/map'
 import type { TileCatalog } from '@xgis/data'

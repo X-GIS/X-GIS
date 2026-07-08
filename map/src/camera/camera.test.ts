@@ -25,7 +25,7 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from './camera'
 import { zoomAtGlobeAnchored, type GlobeAnchorCamera } from './globe-anchor'
-import { lonLatToMercator } from './projection'
+import { lonLatToMercator } from '@xgis/engine'
 
 /** Inverse of `lonLatToMercator` for the round-trip assertion below.
  *  Local copy because the loader/geojson module doesn't export one
@@ -415,7 +415,7 @@ describe('Camera — round-trip via mercatorToLonLat', () => {
 
 // ═══ Edge-case + suspicion-point coverage (audit follow-up) ═══════════
 
-import { computeLogDepthFc } from '../shaders/log-depth'
+import { computeLogDepthFc } from '@xgis/engine'
 
 describe('Camera — metersPerPixel formula', () => {
   // The whole tile selection + altitude pipeline keys off this constant.

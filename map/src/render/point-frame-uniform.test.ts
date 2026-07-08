@@ -18,7 +18,7 @@
 // byte-level spec of what the shader consumed before the migration.
 
 import { describe, it, expect } from 'vitest'
-import type { Camera } from '@xgis/engine'
+import type { Camera } from '../camera'
 import { WORLD_MERC, TILE_PX, uniformBlock } from '@xgis/engine'
 import { reflect } from '@xgis/shader-dsl'
 import { buildPointModule, pointU as POINT_U } from '../shaders/dsl/point'

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest'
 import { GraphicsManager } from './graphics-manager'
-import type { Camera } from '@xgis/engine'
+import type { Camera } from '../camera'
 
 // node lacks the WebGPU `GPUTextureUsage` global the host atlas ensure() reads.
 beforeAll(() => {

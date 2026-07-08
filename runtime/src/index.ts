@@ -1,6 +1,6 @@
 export { XGISMap } from '@xgis/map'
 export { StatsPanel, StatsTracker, type RenderStats } from '@xgis/map'
-export { Camera } from '@xgis/engine'
+export { Camera } from '@xgis/map'
 export { MapRendererContent } from '@xgis/map'
 export { FrameRenderer } from '@xgis/map'
 export { loadGeoJSON, lonLatToMercator } from '@xgis/data'

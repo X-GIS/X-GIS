@@ -23,7 +23,7 @@ import { installWebGPUStub, type StubInstallation } from '../../__test-support__
 import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { HeatmapRenderer } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/rhi-webgpu'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 
 let stub: StubInstallation
 
@@ -104,7 +104,10 @@ function captureHeatmapUploads(ctx: GPUContext): Captured {
       // Key on the label when the buffer carries one; otherwise keep the
       // FIRST 16-B write (addLayer's params precedes the lazy blur-dirs).
       const label = (buf as { label?: string })?.label
-      if (label === 'heatmap-compose-params' || (label === undefined && captured.params === undefined))
+      if (
+        label === 'heatmap-compose-params' ||
+        (label === undefined && captured.params === undefined)
+      )
         captured.params = f32.slice(0, 4) // compose-params
     } else if (size === N * STRIDE * 4) captured.feat = f32.slice(0, N * STRIDE) // feat_data
   }

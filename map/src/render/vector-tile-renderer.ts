@@ -17,7 +17,7 @@ import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
 import { POLYGON_FILL_FORMAT } from '@xgis/compiler'
 import { polygonUniformBytes } from './polygon-uniform-slots'
 import { DEBUG_OVERDRAW } from '../debug-flags'
-import { Camera } from '@xgis/engine'
+import { Camera } from '../camera'
 import type { ShowCommand } from './renderer-types'
 import { variantProducesFill } from './renderer-helpers'
 import { uniformBlock } from '@xgis/engine'
@@ -830,9 +830,7 @@ export class VectorTileRenderer {
       // pointer-events:none show writes pick_id 0 (the layerId-0 miss
       // sentinel) while still writing DEPTH, mirroring the WebGPU noPick
       // pipelines' writeMask-0 behaviour (occludes, never hits).
-      B.set.pick_id(
-        mode === 'pick' && show.pointerEvents !== 'none' ? (show.pickId ?? 0) : 0,
-      )
+      B.set.pick_id(mode === 'pick' && show.pointerEvents !== 'none' ? (show.pickId ?? 0) : 0)
       // Per-layer NDC-z bias in style declaration order — render():3748's
       // slot write, mirrored verbatim (#834 M5 s6; the earlier hardcoded 0
       // diverged from the WebGPU slot contents).

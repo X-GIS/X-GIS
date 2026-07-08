@@ -1,7 +1,7 @@
 // ═══ Map Controllers — 프로젝션에 따른 카메라 조작 ═══
 
-import type { Camera } from '@xgis/engine'
-import { unprojectGlobeFromCamera } from '@xgis/engine'
+import type { Camera } from './camera'
+import { unprojectGlobeFromCamera } from './camera'
 import { promotesToGlobeWhenTilted } from '@xgis/engine'
 import { getMaxDpr } from '@xgis/engine'
 import { xlog } from '@xgis/shared'

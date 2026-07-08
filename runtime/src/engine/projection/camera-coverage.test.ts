@@ -9,7 +9,7 @@
 // invariants (no NaN/Infinity in matrix at extreme params).
 
 import { describe, it, expect } from 'vitest'
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 import { PROJECTION_NAME_TO_TYPE } from '@xgis/engine'
 
 const PROJECTIONS = [

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
-import { Camera } from '@xgis/engine'
+import { Camera } from '@xgis/map'
 import { visibleTilesFrustum, firstIndexedAncestor } from '@xgis/data'
 import { mercator } from '@xgis/engine'
 import { TileCatalog } from '@xgis/data'

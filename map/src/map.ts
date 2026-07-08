@@ -42,10 +42,16 @@ import { getMaxDpr, effectiveDpr } from '@xgis/engine'
 // type; RhiDeviceLostInfo = onDeviceLost payload) comes from @xgis/engine, not
 // the concrete backend. GPUContext + boot providers stay on rhi-webgpu (Layer 2).
 import type { BackendChoice, RhiDeviceLostInfo } from '@xgis/engine'
-import { initGPUViaProviders, backendProviderChain, GPU_PROF, WebGPUUnavailableError, type GPUContext } from '@xgis/rhi-webgpu'
+import {
+  initGPUViaProviders,
+  backendProviderChain,
+  GPU_PROF,
+  WebGPUUnavailableError,
+  type GPUContext,
+} from '@xgis/rhi-webgpu'
 import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/rhi-webgpu'
-import { Camera } from '@xgis/engine'
+import { Camera } from './camera'
 import { CameraController } from './camera-controller'
 import { ViewportModeController } from './render/viewport-mode-controller'
 import { SourceManager } from './source-manager'
@@ -2252,13 +2258,15 @@ export class XGISMap {
     // GPU init has no dependency on the IR result — it just needs
     // `this.canvas`. Errors propagate exactly as before via the awaited
     // catch.
-    const gpuInit = initGPUViaProviders(this.canvas, backendProviderChain(this._backend)).catch((err) => {
-      // Hold the rejection here so the await below converts it to a
-      // sync throw at the same call site as the previous code. We
-      // don't want unhandled-rejection noise if step 1 errors out
-      // before step 2 awaits.
-      return err as Error
-    })
+    const gpuInit = initGPUViaProviders(this.canvas, backendProviderChain(this._backend)).catch(
+      (err) => {
+        // Hold the rejection here so the await below converts it to a
+        // sync throw at the same call site as the previous code. We
+        // don't want unhandled-rejection noise if step 1 errors out
+        // before step 2 awaits.
+        return err as Error
+      },
+    )
 
     // Surface converter "Conversion notes" once at load. A style run
     // through `convertMapboxStyle` carries every dropped / approximated

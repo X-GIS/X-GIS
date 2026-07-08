@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest'
 import { setLogSink } from '@xgis/shared'
 import { XGISMap } from './map'
 import { ViewportModeController } from '@xgis/map'
-import { Camera } from '@xgis/engine'
+import { Camera } from './camera'
 
 describe('XGISMap.setPolarCapsEnabled deprecation', () => {
   // setPolarCapsEnabled forwards to the ViewportModeController collaborator
