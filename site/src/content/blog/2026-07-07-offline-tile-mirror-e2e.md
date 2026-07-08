@@ -8,9 +8,9 @@ lang: en
 
 A rendering engine's final gate is a real style — synthetic fixtures have
 three layers, a production basemap has 117. Ours had to run in an isolated
-container where the *browser's* outbound network is blocked entirely: curl
+container where the _browser's_ outbound network is blocked entirely: curl
 reaches an agent proxy, but Chromium's CONNECT tunnels are reset before a
-request lands. The tell was the proxy's relay log — it stayed *empty*. That
+request lands. The tell was the proxy's relay log — it stayed _empty_. That
 ruled out a fix by configuration: Playwright's per-context proxy and
 `--proxy-server` both assume the browser will hand its CONNECTs to the proxy
 to be relayed, but Chromium tore the tunnel down before anything reached the
@@ -27,7 +27,7 @@ style.json ─┬─ tilejson             (source metadata)
 ```
 
 We mirror all of it under the dev server's `public/`, rewrite every URL in a
-copy of the style to a mirror-relative path, and *delete* sources the test
+copy of the style to a mirror-relative path, and _delete_ sources the test
 doesn't exercise — the `ne2` world raster (z≤6, invisible at the z14 test
 camera). The rewrite is mechanical, absolute upstream URL to dev-server path:
 
@@ -41,15 +41,22 @@ script and gitignored.
 
 ## Trap 1: the SPA fallback poisons your tiles
 
+:::warning[A 200 is not a success]
+An SPA dev server answers _any_ unmatched path with `index.html`. A binary
+asset fetch — tile, glyph, sprite — that misses the mirror therefore receives
+HTML under a `200`, and fails much later, deep inside a decoder, looking like
+corruption rather than the 404 it actually is.
+:::
+
 The nastiest failure mode: request a tile the mirror doesn't have, and Vite
 answers **200 with `index.html`** (SPA fallback). The worker then tries to
 parse HTML as MVT and dies with protobuf errors like `Unimplemented type: 4`.
-A *missing* tile masquerades as a *corrupt* tile.
+A _missing_ tile masquerades as a _corrupt_ tile.
 
 We found it by looking, not guessing: a `200 OK` `.pbf` that a protobuf
 decoder rejects is a contradiction, so we dumped the response bytes instead of
 trusting the decoder's story. The first line was `<!DOCTYPE html>` — the tile
-*was* the SPA shell (`3c 21 44 4f 43…`, where a real tile opens on a protobuf
+_was_ the SPA shell (`3c 21 44 4f 43…`, where a real tile opens on a protobuf
 field tag). Once you have seen the byte shape the failure is obvious; before
 that, `Unimplemented type: 4` sends you hunting a tile-encoder bug that does
 not exist.
@@ -89,7 +96,7 @@ in CI, SwiftShader shader compiles. Fixed sleeps flake, always. The engine
 exposes a work-pending signal ("how many needed tiles can still
 materialize"), and the test loops invalidate-and-wait until it reaches zero.
 Building that signal honestly paid twice: the harness found an engine bug
-where a layer with *no features in view* kept the count above zero forever,
+where a layer with _no features in view_ kept the count above zero forever,
 spinning the frame loop at 60 fps on a converged, visually perfect frame.
 
 ## What it buys

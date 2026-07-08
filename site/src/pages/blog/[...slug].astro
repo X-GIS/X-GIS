@@ -40,6 +40,27 @@ const related = siblings
   .slice(0, 3)
   .map((x) => x.p)
 
+// Series navigation: when this post declares `series`, gather its siblings in
+// the same series, order by their `series.order`, and expose Part-N/M + the
+// adjacent posts. `part` is the author-assigned order (intent), `total` the
+// actual count, so a series still reads correctly mid-authoring.
+const series = post.data.series
+const seriesInfo = series
+  ? (() => {
+      const inSeries = siblings
+        .filter((p) => p.data.series?.name === series.name)
+        .sort((a, b) => (a.data.series?.order ?? 0) - (b.data.series?.order ?? 0))
+      const idx = inSeries.findIndex((p) => p.id === post.id)
+      return {
+        name: series.name,
+        part: series.order,
+        total: inSeries.length,
+        prev: idx > 0 ? inSeries[idx - 1] : null,
+        next: idx >= 0 && idx < inSeries.length - 1 ? inSeries[idx + 1] : null,
+      }
+    })()
+  : null
+
 // Article structured data — Base emits the site-wide WebSite/SoftwareSourceCode
 // graph; this BlogPosting rides in via the head slot alongside article:* OG.
 const canonical = new URL(Astro.url.pathname, Astro.site ?? 'https://x-gis.github.io/X-GIS/')
@@ -105,8 +126,14 @@ const articleLd = {
         Blog
       </a>
       <header class="mt-8 mb-12 pb-10 border-b border-line">
-        {post.data.tags[0] && (
-          <p class="font-mono text-[12px] tracking-[0.16em] uppercase text-accent">{post.data.tags[0]}</p>
+        {seriesInfo ? (
+          <p class="font-mono text-[12px] tracking-[0.16em] uppercase text-accent">
+            {seriesInfo.name} · Part {seriesInfo.part} of {seriesInfo.total}
+          </p>
+        ) : (
+          post.data.tags[0] && (
+            <p class="font-mono text-[12px] tracking-[0.16em] uppercase text-accent">{post.data.tags[0]}</p>
+          )
         )}
         <h1 class="mt-4 font-display font-normal text-fg text-[40px] sm:text-[56px] leading-[1.02] tracking-[-0.02em]">
           {post.data.title}
@@ -142,6 +169,24 @@ const articleLd = {
           globe math, compiled to WebGPU. <a href={`${base}/`} class="text-accent hover:text-accent-hover transition-colors">About the project →</a>
         </p>
       </aside>
+      {seriesInfo && (seriesInfo.prev || seriesInfo.next) && (
+        <nav class="mt-14 pt-10 border-t border-line grid gap-6 sm:grid-cols-2 text-[15px]">
+          {seriesInfo.prev ? (
+            <a href={`${base}/blog/${seriesInfo.prev.id}`} class="group block">
+              <span class="font-mono text-[11px] uppercase tracking-[0.16em] text-fg-mute">← Previous · {seriesInfo.name}</span>
+              <span class="mt-1.5 block leading-[1.35] text-fg-dim group-hover:text-fg transition-colors">{seriesInfo.prev.data.title}</span>
+            </a>
+          ) : (
+            <span aria-hidden="true"></span>
+          )}
+          {seriesInfo.next && (
+            <a href={`${base}/blog/${seriesInfo.next.id}`} class="group block sm:text-right">
+              <span class="font-mono text-[11px] uppercase tracking-[0.16em] text-fg-mute">Next · {seriesInfo.name} →</span>
+              <span class="mt-1.5 block leading-[1.35] text-fg-dim group-hover:text-fg transition-colors">{seriesInfo.next.data.title}</span>
+            </a>
+          )}
+        </nav>
+      )}
       {related.length > 0 && (
         <section class="mt-14 pt-10 border-t border-line">
           <p class="font-mono text-[12px] tracking-[0.16em] uppercase text-fg-mute mb-6">Read next</p>
@@ -362,6 +407,37 @@ const articleLd = {
     font-weight: 500;
     white-space: nowrap;
   }
+  /* Admonition callouts (:::note / :::tip / :::warning / :::caution /
+     :::important) produced by remarkCallouts (astro.config.mjs). Coloured
+     left rail + uppercase mono label, matching the <Callout> component used on
+     docs pages — but reachable from plain markdown. Colours mirror
+     components/Callout.astro. */
+  .blog-prose .callout {
+    border-left: 2px solid;
+    border-radius: 0 6px 6px 0;
+    padding: 0.75rem 1rem 0.8rem;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .blog-prose .callout > * { max-width: none; margin-inline: 0; }
+  .blog-prose .callout > * + * { margin-top: 0.5em; }
+  .blog-prose .callout > p { color: var(--color-fg-dim); }
+  .blog-prose .callout-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+  }
+  .blog-prose .callout-note { border-color: rgba(203, 106, 60, 0.6); background: rgba(203, 106, 60, 0.05); }
+  .blog-prose .callout-note .callout-label { color: #cb6a3c; }
+  .blog-prose .callout-tip { border-color: rgba(52, 211, 153, 0.6); background: rgba(52, 211, 153, 0.05); }
+  .blog-prose .callout-tip .callout-label { color: #6ee7b7; }
+  .blog-prose .callout-warning { border-color: rgba(251, 191, 36, 0.6); background: rgba(251, 191, 36, 0.05); }
+  .blog-prose .callout-warning .callout-label { color: #fcd34d; }
+  .blog-prose .callout-caution { border-color: rgba(251, 113, 133, 0.6); background: rgba(251, 113, 133, 0.05); }
+  .blog-prose .callout-caution .callout-label { color: #fda4af; }
+  .blog-prose .callout-important { border-color: rgba(181, 138, 90, 0.6); background: rgba(181, 138, 90, 0.05); }
+  .blog-prose .callout-important .callout-label { color: #b58a5a; }
   /* KaTeX on the dark surface: inherit the prose color, keep display math
      scrollable on narrow screens instead of overflowing the measure. */
   .blog-prose .katex { color: var(--color-fg); font-size: 1.06em; }

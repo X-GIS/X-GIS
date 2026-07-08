@@ -4,6 +4,7 @@ description: 'f64 and vecN<f64> as first-class shader-dsl types, emulated as two
 date: 2026-07-07T03:32:00Z
 tags: ['shader-dsl', 'precision', 'compiler', 'webgpu']
 lang: en
+series: { name: 'Emulating f64 in shaders', order: 1 }
 ---
 
 At a world coordinate near $10^8$, f32's spacing is $\mathrm{ulp}_{f32}(10^8) = 8$:

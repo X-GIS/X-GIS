@@ -4,6 +4,7 @@ description: "The verification stack behind shader-dsl's fp64: a correctly-round
 date: 2026-07-07T06:58:00Z
 tags: ['shader-dsl', 'testing', 'precision', 'numerics']
 lang: en
+series: { name: 'Emulating f64 in shaders', order: 2 }
 ---
 
 The [fp64 feature](/blog/2026-07-07-emulated-double-precision-shader-dsl)

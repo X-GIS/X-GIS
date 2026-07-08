@@ -8,6 +8,7 @@ import basicSsl from '@vitejs/plugin-basic-ssl'
 import expressiveCode from 'astro-expressive-code'
 import mdx from '@astrojs/mdx'
 import remarkMath from 'remark-math'
+import remarkDirective from 'remark-directive'
 import rehypeKatex from 'rehype-katex'
 import xgisGrammar from './src/lib/xgis-grammar.json' with { type: 'json' }
 
@@ -161,6 +162,52 @@ function rehypeWrapTables() {
   }
 }
 
+// Container directives (`:::warning … :::`) become admonition callouts, so a
+// blog post in PLAIN markdown can flag a gotcha/trap without opting into MDX to
+// import the <Callout> Astro component. remark-directive (above, in
+// remarkPlugins) parses the `:::name[Optional title]` syntax into a
+// `containerDirective` mdast node; this pass turns the five admonition names
+// into `<div class="callout callout-<name>">` with a leading label paragraph,
+// styled by .blog-prose .callout rules in the post layout. Any other directive
+// name is left untouched (rendered as its literal text by remark). Zero-dep
+// mdast walk, same house style as the rehype passes below.
+const CALLOUT_LABELS = {
+  note: 'Note',
+  tip: 'Tip',
+  warning: 'Warning',
+  caution: 'Caution',
+  important: 'Important',
+}
+function remarkCallouts() {
+  return (tree) => {
+    const walk = (node) => {
+      if (!node.children) return
+      for (const child of node.children) {
+        if (child.type === 'containerDirective' && CALLOUT_LABELS[child.name]) {
+          // `:::warning[Custom title]` → the label rides as a first child
+          // paragraph flagged `directiveLabel`; consume it as the heading.
+          let title = CALLOUT_LABELS[child.name]
+          const first = child.children[0]
+          if (first?.type === 'paragraph' && first.data?.directiveLabel) {
+            title = first.children.map((c) => c.value ?? '').join('')
+            child.children.shift()
+          }
+          child.data = child.data || {}
+          child.data.hName = 'div'
+          child.data.hProperties = { className: ['callout', `callout-${child.name}`] }
+          child.children.unshift({
+            type: 'paragraph',
+            data: { hProperties: { className: ['callout-label'] } },
+            children: [{ type: 'text', value: title }],
+          })
+        }
+        walk(child)
+      }
+    }
+    walk(tree)
+  }
+}
+
 export default defineConfig({
   site: 'https://x-gis.github.io',
   base: isCI ? '/X-GIS' : '/',
@@ -168,7 +215,7 @@ export default defineConfig({
     // remark-math + rehype-katex: $…$ / $$…$$ LaTeX in blog markdown renders
     // to KaTeX HTML at build time (no client JS; katex.min.css is imported by
     // the blog post layout).
-    remarkPlugins: [remarkMath],
+    remarkPlugins: [remarkMath, remarkDirective, remarkCallouts],
     rehypePlugins: [rehypeKatex, rehypeBaseLinks, rehypeCitations, rehypeWrapTables],
   },
   // English is the default and stays at the root (/docs, /blog, …);

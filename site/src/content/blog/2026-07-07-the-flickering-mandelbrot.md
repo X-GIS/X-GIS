@@ -4,6 +4,7 @@ description: 'Incident report: the fp64 demo alternated between correct and f32-
 date: 2026-07-07T06:38:00Z
 tags: ['shader-dsl', 'precision', 'debugging', 'gpu-drivers']
 lang: en
+series: { name: 'Emulating f64 in shaders', order: 3 }
 ---
 
 **Report** (Windows 11, RTX 5060 Ti, Chrome, production): the f64 half of the

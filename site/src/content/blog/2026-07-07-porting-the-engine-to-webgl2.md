@@ -4,6 +4,7 @@ description: "The program index for X-GIS's WebGL2 port: package-enforced backen
 date: 2026-07-07
 tags: ['webgl2', 'rhi', 'shader-dsl', 'architecture']
 lang: en
+series: { name: 'WebGL2 backend program', order: 1 }
 ---
 
 X-GIS was designed WebGPU-first: storage buffers, MRT, compute passes, MSAA
@@ -34,8 +35,8 @@ boundary: an interface-only `@xgis/rhi` package (`RhiDevice`, `RhiRenderPass`,
 monorepo that may see `@webgpu/types`, and `@xgis/rhi-webgl2` implementing
 the same interface over GL. A canary CI job builds the engine against
 `@xgis/rhi` alone to prove the boundary holds. Splitting the imports was
-mostly mechanical; the one thing it surfaced was that *where a type is
-imported from* is not the same as *which package the dependency points at* —
+mostly mechanical; the one thing it surfaced was that _where a type is
+imported from_ is not the same as _which package the dependency points at_ —
 a wrong turn worth its own post.
 
 Boot is inverted the same way: an ordered `RhiBackendProvider[]` at the
@@ -50,7 +51,7 @@ TypeScript eDSL that builds an IR, so we added a second emitter:
 
 - **WGSL stays the authority.** The GLSL emitter re-assembles the same
   module declarations (structs, bindings, functions); shader logic is never
-  duplicated, so the two backends cannot disagree *about shader math*. They
+  duplicated, so the two backends cannot disagree _about shader math_. They
   can still disagree about everything the IR doesn't own — pipeline STATE
   (which depth variant a fill selects) and target CONVENTIONS (FBO row order).
   Both of those bit us with byte-identical shaders; the [pixel-gate
@@ -85,7 +86,7 @@ A few mines we stepped on, recorded so you don't have to:
   caught. Full autopsy in the [pixel-gate post](/blog/2026-07-07-pixels-dont-lie).
 - **GL executes immediately.** WebGPU lets you flush a uniform ring once at
   pass end because `submit()` orders everything; GL draws at call time, so
-  the staged slot must land in the buffer *before each draw*.
+  the staged slot must land in the buffer _before each draw_.
 
 ## Gates, not promises
 
