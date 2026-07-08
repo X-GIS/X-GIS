@@ -1,10 +1,12 @@
 // ═══ Backend providers — the boot inversion composition pieces (#833 M4) ═══
 //
 // Backend precedence is DATA now: an ordered `RhiBackendProvider` array built
-// at the composition root, not a resolver function inside the GPU layer.
-// `?forcegl2=1` boots by passing `[webGl2BackendProvider]`; the WebGPU boot
-// passes `[webGpuBackendProvider]` and its create() body is the byte-identical
-// pre-inversion initGPU WebGPU path (createWebGpuContext).
+// at the composition root, not a resolver function inside the GPU layer. The
+// generic walk (`selectBackend`, @xgis/rhi) tries each provider and FALLS BACK
+// on a boot failure. `'auto'` chains `[webGpuBackendProvider, webGl2BackendProvider]`
+// (WebGPU→WebGL2 fallback); `?forcegl2=1` forces `[webGl2BackendProvider]`; an
+// explicit backend pins a single-provider chain (no fallback). The WebGPU
+// create() body is the byte-identical pre-inversion initGPU path (createWebGpuContext).
 //
 // TRANSITIONAL HOME: both providers produce the WebGPU-typed `GPUContext`
 // (the webgl2 one via the documented no-op Proxy WebGPU extension), so they
@@ -13,6 +15,7 @@
 // TCtx defaults to the neutral context in @xgis/rhi.
 
 import type { RhiBackendProvider } from '@xgis/rhi'
+import { selectBackend, BackendUnavailableError } from '@xgis/rhi'
 import {
   createWebGpuContext,
   initGPUForcedWebGL2,
@@ -49,36 +52,41 @@ export const webGl2BackendProvider: RhiBackendProvider<GPUContext> = {
   },
 }
 
-/** Walk an ordered provider chain: the first provider whose `probe()` passes
- *  boots the canvas. Probe failures fall through; create() errors propagate
- *  (a chosen backend that fails to boot is a fault, not a fallback signal). */
+/** Boot the first provider in the chain that succeeds, with WebGPU→WebGL2
+ *  FALLBACK — the generic walk (probe-skip + create-failure fall-through) is
+ *  `selectBackend` in @xgis/rhi, so backend selection is engine-provided, not a
+ *  rhi-webgpu private. Thin wrapper: it re-maps the neutral
+ *  `BackendUnavailableError` (all providers exhausted) to `WebGPUUnavailableError`
+ *  so the map layer's graceful-path check
+ *  (`result instanceof WebGPUUnavailableError` → onWebGPUUnavailable) is
+ *  unchanged. */
 export async function initGPUViaProviders(
   canvas: HTMLCanvasElement,
   providers: readonly RhiBackendProvider<GPUContext>[],
 ): Promise<GPUContext> {
-  for (const p of providers) {
-    if (await p.probe()) return p.create(canvas)
+  try {
+    return await selectBackend(canvas, providers)
+  } catch (e) {
+    if (e instanceof BackendUnavailableError) throw new WebGPUUnavailableError(e.message)
+    throw e
   }
-  throw new WebGPUUnavailableError(
-    `no RHI backend available (probed: ${providers.map((p) => p.id).join(', ') || 'none'})`,
-  )
 }
 
-/** Derive the provider array from a caller's `BackendChoice` — the old
- *  `resolveBackend` precedence, expressed as data: an explicit
- *  `'webgpu'`/`'webgl2'` ALWAYS wins (a host that hard-pins in code ignores a
- *  stray `?forcegl2=1`); only `'auto'` consults the `?forcegl2=1` dev/bisect
- *  override, then defaults to WebGPU. `'auto'` deliberately does NOT chain
- *  [webgpu, webgl2] — a present-but-adapter-null WebGPU still surfaces
- *  `WebGPUUnavailableError` → `onWebGPUUnavailable()` (the graceful path),
- *  intentional until the WebGL2 backend reaches full render parity (#834 M5);
- *  flipping that policy is then a one-line DATA change here. */
+/** Derive the provider array from a caller's `BackendChoice`, expressed as data:
+ *  an explicit `'webgpu'`/`'webgl2'` ALWAYS wins (a host that hard-pins in code
+ *  ignores a stray `?forcegl2=1`) and pins a SINGLE-provider chain — no fallback,
+ *  a hard pin fails loud. `'auto'` chains `[webgpu, webgl2]` so a
+ *  present-but-adapter-null WebGPU FALLS BACK to WebGL2 (via `selectBackend`'s
+ *  create-failure fall-through) rather than dead-ending — a degraded WebGL2 frame
+ *  beats a blank canvas. `onWebGPUUnavailable()` (the graceful host path) now
+ *  fires only when BOTH backends are exhausted. The `?forcegl2=1` dev/bisect
+ *  override still forces the WebGL2-only chain for testing. */
 export function backendProviderChain(
   choice: BackendChoice,
 ): RhiBackendProvider<GPUContext>[] {
   if (choice === 'webgpu') return [webGpuBackendProvider]
   if (choice === 'webgl2') return [webGl2BackendProvider]
-  return FORCE_GL2 ? [webGl2BackendProvider] : [webGpuBackendProvider]
+  return FORCE_GL2 ? [webGl2BackendProvider] : [webGpuBackendProvider, webGl2BackendProvider]
 }
 
 /** Per-call options for `initGPU`. Backend is the only knob today. */
