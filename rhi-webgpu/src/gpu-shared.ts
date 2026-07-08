@@ -254,19 +254,6 @@ export const DEPTH_TEST_WRITE: GPUDepthStencilState = {
   stencilReadMask: 0x00,
 }
 
-// ── MSAA ──
-// Sample count chosen at module load from `quality.ts` (default 4× desktop,
-// 1× mobile / `?safe=1` / `?quality=performance|battery` / `?msaa=1|2`).
-// Name `MSAA_4X` is historical — the actual count is whatever SAMPLE_COUNT
-// resolves to. All render pipelines pick this up at creation; the 1×
-// branch in `map.ts:renderFrame` handles the no-resolve direct-to-swapchain
-// path.
-import { SAMPLE_COUNT } from './gpu'
-export const MSAA_STATE: GPUMultisampleState = { count: SAMPLE_COUNT }
-/** @deprecated Use `MSAA_STATE` (count is no longer always 4). Alias kept
- *  for back-compat with existing imports. */
-export const MSAA_4X = MSAA_STATE
-
 // ── World Wrapping ──
 
 // WORLD_MERC / TILE_PX moved to the NEUTRAL core (world-scale.ts, #832) so the
