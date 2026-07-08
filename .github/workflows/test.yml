@@ -110,11 +110,15 @@ jobs:
 
   test:
     needs: changes
-    # Skip the entire engine/compiler/runtime vitest matrix when no `code`
-    # changed (e.g. a site-only PR) — these legs exercise nothing the site
-    # touches. Skipped legs report `skipped`, which the required `test-result`
-    # aggregator below treats as a pass (so the PR is never stranded).
-    if: needs.changes.outputs.code == 'true'
+    # NO job-level `if:` — the matrix MUST expand even when no `code` changed, or
+    # the per-leg required checks never post. A job-level skip is evaluated BEFORE
+    # the matrix expands, so GitHub posts a single check under the LITERAL name
+    # `test (${{ matrix.id }})` (SKIPPED) and NONE of the branch-protection-required
+    # per-leg contexts (`test (map)`, `test (engine-render-a)`, …) — stranding a
+    # docs-only PR on "Expected" forever (observed on blog PR #895). Instead every
+    # STEP below is `if`-gated on `code` (the render-gate pattern): on a
+    # code-irrelevant PR each leg spins up, skips all steps, and posts green in
+    # ~seconds; on a code PR the steps run the full build + vitest exactly as before.
     runs-on: ubuntu-latest
     # PARALLELIZE the unit suite. The 5 vitest path-filter sets used to run
     # SERIALLY on one runner (~149s of vitest on top of the ~28s build,
@@ -216,16 +220,19 @@ jobs:
     # is `test-result` below — require THAT, not these per-leg names.
     name: test (${{ matrix.id }})
     steps:
-      - uses: actions/checkout@v4
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@v2
+      - if: needs.changes.outputs.code == 'true'
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       # Cache bun's global package store so `bun install` reuses downloaded
       # tarballs instead of re-fetching every run. Keyed on the lockfile.
       # All 5 matrix legs share this SAME restore key, so install stays ~1s.
-      - uses: actions/cache@v4
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
@@ -234,19 +241,22 @@ jobs:
       # --frozen-lockfile: fail loudly if package.json and bun.lock disagree,
       # rather than silently mutating the lockfile in CI. A single committed
       # bun.lock exists to freeze against.
-      - run: bun install --frozen-lockfile
+      - if: needs.changes.outputs.code == 'true'
+        run: bun install --frozen-lockfile
 
       # Build first so the typescript project references (compiler →
       # runtime → playground/site) emit and tests downstream of compiler
       # can resolve the published types. Same step as deploy-pages.yml.
       # NOTE: this now runs once PER matrix leg (5x) instead of once.
-      - run: bun run build
+      - if: needs.changes.outputs.code == 'true'
+        run: bun run build
 
       # The single vitest invocation for THIS shard. `args` is unquoted on
       # purpose so multi-path / --exclude tokens word-split into separate
       # argv entries; the embedded double-quotes survive into the run line
       # and bash leaves the globs unexpanded, reproducing the original argv.
-      - run: ./node_modules/.bin/vitest run --silent=true ${{ matrix.args }}
+      - if: needs.changes.outputs.code == 'true'
+        run: ./node_modules/.bin/vitest run --silent=true ${{ matrix.args }}
 
   # Typecheck gate. The vitest legs above NEVER run `tsc`, and the runtime
   # `bun run build` is a vite/esbuild bundle that strips types WITHOUT checking
