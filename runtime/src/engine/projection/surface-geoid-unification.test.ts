@@ -21,7 +21,7 @@ import { describe, it, expect } from 'vitest'
 import type { RingPolygon } from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { generateWallMeshExtrudedECEF } from '@xgis/map'
-import { tileEcefCenterFromMerc } from '@xgis/engine'
+import { tileEcefCenterFromMerc } from '@xgis/shared'
 import type { BackendTileResult, TileSourceSink } from '@xgis/data'
 
 // WGS84 — the SINGLE reference geoid every surface must land on.

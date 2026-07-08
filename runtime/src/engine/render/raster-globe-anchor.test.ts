@@ -7,7 +7,7 @@
 // the anchor to the ellipsoid frame. Fails if the anchor reverts to the sphere.
 import { describe, it, expect } from 'vitest'
 import { rasterGlobeCamAnchor } from '@xgis/map'
-import { lonLatToECEF } from '@xgis/engine'
+import { lonLatToECEF } from '@xgis/shared'
 
 describe('raster globe camera anchor — ellipsoid frame', () => {
   it('is the WGS84 ellipsoid ECEF (matches the tile vertices), not the sphere', () => {

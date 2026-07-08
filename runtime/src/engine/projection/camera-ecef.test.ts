@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/map'
-import { lonLatToECEFSphere, ecefToENURotation, WGS84 } from '@xgis/engine'
+import { lonLatToECEFSphere, ecefToENURotation, WGS84 } from '@xgis/shared'
 
 describe('Camera.getECEFCenter — derives ECEF from canonical Mercator centre', () => {
   it('lon=0, lat=0 anchor → ECEF (A, 0, 0) on the WGS84 equator', () => {

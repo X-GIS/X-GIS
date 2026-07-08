@@ -11,15 +11,10 @@ export * from '@xgis/rhi'
 export * from './gpu/gpu-arena'
 export * from './gpu/quality'
 
-// ── ECEF coordinate shim (last geo residue) ──────────────────────────
-// The projection leaves (projection, projections-table, globe) + world-scale
-// moved to the new @xgis/geo package in #781 (3c): the engine is now geo-free.
-// Only this ECEF re-export remains — a thin passthrough to @xgis/shared (where
-// the ellipsoid math lives so the @xgis/compiler tiler shares one source).
-// Dropping the shim (import ECEF from @xgis/shared directly) is 3d cleanup.
-export * from './projection/ecef'
-
 // ── Frame / render core machinery ─────────────────────────────────────
+// NOTE: no ECEF re-export. The `./projection/` subtree is gone — the ellipsoid
+// math lives in @xgis/shared and the projection library in @xgis/geo (#781 3c/3d).
+// Consumers import ECEF from @xgis/shared directly; the engine is projection-free.
 export * from './render/projection-token'
 // Reflect-derived typed std140 pack target (#733): write() full-struct pack with
 // compile-time completeness + set.* zero-alloc per-field setters.

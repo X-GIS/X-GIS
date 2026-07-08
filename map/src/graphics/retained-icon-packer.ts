@@ -8,7 +8,7 @@
 // thesis). Position packing reuses the SAME ECEF/Mercator DSFUN math as the point
 // packer, so the shader's reused geo→clip ladder applies unchanged.
 
-import { lonLatToECEF } from '@xgis/engine'
+import { lonLatToECEF } from '@xgis/shared'
 import { worldCopyMercX } from '../render/point-feature-packer'
 import { parseHexColor } from '../feature-helpers'
 import { EARTH, xlog } from '@xgis/shared'

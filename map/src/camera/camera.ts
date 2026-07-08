@@ -1,6 +1,7 @@
 // ═══ Map Camera — 줌/패닝/회전/피치 ═══
 
-import { type ECEF, getMaxDpr, computeLogDepthFc } from '@xgis/engine'
+import { getMaxDpr, computeLogDepthFc } from '@xgis/engine'
+import { type ECEF } from '@xgis/shared'
 import {
   lonLatToMercator,
   mercatorYToLat,

@@ -32,7 +32,7 @@ import { PointRenderer } from '@xgis/map'
 import { pointWorldCopies } from '@xgis/map'
 import { WebGpuDevice } from '@xgis/rhi-webgpu'
 import { Camera } from '@xgis/map'
-import { lonLatToECEF } from '@xgis/engine'
+import { lonLatToECEF } from '@xgis/shared'
 import { ShapeRegistry } from '@xgis/map'
 
 let stub: StubInstallation

@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import type { RingPolygon } from '@xgis/compiler'
 import { generateWallMeshExtrudedECEF } from './polygon-mesh'
-import { lonLatToECEF, tileEcefCenterFromMerc } from '@xgis/engine'
+import { lonLatToECEF, tileEcefCenterFromMerc } from '@xgis/shared'
 
 // Phase 2 PR 2f: quantized ECEF extruded layout — stride 44 bytes = 11
 // floats. uint16×6 position in the first 12 bytes; f32 tail at float slots

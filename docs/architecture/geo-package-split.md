@@ -177,5 +177,5 @@ it. This inverts the naive "make the new package first" instinct.
 | 2 — `data` → local `TileSelectionCamera` interface          | #889 | ✅      |
 | 3a — mat4 ops → `@xgis/shared`                              | #892 | ✅      |
 | 3b — map-only geo → `@xgis/map` (~90 `Camera` repoints)     | #894 | ✅      |
-| 3c — geo cluster → `@xgis/geo` (new package)                | this | ✅      |
-| 3d — engine geo-free ratchet + residue cleanup              | —    | planned |
+| 3c — geo cluster → `@xgis/geo` (new package)                | #900 | ✅      |
+| 3d — engine geo-free ratchet + drop the ECEF shim           | this | ✅      |

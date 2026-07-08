@@ -19,7 +19,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/map'
-import { mercatorToECEFSphere } from '@xgis/engine'
+import { mercatorToECEFSphere } from '@xgis/shared'
 import { WORLD_MERC } from '@xgis/geo'
 
 const EARTH_R = 6378137
