@@ -17,11 +17,10 @@ export { FrameArena, type FrameArenaStats } from '@xgis/engine'
 export * from './staging-buffer-pool'
 export * from './palette-texture'
 export * from './bind-tiers'
-// #783 — `frame-uniform` stays UN-exported (dormant scaffolding, zero
-// consumers outside its test); re-add when the shared-uniform consolidation
-// actually lands.
 export * from './render-targets'
-export * from './frame-context'
+// FrameContext + FrameUniform moved to @xgis/map (#781 — per-frame render-loop
+// state carrying the geo `Camera`; not RHI-backend machinery, so it does not
+// belong in this WebGPU package). Map owns them now.
 export * from './reflection-to-webgpu'
 export * from './vertex-buffer-layout'
 export * from './bundle-cache'

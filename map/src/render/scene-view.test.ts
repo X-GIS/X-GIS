@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildSceneView } from './scene-view'
 import type { ClassifiedShow, OpaqueGroup } from '@xgis/map'
-import type { FrameContext } from '@xgis/rhi-webgpu'
+import type { FrameContext } from './frame-context'
 
 // Minimal stand-ins — buildSceneView only reads array length / identity.
 const cs = (n: number): ClassifiedShow[] => Array.from({ length: n }, () => ({}) as ClassifiedShow)

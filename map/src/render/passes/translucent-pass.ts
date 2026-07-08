@@ -9,7 +9,7 @@
 // `this.host.X` → `host.X`, `encoder` → `ctx.encoder`.
 
 import { DEBUG_OVERDRAW } from '../../debug-flags'
-import type { FrameContext } from '@xgis/rhi-webgpu'
+import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, TranslucentPassHost } from './pass'
 
