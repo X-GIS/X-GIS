@@ -16,7 +16,7 @@ import { test, expect } from '@playwright/test'
 // Relative deep imports (charter): Playwright transpiles specs in raw Node — the
 // @xgis/* workspace alias does not resolve here (see _glsl-compile-gate.spec.ts).
 import { emitModule, emitGlslModule } from '../../shader-dsl/src/index'
-import { obfuscate } from '../../shader-dsl/src/emit-prod'
+import { obfuscate, inline } from '../../shader-dsl/src/emit-prod'
 import { examples } from '../../shader-dsl/examples/index'
 
 const renderable = examples.filter((ex) => ex.renderable)
@@ -128,20 +128,24 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
     ).toEqual([])
   })
 
-  test('pixel identity: plain vs obfuscate() draw BYTE-IDENTICAL frames', async ({
+  test('pixel identity: plain vs inline+obfuscate() draw BYTE-IDENTICAL frames', async ({
     page,
   }) => {
     // Compile+link proves the text is valid; only a draw proves the transforms
     // preserved SEMANTICS. Three representative modules (plain gradient, a
-    // helper-heavy fragment, and the df64 + `_fp64`-guard path) render with the
-    // same synthetic inputs through both emits — frames must match byte-for-byte,
-    // and must not be a single flat colour (a blank frame would pass vacuously).
+    // helper-heavy fragment where inline() flattens the call graph, and the df64
+    // + `_fp64`-guard path) render with the same synthetic inputs through both
+    // emits — frames must match byte-for-byte, and must not be a single flat
+    // colour (a blank frame would pass vacuously). The obfuscated side runs the
+    // FULL pipeline [inline, mangle, minify] so inline() — the riskiest
+    // transform (it substitutes expressions) — is pixel-verified, incl. that it
+    // leaves the df64 EFTs opaque.
     const ids = ['gradient', 'kaleidoscope', 'fp64-deep-zoom']
     const cases = ids.map((id) => {
       const ex = renderable.find((e) => e.id === id)
       if (!ex) throw new Error(`example '${id}' missing from the renderable set`)
       const emit = (stage: 'vertex' | 'fragment', obf: boolean) =>
-        emitGlslModule(ex.module, stage, obf ? { plugins: obfuscate() } : undefined)
+        emitGlslModule(ex.module, stage, obf ? { plugins: [inline(), ...obfuscate()] } : undefined)
       return {
         name: id,
         plainVs: emit('vertex', false),

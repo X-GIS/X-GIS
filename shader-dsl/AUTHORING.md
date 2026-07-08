@@ -862,13 +862,22 @@ const fs = emitGlslModule(m, 'fragment', { plugins: obfuscate() })
   by construction (neither language has string literals; `#` directives keep
   their own line). `minifyShaderText(code)` is the raw function it wraps, for a
   string you already hold.
+- **`inline()`** — an `EmitPlugin` that flattens the call graph (obfuscation):
+  every safely-inlinable single-return helper is inlined at all its call sites,
+  so those functions vanish. Reuses the proven `inlineFn` substitution and
+  leaves the `df64_*` library, entry points, recursive fns, and multi-statement
+  / control-flow helpers intact. NOT a size win — a multi-call helper's
+  expression is duplicated per site (the following `minify()` recovers the
+  whitespace); the point is removing structure a reader could follow. Opt-in,
+  and NOT part of `obfuscate()`, so no existing output changes. Place it before
+  `mangle()`: `{ plugins: [inline(), ...obfuscate()] }`.
 - **`obfuscate({ renames? })`** — the standard preset, `[mangle(opts),
   minify()]`. Spread it into `{ plugins }`.
 
 Plugins fire STAGED like Vite: every plugin's `transformIR` (IR stage) runs in
 array order before the module is assembled, then every plugin's `transformText`
-(string stage) runs in array order. A forced-inline plugin is the planned next
-resident — it slots into the array with no API change.
+(string stage) runs in array order — so `inline()` and `mangle()` (both IR)
+compose in the order you list them, ahead of `minify()` (text).
 
 **The ABI boundary — never renamed:** entry-point names (WebGPU `entryPoint`),
 binding names including the `_fp64` guard (hosts resolve by name),

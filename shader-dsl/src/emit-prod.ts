@@ -23,6 +23,7 @@
 import type { EmitPlugin } from './core/emit'
 import { mangleModule } from './core/passes/mangle'
 import { minifyShaderText } from './core/emit-minify'
+import { inlineAll } from './core/passes/auto-inline'
 
 export type { EmitPlugin, EmitOptions } from './core/emit'
 export { minifyShaderText } from './core/emit-minify'
@@ -52,6 +53,19 @@ export function mangle(opts?: { renames?: Map<string, string> }): EmitPlugin {
  *  directives keep their own line). */
 export function minify(): EmitPlugin {
   return { name: 'minify', transformText: minifyShaderText }
+}
+
+/** Call-graph-flattening plugin (obfuscation): inlines every safely-inlinable
+ *  single-return helper at all its call sites, so those functions vanish from
+ *  the output. Reuses the proven inlineFn substitution + autoInline's safety
+ *  filter — the df64 emulation library, entry points, recursive fns, and
+ *  multi-statement / control-flow helpers are all left intact. NOT a size win
+ *  (a multi-call helper's expression is duplicated at each site; the point is
+ *  removing structure a reader could follow — pair it with mangle() + minify()).
+ *  Opt-in only; NOT part of the obfuscate() preset, so no existing output
+ *  changes. Runs in the IR stage, so place it before mangle() in the array. */
+export function inline(): EmitPlugin {
+  return { name: 'inline', transformIR: inlineAll }
 }
 
 /** The standard production preset: [mangle, minify]. Spread it into a

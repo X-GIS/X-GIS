@@ -77,29 +77,44 @@ function countCalls(m: ModuleDecl, name: string): number {
   return n
 }
 
-/** Pick the next helper to inline by the heuristic, or undefined when none qualifies. */
+/** The single-return expression of a helper that is SAFE to inline — non-entry,
+ *  non-df64, non-recursive, and still called — or undefined if `f` fails any of
+ *  those. The shared filter behind both the size heuristic (autoInline) and the
+ *  obfuscation "inline everything" pass (inlineAll).
+ *
+ *  df64_* emulation helpers are PERMANENTLY opaque (never inlined): their bodies
+ *  are error-free transformations the algebraic/const-fold passes could legally
+ *  cancel once exposed at a call site — see core/fp64/df64-lib.ts. Recursive
+ *  single-return fns are skipped (inlineFn keeps them; infinite expansion
+ *  otherwise). A dead fn (0 calls) is left to deadFnElim, not inlining. */
+function inlinableRet(m: ModuleDecl, f: FuncDecl): Expr | undefined {
+  if (isEntry(f) || f.name.startsWith('df64_')) return undefined
+  const ret = singleReturnExpr(f)
+  if (ret === undefined) return undefined
+  let recursive = false
+  mapStmt({ s: 'return', expr: ret }, (e) => {
+    if (e.op === 'call' && e.fn === f.name) recursive = true
+    return e
+  })
+  if (recursive) return undefined
+  return countCalls(m, f.name) > 0 ? ret : undefined
+}
+
+/** Pick the next helper to inline by the SIZE heuristic (single-call or
+ *  leaf-return), or undefined when none qualifies. */
 function pickCandidate(m: ModuleDecl): string | undefined {
   for (const f of m.funcs) {
-    if (isEntry(f)) continue
-    // df64_* emulation helpers are PERMANENTLY opaque (never inlined): their
-    // bodies are error-free transformations that the algebraic/const-fold
-    // passes could legally cancel once exposed at a call site — see
-    // core/fp64/df64-lib.ts. (autoInline is unwired today; this pins the
-    // invariant against a future wiring.)
-    if (f.name.startsWith('df64_')) continue
-    const ret = singleReturnExpr(f)
+    const ret = inlinableRet(m, f)
     if (ret === undefined) continue
-    // Recursive single-return fn — inlineFn keeps it (infinite expansion otherwise); skip.
-    let recursive = false
-    mapStmt({ s: 'return', expr: ret }, (e) => {
-      if (e.op === 'call' && e.fn === f.name) recursive = true
-      return e
-    })
-    if (recursive) continue
-    const calls = countCalls(m, f.name)
-    if (calls === 0) continue // dead — leave to deadFnElim, not inlining
-    if (calls === 1 || exprCost(ret) === 1) return f.name
+    if (countCalls(m, f.name) === 1 || exprCost(ret) === 1) return f.name
   }
+  return undefined
+}
+
+/** Pick the next helper to inline UNCONDITIONALLY (obfuscation) — any safely
+ *  inlinable single-return helper, regardless of call count or size. */
+function pickAny(m: ModuleDecl): string | undefined {
+  for (const f of m.funcs) if (inlinableRet(m, f) !== undefined) return f.name
   return undefined
 }
 
@@ -112,6 +127,26 @@ export function autoInline(m: ModuleDecl): ModuleDecl {
   // the fn-count bound is a belt-and-suspenders cap on the loop.
   for (let i = 0; i < m.funcs.length; i++) {
     const name = pickCandidate(cur)
+    if (name === undefined) break
+    cur = inlineFn(cur, name)
+  }
+  return cur
+}
+
+/** Inline EVERY safely-inlinable single-return helper at all its call sites,
+ *  erasing those functions from the output (call-graph flattening for
+ *  OBFUSCATION — `@xgis/shader-dsl/emit-prod`'s inline() plugin). Reuses
+ *  inlineFn's proven substitution and the same safety filter as autoInline, so
+ *  it inherits the oracle value-equality; multi-statement / control-flow helpers
+ *  (inlineFn is single-return only) and the df64 library are left intact. Unlike
+ *  autoInline this is NOT a size win — a multi-call helper's expression is
+ *  duplicated at each site; the following minify() recovers the whitespace, and
+ *  the point is structure removal, not bytes. Pure (module -> module). */
+export function inlineAll(m: ModuleDecl): ModuleDecl {
+  if (m.funcs.some((f) => bodyHasRaw(f.body))) return m
+  let cur = m
+  for (let i = 0; i < m.funcs.length; i++) {
+    const name = pickAny(cur)
     if (name === undefined) break
     cur = inlineFn(cur, name)
   }
