@@ -26,16 +26,12 @@
 // generator in lat/lon space here makes the world-band geometry trivially
 // reviewable and re-usable for future EPSG:4326 / S2 schemes.
 
-import { MERCATOR_LAT_LIMIT } from './projection'
-
-// WorldBandKind + worldBandForProjType now live on the authority table
-// (projections-table.ts) as the per-row `worldBand` data column — folding the
-// former hand-encoded magic-int branches onto the single source of truth.
-// Re-exported here to preserve this module's public surface for
-// synthetic-earth-surface-backend.ts, map.ts, and the tests. Direction is
-// table ← earth-surface-fill (acyclic: the table imports nothing).
-export { worldBandForProjType, type WorldBandKind } from './projections-table'
-import type { WorldBandKind } from './projections-table'
+// Relocated from @xgis/engine (#781 — a lat/lon world-band mesh generator is
+// geo/cartography content, not generic engine machinery; its only consumer is
+// the synthetic-earth-surface source in this @xgis/data package). The band
+// classification (`worldBandForProjType` / `WorldBandKind`) remains the
+// authority table's in @xgis/engine — imported here, not re-exported.
+import { MERCATOR_LAT_LIMIT, type WorldBandKind } from '@xgis/engine'
 
 /** Lat/lon-grid mesh generator. Emits a triangulated lat/lon strip suitable
  *  for the standard opaque tile pipeline once Phase 2 PR 2c wires ECEF vertex
