@@ -1,0 +1,2 @@
+flowchart LR
+  t([".xgis text"]) --> lex[lexer] --> parse[parser] --> lower["lower<br/>Scene IR"] --> opt["optimize<br/>pass manager"] --> gen["codegen<br/>shader-dsl IR"] --> emit(["emit<br/>SceneCommands"])

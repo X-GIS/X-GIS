@@ -1,6 +1,6 @@
 ---
 title: 'Porting the ShaderToy classics — and letting them review our shader DSL'
-description: "We rebuilt ten classic ShaderToy effects in X-GIS's typed shader DSL. The renders were the easy part: authoring them surfaced eleven concrete DX issues, and every one was fixed the same day — with gates so they stay fixed."
+description: "We rebuilt ten classic ShaderToy effects in X-GIS's typed shader DSL. The renders were the easy part: authoring them surfaced eleven concrete DX issues — an elliptical sun no gate could see, a reversed smoothstep every GPU hides — each closed with a gate so it stays fixed."
 date: 2026-07-07T02:29:00Z
 tags: ['shader-dsl', 'examples', 'dx', 'testing']
 lang: en
@@ -18,8 +18,9 @@ pipeline reflection from the same source. The
 But the renders were never really the point. The point was to make the DSL
 _carry a workload it wasn't designed around_ and write down every place it
 pushed back. Ten shaders in, we had eleven concrete developer-experience
-issues on file. All eleven were closed the same day — and the interesting part
-is what "closed" means in this codebase.
+issues on file. The interesting part is what "closed" means in this codebase —
+and that the subtlest of them, an elliptical sun that every automated gate
+called correct, is the one worth dwelling on.
 
 ## The ports (with one licensing footnote)
 
@@ -52,9 +53,10 @@ semantics so all three backends agree.
 sun-disc distance between an aspect-scaled x and a raw-uv y. Units differed
 2×, the sun rendered as an ellipse — and the emit gate, the byte-pinned
 goldens, and the "frame varies" render gate were all green. Only eyes caught
-it. That became `screenCoords(uv, resolution)` — one isotropic centred space
-where a circle stays a circle — plus a documented rule: _name the space you
-are in; never cross axes between spaces in one distance._
+it. That became `screenCoords(uv, resolution)` — one isotropic centred space (y
+runs ±1 over the height, x ±aspect over the width, so a circle stays a circle)
+— plus a documented rule: _name the space you are in; never cross axes between
+spaces in one distance._
 
 **Errors should name your code, not the library's.** A `Loop` body that
 references a loop index it never declared used to die with a stack trace into
@@ -62,11 +64,21 @@ the DSL's builder internals. Builder-boundary exceptions now re-throw wrapped
 with the enclosing function: `while building fn 'fs': …` — we watched the new
 wrapper point at the right file during this very session.
 
+**A reversed `smoothstep` is undefined behaviour that every GPU hides.** GLSL
+ES leaves `smoothstep(edge0, edge1, x)` _undefined_ when `edge0 >= edge1` — and
+most drivers happen to return the mirrored ramp, so a descending
+`smoothstep(1.0, 0.0, x)` looks right locally and is a latent break on the next
+GPU. It is exactly the class of bug a typed authoring layer should refuse to
+emit. The `smoothstep-edge-order` lint (`SD0108`) flags any call whose edges are
+_both literals_ with `edge0 >= edge1` — statically decidable, so dynamic edges
+stay silent — and points at the house form `1 − smoothstep(lo, hi, x)`. It ships
+as a warning in the opt-in lint set, not a hard emit error, because the runtime
+edges it cannot see mean it cannot prove the general case.
+
 The rest of the list: `dpdx`/`dpdy` intrinsics (spelled `dFdx`/`dFdy` on
-GLSL), a lint for reversed `smoothstep` edges (undefined in GLSL ES, and most
-drivers hide it), documented mutability rules (`Var` / `Let` / CSE), a
-`bake:goldens` script, and shared fullscreen-pass boilerplate that removed
-~600 duplicated lines across the examples.
+GLSL), documented mutability rules (`Var` / `Let` / CSE), a `bake:goldens`
+script, and shared fullscreen-pass boilerplate that removed ~600 duplicated
+lines across the examples.
 
 ## Refactors you can prove
 
@@ -77,6 +89,13 @@ examples adopted `screenCoords` — the golden suite was run **without**
 re-baking. It passed. That is the whole proof: hundreds of lines moved, zero
 emitted bytes changed. "Pure refactor" stopped being a claim and became a
 checkable property.
+
+The same property has a blind spot worth naming. The `screenCoords` sweep
+turned up `heart.ts` still carrying its own hand-rolled uniform/vertex
+boilerplate — a straggler the earlier boilerplate codemod had missed from its
+file list. Nothing had failed, because the example was self-contained and its
+goldens were correct; a byte-identical gate proves _the code that ran matched_,
+not that every file was reached. The sweep found it; the gate never would have.
 
 ## Making the gallery interactive
 
@@ -96,27 +115,15 @@ controls: {
 
 The host recovers each field's std140 byte offset from `reflect(module)` and
 packs live values every frame — the same reflection-driven packing the unit
-and e2e gates use. Two layers of interactivity landed on top:
-
-- **Transport chrome** — play/pause, scrub, speed, reset, fullscreen — lives
-  entirely in the site host. `time` was always host-filled, so all twenty
-  examples got it with zero shader changes.
-- **The pointer uniform** is opt-in. Its fourth component (`used`) stays 0
-  until the pointer first enters, so every shader gates its interactive path
-  on `m.w` — an untouched frame renders the canonical autopilot view. That one
-  bit is what keeps thumbnails, render gates, and reduced-motion users on the
-  exact frames we've always shipped. Four examples adopted it: Mandelbrot pans,
-  Julia's `c` follows your cursor, a metaball chases the pointer, and the box
-  field looks around as you move.
+and e2e gates use. The interesting piece is how interactivity stays off the
+canonical render path: the **pointer uniform** is opt-in, and its fourth
+component (`used`) stays 0 until the pointer first enters, so every shader gates
+its interactive branch on `m.w`. An untouched frame renders the autopilot view
+— which is what keeps thumbnails, render gates, and reduced-motion users on the
+exact frames we have always shipped, even though four examples (Mandelbrot,
+Julia, a metaball, the box field) now follow the cursor when touched.
 
 And because "it's interactive" is a claim like any other, it has a gate: a CI
 spec renders every mouse-declaring example twice on real WebGL2 — untouched
 vs. active pointer — and fails unless the frames visibly differ. A typo'd
 control key or a dead `m.w` multiply now breaks the build, not the demo.
-
-## Try it
-
-The [gallery](/shader-dsl/examples) runs everything live — sliders, transport,
-and the pointer where it matters. Every card shows the TypeScript source, the
-emitted WGSL and GLSL, and the reflection JSON, because the entire pitch of
-the DSL is that those four things are one artifact.

@@ -1,9 +1,10 @@
 ---
 title: 'Your render pipeline is just a string'
-description: "217 GPURenderPipeline references stood between @xgis/map and backend-neutrality. Most of them turned out not to be pipelines at all — they were labels being matched. Collapsing them to a neutral { label } handle, and how prove-or-refute kept us from doing the wrong migration."
+description: '217 GPURenderPipeline references stood between @xgis/map and backend-neutrality. Most of them turned out not to be pipelines at all — they were labels being matched. Collapsing them to a neutral { label } handle, and how prove-or-refute kept us from doing the wrong migration.'
 date: 2026-07-08
 tags: ['architecture', 'rhi', 'refactoring', 'types']
 lang: en
+series: { name: 'WebGL2 backend program', order: 4 }
 ---
 
 The goal: make `@xgis/map` depend on `@xgis/engine` alone, so it names no
@@ -13,20 +14,20 @@ densest cluster is `GPURenderPipeline` — 217 of them, concentrated in the vect
 tile renderer, the pipeline factory, the bind-group registry, and the bucket
 scheduler.
 
-The plan on paper (an architect's scoping) said: *swap
-`device.createRenderPipeline` for `rhi.createPipeline`*. The RHI already has a
+The plan on paper (an architect's scoping) said: _swap
+`device.createRenderPipeline` for `rhi.createPipeline`_. The RHI already has a
 backend-neutral `createPipeline(RhiPipelineDesc)` that emits the same WGSL, and
 it's byte-identity tested. Adopt it, and `GPURenderPipeline` becomes
 `RhiPipeline`. Clean.
 
 Except it isn't, and a prior migration attempt had already been reverted for
 going the wrong direction. So before touching 217 references, we proved what
-those references actually *are*.
+those references actually _are_.
 
 ## The claim, and the proof
 
-**Claim:** the vector-tile renderer's fill/line pipeline objects are *draw
-inputs* — the renderer calls `setPipeline(pipeline)` with them, so they must be
+**Claim:** the vector-tile renderer's fill/line pipeline objects are _draw
+inputs_ — the renderer calls `setPipeline(pipeline)` with them, so they must be
 real backend pipelines.
 
 We went looking for the witness — a native `pass.setPipeline(fillPipeline)` in
@@ -38,7 +39,7 @@ $ rg 'setPipeline' vector-tile-renderer.ts
 4036:        // The 6 GPU commands below (setPipeline, setBindGroup, …)
 ```
 
-Both hits are *comments*. There is no live `pass.setPipeline` in the VTR. The
+Both hits are _comments_. There is no live `pass.setPipeline` in the VTR. The
 fill draw goes somewhere else:
 
 ```ts
@@ -57,7 +58,7 @@ const eq = (a) => pipeline === a || (!!pipeline.label && !!a && pipeline.label =
 
 There it is. The `pipeline` object is never bound. It is a **routing key**:
 `recordFillDraw` matches it — by object identity, falling back to its stable
-factory `.label` — to a pre-built RHI *Material* twin, and `executeItems` runs
+factory `.label` — to a pre-built RHI _Material_ twin, and `executeItems` runs
 the Material's own pipeline. The native `GPURenderPipeline` the pipeline factory
 built is threaded through the whole renderer solely so that, at draw time, its
 `.label` can be compared against a Material's `.label`.
@@ -79,9 +80,9 @@ export interface RhiPipelineHandle {
 }
 ```
 
-A `GPURenderPipeline` *is* structurally an `RhiPipelineHandle` (it has a
+A `GPURenderPipeline` _is_ structurally an `RhiPipelineHandle` (it has a
 `label`). So the pipeline factory keeps building real native pipelines, and they
-flow — unchanged, same objects — into fields now *typed* `RhiPipelineHandle`.
+flow — unchanged, same objects — into fields now _typed_ `RhiPipelineHandle`.
 The renderer's fill-state, `recordFillDraw`'s parameter, the bind-group
 registry's stored pipelines, the bucket scheduler's threaded closures: retyped
 `GPURenderPipeline → RhiPipelineHandle`, one connected graph.
@@ -93,10 +94,17 @@ It cascades exactly as far as the routing keys reach and no further:
 - `bind-group-registry`: 23 refs.
 - `bucket-scheduler`: 30 refs.
 
-**87 references**, and the compiler stops there — because the *boundary* is
-clean. The pipeline **factory** still names `GPURenderPipeline` (it creates
+**87 references**, and the compiler stops there — because the _boundary_ is
+clean. There is a cost to naming the type by its `.label`, though: routing now
+rests entirely on that label being unique. `recordFillDraw` matches identity
+first and falls back to `.label`, so two Materials that ever collided on a label
+would be a latent footgun — the fallback could route a draw to the wrong twin.
+The stable factory-assigned labels make that safe today, but the invariant is
+now load-bearing where before it was merely convenient.
+
+The pipeline **factory** still names `GPURenderPipeline` (it creates
 them). `renderer.ts` (the direct-geometry path) and the compose passes still
-name it (they *do* call native `setPipeline`). But those are on the other side
+name it (they _do_ call native `setPipeline`). But those are on the other side
 of the routing-key graph, and a native `GPURenderPipeline` assigns into an
 `RhiPipelineHandle` field structurally, so nothing at the boundary breaks. The
 whole VTR-path pipeline threading — the largest `@webgpu/types` concentration in
@@ -111,24 +119,18 @@ unchanged. We verified it the way you verify a claimed no-op: full build green,
 the renderer's 292 unit tests unchanged, and a real WebGL2 render (fills, lines,
 pick) producing the same output. A type-level refactor that reduces coupling and
 compiles to identical bytes is the cheapest kind of architectural progress there
-is — *if* you've correctly identified what the types describe.
+is — _if_ you've correctly identified what the types describe.
 
 ## The meta-lesson: name the thing by what's read off it
 
 The wrong migration (swap the create call) and the right one (collapse to a
-label handle) start from the same 217 references. The difference is entirely in
-having *proven* what those references are used for. A confident static read —
-"they're pipelines, they get drawn" — would have sent us swapping 217 create
-calls for no benefit, or worse, breaking the routing.
-
-The discriminator was a two-line search (`rg setPipeline` → both hits are
-comments) plus reading the six lines of `recordFillDraw`. That's the whole
-proof. It reframed "a pipeline" as "a label that happens to be carried on a
-pipeline object," and once you see the object by what's actually read off it,
-the neutral type writes itself.
-
-Types should describe the *contract a value is used under*, not the concrete
-class that happens to satisfy it. When a `GPURenderPipeline` is threaded through
-four files only to have its `.label` compared, its contract is `{ label:
-string }` — and saying so, out loud, in the type, is what lets the whole path
-cross a package boundary it looked hopelessly entangled with.
+label handle) start from the same 217 references; the entire difference is
+having _proven_ what those references are used for instead of trusting the
+confident static read — "they're pipelines, they get drawn" — that would have
+sent us swapping 217 create calls for no benefit, or worse, breaking the
+routing. The whole proof was a two-line search (`rg setPipeline` → both hits are
+comments) plus six lines of `recordFillDraw`: **hunt for the witness that
+falsifies the confident read**, and when it turns up (the object is never
+bound, only its `.label` compared), the type describes the _contract the value
+is used under_ — `{ label: string }` — not the concrete class that happens to
+satisfy it, and the neutral type writes itself.

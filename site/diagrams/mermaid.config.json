@@ -1,0 +1,9 @@
+{
+  "theme": "dark",
+  "themeVariables": {
+    "fontFamily": "DM Mono, ui-monospace, monospace",
+    "fontSize": "15px",
+    "background": "transparent"
+  },
+  "flowchart": { "curve": "basis", "padding": 12 }
+}

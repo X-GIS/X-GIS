@@ -14,7 +14,10 @@ eyeballs. CI runners have no GPU — so the render gate runs Chromium on
 Vulkan that Chromium uses to exercise GPU code paths on GPU-less machines
 [1][2]. WebGPU compute, WGSL compilation, and WebGL2 all work.
 
-What took calibration was learning **which claims a software GPU can gate**.
+What took calibration was learning **which claims a software GPU can gate** —
+a lesson that first arrived disguised as a GPU precision bug and turned out to
+be a test-side *stale stride*, a 24→28-byte layout change the synthetic buffers
+never picked up (the incident below).
 
 ## The dividing line
 
@@ -34,10 +37,11 @@ wrote ourselves:
 **Local-only (headed, hardware GPU).** Anything whose assertion depends on a
 *correctly rasterized full-engine frame*:
 
-- `_projection-coverage`, `_label-anchor-parity`, `_ws8-projection-field` —
-  need full render-pipeline initialization, which times out under SwiftShader;
-- `_style-parity-diff`, `_render-verify-oracle-b`, the visual-regression
-  matrix — pixel-diff X-GIS against MapLibre or a d3-geo Canvas2D reference;
+- **Full-engine init gates** (`_projection-coverage` and its kin) — need the
+  entire render pipeline to boot, which times out under SwiftShader before the
+  first frame lands;
+- **Full-frame parity diffs** — pixel-diff X-GIS against MapLibre or a d3-geo
+  Canvas2D reference (`_style-parity-diff`, the visual-regression matrix).
   SwiftShader cannot raster the full map pipeline correctly, so every cell
   false-positives.
 
@@ -59,13 +63,16 @@ For a stretch, `_vs-clip-parity` and `_dequant-parity` were red on every main
 run with a GPU-vs-CPU delta around $1.23 \times 10^4$. Every instinct said
 software-GPU precision drift, or a threshold set too tight.
 
-It was neither. Both specs packed their synthetic vertex buffer at a
-hardcoded 12 u16 per vertex, while the CPU mirror strides by the format
-constant — which had grown from 24 to 28 bytes (12 → 14 u16) when a tail
-slot was added. The two-u16 misread produced a clean one-axis *shift*
-(GPU.y == CPU.x), not noise. Deriving the synthetic stride from the
-single-source format constant made the gates bit-exact: worst delta **0.0**
-across 96,000 axes.
+It was neither. The move that cracked it was to stop staring at the scalar
+delta and dump *both* buffers — the GPU readback and the CPU mirror — as raw
+axis columns, side by side. Lined up, the error was not a noise cloud: every
+`GPU.y` sat exactly on the neighbouring `CPU.x`. A clean one-axis *shift* is a
+layout bug, not precision. The cause: both specs packed their synthetic vertex
+buffer at a hardcoded 12 u16 per vertex, while the CPU mirror strides by the
+format constant — which had grown from 24 to 28 bytes (12 → 14 u16) when a
+tail slot was added. The two-u16 misread walked every read one slot off its
+axis. Deriving the synthetic stride from the single-source format constant made
+the gates bit-exact: worst delta **0.0** across 96,000 axes.
 
 Two lessons we kept:
 
