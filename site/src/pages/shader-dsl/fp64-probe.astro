@@ -229,11 +229,41 @@ const payload = { values, tests }
     <strong class="text-fg">both backends — WebGPU (WGSL) and WebGL2 (GLSL)</strong> — through the same emit +
     <code class="font-mono text-[13px] text-fg">_fp64</code> guard the examples use. Each result is read back as a real number
     and compared to the CPU f64 oracle. Every test is built so plain f32 gives a wrong answer, so <strong class="text-fg">PASS means df64
-    held on this GPU</strong>. Copy the digest below and paste it back (per device).
+    held on this GPU</strong>. Run it, then hit <strong class="text-fg">Copy</strong> and paste the digest back (per device).
   </p>
-  <div id="probe-chips" class="mt-5 flex flex-wrap gap-1.5 max-w-full"></div>
-  <pre id="probe-digest" class="mt-4 max-w-full overflow-x-auto rounded-[10px] border border-line bg-bg-card p-4 font-mono text-[12px] leading-[1.6] text-fg-dim whitespace-pre">running…</pre>
-  <p class="mt-3 text-[13px] leading-[1.6] text-fg-mute max-w-full">
+
+  <!-- Status summary + copy -->
+  <div class="mt-6 flex items-start justify-between gap-4">
+    <div id="probe-summary" class="min-w-0 flex-1" aria-live="polite">
+      <div class="flex items-center gap-2.5 text-fg-mute text-[13px]">
+        <span class="inline-block w-3.5 h-3.5 rounded-full border-2 border-line border-t-fg animate-spin motion-reduce:animate-none"></span>
+        <span>Running tests on WebGL2 + WebGPU…</span>
+      </div>
+    </div>
+    <button
+      id="probe-copy"
+      type="button"
+      disabled
+      class="shrink-0 inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-[12px] font-medium text-fg-dim hover:text-fg border border-line hover:border-line-strong transition-colors disabled:opacity-40 disabled:pointer-events-none"
+      aria-label="Copy df64 digest"
+    >
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+      </svg>
+      <span class="copy-label">Copy</span>
+    </button>
+  </div>
+
+  <!-- Failure-sorted results table (built from the same results objects as the digest) -->
+  <div id="probe-table" class="mt-6 max-w-full overflow-x-auto"></div>
+
+  <!-- Raw digest — the copy-pasteable artifact the dev parses; format is frozen -->
+  <details class="mt-6">
+    <summary class="cursor-pointer select-none text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] hover:text-fg-dim transition-colors">Raw digest</summary>
+    <pre id="probe-digest" class="mt-3 max-w-full overflow-x-auto rounded-[8px] border border-line bg-bg-card p-4 font-mono text-[12px] leading-[1.6] text-fg-dim whitespace-pre">running…</pre>
+  </details>
+
+  <p class="mt-6 text-[13px] leading-[1.6] text-fg-mute max-w-full">
     SwiftShader (CI / headless) passes everything — the diagnostic value is on real GPUs, where driver fast-math can fold the df64 error terms away.
   </p>
 </ShaderDsl>
@@ -248,7 +278,9 @@ const payload = { values, tests }
     reflection: Refl; golden: number; circular: boolean
   }
   const digest = document.getElementById('probe-digest')!
-  const chips = document.getElementById('probe-chips')!
+  const summary = document.getElementById('probe-summary')!
+  const tableEl = document.getElementById('probe-table')!
+  const copyBtn = document.getElementById('probe-copy') as HTMLButtonElement
   // RGB8 (24-bit) unpack → r ∈ [-2,2]. Inverse of the fragment's pack; a black
   // (undrawn) pixel decodes to exactly -2, distinct from a collapsed df64 (~0).
   const decode = (R: number, G: number, B: number) =>
@@ -341,24 +373,21 @@ const payload = { values, tests }
       const { values, tests } = JSON.parse(document.getElementById('probe-payload')!.textContent!) as { values: Record<string, number[]>; tests: T[] }
       const gl = runWebGL(tests, values)
       const gpu = await runWebGPU(tests, values)
+      type Rec = { name: string; gold: number; gv: number | null; pv: number | null; vGl: string; vGpu: string }
+      const rec: Rec[] = []
       const rows: string[] = []
-      chips.innerHTML = ''
       let glPass = 0, gpuPass = 0
       for (const t of tests) {
         const vGl = verdict(gl.results[t.name] ?? null, t.golden, t.circular)
         const vGpu = gpu.ok ? verdict(gpu.results[t.name] ?? null, t.golden, t.circular) : 'n/a'
         if (vGl === 'PASS') glPass++
         if (vGpu === 'PASS') gpuPass++
-        const ok = vGl === 'PASS' && (vGpu === 'PASS' || vGpu === 'n/a')
-        const chip = document.createElement('span')
-        chip.className = 'font-mono text-[11px] px-2 py-0.5 rounded-full border'
-        chip.style.cssText = `border-color:${ok ? '#22d16a' : '#f24340'};color:${ok ? '#22d16a' : '#f24340'}`
-        chip.textContent = `${t.name} gl:${vGl === 'PASS' ? '✓' : '✗'} gpu:${vGpu === 'PASS' ? '✓' : vGpu === 'n/a' ? '–' : '✗'}`
-        chips.appendChild(chip)
-        const gv = gl.results[t.name], pv = gpu.results[t.name]
+        const gv = gl.results[t.name] ?? null, pv = gpu.results[t.name] ?? null
         const gs = gv == null ? '  ERR ' : gv.toFixed(4)
         const ps = !gpu.ok ? '   —  ' : pv == null ? '  ERR ' : pv.toFixed(4)
+        // Digest row — the copy-pasteable artifact the dev parses; format is FROZEN.
         rows.push(`${t.name.padEnd(9)} gold=${t.golden.toFixed(4)}  WebGL2 ${gs} ${vGl.padEnd(8)} | WebGPU ${ps} ${vGpu}`)
+        rec.push({ name: t.name, gold: t.golden, gv, pv, vGl, vGpu })
       }
       const header =
         `df64 GPU probe\n` +
@@ -366,8 +395,67 @@ const payload = { values, tests }
         `  WebGPU: ${gpu.ok ? `${gpuPass}/${tests.length} pass · guard=${gpu.guard ? 'bound' : 'MISSING'} · ${gpu.note}` : gpu.note}\n` +
         `  UA: ${navigator.userAgent}\n`
       digest.textContent = header + '\n' + rows.join('\n')
+
+      // ── Visual views, built from the SAME results objects (never re-parsed) ──
+      // A failing df64 result reads ~0 (error term folded away) or ~-2 (undrawn
+      // pixel); surfacing which is the diagnosis, not just PASS/FAIL.
+      const cell = (v: number | null, vr: string): string => {
+        if (vr === 'n/a') return '<span class="text-fg-faint">—</span>'
+        if (v == null) return '<span class="text-destructive">err</span>'
+        if (vr === 'PASS') return `<span class="text-fg-mute tabular-nums">${v.toFixed(4)}</span>`
+        const why = Math.abs(v) < 0.06 ? 'collapsed→0' : Math.abs(v + 2) < 0.06 ? 'no draw' : 'wrong'
+        return `<span class="text-destructive tabular-nums">${v.toFixed(4)}</span> <span class="text-destructive text-[10px] uppercase tracking-[0.08em]">${why}</span>`
+      }
+      const stat = (label: string, pass: number, guard: boolean, fails: string[]): string => `
+        <div>
+          <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em]">${label}</p>
+          <p class="mt-1 leading-none"><span class="text-[26px] tabular-nums ${pass === tests.length ? 'text-fg' : 'text-destructive'}">${pass}</span><span class="text-fg-mute text-[15px]">/${tests.length}</span></p>
+          ${guard ? '' : '<p class="mt-1 text-[11px] text-destructive">guard MISSING</p>'}
+          ${fails.length ? `<p class="mt-1 text-[11px] text-destructive leading-[1.5] break-words max-w-[22rem]">${fails.join(' · ')}</p>` : '<p class="mt-1 text-[11px] text-fg-mute">all pass</p>'}
+        </div>`
+      summary.innerHTML = `<div class="flex flex-wrap gap-x-10 gap-y-5">
+        ${stat('WebGL2', glPass, gl.guard, rec.filter((r) => r.vGl !== 'PASS').map((r) => r.name))}
+        ${gpu.ok
+          ? stat('WebGPU', gpuPass, gpu.guard, rec.filter((r) => r.vGpu !== 'PASS').map((r) => r.name))
+          : `<div><p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em]">WebGPU</p><p class="mt-1 text-[13px] text-fg-mute max-w-[16rem] leading-[1.5]">${gpu.note}</p></div>`}
+      </div>`
+
+      // Failures first (visual only — the digest keeps declaration order for the dev).
+      const rank = (vr: string): number => (vr === 'PASS' ? 3 : vr === 'n/a' ? 2 : vr === 'ERR' ? 1 : 0)
+      const trs = [...rec]
+        .sort((a, b) => Math.min(rank(a.vGl), rank(a.vGpu)) - Math.min(rank(b.vGl), rank(b.vGpu)))
+        .map((r) => {
+          const differ = gpu.ok && r.vGl !== r.vGpu
+          return `<tr class="border-t border-line">
+            <td class="py-2 pr-4 whitespace-nowrap font-mono text-[12px] text-fg ${differ ? 'border-l-2 border-destructive pl-2' : ''}">${r.name}${differ ? ' <span class="text-destructive text-[10px]">⚠ differ</span>' : ''}</td>
+            <td class="py-2 pr-4 whitespace-nowrap text-[13px]">${cell(r.gv, r.vGl)}</td>
+            <td class="py-2 whitespace-nowrap text-[13px]">${cell(r.pv, r.vGpu)}</td>
+          </tr>`
+        })
+        .join('')
+      const th = 'pb-2 pr-4 text-left text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] font-normal'
+      tableEl.innerHTML = `<table class="w-full border-collapse">
+        <thead><tr><th class="${th}">Test</th><th class="${th}">WebGL2</th><th class="${th.replace(' pr-4', '')}">WebGPU</th></tr></thead>
+        <tbody>${trs}</tbody></table>`
+
+      // Copy button — copies the FROZEN digest text (not the visual view).
+      copyBtn.disabled = false
+      copyBtn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(digest.textContent ?? '')
+          const l = copyBtn.querySelector('.copy-label')
+          if (!l) return
+          const o = l.textContent
+          l.textContent = 'Copied'
+          copyBtn.classList.add('text-accent')
+          setTimeout(() => { l.textContent = o; copyBtn.classList.remove('text-accent') }, 1400)
+        } catch { /* clipboard denied (insecure context) — fail silently */ }
+      })
     } catch (e) {
-      digest.textContent = 'ERROR: ' + (e instanceof Error ? e.message : String(e)); digest.style.color = '#f24340'
+      const msg = 'ERROR: ' + (e instanceof Error ? e.message : String(e))
+      digest.textContent = msg
+      digest.classList.add('text-destructive')
+      summary.innerHTML = `<p class="text-[13px] text-destructive">${msg}</p>`
     }
   })()
 </script>
