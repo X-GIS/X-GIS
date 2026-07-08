@@ -23,7 +23,7 @@ import {
   azimuthalEquidistant,
   stereographic,
   obliqueMercator,
-} from '@xgis/engine'
+} from '@xgis/geo'
 import { Camera } from '@xgis/map'
 
 const PROJECTIONS = [

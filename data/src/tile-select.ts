@@ -1,5 +1,5 @@
 // ═══ Raster Tile Loader — 웹 맵 타일 로딩 ═══
-import { worldCopiesFor, TILE_PX } from '@xgis/engine'
+import { worldCopiesFor, TILE_PX } from '@xgis/geo'
 
 // TileCoord / LoadedTile + the pure tile-math helpers live in sibling modules
 // (tile-select-types / tile-select-helpers) and are surfaced by the @xgis/data
@@ -9,9 +9,9 @@ import type { TileCoord, TileSelectionCamera } from './tile-select-types'
 
 // ═══ Frustum-based tile selection ═══
 
-import { type Projection, MERCATOR_LAT_LIMIT, mercatorYToLat } from '@xgis/engine'
-import { PROJECTION_NAME_TO_TYPE } from '@xgis/engine'
-import { EARTH_R } from '@xgis/engine'
+import { type Projection, MERCATOR_LAT_LIMIT, mercatorYToLat } from '@xgis/geo'
+import { PROJECTION_NAME_TO_TYPE } from '@xgis/geo'
+import { EARTH_R } from '@xgis/geo'
 import { safeFetch } from '@xgis/shared'
 
 // Mobile GPUs choke on 300 frustum tiles — each tile is a draw call plus

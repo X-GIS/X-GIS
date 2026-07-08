@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { generateEarthSurfaceFillMesh } from './earth-surface-fill'
 // worldBandForProjType + MERCATOR_LAT_LIMIT stay in @xgis/engine (projections-table
 // is the authority); only the mesh generator moved to @xgis/data (#781).
-import { worldBandForProjType, MERCATOR_LAT_LIMIT } from '@xgis/engine'
+import { worldBandForProjType, MERCATOR_LAT_LIMIT } from '@xgis/geo'
 
 describe('worldBandForProjType', () => {
   it('Mercator/equirect/oblique-mercator → mercator-clamped band', () => {

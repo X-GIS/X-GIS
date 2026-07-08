@@ -34,7 +34,7 @@ import { emitHeatmapAccumWgsl } from '../../map/src/shaders/dsl/heatmap-accum'
 import { emitHeatmapBlurWgsl } from '../../map/src/shaders/dsl/heatmap-blur'
 import { emitHeatmapComposeWgsl } from '../../map/src/shaders/dsl/heatmap-compose'
 import { configureProjections } from '../../map/src/shaders/dsl/projections'
-import { PROJECTIONS } from '../../engine/src/projection/projections-table'
+import { PROJECTIONS } from '../../geo/src/projections-table'
 
 // This spec EMITS projection-dependent shaders (polygon/point/line/raster via the DSL), so it
 // must inject the projection graph itself — do not rely on another render-gate spec having

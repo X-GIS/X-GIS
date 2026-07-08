@@ -13,9 +13,9 @@
 import { describe, it, expect } from 'vitest'
 import { globeVisibleTiles } from '@xgis/data'
 import { visibleTilesFrustumSampled } from '@xgis/data'
-import { mercator, equirectangular, naturalEarth } from '@xgis/engine'
+import { mercator, equirectangular, naturalEarth } from '@xgis/geo'
 import { Camera } from '@xgis/map'
-import { routeToSphereSelector } from '@xgis/engine'
+import { routeToSphereSelector } from '@xgis/geo'
 
 const W = 800,
   H = 800

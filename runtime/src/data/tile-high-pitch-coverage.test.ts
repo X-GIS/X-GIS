@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/map'
 import { visibleTilesFrustum } from '@xgis/data'
-import { mercator } from '@xgis/engine'
+import { mercator } from '@xgis/geo'
 
 // HIGH-PITCH tile selection — coverage for pitch > 55°, which the
 // original animation-coverage suite explicitly caps at.

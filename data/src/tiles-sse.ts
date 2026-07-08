@@ -42,10 +42,10 @@
 // (window-level) so we can A/B against the existing selector with
 // real data + measurements before flipping the default.
 
-import type { Projection } from '@xgis/engine'
-import { mercatorYToLat } from '@xgis/engine'
-import { worldCopiesFor, TILE_PX } from '@xgis/engine'
-import { PROJECTION_NAME_TO_TYPE } from '@xgis/engine'
+import type { Projection } from '@xgis/geo'
+import { mercatorYToLat } from '@xgis/geo'
+import { worldCopiesFor, TILE_PX } from '@xgis/geo'
+import { PROJECTION_NAME_TO_TYPE } from '@xgis/geo'
 import type { TileCoord, TileSelectionCamera } from './tile-select-types'
 
 const EARTH_CIRC_M = 40075016.686

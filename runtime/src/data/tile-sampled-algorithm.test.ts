@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/map'
 import { visibleTilesFrustum, visibleTilesFrustumSampled } from '@xgis/data'
-import { mercator } from '@xgis/engine'
+import { mercator } from '@xgis/geo'
 
 // Characterization tests for the `visibleTilesFrustumSampled`
 // alternative — the industry-standard screen-space-sample-grid

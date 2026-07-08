@@ -24,7 +24,7 @@ import {
   naturalEarth,
   MERCATOR_LAT_LIMIT,
   type Projection,
-} from '@xgis/engine'
+} from '@xgis/geo'
 import { Camera } from '@xgis/map'
 
 const W = 800,

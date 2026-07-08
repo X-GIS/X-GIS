@@ -21,17 +21,17 @@ import {
   markEnd as perfMarkEnd,
   flushPerFrameMarks,
 } from './__profile__/perf-marks'
-import { mercatorYToLat } from '@xgis/engine'
+import { mercatorYToLat } from '@xgis/geo'
 import {
   PROJECTION_NAME_TO_TYPE,
   isGlobeProj,
   promotesToGlobeWhenTilted,
   poleLimit,
-} from '@xgis/engine'
+} from '@xgis/geo'
 import { effectiveDpr, getSampleCount, isPickEnabled } from '@xgis/engine'
 import { resizeCanvas } from '@xgis/rhi-webgpu'
 import { DEBUG_OVERDRAW } from './debug-flags'
-import { WORLD_MERC, TILE_PX } from '@xgis/engine'
+import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
 import { backgroundClearValue } from './render/passes/background-pass'

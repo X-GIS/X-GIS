@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { routeToSphereSelector, promotesToGlobeWhenTilted, PROJECTIONS } from '@xgis/engine'
+import { routeToSphereSelector, promotesToGlobeWhenTilted, PROJECTIONS } from '@xgis/geo'
 
 // ═══ CHARACTERIZATION: oblique_mercator(6) tilt-promotion gap ═══
 //

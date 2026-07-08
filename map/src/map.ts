@@ -20,9 +20,9 @@ import {
 import { packPalette, uploadPalette, type PaletteTextures } from '@xgis/rhi-webgpu'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '@xgis/data'
-import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/engine'
+import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/geo'
 import { configureProjections } from './shaders/dsl/projections'
-import { worldBandForProjType } from '@xgis/engine'
+import { worldBandForProjType } from '@xgis/geo'
 import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
   SYNTHETIC_EARTH_SURFACE_SOURCE,

@@ -23,9 +23,9 @@ import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { RasterRenderer } from '@xgis/map'
 import { Camera } from '@xgis/map'
 import { visibleTilesFrustum } from '@xgis/data'
-import { mercator as mercatorProj } from '@xgis/engine'
+import { mercator as mercatorProj } from '@xgis/geo'
 import { globeVisibleTiles } from '@xgis/data'
-import { routeToSphereSelector } from '@xgis/engine'
+import { routeToSphereSelector } from '@xgis/geo'
 
 let stub: StubInstallation
 

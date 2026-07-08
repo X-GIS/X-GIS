@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { mercator, MERCATOR_LAT_LIMIT } from '@xgis/engine'
+import { mercator, MERCATOR_LAT_LIMIT } from '@xgis/geo'
 import { lonLatToMercator } from '@xgis/data'
 
 // Phase 1-A (A-2): CPU-side Mercator latitude clamps diverged across the
@@ -70,12 +70,12 @@ describe('tile selector uses the canonical Mercator clamp', () => {
     'utf8',
   )
 
-  it('imports MERCATOR_LAT_LIMIT from the projection authority (@xgis/engine)', () => {
-    // projection.ts (the constant's single authority) relocated to @xgis/engine
-    // in P3 Step 3, so the canonical import source is now the package barrel
-    // (which re-exports projection.ts) rather than a relative `…/projection` path.
+  it('imports MERCATOR_LAT_LIMIT from the projection authority (@xgis/geo)', () => {
+    // projection.ts (the constant's single authority) relocated engine → @xgis/geo
+    // in #781 (3c — the engine is now projection-free), so the canonical import
+    // source is the @xgis/geo barrel rather than @xgis/engine or a relative path.
     expect(src).toMatch(
-      /import\s*\{[^}]*\bMERCATOR_LAT_LIMIT\b[^}]*\}\s*from\s*['"](@xgis\/engine|[^'"]*projection)['"]/,
+      /import\s*\{[^}]*\bMERCATOR_LAT_LIMIT\b[^}]*\}\s*from\s*['"](@xgis\/geo|[^'"]*projection)['"]/,
     )
   })
 

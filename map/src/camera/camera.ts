@@ -1,22 +1,20 @@
 // ═══ Map Camera — 줌/패닝/회전/피치 ═══
 
+import { type ECEF, getMaxDpr, computeLogDepthFc } from '@xgis/engine'
 import {
   lonLatToMercator,
   mercatorYToLat,
   mercatorYToLatRad,
   mercator,
-  type ECEF,
   WORLD_MERC,
   TILE_PX,
-  getMaxDpr,
-  computeLogDepthFc,
   EARTH_R,
   isGlobeProj,
   flatViewHeightCapM,
   poleLimit,
   promotesToGlobeWhenTilted,
   representsCenterAs,
-} from '@xgis/engine'
+} from '@xgis/geo'
 import { invert4x4 } from '@xgis/shared'
 import { discAnchorFor, convergeFlatAnchor } from './camera-helpers'
 import {

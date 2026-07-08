@@ -31,7 +31,7 @@ import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../../map/src/shade
 // death that made this whole gate vacuous. Deep-import the defining files only.
 import { projectWgsl, invMercLatRad } from '../../map/src/shaders/dsl/cpu-projections'
 import { configureProjections } from '../../map/src/shaders/dsl/projections'
-import { PROJECTIONS } from '../../engine/src/projection/projections-table'
+import { PROJECTIONS } from '../../geo/src/projections-table'
 
 // shader-dsl projections are host-injected — configure before any emit / cpu use.
 configureProjections(PROJECTIONS)

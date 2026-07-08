@@ -57,9 +57,9 @@
 // ───────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest'
-import { getProjection, mercator, mercatorYToLat, type Projection } from '@xgis/engine'
+import { getProjection, mercator, mercatorYToLat, type Projection } from '@xgis/geo'
 import { Camera } from '@xgis/map'
-import { globeForward, buildGlobeMatrix, unprojectGlobe } from '@xgis/engine'
+import { globeForward, buildGlobeMatrix, unprojectGlobe } from '@xgis/geo'
 import { lonLatToECEF } from '@xgis/engine'
 
 // ════════════════════════════════════════════════════════════════════════

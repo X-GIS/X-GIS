@@ -31,7 +31,7 @@
 // the synthetic-earth-surface source in this @xgis/data package). The band
 // classification (`worldBandForProjType` / `WorldBandKind`) remains the
 // authority table's in @xgis/engine — imported here, not re-exported.
-import { MERCATOR_LAT_LIMIT, type WorldBandKind } from '@xgis/engine'
+import { MERCATOR_LAT_LIMIT, type WorldBandKind } from '@xgis/geo'
 
 /** Lat/lon-grid mesh generator. Emits a triangulated lat/lon strip suitable
  *  for the standard opaque tile pipeline once Phase 2 PR 2c wires ECEF vertex

@@ -11,7 +11,7 @@
 
 import { describe, it } from 'vitest'
 import { Camera } from '@xgis/map'
-import { WORLD_MERC } from '@xgis/engine'
+import { WORLD_MERC } from '@xgis/geo'
 
 const DEG2RAD = Math.PI / 180
 const R = 6378137

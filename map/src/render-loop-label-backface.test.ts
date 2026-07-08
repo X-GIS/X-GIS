@@ -9,7 +9,7 @@
 // the standard vitest CI lane (the headed real-GPU eyeball that found the bug
 // can't run in CI).
 import { describe, it, expect } from 'vitest'
-import { buildGlobeMatrix } from '@xgis/engine'
+import { buildGlobeMatrix } from '@xgis/geo'
 import { makeLabelProjectors } from '@xgis/map'
 
 describe('makeLabelProjectors — globe/ECEF back-face label cull', () => {

@@ -14,7 +14,7 @@
 // E2E `_world-copy-projections.spec.ts` pins the rendered behaviour.
 
 import { describe, expect, it } from 'vitest'
-import { worldCopiesFor, enumerateWorldCopies, WORLD_COPY_MAX_ZOOM } from '@xgis/engine'
+import { worldCopiesFor, enumerateWorldCopies, WORLD_COPY_MAX_ZOOM } from '@xgis/geo'
 
 describe('worldCopiesFor — projection world-copy enumeration', () => {
   it('Mercator (0): returns 5 copies (-2..+2)', () => {

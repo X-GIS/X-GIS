@@ -4,8 +4,8 @@
 // Single draw call for all points via per-feature storage buffer.
 
 import type { Camera } from '../camera'
-import { isWebMercator } from '@xgis/engine'
-import { WORLD_MERC, TILE_PX } from '@xgis/engine'
+import { isWebMercator } from '@xgis/geo'
+import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { getSampleCount } from '@xgis/engine'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import { parseHexColor } from '../feature-helpers'

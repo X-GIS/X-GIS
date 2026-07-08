@@ -22,7 +22,7 @@
 
 import type { Camera } from '../camera'
 import { lonLatToECEF } from '@xgis/engine'
-import { WORLD_MERC, TILE_PX } from '@xgis/engine'
+import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { getSampleCount } from '@xgis/engine'
 import { FrameArena } from '@xgis/engine'

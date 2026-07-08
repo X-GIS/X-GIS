@@ -13,7 +13,7 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { Camera } from './camera'
 import { CameraController, type CameraControllerDeps } from './camera-controller'
-import { WORLD_MERC } from '@xgis/engine'
+import { WORLD_MERC } from '@xgis/geo'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

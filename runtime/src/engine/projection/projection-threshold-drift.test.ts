@@ -15,7 +15,7 @@
 // here diverges from the table → RED; mutate the table → RED.
 
 import { describe, it, expect } from 'vitest'
-import { PROJECTIONS } from '@xgis/engine'
+import { PROJECTIONS } from '@xgis/geo'
 import { WGSL_PROJECTION_FNS } from '@xgis/map'
 import { cosC, needsBackfaceCullWgsl, emitRasterWgsl } from '@xgis/map'
 

@@ -20,7 +20,7 @@
 // confirm the live instance matches.
 
 import { Camera } from '@xgis/map'
-import { mercator as mercatorProj } from '@xgis/engine'
+import { mercator as mercatorProj } from '@xgis/geo'
 import { visibleTilesFrustum } from '@xgis/data'
 
 /** Hard-coded per-frame sub-tile generation cap from XGVTSource.

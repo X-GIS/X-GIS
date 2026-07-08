@@ -26,7 +26,7 @@ import {
   EARTH_R,
   SELECTOR_PROJ_NAMES,
   poleLimit,
-} from '@xgis/engine'
+} from '@xgis/geo'
 import { mulVec4 } from '@xgis/shared'
 
 /** Resolved camera state read by the pure inverse functions. The Camera fills

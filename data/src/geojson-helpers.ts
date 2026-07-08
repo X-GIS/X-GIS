@@ -15,7 +15,7 @@ import { interpolateGreatCircle } from '@xgis/compiler/tiler/geodesic'
 // lonLatToMercator's single authority now lives in @xgis/engine (projection.ts);
 // re-exported here so every prior import path (camera, source-manager, geojson.ts)
 // keeps resolving. Relocated in P3 Step 3 to sever the camera→loader content edge.
-export { lonLatToMercator } from '@xgis/engine'
+export { lonLatToMercator } from '@xgis/geo'
 
 // ═══ Subdivision ═══
 // 큰 삼각형을 세분화하여 프로젝션 곡선을 근사

@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/map'
-import { WORLD_MERC } from '@xgis/engine'
+import { WORLD_MERC } from '@xgis/geo'
 
 const DEG2RAD = Math.PI / 180
 const EARTH_R = 6378137

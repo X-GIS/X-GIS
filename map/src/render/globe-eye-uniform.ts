@@ -16,7 +16,7 @@
 // `EARTH_R` is imported from globe.ts — the SAME constant the tile cull divides
 // by — so the shader horizon matches the tile horizon by construction.
 
-import { EARTH_R } from '@xgis/engine'
+import { EARTH_R } from '@xgis/geo'
 
 /** Reusable scratch — callers copy the 4 components into their uniform
  *  immediately (single-threaded frame build, like the camera matrix buffers). */

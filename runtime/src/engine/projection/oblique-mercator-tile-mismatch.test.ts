@@ -19,7 +19,7 @@
 // It pins the numeric divergence so the future fix can be verified.
 
 import { describe, expect, it } from 'vitest'
-import { mercator, obliqueMercator } from '@xgis/engine'
+import { mercator, obliqueMercator } from '@xgis/geo'
 
 const EARTH_R = 6378137
 const HALF_CIRC = Math.PI * EARTH_R

@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/map'
 import { mercatorToECEFSphere } from '@xgis/engine'
-import { WORLD_MERC, TILE_PX } from '@xgis/engine'
+import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 
 // Apply column-major 4x4 to a vec4 → vec4.
 function mulMat4Vec4(

@@ -12,17 +12,17 @@ import {
 } from './render/paint-shape-resolve'
 import { hexToRgba } from './feature-helpers'
 import { lonLatToECEF } from '@xgis/engine'
-import { EARTH_R } from '@xgis/engine'
-import { mercatorYToLat } from '@xgis/engine'
+import { EARTH_R } from '@xgis/geo'
+import { mercatorYToLat } from '@xgis/geo'
 import {
   projectCpu,
   projectGeomCpu,
   needsBackfaceCullCpu,
   projMercatorCpu,
 } from './shaders/dsl/cpu-projections'
-import { isGlobeProj } from '@xgis/engine'
+import { isGlobeProj } from '@xgis/geo'
 import type { Camera } from './camera'
-import { WORLD_MERC } from '@xgis/engine'
+import { WORLD_MERC } from '@xgis/geo'
 import { xlog } from '@xgis/shared'
 
 // Projected-x world circumference for the x-periodic flat NON-Mercator set

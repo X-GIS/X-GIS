@@ -19,7 +19,7 @@
 // so at ALL longitudes (the routing no longer depends on camera lon).
 
 import { describe, expect, it } from 'vitest'
-import { routeToSphereSelector } from '@xgis/engine'
+import { routeToSphereSelector } from '@xgis/geo'
 
 describe('dateline routing — cylindrical projections stay on the flat selector', () => {
   it('mercator (0) never sphere-routes — WORLD_COPIES wrap handles the dateline', () => {

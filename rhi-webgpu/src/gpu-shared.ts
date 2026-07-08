@@ -255,20 +255,9 @@ export const DEPTH_TEST_WRITE: GPUDepthStencilState = {
 }
 
 // ── World Wrapping ──
-
-// WORLD_MERC / TILE_PX moved to the NEUTRAL core (world-scale.ts, #832) so the
-// projection/camera core no longer imports this WebGPU-zone module; re-exported
-// here so every existing import site is unchanged.
-export { WORLD_MERC, TILE_PX } from '@xgis/engine'
-
-/** World-copy / sphere-routing helpers now DERIVE from the PROJECTIONS
- *  table (the authority flip — see projections-table.ts). Re-exported here
- *  so the existing gpu-shared import sites (tiles-sse, tile-select, vtr,
- *  camera, label-pass) are unchanged. */
-export {
-  WORLD_COPIES,
-  WORLD_COPY_MAX_ZOOM,
-  worldCopiesFor,
-  enumerateWorldCopies,
-  routeToSphereSelector,
-} from '@xgis/engine'
+// The Web-Mercator world-wrap constants (WORLD_MERC / TILE_PX) and the
+// world-copy / sphere-routing helpers (WORLD_COPIES, WORLD_COPY_MAX_ZOOM,
+// worldCopiesFor, enumerateWorldCopies, routeToSphereSelector) moved to the new
+// @xgis/geo package in #781 (3c). They are cartography, not GPU-backend state —
+// a render backend stays geo-blind — so gpu-shared no longer re-exports them;
+// consumers import them from @xgis/geo directly.

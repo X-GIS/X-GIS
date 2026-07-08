@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Camera } from '@xgis/map'
-import { mercator } from '@xgis/engine'
+import { mercator } from '@xgis/geo'
 import { visibleTilesSSE } from '@xgis/data'
 
 function makeCam(zoom: number, pitch: number, lon: number, lat: number, bearing = 0): Camera {

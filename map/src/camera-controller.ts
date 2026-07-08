@@ -15,9 +15,9 @@
 //   - `this._maxBounds` / `this._cameraExplicitlyPositioned` → owned here
 
 import { Camera } from './camera'
-import { MERCATOR_LAT_LIMIT, mercatorYToLat, mercatorYToLatRad, mercator } from '@xgis/engine'
-import { poleLimit, representsCenterAs } from '@xgis/engine'
-import { WORLD_MERC, TILE_PX } from '@xgis/engine'
+import { MERCATOR_LAT_LIMIT, mercatorYToLat, mercatorYToLatRad, mercator } from '@xgis/geo'
+import { poleLimit, representsCenterAs } from '@xgis/geo'
+import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { getMaxDpr } from '@xgis/engine'
 import { lonLatToMercator } from '@xgis/data'
 import { xlog, activeBody } from '@xgis/shared'

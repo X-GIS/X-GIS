@@ -40,7 +40,7 @@ import { FIXTURES, emitForFixture } from '../map/src/shaders/dsl/_polygon-fixtur
 // The projection graph is host-injected (configureProjections); the polygon emit reaches it
 // via getGpuProjectionFuncs(), so configure before any emitForFixture (mirrors the vitest setup).
 import { configureProjections } from '../map/src/shaders/dsl/projections'
-import { PROJECTIONS } from '../engine/src/projection/projections-table'
+import { PROJECTIONS } from '../geo/src/projections-table'
 configureProjections(PROJECTIONS)
 
 const argBaseline = process.argv.find((a) => a.startsWith('--baseline='))?.split('=')[1]

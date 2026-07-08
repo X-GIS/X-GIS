@@ -64,14 +64,14 @@ import { tileKeyParent, tileKeyUnpack, type PropertyTable } from '@xgis/compiler
 import { StagingBufferPool } from '@xgis/rhi-webgpu'
 import { BundleCache, type BundleEncodeDescriptor } from '@xgis/rhi-webgpu'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
-import { WORLD_MERC, TILE_PX } from '@xgis/engine'
+import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { UploadCoordinator } from './upload-coordinator'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '@xgis/data'
 import type { TileData } from '@xgis/data'
 import { computeSliceKey } from '@xgis/data'
-import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/engine'
-import { SELECTOR_PROJ_NAMES } from '@xgis/engine'
+import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/geo'
+import { SELECTOR_PROJ_NAMES } from '@xgis/geo'
 import type { PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
 import { parseHexColor } from '../feature-helpers'
@@ -179,7 +179,7 @@ export class VectorTileRenderer {
   get sourceMaxLevel(): number {
     return this.source?.maxLevel ?? 0
   }
-  currentProjection: import('@xgis/engine').Projection | null = null
+  currentProjection: import('@xgis/geo').Projection | null = null
   /** Resident GPU tile cache + arenas + eviction (Cluster A; see class
    *  doc). Injected collaborator; VTR keeps thin forwarders (`getCacheSize`)
    *  and the uploader + render hot loop call through it. The store holds no

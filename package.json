@@ -5,6 +5,7 @@
   "type": "module",
   "workspaces": [
     "shared",
+    "geo",
     "compiler",
     "blueprint",
     "shader-dsl",
@@ -20,7 +21,7 @@
     "site"
   ],
   "scripts": {
-    "build": "bun run --filter '@xgis/shared' build && bun run --filter '@xgis/shader-dsl' build && bun run --filter '@xgis/compiler' build && bun run --filter '@xgis/rhi' build && bun run --filter '@xgis/engine' build && bun run --filter '@xgis/rhi-webgl2' build && bun run --filter '@xgis/rhi-webgpu' build && bun run --filter '*' build",
+    "build": "bun run --filter '@xgis/shared' build && bun run --filter '@xgis/geo' build && bun run --filter '@xgis/shader-dsl' build && bun run --filter '@xgis/compiler' build && bun run --filter '@xgis/rhi' build && bun run --filter '@xgis/engine' build && bun run --filter '@xgis/rhi-webgl2' build && bun run --filter '@xgis/rhi-webgpu' build && bun run --filter '*' build",
     "test": "vitest run",
     "test:pixel": "cd playground && bunx playwright test _pixel-match-survey.spec.ts",
     "test:perf": "cd playground && bunx playwright test _perf-bright-interactive.spec.ts",

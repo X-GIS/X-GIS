@@ -26,7 +26,7 @@
 
 import { tileKey, packECEFPolygonVertices } from '@xgis/compiler'
 import { generateEarthSurfaceFillMesh } from '../earth-surface-fill'
-import { worldBandForProjType, type WorldBandKind } from '@xgis/engine'
+import { worldBandForProjType, type WorldBandKind } from '@xgis/geo'
 import { tileEcefCenterFromMerc } from '@xgis/engine'
 import { packECEFWithPolarCaps, MERC_LAT_CLAMP } from './polar-cap-ecef-pack'
 import {

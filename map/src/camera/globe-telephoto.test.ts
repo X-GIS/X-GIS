@@ -6,7 +6,7 @@
 // primitives still resident in @xgis/engine (→ @xgis/geo in 3c).
 
 import { describe, expect, it } from 'vitest'
-import { EARTH_R, buildGlobeMatrix, globeForward } from '@xgis/engine'
+import { EARTH_R, buildGlobeMatrix, globeForward } from '@xgis/geo'
 
 const W = 1280,
   H = 720

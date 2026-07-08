@@ -19,8 +19,8 @@ import {
   stereographic,
   obliqueMercator,
   MERCATOR_LAT_LIMIT,
-} from '@xgis/engine'
-import type { Projection } from '@xgis/engine'
+} from '@xgis/geo'
+import type { Projection } from '@xgis/geo'
 
 const CYLINDRICAL: Array<[string, Projection]> = [
   ['mercator', mercator],

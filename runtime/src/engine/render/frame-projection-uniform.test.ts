@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest'
 import { writeFrameProjectionUniform, writeProjectionCull } from '@xgis/map'
 import { polygonUniformBytes, polygonUniformSlots } from '@xgis/map'
 import { globeEyeUniform } from '@xgis/map'
-import { buildGlobeMatrix } from '@xgis/engine'
+import { buildGlobeMatrix } from '@xgis/geo'
 
 function freshBuffer(): Float32Array {
   return new Float32Array(polygonUniformBytes() / 4)

@@ -44,7 +44,7 @@ import {
   invStereographic,
   discAnchorFor,
 } from './camera-helpers'
-import { getProjection } from '@xgis/engine'
+import { getProjection } from '@xgis/geo'
 
 const DEG2RAD = Math.PI / 180
 const RAD2DEG = 180 / Math.PI
