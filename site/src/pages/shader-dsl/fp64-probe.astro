@@ -232,38 +232,40 @@ const payload = { values, tests }
     held on this GPU</strong>. Run it, then hit <strong class="text-fg">Copy</strong> and paste the digest back (per device).
   </p>
 
-  <!-- Status summary + copy -->
-  <div class="mt-6 flex items-start justify-between gap-4">
-    <div id="probe-summary" class="min-w-0 flex-1" aria-live="polite">
-      <div class="flex items-center gap-2.5 text-fg-mute text-[13px]">
-        <span class="inline-block w-3.5 h-3.5 rounded-full border-2 border-line border-t-fg animate-spin motion-reduce:animate-none"></span>
-        <span>Running tests on WebGL2 + WebGPU…</span>
-      </div>
-    </div>
-    <button
-      id="probe-copy"
-      type="button"
-      disabled
-      class="shrink-0 inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-[12px] font-medium text-fg-dim hover:text-fg border border-line hover:border-line-strong transition-colors disabled:opacity-40 disabled:pointer-events-none"
-      aria-label="Copy df64 digest"
-    >
-      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-      </svg>
-      <span class="copy-label">Copy</span>
-    </button>
+  <!-- Loading -->
+  <div id="probe-loading" class="mt-7 flex items-center gap-2.5 text-fg-mute text-[13px]">
+    <span class="inline-block w-3.5 h-3.5 rounded-full border-2 border-line border-t-fg animate-spin motion-reduce:animate-none"></span>
+    <span>Running tests on WebGL2 + WebGPU…</span>
   </div>
 
-  <!-- Failure-sorted results table (built from the same results objects as the digest) -->
-  <div id="probe-table" class="mt-6 max-w-full overflow-x-auto"></div>
+  <!-- Results — faded in when the run resolves -->
+  <div id="probe-out" class="opacity-0 transition-opacity duration-200 motion-reduce:transition-none">
+    <div class="mt-7 flex items-start justify-between gap-4">
+      <div id="probe-summary" class="min-w-0 flex-1" aria-live="polite"></div>
+      <button
+        id="probe-copy"
+        type="button"
+        class="shrink-0 inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-[12px] font-medium text-fg-dim hover:text-fg border border-line hover:border-line-strong transition-colors"
+        aria-label="Copy df64 digest"
+      >
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+        <span class="copy-label">Copy</span>
+      </button>
+    </div>
 
-  <!-- Raw digest — the copy-pasteable artifact the dev parses; format is frozen -->
-  <details class="mt-6">
-    <summary class="cursor-pointer select-none text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] hover:text-fg-dim transition-colors">Raw digest</summary>
-    <pre id="probe-digest" class="mt-3 max-w-full overflow-x-auto rounded-[8px] border border-line bg-bg-card p-4 font-mono text-[12px] leading-[1.6] text-fg-dim whitespace-pre">running…</pre>
-  </details>
+    <!-- Results table — grouped by family, failures first within each (built from the same results objects as the digest) -->
+    <div id="probe-table" class="mt-8 max-w-full overflow-x-auto"></div>
 
-  <p class="mt-6 text-[13px] leading-[1.6] text-fg-mute max-w-full">
+    <!-- Raw digest — the copy-pasteable artifact the dev parses; format is frozen -->
+    <details class="mt-8">
+      <summary class="cursor-pointer select-none text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] hover:text-fg-dim transition-colors">Raw digest</summary>
+      <pre id="probe-digest" class="mt-3 max-w-full overflow-x-auto rounded-[8px] border border-line bg-bg-card p-4 font-mono text-[12px] leading-[1.6] text-fg-dim whitespace-pre"></pre>
+    </details>
+  </div>
+
+  <p class="mt-8 text-[13px] leading-[1.6] text-fg-mute max-w-full">
     SwiftShader (CI / headless) passes everything — the diagnostic value is on real GPUs, where driver fast-math can fold the df64 error terms away.
   </p>
 </ShaderDsl>
@@ -278,6 +280,8 @@ const payload = { values, tests }
     reflection: Refl; golden: number; circular: boolean
   }
   const digest = document.getElementById('probe-digest')!
+  const loading = document.getElementById('probe-loading')!
+  const out = document.getElementById('probe-out')!
   const summary = document.getElementById('probe-summary')!
   const tableEl = document.getElementById('probe-table')!
   const copyBtn = document.getElementById('probe-copy') as HTMLButtonElement
@@ -397,49 +401,77 @@ const payload = { values, tests }
       digest.textContent = header + '\n' + rows.join('\n')
 
       // ── Visual views, built from the SAME results objects (never re-parsed) ──
-      // A failing df64 result reads ~0 (error term folded away) or ~-2 (undrawn
-      // pixel); surfacing which is the diagnosis, not just PASS/FAIL.
+      // Test families — grouping preserves the diagnostic PATTERN (e.g. "vec64
+      // collapsed as a block") that a global failure-sort would scatter.
+      const famOf = (n: string): 'scalar' | 'vector' | 'comparison' | 'composed' =>
+        n === 'loran' ? 'composed'
+        : /^(lt|le|gt|ge|eq|ne)$/.test(n) ? 'comparison'
+        : /^vec_|^(dot|length|distance|normalize)$/.test(n) ? 'vector'
+        : 'scalar'
+      const FAMS: [string, string][] = [['scalar', 'Scalar'], ['vector', 'Vector · vec64'], ['comparison', 'Comparison'], ['composed', 'Composed']]
+      const isFail = (vr: string): boolean => vr !== 'PASS' && vr !== 'n/a'
+
+      // A failing df64 result reads ~0 (error term folded) or ~-2 (undrawn pixel);
+      // WHICH is the diagnosis. The value carries the only hue (rust); the reason
+      // is grey lowercase metadata — rust marks the failure, grey explains it.
       const cell = (v: number | null, vr: string): string => {
         if (vr === 'n/a') return '<span class="text-fg-faint">—</span>'
-        if (v == null) return '<span class="text-destructive">err</span>'
-        if (vr === 'PASS') return `<span class="text-fg-mute tabular-nums">${v.toFixed(4)}</span>`
+        if (v == null) return '<span class="font-mono text-[11px] text-destructive">err</span>'
+        const num = `<span class="font-mono tabular-nums text-[13px] inline-block min-w-[5.5ch] text-right ${vr === 'PASS' ? 'text-fg-mute' : 'text-destructive'}">${v.toFixed(4)}</span>`
+        if (vr === 'PASS') return num
         const why = Math.abs(v) < 0.06 ? 'collapsed→0' : Math.abs(v + 2) < 0.06 ? 'no draw' : 'wrong'
-        return `<span class="text-destructive tabular-nums">${v.toFixed(4)}</span> <span class="text-destructive text-[10px] uppercase tracking-[0.08em]">${why}</span>`
+        return `${num} <span class="font-mono text-[11px] text-fg-mute">${why}</span>`
       }
-      const stat = (label: string, pass: number, guard: boolean, fails: string[]): string => `
-        <div>
-          <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em]">${label}</p>
-          <p class="mt-1 leading-none"><span class="text-[26px] tabular-nums ${pass === tests.length ? 'text-fg' : 'text-destructive'}">${pass}</span><span class="text-fg-mute text-[15px]">/${tests.length}</span></p>
-          ${guard ? '' : '<p class="mt-1 text-[11px] text-destructive">guard MISSING</p>'}
-          ${fails.length ? `<p class="mt-1 text-[11px] text-destructive leading-[1.5] break-words max-w-[22rem]">${fails.join(' · ')}</p>` : '<p class="mt-1 text-[11px] text-fg-mute">all pass</p>'}
+
+      // Hero verdict per backend: one dominant display number, rust only on the
+      // failed-delta line (never the count). The 27-tick strip is the SAME rust
+      // mark the table repeats at row scale — overview and detail rhyme.
+      const strip = (get: (r: Rec) => string): string =>
+        `<div class="flex items-end gap-[3px] h-[20px]" aria-hidden="true">${rec.map((r) => `<span class="w-[2px] h-full rounded-[1px] ${get(r) === 'PASS' ? 'bg-line-strong' : get(r) === 'n/a' ? 'bg-line' : 'bg-destructive'}"></span>`).join('')}</div>`
+      const heroRow = (label: string, pass: number, guard: boolean, nFail: number, get: (r: Rec) => string, avail: boolean): string => `
+        <div class="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
+          <div>
+            <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em]">${label}</p>
+            ${avail
+              ? `<p class="mt-2 flex items-baseline gap-1.5"><span class="font-display font-normal leading-none tracking-[-0.02em] text-fg" style="font-size:clamp(40px,8vw,54px)">${pass}</span><span class="text-fg-mute text-[15px]">/${tests.length}</span></p>
+                 ${nFail ? `<p class="mt-2 text-[13px] text-destructive">${nFail} failed</p>` : '<p class="mt-2 text-[12px] font-mono uppercase tracking-[0.16em] text-fg">all pass</p>'}
+                 ${guard ? '' : '<p class="mt-1 text-[11px] text-destructive">guard missing</p>'}`
+              : '<p class="mt-2 text-[13px] text-fg-mute max-w-[22rem] leading-[1.5]">not available on this browser — WebGL2 results only</p>'}
+          </div>
+          ${avail ? strip(get) : ''}
         </div>`
-      summary.innerHTML = `<div class="flex flex-wrap gap-x-10 gap-y-5">
-        ${stat('WebGL2', glPass, gl.guard, rec.filter((r) => r.vGl !== 'PASS').map((r) => r.name))}
-        ${gpu.ok
-          ? stat('WebGPU', gpuPass, gpu.guard, rec.filter((r) => r.vGpu !== 'PASS').map((r) => r.name))
-          : `<div><p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em]">WebGPU</p><p class="mt-1 text-[13px] text-fg-mute max-w-[16rem] leading-[1.5]">${gpu.note}</p></div>`}
+      summary.innerHTML = `<div class="rounded-[10px] border border-line bg-bg-card p-5 sm:p-6 flex flex-col gap-6">
+        ${heroRow('WebGL2 · GLSL', glPass, gl.guard, rec.filter((r) => r.vGl !== 'PASS').length, (r) => r.vGl, true)}
+        ${heroRow('WebGPU · WGSL', gpuPass, gpu.guard, rec.filter((r) => r.vGpu !== 'PASS').length, (r) => r.vGpu, gpu.ok)}
       </div>`
 
-      // Failures first (visual only — the digest keeps declaration order for the dev).
+      // Table — grouped by family; failures first WITHIN a family. Row rhythm is
+      // whitespace + a left rust tick on every failing row (no per-row hairline).
       const rank = (vr: string): number => (vr === 'PASS' ? 3 : vr === 'n/a' ? 2 : vr === 'ERR' ? 1 : 0)
-      const trs = [...rec]
-        .sort((a, b) => Math.min(rank(a.vGl), rank(a.vGpu)) - Math.min(rank(b.vGl), rank(b.vGpu)))
-        .map((r) => {
-          const differ = gpu.ok && r.vGl !== r.vGpu
-          return `<tr class="border-t border-line">
-            <td class="py-2 pr-4 whitespace-nowrap font-mono text-[12px] text-fg ${differ ? 'border-l-2 border-destructive pl-2' : ''}">${r.name}${differ ? ' <span class="text-destructive text-[10px]">⚠ differ</span>' : ''}</td>
-            <td class="py-2 pr-4 whitespace-nowrap text-[13px]">${cell(r.gv, r.vGl)}</td>
-            <td class="py-2 whitespace-nowrap text-[13px]">${cell(r.pv, r.vGpu)}</td>
-          </tr>`
-        })
-        .join('')
-      const th = 'pb-2 pr-4 text-left text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] font-normal'
+      const rowHtml = (r: Rec): string => {
+        const differ = gpu.ok && r.vGl !== r.vGpu
+        const fail = isFail(r.vGl) || (gpu.ok && isFail(r.vGpu))
+        return `<tr class="hover:bg-bg-hover transition-colors">
+          <td class="py-2.5 pr-6 whitespace-nowrap font-mono text-[13px] text-fg border-l-2 pl-3 ${fail ? 'border-destructive' : 'border-transparent'}">${r.name}${differ ? ' <span class="font-mono text-[11px] text-destructive lowercase">differ</span>' : ''}</td>
+          <td class="py-2.5 pr-6 whitespace-nowrap">${cell(r.gv, r.vGl)}</td>
+          <td class="py-2.5 whitespace-nowrap ${gpu.ok ? '' : 'text-fg-faint'}">${cell(r.pv, r.vGpu)}</td>
+        </tr>`
+      }
+      const sections = FAMS.map(([key, label]) => {
+        const items = rec.filter((r) => famOf(r.name) === key)
+          .sort((a, b) => Math.min(rank(a.vGl), rank(a.vGpu)) - Math.min(rank(b.vGl), rank(b.vGpu)))
+        return items.length
+          ? `<tbody><tr><td colspan="3" class="pt-6 pb-2 border-t border-line-strong"><span class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em]">${label}</span></td></tr>${items.map(rowHtml).join('')}</tbody>`
+          : ''
+      }).join('')
+      const th = 'pb-2 text-left text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] font-normal'
       tableEl.innerHTML = `<table class="w-full border-collapse">
-        <thead><tr><th class="${th}">Test</th><th class="${th}">WebGL2</th><th class="${th.replace(' pr-4', '')}">WebGPU</th></tr></thead>
-        <tbody>${trs}</tbody></table>`
+        <thead><tr><th class="${th} pl-3 pr-6">Test</th><th class="${th} pr-6">WebGL2</th><th class="${th} ${gpu.ok ? '' : 'text-fg-faint'}">WebGPU</th></tr></thead>
+        ${sections}</table>`
 
-      // Copy button — copies the FROZEN digest text (not the visual view).
-      copyBtn.disabled = false
+      // Reveal (fade), then wire copy of the FROZEN digest text.
+      loading.style.display = 'none'
+      requestAnimationFrame(() => { out.classList.remove('opacity-0'); out.classList.add('opacity-100') })
       copyBtn.addEventListener('click', async () => {
         try {
           await navigator.clipboard.writeText(digest.textContent ?? '')
@@ -453,6 +485,8 @@ const payload = { values, tests }
       })
     } catch (e) {
       const msg = 'ERROR: ' + (e instanceof Error ? e.message : String(e))
+      loading.style.display = 'none'
+      out.classList.remove('opacity-0')
       digest.textContent = msg
       digest.classList.add('text-destructive')
       summary.innerHTML = `<p class="text-[13px] text-destructive">${msg}</p>`
