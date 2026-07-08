@@ -61,16 +61,13 @@ vec2 df64_twoProd(float a, float b) {
 }
 
 vec2 df64_add(vec2 a, vec2 b) {
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
-  vec2 _v0 = vec2((a.x * _cse0), (a.y * _cse0));
-  vec2 _v1 = vec2((b.x * _cse0), (b.y * _cse0));
-  vec2 _v2 = df64_twoSum(_v0.x, _v1.x);
-  vec2 _v3 = df64_twoSum(_v0.y, _v1.y);
-  _v2.y = (_v2.y + _v3.x);
-  _v2 = df64_quickTwoSum(_v2.x, _v2.y);
-  _v2.y = (_v2.y + _v3.y);
-  _v2 = df64_quickTwoSum(_v2.x, _v2.y);
-  return _v2;
+  vec2 _v0 = df64_twoSum(a.x, b.x);
+  vec2 _v1 = df64_twoSum(a.y, b.y);
+  _v0.y = (_v0.y + _v1.x);
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y);
+  _v0.y = (_v0.y + _v1.y);
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y);
+  return _v0;
 }
 
 vec2 df64_sub(vec2 a, vec2 b) {
@@ -78,13 +75,10 @@ vec2 df64_sub(vec2 a, vec2 b) {
 }
 
 vec2 df64_mul(vec2 a, vec2 b) {
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
-  vec2 _v0 = vec2((a.x * _cse0), (a.y * _cse0));
-  vec2 _v1 = vec2((b.x * _cse0), (b.y * _cse0));
-  vec2 _v2 = df64_twoProd(_v0.x, _v1.x);
-  _v2.y = (_v2.y + (_v0.x * _v1.y));
-  _v2.y = (_v2.y + (_v0.y * _v1.x));
-  return df64_quickTwoSum(_v2.x, _v2.y);
+  vec2 _v0 = df64_twoProd(a.x, b.x);
+  _v0.y = (_v0.y + (a.x * b.y));
+  _v0.y = (_v0.y + (a.y * b.x));
+  return df64_quickTwoSum(_v0.x, _v0.y);
 }
 
 vec2 df64_floor(vec2 a) {

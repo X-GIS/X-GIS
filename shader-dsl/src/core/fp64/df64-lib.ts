@@ -168,24 +168,10 @@ const df64_twoSqr = fn('df64_twoSqr', { a: f32T }, (p) => {
 
 // ── df64 arithmetic ──
 
-/** Launder a df64 pair through the guard at helper ENTRY. A uniform-sourced df64
- *  (a packed coordinate, a widened f32) otherwise enters an EFT as a compile-time
- *  constant the driver can specialize on — it then const-folds a catastrophic hi
- *  cancellation (twoSum's `a+b`) and drops the surviving lo-word signal. Observed
- *  on Apple GPUs (iOS 18 / Safari): `sub` of a uniform df64 collapsed to 0 while
- *  the byte-identical `add` of a COMPUTED operand survived — same helper body, so
- *  the leak is at the operand, not the algorithm. Multiplying every component by
- *  the opaque texel `one` (value 1) makes the operand data-dependent, so the
- *  cancellation can no longer be folded. Value-exact: one == 1 on GPU and oracle. */
-const launder = (v: ReadonlyNode<'vec2<f32>'>): Node<'vec2<f32>'> =>
-  vec2(v.x.mul(one), v.y.mul(one))
-
 /** a + b (Thall/QD-style accurate add: two twoSums + double renormalization). */
 const df64_add = fn('df64_add', { a: vec2fT, b: vec2fT }, (p) => {
-  const a = Let(launder(p.a))
-  const b = Let(launder(p.b))
-  const s = Var(df64_twoSum({ a: a.x, b: b.x }))
-  const t = Let(df64_twoSum({ a: a.y, b: b.y }))
+  const s = Var(df64_twoSum({ a: p.a.x, b: p.b.x }))
+  const t = Let(df64_twoSum({ a: p.a.y, b: p.b.y }))
   s.y.assign(s.y.add(t.x))
   s.assign(df64_quickTwoSum({ a: s.x, b: s.y }))
   s.y.assign(s.y.add(t.y))
@@ -198,11 +184,9 @@ const df64_sub = fn('df64_sub', { a: vec2fT, b: vec2fT }, (p) => df64_add({ a: p
 
 /** a × b: twoProd of the hi words + cross terms + renormalize. */
 const df64_mul = fn('df64_mul', { a: vec2fT, b: vec2fT }, (p) => {
-  const a = Let(launder(p.a))
-  const b = Let(launder(p.b))
-  const prod = Var(df64_twoProd({ a: a.x, b: b.x }))
-  prod.y.assign(prod.y.add(a.x.mul(b.y)))
-  prod.y.assign(prod.y.add(a.y.mul(b.x)))
+  const prod = Var(df64_twoProd({ a: p.a.x, b: p.b.x }))
+  prod.y.assign(prod.y.add(p.a.x.mul(p.b.y)))
+  prod.y.assign(prod.y.add(p.a.y.mul(p.b.x)))
   return df64_quickTwoSum({ a: prod.x, b: prod.y })
 })
 
