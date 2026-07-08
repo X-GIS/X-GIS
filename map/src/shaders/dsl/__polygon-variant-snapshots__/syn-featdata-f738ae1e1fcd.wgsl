@@ -1,4 +1,4 @@
-// baseline: 554c09df7cf0d6572b7c28f024359becdbef9cae
+// baseline: 8312157e8d0d79515f1e73748a8e23664090e208
 // fixture: syn-featdata
 // variant.key: syn-featdata
 // pick: false
@@ -218,23 +218,23 @@ fn project_geom(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, ref_lon: f32
   let _cse4 = (lon_deg - _cse6);
   let _cse5 = (ref_lon - _cse6);
   let _cse3 = (unwrap_lon_near_keep((_cse4 - _cse5), 0.0, sign(_cse4)) + wrap_lon_delta((_cse5 - proj_params.y)));
-  let _cse0 = wrap_lon_delta(_cse3);
-  let _cse1 = (((_cse7 * 2.0) * PI) * EARTH_R);
+  let _cse0 = (((_cse7 * 2.0) * PI) * EARTH_R);
+  let _cse1 = wrap_lon_delta(_cse3);
   let _cse2 = oblique_rot(_cse4, lat_deg, proj_params.y, proj_params.z);
   if (((proj_params.x > 0.5) && (proj_params.x < 2.5))) {
     var _v0: vec2<f32>;
     if ((proj_params.x < 1.5)) {
       _v0 = proj_equirectangular_d(_cse3, lat_deg);
+      _v0.x = (_v0.x + _cse0);
     } else {
-      _v0 = proj_natural_earth_d(_cse0, lat_deg);
-      _v0.x = (_v0.x + (((floor((((_cse3 - _cse0) / 360.0) + 0.5)) * 2.0) * PI) * EARTH_R));
+      _v0 = proj_natural_earth_d(_cse1, lat_deg);
+      _v0.x = (_v0.x + (((floor((((_cse3 - _cse1) / 360.0) + 0.5)) + _cse7) * proj_natural_earth_d(180.0, lat_deg).x) * 2.0));
     }
-    _v0.x = (_v0.x + _cse1);
     return _v0;
   }
   if ((proj_params.x > 5.5)) {
     var _v1: vec2<f32> = proj_oblique_mercator_d(unwrap_rad_near(_cse2.x, oblique_rot(_cse5, proj_params.z, proj_params.y, proj_params.z).x), _cse2.y);
-    _v1.x = (_v1.x + _cse1);
+    _v1.x = (_v1.x + _cse0);
     return _v1;
   }
   return project(lon_deg, lat_deg, proj_params);

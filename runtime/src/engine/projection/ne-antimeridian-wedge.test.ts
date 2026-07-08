@@ -37,7 +37,10 @@ import {
 
 const DEG2RAD = Math.PI / 180
 const EARTH_R = 6378137
-const WORLD_M = 2 * Math.PI * EARTH_R // one world width in projected metres
+const WORLD_M = 2 * Math.PI * EARTH_R // one world width in projected metres (equirect)
+// natural_earth's world-copy period is LAT-varying 2π·x_scale(lat)·R (#801); at
+// the equator (this gate probes lat=0) that is 2·proj_natural_earth_d(180,0).x.
+const NE_PERIOD_EQ = 2 * projNaturalEarthDWgsl(180, 0)[0]
 const NE = 2 // projType natural_earth
 const EQ = 1 // projType equirectangular
 // Visible-oval half-width at the equator (the camera-facing extent at z0.5):
@@ -83,7 +86,7 @@ function gpuProjectGeomX(
   if (!fold) return projNaturalEarthDWgsl(d, 0)[0] + wo * WORLD_M // pre-fix
   const dw = wrapLonDelta(d)
   const k = Math.round((d - dw) / 360)
-  return projNaturalEarthDWgsl(dw, 0)[0] + (wo + k) * WORLD_M
+  return projNaturalEarthDWgsl(dw, 0)[0] + (wo + k) * NE_PERIOD_EQ // #801: lat-varying period
 }
 
 function bgBandXs(clon: number, isNE: boolean, fold: boolean): number[] {
@@ -113,7 +116,7 @@ describe('natural_earth antimeridian black-wedge — project_geom lobe wrap (pro
           const d = cpuDelta(lon, clon, refLon)
           const dw = wrapLonDelta(d)
           const k = Math.round((d - dw) / 360)
-          const expected = projNaturalEarthDWgsl(dw, 0)[0] + k * WORLD_M
+          const expected = projNaturalEarthDWgsl(dw, 0)[0] + k * NE_PERIOD_EQ
           expect(
             projectGeomWgsl(NE, lon, 0, clon, 0, refLon)[0],
             `clon=${clon} refLon=${refLon} lon=${lon}: out-of-lobe d=${d} not folded`,
