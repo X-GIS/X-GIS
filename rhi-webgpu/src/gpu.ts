@@ -1,28 +1,12 @@
 // ═══ WebGPU Context — 디바이스 초기화 ═══
 
-/** `?safe=1` URL flag — user-facing fallback for debugging.
- *  Disables the translucent line offscreen composite path (the most
- *  invasive recent code path). MSAA / DPR clamps moved into the quality
- *  module; `?safe=1` also routes the quality preset to `battery` (see
- *  `quality.ts` resolveQuality()). Use this to bisect: if the demo
- *  renders with `?safe=1` but not without, the bug lives in the new
- *  MSAA / offscreen path. */
-function readSafeFlag(): boolean {
-  if (typeof window === 'undefined') return false
-  try {
-    return new URL(window.location.href).searchParams.get('safe') === '1'
-  } catch {
-    return false
-  }
-}
-export const SAFE_MODE: boolean = readSafeFlag()
-
-// Quality is owned by @xgis/engine (engine/src/gpu/quality.ts — the single
-// authority since #832). This boot module only READS it: `getSampleCount()`
-// seeds the initial ctx.sampleCount, `effectiveDpr()` sizes the canvas. It
-// no longer re-exports the getters or holds module-load snapshots of them —
-// every consumer imports quality from @xgis/engine directly.
-import { effectiveDpr, getSampleCount } from '@xgis/engine'
+// Quality + the `?safe=1` flag are owned by @xgis/engine (engine/src/gpu/quality.ts
+// — the single authority since #832). This boot module only READS them:
+// `getSampleCount()` seeds the initial ctx.sampleCount, `effectiveDpr()` sizes
+// the canvas, `isSafeMode()` gates the startup warn. It holds no module-load
+// snapshots and re-exports nothing — every consumer imports quality from
+// @xgis/engine directly.
+import { effectiveDpr, getSampleCount, isSafeMode } from '@xgis/engine'
 import type { RhiDevice, RhiTextureFormat } from '@xgis/rhi'
 import type { RenderContext } from '@xgis/engine'
 // BackendChoice + the neutral render context live in @xgis/engine (#834
@@ -32,7 +16,7 @@ import type { RenderContext } from '@xgis/engine'
 export type { BackendChoice } from '@xgis/engine'
 
 
-if (typeof window !== 'undefined' && SAFE_MODE) {
+if (typeof window !== 'undefined' && isSafeMode()) {
   console.warn(
     '[X-GIS] safe mode active (?safe=1) — translucent offscreen disabled (quality preset = battery)',
   )
