@@ -107,7 +107,14 @@ const mk = (name: string, f: () => ReturnType<typeof toF32>, golden: number, cir
     () => {
       const r = Let(f())
       const t = Let(min(max(r.add(2).mul(0.25), f32(0)), f32(1)))
-      return vec4(vec3(t), f32(1))
+      // Pack t (∈[0,1)) across RGB8 (24-bit) so the host reads the result at full
+      // f32 precision, not one 8-bit grey level — a correct answer reads ~0.5000
+      // (not 0.4941), and a PARTIAL lo-word degradation becomes visible instead of
+      // hiding under the ±0.016 grey quantisation. Host unpacks with the matching
+      // dot(rgb, [1, 1/255, 1/65025]).
+      const enc = Let(fract(vec3(t, t.mul(255), t.mul(65025))))
+      const adj = Let(enc.sub(vec3(enc.y, enc.z, f32(0)).mul(1 / 255)))
+      return vec4(adj, f32(1))
     },
     { stage: 'fragment', retAttr: '@location(0)' },
   )
@@ -242,7 +249,10 @@ const payload = { values, tests }
   }
   const digest = document.getElementById('probe-digest')!
   const chips = document.getElementById('probe-chips')!
-  const decode = (R: number) => (R / 255) * 4 - 2 // grey → r ∈ [-2,2]
+  // RGB8 (24-bit) unpack → r ∈ [-2,2]. Inverse of the fragment's pack; a black
+  // (undrawn) pixel decodes to exactly -2, distinct from a collapsed df64 (~0).
+  const decode = (R: number, G: number, B: number) =>
+    (R / 255 + G / 65025 + B / 16581375) * 4 - 2
   const pack = (block: Refl['uniforms'][0], values: Record<string, number[]>): ArrayBuffer => {
     const buf = new ArrayBuffer(Math.ceil(block.size / 16) * 16)
     const f = new Float32Array(buf)
@@ -274,7 +284,7 @@ const payload = { values, tests }
         const gLoc = gl.getUniformLocation(p, '_fp64'); if (gLoc) { gl.uniform1i(gLoc, 7); guard = true }
         gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLES, 0, 3)
         const px = new Uint8Array(4); gl.readPixels(4, 4, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
-        results[t.name] = decode(px[0])
+        results[t.name] = decode(px[0], px[1], px[2])
       } catch (e) { results[t.name] = null }
     }
     return { guard, results }
@@ -311,9 +321,9 @@ const payload = { values, tests }
         enc.copyTextureToBuffer({ texture: target }, { buffer: rb, bytesPerRow: 256, rowsPerImage: 8 }, [8, 8])
         device.queue.submit([enc.finish()])
         await rb.mapAsync(MM.READ)
-        const R = new Uint8Array(rb.getMappedRange().slice(0))[4 * 256 + 4 * 4]
+        const arr = new Uint8Array(rb.getMappedRange().slice(0)); const o = 4 * 256 + 4 * 4
         rb.unmap()
-        results[t.name] = decode(R)
+        results[t.name] = decode(arr[o], arr[o + 1], arr[o + 2])
       } catch (e) { results[t.name] = null }
     }
     const info = adapter.info || {}
