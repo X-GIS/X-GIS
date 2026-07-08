@@ -11,9 +11,10 @@ const groups: Group[] = [
   {
     title: 'Module & functions',
     rows: [
-      { sig: 'fn(name, params, body, opts?)', desc: 'Declare a function. A param spec is a ShaderType, an IO field spec, or an ioStruct / structDecl HANDLE — a handle param arrives in the body as a typed field proxy (no .of() re-assertion). opts.stage = "vertex" | "fragment" | "compute" makes it a pipeline entry; opts.retAttr / workgroupSize for bare-return / compute. The returned handle is callable — prefer the object form f({ a, b }), which type-checks argument names + types.' },
+      { sig: 'fn(name?, params, ret?, body, opts?)', desc: 'Declare a function. name is optional (auto _fn{n}); pass a ShaderType in the ret slot to PIN the return type, or omit it to infer from the body’s return. A param spec is a ShaderType, an IO field spec, or an ioStruct / structDecl HANDLE — a handle param arrives in the body as a typed field proxy (no .of() re-assertion). opts.stage = "vertex" | "fragment" | "compute" makes it a pipeline entry; opts.retAttr / workgroupSize for bare-return / compute. The returned handle is CALLABLE — prefer calling it directly, in the object form f({ a, b }), which type-checks argument names + types.' },
       { sig: 'module({ structs, bindings, funcs, consts? })', desc: 'Assemble a module from its declarations. funcs is an array (order preserved) or a key-named record; fns called through their handle are collected transitively (define-before-use), so funcs lists only the entry points.' },
-      { sig: 'callFn(name, ret, ...args)', desc: 'Call an authored function by name.' },
+      { sig: 'externFn(name, params, ret)', desc: 'A typed CALL-ONLY handle for a fn whose body is defined elsewhere (forward declaration) — call it now, f({ a, b }) / f(a, b), and the body links in at emit. Use it when the callee cannot be an importable FnHandle at the caller’s load time.' },
+      { sig: 'callFn(name, ret, …args)', desc: 'Low-level string call that externFn emits under the hood. Prefer calling the FnHandle directly (myFn(a, b)) or an externFn: a bare string name is an out-of-band contract — a typo compiles, then fails at WGSL link.' },
     ],
   },
   {
@@ -33,13 +34,16 @@ const groups: Group[] = [
     rows: [
       { sig: 'f32(v)  i32(v)  u32(v)  bool(v)', desc: 'Scalar literals (take a JS number / boolean).' },
       { sig: 'vec2/vec3/vec4(...)  ·  vec2u  vec2i', desc: 'Vector constructors; accept nodes, numbers, and sub-vectors (vec4(rgb, 1)).' },
+      { sig: 'Var(name?, init)  ·  Var(type, init?)  ·  Let(name?, value)', desc: 'Local bindings. Var → a MUTABLE Node (.assign allowed); Let and params → ReadonlyNode (.assign is a tsc error). Name a Let to force a CSE-stable named temp.' },
+      { sig: 'constExpr(name, type, value)  ·  arrayLit(elem, …items)', desc: 'A module-scope const from a value node, and an array literal (pairs with arrayT) — the declared way to author non-scalar consts.' },
       { sig: 'toF32(x)  toI32(x)  toU32(x)', desc: 'Scalar casts (emit float()/int()/uint() on GLSL).' },
     ],
   },
   {
     title: 'Operators (methods on a value node)',
     rows: [
-      { sig: '.add .sub .mul .div .mod .neg()', desc: 'Arithmetic, with WGSL vec∘scalar broadcast — including scalar-node × vec-node (f32 · vec3<f32> → vec3<f32>). A vec2∘vec3 mismatch is a TS error.' },
+      { sig: '.add .sub .mul .div .neg()', desc: 'Arithmetic, with WGSL vec∘scalar broadcast — including scalar-node × vec-node (f32 · vec3<f32> → vec3<f32>). A vec2∘vec3 mismatch is a TS error.' },
+      { sig: '.mod(y)', desc: 'TRUNC-mod (WGSL %) — integer-only on GLSL ES 3.00 floats. For a PORTABLE float modulo use the free mod(x, y) below (floor-mod, both targets).' },
       { sig: '.lt .gt .le .ge .eq .ne', desc: 'Comparisons → bool.' },
       { sig: '.and .or  ·  .bitAnd .bitOr .bitXor .shl .shr', desc: 'Logical (bool) and bitwise (u32/i32).' },
       { sig: '.x .y .z .w  ·  .rgb .xy .xyz …  ·  .swizzle("…")', desc: 'Component access and swizzles. .swizzle("rgb") infers its result key from the component string (elem-typed; works on u32/i32 vecs too).' },
@@ -52,6 +56,7 @@ const groups: Group[] = [
       { sig: 'sin cos tan asin acos atan atan2', desc: 'Trigonometry.' },
       { sig: 'exp log log2 pow sqrt', desc: 'Exponential / power.' },
       { sig: 'floor ceil fract abs sign min max clamp mix smoothstep', desc: 'Common math / interpolation.' },
+      { sig: 'mod(x, y)', desc: 'Portable FLOOR-mod (x − y·⌊x/y⌋), identical on WGSL + GLSL; negatives wrap into [0, y). THE float modulo — reach for it over the .mod method, which is trunc-mod and invalid on GLSL ES 3.00 floats.' },
       { sig: 'length dot radians degrees fwidth', desc: 'Geometry, angle conversion, screen-space derivative (GPU-only).' },
       { sig: 'textureSample textureLoad textureDimensions', desc: 'Texture access (GLSL fuses sampler into the combined sampler2D).' },
       { sig: 'bitcastU32 pack4x8unorm unpack4x8unorm', desc: 'Bit-level helpers.' },
@@ -60,10 +65,14 @@ const groups: Group[] = [
   {
     title: 'Control flow',
     rows: [
-      { sig: 'If(cond, () => …).elif(cond, …).else(…)', desc: 'Conditional statement blocks.' },
-      { sig: 'Return(value?)  ·  ReturnIf(cond, value)', desc: 'Explicit / guard-clause returns.' },
-      { sig: 'reduce(init, i0, cond, step, inc)', desc: 'Loop-fold combinator (accumulate over a range).' },
-      { sig: 'matchExpr(scrutinee, cases, default)', desc: 'Typed multi-arm dispatch over an integer/scalar.' },
+      { sig: 'If(cond, () => …).elif(cond, …).else(…)', desc: 'Conditional statement blocks. A body may return value for an early return.' },
+      { sig: 'Loop(init, i => cond, i => body, step?)', desc: 'C-style for over the innermost scope; the body receives the typed counter Node. Optional leading name; read positions accept ReadonlyNode.' },
+      { sig: 'Return(value?)  ·  ReturnIf(cond, value)  ·  Break()  ·  Continue()  ·  Discard()', desc: 'Explicit / guard-clause returns and loop control. Discard() kills the fragment (GLSL discard).' },
+      { sig: 'reduce(init, i0, i => cond, (acc, i) => next, step?)', desc: 'Immutable loop-fold: the body RETURNS the next accumulator (no Var + assign at the call site); materialises the var + loop internally, byte-identical to the hand form. Returns the accumulator Node.' },
+      { sig: 'when(c, () => a, () => b)  ·  when([[c, () => e]], () => fallback)', desc: 'Immutable value-by-CONDITION dispatch — var + if/elif/else, NOT select (only the taken arm runs). The blessed conditional expression; supersedes ifExpr/condExpr.' },
+      { sig: 'Switch(scrut).case(n, body).default(body?)', desc: 'Chainable switch STATEMENT builder; lowers to a real WGSL switch. Forward-declare a Var(default), then assign inside the case arms.' },
+      { sig: 'enumU32({ A: 0, … })  ·  matchEnum(s, E, { A, … })', desc: 'Exhaustive integer dispatch: matchEnum requires ONE arm per enum member — omit one and tsc errors, so adding a member surfaces every un-handled site. Lowers to matchExpr (byte-identical).' },
+      { sig: 'matchExpr(scrutinee, cases, default)', desc: 'The low-level multi-arm dispatch matchEnum / Switch lower to. Prefer matchEnum when the scrutinee is an enum, for exhaustiveness.' },
     ],
   },
   {
@@ -72,6 +81,7 @@ const groups: Group[] = [
       { sig: 'f32T i32T u32T boolT', desc: 'Scalar types.' },
       { sig: 'vec2fT vec3fT vec4fT  ·  vec2uT vec3uT vec4uT  ·  vec2iT vec4iT', desc: 'Vector types.' },
       { sig: 'mat4x4fT  ·  texture2dfT texture2dMsfT  ·  arrayT(elem) structT(name)', desc: 'Matrix, texture, and composite types.' },
+      { sig: 'f64T  ·  vec2f64T vec3f64T vec4f64T', desc: 'Emulated double precision (df64, ~48-bit) — declare a value f64T and the SAME operators/built-ins work; f64(v) lifts a literal, toF64 / toF32 convert. The host writes 1.0 to the auto-injected _fp64 guard binding, and splitF64(x) packs a JS number into the hi/lo attribute pair. See the fp64 examples.' },
     ],
   },
   {
@@ -113,17 +123,17 @@ const groups: Group[] = [
   description="The @xgis/shader-dsl authoring + emit surface: functions, layout declarators, value constructors, operators, built-ins, control flow, types, and emit/reflect."
 >
   <h1 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em] text-[40px] sm:text-[52px] lg:text-[64px]">API reference</h1>
-  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-[820px]">
+  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-full">
     A selected tour of the surface exported from <code class="font-mono text-[14px] text-fg">@xgis/shader-dsl</code>.
     See the <a href="https://github.com/X-GIS/X-GIS/blob/main/shader-dsl/src/index.ts" target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">barrel</a>
     and <a href={`${root}/examples`} class="text-accent hover:text-accent-hover transition-colors">examples</a> for the rest.
   </p>
 
-  <div class="mt-10 max-w-[820px] space-y-10">
+  <div class="mt-10 max-w-full space-y-10">
     {groups.map((g) => (
       <section>
         <h2 class="font-display text-[20px] font-normal text-fg tracking-[-0.015em] mb-1.5">{g.title}</h2>
-        {g.note && <p class="text-[13.5px] leading-[1.55] text-fg-mute mb-3 max-w-[820px]">{g.note}</p>}
+        {g.note && <p class="text-[13.5px] leading-[1.55] text-fg-mute mb-3 max-w-full">{g.note}</p>}
         <div class="rounded-[8px] border border-line overflow-hidden divide-y divide-[var(--color-line)]">
           {g.rows.map((r) => (
             <div class="grid sm:grid-cols-[minmax(0,42%)_minmax(0,58%)] gap-x-5 gap-y-1 px-4 py-3">

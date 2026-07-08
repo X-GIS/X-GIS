@@ -5,8 +5,12 @@ import { Code } from 'astro-expressive-code/components'
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const root = `${base}/shader-dsl`
 
-const installSnippet = `bun install
-bun run build          # tsc --build → dist/ + .d.ts`
+const installSnippet = `git clone https://github.com/X-GIS/X-GIS.git && cd X-GIS
+bun install            # installs the whole workspace
+
+# Authoring + emit run straight off the TypeScript source (tsx) — no build step.
+# Build only when a consumer needs the compiled dist/ + .d.ts:
+bun run --filter '@xgis/shader-dsl' build`
 
 const authorSnippet = `import {
   fn, module, uniformStruct, ioStruct, builtin, location,
@@ -40,12 +44,13 @@ export const m = module({ structs: [U.struct, VsOut.decl], bindings: [U.binding]
 const emitSnippet = `import { emitModule, emitGlslModule, reflect } from '@xgis/shader-dsl'
 import { m } from './my-shader'
 
-emitModule(m)                  // → WGSL string (WebGPU)
-emitGlslModule(m, 'vertex')    // → GLSL ES 3.00 vertex (WebGL2)
-emitGlslModule(m, 'fragment')  // → GLSL ES 3.00 fragment (WebGL2)
-reflect(m)                     // → { bindGroups, uniforms (std140), storage (std430), entries }`
+console.log(emitModule(m))                  // → WGSL string (WebGPU)
+console.log(emitGlslModule(m, 'vertex'))    // → GLSL ES 3.00 vertex (WebGL2)
+console.log(emitGlslModule(m, 'fragment'))  // → GLSL ES 3.00 fragment (WebGL2)
+console.dir(reflect(m), { depth: null })    // → { bindGroups, uniforms (std140), entries }`
 
-const runSnippet = `npx tsx examples/print.ts            # every example
+const runSnippet = `cd shader-dsl
+npx tsx examples/print.ts            # every example
 npx tsx examples/print.ts hillshade  # just one, by id`
 ---
 
@@ -55,40 +60,47 @@ npx tsx examples/print.ts hillshade  # just one, by id`
   description="Install @xgis/shader-dsl, author a typed shader, and emit WGSL + GLSL + reflection from one source."
 >
   <h1 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em] text-[40px] sm:text-[52px] lg:text-[64px]">Getting started</h1>
-  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-[820px]">
+  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-full">
     Author a typed shader in TypeScript, then emit both backends and the pipeline reflection from
     the same module. No GPU is needed to author or emit — only to run the result.
   </p>
 
   <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mt-12 mb-3">Install</h2>
-  <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[820px]">
+  <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
     Today <code class="font-mono text-[13px] text-fg">@xgis/shader-dsl</code> is a workspace package
-    inside the X-GIS monorepo (build-to-tarball; not yet published to npm). Consume it from a checkout —
-    then <code class="font-mono text-[13px] text-fg">import {'{'} fn, module, emitModule, reflect {'}'} from '@xgis/shader-dsl'</code>.
+    inside the X-GIS monorepo (not yet published to npm), so the fast path is to author <em>inside</em> the
+    checkout — new shaders live alongside the engine's own, and
+    <code class="font-mono text-[13px] text-fg">import {'{'} fn, module, emitModule, reflect {'}'} from '@xgis/shader-dsl'</code>
+    resolves through the workspace. Packaging it for an outside project is covered in
+    <a href={`${root}/shipping`} class="text-accent hover:text-accent-hover transition-colors">Shipping</a>.
   </p>
-  <div class="sd-code mt-4 max-w-[820px]"><Code code={installSnippet} lang="bash" /></div>
+  <div class="sd-code mt-4 max-w-full"><Code code={installSnippet} lang="bash" /></div>
 
   <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mt-12 mb-3">1. Author a shader</h2>
-  <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[820px]">
+  <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
     The whole surface is plain TypeScript — typed value-expressions, control-flow combinators, and
     single-source layout declarators (<code class="font-mono text-[13px] text-fg">uniformStruct</code>,
     <code class="font-mono text-[13px] text-fg">ioStruct</code>). A wrong-typed field or return is a
-    compile error.
+    compile error. Save it as <code class="font-mono text-[13px] text-fg">my-shader.ts</code> — don't worry
+    about every line yet (<a href={`${root}/concepts`} class="text-accent hover:text-accent-hover transition-colors">Concepts</a>
+    breaks these down); here's the whole shape first.
   </p>
-  <div class="sd-code mt-4 max-w-[820px]"><Code code={authorSnippet} lang="ts" /></div>
+  <div class="sd-code mt-4 max-w-full"><Code code={authorSnippet} lang="ts" /></div>
 
   <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mt-12 mb-3">2. Emit + reflect</h2>
-  <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[820px]">
+  <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
     The same module produces both backends and its own reflection. The reflection gives the host the
-    std140 byte offsets to pack the uniform buffer — the exact packing the live examples use.
+    std140 byte offsets to pack the uniform buffer — the exact packing the live examples use. Save this
+    as <code class="font-mono text-[13px] text-fg">emit.ts</code> next to <code class="font-mono text-[13px] text-fg">my-shader.ts</code>,
+    then run it — no GPU, no build: <code class="font-mono text-[13px] text-fg">npx tsx emit.ts</code>.
   </p>
-  <div class="sd-code mt-4 max-w-[820px]"><Code code={emitSnippet} lang="ts" /></div>
+  <div class="sd-code mt-4 max-w-full"><Code code={emitSnippet} lang="ts" /></div>
 
   <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mt-12 mb-3">3. Run the examples</h2>
-  <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[820px]">
+  <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
     The repo ships runnable examples. Print their emitted WGSL / GLSL / reflection in a terminal, or
     open one in the <a href={`${root}/examples`} class="text-accent hover:text-accent-hover transition-colors">gallery</a>
     to run it live on a WebGL2 canvas.
   </p>
-  <div class="sd-code mt-4 max-w-[820px]"><Code code={runSnippet} lang="bash" /></div>
+  <div class="sd-code mt-4 max-w-full"><Code code={runSnippet} lang="bash" /></div>
 </ShaderDsl>

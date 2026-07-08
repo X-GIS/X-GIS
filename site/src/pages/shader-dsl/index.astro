@@ -1,16 +1,23 @@
 ---
 import ShaderDsl from '../../layouts/ShaderDsl.astro'
+import { Code } from 'astro-expressive-code/components'
+import { shaderCards } from '../../lib/shader-examples.ts'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const root = `${base}/shader-dsl`
 
+// The one-glance proof: a real example's authored source next to the WGSL it emits,
+// both produced at build time by the same emit the CLI + render-gate use — so the
+// landing page shows the transform, not a description of it.
+const gradient = shaderCards.find((c) => c.id === 'gradient')!
+
 const capabilities = [
-  { label: 'One source → many targets', body: 'Author once; emit WGSL for WebGPU and GLSL ES 3.00 for WebGL2. The WGSL is byte-stable.' },
+  { label: 'One source → many targets', body: 'Author once; emit WGSL for WebGPU and GLSL ES 3.00 for WebGL2. The WGSL is byte-stable, so builds are reproducible and diff-testable.' },
   { label: 'Type-checked', body: 'Nodes carry compile-time keys — a wrong-typed field or return is a TypeScript error, not a shader-compile surprise.' },
   { label: 'Reflection', body: 'reflect(module) recovers bind groups, std140/std430 layouts, and entry signatures — the host binds without hand-derived offsets.' },
   { label: 'Optimize + lint', body: 'CSE, DCE, LICM, const-fold and auto-vars, plus a 21-rule lint engine and a capability gate.' },
   { label: 'CPU f64 oracle', body: 'Compile the same module to an f64 CPU function to cross-check the GPU result — the parity gate X-GIS rendering relies on.' },
-  { label: 'Content-free', body: 'It ships the authoring + emit surface, not any app’s shaders. X-GIS authors its own map shaders through it.' },
+  { label: 'Bring your own shaders', body: 'It ships the authoring + emit surface, not any app’s shaders. X-GIS authors its own map shaders through it.' },
 ]
 ---
 
@@ -23,15 +30,15 @@ const capabilities = [
   <h1 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em] text-[40px] sm:text-[52px] lg:text-[64px]">
     Shaders, authored in <span class="font-mono">TypeScript</span>.
   </h1>
-  <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[820px]">
-    <code class="font-mono text-[15px] text-fg">@xgis/shader-dsl</code> is the engine that draws every
-    X-GIS map. You author a typed shader once; a single IR emits <span class="text-fg font-medium">WGSL</span>
-    for WebGPU and <span class="text-fg font-medium">GLSL ES 3.00</span> for WebGL2 — plus a reflection of
-    the pipeline and a CPU f64 oracle for parity checks.
+  <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-full">
+    Write a shader once as typed TypeScript and one IR emits <span class="text-fg font-medium">WGSL</span>
+    for WebGPU and <span class="text-fg font-medium">GLSL ES 3.00</span> for WebGL2 — no hand-porting, no
+    hand-derived binding offsets, and a CPU f64 oracle to prove the two targets agree. It's the shader
+    layer behind every X-GIS map.
   </p>
 
-  <div class="mt-8 max-w-[820px] flex flex-wrap gap-3">
-    <a href={`${root}/getting-started`} class="inline-flex items-center gap-2 px-5 h-10 rounded-full border border-line bg-bg text-fg hover:border-line-strong text-[14px] transition-colors">
+  <div class="mt-8 max-w-full flex flex-wrap gap-3">
+    <a href={`${root}/getting-started`} class="inline-flex items-center gap-2 px-5 h-10 rounded-full bg-accent text-bg hover:bg-accent-hover text-[14px] font-medium transition-colors">
       Get started
       <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
     </a>
@@ -40,8 +47,25 @@ const capabilities = [
     </a>
   </div>
 
+  <figure class="mt-10 max-w-full">
+    <div class="sd-code grid lg:grid-cols-2 gap-4 items-start">
+      <div>
+        <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">gradient.ts — authored</p>
+        <Code code={gradient.source} lang="ts" />
+      </div>
+      <div>
+        <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">emitModule(m) — WGSL</p>
+        <Code code={gradient.wgsl} lang="wgsl" />
+      </div>
+    </div>
+    <figcaption class="mt-3 text-[13px] leading-[1.55] text-fg-mute">
+      One module in; byte-stable WGSL out — and <code class="font-mono text-[12.5px] text-fg">emitGlslModule(m, …)</code>
+      gives the matching GLSL ES 3.00 for WebGL2. Nothing is authored twice.
+    </figcaption>
+  </figure>
+
   <h2 class="font-display text-[22px] sm:text-[24px] font-normal text-fg tracking-[-0.02em] mt-16 mb-5">What it gives you</h2>
-  <div class="max-w-[820px] grid sm:grid-cols-2 gap-4">
+  <div class="max-w-full grid sm:grid-cols-2 gap-4">
     {capabilities.map((cap) => (
       <div class="rounded-[8px] bg-bg-card border border-line p-5">
         <h3 class="text-[15px] font-normal text-fg mb-1.5">{cap.label}</h3>
@@ -50,15 +74,13 @@ const capabilities = [
     ))}
   </div>
 
-  <div class="mt-12 max-w-[820px] rounded-[8px] border border-line p-5 bg-bg-card">
+  <div class="mt-12 max-w-full rounded-[8px] border border-line p-5 bg-bg-card">
     <p class="text-[14px] leading-[1.6] text-fg-dim">
-      <span class="text-fg font-medium">New here?</span> Start with
-      <a href={`${root}/getting-started`} class="text-accent hover:text-accent-hover transition-colors">Getting started</a>
-      for the author → emit → reflect flow, read
+      <span class="text-fg font-medium">Two ways in.</span> Evaluating the design? Read
       <a href={`${root}/concepts`} class="text-accent hover:text-accent-hover transition-colors">Concepts</a>
-      for the why, then open an
-      <a href={`${root}/examples`} class="text-accent hover:text-accent-hover transition-colors">example</a>
-      to run it live in your browser.
+      — one IR, two backends, and the parity oracle. Ready to write one? Jump to
+      <a href={`${root}/getting-started`} class="text-accent hover:text-accent-hover transition-colors">Getting started</a>
+      and emit your first shader in a few minutes.
     </p>
   </div>
 </ShaderDsl>
