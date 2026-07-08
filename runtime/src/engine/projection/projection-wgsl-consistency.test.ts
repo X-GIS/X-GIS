@@ -464,22 +464,21 @@ describe('project_geom — antimeridian seam continuity', () => {
     const smearW = projectWgsl(2, west, 0, clon, 0)[0]
     const smearE = projectWgsl(2, east, 0, clon, 0)[0]
     expect(Math.abs(smearE - smearW)).toBeGreaterThan(1e7)
-    // After the lobe wrap each half is fed an IN-LOBE delta (|dw| ≤ 180) to the
-    // 6th-order polynomial and the 360°-step is folded into the lobe offset
-    // (k·2πR) so the two halves stay in the SAME world copy — the fix's core
-    // property. The pre-fix path fed |d| = 185 (out of lobe) to one vertex,
-    // which the offset cannot cancel because NE's x(d) is nonlinear → the
-    // un-cancellable ~(1−xScale)·2πR gap that left the bg band torn.
+    // After the lobe wrap each half is fed an IN-LOBE delta (|dw| ≤ 180); the
+    // folded east half (|d| = 185 → dw = −175, k = 1) lands in the RIGHT-adjacent
+    // world copy via the lobe offset. #801: that offset must be NE's LAT-varying
+    // period 2·NE_d(180,0).x, which places the east half EXACTLY beside the west
+    // half — a 10° geographic tile renders CONTINUOUSLY across the antipode, gap ≈
+    // its own projected width radians(10)·xScale(0)·R ≈ 0.97 Mm. The pre-#801
+    // constant 2πR offset placed it ~(1−xScale)·2πR ≈ 5.2 Mm too far → the
+    // antimeridian tear (the black-wedge's world-copy sibling) this gate forbids.
     const gW = projectGeomWgsl(2, west, 0, clon, 0, refLon)[0]
     const gE = projectGeomWgsl(2, east, 0, clon, 0, refLon)[0]
-    // The two halves land at the OVAL-SEAM discontinuity: separated by the NE
-    // nonlinearity step (~(1−xScale_eq)·2πR ≈ 5.2 Mm) plus the tile's own width
-    // — bounded WELL below a full world (the old smear), but not zero (the seam
-    // is real: the tile straddles the oval edge).
     const oneWorld = 2 * Math.PI * 6378137
     const seamGap = Math.abs(gE - gW)
-    expect(seamGap).toBeGreaterThan(4e6) // the real NE oval-seam step
-    expect(seamGap).toBeLessThan(oneWorld * 0.2) // NOT a whole-world smear
+    expect(seamGap).toBeLessThan(1.5e6) // continuous: ≈ the 10° tile's projected width, NOT a tear
+    expect(seamGap).toBeGreaterThan(0.5e6) // but non-zero — the tile does straddle the oval edge
+    expect(seamGap).toBeLessThan(oneWorld * 0.2) // and nowhere near a whole-world smear
   })
 
   it('with refLon = clon reproduces projectWgsl (no regression: the wrap is a special case)', () => {
@@ -586,7 +585,6 @@ describe('project_geom — antimeridian seam continuity', () => {
     // The keep-sign bias only fires at the exact ±180 tie; every interior
     // vertex must fold exactly as before across tiles/cameras, so the only
     // visible change is the seam wall — nothing else can shift.
-    const WORLD_M = 2 * Math.PI * 6378137 // 2π·EARTH_R — one lobe step
     for (const projType of [1, 2]) {
       for (const refLon of [0, 90, -90, 157.5, -157.5]) {
         for (const clon of [0, 90, 180, -90]) {
@@ -601,15 +599,15 @@ describe('project_geom — antimeridian seam continuity', () => {
               // Equirect is linear: the recentred delta projects directly.
               ;[rx, ry] = projEquirectangularDWgsl(plainD, 30)
             } else {
-              // Natural Earth folds the recentred delta into one lobe
-              // (|dw| ≤ 180) before the polynomial and re-adds the 360°-steps
-              // (k) as the lobe offset — the black-wedge fix. The oracle
-              // mirrors that so the assertion pins the CORRECTED fold, not the
-              // pre-fix out-of-lobe polynomial.
+              // Natural Earth folds the recentred delta into one lobe (|dw| ≤ 180)
+              // before the polynomial and re-adds the 360°-steps (k) as the lobe
+              // offset. #801: that offset rides NE's LATITUDE-varying period
+              // 2·NE_d(180,lat).x — NOT the constant Mercator 2πR — or a
+              // seam-straddling tile mis-scales. The oracle mirrors the corrected fold.
               const dw = wrapLonDelta(plainD)
               const k = Math.round((plainD - dw) / 360)
               const p = projNaturalEarthDWgsl(dw, 30)
-              rx = p[0] + k * WORLD_M
+              rx = p[0] + k * (2 * projNaturalEarthDWgsl(180, 30)[0]) // lat-varying period
               ry = p[1]
             }
             expect(keep[0]).toBeCloseTo(rx, 6)

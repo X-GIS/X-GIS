@@ -519,26 +519,28 @@ function buildProjectionArtifacts(specs: ProjectionSpec[]) {
         keep_sign: sign(lon_primary),
       })
       const d = lon_rel_ref.add(ref_d)
-      const world_off_m = wo.mul(2).mul(PI).mul(EARTH_R)
       const p = Var(vec2fT)
       If(t.lt(1.5), () => {
+        // equirectangular: LINEAR in lon, world-copy period = the constant
+        // Mercator width 2πR, so the world offset is a plain wo·2πR add.
         p.assign(proj_equirectangular_d({ lon_rel: d, lat_deg }))
+        p.x.assign(p.x.add(wo.mul(2).mul(PI).mul(EARTH_R)))
       }).else(() => {
-        // NE-lobe wrap (antimeridian black-wedge fix): proj_natural_earth_d's
-        // 6th-order polynomial is valid ONLY for d ∈ [−180,180]; an out-of-lobe
-        // d (e.g. −360 when the camera sits on the antimeridian and a world-copy
-        // references clon≈0) returns a NONLINEAR wrong-region x that
-        // world_off_m cannot cancel → the mesh folds and leaves the
-        // camera-facing oval centre uncovered (black). Fold d into one lobe
-        // (dw) before the forward and push the 360°-steps (k) into the world
-        // offset. Equirect is LINEAR so its out-of-range d is exactly absorbed
-        // by world_off_m — it keeps the shared d path (byte-identical WGSL).
+        // natural_earth (#801): x = radians(lon)·x_scale(lat)·R, so the world-copy
+        // PERIOD is LATITUDE-varying 2π·x_scale(lat)·R, NOT the constant 2πR. The
+        // old code added a constant (wo+k)·2πR offset, mis-tiling adjacent copies
+        // by 2πR·(1−x_scale) ≈ 5.18 Mm at the equator (widening poleward) — the z0
+        // antimeridian seam tear. NE_d is LINEAR in lon_rel, so the exact period is
+        // 2·proj_natural_earth_d(180,lat).x; place the copy + lobe steps with THAT.
+        // dw stays folded (|dw|≤180) so the antimeridian black-wedge stays closed
+        // and the main forward keeps its small-angle f32 precision; the (wo+k) steps
+        // ride the moderate-angle half-period (no radians(720) f32-degree hazard).
         const dw = wrap_lon_delta({ d })
         const k = floor(d.sub(dw).div(360).add(0.5))
+        const half_period = proj_natural_earth_d({ lon_rel: f32(180), lat_deg }).x
         p.assign(proj_natural_earth_d({ lon_rel: dw, lat_deg }))
-        p.x.assign(p.x.add(k.mul(2).mul(PI).mul(EARTH_R)))
+        p.x.assign(p.x.add(k.add(wo).mul(half_period).mul(2)))
       })
-      p.x.assign(p.x.add(world_off_m))
       Return(p)
     })
     // oblique_mercator (6): rotated-frame world-copy unwrap.
@@ -598,8 +600,14 @@ function buildProjectionArtifacts(specs: ProjectionSpec[]) {
         // equirect is linear and keeps the shared d path.
         const dw = wrap_lon_delta({ d })
         const k = floor(d.sub(dw).div(360).add(0.5))
+        // #801: the k lobe-step must ride natural_earth's LATITUDE-varying period
+        // (2·NE_d(180,lat).x), not a constant k·2πR — else a seam-straddling tile's
+        // telescoped project_geom(v)−project_geom(SW) mis-scales on NE. Matches the
+        // GPU arm; label anchors call with ref_lon = anchor lon so k = 0 and the
+        // term vanishes (no whole-world jump near ±180).
+        const half_period = proj_natural_earth_d({ lon_rel: f32(180), lat_deg }).x
         const p = Var(proj_natural_earth_d({ lon_rel: dw, lat_deg }))
-        p.x.assign(p.x.add(k.mul(2).mul(PI).mul(EARTH_R)))
+        p.x.assign(p.x.add(k.mul(half_period).mul(2)))
         Return(p)
       })
     })
