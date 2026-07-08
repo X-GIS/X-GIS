@@ -27,7 +27,7 @@ import type { VectorTileRenderer } from './vector-tile-renderer'
 import type { ShowCommand } from './renderer-types'
 import { resolveNumberShape } from './paint-shape-resolve'
 import { resolveShow, type ResolvedShow } from './resolved-show'
-import { SAFE_MODE } from '@xgis/rhi-webgpu'
+import { isSafeMode } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { RenderTraceRecorder, RGBA } from '../diagnostics/render-trace'
 import type { FrameContext } from '@xgis/rhi-webgpu'
@@ -193,7 +193,7 @@ export interface ClassifierInput {
   cameraZoom: number
   elapsedMs: number
   rendererDefaults: ClassifierRendererDefaults
-  /** Optional override for SAFE_MODE — defaults to the env constant.
+  /** Optional override for the `?safe` boot flag — defaults to `isSafeMode()`.
    *  Tests use this to flip translucent-stroke detection on/off
    *  without touching the global. */
   safeMode?: boolean
@@ -233,7 +233,7 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
   const opaque: ClassifiedShow[] = []
   const translucent: ClassifiedShow[] = []
   const oit: ClassifiedShow[] = []
-  const safeMode = input.safeMode ?? SAFE_MODE
+  const safeMode = input.safeMode ?? isSafeMode()
   const defaults = input.rendererDefaults
 
   for (const entry of input.vectorTileShows) {

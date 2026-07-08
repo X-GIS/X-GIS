@@ -124,6 +124,15 @@ function clampMsaa(n: number): 1 | 2 | 4 {
   return 4
 }
 
+/** The raw `?safe=1` boot flag — distinct from the battery-preset ALIAS it also
+ *  triggers in `resolveQuality`. Renderers read it to disable the most invasive
+ *  recent code path (the translucent-line offscreen composite) for bisection.
+ *  Engine owns the parse so `@xgis/map` reads it from here (the single quality
+ *  authority) rather than reaching into a concrete backend package. */
+export function isSafeMode(): boolean {
+  return readURL()?.get('safe') === '1'
+}
+
 function resolveQuality(): QualityConfig {
   const params = readURL()
   if (!params) return { ...QUALITY_PRESETS.default }
