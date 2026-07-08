@@ -41,6 +41,7 @@ const tabs = [
 ---
 
 <ShaderDsl current="examples" hideSectionNav title={`X-GIS Shader DSL — ${card.title}`} description={card.blurb}>
+  <div class="max-w-[820px]">
   <a href={examplesHref} class="inline-flex items-center gap-1.5 text-[13px] text-fg-mute hover:text-fg transition-colors mb-6">
     <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
     Examples
@@ -51,7 +52,7 @@ const tabs = [
     <span class="font-mono text-[11px] text-fg-mute">{card.file}</span>
   </div>
   <h1 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em] text-[40px] sm:text-[52px] lg:text-[64px]">{card.title}</h1>
-  <p class="mt-4 text-[15.5px] sm:text-[16px] leading-[1.55] text-fg-dim max-w-[680px]">{card.blurb}</p>
+  <p class="mt-4 text-[15.5px] sm:text-[16px] leading-[1.55] text-fg-dim max-w-[820px]">{card.blurb}</p>
 
   {card.renderable && card.spec && (
     <section class="mt-7">
@@ -185,6 +186,7 @@ const tabs = [
       </a>
     )}
   </nav>
+  </div>
 </ShaderDsl>
 
 <script type="application/json" id="shader-spec" set:html={JSON.stringify(card.spec)}></script>
