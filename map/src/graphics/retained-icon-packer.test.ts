@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { lonLatToECEF } from '@xgis/engine'
+import { lonLatToECEF } from '@xgis/shared'
 import {
   packRetainedIconFeat,
   packRetainedIconTint,

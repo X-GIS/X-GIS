@@ -25,7 +25,7 @@ export const EXTRUDE_FALLBACK_HEIGHT_M = 50
 import earcut from 'earcut'
 import type { RingPolygon } from '@xgis/compiler'
 import { POLYGON_EXTRUDED_FORMAT, vertexField } from '@xgis/compiler'
-import { lonLatToECEF } from '@xgis/engine'
+import { lonLatToECEF } from '@xgis/shared'
 import { mercatorYToLatRad } from '@xgis/geo'
 import { EARTH } from '@xgis/shared'
 

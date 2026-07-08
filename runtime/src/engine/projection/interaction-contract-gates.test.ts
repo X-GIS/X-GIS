@@ -60,7 +60,7 @@ import { describe, it, expect } from 'vitest'
 import { getProjection, mercator, mercatorYToLat, type Projection } from '@xgis/geo'
 import { Camera } from '@xgis/map'
 import { globeForward, buildGlobeMatrix, unprojectGlobe } from '@xgis/geo'
-import { lonLatToECEF } from '@xgis/engine'
+import { lonLatToECEF } from '@xgis/shared'
 
 // ════════════════════════════════════════════════════════════════════════
 // G2 — CPU per-projType inverse round-trip (foundational; PASSES today).

@@ -16,7 +16,7 @@
 //
 // This module must NOT import camera.ts (no cycle); camera.ts imports it.
 
-import { lonLatToECEFSphere, ecefToENURotation, type ECEF } from '@xgis/engine'
+import { lonLatToECEFSphere, ecefToENURotation, type ECEF } from '@xgis/shared'
 import { WORLD_MERC, TILE_PX, buildGlobeMatrix, EARTH_R, mercatorYToLatRad } from '@xgis/geo'
 import { mul4, perspectiveMatrix } from '@xgis/shared'
 

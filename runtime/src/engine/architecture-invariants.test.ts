@@ -97,6 +97,40 @@ describe('arch ratchet: Gate-6 — @xgis/engine is content-blind (0 @xgis/map im
   })
 })
 
+// ── Gate 7: engine is GEO-FREE (#781 — the projection subtree left the engine) ──
+// The #781 epic ("the engine is NOT content-blind") moved the Camera cluster to
+// @xgis/map (3b), the projection library (projection / projections-table / globe /
+// world-scale) to the new @xgis/geo (3c), then dropped the ECEF re-export shim (3d).
+// The engine is now projection-free. This LOCKS 3a-3d: geo cannot creep back into
+// the content-blind core. @xgis/geo and @xgis/engine are siblings on @xgis/shared,
+// so the engine must never import geo (the mirror of Gate-6's engine→map lock).
+describe('arch ratchet: Gate-7 — @xgis/engine is geo-free (#781)', () => {
+  it('engine/src never imports @xgis/geo (static value/type OR dynamic import())', () => {
+    const re = /(?:from\s+|import\s*\(\s*)['"]@xgis\/geo(?:['"/]|$)/m
+    const offenders = walkTs(join(ROOT, 'engine/src'))
+      .filter((f) => re.test(readFileSync(f, 'utf8')))
+      .map(rel)
+    expect(
+      offenders,
+      `@xgis/engine must be geo-free (#781, Gate-7) — 0 @xgis/geo imports; geo and engine are siblings on @xgis/shared:\n${offenders.join('\n')}`,
+    ).toEqual([])
+  })
+
+  it('the engine/src/projection subtree is gone (moved to @xgis/geo + @xgis/map)', () => {
+    let exists = false
+    try {
+      statSync(join(ROOT, 'engine/src/projection'))
+      exists = true
+    } catch {
+      /* gone — the intended state */
+    }
+    expect(
+      exists,
+      'engine/src/projection/ must not exist — the projection library moved to @xgis/geo (3c), the camera cluster to @xgis/map (3b), and the ecef shim was dropped (3d)',
+    ).toBe(false)
+  })
+})
+
 // ── Gate 3: LOC ceilings (god-files shrink-only; no new god-files) ───
 // High-water marks measured 2026-06-09. LOWER these as files shrink.
 const LOC_CEILINGS: Record<string, number> = {

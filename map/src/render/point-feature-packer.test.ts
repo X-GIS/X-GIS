@@ -6,7 +6,7 @@
 // gate covers the full pipeline; this pins the CPU packing contract.
 
 import { describe, it, expect } from 'vitest'
-import { lonLatToECEF } from '@xgis/engine'
+import { lonLatToECEF } from '@xgis/shared'
 import {
   packPointInstances,
   POINT_FEAT_STRIDE,

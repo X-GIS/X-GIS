@@ -17,7 +17,7 @@
 // create/write; the packer only FILLS the pre-allocated typed arrays. This keeps
 // it clear of the #612 eager-reflect crash class (see point-renderer.ts header).
 
-import { lonLatToECEF } from '@xgis/engine'
+import { lonLatToECEF } from '@xgis/shared'
 import { EARTH } from '@xgis/shared'
 
 /** Per-feature `feat_data` stride in f32 slots. Mirrors point.ts STRIDE (24):

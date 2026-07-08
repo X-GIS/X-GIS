@@ -11,7 +11,7 @@ import {
   resolveSteppedShape,
 } from './render/paint-shape-resolve'
 import { hexToRgba } from './feature-helpers'
-import { lonLatToECEF } from '@xgis/engine'
+import { lonLatToECEF } from '@xgis/shared'
 import { EARTH_R } from '@xgis/geo'
 import { mercatorYToLat } from '@xgis/geo'
 import {

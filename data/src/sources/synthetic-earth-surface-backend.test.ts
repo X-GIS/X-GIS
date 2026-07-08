@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest'
 import { tileKey } from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from './synthetic-earth-surface-backend'
-import { lonLatToECEF, tileEcefCenterFromMerc } from '@xgis/engine'
+import { lonLatToECEF, tileEcefCenterFromMerc } from '@xgis/shared'
 import { TILE_LAYOUT_VERSION, type BackendTileResult, type TileSourceSink } from '../tile-source'
 
 // WGS84 semi-major axis — matches the tiler + the render-side `off`.

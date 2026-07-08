@@ -14,7 +14,7 @@ import {
 import { buildGeoJSONPolarCapShow, updateGeoJSONPolarCapShowFill } from '@xgis/map'
 import type { GeoJSONFeatureCollection } from '@xgis/data'
 import type { BackendTileResult, TileSourceSink } from '@xgis/data'
-import { lonLatToECEF, tileEcefCenterFromMerc } from '@xgis/engine'
+import { lonLatToECEF, tileEcefCenterFromMerc } from '@xgis/shared'
 import { tileKey } from '@xgis/compiler'
 
 const MERC_LAT_CLAMP = 85.051129
