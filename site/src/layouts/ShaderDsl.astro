@@ -10,7 +10,7 @@ import Footer from '../components/Footer.astro'
 interface Props {
   title?: string
   description?: string
-  /** Active page slug: '' (overview), 'getting-started', 'concepts', 'examples', 'reference'. */
+  /** Active page slug: '' (overview), 'getting-started', 'concepts', 'shipping', 'examples', 'reference'. */
   current: string
   /** Detail pages (an example) supply their own prev/next, so suppress the section one. */
   hideSectionNav?: boolean
@@ -29,6 +29,7 @@ const navGroups: NavGroup[] = [
     items: [
       { label: 'Getting started', slug: 'getting-started', href: `${root}/getting-started` },
       { label: 'Concepts',        slug: 'concepts',        href: `${root}/concepts` },
+      { label: 'Shipping',        slug: 'shipping',        href: `${root}/shipping` },
     ],
   },
   {

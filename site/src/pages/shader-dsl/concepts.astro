@@ -2,39 +2,12 @@
 import ShaderDsl from '../../layouts/ShaderDsl.astro'
 import { Code } from 'astro-expressive-code/components'
 import { shaderCards } from '../../lib/shader-examples.ts'
-import { examples } from '@xgis/shader-dsl/examples'
-import { emitGlslModule } from '@xgis/shader-dsl'
-import { inline, mangle, minify } from '@xgis/shader-dsl/emit-prod'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const root = `${base}/shader-dsl`
 
 // A concrete dual-backend contrast: the gradient example, emitted both ways from one module.
 const gradient = shaderCards.find((c) => c.id === 'gradient')!
-
-// Shipping demo — kaleidoscope has a real authored vocabulary (hash / noise /
-// fbm / palette), so the mangle+minify contrast is visible. Every combination
-// of the two plugins is emitted at BUILD time by the real emit; the client just
-// toggles which precomputed string is shown (the DSL never ships to the browser),
-// and the byte counts are measurements, not copy.
-const kal = examples.find((e) => e.id === 'kaleidoscope')!
-// All 2³ combinations of the three IR/text plugins, emitted at build time; the
-// key is the bit-string inline·mangle·minify. inline() flattens the call graph
-// entirely — hash/fbm/palette AND the multi-statement noise are all lifted into
-// the fragment body — so the three toggles compose visibly.
-const shipCombos = [false, true]
-  .flatMap((i) => [false, true].flatMap((m) => [false, true].map((n) => ({ i, m, n }))))
-  .map(({ i, m, n }) => {
-    const plugins = [...(i ? [inline()] : []), ...(m ? [mangle()] : []), ...(n ? [minify()] : [])]
-    const code = emitGlslModule(kal.module, 'fragment', { plugins })
-    const names = [i && 'inline()', m && 'mangle()', n && 'minify()'].filter(Boolean)
-    const label =
-      names.length === 0
-        ? "emitGlslModule(m, 'fragment')"
-        : `{ plugins: [${names.join(', ')}] }`
-    return { key: `${+i}${+m}${+n}`, i, m, n, code, bytes: code.length, label }
-  })
-const shipPlainBytes = shipCombos.find((c) => c.key === '000')!.bytes
 
 // Each body: a bold lead (the payoff) + one tight sentence. Ordered pitch-first
 // (IR, backends) then the supporting layers. Deep detail lives in the reference.
@@ -123,54 +96,7 @@ const sections = [
     </div>
   </section>
 
-  <section class="mt-20 pt-10 border-t border-line" id="shipping">
-    <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">Shipping shaders</h2>
-    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-[680px] mb-4">
-      <strong class="text-fg">Your bundler minifies every byte of JS — but never the shader text handed to
-      <code class="font-mono text-[13px]">gl.shaderSource</code>.</strong> Build-time plugins
-      (<code class="font-mono text-[13px] text-fg">@xgis/shader-dsl/emit-prod</code>) fix that, composed the Vite/Webpack way:
-      <code class="font-mono text-[13px] text-fg">emitModule(m, {'{ plugins: […] }'})</code>.
-    </p>
-    <ul class="text-[14px] leading-[1.55] text-fg-mute max-w-[680px] mb-3 space-y-1.5">
-      <li><strong class="text-fg font-mono text-[13px]">mangle</strong> — renames authored names (helpers, structs, consts → <code class="font-mono text-[13px]">_f0/_S0/_k0</code>).</li>
-      <li><strong class="text-fg font-mono text-[13px]">minify</strong> — strips whitespace and comments.</li>
-      <li><strong class="text-fg font-mono text-[13px]">inline</strong> — lifts every helper into its call sites, so the call graph disappears.</li>
-    </ul>
-    <p class="text-[13.5px] leading-[1.6] text-fg-mute max-w-[680px] mb-5">
-      The ABI boundary (entry points, binding names, UBO tags, struct fields) is never renamed, so reflection-driven hosts
-      bind unchanged. Toggle below — every combination is emitted at build time, so the DSL never ships to the browser.
-      <a href={`${root}/reference`} class="text-accent hover:text-accent-hover transition-colors">Reference →</a>
-    </p>
-
-    <div
-      id="ship-demo"
-      data-plain-bytes={String(shipPlainBytes)}
-      class="rounded-[10px] border border-line overflow-hidden"
-    >
-      <div class="flex flex-wrap items-center gap-x-5 gap-y-3 px-4 py-3 border-b border-line bg-bg-card">
-        {['inline', 'mangle', 'minify'].map((name) => (
-          <label class="inline-flex items-center gap-2 cursor-pointer select-none">
-            <input type="checkbox" data-ship-toggle={name} class="peer sr-only" />
-            <span class="w-9 h-5 rounded-full bg-line-strong peer-checked:bg-accent transition-colors relative after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4"></span>
-            <span class="font-mono text-[12.5px] text-fg">{name}()</span>
-          </label>
-        ))}
-        <span class="ml-auto flex items-center gap-3">
-          <code data-ship-call class="font-mono text-[11.5px] text-fg-mute hidden md:inline">{shipCombos[0].label}</code>
-          <span data-ship-badge class="font-mono text-[12px] text-fg tabular-nums">{shipPlainBytes.toLocaleString()} B</span>
-        </span>
-      </div>
-      <div class="sd-code">
-        {shipCombos.map((c) => (
-          <div data-ship-panel={c.key} data-bytes={String(c.bytes)} data-label={c.label} hidden={c.key !== '000'}>
-            <Code code={c.code} lang="glsl" wrap={c.n} />
-          </div>
-        ))}
-      </div>
-    </div>
-  </section>
-
-  <div class="mt-12 rounded-[8px] border border-line p-5 bg-bg-card">
+  <div class="mt-16 rounded-[8px] border border-line p-5 bg-bg-card">
     <p class="text-[14px] leading-[1.6] text-fg-dim">
       Each <a href={`${root}/examples`} class="text-accent hover:text-accent-hover transition-colors">example</a>
       shows these concepts end to end: the DSL source, the emitted WGSL and GLSL, and the reflection JSON —
@@ -196,32 +122,4 @@ const sections = [
       })
     }),
   )
-
-  // Shipping demo — toggle the inline/mangle/minify plugins and show the
-  // matching build-time-emitted string, with a live (growth-aware) byte badge.
-  const demo = document.getElementById('ship-demo')
-  if (demo) {
-    const plainBytes = Number(demo.dataset.plainBytes)
-    const toggles = Array.from(demo.querySelectorAll<HTMLInputElement>('[data-ship-toggle]'))
-    const panels = Array.from(demo.querySelectorAll<HTMLElement>('[data-ship-panel]'))
-    const badge = demo.querySelector<HTMLElement>('[data-ship-badge]')!
-    const call = demo.querySelector<HTMLElement>('[data-ship-call]')
-    const bit = (name: string) =>
-      toggles.find((t) => t.dataset.shipToggle === name)?.checked ? '1' : '0'
-    const fmt = (n: number) => n.toLocaleString()
-    const sync = () => {
-      const key = `${bit('inline')}${bit('mangle')}${bit('minify')}`
-      const active = panels.find((p) => p.dataset.shipPanel === key)!
-      panels.forEach((p) => { p.hidden = p !== active })
-      const bytes = Number(active.dataset.bytes)
-      // inline() can GROW the pre-minify text (it duplicates helper bodies), so
-      // the badge shows a signed delta rather than assuming a shrink.
-      const pct = Math.round((Math.abs(bytes - plainBytes) / plainBytes) * 100)
-      const sign = bytes <= plainBytes ? '−' : '+'
-      badge.textContent =
-        bytes === plainBytes ? `${fmt(bytes)} B` : `${fmt(plainBytes)} B → ${fmt(bytes)} B (${sign}${pct}%)`
-      if (call) call.textContent = active.dataset.label ?? ''
-    }
-    toggles.forEach((t) => t.addEventListener('change', sync))
-  }
 </script>
