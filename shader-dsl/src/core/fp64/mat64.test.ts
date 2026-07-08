@@ -10,7 +10,6 @@ import { describe, it, expect } from 'vitest'
 import {
   fn,
   module,
-  f32T,
   mat2f64T,
   mat3f64T,
   vec2f64T,
