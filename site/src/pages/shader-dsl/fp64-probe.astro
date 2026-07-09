@@ -210,6 +210,13 @@ const tests: Test[] = [
   mk('dg_launder', () => toF32(U.field.val.x.add(toF64(S())).sub(toF64(S())).sub(toF64(B()))), 0.5), // launder uniform lo (+.5−.5) → sub — the FIX test
   mk('dg_launder0', () => toF32(U.field.val.x.add(toF64(f32(0))).sub(toF64(B()))), 0.5), // launder via +0 (does the guard block the x+0→x fold?)
   mk('dg_mul_lnd', () => toF32(toF64(B()).mul(U.field.factor.x.add(toF64(S())).sub(toF64(S()))).sub(toF64(B()))), 0.5), // launder uniform factor → mul (FIX test, mul side)
+  // Round 2: laundering the factor didn't fix mul, but the wrong point was
+  // laundered — the collapse is likely the mul's OUTPUT (1e8+0.5, also hi≫lo)
+  // losing its lo before the sub. Launder the PRODUCT instead. If these pass, the
+  // unifying cause is "hi≫lo df64 needs a guard-renorm right before a cancelling
+  // op", and the fix (in fp64Lower) renorms sub operands AND mul outputs.
+  mk('dg_mulout', () => toF32(toF64(B()).mul(U.field.factor.x).add(toF64(S())).sub(toF64(S())).sub(toF64(B()))), 0.5), // launder the PRODUCT (+.5−.5) → sub
+  mk('dg_mulout0', () => toF32(toF64(B()).mul(U.field.factor.x).add(toF64(f32(0))).sub(toF64(B()))), 0.5), // launder the product via +0
 ]
 
 // Host-side packed inputs. df64: lossless double → (hi, lo) f32 pair.
