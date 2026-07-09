@@ -759,6 +759,12 @@ export const unpack4x8unorm = (v: ReadonlyNode<'u32'>): Node<'vec4<f32>'> =>
  *  WGSL and `floatBitsToUint(x)` on GLSL — no WGSL generic syntax in the IR. */
 export const bitcastU32 = (v: ReadonlyNode<'f32'>): Node<'u32'> =>
   call('bitcastU32', u32T, v) as Node<'u32'>
+/** Reinterpret a u32's bit pattern as f32 — the inverse of {@link bitcastU32}.
+ *  The registry spells it `bitcast<f32>(x)` on WGSL and `uintBitsToFloat(x)` on
+ *  GLSL. An f32→u32→f32 round-trip is a fast-math optimization barrier (the
+ *  integer domain is not subject to float reassociation/contraction). */
+export const bitcastF32 = (v: ReadonlyNode<'u32'>): Node<'f32'> =>
+  call('bitcastF32', f32T, v) as Node<'f32'>
 /** Sample a 2D texture → vec4<f32>. (CPU eval: opt-in stub.) First-arg
  *  constraints (#763 X6): a texture/sampler swap used to type-check and die
  *  at naga — KeyOf now carries specific texture/sampler keys. */
