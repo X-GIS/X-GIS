@@ -75,6 +75,7 @@ vec2 df64_sub(vec2 a, vec2 b) {
 vec2 df64_mul(vec2 a, vec2 b) {
   vec2 _v0 = df64_twoProd(a.x, b.x);
   _v0.y = (_v0.y + (a.x * b.y));
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y);
   _v0.y = (_v0.y + (a.y * b.x));
   return df64_quickTwoSum(_v0.x, _v0.y);
 }

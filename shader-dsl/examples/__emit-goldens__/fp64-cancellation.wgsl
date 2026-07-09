@@ -123,6 +123,7 @@ fn df64_sub(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
 fn df64_mul(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
   var _v0: vec2<f32> = df64_twoProd(a.x, b.x);
   _v0.y = (_v0.y + (a.x * b.y));
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y);
   _v0.y = (_v0.y + (a.y * b.x));
   return df64_quickTwoSum(_v0.x, _v0.y);
 }
