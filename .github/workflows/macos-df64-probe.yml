@@ -28,8 +28,13 @@ jobs:
 
       - run: bun install
 
+      # Install from playground/ too — bunx from repo root fetches a DIFFERENT
+      # playwright version and installs a browser build the runner's
+      # @playwright/test@1.60 can't find ("Executable doesn't exist …
+      # chromium_headless_shell-1223"). From playground the pinned version
+      # installs the matching chromium + headless-shell.
       - name: Install Playwright Chromium
-        run: bunx playwright install chromium
+        run: cd playground && bunx playwright install chromium
 
       - name: Serve site (astro dev) in the background
         run: |
