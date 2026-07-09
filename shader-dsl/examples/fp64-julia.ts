@@ -161,8 +161,8 @@ export const fp64Julia: ShaderExample = {
     zoom_exp: {
       kind: 'slider',
       label: 'Zoom 10^-x',
-      min: 1,
-      max: 14,
+      min: 0,
+      max: 16,
       step: 0.05,
       value: 7,
       wheel: true,

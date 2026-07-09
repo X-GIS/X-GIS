@@ -144,8 +144,8 @@ export const fp64Loran: ShaderExample = {
     zoom_exp: {
       kind: 'slider',
       label: 'Zoom 10^-x',
-      min: -2.4,
-      max: 0.8,
+      min: -3.0,
+      max: 3.0,
       step: 0.05,
       value: -1.6,
       wheel: true,
