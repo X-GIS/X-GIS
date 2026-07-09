@@ -1,0 +1,56 @@
+name: df64 Apple Probe (macOS Metal)
+
+# Runs the shader-dsl df64 conformance probe on a GitHub-hosted Apple-Silicon
+# runner (macos-14 = M-series, real Apple GPU + Metal). The df64 collapse is a
+# Metal shader-compiler fast-math property shared across Apple GPUs, so this
+# reproduces the iPhone/A-series behaviour in CI — no manual device paste.
+#
+# Spike: whether headless Chromium enumerates the Metal WebGPU adapter in the CI
+# sandbox is the open question this job answers. The digest (printed + uploaded)
+# carries the adapter string and every per-op result; dg_mb_base MUST collapse
+# (→0) for the runner to be a faithful Apple oracle.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['ci/macos-df64-probe']
+
+jobs:
+  probe:
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install
+
+      - name: Install Playwright Chromium
+        run: bunx playwright install chromium
+
+      - name: Serve site (astro dev) in the background
+        run: |
+          bun run dev:site > /tmp/site.log 2>&1 &
+          for i in $(seq 1 90); do
+            grep -q "ready in" /tmp/site.log && break
+            sleep 2
+          done
+          echo "----- site.log -----"
+          cat /tmp/site.log
+
+      - name: Run df64 probe on Metal
+        run: bunx playwright test --config playground/_macos-probe/pw.config.ts
+
+      - name: Print digest
+        if: always()
+        run: cat playground/_macos-probe/df64-digest.txt || echo "NO DIGEST PRODUCED"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: df64-digest
+          path: playground/_macos-probe/df64-digest.txt
+          if-no-files-found: warn

@@ -1,0 +1,17 @@
+{
+  // Typed-lint resolution surface for the macOS df64 probe (config + spec).
+  // playground/tsconfig.json includes only src/, so without this the TS project
+  // service — which discovers projects by walking tsconfig.json files — cannot
+  // resolve these files and typed ESLint (pre-commit) fails to parse them.
+  // Playwright transpiles at run time; this project is noEmit only. Same pattern
+  // as playground/e2e/tsconfig.json.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "declaration": false,
+    "sourceMap": false,
+    "types": ["node"]
+  },
+  "include": ["**/*.ts"]
+}
