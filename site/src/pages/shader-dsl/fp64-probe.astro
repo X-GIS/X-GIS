@@ -304,6 +304,29 @@ const tests: Test[] = [
   mk('dg_mb_fma', () => gfBattery((a, b) => fma(a, b, f32(0))), 0.5), // fma cross (refuted on Apple → -1.5; kept as control)
   mk('dg_mb_fmib', () => gfBattery((a, b) => bc(fma(a, b, f32(0)))), 0.5), // fma + int barrier (belt & suspenders)
   mk('dg_mb_ieft', () => gfBattery((a, b) => imul(a, b)), 0.5), // INTEGER-EFT cross: product assembled in the int domain (opaque to float reassoc)
+  // ── isolation: dg_mb_ieft (-1.5 on Apple) int-ized ONLY the cross; the
+  // `big·fHi − big` cancellation stayed FLOAT. Split the variable: ──
+  //  dg_imul  — pure integer product, NO float cancellation. PASS ⇒ integer
+  //             values survive on Apple (the wrapper is the culprit, not imul).
+  //  dg_iboth — BOTH products via imul, only the sub/add stay float. PASS ⇒
+  //             making every product integer defeats the `big·(fHi+fLo)` factor;
+  //             FAIL ⇒ the float SUBTRACT itself needs to go integer too.
+  mk(
+    'dg_imul',
+    () => {
+      const bp = Let(f64Parts(U.field.factor.x))
+      return imul(B(), bp.y) // 1e8 · 5e-9 = 0.5, entirely integer-assembled
+    },
+    0.5,
+  ),
+  mk(
+    'dg_iboth',
+    () => {
+      const bp = Let(f64Parts(U.field.factor.x))
+      return imul(B(), bp.x).sub(B()).add(imul(B(), bp.y)) // (int big·fHi − big) + int big·fLo
+    },
+    0.5,
+  ),
   // fma-fusion probe: does THIS GPU fuse WGSL fma()? fmv = 1 + 2^-12; fmv² has a
   // 2^-24 tail below f32 ulp(1) = 2^-23, so the rounded product fmp drops it.
   // fma(fmv, fmv, -fmp) recovers that tail ONLY under a genuine single-rounding
