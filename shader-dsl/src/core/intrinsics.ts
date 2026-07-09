@@ -72,6 +72,13 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     wgsl: (a) => `bitcast<u32>(${join(a)})`,
     glsl: (a) => `floatBitsToUint(${join(a)})`,
   },
+  // bitcast<f32>(u) on WGSL; uintBitsToFloat(u) on GLSL. Inverse of bitcastU32 —
+  // an f32↔u32 round-trip is a fast-math optimization barrier (the integer domain
+  // is not subject to float reassociation/contraction).
+  bitcastF32: {
+    wgsl: (a) => `bitcast<f32>(${join(a)})`,
+    glsl: (a) => `uintBitsToFloat(${join(a)})`,
+  },
   // GLSL texelFetch's lod/sample arg is `int` (WGSL passes a u32 level) → wrap the
   // 3rd arg in int(); GLSL has no implicit u32→int here. (2-arg form passes through.)
   textureLoad: {

@@ -245,6 +245,11 @@ const BUILTINS: Record<string, Builtin> = {
     _bitcastView.setFloat32(0, Math.fround(x as number), true)
     return _bitcastView.getUint32(0, true)
   },
+  // u32 bit-pattern reinterpreted as f32 (WGSL bitcast<f32> / GLSL uintBitsToFloat).
+  bitcastF32: (x) => {
+    _bitcastView.setUint32(0, (x as number) >>> 0, true)
+    return _bitcastView.getFloat32(0, true)
+  },
   // pack a vec4<f32> (each in [0,1]) into u32 RGBA8; component 0 → low byte.
   pack4x8unorm: (v) => {
     const a = v as number[]

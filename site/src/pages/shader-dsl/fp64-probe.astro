@@ -44,6 +44,10 @@ import {
   vec4fT,
   u32T,
   vec2f64T,
+  f64Parts,
+  f64GuardOne,
+  bitcastU32,
+  bitcastF32,
   emitModule,
   emitGlslModule,
   reflect,
@@ -143,6 +147,52 @@ const B = () => U.field.big
 const S = () => U.field.small
 const R = () => U.field.root
 
+// ── mul-family battery ──────────────────────────────────────────────────────
+// The adversarial `1e8·(1+ε) − 1e8` collapses to 0 on Apple: the driver's
+// fast-math folds the df64 (hi, lo) pair to a single f32 before the cancellation,
+// deleting the cross term 1e8·ε. Neither the `·one` cross-term guard (#917) nor
+// luma.gl's per-cross-term renorm (#919) stopped it. This reimplements df64_mul
+// FAITHFULLY (same twoProd/quickTwoSum/`one`-guard structure) but with the cross
+// term computed by an injectable strategy, to empirically find one whose result
+// survives on-device. `f` is a f32 node factory; G() is the opaque texel `one`.
+type FN = ReturnType<typeof f32>
+const G = () => f64GuardOne()
+const split = (a: FN): [FN, FN] => {
+  const t = Let(a.mul(G().mul(4097)))
+  const hi = Let(t.mul(G()).sub(t.sub(a)))
+  const lo = Let(a.mul(G()).sub(hi))
+  return [hi, lo]
+}
+const twoProd = (a: FN, b: FN): [FN, FN] => {
+  const p = Let(a.mul(b))
+  const [aHi, aLo] = split(a)
+  const [bHi, bLo] = split(b)
+  const e = Let(aHi.mul(bHi).sub(p).add(aHi.mul(bLo)).add(aLo.mul(bHi)).add(aLo.mul(bLo)))
+  return [p, e]
+}
+const qSum = (a: FN, b: FN): [FN, FN] => {
+  const s = Let(a.add(b).mul(G()))
+  const e = Let(b.sub(s.sub(a).mul(G())))
+  return [s, e]
+}
+// A cross-term strategy: given (aHi, bLo) produce aHi·bLo (the term the driver
+// deletes). The variants differ only here.
+type Cross = (aHi: FN, bLo: FN) => FN
+// An opaque 0u the compiler cannot fold: bits(one) − bits(1.0), where `one` is the
+// opaque texel so the equality bits(one)==0x3f800000 is unprovable at compile time.
+const opaqueZeroU = () => bitcastU32(G()).sub(u32(0x3f800000))
+const dmul = (aHi: FN, aLo: FN, bHi: FN, bLo: FN, cross: Cross): [FN, FN] => {
+  const [pHi, pE] = twoProd(aHi, bHi)
+  const [r1Hi, r1E] = qSum(pHi, Let(pE.add(cross(aHi, bLo))))
+  return qSum(r1Hi, Let(r1E.add(aLo.mul(bHi))))
+}
+// Test: dmul(1e8, factor) then (hi − 1e8) + lo → 0.5. factor = (1, 5e-9) loaded.
+const mulBattery = (cross: Cross): FN => {
+  const bp = Let(f64Parts(U.field.factor.x))
+  const [rHi, rLo] = dmul(B(), f32(0), bp.x, bp.y, cross)
+  return rHi.sub(B()).add(rLo)
+}
+
 // CPU f64 oracle (JS number == f64) for the composed loran chain.
 const d1 = Math.hypot(OBS[0] - ST_A[0], OBS[1] - ST_A[1])
 const d2 = Math.hypot(OBS[0] - ST_B[0], OBS[1] - ST_B[1])
@@ -224,6 +274,13 @@ const tests: Test[] = [
   // op", and the fix (in fp64Lower) renorms sub operands AND mul outputs.
   mk('dg_mulout', () => toF32(toF64(B()).mul(U.field.factor.x).add(toF64(S())).sub(toF64(S())).sub(toF64(B()))), 0.5), // launder the PRODUCT (+.5−.5) → sub
   mk('dg_mulout0', () => toF32(toF64(B()).mul(U.field.factor.x).add(toF64(f32(0))).sub(toF64(B()))), 0.5), // launder the product via +0
+  // Round 3 — mul-family battery (faithful df64_mul, injectable cross term). All
+  // target 0.5. dg_mb_base must FAIL(→0) to prove the harness reproduces; a
+  // variant that reads 0.5 is a candidate fix for the real df64_mul.
+  mk('dg_mb_base', () => mulBattery((a, b) => a.mul(b)), 0.5), // plain aHi·bLo (reproduction check)
+  mk('dg_mb_ibc', () => mulBattery((a, b) => bitcastF32(bitcastU32(a.mul(b)))), 0.5), // f32↔u32 round-trip barrier
+  mk('dg_mb_ibo', () => mulBattery((a, b) => bitcastF32(bitcastU32(a.mul(b)).add(opaqueZeroU()))), 0.5), // opaque integer barrier
+  mk('dg_mb_cf', () => mulBattery((a, b) => a.mul(G()).mul(b)), 0.5), // guard the common factor aHi in the cross term
 ]
 
 // Host-side packed inputs. df64: lossless double → (hi, lo) f32 pair.
