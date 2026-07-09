@@ -27,23 +27,24 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs_loran(vo: VsOut) -> @location(0) vec4<f32> {
-  let _cse13 = vec2<f32>(12000000.0, 0.0);
-  let _cse14 = vec2<f32>(34000000.0, 0.0);
-  let _cse15 = vec2<f32>(19000000.0, 0.0);
-  let _cse16 = vec2<f32>(26000000.0, 0.0);
-  let _cse11 = DF64Vec2(vec2<f32>(_cse13.x, _cse14.x), vec2<f32>(_cse13.y, _cse14.y));
-  let _cse12 = DF64Vec2(vec2<f32>(_cse15.x, _cse16.x), vec2<f32>(_cse15.y, _cse16.y));
-  let _cse7 = _cse11.hi;
-  let _cse8 = _cse11.lo;
-  let _cse9 = _cse12.hi;
-  let _cse10 = _cse12.lo;
+  let _cse14 = vec2<f32>(12000000.0, 0.0);
+  let _cse15 = vec2<f32>(34000000.0, 0.0);
+  let _cse16 = vec2<f32>(19000000.0, 0.0);
+  let _cse17 = vec2<f32>(26000000.0, 0.0);
+  let _cse12 = DF64Vec2(vec2<f32>(_cse14.x, _cse15.x), vec2<f32>(_cse14.y, _cse15.y));
+  let _cse13 = DF64Vec2(vec2<f32>(_cse16.x, _cse17.x), vec2<f32>(_cse16.y, _cse17.y));
+  let _cse8 = _cse12.hi;
+  let _cse9 = _cse12.lo;
+  let _cse10 = _cse13.hi;
+  let _cse11 = _cse13.lo;
   let _cse0 = (vo.uv.x < 0.5);
   let _cse1 = vec2<f32>(u.center.hi.x, u.center.lo.x);
   let _cse2 = vec2<f32>(u.center.hi.y, u.center.lo.y);
-  let _cse3 = vec2<f32>(_cse7.x, _cse8.x);
-  let _cse4 = vec2<f32>(_cse7.y, _cse8.y);
-  let _cse5 = vec2<f32>(_cse9.x, _cse10.x);
-  let _cse6 = vec2<f32>(_cse9.y, _cse10.y);
+  let _cse3 = vec2<f32>(_cse8.x, _cse9.x);
+  let _cse4 = vec2<f32>(_cse8.y, _cse9.y);
+  let _cse5 = vec2<f32>(_cse10.x, _cse11.x);
+  let _cse6 = vec2<f32>(_cse10.y, _cse11.y);
+  let _cse7 = vec2<f32>(0.0, 0.0);
   let _v0 = pow(10.0, (-u.zoom_exp));
   let _v1 = (vo.uv.x * 2.0);
   let _v2 = (_v1 - select(1.0, 0.0, _cse0));
@@ -59,7 +60,7 @@ fn fs_loran(vo: VsOut) -> @location(0) vec4<f32> {
   let _lc4 = df64_sub(vec2<f32>(_v6.hi.x, _v6.lo.x), _cse5);
   let _lc5 = df64_sub(vec2<f32>(_v6.hi.y, _v6.lo.y), _cse6);
   let _v8 = df64_sqrt(df64_add(df64_mul(_lc4, _lc4), df64_mul(_lc5, _lc5)));
-  let _v9 = df64_narrow(df64_fract(df64_mul(df64_sub(_v7, _v8), vec2<f32>(0.25, 0.0))));
+  let _v9 = df64_narrow(df64_fract(df64_mul(df64_sub(df64_add(_v7, _cse7), df64_add(_v8, _cse7)), vec2<f32>(0.25, 0.0))));
   let _v10 = df64_narrow(df64_fract(df64_mul(df64_add(_v7, _v8), vec2<f32>(0.0625, 0.0))));
   let _v11 = vec2<f32>((df64_narrow(_cse1) + _v3), (df64_narrow(_cse2) + _v4));
   let _v12 = length((_v11 - vec2<f32>(12000000.0, 34000000.0)));

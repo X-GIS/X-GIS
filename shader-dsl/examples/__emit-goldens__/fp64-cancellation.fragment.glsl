@@ -82,9 +82,10 @@ layout(location = 0) out vec4 _ret;
 vec4 fs_cancel_impl(VsOut vo) {
   bool _cse0 = (vo.uv.x < 0.5);
   vec2 _cse1 = vec2(1.0, 0.0);
-  vec2 _cse2 = vec2(7.0, 0.0);
-  vec2 _cse3 = vec2(21.0, 0.0);
-  vec2 _cse4 = vec2(35.0, 0.0);
+  vec2 _cse2 = vec2(0.0, 0.0);
+  vec2 _cse3 = vec2(7.0, 0.0);
+  vec2 _cse4 = vec2(21.0, 0.0);
+  vec2 _cse5 = vec2(35.0, 0.0);
   float _v0 = u.half_width;
   float _v1 = (vo.uv.x * 2.0);
   float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
@@ -97,7 +98,7 @@ vec4 fs_cancel_impl(VsOut vo) {
   vec2 _v9 = df64_mul(_v8, _v5);
   vec2 _v10 = df64_mul(_v7, _v7);
   vec2 _v11 = df64_mul(_v10, _v5);
-  float _v12 = df64_narrow(df64_sub(df64_add(df64_sub(df64_add(df64_sub(df64_add(df64_sub(_v11, df64_mul(_v10, _cse2)), df64_mul(_v9, _cse3)), df64_mul(_v8, _cse4)), df64_mul(_v7, _cse4)), df64_mul(_v6, _cse3)), df64_mul(_v5, _cse2)), _cse1));
+  float _v12 = df64_narrow(df64_sub(df64_add(df64_sub(df64_add(df64_sub(df64_add(df64_sub(df64_add(_v11, _cse2), df64_mul(_v10, _cse3)), df64_mul(_v9, _cse4)), df64_mul(_v8, _cse5)), df64_mul(_v7, _cse5)), df64_mul(_v6, _cse4)), df64_mul(_v5, _cse3)), df64_add(_cse1, _cse2)));
   float _v13 = (1.0 + _v3);
   float _v14 = (_v13 * _v13);
   float _v15 = (_v14 * _v13);

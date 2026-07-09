@@ -28,10 +28,11 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn fs_newton(vo: VsOut) -> @location(0) vec4<f32> {
   let _licm0 = vec2<f32>(2.0, 0.0);
+  let _licm1 = vec2<f32>(0.0, 0.0);
   let _cse0 = (vo.uv.x < 0.5);
   let _cse1 = vec2<f32>(u.center.hi.x, u.center.lo.x);
   let _cse2 = vec2<f32>(u.center.hi.y, u.center.lo.y);
-  let _cse3 = vec2<f32>(1.0, 0.0);
+  let _cse3 = df64_add(vec2<f32>(1.0, 0.0), _licm1);
   let _cse4 = vec2<f32>(3.0, 0.0);
   let _v0 = pow(10.0, (-u.zoom_exp));
   let _v1 = (vo.uv.x * 2.0);
@@ -75,8 +76,8 @@ fn fs_newton(vo: VsOut) -> @location(0) vec4<f32> {
       let _v29 = df64_div(_cse3, df64_add(df64_mul(_v27, _v27), df64_mul(_v28, _v28)));
       let _v30 = df64_mul(df64_add(df64_mul(_v25, _v27), df64_mul(_v26, _v28)), _v29);
       let _v31 = df64_mul(df64_sub(df64_mul(_v26, _v27), df64_mul(_v25, _v28)), _v29);
-      _v20 = df64_sub(_v20, _v30);
-      _v21 = df64_sub(_v21, _v31);
+      _v20 = df64_sub(df64_add(_v20, _licm1), df64_add(_v30, _licm1));
+      _v21 = df64_sub(df64_add(_v21, _licm1), df64_add(_v31, _licm1));
       if ((df64_narrow(df64_add(df64_mul(_v30, _v30), df64_mul(_v31, _v31))) > 1e-14)) {
         _v7 = (_v7 + 1.0);
       }
