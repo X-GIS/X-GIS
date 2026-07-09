@@ -179,6 +179,39 @@ const gfBattery = (cross: Cross): FN => {
   return p.sub(B()).add(cross(B(), bp.y)) // (1e8 − 1e8) + cross(big, factorLo)
 }
 
+// Integer-EFT multiply (positive normals): a·b assembled from the IEEE-754 bit
+// pattern via u32 arithmetic — mantissa split 24 = 12+12, 48-bit product in two
+// 24-bit limbs, normalize + assemble. Round-toward-zero (exact for the probe
+// input: big·factorLo = 0.5, low product bits are 0). The point: the result NEVER
+// exists as the float product `big·bp.y`, so Metal cannot factor it into the
+// `big·(bp.x + bp.y)` reassociation that collapses every float barrier. If Apple
+// reads 0.5 HERE where dg_mb_base reads 0, an integer-domain fp64 lowering is the fix.
+const imul = (a: FN, b: FN): FN => {
+  const ua = Let(bitcastU32(a))
+  const ub = Let(bitcastU32(b))
+  const ma = Let(ua.bitAnd(0x7fffff).bitOr(0x800000)) // 24-bit mantissa (implicit 1)
+  const mb = Let(ub.bitAnd(0x7fffff).bitOr(0x800000))
+  const ea = Let(ua.shr(23).bitAnd(0xff)) // biased exponents
+  const eb = Let(ub.shr(23).bitAnd(0xff))
+  const aH = Let(ma.shr(12))
+  const aL = Let(ma.bitAnd(0xfff))
+  const bH = Let(mb.shr(12))
+  const bL = Let(mb.bitAnd(0xfff))
+  const c0 = Let(aL.mul(bL)) // bits 0..23
+  const c1 = Let(aH.mul(bL).add(aL.mul(bH))) // bits 12..36
+  const c2 = Let(aH.mul(bH)) // bits 24..47
+  const ploRaw = Let(c0.add(c1.bitAnd(0xfff).shl(12)))
+  const carry = Let(ploRaw.shr(24))
+  const plo = Let(ploRaw.bitAnd(0xffffff)) // low 24 bits of the product
+  const phi = Let(c2.add(c1.shr(12)).add(carry)) // high 24 bits (∈ [2^22, 2^24))
+  const hiTop = Let(phi.shr(23)) // 1 if product ≥ 2^47, else 0
+  // normalize to a 24-bit mantissa with the leading 1 at bit 23
+  const mres = Let(hiTop.mul(phi).add(hiTop.bitXor(1).mul(phi.shl(1).bitOr(plo.shr(23)))))
+  const s = Let(hiTop.mul(24).add(hiTop.bitXor(1).mul(23)))
+  const eres = Let(ea.add(eb).add(s).sub(150)) // biased result exponent
+  return bitcastF32(mres.bitAnd(0x7fffff).bitOr(eres.shl(23)))
+}
+
 // CPU f64 oracle (JS number == f64) for the composed loran chain.
 const d1 = Math.hypot(OBS[0] - ST_A[0], OBS[1] - ST_A[1])
 const d2 = Math.hypot(OBS[0] - ST_B[0], OBS[1] - ST_B[1])
@@ -270,6 +303,7 @@ const tests: Test[] = [
   mk('dg_mb_ibo', () => gfBattery((a, b) => bc(a).mul(bc(b))), 0.5), // barrier the OPERANDS before the multiply
   mk('dg_mb_fma', () => gfBattery((a, b) => fma(a, b, f32(0))), 0.5), // fma cross (refuted on Apple → -1.5; kept as control)
   mk('dg_mb_fmib', () => gfBattery((a, b) => bc(fma(a, b, f32(0)))), 0.5), // fma + int barrier (belt & suspenders)
+  mk('dg_mb_ieft', () => gfBattery((a, b) => imul(a, b)), 0.5), // INTEGER-EFT cross: product assembled in the int domain (opaque to float reassoc)
   // fma-fusion probe: does THIS GPU fuse WGSL fma()? fmv = 1 + 2^-12; fmv² has a
   // 2^-24 tail below f32 ulp(1) = 2^-23, so the rounded product fmp drops it.
   // fma(fmv, fmv, -fmp) recovers that tail ONLY under a genuine single-rounding
