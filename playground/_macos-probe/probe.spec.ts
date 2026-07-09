@@ -1,12 +1,17 @@
 import { test, expect } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 
-// Fast, hang-proof diagnostic. The page can HANG on headless Metal (runWebGPU
-// awaits requestAdapter with no timeout → Promise.all never settles). So probe
-// capabilities DIRECTLY with short timeouts and write a digest within ~60s,
-// regardless of whether the page's own run completes.
-test.setTimeout(90_000)
-test('df64 probe on macOS Metal', async ({ page }) => {
+// WebGL2-only Apple oracle. Rationale: on Apple the df64 collapse is a METAL
+// shader-compiler property, and the device pastes show WebGL2 == WebGPU on
+// every op (both funnel through Metal). WebGL2 is also the STRICTER gate (GLSL
+// ES 3.00 has no fma) and the only backend headless macOS Chromium runs
+// reliably — headless WebGPU can hang requestAdapter, which is why waiting on
+// the page's copy button (enabled only after BOTH backends settle) timed out.
+// So: wait for the WEBGL2 COLUMN to fully resolve (it fills independently of
+// the WebGPU run), scrape it, and emit the digest. A time-boxed WebGPU
+// capability check is kept purely as diagnostics.
+test.setTimeout(180_000)
+test('df64 probe on macOS Metal (WebGL2 gate)', async ({ page }) => {
   const errs: string[] = []
   page.on('console', (m) => {
     if (m.type() === 'error') errs.push(m.text())
@@ -15,7 +20,7 @@ test('df64 probe on macOS Metal', async ({ page }) => {
 
   await page.goto('/shader-dsl/fp64-probe', { waitUntil: 'domcontentloaded' })
 
-  // ── capability check FIRST (time-boxed, cannot hang the test) ──
+  // ── diagnostics: is WebGPU even available headless? (time-boxed, can't hang) ──
   const cap = await page.evaluate(async () => {
     const race = <T>(p: Promise<T>, ms: number) =>
       Promise.race<T | 'TIMEOUT'>([p, new Promise<'TIMEOUT'>((r) => setTimeout(() => r('TIMEOUT'), ms))])
@@ -24,8 +29,8 @@ test('df64 probe on macOS Metal', async ({ page }) => {
       const g: any = (navigator as any).gpu
       if (!g) gpu = 'no navigator.gpu'
       else {
-        const a: any = await race(g.requestAdapter(), 10000)
-        gpu = a === 'TIMEOUT' ? 'requestAdapter HUNG >10s' : a ? 'adapter ' + JSON.stringify(a.info || {}) : 'adapter null'
+        const a: any = await race(g.requestAdapter(), 8000)
+        gpu = a === 'TIMEOUT' ? 'requestAdapter HUNG >8s' : a ? 'adapter ' + JSON.stringify(a.info || {}) : 'adapter null'
       }
     } catch (e) {
       gpu = 'gpu threw ' + String(e)
@@ -39,19 +44,19 @@ test('df64 probe on macOS Metal', async ({ page }) => {
     return { gpu, gl, ua: navigator.userAgent }
   })
 
-  // ── best-effort: give the page's own run a short window, then scrape ──
-  let completed = false
+  // ── the actual gate: WebGL2 column fully resolved (no [data-gl] spinner) ──
+  let glDone = false
   try {
     await page.waitForFunction(
       () => {
-        const b = document.querySelector('#probe-copy')
-        return !!b && !b.classList.contains('pointer-events-none')
+        const cells = [...document.querySelectorAll('[data-gl]')]
+        return cells.length > 0 && cells.every((c) => !c.querySelector('.animate-spin'))
       },
-      { timeout: 45_000 },
+      { timeout: 120_000 },
     )
-    completed = true
+    glDone = true
   } catch {
-    completed = false
+    glDone = false
   }
 
   const scrape = await page.evaluate(() => {
@@ -61,29 +66,27 @@ test('df64 probe on macOS Metal', async ({ page }) => {
       const gpu = (r.querySelector(`[data-gpu="${name}"]`) as HTMLElement)?.innerText.replace(/\s+/g, ' ').trim()
       return { name, gl, gpu }
     })
-    const spinners = document.querySelectorAll('.animate-spin').length
     const summary = (document.querySelector('#probe-summary') as HTMLElement)?.innerText.replace(/\s+/g, ' ').trim()
-    return { rows, spinners, summary, total: rows.length }
+    return { rows, summary, total: rows.length }
   })
 
   const val = (n: string) => {
     const r = scrape.rows.find((x) => x.name === n)
-    return r ? `gl=${r.gl} gpu=${r.gpu}` : 'MISSING'
+    return r ? `gl=${r.gl}` : 'MISSING'
   }
   const digest = [
-    'df64 macOS Metal probe',
-    `  gpuCheck: ${cap.gpu}`,
-    `  glCheck:  ${cap.gl}`,
-    `  page completed: ${completed}   spinners-pending: ${scrape.spinners}   rows: ${scrape.total}`,
+    'df64 macOS Metal probe (WebGL2 gate)',
+    `  glColumnDone: ${glDone}`,
+    `  gpuCheck (diag): ${cap.gpu}`,
+    `  glCheck: ${cap.gl}`,
     `  UA: ${cap.ua}`,
     `  summary: ${scrape.summary}`,
     `  consoleErrors: ${errs.length}`,
     '',
-    `  base : ${val('dg_mb_base')}`,
+    `  base : ${val('dg_mb_base')}     <- must COLLAPSE for a faithful Apple oracle`,
     `  imul : ${val('dg_imul')}`,
     `  iboth: ${val('dg_iboth')}`,
     `  ieft : ${val('dg_mb_ieft')}`,
-    `  fma_fused: ${val('dg_fma_fused')}`,
     `  mul  : ${val('mul')}   div: ${val('div')}`,
     '',
     ...scrape.rows.map((r) => `  ${r.name.padEnd(12)} gl=${(r.gl ?? '').padEnd(18)} gpu=${r.gpu ?? ''}`),
@@ -94,5 +97,5 @@ test('df64 probe on macOS Metal', async ({ page }) => {
 
   writeFileSync('_macos-probe/df64-digest.txt', digest) // cwd = playground/
   console.log('\n' + digest + '\n')
-  expect(scrape.total).toBeGreaterThan(0)
+  expect(glDone).toBe(true)
 })
