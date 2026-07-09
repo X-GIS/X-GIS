@@ -26,6 +26,8 @@ export interface RenderSpec {
   id: string
   vertex: string
   fragment: string
+  /** The single WGSL module (both entry points) — the WebGPU backend path. */
+  wgsl: string
   reflection: ReturnType<typeof reflect>
   controls: Record<string, Control>
 }
@@ -78,6 +80,7 @@ export const shaderCards: ShaderCard[] = examples.map((ex) => {
           id: ex.id,
           vertex: glslVertex!,
           fragment: glslFragment!,
+          wgsl: emitModule(ex.module),
           reflection: reflect(ex.module),
           controls: ex.controls ?? {},
         }

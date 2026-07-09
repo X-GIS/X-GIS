@@ -177,7 +177,7 @@ export const fp64MandelbrotDe: ShaderExample = {
       min: 1,
       max: 13,
       step: 0.05,
-      value: 9,
+      value: 5,
       wheel: true,
     },
     fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },

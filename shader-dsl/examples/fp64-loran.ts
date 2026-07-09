@@ -40,14 +40,9 @@ import {
 import { VsOut, vs } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
 
-// Master / secondary stations and the default observer, all ~10⁷ world units
-// out (ulp_f32(2.3e7) = 2 — coarser than a whole hyperbolic band).
-const ST_A_X = 1.2e7
-const ST_A_Y = 3.4e7
-const ST_B_X = 1.9e7
-const ST_B_Y = 2.6e7
-const OBS_X = 2.31e7 + 0.13
-const OBS_Y = 3.07e7 + 0.57
+// The observer and both stations are host-supplied df64 uniforms swept out
+// from the origin together via the DISTANCE slider (see controls below), so
+// there are no hard-coded station coordinates any more — only the band pitches.
 const LAMBDA_H = 4 // hyperbolic band spacing (world units of d₁−d₂)
 const LAMBDA_E = 16 // elliptic band spacing (world units of d₁+d₂)
 
@@ -55,7 +50,9 @@ const U = uniformStruct(
   'Uniforms',
   { group: 0, binding: 0, as: 'u' },
   {
-    center: vec2f64T, // one DF64Vec2 slot — host packs [hi.x, hi.y, lo.x, lo.y]
+    center: vec2f64T, // observer — one DF64Vec2 slot [hi.x, hi.y, lo.x, lo.y]
+    st_a: vec2f64T, // master station (swept with the observer via the DISTANCE slider)
+    st_b: vec2f64T, // secondary station
     resolution: vec2fT,
     zoom_exp: f32T, // view span = 10^-zoom_exp world units (negative = zoom out)
     fp64: f32T, // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
@@ -78,15 +75,15 @@ const fsLoran = fn(
     // f64 chain — vec64 distance accumulates through the scalar df64 chain,
     // the subtraction cancels EXACTLY, and only the band phase narrows.
     const pos = Let(vec2f64(U.field.center.x.add(toF64(dx)), U.field.center.y.add(toF64(dy))))
-    const d1 = Let(distance(pos, vec2f64(ST_A_X, ST_A_Y)))
-    const d2 = Let(distance(pos, vec2f64(ST_B_X, ST_B_Y)))
+    const d1 = Let(distance(pos, U.field.st_a))
+    const d2 = Let(distance(pos, U.field.st_b))
     const th64 = Let(toF32(fract(d1.sub(d2).mul(1 / LAMBDA_H))))
     const te64 = Let(toF32(fract(d1.add(d2).mul(1 / LAMBDA_E))))
-    // f32 twin — SAME formulas, everything narrowed first: d₁, d₂ quantize to
-    // ~2-unit ulps and the band phase is garbage at any zoom.
+    // f32 twin — SAME formulas, everything narrowed first: once the coordinate
+    // ulp exceeds a band, d₁, d₂ quantize and the band phase becomes garbage.
     const pos32 = Let(vec2(toF32(U.field.center.x).add(dx), toF32(U.field.center.y).add(dy)))
-    const d1f = Let(length(pos32.sub(vec2(ST_A_X, ST_A_Y))))
-    const d2f = Let(length(pos32.sub(vec2(ST_B_X, ST_B_Y))))
+    const d1f = Let(length(pos32.sub(vec2(toF32(U.field.st_a.x), toF32(U.field.st_a.y)))))
+    const d2f = Let(length(pos32.sub(vec2(toF32(U.field.st_b.x), toF32(U.field.st_b.y)))))
     const th32 = Let(fract(d1f.sub(d2f).mul(1 / LAMBDA_H)))
     const te32 = Let(fract(d1f.add(d2f).mul(1 / LAMBDA_E)))
 
@@ -124,32 +121,30 @@ export const fp64Loran: ShaderExample = {
   id: 'fp64-loran',
   title: 'fp64 hyperbolic navigation',
   blurb:
-    'A LORAN-style chart grid: cyan hyperbolae of constant d₁−d₂ to two stations 10⁷ units away, amber ellipses of constant d₁+d₂. The signal is the DIFFERENCE of two nearly-equal distances followed by fract() — catastrophic cancellation plus phase recovery, both beyond f32 at this coordinate scale. The vec64 distance reduction keeps the right half a clean chart while the plain-f32 left half is quantized garbage at every zoom. Drag to pan, wheel to zoom, flip the fp64 toggle to compare.',
+    'A LORAN-style chart grid: cyan hyperbolae of constant d₁−d₂ to two stations, amber ellipses of constant d₁+d₂. The signal is the DIFFERENCE of two nearly-equal distances followed by fract() — catastrophic cancellation plus phase recovery. Drag the DISTANCE slider to push the whole station triangle out from the origin: near 10⁶ both halves are a clean chart, but past ~10⁷·² the coordinate ulp grows wider than a band, d₁ and d₂ quantize, and the plain-f32 left half dissolves into blocky garbage — while the vec64 distance reduction keeps the right half sharp to 10⁹. Wheel drives the distance; flip the fp64 toggle to compare.',
   category: 'cartographic',
   file: 'fp64-loran.ts',
   module: fp64LoranModule,
   renderable: true,
   splitLabels: ['f32', 'f64 (emulated)'],
   controls: {
-    center: {
-      kind: 'pan2d',
-      value: [OBS_X, OBS_Y],
-      zoomExpField: 'zoom_exp',
-      unitsPerWidth: 2,
-    },
+    // Observer and both stations sweep together: coord = base·10^mag (+offset for
+    // the observer's sub-unit detail). At mag = 7 this is the classic ~10⁷ view.
+    center: { kind: 'logmag2d', magField: 'mag', base: [2.31, 3.07], offset: [0.13, 0.57] },
+    st_a: { kind: 'logmag2d', magField: 'mag', base: [1.2, 3.4], offset: [0, 0] },
+    st_b: { kind: 'logmag2d', magField: 'mag', base: [1.9, 2.6], offset: [0, 0] },
     resolution: { kind: 'resolution' },
-    // 10^1.6 ≈ 40 world units (≈ 10 hyperbolic bands) across each half by
-    // default; zooming out packs more bands in, zooming in past exp ≈ 0.8
-    // leaves less than one band.
-    zoom_exp: {
+    mag: {
       kind: 'slider',
-      label: 'Zoom 10^-x',
-      min: -2.4,
-      max: 0.8,
-      step: 0.05,
-      value: -1.6,
+      label: 'Distance from origin 10^x',
+      min: 4,
+      max: 9,
+      step: 0.02,
+      value: 6,
       wheel: true,
     },
+    // View span across each half (10^-zoom_exp world units ≈ number of bands).
+    zoom_exp: { kind: 'slider', label: 'Zoom 10^-x', min: -3.0, max: 3.0, step: 0.05, value: -1.6 },
     fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },
   },
 }

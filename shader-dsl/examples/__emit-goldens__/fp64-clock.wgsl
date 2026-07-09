@@ -1,6 +1,7 @@
 struct Uniforms {
   time: f32,
   resolution: vec2<f32>,
+  epoch: vec2<f32>,
   speed: f32,
   fp64: f32,
 }
@@ -24,8 +25,8 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 fn fs_clock(vo: VsOut) -> @location(0) vec4<f32> {
   let _cse0 = (vo.uv.x < 0.5);
   let _cse1 = vec2<f32>((U.resolution.x * 0.5), U.resolution.y);
-  let _v0 = df64_narrow(df64_fract(df64_mul(df64_add(vec2<f32>(100000000.0, 0.12299999594688416), vec2<f32>(U.time, 0.0)), vec2<f32>(U.speed, 0.0))));
-  let _v1 = fract(((100000000.123 + U.time) * U.speed));
+  let _v0 = df64_narrow(df64_fract(df64_mul(df64_add(U.epoch, vec2<f32>(U.time, 0.0)), vec2<f32>(U.speed, 0.0))));
+  let _v1 = fract(((df64_narrow(U.epoch) + U.time) * U.speed));
   let _v2 = (_cse0 || (U.fp64 < 0.5));
   let _v3 = select(_v0, _v1, _v2);
   let _v4 = (vo.uv.x * 2.0);

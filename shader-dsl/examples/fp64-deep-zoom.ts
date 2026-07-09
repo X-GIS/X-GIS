@@ -33,13 +33,8 @@ import {
   builtin,
   location,
   uniformStruct,
-  splitF64,
 } from '../src/index.ts'
 import type { ShaderExample } from './_shared.ts'
-
-// A world origin deep enough that f32 cannot represent sub-integer offsets
-// (ulp(1e8) = 8), with a fractional part the stripes must recover.
-const ORIGIN = 1e8 + 0.3
 
 const U = uniformStruct(
   'Uniforms',
@@ -103,15 +98,25 @@ export const fp64DeepZoom: ShaderExample = {
   id: 'fp64-deep-zoom',
   title: 'fp64 deep zoom',
   blurb:
-    'Emulated double precision (two-f32 df64): a world coordinate near 1e8 renders as fract() stripes — plain f32 (left) collapses flat, the f64 type (right) keeps them, with identical authoring syntax. Flip the fp64 toggle off to watch the right half collapse too. The auto-injected _fp64 guard uniform must be set to 1.0.',
+    'Emulated double precision (two-f32 df64): a world coordinate rendered as fract() stripes. Drag the DISTANCE slider out from the origin — near 10⁶ both halves stripe cleanly, but past ~10⁷·² one f32 ulp swallows a whole stripe and the plain-f32 left half collapses flat, while the f64 right half keeps the stripes to 10⁹, identical authoring syntax. Flip the fp64 toggle off to watch the right half collapse too. The auto-injected _fp64 guard uniform must be set to 1.0.',
   category: 'cartographic',
   file: 'fp64-deep-zoom.ts',
   module: fp64DeepZoomModule,
   renderable: true,
   splitLabels: ['f32', 'f64 (emulated)'],
   controls: {
-    origin: { kind: 'const', value: [...splitF64(ORIGIN)] },
-    span: { kind: 'slider', label: 'World span', min: 1, max: 8, step: 0.5, value: 4, wheel: true },
+    // Sweep the coordinate's distance from the origin through the f32 threshold.
+    origin: { kind: 'logmag1d', magField: 'mag', base: 1, offset: 0.3 },
+    mag: {
+      kind: 'slider',
+      label: 'Distance from origin 10^x',
+      min: 4,
+      max: 9,
+      step: 0.02,
+      value: 6,
+      wheel: true,
+    },
+    span: { kind: 'slider', label: 'World span', min: 1, max: 8, step: 0.5, value: 4 },
     fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },
   },
 }

@@ -61,10 +61,14 @@ const tabs = [
     <section class="mt-7">
       <div data-shader-frame class="relative rounded-[8px] overflow-hidden bg-bg-elev border border-line" style="aspect-ratio: 16 / 10;">
         <canvas data-shader={card.id} class="block w-full h-full" style="touch-action: none;"></canvas>
-        <span class="absolute top-3 left-3 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-bg/80 backdrop-blur border border-line text-fg-dim text-[10px] font-mono tracking-[0.16em] uppercase pointer-events-none">
-          <span class="w-1.5 h-1.5 rounded-full bg-fg inline-block animate-pulse"></span>
-          Live · WebGL2
-        </span>
+        <div class="absolute top-3 left-3 inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded-full bg-bg/80 backdrop-blur border border-line text-[10px] font-mono tracking-[0.14em] uppercase">
+          <span class="w-1.5 h-1.5 rounded-full bg-fg inline-block animate-pulse" data-live-dot></span>
+          <span class="text-fg-mute">Live</span>
+          <span role="group" aria-label="Backend" class="inline-flex rounded-full overflow-hidden border border-line">
+            <button type="button" data-backend="webgl2" aria-pressed="true" class="backend-btn px-1.5 py-0.5 transition-colors">WebGL2</button>
+            <button type="button" data-backend="webgpu" aria-pressed="false" class="backend-btn px-1.5 py-0.5 transition-colors border-l border-line" hidden>WebGPU</button>
+          </span>
+        </div>
         {hasMouse && (
           <span class="absolute top-3 right-3 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-bg/80 backdrop-blur border border-line text-fg-dim text-[10px] font-mono tracking-[0.16em] uppercase pointer-events-none">
             <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4l7 17 2.5-7.5L21 11z"/></svg>
@@ -204,7 +208,14 @@ const tabs = [
 <script type="application/json" id="shader-spec" set:html={JSON.stringify(card.spec)}></script>
 
 <script>
-  import { mountShader, type RenderSpec } from '../../../lib/shader-playground'
+  import {
+    mountShader,
+    mountShaderWebGPU,
+    webgpuAvailable,
+    type RenderSpec,
+    type Backend,
+    type Mounted,
+  } from '../../../lib/shader-playground'
 
   const tablist = document.querySelector<HTMLElement>('[data-tabs]')
   if (tablist) {
@@ -264,107 +275,157 @@ const tabs = [
         sliders[field] = input.checked ? 1 : 0
       })
     })
-    try {
-      const mounted = mountShader(canvas, spec, sliders)
 
-      // Wheel-zoomable sliders ({kind:'slider', wheel:true}): wheel over the
-      // canvas drives the same input the slider UI owns, so the readout, the
-      // live-values record, and reset all stay coherent.
-      for (const [field, c] of Object.entries(spec.controls)) {
-        if (c.kind !== 'slider' || !c.wheel) continue
+    const overlay = document.querySelector<HTMLElement>('[data-error]')
+    const transport = document.querySelector<HTMLElement>('[data-transport]')
+    const liveDot = document.querySelector<HTMLElement>('[data-live-dot]')
+    const backendBtns = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-backend]'))
+
+    // A canvas is bound to ONE context type for its lifetime — switching WebGL2 ⟷
+    // WebGPU needs a fresh element. Clone (attributes only, no context) and swap it
+    // into the DOM; the new canvas re-receives the pointer/pan/wheel listeners.
+    let canvasEl = canvas
+    const attachWheel = (c: HTMLCanvasElement): void => {
+      for (const [field, ctl] of Object.entries(spec.controls)) {
+        if (ctl.kind !== 'slider' || !ctl.wheel) continue
         const input = sliderInputs.find((i) => i.dataset.field === field)
         if (!input) continue
-        canvas.addEventListener(
+        c.addEventListener(
           'wheel',
           (e) => {
             e.preventDefault()
             const cur = parseFloat(input.value)
-            // ~4 steps per wheel notch, clamped to the slider's range.
-            const next = Math.min(c.max, Math.max(c.min, cur - Math.sign(e.deltaY) * c.step * 4))
+            const next = Math.min(ctl.max, Math.max(ctl.min, cur - Math.sign(e.deltaY) * ctl.step * 4))
             input.value = String(next)
             input.dispatchEvent(new Event('input'))
           },
           { passive: false },
         )
       }
+    }
 
-      // ── Transport chrome: play/pause · scrub · speed · reset · fullscreen ──
-      const playBtn = document.querySelector<HTMLButtonElement>('[data-play]')
-      const iconPlay = document.querySelector<SVGElement>('[data-icon-play]')
-      const iconPause = document.querySelector<SVGElement>('[data-icon-pause]')
-      const scrub = document.querySelector<HTMLInputElement>('[data-scrub]')
-      const clock = document.querySelector<HTMLElement>('[data-clock]')
-      const speedBtns = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-speed]'))
-      const resetBtn = document.querySelector<HTMLButtonElement>('[data-reset]')
-      const fsBtn = document.querySelector<HTMLButtonElement>('[data-fullscreen]')
-      const frame = document.querySelector<HTMLElement>('[data-shader-frame]')
+    // ── Transport chrome (wired once; call through the live `mounted` ref) ──
+    const playBtn = document.querySelector<HTMLButtonElement>('[data-play]')
+    const iconPlay = document.querySelector<SVGElement>('[data-icon-play]')
+    const iconPause = document.querySelector<SVGElement>('[data-icon-pause]')
+    const scrub = document.querySelector<HTMLInputElement>('[data-scrub]')
+    const clock = document.querySelector<HTMLElement>('[data-clock]')
+    const speedBtns = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-speed]'))
+    const resetBtn = document.querySelector<HTMLButtonElement>('[data-reset]')
+    const fsBtn = document.querySelector<HTMLButtonElement>('[data-fullscreen]')
+    const frameEl = document.querySelector<HTMLElement>('[data-shader-frame]')
+    const SCRUB_SPAN = 30
 
-      const SCRUB_SPAN = 30 // seconds mapped across the scrub bar
-      const reflectPlaying = (): void => {
-        const p = mounted.isPlaying()
-        if (iconPlay) iconPlay.style.display = p ? 'none' : ''
-        if (iconPause) iconPause.style.display = p ? '' : 'none'
-        playBtn?.setAttribute('aria-label', p ? 'Pause' : 'Play')
-      }
-      playBtn?.addEventListener('click', () => {
-        mounted.setPlaying(!mounted.isPlaying())
-        reflectPlaying()
-      })
-      let scrubbing = false
-      scrub?.addEventListener('pointerdown', () => {
-        scrubbing = true
-      })
-      scrub?.addEventListener('pointerup', () => {
-        scrubbing = false
-      })
-      scrub?.addEventListener('input', () => {
-        mounted.setTime(parseFloat(scrub.value))
-      })
-      speedBtns.forEach((b) =>
-        b.addEventListener('click', () => {
-          mounted.setSpeed(parseFloat(b.dataset.speed!))
-          speedBtns.forEach((o) => {
-            const on = o === b
-            o.setAttribute('aria-pressed', String(on))
-            o.classList.toggle('border-line-strong', on)
-            o.classList.toggle('text-fg', on)
-            o.classList.toggle('border-line', !on)
-            o.classList.toggle('text-fg-mute', !on)
-          })
-        }),
-      )
-      resetBtn?.addEventListener('click', () => {
-        mounted.setTime(0)
-        mounted.resetCamera()
-        sliderInputs.forEach((input) => {
-          input.value = input.defaultValue
-          input.dispatchEvent(new Event('input'))
-        })
-        toggleInputs.forEach((input) => {
-          input.checked = input.defaultChecked
-          input.dispatchEvent(new Event('change'))
-        })
-      })
-      fsBtn?.addEventListener('click', () => {
-        if (document.fullscreenElement) void document.exitFullscreen()
-        else void frame?.requestFullscreen()
-      })
-      // The clock readout + scrub thumb follow the shader clock while playing.
-      const tick = (): void => {
-        requestAnimationFrame(tick)
-        const t = mounted.getTime()
-        if (clock) clock.textContent = `${t.toFixed(1)}s`
-        if (scrub && !scrubbing) scrub.value = String(t % SCRUB_SPAN)
-      }
-      requestAnimationFrame(tick)
+    let mounted: Mounted | null = null
+    const reflectPlaying = (): void => {
+      const p = mounted?.isPlaying() ?? true
+      if (iconPlay) iconPlay.style.display = p ? 'none' : ''
+      if (iconPause) iconPause.style.display = p ? '' : 'none'
+      playBtn?.setAttribute('aria-label', p ? 'Pause' : 'Play')
+    }
+    playBtn?.addEventListener('click', () => {
+      if (!mounted) return
+      mounted.setPlaying(!mounted.isPlaying())
       reflectPlaying()
-    } catch (err) {
-      const overlay = document.querySelector<HTMLElement>('[data-error]')
+    })
+    let scrubbing = false
+    scrub?.addEventListener('pointerdown', () => (scrubbing = true))
+    scrub?.addEventListener('pointerup', () => (scrubbing = false))
+    scrub?.addEventListener('input', () => mounted?.setTime(parseFloat(scrub.value)))
+    speedBtns.forEach((b) =>
+      b.addEventListener('click', () => {
+        mounted?.setSpeed(parseFloat(b.dataset.speed!))
+        speedBtns.forEach((o) => {
+          const on = o === b
+          o.setAttribute('aria-pressed', String(on))
+          o.classList.toggle('border-line-strong', on)
+          o.classList.toggle('text-fg', on)
+          o.classList.toggle('border-line', !on)
+          o.classList.toggle('text-fg-mute', !on)
+        })
+      }),
+    )
+    resetBtn?.addEventListener('click', () => {
+      mounted?.setTime(0)
+      mounted?.resetCamera()
+      sliderInputs.forEach((input) => {
+        input.value = input.defaultValue
+        input.dispatchEvent(new Event('input'))
+      })
+      toggleInputs.forEach((input) => {
+        input.checked = input.defaultChecked
+        input.dispatchEvent(new Event('change'))
+      })
+    })
+    fsBtn?.addEventListener('click', () => {
+      if (document.fullscreenElement) void document.exitFullscreen()
+      else void frameEl?.requestFullscreen()
+    })
+    const tick = (): void => {
+      requestAnimationFrame(tick)
+      const t = mounted?.getTime() ?? 0
+      if (clock) clock.textContent = `${t.toFixed(1)}s`
+      if (scrub && !scrubbing) scrub.value = String(t % SCRUB_SPAN)
+    }
+    requestAnimationFrame(tick)
+
+    // ── Backend mount / switch ──
+    let backend: Backend = 'webgl2'
+    const setBackendUI = (b: Backend): void => {
+      backendBtns.forEach((btn) => {
+        const on = btn.dataset.backend === b
+        btn.setAttribute('aria-pressed', String(on))
+        btn.classList.toggle('text-fg', on)
+        btn.classList.toggle('bg-accent/20', on)
+        btn.classList.toggle('text-fg-mute', !on)
+      })
+    }
+    const showError = (msg: string): void => {
       if (overlay) {
-        overlay.textContent = err instanceof Error ? err.message : 'Failed to render this shader.'
+        overlay.textContent = msg
         overlay.hidden = false
       }
-      document.querySelector<HTMLElement>('[data-transport]')?.setAttribute('hidden', '')
+      transport?.setAttribute('hidden', '')
+      liveDot?.classList.remove('animate-pulse')
     }
+    let switching = false
+    const mount = async (b: Backend): Promise<void> => {
+      if (switching) return
+      switching = true
+      backend = b
+      setBackendUI(b)
+      mounted?.destroy()
+      mounted = null
+      if (overlay) overlay.hidden = true
+      transport?.removeAttribute('hidden')
+      // Fresh canvas (context type is fixed for a canvas's lifetime).
+      const fresh = canvasEl.cloneNode(false) as HTMLCanvasElement
+      canvasEl.replaceWith(fresh)
+      canvasEl = fresh
+      attachWheel(fresh)
+      try {
+        mounted =
+          b === 'webgpu'
+            ? await mountShaderWebGPU(fresh, spec, sliders)
+            : mountShader(fresh, spec, sliders)
+        liveDot?.classList.add('animate-pulse')
+        reflectPlaying()
+      } catch (err) {
+        showError(err instanceof Error ? err.message : 'Failed to render this shader.')
+      } finally {
+        switching = false
+      }
+    }
+    backendBtns.forEach((btn) =>
+      btn.addEventListener('click', () => {
+        const b = btn.dataset.backend as Backend
+        if (b !== backend) void mount(b)
+      }),
+    )
+    // Reveal the WebGPU option only where an adapter is actually reachable.
+    void webgpuAvailable().then((ok) => {
+      if (ok) backendBtns.find((b) => b.dataset.backend === 'webgpu')?.removeAttribute('hidden')
+    })
+    void mount('webgl2')
   }
 </script>

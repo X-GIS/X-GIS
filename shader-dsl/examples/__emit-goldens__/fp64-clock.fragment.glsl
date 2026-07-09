@@ -9,6 +9,7 @@ struct VsOut {
 layout(std140) uniform Uniforms {
   float time;
   vec2 resolution;
+  vec2 epoch;
   float speed;
   float fp64;
 } U;
@@ -95,8 +96,8 @@ layout(location = 0) out vec4 _ret;
 vec4 fs_clock_impl(VsOut vo) {
   bool _cse0 = (vo.uv.x < 0.5);
   vec2 _cse1 = vec2((U.resolution.x * 0.5), U.resolution.y);
-  float _v0 = df64_narrow(df64_fract(df64_mul(df64_add(vec2(100000000.0, 0.12299999594688416), vec2(U.time, 0.0)), vec2(U.speed, 0.0))));
-  float _v1 = fract(((100000000.123 + U.time) * U.speed));
+  float _v0 = df64_narrow(df64_fract(df64_mul(df64_add(U.epoch, vec2(U.time, 0.0)), vec2(U.speed, 0.0))));
+  float _v1 = fract(((df64_narrow(U.epoch) + U.time) * U.speed));
   bool _v2 = (_cse0 || (U.fp64 < 0.5));
   float _v3 = (_v2 ? _v1 : _v0);
   float _v4 = (vo.uv.x * 2.0);

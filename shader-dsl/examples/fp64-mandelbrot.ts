@@ -247,10 +247,10 @@ export const fp64Mandelbrot: ShaderExample = {
     zoom_exp: {
       kind: 'slider',
       label: 'Zoom 10^-x',
-      min: 1,
-      max: 14,
+      min: 0,
+      max: 16,
       step: 0.05,
-      value: 7,
+      value: 4,
       wheel: true,
     },
     fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },

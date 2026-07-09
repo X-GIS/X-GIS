@@ -8,6 +8,10 @@ series: { name: 'Emulating f64 in shaders', order: 6 }
 draft: false
 ---
 
+:::note
+**Update:** the fix below did *not* survive on-device — the intermediate renormalize left the adversarial multiply reading `0` on Apple silicon, same as before. It turns out no in-shader guard does; see [Part 7 — the multiply you cannot guard](/blog/2026-07-09-the-multiply-you-cannot-guard) for the verdict and the restructure that actually works. The reading below — that the shipped code carries a load-bearing renormalize the paper omits — still holds; it just isn't sufficient against Metal's default fast-math.
+:::
+
 On an iPhone, the per-op df64 probe drew a clean line. `add` read `0.5000`. `sub`, `neg`, `abs`, `fract`, every comparison — all `0.5000`, all PASS. `mul` read **exactly `0.0000`**. So did `vec_mul`, and `div` (whose Newton step multiplies). The emulated add and the emulated multiply are the same double-float algorithm family, built from the same `twoSum` / `twoProd` / `quickTwoSum` primitives, guarded by the same runtime-opaque texel. One held its low word; the other deleted it.
 
 Two more facts framed it. First, the collapse was identical on WebGL2 and WebGPU — because Safari compiles *both* to Metal, so both inherit Metal's default fast-math. (On a Windows NVIDIA box the same probe splits: WebGPU via Dawn/D3D12 passes, WebGL2 via ANGLE/`fxc` fails — different compiler, different answer, same GPU.) Second, the multiply read `0.0`, not a small wrong number. `1e8 · 5e-9 = 0.5` is an exactly-representable f32 product; a merely lossy multiply lands near `0.5`. An exact `0` is a **deleted** term.

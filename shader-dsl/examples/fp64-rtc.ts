@@ -22,7 +22,6 @@ import {
   vec3,
   vec4,
   f32,
-  f64,
   pow,
   fract,
   abs,
@@ -43,20 +42,12 @@ import {
 import { VsOut, vs } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
 
-// The marker's world position — the fractional offsets (3.7, 2.3) are exactly
-// what f32 cannot see at this magnitude (ulp = 8).
-const MARK_X = 1e8 + 3.7
-const MARK_Y = 5e7 + 2.3
-// Default camera: on round numbers so ALL error on the left half comes from
-// the narrowed marker + per-pixel world reconstruction.
-const EYE_X = 1e8
-const EYE_Y = 5e7
-
 const U = uniformStruct(
   'Uniforms',
   { group: 0, binding: 0, as: 'u' },
   {
     center: vec2f64T, // camera/eye — one DF64Vec2 slot [hi.x, hi.y, lo.x, lo.y]
+    mark: vec2f64T, // marker world position (eye + a few fractional units)
     resolution: vec2fT,
     zoom_exp: f32T, // view span = 10^-zoom_exp world units (negative = zoom out)
     fp64: f32T, // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
@@ -79,12 +70,12 @@ const fsRtc = fn(
     // f64 path — subtract FIRST (df64, exact by Sterbenz-style cancellation),
     // narrow the small result after. The pixel's world position is
     // eye + offset; delta = (eye + offset) − marker.
-    const ex64 = Let(toF32(U.field.center.x.add(toF64(dx)).sub(f64(MARK_X))))
-    const ey64 = Let(toF32(U.field.center.y.add(toF64(dy)).sub(f64(MARK_Y))))
-    // f32 twin — narrow FIRST, subtract after: both operands live on the
-    // 8-unit ulp grid of 10⁸, so the delta is quantized to 8-unit steps.
-    const ex32 = Let(toF32(U.field.center.x).add(dx).sub(f32(MARK_X)))
-    const ey32 = Let(toF32(U.field.center.y).add(dy).sub(f32(MARK_Y)))
+    const ex64 = Let(toF32(U.field.center.x.add(toF64(dx)).sub(U.field.mark.x)))
+    const ey64 = Let(toF32(U.field.center.y.add(toF64(dy)).sub(U.field.mark.y)))
+    // f32 twin — narrow FIRST, subtract after: at 10⁸ both operands live on the
+    // 8-unit ulp grid, so the delta quantizes to 8-unit steps.
+    const ex32 = Let(toF32(U.field.center.x).add(dx).sub(toF32(U.field.mark.x)))
+    const ey32 = Let(toF32(U.field.center.y).add(dy).sub(toF32(U.field.mark.y)))
     const ex = Let(isF32.select(ex32, ex64))
     const ey = Let(isF32.select(ey32, ey64))
 
@@ -126,31 +117,30 @@ export const fp64Rtc: ShaderExample = {
   id: 'fp64-rtc',
   title: 'fp64 relative-to-center',
   blurb:
-    'Why planet-scale engines render relative-to-eye: a reticle marks a survey point at world (10⁸+3.7, 5·10⁷+2.3). The f64 right half subtracts eye from marker in extended precision FIRST and narrows the small delta — crisp rings, dead centre. The f32 left half narrows first: both operands land on the 8-unit ulp grid of 10⁸, the delta quantizes, and the reticle sits off-target and snaps in 8-unit jumps as you drag. Wheel to zoom, flip the fp64 toggle to compare.',
+    'Why planet-scale engines render relative-to-eye: a reticle marks a survey point a few fractional units from the eye. Drag the DISTANCE slider out from the origin — near 10⁶ both halves put the reticle dead centre, but past ~10⁷·² the eye and marker land on the same f32 ulp grid, their difference quantizes, and the f32 left half snaps the reticle off-target in whole-ulp jumps. The f64 right half subtracts eye from marker in extended precision FIRST, then narrows the small delta — crisp to 10⁹. Wheel drives the distance; flip the fp64 toggle to compare.',
   category: 'cartographic',
   file: 'fp64-rtc.ts',
   module: fp64RtcModule,
   renderable: true,
   splitLabels: ['f32', 'f64 (emulated)'],
   controls: {
-    center: {
-      kind: 'pan2d',
-      value: [EYE_X, EYE_Y],
-      zoomExpField: 'zoom_exp',
-      unitsPerWidth: 2,
-    },
+    // Eye and marker sweep together: eye = 10^mag, marker = eye + (3.7, 2.3).
+    // At mag = 8 this is the classic (10⁸, 5·10⁷) view; the fractional (3.7, 2.3)
+    // is exactly what f32 loses once one ulp grows past it.
+    center: { kind: 'logmag2d', magField: 'mag', base: [1, 0.5], offset: [0, 0] },
+    mark: { kind: 'logmag2d', magField: 'mag', base: [1, 0.5], offset: [3.7, 2.3] },
     resolution: { kind: 'resolution' },
-    // Span ~24 world units by default; df64 keeps sub-ulp deltas at 10⁸ down
-    // to spans of ~1e-5 (exp ≈ 5), where the emulation floor appears.
-    zoom_exp: {
+    mag: {
       kind: 'slider',
-      label: 'Zoom 10^-x',
-      min: -2,
-      max: 5,
-      step: 0.05,
-      value: -1.4,
+      label: 'Distance from origin 10^x',
+      min: 4,
+      max: 9,
+      step: 0.02,
+      value: 6,
       wheel: true,
     },
+    // View span across each half (world units).
+    zoom_exp: { kind: 'slider', label: 'Zoom 10^-x', min: -2, max: 5, step: 0.05, value: -1.4 },
     fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },
   },
 }

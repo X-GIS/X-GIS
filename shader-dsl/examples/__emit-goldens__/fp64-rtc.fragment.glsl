@@ -13,6 +13,7 @@ struct DF64Vec2 {
 };
 layout(std140) uniform Uniforms {
   DF64Vec2 center;
+  DF64Vec2 mark;
   vec2 resolution;
   float zoom_exp;
   float fp64;
@@ -62,18 +63,20 @@ layout(location = 0) out vec4 _ret;
 vec4 fs_rtc_impl(VsOut vo) {
   bool _cse0 = (vo.uv.x < 0.5);
   vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
-  vec2 _cse2 = vec2(0.0, 0.0);
-  vec2 _cse3 = vec2(u.center.hi.y, u.center.lo.y);
+  vec2 _cse2 = vec2(u.mark.hi.x, u.mark.lo.x);
+  vec2 _cse3 = vec2(0.0, 0.0);
+  vec2 _cse4 = vec2(u.center.hi.y, u.center.lo.y);
+  vec2 _cse5 = vec2(u.mark.hi.y, u.mark.lo.y);
   float _v0 = pow(10.0, (-u.zoom_exp));
   float _v1 = (vo.uv.x * 2.0);
   float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
   float _v3 = ((_v2 - 0.5) * _v0);
   float _v4 = (((vo.uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   bool _v5 = (_cse0 || (u.fp64 < 0.5));
-  float _v6 = df64_narrow(df64_sub(df64_add(_cse1, vec2(_v3, 0.0)), df64_add(vec2(100000000.0, 3.700000047683716), _cse2)));
-  float _v7 = df64_narrow(df64_sub(df64_add(_cse3, vec2(_v4, 0.0)), df64_add(vec2(50000004.0, -1.7000000476837158), _cse2)));
-  float _v8 = ((df64_narrow(_cse1) + _v3) - 100000003.7);
-  float _v9 = ((df64_narrow(_cse3) + _v4) - 50000002.3);
+  float _v6 = df64_narrow(df64_sub(df64_add(_cse1, vec2(_v3, 0.0)), df64_add(_cse2, _cse3)));
+  float _v7 = df64_narrow(df64_sub(df64_add(_cse4, vec2(_v4, 0.0)), df64_add(_cse5, _cse3)));
+  float _v8 = ((df64_narrow(_cse1) + _v3) - df64_narrow(_cse2));
+  float _v9 = ((df64_narrow(_cse4) + _v4) - df64_narrow(_cse5));
   float _v10 = (_v5 ? _v8 : _v6);
   float _v11 = (_v5 ? _v9 : _v7);
   float _v12 = (_v0 * 0.125);
