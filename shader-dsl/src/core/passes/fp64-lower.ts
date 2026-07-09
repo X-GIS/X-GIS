@@ -201,6 +201,24 @@ function callHelper(ctx: LowerCtx, name: string, type: ShaderType, args: Expr[])
   return { op: 'call', type, fn: name, args }
 }
 
+/** A df64_* helper output — an already-normalized pair whose lo word was COMPUTED
+ *  on-GPU (via a twoSum), so it survives a cancelling op. A non-helper operand (a
+ *  uniform/attribute/texture LOAD, a widen, a lane swizzle over a loaded vec64)
+ *  instead carries a LOADED lo that a driver's fast-math (Apple Metal, ANGLE/fxc)
+ *  drops before the cancellation. */
+const isHelperOutput = (x: Expr): boolean => x.op === 'call' && x.fn.startsWith('df64_')
+
+/** Renorm a raw df64 pair through df64_add(x, 0) before it feeds a CANCELLING op
+ *  (sub/div): the twoSum recomputes the pair, turning a loaded lo into a computed
+ *  lo that survives fast-math. Idempotent (exact for a normalized pair → oracle /
+ *  metamorphic / render value unchanged) and opaque (a df64_ call, not a `+ 0`
+ *  binop the optimizer would fold). A helper-output operand is already computed-lo
+ *  and left as-is. On-device validated: probe dg_launder0 (Apple sub) and the
+ *  Blackwell WebGL2 `div` recovery (#915); extended here to the distance()
+ *  composition's per-lane sub, whose raw operand is a lane of a loaded vec64. */
+const renormForCancel = (ctx: LowerCtx, x: Expr): Expr =>
+  isHelperOutput(x) ? x : callHelper(ctx, 'df64_add', vec2fT, [x, RENORM_ZERO])
+
 function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
   const walk = (x: Expr): Expr => lowerExpr(x, ctx)
   if (isVec64(e.type)) ctx.vecWidths.add(e.type.n)
@@ -265,19 +283,11 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         const fnName = BINOP_FN[e.bop]
         if (fnName === undefined)
           throw dslError('SD0041', `binary op '${e.bop}' on ${typeKey(e.a.type)}`)
-        // Apple df64 fix (validated on-device by the probe's dg_launder0): a RAW
-        // df64 operand — a uniform/attribute load or a widen, i.e. anything that is
-        // NOT already a df64_* helper output — loses its lo word when it feeds a
-        // CANCELLING op (sub/div) under Apple's fast-math. Renorm it through
-        // df64_add(x, 0) first (idempotent: exact for a normalized pair, so the
-        // oracle/metamorphic value is unchanged; opaque to the optimizer since it
-        // is a df64_ call, not a `+ 0` binop). add/mul don't cancel and are left
-        // untouched; a helper-output operand is already normalized.
+        // Apple/ANGLE df64 fix: a RAW df64 operand feeding a CANCELLING op
+        // (sub/div) loses its loaded lo word under fast-math — renorm it first
+        // (see renormForCancel). add/mul don't cancel and are left untouched.
         const renorm = (x: Expr): Expr =>
-          (fnName === 'df64_sub' || fnName === 'df64_div') &&
-          !(x.op === 'call' && x.fn.startsWith('df64_'))
-            ? callHelper(ctx, 'df64_add', vec2fT, [x, RENORM_ZERO])
-            : x
+          fnName === 'df64_sub' || fnName === 'df64_div' ? renormForCancel(ctx, x) : x
         return callHelper(ctx, fnName, vec2fT, [renorm(pairOperand(e.a)), renorm(pairOperand(e.b))])
       }
       return { ...e, a: walk(e.a), b: walk(e.b) }
@@ -370,11 +380,19 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
           const a = walk(e.args[0]!)
           return callHelper(ctx, 'df64_sqrt', vec2fT, [sumSquares((i) => lane(a, n, i))])
         }
-        // distance: √Σ (aᵢ − bᵢ)²  — per-lane scalar subtraction.
+        // distance: √Σ (aᵢ − bᵢ)²  — per-lane scalar subtraction. Each lane is a
+        // raw pair sliced out of a loaded vec64 (loaded lo), so this cancelling
+        // sub needs the same renorm the scalar binop path applies (Blackwell
+        // WebGL2 `loran` collapse — the vec64 twin of the #915 scalar sub/div bug).
         const a = walk(e.args[0]!)
         const b = walk(e.args[1]!)
         return callHelper(ctx, 'df64_sqrt', vec2fT, [
-          sumSquares((i) => callHelper(ctx, 'df64_sub', vec2fT, [lane(a, n, i), lane(b, n, i)])),
+          sumSquares((i) =>
+            callHelper(ctx, 'df64_sub', vec2fT, [
+              renormForCancel(ctx, lane(a, n, i)),
+              renormForCancel(ctx, lane(b, n, i)),
+            ]),
+          ),
         ])
       }
       // Componentwise vec64 builtins → their df64_vN_* twins. Each helper
