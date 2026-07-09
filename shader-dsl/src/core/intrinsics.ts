@@ -53,6 +53,14 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: (a) => `mod(${join(a)})`,
   },
   inverseSqrt: { wgsl: (a) => `inverseSqrt(${join(a)})`, glsl: (a) => `inversesqrt(${join(a)})` },
+  // fma(a,b,c) = a·b+c. WGSL has a fused hardware fma — a SINGLE rounding, atomic:
+  // a driver's fast-math cannot distribute or reassociate it (unlike a·b then +c).
+  // GLSL ES 3.00 (WebGL2) has NO fma (it is ES 3.10 / GLSL 4.00), so emit the
+  // NON-fused `(a*b+c)` fallback there. DIVERGENT (not portable): only the WGSL
+  // target gets the unfoldable single-rounding, which is the entire point — it is
+  // the one form Apple/Metal cannot fold back into a plain f32 product when
+  // building df64 twoProd error terms (aHi·bLo etc.). Diagnostic use for now.
+  fma: { wgsl: (a) => `fma(${join(a)})`, glsl: (a) => `((${a[0]}) * (${a[1]}) + (${a[2]}))` },
   // GLSL ES 3.00 (WebGL2) has NO packUnorm4x8/unpackUnorm4x8 — those are GLSL 4.00 /
   // ES 3.10 only. Inline the WGSL semantics by hand (round(clamp(v,0,1)*255), byte 0 in
   // the low bits). Verified against the CPU oracle on a real WebGL2 GPU.
@@ -207,11 +215,7 @@ export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
 // fp64Lower into constructs / the identity. The CPU oracle evaluates them
 // natively (BUILTINS); if one leaked to a backend the emitted call is invalid
 // GLSL — the wgslType/glslType SD0040 backstops make the leak loud.
-export const PRE_EMIT_INTRINSICS: ReadonlySet<string> = new Set([
-  'f64',
-  'f64FromParts',
-  'f64Parts',
-])
+export const PRE_EMIT_INTRINSICS: ReadonlySet<string> = new Set(['f64', 'f64FromParts', 'f64Parts'])
 
 /** True if `name` is a builtin the registry knows how to spell on every target — either a
  *  DIVERGENT id (INTRINSICS) or an asserted-portable identity id (PORTABLE_INTRINSICS). A `call`

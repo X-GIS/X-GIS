@@ -34,6 +34,7 @@ import {
   normalize,
   dot,
   mix,
+  fma,
   abs,
   min,
   max,
@@ -322,6 +323,30 @@ const tests: Test[] = [
   // luma.gl's WGSL guard is ADDITIVE (+ ONE·0), not our multiplicative (· one).
   mk('dg_mb_az', () => mulBattery((a, b) => prevent(a.mul(b))), 0.5), // additive-zero guard on the cross term only
   mk('dg_mb_azf', () => mulBatteryAZ(), 0.5), // fully additive-guarded df64_mul (the luma.gl WGSL form)
+  // Round 4 — FMA twoProd. Every barrier above guards a SPLIT-based product, and
+  // Apple/Metal still reconstructs `aHi·(bHi+bLo)` into one rounded f32 (→ the .5
+  // signal dies). A hardware `fma(a,b,c)` is a SINGLE rounding, atomic — nothing
+  // to distribute, so the driver cannot fold it. The df64 product's error + cross
+  // term are accumulated through fma; on WGSL this should HOLD where all guards
+  // failed. (GLSL ES 3.00 has no fma → the `(a*b+c)` fallback is foldable, so the
+  // WebGL2 cell is expected to stay collapsed — that split path needs its own fix.)
+  // NB: no qSum/guard here. qSum threads G() (the _fp64 texel), but the guard
+  // binding is only injected when the module carries genuine f64-typed IR — this
+  // battery is hand-rolled in plain f32, so pulling G() in would reference an
+  // undeclared _fp64 (GLSL compile ERR / WGSL no-draw — the state the dg_mb_*
+  // battery above is stuck in). fma needs no guard: p−B is exact cancellation
+  // (both = 1e8), so (p − B) + lo reads the fma-preserved 0.5 with no twoSum.
+  mk(
+    'dg_mb_fma',
+    () => {
+      const bp = Let(f64Parts(U.field.factor.x)) // (bHi≈1, bLo≈5e-9)
+      const p = Let(B().mul(bp.x)) // hi product 1e8
+      const pe = Let(fma(B(), bp.x, p.neg())) // exact rounding error of B·bHi (atomic) → 0
+      const lo = Let(fma(B(), bp.y, pe)) // + B·bLo cross term (atomic) → 0.5
+      return p.sub(B()).add(lo) // (1e8 − 1e8) + 0.5
+    },
+    0.5,
+  ),
 ]
 
 // Host-side packed inputs. df64: lossless double → (hi, lo) f32 pair.
