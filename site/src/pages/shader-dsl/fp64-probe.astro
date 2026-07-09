@@ -193,6 +193,44 @@ const mulBattery = (cross: Cross): FN => {
   return rHi.sub(B()).add(rLo)
 }
 
+// luma.gl's WGSL guard is ADDITIVE, not multiplicative: prevent(x) = x + (ONE·0).
+// Our whole df64 lib threads `·one` (multiplicative), which stays factorable; an
+// additive opaque-zero is a different barrier. rz() is a non-folding runtime zero
+// (integer-derived so a driver can't prove it's 0 and drop the add). dmulAZ is a
+// faithful df64_mul with the additive guard at every EFT step (the luma.gl form).
+const rz = (): FN => bitcastF32(opaqueZeroU()) // an opaque 0.0f
+const prevent = (x: FN): FN => x.add(rz())
+const splitAZ = (a: FN): [FN, FN] => {
+  const t = Let(prevent(a.mul(f32(4097).add(rz()))))
+  const hi = Let(prevent(t).sub(t.sub(a)))
+  const lo = Let(prevent(a).sub(hi))
+  return [hi, lo]
+}
+const twoProdAZ = (a: FN, b: FN): [FN, FN] => {
+  const p = Let(a.mul(b))
+  const [aHi, aLo] = splitAZ(a)
+  const [bHi, bLo] = splitAZ(b)
+  const e = Let(
+    prevent(aHi.mul(bHi).sub(p))
+      .add(prevent(aHi.mul(bLo)))
+      .add(prevent(aLo.mul(bHi)))
+      .add(aLo.mul(bLo)),
+  )
+  return [p, e]
+}
+const qSumAZ = (a: FN, b: FN): [FN, FN] => {
+  const s = Let(prevent(a.add(b)))
+  const e = Let(b.sub(prevent(s.sub(a))))
+  return [s, e]
+}
+const mulBatteryAZ = (): FN => {
+  const bp = Let(f64Parts(U.field.factor.x))
+  const [pHi, pE] = twoProdAZ(B(), bp.x)
+  const [r1Hi, r1E] = qSumAZ(pHi, Let(prevent(pE.add(prevent(B().mul(bp.y))))))
+  const [rHi, rLo] = qSumAZ(r1Hi, Let(prevent(r1E)))
+  return rHi.sub(B()).add(rLo)
+}
+
 // CPU f64 oracle (JS number == f64) for the composed loran chain.
 const d1 = Math.hypot(OBS[0] - ST_A[0], OBS[1] - ST_A[1])
 const d2 = Math.hypot(OBS[0] - ST_B[0], OBS[1] - ST_B[1])
@@ -281,6 +319,9 @@ const tests: Test[] = [
   mk('dg_mb_ibc', () => mulBattery((a, b) => bitcastF32(bitcastU32(a.mul(b)))), 0.5), // f32↔u32 round-trip barrier
   mk('dg_mb_ibo', () => mulBattery((a, b) => bitcastF32(bitcastU32(a.mul(b)).add(opaqueZeroU()))), 0.5), // opaque integer barrier
   mk('dg_mb_cf', () => mulBattery((a, b) => a.mul(G()).mul(b)), 0.5), // guard the common factor aHi in the cross term
+  // luma.gl's WGSL guard is ADDITIVE (+ ONE·0), not our multiplicative (· one).
+  mk('dg_mb_az', () => mulBattery((a, b) => prevent(a.mul(b))), 0.5), // additive-zero guard on the cross term only
+  mk('dg_mb_azf', () => mulBatteryAZ(), 0.5), // fully additive-guarded df64_mul (the luma.gl WGSL form)
 ]
 
 // Host-side packed inputs. df64: lossless double → (hi, lo) f32 pair.
