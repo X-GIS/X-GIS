@@ -219,6 +219,17 @@ const isHelperOutput = (x: Expr): boolean => x.op === 'call' && x.fn.startsWith(
 const renormForCancel = (ctx: LowerCtx, x: Expr): Expr =>
   isHelperOutput(x) ? x : callHelper(ctx, 'df64_add', vec2fT, [x, RENORM_ZERO])
 
+/** The vec64 twin of renormForCancel: renorm a raw DF64VecN through
+ *  df64_v{n}_add(x, 0) before it feeds a cancelling vec64 op — binop sub/div, or a
+ *  builtin whose body cancels per lane (fract → sub, mix → sub, normalize → div).
+ *  splatPair(RENORM_ZERO) is DF64VecN(vecN(0), vecN(0)); same idempotent + opaque
+ *  guarantees as the scalar renorm. abs/floor/min/max don't cancel and are left
+ *  untouched. */
+const renormForCancelVec = (ctx: LowerCtx, x: Expr, n: 2 | 3 | 4): Expr =>
+  isHelperOutput(x)
+    ? x
+    : callHelper(ctx, `df64_v${n}_add`, structT(vec64StructName(n)), [x, splatPair(RENORM_ZERO, n)])
+
 function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
   const walk = (x: Expr): Expr => lowerExpr(x, ctx)
   if (isVec64(e.type)) ctx.vecWidths.add(e.type.n)
@@ -274,9 +285,13 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         const n = e.type.n
         const op = VEC_BINOP_FN[e.bop]
         if (op === undefined) throw dslError('SD0041', `binary op '${e.bop}' on ${typeKey(e.type)}`)
+        // Same raw-operand renorm as the scalar path — a cancelling vec64 sub/div
+        // over a loaded DF64VecN drops its lo plane under fast-math.
+        const renorm = (x: Expr): Expr =>
+          op === 'sub' || op === 'div' ? renormForCancelVec(ctx, x, n) : x
         return callHelper(ctx, `df64_v${n}_${op}`, structT(vec64StructName(n)), [
-          vecOperand(e.a, n),
-          vecOperand(e.b, n),
+          renorm(vecOperand(e.a, n)),
+          renorm(vecOperand(e.b, n)),
         ])
       }
       if (isF64(e.type)) {
@@ -405,7 +420,11 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         const sTy = structT(vec64StructName(n))
         const kind = VEC_CALL_KIND[e.fn]!
         if (kind === 'unary') {
-          return callHelper(ctx, `df64_v${n}_${e.fn}`, sTy, [vecOperand(e.args[0]!, n)])
+          // fract (per-lane sub) and normalize (per-lane div) cancel internally,
+          // so a loaded operand needs the renorm; abs/floor do not cancel.
+          const arg = vecOperand(e.args[0]!, n)
+          const a = e.fn === 'fract' || e.fn === 'normalize' ? renormForCancelVec(ctx, arg, n) : arg
+          return callHelper(ctx, `df64_v${n}_${e.fn}`, sTy, [a])
         }
         if (kind === 'binary') {
           return callHelper(ctx, `df64_v${n}_${e.fn}`, sTy, [
@@ -422,9 +441,10 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
             `mix() on vec64 needs a scalar f32 interpolant, got ${typeKey(t.type)}`,
           )
         }
+        // mix's body cancels via df64_sub(b, a) per lane — renorm a/b (not t).
         return callHelper(ctx, `df64_v${n}_mix`, sTy, [
-          vecOperand(e.args[0]!, n),
-          vecOperand(e.args[1]!, n),
+          renormForCancelVec(ctx, vecOperand(e.args[0]!, n), n),
+          renormForCancelVec(ctx, vecOperand(e.args[1]!, n), n),
           walk(t),
         ])
       }
@@ -439,15 +459,21 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         const mapped = CALL_FN[e.fn]
         if (mapped !== undefined) {
           if (e.fn === 'mix') {
-            // mix(a, b, t): a/b are the f64 pair operands; t stays f32.
+            // mix(a, b, t): a/b are the f64 pair operands; t stays f32. The body
+            // cancels via df64_sub(b, a), so a raw operand needs the renorm.
             const t = e.args[2]!
             if (isF64(t.type))
               throw dslError('SD0041', 'mix() interpolant t must be f32 (narrow it with toF32)')
             return callHelper(ctx, mapped, vec2fT, [
-              pairOperand(e.args[0]!),
-              pairOperand(e.args[1]!),
+              renormForCancel(ctx, pairOperand(e.args[0]!)),
+              renormForCancel(ctx, pairOperand(e.args[1]!)),
               walk(t),
             ])
+          }
+          // fract's body cancels via df64_sub(a, floor(a)); other whitelisted
+          // scalar builtins (sqrt/abs/floor/min/max) don't need the renorm here.
+          if (e.fn === 'fract') {
+            return callHelper(ctx, mapped, vec2fT, [renormForCancel(ctx, pairOperand(e.args[0]!))])
           }
           const ret = isF64(e.type) ? vec2fT : mapType(e.type)
           return callHelper(ctx, mapped, ret, e.args.map(pairOperand))

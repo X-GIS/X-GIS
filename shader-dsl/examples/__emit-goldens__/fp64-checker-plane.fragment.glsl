@@ -100,6 +100,7 @@ vec4 fs_checker_impl(VsOut vo) {
   bool _cse0 = (vo.uv.x < 0.5);
   vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
   vec2 _cse2 = vec2(u.center.hi.y, u.center.lo.y);
+  vec2 _cse3 = vec2(0.0, 0.0);
   float _v0 = pow(10.0, (-u.zoom_exp));
   float _v1 = (vo.uv.x * 2.0);
   float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
@@ -109,8 +110,8 @@ vec4 fs_checker_impl(VsOut vo) {
   vec2 _v6 = df64_add(_cse1, vec2(_v3, 0.0));
   vec2 _v7 = df64_add(_cse2, vec2(_v4, 0.0));
   float _v8 = df64_narrow(df64_fract(df64_mul(df64_add(df64_floor(_v6), df64_floor(_v7)), vec2(0.5, 0.0))));
-  float _v9 = df64_narrow(df64_fract(_v6));
-  float _v10 = df64_narrow(df64_fract(_v7));
+  float _v9 = df64_narrow(df64_fract(df64_add(_v6, _cse3)));
+  float _v10 = df64_narrow(df64_fract(df64_add(_v7, _cse3)));
   float _v11 = (df64_narrow(_cse1) + _v3);
   float _v12 = (df64_narrow(_cse2) + _v4);
   float _v13 = fract(((floor(_v11) + floor(_v12)) * 0.5));
