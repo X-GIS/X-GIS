@@ -29,8 +29,25 @@ describe('shader-dsl examples — controls ↔ reflection', () => {
       const u = reflect(ex.module).uniforms[0]
       const fields = new Map((u?.fields ?? []).map((f) => [f.name, f.type]))
       const controls = ex.controls ?? {}
-      // 1. no orphan control (typo'd key packs nothing)
+      // `logmag*` controls pack `base·10^s + offset` where s is the live value
+      // of a shared driver slider named by `magField`. That driver is a
+      // host-side-only input (it packs no uniform of its own), so gather the
+      // referenced driver keys to exempt them from the field-name check below.
+      const drivers = new Set(
+        Object.values(controls)
+          .filter((c) => c.kind === 'logmag2d' || c.kind === 'logmag1d')
+          .map((c) => (c as { magField: string }).magField),
+      )
+      // every `magField` must name a real control (a typo packs nothing)
+      for (const key of drivers) {
+        expect(controls[key], `magField '${key}' names no control`).toBeTruthy()
+      }
+      // 1. no orphan control (typo'd key packs nothing) — driver sliders excepted
       for (const key of Object.keys(controls)) {
+        if (drivers.has(key)) {
+          expect(fields.has(key), `driver '${key}' must not shadow a uniform field`).toBe(false)
+          continue
+        }
         expect(fields.has(key), `control '${key}' names no uniform field`).toBe(true)
       }
       // 2. no dead field (a field without a control renders as a permanent 0)
