@@ -79,7 +79,7 @@ test('df64 probe on macOS Metal', async ({ page }) => {
     ...errs.slice(0, 10).map((e) => '  ' + e),
   ]
   const digest = lines.join('\n')
-  writeFileSync('playground/_macos-probe/df64-digest.txt', digest)
+  writeFileSync('_macos-probe/df64-digest.txt', digest) // cwd = playground/ (see workflow)
   console.log('\n' + digest + '\n')
   expect(data.rows.length).toBeGreaterThan(0)
 })

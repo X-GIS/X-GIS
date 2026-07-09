@@ -41,8 +41,12 @@ jobs:
           echo "----- site.log -----"
           cat /tmp/site.log
 
+      # Run from playground/ (like the repo's own e2e: `cd playground && bunx
+      # playwright test`) so the spec's `@playwright/test` import resolves to the
+      # SAME instance the runner uses — from repo root it splits into two copies
+      # ("test() did not expect to be called here").
       - name: Run df64 probe on Metal
-        run: bunx playwright test --config playground/_macos-probe/pw.config.ts
+        run: cd playground && bunx playwright test --config _macos-probe/pw.config.ts
 
       - name: Print digest
         if: always()
