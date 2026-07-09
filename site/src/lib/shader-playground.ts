@@ -36,6 +36,13 @@ export type Control =
   // fp64 story. Drag scale: unitsPerWidth × 10^(−zoomExpField's live value)
   // per full canvas width. Mirrors _shared.ts.
   | { kind: 'pan2d'; value: [number, number]; zoomExpField: string; unitsPerWidth: number }
+  // Log-magnitude sweep → a vec2<f64> uniform: `base·10^s + offset` for s = the
+  // live `magField` slider, packed as a DF64Vec2 host-side. Sweeping s walks the
+  // world coordinate through the ~2^24 f32 precision threshold, so the f32 half
+  // visibly collapses at a point the viewer controls while the f64 half holds.
+  | { kind: 'logmag2d'; magField: string; base: [number, number]; offset: [number, number] }
+  // Scalar twin of logmag2d → a SCALAR f64 uniform (`base·10^s + offset`).
+  | { kind: 'logmag1d'; magField: string; base: number; offset: number }
 
 export interface ReflField {
   name: string
@@ -225,6 +232,13 @@ function createInputState(
         const [hx, lx] = df64(cam[0])
         const [hy, ly] = df64(cam[1])
         v = [hx, hy, lx, ly]
+      } else if (c.kind === 'logmag2d') {
+        const m = Math.pow(10, sliders[c.magField] ?? 0)
+        const [hx, lx] = df64(c.base[0] * m + c.offset[0])
+        const [hy, ly] = df64(c.base[1] * m + c.offset[1])
+        v = [hx, hy, lx, ly]
+      } else if (c.kind === 'logmag1d') {
+        v = df64(c.base * Math.pow(10, sliders[c.magField] ?? 0) + c.offset)
       } else v = c.value
       for (let i = 0; i < v.length; i++) data[field.offset / 4 + i] = v[i]
     }

@@ -164,7 +164,7 @@ export const fp64Julia: ShaderExample = {
       min: 0,
       max: 16,
       step: 0.05,
-      value: 7,
+      value: 4,
       wheel: true,
     },
     fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },

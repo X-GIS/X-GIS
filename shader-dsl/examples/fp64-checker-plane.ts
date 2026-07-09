@@ -36,11 +36,6 @@ import {
 import { VsOut, vs } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
 
-// Far enough that f32 carries NO sub-cell information (ulp = 8 cells), with a
-// fractional part the borders must recover.
-const ORIGIN_X = 1e8 + 0.3
-const ORIGIN_Y = 5e7 + 0.7
-
 const U = uniformStruct(
   'Uniforms',
   { group: 0, binding: 0, as: 'u' },
@@ -110,22 +105,29 @@ export const fp64CheckerPlane: ShaderExample = {
   id: 'fp64-checker-plane',
   title: 'fp64 checker plane',
   blurb:
-    'A 1-unit checkerboard viewed 10⁸ world units from the origin — one f32 ulp is EIGHT cells wide, so the plain-f32 left half collapses flat (parity never flips) while the f64 right half recovers cell parity and anti-aliased borders with floor/fract on the emulated-double type. Drag to pan (the camera accumulates in full double precision), wheel to zoom, flip the fp64 toggle to collapse the right half in place.',
+    'A 1-unit checkerboard on a world plane. Drag the DISTANCE slider (or wheel) to carry the plane out from the origin: near 10⁶ both halves are a crisp checker, but past ~10⁷·² one f32 ulp grows wider than a cell and the plain-f32 left half collapses flat (parity can no longer flip) — while the f64 right half, doing floor/fract on the emulated-double type, keeps cell parity and anti-aliased borders all the way to 10⁹. Watch the exact distance where f32 gives out; flip the fp64 toggle to collapse the right half too.',
   category: 'cartographic',
   file: 'fp64-checker-plane.ts',
   module: fp64CheckerPlaneModule,
   renderable: true,
   splitLabels: ['f32', 'f64 (emulated)'],
   controls: {
-    center: {
-      kind: 'pan2d',
-      value: [ORIGIN_X, ORIGIN_Y],
-      zoomExpField: 'zoom_exp',
-      unitsPerWidth: 2,
-    },
+    // Sweep the plane's distance from the origin: base·10^mag + offset (the
+    // fractional offset is the sub-cell detail f32 loses first). At mag = 8 this
+    // is the classic 10⁸ view; drop to 6 and f32 is fine — the point is the
+    // THRESHOLD in between, which the viewer drives.
+    center: { kind: 'logmag2d', magField: 'mag', base: [1, 0.5], offset: [0.3, 0.7] },
     resolution: { kind: 'resolution' },
-    // Span 10^0.9 ≈ 8 cells by default; +x zooms IN (df64 keeps sub-cell
-    // precision at 1e8 down to ~1e-6 units — exp ≈ 5 is the emulation floor).
+    mag: {
+      kind: 'slider',
+      label: 'Distance from origin 10^x',
+      min: 4,
+      max: 9,
+      step: 0.02,
+      value: 6,
+      wheel: true,
+    },
+    // View span across each half (10^-zoom_exp world units ≈ number of cells).
     zoom_exp: {
       kind: 'slider',
       label: 'Zoom 10^-x',
@@ -133,7 +135,6 @@ export const fp64CheckerPlane: ShaderExample = {
       max: 5,
       step: 0.05,
       value: -0.9,
-      wheel: true,
     },
     fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },
   },

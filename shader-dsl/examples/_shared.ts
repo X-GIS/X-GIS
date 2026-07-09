@@ -52,6 +52,20 @@ export type Control =
       readonly zoomExpField: string
       readonly unitsPerWidth: number
     }
+  // Log-magnitude sweep → a vec2<f64> uniform field. The coordinate is
+  // `base·10^s + offset` for s = the live value of the `magField` slider, packed
+  // as a DF64Vec2 host-side (full JS-double precision). Sweeping s carries the
+  // world coordinate from where f32 still resolves the detail (small s) THROUGH
+  // the ~2^24 threshold where it collapses (large s) — so the f32 half visibly
+  // shatters at a threshold the viewer controls, while the f64 half holds.
+  | {
+      readonly kind: 'logmag2d'
+      readonly magField: string
+      readonly base: readonly [number, number]
+      readonly offset: readonly [number, number]
+    }
+  // Scalar twin of logmag2d → a SCALAR f64 uniform field (`base·10^s + offset`).
+  | { readonly kind: 'logmag1d'; readonly magField: string; readonly base: number; readonly offset: number }
 
 export interface ShaderExample {
   readonly id: string

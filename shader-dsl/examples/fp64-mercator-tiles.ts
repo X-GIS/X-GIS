@@ -160,7 +160,7 @@ export const fp64MercatorTiles: ShaderExample = {
       min: 12,
       max: 23,
       step: 1,
-      value: 21,
+      value: 16,
       wheel: true,
     },
     fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },
