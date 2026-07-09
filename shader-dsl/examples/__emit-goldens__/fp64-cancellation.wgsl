@@ -121,9 +121,10 @@ fn df64_sub(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
 }
 
 fn df64_mul(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
+  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   var _v0: vec2<f32> = df64_twoProd(a.x, b.x);
-  _v0.y = (_v0.y + (a.x * b.y));
-  _v0.y = (_v0.y + (a.y * b.x));
+  _v0.y = (_v0.y + ((a.x * b.y) * _cse0));
+  _v0.y = (_v0.y + (((a.y * b.x) * _cse0) * _cse0));
   return df64_quickTwoSum(_v0.x, _v0.y);
 }
 
