@@ -182,10 +182,20 @@ const df64_add = fn('df64_add', { a: vec2fT, b: vec2fT }, (p) => {
 /** a − b == a + (−b); componentwise negation of a df64 pair is exact. */
 const df64_sub = fn('df64_sub', { a: vec2fT, b: vec2fT }, (p) => df64_add({ a: p.a, b: p.b.neg() }))
 
-/** a × b: twoProd of the hi words + cross terms + renormalize. */
+/** a × b: twoProd of the hi words + cross terms + renormalize.
+ *  Renormalizes (df64_quickTwoSum, which carries the `one` guard) AFTER EACH
+ *  cross term — not once at the end as textbook QD does. The intermediate
+ *  renorm is the luma.gl / donmccurdy Apple defense: it folds each cross term
+ *  into a fresh (hi, lo) pair through a guarded twoSum before the next product,
+ *  so a driver's fast-math cannot keep a·b_hi + a·b_lo as one sum and factor
+ *  the common a out (which rounds b_hi+b_lo back to b_hi and deletes the cross
+ *  term — Apple Metal "optimizes away the calculation necessary for emulated
+ *  fp64"). Merely threading `one` through the cross terms does NOT help: the
+ *  common factor sits outside the guard. */
 const df64_mul = fn('df64_mul', { a: vec2fT, b: vec2fT }, (p) => {
   const prod = Var(df64_twoProd({ a: p.a.x, b: p.b.x }))
   prod.y.assign(prod.y.add(p.a.x.mul(p.b.y)))
+  prod.assign(df64_quickTwoSum({ a: prod.x, b: prod.y }))
   prod.y.assign(prod.y.add(p.a.y.mul(p.b.x)))
   return df64_quickTwoSum({ a: prod.x, b: prod.y })
 })
@@ -383,13 +393,11 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
     add({ a: p.a, b: pair(hi(p.b).neg(), lo(p.b).neg()) }),
   )
   const mul = fn(`df64_v${n}_mul`, { a: sT, b: sT }, (p) => {
+    // Renormalize after each cross term (the luma.gl/donmccurdy Apple defense —
+    // see the scalar df64_mul note), not once at the end.
     const p0 = Let(twoProd({ a: hi(p.a), b: hi(p.b) }))
-    const py = Let(
-      lo(p0)
-        .add(hi(p.a).mul(lo(p.b)))
-        .add(lo(p.a).mul(hi(p.b))),
-    )
-    return quickTwoSum({ a: hi(p0), b: py })
+    const r1 = Let(quickTwoSum({ a: hi(p0), b: lo(p0).add(hi(p.a).mul(lo(p.b))) }))
+    return quickTwoSum({ a: hi(r1), b: lo(r1).add(lo(p.a).mul(hi(p.b))) })
   })
   const div = fn(`df64_v${n}_div`, { a: sT, b: sT }, (p) => {
     const xn = Let(one.div(hi(p.b)))
