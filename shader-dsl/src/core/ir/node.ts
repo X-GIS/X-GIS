@@ -675,6 +675,18 @@ export const clamp = <K extends string>(
   lo: NoInfer<ArithArg<K>>,
   hi: NoInfer<ArithArg<K>>,
 ): Node<K> => call('clamp', x.type, x, lo, hi) as Node<K>
+/** `fma(a, b, c)` — fused multiply-add a·b+c. WGSL emits the hardware `fma` (a
+ *  SINGLE rounding, ATOMIC — a driver's fast-math cannot distribute/reassociate
+ *  it, unlike `a.mul(b).add(c)`). GLSL ES 3.00 has no `fma`, so the GLSL target
+ *  emits the NON-fused `(a*b+c)` fallback (see core/intrinsics.ts). Reach for
+ *  this only where the fused single-rounding is the point — df64 twoProd error
+ *  terms (`fma(a, b, -a*b)`) that Apple/Metal folds away when built from split
+ *  products. */
+export const fma = <K extends string>(
+  a: ReadonlyNode<K>,
+  b: NoInfer<ArithArg<K>>,
+  c: NoInfer<ArithArg<K>>,
+): Node<K> => call('fma', a.type, a, b, c) as Node<K>
 export const mix = <K extends string>(
   a: ReadonlyNode<K>,
   b: NoInfer<ArithArg<K>>,
