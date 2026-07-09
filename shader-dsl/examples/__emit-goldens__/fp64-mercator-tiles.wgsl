@@ -31,6 +31,7 @@ fn fs_tiles(vo: VsOut) -> @location(0) vec4<f32> {
   let _cse0 = (vo.uv.x < 0.5);
   let _cse1 = vec2<f32>(u.center.hi.x, u.center.lo.x);
   let _cse2 = vec2<f32>(u.center.hi.y, u.center.lo.y);
+  let _cse3 = vec2<f32>(0.0, 0.0);
   var _v0: f32 = 1.0;
   for (var _v1: u32 = 0u; (f32(_v1) < _licm0); _v1 = (_v1 + 1u)) {
     _v0 = (_v0 * 2.0);
@@ -45,8 +46,8 @@ fn fs_tiles(vo: VsOut) -> @location(0) vec4<f32> {
   let _v9 = df64_mul(df64_add(_cse2, vec2<f32>(_v6, 0.0)), vec2<f32>(_v0, 0.0));
   let _v10 = df64_narrow(df64_floor(_v8));
   let _v11 = df64_narrow(df64_floor(_v9));
-  let _v12 = df64_narrow(df64_fract(_v8));
-  let _v13 = df64_narrow(df64_fract(_v9));
+  let _v12 = df64_narrow(df64_fract(df64_add(_v8, _cse3)));
+  let _v13 = df64_narrow(df64_fract(df64_add(_v9, _cse3)));
   let _v14 = (df64_narrow(df64_fract(df64_mul(df64_add(df64_floor(_v8), df64_floor(_v9)), vec2<f32>(0.5, 0.0)))) * 2.0);
   let _v15 = ((df64_narrow(_cse1) + _v5) * _v0);
   let _v16 = ((df64_narrow(_cse2) + _v6) * _v0);

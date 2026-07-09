@@ -101,6 +101,7 @@ vec4 fs_tiles_impl(VsOut vo) {
   bool _cse0 = (vo.uv.x < 0.5);
   vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
   vec2 _cse2 = vec2(u.center.hi.y, u.center.lo.y);
+  vec2 _cse3 = vec2(0.0, 0.0);
   float _v0 = 1.0;
   for (uint _v1 = 0u; (float(_v1) < _licm0); _v1 = (_v1 + 1u)) {
     _v0 = (_v0 * 2.0);
@@ -115,8 +116,8 @@ vec4 fs_tiles_impl(VsOut vo) {
   vec2 _v9 = df64_mul(df64_add(_cse2, vec2(_v6, 0.0)), vec2(_v0, 0.0));
   float _v10 = df64_narrow(df64_floor(_v8));
   float _v11 = df64_narrow(df64_floor(_v9));
-  float _v12 = df64_narrow(df64_fract(_v8));
-  float _v13 = df64_narrow(df64_fract(_v9));
+  float _v12 = df64_narrow(df64_fract(df64_add(_v8, _cse3)));
+  float _v13 = df64_narrow(df64_fract(df64_add(_v9, _cse3)));
   float _v14 = (df64_narrow(df64_fract(df64_mul(df64_add(df64_floor(_v8), df64_floor(_v9)), vec2(0.5, 0.0)))) * 2.0);
   float _v15 = ((df64_narrow(_cse1) + _v5) * _v0);
   float _v16 = ((df64_narrow(_cse2) + _v6) * _v0);

@@ -186,6 +186,13 @@ const tests: Test[] = [
   mk('length', () => toF32(length(U.field.pt).sub(toF64(R()))), 0.5), // |(1e6+.5,0)| ⊖ 1e6
   mk('distance', () => toF32(distance(U.field.pt, vec2f64(0, 0)).sub(toF64(R()))), 0.5),
   mk('normalize', () => toF32(normalize(U.field.pt).x), 1.0), // (1e6+.5,0) → (1,0); code-path check
+  // vec64 cancelling-op gaps with a LOADED lo (pt.x = 1e6+0.5, lo = 0.5). Unlike
+  // `vec_sub` above (vBig = 1e8 is f32-exact, lo = 0 → non-discriminative), these
+  // exercise the raw-lane renorm on df64_vN_sub / _div / _fract: a collapse drops
+  // pt's lo and reads 0.0 instead of 0.5.
+  mk('vec_sub_ld', () => toF32(U.field.pt.sub(vec2f64(1e6, 1e6)).x), 0.5), // (1e6+.5)⊖1e6
+  mk('vec_div', () => toF32(U.field.pt.div(vec2f64(1e6, 1e6)).x.sub(toF64(1)).mul(toF64(R()))), 0.5), // ((1e6+.5)/1e6−1)·1e6
+  mk('vec_fract', () => toF32(fract(U.field.pt).x), 0.5), // fract(1e6+.5)
   mk(
     'loran',
     () =>

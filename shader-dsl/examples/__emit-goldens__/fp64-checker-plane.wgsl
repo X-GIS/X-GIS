@@ -30,6 +30,7 @@ fn fs_checker(vo: VsOut) -> @location(0) vec4<f32> {
   let _cse0 = (vo.uv.x < 0.5);
   let _cse1 = vec2<f32>(u.center.hi.x, u.center.lo.x);
   let _cse2 = vec2<f32>(u.center.hi.y, u.center.lo.y);
+  let _cse3 = vec2<f32>(0.0, 0.0);
   let _v0 = pow(10.0, (-u.zoom_exp));
   let _v1 = (vo.uv.x * 2.0);
   let _v2 = (_v1 - select(1.0, 0.0, _cse0));
@@ -39,8 +40,8 @@ fn fs_checker(vo: VsOut) -> @location(0) vec4<f32> {
   let _v6 = df64_add(_cse1, vec2<f32>(_v3, 0.0));
   let _v7 = df64_add(_cse2, vec2<f32>(_v4, 0.0));
   let _v8 = df64_narrow(df64_fract(df64_mul(df64_add(df64_floor(_v6), df64_floor(_v7)), vec2<f32>(0.5, 0.0))));
-  let _v9 = df64_narrow(df64_fract(_v6));
-  let _v10 = df64_narrow(df64_fract(_v7));
+  let _v9 = df64_narrow(df64_fract(df64_add(_v6, _cse3)));
+  let _v10 = df64_narrow(df64_fract(df64_add(_v7, _cse3)));
   let _v11 = (df64_narrow(_cse1) + _v3);
   let _v12 = (df64_narrow(_cse2) + _v4);
   let _v13 = fract(((floor(_v11) + floor(_v12)) * 0.5));

@@ -201,6 +201,35 @@ function callHelper(ctx: LowerCtx, name: string, type: ShaderType, args: Expr[])
   return { op: 'call', type, fn: name, args }
 }
 
+/** A df64_* helper output — an already-normalized pair whose lo word was COMPUTED
+ *  on-GPU (via a twoSum), so it survives a cancelling op. A non-helper operand (a
+ *  uniform/attribute/texture LOAD, a widen, a lane swizzle over a loaded vec64)
+ *  instead carries a LOADED lo that a driver's fast-math (Apple Metal, ANGLE/fxc)
+ *  drops before the cancellation. */
+const isHelperOutput = (x: Expr): boolean => x.op === 'call' && x.fn.startsWith('df64_')
+
+/** Renorm a raw df64 pair through df64_add(x, 0) before it feeds a CANCELLING op
+ *  (sub/div): the twoSum recomputes the pair, turning a loaded lo into a computed
+ *  lo that survives fast-math. Idempotent (exact for a normalized pair → oracle /
+ *  metamorphic / render value unchanged) and opaque (a df64_ call, not a `+ 0`
+ *  binop the optimizer would fold). A helper-output operand is already computed-lo
+ *  and left as-is. On-device validated: probe dg_launder0 (Apple sub) and the
+ *  Blackwell WebGL2 `div` recovery (#915); extended here to the distance()
+ *  composition's per-lane sub, whose raw operand is a lane of a loaded vec64. */
+const renormForCancel = (ctx: LowerCtx, x: Expr): Expr =>
+  isHelperOutput(x) ? x : callHelper(ctx, 'df64_add', vec2fT, [x, RENORM_ZERO])
+
+/** The vec64 twin of renormForCancel: renorm a raw DF64VecN through
+ *  df64_v{n}_add(x, 0) before it feeds a cancelling vec64 op — binop sub/div, or a
+ *  builtin whose body cancels per lane (fract → sub, mix → sub, normalize → div).
+ *  splatPair(RENORM_ZERO) is DF64VecN(vecN(0), vecN(0)); same idempotent + opaque
+ *  guarantees as the scalar renorm. abs/floor/min/max don't cancel and are left
+ *  untouched. */
+const renormForCancelVec = (ctx: LowerCtx, x: Expr, n: 2 | 3 | 4): Expr =>
+  isHelperOutput(x)
+    ? x
+    : callHelper(ctx, `df64_v${n}_add`, structT(vec64StructName(n)), [x, splatPair(RENORM_ZERO, n)])
+
 function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
   const walk = (x: Expr): Expr => lowerExpr(x, ctx)
   if (isVec64(e.type)) ctx.vecWidths.add(e.type.n)
@@ -256,28 +285,24 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         const n = e.type.n
         const op = VEC_BINOP_FN[e.bop]
         if (op === undefined) throw dslError('SD0041', `binary op '${e.bop}' on ${typeKey(e.type)}`)
+        // Same raw-operand renorm as the scalar path — a cancelling vec64 sub/div
+        // over a loaded DF64VecN drops its lo plane under fast-math.
+        const renorm = (x: Expr): Expr =>
+          op === 'sub' || op === 'div' ? renormForCancelVec(ctx, x, n) : x
         return callHelper(ctx, `df64_v${n}_${op}`, structT(vec64StructName(n)), [
-          vecOperand(e.a, n),
-          vecOperand(e.b, n),
+          renorm(vecOperand(e.a, n)),
+          renorm(vecOperand(e.b, n)),
         ])
       }
       if (isF64(e.type)) {
         const fnName = BINOP_FN[e.bop]
         if (fnName === undefined)
           throw dslError('SD0041', `binary op '${e.bop}' on ${typeKey(e.a.type)}`)
-        // Apple df64 fix (validated on-device by the probe's dg_launder0): a RAW
-        // df64 operand — a uniform/attribute load or a widen, i.e. anything that is
-        // NOT already a df64_* helper output — loses its lo word when it feeds a
-        // CANCELLING op (sub/div) under Apple's fast-math. Renorm it through
-        // df64_add(x, 0) first (idempotent: exact for a normalized pair, so the
-        // oracle/metamorphic value is unchanged; opaque to the optimizer since it
-        // is a df64_ call, not a `+ 0` binop). add/mul don't cancel and are left
-        // untouched; a helper-output operand is already normalized.
+        // Apple/ANGLE df64 fix: a RAW df64 operand feeding a CANCELLING op
+        // (sub/div) loses its loaded lo word under fast-math — renorm it first
+        // (see renormForCancel). add/mul don't cancel and are left untouched.
         const renorm = (x: Expr): Expr =>
-          (fnName === 'df64_sub' || fnName === 'df64_div') &&
-          !(x.op === 'call' && x.fn.startsWith('df64_'))
-            ? callHelper(ctx, 'df64_add', vec2fT, [x, RENORM_ZERO])
-            : x
+          fnName === 'df64_sub' || fnName === 'df64_div' ? renormForCancel(ctx, x) : x
         return callHelper(ctx, fnName, vec2fT, [renorm(pairOperand(e.a)), renorm(pairOperand(e.b))])
       }
       return { ...e, a: walk(e.a), b: walk(e.b) }
@@ -370,11 +395,19 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
           const a = walk(e.args[0]!)
           return callHelper(ctx, 'df64_sqrt', vec2fT, [sumSquares((i) => lane(a, n, i))])
         }
-        // distance: √Σ (aᵢ − bᵢ)²  — per-lane scalar subtraction.
+        // distance: √Σ (aᵢ − bᵢ)²  — per-lane scalar subtraction. Each lane is a
+        // raw pair sliced out of a loaded vec64 (loaded lo), so this cancelling
+        // sub needs the same renorm the scalar binop path applies (Blackwell
+        // WebGL2 `loran` collapse — the vec64 twin of the #915 scalar sub/div bug).
         const a = walk(e.args[0]!)
         const b = walk(e.args[1]!)
         return callHelper(ctx, 'df64_sqrt', vec2fT, [
-          sumSquares((i) => callHelper(ctx, 'df64_sub', vec2fT, [lane(a, n, i), lane(b, n, i)])),
+          sumSquares((i) =>
+            callHelper(ctx, 'df64_sub', vec2fT, [
+              renormForCancel(ctx, lane(a, n, i)),
+              renormForCancel(ctx, lane(b, n, i)),
+            ]),
+          ),
         ])
       }
       // Componentwise vec64 builtins → their df64_vN_* twins. Each helper
@@ -387,7 +420,11 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         const sTy = structT(vec64StructName(n))
         const kind = VEC_CALL_KIND[e.fn]!
         if (kind === 'unary') {
-          return callHelper(ctx, `df64_v${n}_${e.fn}`, sTy, [vecOperand(e.args[0]!, n)])
+          // fract (per-lane sub) and normalize (per-lane div) cancel internally,
+          // so a loaded operand needs the renorm; abs/floor do not cancel.
+          const arg = vecOperand(e.args[0]!, n)
+          const a = e.fn === 'fract' || e.fn === 'normalize' ? renormForCancelVec(ctx, arg, n) : arg
+          return callHelper(ctx, `df64_v${n}_${e.fn}`, sTy, [a])
         }
         if (kind === 'binary') {
           return callHelper(ctx, `df64_v${n}_${e.fn}`, sTy, [
@@ -404,9 +441,10 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
             `mix() on vec64 needs a scalar f32 interpolant, got ${typeKey(t.type)}`,
           )
         }
+        // mix's body cancels via df64_sub(b, a) per lane — renorm a/b (not t).
         return callHelper(ctx, `df64_v${n}_mix`, sTy, [
-          vecOperand(e.args[0]!, n),
-          vecOperand(e.args[1]!, n),
+          renormForCancelVec(ctx, vecOperand(e.args[0]!, n), n),
+          renormForCancelVec(ctx, vecOperand(e.args[1]!, n), n),
           walk(t),
         ])
       }
@@ -421,15 +459,21 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         const mapped = CALL_FN[e.fn]
         if (mapped !== undefined) {
           if (e.fn === 'mix') {
-            // mix(a, b, t): a/b are the f64 pair operands; t stays f32.
+            // mix(a, b, t): a/b are the f64 pair operands; t stays f32. The body
+            // cancels via df64_sub(b, a), so a raw operand needs the renorm.
             const t = e.args[2]!
             if (isF64(t.type))
               throw dslError('SD0041', 'mix() interpolant t must be f32 (narrow it with toF32)')
             return callHelper(ctx, mapped, vec2fT, [
-              pairOperand(e.args[0]!),
-              pairOperand(e.args[1]!),
+              renormForCancel(ctx, pairOperand(e.args[0]!)),
+              renormForCancel(ctx, pairOperand(e.args[1]!)),
               walk(t),
             ])
+          }
+          // fract's body cancels via df64_sub(a, floor(a)); other whitelisted
+          // scalar builtins (sqrt/abs/floor/min/max) don't need the renorm here.
+          if (e.fn === 'fract') {
+            return callHelper(ctx, mapped, vec2fT, [renormForCancel(ctx, pairOperand(e.args[0]!))])
           }
           const ret = isF64(e.type) ? vec2fT : mapType(e.type)
           return callHelper(ctx, mapped, ret, e.args.map(pairOperand))
