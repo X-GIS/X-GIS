@@ -182,18 +182,11 @@ const df64_add = fn('df64_add', { a: vec2fT, b: vec2fT }, (p) => {
 /** a − b == a + (−b); componentwise negation of a df64 pair is exact. */
 const df64_sub = fn('df64_sub', { a: vec2fT, b: vec2fT }, (p) => df64_add({ a: p.a, b: p.b.neg() }))
 
-/** a × b: twoProd of the hi words + cross terms + renormalize.
- *  The cross terms thread `one` (with distinct multiplicities, as df64_twoSqr's
- *  error terms do) so a driver's fast-math cannot factor a·b_hi + a·b_lo →
- *  a·(b_hi+b_lo): that distributive rewrite rounds b_hi+b_lo back to b_hi and
- *  deletes the cross term, collapsing the product to f32 (Apple Metal; observed
- *  as `mul` reading exactly 0 while sqrt — which uses the already-guarded
- *  df64_twoSqr — held). Unguarded twoProd/cross terms were the sole df64_mul
- *  path without the `one` wall twoSum/twoSqr carry. */
+/** a × b: twoProd of the hi words + cross terms + renormalize. */
 const df64_mul = fn('df64_mul', { a: vec2fT, b: vec2fT }, (p) => {
   const prod = Var(df64_twoProd({ a: p.a.x, b: p.b.x }))
-  prod.y.assign(prod.y.add(p.a.x.mul(p.b.y).mul(one)))
-  prod.y.assign(prod.y.add(p.a.y.mul(p.b.x).mul(one).mul(one)))
+  prod.y.assign(prod.y.add(p.a.x.mul(p.b.y)))
+  prod.y.assign(prod.y.add(p.a.y.mul(p.b.x)))
   return df64_quickTwoSum({ a: prod.x, b: prod.y })
 })
 
@@ -391,12 +384,10 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
   )
   const mul = fn(`df64_v${n}_mul`, { a: sT, b: sT }, (p) => {
     const p0 = Let(twoProd({ a: hi(p.a), b: hi(p.b) }))
-    // Guard the cross terms exactly as the scalar df64_mul does (see its note):
-    // the `one` wall blocks the distributive fast-math rewrite that deletes them.
     const py = Let(
       lo(p0)
-        .add(hi(p.a).mul(lo(p.b)).mul(one))
-        .add(lo(p.a).mul(hi(p.b)).mul(one).mul(one)),
+        .add(hi(p.a).mul(lo(p.b)))
+        .add(lo(p.a).mul(hi(p.b))),
     )
     return quickTwoSum({ a: hi(p0), b: py })
   })
