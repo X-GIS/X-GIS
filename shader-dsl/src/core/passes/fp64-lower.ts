@@ -141,6 +141,10 @@ const pairLit = (v: number): Expr => {
 /** vec2<f32>(x, 0.0) — the exact f32 → f64 widen. */
 const widen = (x: Expr): Expr => ({ op: 'construct', type: vec2fT, args: [x, litF32(0)] })
 
+/** vec2<f32>(0.0, 0.0) — the additive identity a raw df64 operand is renormalized
+ *  against before a cancelling op (see the binop lowering; Apple df64 fix). */
+const RENORM_ZERO: Expr = { op: 'construct', type: vec2fT, args: [litF32(0), litF32(0)] }
+
 // ── vec64 expr utilities (post-lowering shapes over the DF64VecN struct) ──
 
 const VEC_BINOP_FN: Partial<Record<BinOp, string>> = {
@@ -234,8 +238,7 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
       // on the operand type, not e.type — a matvec RESULT is itself a vec64 and
       // would misroute into the componentwise vec64 branch below.
       if (isMat64(e.a.type)) {
-        if (e.bop !== '*')
-          throw dslError('SD0041', `binary op '${e.bop}' on ${typeKey(e.a.type)}`)
+        if (e.bop !== '*') throw dslError('SD0041', `binary op '${e.bop}' on ${typeKey(e.a.type)}`)
         const n = e.a.type.n
         if (isMat64(e.b.type))
           return callHelper(ctx, `df64_m${n}_matmul`, structT(mat64StructName(n)), [
@@ -262,7 +265,20 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         const fnName = BINOP_FN[e.bop]
         if (fnName === undefined)
           throw dslError('SD0041', `binary op '${e.bop}' on ${typeKey(e.a.type)}`)
-        return callHelper(ctx, fnName, vec2fT, [pairOperand(e.a), pairOperand(e.b)])
+        // Apple df64 fix (validated on-device by the probe's dg_launder0): a RAW
+        // df64 operand — a uniform/attribute load or a widen, i.e. anything that is
+        // NOT already a df64_* helper output — loses its lo word when it feeds a
+        // CANCELLING op (sub/div) under Apple's fast-math. Renorm it through
+        // df64_add(x, 0) first (idempotent: exact for a normalized pair, so the
+        // oracle/metamorphic value is unchanged; opaque to the optimizer since it
+        // is a df64_ call, not a `+ 0` binop). add/mul don't cancel and are left
+        // untouched; a helper-output operand is already normalized.
+        const renorm = (x: Expr): Expr =>
+          (fnName === 'df64_sub' || fnName === 'df64_div') &&
+          !(x.op === 'call' && x.fn.startsWith('df64_'))
+            ? callHelper(ctx, 'df64_add', vec2fT, [x, RENORM_ZERO])
+            : x
+        return callHelper(ctx, fnName, vec2fT, [renorm(pairOperand(e.a)), renorm(pairOperand(e.b))])
       }
       return { ...e, a: walk(e.a), b: walk(e.b) }
     }

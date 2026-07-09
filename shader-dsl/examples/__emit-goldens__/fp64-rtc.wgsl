@@ -29,17 +29,18 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 fn fs_rtc(vo: VsOut) -> @location(0) vec4<f32> {
   let _cse0 = (vo.uv.x < 0.5);
   let _cse1 = vec2<f32>(u.center.hi.x, u.center.lo.x);
-  let _cse2 = vec2<f32>(u.center.hi.y, u.center.lo.y);
+  let _cse2 = vec2<f32>(0.0, 0.0);
+  let _cse3 = vec2<f32>(u.center.hi.y, u.center.lo.y);
   let _v0 = pow(10.0, (-u.zoom_exp));
   let _v1 = (vo.uv.x * 2.0);
   let _v2 = (_v1 - select(1.0, 0.0, _cse0));
   let _v3 = ((_v2 - 0.5) * _v0);
   let _v4 = (((vo.uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   let _v5 = (_cse0 || (u.fp64 < 0.5));
-  let _v6 = df64_narrow(df64_sub(df64_add(_cse1, vec2<f32>(_v3, 0.0)), vec2<f32>(100000000.0, 3.700000047683716)));
-  let _v7 = df64_narrow(df64_sub(df64_add(_cse2, vec2<f32>(_v4, 0.0)), vec2<f32>(50000004.0, -1.7000000476837158)));
+  let _v6 = df64_narrow(df64_sub(df64_add(_cse1, vec2<f32>(_v3, 0.0)), df64_add(vec2<f32>(100000000.0, 3.700000047683716), _cse2)));
+  let _v7 = df64_narrow(df64_sub(df64_add(_cse3, vec2<f32>(_v4, 0.0)), df64_add(vec2<f32>(50000004.0, -1.7000000476837158), _cse2)));
   let _v8 = ((df64_narrow(_cse1) + _v3) - 100000003.7);
-  let _v9 = ((df64_narrow(_cse2) + _v4) - 50000002.3);
+  let _v9 = ((df64_narrow(_cse3) + _v4) - 50000002.3);
   let _v10 = select(_v6, _v8, _v5);
   let _v11 = select(_v7, _v9, _v5);
   let _v12 = (_v0 * 0.125);

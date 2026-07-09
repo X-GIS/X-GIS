@@ -23,9 +23,10 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 fn fs_cancel(vo: VsOut) -> @location(0) vec4<f32> {
   let _cse0 = (vo.uv.x < 0.5);
   let _cse1 = vec2<f32>(1.0, 0.0);
-  let _cse2 = vec2<f32>(7.0, 0.0);
-  let _cse3 = vec2<f32>(21.0, 0.0);
-  let _cse4 = vec2<f32>(35.0, 0.0);
+  let _cse2 = vec2<f32>(0.0, 0.0);
+  let _cse3 = vec2<f32>(7.0, 0.0);
+  let _cse4 = vec2<f32>(21.0, 0.0);
+  let _cse5 = vec2<f32>(35.0, 0.0);
   let _v0 = u.half_width;
   let _v1 = (vo.uv.x * 2.0);
   let _v2 = (_v1 - select(1.0, 0.0, _cse0));
@@ -38,7 +39,7 @@ fn fs_cancel(vo: VsOut) -> @location(0) vec4<f32> {
   let _v9 = df64_mul(_v8, _v5);
   let _v10 = df64_mul(_v7, _v7);
   let _v11 = df64_mul(_v10, _v5);
-  let _v12 = df64_narrow(df64_sub(df64_add(df64_sub(df64_add(df64_sub(df64_add(df64_sub(_v11, df64_mul(_v10, _cse2)), df64_mul(_v9, _cse3)), df64_mul(_v8, _cse4)), df64_mul(_v7, _cse4)), df64_mul(_v6, _cse3)), df64_mul(_v5, _cse2)), _cse1));
+  let _v12 = df64_narrow(df64_sub(df64_add(df64_sub(df64_add(df64_sub(df64_add(df64_sub(df64_add(_v11, _cse2), df64_mul(_v10, _cse3)), df64_mul(_v9, _cse4)), df64_mul(_v8, _cse5)), df64_mul(_v7, _cse5)), df64_mul(_v6, _cse4)), df64_mul(_v5, _cse3)), df64_add(_cse1, _cse2)));
   let _v13 = (1.0 + _v3);
   let _v14 = (_v13 * _v13);
   let _v15 = (_v14 * _v13);
