@@ -20,7 +20,6 @@ import {
   vec3,
   vec4,
   f32,
-  f64,
   fract,
   abs,
   min,
@@ -33,16 +32,16 @@ import {
   toF32,
   toF64,
   f32T,
+  f64T,
   Let,
 } from '../src/index.ts'
 import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.ts'
 import type { ShaderExample } from './_shared.ts'
 
-// > 3 years of uptime, with a fractional phase f32 cannot represent (ulp = 8 s).
-const EPOCH = 1e8 + 0.123
 const TAU = 6.283185307179586
 
 const U = fullscreenUniforms({
+  epoch: f64T, // mission-time base seconds (swept 10^4..10^9 via the DISTANCE slider)
   speed: f32T, // dial revolutions per second
   fp64: f32T, // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
 })
@@ -54,10 +53,10 @@ const fsClock = fn(
     // Absolute mission time = epoch + live seconds; the ADD runs in df64 on
     // the right (exact) and in plain f32 on the left (the +time vanishes
     // under ulp(10⁸) = 8 s). Only the sub-unit phase ever narrows.
-    const phase64 = Let(toF32(fract(f64(EPOCH).add(toF64(U.field.time)).mul(U.field.speed))))
-    // f32 twin: the epoch as a plain f32 literal — `time` is absorbed by the
-    // 8-second ulp, and the dial only lurches when the sum crosses an ulp.
-    const phase32 = Let(fract(f32(EPOCH).add(U.field.time).mul(U.field.speed)))
+    const phase64 = Let(toF32(fract(U.field.epoch.add(toF64(U.field.time)).mul(U.field.speed))))
+    // f32 twin: the epoch narrowed to a plain f32 — once its ulp grows past a
+    // second, `time` is absorbed and the dial only lurches when the sum crosses an ulp.
+    const phase32 = Let(fract(toF32(U.field.epoch).add(U.field.time).mul(U.field.speed)))
 
     const isF32 = Let(p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)))
     const phase = Let(isF32.select(phase32, phase64))
@@ -124,7 +123,7 @@ export const fp64Clock: ShaderExample = {
   id: 'fp64-clock',
   title: 'fp64 long-uptime clock',
   blurb:
-    'The long-uptime animation bug: fract(t) with t ≈ 10⁸ seconds (3+ years) — one f32 ulp is 8 whole seconds, so f32 phase is frozen. The epoch lives as an f64 literal, the live time uniform is added in extended precision, and only the sub-unit phase narrows: the right dial sweeps smoothly while the plain-f32 left dial stands still. Speed is live; flip the fp64 toggle to freeze the right dial too.',
+    'The long-uptime animation bug: fract(t) where t is the epoch base plus live seconds. Drag the UPTIME slider — near 10⁴ s both dials sweep, but past ~10⁷·² one f32 ulp grows wider than a second, the +time vanishes into it, and the plain-f32 left dial freezes (it only lurches when the sum crosses an ulp) while the f64 right dial, adding the live time in extended precision, keeps sweeping to 10⁹ s (30+ years). Speed is live; flip the fp64 toggle to freeze the right dial too.',
   category: 'generic',
   file: 'fp64-clock.ts',
   module: fp64ClockModule,
@@ -132,6 +131,18 @@ export const fp64Clock: ShaderExample = {
   splitLabels: ['f32', 'f64 (emulated)'],
   controls: {
     time: { kind: 'time' },
+    // Sweep the mission-time epoch through the f32 threshold (seconds → the dial
+    // freezes past ~10^7·² where one ulp exceeds a second).
+    epoch: { kind: 'logmag1d', magField: 'mag', base: 1, offset: 0.123 },
+    mag: {
+      kind: 'slider',
+      label: 'Uptime 10^x seconds',
+      min: 4,
+      max: 9,
+      step: 0.02,
+      value: 6,
+      wheel: true,
+    },
     resolution: { kind: 'resolution' },
     speed: { kind: 'slider', label: 'Rev / s', min: 0.05, max: 1, step: 0.05, value: 0.25 },
     fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },
