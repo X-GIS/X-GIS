@@ -1,13 +1,14 @@
 import { test, expect } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 
-// WebGL2-gate Apple oracle, HEADED (macOS runners have an Aqua session; headless
-// GL wedged — run 6 showed the page main thread blocking inside a synchronous GL
-// call, freezing even DOM-read evaluates). Diagnostics print EARLY and a raced
-// progress poll snapshots the summary every 15s, so a wedge pinpoints the test
-// it died in instead of a silent timeout.
+// WebGPU-gate Apple oracle, HEADED (macOS runners have an Aqua session; headless
+// wedged the page main thread inside a synchronous GL call). Run 9 proved the
+// runner reproduces the iPhone digest value-for-value on the WebGPU column, while
+// the runner's ANGLE-GLSL errors every test (runner quirk — real-device WebGL2 is
+// fine) — so WebGPU is the oracle column. Diagnostics print EARLY and a raced
+// progress poll snapshots every 15s so a wedge pinpoints the dying test.
 test.setTimeout(280_000)
-test('df64 probe on macOS Metal (WebGL2 gate)', async ({ page }) => {
+test('df64 probe on macOS Metal (WebGPU gate)', async ({ page }) => {
   const errs: string[] = []
   page.on('console', (m) => {
     if (m.type() === 'error') errs.push(m.text())
@@ -105,7 +106,7 @@ test('df64 probe on macOS Metal (WebGL2 gate)', async ({ page }) => {
     return r ? `gpu=${r.gpu} gl=${r.gl}` : 'MISSING'
   }
   const digest = [
-    'df64 macOS Metal probe (WebGL2 gate)',
+    'df64 macOS Metal probe (WebGPU gate)',
     `  gpuColumnDone: ${gpuDone}`,
     `  gpuCheck (diag): ${cap.gpu}`,
     `  glCheck: ${cap.gl}`,
