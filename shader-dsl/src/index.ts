@@ -75,10 +75,7 @@ export { autoVars } from './core/passes/opt/auto-vars'
 // guard declarator (REQUIRED by f64-using modules — see SD0042), and the
 // lowering pass itself (runs automatically inside every emit; exported for
 // tests / direct IR consumers).
-export {
-  splitF64,
-  fp64Guard,
-  FP64_GUARD_NAME,
-  type Fp64GuardHandle,
-} from './core/fp64/df64-lib'
-export { fp64Lower } from './core/passes/fp64-lower'
+export { splitF64, fp64Guard, FP64_GUARD_NAME, type Fp64GuardHandle } from './core/fp64/df64-lib'
+export { fp64Lower, type Fp64Flavor, type Fp64LowerOptions } from './core/passes/fp64-lower'
+// Device → flavor recommendation ('integer' on Apple/Metal, 'float' elsewhere).
+export { recommendFp64Flavor, isAppleGpu, type Fp64FlavorSignals } from './core/fp64/flavor-select'

@@ -663,6 +663,10 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
 <script type="application/json" id="probe-payload" set:html={JSON.stringify(payload)}></script>
 
 <script>
+  // The library's own device→flavor recommendation — the probe demos the API
+  // and every device paste then carries the verdict.
+  import { recommendFp64Flavor } from '@xgis/shader-dsl'
+
   type Refl = { uniforms: { name: string; size: number; fields: { name: string; offset: number }[] }[] }
   type T = {
     name: string; glslVertex: string; glslFragment: string; wgsl: string
@@ -783,12 +787,27 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
       renderSummary()
       const raf = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
 
+      // ── Device signals → the df64 flavor THIS device needs. The signals are
+      // harvested FROM THE RUNNERS' OWN contexts (runWebGL's renderer string,
+      // runWebGPU's adapter.info) — an earlier version probed the GPU
+      // independently BEFORE the runners, and that extra early requestAdapter/
+      // WebGL context made every later requestAdapter return null on the macOS
+      // CI runner (branch runs ×2 null vs a main control run fine, minutes
+      // apart). The line renders after both runners settle. ──
+      let autoFlavorLine = ''
+      let sigRenderer: string | null = null
+      let sigAdapterInfo: { vendor?: string; architecture?: string } | null = null
+
       // WebGL2 (GLSL): each test → 8×8 draw, read back, report, yield so the just-
       // filled cell paints before the next runs (progress is visible, not a freeze).
       const runWebGL = async () => {
         const canvas = document.createElement('canvas'); canvas.width = 8; canvas.height = 8
         const gl = canvas.getContext('webgl2')
         if (!gl) { glAvail = false; for (const t of tests) report('gl', t.name, null, 'n/a'); return }
+        try {
+          const ext = gl.getExtension('WEBGL_debug_renderer_info')
+          sigRenderer = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER))
+        } catch { /* renderer string unavailable — flavor falls back to the other signals */ }
         const gtex = gl.createTexture()
         gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, gtex)
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]))
@@ -819,41 +838,74 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
         let adapter: any
         try { adapter = await g.requestAdapter() } catch { gpuAvail = false; gpuNote = 'requestAdapter threw'; for (const t of tests) report('gpu', t.name, null, 'n/a'); return }
         if (!adapter) { gpuAvail = false; gpuNote = 'no adapter'; for (const t of tests) report('gpu', t.name, null, 'n/a'); return }
-        let device: any
-        try { device = await adapter.requestDevice() } catch { gpuAvail = false; gpuNote = 'requestDevice threw'; for (const t of tests) report('gpu', t.name, null, 'n/a'); return }
         const TU = (globalThis as any).GPUTextureUsage, BU = (globalThis as any).GPUBufferUsage, MM = (globalThis as any).GPUMapMode
-        const guardTex = device.createTexture({ size: [1, 1], format: 'rgba8unorm', usage: TU.TEXTURE_BINDING | TU.COPY_DST })
-        device.queue.writeTexture({ texture: guardTex }, new Uint8Array([255, 255, 255, 255]), { bytesPerRow: 4, rowsPerImage: 1 }, [1, 1])
-        const guardView = guardTex.createView()
+        // Device (re)creation as a unit — a slow pipeline compile can TDR the
+        // device (seen on ANGLE-D3D11 with the heavy integer-flavor bodies),
+        // and a single lost device used to cascade ERR into every later test.
+        const makeCtx = async () => {
+          const device = await adapter.requestDevice()
+          const guardTex = device.createTexture({ size: [1, 1], format: 'rgba8unorm', usage: TU.TEXTURE_BINDING | TU.COPY_DST })
+          device.queue.writeTexture({ texture: guardTex }, new Uint8Array([255, 255, 255, 255]), { bytesPerRow: 4, rowsPerImage: 1 }, [1, 1])
+          return { device, guardView: guardTex.createView() }
+        }
+        let ctx: { device: any; guardView: any }
+        try { ctx = await makeCtx() } catch { gpuAvail = false; gpuNote = 'requestDevice threw'; for (const t of tests) report('gpu', t.name, null, 'n/a'); return }
+        let recreates = 0
+        const runOne = async (t: T) => {
+          const { device, guardView } = ctx
+          const mod = device.createShaderModule({ code: t.wgsl })
+          const target = device.createTexture({ size: [8, 8], format: 'rgba8unorm', usage: TU.RENDER_ATTACHMENT | TU.COPY_SRC })
+          const ab = pack(t.reflection.uniforms[0], values)
+          const ubuf = device.createBuffer({ size: ab.byteLength, usage: BU.UNIFORM | BU.COPY_DST }); device.queue.writeBuffer(ubuf, 0, ab)
+          const pipeline = device.createRenderPipeline({ layout: 'auto', vertex: { module: mod, entryPoint: t.vertexEntry }, fragment: { module: mod, entryPoint: t.fragmentEntry, targets: [{ format: 'rgba8unorm' }] }, primitive: { topology: 'triangle-list' } })
+          const entries: any[] = [{ binding: 0, resource: { buffer: ubuf } }]
+          if (t.guardBinding != null) { entries.push({ binding: t.guardBinding, resource: guardView }); gpuGuard = true }
+          const bg = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries })
+          const rb = device.createBuffer({ size: 256 * 8, usage: BU.COPY_DST | BU.MAP_READ })
+          const enc = device.createCommandEncoder()
+          const pass = enc.beginRenderPass({ colorAttachments: [{ view: target.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] })
+          pass.setPipeline(pipeline); pass.setBindGroup(0, bg); pass.draw(3); pass.end()
+          enc.copyTextureToBuffer({ texture: target }, { buffer: rb, bytesPerRow: 256, rowsPerImage: 8 }, [8, 8])
+          device.queue.submit([enc.finish()])
+          await rb.mapAsync(MM.READ)
+          const arr = new Uint8Array(rb.getMappedRange().slice(0)); const o = 4 * 256 + 4 * 4
+          rb.unmap()
+          const v = decode(arr[o], arr[o + 1], arr[o + 2]); report('gpu', t.name, v, verdict(v, t.golden, t.circular))
+        }
         for (const t of tests) {
-          try {
-            const mod = device.createShaderModule({ code: t.wgsl })
-            const target = device.createTexture({ size: [8, 8], format: 'rgba8unorm', usage: TU.RENDER_ATTACHMENT | TU.COPY_SRC })
-            const ab = pack(t.reflection.uniforms[0], values)
-            const ubuf = device.createBuffer({ size: ab.byteLength, usage: BU.UNIFORM | BU.COPY_DST }); device.queue.writeBuffer(ubuf, 0, ab)
-            const pipeline = device.createRenderPipeline({ layout: 'auto', vertex: { module: mod, entryPoint: t.vertexEntry }, fragment: { module: mod, entryPoint: t.fragmentEntry, targets: [{ format: 'rgba8unorm' }] }, primitive: { topology: 'triangle-list' } })
-            const entries: any[] = [{ binding: 0, resource: { buffer: ubuf } }]
-            if (t.guardBinding != null) { entries.push({ binding: t.guardBinding, resource: guardView }); gpuGuard = true }
-            const bg = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries })
-            const rb = device.createBuffer({ size: 256 * 8, usage: BU.COPY_DST | BU.MAP_READ })
-            const enc = device.createCommandEncoder()
-            const pass = enc.beginRenderPass({ colorAttachments: [{ view: target.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] })
-            pass.setPipeline(pipeline); pass.setBindGroup(0, bg); pass.draw(3); pass.end()
-            enc.copyTextureToBuffer({ texture: target }, { buffer: rb, bytesPerRow: 256, rowsPerImage: 8 }, [8, 8])
-            device.queue.submit([enc.finish()])
-            await rb.mapAsync(MM.READ)
-            const arr = new Uint8Array(rb.getMappedRange().slice(0)); const o = 4 * 256 + 4 * 4
-            rb.unmap()
-            const v = decode(arr[o], arr[o + 1], arr[o + 2]); report('gpu', t.name, v, verdict(v, t.golden, t.circular))
-          } catch (e) { report('gpu', t.name, null, 'ERR') }
+          try { await runOne(t) }
+          catch {
+            // likely device loss — rebuild the device once and retry THIS test,
+            // so one TDR no longer poisons the rest of the column.
+            if (recreates < 4) {
+              recreates++
+              try { ctx = await makeCtx(); await runOne(t) }
+              catch { report('gpu', t.name, null, 'ERR') }
+            } else { report('gpu', t.name, null, 'ERR') }
+          }
         }
         const info = adapter.info || {}
-        gpuNote = `adapter ${info.vendor || ''} ${info.architecture || ''}`.trim()
+        gpuNote = `adapter ${info.vendor || ''} ${info.architecture || ''}`.trim() + (recreates ? ` · ${recreates} device recreations` : '')
+        sigAdapterInfo = info
       }
 
       // Both backends fill their own column concurrently.
       await Promise.all([runWebGL(), runWebGPU()])
       renderSummary()
+
+      // Flavor verdict from the runners' own signals (see the note above).
+      try {
+        const flavor = recommendFp64Flavor({
+          adapterInfo: sigAdapterInfo,
+          rendererString: sigRenderer,
+          userAgent: navigator.userAgent,
+        })
+        autoFlavorLine = `auto df64 flavor: ${flavor}${sigRenderer ? ` · ${sigRenderer}` : ''}`
+        const fl = document.createElement('p')
+        fl.className = 'mt-3 text-[12px] font-mono text-fg-mute'
+        fl.textContent = autoFlavorLine
+        summary.insertAdjacentElement('afterend', fl)
+      } catch { /* diagnostics only — never block the digest */ }
 
       // ── Frozen text digest (format unchanged — the dev's parser reads it),
       // built in-memory now that the on-page dump is gone; Copy emits this. ──
@@ -867,7 +919,8 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
         `df64 GPU probe\n` +
         `  WebGL2: ${glPass}/${total} pass · guard=${glGuard ? 'bound' : 'MISSING'}\n` +
         `  WebGPU: ${gpuAvail ? `${gpuPass}/${total} pass · guard=${gpuGuard ? 'bound' : 'MISSING'} · ${gpuNote}` : gpuNote}\n` +
-        `  UA: ${navigator.userAgent}\n\n` +
+        `  UA: ${navigator.userAgent}\n` +
+        (autoFlavorLine ? `  ${autoFlavorLine}\n\n` : '\n') +
         rows.join('\n')
 
       copyBtn.classList.remove('opacity-40', 'pointer-events-none')
