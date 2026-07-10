@@ -151,12 +151,15 @@ const vs = fn(
     })
     const centerClip = tailClip
 
-    // Screen-space orientation from the clip-space delta (NDC → screen, +y flips). Using the unit
-    // delta directly as (cos, sin) rotates the arrow's local +x onto the on-screen flow direction.
+    // Screen-space orientation from the clip-space delta. NDC is per-axis normalized, so the raw
+    // delta is aspect-skewed; scale each axis by the viewport extent to recover the true SCREEN-px
+    // direction before normalizing (the ×2 NDC→px factor is common to both axes → cancels). +y
+    // flips. Using the unit delta as (cos, sin) rotates the arrow's local +x onto the flow dir.
+    const vp = pointU.field.viewport
     const ndcTail = tailClip.swizzle('xy').div(tailClip.w)
     const ndcTip = tipClip.swizzle('xy').div(tipClip.w)
-    const dsx = ndcTip.x.sub(ndcTail.x)
-    const dsy = ndcTip.y.sub(ndcTail.y).neg()
+    const dsx = ndcTip.x.sub(ndcTail.x).mul(vp.x)
+    const dsy = ndcTip.y.sub(ndcTail.y).neg().mul(vp.y)
     const dlen = max(length(vec2(dsx, dsy)), f32(1e-6))
     const cc = dsx.div(dlen)
     const ss = dsy.div(dlen)
@@ -201,7 +204,6 @@ const vs = fn(
     const ry = lx.mul(ss).add(ly.mul(cc))
 
     // px → NDC, perspective-correct (× clip.w). y flips: screen +y down → NDC -y.
-    const vp = pointU.field.viewport
     const offNdc = vec2(rx.mul(f32(2).div(vp.x)), ry.neg().mul(f32(2).div(vp.y)))
     const clip = centerClip.add(vec4(offNdc.mul(centerClip.w), 0, 0))
 
