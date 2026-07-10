@@ -15,6 +15,7 @@
 // + sub-tile key, returns a fresh TileData. Stateless = unit-testable
 // in isolation, no catalog setup required.
 
+import { EARTH } from '@xgis/shared'
 import {
   tileKeyUnpack,
   lonLatToMercF64,
@@ -39,7 +40,7 @@ import { type TileData, DSFUN_LINE_STRIDE } from './tile-types'
 // reprojects via the tile-local Mercator tail.
 const ECEF_POLY_STRIDE = 7
 // WGS84 sphere radius for the abs_lon / Mercator inverse round-trip.
-const ECEF_EARTH_R = 6378137
+const ECEF_EARTH_R = EARTH.sphereR
 const ECEF_DEG2RAD = Math.PI / 180
 const ECEF_LAT_LIMIT = 85.051129
 
@@ -155,8 +156,7 @@ export class SubTileGenerator {
     // threads; values are bit-identical to runtime/projection/ecef.ts's
     // `tileEcefCenterFromMerc`).
     const subTileEcefCenter = ((): readonly [number, number, number] => {
-      const F_ = 1 / 298.257223563
-      const E2_ = F_ * (2 - F_)
+      const E2_ = EARTH.e2
       const subTileLonRad = subTileMx / ECEF_EARTH_R
       const subTileLatRad = 2 * Math.atan(Math.exp(subTileMy / ECEF_EARTH_R)) - Math.PI / 2
       const sinLat = Math.sin(subTileLatRad)

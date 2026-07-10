@@ -15,7 +15,7 @@
 // compile, per-layer slices, extrude / stroke-width per-feature
 // bakes, etc.) without a separate runtime backend.
 
-import { xlog } from '@xgis/shared'
+import { EARTH, xlog } from '@xgis/shared'
 import {
   tileKeyUnpack,
   decodeMvtTile,
@@ -285,6 +285,7 @@ export class VirtualPMTilesBackend implements TileSource {
             lineVertices: tile.lineVertices,
             lineIndices: tile.lineIndices,
             pointVertices: tile.pointVertices,
+            // eslint-disable-next-line @typescript-eslint/no-deprecated -- ABI passthrough of the retired field (see SerializedTile)
             outlineIndices: tile.outlineIndices,
             outlineVertices: tile.outlineVertices,
             outlineLineIndices: tile.outlineLineIndices,
@@ -361,7 +362,7 @@ function sliceToBackendResult(slice: {
  *  edge boundary vertices during line segment construction. */
 function tileSizeMerc(z: number, y: number): { widthMerc: number; heightMerc: number } {
   const DEG2RAD = Math.PI / 180
-  const R = 6378137
+  const R = EARTH.sphereR
   const LAT_LIMIT = 85.051129
   const clamp = (v: number) => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
   const n = 1 << z

@@ -25,6 +25,7 @@
 //     (reassigned to [] at rebuildLayers start, so read fresh).
 //   - `this.pickReadbackPool`   → owned here (only pickAt reads/mutates it).
 
+import { EARTH } from '@xgis/shared'
 import type { Camera } from './camera'
 import { unprojectGlobeFromCamera } from './camera'
 import { mercatorYToLat } from '@xgis/geo'
@@ -350,7 +351,7 @@ export class InteractionController {
     // absolute Mercator meters then invert to lng/lat. Other projections
     // need a per-projection inverse — Phase 5 work.
     if (this.getProjectionName() !== 'mercator') return null
-    const R = 6378137
+    const R = EARTH.sphereR
     const merc_x = rtc[0] + this.camera.centerX
     const merc_y = rtc[1] + this.camera.centerY
     const lon = (merc_x / R) * (180 / Math.PI)

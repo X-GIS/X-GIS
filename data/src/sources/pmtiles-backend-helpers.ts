@@ -4,6 +4,7 @@
 // effects beyond reading the environment). Behaviour-preserving
 // structural split only; no logic or symbol renames.
 
+import { EARTH } from '@xgis/shared'
 import { evaluate, makeEvalProps, type GeoJSONFeature } from '@xgis/compiler'
 import { evalExtrudeExpr } from '../eval/extrude-eval'
 
@@ -181,7 +182,7 @@ export function failedKeyTtlMs(consecutiveFailures: number): number {
  *  redo the trig per tile. */
 export function tileSizeMerc(z: number, y: number): { widthMerc: number; heightMerc: number } {
   const DEG2RAD = Math.PI / 180
-  const R = 6378137
+  const R = EARTH.sphereR
   const LAT_LIMIT = 85.051129
   const clamp = (v: number) => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
   const n = 1 << z

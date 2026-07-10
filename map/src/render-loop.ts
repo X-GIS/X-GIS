@@ -15,7 +15,7 @@
 // keeping the public/internal call surface (render-loop tick, tests)
 // unchanged.
 
-import { xlog } from '@xgis/shared'
+import { EARTH, xlog } from '@xgis/shared'
 import {
   markStart as perfMarkStart,
   markEnd as perfMarkEnd,
@@ -214,7 +214,7 @@ export class RenderLoop {
     }
 
     // RTC: Camera center IS projection center. Always.
-    const R = 6378137
+    const R = EARTH.sphereR
     const centerLon = (this.host.camera.centerX / R) * (180 / Math.PI)
     // Clamp the RTC-centre latitude to the projection's pole limit
     // (projections-table poleLimit SoT: ±85.051129° cylindrical, ±90° sphere —
@@ -471,7 +471,7 @@ export class RenderLoop {
       if (this.host._pendingTraceRecorder !== null) {
         const camMx = this.host.camera.centerX
         const camMy = this.host.camera.centerY
-        const R = 6378137
+        const R = EARTH.sphereR
         const lon = (camMx / R) * (180 / Math.PI)
         const lat = mercatorYToLat(camMy)
         const canvas = this.host.ctx?.canvas

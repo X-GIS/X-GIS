@@ -27,7 +27,7 @@
 import { tileKey, packECEFPolygonVertices } from '@xgis/compiler'
 import { generateEarthSurfaceFillMesh } from '../earth-surface-fill'
 import { worldBandForProjType, type WorldBandKind } from '@xgis/geo'
-import { tileEcefCenterFromMerc } from '@xgis/shared'
+import { EARTH, tileEcefCenterFromMerc } from '@xgis/shared'
 import { packECEFWithPolarCaps, MERC_LAT_CLAMP } from './polar-cap-ecef-pack'
 import {
   TILE_LAYOUT_VERSION,
@@ -47,7 +47,7 @@ const Z0_KEY = tileKey(0, 0, 0)
 const WIDTH_SEGMENTS = 128
 const HEIGHT_SEGMENTS = 64
 const DEG2RAD = Math.PI / 180
-const A = 6378137 // WGS84 semi-major axis — matches the tiler + render-side `off`.
+const A = EARTH.a // WGS84 semi-major axis — matches the tiler + render-side `off`.
 // MERC_LAT_CLAMP (imported from ./polar-cap-ecef-pack) is the source-honest
 // Web-Mercator latitude clamp applied to the PER-VERTEX mx/my encode — the
 // rounded constant the tiler also uses to cap polar vertices, so the bg's polar

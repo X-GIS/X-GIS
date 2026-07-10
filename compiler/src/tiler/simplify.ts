@@ -10,6 +10,8 @@
  *                 Used to preserve tile boundary vertices for seamless adjacency.
  * @returns Simplified coordinate array (always preserves first and last point)
  */
+import { EARTH } from '@xgis/shared'
+
 export function simplify(
   ring: number[][],
   tolerance: number,
@@ -204,5 +206,5 @@ export function mercatorToleranceForZoom(zoom: number): number {
   // At zoom z, one pixel ≈ 2π * R / (TILE_PX * 2^z) meters with the
   // 512-px convention. Using 1/16 pixel to match toleranceForZoom's
   // ratio (1/16 * 512 = 32; 2πR/8192/2^z = 2πR / 32 / 256 / 2^z).
-  return (2 * Math.PI * 6378137) / (8192 * Math.pow(2, zoom))
+  return (2 * Math.PI * EARTH.sphereR) / (8192 * Math.pow(2, zoom))
 }

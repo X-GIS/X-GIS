@@ -42,14 +42,15 @@
 // (window-level) so we can A/B against the existing selector with
 // real data + measurements before flipping the default.
 
+import { EARTH } from '@xgis/shared'
 import type { Projection } from '@xgis/geo'
 import { mercatorYToLat } from '@xgis/geo'
 import { worldCopiesFor, TILE_PX } from '@xgis/geo'
 import { PROJECTION_NAME_TO_TYPE } from '@xgis/geo'
 import type { TileCoord, TileSelectionCamera } from './tile-select-types'
 
-const EARTH_CIRC_M = 40075016.686
-const PI_R = Math.PI * 6378137
+const EARTH_CIRC_M = EARTH.worldMerc
+const PI_R = Math.PI * EARTH.sphereR
 const FOV_DEG = 45 // Camera.FOV — fixed in this engine
 
 /** Default screen-space-error target in pixels.
@@ -262,7 +263,7 @@ export function visibleTilesSSE(
   // discs and reprojected lon up to ±900° on a non-periodic surface.
   const projType = PROJECTION_NAME_TO_TYPE[projection.name] ?? 0
   const horizonCullActive = projType === 0 && !opts.disableHorizonCull
-  const earthR = 6378137
+  const earthR = EARTH.sphereR
   const horizonDist = horizonCullActive
     ? 1.2 * Math.sqrt(2 * earthR * Math.max(altitude, 1))
     : Infinity

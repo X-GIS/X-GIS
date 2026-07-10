@@ -11,7 +11,7 @@ import {
   resolveSteppedShape,
 } from './render/paint-shape-resolve'
 import { hexToRgba } from './feature-helpers'
-import { lonLatToECEF } from '@xgis/shared'
+import { EARTH, lonLatToECEF } from '@xgis/shared'
 import { EARTH_R } from '@xgis/geo'
 import { mercatorYToLat } from '@xgis/geo'
 import {
@@ -31,7 +31,7 @@ import { xlog } from '@xgis/shared'
 // world-copy arms), NOT the Mercator-metre WORLD_MERC constant — conceptually
 // it is the projected-x circumference. (Numerically WORLD_MERC ≈ this value,
 // but they are kept distinct so the non-merc copy offset tracks project_geom.)
-const WORLD_CIRC = 2 * Math.PI * 6378137
+const WORLD_CIRC = 2 * Math.PI * EARTH.sphereR
 
 /** Pop a WebGPU validation error scope and report BOTH failure outcomes.
  *  Fire-and-forget (the popErrorScope promise is intentionally NOT awaited
@@ -357,7 +357,7 @@ export function makeLabelProjectors(
     }
     const projectMerc = (mx: number, my: number): [number, number] | null => {
       const DEG2RAD = Math.PI / 180
-      const R = 6378137
+      const R = EARTH.sphereR
       const lon = mx / (DEG2RAD * R)
       const lat = mercatorYToLat(my)
       return projectLonLat(lon, lat)
@@ -453,7 +453,7 @@ export function makeLabelProjectors(
 
   const projectMercAny = (sx: number, sy: number): [number, number] | null => {
     if (isMerc) return projectMerc(sx, sy)
-    const R = 6378137
+    const R = EARTH.sphereR
     const lon = sx / ((Math.PI / 180) * R)
     const lat = mercatorYToLat(sy)
     return projectLonLat(lon, lat, 0)

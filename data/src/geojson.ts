@@ -1,7 +1,7 @@
 import earcut from 'earcut'
 import { interpolateGreatCircle } from '@xgis/compiler/tiler/geodesic'
 import { MERCATOR_LAT_LIMIT } from '@xgis/geo'
-import { assertIngestBudget } from '@xgis/shared'
+import { EARTH, assertIngestBudget } from '@xgis/shared'
 import {
   subdivideRing,
   splitWidePolygon,
@@ -213,7 +213,7 @@ function tessellatePolygonPart(
       holeIndices.push(flatCoords.length / 2)
     }
 
-    let ring = subdivideRing(rings[r])
+    const ring = subdivideRing(rings[r])
 
     for (const coord of ring) {
       // Clamp latitude to Mercator limit — Antarctica at -90° → -MERCATOR_LAT_LIMIT
@@ -352,7 +352,7 @@ function tessellateLineStringPiece(
 
   // Compute f64 global arc-length per vertex (Mercator meters)
   const DEG2RAD = Math.PI / 180
-  const R = 6378137
+  const R = EARTH.sphereR
   const clampLat = (v: number) => Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, v))
   let arc = 0
   let prevMx = 0,

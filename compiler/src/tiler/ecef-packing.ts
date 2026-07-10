@@ -13,7 +13,7 @@
 // drift fails deterministically on CPU, no GPU/SwiftShader/screenshot needed.
 
 import { POLYGON_FILL_FORMAT, field } from './polygon-vertex-format'
-import { WGS84, quantizeAxis } from '@xgis/shared'
+import { WGS84, quantizeAxis, EARTH } from '@xgis/shared'
 
 // ═══ DSFUN (Double-Single FUNction) helpers ═══
 // Tile vertices are stored as (high, low) f32 pairs of tile-local Mercator
@@ -31,7 +31,7 @@ const { A, E2, RAD2DEG } = WGS84
 /** Web-Mercator sphere radius (m) for the tile-meter DSFUN split. Exported so
  *  the tiler's `mmToLonLatDeg` inverse shares the SAME radius this module's
  *  forward `lonLatToMercF64` / `projectRingsToMM` use (single source). */
-export const DSFUN_EARTH_R = 6378137
+export const DSFUN_EARTH_R = EARTH.sphereR
 /** Degrees→radians for the Mercator forward. Exported alongside DSFUN_EARTH_R. */
 export const DSFUN_DEG2RAD = Math.PI / 180
 const DSFUN_LAT_LIMIT = 85.051129

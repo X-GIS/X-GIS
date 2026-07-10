@@ -222,8 +222,10 @@ jobs:
           # well under the ~110-file onTaskUpdate RPC threshold, so they share ONE
           # leg (rhi/src has no tests). If a future growth pushes this over ~110
           # files, SPLIT the id per the playbook above (do NOT merge legs back).
+          # shared/src was CI-dark the same way (body.test.ts + the #798
+          # earth-literal ratchet ran in no leg) — it rides here too.
           - id: engine-rhi-data
-            args: engine/src rhi-webgl2/src rhi-webgpu/src data/src pipeline/src
+            args: engine/src rhi-webgl2/src rhi-webgpu/src data/src pipeline/src shared/src
     # Distinct per-leg check name in the GitHub UI / status API, e.g.
     # "test (engine-render-a)". The single stable context for branch protection
     # is `test-result` below — require THAT, not these per-leg names.
