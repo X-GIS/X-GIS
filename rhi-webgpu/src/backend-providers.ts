@@ -23,16 +23,21 @@ import {
   WebGPUUnavailableError,
   type BackendChoice,
   type GPUContext,
+  type WebGpuBootOptions,
 } from './gpu'
 
-/** WebGPU backend provider. `probe()` is presence-only (`navigator.gpu`);
- *  adapter acquisition stays in `create()` so a probe never spends an adapter
- *  request, and an adapter-null failure surfaces as the same
+/** WebGPU backend provider — a FACTORY (#929 B): the composition root derives
+ *  `boot` (sampleCount) from its quality policy and binds it here, so the
+ *  adapter never reads engine policy itself. `probe()` is presence-only
+ *  (`navigator.gpu`); adapter acquisition stays in `create()` so a probe never
+ *  spends an adapter request, and an adapter-null failure surfaces as the same
  *  `WebGPUUnavailableError` the map layer already handles gracefully. */
-export const webGpuBackendProvider: RhiBackendProvider<GPUContext> = {
-  id: 'webgpu',
-  probe: async () => typeof navigator !== 'undefined' && !!navigator.gpu,
-  create: (canvas) => createWebGpuContext(canvas),
+export function makeWebGpuBackendProvider(boot: WebGpuBootOptions): RhiBackendProvider<GPUContext> {
+  return {
+    id: 'webgpu',
+    probe: async () => typeof navigator !== 'undefined' && !!navigator.gpu,
+    create: (canvas) => createWebGpuContext(canvas, boot),
+  }
 }
 
 /** WebGL2 backend provider. `probe()` uses a SCRATCH canvas — canvas context
@@ -44,8 +49,7 @@ export const webGpuBackendProvider: RhiBackendProvider<GPUContext> = {
 export const webGl2BackendProvider: RhiBackendProvider<GPUContext> = {
   id: 'webgl2',
   probe: async () =>
-    typeof document === 'undefined' ||
-    !!document.createElement('canvas').getContext('webgl2'),
+    typeof document === 'undefined' || !!document.createElement('canvas').getContext('webgl2'),
   create: async (canvas) => {
     const { WebGl2Device } = await import('@xgis/rhi-webgl2')
     return initGPUForcedWebGL2(canvas, (gl) => new WebGl2Device(gl))
@@ -83,25 +87,35 @@ export async function initGPUViaProviders(
  *  override still forces the WebGL2-only chain for testing. */
 export function backendProviderChain(
   choice: BackendChoice,
+  boot: WebGpuBootOptions,
 ): RhiBackendProvider<GPUContext>[] {
-  if (choice === 'webgpu') return [webGpuBackendProvider]
+  const webgpu = makeWebGpuBackendProvider(boot)
+  if (choice === 'webgpu') return [webgpu]
   if (choice === 'webgl2') return [webGl2BackendProvider]
-  return FORCE_GL2 ? [webGl2BackendProvider] : [webGpuBackendProvider, webGl2BackendProvider]
+  return FORCE_GL2 ? [webGl2BackendProvider] : [webgpu, webGl2BackendProvider]
 }
 
-/** Per-call options for `initGPU`. Backend is the only knob today. */
+/** Per-call options for `initGPU`. */
 export interface InitGPUOptions {
   backend?: BackendChoice
+  /** WebGPU swapchain MSAA sample count. Defaults to 4 — the same value the
+   *  engine's default quality preset resolves to — so porcelain boots are
+   *  unchanged. Hosts with a live quality policy (map) pass their own value
+   *  via `backendProviderChain` instead of relying on this default. */
+  sampleCount?: number
 }
 
 /** Convenience boot porcelain: derive the provider chain from a
  *  `BackendChoice` and walk it. Equivalent to
- *  `initGPUViaProviders(canvas, backendProviderChain(opts.backend ?? 'auto'))`
+ *  `initGPUViaProviders(canvas, backendProviderChain(opts.backend ?? 'auto', …))`
  *  — hosts that want custom precedence pass their own array to
  *  `initGPUViaProviders` directly. */
 export async function initGPU(
   canvas: HTMLCanvasElement,
   opts: InitGPUOptions = {},
 ): Promise<GPUContext> {
-  return initGPUViaProviders(canvas, backendProviderChain(opts.backend ?? 'auto'))
+  return initGPUViaProviders(
+    canvas,
+    backendProviderChain(opts.backend ?? 'auto', { sampleCount: opts.sampleCount ?? 4 }),
+  )
 }

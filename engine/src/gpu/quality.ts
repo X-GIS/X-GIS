@@ -262,6 +262,14 @@ export function updateQuality(patch: Partial<QualityConfig>): void {
 }
 
 if (typeof window !== 'undefined') {
+  // Safe-mode announce lives HERE with the flag's single authority (#929 B —
+  // formerly a module-load warn in rhi-webgpu's boot, which made the adapter
+  // reach into engine policy just to print it).
+  if (isSafeMode()) {
+    console.warn(
+      '[X-GIS] safe mode active (?safe=1) — translucent offscreen disabled (quality preset = battery)',
+    )
+  }
   // Surface non-default quality once so users see the trade-off they
   // opted into. Quiet for default to avoid console noise.
   const isDefault =

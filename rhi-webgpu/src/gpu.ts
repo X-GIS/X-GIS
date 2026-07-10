@@ -1,12 +1,13 @@
 // ═══ WebGPU Context — 디바이스 초기화 ═══
 
-// Quality + the `?safe=1` flag are owned by @xgis/engine (engine/src/gpu/quality.ts
-// — the single authority since #832). This boot module only READS them:
-// `getSampleCount()` seeds the initial ctx.sampleCount, `effectiveDpr()` sizes
-// the canvas, `isSafeMode()` gates the startup warn. It holds no module-load
-// snapshots and re-exports nothing — every consumer imports quality from
-// @xgis/engine directly.
-import { effectiveDpr, getSampleCount, isSafeMode } from '@xgis/engine'
+// Quality policy (MSAA sample count, DPR caps, `?safe=1`) is owned by
+// @xgis/engine (engine/src/gpu/quality.ts — the single authority since #832),
+// and this boot module no longer reads it (#929 B): the composition root
+// derives the values from its quality policy and INJECTS them — `sampleCount`
+// through `WebGpuBootOptions`, the resolved `dpr` as a `resizeCanvas` argument.
+// The only remaining @xgis/engine imports are the TYPE-level context family
+// (`RenderContext` / `BackendChoice`), pinned in the dependency-direction
+// ratchet baseline until the #834 M5 context neutralization relocates it.
 import type { RhiDevice, RhiTextureFormat } from '@xgis/rhi'
 import type { RenderContext } from '@xgis/engine'
 // BackendChoice + the neutral render context live in @xgis/engine (#834
@@ -14,13 +15,6 @@ import type { RenderContext } from '@xgis/engine'
 // state), not a render HARDWARE interface, and must not live in a concrete
 // backend package either. Re-exported below for existing rhi-webgpu import sites.
 export type { BackendChoice } from '@xgis/engine'
-
-
-if (typeof window !== 'undefined' && isSafeMode()) {
-  console.warn(
-    '[X-GIS] safe mode active (?safe=1) — translucent offscreen disabled (quality preset = battery)',
-  )
-}
 
 /** The WebGPU composition-root handle = the neutral `RenderContext` (#834 —
  *  the surface `@xgis/map` threads) PLUS the two native WebGPU objects the
@@ -63,9 +57,10 @@ function readForceGl2Flag(): boolean {
 }
 export const FORCE_GL2: boolean = readForceGl2Flag()
 
-// `BackendChoice` moved to @xgis/rhi (#834 M-B2) and is re-exported at the top
-// of this file — it is map's public XGISMapOptions.backend type and must live
-// on the neutral surface, not in a concrete backend package.
+// `BackendChoice` lives in @xgis/engine's render-context family and is
+// re-exported at the top of this file — it is map's public
+// XGISMapOptions.backend type and must live on the neutral surface, not in a
+// concrete backend package.
 
 // Backend PRECEDENCE moved out of this module (#833 M4): the composition root
 // expresses it as an ordered RhiBackendProvider array — see
@@ -96,11 +91,22 @@ export class WebGPUUnavailableError extends Error {
   }
 }
 
-/** Boot the WebGPU backend on `canvas` — the `webGpuBackendProvider.create`
+/** Boot-time values the composition root derives from ITS quality policy and
+ *  injects (#929 B) — the adapter holds no policy of its own. `sampleCount` is
+ *  init-time only (pipelines bake it; a runtime change requires re-boot). */
+export interface WebGpuBootOptions {
+  sampleCount: number
+}
+
+/** Boot the WebGPU backend on `canvas` — the WebGPU provider's `create`
  *  body (#833 M4). This IS the pre-inversion `initGPU` WebGPU path, verbatim:
  *  the provider extraction moved backend SELECTION out (see
- *  backend-providers.ts) and left this boot byte-identical. */
-export async function createWebGpuContext(canvas: HTMLCanvasElement): Promise<GPUContext> {
+ *  backend-providers.ts) and left this boot byte-identical; #929 B then
+ *  replaced the engine quality read with the injected `boot.sampleCount`. */
+export async function createWebGpuContext(
+  canvas: HTMLCanvasElement,
+  boot: WebGpuBootOptions,
+): Promise<GPUContext> {
   if (typeof navigator === 'undefined' || !navigator.gpu) {
     throw new WebGPUUnavailableError('WebGPU is not supported in this browser')
   }
@@ -185,7 +191,7 @@ export async function createWebGpuContext(canvas: HTMLCanvasElement): Promise<GP
     context,
     format,
     canvas,
-    sampleCount: getSampleCount(),
+    sampleCount: boot.sampleCount,
     rhi: new WebGpuDevice(device),
     timestampQuerySupported,
     timestampInsidePassesSupported,
@@ -311,18 +317,13 @@ export function initGPUForcedWebGL2(
   }
 }
 
-/** The devicePixelRatio the swapchain is (re)sized to. During an
- *  interaction `resizeCanvas` drops to `QUALITY.interactionDpr` (when set),
- *  otherwise it uses the full `getMaxDpr()` cap. The render loop MUST derive
- *  its per-frame `dpr` (which feeds the MVP altitude / camera zoom-scale)
- *  from the SAME value — a divergent cap makes `canvasHeight/dpr` disagree
- *  with the actual buffer size and the zoom-scale jumps on every gesture
- *  under presets that set `interactionDpr` (balanced/battery/?adaptiveDpr).
- *  Single source of truth so the two can never drift. SSR/no-GPU → 1.
- *  (`effectiveDpr` itself lives in the neutral quality module — see the
- *  re-export above.) */
-export function resizeCanvas(ctx: GPUContext, interacting = false): void {
-  const dpr = effectiveDpr(interacting)
+/** (Re)size the swapchain to `clientSize × dpr`. The caller derives `dpr`
+ *  from ITS quality policy (map: `effectiveDpr(interacting)` in @xgis/engine)
+ *  and MUST feed the SAME value into its per-frame math (MVP altitude /
+ *  camera zoom-scale) — computing it once and passing it here makes a
+ *  divergent cap structurally impossible (#929 B; previously this function
+ *  read `effectiveDpr` itself and the render loop re-derived it). */
+export function resizeCanvas(ctx: GPUContext, dpr: number): void {
   const w = Math.floor(ctx.canvas.clientWidth * dpr)
   const h = Math.floor(ctx.canvas.clientHeight * dpr)
   if (ctx.canvas.width !== w || ctx.canvas.height !== h) {

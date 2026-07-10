@@ -50,14 +50,14 @@
       "name": "@xgis/data",
       "version": "0.0.1",
       "dependencies": {
+        "@xgis/compiler": "workspace:*",
+        "@xgis/geo": "workspace:*",
+        "@xgis/shared": "workspace:*",
         "earcut": "^3.0.2",
         "pmtiles": "^4.4.1",
         "proj4": "^2.20.8",
       },
       "devDependencies": {
-        "@xgis/compiler": "workspace:*",
-        "@xgis/geo": "workspace:*",
-        "@xgis/shared": "workspace:*",
         "geojson-vt": "^4.0.2",
         "vt-pbf": "^3.1.3",
       },

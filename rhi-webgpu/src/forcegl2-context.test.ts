@@ -78,6 +78,6 @@ describe('initGPUForcedWebGL2 — forced-WebGL2 boot context (US-001)', () => {
       (gl) => new WebGl2Device(gl),
     )
     ctx.canvas.width = 1 // force a size mismatch so the resize body runs
-    expect(() => resizeCanvas(ctx)).not.toThrow()
+    expect(() => resizeCanvas(ctx, 1)).not.toThrow()
   })
 })

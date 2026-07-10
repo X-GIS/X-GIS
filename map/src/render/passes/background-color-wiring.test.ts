@@ -28,7 +28,7 @@ import { describe, it, expect } from 'vitest'
 import { backgroundPass } from './background-pass'
 import type { BackgroundPassHost } from './pass'
 import type { FrameContext } from '../frame-context'
-import { makeProjectionToken } from '@xgis/engine'
+import { makeProjectionToken } from '../projection-token'
 
 // A deliberately non-trivial, asymmetric colour so each channel is its own
 // witness — no channel can be satisfied by a constant or by another channel.

@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-// palette-texture.ts — pure pack + gradient evaluation tests
+// palette-pack.ts — pure pack + gradient evaluation tests
 // ═══════════════════════════════════════════════════════════════════
 //
 // GPU upload (`uploadPalette`) requires a real GPUDevice and is
@@ -16,8 +16,8 @@ import {
   evalColorGradientAt,
   evalScalarGradientAt,
   packPalette,
-} from './palette-texture'
-import type { Palette, ColorGradient, ScalarGradient } from '@xgis/compiler'
+} from './palette-pack'
+import type { Palette, ColorGradient, ScalarGradient } from './palette'
 
 const RED: [number, number, number, number] = [1, 0, 0, 1]
 const BLUE: [number, number, number, number] = [0, 0, 1, 1]

@@ -14,7 +14,7 @@
 
 import type { Camera } from '../camera'
 import type { RenderTargets } from '@xgis/rhi-webgpu'
-import type { ProjectionToken } from '@xgis/engine'
+import type { ProjectionToken } from './projection-token'
 
 /** Per-frame render state. One reused instance lives on RenderLoop; its
  *  fields are (re)populated at the start of each `render()` at the same

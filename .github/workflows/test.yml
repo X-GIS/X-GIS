@@ -168,9 +168,18 @@ jobs:
             args: compiler/src blueprint/src
           # shader-dsl unit suite (emit/intrinsics/cast gates + examples emit-gate). Pure
           # vitest, no GPU — its own leg so a GLSL-backend or example regression fails CI
-          # (it was previously local-only). ~40 files, well under the ~110-file RPC threshold.
-          - id: shader-dsl
-            args: shader-dsl/src shader-dsl/examples
+          # (it was previously local-only).
+          # SPLIT 2026-07-10: the #932 integer-df64 random-sweep suites run 9-18s
+          # PER TEST and starve the worker->main RPC — run 29063270590: all 86
+          # files / 598 tests PASSED, the job failed on 'Timeout calling
+          # "onTaskUpdate"'. Here the trigger is test DURATION, not the ~110-file
+          # count. Per the playbook above, SPLIT this id (do NOT merge): --shard
+          # gives each half a fresh worker pool so the long df64 sweeps can't
+          # starve the whole suite's reporter RPC.
+          - id: shader-dsl-a
+            args: shader-dsl/src shader-dsl/examples --shard=1/2
+          - id: shader-dsl-b
+            args: shader-dsl/src shader-dsl/examples --shard=2/2
           # SPLIT 2026-06-26: #610 demo-QA sweep grew engine-render to 122 test
           # files (render uniform/bind-size/tile + #595/#606/#608), back over the
           # ~110 onTaskUpdate RPC threshold — main push run 28186666263: every
