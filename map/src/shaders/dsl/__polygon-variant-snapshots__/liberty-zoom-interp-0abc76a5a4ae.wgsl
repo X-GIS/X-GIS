@@ -1,4 +1,4 @@
-// baseline: 8312157e8d0d79515f1e73748a8e23664090e208
+// baseline: 7e3028d49735dbf7979f1c2d7a248a9010c73990
 // fixture: liberty-zoom-interp
 // variant.key: liberty-zoom-interp
 // pick: false
@@ -223,7 +223,7 @@ fn project_geom(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, ref_lon: f32
   let _cse3 = (unwrap_lon_near_keep((_cse4 - _cse5), 0.0, sign(_cse4)) + wrap_lon_delta((_cse5 - proj_params.y)));
   let _cse0 = (((_cse7 * 2.0) * PI) * EARTH_R);
   let _cse1 = wrap_lon_delta(_cse3);
-  let _cse2 = oblique_rot(_cse4, lat_deg, proj_params.y, proj_params.z);
+  let _cse2 = oblique_rot(lon_deg, lat_deg, proj_params.y, proj_params.z);
   if (((proj_params.x > 0.5) && (proj_params.x < 2.5))) {
     var _v0: vec2<f32>;
     if ((proj_params.x < 1.5)) {
@@ -236,7 +236,7 @@ fn project_geom(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, ref_lon: f32
     return _v0;
   }
   if ((proj_params.x > 5.5)) {
-    var _v1: vec2<f32> = proj_oblique_mercator_d(unwrap_rad_near(_cse2.x, oblique_rot(_cse5, proj_params.z, proj_params.y, proj_params.z).x), _cse2.y);
+    var _v1: vec2<f32> = proj_oblique_mercator_d(unwrap_rad_near(_cse2.x, 0.0), _cse2.y);
     _v1.x = (_v1.x + _cse0);
     return _v1;
   }
