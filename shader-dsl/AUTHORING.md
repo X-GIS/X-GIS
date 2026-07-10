@@ -768,12 +768,18 @@ f32 — only the declared type differs:
 ```ts
 import { f64T, f64, toF64, toF32, splitF64 } from '@xgis/shader-dsl'
 
-const U = uniformStruct('U', { group: 0, binding: 0, as: 'u' }, {
-  origin: f64T, // one vec2<f32> slot — host packs splitF64(value)
-})
+const U = uniformStruct(
+  'U',
+  { group: 0, binding: 0, as: 'u' },
+  {
+    origin: f64T, // one vec2<f32> slot — host packs splitF64(value)
+  },
+)
 
-const k = fn('k', { x: f64T, s: f32T }, (p) =>
-  toF32(sqrt(p.x.add(U.field.origin).mul(p.s))), // .add/.mul/sqrt — unchanged syntax
+const k = fn(
+  'k',
+  { x: f64T, s: f32T },
+  (p) => toF32(sqrt(p.x.add(U.field.origin).mul(p.s))), // .add/.mul/sqrt — unchanged syntax
 )
 const m = module({ funcs: [k], uses: [U] }) // nothing fp64-specific to declare
 ```
@@ -787,9 +793,23 @@ all agree). What to know:
   ARE f64). Narrowing is ONLY explicit: `toF32(x)` (= hi + lo, precision-losing).
   Mixing f64 with ints/bools is an author-time `SD0004`.
 - **Supported ops.** `+ − × ÷`, all comparisons (lexicographic), `neg`, `abs`, `min`,
-  `max`, `sqrt`, `mix` (f32 interpolant), `floor`, `fract`. Anything else on an f64
-  operand fails loud at emit (`SD0041`) — narrow explicitly first. `%` and bitwise are
-  rejected at author time.
+  `max`, `sqrt`, `mix` (f32 interpolant), `floor`, `fract`, `sin`, `cos`. Anything else
+  on an f64 operand fails loud at emit (`SD0041`) — narrow explicitly first. `%` and
+  bitwise are rejected at author time.
+- **Transcendentals (`sin` / `cos`).** A luma.gl port: 3-stage argument reduction
+  (mod 2π → quadrant → π/16 index) + tabled angle-addition + a short Taylor on the tiny
+  residual. Two things to know. **(1) Accuracy** is lower than the arithmetic: the Taylor
+  truncation floors relative error at **~2⁻³⁶** for the transcendental itself, and it
+  degrades with argument magnitude through the reduction (the inherent large-argument
+  precision loss — still far past f32, whose sine of a ≳2²⁴ argument is pure noise: the
+  f32 argument has already lost the sub-ulp phase). **(2) The df64_mul caveat applies.**
+  sin/cos are built on the df64 multiply, and on **Apple/Metal** that multiply collapses
+  under default fast-math in a way that is **not robustly guardable in-shader** (see the
+  `df64_mul` note in `core/fp64/df64-lib.ts` and the fp64 blog Part 7/8). So sin/cos are
+  correct on backends where the multiply survives (verified on Blackwell and on a
+  Windows/D3D12 Turing path) but inherit the same fragility on Apple/Metal — the on-device
+  gate asserts this device-conditionally, it does not claim universal correctness. Also
+  on `vecN<f64>` (per-lane).
 - **The guard texture (auto-injected).** Every f64-arithmetic module gets a
   `texture_2d<f32>` binding named `_fp64` injected automatically (deterministically
   at group 0, first free binding). The host must bind a **1×1 texture whose texel
@@ -815,15 +835,16 @@ all agree). What to know:
 `vecNf64(x, y, …)` builds an emulated-double vector; components (`v.x`), swizzles
 (`v.zyx`), componentwise `+ − ×` (with `f64`/`f32`/number broadcast), `÷`, `neg`,
 the componentwise builtins `abs`/`min`/`max`/`mix` (scalar f32 interpolant)/`floor`/
-`fract`/`normalize`, and the reductions `dot`/`length`/`distance` (→ `f64`) all use
-the unchanged surface. A vec64 lowers to
+`fract`/`sin`/`cos`/`normalize`, and the reductions `dot`/`length`/`distance` (→ `f64`)
+all use the unchanged surface. A vec64 lowers to
 `struct DF64VecN { hi: vecN<f32>, lo: vecN<f32> }` — componentwise arithmetic runs
 the same EFTs on whole hi/lo planes (one twoSum for all lanes); the builtins with
 per-lane branching (`abs`, `min`, …) and `normalize` compose the verified SCALAR
 df64 fns lane by lane inside one `df64_vN_*` helper body, and
 `dot`/`length`/`distance` accumulate through the SCALAR df64 chain
-(extended-precision accumulation is the point). Everything else on a vec64
-(`sin`, `clamp`, …) is `SD0041` — narrow per lane (`toF32(v.x)`) first.
+(extended-precision accumulation is the point); `sin`/`cos` compose the scalar
+df64_sin/df64_cos per lane. Everything else on a vec64 (`exp`, `clamp`, …) is
+`SD0041` — narrow per lane (`toF32(v.x)`) first.
 A vec64 uniform field occupies its struct layout (n=2: 16 B, n=3/4: 32 B under
 std140); a vec64 vertex ATTRIBUTE is rejected (`SD0041`) — pass hi/lo as two
 `vecN<f32>` `@location`s (the existing DSFUN lane convention) and rebuild lanes with
@@ -875,7 +896,7 @@ const fs = emitGlslModule(m, 'fragment', { plugins: obfuscate() })
   follow. Opt-in, and NOT part of `obfuscate()`, so no existing output changes.
   Place it before `mangle()`: `{ plugins: [inline(), ...obfuscate()] }`.
 - **`obfuscate({ renames? })`** — the standard preset, `[mangle(opts),
-  minify()]`. Spread it into `{ plugins }`.
+minify()]`. Spread it into `{ plugins }`.
 
 Plugins fire STAGED like Vite: every plugin's `transformIR` (IR stage) runs in
 array order before the module is assembled, then every plugin's `transformText`

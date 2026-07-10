@@ -1,7 +1,7 @@
 // ═══ fp64Lower pass tests — rewrite shape, fail-loud gates, identity ═══
 
 import { describe, it, expect } from 'vitest'
-import { fn, module, f64T, f32T, vec4fT, toF32, toF64, sqrt, sin } from '../ir'
+import { fn, module, f64T, f32T, vec4fT, vec3f64T, toF32, toF64, sqrt, sin, cos, exp } from '../ir'
 import { fp64Guard, FP64_GUARD_NAME } from '../fp64/df64-lib'
 import { ioStruct, location, builtin, uniformStruct, resource } from '../sot'
 import { fp64Lower } from './fp64-lower'
@@ -56,6 +56,35 @@ describe('rewrite shapes', () => {
     const k = fn('k', { a: f64T, s: f32T }, (p) => toF32(sqrt(p.a.add(toF64(p.s)))))
     const wgsl = emitModule(module({ funcs: [k] }))
     expect(wgsl).toContain('df64_narrow(df64_sqrt(df64_add(a, vec2<f32>(s, 0.0))))')
+  })
+
+  it('sin / cos on f64 lower to df64_sin / df64_cos with the transcendental helpers injected', () => {
+    const k = fn('k', { a: f64T }, (p) => toF32(sin(p.a).add(cos(p.a))))
+    const lowered = fp64Lower(module({ funcs: [k] }))
+    const names = lowered.funcs.map((f) => f.name)
+    // The reduction helpers and their Taylor + nint deps are injected, in
+    // dependency-first order (define-before-use holds for GLSL).
+    for (const n of ['df64_sin', 'df64_cos', 'df64_sin_taylor', 'df64_cos_taylor', 'df64_nint'])
+      expect(names).toContain(n)
+    expect(names.indexOf('df64_sin_taylor')).toBeLessThan(names.indexOf('df64_sin'))
+    expect(names.indexOf('df64_nint')).toBeLessThan(names.indexOf('df64_sin'))
+    // A raw loaded operand feeding sin/cos is renormed first (the reduction's
+    // df64_div/df64_sub cancel on it — the #915 loaded-lo defense, as for fract):
+    // `a` is laundered through df64_add(a, 0) before it reaches sin/cos (the CSE
+    // shares the one renorm between the two calls).
+    const wgsl = emitModule(module({ funcs: [k] }))
+    expect(wgsl).toContain('df64_add(a, vec2<f32>(0.0, 0.0))')
+    expect(wgsl).toMatch(/\bdf64_sin\(/)
+    expect(wgsl).toMatch(/\bdf64_cos\(/)
+  })
+
+  it('sin / cos on vec64 lower to the per-lane df64_vN_sin / df64_vN_cos twins', () => {
+    const k = fn('k', { a: vec3f64T }, (p) => toF32(sin(p.a).x))
+    const lowered = fp64Lower(module({ funcs: [k] }))
+    const names = lowered.funcs.map((f) => f.name)
+    expect(names).toContain('df64_v3_sin')
+    // The vec twin composes the SCALAR df64_sin per lane, so that is pulled in too.
+    expect(names).toContain('df64_sin')
   })
 
   it('f64 params/returns become vec2<f32>; no f64 token survives lowering', () => {
@@ -193,7 +222,8 @@ describe('fail-loud gates', () => {
   })
 
   it('SD0041 — a non-whitelisted builtin on f64 operands', () => {
-    const k = fn('k', { a: f64T }, (p) => sin(p.a))
+    // exp is NOT emulated (sin/cos ARE — see the transcendentals block below).
+    const k = fn('k', { a: f64T }, (p) => exp(p.a))
     expect(() => fp64Lower(module({ funcs: [k] }))).toThrow(/SD0041/)
   })
 
@@ -234,6 +264,24 @@ describe('optimizer invariants (the guard survives O2)', () => {
     for (const name of ['df64_twoSum', 'df64_quickTwoSum', 'df64_split']) {
       const body = wgsl.split(`fn ${name}(`)[1]!.split('\nfn ')[0]!
       expect(body).toContain('_fp64')
+    }
+  })
+
+  it('df64_sin / df64_cos stay opaque (not inlined / algebraically folded) after O2', () => {
+    const k = fn('k', { a: f64T }, (p) => toF32(sin(p.a).add(cos(p.a))))
+    const wgsl = emitModule(module({ funcs: [k] }))
+    // The transcendental helpers survive as CALLS — the optimizer must never
+    // inline an EFT-bearing body (algebraic/const-fold could then cancel the
+    // error terms) nor const-fold a df64_sin over a constant argument.
+    expect(wgsl).toMatch(/fn df64_sin\(/)
+    expect(wgsl).toMatch(/fn df64_cos\(/)
+    expect(wgsl).toMatch(/\bdf64_sin\(/)
+    expect(wgsl).toMatch(/\bdf64_cos\(/)
+    // The reduction's own guard threads survive: the Taylor bodies multiply
+    // through df64_mul, whose split/twoProd still fetch the opaque one.
+    for (const name of ['df64_sin_taylor', 'df64_cos_taylor']) {
+      const body = wgsl.split(`fn ${name}(`)[1]!.split('\nfn ')[0]!
+      expect(body).toMatch(/df64_mul\(/)
     }
   })
 })

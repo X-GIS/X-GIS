@@ -38,6 +38,7 @@ import { fp64Newton } from './fp64-newton.ts'
 import { fp64MandelbrotDe } from './fp64-mandelbrot-de.ts'
 import { fp64Clock } from './fp64-clock.ts'
 import { fp64Cancellation } from './fp64-cancellation.ts'
+import { fp64SineSweep } from './fp64-sine-sweep.ts'
 import type { ShaderExample } from './_shared.ts'
 
 export type { ShaderExample, Control } from './_shared.ts'
@@ -72,6 +73,7 @@ export {
   fp64MandelbrotDe,
   fp64Clock,
   fp64Cancellation,
+  fp64SineSweep,
   gradient,
   overrideQuality,
   computeReduction,
@@ -109,6 +111,7 @@ export const examples: readonly ShaderExample[] = [
   fp64MandelbrotDe,
   fp64Clock,
   fp64Cancellation,
+  fp64SineSweep,
   gradient,
   overrideQuality,
   computeReduction,

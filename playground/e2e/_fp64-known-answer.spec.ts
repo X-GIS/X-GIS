@@ -34,6 +34,8 @@ import {
   f64Parts,
   toF32,
   sqrt,
+  sin,
+  cos,
   abs,
   u32,
   vec2fT,
@@ -132,6 +134,104 @@ const computeKernel = fn(
 )
 // `_fp64` guard auto-injected at (group 0, binding 1) — first slot past outp.
 const computeModule = module({ funcs: [computeKernel], uses: [outB] })
+
+// ── df64 sin/cos vectors (transcendental milestone #922) ──
+// Two exact-landing small angles (correctness) + two LARGE arguments that only a
+// correct argument reduction can hit: at 1e8 one f32 ulp is 8, so plain f32 cannot
+// even represent the +0.5 phase — its sine/cosine is ~0.29 wrong, the discriminative
+// gap the df64 reduction must beat.
+const TRIG: Array<{
+  name: string
+  f: 'sin' | 'cos'
+  x: number
+  exact: number
+  f32: number
+  tol: number
+  discriminative: boolean
+}> = [
+  {
+    name: 'sin(π/6)',
+    f: 'sin',
+    x: Math.PI / 6,
+    exact: 0.5,
+    f32: Math.sin(Math.fround(Math.PI / 6)),
+    tol: 1e-4,
+    discriminative: false,
+  },
+  {
+    name: 'cos(π/3)',
+    f: 'cos',
+    x: Math.PI / 3,
+    exact: 0.5,
+    f32: Math.cos(Math.fround(Math.PI / 3)),
+    tol: 1e-4,
+    discriminative: false,
+  },
+  {
+    name: 'sin(1e8+0.5) reduction',
+    f: 'sin',
+    x: 1e8 + 0.5,
+    exact: Math.sin(1e8 + 0.5),
+    f32: Math.sin(Math.fround(1e8 + 0.5)),
+    tol: 1e-4,
+    discriminative: true,
+  },
+  {
+    name: 'cos(1e8+0.5) reduction',
+    f: 'cos',
+    x: 1e8 + 0.5,
+    exact: Math.cos(1e8 + 0.5),
+    f32: Math.cos(Math.fround(1e8 + 0.5)),
+    tol: 1e-4,
+    discriminative: true,
+  },
+  // Negative large argument whose |x|/2π lands on an f32 half-integer (|q| ∈
+  // [2²², 2²³), grid spacing 0.5): the mod-2π turn-count nint's tie case. Rounding
+  // the tie away from zero (rather than luma's toward-+∞, which df64_nint's lo-word
+  // correction is ported to) offset z by 1 and inverted the sign/swap — the whole
+  // negative reduction window was wrong. #922 regression.
+  {
+    name: 'sin(−(2²²+0.35)·2π) negative reduction',
+    f: 'sin',
+    x: -(2 ** 22 + 0.35) * (2 * Math.PI),
+    exact: Math.sin(-(2 ** 22 + 0.35) * (2 * Math.PI)),
+    f32: Math.sin(Math.fround(-(2 ** 22 + 0.35) * (2 * Math.PI))),
+    tol: 1e-4,
+    discriminative: true,
+  },
+  {
+    name: 'cos(−(2²²+0.35)·2π) negative reduction',
+    f: 'cos',
+    x: -(2 ** 22 + 0.35) * (2 * Math.PI),
+    exact: Math.cos(-(2 ** 22 + 0.35) * (2 * Math.PI)),
+    f32: Math.cos(Math.fround(-(2 ** 22 + 0.35) * (2 * Math.PI))),
+    tol: 1e-4,
+    discriminative: true,
+  },
+]
+const NT = TRIG.length
+const trigExpr = (i: ReadonlyNode<'u32'>): Node<'f64'> =>
+  matchExpr(
+    i,
+    TRIG.slice(0, -1).map(
+      (c, k) => [k, () => (c.f === 'sin' ? sin(f64(c.x)) : cos(f64(c.x)))] as const,
+    ),
+    () => (TRIG[NT - 1]!.f === 'sin' ? sin(f64(TRIG[NT - 1]!.x)) : cos(f64(TRIG[NT - 1]!.x))),
+  )
+const trigOut = storageBuffer('outp', vec2fT, { group: 0, binding: 0, access: 'read_write' })
+const trigKernel = fn(
+  'k_trig',
+  { gid: builtin('global_invocation_id', vec3uT) },
+  ({ gid }) => {
+    const i = gid.x
+    If(i.ge(u32(NT)), () => {
+      Return()
+    })
+    trigOut.at(i).assign(f64Parts(trigExpr(i)))
+  },
+  { stage: 'compute', workgroupSize: 64 },
+)
+const trigModule = module({ funcs: [trigKernel], uses: [trigOut] })
 
 // ── GLSL fragment module (one pass/fail pixel per case) ──
 
@@ -314,6 +414,136 @@ test.describe('fp64 known answers on the real GPU', () => {
     ).toEqual([])
   })
 
+  // ── The transcendental milestone's real-GPU gate (#922) ──
+  // sin/cos are built on df64_mul, and PR #920 established that the multiply's
+  // fast-math collapse on Apple/Metal is NOT robustly guardable in-shader. So the
+  // assertion is DEVICE-CONDITIONAL: on a backend where the multiply survives
+  // (Blackwell; this Windows/D3D12 Turing path) the df64 answers must be correct AND
+  // beat plain f32 by orders of magnitude on the large-argument cases; on Apple/Metal
+  // the same collapse is expected and the discriminative half is reported, not failed
+  // (the Apple probe is pending hardware — see AUTHORING §7 for the honest caveat).
+  test('WGSL compute: df64 sin/cos reproduce f64 answers (device-conditional on the df64_mul caveat)', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000)
+    await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
+
+    const wgsl = emitModule(trigModule)
+    const gpu = await page.evaluate(
+      async (args: { wgsl: string; n: number }) => {
+        const nav = navigator as unknown as {
+          gpu?: { requestAdapter(): Promise<unknown> }
+        }
+        if (!nav.gpu) return { error: 'no navigator.gpu' as const }
+        const adapter = (await nav.gpu.requestAdapter()) as
+          | (GPUAdapter & {
+              info?: GPUAdapterInfo
+              requestAdapterInfo?: () => Promise<GPUAdapterInfo>
+            })
+          | null
+        if (!adapter) return { error: 'no adapter' as const }
+        const info =
+          adapter.info ??
+          (adapter.requestAdapterInfo ? await adapter.requestAdapterInfo() : undefined)
+        const vendor = `${info?.vendor ?? ''}/${info?.architecture ?? ''}`
+        const device = await adapter.requestDevice()
+        const errors: string[] = []
+        device.addEventListener('uncapturederror', (e) => {
+          errors.push((e as GPUUncapturedErrorEvent).error.message)
+        })
+        const mod = device.createShaderModule({ code: args.wgsl })
+        const cinfo = await mod.getCompilationInfo()
+        const fatals = cinfo.messages.filter((mm) => mm.type === 'error')
+        if (fatals.length > 0)
+          return {
+            error: 'compile: ' + fatals.map((mm) => `${mm.lineNum}:${mm.message}`).join(' | '),
+          }
+        const pipeline = device.createComputePipeline({
+          layout: 'auto',
+          compute: { module: mod, entryPoint: 'k_trig' },
+        })
+        const outBuf = device.createBuffer({
+          size: args.n * 8,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+        })
+        const readBuf = device.createBuffer({
+          size: args.n * 8,
+          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        })
+        const guardTex = device.createTexture({
+          size: [1, 1],
+          format: 'rgba8unorm',
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        })
+        device.queue.writeTexture(
+          { texture: guardTex },
+          new Uint8Array([255, 255, 255, 255]),
+          { bytesPerRow: 4 },
+          [1, 1],
+        )
+        const bind = device.createBindGroup({
+          layout: pipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: outBuf } },
+            { binding: 1, resource: guardTex.createView() },
+          ],
+        })
+        const enc = device.createCommandEncoder()
+        const pass = enc.beginComputePass()
+        pass.setPipeline(pipeline)
+        pass.setBindGroup(0, bind)
+        pass.dispatchWorkgroups(1)
+        pass.end()
+        enc.copyBufferToBuffer(outBuf, 0, readBuf, 0, args.n * 8)
+        device.queue.submit([enc.finish()])
+        await readBuf.mapAsync(GPUMapMode.READ)
+        const out = Array.from(new Float32Array(readBuf.getMappedRange().slice(0)))
+        readBuf.unmap()
+        return { out, errors, vendor }
+      },
+      { wgsl, n: NT },
+    )
+
+    expect(gpu, `GPU compute failed: ${'error' in gpu ? gpu.error : ''}`).not.toHaveProperty(
+      'error',
+    )
+    if ('error' in gpu) return
+    expect(gpu.errors, `uncaptured GPU errors: ${gpu.errors.join(' | ')}`).toEqual([])
+
+    // Apple/Metal: the df64_mul collapse under default fast-math is expected and
+    // NOT guardable in-shader (#920), so the caveat cases are reported, not failed.
+    const isApple = /apple/i.test(gpu.vendor ?? '')
+    const hardFailures: string[] = []
+    const softNotes: string[] = []
+    for (let i = 0; i < NT; i++) {
+      const c = TRIG[i]!
+      const got = gpu.out[i * 2]! + gpu.out[i * 2 + 1]! // hi + lo
+      const err = Math.abs(got - c.exact)
+      const f32err = Math.abs(c.f32 - c.exact)
+      const bucket = isApple ? softNotes : hardFailures
+      if (err > c.tol) {
+        bucket.push(`${c.name}: got ${got} expected ${c.exact} (Δ=${err.toExponential(2)})`)
+      }
+      // The large-argument cases carry the discriminative half: df64 must clearly
+      // beat plain f32 (whose argument has already lost the sub-ulp phase).
+      if (c.discriminative && !(err < f32err / 100)) {
+        bucket.push(
+          `${c.name}: df64 error ${err.toExponential(2)} did not beat f32 error ${f32err.toExponential(2)} — the multiply likely collapsed under fast-math`,
+        )
+      }
+    }
+    if (softNotes.length > 0)
+      console.warn(
+        `[fp64 sin/cos] Apple/Metal caveat cases (df64_mul collapse, expected):\n${softNotes.join('\n')}`,
+      )
+    expect(
+      hardFailures,
+      `executed df64 sin/cos drifted from f64 known answers on ${gpu.vendor}:\n${hardFailures.join('\n')}`,
+    ).toEqual([])
+    // Non-vacuous even on Apple: the vendor was actually read and the pass executed.
+    expect(gpu.out.length).toBe(NT * 2)
+  })
+
   test('WebGL2/ANGLE: emitted df64 GLSL passes per-case checks; example GLSL compiles', async ({
     page,
   }) => {
@@ -427,9 +657,7 @@ test.describe('fp64 known answers on the real GPU', () => {
     }
     const [vr, vg] = [res.vecPx![0]!, res.vecPx![1]!]
     if (!(vg > 200 && vr < 50)) {
-      failures.push(
-        `vec64 builtins: pixel (r=${vr}, g=${vg}) — df64_vN_* chain failed on ANGLE`,
-      )
+      failures.push(`vec64 builtins: pixel (r=${vr}, g=${vg}) — df64_vN_* chain failed on ANGLE`)
     }
     expect(failures, `df64 GLSL known-answer pixels not green:\n${failures.join('\n')}`).toEqual([])
   })

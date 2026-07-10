@@ -29,7 +29,7 @@ import {
   mix,
   fract,
   floor,
-  sin,
+  exp,
   toF32,
   type Expr,
   type ModuleDecl,
@@ -134,14 +134,13 @@ describe('vec64 lowering', () => {
     const ok = fn('k', { a: vec3f64T, t: f32T }, (p) => mix(p.a, f64(1), p.t))
     const names = fp64Lower(module({ funcs: [ok] })).funcs.map((f) => f.name)
     expect(names).toContain('df64_v3_mix')
-    const bad = fn('k', { a: vec3f64T, b: vec3f64T, t: vec3fT }, (p) =>
-      mix(p.a, p.b, p.t as never),
-    )
+    const bad = fn('k', { a: vec3f64T, b: vec3f64T, t: vec3fT }, (p) => mix(p.a, p.b, p.t as never))
     expect(() => fp64Lower(module({ funcs: [bad] }))).toThrow(/SD0041/)
   })
 
   it('unsupported builtins / attributes / assigns fail loud', () => {
-    const s = fn('s', { a: vec3f64T }, (p) => sin(p.a))
+    // exp is NOT emulated on vec64 (sin/cos ARE — see the known-answer block).
+    const s = fn('s', { a: vec3f64T }, (p) => exp(p.a))
     expect(() => fp64Lower(module({ funcs: [s] }))).toThrow(/SD0041/)
     const attr = fn('vs', { pos: { type: vec3f64T, attr: '@location(0)', location: 0 } }, (p) =>
       toF32(length(p.pos)),
@@ -337,10 +336,9 @@ describe('vec64 metamorphic gate — oracle(fp64Lower(m)) ≈ oracle(m)', () => 
       const { exact, low } = perLane(name, args, lowArgs)
       for (let i = 0; i < 3; i++) {
         const got = low.hi[i]! + low.lo[i]!
-        expect(
-          Math.abs(got - exact[i]!),
-          `${name} lane ${i}`,
-        ).toBeLessThanOrEqual(Math.max(Math.abs(exact[i]!), 1) * 2 ** -40)
+        expect(Math.abs(got - exact[i]!), `${name} lane ${i}`).toBeLessThanOrEqual(
+          Math.max(Math.abs(exact[i]!), 1) * 2 ** -40,
+        )
       }
     }
   })

@@ -137,6 +137,8 @@ const CALL_FN: Record<string, string> = {
   min: 'df64_min',
   max: 'df64_max',
   mix: 'df64_mix',
+  sin: 'df64_sin',
+  cos: 'df64_cos',
 }
 /** Whitelisted componentwise builtins on vec64 → their df64_vN_* twin shape. */
 const VEC_CALL_KIND: Record<string, 'unary' | 'binary' | 'mix'> = {
@@ -144,6 +146,8 @@ const VEC_CALL_KIND: Record<string, 'unary' | 'binary' | 'mix'> = {
   floor: 'unary',
   fract: 'unary',
   normalize: 'unary',
+  sin: 'unary',
+  cos: 'unary',
   min: 'binary',
   max: 'binary',
   mix: 'mix',
@@ -438,10 +442,13 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         const sTy = structT(vec64StructName(n))
         const kind = VEC_CALL_KIND[e.fn]!
         if (kind === 'unary') {
-          // fract (per-lane sub) and normalize (per-lane div) cancel internally,
-          // so a loaded operand needs the renorm; abs/floor do not cancel.
+          // fract (per-lane sub), normalize (per-lane div), and sin/cos (their
+          // reduction's per-lane df64_div/df64_sub) cancel internally, so a loaded
+          // operand needs the renorm; abs/floor do not cancel.
           const arg = vecOperand(e.args[0]!, n)
-          const a = e.fn === 'fract' || e.fn === 'normalize' ? renormForCancelVec(ctx, arg, n) : arg
+          const cancels =
+            e.fn === 'fract' || e.fn === 'normalize' || e.fn === 'sin' || e.fn === 'cos'
+          const a = cancels ? renormForCancelVec(ctx, arg, n) : arg
           return callHelper(ctx, `df64_v${n}_${e.fn}`, sTy, [a])
         }
         if (kind === 'binary') {
@@ -488,9 +495,11 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
               walk(t),
             ])
           }
-          // fract's body cancels via df64_sub(a, floor(a)); other whitelisted
-          // scalar builtins (sqrt/abs/floor/min/max) don't need the renorm here.
-          if (e.fn === 'fract') {
+          // fract's body cancels via df64_sub(a, floor(a)); sin/cos cancel on the
+          // operand too (the reduction's df64_div(a, 2π) / df64_sub(a, …) are the
+          // FIRST ops on a, so a loaded lo must be recomputed first). The other
+          // whitelisted scalar builtins (sqrt/abs/floor/min/max) don't cancel.
+          if (e.fn === 'fract' || e.fn === 'sin' || e.fn === 'cos') {
             return callHelper(ctx, mapped, vec2fT, [renormForCancel(ctx, pairOperand(e.args[0]!))])
           }
           const ret = isF64(e.type) ? vec2fT : mapType(e.type)
