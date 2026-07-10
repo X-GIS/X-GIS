@@ -192,3 +192,35 @@ describe('FrameArena — semantic invariants', () => {
     // sub-views must not outlive grow events.)
   })
 })
+
+describe('FrameArena — DEV stale-view poison (#783)', () => {
+  // vitest runs with import.meta.env.DEV true, so the poison is live here;
+  // in prod builds DEV is false and none of these fills execute.
+  it('a view retained across beginFrame reads the NaN sentinel, not stale data', () => {
+    const a = new FrameArena(1024)
+    const f = a.allocF32(4)
+    f[0] = 42
+    a.beginFrame() // same buffer (below grow trigger) — used region scrubbed
+    expect(Number.isNaN(f[0])).toBe(true) // loud garbage, not a plausible 42
+  })
+
+  it('a view retained across reserve() reads the NaN sentinel', () => {
+    const a = new FrameArena(64)
+    const f = a.allocF32(4)
+    f[0] = 7
+    a.reserve(4096) // backing buffer replaced; old store scrubbed
+    expect(Number.isNaN(f[0])).toBe(true)
+  })
+
+  it('reads through a pre-grow view after a MID-FRAME auto-grow stay legal (pinned)', () => {
+    // The documented-legal path: mid-frame grow copies the watermark into the
+    // new buffer and the OLD buffer keeps its bytes — reads through earlier
+    // views must keep working (only writes vanish). The poison must NOT
+    // touch this path.
+    const a = new FrameArena(64)
+    const f = a.allocF32(4)
+    f[0] = 9
+    a.alloc(4096) // exceeds capacity → mid-frame auto-grow
+    expect(f[0]).toBe(9)
+  })
+})

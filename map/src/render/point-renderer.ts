@@ -752,9 +752,17 @@ export class PointRenderer {
     }
 
     // Build per-feature data (stride = 24 floats, ECEF DSFUN layout +
-    // absolute Mercator DSFUN tail at 20-23 for precise flat-Mercator position)
+    // absolute Mercator DSFUN tail at 20-23 for precise flat-Mercator position).
+    // HEAP-allocated, NOT arena (#783): this array is stored on the persistent
+    // layer record and read across frames (renderPoints copies layer.featData
+    // into the per-frame expanded buffer), so an arena view here dies at the
+    // next beginFrame — a second addLayer or the render-time flush reuses its
+    // bytes and silently corrupts the first layer's paint data (the DEV
+    // stale-view poison surfaced this as NaN radii in the circle wiring
+    // gates). addLayer runs at scene-build time, not per frame, so the heap
+    // allocation costs nothing hot.
     const STRIDE = POINT_FEAT.stride
-    const featData = this._frameArena.allocF32(points.length * STRIDE)
+    const featData = new Float32Array(points.length * STRIDE)
     let flags = 0
     if (fill) flags |= 1
     if (stroke) flags |= 2

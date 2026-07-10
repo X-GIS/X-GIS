@@ -60,6 +60,8 @@
 //   - Concurrent allocation (single-threaded; renderFrame is sync).
 //   - GPU-resident memory (use GPUArena for that — different problem).
 
+import { DEV } from '@xgis/shared'
+
 export interface FrameArenaStats {
   /** Current backing ArrayBuffer size in bytes. */
   capacityBytes: number
@@ -84,6 +86,24 @@ export class FrameArena {
    *  the steady-state peak so allocations don't oscillate at the cap. */
   private static readonly GROW_TRIGGER = 0.9
   private static readonly GROW_FACTOR = 1.5
+  /** DEV stale-view sentinel: the f32 NaN bit pattern. Regions whose views
+   *  become ILLEGAL to retain (see `poisonRegion`) are filled with it, so a
+   *  stale read yields loud NaN garbage instead of plausible previous-frame
+   *  data (#783). A THROWING poison (Proxy-wrapped views) was evaluated and
+   *  rejected: `ArrayBuffer.isView(Proxy(view))` is false, so a wrapped view
+   *  breaks every native BufferSource consumer (GPU uploads, TypedArray.set
+   *  fast paths) the moment it leaves arena-local code. */
+  private static readonly POISON_U32 = 0x7fc00000
+
+  /** DEV-only: scrub `[0, bytes)` of `buf` with the NaN sentinel. Called
+   *  ONLY where view retention is illegal per the class contract — across
+   *  `beginFrame()` and across `reserve()`. NOT called on the mid-frame
+   *  auto-grow: reads through pre-grow views are documented-legal there
+   *  (the old buffer still holds the copied bytes). Zero prod overhead. */
+  private static poisonRegion(buf: ArrayBuffer, bytes: number): void {
+    if (!DEV || bytes < 4) return
+    new Uint32Array(buf, 0, bytes >>> 2).fill(FrameArena.POISON_U32)
+  }
 
   constructor(initialBytes: number = 64 * 1024) {
     // Round to multiple of 16 for WGSL-friendly alignment.
@@ -168,6 +188,10 @@ export class FrameArena {
    *  so DO NOT call mid-frame. */
   reserve(bytes: number): void {
     if (bytes <= this.buffer.byteLength) return
+    // Stale-view poison (#783): reserve discards the backing buffer, so any
+    // in-flight view is dead. Scrub the old store so a retained view reads
+    // loud NaN garbage in dev instead of silently-plausible stale data.
+    FrameArena.poisonRegion(this.buffer, this.watermark)
     const cap = Math.max(16, (bytes + 15) & ~15)
     this.buffer = new ArrayBuffer(cap)
     this.watermark = 0
@@ -180,6 +204,13 @@ export class FrameArena {
    *  callers must NOT retain typed-array refs across `beginFrame()`. */
   beginFrame(): void {
     if (this.watermark > this.peak) this.peak = this.watermark
+    // Stale-view poison (#783): retaining a view across beginFrame is
+    // illegal per the class contract — the watermark reset means this
+    // frame's allocations ALIAS last frame's views (same bytes, new owners).
+    // Scrub the used region so a retained view reads loud NaN garbage in
+    // dev instead of last frame's still-plausible data. Covers both the
+    // keep-buffer path (aliasing) and the grow path (old buffer discarded).
+    FrameArena.poisonRegion(this.buffer, this.watermark)
     if (this.peak >= this.buffer.byteLength * FrameArena.GROW_TRIGGER) {
       const newCap = Math.max(16, (this.buffer.byteLength * FrameArena.GROW_FACTOR + 15) & ~15)
       this.buffer = new ArrayBuffer(newCap)
