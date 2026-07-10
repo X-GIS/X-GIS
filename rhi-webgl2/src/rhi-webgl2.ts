@@ -874,26 +874,41 @@ export class WebGl2Device implements RhiDevice {
   // createBuffer/setBindGroup + the GLSL storage→data-texture pre-pass). The GLSL emits a
   // sampler2D named after the binding, so it reflects + binds by NAME like a texture.
   createBindGroupLayout(entries: RhiBindLayoutEntry[]): RhiBindGroupLayout {
-    // Plan-time by-order ambiguity guard (#783): this backend reflects the
+    // Plan-time by-order ambiguity guard (#783): createPipeline reflects the
     // linked program BY NAME when `name` is present and falls back to BY-ORDER
-    // pairing when it is absent. A single entry of a kind binds unambiguously
-    // by order (the documented raster pattern); with ≥2 same-kind entries,
-    // by-order is a silent mis-bind waiting on declaration order — fail HERE,
-    // at layout creation with the bindings named, instead of rendering wrong
-    // (mirrors the bind-tiers plan-time duplicate throw, the #783 exemplar).
-    const kindCounts = new Map<string, RhiBindLayoutEntry[]>()
+    // pairing when it is absent. The by-order queues are per REFLECTION CLASS,
+    // not per kind — 'uniform' blocks consume one queue (getUniformBlockIndex
+    // order), and 'texture' AND 'storage' SHARE the sampler-uniform queue
+    // (storage lowers to a data-texture sampler2D). One entry per class binds
+    // unambiguously by order (the documented raster pattern); with ≥2 entries
+    // of a class, by-order is a silent mis-bind waiting on GL's reflection
+    // order — fail HERE, at layout creation with the unnamed bindings listed,
+    // instead of rendering wrong (mirrors the bind-tiers plan-time duplicate
+    // throw, the #783 exemplar). 'sampler' entries are exempt: they never
+    // reflect by name — setBindGroup pairs each one positionally to the
+    // texture bound before it in binding order.
+    const classes = new Map<string, RhiBindLayoutEntry[]>()
     for (const e of entries) {
-      const list = kindCounts.get(e.kind)
+      const cls =
+        e.kind === 'uniform'
+          ? 'uniform block'
+          : e.kind === 'texture' || e.kind === 'storage'
+            ? 'sampler-uniform (texture/storage)'
+            : null
+      if (cls === null) continue
+      const list = classes.get(cls)
       if (list) list.push(e)
-      else kindCounts.set(e.kind, [e])
+      else classes.set(cls, [e])
     }
-    for (const [kind, list] of kindCounts) {
-      if (list.length >= 2 && list.some((e) => !e.name)) {
+    for (const [cls, list] of classes) {
+      const unnamed = list.filter((e) => !e.name)
+      if (list.length >= 2 && unnamed.length > 0) {
         throw new Error(
-          `[rhi-webgl2] bind-group layout has ${list.length} '${kind}' entries but not every ` +
-            `one is named — WebGL2 pairs unnamed entries BY ORDER, which silently mis-binds ` +
-            `multi-${kind} groups. Set \`name\` (the shader's reflection name) on bindings ` +
-            `${list.map((e) => e.binding).join(', ')}.`,
+          `[rhi-webgl2] bind-group layout has ${list.length} ${cls} entries but ` +
+            `binding${unnamed.length > 1 ? 's' : ''} ${unnamed.map((e) => e.binding).join(', ')} ` +
+            `${unnamed.length > 1 ? 'are' : 'is'} unnamed — WebGL2 pairs unnamed entries BY ` +
+            `ORDER within one reflection class, which silently mis-binds multi-entry groups. ` +
+            `Set \`name\` (the shader's reflection name) on every ${cls} entry.`,
         )
       }
     }
