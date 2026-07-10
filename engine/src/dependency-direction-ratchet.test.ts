@@ -67,6 +67,9 @@ const EXEMPT = new Set(['runtime', 'playground', 'site'])
 /** Known violations pinned for burn-down (#929 A/B). Shrink-only: removing
  *  the last offending import must delete the entry here in the same commit. */
 const BASELINE: ReadonlyArray<readonly [pkg: string, dep: string]> = [
+  // Contract types the adapters consume from the compiler (#929 B3, pending
+  // relocation onto @xgis/rhi seams): ComputeKernel (both), ShaderVariant /
+  // VertexFormat / PackedPalette+GRADIENT_WIDTH (webgpu).
   ['rhi-webgl2', 'compiler'],
   ['rhi-webgpu', 'compiler'],
   // TYPE-only residue (#929 B burned the value-level imports): gpu.ts imports

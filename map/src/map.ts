@@ -16,8 +16,11 @@ import {
   resolveColor,
   extractInterpolateZoomColorStops,
   extractInterpolateZoomStops,
+  // The PURE style-domain half of the palette pipeline (zoom-stop eval +
+  // packing) lives with the Palette collector in the compiler (#929 A).
+  packPalette,
 } from '@xgis/compiler'
-import { packPalette, uploadPalette, type PaletteTextures } from '@xgis/rhi-webgpu'
+import { uploadPalette, type PaletteTextures } from '@xgis/rhi-webgpu'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/geo'

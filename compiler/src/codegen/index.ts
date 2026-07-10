@@ -16,6 +16,17 @@ export { collectFields, collectFieldsStrict } from './wgsl-expr'
 export { nodeToWgslString } from './node-to-wgsl'
 export { collectPalette, emptyPalette } from './palette'
 export type { Palette, ColorGradient, ScalarGradient } from './palette'
+// Pure palette→texture packing + zoom-stop gradient evaluation (#929 A —
+// style-domain math relocated from @xgis/rhi-webgpu; the adapter keeps only
+// the GPU upload of the PackedPalette produced here).
+export {
+  GRADIENT_WIDTH,
+  GRADIENT_META_STRIDE_F32,
+  evalColorGradientAt,
+  evalScalarGradientAt,
+  packPalette,
+} from './palette-pack'
+export type { PackedPalette } from './palette-pack'
 export {
   COMPUTE_WORKGROUP_SIZE,
   emitMatchComputeKernel,
