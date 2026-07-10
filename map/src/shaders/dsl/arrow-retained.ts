@@ -42,7 +42,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, storageBuffer } from '@xgis/shader-dsl'
-import { emitModule } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule, stageOf } from '@xgis/shader-dsl'
 import {
   flat_rel,
   needs_backface_cull,
@@ -252,3 +252,18 @@ export const buildArrowRetainedModule = (): ModuleDecl =>
 /** Full retained-arrow shader: shared projection consts + injected projection fns + the two-point
  *  geo-directional arrow quad VS + analytic-SDF anti-aliased solid-tint FS. */
 export const emitArrowRetainedWgsl = (): string => emitModule(buildArrowRetainedModule())
+
+/** GLSL ES 3.00 twin for the WebGL2 backend (#823) — same module, split per stage (GLSL is
+ *  single-main-per-unit; mirrors emitIconRetainedGlsl). `emulateStorage` lowers the feat
+ *  (array<f32>) + tint (array<vec4f>) storage buffers to R32F data textures, matching
+ *  WebGl2Device's storage-buffer emulation. Consumed by RetainedArrowDraper behind a live
+ *  `rhi.backend === 'webgl2'` guard — the WebGPU boot never pays for this emit (#778 P6). */
+export const emitArrowRetainedGlsl = (stage: 'vertex' | 'fragment'): string => {
+  const m = buildArrowRetainedModule()
+  const keep = stage === 'vertex' ? 'vs_arrow_retained' : 'fs_arrow_retained'
+  return emitGlslModule(
+    { ...m, funcs: m.funcs.filter((f) => stageOf(f) === undefined || f.name === keep) },
+    stage,
+    { emulateStorage: true },
+  )
+}

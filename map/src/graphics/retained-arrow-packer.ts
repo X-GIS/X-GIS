@@ -8,10 +8,9 @@
 // shader's shared geo→clip ladder applies unchanged; the shader derives the arrow's screen
 // orientation by projecting BOTH points (geo-correct under any camera — #825).
 
-import { lonLatToECEF } from '@xgis/engine'
 import { worldCopyMercX } from '../render/point-feature-packer'
 import { parseHexColor } from '../feature-helpers'
-import { EARTH } from '@xgis/shared'
+import { EARTH, lonLatToECEF } from '@xgis/shared'
 import {
   ARROW_RETAINED_FEAT,
   ARROW_RETAINED_TINT_STRIDE,

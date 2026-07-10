@@ -12,25 +12,36 @@
 
 import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { Material, executeItems, type DrawItem } from './material'
-import { emitArrowRetainedWgsl } from '@xgis/map'
+import { emitArrowRetainedWgsl, emitArrowRetainedGlsl } from '@xgis/map'
 
 export class RetainedArrowDraper {
   private readonly material: Material
 
   constructor(rhi: RhiDevice, format: string, sampleCount: number, uniformSlotSize: number) {
+    // #823 — GLSL ES 3.00 twins for the WebGL2 backend, emitted behind a LIVE backend guard
+    // so the WebGPU boot never pays the double emit (#778 P6). WebGl2Device.createPipeline
+    // requires the split sources; WebGPU ignores them. Mirrors RetainedIconDraper.
+    const glsl =
+      rhi.backend === 'webgl2'
+        ? { vsCode: emitArrowRetainedGlsl('vertex'), fsCode: emitArrowRetainedGlsl('fragment') }
+        : {}
     this.material = new Material(rhi, {
       shader: emitArrowRetainedWgsl(),
+      ...glsl,
       vsEntry: 'vs_arrow_retained',
       fsEntry: 'fs_arrow_retained',
       format: format as 'bgra8unorm',
       sampleCount,
+      // Entry `name`s = the DSL binding names — the WebGL2 backend reflects the linked program
+      // BY NAME with them (multi-resource group 1 binds correctly regardless of declaration
+      // order); WebGPU ignores them.
       groups: [
         // group 0 — the per-copy frame uniform (pooled), shared with the icon path.
-        [{ binding: 0, kind: 'uniform' }],
+        [{ binding: 0, kind: 'uniform', name: 'Uniforms' }],
         // group 1 — per-batch resources: feat + tint storage (NO atlas).
         [
-          { binding: 0, kind: 'storage' }, // feat_data (position DSFUN + size + rotation)
-          { binding: 1, kind: 'storage' }, // tint_data (rgba)
+          { binding: 0, kind: 'storage', name: 'feat_data' }, // position DSFUN + size + geo dir
+          { binding: 1, kind: 'storage', name: 'tint_data' }, // rgba
         ],
       ],
       colorTargets: [{ format: format as 'bgra8unorm', blend: 'alpha' }],
@@ -52,7 +63,7 @@ export class RetainedArrowDraper {
 
   /** Draw one batch across its visible world copies. `perCopyUniformBytes` holds one
    *  frame-uniform snapshot per copy (each with its own world_offset in circle_params.x);
-   *  `count` is the instance count. One instanced draw(9, count) per copy. */
+   *  `count` is the instance count. One instanced draw(6, count) per copy. */
   draw(
     pass: RhiRenderPass,
     batchBindGroup: RhiBindGroup,
