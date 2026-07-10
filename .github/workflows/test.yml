@@ -567,4 +567,7 @@ jobs:
         # (The _webgl2-parity spec stays local-only: a real-GPU HEADED WebGL2/WebGPU parity
         # MEASUREMENT harness — headless SwiftShader can't drive both true backends, and it
         # never hard-fails. Its old red — #746, forcegl2 createPipeline GLSL desc — is fixed.)
-        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-mouse-interaction.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts
+        # _globe-hash-camera-gate: a globe hash camera must render from the requested
+        # latitude — asserts camera.centerLatDeg == hash lat (the #799/#800/#803 desync,
+        # a non-raster invariant) + #803 land coverage under ?forcegl2=1 (blank→covered).
+        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-mouse-interaction.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _globe-hash-camera-gate.spec.ts
