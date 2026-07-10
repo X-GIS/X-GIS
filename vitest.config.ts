@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     include: [
       'shared/src/**/*.test.ts',
+      'geo/src/**/*.test.ts',
       'compiler/src/**/*.test.ts',
       'blueprint/src/**/*.test.ts',
       'shader-dsl/src/**/*.test.ts',
