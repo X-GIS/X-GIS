@@ -35,6 +35,7 @@ export * from './render/render-context'
 // ── Shader machinery: CPU log-depth + content-blind shader-DSL leaves ─
 export * from './shaders/log-depth'
 export * from './shaders/dsl/overdraw-compose'
-// The DSL-authored frame-uniform WGSL emitter (consumed by @xgis/rhi-webgpu's
-// dormant FrameUniform scaffolding — see #783 note there).
+// The DSL-authored frame-uniform WGSL emitter — consumed LIVE by
+// @xgis/map's FrameUniform (map/src/render/frame-uniform.ts, #781); the
+// former "dormant rhi-webgpu scaffolding" note was stale (#783 audit).
 export * from './shaders/dsl/frame-uniform'
