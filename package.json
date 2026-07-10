@@ -35,7 +35,6 @@
     "precheck:matrix": "bun scripts/precheck.ts --matrix",
     "matrix:accept": "bun scripts/matrix-accept.ts",
     "matrix:report": "bun scripts/matrix-report.ts",
-    "setup:hooks": "git config core.hooksPath .githooks && echo Pre-push hook armed. Skip with --no-verify.",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
