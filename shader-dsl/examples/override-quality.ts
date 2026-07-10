@@ -11,8 +11,10 @@
 //   • WGSL: emits `override quality: f32 = 1.0;` — the host picks the variant with
 //     `device.createRenderPipeline({ ..., constants: { quality: 2.0 } })`.
 //   • GLSL ES 3.00 (no `override`): emits a `#ifndef/#define/#endif` default so the
-//     module compiles standalone, and the host specializes a variant by PREPENDING
-//     its own `#define quality 2.0`. Both host shapes derive from `reflect().overrides`.
+//     module compiles standalone, and the host specializes a variant by re-emitting with
+//     `emitGlslModule(m, stage, { overrideValues: { quality: 2.0 } })` — GLSL forbids a
+//     prepended `#define` (`#version` must lead), so the emitter places + spells it. Both
+//     host shapes derive from `reflect().overrides`.
 //
 // NOT WebGL2-renderable (`renderable: false`) as a helper module with no entry point —
 // the site shows its WGSL + Reflection (the override set). The emit goldens + the

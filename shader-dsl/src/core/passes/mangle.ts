@@ -125,7 +125,8 @@ export function mangleModule(m: ModuleDecl): MangleResult {
     mapExpr(e, (x) => {
       let y: Expr = x
       if (y.op === 'call' && fnMap.has(y.fn)) y = { ...y, fn: fnMap.get(y.fn)! }
-      else if (y.op === 'constref' && constMap.has(y.name)) y = { ...y, name: constMap.get(y.name)! }
+      else if (y.op === 'constref' && constMap.has(y.name))
+        y = { ...y, name: constMap.get(y.name)! }
       const t = renameType(y.type)
       return t === y.type ? y : { ...y, type: t }
     })
@@ -154,7 +155,13 @@ export function mangleModule(m: ModuleDecl): MangleResult {
           elseBody: s.elseBody?.map(rS),
         }
       case 'for':
-        return { ...s, init: rS(s.init), cond: rE(s.cond), update: rS(s.update), body: s.body.map(rS) }
+        return {
+          ...s,
+          init: rS(s.init),
+          cond: rE(s.cond),
+          update: rS(s.update),
+          body: s.body.map(rS),
+        }
       case 'switch':
         return {
           ...s,
@@ -201,7 +208,13 @@ export function mangleModule(m: ModuleDecl): MangleResult {
 
   const renames = new Map<string, string>([...fnMap, ...structMap, ...constMap])
   return {
+    // `...m` preserves every module field this pass does NOT rewrite — the #923
+    // `overrides` (whose names, like binding names above, are the host ABI and must
+    // survive un-renamed so both emit paths still declare them) and the #628
+    // `enables`. Only the four renamed collections are replaced; `overrideref` reads
+    // in bodies are already left un-renamed by `rE`, matching the untouched decls.
     module: {
+      ...m,
       consts: m.consts.map(rConst),
       structs: m.structs.map(rStruct),
       bindings: m.bindings.map(rBinding),

@@ -993,7 +993,19 @@ function stageScope(
 export function emitGlslModule(
   m: ModuleDecl,
   stage?: 'vertex' | 'fragment',
-  opts?: { emulateStorage?: boolean; emulateCompute?: boolean } & EmitOptions,
+  opts?: {
+    emulateStorage?: boolean
+    emulateCompute?: boolean
+    /** #923 host specialization — pin `override` values for THIS emit. GLSL ES 3.00
+     *  has no driver-side spec constants, so a specialized variant is a re-emit: each
+     *  named override becomes a hard `#define NAME <value>` (spelled via the backend
+     *  `literal()`, so a u32 gets its `u` suffix and an f32 its `.0`) emitted AFTER the
+     *  `#version`/precision preamble — never PREPENDED, which GLSL rejects (`#version`
+     *  must lead the source). Un-named overrides keep their `#ifndef` default. The
+     *  values derive from `reflect().overrides` (name→chosen value); the WGSL twin is
+     *  `createRenderPipeline({ constants })`. */
+    overrideValues?: Readonly<Record<string, number | boolean>>
+  } & EmitOptions,
 ): string {
   // autoVars BEFORE lowerModule (inside lowerForBackend), same order as the WGSL backend /
   // CPU oracle — materialising assigned plain-value bindings into real vars is BACKEND-NEUTRAL.
@@ -1055,21 +1067,28 @@ export function emitGlslModule(
   const parts: string[] = ['#version 300 es', 'precision highp float;', 'precision highp int;', '']
 
   // #923 — specialization constants. GLSL ES 3.00 has no `override`, so the portable
-  // equivalent is the PREPROCESSOR: each override becomes a `#define` whose DEFAULT is
-  // guarded by `#ifndef`, so the module compiles standalone AND a host can specialize a
-  // variant by PREPENDING its own `#define NAME value` (the guard then skips the
-  // default). A branch guarded by the macro (`if (NAME > 1.0)`) is dead-code-eliminated
-  // by the GLSL COMPILER per program — the runtime-`if` form (not `#if`) because the
-  // GLSL preprocessor's `#if` evaluates INTEGER constant expressions only and cannot
-  // handle a float/bool override. The ordered define manifest is recoverable from
-  // reflect().overrides, so a host can assemble each permutation mechanically.
+  // equivalent is the PREPROCESSOR, emitted HERE (after the `#version`/precision
+  // preamble — `#version` MUST lead the source, so a host `#define` can NOT be
+  // prepended). Each override becomes a `#define` whose default is guarded by `#ifndef`,
+  // so the module compiles standalone. A host specializes a variant by RE-EMITTING with
+  // `opts.overrideValues` (the GLSL twin of WGSL `createRenderPipeline({ constants })`):
+  // a pinned name emits a hard `#define NAME <value>` — value spelled through the
+  // backend `literal()`, so a u32 keeps its `u` suffix and an f32 its `.0` (a raw
+  // JS-stringified int would break `NAME > 1u` on a uint override) — while an un-pinned
+  // name keeps its `#ifndef` default. A branch guarded by the macro (`if (NAME > 1.0)`)
+  // is dead-code-eliminated by the GLSL COMPILER per program — the runtime-`if` form
+  // (not `#if`) because the GLSL preprocessor's `#if` evaluates INTEGER constant
+  // expressions only and cannot handle a float/bool override. The value manifest is
+  // recoverable from reflect().overrides, so a host derives each permutation mechanically.
   if (lowered.overrides?.length)
     parts.push(
       lowered.overrides
-        .map(
-          (o) =>
-            `#ifndef ${o.name}\n#define ${o.name} ${glslEs300Backend.literal(o.default, o.type)}\n#endif`,
-        )
+        .map((o) => {
+          const pinned = opts?.overrideValues?.[o.name]
+          return pinned !== undefined
+            ? `#define ${o.name} ${glslEs300Backend.literal(pinned, o.type)}`
+            : `#ifndef ${o.name}\n#define ${o.name} ${glslEs300Backend.literal(o.default, o.type)}\n#endif`
+        })
         .join('\n'),
     )
 

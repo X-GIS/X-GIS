@@ -169,7 +169,9 @@ export interface ConstDecl {
  *  `overrideConst(name, type, default)`. Lowers to a WGSL module-scope `override
  *  name: type = default;` (the host specializes it via `createRenderPipeline({
  *  constants: { name } })`) and to a GLSL `#define name default` permutation seam
- *  (the host prepends its own `#define` to specialize). The value is chosen at
+ *  (the host specializes by re-emitting with `emitGlslModule(m, stage, { overrideValues })`
+ *  — a prepended `#define` is invalid GLSL, so the emitter places it after `#version`).
+ *  The value is chosen at
  *  PIPELINE CREATION, not module build — so a single authored module yields N
  *  driver-specialized variants whose dead branches the DRIVER eliminates.
  *  WGSL scalars ONLY (`bool`/`i32`/`u32`/`f32`; `f16` once it joins the Scalar

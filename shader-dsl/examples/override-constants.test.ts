@@ -83,24 +83,64 @@ describe('#923 — specialization constants (WGSL override ↔ GLSL #define)', (
   })
 
   // ── 5. Controls↔reflection-style gate: BOTH host shapes derive from reflect() ──
-  it('the WGSL `constants` dict and the GLSL `#define` header both derive from reflect()', () => {
+  it('the WGSL `constants` dict and the GLSL specialized variant both derive from reflect()', () => {
     const overrides = reflect(m).overrides
 
-    // WGSL host shape: createRenderPipeline({ constants: { name: value } }) — the
-    // defaults come straight from reflect(); every key must name a real `override`.
+    // WGSL host shape: createRenderPipeline({ constants: { name: value } }) — WebGPU takes
+    // the JS value directly, so the dict derives straight from reflect().
     const wgslConstants = Object.fromEntries(overrides.map((o) => [o.name, o.default]))
     expect(wgslConstants).toEqual({ quality: 1 })
     const wgsl = emitModule(m)
     for (const o of overrides) expect(wgsl).toContain(`override ${o.name}: ${o.type} = `)
 
-    // GLSL host shape: a prepend-able `#define` header, one line per override — again
-    // derived only from reflect(); every macro must name a `#define` in the base source.
-    const glslHeader = overrides.map((o) => `#define ${o.name} ${o.default}`).join('\n')
-    expect(glslHeader).toBe('#define quality 1')
-    const glsl = emitGlslModule(m)
-    for (const o of overrides) expect(glsl).toContain(`#define ${o.name} `)
-    // The base source guards its default with #ifndef, so a prepended host #define wins.
-    for (const o of overrides) expect(glsl).toContain(`#ifndef ${o.name}\n`)
+    // GLSL host shape: the GLSL twin of WGSL `constants` is a RE-EMIT with `overrideValues`,
+    // a dict keyed by the SAME reflect() names. The emitter — not the host — spells the value
+    // through the backend literal() and positions the `#define` AFTER the `#version` preamble,
+    // so the host can neither mis-place it (a PREPENDED `#define` is invalid GLSL: `#version`
+    // must lead the source) nor mis-spell it (a raw-JS int for an f32 would be `2`, not `2.0`).
+    const chosen: Record<string, number> = Object.fromEntries(overrides.map((o) => [o.name, 2]))
+    const specialized = emitGlslModule(m, undefined, { overrideValues: chosen })
+    expect(specialized.startsWith('#version 300 es')).toBe(true) // `#version` still leads
+    // f32 override 2 → the real GLSL float literal `2.0`, not the raw int `2`
+    expect(specialized).toContain('#define quality 2.0')
+    for (const o of overrides) {
+      // every reflected name is a hard `#define` in the specialized emit …
+      expect(specialized).toContain(`#define ${o.name} `)
+      // … the `#ifndef` default is gone (the value is pinned) …
+      expect(specialized).not.toContain(`#ifndef ${o.name}`)
+      // … and the `#define` lands AFTER `#version`, never before it (valid GLSL).
+      expect(specialized.indexOf('#version 300 es')).toBeLessThan(
+        specialized.indexOf(`#define ${o.name} `),
+      )
+    }
+    // the override-guarded branch survives into the specialized variant (the driver DCEs it)
+    expect(specialized).toContain('if ((quality > 1.0)) {')
+
+    // the DEFAULT emit (no host values) still standalone-compiles via the `#ifndef` guard.
+    const base = emitGlslModule(m)
+    for (const o of overrides) expect(base).toContain(`#ifndef ${o.name}\n`)
+  })
+
+  it('a specialized u32 override is spelled with its `u` suffix (not a raw int)', () => {
+    // The type-aware spelling is load-bearing: a raw JS-stringified header would emit
+    // `#define count 5`, and the guard `count > 1u` then compares int vs uint — ESSL 3.00
+    // has NO int→uint implicit conversion, so the specialized variant would not compile.
+    const u = module({
+      overrides: [overrideConst('count', u32T, 1).decl],
+      funcs: [
+        fn('g', { x: f32T }, ({ x }) => {
+          const a = Var(x)
+          If(overrideConst('count', u32T, 1).node.gt(f32(0)), () => {
+            a.assign(a.add(f32(1)))
+          })
+          return a
+        }),
+      ],
+    })
+    expect(emitGlslModule(u)).toContain('#ifndef count\n#define count 1u\n#endif') // default u
+    const spec = emitGlslModule(u, undefined, { overrideValues: { count: 5 } })
+    expect(spec).toContain('#define count 5u') // pinned u
+    expect(spec).not.toMatch(/#define count 5(?!u)/) // never the bare int
   })
 
   // ── Scalar-type declaration spellings (bool / i32 / u32 / f32) ──

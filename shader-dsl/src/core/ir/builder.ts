@@ -1006,7 +1006,9 @@ export interface OverrideHandle<K extends string> {
 /** Author a pipeline specialization constant (#923): one declarator that lowers to a
  *  WGSL module-scope `override name: type = default;` (host specializes via
  *  `createRenderPipeline({ constants: { name } })`) AND a GLSL `#define` permutation
- *  seam (host prepends its own `#define` per variant). The value is fixed at PIPELINE
+ *  seam (host specializes by re-emitting with `emitGlslModule(m, stage, { overrideValues })`
+ *  per variant — GLSL forbids a prepended `#define`, so the value is spelled and placed
+ *  after the `#version` preamble by the emitter). The value is fixed at PIPELINE
  *  CREATION, not module build, so its read stays OPAQUE to the optimizer — a branch
  *  guarded by `q.node` (e.g. `If(q.node.gt(1), …)`) survives every DSL pass and is
  *  eliminated by the DRIVER per variant, giving the classic ubershader mechanism.

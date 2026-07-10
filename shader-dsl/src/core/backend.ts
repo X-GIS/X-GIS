@@ -94,8 +94,10 @@ export interface Backend {
   /** OPTIONAL — a module-level SPECIALIZATION CONSTANT declaration (#923). The WGSL
    *  writer emits `override name: T = default;` (host-overridable at pipeline creation
    *  via `constants: {}`); the GLSL writer emits a `#ifndef/#define/#endif`
-   *  default-value permutation seam (host prepends its own `#define`). A backend with
-   *  no override surface omits this — assembly then skips overrides for that target. */
+   *  default-value permutation seam (host specializes by re-emitting with
+   *  `emitGlslModule`'s `overrideValues`, which the emitter places after the `#version`
+   *  preamble — a prepended `#define` is invalid GLSL). A backend with no override
+   *  surface omits this — assembly then skips overrides for that target. */
   emitOverride?(o: OverrideDecl): string
   /** A struct declaration block. */
   emitStruct(s: StructDecl): string

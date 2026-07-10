@@ -1,7 +1,24 @@
 // ═══ mangleModule / emit-prod mangle() plugin — rename scope, ABI boundary, determinism ═══
 
 import { describe, it, expect } from 'vitest'
-import { fn, module, vec2, vec4, fract, toF32, toF64, sin, f32T, f64T, vec2fT, vec4fT } from '../ir'
+import {
+  fn,
+  module,
+  vec2,
+  vec4,
+  fract,
+  toF32,
+  toF64,
+  sin,
+  f32,
+  f32T,
+  f64T,
+  vec2fT,
+  vec4fT,
+  overrideConst,
+  If,
+  Var,
+} from '../ir'
 import { ioStruct, builtin, location, uniformStruct } from '../sot'
 import { emitModule } from '../backends/wgsl'
 import { emitGlslModule } from '../backends/glsl'
@@ -28,7 +45,7 @@ const terrainShade = fn('terrain_shade', { x: f32T }, (p) => sin(p.x).mul(0.5).a
 const vsEntry = fn(
   'vs_main',
   {},
-  () => VsOut.construct({ pos: vec4(0.0, 0.0, 0.0, 1.0), uv: vec2(terrainShade(1.0), 0.0) }),
+  () => VsOut.construct({ pos: vec4(0.0, 0.0, 0.0, 1.0), uv: vec2(terrainShade({ x: 1.0 }), 0.0) }),
   { stage: 'vertex' },
 )
 const fsEntry = fn(
@@ -36,7 +53,7 @@ const fsEntry = fn(
   { vo: VsOut },
   (p) => {
     const t = toF32(fract(U.field.world_origin.add(toF64(p.vo.uv.x.mul(U.field.sweep)))))
-    const s = terrainShade(t)
+    const s = terrainShade({ x: t })
     return vec4(s, s, t, 1.0)
   },
   { stage: 'fragment', retAttr: '@location(0)' },
@@ -69,6 +86,29 @@ describe('emit-prod mangle() plugin through the { plugins } seam — authored vo
     expect(emitModule(m, { plugins: [mangle()] })).toBe(emitModule(m, { plugins: [mangle()] }))
     expect(emitModule(m)).toBe(emitModule(m, { plugins: [] }))
     expect(emitModule(m)).toContain('terrain_shade')
+  })
+
+  it('#923: a specialization-constant module still emits its `override` through mangle', () => {
+    // mangle rebuilds the module; before the `...m` spread it whitelisted only
+    // consts/structs/bindings/funcs, so `overrides` vanished and the emit dropped the
+    // `override` line while the guarded branch still read the name → undeclared identifier.
+    const quality = overrideConst('quality', f32T, 1.0)
+    const om = module({
+      overrides: [quality.decl],
+      funcs: [
+        fn('override_shade', { base: f32T }, ({ base }) => {
+          const acc = Var(base)
+          If(quality.node.gt(f32(1)), () => {
+            acc.assign(acc.mul(f32(2)).add(f32(0.5)))
+          })
+          return acc
+        }),
+      ],
+    })
+    const wgsl = emitModule(om, { plugins: [mangle()] })
+    expect(wgsl).toContain('override quality: f32 = 1.0;') // the decl still emits …
+    expect(wgsl).toContain('quality > 1.0') // … and the read keeps the un-renamed ABI name
+    expect(wgsl).not.toContain('override_shade') // the helper name IS still mangled
   })
 
   it('GLSL: the two stage emits agree on every shared mangled name (link contract)', () => {
@@ -125,6 +165,28 @@ describe('mangleModule — direct pass contracts', () => {
     )
     if (ret.s === 'return' && ret.expr?.op === 'binop' && ret.expr.b.op === 'constref')
       expect(ret.expr.b.name).toBe(to)
+  })
+
+  it('preserves #923 overrides through the rebuild and never renames an override name', () => {
+    const quality = overrideConst('quality', f32T, 1.0)
+    const om = module({
+      // a module const alongside proves renaming still happens around the preserved override
+      consts: [{ name: 'BIAS', type: f32T, wgslValue: 0.5, cpuValue: 0.5 }],
+      overrides: [quality.decl],
+      funcs: [
+        fn('shade', { base: f32T }, ({ base }) => {
+          const acc = Var(base)
+          If(quality.node.gt(f32(1)), () => {
+            acc.assign(acc.mul(f32(2)))
+          })
+          return acc
+        }),
+      ],
+    })
+    const { module: out, renames } = mangleModule(om)
+    expect(out.overrides).toEqual(om.overrides) // the override decls survive the rebuild
+    expect(renames.has('quality')).toBe(false) // the override NAME is host ABI — never renamed
+    expect(renames.has('BIAS')).toBe(true) // … while ordinary vocabulary still is
   })
 
   it('bails to identity when a fn body carries a raw stmt (textual refs invisible)', () => {

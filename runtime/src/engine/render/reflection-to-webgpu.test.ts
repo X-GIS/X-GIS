@@ -6,7 +6,11 @@
 import { describe, it, expect } from 'vitest'
 import { reflect, type Reflection } from '@xgis/shader-dsl'
 import { buildPointModule } from '@xgis/map'
-import { reflectionToBindGroupLayoutEntries, uniformFieldSlots, type VisibilityMap } from '@xgis/rhi-webgpu'
+import {
+  reflectionToBindGroupLayoutEntries,
+  uniformFieldSlots,
+  type VisibilityMap,
+} from '@xgis/rhi-webgpu'
 
 const V = 1 // GPUShaderStage.VERTEX
 const F = 2 // GPUShaderStage.FRAGMENT
@@ -55,6 +59,7 @@ describe('reflectionToBindGroupLayoutEntries', () => {
       uniforms: [],
       storage: [],
       entries: [],
+      overrides: [],
     }
     expect(reflectionToBindGroupLayoutEntries(synthetic, new Map([[0, F]]))).toEqual([
       { binding: 0, visibility: F, buffer: { type: 'storage' } },
