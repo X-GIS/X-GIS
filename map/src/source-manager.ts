@@ -36,7 +36,6 @@ import { isTileTemplate } from '@xgis/data'
 import { TileCatalog } from '@xgis/data'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import type { ShowSourceMaps } from './show-source-maps'
-import type { ShowCommand } from './render/renderer-types'
 import type { SceneCommands } from './interpreter'
 import { asVectorTileKind, computeGeoJSONBounds } from './map-geo-helpers'
 import { attachPMTilesSource, detectVectorTileFormat } from '@xgis/data'
@@ -442,22 +441,31 @@ export class SourceManager {
    *  per-show) through VirtualPMTilesBackend, bypassing the legacy
    *  pool.compile + setRawParts + GeoJSONRuntimeBackend chain. Run
    *  when `__XGIS_USE_VIRTUAL_INLINE_GEOJSON` / `?virt_inline=1` is
-   *  set AND the show is simple (no filter, no geometryExpr, no
-   *  per-feature buffer variant — those still take the legacy path
-   *  until showSlices and feature-buffer build ordering are wired
-   *  through VirtualPMTilesBackend). */
+   *  set AND the show carries no filter / geometryExpr (those still
+   *  take the legacy path). Per-feature buffer variants (match() /
+   *  gradient() colour) ride THIS path since #821: `maps` carries the
+   *  same showSlices / extrude / stroke descriptors the URL-GeoJSON
+   *  attach passes, so the MVT worker emits per-tile featureProps and
+   *  the slice keys match the VTR's computeSliceKey lookups — the
+   *  legacy path stored tiles under the default `''` slice, which the
+   *  VTR never finds (permanent cache miss → blank frame). */
   _attachInlineGeoJSONViaVirtualPMTiles(
     vtKey: string,
     filtered: GeoJSONFeatureCollection,
-    _show: ShowCommand,
+    maps: ShowSourceMaps,
     source: TileCatalog,
   ): void {
+    const inferred = maps.usedSourceLayers.get(vtKey)
     const backend = new VirtualPMTilesBackend({
       sourceName: vtKey,
       instanceId: this._tilingInstanceId,
       geojson: filtered,
-      // No per-show filter / extrude / stroke overrides here — those
-      // are exactly the cases the gate above rejects.
+      layers: inferred && inferred.size > 0 ? [...inferred] : undefined,
+      extrudeExprs: maps.extrudeExprsBySource.get(vtKey),
+      extrudeBaseExprs: maps.extrudeBaseExprsBySource.get(vtKey),
+      showSlices: maps.showSlicesBySource.get(vtKey),
+      strokeWidthExprs: maps.strokeWidthExprsBySource.get(vtKey),
+      strokeColorExprs: maps.strokeColorExprsBySource.get(vtKey),
     })
     source.attachBackend(backend)
 

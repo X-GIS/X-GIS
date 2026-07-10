@@ -399,6 +399,12 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     description: 'Inline source filled via setSourceData().',
     source: load('fixture-inline-push.xgis'),
   },
+  fixture_inline_match: {
+    name: 'Fixture: inline match()',
+    tag: 'fixture',
+    description: 'Inline source + per-feature match() colour via setSourceData() (#821).',
+    source: load('fixture-inline-match.xgis'),
+  },
   fixture_render_verify: {
     name: 'Fixture: render verify',
     tag: 'fixture',

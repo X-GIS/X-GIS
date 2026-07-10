@@ -1,0 +1,15 @@
+/* Fixture (#821): inline source + per-feature match() colour.
+ * The host pushes polygons after run(); the match() variant needs the
+ * per-feature data buffer. The legacy inline path stores tiles under
+ * the default '' slice, which the VTR's computeSliceKey lookup never
+ * finds (permanent cache miss → blank frame); the virt_inline path
+ * must render BOTH hues from one source. */
+source shapes { type: geojson }
+layer cats {
+  source: shapes
+  | fill match(.kind) {
+      "a" -> rose-500
+      "b" -> emerald-500
+      _   -> gray-500
+    }
+}
