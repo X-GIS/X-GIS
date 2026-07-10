@@ -35,6 +35,7 @@ import {
   dot,
   mix,
   fma,
+  exp2,
   abs,
   min,
   max,
@@ -178,6 +179,92 @@ const gfBattery = (cross: Cross): FN => {
   const p = Let(B().mul(bp.x)) // big·hi = 1e8 (exact)
   return p.sub(B()).add(cross(B(), bp.y)) // (1e8 − 1e8) + cross(big, factorLo)
 }
+
+// ── Integer-EFT slice 1: a 72-bit (3×24-bit-limb) positive integer accumulator.
+// dg_imul proved a value ASSEMBLED in the integer domain survives Apple/Metal;
+// dg_iboth proved any FLOAT large-magnitude cancellation around it still dies.
+// So the entire mul→cancel→add chain must stay integer. Q represents
+//   value = (h2·2^48 + h1·2^24 + h0) · 2^(Lb − 300)
+// (limbs < 2^24; Lb = biased lsb exponent, bias 300 keeps it unsigned: a plain
+// f32 m·2^(e−150) has Lb = e+150; a 24×24 product has Lb = ea+eb). Positive
+// operands only, A ≥ B for qsub — the probe inputs satisfy both; sign handling
+// belongs to the real fp64-lower integration, not this architecture probe.
+type UN = ReturnType<typeof u32>
+type Q = { h2: UN; h1: UN; h0: UN; Lb: UN }
+const M24u = 0xffffff
+const fMant = (x: FN): UN => Let(bitcastU32(x).bitAnd(0x7fffff).bitOr(0x800000))
+const fBexp = (x: FN): UN => Let(bitcastU32(x).shr(23).bitAnd(0xff))
+const f2q = (x: FN): Q => ({ h2: Let(u32(0)), h1: Let(u32(0)), h0: fMant(x), Lb: Let(fBexp(x).add(150)) })
+// exact 24×24→48-bit product via 12-bit halves (the proven imul core, unpacked)
+const prodQ = (a: FN, b: FN): Q => {
+  const ma = fMant(a)
+  const mb = fMant(b)
+  const aH = Let(ma.shr(12))
+  const aL = Let(ma.bitAnd(0xfff))
+  const bH = Let(mb.shr(12))
+  const bL = Let(mb.bitAnd(0xfff))
+  const c0 = Let(aL.mul(bL))
+  const c1 = Let(aH.mul(bL).add(aL.mul(bH)))
+  const c2 = Let(aH.mul(bH))
+  const ploRaw = Let(c0.add(c1.bitAnd(0xfff).shl(12)))
+  return {
+    h2: Let(u32(0)),
+    h1: Let(c2.add(c1.shr(12)).add(ploRaw.shr(24))), // product < 2^48 ⇒ fits 24 bits
+    h0: Let(ploRaw.bitAnd(M24u)),
+    Lb: Let(fBexp(a).add(fBexp(b))),
+  }
+}
+// left-shift by d ∈ [0, 48) (toward a finer grid; Lb drops by d)
+const qshl = (q: Q, d: UN): Q => {
+  const ge = Let(d.ge(u32(24)).select(u32(1), u32(0)))
+  const inv = Let(ge.bitXor(1))
+  const h2a = Let(ge.mul(q.h1).add(inv.mul(q.h2)))
+  const h1a = Let(ge.mul(q.h0).add(inv.mul(q.h1)))
+  const h0a = Let(inv.mul(q.h0))
+  const r = Let(d.sub(ge.mul(24))) // r ∈ [0, 24)
+  const rc = Let(u32(24).sub(r))
+  return {
+    h2: Let(h2a.shl(r).bitOr(h1a.shr(rc)).bitAnd(M24u)),
+    h1: Let(h1a.shl(r).bitOr(h0a.shr(rc)).bitAnd(M24u)),
+    h0: Let(h0a.shl(r).bitAnd(M24u)),
+    Lb: Let(q.Lb.sub(d)),
+  }
+}
+const qalign = (A: Q, B: Q): [Q, Q] => {
+  const Lmin = Let(min(A.Lb, B.Lb))
+  return [qshl(A, Let(A.Lb.sub(Lmin))), qshl(B, Let(B.Lb.sub(Lmin)))]
+}
+const qsub = (Ain: Q, Bin: Q): Q => {
+  // A ≥ B (probe inputs); borrow chain, all-integer
+  const [A, Bq] = qalign(Ain, Bin)
+  const b0 = Let(A.h0.lt(Bq.h0).select(u32(1), u32(0)))
+  const h0 = Let(A.h0.sub(Bq.h0).bitAnd(M24u))
+  const s1 = Let(Bq.h1.add(b0))
+  const b1 = Let(A.h1.lt(s1).select(u32(1), u32(0)))
+  const h1 = Let(A.h1.sub(s1).bitAnd(M24u))
+  const h2 = Let(A.h2.sub(Bq.h2).sub(b1).bitAnd(M24u))
+  return { h2, h1, h0, Lb: A.Lb }
+}
+const qadd = (Ain: Q, Bin: Q): Q => {
+  const [A, Bq] = qalign(Ain, Bin)
+  const t0 = Let(A.h0.add(Bq.h0))
+  const h0 = Let(t0.bitAnd(M24u))
+  const t1 = Let(A.h1.add(Bq.h1).add(t0.shr(24)))
+  const h1 = Let(t1.bitAnd(M24u))
+  const h2 = Let(A.h2.add(Bq.h2).add(t1.shr(24)).bitAnd(M24u))
+  return { h2, h1, h0, Lb: A.Lb }
+}
+// Exact f32 materialisation for results with ≤24 significant bits (the probe
+// goldens): non-overlapping limb adds + a power-of-two scale — no cancellation,
+// the op class every device passes (dg_imul precedent).
+const qpack = (q: Q): FN =>
+  Let(
+    toF32(q.h2)
+      .mul(16777216 * 16777216)
+      .add(toF32(q.h1).mul(16777216))
+      .add(toF32(q.h0))
+      .mul(exp2(toF32(q.Lb).sub(300))),
+  )
 
 // Integer-EFT multiply (positive normals): a·b assembled from the IEEE-754 bit
 // pattern via u32 arithmetic — mantissa split 24 = 12+12, 48-bit product in two
@@ -324,6 +411,34 @@ const tests: Test[] = [
     () => {
       const bp = Let(f64Parts(U.field.factor.x))
       return imul(B(), bp.x).sub(B()).add(imul(B(), bp.y)) // (int big·fHi − big) + int big·fLo
+    },
+    0.5,
+  ),
+  // ── Integer-EFT slice 1 (the fix architecture): the ENTIRE mul→cancel→add
+  // chain in the integer accumulator; floats only materialise the ≤24-bit
+  // result. If these read 0.5 on Apple where dg_iboth (-1.5) died, full-integer
+  // df64 is proven end-to-end and fp64-lower gets this lowering behind a cap.
+  mk(
+    'dg_ifull',
+    () => {
+      const bp = Let(f64Parts(U.field.factor.x))
+      const pHi = prodQ(B(), bp.x) // big·fHi (= big, exactly)
+      const pLo = prodQ(B(), bp.y) // big·fLo (= 0.5, exactly)
+      return qpack(qadd(qsub(pHi, f2q(B())), pLo)) // (big·fHi − big) + big·fLo
+    },
+    0.5,
+  ),
+  // real 48-bit aligned borrow: (mulA.hi)² − (mulRef.hi + mulRef.lo), ×2 → 0.5.
+  // mulA.lo = 0 (B'+0.5 is f32-exact), so the square needs no cross terms; the
+  // reference is a genuine two-word df64 whose words the accumulator must align.
+  mk(
+    'dg_imulsq',
+    () => {
+      const ap = Let(f64Parts(U.field.mulA.x))
+      const rp = Let(f64Parts(U.field.mulRef.x))
+      const p = prodQ(ap.x, ap.x)
+      const ref = qadd(f2q(rp.x), f2q(rp.y))
+      return qpack(qsub(p, ref)).mul(2)
     },
     0.5,
   ),
