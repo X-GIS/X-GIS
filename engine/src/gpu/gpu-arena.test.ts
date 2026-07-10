@@ -628,3 +628,30 @@ describe('GPUArena — compaction (defrag relocation)', () => {
     expect(nb.size).toBe(256)
   })
 })
+
+describe('GPUArena — DEV size-mismatch free guard (#783)', () => {
+  // vitest runs with import.meta.env.DEV true; prod strips the guard.
+  const makeArena = (capacityBytes: number): GPUArena =>
+    new GPUArena(mockDevice(), { capacityBytes, usage: VERTEX_USAGE, copySrc: true })
+
+  it('free() with the wrong bytes throws, naming both sizes', () => {
+    const a = makeArena(1024)
+    const off = a.alloc(100) // aligned 100
+    expect(() => a.free(off, 64)).toThrow(/size-mismatched free.*aligned 64.*aligned 100/s)
+  })
+
+  it('free() with a bytes value that aligns to the same footprint is legal', () => {
+    const a = makeArena(1024)
+    const off = a.alloc(98) // align4 → 100
+    expect(() => a.free(off, 100)).not.toThrow() // same aligned footprint
+  })
+
+  it('compact() carries the recorded sizes — a post-compaction mismatched free still throws', () => {
+    const a = makeArena(1024)
+    const off = a.alloc(200)
+    const enc = { copyBufferToBuffer: () => {} }
+    const { newOffsets } = a.compact([{ oldOffset: off, bytes: 200 }], enc)
+    expect(() => a.free(newOffsets[0]!, 64)).toThrow(/size-mismatched free/)
+    expect(() => a.free(newOffsets[0]!, 200)).not.toThrow()
+  })
+})

@@ -200,10 +200,14 @@ export class GPUArena {
    *  preserves GPU-cache locality during steady-state pan / zoom (same
    *  offsets reused frame after frame). */
   private freeList = new Map<number, number[]>()
-  /** DEV-only set of currently live offsets. Populated on alloc(),
-   *  cleared on free() / reset() / destroy() / compact(). All
-   *  operations are guarded by `if (DEV)` — zero prod overhead. */
-  private _liveOffsets = new Set<number>()
+  /** DEV-only map of currently live offsets → their ALIGNED footprint.
+   *  Populated on alloc(), cleared on free() / reset() / destroy() /
+   *  rebuilt on compact(). The recorded size lets free() throw on a
+   *  mismatched `bytes` (#783 — previously a SILENT fragmentation leak:
+   *  the slot landed on the wrong exact-size free-list key and was never
+   *  reused at its real size). All operations are guarded by `if (DEV)`
+   *  — zero prod overhead, same convention as the double-free guard. */
+  private _liveOffsets = new Map<number, number>()
 
   /** Bump high-water mark in bytes. Allocation-free O(1) field read.
    *  Gates the OOM throw, so this is the TRIGGER signal (overflow
@@ -269,7 +273,7 @@ export class GPUArena {
       this.liveBytes += aligned
       this.allocCount++
       this.reuseHits++
-      if (DEV) this._liveOffsets.add(offset)
+      if (DEV) this._liveOffsets.set(offset, aligned)
       return offset
     }
 
@@ -296,26 +300,35 @@ export class GPUArena {
     this.bumpPtr += aligned
     this.liveBytes += aligned
     this.allocCount++
-    if (DEV) this._liveOffsets.add(offset)
+    if (DEV) this._liveOffsets.set(offset, aligned)
     return offset
   }
 
   /** Return a previously-alloc'd range to the free-list. `bytes`
-   *  MUST match the SAME bytes value passed to alloc (the arena
-   *  doesn't track per-offset sizes — it would double memory cost
-   *  and offers no safety benefit when callers already pair
-   *  alloc/free symmetrically).
+   *  MUST match the SAME bytes value passed to alloc. In PROD the arena
+   *  tracks no per-offset sizes (callers pair alloc/free symmetrically),
+   *  so a mismatched `bytes` degrades to a silent fragmentation leak
+   *  (the slot lands on the wrong exact-size free-list key and is never
+   *  reused at its real size) — it can no longer corrupt memory.
    *
-   *  Calling free() with a mismatched `bytes` produces a silent
-   *  fragmentation leak (the slot goes onto the wrong exact-size key
-   *  and never gets reused at its actual size) but can no longer
-   *  corrupt memory — the failure mode degrades from CORRECTNESS to
-   *  fragmentation-only. Tests pin the alloc/free symmetry. */
+   *  In DEV the guard map records each live offset's aligned footprint
+   *  and a mismatched free THROWS naming both sizes (#783 — the silent
+   *  leak was the last unguarded misuse; double-free already threw).
+   *  Zero prod overhead. */
   free(offset: number, bytes: number): void {
     if (bytes <= 0) return // silent no-op for caller convenience
     if (DEV) {
-      if (!this._liveOffsets.has(offset)) {
+      const recorded = this._liveOffsets.get(offset)
+      if (recorded === undefined) {
         throw new Error("gpu-arena: double-free or free of un-alloc'd offset " + offset)
+      }
+      if (recorded !== align4(bytes)) {
+        throw new Error(
+          `gpu-arena: size-mismatched free at offset ${offset} — freed as ${bytes} ` +
+            `(aligned ${align4(bytes)}) but allocated as aligned ${recorded}. The slot ` +
+            `would land on the wrong exact-size free-list key and leak as fragmentation; ` +
+            `pass the SAME bytes value alloc() received.`,
+        )
       }
       this._liveOffsets.delete(offset)
     }
@@ -465,7 +478,9 @@ export class GPUArena {
     this.compactionCount++
     if (DEV) {
       this._liveOffsets.clear()
-      for (const off of newOffsets) this._liveOffsets.add(off)
+      for (let i = 0; i < newOffsets.length; i++) {
+        this._liveOffsets.set(newOffsets[i]!, align4(relocations[i]!.bytes))
+      }
     }
     return { newOffsets, oldBuffer }
   }
