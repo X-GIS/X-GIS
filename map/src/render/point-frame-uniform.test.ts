@@ -18,7 +18,7 @@
 // byte-level spec of what the shader consumed before the migration.
 
 import { describe, it, expect } from 'vitest'
-import type { Camera } from '../camera'
+import { Camera } from '../camera'
 import { uniformBlock } from '@xgis/engine'
 import { WORLD_MERC, TILE_PX, flatViewHeightCapM, isGlobeProj } from '@xgis/geo'
 import { reflect } from '@xgis/shader-dsl'
@@ -208,5 +208,54 @@ describe('point Uniforms layout — handle path ≡ reflected module path', () =
     for (const fl of reflected.fields) {
       expect(block.fieldOffset(fl.name as never)).toBe(fl.offset)
     }
+  })
+})
+
+// ═══ #739 — the point consumer must pack the CAPPED effective mpp ═══
+//
+// The byte-equality fixtures above run at CAM_ZOOM 5.25, where the view-height
+// cap never binds and effectiveMpp === rawMpp — so they'd stay green even if
+// writePointFrameUniform were reverted to the uncapped WORLD_MERC/TILE_PX/2^zoom
+// (the exact #739 regression the PR fixes). This block pins the CONSUMER wiring
+// (point-renderer.ts's `camera.effectiveMpp(projType, canvasHeight, dpr)`) with a
+// REAL Camera in the sub-cap band, so the packed viewport.z lane is the capped
+// value and a raw-mpp re-inline (the #722-729 render-antipattern archetype) fails
+// here instead of shipping the bug silently.
+describe('point frame uniform — sub-cap band packs the capped effective mpp (#739)', () => {
+  it('viewport.z lane = min(rawMpp, cap/cssH), strictly below the uncapped 2^zoom mpp', () => {
+    // z0 on a tall CSS viewport: z* = log2(1080/512) ≈ 1.08, so z0 is INSIDE the
+    // frozen sub-cap band and the flat view-height cap binds (capped < raw).
+    const cssH = 1080
+    const dpr = 1
+    const cam = new Camera(0, 0, 0)
+    cam.projType = 0
+    cam.bearing = 0
+    cam.globeMode = false
+
+    const block = uniformBlock(POINT_U)
+    writePointFrameUniform(
+      block,
+      { matrix: MVP, logDepthFc: LOG_DEPTH_FC },
+      cam,
+      0, // projType — flat mercator
+      0, // projCenterLon
+      0, // projCenterLat
+      1920, // canvasWidth (device px)
+      cssH, // canvasHeight (device px; dpr=1 → CSS px)
+      dpr,
+    )
+
+    const rawMpp = WORLD_MERC / TILE_PX / Math.pow(2, 0)
+    const capped = Math.min(rawMpp, flatViewHeightCapM(0, WORLD_MERC) / (cssH / dpr))
+    // Fixture sanity: the cap MUST bind here or the gate proves nothing (raw ≠ capped).
+    expect(capped).toBeLessThan(rawMpp)
+
+    // viewport lane = [w, h, metersPerPixel, logDepthFc] → the mpp sits at z (index 2).
+    const packed = new Float32Array(block.buffer)
+    const viewportZ = packed[block.fieldOffset('viewport' as never) / 4 + 2]
+    // The consumer packed the CAPPED effective mpp…
+    expect(viewportZ).toBe(Math.fround(capped))
+    // …NOT the uncapped raw mpp (the reverted #739 bug would pack this instead).
+    expect(viewportZ).not.toBe(Math.fround(rawMpp))
   })
 })
