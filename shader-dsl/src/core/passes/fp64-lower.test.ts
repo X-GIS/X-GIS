@@ -147,6 +147,44 @@ describe('guard auto-injection', () => {
   })
 })
 
+// ── Integer flavor (df64-int.ts): the Apple/Metal lowering, selected per-device
+// by recommendFp64Flavor. Its numerics are covered exhaustively by the fround
+// oracle (df64-int-property.test.ts); these lock the PASS/EMIT contract that the
+// per-device routing rides on — untested until now, and the invariant a future
+// D3D11 compile-cost slim of the bodies (#934) must not silently break:
+//   1. the leaves actually swap to the integer registry, and
+//   2. the module is host-guard-free — the integer bodies never fetch f64Guard,
+//      so NO `_fp64` binding is injected. A stray guard reference would re-inject
+//      it, and an unused `_fp64` under WebGPU layout:'auto' is exactly the
+//      D3D12/NVIDIA bind-group-mismatch no-op-draw the guard machinery fights.
+describe('integer flavor — fast-math-immune registry, host-guard-free (#934)', () => {
+  const arithModule = () =>
+    module({ funcs: [fn('k', { a: f64T, b: f64T }, (p) => p.a.add(p.b).mul(p.a))] })
+
+  it('swaps in the integer EFT leaves (df64_ipack/df64_iround) the float flavor never emits', () => {
+    const m = arithModule()
+    const flo = emitModule(m)
+    const int = emitModule(m, { fp64Flavor: 'integer' })
+    // The compositions bind by the SAME names in both flavors (drop-in leaves)…
+    expect(int).toContain('df64_add')
+    expect(int).toContain('df64_mul')
+    // …only the integer registry carries its exact-rounding integer leaves.
+    expect(int).toContain('df64_ipack')
+    expect(int).toContain('df64_iround')
+    expect(flo).not.toContain('df64_ipack')
+    expect(flo).not.toContain('df64_iround')
+  })
+
+  it('injects NO _fp64 guard — the integer bodies never fetch it, so the host binds nothing', () => {
+    const m = arithModule()
+    // The float flavor guards this exact arithmetic module (see guard auto-injection)…
+    expect(fp64Lower(m).bindings.some((b) => b.name === FP64_GUARD_NAME)).toBe(true)
+    // …the integer flavor lowers it guard-free: empty bindings, no `_fp64` in emit.
+    expect(fp64Lower(m, { flavor: 'integer' }).bindings).toEqual([])
+    expect(emitModule(m, { fp64Flavor: 'integer' })).not.toContain(FP64_GUARD_NAME)
+  })
+})
+
 describe('fail-loud gates', () => {
   it('SD0042 — a conflicting _fp64 binding (reserved name, wrong shape)', () => {
     const squatter = resource('_fp64', f32T, { group: 0, binding: 0 })
