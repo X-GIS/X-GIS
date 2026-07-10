@@ -34,14 +34,16 @@ export type OptPass = (m: ModuleDecl) => ModuleDecl
  *  input-only repeats) + cse-local (statement-local repeats that touch a local/var) /
  *  LICM (loop invariants), then DCE last (clean up everything orphaned).
  *
- *  NB: whole-function tree-shaking (`deadFnElim`, ./dce-fns) and cross-statement
- *  value numbering (`gvn`, ./gvn — #763 H8) are deliberately NOT in this list —
- *  like `inlineFn` (../inline), they are available-but-unwired passes. The
- *  shaders that share a projection prelude emit it as one module of helper fns + the
- *  entry points, so tree-shaking would per-shader-prune the prelude and break the
+ *  NB: whole-function tree-shaking (`deadFnElim`, ./dce-fns), cross-statement
+ *  value numbering (`gvn`, ./gvn — #763 H8), and small fixed-count loop unrolling
+ *  (`unrollLoops`, ./unroll — #627) are deliberately NOT in this list — like
+ *  `inlineFn` (../inline), they are available-but-unwired passes. The shaders that
+ *  share a projection prelude emit it as one module of helper fns + the entry
+ *  points, so tree-shaking would per-shader-prune the prelude and break the
  *  deliberately byte-stable shared-prelude emit (+ its golden-WGSL drift gate); gvn
- *  moves value construction across statements, which likewise perturbs emitted bytes.
- *  Wire either only behind a maintainer decision to regenerate those snapshots. */
+ *  moves value construction across statements, and unrollLoops duplicates a loop
+ *  body — both likewise perturb emitted bytes. Wire any only behind a maintainer
+ *  decision to regenerate those snapshots. */
 export const DEFAULT_PASSES: readonly OptPass[] = [
   constProp,
   copyProp,
