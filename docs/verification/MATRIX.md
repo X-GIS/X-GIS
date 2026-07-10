@@ -52,10 +52,9 @@ one, else `bun run dev` is started by Playwright's `webServer`). `precheck:matri
 clears `playground/node_modules/.vite` first so `runtime/src` edits are not
 masked by the pre-bundled dep.
 
-The matrix is **not** wired into the blocking pre-push hook. `.githooks/pre-push`
-runs `bun run precheck` (vitest only). The matrix attaches to precheck only when
-`--matrix` / `XGIS_MATRIX=1` is passed, so a default `git push` is byte-identical
-to today.
+The matrix is **not** wired into any blocking hook (pre-push hooks were removed;
+CI runs the unit suite on every push). The matrix attaches to a manual
+`bun run precheck` only when `--matrix` / `XGIS_MATRIX=1` is passed.
 
 ---
 
