@@ -3221,36 +3221,65 @@ export class XGISMap {
       // VirtualPMTilesBackend (the same pipeline URL-loaded GeoJSON
       // takes since Phase 5f-1). Gated behind a flag so the rollout
       // can expand demo-by-demo as we confirm parity. Skipped when:
-      //   - the show carries a shader variant that needs the
-      //     per-feature data buffer (the legacy path's addTileLevel
-      //     + buildFeatureDataBuffer ordering is load-bearing for
-      //     match() / gradient() variants)
       //   - the show carries a geometryExpr (procedural geometry
       //     reads raw features, not tile geometry)
       //   - filter is set (per-show filtering needs showSlices wiring
       //     into VirtualPMTilesBackend — separate work)
-      const needsFeatureBuffer = !!show.shaderVariant?.needsFeatureBuffer
+      // Per-feature buffer variants (match()/gradient() colour) ride
+      // THIS path since #821: the legacy fallback stores tiles under
+      // the default '' slice, which the VTR's computeSliceKey lookup
+      // never finds (permanent cache miss → blank frame). Here the
+      // attach passes buildShowSourceMaps' showSlices, so the MVT
+      // worker emits per-tile featureProps under the exact slice keys
+      // the VTR looks up — the same proven URL-GeoJSON machinery.
       const useVirtualForInline =
         typeof window !== 'undefined' &&
         ((window as unknown as { __XGIS_USE_VIRTUAL_INLINE_GEOJSON?: boolean })
           .__XGIS_USE_VIRTUAL_INLINE_GEOJSON === true ||
           /[?&]virt_inline=1\b/.test(window.location.search)) &&
         !hasFilter &&
-        !show.geometryExpr?.ast &&
-        !needsFeatureBuffer
+        !show.geometryExpr?.ast
       if (useVirtualForInline) {
-        this.sourceManager._attachInlineGeoJSONViaVirtualPMTiles(vtKey, filtered, show, source)
+        // Slice/extrude/stroke descriptors for EVERY show that will ride
+        // this source (unfiltered, non-procedural shows sharing the
+        // target): the backend attaches once — on the first such show —
+        // and the worker emits one slice per descriptor, so later shows'
+        // slices must be declared now. Filtered shows get their own
+        // legacy vtKey and procedural shows read raw features, exactly
+        // as the gate above routes them.
+        const inlineMaps = buildShowSourceMaps(
+          this.showCommands.filter(
+            (s) => s.targetName === show.targetName && !s.filterExpr && !s.geometryExpr?.ast,
+          ),
+        )
+        this.sourceManager._attachInlineGeoJSONViaVirtualPMTiles(
+          vtKey,
+          filtered,
+          inlineMaps,
+          source,
+        )
         // Setup shader variant pipelines + layout synchronously so the
-        // render loop has them on the first frame. needsFeatureBuffer
-        // shows take the legacy path above; the variant pipeline here
-        // is only the non-feature-buffer kind.
+        // render loop has them on the first frame — the same wiring the
+        // URL-GeoJSON VT branch does, including the feature-buffer
+        // capture: buildFeatureDataBuffer records the variant's field
+        // list + categoryOrder (the source-level PropertyTable is empty
+        // on this backend, so it returns false and the PER-TILE packer
+        // takes over at uploadTile with the worker's featureProps).
         const variantSync = show.shaderVariant
         let syncPipelines: typeof this.vtVariantPipelines = null
         let syncLayout: GPUBindGroupLayout | null = null
-        if (variantSync && variantSync.preamble) {
+        if (variantSync && (variantSync.preamble || variantSync.needsFeatureBuffer)) {
           try {
             syncPipelines = this.renderer.getOrCreateVariantPipelines(variantSync as any)
-            syncLayout = this.renderer.bindGroupLayout
+            syncLayout = this.renderer.getOrBuildVariantLayout(variantSync as never)
+            vtRenderer.setComputePlan(this._currentComputePlan)
+            if (variantSync.needsFeatureBuffer && !vtRenderer.hasFeatureData()) {
+              vtRenderer.buildFeatureDataBuffer(
+                variantSync as import('@xgis/compiler').ShaderVariant,
+                syncLayout,
+                show.renderNodeIndex,
+              )
+            }
           } catch (e) {
             xlog.warn('[X-GIS] GeoJSON VT variant pipeline failed:', e)
           }
