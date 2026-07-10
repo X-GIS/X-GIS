@@ -25,8 +25,8 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | Status | Count |
 |---|---:|
 | supported | 176 |
-| partial | 18 |
-| unsupported | 42 |
+| partial | 19 |
+| unsupported | 41 |
 | na | 7 |
 | **total** | **243** |
 
@@ -37,7 +37,6 @@ Properties marked `unsupported` with `impact: high` — these are the most visib
 | Property | Note |
 |---|---|
 | symbol (icon-only) | No text-field → skipped. Awaits Batch 2 (sprite atlas). |
-| image | Sprite atlas (Batch 2). |
 
 ## Partial entries
 
@@ -58,6 +57,7 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | hsl / hsla | low | Constant channels only — converted via CSS hsl()/hsla() and re-hexed at convert time. Per-channel v8 literal-wrap accepted. |
 | interpolate (cubic-bezier) | low | Numeric-valued AND hex-colour-valued zoom/data-driven interpolates densify at compile time into a piecewise-linear approximation (6 samples per segment, CSS bezier-eased via Newton-Raphson; colour stops sampled in sRGB at the eased fraction). Runtime sees a longer linear stop list and visually approximates the bezier curve. Expression-valued (non-literal) stops still warn and fold to pure linear — eased samples can't be computed at compile time. Iter 60-62 + colour-stop landing. |
 | format | low | Span texts concatenated via xgis concat(); per-span opts (font-scale / text-color / text-font / vertical-align) dropped — X-GIS labels render with one style per layer. Iter 25 added per-section partial-drop semantics: when one section fails to convert (e.g. uses an unsupported accessor), surviving sections still concat — only ALL-sections-fail returns null. Pre-fix any single failure bailed the whole format expression and dropped the label silently. |
+| image | high | Resolved in the icon-image property context (#777 I2): the converter strips the `["image", …]` wrapper (recursively, incl. nested inside the coalesce/match arms of a data-driven icon-image) and lowers the inner sprite-name expression — constant `["image","airport"]` → LabelDef.iconImage "airport"; data-driven `["image", ["get","maki"]]` / `["coalesce", ["image", …], …]` → per-feature LabelDef.iconImageExpr → IconStage.addIcon. Text-inline images inside `["format", …, ["image", …]]` spans stay deferred — the format span keeps its partial-drop warning (inline-icon-in-text needs the label span machinery; #777 I2 follow-up). |
 | collator | low | Locale-aware comparator as the trailing 4th arg of ==/!=/</<=/>/>=. Constant collator options (case-sensitive / diacritic-sensitive / locale) are fully supported: comparisonHandler lowers `["==", a, b, ["collator", opts]]` to the `collator_cmp` CPU builtin (eval/collator.ts) backed by Intl.Collator. Non-constant (per-feature expression) options fall back to byte-exact compare with a warning; a STANDALONE `["collator", …]` (not on a comparison) still warns (no value alone). |
 | resolved-locale | low | Returns the BCP-47 tag a collator resolves to. Constant collator locale supported: resolvedLocaleHandler lowers `["resolved-locale", ["collator", opts]]` to the `resolved_locale` CPU builtin (Intl.Collator.resolvedOptions().locale). Non-constant collator options warn + drop. |
 | array | low | Type-assertion drops to value pass-through (X-GIS arrays carry no per-element type tag, so the spec's "abort if not array" semantic is lost; in paint/filter use a non-array would null-cascade anyway). |
