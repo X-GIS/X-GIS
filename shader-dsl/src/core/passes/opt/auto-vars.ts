@@ -23,9 +23,10 @@ function targetRoot(t: Expr): Expr {
 }
 
 // A materialisable root — a plain value the author held in a `const` (a literal / call / construct /
-// select / arith), NOT one that is already a named binding (varref) or an input (param / constref).
+// select / arith), NOT one that is already a named binding (varref) or an input (param / constref /
+// overrideref — a specialization constant is a named symbolic input, #923).
 function isMaterialisable(e: Expr): boolean {
-  return e.op !== 'varref' && e.op !== 'param' && e.op !== 'constref'
+  return e.op !== 'varref' && e.op !== 'param' && e.op !== 'constref' && e.op !== 'overrideref'
 }
 
 function collectTargets(

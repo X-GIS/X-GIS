@@ -44,6 +44,10 @@ export interface CpuStruct {
 
 interface Ctx {
   consts: Map<string, CpuValue>
+  /** Specialization constants (#923) → their DEFAULT value. The CPU oracle is the
+   *  un-specialized mirror: an override reads as its declared default (pipeline
+   *  specialization is a GPU-driver concept with no CPU analogue). */
+  overrides: Map<string, CpuValue>
   fns: Record<string, (...args: CpuValue[]) => CpuValue>
   bindings: Record<string, CpuValue>
   structs: Map<string, StructDecl>
@@ -364,6 +368,11 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       if (v === undefined) throw new Error(`shader-dsl/cpu: unknown const ${e.name}`)
       return v
     }
+    case 'overrideref': {
+      const v = ctx.overrides.get(e.name)
+      if (v === undefined) throw new Error(`shader-dsl/cpu: unknown override ${e.name}`)
+      return v
+    }
     case 'param':
     case 'varref': {
       if (env.has(e.name)) return env.get(e.name) as CpuValue
@@ -635,6 +644,8 @@ export function compileModule(m: ModuleDecl, opts?: { gpuStubs?: boolean }): Cpu
   m = autoVars(m)
   const ctx: Ctx = {
     consts: new Map<string, CpuValue>(),
+    // #923 — an override reads as its default on the CPU mirror.
+    overrides: new Map<string, CpuValue>((m.overrides ?? []).map((o) => [o.name, o.default])),
     fns: {},
     bindings: {},
     structs: new Map(m.structs.map((s) => [s.name, s])),

@@ -24,6 +24,7 @@ import { truchet } from './truchet.ts'
 import { kaleidoscope } from './kaleidoscope.ts'
 import { heart } from './heart.ts'
 import { gradient } from './gradient-pass.ts'
+import { overrideQuality } from './override-quality.ts'
 import { computeReduction } from './compute-reduction.ts'
 import { fp64DeepZoom } from './fp64-deep-zoom.ts'
 import { fp64Mandelbrot } from './fp64-mandelbrot.ts'
@@ -72,6 +73,7 @@ export {
   fp64Clock,
   fp64Cancellation,
   gradient,
+  overrideQuality,
   computeReduction,
 }
 
@@ -108,5 +110,6 @@ export const examples: readonly ShaderExample[] = [
   fp64Clock,
   fp64Cancellation,
   gradient,
+  overrideQuality,
   computeReduction,
 ]

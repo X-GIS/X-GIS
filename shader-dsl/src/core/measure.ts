@@ -84,6 +84,7 @@ function walkExpr(e: Expr, c: { calls: number; arith: number }): void {
       break
     case 'lit':
     case 'constref':
+    case 'overrideref': // #923 — a specialization-constant read is a leaf (zero ops)
     case 'param':
     case 'varref':
       break // leaf — no op

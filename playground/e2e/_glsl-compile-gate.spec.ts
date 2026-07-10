@@ -23,7 +23,21 @@ import {
   vec2fT,
   vec3fT,
   f32T,
+  u32T,
   structT,
+  module as buildModule,
+  fn,
+  ioStruct,
+  builtin,
+  location,
+  overrideConst,
+  If,
+  Var,
+  f32,
+  u32,
+  toF32,
+  vec2,
+  vec4,
   type ShaderType,
   type Expr,
   type ModuleDecl,
@@ -194,5 +208,122 @@ test.describe('GLSL ES 3.00 compile gate (emitGlslModule output compiles on real
       `fragment shader failed to compile:\n${result.fs.log}\n--- GLSL ---\n${fragment}`,
     ).toBe(true)
     expect(result.linkOk, `program failed to link:\n${result.linkLog}`).toBe(true)
+  })
+
+  // #923: a HOST-SPECIALIZED GLSL variant compiles on real WebGL2. The unit gate
+  // (override-constants.test.ts) string-matches the specialized emit, but only ANGLE
+  // proves the mechanism is valid GLSL — the earlier "prepend a #define" contract
+  // string-matched fine yet produced an uncompilable shader (`#version` must lead the
+  // source). The emitter now places the pinned `#define` AFTER the `#version` preamble,
+  // spelled via literal(); this gate compiles that variant end-to-end.
+  test('a #923 host-specialized override variant compiles + links on real WebGL2', async ({
+    page,
+  }) => {
+    // Fullscreen-triangle vertex + a fragment whose branch is guarded by an override.
+    const VsOut = ioStruct('OvVsOut', {
+      pos: builtin('position', vec4fT),
+      uv: location(0, vec2fT),
+    })
+    const vsFn = fn(
+      'ov_vs',
+      { vi: builtin('vertex_index', u32T) },
+      ({ vi }) => {
+        const x = toF32(vi.bitAnd(u32(1)))
+          .mul(4)
+          .sub(1)
+        const y = toF32(vi.shr(u32(1)))
+          .mul(4)
+          .sub(1)
+        return VsOut.construct({
+          pos: vec4(x, y, 0, 1),
+          uv: vec2(x.mul(0.5).add(0.5), y.mul(0.5).add(0.5)),
+        })
+      },
+      { stage: 'vertex' },
+    )
+    const quality = overrideConst('quality', f32T, 1.0)
+    const fsFn = fn(
+      'ov_fs',
+      { inp: VsOut },
+      ({ inp }) => {
+        const g = Var(f32(1))
+        If(quality.node.gt(f32(1)), () => {
+          g.assign(f32(2))
+        })
+        return vec4(inp.uv.x.mul(g), inp.uv.y, f32(0), f32(1))
+      },
+      { stage: 'fragment', retAttr: '@location(0)' },
+    )
+    const overrideModule = buildModule({
+      overrides: [quality.decl],
+      funcs: [vsFn, fsFn],
+      uses: [VsOut],
+    })
+
+    const vertex = emitGlslModule(overrideModule, 'vertex')
+    // The SPECIALIZED fragment: host pins quality=2.0 → a hard `#define quality 2.0`.
+    const fragment = emitGlslModule(overrideModule, 'fragment', {
+      overrideValues: { quality: 2.0 },
+    })
+    // guardrails: valid position (never prepended) + the pinned define is present.
+    expect(vertex.startsWith('#version 300 es')).toBe(true)
+    expect(fragment.startsWith('#version 300 es')).toBe(true)
+    expect(fragment).toContain('#define quality 2.0')
+    expect(fragment).not.toContain('#ifndef quality')
+
+    await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
+
+    const result = await page.evaluate(
+      ({ vertex, fragment }) => {
+        const canvas = document.createElement('canvas')
+        const gl = canvas.getContext('webgl2')
+        if (!gl) return { fatal: 'no webgl2 context' as const }
+
+        const compile = (type: number, src: string): { ok: boolean; log: string } => {
+          const sh = gl.createShader(type)!
+          gl.shaderSource(sh, src)
+          gl.compileShader(sh)
+          const ok = gl.getShaderParameter(sh, gl.COMPILE_STATUS) as boolean
+          return { ok, log: gl.getShaderInfoLog(sh) ?? '' }
+        }
+
+        const vs = compile(gl.VERTEX_SHADER, vertex)
+        const fs = compile(gl.FRAGMENT_SHADER, fragment)
+        let linkOk = false
+        let linkLog = ''
+        if (vs.ok && fs.ok) {
+          const prog = gl.createProgram()!
+          const vsh = gl.createShader(gl.VERTEX_SHADER)!
+          gl.shaderSource(vsh, vertex)
+          gl.compileShader(vsh)
+          const fsh = gl.createShader(gl.FRAGMENT_SHADER)!
+          gl.shaderSource(fsh, fragment)
+          gl.compileShader(fsh)
+          gl.attachShader(prog, vsh)
+          gl.attachShader(prog, fsh)
+          gl.linkProgram(prog)
+          linkOk = gl.getProgramParameter(prog, gl.LINK_STATUS) as boolean
+          linkLog = gl.getProgramInfoLog(prog) ?? ''
+        }
+        return { vs, fs, linkOk, linkLog }
+      },
+      { vertex, fragment },
+    )
+
+    expect(
+      result,
+      `WebGL2 unavailable: ${'fatal' in result ? result.fatal : ''}`,
+    ).not.toHaveProperty('fatal')
+    if ('fatal' in result) return
+
+    expect(
+      result.vs.ok,
+      `specialized vertex failed to compile:\n${result.vs.log}\n--- GLSL ---\n${vertex}`,
+    ).toBe(true)
+    expect(
+      result.fs.ok,
+      `specialized fragment failed to compile:\n${result.fs.log}\n--- GLSL ---\n${fragment}`,
+    ).toBe(true)
+    expect(result.linkOk, `specialized program failed to link:\n${result.linkLog}`).toBe(true)
   })
 })

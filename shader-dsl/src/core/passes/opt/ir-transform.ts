@@ -16,8 +16,14 @@ export function mapExpr(e: Expr, f: (e: Expr) => Expr): Expr {
   switch (e.op) {
     case 'lit':
     case 'constref':
+    case 'overrideref':
     case 'param':
     case 'varref':
+      // `overrideref` (#923) is a leaf here just like `constref` — no children to
+      // rewrite. This is WHERE its optimizer-opacity comes from: const-fold /
+      // const-prop / dead-branch all rebuild through mapExpr, and a node they neither
+      // descend into nor have a fold rule for passes through unchanged, so a branch
+      // guarded by a specialization constant always survives for the driver.
       r = e
       break
     case 'binop':

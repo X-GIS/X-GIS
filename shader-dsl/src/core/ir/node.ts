@@ -593,6 +593,15 @@ export function constRef<T extends ShaderType = typeof f32T>(
   return new Node<KeyOf<T>>({ op: 'constref', type: type ?? f32T, name })
 }
 
+/** A read of a pipeline specialization constant (#923) — the READ side of an
+ *  `overrideConst(...)` declarator. Read-only (a `ReadonlyNode`), and OPAQUE to the
+ *  optimizer by its own `op` (see the `overrideref` node in ir/nodes.ts): the value
+ *  is symbolic until pipeline creation, so no fold/prop/dead-branch pass may collapse
+ *  a branch guarded by it. The authoring surface is `overrideConst` (ir/builder.ts). */
+export function overrideRef<T extends ShaderType>(name: string, type: T): ReadonlyNode<KeyOf<T>> {
+  return new Node<KeyOf<T>>({ op: 'overrideref', type, name })
+}
+
 /** A function parameter reference (key inferred from the ShaderType literal). Read-only — a
  *  param cannot be assigned (so `p.x.assign(...)` on a param is a compile error). */
 export function param<T extends ShaderType>(name: string, type: T): ReadonlyNode<KeyOf<T>> {

@@ -23,8 +23,11 @@ export function emitExpr(e: Expr, be: Backend): string {
     case 'lit':
       return be.literal(e.value, e.type)
     case 'constref':
+    case 'overrideref':
     case 'param':
     case 'varref':
+      // `overrideref` (#923) emits as the bare name on BOTH backends — the WGSL
+      // `override` identifier and the GLSL `#define` macro share the declared name.
       return e.name
     case 'binop':
       return `(${r(e.a)} ${e.bop} ${r(e.b)})`
@@ -177,6 +180,11 @@ export function lowerForBackend(
  *  derived from the SAME lowered module (see `emitModuleWithReflection`). */
 function assembleLowered(lowered: ModuleDecl, be: Backend): string {
   const parts: string[] = []
+  // #923 — specialization-constant declarations lead the module (WGSL `override`
+  // lines): they are module-scope constants a later const/fn may reference. Skipped
+  // when the module declares none, so override-free emit stays byte-identical.
+  if (lowered.overrides?.length && be.emitOverride)
+    parts.push(lowered.overrides.map((o) => be.emitOverride!(o)).join('\n'))
   if (lowered.consts.length) parts.push(lowered.consts.map((c) => be.emitConst(c)).join('\n'))
   if (lowered.structs.length) parts.push(lowered.structs.map((s) => be.emitStruct(s)).join('\n\n'))
   if (lowered.bindings.length) parts.push(lowered.bindings.map((b) => be.emitBinding(b)).join('\n'))

@@ -16,6 +16,17 @@ export type LogOp = '&&' | '||'
 export type Expr =
   | { readonly op: 'lit'; readonly type: ShaderType; readonly value: number | boolean }
   | { readonly op: 'constref'; readonly type: ShaderType; readonly name: string }
+  // A read of a pipeline SPECIALIZATION CONSTANT (#923) — a `ModuleDecl.overrides`
+  // entry. Structurally a named leaf like `constref`, but SEMANTICALLY OPAQUE to the
+  // authoring-time optimizer: its value is fixed at PIPELINE CREATION (WGSL `constants:
+  // {}` / a GLSL `#define` per permutation), NOT module build, so const-fold /
+  // const-prop / dead-branch must treat it as symbolic and preserve every branch it
+  // guards for the DRIVER to eliminate (same opacity discipline as the df64 `one`
+  // guard). Its own `op` — not reused `constref` — precisely so no pass ever folds it
+  // (a future "inline a known-value const" pass could legally fold a real constref;
+  // it can never fold an overrideref). Emits as the bare name on both backends
+  // (WGSL: the `override` identifier; GLSL: the `#define` macro).
+  | { readonly op: 'overrideref'; readonly type: ShaderType; readonly name: string }
   | { readonly op: 'param'; readonly type: ShaderType; readonly name: string }
   | { readonly op: 'varref'; readonly type: ShaderType; readonly name: string }
   | {
@@ -154,6 +165,26 @@ export interface ConstDecl {
   readonly valueExpr?: Expr
 }
 
+/** A pipeline SPECIALIZATION CONSTANT (#923) — the authored declarator behind
+ *  `overrideConst(name, type, default)`. Lowers to a WGSL module-scope `override
+ *  name: type = default;` (the host specializes it via `createRenderPipeline({
+ *  constants: { name } })`) and to a GLSL `#define name default` permutation seam
+ *  (the host specializes by re-emitting with `emitGlslModule(m, stage, { overrideValues })`
+ *  — a prepended `#define` is invalid GLSL, so the emitter places it after `#version`).
+ *  The value is chosen at
+ *  PIPELINE CREATION, not module build — so a single authored module yields N
+ *  driver-specialized variants whose dead branches the DRIVER eliminates.
+ *  WGSL scalars ONLY (`bool`/`i32`/`u32`/`f32`; `f16` once it joins the Scalar
+ *  union, gated by the #957 f16 enable) — vec/matrix/array/struct are rejected at
+ *  authoring (SD0014). */
+export interface OverrideDecl {
+  readonly name: string
+  readonly type: ShaderType
+  /** The default value emitted into the `override` declaration / `#define` — the
+   *  value a pipeline gets when the host injects nothing for this constant. */
+  readonly default: number | boolean
+}
+
 export interface StructField {
   readonly name: string
   readonly type: ShaderType
@@ -234,6 +265,13 @@ export interface ModuleDecl {
   readonly structs: readonly StructDecl[]
   readonly bindings: readonly BindingDecl[]
   readonly funcs: readonly FuncDecl[]
+  /** Pipeline SPECIALIZATION CONSTANTS (#923) — `overrideConst(...)` declarators.
+   *  Each emits a WGSL module-scope `override` + a GLSL `#define` permutation seam,
+   *  is reported by `reflect()` (so the host knows the WGSL `constants` dict / GLSL
+   *  define header), and reads OPAQUELY in bodies (`overrideref`) so the optimizer
+   *  preserves the branches they guard for the driver to eliminate. Absent/empty ⇒
+   *  no override declaration, byte-identical emit. */
+  readonly overrides?: readonly OverrideDecl[]
   /** OPT-IN language-feature capabilities this module turns on (#628) — e.g.
    *  `['f16']`. Each folds into requiredCaps, so a backend lacking it fails closed
    *  (GLSL ES 3.00 → UnsupportedFeatureError) while the WGSL backend emits the

@@ -130,6 +130,12 @@ export const wgslBackend: Backend = {
       c.type,
       c.valueExpr ? emitExprNeutral(c.valueExpr, wgslBackend) : f32Lit(c.wgslValue),
     ),
+  // #923 — a pipeline specialization constant: a module-scope `override` the host
+  // specializes via createRenderPipeline({ constants: { name } }). The default value
+  // uses the same scalar spelling as any literal (1.0 / 2u / true), so the module
+  // compiles standalone and a branch guarded by the override is dead-code-eliminated
+  // by the DRIVER once specialized.
+  emitOverride: (o) => `override ${o.name}: ${wgslType(o.type)} = ${lit(o.default, o.type)};`,
   emitStruct: (s) => {
     const fields = s.fields
       .map((f) => `  ${f.attr ? `${f.attr} ` : ''}${f.name}: ${wgslType(f.type)},`)

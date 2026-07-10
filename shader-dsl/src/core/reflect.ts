@@ -219,6 +219,16 @@ export interface EntryInfo {
   readonly inputs: readonly string[]
   readonly output: string
 }
+/** A pipeline SPECIALIZATION CONSTANT (#923) the host must supply per pipeline
+ *  variant. Both backends' host shapes derive from this: the WGSL `constants: {}`
+ *  dict is `{ [name]: value }` (default when the host injects nothing), and the GLSL
+ *  `#define` header is one `#define <name> <value>` line per entry — both keyed by
+ *  `name`, defaulting to `default`. */
+export interface OverrideInfo {
+  readonly name: string
+  readonly type: string
+  readonly default: number | boolean
+}
 export interface Reflection {
   readonly bindGroups: readonly BindGroup[]
   /** std140 uniform-buffer struct layouts (one per uniform binding whose type is a struct). */
@@ -231,6 +241,10 @@ export interface Reflection {
    *  offset+stride from here, verified against 4 renderers. */
   readonly vertex?: VertexLayout
   readonly entries: readonly EntryInfo[]
+  /** Pipeline specialization constants (#923) — names + types + defaults the host
+   *  passes at pipeline creation (WGSL `constants` / GLSL `#define` header). Always
+   *  present; empty for a module that declares no overrides. */
+  readonly overrides: readonly OverrideInfo[]
 }
 
 const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
@@ -310,5 +324,13 @@ export function reflect(m: ModuleDecl): Reflection {
     }
   }
 
-  return { bindGroups, uniforms, storage, ...(vertex ? { vertex } : {}), entries }
+  // #923 — specialization constants, in declaration order (the host reads names +
+  // defaults straight from here to build the WGSL `constants` dict / GLSL define header).
+  const overrides: OverrideInfo[] = (m.overrides ?? []).map((o) => ({
+    name: o.name,
+    type: typeKey(o.type),
+    default: o.default,
+  }))
+
+  return { bindGroups, uniforms, storage, ...(vertex ? { vertex } : {}), entries, overrides }
 }
