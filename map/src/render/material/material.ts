@@ -192,12 +192,15 @@ export class Material {
   }
 }
 
-/** Issue draw items through a material + RHI pass. Primitive-agnostic. */
+/** Issue draw items through a material + RHI pass. Primitive-agnostic. Returns
+ *  the number of draw calls issued (one per item = `items.length`) — the true
+ *  draw-call count at the real `pass.draw`/`pass.drawIndexed` site, so a caller
+ *  can gate on it (the #797 retained draw-call N-independence invariant). */
 export function executeItems(
   material: Material,
   pass: RhiRenderPass,
   items: ReadonlyArray<DrawItem>,
-): void {
+): number {
   let poolIdx = 0
   for (const it of items) {
     pass.setPipeline(material.pipeline(it.variant))
@@ -218,4 +221,5 @@ export function executeItems(
       pass.drawIndexed(it.count, instances)
     } else pass.draw(it.count, instances, it.firstVertex ?? 0)
   }
+  return items.length
 }

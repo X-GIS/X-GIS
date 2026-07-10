@@ -63,14 +63,15 @@ export class RetainedArrowDraper {
 
   /** Draw one batch across its visible world copies. `perCopyUniformBytes` holds one
    *  frame-uniform snapshot per copy (each with its own world_offset in circle_params.x);
-   *  `count` is the instance count. One instanced draw(6, count) per copy. */
+   *  `count` is the instance count. One instanced draw(6, count) per copy. Returns the
+   *  draw calls issued (= copies, NOT the instance count) — the N-independence invariant. */
   draw(
     pass: RhiRenderPass,
     batchBindGroup: RhiBindGroup,
     perCopyUniformBytes: ReadonlyArray<BufferSource>,
     count: number,
-  ): void {
-    if (count === 0 || perCopyUniformBytes.length === 0) return
+  ): number {
+    if (count === 0 || perCopyUniformBytes.length === 0) return 0
     const items: DrawItem[] = perCopyUniformBytes.map((bytes) => ({
       variant: 0,
       bindGroups: [null, batchBindGroup],
@@ -79,6 +80,6 @@ export class RetainedArrowDraper {
       indexed: false,
       instanceCount: count,
     }))
-    executeItems(this.material, pass, items)
+    return executeItems(this.material, pass, items)
   }
 }
