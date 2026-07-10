@@ -97,8 +97,11 @@ export interface RhiBindLayoutEntry {
    *  backend reflects the linked program BY NAME with it — a `uniform` block's
    *  tag = the struct name, a `texture`'s sampler-uniform name = the binding
    *  name — so multi-resource groups bind correctly regardless of declaration
-   *  order. Optional + additive: WebGPU ignores it; WebGL2 falls back to
-   *  by-order pairing when it is absent. */
+   *  order. WebGPU ignores it. WebGL2 falls back to by-order pairing when it
+   *  is absent — safe for a SINGLE entry of a kind (the documented raster
+   *  pattern), ambiguous for ≥2 same-kind entries, so `WebGl2Device`
+   *  fail-louds at layout creation when a multi-same-kind group leaves any
+   *  entry unnamed (#783). */
   name?: string
 }
 

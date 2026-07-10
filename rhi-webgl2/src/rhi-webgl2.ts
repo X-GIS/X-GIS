@@ -168,7 +168,10 @@ function texFmt(
 }
 
 const VFMT: Readonly<
-  Record<string, { size: number; type: 'f32' | 'u8' | 'u16'; normalized: boolean; integer?: boolean }>
+  Record<
+    string,
+    { size: number; type: 'f32' | 'u8' | 'u16'; normalized: boolean; integer?: boolean }
+  >
 > = {
   float32: { size: 1, type: 'f32', normalized: false },
   float32x2: { size: 2, type: 'f32', normalized: false },
@@ -397,7 +400,13 @@ class WebGl2RenderPass implements RhiRenderPass {
         if (fmt.integer) {
           // uvec/ivec shader inputs — the I-pointer keeps the integer bits;
           // vertexAttribPointer would float-convert them silently (#832 M2).
-          gl.vertexAttribIPointer(a.location, fmt.size, glType, vb.stride, a.offset + this.vbufOffset)
+          gl.vertexAttribIPointer(
+            a.location,
+            fmt.size,
+            glType,
+            vb.stride,
+            a.offset + this.vbufOffset,
+          )
         } else {
           gl.vertexAttribPointer(
             a.location,
@@ -629,12 +638,7 @@ export class WebGl2Device implements RhiDevice {
     if (ds && (ds.depthLoadOp === 'clear' || ds.stencilLoadOp === 'clear')) {
       gl.depthMask(true)
       gl.stencilMask(0xff)
-      gl.clearBufferfi(
-        gl.DEPTH_STENCIL,
-        0,
-        ds.depthClearValue ?? 1,
-        ds.stencilClearValue ?? 0,
-      )
+      gl.clearBufferfi(gl.DEPTH_STENCIL, 0, ds.depthClearValue ?? 1, ds.stencilClearValue ?? 0)
     }
     return new WebGl2RenderPass(gl, () => {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null)
@@ -870,6 +874,29 @@ export class WebGl2Device implements RhiDevice {
   // createBuffer/setBindGroup + the GLSL storage→data-texture pre-pass). The GLSL emits a
   // sampler2D named after the binding, so it reflects + binds by NAME like a texture.
   createBindGroupLayout(entries: RhiBindLayoutEntry[]): RhiBindGroupLayout {
+    // Plan-time by-order ambiguity guard (#783): this backend reflects the
+    // linked program BY NAME when `name` is present and falls back to BY-ORDER
+    // pairing when it is absent. A single entry of a kind binds unambiguously
+    // by order (the documented raster pattern); with ≥2 same-kind entries,
+    // by-order is a silent mis-bind waiting on declaration order — fail HERE,
+    // at layout creation with the bindings named, instead of rendering wrong
+    // (mirrors the bind-tiers plan-time duplicate throw, the #783 exemplar).
+    const kindCounts = new Map<string, RhiBindLayoutEntry[]>()
+    for (const e of entries) {
+      const list = kindCounts.get(e.kind)
+      if (list) list.push(e)
+      else kindCounts.set(e.kind, [e])
+    }
+    for (const [kind, list] of kindCounts) {
+      if (list.length >= 2 && list.some((e) => !e.name)) {
+        throw new Error(
+          `[rhi-webgl2] bind-group layout has ${list.length} '${kind}' entries but not every ` +
+            `one is named — WebGL2 pairs unnamed entries BY ORDER, which silently mis-binds ` +
+            `multi-${kind} groups. Set \`name\` (the shader's reflection name) on bindings ` +
+            `${list.map((e) => e.binding).join(', ')}.`,
+        )
+      }
+    }
     return wrap<RhiBindGroupLayout>({ entries: [...entries] } satisfies Gl2BindGroupLayout)
   }
 
