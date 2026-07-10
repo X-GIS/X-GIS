@@ -64,7 +64,6 @@ import { tileKeyParent, tileKeyUnpack, type PropertyTable } from '@xgis/compiler
 import { StagingBufferPool } from '@xgis/rhi-webgpu'
 import { BundleCache, type BundleEncodeDescriptor } from '@xgis/rhi-webgpu'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
-import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { UploadCoordinator } from './upload-coordinator'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '@xgis/data'
@@ -977,7 +976,10 @@ export class VectorTileRenderer {
     const join = joinMap[show.linejoin ?? 'miter']
     const miterLimit = show.miterlimit ?? 2.0
     const roundLimit = show.roundLimit ?? 0
-    const mpp = WORLD_MERC / TILE_PX / Math.pow(2, camera.zoom)
+    // #739 — the world scale the frozen low-zoom MVP actually renders at, NOT
+    // the uncapped WORLD_MERC/TILE_PX/2^zoom (which diverges from the view in
+    // the sub-cap band and made constant-width lines change px across z0..z0.5).
+    const mpp = camera.effectiveMpp(projType, canvasHeight, dpr)
     const dashWidthScalePx = strokeWidthPx
     const dashSrc = resolvedShow.dashArray ?? show.dashArray
     let dashArray: number[] | null = null
@@ -2271,7 +2273,10 @@ export class VectorTileRenderer {
       // the worker bake + segment slot.
       // Pre-resolved by bucket-scheduler (zoom × time → plain scalar).
       const strokeWidthPx = resolvedShow.strokeWidth
-      const mpp = WORLD_MERC / TILE_PX / Math.pow(2, camera.zoom)
+      // #739 — capped world scale the frozen low-zoom MVP renders at (see the
+      // renderLinesRhi twin). Keeps dash + pattern metres and stroke width in
+      // lockstep with the view instead of the uncapped 2^zoom mpp.
+      const mpp = camera.effectiveMpp(projType, canvasHeight, dpr)
       const capMap = { butt: 0, round: 1, square: 2, arrow: 3 } as const
       const joinMap = { miter: 0, round: 1, bevel: 2 } as const
       // Mapbox GL spec defaults for OMITTED line-cap/join/miter-limit:
