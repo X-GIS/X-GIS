@@ -115,10 +115,9 @@ fn df64_narrow(a: vec2<f32>) -> f32 {
 }
 
 fn df64_nint(a: vec2<f32>) -> vec2<f32> {
-  let _cse0 = (a.y < 0.0);
-  let _v0 = select(floor((a.x + 0.5)), (-floor(((-a.x) + 0.5))), (a.x < 0.0));
-  let _v1 = select(_v0, (_v0 - 1.0), ((abs((_v0 - a.x)) == 0.5) && _cse0));
-  return select(vec2<f32>(_v1, 0.0), df64_quickTwoSum(_v0, select(floor((a.y + 0.5)), (-floor(((-a.y) + 0.5))), _cse0)), (_v0 == a.x));
+  let _v0 = floor((a.x + 0.5));
+  let _v1 = select(_v0, (_v0 - 1.0), ((abs((_v0 - a.x)) == 0.5) && (a.y < 0.0)));
+  return select(vec2<f32>(_v1, 0.0), df64_quickTwoSum(_v0, floor((a.y + 0.5))), (_v0 == a.x));
 }
 
 fn df64_sin_taylor(a: vec2<f32>) -> vec2<f32> {

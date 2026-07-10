@@ -147,6 +147,30 @@ describe('df64 sin/cos known answers under f32 rounding', () => {
     expect(Math.abs(Math.cos(Math.fround(X)) - Math.cos(X))).toBeGreaterThan(0.1)
   })
 
+  it('NEGATIVE large argument — the mod-2π turn-count nint tie convention (#922 regression)', () => {
+    // When |x|/2π lands on a representable f32 half-integer (|q| ∈ [2²², 2²³), where
+    // the f32 grid spacing is exactly 0.5) the mod-2π reduction's nint hits its tie.
+    // luma.gl's nint rounds ties toward +∞ and df64_nint's lo-word correction is
+    // ported to THAT convention; rounding the tie AWAY from zero instead double-counts
+    // the correction, offsetting the turn count z by 1 — r off by 2π, a quadrant past
+    // the select's ±2 arms, so the sign/swap inverts. This whole negative window was
+    // silently wrong (only positive / >2²³ vectors were tested, where f32 cannot
+    // represent a half-integer quotient).
+    const headline = -(2 ** 22 + 0.35) * (2 * Math.PI) // measured worst 1.41 pre-fix (a full flip)
+    expect(Math.abs(dsin(headline) - Math.sin(headline)), 'sin headline').toBeLessThan(1e-4)
+    expect(Math.abs(dcos(headline) - Math.cos(headline)), 'cos headline').toBeLessThan(1e-4)
+    // Discriminative: plain f32 cannot even hold the argument — its sine is noise.
+    expect(Math.abs(Math.sin(Math.fround(headline)) - Math.sin(headline))).toBeGreaterThan(0.1)
+    // Sweep the window; each q rounds to a half-integer quotient with a non-zero lo,
+    // i.e. every point is the tie case the old ties-away nint got wrong.
+    let worst = 0
+    for (let k = 0; k < 400; k++) {
+      const x = -(2 ** 22 + k * 10000 + 0.35) * (2 * Math.PI)
+      worst = Math.max(worst, Math.abs(dsin(x) - Math.sin(x)), Math.abs(dcos(x) - Math.cos(x)))
+    }
+    expect(worst, 'negative-window sweep worst error').toBeLessThan(1e-4)
+  })
+
   it('sin²+cos² == 1 across a sweep (the Pythagorean invariant)', () => {
     let worst = 0
     for (let i = -60; i <= 60; i++) {

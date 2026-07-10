@@ -92,10 +92,9 @@ float df64_narrow(vec2 a) {
 }
 
 vec2 df64_nint(vec2 a) {
-  bool _cse0 = (a.y < 0.0);
-  float _v0 = ((a.x < 0.0) ? (-floor(((-a.x) + 0.5))) : floor((a.x + 0.5)));
-  float _v1 = (((abs((_v0 - a.x)) == 0.5) && _cse0) ? (_v0 - 1.0) : _v0);
-  return ((_v0 == a.x) ? df64_quickTwoSum(_v0, (_cse0 ? (-floor(((-a.y) + 0.5))) : floor((a.y + 0.5)))) : vec2(_v1, 0.0));
+  float _v0 = floor((a.x + 0.5));
+  float _v1 = (((abs((_v0 - a.x)) == 0.5) && (a.y < 0.0)) ? (_v0 - 1.0) : _v0);
+  return ((_v0 == a.x) ? df64_quickTwoSum(_v0, floor((a.y + 0.5))) : vec2(_v1, 0.0));
 }
 
 vec2 df64_sin_taylor(vec2 a) {

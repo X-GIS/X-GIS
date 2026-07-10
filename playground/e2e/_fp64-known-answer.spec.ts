@@ -185,6 +185,29 @@ const TRIG: Array<{
     tol: 1e-4,
     discriminative: true,
   },
+  // Negative large argument whose |x|/2π lands on an f32 half-integer (|q| ∈
+  // [2²², 2²³), grid spacing 0.5): the mod-2π turn-count nint's tie case. Rounding
+  // the tie away from zero (rather than luma's toward-+∞, which df64_nint's lo-word
+  // correction is ported to) offset z by 1 and inverted the sign/swap — the whole
+  // negative reduction window was wrong. #922 regression.
+  {
+    name: 'sin(−(2²²+0.35)·2π) negative reduction',
+    f: 'sin',
+    x: -(2 ** 22 + 0.35) * (2 * Math.PI),
+    exact: Math.sin(-(2 ** 22 + 0.35) * (2 * Math.PI)),
+    f32: Math.sin(Math.fround(-(2 ** 22 + 0.35) * (2 * Math.PI))),
+    tol: 1e-4,
+    discriminative: true,
+  },
+  {
+    name: 'cos(−(2²²+0.35)·2π) negative reduction',
+    f: 'cos',
+    x: -(2 ** 22 + 0.35) * (2 * Math.PI),
+    exact: Math.cos(-(2 ** 22 + 0.35) * (2 * Math.PI)),
+    f32: Math.cos(Math.fround(-(2 ** 22 + 0.35) * (2 * Math.PI))),
+    tol: 1e-4,
+    discriminative: true,
+  },
 ]
 const NT = TRIG.length
 const trigExpr = (i: ReadonlyNode<'u32'>): Node<'f64'> =>

@@ -359,9 +359,12 @@ const SIN_TABLE = DF64_TRIG_CONSTANTS.SIN_TABLE.map(dfLit)
 const PI_2_HI = Math.fround(DF64_TRIG_CONSTANTS.PI_2)
 const PI_16_HI = Math.fround(DF64_TRIG_CONSTANTS.PI_16)
 
-/** round-to-nearest-integer of an f32 (ties away from zero — luma.gl's `nint`). */
-const nintF32 = (x: ReadonlyNode<'f32'>): ReadonlyNode<'f32'> =>
-  x.lt(0.0).select(floor(x.neg().add(0.5)).neg(), floor(x.add(0.5)))
+/** round-to-nearest-integer of an f32 — luma.gl's `nint`: `floor(x + 0.5)` (ties
+ *  toward +∞, NOT away from zero). df64_nint's lo-word tie correction below is
+ *  ported to THIS convention: the two disagree by 1 at a negative half-integer, so
+ *  rounding ties away from zero here would double-count the correction and offset
+ *  the mod-2π turn count z by 1 (r off by 2π → wrong quadrant → sign/swap inverted). */
+const nintF32 = (x: ReadonlyNode<'f32'>): ReadonlyNode<'f32'> => floor(x.add(0.5))
 
 /** Round a df64 to the nearest integer (as a df64) — the mod-2π reduction's turn
  *  count. When hi is already integral the lo word decides (round it too, then
