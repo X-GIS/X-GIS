@@ -14,6 +14,8 @@ export function keyOf(e: Expr): string {
       return `L:${typeof e.value}:${String(e.value)}`
     case 'constref':
       return `C:${e.name}`
+    case 'overrideref':
+      return `O:${e.name}` // #923 — distinct from a const read (never CSE'd together)
     case 'param':
       return `P:${e.name}`
     case 'varref':
@@ -43,7 +45,11 @@ export function keyOf(e: Expr): string {
 
 /** Compound = a non-leaf expr (worth hoisting / counting). */
 export const isCompound = (e: Expr): boolean =>
-  e.op !== 'lit' && e.op !== 'constref' && e.op !== 'param' && e.op !== 'varref'
+  e.op !== 'lit' &&
+  e.op !== 'constref' &&
+  e.op !== 'overrideref' &&
+  e.op !== 'param' &&
+  e.op !== 'varref'
 
 /** Visit `e` and every descendant (pre-order). */
 export function eachExpr(e: Expr, visit: (e: Expr) => void): void {
@@ -89,6 +95,7 @@ export function mapChildren(e: Expr, f: (c: Expr) => Expr): Expr {
   switch (e.op) {
     case 'lit':
     case 'constref':
+    case 'overrideref':
     case 'param':
     case 'varref':
       return e

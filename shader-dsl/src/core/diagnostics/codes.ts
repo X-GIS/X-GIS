@@ -71,6 +71,11 @@ export const CODES = {
     summary: 'no active builder',
     hint: 'call Let/Var/If/Loop/… inside an fn / If / Loop body',
   },
+  SD0014: {
+    code: 'SD0014',
+    summary: 'override (specialization constant) must be a WGSL scalar type',
+    hint: 'overrideConst supports bool/i32/u32/f32 only — WGSL forbids vec/matrix/array/struct overrides; decompose into per-component scalar overrides',
+  },
 
   // ── Module-level gates ──
   SD0020: { code: 'SD0020', summary: 'module validation failed' },

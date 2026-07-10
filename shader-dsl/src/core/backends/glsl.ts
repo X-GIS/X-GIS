@@ -1054,6 +1054,25 @@ export function emitGlslModule(
   // precision, so a uint/int varying or expression there is a compile error without it.
   const parts: string[] = ['#version 300 es', 'precision highp float;', 'precision highp int;', '']
 
+  // #923 — specialization constants. GLSL ES 3.00 has no `override`, so the portable
+  // equivalent is the PREPROCESSOR: each override becomes a `#define` whose DEFAULT is
+  // guarded by `#ifndef`, so the module compiles standalone AND a host can specialize a
+  // variant by PREPENDING its own `#define NAME value` (the guard then skips the
+  // default). A branch guarded by the macro (`if (NAME > 1.0)`) is dead-code-eliminated
+  // by the GLSL COMPILER per program — the runtime-`if` form (not `#if`) because the
+  // GLSL preprocessor's `#if` evaluates INTEGER constant expressions only and cannot
+  // handle a float/bool override. The ordered define manifest is recoverable from
+  // reflect().overrides, so a host can assemble each permutation mechanically.
+  if (lowered.overrides?.length)
+    parts.push(
+      lowered.overrides
+        .map(
+          (o) =>
+            `#ifndef ${o.name}\n#define ${o.name} ${glslEs300Backend.literal(o.default, o.type)}\n#endif`,
+        )
+        .join('\n'),
+    )
+
   if (lowered.consts.length)
     parts.push(lowered.consts.map((c) => glslEs300Backend.emitConst(c)).join('\n'))
 

@@ -276,6 +276,7 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
     case 'lit':
       return isF64(e.type) ? pairLit(e.value as number) : e
     case 'constref':
+    case 'overrideref': // #923 — a specialization constant is a WGSL scalar, never f64
     case 'param':
     case 'varref':
       return containsF64(e.type) ? { ...e, type: mapType(e.type) } : e
@@ -700,6 +701,7 @@ function exprHasF64(e: Expr): boolean {
   switch (e.op) {
     case 'lit':
     case 'constref':
+    case 'overrideref':
     case 'param':
     case 'varref':
       return false
@@ -1108,5 +1110,10 @@ export function fp64Lower(m: ModuleDecl, opts?: Fp64LowerOptions): ModuleDecl {
   const helpers = helperClosure(ctx.used, REG_FNS, REG_ORDER)
   if (helpers.length > 0 && helpersUseGuard(helpers)) injectGuard(bindings)
 
-  return { consts, structs, bindings, funcs: [...funcs, ...helpers] }
+  // #923 — carry specialization constants through the f64 rebuild (a non-f64 module
+  // already short-circuits via `return m` above, keeping them; an f64 module that also
+  // declares overrides must not lose them). Overrides are WGSL scalars, untouched by
+  // f64 lowering. Absent ⇒ omit the key, so an override-free f64 emit stays identical.
+  const rebuilt: ModuleDecl = { consts, structs, bindings, funcs: [...funcs, ...helpers] }
+  return m.overrides ? { ...rebuilt, overrides: m.overrides } : rebuilt
 }

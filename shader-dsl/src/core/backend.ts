@@ -12,6 +12,7 @@
 import type {
   ShaderType,
   ConstDecl,
+  OverrideDecl,
   StructDecl,
   BindingDecl,
   FuncDecl,
@@ -90,6 +91,12 @@ export interface Backend {
   // support a declaration (e.g. GLSL ES bindings/structs) fails closed here.
   /** A module-level const declaration line, incl. trailing `;`. */
   emitConst(c: ConstDecl): string
+  /** OPTIONAL — a module-level SPECIALIZATION CONSTANT declaration (#923). The WGSL
+   *  writer emits `override name: T = default;` (host-overridable at pipeline creation
+   *  via `constants: {}`); the GLSL writer emits a `#ifndef/#define/#endif`
+   *  default-value permutation seam (host prepends its own `#define`). A backend with
+   *  no override surface omits this — assembly then skips overrides for that target. */
+  emitOverride?(o: OverrideDecl): string
   /** A struct declaration block. */
   emitStruct(s: StructDecl): string
   /** A resource binding declaration line. */

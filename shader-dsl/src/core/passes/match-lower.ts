@@ -155,6 +155,7 @@ function walkExprChildren(e: Expr, visit: (e: Expr) => Expr): Expr {
   switch (e.op) {
     case 'lit':
     case 'constref':
+    case 'overrideref':
     case 'param':
     case 'varref':
       return e

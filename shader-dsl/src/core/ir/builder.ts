@@ -12,6 +12,7 @@ import type {
   FuncDecl,
   ModuleDecl,
   ConstDecl,
+  OverrideDecl,
   StructDecl,
   BindingDecl,
 } from './nodes'
@@ -26,6 +27,7 @@ import {
   i32,
   u32,
   callFn,
+  overrideRef,
   installStmtSink,
 } from './node'
 import { dslError } from '../diagnostics/error'
@@ -973,6 +975,9 @@ export function module(parts: ModuleParts): ModuleDecl {
     structs,
     bindings,
     funcs: normalizeFuncs(parts.funcs),
+    // #923 — carry the specialization-constant declarators through (absent ⇒ omit the
+    // key, so an override-free module object stays byte-identical to before).
+    ...(parts.overrides ? { overrides: parts.overrides } : {}),
   }
   // #628 — carry the opt-in language-feature caps through (absent ⇒ omit the key, so an
   // enables-free module object stays byte-identical to before).
@@ -988,6 +993,36 @@ export function module(parts: ModuleParts): ModuleDecl {
  *  directly instead. */
 export function constExpr(name: string, type: ShaderType, value: Node): ConstDecl {
   return { name, type, wgslValue: 0, cpuValue: 0, valueExpr: value.expr }
+}
+
+/** A pipeline SPECIALIZATION CONSTANT (#923) handle — `.node` is the opaque READ
+ *  (usable in any expression / branch guard); `.decl` goes into
+ *  `module({ overrides: [...] })`. */
+export interface OverrideHandle<K extends string> {
+  readonly node: ReadonlyNode<K>
+  readonly decl: OverrideDecl
+}
+
+/** Author a pipeline specialization constant (#923): one declarator that lowers to a
+ *  WGSL module-scope `override name: type = default;` (host specializes via
+ *  `createRenderPipeline({ constants: { name } })`) AND a GLSL `#define` permutation
+ *  seam (host prepends its own `#define` per variant). The value is fixed at PIPELINE
+ *  CREATION, not module build, so its read stays OPAQUE to the optimizer — a branch
+ *  guarded by `q.node` (e.g. `If(q.node.gt(1), …)`) survives every DSL pass and is
+ *  eliminated by the DRIVER per variant, giving the classic ubershader mechanism.
+ *
+ *  WGSL scalars ONLY (bool/i32/u32/f32) — WGSL forbids vec/matrix overrides, so a
+ *  non-scalar type is rejected here (SD0014). `f16` slots in once it joins the Scalar
+ *  union (gated by the #957 f16 `enable`). */
+export function overrideConst<T extends ShaderType>(
+  name: string,
+  type: T,
+  defaultValue: number | boolean,
+): OverrideHandle<KeyOf<T>> {
+  if (type.kind !== 'scalar') {
+    throw dslError('SD0014', `override '${name}': ${type.kind}`)
+  }
+  return { node: overrideRef(name, type), decl: { name, type, default: defaultValue } }
 }
 
 // ── Ambient free-function authoring surface (C2) ──
