@@ -3717,7 +3717,7 @@ export class VectorTileRenderer {
       // (≈ km, frame-consistent); the residual sphere-MVP error is only the
       // ellipsoid−sphere of the LOCAL patch (≈ tens of m = a few px at z14,
       // within the documented 1.7 px ECEF-MVP parity tolerance).
-      const E2_ECEF = (1 / 298.257223563) * (2 - 1 / 298.257223563)
+      const E2_ECEF = EARTH.e2
       const tLatR = clampLat(cached.tileSouth) * DEG2RAD
       const tLonR = cached.tileWest * DEG2RAD
       const tSin = Math.sin(tLatR),

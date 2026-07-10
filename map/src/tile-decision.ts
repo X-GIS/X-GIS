@@ -13,6 +13,7 @@
 // counter). Side effects + decision live in different functions; the
 // decision is unit-testable with mock caches.
 
+import { EARTH } from '@xgis/shared'
 import { tileKey, tileKeyChildren, tileKeyParent } from '@xgis/compiler'
 import type { TileCoord } from '@xgis/data'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord } from '@xgis/data'
@@ -608,7 +609,7 @@ export function computeZoomDirectionPrefetchKeys(input: {
   // prefetch loads doomed-to-be-unused tiles into the GPU.
   const prefetchTiles = routeToSphereSelector(projType, globeMode)
     ? (() => {
-        const R = 6378137
+        const R = EARTH.sphereR
         const lonPF = (centerX / R) * (180 / Math.PI)
         // For sphere-family projections read the true centre latitude from
         // camera.centerLatDeg — it reaches the pole (±90°) past the Mercator

@@ -25,7 +25,7 @@
 // the cap inherits that source layer's fill colour (blue ocean / green land).
 
 import { tileKey } from '@xgis/compiler'
-import { tileEcefCenterFromMerc } from '@xgis/shared'
+import { EARTH, tileEcefCenterFromMerc } from '@xgis/shared'
 import { findClampBoundarySpans } from '../polar-cap-detect'
 import type { GeoJSONFeatureCollection } from '../geojson-types'
 import { packECEFWithPolarCaps, MERC_LAT_CLAMP } from './polar-cap-ecef-pack'
@@ -39,7 +39,7 @@ import {
 
 const Z0_KEY = tileKey(0, 0, 0)
 const DEG2RAD = Math.PI / 180
-const A = 6378137 // WGS84 semi-major axis — matches the tiler + render-side `off`.
+const A = EARTH.a // WGS84 semi-major axis — matches the tiler + render-side `off`.
 // Decoded z=0 tile-south latitude (degrees) — the EXACT value the tile catalog
 // reconstructs for the synthetic z=0 tile (atan(sinh(±π))·180/π) and the value
 // the render-side `off` anchor feeds through clampLat. The cap tile-corner

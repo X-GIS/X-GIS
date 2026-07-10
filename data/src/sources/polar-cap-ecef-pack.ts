@@ -19,7 +19,7 @@
 // because the VS writes the CLAMPED abs_lat to the varying — only the POSITION
 // attribute reaches the pole.
 
-import { lonLatToECEF } from '@xgis/shared'
+import { EARTH, lonLatToECEF } from '@xgis/shared'
 import { quantizeAxis } from '@xgis/shared'
 import { POLYGON_FILL_FORMAT, vertexField } from '@xgis/compiler'
 
@@ -28,7 +28,7 @@ import { POLYGON_FILL_FORMAT, vertexField } from '@xgis/compiler'
  *  stay Merc-clamped so they remain geoid-identical to ground-tile polygons. */
 export const MERC_LAT_CLAMP = 85.051129
 const DEG2RAD = Math.PI / 180
-const A = 6378137 // WGS84 semi-major axis — matches the tiler + render-side `off`.
+const A = EARTH.a // WGS84 semi-major axis — matches the tiler + render-side `off`.
 
 // POLYGON_FILL_FORMAT contract (compiler/src/tiler/polygon-vertex-format.ts):
 //   stride = 7 f32 = 14 u16. u16×6 position lanes 0..5 occupy bytes 0..11;

@@ -2,9 +2,11 @@
 // Spherical linear interpolation (slerp) on the unit sphere for computing
 // intermediate points along the shortest path between two coordinates.
 
+import { EARTH } from '@xgis/shared'
+
 const DEG2RAD = Math.PI / 180
 const RAD2DEG = 180 / Math.PI
-const EARTH_R = 6378137
+const EARTH_R = EARTH.sphereR
 
 /**
  * Interpolate a point along the great circle arc between two coordinates.

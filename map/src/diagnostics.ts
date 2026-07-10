@@ -24,7 +24,7 @@ import { getMaxDpr } from '@xgis/engine'
 import { mercatorYToLat } from '@xgis/geo'
 import type { QualityConfig } from '@xgis/engine'
 import type { XGISMap } from './map'
-import { xlog } from '@xgis/shared'
+import { EARTH, xlog } from '@xgis/shared'
 
 // ─── Types ─────────────────────────────────────────────────────────
 
@@ -169,7 +169,7 @@ export function inspectMapPipeline(map: XGISMap): PipelineInspection {
   }
 
   const cam = m.camera
-  const R = 6378137
+  const R = EARTH.sphereR
   const DEG = 180 / Math.PI
   const canvasW = m.ctx?.canvas.width ?? 0
   const canvasH = m.ctx?.canvas.height ?? 0
@@ -239,7 +239,7 @@ export async function captureMapSnapshot(map: XGISMap): Promise<MapSnapshot> {
     vtSources?: Map<string, unknown>
   }
   const camera = m.camera
-  const lon = camera.centerX / 6378137 / (Math.PI / 180)
+  const lon = camera.centerX / EARTH.sphereR / (Math.PI / 180)
   const lat = mercatorYToLat(camera.centerY)
 
   const sources: MapSnapshot['sources'] = {}
@@ -382,7 +382,7 @@ export async function replayMapSnapshot(
   // 1. Set the camera. Direct field assignment bypasses setView so
   // animation tweens don't drift the snapshot camera over the next
   // few frames.
-  const R = 6378137
+  const R = EARTH.sphereR
   const DEG2RAD = Math.PI / 180
   m.camera.centerX = snap.camera.lon * DEG2RAD * R
   const clampedLat = Math.max(-85.051129, Math.min(85.051129, snap.camera.lat))

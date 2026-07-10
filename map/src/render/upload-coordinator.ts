@@ -32,7 +32,7 @@
 
 import { GPUArena } from '@xgis/engine'
 import { StagingBufferPool, asyncWriteBuffer, type StagingSlot } from '@xgis/rhi-webgpu'
-import { PriorityQueue, PriorityQueueItemRemovedError } from '@xgis/shared'
+import { EARTH, PriorityQueue, PriorityQueueItemRemovedError } from '@xgis/shared'
 import { buildLineSegments } from '@xgis/data'
 import type { LineRenderer } from './line-renderer'
 import { generateWallMeshExtrudedECEF } from '../core/polygon-mesh'
@@ -514,9 +514,8 @@ export class UploadCoordinator {
         // `tileEcefCenter` so the extruded buffer stays in the same DSFUN
         // frame as surrounding flat-fill tiles. WGS84 ellipsoidal math
         // (cross-package projection import forbidden in the worker thread).
-        const A_ = 6378137
-        const F_ = 1 / 298.257223563
-        const E2_ = F_ * (2 - F_)
+        const A_ = EARTH.a
+        const E2_ = EARTH.e2
         const DEG2RAD = Math.PI / 180
         const clampLat = Math.max(-85.051129, Math.min(85.051129, data.tileSouth))
         const tileMx = data.tileWest * DEG2RAD * A_
@@ -654,7 +653,7 @@ export class UploadCoordinator {
       let lineSegmentBindGroup: RhiBindGroup | null = null
       if (lineRenderer) {
         const SEG_DEG2RAD = Math.PI / 180
-        const SEG_R = 6378137
+        const SEG_R = EARTH.sphereR
         const SEG_LAT_LIMIT = 85.051129
         const clampSegLat = (v: number) => Math.max(-SEG_LAT_LIMIT, Math.min(SEG_LAT_LIMIT, v))
         const tileMercXWest = data.tileWest * SEG_DEG2RAD * SEG_R
