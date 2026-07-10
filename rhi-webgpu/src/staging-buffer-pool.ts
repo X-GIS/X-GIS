@@ -176,13 +176,19 @@ export class StagingBufferPool {
  *  Borrows a staging slot, copies `data` into its mapped range, unmaps,
  *  encodes `copyBufferToBuffer` into `encoder`, and resolves once the
  *  copy is queued (NOT once the GPU completes — caller submits the
- *  encoder when ready). The slot is returned to the pool after submit
- *  via the callback that the resolved promise schedules.
+ *  encoder when ready). Returns the borrowed `slot`; the caller submits
+ *  the encoder, then returns it with `pool.release(result.slot)` so a
+ *  multi-write tile can batch its uploads into ONE submit and bulk-release
+ *  the slots after (#784 — returning the slot instead of a per-call
+ *  `release` closure drops the closure+context allocation on the hot
+ *  tile-upload burst path).
  *
- *  Empty-data case (`byteLength === 0`) resolves with a no-op release
- *  closure — matches WebGPU's `queue.writeBuffer` semantics where a
- *  zero-length write is legal and does nothing. Real-world hit:
- *  tile slices that ship a zero-length `lineVertices` array because
+ *  `slot` is `null` on the paths where nothing was borrowed — the empty-data
+ *  case (`byteLength === 0`) and the SwiftShader `queue.writeBuffer`
+ *  fallback — so `if (result.slot) pool.release(result.slot)` is a safe
+ *  no-op there. The empty-data no-op matches WebGPU's `queue.writeBuffer`
+ *  semantics (a zero-length write is legal and does nothing); real-world
+ *  hit: tile slices that ship a zero-length `lineVertices` array because
  *  the source layer carried only polygons. */
 export async function asyncWriteBuffer(
   pool: StagingBufferPool,
@@ -190,10 +196,10 @@ export async function asyncWriteBuffer(
   dst: GPUBuffer,
   dstOffset: number,
   data: ArrayBuffer | ArrayBufferView,
-): Promise<{ release: () => void }> {
+): Promise<{ slot: StagingSlot | null }> {
   const byteLength = 'byteLength' in data ? data.byteLength : (data as ArrayBuffer).byteLength
   if (byteLength === 0) {
-    return { release: () => {} }
+    return { slot: null }
   }
 
   // Fast direct-write path when the staging pool can't allocate
@@ -202,7 +208,7 @@ export async function asyncWriteBuffer(
   // internal staging copy, which is slower but always works.
   if (pool.hasMappedAtCreationFallback) {
     pool.gpuDevice.queue.writeBuffer(dst, dstOffset, data as BufferSource)
-    return { release: () => {} }
+    return { slot: null }
   }
 
   let slot
@@ -213,7 +219,7 @@ export async function asyncWriteBuffer(
       // First-fail: flag was just flipped by borrow's catch. Retry
       // through the direct path so this very write doesn't drop.
       pool.gpuDevice.queue.writeBuffer(dst, dstOffset, data as BufferSource)
-      return { release: () => {} }
+      return { slot: null }
     }
     throw e
   }
@@ -227,10 +233,5 @@ export async function asyncWriteBuffer(
   new Uint8Array(mapped).set(srcBytes)
   slot.buffer.unmap()
   encoder.copyBufferToBuffer(slot.buffer, 0, dst, dstOffset, byteLength)
-  // Caller submits encoder, then invokes release(). We hand back a
-  // closure rather than auto-releasing so a multi-write tile can batch
-  // its uploads into ONE submit, then bulk-release all slots after.
-  return {
-    release: () => pool.release(slot!),
-  }
+  return { slot }
 }

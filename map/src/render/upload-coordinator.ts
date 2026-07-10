@@ -31,7 +31,7 @@
 //   the two routes diverge.
 
 import { GPUArena } from '@xgis/engine'
-import { StagingBufferPool, asyncWriteBuffer } from '@xgis/rhi-webgpu'
+import { StagingBufferPool, asyncWriteBuffer, type StagingSlot } from '@xgis/rhi-webgpu'
 import { PriorityQueue, PriorityQueueItemRemovedError } from '@xgis/shared'
 import { buildLineSegments } from '@xgis/data'
 import type { LineRenderer } from './line-renderer'
@@ -120,7 +120,7 @@ interface TileWriteSink {
    *  the caller can bind it immediately). */
   uploadSegment(segData: Float32Array): RhiBuffer | Promise<RhiBuffer>
   /** Await every staged write (async only; no-op-shaped for sync — never
-   *  called on the sync path). Collects the staging-slot releases. */
+   *  called on the sync path). Collects the staging slots for batch release. */
   awaitWrites(): Promise<void>
   /** Submit this tile's encoder + return all staging slots (async only). */
   submit(): void
@@ -149,7 +149,7 @@ class SyncWriteSink implements TileWriteSink {
   uploadSegment(segData: Float32Array): RhiBuffer {
     return this.lineRenderer!.uploadSegmentBuffer(segData)
   }
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
+
   async awaitWrites(): Promise<void> {}
   submit(): void {}
   releaseAll(): void {}
@@ -161,8 +161,12 @@ class SyncWriteSink implements TileWriteSink {
 class AsyncWriteSink implements TileWriteSink {
   readonly deferred = true
   private readonly encoder: GPUCommandEncoder
-  private readonly writeHandles: Array<Promise<{ release: () => void }>> = []
-  private readonly releases: Array<() => void> = []
+  private readonly writeHandles: Array<Promise<{ slot: StagingSlot | null }>> = []
+  /** Staging slots borrowed by this tile's writes, returned to the pool as a
+   *  batch after the single submit (or on the UAF bail). Collecting the slot
+   *  object directly — rather than a per-write `release` closure — is the #784
+   *  allocation cut on this hot tile-upload path. */
+  private readonly slots: StagingSlot[] = []
   constructor(
     private readonly pool: StagingBufferPool,
     private readonly device: GPUDevice,
@@ -184,24 +188,24 @@ class AsyncWriteSink implements TileWriteSink {
   }
   async uploadSegment(segData: Float32Array): Promise<RhiBuffer> {
     const seg = await this.lineRenderer!.uploadSegmentBufferAsync(segData, this.encoder, this.pool)
-    this.releases.push(seg.release)
+    if (seg.slot) this.slots.push(seg.slot)
     return seg.buffer
   }
   async awaitWrites(): Promise<void> {
     // mapAsync round-trips overlap, so the wall-clock cost is one round-trip
     // (not N). After this the encoder holds every copy command for the tile.
     const settled = await Promise.all(this.writeHandles)
-    for (const h of settled) this.releases.push(h.release)
+    for (const h of settled) if (h.slot) this.slots.push(h.slot)
   }
   submit(): void {
     // Single submit per tile. The GPU now consumes staging → dst. Then return
     // staging slots to the pool — subsequent borrows mapAsync, which natively
     // waits for the just-submitted copy to finish before re-mapping for write.
     this.device.queue.submit([this.encoder.finish()])
-    for (const release of this.releases) release()
+    for (const slot of this.slots) this.pool.release(slot)
   }
   releaseAll(): void {
-    for (const release of this.releases) release()
+    for (const slot of this.slots) this.pool.release(slot)
   }
 }
 

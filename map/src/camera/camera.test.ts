@@ -370,6 +370,35 @@ describe('Camera — cache invalidation', () => {
     // rtcMatrix buffer when nothing changed.
     expect(m0).toBe(m1)
   })
+
+  it('_view() scratch reuse is byte-identical to an unshared build (#784)', () => {
+    // The three matrix builders (buildRTCMatrix / buildECEFFrameView /
+    // buildGlobeFrame) share one reused `_viewScratch` instead of a fresh
+    // CameraView per call. Guard the reuse invariant: a flat RTC build that
+    // runs AFTER the ECEF-frame build (the other consumer) populated the
+    // scratch at a different zoom must re-stamp every field from live state and
+    // land byte-identical to a control camera whose scratch the ECEF path never
+    // touched. A stale field (e.g. zoom) would diverge here.
+    const cx = 1_000_000,
+      cy = 2_000_000,
+      z = 7
+    const control = new Camera(cx, cy, z)
+    control.pitch = 30
+    control.bearing = 40
+    const mControl = new Float32Array(control.getRTCMatrix(W, H, DPR))
+
+    const shared = new Camera(cx, cy, z)
+    shared.pitch = 30
+    shared.bearing = 40
+    // Drive the OTHER _view() consumer at a different zoom first…
+    shared.zoom = 3
+    shared.getECEFFrameView(W, H, DPR)
+    // …then restore state and build the flat matrix (fresh — RTC cache empty).
+    shared.zoom = z
+    const mShared = shared.getRTCMatrix(W, H, DPR)
+
+    for (let i = 0; i < 16; i++) expect(mShared[i]).toBe(mControl[i])
+  })
 })
 
 describe('Camera — getMatrix() (legacy ortho)', () => {
@@ -498,7 +527,7 @@ describe('Camera — near/far ratio across the (zoom × pitch) grid', () => {
         }
       }
     }
-    // eslint-disable-next-line no-console
+
     if (process.env.VERBOSE) console.log(`[near/far sweep] worst case: ${worstCase}`)
   })
 

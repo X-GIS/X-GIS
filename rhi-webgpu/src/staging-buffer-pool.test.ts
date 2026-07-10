@@ -139,8 +139,9 @@ describe('StagingBufferPool', () => {
   it('asyncWriteBuffer no-ops on zero-length data (matches writeBuffer semantics)', async () => {
     const encoder = makeMockEncoder()
     const dstBuf = { _name: 'dst' } as unknown as GPUBuffer
-    const handle = await asyncWriteBuffer(pool, encoder, dstBuf, 0, new Uint8Array(0))
-    handle.release() // no-op release returned, must not throw
+    const { slot } = await asyncWriteBuffer(pool, encoder, dstBuf, 0, new Uint8Array(0))
+    expect(slot).toBeNull() // empty write borrows nothing → null slot
+    if (slot) pool.release(slot) // guarded release must be a no-op here
     const copies = (encoder as unknown as { _copies: Array<unknown> })._copies
     expect(copies.length).toBe(0) // no copyBufferToBuffer emitted
     // No staging buffer should have been allocated.
@@ -181,8 +182,9 @@ describe('StagingBufferPool', () => {
     const data = new Uint8Array([10, 20, 30, 40])
 
     // FIRST write: borrow throws → flag flips → retry direct.
-    const handle1 = await asyncWriteBuffer(swPool, encoder, dstBuf, 0, data)
-    handle1.release()
+    const { slot: slot1 } = await asyncWriteBuffer(swPool, encoder, dstBuf, 0, data)
+    expect(slot1).toBeNull() // fallback path borrows nothing
+    if (slot1) swPool.release(slot1)
     expect(swPool.hasMappedAtCreationFallback).toBe(true)
     expect(writes.length).toBe(1)
     expect(writes[0]!.dst).toBe(dstBuf)
@@ -190,8 +192,8 @@ describe('StagingBufferPool', () => {
 
     // SECOND write: flag is already set → direct path from the top,
     // no borrow attempt at all.
-    const handle2 = await asyncWriteBuffer(swPool, encoder, dstBuf, 100, data)
-    handle2.release()
+    const { slot: slot2 } = await asyncWriteBuffer(swPool, encoder, dstBuf, 100, data)
+    if (slot2) swPool.release(slot2)
     expect(writes.length).toBe(2)
     expect(writes[1]!.offset).toBe(100)
 
@@ -216,8 +218,8 @@ describe('StagingBufferPool', () => {
     swPool._forceDirectWriteFallback()
     const encoder = makeMockEncoder()
     const dst = { _name: 'dst' } as unknown as GPUBuffer
-    const handle = await asyncWriteBuffer(swPool, encoder, dst, 0, new Uint8Array([1, 2, 3]))
-    handle.release()
+    const { slot } = await asyncWriteBuffer(swPool, encoder, dst, 0, new Uint8Array([1, 2, 3]))
+    if (slot) swPool.release(slot)
     expect(writes.length).toBe(1)
   })
 
@@ -227,8 +229,14 @@ describe('StagingBufferPool', () => {
     // Synthesize a destination buffer (we won't use the pool for it).
     const dstBuf = { _name: 'dst' } as unknown as GPUBuffer
     const data = new Uint8Array([1, 2, 3, 4, 5])
-    const handle = await asyncWriteBuffer(pool, encoder, dstBuf, 0, data)
-    handle.release()
+    const { slot } = await asyncWriteBuffer(pool, encoder, dstBuf, 0, data)
+    // Main path borrows a real slot (tier 0 for 5 bytes) and hands it back for
+    // the caller to release — the #784 contract change (return the slot, not a
+    // per-call `release` closure).
+    expect(slot).not.toBeNull()
+    expect(pool.getFreeCounts()[0]).toBe(0) // borrowed, not yet returned
+    pool.release(slot!)
+    expect(pool.getFreeCounts()[0]).toBe(1) // release() put it back on the free list
 
     const copies = (encoder as unknown as { _copies: Array<{ size: number; dst: unknown }> })
       ._copies

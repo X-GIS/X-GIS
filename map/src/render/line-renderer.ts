@@ -41,9 +41,14 @@
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { type GPUContext } from '@xgis/rhi-webgpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
-import { asyncWriteBuffer, type StagingBufferPool } from '@xgis/rhi-webgpu'
+import { asyncWriteBuffer, type StagingBufferPool, type StagingSlot } from '@xgis/rhi-webgpu'
 import { xlog } from '@xgis/shared'
-import { wrapWebGpuPass, wrapWebGpuBuffer, wrapWebGpuBindGroup, wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
+import {
+  wrapWebGpuPass,
+  wrapWebGpuBuffer,
+  wrapWebGpuBindGroup,
+  wrapWebGpuBindGroupLayout,
+} from '@xgis/rhi-webgpu'
 import type {
   RhiBuffer,
   RhiBindGroup,
@@ -344,9 +349,7 @@ export class LineRenderer {
     const view = this.ensureOffscreenRhi(width, height)
     return device.beginOffscreenPass({
       label: 'line-translucent-pass-rhi',
-      colorAttachments: [
-        { view, loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] },
-      ],
+      colorAttachments: [{ view, loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] }],
     })
   }
 
@@ -449,26 +452,26 @@ export class LineRenderer {
 
   /** Async variant of `uploadSegmentBuffer`. Allocates the destination
    *  buffer, then schedules the write through `asyncWriteBuffer` (the
-   *  caller's pool + encoder). Returns the destination buffer + a
-   *  release closure for the staging slot — the caller submits the
-   *  encoder, then invokes release() to return the staging slot to the
-   *  pool. Requested by VTR's queued tile upload path so the segment
-   *  buffer doesn't pay the driver's writeBuffer staging copy. */
+   *  caller's pool + encoder). Returns the destination buffer + the staging
+   *  `slot` (null when the write took the direct fallback) — the caller
+   *  submits the encoder, then returns the slot via `pool.release(slot)`.
+   *  Requested by VTR's queued tile upload path so the segment buffer
+   *  doesn't pay the driver's writeBuffer staging copy. */
   async uploadSegmentBufferAsync(
     segments: Float32Array,
     encoder: GPUCommandEncoder,
     pool: StagingBufferPool,
-  ): Promise<{ buffer: RhiBuffer; release: () => void }> {
+  ): Promise<{ buffer: RhiBuffer; slot: StagingSlot | null }> {
     const size = Math.max(segments.byteLength, LINE_SEGMENT_STRIDE_BYTES)
     const buf = this.device.createBuffer({
       size,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       label: 'line-segments-async',
     })
-    const handle = await asyncWriteBuffer(pool, encoder, buf, 0, segments)
+    const { slot } = await asyncWriteBuffer(pool, encoder, buf, 0, segments)
     // This path is inherently WebGPU (staging pool + native encoder); the raw
     // dst is wrapped at return so the tile cache stores RhiBuffer uniformly.
-    return { buffer: wrapWebGpuBuffer(buf), release: handle.release }
+    return { buffer: wrapWebGpuBuffer(buf), slot }
   }
 
   /** Reset the layer + composite ring slot cursors. Call once per frame. */
