@@ -24,6 +24,7 @@ import {
   vec4fT,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
+import type { RhiPipeline, RhiBindGroupLayout } from '@xgis/rhi'
 import type { WebGl2Device } from '@xgis/rhi-webgl2'
 
 /** The two fields this dispatcher reads off a compiler `ComputeKernel`, typed
@@ -80,6 +81,18 @@ export const fullscreenVsModule: ModuleDecl = module({
 let _vsCache: string | undefined
 const fullscreenVsGlsl = (): string => (_vsCache ??= emitGlslModule(fullscreenVsModule, 'vertex'))
 
+/** Per-device pipeline cache keyed on the kernel's emitted fsCode (#782 — the
+ *  WebGPU twin caches its pipeline; this path used to link a fresh
+ *  WebGLProgram per dispatch, unbounded on repeat dispatch). The vsCode is a
+ *  constant, so fsCode alone identifies the pipeline. WeakMap by device: a
+ *  program is only valid on the GL context that linked it, and a collected
+ *  device drops its cache with it. */
+interface CachedKernelPipeline {
+  pipeline: RhiPipeline
+  layout: RhiBindGroupLayout
+}
+const _kernelPipelines = new WeakMap<WebGl2Device, Map<string, CachedKernelPipeline>>()
+
 /**
  * Dispatch a per-feature compute kernel on WebGL2 as a fullscreen draw into an R32UI
  * offscreen target. `featData` is the packed feat_data (`kernel.featureStrideF32` floats
@@ -96,29 +109,46 @@ export function dispatchComputeKernelWebGl2(
   const hOut = Math.ceil(n / wOut)
 
   const fsCode = emitGlslModule(kernel.module, 'fragment', { emulateCompute: true })
-  const layout = device.createBindGroupLayout([{ binding: 0, kind: 'storage', name: 'feat_data' }])
-  const pipeline = device.createPipeline({
-    code: '', // WGSL — ignored on WebGL2 (the split GLSL vsCode/fsCode are used)
-    vsEntry: 'main',
-    fsEntry: 'main',
-    vsCode: fullscreenVsGlsl(),
-    fsCode,
-    bindGroupLayouts: [layout],
-    colorTargets: [{ format: 'r32uint', blend: 'none' }],
-  })
+  let perDevice = _kernelPipelines.get(device)
+  if (!perDevice) _kernelPipelines.set(device, (perDevice = new Map()))
+  let cached = perDevice.get(fsCode)
+  if (!cached) {
+    const layout = device.createBindGroupLayout([
+      { binding: 0, kind: 'storage', name: 'feat_data' },
+    ])
+    const pipeline = device.createPipeline({
+      code: '', // WGSL — ignored on WebGL2 (the split GLSL vsCode/fsCode are used)
+      vsEntry: 'main',
+      fsEntry: 'main',
+      vsCode: fullscreenVsGlsl(),
+      fsCode,
+      bindGroupLayouts: [layout],
+      colorTargets: [{ format: 'r32uint', blend: 'none' }],
+    })
+    perDevice.set(fsCode, (cached = { pipeline, layout }))
+  }
 
   const featBuf = device.createBuffer({ usage: 'storage', size: featData.byteLength })
   device.writeBuffer(featBuf, 0, featData)
-  const bindGroup = device.createBindGroup(layout, [{ binding: 0, resource: { buffer: featBuf } }])
+  const bindGroup = device.createBindGroup(cached.layout, [
+    { binding: 0, resource: { buffer: featBuf } },
+  ])
 
-  // u_count.x = N (the discard bounds guard); u_count.y = W_out (the output-row width).
-  const out = device.dispatchComputeToR32UI(
-    pipeline,
-    bindGroup,
-    wOut,
-    hOut,
-    new Uint32Array([n, wOut, 0, 0]),
-  )
-  // out is wOut*hOut; the first n texels are the per-feature results (rest are padding).
-  return out.subarray(0, n)
+  try {
+    // u_count.x = N (the discard bounds guard); u_count.y = W_out (the output-row width).
+    const out = device.dispatchComputeToR32UI(
+      cached.pipeline,
+      bindGroup,
+      wOut,
+      hOut,
+      new Uint32Array([n, wOut, 0, 0]),
+    )
+    // out is wOut*hOut; the first n texels are the per-feature results (rest are padding).
+    return out.subarray(0, n)
+  } finally {
+    // The dispatch is synchronous (readPixels drains the pipe), so the feat
+    // buffer is dead the moment it returns (#782 — this used to leak one GL
+    // buffer per dispatch). The bind group is GC-owned per the RHI contract.
+    device.destroyBuffer(featBuf)
+  }
 }
