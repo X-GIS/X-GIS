@@ -160,9 +160,17 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
     return cached.resolved
   }
 
-  // Opacity — `zoom-time` kind composes both axes multiplicatively,
-  // matching the legacy `zoomOpa * timeOpa` rule.
-  const opacity = resolveNumberShape(ps.common.opacity, cameraZoom, elapsedMs).value
+  // Opacity — `zoom-time` composes both axes multiplicatively (legacy
+  // `zoomOpa * timeOpa`). data-driven mirrors strokeWidth/size (#725):
+  // the per-feature alpha is folded into the fill/stroke colour
+  // downstream, so the per-layer compositing opacity reads the
+  // single-authority `show.opacity` base rather than resolveNumberShape's
+  // flat 1 — which would drop an authored/imperative base on a
+  // data-driven-opacity layer.
+  const opacity =
+    ps.common.opacity.kind === 'data-driven'
+      ? (show.opacity ?? 1)
+      : resolveNumberShape(ps.common.opacity, cameraZoom, elapsedMs).value
 
   // Stroke width — three branches:
   //   - animated   → per-frame value from resolveNumberShape
