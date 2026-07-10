@@ -787,33 +787,16 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
       renderSummary()
       const raf = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
 
-      // ── Device signals → the df64 flavor THIS device needs (shown + in the
-      // digest). Time-boxed, independent of the runners. ──
+      // ── Device signals → the df64 flavor THIS device needs. The signals are
+      // harvested FROM THE RUNNERS' OWN contexts (runWebGL's renderer string,
+      // runWebGPU's adapter.info) — an earlier version probed the GPU
+      // independently BEFORE the runners, and that extra early requestAdapter/
+      // WebGL context made every later requestAdapter return null on the macOS
+      // CI runner (branch runs ×2 null vs a main control run fine, minutes
+      // apart). The line renders after both runners settle. ──
       let autoFlavorLine = ''
-      try {
-        let adapterInfo: { vendor?: string; architecture?: string } | null = null
-        try {
-          const a = await Promise.race([
-            (navigator as any).gpu?.requestAdapter?.(),
-            new Promise((r) => setTimeout(() => r(null), 4000)),
-          ])
-          adapterInfo = (a as any)?.info ?? null
-        } catch { /* no adapter — fall through to the other signals */ }
-        let rendererString: string | null = null
-        try {
-          const glc = document.createElement('canvas').getContext('webgl2')
-          if (glc) {
-            const ext = glc.getExtension('WEBGL_debug_renderer_info')
-            rendererString = String(glc.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : glc.RENDERER))
-          }
-        } catch { /* renderer string unavailable */ }
-        const flavor = recommendFp64Flavor({ adapterInfo, rendererString, userAgent: navigator.userAgent })
-        autoFlavorLine = `auto df64 flavor: ${flavor}${rendererString ? ` · ${rendererString}` : ''}`
-        const fl = document.createElement('p')
-        fl.className = 'mt-3 text-[12px] font-mono text-fg-mute'
-        fl.textContent = autoFlavorLine
-        summary.insertAdjacentElement('afterend', fl)
-      } catch { /* diagnostics only — never block the run */ }
+      let sigRenderer: string | null = null
+      let sigAdapterInfo: { vendor?: string; architecture?: string } | null = null
 
       // WebGL2 (GLSL): each test → 8×8 draw, read back, report, yield so the just-
       // filled cell paints before the next runs (progress is visible, not a freeze).
@@ -821,6 +804,10 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
         const canvas = document.createElement('canvas'); canvas.width = 8; canvas.height = 8
         const gl = canvas.getContext('webgl2')
         if (!gl) { glAvail = false; for (const t of tests) report('gl', t.name, null, 'n/a'); return }
+        try {
+          const ext = gl.getExtension('WEBGL_debug_renderer_info')
+          sigRenderer = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER))
+        } catch { /* renderer string unavailable — flavor falls back to the other signals */ }
         const gtex = gl.createTexture()
         gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, gtex)
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]))
@@ -899,11 +886,26 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
         }
         const info = adapter.info || {}
         gpuNote = `adapter ${info.vendor || ''} ${info.architecture || ''}`.trim() + (recreates ? ` · ${recreates} device recreations` : '')
+        sigAdapterInfo = info
       }
 
       // Both backends fill their own column concurrently.
       await Promise.all([runWebGL(), runWebGPU()])
       renderSummary()
+
+      // Flavor verdict from the runners' own signals (see the note above).
+      try {
+        const flavor = recommendFp64Flavor({
+          adapterInfo: sigAdapterInfo,
+          rendererString: sigRenderer,
+          userAgent: navigator.userAgent,
+        })
+        autoFlavorLine = `auto df64 flavor: ${flavor}${sigRenderer ? ` · ${sigRenderer}` : ''}`
+        const fl = document.createElement('p')
+        fl.className = 'mt-3 text-[12px] font-mono text-fg-mute'
+        fl.textContent = autoFlavorLine
+        summary.insertAdjacentElement('afterend', fl)
+      } catch { /* diagnostics only — never block the digest */ }
 
       // ── Frozen text digest (format unchanged — the dev's parser reads it),
       // built in-memory now that the on-page dump is gone; Copy emits this. ──
