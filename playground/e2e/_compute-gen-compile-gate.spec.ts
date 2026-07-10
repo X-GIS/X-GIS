@@ -8,8 +8,10 @@
 //
 // Standalone (NOT folded into _wgsl-compile-gate): the compute kernels have NO projection
 // dependency, so this gate never touches configureProjections() — it compiles the kernels
-// in isolation. #625: interpolate is now shader-dsl-IR-emitted (CSE'd colours); match/case
-// are still string-built (follow-up). All three must compile.
+// in isolation. #625: interpolate/match/case are ALL shader-dsl-IR-emitted now (the compiler
+// returns neutral IR, not WGSL — package-responsibilities.md ruling i). This gate emits each
+// kernel's `.module` to WGSL via the shader-dsl backend (emitModule, exactly as the runtime
+// does — see _compute-parity.ts) and compiles all three on a real device.
 
 // Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { test, expect } from '@playwright/test'
@@ -18,33 +20,34 @@ import {
   emitMatchComputeKernel,
   emitTernaryComputeKernel,
 } from '../../compiler/src/codegen/compute-gen'
+import { emitModule, type ModuleDecl } from '../../shader-dsl/src/index'
 
-function computeVariants(): Array<{ name: string; wgsl: string }> {
+function computeVariants(): Array<{ name: string; module: ModuleDecl }> {
   return [
     {
       name: 'interpolate-3stop (IR-emitted #625)',
-      wgsl: emitInterpolateComputeKernel({
+      module: emitInterpolateComputeKernel({
         fieldName: 'rank',
         stops: [
           { input: 0, colorHex: '#ffffff' },
           { input: 5, colorHex: '#888888' },
           { input: 10, colorHex: '#000000' },
         ],
-      }).wgsl,
+      }).module,
     },
     {
       name: 'interpolate-2stop',
-      wgsl: emitInterpolateComputeKernel({
+      module: emitInterpolateComputeKernel({
         fieldName: 'mag',
         stops: [
           { input: 1, colorHex: '#ffff00' },
           { input: 8, colorHex: '#ff0000' },
         ],
-      }).wgsl,
+      }).module,
     },
     {
       name: 'match-3arm',
-      wgsl: emitMatchComputeKernel({
+      module: emitMatchComputeKernel({
         fieldName: 'class',
         arms: [
           { pattern: 'school', colorHex: '#f0e8f8' },
@@ -52,19 +55,19 @@ function computeVariants(): Array<{ name: string; wgsl: string }> {
           { pattern: 'hospital', colorHex: '#f5deb3' },
         ],
         defaultColorHex: '#00000000',
-      }).wgsl,
+      }).module,
     },
     {
       name: 'match-20arm (LUT branch)',
-      wgsl: emitMatchComputeKernel({
+      module: emitMatchComputeKernel({
         fieldName: 'iso',
         arms: Array.from({ length: 20 }, (_, i) => ({ pattern: `p${i}`, colorHex: '#112233' })),
         defaultColorHex: '#00000000',
-      }).wgsl,
+      }).module,
     },
     {
       name: 'case-3pred',
-      wgsl: emitTernaryComputeKernel({
+      module: emitTernaryComputeKernel({
         fields: ['cls'],
         branches: [
           { pred: { kind: 'cmp', field: 'cls', op: '==', value: 0 }, colorHex: '#ff0000' },
@@ -72,7 +75,7 @@ function computeVariants(): Array<{ name: string; wgsl: string }> {
           { pred: { kind: 'cmp', field: 'cls', op: '==', value: 2 }, colorHex: '#0000ff' },
         ],
         defaultColorHex: '#888888',
-      }).wgsl,
+      }).module,
     },
   ]
 }
@@ -82,7 +85,7 @@ test.describe('compute-gen WGSL compile gate', () => {
     test.setTimeout(120_000)
     await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
 
-    const variants = computeVariants()
+    const variants = computeVariants().map((v) => ({ name: v.name, wgsl: emitModule(v.module) }))
     for (const v of variants) {
       expect(v.wgsl.length, `${v.name} emitted empty WGSL`).toBeGreaterThan(20)
     }
