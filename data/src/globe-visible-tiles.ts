@@ -361,8 +361,28 @@ export function globeVisibleTiles(
     // screen-AABB nor the emit gate (so the z=0 world-copy path is
     // byte-unchanged). Robust at any zoom: pure bbox containment,
     // no sample reliability assumption.
+    // Pole ownership (issue #469): a globe camera can target a latitude BEYOND
+    // the Web-Mercator limit (±85.0511°) — the geographic poles, which every
+    // sphere-class projection renders but no Mercator tile's lat range reaches
+    // (every tile's |latN| ≤ 85.0511). Without special-casing them, a pole-
+    // targeting camera has containsTarget=false for EVERY tile, so the focal-
+    // tile guarantee never fires; at a zoomed-in pole view the coarse root then
+    // also fails anyFront (its ±85.05° samples sit outside the tiny visible
+    // cap) and globeVisibleTiles returns nothing. That is invisible for normal
+    // sources (their detailed rim tiles still emit) but fatal for a per-source
+    // POLAR CAP: its geometry lives at lat > 85.0511 and its only tile is the
+    // z=0 root (maxLevel 0 ⇒ selector maxZ 0), so an empty selection means the
+    // ±5° pole disc renders black (the ocean_land Arctic hole). The pole-edge
+    // column OWNS the pole: y=0 (north edge, latN=85.0511) for a north-pole
+    // target, y=2^z−1 (south edge) for a south-pole target. Treat it as the
+    // focal tile so the cap root is selected + drawn as an unclipped primary.
+    // Guarded on the strict > limit test, so ALL sub-pole views (|lat| ≤
+    // 85.0511) are byte-identical — no blast radius outside true pole views.
+    const lonInTile = centerLon >= lonW && centerLon <= lonE
     const containsTarget =
-      centerLon >= lonW && centerLon <= lonE && centerLat >= latS && centerLat <= latN
+      (lonInTile && centerLat >= latS && centerLat <= latN) ||
+      (lonInTile && centerLat > MERCATOR_LAT_LIMIT && ty === 0) ||
+      (lonInTile && centerLat < -MERCATOR_LAT_LIMIT && ty === tileN - 1)
     const forceDescend = tz < maxZ && (tz <= 2 || containsTarget)
     // Whole tile on the far hemisphere → cull (this is what makes the
     // globe show only the front side; it is NOT the dateline bug — the
