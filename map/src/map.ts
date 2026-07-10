@@ -1,6 +1,6 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
-import { xlog } from '@xgis/shared'
+import { xlog, activeBody } from '@xgis/shared'
 import { setLogSink as setEngineLogSink } from '@xgis/shared'
 import {
   Lexer,
@@ -25,6 +25,7 @@ import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/geo'
 import { configureProjections } from './shaders/dsl/projections'
+import { configureBodyConsts } from './body-consts'
 import { worldBandForProjType } from '@xgis/geo'
 import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
@@ -896,6 +897,11 @@ export class XGISMap {
     options: XGISMapOptions = {},
   ) {
     configureProjections(PROJECTIONS)
+    // #798 P3 — route the GPU ECEF/projection ConstDecls through the active Body
+    // (EARTH by default ⟹ byte-identical, zero behaviour change). Must precede the
+    // first shader emit (GPU init, in run()) — the same configure-before-emit
+    // contract configureProjections() follows.
+    configureBodyConsts(activeBody())
     this.camera = new Camera(0, 20, 2)
     this.cameraController = new CameraController(this.camera, {
       invalidate: () => this.invalidate(),
