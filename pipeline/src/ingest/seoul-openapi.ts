@@ -240,21 +240,37 @@ export interface AggregateOpts {
   districts?: ReadonlyArray<{ code: string; name: string }>
 }
 
-/** Parse the arrival-hour cell. The 생활이동 hour column is MIXED — "HH" hourly or
- *  "HHMM" 20-minute commute buckets ("0820") — so keep the leading HH, matching
- *  csv-to-odb (Number("0800") would be 800 and overflow the u8). */
+/** Parse the arrival-hour cell to its hour (HH). The 생활이동 hour column is MIXED —
+ *  "HH" hourly or "HHMM" 20-minute commute buckets ("0820") — and the JSON API can
+ *  deliver it as a NUMBER, which drops the leading zero ("0820" → 820, a 3-digit
+ *  value the old length≥4 slice missed → 820 overflowed the u8 hour). So read the
+ *  numeric value and treat anything ≥ 100 as HHMM, keeping the hour (HH). This
+ *  matches csv-to-odb, whose CSV cells keep the leading zero so its string-slice
+ *  already lands on the same HH. */
 function parseHour(raw: unknown): number {
-  const s = String(raw).trim()
-  return Number(s.length >= 4 ? s.slice(0, 2) : s)
+  const n = Number(String(raw).trim())
+  return n >= 100 ? Math.floor(n / 100) : n
+}
+
+/** Data-quality counters mirroring csv-to-odb's, so the offline API bake can warn
+ *  identically. {@link rowsToFlows} increments these in place when a sink is passed
+ *  (the pure aggregator stays console-free; the CLI tool owns the warning I/O). */
+export interface FlowDiagnostics {
+  /** Rows whose segment value wasn't 내국인/단기외국인/장기외국인 → silently defaulted to 0. */
+  unknownSegmentRows: number
+  /** Rows whose purpose fell outside the documented 1–7 range (value kept as-is). */
+  outOfRangePurposeRows: number
 }
 
 /** Normalize + aggregate raw API rows into `(origin, dest, hour[, purpose, segment])`
  *  sums — the compression that makes the .odb tiny — returning ODFlow[] ready for
- *  `encodeODB` (the single encode authority; this never touches bytes). */
+ *  `encodeODB` (the single encode authority; this never touches bytes). A
+ *  {@link FlowDiagnostics} sink, if given, collects csv-to-odb-parity quality counts. */
 export function rowsToFlows(
   rows: ReadonlyArray<Record<string, unknown>>,
   fields: FlowFieldMap,
   opts: AggregateOpts = {},
+  diagnostics?: FlowDiagnostics,
 ): ODFlow[] {
   const nameToCode = buildNameToCode(opts.districts ?? [])
   const roll = (c: string): string =>
@@ -287,11 +303,19 @@ export function rowsToFlows(
     if (!Number.isFinite(hour) || !Number.isFinite(pop)) continue
     if (useHour && opts.hourBucket) hour = Math.floor((hour * opts.hourBucket) / 24)
     let purpose: number | undefined
-    if (usePurpose) purpose = Number(r[fields.purpose!])
+    if (usePurpose) {
+      purpose = Number(r[fields.purpose!])
+      if (diagnostics && (!Number.isFinite(purpose) || purpose < 1 || purpose > 7))
+        diagnostics.outOfRangePurposeRows++
+    }
     let segment: number | undefined
     if (useSegment) {
       const raw = r[fields.segment!]
       const mapped = SEGMENT[normalizeName(String(raw)) as keyof typeof SEGMENT]
+      // A non-numeric value that doesn't map falls back to 0 (내국인) — count it, as
+      // csv-to-odb does; a numeric segment is trusted as-is (JSON already-coded path).
+      if (diagnostics && typeof raw !== 'number' && mapped === undefined)
+        diagnostics.unknownSegmentRows++
       segment = typeof raw === 'number' ? raw : (mapped ?? 0)
     }
     const key = useDims

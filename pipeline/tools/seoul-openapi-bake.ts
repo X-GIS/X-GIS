@@ -54,6 +54,7 @@ import {
   rowsToFlows,
   type AggregateOpts,
   type FetchPage,
+  type FlowDiagnostics,
   type FlowFieldMap,
 } from '../src/ingest/seoul-openapi'
 
@@ -184,7 +185,19 @@ async function main(): Promise<void> {
       base: opts.base,
       args: opts.args,
     })
-    const res = await fetch(url)
+    let res: Response
+    try {
+      res = await fetch(url)
+    } catch (e) {
+      // A REJECTED fetch (DNS / connection-refused — the common http:8088 failure)
+      // carries the key-bearing URL on the error's own `path`/`cause`, which Bun
+      // prints verbatim on an unhandled rejection. Rethrow a FRESH, redacted Error —
+      // never inherit the original's properties.
+      const detail = e instanceof Error ? e.message : String(e)
+      throw new Error(
+        redactKey(`[seoul-openapi-bake] fetch failed for ${opts.service}: ${detail}`, key),
+      )
+    }
     if (!res.ok) {
       // Redact defensively — statusText carries no key, but never risk echoing a URL.
       throw new Error(
@@ -194,7 +207,15 @@ async function main(): Promise<void> {
         ),
       )
     }
-    return res.json()
+    try {
+      return await res.json()
+    } catch (e) {
+      // A malformed body's parse error can quote the payload; redact + reframe it too.
+      const detail = e instanceof Error ? e.message : String(e)
+      throw new Error(
+        redactKey(`[seoul-openapi-bake] invalid JSON from ${opts.service}: ${detail}`, key),
+      )
+    }
   }
 
   const rows = await fetchAllRows({
@@ -209,7 +230,18 @@ async function main(): Promise<void> {
     },
   })
 
-  const flows = rowsToFlows(rows, opts.fields, opts.agg)
+  const diagnostics: FlowDiagnostics = { unknownSegmentRows: 0, outOfRangePurposeRows: 0 }
+  const flows = rowsToFlows(rows, opts.fields, opts.agg, diagnostics)
+  if (diagnostics.unknownSegmentRows > 0) {
+    console.warn(
+      `[seoul-openapi-bake] ${diagnostics.unknownSegmentRows} rows had an unrecognized segment value → defaulted to 내국인 (0); check for NFD/2-value schema`,
+    )
+  }
+  if (diagnostics.outOfRangePurposeRows > 0) {
+    console.warn(
+      `[seoul-openapi-bake] ${diagnostics.outOfRangePurposeRows} rows had an out-of-range purpose value (expected 1–7) → value kept as-is; check source data`,
+    )
+  }
   const buf = encodeODB(flows)
   writeFileSync(opts.output, Buffer.from(buf))
   let msg = `[seoul-openapi-bake] ${rows.length} rows → ${flows.length} flows → ${opts.output} (${(buf.byteLength / 1024).toFixed(1)}KB)`

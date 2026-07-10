@@ -265,6 +265,37 @@ describe('@xgis/pipeline · ingest/seoul-openapi · normalize + join', () => {
     expect(flows.every((f) => f.purpose === 1)).toBe(true)
   })
 
+  it('rowsToFlows normalizes MIXED HH / HHMM hours (string + leading-zero-stripped number)', () => {
+    const rows = [
+      { o: '11110', d: '11680', h: '0820', pop: 30 }, // HHMM string → hour 8
+      { o: '11110', d: '11680', h: 820, pop: 12 }, // JSON number (leading zero lost) → hour 8
+      { o: '11110', d: '11680', h: '8', pop: 5 }, // bare HH → hour 8 (all three merge)
+      { o: '11110', d: '11680', h: '1830', pop: 7 }, // HHMM evening → hour 18
+    ]
+    const flows = rowsToFlows(rows, { originCode: 'o', destCode: 'd', hour: 'h', pop: 'pop' })
+    // "0820", the number 820 and "8" all bucket to hour 8; nothing overflows the u8 hour.
+    expect(flows.find((f) => f.hour === 8)!.pop).toBe(47)
+    expect(flows.find((f) => f.hour === 18)!.pop).toBe(7)
+    expect(flows.every((f) => f.hour >= 0 && f.hour <= 23)).toBe(true)
+  })
+
+  it('rowsToFlows tallies unknown-segment + out-of-range-purpose into a diagnostics sink', () => {
+    const rows = [
+      { o: '11110', d: '11680', h: '8', pop: 100, purp: 1, seg: '내국인' }, // clean
+      { o: '11110', d: '11680', h: '8', pop: 50, purp: 9, seg: '우주인' }, // purpose OOR + unknown seg
+      { o: '11110', d: '11680', h: '8', pop: 20, purp: 2, seg: 2 }, // numeric seg is trusted (uncounted)
+    ]
+    const diagnostics = { unknownSegmentRows: 0, outOfRangePurposeRows: 0 }
+    rowsToFlows(
+      rows,
+      { originCode: 'o', destCode: 'd', hour: 'h', pop: 'pop', purpose: 'purp', segment: 'seg' },
+      {},
+      diagnostics,
+    )
+    expect(diagnostics.unknownSegmentRows).toBe(1) // only '우주인'; the numeric 2 is trusted
+    expect(diagnostics.outOfRangePurposeRows).toBe(1) // only purpose 9 (>7)
+  })
+
   it('rowsToFlows without an hour field yields an all-day sentinel aggregate', () => {
     const rows = [
       { o: '11110', d: '11680', pop: 10 },
