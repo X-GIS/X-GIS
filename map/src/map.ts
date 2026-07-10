@@ -37,7 +37,7 @@ import {
 } from './geojson-polar-cap-show'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { getSharedGeoJSONCompilePool } from '@xgis/data'
-import { getMaxDpr, effectiveDpr } from '@xgis/engine'
+import { getMaxDpr, effectiveDpr, getSampleCount } from '@xgis/engine'
 // #834 M-B2 — the neutral surface (BackendChoice = public XGISMapOptions.backend
 // type; RhiDeviceLostInfo = onDeviceLost payload) comes from @xgis/engine, not
 // the concrete backend. GPUContext + boot providers stay on rhi-webgpu (Layer 2).
@@ -1256,7 +1256,7 @@ export class XGISMap {
    *  registering onWebGPUUnavailable(). */
   private _showWebGPUUnavailableDefault(): void {
     const msg = 'This map requires a WebGPU-capable browser (latest Chrome/Edge, or Safari 18+).'
-    // eslint-disable-next-line no-console
+
     console.warn('[X-GIS] ' + msg + ' Register onWebGPUUnavailable() to customize this.')
     if (typeof document === 'undefined') return
     const parent = this.canvas?.parentElement
@@ -1492,11 +1492,13 @@ export class XGISMap {
    *  `@xgis/runtime`) before `setSourceData`. This setter is a no-op +
    *  one-shot `xlog.warn` so existing host code does not throw. */
   setPolarCapsEnabled(on: boolean): void {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- deprecated wrapper delegating to the equally deprecated viewport shim, kept so host code does not throw
     this._viewport.setPolarCapsEnabled(on)
   }
   /** @deprecated Always returns `false` post-Phase 1a — polar-cap synthesis
    *  is no longer renderer-driven (see `setPolarCapsEnabled`). */
   isPolarCapsEnabled(): boolean {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- deprecated wrapper delegating to the equally deprecated viewport shim
     return this._viewport.isPolarCapsEnabled()
   }
 
@@ -2258,15 +2260,18 @@ export class XGISMap {
     // GPU init has no dependency on the IR result — it just needs
     // `this.canvas`. Errors propagate exactly as before via the awaited
     // catch.
-    const gpuInit = initGPUViaProviders(this.canvas, backendProviderChain(this._backend)).catch(
-      (err) => {
-        // Hold the rejection here so the await below converts it to a
-        // sync throw at the same call site as the previous code. We
-        // don't want unhandled-rejection noise if step 1 errors out
-        // before step 2 awaits.
-        return err as Error
-      },
-    )
+    const gpuInit = initGPUViaProviders(
+      this.canvas,
+      // Quality policy → adapter is an INJECTION at this composition root
+      // (#929 B): the boot values are data the providers close over.
+      backendProviderChain(this._backend, { sampleCount: getSampleCount() }),
+    ).catch((err) => {
+      // Hold the rejection here so the await below converts it to a
+      // sync throw at the same call site as the previous code. We
+      // don't want unhandled-rejection noise if step 1 errors out
+      // before step 2 awaits.
+      return err as Error
+    })
 
     // Surface converter "Conversion notes" once at load. A style run
     // through `convertMapboxStyle` carries every dropped / approximated
@@ -2843,6 +2848,7 @@ export class XGISMap {
       // depth-sort bug). Re-runs that produce the same camera + same
       // tile cache + same draw order should produce the same hash —
       // any drift signals a behaviour change.
+      // eslint-disable-next-line @typescript-eslint/no-this-alias -- window-injected debug closures capture the map instance by name for readability
       const self = this
       const w = window as unknown as {
         __xgisSnapshot?: () => Promise<unknown>
@@ -3388,7 +3394,10 @@ export class XGISMap {
 
     let ctx: GPUContext
     try {
-      ctx = await initGPUViaProviders(this.canvas, backendProviderChain(this._backend))
+      ctx = await initGPUViaProviders(
+        this.canvas,
+        backendProviderChain(this._backend, { sampleCount: getSampleCount() }),
+      )
     } catch (e) {
       if (e instanceof WebGPUUnavailableError) {
         // Graceful: no WebGPU / no adapter. Fire the host hook, or show a
@@ -3799,7 +3808,6 @@ export class XGISMap {
     type: XGISFeatureEventType | XGISMapEventType,
     listener: XGISFeatureListener | XGISMapListener,
   ): void {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(this._eventBus.on as (t: any, l: any) => void)(type, listener)
   }
   off(type: XGISMapEventType, listener: XGISMapListener): void
@@ -3808,7 +3816,6 @@ export class XGISMap {
     type: XGISFeatureEventType | XGISMapEventType,
     listener: XGISFeatureListener | XGISMapListener,
   ): void {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(this._eventBus.off as (t: any, l: any) => void)(type, listener)
   }
   once(type: XGISMapEventType, listener: XGISMapListener): void
@@ -3817,7 +3824,6 @@ export class XGISMap {
     type: XGISFeatureEventType | XGISMapEventType,
     listener: XGISFeatureListener | XGISMapListener,
   ): void {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(this._eventBus.once as (t: any, l: any) => void)(type, listener)
   }
 

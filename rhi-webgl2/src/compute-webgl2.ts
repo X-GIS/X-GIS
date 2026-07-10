@@ -8,16 +8,67 @@
 // compiler emits (ruling i), emitted to GLSL here. Proven byte-correct vs the CPU oracle
 // on a real WebGL2 GPU by playground/e2e/_compute-dispatch-parity.
 
-import { emitGlslModule } from '@xgis/shader-dsl'
+import {
+  emitGlslModule,
+  fn,
+  module,
+  f32,
+  vec2,
+  vec4,
+  If,
+  ioStruct,
+  builtin,
+  location,
+  u32T,
+  vec2fT,
+  vec4fT,
+  type ModuleDecl,
+} from '@xgis/shader-dsl'
 import type { ComputeKernel } from '@xgis/compiler'
 import type { WebGl2Device } from '@xgis/rhi-webgl2'
-import { overdrawComposeModule } from '@xgis/engine'
 
-// The fullscreen-triangle vertex shader, DSL-authored (NOT a raw GLSL string) — reuses
-// the proven vs_full entry; emitGlslModule(m,'vertex') keeps only its @vertex entry.
+// The fullscreen-triangle vertex shader, DSL-authored (NOT a raw GLSL string).
+// Authored LOCALLY (#929 B) — this adapter used to import the engine's
+// overdrawComposeModule just to reuse its vs_full entry, the package's only
+// @xgis/engine value import. The twin below is byte-identical to that proven
+// entry's emit, pinned by compute-webgl2-vs-parity.test.ts (a drift on either
+// side fails the gate).
+
+const VsOut = ioStruct('VsOut', {
+  pos: builtin('position', vec4fT),
+  uv: location(0, vec2fT),
+})
+
+// Oversized fullscreen triangle (3 vertices, NDC −1..3 in each axis) with the
+// y-flipped uv — same trick as the OIT / overdraw compose passes.
+const vsFull = fn(
+  'vs_full',
+  { idx: builtin('vertex_index', u32T) },
+  (p) => {
+    const pos = vec2(-1, -1)
+    If(p.idx.eq(1), () => {
+      pos.assign(vec2(3, -1))
+    }).elif(p.idx.eq(2), () => {
+      pos.assign(vec2(-1, 3))
+    })
+    // y-flip — texture origin top-left, NDC origin bottom-left.
+    return VsOut.construct({
+      pos: vec4(pos, 0, 1),
+      uv: vec2(pos.x.add(1).mul(0.5), f32(1).sub(pos.y.add(1).mul(0.5))),
+    })
+  },
+  { stage: 'vertex' },
+)
+
+/** Exported for the vs-parity gate only — pins this local twin byte-identical
+ *  to the engine's proven vs_full emit. */
+export const fullscreenVsModule: ModuleDecl = module({
+  structs: [VsOut.decl],
+  funcs: [vsFull],
+})
+
 let _vsCache: string | undefined
-const fullscreenVsGlsl = (): string =>
-  (_vsCache ??= emitGlslModule(overdrawComposeModule, 'vertex'))
+const fullscreenVsGlsl = (): string => (_vsCache ??= emitGlslModule(fullscreenVsModule, 'vertex'))
 
 /**
  * Dispatch a per-feature compute kernel on WebGL2 as a fullscreen draw into an R32UI

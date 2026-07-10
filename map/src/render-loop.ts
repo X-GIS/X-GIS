@@ -112,9 +112,14 @@ export class RenderLoop {
     // and consumers of arena views don't outlive the prepare →
     // render → end sequence.
     this.host.textStage?.beginFrame()
-    // Pass the live interaction flag so an opted-in host renders at the
-    // reduced QUALITY.interactionDpr during pan/zoom and full DPR at rest.
-    resizeCanvas(this.host.ctx, this.host._interacting)
+    // ONE interaction-aware dpr per frame (#929 B): derived here from the
+    // quality policy and passed BOTH to resizeCanvas (the swapchain size) and
+    // to the camera/MVP math below — a single computation makes the
+    // swapchain-vs-frame-math divergence structurally impossible. An opted-in
+    // host renders at the reduced QUALITY.interactionDpr during pan/zoom and
+    // full DPR at rest.
+    const dpr = effectiveDpr(this.host._interacting)
+    resizeCanvas(this.host.ctx, dpr)
     this._resolveFillPatterns()
 
     // Seed the animation clock on first rendered frame, then compute the
@@ -181,12 +186,10 @@ export class RenderLoop {
     if (!Number.isFinite(this.host.camera.maxZoom)) this.host.camera.maxZoom = 22
     const MAX_MERC = WORLD_MERC / 2
     const WORLD_MERC_FULL = MAX_MERC * 2 // full circumference
-    // Derive dpr from the SAME interaction-aware cap resizeCanvas just used
-    // (line ~154, fed this.host._interacting) — otherwise the MVP altitude
-    // (canvasHeight/dpr) disagrees with the actual swapchain size and the
-    // camera zoom-scale jumps on every gesture under presets that set
-    // interactionDpr (balanced/battery/?adaptiveDpr). See effectiveDpr.
-    const dpr = effectiveDpr(this.host._interacting)
+    // `dpr` was computed ONCE at the top of the frame and already sized the
+    // swapchain via resizeCanvas — reusing it here keeps the MVP altitude
+    // (canvasHeight/dpr) agreeing with the actual swapchain size under
+    // presets that set interactionDpr (balanced/battery/?adaptiveDpr).
     const mpp = WORLD_MERC / TILE_PX / Math.pow(2, this.host.camera.zoom)
     const visHalfY = ((h / dpr) * mpp) / 2
     const maxY = Math.max(0, MAX_MERC - visHalfY)

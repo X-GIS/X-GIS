@@ -68,8 +68,11 @@ const EXEMPT = new Set(['runtime', 'playground', 'site'])
  *  the last offending import must delete the entry here in the same commit. */
 const BASELINE: ReadonlyArray<readonly [pkg: string, dep: string]> = [
   ['rhi-webgl2', 'compiler'],
-  ['rhi-webgl2', 'engine'],
   ['rhi-webgpu', 'compiler'],
+  // TYPE-only residue (#929 B burned the value-level imports): gpu.ts imports
+  // the `RenderContext`/`BackendChoice` context family, whose engine home is
+  // deliberate (see render-context.ts header) until the #834 M5 context
+  // neutralization relocates it.
   ['rhi-webgpu', 'engine'],
   // Documented transitional home (#834 M5): both boot providers produce the
   // WebGPU-typed GPUContext, so the webgl2 provider lives in rhi-webgpu until

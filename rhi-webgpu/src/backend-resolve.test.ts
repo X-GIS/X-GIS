@@ -3,7 +3,7 @@ import {
   backendProviderChain,
   initGPU,
   initGPUViaProviders,
-  webGpuBackendProvider,
+  makeWebGpuBackendProvider,
   webGl2BackendProvider,
 } from './backend-providers'
 import { FORCE_GL2, WebGPUUnavailableError, type GPUContext } from './gpu'
@@ -30,25 +30,29 @@ function fakeCanvas(gl: unknown): HTMLCanvasElement {
   } as unknown as HTMLCanvasElement
 }
 
+// The boot values the composition root would derive from its quality policy
+// (#929 B) — any value works for chain-content assertions.
+const BOOT = { sampleCount: 4 }
+
 describe('backendProviderChain — precedence as data (#833 M4)', () => {
   it('an explicit backend pins a single-provider chain, independent of ?forcegl2', () => {
-    expect(backendProviderChain('webgpu').map((p) => p.id)).toEqual(['webgpu'])
-    expect(backendProviderChain('webgl2').map((p) => p.id)).toEqual(['webgl2'])
+    expect(backendProviderChain('webgpu', BOOT).map((p) => p.id)).toEqual(['webgpu'])
+    expect(backendProviderChain('webgl2', BOOT).map((p) => p.id)).toEqual(['webgl2'])
   })
 
   it("'auto' chains WebGPU→WebGL2 (fallback) when the ?forcegl2 override is off", () => {
     expect(FORCE_GL2).toBe(false) // vitest env: no window/URL flag
-    expect(backendProviderChain('auto').map((p) => p.id)).toEqual(['webgpu', 'webgl2'])
+    expect(backendProviderChain('auto', BOOT).map((p) => p.id)).toEqual(['webgpu', 'webgl2'])
   })
 
   it("'auto' tracks the FORCE_GL2 override (the ONLY consumer of the flag)", () => {
-    expect(backendProviderChain('auto').map((p) => p.id)).toEqual(
+    expect(backendProviderChain('auto', BOOT).map((p) => p.id)).toEqual(
       FORCE_GL2 ? ['webgl2'] : ['webgpu', 'webgl2'],
     )
   })
 
   it('exports the two real providers with their backend identities', () => {
-    expect(webGpuBackendProvider.id).toBe('webgpu')
+    expect(makeWebGpuBackendProvider(BOOT).id).toBe('webgpu')
     expect(webGl2BackendProvider.id).toBe('webgl2')
   })
 })
@@ -85,7 +89,7 @@ describe('initGPUViaProviders — chain-walk semantics (#833 M4)', () => {
     expect(log).toEqual(['probe:webgpu', 'probe:webgl2', 'create:webgl2'])
   })
 
-  it("a passing probe whose create() REJECTS falls back to the next provider", async () => {
+  it('a passing probe whose create() REJECTS falls back to the next provider', async () => {
     const log: string[] = []
     const failing: RhiBackendProvider<GPUContext> = {
       id: 'webgpu',

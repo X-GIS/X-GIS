@@ -1,6 +1,6 @@
 // Regression gate for the render-loop interaction-DPR vs MVP-DPR mismatch.
 //
-// resizeCanvas(ctx, _interacting) sizes the swapchain with the
+// The swapchain must be sized with the
 // INTERACTION-aware cap — during a gesture it uses QUALITY.interactionDpr
 // (balanced=1.5 / battery=1.0 / ?adaptiveDpr=N) instead of the full
 // getMaxDpr() cap. But the render loop's per-frame `dpr` local — threaded
@@ -12,9 +12,11 @@
 // sized to → MVP altitude wrong → camera zoom-scale JUMPS on every gesture
 // under any preset that sets interactionDpr.
 //
-// The fix unifies both call sites on one helper, gpu.ts `effectiveDpr`, so
-// resizeCanvas (the swapchain size) and the render loop (the camera dpr)
-// can never diverge. These tests pin that contract — pure CPU, no GPU.
+// The fix unified both call sites on one helper, `effectiveDpr`; #929 B then
+// strengthened it further — the render loop computes `effectiveDpr` ONCE per
+// frame and passes the SAME number to resizeCanvas (which no longer reads
+// quality itself), so the swapchain size and the camera dpr are one value by
+// construction. These tests pin that contract — pure CPU, no GPU.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { effectiveDpr, getMaxDpr } from '@xgis/engine'
 import { resizeCanvas, type GPUContext } from '@xgis/rhi-webgpu'
@@ -80,13 +82,13 @@ describe('render-loop interaction-DPR matches the swapchain cap (no zoom-scale j
   })
 
   it('the render-loop dpr exactly reconstructs the swapchain buffer size (the consistency contract)', () => {
-    // resizeCanvas sizes the swapchain with the interaction-aware cap during
-    // a gesture. The render loop must derive the SAME dpr so canvasHeight/dpr
-    // (the MVP altitude basis) equals the logical CSS viewport — no jump.
+    // The render loop derives ONE interaction-aware dpr per frame and feeds
+    // the SAME value to resizeCanvas (swapchain) and the camera math, so
+    // canvasHeight/dpr (the MVP altitude basis) equals the logical CSS
+    // viewport — no jump.
     const ctx = makeCtx()
-    resizeCanvas(ctx, /* interacting */ true)
-
-    const dpr = effectiveDpr(true)
+    const dpr = effectiveDpr(/* interacting */ true)
+    resizeCanvas(ctx, dpr)
     expect(ctx.canvas.height).toBe(Math.floor(CLIENT_H * dpr))
     expect(ctx.canvas.width).toBe(Math.floor(CLIENT_W * dpr))
     // MVP altitude basis: device-height / dpr must recover the CSS height.

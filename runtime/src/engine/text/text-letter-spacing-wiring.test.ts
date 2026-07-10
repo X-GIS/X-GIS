@@ -29,7 +29,7 @@ import { describe, it, expect } from 'vitest'
 import { TextRenderer } from '@xgis/map'
 import type { TextDraw } from '@xgis/map'
 import type { GlyphInfo } from '@xgis/map'
-import { FrameArena } from '@xgis/rhi-webgpu'
+import { FrameArena } from '@xgis/engine'
 import { WebGpuDevice } from '@xgis/rhi-webgpu'
 import type { RhiBuffer, RhiBindGroup } from '@xgis/engine'
 
