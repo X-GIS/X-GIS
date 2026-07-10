@@ -111,7 +111,13 @@ type Test = {
   golden: number
   circular: boolean
 }
-const mk = (name: string, f: () => ReturnType<typeof toF32>, golden: number, circular = false): Test => {
+const mk = (
+  name: string,
+  f: () => ReturnType<typeof toF32>,
+  golden: number,
+  circular = false,
+  flavor?: 'integer',
+): Test => {
   const fs = fn(
     `fs_${name}`,
     { vo: VsOut },
@@ -130,12 +136,15 @@ const mk = (name: string, f: () => ReturnType<typeof toF32>, golden: number, cir
     { stage: 'fragment', retAttr: '@location(0)' },
   )
   const m = module({ funcs: [vs, fs], uses: [U, VsOut] })
-  const wgsl = emitModule(m)
+  // flavor: 'integer' routes fp64Lower through the integer EFT registry (the
+  // fast-math-immune primitives) — the on-device validation of that lowering.
+  const eo = flavor ? { fp64Flavor: flavor } : undefined
+  const wgsl = emitModule(m, eo)
   const gb = wgsl.match(/@binding\((\d+)\)\s+var\s+_fp64/)
   return {
     name,
-    glslVertex: emitGlslModule(m, 'vertex'),
-    glslFragment: emitGlslModule(m, 'fragment'),
+    glslVertex: emitGlslModule(m, 'vertex', eo),
+    glslFragment: emitGlslModule(m, 'fragment', eo),
     wgsl,
     vertexEntry: 'vs',
     fragmentEntry: `fs_${name}`,
@@ -550,26 +559,62 @@ const rgen = (rnd: () => number, depth: number): RNode => {
 
 const R_SCALE = 2 ** 25 // held ~2^-46 → ~2^-21 (≈0); collapse ~2^-24 → saturates
 const rrnd = rprng(0x5f3759df)
-const randomTests: Test[] = []
-for (let i = 0; i < 6000 && randomTests.length < 24; i++) {
+const keptTrees: RNode[] = []
+for (let i = 0; i < 6000 && keptTrees.length < 24; i++) {
   const t = rgen(rrnd, 5)
-  const golden = t.v
-  if (!isFinite(golden) || Math.abs(golden) < 1e-3) continue
-  if (Math.abs((t.vf - golden) / golden) < 2 ** -23) continue // discriminative: f32 must provably fail
-  const idx = randomTests.length
-  randomTests.push(
-    mk(
-      `rand${String(idx).padStart(2, '0')}`,
-      () => {
-        const resid = toF32(t.render(RLEAF).sub(golden)) // df64(expr) − golden, narrowed to f32
-        return abs(resid).div(f32(Math.abs(golden) + 2 ** -30)).mul(R_SCALE) // amplified: 0 held, saturates on collapse
-      },
-      0,
-    ),
-  )
+  if (!isFinite(t.v) || Math.abs(t.v) < 1e-3) continue
+  if (Math.abs((t.vf - t.v) / t.v) < 2 ** -23) continue // discriminative: f32 must provably fail
+  keptTrees.push(t)
 }
+const randKernel = (t: RNode) => () => {
+  const resid = toF32(t.render(RLEAF).sub(t.v)) // df64(expr) − golden, narrowed to f32
+  return abs(resid).div(f32(Math.abs(t.v) + 2 ** -30)).mul(R_SCALE) // amplified: 0 held, saturates on collapse
+}
+const randomTests: Test[] = keptTrees.map((t, idx) =>
+  mk(`rand${String(idx).padStart(2, '0')}`, randKernel(t), 0),
+)
 
-const payload = { values, tests: [...tests, ...randomTests] }
+// ── Integer-flavor family: the SAME expressions, lowered through the integer
+// EFT registry (fp64Flavor: 'integer'). Covers every shape that collapses
+// somewhere in the float flavor — Apple's mul/div/vec_mul, the composed loran,
+// and the first six random trees (which fail on ANGLE-D3D11 WebGL2 too). PASS
+// here on a device where the float twin fails IS the fix, measured end-to-end
+// through the real lowering. (No _fp64 guard exists in this flavor.)
+const I = 'integer' as const
+const intTests: Test[] = [
+  mk('int_mul', () => toF32(toF64(B()).mul(U.field.factor.x).sub(toF64(B()))), 0.5, false, I),
+  mk('int_div', () => toF32(U.field.val.x.div(toF64(B())).sub(toF64(1)).mul(toF64(B()))), 0.5, false, I),
+  mk('int_sub', () => toF32(U.field.val.x.sub(toF64(B()))), 0.5, false, I),
+  mk('int_mulsq', () => toF32(U.field.mulA.x.mul(U.field.mulA.x).sub(U.field.mulRef.x).mul(2)), 0.5, false, I),
+  mk('int_sqrt', () => toF32(sqrt(U.field.sq.x).sub(toF64(R()))), 0.5, false, I),
+  mk('int_fract', () => toF32(fract(U.field.val.x)), 0.5, false, I),
+  mk('int_vecmul', () => toF32(U.field.vBig.mul(vec2f64(1 + 0.5 / 1e8, 1)).x.sub(toF64(B()))), 0.5, false, I),
+  mk(
+    'int_loran',
+    () =>
+      toF32(
+        fract(
+          distance(U.field.center, vec2f64(ST_A[0], ST_A[1]))
+            .sub(distance(U.field.center, vec2f64(ST_B[0], ST_B[1])))
+            .mul(0.25),
+        ),
+      ),
+    THEXP,
+    true,
+    I,
+  ),
+  // ONE random tree, not six: a deep tree inlines the integer twoSum body ~30×,
+  // and ANGLE-D3D11's FXC chokes on the fully-inlined DAG (multi-second link,
+  // then a TDR/device-loss CASCADE that killed neighbouring tests in the full
+  // run — fract/vecmul err'd in-run yet verify clean in isolation). One heavy
+  // tree keeps the composed-coverage signal without DoS-ing the D3D paths; the
+  // decisive venue for the integer flavor is Apple/Metal anyway.
+  ...keptTrees.slice(0, 1).map((t, idx) =>
+    mk(`int_rand${String(idx).padStart(2, '0')}`, randKernel(t), 0, false, I),
+  ),
+]
+
+const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
 ---
 
 <ShaderDsl current="fp64-probe" hideSectionNav title="X-GIS Shader DSL — df64 GPU conformance probe" description="Per-op df64 known-answer tests on WebGPU + WebGL2 through the real emit + guard, GPU readback vs CPU oracle.">
@@ -648,14 +693,15 @@ const payload = { values, tests: [...tests, ...randomTests] }
   // reads at a glance. Order within a family is DEFINITION order and stays put —
   // rows must not reshuffle under the reader as results land, so unlike the old
   // one-shot table there is no failures-first sort; the left rust tick flags fails.
-  const famOf = (n: string): 'scalar' | 'vector' | 'comparison' | 'composed' | 'diag' | 'random' =>
+  const famOf = (n: string): 'scalar' | 'vector' | 'comparison' | 'composed' | 'diag' | 'random' | 'int' =>
+    /^int_/.test(n) ? 'int' :
     /^dg_/.test(n) ? 'diag'
     : /^rand/.test(n) ? 'random'
     : n === 'loran' ? 'composed'
     : /^(lt|le|gt|ge|eq|ne)$/.test(n) ? 'comparison'
     : /^vec_|^(dot|length|distance|normalize)$/.test(n) ? 'vector'
     : 'scalar'
-  const FAMS: [string, string][] = [['scalar', 'Scalar'], ['vector', 'Vector · vec64'], ['comparison', 'Comparison'], ['composed', 'Composed'], ['diag', 'Diagnostic — Apple bisect'], ['random', 'Random composition']]
+  const FAMS: [string, string][] = [['scalar', 'Scalar'], ['vector', 'Vector · vec64'], ['comparison', 'Comparison'], ['composed', 'Composed'], ['diag', 'Diagnostic — Apple bisect'], ['random', 'Random composition'], ['int', 'Integer flavor — the fix, end-to-end']]
 
   // A RESOLVED cell: the value carries the only hue (rust on fail), the reason is
   // grey lowercase meta. A PENDING cell is a small spinner, swapped out in place.

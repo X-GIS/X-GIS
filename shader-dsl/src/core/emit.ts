@@ -11,7 +11,7 @@ import type { Expr, Stmt, ModuleDecl } from './ir'
 import { validate } from './passes/validate'
 import { assertCaps } from './passes/required-caps'
 import { lowerModule } from './passes/match-lower'
-import { fp64Lower } from './passes/fp64-lower'
+import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower'
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt'
 import { reflect, type Reflection } from './reflect'
 
@@ -148,7 +148,12 @@ export function forHeader(s: Stmt, be: Backend): string {
  *  `optimize(lowerModule(autoVars(m)))`. Returns the lowered module ready for
  *  per-declaration spelling. (autoVars BEFORE lowerModule — var materialisation is
  *  backend-neutral; cse runs only inside the WGSL backend's `optimize`.) */
-export function lowerForBackend(m: ModuleDecl, be: Backend, level?: OptLevel): ModuleDecl {
+export function lowerForBackend(
+  m: ModuleDecl,
+  be: Backend,
+  level?: OptLevel,
+  fp64Flavor?: Fp64Flavor,
+): ModuleDecl {
   // Validate the AUTHORED module before any lowering (the rules reason about the
   // pre-lower shape — e.g. matchExpr chains, placeholder swap sites).
   validate(m)
@@ -162,7 +167,7 @@ export function lowerForBackend(m: ModuleDecl, be: Backend, level?: OptLevel): M
   // shared `let`, so authors write plain inline expressions and the reuse is bound for them.
   // `level` overrides the backend's default optimizer tier (used by the measurement A/B and
   // debug emit); omitted → the backend's own `optimize` (= O2 fixpoint), the production path.
-  const pre = fp64Lower(lowerModule(autoVars(m)))
+  const pre = fp64Lower(lowerModule(autoVars(m)), fp64Flavor ? { flavor: fp64Flavor } : undefined)
   return level === undefined ? be.optimize(pre) : optimizeAt(pre, level)
 }
 
@@ -208,6 +213,11 @@ export interface EmitPlugin {
  *  byte-identical. */
 export interface EmitOptions {
   readonly plugins?: readonly EmitPlugin[]
+  /** Which df64 EFT registry backs f64 lowering: 'float' (default — the
+   *  guarded float EFTs, byte-identical emit) or 'integer' (the fast-math-
+   *  immune integer primitives — see core/fp64/df64-int.ts; no `_fp64` guard
+   *  binding is injected). */
+  readonly fp64Flavor?: Fp64Flavor
 }
 
 /** Fold every plugin's `transformIR` over the lowered module, in `plugins`
@@ -231,7 +241,7 @@ export function applyTextPlugins(code: string, opts?: EmitOptions): string {
  *  (`emitModule` for WGSL) routes through here, so the assembly lives once.
  *  `opts.plugins` run staged around the assembly (all transformIR, then all transformText). */
 export function emitModule(m: ModuleDecl, be: Backend, opts?: EmitOptions): string {
-  const lowered = applyIRPlugins(lowerForBackend(m, be), opts)
+  const lowered = applyIRPlugins(lowerForBackend(m, be, undefined, opts?.fp64Flavor), opts)
   return applyTextPlugins(assembleLowered(lowered, be), opts)
 }
 

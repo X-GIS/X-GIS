@@ -591,3 +591,18 @@ export const DF64_ORDER: readonly FuncDecl[] = [
 
 /** name → FuncDecl for the lowering pass's used-set closure. */
 export const DF64_FNS: ReadonlyMap<string, FuncDecl> = new Map(DF64_ORDER.map((d) => [d.name, d]))
+
+/** Call handles for the scalar helpers, for the INTEGER flavor's twin bodies
+ *  (df64-int.ts): its div/sqrt/vec-lane bodies re-emit the SAME by-name calls
+ *  (df64_sub, df64_twoProd, …), which the integer registry then resolves to the
+ *  integer primitives. Pure TS export — changes no emitted byte. */
+export const DF64_CALLS = {
+  twoSum: df64_twoSum,
+  quickTwoSum: df64_quickTwoSum,
+  twoProd: df64_twoProd,
+  twoSqr: df64_twoSqr,
+  add: df64_add,
+  sub: df64_sub,
+  mul: df64_mul,
+  div: df64_div,
+} as const
