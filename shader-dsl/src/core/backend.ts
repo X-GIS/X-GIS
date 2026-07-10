@@ -9,12 +9,20 @@
 // threaded in later steps; until then the WGSL writer keeps its inline spelling
 // and remains byte-identical.
 
-import type { ShaderType, ConstDecl, StructDecl, BindingDecl, FuncDecl, ModuleDecl } from './ir'
+import type {
+  ShaderType,
+  ConstDecl,
+  StructDecl,
+  BindingDecl,
+  FuncDecl,
+  ModuleDecl,
+  Capability,
+} from './ir'
 import { ShaderDslError } from './diagnostics/error'
 
-/** GPU features a target may or may not support; emit of an unsupported feature
- *  must be a typed error, never silent mis-emit. */
-export type Capability = 'storageBuffer' | 'compute' | 'msaaTextureLoad'
+// The `Capability` vocabulary lives with the IR data shapes (ir/nodes.ts) — a module
+// DECLARES the caps it needs there (surfaced publicly via the ir barrel). This file is
+// the BACKEND side: which caps a target HAS (Capabilities), consuming the type only.
 
 export class Capabilities {
   constructor(private readonly set: ReadonlySet<Capability>) {}
@@ -93,6 +101,14 @@ export interface Backend {
    *  `optimize:`). Kept per-backend so a target can still diverge without touching
    *  the shared driver. Runs after lowerModule(autoVars(m)), before assembly. */
   optimize(lowered: ModuleDecl): ModuleDecl
+  /** OPTIONAL module header emitted BEFORE any declaration — the WGSL writer's
+   *  `enable <ext>;` directives for the module's opt-in language-feature caps
+   *  (`m.enables`, #628). A backend with no such directive surface omits this (GLSL
+   *  ES 3.00 — an enable-requiring module already fails closed at assertCaps, so a
+   *  non-empty result is never reached). Returns '' when there is nothing to emit, so
+   *  enables-free emit stays byte-identical. Derived from the AUTHORED module (the
+   *  lowering passes rebuild the module object and do not carry `enables`). */
+  modulePreamble?(m: ModuleDecl): string
 }
 
 /** Emitting a feature a target does not support is a typed error, never a silent

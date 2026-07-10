@@ -242,7 +242,11 @@ export function applyTextPlugins(code: string, opts?: EmitOptions): string {
  *  `opts.plugins` run staged around the assembly (all transformIR, then all transformText). */
 export function emitModule(m: ModuleDecl, be: Backend, opts?: EmitOptions): string {
   const lowered = applyIRPlugins(lowerForBackend(m, be, undefined, opts?.fp64Flavor), opts)
-  return applyTextPlugins(assembleLowered(lowered, be), opts)
+  // The `enable`-directive header (#628) is derived from the AUTHORED module's opt-in
+  // caps (m.enables) — the lowering passes rebuild the module object and do not carry
+  // it — and prepended to the assembled declarations. '' for enables-free modules, so
+  // their emit stays byte-identical.
+  return (be.modulePreamble?.(m) ?? '') + applyTextPlugins(assembleLowered(lowered, be), opts)
 }
 
 /** Emit a ModuleDecl at an explicit optimization level (O0/O1/O2) instead of the
@@ -252,7 +256,7 @@ export function emitModule(m: ModuleDecl, be: Backend, opts?: EmitOptions): stri
  *  backend assembles uniform UBOs via its own emitGlslModule, so this WGSL-style assembly
  *  is for the WGSL backend (and any backend whose bindings need no special assembly). */
 export function emitModuleAt(m: ModuleDecl, be: Backend, level: OptLevel): string {
-  return assembleLowered(lowerForBackend(m, be, level), be)
+  return (be.modulePreamble?.(m) ?? '') + assembleLowered(lowerForBackend(m, be, level), be)
 }
 
 /** Emit a ModuleDecl AND recover its pipeline reflection, BOTH derived from the SAME
@@ -269,5 +273,8 @@ export function emitModuleWithReflection(
   be: Backend,
 ): { code: string; reflection: Reflection } {
   const lowered = lowerForBackend(m, be)
-  return { code: assembleLowered(lowered, be), reflection: reflect(lowered) }
+  return {
+    code: (be.modulePreamble?.(m) ?? '') + assembleLowered(lowered, be),
+    reflection: reflect(lowered),
+  }
 }

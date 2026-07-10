@@ -220,11 +220,27 @@ export interface FuncDecl {
   readonly lintDisable?: readonly string[]
 }
 
+/** A GPU / language feature a target backend may or may not support (#9, #628).
+ *  Resource caps (`storageBuffer`, `compute`, `msaaTextureLoad`) are DERIVED from a
+ *  module's shape (a storage binding, a `@compute` entry, an MSAA texture load);
+ *  language-feature caps (`f16`, `subgroups`) are OPT-IN via `ModuleDecl.enables`.
+ *  Emit of an unsupported feature is a typed error (UnsupportedFeatureError), never a
+ *  silent mis-emit — the WGSL writer covers every cap here, the GLSL ES 3.00 writer
+ *  covers none, so any cap fails closed on GLSL. */
+export type Capability = 'storageBuffer' | 'compute' | 'msaaTextureLoad' | 'f16' | 'subgroups'
+
 export interface ModuleDecl {
   readonly consts: readonly ConstDecl[]
   readonly structs: readonly StructDecl[]
   readonly bindings: readonly BindingDecl[]
   readonly funcs: readonly FuncDecl[]
+  /** OPT-IN language-feature capabilities this module turns on (#628) — e.g.
+   *  `['f16']`. Each folds into requiredCaps, so a backend lacking it fails closed
+   *  (GLSL ES 3.00 → UnsupportedFeatureError) while the WGSL backend emits the
+   *  matching `enable <ext>;` directive at the top of the module. Absent/empty ⇒ no
+   *  directive, byte-identical emit. Resource caps (storageBuffer/compute/
+   *  msaaTextureLoad) are DERIVED from the module shape, never declared here. */
+  readonly enables?: readonly Capability[]
 }
 
 /** THE stage predicate (#763 S1) — structured `stage` first, attr-string fallback

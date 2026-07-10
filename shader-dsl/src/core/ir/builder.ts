@@ -968,12 +968,15 @@ export function module(parts: ModuleParts): ModuleDecl {
     if ('elementDecl' in h && h.elementDecl) addStruct(h.elementDecl) // storageBuffer's struct element
     if ('binding' in h && h.binding) addBinding(h.binding) // uniformStruct / storageBuffer / resource
   }
-  return {
+  const decl: ModuleDecl = {
     consts,
     structs,
     bindings,
     funcs: normalizeFuncs(parts.funcs),
   }
+  // #628 — carry the opt-in language-feature caps through (absent ⇒ omit the key, so an
+  // enables-free module object stays byte-identical to before).
+  return parts.enables ? { ...decl, enables: parts.enables } : decl
 }
 
 /** Author a module-level constant from an IR VALUE expression — the general
