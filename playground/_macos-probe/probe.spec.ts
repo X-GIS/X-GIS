@@ -14,7 +14,8 @@ test('df64 probe on macOS Metal (WebGL2 gate)', async ({ page }) => {
   })
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message))
 
-  await page.goto('/shader-dsl/fp64-probe', { waitUntil: 'domcontentloaded' })
+  // astro.config keys base='/X-GIS' off GITHUB_ACTIONS (run 7: 404 -> 0/0 rows).
+  await page.goto('/X-GIS/shader-dsl/fp64-probe', { waitUntil: 'domcontentloaded' })
 
   // ── diagnostics FIRST, printed IMMEDIATELY (survive any later timeout) ──
   const cap = await page.evaluate(async () => {
