@@ -19,7 +19,7 @@
 // form — the cull must strip the filter suffix before the
 // vector_layers lookup or it silently no-ops (the pre-#613 gap).
 
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { Camera } from '../camera'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { TileSelectionCache, sliceOutsideDataZoomRange } from './tile-selection-cache'
