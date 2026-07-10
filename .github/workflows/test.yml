@@ -536,5 +536,10 @@ jobs:
         # _emit-obfuscate-gate: every example emitted { minify, mangle } must
         # compile on Tint AND compile+link on ANGLE (token safety + cross-stage
         # rename determinism only real compilers can prove).
+        # _graphics-retained-gl2-gate / _graphics-retained-arrow-gl2-gate: the retained host
+        # DRAWING primitives (icon #823, arrow #824/#825) rasterised end-to-end on WebGl2Device via
+        # their emitGlslModule twins. _graphics-retained-arrow-orientation-gate pins #825's geo-
+        # correct bearing on a NON-square viewport — the square/east raster gates cannot see the
+        # aspect skew (a pure-horizontal direction is aspect-invariant).
         # (The wider _webgl2-parity render spec stays local-only: known red, #746.)
-        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-mouse-interaction.spec.ts _emit-obfuscate-gate.spec.ts
+        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-mouse-interaction.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts

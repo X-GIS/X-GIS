@@ -1,66 +1,83 @@
-// ═══ OD flow-map — daily life rhythm narrative (purpose-colored bands) ═══
+// ═══ 생활이동 flow-map v2 — "숨쉬는 도시": breathing choropleth + GPU movement vector field ═══
 //
-// Per-feature line WIDTH via stroke-[<expr>] RENDERS (adjudicated by _flowmap-probe style B).
-// Per-feature color via match() → BLANK (broken legacy path, style C).
-// Solution: magnitude as WIDTH, purpose as COLOR via SEPARATE LAYERS each with
-// a constant color — the proven-working path.
+// Measured from fixture-seoul-od-20260531.odb (98,837 flows): 54.7% of movement is INTRA-gu,
+// so v1's straight centroid arcs (origin==dest ⇒ zero-length ⇒ invisible) drew only 7–11 of 85.
+// v2 makes the CITY the canvas.
 //
-// Bands (data-driven semantic groups):
-//   arcs_commute  purpose 1(출근)+2(통학)   → stroke-orange-400, opacity-85  — MORNING story
-//   arcs_shop     purpose 3(쇼핑)+4(여가)   → stroke-cyan-400,   opacity-85  — EVENING story
-//   arcs_life     purpose 5,6,7(생활·기타)  → stroke-slate-500,  opacity-25  — BACKGROUND context
+//   LAYER 1  breathing choropleth — each 자치구 coloured by per-hour NET flow (inflow−outflow,
+//            inter-gu). 유입 warm(red) ↔ 유출 cool(blue), continuous diverging ramp. Tiled ONCE;
+//            each hour recolours via setPaintProperty (never re-tiles) → zero flicker.
+//   LAYER 2  movement vector field — the FIRST-CLASS GPU arrow primitive `map.graphics.add(
+//            { type: 'arrow' })`: per-gu oriented arrow, geo-anchored + projected ON THE GPU
+//            (shader-dsl), N-independent (a camera move rewrites only the frame uniform; an hour
+//            change re-packs the 25 instances once). AM the arrows converge on the job centres
+//            (commuting in); PM they radiate out to the residential gu (going home).
 //
-// Data: only fixture-seoul-od-20260531.odb (~1MB, 98837 flows) carries the
-// purpose dimension. The 0529/0530 files are single-dim (~185KB, no purpose flag).
-// Single-day 24-hour scrubber is cleaner — no null-fallback path needed.
+// The arrow is a fixed 25-instance batch (one per 자치구); a weak-outflow hour packs size 0
+// (invisible) rather than resizing (the retained batch is fixed-size). Rotation is the OUTFLOW
+// screen bearing atan2(-fy, fx) — Mercator is conformal, so the ground bearing IS the screen
+// bearing, invariant to pan/zoom (only a camera BEARING change would need a re-pack).
+//
+// Join is by NAME: seoul_gu.geojson carries 2013 KOSTAT codes (강동구=11250); the odb/gazetteer
+// carry 행정표준코드 (강동구=11740). Code spaces disjoint, the 25 names identical.
 
-import type { FeatureCollectionLike, PipelineSink } from '@xgis/pipeline'
+import type { PipelineSink } from '@xgis/pipeline'
 import { XGISMap } from '@xgis/runtime'
-import { seoulSigunguGazetteer, decodeODB, fromRows, join, odFlow } from '@xgis/pipeline'
+import { decodeODB, SEOUL_SIGUNGU } from '@xgis/pipeline'
 
-const TOP_N_FOCUS = 35 // rows per focus band (commute + shop); ≈70 total for narrative bands
-const TOP_N_LIFE = 15 // rows for life/background band — must recede, not dominate
 const FIXTURE_DAY = '20260531'
 const HOURS = 24
+const ARROW_COLOR = '#fde68a' // luminous amber — the movement field over the diverging fills
+const ARROW_MIN_VNORM = 0.12 // below this an arrow packs size 0 (invisible) — keeps the field legible
 
-// Width expression: sqrt compresses Seoul OD pop range (hundreds → tens of thousands).
-// Tuned so the busiest corridor (pop ~30-50k) lands ≈14-17px; smallest top-30 ≈3px.
-const W = 'sqrt(.weight) * 0.07 + 1'
+const CODE_TO_NAME = new Map(SEOUL_SIGUNGU.map((e) => [e.code, e.name]))
+const CENTROID = new Map(SEOUL_SIGUNGU.map((e) => [e.name, { lon: e.lon, lat: e.lat }]))
+const GU = SEOUL_SIGUNGU.map((e) => e.name) // stable index 0..24 → gu name (also the arrow data)
 
+// ── Diverging ramp: net<0 유출 cool, net>0 유입 warm. Continuous (lerped). ──
+type RGB = [number, number, number]
+const STOPS: Array<{ t: number; c: RGB }> = [
+  { t: -1.0, c: [30, 58, 138] }, // 유출 강 deep blue
+  { t: -0.5, c: [59, 130, 246] },
+  { t: -0.15, c: [125, 211, 252] },
+  { t: 0.0, c: [30, 41, 59] }, // 균형 near-background
+  { t: 0.15, c: [253, 186, 116] },
+  { t: 0.5, c: [249, 115, 22] },
+  { t: 1.0, c: [220, 38, 38] }, // 유입 강 deep red
+]
+const hex2 = (n: number): string => Math.round(n).toString(16).padStart(2, '0')
+function divergingHex(net: number, sat: number): string {
+  const n = Math.max(-1, Math.min(1, net / (sat || 1)))
+  const t = Math.sign(n) * Math.sqrt(Math.abs(n)) // perceptual expand so diffuse 유출 still reads
+  let lo = STOPS[0]!
+  let hi = STOPS[STOPS.length - 1]!
+  for (let i = 0; i < STOPS.length - 1; i++) {
+    if (t >= STOPS[i]!.t && t <= STOPS[i + 1]!.t) {
+      lo = STOPS[i]!
+      hi = STOPS[i + 1]!
+      break
+    }
+  }
+  const f = (t - lo.t) / (hi.t - lo.t || 1)
+  return `#${hex2(lo.c[0] + (hi.c[0] - lo.c[0]) * f)}${hex2(lo.c[1] + (hi.c[1] - lo.c[1]) * f)}${hex2(lo.c[2] + (hi.c[2] - lo.c[2]) * f)}`
+}
+
+const guDecls = GU.map(
+  (_, i) =>
+    `source gu_${i} { type: geojson }\nlayer c${i} { source: gu_${i} | fill-slate-800 opacity-100 }`,
+).join('\n')
 const STYLE = `
 background { fill: #020617 }
+
+${guDecls}
 
 source gu_bounds {
   type: geojson
   url: "seoul_gu.geojson"
 }
-layer gu_fill {
+layer gu_stroke {
   source: gu_bounds
-  | fill-slate-900 stroke-slate-700 stroke-1 opacity-90
-}
-
-source arcs_commute {
-  type: geojson
-}
-layer arcs_commute_lines {
-  source: arcs_commute
-  | stroke-orange-400 stroke-[${W}] opacity-85
-}
-
-source arcs_shop {
-  type: geojson
-}
-layer arcs_shop_lines {
-  source: arcs_shop
-  | stroke-cyan-400 stroke-[${W}] opacity-85
-}
-
-source arcs_life {
-  type: geojson
-}
-layer arcs_life_lines {
-  source: arcs_life
-  | stroke-slate-500 stroke-[${W}] opacity-25
+  | stroke-slate-500 stroke-1 opacity-35
 }
 `
 
@@ -68,86 +85,28 @@ const canvas = document.getElementById('map') as HTMLCanvasElement
 const hourLabel = document.getElementById('hour-label')!
 const slider = document.getElementById('scrubber') as HTMLInputElement
 const playBtn = document.getElementById('play') as HTMLButtonElement
-const cbCommute = document.getElementById('cb-commute') as HTMLInputElement
-const cbShop = document.getElementById('cb-shop') as HTMLInputElement
-const cbLife = document.getElementById('cb-life') as HTMLInputElement
 const segSelect = document.getElementById('seg-select') as HTMLSelectElement
-const tooltipEl = document.getElementById('tooltip') as HTMLDivElement
-const gaz = seoulSigunguGazetteer({ vintage: '2026' })
+const cbField = document.getElementById('cb-field') as HTMLInputElement | null
 
-// Route inline/setSourceData GeoJSON through VirtualPMTiles so LineString arcs
-// render (the legacy pool.compile inline path doesn't draw lines; see rebuildLayers).
 ;(
   window as unknown as { __XGIS_USE_VIRTUAL_INLINE_GEOJSON?: boolean }
 ).__XGIS_USE_VIRTUAL_INLINE_GEOJSON = true
 
 const map = new XGISMap(canvas, {})
 ;(window as unknown as { __xgisMap?: unknown }).__xgisMap = map
+const sink = map as unknown as PipelineSink
 
-// ── Hover / picking gate ────────────────────────────────────────────────────
-//
-// map.setQuality({ picking: true }) enables GPU-readback hit-testing but forces
-// MSAA off (the pick texture must be single-sample so IDs are not resolved away),
-// which degrades line antialiasing. For the flow-map the AA loss is visible, so
-// picking is opt-in via ?hover=1 in the URL.
-//
-// buildFeatureForEvent is a private method on XGISMap; we reach it via a
-// structural cast. For VirtualPMTiles inline-GeoJSON line sources the
-// _featureIndex may not carry full properties — if that happens, properties
-// will be null/empty and the tooltip is silently suppressed.
-const hoverEnabled = new URLSearchParams(location.search).has('hover')
+type GuFeature = { type: 'Feature'; properties: { name: string }; geometry: unknown }
+type Row = { oName: string; dName: string; pop: number; segment: number }
+/** Per-gu outflow: unit screen-bearing components (fx east, fy north) + 0–1 volume (size). */
+type Vec = { fx: number; fy: number; vnorm: number }
 
-type MapWithPick = {
-  buildFeatureForEvent: (
-    layerId: number,
-    featureId: number,
-  ) => { properties: Record<string, unknown> } | null
-}
-
-const PURPOSE_LABELS: Record<number, string> = {
-  1: '출근',
-  2: '통학',
-  3: '쇼핑',
-  4: '여가',
-  5: '생활',
-  6: '기타',
-  7: '기타',
-}
-
-type BandRow = { o_code: string; d_code: string; pop: number; purpose: number }
-type HourEntry = {
-  o_code: string
-  d_code: string
-  pop: number
-  purpose: number
-  segment: number // 0=내국인, 1=단기외국인, 2=장기외국인
-}
-
-const EMPTY_FC: FeatureCollectionLike = { type: 'FeatureCollection', features: [] }
-
-/** Push a band's rows into the named source. Guards empty rows (fromRows([]) has no
- *  columns → join throws); passes non-empty through the full odFlow pipeline.
- *  origin.name / dest.name from the gazetteer join are emitted as oName / dName
- *  properties so the hover tooltip can display "강남구 → 송파구". */
-function applyBand(sourceId: string, rows: BandRow[]): void {
-  if (rows.length === 0) {
-    ;(map as unknown as PipelineSink).setSourceData(sourceId, EMPTY_FC)
-    return
-  }
-  const t = fromRows(rows, { vintage: gaz.vintage })
-  const j = join(join(t, { code: 'o_code', gaz, as: 'origin' }), {
-    code: 'd_code',
-    gaz,
-    as: 'dest',
-  })
-  odFlow(j, {
-    origin: 'origin',
-    dest: 'dest',
-    weight: 'pop',
-    oName: 'origin.name',
-    dName: 'dest.name',
-    purpose: 'purpose',
-  }).apply(map, sourceId)
+function daypart(h: number): string {
+  if (h <= 5) return '새벽'
+  if (h <= 10) return '아침'
+  if (h <= 16) return '낮'
+  if (h <= 20) return '저녁'
+  return '밤'
 }
 
 async function main(): Promise<void> {
@@ -155,98 +114,137 @@ async function main(): Promise<void> {
   map.setCenter(126.99, 37.55)
   map.setZoom(10.2)
 
-  const resp = await fetch(import.meta.env.BASE_URL + `data/fixture-seoul-od-${FIXTURE_DAY}.odb`)
-  const odb = decodeODB(await resp.arrayBuffer())
+  const [odbBuf, guFC] = await Promise.all([
+    fetch(import.meta.env.BASE_URL + `data/fixture-seoul-od-${FIXTURE_DAY}.odb`).then((r) =>
+      r.arrayBuffer(),
+    ),
+    fetch(import.meta.env.BASE_URL + 'data/seoul_gu.geojson').then(
+      (r) => r.json() as Promise<{ features: GuFeature[] }>,
+    ),
+  ])
+  const odb = decodeODB(odbBuf)
+  const guByName = new Map<string, GuFeature>()
+  for (const f of guFC.features) guByName.set(f.properties.name, f)
 
-  // Index all rows by hour once at load time. Purpose band filtering happens at
-  // render time — ≈4000 rows/hour × 3 band checks is negligible CPU cost.
-  const byHour = new Map<number, HourEntry[]>()
+  // Tile each gu polygon into its own source ONCE. From here on, hours only recolour.
+  GU.forEach((name, i) => {
+    const feat = guByName.get(name)
+    sink.setSourceData(`gu_${i}`, { type: 'FeatureCollection', features: feat ? [feat] : [] })
+  })
+
+  const byHour = new Map<number, Row[]>()
   for (let i = 0; i < odb.rowCount; i++) {
+    const oName = CODE_TO_NAME.get(odb.dict[odb.origin[i]!]!)
+    const dName = CODE_TO_NAME.get(odb.dict[odb.dest[i]!]!)
+    if (!oName || !dName) continue
     const h = odb.hour[i]!
     let bucket = byHour.get(h)
-    if (!bucket) {
-      bucket = []
-      byHour.set(h, bucket)
-    }
-    bucket.push({
-      o_code: odb.dict[odb.origin[i]!]!,
-      d_code: odb.dict[odb.dest[i]!]!,
-      pop: odb.pop[i]!,
-      purpose: odb.purpose?.[i] ?? 7, // 7=기타 fallback if no purpose column
-      segment: odb.segment?.[i] ?? 0, // 0=내국인 fallback if no segment column
-    })
+    if (!bucket) byHour.set(h, (bucket = []))
+    bucket.push({ oName, dName, pop: odb.pop[i]!, segment: odb.segment?.[i] ?? 0 })
   }
+
+  const segMatch = (r: Row, mode: string): boolean =>
+    mode === 'all' ? true : mode === 'domestic' ? r.segment === 0 : r.segment !== 0
+
+  function netByGu(h: number, mode: string): Map<string, number> {
+    const net = new Map<string, number>()
+    for (const r of byHour.get(h) ?? []) {
+      if (r.oName === r.dName || !segMatch(r, mode)) continue
+      net.set(r.dName, (net.get(r.dName) ?? 0) + r.pop)
+      net.set(r.oName, (net.get(r.oName) ?? 0) - r.pop)
+    }
+    return net
+  }
+
+  // Per-gu outflow vector (pop-weighted mean bearing + total outflow volume), keyed by name.
+  function computeField(h: number, mode: string, volMax: number): Map<string, Vec> {
+    const acc = new Map<string, { vx: number; vy: number; vol: number }>()
+    for (const r of byHour.get(h) ?? []) {
+      if (r.oName === r.dName || !segMatch(r, mode)) continue
+      const o = CENTROID.get(r.oName)
+      const d = CENTROID.get(r.dName)
+      if (!o || !d) continue
+      const cos = Math.cos((o.lat * Math.PI) / 180) || 1
+      const dx = (d.lon - o.lon) * cos // ground east
+      const dy = d.lat - o.lat // ground north
+      const len = Math.hypot(dx, dy) || 1
+      const a = acc.get(r.oName) ?? { vx: 0, vy: 0, vol: 0 }
+      a.vx += (dx / len) * r.pop
+      a.vy += (dy / len) * r.pop
+      a.vol += r.pop
+      acc.set(r.oName, a)
+    }
+    const field = new Map<string, Vec>()
+    for (const [name, a] of acc) {
+      const m = Math.hypot(a.vx, a.vy) || 1
+      field.set(name, { fx: a.vx / m, fy: a.vy / m, vnorm: Math.min(1, Math.sqrt(a.vol / volMax)) })
+    }
+    return field
+  }
+
+  // Stable scales across the whole day (seg=all): net saturation + outflow volume max.
+  const allAbs: number[] = []
+  let volMax = 1
+  for (let h = 0; h < HOURS; h++) {
+    for (const v of netByGu(h, 'all').values()) allAbs.push(Math.abs(v))
+    const vol = new Map<string, number>()
+    for (const r of byHour.get(h) ?? [])
+      if (r.oName !== r.dName) vol.set(r.oName, (vol.get(r.oName) ?? 0) + r.pop)
+    for (const v of vol.values()) if (v > volMax) volMax = v
+  }
+  allAbs.sort((a, b) => a - b)
+  const sat = allAbs[Math.floor(allAbs.length * 0.85)] || 1
 
   slider.max = String(HOURS - 1)
-
-  function daypart(h: number): string {
-    if (h <= 5) return '새벽'
-    if (h <= 10) return '아침'
-    if (h <= 16) return '낮'
-    if (h <= 20) return '저녁'
-    return '밤'
-  }
-
-  // Track current hour so event listeners can re-render at the right frame.
   let hour = 0
+  let fieldOn = cbField?.checked ?? true
+  let field: Map<string, Vec> = computeField(hour, segSelect.value, volMax)
+
+  // ── LAYER 2: the GPU movement vector field — a fixed 25-instance arrow batch. Accessors
+  // read the live `field`/`fieldOn`; each hour re-packs via handle.update (no per-frame cost). ──
+  const arrows = map.graphics.add<string>({
+    type: 'arrow',
+    data: GU,
+    getPosition: (name) => {
+      const c = CENTROID.get(name)!
+      return [c.lon, c.lat]
+    },
+    // Geographic bearing of the outflow (0°=north, CW). Projected on the GPU → correct under
+    // any camera. f.fx = east component, f.fy = north component.
+    getBearing: (name) => {
+      const f = field.get(name)
+      return f ? (Math.atan2(f.fx, f.fy) * 180) / Math.PI : 0
+    },
+    // Arrow LENGTH (px) ∝ √outflow-volume; 0 = invisible (weak / field off).
+    getSize: (name) => {
+      const f = field.get(name)
+      return fieldOn && f && f.vnorm >= ARROW_MIN_VNORM ? 14 + 56 * f.vnorm : 0
+    },
+    getColor: ARROW_COLOR,
+    updateTriggers: { rotation: 1, size: 1 },
+  })
 
   function renderFrame(h: number): void {
-    const allRows = byHour.get(h) ?? []
-
-    // ── Part 2: Segment filter ─────────────────────────────────────────────
-    // segment: 0=내국인, 1=단기외국인, 2=장기외국인
-    const segVal = segSelect.value
-    const rows =
-      segVal === 'domestic'
-        ? allRows.filter((r) => r.segment === 0)
-        : segVal === 'foreign'
-          ? allRows.filter((r) => r.segment === 1 || r.segment === 2)
-          : allRows
-
-    // Compute band sums (filtered data) to determine the dominant rhythm.
-    let sumCommute = 0
-    let sumShop = 0
-    let sumLife = 0
-    for (const r of rows) {
-      const p = r.purpose
-      if (p === 1 || p === 2) sumCommute += r.pop
-      else if (p === 3 || p === 4) sumShop += r.pop
-      else if (p === 5 || p === 6 || p === 7) sumLife += r.pop
-    }
-    const dominant =
-      sumCommute >= sumShop && sumCommute >= sumLife
-        ? '출근 유입'
-        : sumShop >= sumLife
-          ? '쇼핑·상권'
-          : '생활 이동'
-
-    // One global sort by pop desc; fill each band top-first with per-band caps.
-    const sorted = rows.slice().sort((a, b) => b.pop - a.pop)
-    const commute: BandRow[] = []
-    const shop: BandRow[] = []
-    const life: BandRow[] = []
-
-    for (const r of sorted) {
-      const p = r.purpose
-      if ((p === 1 || p === 2) && commute.length < TOP_N_FOCUS) {
-        commute.push({ o_code: r.o_code, d_code: r.d_code, pop: r.pop, purpose: r.purpose })
-      } else if ((p === 3 || p === 4) && shop.length < TOP_N_FOCUS) {
-        shop.push({ o_code: r.o_code, d_code: r.d_code, pop: r.pop, purpose: r.purpose })
-      } else if ((p === 5 || p === 6 || p === 7) && life.length < TOP_N_LIFE) {
-        life.push({ o_code: r.o_code, d_code: r.d_code, pop: r.pop, purpose: r.purpose })
+    const mode = segSelect.value
+    const net = netByGu(h, mode)
+    let topInName = ''
+    let topInVal = 0
+    GU.forEach((name, i) => {
+      const v = net.get(name) ?? 0
+      map.setPaintProperty(`c${i}`, 'fill-color', divergingHex(v, sat))
+      if (v > topInVal) {
+        topInVal = v
+        topInName = name
       }
-      if (commute.length >= TOP_N_FOCUS && shop.length >= TOP_N_FOCUS && life.length >= TOP_N_LIFE)
-        break
-    }
-
-    // ── Part 1: Band checkbox filter ──────────────────────────────────────
-    // Unchecked band → pass [] → applyBand clears its source via EMPTY_FC.
-    applyBand('arcs_commute', cbCommute.checked ? commute : [])
-    applyBand('arcs_shop', cbShop.checked ? shop : [])
-    applyBand('arcs_life', cbLife.checked ? life : [])
+    })
+    // Recompute the field for this hour+segment and re-pack the arrow batch (25 instances).
+    field = computeField(h, mode, volMax)
+    arrows.update({ triggers: ['rotation', 'size'] })
 
     const hh = String(h).padStart(2, '0')
-    hourLabel.textContent = `${hh}:00 · ${daypart(h)} — ${dominant}`
+    hourLabel.textContent = topInName
+      ? `${hh}:00 · ${daypart(h)} — ${topInName} 유입`
+      : `${hh}:00 · ${daypart(h)} — 균형`
     slider.value = String(h)
     map.invalidate()
   }
@@ -258,21 +256,13 @@ async function main(): Promise<void> {
     hour = Number(slider.value)
     renderFrame(hour)
   }
-
-  // Re-render when any band checkbox changes.
-  cbCommute.onchange = () => renderFrame(hour)
-  cbShop.onchange = () => renderFrame(hour)
-  cbLife.onchange = () => renderFrame(hour)
-
-  // Re-render when segment selector changes; log row-count impact for diagnostics.
-  segSelect.onchange = () => {
-    const all = byHour.get(hour) ?? []
-    const domestic = all.filter((r) => r.segment === 0).length
-    const foreign = all.filter((r) => r.segment === 1 || r.segment === 2).length
-    // eslint-disable-next-line no-console
-    console.log(`[seg-filter] h${hour} — 전체:${all.length} 내국인:${domestic} 외국인:${foreign}`)
-    renderFrame(hour)
-  }
+  segSelect.onchange = () => renderFrame(hour)
+  if (cbField)
+    cbField.onchange = () => {
+      fieldOn = cbField.checked
+      arrows.update({ triggers: ['size'] }) // size 0 hides the field without re-adding the batch
+      map.invalidate()
+    }
 
   let timer: ReturnType<typeof setInterval> | null = null
   function play(): void {
@@ -281,7 +271,7 @@ async function main(): Promise<void> {
     timer = setInterval(() => {
       hour = (hour + 1) % HOURS
       renderFrame(hour)
-    }, 600)
+    }, 900)
   }
   function pause(): void {
     if (timer) clearInterval(timer)
@@ -289,51 +279,7 @@ async function main(): Promise<void> {
     playBtn.textContent = '▶'
   }
   playBtn.onclick = () => (timer ? pause() : play())
-  play() // autostart
-
-  // ── Part 3: Hover tooltip (only active when ?hover=1) ─────────────────────
-  if (hoverEnabled) {
-    // Disables MSAA — arc antialiasing degrades. Opt-in only. See gate comment above.
-    map.setQuality({ picking: true })
-
-    canvas.addEventListener('mousemove', async (e: MouseEvent) => {
-      const hit = await map.pickAt(e.clientX, e.clientY)
-      if (!hit) {
-        tooltipEl.style.display = 'none'
-        return
-      }
-      // Structural cast to access private buildFeatureForEvent.
-      const feature = (map as unknown as MapWithPick).buildFeatureForEvent(
-        hit.layerId,
-        hit.featureId,
-      )
-      const props = feature?.properties
-      if (!props || Object.keys(props).length === 0) {
-        // VirtualPMTiles inline sources may not carry properties in _featureIndex.
-        // If so, hover is silently disabled rather than showing a blank tooltip.
-        tooltipEl.style.display = 'none'
-        return
-      }
-      const oName = String(props.oName ?? '')
-      const dName = String(props.dName ?? '')
-      const pop = Math.round(Number(props.weight ?? 0)).toLocaleString()
-      const purpose = PURPOSE_LABELS[Number(props.purpose ?? 7)] ?? '기타'
-      tooltipEl.innerHTML =
-        `<strong>${oName || '(코드)'} → ${dName || '(코드)'}</strong><br>` +
-        `이동량: ${pop}<br>목적: ${purpose}`
-      // Position near cursor, clamped from screen edges.
-      const margin = 12
-      const tw = tooltipEl.offsetWidth || 180
-      const th = tooltipEl.offsetHeight || 60
-      tooltipEl.style.left = `${Math.min(e.clientX + margin, window.innerWidth - tw - margin)}px`
-      tooltipEl.style.top = `${Math.min(e.clientY + margin, window.innerHeight - th - margin)}px`
-      tooltipEl.style.display = 'block'
-    })
-
-    canvas.addEventListener('mouseleave', () => {
-      tooltipEl.style.display = 'none'
-    })
-  }
+  play()
 }
 
 void main()

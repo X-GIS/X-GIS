@@ -1,11 +1,13 @@
 import { test, expect } from '@playwright/test'
 import { captureCanvas, colorHistogram } from './helpers/visual'
 
-// Real-GPU E2E for the MULTI-DAY flow-map: 3 days of .odb decoded once, played back
-// on a date×hour scrubber. Asserts (1) flow-lines rasterise, (2) the timeline animates
-// across frames (proving the n-day scrubber works, not just a single static day).
-test.describe('수도권 생활이동 multi-day — date×hour timeline renders + animates', () => {
-  test('flow-lines rasterise AND the date×hour timeline animates', async ({ page }) => {
+// Real-GPU E2E for the "숨쉬는 도시" breathing choropleth: every 자치구 is coloured by its per-hour
+// NET flow (유입 warm/red ↔ 유출 cool/blue) and recoloured across 24h via setPaintProperty (never
+// re-tiled — the v1 flicker/seam fix). Asserts (1) BOTH diverging poles rasterise at the AM peak,
+// (2) the frame changes h8→h18 (the city breathes / reverses), (3) no console/page errors.
+// (The movement vector field is a separate #vfield 2D overlay; this gate covers the #map choropleth.)
+test.describe('숨쉬는 도시 — breathing choropleth renders both poles + animates', () => {
+  test('유입(red) + 유출(blue) both present at h8, frame differs at h18', async ({ page }) => {
     test.setTimeout(60_000)
     const errors: string[] = []
     page.on('pageerror', (e) => errors.push(e.message))
@@ -14,20 +16,36 @@ test.describe('수도권 생활이동 multi-day — date×hour timeline renders 
     })
 
     await page.goto('/seoul-arc-multiday.html', { waitUntil: 'domcontentloaded' })
-    const png0 = await captureCanvas(page, { readyTimeoutMs: 30_000 })
-    const h = await colorHistogram(page, png0, [
-      { name: 'orange', rgb: [251, 146, 60] as [number, number, number], tolerance: 55 },
+    await captureCanvas(page, { readyTimeoutMs: 30_000 })
+    await page.click('#play') // pause for deterministic frames
+
+    const setHour = async (h: number): Promise<void> => {
+      await page.evaluate((hh) => {
+        const s = document.getElementById('scrubber') as HTMLInputElement
+        s.value = String(hh)
+        s.dispatchEvent(new Event('input'))
+      }, h)
+    }
+
+    await setHour(8)
+    const h8 = await captureCanvas(page)
+    const c8 = await colorHistogram(page, h8, [
+      { name: 'red', rgb: [220, 38, 38] as [number, number, number], tolerance: 55 },
+      { name: 'blue', rgb: [30, 58, 138] as [number, number, number], tolerance: 50 },
+      // The GPU arrow vector field (map.graphics.add type:'arrow') renders amber INTO #map.
+      { name: 'amber', rgb: [253, 224, 130] as [number, number, number], tolerance: 40 },
     ])
+    await setHour(18)
+    const h18 = await captureCanvas(page)
+    const animated = !h8.equals(h18)
 
-    // Advance past a couple of 600ms frames — the (day,hour) changes → frame differs.
-    await page.waitForTimeout(2000)
-    const png1 = await captureCanvas(page)
-    const animated = !png0.equals(png1)
-
-    // eslint-disable-next-line no-console
-    console.log(`[multiday] orange ${(h.orange * 100).toFixed(3)}%  animated=${animated}`)
+    console.log(
+      `[breathing] h8 red ${(c8.red * 100).toFixed(2)}% blue ${(c8.blue * 100).toFixed(2)}% amber ${(c8.amber * 100).toFixed(2)}% animated=${animated}`,
+    )
     expect(errors, `page errors: ${errors.join(' | ')}`).toEqual([])
-    expect(h.orange, 'flow-lines must rasterise').toBeGreaterThan(0.0003)
-    expect(animated, 'date×hour timeline must animate').toBe(true)
+    expect(c8.red, '유입(red) must rasterise').toBeGreaterThan(0.01)
+    expect(c8.blue, '유출(blue) must rasterise').toBeGreaterThan(0.01)
+    expect(c8.amber, 'GPU arrow vector field must rasterise').toBeGreaterThan(0.001)
+    expect(animated, 'the city must breathe (h8 ≠ h18)').toBe(true)
   })
 })
