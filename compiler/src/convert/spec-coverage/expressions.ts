@@ -158,7 +158,13 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
     note: 'Span texts concatenated via xgis concat(); per-span opts (font-scale / text-color / text-font / vertical-align) dropped — X-GIS labels render with one style per layer. Iter 25 added per-section partial-drop semantics: when one section fails to convert (e.g. uses an unsupported accessor), surviving sections still concat — only ALL-sections-fail returns null. Pre-fix any single failure bailed the whole format expression and dropped the label silently.',
     source: 'expressions.ts:208',
   },
-  { name: 'image', status: 'unsupported', impact: 'high', note: 'Sprite atlas (Batch 2).' },
+  {
+    name: 'image',
+    status: 'partial',
+    impact: 'high',
+    note: 'Resolved in the icon-image property context (#777 I2): the converter strips the `["image", …]` wrapper (recursively, incl. nested inside the coalesce/match arms of a data-driven icon-image) and lowers the inner sprite-name expression — constant `["image","airport"]` → LabelDef.iconImage "airport"; data-driven `["image", ["get","maki"]]` / `["coalesce", ["image", …], …]` → per-feature LabelDef.iconImageExpr → IconStage.addIcon. Text-inline images inside `["format", …, ["image", …]]` spans stay deferred — the format span keeps its partial-drop warning (inline-icon-in-text needs the label span machinery; #777 I2 follow-up).',
+    source: 'layers-helpers.ts unwrapImageExpr + layer-converters/symbol.ts',
+  },
   {
     name: 'number-format',
     status: 'supported',

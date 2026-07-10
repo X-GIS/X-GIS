@@ -147,8 +147,8 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
     name: 'icon-image',
     status: 'supported',
     impact: 'high',
-    note: 'Constant + data-driven match/case via label-icon-image-[<expr>] bracket binding. Per-feature evaluation in TextStage.applyFeatureExprs dispatches IconStage.addIcon. Iter 490 + 491 shipped 2026-05-18. Iter 535 verified end-to-end across the OFM Bright highway-shield path (road_N / us-interstate_N / us-state_N): the iter 531 null-comparison fix unblocks the shield-layer filter, the diagnostic quartet (iter 526/532/533/534) confirmed dispatch → vertex buffer → GPU draw all complete. The atlas ships shields as WHITE-on-transparent backgrounds (zero SDF sprites) so colored shield appearance comes from the text-field number overlay — not sprite tinting.',
-    source: 'layers.ts:1007 + map.ts:applyFeatureExprs',
+    note: 'Constant + data-driven match/case via label-icon-image-[<expr>] bracket binding. Per-feature evaluation in TextStage.applyFeatureExprs dispatches IconStage.addIcon. Iter 490 + 491 shipped 2026-05-18. Iter 535 verified end-to-end across the OFM Bright highway-shield path (road_N / us-interstate_N / us-state_N): the iter 531 null-comparison fix unblocks the shield-layer filter, the diagnostic quartet (iter 526/532/533/534) confirmed dispatch → vertex buffer → GPU draw all complete. The atlas ships shields as WHITE-on-transparent backgrounds (zero SDF sprites) so colored shield appearance comes from the text-field number overlay — not sprite tinting. Icon-ONLY layers (icon-image, no text-field) route the same way for a data-driven icon-image too: `["get"]` / `["match"]` / `["coalesce", ["image", …]]` no longer drop at convert (#777 I1) — the empty-text label carries iconImageExpr to the same per-feature IconStage dispatch.',
+    source: 'layers.ts:1007 + map.ts:applyFeatureExprs + layer-converters/symbol.ts',
   },
   {
     name: 'icon-size',

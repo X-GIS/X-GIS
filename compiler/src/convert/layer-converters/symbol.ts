@@ -14,6 +14,7 @@ import {
 } from '../layers-symbol'
 import {
   unwrapLiteralScalar,
+  unwrapImageExpr,
   safePropsBag,
   isOmittedValue,
   textFieldToXgisExpr,
@@ -30,7 +31,12 @@ function convertSymbolLayer(
   const layout = safePropsBag((layer as { layout?: unknown }).layout)
   const paint = safePropsBag((layer as { paint?: unknown }).paint)
   const textField = layout['text-field']
-  const iconImage = unwrapLiteralScalar(layout['icon-image'])
+  // `["image", <name>]` is a compile-time identity in the icon-image
+  // context (issue #777 I2): strip the wrapper (recursively, incl. nested
+  // inside a data-driven coalesce/match) before the constant/expression
+  // dispatch so `["image","airport"]` → "airport" and `["image",
+  // ["get","maki"]]` → get("maki").
+  const iconImage = unwrapLiteralScalar(unwrapImageExpr(layout['icon-image']))
   // Mapbox spec: text-field === null means "no text" (same as
   // undefined). Pre-fix only undefined fell to the icon-only path;
   // an explicit `text-field: null` (uncommon but spec-valid)
@@ -42,7 +48,14 @@ function convertSymbolLayer(
   // the layer emitted `label-[null]` instead of going through the
   // icon-only branch.
   const hasText = !isOmittedValue(textField)
-  const iconOnly = !hasText && typeof iconImage === 'string'
+  // Icon-only when a text-less layer carries ANY authored icon-image —
+  // a constant string OR a data-driven expression (issue #777 I1). The
+  // old `typeof iconImage === 'string'` gate dropped text-less POI layers
+  // whose icon-image is `["get", …]` / `["match", …]` / `["coalesce", …]`
+  // (the common basemap POI-icon hole) even though the runtime already
+  // resolves iconImageExpr per feature; convertIconProperties emits the
+  // bracket binding and the empty-text label carries it to IconStage.
+  const iconOnly = !hasText && !isOmittedValue(iconImage)
 
   if (!hasText && !iconOnly) {
     // No text-field AND no icon-image — nothing renderable.
