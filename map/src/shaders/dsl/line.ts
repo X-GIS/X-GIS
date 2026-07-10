@@ -302,23 +302,41 @@ const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, (p) => {
 // branch only; globe + 3D still use the ECEF-MVP, so finalize_corner_globe
 // stays retired. Mercator (proj<0.5): cornerLocal is already camera-relative
 // Mercator metres (line_endpoint subtracted the camera), so pass it through.
-// Non-Mercator (1-6): reconstruct abs lon/lat from the tile-local Mercator
-// corner, reproject via project_geom (world-copy aware; tileRefLon = tile-
-// centre lon), and subtract the camera's projected centre (in-shader from
-// proj_params.y/z). Output feeds the flat 2D-plane MVP.
+// Non-Mercator (1-6): reproject via project_geom (world-copy aware) minus the
+// projected camera centre, both recentred onto clon = 0. Output feeds the flat
+// 2D-plane MVP.
+//
+// #598 — the longitude fed to the projection is the PRECISE camera-relative
+// delta, not the lossy absolute degree. `corner − (cam_h + cam_l)` is the DSFUN
+// camera-relative tile-local Mercator X (the ~1.4e7 m tile-origin magnitude
+// cancels BEFORE it reaches f32 — the renderer sets cam_h+cam_l = camMercX −
+// tileMercX, camMercX = clon·DEG2RAD·R), so d_lon = that ÷ (DEG2RAD·R) =
+// abs_lon − clon to sub-metre precision. project_geom / project depend ONLY on
+// (lon − clon) and (ref_lon − clon), so recentring onto clon = 0 (proj_params.y
+// → 0, ref_lon → tile_ref_lon − clon) is EXACT in real arithmetic — byte-
+// identical to the old abs-degree path everywhere a within-tile vertex can sit
+// (|lon_primary − ref_primary| = |abs_lon − tile_ref_lon| ≤ tile extent, never
+// near the ±180 seam-keep tie) — and it deletes the radians(abs_lon) −
+// radians(clon) f32 cancellation that shook non-Mercator strokes at high zoom.
+// Latitude keeps the abs-degree path: it has no linear camera-relative form and
+// its Mercator magnitude is far smaller, so its residual is already sub-metre.
 const finalizeCorner = fn('finalize_corner', { corner: vec2fT }, (p) => {
   const projParams = TILE.field.proj_params
   const tileOrigin = TILE.field.tile_origin_merc
   const absMerc = p.corner.add(tileOrigin)
-  const absLon = absMerc.x.div(DEG2RAD.mul(EARTH_R))
   const latRad = inv_merc_lat_rad(absMerc.y)
   const absLat = degrees(latRad)
-  const tileRefLon = tileOrigin.x
+  const clon = projParams.y
+  const relMercX = p.corner.x.sub(TILE.field.cam_h.x).sub(TILE.field.cam_l.x)
+  const dLon = relMercX.div(DEG2RAD.mul(EARTH_R))
+  const projParamsRel = vec4(projParams.x, f32(0), projParams.z, projParams.w)
+  const tileRefLonRel = tileOrigin.x
     .add(f32(0.5).mul(TILE.field.tile_extent_m))
     .div(DEG2RAD.mul(EARTH_R))
+    .sub(clon)
   // single-exit: Mercator (proj<0.5) passes the corner through; else the reprojected
   // flat_rel. flat_rel is pure, so computing it on the Mercator path (selected away) is harmless.
-  const flatRel = flat_rel(absLon, absLat, projParams, tileRefLon)
+  const flatRel = flat_rel(dLon, absLat, projParamsRel, tileRefLonRel)
   return select(projParams.x.lt(0.5), p.corner, flatRel)
 })
 
