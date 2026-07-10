@@ -81,6 +81,19 @@ test('df64 probe on macOS Metal (WebGPU gate)', async ({ page }) => {
   clearInterval(poller)
   console.log(`[gate] gpuColumnDone: ${gpuDone}`)
 
+  // The page renders its `auto df64 flavor: …` verdict as the summary's next
+  // sibling AFTER both runners settle — a microtask after the last cell
+  // resolves, so give it a short grace before scraping (#934).
+  await page
+    .waitForFunction(
+      () =>
+        document
+          .querySelector('#probe-summary')
+          ?.nextElementSibling?.textContent?.includes('auto df64 flavor'),
+      { timeout: 15_000 },
+    )
+    .catch(() => {})
+
   const scrape = await raced(
     () =>
       page.evaluate(() => {
@@ -91,7 +104,9 @@ test('df64 probe on macOS Metal (WebGPU gate)', async ({ page }) => {
           return { name, gl, gpu }
         })
         const summary = (document.querySelector('#probe-summary') as HTMLElement)?.innerText.replace(/\s+/g, ' ').trim()
-        return { rows, summary, total: rows.length }
+        const sib = document.querySelector('#probe-summary')?.nextElementSibling as HTMLElement | null
+        const flavorLine = sib?.textContent?.includes('auto df64 flavor') ? sib.innerText.replace(/\s+/g, ' ').trim() : ''
+        return { rows, summary, flavorLine, total: rows.length }
       }),
     20_000,
   )
@@ -112,6 +127,7 @@ test('df64 probe on macOS Metal (WebGPU gate)', async ({ page }) => {
     `  glCheck: ${cap.gl}`,
     `  UA: ${cap.ua}`,
     `  summary: ${scrape.summary}`,
+    `  ${scrape.flavorLine || 'auto df64 flavor: (line not rendered)'}`,
     `  consoleErrors: ${errs.length}`,
     '',
     `  base : ${val('dg_mb_base')}     <- must COLLAPSE for a faithful Apple oracle`,
