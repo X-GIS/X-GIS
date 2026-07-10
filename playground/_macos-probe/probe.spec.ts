@@ -6,7 +6,7 @@ import { writeFileSync } from 'node:fs'
 // call, freezing even DOM-read evaluates). Diagnostics print EARLY and a raced
 // progress poll snapshots the summary every 15s, so a wedge pinpoints the test
 // it died in instead of a silent timeout.
-test.setTimeout(240_000)
+test.setTimeout(280_000)
 test('df64 probe on macOS Metal (WebGL2 gate)', async ({ page }) => {
   const errs: string[] = []
   page.on('console', (m) => {
@@ -51,32 +51,34 @@ test('df64 probe on macOS Metal (WebGL2 gate)', async ({ page }) => {
     Promise.race<T | 'WEDGED'>([f(), new Promise<'WEDGED'>((r) => setTimeout(() => r('WEDGED'), ms))])
   const snapshot = () =>
     page.evaluate(() => {
-      const cells = [...document.querySelectorAll('[data-gl]')]
+      const cells = [...document.querySelectorAll('[data-gpu]')]
       const done = cells.filter((c) => !c.querySelector('.animate-spin'))
-      const lastDone = done.length ? done[done.length - 1].getAttribute('data-gl') : '(none)'
+      const lastDone = done.length ? done[done.length - 1].getAttribute('data-gpu') : '(none)'
       const summary = (document.querySelector('#probe-summary') as HTMLElement)?.innerText.replace(/\s+/g, ' ').trim()
-      return `gl ${done.length}/${cells.length} last=${lastDone} | ${summary}`
+      return `gpu ${done.length}/${cells.length} last=${lastDone} | ${summary}`
     })
   const poller = setInterval(async () => {
     console.log(`[progress] ${await raced(snapshot, 5000)}`)
   }, 15000)
 
-  // ── the gate: WebGL2 column fully resolved ──
-  let glDone = false
+  // ── the gate: WEBGPU column fully resolved. Run 8 proved WebGPU runs headed
+  // on the macOS runner AND collapses exactly like the iPhone (mul→0, div=1.0),
+  // while ANGLE-GLSL errors every test — so WebGPU is the oracle column here. ──
+  let gpuDone = false
   try {
     await page.waitForFunction(
       () => {
-        const cells = [...document.querySelectorAll('[data-gl]')]
+        const cells = [...document.querySelectorAll('[data-gpu]')]
         return cells.length > 0 && cells.every((c) => !c.querySelector('.animate-spin'))
       },
-      { timeout: 150_000 },
+      { timeout: 200_000 },
     )
-    glDone = true
+    gpuDone = true
   } catch {
-    glDone = false
+    gpuDone = false
   }
   clearInterval(poller)
-  console.log(`[gate] glColumnDone: ${glDone}`)
+  console.log(`[gate] gpuColumnDone: ${gpuDone}`)
 
   const scrape = await raced(
     () =>
@@ -100,11 +102,11 @@ test('df64 probe on macOS Metal (WebGL2 gate)', async ({ page }) => {
 
   const val = (n: string) => {
     const r = scrape.rows.find((x) => x.name === n)
-    return r ? `gl=${r.gl}` : 'MISSING'
+    return r ? `gpu=${r.gpu} gl=${r.gl}` : 'MISSING'
   }
   const digest = [
     'df64 macOS Metal probe (WebGL2 gate)',
-    `  glColumnDone: ${glDone}`,
+    `  gpuColumnDone: ${gpuDone}`,
     `  gpuCheck (diag): ${cap.gpu}`,
     `  glCheck: ${cap.gl}`,
     `  UA: ${cap.ua}`,
@@ -125,5 +127,5 @@ test('df64 probe on macOS Metal (WebGL2 gate)', async ({ page }) => {
 
   writeFileSync('_macos-probe/df64-digest.txt', digest) // cwd = playground/
   console.log('\n' + digest + '\n')
-  expect(glDone).toBe(true)
+  expect(gpuDone).toBe(true)
 })
