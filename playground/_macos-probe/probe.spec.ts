@@ -1,16 +1,12 @@
 import { test, expect } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 
-// WebGL2-only Apple oracle. Rationale: on Apple the df64 collapse is a METAL
-// shader-compiler property, and the device pastes show WebGL2 == WebGPU on
-// every op (both funnel through Metal). WebGL2 is also the STRICTER gate (GLSL
-// ES 3.00 has no fma) and the only backend headless macOS Chromium runs
-// reliably — headless WebGPU can hang requestAdapter, which is why waiting on
-// the page's copy button (enabled only after BOTH backends settle) timed out.
-// So: wait for the WEBGL2 COLUMN to fully resolve (it fills independently of
-// the WebGPU run), scrape it, and emit the digest. A time-boxed WebGPU
-// capability check is kept purely as diagnostics.
-test.setTimeout(180_000)
+// WebGL2-gate Apple oracle, HEADED (macOS runners have an Aqua session; headless
+// GL wedged — run 6 showed the page main thread blocking inside a synchronous GL
+// call, freezing even DOM-read evaluates). Diagnostics print EARLY and a raced
+// progress poll snapshots the summary every 15s, so a wedge pinpoints the test
+// it died in instead of a silent timeout.
+test.setTimeout(240_000)
 test('df64 probe on macOS Metal (WebGL2 gate)', async ({ page }) => {
   const errs: string[] = []
   page.on('console', (m) => {
@@ -20,7 +16,7 @@ test('df64 probe on macOS Metal (WebGL2 gate)', async ({ page }) => {
 
   await page.goto('/shader-dsl/fp64-probe', { waitUntil: 'domcontentloaded' })
 
-  // ── diagnostics: is WebGPU even available headless? (time-boxed, can't hang) ──
+  // ── diagnostics FIRST, printed IMMEDIATELY (survive any later timeout) ──
   const cap = await page.evaluate(async () => {
     const race = <T>(p: Promise<T>, ms: number) =>
       Promise.race<T | 'TIMEOUT'>([p, new Promise<'TIMEOUT'>((r) => setTimeout(() => r('TIMEOUT'), ms))])
@@ -43,8 +39,28 @@ test('df64 probe on macOS Metal (WebGL2 gate)', async ({ page }) => {
     }
     return { gpu, gl, ua: navigator.userAgent }
   })
+  console.log(`[cap] gpu: ${cap.gpu}`)
+  console.log(`[cap] gl:  ${cap.gl}`)
+  console.log(`[cap] ua:  ${cap.ua}`)
 
-  // ── the actual gate: WebGL2 column fully resolved (no [data-gl] spinner) ──
+  // ── raced progress poll: every 15s snapshot the summary + resolved-gl count.
+  // If the page main thread wedges, the evaluate never resolves — the race just
+  // logs 'WEDGED' and the dangling promise is abandoned (harmless). ──
+  const raced = async <T>(f: () => Promise<T>, ms: number): Promise<T | 'WEDGED'> =>
+    Promise.race<T | 'WEDGED'>([f(), new Promise<'WEDGED'>((r) => setTimeout(() => r('WEDGED'), ms))])
+  const snapshot = () =>
+    page.evaluate(() => {
+      const cells = [...document.querySelectorAll('[data-gl]')]
+      const done = cells.filter((c) => !c.querySelector('.animate-spin'))
+      const lastDone = done.length ? done[done.length - 1].getAttribute('data-gl') : '(none)'
+      const summary = (document.querySelector('#probe-summary') as HTMLElement)?.innerText.replace(/\s+/g, ' ').trim()
+      return `gl ${done.length}/${cells.length} last=${lastDone} | ${summary}`
+    })
+  const poller = setInterval(async () => {
+    console.log(`[progress] ${await raced(snapshot, 5000)}`)
+  }, 15000)
+
+  // ── the gate: WebGL2 column fully resolved ──
   let glDone = false
   try {
     await page.waitForFunction(
@@ -52,23 +68,34 @@ test('df64 probe on macOS Metal (WebGL2 gate)', async ({ page }) => {
         const cells = [...document.querySelectorAll('[data-gl]')]
         return cells.length > 0 && cells.every((c) => !c.querySelector('.animate-spin'))
       },
-      { timeout: 120_000 },
+      { timeout: 150_000 },
     )
     glDone = true
   } catch {
     glDone = false
   }
+  clearInterval(poller)
+  console.log(`[gate] glColumnDone: ${glDone}`)
 
-  const scrape = await page.evaluate(() => {
-    const rows = [...document.querySelectorAll('[data-row]')].map((r) => {
-      const name = r.getAttribute('data-row')!
-      const gl = (r.querySelector(`[data-gl="${name}"]`) as HTMLElement)?.innerText.replace(/\s+/g, ' ').trim()
-      const gpu = (r.querySelector(`[data-gpu="${name}"]`) as HTMLElement)?.innerText.replace(/\s+/g, ' ').trim()
-      return { name, gl, gpu }
-    })
-    const summary = (document.querySelector('#probe-summary') as HTMLElement)?.innerText.replace(/\s+/g, ' ').trim()
-    return { rows, summary, total: rows.length }
-  })
+  const scrape = await raced(
+    () =>
+      page.evaluate(() => {
+        const rows = [...document.querySelectorAll('[data-row]')].map((r) => {
+          const name = r.getAttribute('data-row')!
+          const gl = (r.querySelector(`[data-gl="${name}"]`) as HTMLElement)?.innerText.replace(/\s+/g, ' ').trim()
+          const gpu = (r.querySelector(`[data-gpu="${name}"]`) as HTMLElement)?.innerText.replace(/\s+/g, ' ').trim()
+          return { name, gl, gpu }
+        })
+        const summary = (document.querySelector('#probe-summary') as HTMLElement)?.innerText.replace(/\s+/g, ' ').trim()
+        return { rows, summary, total: rows.length }
+      }),
+    20_000,
+  )
+  if (scrape === 'WEDGED') {
+    writeFileSync('_macos-probe/df64-digest.txt', `WEDGED main thread; cap gpu=${cap.gpu} gl=${cap.gl}`)
+    expect(scrape, 'page main thread wedged — see [progress] lines for the last resolved test').not.toBe('WEDGED')
+    return
+  }
 
   const val = (n: string) => {
     const r = scrape.rows.find((x) => x.name === n)

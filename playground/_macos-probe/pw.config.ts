@@ -12,7 +12,7 @@ export default defineConfig({
   use: {
     baseURL: 'https://localhost:4321',
     ignoreHTTPSErrors: true,
-    headless: true,
+    headless: false, // macOS runners have an Aqua session — headed avoids headless GL/WebGPU wedges
     launchOptions: {
       args: ['--enable-unsafe-webgpu', '--use-angle=metal'],
     },
