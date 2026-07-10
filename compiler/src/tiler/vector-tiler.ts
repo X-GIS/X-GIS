@@ -3,7 +3,6 @@
 // Per-part decomposition: MultiPolygons are split into individual parts
 // with tighter bounding boxes, dramatically reducing tile scatter for large features.
 
-import { EARTH } from '@xgis/shared'
 import earcut from 'earcut'
 import { simplifyPolygon, simplifyLine, mercatorToleranceForZoom } from './simplify'
 import { clipPolygonToRect, clipLineToRect, splitBoundaryBacktracks } from './clip'
@@ -731,7 +730,7 @@ export function augmentChainWithArc(
   opts?: { mmInput?: boolean },
 ): number[][] {
   const DEG2RAD = Math.PI / 180
-  const R = EARTH.sphereR
+  const R = DSFUN_EARTH_R
   const LAT_LIMIT = 85.051129
   const clampLat = (v: number) => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
 
