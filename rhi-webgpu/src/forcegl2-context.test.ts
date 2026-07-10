@@ -21,8 +21,8 @@ function fakeCanvas(gl: unknown): HTMLCanvasElement {
 }
 
 describe('initGPUForcedWebGL2 — forced-WebGL2 boot context (US-001)', () => {
-  it('populates host.ctx.rhi with a WebGl2Device whose backend is "webgl2"', () => {
-    const ctx = initGPUForcedWebGL2(
+  it('populates host.ctx.rhi with a WebGl2Device whose backend is "webgl2"', async () => {
+    const ctx = await initGPUForcedWebGL2(
       fakeCanvas({} as WebGL2RenderingContext),
       (gl) => new WebGl2Device(gl),
     )
@@ -30,16 +30,16 @@ describe('initGPUForcedWebGL2 — forced-WebGL2 boot context (US-001)', () => {
     expect(ctx.rhi?.backend).toBe('webgl2')
   })
 
-  it('runs the slice-1 isolated single-sample topology (sampleCount === 1)', () => {
-    const ctx = initGPUForcedWebGL2(
+  it('runs the slice-1 isolated single-sample topology (sampleCount === 1)', async () => {
+    const ctx = await initGPUForcedWebGL2(
       fakeCanvas({} as WebGL2RenderingContext),
       (gl) => new WebGl2Device(gl),
     )
     expect(ctx.sampleCount).toBe(1)
   })
 
-  it('stubs the WebGPU device/context FAIL-LOUD (#834 S6 — any property access throws)', () => {
-    const ctx = initGPUForcedWebGL2(
+  it('stubs the WebGPU device/context FAIL-LOUD (#834 S6 — any property access throws)', async () => {
+    const ctx = await initGPUForcedWebGL2(
       fakeCanvas({} as WebGL2RenderingContext),
       (gl) => new WebGl2Device(gl),
     )
@@ -61,19 +61,21 @@ describe('initGPUForcedWebGL2 — forced-WebGL2 boot context (US-001)', () => {
     expect(ctx._validationErrors).toEqual([])
   })
 
-  it('throws WebGPUUnavailableError when the canvas cannot make a webgl2 context', () => {
+  it('rejects with WebGPUUnavailableError when the canvas cannot make a webgl2 context', async () => {
     const canvas = {
       getContext(): unknown {
         return null
       },
     } as unknown as HTMLCanvasElement
-    expect(() => initGPUForcedWebGL2(canvas, (gl) => new WebGl2Device(gl))).toThrow(/forcegl2/)
+    await expect(initGPUForcedWebGL2(canvas, (gl) => new WebGl2Device(gl))).rejects.toThrow(
+      /forcegl2/,
+    )
   })
 
-  it('resizeCanvas skips context.configure on the forced-WebGL2 path (no throw)', () => {
+  it('resizeCanvas skips context.configure on the forced-WebGL2 path (no throw)', async () => {
     // device/context are stubbed-undefined; the resize guard must return before the
     // WebGPU `context.configure(...)` call, or this would throw a TypeError (R5).
-    const ctx = initGPUForcedWebGL2(
+    const ctx = await initGPUForcedWebGL2(
       fakeCanvas({} as WebGL2RenderingContext),
       (gl) => new WebGl2Device(gl),
     )

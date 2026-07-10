@@ -250,13 +250,15 @@ export async function createWebGpuContext(
  *  `GPU*` read sites recompile. Slice-1 topology is single-sample + isolated (S4): the
  *  shared opaque-pass MSAA path is Story-5 scope, so `sampleCount` is 1 here.
  *  Exported for the unit gate (context-shape + backend-marker ACs); production
- *  reaches it only via `webGl2BackendProvider.create` (#833 M4). The RHI device is
- *  INJECTED (`makeRhi`) — the provider lazy-imports `WebGl2Device` and passes the
- *  factory, so this layer-1 module never statically depends on the render layer. */
-export function initGPUForcedWebGL2(
+ *  reaches it only via `makeWebGl2BackendProvider(...).create` (#833 M4). The RHI
+ *  device is INJECTED (`makeRhi`) — the COMPOSITION ROOT supplies the factory
+ *  (`@xgis/map` dynamic-imports `WebGl2Device`), so NEITHER this layer-1 module
+ *  NOR the provider names `@xgis/rhi-webgl2` (#834 M5; #929 adapter mutual-blindness).
+ *  Async so the injected factory may lazy-import the WebGL2 backend chunk. */
+export async function initGPUForcedWebGL2(
   canvas: HTMLCanvasElement,
-  makeRhi: (gl: WebGL2RenderingContext) => RhiDevice,
-): GPUContext {
+  makeRhi: (gl: WebGL2RenderingContext) => RhiDevice | Promise<RhiDevice>,
+): Promise<GPUContext> {
   // preserveDrawingBuffer keeps the rendered frame readable via gl.readPixels after the
   // rAF turn — the US-004 live-render gate reads the checker pixels back. (This slice is a
   // dev/test path; the minor compositor cost is acceptable.)
@@ -270,7 +272,7 @@ export function initGPUForcedWebGL2(
     throw new WebGPUUnavailableError(
       '?forcegl2=1 set but canvas.getContext("webgl2") returned null',
     )
-  const rhi = makeRhi(gl)
+  const rhi = await makeRhi(gl)
 
   if (typeof window !== 'undefined') {
     // Page-readable backend marker for the e2e gate (mirrors the interface-member

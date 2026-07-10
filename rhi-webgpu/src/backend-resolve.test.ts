@@ -4,10 +4,11 @@ import {
   initGPU,
   initGPUViaProviders,
   makeWebGpuBackendProvider,
-  webGl2BackendProvider,
+  makeWebGl2BackendProvider,
 } from './backend-providers'
 import { FORCE_GL2, WebGPUUnavailableError, type GPUContext } from './gpu'
 import type { RhiBackendProvider } from '@xgis/rhi'
+import { WebGl2Device } from '@xgis/rhi-webgl2'
 
 // #795 → #833 M4 — backend precedence is DATA now: `backendProviderChain`
 // derives an ordered RhiBackendProvider array from the caller's choice, and
@@ -33,6 +34,9 @@ function fakeCanvas(gl: unknown): HTMLCanvasElement {
 // The boot values the composition root would derive from its quality policy
 // (#929 B) — any value works for chain-content assertions.
 const BOOT = { sampleCount: 4 }
+// Composition-root WebGL2 device factory the map layer injects (#834 M5) — the
+// test plays that role so a real WebGL2 boot can assemble a WebGl2Device.
+const makeWebGl2Device = (gl: WebGL2RenderingContext): WebGl2Device => new WebGl2Device(gl)
 
 describe('backendProviderChain — precedence as data (#833 M4)', () => {
   it('an explicit backend pins a single-provider chain, independent of ?forcegl2', () => {
@@ -53,7 +57,7 @@ describe('backendProviderChain — precedence as data (#833 M4)', () => {
 
   it('exports the two real providers with their backend identities', () => {
     expect(makeWebGpuBackendProvider(BOOT).id).toBe('webgpu')
-    expect(webGl2BackendProvider.id).toBe('webgl2')
+    expect(makeWebGl2BackendProvider(makeWebGl2Device).id).toBe('webgl2')
   })
 })
 
@@ -127,9 +131,13 @@ describe('initGPUViaProviders — chain-walk semantics (#833 M4)', () => {
 
 describe('initGPU — backend construction option (#795)', () => {
   it('boots the WebGL2 backend from the option alone, WITHOUT the ?forcegl2 URL flag', async () => {
-    // The exact path XGISMap takes: options.backend → _backend →
-    // initGPU(canvas, { backend }) → [webGl2BackendProvider] → create().
-    const ctx = await initGPU(fakeCanvas({} as WebGL2RenderingContext), { backend: 'webgl2' })
+    // The exact path XGISMap takes: options.backend → _backend → initGPU(canvas,
+    // { backend, makeWebGl2Device }) → [webgl2 provider] → create(). The map
+    // injects the WebGl2Device factory (#834 M5); the test supplies the same.
+    const ctx = await initGPU(fakeCanvas({} as WebGL2RenderingContext), {
+      backend: 'webgl2',
+      makeWebGl2Device,
+    })
     expect(ctx.rhi?.backend).toBe('webgl2')
     expect(ctx.sampleCount).toBe(1) // slice-1 isolated single-sample topology
   })
