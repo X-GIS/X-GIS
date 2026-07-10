@@ -134,6 +134,57 @@ export function computeVisibleWorldCopies(
   return cache.cached
 }
 
+/** Single [0] the router hands back for every non-fanning path (globe /
+ *  azimuthal disc / above-gate periodic). A shared frozen constant, not a
+ *  per-call literal, so the render loop allocates nothing on the common path;
+ *  consumers iterate, never mutate (same discipline as worldCopiesFor's
+ *  table-owned arrays). */
+const SINGLE_COPY: readonly number[] = [0]
+
+/** Minimal camera surface the projType router reads — structurally satisfied
+ *  by `Camera`, so a test can supply a stub without the whole class. */
+export interface VisibleWorldCopiesHost {
+  readonly globeMode: boolean
+  readonly zoom: number
+  getVisibleWorldCopies(canvasWidth: number, canvasHeight: number, dpr: number): readonly number[]
+}
+
+/** #729 — the single "visible world copies for this projType" authority every
+ *  flat-display renderer routes through, so the single-pass absolute-ECEF path
+ *  is the SPECIAL case rather than a per-renderer default. The ECEF migration
+ *  (absolute-ECEF vertices + ECEF-MVP) assumed "absolute geometry needs no
+ *  per-copy shift" — true for globe(7)/hemisphere, FALSE for flat display
+ *  (0-6), where world copies are per-copy Mercator-metre offsets. Each renderer
+ *  decided fan-out locally, so the migration silently regressed the paths whose
+ *  authors assumed ECEF-absolute == single-world (graticule `for wi<1`,
+ *  point-renderer `COPIES=[0]`, tile line-labels). This router centralises the
+ *  decision.
+ *
+ *  A ROUTER over the EXISTING copy computations — never a new formula — keyed on
+ *  the EXPLICIT projType the renderer is drawing (not `cam.projType`), so a
+ *  render-loop-promoted / overridden projType always gets its own copy set:
+ *   - globe(7)/hemisphere, or `globeMode` (tilted azimuthal promoted to 7) →
+ *     the single absolute-ECEF world.
+ *   - Mercator(0) → the camera corner-unprojection set (`getVisibleWorldCopies`).
+ *   - x-periodic flat (equirect 1 / natural_earth 2 / oblique_mercator 6) → the
+ *     zoom-gated periodic copy set (`worldCopiesFor`, gated by
+ *     `enumerateWorldCopies`), the SAME set the tile selector + GPU fills use.
+ *   - azimuthal discs (3/4/5) → the single world (non-periodic, `[0]`).
+ *
+ *  Consumed by graticule-renderer (#729); point-renderer (#722) + label-pass
+ *  (#727) can adopt it to retire their local routers. */
+export function visibleWorldCopiesFor(
+  projType: number,
+  host: VisibleWorldCopiesHost,
+  canvasWidth: number,
+  canvasHeight: number,
+  dpr: number,
+): readonly number[] {
+  if (host.globeMode || isGlobeProj(projType)) return SINGLE_COPY
+  if (isMercatorProj(projType)) return host.getVisibleWorldCopies(canvasWidth, canvasHeight, dpr)
+  return enumerateWorldCopies(projType, host.zoom) ? worldCopiesFor(projType) : SINGLE_COPY
+}
+
 /** Check whether `projType` is handled by the globe-mode path (no world
  *  copies). Re-exported from projections-table for callers that import this
  *  module. */

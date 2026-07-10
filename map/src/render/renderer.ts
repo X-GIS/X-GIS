@@ -925,6 +925,13 @@ export class MapRendererContent {
         zoom: camera.zoom,
         eye: frame.eye, // #600 globe_eye for the graticule's globe(7) cull
       },
+      // #729 — the graticule routes its own MVP + world-copy fan-out through the
+      // camera (getViewForProjection + visibleWorldCopiesFor) for flat display;
+      // frame.mvp above is only consumed on the globe/tilted ECEF fast path.
+      camera,
+      canvas.width,
+      canvas.height,
+      dpr,
     )
 
     // pass.end() and submit() are handled by caller
