@@ -56,7 +56,7 @@ import {
 import { PrefetchScheduler } from './prefetch-scheduler'
 import { LabelFeatureSource } from './label-feature-source'
 import { FrameDrawStats } from './frame-draw-stats'
-import { TileSelectionCache } from './tile-selection-cache'
+import { TileSelectionCache, sliceOutsideDataZoomRange } from './tile-selection-cache'
 import { FeatureDataBinder } from './feature-data-binder'
 import { GpuTileStore } from './gpu-tile-store'
 import { BindGroupRegistry } from './bind-group-registry'
@@ -177,6 +177,24 @@ export class VectorTileRenderer {
    *  clamping in the render loop. */
   get sourceMaxLevel(): number {
     return this.source?.maxLevel ?? 0
+  }
+
+  /** MapLibre-parity label cull (#613). The along-path / point label
+   *  path (label-pass.ts) walks this source's stable+needed tiles and
+   *  pulls each show's source-layer slice — a path independent of the
+   *  per-slice `selectForFrame` line cull. A source-layer whose tilejson
+   *  `vector_layers` maxzoom is below the current native tile zoom
+   *  carries no features there (demotiles `geolines` maxzoom 4 → the
+   *  native z5 tile omits it), so its labels must drop in lockstep with
+   *  its lines. `nativeZ` mirrors selectForFrame's currentZ:
+   *  floor(cameraZoom) clamped to the source maxLevel, so over-zoom past
+   *  the source max (protomaps v4: every layer maxzoom == source max)
+   *  never culls. `sourceLayer` is the bare MVT layer name (show
+   *  .sourceLayer), which is what getLayerZoomRange keys on. */
+  sourceLayerOutsideDataZoom(sourceLayer: string, cameraZoom: number): boolean {
+    const range = this.source?.getLayerZoomRange?.(sourceLayer)
+    const nativeZ = Math.min(Math.floor(cameraZoom), this.sourceMaxLevel)
+    return sliceOutsideDataZoomRange(range, nativeZ)
   }
   currentProjection: import('@xgis/geo').Projection | null = null
   /** Resident GPU tile cache + arenas + eviction (Cluster A; see class

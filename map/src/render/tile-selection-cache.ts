@@ -40,6 +40,29 @@ import { SELECTOR_PROJ_NAMES, promotesToGlobeWhenTilted, representsCenterAs } fr
 import type { TileCatalog } from '@xgis/data'
 import type { FrameDrawStats } from './frame-draw-stats'
 
+/** MapLibre-parity per-source-layer visibility cull (#613). A source-
+ *  layer's tilejson `vector_layers` entry declares the [minzoom, maxzoom]
+ *  band for which the archive carries features; outside it the native
+ *  tile at `nativeZ` simply omits the layer, and MapLibre draws that
+ *  empty native slice. `nativeZ` is the resolved integer tile LOD
+ *  (`currentZ` = floor(cameraZoom), already clamped to the source
+ *  maxLevel), so the `> maxzoom` half fires ONLY when a layer's data-max
+ *  is STRICTLY below the source max — e.g. demotiles `geolines` maxzoom 4
+ *  vs source max 6, whose native z5/z6 tiles have no geolines, so ML
+ *  drops the Tropic/Equator/Arctic reference lines + labels at z5.
+ *  Protomaps v4 (every layer maxzoom == source max 15) is never culled:
+ *  `currentZ` clamps to 15 and never exceeds the layer maxzoom, so the
+ *  over-zoom pipeline keeps upscaling every layer past z15. Returns false
+ *  for a null range (source shipped no vector_layers metadata → treat as
+ *  always-present, the pre-#613 behaviour). */
+export function sliceOutsideDataZoomRange(
+  range: { minzoom: number; maxzoom: number } | null | undefined,
+  nativeZ: number,
+): boolean {
+  if (!range) return false
+  return nativeZ < range.minzoom || nativeZ > range.maxzoom
+}
+
 /** Cache of `visibleTilesFrustum()` + the derived neededKeys /
  *  worldOffsets arrays. With one source feeding N layer
  *  ShowCommands, each VTR.render() invocation would otherwise
@@ -507,22 +530,31 @@ export class TileSelectionCache {
     this._hysteresisZ = cz
     const currentZ = Math.max(0, Math.min(maxSubTileZ, cz))
 
-    // Per-MVT-layer minzoom culling — when the source publishes
-    // metadata.vector_layers (PMTiles), each layer's `minzoom` is
-    // a HARD bound below which the archive carries no features for
-    // it (protomaps v4: roads z≥6, buildings z≥14). Skip render()
-    // entirely below that threshold: no missed-tile bookkeeping,
-    // no sub-tile gen, no fetches, no FLICKER chatter.
+    // Per-MVT-layer zoom-range culling — when the source publishes
+    // metadata.vector_layers (PMTiles / TileJSON), each layer's
+    // [minzoom, maxzoom] is the band for which the archive carries
+    // features (protomaps v4: roads z≥6, buildings z≥14; demotiles
+    // geolines z0–4). Skip render() outside that band: no missed-tile
+    // bookkeeping, no sub-tile gen, no fetches, no FLICKER chatter.
     //
-    // `maxzoom` is intentionally NOT used as a cull bound — it's
-    // a SOFT bound on raw archive data, but sub-tile generation
-    // continues to upscale the maxzoom data for over-zoom views.
-    // Culling on maxzoom would freeze rendering past z=15 on
-    // protomaps v4 (every layer reports maxzoom=15), defeating the
-    // whole over-zoom pipeline.
+    // The `> maxzoom` half is safe for the over-zoom pipeline because
+    // `currentZ` is already clamped to the source maxLevel above, so it
+    // fires ONLY when a layer's data-max is STRICTLY below the source
+    // max — a native tile exists at currentZ but omits this layer
+    // (demotiles geolines max 4 < source max 6: the native z5/z6 tile
+    // has no geolines, so ML drops the Tropic/Equator lines at z5).
+    // Protomaps v4 (every layer maxzoom == source max 15) is unaffected:
+    // currentZ clamps to 15 and never exceeds the layer maxzoom. #613.
     if (sliceLayer) {
-      const range = source.getLayerZoomRange?.(sliceLayer)
-      if (range && currentZ < range.minzoom) {
+      // `sliceLayer` is the computeSliceKey output — `sourceLayer::hash`
+      // for FILTERED shows (demotiles `geolines` carries a
+      // `name != 'International Date Line'` filter). getLayerZoomRange
+      // keys on the bare source-layer, so strip the filter suffix —
+      // without this every filtered layer silently skipped the cull.
+      const sep = sliceLayer.lastIndexOf('::')
+      const bareLayer = sep >= 0 ? sliceLayer.slice(0, sep) : sliceLayer
+      const range = source.getLayerZoomRange?.(bareLayer)
+      if (sliceOutsideDataZoomRange(range, currentZ)) {
         return null
       }
     }

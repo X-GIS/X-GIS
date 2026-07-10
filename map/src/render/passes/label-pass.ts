@@ -887,6 +887,20 @@ class LabelPass implements RenderPass {
         // same projector by inverting back to lon/lat.
         const vtEntry = host.vtSources.get(show.targetName)
         if (vtEntry) {
+          // MapLibre-parity (#613): drop this show's labels when its
+          // source-layer is outside the tilejson vector_layers zoom band
+          // for the current native tile zoom — the native tile omits the
+          // layer there, so ML draws nothing (demotiles `geolines`
+          // maxzoom 4 → the Tropic/Equator/Arctic labels vanish at z5
+          // while `countries` maxzoom 6 persists). Culls the along-path
+          // labels in lockstep with the line path's selectForFrame cull.
+          if (
+            show.sourceLayer &&
+            vtEntry.renderer.sourceLayerOutsideDataZoom(show.sourceLayer, host.camera.zoom)
+          ) {
+            perfMarkEnd('encoder.label-dispatch.show')
+            continue
+          }
           const DEG2RAD = Math.PI / 180
           const R = activeBody().sphereR
           const mercToLonLat = (mx: number, my: number): [number, number] => [
