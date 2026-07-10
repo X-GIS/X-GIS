@@ -15,6 +15,7 @@ import type {
   BindingDecl,
   FuncDecl,
   ModuleDecl,
+  Capability,
 } from '../ir'
 import { Capabilities, type Backend } from '../backend'
 import {
@@ -88,11 +89,24 @@ function paramAttr(p: { builtin?: string; location?: number; attr?: string }): s
   return ''
 }
 
+/** WGSL `enable`-directive extension name for each language-feature capability that
+ *  needs one (#628). Resource caps (storageBuffer / compute / msaaTextureLoad) need no
+ *  directive and are absent here; a cap absent from this map contributes no header. */
+const WGSL_ENABLE: Partial<Record<Capability, string>> = {
+  f16: 'f16',
+  subgroups: 'subgroups',
+}
+
 /** The WGSL target writer. Every method reproduces the exact pre-refactor
  *  spelling, so any emit driven by wgslBackend is byte-identical. */
 export const wgslBackend: Backend = {
   id: 'wgsl',
-  caps: new Capabilities(new Set(['storageBuffer', 'compute', 'msaaTextureLoad'])),
+  // The WGSL writer can SPELL every cap; whether a given adapter supports an optional
+  // feature (shader-f16, subgroups) is a RUNTIME probe the RHI owns — it opts a module
+  // in via `enables` only after it has confirmed the device feature (#628).
+  caps: new Capabilities(
+    new Set(['storageBuffer', 'compute', 'msaaTextureLoad', 'f16', 'subgroups']),
+  ),
   typeName: wgslType,
   literal: lit,
   // WGSL spells every intrinsic / user call as `name(args)`; the reserved
@@ -146,6 +160,24 @@ export const wgslBackend: Backend = {
   // polygon composer's _mcSS fill/stroke), so those precision-critical paths are
   // emitted verbatim, untouched.
   optimize: (m) => fixpoint(m),
+  // The WGSL `enable`-directive header (#628): one `enable <ext>;` per opt-in
+  // language-feature cap the module declares (m.enables), deduped + sorted for a
+  // deterministic byte order, then a blank line before the first declaration. Empty
+  // when the module opts into nothing, so enables-free emit stays byte-identical.
+  // assertCaps (run in lowerForBackend, before this string is used) has already
+  // guaranteed this backend covers every declared cap.
+  modulePreamble: (m) => {
+    const dirs = (m.enables ?? [])
+      .map((c) => WGSL_ENABLE[c])
+      .filter((d): d is string => d !== undefined)
+    if (dirs.length === 0) return ''
+    return (
+      [...new Set(dirs)]
+        .sort()
+        .map((d) => `enable ${d};`)
+        .join('\n') + '\n\n'
+    )
+  },
 }
 
 /** Single-arg WGSL-bound expr emit. The compiler keeps a structural copy

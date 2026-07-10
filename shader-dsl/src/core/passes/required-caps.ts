@@ -5,8 +5,8 @@
 // instead of a silent mis-emit. Wired at the top of every emit entry (#9) so the
 // fail-closed promise is real, not the GLSL writer's ad-hoc per-construct throws.
 
-import { stageOf, type ModuleDecl } from '../ir'
-import { type Backend, type Capability, UnsupportedFeatureError } from '../backend'
+import { stageOf, type ModuleDecl, type Capability } from '../ir'
+import { type Backend, UnsupportedFeatureError } from '../backend'
 
 /** The capabilities a module's emit requires. */
 export function requiredCaps(m: ModuleDecl): Capability[] {
@@ -20,6 +20,10 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
     // `{ stage: 'compute' }` decl without attrs must NOT slip past the gate.
     if (stageOf(f) === 'compute') caps.add('compute')
   }
+  // OPT-IN language-feature caps (#628) — f16 / subgroups the author turned on. Folded
+  // in here so assertCaps gates them exactly like the derived resource caps (fail-closed
+  // on GLSL); the WGSL backend then emits the matching `enable <ext>;` for each.
+  for (const c of m.enables ?? []) caps.add(c)
   return [...caps]
 }
 

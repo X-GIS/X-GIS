@@ -62,4 +62,28 @@ describe('capabilities — requiredCaps + assertCaps (#9)', () => {
   it('assertCaps passes when the backend covers all required caps (wgsl)', () => {
     expect(() => assertCaps(wgslBackend, storageMod())).not.toThrow()
   })
+
+  // #628 — opt-in language-feature caps (enables) fold into requiredCaps and gate
+  // exactly like the derived resource caps: WGSL covers them, GLSL fails closed.
+  const f16Mod = () =>
+    module({
+      enables: ['f16'],
+      funcs: [
+        fn('k', {}, f32T, (_p, b) => {
+          b.ret(f32(1))
+        }),
+      ],
+    })
+
+  it('an enables:[f16] module requires f16', () => {
+    expect(requiredCaps(f16Mod())).toContain('f16')
+  })
+
+  it('assertCaps fails closed on GLSL for an f16 module', () => {
+    expect(() => assertCaps(glslEs300Backend, f16Mod())).toThrow(UnsupportedFeatureError)
+  })
+
+  it('assertCaps passes an f16 module on WGSL (the emitter can spell it)', () => {
+    expect(() => assertCaps(wgslBackend, f16Mod())).not.toThrow()
+  })
 })
