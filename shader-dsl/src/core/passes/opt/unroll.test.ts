@@ -1,7 +1,20 @@
 import { describe, it, expect } from 'vitest'
-import { module, fn, f32, f32T, i32, i32T, sin, toF32, type ModuleDecl, type Stmt } from '../../ir'
+import {
+  module,
+  fn,
+  f32,
+  f32T,
+  i32,
+  i32T,
+  u32,
+  sin,
+  toF32,
+  type ModuleDecl,
+  type Stmt,
+} from '../../ir'
 import { emitModule } from '../../backends/wgsl'
 import { compileModule } from '../../oracle'
+import { constProp } from './const-prop'
 import { unrollLoops } from './unroll'
 
 // unrollLoops flattens a SMALL, integer, compile-time fixed-count `for` into its N
@@ -335,5 +348,217 @@ describe('unrollLoops — small fixed-count loop unrolling', () => {
       ],
     })
     expect(countFors(unrollLoops(trip64))).toBe(1)
+  })
+
+  it('re-runs without re-minting a colliding fresh name (after an enabling pass)', () => {
+    // The pass is built to run on the optimize()->emit fixpoint, where a pass like
+    // constProp exposes a loop skipped on the first run. Loop A unrolls immediately;
+    // loop B's bound is a const-`let`, so it is deferred until constProp inlines the
+    // literal, then unrolls on the SECOND pass. BOTH bodies declare a local `t`:
+    // unless the fresh-name suffix is seeded past the first pass's `_u0_t`, the second
+    // pass re-mints `_u0_t` — two `let _u0_t` in one WGSL scope (a naga / tint
+    // redeclaration), which oracle value-equality cannot detect.
+    const m = module({
+      funcs: [
+        fn('k', { x: f32T }, f32T, ({ x }, b) => {
+          const acc = b.var('acc', f32T, f32(0))
+          b.forRange(
+            'i',
+            i32(0),
+            (i) => i.lt(i32(2)),
+            (cb, i) => {
+              const t = cb.let('t', x.mul(toF32(i)))
+              cb.addAssign(acc, t.mul(t))
+            },
+          )
+          const bnd = b.let('bnd', i32(2)) // a const-let bound — constProp inlines it
+          b.forRange(
+            'j',
+            i32(0),
+            (j) => j.lt(bnd),
+            (cb, j) => {
+              const t = cb.let('t', x.mul(toF32(j)))
+              cb.addAssign(acc, t.add(t))
+            },
+          )
+          b.ret(acc)
+        }),
+      ],
+    })
+    const once = unrollLoops(m)
+    expect(countFors(once)).toBe(1) // loop B deferred — its bound is not yet a literal
+    const twice = unrollLoops(constProp(once))
+    expect(countFors(twice)).toBe(0) // constProp exposed loop B → now unrolled
+    const names = declNames(twice)
+    expect(new Set(names).size).toBe(names.length) // every binding unique — no `_u0_t` twice
+    // and the twice-unrolled module still computes the original values.
+    const orig = compileModule(m).fns.k!
+    const opt = compileModule(twice).fns.k!
+    for (const args of [[0.5], [1], [-2]])
+      expect(opt(...args), `args=${args}`).toEqual(orig(...args))
+  })
+
+  it('handles u32 counters — unrolls in range, skips a below-zero wrap', () => {
+    // A normal u32 count unrolls exactly like i32.
+    const up = module({
+      funcs: [
+        fn('f', { x: f32T }, f32T, ({ x }, b) => {
+          const acc = b.var('acc', f32T, f32(0))
+          b.forRange(
+            'i',
+            u32(0),
+            (i) => i.lt(u32(4)),
+            (cb) => {
+              cb.addAssign(acc, x)
+            },
+          )
+          b.ret(acc)
+        }),
+      ],
+    })
+    expect(countFors(unrollLoops(up))).toBe(0)
+    oracleStable(up, 'f', [[0.5], [1], [-2]])
+
+    // `for (i = 2u; i >= 0u; i -= 1)` never terminates on hardware — a u32 counter
+    // wraps to 0xffffffff below zero. The unbounded JS sim would instead exit at −1
+    // and unroll 3 finite copies; the range guard rejects it, leaving the (broken)
+    // loop untouched rather than silently miscompiling it to finite code.
+    const wrap = module({
+      funcs: [
+        fn('g', { x: f32T }, f32T, ({ x }, b) => {
+          const acc = b.var('acc', f32T, f32(0))
+          b.forRange(
+            'i',
+            u32(2),
+            (i) => i.ge(u32(0)),
+            (cb) => {
+              cb.addAssign(acc, x)
+            },
+            -1,
+          )
+          b.ret(acc)
+        }),
+      ],
+    })
+    expect(countFors(unrollLoops(wrap))).toBe(1) // preserved — the trip count would diverge from hardware
+  })
+
+  it('unrolls a negative-step (count-down) loop', () => {
+    // for (i = 3; i >= 0; i -= 1) — 4 iterations counting down. −1 is inside i32 range,
+    // so the loop terminates cleanly and unrolls (unlike the u32 below-zero wrap above).
+    const m = module({
+      funcs: [
+        fn('f', { x: f32T }, f32T, ({ x }, b) => {
+          const acc = b.var('acc', f32T, f32(0))
+          b.forRange(
+            'i',
+            i32(3),
+            (i) => i.ge(i32(0)),
+            (cb, i) => {
+              cb.addAssign(acc, x.mul(toF32(i)))
+            },
+            -1,
+          )
+          b.ret(acc)
+        }),
+      ],
+    })
+    expect(countFors(unrollLoops(m))).toBe(0)
+    // x*(3+2+1+0) = 6x — a wrong per-iteration literal would diverge.
+    oracleStable(m, 'f', [[0.5], [1], [-2]])
+  })
+
+  it('unrolls a loop with a `!=` termination', () => {
+    // for (i = 0; i != 4; i += 1) — the counter reaches the bound exactly.
+    const m = module({
+      funcs: [
+        fn('f', { x: f32T }, f32T, ({ x }, b) => {
+          const acc = b.var('acc', f32T, f32(0))
+          b.forRange(
+            'i',
+            i32(0),
+            (i) => i.ne(i32(4)),
+            (cb) => {
+              cb.addAssign(acc, x)
+            },
+          )
+          b.ret(acc)
+        }),
+      ],
+    })
+    expect(countFors(unrollLoops(m))).toBe(0)
+    oracleStable(m, 'f', [[0.5], [1], [-2]])
+  })
+
+  it('skips a body with an unconditional top-level return', () => {
+    // for i in 0..4 { acc += x; return acc } — the loop runs <= 1x, so the later
+    // copies would be statically unreachable. Left as a loop.
+    const m = module({
+      funcs: [
+        fn('f', { x: f32T }, f32T, ({ x }, b) => {
+          const acc = b.var('acc', f32T, f32(0))
+          b.forRange(
+            'i',
+            i32(0),
+            (i) => i.lt(i32(4)),
+            (cb) => {
+              cb.addAssign(acc, x)
+              cb.ret(acc)
+            },
+          )
+          b.ret(acc)
+        }),
+      ],
+    })
+    expect(countFors(unrollLoops(m))).toBe(1) // preserved
+    oracleStable(m, 'f', [[0.5], [1]])
+  })
+
+  it('skips a body carrying a loop-level continue', () => {
+    // for i in 0..4 { if (i > 2) { continue } acc += x } — no loop remains to continue.
+    const m = module({
+      funcs: [
+        fn('f', { x: f32T }, f32T, ({ x }, b) => {
+          const acc = b.var('acc', f32T, f32(0))
+          b.forRange(
+            'i',
+            i32(0),
+            (i) => i.lt(i32(4)),
+            (cb, i) => {
+              cb.if(i.gt(i32(2)), (c2) => {
+                c2.continue()
+              })
+              cb.addAssign(acc, x)
+            },
+          )
+          b.ret(acc)
+        }),
+      ],
+    })
+    expect(countFors(unrollLoops(m))).toBe(1) // preserved
+    oracleStable(m, 'f', [[0.5], [1]])
+  })
+
+  it('skips a loop whose counter is shadowed by a body-local', () => {
+    // for i in 0..4 { let i = 9; acc += x } — a body `let i` shadows the counter, so
+    // the per-iteration literal could not be substituted soundly. Left as a loop.
+    const m = module({
+      funcs: [
+        fn('f', { x: f32T }, f32T, ({ x }, b) => {
+          const acc = b.var('acc', f32T, f32(0))
+          b.forRange(
+            'i',
+            i32(0),
+            (i) => i.lt(i32(4)),
+            (cb) => {
+              cb.let('i', i32(9))
+              cb.addAssign(acc, x)
+            },
+          )
+          b.ret(acc)
+        }),
+      ],
+    })
+    expect(countFors(unrollLoops(m))).toBe(1) // preserved — the shadow clobbers the counter name
   })
 })

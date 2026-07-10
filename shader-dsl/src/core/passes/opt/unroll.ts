@@ -161,9 +161,19 @@ function analyzeLoop(s: ForStmt): LoopInfo | undefined {
   const step = readStep(s.update, name)
   if (step === undefined || step === 0) return undefined
 
+  // Simulate in the counter type's modular RANGE, not unbounded JS. A value that
+  // leaves [lo, hi] wraps on i32 / u32 hardware — a u32 counter stepping below 0
+  // becomes 0xffffffff, making `i >= 0u` an infinite loop the JS sim would instead
+  // exit at −1 and "unroll" to a finite body. Reject such a loop rather than emit an
+  // unsound trip count; this is what keeps the header's "exact for an integer counter
+  // on every target" true.
+  const lo = type.scalar === 'u32' ? 0 : -0x80000000
+  const hi = type.scalar === 'u32' ? 0xffffffff : 0x7fffffff
+
   const seq: number[] = []
   let v = start
   for (let guard = 0; guard < SIM_CAP; guard++) {
+    if (v < lo || v > hi) return undefined // would wrap on hardware — the JS sim diverges
     if (!cmpHolds(cond.cop, v, cond.bound)) return { name, type, seq }
     seq.push(v)
     if (seq.length > MAX_TRIP) return undefined // not "small"
@@ -333,6 +343,23 @@ function unrollBlock(body: readonly Stmt[], counter: { n: number }): Stmt[] {
   return out
 }
 
+/** The next fresh `_u{k}_` suffix for `body` — past any suffix an EARLIER unroll pass
+ *  already emitted. unrollLoops re-runs on the optimize()->emitModule() fixpoint (an
+ *  enabling pass such as constProp can expose a newly-unrollable loop between runs), so
+ *  a per-call reset to 0 would re-mint a `_u0_` that redeclares the first pass's
+ *  flattened copy in the same fn scope — a naga / tint error the oracle's value-equality
+ *  gate cannot see. Same guard cse.ts applies to its `_cseN` temps. */
+function seedSuffix(body: readonly Stmt[]): number {
+  const names = new Set<string>()
+  collectLocals(body, names)
+  let n = 0
+  for (const name of names) {
+    const mm = /^_u(\d+)_/.exec(name)
+    if (mm) n = Math.max(n, Number(mm[1]) + 1)
+  }
+  return n
+}
+
 /** Unroll small fixed-count loops throughout a module. Pure (module -> module). */
 export function unrollLoops(m: ModuleDecl): ModuleDecl {
   return {
@@ -340,7 +367,7 @@ export function unrollLoops(m: ModuleDecl): ModuleDecl {
     funcs: m.funcs.map((f): FuncDecl =>
       // A raw WGSL stmt is opaque (it may reference the counter textually) — bail
       // the whole fn, exactly as licm / gvn do.
-      bodyHasRaw(f.body) ? f : { ...f, body: unrollBlock(f.body, { n: 0 }) },
+      bodyHasRaw(f.body) ? f : { ...f, body: unrollBlock(f.body, { n: seedSuffix(f.body) }) },
     ),
   }
 }
