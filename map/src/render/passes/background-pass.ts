@@ -30,7 +30,7 @@ import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { worldBandForProjType } from '@xgis/geo'
 import { resolveColorShape, resolveNumberShape } from '../paint-shape-resolve'
 import type { FrameContext } from '../frame-context'
-import { unwrapProjection } from '@xgis/engine'
+import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, BackgroundPassHost } from './pass'
 

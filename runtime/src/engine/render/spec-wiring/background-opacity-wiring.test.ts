@@ -37,7 +37,7 @@ import { describe, it, expect } from 'vitest'
 import type { PropertyShape } from '@xgis/compiler'
 import { backgroundPass } from '@xgis/map'
 import type { FrameContext } from '@xgis/map'
-import { makeProjectionToken } from '@xgis/engine'
+import { makeProjectionToken } from '@xgis/map'
 import type { BackgroundPassHost } from '@xgis/map'
 import type { SceneView } from '@xgis/map'
 

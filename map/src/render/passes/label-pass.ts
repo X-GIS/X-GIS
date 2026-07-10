@@ -32,7 +32,7 @@ import { resolveText } from '../../text/text-resolver'
 import { hexToRgba, featureAnchor } from '../../feature-helpers'
 import { type ShowCommand } from '../renderer-types'
 import type { FrameContext } from '../frame-context'
-import { unwrapProjection } from '@xgis/engine'
+import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, LabelPassHost } from './pass'
 

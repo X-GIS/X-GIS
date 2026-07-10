@@ -2,13 +2,15 @@
 //
 // The map `FrameContext` (map/src/render/frame-context.ts) carries ONE of these
 // per frame and transports it frame-to-frame, but it can NEVER decode it:
-// `ProjectionToken` exposes no readable members, so engine code that reaches for
-// `.projType` / `.centerLon` / `.centerLat` fails to type-check. Only content code — the draw
-// closures + the background / opaque / points / heatmap / label passes that own
-// the projection-specific shader/draw signatures — unwraps it via
-// `unwrapProjection()`. This is the P2-carve §3 inversion: the engine frame
-// struct is projection-blind; the projection triple lives behind a content
-// handle.
+// `ProjectionToken` exposes no readable members, so transport code that reaches
+// for `.projType` / `.centerLon` / `.centerLat` fails to type-check. Only the
+// unwrap sites — the draw closures + the background / opaque / points / heatmap
+// / label passes that own the projection-specific shader/draw signatures —
+// decode it via `unwrapProjection()`. This is the P2-carve §3 inversion: the
+// frame struct is projection-blind; the projection triple lives behind a
+// content handle. The module itself moved from @xgis/engine to map (#929 C):
+// after FrameContext's own #781 relocation no engine code read OR carried the
+// token, so even the projection vocabulary is out of the engine package.
 //
 // The token is MINTED from values the render loop already computes for the
 // camera (the azimuthal-when-tilted projType + the RTC-centre lon/lat); minting
@@ -19,9 +21,9 @@
 
 declare const PROJECTION_TOKEN_BRAND: unique symbol
 
-/** Opaque projection handle. Engine transports it on FrameContext but has no
- *  way to read the projection triple it wraps (the brand is its only typed
- *  member). Content mints it (`makeProjectionToken` / `setProjectionToken`) and
+/** Opaque projection handle. FrameContext transports it but has no way to
+ *  read the projection triple it wraps (the brand is its only typed member).
+ *  Content mints it (`makeProjectionToken` / `setProjectionToken`) and
  *  decodes it (`unwrapProjection`). */
 export interface ProjectionToken {
   readonly [PROJECTION_TOKEN_BRAND]: true

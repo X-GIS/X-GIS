@@ -18,7 +18,7 @@
 
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import type { FrameContext } from '../frame-context'
-import { unwrapProjection } from '@xgis/engine'
+import { unwrapProjection } from '../projection-token'
 import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, GraphicsPassHost } from './pass'

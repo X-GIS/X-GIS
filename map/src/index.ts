@@ -222,4 +222,7 @@ export type { BackgroundPassHost } from './render/passes/pass-hosts'
 export type { SceneView } from './render/scene-view'
 // #781 — per-frame render-loop state (relocated from @xgis/rhi-webgpu; carries the geo Camera).
 export type { FrameContext } from './render/frame-context'
+// #929 C — the opaque projection token moved here from @xgis/engine (content
+// mints/decodes it; FrameContext only transports it).
+export * from './render/projection-token'
 export { lineLabelDeduped, lineIconIsIconOnly } from './render/passes/label-pass'

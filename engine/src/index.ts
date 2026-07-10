@@ -15,7 +15,10 @@ export * from './gpu/quality'
 // NOTE: no ECEF re-export. The `./projection/` subtree is gone — the ellipsoid
 // math lives in @xgis/shared and the projection library in @xgis/geo (#781 3c/3d).
 // Consumers import ECEF from @xgis/shared directly; the engine is projection-free.
-export * from './render/projection-token'
+// The opaque ProjectionToken moved to @xgis/map with the FrameContext that
+// transports it (#929 C) — no engine code ever read OR carried it after #781,
+// so even the projection VOCABULARY (projType/centerLon/centerLat) is gone
+// from this package.
 // Reflect-derived typed std140 pack target (#733): write() full-struct pack with
 // compile-time completeness + set.* zero-alloc per-field setters.
 export * from './render/uniform-block'

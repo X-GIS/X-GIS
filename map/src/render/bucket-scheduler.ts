@@ -31,7 +31,7 @@ import { isSafeMode } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import type { RenderTraceRecorder, RGBA } from '../diagnostics/render-trace'
 import type { FrameContext } from './frame-context'
-import { unwrapProjection } from '@xgis/engine'
+import { unwrapProjection } from './projection-token'
 import type { RhiPipelineHandle } from '@xgis/engine'
 import type { PointRenderer } from './point-renderer'
 
