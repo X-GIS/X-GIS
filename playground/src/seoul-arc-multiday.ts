@@ -62,6 +62,30 @@ function divergingHex(net: number, sat: number): string {
   return `#${hex2(lo.c[0] + (hi.c[0] - lo.c[0]) * f)}${hex2(lo.c[1] + (hi.c[1] - lo.c[1]) * f)}${hex2(lo.c[2] + (hi.c[2] - lo.c[2]) * f)}`
 }
 
+// ── Sequential ramp for TOTAL ACTIVITY (in+out+intra) — a single-hue magnitude scale
+// (slate → violet → fuchsia), distinct from the diverging net ramp AND the amber arrows. ──
+const SEQ_STOPS: Array<{ t: number; c: RGB }> = [
+  { t: 0.0, c: [15, 23, 42] }, // slate-900 — low activity, near background
+  { t: 0.25, c: [76, 29, 149] }, // violet-900
+  { t: 0.5, c: [124, 58, 237] }, // violet-600
+  { t: 0.75, c: [192, 38, 211] }, // fuchsia-600
+  { t: 1.0, c: [240, 171, 252] }, // fuchsia-300 — peak activity
+]
+function sequentialHex(vol: number, max: number): string {
+  const t = Math.min(1, Math.max(0, Math.sqrt(vol / (max || 1)))) // sqrt spread so quiet gu still read
+  let lo = SEQ_STOPS[0]!
+  let hi = SEQ_STOPS[SEQ_STOPS.length - 1]!
+  for (let i = 0; i < SEQ_STOPS.length - 1; i++) {
+    if (t >= SEQ_STOPS[i]!.t && t <= SEQ_STOPS[i + 1]!.t) {
+      lo = SEQ_STOPS[i]!
+      hi = SEQ_STOPS[i + 1]!
+      break
+    }
+  }
+  const f = (t - lo.t) / (hi.t - lo.t || 1)
+  return `#${hex2(lo.c[0] + (hi.c[0] - lo.c[0]) * f)}${hex2(lo.c[1] + (hi.c[1] - lo.c[1]) * f)}${hex2(lo.c[2] + (hi.c[2] - lo.c[2]) * f)}`
+}
+
 const guDecls = GU.map(
   (_, i) =>
     `source gu_${i} { type: geojson }\nlayer c${i} { source: gu_${i} | fill-slate-800 opacity-100 }`,
@@ -87,6 +111,12 @@ const slider = document.getElementById('scrubber') as HTMLInputElement
 const playBtn = document.getElementById('play') as HTMLButtonElement
 const segSelect = document.getElementById('seg-select') as HTMLSelectElement
 const cbField = document.getElementById('cb-field') as HTMLInputElement | null
+const choroToggle = document.getElementById('choro-toggle')!
+const arrowToggle = document.getElementById('arrow-toggle')!
+const rampNet = document.getElementById('ramp-net')!
+const rampAct = document.getElementById('ramp-act')!
+const capChoro = document.getElementById('cap-choro')
+const capArrow = document.getElementById('cap-arrow')
 
 ;(
   window as unknown as { __XGIS_USE_VIRTUAL_INLINE_GEOJSON?: boolean }
@@ -182,15 +212,72 @@ async function main(): Promise<void> {
     return field
   }
 
-  // Stable scales across the whole day (seg=all): net saturation + outflow volume max.
+  // Per-gu TOTAL ACTIVITY (outflow + inflow + INTRA) — the 54.7% intra-gu movement the net
+  // metric can't show (origin==dest ⇒ net 0). A magnitude, coloured by the sequential ramp.
+  function activityByGu(h: number, mode: string): Map<string, number> {
+    const act = new Map<string, number>()
+    for (const r of byHour.get(h) ?? []) {
+      if (!segMatch(r, mode)) continue
+      act.set(r.oName, (act.get(r.oName) ?? 0) + r.pop) // origin side (outflow, or intra)
+      if (r.oName !== r.dName) act.set(r.dName, (act.get(r.dName) ?? 0) + r.pop) // dest side (inflow)
+    }
+    return act
+  }
+
+  // Per-gu NET-FLUX vector (raw). Each inter-gu flow O→D carries momentum pop·unit(O→D) — the
+  // direction population moves — added to BOTH endpoints, so a corridor's gu share one coherent
+  // current. It reverses AM(inbound)↔PM(outbound); the vector magnitude IS the net-flux strength.
+  function netFluxRaw(h: number, mode: string): Map<string, { vx: number; vy: number }> {
+    const acc = new Map<string, { vx: number; vy: number }>()
+    for (const r of byHour.get(h) ?? []) {
+      if (r.oName === r.dName || !segMatch(r, mode)) continue
+      const o = CENTROID.get(r.oName)
+      const d = CENTROID.get(r.dName)
+      if (!o || !d) continue
+      const cos = Math.cos((o.lat * Math.PI) / 180) || 1
+      const dx = (d.lon - o.lon) * cos // ground east
+      const dy = d.lat - o.lat // ground north
+      const len = Math.hypot(dx, dy) || 1
+      const ux = (dx / len) * r.pop
+      const uy = (dy / len) * r.pop
+      for (const key of [r.oName, r.dName]) {
+        const a = acc.get(key) ?? { vx: 0, vy: 0 }
+        a.vx += ux
+        a.vy += uy
+        acc.set(key, a)
+      }
+    }
+    return acc
+  }
+
+  // Net-flux field in the same {fx,fy,vnorm} shape the arrow accessors read: unit current
+  // direction + 0–1 net-flux magnitude (arrow length). Balanced gu → small vnorm → faint.
+  function netFluxField(h: number, mode: string, mag: number): Map<string, Vec> {
+    const field = new Map<string, Vec>()
+    for (const [name, a] of netFluxRaw(h, mode)) {
+      const m = Math.hypot(a.vx, a.vy) || 1
+      field.set(name, { fx: a.vx / m, fy: a.vy / m, vnorm: Math.min(1, Math.sqrt(m / (mag || 1))) })
+    }
+    return field
+  }
+
+  // Stable scales across the whole day (seg=all): net saturation, outflow volume max,
+  // total-activity max (choropleth activity mode), and net-flux magnitude max (net-flux arrows).
   const allAbs: number[] = []
   let volMax = 1
+  let actMax = 1
+  let fluxMax = 1
   for (let h = 0; h < HOURS; h++) {
     for (const v of netByGu(h, 'all').values()) allAbs.push(Math.abs(v))
     const vol = new Map<string, number>()
     for (const r of byHour.get(h) ?? [])
       if (r.oName !== r.dName) vol.set(r.oName, (vol.get(r.oName) ?? 0) + r.pop)
     for (const v of vol.values()) if (v > volMax) volMax = v
+    for (const v of activityByGu(h, 'all').values()) if (v > actMax) actMax = v
+    for (const a of netFluxRaw(h, 'all').values()) {
+      const m = Math.hypot(a.vx, a.vy)
+      if (m > fluxMax) fluxMax = m
+    }
   }
   allAbs.sort((a, b) => a - b)
   const sat = allAbs[Math.floor(allAbs.length * 0.85)] || 1
@@ -198,7 +285,12 @@ async function main(): Promise<void> {
   slider.max = String(HOURS - 1)
   let hour = 0
   let fieldOn = cbField?.checked ?? true
-  let field: Map<string, Vec> = computeField(hour, segSelect.value, volMax)
+  let choroMode: 'net' | 'activity' = 'net' // 자치구 색: 순유입(diverging) ↔ 총활동(sequential)
+  let arrowMode: 'outflow' | 'netflux' = 'outflow' // 화살표: 유출 방향 ↔ 순유입(net) 방향
+  // The arrow accessors read this live `field`; which field it holds depends on the arrow mode.
+  const currentField = (h: number, mode: string): Map<string, Vec> =>
+    arrowMode === 'netflux' ? netFluxField(h, mode, fluxMax) : computeField(h, mode, volMax)
+  let field: Map<string, Vec> = currentField(hour, segSelect.value)
 
   // ── LAYER 2: the GPU movement vector field — a fixed 25-instance arrow batch. Accessors
   // read the live `field`/`fieldOn`; each hour re-packs via handle.update (no per-frame cost). ──
@@ -209,13 +301,13 @@ async function main(): Promise<void> {
       const c = CENTROID.get(name)!
       return [c.lon, c.lat]
     },
-    // Geographic bearing of the outflow (0°=north, CW). Projected on the GPU → correct under
-    // any camera. f.fx = east component, f.fy = north component.
+    // Geographic bearing of the movement field (0°=north, CW) — outflow or net-flux per the
+    // arrow mode. Projected on the GPU → correct under any camera. f.fx = east, f.fy = north.
     getBearing: (name) => {
       const f = field.get(name)
       return f ? (Math.atan2(f.fx, f.fy) * 180) / Math.PI : 0
     },
-    // Arrow LENGTH (px) ∝ √outflow-volume; 0 = invisible (weak / field off).
+    // Arrow LENGTH (px) ∝ √field-magnitude; 0 = invisible (weak / field off).
     getSize: (name) => {
       const f = field.get(name)
       return fieldOn && f && f.vnorm >= ARROW_MIN_VNORM ? 14 + 56 * f.vnorm : 0
@@ -226,25 +318,29 @@ async function main(): Promise<void> {
 
   function renderFrame(h: number): void {
     const mode = segSelect.value
-    const net = netByGu(h, mode)
-    let topInName = ''
-    let topInVal = 0
+    // ── LAYER 1: choropleth — 순유입(diverging) or 총활동(sequential). Recolour ONLY (no re-tile). ──
+    const metric = choroMode === 'activity' ? activityByGu(h, mode) : netByGu(h, mode)
+    let topName = ''
+    let topVal = 0
     GU.forEach((name, i) => {
-      const v = net.get(name) ?? 0
-      map.setPaintProperty(`c${i}`, 'fill-color', divergingHex(v, sat))
-      if (v > topInVal) {
-        topInVal = v
-        topInName = name
+      const v = metric.get(name) ?? 0
+      const hex = choroMode === 'activity' ? sequentialHex(v, actMax) : divergingHex(v, sat)
+      map.setPaintProperty(`c${i}`, 'fill-color', hex)
+      if (v > topVal) {
+        topVal = v
+        topName = name
       }
     })
-    // Recompute the field for this hour+segment and re-pack the arrow batch (25 instances).
-    field = computeField(h, mode, volMax)
+    // ── LAYER 2: recompute the arrow field (outflow or net-flux) + re-pack the 25 instances. ──
+    field = currentField(h, mode)
     arrows.update({ triggers: ['rotation', 'size'] })
 
     const hh = String(h).padStart(2, '0')
-    hourLabel.textContent = topInName
-      ? `${hh}:00 · ${daypart(h)} — ${topInName} 유입`
-      : `${hh}:00 · ${daypart(h)} — 균형`
+    const what = choroMode === 'activity' ? '최다활동' : '유입'
+    const balanced = choroMode === 'activity' ? '활동' : '균형'
+    hourLabel.textContent = topName
+      ? `${hh}:00 · ${daypart(h)} — ${topName} ${what}`
+      : `${hh}:00 · ${daypart(h)} — ${balanced}`
     slider.value = String(h)
     map.invalidate()
   }
@@ -263,6 +359,32 @@ async function main(): Promise<void> {
       arrows.update({ triggers: ['size'] }) // size 0 hides the field without re-adding the batch
       map.invalidate()
     }
+
+  // ── Mode toggles — both recolour/re-pack via renderFrame (setPaintProperty + arrow update
+  // only; the polygons are tiled once, so switching mode never re-tiles → zero flicker). ──
+  const setActive = (container: HTMLElement, active: string): void => {
+    container.querySelectorAll<HTMLButtonElement>('.seg-opt').forEach((b) => {
+      b.classList.toggle('is-active', b.dataset.mode === active)
+    })
+  }
+  choroToggle.querySelectorAll<HTMLButtonElement>('.seg-opt').forEach((btn) => {
+    btn.onclick = () => {
+      choroMode = btn.dataset.mode === 'activity' ? 'activity' : 'net'
+      setActive(choroToggle, choroMode)
+      rampNet.style.display = choroMode === 'net' ? '' : 'none'
+      rampAct.style.display = choroMode === 'activity' ? '' : 'none'
+      if (capChoro) capChoro.textContent = choroMode === 'activity' ? '총활동' : '순유입'
+      renderFrame(hour)
+    }
+  })
+  arrowToggle.querySelectorAll<HTMLButtonElement>('.seg-opt').forEach((btn) => {
+    btn.onclick = () => {
+      arrowMode = btn.dataset.mode === 'netflux' ? 'netflux' : 'outflow'
+      setActive(arrowToggle, arrowMode)
+      if (capArrow) capArrow.textContent = arrowMode === 'netflux' ? '순유입' : '유출'
+      renderFrame(hour)
+    }
+  })
 
   let timer: ReturnType<typeof setInterval> | null = null
   function play(): void {
