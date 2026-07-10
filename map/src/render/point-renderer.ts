@@ -5,7 +5,6 @@
 
 import type { Camera } from '../camera'
 import { isWebMercator } from '@xgis/geo'
-import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { getSampleCount } from '@xgis/engine'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import { parseHexColor } from '../feature-helpers'
@@ -110,12 +109,18 @@ export function writePointFrameUniform(
   projCenterLat: number,
   canvasWidth: number,
   canvasHeight: number,
+  dpr: number,
   circleTranslateX = 0,
   circleTranslateY = 0,
   circleBlur = 0,
   circlePitchScaleMap = false,
 ): void {
-  const metersPerPixel = WORLD_MERC / TILE_PX / Math.pow(2, camera.zoom)
+  // #739 — the world scale the frozen low-zoom flat MVP actually renders at
+  // (single authority, mirrors getViewForProjection's cap), NOT the uncapped
+  // WORLD_MERC/TILE_PX/2^zoom. Without this a px-sized circle changed device px
+  // across the sub-cap band while the view stayed frozen, exactly like the line
+  // width. Globe/ECEF returns the uncapped mpp unchanged (scoped out, #739).
+  const metersPerPixel = camera.effectiveMpp(projType, canvasHeight, dpr)
   // Camera centre for the per-vertex re-centring. Flat Mercator (projType 0)
   // uses the 2D Mercator centre (camera.centerX/Y) split DSFUN into the .xy
   // lanes — the flat VS does rel = project(abs) − (cam_ecef_h.xy + cam_ecef_l.xy)
@@ -636,6 +641,7 @@ export class PointRenderer {
       projCenterLat,
       canvasWidth,
       canvasHeight,
+      dpr,
       tileTranslateX,
       tileTranslateY,
       show.circleBlur ?? 0,
@@ -1093,6 +1099,7 @@ export class PointRenderer {
         projCenterLat,
         canvasWidth,
         canvasHeight,
+        dpr,
         layer.circleTranslateX,
         layer.circleTranslateY,
         layer.circleBlur,

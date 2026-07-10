@@ -20,7 +20,7 @@
 import { describe, it, expect } from 'vitest'
 import type { Camera } from '../camera'
 import { uniformBlock } from '@xgis/engine'
-import { WORLD_MERC, TILE_PX } from '@xgis/geo'
+import { WORLD_MERC, TILE_PX, flatViewHeightCapM, isGlobeProj } from '@xgis/geo'
 import { reflect } from '@xgis/shader-dsl'
 import { buildPointModule, pointU as POINT_U } from '../shaders/dsl/point'
 import { writePointFrameUniform } from './point-renderer'
@@ -42,11 +42,24 @@ interface Fixture {
 
 const MVP = Float32Array.from({ length: 16 }, (_, i) => (i + 1) * 0.5)
 const LOG_DEPTH_FC = 0.123456
+const CAM_ZOOM = 5.25
 const CAM = {
-  zoom: 5.25,
+  zoom: CAM_ZOOM,
   centerX: 0.31234567890123,
   centerY: 0.65987654321098,
+  globeMode: false,
   getECEFCenter: () => [1234567.891234, -7654321.987654, 3456789.123456] as const,
+  // #739 — mirror Camera.effectiveMpp for the fixtures (no `this`: the cast
+  // literal types `this` as {}). CAM is never in globeMode; projType 7 routes via
+  // isGlobeProj. At zoom 5.25 the raw view height is far below every projType's
+  // cap, so effectiveMpp === rawMpp and the retired-lane reference bytes (raw
+  // mpp) still hold: DC=0 above the sub-cap band, the migration contract this
+  // gate pins.
+  effectiveMpp(projType: number, canvasHeight: number, dpr: number): number {
+    const rawMpp = WORLD_MERC / TILE_PX / Math.pow(2, CAM_ZOOM)
+    if (isGlobeProj(projType)) return rawMpp
+    return Math.min(rawMpp, flatViewHeightCapM(projType, WORLD_MERC) / (canvasHeight / dpr))
+  },
 } as unknown as Camera
 
 const FIXTURES: readonly Fixture[] = [
@@ -174,6 +187,7 @@ describe('point frame uniform — block bytes ≡ retired lane writer', () => {
         f.projCenterLat,
         f.canvasWidth,
         f.canvasHeight,
+        1, // dpr — effectiveMpp collapses to raw mpp above the sub-cap band
         f.circleTranslateX,
         f.circleTranslateY,
         f.circleBlur,

@@ -300,6 +300,7 @@ export class GraphicsManager {
       projCenterLat,
       canvasWidth,
       canvasHeight,
+      dpr,
     )
     // One frame-uniform snapshot per visible world copy — each with its own
     // world_offset poked into circle_params.x (dead-for-icons). Copies are 1..~5

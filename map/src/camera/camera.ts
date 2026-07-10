@@ -823,6 +823,36 @@ export class Camera {
     return this.getECEFFrameView(canvasWidth, canvasHeight, dpr)
   }
 
+  /** The world scale (metres per CSS pixel) the CURRENT flat MVP actually
+   *  renders at — the single authority every zoom-scaled SIZE consumer (line
+   *  width, point size, dash/pattern spacing) must read so on-screen sizes never
+   *  diverge from the view (#739).
+   *
+   *  `buildRTCMatrix` saturates its view height at the per-projType cap
+   *  (`flatViewHeightCapM`) below z* = log2(canvasHeightCss·TILE_PX/cap), which
+   *  FREEZES the projection scale so the world frames the canvas and low-zoom
+   *  perspective stays sane (merc-z0-pitch-perspective / non-merc-z0-disc — the
+   *  "regime MapLibre operates in at low zoom"). A size consumer that scales the
+   *  world by the UNCAPPED `WORLD_MERC/TILE_PX/2^zoom` therefore keeps changing
+   *  while the view is frozen — the #739 line-width bug. This returns the capped
+   *  world scale `viewHeightMeters / canvasHeightCss`, identically
+   *  `min(rawMpp, cap/canvasHeightCss)`, so the `mpp × MVPscale` cancellation
+   *  that holds pixel width constant is restored across the whole zoom range.
+   *
+   *  `projType` is passed (not read from `this.projType`) and the flat/3D branch
+   *  MIRRORS `getViewForProjection` exactly, so the returned scale always matches
+   *  the matrix that call produced. Globe / ECEF (globeMode or projType 7) keep
+   *  the uncapped Mercator mpp unchanged — their MVP uses a different (cos-lat)
+   *  cap this method does not model; #739 scopes that path out (UNVERIFIED).
+   *  `canvasHeight` is DEVICE px and `dpr` converts it to the CSS basis, matching
+   *  `buildRTCMatrix`'s `canvasHeight / dpr`. */
+  effectiveMpp(projType: number, canvasHeight: number, dpr: number = 1): number {
+    const rawMpp = WORLD_MERC / TILE_PX / Math.pow(2, this.zoom)
+    if (this.globeMode || isGlobeProj(projType)) return rawMpp
+    const cap = flatViewHeightCapM(projType, WORLD_MERC)
+    return Math.min(rawMpp, cap / (canvasHeight / dpr))
+  }
+
   // Mercator Y limit: ±85.051129° → WORLD_MERC/2 (≈ ±20037508.34m)
   private static readonly MAX_Y = WORLD_MERC / 2
 
