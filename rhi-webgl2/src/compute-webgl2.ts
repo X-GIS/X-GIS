@@ -24,8 +24,18 @@ import {
   vec4fT,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
-import type { ComputeKernel } from '@xgis/compiler'
 import type { WebGl2Device } from '@xgis/rhi-webgl2'
+
+/** The two fields this dispatcher reads off a compiler `ComputeKernel`, typed
+ *  structurally over the shader-dsl IR so the adapter needs no @xgis/compiler
+ *  import (#929 B3) — any real ComputeKernel satisfies it. */
+export interface ComputeKernelLike {
+  /** Backend-neutral shader-dsl IR for the kernel (package-responsibilities
+   *  ruling i: the compiler returns IR; the runtime emits GLSL here). */
+  module: ModuleDecl
+  /** f32 slots per feature in the packed feat_data buffer. */
+  featureStrideF32: number
+}
 
 // The fullscreen-triangle vertex shader, DSL-authored (NOT a raw GLSL string).
 // Authored LOCALLY (#929 B) — this adapter used to import the engine's
@@ -78,7 +88,7 @@ const fullscreenVsGlsl = (): string => (_vsCache ??= emitGlslModule(fullscreenVs
  */
 export function dispatchComputeKernelWebGl2(
   device: WebGl2Device,
-  kernel: ComputeKernel,
+  kernel: ComputeKernelLike,
   featData: Float32Array,
 ): Uint32Array {
   const n = Math.floor(featData.length / kernel.featureStrideF32)

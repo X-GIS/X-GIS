@@ -12,11 +12,10 @@
     "build": "tsc --build"
   },
   "dependencies": {
-    "@xgis/engine": "workspace:*",
-    "@xgis/rhi": "workspace:*"
+    "@xgis/rhi": "workspace:*",
+    "@xgis/shader-dsl": "workspace:*"
   },
   "devDependencies": {
-    "@xgis/compiler": "workspace:*",
-    "@xgis/shader-dsl": "workspace:*"
+    "@xgis/engine": "workspace:*"
   }
 }

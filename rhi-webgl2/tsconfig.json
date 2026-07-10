@@ -12,17 +12,13 @@
     "types": [],
     "paths": {
       "@xgis/rhi": ["../rhi/dist/index.d.ts"],
+      // engine is TEST-only (the vs-parity gate pins the local fullscreen-VS
+      // twin against the engine emit); src has no engine import (#929 B).
       "@xgis/engine": ["../engine/dist/index.d.ts"],
-      "@xgis/compiler": ["../compiler/dist/index.d.ts"],
       "@xgis/shader-dsl": ["../shader-dsl/dist/index.d.ts"],
       "@xgis/shader-dsl/*": ["../shader-dsl/dist/*"]
     }
   },
-  "references": [
-    { "path": "../rhi" },
-    { "path": "../engine" },
-    { "path": "../compiler" },
-    { "path": "../shader-dsl" }
-  ],
+  "references": [{ "path": "../rhi" }, { "path": "../engine" }, { "path": "../shader-dsl" }],
   "include": ["src/**/*.ts"]
 }

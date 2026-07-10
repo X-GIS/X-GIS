@@ -132,12 +132,11 @@
       "name": "@xgis/rhi-webgl2",
       "version": "0.0.1",
       "dependencies": {
-        "@xgis/engine": "workspace:*",
         "@xgis/rhi": "workspace:*",
+        "@xgis/shader-dsl": "workspace:*",
       },
       "devDependencies": {
-        "@xgis/compiler": "workspace:*",
-        "@xgis/shader-dsl": "workspace:*",
+        "@xgis/engine": "workspace:*",
       },
     },
     "rhi-webgpu": {
