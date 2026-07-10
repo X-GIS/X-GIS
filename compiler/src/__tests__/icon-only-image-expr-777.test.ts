@@ -135,6 +135,60 @@ describe('#777 I2 — ["image", …] expression resolves in the icon-image conte
     expect(def.iconImage).toBeUndefined()
     expect(def.iconImageExpr).toBeUndefined()
   })
+
+  it('["image", …] at a ["match"] LABEL position is preserved, NOT silently unwrapped to a bare string', () => {
+    // ["image","photo"] here is a match LABEL (input ∈ {'image','photo'}),
+    // NOT an ["image", …] expression. unwrapImageExpr must recurse only
+    // into the match input / outputs / fallback — never the label — or it
+    // strips the leading 'image' and silently rewrites the arm to
+    // `"photo" -> "camera_11"` (the 'image' key vanishes with no warning).
+    // With the label kept intact, convertMatch's strict literal-label gate
+    // rejects it LOUDLY (Mapbox spec: labels must be literal string/number).
+    const layer = {
+      ...base,
+      layout: {
+        'icon-image': ['match', ['get', 'class'], ['image', 'photo'], 'camera_11', 'marker_11'],
+      },
+    }
+    const out = convert(layer)
+    // Loud, not silent: the invalid-label warning surfaces in the notes.
+    expect(out).toContain('not literal string/number')
+    // And the emitted expression carries NO silently-corrupted "photo"
+    // arm — class='photo' falls to the default, it does not map to
+    // camera_11 via a mis-parsed single-string label.
+    const def = compileLabel(layer)
+    expect(def.iconImageExpr).toBeDefined()
+    expect(
+      evaluate(
+        def.iconImageExpr!.ast as never,
+        makeEvalProps({ props: { class: 'photo' }, cameraZoom: 14 }),
+      ),
+    ).toBe('marker_11')
+  })
+
+  it('["image", …] at a ["match"] OUTPUT position is still unwrapped (icon POI shape keeps working)', () => {
+    // The output/fallback arms of a match ARE expressions — the image
+    // wrapper on them must still be stripped so the sprite name lowers.
+    const def = compileLabel({
+      ...base,
+      layout: {
+        'icon-image': [
+          'match',
+          ['get', 'class'],
+          'airport',
+          ['image', 'airport_11'],
+          ['image', 'marker_11'],
+        ],
+      },
+    })
+    const ast = def.iconImageExpr!.ast
+    expect(
+      evaluate(ast as never, makeEvalProps({ props: { class: 'airport' }, cameraZoom: 14 })),
+    ).toBe('airport_11')
+    expect(
+      evaluate(ast as never, makeEvalProps({ props: { class: 'other' }, cameraZoom: 14 })),
+    ).toBe('marker_11')
+  })
 })
 
 // Bridge the emitted IR to the runtime: the LabelDef.iconImageExpr AST

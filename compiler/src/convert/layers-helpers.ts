@@ -225,11 +225,27 @@ export function isOmittedValue(v: unknown): boolean {
  *  stripped too. `["literal", …]` payloads are DATA, not an expression
  *  tree, so they are returned untouched. Applied ONLY to icon-image;
  *  text-inline `["format", …, ["image", …]]` spans keep the deferred
- *  format-partial-drop path (issue #777 I2 follow-up). */
+ *  format-partial-drop path (issue #777 I2 follow-up).
+ *
+ *  `match` LABEL positions are the one exception: they are literal values
+ *  (a string/number or an ARRAY of them), NOT expressions. A label array
+ *  like `["image", "photo"]` means "input ∈ {'image','photo'}", not an
+ *  `["image", …]` wrapper — recursing into it would strip the leading
+ *  'image' and silently rewrite the arm's key set. So for `match` only the
+ *  input, the per-arm OUTPUT values and the fallback are recursed; the
+ *  even-index labels pass through untouched to convertMatch's strict
+ *  literal-label gate. */
 export function unwrapImageExpr(v: unknown): unknown {
   if (!Array.isArray(v)) return v
   if (v.length === 2 && v[0] === 'image') return unwrapImageExpr(v[1])
   if (v[0] === 'literal') return v
+  if (v[0] === 'match') {
+    // ["match", input, label1, out1, label2, out2, …, fallback]:
+    // recurse into input (1), outputs (odd indices) and the trailing
+    // fallback (last index); leave the even-index labels intact.
+    const last = v.length - 1
+    return v.map((el, i) => (i === 0 || (i % 2 === 0 && i !== last) ? el : unwrapImageExpr(el)))
+  }
   return v.map((el) => unwrapImageExpr(el))
 }
 
