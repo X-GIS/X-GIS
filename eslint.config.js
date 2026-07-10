@@ -56,6 +56,10 @@ export default tseslint.config(
             // discovery can't parse a newly STAGED one in pre-commit. Lint them
             // via the default project, same as the src tests above.
             'scripts/*.ts',
+            // @xgis/pipeline offline bake tools (csv-to-odb, seoul-openapi-bake)
+            // live outside the package tsconfig's `include` (src/**) for the same
+            // reason — they are devDep scripts, not shipped package code.
+            'pipeline/tools/*.ts',
           ],
           // the default cap is 8 matched files per run; a refactor staging many
           // test files at once must still lint (70 test files exist today).
