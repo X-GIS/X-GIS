@@ -111,6 +111,13 @@ export interface PendingLabel {
    *  drop the paired icon — implements MapLibre's "text+icon as one
    *  symbol" invariant without a full paired-symbol collision queue. */
   pairKey?: string
+  /** #728 — STABLE per-feature collision identity, forwarded to the
+   *  collision pass's `tieBreak`. Derived by the caller from pan-invariant
+   *  keys (resolvedText + quantized world position, qualified by layer
+   *  precedence) so the survivor of two overlapping labels is deterministic
+   *  regardless of tile-dispatch order. Undefined → legacy input-order
+   *  tie-break (imperative overlays). */
+  collisionId?: string
 }
 
 export interface PendingLineLabel {
@@ -144,4 +151,10 @@ export interface PendingLineLabel {
    *  `minLineSpacingPx` of an already-placed one are dropped. Undefined →
    *  unused. */
   anchorDistancePx?: number
+  /** #728 — STABLE per-feature collision identity, forwarded to the
+   *  collision pass's `tieBreak` (mirror of PendingLabel.collisionId). For
+   *  line labels the caller derives it from the tile-stable layer+route
+   *  identity so the surviving shield among cross-tile duplicates is
+   *  deterministic. Undefined → legacy input-order tie-break. */
+  collisionId?: string
 }

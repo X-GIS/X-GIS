@@ -30,10 +30,21 @@ export interface CollisionItem {
   allowOverlap?: boolean
   ignorePlacement?: boolean
   /** Mapbox `symbol-sort-key`. Lower values place first (win
-   *  collisions). Default 0 — items at the same sortKey keep input
-   *  order (stable sort). When undefined on every item, behaviour
-   *  is byte-identical to the pre-sortKey input order. */
+   *  collisions). Default 0 — items at the same sortKey are ordered by
+   *  `tieBreak` (below), falling back to input order. When neither
+   *  sortKey nor tieBreak is set on any item, behaviour is byte-identical
+   *  to the pre-sortKey input order. */
   sortKey?: number
+  /** STABLE per-feature identity used as the deterministic collision
+   *  tie-break AFTER sortKey. Two overlapping labels resolve to the SAME
+   *  winner regardless of input (tile-dispatch) order — the caller derives
+   *  it from already-stable keys (resolvedText + quantized world position
+   *  for points, layer+route for lines) so the survivor no longer flips on
+   *  pan or on which tiles happen to be loaded. Compared ascending; items
+   *  WITH a tieBreak place before items without at the same sortKey. When
+   *  undefined on every item, placement order is byte-identical to the
+   *  legacy input-order (dispatch-order) behaviour. */
+  tieBreak?: string
   /** Stable identifier of the line / feature this label follows.
    *  Two labels with the same lineId enforce a minimum along-line
    *  distance (`minLineSpacingPx`) so labels on the same road
@@ -93,11 +104,13 @@ export interface GreedyOptions {
 /** Run the greedy pass. Returns one `CollisionPlacement` per item
  *  (indexed by ORIGINAL input order, not sortKey order).
  *
- *  When any item carries `sortKey`, the pass first builds a sorted
- *  iteration order by sortKey ascending (stable — items with equal
- *  keys keep their input order). Lower-key labels claim their bboxes
- *  first and block higher-key labels that overlap. When no item has
- *  sortKey, iteration order = input order (byte-identical legacy).
+ *  When any item carries `sortKey` or `tieBreak`, the pass first builds
+ *  a sorted iteration order: sortKey ascending, then `tieBreak` ascending
+ *  (a stable per-feature identity — the same overlapping label wins
+ *  regardless of input order), then input index. Lower-key labels claim
+ *  their bboxes first and block higher-key labels that overlap. When no
+ *  item has either key, iteration order = input order (byte-identical
+ *  legacy first-wins).
  *
  *  When `opts.minLineSpacingPx` is set and an item carries lineId +
  *  anchorDistancePx, a same-line label whose anchorDistance is
@@ -123,19 +136,34 @@ export function greedyPlaceBboxes(
   // per line is small in real styles (highway labels every ~250px).
   const placedByLine: Map<number | string, number[]> = new Map()
   const minLineSp = opts.minLineSpacingPx ?? 0
-  // Sort indices by sortKey ascending. Stable sort: items at the
-  // same key keep their original order, so callers that don't set
-  // sortKey at all see exactly the legacy iteration order.
   const order: number[] = new Array(items.length)
   for (let i = 0; i < items.length; i++) order[i] = i
-  let anySortKey = false
+  // Deterministic placement order. Primary: symbol-sort-key ascending
+  // (lower wins). Secondary: `tieBreak` — a STABLE per-feature identity
+  // supplied by the caller so two overlapping labels resolve to the SAME
+  // winner regardless of input (tile-dispatch) order. Final fallback:
+  // input index, so a caller that sets NEITHER key gets byte-identical
+  // legacy first-wins order (the sort is skipped entirely in that case).
+  let anyOrdering = false
   for (const it of items)
-    if (it.sortKey !== undefined) {
-      anySortKey = true
+    if (it.sortKey !== undefined || it.tieBreak !== undefined) {
+      anyOrdering = true
       break
     }
-  if (anySortKey) {
-    order.sort((a, b) => (items[a]!.sortKey ?? 0) - (items[b]!.sortKey ?? 0))
+  if (anyOrdering) {
+    order.sort((a, b) => {
+      const ka = items[a]!.sortKey ?? 0
+      const kb = items[b]!.sortKey ?? 0
+      if (ka !== kb) return ka - kb
+      const ta = items[a]!.tieBreak
+      const tb = items[b]!.tieBreak
+      if (ta !== undefined && tb !== undefined) {
+        if (ta < tb) return -1
+        if (ta > tb) return 1
+      } else if (ta !== undefined) return -1
+      else if (tb !== undefined) return 1
+      return a - b
+    })
   }
   for (let k = 0; k < order.length; k++) {
     const i = order[k]!

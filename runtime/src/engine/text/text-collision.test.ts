@@ -219,4 +219,67 @@ describe('greedyPlaceBboxes', () => {
       expect(results[0]!.placed).toBe(false)
     })
   })
+
+  // ── #728 stable tieBreak (deterministic collision identity) ──
+  // The survivor of two overlapping labels must be a function of a STABLE
+  // per-feature identity, NOT input (tile-dispatch) order. fail-before: on
+  // pre-#728 code `tieBreak` is ignored, so first-in-input wins and the
+  // survivor flips when the same set is fed in a different order.
+  describe('#728 stable tieBreak', () => {
+    it('survivor is identical under any input order (the lower tieBreak wins)', () => {
+      const A = { bboxes: [bbox(0, 0, 10, 10)], tieBreak: 'id-A' }
+      const B = { bboxes: [bbox(5, 5, 15, 15)], tieBreak: 'id-B' } // overlaps A
+      const forward = greedyPlaceBboxes([A, B])
+      expect(forward[0]!.placed).toBe(true) // A (lower id) wins
+      expect(forward[1]!.placed).toBe(false)
+      // A is now index 1, yet still wins — winner independent of order.
+      const reversed = greedyPlaceBboxes([B, A])
+      expect(reversed[1]!.placed).toBe(true) // A
+      expect(reversed[0]!.placed).toBe(false) // B
+    })
+
+    it('permutation-invariant survivor set (frame_stability pan gate)', () => {
+      // Two overlapping pairs. In EVERY permutation the survivors are the
+      // lower-tieBreak of each pair — the property that keeps a pan across a
+      // tile boundary from swapping which label survives.
+      const items = [
+        { bboxes: [bbox(0, 0, 10, 10)], tieBreak: 'b' },
+        { bboxes: [bbox(5, 5, 15, 15)], tieBreak: 'a' }, // overlaps 'b' → 'a' wins
+        { bboxes: [bbox(100, 100, 110, 110)], tieBreak: 'c' },
+        { bboxes: [bbox(102, 102, 112, 112)], tieBreak: 'd' }, // overlaps 'c' → 'c' wins
+      ]
+      const survivors = (arr: typeof items): Set<string> => {
+        const r = greedyPlaceBboxes(arr)
+        return new Set(arr.filter((_, i) => r[i]!.placed).map((it) => it.tieBreak))
+      }
+      const expected = new Set(['a', 'c'])
+      expect(survivors(items)).toEqual(expected)
+      const perms: (typeof items)[] = [
+        [items[3]!, items[2]!, items[1]!, items[0]!],
+        [items[1]!, items[3]!, items[0]!, items[2]!],
+        [items[2]!, items[0]!, items[3]!, items[1]!],
+      ]
+      for (const p of perms) expect(survivors(p)).toEqual(expected)
+    })
+
+    it('sortKey dominates tieBreak (lower key wins even with a larger identity)', () => {
+      const results = greedyPlaceBboxes([
+        { bboxes: [bbox(0, 0, 10, 10)], sortKey: 10, tieBreak: 'a' }, // larger key → drops
+        { bboxes: [bbox(5, 5, 15, 15)], sortKey: 1, tieBreak: 'z' }, // lower key → wins
+      ])
+      expect(results[0]!.placed).toBe(false)
+      expect(results[1]!.placed).toBe(true)
+    })
+
+    it('items WITH a tieBreak place before items without at the same sortKey', () => {
+      // Deterministic total order for mixed frames (tiled labels carry a
+      // tieBreak, imperative overlays do not).
+      const withId = greedyPlaceBboxes([
+        { bboxes: [bbox(0, 0, 10, 10)] }, // no tieBreak
+        { bboxes: [bbox(5, 5, 15, 15)], tieBreak: 'x' }, // overlaps → identified wins
+      ])
+      expect(withId[1]!.placed).toBe(true)
+      expect(withId[0]!.placed).toBe(false)
+    })
+  })
 })

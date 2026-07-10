@@ -122,6 +122,31 @@ export function pointLabelPairKey(layerName: string | undefined, seq: number): s
 export const shouldEmitPointDedup = (prev: number | undefined, showIdx: number): boolean =>
   prev === undefined || showIdx > prev
 
+/** #728 — STABLE per-feature collision identity, fed to the greedy collision
+ *  pass as its `tieBreak` (addLabel/addCurvedLineLabel → PendingLabel.collisionId
+ *  → CollisionItem.tieBreak). Two overlapping labels then resolve to the SAME
+ *  winner regardless of tile-dispatch order, removing the pan-swap where the
+ *  survivor flipped with which tiles happened to be loaded.
+ *
+ *  Encoded as `<layerPrecedence>\u0000<featureIdentity>`:
+ *   - layerPrecedence preserves MapLibre's "later layer wins" rule — a later
+ *     show (higher layer) must sort FIRST (ascending tieBreak) to win the
+ *     collision, so it is `showCount - showIdx` zero-padded to a constant
+ *     width, making the lexicographic string compare match the numeric order.
+ *   - featureIdentity is the caller's pan-invariant key (points: resolved text
+ *     + quantized world position; lines: the tile-stable layer+route lineId),
+ *     which deterministically disambiguates same-layer overlappers.
+ *  Exported for unit coverage — the dispatch sites are anon callbacks. */
+export function labelCollisionId(
+  showIdx: number,
+  showCount: number,
+  featureIdentity: string,
+): string {
+  const width = String(Math.max(1, showCount)).length
+  const invLayer = String(showCount - showIdx).padStart(width, '0')
+  return `${invLayer}\u0000${featureIdentity}`
+}
+
 /** Per-segment sample count for line-label placement, computed from the
  *  segment's SCREEN length (metres × on-screen px-per-metre), not raw metres.
  *  A segment that crosses the viewport but whose endpoints fall outside the
@@ -1331,6 +1356,15 @@ class LabelPass implements RenderPass {
                   resolvedTextForDedupe !== ''
                     ? `${labelLayerName ?? ''}\u0000${resolvedTextForDedupe}`
                     : undefined
+                // #728 — stable collision identity: layer precedence + the
+                // tile-stable route identity (lineId). Fed to the greedy pass
+                // as its tie-break so the surviving shield among cross-tile
+                // duplicates is deterministic (no pan-swap). lineId-less
+                // (icon-only) symbols render no text and no-op downstream.
+                const lineCollisionId =
+                  lineId !== undefined
+                    ? labelCollisionId(_showIdx, labelShows.length, lineId)
+                    : undefined
                 // Walk the polyline and compute the screen-pixel
                 // position for an offset s along it. Used by the
                 // cross-tile dedupe to evaluate "is this position
@@ -1418,6 +1452,7 @@ class LabelPass implements RenderPass {
                           // anchor's along-polyline screen offset.
                           lineId,
                           total * 0.5,
+                          lineCollisionId,
                         )
                         // OFM road shield + similar: icon-along-line
                         // approximation. Dispatch the icon at the
@@ -1465,6 +1500,7 @@ class LabelPass implements RenderPass {
                           // #605 — see the short-line call above.
                           lineId,
                           nextStop,
+                          lineCollisionId,
                         )
                         dispatchIcon(featDef, sx, sy, tang, pairKey, true, props)
                         recordTextPosition(resolvedTextForDedupe, sx, sy)
@@ -1596,6 +1632,17 @@ class LabelPass implements RenderPass {
               )
                 return
               if (dedupKey !== '') emittedPointNames.set(dedupKey, _showIdx)
+              // #728 — stable collision identity: layer precedence + the
+              // pan-invariant feature key (resolved text + quantized world
+              // position, mirroring the dedup lattice so cross-tile centroids
+              // of one feature share an id). Fed to the greedy pass as its
+              // tie-break so which of two overlapping point labels survives no
+              // longer flips with tile-dispatch order on pan.
+              const pointCollisionId = labelCollisionId(
+                _showIdx,
+                labelShows.length,
+                `${resolvedText}|${Math.round(mercX / 256)},${Math.round(mercY / 256)}`,
+              )
               // No fontKey override — see note at line ~2370.
               // World-copy loop on MERCATOR coords directly — skips
               // the merc → lonLat → merc round-trip the previous
@@ -1623,6 +1670,7 @@ class LabelPass implements RenderPass {
                     undefined,
                     labelLayerName,
                     pairKey,
+                    pointCollisionId,
                   )
                   dispatchIcon(featDef, projected[0], projected[1], 0, pairKey)
                 }
@@ -1653,6 +1701,7 @@ class LabelPass implements RenderPass {
                   undefined,
                   labelLayerName,
                   pairKey,
+                  pointCollisionId,
                 )
                 dispatchIcon(featDef, px, py, 0, pairKey)
               }
