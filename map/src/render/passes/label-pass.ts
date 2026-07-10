@@ -18,7 +18,7 @@
 import { evaluate, makeEvalProps, resolveColor } from '@xgis/compiler'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__profile__/perf-marks'
 import { DEBUG_OVERDRAW } from '../../debug-flags'
-import { WORLD_MERC, TILE_PX } from '@xgis/geo'
+import { WORLD_MERC } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { mercatorYToLat } from '@xgis/geo'
 import { isGlobeProj } from '@xgis/geo'
@@ -149,12 +149,17 @@ export function lineLabelSubdivSteps(
  *  Mercator metres; `centerX|0` ticks only every 1 m, which at deep zoom is tens
  *  of px (z22: mpp ≈ 0.0186 m/px → 1 m ≈ 54 px), so a sub-metre drag froze the
  *  icons/shields for tens of px while the GPU road kept moving (#402-C jitter).
- *  Dividing by mpp = WORLD_MERC/TILE_PX/2^zoom yields the centre's pixel
- *  coordinate, so the key ticks per ~1 px of pan at every zoom (and stops the
- *  wasteful per-metre rebakes at low zoom where 1 m ≪ 1 px). Exported for
- *  coverage. */
-export function dispatchCenterKey(centerX: number, centerY: number, zoom: number): string {
-  const mpp = WORLD_MERC / TILE_PX / Math.pow(2, zoom)
+ *  Dividing by `mpp` yields the centre's pixel coordinate, so the key ticks per
+ *  ~1 px of pan at every zoom (and stops the wasteful per-metre rebakes at low
+ *  zoom where 1 m ≪ 1 px).
+ *
+ *  `mpp` MUST be the single effective-mpp authority (camera.effectiveMpp — the
+ *  capped scale the frozen low-zoom view actually renders at), NOT the uncapped
+ *  WORLD_MERC/TILE_PX/2^zoom: in the sub-cap band the on-screen pan is governed by
+ *  the frozen (capped) scale, so the key must quantize by it to keep ticking per
+ *  TRUE on-screen px (#964). Above z* effective === raw, so this is inert there.
+ *  Exported for coverage; the live path (execute) inlines the same quantization. */
+export function dispatchCenterKey(centerX: number, centerY: number, mpp: number): string {
   return `${(centerX / mpp) | 0},${(centerY / mpp) | 0}`
 }
 
@@ -577,9 +582,13 @@ class LabelPass implements RenderPass {
       // per-frame `_dispatchSig` STRING (and the `dispatchCenterKey` string it
       // embedded). Each field is the exact integer the old sig concatenated; they
       // are diffed against the per-host last-frame scalars below. `_mpp`/`_ckx`/
-      // `_cky` mirror dispatchCenterKey(c.centerX, c.centerY, c.zoom) verbatim so
-      // the pixel-quantised centre key stays byte-identical.
-      const _mpp = WORLD_MERC / TILE_PX / Math.pow(2, c.zoom)
+      // `_cky` mirror dispatchCenterKey(c.centerX, c.centerY, _mpp) verbatim so
+      // the pixel-quantised centre key stays byte-identical. `_mpp` is the single
+      // effective-mpp authority (camera.effectiveMpp — the capped scale the frozen
+      // low-zoom view actually renders at), NOT the uncapped WORLD_MERC/TILE_PX/
+      // 2^zoom, so the key ticks per TRUE on-screen px in the sub-cap band (#964);
+      // above z* effective === raw so this stays byte-identical there.
+      const _mpp = c.effectiveMpp(projType, h, dpr)
       const _zoomKey = (c.zoom * 100) | 0
       const _ckx = (c.centerX / _mpp) | 0
       const _cky = (c.centerY / _mpp) | 0

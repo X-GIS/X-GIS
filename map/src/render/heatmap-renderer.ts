@@ -22,7 +22,6 @@
 
 import type { Camera } from '../camera'
 import { lonLatToECEF } from '@xgis/shared'
-import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { getSampleCount } from '@xgis/engine'
 import { FrameArena } from '@xgis/engine'
@@ -114,8 +113,14 @@ export function writeHeatmapFrameUniform(
   projCenterLat: number,
   canvasWidth: number,
   canvasHeight: number,
+  dpr: number,
 ): void {
-  const metersPerPixel = WORLD_MERC / TILE_PX / Math.pow(2, camera.zoom)
+  // #964 — the viewport.z "meters/px" lane reads the single effective-mpp
+  // authority (the capped scale the frozen low-zoom flat MVP actually renders at),
+  // NOT the uncapped WORLD_MERC/TILE_PX/2^zoom, mirroring the point frame uniform
+  // (#739). Above z* effectiveMpp === rawMpp exactly (byte-identical); globe/ECEF
+  // returns raw unchanged (its cos-lat cap is a separate concern, #964 Part 2).
+  const metersPerPixel = camera.effectiveMpp(projType, canvasHeight, dpr)
   let cHx: number, cHy: number, cHz: number, cLx: number, cLy: number, cLz: number
   if (projType === 0) {
     const cmx = camera.centerX,
@@ -343,7 +348,7 @@ export class HeatmapRenderer {
       rampTexture: this.buildRampTexture(ramp),
       paramsBuf,
     })
-    // eslint-disable-next-line no-console
+
     console.log(`[X-GIS] heatmap layer: ${points.length} points`)
   }
 
@@ -389,6 +394,7 @@ export class HeatmapRenderer {
       projCenterLat,
       canvasWidth,
       canvasHeight,
+      dpr,
     )
     this.rhi.writeBuffer(this.uniformBuffer, 0, this.frameBlock.buffer)
   }
