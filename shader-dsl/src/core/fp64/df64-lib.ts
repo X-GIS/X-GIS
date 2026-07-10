@@ -44,6 +44,7 @@ import {
   vec2,
   sqrt,
   floor,
+  abs,
   member,
   construct,
   structT,
@@ -306,6 +307,175 @@ const df64_fract = fn('df64_fract', { a: vec2fT }, (p) =>
  *  f32 → f64 needs no helper — fp64-lower emits `vec2<f32>(x, 0.0)`.) */
 const df64_narrow = fn('df64_narrow', { a: vec2fT }, (p) => p.a.x.add(p.a.y))
 
+// ── Transcendentals (sin / cos) — luma.gl fp64 port ──
+//
+// A 3-stage argument reduction (mod 2π → quadrant j·π/2 → index k·π/16) leaves a
+// residual |t| ≤ π/32 on which a short Taylor series is well-conditioned; a tabled
+// angle-addition (u = cos(kπ/16), v = sin(kπ/16)) plus the quadrant j swap/sign
+// reconstruct the full-range result. Every arithmetic step runs through the df64_*
+// helpers above (which thread the `one` guard) — the two reduction picks are the
+// only PLAIN-f32 arithmetic (`floor(x/step + 0.5)` selects a small integer, not a
+// df64 value, exactly as luma.gl authors them). Accuracy is the port's: the Taylor
+// truncation floors relative error at ~2^-36 for the transcendental itself, then it
+// degrades with argument magnitude through the reduction (the inherent large-arg
+// precision loss). Built on df64_mul, so — like df64_mul — correct only where the
+// multiply survives fast-math; Apple/Metal collapses it (see the df64_mul note and
+// AUTHORING §7). NOT a native builtin: the f32 `sin`/`cos` of a large angle are
+// noise (the f32 argument itself has lost the sub-ulp phase) — that is the gate.
+
+/** The df64 sin/cos constant VALUES (JS doubles). Each reaches the shader as a
+ *  vec2<f32>(hi, lo) via splitF64 (hi = fround(v), lo = the fround residual);
+ *  exported so df64-sincos.test.ts can pin that hi+lo round-trips v to df64
+ *  precision (a mis-split — the luma.gl hand-typed-pair failure mode — trips it). */
+export const DF64_TRIG_CONSTANTS = {
+  TWO_PI: 2 * Math.PI,
+  PI_2: Math.PI / 2,
+  PI_16: Math.PI / 16,
+  INV_FACT_3: 1 / 6,
+  INV_FACT_4: 1 / 24,
+  INV_FACT_5: 1 / 120,
+  INV_FACT_6: 1 / 720,
+  // cos / sin of k·π/16 for k = 1..4 — the angle-addition tables, indexed |k|−1.
+  COS_TABLE: [1, 2, 3, 4].map((k) => Math.cos((k * Math.PI) / 16)),
+  SIN_TABLE: [1, 2, 3, 4].map((k) => Math.sin((k * Math.PI) / 16)),
+} as const
+
+/** A df64 constant literal pair vec2<f32>(hi, lo). A plain INPUT — no `one` guard
+ *  (the guard protects the EFT arithmetic these feed, never the literals). */
+const dfLit = (x: number): ReadonlyNode<'vec2<f32>'> =>
+  vec2(...splitF64(x)) as ReadonlyNode<'vec2<f32>'>
+
+const TWO_PI = dfLit(DF64_TRIG_CONSTANTS.TWO_PI)
+const PI_2 = dfLit(DF64_TRIG_CONSTANTS.PI_2)
+const PI_16 = dfLit(DF64_TRIG_CONSTANTS.PI_16)
+const INV_FACT_3 = dfLit(DF64_TRIG_CONSTANTS.INV_FACT_3)
+const INV_FACT_4 = dfLit(DF64_TRIG_CONSTANTS.INV_FACT_4)
+const INV_FACT_5 = dfLit(DF64_TRIG_CONSTANTS.INV_FACT_5)
+const INV_FACT_6 = dfLit(DF64_TRIG_CONSTANTS.INV_FACT_6)
+const COS_TABLE = DF64_TRIG_CONSTANTS.COS_TABLE.map(dfLit)
+const SIN_TABLE = DF64_TRIG_CONSTANTS.SIN_TABLE.map(dfLit)
+// The hi words of the two reduction steps — the plain-f32 quadrant/index picks
+// divide by these (matching luma.gl's `r.x / PI_2.x`, hi-word only).
+const PI_2_HI = Math.fround(DF64_TRIG_CONSTANTS.PI_2)
+const PI_16_HI = Math.fround(DF64_TRIG_CONSTANTS.PI_16)
+
+/** round-to-nearest-integer of an f32 (ties away from zero — luma.gl's `nint`). */
+const nintF32 = (x: ReadonlyNode<'f32'>): ReadonlyNode<'f32'> =>
+  x.lt(0.0).select(floor(x.neg().add(0.5)).neg(), floor(x.add(0.5)))
+
+/** Round a df64 to the nearest integer (as a df64) — the mod-2π reduction's turn
+ *  count. When hi is already integral the lo word decides (round it too, then
+ *  renormalize); otherwise round hi, using the lo word to break the x.5 tie. */
+const df64_nint = fn(
+  'df64_nint',
+  { a: vec2fT },
+  (p) => {
+    const hi = Let(nintF32(p.a.x))
+    const loArm = df64_quickTwoSum({ a: hi, b: nintF32(p.a.y) })
+    const tie = Let(abs(hi.sub(p.a.x)).eq(0.5).and(p.a.y.lt(0.0)).select(hi.sub(1.0), hi))
+    return hi.eq(p.a.x).select(loArm, vec2(tie, 0.0))
+  },
+  { lintDisable: ['no-float-eq'] }, // exact integrality / x.5-tie tests
+)
+
+/** sin(a) for |a| ≤ π/32 — Taylor a − a³/6 + a⁵/120 with x = −a² (r accumulates
+ *  the odd powers, s the partial sum). Well-conditioned on the tiny residual. */
+const df64_sin_taylor = fn('df64_sin_taylor', { a: vec2fT }, (p) => {
+  const x = Let(df64_mul({ a: p.a, b: p.a }).neg())
+  const r1 = Let(df64_mul({ a: p.a, b: x }))
+  const s1 = Let(df64_add({ a: p.a, b: df64_mul({ a: r1, b: INV_FACT_3 }) }))
+  const r2 = Let(df64_mul({ a: r1, b: x }))
+  return df64_add({ a: s1, b: df64_mul({ a: r2, b: INV_FACT_5 }) })
+})
+
+/** cos(a) for |a| ≤ π/32 — Taylor 1 − a²/2 + a⁴/24 − a⁶/720 with x = −a². */
+const df64_cos_taylor = fn('df64_cos_taylor', { a: vec2fT }, (p) => {
+  const x = Let(df64_mul({ a: p.a, b: p.a }).neg())
+  const s0 = Let(df64_add({ a: dfLit(1), b: df64_mul({ a: x, b: dfLit(0.5) }) }))
+  const r1 = Let(df64_mul({ a: x, b: x }))
+  const s1 = Let(df64_add({ a: s0, b: df64_mul({ a: r1, b: INV_FACT_4 }) }))
+  const r2 = Let(df64_mul({ a: r1, b: x }))
+  return df64_add({ a: s1, b: df64_mul({ a: r2, b: INV_FACT_6 }) })
+})
+
+/** |k|-indexed angle-addition table pick (kk ∈ {0..4}); kk = 0 falls through to
+ *  `zero` (cos 0 = 1 / sin 0 = 0), so the caller needs no k = 0 special case. */
+const pickByAbsK = (
+  kk: ReadonlyNode<'f32'>,
+  table: readonly ReadonlyNode<'vec2<f32>'>[],
+  zero: ReadonlyNode<'vec2<f32>'>,
+): ReadonlyNode<'vec2<f32>'> =>
+  kk
+    .eq(1.0)
+    .select(
+      table[0]!,
+      kk
+        .eq(2.0)
+        .select(table[1]!, kk.eq(3.0).select(table[2]!, kk.eq(4.0).select(table[3]!, zero))),
+    )
+
+/** The shared 3-stage reduction + tabled angle-addition. Returns the quadrant j
+ *  (as an integer-valued f32) and (sin φ, cos φ) for φ = k·π/16 + t; df64_sin /
+ *  df64_cos apply the j swap/sign. Emitted inline in BOTH (luma.gl authors
+ *  sin_fp64 / cos_fp64 each with its own reduction) — the DRY lives in this TS
+ *  builder, not a shared fn: a helper would need the multi-value return this IR
+ *  has no scalar shape for. Called only inside the df64_sin / df64_cos bodies. */
+const reduceSinCos = (
+  a: ReadonlyNode<'vec2<f32>'>,
+): {
+  qj: ReadonlyNode<'f32'>
+  sinPhi: ReadonlyNode<'vec2<f32>'>
+  cosPhi: ReadonlyNode<'vec2<f32>'>
+} => {
+  // 1) mod 2π: r = a − 2π·nint(a/2π) ∈ [−π, π].
+  const z = Let(df64_nint({ a: df64_div({ a, b: TWO_PI }) }))
+  const r = Let(df64_sub({ a, b: df64_mul({ a: TWO_PI, b: z }) }))
+  // 2) quadrant j ∈ [−2, 2]: t = r − (π/2)·j, |t| ≤ π/4.
+  const qj = Let(floor(r.x.div(PI_2_HI).add(0.5)))
+  const t1 = Let(df64_sub({ a: r, b: df64_mul({ a: PI_2, b: vec2(qj, 0.0) }) }))
+  // 3) index k ∈ [−4, 4]: t = t − (π/16)·k, |t| ≤ π/32.
+  const qk = Let(floor(t1.x.div(PI_16_HI).add(0.5)))
+  const t = Let(df64_sub({ a: t1, b: df64_mul({ a: PI_16, b: vec2(qk, 0.0) }) }))
+  const sinT = Let(df64_sin_taylor({ a: t }))
+  const cosT = Let(df64_cos_taylor({ a: t }))
+  // angle addition: sinφ = u·sinT + sgn(k)·v·cosT, cosφ = u·cosT − sgn(k)·v·sinT.
+  const kk = Let(abs(qk))
+  const u = Let(pickByAbsK(kk, COS_TABLE, dfLit(1)))
+  const vAbs = Let(pickByAbsK(kk, SIN_TABLE, dfLit(0)))
+  const v = Let(qk.ge(0.0).select(vAbs, vAbs.neg()))
+  const sinPhi = Let(df64_add({ a: df64_mul({ a: u, b: sinT }), b: df64_mul({ a: v, b: cosT }) }))
+  const cosPhi = Let(df64_sub({ a: df64_mul({ a: u, b: cosT }), b: df64_mul({ a: v, b: sinT }) }))
+  return { qj, sinPhi, cosPhi }
+}
+
+/** sin(a), full range — 3-stage reduction + Taylor, then the quadrant j swap:
+ *  j = 0 → sinφ, +1 → cosφ, −1 → −cosφ, ±2 → −sinφ. */
+const df64_sin = fn(
+  'df64_sin',
+  { a: vec2fT },
+  (p) => {
+    const { qj, sinPhi, cosPhi } = reduceSinCos(p.a)
+    return qj
+      .eq(0.0)
+      .select(sinPhi, qj.eq(1.0).select(cosPhi, qj.eq(-1.0).select(cosPhi.neg(), sinPhi.neg())))
+  },
+  { lintDisable: ['no-float-eq'] }, // exact integer-quadrant tests
+)
+
+/** cos(a), full range — the same reduction with the cos quadrant swap:
+ *  j = 0 → cosφ, +1 → −sinφ, −1 → sinφ, ±2 → −cosφ. */
+const df64_cos = fn(
+  'df64_cos',
+  { a: vec2fT },
+  (p) => {
+    const { qj, sinPhi, cosPhi } = reduceSinCos(p.a)
+    return qj
+      .eq(0.0)
+      .select(cosPhi, qj.eq(1.0).select(sinPhi.neg(), qj.eq(-1.0).select(sinPhi, cosPhi.neg())))
+  },
+  { lintDisable: ['no-float-eq'] },
+)
+
 // ── Vectorized df64 (vecN<f64> — the DF64VecN hi/lo-plane form) ──
 //
 // The EFTs are valid PER LANE, so the vector arithmetic runs the exact scalar
@@ -448,6 +618,12 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
   const vFract = fn(`df64_v${n}_fract`, { a: sT }, (p) =>
     gather(LANES.map((c) => Let(df64_fract({ a: laneOf(p.a, c) })))),
   )
+  const vSin = fn(`df64_v${n}_sin`, { a: sT }, (p) =>
+    gather(LANES.map((c) => Let(df64_sin({ a: laneOf(p.a, c) })))),
+  )
+  const vCos = fn(`df64_v${n}_cos`, { a: sT }, (p) =>
+    gather(LANES.map((c) => Let(df64_cos({ a: laneOf(p.a, c) })))),
+  )
   /** v / |v| — the length accumulates through the SCALAR df64 chain (the same
    *  composition the lowering uses for length()), then each lane divides by it. */
   const vNormalize = fn(`df64_v${n}_normalize`, { a: sT }, (p) => {
@@ -473,6 +649,8 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
     vMix.decl,
     vFloor.decl,
     vFract.decl,
+    vSin.decl,
+    vCos.decl,
     vNormalize.decl,
   ]
 }
@@ -581,6 +759,11 @@ export const DF64_ORDER: readonly FuncDecl[] = [
   df64_floor.decl,
   df64_fract.decl,
   df64_narrow.decl,
+  df64_nint.decl,
+  df64_sin_taylor.decl,
+  df64_cos_taylor.decl,
+  df64_sin.decl,
+  df64_cos.decl,
   ...defVecHelpers(2),
   ...defVecHelpers(3),
   ...defVecHelpers(4),
