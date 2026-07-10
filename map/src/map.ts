@@ -1520,6 +1520,13 @@ export class XGISMap {
    *  forwarded to `initGPU` at every boot. Stored (not re-read) because the
    *  canvas context type is sticky, so backend is construction-immutable. */
   private _backend: BackendChoice = 'auto'
+  /** WebGL2 device factory injected into the backend chain (#834 M5). The map
+   *  is the composition root — it legitimately depends on BOTH backend adapters,
+   *  so it (not @xgis/rhi-webgpu) owns the concrete `WebGl2Device` construction,
+   *  keeping the two adapter packages mutually blind (#929). Dynamic-imported so
+   *  the WebGL2 chunk loads only when the WebGL2 backend actually boots. */
+  private readonly _makeWebGl2Device = (gl: WebGL2RenderingContext) =>
+    import('@xgis/rhi-webgl2').then((m) => new m.WebGl2Device(gl))
   /** When true (default), run() extracts a converted style's trailing
    *  `Conversion notes` block comment from the raw source and console.warns
    *  it once. Set via `XGISMapOptions.logConversionNotes: false`. */
@@ -2267,7 +2274,11 @@ export class XGISMap {
       this.canvas,
       // Quality policy → adapter is an INJECTION at this composition root
       // (#929 B): the boot values are data the providers close over.
-      backendProviderChain(this._backend, { sampleCount: getSampleCount() }),
+      backendProviderChain(
+        this._backend,
+        { sampleCount: getSampleCount() },
+        this._makeWebGl2Device,
+      ),
     ).catch((err) => {
       // Hold the rejection here so the await below converts it to a
       // sync throw at the same call site as the previous code. We
@@ -3428,7 +3439,11 @@ export class XGISMap {
     try {
       ctx = await initGPUViaProviders(
         this.canvas,
-        backendProviderChain(this._backend, { sampleCount: getSampleCount() }),
+        backendProviderChain(
+          this._backend,
+          { sampleCount: getSampleCount() },
+          this._makeWebGl2Device,
+        ),
       )
     } catch (e) {
       if (e instanceof WebGPUUnavailableError) {

@@ -77,11 +77,10 @@ const BASELINE: ReadonlyArray<readonly [pkg: string, dep: string]> = [
   // deliberate (see render-context.ts header) until the #834 M5 context
   // neutralization relocates it.
   ['rhi-webgpu', 'engine'],
-  // Documented transitional home (#834 M5): both boot providers produce the
-  // WebGPU-typed GPUContext, so the webgl2 provider lives in rhi-webgpu until
-  // GPUContext neutralizes — then each provider moves to its backend package
-  // (see rhi-webgpu/src/backend-providers.ts header) and this edge burns down.
-  ['rhi-webgpu', 'rhi-webgl2'],
+  // (rhi-webgpu → rhi-webgl2 burned down, #834 M5: the webgl2 boot provider no
+  // longer imports the sibling adapter — the composition root injects the
+  // concrete WebGl2Device via a `WebGl2DeviceFactory`; see
+  // rhi-webgpu/src/backend-providers.ts header.)
 ]
 
 const IMPORT_RE = /(?:from\s*|import\s*\(\s*|import\s+)['"]@xgis\/([a-z0-9-]+)['"]?/g
