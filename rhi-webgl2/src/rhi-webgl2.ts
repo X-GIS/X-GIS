@@ -168,7 +168,10 @@ function texFmt(
 }
 
 const VFMT: Readonly<
-  Record<string, { size: number; type: 'f32' | 'u8' | 'u16'; normalized: boolean; integer?: boolean }>
+  Record<
+    string,
+    { size: number; type: 'f32' | 'u8' | 'u16'; normalized: boolean; integer?: boolean }
+  >
 > = {
   float32: { size: 1, type: 'f32', normalized: false },
   float32x2: { size: 2, type: 'f32', normalized: false },
@@ -397,7 +400,13 @@ class WebGl2RenderPass implements RhiRenderPass {
         if (fmt.integer) {
           // uvec/ivec shader inputs — the I-pointer keeps the integer bits;
           // vertexAttribPointer would float-convert them silently (#832 M2).
-          gl.vertexAttribIPointer(a.location, fmt.size, glType, vb.stride, a.offset + this.vbufOffset)
+          gl.vertexAttribIPointer(
+            a.location,
+            fmt.size,
+            glType,
+            vb.stride,
+            a.offset + this.vbufOffset,
+          )
         } else {
           gl.vertexAttribPointer(
             a.location,
@@ -629,12 +638,7 @@ export class WebGl2Device implements RhiDevice {
     if (ds && (ds.depthLoadOp === 'clear' || ds.stencilLoadOp === 'clear')) {
       gl.depthMask(true)
       gl.stencilMask(0xff)
-      gl.clearBufferfi(
-        gl.DEPTH_STENCIL,
-        0,
-        ds.depthClearValue ?? 1,
-        ds.stencilClearValue ?? 0,
-      )
+      gl.clearBufferfi(gl.DEPTH_STENCIL, 0, ds.depthClearValue ?? 1, ds.stencilClearValue ?? 0)
     }
     return new WebGl2RenderPass(gl, () => {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null)
@@ -870,6 +874,44 @@ export class WebGl2Device implements RhiDevice {
   // createBuffer/setBindGroup + the GLSL storage→data-texture pre-pass). The GLSL emits a
   // sampler2D named after the binding, so it reflects + binds by NAME like a texture.
   createBindGroupLayout(entries: RhiBindLayoutEntry[]): RhiBindGroupLayout {
+    // Plan-time by-order ambiguity guard (#783): createPipeline reflects the
+    // linked program BY NAME when `name` is present and falls back to BY-ORDER
+    // pairing when it is absent. The by-order queues are per REFLECTION CLASS,
+    // not per kind — 'uniform' blocks consume one queue (getUniformBlockIndex
+    // order), and 'texture' AND 'storage' SHARE the sampler-uniform queue
+    // (storage lowers to a data-texture sampler2D). One entry per class binds
+    // unambiguously by order (the documented raster pattern); with ≥2 entries
+    // of a class, by-order is a silent mis-bind waiting on GL's reflection
+    // order — fail HERE, at layout creation with the unnamed bindings listed,
+    // instead of rendering wrong (mirrors the bind-tiers plan-time duplicate
+    // throw, the #783 exemplar). 'sampler' entries are exempt: they never
+    // reflect by name — setBindGroup pairs each one positionally to the
+    // texture bound before it in binding order.
+    const classes = new Map<string, RhiBindLayoutEntry[]>()
+    for (const e of entries) {
+      const cls =
+        e.kind === 'uniform'
+          ? 'uniform block'
+          : e.kind === 'texture' || e.kind === 'storage'
+            ? 'sampler-uniform (texture/storage)'
+            : null
+      if (cls === null) continue
+      const list = classes.get(cls)
+      if (list) list.push(e)
+      else classes.set(cls, [e])
+    }
+    for (const [cls, list] of classes) {
+      const unnamed = list.filter((e) => !e.name)
+      if (list.length >= 2 && unnamed.length > 0) {
+        throw new Error(
+          `[rhi-webgl2] bind-group layout has ${list.length} ${cls} entries but ` +
+            `binding${unnamed.length > 1 ? 's' : ''} ${unnamed.map((e) => e.binding).join(', ')} ` +
+            `${unnamed.length > 1 ? 'are' : 'is'} unnamed — WebGL2 pairs unnamed entries BY ` +
+            `ORDER within one reflection class, which silently mis-binds multi-entry groups. ` +
+            `Set \`name\` (the shader's reflection name) on every ${cls} entry.`,
+        )
+      }
+    }
     return wrap<RhiBindGroupLayout>({ entries: [...entries] } satisfies Gl2BindGroupLayout)
   }
 

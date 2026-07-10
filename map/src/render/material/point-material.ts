@@ -47,9 +47,12 @@ export class PointDraper {
       groups: [
         [
           { binding: 0, kind: 'uniform' },
-          { binding: 1, kind: 'storage' },
-          { binding: 2, kind: 'storage' },
-          { binding: 3, kind: 'storage' },
+          // Reflection names pinned by point-dsl.test.ts — three same-kind
+          // storage entries MUST be named or WebGL2's by-order pairing would
+          // silently mis-bind them (plan-time guarded since #783).
+          { binding: 1, kind: 'storage', name: 'feat_data' },
+          { binding: 2, kind: 'storage', name: 'shapes' },
+          { binding: 3, kind: 'storage', name: 'segments' },
         ],
       ],
       colorTargets: [{ format: format as 'bgra8unorm', blend: 'alpha' }],
