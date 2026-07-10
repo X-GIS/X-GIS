@@ -71,6 +71,24 @@ jobs:
               - 'map/**'
               - 'shared/**'
               - 'blueprint/**'
+              # shader-dsl is the SOLE shader generator; the render-gate compile
+              # gates (_wgsl/_glsl-compile, _emit-obfuscate, _compute-gen, _mrt,
+              # _mouse, _optimizer-gpu-parity) are the ONLY place its emitters meet
+              # real Tint/ANGLE — a shader-dsl-only PR must fire them (#954).
+              - 'shader-dsl/**'
+              # Audit (#954): the render-gate ALSO uniquely exercises these two.
+              # rhi-webgl2 — the four ?forcegl2=1 gates (_fills-gl2 +
+              # _graphics-retained-{icon,arrow,arrow-orientation}) drive WebGl2Device
+              # end-to-end (assert backend==='webgl2' + pixel readback); this is its
+              # ONLY CI render coverage. data — _fills-gl2-gate renders ne_110m vector
+              # tiles through map/src/render/*, which value-imports @xgis/data tile
+              # selection/geometry (visibleTilesFrustum, computeSliceKey,
+              # buildLineSegments). NOT rhi (interfaces-only → typecheck-covered),
+              # rhi-webgpu (no SwiftShader spec drives WebGpuDevice — compute gates
+              # use raw navigator.gpu, raster gates are local-only), or pipeline
+              # (imported only by seoul-* demos, never the id=minimal these gates load).
+              - 'rhi-webgl2/**'
+              - 'data/**'
               - 'playground/**'
               - 'bun.lock'
               - 'bun.lockb'
