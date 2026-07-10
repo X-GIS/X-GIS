@@ -292,21 +292,39 @@ export class Camera {
    *  in different world positions, and tile-selection would diverge from
    *  what DPR=1 renders. Default `dpr=1` preserves existing test call
    *  sites that pass CSS-equivalent dimensions. */
+  /** Reused `CameraView` snapshot (#784) — `_view()` used to allocate a fresh
+   *  object per call, and the frame-view getters call it up to 3× per frame.
+   *  The pure builders consume the snapshot SYNCHRONOUSLY (they read scalars
+   *  during the call and retain nothing), so one mutated-in-place instance is
+   *  value-safe. Callers must not retain the returned reference. */
+  private readonly _viewScratch: CameraView = {
+    centerX: 0,
+    centerY: 0,
+    centerLatDeg: 0,
+    zoom: 0,
+    bearing: 0,
+    pitch: 0,
+    fovDeg: 0,
+    globeOrtho: false,
+    azimuthalProjType: 0,
+  }
+
   /** Build a `CameraView` snapshot of the scalar inputs the pure matrix
    *  builders read. Reads the accessor-gated `pitch` ONCE (so `pitchLocked`
-   *  is honoured exactly as the inline reads did) and stamps the class FOV. */
+   *  is honoured exactly as the inline reads did) and stamps the class FOV.
+   *  Returns the reused `_viewScratch` — consume synchronously, never retain. */
   private _view(): CameraView {
-    return {
-      centerX: this.centerX,
-      centerY: this.centerY,
-      centerLatDeg: this.centerLatDeg,
-      zoom: this.zoom,
-      bearing: this.bearing,
-      pitch: this.pitch,
-      fovDeg: Camera.FOV,
-      globeOrtho: this.globeOrtho,
-      azimuthalProjType: this.azimuthalProjType,
-    }
+    const v = this._viewScratch
+    v.centerX = this.centerX
+    v.centerY = this.centerY
+    v.centerLatDeg = this.centerLatDeg
+    v.zoom = this.zoom
+    v.bearing = this.bearing
+    v.pitch = this.pitch
+    v.fovDeg = Camera.FOV
+    v.globeOrtho = this.globeOrtho
+    v.azimuthalProjType = this.azimuthalProjType
+    return v
   }
 
   private _buildRTCMatrix(
@@ -369,6 +387,40 @@ export class Camera {
     return this._mvpGeneration
   }
 
+  // Globe-frame dirty-gate shadow (#784) — `_globeFrame` had NO cache (unlike
+  // `_buildRTCMatrix`'s 9-field gate), so in globe mode getRTCMatrix /
+  // getFrameView / getECEFFrameView each ran a full buildGlobeFrame — up to 3
+  // identical builds per frame. The key covers EVERY input the pure builder
+  // reads (all scalars: viewport + dpr, centerX, the maintained TRUE centre
+  // latitude, zoom, bearing, pitch, globeOrtho, azimuthalProjType; centerY is
+  // included conservatively although the globe builder derives lat from
+  // centerLatDeg). NaN sentinels force a first-call miss.
+  private _globeCacheW = -1
+  private _globeCacheH = -1
+  private _globeCacheDpr = -1
+  private _globeCacheCx = NaN
+  private _globeCacheCy = NaN
+  private _globeCacheLat = NaN
+  private _globeCacheZoom = NaN
+  private _globeCacheBearing = NaN
+  private _globeCachePitch = NaN
+  private _globeCacheOrtho = false
+  private _globeCacheAziProj = -1
+  private _globeCacheFar = 0
+  private _globeCacheEye: ECEF | null = null
+  /** Bumps on every real `buildGlobeFrame` run (mirrors `_mvpGeneration` on
+   *  the RTC path) — the observable that pins the dirty-gate: three frame-view
+   *  getters on an unchanged camera must yield ONE build (#784). */
+  private _globeGeneration = 0
+  /** Reused `_globeFrame` result wrapper (#784) — the matrix is already the
+   *  preallocated `_globeMatrix`; far/eye are restamped per call. Callers
+   *  consume it synchronously (they copy the fields into their own returns). */
+  private readonly _globeFrameOut: { matrix: Float32Array; far: number; eye: ECEF } = {
+    matrix: new Float32Array(16), // reseated to _globeMatrix on first build
+    far: 0,
+    eye: [0, 0, 0],
+  }
+
   /** Globe orbit view-projection (RTC, focus-relative) from the current
    *  camera state. centerLon/Lat are the Mercator-inverse of centerX/Y
    *  so existing pan/zoom (which move centerX/Y) recenter the globe. */
@@ -377,6 +429,26 @@ export class Camera {
     canvasHeight: number,
     dpr: number,
   ): { matrix: Float32Array; far: number; eye: ECEF } {
+    const out = this._globeFrameOut
+    if (
+      canvasWidth === this._globeCacheW &&
+      canvasHeight === this._globeCacheH &&
+      dpr === this._globeCacheDpr &&
+      this.centerX === this._globeCacheCx &&
+      this.centerY === this._globeCacheCy &&
+      this.centerLatDeg === this._globeCacheLat &&
+      this.zoom === this._globeCacheZoom &&
+      this.bearing === this._globeCacheBearing &&
+      this.pitch === this._globeCachePitch &&
+      this.globeOrtho === this._globeCacheOrtho &&
+      this.azimuthalProjType === this._globeCacheAziProj &&
+      this._globeCacheEye !== null
+    ) {
+      out.matrix = this._globeMatrix
+      out.far = this._globeCacheFar
+      out.eye = this._globeCacheEye
+      return out
+    }
     // Pure builder (view-matrix.ts → buildGlobeFrame) derives lon from the
     // Mercator centerX, reads the maintained true centre latitude, delegates to
     // buildGlobeMatrix, and writes the RTC matrix into the preallocated
@@ -389,7 +461,28 @@ export class Camera {
       dpr,
       this._globeMatrix,
     )
-    return { matrix: this._globeMatrix, far, eye }
+    this._globeCacheW = canvasWidth
+    this._globeCacheH = canvasHeight
+    this._globeCacheDpr = dpr
+    this._globeCacheCx = this.centerX
+    this._globeCacheCy = this.centerY
+    this._globeCacheLat = this.centerLatDeg
+    this._globeCacheZoom = this.zoom
+    this._globeCacheBearing = this.bearing
+    this._globeCachePitch = this.pitch
+    this._globeCacheOrtho = this.globeOrtho
+    this._globeCacheAziProj = this.azimuthalProjType
+    this._globeCacheFar = far
+    this._globeGeneration++
+    // The builder returns a FRESH eye object per build (never mutated after),
+    // so caching the reference is safe: a rebuild replaces it, and any caller
+    // that retained the old one keeps a consistent (if stale) snapshot —
+    // identical semantics to the pre-cache fresh-object-per-call behaviour.
+    this._globeCacheEye = eye
+    out.matrix = this._globeMatrix
+    out.far = far
+    out.eye = eye
+    return out
   }
 
   /** Camera anchor in ECEF (Earth-Centered Earth-Fixed) Cartesian metres.
