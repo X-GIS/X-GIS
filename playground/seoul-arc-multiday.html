@@ -166,21 +166,70 @@
       code {
         color: #fbbf24;
       }
+      .mode-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .mode-cap {
+        font-size: 11px;
+        color: #94a3b8;
+        font-weight: 600;
+        width: 28px;
+        flex-shrink: 0;
+      }
+      .seg-toggle {
+        display: flex;
+        flex: 1;
+        border: 1px solid #334155;
+        border-radius: 5px;
+        overflow: hidden;
+      }
+      .seg-opt {
+        flex: 1;
+        background: #0f172a;
+        color: #94a3b8;
+        border: none;
+        border-left: 1px solid #334155;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 3px 8px;
+        cursor: pointer;
+        outline: none;
+      }
+      .seg-opt:first-child {
+        border-left: none;
+      }
+      .seg-opt:hover {
+        color: #e2e8f0;
+      }
+      .seg-opt.is-active {
+        background: #fb923c;
+        color: #020617;
+      }
     </style>
   </head>
   <body>
     <canvas id="map"></canvas>
     <div id="title">
       <b>서울 생활이동 · 숨쉬는 도시</b><br />
-      20260531 · 자치구 색 = 시간대별 <b>순유입</b>(유입−유출) · 화살표 = 이동 벡터장(유출
-      방향·양).<br />
-      전체 이동의 54.7%는 구내부 이동이라 순유입엔 안 잡힘 — 각 구 자체 활동.
+      20260531 · 자치구 색 = 시간대별 <b id="cap-choro">순유입</b> · 화살표 =
+      <b id="cap-arrow">유출</b> 방향·양.<br />
+      전체 이동의 54.7%는 구내부 이동이라 순유입엔 안 잡힘 — <b>총활동</b>으로 바꾸면 각 구 자체
+      활동까지 보임.
     </div>
     <div id="clock">
       <div id="hour-label">00:00</div>
     </div>
     <div id="legend">
-      <div class="ramp-row">
+      <div class="mode-row">
+        <span class="mode-cap">색</span>
+        <div class="seg-toggle" id="choro-toggle">
+          <button class="seg-opt is-active" data-mode="net">순유입</button>
+          <button class="seg-opt" data-mode="activity">총활동</button>
+        </div>
+      </div>
+      <div class="ramp-row" id="ramp-net">
         <span class="ramp-label">유출</span>
         <span class="sw" style="background: #2563eb"></span>
         <span class="sw" style="background: #60a5fa"></span>
@@ -191,11 +240,28 @@
         <span class="sw" style="background: #dc2626"></span>
         <span class="ramp-label">유입</span>
       </div>
+      <div class="ramp-row" id="ramp-act" style="display: none">
+        <span class="ramp-label">낮음</span>
+        <span class="sw" style="background: #0f172a"></span>
+        <span class="sw" style="background: #4c1d95"></span>
+        <span class="sw" style="background: #7c3aed"></span>
+        <span class="sw" style="background: #c026d3"></span>
+        <span class="sw" style="background: #f0abfc"></span>
+        <span class="ramp-label">높음</span>
+      </div>
+      <div class="seg-sep"></div>
       <label class="filter-row">
         <span class="chip" style="background: #fef3c7"></span>
         <input type="checkbox" id="cb-field" checked />
-        <span>이동 벡터장 (유출 방향)</span>
+        <span>이동 벡터장</span>
       </label>
+      <div class="mode-row">
+        <span class="mode-cap">방향</span>
+        <div class="seg-toggle" id="arrow-toggle">
+          <button class="seg-opt is-active" data-mode="outflow">유출</button>
+          <button class="seg-opt" data-mode="netflux">순유입</button>
+        </div>
+      </div>
       <div class="seg-sep"></div>
       <select id="seg-select" title="구분 필터">
         <option value="all">전체</option>
