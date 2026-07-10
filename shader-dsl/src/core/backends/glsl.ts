@@ -1022,7 +1022,7 @@ export function emitGlslModule(
   // the vertex and fragment emits (separate calls over the same module) agree on
   // every shared transformed name.
   const lowered = applyIRPlugins(
-    sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend)),
+    sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend, undefined, opts?.fp64Flavor)),
     opts,
   )
   const structs = new Map(lowered.structs.map((s) => [s.name, s]))

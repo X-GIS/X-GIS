@@ -235,6 +235,12 @@ const BUILTINS: Record<string, Builtin> = {
         )
       : Math.pow(a as number, b as number),
   fract: map1((x) => x - Math.floor(x)),
+  // fma(a, b, c) = a·b + c with a SINGLE rounding. For f32 operands the product
+  // a·b is EXACT in a JS double (24+24 = 48 ≤ 53 significand bits), so
+  // fround(a·b + c) is the correctly-rounded f32 fma up to the double-rounding
+  // tail of the f64 add — beyond every tolerance the suites assert. Scalars only
+  // (the DSL surface types fma over scalars; component-wise use maps at the IR).
+  fma: (a, b, c) => Math.fround((a as number) * (b as number) + (c as number)),
   // unpack u32 RGBA8 → vec4<f32> in [0,1]; low byte → component 0 (pack4x8unorm inverse).
   unpack4x8unorm: (u) => {
     const n = (u as number) >>> 0

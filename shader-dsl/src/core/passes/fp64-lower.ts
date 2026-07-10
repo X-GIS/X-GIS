@@ -67,6 +67,23 @@ import {
   FP64_GUARD_TYPE,
   splitF64,
 } from '../fp64/df64-lib'
+import { DF64_FNS_INT, DF64_ORDER_INT } from '../fp64/df64-int'
+
+// ── Flavor (which EFT primitive registry backs the df64_* names) ──
+//
+// 'float'   — df64-lib's guarded float EFTs (the default; byte-identical emit).
+// 'integer' — df64-int's integer-exact EFT primitives: the compositions are
+//             shared, only the twoSum/twoProd/div/sqrt leaves (and the vec
+//             twins) swap to integer bit arithmetic that a downstream shader
+//             compiler's fast-math cannot reassociate. Proven on the Apple/
+//             Metal oracle where every float formulation collapses; also
+//             immune to ANGLE-D3D11/FXC's composed-tree folding. No `_fp64`
+//             guard binding is injected (the integer bodies never read it).
+export type Fp64Flavor = 'float' | 'integer'
+
+export interface Fp64LowerOptions {
+  readonly flavor?: Fp64Flavor
+}
 import { isKnownIntrinsic } from '../intrinsics'
 
 // ── Type mapping ──
@@ -833,12 +850,18 @@ function helperCallees(d: FuncDecl): string[] {
 }
 
 /** Expand the directly-referenced helper set to its transitive closure and
- *  return the decls in DF64_ORDER (fixed, dependency-first — byte-stable). */
-function helperClosure(used: ReadonlySet<string>): FuncDecl[] {
+ *  return the decls in the registry's order (fixed, dependency-first —
+ *  byte-stable). The registry (float or integer) decides which decl backs
+ *  each df64_* name; the closure walk itself is flavor-agnostic. */
+function helperClosure(
+  used: ReadonlySet<string>,
+  fns: ReadonlyMap<string, FuncDecl>,
+  order: readonly FuncDecl[],
+): FuncDecl[] {
   const need = new Set(used)
   const queue = [...used]
   while (queue.length) {
-    const d = DF64_FNS.get(queue.pop()!)
+    const d = fns.get(queue.pop()!)
     if (!d) continue
     for (const callee of helperCallees(d)) {
       if (!need.has(callee)) {
@@ -847,7 +870,7 @@ function helperClosure(used: ReadonlySet<string>): FuncDecl[] {
       }
     }
   }
-  return DF64_ORDER.filter((d) => need.has(d.name))
+  return order.filter((d) => need.has(d.name))
 }
 
 /** Does any helper body actually fetch the `f64Guard` intrinsic? The EFT helpers
@@ -983,9 +1006,14 @@ function injectGuard(bindings: BindingDecl[]): void {
 
 /** Lower every f64 in a module to its vec2<f32> / df64_* emulation. Identity
  *  (same object) for modules containing no f64. Run inside lowerForBackend —
- *  after match-lower, before the backend optimizer. */
-export function fp64Lower(m: ModuleDecl): ModuleDecl {
+ *  after match-lower, before the backend optimizer. `opts.flavor` selects the
+ *  EFT primitive registry ('float' default — byte-identical; 'integer' swaps
+ *  the leaves for the fast-math-immune integer bodies, see df64-int.ts). */
+export function fp64Lower(m: ModuleDecl, opts?: Fp64LowerOptions): ModuleDecl {
   if (!moduleUsesF64(m)) return m
+  const integer = opts?.flavor === 'integer'
+  const REG_FNS = integer ? DF64_FNS_INT : DF64_FNS
+  const REG_ORDER = integer ? DF64_ORDER_INT : DF64_ORDER
 
   // The injected names are reserved — an authored collision would silently
   // shadow the emulation.
@@ -1077,7 +1105,7 @@ export function fp64Lower(m: ModuleDecl): ModuleDecl {
     if (ctx.matWidths.has(n)) structs.push(DF64_MAT_STRUCTS.get(n)!)
   }
 
-  const helpers = helperClosure(ctx.used)
+  const helpers = helperClosure(ctx.used, REG_FNS, REG_ORDER)
   if (helpers.length > 0 && helpersUseGuard(helpers)) injectGuard(bindings)
 
   return { consts, structs, bindings, funcs: [...funcs, ...helpers] }
