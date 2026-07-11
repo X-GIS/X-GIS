@@ -123,7 +123,7 @@ critical path in any order once their gap lands — assign to parallel author pa
 
 | #   | PR                                                                                                     | Track | Depends on      | Unblocks                  | Est. blast                 |
 | --- | ------------------------------------------------------------------------------------------------------ | ----- | --------------- | ------------------------- | -------------------------- |
-| 0   | **Ratchet up-front** — seed raw-WebGPU-in-`map/src` gate w/ full leak BASELINE (§4)                    | —     | —               | mechanical per-phase gate | LOW (test only)            |
+| 0   | **Ratchet up-front** ✅ **landed #993** — raw-WebGPU-in-`map/src` gate, BASELINE 555/44 (§4)           | —     | —               | mechanical per-phase gate | LOW (test only)            |
 | 1   | **P0** engine self-fixes 0.1–0.5 (may split: 0.1+0.5 FrameUniform; 0.2 doc; 0.3/0.4 ratchet burn-down) | B     | —               | clean promotion target    | MED                        |
 | 2   | **P1** `Material`+`executeItems`+`{MaterialDesc,PipelineVariant,DrawItem}` → engine                    | A     | —               | **P5**                    | HIGH (14 files, 32 sites)  |
 | 3   | **P2** `UniformRing` → engine                                                                          | C     | —               | —                         | MED (~15 files)            |
@@ -150,26 +150,37 @@ BASELINE**, where removing the last leak of a kind **must** delete its baseline 
 commit (a stale entry fails the test). This converts every phase's "leak-closed / byte-identical"
 from a claim into CI.
 
-**Design:**
+**Design (as landed — `map/src/raw-webgpu-ratchet.test.ts`, PR #993):**
 
-- **Location:** extend `runtime/src/engine/architecture-invariants.test.ts` (the GPU-free `test`-job
-  gate) with a new case, OR a sibling `map-raw-webgpu-ratchet.test.ts`. Prefer the existing file — it
-  already walks `map/src` and holds shrink-only baselines, so the convention is in place.
-- **Scan:** grep `map/src/**` (non-test) for the raw-WebGPU surface — `GPUDevice`, `GPUBuffer`,
-  `GPUTexture`, `GPUTextureView`, `GPUBindGroup*`, `GPUCommandEncoder`, `GPURenderPass*`,
-  `.createRenderPipeline`/`.createShaderModule`/`.createPipelineLayout`/`.createBindGroup*`/
-  `.createBuffer`/`.createTexture`/`.createSampler`/`.createView`, `.writeBuffer`/`.writeTexture`,
-  `getCurrentTexture`, `mapAsync`, `copyBufferToBuffer`, `copyTextureToBuffer`,
-  `copyExternalImageToTexture`, `createComputePipeline`, `timestampWrites`, `GPUShaderStage`,
-  `GPUBufferUsage`, `GPUTextureUsage`, `unwrapBuffer`.
-- **BASELINE:** seed with the **exact current leak set** (EPIC "Raw-WebGPU leaks" table = the
-  inventory). Store per-file counts (like the existing shader line-count baselines at
-  `architecture-invariants.test.ts:280,320`) so a _net-new_ leak in an untouched file also fails.
-- **Per phase:** the phase PR deletes the leaks it closes **and** shrinks the matching baseline rows
-  in the same commit. Close-out asserts the `map/src` baseline is empty.
+- **Location:** `map/src/raw-webgpu-ratchet.test.ts` — **not** an extension of
+  `runtime/src/engine/architecture-invariants.test.ts`. That file walks
+  `runtime/compiler/blueprint/shared` only; it does **not** walk `map/src` (an earlier draft of this
+  doc claimed it did — it does not). `map/src/**/*.test.ts` rides the confirmed `test (map)` CI leg
+  (`vitest map/src`, `test.yml`), so a map-scoped gate is guaranteed to run and is co-located with what
+  it guards — no CI-dark risk, and no runtime→map reach.
+- **Scan (comment-stripped):** count, per file, native `GPU[A-Z]\w*` identifiers (types **and** the
+  global-constant namespaces `GPUShaderStage`/`GPUBufferUsage`/`GPUTextureUsage`/`GPUMapMode`/
+  `GPUColorWrite`) + `unwrapBuffer`, **excluding** X-GIS-own GPU-prefixed names
+  (`GPUArena*`/`GPUTimer`/`GPUContext`/`GPUTile*`). This single unambiguous signal beats the raw
+  method-name list a first draft proposed: RHI methods share names with WebGPU ones
+  (`createComputePipeline` is both a raw call **and** the G7 gap-fill's RHI method), so matching method
+  names would flag correct routing after a gap lands. `GPU*` never appears in the RHI (always `Rhi*`),
+  and the native-type declaration is the structural anchor — retyping `GPUDevice → RhiDevice` breaks
+  every raw call on the handle at compile time, so tracking the **type** footprint transitively forces
+  the call-site fixes.
+- **BASELINE:** seeded with the exact current footprint — **555 tokens / 44 files** (measured, not the
+  EPIC table's site list, which under-counts: it lists sites, this counts tokens incl. type-decl
+  leaks in `*-types.ts`). Cross-checked accurate: `unwrapBuffer` = 3 (EPIC's "3 casts"),
+  `frame-context.ts` = 4 (EPIC's P4 four GPU-typed fields).
+- **Strict-equal, both directions:** `actual > baseline` = new leak (fix it); `actual < baseline` =
+  win not locked (lower the baseline in the same commit). A ceiling-only gate would permit silent
+  re-growth up to the cap — the exact failure §1.1 names.
+- **Per phase:** the phase PR deletes the leaks it closes **and** lowers the matching baseline rows in
+  the same commit. Close-out asserts the `map/src` baseline is empty.
 
-**Reject:** a boolean "any leak?" gate (can't ratchet down incrementally) and a close-out-only gate
-(no per-phase enforcement). **Accept:** per-file-count shrink-only, seeded up front.
+**Reject:** a boolean "any leak?" gate (can't ratchet down incrementally); a close-out-only gate (no
+per-phase enforcement); a ceiling-only gate (permits silent re-open); a method-name signal (collides
+with RHI gap-fills). **Accept:** per-file-count, strict shrink-only, seeded up front.
 
 ---
 
@@ -401,11 +412,12 @@ single-authority bar, and the **version we accept**.
 
 ## 8. Open questions (decide before the phase that needs them)
 
-1. **Ratchet home (blocks PR #0):** extend `architecture-invariants.test.ts` (already walks `map/src`,
-   holds shrink-only baselines, runs in the GPU-free `test` job) vs a new sibling file? _Recommendation:
-   extend the existing file_ — convention + CI wiring already there; a new path risks being CI-dark
-   (the matrix shards by directory — see the dep-ratchet's own "lives in engine/src so the leg runs it"
-   note).
+1. **Ratchet home — RESOLVED (PR #993):** landed as `map/src/raw-webgpu-ratchet.test.ts`, **not** an
+   extension of `architecture-invariants.test.ts`. The recommendation to extend it was based on a wrong
+   premise — that file walks `runtime/compiler/blueprint/shared`, **not** `map/src`. Since the CI
+   matrix shards by directory and `test (map)` runs `vitest map/src`, a test under `map/src/**` is
+   guaranteed to run (not CI-dark) and stays co-located with what it guards — strictly better than
+   reaching from the runtime package into map. See §4.
 2. **P0 splitting (blocks P0 scope):** is P0 one PR or four? 0.2 is doc-only (trivial); 0.3/0.4 are
    pre-existing ratchet-baselined debt tied to #929 B3 / #834 M5 and may be **larger than the rest of
    the EPIC**. _Recommendation:_ land 0.1+0.5 (FrameUniform, the true blocker for a clean P4/P6) as
