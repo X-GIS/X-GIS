@@ -1,4 +1,4 @@
-// baseline: 7e3028d49735dbf7979f1c2d7a248a9010c73990
+// baseline: e251b66e29419789deebcc42b0d740ec4090942f
 // fixture: syn-palette
 // variant.key: syn-palette
 // pick: false
@@ -340,11 +340,11 @@ fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @locati
 
 @vertex
 fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32, @location(5) true_lat: f32) -> VertexOutput {
-  let _cse4 = (abs_lon + u.tile_origin_merc.x);
+  let _cse4 = vec2<f32>(abs_lon, abs_lat);
   let _cse5 = (DEG2RAD * EARTH_R);
   let _cse0 = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-  let _cse1 = ((vec2<f32>(abs_lon, abs_lat) - u.cam_h) - u.cam_l);
-  let _cse2 = flat_rel((_cse4 / _cse5), true_lat, u.proj_params, ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / _cse5));
+  let _cse1 = ((_cse4 - u.cam_h) - u.cam_l);
+  let _cse2 = flat_rel((((_cse4.x - u.cam_h.x) - u.cam_l.x) / _cse5), true_lat, vec4<f32>(u.proj_params.x, 0.0, u.proj_params.z, u.proj_params.w), (((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / _cse5) - u.proj_params.y));
   let _cse3 = (abs_lat + u.tile_origin_merc.y);
   var _av0: vec4<f32> = _cse0;
   if ((u.proj_params.x < 0.5)) {
@@ -357,7 +357,7 @@ fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @loca
   _av0.x = (_av0.x + (u.fill_translate_x * _av0.w));
   _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
   let _v0 = apply_log_depth(_av0, u.log_depth_fc);
-  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), clamp(degrees(inv_merc_lat_rad(_cse3)), (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT), _av0.w, 1.0, _cse4, _cse3, 0.0, _cse0);
+  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), clamp(degrees(inv_merc_lat_rad(_cse3)), (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT), _av0.w, 1.0, (abs_lon + u.tile_origin_merc.x), _cse3, 0.0, _cse0);
 }
 
 @vertex

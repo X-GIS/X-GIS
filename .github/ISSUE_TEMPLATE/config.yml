@@ -1,0 +1,12 @@
+# Keep the freeform "Open a blank issue" option — epics, tracking issues, and
+# design proposals in this repo use rich ad-hoc structures (phase sub-checklists,
+# census tables) that a fixed form would fight. The bug template is a convenience,
+# not a gate.
+blank_issues_enabled: true
+contact_links:
+  - name: Architecture & design docs
+    url: https://github.com/X-GIS/X-GIS/blob/main/DESIGN.md
+    about: Read DESIGN.md, ROADMAP.md, and docs/ before proposing a large change.
+  - name: How this repo works (contributing)
+    url: https://github.com/X-GIS/X-GIS/blob/main/CONTRIBUTING.md
+    about: Branching, commit, and the two-tier verification gate (CI has no GPU).

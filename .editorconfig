@@ -1,0 +1,21 @@
+# EditorConfig — https://editorconfig.org
+# Mirrors .prettierrc.json (printWidth 100, LF) so editors agree with the
+# formatter before prettier ever runs.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+max_line_length = 100
+
+[*.md]
+# Trailing whitespace is significant in Markdown (hard line break); prettier
+# leaves it, so don't let the editor strip it.
+trim_trailing_whitespace = false
+
+[*.{yml,yaml}]
+indent_size = 2
