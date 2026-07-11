@@ -763,6 +763,7 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
       let glVer: Record<string, string> = {}, gpuVer: Record<string, string> = {}
       let glPass = 0, gpuPass = 0, glDone = 0, gpuDone = 0
       let glAvail = true, gpuAvail = true, glGuard = false, gpuGuard = false, gpuNote = ''
+      let glSkipNote = ''
       let digestText = ''
       // ── GPU-safety abort. A heavy stress shader can reset the GPU driver (a
       // Windows TDR on ANGLE-D3D11's FXC). ONE reset is survivable; a CASCADE —
@@ -815,11 +816,18 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
         const abortBanner = aborted
           ? `<div class="mb-3 text-[12px] font-mono text-destructive leading-[1.5]">⚠ ${abortNote} — remaining tests skipped to protect the GPU. This device's driver can't compile the stress battery (a known ANGLE-D3D11 FXC / TDR limit); re-run WITHOUT the stress battery for a clean pass.</div>`
           : ''
-        summary.innerHTML = abortBanner + `<div class="space-y-3">${summaryLine('WebGL2 · GLSL', glPass, glDone, glAvail, glGuard)}${summaryLine('WebGPU · WGSL', gpuPass, gpuDone, gpuAvail, gpuGuard)}</div>`
+        // Proactive skip (not an abort): on ANGLE-D3D11 the stress rows are never
+        // submitted, so the run stays green instead of wedging. Distinct, non-alarming
+        // styling — nothing failed, the driver just can't be handed those shaders.
+        const skipBanner = glSkipNote && !aborted
+          ? `<div class="mb-3 text-[12px] font-mono text-fg-mute leading-[1.5]">${glSkipNote}</div>`
+          : ''
+        summary.innerHTML = abortBanner + skipBanner + `<div class="space-y-3">${summaryLine('WebGL2 · GLSL', glPass, glDone, glAvail, glGuard)}${summaryLine('WebGPU · WGSL', gpuPass, gpuDone, gpuAvail, gpuGuard)}</div>`
       }
       const markFail = (name: string) => { const r = q(`[data-row="${name}"]`); r.classList.remove('border-transparent'); r.classList.add('border-destructive') }
       const showDiffer = (name: string) => {
         if (!gpuAvail || glVer[name] === undefined || gpuVer[name] === undefined || glVer[name] === gpuVer[name]) return
+        if (glVer[name] === 'SKIP' || gpuVer[name] === 'SKIP') return // a not-submitted row isn't a backend disagreement
         const s = q(`[data-differ="${name}"]`); if (s) s.outerHTML = `<span data-differ="${name}" class="font-mono text-[11px] text-destructive lowercase"> differ</span>`
       }
       // Swap one cell from spinner → resolved value the moment its test lands.
@@ -863,6 +871,17 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
           const ext = gl.getExtension('WEBGL_debug_renderer_info')
           sigRenderer = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER))
         } catch { /* renderer string unavailable — flavor falls back to the other signals */ }
+        // ── The load-bearing guard. ANGLE-D3D11's FXC compiles the fully-inlined df64
+        // stress bodies as a multi-second link, and the resulting shader over-runs the
+        // ~2s Windows TDR on the very FIRST draw — a GPU reset the page cannot survive,
+        // because a submitted GL op is UNCANCELLABLE and the TDR fires long before
+        // COMPILE_TIMEOUT_MS (4000ms > the 2000ms TdrDelay). A wall-clock timer can
+        // stop JS from submitting MORE, but it can't recall the one already in the
+        // driver — so the only move that HOLDS is to never hand this driver the stress
+        // battery. Skip those rows here; the per-op KATs (small bodies) still run and
+        // still prove df64 on this GPU. (If the renderer is masked, sigRenderer is null
+        // and this is bypassed — the default-off checkbox is the backstop there.)
+        const fxcUnsafe = /Direct3D11|\bD3D11\b/i.test(sigRenderer ?? '')
         const gtex = gl.createTexture()
         gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, gtex)
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]))
@@ -870,6 +889,10 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
         gl.activeTexture(gl.TEXTURE0); gl.bindVertexArray(gl.createVertexArray()); gl.viewport(0, 0, 8, 8)
         for (const t of runList) {
           if (aborted) { report('gl', t.name, null, 'SKIP'); continue }
+          if (fxcUnsafe && isStress(t.name)) {
+            glSkipNote = glSkipNote || 'WebGL2 stress battery not submitted: this driver is ANGLE-D3D11, whose FXC compiler can’t build the fully-inlined df64 trees without a GPU-resetting TDR. The per-op battery ran; the stress trees are validated on the WebGPU/Metal paths instead.'
+            report('gl', t.name, null, 'SKIP'); continue
+          }
           try {
             // Compile + link WITHOUT a sync status read (reading COMPILE/LINK_STATUS
             // forces the driver to finish NOW — the blocking we're removing). Status
@@ -1009,6 +1032,7 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
           glRes = {}; gpuRes = {}; glVer = {}; gpuVer = {}
           glPass = 0; gpuPass = 0; glDone = 0; gpuDone = 0
           glAvail = true; gpuAvail = true; glGuard = false; gpuGuard = false; gpuNote = ''
+          glSkipNote = ''
           aborted = false; deviceLosses = 0; abortNote = ''
           autoFlavorLine = ''; sigRenderer = null; sigAdapterInfo = null
           buildSkeleton()
@@ -1040,6 +1064,7 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
           digestText =
             `df64 GPU probe\n` +
             (aborted ? `  ABORTED: ${abortNote} — battery truncated to protect the GPU\n` : ``) +
+            (glSkipNote && !aborted ? `  SKIPPED: WebGL2 stress battery not submitted (ANGLE-D3D11 FXC/TDR-unsafe)\n` : ``) +
             `  WebGL2: ${glPass}/${total} pass · guard=${glGuard ? 'bound' : 'MISSING'}\n` +
             `  WebGPU: ${gpuAvail ? `${gpuPass}/${total} pass · guard=${gpuGuard ? 'bound' : 'MISSING'} · ${gpuNote}` : gpuNote}\n` +
             `  UA: ${navigator.userAgent}\n` +
