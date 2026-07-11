@@ -35,6 +35,7 @@ import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, LabelPassHost } from './pass'
+import { placeLabelsAlongLine, placeInlineLineLabels } from './place-labels-along-line'
 
 /** Cross-tile line-label dedupe predicate. A named road stamped across N
  *  tile boundaries collapses to a single label via its (unique) resolved
@@ -166,71 +167,6 @@ export function lineLabelSubdivSteps(
   if (!(pxPerMeter > 0) || !(gapPx > 0)) return 1
   const segScreenPx = segLenM * pxPerMeter
   return Math.max(1, Math.min(maxSteps, Math.ceil(segScreenPx / gapPx)))
-}
-
-/** Walk an already-projected (screen-space, physical px) polyline and emit a
- *  label placement at each `symbol-spacing` stop — the single authority for
- *  where along a line labels sit. Both feature paths delegate here:
- *   - the vector-tile path's viewport-aligned line branch (a pure extraction —
- *     `emit` wraps its `emitLabelAlongSegment`, so the emitted labels are
- *     byte-identical), and
- *   - the inline / raw-GeoJSON line path (#727 P1), which previously collapsed
- *     a LineString to ONE horizontal centroid label.
- *
- *  Placement cadence (mirrors the historical viewport-aligned walk):
- *   - `spacingPx <= 0` (line-center) or a line shorter than half a spacing step
- *     → a SINGLE placement at the polyline midpoint (distance = total * 0.5);
- *   - otherwise → a placement every `spacingPx` from `spacingPx * 0.5`.
- *  `emit(pax, pay, pbx, pby, t)` receives the containing segment's projected
- *  endpoints and the fraction `t` along it; the caller derives the point and
- *  the screen-space tangent (so glyph rotation stays a caller concern). No
- *  emission when `pn < 2`. Exported for unit coverage — the callers are anon
- *  closures. */
-export function placeLabelsAlongLine(
-  px: Float32Array,
-  py: Float32Array,
-  pn: number,
-  spacingPx: number,
-  emit: (pax: number, pay: number, pbx: number, pby: number, t: number) => void,
-): void {
-  if (pn < 2) return
-  let total = 0
-  for (let i = 0; i < pn - 1; i++) {
-    const dx = px[i + 1]! - px[i]!
-    const dy = py[i + 1]! - py[i]!
-    total += Math.sqrt(dx * dx + dy * dy)
-  }
-  // Single-label case: line-center (spacing 0) or a line too short to fit even
-  // one spacing step → place once at the polyline midpoint.
-  if (spacingPx <= 0 || total < spacingPx * 0.5) {
-    let acc = 0
-    const target = total * 0.5
-    for (let i = 0; i < pn - 1; i++) {
-      const dx = px[i + 1]! - px[i]!
-      const dy = py[i + 1]! - py[i]!
-      const segLen = Math.sqrt(dx * dx + dy * dy)
-      if (acc + segLen >= target) {
-        const t = segLen > 0 ? (target - acc) / segLen : 0
-        emit(px[i]!, py[i]!, px[i + 1]!, py[i + 1]!, t)
-        return
-      }
-      acc += segLen
-    }
-    return
-  }
-  let nextStop = spacingPx * 0.5
-  let acc = 0
-  for (let i = 0; i < pn - 1; i++) {
-    const dx = px[i + 1]! - px[i]!
-    const dy = py[i + 1]! - py[i]!
-    const segLen = Math.sqrt(dx * dx + dy * dy)
-    while (nextStop <= acc + segLen && nextStop <= total) {
-      const t = segLen > 0 ? (nextStop - acc) / segLen : 0
-      emit(px[i]!, py[i]!, px[i + 1]!, py[i + 1]!, t)
-      nextStop += spacingPx
-    }
-    acc += segLen
-  }
 }
 
 /** Camera-centre key for the label-rebake dispatch signature, quantized to ~1
@@ -932,80 +868,28 @@ class LabelPass implements RenderPass {
             // #727 P1 — inline (raw-GeoJSON) line placement. A symbol layer
             // with symbol-placement: line / line-center over an inline
             // LineString used to collapse to ONE horizontal centroid label
-            // (featureAnchor → lineMidpoint → a single addLabel). Project the
-            // feature's OWN vertices and delegate to the SAME along-line
-            // placement walk the vector-tile path uses (placeLabelsAlongLine),
-            // so it renders the tangent-rotated chain instead. Non-line
-            // placements take the centroid path (the `else` below) unchanged.
+            // (featureAnchor → lineMidpoint → a single addLabel). Delegate to
+            // placeInlineLineLabels (place-labels-along-line.ts), which
+            // projects the feature's OWN vertices and calls the SAME
+            // along-line placement walk the vector-tile path uses, so it
+            // renders the tangent-rotated chain instead. Non-line placements
+            // take the centroid path (the `else` below) unchanged.
             const geomType = feat.geometry.type
             if (
               (effectiveDef.placement === 'line' || effectiveDef.placement === 'line-center') &&
               (geomType === 'LineString' || geomType === 'MultiLineString')
             ) {
-              const props = feat.properties ?? {}
-              const lineDef = applyFeatureExprs(props)
-              // symbol-spacing is CSS px → physical px (×dpr); line-center
-              // ignores spacing and always emits one label at the midpoint.
-              const spacingCssPx =
-                effectiveDef.placement === 'line' ? (effectiveDef.spacing ?? 0) : 0
-              const spacingPx = spacingCssPx > 0 ? spacingCssPx * dpr : 0
-              // text-rotation-alignment: viewport keeps labels upright; 'auto'
-              // / 'map' (the default for line) follows the segment tangent.
-              const useTangentRotation = (effectiveDef.rotationAlignment ?? 'auto') !== 'viewport'
-              // Emit one placement at a projected segment position. Mirrors the
-              // tile path's emitLabelAlongSegment text branch; the icon uses the
-              // raw (unflipped) tangent, the text the upright-flipped angle.
-              // pairKey / cross-tile dedup are tile-specific and intentionally
-              // omitted for the single-feature inline path.
-              const emitInlineLine = (
-                pax: number,
-                pay: number,
-                pbx: number,
-                pby: number,
-                t: number,
-              ): void => {
-                const x = pax + (pbx - pax) * t
-                const y = pay + (pby - pay) * t
-                const rawTangentDeg = (Math.atan2(pby - pay, pbx - pax) * 180) / Math.PI
-                if (useTangentRotation) {
-                  let angleDeg = rawTangentDeg
-                  if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
-                  stage.addLabel(
-                    lineDef.text,
-                    props,
-                    x,
-                    y,
-                    { ...lineDef, rotate: angleDeg },
-                    undefined,
-                    labelLayerName,
-                  )
-                } else {
-                  stage.addLabel(lineDef.text, props, x, y, lineDef, undefined, labelLayerName)
-                }
-                dispatchIcon(lineDef, x, y, rawTangentDeg, undefined, true, props)
-              }
-              // MultiLineString → each part independently; LineString → one.
-              // Project vertices for the PRIMARY world copy (projectLonLat);
-              // multi-copy line-label fan-out across ±360° is deferred (mirrors
-              // the KNOWN GAP note on non-Mercator periodic label copies above).
-              const coords = (feat.geometry as { coordinates: unknown }).coordinates
-              const parts: number[][][] =
-                geomType === 'LineString' ? [coords as number[][]] : (coords as number[][][])
-              for (const part of parts) {
-                if (!Array.isArray(part) || part.length < 2) continue
-                const px = new Float32Array(part.length)
-                const py = new Float32Array(part.length)
-                let pn = 0
-                for (const v of part) {
-                  const p = projectLonLat(v[0]!, v[1]!)
-                  if (p) {
-                    px[pn] = p[0]
-                    py[pn] = p[1]
-                    pn++
-                  }
-                }
-                placeLabelsAlongLine(px, py, pn, spacingPx, emitInlineLine)
-              }
+              placeInlineLineLabels(
+                feat,
+                effectiveDef,
+                applyFeatureExprs,
+                projectLonLat,
+                dpr,
+                (value, props, x, y, def, fontKey, layerName) =>
+                  stage.addLabel(value, props, x, y, def, fontKey, layerName),
+                dispatchIcon,
+                labelLayerName,
+              )
             } else {
               const anchor = featureAnchor(feat.geometry)
               if (!anchor) continue

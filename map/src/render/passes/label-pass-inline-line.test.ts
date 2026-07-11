@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { placeLabelsAlongLine } from './label-pass'
+import { placeLabelsAlongLine } from './place-labels-along-line'
 
 // #727 P1 — an inline (raw-GeoJSON) symbol layer with `symbol-placement: line`
 // (or `line-center`) over a LineString collapsed to ONE horizontal centroid
