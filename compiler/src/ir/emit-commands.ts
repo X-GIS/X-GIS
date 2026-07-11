@@ -60,6 +60,13 @@ export interface LoadCommand {
 /** Polygon fill paint axes. */
 export interface FillPaint {
   fill: string | null
+  /** #732 S5 — optional per-feature FILL colour AST (data-driven point
+   *  paint). Emitted when a point layer's `fill` is `data-driven` (a
+   *  match/interpolate over a feature property). The GeoJSON point path
+   *  (map.ts) evaluates it per feature into the POINT_FEAT fill slots —
+   *  the colour-axis mirror of `sizeExpr`. Absent (undefined) for a
+   *  constant fill, so the constant path stays byte-identical. */
+  fillColorExpr?: DataExpr
   /** iter-177 Mapbox `fill-pattern` (constant string only at this
    *  stage). When set, the runtime resolves the sprite name against
    *  the sprite atlas and uses the sprite's centre pixel as the
@@ -613,6 +620,10 @@ function emitShow(
 function emitFillFields(node: RenderNode): FillPaint {
   return {
     fill: colorToHex(node.fill),
+    // #732 S5 — surface the data-driven fill colour AST (mirror of
+    // emitLineFields' strokeColorExpr) so the point path can resolve it
+    // per feature. `node.fill.expr` is already a DataExpr ({ast}).
+    fillColorExpr: node.fill.kind === 'data-driven' ? node.fill.expr : undefined,
     fillPattern: node.fillPattern ?? null,
     fillTranslateX: node.fillTranslateX,
     fillTranslateY: node.fillTranslateY,
