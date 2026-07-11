@@ -817,6 +817,17 @@ export class VectorTileRenderer {
       usage: ['render', 'sample', 'copy-src'],
       label: `vtr-bake-${sliceLayer}-${key}`,
     })
+    // fs_fill writes @builtin(frag_depth) (log-depth), so its pipeline carries an
+    // (inert) depth-stencil state — WebGPU then REQUIRES the pass to present a
+    // matching depth-stencil attachment. Transient: destroyed right after submit
+    // (depth is 'always'/no-write, never read).
+    const depthTex = this.rhi.createTexture({
+      width: sizePx,
+      height: sizePx,
+      format: 'depth24plus-stencil8',
+      usage: ['render'],
+      label: 'vtr-bake-depth',
+    })
     const pass = enc.beginRenderPass({
       colorAttachments: [
         {
@@ -826,6 +837,15 @@ export class VectorTileRenderer {
           clearValue: [0, 0, 0, 0],
         },
       ],
+      depthStencilAttachment: {
+        view: this.rhi.createView(depthTex),
+        depthLoadOp: 'clear',
+        depthClearValue: 1,
+        depthStoreOp: 'discard',
+        stencilLoadOp: 'clear',
+        stencilClearValue: 0,
+        stencilStoreOp: 'discard',
+      },
       label: 'vtr-bake-pass',
     })
     executeItems(mat, pass, [
@@ -848,6 +868,7 @@ export class VectorTileRenderer {
     ])
     pass.end()
     enc.finish()
+    this.rhi.destroyTexture(depthTex)
     return tex
   }
 

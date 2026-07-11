@@ -171,16 +171,17 @@ export function buildFlatFillMaterials(inp: FillMaterialInputs): {
   return { flat, ground }
 }
 
-/** Build the COLOUR-ONLY flat-fill Material for the offscreen tile bake (#599 I1 — globe
- *  vector drape approach B). Same shader / vertex layout / uniform group as the screen fill
- *  (`vs_main_ecef` / `fs_fill`), but ONE variant with NO depthCompare and NO stencil, so
- *  `Material` emits a pipeline with `depthStencil: undefined` (material.ts). That matters
- *  because the bake target is a single colour attachment rendered in tile-local ortho with no
- *  depth: the screen fill's depth-write / stencil variants would demand a matching depth-stencil
- *  attachment the bake pass does not carry. `cullMode: 'none'` (a baked tile is a flat patch,
- *  no back-face to drop). The flat-Mercator VS arm already consumes the tile-local `local_merc`
- *  coord unchanged, so the caller only injects `proj_params.x = 0`, `cam_h = cam_l = 0`, and an
- *  ortho `mvp`; no shader edit. */
+/** Build the single-colour-target flat-fill Material for the offscreen tile bake (#599 I1 —
+ *  globe vector drape approach B). Same shader / vertex layout / uniform group as the screen
+ *  fill (`vs_main_ecef` / `fs_fill`), and ONE variant. It carries an INERT depth-stencil
+ *  (`depthCompare: 'always'`, `depthWrite: false`, no stencil) — NOT because the bake tests
+ *  depth, but because `fs_fill` writes `@builtin(frag_depth)` (log-depth), and WebGPU rejects a
+ *  pipeline whose fragment writes frag_depth while its `depthStencil` state is absent. So the
+ *  bake pass must supply a matching depth-stencil attachment; the always/no-write config makes
+ *  it a no-op (every fragment passes, nothing is written). Single colour target (no pick MRT).
+ *  `cullMode: 'none'` (a baked tile is a flat patch). The flat-Mercator VS arm already consumes
+ *  the tile-local `local_merc` coord unchanged, so the caller only injects `proj_params.x = 0`,
+ *  `cam_h = cam_l = 0`, and an ortho `mvp`; no shader edit. */
 export function buildBakeFillMaterial(inp: FillMaterialInputs): Material {
   const fmt = inp.format as 'bgra8unorm'
   const groups = inp.rhiGroups ?? [wrapWebGpuBindGroupLayout(inp.bindGroupLayout!)]
@@ -196,7 +197,7 @@ export function buildBakeFillMaterial(inp: FillMaterialInputs): Material {
     vertexBuffers: [toMatVB(inp.vertexLayout)],
     colorTargets: [{ format: fmt, blend: 'alpha' }],
     cullMode: 'none',
-    variants: [{ label: 'fill-bake-rhi' }],
+    variants: [{ depthCompare: 'always', depthWrite: false, label: 'fill-bake-rhi' }],
   })
 }
 

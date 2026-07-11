@@ -20,6 +20,10 @@ type ProbeResult = {
   key?: number
   coverage?: number
   sizePx?: number
+  tilesSeen?: number
+  indexCount?: number
+  validationError?: string | null
+  maxRGBA?: number[]
   preview?: string
   error?: string
 }
@@ -70,13 +74,20 @@ test('#599 I1 — offscreen tile-bake rasterizes a resident fill tile', async ({
       }
       const map = w.__xgisMap
       if (!map?.ctx) return { error: 'no ctx (device not ready)' }
-      const dev = map.ctx.device
+      const dev = map.ctx.device as GPUDevice & {
+        pushErrorScope: (f: string) => void
+        popErrorScope: () => Promise<{ message: string } | null>
+      }
       const isBGRA = (map.ctx.format || '').startsWith('bgra')
+      let tilesSeen = 0
       for (const { renderer: vtr } of map.vtSources.values()) {
         for (const [sliceLayer, tiles] of vtr.gpuCache) {
           for (const [key, tile] of tiles) {
             if (tile.indexCount <= 0 || tile.extruded) continue
+            tilesSeen++
+            dev.pushErrorScope('validation')
             const tex = vtr.bakeTileToTexture(sliceLayer, key, [1, 0, 0, 1], sizePx)
+            const vErr = await dev.popErrorScope()
             if (!tex) continue
             const gpuTex = tex.native
             const bpr = Math.ceil((sizePx * 4) / 256) * 256
@@ -95,6 +106,10 @@ test('#599 I1 — offscreen tile-bake rasterizes a resident fill tile', async ({
             gpuTex.destroy()
 
             let covered = 0
+            let maxR = 0
+            let maxG = 0
+            let maxB = 0
+            let maxA = 0
             const rgba = new Uint8ClampedArray(sizePx * sizePx * 4)
             for (let y = 0; y < sizePx; y++) {
               for (let x = 0; x < sizePx; x++) {
@@ -102,9 +117,16 @@ test('#599 I1 — offscreen tile-bake rasterizes a resident fill tile', async ({
                 const d = (y * sizePx + x) * 4
                 const a = srcArr[s + 3]!
                 if (a > 0) covered++
-                rgba[d] = isBGRA ? srcArr[s + 2]! : srcArr[s]!
-                rgba[d + 1] = srcArr[s + 1]!
-                rgba[d + 2] = isBGRA ? srcArr[s]! : srcArr[s + 2]!
+                const rr = isBGRA ? srcArr[s + 2]! : srcArr[s]!
+                const gg = srcArr[s + 1]!
+                const bb = isBGRA ? srcArr[s]! : srcArr[s + 2]!
+                if (rr > maxR) maxR = rr
+                if (gg > maxG) maxG = gg
+                if (bb > maxB) maxB = bb
+                if (a > maxA) maxA = a
+                rgba[d] = rr
+                rgba[d + 1] = gg
+                rgba[d + 2] = bb
                 rgba[d + 3] = a
               }
             }
@@ -117,19 +139,33 @@ test('#599 I1 — offscreen tile-bake rasterizes a resident fill tile', async ({
               key,
               coverage: covered / (sizePx * sizePx),
               sizePx,
+              tilesSeen,
+              indexCount: tile.indexCount,
+              validationError: vErr ? vErr.message : null,
+              maxRGBA: [maxR, maxG, maxB, maxA],
               preview: cv.toDataURL('image/png'),
             }
           }
         }
       }
-      return { error: 'no resident fill tile (pan/zoom to a filled view first)' }
+      return { error: `no resident fill tile (tilesSeen=${tilesSeen})` }
     }, 256)
     if (!res.error) break
   }
 
   console.log(
     'BAKE_I1',
-    JSON.stringify({ ...res, preview: res.preview ? `[png ${res.preview.length}b]` : undefined }),
+    JSON.stringify({
+      sliceLayer: res.sliceLayer,
+      key: res.key,
+      coverage: res.coverage,
+      tilesSeen: res.tilesSeen,
+      indexCount: res.indexCount,
+      validationError: res.validationError,
+      maxRGBA: res.maxRGBA,
+      error: res.error,
+      preview: res.preview ? `[png ${res.preview.length}b]` : undefined,
+    }),
   )
   console.log('BAKE_I1 pageerrors', errors.length, errors.slice(0, 3))
 
@@ -139,6 +175,9 @@ test('#599 I1 — offscreen tile-bake rasterizes a resident fill tile', async ({
   }
 
   expect(res.error, `probe error: ${res.error}`).toBeUndefined()
+  // The bake pipeline must build (fs_fill writes frag_depth → needs a depth-stencil
+  // state + attachment; a mismatch here surfaces as a validation error + blank RT).
+  expect(res.validationError, `validation: ${res.validationError}`).toBeFalsy()
   // A resident fill tile must rasterize SOME footprint in the bake RT.
   expect(res.coverage ?? 0).toBeGreaterThan(0.001)
 })
