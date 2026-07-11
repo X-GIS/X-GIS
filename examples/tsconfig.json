@@ -1,0 +1,29 @@
+{
+  "// note": "Type-checks the examples against the LIVE @xgis/* source (same aliases the playground uses), so a broken example fails `tsc --noEmit`. Run: node ../node_modules/typescript/bin/tsc -p examples/tsconfig.json",
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["@webgpu/types"],
+    "baseUrl": ".",
+    "paths": {
+      "@xgis/map": ["../map/dist/index.d.ts"],
+      "@xgis/engine": ["../engine/dist/index.d.ts"],
+      "@xgis/shared": ["../shared/dist/index.d.ts"],
+      "@xgis/compiler": ["../compiler/dist/index.d.ts"],
+      "@xgis/data": ["../data/dist/index.d.ts"],
+      "@xgis/geo": ["../geo/dist/index.d.ts"],
+      "@xgis/shader-dsl": ["../shader-dsl/dist/index.d.ts"],
+      "@xgis/rhi": ["../rhi/dist/index.d.ts"],
+      "@xgis/rhi-webgpu": ["../rhi-webgpu/dist/index.d.ts"],
+      "@xgis/rhi-webgl2": ["../rhi-webgl2/dist/index.d.ts"]
+    }
+  },
+  "include": ["*.ts"]
+}
