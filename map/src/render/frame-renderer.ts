@@ -19,6 +19,7 @@ import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { UniformRing } from './uniform-ring'
 import { PipelineFactory } from './pipeline-factory'
 import { polygonUniformStride } from './polygon-uniform-slots'
+import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
 
 // ═══ FrameRenderer ═══
 
@@ -228,6 +229,8 @@ export class FrameRenderer {
       256,
       'uniform-ring',
       onGrow,
+      () => perfMarkStart('uniform-ring.grow'),
+      () => perfMarkEnd('uniform-ring.grow'),
     )
     this.uniformRing.ensure()
   }
