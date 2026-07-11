@@ -12,8 +12,11 @@
 //   • data-viz (heatmap): render-targets.ts owns heatmapAccum/BlurTexture +
 //     heatmapAccum/BlurView + ensureHeatmap/destroyHeatmap; gpu-shared.ts owns
 //     the HEATMAP_DENSITY_FORMAT constant.
-//   • data-viz (palette/gradient): palette-texture.ts owns PaletteTextures /
-//     uploadPalette / colorGradientAtlas / scalarGradientAtlas.
+//   • data-viz (palette/gradient): palette-texture.ts USED TO own PaletteTextures /
+//     uploadPalette / colorGradientAtlas / scalarGradientAtlas — RELOCATED to
+//     @xgis/map in #1000 (map/src/render/palette-textures.ts owns the palette
+//     SCHEMA; the backend kept a content-blind generic data-texture.ts upload
+//     primitive that map drives with the packed bytes). (Row removed below.)
 //   • style enum: compute-bind-layout.ts USED TO thread the paint axis selector
 //     through the bind-group builder — RELOCATED to @xgis/map in #1000. The
 //     builder now takes an opaque output-slot index; the style-aware caller
@@ -24,15 +27,16 @@
 // engine's `types:[]` neutrality say nothing about it. The sibling ratchets miss
 // this axis by construction: raw-webgpu-ratchet bans native `GPU*` only inside
 // @xgis/map; backend-adapter-ratchet bans @xgis/map → backend IMPORTS; the #929
-// dependency-direction ratchet bans cross-package VALUE imports (it will drive
-// out palette-texture.ts's `PackedPalette`/`GRADIENT_WIDTH` imports from
-// @xgis/compiler). NONE of them looks at the domain CONTENT VOCABULARY sitting
-// INSIDE the backend's own surface — so a heatmap target or a paint-axis enum
-// added to the adapter tomorrow passes every existing gate. This ratchet is that
-// missing mechanism: it seeds the CURRENT domain-content footprint of both
-// backend `src` trees as a per-file BASELINE and drives it to zero as the
-// heatmap render targets, the palette upload, and the paint-axis bind wiring
-// relocate to @xgis/map. Close-out (#1000) = this map == {}.
+// dependency-direction ratchet bans cross-package VALUE imports (relocating the
+// palette upload to @xgis/map in #1000 already drove out palette-texture.ts's
+// `PackedPalette`/`GRADIENT_WIDTH` imports from @xgis/compiler). NONE of them
+// looks at the domain CONTENT VOCABULARY sitting INSIDE the backend's own
+// surface — so a heatmap target or a paint-axis enum added to the adapter
+// tomorrow passes every existing gate. This ratchet is that missing mechanism:
+// it seeds the CURRENT domain-content footprint of both backend `src` trees as
+// a per-file BASELINE and drives it to zero as the heatmap render targets, the
+// palette upload, and the paint-axis bind wiring relocate to @xgis/map.
+// Close-out (#1000) = this map == {}.
 //
 // SIGNAL (specific leaked terms, not generic GPU vocab → low false positives).
 // Per file, over COMMENT-STRIPPED source (both backends document heatmap/palette
@@ -64,8 +68,9 @@
 // GPU-free; co-located in rhi-webgpu/src so it rides the `test (engine-rhi-data)`
 // CI leg (`vitest … rhi-webgpu/src rhi-webgl2/src …`). Baseline started at 53
 // markers / 4 files (2026-07-11); the paint-axis bind wiring relocated to
-// @xgis/map in #1000, leaving 51 markers / 3 files. Drive the rest to 0 by
-// relocating the heatmap targets + palette upload to @xgis/map (#1000).
+// @xgis/map (51 / 3), then the palette upload relocated to @xgis/map in #1000
+// (deleting palette-texture.ts's 14-marker row), leaving 37 markers / 2 files.
+// Drive the rest to 0 by relocating the heatmap render targets to @xgis/map.
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -112,7 +117,6 @@ function contentCount(abs: string): number {
 // delete the entry) in the same commit. Measured 2026-07-11. Ordered by path.
 const BASELINE: Record<string, number> = {
   'rhi-webgpu/src/gpu-shared.ts': 1,
-  'rhi-webgpu/src/palette-texture.ts': 14,
   'rhi-webgpu/src/render-targets.ts': 36,
 }
 
