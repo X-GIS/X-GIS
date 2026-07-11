@@ -2,7 +2,7 @@
 //
 // Re-authors render/renderer-shaders.ts POLYGON_SHADER_SOURCE (826 LOC).
 // The polygon shader is the variant-codegen-heavy fill / stroke / extrude
-// pipeline: 1 Uniforms struct (256 bytes; reused by stroke + extrude paths
+// pipeline: 1 Uniforms struct (272 bytes; reused by stroke + extrude paths
 // via field aliasing), 3 fixed bindings (u, sprite_atlas, sprite_samp),
 // 3 vertex entries (vs_main / vs_main_ecef / vs_main_ecef_extruded)
 // and 6 fragment entries (fs_fill / fs_fill_pattern / fs_oit_translucent /
@@ -88,7 +88,7 @@ import { PI, EARTH_R, MERCATOR_LAT_LIMIT, DEG2RAD } from './consts'
 
 // ── Struct declarations ──
 //
-// Field order + names match POLYGON_SHADER_SOURCE byte-for-byte; the 256-byte
+// Field order + names match POLYGON_SHADER_SOURCE byte-for-byte; the 272-byte
 // uniform layout (UNIFORM_SIZE in vector-tile-renderer.ts) is consumed by every
 // polygon variant + by every per-tile
 // uniform writeBuffer caller in renderer.ts / vector-tile-renderer.ts, so any
@@ -102,7 +102,7 @@ const U = uniformStruct(
     // now holds the ECEF-MVP from Camera.getECEFFrameView() (was previously
     // the second slot `mvp_ecef`). Every polygon VS consumes ECEF; the dual
     // slot is gone (that removal shrank the struct; later fields re-grew it to
-    // its current 256 bytes — UNIFORM_SIZE in vector-tile-renderer.ts).
+    // its current 272 bytes — UNIFORM_SIZE in vector-tile-renderer.ts).
     mvp: mat4x4fT,
     fill_color: vec4fT,
     stroke_color: vec4fT,
