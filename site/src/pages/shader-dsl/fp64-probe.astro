@@ -709,7 +709,7 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
     let d = Math.abs(r - gold); if (circular) d = Math.min(d, 1 - d)
     return d < 0.06 ? 'PASS' : Math.abs(r) < 0.06 ? 'FAIL(→0)' : 'FAIL'
   }
-  const isFail = (vr: string): boolean => vr !== 'PASS' && vr !== 'n/a'
+  const isFail = (vr: string): boolean => vr !== 'PASS' && vr !== 'n/a' && vr !== 'SKIP'
 
   // Families group the tests so a block pattern (e.g. "vec64 collapsed as a unit")
   // reads at a glance. Order within a family is DEFINITION order and stays put —
@@ -729,6 +729,7 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
   // grey lowercase meta. A PENDING cell is a small spinner, swapped out in place.
   const cell = (v: number | null, vr: string): string => {
     if (vr === 'n/a') return '<span class="text-fg-faint">—</span>'
+    if (vr === 'SKIP') return '<span class="font-mono text-[11px] text-fg-mute">skipped</span>'
     if (v == null) return '<span class="font-mono text-[11px] text-destructive">err</span>'
     const num = `<span class="font-mono tabular-nums text-[13px] ${vr === 'PASS' ? 'text-fg-mute' : 'text-destructive'}">${v.toFixed(4)}</span>`
     if (vr === 'PASS') return num
@@ -763,6 +764,17 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
       let glPass = 0, gpuPass = 0, glDone = 0, gpuDone = 0
       let glAvail = true, gpuAvail = true, glGuard = false, gpuGuard = false, gpuNote = ''
       let digestText = ''
+      // ── GPU-safety abort. A heavy stress shader can reset the GPU driver (a
+      // Windows TDR on ANGLE-D3D11's FXC). ONE reset is survivable; a CASCADE —
+      // ~30 TDR-inducing draws submitted back-to-back — is what wedges the whole
+      // machine (the reported freeze). So the FIRST hard device loss (a lost WebGL
+      // context, or a 2nd WebGPU device loss) flips `aborted`, and both run loops
+      // then SKIP every remaining test instead of powering through more TDRs. ──
+      let aborted = false, deviceLosses = 0, abortNote = ''
+      // Per-shader async-compile budget. On ANGLE-D3D11 a heavy df64 body is a
+      // multi-second FXC link; past this we treat the compile as TDR-prone, abort
+      // the run, and hand the driver back rather than block the tab on it.
+      const COMPILE_TIMEOUT_MS = 4000
       const q = (sel: string) => tableEl.querySelector(sel) as HTMLElement
 
       // ── Skeleton: render the SELECTED tests (built per run so the excluded
@@ -800,7 +812,10 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
         return `<div class="flex items-baseline gap-x-3 gap-y-1 flex-wrap"><span class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] shrink-0 whitespace-nowrap min-w-[104px]">${label}</span>${body}</div>`
       }
       const renderSummary = () => {
-        summary.innerHTML = `<div class="space-y-3">${summaryLine('WebGL2 · GLSL', glPass, glDone, glAvail, glGuard)}${summaryLine('WebGPU · WGSL', gpuPass, gpuDone, gpuAvail, gpuGuard)}</div>`
+        const abortBanner = aborted
+          ? `<div class="mb-3 text-[12px] font-mono text-destructive leading-[1.5]">⚠ ${abortNote} — remaining tests skipped to protect the GPU. This device's driver can't compile the stress battery (a known ANGLE-D3D11 FXC / TDR limit); re-run WITHOUT the stress battery for a clean pass.</div>`
+          : ''
+        summary.innerHTML = abortBanner + `<div class="space-y-3">${summaryLine('WebGL2 · GLSL', glPass, glDone, glAvail, glGuard)}${summaryLine('WebGPU · WGSL', gpuPass, gpuDone, gpuAvail, gpuGuard)}</div>`
       }
       const markFail = (name: string) => { const r = q(`[data-row="${name}"]`); r.classList.remove('border-transparent'); r.classList.add('border-destructive') }
       const showDiffer = (name: string) => {
@@ -832,8 +847,18 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
       // filled cell paints before the next runs (progress is visible, not a freeze).
       const runWebGL = async () => {
         const canvas = document.createElement('canvas'); canvas.width = 8; canvas.height = 8
+        // A lost context = a GPU driver reset (TDR). Flip the global abort so the rest
+        // of the battery is SKIPPED rather than resubmitted onto a wedged driver — the
+        // resubmit-onto-a-resetting-GPU cascade is what wedged the whole machine.
+        canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); aborted = true; abortNote = abortNote || 'WebGL2 context lost (GPU driver reset)' })
         const gl = canvas.getContext('webgl2')
         if (!gl) { glAvail = false; for (const t of runList) report('gl', t.name, null, 'n/a'); return }
+        // Non-blocking compile. Without this the heavy stress shaders link
+        // SYNCHRONOUSLY — a multi-second FXC link on ANGLE-D3D11 that froze the tab
+        // for the whole compile. With KHR_parallel_shader_compile linkProgram returns
+        // immediately and we poll COMPLETION_STATUS_KHR, yielding each frame, so the
+        // page stays live and a compile that never completes (TDR-prone) times out.
+        const par = gl.getExtension('KHR_parallel_shader_compile') as { COMPLETION_STATUS_KHR: number } | null
         try {
           const ext = gl.getExtension('WEBGL_debug_renderer_info')
           sigRenderer = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER))
@@ -844,19 +869,56 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
         gl.activeTexture(gl.TEXTURE0); gl.bindVertexArray(gl.createVertexArray()); gl.viewport(0, 0, 8, 8)
         for (const t of runList) {
+          if (aborted) { report('gl', t.name, null, 'SKIP'); continue }
           try {
-            const c = (ty: number, src: string) => { const s = gl.createShader(ty)!; gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) || ''); return s }
+            // Compile + link WITHOUT a sync status read (reading COMPILE/LINK_STATUS
+            // forces the driver to finish NOW — the blocking we're removing). Status
+            // is read only AFTER COMPLETION_STATUS_KHR reports done.
+            const mkShader = (ty: number, src: string) => { const s = gl.createShader(ty)!; gl.shaderSource(s, src); gl.compileShader(s); return s }
+            const vsS = mkShader(gl.VERTEX_SHADER, t.glslVertex)
+            const fsS = mkShader(gl.FRAGMENT_SHADER, t.glslFragment)
             const p = gl.createProgram()!
-            gl.attachShader(p, c(gl.VERTEX_SHADER, t.glslVertex)); gl.attachShader(p, c(gl.FRAGMENT_SHADER, t.glslFragment)); gl.linkProgram(p)
-            if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p) || '')
+            gl.attachShader(p, vsS); gl.attachShader(p, fsS); gl.linkProgram(p)
+            if (par) {
+              const t0 = performance.now()
+              while (!gl.getProgramParameter(p, par.COMPLETION_STATUS_KHR)) {
+                if (aborted) throw new Error('aborted')
+                if (performance.now() - t0 > COMPILE_TIMEOUT_MS) { aborted = true; abortNote = abortNote || `WebGL2 shader compile exceeded ${COMPILE_TIMEOUT_MS}ms (TDR guard)`; throw new Error('compile timeout') }
+                await raf()
+              }
+            }
+            if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p) || gl.getShaderInfoLog(vsS) || gl.getShaderInfoLog(fsS) || 'link failed')
             gl.useProgram(p)
             const block = t.reflection.uniforms[0]
             if (block) { const ubo = gl.createBuffer(); gl.bindBuffer(gl.UNIFORM_BUFFER, ubo); gl.bufferData(gl.UNIFORM_BUFFER, pack(block, values), gl.STATIC_DRAW); const i = gl.getUniformBlockIndex(p, block.name); if (i !== 0xffffffff) { gl.uniformBlockBinding(p, i, 0); gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, ubo) } }
             const gLoc = gl.getUniformLocation(p, '_fp64'); if (gLoc) { gl.uniform1i(gLoc, 7); glGuard = true }
             gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLES, 0, 3)
-            const px = new Uint8Array(4); gl.readPixels(4, 4, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
+            // Async readback. A plain gl.readPixels(…, px) BLOCKS the main thread
+            // until the (heavy) draw finishes — the second way a pathological stress
+            // shader froze the browser. Instead readPixels INTO a PBO (queues the
+            // copy, returns immediately), fence, then poll clientWaitSync with a 0
+            // timeout, yielding each frame, so the JS thread is never stalled on the
+            // GPU and a hung draw times out into the abort rather than the freeze.
+            const px = new Uint8Array(4)
+            const pbo = gl.createBuffer()
+            gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo)
+            gl.bufferData(gl.PIXEL_PACK_BUFFER, 4, gl.STREAM_READ)
+            gl.readPixels(4, 4, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, 0)
+            const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!
+            gl.flush() // submit so the fence can signal without a blocking finish
+            const rt0 = performance.now()
+            for (;;) {
+              const s = gl.clientWaitSync(sync, 0, 0)
+              if (s === gl.ALREADY_SIGNALED || s === gl.CONDITION_SATISFIED) break
+              if (s === gl.WAIT_FAILED) throw new Error('readback wait failed')
+              if (aborted) throw new Error('aborted')
+              if (performance.now() - rt0 > COMPILE_TIMEOUT_MS) { aborted = true; abortNote = abortNote || `WebGL2 draw/readback exceeded ${COMPILE_TIMEOUT_MS}ms (TDR guard)`; throw new Error('readback timeout') }
+              await raf()
+            }
+            gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, px)
+            gl.deleteSync(sync); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); gl.deleteBuffer(pbo)
             const v = decode(px[0], px[1], px[2]); report('gl', t.name, v, verdict(v, t.golden, t.circular))
-          } catch (e) { report('gl', t.name, null, 'ERR') }
+          } catch (e) { report('gl', t.name, null, aborted ? 'SKIP' : 'ERR') }
           await raf()
         }
       }
@@ -907,11 +969,16 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
           const v = decode(arr[o], arr[o + 1], arr[o + 2]); report('gpu', t.name, v, verdict(v, t.golden, t.circular))
         }
         for (const t of runList) {
+          if (aborted) { report('gpu', t.name, null, 'SKIP'); continue }
           try { await runOne(t) }
           catch {
-            // likely device loss — rebuild the device once and retry THIS test,
-            // so one TDR no longer poisons the rest of the column.
-            if (recreates < 4) {
+            // A caught failure here is most likely a device loss (TDR). Recover ONCE
+            // for a transient, but a SECOND loss means the driver is repeatedly
+            // resetting on this battery — ABORT before the cascade wedges the machine
+            // (the reported freeze), rather than recreating + resubmitting 4× more.
+            deviceLosses++
+            if (deviceLosses >= 2) { aborted = true; abortNote = abortNote || 'WebGPU device lost repeatedly (GPU driver reset)'; report('gpu', t.name, null, 'SKIP') }
+            else if (recreates < 4) {
               recreates++
               try { ctx = await makeCtx(); await runOne(t) }
               catch { report('gpu', t.name, null, 'ERR') }
@@ -942,6 +1009,7 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
           glRes = {}; gpuRes = {}; glVer = {}; gpuVer = {}
           glPass = 0; gpuPass = 0; glDone = 0; gpuDone = 0
           glAvail = true; gpuAvail = true; glGuard = false; gpuGuard = false; gpuNote = ''
+          aborted = false; deviceLosses = 0; abortNote = ''
           autoFlavorLine = ''; sigRenderer = null; sigAdapterInfo = null
           buildSkeleton()
           renderSummary()
@@ -971,6 +1039,7 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
           })
           digestText =
             `df64 GPU probe\n` +
+            (aborted ? `  ABORTED: ${abortNote} — battery truncated to protect the GPU\n` : ``) +
             `  WebGL2: ${glPass}/${total} pass · guard=${glGuard ? 'bound' : 'MISSING'}\n` +
             `  WebGPU: ${gpuAvail ? `${gpuPass}/${total} pass · guard=${gpuGuard ? 'bound' : 'MISSING'} · ${gpuNote}` : gpuNote}\n` +
             `  UA: ${navigator.userAgent}\n` +
