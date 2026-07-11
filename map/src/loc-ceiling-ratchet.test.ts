@@ -64,7 +64,11 @@ function exists(abs: string): boolean {
 // Measured 2026-07-11. (line.ts / polygon.ts are also ceiling-gated by the runtime
 // arch-invariants test until runtime/ retires — #1005; the tighter ceiling governs.)
 const CEILINGS: Record<string, number> = {
-  'map/src/render/vector-tile-renderer.ts': 4334,
+  // 4334→4336 (#991 P2): the UniformRing relocation to @xgis/engine injects the
+  // perf-mark coupling via onGrowStart/onGrowEnd callbacks the engine no longer
+  // owns; VTR (the ring that grows under load — the perf-audit hot path) supplies
+  // them at the ring ctor (+2 lines). Lower again as #991 decomposes VTR.
+  'map/src/render/vector-tile-renderer.ts': 4336,
   'map/src/map.ts': 4232,
   'map/src/text/text-stage.ts': 1920,
   'map/src/render/passes/label-pass.ts': 1786,

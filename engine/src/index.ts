@@ -37,6 +37,14 @@ export * from './render/render-context'
 // shaders/layouts/formats enter as neutral strings/descriptors. @xgis/map builds
 // its geo renderers by composing it (re-export shim at map/src/render/material/material.ts).
 export * from './render/material'
+// Growable per-draw uniform ring buffer (#991 P2, relocated from @xgis/map):
+// one growable uniform buffer of fixed-size slots + a CPU staging mirror flushed
+// as a single writeBuffer per pass. Backend-neutral (RHI-only). The lone perf
+// coupling is INJECTED — the caller supplies optional onGrowStart/onGrowEnd
+// markers (@xgis/map wires them to its perf-marks); the engine takes no
+// profiling dependency. @xgis/map re-exports it via a shim at
+// map/src/render/uniform-ring.ts.
+export * from './render/uniform-ring'
 
 // ── Shader machinery: CPU log-depth + content-blind shader-DSL leaves ─
 export * from './shaders/log-depth'

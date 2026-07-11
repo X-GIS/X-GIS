@@ -579,6 +579,8 @@ export class VectorTileRenderer {
       1024,
       'vtr-uniform-ring',
       () => this._onUniformRingGrow(),
+      () => perfMarkStart('uniform-ring.grow'),
+      () => perfMarkEnd('uniform-ring.grow'),
     )
     this.uniformRing.ensure()
   }
