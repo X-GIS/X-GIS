@@ -4,7 +4,7 @@
 // 1700-line renderer class. line-renderer.ts re-exports the public
 // surface so existing imports keep working.
 
-import { lineLayerUniformBytes } from './line-uniform-slots'
+import { lineLayerUniformBytes, lineLayerUniformSlots } from './line-uniform-slots'
 
 // ═══ Layer Uniform Layout ═══
 // Must match WGSL struct LineLayerUniform.
@@ -239,14 +239,20 @@ export function packLineLayerUniform(
   roundLimit: number = 0,
 ): Float32Array {
   const { f32: buf, u32 } = lineUniformScratch()
+  // Field → f32-slot indices from reflect() (the SoT), not hand literals —
+  // so a future LineLayer struct reorder can't silently desync this packer
+  // from the WGSL layout (the std140-drift class polygon-uniform-slots retired).
+  // Memoised, so this is a cached lookup per call (mirrors the polygon path's
+  // `const S = polygonUniformSlots().slot` in frame-projection-uniform.ts).
+  const S = lineLayerUniformSlots().slot
   // Zero the scratch — the function only writes selected slots,
   // and stale values from a prior call would leak into the GPU
   // upload (e.g. dash cycle from a solid-stroke layer's prior
   // dashed-stroke caller).
   buf.fill(0)
-  buf[0] = strokeColor[0]
-  buf[1] = strokeColor[1]
-  buf[2] = strokeColor[2]
+  buf[S.color] = strokeColor[0]
+  buf[S.color + 1] = strokeColor[1]
+  buf[S.color + 2] = strokeColor[2]
   // Sub-pixel-width strokes (stroke-0.3 etc.) used to render as a fuzzy
   // 2-3 px AA band at reduced alpha — the SDF AA distance (1 px each
   // side of the SDF edge) dominates when the line itself is < 1 px,
@@ -255,12 +261,12 @@ export function packLineLayerUniform(
   // the requested fraction. Above 1 px the trick is a no-op.
   const effectiveWidthPx = Math.max(strokeWidthPx, 1.0)
   const widthAlphaScale = strokeWidthPx >= 1.0 ? 1.0 : strokeWidthPx
-  buf[3] = strokeColor[3] * opacity * widthAlphaScale
-  buf[4] = effectiveWidthPx
+  buf[S.color + 3] = strokeColor[3] * opacity * widthAlphaScale
+  buf[S.width_px] = effectiveWidthPx
   // AA reserve (1.0 px ≈ MapLibre native) + Mapbox-style blur on top.
-  buf[5] = 1.0 + Math.max(0, blurPx)
-  buf[6] = mppAtCenter
-  buf[7] = miterLimit
+  buf[S.aa_width_px] = 1.0 + Math.max(0, blurPx)
+  buf[S.mpp] = mppAtCenter
+  buf[S.miter_limit] = miterLimit
 
   // Dash
   let dashCount = 0
@@ -270,7 +276,7 @@ export function packLineLayerUniform(
     dashCount = Math.min(dash.array.length, 8)
     if (dashCount & 1) dashCount--
     for (let i = 0; i < dashCount; i++) {
-      buf[12 + i] = dash.array[i]
+      buf[S.dash_array + i] = dash.array[i]
       dashCycle += dash.array[i]
     }
     dashOffset = dash.offset ?? 0
@@ -278,14 +284,16 @@ export function packLineLayerUniform(
 
   const hasPattern = patterns.some((p) => !!p && p.shapeId > 0)
   const hasOffset = Math.abs(offsetPx) > 0
-  u32[8] = packFlags(cap, join, dashCount > 0, hasPattern, hasOffset)
-  u32[9] = dashCount
-  buf[10] = dashCycle
-  buf[11] = dashOffset
+  u32[S.flags] = packFlags(cap, join, dashCount > 0, hasPattern, hasOffset)
+  u32[S.dash_count] = dashCount
+  buf[S.dash_cycle_m] = dashCycle
+  buf[S.dash_offset_m] = dashOffset
 
-  // Patterns (up to 3 slots at f32 offsets 20, 28, 36)
+  // Patterns (up to 3 slots at f32 offsets 20, 28, 36). The array BASE comes
+  // from the SoT (S.patterns); the per-slot field offsets (base + 2..5) are a
+  // local PatternSlot struct layout the SoT does not expose, so they stay literal.
   for (let k = 0; k < PATTERN_SLOT_COUNT; k++) {
-    const base = 20 + k * PATTERN_SLOT_F32
+    const base = S.patterns + k * PATTERN_SLOT_F32
     const p = patterns[k]
     if (!p || p.shapeId <= 0) {
       u32[base] = 0
@@ -306,12 +314,12 @@ export function packLineLayerUniform(
   }
 
   // Lateral parallel offset: DSL value in pixels → shader wants meters.
-  buf[44] = offsetPx * mppAtCenter
-  buf[45] = viewportHeight
-  buf[46] = dpr
-  buf[47] = lineTranslateX
-  buf[48] = lineTranslateY
-  buf[49] = roundLimit // Mapbox line-round-limit; 0 = shader uses historical fold
-  // buf[50-51] remain 0 (pad for 16-byte alignment)
+  buf[S.offset_m] = offsetPx * mppAtCenter
+  buf[S.viewport_height] = viewportHeight
+  buf[S.dpr] = dpr
+  buf[S.line_translate_x] = lineTranslateX
+  buf[S.line_translate_y] = lineTranslateY
+  buf[S.round_limit] = roundLimit // Mapbox line-round-limit; 0 = shader uses historical fold
+  // trailing pad slots remain 0 (16-byte alignment)
   return buf
 }
