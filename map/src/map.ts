@@ -20,7 +20,7 @@ import {
   // packing) lives with the Palette collector in the compiler (#929 A).
   packPalette,
 } from '@xgis/compiler'
-import { uploadPalette, type PaletteTextures } from '@xgis/rhi-webgpu'
+import { uploadPalette, type PaletteTextures } from './render/palette-textures'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/geo'

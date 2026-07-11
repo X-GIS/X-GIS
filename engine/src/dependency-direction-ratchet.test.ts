@@ -69,8 +69,9 @@ const EXEMPT = new Set(['runtime', 'playground', 'site'])
 const BASELINE: ReadonlyArray<readonly [pkg: string, dep: string]> = [
   // Contract types rhi-webgpu consumes from the compiler (#929 B3, pending
   // relocation onto @xgis/rhi seams): ComputeKernel / ShaderVariant /
-  // VertexFormat / PackedPalette+GRADIENT_WIDTH. (rhi-webgl2's edge burned
-  // down — its dispatcher is typed structurally over the shader-dsl IR.)
+  // VertexFormat. (The palette upload's PackedPalette+GRADIENT_WIDTH imports
+  // relocated to @xgis/map with the palette schema in #1000; rhi-webgl2's edge
+  // burned down — its dispatcher is typed structurally over the shader-dsl IR.)
   ['rhi-webgpu', 'compiler'],
   // TYPE-only residue (#929 B burned the value-level imports): gpu.ts imports
   // the `RenderContext`/`BackendChoice` context family, whose engine home is

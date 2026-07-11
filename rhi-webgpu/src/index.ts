@@ -2,8 +2,9 @@
 // zone (#833 M3). The ONLY workspace package that sees @webgpu/types: the
 // WebGpuDevice adapter, the GPUContext boot (initGPU / initGPUForcedWebGL2,
 // the composition root until the #833 M4 provider-injection inversion), and
-// the WebGPU-typed machinery (compute, frame arena, staging pool, palette,
-// render targets, reflection-to-WebGPU, bundle cache, bind tiers).
+// the WebGPU-typed machinery (compute, frame arena, staging pool, generic
+// data-texture upload, render targets, reflection-to-WebGPU, bundle cache,
+// bind tiers).
 export * from './rhi-webgpu'
 export * from './gpu'
 export * from './backend-providers'
@@ -15,7 +16,10 @@ export * from './compute'
 // re-export this barrel used to carry was a VALUE-level @xgis/engine
 // import in the adapter (#929 B).
 export * from './staging-buffer-pool'
-export * from './palette-texture'
+// Generic 2D data-texture upload (create + write packed texels). The palette
+// data-viz SCHEMA that used to live here relocated UP to @xgis/map (#1000);
+// this leaves only a content-blind texture-upload primitive.
+export * from './data-texture'
 export * from './bind-tiers'
 export * from './render-targets'
 // FrameContext + FrameUniform moved to @xgis/map (#781 — per-frame render-loop

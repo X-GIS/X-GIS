@@ -37,7 +37,9 @@
 // STRICT-equal, both directions (see raw-webgpu-ratchet.test.ts for the rationale):
 // `> baseline` = new coupling (route via @xgis/engine); `< baseline` = win not
 // locked (lower it here in the same commit). GPU-free; rides the `test (map)` leg.
-// Baseline measured 2026-07-11: 56 imports / 36 files. Target: the map.ts boot floor.
+// Baseline measured 2026-07-11: 56 imports / 36 files; #1000 relocated the palette
+// upload's import off map.ts (5→4) into render/palette-textures.ts (+1) — 56 / 37,
+// net-neutral. Target: the map.ts boot floor.
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -75,7 +77,7 @@ function adapterImportCount(abs: string): number {
 const BASELINE: Record<string, number> = {
   'map/src/geojson-polar-cap-show.ts': 1,
   'map/src/interaction-controller.ts': 1,
-  'map/src/map.ts': 5,
+  'map/src/map.ts': 4,
   'map/src/render-loop.ts': 1,
   'map/src/render/compose-pipelines.ts': 1,
   'map/src/render/compute-layer-handle.ts': 2,
@@ -95,6 +97,11 @@ const BASELINE: Record<string, number> = {
   'map/src/render/material/polygon-fill-material.ts': 1,
   'map/src/render/material/raster-material.ts': 1,
   'map/src/render/material/text-material.ts': 1,
+  // Palette upload content relocated here from @xgis/rhi-webgpu (#1000): it drives
+  // the backend's generic data-texture primitive with the packed palette bytes.
+  // The import moved off map.ts (5→4) — net-neutral, not new coupling. Routing the
+  // palette upload through the neutral RHI (0 here) is the future 0.3 phase.
+  'map/src/render/palette-textures.ts': 1,
   'map/src/render/passes/graphics-pass.ts': 1,
   'map/src/render/pipeline-factory.ts': 3,
   'map/src/render/point-renderer.ts': 3,
