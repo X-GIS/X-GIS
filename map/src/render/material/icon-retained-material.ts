@@ -28,7 +28,7 @@ import type {
   RhiSampler,
   RhiTextureView,
 } from '@xgis/engine'
-import { Material, executeItems, type DrawItem } from './material'
+import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import { emitIconRetainedWgsl, emitIconRetainedGlsl } from '@xgis/map'
 
 export class RetainedIconDraper {

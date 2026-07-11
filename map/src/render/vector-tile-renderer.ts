@@ -33,7 +33,7 @@ import {
   buildBakeFillMaterial,
   type FillRhiState,
 } from './material/polygon-fill-material'
-import { executeItems, type Material } from './material/material'
+import { executeItems, type Material } from '@xgis/engine'
 import { emitPolygonWgsl, emitPolygonGlsl } from '../shaders/dsl/polygon'
 
 // Per-tile uniform packing goes through a typed UniformBlock over the polygon

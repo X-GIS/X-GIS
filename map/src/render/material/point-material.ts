@@ -6,7 +6,7 @@
 // pipeline/layout build + draw loop are the shared generic core (material.ts).
 
 import type { RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
-import { Material, executeItems } from './material'
+import { Material, executeItems } from '@xgis/engine'
 import { emitPointWgsl } from '@xgis/map'
 
 type VertexBuffers = ReadonlyArray<{

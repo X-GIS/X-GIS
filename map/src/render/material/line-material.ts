@@ -7,9 +7,15 @@
 // group layout (so its pipeline is layout-compatible with VTR-built tile groups).
 // The translucent MAX-blend / composite pass is a render-graph concern, separate.
 
-import type { RhiBindGroup, RhiBindGroupLayout, RhiBindLayoutEntry, RhiDevice, RhiRenderPass } from '@xgis/engine'
+import type {
+  RhiBindGroup,
+  RhiBindGroupLayout,
+  RhiBindLayoutEntry,
+  RhiDevice,
+  RhiRenderPass,
+} from '@xgis/engine'
 import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
-import { Material, executeItems } from './material'
+import { Material, executeItems } from '@xgis/engine'
 import { emitLineWgsl } from '@xgis/map'
 import { emitLineGlsl } from '../../shaders/dsl/line-glsl'
 
