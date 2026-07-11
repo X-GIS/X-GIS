@@ -137,3 +137,39 @@ search misses (exactly the blast radius this codebase's bugs hide in).
 must ALWAYS `Read` a file before editing it. The rule is graph-first for _finding_ code —
 not a ban on Read. Pairs with the `flow-first` skill: graph the call/data flow + blast
 radius before editing.
+
+## 7. Build & Test Discipline
+
+**Never run more than one heavy background process concurrently.** vitest, `tsc --build
+--force`, `bun run build`, GPU/headed verification, and `astro build` each saturate the
+machine; running two at once has frozen the machine. Run them **sequentially** — start one,
+wait for it to finish, then start the next. If one is already backgrounded, wait for its
+completion before launching another.
+
+## 8. Bug Fixing
+
+When the user reports a **freeze, crash, or broken behavior**, deliver an **actual fix — not
+just a diagnosis.** Distinguish "slow / heavy" from "fully wedged / unresponsive"; the latter
+is never a diagnosis-only ticket. Trace to the root cause, fix it, and **verify with a real
+build / test / GPU run before claiming success** — a static read is not verification.
+
+## 9. Scope Control
+
+When asked to **file or report issues only** (or to diagnose only), do **NOT read or edit
+code** beyond the minimum needed to write the report — the deliverable is the issue text, not
+a code change. **Confirm scope before touching any files.** (A freeze/crash report is the
+opposite: there the fix _is_ the deliverable — see §8.)
+
+## 10. Parallel Agents / Workflows
+
+**Verify sub-agent work on disk** — files actually written, no orphaned imports, the
+`StructuredOutput` tool actually called — rather than trusting a stub "done" final message.
+Ensure spawned agents **inherit the correct model** (Opus for real work, not a rate-limited
+fallback). Keep authoring and review in separate passes; never let a fixer self-approve.
+
+## 11. Merge Checklist
+
+Before merging, run the **full gate: build + vitest + precheck + tsc** — not just one of
+them. In particular, `bun run build` is the typecheck authority (vitest does not typecheck),
+and watch for **TS6133 orphaned-import** errors that a plain `vite build` silently ignores.
+Merge only when the full local gate AND CI are green.
