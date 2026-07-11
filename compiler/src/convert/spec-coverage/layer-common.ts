@@ -31,9 +31,8 @@ export const LAYER_COMMON: readonly CoverageEntry[] = [
   },
   {
     name: 'metadata',
-    status: 'unsupported',
-    impact: 'low',
-    note: 'Informational — silently dropped.',
+    status: 'na',
+    note: 'na — informational only; the Mapbox spec defines `metadata` as arbitrary author data that does NOT affect rendering, so there is nothing to render. Silently dropped (no visual effect).',
   },
   { name: 'ref', status: 'na', note: 'Deprecated layer-ref shorthand (Mapbox style spec v7).' },
 ]
