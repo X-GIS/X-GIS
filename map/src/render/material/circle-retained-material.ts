@@ -10,7 +10,7 @@
 //     SDF in the fragment), one instanced draw per world copy.
 
 import type { RhiBindGroup, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
-import { Material, executeItems, type DrawItem } from './material'
+import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import { emitCircleRetainedWgsl, emitCircleRetainedGlsl } from '@xgis/map'
 
 export class RetainedCircleDraper {

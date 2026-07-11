@@ -9,7 +9,7 @@
 
 import type { RhiBindLayoutEntry, RhiBuffer, RhiDevice, RhiPipelineHandle } from '@xgis/engine'
 import { wrapWebGpuBindGroupLayout, wrapWebGpuBindGroup, wrapWebGpuPass } from '@xgis/rhi-webgpu'
-import { Material, executeItems } from './material'
+import { Material, executeItems } from '@xgis/engine'
 
 /** The per-tile GPUArena fill buffers recordFillDraw reads (structural — a VTR
  *  GPUTile satisfies it). RHI handles (#832): the arena is backend-neutral and

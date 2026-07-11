@@ -15,7 +15,7 @@ import type {
   RhiRenderPass,
 } from '@xgis/engine'
 import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
-import { Material, executeItems } from './material'
+import { Material, executeItems } from '@xgis/engine'
 import { emitTextWgsl } from '@xgis/map'
 import { emitTextGlsl } from '../../shaders/dsl/text'
 

@@ -9,7 +9,7 @@
 
 import type { RhiBuffer, RhiDevice, RhiRenderPass, RhiTextureView } from '@xgis/engine'
 import { wrapWebGpuTextureView } from '@xgis/rhi-webgpu'
-import { Material, executeItems } from './material'
+import { Material, executeItems } from '@xgis/engine'
 import { emitCompositeWgsl } from '@xgis/map'
 import { emitCompositeGlsl } from '../../shaders/dsl/line-glsl'
 
@@ -65,7 +65,12 @@ export class LineCompositeDraper {
 
   /** Backend-blind sibling: the offscreen view arrives as an RHI handle (the
    *  forced-WebGL2 frame's offscreen RT — #834 M5). */
-  drawRhi(pass: RhiRenderPass, offscreenView: RhiTextureView, ring: RhiBuffer, offset: number): void {
+  drawRhi(
+    pass: RhiRenderPass,
+    offscreenView: RhiTextureView,
+    ring: RhiBuffer,
+    offset: number,
+  ): void {
     const m = this.mat()
     const bg = this.rhi.createBindGroup(m.layout(0), [
       { binding: 0, resource: this.sampler },

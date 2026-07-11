@@ -31,6 +31,12 @@ export * from './render/frame-arena'
 // BackendChoice), relocated from @xgis/rhi (#834 map→engine): a render HARDWARE
 // interface names GPU resources, not a host canvas / frame-loop state.
 export * from './render/render-context'
+// Generic descriptor-driven draw backbone (#991 P1, relocated from @xgis/map):
+// Material + executeItems + the MaterialDesc/PipelineVariant/DrawItem descriptor
+// triad. Content-blind — a primitive-agnostic setPipeline/setBindGroup/draw loop;
+// shaders/layouts/formats enter as neutral strings/descriptors. @xgis/map builds
+// its geo renderers by composing it (re-export shim at map/src/render/material/material.ts).
+export * from './render/material'
 
 // ── Shader machinery: CPU log-depth + content-blind shader-DSL leaves ─
 export * from './shaders/log-depth'
