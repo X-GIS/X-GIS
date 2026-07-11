@@ -79,12 +79,16 @@ export function hexToRgba(hex: string | null | undefined): [number, number, numb
 
 /** Pick a representative anchor point [lon, lat] for a GeoJSON
  *  geometry — used by label placement when a Show command picks the
- *  feature centroid as the symbol position. Polygon / MultiPolygon
- *  use the bbox centre of the FIRST outer ring; Point / MultiPoint
- *  use the first coordinate; LineString / MultiLineString fall through
- *  to ringBboxCentre on the coordinate list. Returns null on empty /
- *  unsupported shapes so the caller can fall back to a different
- *  strategy (e.g. tile-centre when no per-feature anchor is available). */
+ *  feature centroid as the symbol position (#727). Polygon uses a
+ *  guaranteed-INTERIOR point of the outer ring (not the bbox centre,
+ *  which falls OUTSIDE a concave / crescent polygon); MultiPolygon uses
+ *  the LARGEST-area part's interior point (not just the first part);
+ *  LineString / MultiLineString use the 50%-arc-length point of the
+ *  (longest) chain — a point ON the line, not the bbox centre floating
+ *  off a curve; Point / MultiPoint use the first coordinate. Returns
+ *  null on empty / unsupported shapes so the caller can fall back to a
+ *  different strategy (e.g. tile-centre when no per-feature anchor is
+ *  available). */
 export function featureAnchor(
   geom: import('@xgis/data').GeoJSONGeometry | { type: string; coordinates: unknown },
 ): [number, number] | null {
@@ -113,13 +117,13 @@ export function featureAnchor(
     return p as [number, number]
   }
   if (geom.type === 'LineString' && Array.isArray(c)) {
-    return ringBboxCentre(c as [number, number][])
+    return lineMidpoint(c as [number, number][])
   }
   if (geom.type === 'MultiLineString' && Array.isArray(c) && c.length > 0) {
-    return ringBboxCentre(c[0] as [number, number][])
+    return lineMidpoint(longestChain(c as [number, number][][]))
   }
   if (geom.type === 'Polygon' && Array.isArray(c) && c.length > 0) {
-    return ringBboxCentre(c[0] as [number, number][])
+    return polygonInteriorPoint(c[0] as [number, number][])
   }
   if (
     geom.type === 'MultiPolygon' &&
@@ -128,7 +132,7 @@ export function featureAnchor(
     Array.isArray(c[0]) &&
     (c[0] as unknown[]).length > 0
   ) {
-    return ringBboxCentre(c[0][0] as [number, number][])
+    return polygonInteriorPoint(largestPartOuter(c as [number, number][][][]))
   }
   return null
 }
@@ -159,6 +163,158 @@ function ringBboxCentre(ring: [number, number][]): [number, number] | null {
   // (Infinity + -Infinity) / 2 = NaN. Return null cleanly instead.
   if (!Number.isFinite(minX)) return null
   return [(minX + maxX) / 2, (minY + maxY) / 2]
+}
+
+/** Shoelace area (absolute, planar lon/lat units) of a ring. Used ONLY to
+ *  compare parts RELATIVELY (largest MultiPolygon part), so a planar area
+ *  is sufficient — no geodesic correction needed for the ranking. */
+function ringAbsArea(ring: [number, number][]): number {
+  if (!Array.isArray(ring) || ring.length < 3) return 0
+  let a = 0
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const pi = ring[i]
+    const pj = ring[j]
+    if (!Array.isArray(pi) || !Array.isArray(pj)) continue
+    if (typeof pi[0] !== 'number' || typeof pi[1] !== 'number') continue
+    if (typeof pj[0] !== 'number' || typeof pj[1] !== 'number') continue
+    a += (pj[0] + pi[0]) * (pj[1] - pi[1])
+  }
+  return Math.abs(a) / 2
+}
+
+/** Outer ring of the LARGEST-area part of a MultiPolygon. Fixes the old
+ *  `coordinates[0][0]` which only ever labelled the FIRST part — for a
+ *  country with a big mainland + small islands the label jumped to whichever
+ *  part happened to be first in the data, not the visually dominant one. */
+function largestPartOuter(parts: [number, number][][][]): [number, number][] {
+  let best: [number, number][] = []
+  let bestA = -1
+  for (const part of parts) {
+    const outer = Array.isArray(part) ? part[0] : undefined
+    if (!Array.isArray(outer)) continue
+    const a = ringAbsArea(outer as [number, number][])
+    if (a > bestA) {
+      bestA = a
+      best = outer as [number, number][]
+    }
+  }
+  return best
+}
+
+/** A point GUARANTEED to lie inside a polygon's outer ring — unlike the
+ *  bbox centre, which lands OUTSIDE a concave / crescent / C-shaped polygon
+ *  (the reported #727 "inline label sits off-shape"). Scanline "visual
+ *  centre": at several latitudes near the vertical middle, take the midpoint
+ *  of the WIDEST interior span (between consecutive edge crossings, even-odd
+ *  rule) and keep the widest found. Holes are ignored (acceptable for a
+ *  label anchor). Degenerate rings (< 3 vertices, zero height, all-malformed)
+ *  fall back to the bbox centre. NOT the full pole-of-inaccessibility
+ *  (polylabel) — a scanline interior point is right-sized for a label anchor
+ *  and, crucially, is provably inside; polylabel's "most interior" refinement
+ *  can layer on later without changing this contract. */
+function polygonInteriorPoint(ring: [number, number][]): [number, number] | null {
+  const bbox = ringBboxCentre(ring)
+  if (!bbox) return null
+  if (!Array.isArray(ring) || ring.length < 3) return bbox
+  let minY = Infinity
+  let maxY = -Infinity
+  for (const pt of ring) {
+    if (!Array.isArray(pt) || typeof pt[1] !== 'number') continue
+    if (pt[1] < minY) minY = pt[1]
+    if (pt[1] > maxY) maxY = pt[1]
+  }
+  if (!Number.isFinite(minY) || maxY <= minY) return bbox
+  let bestMidX = bbox[0]
+  let bestY = bbox[1]
+  let bestW = -1
+  // Multiple scanlines dodge a vertex-aligned degenerate line (where the
+  // even-odd crossing count is unreliable); the widest span across all of
+  // them is the sturdiest interior estimate.
+  for (const frac of [0.5, 0.4, 0.6, 0.3, 0.7]) {
+    const y = minY + (maxY - minY) * frac
+    const xs: number[] = []
+    for (let i = 0, n = ring.length, j = n - 1; i < n; j = i++) {
+      const a = ring[i]
+      const b = ring[j]
+      if (!Array.isArray(a) || !Array.isArray(b)) continue
+      const ay = a[1]
+      const by = b[1]
+      if (typeof ay !== 'number' || typeof by !== 'number') continue
+      // Edge straddles the scanline (half-open `<=` convention avoids
+      // double-counting a shared vertex on the boundary).
+      if (ay <= y !== by <= y) {
+        const t = (y - ay) / (by - ay)
+        xs.push((a[0] as number) + t * ((b[0] as number) - (a[0] as number)))
+      }
+    }
+    xs.sort((p, q) => p - q)
+    for (let k = 0; k + 1 < xs.length; k += 2) {
+      const w = xs[k + 1]! - xs[k]!
+      if (w > bestW) {
+        bestW = w
+        bestMidX = (xs[k]! + xs[k + 1]!) / 2
+        bestY = y
+      }
+    }
+  }
+  return bestW > 0 ? [bestMidX, bestY] : bbox
+}
+
+/** Total planar length of a polyline (lon/lat units — relative use only). */
+function polylineLength(coords: [number, number][]): number {
+  let len = 0
+  for (let i = 1; i < coords.length; i++) {
+    const a = coords[i - 1]
+    const b = coords[i]
+    if (!Array.isArray(a) || !Array.isArray(b)) continue
+    if (typeof a[0] !== 'number' || typeof b[0] !== 'number') continue
+    len += Math.hypot(b[0] - a[0], b[1] - a[1])
+  }
+  return len
+}
+
+/** The longest sub-chain of a MultiLineString — fixes the old `coordinates[0]`
+ *  which labelled whichever chain came first, not the dominant one. */
+function longestChain(chains: [number, number][][]): [number, number][] {
+  let best: [number, number][] = []
+  let bestLen = -1
+  for (const ch of chains) {
+    if (!Array.isArray(ch)) continue
+    const l = polylineLength(ch as [number, number][])
+    if (l > bestLen) {
+      bestLen = l
+      best = ch as [number, number][]
+    }
+  }
+  return best
+}
+
+/** The point at 50% cumulative arc-length along a polyline — a point ON the
+ *  line, unlike the bbox centre which floats off a curved / L-shaped chain
+ *  (the line half of #727). Malformed vertices are skipped; a single valid
+ *  vertex returns itself; a zero-length chain returns its first vertex. */
+function lineMidpoint(coords: [number, number][]): [number, number] | null {
+  if (!Array.isArray(coords) || coords.length === 0) return null
+  const clean = coords.filter(
+    (p) => Array.isArray(p) && typeof p[0] === 'number' && typeof p[1] === 'number',
+  ) as [number, number][]
+  if (clean.length === 0) return null
+  if (clean.length === 1) return clean[0]!
+  const total = polylineLength(clean)
+  if (total <= 0) return clean[0]!
+  const half = total / 2
+  let acc = 0
+  for (let i = 1; i < clean.length; i++) {
+    const a = clean[i - 1]!
+    const b = clean[i]!
+    const seg = Math.hypot(b[0] - a[0], b[1] - a[1])
+    if (acc + seg >= half) {
+      const t = seg > 0 ? (half - acc) / seg : 0
+      return [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]
+    }
+    acc += seg
+  }
+  return clean[clean.length - 1]!
 }
 
 // ─── Feature collection transforms ─────────────────────────────────
