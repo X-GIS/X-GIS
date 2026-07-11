@@ -34,20 +34,17 @@ export const LAYOUT_FILL_LINE: readonly CoverageEntry[] = [
   },
   {
     name: 'fill-sort-key',
-    status: 'unsupported',
-    impact: 'low',
-    note: "Per-feature fill draw-order. X-GIS tessellates every fill feature of a layer into ONE merged mesh per tile (no per-feature draw loop), so a CONSTANT sort-key is a no-op (uniform key → stable sort = source order = today's pixels) and the data-driven form needs a per-feature index-buffer reorder in the tiler's CPU↔WGSL byte-contract packing path. Deferred (high blast radius). symbol-z-order — the tractable sibling on the per-feature symbol collision/draw pass — is shipped (Phase S Batch 4).",
+    status: 'na',
+    note: "na — incompatible with X-GIS' single-merged-mesh-per-tile draw model. X-GIS tessellates every fill feature of a layer into ONE merged mesh per tile (no per-feature draw loop), so a CONSTANT sort-key (the only form seen in practice) is a no-op BY CONSTRUCTION (uniform key → stable sort = source order = today's pixels), and honouring the data-driven form would require re-architecting the merged-mesh into a per-feature index-buffer reorder in the tiler's CPU↔WGSL byte-contract packing path — a change the single-draw perf design deliberately precludes. symbol-z-order — the tractable sibling on the per-feature symbol collision/draw pass — is shipped (Phase S Batch 4).",
   },
   {
     name: 'line-sort-key',
-    status: 'unsupported',
-    impact: 'low',
-    note: 'Per-feature line draw-order. Same merged-mesh gap as fill-sort-key (line features share one packed segment buffer per tile); constant form no-op, data-driven needs the tiler reorder. Deferred.',
+    status: 'na',
+    note: 'na — same single-draw-architecture incompatibility as fill-sort-key: line features share ONE packed segment buffer per tile, so a constant sort-key is a no-op by construction and the data-driven form would need the merged-buffer reorder the single-draw design precludes.',
   },
   {
     name: 'circle-sort-key',
-    status: 'unsupported',
-    impact: 'low',
-    note: "Per-feature draw-order key for circle layers. PointRenderer draws the layer's circles from one shared instance buffer; constant form no-op, data-driven needs a per-feature instance reorder. Deferred (sibling symbol-z-order shipped Phase S Batch 4).",
+    status: 'na',
+    note: "na — same single-draw-architecture incompatibility as fill-sort-key: PointRenderer draws the layer's circles from ONE shared instance buffer, so a constant sort-key is a no-op by construction and the data-driven form would need a per-feature instance reorder the single-draw design precludes. (Sibling symbol-z-order shipped Phase S Batch 4.)",
   },
 ]
