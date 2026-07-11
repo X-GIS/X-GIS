@@ -70,6 +70,11 @@ jobs:
               - 'engine/**'
               - 'map/**'
               - 'shared/**'
+              # geo (@xgis/geo): projections-table.ts is imported directly by the
+              # render-gate parity specs (_shader-math-parity, _wgsl-compile-gate,
+              # _optimizer-gpu-parity), and its geodesy vocabulary feeds the map/data
+              # render paths — a geo-only PR must fire the render-gate (#959).
+              - 'geo/**'
               - 'blueprint/**'
               # shader-dsl is the SOLE shader generator; the render-gate compile
               # gates (_wgsl/_glsl-compile, _emit-obfuscate, _compute-gen, _mrt,
@@ -101,6 +106,10 @@ jobs:
               - 'engine/**'
               - 'map/**'
               - 'shared/**'
+              # geo (@xgis/geo): geodesy/projection vocabulary consumed by
+              # map/data/runtime; its 2 vitest suites + the render-gate parity
+              # specs were CI-dark — no leg or filter fired on a geo-only PR (#959).
+              - 'geo/**'
               - 'blueprint/**'
               - 'shader-dsl/**'
               # rhi*/data/pipeline were CI-dark: absent from `code`, so a change
@@ -242,8 +251,12 @@ jobs:
           # files, SPLIT the id per the playbook above (do NOT merge legs back).
           # shared/src was CI-dark the same way (body.test.ts + the #798
           # earth-literal ratchet ran in no leg) — it rides here too.
+          # geo/src rides here too (#959): its globe + projections-table suites
+          # (2 files, still well under the ~110-file threshold) were CI-dark AND
+          # run-dark — omitted from vitest.config `include`, now added there so
+          # this leg's `geo/src` positional filter actually matches them.
           - id: engine-rhi-data
-            args: engine/src rhi-webgl2/src rhi-webgpu/src data/src pipeline/src shared/src
+            args: engine/src rhi-webgl2/src rhi-webgpu/src data/src pipeline/src shared/src geo/src
     # Distinct per-leg check name in the GitHub UI / status API, e.g.
     # "test (engine-render-a)". The single stable context for branch protection
     # is `test-result` below — require THAT, not these per-leg names.

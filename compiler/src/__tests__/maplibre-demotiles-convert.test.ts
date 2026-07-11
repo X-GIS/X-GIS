@@ -69,7 +69,7 @@ describe('MapLibre demo style → xgis full pipeline', () => {
           .slice(Math.max(0, lineNum - 3), lineNum + 2)
           .map((l, i) => `  ${Math.max(1, lineNum - 2) + i}: ${l}`)
           .join('\n')
-        // eslint-disable-next-line no-console
+
         console.error(`\n--- xgis context near error ---\n${ctx}\n--- end ---\n`)
       }
     }
@@ -103,5 +103,35 @@ describe('MapLibre demo style → xgis full pipeline', () => {
     expect(xgis).toContain('layer countries_fill__cd {')
     expect(xgis).toContain('layer countries_boundary {')
     expect(xgis).toContain('layer crimea_fill {')
+  })
+
+  // #613 — the geolines reference-line layers (Tropic/Equator/Arctic).
+  // The converter must pass the style `maxzoom` through for BOTH the
+  // line layer and its symbol layer (the runtime honours it), and must
+  // NOT drop `symbol-placement: line` → `label-along-path` (the
+  // map-anchored placement the demotiles labels rely on).
+  it('passes geolines line + label maxzoom and along-path placement through', () => {
+    const json = JSON.parse(readFileSync(FIXTURE, 'utf8'))
+    const xgis = convertMapboxStyle(json, { inlineGeoJSON: new Map<string, unknown>() })
+
+    // Grab each layer's emitted block so the assertions are scoped to it.
+    const blockOf = (name: string): string => {
+      const m = new RegExp(`layer ${name} \\{[\\s\\S]*?\\n\\}`).exec(xgis)
+      expect(m, `layer ${name} not emitted`).not.toBeNull()
+      return m![0]
+    }
+
+    // Line layer: sourceLayer + style maxzoom survive conversion.
+    const line = blockOf('geolines')
+    expect(line).toContain('sourceLayer: "geolines"')
+    expect(line).toContain('maxzoom: 24')
+
+    // Symbol layer: minzoom + maxzoom survive, and symbol-placement:line
+    // maps to label-along-path (map-anchored, not billboarded).
+    const label = blockOf('geolines_label')
+    expect(label).toContain('sourceLayer: "geolines"')
+    expect(label).toContain('minzoom: 1')
+    expect(label).toContain('maxzoom: 24')
+    expect(label).toContain('label-along-path')
   })
 })

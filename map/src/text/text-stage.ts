@@ -35,7 +35,7 @@ import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
 import { TextRenderer } from './text-renderer'
 import type { TextDraw } from './text-renderer-types'
-import type { RhiDevice , RhiRenderPass } from '@xgis/engine'
+import type { RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { greedyPlaceBboxes, type CollisionItem, type CollisionObstacle } from './text-collision'
 import {
   applyTextTransform,
@@ -575,6 +575,7 @@ export class TextStage {
     pairKey?: string,
     lineId?: string,
     anchorDistancePx?: number,
+    collisionId?: string,
   ): void {
     const text = resolveText(value, props, this.cameraZoom)
     if (text.length === 0) return
@@ -613,6 +614,7 @@ export class TextStage {
       pairKey,
       lineId,
       anchorDistancePx,
+      collisionId,
     })
   }
 
@@ -728,6 +730,7 @@ export class TextStage {
     fontKey?: string,
     layerName?: string,
     pairKey?: string,
+    collisionId?: string,
   ): void {
     const _ast = ((globalThis as Record<string, unknown>).__xgisLabelsRhi ??= {}) as Record<
       string,
@@ -759,6 +762,7 @@ export class TextStage {
       def,
       fontKey: fontKey ?? composeFontKey(def, this.opts.defaultFont),
       pairKey,
+      collisionId,
     })
   }
 
@@ -818,6 +822,10 @@ export class TextStage {
        *  leave both undefined. */
       lineId?: string
       anchorDistancePx?: number
+      /** #728 — stable per-feature collision identity forwarded to the
+       *  greedy pass's `tieBreak` so overlapping labels resolve to a
+       *  deterministic winner independent of tile-dispatch order. */
+      collisionId?: string
     }
     const shaped: ShapedLabel[] = []
     const dpr = this.dpr
@@ -1160,6 +1168,7 @@ export class TextStage {
             ignorePlacement: p.def.ignorePlacement === true,
             sortKey: p.def.sortKey,
             symbolZOrder: p.def.symbolZOrder,
+            collisionId: p.collisionId,
           })
           continue
         }
@@ -1388,6 +1397,7 @@ export class TextStage {
         ignorePlacement: p.def.ignorePlacement === true,
         sortKey: p.def.sortKey,
         symbolZOrder: p.def.symbolZOrder,
+        collisionId: p.collisionId,
       })
     }
     perfMarkEnd('stage-prepare.point-loop')
@@ -1651,6 +1661,7 @@ export class TextStage {
         pairKey: p.pairKey,
         lineId: p.lineId,
         anchorDistancePx: p.anchorDistancePx,
+        collisionId: p.collisionId,
       })
     }
     perfMarkEnd('stage-prepare.line-loop')
@@ -1713,6 +1724,11 @@ export class TextStage {
       // ~one-per-symbol-spacing screen cadence. Point labels leave both undefined.
       lineId: s.lineId,
       anchorDistancePx: s.anchorDistancePx,
+      // #728 — stable feature identity → deterministic collision tie-break.
+      // Removes the reverse-input-order dependence below: when any label
+      // carries one, greedyPlaceBboxes orders by it (sortKey → tieBreak →
+      // index) instead of the dispatch-order-sensitive reverse trick.
+      tieBreak: s.collisionId,
     }))
     // When ANY shaped item carries an explicit sortKey, greedy­Place­
     // Bboxes handles priority via stable sort by sortKey ascending —
@@ -1789,13 +1805,20 @@ export class TextStage {
       // ascending collision order); source draws in source order.
       drawOrder = zOrderMode === 'viewport-y' ? [...order].reverse() : order
     } else {
-      let anySortKey = false
+      // #728 — take the deterministic sorted pass when ANY label carries a
+      // sortKey OR a stable `collisionId`. The collisionId feeds
+      // greedyPlaceBboxes' `tieBreak`, so the survivor of two overlapping
+      // labels no longer depends on the reverse-input-order trick below
+      // (dispatch order = which tiles are loaded → the winner flipped on
+      // pan). The reverse fallback stays ONLY for callers that provide
+      // neither key (imperative overlays / tests) → byte-identical legacy.
+      let anyOrdering = false
       for (const s of shaped)
-        if (s.sortKey !== undefined) {
-          anySortKey = true
+        if (s.sortKey !== undefined || s.collisionId !== undefined) {
+          anyOrdering = true
           break
         }
-      if (anySortKey) {
+      if (anyOrdering) {
         placements = greedyPlaceBboxes(collisionInput, {
           obstacles: iconObstacles,
           minLineSpacingPx: MIN_LINE_SPACING_PX,

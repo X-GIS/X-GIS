@@ -15,7 +15,7 @@ interface PartialPaintShapes {
 
 // Build a ShowCommand-shaped stub. The resolver only reads `paintShapes`
 // + a few legacy scalars; everything else is irrelevant for these tests.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 function show(ps: PartialPaintShapes, extras: Record<string, unknown> = {}): any {
   return {
     targetName: 'src',
@@ -168,6 +168,25 @@ describe('resolveShow — zoom × time composition', () => {
       { cameraZoom: 5, elapsedMs: 1000 },
     )
     expect(r.opacity).toBeCloseTo(0.5 * 0.5, 3)
+  })
+})
+
+describe('resolveShow — data-driven opacity fallback (#725)', () => {
+  it('reads the single-authority show.opacity base for a data-driven opacity (mirrors strokeWidth/size)', () => {
+    // Pre-fix: resolveNumberShape returns a flat 1 for the data-driven
+    // kind, so an authored / imperative base opacity was ignored and the
+    // layer composited fully opaque. Post-fix the resolver falls back to
+    // `show.opacity`, matching the strokeWidth / size data-driven branches.
+    const r = resolveShow(
+      show({ opacity: { kind: 'data-driven', expr: { ast: {} } } }, { opacity: 0.5 }),
+      env,
+    )
+    expect(r.opacity).toBe(0.5)
+  })
+
+  it('falls back to 1 when show.opacity is absent', () => {
+    const r = resolveShow(show({ opacity: { kind: 'data-driven', expr: { ast: {} } } }), env)
+    expect(r.opacity).toBe(1)
   })
 })
 

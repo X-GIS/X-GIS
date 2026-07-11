@@ -18,7 +18,7 @@
 import { evaluate, makeEvalProps, resolveColor } from '@xgis/compiler'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__profile__/perf-marks'
 import { DEBUG_OVERDRAW } from '../../debug-flags'
-import { WORLD_MERC, TILE_PX } from '@xgis/geo'
+import { WORLD_MERC } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { mercatorYToLat } from '@xgis/geo'
 import { isGlobeProj } from '@xgis/geo'
@@ -122,6 +122,31 @@ export function pointLabelPairKey(layerName: string | undefined, seq: number): s
 export const shouldEmitPointDedup = (prev: number | undefined, showIdx: number): boolean =>
   prev === undefined || showIdx > prev
 
+/** #728 — STABLE per-feature collision identity, fed to the greedy collision
+ *  pass as its `tieBreak` (addLabel/addCurvedLineLabel → PendingLabel.collisionId
+ *  → CollisionItem.tieBreak). Two overlapping labels then resolve to the SAME
+ *  winner regardless of tile-dispatch order, removing the pan-swap where the
+ *  survivor flipped with which tiles happened to be loaded.
+ *
+ *  Encoded as `<layerPrecedence>\u0000<featureIdentity>`:
+ *   - layerPrecedence preserves MapLibre's "later layer wins" rule — a later
+ *     show (higher layer) must sort FIRST (ascending tieBreak) to win the
+ *     collision, so it is `showCount - showIdx` zero-padded to a constant
+ *     width, making the lexicographic string compare match the numeric order.
+ *   - featureIdentity is the caller's pan-invariant key (points: resolved text
+ *     + quantized world position; lines: the tile-stable layer+route lineId),
+ *     which deterministically disambiguates same-layer overlappers.
+ *  Exported for unit coverage — the dispatch sites are anon callbacks. */
+export function labelCollisionId(
+  showIdx: number,
+  showCount: number,
+  featureIdentity: string,
+): string {
+  const width = String(Math.max(1, showCount)).length
+  const invLayer = String(showCount - showIdx).padStart(width, '0')
+  return `${invLayer}\u0000${featureIdentity}`
+}
+
 /** Per-segment sample count for line-label placement, computed from the
  *  segment's SCREEN length (metres × on-screen px-per-metre), not raw metres.
  *  A segment that crosses the viewport but whose endpoints fall outside the
@@ -149,12 +174,17 @@ export function lineLabelSubdivSteps(
  *  Mercator metres; `centerX|0` ticks only every 1 m, which at deep zoom is tens
  *  of px (z22: mpp ≈ 0.0186 m/px → 1 m ≈ 54 px), so a sub-metre drag froze the
  *  icons/shields for tens of px while the GPU road kept moving (#402-C jitter).
- *  Dividing by mpp = WORLD_MERC/TILE_PX/2^zoom yields the centre's pixel
- *  coordinate, so the key ticks per ~1 px of pan at every zoom (and stops the
- *  wasteful per-metre rebakes at low zoom where 1 m ≪ 1 px). Exported for
- *  coverage. */
-export function dispatchCenterKey(centerX: number, centerY: number, zoom: number): string {
-  const mpp = WORLD_MERC / TILE_PX / Math.pow(2, zoom)
+ *  Dividing by `mpp` yields the centre's pixel coordinate, so the key ticks per
+ *  ~1 px of pan at every zoom (and stops the wasteful per-metre rebakes at low
+ *  zoom where 1 m ≪ 1 px).
+ *
+ *  `mpp` MUST be the single effective-mpp authority (camera.effectiveMpp — the
+ *  capped scale the frozen low-zoom view actually renders at), NOT the uncapped
+ *  WORLD_MERC/TILE_PX/2^zoom: in the sub-cap band the on-screen pan is governed by
+ *  the frozen (capped) scale, so the key must quantize by it to keep ticking per
+ *  TRUE on-screen px (#964). Above z* effective === raw, so this is inert there.
+ *  Exported for coverage; the live path (execute) inlines the same quantization. */
+export function dispatchCenterKey(centerX: number, centerY: number, mpp: number): string {
   return `${(centerX / mpp) | 0},${(centerY / mpp) | 0}`
 }
 
@@ -577,9 +607,13 @@ class LabelPass implements RenderPass {
       // per-frame `_dispatchSig` STRING (and the `dispatchCenterKey` string it
       // embedded). Each field is the exact integer the old sig concatenated; they
       // are diffed against the per-host last-frame scalars below. `_mpp`/`_ckx`/
-      // `_cky` mirror dispatchCenterKey(c.centerX, c.centerY, c.zoom) verbatim so
-      // the pixel-quantised centre key stays byte-identical.
-      const _mpp = WORLD_MERC / TILE_PX / Math.pow(2, c.zoom)
+      // `_cky` mirror dispatchCenterKey(c.centerX, c.centerY, _mpp) verbatim so
+      // the pixel-quantised centre key stays byte-identical. `_mpp` is the single
+      // effective-mpp authority (camera.effectiveMpp — the capped scale the frozen
+      // low-zoom view actually renders at), NOT the uncapped WORLD_MERC/TILE_PX/
+      // 2^zoom, so the key ticks per TRUE on-screen px in the sub-cap band (#964);
+      // above z* effective === raw so this stays byte-identical there.
+      const _mpp = c.effectiveMpp(projType, h, dpr)
       const _zoomKey = (c.zoom * 100) | 0
       const _ckx = (c.centerX / _mpp) | 0
       const _cky = (c.centerY / _mpp) | 0
@@ -878,6 +912,20 @@ class LabelPass implements RenderPass {
         // same projector by inverting back to lon/lat.
         const vtEntry = host.vtSources.get(show.targetName)
         if (vtEntry) {
+          // MapLibre-parity (#613): drop this show's labels when its
+          // source-layer is outside the tilejson vector_layers zoom band
+          // for the current native tile zoom — the native tile omits the
+          // layer there, so ML draws nothing (demotiles `geolines`
+          // maxzoom 4 → the Tropic/Equator/Arctic labels vanish at z5
+          // while `countries` maxzoom 6 persists). Culls the along-path
+          // labels in lockstep with the line path's selectForFrame cull.
+          if (
+            show.sourceLayer &&
+            vtEntry.renderer.sourceLayerOutsideDataZoom(show.sourceLayer, host.camera.zoom)
+          ) {
+            perfMarkEnd('encoder.label-dispatch.show')
+            continue
+          }
           const DEG2RAD = Math.PI / 180
           const R = activeBody().sphereR
           const mercToLonLat = (mx: number, my: number): [number, number] => [
@@ -1308,6 +1356,15 @@ class LabelPass implements RenderPass {
                   resolvedTextForDedupe !== ''
                     ? `${labelLayerName ?? ''}\u0000${resolvedTextForDedupe}`
                     : undefined
+                // #728 — stable collision identity: layer precedence + the
+                // tile-stable route identity (lineId). Fed to the greedy pass
+                // as its tie-break so the surviving shield among cross-tile
+                // duplicates is deterministic (no pan-swap). lineId-less
+                // (icon-only) symbols render no text and no-op downstream.
+                const lineCollisionId =
+                  lineId !== undefined
+                    ? labelCollisionId(_showIdx, labelShows.length, lineId)
+                    : undefined
                 // Walk the polyline and compute the screen-pixel
                 // position for an offset s along it. Used by the
                 // cross-tile dedupe to evaluate "is this position
@@ -1395,6 +1452,7 @@ class LabelPass implements RenderPass {
                           // anchor's along-polyline screen offset.
                           lineId,
                           total * 0.5,
+                          lineCollisionId,
                         )
                         // OFM road shield + similar: icon-along-line
                         // approximation. Dispatch the icon at the
@@ -1442,6 +1500,7 @@ class LabelPass implements RenderPass {
                           // #605 — see the short-line call above.
                           lineId,
                           nextStop,
+                          lineCollisionId,
                         )
                         dispatchIcon(featDef, sx, sy, tang, pairKey, true, props)
                         recordTextPosition(resolvedTextForDedupe, sx, sy)
@@ -1573,6 +1632,17 @@ class LabelPass implements RenderPass {
               )
                 return
               if (dedupKey !== '') emittedPointNames.set(dedupKey, _showIdx)
+              // #728 — stable collision identity: layer precedence + the
+              // pan-invariant feature key (resolved text + quantized world
+              // position, mirroring the dedup lattice so cross-tile centroids
+              // of one feature share an id). Fed to the greedy pass as its
+              // tie-break so which of two overlapping point labels survives no
+              // longer flips with tile-dispatch order on pan.
+              const pointCollisionId = labelCollisionId(
+                _showIdx,
+                labelShows.length,
+                `${resolvedText}|${Math.round(mercX / 256)},${Math.round(mercY / 256)}`,
+              )
               // No fontKey override — see note at line ~2370.
               // World-copy loop on MERCATOR coords directly — skips
               // the merc → lonLat → merc round-trip the previous
@@ -1600,6 +1670,7 @@ class LabelPass implements RenderPass {
                     undefined,
                     labelLayerName,
                     pairKey,
+                    pointCollisionId,
                   )
                   dispatchIcon(featDef, projected[0], projected[1], 0, pairKey)
                 }
@@ -1630,6 +1701,7 @@ class LabelPass implements RenderPass {
                   undefined,
                   labelLayerName,
                   pairKey,
+                  pointCollisionId,
                 )
                 dispatchIcon(featDef, px, py, 0, pairKey)
               }
