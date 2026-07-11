@@ -543,14 +543,23 @@ function buildProjectionArtifacts(specs: ProjectionSpec[]) {
       })
       Return(p)
     })
-    // oblique_mercator (6): rotated-frame world-copy unwrap.
+    // oblique_mercator (6): rotated-frame world-copy unwrap (#802).
+    // The lam_rot unwrap reference is the FIXED rotated-frame origin (0 = the
+    // projection centre's own lam_rot), NOT a per-tile ref_lon. A per-tile
+    // reference made two adjacent Mercator tiles that straddle the ROTATED
+    // antimeridian disagree by a full 2πR world copy at their shared edge — the
+    // #802 tile-join tearing (horizontal seam smears across the far side). A
+    // tile-INDEPENDENT reference makes project_geom a pure function of
+    // (lon,lat,clon,clat), so any two tiles project a shared-edge vertex to the
+    // SAME x by construction → seams stay continuous. oblique_rot is 360°-periodic
+    // in lon so the pre-shift into the primary window is unnecessary for r; only
+    // the world-copy index wo (from the tile ref_lon) rides the +wo·2πR offset. The
+    // camera centre maps to lam_rot 0, so near-camera tiles (|lam_rot| ≪ π) are
+    // byte-unchanged — only far-side tiles at the rotated antimeridian move.
     If(t.gt(5.5), () => {
       const wo = floor(ref_lon.sub(clon).add(180).div(360))
-      const lon_primary = lon_deg.sub(wo.mul(360))
-      const ref_primary = ref_lon.sub(wo.mul(360))
-      const r = oblique_rot({ lon_deg: lon_primary, lat_deg, clon, clat })
-      const ref_r = oblique_rot({ lon_deg: ref_primary, lat_deg: clat, clon, clat })
-      const lam_u = unwrap_rad_near({ value: r.x, ref_v: ref_r.x })
+      const r = oblique_rot({ lon_deg, lat_deg, clon, clat })
+      const lam_u = unwrap_rad_near({ value: r.x, ref_v: f32(0) })
       const p = Var(proj_oblique_mercator_d({ lam_rot: lam_u, phi_rot: r.y }))
       p.x.assign(p.x.add(wo.mul(2).mul(PI).mul(EARTH_R)))
       Return(p)
@@ -612,9 +621,12 @@ function buildProjectionArtifacts(specs: ProjectionSpec[]) {
       })
     })
     If(t.gt(5.5), () => {
+      // Tile-independent unwrap reference (fixed rotated-frame origin 0), mirroring
+      // the GPU project_geom oblique arm (#802): a per-tile ref_lon reference tore
+      // adjacent tiles a full 2πR apart at the rotated antimeridian. ref_lon is not
+      // read on this arm — the CPU mirror omits the world-copy offset regardless.
       const r = oblique_rot({ lon_deg, lat_deg, clon, clat })
-      const ref_r = oblique_rot({ lon_deg: ref_lon, lat_deg: clat, clon, clat })
-      const lam_u = unwrap_rad_near({ value: r.x, ref_v: ref_r.x })
+      const lam_u = unwrap_rad_near({ value: r.x, ref_v: f32(0) })
       Return(proj_oblique_mercator_d({ lam_rot: lam_u, phi_rot: r.y }))
     })
     Return(project({ lon_deg, lat_deg, proj_params }))

@@ -196,7 +196,7 @@ describe('CPU/GPU projection consistency — Stereographic', () => {
     }
     // May be 0 if the grid doesn't reach the antipode region for this
     // center — that's fine, the point is the observation is recorded.
-    // eslint-disable-next-line no-console
+
     console.log(
       `[stereographic back-hemisphere convention] CPU NaN=${cpuNaNCount} WGSL sentinel=${wgslSentinelCount}`,
     )
@@ -521,23 +521,46 @@ describe('project_geom — antimeridian seam continuity', () => {
     }
   })
 
-  it('oblique_mercator: a tile straddling the rotated antimeridian stays contiguous', () => {
-    // oblique_mercator has NO hemisphere cull and an atan2 ±π branch cut
-    // on the rotated longitude — the same class of full-width smear as
-    // natural_earth. Centre the projection at (clon,clat)=(0,40); the
-    // rotated antimeridian runs roughly along lon≈180. A 4°-wide tile
-    // spanning lon 178..182 (abs_lon from a dateline tile's mercX)
-    // straddles it.
-    const west = 178,
-      east = 182
-    const refLon = (west + east) / 2
-    const smearW = projObliqueMercatorWgsl(west, 5, 0, 40)[0]
-    const smearE = projObliqueMercatorWgsl(east, 5, 0, 40)[0]
-    expect(Math.abs(smearE - smearW)).toBeGreaterThan(1e7) // raw atan2 jump
-    const gW = projectGeomWgsl(6, west, 5, 0, 40, refLon)[0]
-    const gE = projectGeomWgsl(6, east, 5, 0, 40, refLon)[0]
-    // Contiguous: a few-degree tile, not a near-whole-world span.
-    expect(Math.abs(gE - gW)).toBeLessThan(2e6)
+  it('oblique_mercator: adjacent tiles across the rotated antimeridian JOIN continuously (#802)', () => {
+    // oblique_mercator has NO hemisphere cull and an atan2 ±π branch cut on the
+    // rotated longitude (its antimeridian). Centre the projection at
+    // (clon,clat)=(0,40); the rotated antimeridian runs roughly along lon≈180 and
+    // cuts DIAGONALLY across the axis-aligned Mercator tile grid.
+    //
+    // project_geom unwraps the rotated longitude toward the FIXED rotated-frame
+    // origin (0 = the centre's own lam_rot), so it is a pure function of
+    // (lon,lat,clon,clat) — tile-INDEPENDENT. Two adjacent Mercator tiles that
+    // share the lon=180 meridian edge therefore project it to the SAME x whatever
+    // each tile's own centre-lon reference, so the tiles JOIN with no gap.
+    //
+    // The pre-#802 behaviour unwrapped toward a PER-TILE reference — the two tiles
+    // then chose opposite ±π branches for the shared edge and it tore a full 2π·R
+    // world copy apart (the reported tile-join tearing). This gate FAILS on that
+    // baseline (worst seam gap ≈ 2π·R ≈ 4.0e7 m) and passes once the reference is
+    // tile-independent.
+    const refWest = 178 // centre of tile [176,180]
+    const refEast = 182 // centre of tile [180,184]
+    const edge = 180 // shared meridian edge
+    let worstGap = 0
+    for (let lat = -80; lat <= 80; lat += 4) {
+      const xW = projectGeomWgsl(6, edge, lat, 0, 40, refWest)[0]
+      const xE = projectGeomWgsl(6, edge, lat, 0, 40, refEast)[0]
+      worstGap = Math.max(worstGap, Math.abs(xE - xW))
+    }
+    expect(worstGap, 'shared meridian edge must project identically from both tiles').toBeLessThan(
+      1,
+    )
+
+    // The discontinuity is not removed — it moves to the TRUE rotated antimeridian,
+    // where a single tile that STRADDLES the cut still spans ~a world copy (the
+    // genuine seam, exactly like Mercator at ±180). Splitting straddling geometry
+    // there is the deferred "oblique polar tearing" deep fix; assert the genuine
+    // seam still exists so that future work updates this expectation deliberately.
+    const seamW = projObliqueMercatorWgsl(179, 40, 0, 40)[0]
+    const seamE = projObliqueMercatorWgsl(181, 40, 0, 40)[0]
+    expect(Math.abs(seamE - seamW), 'raw ±π jump at the true rotated antimeridian').toBeGreaterThan(
+      1e7,
+    )
   })
 
   it('is identical to projectWgsl for projections with no longitude seam (fallback)', () => {
