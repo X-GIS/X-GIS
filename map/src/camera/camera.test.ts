@@ -25,7 +25,8 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from './camera'
 import { zoomAtGlobeAnchored, type GlobeAnchorCamera } from './globe-anchor'
-import { lonLatToMercator } from '@xgis/geo'
+import { ecefToENUOf } from './view-matrix'
+import { lonLatToMercator, isGlobeProj } from '@xgis/geo'
 
 /** Inverse of `lonLatToMercator` for the round-trip assertion below.
  *  Local copy because the loader/geojson module doesn't export one
@@ -831,5 +832,90 @@ describe('Camera — gesture zoom honors minZoom (floor is minZoom, not literal 
     cam.zoomAt(-20, W / 2, H / 2, W, H)
     expect(cam.zoom).toBeGreaterThanOrEqual(0)
     expect(cam.zoom).toBeCloseTo(0, 6)
+  })
+})
+
+// ═══ effectiveMpp — globe/ECEF cos-lat cap (#964 Part 2) ═════════════════
+//
+// `effectiveMpp`'s globe branch (globeMode || projType 7) used to return the
+// UNCAPPED `WORLD_MERC/TILE_PX/2^zoom`, while the ECEF frame it feeds
+// (`buildECEFFrameView`) saturates its TRUE-metre view height at
+// `min(WORLD_MERC·cosLat, 2·EARTH_R)`. Below z* the frame FREEZES its on-screen
+// scale while the uncapped return kept halving — the #739 divergence class:
+// SIZE consumers scale the world by a value the frozen frame never renders at.
+// The fix mirrors the builder's cap in the Mercator-mpp basis, so above z* the
+// return is byte-identical to rawMpp and below z* it tracks the frozen frame.
+describe('Camera — effectiveMpp globe/ECEF cos-lat cap (#964p2)', () => {
+  const WORLD_MERC = 40075016.686
+  const TILE_PX_ = 512
+  const HTALL = 2048 // tall canvas → a reachable sub-cap freeze band
+  const rawMppOf = (z: number) => WORLD_MERC / TILE_PX_ / Math.pow(2, z)
+
+  // Measure the ECEF frame's effective Mercator-basis mpp from the ACTUAL MVP
+  // (non-globeMode → buildECEFFrameView): project a small ENU-north offset,
+  // read NDC-y, viewHeightTrueM = 2·d/ndcY, then divide back to the Mercator
+  // basis by (canvasHeightCss · cosLat). This is an INDEPENDENT witness of what
+  // the frame renders, not a re-run of the fix's formula.
+  function ecefFrameEffMerc(cam: Camera, h: number): number {
+    const mvp = cam.getECEFFrameView(W, h, DPR).matrix
+    const Renu = ecefToENUOf({ centerX: cam.centerX, centerLatDeg: cam.centerLatDeg })
+    const d = 1000
+    const enu = [0, d, 0]
+    const ecef = [0, 0, 0]
+    for (let i = 0; i < 3; i++) {
+      let s = 0
+      for (let j = 0; j < 3; j++) s += Renu[i * 4 + j] * enu[j] // Renu^T · enu
+      ecef[i] = s
+    }
+    const clip = mulMatVec4(mvp, [ecef[0], ecef[1], ecef[2], 1])
+    const ndcY = clip[1] / clip[3]
+    const cosLat = Math.cos((cam.centerLatDeg * Math.PI) / 180)
+    const viewHeightTrueM = Math.abs((2 * d) / ndcY)
+    return viewHeightTrueM / ((h / DPR) * cosLat)
+  }
+
+  it('projType 7 is a globe projection (branch guard holds)', () => {
+    expect(isGlobeProj(7)).toBe(true)
+  })
+
+  it('(a) equals the frozen ECEF frame scale across two sub-cap zooms', () => {
+    for (const [lat, z0, z1] of [
+      [0, 1.0, 1.5],
+      [45, 1.0, 1.5],
+    ] as const) {
+      const cA = new Camera(0, lat, z0)
+      cA.globeMode = false
+      const cB = new Camera(0, lat, z1)
+      cB.globeMode = false
+      const frameA = ecefFrameEffMerc(cA, HTALL)
+      const frameB = ecefFrameEffMerc(cB, HTALL)
+      // Frame scale is frozen across the two sub-cap zooms.
+      expect(frameB / frameA).toBeCloseTo(1, 6)
+      // effectiveMpp lands on the frozen frame scale at BOTH zooms.
+      expect(cA.effectiveMpp(7, HTALL, DPR) / frameA).toBeCloseTo(1, 4)
+      expect(cB.effectiveMpp(7, HTALL, DPR) / frameB).toBeCloseTo(1, 4)
+    }
+  })
+
+  it('(b) is byte-identical to rawMpp above z* (no regression in the normal band)', () => {
+    for (const lat of [0, 45, 70]) {
+      for (const z of [10, 14, 20]) {
+        const cam = new Camera(0, lat, z)
+        cam.globeMode = false
+        expect(cam.effectiveMpp(7, HTALL, DPR)).toBe(rawMppOf(z))
+      }
+    }
+  })
+
+  it('(c) discriminator: the old uncapped rawMpp return would fail (a)', () => {
+    // Reverting the globe branch to `return rawMpp` yields the naive value
+    // below; it must DIVERGE from the frozen frame scale (√2 per 0.5 zoom),
+    // which is exactly what gate (a) would then catch.
+    const cam = new Camera(0, 0, 1.0)
+    cam.globeMode = false
+    const frame = ecefFrameEffMerc(cam, HTALL)
+    const naive = rawMppOf(1.0) // what the reverted branch returns
+    expect(cam.effectiveMpp(7, HTALL, DPR) / frame).toBeCloseTo(1, 4) // fixed path
+    expect(naive / frame).toBeGreaterThan(4) // reverted path is way off → (a) fails
   })
 })

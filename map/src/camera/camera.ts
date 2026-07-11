@@ -841,14 +841,23 @@ export class Camera {
    *
    *  `projType` is passed (not read from `this.projType`) and the flat/3D branch
    *  MIRRORS `getViewForProjection` exactly, so the returned scale always matches
-   *  the matrix that call produced. Globe / ECEF (globeMode or projType 7) keep
-   *  the uncapped Mercator mpp unchanged — their MVP uses a different (cos-lat)
-   *  cap this method does not model; #739 scopes that path out (UNVERIFIED).
+   *  the matrix that call produced. Globe / ECEF (globeMode or projType 7) mirror
+   *  `buildECEFFrameView`'s cap instead: it saturates the TRUE-metre view height
+   *  at `min(WORLD_MERC·cosLat, 2·EARTH_R)`, which in the Mercator-mpp basis this
+   *  method returns is `min(rawMpp, capMerc/canvasHeightCss)` with
+   *  `capMerc = min(WORLD_MERC·cosLat, 2·EARTH_R)/cosLat` — byte-identical to
+   *  `rawMpp` above z* and frozen at the ECEF frame's on-screen scale below it
+   *  (#964p2, same divergence class as #739). `cosLat` uses
+   *  `mercatorYToLatRad(centerY)` to match the builder's `cam_lat` exactly.
    *  `canvasHeight` is DEVICE px and `dpr` converts it to the CSS basis, matching
    *  `buildRTCMatrix`'s `canvasHeight / dpr`. */
   effectiveMpp(projType: number, canvasHeight: number, dpr: number = 1): number {
     const rawMpp = WORLD_MERC / TILE_PX / Math.pow(2, this.zoom)
-    if (this.globeMode || isGlobeProj(projType)) return rawMpp
+    if (this.globeMode || isGlobeProj(projType)) {
+      const cosLat = Math.cos(mercatorYToLatRad(this.centerY))
+      const capMerc = Math.min(WORLD_MERC * cosLat, 2 * EARTH_R) / cosLat
+      return Math.min(rawMpp, capMerc / (canvasHeight / dpr))
+    }
     const cap = flatViewHeightCapM(projType, WORLD_MERC)
     return Math.min(rawMpp, cap / (canvasHeight / dpr))
   }
