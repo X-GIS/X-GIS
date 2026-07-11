@@ -128,3 +128,56 @@ describe('featureAnchor — MultiPolygon largest part (#727 P3)', () => {
     expect(inside(a[0], a[1], small)).toBe(false)
   })
 })
+
+describe('featureAnchor — line 50%-arc-length anchor (#727 line half)', () => {
+  // A point lies (within eps) on any segment of a polyline.
+  const onLine = (coords: [number, number][], p: [number, number]): boolean => {
+    for (let i = 1; i < coords.length; i++) {
+      const a = coords[i - 1]!
+      const b = coords[i]!
+      const dx = b[0] - a[0]
+      const dy = b[1] - a[1]
+      const len2 = dx * dx + dy * dy
+      if (len2 === 0) continue
+      const t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2
+      if (t < -1e-6 || t > 1 + 1e-6) continue
+      if (Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy)) < 1e-4) return true
+    }
+    return false
+  }
+
+  it('LineString anchor lies ON the line, not the bbox centre off it', () => {
+    // L-shape: bbox centre (5,5) floats off the line; the 50% arc-length point is on it.
+    const line: [number, number][] = [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+    ]
+    expect(onLine(line, [5, 5]), 'bbox centre is off the L (the old anchor)').toBe(false)
+    const a = featureAnchor({ type: 'LineString', coordinates: line })!
+    expect(a).not.toBeNull()
+    expect(onLine(line, a as [number, number]), 'new anchor is on the line').toBe(true)
+    // Total length 20 → 50% at length 10 → exactly the corner vertex.
+    expect(a[0]).toBeCloseTo(10, 6)
+    expect(a[1]).toBeCloseTo(0, 6)
+  })
+
+  it('MultiLineString anchors the LONGEST chain', () => {
+    const shortFirst: [number, number][] = [
+      [0, 0],
+      [1, 0],
+    ]
+    const longSecond: [number, number][] = [
+      [100, 100],
+      [140, 100],
+    ]
+    const a = featureAnchor({ type: 'MultiLineString', coordinates: [shortFirst, longSecond] })!
+    expect(a).not.toBeNull()
+    expect(onLine(longSecond, a as [number, number]), 'anchor on the long chain').toBe(true)
+  })
+
+  it('degenerate lines: empty → null, single vertex → itself', () => {
+    expect(featureAnchor({ type: 'LineString', coordinates: [] })).toBeNull()
+    expect(featureAnchor({ type: 'LineString', coordinates: [[3, 4]] })).toEqual([3, 4])
+  })
+})

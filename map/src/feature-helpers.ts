@@ -80,8 +80,9 @@ export function hexToRgba(hex: string | null | undefined): [number, number, numb
 /** Pick a representative anchor point [lon, lat] for a GeoJSON
  *  geometry — used by label placement when a Show command picks the
  *  feature centroid as the symbol position. Point / MultiPoint use the
- *  first coordinate; LineString / MultiLineString fall through to
- *  ringBboxCentre on the coordinate list.
+ *  first coordinate; LineString / MultiLineString use the 50%-arc-length
+ *  point of the (longest) chain — a point ON the line, not the bbox centre
+ *  which floats off a curved / L-shaped chain (#727).
  *
  *  Polygon / MultiPolygon return a point GUARANTEED to lie inside the
  *  filled area (ST_PointOnSurface-style), not the bbox centre: the bbox
@@ -124,10 +125,10 @@ export function featureAnchor(
     return p as [number, number]
   }
   if (geom.type === 'LineString' && Array.isArray(c)) {
-    return ringBboxCentre(c as [number, number][])
+    return lineMidpoint(c as [number, number][])
   }
   if (geom.type === 'MultiLineString' && Array.isArray(c) && c.length > 0) {
-    return ringBboxCentre(c[0] as [number, number][])
+    return lineMidpoint(longestChain(c as [number, number][][]))
   }
   if (geom.type === 'Polygon' && Array.isArray(c) && c.length > 0) {
     return polygonAnchor(c as [number, number][][])
@@ -157,6 +158,64 @@ export function featureAnchor(
     return best ? polygonAnchor(best) : null
   }
   return null
+}
+
+/** Total planar length of a polyline (lon/lat units — relative use only). */
+function polylineLength(coords: [number, number][]): number {
+  let len = 0
+  for (let i = 1; i < coords.length; i++) {
+    const a = coords[i - 1]
+    const b = coords[i]
+    if (!Array.isArray(a) || !Array.isArray(b)) continue
+    if (typeof a[0] !== 'number' || typeof b[0] !== 'number') continue
+    len += Math.hypot(b[0] - a[0], b[1] - a[1])
+  }
+  return len
+}
+
+/** The longest sub-chain of a MultiLineString — fixes the old `coordinates[0]`,
+ *  which anchored whichever chain came first, not the dominant one. */
+function longestChain(chains: [number, number][][]): [number, number][] {
+  let best: [number, number][] = []
+  let bestLen = -1
+  for (const ch of chains) {
+    if (!Array.isArray(ch)) continue
+    const l = polylineLength(ch as [number, number][])
+    if (l > bestLen) {
+      bestLen = l
+      best = ch as [number, number][]
+    }
+  }
+  return best
+}
+
+/** The point at 50% cumulative arc-length along a polyline — a point ON the
+ *  line, unlike the bbox centre which floats off a curved / L-shaped chain
+ *  (#980 landed the polygon interior anchor but left lines on the bbox centre).
+ *  Malformed vertices are skipped; a single valid vertex returns itself; a
+ *  zero-length chain returns its first vertex. */
+function lineMidpoint(coords: [number, number][]): [number, number] | null {
+  if (!Array.isArray(coords) || coords.length === 0) return null
+  const clean = coords.filter(
+    (p) => Array.isArray(p) && typeof p[0] === 'number' && typeof p[1] === 'number',
+  ) as [number, number][]
+  if (clean.length === 0) return null
+  if (clean.length === 1) return clean[0]!
+  const total = polylineLength(clean)
+  if (total <= 0) return clean[0]!
+  const half = total / 2
+  let acc = 0
+  for (let i = 1; i < clean.length; i++) {
+    const a = clean[i - 1]!
+    const b = clean[i]!
+    const seg = Math.hypot(b[0] - a[0], b[1] - a[1])
+    if (acc + seg >= half) {
+      const t = seg > 0 ? (half - acc) / seg : 0
+      return [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]
+    }
+    acc += seg
+  }
+  return clean[clean.length - 1]!
 }
 
 /** Shoelace signed area of a ring in lon/lat space. Sign encodes winding;
