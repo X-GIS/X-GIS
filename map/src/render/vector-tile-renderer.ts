@@ -15,7 +15,7 @@ import type {
   RhiTextureView,
 } from '@xgis/engine'
 import type { GPUContext, WebGpuDevice } from '@xgis/rhi-webgpu'
-import { toVertexBufferLayout, wrapWebGpuPass } from '@xgis/rhi-webgpu'
+import { toVertexBufferLayout, wrapWebGpuPass, wrapWebGpuBindGroup } from '@xgis/rhi-webgpu'
 import { POLYGON_FILL_FORMAT } from '@xgis/compiler'
 import { polygonUniformBytes } from './polygon-uniform-slots'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -78,6 +78,12 @@ import { routeToSphereSelector } from '@xgis/geo'
 import { VectorDrapeRenderer } from './vector-drape-renderer'
 import type { PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
+import {
+  bakeTileStrokes,
+  emptyBakeStrokeStyle,
+  strokeBakeKey,
+  type BakeStrokeStyle,
+} from './vector-drape-stroke'
 import { parseHexColor } from '../feature-helpers'
 import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
@@ -364,6 +370,18 @@ export class VectorTileRenderer {
    *  variant computes a per-feature fill — `renderTileKeys` skips the
    *  polygon `drawIndexed` in that case (no-op fragment work). */
   private _skipFillDraw = false
+  /** #599 line-drape — when the globe drape baked this show's strokes into the tile texture,
+   *  suppress the direct ECEF-chord stroke draw (mirror of how `_drapeGlobeFills` suppresses the
+   *  direct fill via `drawFills`). Set at the drape seam; reset every render() so the flat / Mercator
+   *  / translucent-stroke paths stay byte-identical (the drape never runs there). */
+  private _drapeStrokes = false
+  /** #599 line-drape — whether THIS show has a visible stroke the drape should bake. Reset every
+   *  render() and set inside the layer-slot block; read at the drape seam. */
+  private _bakeStrokeActive = false
+  /** #599 line-drape — the resolved (mpp-independent) stroke style captured from the direct
+   *  layer-slot write, re-packed per baked tile with the tile's bake mpp (E/BAKE_PX) in
+   *  vector-drape-stroke.ts. Mutated in place (no per-render alloc). */
+  private readonly _bakeStroke: BakeStrokeStyle = emptyBakeStrokeStyle()
   /** Log-depth factor for the current frame, sampled from camera at the
    *  start of render(). Packed into slot 35 of every tile uniform. */
   private logDepthFc = 0
@@ -757,7 +775,16 @@ export class VectorTileRenderer {
     const enc = this.rhi.createCommandEncoder?.('vtr-bake')
     if (!enc) return null // WebGL2 fail-closed (no offscreen encoder) — later slice
     const cached = this.getOrCreateLayerCache(sliceLayer).get(key)
-    if (!cached || cached.indexCount === 0 || cached.extruded) return null
+    if (!cached || cached.extruded) return null
+    // #599 line-drape — a tile may carry a FILL, STROKES (polygon outlines / line features), or both.
+    // Line-only tiles (coastline / road layers) have indexCount 0 but non-empty segment buffers; they
+    // still bake (strokes only) so the line curves. Skip only when there is nothing to draw.
+    const hasFill = cached.indexCount > 0
+    const hasStroke =
+      this._bakeStrokeActive &&
+      this.lineRenderer != null &&
+      (cached.outlineSegmentCount > 0 || cached.lineSegmentCount > 0)
+    if (!hasFill && !hasStroke) return null
 
     this.ensureUniformRing()
     const mat = this.ensureFillBakeMaterialRhi()
@@ -867,24 +894,46 @@ export class VectorTileRenderer {
       },
       label: 'vtr-bake-pass',
     })
-    executeItems(mat, pass, [
-      {
-        variant: 0,
-        bindGroups: [bakeBg],
-        dynamicOffsets: [[slotOffset]],
-        vertex: cached.vertexBuffer,
-        vertexOffset: cached.polyVertexOffset,
-        vertexSize: cached.polyVertexByteLength,
-        index: {
-          buffer: cached.indexBuffer,
-          format: 'uint32',
-          offset: cached.polyIndexOffset,
-          size: cached.polyIndexByteLength,
+    if (hasFill) {
+      executeItems(mat, pass, [
+        {
+          variant: 0,
+          bindGroups: [bakeBg],
+          dynamicOffsets: [[slotOffset]],
+          vertex: cached.vertexBuffer,
+          vertexOffset: cached.polyVertexOffset,
+          vertexSize: cached.polyVertexByteLength,
+          index: {
+            buffer: cached.indexBuffer,
+            format: 'uint32',
+            offset: cached.polyIndexOffset,
+            size: cached.polyIndexByteLength,
+          },
+          count: cached.indexCount,
+          indexed: true,
         },
-        count: cached.indexCount,
-        indexed: true,
-      },
-    ])
+      ])
+    }
+
+    // #599 line-drape — bake the tile's polygon OUTLINES + LINE features on top of the fill, into the
+    // SAME tile-local RT, so ONE draped texture curves fill AND strokes onto the sphere (see
+    // vector-drape-stroke.ts). The tile group is the ring-referencing base group at the bake ortho-MVP
+    // slot (slotOffset — the same shared VTR uniform the fill read). Fill→stroke order matches the
+    // direct globe draw (renderTileKeys' strokeQueue runs after the fills).
+    if (hasStroke) {
+      const rawTileBg = this._bindGroups.baseGroup()
+      bakeTileStrokes(
+        this.lineRenderer!,
+        rawTileBg ? wrapWebGpuBindGroup(rawTileBg) : null,
+        pass,
+        cached,
+        slotOffset,
+        E / sizePx,
+        this._bakeStroke,
+        this._linePatternActiveForShow,
+      )
+    }
+
     pass.end()
     enc.finish()
     this.rhi.destroyTexture(depthTex)
@@ -2411,6 +2460,9 @@ export class VectorTileRenderer {
     // helper), not a default-uniform string compare on variantFillExpr.
     this._skipFillDraw =
       !variantProducesFill(show.shaderVariant) && this.cachedFillColor[3] <= 0.005
+    // #599 line-drape — reset per render(); set at the drape seam / layer-slot block below.
+    this._drapeStrokes = false
+    this._bakeStrokeActive = false
 
     // Write uniforms through the typed block's fixed-arity setters (zero
     // per-call allocation — the hot-loop surface; #733 P2d).
@@ -2651,6 +2703,28 @@ export class VectorTileRenderer {
           roundLimit,
         )
       }
+
+      // #599 line-drape — capture the resolved (mpp-INDEPENDENT) stroke style so the globe drape can
+      // re-pack a layer slot per baked tile with that tile's bake mpp (E/BAKE_PX). Screen-space knobs
+      // (viewport_height, dpr, line-translate) are dropped in the bake; `dashSrc` stays in width units
+      // and is re-scaled to metres in bakeStrokeLayerSlot. gap-width's second stroke isn't draped
+      // (a rare OFM tunnel case) — it keeps its direct chord draw off the sphere only.
+      const bs = this._bakeStroke
+      bs.color = lineSlotColor
+      bs.widthPx = strokeWidthPx
+      bs.cap = cap
+      bs.join = join
+      bs.miterLimit = miterLimit
+      bs.roundLimit = roundLimit
+      bs.blur = show.strokeBlur ?? 0
+      bs.dashSrc = dashSrc && dashSrc.length >= 2 ? dashSrc : null
+      bs.dashOffsetUnits = resolvedShow.dashOffset
+      bs.patternSlots = patternSlots
+      bs.offset = effectiveOffset
+      // A stroke is drape-worthy when it draws something: a resolved colour+width, or a line pattern
+      // (which carries its colour in the sprite atlas, not cachedStrokeColor).
+      this._bakeStrokeActive =
+        linePatternActive || (this.cachedStrokeColor[3] > 0.003 && strokeWidthPx > 0)
     }
 
     // neededKeys + worldOffDeg + parentAtMaxLevel + archiveAncestor
@@ -3078,9 +3152,15 @@ export class VectorTileRenderer {
       this._drapeGlobeFills &&
       phase !== 'strokes' &&
       phase !== 'oit-fill' &&
-      !this._skipFillDraw
+      // Run the drape when there is a FILL to bake OR a stroke to bake (#599 line-drape). A line-only
+      // show — a coastline / road layer — has `_skipFillDraw` (no fill geometry) but still drapes its
+      // strokes; the fill bake self-skips the empty interior and the stroke bake curves the line.
+      (!this._skipFillDraw || this._bakeStrokeActive)
     ) {
       this._drape ??= new VectorDrapeRenderer(this.rhi, this.format, getSampleCount())
+      // #599 line-drape — strokes were baked into the same tile texture, so suppress the direct
+      // ECEF-chord stroke draw for this show (see `drawStrokes` in renderTileKeys).
+      this._drapeStrokes = this._bakeStrokeActive
       this._drape.renderGlobeFills(
         wrapWebGpuPass(pass),
         frame,
@@ -3089,6 +3169,7 @@ export class VectorTileRenderer {
         projCenterLat,
         this.currentOpacity ?? 1,
         this.cachedFillColor as [number, number, number, number],
+        strokeBakeKey(this._bakeStrokeActive, this._bakeStroke),
         sliceLayer,
         neededKeys,
         worldOffDeg,
@@ -3828,7 +3909,10 @@ export class VectorTileRenderer {
     // GlobeFills` is set per render() and is always false off the globe, so the
     // flat / Mercator fill draw is byte-identical.
     const drawFills = phase !== 'strokes' && !this._drapeGlobeFills
-    const drawStrokes = phase !== 'fills' && phase !== 'oit-fill'
+    // #599 line-drape — when the drape baked this show's strokes onto the sphere, skip the direct
+    // ECEF-chord stroke draw. `_drapeStrokes` is only set in the phase where the drape ran ('all' /
+    // opaque), so the translucent 'strokes' offscreen pass is untouched (byte-identical off-globe).
+    const drawStrokes = phase !== 'fills' && phase !== 'oit-fill' && !this._drapeStrokes
     // `phase === 'strokes'` reaches us from two passes — the
     // translucent offscreen MAX-blend pass (no depth) and the
     // opaque OIT-extrude post-pass (with depth). Use the caller's
