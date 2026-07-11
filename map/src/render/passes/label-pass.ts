@@ -35,6 +35,7 @@ import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
 import type { RenderPass, LabelPassHost } from './pass'
+import { placeLabelsAlongLine, placeInlineLineLabels } from './place-labels-along-line'
 
 /** Cross-tile line-label dedupe predicate. A named road stamped across N
  *  tile boundaries collapses to a single label via its (unique) resolved
@@ -864,39 +865,66 @@ class LabelPass implements RenderPass {
         if (data && data.features && !(data as unknown as { _vectorTile?: boolean })._vectorTile) {
           for (const feat of data.features) {
             if (!feat.geometry) continue
-            const anchor = featureAnchor(feat.geometry)
-            if (!anchor) continue
-            const featDef = applyFeatureExprs(feat.properties ?? {})
-            // Pass the full LabelDef and let TextStage.composeFontKey
-            // build the ctx.font shorthand (weight, italic, CJK
-            // fallback chain). Passing `def.font?.[0]` as a 6th-arg
-            // override here used to short-circuit that — every Mapbox
-            // label rendered in Regular weight and lost Hangul / Han
-            // fallback. Keep this comment on every call site so the
-            // override doesn't quietly come back.
-            for (const projected of projectLonLatCopies(anchor[0], anchor[1])) {
-              // iter 119: point-label paired-symbol collision. OFM
-              // Positron label_city/town/village pair the place name
-              // with circle_11_black icon and rely on
-              // icon-optional=false to drop the icon when text drops.
-              const pairedWithIcon =
-                featDef.iconImage !== undefined &&
-                featDef.iconImage !== null &&
-                featDef.iconImage !== ''
-              const pairKey = pairedWithIcon
-                ? pointLabelPairKey(labelLayerName, _pointLabelSeq++)
-                : undefined
-              stage.addLabel(
-                featDef.text,
-                feat.properties ?? {},
-                projected[0],
-                projected[1],
-                featDef,
-                undefined,
+            // #727 P1 — inline (raw-GeoJSON) line placement. A symbol layer
+            // with symbol-placement: line / line-center over an inline
+            // LineString used to collapse to ONE horizontal centroid label
+            // (featureAnchor → lineMidpoint → a single addLabel). Delegate to
+            // placeInlineLineLabels (place-labels-along-line.ts), which
+            // projects the feature's OWN vertices and calls the SAME
+            // along-line placement walk the vector-tile path uses, so it
+            // renders the tangent-rotated chain instead. Non-line placements
+            // take the centroid path (the `else` below) unchanged.
+            const geomType = feat.geometry.type
+            if (
+              (effectiveDef.placement === 'line' || effectiveDef.placement === 'line-center') &&
+              (geomType === 'LineString' || geomType === 'MultiLineString')
+            ) {
+              placeInlineLineLabels(
+                feat,
+                effectiveDef,
+                applyFeatureExprs,
+                projectLonLat,
+                dpr,
+                (value, props, x, y, def, fontKey, layerName) =>
+                  stage.addLabel(value, props, x, y, def, fontKey, layerName),
+                dispatchIcon,
                 labelLayerName,
-                pairKey,
               )
-              dispatchIcon(featDef, projected[0], projected[1], 0, pairKey)
+            } else {
+              const anchor = featureAnchor(feat.geometry)
+              if (!anchor) continue
+              const featDef = applyFeatureExprs(feat.properties ?? {})
+              // Pass the full LabelDef and let TextStage.composeFontKey
+              // build the ctx.font shorthand (weight, italic, CJK
+              // fallback chain). Passing `def.font?.[0]` as a 6th-arg
+              // override here used to short-circuit that — every Mapbox
+              // label rendered in Regular weight and lost Hangul / Han
+              // fallback. Keep this comment on every call site so the
+              // override doesn't quietly come back.
+              for (const projected of projectLonLatCopies(anchor[0], anchor[1])) {
+                // iter 119: point-label paired-symbol collision. OFM
+                // Positron label_city/town/village pair the place name
+                // with circle_11_black icon and rely on
+                // icon-optional=false to drop the icon when text drops.
+                const pairedWithIcon =
+                  featDef.iconImage !== undefined &&
+                  featDef.iconImage !== null &&
+                  featDef.iconImage !== ''
+                const pairKey = pairedWithIcon
+                  ? pointLabelPairKey(labelLayerName, _pointLabelSeq++)
+                  : undefined
+                stage.addLabel(
+                  featDef.text,
+                  feat.properties ?? {},
+                  projected[0],
+                  projected[1],
+                  featDef,
+                  undefined,
+                  labelLayerName,
+                  pairKey,
+                )
+                dispatchIcon(featDef, projected[0], projected[1], 0, pairKey)
+              }
             }
           }
           perfMarkEnd('encoder.label-dispatch.show')
@@ -1512,55 +1540,21 @@ class LabelPass implements RenderPass {
                   perfMarkEnd('encoder.label-dispatch.line.polyline')
                   return
                 }
-                // Viewport-aligned path: keep the historical single-
-                // rotation emission per spacing point.
-                if (total < spacingPx * 0.5) {
-                  let acc = 0
-                  const target = total * 0.5
-                  for (let i = 0; i < pn - 1; i++) {
-                    const dx = _pxScratch[i + 1]! - _pxScratch[i]!
-                    const dy = _pyScratch[i + 1]! - _pyScratch[i]!
-                    const segLen = Math.sqrt(dx * dx + dy * dy)
-                    if (acc + segLen >= target) {
-                      const t = segLen > 0 ? (target - acc) / segLen : 0
-                      emitLabelAlongSegment(
-                        _pxScratch[i]!,
-                        _pyScratch[i]!,
-                        _pxScratch[i + 1]!,
-                        _pyScratch[i + 1]!,
-                        t,
-                        props,
-                      )
-                      perfMarkEnd('encoder.label-dispatch.line.emit')
-                      perfMarkEnd('encoder.label-dispatch.line.polyline')
-                      return
-                    }
-                    acc += segLen
-                  }
-                  perfMarkEnd('encoder.label-dispatch.line.emit')
-                  perfMarkEnd('encoder.label-dispatch.line.polyline')
-                  return
-                }
-                let nextStop = spacingPx * 0.5
-                let acc = 0
-                for (let i = 0; i < pn - 1; i++) {
-                  const dx = _pxScratch[i + 1]! - _pxScratch[i]!
-                  const dy = _pyScratch[i + 1]! - _pyScratch[i]!
-                  const segLen = Math.sqrt(dx * dx + dy * dy)
-                  while (nextStop <= acc + segLen && nextStop <= total) {
-                    const t = segLen > 0 ? (nextStop - acc) / segLen : 0
-                    emitLabelAlongSegment(
-                      _pxScratch[i]!,
-                      _pyScratch[i]!,
-                      _pxScratch[i + 1]!,
-                      _pyScratch[i + 1]!,
-                      t,
-                      props,
-                    )
-                    nextStop += spacingPx
-                  }
-                  acc += segLen
-                }
+                // Viewport-aligned path: single-rotation emission per spacing
+                // point, delegated to the shared placement walk
+                // (placeLabelsAlongLine) — the SAME authority the inline
+                // (raw-GeoJSON) line path uses (#727 P1). Pure extraction here:
+                // the walk cadence + `emitLabelAlongSegment` emit byte-identical
+                // labels to the prior inline loop. `total` (line ~1288) is
+                // recomputed inside the helper; the curved branch above still
+                // uses it, so it stays.
+                placeLabelsAlongLine(
+                  _pxScratch,
+                  _pyScratch,
+                  pn,
+                  spacingPx,
+                  (pax, pay, pbx, pby, t) => emitLabelAlongSegment(pax, pay, pbx, pby, t, props),
+                )
                 perfMarkEnd('encoder.label-dispatch.line.emit')
                 perfMarkEnd('encoder.label-dispatch.line.polyline')
               })
