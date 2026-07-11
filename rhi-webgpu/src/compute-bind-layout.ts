@@ -64,10 +64,12 @@ export function extendBindGroupLayoutEntriesForCompute(
 
 /** Build the GPUBindGroupEntry array the runtime passes to
  *  `device.createBindGroup` when constructing the per-tile bind
- *  group. `getOutBuffer` is the lookup function (typically
- *  `TileComputeResources.getOutBuffer.bind(resources)`) that maps
- *  (renderNodeIndex, paintAxis) to the GPUBuffer. The
- *  `renderNodeIndex` is passed in once per call because a single
+ *  group. `getOutBuffer` is the caller-supplied lookup mapping
+ *  (renderNodeIndex, outSlot) to the GPUBuffer, where `outSlot` is
+ *  the binding's opaque index into `variant.computeBindings`. The
+ *  backend stays content-blind — it binds "output slot N" and lets
+ *  the style-aware caller decide which buffer slot N resolves to.
+ *  The `renderNodeIndex` is passed in once per call because a single
  *  variant binds to one show's resources at a time.
  *
  *  Returns null if any compute-output buffer is missing — the
@@ -80,14 +82,15 @@ export interface ComputeBindEntry {
 export function buildComputeBindGroupEntries(
   variant: ShaderVariant,
   renderNodeIndex: number,
-  getOutBuffer: (idx: number, axis: 'fill' | 'stroke-color') => GPUBuffer | null,
+  getOutBuffer: (idx: number, outSlot: number) => GPUBuffer | null,
 ): ComputeBindEntry[] | null {
   const bindings = variant.computeBindings
   if (!bindings || bindings.length === 0) return []
 
   const out: ComputeBindEntry[] = []
-  for (const b of bindings) {
-    const buf = getOutBuffer(renderNodeIndex, b.paintAxis)
+  for (let outSlot = 0; outSlot < bindings.length; outSlot++) {
+    const b = bindings[outSlot]!
+    const buf = getOutBuffer(renderNodeIndex, outSlot)
     if (!buf) return null
     out.push({ binding: b.binding, resource: { buffer: buf } })
   }

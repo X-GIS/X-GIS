@@ -3,7 +3,10 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { describe, expect, it } from 'vitest'
-import { extendBindGroupLayoutEntriesForCompute, buildComputeBindGroupEntries } from '@xgis/rhi-webgpu'
+import {
+  extendBindGroupLayoutEntriesForCompute,
+  buildComputeBindGroupEntries,
+} from '@xgis/rhi-webgpu'
 import type { ShaderVariant } from '@xgis/compiler'
 import { varRefVec4 } from '@xgis/compiler'
 
@@ -103,8 +106,12 @@ describe('buildComputeBindGroupEntries', () => {
   const FAKE_BUFFER_A = { _id: 'A' } as unknown as GPUBuffer
   const FAKE_BUFFER_B = { _id: 'B' } as unknown as GPUBuffer
 
+  // The backend hands the lookup an OPAQUE output-slot index (the binding's
+  // position in variant.computeBindings) — never a paint axis. Slot 0 is the
+  // first binding, slot 1 the second, etc. The style-aware caller is what maps
+  // a slot back to a paint axis (see compute-layer-handle.ts).
   function makeLookup(map: Record<string, GPUBuffer>) {
-    return (idx: number, axis: 'fill' | 'stroke-color') => map[`${idx}:${axis}`] ?? null
+    return (idx: number, outSlot: number) => map[`${idx}:${outSlot}`] ?? null
   }
 
   it('legacy variant → empty entries (no work, caller still binds the legacy entries)', () => {
@@ -114,7 +121,7 @@ describe('buildComputeBindGroupEntries', () => {
 
   it('one fill binding → one bind-group entry with the buffer at the right slot', () => {
     const v = withComputeBindings([{ paintAxis: 'fill', bindGroup: 0, binding: 16 }])
-    const out = buildComputeBindGroupEntries(v, 0, makeLookup({ '0:fill': FAKE_BUFFER_A }))
+    const out = buildComputeBindGroupEntries(v, 0, makeLookup({ '0:0': FAKE_BUFFER_A }))
     expect(out).toEqual([{ binding: 16, resource: { buffer: FAKE_BUFFER_A } }])
   })
 
@@ -127,8 +134,8 @@ describe('buildComputeBindGroupEntries', () => {
       v,
       5,
       makeLookup({
-        '5:fill': FAKE_BUFFER_A,
-        '5:stroke-color': FAKE_BUFFER_B,
+        '5:0': FAKE_BUFFER_A, // slot 0 = first binding (fill)
+        '5:1': FAKE_BUFFER_B, // slot 1 = second binding (stroke)
       }),
     )
     expect(out).toEqual([
@@ -146,8 +153,8 @@ describe('buildComputeBindGroupEntries', () => {
       v,
       0,
       makeLookup({
-        // only fill present, stroke missing
-        '0:fill': FAKE_BUFFER_A,
+        // only slot 0 (fill) present, slot 1 (stroke) missing
+        '0:0': FAKE_BUFFER_A,
       }),
     )
     expect(out).toBeNull()
@@ -155,9 +162,9 @@ describe('buildComputeBindGroupEntries', () => {
 
   it('renderNodeIndex is plumbed into the lookup', () => {
     const v = withComputeBindings([{ paintAxis: 'fill', bindGroup: 0, binding: 16 }])
-    // Lookup keyed by index; verifying index 7 reaches the lookup.
-    const out = buildComputeBindGroupEntries(v, 7, (idx, axis) => {
-      if (idx === 7 && axis === 'fill') return FAKE_BUFFER_A
+    // Lookup keyed by (index, slot); verifying index 7 reaches the lookup.
+    const out = buildComputeBindGroupEntries(v, 7, (idx, outSlot) => {
+      if (idx === 7 && outSlot === 0) return FAKE_BUFFER_A
       return null
     })
     expect(out).toEqual([{ binding: 16, resource: { buffer: FAKE_BUFFER_A } }])

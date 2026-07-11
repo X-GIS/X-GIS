@@ -119,10 +119,15 @@ export class ComputeLayerHandle {
    *  any output buffer is missing — caller should fall back to the
    *  legacy variant rather than partial-bind. */
   getBindGroupEntries(): ComputeBindEntry[] | null {
-    return buildComputeBindGroupEntries(
-      this.variant,
-      this.renderNodeIndex,
-      this.resources.getOutBuffer.bind(this.resources),
+    // The RHI adapter binds "output slot N" content-blindly; the paint
+    // axis is style content that stays in this (style-aware) layer. Slot
+    // N is the binding's index into variant.computeBindings, so
+    // bindings[outSlot].paintAxis is the identical axis the backend used
+    // to read off the binding directly — the slot→buffer mapping is
+    // preserved exactly.
+    const bindings = this.variant.computeBindings
+    return buildComputeBindGroupEntries(this.variant, this.renderNodeIndex, (idx, outSlot) =>
+      this.resources.getOutBuffer(idx, bindings![outSlot]!.paintAxis),
     )
   }
 
