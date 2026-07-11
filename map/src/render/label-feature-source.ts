@@ -17,6 +17,7 @@
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '@xgis/engine'
 import type { TileCatalog } from '@xgis/data'
+import { tileKeyParent } from '@xgis/compiler'
 import { EARTH, activeBody } from '@xgis/shared'
 
 export class LabelFeatureSource {
@@ -39,6 +40,13 @@ export class LabelFeatureSource {
     }>
   >()
   private static readonly LINE_LABEL_RUNS_CACHE_MAX = 4096
+  /** #616 — ancestry-shadow scratch for forEachLineLabelPolyline. Holds
+   *  the keys in `seen` that are STRICT ANCESTORS of another `seen` key
+   *  which carries line data; those ancestors are coarser fallbacks the
+   *  GPU does not draw where the finer descendant exists, so their
+   *  line-symbol emission (one-way arrows, shields) would sample off the
+   *  drawn stripe. Cleared and rebuilt per call. */
+  private readonly _scratchLineShadowKeys = new Set<number>()
   /** iter-236 (Plan A.2) — Scratch Map for forEachLabelFeature's
    *  per-tile `bestByFeatId`. Pre-iter-236 this was allocated fresh
    *  per tile inside the inner loop; at 270 tiles / frame × 60 fps
@@ -384,6 +392,39 @@ export class LabelFeatureSource {
     seen.clear()
     if (neededKeys) for (const k of neededKeys) seen.add(k)
     for (const k of stableKeys) seen.add(k)
+
+    // #616 — ancestry-shadow pass. `seen` folds ancestor fallback keys
+    // (parent-fallback / eviction-protected) in alongside the finer
+    // needed-descendant tiles the GPU actually draws. When a coarser
+    // ANCESTOR and a finer DESCENDANT both carry a feature's line
+    // geometry, emitting both makes the caller place a one-way arrow /
+    // shield off the coarse stretched stripe (visibly beside the road at
+    // over-zoom). Suppress an ancestor key here whenever a strict
+    // descendant key present in `seen` already carries line data — that
+    // descendant is the drawn source in the shared viewport region. The
+    // antimeridian world-copy siblings (:105-120) are SAME-zoom, never an
+    // ancestor of any key, so they are never shadowed and still emit.
+    const shadow = this._scratchLineShadowKeys
+    shadow.clear()
+    for (const k of seen) {
+      const td = source.getTileData(k, sliceLayer)
+      if (
+        !td?.lineVertices ||
+        !td?.lineIndices ||
+        td.lineVertices.length < STRIDE * 2 ||
+        td.lineIndices.length < 2
+      )
+        continue
+      // k carries drawable line data → shadow every ancestor of k that is
+      // itself in `seen`. Walk stops at the root (key 1 == 0/0/0).
+      let pk = k
+      while (pk > 1) {
+        pk = tileKeyParent(pk)
+        if (pk < 1) break
+        if (seen.has(pk)) shadow.add(pk)
+      }
+    }
+
     // Reusable buffers grown as needed — most polylines fit in 32 verts.
     // iter-243 (Plan AAA B.2) — xs/ys scratch from FrameArena
     // instead of `new Float64Array(64)`. Lifetime = single call;
@@ -394,6 +435,8 @@ export class LabelFeatureSource {
     let xs = this._frameArena.allocF64(64)
     let ys = this._frameArena.allocF64(64)
     for (const key of seen) {
+      // #616 — skip ancestor keys shadowed by a finer descendant in `seen`.
+      if (shadow.has(key)) continue
       // iter-169 cache check FIRST — skip the getTileData lookup +
       // walk + dedup work entirely for tiles whose runs are cached.
       const cacheKey = `${sliceLayer ?? '_'}:${key}`
