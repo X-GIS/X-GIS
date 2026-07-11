@@ -316,7 +316,8 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1198→1205 (#600): the globe_eye Uniforms-struct lane + its doc
   // comment, and threading globe_eye into polygon_cos_c_fragment / polygon_rim_alpha.
   // Bumped 1205→1292 (#804): positional→typed-object-param shader-DSL call migration + prettier one-property-per-line formatting; emit is byte-identical (goldens green), no new logic.
-  'map/src/shaders/dsl/polygon.ts': 1292,
+  // Bumped 1292→1315 (#598): camera-relative dLon precise branch in the disc arm — the fill's non-Mercator longitude now mirrors line.ts finalize_corner (fill≠outline seam fix), guarded on localMerc presence.
+  'map/src/shaders/dsl/polygon.ts': 1315,
   // camera.ts relocated to @xgis/engine (engine/src/projection/camera.ts) in
   // P3 Step 3 — no longer under a SRC_DIRS walk, so its LOC ceiling is tracked
   // by the engine package's own ratchet, not this runtime gate.

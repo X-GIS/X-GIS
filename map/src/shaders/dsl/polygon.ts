@@ -381,13 +381,36 @@ const emitPolygonProjectionLadder = (args: {
     clip.assign(transformMat4(mvp, vec4(rel2d.x.add(worldOffM), rel2d.y, zPlane, 1)))
   })
     .elif(projParamsV.x.lt(6.5), () => {
+      const zG = extruded ? wallHeight!.mul(isTop!) : f32(0)
+      // #598 — mirror finalize_corner (line.ts): when the PRECISE tile-local
+      // Mercator is available (quantized fill), feed flat_rel the camera-relative
+      // longitude d_lon = (local_merc.x − cam_h.x − cam_l.x) / (DEG2RAD·R) instead
+      // of the lossy absolute degree, and recentre the projection onto clon = 0
+      // (proj_params.y → 0, ref_lon → tile_ref_lon − clon). This deletes the
+      // radians(abs_lon) − radians(clon) f32 cancellation so the fill coincides
+      // with the now-precise outline (no ~0.4 m fill≠outline seam at deep zoom).
+      // Latitude is untouched (discLat/absLat), shared identically with the outline.
+      if (localMerc) {
+        const clon = projParamsV.y
+        const relMercX = localMerc.x.sub(U.field.cam_h.x).sub(U.field.cam_l.x)
+        const dLon = relMercX.div(deg2rad.mul(earthR))
+        const projParamsRel = vec4(projParamsV.x, f32(0), projParamsV.z, projParamsV.w)
+        const tileRefLonRel = U.field.tile_origin_merc.x
+          .add(f32(0.5).mul(U.field.tile_extent_m))
+          .div(deg2rad.mul(earthR))
+          .sub(clon)
+        const relG = flat_rel(dLon, discLat ?? absLat, projParamsRel, tileRefLonRel)
+        clip.assign(transformMat4(mvp, vec4(relG.x, relG.y, zG, 1)))
+        return
+      }
+      // Extruded / non-quantized VS entries lack local_merc — keep the old
+      // absolute-degree path (its residual is shared identically by the outline
+      // there, so no divergence). #398: project from discLat (TRUE lat) when
+      // supplied; absLat would pin the polar caps to the 85.05 ring.
       const tileRefLon = U.field.tile_origin_merc.x
         .add(f32(0.5).mul(U.field.tile_extent_m))
         .div(deg2rad.mul(earthR))
-      // #398: project from discLat (TRUE lat) when supplied; absLat would pin the
-      // polar caps to the 85.05 ring. Extruded VS → absLat (discLat undefined).
       const relG = flat_rel(absLon, discLat ?? absLat, projParamsV, tileRefLon)
-      const zG = extruded ? wallHeight!.mul(isTop!) : f32(0)
       clip.assign(transformMat4(mvp, vec4(relG.x, relG.y, zG, 1)))
     })
     .else(() => {
