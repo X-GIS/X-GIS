@@ -717,6 +717,14 @@ function applyHashToCamera(map: XGISMap): void {
   cam.centerX = h.lon * RAD * R_EARTH
   const clampLat = Math.max(-85.051129, Math.min(85.051129, h.lat))
   cam.centerY = Math.log(Math.tan(Math.PI / 4 + (clampLat * RAD) / 2)) * R_EARTH
+  // The globe/sphere family renders (and selects tiles) from the TRUE centre
+  // latitude camera.centerLatDeg, which a direct centerY write leaves STALE.
+  // Without this resync a hash camera silently drove the globe at lat≈0 —
+  // wrong hemisphere / labels off the disc / a blank land view (#799/#800/#803).
+  // This honours the SAME contract the library's own external centerY writers
+  // (CameraController pan/zoom, SourceManager) already follow; flat projections
+  // ignore centerLatDeg, so it is inert off the globe.
+  cam.syncCenterLat()
   cam.bearing = h.bearing
   cam.pitch = h.pitch
   // Tell the map this is an explicit positioning so the post-compile
@@ -1290,6 +1298,9 @@ selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
           const m = lonLatToMercator(lng, lat)
           cam.centerX = m[0]
           cam.centerY = m[1]
+          // Resync the sphere-family true latitude — same contract as the hash
+          // path above; a globe style `center` otherwise renders at lat≈0.
+          cam.syncCenterLat()
           anyApplied = true
         }
         if (typeof styleZoom === 'number') {

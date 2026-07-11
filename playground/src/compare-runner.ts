@@ -88,6 +88,15 @@ function applyViewToXgis(map: XGISMap, v: CameraView): void {
   cam.centerX = v.lon * RAD * R_EARTH
   const clampLat = Math.max(-85.051129, Math.min(85.051129, v.lat))
   cam.centerY = Math.log(Math.tan(Math.PI / 4 + (clampLat * RAD) / 2)) * R_EARTH
+  // The globe/sphere family renders (and selects tiles) from the TRUE centre
+  // latitude camera.centerLatDeg, which this direct centerY write leaves STALE.
+  // This harness wires globe onto BOTH panes (?proj=globe / style projection),
+  // and re-applies this view AFTER setProjection — so without the resync the
+  // X-GIS pane drove the sphere at lat≈0 while MapLibre rendered the requested
+  // latitude, silently comparing two different places and polluting the
+  // directional pixel-diff. Same one-line contract the demo-runner hash path
+  // and the library's own centerY writers follow; inert off the globe.
+  cam.syncCenterLat()
   cam.bearing = v.bearing
   cam.pitch = v.pitch
   map.markCameraPositioned()
