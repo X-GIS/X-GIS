@@ -907,17 +907,48 @@ export class MapRendererContent {
       }
     }
 
-    // Graticule overlay — regenerate (zoom-bucket gate) + draw, at the SAME
-    // point in the frame (after the layer draws). The collaborator borrows
-    // the layer path's linePipeline + base bindGroup + uniformRing and
-    // reuses the SAME 192-byte uniform offsets (passed in, not re-derived).
+    // Graticule overlay — NOT drawn here. #970: the opaque pass runs
+    // renderToPass (this method) BEFORE the vector-tile group.shows, so drawing
+    // the grid here left it painted over by the opaque ocean/land fills
+    // (invisible on flat; only the off-disc lines showed on globe). It now
+    // draws via renderGraticuleOverlay() AFTER the last opaque group's shows.
+
+    // pass.end() and submit() are handled by caller
+  }
+
+  /**
+   * Draw the lat/lon graticule overlay so it composites ON TOP of the opaque
+   * basemap. Split out of renderToPass (#970 fix): the graticule is a
+   * decoration that must land after ALL opaque content, but renderToPass runs
+   * in the opaque pass BEFORE the vector-tile group.shows (the ocean/land
+   * fills). Drawing the grid inside renderToPass therefore let the opaque fills
+   * paint over it — invisible on flat Mercator, and on globe only the lines
+   * outside the sphere disc survived. The opaque pass now invokes this in its
+   * LAST sub-pass, after that group's shows, so the grid is on top.
+   *
+   * No-ops when the overlay is disabled (default) — the ECEF frame view (same
+   * canonical builder renderToPass uses) is only computed when there's a grid
+   * to draw. mvp/eye are consumed on the globe/tilted ECEF fast path; flat
+   * display routes its own MVP + world-copy fan-out through the camera.
+   */
+  renderGraticuleOverlay(
+    pass: GPURenderPassEncoder,
+    camera: Camera,
+    projType = 0,
+    projCenterLon = 0,
+    projCenterLat = 20,
+  ): void {
+    if (DEBUG_OVERDRAW || !this._graticule.isEnabled()) return
+    const { canvas } = this.ctx
+    const dpr = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1
+    const frame = camera.getECEFFrameView(canvas.width, canvas.height, dpr)
     this._graticule.renderFrame(
       pass,
       this.linePipeline,
       this.bindGroup,
       this.engine.uniformRingHandle,
       {
-        mvp,
+        mvp: frame.matrix,
         logDepthFc: frame.logDepthFc,
         projType,
         projCenterLon,
@@ -925,15 +956,10 @@ export class MapRendererContent {
         zoom: camera.zoom,
         eye: frame.eye, // #600 globe_eye for the graticule's globe(7) cull
       },
-      // #729 — the graticule routes its own MVP + world-copy fan-out through the
-      // camera (getViewForProjection + visibleWorldCopiesFor) for flat display;
-      // frame.mvp above is only consumed on the globe/tilted ECEF fast path.
       camera,
       canvas.width,
       canvas.height,
       dpr,
     )
-
-    // pass.end() and submit() are handled by caller
   }
 }
