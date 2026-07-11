@@ -73,7 +73,11 @@ const CEILINGS: Record<string, number> = {
   // ~180-LOC file); VTR keeps only the sphere-route gate + one invocation + a
   // dedicated bake uniform block (so the mid-render bake can't clobber the
   // shared frameBlock the stroke draw reads). Lower as #991 decomposes VTR.
-  'map/src/render/vector-tile-renderer.ts': 4397,
+  // 4397→4403 (#599 I3): the drape baked-fill cache lifecycle wire — two call
+  // sites into VTR's existing beginFrame (deferred cache eviction, post-submit
+  // safe window) + destroy (free baked textures). The policy itself lives in
+  // render/vector-drape-cache.ts + vector-drape-renderer.ts, not here.
+  'map/src/render/vector-tile-renderer.ts': 4403,
   'map/src/map.ts': 4232,
   'map/src/text/text-stage.ts': 1920,
   'map/src/render/passes/label-pass.ts': 1786,

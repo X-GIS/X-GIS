@@ -19,6 +19,7 @@ import type { RhiDevice, RhiTexture, RhiRenderPass } from '@xgis/engine'
 import { uniformBlock, isPickEnabled, type UniformBlockOf } from '@xgis/engine'
 import { lonLatToECEF } from '@xgis/shared'
 import { RasterDraper, type RasterTile } from './material/raster-material'
+import { planBakeEvictions } from './vector-drape-cache'
 import { rasterU as RASTER_U, rasterTileU as RASTER_TILE_U } from '../shaders/dsl/raster'
 import {
   writeRasterFrameUniform,
@@ -33,7 +34,11 @@ const clampLat = (v: number): number => Math.max(-MERC_LIMIT, Math.min(MERC_LIMI
 const mercY = (latDeg: number): number =>
   Math.log(Math.tan(Math.PI / 4 + (clampLat(latDeg) * DEG2RAD) / 2))
 const BAKE_PX = 512
-const STALE_CALLS = 120
+// Hard cap on resident baked-fill textures — the drape's analogue of the raster
+// tile cache's MAX_CACHED_TILES (raster-renderer.ts). Each bake is BAKE_PX²
+// RGBA8 (~1 MB at 512px), so this LRU-bounds baked-fill VRAM the same way the
+// raster path bounds fetched tiles. Enforced at the frame boundary (beginFrame).
+const MAX_CACHED_BAKES = 256
 
 /** ECEF-frame view the drape projects with — the SAME matrix + log-depth + eye
  *  the vector / raster paths already compute (camera.getViewForProjection), so
@@ -58,7 +63,8 @@ export interface DrapeBakeProvider {
 /** Drape baked vector-fill tiles onto the raster sphere grid (#599 I2). Owns the
  *  shared RasterDraper + the raster global uniform + a per-tile baked-texture
  *  cache (validated by uploadEpoch + fill colour, so a static globe re-bakes
- *  nothing). */
+ *  nothing). I3 (#599): the cache is bounded by an LRU cap + freed on destroy;
+ *  eviction is deferred to beginFrame (see there for the lifecycle rationale). */
 export class VectorDrapeRenderer {
   private readonly draper: RasterDraper
   private readonly global: UniformBlockOf<typeof RASTER_U>
@@ -68,6 +74,10 @@ export class VectorDrapeRenderer {
     { tex: RhiTexture; uploadEpoch: number; fillKey: number; lastCall: number }
   >()
   private calls = 0
+  /** Cache keys draped THIS frame — the eviction skip-set (like the raster
+   *  renderer's lastVisibleKeys). Accumulated in renderGlobeFills, consumed +
+   *  cleared at the next beginFrame so eviction never drops an on-screen tile. */
+  private readonly visibleKeys = new Set<string>()
 
   constructor(
     private readonly rhi: RhiDevice,
@@ -112,7 +122,10 @@ export class VectorDrapeRenderer {
       if (!cached || cached.indexCount === 0 || cached.extruded) continue
 
       // Bake ONCE per key (the baked texture is tile-local — world-copy
-      // invariant); reuse across frames + world copies while unchanged.
+      // invariant); reuse across frames + world copies while unchanged. `key` is
+      // the compiler tileKey (4^z + morton(x,y)), so ZOOM is already part of the
+      // cache key — a different z is a distinct entry and a zoom-level change can
+      // never drape a stale-z bake (the old-z keys just drop out of neededKeys).
       const cacheKey = `${sliceLayer}:${key}`
       let entry = this.baked.get(cacheKey)
       if (!entry || entry.uploadEpoch !== cached.uploadEpoch || entry.fillKey !== fillKey) {
@@ -144,6 +157,8 @@ export class VectorDrapeRenderer {
         mercSouth,
         mercY(north) - mercSouth,
       )
+      // Mark this bake as draped this frame — the beginFrame eviction skip-set.
+      this.visibleKeys.add(cacheKey)
       // The scratch block is reused per tile — COPY its bytes for the batch entry.
       tiles.push({
         texture: entry.tex,
@@ -163,14 +178,36 @@ export class VectorDrapeRenderer {
       )
       this.draper.draw(pass, this.global.buffer, tiles, false, isPickEnabled())
     }
+  }
 
-    // Evict baked textures not visited for STALE_CALLS draws (LRU-ish) — bounds
-    // the cache the way the raster tile cache is capped.
-    for (const [k, e] of this.baked) {
-      if (this.calls - e.lastCall > STALE_CALLS) {
-        this.rhi.destroyTexture(e.tex)
+  /** Frame-boundary cache maintenance — MUST run once per frame BEFORE this
+   *  frame's renderGlobeFills calls (VTR.beginFrame drives it). Evicts the
+   *  least-recently-draped bakes past MAX_CACHED_BAKES, skipping the previous
+   *  frame's visible set, then rolls the visible set forward.
+   *
+   *  Eviction is DEFERRED here rather than run inline in renderGlobeFills for
+   *  the SAME lifecycle reason the raster tile cache (raster-renderer.evictTiles)
+   *  and the VTR tile-buffer eviction defer to the next frame: the drape encodes
+   *  every sphere-route fill layer into ONE render pass, so destroying a texture
+   *  mid-frame can free one still referenced by an encoded-but-not-yet-submitted
+   *  draw ("Destroyed texture used in submit"). By the next frame the previous
+   *  queue.submit() has returned, so these off-screen textures are safe to free. */
+  beginFrame(): void {
+    if (this.baked.size > MAX_CACHED_BAKES) {
+      for (const k of planBakeEvictions(this.baked, this.visibleKeys, MAX_CACHED_BAKES)) {
+        this.rhi.destroyTexture(this.baked.get(k)!.tex)
         this.baked.delete(k)
       }
     }
+    this.visibleKeys.clear()
+  }
+
+  /** Free every baked texture + drop the cache. Called from VTR.destroy when the
+   *  source / map is torn down (the drape's own GPU-resource teardown). After
+   *  destroy() the renderer is dead — create a new one if draping resumes. */
+  destroy(): void {
+    for (const e of this.baked.values()) this.rhi.destroyTexture(e.tex)
+    this.baked.clear()
+    this.visibleKeys.clear()
   }
 }
