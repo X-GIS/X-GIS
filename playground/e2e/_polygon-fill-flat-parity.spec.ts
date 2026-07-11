@@ -314,11 +314,14 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
   test('emitted polygon fill arm still reads tile-local Mercator (arm-revert pin)', () => {
     // Pins the FILL arm against a shader-only revert to `project(abs_lon,
     // abs_lat)` (packing unchanged): the regenerated snapshots would drop the
-    // tile-local-Mercator token. The token is the BARE-vec2 tile-local form
+    // tile-local-Mercator read. The read is the BARE-vec2 tile-local form
     // `(vec2<f32>(abs_lon, abs_lat) - cam_h) - cam_l`, unique to vs_main_ecef —
-    // the stroke arm wraps it in `project(`. Var-name-agnostic on purpose: the
-    // auto-var/CSE pass binds it to a generated name (`_cseN`), not a fixed one,
-    // so pin the expression, not the binding name.
+    // the stroke arm wraps it in `project(`. Expression-pinned, not binding-name-
+    // pinned: the auto-var/CSE pass now HOISTS the tile-local vec into a temp
+    // (`_cseN = vec2<f32>(abs_lon, abs_lat)`; read as `((_cseN - cam_h) - cam_l)`)
+    // once #598 gave the disc arm a second use of it, so a single literal token no
+    // longer matches. Pin the two halves that a project()-revert would drop: the
+    // tile-local SOURCE vec, and the split-camera subtraction.
     const here = dirname(fileURLToPath(import.meta.url))
     const snapDir = join(
       here,
@@ -330,13 +333,15 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
       'dsl',
       '__polygon-variant-snapshots__',
     )
-    const TOKEN = '= ((vec2<f32>(abs_lon, abs_lat) - u.cam_h) - u.cam_l)'
+    const SRC_VEC = 'vec2<f32>(abs_lon, abs_lat)' // dropped by a project(abs_lon, abs_lat) revert
+    const CAM_REL = '- u.cam_h) - u.cam_l)' // the split-camera tile-local read
+    const readsTileLocal = (src: string) => src.includes(SRC_VEC) && src.includes(CAM_REL)
     const files = readdirSync(snapDir).filter((f) => f.endsWith('.wgsl'))
     expect(files.length, `no polygon snapshots in ${snapDir}`).toBeGreaterThan(0)
-    const withToken = files.filter((f) => readFileSync(join(snapDir, f), 'utf8').includes(TOKEN))
+    const withToken = files.filter((f) => readsTileLocal(readFileSync(join(snapDir, f), 'utf8')))
     expect(
       withToken.length,
-      `no emitted polygon fill arm reads tile-local Mercator (token "${TOKEN}") — vs_main_ecef may have reverted to project(abs_lon, abs_lat)`,
+      `no emitted polygon fill arm reads tile-local Mercator ("${SRC_VEC}" + "${CAM_REL}") — vs_main_ecef may have reverted to project(abs_lon, abs_lat)`,
     ).toBeGreaterThan(0)
   })
 })
