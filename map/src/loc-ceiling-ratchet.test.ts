@@ -77,7 +77,13 @@ const CEILINGS: Record<string, number> = {
   // sites into VTR's existing beginFrame (deferred cache eviction, post-submit
   // safe window) + destroy (free baked textures). The policy itself lives in
   // render/vector-drape-cache.ts + vector-drape-renderer.ts, not here.
-  'map/src/render/vector-tile-renderer.ts': 4403,
+  // 4403→4487 (#599 line-drape): globe vector LINE / polygon-OUTLINE drape — the
+  // stroke bake reuses the fill bake pass but adds the SDF line segments to the
+  // tile texture. The bake-layer-slot packing + cache key + segment draw are
+  // EXTRACTED to render/vector-drape-stroke.ts; VTR keeps only the wiring (the
+  // captured stroke style + the drape-seam gate/strokeKey + the drawStrokes
+  // suppression + the in-bake bakeTileStrokes call). Lower as #991 decomposes VTR.
+  'map/src/render/vector-tile-renderer.ts': 4487,
   'map/src/map.ts': 4232,
   'map/src/text/text-stage.ts': 1920,
   'map/src/render/passes/label-pass.ts': 1786,

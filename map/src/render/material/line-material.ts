@@ -64,6 +64,13 @@ export class LineDraper {
   // offscreen translucent MAX-blend pass: fs_line_max, blend 'max', SINGLE-sample (the offscreen RT
   // is single-sample), no depth. LAZY (built on the first translucent draw).
   private _maxMaterial?: Material
+  // #599 line-drape: opaque line material for the offscreen tile bake (globe vector great-circle
+  // drape approach B). Same shader (fs_line / fs_line_pattern) as the screen line, but SINGLE-sample
+  // (the bake RT is single-sample, like the fill bake) and depthCompare 'always' / depthWrite false —
+  // fs_line writes @builtin(frag_depth), so WebGPU requires a depthStencil state + a matching depth
+  // attachment (the bake pass supplies depth24plus-stencil8), and 'always' makes it an inert no-op
+  // (never tested, never written) so overlapping segments composite by draw order. LAZY.
+  private _bakeMaterial?: Material
 
   constructor(
     private readonly rhi: RhiDevice,
@@ -134,6 +141,36 @@ export class LineDraper {
     }))
   }
 
+  /** Build the SINGLE-sample opaque line Material for the offscreen tile bake (#599 line-drape).
+   *  Reuses emitLineWgsl (fs_line / fs_line_pattern) unchanged — the caller injects proj_params.x=0,
+   *  cam=0, an ortho mvp (tile group) and a bake-mpp layer slot with viewport_height=0 (skip the
+   *  screen-space width clamp), so the flat-Mercator VS arm draws the stroke into tile-local NDC just
+   *  like the fill bake. Alpha blend (composites over the baked fill), depthCompare 'always' /
+   *  depthWrite false (inert, matches the fill bake). WebGPU-only (the bake is WebGPU-only). */
+  private bakeMat(): Material {
+    return (this._bakeMaterial ??= new Material(this.rhi, {
+      shader: emitLineWgsl(false),
+      vsEntry: 'vs_line',
+      fsEntry: 'fs_line',
+      format: this.format as 'bgra8unorm',
+      sampleCount: 1,
+      groups: [
+        wrapWebGpuBindGroupLayout(this.tileLayout),
+        wrapWebGpuBindGroupLayout(this.layerLayout),
+      ],
+      colorTargets: [{ format: this.format as 'bgra8unorm', blend: 'alpha' }],
+      variants: [
+        { depthWrite: false, depthCompare: 'always', label: 'line-bake-rhi' },
+        {
+          depthWrite: false,
+          depthCompare: 'always',
+          fsEntry: 'fs_line_pattern',
+          label: 'line-bake-pattern-rhi',
+        },
+      ],
+    }))
+  }
+
   /** The layer (group 1) bind-group layout of the main material — the
    *  WebGL2 path builds per-tile layer bind groups against it (#834 M5). */
   layerLayoutRhi(): RhiBindGroupLayout {
@@ -145,13 +182,19 @@ export class LineDraper {
     return this.material.layout(0)
   }
 
-  draw(pass: RhiRenderPass, b: LineBatch, mode: 'opaque' | 'pick' | 'max' = 'opaque'): void {
+  draw(
+    pass: RhiRenderPass,
+    b: LineBatch,
+    mode: 'opaque' | 'pick' | 'max' | 'bake' = 'opaque',
+  ): void {
     const material =
       mode === 'pick'
         ? (this._pickMaterial ??= this.buildMaterial(true))
         : mode === 'max'
           ? this.maxMat()
-          : this.material
+          : mode === 'bake'
+            ? this.bakeMat()
+            : this.material
     executeItems(material, pass, [
       {
         variant: mode === 'max' ? 0 : b.pattern ? 1 : 0, // the MAX material has a single variant

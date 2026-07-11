@@ -71,7 +71,7 @@ export class VectorDrapeRenderer {
   private readonly tileScratch: UniformBlockOf<typeof RASTER_TILE_U>
   private readonly baked = new Map<
     string,
-    { tex: RhiTexture; uploadEpoch: number; fillKey: number; lastCall: number }
+    { tex: RhiTexture; uploadEpoch: number; fillKey: number; strokeKey: number; lastCall: number }
   >()
   private calls = 0
   /** Cache keys draped THIS frame — the eviction skip-set (like the raster
@@ -103,6 +103,9 @@ export class VectorDrapeRenderer {
     projCenterLat: number,
     opacity: number,
     fill: readonly [number, number, number, number],
+    /** #599 line-drape — a 32-bit key over the show's stroke style (VTR.strokeBakeKey). Part of the
+     *  bake cache key so a stroke-style change re-bakes the tile texture. 0 when there is no stroke. */
+    strokeKey: number,
     sliceLayer: string,
     neededKeys: number[],
     worldOffDeg: number[] | undefined,
@@ -119,7 +122,9 @@ export class VectorDrapeRenderer {
     for (let ki = 0; ki < neededKeys.length; ki++) {
       const key = neededKeys[ki]!
       const cached = layerCache.get(key)
-      if (!cached || cached.indexCount === 0 || cached.extruded) continue
+      // #599 line-drape — bake fill tiles AND line-only tiles (indexCount 0 but non-empty stroke
+      // segments); bakeTileToTexture returns null when a tile has neither, self-skipping empties.
+      if (!cached || cached.extruded) continue
 
       // Bake ONCE per key (the baked texture is tile-local — world-copy
       // invariant); reuse across frames + world copies while unchanged. `key` is
@@ -128,11 +133,16 @@ export class VectorDrapeRenderer {
       // never drape a stale-z bake (the old-z keys just drop out of neededKeys).
       const cacheKey = `${sliceLayer}:${key}`
       let entry = this.baked.get(cacheKey)
-      if (!entry || entry.uploadEpoch !== cached.uploadEpoch || entry.fillKey !== fillKey) {
+      if (
+        !entry ||
+        entry.uploadEpoch !== cached.uploadEpoch ||
+        entry.fillKey !== fillKey ||
+        entry.strokeKey !== strokeKey
+      ) {
         const tex = provider.bakeTileToTexture(sliceLayer, key, fill, BAKE_PX)
         if (!tex) continue
         if (entry) this.rhi.destroyTexture(entry.tex)
-        entry = { tex, uploadEpoch: cached.uploadEpoch, fillKey, lastCall: this.calls }
+        entry = { tex, uploadEpoch: cached.uploadEpoch, fillKey, strokeKey, lastCall: this.calls }
         this.baked.set(cacheKey, entry)
       }
       entry.lastCall = this.calls

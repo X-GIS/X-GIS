@@ -727,6 +727,30 @@ export class LineRenderer {
     )
   }
 
+  /** Draw line/outline segments into the offscreen tile BAKE pass (#599 line-drape). RHI-native
+   *  sibling of `drawSegments`: both bind groups arrive as RHI handles (the caller wraps the raw VTR
+   *  tile group), the tile-uniform dynamic offset points at the bake's ortho-MVP slot, and the layer
+   *  offset points at a bake-mpp layer slot (viewport_height=0). Routes through the LineDraper's
+   *  single-sample opaque bake material (`mode: 'bake'`), so the stroke draws into the tile-local RT
+   *  that the fill baked into — one draped texture then carries fill + curved strokes. */
+  drawSegmentsBake(
+    pass: RhiRenderPass,
+    tileBG: RhiBindGroup,
+    layerBG: RhiBindGroup,
+    segmentCount: number,
+    tileOffset: number,
+    layerOffset: number,
+    pattern = false,
+  ): void {
+    if (segmentCount === 0) return
+    this.ensureLineDraper()
+    this._lineDraper!.draw(
+      pass,
+      { tileBG, layerBG, tileOffset, layerOffset, pattern, segmentCount },
+      'bake',
+    )
+  }
+
   /** The line Material's group-0 (tile) layout — VTR builds its WebGL2 tile
    *  bind group against it (#834 M5). */
   tileLayoutRhi(): RhiBindGroupLayout {
