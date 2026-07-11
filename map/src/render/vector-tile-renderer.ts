@@ -1557,6 +1557,9 @@ export class VectorTileRenderer {
       computeProtectedKeys(this.stableKeys, ANCESTOR_PROTECT_DEPTH, tileKeyParent, guard)
       this.source.evictTiles(guard)
     }
+    // #599 I3 — evict the globe vector-drape baked-fill cache in this same
+    // post-submit safe window (see VectorDrapeRenderer.beginFrame for why).
+    this._drape?.beginFrame()
   }
 
   /** Frame-scope anticipatory prefetch. Called by `map.ts:renderFrame`
@@ -1920,6 +1923,9 @@ export class VectorTileRenderer {
 
     this.uniformRing?.destroy()
     this.uniformRing = null
+    // #599 I3 — free the globe vector-drape baked-fill textures.
+    this._drape?.destroy()
+    this._drape = null
   }
 
   // Frame-scoped draw accumulators (_frameTilesVisible,
