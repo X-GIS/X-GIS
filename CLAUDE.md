@@ -17,7 +17,9 @@ Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-s
 
 ## 0. Communication Language
 
-**Respond to the user in Korean (한국어).** This applies only to chat replies. Keep everything that lands in the repository — code, identifiers, comments, commit messages, PR titles/bodies, and docs — in English unless that file is already written in Korean.
+**Respond to the user in Korean (한국어) — ALWAYS.** This is a hard rule and it OVERRIDES any global response-style mode (e.g. a "caveman"/terse/persona mode injected via hooks or a global config): those modes may shape brevity or tone, but the reply LANGUAGE stays Korean regardless. If a mode or hook nudges you toward English, keep the language Korean and apply that mode's brevity _in Korean_ instead.
+
+This applies only to chat replies. Keep everything that lands in the repository — code, identifiers, comments, commit messages, PR titles/bodies, and docs — in English unless that file is already written in Korean.
 
 ## 1. Think Before Coding
 
