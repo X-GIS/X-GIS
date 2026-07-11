@@ -118,6 +118,10 @@ class OpaquePass implements RenderPass {
           timestampWrites: tsWrites,
         })
 
+        // Projection unwrap — needed by the isFirst raster/legacy draws AND by
+        // the graticule overlay in the LAST sub-pass (#970), so compute once here.
+        const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
+
         // First opaque pass owns raster + canvas-2D background
         // content. These are always the back-most layers in the
         // current architecture. Phase 2 PR 2c.3 retired the
@@ -125,7 +129,6 @@ class OpaquePass implements RenderPass {
         // is now dispatched via the synthetic earth-surface
         // ShowCommand prepended to commands.shows in XGISMap.run().
         if (isFirst) {
-          const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
           host.gpuTimer?.mark(subPass, 'after_bg')
           // Per-frame raster-opacity resolve. resolveNumberShape
           // honours constant / zoom-interpolated / time-interpolated
@@ -236,6 +239,16 @@ class OpaquePass implements RenderPass {
           for (let si = 0; si < group.shows.length; si++) {
             if (isExtruded(group.shows[si])) drawShow(group.shows[si])
           }
+        }
+
+        // #970 — the graticule overlay draws in the LAST opaque sub-pass, AFTER
+        // this group's vector-tile shows, so the lat/lon grid composites ON TOP
+        // of the opaque basemap fills (ocean/land) instead of being painted
+        // over. Pre-#970 it drew inside renderToPass (isFirst, BEFORE the shows)
+        // and the opaque fills hid it — invisible on flat, off-disc-only on
+        // globe. isLastOpaque so a multi-group scene draws it once, on top.
+        if (isLastOpaque) {
+          host.renderer.renderGraticuleOverlay(subPass, host.camera, projType, centerLon, centerLat)
         }
 
         subPass.end()
