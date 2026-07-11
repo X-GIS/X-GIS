@@ -171,6 +171,35 @@ export function buildFlatFillMaterials(inp: FillMaterialInputs): {
   return { flat, ground }
 }
 
+/** Build the COLOUR-ONLY flat-fill Material for the offscreen tile bake (#599 I1 — globe
+ *  vector drape approach B). Same shader / vertex layout / uniform group as the screen fill
+ *  (`vs_main_ecef` / `fs_fill`), but ONE variant with NO depthCompare and NO stencil, so
+ *  `Material` emits a pipeline with `depthStencil: undefined` (material.ts). That matters
+ *  because the bake target is a single colour attachment rendered in tile-local ortho with no
+ *  depth: the screen fill's depth-write / stencil variants would demand a matching depth-stencil
+ *  attachment the bake pass does not carry. `cullMode: 'none'` (a baked tile is a flat patch,
+ *  no back-face to drop). The flat-Mercator VS arm already consumes the tile-local `local_merc`
+ *  coord unchanged, so the caller only injects `proj_params.x = 0`, `cam_h = cam_l = 0`, and an
+ *  ortho `mvp`; no shader edit. */
+export function buildBakeFillMaterial(inp: FillMaterialInputs): Material {
+  const fmt = inp.format as 'bgra8unorm'
+  const groups = inp.rhiGroups ?? [wrapWebGpuBindGroupLayout(inp.bindGroupLayout!)]
+  return new Material(inp.rhi, {
+    shader: inp.shader,
+    vsCode: inp.vsCode,
+    fsCode: inp.fsCode,
+    vsEntry: 'vs_main_ecef',
+    fsEntry: 'fs_fill',
+    format: fmt,
+    sampleCount: inp.sampleCount,
+    groups,
+    vertexBuffers: [toMatVB(inp.vertexLayout)],
+    colorTargets: [{ format: fmt, blend: 'alpha' }],
+    cullMode: 'none',
+    variants: [{ label: 'fill-bake-rhi' }],
+  })
+}
+
 /** Build the 3D-extruded fill Material (vs_main_ecef_extruded / fs_fill_extrude, the POLYGON_EXTRUDED
  *  vertex layout). Variant 0 = STENCIL_WRITE (fillPipelineExtruded), 1 = STENCIL_TEST (fallback) —
  *  same depth/stencil as the flat fill (NOT ground). The per-tile z-buffer is bound at slot 1. */
