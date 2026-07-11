@@ -14,8 +14,10 @@
 //     the HEATMAP_DENSITY_FORMAT constant.
 //   • data-viz (palette/gradient): palette-texture.ts owns PaletteTextures /
 //     uploadPalette / colorGradientAtlas / scalarGradientAtlas.
-//   • style enum: compute-bind-layout.ts threads the paint axis `'fill' |
-//     'stroke-color'` and a `paintAxis` selector through the bind-group builder.
+//   • style enum: compute-bind-layout.ts USED TO thread the paint axis selector
+//     through the bind-group builder — RELOCATED to @xgis/map in #1000. The
+//     builder now takes an opaque output-slot index; the style-aware caller
+//     resolves slot→axis→buffer. (Row removed from the baseline below.)
 //
 // WHY this is UN-gated today. The backend LEGITIMATELY speaks generic GPU
 // vocabulary (GPUTexture, createTexture, blend states, r16float), so tsc + the
@@ -60,9 +62,10 @@
 //   • baseline file absent from the scan → fails loudly (moved/renamed/deleted).
 //
 // GPU-free; co-located in rhi-webgpu/src so it rides the `test (engine-rhi-data)`
-// CI leg (`vitest … rhi-webgpu/src rhi-webgl2/src …`). Baseline measured
-// 2026-07-11: 53 markers / 4 files. Drive to 0 by relocating heatmap targets +
-// palette upload + paint-axis bind wiring to @xgis/map (#1000).
+// CI leg (`vitest … rhi-webgpu/src rhi-webgl2/src …`). Baseline started at 53
+// markers / 4 files (2026-07-11); the paint-axis bind wiring relocated to
+// @xgis/map in #1000, leaving 51 markers / 3 files. Drive the rest to 0 by
+// relocating the heatmap targets + palette upload to @xgis/map (#1000).
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -108,7 +111,6 @@ function contentCount(abs: string): number {
 // heatmap/palette/paint-axis content to @xgis/map lowers its number (to 0 =
 // delete the entry) in the same commit. Measured 2026-07-11. Ordered by path.
 const BASELINE: Record<string, number> = {
-  'rhi-webgpu/src/compute-bind-layout.ts': 2,
   'rhi-webgpu/src/gpu-shared.ts': 1,
   'rhi-webgpu/src/palette-texture.ts': 14,
   'rhi-webgpu/src/render-targets.ts': 36,
