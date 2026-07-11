@@ -156,3 +156,55 @@ describe('#797 P1 GraphicsManager retained-batch lifecycle', () => {
     warn.mockRestore()
   })
 })
+
+// #797 CIRCLE primitive — the retained disc. Unlike icons it needs NO sprite atlas
+// image, so add() works with a bare circle spec. Exercises the circle branch of
+// materialise / updateBatch / removeBatch on the same stub device.
+function circleSpec(n: number) {
+  const data = Array.from({ length: n }, (_, i) => ({ lon: i, lat: i % 80 }))
+  return {
+    type: 'circle' as const,
+    data,
+    getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat] as [number, number],
+    getRadius: 6,
+    getColor: () => [1, 0, 0, 1] as [number, number, number, number],
+    getStrokeColor: () => [1, 1, 1, 1] as [number, number, number, number],
+    getStrokeWidth: 1,
+    updateTriggers: { color: 1 },
+  }
+}
+
+describe('#797 GraphicsManager retained CIRCLE batch', () => {
+  it('add() materialises feat + tint with NO sprite image required', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    // No addImage — circles are procedural, not sprites.
+    const handle = gm.add(circleSpec(1000))
+    expect(s.created.length, 'feat + tint created').toBe(2)
+    expect(gm.hasRetainedBatches()).toBe(true)
+    handle.remove()
+    render(gm) // drain-only frame destroys the retired buffers
+    expect(s.destroyed.length, 'both retired buffers destroyed').toBe(2)
+  })
+
+  it('update({color}) re-uploads ONLY the fill-tint buffer', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    const handle = gm.add(circleSpec(500))
+    const before = gm.getWriteCounts()
+    handle.update({ triggers: ['color'] })
+    const after = gm.getWriteCounts()
+    expect(after.tintWrites - before.tintWrites).toBe(1)
+    expect(after.featWrites - before.featWrites).toBe(0)
+  })
+
+  it('an empty-data circle batch does NOT flip the render gate', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    gm.add(circleSpec(0))
+    expect(gm.hasRetainedBatches()).toBe(false)
+  })
+})
