@@ -211,6 +211,44 @@ export function isOmittedValue(v: unknown): boolean {
   return cur === null || cur === undefined
 }
 
+/** Strip the Mapbox `["image", <name-expr>]` wrapper from an icon-image
+ *  value. `image` produces a ResolvedImage from a sprite name; in the
+ *  icon-image property context X-GIS resolves the name directly, so the
+ *  wrapper is a compile-time identity — return the inner name expression
+ *  (constant string or a data-driven expression). `image`'s runtime
+ *  availability check (null when the sprite is absent) maps to X-GIS'
+ *  missing-sprite = no-icon, so nothing is lost for icon-image.
+ *
+ *  Recurses so a nested `["image", …]` inside the coalesce / match / case
+ *  arms of a data-driven icon-image — the common Mapbox POI shape
+ *  `["coalesce", ["image", ["concat", …]], ["image", "marker_11"]]` — is
+ *  stripped too. `["literal", …]` payloads are DATA, not an expression
+ *  tree, so they are returned untouched. Applied ONLY to icon-image;
+ *  text-inline `["format", …, ["image", …]]` spans keep the deferred
+ *  format-partial-drop path (issue #777 I2 follow-up).
+ *
+ *  `match` LABEL positions are the one exception: they are literal values
+ *  (a string/number or an ARRAY of them), NOT expressions. A label array
+ *  like `["image", "photo"]` means "input ∈ {'image','photo'}", not an
+ *  `["image", …]` wrapper — recursing into it would strip the leading
+ *  'image' and silently rewrite the arm's key set. So for `match` only the
+ *  input, the per-arm OUTPUT values and the fallback are recursed; the
+ *  even-index labels pass through untouched to convertMatch's strict
+ *  literal-label gate. */
+export function unwrapImageExpr(v: unknown): unknown {
+  if (!Array.isArray(v)) return v
+  if (v.length === 2 && v[0] === 'image') return unwrapImageExpr(v[1])
+  if (v[0] === 'literal') return v
+  if (v[0] === 'match') {
+    // ["match", input, label1, out1, label2, out2, …, fallback]:
+    // recurse into input (1), outputs (odd indices) and the trailing
+    // fallback (last index); leave the even-index labels intact.
+    const last = v.length - 1
+    return v.map((el, i) => (i === 0 || (i % 2 === 0 && i !== last) ? el : unwrapImageExpr(el)))
+  }
+  return v.map((el) => unwrapImageExpr(el))
+}
+
 /** Mapbox font-name trailing keywords → CSS font-weight numerics.
  *  Covers the standard 100..900 axis plus common aliases (Hairline,
  *  UltraLight, Heavy, …) used by font foundries. Matched as a single
@@ -436,9 +474,7 @@ export function textFieldToXgisExpr(field: unknown, warnings: string[]): string 
  *  Without the split, the literal-string-only path picks "point" and
  *  the high-zoom road shields render anchored to one segment instead
  *  of following the road. */
-export function parseSymbolPlacementStep(
-  layer: MapboxLayer,
-): Array<{
+export function parseSymbolPlacementStep(layer: MapboxLayer): Array<{
   minzoom?: number
   maxzoom?: number
   placement: 'point' | 'line' | 'line-center'
