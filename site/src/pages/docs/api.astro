@@ -232,6 +232,65 @@ map.setProjection("orthographic")`,
     ],
   },
   {
+    title: 'Host graphics',
+    body: 'The `map.graphics` façade — retained, geo-anchored batches that project on the GPU. Accessors run ONCE at add()/update() (never per frame), so a camera move rewrites only the frame uniform and the batch is N-independent. Register host sprite images here too.',
+    entries: [
+      {
+        name: 'map.graphics.add (arrow)',
+        signature: 'map.graphics.add<D>(spec: ArrowDrawSpec<D>): DrawHandle',
+        body: 'Add a retained arrow batch — the movement vector-field glyph, a procedural oriented arrow mesh (no sprite). Per item: a geo anchor (the arrow tail), a bearing, a length, and a colour. Accessors are packed once at add(); the GPU buffers materialise immediately when a device exists, else on the next attachDevice.',
+        params: [
+          { name: 'type', type: "'arrow'", body: 'Discriminant selecting the arrow spec.' },
+          { name: 'data', type: 'readonly D[]', body: 'The per-item source array. Each accessor is run once over this array to pack a flat attribute buffer.' },
+          { name: 'getPosition', type: 'Packed<Position, D>', body: 'Geo anchor `[lon, lat]` in degrees (WGS84) — the arrow TAIL. The ONE required accessor. A constant packs one shared value; a `(d, index) => Position` function is run once per item.' },
+          { name: 'getBearing', type: 'Packed<number, D>', body: 'Geographic bearing the arrow points along, in degrees (0 = north, clockwise). Projected on the GPU from two geo points, so it stays correct under camera bearing / pitch / globe. Default 0 (north).', optional: true },
+          { name: 'getSize', type: 'Packed<number, D>', body: 'Arrow length in px (tail→tip). Default 1.', optional: true },
+          { name: 'getColor', type: 'Packed<IconColor, D>', body: 'Solid fill colour — a hex string (`#rrggbb` / `#rrggbbaa`) or an rgba tuple in 0..1. Default white.', optional: true },
+          { name: 'updateTriggers', type: 'Partial<Record<IconUpdateTrigger, unknown>>', body: 'Marks which attributes a later `update({ triggers })` will re-pack. Triggers: `position` | `color` | `size` | `rotation` | `image`.', optional: true },
+        ],
+        returns: { type: 'DrawHandle', body: 'A live handle to the batch — read `count`, re-pack accessors via `update({ triggers })`, or free the GPU buffers with `remove()`.' },
+        example: `const handle = map.graphics.add({
+  type: "arrow",
+  data: winds,
+  getPosition: (w) => [w.lon, w.lat],
+  getBearing: (w) => w.dirDeg,
+  getSize: 24,
+  getColor: "#3aa0ff",
+  updateTriggers: { color: true },
+})`,
+        see: [
+          { label: 'DrawHandle', href: '#drawhandle' },
+          { label: 'map.graphics.addImage', href: '#map-graphics-addimage' },
+        ],
+      },
+      {
+        name: 'DrawHandle',
+        signature: 'interface DrawHandle',
+        body: 'Handle to a live retained batch, returned by `map.graphics.add`.',
+        params: [
+          { name: 'count', type: 'number', body: 'Items currently in the batch (read-only). 0 after `remove()`.' },
+          { name: 'update', type: '(patch: { triggers: readonly IconUpdateTrigger[] }) => void', body: 'Re-run the named accessors and re-upload their attribute(s). `["color"]` re-uploads ONLY the tint buffer (one writeBuffer); any other trigger re-packs the feat buffer. It re-runs accessors on the FIXED data set — it never resizes (a size change is rejected with a warning; re-add the batch instead).' },
+          { name: 'remove', type: '() => void', body: 'Remove the batch and free its GPU buffers.' },
+        ],
+        see: [
+          { label: 'map.graphics.add', href: '#map-graphics-add-arrow' },
+        ],
+      },
+      {
+        name: 'map.graphics.addImage',
+        signature: 'map.graphics.addImage(name: string, image: ImageBitmap | ImageData): void',
+        body: 'Register a host sprite image into the atlas under `name` (Mapbox `map.addImage` parity). Register images BEFORE an icon batch\'s `add()` so their sprites resolve — a missing sprite packs an invisible instance and warns. Also reachable directly as `map.addImage`.',
+        params: [
+          { name: 'name', type: 'string', body: 'Registry key the icon spec\'s `getImage` accessor resolves against.' },
+          { name: 'image', type: 'ImageBitmap | ImageData', body: 'The decoded sprite bitmap. Host-only render, no eviction, bounded page (Phase-0 limitations).' },
+        ],
+        see: [
+          { label: 'map.graphics.add', href: '#map-graphics-add-arrow' },
+        ],
+      },
+    ],
+  },
+  {
     title: 'Stats + diagnostics',
     body: 'Optional UI panel and underlying tracker for performance/diagnostic information.',
     entries: [
