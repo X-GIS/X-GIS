@@ -41,7 +41,7 @@ export * from './render/material'
 // ── Shader machinery: CPU log-depth + content-blind shader-DSL leaves ─
 export * from './shaders/log-depth'
 export * from './shaders/dsl/overdraw-compose'
-// The DSL-authored frame-uniform WGSL emitter — consumed LIVE by
-// @xgis/map's FrameUniform (map/src/render/frame-uniform.ts, #781); the
-// former "dormant rhi-webgpu scaffolding" note was stale (#783 audit).
-export * from './shaders/dsl/frame-uniform'
+// The frame-uniform SCHEMA moved to @xgis/map (map/src/render/frame-uniform.ts,
+// #991 P0): its `proj_params`/meters-per-pixel lanes are map content, so the
+// content-blind engine no longer declares it — map owns the schema and packs it
+// through the engine's generic `UniformBlock` mechanism (exported above).
