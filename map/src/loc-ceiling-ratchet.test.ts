@@ -68,7 +68,12 @@ const CEILINGS: Record<string, number> = {
   // perf-mark coupling via onGrowStart/onGrowEnd callbacks the engine no longer
   // owns; VTR (the ring that grows under load — the perf-audit hot path) supplies
   // them at the ring ctor (+2 lines). Lower again as #991 decomposes VTR.
-  'map/src/render/vector-tile-renderer.ts': 4336,
+  // 4336→4397 (#599 I2): the globe vector great-circle drape SEAM — the bake→
+  // drape logic itself is EXTRACTED to render/vector-drape-renderer.ts (a new
+  // ~180-LOC file); VTR keeps only the sphere-route gate + one invocation + a
+  // dedicated bake uniform block (so the mid-render bake can't clobber the
+  // shared frameBlock the stroke draw reads). Lower as #991 decomposes VTR.
+  'map/src/render/vector-tile-renderer.ts': 4397,
   'map/src/map.ts': 4232,
   'map/src/text/text-stage.ts': 1920,
   'map/src/render/passes/label-pass.ts': 1786,

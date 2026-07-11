@@ -15,7 +15,7 @@ import type {
   RhiTextureView,
 } from '@xgis/engine'
 import type { GPUContext, WebGpuDevice } from '@xgis/rhi-webgpu'
-import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
+import { toVertexBufferLayout, wrapWebGpuPass } from '@xgis/rhi-webgpu'
 import { POLYGON_FILL_FORMAT } from '@xgis/compiler'
 import { polygonUniformBytes } from './polygon-uniform-slots'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -74,6 +74,8 @@ import type { TileData } from '@xgis/data'
 import { computeSliceKey } from '@xgis/data'
 import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/geo'
 import { SELECTOR_PROJ_NAMES } from '@xgis/geo'
+import { routeToSphereSelector } from '@xgis/geo'
+import { VectorDrapeRenderer } from './vector-drape-renderer'
 import type { PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
 import { parseHexColor } from '../feature-helpers'
@@ -277,6 +279,16 @@ export class VectorTileRenderer {
    *  ring stages, exactly like the raw views this replaces. u32 lanes
    *  (pick_id / light_color_packed) route through the block's raw-word view. */
   private frameBlock = uniformBlock(POLYGON_U)
+  /** #599 I2 — dedicated pack block for bakeTileToTexture so the mid-render bake
+   *  never clobbers frameBlock's frame-constant mvp/proj_params/globe_eye (which
+   *  the same show's stroke draw reads after the drape). */
+  private _bakeBlock = uniformBlock(POLYGON_U)
+  /** #599 I2 — set per render() when flat globe fills must DRAPE (baked→sphere
+   *  grid) instead of drawing as ECEF chords; false off the globe (flat path
+   *  byte-identical). Read by renderTileKeys to skip the direct fill draw. */
+  private _drapeGlobeFills = false
+  /** Lazy owner of the globe fill drape (shared raster sphere-grid material). */
+  private _drape: VectorDrapeRenderer | null = null
   private cachedFillColor = [0, 0, 0, 0]
   private cachedStrokeColor = [0, 0, 0, 0]
   private cachedShowFill = ''
@@ -773,7 +785,12 @@ export class VectorTileRenderer {
     // with the bake overrides: flat-Mercator arm (proj 0), camera at the tile
     // origin (cam 0 → rel = local_merc), ortho mvp. tile_origin_merc / tile_extent_m
     // are inert in the flat localMerc arm but written for parity.
-    const B = this.frameBlock
+    // DEDICATED block (NOT the shared frameBlock): #599 I2 drives the bake
+    // mid-render (before the same show's stroke draw), and strokes rely on
+    // render()'s frame-constant frameBlock.mvp/proj_params/globe_eye persisting —
+    // baking into frameBlock would clobber them (ortho mvp / proj 0) and break the
+    // globe strokes. A separate block isolates the bake's tile-local ortho state.
+    const B = this._bakeBlock
     B.set.mvp(mvp)
     B.set.fill_color(fill[0], fill[1], fill[2], fill[3])
     B.set.proj_params(0, 0, 0, 0)
@@ -798,7 +815,7 @@ export class VectorTileRenderer {
     B.set.tile_dequant_half(cached.dequantHalf)
 
     const slotOffset = this.allocUniformSlot()
-    this.stageUniformSlot(slotOffset, this.frameBlock.buffer)
+    this.stageUniformSlot(slotOffset, this._bakeBlock.buffer)
     this.flushUniformStaging()
 
     // Bind group AFTER allocUniformSlot — a ring grow swaps rhiBuffer (renderFillsRhi
@@ -3034,6 +3051,46 @@ export class VectorTileRenderer {
 
     // NOW draw (tiles are guaranteed in gpuCache if they compiled synchronously)
 
+    // #599 I2 — globe vector great-circle drape. On the sphere route a flat fill
+    // triangle spanning a big arc projects as a CHORD under the curved sphere;
+    // instead each resident tile's fill bakes to a texture (I1) and drapes onto
+    // the raster sphere grid (VectorDrapeRenderer) so it hugs the curve. Gated to
+    // sphere route + WebGPU (bake is WebGPU-only) + NON-extruded + CONSTANT fill
+    // (I1 bakes the default fill pipeline). `__XGIS_DISABLE_VECTOR_DRAPE` forces
+    // the direct chord draw (A/B + safety); off the globe the fill is unchanged.
+    this._drapeGlobeFills =
+      routeToSphereSelector(projType, camera.globeMode) &&
+      this.rhi.backend !== 'webgl2' &&
+      this.currentExtrudeMode === 'none' &&
+      // The I1 bake is the DEFAULT fill pipeline (single `fill_color`), so it
+      // reproduces a constant / zoom-interp fill but NOT a per-feature (feature-
+      // buffer) fill or a sprite pattern — those keep the direct draw.
+      !show.shaderVariant?.needsFeatureBuffer &&
+      show.fillPatternUV == null &&
+      (globalThis as { __XGIS_DISABLE_VECTOR_DRAPE?: boolean }).__XGIS_DISABLE_VECTOR_DRAPE !== true
+    if (
+      this._drapeGlobeFills &&
+      phase !== 'strokes' &&
+      phase !== 'oit-fill' &&
+      !this._skipFillDraw
+    ) {
+      this._drape ??= new VectorDrapeRenderer(this.rhi, this.format, getSampleCount())
+      this._drape.renderGlobeFills(
+        wrapWebGpuPass(pass),
+        frame,
+        projType,
+        projCenterLon,
+        projCenterLat,
+        this.currentOpacity ?? 1,
+        this.cachedFillColor as [number, number, number, number],
+        sliceLayer,
+        neededKeys,
+        worldOffDeg,
+        this.getOrCreateLayerCache(sliceLayer),
+        this,
+      )
+    }
+
     // Render current zoom tiles (stencil write) — with world copy offsets.
     // Translucent line passes have NO depth/stencil attachment, so skip the
     // stencil reference call there.
@@ -3760,7 +3817,11 @@ export class VectorTileRenderer {
      *  skips the discard test. */
     visibleKeysForClip: number[] | null = null,
   ): void {
-    const drawFills = phase !== 'strokes'
+    // #599 I2 — on the globe sphere route flat fills are DRAPED (baked→sphere
+    // grid) by renderGlobeDrapedFills, not drawn here as ECEF chords. `_drape
+    // GlobeFills` is set per render() and is always false off the globe, so the
+    // flat / Mercator fill draw is byte-identical.
+    const drawFills = phase !== 'strokes' && !this._drapeGlobeFills
     const drawStrokes = phase !== 'fills' && phase !== 'oit-fill'
     // `phase === 'strokes'` reaches us from two passes — the
     // translucent offscreen MAX-blend pass (no depth) and the
