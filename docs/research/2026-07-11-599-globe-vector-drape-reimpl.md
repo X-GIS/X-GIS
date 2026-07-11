@@ -1,6 +1,11 @@
 # #599 — globe vector great-circle drape, re-implemented on RHI + render-graph
 
-**Status:** design (architect phase). Maintainer decision (2026-07-11): re-implement **approach B (texture-drape)** in full. Approach A (tiler subdivision) rejected as a partial-only mitigation.
+**Status:** design LOCKED (2026-07-11) — ready for implementation. Maintainer decision: re-implement **approach B (texture-drape)** in full. Approach A (tiler subdivision) rejected as a partial-only mitigation.
+
+**Design decisions (locked 2026-07-11).** The two open questions are resolved:
+
+1. **Per-tile RenderTarget for I1** — the simplest bake target (one offscreen RT per visible globe tile). A tile **atlas** (one RT, many tiles packed) is an **I3 optimisation** that bounds the per-frame RT count; it is NOT an I1 prerequisite. Rationale: get the bake→drape pixel correct first on the simplest target, then bound cost.
+2. **`VectorDrapeRenderer` SHARES the raster grid drape material** (the new-renderer-zero principle from §"Architecture") — it swaps ONLY the sampled texture source (the baked offscreen RT instead of a fetched raster tile). The fine-grid sphere projection + log-depth + world-copy fan-out are reused unchanged, so drape fidelity is inherited from the proven raster path rather than re-derived.
 
 ## Problem (grounded)
 
