@@ -81,8 +81,30 @@ export interface ArrowDrawSpec<D> {
   readonly updateTriggers?: Partial<Record<IconUpdateTrigger, unknown>>
 }
 
+/** Declarative spec for a retained geo-anchored CIRCLE (disc) batch — the simplest primitive
+ *  (`map.graphics.add`). Same retained/N-independent contract as `IconDrawSpec`, but the silhouette
+ *  is a procedural disc SDF (no sprite): per item a geo anchor, a pixel radius, a fill colour, and
+ *  an optional inset stroke. Renders through the SAME disc SDF as a tile/inline point, so a retained
+ *  circle is pixel-identical to a styled point of the same radius/fill/stroke. */
+export interface CircleDrawSpec<D> {
+  readonly type: 'circle'
+  readonly data: readonly D[]
+  /** Geo anchor per item (the disc CENTRE) — the ONE required accessor. */
+  readonly getPosition: Packed<Position, D>
+  /** Disc radius in px (fill edge). Default 4. */
+  readonly getRadius?: Packed<number, D>
+  /** Fill colour. Default white. */
+  readonly getColor?: Packed<IconColor, D>
+  /** Inset stroke (ring) colour. Default transparent = no stroke. */
+  readonly getStrokeColor?: Packed<IconColor, D>
+  /** Inset stroke width in px. Default 0 = no stroke. */
+  readonly getStrokeWidth?: Packed<number, D>
+  /** Marks which attributes a later `update({ triggers })` will re-pack. */
+  readonly updateTriggers?: Partial<Record<IconUpdateTrigger, unknown>>
+}
+
 /** Any retained batch spec accepted by `map.graphics.add` — discriminated by `type`. */
-export type DrawSpec<D> = IconDrawSpec<D> | ArrowDrawSpec<D>
+export type DrawSpec<D> = IconDrawSpec<D> | ArrowDrawSpec<D> | CircleDrawSpec<D>
 
 /** Handle to a live retained batch. */
 export interface DrawHandle {

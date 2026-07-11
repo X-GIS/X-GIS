@@ -15,8 +15,10 @@ import { HostSpriteAtlasGPU } from '../sprite/host-sprite-atlas-gpu'
 import { HostSpriteAtlasRhi } from '../sprite/host-sprite-atlas-rhi'
 import { RetainedIconDraper } from '../render/material/icon-retained-material'
 import { RetainedArrowDraper } from '../render/material/arrow-retained-material'
+import { RetainedCircleDraper } from '../render/material/circle-retained-material'
 import { packRetainedIconFeat, packRetainedIconTint } from './retained-icon-packer'
 import { packRetainedArrowFeat, packRetainedArrowTint } from './retained-arrow-packer'
+import { packRetainedCircleFeat, packRetainedCircleTint } from './retained-circle-packer'
 import type { DrawSpec, DrawHandle, IconUpdateTrigger } from './graphics-types'
 import {
   writePointFrameUniform,
@@ -62,6 +64,7 @@ export class GraphicsManager {
   private rhi: RhiDevice | null = null
   private draper: RetainedIconDraper | null = null
   private arrowDraper: RetainedArrowDraper | null = null
+  private circleDraper: RetainedCircleDraper | null = null
   private frameBlock: UniformBlockOf<typeof pointU> | null = null
   private _blockView: Float32Array | null = null
   private readonly batches: RetainedIconBatch[] = []
@@ -181,20 +184,32 @@ export class GraphicsManager {
   /** Build (or rebuild) a batch's GPU buffers + cached bind group. No-op until a
    *  device is attached (deferred materialisation for pre-run add()). */
   private materialise(batch: RetainedIconBatch): void {
-    if (!this.rhi || !this.atlas || !this.draper || !this.arrowDraper) return
+    if (!this.rhi || !this.atlas || !this.draper || !this.arrowDraper || !this.circleDraper) return
     const spec = batch.spec
     const feat =
       spec.type === 'arrow'
         ? packRetainedArrowFeat(spec, this.dpr)
-        : packRetainedIconFeat(spec, this.atlas, this.dpr)
-    const tint = spec.type === 'arrow' ? packRetainedArrowTint(spec) : packRetainedIconTint(spec)
+        : spec.type === 'circle'
+          ? packRetainedCircleFeat(spec, this.dpr)
+          : packRetainedIconFeat(spec, this.atlas, this.dpr)
+    const tint =
+      spec.type === 'arrow'
+        ? packRetainedArrowTint(spec)
+        : spec.type === 'circle'
+          ? packRetainedCircleTint(spec)
+          : packRetainedIconTint(spec)
     if (batch.featBuf) this._retired.push(batch.featBuf)
     if (batch.tintBuf) this._retired.push(batch.tintBuf)
     batch.featBuf = this.rhi.createBuffer({
       size: Math.max(feat.byteLength, 16),
       usage: 'storage',
       writable: true,
-      label: spec.type === 'arrow' ? 'retained-arrow-feat' : 'retained-icon-feat',
+      label:
+        spec.type === 'arrow'
+          ? 'retained-arrow-feat'
+          : spec.type === 'circle'
+            ? 'retained-circle-feat'
+            : 'retained-icon-feat',
     })
     this.rhi.writeBuffer(batch.featBuf, 0, feat)
     this._featWrites++
@@ -202,7 +217,12 @@ export class GraphicsManager {
       size: Math.max(tint.byteLength, 16),
       usage: 'storage',
       writable: true,
-      label: spec.type === 'arrow' ? 'retained-arrow-tint' : 'retained-icon-tint',
+      label:
+        spec.type === 'arrow'
+          ? 'retained-arrow-tint'
+          : spec.type === 'circle'
+            ? 'retained-circle-tint'
+            : 'retained-icon-tint',
     })
     this.rhi.writeBuffer(batch.tintBuf, 0, tint)
     this._tintWrites++
@@ -213,12 +233,14 @@ export class GraphicsManager {
     batch.bindGroup =
       spec.type === 'arrow'
         ? this.arrowDraper.makeBatchBindGroup(batch.featBuf, batch.tintBuf)
-        : this.draper.makeBatchBindGroup(
-            batch.featBuf,
-            batch.tintBuf,
-            this.atlas.rhiView(),
-            this.atlas.rhiSampler(),
-          )
+        : spec.type === 'circle'
+          ? this.circleDraper.makeBatchBindGroup(batch.featBuf, batch.tintBuf)
+          : this.draper.makeBatchBindGroup(
+              batch.featBuf,
+              batch.tintBuf,
+              this.atlas.rhiView(),
+              this.atlas.rhiSampler(),
+            )
     batch.count = batch.spec.data.length
   }
 
@@ -244,7 +266,11 @@ export class GraphicsManager {
       this.rhi.writeBuffer(
         batch.tintBuf,
         0,
-        spec.type === 'arrow' ? packRetainedArrowTint(spec) : packRetainedIconTint(spec),
+        spec.type === 'arrow'
+          ? packRetainedArrowTint(spec)
+          : spec.type === 'circle'
+            ? packRetainedCircleTint(spec)
+            : packRetainedIconTint(spec),
       )
       this._tintWrites++
     }
@@ -254,7 +280,9 @@ export class GraphicsManager {
         0,
         spec.type === 'arrow'
           ? packRetainedArrowFeat(spec, this.dpr)
-          : packRetainedIconFeat(spec, this.atlas, this.dpr),
+          : spec.type === 'circle'
+            ? packRetainedCircleFeat(spec, this.dpr)
+            : packRetainedIconFeat(spec, this.atlas, this.dpr),
       )
       this._featWrites++
     }
@@ -341,7 +369,12 @@ export class GraphicsManager {
     // change makes the frame uniform batch-specific (e.g. per-batch opacity), this
     // reuse must be revisited (write the pool once, rebind per batch).
     for (const b of drawable) {
-      const draper = b.spec.type === 'arrow' ? this.arrowDraper : this.draper
+      const draper =
+        b.spec.type === 'arrow'
+          ? this.arrowDraper
+          : b.spec.type === 'circle'
+            ? this.circleDraper
+            : this.draper
       // Sum the drapers' REAL draw-call count (one instanced draw per world copy).
       // This is O(COPIES × batches), never O(N) — the draw-call N-independence gate.
       this._lastFrameDrawCalls += draper?.draw(pass, b.bindGroup!, perCopy, b.count) ?? 0
@@ -367,7 +400,11 @@ export class GraphicsManager {
       this.rhi.writeBuffer(
         b.featBuf,
         0,
-        s.type === 'arrow' ? packRetainedArrowFeat(s, d) : packRetainedIconFeat(s, this.atlas, d),
+        s.type === 'arrow'
+          ? packRetainedArrowFeat(s, d)
+          : s.type === 'circle'
+            ? packRetainedCircleFeat(s, d)
+            : packRetainedIconFeat(s, this.atlas, d),
       )
       this._featWrites++
     }
@@ -395,6 +432,7 @@ export class GraphicsManager {
     this.rhi = rhi
     this.draper = new RetainedIconDraper(rhi, format, 1, pointUniformBytes())
     this.arrowDraper = new RetainedArrowDraper(rhi, format, 1, pointUniformBytes())
+    this.circleDraper = new RetainedCircleDraper(rhi, format, 1, pointUniformBytes())
     this.frameBlock = uniformBlock(pointU)
     this._blockView = new Float32Array(this.frameBlock.buffer)
     for (const b of this.batches) this.materialise(b)
@@ -428,6 +466,7 @@ export class GraphicsManager {
     this.rhi = null
     this.draper = null
     this.arrowDraper = null
+    this.circleDraper = null
     this.frameBlock = null
     this._blockView = null
   }
