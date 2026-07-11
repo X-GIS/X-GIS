@@ -649,9 +649,27 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
       </button>
     </div>
 
-    <!-- Results table — built once from the test list; cells are updated in place.
-         The table IS the view now; the old raw-digest dump duplicated it, so it's
-         gone. Copy still emits the same frozen text digest (for pasting back). -->
+    <!-- Run controls — the probe is opt-in (NOT auto-run). Compiling ~160 df64
+         shader programs across two backends synchronously wedged the GPU process
+         on real hardware (ANGLE-D3D11 FXC multi-second link → TDR cascade → the
+         whole browser froze). Loading the page now does ZERO GPU work; the run
+         only fires on click, the stress families (integer flavor + random trees —
+         the documented D3D11 chokers) stay behind an explicit opt-in, and each
+         pipeline compiles async so the JS thread never blocks. -->
+    <div class="mt-6 flex items-center gap-x-4 gap-y-2 flex-wrap">
+      <button
+        id="probe-run"
+        type="button"
+        class="shrink-0 inline-flex items-center gap-2 px-4 h-9 rounded-full text-[13px] font-medium text-bg bg-fg hover:bg-fg-dim transition-colors"
+      >Run probe</button>
+      <label class="inline-flex items-center gap-2 text-[12px] text-fg-mute select-none cursor-pointer">
+        <input id="probe-stress" type="checkbox" class="accent-[var(--color-fg)]" />
+        include stress battery <span class="text-fg-faint">(integer flavor + random trees — heavy compiles, may hang on D3D11 / Windows)</span>
+      </label>
+    </div>
+
+    <!-- Results table — built on run from the selected test list; cells are updated
+         in place. Copy emits the same frozen text digest (for pasting back). -->
     <div id="probe-table" class="mt-8 max-w-full overflow-x-auto"></div>
   </div>
 
@@ -724,36 +742,49 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
   const GRID =
     'grid grid-cols-[minmax(64px,1fr)_88px_88px] sm:grid-cols-[minmax(84px,1fr)_140px_140px] gap-x-2 sm:gap-x-4 items-center'
 
-  ;(async () => {
+  ;(() => {
     try {
       const { values, tests } = JSON.parse(document.getElementById('probe-payload')!.textContent!) as { values: Record<string, number[]>; tests: T[] }
-      const total = tests.length
+      const allTests = tests
+      const runBtn = document.getElementById('probe-run') as HTMLButtonElement
+      const stressCb = document.getElementById('probe-stress') as HTMLInputElement
+      // "Stress" = the families whose fully-inlined bodies choke ANGLE-D3D11's FXC
+      // (multi-second link → TDR device-loss cascade): the integer-EFT flavor and
+      // the random expression trees. Excluded from the default run; opt in via the
+      // checkbox. This is THE change that stops the browser from wedging.
+      const isStress = (n: string) => /^int_/.test(n) || /^rand/.test(n)
 
-      // ── Skeleton: render EVERY test immediately (you see what is tested before
-      // anything runs), each backend cell a "pending" spinner. Built once; cells
-      // are then swapped in place — the table never re-renders wholesale. ──
-      const groups = FAMS
-        .map(([key, label]) => ({ label, items: tests.filter((t) => famOf(t.name) === key) }))
-        .filter((g) => g.items.length)
-      const colhead = `<div class="${GRID} pl-4 pr-4 border-l-2 border-transparent mb-3 text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em]">
-        <span>Test</span><span class="text-right">WebGL2</span><span class="text-right">WebGPU</span>
-      </div>`
-      tableEl.innerHTML = colhead + '<div class="space-y-8">' + groups.map((g) => `
-        <section>
-          <h2 class="font-display text-[20px] font-normal text-fg tracking-[-0.015em] mb-2">${g.label}</h2>
-          <div class="rounded-[8px] border border-line overflow-hidden divide-y divide-[var(--color-line)]">${g.items.map((t) => `<div data-row="${t.name}" class="${GRID} py-2.5 pl-4 pr-4 border-l-2 border-transparent hover:bg-bg-hover transition-colors">
-            <code class="font-mono text-[13px] text-fg leading-[1.5]">${t.name}<span data-differ="${t.name}"></span></code>
-            <div class="flex flex-wrap justify-end items-baseline gap-x-1 text-right" data-gl="${t.name}">${PENDING}</div>
-            <div class="flex flex-wrap justify-end items-baseline gap-x-1 text-right" data-gpu="${t.name}">${PENDING}</div>
-          </div>`).join('')}</div>
-        </section>`).join('') + '</div>'
-      const q = (sel: string) => tableEl.querySelector(sel) as HTMLElement
-
-      // ── Live state — also feeds the frozen text digest built at the end. ──
-      const glRes: Record<string, number | null> = {}, gpuRes: Record<string, number | null> = {}
-      const glVer: Record<string, string> = {}, gpuVer: Record<string, string> = {}
+      // ── Per-run state (reset at the top of every go()). Reassigned, not const,
+      // so a Re-run starts clean. report()/summaryLine() close over these bindings. ──
+      let runList: T[] = []
+      let total = 0
+      let glRes: Record<string, number | null> = {}, gpuRes: Record<string, number | null> = {}
+      let glVer: Record<string, string> = {}, gpuVer: Record<string, string> = {}
       let glPass = 0, gpuPass = 0, glDone = 0, gpuDone = 0
       let glAvail = true, gpuAvail = true, glGuard = false, gpuGuard = false, gpuNote = ''
+      let digestText = ''
+      const q = (sel: string) => tableEl.querySelector(sel) as HTMLElement
+
+      // ── Skeleton: render the SELECTED tests (built per run so the excluded
+      // stress rows don't sit as forever-spinners), each backend cell a "pending"
+      // spinner. Built once per run; cells are then swapped in place. ──
+      const buildSkeleton = () => {
+        const groups = FAMS
+          .map(([key, label]) => ({ label, items: runList.filter((t) => famOf(t.name) === key) }))
+          .filter((g) => g.items.length)
+        const colhead = `<div class="${GRID} pl-4 pr-4 border-l-2 border-transparent mb-3 text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em]">
+          <span>Test</span><span class="text-right">WebGL2</span><span class="text-right">WebGPU</span>
+        </div>`
+        tableEl.innerHTML = colhead + '<div class="space-y-8">' + groups.map((g) => `
+          <section>
+            <h2 class="font-display text-[20px] font-normal text-fg tracking-[-0.015em] mb-2">${g.label}</h2>
+            <div class="rounded-[8px] border border-line overflow-hidden divide-y divide-[var(--color-line)]">${g.items.map((t) => `<div data-row="${t.name}" class="${GRID} py-2.5 pl-4 pr-4 border-l-2 border-transparent hover:bg-bg-hover transition-colors">
+              <code class="font-mono text-[13px] text-fg leading-[1.5]">${t.name}<span data-differ="${t.name}"></span></code>
+              <div class="flex flex-wrap justify-end items-baseline gap-x-1 text-right" data-gl="${t.name}">${PENDING}</div>
+              <div class="flex flex-wrap justify-end items-baseline gap-x-1 text-right" data-gpu="${t.name}">${PENDING}</div>
+            </div>`).join('')}</div>
+          </section>`).join('') + '</div>'
+      }
 
       // Summary ticks the pass count up live; a trailing spinner + n/total marks a
       // backend still in progress, resolved to "all pass" / "N failed" when done.
@@ -784,7 +815,6 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
         if (isFail(vr)) markFail(name)
         showDiffer(name); renderSummary()
       }
-      renderSummary()
       const raf = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
 
       // ── Device signals → the df64 flavor THIS device needs. The signals are
@@ -803,7 +833,7 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
       const runWebGL = async () => {
         const canvas = document.createElement('canvas'); canvas.width = 8; canvas.height = 8
         const gl = canvas.getContext('webgl2')
-        if (!gl) { glAvail = false; for (const t of tests) report('gl', t.name, null, 'n/a'); return }
+        if (!gl) { glAvail = false; for (const t of runList) report('gl', t.name, null, 'n/a'); return }
         try {
           const ext = gl.getExtension('WEBGL_debug_renderer_info')
           sigRenderer = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER))
@@ -813,7 +843,7 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]))
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
         gl.activeTexture(gl.TEXTURE0); gl.bindVertexArray(gl.createVertexArray()); gl.viewport(0, 0, 8, 8)
-        for (const t of tests) {
+        for (const t of runList) {
           try {
             const c = (ty: number, src: string) => { const s = gl.createShader(ty)!; gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) || ''); return s }
             const p = gl.createProgram()!
@@ -834,10 +864,10 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
       // WebGPU (WGSL): same modules; each test awaits a real GPU readback, then reports.
       const runWebGPU = async () => {
         const g = (navigator as any).gpu
-        if (!g) { gpuAvail = false; gpuNote = 'WebGPU unavailable (no navigator.gpu)'; for (const t of tests) report('gpu', t.name, null, 'n/a'); return }
+        if (!g) { gpuAvail = false; gpuNote = 'WebGPU unavailable (no navigator.gpu)'; for (const t of runList) report('gpu', t.name, null, 'n/a'); return }
         let adapter: any
-        try { adapter = await g.requestAdapter() } catch { gpuAvail = false; gpuNote = 'requestAdapter threw'; for (const t of tests) report('gpu', t.name, null, 'n/a'); return }
-        if (!adapter) { gpuAvail = false; gpuNote = 'no adapter'; for (const t of tests) report('gpu', t.name, null, 'n/a'); return }
+        try { adapter = await g.requestAdapter() } catch { gpuAvail = false; gpuNote = 'requestAdapter threw'; for (const t of runList) report('gpu', t.name, null, 'n/a'); return }
+        if (!adapter) { gpuAvail = false; gpuNote = 'no adapter'; for (const t of runList) report('gpu', t.name, null, 'n/a'); return }
         const TU = (globalThis as any).GPUTextureUsage, BU = (globalThis as any).GPUBufferUsage, MM = (globalThis as any).GPUMapMode
         // Device (re)creation as a unit — a slow pipeline compile can TDR the
         // device (seen on ANGLE-D3D11 with the heavy integer-flavor bodies),
@@ -849,7 +879,7 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
           return { device, guardView: guardTex.createView() }
         }
         let ctx: { device: any; guardView: any }
-        try { ctx = await makeCtx() } catch { gpuAvail = false; gpuNote = 'requestDevice threw'; for (const t of tests) report('gpu', t.name, null, 'n/a'); return }
+        try { ctx = await makeCtx() } catch { gpuAvail = false; gpuNote = 'requestDevice threw'; for (const t of runList) report('gpu', t.name, null, 'n/a'); return }
         let recreates = 0
         const runOne = async (t: T) => {
           const { device, guardView } = ctx
@@ -857,7 +887,11 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
           const target = device.createTexture({ size: [8, 8], format: 'rgba8unorm', usage: TU.RENDER_ATTACHMENT | TU.COPY_SRC })
           const ab = pack(t.reflection.uniforms[0], values)
           const ubuf = device.createBuffer({ size: ab.byteLength, usage: BU.UNIFORM | BU.COPY_DST }); device.queue.writeBuffer(ubuf, 0, ab)
-          const pipeline = device.createRenderPipeline({ layout: 'auto', vertex: { module: mod, entryPoint: t.vertexEntry }, fragment: { module: mod, entryPoint: t.fragmentEntry, targets: [{ format: 'rgba8unorm' }] }, primitive: { topology: 'triangle-list' } })
+          // Async compile: createRenderPipeline (sync) BLOCKS the JS thread for the
+          // whole shader compile — on ANGLE-D3D11 a heavy df64 body is a multi-second
+          // FXC link, which froze the tab. createRenderPipelineAsync hands the compile
+          // to the driver off-thread and yields, so the UI stays responsive.
+          const pipeline = await device.createRenderPipelineAsync({ layout: 'auto', vertex: { module: mod, entryPoint: t.vertexEntry }, fragment: { module: mod, entryPoint: t.fragmentEntry, targets: [{ format: 'rgba8unorm' }] }, primitive: { topology: 'triangle-list' } })
           const entries: any[] = [{ binding: 0, resource: { buffer: ubuf } }]
           if (t.guardBinding != null) { entries.push({ binding: t.guardBinding, resource: guardView }); gpuGuard = true }
           const bg = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries })
@@ -872,7 +906,7 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
           rb.unmap()
           const v = decode(arr[o], arr[o + 1], arr[o + 2]); report('gpu', t.name, v, verdict(v, t.golden, t.circular))
         }
-        for (const t of tests) {
+        for (const t of runList) {
           try { await runOne(t) }
           catch {
             // likely device loss — rebuild the device once and retry THIS test,
@@ -883,47 +917,74 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
               catch { report('gpu', t.name, null, 'ERR') }
             } else { report('gpu', t.name, null, 'ERR') }
           }
+          await raf() // yield to the compositor between tests so the tab stays live
         }
         const info = adapter.info || {}
         gpuNote = `adapter ${info.vendor || ''} ${info.architecture || ''}`.trim() + (recreates ? ` · ${recreates} device recreations` : '')
         sigAdapterInfo = info
       }
 
-      // Both backends fill their own column concurrently.
-      await Promise.all([runWebGL(), runWebGPU()])
-      renderSummary()
+      // ── Gated run: nothing touches the GPU until the user clicks. Compiling
+      // ~160 df64 shader programs across two backends synchronously on load wedged
+      // the GPU process (ANGLE-D3D11 FXC multi-second link → TDR cascade → frozen
+      // browser). The run now (1) fires only on click, (2) excludes the stress
+      // families by default, (3) SERIALIZES the backends so the two GPU stacks
+      // don't contend, and (4) compiles pipelines async + yields per test. ──
+      const go = async () => {
+        if (runBtn.disabled) return
+        runBtn.disabled = true; stressCb.disabled = true
+        runBtn.textContent = 'Running…'
+        copyBtn.classList.add('opacity-40', 'pointer-events-none')
+        try {
+          runList = stressCb.checked ? allTests : allTests.filter((t) => !isStress(t.name))
+          total = runList.length
+          // reset per-run state
+          glRes = {}; gpuRes = {}; glVer = {}; gpuVer = {}
+          glPass = 0; gpuPass = 0; glDone = 0; gpuDone = 0
+          glAvail = true; gpuAvail = true; glGuard = false; gpuGuard = false; gpuNote = ''
+          autoFlavorLine = ''; sigRenderer = null; sigAdapterInfo = null
+          buildSkeleton()
+          renderSummary()
 
-      // Flavor verdict from the runners' own signals (see the note above).
-      try {
-        const flavor = recommendFp64Flavor({
-          adapterInfo: sigAdapterInfo,
-          rendererString: sigRenderer,
-          userAgent: navigator.userAgent,
-        })
-        autoFlavorLine = `auto df64 flavor: ${flavor}${sigRenderer ? ` · ${sigRenderer}` : ''}`
-        const fl = document.createElement('p')
-        fl.className = 'mt-3 text-[12px] font-mono text-fg-mute'
-        fl.textContent = autoFlavorLine
-        summary.insertAdjacentElement('afterend', fl)
-      } catch { /* diagnostics only — never block the digest */ }
+          // Serialize: WebGL first (cheap), then WebGPU — running them concurrently
+          // made a WebGL readPixels stall and a WebGPU pipeline compile fight for the
+          // same GPU, compounding the freeze.
+          await runWebGL()
+          await runWebGPU()
+          renderSummary()
 
-      // ── Frozen text digest (format unchanged — the dev's parser reads it),
-      // built in-memory now that the on-page dump is gone; Copy emits this. ──
-      const rows = tests.map((t) => {
-        const gv = glRes[t.name] ?? null, pv = gpuRes[t.name] ?? null
-        const gs = gv == null ? '  ERR ' : gv.toFixed(4)
-        const ps = !gpuAvail ? '   —  ' : pv == null ? '  ERR ' : pv.toFixed(4)
-        return `${t.name.padEnd(9)} gold=${t.golden.toFixed(4)}  WebGL2 ${gs} ${(glVer[t.name] ?? 'ERR').padEnd(8)} | WebGPU ${ps} ${gpuAvail ? (gpuVer[t.name] ?? 'ERR') : 'n/a'}`
-      })
-      const digestText =
-        `df64 GPU probe\n` +
-        `  WebGL2: ${glPass}/${total} pass · guard=${glGuard ? 'bound' : 'MISSING'}\n` +
-        `  WebGPU: ${gpuAvail ? `${gpuPass}/${total} pass · guard=${gpuGuard ? 'bound' : 'MISSING'} · ${gpuNote}` : gpuNote}\n` +
-        `  UA: ${navigator.userAgent}\n` +
-        (autoFlavorLine ? `  ${autoFlavorLine}\n\n` : '\n') +
-        rows.join('\n')
+          // Flavor verdict from the runners' own signals (see the note above).
+          try {
+            const flavor = recommendFp64Flavor({ adapterInfo: sigAdapterInfo, rendererString: sigRenderer, userAgent: navigator.userAgent })
+            autoFlavorLine = `auto df64 flavor: ${flavor}${sigRenderer ? ` · ${sigRenderer}` : ''}`
+            let fl = document.getElementById('probe-flavor')
+            if (!fl) { fl = document.createElement('p'); fl.id = 'probe-flavor'; fl.className = 'mt-3 text-[12px] font-mono text-fg-mute'; summary.insertAdjacentElement('afterend', fl) }
+            fl.textContent = autoFlavorLine
+          } catch { /* diagnostics only — never block the digest */ }
 
-      copyBtn.classList.remove('opacity-40', 'pointer-events-none')
+          // ── Frozen text digest (format unchanged — the dev's parser reads it). ──
+          const rows = runList.map((t) => {
+            const gv = glRes[t.name] ?? null, pv = gpuRes[t.name] ?? null
+            const gs = gv == null ? '  ERR ' : gv.toFixed(4)
+            const ps = !gpuAvail ? '   —  ' : pv == null ? '  ERR ' : pv.toFixed(4)
+            return `${t.name.padEnd(9)} gold=${t.golden.toFixed(4)}  WebGL2 ${gs} ${(glVer[t.name] ?? 'ERR').padEnd(8)} | WebGPU ${ps} ${gpuAvail ? (gpuVer[t.name] ?? 'ERR') : 'n/a'}`
+          })
+          digestText =
+            `df64 GPU probe\n` +
+            `  WebGL2: ${glPass}/${total} pass · guard=${glGuard ? 'bound' : 'MISSING'}\n` +
+            `  WebGPU: ${gpuAvail ? `${gpuPass}/${total} pass · guard=${gpuGuard ? 'bound' : 'MISSING'} · ${gpuNote}` : gpuNote}\n` +
+            `  UA: ${navigator.userAgent}\n` +
+            (autoFlavorLine ? `  ${autoFlavorLine}\n\n` : '\n') +
+            rows.join('\n')
+          copyBtn.classList.remove('opacity-40', 'pointer-events-none')
+        } finally {
+          runBtn.disabled = false; stressCb.disabled = false
+          runBtn.textContent = 'Re-run probe'
+        }
+      }
+
+      // Copy is wired ONCE (go() only refreshes digestText) so a Re-run never stacks
+      // duplicate click handlers.
       copyBtn.addEventListener('click', async () => {
         try {
           await navigator.clipboard.writeText(digestText)
@@ -935,6 +996,15 @@ const payload = { values, tests: [...tests, ...randomTests, ...intTests] }
           setTimeout(() => { l.textContent = o; copyBtn.classList.remove('text-accent') }, 1400)
         } catch { /* clipboard denied (insecure context) — fail silently */ }
       })
+
+      runBtn.addEventListener('click', () => {
+        go().catch((e) => {
+          runBtn.disabled = false; stressCb.disabled = false; runBtn.textContent = 'Re-run probe'
+          summary.innerHTML = `<p class="text-[13px] text-destructive font-mono">ERROR: ${e instanceof Error ? e.message : String(e)}</p>`
+        })
+      })
+      // Initial paint: zero GPU work — just the intro prompt.
+      tableEl.innerHTML = '<p class="text-[13px] leading-[1.6] text-fg-mute font-mono">Nothing runs on load. Press “Run probe” to compile and execute the df64 battery on this device.</p>'
     } catch (e) {
       const msg = 'ERROR: ' + (e instanceof Error ? e.message : String(e))
       summary.innerHTML = `<p class="text-[13px] text-destructive font-mono">${msg}</p>`
