@@ -56,8 +56,13 @@ const BASELINE: Record<string, number> = {
   'map/src/camera/camera.ts': 6,
   'map/src/camera/unproject.ts': 4,
   'map/src/controller.ts': 6,
-  'map/src/render/heatmap-renderer.ts': 1,
-  'map/src/render/point-renderer.ts': 1,
+  // #1006: point-renderer + heatmap-renderer each held an identical `projType === 0`
+  // camera-anchor split inline; both were deduped into cameraAnchorDsfun() (single
+  // authority), so the two entries collapse to ONE here (net 2 → 1 comparisons).
+  // The `=== 0` is Mercator-SPECIFIC (only projType 0 uses the 2D centre; flat 1/2
+  // use ECEF), and isFlat/isCylindrical are broader (true for 0/1/2), so there is no
+  // membership accessor that preserves this exactly — genuinely still-blocked.
+  'map/src/render/camera-anchor-dsfun.ts': 1,
   'map/src/render/prefetch-scheduler.ts': 1,
   'map/src/render/raster-renderer.ts': 2,
 }

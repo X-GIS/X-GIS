@@ -78,7 +78,7 @@ const CEILINGS: Record<string, number> = {
   'map/src/shaders/dsl/polygon.ts': 1315,
   'data/src/tile-catalog.ts': 1290,
   'map/src/render-loop.ts': 1173,
-  'map/src/render/point-renderer.ts': 1157,
+  'map/src/render/point-renderer.ts': 1140,
   'rhi-webgl2/src/rhi-webgl2.ts': 1106,
   'map/src/render/renderer.ts': 965,
   'map/src/render/gpu-tile-store.ts': 941,

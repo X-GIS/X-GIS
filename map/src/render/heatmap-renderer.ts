@@ -31,6 +31,7 @@ import { HeatmapDraper } from './material/heatmap-material'
 import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
 import { heatmapAccumU as HEATMAP_U } from '../shaders/dsl/heatmap-accum'
 import { globeEyeUniform } from './globe-eye-uniform'
+import { cameraAnchorDsfun } from './camera-anchor-dsfun'
 
 // Typed pack target for the heatmap-accum 'Uniforms' struct (#733 P2): layout from
 // wgslLayout(U.struct) — handle-only, module-free — and write() typed by the same
@@ -121,32 +122,17 @@ export function writeHeatmapFrameUniform(
   // (#739). Above z* effectiveMpp === rawMpp exactly (byte-identical); globe/ECEF
   // returns raw unchanged (its cos-lat cap is a separate concern, #964 Part 2).
   const metersPerPixel = camera.effectiveMpp(projType, canvasHeight, dpr)
-  let cHx: number, cHy: number, cHz: number, cLx: number, cLy: number, cLz: number
-  if (projType === 0) {
-    const cmx = camera.centerX,
-      cmy = camera.centerY
-    cHx = Math.fround(cmx)
-    cHy = Math.fround(cmy)
-    cHz = 0
-    cLx = cmx - cHx
-    cLy = cmy - cHy
-    cLz = 0
-  } else {
-    const camC = camera.getECEFCenter()
-    cHx = Math.fround(camC[0])
-    cHy = Math.fround(camC[1])
-    cHz = Math.fround(camC[2])
-    cLx = camC[0] - cHx
-    cLy = camC[1] - cHy
-    cLz = camC[2] - cHz
-  }
+  // Camera anchor split DSFUN into hi/lo lanes (shared with the point frame
+  // uniform, #1006). Flat Mercator (projType 0) anchors on the 2D Mercator centre
+  // in .xy (z = 0); globe/3D on getECEFCenter.
+  const { hi: camH, lo: camL } = cameraAnchorDsfun(camera, projType)
   const ge = globeEyeUniform(frame.eye)
   block.write({
     mvp: frame.matrix,
     proj_params: [projType, projCenterLon, projCenterLat, 0],
     viewport: [canvasWidth, canvasHeight, metersPerPixel, 0],
-    cam_ecef_h: [cHx, cHy, cHz, 0],
-    cam_ecef_l: [cLx, cLy, cLz, 0],
+    cam_ecef_h: [camH[0], camH[1], camH[2], 0],
+    cam_ecef_l: [camL[0], camL[1], camL[2], 0],
     globe_eye: [ge[0], ge[1], ge[2], ge[3]],
   })
 }
