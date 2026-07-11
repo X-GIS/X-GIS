@@ -93,14 +93,15 @@ export class RetainedIconDraper {
   /** Draw one batch across its visible world copies. `perCopyUniformBytes` holds
    *  one frame-uniform snapshot per copy (each with its own world_offset baked in
    *  circle_params.x); `count` is the instance count (icons in the batch). One
-   *  instanced draw(6, count) per copy. */
+   *  instanced draw(6, count) per copy. Returns the draw calls issued (= copies,
+   *  NOT the instance count) — the N-independence invariant the #797 gate pins. */
   draw(
     pass: RhiRenderPass,
     batchBindGroup: RhiBindGroup,
     perCopyUniformBytes: ReadonlyArray<BufferSource>,
     count: number,
-  ): void {
-    if (count === 0 || perCopyUniformBytes.length === 0) return
+  ): number {
+    if (count === 0 || perCopyUniformBytes.length === 0) return 0
     const items: DrawItem[] = perCopyUniformBytes.map((bytes) => ({
       variant: 0,
       // group 0 (null) is filled from the pool via poolBytes; group 1 is the
@@ -111,6 +112,6 @@ export class RetainedIconDraper {
       indexed: false,
       instanceCount: count,
     }))
-    executeItems(this.material, pass, items)
+    return executeItems(this.material, pass, items)
   }
 }

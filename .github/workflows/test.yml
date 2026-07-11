@@ -559,6 +559,9 @@ jobs:
         # their emitGlslModule twins. _graphics-retained-arrow-orientation-gate pins #825's geo-
         # correct bearing on a NON-square viewport — the square/east raster gates cannot see the
         # aspect skew (a pure-horizontal direction is aspect-invariant).
+        # _graphics-retained-drawcall-gl2-gate: the #797 P1 draw-call N-independence invariant —
+        # 10k and 100k icons issue the IDENTICAL O(COPIES) draw-call count (a per-item path would
+        # be N); deterministic + backend-agnostic, so it gates under headless SwiftShader.
         # _compute-gen-compile-gate: the compiler's per-feature compute kernels
         # (interpolate / match / case) are emitted from neutral IR to WGSL here and
         # each compiles on a real device — the compute-gen path was never compile-gated (#625).
@@ -570,4 +573,4 @@ jobs:
         # _globe-hash-camera-gate: a globe hash camera must render from the requested
         # latitude — asserts camera.centerLatDeg == hash lat (the #799/#800/#803 desync,
         # a non-raster invariant) + #803 land coverage under ?forcegl2=1 (blank→covered).
-        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-mouse-interaction.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _globe-hash-camera-gate.spec.ts
+        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-mouse-interaction.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _globe-hash-camera-gate.spec.ts

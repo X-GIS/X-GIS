@@ -86,6 +86,13 @@ export class GraphicsManager {
   // color path re-uploads only the tint attribute. Cheap integer increments.
   private _featWrites = 0
   private _tintWrites = 0
+  /** Draw calls issued by the LAST renderRetained frame (reset every frame). The
+   *  retained path issues exactly ONE instanced draw per world copy per drawable
+   *  batch, so this is O(COPIES × batches) and NEVER grows with icon count — the
+   *  EXACT (zero-slack) N-independence invariant (10k and 100k icons issue the
+   *  identical draw-call count at a fixed view). A per-item fallback would make
+   *  this = N. Summed from the drapers' real `pass.draw` count (executeItems). */
+  private _lastFrameDrawCalls = 0
   /** Per-frame renderRetained CPU-time samples (ms), collected only when timing is
    *  enabled — for the N-independence gate (flat 10k vs 100k). Null = off. */
   private _timeSamples: number[] | null = null
@@ -97,6 +104,13 @@ export class GraphicsManager {
   /** GPU-upload counters — see the diagnostics note. */
   getWriteCounts(): { featWrites: number; tintWrites: number } {
     return { featWrites: this._featWrites, tintWrites: this._tintWrites }
+  }
+
+  /** Draw calls issued by the last renderRetained frame — see the field note.
+   *  The #797 P1 draw-call N-independence gate reads this at a fixed view for
+   *  10k vs 100k icons and asserts they are identical (and O(COPIES), not O(N)). */
+  getLastFrameDrawCalls(): number {
+    return this._lastFrameDrawCalls
   }
 
   /** Enable/reset (or disable) per-frame renderRetained CPU timing. */
@@ -273,6 +287,10 @@ export class GraphicsManager {
     canvasHeight: number,
     dpr: number,
   ): void {
+    // Reset the per-frame draw-call count FIRST (before any early return), so a
+    // frame with nothing drawable honestly reports 0 and the gate reads the most
+    // recent frame's true count.
+    this._lastFrameDrawCalls = 0
     // Drain buffers retired by a prior frame's remove()/rematerialise (their
     // submit has returned; safe to destroy now).
     if (this._retired.length > 0) {
@@ -324,7 +342,9 @@ export class GraphicsManager {
     // reuse must be revisited (write the pool once, rebind per batch).
     for (const b of drawable) {
       const draper = b.spec.type === 'arrow' ? this.arrowDraper : this.draper
-      draper?.draw(pass, b.bindGroup!, perCopy, b.count)
+      // Sum the drapers' REAL draw-call count (one instanced draw per world copy).
+      // This is O(COPIES × batches), never O(N) — the draw-call N-independence gate.
+      this._lastFrameDrawCalls += draper?.draw(pass, b.bindGroup!, perCopy, b.count) ?? 0
     }
 
     if (this._timeSamples !== null) this._timeSamples.push(performance.now() - t0)
