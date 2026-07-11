@@ -10,6 +10,8 @@ import type {
   RhiPipelineHandle,
   RhiRenderPass,
   RhiSampler,
+  RhiTexture,
+  RhiTextureFormat,
   RhiTextureView,
 } from '@xgis/engine'
 import type { GPUContext, WebGpuDevice } from '@xgis/rhi-webgpu'
@@ -28,6 +30,7 @@ import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile
 import {
   recordFillDraw,
   buildFlatFillMaterials,
+  buildBakeFillMaterial,
   type FillRhiState,
 } from './material/polygon-fill-material'
 import { executeItems, type Material } from './material/material'
@@ -697,6 +700,176 @@ export class VectorTileRenderer {
     ])
     this._fillTileBgRhi = { buf, bg }
     return bg
+  }
+
+  private _fillBakeMatRhi: Material | null = null
+  /** Colour-only flat-fill Material for the offscreen tile bake (#599 I1). Built
+   *  once through the SAME RHI device as the screen fill (WebGpuDevice on a GPU
+   *  box → a real WebGPU pipeline). See buildBakeFillMaterial for why it drops the
+   *  screen fill's depth-stencil variants. */
+  private ensureFillBakeMaterialRhi(): Material {
+    if (this._fillBakeMatRhi) return this._fillBakeMatRhi
+    this._fillBakeMatRhi = buildBakeFillMaterial({
+      rhi: this.rhi,
+      shader: emitPolygonWgsl(null, false),
+      vsCode: emitPolygonGlsl(null, false, 'vertex'),
+      fsCode: emitPolygonGlsl(null, false, 'fragment'),
+      format: this.format,
+      sampleCount: 1,
+      rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
+      vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT),
+      pickEnabled: false,
+    })
+    return this._fillBakeMatRhi
+  }
+
+  /** Bake ONE resident vector tile's fills into an offscreen colour texture in
+   *  tile-local ortho (#599 I1 — globe vector drape approach B, bake→texture→
+   *  drape). The tile's quantized fill vertices carry tile-local Mercator coords
+   *  (`local_merc` ∈ [0, tile_extent_m]²); with `cam_h = cam_l = 0` the flat VS
+   *  arm passes them straight through, and an ortho `mvp` maps that square onto the
+   *  RT's NDC (north-up). Returns the baked `RhiTexture` (usage render|sample|
+   *  copy-src — the drape samples it, and an I1 verification pass reads it back),
+   *  or null when the tile is not resident / empty / extruded, or the backend is
+   *  WebGL2 (the offscreen encoder is WebGPU-only; the WebGL2 drape is a later
+   *  slice). `fill` is straight-alpha RGBA 0..1. The caller owns the returned
+   *  texture's lifetime (`rhi.destroyTexture`). */
+  bakeTileToTexture(
+    sliceLayer: string,
+    key: number,
+    fill: readonly [number, number, number, number],
+    sizePx: number,
+  ): RhiTexture | null {
+    const enc = this.rhi.createCommandEncoder?.('vtr-bake')
+    if (!enc) return null // WebGL2 fail-closed (no offscreen encoder) — later slice
+    const cached = this.getOrCreateLayerCache(sliceLayer).get(key)
+    if (!cached || cached.indexCount === 0 || cached.extruded) return null
+
+    this.ensureUniformRing()
+    const mat = this.ensureFillBakeMaterialRhi()
+
+    // tile-local ortho: [0, E]² → NDC, north-up, z ≡ 0 (colour-only, no depth).
+    // Column-major; the zero z-row neutralizes the VS's zPlane (0 for a flat fill
+    // anyway), so clip.z = 0 for every vertex regardless of tile-buffer overspill.
+    const E = TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom)
+    const mvp = new Float32Array(16)
+    mvp[0] = 2 / E
+    mvp[5] = 2 / E
+    mvp[12] = -1
+    mvp[13] = -1
+    mvp[15] = 1
+
+    const DEG2RAD = Math.PI / 180
+    const R = activeBody().sphereR
+    const MERC_LIMIT = 85.051129
+    const clampLat = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
+    const tileMercX = cached.tileWest * DEG2RAD * R
+    const tileMercY =
+      Math.log(Math.tan(Math.PI / 4 + (clampLat(cached.tileSouth) * DEG2RAD) / 2)) * R
+
+    // Full write set (mirrors renderFillsRhi so no stale uniform bytes survive),
+    // with the bake overrides: flat-Mercator arm (proj 0), camera at the tile
+    // origin (cam 0 → rel = local_merc), ortho mvp. tile_origin_merc / tile_extent_m
+    // are inert in the flat localMerc arm but written for parity.
+    const B = this.frameBlock
+    B.set.mvp(mvp)
+    B.set.fill_color(fill[0], fill[1], fill[2], fill[3])
+    B.set.proj_params(0, 0, 0, 0)
+    B.set.globe_eye(0, 0, 0, 1)
+    B.set.cam_h(0, 0)
+    B.set.cam_l(0, 0)
+    B.set.cam_ecef_off_h(0, 0, 0, 1)
+    B.set.cam_ecef_off_l(0, 0, 0, 1)
+    B.set.tile_origin_merc(Math.fround(tileMercX), Math.fround(tileMercY))
+    B.set.opacity(1)
+    B.set.log_depth_fc(1)
+    B.set.pick_id(0)
+    B.set.layer_depth_offset(0)
+    B.set.tile_extent_m(E)
+    B.set.extrude_height_m(0)
+    B.set.extrude_base_m(0)
+    B.set.clip_bounds(-1e30, 0, 0, 0)
+    B.set.zoom(cached.tileZoom)
+    B.set.fill_translate_x(0)
+    B.set.fill_translate_y(0)
+    B.set.tile_dequant_scale(cached.dequantScale)
+    B.set.tile_dequant_half(cached.dequantHalf)
+
+    const slotOffset = this.allocUniformSlot()
+    this.stageUniformSlot(slotOffset, this.frameBlock.buffer)
+    this.flushUniformStaging()
+
+    // Bind group AFTER allocUniformSlot — a ring grow swaps rhiBuffer (renderFillsRhi
+    // fetches its tile bind group post-alloc for the same reason).
+    const buf = this.uniformRing?.rhiBuffer
+    if (!buf) return null
+    const bakeBg = this.rhi.createBindGroup(mat.layout(0), [
+      { binding: 0, resource: { buffer: buf, offset: 0, size: polygonUniformBytes() } },
+    ])
+
+    const tex = this.rhi.createTexture({
+      width: sizePx,
+      height: sizePx,
+      // The bake RT must match the bake material's colour-target format (both
+      // `this.format`). GPUTextureFormat is the wider union; the live canvas format
+      // is always a valid RhiTextureFormat (bgra8unorm / rgba8unorm).
+      format: this.format as RhiTextureFormat,
+      usage: ['render', 'sample', 'copy-src'],
+      label: `vtr-bake-${sliceLayer}-${key}`,
+    })
+    // fs_fill writes @builtin(frag_depth) (log-depth), so its pipeline carries an
+    // (inert) depth-stencil state — WebGPU then REQUIRES the pass to present a
+    // matching depth-stencil attachment. Transient: destroyed right after submit
+    // (depth is 'always'/no-write, never read).
+    const depthTex = this.rhi.createTexture({
+      width: sizePx,
+      height: sizePx,
+      format: 'depth24plus-stencil8',
+      usage: ['render'],
+      label: 'vtr-bake-depth',
+    })
+    const pass = enc.beginRenderPass({
+      colorAttachments: [
+        {
+          view: this.rhi.createView(tex),
+          loadOp: 'clear',
+          storeOp: 'store',
+          clearValue: [0, 0, 0, 0],
+        },
+      ],
+      depthStencilAttachment: {
+        view: this.rhi.createView(depthTex),
+        depthLoadOp: 'clear',
+        depthClearValue: 1,
+        depthStoreOp: 'discard',
+        stencilLoadOp: 'clear',
+        stencilClearValue: 0,
+        stencilStoreOp: 'discard',
+      },
+      label: 'vtr-bake-pass',
+    })
+    executeItems(mat, pass, [
+      {
+        variant: 0,
+        bindGroups: [bakeBg],
+        dynamicOffsets: [[slotOffset]],
+        vertex: cached.vertexBuffer,
+        vertexOffset: cached.polyVertexOffset,
+        vertexSize: cached.polyVertexByteLength,
+        index: {
+          buffer: cached.indexBuffer,
+          format: 'uint32',
+          offset: cached.polyIndexOffset,
+          size: cached.polyIndexByteLength,
+        },
+        count: cached.indexCount,
+        indexed: true,
+      },
+    ])
+    pass.end()
+    enc.finish()
+    this.rhi.destroyTexture(depthTex)
+    return tex
   }
 
   /** Fills-only render for the forced-WebGL2 frame (#832 M2). Caller runs
