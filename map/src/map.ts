@@ -3171,6 +3171,46 @@ export class XGISMap {
           })
         }
 
+        // #732 S5 — per-feature FILL / STROKE colour (data-driven point
+        // paint), the colour-axis mirror of perFeatureSizes above. The
+        // compiler emits show.fillColorExpr / show.strokeColorExpr when a
+        // point layer's fill/stroke is a match/interpolate over a feature
+        // property. Evaluate the AST per feature (reserved keys injected,
+        // throw-isolated like applyFilter), parse the resolved hex → rgba,
+        // and fall back to the layer constant so an unmatched feature paints
+        // the default arm. null (no expr) keeps the constant path unchanged.
+        const evalPerFeatureColor = (
+          expr: { ast?: unknown } | null | undefined,
+          fallback: [number, number, number, number] | null,
+        ): ([number, number, number, number] | null)[] | null => {
+          if (!expr?.ast) return null
+          const ast = expr.ast as import('@xgis/compiler').Expr
+          const cameraZoom = this.camera.zoom
+          const cameraPitch = this.camera.pitch
+          return filtered.features.map((f) => {
+            const bag = makeEvalProps({
+              props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
+              geometryType: f.geometry?.type,
+              featureId: (f as { id?: string | number }).id,
+              cameraZoom,
+              cameraPitch,
+            })
+            let r: unknown
+            try {
+              r = evaluate(ast, bag)
+            } catch {
+              return fallback
+            }
+            if (typeof r === 'string') {
+              const c = parseHexColor(r)
+              return c ? [c[0], c[1], c[2], c[3]] : fallback
+            }
+            return fallback
+          })
+        }
+        const perFeatureFills = evalPerFeatureColor(show.fillColorExpr, fill)
+        const perFeatureStrokes = evalPerFeatureColor(show.strokeColorExpr, stroke)
+
         // Resolve shape name to GPU shape_id
         const shapeId = show.shape ? (this.shapeRegistry?.getShapeId(show.shape) ?? 0) : 0
 
@@ -3200,6 +3240,10 @@ export class XGISMap {
           // circle-pitch-scale:map — perspective radius foreshortening.
           // Default (viewport / false) is byte-identical to today.
           show.circlePitchScaleMap ?? false,
+          // #732 S5 — resolved per-feature fill/stroke colours (null when
+          // the layer paints a constant colour → constant path unchanged).
+          perFeatureFills,
+          perFeatureStrokes,
         )
         continue
       }

@@ -714,6 +714,8 @@ export class PointRenderer {
     circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null,
     circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null,
     circlePitchScaleMap?: boolean,
+    perFeatureFills?: ([number, number, number, number] | null)[] | null,
+    perFeatureStrokes?: ([number, number, number, number] | null)[] | null,
   ): void {
     const points: { lon: number; lat: number }[] = []
 
@@ -770,8 +772,10 @@ export class PointRenderer {
     const STRIDE = POINT_FEAT.stride
     const featData = new Float32Array(points.length * STRIDE)
     let flags = 0
-    if (fill) flags |= 1
-    if (stroke) flags |= 2
+    // #732 S5 — a pure data-driven fill/stroke (no layer constant) still needs
+    // its render bit so the per-feature colours are drawn.
+    if (fill || perFeatureFills) flags |= 1
+    if (stroke || perFeatureStrokes) flags |= 2
     // Size mode in upper 4 bits: 0=px, 1=m, 2=km, 3=deg
     const unitMap: Record<string, number> = { m: 1, km: 2, deg: 3, nm: 4 }
     const sizeMode = sizeUnit ? (unitMap[sizeUnit] ?? 0) : 0
@@ -784,16 +788,21 @@ export class PointRenderer {
     for (let i = 0; i < points.length; i++) {
       const off = i * STRIDE
       featData[off + F.radius_px] = perFeatureSizes ? perFeatureSizes[i] : radiusPx
+      // #732 S5 — per-feature fill/stroke colour (data-driven point paint):
+      // prefer the resolved per-feature colour, else the layer constant
+      // (an unmatched feature falls back exactly like a match() default arm).
+      const fc = (perFeatureFills ? perFeatureFills[i] : null) ?? fill
       // fill rgba (RGB not premultiplied — alpha blending handles it)
-      featData[off + F.fill_r] = fill ? fill[0] : 0
-      featData[off + F.fill_g] = fill ? fill[1] : 0
-      featData[off + F.fill_b] = fill ? fill[2] : 0
-      featData[off + F.fill_a] = fill ? fill[3] * opacity : 0
+      featData[off + F.fill_r] = fc ? fc[0] : 0
+      featData[off + F.fill_g] = fc ? fc[1] : 0
+      featData[off + F.fill_b] = fc ? fc[2] : 0
+      featData[off + F.fill_a] = fc ? fc[3] * opacity : 0
       // stroke rgba
-      featData[off + F.stroke_r] = stroke ? stroke[0] : 0
-      featData[off + F.stroke_g] = stroke ? stroke[1] : 0
-      featData[off + F.stroke_b] = stroke ? stroke[2] : 0
-      featData[off + F.stroke_a] = stroke ? stroke[3] * opacity : 0
+      const sc = (perFeatureStrokes ? perFeatureStrokes[i] : null) ?? stroke
+      featData[off + F.stroke_r] = sc ? sc[0] : 0
+      featData[off + F.stroke_g] = sc ? sc[1] : 0
+      featData[off + F.stroke_b] = sc ? sc[2] : 0
+      featData[off + F.stroke_a] = sc ? sc[3] * opacity : 0
       // stroke width in UV space
       featData[off + F.stroke_width_px] = strokeWidth // raw px, shader converts to UV
       featData[off + F.flags_packed] = flags
