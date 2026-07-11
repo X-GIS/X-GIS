@@ -79,12 +79,23 @@ export function hexToRgba(hex: string | null | undefined): [number, number, numb
 
 /** Pick a representative anchor point [lon, lat] for a GeoJSON
  *  geometry — used by label placement when a Show command picks the
- *  feature centroid as the symbol position. Polygon / MultiPolygon
- *  use the bbox centre of the FIRST outer ring; Point / MultiPoint
- *  use the first coordinate; LineString / MultiLineString fall through
- *  to ringBboxCentre on the coordinate list. Returns null on empty /
- *  unsupported shapes so the caller can fall back to a different
- *  strategy (e.g. tile-centre when no per-feature anchor is available). */
+ *  feature centroid as the symbol position. Point / MultiPoint use the
+ *  first coordinate; LineString / MultiLineString fall through to
+ *  ringBboxCentre on the coordinate list.
+ *
+ *  Polygon / MultiPolygon return a point GUARANTEED to lie inside the
+ *  filled area (ST_PointOnSurface-style), not the bbox centre: the bbox
+ *  centre of a concave ring (a "C"/"U" country, or a centre that lands
+ *  in a hole) can fall OUTSIDE the polygon, dropping the label into the
+ *  ocean. To stay byte-identical on the common convex case, the bbox
+ *  centre is kept whenever it is already inside; only when it is outside
+ *  (concave / hole) does a horizontal-scanline interior point replace it.
+ *  MultiPolygon anchors on the LARGEST-area part (the visually dominant
+ *  landmass), not the first-listed part — labelling a country on its
+ *  mainland rather than on whichever outlying island happens to be first.
+ *  Returns null on empty / unsupported shapes so the caller can fall back
+ *  to a different strategy (e.g. tile-centre when no per-feature anchor
+ *  is available). */
 export function featureAnchor(
   geom: import('@xgis/data').GeoJSONGeometry | { type: string; coordinates: unknown },
 ): [number, number] | null {
@@ -119,7 +130,7 @@ export function featureAnchor(
     return ringBboxCentre(c[0] as [number, number][])
   }
   if (geom.type === 'Polygon' && Array.isArray(c) && c.length > 0) {
-    return ringBboxCentre(c[0] as [number, number][])
+    return polygonAnchor(c as [number, number][][])
   }
   if (
     geom.type === 'MultiPolygon' &&
@@ -128,9 +139,131 @@ export function featureAnchor(
     Array.isArray(c[0]) &&
     (c[0] as unknown[]).length > 0
   ) {
-    return ringBboxCentre(c[0][0] as [number, number][])
+    // Anchor on the LARGEST part, not the first. A MultiPolygon's parts
+    // are listed in source order; the first can be a tiny outlying island
+    // (Alaska before the US mainland), so `c[0][0]` silently labelled the
+    // wrong landmass. Compare |shoelace area| of each part's outer ring.
+    let best: [number, number][][] | null = null
+    let bestArea = -Infinity
+    for (const part of c as [number, number][][][]) {
+      const outer = part?.[0]
+      if (!Array.isArray(outer) || outer.length < 3) continue
+      const area = Math.abs(ringSignedArea(outer))
+      if (area > bestArea) {
+        bestArea = area
+        best = part
+      }
+    }
+    return best ? polygonAnchor(best) : null
   }
   return null
+}
+
+/** Shoelace signed area of a ring in lon/lat space. Sign encodes winding;
+ *  callers use |area| to rank part sizes. Skips malformed vertices. */
+function ringSignedArea(ring: [number, number][]): number {
+  let a = 0
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i]?.[0],
+      yi = ring[i]?.[1]
+    const xj = ring[j]?.[0],
+      yj = ring[j]?.[1]
+    if (
+      typeof xi !== 'number' ||
+      typeof yi !== 'number' ||
+      typeof xj !== 'number' ||
+      typeof yj !== 'number'
+    )
+      continue
+    a += xj * yi - xi * yj
+  }
+  return a / 2
+}
+
+/** Even-odd point-in-polygon over ALL rings of one polygon (outer + holes):
+ *  a crossing of any ring boundary toggles inside, so a point in a hole
+ *  reads as OUTSIDE the filled area. */
+function pointInRings(x: number, y: number, rings: [number, number][][]): boolean {
+  let inside = false
+  for (const ring of rings) {
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i]?.[0],
+        yi = ring[i]?.[1]
+      const xj = ring[j]?.[0],
+        yj = ring[j]?.[1]
+      if (
+        typeof xi !== 'number' ||
+        typeof yi !== 'number' ||
+        typeof xj !== 'number' ||
+        typeof yj !== 'number'
+      )
+        continue
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
+    }
+  }
+  return inside
+}
+
+/** A point guaranteed inside the filled area of a polygon (outer + holes),
+ *  ST_PointOnSurface-style: intersect the horizontal line at the outer
+ *  ring's mid-latitude with every ring, sort the crossings, and return the
+ *  midpoint of the LONGEST interior span (even-odd pairing, so spans inside
+ *  a hole are skipped). Returns null when the scanline finds no interior
+ *  span (degenerate / all-malformed ring). */
+function polygonInteriorPoint(rings: [number, number][][]): [number, number] | null {
+  const outer = rings[0]
+  if (!Array.isArray(outer) || outer.length === 0) return null
+  let minY = Infinity,
+    maxY = -Infinity
+  for (const p of outer) {
+    const yy = p?.[1]
+    if (typeof yy !== 'number') continue
+    if (yy < minY) minY = yy
+    if (yy > maxY) maxY = yy
+  }
+  if (!Number.isFinite(minY)) return null
+  const y = (minY + maxY) / 2
+  // x where each ring edge crosses the scanline. The half-open `yi > y !==
+  // yj > y` test counts a shared vertex once, keeping the crossing count
+  // even for a closed ring.
+  const xs: number[] = []
+  for (const ring of rings) {
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const yi = ring[i]?.[1],
+        yj = ring[j]?.[1]
+      const xi = ring[i]?.[0],
+        xj = ring[j]?.[0]
+      if (
+        typeof xi !== 'number' ||
+        typeof yi !== 'number' ||
+        typeof xj !== 'number' ||
+        typeof yj !== 'number'
+      )
+        continue
+      if (yi > y !== yj > y) xs.push(xi + ((y - yi) / (yj - yi)) * (xj - xi))
+    }
+  }
+  if (xs.length < 2) return null
+  xs.sort((p, q) => p - q)
+  let bestMid: number | null = null,
+    bestLen = -Infinity
+  for (let i = 0; i + 1 < xs.length; i += 2) {
+    const len = xs[i + 1]! - xs[i]!
+    if (len > bestLen) {
+      bestLen = len
+      bestMid = (xs[i]! + xs[i + 1]!) / 2
+    }
+  }
+  return bestMid === null ? null : [bestMid, y]
+}
+
+/** Anchor for one polygon (outer + holes): keep the bbox centre when it is
+ *  already inside the filled area (byte-identical to the historical anchor
+ *  on the common convex case), else fall to a guaranteed-interior point. */
+function polygonAnchor(rings: [number, number][][]): [number, number] | null {
+  const centre = ringBboxCentre(rings[0] as [number, number][])
+  if (centre && pointInRings(centre[0], centre[1], rings)) return centre
+  return polygonInteriorPoint(rings) ?? centre
 }
 
 /** Bounding-box centre of a ring of [lon, lat] points. Returns null

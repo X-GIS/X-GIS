@@ -25,8 +25,8 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | Status | Count |
 |---|---:|
 | supported | 176 |
-| partial | 19 |
-| unsupported | 41 |
+| partial | 20 |
+| unsupported | 40 |
 | na | 7 |
 | **total** | **243** |
 
@@ -36,7 +36,6 @@ Properties marked `unsupported` with `impact: high` — these are the most visib
 
 | Property | Note |
 |---|---|
-| symbol (icon-only) | No text-field → skipped. Awaits Batch 2 (sprite atlas). |
 
 ## Partial entries
 
@@ -45,6 +44,7 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | Property | Impact | Note |
 |---|---|---|
 | raster-dem | medium | Source registered, no hillshade renderer yet (Batch 4). |
+| symbol (icon-only) | medium | Icon-only symbol layers (no text-field) route to the icon stage (#777 I1/I2, PR #965): constant `icon-image` → `label-icon-image-<name>`; data-driven `icon-image: ["match"|"coalesce"|["image", …]]` → per-feature `label-icon-image-[<expr>]` → IconStage.addIcon. Still partial: the icon LAYOUT tail (icon-text-fit / icon-padding / icon-keep-upright / icon-pitch-alignment) and text/icon halo are deferred to the Phase I remainder. |
 | symbol-sort-key | medium | Constant numeric value plumbed end-to-end (iter 399-405). Runtime collision pass sorts CollisionItems by sortKey ascending — lower wins. Expression form (`["get", "rank"]`) flattens to 0 with a warning. |
 | text-overlap | low | MapLibre overlap-policy enum (never / always / cooperative). always → label-allow-overlap; never → default; cooperative approximated as always (priority-aware collision pending) + warning. Wins over legacy text-allow-overlap when both declared. |
 | text-pitch-alignment | medium | Converter emits, runtime ignores — labels never project onto ground plane. Iter 10 surfaced an explicit warning when `map` is authored (the gap-revealing case) so authors of pitched-view styles see the diagnostic. `viewport` and `auto` match X-GIS' billboard-rendering default and stay silent. |
