@@ -60,7 +60,10 @@ export function serializeXGB(scene: BinaryScene): ArrayBuffer {
     encoder.writeString(show.stroke ?? '')
     encoder.writeF32(show.strokeWidth)
     // v2 fields
-    encoder.writeString(show.projection ?? 'mercator')
+    // Content-blind: the compiler does NOT bake a projection default into the
+    // binary. An unset projection serialises as the empty-string sentinel; the
+    // runtime supplies the Web Mercator default (viewport-mode-controller).
+    encoder.writeString(show.projection ?? '')
     encoder.writeU8(show.visible === false ? 0 : 1)
     encoder.writeF32(show.opacity ?? 1.0)
     encoder.writeU16(show.zOrder ?? 0)
@@ -104,8 +107,10 @@ export function deserializeXGB(buffer: ArrayBuffer): BinaryScene {
     const stroke = decoder.readString() || null
     const strokeWidth = decoder.readF32()
 
-    // v2 fields (absent in v1)
-    let projection = 'mercator'
+    // v2 fields (absent in v1). Projection is content-blind: unset (v1 absence
+    // or a v2 empty-string sentinel) decodes to '' and the runtime supplies the
+    // Web Mercator default; the format layer never invents a projection name.
+    let projection = ''
     let visible = true
     let opacity = 1.0
     let zOrder = 0

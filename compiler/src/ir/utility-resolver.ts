@@ -24,7 +24,8 @@ const DEFAULTS: ResolvedProperties = {
   stroke: null,
   strokeWidth: 1,
   opacity: 1.0,
-  projection: 'mercator',
+  // Content-blind: unset projection = '' (runtime supplies Web Mercator).
+  projection: '',
   visible: true,
   pointerEvents: 'auto',
 }

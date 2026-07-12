@@ -14,10 +14,15 @@
 //     @xgis/geo's domain, not the style compiler's.
 //   • binary/format.ts (+ ir/lower.ts, ir/utility-resolver.ts) — a hardcoded
 //     `'mercator'` projection default. WHICH projection is a runtime/content
-//     decision; the compiler baking one in is content-awareness. (binary/format.ts
-//     also bakes a WGS84/EPSG:4326 CRS assumption — but that lives in a comment,
-//     documented-by-omission, so there is no CODE token to count; the `'mercator'`
-//     marker already locks that file.)
+//     decision; the compiler baking one in is content-awareness. RELOCATED to the
+//     runtime in #1001: the compiler now emits the empty-string "unset" sentinel
+//     and the runtime supplies the Web Mercator default (map/src/render/
+//     viewport-mode-controller.ts `projectionName = 'mercator'`, render-loop /
+//     interpreter). The `'mercator'` marker below now guards at baseline 0 against
+//     re-introduction. (binary/format.ts also bakes a WGS84/EPSG:4326 CRS
+//     assumption — but that lives in a comment, documented-by-omission, so there
+//     is no CODE token to count; with the projection default gone, format.ts
+//     leaves the baseline entirely.)
 //   • input/mvt-decoder.ts (+ input/index.ts) — an MVT/vector-tile decoder pulling
 //     the RUNTIME dep `@mapbox/vector-tile`. Tile decoding is data-layer work, so
 //     this RELOCATED to @xgis/data in #1001 (decoder + `@mapbox/vector-tile`); the
@@ -33,15 +38,16 @@
 // ratchet); this is the same shape for the compiler's content axis.
 //
 // JUDGMENT — this LOCKS, it does not assert 0. @xgis/compiler still carries
-// cartographic content today (the gis-formatter coordinate formatters + the
-// hardcoded `'mercator'` projection default), so demanding 0 here would be a lie
-// the tree can't satisfy this commit. Instead we seed the CURRENT geo-content
+// cartographic content today (the gis-formatter coordinate formatters), so
+// demanding 0 here would be a lie the tree can't satisfy this commit. Instead we
+// seed the CURRENT geo-content
 // footprint as a
 // per-file BASELINE and forbid GROWTH: no NEW cartographic content may land in the
 // compiler. The actual relocation (gis-formatter → @xgis/geo; the projection
-// default → the runtime/content layer; mvt-decoder + its deps → @xgis/map or
-// @xgis/data) is a boundary decision tracked in #1001; each move LOWERS the matching
-// rows here IN THE SAME COMMIT until this map is {} and the gate can assert 0.
+// default → the runtime/content layer [DONE #1001]; mvt-decoder + its deps →
+// @xgis/map or @xgis/data [DONE #1001]) is a boundary decision tracked in #1001;
+// each move LOWERS the matching rows here IN THE SAME COMMIT until this map is {}
+// and the gate can assert 0.
 //
 // SIGNAL (precise + low-false-positive, comment-stripped so contract PROSE — of
 // which the tiler carries a great deal — never counts). We count, per file, only
@@ -81,8 +87,11 @@
 // GPU-free; rides the `test (compiler-blueprint)` CI leg (`vitest compiler/src`).
 // Baseline measured 2026-07-11: 42 tokens / 8 files; LOWERED 2026-07-12 to 34 tokens
 // / 6 files by the #1001 MVT-decoder relocation (input/mvt-decoder.ts + input/index.ts
-// → @xgis/data). Close-out = this map == {}, at which point compiler is content-BLIND
-// and the gate can assert 0. Closes #1001.
+// → @xgis/data); LOWERED again 2026-07-12 to 29 tokens / 3 files by the #1001
+// projection-default relocation (binary/format.ts, ir/lower.ts, ir/utility-resolver.ts
+// → the runtime, which already defaults to Web Mercator). The `'mercator'` marker is
+// retained at baseline 0 as a re-leak guard. Close-out = this map == {}, at which
+// point compiler is content-BLIND and the gate can assert 0. Closes #1001.
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -133,12 +142,9 @@ function geoContentCount(abs: string): number {
 // content out of the compiler lowers its number (0 = delete the entry) in the same
 // commit. Measured 2026-07-11. Ordered by path.
 const BASELINE: Record<string, number> = {
-  'compiler/src/binary/format.ts': 2,
   'compiler/src/format/gis-formatter.ts': 11,
   'compiler/src/format/index.ts': 15,
   'compiler/src/index.ts': 3,
-  'compiler/src/ir/lower.ts': 2,
-  'compiler/src/ir/utility-resolver.ts': 1,
 }
 
 describe('content-blindness ratchet: compiler/src owns no geo/tile content (#1001)', () => {
