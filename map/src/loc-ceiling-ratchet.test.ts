@@ -84,7 +84,11 @@ const CEILINGS: Record<string, number> = {
   // captured stroke style + the drape-seam gate/strokeKey + the drawStrokes
   // suppression + the in-bake bakeTileStrokes call). Lower as #991 decomposes VTR.
   'map/src/render/vector-tile-renderer.ts': 4487,
-  'map/src/map.ts': 4232,
+  // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
+  // extracted to render/heatmap-targets.ts; map keeps only the irreducible
+  // composition-root wiring — the `heatmapTargets` field + its import (mirrors
+  // the `_paletteHandles` / `renderTargets` owner fields). Lower as #991 shrinks map.ts.
+  'map/src/map.ts': 4237,
   'map/src/text/text-stage.ts': 1920,
   'map/src/render/passes/label-pass.ts': 1786,
   'map/src/render/pipeline-factory.ts': 1458,

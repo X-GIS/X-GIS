@@ -20,6 +20,11 @@ export * from './staging-buffer-pool'
 // data-viz SCHEMA that used to live here relocated UP to @xgis/map (#1000);
 // this leaves only a content-blind texture-upload primitive.
 export * from './data-texture'
+// Generic offscreen render-target primitive (create colour attachment + view).
+// The heatmap density-target data-viz SCHEMA that used to live on RenderTargets
+// relocated UP to @xgis/map (#1000); this leaves a content-blind primitive map
+// drives with a size/format.
+export * from './render-target'
 export * from './bind-tiers'
 export * from './render-targets'
 // FrameContext + FrameUniform moved to @xgis/map (#781 — per-frame render-loop

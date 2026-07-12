@@ -16,7 +16,7 @@
 // destroy → recreate order; setQuality() zeroes the size tracker the same
 // way (now via `invalidate()`).
 
-import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT, HEATMAP_DENSITY_FORMAT } from './gpu-shared'
+import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT } from './gpu-shared'
 import type { GPUContext } from './gpu'
 
 /** Result of `RenderTargets.ensure` — the per-frame colour-attachment
@@ -42,7 +42,8 @@ export class RenderTargets {
   /** Weighted-Blended OIT accum target (rgba16float). Lazily allocated by
    *  `ensureOit()` ONLY when the scene has OIT-extrude content (default
    *  styles keep `isOitExtrude=false`, so the default path allocates none of
-   *  the ~10 B/px these two targets cost). Mirrors `ensureHeatmap()`. */
+   *  the ~10 B/px these two targets cost). Lazy, like the (map-owned) heatmap
+   *  density targets. */
   oitAccumTexture: GPUTexture | null = null
   /** Weighted-Blended OIT revealage target (r16float). Lazy — see above. */
   oitRevealageTexture: GPUTexture | null = null
@@ -58,8 +59,8 @@ export class RenderTargets {
 
   // ── Self-healing texture-view cache ──
   // A GPUTexture.createView() with no args returns a FRESH view each call; the
-  // passes used to mint one EVERY frame for stencil/pick/oit/msaa/overdraw/
-  // heatmap (4–8 allocations/frame). The backing textures only change on
+  // passes used to mint one EVERY frame for stencil/pick/oit/msaa/overdraw
+  // (4–8 allocations/frame). The backing textures only change on
   // resize, so we cache the view keyed on the texture IDENTITY: the getters
   // below derive-and-cache through `viewOf`, which (re)creates the view IFF the
   // underlying texture object changed. This makes the cache impossible to
@@ -101,31 +102,9 @@ export class RenderTargets {
   get oitRevealageView(): GPUTextureView | null {
     return this.oitRevealageTexture ? this.viewOf(this.oitRevealageTexture) : null
   }
-  /** Cached default view of `heatmapAccumTexture` (null until `ensureHeatmap`). */
-  get heatmapAccumView(): GPUTextureView | null {
-    return this.heatmapAccumTexture ? this.viewOf(this.heatmapAccumTexture) : null
-  }
-  /** Cached default view of `heatmapBlurTexture` (null until `ensureHeatmap`). */
-  get heatmapBlurView(): GPUTextureView | null {
-    return this.heatmapBlurTexture ? this.viewOf(this.heatmapBlurTexture) : null
-  }
-  /** Heatmap density accumulation target (r16float, single-sample). Lazily
-   *  allocated by `ensureHeatmap()` ONLY when a heatmap layer is present, so
-   *  a style with no heatmap allocates nothing here (byte-identical default).
-   *  Mirrors overdrawAccumTexture's lazy r16float pattern. */
-  heatmapAccumTexture: GPUTexture | null = null
-  /** Heatmap blur ping-pong target (r16float, single-sample). The separable
-   *  Gaussian writes accum→blur (horizontal) then blur→accum (vertical), so
-   *  the final blurred density lands back in heatmapAccumTexture. */
-  heatmapBlurTexture: GPUTexture | null = null
   /** Size the textures were last allocated at (recreate gate). */
   msaaWidth = 0
   msaaHeight = 0
-  /** Size the heatmap density textures were last allocated at — a separate
-   *  tracker so the heatmap targets resize independently of the main MSAA
-   *  block (they are never allocated in the default no-heatmap path). */
-  private heatmapWidth = 0
-  private heatmapHeight = 0
   /** Size + sample count the OIT targets were last allocated at — a separate
    *  tracker so the lazily-allocated OIT block resizes independently of the
    *  main MSAA block and recreates when the sample count changes. */
@@ -187,15 +166,11 @@ export class RenderTargets {
     this.oitAccumTexture = null
     this.oitRevealageTexture = null
     this.offscreenExtrudeDepth = null
-    this.heatmapAccumTexture = null
-    this.heatmapBlurTexture = null
     this.msaaWidth = 0
     this.msaaHeight = 0
     this.oitWidth = 0
     this.oitHeight = 0
     this.oitSampleCount = 0
-    this.heatmapWidth = 0
-    this.heatmapHeight = 0
   }
 
   /** (Re)allocate the render-target textures when missing or resized, then
@@ -251,9 +226,9 @@ export class RenderTargets {
         : null
       // The OIT + offscreen-extrude targets are NOT allocated here — they
       // move to the lazy `ensureOit()` (gated on scene OIT content), the
-      // same way the heatmap targets gate on `scene.hasHeatmap`. On a
-      // resize the stale OIT targets are size-mismatched; the next
-      // `ensureOit()` recreates them via its own tracker.
+      // same way the map-owned heatmap density targets gate on
+      // `scene.hasHeatmap`. On a resize the stale OIT targets are
+      // size-mismatched; the next `ensureOit()` recreates them via its own tracker.
       if (debugOverdraw) {
         // r16float lets per-pixel additive accumulation grow well
         // past the [0, 1] swapchain range. MSAA forced to 1× in
@@ -283,39 +258,6 @@ export class RenderTargets {
     const colorView = debugOverdraw ? this.overdrawView! : useResolve ? this.msaaView! : screenView
 
     return { useResolve, colorView }
-  }
-
-  /** Lazily (re)allocate the two heatmap density targets (accum + blur) at
-   *  canvas size. Called from the render loop ONLY when `scene.hasHeatmap` —
-   *  a style with no heatmap layer never invokes this, so the default render
-   *  path allocates nothing (byte-identical). Both targets are r16float
-   *  single-sample RENDER_ATTACHMENT | TEXTURE_BINDING (the accum pass draws
-   *  splats into accum; the blur passes ping-pong between them; the compose
-   *  pass samples accum). Recreates on resize via the dedicated size tracker
-   *  so it never disturbs the MSAA block's gate. No per-frame allocation. */
-  ensureHeatmap(w: number, h: number): void {
-    const { device } = this.getCtx()
-    this.syncDevice(device)
-    if (this.heatmapAccumTexture && this.heatmapWidth === w && this.heatmapHeight === h) return
-    this.heatmapAccumTexture?.destroy()
-    this.heatmapBlurTexture?.destroy()
-    const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
-    this.heatmapAccumTexture = device.createTexture({
-      size: { width: w, height: h },
-      format: HEATMAP_DENSITY_FORMAT,
-      sampleCount: 1,
-      usage,
-      label: 'heatmap-accum',
-    })
-    this.heatmapBlurTexture = device.createTexture({
-      size: { width: w, height: h },
-      format: HEATMAP_DENSITY_FORMAT,
-      sampleCount: 1,
-      usage,
-      label: 'heatmap-blur',
-    })
-    this.heatmapWidth = w
-    this.heatmapHeight = h
   }
 
   /** Lazily (re)allocate the OIT targets (accum + revealage + offscreen-
@@ -368,16 +310,5 @@ export class RenderTargets {
     this.oitWidth = w
     this.oitHeight = h
     this.oitSampleCount = sampleCount
-  }
-
-  /** Release the heatmap density targets (destroy + null). Called from the
-   *  map's destroy() path. Safe to call when nothing was allocated. */
-  destroyHeatmap(): void {
-    this.heatmapAccumTexture?.destroy()
-    this.heatmapBlurTexture?.destroy()
-    this.heatmapAccumTexture = null
-    this.heatmapBlurTexture = null
-    this.heatmapWidth = 0
-    this.heatmapHeight = 0
   }
 }

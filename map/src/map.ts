@@ -21,6 +21,7 @@ import {
   packPalette,
 } from '@xgis/compiler'
 import { uploadPalette, type PaletteTextures } from './render/palette-textures'
+import { HeatmapTargets } from './render/heatmap-targets'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/geo'
@@ -451,6 +452,10 @@ export class XGISMap {
   // Constructed lazily-by-ctx-accessor so it survives ctx reassignment in
   // run(). Instantiated alongside renderLoopInstance in the constructor.
   renderTargets: RenderTargets = new RenderTargets(() => this.ctx)
+
+  // Heatmap density targets (accum+blur) — data-viz content the content layer
+  // owns (#1000); drives the backend's generic render-target primitive.
+  heatmapTargets: HeatmapTargets = new HeatmapTargets()
 
   // Pick (GPU hover/click) — secondary color attachment that every main-pass
   // pipeline writes `vec2<u32>(feature_id, instance_id)` into. 1-tex design
@@ -4024,7 +4029,7 @@ export class XGISMap {
     // reallocates cleanly.
     this.heatmapRenderer?.clearLayers()
     this.heatmapRenderer = null
-    this.renderTargets.destroyHeatmap()
+    this.heatmapTargets.destroy()
 
     // Colour / scalar palette + gradient-atlas textures.
     if (this._paletteHandles) {
@@ -4107,7 +4112,7 @@ export class XGISMap {
     // Heatmap density targets + per-layer buffers (Phase R).
     this.heatmapRenderer?.clearLayers()
     this.heatmapRenderer = null
-    this.renderTargets.destroyHeatmap()
+    this.heatmapTargets.destroy()
 
     // DOM stats overlay element.
     this._statsPanel?.destroy()

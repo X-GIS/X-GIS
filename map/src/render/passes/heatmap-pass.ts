@@ -38,10 +38,11 @@ class HeatmapPass implements RenderPass {
     const encoder = ctx.encoder
     ctx.passScope('heatmap', () => {
       // Lazily (re)allocate the density targets at canvas size. No-op when
-      // unchanged; never allocates in the default no-heatmap path.
-      ctx.rt.ensureHeatmap(ctx.w, ctx.h)
-      const accumView = ctx.rt.heatmapAccumView
-      const blurView = ctx.rt.heatmapBlurView
+      // unchanged; never allocates in the default no-heatmap path. Map owns the
+      // targets (#1000); they drive the backend's generic render-target primitive.
+      host.heatmapTargets.ensure(host.ctx.device, ctx.w, ctx.h)
+      const accumView = host.heatmapTargets.accumView
+      const blurView = host.heatmapTargets.blurView
       if (!accumView || !blurView) return
 
       const blurPipeline = host.renderer.ensureHeatmapBlur()
