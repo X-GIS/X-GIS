@@ -79,6 +79,7 @@ import {
   type ConstDecl,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
+import type { ComputeKernelContract } from '@xgis/rhi'
 
 /** Workgroup size used by every emitted kernel. 64 is the WebGPU
  *  spec's lowest-common-denominator that maps cleanly to NVIDIA
@@ -118,25 +119,14 @@ function readMatchLutThresholdOverride(): number | undefined {
  *  module source ready to feed `createShaderModule`. `dispatchSize`
  *  helper tells the runtime how many workgroups to launch for a
  *  given feature count: `ceil(features / COMPUTE_WORKGROUP_SIZE)`. */
-export interface ComputeKernel {
+export interface ComputeKernel extends ComputeKernelContract {
   /** The backend-NEUTRAL shader-dsl IR for this kernel. The compiler does NOT emit
    *  shader code (the WebGPU-vs-WebGL2 target is a RUNTIME decision, package-
    *  responsibilities.md ruling i) — it returns the module IR and the runtime emits
-   *  WGSL (emitModule) or GLSL (emitGlslModule {emulateCompute}) per the live backend. */
+   *  WGSL (emitModule) or GLSL (emitGlslModule {emulateCompute}) per the live backend.
+   *  Compiler-only: `ModuleDecl` is a shader-dsl type, so it stays off the neutral
+   *  `ComputeKernelContract` (which a backend adapter consumes without shader-dsl). */
   module: ModuleDecl
-  /** WGSL function name to use as the pipeline entry point. Each
-   *  emitter picks a distinct name (`eval_match`, `eval_case`,
-   *  `eval_interpolate`) so the runtime can build separate
-   *  ComputePipeline objects without name collision when multiple
-   *  kernels share a pipeline-cache key family. */
-  entryPoint: string
-  /** Number of f32 slots per feature in the feat_data buffer the
-   *  runtime must populate. The emitter packs one slot per field
-   *  referenced (typed-array stride). */
-  featureStrideF32: number
-  /** Ordered field names the runtime must lay out in feat_data —
-   *  matches the offsets the kernel reads. `fieldOffsets[i]` = i. */
-  fieldOrder: string[]
   /** For kernels that match string-typed feature properties (today:
    *  only the match() kernel), the alphabetised pattern list per
    *  field. ID == index into the list; the runtime packer uses this
@@ -144,8 +134,6 @@ export interface ComputeKernel {
    *  Empty / absent for kernels whose predicates are pure numeric
    *  comparisons (ternary, interpolate). */
   categoryOrder?: Record<string, readonly string[]>
-  /** Convenience: dispatch X count for a given total feature count. */
-  dispatchSize(featureCount: number): number
 }
 
 /** One arm of the input match() expression. `pattern` is the string

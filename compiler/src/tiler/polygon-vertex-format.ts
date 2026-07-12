@@ -16,9 +16,10 @@
 // COMPUTED (not retyped) and every consumer reads the same numbers.
 //
 // The generic machinery (buildFormat / field / VertexFormat / VbFormat) lives
-// in ./vertex-format and is shared with the point/text/icon/line formats.
+// in @xgis/rhi (the []-root, relocated in #929 B3) and is shared with the
+// point/text/icon/line formats.
 
-import { buildFormat, type VertexFormat } from './vertex-format'
+import { buildFormat, type VertexFormat } from '@xgis/rhi'
 
 export {
   field,
@@ -28,7 +29,7 @@ export {
   type ResolvedField,
   type VertexFormat,
   VB_FORMAT_BYTES,
-} from './vertex-format'
+} from '@xgis/rhi'
 
 // ── The polygon fill format (consumed by vs_main_ecef) ───────────────────────
 // bytes  0..11  uint16×6 quantized ECEF-RTC position (q_xy @0, q_z @8)
