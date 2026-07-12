@@ -9,9 +9,12 @@
 // is, or that a style has a `fill` vs `stroke-color` paint axis. That DOMAIN
 // content belongs in @xgis/map (the content layer). Today it has leaked DOWN into
 // the backend:
-//   • data-viz (heatmap): render-targets.ts owns heatmapAccum/BlurTexture +
-//     heatmapAccum/BlurView + ensureHeatmap/destroyHeatmap; gpu-shared.ts owns
-//     the HEATMAP_DENSITY_FORMAT constant.
+//   • data-viz (heatmap): render-targets.ts USED TO own heatmapAccum/BlurTexture +
+//     heatmapAccum/BlurView + ensureHeatmap/destroyHeatmap and gpu-shared.ts the
+//     HEATMAP_DENSITY_FORMAT constant — RELOCATED to @xgis/map in #1000
+//     (map/src/render/heatmap-targets.ts owns the density-target SCHEMA + format;
+//     the backend kept a content-blind generic render-target.ts primitive that map
+//     drives with a size/format). (Rows removed below — this was the last leak.)
 //   • data-viz (palette/gradient): palette-texture.ts USED TO own PaletteTextures /
 //     uploadPalette / colorGradientAtlas / scalarGradientAtlas — RELOCATED to
 //     @xgis/map in #1000 (map/src/render/palette-textures.ts owns the palette
@@ -69,8 +72,10 @@
 // CI leg (`vitest … rhi-webgpu/src rhi-webgl2/src …`). Baseline started at 53
 // markers / 4 files (2026-07-11); the paint-axis bind wiring relocated to
 // @xgis/map (51 / 3), then the palette upload relocated to @xgis/map in #1000
-// (deleting palette-texture.ts's 14-marker row), leaving 37 markers / 2 files.
-// Drive the rest to 0 by relocating the heatmap render targets to @xgis/map.
+// (deleting palette-texture.ts's 14-marker row), leaving 37 markers / 2 files,
+// then the heatmap render targets relocated to @xgis/map (#1000) — driving the
+// last two rows to 0. CLOSED OUT: the baseline is now {} (both backend adapters
+// are data-viz BLIND). The scan STAYS so any future leak DOWN fails loudly.
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -115,10 +120,7 @@ function contentCount(abs: string): number {
 // Per-file domain-content marker count. SHRINK-ONLY: a phase that relocates
 // heatmap/palette/paint-axis content to @xgis/map lowers its number (to 0 =
 // delete the entry) in the same commit. Measured 2026-07-11. Ordered by path.
-const BASELINE: Record<string, number> = {
-  'rhi-webgpu/src/gpu-shared.ts': 1,
-  'rhi-webgpu/src/render-targets.ts': 36,
-}
+const BASELINE: Record<string, number> = {}
 
 describe('content-blindness ratchet: rhi-webgpu|webgl2 hold no geo/style/data-viz content (#1000)', () => {
   it('per-file domain-content marker count equals the shrink-only baseline', () => {

@@ -6,8 +6,9 @@
 // their own module. Each returns { pipeline, layout }; the factory's ensure* wrappers keep the lazy
 // memoization + assign the bind-group layout the renderer reads back.
 
-import { HEATMAP_DENSITY_FORMAT, BLEND_ALPHA } from '@xgis/rhi-webgpu'
+import { BLEND_ALPHA } from '@xgis/rhi-webgpu'
 import { emitOverdrawComposeWgsl } from '@xgis/engine'
+import { HEATMAP_DENSITY_FORMAT } from './heatmap-targets'
 import { emitHeatmapBlurWgsl } from '../shaders/dsl/heatmap-blur'
 import { emitHeatmapComposeWgsl } from '../shaders/dsl/heatmap-compose'
 import { emitOitComposeWgsl } from '../shaders/dsl/oit-compose'

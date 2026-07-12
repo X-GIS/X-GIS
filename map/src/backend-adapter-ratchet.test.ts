@@ -39,7 +39,10 @@
 // locked (lower it here in the same commit). GPU-free; rides the `test (map)` leg.
 // Baseline measured 2026-07-11: 56 imports / 36 files; #1000 relocated the palette
 // upload's import off map.ts (5→4) into render/palette-textures.ts (+1) — 56 / 37,
-// net-neutral. Target: the map.ts boot floor.
+// net-neutral. The heatmap-target relocation (#1000) then added render/heatmap-
+// targets.ts (+1, a new schema site driving the generic render-target primitive) —
+// 57 / 38; map.ts keeps its RenderTargets import (still owns MSAA/OIT/pick), so
+// there was no import to shed off it. Target: the map.ts boot floor.
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -87,6 +90,11 @@ const BASELINE: Record<string, number> = {
   'map/src/render/frame-renderer.ts': 3,
   'map/src/render/graticule-renderer.ts': 1,
   'map/src/render/heatmap-renderer.ts': 1,
+  // Heatmap density-target content relocated here from @xgis/rhi-webgpu (#1000):
+  // it drives the backend's generic render-target primitive (createRenderTarget)
+  // with the r16float density-target size/format. A new composition site (mirrors
+  // palette-textures.ts); routing it through the neutral RHI (0 here) is future work.
+  'map/src/render/heatmap-targets.ts': 1,
   'map/src/render/heatmap-uniform-slots.ts': 1,
   'map/src/render/line-renderer.ts': 3,
   'map/src/render/line-uniform-slots.ts': 1,
