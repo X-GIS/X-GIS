@@ -11,7 +11,7 @@
 // in properties._layer so style code can filter on it.
 import { VectorTile } from '@mapbox/vector-tile'
 import Pbf from 'pbf'
-import type { GeoJSONFeature, GeoJSONGeometry } from '../tiler/geojson-types'
+import type { GeoJSONFeature, GeoJSONGeometry } from '@xgis/compiler'
 
 export interface MvtDecodeOptions {
   /** Restrict to a subset of layer names. Omit for all layers. */

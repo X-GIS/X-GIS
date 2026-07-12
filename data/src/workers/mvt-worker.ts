@@ -16,13 +16,13 @@
 // + prebuilt segment buffers, all marked Transferable.
 
 import {
-  decodeMvtTile,
   decomposeFeatures,
   compileSingleTile,
   evaluate,
   makeEvalProps,
   type GeoJSONFeature,
 } from '@xgis/compiler'
+import { decodeMvtTile } from '../mvt-decoder'
 import { buildLineSegments } from '../line-segment-build'
 import { evalExtrudeExpr } from '../eval/extrude-eval'
 import { evalFilterExpr } from '../eval/filter-eval'

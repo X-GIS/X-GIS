@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import geojsonVt from 'geojson-vt'
 // @ts-expect-error — no published types
 import vtpbf from 'vt-pbf'
-import { decodeMvtTile } from '../input/mvt-decoder'
+import { decodeMvtTile } from './mvt-decoder'
 
 // Round-trip: GeoJSON → geojson-vt slice → vt-pbf serialize → decodeMvtTile.
 // Assert the un-quantized lon/lat lands close to the original (within

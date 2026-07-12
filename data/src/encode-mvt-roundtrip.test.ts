@@ -6,10 +6,15 @@
 // tile carried.
 
 import { describe, it, expect } from 'vitest'
-import { geojsonvt } from './index'
-import { encodeMVT } from './encode-mvt'
-import { decodeMvtTile } from '../../input/mvt-decoder'
-import type { GeoJSONInput } from './types'
+import { VectorTile } from '@mapbox/vector-tile'
+import Pbf from 'pbf'
+import { geojsonvt, encodeMVT } from '@xgis/compiler'
+import { decodeMvtTile } from './mvt-decoder'
+
+// `GeoJSONInput` is the input type of the public `geojsonvt` entry point but is
+// not itself re-exported from @xgis/compiler; derive it from the signature so
+// this cross-package round-trip test needs no public-API addition.
+type GeoJSONInput = Parameters<typeof geojsonvt>[0]
 
 const TWO_FEATURES: GeoJSONInput = {
   type: 'FeatureCollection',
@@ -150,8 +155,6 @@ describe('encodeMVT — round-trip via decodeMvtTile', () => {
     // decodeMvtTile doesn't surface id on its GeoJSONFeature, but
     // the bytes contain it — sanity-check by re-decoding via raw
     // @mapbox/vector-tile to confirm round-trip.
-    const { VectorTile } = require('@mapbox/vector-tile') as typeof import('@mapbox/vector-tile')
-    const Pbf = require('pbf').default ?? require('pbf')
     const tileObj = new VectorTile(new Pbf(bytes))
     const layer = tileObj.layers['src']
     const ids = new Set<number>()

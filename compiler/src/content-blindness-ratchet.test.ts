@@ -19,8 +19,11 @@
 //     documented-by-omission, so there is no CODE token to count; the `'mercator'`
 //     marker already locks that file.)
 //   • input/mvt-decoder.ts (+ input/index.ts) — an MVT/vector-tile decoder pulling
-//     the RUNTIME deps `@mapbox/vector-tile` + `pbf` (compiler/package.json). Tile
-//     decoding is data-layer work (@xgis/map / @xgis/data).
+//     the RUNTIME dep `@mapbox/vector-tile`. Tile decoding is data-layer work, so
+//     this RELOCATED to @xgis/data in #1001 (decoder + `@mapbox/vector-tile`); the
+//     MVT markers below now guard at baseline 0 against re-introduction. (`pbf`
+//     stays a compiler dep — the tiler's MVT *encoder* encode-mvt.ts writes PBF,
+//     which is the compiler's job; DECODING an external tile is not.)
 //
 // Why tsc can't catch this: the compiler legitimately manipulates style strings,
 // expression tokens, colors and numbers, so a `'mercator'` literal or a
@@ -29,10 +32,11 @@
 // #991 map ratchets close for their axes (raw-webgpu-ratchet / backend-adapter-
 // ratchet); this is the same shape for the compiler's content axis.
 //
-// JUDGMENT — this LOCKS, it does not assert 0. @xgis/compiler is already a
-// content-aware bridge by its DERIVED deps (@mapbox/vector-tile, pbf are real
-// runtime dependencies today), so demanding 0 here would be a lie the tree can't
-// satisfy this commit. Instead we seed the CURRENT geo-content footprint as a
+// JUDGMENT — this LOCKS, it does not assert 0. @xgis/compiler still carries
+// cartographic content today (the gis-formatter coordinate formatters + the
+// hardcoded `'mercator'` projection default), so demanding 0 here would be a lie
+// the tree can't satisfy this commit. Instead we seed the CURRENT geo-content
+// footprint as a
 // per-file BASELINE and forbid GROWTH: no NEW cartographic content may land in the
 // compiler. The actual relocation (gis-formatter → @xgis/geo; the projection
 // default → the runtime/content layer; mvt-decoder + its deps → @xgis/map or
@@ -75,8 +79,10 @@
 //   • missing file      → the entry is stale; delete/lower it in the same commit.
 //
 // GPU-free; rides the `test (compiler-blueprint)` CI leg (`vitest compiler/src`).
-// Baseline measured 2026-07-11: 42 tokens / 8 files. Close-out = this map == {},
-// at which point compiler is content-BLIND and the gate can assert 0. Closes #1001.
+// Baseline measured 2026-07-11: 42 tokens / 8 files; LOWERED 2026-07-12 to 34 tokens
+// / 6 files by the #1001 MVT-decoder relocation (input/mvt-decoder.ts + input/index.ts
+// → @xgis/data). Close-out = this map == {}, at which point compiler is content-BLIND
+// and the gate can assert 0. Closes #1001.
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -131,8 +137,6 @@ const BASELINE: Record<string, number> = {
   'compiler/src/format/gis-formatter.ts': 11,
   'compiler/src/format/index.ts': 15,
   'compiler/src/index.ts': 3,
-  'compiler/src/input/index.ts': 2,
-  'compiler/src/input/mvt-decoder.ts': 6,
   'compiler/src/ir/lower.ts': 2,
   'compiler/src/ir/utility-resolver.ts': 1,
 }

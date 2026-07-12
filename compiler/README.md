@@ -52,7 +52,6 @@ import type { ShaderVariant, Scene } from '@xgis/compiler'
 | `lexer/` · `parser/` | 토크나이저 + 재귀하강 파서, AST 노드 타입 생성                                            | [parser/AGENTS.md](./src/parser/AGENTS.md)                                                        |
 | `ir/`                | AST→IR `lower()`, `optimize()`, 표현식 분류(`classify`), const-fold, deps, `emitCommands` | [ir/AGENTS.md](./src/ir/AGENTS.md) · [ir/passes/AGENTS.md](./src/ir/passes/AGENTS.md)             |
 | `tiler/`             | GeoJSON → GPU-ready 타일 피라미드 (clip · simplify · earcut · geodesic · DSFUN/ECEF pack) | [tiler/AGENTS.md](./src/tiler/AGENTS.md) · [geojsonvt/AGENTS.md](./src/tiler/geojsonvt/AGENTS.md) |
-| `input/`             | MVT(.pbf) 타일 디코더 — 타일러 파이프라인 입력 (`decodeMvtTile`)                          | [input/AGENTS.md](./src/input/AGENTS.md)                                                          |
 | `codegen/`           | WGSL `ShaderVariant` + compute 커널 + 팔레트 방출                                         | [codegen/AGENTS.md](./src/codegen/AGENTS.md)                                                      |
 | `eval/` · `format/`  | 컴파일/런타임 표현식 평가기, 값 포매터/텍스트 템플릿 파서                                 | [eval/AGENTS.md](./src/eval/AGENTS.md) · [format/AGENTS.md](./src/format/AGENTS.md)               |
 
@@ -77,7 +76,6 @@ import type { ShaderVariant, Scene } from '@xgis/compiler'
   Morton `tileKey`/`tileKeyParent`/`tileKeyChildren`, `clipPolygonToRect`, `simplify`,
   `interpolateGreatCircle`, ECEF/DSFUN 패커(`packECEFPolygonVertices`,
   `packDSFUNLineVertices` …), `geojsonvt`/`encodeMVT`, 타일 인덱스 타입(`XGVTIndex` …)
-- **Input** — `decodeMvtTile`
 - **Convert / Diagnostics** — `convertMapboxStyle`, `MAPBOX_COVERAGE`, `getStyleProfile`,
   IR-pass 리포트(`analyzeCSE`, `annotateDeps`, `Dep` …)
 - **Binary / Schema / Tokens** — `serializeXGB`/`deserializeXGB`, blueprint용

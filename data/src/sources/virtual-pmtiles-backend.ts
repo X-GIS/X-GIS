@@ -18,12 +18,12 @@
 import { EARTH, xlog } from '@xgis/shared'
 import {
   tileKeyUnpack,
-  decodeMvtTile,
   decomposeFeatures,
   compileSingleTile,
   type GeoJSONFeature,
   type GeoJSONVTOptions,
 } from '@xgis/compiler'
+import { decodeMvtTile } from '../mvt-decoder'
 import * as tilingPool from '../workers/geojson-tiling-pool'
 import { getSharedMvtPool, type MvtWorkerPool } from '../workers/mvt-worker-pool'
 import { buildLineSegments } from '../line-segment-build'
