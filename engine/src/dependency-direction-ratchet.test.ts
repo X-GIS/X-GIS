@@ -35,7 +35,10 @@ const ALLOWED: Record<string, readonly string[]> = {
   shared: [],
   geo: ['shared'],
   'shader-dsl': [],
-  compiler: ['shader-dsl', 'shared'],
+  // rhi is the []-root; the compiler PRODUCES neutral GPU contracts (vertex-format,
+  // ComputeKernelContract, ComputeBindings) that live there (#929 B3), so this is a
+  // correct downward edge — no cycle is possible (rhi imports nothing).
+  compiler: ['shader-dsl', 'shared', 'rhi'],
   blueprint: ['compiler'],
   rhi: [],
   engine: ['rhi', 'shader-dsl', 'shared'],
@@ -67,12 +70,6 @@ const EXEMPT = new Set(['runtime', 'playground', 'site'])
 /** Known violations pinned for burn-down (#929 A/B). Shrink-only: removing
  *  the last offending import must delete the entry here in the same commit. */
 const BASELINE: ReadonlyArray<readonly [pkg: string, dep: string]> = [
-  // Contract types rhi-webgpu consumes from the compiler (#929 B3, pending
-  // relocation onto @xgis/rhi seams): ComputeKernel / ShaderVariant /
-  // VertexFormat. (The palette upload's PackedPalette+GRADIENT_WIDTH imports
-  // relocated to @xgis/map with the palette schema in #1000; rhi-webgl2's edge
-  // burned down — its dispatcher is typed structurally over the shader-dsl IR.)
-  ['rhi-webgpu', 'compiler'],
   // TYPE-only residue (#929 B burned the value-level imports): gpu.ts imports
   // the `RenderContext`/`BackendChoice` context family, whose engine home is
   // deliberate (see render-context.ts header) until the #834 M5 context

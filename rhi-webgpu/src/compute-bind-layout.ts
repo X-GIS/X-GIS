@@ -37,14 +37,14 @@
 //     fires at layout-create time — easier to diagnose than at
 //     runtime-bind.
 
-import type { ShaderVariant } from '@xgis/compiler'
+import type { ComputeBindings } from '@xgis/rhi'
 
 /** Append compute output bindings to a legacy layout descriptor.
  *  Returns a new array — the input `legacyEntries` is not mutated.
  *  When `variant.computeBindings` is absent or empty, returns
  *  `legacyEntries` by reference (no allocation). */
 export function extendBindGroupLayoutEntriesForCompute(
-  variant: ShaderVariant,
+  variant: { readonly computeBindings?: ComputeBindings },
   legacyEntries: readonly GPUBindGroupLayoutEntry[],
   fragmentVisibilityBit: number,
 ): readonly GPUBindGroupLayoutEntry[] {
@@ -80,7 +80,7 @@ export interface ComputeBindEntry {
 }
 
 export function buildComputeBindGroupEntries(
-  variant: ShaderVariant,
+  variant: { readonly computeBindings?: ComputeBindings },
   renderNodeIndex: number,
   getOutBuffer: (idx: number, outSlot: number) => GPUBuffer | null,
 ): ComputeBindEntry[] | null {

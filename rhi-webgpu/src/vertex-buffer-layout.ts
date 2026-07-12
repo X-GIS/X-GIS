@@ -1,7 +1,7 @@
-import type { VertexFormat } from '@xgis/compiler'
+import type { VertexFormat } from '@xgis/rhi'
 
 /** Derive a GPUVertexBufferLayout from a single-source vertex-format spec
- *  (@xgis/compiler). The CPU packer that WRITES the bytes and the WGSL
+ *  (@xgis/rhi). The CPU packer that WRITES the bytes and the WGSL
  *  @location attributes that READ them derive from the SAME spec, so a layout
  *  built here cannot drift from either — the class of bug where a hand-copied
  *  layout was bound to a mismatched shader entry is structurally impossible.

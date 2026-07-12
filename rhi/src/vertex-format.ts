@@ -5,12 +5,13 @@
 // the WGSL @location attributes that read them, the host GPUVertexBufferLayout
 // that binds them). Each render domain (polygon, point, text, icon, line)
 // declares its own field list with buildFormat(); see polygon-vertex-format.ts
-// for the reference example and the rationale (PR-2f drift bug).
+// (in @xgis/compiler) for the reference example and the rationale (PR-2f drift bug).
 //
-// Layering: lives in @xgis/compiler so both the compiler-side packers and the
-// runtime renderer/shader-DSL can import it. Formats are plain string unions
-// (not GPUVertexFormat / ShaderType) so the compiler stays free of runtime /
-// WebGPU types; the runtime casts at the binding site.
+// Layering: lives in @xgis/rhi — the []-root of the dependency graph — so the
+// compiler-side packers, the backend adapters (rhi-webgpu / rhi-webgl2), and the
+// runtime renderer/shader-DSL can all import it downward without a cycle. Formats
+// are plain string unions (not GPUVertexFormat / ShaderType) so this package stays
+// free of runtime / WebGPU types; the backend casts at the binding site.
 
 /** WebGPU vertex attribute formats used across the renderers. Byte sizes are
  *  fixed by the WebGPU spec; see VB_FORMAT_BYTES. Extend both together. */

@@ -49,6 +49,10 @@ export {
 export { interpolateGreatCircle, haversineDistance } from './geodesic'
 export { type RingPolygon } from './encoding'
 export { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from './polygon-vertex-format'
+// The single-source vertex-format machinery relocated to @xgis/rhi (the
+// []-root) in #929 B3 so backend adapters can consume it without importing the
+// compiler; re-exported here so the compiler's existing public surface is
+// unchanged for downstream (@xgis/map, @xgis/data) importers.
 export {
   buildFormat,
   field as vertexField,
@@ -58,7 +62,7 @@ export {
   type VertexField,
   type ResolvedField,
   type VertexFormat,
-} from './vertex-format'
+} from '@xgis/rhi'
 export {
   dequantVertex,
   dequantVertexF32,

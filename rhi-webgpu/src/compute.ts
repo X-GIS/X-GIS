@@ -4,11 +4,19 @@
 // Output: storage buffer (computed values: colors, sizes, etc.)
 
 import type { GPUContext } from './gpu'
-import type { ComputeKernel } from '@xgis/compiler'
+import type { ComputeKernelContract } from '@xgis/rhi'
 // The compiler returns backend-NEUTRAL IR; the RUNTIME emits the shader for the live
 // backend (ruling i). This WebGPU dispatcher emits WGSL via emitModule; the WebGL2 path
 // (a separate dispatcher) emits GLSL via emitGlslModule({emulateCompute}).
-import { emitModule } from '@xgis/shader-dsl'
+import { emitModule, type ModuleDecl } from '@xgis/shader-dsl'
+
+/** The compute kernel as this WebGPU dispatcher consumes it: the backend-neutral
+ *  `ComputeKernelContract` (entryPoint / dispatchSize / …) from @xgis/rhi PLUS the
+ *  shader-dsl `module` IR this dispatcher lowers to WGSL via `emitModule`. The
+ *  module type lives in @xgis/shader-dsl — a permitted rhi-webgpu dependency — so
+ *  the dispatcher stays off the @xgis/compiler import while still reading `.module`
+ *  (#929 B3). The compiler's `ComputeKernel` structurally satisfies this. */
+type DispatchKernel = ComputeKernelContract & { module: ModuleDecl }
 
 /**
  * A compute task specification.
@@ -165,7 +173,7 @@ export class ComputeDispatcher {
    * ComputeKernel. Cache key is `(wgsl, entryPoint)` — same source
    * with different entry-points produces different pipelines.
    */
-  getOrCreateKernelPipeline(kernel: ComputeKernel): GPUComputePipeline {
+  getOrCreateKernelPipeline(kernel: DispatchKernel): GPUComputePipeline {
     // Emit WGSL from the compiler's neutral IR at the WebGPU backend (ruling i).
     const wgsl = emitModule(kernel.module)
     const key = kernelCacheKey(wgsl, kernel.entryPoint)
@@ -272,7 +280,7 @@ export class ComputeDispatcher {
    */
   dispatchKernel(
     encoder: GPUCommandEncoder,
-    kernel: ComputeKernel,
+    kernel: DispatchKernel,
     inputBuffer: GPUBuffer,
     outputBuffer: GPUBuffer,
     countBuffer: GPUBuffer,

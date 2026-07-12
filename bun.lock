@@ -35,6 +35,7 @@
       "name": "@xgis/compiler",
       "version": "0.0.1",
       "dependencies": {
+        "@xgis/rhi": "workspace:*",
         "@xgis/shader-dsl": "workspace:*",
         "@xgis/shared": "workspace:*",
         "pbf": "^4.0.1",
