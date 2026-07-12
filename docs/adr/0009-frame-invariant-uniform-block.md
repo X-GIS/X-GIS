@@ -99,6 +99,14 @@ Supporting principles (carry forward regardless of when step 2 lands):
      point now route through it (raster passes `log_depth_fc` as `proj_params.w`).
      EVERY family that sets the projection now sets the eye in the same call, so the
      stop-gap completeness guard was DELETED (no hand-packers remain).
+     2b. _(landed, #733 / #991 P0 — SUPERSEDES the runtime coupled writer)_ The typed
+     `UniformBlock.write({…})` path (`frame-uniform.ts` `frameU`, `point-renderer.ts`
+     `writePointFrameUniform`) makes a partial pack a **tsc error** — `write()` has no
+     optional fields, so a packer that omits `globe_eye` does not compile. This enforces
+     the SAME "projection set, eye forgotten" invariant at compile time, one layer
+     stronger than the runtime coupling. Every family having adopted it, the standalone
+     `writeProjectionCull` / `writeFrameProjectionUniform` helpers became dead code and
+     were removed (#1006) — the decision here stands; only the mechanism moved to tsc.
   3. _(pending — needs real GPU)_ Optionally lift the frame group into a SEPARATE
      per-frame UBO bound once (a perf refinement over the current shared-buffer pack:
      bind frame data once instead of copying it into every per-draw slot) + a

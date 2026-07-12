@@ -243,7 +243,7 @@ export function packLineLayerUniform(
   // so a future LineLayer struct reorder can't silently desync this packer
   // from the WGSL layout (the std140-drift class polygon-uniform-slots retired).
   // Memoised, so this is a cached lookup per call (mirrors the polygon path's
-  // `const S = polygonUniformSlots().slot` in frame-projection-uniform.ts).
+  // `const S = polygonUniformSlots().slot` in the polygon frame packer).
   const S = lineLayerUniformSlots().slot
   // Zero the scratch — the function only writes selected slots,
   // and stale values from a prior call would leak into the GPU

@@ -86,8 +86,8 @@ function buildPointBglEntries(): GPUBindGroupLayoutEntry[] {
  *  the typed block — one write() per frame, every field named, completeness
  *  compile-time (#733). The #600 "projection set, eye forgotten" class is now
  *  unrepresentable at tsc level: write() has no optional fields, so a packer
- *  that omits globe_eye does not compile (this file's writeProjectionCull
- *  predecessor enforced the same coupling at runtime, per-call-site).
+ *  that omits globe_eye does not compile (the retired coupled runtime writer
+ *  enforced the same proj_params + globe_eye coupling per-call-site).
  *
  *  Field notes (semantics unchanged, bytes identical to the lane writer this
  *  replaces — gated by point-frame-uniform.test.ts):
