@@ -30,7 +30,7 @@ a file in both lists resolves to engine if its imports are content-clean.
 - **RHI**: `render/rhi/{rhi,rhi-webgpu,rhi-webgl2}.ts`
 - **GPU**: `gpu/{gpu,gpu-arena,gpu-shared,gpu-timer,compute,compute-webgl2,frame-arena,frame-uniform,staging-buffer-pool,palette-texture,quality,bind-tiers}.ts`
 - **Projection/camera (pure math)**: `projection/{camera,camera-helpers,camera-world-copies,view-matrix,projection,projections-table,unproject,ecef,globe,globe-anchor,earth-surface-fill}.ts`
-- **Frame/render core**: `render/{frame-context,frame-projection-uniform,projection-token,render-targets,scene-view,render-node,frame-draw-stats,frame-renderer}.ts`
+- **Frame/render core**: `render/{frame-context,projection-token,render-targets,scene-view,render-node,frame-draw-stats,frame-renderer}.ts`
 - **Pipeline/bind/upload machinery**: `render/{pipeline-factory,compose-pipelines,reflection-to-webgpu,vertex-buffer-layout,bind-group-registry,uniform-ring,bundle-cache,compute-bind-layout,compute-layer-registry,upload-coordinator,tile-selection-cache}.ts`
 - **Shader DSL**: `shaders/dsl/{consts,index}.ts`
 

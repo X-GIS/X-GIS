@@ -14,7 +14,7 @@
 //      path the renderer's bind-group layout still derives from).
 //
 // The reference deliberately re-implements the old math inline (including the
-// writeProjectionCull coupling) rather than importing helpers — it is the
+// proj_params + globe_eye coupling) rather than importing helpers — it is the
 // byte-level spec of what the shader consumed before the migration.
 
 import { describe, it, expect } from 'vitest'
@@ -125,7 +125,7 @@ function referenceBytes(f: Fixture): Uint8Array {
     U_CIRCLE = 32,
     U_EYE = 36
   uf.set(MVP, U_MVP)
-  // writeProjectionCull inline: proj_params + globe_eye as one coupled unit.
+  // proj_params + globe_eye written inline as one coupled unit (the retired writer).
   uf[U_PROJ] = f.projType
   uf[U_PROJ + 1] = f.projCenterLon
   uf[U_PROJ + 2] = f.projCenterLat

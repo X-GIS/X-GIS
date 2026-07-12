@@ -30,7 +30,6 @@ export * from './render/material/heatmap-material'
 export * from './render/material/raster-material'
 // Paint/frame + VTR leaf types/helpers.
 export * from './render/frame-draw-stats'
-export * from './render/frame-projection-uniform'
 export * from './render/line-pattern'
 export * from './render/vector-tile-renderer-types'
 export * from './render/vector-tile-renderer-helpers'
