@@ -13,7 +13,7 @@
 // Width / align / fill are applied as a post-step on the formatted
 // digit string — the Intl output is never padded by Intl itself.
 
-import type { FormatSpec } from '../ir/render-node'
+import type { FormatSpec } from '@xgis/compiler'
 
 /** Format a number using a FormatSpec. Throws when `spec.type` is
  *  not numeric — caller is responsible for routing strings/dates/

@@ -1,14 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import {
-  formatValue,
-  formatNumber,
-  formatString,
-  formatDMS,
-  formatDM,
-  formatBearing,
-  formatDate,
-  parseFormatSpec,
-} from '../format'
+import { parseFormatSpec } from '@xgis/compiler'
+import { formatValue } from './format-value'
+import { formatNumber, formatString } from './formatters/number-formatter'
+import { formatDMS, formatDM, formatBearing } from './formatters/gis-formatter'
+import { formatDate } from './formatters/datetime-formatter'
 
 describe('formatValue dispatch', () => {
   it('no spec → String coercion', () => {

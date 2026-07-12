@@ -17,7 +17,8 @@
 // Falls back gracefully on missing fields / evaluation errors so
 // a single bad feature doesn't crash an entire frame's labels.
 
-import { evaluate, formatValue, makeEvalProps, type TextValue } from '@xgis/compiler'
+import { evaluate, makeEvalProps, type TextValue } from '@xgis/compiler'
+import { formatValue } from './format-value'
 
 export type FeatureProps = Record<string, unknown>
 
