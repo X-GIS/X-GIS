@@ -4,22 +4,13 @@ export * from './binary'
 export * from './tokens'
 export * from './ir'
 export * from './eval'
-// Format: curated subset re-export. `./format` is the value-dispatch barrel
-// (formatValue) and also exports the GIS/MGRS/UTM + template-part surface used
-// internally; the public compiler API only re-exports the formatters below, so
-// this list stays explicit rather than `export *` to keep that public set stable.
-export {
-  formatValue,
-  parseFormatSpec,
-  parseTextTemplate,
-  isBareExpressionTemplate,
-  formatNumber,
-  formatString,
-  formatDMS,
-  formatDM,
-  formatBearing,
-  formatDate,
-} from './format'
+// Format: the compile-time PARSE surface only. `./format` decodes a
+// `{<expr>:<spec>}` template into IR (spec-parser + template-parser). The
+// value-APPLY half (formatValue + the number/date/GIS formatters) relocated to
+// @xgis/map in #1001 (runtime, co-located with text-resolver) — the compiler
+// emits the FormatSpec, it does not render it. Explicit list (not `export *`)
+// keeps the public parse set stable.
+export { parseFormatSpec, parseTextTemplate, isBareExpressionTemplate } from './format'
 export * from './module'
 export * from './codegen'
 export * from './tiler'

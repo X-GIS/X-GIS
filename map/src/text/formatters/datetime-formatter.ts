@@ -19,7 +19,7 @@
 //   %B  long month         %p  AM/PM               %Z  timezone abbr
 //   %z  ±HHMM offset       %%  literal %
 
-import type { FormatSpec } from '../ir/render-node'
+import type { FormatSpec } from '@xgis/compiler'
 
 export type DateInput = Date | string | number
 

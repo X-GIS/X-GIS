@@ -37,17 +37,16 @@
 // #991 map ratchets close for their axes (raw-webgpu-ratchet / backend-adapter-
 // ratchet); this is the same shape for the compiler's content axis.
 //
-// JUDGMENT — this LOCKS, it does not assert 0. @xgis/compiler still carries
-// cartographic content today (the gis-formatter coordinate formatters), so
-// demanding 0 here would be a lie the tree can't satisfy this commit. Instead we
-// seed the CURRENT geo-content
-// footprint as a
-// per-file BASELINE and forbid GROWTH: no NEW cartographic content may land in the
-// compiler. The actual relocation (gis-formatter → @xgis/geo; the projection
-// default → the runtime/content layer [DONE #1001]; mvt-decoder + its deps →
-// @xgis/map or @xgis/data [DONE #1001]) is a boundary decision tracked in #1001;
-// each move LOWERS the matching rows here IN THE SAME COMMIT until this map is {}
-// and the gate can assert 0.
+// JUDGMENT — CLOSED OUT. This once LOCKED a per-file baseline and forbade GROWTH
+// while @xgis/compiler still carried cartographic content. Every audited leak has
+// now relocated to the content layer: the mvt-decoder + its deps → @xgis/data
+// [#1001], the `'mercator'` projection default → the runtime [#1001], and the
+// value-APPLY formatters (formatValue + gis/number/date formatters) → @xgis/map
+// [#1001, this commit — co-located with text-resolver.ts, the sole per-feature
+// consumer]. The compiler keeps only the compile-time PARSE half (spec-parser /
+// template-parser + the `FormatSpec` IR type), which carries no geo-content
+// marker. The BASELINE is now {} and the gate ASSERTS 0: @xgis/compiler is
+// content-BLIND, and any re-introduced geo/tile marker fails below. Closes #1001.
 //
 // SIGNAL (precise + low-false-positive, comment-stripped so contract PROSE — of
 // which the tiler carries a great deal — never counts). We count, per file, only
@@ -87,11 +86,13 @@
 // GPU-free; rides the `test (compiler-blueprint)` CI leg (`vitest compiler/src`).
 // Baseline measured 2026-07-11: 42 tokens / 8 files; LOWERED 2026-07-12 to 34 tokens
 // / 6 files by the #1001 MVT-decoder relocation (input/mvt-decoder.ts + input/index.ts
-// → @xgis/data); LOWERED again 2026-07-12 to 29 tokens / 3 files by the #1001
-// projection-default relocation (binary/format.ts, ir/lower.ts, ir/utility-resolver.ts
-// → the runtime, which already defaults to Web Mercator). The `'mercator'` marker is
-// retained at baseline 0 as a re-leak guard. Close-out = this map == {}, at which
-// point compiler is content-BLIND and the gate can assert 0. Closes #1001.
+// → @xgis/data); LOWERED to 29 tokens / 3 files by the #1001 projection-default
+// relocation (binary/format.ts, ir/lower.ts, ir/utility-resolver.ts → the runtime,
+// which already defaults to Web Mercator); LOWERED to {} (0 tokens / 0 files) 2026-07-12
+// by the #1001 formatter relocation (format/gis-formatter.ts + the formatValue dispatch
+// in format/index.ts + the format re-exports in index.ts → @xgis/map, co-located with
+// text-resolver.ts). The compiler now owns ZERO geo/tile content — the gate asserts 0.
+// Closes #1001.
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -141,11 +142,7 @@ function geoContentCount(abs: string): number {
 // Per-file geo-content token count. SHRINK-ONLY: a #1001 relocation that moves
 // content out of the compiler lowers its number (0 = delete the entry) in the same
 // commit. Measured 2026-07-11. Ordered by path.
-const BASELINE: Record<string, number> = {
-  'compiler/src/format/gis-formatter.ts': 11,
-  'compiler/src/format/index.ts': 15,
-  'compiler/src/index.ts': 3,
-}
+const BASELINE: Record<string, number> = {}
 
 describe('content-blindness ratchet: compiler/src owns no geo/tile content (#1001)', () => {
   it('per-file geo-content token count equals the shrink-only baseline', () => {
