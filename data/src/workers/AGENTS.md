@@ -46,7 +46,8 @@ Web Worker threads and their main-thread pool wrappers that run the heavy tile-d
 
 ### Internal
 
-- `@xgis/compiler` — `decodeMvtTile`, `decomposeFeatures`, `compileSingleTile`, `compileGeoJSONToTiles`, `evaluate`, `makeEvalProps`, `geojsonvt`, `encodeMVT`, `GeoJSONVT`, `GeoJSONVTOptions`, `RingPolygon`, various compiled-tile types.
+- `@xgis/compiler` — `decomposeFeatures`, `compileSingleTile`, `compileGeoJSONToTiles`, `evaluate`, `makeEvalProps`, `geojsonvt`, `encodeMVT`, `GeoJSONVT`, `GeoJSONVTOptions`, `RingPolygon`, various compiled-tile types.
+- `../mvt-decoder` (data-local, #1001) — `decodeMvtTile` (MVT worker). Relocated from `@xgis/compiler`; pulls `@mapbox/vector-tile` + `pbf`.
 - `../../core/line-segment-build` — `buildLineSegments` (called in MVT worker to pre-build outline + line segment buffers off-thread).
 - `../../data/eval/extrude-eval` — `evalExtrudeExpr` (per-feature extrude height/base resolution).
 - `../../data/eval/filter-eval` — `evalFilterExpr` (per-`showSlice` feature filter in MVT worker).

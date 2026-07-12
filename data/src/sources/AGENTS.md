@@ -69,7 +69,8 @@ Implements every `TileSource` backend the runtime attaches to `TileCatalog`. Eac
 
 ### External
 
-- `@xgis/compiler` — `tileKey`, `tileKeyUnpack`, `compileSingleTile`, `decodeMvtTile`, `decomposeFeatures`, `makeEvalProps`, `evaluate`, `packECEFPolygonVertices`, `GeoJSONFeature`, `GeometryPart`, `GeoJSONVTOptions`
+- `@xgis/compiler` — `tileKey`, `tileKeyUnpack`, `compileSingleTile`, `decomposeFeatures`, `makeEvalProps`, `evaluate`, `packECEFPolygonVertices`, `GeoJSONFeature`, `GeometryPart`, `GeoJSONVTOptions`
+- `../mvt-decoder` (data-local, #1001) — `decodeMvtTile` (pmtiles / virtual-pmtiles backends). Relocated from `@xgis/compiler`; pulls `@mapbox/vector-tile` + `pbf`.
 - `proj4` — coordinate reprojection (`epsg-defs.ts`, `reproject-fc.ts`)
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->

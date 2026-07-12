@@ -23,7 +23,6 @@ export {
 export * from './module'
 export * from './codegen'
 export * from './tiler'
-export * from './input'
 export * from './convert'
 export * from './diagnostics'
 export * from './schema'

@@ -6,10 +6,10 @@
 // already exposes the per-feature geometry as [number, number][] /
 // [number, number][][], so the encoder reads it directly.
 //
-// The output bytes are decoded by the existing MVT worker
-// (compiler/src/input/mvt-decoder.ts uses @mapbox/vector-tile + pbf),
-// so the GeoJSON tiling path and the PMTiles path converge on the
-// same downstream pipeline.
+// The output bytes are decoded by the MVT worker via decodeMvtTile
+// (data/src/mvt-decoder.ts uses @mapbox/vector-tile + pbf), so the
+// GeoJSON tiling path and the PMTiles path converge on the same
+// downstream pipeline.
 
 import Pbf from 'pbf'
 import type { TransformedTile, TransformedTileFeature } from './types'

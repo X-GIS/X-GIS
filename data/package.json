@@ -12,10 +12,12 @@
     "build": "tsc --build"
   },
   "dependencies": {
+    "@mapbox/vector-tile": "^2.0.4",
     "@xgis/compiler": "workspace:*",
     "@xgis/geo": "workspace:*",
     "@xgis/shared": "workspace:*",
     "earcut": "^3.0.2",
+    "pbf": "^4.0.1",
     "pmtiles": "^4.4.1",
     "proj4": "^2.20.8"
   },

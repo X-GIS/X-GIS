@@ -20,7 +20,7 @@ A 1:1 TypeScript port of mapbox/geojson-vt 4.0.2 (ISC license), bundled to avoid
 | `feature.ts`    | Port of `feature.js` — `createFeature` with bbox calculation.                                                                                                                                                                                                                                 |
 | `wrap.ts`       | Port of `wrap.js` — antimeridian wrapping (clip left/right world-buffer copies, shift, merge).                                                                                                                                                                                                |
 | `types.ts`      | Ported geojson-vt types (`GeoJSONVTOptions`, `TransformedTile`, `TransformedTileFeature`).                                                                                                                                                                                                    |
-| `encode-mvt.ts` | X-GIS addition: `encodeMVT` — tiled features → MVT v2.1 PBF bytes (mirrors vt-pbf output). `MVTLayerInput`/`EncodeOptions`. Output is consumed by `compiler/src/input/mvt-decoder.ts` so GeoJSON and PMTiles paths converge on the same downstream pipeline.                                  |
+| `encode-mvt.ts` | X-GIS addition: `encodeMVT` — tiled features → MVT v2.1 PBF bytes (mirrors vt-pbf output). `MVTLayerInput`/`EncodeOptions`. Output is consumed by `decodeMvtTile` (`data/src/mvt-decoder.ts`, @xgis/data) so GeoJSON and PMTiles paths converge on the same downstream pipeline.                                  |
 
 ## For AI Agents
 
@@ -33,7 +33,7 @@ A 1:1 TypeScript port of mapbox/geojson-vt 4.0.2 (ISC license), bundled to avoid
 
 ### Testing Requirements
 
-- Colocated `geojsonvt.test.ts` and `encode-mvt.test.ts`. Validate encode output against the MVT spec (decoder round-trip), not against vt-pbf bytes directly.
+- Colocated `geojsonvt.test.ts`. The `encodeMVT` round-trip test (encode → `decodeMvtTile`) moved with the decoder to `data/src/encode-mvt-roundtrip.test.ts` (@xgis/data) in #1001, since the decoder lives there now. Validate encode output against the MVT spec (decoder round-trip), not against vt-pbf bytes directly.
 
 ### Common Patterns
 
@@ -45,7 +45,7 @@ A 1:1 TypeScript port of mapbox/geojson-vt 4.0.2 (ISC license), bundled to avoid
 ### Internal
 
 - `index.ts` uses `../vector-tiler.ts` (`tileKey`); re-exported via `compiler/src/index.ts`.
-- `encode-mvt.ts` output consumed by `compiler/src/input/mvt-decoder.ts`.
+- `encode-mvt.ts` output consumed by `decodeMvtTile` (`data/src/mvt-decoder.ts`, @xgis/data).
 
 ### External
 

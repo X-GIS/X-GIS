@@ -12,12 +12,12 @@ import geojsonVt from 'geojson-vt'
 // @ts-expect-error — no published types
 import vtpbf from 'vt-pbf'
 import {
-  decodeMvtTile,
   decomposeFeatures,
   compileSingleTile,
   tileKey,
   type CompiledTile,
 } from '@xgis/compiler'
+import { decodeMvtTile } from '../mvt-decoder'
 import { TileCatalog } from '../tile-catalog'
 import type { VirtualTileFetcher } from '../tile-types'
 

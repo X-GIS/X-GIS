@@ -20,12 +20,12 @@
 import { xlog } from '@xgis/shared'
 import {
   tileKeyUnpack,
-  decodeMvtTile,
   decomposeFeatures,
   compileSingleTile,
   makeEvalProps,
   type GeoJSONFeature,
 } from '@xgis/compiler'
+import { decodeMvtTile } from '../mvt-decoder'
 import { buildLineSegments } from '../line-segment-build'
 import {
   TILE_LAYOUT_VERSION,

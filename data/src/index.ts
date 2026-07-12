@@ -5,6 +5,11 @@
 // geojson data model (loader): loadGeoJSON + the mesh/feature types + lonLatToMercator.
 // The barrel re-exports its geojson-types + geojson-helpers internals.
 export * from './geojson'
+// MVT (.pbf) tile decoder (decodeMvtTile / MvtDecodeOptions): raw Mapbox Vector
+// Tile bytes → un-quantized GeoJSONFeature[]. Relocated from @xgis/compiler (#1001):
+// tile decoding is data-layer work, not style compilation. Consumed by the PMTiles /
+// virtual-PMTiles source backends + the mvt-worker.
+export * from './mvt-decoder'
 // Stable feature-id resolver + typed-array point-patch → FeatureCollection ingest
 // (fnv1a32 / toU32Id / PointPatch / pointPatchToFeatureCollection). Pure data logic
 // that was misplaced under runtime/src/engine; consumed by setSourceData / picking.
