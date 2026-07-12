@@ -539,7 +539,10 @@ function lowerLayer(
   }
   let opacity: OpacityValue = opacityConstant(1.0)
   let size: SizeValue = sizeNone()
-  let projection = 'mercator'
+  // Content-blind: WHICH projection is a runtime/content decision. When the
+  // style names none, the compiler emits the empty-string "unset" sentinel and
+  // the runtime supplies the Web Mercator default (viewport-mode-controller).
+  let projection = ''
   let visible = true
   let pointerEvents: 'auto' | 'none' = 'auto'
   let billboard = true
@@ -1354,7 +1357,8 @@ function lowerShow(stmt: AST.ShowStatement): RenderNode | null {
   let strokeColor: ColorValue = colorNone()
   let strokeWidth = 1
   let opacity = 1.0
-  let projection = 'mercator'
+  // Content-blind: unset projection = '' (runtime supplies Web Mercator).
+  let projection = ''
   let visible = true
 
   for (const prop of stmt.block.properties) {

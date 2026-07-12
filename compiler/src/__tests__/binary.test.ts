@@ -78,7 +78,13 @@ describe('XGB Binary Format', () => {
     const buffer = serializeXGB(scene)
     const restored = deserializeXGB(buffer)
 
-    expect(restored.shows[0].projection).toBe('mercator')
+    // Content-blindness (#1001): the format layer NO LONGER bakes a projection
+    // default. An unset projection round-trips as the empty-string "unset"
+    // sentinel — NOT 'mercator'. WHICH projection is a runtime/content decision;
+    // the runtime supplies Web Mercator (viewport-mode-controller `projectionName
+    // = 'mercator'`, projType 0), and nothing renders from this per-show field.
+    // (visible / opacity / zOrder remain format-level defaults — not content.)
+    expect(restored.shows[0].projection).toBe('')
     expect(restored.shows[0].visible).toBe(true)
     expect(restored.shows[0].opacity).toBeCloseTo(1.0)
     expect(restored.shows[0].zOrder).toBe(0)
