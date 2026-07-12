@@ -13,12 +13,12 @@
   },
   "dependencies": {
     "@webgpu/types": "^0.1.69",
-    "@xgis/compiler": "workspace:*",
     "@xgis/engine": "workspace:*",
     "@xgis/rhi": "workspace:*",
     "@xgis/shader-dsl": "workspace:*"
   },
   "devDependencies": {
+    "@xgis/compiler": "workspace:*",
     "@xgis/rhi-webgl2": "workspace:*",
     "@xgis/shared": "workspace:*"
   }
