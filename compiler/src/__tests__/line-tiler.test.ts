@@ -4,19 +4,17 @@ import type { GeoJSONFeature } from '../tiler/geojson-types'
 
 describe('line feature tiling with arc-length', () => {
   // A single LineString from (0,0) to (10,0) — about 1113 km along the equator.
+  const lineCoords: number[][] = [
+    [0, 0],
+    [2, 0],
+    [4, 0],
+    [6, 0],
+    [8, 0],
+    [10, 0],
+  ]
   const lineFeature: GeoJSONFeature = {
     type: 'Feature',
-    geometry: {
-      type: 'LineString',
-      coordinates: [
-        [0, 0],
-        [2, 0],
-        [4, 0],
-        [6, 0],
-        [8, 0],
-        [10, 0],
-      ],
-    },
+    geometry: { type: 'LineString', coordinates: lineCoords },
     properties: {},
   }
 
@@ -28,7 +26,7 @@ describe('line feature tiling with arc-length', () => {
     const parts = decomposeFeatures([lineFeature])
     expect(parts).toHaveLength(1)
     expect(parts[0].type).toBe('line')
-    const orig = lineFeature.geometry.coordinates as number[][]
+    const orig = lineCoords
     const coords = parts[0].coords!
     // Every original vertex must appear, in order.
     let cursor = 0

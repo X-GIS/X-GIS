@@ -62,7 +62,9 @@ import { convertBackgroundLayer } from './convert-background-layer'
  *  reflects what actually happened. */
 export interface SourceCoverage {
   id: string
-  type: string
+  /** `undefined` when the source entry is malformed (non-object) or
+   *  omits `type` — coverage reads sources defensively. */
+  type: string | undefined
   action: 'converted' | 'skipped' | 'lossy'
   reasons: string[]
 }
@@ -180,7 +182,6 @@ export function convertMapboxStyle(
   // the top-level `projection` field, mapped from the Mapbox type name),
   // not converter ones. The xgis DSL carries no top-level camera /
   // projection state.
-  const styleAny = style as unknown as Record<string, unknown>
   // Mapbox spec: top-level `version` must be 8 — the entire schema
   // (sources / layers / paint / layout / expressions) is version-
   // tagged. Older v7 styles use a different paint/layout shape; a
@@ -190,7 +191,7 @@ export function convertMapboxStyle(
   // chasing rendering bugs.
   // Missing version → warn (spec requires it); v8 → silent; anything
   // else → loud warning.
-  const styleVer = styleAny.version
+  const styleVer = style.version
   if (styleVer === undefined || styleVer === null) {
     warnings.push(
       `Style is missing top-level "version" field — Mapbox spec requires version: 8; converter assumed v8 schema.`,
@@ -212,8 +213,17 @@ export function convertMapboxStyle(
   // XGISMap.setLight() — same pattern as projection/camera — so it is NOT
   // listed here. `lights` (v3 standard-style ambient+directional rig) is a
   // different, unimplemented feature and stays warned.
-  for (const k of ['fog', 'lights', 'terrain', 'sky', 'transition', 'imports', 'models']) {
-    const v = styleAny[k]
+  const gapFields = [
+    'fog',
+    'lights',
+    'terrain',
+    'sky',
+    'transition',
+    'imports',
+    'models',
+  ] as const satisfies readonly (keyof MapboxStyle)[]
+  for (const k of gapFields) {
+    const v = style[k]
     if (v !== undefined && v !== null) topLevelGaps.push(k)
   }
   if (topLevelGaps.length > 0) {
@@ -323,7 +333,7 @@ export function convertMapboxStyle(
           : undefined
       options.coverage.sources.push({
         id,
-        type: srcType as never,
+        type: srcType,
         action: block.includes('// SKIPPED')
           ? 'skipped'
           : reasons.length > 0

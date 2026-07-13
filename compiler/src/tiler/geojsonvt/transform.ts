@@ -9,6 +9,16 @@ import type {
   FlatLine,
 } from './types'
 
+// In-place type transmutation — the three `as unknown as` bridges below
+// are deliberate, mirroring upstream geojson-vt's mutate-in-place design.
+// transformTile rewrites each feature's `geometry` from FlatLine shape
+// (flat x,y,z runs) into tuple-pair shape ([x, y] pairs) ON THE SAME
+// object and flips `transformed` to true, rather than allocating a
+// parallel TransformedTile — one fewer allocation per tile. The object's
+// logical type legitimately changes after that mutation (TileFeature →
+// TransformedTileFeature, InternalTile → TransformedTile); TypeScript has
+// no syntax for an in-place type change, so the reinterpretation bridges
+// through `unknown` at the three marked sites.
 export function transformTile(tile: InternalTile, extent: number): TransformedTile {
   if (tile.transformed) return tile as unknown as TransformedTile
 

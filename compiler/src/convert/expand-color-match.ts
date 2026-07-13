@@ -219,13 +219,14 @@ function cloneLayerWithOverrides(
   base: MapboxLayer,
   overrides: { id: string; filter: unknown; paint: Record<string, unknown> },
 ): MapboxLayer {
-  // Cast through unknown — the override paint preserves all original
-  // fields and only swaps the `fill-color` constant. Type system
-  // doesn't lose anything the original layer didn't already permit.
+  // The override preserves every original field and only swaps id /
+  // filter / paint — all three already `string` / `unknown` /
+  // `Record<string, unknown>` on MapboxLayer, so the spread stays a
+  // structurally valid MapboxLayer with no forced cast.
   return {
-    ...(base as unknown as Record<string, unknown>),
+    ...base,
     id: overrides.id,
     filter: overrides.filter,
     paint: overrides.paint,
-  } as unknown as MapboxLayer
+  }
 }

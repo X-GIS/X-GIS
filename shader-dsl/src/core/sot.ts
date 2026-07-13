@@ -148,7 +148,7 @@ export function ioStruct<F extends Record<string, FieldSpec>>(
           // / `Return(o)` read `.expr`/`.type` — they used to die at LOAD with a
           // misleading "no field 'expr'". A declared field of that name wins.
           if ((prop === 'expr' || prop === 'type') && !(prop in fields))
-            return (node as unknown as Record<string, unknown>)[prop]
+            return node[prop]
           const spec = fields[prop as string]
           if (spec === undefined)
             throw new Error(`sot: ioStruct '${name}' has no field '${String(prop)}'`)
@@ -236,7 +236,7 @@ export function structDecl<F extends Record<string, ShaderType>>(
           if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (#763 X13)
           if (prop === '$') return node // raw struct-value Node (#740 R6, forwardable)
           if ((prop === 'expr' || prop === 'type') && !(prop in fields))
-            return (node as unknown as Record<string, unknown>)[prop] // #763 X14
+            return node[prop] // #763 X14
           const t = fields[prop as string]
           if (t === undefined)
             throw new Error(`sot: structDecl '${name}' has no field '${String(prop)}'`)

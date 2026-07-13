@@ -17,6 +17,7 @@
 // is reachable from the runtime (browser) bundle.
 
 import { latest, createExpression } from '@maplibre/maplibre-gl-style-spec'
+import type { StylePropertySpecification } from '@maplibre/maplibre-gl-style-spec'
 import { resolveColor } from '../tokens/colors'
 import { hexToRgba } from '../ir/render-node'
 
@@ -35,36 +36,6 @@ export type SpecLayerType =
 
 export type SpecCategory = 'paint' | 'layout'
 
-interface SpecPropertyDef {
-  type:
-    | 'number'
-    | 'string'
-    | 'boolean'
-    | 'color'
-    | 'array'
-    | 'enum'
-    | 'formatted'
-    | 'resolvedImage'
-    | 'padding'
-    | 'numberArray'
-    | 'colorArray'
-    | 'projectionDefinition'
-    | 'variableAnchorOffsetCollection'
-  default?: unknown
-  minimum?: number
-  maximum?: number
-  units?: string
-  values?: Record<string, unknown>
-  expression?: { interpolated?: boolean; parameters?: string[] }
-  'property-type'?:
-    | 'constant'
-    | 'data-driven'
-    | 'data-constant'
-    | 'cross-faded'
-    | 'cross-faded-data-driven'
-    | 'color-ramp'
-}
-
 /** Lookup the raw spec definition for a single property. Returns
  *  `undefined` if the spec block doesn't exist (e.g.
  *  `layout_background` has no properties) or the property name is
@@ -73,9 +44,9 @@ export function specProperty(
   layerType: SpecLayerType,
   category: SpecCategory,
   propertyName: string,
-): SpecPropertyDef | undefined {
+): StylePropertySpecification | undefined {
   const blockKey = `${category}_${layerType}`
-  const block = (latest as unknown as Record<string, Record<string, SpecPropertyDef>>)[blockKey]
+  const block = (latest as Record<string, Record<string, StylePropertySpecification>>)[blockKey]
   return block?.[propertyName]
 }
 
@@ -132,7 +103,7 @@ export function createSpecExpression(
   if (!propSpec) {
     throw new Error(`[oracle] unknown spec property: ${category}_${layerType}.${propertyName}`)
   }
-  return createExpression(mapboxExpression, propSpec as never)
+  return createExpression(mapboxExpression, propSpec)
 }
 
 /** Re-export the raw spec object for tests that need to walk every

@@ -662,6 +662,8 @@ export function compileModule(m: ModuleDecl, opts?: { gpuStubs?: boolean }): Cpu
       const env = new Map<string, CpuValue>()
       f.params.forEach((p, i) => env.set(p.name, args[i]))
       const r = execBody(f.body, env, ctx)
+      // Unread placeholder: a void (ret: voidT) fn is invoked as a STATEMENT — its value
+      // is never consumed, so the undefined bridged to CpuValue here is never read.
       return r.kind === 'return' ? (r.value as CpuValue) : (undefined as unknown as CpuValue)
     }
   }

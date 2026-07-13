@@ -27,6 +27,15 @@ export interface MapboxStyle {
    *  importer forwards this to `XGISMap.setSpriteUrl()`; the
    *  compiler does NOT encode it into xgis source. */
   sprite?: string
+  /** Known-but-unsupported top-level fields — declared only so the
+   *  converter can detect them and warn; never encoded into xgis source. */
+  fog?: unknown
+  lights?: unknown
+  terrain?: unknown
+  sky?: unknown
+  transition?: unknown
+  imports?: unknown
+  models?: unknown
   // Other top-level fields (metadata) still ignored.
 }
 

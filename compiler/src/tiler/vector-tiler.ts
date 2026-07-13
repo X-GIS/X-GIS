@@ -138,9 +138,8 @@ export function decomposeFeatures(
           maxLat: coord[1],
         })
       }
-    } else if ((geom as { type: string }).type === 'GeometryCollection') {
-      const members =
-        (geom as unknown as { geometries?: GeoJSONFeature['geometry'][] }).geometries ?? []
+    } else if (geom.type === 'GeometryCollection') {
+      const members = geom.geometries
       for (const member of members) decomposeGeom(member, id)
     }
   }
@@ -1079,6 +1078,7 @@ function autoDetectMaxZoom(features: GeoJSONFeature[]): number {
 }
 
 function extractFirstRing(geom: GeoJSONFeature['geometry']): number[][] | null {
+  if (!geom) return null
   if (geom.type === 'Polygon') return (geom.coordinates as number[][][])[0]
   if (geom.type === 'MultiPolygon') return (geom.coordinates as number[][][][])[0]?.[0]
   if (geom.type === 'LineString') return geom.coordinates as number[][]

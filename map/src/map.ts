@@ -2170,8 +2170,8 @@ export class XGISMap {
       const variant = entry.show.shaderVariant
       if (variant && (variant.preamble || variant.needsFeatureBuffer)) {
         try {
-          entry.pipelines = this.renderer.getOrCreateVariantPipelines(variant as never)
-          entry.layout = this.renderer.getOrBuildVariantLayout(variant as never)
+          entry.pipelines = this.renderer.getOrCreateVariantPipelines(variant)
+          entry.layout = this.renderer.getOrBuildVariantLayout(variant)
         } catch (e) {
           xlog.warn('[X-GIS] Variant pipeline re-resolve after setQuality failed:', e)
           entry.pipelines = null
@@ -3045,14 +3045,14 @@ export class XGISMap {
         const variant = show.shaderVariant
         if (variant && (variant.preamble || variant.needsFeatureBuffer)) {
           try {
-            pipelines = this.renderer.getOrCreateVariantPipelines(variant as any)
+            pipelines = this.renderer.getOrCreateVariantPipelines(variant)
             // Compute-aware layout selection: when the variant
             // carries `computeBindings`, MapRenderer returns the
             // per-variant extended layout (legacy entries + read-only
             // storage at the compiler-chosen binding indices) — VTR
             // builds its per-tile bind groups against this layout so
             // its pipeline + bind groups agree.
-            layout = this.renderer.getOrBuildVariantLayout(variant as never)
+            layout = this.renderer.getOrBuildVariantLayout(variant)
             // P4 compute context: when the variant carries compute
             // bindings, hand the scene plan + renderNodeIndex to the
             // VTR so per-tile uploads can attach a ComputeLayerHandle.
@@ -3063,7 +3063,7 @@ export class XGISMap {
             // VTR. The plan setter is idempotent + scene-scoped.
             vtEntry.renderer.setComputePlan(this._currentComputePlan)
             if (variant.needsFeatureBuffer && !vtEntry.renderer.hasFeatureData()) {
-              vtEntry.renderer.buildFeatureDataBuffer(variant as any, layout, show.renderNodeIndex)
+              vtEntry.renderer.buildFeatureDataBuffer(variant, layout, show.renderNodeIndex)
             }
           } catch (e) {
             xlog.warn('[X-GIS] VT variant pipeline failed:', e)
@@ -3089,8 +3089,8 @@ export class XGISMap {
         const variant = show.shaderVariant
         if (variant && (variant.preamble || variant.needsFeatureBuffer)) {
           try {
-            pipelines = this.renderer.getOrCreateVariantPipelines(variant as any)
-            layout = this.renderer.getOrBuildVariantLayout(variant as never)
+            pipelines = this.renderer.getOrCreateVariantPipelines(variant)
+            layout = this.renderer.getOrBuildVariantLayout(variant)
             // Mirror of the sibling branch above — same compute-
             // context hand-off so this code path (existing VT source)
             // sees the compute plan for the new show.
@@ -3100,7 +3100,7 @@ export class XGISMap {
             // VTR. The plan setter is idempotent + scene-scoped.
             vtEntry.renderer.setComputePlan(this._currentComputePlan)
             if (variant.needsFeatureBuffer && !vtEntry.renderer.hasFeatureData()) {
-              vtEntry.renderer.buildFeatureDataBuffer(variant as any, layout, show.renderNodeIndex)
+              vtEntry.renderer.buildFeatureDataBuffer(variant, layout, show.renderNodeIndex)
             }
           } catch (e) {
             xlog.warn('[X-GIS] VT variant pipeline failed:', e)
@@ -3335,8 +3335,8 @@ export class XGISMap {
         let syncLayout: GPUBindGroupLayout | null = null
         if (variantSync && (variantSync.preamble || variantSync.needsFeatureBuffer)) {
           try {
-            syncPipelines = this.renderer.getOrCreateVariantPipelines(variantSync as any)
-            syncLayout = this.renderer.getOrBuildVariantLayout(variantSync as never)
+            syncPipelines = this.renderer.getOrCreateVariantPipelines(variantSync)
+            syncLayout = this.renderer.getOrBuildVariantLayout(variantSync)
             vtRenderer.setComputePlan(this._currentComputePlan)
             if (variantSync.needsFeatureBuffer && !vtRenderer.hasFeatureData()) {
               vtRenderer.buildFeatureDataBuffer(
@@ -3408,7 +3408,7 @@ export class XGISMap {
             // carries computeBindings.
             vtRenderer.buildFeatureDataBuffer(
               variant as import('@xgis/compiler').ShaderVariant,
-              this.renderer.getOrBuildVariantLayout(variant as never),
+              this.renderer.getOrBuildVariantLayout(variant),
               show.renderNodeIndex,
             )
             vtRenderer.setComputePlan(this._currentComputePlan)
@@ -3456,8 +3456,8 @@ export class XGISMap {
       const variantSync = show.shaderVariant
       if (variantSync && (variantSync.preamble || variantSync.needsFeatureBuffer)) {
         try {
-          pipelines = this.renderer.getOrCreateVariantPipelines(variantSync as any)
-          layout = this.renderer.getOrBuildVariantLayout(variantSync as never)
+          pipelines = this.renderer.getOrCreateVariantPipelines(variantSync)
+          layout = this.renderer.getOrBuildVariantLayout(variantSync)
         } catch (e) {
           xlog.warn('[X-GIS] GeoJSON VT variant pipeline failed:', e)
         }

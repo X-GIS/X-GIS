@@ -13,6 +13,7 @@
 // nulls, and unsupported AST kinds all collapse to that same null.
 
 import { evaluate, makeEvalProps } from '@xgis/compiler'
+import type * as AST from '@xgis/compiler'
 
 export type ExtrudeAst = unknown // serialized AST node, structurally typed by evaluate()
 
@@ -64,7 +65,7 @@ export function evalExtrudeExpr(
   // once per polygon; one throw used to crash the whole tile compile.
   let v: unknown
   try {
-    v = evaluate(node as never, bag)
+    v = evaluate(node as AST.Expr, bag)
   } catch {
     return null
   }

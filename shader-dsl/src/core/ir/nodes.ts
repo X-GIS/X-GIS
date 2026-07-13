@@ -216,6 +216,12 @@ export interface BindingDecl {
   readonly type: ShaderType
 }
 
+/** Non-enumerable marker: the name a decl was LAST assembled under (#763 D4).
+ *  Symbol.for — survives dual-instance loads like the node brand. Declared here
+ *  (not builder.ts) so FuncDecl can name it as a computed key with no
+ *  builder→nodes import cycle. */
+export const ASSEMBLED_AS = Symbol.for('xgis.shader-dsl.assembledAs')
+
 export interface FuncDecl {
   readonly name: string
   readonly params: readonly {
@@ -249,6 +255,11 @@ export interface FuncDecl {
    *  fn (the general form of allowEarlyReturn; the engine drops matching diagnostics).
    *  Use sparingly, with a comment stating why. */
   readonly lintDisable?: readonly string[]
+  /** The name this decl was LAST assembled under (#763 D4) — a non-enumerable
+   *  Symbol marker installed at assembly via Object.defineProperty (normalizeFuncs
+   *  in builder.ts). Declared type-level ONLY so the read typechecks without a cast;
+   *  never part of an authored FuncDecl literal. */
+  readonly [ASSEMBLED_AS]?: string
 }
 
 /** A GPU / language feature a target backend may or may not support (#9, #628).

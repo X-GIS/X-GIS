@@ -210,7 +210,7 @@ export class MvtWorkerPool {
     if (typeof requestAnimationFrame !== 'undefined') {
       this._rafHandle = requestAnimationFrame(() => this.drainResolveQueue())
     } else {
-      this._rafHandle = setTimeout(() => this.drainResolveQueue(), 0) as unknown as number
+      this._rafHandle = setTimeout(() => this.drainResolveQueue(), 0)
     }
   }
 

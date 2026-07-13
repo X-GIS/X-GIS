@@ -22,6 +22,7 @@ import {
   makeEvalProps,
   type GeoJSONFeature,
 } from '@xgis/compiler'
+import type * as AST from '@xgis/compiler'
 import { decodeMvtTile } from '../mvt-decoder'
 import { buildLineSegments } from '../line-segment-build'
 import { evalExtrudeExpr } from '../eval/extrude-eval'
@@ -138,7 +139,7 @@ function extractFeatureWidths(
     let v: unknown
     try {
       v = evaluate(
-        expr as never,
+        expr as AST.Expr,
         makeEvalProps({
           props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
           cameraZoom: tileZoom,
@@ -188,7 +189,7 @@ function extractFeatureColors(
     let v: unknown
     try {
       v = evaluate(
-        expr as never,
+        expr as AST.Expr,
         makeEvalProps({
           props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
           cameraZoom: tileZoom,

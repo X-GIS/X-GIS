@@ -12,7 +12,7 @@ export function convert(data: GeoJSONInput, options: GeoJSONVTOptions): Projecte
   if (data.type === 'FeatureCollection') {
     const feats = data.features ?? []
     for (let i = 0; i < feats.length; i++) {
-      convertFeature(features, feats[i] as unknown as GeoJSONInput, options, i)
+      convertFeature(features, feats[i], options, i)
     }
   } else if (data.type === 'Feature') {
     convertFeature(features, data, options)
@@ -20,7 +20,7 @@ export function convert(data: GeoJSONInput, options: GeoJSONVTOptions): Projecte
     // Single geometry or a geometry collection
     convertFeature(
       features,
-      { geometry: data as unknown as GeoJSONInput['geometry'] } as GeoJSONInput,
+      { geometry: data as GeoJSONInput['geometry'] } as GeoJSONInput,
       options,
     )
   }

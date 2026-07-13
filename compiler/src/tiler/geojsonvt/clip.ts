@@ -66,7 +66,7 @@ export function clip(
       }
     }
 
-    const lenAfter = (newGeometry as unknown as { length: number }).length
+    const lenAfter = newGeometry.length
     if (lenAfter) {
       if (type === 'LineString' || type === 'MultiLineString') {
         if ((newGeometry as FlatLine[]).length === 1) {
