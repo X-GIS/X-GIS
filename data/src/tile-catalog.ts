@@ -596,8 +596,8 @@ export class TileCatalog {
    *  callers (loadPMTilesSource, virtual-catalog-fetch tests) keep
    *  compiling. New code should use attachBackend directly with a
    *  PMTilesBackend instance. */
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- the legacy hook's own signature
   setVirtualCatalog(catalog: VirtualCatalog): void {
-    // eslint-disable-line @typescript-eslint/no-deprecated -- the legacy hook's own signature
     const backend = new VirtualCatalogAdapter(catalog)
     this.attachBackend(backend)
   }
@@ -650,7 +650,7 @@ export class TileCatalog {
             lineVertices: tile.lineVertices,
             lineIndices: tile.lineIndices,
             pointVertices: tile.pointVertices,
-            outlineIndices: tile.outlineIndices, // eslint-disable-line @typescript-eslint/no-deprecated -- ABI passthrough (see SerializedTile) // eslint-disable-line @typescript-eslint/no-deprecated -- ABI passthrough (see SerializedTile)
+            outlineIndices: tile.outlineIndices, // eslint-disable-line @typescript-eslint/no-deprecated -- ABI passthrough (see SerializedTile)
             dequant: { scale: tile.dequantScale, half: tile.dequantHalf },
           })
         }
@@ -831,8 +831,7 @@ export class TileCatalog {
    *  Cost bound (#1045): the pump (tile-skeleton-prewarm.ts) is level-
    *  staged and BYTE-BUDGETED — depth alone cannot bound cost on real
    *  planet tilesets (the old full enumeration fetched 85 tiles / 33 MB
-   *  for one z4 view). Floor levels always complete; deeper levels stop
-   *  at `byteBudget` with their pins released. Fire-and-forget. */
+   *  for one z4 view). Floor always completes; deeper stops at budget. */
   prewarmSkeleton(
     opts: {
       depth?: number
