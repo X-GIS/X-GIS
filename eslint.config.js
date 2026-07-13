@@ -56,6 +56,10 @@ export default tseslint.config(
             // discovery can't parse a newly STAGED one in pre-commit. Lint them
             // via the default project, same as the src tests above.
             'scripts/*.ts',
+            // playground/playwright.config.ts sits at the package root, outside
+            // both playground/tsconfig.json (src/** only) and e2e/tsconfig.json
+            // (e2e/** only) — same gap, same fix as the scripts above.
+            'playground/playwright.config.ts',
             // @xgis/pipeline offline bake tools (csv-to-odb, seoul-openapi-bake)
             // live outside the package tsconfig's `include` (src/**) for the same
             // reason — they are devDep scripts, not shipped package code.
