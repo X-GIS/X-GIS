@@ -993,8 +993,7 @@ export class RenderLoop {
     // FrameContext whose `rhiPass` short-circuits the WebGPU encoder tail:
     // the text overlay draws directly on this screen pass. The WebGPU-only
     // fields (encoder / views) are inert on that branch; sprite ICONS
-    // (iStage) are a follow-up slice. `scene` is a null placeholder (execute
-    // ignores `_scene`); `host` is the real RenderLoopHost (no cast needed).
+    // (iStage) are a follow-up slice. `scene` is a null placeholder (`_scene` unused).
     labelPass.execute(
       {
         device: this.host.ctx.device,

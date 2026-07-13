@@ -95,7 +95,9 @@ const CEILINGS: Record<string, number> = {
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
   // the `_paletteHandles` / `renderTargets` owner fields). Lower as #991 shrinks map.ts.
-  'map/src/map.ts': 4236,
+  // 4236→4216 (cast audit): the heatmap show build extracted to heatmap-show.ts;
+  // the rebuild loop keeps only the loop-top routing + one call.
+  'map/src/map.ts': 4216,
   'map/src/text/text-stage.ts': 1920,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would

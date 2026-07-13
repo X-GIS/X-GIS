@@ -28,7 +28,7 @@ export class FeatureUpdateQueue {
     string,
     Map<number, { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> }>
   >()
-  private _pendingFlushHandle: ReturnType<typeof setTimeout> | null = null
+  private _pendingFlushHandle: number | null = null
   private _unknownSourceWarned = new Set<string>()
   // Tile-backed (URL-loaded) sources store a marker, not a FeatureCollection,
   // so updateFeature can't patch them. Warn once per source (see updateFeature).
@@ -123,7 +123,13 @@ export class FeatureUpdateQueue {
     const raf =
       typeof window !== 'undefined' && window.requestAnimationFrame
         ? window.requestAnimationFrame.bind(window)
-        : (cb: FrameRequestCallback): number => setTimeout(() => cb(performance.now()), 16)
+        : // Principled cast: this package's mixed global surface types
+          // setTimeout with the node-flavored Timeout return while
+          // clearTimeout accepts only the DOM number id, so no cast-free
+          // spelling exists. The runtime value IS a numeric id in every
+          // environment this fallback runs in (jsdom / SSR shims).
+          (cb: FrameRequestCallback): number =>
+            setTimeout(() => cb(performance.now()), 16) as unknown as number
     this._pendingFlushHandle = raf(() => this.flushPendingUpdates())
   }
 

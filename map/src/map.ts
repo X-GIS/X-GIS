@@ -27,6 +27,7 @@ import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/geo'
 import { configureProjections } from './shaders/dsl/projections'
 import { applyBodyOption } from './body-consts'
+import { addHeatmapShowLayer } from './heatmap-show'
 import { worldBandForProjType } from '@xgis/geo'
 import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
@@ -2975,31 +2976,7 @@ export class XGISMap {
       // heatmap layers were cleared above, so an empty map on the first pass
       // (geojson still streaming) just no-ops and a later rebuild re-adds.
       if (show.isHeatmap) {
-        const hmSource = this.heatmapPointData.get(show.targetName)
-        if (hmSource?.features?.length && this.heatmapRenderer) {
-          try {
-            const feats = applyFilter(
-              hmSource,
-              show.filterExpr,
-              this.camera.zoom,
-              this.camera.pitch,
-            ).features
-            const t = feats[0]?.geometry?.type
-            if (t === 'Point' || t === 'MultiPoint') {
-              this.heatmapRenderer.addLayer(
-                feats,
-                show.heatmapRadius ?? 30,
-                show.heatmapWeight ?? 1,
-                show.heatmapIntensity ?? 1,
-                show.heatmapOpacity ?? 1,
-                show.heatmapColorStops,
-                null,
-              )
-            }
-          } catch (e) {
-            xlog.warn('[X-GIS] heatmap layer build failed:', e)
-          }
-        }
+        addHeatmapShowLayer(this, show)
         continue
       }
 
@@ -3111,8 +3088,7 @@ export class XGISMap {
         continue
       }
 
-      // Markers handled above; narrow to the FeatureCollection arm (the
-      // `_tileUrl` arm can't be type-excluded — its raster guard tolerates '').
+      // Markers handled above; `_tileUrl` isn't type-excludable (guard tolerates '').
       const fc = data as GeoJSONFeatureCollection
       let filtered = applyFilter(fc, show.filterExpr, this.camera.zoom, this.camera.pitch)
 

@@ -474,6 +474,7 @@ const onMessage = (e: MessageEvent<InMsg>): void => {
         lineVertices: tile.lineVertices.buffer as ArrayBuffer,
         lineIndices: tile.lineIndices.buffer as ArrayBuffer,
         pointVertices: tile.pointVertices?.buffer as ArrayBuffer | undefined,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- ABI passthrough of the retired field (see SerializedTile)
         outlineIndices: tile.outlineIndices?.buffer as ArrayBuffer | undefined,
         outlineVertices: tile.outlineVertices?.buffer as ArrayBuffer | undefined,
         outlineLineIndices: tile.outlineLineIndices?.buffer as ArrayBuffer | undefined,

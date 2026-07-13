@@ -712,8 +712,7 @@ class LabelPass implements RenderPass {
         // per feature, resolves to a sprite atlas key, and feeds
         // dispatchIcon's existing const-path (which already gates
         // on def.iconImage !== undefined and calls IconStage.addIcon).
-        const iconImageExprAst =
-          (def as { iconImageExpr?: { ast?: unknown } }).iconImageExpr?.ast ?? null
+        const iconImageExprAst = def.iconImageExpr?.ast ?? null
         const cameraZoom = host.camera.zoom
         // iter-259 (Plan AAA B.7) — applyFeatureExprs cache. Key
         // on props ref + zoomBucket (0.25 zoom resolution). For
@@ -772,10 +771,7 @@ class LabelPass implements RenderPass {
           }
           if (iconImageExprAst !== null) {
             try {
-              // Single-hop from `unknown`: LabelDef.iconImageExpr.ast is
-              // `unknown` through its whole compiler producer chain
-              // (lower-label.ts), so the boundary assertion names the real
-              // target instead of erasing it with `never`.
+              // Single-hop from `unknown` (.ast is unknown through its whole producer chain).
               const v = evaluate(iconImageExprAst as import('@xgis/compiler').Expr, bag)
               if (typeof v === 'string' && v.length > 0) {
                 ;(out as { iconImage?: string }).iconImage = v

@@ -5,11 +5,10 @@
 
 import type { Camera } from '../camera'
 import { isWebMercator } from '@xgis/geo'
-import { getSampleCount } from '@xgis/engine'
+import { getSampleCount, FrameArena } from '@xgis/engine'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import { parseHexColor } from '../feature-helpers'
 import { resolveNumberShape } from './paint-shape-resolve'
-import { FrameArena } from '@xgis/engine'
 import type { PointLayer } from './point-renderer-types'
 import { buildPointModule, pointU as POINT_U } from '../shaders/dsl/point'
 import { packPointInstances } from './point-feature-packer'

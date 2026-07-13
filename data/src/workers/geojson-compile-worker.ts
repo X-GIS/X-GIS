@@ -136,6 +136,7 @@ export function runCompile(req: GeoJSONCompileRequest): {
         indices: tile.indices.buffer as ArrayBuffer,
         lineVertices: tile.lineVertices.buffer as ArrayBuffer,
         lineIndices: tile.lineIndices.buffer as ArrayBuffer,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- ABI passthrough of the retired field (see SerializedTile)
         outlineIndices: tile.outlineIndices.buffer as ArrayBuffer,
         outlineVertices: tile.outlineVertices.buffer as ArrayBuffer,
         outlineLineIndices: tile.outlineLineIndices.buffer as ArrayBuffer,
