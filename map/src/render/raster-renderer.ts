@@ -14,7 +14,11 @@ import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { globeVisibleTiles } from '@xgis/data'
 import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
-import { rasterU as RASTER_U, rasterTileU as RASTER_TILE_U } from '../shaders/dsl/raster'
+import {
+  rasterU as RASTER_U,
+  rasterTileU as RASTER_TILE_U,
+  rasterGridN,
+} from '../shaders/dsl/raster'
 import { globeEyeUniform } from './globe-eye-uniform'
 
 /** Camera RTC anchor for the raster VS on the globe / 3D surfaces.
@@ -90,12 +94,14 @@ export function writeRasterTileUniform(
   tileEcef: readonly [number, number, number] | ECEF,
   mercSouth: number,
   mercDiff: number,
+  /** #1040 — raster surface grid subdivision N (rasterGridN); shader reads grid.x. */
+  gridN: number,
 ): void {
   block.write({
     bounds: [west, south, east, north],
     tile_ecef_center: [tileEcef[0], tileEcef[1], tileEcef[2], 0],
     merc_y: [mercSouth, mercDiff],
-    _pad: [0, 0],
+    grid: [gridN, 0],
   })
 }
 
@@ -338,10 +344,22 @@ export class RasterRenderer {
     const mercSouth = Math.log(Math.tan(Math.PI / 4 + (south * DEG2RAD) / 2))
     const mercNorth = Math.log(Math.tan(Math.PI / 4 + (north * DEG2RAD) / 2))
     const TB = rasterTileBlock()
-    writeRasterTileUniform(TB, west, south, east, north, swEcef, mercSouth, mercNorth - mercSouth)
+    // #1040 — the checker is a whole-world z0 tile; on the globe it densifies to 128×128.
+    const gridN = rasterGridN(projType, 0)
+    writeRasterTileUniform(
+      TB,
+      west,
+      south,
+      east,
+      north,
+      swEcef,
+      mercSouth,
+      mercNorth - mercSouth,
+      gridN,
+    )
 
     this._rhiDraper.draw(pass, B.buffer, [
-      { texture: checker, tileBytes: new Float32Array(TB.buffer.slice(0)) },
+      { texture: checker, tileBytes: new Float32Array(TB.buffer.slice(0)), gridN },
     ])
   }
 
@@ -616,6 +634,9 @@ export class RasterRenderer {
       // by shifting bounds.x / bounds.z by wo*360° (the VS mix(bounds.x, bounds.z, uu) lands
       // lon in the right copy). tile_ecef_center stays unshifted (copy-invariant 3D-ECEF RTC).
       // Non-Mercator collapses to wo=0. Each (tile, world-copy) becomes one RasterTile.
+      // #1040 — grid N from the render (fallback-aware) zoom; the globe densifies
+      // low-z tiles (z0:128 … z4+:8), flat stays 8×8.
+      const gridN = rasterGridN(projType, renderCoord.z)
       for (const wo of RASTER_WORLD_COPIES) {
         const TB = rasterTileBlock() // memoised — write() repacks every lane each iteration
         writeRasterTileUniform(
@@ -627,9 +648,14 @@ export class RasterRenderer {
           swEcef,
           mercSouth,
           mercDiff,
+          gridN,
         )
         // The block buffer is reused every iteration — COPY it for the batch entry.
-        tilesArr.push({ texture: cached.texture, tileBytes: new Float32Array(TB.buffer.slice(0)) })
+        tilesArr.push({
+          texture: cached.texture,
+          tileBytes: new Float32Array(TB.buffer.slice(0)),
+          gridN,
+        })
       }
     }
 

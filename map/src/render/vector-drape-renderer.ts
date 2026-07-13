@@ -20,7 +20,7 @@ import { uniformBlock, isPickEnabled, type UniformBlockOf } from '@xgis/engine'
 import { lonLatToECEF } from '@xgis/shared'
 import { RasterDraper, type RasterTile } from './material/raster-material'
 import { planBakeEvictions } from './vector-drape-cache'
-import { rasterU as RASTER_U, rasterTileU as RASTER_TILE_U } from '../shaders/dsl/raster'
+import { rasterU as RASTER_U, rasterTileU as RASTER_TILE_U, rasterGridN } from '../shaders/dsl/raster'
 import {
   writeRasterFrameUniform,
   writeRasterTileUniform,
@@ -157,6 +157,9 @@ export class VectorDrapeRenderer {
       const north = cached.tileSouth + cached.tileHeight
       const swEcef = lonLatToECEF(west, south)
       const mercSouth = mercY(south)
+      // #1040 — this drape reuses the raster sphere grid, so it inherits the same
+      // per-tile density ladder: a low-z globe drape densifies (z0:128 … z4+:8).
+      const gridN = rasterGridN(projType, cached.tileZoom)
       writeRasterTileUniform(
         this.tileScratch,
         west,
@@ -166,6 +169,7 @@ export class VectorDrapeRenderer {
         swEcef,
         mercSouth,
         mercY(north) - mercSouth,
+        gridN,
       )
       // Mark this bake as draped this frame — the beginFrame eviction skip-set.
       this.visibleKeys.add(cacheKey)
@@ -173,6 +177,7 @@ export class VectorDrapeRenderer {
       tiles.push({
         texture: entry.tex,
         tileBytes: new Float32Array(this.tileScratch.buffer.slice(0)),
+        gridN,
       })
     }
 

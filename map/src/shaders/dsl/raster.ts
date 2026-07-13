@@ -23,6 +23,7 @@ import {
   f32,
   u32,
   toF32,
+  toU32,
   vec2,
   vec3,
   vec4,
@@ -97,7 +98,10 @@ const Tile = uniformStruct(
     bounds: vec4fT, // west, south, east, north (degrees); x/z shifted per world-copy
     tile_ecef_center: vec4fT, // xyz = ECEF of tile SW corner (world-copy unshifted); w = 0
     merc_y: vec2fT, // x = merc_south (abs), y = merc_diff (north - south)
-    _pad: vec2fT,
+    // #1040 — x = raster grid subdivision N as f32 (exact for N ≤ 128), packed
+    // by rasterGridN(projType, tileZoom); y reserved (kept 0). Was a dead `_pad`
+    // vec2 — the vec2+vec2 byte layout is unchanged so the 48 B slot is stable.
+    grid: vec2fT,
   },
 )
 // Exported (distinct barrel names — every dsl file calls its struct 'U'/'Tile'
@@ -122,24 +126,53 @@ const rasterFragmentOutput = (pickEnabled: boolean) =>
 const tex = resource('tex', texture2dfT, { group: 0, binding: 1 })
 const texSampler = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
 
-// GRID_N = 8 (an 8×8 subdivided grid, 6 verts/cell = 384; the draw count lives
-// in the renderer). Inlined where used.
+// ═══ #1040 — globe raster surface density ladder (userbug-09 sibling) ═══
+//
+// The raster surface is a procedural N×N grid (6 verts/cell, from vertex_index —
+// no vertex buffer). N was a compile-time literal 8, so a z0 whole-world globe
+// tile drew the SAME 8×8 as a z18 tile — the z0 sphere silhouette was a visible
+// ~16-gon. This is the exact defect the synthetic earth-surface fill already
+// fixed (data/src/sources/synthetic-earth-surface-backend.ts raised its lon/lat
+// mesh 32×16 → 128×64 to de-facet the disc rim, userbug 09); it was never ported
+// to the raster grid. On the GLOBE the per-tile N now HALVES per zoom
+// (z0:128, z1:64, z2:32, z3:16, z4+:8) so each tile's angular span carries a
+// roughly constant curvature error; 128 matches the proven earth-surface
+// density. FLAT projections keep 8×8 (a plane needs no curvature subdivision) —
+// surgical, no flat-path change. N is threaded to the shader per-tile via
+// TileUniforms.grid.x (below), and the per-tile draw count = rasterGridVertexCount(N).
+export function rasterGridN(projType: number, tileZoom: number): number {
+  // globe === projType 7 (geo/src/projections-table.ts). Every other projType is
+  // a flat path here and keeps the flat 8×8. `128 >> zoom` halves per level; the
+  // Math.max floors the ladder at 8 (z4+), Math.min caps it at 128 (z0).
+  return projType === 7 ? Math.max(8, Math.min(128, 128 >> tileZoom)) : 8
+}
+
+/** Vertex count for an N×N raster surface grid: 2 triangles (6 verts) per cell. */
+export function rasterGridVertexCount(n: number): number {
+  return n * n * 6
+}
+
 const vs = fn(
   'vs_tile',
   { vid: builtin('vertex_index', u32T) },
   (p) => {
+    // Per-tile grid N (#1040): TileUniforms.grid.x carries N as f32 (exact ≤128).
+    // The integer cell split needs a u32 N (cast once); the uv normalise divides
+    // by the f32 N directly. globe z0 → 128×128; flat / high-z → 8×8.
+    const gridNF = Tile.field.grid.x
+    const gridNU = toU32(gridNF)
     const cell = p.vid.div(6)
     const tri = p.vid.mod(6)
-    const cx = cell.mod(8)
-    const cy = cell.div(8)
+    const cx = cell.mod(gridNU)
+    const cy = cell.div(gridNU)
 
     const duArr = arrayLit(u32T, u32(0), u32(1), u32(0), u32(1), u32(1), u32(0))
     const dvArr = arrayLit(u32T, u32(0), u32(0), u32(1), u32(0), u32(1), u32(1))
     const gx = cx.add(duArr.at(tri, u32T))
     const gy = cy.add(dvArr.at(tri, u32T))
 
-    const uu = toF32(gx).div(8)
-    const vv = toF32(gy).div(8)
+    const uu = toF32(gx).div(gridNF)
+    const vv = toF32(gy).div(gridNF)
 
     const mercY = Tile.field.merc_y
     const bounds = Tile.field.bounds
