@@ -63,6 +63,13 @@ export default defineConfig({
     // working GPU-enabled runner.
     headless: process.env.HEADED === '0',
     launchOptions: {
+      // XGIS_CHROMIUM_EXECUTABLE: point Playwright at a pre-provisioned
+      // Chromium (e.g. /opt/pw-browsers/chromium in cloud/e2e containers that
+      // skip per-version browser downloads). Mirrors the WSL system-Chrome
+      // escape hatch below; unset = the bundled Chromium as before.
+      ...(process.env.XGIS_CHROMIUM_EXECUTABLE
+        ? { executablePath: process.env.XGIS_CHROMIUM_EXECUTABLE }
+        : {}),
       // XGIS_SOFTWARE_GPU=1 (CI on GitHub Linux runners with no GPU):
       // force the SwiftShader Vulkan ICD so WebGPU enumerates a software
       // adapter headlessly. Only the GPU-INDEPENDENT gates run in this mode
