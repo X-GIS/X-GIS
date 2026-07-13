@@ -476,7 +476,7 @@ class LabelPass implements RenderPass {
       // clamped to that bound upstream). projMercatorCpu returns a fresh
       // tuple per call (no shared scratch), so there is no aliasing hazard.
       const camMerc = projMercatorCpu(centerLon, centerLat)
-      const { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies } =
+      const { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies, limbInsetPx } =
         makeLabelProjectors(
           labelView.matrix,
           w,
@@ -496,6 +496,7 @@ class LabelPass implements RenderPass {
           // projector must anchor against the same camera focus the geometry
           // VS subtracts. Flat path ignores it.
           isFlatProj ? undefined : host.camera.getECEFCenter(),
+          true, // #1042 — label pass: apply the horizon MARGIN cull (not map.project)
         )
 
       // (a) Imperative overlays
@@ -1161,10 +1162,8 @@ class LabelPass implements RenderPass {
                   perfMarkEnd('encoder.label-dispatch.line.polyline')
                   return
                 }
-                // Project every vertex to physical-pixel screen
-                // space; pack into typed arrays for the curved-text
-                // sampler. Drop unprojectable vertices by trimming
-                // to the first contiguous projectable run.
+                // Project every vertex to physical-pixel screen space; pack into typed
+                // arrays for the curved-text sampler, trimming to the first run (#1050).
                 //
                 // Subdivide each segment so a world-spanning line
                 // (e.g. demotiles geolines: Tropic of Cancer with 2
@@ -1212,7 +1211,7 @@ class LabelPass implements RenderPass {
                   // since pxPerMeter is small there). For i > 0 the shared start
                   // vertex is skipped (s starts at 1) so adjacent segments don't
                   // emit a duplicate zero-length point.
-                  for (let i = 0; i < N - 1; i++) {
+                  outer: for (let i = 0; i < N - 1; i++) {
                     const ax = mxs[i]!,
                       ay = mys[i]!
                     const bx = mxs[i + 1]!,
@@ -1235,11 +1234,12 @@ class LabelPass implements RenderPass {
                       // accounted for ~80 % of forEachLineLabelPolyline's
                       // frame time pre-optimisation (OFM Bright z=13).
                       const proj = projectMercAny(sx, sy, wo)
-                      if (proj) {
-                        _pxScratch[pn] = proj[0]
-                        _pyScratch[pn] = proj[1]
-                        pn++
-                      }
+                      // #1050 — first null ends the run (no phantom-chord label).
+                      if (!proj && pn > 0) break outer
+                      if (!proj) continue
+                      _pxScratch[pn] = proj[0]
+                      _pyScratch[pn] = proj[1]
+                      pn++
                     }
                   }
                   perfMarkEnd('encoder.label-dispatch.line.project')
@@ -1671,7 +1671,7 @@ class LabelPass implements RenderPass {
         // absent from the set and still seed obstacles.
         const activeTextPairKeys = iStage ? stage.getActiveTextPairKeys() : new Set<string>()
         const iconObstacles = iStage ? iStage.computeObstacles(activeTextPairKeys) : []
-        stage.prepare(iconObstacles)
+        stage.prepare(iconObstacles, limbInsetPx)
         if (iStage) iStage.setDroppedPairKeys(stage.getDroppedPairKeys())
         iStage?.prepare()
       }

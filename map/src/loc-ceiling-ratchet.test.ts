@@ -98,7 +98,12 @@ const CEILINGS: Record<string, number> = {
   // 4236→4216 (cast audit): the heatmap show build extracted to heatmap-show.ts;
   // the rebuild loop keeps only the loop-top routing + one call.
   'map/src/map.ts': 4216,
-  'map/src/text/text-stage.ts': 1920,
+  // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
+  // the collision phase — the ONLY site holding the label's quad half-height (the
+  // collision box IS the height authority; the label-pass dispatch site has only
+  // the unresolved TextValue). +10 = the `limbInset` prepare() param + the
+  // box-height gate at collisionInput. An 8-line predicate isn't extract-worthy (§2).
+  'map/src/text/text-stage.ts': 1930,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.

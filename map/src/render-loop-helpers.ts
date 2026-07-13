@@ -251,6 +251,187 @@ export function resolveLabelEffectiveDef(
   return effectiveDef
 }
 
+/** #1042 — label-anchor horizon margin, expressed as a FRACTION of the
+ *  per-frame visibility headroom `(1 − cosH)`, where `cosH = EARTH_R / |eye|`
+ *  is the cosine of the horizon half-angle. The globe tile/anchor cull is a
+ *  BINARY tangent-circle test (`dot(e,eye) ≤ EARTH_R·|e|`): an anchor one pixel
+ *  inside the limb passes, yet its SCREEN-SPACE quad (tens of px of glyphs)
+ *  still draws past the limb — at low zoom + extreme pitch a whole row of
+ *  country labels floats above the horizon (#1042 probe, 2026-07-13). We
+ *  therefore require a label anchor to sit an angular band INSIDE the tangent
+ *  circle before it is drawn. Because the surface near the limb is foreshortened
+ *  to sub-pixel, that band trims a WIDE angular rim (the crushed, unreadable
+ *  near-limb meridian where the floaters pile up) for a small screen-space cost
+ *  — matching MapLibre / Google-Earth, which drop labels within a limb band.
+ *
+ *  Why a FRACTION of `(1 − cosH)`, NOT an absolute cosine offset `cosH + m`:
+ *  globeMode is projection-gated, not zoom-gated (it runs at city zoom), so
+ *  `cosH → 1` as the camera nears the surface. An absolute additive margin `m`
+ *  is only safe while `m < 1 − cosH`, and the headroom collapses fast —
+ *  measured `1 − cosH` is 0.0027 at z12 and 4e-5 at z18 — so ANY fixed `m > 0`
+ *  (even 0.008) would eventually exceed it and cull even the DEAD-CENTRE anchor,
+ *  blanking every globe label from ~z12 in. Scaling by the headroom keeps the
+ *  band a fixed fraction of the visible cap at every zoom: it can never cross
+ *  the sub-eye point (fraction < 1) yet still trims the limb rim where one
+ *  exists (low zoom). 0.15 matches the sibling flat-path ORTHO_RIM_LABEL_MARGIN,
+ *  the codebase's own answer to the same crushed-limb-rim phenomenon, and stays
+ *  clear of front-side labels at z3–4 (no label-count regression).
+ *
+ *  Applied ONLY by the label-pass projector (via the `labelHorizonMargin` gate);
+ *  `map.project()` / projectLonLatToScreenCss answer "where does this lon/lat
+ *  land", not "should a label draw", so they keep the exact binary tangent cull.
+ *  Exported for the calibration / regression gate. */
+export const LABEL_HORIZON_MARGIN = 0.15
+
+/** #1042 R2 — screen-space limb inset. The angular LABEL_HORIZON_MARGIN above
+ *  is a HEADROOM fraction, so at the low-zoom / extreme-pitch probe camera the
+ *  screen compression varies with azimuth and floaters interleave with fine
+ *  labels in angular depth — no angular threshold separates them (that is the
+ *  round-1 refutation). The round-2 gate is SCREEN-SPACE: a label anchor may
+ *  draw only if its projected screen point sits at least this many px INSIDE the
+ *  projected globe silhouette, so the label's quad — vertically centred on the
+ *  anchor — stays on the disc instead of floating past the limb into empty sky.
+ *
+ *  Value: HALF the ~14 px default text line-height at DPR 1. The geometric
+ *  requirement is the quad's half-extent (the anchor is the quad's centre, so
+ *  only half the height rises toward the sky). The probe's OWN keep-witness
+ *  proves 14 (a full line-height) would be wrong: at the probe camera (globe z2,
+ *  lat 20, pitch 85, 860×720) the "visibly-fine" Kenya anchor (lon 37.9, lat 0.2)
+ *  projects just 11.8 px inside the silhouette even though it is 14.8° inside the
+ *  horizon — screen compression, the whole point of this gate — while the
+ *  floating Chad anchor (lon 18.7, lat 15.4) sits 2.9 px in. 7 px cleanly
+ *  separates them (Chad culled, Kenya kept) with ~4 px margin each side. A future
+ *  refinement can pass the real per-label quad half-height in place of this
+ *  constant. Exported for the regression gate; applied ONLY by the label pass
+ *  alongside LABEL_HORIZON_MARGIN — map.project() keeps the exact tangent cull. */
+export const LABEL_LIMB_INSET_PX = 7
+
+/** Samples around the horizon circle for the screen-space limb polygon. 64 is
+ *  smooth enough that the chord-to-arc gap is < 0.3 px at the probe disc (the
+ *  measured Kenya inset moves < 0.2 px from K=64 to K=2048) while the whole build
+ *  is 64 matrix projections per frame — negligible next to the O(100s) label
+ *  anchors it gates. */
+const LIMB_SAMPLES = 64
+
+/** Build the globe's projected screen silhouette (the "limb polygon") for the
+ *  label pass. The silhouette of a sphere under any projection is its horizon
+ *  circle — the locus of surface points whose view ray is tangent to the sphere:
+ *  centre `ê·(R·cosH)`, radius `R·sinH`, in the plane ⊥ ê, where ê = eye/|eye|
+ *  and cosH = R/|eye|. This is the SAME sphere/horizon model the anchor back-face
+ *  cull uses, so the silhouette and the anchors live in one frame.
+ *
+ *  Each sample is projected through the IDENTICAL matrix + focus path the anchors
+ *  use (focus-subtract → mvp → NDC → screen px), so the inset test is
+ *  frame-consistent by construction. Samples with cw ≤ 0 (behind the camera — a
+ *  single contiguous arc, since the w<0 half-space cuts the circle in one piece)
+ *  are dropped; survivors keep circular order so the closing edge is one chord
+ *  across the dropped (off-screen / behind) arc and the FRONT arc the on-screen
+ *  anchors test against is intact. Returns null when < 8 survive (degenerate /
+ *  extreme camera) so the caller keeps only the cheaper angular margin — never
+ *  throws. #1042 round 2. */
+function buildGlobeLimbPolygon(
+  mvp: Float32Array,
+  w: number,
+  h: number,
+  eye: readonly [number, number, number],
+  focus?: readonly [number, number, number],
+): { xs: Float64Array; ys: Float64Array; n: number } | null {
+  const eyeLen = Math.hypot(eye[0], eye[1], eye[2])
+  if (!(eyeLen > EARTH_R)) return null // eye at/under the surface — no horizon
+  const ex = eye[0] / eyeLen,
+    ey = eye[1] / eyeLen,
+    ez = eye[2] / eyeLen // ê
+  const cosH = EARTH_R / eyeLen
+  const sinH = Math.sqrt(Math.max(0, 1 - cosH * cosH))
+  const cCx = ex * (EARTH_R * cosH), // circle centre on ê, R·cosH from Earth centre
+    cCy = ey * (EARTH_R * cosH),
+    cCz = ez * (EARTH_R * cosH)
+  const r = EARTH_R * sinH // circle radius
+  // Orthonormal basis u,v ⊥ ê. u = normalize(ê × zAxis); fall back to xAxis when
+  // ê ≈ ±z (the cross with z degenerates there).
+  let ax = 0,
+    ay = 0,
+    az = 1
+  if (Math.abs(ez) > 0.99) {
+    ax = 1
+    az = 0
+  }
+  let ux = ey * az - ez * ay,
+    uy = ez * ax - ex * az,
+    uz = ex * ay - ey * ax
+  const ul = Math.hypot(ux, uy, uz) || 1
+  ux /= ul
+  uy /= ul
+  uz /= ul
+  const vx = ey * uz - ez * uy, // v = ê × u (unit: ê ⊥ u, both unit)
+    vy = ez * ux - ex * uz,
+    vz = ex * uy - ey * ux
+  const fx = focus ? focus[0] : 0,
+    fy = focus ? focus[1] : 0,
+    fz = focus ? focus[2] : 0
+  const xs = new Float64Array(LIMB_SAMPLES)
+  const ys = new Float64Array(LIMB_SAMPLES)
+  let n = 0
+  for (let k = 0; k < LIMB_SAMPLES; k++) {
+    const t = (k / LIMB_SAMPLES) * (Math.PI * 2)
+    const ct = Math.cos(t),
+      st = Math.sin(t)
+    // p = m + r·(u·cos t + v·sin t) — a point on the sphere's horizon circle.
+    // SAME projection as the anchor path: focus-subtract → mvp → NDC → screen px.
+    const rx = cCx + r * (ux * ct + vx * st) - fx
+    const ry = cCy + r * (uy * ct + vy * st) - fy
+    const rz = cCz + r * (uz * ct + vz * st) - fz
+    const cw = mvp[3]! * rx + mvp[7]! * ry + mvp[11]! * rz + mvp[15]!
+    if (cw <= 0) continue // behind the camera — drop (one contiguous arc)
+    const ndcX = (mvp[0]! * rx + mvp[4]! * ry + mvp[8]! * rz + mvp[12]!) / cw
+    const ndcY = (mvp[1]! * rx + mvp[5]! * ry + mvp[9]! * rz + mvp[13]!) / cw
+    xs[n] = (ndcX + 1) * 0.5 * w
+    ys[n] = (1 - ndcY) * 0.5 * h
+    n++
+  }
+  if (n < 8) return null // extreme/degenerate camera — skip the screen test
+  return { xs, ys, n }
+}
+
+/** Signed distance (screen px) from point (px,py) to a closed polygon of the
+ *  first `n` vertices in xs/ys: POSITIVE inside, NEGATIVE outside, magnitude =
+ *  distance to the nearest edge. One O(n) pass fuses the even-odd crossing-number
+ *  in/out test with a per-edge point-to-segment distance. Used by the globe label
+ *  pass to keep an anchor an inset inside the projected globe silhouette. #1042. */
+function signedDistToPolygonPx(
+  xs: Float64Array,
+  ys: Float64Array,
+  n: number,
+  px: number,
+  py: number,
+): number {
+  let inside = false
+  let minD2 = Infinity
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = xs[i]!,
+      yi = ys[i]!,
+      xj = xs[j]!,
+      yj = ys[j]!
+    if (yi > py !== yj > py) {
+      const xCross = xi + ((py - yi) / (yj - yi)) * (xj - xi)
+      if (px < xCross) inside = !inside
+    }
+    const dx = xj - xi,
+      dy = yj - yi
+    const segLen2 = dx * dx + dy * dy
+    let t = segLen2 > 0 ? ((px - xi) * dx + (py - yi) * dy) / segLen2 : 0
+    if (t < 0) t = 0
+    else if (t > 1) t = 1
+    const cpx = xi + t * dx,
+      cpy = yi + t * dy
+    const ddx = px - cpx,
+      ddy = py - cpy
+    const d2 = ddx * ddx + ddy * ddy
+    if (d2 < minD2) minD2 = d2
+  }
+  return (inside ? 1 : -1) * Math.sqrt(minD2)
+}
+
 /** The four per-frame label anchor projectors. They form a tight family:
  *  `projectMerc` does the raw merc-metre → screen matrix multiply;
  *  `projectLonLat` dispatches by active projection and delegates the
@@ -309,6 +490,11 @@ export function makeLabelProjectors(
   // too. Omitting it fed ABSOLUTE ECEF into the RTC matrix → labels splayed off
   // their features and, under pitch, shot off the top of the screen (vanished).
   focus?: readonly [number, number, number],
+  // #1042 — label pass ONLY. When true, the globe/ECEF cull additionally trims
+  // a horizon MARGIN band (LABEL_HORIZON_MARGIN of the visibility headroom) so a
+  // near-limb label's screen quad stays inside the globe silhouette.
+  // map.project() and every other caller omit it → exact binary tangent cull.
+  labelHorizonMargin = false,
 ): {
   projectMerc: (mx: number, my: number, worldMercatorOffset?: number) => [number, number] | null
   /** `worldCopy` is the COPY INDEX (0, ±1 — from getVisibleWorldCopies), not
@@ -318,12 +504,41 @@ export function makeLabelProjectors(
   projectMercAny: (sx: number, sy: number, worldCopy?: number) => [number, number] | null
   projectLonLat: (lon: number, lat: number, worldMercatorOffset?: number) => [number, number] | null
   projectLonLatCopies: (lon: number, lat: number) => Array<[number, number]>
+  /** #1042 R3 — signed screen-px distance from (x,y) INSIDE the projected globe
+   *  silhouette (POSITIVE inside); +Infinity on the flat path / when there is no
+   *  limb polygon. Lets the label pass cull a MULTI-LINE quad on its own screen
+   *  half-height, beyond the built-in LABEL_LIMB_INSET_PX base cull. */
+  limbInsetPx: (x: number, y: number) => number
 } {
   // ── 3D / globe path: ECEF projector. Works for every projection because
   //    mvp is getECEFFrameView().matrix; lonLatToECEF(lon ± 360°) is the
   //    same point so world copies collapse to one. ──────────────────────────
   if (!flat) {
     const _projScratch: [number, number] = [0, 0]
+    // Per-eye horizon-cull coefficient, multiplied by |e| for each anchor. The
+    // exact tangent test uses EARTH_R (map.project and every non-label caller).
+    // The label pass (labelHorizonMargin) widens it INWARD by
+    // LABEL_HORIZON_MARGIN of the visibility headroom (|eye| − EARTH_R): a
+    // fraction of the cap, so it never crosses the sub-eye point as cosH→1 at
+    // high zoom. Precomputed once (eye is fixed for this projector). See #1042.
+    const eyeLen = eye ? Math.hypot(eye[0], eye[1], eye[2]) : 0
+    const horizonCullCoeff =
+      labelHorizonMargin && eye ? EARTH_R + LABEL_HORIZON_MARGIN * (eyeLen - EARTH_R) : EARTH_R
+    // #1042 R2 — screen-space limb polygon (label pass only). Built ONCE here,
+    // tested per surviving anchor below (frame-consistent with the anchor
+    // projection by construction — same mvp + focus). null for a degenerate
+    // camera → the per-anchor screen test is skipped and only the angular margin
+    // above applies. Cheap (LIMB_SAMPLES projections) so it is built whenever the
+    // label pass is active; at city zoom the silhouette is a large off-screen
+    // loop and the inset test then passes for every on-screen anchor.
+    const limbPoly =
+      labelHorizonMargin && eye ? buildGlobeLimbPolygon(mvp, w, h, eye, focus) : null
+    // #1042 R3 — the SAME limb polygon, exposed as a per-point query so the label
+    // pass can additionally cull a taller (multi-line) quad on its own screen
+    // half-height. +Infinity when there is no silhouette so the caller's
+    // `inset < halfHeight` test is a no-op (base cull below still applies).
+    const limbInsetPx = (x: number, y: number): number =>
+      limbPoly ? signedDistToPolygonPx(limbPoly.xs, limbPoly.ys, limbPoly.n, x, y) : Infinity
 
     const projectLonLat = (lon: number, lat: number): [number, number] | null => {
       const e = lonLatToECEF(lon, lat)
@@ -338,11 +553,13 @@ export function makeLabelProjectors(
       // `e` is the ellipsoid lonLatToECEF point; the ≤~0.19° geodetic-vs-
       // geocentric direction difference is negligible for a horizon test, so
       // normalize(e) is used directly (no frame conversion — match the sphere
-      // model the tile cull uses).
+      // model the tile cull uses). `horizonCullCoeff` is EARTH_R for the exact
+      // tangent cull, or EARTH_R + margin·(|eye|−EARTH_R) for the label pass
+      // (#1042) — the anchor must then sit an angular band inside the limb.
       if (eye) {
         const eLen = Math.hypot(e[0], e[1], e[2])
         const dotEEye = e[0] * eye[0] + e[1] * eye[1] + e[2] * eye[2]
-        if (dotEEye <= EARTH_R * eLen) return null
+        if (dotEEye <= horizonCullCoeff * eLen) return null
       }
       // `mvp` is the RTC (focus-relative) globe matrix, so feed it the anchor
       // relative to the camera focus — NOT absolute ECEF (the cull above stays
@@ -357,6 +574,22 @@ export function makeLabelProjectors(
       if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
       _projScratch[0] = (ndcX + 1) * 0.5 * w
       _projScratch[1] = (1 - ndcY) * 0.5 * h
+      // #1042 R2 — screen-space limb inset (label pass only; limbPoly is null
+      // otherwise, so map.project stays byte-identical). The anchor must sit
+      // ≥ LABEL_LIMB_INSET_PX inside the projected globe silhouette so its label
+      // quad stays on the disc; the angular margin above already trimmed the
+      // sub-pixel crush rim. Reuses the just-computed screen point (no re-project).
+      if (
+        limbPoly &&
+        signedDistToPolygonPx(
+          limbPoly.xs,
+          limbPoly.ys,
+          limbPoly.n,
+          _projScratch[0],
+          _projScratch[1],
+        ) < LABEL_LIMB_INSET_PX
+      )
+        return null
       return _projScratch
     }
     const projectMerc = (mx: number, my: number): [number, number] | null => {
@@ -379,7 +612,7 @@ export function makeLabelProjectors(
       if (proj) _projectScratch.push([proj[0], proj[1]])
       return _projectScratch
     }
-    return { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies }
+    return { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies, limbInsetPx }
   }
 
   // ── Flat display path (projType 0-6): CPU mirror of the per-vertex shader
@@ -486,8 +719,12 @@ export function makeLabelProjectors(
     }
     return _projectScratch
   }
+  // #1042 R3 — the flat path has no globe silhouette, so the limb inset is
+  // vacuously +Infinity: the label pass's `inset < halfHeight` gate never fires
+  // (call sites stay branch-free — see the globe arm's limbInsetPx).
+  const limbInsetPx = (): number => Infinity
 
-  return { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies }
+  return { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies, limbInsetPx }
 }
 
 /** Project `[lon, lat]` → CSS-px screen coords (canvas-local) through the
