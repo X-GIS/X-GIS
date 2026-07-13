@@ -3510,69 +3510,106 @@ export class VectorTileRenderer {
         phase !== 'oit-fill' &&
         !_debugRed &&
         fbAllLoaded
-      if (fbShouldBundle) {
-        // Structural cache key (mirrors primary path; see
-        // _cache/structural-key.ts).
-        const fbPickOn = isPickEnabled()
-        const fbSamples = getSampleCount()
-        const fbEpochs: number[] = new Array(fallbackKeys.length)
-        for (let i = 0; i < fallbackKeys.length; i++) {
-          fbEpochs[i] = layerCache.get(fallbackKeys[i]!)?.uploadEpoch ?? 0
-        }
-        const fbKeyState = {
-          sliceLayer,
-          phase,
-          // Fallback bundle has no `neededKeys` (the primary side),
-          // only fallback tile keys; populate both for uniform shape
-          // — the structural hash treats null + the array distinctly.
-          // #778 P1: pass by-ref; the hash reads it synchronously and never retains keyState → the defensive .slice() was pure waste.
-          neededKeys: fallbackKeys,
-          fallbackKeys: fallbackKeys.slice(),
-          fallbackVisibleKeys: fallbackVisibleKeys ? fallbackVisibleKeys.slice() : null,
-          epochs: fbEpochs,
-          // #778 P1: reused scratch instead of a per-frame `.map()` alloc (identical rounded contents → identical hash).
-          worldOffsets: this._worldOffScratchKey(fallbackOffsets),
-          bindGroupEpoch: this._bindGroups.epoch(),
-          pickOn: fbPickOn,
-          samples: fbSamples,
-          mainPipelineLabel: fallbackFill.label ?? null,
-          linePipelineLabel: linePipelineFallback?.label ?? null,
-        } as const satisfies BundleKeyState
-        const fbCacheKey = `vt-fb:${sliceLayer}:${phase}:${structuralHashKey(fbKeyState)}`
-        const fbDesc: BundleEncodeDescriptor = {
-          colorFormats: fbPickOn ? [this.format, 'rg32uint'] : [this.format],
-          depthStencilFormat: 'depth24plus-stencil8',
-          sampleCount: fbSamples,
-          depthReadOnly: false,
-          stencilReadOnly: false,
-          label: fbCacheKey,
-        }
-        let fbWasMiss = false
-        const fbBundle = this.bundleCache.getOrEncode(fbCacheKey, fbDesc, (encoder) => {
-          fbWasMiss = true
-          this._skipFillDrawForBundle = false
-          this._skipStrokeDrawForBundle = false
-          this.renderTileKeys(
-            fallbackKeys,
-            encoder,
-            fallbackFill,
-            linePipelineFallback!,
-            projCenterLon,
-            projCenterLat,
-            fallbackOffsets,
-            lineLayerOffset,
-            lineLayerOffsetGap,
+      // #1076 — the fallback ancestors MUST draw even when the drape owns the primary
+      // tiles. `_drapeGlobeFills`/`_drapeStrokes` suppress the PRIMARY direct draw
+      // (renderGlobeFills bakes the primary tiles onto the sphere), but the drape only
+      // ever receives `neededKeys`, never `fallbackKeys` — so a suppressed fallback
+      // dispatch leaves a streaming hemisphere pure background. Clear the suppression
+      // for the fallback dispatch ONLY (the bundle-record arm — where the bundle is
+      // encoded — and the direct arm both flow through here), restore in `finally` so
+      // the PRIMARY suppression above stays intact. Coarse ECEF chords beat a blank
+      // hemisphere; chord fallback is the accepted globe behaviour whenever the drape
+      // is inactive. Proper drape-fallback (parent-bake UV windowing) is a #599 follow-up.
+      const _fbSavedDrapeGlobeFills = this._drapeGlobeFills
+      const _fbSavedDrapeStrokes = this._drapeStrokes
+      this._drapeGlobeFills = false
+      this._drapeStrokes = false
+      try {
+        if (fbShouldBundle) {
+          // Structural cache key (mirrors primary path; see
+          // _cache/structural-key.ts).
+          const fbPickOn = isPickEnabled()
+          const fbSamples = getSampleCount()
+          const fbEpochs: number[] = new Array(fallbackKeys.length)
+          for (let i = 0; i < fallbackKeys.length; i++) {
+            fbEpochs[i] = layerCache.get(fallbackKeys[i]!)?.uploadEpoch ?? 0
+          }
+          const fbKeyState = {
+            sliceLayer,
             phase,
-            layerCache,
-            fallbackExtrudedPipeline,
-            bindGroupLayout,
-            translucentBucket,
-            fallbackVisibleKeys,
-          )
-        })
-        if (!fbWasMiss) {
-          this._skipFillDrawForBundle = true
-          this._skipStrokeDrawForBundle = true
+            // Fallback bundle has no `neededKeys` (the primary side),
+            // only fallback tile keys; populate both for uniform shape
+            // — the structural hash treats null + the array distinctly.
+            // #778 P1: pass by-ref; the hash reads it synchronously and never retains keyState → the defensive .slice() was pure waste.
+            neededKeys: fallbackKeys,
+            fallbackKeys: fallbackKeys.slice(),
+            fallbackVisibleKeys: fallbackVisibleKeys ? fallbackVisibleKeys.slice() : null,
+            epochs: fbEpochs,
+            // #778 P1: reused scratch instead of a per-frame `.map()` alloc (identical rounded contents → identical hash).
+            worldOffsets: this._worldOffScratchKey(fallbackOffsets),
+            bindGroupEpoch: this._bindGroups.epoch(),
+            pickOn: fbPickOn,
+            samples: fbSamples,
+            mainPipelineLabel: fallbackFill.label ?? null,
+            linePipelineLabel: linePipelineFallback?.label ?? null,
+          } as const satisfies BundleKeyState
+          const fbCacheKey = `vt-fb:${sliceLayer}:${phase}:${structuralHashKey(fbKeyState)}`
+          const fbDesc: BundleEncodeDescriptor = {
+            colorFormats: fbPickOn ? [this.format, 'rg32uint'] : [this.format],
+            depthStencilFormat: 'depth24plus-stencil8',
+            sampleCount: fbSamples,
+            depthReadOnly: false,
+            stencilReadOnly: false,
+            label: fbCacheKey,
+          }
+          let fbWasMiss = false
+          const fbBundle = this.bundleCache.getOrEncode(fbCacheKey, fbDesc, (encoder) => {
+            fbWasMiss = true
+            this._skipFillDrawForBundle = false
+            this._skipStrokeDrawForBundle = false
+            this.renderTileKeys(
+              fallbackKeys,
+              encoder,
+              fallbackFill,
+              linePipelineFallback!,
+              projCenterLon,
+              projCenterLat,
+              fallbackOffsets,
+              lineLayerOffset,
+              lineLayerOffsetGap,
+              phase,
+              layerCache,
+              fallbackExtrudedPipeline,
+              bindGroupLayout,
+              translucentBucket,
+              fallbackVisibleKeys,
+            )
+          })
+          if (!fbWasMiss) {
+            this._skipFillDrawForBundle = true
+            this._skipStrokeDrawForBundle = true
+            this.renderTileKeys(
+              fallbackKeys,
+              pass,
+              fallbackFill,
+              linePipelineFallback!,
+              projCenterLon,
+              projCenterLat,
+              fallbackOffsets,
+              lineLayerOffset,
+              lineLayerOffsetGap,
+              phase,
+              layerCache,
+              fallbackExtrudedPipeline,
+              bindGroupLayout,
+              translucentBucket,
+              fallbackVisibleKeys,
+            )
+            this._skipFillDrawForBundle = false
+            this._skipStrokeDrawForBundle = false
+          }
+          pass.executeBundles([fbBundle])
+        } else {
           this.renderTileKeys(
             fallbackKeys,
             pass,
@@ -3590,28 +3627,10 @@ export class VectorTileRenderer {
             translucentBucket,
             fallbackVisibleKeys,
           )
-          this._skipFillDrawForBundle = false
-          this._skipStrokeDrawForBundle = false
         }
-        pass.executeBundles([fbBundle])
-      } else {
-        this.renderTileKeys(
-          fallbackKeys,
-          pass,
-          fallbackFill,
-          linePipelineFallback!,
-          projCenterLon,
-          projCenterLat,
-          fallbackOffsets,
-          lineLayerOffset,
-          lineLayerOffsetGap,
-          phase,
-          layerCache,
-          fallbackExtrudedPipeline,
-          bindGroupLayout,
-          translucentBucket,
-          fallbackVisibleKeys,
-        )
+      } finally {
+        this._drapeGlobeFills = _fbSavedDrapeGlobeFills
+        this._drapeStrokes = _fbSavedDrapeStrokes
       }
       if (_debugRed) {
         const f32 = new Float32Array(this.frameBlock.buffer)
