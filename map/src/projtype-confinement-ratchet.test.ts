@@ -24,7 +24,9 @@ import { join, dirname, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
-const PKGS = ['map/src', 'geo/src', 'data/src']
+// compiler/blueprint/shared carried from the retiring runtime Gate 4 (#1005):
+// they are projType-clean today (zero baseline entries) and must stay so.
+const PKGS = ['map/src', 'geo/src', 'data/src', 'compiler/src', 'blueprint/src', 'shared/src']
 const AUTHORITY = 'geo/src/projections-table.ts' // projType dispatch lives here
 
 function walkTs(absDir: string): string[] {

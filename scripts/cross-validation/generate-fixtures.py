@@ -13,7 +13,7 @@ values. When regenerating, run via:
     cd scripts/cross-validation
     uv run generate-fixtures.py
 
-The fixture lives at runtime/src/__tests__/cross-validation.fixture.json.
+The fixture lives at data/src/cross-validation.fixture.json.
 Regenerate whenever a projection/tile formula intentionally changes.
 """
 
@@ -28,9 +28,11 @@ import pyproj
 from shapely.geometry import Polygon, shape
 
 
-# Script-relative output path — writes to the runtime test fixture.
+# Script-relative output path — writes to the @xgis/data test fixture
+# (relocated from runtime/src/__tests__ in #1005; the consuming tests live
+# in data/src beside it).
 SCRIPT_DIR = Path(__file__).parent
-OUT = (SCRIPT_DIR / ".." / ".." / "runtime" / "src" / "__tests__"
+OUT = (SCRIPT_DIR / ".." / ".." / "data" / "src"
        / "cross-validation.fixture.json").resolve()
 
 

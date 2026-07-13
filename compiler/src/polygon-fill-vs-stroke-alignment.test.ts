@@ -37,10 +37,7 @@ import {
 // different geometry.
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const TRIANGLE_PATH = resolve(
-  __dirname,
-  '../../../../playground/public/data/fixture-triangle.geojson',
-)
+const TRIANGLE_PATH = resolve(__dirname, '../../playground/public/data/fixture-triangle.geojson')
 
 function loadTriangle(): GeoJSONFeatureCollection {
   return JSON.parse(readFileSync(TRIANGLE_PATH, 'utf8')) as GeoJSONFeatureCollection

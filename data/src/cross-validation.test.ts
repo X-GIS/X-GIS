@@ -365,7 +365,7 @@ describe('Cross-validation: Real-data tile featureCount (vs shapely)', () => {
   // Load the same countries.geojson the playground uses, compile it via
   // X-GIS, and check each tile's featureCount matches how many country
   // polygons shapely says intersect that tile's bounds.
-  const COUNTRIES_PATH = resolve(__dirname, '../../../playground/public/data/countries.geojson')
+  const COUNTRIES_PATH = resolve(__dirname, '../../playground/public/data/countries.geojson')
   const gj = JSON.parse(readFileSync(COUNTRIES_PATH, 'utf8')) as GeoJSONFeatureCollection
 
   const zooms = [...new Set(fixture.tile_feature_counts.map((t) => t.z))].sort((a, b) => a - b)
@@ -416,7 +416,7 @@ describe('Cross-validation: Country bounding boxes (vs shapely)', () => {
   // Aggregate bbox per feature from the raw GeoJSON coordinates and
   // compare against shapely.bounds. Tests that our coordinate-parsing
   // path (flatten MultiPolygon → min/max) matches GEOS.
-  const COUNTRIES_PATH = resolve(__dirname, '../../../playground/public/data/countries.geojson')
+  const COUNTRIES_PATH = resolve(__dirname, '../../playground/public/data/countries.geojson')
   const gj = JSON.parse(readFileSync(COUNTRIES_PATH, 'utf8')) as GeoJSONFeatureCollection
 
   function featureBBox(geom: unknown): [number, number, number, number] {
@@ -467,7 +467,7 @@ describe('Cross-validation: Pipeline geometry area (clip + triangulate vs shapel
   // featureIndex. Compare against shapely's exact Mercator
   // intersection area. Any significant delta means the clip +
   // triangulate pipeline is losing or duplicating area.
-  const COUNTRIES_PATH = resolve(__dirname, '../../../playground/public/data/countries.geojson')
+  const COUNTRIES_PATH = resolve(__dirname, '../../playground/public/data/countries.geojson')
   const gj = JSON.parse(readFileSync(COUNTRIES_PATH, 'utf8')) as GeoJSONFeatureCollection
 
   const zooms = [...new Set(fixture.pipeline_area_samples.map((s) => s.z))].sort((a, b) => a - b)

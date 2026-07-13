@@ -165,7 +165,7 @@ describe('polygon ECEF-MVP latitude parity — 24-cell matrix (AC2c.1.5)', () =>
             `  lat=${String(r.lat).padStart(2)} zoom=${String(r.zoom).padStart(2)}: ${r.maxDeltaPx.toFixed(4)} px`,
         )
         .join('\n')
-      // eslint-disable-next-line no-console
+
       console.error(
         `24-cell latitude-parity worst-case ${worst.maxDeltaPx.toFixed(4)} px exceeds ${THRESHOLD_PX} px threshold.\n${lines}`,
       )
