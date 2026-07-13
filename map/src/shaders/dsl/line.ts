@@ -131,8 +131,8 @@ const TILE = uniformStruct(
     // Log-depth factor: 1.0 / log2(cam_far + 1.0). Reuses the old DSFUN _pad0.
     log_depth_fc: f32T,
     // Trailing pads mirror the polygon Uniforms tail. The line shader only
-    // reads outline_z_lift_m — the others are padding so the WGSL struct
-    // lines up with the shared 192-byte uniform block.
+    // reads outline_z_lift_m — the others are padding so the WGSL struct lines
+    // up with the shared uniform block (272 B today — see globe_eye below).
     _pad_pick: u32T,
     _pad_layer_offset: f32T,
     tile_extent_m: f32T,
