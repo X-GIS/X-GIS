@@ -41,7 +41,7 @@ function convertFeature(
 
   const type = (geojson.geometry as { type: string }).type as ProjectedFeature['type']
   const tolerance = Math.pow(options.tolerance / ((1 << options.maxZoom) * options.extent), 2)
-  let geometry: FlatLine | FlatLine[] | FlatLine[][] = []
+  const geometry: FlatLine | FlatLine[] | FlatLine[][] = []
   let id = geojson.id
   if (options.promoteId !== null) {
     id = geojson.properties?.[options.promoteId] as string | number
