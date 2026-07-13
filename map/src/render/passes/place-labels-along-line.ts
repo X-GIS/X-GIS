@@ -171,15 +171,27 @@ export function placeInlineLineLabels(
     if (!Array.isArray(part) || part.length < 2) continue
     const px = new Float32Array(part.length)
     const py = new Float32Array(part.length)
+    // #1050 — a null projection is a HARD run break, not a skipped vertex: split
+    // the part into contiguous visible runs and place each independently, so a
+    // label never lands on a phantom chord bridging a horizon-culled gap. Each
+    // run restarts the spacing walk (placeLabelsAlongLine no-ops when pn < 2, so
+    // an empty / single-vertex run flushes harmlessly). The px/py buffer is
+    // consumed synchronously per flush, so reusing it from index 0 is safe.
     let pn = 0
+    const flushRun = (): void => {
+      placeLabelsAlongLine(px, py, pn, spacingPx, emitInlineLine)
+      pn = 0
+    }
     for (const v of part) {
       const p = projectLonLat(v[0]!, v[1]!)
       if (p) {
         px[pn] = p[0]
         py[pn] = p[1]
         pn++
+      } else {
+        flushRun()
       }
     }
-    placeLabelsAlongLine(px, py, pn, spacingPx, emitInlineLine)
+    flushRun()
   }
 }
