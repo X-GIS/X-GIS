@@ -89,8 +89,8 @@ import { PI, EARTH_R, MERCATOR_LAT_LIMIT, DEG2RAD } from './consts'
 // ── Struct declarations ──
 //
 // Field order + names match POLYGON_SHADER_SOURCE byte-for-byte; the 272-byte
-// uniform layout (UNIFORM_SIZE in vector-tile-renderer.ts) is consumed by every
-// polygon variant + by every per-tile
+// uniform layout (reflect-derived — polygonUniformSlots(), never hardcoded) is
+// consumed by every polygon variant + by every per-tile
 // uniform writeBuffer caller in renderer.ts / vector-tile-renderer.ts, so any
 // reordering would silently mis-bind the GPU read.
 
@@ -102,7 +102,7 @@ const U = uniformStruct(
     // now holds the ECEF-MVP from Camera.getECEFFrameView() (was previously
     // the second slot `mvp_ecef`). Every polygon VS consumes ECEF; the dual
     // slot is gone (that removal shrank the struct; later fields re-grew it to
-    // its current 272 bytes — UNIFORM_SIZE in vector-tile-renderer.ts).
+    // its current 272 bytes — reflect-derived via polygonUniformSlots()).
     mvp: mat4x4fT,
     fill_color: vec4fT,
     stroke_color: vec4fT,
@@ -129,8 +129,8 @@ const U = uniformStruct(
     tile_dequant_half: f32T,
     // WS-9 — fill-extrusion light colour packed RGBA8 (offset 200, slot 50).
     // These two u32 lanes exactly fill the 8-byte pad WGSL otherwise inserts
-    // here to 16-align the cam_ecef_off_h vec4 below, so the struct size —
-    // and thus UNIFORM_SIZE / UNIFORM_SLOT — stay 256 (no buffer growth).
+    // here to 16-align the cam_ecef_off_h vec4 below, so adding them kept the
+    // struct at 256 at the time (#600 globe_eye later grew it to today's 272).
     // The extrude VS unpacks light_color_packed + reads intensity from
     // light_dir_ecef.w; every other polygon variant ignores both fields.
     light_color_packed: u32T,
