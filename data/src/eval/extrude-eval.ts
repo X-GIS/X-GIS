@@ -37,7 +37,7 @@ export function evalExtrudeExpr(
   node: ExtrudeAst,
   props: Record<string, unknown> | null | undefined,
   tileZoom?: number,
-  feature?: { id?: string | number; geometry?: { type?: string } },
+  feature?: { id?: string | number; geometry?: { type?: string } | null },
 ): number | null {
   if (!node || typeof node !== 'object') return null
   // The cast is structural — evaluate() expects an AST.Expr but

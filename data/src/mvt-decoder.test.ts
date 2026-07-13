@@ -31,7 +31,7 @@ describe('decodeMvtTile (round-trip)', () => {
 
     const features = decodeMvtTile(buf, z, x, y)
     expect(features).toHaveLength(1)
-    expect(features[0].geometry.type).toBe('Point')
+    expect(features[0].geometry!.type).toBe('Point')
     const [lon, lat] = (features[0].geometry as { coordinates: number[] }).coordinates
     // Quantization: 4096 units across world (~10° per unit at z=0); error ≤ ~0.05°.
     expect(Math.abs(lon - 10)).toBeLessThan(0.1)
@@ -81,7 +81,7 @@ describe('decodeMvtTile (round-trip)', () => {
 
     const features = decodeMvtTile(buf, z, x, y)
     expect(features.length).toBeGreaterThanOrEqual(2)
-    const types = features.map((f) => f.geometry.type).sort()
+    const types = features.map((f) => f.geometry!.type).sort()
     expect(types).toContain('LineString')
     expect(types).toContain('Polygon')
     for (const f of features) {

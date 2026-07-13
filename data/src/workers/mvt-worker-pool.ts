@@ -98,7 +98,7 @@ export class MvtWorkerPool {
   /** Handle of the in-flight rAF (or setTimeout) drain callback, retained so
    *  dispose() can cancel it — otherwise a scheduled drain fires post-teardown
    *  and resolves jobs after the pool was disposed. null when none scheduled. */
-  private _rafHandle: number | null = null
+  private _rafHandle: number | ReturnType<typeof setTimeout> | null = null
   private static readonly MAX_RESOLVES_PER_FRAME = 4
 
   // Diagnostic counters — incremented by every drain; specs poll for
@@ -332,7 +332,11 @@ export class MvtWorkerPool {
     // resolve jobs after the workers were terminated; then drop the buffered
     // results + reset the scheduler flag.
     if (this._rafHandle != null) {
-      if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(this._rafHandle)
+      // A number handle can only come from the rAF branch (and a Timeout only
+      // from the setTimeout fallback), so this narrowing mirrors the schedule
+      // pairing exactly — no cast needed.
+      if (typeof this._rafHandle === 'number' && typeof cancelAnimationFrame !== 'undefined')
+        cancelAnimationFrame(this._rafHandle)
       else clearTimeout(this._rafHandle)
     }
     this._rafHandle = null

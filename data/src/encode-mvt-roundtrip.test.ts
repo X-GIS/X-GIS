@@ -69,8 +69,8 @@ describe('encodeMVT — round-trip via decodeMvtTile', () => {
     expect(polygon).toBeDefined()
     expect(line).toBeDefined()
 
-    expect(polygon!.geometry.type).toBe('Polygon')
-    expect(line!.geometry.type).toBe('LineString')
+    expect(polygon!.geometry!.type).toBe('Polygon')
+    expect(line!.geometry!.type).toBe('LineString')
 
     // Properties survive (modulo _layer addition by decoder)
     expect(polygon!.properties).toMatchObject({ name: 'A', rank: 3, hot: true, _layer: 'src' })
