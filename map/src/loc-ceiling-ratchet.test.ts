@@ -88,7 +88,7 @@ const CEILINGS: Record<string, number> = {
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
   // the `_paletteHandles` / `renderTargets` owner fields). Lower as #991 shrinks map.ts.
-  'map/src/map.ts': 4237,
+  'map/src/map.ts': 4236,
   'map/src/text/text-stage.ts': 1920,
   'map/src/render/passes/label-pass.ts': 1786,
   'map/src/render/pipeline-factory.ts': 1458,
