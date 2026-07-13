@@ -97,7 +97,10 @@ const CEILINGS: Record<string, number> = {
   // the `_paletteHandles` / `renderTargets` owner fields). Lower as #991 shrinks map.ts.
   'map/src/map.ts': 4236,
   'map/src/text/text-stage.ts': 1920,
-  'map/src/render/passes/label-pass.ts': 1786,
+  // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
+  // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
+  // otherwise have grown this file — the extract-don't-grow answer.
+  'map/src/render/passes/label-pass.ts': 1719,
   'map/src/render/pipeline-factory.ts': 1458,
   'map/src/camera/camera.ts': 1419,
   'map/src/shaders/dsl/line.ts': 1373,
