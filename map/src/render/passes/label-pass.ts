@@ -842,7 +842,11 @@ class LabelPass implements RenderPass {
           }
           if (iconImageExprAst !== null) {
             try {
-              const v = evaluate(iconImageExprAst as never, bag)
+              // Single-hop from `unknown`: LabelDef.iconImageExpr.ast is
+              // `unknown` through its whole compiler producer chain
+              // (lower-label.ts), so the boundary assertion names the real
+              // target instead of erasing it with `never`.
+              const v = evaluate(iconImageExprAst as import('@xgis/compiler').Expr, bag)
               if (typeof v === 'string' && v.length > 0) {
                 ;(out as { iconImage?: string }).iconImage = v
               }

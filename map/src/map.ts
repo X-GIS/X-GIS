@@ -3111,15 +3111,10 @@ export class XGISMap {
         continue
       }
 
-      // Both tile markers are handled above. The `_tileUrl` arm can't be
-      // type-excluded (its raster guard is a truthy check that tolerates the
-      // '' edge), so narrow to the FeatureCollection arm explicitly here.
-      let filtered = applyFilter(
-        data as GeoJSONFeatureCollection,
-        show.filterExpr,
-        this.camera.zoom,
-        this.camera.pitch,
-      )
+      // Markers handled above; narrow to the FeatureCollection arm (the
+      // `_tileUrl` arm can't be type-excluded — its raster guard tolerates '').
+      const fc = data as GeoJSONFeatureCollection
+      let filtered = applyFilter(fc, show.filterExpr, this.camera.zoom, this.camera.pitch)
 
       // Procedural geometry: evaluate geometry expression per feature
       if (show.geometryExpr?.ast) {
