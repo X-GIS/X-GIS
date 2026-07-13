@@ -29,7 +29,7 @@ import {
   formatMGRS,
   formatUTM,
 } from './formatters/gis-formatter'
-import { formatDate } from './formatters/datetime-formatter'
+import { formatDate, type DateInput } from './formatters/datetime-formatter'
 
 /** Dispatch a value through the appropriate formatter for its spec.
  *  Returns the value's `String(...)` (padded if width given) when no
@@ -45,7 +45,7 @@ export function formatValue(value: unknown, spec: FormatSpec | undefined): strin
   // strftime
   if (type !== undefined && type.startsWith('%')) {
     if (value === null || value === undefined) return ''
-    return formatDate(value as never, spec)
+    return formatDate(value as DateInput, spec)
   }
 
   // GIS — single-degree

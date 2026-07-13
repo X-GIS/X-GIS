@@ -461,7 +461,7 @@ export class FeatureDataBinder {
     ) {
       // Lazy-init the dispatcher on first compute attach.
       if (!this.computeDispatcher) {
-        this.computeDispatcher = new ComputeDispatcher({ device: this.device } as never)
+        this.computeDispatcher = new ComputeDispatcher({ device: this.device })
       }
       // Build or refresh the handle for THIS tile.
       let handle = this.computeHandlesByTile.get(handleKey)

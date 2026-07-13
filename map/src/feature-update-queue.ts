@@ -1,13 +1,14 @@
 import { xlog } from '@xgis/shared'
 import { toU32Id } from '@xgis/data'
-import type { GeoJSONFeature, GeoJSONFeatureCollection } from '@xgis/data'
+import type { GeoJSONFeature } from '@xgis/data'
+import type { RawDataset } from './map-types'
 
 /** Host hooks the queue needs to read shared map state and trigger a
  *  retile/rebuild. Passed by reference at construction so the queue sees
  *  the live `rawDatasets` map and the current destroyed flag. */
 export interface FeatureUpdateQueueHost {
   /** Live source-id → FeatureCollection map (read by reference). */
-  readonly rawDatasets: Map<string, GeoJSONFeatureCollection>
+  readonly rawDatasets: Map<string, RawDataset>
   /** True once the owning map has been destroyed — a flush must bail. */
   isDestroyed(): boolean
   teardownSource(sourceId: string): void
@@ -27,7 +28,7 @@ export class FeatureUpdateQueue {
     string,
     Map<number, { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> }>
   >()
-  private _pendingFlushHandle: number | null = null
+  private _pendingFlushHandle: ReturnType<typeof setTimeout> | null = null
   private _unknownSourceWarned = new Set<string>()
   // Tile-backed (URL-loaded) sources store a marker, not a FeatureCollection,
   // so updateFeature can't patch them. Warn once per source (see updateFeature).
@@ -122,8 +123,7 @@ export class FeatureUpdateQueue {
     const raf =
       typeof window !== 'undefined' && window.requestAnimationFrame
         ? window.requestAnimationFrame.bind(window)
-        : (cb: FrameRequestCallback): number =>
-            setTimeout(() => cb(performance.now()), 16) as unknown as number
+        : (cb: FrameRequestCallback): number => setTimeout(() => cb(performance.now()), 16)
     this._pendingFlushHandle = raf(() => this.flushPendingUpdates())
   }
 
@@ -137,8 +137,9 @@ export class FeatureUpdateQueue {
       // Non-FeatureCollection shape (tile-backed marker / legacy direct write):
       // `.features` not being an array would crash the for-of. updateFeature
       // rejects markers at enqueue time; a patch reaching here warns once so
-      // the no-op is observable rather than silent.
-      if (!data || !Array.isArray((data as { features?: unknown }).features)) {
+      // the no-op is observable rather than silent. `'features' in data`
+      // narrows the RawDataset union to the FeatureCollection arm.
+      if (!data || !('features' in data) || !Array.isArray(data.features)) {
         if (!this._tileBackedUpdateWarned.has(sourceId)) {
           xlog.warn(
             `[X-GIS] updateFeature: source "${sourceId}" is not a patchable FeatureCollection; ${patches.size} pending update(s) dropped`,

@@ -129,44 +129,10 @@ export interface ReplayResult {
  *  CPU level. Safe to call every frame — no GPU work, no allocations
  *  beyond the result struct. */
 export function inspectMapPipeline(map: XGISMap): PipelineInspection {
-  const m = map as unknown as {
-    camera: {
-      centerX: number
-      centerY: number
-      zoom: number
-      bearing: number
-      pitch: number
-      maxZoom: number
-    }
-    ctx?: { canvas: { width: number; height: number } }
-    vtSources: Map<
-      string,
-      {
-        source: {
-          maxLevel: number
-          getPendingLoadCount(): number
-          hasData(): boolean
-          getSubTileBudgetUsed(): number
-          getCompileBudgetUsed(): number
-        }
-        renderer: {
-          getDrawStats(): {
-            drawCalls: number
-            tilesVisible: number
-            missedTiles: number
-            triangles: number
-            lines: number
-          }
-          getCacheSize(): number
-          getPendingUploadCount(): number
-        }
-      }
-    >
-    _frameCount: number
-    getQuality(): QualityConfig
-    _cameraExplicitlyPositioned: boolean
-    _flickerLog: Array<{ ts: number; source: string; missed: number; z: number; cache: number }>
-  }
+  // Public members (camera / ctx / vtSources / _frameCount / getQuality /
+  // _flickerLog) read straight off XGISMap; only `_cameraExplicitlyPositioned`
+  // is private, so it stays the sole cast (below).
+  const m = map
 
   const cam = m.camera
   const R = EARTH.sphereR
@@ -221,7 +187,8 @@ export function inspectMapPipeline(map: XGISMap): PipelineInspection {
     viewport: { canvasW, canvasH, dpr },
     frame: m._frameCount,
     quality: m.getQuality(),
-    cameraExplicitlyPositioned: m._cameraExplicitlyPositioned,
+    cameraExplicitlyPositioned: (map as unknown as { _cameraExplicitlyPositioned: boolean })
+      ._cameraExplicitlyPositioned,
     sources,
     recentFlickers: [...m._flickerLog],
   }
@@ -233,11 +200,9 @@ export function inspectMapPipeline(map: XGISMap): PipelineInspection {
  *  `window.__xgisSnapshot`. The hash uses SubtleCrypto SHA-256 in
  *  secure contexts and falls back to FNV-1a otherwise. */
 export async function captureMapSnapshot(map: XGISMap): Promise<MapSnapshot> {
-  const m = map as unknown as {
-    camera: { centerX: number; centerY: number; zoom: number; bearing?: number; pitch?: number }
-    canvas: HTMLCanvasElement
-    vtSources?: Map<string, unknown>
-  }
+  // camera / vtSources are public on XGISMap; `canvas` is private, so it is the
+  // sole cast (at the readback site below).
+  const m = map
   const camera = m.camera
   const lon = camera.centerX / EARTH.sphereR / (Math.PI / 180)
   const lat = mercatorYToLat(camera.centerY)
@@ -245,23 +210,22 @@ export async function captureMapSnapshot(map: XGISMap): Promise<MapSnapshot> {
   const sources: MapSnapshot['sources'] = {}
   if (m.vtSources) {
     for (const [name, entry] of m.vtSources) {
-      const r = (
-        entry as unknown as {
-          renderer?: {
-            _gpuCacheCount?: number
-            getPendingUploadCount?: () => number
-            _selection?: {
-              frameTileCache?: () => { tiles?: Array<{ z: number; x: number; y: number }> } | null
-            }
-          }
+      const r = entry.renderer
+      const cat = entry.source
+      // `_gpuCacheCount` / `_selection` are private to VectorTileRenderer; the
+      // public forwarders (getPendingUploadCount / getPendingLoadCount) read
+      // straight off the real TileCatalog / VectorTileRenderer types.
+      const priv = r as unknown as {
+        _gpuCacheCount?: number
+        _selection?: {
+          frameTileCache?: () => { tiles?: Array<{ z: number; x: number; y: number }> } | null
         }
-      ).renderer
-      const cat = (entry as unknown as { source?: { getPendingLoadCount?: () => number } }).source
+      }
       sources[name] = {
-        gpuCacheCount: r?._gpuCacheCount ?? 0,
-        pendingFetch: cat?.getPendingLoadCount?.() ?? 0,
-        pendingUpload: r?.getPendingUploadCount?.() ?? 0,
-        tiles: r?._selection?.frameTileCache?.()?.tiles ?? [],
+        gpuCacheCount: priv._gpuCacheCount ?? 0,
+        pendingFetch: cat.getPendingLoadCount(),
+        pendingUpload: r.getPendingUploadCount(),
+        tiles: priv._selection?.frameTileCache?.()?.tiles ?? [],
       }
     }
   }
@@ -276,7 +240,7 @@ export async function captureMapSnapshot(map: XGISMap): Promise<MapSnapshot> {
   // Pixel hash: SubtleCrypto SHA-256 where available, FNV-1a fallback.
   // Canvas readback via toBlob → arrayBuffer (deterministic for the
   // same pixel data) — avoids creating an extra GPU texture.
-  const canvas = m.canvas
+  const canvas = (map as unknown as { canvas: HTMLCanvasElement }).canvas
   let pixelHash = ''
   let pixelHashBy: 'subtle' | 'fnv' = 'fnv'
   try {
@@ -365,19 +329,10 @@ export async function replayMapSnapshot(
     )
   }
   const timeoutMs = opts.timeoutMs ?? 30_000
-  const m = map as unknown as {
-    camera: {
-      centerX: number
-      centerY: number
-      zoom: number
-      bearing: number
-      pitch: number
-      syncCenterLat(): void
-    }
-    _cameraExplicitlyPositioned: boolean
-    _needsRender: boolean
-    vtSources?: Map<string, unknown>
-  }
+  // camera (incl. syncCenterLat) / _needsRender / vtSources are public on
+  // XGISMap; `_cameraExplicitlyPositioned` is private, so it stays the sole
+  // cast (at the write below).
+  const m = map
 
   // 1. Set the camera. Direct field assignment bypasses setView so
   // animation tweens don't drift the snapshot camera over the next
@@ -394,7 +349,7 @@ export async function replayMapSnapshot(
   m.camera.zoom = snap.camera.zoom
   m.camera.bearing = snap.camera.bearing
   m.camera.pitch = snap.camera.pitch
-  m._cameraExplicitlyPositioned = true
+  ;(map as unknown as { _cameraExplicitlyPositioned: boolean })._cameraExplicitlyPositioned = true
   m._needsRender = true
 
   // 2. Wait until each source has every snapshot tile in its GPU
@@ -407,28 +362,20 @@ export async function replayMapSnapshot(
     let missingTiles = 0
     let sourceMissing = false
     for (const [name, snapSrc] of Object.entries(snap.sources)) {
-      const live = m.vtSources?.get(name) as unknown as
-        | {
-            source?: { hasTileData?: (key: number) => boolean; getPendingLoadCount?: () => number }
-            renderer?: { getPendingUploadCount?: () => number }
-          }
-        | undefined
+      const live = m.vtSources.get(name)
       if (!live?.source) {
         sourceMissing = true
         missingTiles += snapSrc.tiles.length
         continue
       }
-      const cat = live.source as {
-        hasTileData?: (key: number) => boolean
-        getPendingLoadCount?: () => number
-      }
-      pendingFetchTotal += cat.getPendingLoadCount?.() ?? 0
-      pendingUploadTotal += live.renderer?.getPendingUploadCount?.() ?? 0
+      const cat = live.source
+      pendingFetchTotal += cat.getPendingLoadCount()
+      pendingUploadTotal += live.renderer.getPendingUploadCount()
       for (const t of snapSrc.tiles) {
         // tileKey packing must match the runtime's encoder; pull from
         // the compiler so we don't fork the format.
         const key = compilerTileKey(t.z, t.x, t.y)
-        if (!cat.hasTileData?.(key)) missingTiles++
+        if (!cat.hasTileData(key)) missingTiles++
       }
     }
     if (sourceMissing) {

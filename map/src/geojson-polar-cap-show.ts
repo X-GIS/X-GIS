@@ -18,7 +18,7 @@ import type { MapRendererContent } from './render/renderer'
 import type { LineRenderer } from './render/line-renderer'
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import { parseHexColor } from './feature-helpers'
-import type { GeoJSONFeatureCollection } from '@xgis/data'
+import type { RawDataset } from './map-types'
 
 /** Host hooks the per-source polar-cap install/detach needs from XGISMap. The
  *  `vtSources` / `rawDatasets` Maps are shared by reference; `showCommands` is
@@ -30,7 +30,7 @@ export interface PolarCapInstallHost {
   lineRenderer: LineRenderer | null
   projectionName: string
   vtSources: Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>
-  rawDatasets: Map<string, GeoJSONFeatureCollection>
+  rawDatasets: Map<string, RawDataset>
   /** Mercator clamp-boundary pole(s) each GeoJSON source touches. */
   geojsonCapPoles: Map<string, CapPoles>
   getShowCommands(): ShowCommand[]
@@ -84,7 +84,7 @@ export function installGeoJSONPolarCaps(host: PolarCapInstallHost): void {
     const backend = new GeoJSONPolarCapBackend(sourceName, poles, rgba)
     catalog.attachBackend(backend)
     host.vtSources.set(capSrc, { source: catalog, renderer: vtRenderer })
-    host.rawDatasets.set(capSrc, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
+    host.rawDatasets.set(capSrc, { _vectorTile: true })
     // Prepend the cap show so it dispatches with the background (ahead of the
     // authored ocean/land layers — the cap continues their surface).
     host.setShowCommands([buildGeoJSONPolarCapShow(capSrc, rgba), ...host.getShowCommands()])

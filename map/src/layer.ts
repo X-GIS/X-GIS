@@ -304,7 +304,11 @@ export class XGISLayerStyle {
       if (!(k in this._defaults)) return
       // Bypass the snapshot logic — we're explicitly going back to the
       // compiled value, so direct assignment is the right move.
-      ;(this.host.show as unknown as Record<string, unknown>)[k as string] = this._defaults[k]
+      // Union-keyed heterogeneous write: ShowCommand's per-key value types
+      // differ, so TS rejects `show[k] = defaults[k]` (no single value type
+      // covers the union key). A Record<XGISLayerStyleKey, unknown> write-view
+      // is the minimal escape.
+      ;(this.host.show as unknown as Record<XGISLayerStyleKey, unknown>)[k] = this._defaults[k]
       delete this._defaults[k]
     }
     if (key) restore(key)

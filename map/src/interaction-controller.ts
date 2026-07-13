@@ -34,6 +34,7 @@ import type { LayerIdRegistry, XGISLayer, XGISFeature } from './layer'
 import type { SceneCommands } from './interpreter'
 import type { GeoJSONFeature, GeoJSONFeatureCollection } from '@xgis/data'
 import { toU32Id } from '@xgis/data'
+import type { RawDataset } from './map-types'
 
 /** A vectorTileShows entry — structural type matching XGISMap's array
  *  element; only the `show` field's `layerName` / `targetName` are read
@@ -54,7 +55,7 @@ export interface InteractionControllerDeps {
   /** Shared with XGISMap — same Map instance, by reference. */
   xgisLayers: Map<string, XGISLayer>
   /** Shared with XGISMap — same Map instance, by reference. */
-  rawDatasets: Map<string, GeoJSONFeatureCollection>
+  rawDatasets: Map<string, RawDataset>
   /** Shared with XGISMap — same Map instance, by reference. */
   featureIndex: Map<string, Map<number, GeoJSONFeature>>
   /** The WebGPU context, read fresh (populated in run() / runBinary). */
@@ -96,7 +97,7 @@ export class InteractionController {
   private readonly camera: Camera
   private readonly layerIds: LayerIdRegistry
   private readonly xgisLayers: Map<string, XGISLayer>
-  private readonly rawDatasets: Map<string, GeoJSONFeatureCollection>
+  private readonly rawDatasets: Map<string, RawDataset>
   private readonly _featureIndex: Map<string, Map<number, GeoJSONFeature>>
   private readonly getCtx: () => GPUContext | null
   private readonly getPickTexture: () => GPUTexture | null
@@ -293,7 +294,11 @@ export class InteractionController {
    *  Returns null when the source isn't a GeoJSON dataset or the ID
    *  isn't found. */
   lookupFeatureProperties(sourceName: string, featureId: number): Record<string, unknown> | null {
-    const data = this.rawDatasets.get(sourceName)
+    // The feature-index pick path is GeoJSON-only by construction: an index is
+    // built solely for FeatureCollection sources. A tile marker here is a
+    // caller bug (this method's contract returns null for non-GeoJSON), so the
+    // single-hop cast preserves the prior FC-typed access.
+    const data = this.rawDatasets.get(sourceName) as GeoJSONFeatureCollection | undefined
     if (!data) return null
     let index = this._featureIndex.get(sourceName)
     if (!index) {

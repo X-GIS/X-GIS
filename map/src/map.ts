@@ -120,6 +120,7 @@ import type {
   XGISFontResource,
   XGISMapOptions,
   FontTypographyMap,
+  RawDataset,
 } from './map-types'
 // Re-export the public type surface so existing `import { ... } from
 // './engine/map'` paths keep resolving after the extraction.
@@ -336,7 +337,7 @@ export class XGISMap {
   private vtVariantPipelines: VariantPipelines | null = null
 
   // Raw data for re-projection
-  rawDatasets = new Map<string, GeoJSONFeatureCollection>()
+  rawDatasets = new Map<string, RawDataset>()
   /** Declared input CRS per source id, built at run() time from
    *  `commands.loads[].crs` (the LoadCommand carrier threaded from IR
    *  `SourceDef.crs`). The IR `Scene` is not retained past emitCommands,
@@ -873,7 +874,7 @@ export class XGISMap {
     this.vtSources.set(SYNTHETIC_EARTH_SURFACE_SOURCE, { source: catalog, renderer: vtRenderer })
     this.rawDatasets.set(SYNTHETIC_EARTH_SURFACE_SOURCE, {
       _vectorTile: true,
-    } as unknown as GeoJSONFeatureCollection)
+    })
   }
 
   /** Issue #360 F1 — XGISMap-side host adapter for the per-source polar-cap
@@ -2824,7 +2825,7 @@ export class XGISMap {
     if (variants.length > 0) {
       try {
         await this.renderer.prewarmShaderVariantsAsync(
-          variants as unknown as Parameters<MapRendererContent['prewarmShaderVariantsAsync']>[0],
+          variants,
         )
       } catch (e) {
         xlog.warn(
@@ -3023,7 +3024,7 @@ export class XGISMap {
       }
 
       // Raster tile source referenced by a layer → activate raster renderer
-      const tileUrl = (data as unknown as { _tileUrl?: string })._tileUrl
+      const tileUrl = '_tileUrl' in data ? data._tileUrl : undefined
       if (tileUrl) {
         this.rasterRenderer.setUrlTemplate(tileUrl)
         // Capture the show so the frame loop can resolve its
@@ -3035,7 +3036,7 @@ export class XGISMap {
       }
 
       // Skip vector tile sources loaded from .xgvt files
-      if ((data as unknown as { _vectorTile?: boolean })._vectorTile) {
+      if ('_vectorTile' in data) {
         const vtEntry = this.vtSources.get(show.targetName)
         if (!vtEntry) continue
 
@@ -3110,7 +3111,15 @@ export class XGISMap {
         continue
       }
 
-      let filtered = applyFilter(data, show.filterExpr, this.camera.zoom, this.camera.pitch)
+      // Both tile markers are handled above. The `_tileUrl` arm can't be
+      // type-excluded (its raster guard is a truthy check that tolerates the
+      // '' edge), so narrow to the FeatureCollection arm explicitly here.
+      let filtered = applyFilter(
+        data as GeoJSONFeatureCollection,
+        show.filterExpr,
+        this.camera.zoom,
+        this.camera.pitch,
+      )
 
       // Procedural geometry: evaluate geometry expression per feature
       if (show.geometryExpr?.ast) {

@@ -574,7 +574,7 @@ class LabelPass implements RenderPass {
         if (!projected) continue
         const tv = {
           kind: 'expr' as const,
-          expr: { ast: { kind: 'StringLiteral' as const, value: ov.text } as never },
+          expr: { ast: { kind: 'StringLiteral' as const, value: ov.text } },
         }
         stage.addLabel(
           tv,
@@ -822,7 +822,7 @@ class LabelPass implements RenderPass {
           const out = { ...effectiveDef }
           if (sizeExprAst !== null) {
             try {
-              const v = evaluate(sizeExprAst as never, bag)
+              const v = evaluate(sizeExprAst, bag)
               if (typeof v === 'number' && isFinite(v)) out.size = v
             } catch {
               /* fall back to effectiveDef.size */
@@ -830,7 +830,7 @@ class LabelPass implements RenderPass {
           }
           if (colorExprAst !== null) {
             try {
-              const v = evaluate(colorExprAst as never, bag)
+              const v = evaluate(colorExprAst, bag)
               if (typeof v === 'string') {
                 const hex = resolveColor(v)
                 const rgba = hexToRgba(hex ?? v)
@@ -862,7 +862,7 @@ class LabelPass implements RenderPass {
         // in `rawDatasets`. Iterates the FeatureCollection directly
         // and uses `featureAnchor` to pick a centroid per geometry.
         const data = host.rawDatasets.get(show.targetName)
-        if (data && data.features && !(data as unknown as { _vectorTile?: boolean })._vectorTile) {
+        if (data && 'features' in data && data.features) {
           for (const feat of data.features) {
             if (!feat.geometry) continue
             // #727 P1 — inline (raw-GeoJSON) line placement. A symbol layer
