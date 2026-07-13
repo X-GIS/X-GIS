@@ -8,7 +8,7 @@
 import type { RhiDevice, RhiBindGroup, RhiTexture, RhiTextureView } from '@xgis/engine'
 import { wrapWebGpuTextureView } from '@xgis/rhi-webgpu'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
-import { emitRasterWgsl, buildRasterModule } from '@xgis/map'
+import { emitRasterWgsl, buildRasterModule, rasterGridVertexCount } from '@xgis/map'
 import { rasterTileBytes } from '../raster-uniform-slots'
 import { emitGlslModule } from '@xgis/shader-dsl'
 
@@ -19,6 +19,10 @@ import { emitGlslModule } from '@xgis/shader-dsl'
 export interface RasterTile {
   texture: GPUTexture | RhiTexture
   tileBytes: Float32Array
+  /** #1040 — this tile's surface grid subdivision N (rasterGridN). The draw count
+   *  is rasterGridVertexCount(N): a globe z0 tile is 128×128, flat / high-z is 8×8.
+   *  MUST equal the N packed into the per-tile uniform's `grid.x` lane. */
+  gridN: number
 }
 
 export class RasterDraper {
@@ -156,7 +160,7 @@ export class RasterDraper {
       variant: 0,
       bindGroups: [this.globalBG(material, t.texture, nearest, pick), null],
       poolBytes: t.tileBytes,
-      count: 384,
+      count: rasterGridVertexCount(t.gridN),
       indexed: false,
     }))
     executeItems(material, pass, items)

@@ -110,7 +110,11 @@ const CEILINGS: Record<string, number> = {
   'data/src/tile-catalog.ts': 1290,
   'map/src/render-loop.ts': 1173,
   'map/src/render/point-renderer.ts': 1140,
-  'rhi-webgl2/src/rhi-webgl2.ts': 1106,
+  // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
+  // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
+  // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's
+  // POLYGON_OFFSET_FILL reset. Each is a documented comment + one GL call (net +14).
+  'rhi-webgl2/src/rhi-webgl2.ts': 1120,
   'map/src/render/renderer.ts': 965,
   'map/src/render/gpu-tile-store.ts': 941,
   'map/src/render/tile-selection-cache.ts': 930,

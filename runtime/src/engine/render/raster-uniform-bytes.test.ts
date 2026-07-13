@@ -38,7 +38,9 @@ describe('raster per-tile TileUniforms — reflect === shipped', () => {
     ['bounds', 0],
     ['tile_ecef_center', 16],
     ['merc_y', 32],
-    ['_pad', 40],
+    // #1040 — the trailing vec2 was renamed `_pad` → `grid` (x = surface grid N,
+    // fed by rasterGridN; y reserved). Byte offset/layout unchanged (vec2 @ 40).
+    ['grid', 40],
   ]
   for (const [f, b] of cases)
     it(`${f} @ byte ${b}`, () => {

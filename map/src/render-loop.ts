@@ -30,7 +30,7 @@ import {
 } from '@xgis/geo'
 import { effectiveDpr, getSampleCount, isPickEnabled } from '@xgis/engine'
 import { resizeCanvas } from '@xgis/rhi-webgpu'
-import { DEBUG_OVERDRAW } from './debug-flags'
+import { DEBUG_OVERDRAW, DEBUG_RHI_CHECKER } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
@@ -859,8 +859,8 @@ export class RenderLoop {
     const pass = rhi.beginScreenPass({ width: w, height: h, clear: [cv.r, cv.g, cv.b, cv.a] })
     // #834 M5 slice 2 — real raster tile sources on WebGL2. With a source
     // configured, the SAME render() the WebGPU frame uses draws the tiles
-    // (RHI texture upload + RasterDraper on this pass); without one, the
-    // analytic checker stays (the US-003/US-004 gate fixture).
+    // (RHI texture upload + RasterDraper); a sourceless production frame
+    // draws nothing (WebGPU parity, #1041) unless DEBUG_RHI_CHECKER opts in.
     if (this.host.rasterRenderer.hasSource()) {
       this.host.rasterRenderer.render(
         pass,
@@ -872,7 +872,7 @@ export class RenderLoop {
         h,
         dpr,
       )
-    } else {
+    } else if (DEBUG_RHI_CHECKER) {
       this.host.rasterRenderer.renderRhiChecker(
         rhi,
         pass,

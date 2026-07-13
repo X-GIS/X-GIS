@@ -36,8 +36,9 @@ function fakeGl(): { gl: WebGL2RenderingContext; calls: Call[]; errors: number[]
     viewport: rec('viewport'),
     disable: rec('disable'),
     clearColor: rec('clearColor'),
-    // The clear block unmasks stencil (#746) + depth (#778 P/#780) before glClear,
-    // since glClear honors the write masks — the fake must stub them.
+    // The clear block unmasks colorMask (#1043) + stencil (#746) + depth (#778 P/#780) before
+    // glClear, since glClear honors the write masks — the fake must stub them.
+    colorMask: rec('colorMask'),
     stencilMask: rec('stencilMask'),
     clearStencil: rec('clearStencil'),
     depthMask: rec('depthMask'),
@@ -62,6 +63,21 @@ describe('WebGl2Device screen-pass lifecycle (US-002)', () => {
     expect(calls.find((c) => c.fn === 'viewport')!.args).toEqual([0, 0, 320, 200])
     expect(calls.find((c) => c.fn === 'clearColor')!.args).toEqual([0, 0, 0, 1])
     expect(calls.some((c) => c.fn === 'clear')).toBe(true)
+  })
+
+  it('beginScreenPass unmasks colorMask (#1043) before the clear so an all-false writeMask cannot no-op it', () => {
+    const { gl, calls } = fakeGl()
+    new WebGl2Device(gl).beginScreenPass({ width: 320, height: 200, clear: [0, 0, 0, 1] })
+
+    // glClear honors colorMask (the colour sibling of the #746/#780 stencil+depth unmask): a prior
+    // pipeline's all-false pick/clip writeMask would otherwise silently skip the background clear →
+    // flicker. So colorMask(true×4) must be issued AND precede the clear.
+    const colorMaskIdx = calls.findIndex(
+      (c) => c.fn === 'colorMask' && c.args.length === 4 && c.args.every((v) => v === true),
+    )
+    const clearIdx = calls.findIndex((c) => c.fn === 'clear')
+    expect(colorMaskIdx).toBeGreaterThanOrEqual(0)
+    expect(colorMaskIdx).toBeLessThan(clearIdx)
   })
 
   it('beginScreenPass skips the clear when no clear colour is given (load semantics)', () => {

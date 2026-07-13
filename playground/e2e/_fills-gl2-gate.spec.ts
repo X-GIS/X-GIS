@@ -24,7 +24,11 @@ test('ne_110m country fills render on WebGl2Device (?forcegl2=1)', async ({ page
       errors.push(m.text().slice(0, 300))
   })
 
-  await page.goto('/demo.html?id=minimal&forcegl2=1&e2e=1', { waitUntil: 'domcontentloaded' })
+  // #1041 — the checker is opt-in now (sourceless production frames draw nothing);
+  // ?debug=checker restores it so the ocean-underlay assertion below still holds.
+  await page.goto('/demo.html?id=minimal&forcegl2=1&e2e=1&debug=checker', {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
     { timeout: 30_000 },

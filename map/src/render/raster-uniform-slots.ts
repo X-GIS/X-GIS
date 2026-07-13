@@ -32,7 +32,7 @@ export function rasterUniformBytes(): number {
 }
 
 /** f32 slot offsets of the raster per-tile 'TileUniforms' struct (bounds /
- *  tile_ecef_center / merc_y / _pad), from reflect(). Memoised. Same lazy rule. */
+ *  tile_ecef_center / merc_y / grid), from reflect(). Memoised. Same lazy rule. */
 export function rasterTileSlots(): UniformFieldSlots {
   return (_t ??= uniformFieldSlots(reflect(buildRasterModule(false)), 'TileUniforms'))
 }

@@ -26,6 +26,7 @@ import { uniformBlock } from '@xgis/engine'
 import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
 import { globeEyeUniform } from './globe-eye-uniform'
 import { xlog, activeBody, EARTH } from '@xgis/shared'
+import { computeTileCameraAnchor, clampMercLat } from './tile-camera-anchor'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
 import {
   recordFillDraw,
@@ -800,13 +801,10 @@ export class VectorTileRenderer {
     mvp[13] = -1
     mvp[15] = 1
 
-    const DEG2RAD = Math.PI / 180
-    const R = activeBody().sphereR
-    const MERC_LIMIT = 85.051129
-    const clampLat = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
-    const tileMercX = cached.tileWest * DEG2RAD * R
-    const tileMercY =
-      Math.log(Math.tan(Math.PI / 4 + (clampLat(cached.tileSouth) * DEG2RAD) / 2)) * R
+    // Tile origin from the single anchor authority (#1044) — the bake camera
+    // sits AT the tile origin (cam args 0), so only the tileMerc lanes are
+    // read; the cam/ECEF lanes are deliberately re-zeroed below.
+    const anchor = computeTileCameraAnchor(cached.tileWest, cached.tileSouth, 0, 0, 0)
 
     // Full write set (mirrors renderFillsRhi so no stale uniform bytes survive),
     // with the bake overrides: flat-Mercator arm (proj 0), camera at the tile
@@ -826,7 +824,7 @@ export class VectorTileRenderer {
     B.set.cam_l(0, 0)
     B.set.cam_ecef_off_h(0, 0, 0, 1)
     B.set.cam_ecef_off_l(0, 0, 0, 1)
-    B.set.tile_origin_merc(Math.fround(tileMercX), Math.fround(tileMercY))
+    B.set.tile_origin_merc(anchor.tileMercX, anchor.tileMercY)
     B.set.opacity(1)
     B.set.log_depth_fc(1)
     B.set.pick_id(0)
@@ -1047,13 +1045,6 @@ export class VectorTileRenderer {
     }
     if (toLoad.length > 0) this.source.requestTiles(toLoad)
 
-    const DEG2RAD = Math.PI / 180
-    const R = activeBody().sphereR
-    const MERC_LIMIT = 85.051129
-    const clampLat = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
-    const camMercX = projCenterLon * DEG2RAD * R
-    const camMercY = Math.log(Math.tan(Math.PI / 4 + (clampLat(projCenterLat) * DEG2RAD) / 2)) * R
-
     for (let ki = 0; ki < neededKeys.length; ki++) {
       const key = neededKeys[ki]!
       const worldOff = worldOffDeg?.[ki] ?? 0
@@ -1065,22 +1056,24 @@ export class VectorTileRenderer {
       if (!cached || cached.indexCount === 0 || cached.extruded) continue
       cached.lastUsedFrame = this.frameCount
 
-      // DSFUN camera anchor (verbatim math from renderTileKeys — the tiler
-      // bakes vertices relative to THIS tile origin).
-      const tileMercX = (cached.tileWest + worldOff) * DEG2RAD * R
-      const tileMercY =
-        Math.log(Math.tan(Math.PI / 4 + (clampLat(cached.tileSouth) * DEG2RAD) / 2)) * R
-      const camRelX = camMercX - tileMercX
-      const camRelY = camMercY - tileMercY
-      const cxh = Math.fround(camRelX)
-      const cyh = Math.fround(camRelY)
-      B.set.cam_h(cxh, cyh)
-      B.set.cam_l(Math.fround(camRelX - cxh), Math.fround(camRelY - cyh))
-      // Flat projections ignore the ECEF anchor xyz; .w lanes carry the
-      // antialias / vertical-gradient flags (antialias on, gradient inert).
-      B.set.cam_ecef_off_h(0, 0, 0, 1)
-      B.set.cam_ecef_off_l(0, 0, 0, 1)
-      B.set.tile_origin_merc(Math.fround(tileMercX), Math.fround(tileMercY))
+      // Camera anchors from the SINGLE authority (tile-camera-anchor.ts).
+      // #1044: this pack used to hard-zero the ECEF lanes — harmless on flat
+      // arms (the VS ignores them) but on the globe every vertex reconstructed
+      // against the wrong origin, drawing the whole layer displaced.
+      const anchor = computeTileCameraAnchor(
+        cached.tileWest,
+        cached.tileSouth,
+        worldOff,
+        projCenterLon,
+        projCenterLat,
+      )
+      B.set.cam_h(anchor.camXH, anchor.camYH)
+      B.set.cam_l(anchor.camXL, anchor.camYL)
+      // .w lanes carry the antialias / vertical-gradient flags
+      // (antialias on, gradient inert on this path).
+      B.set.cam_ecef_off_h(anchor.ecefXH, anchor.ecefYH, anchor.ecefZH, 1)
+      B.set.cam_ecef_off_l(anchor.ecefXL, anchor.ecefYL, anchor.ecefZL, 1)
+      B.set.tile_origin_merc(anchor.tileMercX, anchor.tileMercY)
       B.set.opacity(opacity)
       B.set.log_depth_fc(this.logDepthFc)
       // pick_id packs (instanceId<<16)|layerId — the pick fragment writes it
@@ -1338,13 +1331,6 @@ export class VectorTileRenderer {
     const ge = globeEyeUniform(frame.eye)
     B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
 
-    const DEG2RAD = Math.PI / 180
-    const R = activeBody().sphereR
-    const MERC_LIMIT = 85.051129
-    const clampLat = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
-    const camMercX = projCenterLon * DEG2RAD * R
-    const camMercY = Math.log(Math.tan(Math.PI / 4 + (clampLat(projCenterLat) * DEG2RAD) / 2)) * R
-
     for (let ki = 0; ki < neededKeys.length; ki++) {
       const key = neededKeys[ki]!
       const worldOff = worldOffDeg?.[ki] ?? 0
@@ -1359,18 +1345,18 @@ export class VectorTileRenderer {
         continue
       cached.lastUsedFrame = this.frameCount
 
-      const tileMercX = (cached.tileWest + worldOff) * DEG2RAD * R
-      const tileMercY =
-        Math.log(Math.tan(Math.PI / 4 + (clampLat(cached.tileSouth) * DEG2RAD) / 2)) * R
-      const camRelX = camMercX - tileMercX
-      const camRelY = camMercY - tileMercY
-      const cxh = Math.fround(camRelX)
-      const cyh = Math.fround(camRelY)
-      B.set.cam_h(cxh, cyh)
-      B.set.cam_l(Math.fround(camRelX - cxh), Math.fround(camRelY - cyh))
-      B.set.cam_ecef_off_h(0, 0, 0, 1)
-      B.set.cam_ecef_off_l(0, 0, 0, 1)
-      B.set.tile_origin_merc(Math.fround(tileMercX), Math.fround(tileMercY))
+      const anchor = computeTileCameraAnchor(
+        cached.tileWest,
+        cached.tileSouth,
+        worldOff,
+        projCenterLon,
+        projCenterLat,
+      )
+      B.set.cam_h(anchor.camXH, anchor.camYH)
+      B.set.cam_l(anchor.camXL, anchor.camYL)
+      B.set.cam_ecef_off_h(anchor.ecefXH, anchor.ecefYH, anchor.ecefZH, 1)
+      B.set.cam_ecef_off_l(anchor.ecefXL, anchor.ecefYL, anchor.ecefZL, 1)
+      B.set.tile_origin_merc(anchor.tileMercX, anchor.tileMercY)
       B.set.opacity(layerOpacity)
       B.set.log_depth_fc(this.logDepthFc)
       B.set.pick_id(0)
@@ -3959,6 +3945,16 @@ export class VectorTileRenderer {
     // building's roof outline would get overwritten by a later tile's
     // wall fill at the same pixel.
     const strokeQueue: { cached: GPUTile; slotOffset: number }[] = []
+    // Per-call invariants shared by the per-tile light-rotation + clip_bounds
+    // math below (the anchor math itself lives in tile-camera-anchor.ts).
+    const DEG2RAD = Math.PI / 180
+    const R = activeBody().sphereR
+    const camLonR = projCenterLon * DEG2RAD
+    const camLatR = clampMercLat(projCenterLat) * DEG2RAD
+    const camSin = Math.sin(camLatR)
+    const camCos = Math.cos(camLatR)
+    const camSinLon = Math.sin(camLonR)
+    const camCosLon = Math.cos(camLonR)
     for (let ki = 0; ki < keys.length; ki++) {
       const key = keys[ki]
       // For world copies: allow same key to render at different positions
@@ -4019,77 +4015,34 @@ export class VectorTileRenderer {
       // the 192-byte layout) in the DSFUN uniform block, below — keep it off
       // the pre-tile pack so we only write it once per slot.
 
-      // DSFUN uniform pack:
-      // cam_h/cam_l = splitF64(cam_merc - tile_origin_merc) so the GPU
-      // subtraction (pos_h - cam_h) + (pos_l - cam_l) cancels tile-origin
-      // magnitude and yields camera-relative meters at f64-equivalent
-      // precision regardless of camera zoom.
-      const DEG2RAD = Math.PI / 180
-      const R = activeBody().sphereR
-      const MERC_LIMIT = 85.051129
-      const clampLat = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
-      // Vertex data is in Mercator meters regardless of current projection:
-      // the tiler always pre-projects to Mercator. Non-Mercator reprojection
-      // happens in the shader via abs merc → lon/lat → project().
-      const tileMercX = (cached.tileWest + worldOff) * DEG2RAD * R
-      const tileMercY =
-        Math.log(Math.tan(Math.PI / 4 + (clampLat(cached.tileSouth) * DEG2RAD) / 2)) * R
-      const camMercX = projCenterLon * DEG2RAD * R
-      const camMercY = Math.log(Math.tan(Math.PI / 4 + (clampLat(projCenterLat) * DEG2RAD) / 2)) * R
-      const camRelX = camMercX - tileMercX // f64 cancellation
-      const camRelY = camMercY - tileMercY
-
-      const camRelXH = Math.fround(camRelX)
-      const camRelXL = Math.fround(camRelX - camRelXH)
-      const camRelYH = Math.fround(camRelY)
-      const camRelYL = Math.fround(camRelY - camRelYH)
-
-      this.frameBlock.set.cam_h(camRelXH, camRelYH)
-      this.frameBlock.set.cam_l(camRelXL, camRelYL)
-
-      // Camera-relative RTC (ECEF): off = tileEcefCenter − cameraCenter, DSFUN
-      // hi/lo at uniform floats 52-54 / 56-58. The polygon VS adds this to
-      // ecef_rtc so it projects vertex−cameraCenter through the camera-at-ENU-
-      // origin MVP — fixes the 'one spot' collapse (_ecef-render-position gate).
-      // ECEF is world-copy-independent on the sphere, so worldOff is NOT
-      // applied here (unlike the Mercator cam_h/cam_l).
-      //
-      // FRAME CONSISTENCY (globe z14 blank-tiles fix): the tile vertices +
-      // tileEcefCenter are packed on the WGS84 ELLIPSOID (packECEFPolygonVertices
-      // → tileEcefCenterFromMerc → lonLatToECEF, E2≠0). cameraCenter MUST use
-      // the SAME ellipsoid, or `off` carries the ellipsoid−sphere discrepancy
-      // (~21.5 km at Tokyo lat 35.68°). That offset is sub-pixel at low zoom
-      // (0.8 px @ z1.5 → globe renders) but explodes with zoom (4396 px @ z14),
-      // throwing every deep-zoom tile thousands of pixels off-screen → blank.
-      // Previously cameraCenter used a SPHERE (plain R, no E2) — the mismatch.
-      // Both terms on the ellipsoid makes `off` a pure ellipsoid-frame delta
-      // (≈ km, frame-consistent); the residual sphere-MVP error is only the
-      // ellipsoid−sphere of the LOCAL patch (≈ tens of m = a few px at z14,
-      // within the documented 1.7 px ECEF-MVP parity tolerance).
-      const E2_ECEF = EARTH.e2
-      const tLatR = clampLat(cached.tileSouth) * DEG2RAD
-      const tLonR = cached.tileWest * DEG2RAD
-      const tSin = Math.sin(tLatR),
-        tCos = Math.cos(tLatR)
-      const tN = R / Math.sqrt(1 - E2_ECEF * tSin * tSin)
-      const camLatR = clampLat(projCenterLat) * DEG2RAD
-      const camLonR = projCenterLon * DEG2RAD
-      const camSin = Math.sin(camLatR),
-        camCos = Math.cos(camLatR)
-      const cN = R / Math.sqrt(1 - E2_ECEF * camSin * camSin)
-      const offX = tN * tCos * Math.cos(tLonR) - cN * camCos * Math.cos(camLonR)
-      const offY = tN * tCos * Math.sin(tLonR) - cN * camCos * Math.sin(camLonR)
-      const offZ = tN * (1 - E2_ECEF) * tSin - cN * (1 - E2_ECEF) * camSin
-      const hi = (v: number) => Math.fround(v)
+      // DSFUN uniform pack — Mercator cam_h/cam_l + ellipsoid ECEF RTC offset,
+      // computed by the SINGLE anchor authority (tile-camera-anchor.ts, #1044:
+      // the frame-consistency rationale — ellipsoid camera term, no worldOff on
+      // ECEF, hi/lo splits — lives there; the WebGL2 twin packs share it so the
+      // seam cannot drift again).
+      const anchor = computeTileCameraAnchor(
+        cached.tileWest,
+        cached.tileSouth,
+        worldOff,
+        projCenterLon,
+        projCenterLat,
+      )
+      this.frameBlock.set.cam_h(anchor.camXH, anchor.camYH)
+      this.frameBlock.set.cam_l(anchor.camXL, anchor.camYL)
       // Mapbox opt-out flags ride the spare .w lanes of the two cam_ecef_off
       // vec4s (the VS only reads .xyz, so .w is free):
       //   cam_ecef_off_h.w = fill-antialias (1 default, 0 = off)
       //   cam_ecef_off_l.w = fill-extrusion-vertical-gradient
-      this.frameBlock.set.cam_ecef_off_h(hi(offX), hi(offY), hi(offZ), this.currentFillAntialias)
+      this.frameBlock.set.cam_ecef_off_h(
+        anchor.ecefXH,
+        anchor.ecefYH,
+        anchor.ecefZH,
+        this.currentFillAntialias,
+      )
       this.frameBlock.set.cam_ecef_off_l(
-        Math.fround(offX - hi(offX)),
-        Math.fround(offY - hi(offY)),
-        Math.fround(offZ - hi(offZ)),
+        anchor.ecefXL,
+        anchor.ecefYL,
+        anchor.ecefZL,
         this.currentFillVerticalGradient,
       )
 
@@ -4102,8 +4055,6 @@ export class VectorTileRenderer {
       // the wall/roof normals (East=(-sLon,cLon,0), North=(-sLat·cLon,
       // -sLat·sLon,cLat), Up=(cLat·cLon,cLat·sLon,sLat)) → roof brightest,
       // walls in MapLibre's band (CPU-oracle confirmed). .w (63) spare.
-      const camSinLon = Math.sin(camLonR),
-        camCosLon = Math.cos(camLonR)
       // Convert the Mapbox light position [radius, azimuth°, polar°] to an
       // (East,North,Up) direction via MapLibre's sphericalToCartesian
       // (azimuth +90° so 0° points north). The default [1.15,210,30]
@@ -4137,7 +4088,7 @@ export class VectorTileRenderer {
       // tile_origin_merc (32-33) + opacity (34) + log_depth_fc (35)
       // — offsets 128..143. log_depth_fc was cached by camera.getRTCMatrix
       // and is shared across every tile drawn this frame.
-      this.frameBlock.set.tile_origin_merc(Math.fround(tileMercX), Math.fround(tileMercY))
+      this.frameBlock.set.tile_origin_merc(anchor.tileMercX, anchor.tileMercY)
       this.frameBlock.set.opacity(this.currentOpacity ?? 1.0)
       this.frameBlock.set.log_depth_fc(this.logDepthFc)
       // pick_id (36) — packed (instanceId<<16)|layerId. instanceId is
@@ -4192,9 +4143,13 @@ export class VectorTileRenderer {
           (Math.atan(Math.sinh(Math.PI * (1 - (2 * (vy + 1)) / vn))) * 180) / Math.PI
         this.frameBlock.set.clip_bounds(
           Math.fround(vWestLon * DEG2RAD * R),
-          Math.fround(Math.log(Math.tan(Math.PI / 4 + (clampLat(vSouthLat) * DEG2RAD) / 2)) * R),
+          Math.fround(
+            Math.log(Math.tan(Math.PI / 4 + (clampMercLat(vSouthLat) * DEG2RAD) / 2)) * R,
+          ),
           Math.fround(vEastLon * DEG2RAD * R),
-          Math.fround(Math.log(Math.tan(Math.PI / 4 + (clampLat(vNorthLat) * DEG2RAD) / 2)) * R),
+          Math.fround(
+            Math.log(Math.tan(Math.PI / 4 + (clampMercLat(vNorthLat) * DEG2RAD) / 2)) * R,
+          ),
         )
       } else {
         // Sentinel: no clip. Fragment shader's `clip_bounds.x > -1e29`

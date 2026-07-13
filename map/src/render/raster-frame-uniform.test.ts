@@ -23,6 +23,8 @@ import {
   buildRasterModule,
   rasterU as RASTER_U,
   rasterTileU as RASTER_TILE_U,
+  rasterGridN,
+  rasterGridVertexCount,
 } from '../shaders/dsl/raster'
 import {
   writeRasterFrameUniform,
@@ -152,10 +154,14 @@ describe('raster tile uniform — block bytes ≡ retired drawTileF32 writer', (
   const ECEF_SW: readonly [number, number, number] = [4187345.1, -832901.7, 4732081.9]
   const MERC_S = 0.83279,
     MERC_DIFF = 0.11814
+  // #1040 — the tile's surface grid N now occupies the former `_pad.x` lane
+  // (slot 10); `.y` (slot 11) stays reserved (0). A representative globe value —
+  // the ladder itself is pinned by the 'raster grid ladder' describe below.
+  const GRID_N = 64
 
   for (const c of CASES) {
     it(c.name, () => {
-      // Frozen reference: slots bounds 0, tile_ecef_center 4, merc_y 8, _pad 10.
+      // Frozen reference: slots bounds 0, tile_ecef_center 4, merc_y 8, grid 10 (#1040).
       const tf = new Float32Array(12)
       tf[0] = c.west + c.wo * 360
       tf[1] = c.south
@@ -167,7 +173,7 @@ describe('raster tile uniform — block bytes ≡ retired drawTileF32 writer', (
       tf[7] = 0
       tf[8] = MERC_S
       tf[9] = MERC_DIFF
-      tf[10] = 0
+      tf[10] = GRID_N
       tf[11] = 0
 
       const block = uniformBlock(RASTER_TILE_U)
@@ -180,6 +186,7 @@ describe('raster tile uniform — block bytes ≡ retired drawTileF32 writer', (
         ECEF_SW,
         MERC_S,
         MERC_DIFF,
+        GRID_N,
       )
       expect(block.byteLength).toBe(48)
       expect([...new Uint8Array(block.buffer)]).toEqual([...new Uint8Array(tf.buffer.slice(0))])
@@ -203,5 +210,31 @@ describe('raster layouts — handle path ≡ reflected module path', () => {
     }
     check(uniformBlock(RASTER_U), 'Uniforms')
     check(uniformBlock(RASTER_TILE_U), 'TileUniforms')
+  })
+})
+
+// #1040 — the raster surface density ladder. The globe was a coarse ~16-gon at
+// z0 because N was a compile-time literal 8 (a z0 whole-world tile and a z18 tile
+// drew the same 8×8). N is now per-tile: the globe HALVES per zoom (constant
+// per-tile curvature error), floored at 8; flat projections are unchanged at 8.
+describe('raster grid ladder (#1040) — globe densifies low zoom, flat stays 8×8', () => {
+  it('globe (projType 7) halves per zoom: z0=128 … z4+=8', () => {
+    expect(rasterGridN(7, 0)).toBe(128)
+    expect(rasterGridN(7, 1)).toBe(64)
+    expect(rasterGridN(7, 2)).toBe(32)
+    expect(rasterGridN(7, 3)).toBe(16)
+    expect(rasterGridN(7, 4)).toBe(8)
+    expect(rasterGridN(7, 10)).toBe(8)
+    expect(rasterGridN(7, 18)).toBe(8) // floored at 8 — never drops below
+  })
+  it('flat projections (any non-7 projType) stay 8×8 at every zoom', () => {
+    for (const projType of [0, 1, 2, 3, 4, 5, 6]) {
+      for (const z of [0, 1, 4, 10, 18]) expect(rasterGridN(projType, z)).toBe(8)
+    }
+  })
+  it('vertex count is N·N·6 (2 tris/cell): z0 globe = 98304, z10/flat = 384', () => {
+    expect(rasterGridVertexCount(rasterGridN(7, 0))).toBe(98304) // 128·128·6 — one z0 tile
+    expect(rasterGridVertexCount(rasterGridN(7, 10))).toBe(384) // 8·8·6 — z10 globe unchanged
+    expect(rasterGridVertexCount(rasterGridN(0, 0))).toBe(384) // flat mercator unchanged
   })
 })
