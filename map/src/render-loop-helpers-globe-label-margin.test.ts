@@ -22,6 +22,7 @@ import { Camera } from './camera'
 import {
   makeLabelProjectors,
   LABEL_HORIZON_MARGIN,
+  LABEL_LIMB_INSET_PX,
   projectLonLatToScreenCss,
 } from './render-loop-helpers'
 import { buildGlobeMatrix, EARTH_R } from '@xgis/geo'
@@ -215,6 +216,92 @@ describe('makeLabelProjectors — globe label horizon margin (#1042)', () => {
     if (cen) {
       const discR = Math.hypot(pHx - cen[0], pHy - cen[1])
       expect(bandPx).toBeLessThan(0.5 * discR)
+    }
+  })
+})
+
+// ── #1042 ROUND 2 — SCREEN-SPACE limb inset ──────────────────────────────────
+//
+// Round 1 (the angular LABEL_HORIZON_MARGIN above) was REFUTED by the §5 probe:
+// at globe z2 / lat 20 / pitch 85 the floating and fine country labels INTERLEAVE
+// in angular depth (Chad 7.5° inside floats; Kenya 14.8° inside is fine) because
+// screen compression varies with azimuth — no single angular threshold can
+// separate them. Round 2 gates on the PROJECTED GLOBE SILHOUETTE: an anchor draws
+// only if its screen point sits ≥ LABEL_LIMB_INSET_PX inside the limb polygon
+// (built by projecting the horizon circle through the anchors' own matrix path).
+// The angular margin is kept as the cheap pre-filter; the limb test runs after it.
+describe('makeLabelProjectors — globe SCREEN-SPACE limb inset (#1042 round 2)', () => {
+  // The EXACT probe camera the round-1 fix was refuted on (860×720, not 800×600).
+  const PW = 860,
+    PH = 720
+  const view = buildGlobeMatrix(0, 20, 2, 85, 0, PW, PH)
+  const eye = view.eye as V3
+  const D = Math.hypot(eye[0], eye[1], eye[2])
+  const cosH = EARTH_R / D
+  const cosC = cosH + LABEL_HORIZON_MARGIN * (1 - cosH) // round-1 angular cull threshold
+  const exact = makeLabelProjectors(view.matrix, PW, PH, undefined, eye, undefined, false).projectLonLat
+  const margin = makeLabelProjectors(view.matrix, PW, PH, undefined, eye, undefined, true).projectLonLat
+
+  // The three named anchors are the round-1 probe measurements (2026-07-13):
+  const CHAD: [number, number] = [18.7, 15.4] // floater — 7.5° inside the horizon
+  const KENYA: [number, number] = [37.9, 0.2] // fine — 14.8° inside, interior on screen
+  const SATL: [number, number] = [-15, -35] // deep interior
+
+  it('FAIL-BEFORE: the Chad floater passes the ANGULAR margin yet the screen limb culls it', () => {
+    // Chad sits 7.5° inside the horizon — DEEPER than the LABEL_HORIZON_MARGIN
+    // band — so round-1's angular-only projector KEEPS it. This assertion pins
+    // that: cos > cosC means the angular gate does not fire on Chad.
+    const cCos = cosFromEye(CHAD[0], CHAD[1], eye, D)
+    expect(cCos).toBeGreaterThan(cosC) // angular margin does NOT cull Chad → round-1 draws it
+    // The exact tangent projector (== the map.project path) keeps it (front hemi).
+    expect(exact(CHAD[0], CHAD[1]), 'exact/tangent projector keeps Chad').not.toBeNull()
+    // Round-2: the screen-space limb inset culls it (its quad floats past the
+    // silhouette). Against round-1 (angular margin only, no limb test) this
+    // assertion FAILS — round-1 returns coordinates here.
+    expect(margin(CHAD[0], CHAD[1]), 'label-pass limb inset must CULL the Chad floater').toBeNull()
+  })
+
+  it('KEEPS the Kenya anchor the angular test cannot distinguish from a floater', () => {
+    // Kenya is 14.8° inside and — like Chad and the other floaters — clears the
+    // angular gate (cos > cosC). Only the screen test keeps it: its projected
+    // point is 11.8 px INTERIOR to the silhouette (vs Chad's 2.9 px). This is the
+    // separation an angular threshold cannot make.
+    const kCos = cosFromEye(KENYA[0], KENYA[1], eye, D)
+    expect(kCos).toBeGreaterThan(cosC) // Kenya also clears the angular gate …
+    expect(margin(KENYA[0], KENYA[1]), 'screen-interior Kenya must be KEPT').not.toBeNull()
+  })
+
+  it('KEEPS a deep-interior anchor (South Atlantic)', () => {
+    expect(margin(SATL[0], SATL[1]), 'deep-interior anchor must be KEPT').not.toBeNull()
+  })
+
+  it('the limb inset is a small half-quad-height buffer (< Kenya’s 11.8 px screen inset)', () => {
+    // Guards the value: 7 px (a half text-line-height at DPR 1) — big enough to
+    // keep the Chad floater’s quad off the sky, small enough NOT to blank the
+    // interior Kenya anchor (11.8 px inside). A regression back to a full
+    // line-height (14) would cull Kenya and defeat round 2.
+    expect(LABEL_LIMB_INSET_PX).toBeGreaterThan(0)
+    expect(LABEL_LIMB_INSET_PX).toBeLessThan(11)
+  })
+
+  it('pitch 0: margin keeps dead-centre; map.project keeps every witness (limb inset is label-only)', () => {
+    const v0 = buildGlobeMatrix(0, 20, 2, 0, 0, PW, PH)
+    const m0 = makeLabelProjectors(v0.matrix, PW, PH, undefined, v0.eye as V3, undefined, true)
+      .projectLonLat
+    expect(m0(0, 20), 'pitch-0 dead-centre anchor must be KEPT').not.toBeNull()
+
+    // projectLonLatToScreenCss (map.project) builds the projector WITHOUT the
+    // label gate, so the limb inset must not leak in: every witness — including
+    // the Chad floater the label pass culls at pitch 85 — returns coordinates.
+    const cam = new Camera(0, 20, 2)
+    cam.projType = 7
+    cam.globeMode = true
+    const centre: [number, number] = [0, 20]
+    for (const [lon, lat] of [CHAD, KENYA, SATL, centre]) {
+      expect(
+        projectLonLatToScreenCss(cam, PW, PH, 1, 0, 20, [lon, lat]),
+        `map.project must return coordinates for [${lon},${lat}]`,
+      ).not.toBeNull()
     }
   })
 })
