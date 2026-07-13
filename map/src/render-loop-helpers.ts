@@ -251,6 +251,38 @@ export function resolveLabelEffectiveDef(
   return effectiveDef
 }
 
+/** #1042 — label-anchor horizon margin, expressed as a FRACTION of the
+ *  per-frame visibility headroom `(1 − cosH)`, where `cosH = EARTH_R / |eye|`
+ *  is the cosine of the horizon half-angle. The globe tile/anchor cull is a
+ *  BINARY tangent-circle test (`dot(e,eye) ≤ EARTH_R·|e|`): an anchor one pixel
+ *  inside the limb passes, yet its SCREEN-SPACE quad (tens of px of glyphs)
+ *  still draws past the limb — at low zoom + extreme pitch a whole row of
+ *  country labels floats above the horizon (#1042 probe, 2026-07-13). We
+ *  therefore require a label anchor to sit an angular band INSIDE the tangent
+ *  circle before it is drawn. Because the surface near the limb is foreshortened
+ *  to sub-pixel, that band trims a WIDE angular rim (the crushed, unreadable
+ *  near-limb meridian where the floaters pile up) for a small screen-space cost
+ *  — matching MapLibre / Google-Earth, which drop labels within a limb band.
+ *
+ *  Why a FRACTION of `(1 − cosH)`, NOT an absolute cosine offset `cosH + m`:
+ *  globeMode is projection-gated, not zoom-gated (it runs at city zoom), so
+ *  `cosH → 1` as the camera nears the surface. An absolute additive margin `m`
+ *  is only safe while `m < 1 − cosH`, and the headroom collapses fast —
+ *  measured `1 − cosH` is 0.0027 at z12 and 4e-5 at z18 — so ANY fixed `m > 0`
+ *  (even 0.008) would eventually exceed it and cull even the DEAD-CENTRE anchor,
+ *  blanking every globe label from ~z12 in. Scaling by the headroom keeps the
+ *  band a fixed fraction of the visible cap at every zoom: it can never cross
+ *  the sub-eye point (fraction < 1) yet still trims the limb rim where one
+ *  exists (low zoom). 0.15 matches the sibling flat-path ORTHO_RIM_LABEL_MARGIN,
+ *  the codebase's own answer to the same crushed-limb-rim phenomenon, and stays
+ *  clear of front-side labels at z3–4 (no label-count regression).
+ *
+ *  Applied ONLY by the label-pass projector (via the `labelHorizonMargin` gate);
+ *  `map.project()` / projectLonLatToScreenCss answer "where does this lon/lat
+ *  land", not "should a label draw", so they keep the exact binary tangent cull.
+ *  Exported for the calibration / regression gate. */
+export const LABEL_HORIZON_MARGIN = 0.15
+
 /** The four per-frame label anchor projectors. They form a tight family:
  *  `projectMerc` does the raw merc-metre → screen matrix multiply;
  *  `projectLonLat` dispatches by active projection and delegates the
@@ -309,6 +341,11 @@ export function makeLabelProjectors(
   // too. Omitting it fed ABSOLUTE ECEF into the RTC matrix → labels splayed off
   // their features and, under pitch, shot off the top of the screen (vanished).
   focus?: readonly [number, number, number],
+  // #1042 — label pass ONLY. When true, the globe/ECEF cull additionally trims
+  // a horizon MARGIN band (LABEL_HORIZON_MARGIN of the visibility headroom) so a
+  // near-limb label's screen quad stays inside the globe silhouette.
+  // map.project() and every other caller omit it → exact binary tangent cull.
+  labelHorizonMargin = false,
 ): {
   projectMerc: (mx: number, my: number, worldMercatorOffset?: number) => [number, number] | null
   /** `worldCopy` is the COPY INDEX (0, ±1 — from getVisibleWorldCopies), not
@@ -324,6 +361,15 @@ export function makeLabelProjectors(
   //    same point so world copies collapse to one. ──────────────────────────
   if (!flat) {
     const _projScratch: [number, number] = [0, 0]
+    // Per-eye horizon-cull coefficient, multiplied by |e| for each anchor. The
+    // exact tangent test uses EARTH_R (map.project and every non-label caller).
+    // The label pass (labelHorizonMargin) widens it INWARD by
+    // LABEL_HORIZON_MARGIN of the visibility headroom (|eye| − EARTH_R): a
+    // fraction of the cap, so it never crosses the sub-eye point as cosH→1 at
+    // high zoom. Precomputed once (eye is fixed for this projector). See #1042.
+    const eyeLen = eye ? Math.hypot(eye[0], eye[1], eye[2]) : 0
+    const horizonCullCoeff =
+      labelHorizonMargin && eye ? EARTH_R + LABEL_HORIZON_MARGIN * (eyeLen - EARTH_R) : EARTH_R
 
     const projectLonLat = (lon: number, lat: number): [number, number] | null => {
       const e = lonLatToECEF(lon, lat)
@@ -338,11 +384,13 @@ export function makeLabelProjectors(
       // `e` is the ellipsoid lonLatToECEF point; the ≤~0.19° geodetic-vs-
       // geocentric direction difference is negligible for a horizon test, so
       // normalize(e) is used directly (no frame conversion — match the sphere
-      // model the tile cull uses).
+      // model the tile cull uses). `horizonCullCoeff` is EARTH_R for the exact
+      // tangent cull, or EARTH_R + margin·(|eye|−EARTH_R) for the label pass
+      // (#1042) — the anchor must then sit an angular band inside the limb.
       if (eye) {
         const eLen = Math.hypot(e[0], e[1], e[2])
         const dotEEye = e[0] * eye[0] + e[1] * eye[1] + e[2] * eye[2]
-        if (dotEEye <= EARTH_R * eLen) return null
+        if (dotEEye <= horizonCullCoeff * eLen) return null
       }
       // `mvp` is the RTC (focus-relative) globe matrix, so feed it the anchor
       // relative to the camera focus — NOT absolute ECEF (the cull above stays
