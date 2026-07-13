@@ -9,6 +9,7 @@
 import type { TextStageOptions } from './text/text-stage-types'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
 import type { BackendChoice } from '@xgis/engine'
+import type { Body } from '@xgis/shared'
 import type { SourceLoader } from './source-loader'
 
 export type { BackendChoice }
@@ -103,6 +104,15 @@ export interface XGISMapOptions {
    *  swap keeps the original backend. NOTE: the WebGL2 backend is currently a
    *  limited single-sample raster slice, not full render parity. */
   backend?: BackendChoice
+  /** Celestial body to render, chosen at construction (#798 P2) — e.g. `MOON` /
+   *  `MARS_IAU2000` from `@xgis/shared`, or a custom `makeBody(...)`. Routes
+   *  through `configureBody()` (the process-global Body authority) and the GPU
+   *  const seam BEFORE any shader emit, so every CPU pack and emitted shader
+   *  reads the same body. Default: the current active body (EARTH unless
+   *  `configureBody()` was called earlier). Construction-immutable (mirrors
+   *  `backend`) and PROCESS-GLOBAL — two maps on one page share one body, so
+   *  the last-constructed map's `body` wins for both. */
+  body?: Body
   /** Per-map custom source-loader registry (docs/architecture/source-loader-seam.md).
    *  Maps a custom `.xgis` `source { type: <key> }` to a loader that produces the
    *  source's data — the declarative on-ramp for data the 7 built-in source types

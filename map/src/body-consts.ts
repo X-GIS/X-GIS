@@ -24,7 +24,7 @@
 // calls it right after configureProjections(); shader modules build lazily at GPU
 // init, well after. Mirrors configureProjections()'s configure-before-emit rule.
 
-import { EARTH, type Body } from '@xgis/shared'
+import { EARTH, activeBody, configureBody, type Body } from '@xgis/shared'
 import type { ConstDecl } from '@xgis/shader-dsl'
 import { ECEF_CONSTS } from './shaders/dsl/ecef'
 import { PROJECTION_CONSTS } from './shaders/dsl/projections'
@@ -73,4 +73,15 @@ export function configureBodyConsts(body: Body): void {
   setConst(EARTH_R_C, body.sphereR)
   setConst(WGS84_A_C, body.a)
   setConst(WGS84_E2_C, body.e2)
+}
+
+/** Construction-time body boot — the ONE seam the XGISMap ctor calls (#798 P2+P3).
+ *  Applies the optional `{ body }` ctor knob to the process-global authority
+ *  (configureBody; an omitted knob preserves a previously configured body), then
+ *  routes the GPU ConstDecls through the active body. Must run before the first
+ *  shader emit — the same configure-before-emit contract configureProjections()
+ *  follows. EARTH default ⟹ byte-identical (see configureBodyConsts). */
+export function applyBodyOption(body?: Body): void {
+  if (body) configureBody(body)
+  configureBodyConsts(activeBody())
 }
