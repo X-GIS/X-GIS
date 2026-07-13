@@ -50,7 +50,7 @@ export type {
   PMTilesSourceOptions,
   ResolvedSource,
 } from './vector-tile-loader-types'
-export { detectVectorTileFormat, resolveDispatch } from './vector-tile-loader-helpers'
+export { detectVectorTileFormat, resolveDispatch } from './vector-tile-loader-helpers' // eslint-disable-line @typescript-eslint/no-deprecated -- back-compat re-export of the legacy dispatcher
 
 // ─── Per-tile fetch retry (module-level, shared globally) ───────────
 
@@ -288,6 +288,7 @@ export abstract class VectorTileSource {
     )
     catalog.prewarmSkeleton({
       depth: opts.prewarmSkeletonDepth,
+      byteBudget: opts.prewarmSkeletonByteBudget,
       minzoom: meta.minZoom,
       maxzoom: meta.maxZoom,
     })

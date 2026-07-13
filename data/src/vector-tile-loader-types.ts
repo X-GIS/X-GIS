@@ -52,6 +52,8 @@ export interface PMTilesSourceOptions {
   strokeColorExprs?: Record<string, unknown>
   /** Skeleton prewarm depth — see TileCatalog.prewarmSkeleton. */
   prewarmSkeletonDepth?: number
+  /** Skeleton prewarm byte budget (#1045) — see TileCatalog.prewarmSkeleton. */
+  prewarmSkeletonByteBudget?: number
 }
 
 /** Unified shape returned by `VectorTileSource.resolve()` for sources

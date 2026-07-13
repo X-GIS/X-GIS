@@ -60,6 +60,13 @@ export class TileEvictionPolicy {
     for (const k of keys) this._skeletonKeys.add(k)
   }
 
+  /** Release skeleton pins — the budget-stopped / never-arrived keys of
+   *  a prewarm pump (#1045) — so ordinary LRU eviction can reclaim any
+   *  stray that did land. Safe on keys that were never marked. */
+  unmarkSkeleton(keys: Iterable<number>): void {
+    for (const k of keys) this._skeletonKeys.delete(k)
+  }
+
   /** True when there are any pinned skeleton keys. */
   get hasSkeleton(): boolean {
     return this._skeletonKeys.size > 0
