@@ -31,7 +31,13 @@ import type { GPUContext } from '@xgis/rhi-webgpu'
 import { getMaxDpr } from '@xgis/engine'
 import type { MapRendererContent } from './render/renderer'
 import type { LineRenderer } from './render/line-renderer'
-import { lonLatToMercator, type GeoJSONFeatureCollection } from '@xgis/data'
+import {
+  lonLatToMercator,
+  type GeoJSONFeatureCollection,
+  type GeoJSONFeature,
+  type GeoJSONGeometry,
+} from '@xgis/data'
+import type { RawDataset } from './map-types'
 import { isTileTemplate } from '@xgis/data'
 import { TileCatalog } from '@xgis/data'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
@@ -58,7 +64,7 @@ const BUILTIN_SOURCE_TYPES = new Set<string>([...SOURCE_TYPES, 'xgvt'])
 /** Dependencies SourceManager needs from the host XGISMap. */
 export interface SourceManagerDeps {
   /** Shared with XGISMap — same Map instance, by reference. */
-  rawDatasets: Map<string, GeoJSONFeatureCollection>
+  rawDatasets: Map<string, RawDataset>
   /** Shared with XGISMap — same Map instance, by reference. */
   vtSources: Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>
   /** Shared with XGISMap — same Map instance, by reference. */
@@ -105,7 +111,7 @@ export interface SourceManagerDeps {
 
 export class SourceManager {
   // Shared Map references (same instances as XGISMap's fields).
-  private readonly rawDatasets: Map<string, GeoJSONFeatureCollection>
+  private readonly rawDatasets: Map<string, RawDataset>
   private readonly vtSources: Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>
   private readonly sourceCRS: Map<string, string>
   private readonly geojsonCapPoles: Map<string, CapPoles>
@@ -278,7 +284,7 @@ export class SourceManager {
     const vectorTileFormat = detectVectorTileFormat(url, asVectorTileKind(declaredType))
 
     if (looksLikeRaster) {
-      this.rawDatasets.set(load.name, { _tileUrl: url } as unknown as GeoJSONFeatureCollection)
+      this.rawDatasets.set(load.name, { _tileUrl: url })
       return
     }
 
@@ -337,7 +343,7 @@ export class SourceManager {
         strokeColorExprs: maps.strokeColorExprsBySource.get(load.name),
       })
       this.vtSources.set(load.name, { source, renderer: vtRenderer })
-      this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
+      this.rawDatasets.set(load.name, { _vectorTile: true })
 
       // Fit camera to the FIRST source that finishes. Multi-source demos
       // typically share world-bounds; "first to win" avoids order-
@@ -592,7 +598,7 @@ export class SourceManager {
         features: heatmapPts,
       } as GeoJSONFeatureCollection)
     else this.heatmapPointData.delete(sourceName)
-    this.rawDatasets.set(sourceName, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
+    this.rawDatasets.set(sourceName, { _vectorTile: true })
 
     // Camera-fit: derive bounds from the GeoJSON features themselves
     // (no remote metadata to consult, unlike PMTiles). Route through
@@ -625,7 +631,10 @@ export class SourceManager {
    *  keep their existing GPU state.
    *
    *  Throws if `sourceId` was not declared in the .xgis file. */
-  setSourceData(sourceId: string, data: GeoJSONFeatureCollection): void {
+  setSourceData(
+    sourceId: string,
+    data: GeoJSONFeatureCollection | GeoJSONFeature | GeoJSONGeometry,
+  ): void {
     if (!this.rawDatasets.has(sourceId)) {
       throw new Error(`[X-GIS] setSourceData: unknown source "${sourceId}"`)
     }
@@ -642,29 +651,21 @@ export class SourceManager {
     // compiler-side normaliseInlineGeoJSON does for inline source.data.
     // Also accept a bare Geometry (`{ type: 'Point', coordinates: … }`)
     // by wrapping it in a Feature inside a FeatureCollection.
-    let normalized: GeoJSONFeatureCollection = data
-    const shape = data as {
-      type?: string
-      features?: unknown
-      geometry?: unknown
-      coordinates?: unknown
-    }
-    if (shape.type === 'Feature' && !Array.isArray(shape.features)) {
-      normalized = {
-        type: 'FeatureCollection',
-        features: [data as never],
-      } as GeoJSONFeatureCollection
-    } else if (
-      typeof shape.type === 'string' &&
-      shape.type !== 'FeatureCollection' &&
-      shape.type !== 'Feature' &&
-      shape.coordinates !== undefined
-    ) {
+    // The typed union narrows directly: `data.type === 'Feature'` and the
+    // `'coordinates' in data` presence check discriminate the three arms with
+    // no cast. A GeometryCollection (no `coordinates`) falls to the FC arm and
+    // is rejected by the features-array guard below, matching the prior path.
+    let normalized: GeoJSONFeatureCollection
+    if (data.type === 'Feature') {
+      normalized = { type: 'FeatureCollection', features: [data] }
+    } else if ('coordinates' in data) {
       // Bare Geometry (Point / LineString / Polygon / Multi*).
       normalized = {
         type: 'FeatureCollection',
-        features: [{ type: 'Feature', geometry: data as never, properties: {} }],
-      } as GeoJSONFeatureCollection
+        features: [{ type: 'Feature', geometry: data, properties: {} }],
+      }
+    } else {
+      normalized = data as GeoJSONFeatureCollection
     }
     if (!Array.isArray((normalized as { features?: unknown }).features)) {
       throw new Error(

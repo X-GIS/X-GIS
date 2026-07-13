@@ -11,8 +11,20 @@ import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
 import type { BackendChoice } from '@xgis/engine'
 import type { Body } from '@xgis/shared'
 import type { SourceLoader } from './source-loader'
+import type { GeoJSONFeatureCollection } from '@xgis/data'
 
 export type { BackendChoice }
+
+/** A `rawDatasets` entry. Either a real GeoJSON FeatureCollection (the
+ *  common case) or one of two documented placeholder markers written by
+ *  source-manager / the polar-cap install for tile-backed sources that
+ *  carry NO in-memory features: `{ _tileUrl }` for a raster XYZ source and
+ *  `{ _vectorTile: true }` for a vector-tile (MVT/VT) or tiled-geojson
+ *  source. rebuildLayers narrows on these markers with `in` guards. */
+export type RawDataset =
+  | GeoJSONFeatureCollection
+  | { readonly _tileUrl: string }
+  | { readonly _vectorTile: true }
 
 export interface VariantPipelines {
   fillPipeline: GPURenderPipeline

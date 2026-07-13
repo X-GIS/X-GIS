@@ -2986,12 +2986,12 @@ export class XGISMap {
             const t = feats[0]?.geometry?.type
             if (t === 'Point' || t === 'MultiPoint') {
               this.heatmapRenderer.addLayer(
-                feats as any,
+                feats,
                 show.heatmapRadius ?? 30,
                 show.heatmapWeight ?? 1,
                 show.heatmapIntensity ?? 1,
                 show.heatmapOpacity ?? 1,
-                show.heatmapColorStops as any,
+                show.heatmapColorStops,
                 null,
               )
             }
@@ -3219,7 +3219,7 @@ export class XGISMap {
         const shapeId = show.shape ? (this.shapeRegistry?.getShapeId(show.shape) ?? 0) : 0
 
         this.pointRenderer.addLayer(
-          filtered.features as any,
+          filtered.features,
           fill,
           stroke,
           show.strokeWidth,

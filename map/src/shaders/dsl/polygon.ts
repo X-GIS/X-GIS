@@ -1062,19 +1062,19 @@ const fsOverdraw = fn(
   { stage: 'fragment', retAttr: '@location(0)' },
 )
 
-// ── ShaderVariantInfo ──
+// ── PolygonVariantSpec ──
 //
-// Phase 2.5 US-007b — the composer-side variant shape. ShaderVariantInfo is
+// Phase 2.5 US-007b — the composer-side variant shape. PolygonVariantSpec is
 // a subset of @xgis/compiler's ShaderVariant carrying ONLY what
 // emitPolygonWgsl needs (the fields the polygon module composes into its
 // base ModuleDecl). renderer-side buildShader() converts the legacy
-// ShaderVariant into a ShaderVariantInfo at the call seam (US-008).
+// ShaderVariant into a PolygonVariantSpec at the call seam (US-008).
 //
 // All fields nullable. A null variant emits the base polygon shader (the
 // default-uniform path); a variant with fillExpr / strokeExpr injects the
 // per-feature / per-zoom / per-palette path.
 
-export interface ShaderVariantInfo {
+export interface PolygonVariantSpec {
   /** Module-shape fragment merged into the polygon base module. consts +
    *  bindings + funcs are appended; the polygon base's structs + entry
    *  fns are never touched by preamble. */
@@ -1142,7 +1142,7 @@ const defaultStrokeReturnStmts = (): readonly Stmt[] => {
 
 const variantReturnStmts = (
   axis: 'fill' | 'stroke',
-  variant: ShaderVariantInfo,
+  variant: PolygonVariantSpec,
 ): readonly Stmt[] => {
   const expr = axis === 'fill' ? variant.fillExpr : variant.strokeExpr
   const preamble = axis === 'fill' ? variant.fillPreamble : variant.strokePreamble
@@ -1174,7 +1174,7 @@ const variantReturnStmts = (
 // the polygon-dsl.test.ts (US-007c) 14 AC3 combination tests.
 
 export const buildPolygonModule = (
-  variant: ShaderVariantInfo | null,
+  variant: PolygonVariantSpec | null,
   pickEnabled: boolean,
 ): ModuleDecl => {
   const base = module({
@@ -1279,11 +1279,11 @@ export const buildPolygonModule = (
  *  regex markers in POLYGON_SHADER_SOURCE).
  *
  *  `variant` is null for the base polygon shader (default-uniform fill /
- *  stroke); a populated ShaderVariantInfo composes per-feature / per-zoom /
+ *  stroke); a populated PolygonVariantSpec composes per-feature / per-zoom /
  *  per-palette expressions into the fill / stroke entries via placeholder
  *  Stmt swap.
  */
-export const emitPolygonWgsl = (variant: ShaderVariantInfo | null, pickEnabled: boolean): string =>
+export const emitPolygonWgsl = (variant: PolygonVariantSpec | null, pickEnabled: boolean): string =>
   emitModule(buildPolygonModule(variant, pickEnabled))
 
 /** GLSL ES 3.00 twin of the FLAT-FILL slice (#746) — the WebGL2 fallback's polygon
@@ -1302,7 +1302,7 @@ export const emitPolygonWgsl = (variant: ShaderVariantInfo | null, pickEnabled: 
  *  re-bases the fill Materials onto RHI-native objects and consumes this past a live
  *  webgl2 guard. Kept, like the optimizer's unwired passes, rather than deleted+re-added. */
 export const emitPolygonGlsl = (
-  variant: ShaderVariantInfo | null,
+  variant: PolygonVariantSpec | null,
   pickEnabled: boolean,
   stage: 'vertex' | 'fragment',
 ): string => {

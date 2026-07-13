@@ -26,6 +26,7 @@ import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
 import { reflectionToBindGroupLayoutEntries } from '@xgis/rhi-webgpu'
 import { globeEyeUniform } from './globe-eye-uniform'
 import { cameraAnchorDsfun } from './camera-anchor-dsfun'
+import type { GeoJSONGeometry } from '@xgis/data'
 
 // Float-slot indices derived from the single-source POINT_FORMAT spec so the
 // packer cannot drift from the GPUVertexBufferLayout / vs_point @location.
@@ -676,7 +677,7 @@ export class PointRenderer {
    */
   addLayer(
     features: {
-      geometry: { type: string; coordinates: number[] }
+      geometry: GeoJSONGeometry | null
       properties?: Record<string, unknown>
     }[],
     fill: [number, number, number, number] | null,
@@ -707,7 +708,7 @@ export class PointRenderer {
       if (f.geometry.type === 'Point') {
         points.push({ lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] })
       } else if (f.geometry.type === 'MultiPoint') {
-        for (const coord of (f.geometry as unknown as { coordinates: number[][] }).coordinates) {
+        for (const coord of f.geometry.coordinates) {
           points.push({ lon: coord[0], lat: coord[1] })
         }
       }
