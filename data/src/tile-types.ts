@@ -257,17 +257,29 @@ export function maxConcurrentLoads(): number {
 }
 
 /** Viewport-aware default skeleton depth for `TileCatalog.prewarmSkeleton`.
- *  Mobile gets a tighter depth=2 (1+4+16 = 21 tiles, ~1 MB) — same
- *  `innerWidth ≤ 900` threshold as `maxConcurrentLoads()` /
- *  `maxCachedBytes()` so the three caps stay coherent. Desktop gets
- *  depth=3 (85 tiles, ~4 MB), enough that fast-pan to any city on the
- *  globe finds a cached ancestor within ≤ 3 walk hops at typical view
- *  zoom (z≈14). Lazy function form for the same reason as the other
- *  caps — module-init evaluation captures the wrong viewport in
+ *  Mobile depth=2, desktop depth=3 — enough that fast-pan to any city on
+ *  the globe finds a cached ancestor within ≤ 3 walk hops at typical view
+ *  zoom (z≈14). Depth is a tile-COUNT ceiling only; the binding cost cap
+ *  is `defaultSkeletonByteBudget()` (#1045 — real planet tilesets average
+ *  ~400 KB per low-zoom tile, so 85 tiles is ~33 MB, not the ~4 MB this
+ *  heuristic once assumed). Lazy function form for the same reason as the
+ *  other caps — module-init evaluation captures the wrong viewport in
  *  Playwright / mobile DPR setup. */
 export function defaultSkeletonDepth(): number {
   const w = readInnerWidthMemoised()
   return w > 0 && w <= 900 ? 2 : 3
+}
+
+/** Byte budget for the skeleton prewarm — the ORIGINAL ~4 MB design cost
+ *  of depth 3 made binding instead of assumed (#1045; measured 2026-07-13:
+ *  OpenFreeMap z0-z3 full enumeration = 85 tiles / 33 MB, 8× the depth
+ *  heuristic's assumption). The floor levels (z0+z1) always complete
+ *  regardless; past them the prewarm pump stops enqueueing once ARRIVED
+ *  skeleton bytes cross this budget (overshoot ≤ one 2-tile wave). Same
+ *  `innerWidth ≤ 900` threshold as the sibling caps. */
+export function defaultSkeletonByteBudget(): number {
+  const w = readInnerWidthMemoised()
+  return w > 0 && w <= 900 ? 1.5 * 1024 * 1024 : 4 * 1024 * 1024
 }
 
 // ═══ VirtualCatalog (legacy hook — to be replaced by TileSource in Step 3) ═══
@@ -286,7 +298,7 @@ export type VirtualTileFetcher = (z: number, x: number, y: number) => Promise<Co
 
 /** @deprecated see {@link VirtualTileFetcher}. */
 export interface VirtualCatalog {
-  fetcher: VirtualTileFetcher
+  fetcher: VirtualTileFetcher // eslint-disable-line @typescript-eslint/no-deprecated -- deprecated interface's own member
   minZoom: number
   maxZoom: number
   bounds: [number, number, number, number]

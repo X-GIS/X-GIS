@@ -55,8 +55,10 @@ import {
   DSFUN_LINE_STRIDE,
   maxConcurrentLoads,
   defaultSkeletonDepth,
+  defaultSkeletonByteBudget,
   type VirtualCatalog,
 } from './tile-types'
+import { runSkeletonPrewarm, type SkeletonPrewarmHandle } from './tile-skeleton-prewarm'
 import { unionBounds } from './tile-catalog-helpers'
 import { TileDataCache } from './tile-data-cache'
 import { CompileBudget } from './tile-compile-budget'
@@ -121,14 +123,11 @@ export class TileCatalog {
   private budget = new CompileBudget()
 
   /** Pending timer handle for the prewarmSkeleton retry pump + a
-   *  hard-stop latch. The pump self-reschedules every 250 ms until
-   *  every skeleton key reports hasTileData; a 'failed' (5xx/network)
-   *  skeleton tile never populates dataCache, so without an explicit
-   *  cancel the pump reschedules for the page lifetime — GC-pinning
-   *  the catalog and firing prefetch against a dead source. destroy()
-   *  clears the handle + sets the latch so tick() bails. */
-  private _skeletonTimer: ReturnType<typeof setTimeout> | null = null
-  private _stopped = false
+   *  hard-stop latch. The pump lives in tile-skeleton-prewarm.ts
+   *  (level-staged + byte-budgeted + backoff, #1045); this handle lets
+   *  destroy() cancel it so a 'failed' skeleton tile can no longer keep
+   *  a retry loop — and the catalog it captures — alive forever. */
+  private _skeletonPrewarm: SkeletonPrewarmHandle | null = null
 
   /** Internal: set a slice via the TileDataCache (byte accounting +
    *  nested-map insert). Thin delegate — kept as a method so the
@@ -598,6 +597,7 @@ export class TileCatalog {
    *  compiling. New code should use attachBackend directly with a
    *  PMTilesBackend instance. */
   setVirtualCatalog(catalog: VirtualCatalog): void {
+    // eslint-disable-line @typescript-eslint/no-deprecated -- the legacy hook's own signature
     const backend = new VirtualCatalogAdapter(catalog)
     this.attachBackend(backend)
   }
@@ -650,7 +650,7 @@ export class TileCatalog {
             lineVertices: tile.lineVertices,
             lineIndices: tile.lineIndices,
             pointVertices: tile.pointVertices,
-            outlineIndices: tile.outlineIndices,
+            outlineIndices: tile.outlineIndices, // eslint-disable-line @typescript-eslint/no-deprecated -- ABI passthrough (see SerializedTile) // eslint-disable-line @typescript-eslint/no-deprecated -- ABI passthrough (see SerializedTile)
             dequant: { scale: tile.dequantScale, half: tile.dequantHalf },
           })
         }
@@ -753,7 +753,7 @@ export class TileCatalog {
           lineVertices: tile.lineVertices,
           lineIndices: tile.lineIndices,
           pointVertices: tile.pointVertices,
-          outlineIndices: tile.outlineIndices,
+          outlineIndices: tile.outlineIndices, // eslint-disable-line @typescript-eslint/no-deprecated -- ABI passthrough (see SerializedTile)
           dequant: { scale: tile.dequantScale, half: tile.dequantHalf },
         })
       }
@@ -828,16 +828,19 @@ export class TileCatalog {
    *  uses, so a TileJSON sees HTTP fetches while an XGVT-binary sees
    *  worker decodes — same skeleton key set, same eviction protection.
    *
-   *  Pump rationale: `requestTiles` breaks at `maxConcurrentLoads()`
-   *  and silently drops the rest. The 250 ms retry tick covers
-   *  waves; distance-from-camera ordering inside the backend's queue
-   *  handles top-down sorting for free. Fire-and-forget — caller
-   *  doesn't await. */
+   *  Cost bound (#1045): the pump (tile-skeleton-prewarm.ts) is level-
+   *  staged and BYTE-BUDGETED — depth alone cannot bound cost on real
+   *  planet tilesets (the old full enumeration fetched 85 tiles / 33 MB
+   *  for one z4 view). Floor levels always complete; deeper levels stop
+   *  at `byteBudget` with their pins released. Fire-and-forget. */
   prewarmSkeleton(
     opts: {
       depth?: number
       minzoom?: number
       maxzoom?: number
+      /** Arrived-bytes ceiling past the floor levels.
+       *  Default: `defaultSkeletonByteBudget()`. */
+      byteBudget?: number
     } = {},
   ): void {
     const depth = opts.depth ?? defaultSkeletonDepth()
@@ -847,41 +850,39 @@ export class TileCatalog {
     const cap = Math.min(depth, sourceMaxzoom)
     const start = Math.max(0, sourceMinzoom)
     if (cap < start) return
-    const keys: number[] = []
-    for (let z = start; z <= cap; z++) {
-      const n = 1 << z
-      for (let y = 0; y < n; y++) {
-        for (let x = 0; x < n; x++) {
-          keys.push(tileKey(z, x, y))
-        }
-      }
-    }
-    if (keys.length === 0) return
-    // Mark BEFORE the first prefetch — guarantees protection even if
-    // an evictTiles / cancelStale fires between enqueue and the first
-    // bytes arriving.
-    this.markSkeleton(keys)
-    const tick = (): void => {
-      if (this._stopped) return
-      const remaining = keys.filter((k) => !this.hasTileData(k))
-      if (remaining.length === 0) return
-      this.prefetchTiles(remaining)
-      this._skeletonTimer = setTimeout(tick, 250)
-    }
-    tick()
+    this._skeletonPrewarm?.stop()
+    this._skeletonPrewarm = runSkeletonPrewarm(
+      {
+        hasTileData: (k) => this.hasTileData(k),
+        prefetchTiles: (ks) => this.prefetchTiles(ks),
+        markSkeleton: (ks) => this.markSkeleton(ks),
+        unmarkSkeleton: (ks) => this.eviction.unmarkSkeleton(ks),
+        bytesFor: (k) => {
+          const slot = this.cache.getSlot(k)
+          if (!slot) return 0
+          let n = 0
+          for (const td of slot.values()) n += TileDataCache.sizeOfTileData(td)
+          return n
+        },
+      },
+      {
+        start,
+        cap,
+        keyOf: tileKey,
+        floorMaxTiles: 8,
+        byteBudget: opts.byteBudget ?? defaultSkeletonByteBudget(),
+      },
+    )
   }
 
   /** Stop the prewarmSkeleton retry pump and release what pins this
    *  catalog past its source's lifetime. Called from map.ts
    *  teardownSource (reached by both destroy() and _teardownForReinit)
-   *  so a 'failed' skeleton tile can no longer keep the 250 ms pump —
-   *  and the catalog + dataCache it captures — alive forever. */
+   *  so a 'failed' skeleton tile can no longer keep the pump — and the
+   *  catalog + dataCache it captures — alive forever. */
   destroy(): void {
-    this._stopped = true
-    if (this._skeletonTimer !== null) {
-      clearTimeout(this._skeletonTimer)
-      this._skeletonTimer = null
-    }
+    this._skeletonPrewarm?.stop()
+    this._skeletonPrewarm = null
   }
 
   /** Update the fetch-queue priority comparator on every backend that
