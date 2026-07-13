@@ -16,7 +16,11 @@ const OFF: [number, number, number] = [30, 30, 120] // checker "off" (blue)
 test('a raster tile renders on WebGl2Device through the engine loop (?forcegl2=1)', async ({
   page,
 }) => {
-  await page.goto('/demo.html?id=minimal&forcegl2=1&e2e=1', { waitUntil: 'domcontentloaded' })
+  // #1041 — the checker is opt-in now (sourceless production frames draw nothing);
+  // ?debug=checker restores it so this US-004 gate keeps asserting the same fixture.
+  await page.goto('/demo.html?id=minimal&forcegl2=1&e2e=1&debug=checker', {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
     { timeout: 20000 },

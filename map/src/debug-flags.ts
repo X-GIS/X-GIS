@@ -37,6 +37,19 @@ if (DEBUG_OVERDRAW && typeof window !== 'undefined') {
   )
 }
 
+/** `?debug=checker` — keep the legacy analytic red/blue checker as the
+ *  sourceless-raster background on the forced-WebGL2 frame, the US-003/
+ *  US-004 live-render gate fixture. Production sourceless frames draw
+ *  nothing there (WebGPU parity — WebGPU's raster path early-returns when
+ *  sourceless, so its frame is blank too; #1041). */
+export const DEBUG_RHI_CHECKER: boolean = FLAG === 'checker'
+
+if (DEBUG_RHI_CHECKER && typeof window !== 'undefined') {
+  console.info(
+    '[X-GIS] debug=checker active — sourceless forced-WebGL2 frame draws the legacy analytic raster checker',
+  )
+}
+
 /** Format of the overdraw accumulator render target. r16float lets
  *  per-pixel fragment counts grow well beyond the [0, 1] range that
  *  the bgra8unorm swapchain would clip; ~65 k max before overflow,
