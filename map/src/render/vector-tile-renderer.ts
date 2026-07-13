@@ -824,7 +824,7 @@ export class VectorTileRenderer {
     B.set.cam_l(0, 0)
     B.set.cam_ecef_off_h(0, 0, 0, 1)
     B.set.cam_ecef_off_l(0, 0, 0, 1)
-    B.set.tile_origin_merc(Math.fround(tileMercX), Math.fround(tileMercY))
+    B.set.tile_origin_merc(anchor.tileMercX, anchor.tileMercY)
     B.set.opacity(1)
     B.set.log_depth_fc(1)
     B.set.pick_id(0)
