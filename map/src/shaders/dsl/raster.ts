@@ -49,6 +49,7 @@ import {
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
+import { isGlobeProj } from '@xgis/geo'
 import { ECEF_CONSTS, lonlatToEcef } from './ecef'
 import { rasterColorAdjust } from './raster-color'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
@@ -141,10 +142,12 @@ const texSampler = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
 // surgical, no flat-path change. N is threaded to the shader per-tile via
 // TileUniforms.grid.x (below), and the per-tile draw count = rasterGridVertexCount(N).
 export function rasterGridN(projType: number, tileZoom: number): number {
-  // globe === projType 7 (geo/src/projections-table.ts). Every other projType is
-  // a flat path here and keeps the flat 8×8. `128 >> zoom` halves per level; the
-  // Math.max floors the ladder at 8 (z4+), Math.min caps it at 128 (z0).
-  return projType === 7 ? Math.max(8, Math.min(128, 128 >> tileZoom)) : 8
+  // isGlobeProj = the projections-table membership accessor (geo/src/projections-table.ts):
+  // dispatch routes through the isGlobe row, never a raw `projType === 7` — the #996
+  // projtype-confinement ratchet forbids the literal here. Every other projType is a flat
+  // path and keeps the flat 8×8. `128 >> zoom` halves per level; the Math.max floors the
+  // ladder at 8 (z4+), Math.min caps it at 128 (z0).
+  return isGlobeProj(projType) ? Math.max(8, Math.min(128, 128 >> tileZoom)) : 8
 }
 
 /** Vertex count for an N×N raster surface grid: 2 triangles (6 verts) per cell. */
