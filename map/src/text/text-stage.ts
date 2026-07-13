@@ -731,6 +731,7 @@ export class TextStage {
     layerName?: string,
     pairKey?: string,
     collisionId?: string,
+    perspectiveScale?: number,
   ): void {
     const _ast = ((globalThis as Record<string, unknown>).__xgisLabelsRhi ??= {}) as Record<
       string,
@@ -763,6 +764,7 @@ export class TextStage {
       fontKey: fontKey ?? composeFontKey(def, this.opts.defaultFont),
       pairKey,
       collisionId,
+      perspectiveScale,
     })
   }
 
@@ -966,7 +968,16 @@ export class TextStage {
       // minified from the 24-px atlas to the ~9-px zoom-clamped low-zoom size
       // renders as a solid box. Latin-only labels keep their style size.
       // #421: floor removed — CJK crisp via local-ideograph; sizePx = authored size (ML parity).
-      const rawSizePx = p.def.size * dpr
+      // #1081 — fold the per-anchor perspective attenuation into sizePx, the SINGLE
+      // quad authority: advances / glyphOffsets / bbox / fontSize all derive from
+      // it, so the collision box AND the draw quad scale together (and the #1042 R3
+      // limb gate below then compares the SCALED half-height — a shrunken far label
+      // needs less inset). Wrapping is scale-invariant (advances and maxWidthPx both
+      // scale), so line breaks are unchanged. Quantised to 1/64 (≤1.5% steps, sub-
+      // pixel) so the across-frame layout cache (keyed on sizePx) still hits during a
+      // pitched pan; perspScale 1 (default) leaves sizePx byte-identical to before.
+      const perspScale = p.perspectiveScale ?? 1
+      const rawSizePx = p.def.size * dpr * (Math.round(perspScale * 64) / 64)
       const sizePx = rawSizePx
       // Label italic → renderer shears CJK/Hangul glyphs (synthetic oblique).
       const labelItalic = p.def.fontStyle === 'italic'
