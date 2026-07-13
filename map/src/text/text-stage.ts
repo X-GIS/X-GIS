@@ -775,8 +775,13 @@ export class TextStage {
    *  IconStage.computeObstacles()). They seed the collision grid so a
    *  label that overlaps a separate collide-icon is dropped — MapLibre
    *  inserts placed icon boxes into the same grid every label hit-tests
-   *  against. A label is exempt from its OWN paired icon via groupKey. */
-  prepare(iconObstacles: readonly CollisionObstacle[] = []): void {
+   *  against. A label is exempt from its OWN paired icon via groupKey.
+   *  #1042 R3 — `limbInset` (globe label pass) drops a POINT label whose
+   *  collision box rises past the projected limb; omitted ⇒ no cull. */
+  prepare(
+    iconObstacles: readonly CollisionObstacle[] = [],
+    limbInset?: (x: number, y: number) => number,
+  ): void {
     // iter-285 — snapshot submitted count BEFORE collision pass.
     // pendingLine entries each may yield 1+ placements; counted as 1
     // per submission for a coarse but useful diagnostic.
@@ -1707,21 +1712,26 @@ export class TextStage {
     // greedyPlaceBboxes + per-shape place loop. greedy is O(N²) so
     // dense-label scenes (low-z world view) spend a chunk here.
     perfMarkStart('stage-prepare.collision')
+    // #1042 R3 — globe limb cull: drop a POINT label (idx < point count) whose
+    // collision box (built above, the single quad-height authority) rises past
+    // the projected silhouette (empty bboxes ⇒ unplaced + paired icon drops),
+    // else a multi-line label floats past the limb. +Inf off-globe/flat/lines.
+    const nPoint = this.pending.length
+    const limbCull = (idx: number, b: { minX: number; minY: number; maxX: number; maxY: number }) =>
+      limbInset !== undefined &&
+      idx < nPoint &&
+      limbInset((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2) < (b.maxY - b.minY) / 2 + 2
     const collisionInput: CollisionItem[] = shaped.map((s, idx) => ({
-      bboxes: s.layouts.map((l) => l.bbox),
+      bboxes: s.layouts[0] && limbCull(idx, s.layouts[0].bbox) ? [] : s.layouts.map((l) => l.bbox),
       allowOverlap: s.allowOverlap,
       ignorePlacement: s.ignorePlacement,
       sortKey: s.sortKey,
       // groupKey = this label's pairKey so a paired icon obstacle cannot
       // block its OWN text (they share the anchor by design, #609).
       groupKey: this.pending[idx]?.pairKey ?? s.pairKey,
-      // #605 — same-route along-line spacing. lineId is the TILE-STABLE
-      // route/road identity (set only on curved line labels); anchorDistancePx
-      // is the anchor's along-polyline screen offset. greedyPlaceBboxes' min-
-      // line-spacing gate then drops a same-lineId shield within MIN_LINE_SPACING_PX
-      // of an already-placed one, so the same "82" route — sliced into per-tile
-      // polylines by PMTiles — stops repeating once per tile and caps at MapLibre's
-      // ~one-per-symbol-spacing screen cadence. Point labels leave both undefined.
+      // #605 — same-route along-line spacing: greedyPlaceBboxes drops a
+      // same-lineId shield within MIN_LINE_SPACING_PX of an already-placed one,
+      // capping cross-tile route repeats. Point labels leave both undefined.
       lineId: s.lineId,
       anchorDistancePx: s.anchorDistancePx,
       // #728 — stable feature identity → deterministic collision tie-break.

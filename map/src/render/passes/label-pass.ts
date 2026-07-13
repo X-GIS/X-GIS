@@ -476,7 +476,7 @@ class LabelPass implements RenderPass {
       // clamped to that bound upstream). projMercatorCpu returns a fresh
       // tuple per call (no shared scratch), so there is no aliasing hazard.
       const camMerc = projMercatorCpu(centerLon, centerLat)
-      const { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies } =
+      const { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies, limbInsetPx } =
         makeLabelProjectors(
           labelView.matrix,
           w,
@@ -1671,7 +1671,7 @@ class LabelPass implements RenderPass {
         // absent from the set and still seed obstacles.
         const activeTextPairKeys = iStage ? stage.getActiveTextPairKeys() : new Set<string>()
         const iconObstacles = iStage ? iStage.computeObstacles(activeTextPairKeys) : []
-        stage.prepare(iconObstacles)
+        stage.prepare(iconObstacles, limbInsetPx)
         if (iStage) iStage.setDroppedPairKeys(stage.getDroppedPairKeys())
         iStage?.prepare()
       }

@@ -305,3 +305,93 @@ describe('makeLabelProjectors — globe SCREEN-SPACE limb inset (#1042 round 2)'
     }
   })
 })
+
+// ── #1042 ROUND 3 — MULTI-LINE (quad-height) limb cull ───────────────────────
+//
+// Round 2's screen-space limb inset used a FIXED LABEL_LIMB_INSET_PX = 7 (the
+// SINGLE-line half-height), so a MULTI-LINE label — the two-line "Burkina Faso",
+// anchor (-1.6, 12.4), ~8 px inside the limb — passed the 7 px gate while its
+// ~12 px quad half-height floated its TOP line fully past the silhouette. The
+// constant cannot know the quad height; the collision box (text-stage) IS it.
+// Round 3 exposes the limb as a per-point query `limbInsetPx(x,y)` on the
+// projector, and the label pass's collision phase drops a POINT label when
+// `limbInset(box centre) < quadHalfHeightPx + 2`, taking quadHalfHeightPx from
+// the collision box — the single quad-height authority.
+//
+// This suite pins the projector query (the measurement) + the decision
+// arithmetic. The text-stage wiring (a culled label emits EMPTY bboxes ⇒ greedy
+// leaves it unplaced) is verified BY CONSTRUCTION: the gate reads the SAME bbox
+// the renderer draws, and +Infinity off-globe makes it a globe-point-only no-op.
+describe('makeLabelProjectors — globe limbInsetPx query + quad-height decision (#1042 round 3)', () => {
+  const PW = 860,
+    PH = 720
+  const view = buildGlobeMatrix(0, 20, 2, 85, 0, PW, PH)
+  const eye = view.eye as V3
+  const proj = makeLabelProjectors(view.matrix, PW, PH, undefined, eye, undefined, true)
+  // EXACT (no-cull) projector to read each anchor's screen position, then the
+  // round-3 query gives the inset AT that screen point.
+  const exact = makeLabelProjectors(view.matrix, PW, PH, undefined, eye, undefined, false).projectLonLat
+  const insetAt = (lon: number, lat: number): number => {
+    const s = exact(lon, lat)
+    if (!s) throw new Error(`anchor (${lon},${lat}) culled by the exact projector`)
+    return proj.limbInsetPx(s[0], s[1])
+  }
+  const BF = insetAt(-1.6, 12.4) // two-line label anchor — ~7.9 px inside
+  const KENYA = insetAt(37.9, 0.2) // single-line interior anchor — ~11.6 px inside
+
+  // #1042 R3 decision (mirror of the text-stage collisionInput gate): a POINT
+  // label is skipped iff its box-centre limb inset is LESS than the label's quad
+  // half-height + a 2 px zero-pad. quadHalfHeightPx = the collision-box half.
+  const skips = (inset: number, quadHalfHeightPx: number): boolean => inset < quadHalfHeightPx + 2
+
+  it('flat / non-globe projector: limbInsetPx is a constant +Infinity (no cull, no branching)', () => {
+    const flat = makeLabelProjectors(view.matrix, PW, PH, {
+      projType: 0,
+      ccx: 0,
+      ccy: 0,
+      centerLon: 0,
+      centerLat: 0,
+      visibleWorldCopies: [0],
+    })
+    expect(flat.limbInsetPx(1, 2)).toBe(Infinity)
+    expect(flat.limbInsetPx(430, 360)).toBe(Infinity)
+  })
+
+  it('globe projector WITHOUT the label gate (map.project path): limbInsetPx is +Infinity', () => {
+    // projectLonLatToScreenCss builds the projector with labelHorizonMargin=false
+    // ⇒ no limb polygon ⇒ the screen cull never leaks into the public project.
+    const plain = makeLabelProjectors(view.matrix, PW, PH, undefined, eye, undefined, false)
+    expect(plain.limbInsetPx(430, 360)).toBe(Infinity)
+  })
+
+  it('pins the projector limb-inset measurement at the probe camera', () => {
+    // BF sits ~8 px inside — deep enough to clear the round-2 base cull (7 px),
+    // which is EXACTLY why round 2 kept it (and let its top line float).
+    expect(BF).toBeGreaterThan(7)
+    expect(BF).toBeLessThan(9)
+    // Kenya sits ~11.6 px inside — the deep-interior single-line witness.
+    expect(KENYA).toBeGreaterThan(10.5)
+    expect(KENYA).toBeLessThan(12.5)
+  })
+
+  it('FAIL-BEFORE: a MULTI-LINE quad at the BF anchor is SKIPPED (top line floats past the limb)', () => {
+    // Two-line "Burkina Faso": quad half-height ~11-12 px. inset < half+2 ⇒ SKIP
+    // — the round-3 outcome round 2 could not produce (it kept BF at the 7 px gate).
+    expect(skips(BF, 11)).toBe(true)
+    expect(skips(BF, 12)).toBe(true)
+    // Round 3 is also STRICTER for a single-line quad at this near-limb anchor:
+    // ~8 < 7+2=9 ⇒ SKIP (the glyph top would sit <2 px from the limb, zero pad).
+    expect(skips(BF, 7)).toBe(true)
+  })
+
+  it('KEEPS a single-line quad at the deep-interior Kenya anchor (round-2 parity preserved)', () => {
+    // ~11.6 ≥ 7+2=9 ⇒ KEEP — a single-line label here is unaffected by round 3.
+    expect(skips(KENYA, 7)).toBe(false)
+  })
+
+  it('SKIPS a TALL (3-line) quad even at the Kenya interior anchor (gate scales with real height)', () => {
+    // A 3-line quad (half ~21 px) floats past the limb even 11.6 px inside:
+    // 11.6 < 21+2=23 ⇒ SKIP. The constant 7 px could never make this call.
+    expect(skips(KENYA, 21)).toBe(true)
+  })
+})

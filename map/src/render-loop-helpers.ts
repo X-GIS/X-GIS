@@ -504,6 +504,11 @@ export function makeLabelProjectors(
   projectMercAny: (sx: number, sy: number, worldCopy?: number) => [number, number] | null
   projectLonLat: (lon: number, lat: number, worldMercatorOffset?: number) => [number, number] | null
   projectLonLatCopies: (lon: number, lat: number) => Array<[number, number]>
+  /** #1042 R3 — signed screen-px distance from (x,y) INSIDE the projected globe
+   *  silhouette (POSITIVE inside); +Infinity on the flat path / when there is no
+   *  limb polygon. Lets the label pass cull a MULTI-LINE quad on its own screen
+   *  half-height, beyond the built-in LABEL_LIMB_INSET_PX base cull. */
+  limbInsetPx: (x: number, y: number) => number
 } {
   // ── 3D / globe path: ECEF projector. Works for every projection because
   //    mvp is getECEFFrameView().matrix; lonLatToECEF(lon ± 360°) is the
@@ -528,6 +533,12 @@ export function makeLabelProjectors(
     // loop and the inset test then passes for every on-screen anchor.
     const limbPoly =
       labelHorizonMargin && eye ? buildGlobeLimbPolygon(mvp, w, h, eye, focus) : null
+    // #1042 R3 — the SAME limb polygon, exposed as a per-point query so the label
+    // pass can additionally cull a taller (multi-line) quad on its own screen
+    // half-height. +Infinity when there is no silhouette so the caller's
+    // `inset < halfHeight` test is a no-op (base cull below still applies).
+    const limbInsetPx = (x: number, y: number): number =>
+      limbPoly ? signedDistToPolygonPx(limbPoly.xs, limbPoly.ys, limbPoly.n, x, y) : Infinity
 
     const projectLonLat = (lon: number, lat: number): [number, number] | null => {
       const e = lonLatToECEF(lon, lat)
@@ -601,7 +612,7 @@ export function makeLabelProjectors(
       if (proj) _projectScratch.push([proj[0], proj[1]])
       return _projectScratch
     }
-    return { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies }
+    return { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies, limbInsetPx }
   }
 
   // ── Flat display path (projType 0-6): CPU mirror of the per-vertex shader
@@ -708,8 +719,12 @@ export function makeLabelProjectors(
     }
     return _projectScratch
   }
+  // #1042 R3 — the flat path has no globe silhouette, so the limb inset is
+  // vacuously +Infinity: the label pass's `inset < halfHeight` gate never fires
+  // (call sites stay branch-free — see the globe arm's limbInsetPx).
+  const limbInsetPx = (): number => Infinity
 
-  return { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies }
+  return { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies, limbInsetPx }
 }
 
 /** Project `[lon, lat]` → CSS-px screen coords (canvas-local) through the
