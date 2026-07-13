@@ -189,7 +189,8 @@
         border-color: var(--accent);
       }
 
-      #proj-select {
+      #proj-select,
+      #backend-select {
         font-family: var(--font-mono);
         background: var(--surface2);
         border: 1px solid var(--border);
@@ -208,7 +209,8 @@
         background-repeat: no-repeat;
         background-position: right 6px center;
       }
-      #proj-select:focus {
+      #proj-select:focus,
+      #backend-select:focus {
         outline: none;
         border-color: var(--accent);
       }
@@ -536,7 +538,23 @@
             <option value="oblique_mercator">oblique mercator</option>
             <option value="globe">globe (3D)</option>
           </select>
+          <!-- #?backend= — pin the GPU backend for this boot. Auto = WebGPU
+             with WebGL2 fallback (and honours the legacy ?forcegl2=1).
+             WebGL2 also runs under SOFTWARE rasterisation (SwiftShader),
+             so demos stay verifiable on GPU-less machines. Switching swaps
+             in a fresh canvas (a canvas's context type is sticky). -->
+          <select
+            id="backend-select"
+            title="GPU backend (WebGL2 works without a GPU via software rasterisation)"
+          >
+            <option value="">gpu: auto</option>
+            <option value="webgpu">WebGPU</option>
+            <option value="webgl2">WebGL2</option>
+          </select>
           <span class="tb-tag" id="demo-tag"></span>
+          <!-- Live identity badge: the backend that ACTUALLY booted (auto can
+             fall back), so a frame is never attributed to the wrong backend. -->
+          <span class="tb-tag" id="backend-tag" hidden></span>
           <!-- Mobile-only toggle: peek at the source on touchscreens
              where the editor is collapsed by default. CSS hides this
              on desktop where the editor is always visible. -->

@@ -311,8 +311,12 @@ export function makeLabelProjectors(
   focus?: readonly [number, number, number],
 ): {
   projectMerc: (mx: number, my: number, worldMercatorOffset?: number) => [number, number] | null
+  /** `worldCopy` is the COPY INDEX (0, ±1 — from getVisibleWorldCopies), not
+   *  metres: the arm multiplies by its own period (Mercator metres vs
+   *  projected-x WORLD_CIRC), mirroring projectLonLatCopies. Globe ignores it
+   *  (copies collapse on ECEF). #727 (C). */
+  projectMercAny: (sx: number, sy: number, worldCopy?: number) => [number, number] | null
   projectLonLat: (lon: number, lat: number, worldMercatorOffset?: number) => [number, number] | null
-  projectMercAny: (sx: number, sy: number) => [number, number] | null
   projectLonLatCopies: (lon: number, lat: number) => Array<[number, number]>
 } {
   // ── 3D / globe path: ECEF projector. Works for every projection because
@@ -362,7 +366,10 @@ export function makeLabelProjectors(
       const lat = mercatorYToLat(my)
       return projectLonLat(lon, lat)
     }
-    const projectMercAny = (sx: number, sy: number): [number, number] | null => projectMerc(sx, sy)
+    // Copy index ignored: lonLatToECEF(lon ± 360°) is the same point, so world
+    // copies collapse to one on the globe (see the branch header above).
+    const projectMercAny = (sx: number, sy: number, _worldCopy = 0): [number, number] | null =>
+      projectMerc(sx, sy)
     const _projectScratch: Array<[number, number]> = []
     const projectLonLatCopies = (lon: number, lat: number): Array<[number, number]> => {
       _projectScratch.length = 0
@@ -451,12 +458,15 @@ export function makeLabelProjectors(
     return _projScratch
   }
 
-  const projectMercAny = (sx: number, sy: number): [number, number] | null => {
-    if (isMerc) return projectMerc(sx, sy)
+  const projectMercAny = (sx: number, sy: number, worldCopy = 0): [number, number] | null => {
+    // `worldCopy` is the copy INDEX; each arm applies its own period (the same
+    // split projectLonLatCopies encodes via copyPeriod) so callers stay
+    // arm-agnostic. #727 (C) — tile line labels fan out per visible copy.
+    if (isMerc) return projectMerc(sx, sy, worldCopy * WORLD_MERC)
     const R = EARTH.sphereR
     const lon = sx / ((Math.PI / 180) * R)
     const lat = mercatorYToLat(sy)
-    return projectLonLat(lon, lat, 0)
+    return projectLonLat(lon, lat, worldCopy * WORLD_CIRC)
   }
 
   // Both Mercator and the x-periodic flat non-Mercator set (equirect 1 /

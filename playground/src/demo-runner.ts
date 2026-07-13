@@ -32,7 +32,15 @@ let currentMap: XGISMap | null = null
 let pendingSpriteUrl: string | null = null
 let pendingGlyphsUrl: string | null = null
 
-const canvas = document.getElementById('map') as HTMLCanvasElement
+// `let` — replaced with a fresh node on backend switch: a canvas's drawing-
+// context type is STICKY once acquired (a WebGPU canvas can never open a
+// webgl2 context and vice versa), so toggling backends needs a virgin canvas.
+let canvas = document.getElementById('map') as HTMLCanvasElement
+function replaceMapCanvas(): void {
+  const fresh = canvas.cloneNode(false) as HTMLCanvasElement // attrs only, no context
+  canvas.replaceWith(fresh)
+  canvas = fresh
+}
 const status = document.getElementById('status')!
 const errorDiv = document.getElementById('error')!
 const errorMsg = document.getElementById('error-msg')!
@@ -40,6 +48,8 @@ const runBtn = document.getElementById('run-btn') as HTMLButtonElement
 const tagEl = document.getElementById('demo-tag')!
 const selectEl = document.getElementById('demo-select') as HTMLSelectElement
 const projSelectEl = document.getElementById('proj-select') as HTMLSelectElement
+const backendSelectEl = document.getElementById('backend-select') as HTMLSelectElement
+const backendTagEl = document.getElementById('backend-tag') as HTMLSpanElement
 const prevBtn = document.getElementById('prev-btn') as HTMLButtonElement
 const nextBtn = document.getElementById('next-btn') as HTMLButtonElement
 const editorPane = document.getElementById('editor-pane')!
@@ -942,13 +952,18 @@ function pushImportedInlineGeoJSON(inline: Record<string, unknown> | null | unde
   if (!inline || !currentMap) return
   for (const [id, fc] of Object.entries(inline)) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       currentMap.setSourceData(id, fc as any)
     } catch (e) {
       console.warn(`[X-GIS] inline GeoJSON push failed for source "${id}"`, e)
     }
   }
 }
+
+// base64 → UTF-8 (the modern equivalent of the deprecated
+// `decodeURIComponent(escape(atob(x)))` trick: decode the base64 to raw bytes,
+// then let TextDecoder interpret them as UTF-8).
+const b64ToUtf8 = (b64: string): string =>
+  new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)))
 
 async function runSource(source: string, label: string) {
   errorDiv.style.display = 'none'
@@ -986,10 +1001,21 @@ async function runSource(source: string, label: string) {
     // frame construction gate sees a non-null URL — pre-fix the gate
     // fired with `spriteUrl === null` and the atlas was never built,
     // so icon-image layers rendered nothing (iter 56 deploy-bug repro).
-    const ctorOpts: { enableComputePath: boolean; spriteUrl?: string; glyphs?: { url?: string } } =
-      {
-        enableComputePath: computeOptIn,
-      }
+    const ctorOpts: {
+      enableComputePath: boolean
+      backend?: 'auto' | 'webgpu' | 'webgl2'
+      spriteUrl?: string
+      glyphs?: { url?: string }
+    } = {
+      enableComputePath: computeOptIn,
+    }
+    // ?backend=webgpu|webgl2 — hard-pin the boot backend (the toolbar toggle
+    // writes this param). Absent = 'auto': WebGPU with WebGL2 fallback, still
+    // honouring the legacy ?forcegl2=1 override. WebGL2 also runs under
+    // SOFTWARE rasterisation (SwiftShader), so a GPU-less machine can pin
+    // webgl2 and still render every demo.
+    const backendParam = new URL(window.location.href).searchParams.get('backend')
+    if (backendParam === 'webgpu' || backendParam === 'webgl2') ctorOpts.backend = backendParam
     if (pendingSpriteUrl) ctorOpts.spriteUrl = pendingSpriteUrl
     if (pendingGlyphsUrl) ctorOpts.glyphs = { url: pendingGlyphsUrl }
     currentMap = new XGISMap(canvas, ctorOpts)
@@ -1043,6 +1069,21 @@ async function runSource(source: string, label: string) {
     startHashSync(currentMap)
 
     status.textContent = `${label} · scroll to zoom, drag to pan`
+    // Identity badge — show the backend that ACTUALLY booted. 'auto' can fall
+    // back (WebGPU adapter-null → WebGL2), and a pinned boot should visibly
+    // confirm the pin took: a green frame must never be attributed to the
+    // wrong backend. Also exported for e2e (the render gates assert identity
+    // next to their pixel assertions).
+    const liveBackend = (
+      currentMap as unknown as { ctx?: { rhi?: { backend?: 'webgpu' | 'webgl2' } } }
+    ).ctx?.rhi?.backend
+    ;(window as unknown as { __xgisActiveBackend?: string }).__xgisActiveBackend = liveBackend
+    if (liveBackend) {
+      backendTagEl.textContent = liveBackend === 'webgl2' ? 'WebGL2' : 'WebGPU'
+      backendTagEl.hidden = false
+    } else {
+      backendTagEl.hidden = true
+    }
     setTimeout(() => {
       status.style.opacity = '0.4'
     }, 3000)
@@ -1362,6 +1403,23 @@ projSelectEl.addEventListener('change', () => {
   else currentMap?.setProjection(value)
 })
 
+// ── Backend toggle ──
+// Sync dropdown with URL state (?backend=), mirroring the projection override;
+// the legacy ?forcegl2=1 shows as WebGL2 (the auto chain honours it anyway).
+backendSelectEl.value = params.get('backend') ?? (params.get('forcegl2') === '1' ? 'webgl2' : '')
+backendSelectEl.addEventListener('change', () => {
+  const value = backendSelectEl.value
+  const url = new URL(location.href)
+  if (value) url.searchParams.set('backend', value)
+  else url.searchParams.delete('backend')
+  history.replaceState(null, '', url.toString())
+  // Context types are sticky per canvas — boot the new backend on a fresh
+  // node, re-running whatever source is in the editor (edits survive).
+  replaceMapCanvas()
+  const label = selectEl.selectedOptions[0]?.textContent ?? 'Custom'
+  void runSource(editor.getValue(), label)
+})
+
 document.addEventListener('keydown', (e) => {
   if (monacoContainer.contains(e.target as Node) || e.target instanceof HTMLSelectElement) return
   if (e.key === 'ArrowLeft' && currentIdx > 0) {
@@ -1438,11 +1496,11 @@ if (params.get('id') === '__import') {
         if (part.startsWith('src=')) srcEnc = part.slice('src='.length)
         else if (part.startsWith('inline=')) inlineEnc = part.slice('inline='.length)
       }
-      imported = decodeURIComponent(escape(atob(srcEnc)))
+      imported = b64ToUtf8(srcEnc)
       label = params.get('label') ?? 'Imported'
       if (inlineEnc) {
         try {
-          importInline = JSON.parse(decodeURIComponent(escape(atob(inlineEnc))))
+          importInline = JSON.parse(b64ToUtf8(inlineEnc))
         } catch {
           /* malformed inline blob — render without it */
         }
