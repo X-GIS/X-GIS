@@ -27,6 +27,7 @@ import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/geo'
 import { configureProjections } from './shaders/dsl/projections'
 import { applyBodyOption } from './body-consts'
+import { addHeatmapShowLayer } from './heatmap-show'
 import { worldBandForProjType } from '@xgis/geo'
 import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
@@ -120,6 +121,7 @@ import type {
   XGISFontResource,
   XGISMapOptions,
   FontTypographyMap,
+  RawDataset,
 } from './map-types'
 // Re-export the public type surface so existing `import { ... } from
 // './engine/map'` paths keep resolving after the extraction.
@@ -336,7 +338,7 @@ export class XGISMap {
   private vtVariantPipelines: VariantPipelines | null = null
 
   // Raw data for re-projection
-  rawDatasets = new Map<string, GeoJSONFeatureCollection>()
+  rawDatasets = new Map<string, RawDataset>()
   /** Declared input CRS per source id, built at run() time from
    *  `commands.loads[].crs` (the LoadCommand carrier threaded from IR
    *  `SourceDef.crs`). The IR `Scene` is not retained past emitCommands,
@@ -873,7 +875,7 @@ export class XGISMap {
     this.vtSources.set(SYNTHETIC_EARTH_SURFACE_SOURCE, { source: catalog, renderer: vtRenderer })
     this.rawDatasets.set(SYNTHETIC_EARTH_SURFACE_SOURCE, {
       _vectorTile: true,
-    } as unknown as GeoJSONFeatureCollection)
+    })
   }
 
   /** Issue #360 F1 — XGISMap-side host adapter for the per-source polar-cap
@@ -2170,8 +2172,8 @@ export class XGISMap {
       const variant = entry.show.shaderVariant
       if (variant && (variant.preamble || variant.needsFeatureBuffer)) {
         try {
-          entry.pipelines = this.renderer.getOrCreateVariantPipelines(variant as never)
-          entry.layout = this.renderer.getOrBuildVariantLayout(variant as never)
+          entry.pipelines = this.renderer.getOrCreateVariantPipelines(variant)
+          entry.layout = this.renderer.getOrBuildVariantLayout(variant)
         } catch (e) {
           xlog.warn('[X-GIS] Variant pipeline re-resolve after setQuality failed:', e)
           entry.pipelines = null
@@ -2824,7 +2826,7 @@ export class XGISMap {
     if (variants.length > 0) {
       try {
         await this.renderer.prewarmShaderVariantsAsync(
-          variants as unknown as Parameters<MapRendererContent['prewarmShaderVariantsAsync']>[0],
+          variants,
         )
       } catch (e) {
         xlog.warn(
@@ -2974,31 +2976,7 @@ export class XGISMap {
       // heatmap layers were cleared above, so an empty map on the first pass
       // (geojson still streaming) just no-ops and a later rebuild re-adds.
       if (show.isHeatmap) {
-        const hmSource = this.heatmapPointData.get(show.targetName)
-        if (hmSource?.features?.length && this.heatmapRenderer) {
-          try {
-            const feats = applyFilter(
-              hmSource,
-              show.filterExpr,
-              this.camera.zoom,
-              this.camera.pitch,
-            ).features
-            const t = feats[0]?.geometry?.type
-            if (t === 'Point' || t === 'MultiPoint') {
-              this.heatmapRenderer.addLayer(
-                feats as any,
-                show.heatmapRadius ?? 30,
-                show.heatmapWeight ?? 1,
-                show.heatmapIntensity ?? 1,
-                show.heatmapOpacity ?? 1,
-                show.heatmapColorStops as any,
-                null,
-              )
-            }
-          } catch (e) {
-            xlog.warn('[X-GIS] heatmap layer build failed:', e)
-          }
-        }
+        addHeatmapShowLayer(this, show)
         continue
       }
 
@@ -3023,7 +3001,7 @@ export class XGISMap {
       }
 
       // Raster tile source referenced by a layer → activate raster renderer
-      const tileUrl = (data as unknown as { _tileUrl?: string })._tileUrl
+      const tileUrl = '_tileUrl' in data ? data._tileUrl : undefined
       if (tileUrl) {
         this.rasterRenderer.setUrlTemplate(tileUrl)
         // Capture the show so the frame loop can resolve its
@@ -3035,7 +3013,7 @@ export class XGISMap {
       }
 
       // Skip vector tile sources loaded from .xgvt files
-      if ((data as unknown as { _vectorTile?: boolean })._vectorTile) {
+      if ('_vectorTile' in data) {
         const vtEntry = this.vtSources.get(show.targetName)
         if (!vtEntry) continue
 
@@ -3045,14 +3023,14 @@ export class XGISMap {
         const variant = show.shaderVariant
         if (variant && (variant.preamble || variant.needsFeatureBuffer)) {
           try {
-            pipelines = this.renderer.getOrCreateVariantPipelines(variant as any)
+            pipelines = this.renderer.getOrCreateVariantPipelines(variant)
             // Compute-aware layout selection: when the variant
             // carries `computeBindings`, MapRenderer returns the
             // per-variant extended layout (legacy entries + read-only
             // storage at the compiler-chosen binding indices) — VTR
             // builds its per-tile bind groups against this layout so
             // its pipeline + bind groups agree.
-            layout = this.renderer.getOrBuildVariantLayout(variant as never)
+            layout = this.renderer.getOrBuildVariantLayout(variant)
             // P4 compute context: when the variant carries compute
             // bindings, hand the scene plan + renderNodeIndex to the
             // VTR so per-tile uploads can attach a ComputeLayerHandle.
@@ -3063,7 +3041,7 @@ export class XGISMap {
             // VTR. The plan setter is idempotent + scene-scoped.
             vtEntry.renderer.setComputePlan(this._currentComputePlan)
             if (variant.needsFeatureBuffer && !vtEntry.renderer.hasFeatureData()) {
-              vtEntry.renderer.buildFeatureDataBuffer(variant as any, layout, show.renderNodeIndex)
+              vtEntry.renderer.buildFeatureDataBuffer(variant, layout, show.renderNodeIndex)
             }
           } catch (e) {
             xlog.warn('[X-GIS] VT variant pipeline failed:', e)
@@ -3089,8 +3067,8 @@ export class XGISMap {
         const variant = show.shaderVariant
         if (variant && (variant.preamble || variant.needsFeatureBuffer)) {
           try {
-            pipelines = this.renderer.getOrCreateVariantPipelines(variant as any)
-            layout = this.renderer.getOrBuildVariantLayout(variant as never)
+            pipelines = this.renderer.getOrCreateVariantPipelines(variant)
+            layout = this.renderer.getOrBuildVariantLayout(variant)
             // Mirror of the sibling branch above — same compute-
             // context hand-off so this code path (existing VT source)
             // sees the compute plan for the new show.
@@ -3100,7 +3078,7 @@ export class XGISMap {
             // VTR. The plan setter is idempotent + scene-scoped.
             vtEntry.renderer.setComputePlan(this._currentComputePlan)
             if (variant.needsFeatureBuffer && !vtEntry.renderer.hasFeatureData()) {
-              vtEntry.renderer.buildFeatureDataBuffer(variant as any, layout, show.renderNodeIndex)
+              vtEntry.renderer.buildFeatureDataBuffer(variant, layout, show.renderNodeIndex)
             }
           } catch (e) {
             xlog.warn('[X-GIS] VT variant pipeline failed:', e)
@@ -3110,7 +3088,9 @@ export class XGISMap {
         continue
       }
 
-      let filtered = applyFilter(data, show.filterExpr, this.camera.zoom, this.camera.pitch)
+      // Markers handled above; `_tileUrl` isn't type-excludable (guard tolerates '').
+      const fc = data as GeoJSONFeatureCollection
+      let filtered = applyFilter(fc, show.filterExpr, this.camera.zoom, this.camera.pitch)
 
       // Procedural geometry: evaluate geometry expression per feature
       if (show.geometryExpr?.ast) {
@@ -3219,7 +3199,7 @@ export class XGISMap {
         const shapeId = show.shape ? (this.shapeRegistry?.getShapeId(show.shape) ?? 0) : 0
 
         this.pointRenderer.addLayer(
-          filtered.features as any,
+          filtered.features,
           fill,
           stroke,
           show.strokeWidth,
@@ -3335,8 +3315,8 @@ export class XGISMap {
         let syncLayout: GPUBindGroupLayout | null = null
         if (variantSync && (variantSync.preamble || variantSync.needsFeatureBuffer)) {
           try {
-            syncPipelines = this.renderer.getOrCreateVariantPipelines(variantSync as any)
-            syncLayout = this.renderer.getOrBuildVariantLayout(variantSync as never)
+            syncPipelines = this.renderer.getOrCreateVariantPipelines(variantSync)
+            syncLayout = this.renderer.getOrBuildVariantLayout(variantSync)
             vtRenderer.setComputePlan(this._currentComputePlan)
             if (variantSync.needsFeatureBuffer && !vtRenderer.hasFeatureData()) {
               vtRenderer.buildFeatureDataBuffer(
@@ -3408,7 +3388,7 @@ export class XGISMap {
             // carries computeBindings.
             vtRenderer.buildFeatureDataBuffer(
               variant as import('@xgis/compiler').ShaderVariant,
-              this.renderer.getOrBuildVariantLayout(variant as never),
+              this.renderer.getOrBuildVariantLayout(variant),
               show.renderNodeIndex,
             )
             vtRenderer.setComputePlan(this._currentComputePlan)
@@ -3456,8 +3436,8 @@ export class XGISMap {
       const variantSync = show.shaderVariant
       if (variantSync && (variantSync.preamble || variantSync.needsFeatureBuffer)) {
         try {
-          pipelines = this.renderer.getOrCreateVariantPipelines(variantSync as any)
-          layout = this.renderer.getOrBuildVariantLayout(variantSync as never)
+          pipelines = this.renderer.getOrCreateVariantPipelines(variantSync)
+          layout = this.renderer.getOrBuildVariantLayout(variantSync)
         } catch (e) {
           xlog.warn('[X-GIS] GeoJSON VT variant pipeline failed:', e)
         }

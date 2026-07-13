@@ -32,6 +32,7 @@ import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
 import { heatmapAccumU as HEATMAP_U } from '../shaders/dsl/heatmap-accum'
 import { globeEyeUniform } from './globe-eye-uniform'
 import { cameraAnchorDsfun } from './camera-anchor-dsfun'
+import type { GeoJSONGeometry } from '@xgis/data'
 
 // Typed pack target for the heatmap-accum 'Uniforms' struct (#733 P2): layout from
 // wgslLayout(U.struct) — handle-only, module-free — and write() typed by the same
@@ -275,7 +276,7 @@ export class HeatmapRenderer {
    */
   addLayer(
     features: {
-      geometry: { type: string; coordinates: number[] }
+      geometry: GeoJSONGeometry | null
       properties?: Record<string, unknown>
     }[],
     radiusPx: number,
@@ -296,7 +297,7 @@ export class HeatmapRenderer {
       if (f.geometry.type === 'Point') {
         points.push({ lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], w })
       } else if (f.geometry.type === 'MultiPoint') {
-        for (const coord of (f.geometry as unknown as { coordinates: number[][] }).coordinates) {
+        for (const coord of f.geometry.coordinates) {
           points.push({ lon: coord[0], lat: coord[1], w })
         }
       }

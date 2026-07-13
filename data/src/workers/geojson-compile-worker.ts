@@ -111,24 +111,14 @@ export function runCompile(req: GeoJSONCompileRequest): {
   transferables: ArrayBuffer[]
 } {
   const idResolver = resolveIdResolver(req.idResolverMode)
-  // Runtime's GeoJSONFeature is strictly wider than the compiler's
-  // (RFC 7946 §3.2 nullable geometry + GeometryCollection variant
-  // landed in iter 469/470). The compiler tiler defensively skips
-  // null + recurses Collection per RFC, so the structural override
-  // is safe — cast through Parameters<…> to pin to the exact arg
-  // shape compileGeoJSONToTiles + decomposeFeatures expect.
-  const parts = decomposeFeatures(
-    req.geojson.features as unknown as Parameters<typeof decomposeFeatures>[0],
+  // The worker's FeatureCollection type (../geojson-types) and the tiler's
+  // (@xgis/compiler) are now structurally identical — no cast needed.
+  const parts = decomposeFeatures(req.geojson.features, idResolver)
+  const set = compileGeoJSONToTiles(req.geojson, {
+    minZoom: req.minZoom,
+    maxZoom: req.maxZoom,
     idResolver,
-  )
-  const set = compileGeoJSONToTiles(
-    req.geojson as unknown as Parameters<typeof compileGeoJSONToTiles>[0],
-    {
-      minZoom: req.minZoom,
-      maxZoom: req.maxZoom,
-      idResolver,
-    },
-  )
+  })
 
   const transferables: ArrayBuffer[] = []
   const serializedLevels: SerializedTileLevel[] = set.levels.map((level) => {
@@ -146,6 +136,7 @@ export function runCompile(req: GeoJSONCompileRequest): {
         indices: tile.indices.buffer as ArrayBuffer,
         lineVertices: tile.lineVertices.buffer as ArrayBuffer,
         lineIndices: tile.lineIndices.buffer as ArrayBuffer,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- ABI passthrough of the retired field (see SerializedTile)
         outlineIndices: tile.outlineIndices.buffer as ArrayBuffer,
         outlineVertices: tile.outlineVertices.buffer as ArrayBuffer,
         outlineLineIndices: tile.outlineLineIndices.buffer as ArrayBuffer,

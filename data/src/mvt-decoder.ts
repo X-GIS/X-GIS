@@ -103,5 +103,10 @@ function clampGeometryToPlanet(g: GeoJSONGeometry): GeoJSONGeometry {
         type: 'MultiPolygon',
         coordinates: g.coordinates.map((poly) => poly.map((ring) => ring.map(clampPos))),
       }
+    // MVT never encodes GeometryCollection (spec has no GC geometry type),
+    // but the union arm exists (RFC 7946 §3.1.8) — clamp members recursively
+    // so the function stays total over its declared domain.
+    case 'GeometryCollection':
+      return { type: 'GeometryCollection', geometries: g.geometries.map(clampGeometryToPlanet) }
   }
 }

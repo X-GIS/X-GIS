@@ -5,16 +5,17 @@
 // computeFn / entryFn / module assemblers. Imports types + nodes + node.
 
 import { type ShaderType, type KeyOf, type ScalarKey, voidT } from './types'
-import type {
-  Stmt,
-  Expr,
-  BinOp,
-  FuncDecl,
-  ModuleDecl,
-  ConstDecl,
-  OverrideDecl,
-  StructDecl,
-  BindingDecl,
+import {
+  type Stmt,
+  type Expr,
+  type BinOp,
+  type FuncDecl,
+  type ModuleDecl,
+  type ConstDecl,
+  type OverrideDecl,
+  type StructDecl,
+  type BindingDecl,
+  ASSEMBLED_AS,
 } from './nodes'
 import {
   Node,
@@ -204,7 +205,7 @@ export class Builder {
     const stmt = { s: 'if' as const, arms, elseBody: undefined as Stmt[] | undefined }
     // Push a mutable-shaped object; the readonly Stmt typing is a compile-time
     // view only — the builder owns construction.
-    this.push(stmt as unknown as Stmt)
+    this.push(stmt)
     return new IfChain(this, arms, (e) => {
       stmt.elseBody = e
     })
@@ -250,6 +251,8 @@ export class Builder {
     const updateStmt: Stmt = {
       s: 'assign',
       target: i.expr,
+      // stepNode's exact scalar-vs-K match is enforced at AUTHOR-RUN time (SD0004
+      // from binResultType), not by tsc — K is abstract at this generic call site.
       expr: i.add(stepNode as unknown as ArithArg<K>).expr,
     }
     this.push({
@@ -457,6 +460,9 @@ function makeCallFactory<R extends ShaderType>(
       typeof a0 === 'object' &&
       !Array.isArray(a0)
     ) {
+      // Principled cast: the preceding typeof / isNodeValue / Array.isArray guards prove
+      // a0 is a plain named-args record here; TS can't recover that through the `unwrap`
+      // map (args is pinned to NodeLike[]) without widening the public call signature.
       const obj = a0 as unknown as Record<string, NodeLike>
       // A raw number in the object form lifts to the DECLARED param type — the
       // caller named the parameter, so its type is known (unlike the positional
@@ -850,10 +856,6 @@ function walkCalls(
  *     byte-identically and an entries-only list still satisfies GLSL's
  *     define-before-use. externFn / raw callFn names carry no declRef and are
  *     linked at emit as before. */
-/** Non-enumerable marker: the name a decl was LAST assembled under (#763 D4).
- *  Symbol.for — survives dual-instance loads like the node brand. */
-const ASSEMBLED_AS = Symbol.for('xgis.shader-dsl.assembledAs')
-
 function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
   const record = input !== undefined && !Array.isArray(input)
   let renamed = false
@@ -864,7 +866,7 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
         // If this decl already participated in another assembly under a
         // DIFFERENT name, renaming it now silently corrupts that module's
         // re-emit (`fn old` definition vs `new(...)` calls). Fail loud.
-        const prev = (d as unknown as Record<symbol, unknown>)[ASSEMBLED_AS] as string | undefined
+        const prev = d[ASSEMBLED_AS]
         if (prev !== undefined && prev !== key) {
           throw new Error(
             `shader-dsl: fn was already assembled as '${prev}' — renaming the shared decl to '${key}' would corrupt the earlier module's re-emit (#763 D4). Author a separate fn (or reuse the key '${prev}').`,

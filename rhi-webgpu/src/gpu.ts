@@ -229,7 +229,7 @@ export async function createWebGpuContext(
   // pipeline state error, etc. — without requiring every resource
   // creation site to be individually wrapped in pushErrorScope.
   device.addEventListener?.('uncapturederror', (e) => {
-    const err = (e as unknown as { error: { message: string } }).error
+    const err = e.error
     const msg = err?.message ?? String(e)
     console.error('[WebGPU validation]', msg)
     ctx._validationErrors.push({ message: msg, t: Date.now() })

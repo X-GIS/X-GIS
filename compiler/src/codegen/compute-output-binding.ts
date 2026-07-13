@@ -101,7 +101,7 @@ export function emitComputeOutputReadExprNode(
   const name = varNameFor(spec.paintAxis)
   const buf = varRefArrayU32(name)
   const idx = inputFeatIdRef()
-  const u32At = arrayIndex<'u32'>(buf as never, idx, 'u32')
+  const u32At = arrayIndex<'u32'>(buf, idx, 'u32')
   return unpack4x8unormVec4(u32At)
 }
 

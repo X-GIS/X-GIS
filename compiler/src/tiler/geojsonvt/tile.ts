@@ -120,7 +120,7 @@ function addFeature(tile: InternalTile, feature: ProjectedFeature, tolerance: nu
     }
   }
 
-  const len = (simplified as unknown as { length: number }).length
+  const len = simplified.length
   if (len) {
     const tags = feature.tags ?? null
 

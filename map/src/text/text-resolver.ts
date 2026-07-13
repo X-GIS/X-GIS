@@ -17,7 +17,7 @@
 // Falls back gracefully on missing fields / evaluation errors so
 // a single bad feature doesn't crash an entire frame's labels.
 
-import { evaluate, makeEvalProps, type TextValue } from '@xgis/compiler'
+import { evaluate, makeEvalProps, type TextValue, type Expr } from '@xgis/compiler'
 import { formatValue } from './format-value'
 
 export type FeatureProps = Record<string, unknown>
@@ -145,7 +145,7 @@ function resolveTextUncached(
  *  blow up the whole label render pass. */
 function safeEval(ast: unknown, props: FeatureProps): unknown {
   try {
-    return evaluate(ast as never, props)
+    return evaluate(ast as Expr, props)
   } catch {
     return undefined
   }

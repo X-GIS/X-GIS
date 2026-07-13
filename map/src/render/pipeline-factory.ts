@@ -80,7 +80,7 @@ import type { Stmt } from '@xgis/shader-dsl'
  * polygon DSL composer (runtime/src/engine/shaders/dsl/polygon.ts):
  *
  *   - `variant.fillExpr` / `strokeExpr` Nodes flow into the composer as
- *     ShaderVariantInfo.{fillExpr,strokeExpr}; the composer's placeholder
+ *     PolygonVariantSpec.{fillExpr,strokeExpr}; the composer's placeholder
  *     Stmt swap injects them into fs_fill / fs_stroke at the marker site.
  *   - `variant.needsFeatureBuffer` toggles the @group(0) @binding(1)
  *     feat_data storage binding the composer emits.

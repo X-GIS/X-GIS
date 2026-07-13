@@ -6,6 +6,7 @@
 
 import { EARTH } from '@xgis/shared'
 import { evaluate, makeEvalProps, type GeoJSONFeature } from '@xgis/compiler'
+import type * as AST from '@xgis/compiler'
 import { evalExtrudeExpr } from '../eval/extrude-eval'
 
 /** Same height extractor as the worker (mvt-worker.ts). The inline
@@ -55,7 +56,7 @@ export function extractFeatureWidths(
     let v: unknown
     try {
       v = evaluate(
-        expr as never,
+        expr as AST.Expr,
         makeEvalProps({
           props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
           cameraZoom: tileZoom,
@@ -88,7 +89,7 @@ export function extractFeatureColors(
     let v: unknown
     try {
       v = evaluate(
-        expr as never,
+        expr as AST.Expr,
         makeEvalProps({
           props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
           cameraZoom: tileZoom,

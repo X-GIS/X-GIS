@@ -163,7 +163,7 @@ export class TileComputeResources {
         featureCount * Math.max(1, entry.kernel.featureStrideF32) * 4,
       )
       const needOutBytes = Math.max(16, featureCount * 4)
-      if ((r.featBuffer as unknown as { size: number }).size < needFeatBytes) {
+      if (r.featBuffer.size < needFeatBytes) {
         r.featBuffer.destroy()
         r.featBuffer = this.dispatcher.createFeatDataBuffer(
           entry.kernel.featureStrideF32,
@@ -171,7 +171,7 @@ export class TileComputeResources {
           `tile-feat:${entry.kernel.entryPoint}`,
         )
       }
-      if ((r.outBuffer as unknown as { size: number }).size < needOutBytes) {
+      if (r.outBuffer.size < needOutBytes) {
         r.outBuffer.destroy()
         r.outBuffer = this.dispatcher.createOutColorBuffer(
           featureCount,

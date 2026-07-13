@@ -140,7 +140,18 @@ export interface GeoJSONInput {
     | 'MultiPolygon'
     | 'GeometryCollection'
   features?: GeoJSONFeature[]
-  geometry?: { type: InputGeometryType; coordinates: unknown; geometries?: unknown[] }
+  /** `coordinates` is optional because the GeometryCollection arm of
+   *  GeoJSONGeometry carries `geometries`, not `coordinates` — convert()
+   *  branches on `type` before reading either. Nullable because RFC 7946
+   *  §3.2 allows `geometry: null` (unlocated Feature); convertFeature
+   *  already runtime-skips it. */
+  geometry?: { type: InputGeometryType; coordinates?: unknown; geometries?: unknown[] } | null
+  /** Mirrors the nested `.geometry.coordinates` so a bare-geometry input
+   *  (`{ type: 'Point', coordinates: … }`, no wrapping Feature) is
+   *  comparable to `GeoJSONInput['geometry']` and can be wrapped as
+   *  `{ geometry: data }` with a single-hop cast — no `unknown` bridge.
+   *  Never read directly; convert() reads `.geometry.coordinates`. */
+  coordinates?: unknown
   properties?: Record<string, unknown>
   id?: string | number
 }

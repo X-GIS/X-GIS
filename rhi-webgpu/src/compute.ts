@@ -72,7 +72,9 @@ export class ComputeDispatcher {
     WeakMap<GPUBuffer, WeakMap<GPUBuffer, WeakMap<GPUBuffer, GPUBindGroup>>>
   >()
 
-  constructor(ctx: GPUContext) {
+  // Minimal-shape param (only `.device` is read) so content-layer hosts can
+  // construct a dispatcher without threading a full GPUContext.
+  constructor(ctx: Pick<GPUContext, 'device'>) {
     this.device = ctx.device
   }
 

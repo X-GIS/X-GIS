@@ -282,14 +282,14 @@ export function buildMatchAst(
     kind: 'FieldAccess',
     object: null,
     field,
-  } as unknown as AST.Expr
+  }
 
   const fnCall: AST.Expr = {
     kind: 'FnCall',
     callee: { kind: 'Identifier', name: 'match' } as AST.Expr,
     args: [fieldAccess],
     matchBlock,
-  } as unknown as AST.Expr
+  }
 
   return fnCall
 }
@@ -327,13 +327,13 @@ export function buildWidthMatchAst(
     kind: 'FieldAccess',
     object: null,
     field,
-  } as unknown as AST.Expr
+  }
   return {
     kind: 'FnCall',
     callee: { kind: 'Identifier', name: 'match' } as AST.Expr,
     args: [fieldAccess],
     matchBlock,
-  } as unknown as AST.Expr
+  }
 }
 
 function rgbaToHex(rgba: import('../property-types').RGBA): string {
@@ -358,12 +358,11 @@ function rgbaToHex(rgba: import('../property-types').RGBA): string {
  *  member's filter. */
 export function buildOrFilter(field: string, allValues: FilterValue[]): AST.Expr {
   // Build .field == v0 || .field == v1 || ...
-  const fieldAccess = (): AST.Expr =>
-    ({
-      kind: 'FieldAccess',
-      object: null,
-      field,
-    }) as unknown as AST.Expr
+  const fieldAccess = (): AST.Expr => ({
+    kind: 'FieldAccess',
+    object: null,
+    field,
+  })
   const literalOf = (v: FilterValue): AST.Expr => {
     // Re-emit the SAME node kind the source filter used. A source
     // StringLiteral stays a StringLiteral (even when its text looks
@@ -381,7 +380,7 @@ export function buildOrFilter(field: string, allValues: FilterValue[]): AST.Expr
     op: '==',
     left: fieldAccess(),
     right: literalOf(allValues[0]),
-  } as unknown as AST.Expr
+  }
   for (let i = 1; i < allValues.length; i++) {
     acc = {
       kind: 'BinaryExpr',
@@ -392,8 +391,8 @@ export function buildOrFilter(field: string, allValues: FilterValue[]): AST.Expr
         op: '==',
         left: fieldAccess(),
         right: literalOf(allValues[i]),
-      } as unknown as AST.Expr,
-    } as unknown as AST.Expr
+      },
+    }
   }
   return acc
 }

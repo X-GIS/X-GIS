@@ -993,7 +993,7 @@ export class RenderLoop {
     // FrameContext whose `rhiPass` short-circuits the WebGPU encoder tail:
     // the text overlay draws directly on this screen pass. The WebGPU-only
     // fields (encoder / views) are inert on that branch; sprite ICONS
-    // (iStage) are a follow-up slice.
+    // (iStage) are a follow-up slice. `scene` is a null placeholder (`_scene` unused).
     labelPass.execute(
       {
         device: this.host.ctx.device,
@@ -1014,7 +1014,7 @@ export class RenderLoop {
         rhiPass: pass,
       },
       null as unknown as Parameters<typeof labelPass.shouldRun>[0],
-      this.host as unknown as Parameters<typeof labelPass.execute>[2],
+      this.host,
     )
 
     // #823 — retained host-drawing icon batches (map.graphics.add) on WebGL2.

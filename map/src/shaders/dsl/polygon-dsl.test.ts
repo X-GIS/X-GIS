@@ -265,7 +265,7 @@ describe('emitPolygonWgsl — skeleton', () => {
   it('variant.fillExpr replaces the fill-return placeholder with the variant Expr', () => {
     // Build a trivial variant whose fillExpr is a vec4 of constants —
     // emulates a constant-color data-driven path (US-005 idiom #1).
-    const variant: import('./polygon').ShaderVariantInfo = {
+    const variant: import('./polygon').PolygonVariantSpec = {
       preamble: null,
       fillExpr: vec4(f32(0.1), f32(0.2), f32(0.3), f32(0.4)),
       strokeExpr: null,
@@ -286,7 +286,7 @@ describe('emitPolygonWgsl — skeleton', () => {
     // fillPreamble carries the `var _mcSS = ...; if (...) { _mcSS = ...; }`
     // shape the categorical-encoder lays down. Smoke test via a tiny
     // var-declaration Stmt + a varref Expr that the assign references.
-    const variant: import('./polygon').ShaderVariantInfo = {
+    const variant: import('./polygon').PolygonVariantSpec = {
       preamble: null,
       fillExpr: new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: '_mcSS' }),
       strokeExpr: null,
@@ -315,7 +315,7 @@ describe('emitPolygonWgsl — skeleton', () => {
     // the retired post-emit string splice.
     const rawChain =
       'var _mcSS: vec4f = vec4f(0.0, 0.0, 0.0, 1.0);\n  if (input.feat_id == 0u) { _mcSS = vec4f(1.0, 0.0, 0.0, 1.0); }\n'
-    const variant: import('./polygon').ShaderVariantInfo = {
+    const variant: import('./polygon').PolygonVariantSpec = {
       preamble: null,
       fillExpr: new Node<'vec4<f32>'>({ op: 'varref', type: vec4fT, name: '_mcSS' }),
       strokeExpr: null,
@@ -361,7 +361,7 @@ describe('emitPolygonWgsl — skeleton', () => {
       ],
       vec4(f32(0.5), f32(0.5), f32(0.5), f32(1)),
     )
-    const variant: import('./polygon').ShaderVariantInfo = {
+    const variant: import('./polygon').PolygonVariantSpec = {
       preamble: null,
       fillExpr: match,
       strokeExpr: null,
@@ -399,7 +399,7 @@ describe('emitPolygonWgsl — skeleton', () => {
   })
 
   it('AC3 #3 — variant.preamble.consts only → consts appended; fill/stroke unchanged', () => {
-    const variant: import('./polygon').ShaderVariantInfo = {
+    const variant: import('./polygon').PolygonVariantSpec = {
       preamble: {
         consts: [{ name: 'CUSTOM_K', type: vec4fT, wgslValue: 0, cpuValue: 0 }],
       },
@@ -416,7 +416,7 @@ describe('emitPolygonWgsl — skeleton', () => {
   })
 
   it('AC3 #4 — variant.preamble.bindings only → binding appended at requested group/binding', () => {
-    const variant: import('./polygon').ShaderVariantInfo = {
+    const variant: import('./polygon').PolygonVariantSpec = {
       preamble: {
         bindings: [
           {
@@ -441,7 +441,7 @@ describe('emitPolygonWgsl — skeleton', () => {
   })
 
   it('AC3 #5 — variant.preamble.funcs only → helper fn appended', () => {
-    const variant: import('./polygon').ShaderVariantInfo = {
+    const variant: import('./polygon').PolygonVariantSpec = {
       preamble: {
         funcs: [
           {
@@ -463,7 +463,7 @@ describe('emitPolygonWgsl — skeleton', () => {
   })
 
   it('AC3 #8 — both fillExpr AND strokeExpr together replace both placeholders', () => {
-    const variant: import('./polygon').ShaderVariantInfo = {
+    const variant: import('./polygon').PolygonVariantSpec = {
       preamble: null,
       fillExpr: vec4(f32(0.1), f32(0.2), f32(0.3), f32(0.4)),
       strokeExpr: vec4(f32(0.5), f32(0.6), f32(0.7), f32(0.8)),
@@ -477,7 +477,7 @@ describe('emitPolygonWgsl — skeleton', () => {
   })
 
   it('AC3 #9 — fillPreamble alone without fillExpr is a no-op (composer falls back to default)', () => {
-    const variant: import('./polygon').ShaderVariantInfo = {
+    const variant: import('./polygon').PolygonVariantSpec = {
       preamble: null,
       fillExpr: null,
       strokeExpr: null,
@@ -503,7 +503,7 @@ describe('emitPolygonWgsl — skeleton', () => {
     // + Stmt.switch BEFORE the placeholder swap's assign (per AC2's
     // Stmt.switch lowering rule). The fs_fill body emits BOTH the
     // hoisted var-and-switch AND the final assign.
-    const variant: import('./polygon').ShaderVariantInfo = {
+    const variant: import('./polygon').PolygonVariantSpec = {
       preamble: null,
       fillExpr: matchExpr(
         u32(0),
@@ -530,7 +530,7 @@ describe('emitPolygonWgsl — skeleton', () => {
   })
 
   it('AC3 #13 — pick + fillExpr + feat_data full-stack composition', () => {
-    const variant: import('./polygon').ShaderVariantInfo = {
+    const variant: import('./polygon').PolygonVariantSpec = {
       preamble: null,
       fillExpr: vec4(f32(0.5), f32(0.5), f32(0.5), f32(1)),
       strokeExpr: null,

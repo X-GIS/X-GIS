@@ -8,7 +8,7 @@
 //
 // Both producers run through `emitForFixture(fx)`, which converts the
 // compiler-side `ShaderVariant` shape into the runtime polygon DSL
-// composer's `ShaderVariantInfo` and emits via `emitPolygonWgsl`. The
+// composer's `PolygonVariantSpec` and emits via `emitPolygonWgsl`. The
 // snapshot files therefore serve as the DSL emit's stable baseline:
 // any composer change that perturbs the WGSL output surfaces as a
 // byte-equal diff against the committed snapshot. Re-running the

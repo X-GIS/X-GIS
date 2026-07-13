@@ -21,10 +21,20 @@
 
 declare global {
   // Vite injects import.meta.env; declare only the flag we read so this
-  // compiles without depending on vite/client. Merges with the standard
-  // ImportMeta (which already carries `url`, used for worker URLs).
+  // compiles without depending on vite/client. Declared as the NAMED
+  // `ImportMetaEnv` interface (not an inline literal) so a project that ALSO
+  // loads vite/client (playground/site tsconfigs) interface-MERGES both
+  // declarations: vite's `env: ImportMetaEnv` is then the same type as ours.
+  // The previous inline `{ readonly DEV: boolean }` was a DIFFERENT type from
+  // vite's, so `env` had two conflicting declarations — TS2717 in every
+  // vite-typed project that type-checked this file.
+  // NOTE: NOT `readonly` — vite/client declares `DEV: boolean` without the
+  // modifier, and merged declarations must match modifiers exactly (TS2687).
+  interface ImportMetaEnv {
+    DEV: boolean
+  }
   interface ImportMeta {
-    readonly env: { readonly DEV: boolean }
+    readonly env: ImportMetaEnv
   }
 }
 

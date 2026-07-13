@@ -8,7 +8,11 @@ export interface GeoJSONFeatureCollection {
 
 export interface GeoJSONFeature {
   type: 'Feature'
-  geometry: GeoJSONGeometry
+  /** RFC 7946 §3.2 — `geometry` may be JSON `null` for an "unlocated"
+   *  Feature. The tiler's decompose path already runtime-skips a null
+   *  geometry (decomposeFeatures / extractFirstRing in vector-tiler.ts),
+   *  so the type matches the values the tiler actually receives. */
+  geometry: GeoJSONGeometry | null
   properties: Record<string, unknown>
   /** Optional GeoJSON feature id (RFC 7946 §3.2). The filter-eval
    *  path exposes this via the synthetic `$featureId` prop so Mapbox
@@ -26,3 +30,7 @@ export type GeoJSONGeometry =
   | { type: 'MultiLineString'; coordinates: number[][][] }
   | { type: 'Polygon'; coordinates: number[][][] }
   | { type: 'MultiPolygon'; coordinates: number[][][][] }
+  // RFC 7946 §3.1.8 — a GeometryCollection carries a member list, not a
+  // `coordinates` array. `geometries` is REQUIRED per the RFC; the tiler
+  // demonstrably receives this variant, so the union must carry it.
+  | { type: 'GeometryCollection'; geometries: GeoJSONGeometry[] }

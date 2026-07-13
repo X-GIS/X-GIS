@@ -89,34 +89,32 @@ export function loadGeoJSON(data: GeoJSONFeatureCollection): {
       // every GeometryCollection feature; OSM extracts that bundle
       // a polygon + label-anchor point per landuse feature would
       // never render the polygon side.
-      // Reads the typed shape with explicit narrowing so the inner
-      // recursion doesn't drag the broader Geometry union in.
-      const collection = geom as { geometries?: unknown[] }
-      for (const sub of collection.geometries ?? []) {
-        if (!sub || typeof sub !== 'object') continue
-        const subGeom = sub as { type?: string; coordinates?: unknown }
+      // Iterate the typed `geometries` members directly — `geom` is narrowed to
+      // the GeometryCollection variant, so `geom.geometries` is GeoJSONGeometry[]
+      // and each arm's `.type` check types `.coordinates` exactly (no casts).
+      for (const subGeom of geom.geometries) {
         if (subGeom.type === 'Polygon') {
           tessellatePolygon(
-            subGeom.coordinates as never,
+            subGeom.coordinates,
             feature.properties,
             polyVertices,
             polyIndices,
             polyFeatures,
           )
         } else if (subGeom.type === 'MultiPolygon') {
-          for (const polygon of subGeom.coordinates as never[]) {
+          for (const polygon of subGeom.coordinates) {
             tessellatePolygon(polygon, feature.properties, polyVertices, polyIndices, polyFeatures)
           }
         } else if (subGeom.type === 'LineString') {
           tessellateLineString(
-            subGeom.coordinates as never,
+            subGeom.coordinates,
             feature.properties,
             lineVertices,
             lineIndices,
             lineFeatures,
           )
         } else if (subGeom.type === 'MultiLineString') {
-          for (const line of subGeom.coordinates as never[]) {
+          for (const line of subGeom.coordinates) {
             tessellateLineString(line, feature.properties, lineVertices, lineIndices, lineFeatures)
           }
         }

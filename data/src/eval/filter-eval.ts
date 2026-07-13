@@ -19,6 +19,7 @@
 // of the AST + sourceLayer pair).
 
 import { evaluate } from '@xgis/compiler'
+import type * as AST from '@xgis/compiler'
 
 export type FilterAst = unknown // structurally-typed AST node from the compiler
 
@@ -34,7 +35,7 @@ export function evalFilterExpr(ast: FilterAst, props: Record<string, unknown>): 
   // not nuke the rest of the tile's slice. Treat throw as 'reject'.
   let v: unknown
   try {
-    v = evaluate(ast as never, props)
+    v = evaluate(ast as AST.Expr, props)
   } catch {
     return false
   }
