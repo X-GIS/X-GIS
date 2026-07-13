@@ -29,6 +29,13 @@ const PKGS = [
   'rhi/src',
   'rhi-webgpu/src',
   'rhi-webgl2/src',
+  // #1005 — carried from the retiring runtime arch-invariants Gate 3, whose
+  // SRC_DIRS walk covered these three trees; without this they go ceiling-dark
+  // the day runtime/ is deleted. Ceilings re-measured at carry time (several
+  // files had shrunk below their old runtime ceilings — the tighter value won).
+  'compiler/src',
+  'blueprint/src',
+  'shared/src',
 ]
 const NEW_FILE_CAP = 800
 
@@ -104,6 +111,16 @@ const CEILINGS: Record<string, number> = {
   'map/src/render/tile-selection-cache.ts': 930,
   'map/src/render/upload-coordinator.ts': 870,
   'map/src/shaders/dsl/projections.ts': 811,
+  // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
+  // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
+  'compiler/src/tiler/vector-tiler.ts': 1790,
+  'compiler/src/ir/lower.ts': 1409,
+  'compiler/src/convert/layers-symbol.ts': 1295,
+  'compiler/src/ir/lower-label.ts': 1091,
+  'compiler/src/tokens/colors.ts': 937,
+  'compiler/src/ir/render-node.ts': 908,
+  'compiler/src/convert/paint-helpers.ts': 826,
+  'blueprint/src/editor.ts': 1448,
 }
 
 describe('LOC ceiling ratchet: map/engine/geo/data/rhi* god-files shrink-only (#1003)', () => {

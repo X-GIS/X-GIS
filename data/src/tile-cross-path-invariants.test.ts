@@ -28,8 +28,8 @@ import { firstIndexedAncestor } from '@xgis/data'
 // paths even when unit tests for each path pass.
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const TRIANGLE_PATH = resolve(__dirname, '../../../playground/public/data/fixture-triangle.geojson')
-const COUNTRIES_PATH = resolve(__dirname, '../../../playground/public/data/countries.geojson')
+const TRIANGLE_PATH = resolve(__dirname, '../../playground/public/data/fixture-triangle.geojson')
+const COUNTRIES_PATH = resolve(__dirname, '../../playground/public/data/countries.geojson')
 
 // #398: polygon vertices now ship as the quantized ECEF layout — stride 28
 // bytes = 7 floats (uint16×6 position + f32 fid + f32 abs_lon + f32 abs_lat +
@@ -158,7 +158,7 @@ describe('cross-path: compileGeoJSONToTiles(batch) ≡ compileSingleTile(on-dema
     const batchSet = compileGeoJSONToTiles(gj, { minZoom: 3, maxZoom: 3 })
     const z3 = batchSet.levels.find((l) => l.zoom === 3)!
 
-    let diverged = 0
+    const diverged = 0
     const divergences: string[] = []
     for (const [key] of z3.tiles) {
       const [, x, y] = [
@@ -167,7 +167,8 @@ describe('cross-path: compileGeoJSONToTiles(batch) ≡ compileSingleTile(on-dema
         ((key / 0x4000000) & 0x3ffffff) >>> 0,
       ].map((v, i) => (i === 0 ? z3.zoom : v))
       // Simpler: extract via tileKeyUnpack
-      ;(void x, y)
+      void x
+      void y
     }
 
     // The byte-level check above at z=8 is the strict guard; this
@@ -181,7 +182,9 @@ describe('cross-path: compileGeoJSONToTiles(batch) ≡ compileSingleTile(on-dema
       const rest = Math.floor(key / 32)
       const x = rest & 0x3fff
       const y = Math.floor(rest / 0x4000) & 0x3fff
-      ;(void z, x, y)
+      void z
+      void x
+      void y
     }
     // Soft pass: if batch produced N tiles with vertices, we at least
     // don't throw when re-running single. Real byte-exact agreement is

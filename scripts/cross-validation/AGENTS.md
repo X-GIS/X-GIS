@@ -5,7 +5,7 @@
 
 ## Purpose
 
-Python fixture generator that produces a committed JSON file consumed by the X-GIS TypeScript test suite to verify CPU-side projection, tile, and geometry math against independent reference implementations. Uses `pyproj` (EPSG transforms), `mercantile` (slippy-map tile math), and `shapely`/GEOS (geometry operations). The generator is intentionally a one-shot script, not a pytest suite. Output is written to `runtime/src/__tests__/cross-validation.fixture.json` and checked in. Managed with `uv`; no pip/venv workflow. The `.venv/` directory is present but must be excluded from all file searches.
+Python fixture generator that produces a committed JSON file consumed by the X-GIS TypeScript test suite to verify CPU-side projection, tile, and geometry math against independent reference implementations. Uses `pyproj` (EPSG transforms), `mercantile` (slippy-map tile math), and `shapely`/GEOS (geometry operations). The generator is intentionally a one-shot script, not a pytest suite. Output is written to `data/src/cross-validation.fixture.json` (relocated from `runtime/src/__tests__/` in #1005) and checked in. Managed with `uv`; no pip/venv workflow. The `.venv/` directory is present but must be excluded from all file searches.
 
 ## Key Files
 
