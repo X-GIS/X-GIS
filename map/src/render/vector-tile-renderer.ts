@@ -332,6 +332,9 @@ export class VectorTileRenderer {
    *  bool) because the slot is an f32 the WGSL reads via `!= 0`. */
   private currentFillAntialias = 1
   private currentFillVerticalGradient = 1
+  /** #1080 — per render(): per-feature extruded fill draws FRONT-SHELL only
+   *  (depth prepass + depth-`less-equal` colour) when resolved fill alpha < 1. */
+  private _extrudeTranslucentFrontShell = false
   /** Top-level fill-extrusion light, pushed each frame from the render
    *  loop (host._light). Defaults = MapLibre/Mapbox default so an untouched
    *  renderer is byte-identical to the baked consts. position = [radius,
@@ -2446,6 +2449,12 @@ export class VectorTileRenderer {
     // helper), not a default-uniform string compare on variantFillExpr.
     this._skipFillDraw =
       !variantProducesFill(show.shaderVariant) && this.cachedFillColor[3] <= 0.005
+    // #1080 — translucent fill-extrusion front-shell gate (MapLibre draws a front
+    // shell for opacity < 1). Data-driven fill → layer opacity; else fill.a×opacity.
+    const extrudeFillAlpha = variantProducesFill(show.shaderVariant)
+      ? this.currentOpacity
+      : this.cachedFillColor[3] * this.currentOpacity
+    this._extrudeTranslucentFrontShell = extrudeFillAlpha < 0.999
     // #599 line-drape — reset per render(); set at the drape seam / layer-slot block below.
     this._drapeStrokes = false
     this._bakeStrokeActive = false
@@ -3835,6 +3844,7 @@ export class VectorTileRenderer {
     slotOffset: number,
     cached: GPUTile,
     bindZBuffer: boolean,
+    translucentFrontShell = false,
   ): void {
     if (this._skipFillDrawForBundle) return
     // DIAGNOSTIC ONLY — `window.__xgisMaxTiles` caps the actual fill DRAWS per
@@ -3853,7 +3863,16 @@ export class VectorTileRenderer {
     // (recordFillDraw) so this renderer stays under its size ratchet. The arena vertex/index sub-ranges
     // + the optional extrude z-buffer (slot 1) are carried on `cached`; the stencil ref + the bundle
     // skip stay here, one level up.
-    recordFillDraw(this._fillRhi, encoder, pipeline, tileBg, slotOffset, cached, bindZBuffer)
+    recordFillDraw(
+      this._fillRhi,
+      encoder,
+      pipeline,
+      tileBg,
+      slotOffset,
+      cached,
+      bindZBuffer,
+      translucentFrontShell,
+    )
   }
 
   /** #778 P1: round world-copy offsets into the shared reused scratch,
@@ -4369,6 +4388,12 @@ export class VectorTileRenderer {
             slotOffset,
             cached,
             /* bindZBuffer */ useOitPipe || useExtrudedPipe,
+            // #1080 — front-shell two-draw only for the solid per-feature extrude
+            // draw (exclude OIT + debug-overdraw; recordFillDraw no-ops otherwise).
+            /* translucentFrontShell */ useExtrudedPipe &&
+              !useOitPipe &&
+              !DEBUG_OVERDRAW &&
+              this._extrudeTranslucentFrontShell,
           )
         }
       }
