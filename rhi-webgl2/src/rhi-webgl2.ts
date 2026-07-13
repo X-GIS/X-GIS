@@ -283,6 +283,10 @@ class WebGl2RenderPass implements RhiRenderPass {
     } else {
       gl.disable(gl.DEPTH_TEST)
       gl.depthMask(false)
+      // Also clear polygon-offset bias (#1043): a prior biased pipeline leaves POLYGON_OFFSET_FILL
+      // on, and this depth-less arm never resets it — latent today (depth test/write are off)
+      // but closes the incomplete-reset gap for state hygiene (mirrors the if-arm disable at :282).
+      gl.disable(gl.POLYGON_OFFSET_FILL)
     }
     if (pl.cullMode && pl.cullMode !== 'none') {
       gl.enable(gl.CULL_FACE)
@@ -545,6 +549,11 @@ export class WebGl2Device implements RhiDevice {
     if (desc.clear) {
       const [r, g, b, a] = desc.clear
       gl.clearColor(r, g, b, a)
+      // The COLOR clear honors colorMask too (#1043, the colour sibling of #780/#746): a frame
+      // whose last pipeline left an all-false writeMask (stencil-only clip / writeMask-0 pick,
+      // :109) would silently no-op the next background clear → intermittent flicker. Unmask first
+      // (mirrors beginOffscreenPass :628). No restore: setPipeline re-sets colorMask every draw.
+      gl.colorMask(true, true, true, true)
       // Stencil AND depth clears honor their write masks (#746, #780): glClear masks the
       // stencil clear by stencilMask and the DEPTH clear by depthMask, so unmask both first
       // — a prior pipeline's inert 0x00 stencil mask, or its depthMask=false (setPipeline
@@ -1076,6 +1085,10 @@ export class WebGl2Device implements RhiDevice {
       gl.deleteTexture(outTex.tex)
       throw new Error('webgl2: createFramebuffer (compute) failed')
     }
+    // Snapshot the viewport so the finally restores it (#1043): setPipeline never touches viewport,
+    // so overriding it below for the compute output size corrupts every later draw until the next
+    // pass begin. getParameter is a sync readback, fine on this already-sync readPixels path.
+    const [vpX, vpY, vpW, vpH] = gl.getParameter(gl.VIEWPORT) as Int32Array
     // The framebuffer + outTex must be freed on EVERY exit (the FBO-incomplete throw used
     // to leak both, the success path deleted both). finally covers all paths (#782).
     try {
@@ -1099,6 +1112,7 @@ export class WebGl2Device implements RhiDevice {
       return out
     } finally {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      gl.viewport(vpX, vpY, vpW, vpH) // #1043: restore the enclosing pass's viewport
       gl.deleteFramebuffer(fbo)
       gl.deleteTexture(outTex.tex)
     }
