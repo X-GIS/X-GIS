@@ -9,8 +9,11 @@ import type * as AST from '../parser/ast'
 
 export type ExprClass = 'constant' | 'zoom-dependent' | 'per-feature-gpu' | 'per-feature-cpu'
 
-/** GPU-safe built-in functions that map directly to WGSL */
-const GPU_SAFE_BUILTINS = new Set([
+/** GPU-safe built-in functions that map directly to WGSL. Exported so a
+ *  test can assert this set ⊆ `BUILTIN_FN_NAMES` — every name routed to GPU
+ *  codegen must also be CPU-evaluable for the per-feature-CPU fallback and
+ *  const-fold paths (the pre-#1066 `exp2` gap broke exactly that). */
+export const GPU_SAFE_BUILTINS = new Set([
   'clamp',
   'min',
   'max',

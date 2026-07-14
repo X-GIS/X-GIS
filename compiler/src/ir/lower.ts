@@ -9,6 +9,7 @@ import { lowerLabelProps } from './lower-label'
 import { expandKeyframeTimeStops } from './lower-animation'
 import { dispatch, type LayerAccumulator, type BindingCtx } from './lower-bindings'
 import { MODIFIER_HANDLERS, BINDING_HANDLERS, UTILITY_HANDLERS } from './lower-bindings-registry'
+import { validateFnCalls } from './validate-fncalls'
 // Re-export public types so importers of './lower' keep their surface.
 export type { LowerOptions, ZoomStopsWithBase } from './lower-types'
 import {
@@ -38,6 +39,11 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
   const renderNodes: RenderNode[] = []
   const symbols: import('./render-node').SymbolDef[] = []
   const diagnostics: import('./render-node').Diagnostic[] = []
+  // #1066 — reject unknown function callees (typos like `sqrrt(.x)`) as
+  // X-GIS0012 errors before they reach the evaluator's callBuiltin. Runs
+  // over the whole parsed program up front; independent of the lowering
+  // loops below (it only reads `program`).
+  validateFnCalls(program, diagnostics)
   const sourceMap = new Map<string, SourceDef>()
   const presetMap = new Map<string, AST.UtilityLine[]>()
   const styleMap = new Map<string, AST.StyleProperty[]>()
