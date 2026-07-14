@@ -236,7 +236,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // value-forms — icon-size + icon-translate data-driven emit, two exprToXgis
   // paths (mirroring the icon-opacity emit) replacing the two "not yet
   // supported" warns.
-  'compiler/src/convert/layers-symbol.ts': 1328,
+  // Bumped 1328→1363 (#777 I-A icon-text-fit): the warn→emit swap in
+  // convertIconProperties — the label-icon-text-fit-<width|height|both> enum emit
+  // + per-side label-icon-text-fit-padding-{t,r,b,l}-N utilities (negative clamp,
+  // unknown-enum + non-constant one-shot warns) replacing the old deferred-gap warn.
+  'compiler/src/convert/layers-symbol.ts': 1363,
   // Bumped 1534→1574 for the arithmetic-arity fix (expr-arith-coalesce): the
   // variadic +/*, unary/binary -, and exact-2 //% forms each need a distinct
   // branch (was one over-strict shared comparison branch). Irreducible.
@@ -387,7 +391,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // knob); I-F icon value-forms — labelIconSizeExpr + labelIconTranslateExpr
   // accumulators + their parse arms + knob decls/types + return + the
   // buildLabelShapes iconSizeExpr wiring. Same additive label-knob class.
-  'compiler/src/ir/lower-label.ts': 1145,
+  // Bumped 1145→1187 (#777 I-A icon-text-fit): labelIconTextFit +
+  // labelIconTextFitPadding accumulators + the padding-prefix + enum parse arms +
+  // knob return + knobs-interface fields + the LabelDef spread. Same additive class.
+  'compiler/src/ir/lower-label.ts': 1187,
   // Baselined at 835 (Phase S Batch 3 raster +18 + text/icon +6; Batch 4 icon
   // collision +3 + symbol-z-order's LabelDef.symbolZOrder field + JSDoc).
   // Bumped 837→858 (Phase R heatmap + inline-geojson): the RenderNodeHeatmapPaint
@@ -403,7 +410,10 @@ const LOC_CEILINGS: Record<string, number> = {
   // contract JSDoc (+10, records the explicit-authoring-only activation
   // contract); I-F LabelDef.iconTranslateExpr field + contract JSDoc (+5). Same
   // additive label-knob field class as iconImageExpr.
-  'compiler/src/ir/render-node.ts': 928,
+  // Bumped 928→943 (#777 I-A icon-text-fit): LabelDef.iconTextFit +
+  // iconTextFitPadding fields + contract JSDoc (records the paired-bbox fit +
+  // default-none absence contract). Same additive label-knob field class.
+  'compiler/src/ir/render-node.ts': 943,
   // Crossed 800 purely via the full-repo prettier adoption (one-property-per-line /
   // call-arg wrapping) — not a hand-grown god-file; baselined at the formatted size,
   // shrink as it converges.

@@ -264,4 +264,18 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
     supported: true,
     note: 'true → LabelDef.iconKeepUpright: line-placed map-aligned tangent folds into the upright half-plane; EXPLICIT authoring only — absent keeps the always-follow-tangent render (#777 I-B)',
   },
+  {
+    property: 'icon-text-fit',
+    layerType: 'symbol',
+    variant: 'constant',
+    supported: true,
+    note: "width/height/both → LabelDef.iconTextFit: the icon sprite quad stretches to the PAIRED label's shaped text bbox (TextStage.getPairFitBoxes, keyed by pairKey) in IconStage.prepare → icon-renderer drawW/drawH; none/absent = native sprite size, byte-identical (#777 I-A)",
+  },
+  {
+    property: 'icon-text-fit-padding',
+    layerType: 'symbol',
+    variant: 'constant',
+    supported: true,
+    note: '[top,right,bottom,left] px → LabelDef.iconTextFitPadding: added per side (× dpr) to the fitted quad, with an asymmetric-padding centre shift; dependent on icon-text-fit, default [0,0,0,0] byte-identical (#777 I-A)',
+  },
 ]

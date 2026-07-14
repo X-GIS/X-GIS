@@ -659,6 +659,21 @@ export interface LabelDef {
    *  applied on absence (the icon-allow-overlap absent-default convention).
    *  Constant form only. */
   iconKeepUpright?: boolean
+  /** Mapbox `icon-text-fit` (layout enum; #777 I-A) — stretch the icon sprite
+   *  quad to wrap the PAIRED label's shaped text bbox instead of rendering at
+   *  its native sprite size (the shield/badge-background case). `width` stretches
+   *  only the horizontal axis, `height` only the vertical, `both` both. The spec
+   *  default `none` is represented by ABSENCE (undefined) — no field, no fit, the
+   *  icon renders at native `icon-size` byte-identical to the pre-#777 path.
+   *  Runtime: label-pass dispatchIcon reads the paired text bbox that TextStage
+   *  computed this frame (via the pairKey coupling) and IconStage stretches
+   *  drawW/drawH in the icon renderer. Constant form only; non-constant warns. */
+  iconTextFit?: 'width' | 'height' | 'both'
+  /** Mapbox `icon-text-fit-padding` (layout, px; #777 I-A) — [top, right, bottom,
+   *  left] padding added to the fitted quad per side, dependent on `iconTextFit`.
+   *  Absent = spec default [0,0,0,0] (fit exactly to the text bbox). Only emitted
+   *  when `iconTextFit` is active. */
+  iconTextFitPadding?: [number, number, number, number]
   /** Unified PropertyShape bundle for the four "shape-able" paint
    *  properties (text-size, text-color, text-halo-width,
    *  text-halo-color). Populated by lower.ts alongside the legacy

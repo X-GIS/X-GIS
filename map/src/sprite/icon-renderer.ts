@@ -14,8 +14,13 @@
 // stage just converts viewport-px → NDC.
 
 import type { IconAtlasGpu } from './icon-stage'
-import { wrapWebGpuPass, wrapWebGpuBindGroupLayout, wrapWebGpuTextureView, wrapWebGpuSampler } from '@xgis/rhi-webgpu'
-import type { RhiBuffer, RhiBindGroup, RhiDevice , RhiRenderPass } from '@xgis/engine'
+import {
+  wrapWebGpuPass,
+  wrapWebGpuBindGroupLayout,
+  wrapWebGpuTextureView,
+  wrapWebGpuSampler,
+} from '@xgis/rhi-webgpu'
+import type { RhiBuffer, RhiBindGroup, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { IconDraper } from '../render/material/icon-material'
 import type { SpriteInfo } from './sprite-atlas-host'
 import { vertexField } from '@xgis/compiler'
@@ -53,6 +58,13 @@ export interface IconDraw {
    *  sprites ignore it per the Mapbox spec (the bitmap already carries
    *  its own colour). Default white = identity for both paths. */
   tint?: [number, number, number]
+  /** Mapbox `icon-text-fit` (#777 I-A) — resolved quad override in physical px.
+   *  IconStage.prepare fills this for a fit icon whose paired text bbox is known
+   *  this frame: `w`/`h` replace the native drawW/drawH per fitted axis (undefined
+   *  = keep native for that axis — `width`/`height` modes), and `dx`/`dy` shift the
+   *  quad centre for asymmetric padding. Absent = native sprite dims, byte-
+   *  identical to the pre-#777 icon path. */
+  fit?: { w?: number; h?: number; dx: number; dy: number }
 }
 
 export type IconAnchor =
@@ -252,14 +264,27 @@ export class IconRenderer {
     for (const d of draws) {
       const designW = d.sprite.width / d.sprite.pixelRatio
       const designH = d.sprite.height / d.sprite.pixelRatio
-      const drawW = designW * d.sizeScale
-      const drawH = designH * d.sizeScale
+      let drawW = designW * d.sizeScale
+      let drawH = designH * d.sizeScale
+
+      // #777 I-A — icon-text-fit: override the quad dims with the paired text
+      // bbox (+ per-side padding), already resolved to physical px by IconStage.
+      // prepare(). Applied BEFORE anchorOffset so the stretched box anchors/
+      // centres correctly; the dx/dy carries the asymmetric-padding centre shift.
+      let fitDx = 0
+      let fitDy = 0
+      if (d.fit) {
+        if (d.fit.w !== undefined) drawW = d.fit.w
+        if (d.fit.h !== undefined) drawH = d.fit.h
+        fitDx = d.fit.dx
+        fitDy = d.fit.dy
+      }
 
       // Anchor offset — see IconAnchor docs above. We compute the
       // quad's TL corner relative to (anchorX, anchorY).
       const [ax, ay] = anchorOffset(d.anchor ?? 'center', drawW, drawH)
-      const x0Raw = d.anchorX + ax
-      const y0Raw = d.anchorY + ay
+      const x0Raw = d.anchorX + ax + fitDx
+      const y0Raw = d.anchorY + ay + fitDy
 
       // Pixel-snap when not rotated — same reasoning as text-renderer:
       // linear filtering of a sub-pixel quad origin produces fuzzy

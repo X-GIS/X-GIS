@@ -374,6 +374,8 @@ class LabelPass implements RenderPass {
           iconRotationAlignment?: 'map'
           iconPadding?: number
           iconKeepUpright?: boolean
+          iconTextFit?: import('@xgis/compiler').LabelDef['iconTextFit']
+          iconTextFitPadding?: import('@xgis/compiler').LabelDef['iconTextFitPadding']
           text?: import('@xgis/compiler').LabelDef['text']
         },
         ax: number,
@@ -460,6 +462,12 @@ class LabelPass implements RenderPass {
           collide: doCollide,
           padding: def.iconPadding,
           perspScale,
+          // #777 I-A — icon-text-fit: pass the fit mode + [t,r,b,l] padding so
+          // IconStage.prepare stretches this quad to the paired text bbox (looked
+          // up by pairKey). Absent = native sprite size (byte-identical).
+          fit: def.iconTextFit
+            ? { mode: def.iconTextFit, pad: def.iconTextFitPadding ?? [0, 0, 0, 0] }
+            : undefined,
         })
       }
       // Mapbox `text-field` expressions that depend on zoom (e.g.
@@ -1805,6 +1813,10 @@ class LabelPass implements RenderPass {
         const iconObstacles = iStage ? iStage.computeObstacles(activeTextPairKeys) : []
         stage.prepare(iconObstacles, limbInsetPx)
         if (iStage) iStage.setDroppedPairKeys(stage.getDroppedPairKeys())
+        // #777 I-A — hand the paired text bboxes (laid out by stage.prepare just
+        // now) to IconStage so its prepare() can stretch icon-text-fit quads.
+        // Mirrors the droppedPairKeys handoff; order matters (text before icon).
+        if (iStage) iStage.setPairFitBoxes(stage.getPairFitBoxes())
         iStage?.prepare()
       }
       perfMarkEnd('encoder.stage-prepare')
