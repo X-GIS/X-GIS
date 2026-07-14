@@ -95,10 +95,17 @@ export class MvtWorkerPool {
    *  node, SSR) so unit tests still drain. */
   private resolveQueue: Array<{ job: PendingJob; slices: SliceMsg[] }> = []
   private resolveScheduled = false
-  /** Handle of the in-flight rAF (or setTimeout) drain callback, retained so
-   *  dispose() can cancel it — otherwise a scheduled drain fires post-teardown
-   *  and resolves jobs after the pool was disposed. null when none scheduled. */
+  /** Handles of the in-flight drain callback(s), retained so dispose() can
+   *  cancel a still-pending drain — otherwise it fires post-teardown and
+   *  resolves jobs after the pool was disposed. In a DOM env
+   *  `scheduleResolveDrain` RACES an rAF against a coarse 250 ms timer (Chrome
+   *  throttles rAF to ~0-1 Hz on hidden/occluded pages, so the timer is the
+   *  floor that keeps decoded tiles flowing); `_rafHandle` holds the rAF id,
+   *  `_timerHandle` the timer id, and whichever fires first cancels the sibling
+   *  — so dispose() must cancel BOTH. In a non-DOM env only `_rafHandle` is used
+   *  (a setTimeout(0) fallback). null when none scheduled. */
   private _rafHandle: number | ReturnType<typeof setTimeout> | null = null
+  private _timerHandle: ReturnType<typeof setTimeout> | null = null
   private static readonly MAX_RESOLVES_PER_FRAME = 4
 
   // Diagnostic counters — incremented by every drain; specs poll for
@@ -199,16 +206,36 @@ export class MvtWorkerPool {
     }
   }
 
-  /** Schedule a drain of the resolve queue at the next animation
-   *  frame. Cheap dedup via `resolveScheduled`; falls back to
-   *  setTimeout for non-browser environments (vitest node, SSR). */
+  /** Schedule a drain of the resolve queue. Cheap dedup via `resolveScheduled`.
+   *  In a DOM env, RACE the next animation frame against a coarse 250 ms timer:
+   *  rAF paces the drain (burst smoothing) when the page is healthy, but Chrome
+   *  throttles rAF to ~0-1 Hz for hidden/occluded pages, so decoded tiles would
+   *  otherwise sit undelivered for many seconds. Whichever fires first runs the
+   *  drain and cancels the other, so a fully-throttled page still drains
+   *  MAX_RESOLVES_PER_FRAME every 250 ms. Falls back to a plain setTimeout for
+   *  non-browser environments (vitest node, SSR). */
   private scheduleResolveDrain(): void {
     if (this.resolveScheduled) return
     this.resolveScheduled = true
-    // Retain the handle so dispose() can cancel a still-pending drain (a
+    // Retain both handles so dispose() can cancel a still-pending drain (a
     // post-teardown drain would resolve jobs after the workers were terminated).
     if (typeof requestAnimationFrame !== 'undefined') {
-      this._rafHandle = requestAnimationFrame(() => this.drainResolveQueue())
+      this._rafHandle = requestAnimationFrame(() => {
+        // rAF won the race — cancel the coarse timer so it can't double-drain.
+        if (this._timerHandle != null) clearTimeout(this._timerHandle)
+        this._rafHandle = null
+        this._timerHandle = null
+        this.drainResolveQueue()
+      })
+      this._timerHandle = setTimeout(() => {
+        // The 250 ms timer won — rAF is being throttled. Cancel the pending rAF
+        // (always a number id in this DOM branch, so the narrowing needs no cast).
+        if (typeof this._rafHandle === 'number' && typeof cancelAnimationFrame !== 'undefined')
+          cancelAnimationFrame(this._rafHandle)
+        this._rafHandle = null
+        this._timerHandle = null
+        this.drainResolveQueue()
+      }, 250)
     } else {
       this._rafHandle = setTimeout(() => this.drainResolveQueue(), 0)
     }
@@ -328,9 +355,10 @@ export class MvtWorkerPool {
   }
 
   dispose(): void {
-    // Cancel any scheduled resolve-drain so it can't fire post-teardown and
-    // resolve jobs after the workers were terminated; then drop the buffered
-    // results + reset the scheduler flag.
+    // Cancel any scheduled resolve-drain — BOTH raced handles, since either the
+    // rAF or the coarse 250 ms timer could still be pending — so neither fires
+    // post-teardown and resolves jobs after the workers were terminated; then
+    // drop the buffered results + reset the scheduler flag.
     if (this._rafHandle != null) {
       // A number handle can only come from the rAF branch (and a Timeout only
       // from the setTimeout fallback), so this narrowing mirrors the schedule
@@ -339,7 +367,11 @@ export class MvtWorkerPool {
         cancelAnimationFrame(this._rafHandle)
       else clearTimeout(this._rafHandle)
     }
+    // `_timerHandle` is always the raced 250 ms coarse timer (DOM branch only),
+    // so it is unambiguously a setTimeout id.
+    if (this._timerHandle != null) clearTimeout(this._timerHandle)
     this._rafHandle = null
+    this._timerHandle = null
     this.resolveScheduled = false
     this.resolveQueue.length = 0
     for (const w of this.workers) w.terminate()
