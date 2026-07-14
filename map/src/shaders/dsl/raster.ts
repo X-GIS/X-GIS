@@ -29,6 +29,8 @@ import {
   vec4,
   vec2u,
   mix,
+  select,
+  abs,
   atan,
   exp,
   textureSample,
@@ -155,6 +157,56 @@ export function rasterGridVertexCount(n: number): number {
   return n * n * 6
 }
 
+// ═══ #1053 — globe raster pole cap ═══
+//
+// SINGLE AUTHORITY (DSL fn → CPU-evaluable) for the polar-cap geometry vs_tile
+// generates when the renderer marks a tile a cap (TileUniforms.grid.y = ±1 for
+// the topmost / bottommost GLOBE tile row). The cap reuses THIS tile's N×N grid
+// draw — same material, same vertex count — but remaps the rows from the tile's
+// ±85.0511° Web-Mercator band edge up to the geographic pole, closing the polar
+// hole the Mercator surface structurally cannot reach. It mirrors the vector
+// side (synthetic-earth-surface / GeoJSON polar-cap backends), which likewise
+// fans converging pole vertices, and MapLibre's globe pole-gradient: texture V
+// is clamped to the band edge (the topmost/bottommost Mercator texel row) while
+// U still sweeps longitude, so the cap stretches that edge row to the pole.
+//
+// Returns vec3(cap_lat_rad, cap_v, edge_merc_y):
+//   • cap_lat_rad — the vertex latitude (rad). Row vv increases SOUTHWARD, so
+//     the north cap places the pole at vv=0 and the edge at vv=1, the south cap
+//     the reverse — one winding, inherited byte-for-byte from the surface grid.
+//   • cap_v       — texture V clamped to the band edge: 0 (north / top row) or
+//     1 (south / bottom row); independent of vv (the "clamp" of the policy).
+//   • edge_merc_y — the band-edge Mercator-Y (±… the tile's own north/south
+//     edge). The pole is not Mercator-representable, so the fragment hemisphere
+//     cull reads THIS (clamped) value, mirroring the vector caps.
+export const rasterCapParams = fn(
+  'raster_cap_params',
+  { vv: f32T, merc_south: f32T, merc_diff: f32T, cap_sign: f32T },
+  (p) => {
+    // f = 1 for a NORTH cap (cap_sign +1), 0 for SOUTH (cap_sign −1).
+    const f = p.cap_sign.add(1).mul(0.5)
+    // Band-edge Mercator-Y: north clamps to the tile's NORTH edge (merc_south +
+    // merc_diff), south to its SOUTH edge (merc_south). Reconstructing the edge
+    // latitude from the SAME merc_y the ground tile carries makes the cap ring
+    // coincide with the tile edge EXACTLY — crack-free, no MERC_LIMIT literal.
+    const edgeMercY = p.merc_south.add(p.merc_diff.mul(f))
+    const edgeLat = f32(2)
+      .mul(atan(exp(edgeMercY)))
+      .sub(PI.div(2))
+    // Geographic pole: cap_sign · 90° (rad). lonlat_to_ecef(any lon, ±90°)
+    // collapses to (0,0,±b) — the converging pole vertices.
+    const poleLat = p.cap_sign.mul(PI.div(2))
+    // t: 0 at the band edge → 1 at the pole. Row vv increases SOUTHWARD, so the
+    // north cap fans from vv=1 (edge) to vv=0 (pole) [t = 1−vv] and the south
+    // cap the reverse [t = vv] — one winding, inherited from the surface grid.
+    const t = mix(p.vv, f32(1).sub(p.vv), f)
+    const capLat = mix(edgeLat, poleLat, t)
+    // Texture V clamped to the band edge: 0 (north/top row), 1 (south/bottom).
+    const capV = f32(1).sub(f)
+    return vec3(capLat, capV, edgeMercY)
+  },
+)
+
 const vs = fn(
   'vs_tile',
   { vid: builtin('vertex_index', u32T) },
@@ -189,9 +241,27 @@ const vs = fn(
     // bounds.x/z are world-copy-shifted (west+wo*360, east+wo*360) so lon
     // naturally lands in the correct world copy. merc_y is copy-independent.
     const lon = mix(bounds.x, bounds.z, uu)
-    const latRad = f32(2)
+    const normalLatRad = f32(2)
       .mul(atan(exp(mercYAbs)))
       .sub(PI.div(2))
+
+    // #1053 — pole cap: a cap tile (grid.y = ±1, packed by the renderer for the
+    // topmost/bottommost GLOBE tile row) fans the ±85.0511° Mercator band edge to
+    // the geographic pole, reusing this grid draw. capSign 0 (every ground tile)
+    // keeps select() on the byte-identical Mercator path — no globe/flat change.
+    const capSign = Tile.field.grid.y
+    // capSign is an exact 0 / ±1 lane; test "is a cap" with a THRESHOLD (mirrors
+    // the proj_params.x .lt(0.5) float-flag idiom) — never float '==' (no-float-eq).
+    const isCap = abs(capSign).gt(f32(0.5))
+    const capP = rasterCapParams({
+      vv,
+      merc_south: mercY.x,
+      merc_diff: mercY.y,
+      cap_sign: capSign,
+    })
+    const latRad = select(isCap, capP.x, normalLatRad)
+    const vTex = select(isCap, capP.y, vv)
+    const absMercY = select(isCap, capP.z, mercYAbs)
 
     // ECEF path: lon/lat → WGS84 ECEF → subtract tile SW-corner anchor (RTC).
     // Works for every projection because the MVP is always the ECEF frame view
@@ -243,11 +313,11 @@ const vs = fn(
     // recomputes the true per-fragment cull signal from abs_lon/abs_merc_y.
     return VsOut.construct({
       pos: apply_log_depth({ pos: clip, fc: projParams.w }),
-      uv: vec2(uu, vv),
+      uv: vec2(uu, vTex),
       vis: f32(1),
       view_w: clip.w,
       abs_lon: lon,
-      abs_merc_y: mercYAbs,
+      abs_merc_y: absMercY,
     })
   },
   { stage: 'vertex' },

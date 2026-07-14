@@ -205,11 +205,17 @@ describe('raster globe tile selection routes through globeVisibleTiles (#596)', 
     const drawCount = drawnTileCount(ctx, camera, 7)
 
     // With the fix the renderer routes through globeVisibleTiles → draw count
-    // equals the sphere selector's output. Without the fix the draw count
-    // matches the flat frustum (different value) and cap-edge tiles are missing.
-    expect(drawCount, 'globe renderer must draw exactly the globeVisibleTiles tile count').toBe(
-      expectedGlobeTiles.length,
-    )
+    // equals the sphere selector's output PLUS one pole-cap draw per selected
+    // top/bottom-row tile (#1053: needsNorth/SouthPoleCap append a cap "tile"
+    // for every y===0 / y===2^z−1 tile, raster-renderer.ts). Without the fix
+    // the base count matches the flat frustum (different value) instead.
+    const expectedCaps = expectedGlobeTiles.filter(
+      (t) => t.y === 0 || t.y === (1 << t.z) - 1,
+    ).length
+    expect(
+      drawCount,
+      'globe renderer must draw exactly the globeVisibleTiles set + its pole caps',
+    ).toBe(expectedGlobeTiles.length + expectedCaps)
   })
 
   it('flat Mercator (projType 0) tile selection is unchanged by the fix', async () => {
