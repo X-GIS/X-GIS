@@ -11,9 +11,13 @@ import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { evaluate } from '../eval/evaluator'
 import { makeEvalProps } from '../eval/reserved-keys'
+import { withPragma } from './_pragma'
 
 function evalNum(src: string): unknown {
-  const tokens = new Lexer('let __x = ' + src).tokenize()
+  // Only the parse-path helper needs the pragma; the two bare-token
+  // assertions below call `new Lexer(...).tokenize()` directly (no parse)
+  // and MUST stay pragma-free so `tokens[0]` is the number under test.
+  const tokens = new Lexer(withPragma('let __x = ' + src)).tokenize()
   const ast = new Parser(tokens).parse()
   const stmt = ast.body[0]
   if (stmt.kind !== 'LetStatement') throw new Error('expected LetStatement')

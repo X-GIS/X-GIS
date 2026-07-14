@@ -10,9 +10,10 @@ import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
 import type { RenderNode } from '../ir/render-node'
+import { withPragma } from './_pragma'
 
 function compileToScene(source: string): RenderNode[] {
-  const tokens = new Lexer(source).tokenize()
+  const tokens = new Lexer(withPragma(source)).tokenize()
   const program = new Parser(tokens).parse()
   const scene = lower(program)
   return scene.renderNodes

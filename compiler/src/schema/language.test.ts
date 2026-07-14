@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { LANGUAGE_SCHEMA } from './language'
+import { withPragma } from '../__tests__/_pragma'
 
 // A minimal, must-parse block per construct. Adding a construct to
 // LANGUAGE_SCHEMA without a sample here fails the coverage assertion,
@@ -26,7 +27,7 @@ describe('LANGUAGE_SCHEMA conformance', () => {
     it(`${keyword}: keyword matches and a minimal block parses to ${def.astKind}`, () => {
       expect(def.keyword).toBe(keyword)
       const src = SAMPLES[keyword]
-      const program = new Parser(new Lexer(src).tokenize()).parse()
+      const program = new Parser(new Lexer(withPragma(src)).tokenize()).parse()
       const kinds = program.body.map((s) => s.kind)
       expect(kinds).toContain(def.astKind)
     })

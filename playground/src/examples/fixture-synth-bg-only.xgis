@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: synthetic earth-surface background fill only.
  * No vector sources — background { fill } is the only content.
  * Used by AC2c.3.2 e2e: verifies SyntheticEarthSurfaceBackend renders

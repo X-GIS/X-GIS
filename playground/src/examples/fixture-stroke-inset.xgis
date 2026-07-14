@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: polygon boundary with stroke-inset alignment.
  * Stroke shifts inward by half-width — tests the alignment offset
  * folded into the miter vertex computation. */

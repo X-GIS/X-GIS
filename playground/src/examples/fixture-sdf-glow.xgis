@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: SDF point with translucent glow halo. */
 source p { type: geojson, url: "fixture-point.geojson" }
 layer halo {

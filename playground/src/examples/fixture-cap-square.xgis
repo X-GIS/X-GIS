@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: 2-vertex line with square cap. Isolates cap geometry. */
 source l { type: geojson, url: "fixture-line.geojson" }
 layer the_line {

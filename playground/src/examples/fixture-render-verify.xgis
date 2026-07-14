@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: render-verification harness (Oracle-B).
  *
  * Four INLINE geojson sources (no url) — the host pushes deterministic

@@ -1,3 +1,5 @@
+xgis 1
+
 /* Picking demo — countries with hover + click feedback.
  *
  * Mobile: tap a country to see its info in the overlay panel.

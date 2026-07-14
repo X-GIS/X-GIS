@@ -1,3 +1,5 @@
+xgis 1
+
 /* PMTiles per-MVT-layer styling — single archive, multiple xgis layers
  * each filtering one MVT source-layer.
  *

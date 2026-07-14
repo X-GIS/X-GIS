@@ -1,3 +1,5 @@
+xgis 1
+
 /* PMTiles source — MVT-inside-PMTiles archive served via HTTP byte
  * range requests. The runtime detects .pmtiles, attaches a
  * PMTilesBackend lazily via attachPMTilesSource (Phase 1 Step 5 of

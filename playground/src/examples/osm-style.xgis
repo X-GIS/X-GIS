@@ -1,3 +1,5 @@
+xgis 1
+
 /* OSM-style cartographic rendering on protomaps v4 PMTiles.
  *
  * Demonstrates a richer style than `pmtiles_layered`:

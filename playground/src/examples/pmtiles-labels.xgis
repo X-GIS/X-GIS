@@ -1,3 +1,5 @@
+xgis 1
+
 /* PMTiles vector-tile labels — tests the label pipeline against
  * MVT data (NOT GeoJSON-via-rawDatasets). Same Florence archive
  * as `pmtiles-source` but pulls the `places` source-layer and

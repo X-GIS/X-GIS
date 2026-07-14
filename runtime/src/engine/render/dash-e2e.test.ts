@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Lexer, Parser, lower, optimize, emitCommands } from '@xgis/compiler'
+import { Lexer, Parser, lower, optimize, emitCommands, XGIS_LANGUAGE_MAJOR } from '@xgis/compiler'
 import { packLineLayerUniform, LINE_CAP_BUTT, LINE_JOIN_MITER } from '@xgis/map'
 
 // Replicates the exact DSL → IR → ShowCommand → VTR dash conversion →
@@ -11,7 +11,7 @@ import { packLineLayerUniform, LINE_CAP_BUTT, LINE_JOIN_MITER } from '@xgis/map'
 // stripped dashArray in an earlier version of optimizeNode. Keep it.
 
 function compileDemo(source: string) {
-  const tokens = new Lexer(source).tokenize()
+  const tokens = new Lexer(`xgis ${XGIS_LANGUAGE_MAJOR}\n` + source).tokenize()
   const ast = new Parser(tokens).parse()
   const scene = optimize(lower(ast), ast)
   return emitCommands(scene)

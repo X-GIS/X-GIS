@@ -26,9 +26,10 @@ import { Parser } from '../parser/parser'
 import { evaluate } from '../eval/evaluator'
 import { exprToXgis } from '../convert/expressions'
 import type { Expr } from '../parser/ast'
+import { withPragma } from './_pragma'
 
 function parseExpr(src: string): Expr {
-  const tokens = new Lexer('let __x = ' + src).tokenize()
+  const tokens = new Lexer(withPragma('let __x = ' + src)).tokenize()
   const ast = new Parser(tokens).parse()
   const stmt = ast.body[0]
   if (stmt.kind !== 'LetStatement') throw new Error('expected LetStatement')

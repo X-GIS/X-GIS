@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: fill keyframe (cross-property). Bug 1 mirror. */
 keyframes heat {
   0%:   fill-blue-500

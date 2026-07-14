@@ -6,6 +6,7 @@ import { optimize } from '../ir/optimize'
 import { emitCommands } from '../ir/emit-commands'
 import { evaluate } from '../eval/evaluator'
 import type * as AST from '../parser/ast'
+import { withPragma } from './_pragma'
 
 /** Walk an OR-filter AST and collect the right-hand literal node of
  *  every `.field == LITERAL` comparison. Used to assert the merged
@@ -29,14 +30,14 @@ function collectEqLiterals(node: AST.Expr): AST.Expr[] {
 }
 
 function compileToScene(source: string) {
-  const tokens = new Lexer(source).tokenize()
+  const tokens = new Lexer(withPragma(source)).tokenize()
   const ast = new Parser(tokens).parse()
   const lowered = lower(ast)
   return optimize(lowered, ast)
 }
 
 function compileToCommands(source: string) {
-  const tokens = new Lexer(source).tokenize()
+  const tokens = new Lexer(withPragma(source)).tokenize()
   const ast = new Parser(tokens).parse()
   const lowered = lower(ast)
   const optimized = optimize(lowered, ast)

@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: dashed line. Validates dash shader. */
 source l { type: geojson, url: "fixture-line.geojson" }
 layer dashed {

@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: 4-vertex polygon (2 triangles). Validates tessellation. */
 source sq { type: geojson, url: "fixture-square.geojson" }
 layer the_square {

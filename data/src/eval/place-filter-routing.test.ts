@@ -17,6 +17,7 @@ import { Parser } from '@xgis/compiler'
 import { lower } from '@xgis/compiler'
 import { emitCommands } from '@xgis/compiler'
 import { optimize } from '@xgis/compiler'
+import { XGIS_LANGUAGE_MAJOR } from '@xgis/compiler'
 import { evalFilterExpr } from './filter-eval'
 
 // Minimal OFM Bright place layer set — same filters as
@@ -67,7 +68,9 @@ interface ShowLike {
 }
 
 function buildShows(): ShowLike[] {
-  const tokens = new Lexer(OFM_BRIGHT_PLACE_SUBSET_XGIS).tokenize()
+  const tokens = new Lexer(
+    `xgis ${XGIS_LANGUAGE_MAJOR}\n` + OFM_BRIGHT_PLACE_SUBSET_XGIS,
+  ).tokenize()
   const ast = new Parser(tokens).parse()
   const scene = lower(ast)
   const cmds = emitCommands(optimize(scene, ast))

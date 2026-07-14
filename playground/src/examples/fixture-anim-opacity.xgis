@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: opacity keyframe. Bug 1 isolation. */
 keyframes pulse {
   0%:   opacity-100

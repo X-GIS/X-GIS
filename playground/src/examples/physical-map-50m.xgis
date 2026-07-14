@@ -1,3 +1,5 @@
+xgis 1
+
 source ocean {
   type: geojson
   url: "ne_110m_ocean.geojson"

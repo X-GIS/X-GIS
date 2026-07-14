@@ -1,3 +1,5 @@
+xgis 1
+
 /* Reftest B: square with degenerate zoom-opacity stops (both stops
  * at the same value). The interpolated result must equal the static
  * constant path, exercising the zoom-interpolation lookup at its

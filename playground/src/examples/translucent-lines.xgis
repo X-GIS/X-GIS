@@ -1,3 +1,5 @@
+xgis 1
+
 /*
  * Translucent line stack — shows that overlapping line layers don't
  * accumulate alpha at corners or self-intersections. Each translucent

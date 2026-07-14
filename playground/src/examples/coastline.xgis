@@ -1,3 +1,5 @@
+xgis 1
+
 source coast {
   type: geojson
   url: "ne_110m_coastline.geojson"

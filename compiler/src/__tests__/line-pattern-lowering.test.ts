@@ -27,15 +27,16 @@ import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
 import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
+import { withPragma } from './_pragma'
 
 function lowerMapbox(mapboxStyle: unknown): ReturnType<typeof lower> {
   const xgisSource = convertMapboxStyle(mapboxStyle as Parameters<typeof convertMapboxStyle>[0])
-  const ast = new Parser(new Lexer(xgisSource).tokenize()).parse()
+  const ast = new Parser(new Lexer(withPragma(xgisSource)).tokenize()).parse()
   return lower(ast)
 }
 
 function lowerXgis(source: string): ReturnType<typeof lower> {
-  const ast = new Parser(new Lexer(source).tokenize()).parse()
+  const ast = new Parser(new Lexer(withPragma(source)).tokenize()).parse()
   return lower(ast)
 }
 

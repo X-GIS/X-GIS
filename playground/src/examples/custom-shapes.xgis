@@ -1,3 +1,5 @@
+xgis 1
+
 /* Custom shapes — built-in SDF shapes via GPU storage buffer */
 
 source land {

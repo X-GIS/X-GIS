@@ -1,3 +1,5 @@
+xgis 1
+
 /* Interaction fixture: zoom-opacity AND time-opacity composed.
  * The classifier must compose them multiplicatively. */
 keyframes pulse {

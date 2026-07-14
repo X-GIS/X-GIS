@@ -6,12 +6,12 @@
 // actually selects features whose geometry lies inside the polygon.
 
 import { describe, it, expect } from 'vitest'
-import { Lexer, Parser } from '@xgis/compiler'
+import { Lexer, Parser, XGIS_LANGUAGE_MAJOR } from '@xgis/compiler'
 import { applyFilter } from '@xgis/map'
 
 // Parse a single xgis expression into the AST shape applyFilter expects.
 function parseAst(src: string): unknown {
-  const tokens = new Lexer(`let __t = ${src}`).tokenize()
+  const tokens = new Lexer(`xgis ${XGIS_LANGUAGE_MAJOR}\nlet __t = ${src}`).tokenize()
   const program = new Parser(tokens).parse() as { body: Array<{ kind: string; value?: unknown }> }
   const stmt = program.body.find((s) => s.kind === 'LetStatement') as
     { value?: unknown } | undefined

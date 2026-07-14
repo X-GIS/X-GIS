@@ -1,3 +1,5 @@
+xgis 1
+
 /*
  * Pattern lines demo — imports an external symbol library and decorates
  * coastlines with repeating shapes. Shows dash + pattern + arrow cap.

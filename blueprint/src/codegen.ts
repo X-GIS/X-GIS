@@ -4,6 +4,7 @@
 // language is normally written: imports, sources, symbols, styles,
 // fns, presets, background, then layers in Map draw order.
 
+import { XGIS_LANGUAGE_MAJOR } from '@xgis/compiler'
 import type { BPGraph, BPNode } from './types'
 
 function byId(g: BPGraph): Map<string, BPNode> {
@@ -211,5 +212,7 @@ export function graphToXgis(g: BPGraph): string {
   for (const ln of pick('layer')) if (!seen.has(ln.id)) ordered.push(ln)
   for (const ln of ordered) blocks.push(emitLayer(g, ln, nodes))
 
-  return blocks.join('\n\n') + (blocks.length ? '\n' : '')
+  // Every emitted `.xgis` source opens with the mandatory version pragma
+  // (#1064) so the compiler parser accepts what the editor generates.
+  return `xgis ${XGIS_LANGUAGE_MAJOR}\n\n` + blocks.join('\n\n') + (blocks.length ? '\n' : '')
 }

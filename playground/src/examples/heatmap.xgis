@@ -1,3 +1,5 @@
+xgis 1
+
 /* Population density heatmap — Phase R render subsystem.
    The `heatmap` marker routes populated-places points through the 3-pass GPU
    pipeline (accum Gaussian splat → separable blur → density→colour compose). */

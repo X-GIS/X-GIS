@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: stroke-offset-right-80 — large offset to exercise tile-culling
  * margin expansion. Before the fix, tiles whose centerline data sat
  * outside the viewport but whose rendered stroke reached back into the

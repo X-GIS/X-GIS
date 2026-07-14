@@ -8,9 +8,10 @@ import { evaluate } from './evaluator'
 import { Parser } from '../parser/parser'
 import { Lexer } from '../lexer/lexer'
 import { GEOMETRY_KEY } from './reserved-keys'
+import { withPragma } from '../__tests__/_pragma'
 
 function evalExpr(src: string, props: Record<string, unknown>): unknown {
-  const tokens = new Lexer(`let __t = ${src}`).tokenize()
+  const tokens = new Lexer(withPragma(`let __t = ${src}`)).tokenize()
   const ast = new Parser(tokens).parse() as { body: Array<{ kind: string; value?: unknown }> }
   const stmt = ast.body.find((s) => s.kind === 'LetStatement') as { value?: unknown } | undefined
   if (!stmt) throw new Error('let stmt missing')

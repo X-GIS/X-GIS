@@ -8,9 +8,10 @@
 
 import { describe, it, expect } from 'vitest'
 import { Lexer, Parser, lower } from '@xgis/compiler'
+import { withPragma } from './_pragma'
 
 function compile(src: string) {
-  const tokens = new Lexer(src).tokenize()
+  const tokens = new Lexer(withPragma(src)).tokenize()
   const ast = new Parser(tokens).parse()
   return lower(ast)
 }

@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: SDF point with anchor-bottom (pin hangs above anchor —
  * typical for map markers where the tip sits on the coordinate). */
 source p { type: geojson, url: "fixture-point.geojson" }

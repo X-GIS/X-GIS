@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: stroke pattern with spacing/size in km units.
  * The default unit is metres; km takes the alternate parseCssUnitValue
  * branch and exercises the km → m conversion at pattern upload. */

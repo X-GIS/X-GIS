@@ -4,10 +4,11 @@ import { Parser } from '../parser/parser'
 import { evaluate, type FeatureProps } from '../eval/evaluator'
 import { lower } from '../ir/lower'
 import type * as AST from '../parser/ast'
+import { withPragma } from './_pragma'
 
 /** Parse a single expression from "let x = <expr>" */
 function parseExpr(source: string): AST.Expr {
-  const tokens = new Lexer(`let x = ${source}`).tokenize()
+  const tokens = new Lexer(withPragma(`let x = ${source}`)).tokenize()
   const ast = new Parser(tokens).parse()
   return (ast.body[0] as AST.LetStatement).value
 }
@@ -220,7 +221,7 @@ describe('Evaluator', () => {
 
   describe('user functions with control flow', () => {
     function evalWithFn(fnSrc: string, callSrc: string, props: FeatureProps = {}): unknown {
-      const tokens = new Lexer(`${fnSrc}\nlet result = ${callSrc}`).tokenize()
+      const tokens = new Lexer(withPragma(`${fnSrc}\nlet result = ${callSrc}`)).tokenize()
       const ast = new Parser(tokens).parse()
       const fnStmt = ast.body[0] as AST.FnStatement
       const letStmt = ast.body[1] as AST.LetStatement
@@ -373,7 +374,7 @@ describe('Evaluator', () => {
 
 describe('Data-driven IR lowering', () => {
   function compile(source: string) {
-    const tokens = new Lexer(source).tokenize()
+    const tokens = new Lexer(withPragma(source)).tokenize()
     const ast = new Parser(tokens).parse()
     return lower(ast)
   }
@@ -423,7 +424,7 @@ describe('Data-driven IR lowering', () => {
 
 describe('Filter expression evaluation', () => {
   function compileScene(source: string) {
-    const tokens = new Lexer(source).tokenize()
+    const tokens = new Lexer(withPragma(source)).tokenize()
     const ast = new Parser(tokens).parse()
     return lower(ast)
   }

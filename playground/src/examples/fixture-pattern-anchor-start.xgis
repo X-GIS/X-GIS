@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: stroke pattern with anchor=start.
  * Pattern instance placed at line start rather than repeating, so
  * only the leading dot should render. */

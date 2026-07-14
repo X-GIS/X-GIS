@@ -4,9 +4,10 @@ import { Parser } from '../parser/parser'
 import { resolveImports, type FileReader } from '../module/resolver'
 import { lower } from '../ir/lower'
 import type * as AST from '../parser/ast'
+import { withPragma } from './_pragma'
 
 function parse(source: string): AST.Program {
-  const tokens = new Lexer(source).tokenize()
+  const tokens = new Lexer(withPragma(source)).tokenize()
   return new Parser(tokens).parse()
 }
 
@@ -23,7 +24,9 @@ describe('Import parsing', () => {
 
 describe('Module resolution', () => {
   const mockFiles: Record<string, string> = {
-    './styles.xgs': `
+    // An imported .xgis "file" — resolveImports parses it, so it carries the
+    // version pragma like any real file (#1064).
+    './styles.xgs': withPragma(`
       preset military_track {
         | fill-green-500 stroke-black stroke-1
         | opacity-[interpolate(zoom, 8, 40, 14, 100)]
@@ -32,7 +35,7 @@ describe('Module resolution', () => {
       preset alert_effect {
         | fill-red-500 stroke-red-300 stroke-2
       }
-    `,
+    `),
   }
 
   const mockReader: FileReader = (path) => mockFiles[path] ?? null

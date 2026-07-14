@@ -1,3 +1,5 @@
+xgis 1
+
 /* Continent colors using match() — each continent gets a distinct color */
 
 source countries {

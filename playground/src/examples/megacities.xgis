@@ -1,3 +1,5 @@
+xgis 1
+
 /*
  * Megacities — filter populated places to only those with
  * pop_max > 5,000,000 and render them as large glowing pins over

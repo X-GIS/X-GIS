@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: orthographic (globe view). The entire front hemisphere of
  * the square projects correctly; the back hemisphere is culled by the
  * GPU shader's center_cos_c visibility test. */

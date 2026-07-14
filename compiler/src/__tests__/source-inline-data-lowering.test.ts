@@ -14,9 +14,10 @@ import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
 import { emitCommands } from '../ir/emit-commands'
+import { withPragma } from './_pragma'
 
 function parse(source: string) {
-  const tokens = new Lexer(source).tokenize()
+  const tokens = new Lexer(withPragma(source)).tokenize()
   return new Parser(tokens).parse()
 }
 function compile(source: string) {

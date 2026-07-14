@@ -4,9 +4,10 @@ import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
 import { optimize } from '../ir/optimize'
 import { emitCommands } from '../ir/emit-commands'
+import { withPragma } from './_pragma'
 
 function compile(source: string) {
-  const tokens = new Lexer(source).tokenize()
+  const tokens = new Lexer(withPragma(source)).tokenize()
   const ast = new Parser(tokens).parse()
   // Run the same optimize pass production uses, so regressions that strip
   // the field cannot slip through (this has happened before for stroke

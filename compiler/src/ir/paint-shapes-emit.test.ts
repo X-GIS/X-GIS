@@ -8,9 +8,10 @@ import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { lower } from './lower'
 import { emitCommands, type ShowCommand } from './emit-commands'
+import { withPragma } from '../__tests__/_pragma'
 
 function compileFirstShow(src: string): ShowCommand {
-  const tokens = new Lexer(src).tokenize()
+  const tokens = new Lexer(withPragma(src)).tokenize()
   const ast = new Parser(tokens).parse()
   const scene = lower(ast)
   const cmds = emitCommands(scene)

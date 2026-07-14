@@ -1,3 +1,5 @@
+xgis 1
+
 /* Stress fixture: many layers from one source.
  * Exercises the per-layer uniform ring + bind-group dispatch
  * loop. If the ring overflows or wraps incorrectly, validation

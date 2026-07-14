@@ -22,6 +22,7 @@ import { sanitizeId } from '../convert/utils'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { withPragma } from './_pragma'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const OFM_BRIGHT = JSON.parse(
@@ -63,7 +64,7 @@ interface ShowSample {
 
 function pipeline(style: unknown): ShowSample[] {
   const xgis = convertMapboxStyle(style as never)
-  const tokens = new Lexer(xgis).tokenize()
+  const tokens = new Lexer(withPragma(xgis)).tokenize()
   const ast = new Parser(tokens).parse()
   const scene = lower(ast)
   // Surface diagnostics from the lower pass — pinning that we don't
@@ -355,7 +356,7 @@ layer L {
   | unknown-name-[interpolate(zoom, 0, 1, 10, 5)]
 }
 `
-    const tokens = new Lexer(src).tokenize()
+    const tokens = new Lexer(withPragma(src)).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
     const drops = (scene.diagnostics ?? []).filter((d) => d.code === 'X-GIS0005')
@@ -377,7 +378,7 @@ layer F {
   | fill-[interpolate(zoom, 0, #fff, 10, #000)]
 }
 `
-    const tokens = new Lexer(src).tokenize()
+    const tokens = new Lexer(withPragma(src)).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
     const drops = (scene.diagnostics ?? []).filter((d) => d.code === 'X-GIS0005')
@@ -398,7 +399,7 @@ layer L {
   | label-["{name}"] label-mystery-knob-3
 }
 `
-    const tokens = new Lexer(src).tokenize()
+    const tokens = new Lexer(withPragma(src)).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
     const drops = (scene.diagnostics ?? []).filter((d) => d.code === 'X-GIS0006')
@@ -416,7 +417,7 @@ layer L {
   | label-["{name}"] label-anchor-top label-anchor-bottom label-size-12 label-radial-offset-0.8 label-vao-0-x-1
 }
 `
-    const tokens = new Lexer(src).tokenize()
+    const tokens = new Lexer(withPragma(src)).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
     const drops = (scene.diagnostics ?? []).filter((d) => d.code === 'X-GIS0006')

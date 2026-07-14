@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { resolveColor } from '../tokens/colors'
+import { withPragma } from './_pragma'
 
 // Parse a single layer with a `fill:` style property and return the
 // captured value string (the function-call source stand-in).
@@ -22,7 +23,7 @@ function captureFillValue(value: string): string {
       fill: ${value}
     }
   `
-  const ast = new Parser(new Lexer(src).tokenize()).parse()
+  const ast = new Parser(new Lexer(withPragma(src)).tokenize()).parse()
   // Walk the AST to find the StyleProperty named "fill".
   let found: string | undefined
   const visit = (n: any): void => {

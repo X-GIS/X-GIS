@@ -1,3 +1,5 @@
+xgis 1
+
 source basemap {
   type: raster
   url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"

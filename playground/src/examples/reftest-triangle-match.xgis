@@ -1,3 +1,5 @@
+xgis 1
+
 /* Reftest B: triangle via match() with a single arm that always
  * resolves to blue-500. Validates that the categorical/match()
  * shader variant produces pixel-identical output to the static

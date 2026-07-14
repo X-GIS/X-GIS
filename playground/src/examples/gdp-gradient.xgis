@@ -1,3 +1,5 @@
+xgis 1
+
 /* GDP heatmap using gradient() — blue (low) to red (high) */
 
 source countries {

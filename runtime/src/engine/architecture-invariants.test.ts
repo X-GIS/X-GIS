@@ -292,7 +292,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // into a thin driver (parser.ts) over a shared token cursor
   // (parser-cursor.ts), the expression precedence ladder (parser-expressions.ts),
   // and the statement handlers + keyword→handler registry (parser-statements.ts).
-  'compiler/src/parser/parser.ts': 50,
+  // Bumped 50→98 (#1064): the driver's `parse()` now consumes the mandatory
+  // `xgis <major>` version pragma — the gate for every future language breaking
+  // change. `consumeVersionPragma` is a program-header concern that belongs in
+  // the driver (not the cursor / statement / expression layers), and its four
+  // documented hard-error branches (X-GIS0008/0009) are irreducible.
+  'compiler/src/parser/parser.ts': 98,
   // Bumped 1139→1168 for the flat-Mercator fill-position precision fix: the
   // quantized fill VS (vs_main_ecef) now positions from TILE-LOCAL Mercator
   // (the f32 tail slots) via a dedicated localMerc ladder branch instead of

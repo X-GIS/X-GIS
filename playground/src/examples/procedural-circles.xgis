@@ -1,3 +1,5 @@
+xgis 1
+
 /* Data-driven SDF circles: radius from population data */
 
 source land {

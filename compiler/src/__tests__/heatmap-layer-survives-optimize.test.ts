@@ -14,6 +14,7 @@
 import { describe, it, expect } from 'vitest'
 import { convertMapboxStyle, Lexer, Parser, lower, emitCommands } from '../index'
 import { optimize } from '../ir/optimize'
+import { withPragma } from './_pragma'
 
 describe('heatmap layers survive IR optimize', () => {
   it('a heatmap layer reaches emitCommands with isHeatmap (not dropped)', () => {
@@ -30,7 +31,7 @@ describe('heatmap layers survive IR optimize', () => {
       ],
     }
     const xgis = convertMapboxStyle(style as never)
-    let ir = lower(new Parser(new Lexer(xgis).tokenize()).parse())
+    let ir = lower(new Parser(new Lexer(withPragma(xgis)).tokenize()).parse())
     ir = optimize(ir)
     const cmds = emitCommands(ir)
     const heat = cmds.shows.filter((s) => s.isHeatmap)
@@ -46,7 +47,7 @@ describe('heatmap layers survive IR optimize', () => {
     // Regression guard: the heatmap exemption must not resurrect the
     // generic no-paint elimination it mirrors.
     const xgis = 'source s { type: geojson url: "x.geojson" }\nlayer empty { source: s }\n'
-    let ir = lower(new Parser(new Lexer(xgis).tokenize()).parse())
+    let ir = lower(new Parser(new Lexer(withPragma(xgis)).tokenize()).parse())
     ir = optimize(ir)
     const cmds = emitCommands(ir)
     expect(cmds.shows.some((s) => s.layerName === 'empty')).toBe(false)

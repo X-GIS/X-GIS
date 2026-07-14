@@ -4,9 +4,10 @@ import { Parser } from '../parser/parser'
 import { resolveUtilities } from '../ir/utility-resolver'
 import { resolveColor } from '../tokens/colors'
 import type * as AST from '../parser/ast'
+import { withPragma } from './_pragma'
 
 function parse(source: string): AST.Program {
-  const tokens = new Lexer(source).tokenize()
+  const tokens = new Lexer(withPragma(source)).tokenize()
   return new Parser(tokens).parse()
 }
 

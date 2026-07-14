@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: 3 features with match() on `kind` field. */
 source d { type: geojson, url: "fixture-categorical.geojson" }
 layer cats {

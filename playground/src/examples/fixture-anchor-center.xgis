@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: SDF point with anchor-center (default-ish, billboard). */
 source p { type: geojson, url: "fixture-point.geojson" }
 layer dot {
