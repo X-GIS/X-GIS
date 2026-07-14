@@ -1,8 +1,9 @@
 import { TokenType, type Token } from '../lexer/tokens'
 import { Lexer } from '../lexer/lexer'
 import type * as AST from './ast'
-import { StatementParser } from './parser-statements'
+import { StatementParser, STATEMENT_START_TOKENS } from './parser-statements'
 import { XGIS_LANGUAGE_MAJOR } from '../language-version'
+import { DiagnosticCollector, ParseError, type Diagnostic } from '../diagnostics/diagnostic'
 
 /** Parse a standalone xgis expression string into an AST.Expr.
  *  Used by the IR lower pass to re-parse expression sources
@@ -35,6 +36,52 @@ export class Parser extends StatementParser {
     return { kind: 'Program', body }
   }
 
+  /** Parse in RECOVERING mode: instead of throwing on the first syntax
+   *  error, record a {@link Diagnostic} and SYNCHRONIZE at the next block
+   *  boundary / top-level keyword, so ONE pass reports EVERY error in the
+   *  file (the substrate for the LSP + playground error UX, #1065).
+   *
+   *  The version pragma gate (#1064) stays HARD: `consumeVersionPragma`
+   *  runs OUTSIDE the recovery loop, so a missing / newer-major pragma
+   *  still throws (X-GIS0008/0009) and recovery never resumes past it — a
+   *  wrong-version file must not half-parse. Every other syntax error is
+   *  collected; a non-ParseError throw (an internal bug) still propagates.
+   *
+   *  The default `parse()` (throw-on-first) is UNCHANGED and stays the
+   *  entry point for the runtime, module resolver, and existing tests —
+   *  its thrown ParseError carries the FIRST structured diagnostic. */
+  parseCollect(): { program: AST.Program; diagnostics: Diagnostic[] } {
+    this.consumeVersionPragma()
+    const collector = new DiagnosticCollector()
+    const body: AST.Statement[] = []
+    while (!this.isEnd()) {
+      try {
+        body.push(this.parseStatement())
+      } catch (e) {
+        if (!(e instanceof ParseError)) throw e
+        collector.add(e.diagnostic)
+        this.synchronize()
+      }
+    }
+    return { program: { kind: 'Program', body }, diagnostics: collector.all }
+  }
+
+  /** Error-recovery synchronization: after a syntax error, skip tokens
+   *  until the parser sits at a clean resume point — just PAST a closing
+   *  brace (a block boundary) or AT a top-level statement keyword — so the
+   *  next `parseStatement()` starts fresh instead of cascading. Always
+   *  advances at least one token, so recovery cannot loop forever. */
+  private synchronize(): void {
+    if (!this.isEnd()) this.advance() // consume the offending token — guarantees progress
+    while (!this.isEnd()) {
+      // A closing brace ended a block; the next statement begins after it.
+      if (this.tokens[this.pos - 1]?.type === TokenType.RBrace) return
+      // A top-level statement keyword is a clean resume point.
+      if (STATEMENT_START_TOKENS.has(this.current().type)) return
+      this.advance()
+    }
+  }
+
   /** Consume the mandatory `xgis <major>` version pragma — the gate for
    *  every future language breaking change (#1064). Comments and blank
    *  lines before it are already stripped by the lexer, so the pragma
@@ -55,6 +102,7 @@ export class Parser extends StatementParser {
       this.error(
         `X-GIS0008: missing version pragma — add \`xgis ${XGIS_LANGUAGE_MAJOR}\` ` +
           `as the first statement (comments may precede it)`,
+        'X-GIS0008',
       )
     }
     this.advance() // consume `xgis`
@@ -65,6 +113,7 @@ export class Parser extends StatementParser {
       this.error(
         `X-GIS0008: version pragma needs a bare major-version integer, ` +
           `e.g. \`xgis ${XGIS_LANGUAGE_MAJOR}\``,
+        'X-GIS0008',
       )
     }
     const major = parseInt(ver.value, 10)
@@ -73,10 +122,11 @@ export class Parser extends StatementParser {
         `X-GIS0009: this file declares \`xgis ${major}\` — it was written ` +
           `for a newer X-GIS. This compiler implements major ` +
           `${XGIS_LANGUAGE_MAJOR}; upgrade @xgis/compiler`,
+        'X-GIS0009',
       )
     }
     if (major < 1) {
-      this.error(`X-GIS0008: version pragma major must be >= 1, got \`xgis ${major}\``)
+      this.error(`X-GIS0008: version pragma major must be >= 1, got \`xgis ${major}\``, 'X-GIS0008')
     }
     this.advance() // consume the major-version number
   }

@@ -1,4 +1,5 @@
 import { TokenType, type Token } from '../lexer/tokens'
+import { ParseError, PARSER_SYNTAX_ERROR } from '../diagnostics/diagnostic'
 
 /** Shared token cursor for the recursive-descent parser.
  *
@@ -58,8 +59,20 @@ export class ParserCursor {
     return this.current().type === TokenType.EOF
   }
 
-  protected error(msg: string): never {
+  /** Raise a structured parse error. Throws a {@link ParseError} — a
+   *  plain `Error` (message shape UNCHANGED: `[Parser] … at line L, col
+   *  C`, so every string-pinning caller keeps working) that additionally
+   *  carries a spanned {@link Diagnostic}. `code` defaults to the generic
+   *  parser-syntax code; the pragma gate (#1064) passes X-GIS0008/0009.
+   *  The recovering `parseCollect` mode catches this to synchronize; the
+   *  default throwing `parse` lets it propagate (carrying the FIRST
+   *  structured diagnostic). */
+  protected error(msg: string, code: string = PARSER_SYNTAX_ERROR): never {
     const token = this.current()
-    throw new Error(`[Parser] ${msg} at line ${token.line}, col ${token.col}`)
+    const message = `[Parser] ${msg} at line ${token.line}, col ${token.col}`
+    throw new ParseError(
+      { code, severity: 'error', span: { line: token.line, col: token.col }, message: msg },
+      message,
+    )
   }
 }

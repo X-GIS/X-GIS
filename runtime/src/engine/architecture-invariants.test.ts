@@ -297,7 +297,12 @@ const LOC_CEILINGS: Record<string, number> = {
   // change. `consumeVersionPragma` is a program-header concern that belongs in
   // the driver (not the cursor / statement / expression layers), and its four
   // documented hard-error branches (X-GIS0008/0009) are irreducible.
-  'compiler/src/parser/parser.ts': 98,
+  // Bumped 98→148 (#1065): the driver gains the RECOVERING parse mode —
+  // `parseCollect()` (try/parse/synchronize loop, gathering N diagnostics in
+  // one pass) + `synchronize()` (skip to the next block boundary / statement
+  // keyword). Recovery is a driver-level concern (it owns the top-level
+  // statement loop), so it belongs here, not in the cursor/statement layers.
+  'compiler/src/parser/parser.ts': 148,
   // Bumped 1139→1168 for the flat-Mercator fill-position precision fix: the
   // quantized fill VS (vs_main_ecef) now positions from TILE-LOCAL Mercator
   // (the f32 tail slots) via a dedicated localMerc ladder branch instead of

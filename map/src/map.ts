@@ -2400,7 +2400,7 @@ export class XGISMap {
           d.severity === 'warn'
             ? `[X-GIS ${d.code ?? 'diag'} warn]`
             : `[X-GIS ${d.code ?? 'diag'} info]`
-        const lineSuffix = d.line ? ` (line ${d.line})` : ''
+        const lineSuffix = d.span.line ? ` (line ${d.span.line})` : ''
         if (d.severity === 'warn') xlog.warn(`${prefix}${lineSuffix} ${d.message}`)
         else console.log(`${prefix}${lineSuffix} ${d.message}`)
       }

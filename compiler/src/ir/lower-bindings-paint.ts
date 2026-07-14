@@ -260,7 +260,7 @@ export const bindingFallthroughHandler: BindingHandler = {
     ctx.diagnostics.push({
       severity: 'warn',
       code: 'X-GIS0005',
-      line: ctx.stmt.line,
+      span: { line: ctx.stmt.line, col: 1 },
       message:
         `Bracket-binding utility "${ctx.name}-[…]" has no handler in lower.ts — ` +
         `the expression is being dropped. Add a name==="${ctx.name}" arm in the ` +

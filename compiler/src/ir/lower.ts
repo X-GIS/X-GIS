@@ -224,7 +224,7 @@ function lowerSource(
     diagnostics.push({
       severity: 'warn',
       code: 'X-GIS0007',
-      line: stmt.line,
+      span: { line: stmt.line, col: 1 },
       message:
         `Source "${stmt.name}" declares both \`data:\` (inline GeoJSON) and ` +
         `\`url:\` — the inline \`data\` wins and the \`url\` fetch is ignored. ` +
@@ -347,7 +347,7 @@ function lowerLayer(
     diagnostics.push({
       severity: 'warn',
       code: 'X-GIS0002',
-      line: stmt.line,
+      span: { line: stmt.line, col: 1 },
       message:
         `Layer "${stmt.name}" has no \`source:\` declaration — ` +
         `the layer is dropped from the scene. Add \`source: <name>\` ` +
@@ -360,7 +360,7 @@ function lowerLayer(
     diagnostics.push({
       severity: 'warn',
       code: 'X-GIS0003',
-      line: stmt.line,
+      span: { line: stmt.line, col: 1 },
       message:
         `Layer "${stmt.name}" references unknown source "${sourceRef}". ` +
         (known.length > 0
@@ -751,7 +751,7 @@ function lowerLayer(
           diagnostics.push({
             severity: 'warn',
             code: 'X-GIS0001',
-            line: stmt.line,
+            span: { line: stmt.line, col: 1 },
             message:
               `Deprecated zoom modifier "${ctx.mod}:" — replaced by ` +
               `\`<utility>-[interpolate(zoom, …)]\`. e.g. ` +

@@ -754,3 +754,9 @@ const STATEMENT_HANDLERS: ReadonlyMap<TokenType, StatementHandler> = new Map<
   [TokenType.Return, (p) => p.parseReturnStatement()],
   [TokenType.For, (p) => p.parseForStatement()],
 ])
+
+/** The keyword tokens that begin a top-level statement — the resume
+ *  points the error-recovery `synchronize()` (parser.ts) skips forward
+ *  to. Derived from the handler registry so a new statement keyword is a
+ *  recovery target by construction (single authority). */
+export const STATEMENT_START_TOKENS: ReadonlySet<TokenType> = new Set(STATEMENT_HANDLERS.keys())
