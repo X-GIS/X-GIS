@@ -478,28 +478,34 @@ class LabelPass implements RenderPass {
       // clamped to that bound upstream). projMercatorCpu returns a fresh
       // tuple per call (no shared scratch), so there is no aliasing hazard.
       const camMerc = projMercatorCpu(centerLon, centerLat)
-      const { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies, limbInsetPx } =
-        makeLabelProjectors(
-          labelView.matrix,
-          w,
-          h,
-          isFlatProj
-            ? {
-                projType,
-                ccx: camMerc[0],
-                ccy: camMerc[1],
-                centerLon,
-                centerLat,
-                visibleWorldCopies,
-              }
-            : undefined,
-          labelView.eye,
-          // Globe RTC focus: the matrix is focus-relative, so the ECEF label
-          // projector must anchor against the same camera focus the geometry
-          // VS subtracts. Flat path ignores it.
-          isFlatProj ? undefined : host.camera.getECEFCenter(),
-          true, // #1042 — label pass: apply the horizon MARGIN cull (not map.project)
-        )
+      const {
+        projectMerc,
+        projectLonLat,
+        projectMercAny,
+        projectLonLatCopies,
+        limbInsetPx,
+        perspectiveScale,
+      } = makeLabelProjectors(
+        labelView.matrix,
+        w,
+        h,
+        isFlatProj
+          ? {
+              projType,
+              ccx: camMerc[0],
+              ccy: camMerc[1],
+              centerLon,
+              centerLat,
+              visibleWorldCopies,
+            }
+          : undefined,
+        labelView.eye,
+        // Globe RTC focus: the matrix is focus-relative, so the ECEF label
+        // projector must anchor against the same camera focus the geometry
+        // VS subtracts. Flat path ignores it.
+        isFlatProj ? undefined : host.camera.getECEFCenter(),
+        true, // #1042 — label pass: apply the horizon MARGIN cull (not map.project)
+      )
 
       // (a) Imperative overlays
       for (const ov of host.overlays) {
@@ -1601,6 +1607,8 @@ class LabelPass implements RenderPass {
                   const pairKey = pairedWithIcon
                     ? pointLabelPairKey(labelLayerName, _pointLabelSeq++)
                     : undefined
+                  // #1081 — this copy's perspective attenuation (tuple slot 3), label + icon.
+                  const ps = projected[2]
                   stage.addLabel(
                     featDef.text,
                     props,
@@ -1611,8 +1619,18 @@ class LabelPass implements RenderPass {
                     labelLayerName,
                     pairKey,
                     pointCollisionId,
+                    ps,
                   )
-                  dispatchIcon(featDef, projected[0], projected[1], 0, pairKey)
+                  dispatchIcon(
+                    featDef,
+                    projected[0],
+                    projected[1],
+                    0,
+                    pairKey,
+                    false,
+                    undefined,
+                    ps,
+                  )
                 }
                 return
               }
@@ -1629,6 +1647,8 @@ class LabelPass implements RenderPass {
                 if (!proj) continue
                 const px = proj[0],
                   py = proj[1]
+                // #1081 — this copy's attenuation (scratch getter, set by projectMerc above).
+                const ps = perspectiveScale()
                 const pairKey = pairedWithIcon
                   ? pointLabelPairKey(labelLayerName, _pointLabelSeq++)
                   : undefined
@@ -1642,8 +1662,9 @@ class LabelPass implements RenderPass {
                   labelLayerName,
                   pairKey,
                   pointCollisionId,
+                  ps,
                 )
-                dispatchIcon(featDef, px, py, 0, pairKey)
+                dispatchIcon(featDef, px, py, 0, pairKey, false, undefined, ps)
               }
             })
           }
