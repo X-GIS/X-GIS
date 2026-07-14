@@ -198,11 +198,83 @@ describe('UploadCoordinator — async dispatch end-to-end (staging write strateg
   })
 })
 
+describe('UploadCoordinator — render-on-demand starvation (held uploads count as pending)', () => {
+  // Regression guard for the render-on-demand freeze. enqueue() defers slices
+  // beyond the per-frame cap into `_heldUploads`; those are replayed ONLY by
+  // resetFrameCap() at the next beginFrame. If hasPending()/pendingCount()
+  // report only the visible queue, the render-on-demand loop can stop the
+  // instant that queue self-drains — freezing every held slice forever
+  // (half-loaded map far from the camera, permanent ancestor fallback, missing
+  // labels). hasPending() must stay true and pendingCount() must include held
+  // until the queue truly converges.
+
+  // Read the CURRENT `_heldUploads` length — resetFrameCap() swaps in a fresh
+  // array, so a captured reference goes stale.
+  const heldLen = (c: UploadCoordinator) =>
+    (c as unknown as { _heldUploads: unknown[] })._heldUploads.length
+  // One setTimeout(0) macrotask flushes the queue's queueMicrotask dispatch +
+  // each job's `await _dispatch` continuation; the extra tick is belt-and-braces.
+  const flushMicrotasks = async () => {
+    await new Promise((r) => setTimeout(r, 0))
+    await Promise.resolve()
+  }
+
+  it('held (cap-deferred) uploads keep hasPending() true and are counted after the visible queue drains', async () => {
+    // No cached layers → enqueue proceeds. getOrCreateLayer reports the key
+    // present so _dispatch returns at its top guard (no real GPU work), letting
+    // each cap-admitted queue job complete and drain the visible queue.
+    const store = {
+      getLayer: () => undefined,
+      getOrCreateLayer: () => ({ has: () => true }) as unknown as Map<number, unknown>,
+    } as unknown as UploadStore
+    // webgl2 backend → the cheap SyncWriteSink (the async sink's constructor
+    // needs a real command encoder the stub device lacks).
+    const coord = new UploadCoordinator(
+      makeHost(store, {
+        rhi: {
+          backend: 'webgl2',
+          writeBuffer: () => {},
+          unwrapBuffer: (b: unknown) => b,
+        } as unknown as RhiDevice,
+      }),
+    )
+
+    // One "frame": enqueue more slices than the per-frame cap (4 desktop / 1
+    // mobile). Six distinct tiles guarantees ≥2 land in _heldUploads either way.
+    for (let key = 1; key <= 6; key++) coord.enqueue(key, polyOnlyTileData(), '')
+    expect(heldLen(coord)).toBeGreaterThan(0) // scenario actually deferred slices
+
+    // Let the cap-admitted queue jobs dispatch + complete (queueMicrotask).
+    await flushMicrotasks()
+
+    // Visible queue is idle now, but held slices remain. FIX CONTRACT: the
+    // render-on-demand loop must still see pending work.
+    const heldCount = heldLen(coord)
+    expect(coord.queueSize()).toBe(0) // visible queue fully drained
+    expect(coord.isActive()).toBe(false)
+    expect(coord.hasPending()).toBe(true) // ← false before the fix (queue-only)
+    expect(coord.pendingCount()).toBe(heldCount) // ← 0 before the fix
+
+    // beginFrame replays held slices; loop until the queue truly converges.
+    for (let i = 0; i < 20 && coord.hasPending(); i++) {
+      coord.resetFrameCap()
+      await flushMicrotasks()
+    }
+    expect(heldLen(coord)).toBe(0)
+    expect(coord.hasPending()).toBe(false)
+    expect(coord.pendingCount()).toBe(0)
+  })
+})
+
 // ── host builder ──
 function makeHost(store: UploadStore, over: Partial<UploadHost> = {}): UploadHost {
   return {
     device: { queue: { writeBuffer: () => {} } } as unknown as GPUDevice,
-    rhi: { backend: 'webgpu', writeBuffer: () => {}, unwrapBuffer: (b: unknown) => b } as unknown as RhiDevice,
+    rhi: {
+      backend: 'webgpu',
+      writeBuffer: () => {},
+      unwrapBuffer: (b: unknown) => b,
+    } as unknown as RhiDevice,
     stagingPool: {} as unknown as StagingBufferPool,
     store,
     lineRenderer: () => null,
