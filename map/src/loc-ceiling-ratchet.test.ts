@@ -120,11 +120,15 @@ const CEILINGS: Record<string, number> = {
   // mercator: the perspectiveScale() scratch getter). +21, dominated by prettier
   // wraps (the 6-name projector destructure + the globe arm's 8-arg dispatchIcon
   // both go one-per-line). Same existing call sites; nothing extract-worthy (§2).
-  // 1749→1788 (#777 I-B icon-keep-upright): the exported resolveIconRotateRad
-  // helper (+JSDoc — dispatchIcon is an anon closure, so the upright half-plane
-  // fold math is extracted for unit coverage), the dispatchIcon fold call, and
-  // the inline `def` iconKeepUpright field. Additive; nothing extract-worthy (§2).
-  'map/src/render/passes/label-pass.ts': 1788,
+  // 1749→1851 (#777 I-B + I-F, merged): I-B icon-keep-upright adds the exported
+  // resolveIconRotateRad helper (+JSDoc — dispatchIcon is an anon closure, so the
+  // upright half-plane fold math is extracted for unit coverage), the dispatchIcon
+  // fold call, and the inline `def` iconKeepUpright field (+39); I-F icon
+  // value-forms adds 3 per-feature exprAst sources (icon-size / icon-opacity
+  // data-driven, icon-translate expr → [dx,dy]), the extended null-guard, and 3
+  // applyFeatureExprs evaluate blocks mirroring the text-size/color/icon-image
+  // arms (+63). Both additive; nothing extract-worthy (§2).
+  'map/src/render/passes/label-pass.ts': 1851,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -179,12 +183,20 @@ const CEILINGS: Record<string, number> = {
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
   'compiler/src/tiler/vector-tiler.ts': 1790,
   'compiler/src/ir/lower.ts': 1409,
-  // layers-symbol / lower-label / render-node: +#777 I-B icon-keep-upright label
-  // knob (justification in architecture-invariants.test.ts, the second authority).
-  'compiler/src/convert/layers-symbol.ts': 1313,
-  'compiler/src/ir/lower-label.ts': 1117,
+  // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
+  // symbol-lowering god-files (per-row justification in
+  // architecture-invariants.test.ts, the second authority):
+  //  layers-symbol 1296→1328: I-B keep-upright emit + I-F icon-size /
+  //    icon-translate data-driven emit (exprToXgis, replaces two warns).
+  //  lower-label 1101→1145: I-B labelIconKeepUpright knob + I-F
+  //    labelIconSizeExpr / labelIconTranslateExpr parse arms + knob decls +
+  //    types + return + buildLabelShapes wiring.
+  //  render-node 913→928: I-B LabelDef.iconKeepUpright + I-F
+  //    LabelDef.iconTranslateExpr fields + docs.
+  'compiler/src/convert/layers-symbol.ts': 1328,
+  'compiler/src/ir/lower-label.ts': 1145,
   'compiler/src/tokens/colors.ts': 937,
-  'compiler/src/ir/render-node.ts': 923,
+  'compiler/src/ir/render-node.ts': 928,
   'compiler/src/convert/paint-helpers.ts': 826,
   'blueprint/src/editor.ts': 1448,
 }

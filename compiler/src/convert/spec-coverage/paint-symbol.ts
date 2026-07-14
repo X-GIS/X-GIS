@@ -77,7 +77,7 @@ export const PAINT_SYMBOL: readonly CoverageEntry[] = [
     name: 'icon-translate',
     status: 'partial',
     impact: 'low',
-    note: 'CSS-px viewport offset for icons (independent of text-translate). Constant [dx, dy] form wired end-to-end: converter emits `label-icon-translate-{x,y}-N` (layers-symbol.ts) → LabelDef.iconTranslateX/Y → dispatchIcon adds it (× dpr) to the icon anchor before IconStage.addIcon (label-pass.ts), alongside icon-offset. Default [0,0] = no-op. Non-constant (expression / interpolate) form still warns + drops.',
+    note: 'CSS-px viewport offset for icons (independent of text-translate). Constant [dx, dy] form wired end-to-end: converter emits `label-icon-translate-{x,y}-N` (layers-symbol.ts) → LabelDef.iconTranslateX/Y → dispatchIcon adds it (× dpr) to the icon anchor before IconStage.addIcon (label-pass.ts), alongside icon-offset. Default [0,0] = no-op. #777 I-F: the per-feature EXPRESSION form (case/match/get → [dx,dy]) now lowers to `label-icon-translate-[<expr>]` → LabelDef.iconTranslateExpr → applyFeatureExprs evaluates it per feature into iconTranslateX/Y. Still PARTIAL for one residual sub-form: zoom-`interpolate` of the [dx,dy] tuple snaps to the nearest stop (the runtime evaluate does NOT component-interpolate array-valued stops), so a smoothly zoom-animated translate is approximate.',
     source: 'layers-symbol.ts icon-translate emit / label-pass.ts dispatchIcon',
   },
   {

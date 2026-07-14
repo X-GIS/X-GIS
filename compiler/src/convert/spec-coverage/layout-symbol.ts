@@ -152,7 +152,7 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   {
     name: 'icon-size',
     status: 'supported',
-    note: 'Constant + zoom-interp (iter 523). Bracket-binding `label-icon-size-[interpolate(zoom, …)]` lowers to LabelShapes.iconSize PropertyShape; runtime resolveNumberShape at dispatchIcon time. Data-driven (case/match/get) still drops with a warning — no per-feature path. OFM bright road_oneway / road_oneway_opposite (15→0.5, 19→1) honoured.',
+    note: 'Constant + zoom-interp (iter 523) + data-driven (#777 I-F). Bracket-binding `label-icon-size-[interpolate(zoom, …)]` lowers to LabelShapes.iconSize zoom-interpolated PropertyShape (runtime resolveNumberShape at dispatchIcon); `label-icon-size-[<case/match/get>]` (converter exprToXgis) lowers to a data-driven PropertyShape that applyFeatureExprs (label-pass.ts) evaluates per feature (clamped >= 0) → per-vertex quad width. OFM bright road_oneway / road_oneway_opposite (15→0.5, 19→1) honoured.',
     source: 'layers.ts:1075',
   },
   { name: 'icon-rotate', status: 'supported', note: 'Constant degrees.', source: 'layers.ts:641' },

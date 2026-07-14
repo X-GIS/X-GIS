@@ -290,15 +290,20 @@ export function convertIconProperties(
     // form `label-icon-size-[interpolate(zoom, …)]` which lower.ts
     // (iter 523 arm) accumulates into LabelDef.shapes.iconSize as a
     // ZoomStop list. Per-frame resolve at map.ts dispatchIcon. Data-
-    // driven (case / match / get) doesn't yet have a path through the
-    // labelIconSize accumulator; falls through to the warning.
+    // driven (case / match / get) lowers to the same bracket-binding
+    // form via exprToXgis (#777 I-F) → LabelShapes.iconSize data-driven
+    // → runtime applyFeatureExprs evaluates it per feature (mirror of
+    // the icon-opacity data-driven emit below).
     const interp = interpolateZoomCall(iconSize, warnings, (val) =>
       typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null,
     )
     if (interp !== null) {
       utils.push(`label-icon-size-[${interp}]`)
     } else {
-      warnings.push(`Symbol layer "${layer.id}" — icon-size non-constant form not yet supported.`)
+      const expr = exprToXgis(iconSize, warnings)
+      if (expr !== null) utils.push(`label-icon-size-[${expr}]`)
+      else
+        warnings.push(`Symbol layer "${layer.id}" — icon-size non-constant form not yet supported.`)
     }
   }
   const iconAnchor = unwrapLiteralScalar(layout['icon-anchor'])
@@ -746,9 +751,19 @@ export function convertTextLayoutProperties(
     if (iconTranslate[0] !== 0) utils.push(`label-icon-translate-x-${fmtSigned(iconTranslate[0])}`)
     if (iconTranslate[1] !== 0) utils.push(`label-icon-translate-y-${fmtSigned(iconTranslate[1])}`)
   } else if (paint['icon-translate'] !== undefined && paint['icon-translate'] !== null) {
-    warnings.push(
-      `Symbol layer "${layer.id}" — icon-translate non-constant form (expression / interpolate) not yet supported; the constant [dx, dy] form is. Offset dropped.`,
-    )
+    // Non-constant icon-translate (expression) — lower the whole [dx,dy]
+    // expression to a single bracket-binding utility (#777 I-F); lower.ts
+    // parses it into LabelDef.iconTranslateExpr and the runtime
+    // applyFeatureExprs evaluates it per feature to the resolved [dx,dy]
+    // pair. Zoom-`interpolate` of the tuple snaps to the nearest stop
+    // (evaluate does not component-interpolate arrays) — the residual
+    // partial sub-form.
+    const expr = exprToXgis(paint['icon-translate'], warnings)
+    if (expr !== null) utils.push(`label-icon-translate-[${expr}]`)
+    else
+      warnings.push(
+        `Symbol layer "${layer.id}" — icon-translate non-constant form could not be converted; offset dropped.`,
+      )
   }
   // icon-translate-anchor: viewport (default) keeps icon-translate in
   // screen space (byte-identical) — emit nothing. "map" anchors the
