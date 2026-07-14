@@ -106,13 +106,21 @@ export interface CircleDrawSpec<D> {
 /** Any retained batch spec accepted by `map.graphics.add` — discriminated by `type`. */
 export type DrawSpec<D> = IconDrawSpec<D> | ArrowDrawSpec<D> | CircleDrawSpec<D>
 
-/** Handle to a live retained batch. */
-export interface DrawHandle {
-  /** Icons currently in the batch. */
+/** Handle to a live retained batch. `D` is the datum type the batch was authored
+ *  over; it defaults to `unknown` so a bare `DrawHandle` reference stays valid. */
+export interface DrawHandle<D = unknown> {
+  /** Items currently drawn by this handle (the seed batch + any `append()`s). */
   readonly count: number
   /** Re-run the named accessors and re-upload their attribute(s). `['color']`
    *  re-uploads ONLY the tint buffer; other triggers re-pack the feat buffer. */
   update(patch: { readonly triggers: readonly IconUpdateTrigger[] }): void
+  /** Append rows WITHOUT re-uploading the existing ones (#797 P2a — the
+   *  incremental "O(changed)" lever). The new rows are packed into a SEPARATE
+   *  retained batch with its OWN feat/tint buffers, so the seed batch's GPU bytes
+   *  are never touched and its accessors are never re-run — only the appended data
+   *  is packed + uploaded. Each `append()` is an independent pack, so its rows are
+   *  indexed 0-based within the call (not continued from the seed's count). */
+  append(data: readonly D[]): void
   /** Remove the batch (frees its GPU buffers). */
   remove(): void
 }

@@ -150,9 +150,47 @@ export class GraphicsManager {
    *  GPU buffers materialise immediately when a device exists, else on the next
    *  attachDevice. Register images (addImage) BEFORE add() so their sprites
    *  resolve (a missing sprite packs an invisible instance + warns). */
-  add<D>(spec: DrawSpec<D>): DrawHandle {
+  add<D>(spec: DrawSpec<D>): DrawHandle<D> {
+    // A handle owns ONE OR MORE batches: add() seeds it with one; append() links
+    // more. Each appended batch is a NORMAL entry in `this.batches`, so
+    // renderRetained / applyDpr / destroyGpu / the retired-drain all handle it with
+    // ZERO extra machinery, and an append never touches the seed batch's buffers
+    // (the appended rows live in their OWN feat/tint buffers — the strongest
+    // "existing-row bytes untouched" guarantee, and the seed's accessors never
+    // re-run). Icon/arrow batches never append → `owned` stays [seed], so their
+    // lifecycle stays byte-identical.
+    const seedSpec = spec as DrawSpec<unknown>
+    const owned: RetainedIconBatch[] = [this.makeBatch(seedSpec)]
+    this.repaintHook?.()
+    return {
+      get count() {
+        let c = 0
+        for (const b of owned) c += b.count
+        return c
+      },
+      update: (patch) => {
+        for (const b of owned) this.updateBatch(b, patch.triggers)
+      },
+      append: (data) => {
+        if (data.length === 0) return
+        // Pack ONLY the appended rows: a shallow sub-spec reuses the seed's type +
+        // accessors with the new data, run through the SAME materialise path.
+        const sub = { ...seedSpec, data } as DrawSpec<unknown>
+        owned.push(this.makeBatch(sub))
+        this.repaintHook?.()
+      },
+      remove: () => {
+        for (const b of owned) this.removeBatch(b)
+        owned.length = 0
+      },
+    }
+  }
+
+  /** Create + materialise a retained batch and register it for drawing. Shared by
+   *  add() (the seed batch) and append() (each appended batch — a separate pack). */
+  private makeBatch(spec: DrawSpec<unknown>): RetainedIconBatch {
     const batch: RetainedIconBatch = {
-      spec: spec as DrawSpec<unknown>,
+      spec,
       count: spec.data.length,
       featBuf: null,
       tintBuf: null,
@@ -160,14 +198,7 @@ export class GraphicsManager {
     }
     this.batches.push(batch)
     this.materialise(batch)
-    this.repaintHook?.()
-    return {
-      get count() {
-        return batch.count
-      },
-      update: (patch) => this.updateBatch(batch, patch.triggers),
-      remove: () => this.removeBatch(batch),
-    }
+    return batch
   }
 
   /** True when there is retained work to run the graphics pass for — at least one
