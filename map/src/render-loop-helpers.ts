@@ -11,7 +11,7 @@ import {
   resolveSteppedShape,
 } from './render/paint-shape-resolve'
 import { hexToRgba } from './feature-helpers'
-import { EARTH, lonLatToECEF } from '@xgis/shared'
+import { EARTH, lonLatToECEF, eyeHorizon } from '@xgis/shared'
 import { EARTH_R } from '@xgis/geo'
 import { mercatorYToLat } from '@xgis/geo'
 import {
@@ -336,12 +336,11 @@ function buildGlobeLimbPolygon(
   eye: readonly [number, number, number],
   focus?: readonly [number, number, number],
 ): { xs: Float64Array; ys: Float64Array; n: number } | null {
-  const eyeLen = Math.hypot(eye[0], eye[1], eye[2])
+  const { eyeLen, eyeN, horizonCos: cosH } = eyeHorizon(eye, EARTH_R)
   if (!(eyeLen > EARTH_R)) return null // eye at/under the surface — no horizon
-  const ex = eye[0] / eyeLen,
-    ey = eye[1] / eyeLen,
-    ez = eye[2] / eyeLen // ê
-  const cosH = EARTH_R / eyeLen
+  const ex = eyeN[0],
+    ey = eyeN[1],
+    ez = eyeN[2] // ê
   const sinH = Math.sqrt(Math.max(0, 1 - cosH * cosH))
   const cCx = ex * (EARTH_R * cosH), // circle centre on ê, R·cosH from Earth centre
     cCy = ey * (EARTH_R * cosH),
