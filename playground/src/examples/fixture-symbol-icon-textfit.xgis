@@ -1,0 +1,33 @@
+xgis 1
+
+/* §5 fixture (#777 I-A icon-text-fit): two symbol layers place a shield sprite
+ * that STRETCHES to wrap its PAIRED text (icon-text-fit: both). The 2-digit
+ * layer ("12") yields a narrow shield; the 5-digit layer ("12345") a wide one —
+ * so the icon quad width tracks the shaped label bbox, the shield/badge-background
+ * case. `both` fits both axes; the sprite's native 16x16 size is overridden by the
+ * text box + padding (here [0,0,0,0]).
+ *
+ * The shield sprite comes from the local fixture atlas (the demo-runner
+ * &sprite=<base> seam) — load with:
+ *   /demo.html?id=fixture_symbol_icon_textfit&sprite=/fixture-sprite
+ * A/B vs MapLibre on the same style: DC>0 confined to the shield quads, D1<D0.
+ */
+
+source shields {
+  type: geojson
+  url: "fixture-shield-points.geojson"
+}
+
+layer shield_2digit {
+  source: shields
+  filter: .ref == "12"
+  | label-[.ref] label-size-16 label-color-#000
+    label-icon-image-shield label-icon-text-fit-both
+}
+
+layer shield_5digit {
+  source: shields
+  filter: .ref == "12345"
+  | label-[.ref] label-size-16 label-color-#000
+    label-icon-image-shield label-icon-text-fit-both
+}

@@ -114,7 +114,12 @@ const CEILINGS: Record<string, number> = {
   // scale together (and the #1042 R3 limb gate then compares the SCALED half-
   // height). +11 = the sizePx fold (quantised 1/64 for layout-cache stability) +
   // addLabel's perspScale param/push. Inline in the hot loop; not extract-worthy (§2).
-  'map/src/text/text-stage.ts': 1941,
+  // 1941→1975 (#777 I-A): the icon-text-fit read hook — the per-pairKey shaped-bbox
+  // stash (`_pairFitBox` field + doc, the top-of-prepare clear, the two hit/miss
+  // stash sites) + the `getPairFitBoxes` getter, so IconStage can fit a shield quad
+  // to its paired text. +34, all read-only (no text-layout change); a minimal
+  // cross-subsystem hook — the ONLY Phase-I cluster that touches text-stage (§2).
+  'map/src/text/text-stage.ts': 1975,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -134,7 +139,11 @@ const CEILINGS: Record<string, number> = {
   // data-driven, icon-translate expr → [dx,dy]), the extended null-guard, and 3
   // applyFeatureExprs evaluate blocks mirroring the text-size/color/icon-image
   // arms (+63). Both additive; nothing extract-worthy (§2).
-  'map/src/render/passes/label-pass.ts': 1851,
+  // 1851→1863 (#777 I-A): dispatchIcon's inline `def` gains iconTextFit/
+  // iconTextFitPadding, the addIcon call gains the `fit` opt, and the
+  // setPairFitBoxes handoff mirrors the existing setDroppedPairKeys line. +12,
+  // all at existing call sites; nothing extract-worthy (§2).
+  'map/src/render/passes/label-pass.ts': 1863,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -205,10 +214,18 @@ const CEILINGS: Record<string, number> = {
   //    types + return + buildLabelShapes wiring.
   //  render-node 913→928: I-B LabelDef.iconKeepUpright + I-F
   //    LabelDef.iconTranslateExpr fields + docs.
-  'compiler/src/convert/layers-symbol.ts': 1328,
-  'compiler/src/ir/lower-label.ts': 1145,
+  // #777 I-A icon-text-fit grows the same trio (per-row justification also in
+  // architecture-invariants.test.ts, the second authority):
+  //  layers-symbol 1328→1363: the warn→emit swap in convertIconProperties
+  //    (label-icon-text-fit-<v> enum + per-side padding utilities, with negative
+  //    clamp + unknown-enum + non-constant warns).
+  //  lower-label 1145→1187: labelIconTextFit/labelIconTextFitPadding knob decls +
+  //    the padding-prefix + enum parse arms + knob return + types + LabelDef spread.
+  //  render-node 928→943: LabelDef.iconTextFit / iconTextFitPadding fields + docs.
+  'compiler/src/convert/layers-symbol.ts': 1363,
+  'compiler/src/ir/lower-label.ts': 1187,
   'compiler/src/tokens/colors.ts': 937,
-  'compiler/src/ir/render-node.ts': 928,
+  'compiler/src/ir/render-node.ts': 943,
   'compiler/src/convert/paint-helpers.ts': 826,
   'blueprint/src/editor.ts': 1448,
 }

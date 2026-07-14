@@ -458,15 +458,49 @@ export function convertIconProperties(
       `Symbol layer "${layer.id}" — icon-halo-blur set but X-GIS' IconStage has no SDF icon halo path (Plan §4 — see icon-halo-color).`,
     )
   }
-  // icon-text-fit: stretch icon to fit text bbox per Mapbox spec
-  // (`none` / `width` / `height` / `both`). X-GIS' IconStage emits
-  // fixed-quad icons sized by icon-size; per-label-bbox sizing needs
-  // a different vertex placement pipeline (Plan §4).
+  // icon-text-fit (#777 I-A): stretch the icon sprite quad to wrap the PAIRED
+  // label's shaped text bbox (`none` = native, `width`/`height`/`both` = fit
+  // that axis — the shield/badge-background case). Constant enum → label-icon-
+  // text-fit-<v>; the optional icon-text-fit-padding [t,r,b,l] rides along as
+  // per-side utilities (only inside the fit branch — padding without a fit is
+  // inert). `none` and an absent property emit nothing (spec default, byte-
+  // identical). Non-constant forms warn once (the icon-padding precedent).
   const iconTextFitRaw = unwrapLiteralScalar(layout['icon-text-fit'])
-  if (typeof iconTextFitRaw === 'string' && iconTextFitRaw !== 'none') {
-    warnings.push(
-      `Symbol layer "${layer.id}" — icon-text-fit "${iconTextFitRaw}" set but X-GIS' IconStage doesn't stretch icons to text bbox yet (Plan §4 deferred — needs per-label-bbox quad placement). Icon renders at its native icon-size.`,
-    )
+  if (typeof iconTextFitRaw === 'string') {
+    if (iconTextFitRaw === 'width' || iconTextFitRaw === 'height' || iconTextFitRaw === 'both') {
+      utils.push(`label-icon-text-fit-${iconTextFitRaw}`)
+      // icon-text-fit-padding — [top, right, bottom, left] px, default [0,0,0,0].
+      // Each side splits into its own utility (the `-`-separated grammar carries
+      // no comma tuples — the icon-offset precedent); a zero side emits nothing.
+      // Negatives clamp to 0 with a warning (icon-padding precedent — padding
+      // insets the fit box in the spec, but no shield/badge style authors one).
+      const padRaw = unwrapLiteralTuple(layout['icon-text-fit-padding'])
+      if (Array.isArray(padRaw) && padRaw.length === 4) {
+        const sides = ['t', 'r', 'b', 'l'] as const
+        for (let i = 0; i < 4; i++) {
+          let c: unknown = padRaw[i]
+          while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
+          if (typeof c === 'number' && Number.isFinite(c)) {
+            if (c < 0) {
+              warnings.push(
+                `Symbol layer "${layer.id}" — icon-text-fit-padding ${sides[i]} ${c} is negative; Mapbox spec insets but X-GIS clamps to 0.`,
+              )
+            }
+            const v = Math.max(0, c)
+            if (v !== 0) utils.push(`label-icon-text-fit-padding-${sides[i]}-${v}`)
+          }
+        }
+      }
+    } else if (iconTextFitRaw !== 'none') {
+      // Unknown enum (typo) — mirror the icon-anchor / icon-rotation-alignment
+      // enum validators. `none` falls through silently (spec default).
+      warnings.push(
+        `Symbol layer "${layer.id}" — icon-text-fit "${iconTextFitRaw.slice(0, 40)}" is not a valid enum; expected 'none' | 'width' | 'height' | 'both'.`,
+      )
+    }
+  } else if (iconTextFitRaw !== undefined && iconTextFitRaw !== null) {
+    // Non-constant (expression) form — deferred, warn once (icon-padding precedent).
+    warnings.push(`Symbol layer "${layer.id}" — icon-text-fit non-constant form not yet supported.`)
   }
 }
 
@@ -522,7 +556,8 @@ export function convertGapWarnings(
     // listed here pre-fix when only the constant fold path existed.
     // icon-color: handled by the specific gap warning above (iter 88)
     // icon-halo-color / -width / -blur: specific gap warnings (iter 89)
-    // icon-text-fit: specific gap warning (iter 89)
+    // icon-text-fit / -padding: now lowered end-to-end (#777 I-A) — emitted in
+    //   convertIconProperties, no longer a gap warning
     'icon-rotation-alignment',
     // symbol-z-order / symbol-avoid-edges: specific gap warnings (iter 91)
     // icon-pitch-alignment: viewport/auto match X-GIS billboard

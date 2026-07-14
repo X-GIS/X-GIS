@@ -211,15 +211,15 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   },
   {
     name: 'icon-text-fit',
-    status: 'unsupported',
+    status: 'supported',
     impact: 'medium',
-    note: 'Shield/badge backgrounds depend on this.',
+    note: "Shield/badge backgrounds: the icon sprite quad stretches to wrap the PAIRED label's shaped text bbox. Constant enum lowered (#777 I-A): converter emits label-icon-text-fit-<width|height|both> → LabelDef.iconTextFit → label-pass dispatchIcon passes the fit to IconStage → IconStage.prepare reads the paired text bbox TextStage laid out this frame (pairKey → getPairFitBoxes) → icon-renderer stretches drawW/drawH before anchorOffset. `none`/absent = native sprite size (byte-identical). Non-constant (expression) forms warn once.",
   },
   {
     name: 'icon-text-fit-padding',
-    status: 'unsupported',
+    status: 'supported',
     impact: 'low',
-    note: 'Padding when icon-text-fit fits glyph bbox; dependent on icon-text-fit.',
+    note: 'Per-side [top,right,bottom,left] padding on the fitted quad, dependent on icon-text-fit (#777 I-A). Converter emits per-side label-icon-text-fit-padding-{t,r,b,l}-N (only inside the fit branch; a zero side / default [0,0,0,0] emits nothing → byte-identical) → LabelDef.iconTextFitPadding → IconStage adds it (× dpr) to the fitted dims and shifts the quad centre for asymmetric padding. Negatives clamp to 0 with a warning.',
   },
   {
     name: 'icon-keep-upright',

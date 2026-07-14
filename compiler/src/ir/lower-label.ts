@@ -164,6 +164,13 @@ export function lowerLabelProps(
   /** Mapbox `icon-keep-upright` (#777 I-B) — flip a line-placed icon into the
    *  upright half-plane. Explicit-authoring only; undefined = today's default. */
   let labelIconKeepUpright: boolean | undefined
+  /** Mapbox `icon-text-fit` (#777 I-A) — stretch the icon quad to the paired
+   *  text bbox. undefined = spec default `none` (native sprite size). */
+  let labelIconTextFit: 'width' | 'height' | 'both' | undefined
+  /** Mapbox `icon-text-fit-padding` [t,r,b,l] (#777 I-A) — per-side padding on
+   *  the fitted quad. Accumulated from the per-side `label-icon-text-fit-padding-
+   *  {t,r,b,l}-N` utilities; absent sides default 0. */
+  let labelIconTextFitPadding: [number, number, number, number] | undefined
 
   for (const line of expandedUtilities) {
     for (const item of line.items) {
@@ -736,6 +743,33 @@ export function lowerLabelProps(
         labelIconRotationAlignment = 'map'
         continue
       }
+      // #777 I-A — icon-text-fit-padding per-side accumulator. Matched BEFORE
+      // the icon-text-fit enum below so `…-padding-t-3` is not mis-read as an
+      // enum value. `-` splits the utility grammar (no comma tuples, the
+      // icon-offset precedent), so each side is its own utility; absent sides
+      // default 0. Side segment (t/r/b/l) then the numeric value.
+      if (name.startsWith('label-icon-text-fit-padding-')) {
+        const rest = name.slice('label-icon-text-fit-padding-'.length)
+        const dash = rest.indexOf('-')
+        const idx = dash > 0 ? { t: 0, r: 1, b: 2, l: 3 }[rest.slice(0, dash)] : undefined
+        const num = dash > 0 ? parseFloat(rest.slice(dash + 1)) : NaN
+        if (idx !== undefined && !isNaN(num)) {
+          const p = labelIconTextFitPadding ?? [0, 0, 0, 0]
+          p[idx] = num
+          labelIconTextFitPadding = p
+        }
+        continue
+      }
+      // #777 I-A — icon-text-fit enum. Exact-match (width/height/both); `none`
+      // never emits (spec default = native sprite size, byte-identical).
+      if (
+        name === 'label-icon-text-fit-width' ||
+        name === 'label-icon-text-fit-height' ||
+        name === 'label-icon-text-fit-both'
+      ) {
+        labelIconTextFit = name.slice('label-icon-text-fit-'.length) as 'width' | 'height' | 'both'
+        continue
+      }
       if (name.startsWith('label-spacing-')) {
         const num = parseFloat(name.slice('label-spacing-'.length))
         if (!isNaN(num)) labelSpacing = num
@@ -865,6 +899,8 @@ export function lowerLabelProps(
     labelIconOptional,
     labelIconPadding,
     labelIconKeepUpright,
+    labelIconTextFit,
+    labelIconTextFitPadding,
     labelIconSizeZoomStops: labelIconSizeZoomStops.length > 0 ? labelIconSizeZoomStops : undefined,
     labelIconSizeZoomStopsBase,
     labelIconSizeExpr,
@@ -958,6 +994,8 @@ function foldLabelKnobs(
     labelIconOptional?: boolean
     labelIconPadding?: number
     labelIconKeepUpright?: boolean
+    labelIconTextFit?: 'width' | 'height' | 'both'
+    labelIconTextFitPadding?: [number, number, number, number]
     // iter 113 — opacity PropertyShape inputs (zoom-interp + expr).
     labelOpacityZoomStops?: ZoomStop<number>[]
     labelOpacityZoomStopsBase?: number
@@ -1080,6 +1118,10 @@ function foldLabelKnobs(
     ...(knobs.labelIconPadding !== undefined ? { iconPadding: knobs.labelIconPadding } : {}),
     ...(knobs.labelIconKeepUpright !== undefined
       ? { iconKeepUpright: knobs.labelIconKeepUpright }
+      : {}),
+    ...(knobs.labelIconTextFit !== undefined ? { iconTextFit: knobs.labelIconTextFit } : {}),
+    ...(knobs.labelIconTextFitPadding !== undefined
+      ? { iconTextFitPadding: knobs.labelIconTextFitPadding }
       : {}),
   }
   // Plan Label L3: build the unified shapes bundle from the knob inputs

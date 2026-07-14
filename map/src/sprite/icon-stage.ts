@@ -82,6 +82,12 @@ interface PendingIcon {
    *  scaled by dpr at the collision site. Defaulted to the spec value 2 in
    *  addIcon, so an absent property stays byte-identical to the old constant. */
   padding: number
+  /** Mapbox `icon-text-fit` (#777 I-A) — stretch this icon's quad to the paired
+   *  text bbox. `mode` selects the fitted axis; `pad` is [t,r,b,l] px added per
+   *  side. Resolved to a physical-px quad override in prepare() once the paired
+   *  bbox is known (pairKey → TextStage.getPairFitBoxes). Undefined = native
+   *  sprite size. */
+  fit?: { mode: 'width' | 'height' | 'both'; pad: [number, number, number, number] }
 }
 
 export class IconStage {
@@ -217,6 +223,9 @@ export class IconStage {
        *  collision obstacle (both read `sizeScale`) shrink together — the icon
        *  sibling of the text label attenuation. Undefined → 1 (no attenuation). */
       perspScale?: number
+      /** Mapbox `icon-text-fit` (#777 I-A) — stretch the quad to the paired text
+       *  bbox; resolved in prepare() via the pairKey → getPairFitBoxes coupling. */
+      fit?: { mode: 'width' | 'height' | 'both'; pad: [number, number, number, number] }
     } = {},
   ): void {
     if (this._iconDebugHook) {
@@ -234,6 +243,7 @@ export class IconStage {
       pairKey: opts.pairKey,
       collide: opts.collide ?? false,
       padding: opts.padding ?? 2,
+      fit: opts.fit,
     })
   }
 
@@ -243,6 +253,17 @@ export class IconStage {
   private droppedPairKeys: ReadonlySet<string> = new Set()
   setDroppedPairKeys(keys: ReadonlySet<string>): void {
     this.droppedPairKeys = keys
+  }
+
+  /** #777 I-A — paired text bboxes (physical px) that TextStage laid out this
+   *  frame, keyed by pairKey. Set by `setPairFitBoxes()` from the map every frame
+   *  after TextStage.prepare and BEFORE IconStage.prepare (mirror of the
+   *  droppedPairKeys handoff). prepare() reads it to stretch icon-text-fit quads.
+   *  Because it is rebuilt from THIS frame's text layout (whose bbox re-keys on
+   *  the zoom-dependent sizePx), a fitted icon never wraps a stale bbox. */
+  private pairFitBox: ReadonlyMap<string, { w: number; h: number }> = new Map()
+  setPairFitBoxes(boxes: ReadonlyMap<string, { w: number; h: number }>): void {
+    this.pairFitBox = boxes
   }
 
   /** Resolve sprite metadata for every pending icon and build the
@@ -310,6 +331,33 @@ export class IconStage {
         if (overlaps) continue
         placedBoxes.push({ minX, minY, maxX, maxY })
       }
+      // #777 I-A — icon-text-fit: resolve the quad override from the paired text
+      // bbox (physical px, laid out THIS frame by TextStage) + per-side padding
+      // (CSS px → dpr). `width`/`height` fit only that axis (undefined leaves the
+      // renderer's native drawW/drawH); `both` fits both. Asymmetric padding
+      // shifts the fit-box centre by (right−left)/2, (bottom−top)/2. A fit icon
+      // whose paired text was not laid out (dropped / absent) keeps native dims.
+      let fit: IconDraw['fit']
+      if (p.fit && p.pairKey !== undefined) {
+        const box = this.pairFitBox.get(p.pairKey)
+        if (box) {
+          const [pt, pr, pb, pl] = p.fit.pad
+          const fitW =
+            p.fit.mode === 'width' || p.fit.mode === 'both'
+              ? box.w + (pl + pr) * this.dpr
+              : undefined
+          const fitH =
+            p.fit.mode === 'height' || p.fit.mode === 'both'
+              ? box.h + (pt + pb) * this.dpr
+              : undefined
+          fit = {
+            w: fitW,
+            h: fitH,
+            dx: fitW !== undefined ? ((pr - pl) * this.dpr) / 2 : 0,
+            dy: fitH !== undefined ? ((pb - pt) * this.dpr) / 2 : 0,
+          }
+        }
+      }
       draws.push({
         anchorX: p.anchorX,
         anchorY: p.anchorY,
@@ -319,6 +367,7 @@ export class IconStage {
         anchor: p.anchor,
         opacity: p.opacity,
         tint: p.tint,
+        ...(fit ? { fit } : {}),
       })
       if (this._iconDump) {
         const drawW = (sprite.width / sprite.pixelRatio) * sizeScale

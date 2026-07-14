@@ -224,6 +224,13 @@ export class TextStage {
    *  icons — MapLibre-style "text+icon as one symbol" sync without a
    *  full paired-symbol collision queue. Cleared every prepare(). */
   private readonly droppedPairKeys: Set<string> = new Set()
+  /** #777 I-A — per-pairKey shaped text bbox {w,h} in physical px, stashed as
+   *  each icon-paired label is laid out this frame. IconStage.prepare reads it
+   *  (via getPairFitBoxes → setPairFitBoxes) to stretch icon-text-fit quads to
+   *  wrap the text. Read-only hook: does NOT affect text layout. Cleared + refilled
+   *  every prepare(), so the box always reflects THIS frame's sizePx (the layout
+   *  cache re-keys on sizePx) — a fitted icon can never wrap a stale bbox. */
+  private readonly _pairFitBox: Map<string, { w: number; h: number }> = new Map()
   /** iter 167 — across-frame glyph-string cache (#10 Phase A first
    *  slice). `host.ensureString` per-character atlas-slot lookup
    *  dominates drag CPU (iter-161 profile: ensure 21.5% +
@@ -702,6 +709,15 @@ export class TextStage {
     return this.droppedPairKeys
   }
 
+  /** #777 I-A — per-pairKey shaped text bbox {w,h} (physical px) laid out this
+   *  frame. Read by IconStage (setPairFitBoxes, called after TextStage.prepare
+   *  and before IconStage.prepare) to stretch icon-text-fit quads to the paired
+   *  text. Refilled each prepare(), so a fitted icon always wraps the current
+   *  frame's bbox. Read-only — never mutated by the caller. */
+  getPairFitBoxes(): ReadonlyMap<string, { w: number; h: number }> {
+    return this._pairFitBox
+  }
+
   /** #609 — pair-keys of labels with a LIVE text bbox queued for the
    *  current frame (point + curved-line). Read by IconStage.computeObstacles
    *  BEFORE prepare() so a paired icon whose text already participates in the
@@ -784,6 +800,9 @@ export class TextStage {
     iconObstacles: readonly CollisionObstacle[] = [],
     limbInset?: (x: number, y: number) => number,
   ): void {
+    // #777 I-A — reset the per-frame paired-bbox stash before laying out this
+    // frame's labels; refilled as each icon-paired label is shaped below.
+    this._pairFitBox.clear()
     // iter-285 — snapshot submitted count BEFORE collision pass.
     // pendingLine entries each may yield 1+ placements; counted as 1
     // per submission for a coarse but useful diagnostic.
@@ -1145,6 +1164,13 @@ export class TextStage {
           // LRU touch.
           this._layoutCache.delete(_layoutKey)
           this._layoutCache.set(_layoutKey, hit)
+          // #777 I-A — stash the shaped text box {w,h} for a paired icon to fit.
+          if (p.pairKey !== undefined) {
+            this._pairFitBox.set(p.pairKey, {
+              w: hit.totalAdvance,
+              h: hit.blockBottom - hit.blockTop,
+            })
+          }
           const drawX = p.anchorX + hit.dx
           const drawY = p.anchorY + hit.dy
           const haloLive =
@@ -1348,6 +1374,14 @@ export class TextStage {
           minY: drawY + vlay.blockTop - padding,
           maxX: drawX + totalAdvance + padding,
           maxY: drawY + vlay.blockBottom + padding,
+        }
+        // #777 I-A — stash the shaped text box {w,h} (candidate-invariant dims)
+        // for a paired icon to fit. Idempotent across candidates.
+        if (p.pairKey !== undefined) {
+          this._pairFitBox.set(p.pairKey, {
+            w: totalAdvance,
+            h: vlay.blockBottom - vlay.blockTop,
+          })
         }
         layouts.push({
           draw: {

@@ -26,6 +26,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Label + host-image icon (label-icon-image-*) over the spriteUrl-less host-atlas path — push data + addImage from the host.',
     source: load('fixture-symbol-icon.xgis'),
   },
+  fixture_symbol_icon_textfit: {
+    name: 'Fixture: symbol icon-text-fit (local sprite)',
+    tag: 'fixture',
+    description:
+      'Shield sprite stretched to its PAIRED text bbox via icon-text-fit: both (#777 I-A). Two symbol layers — a 2-digit ("12") narrow shield and a 5-digit ("12345") wide one — over the local sprite atlas. Load with &sprite=/fixture-sprite. §5 probe: A/B vs MapLibre, DC>0 confined to the shield quads.',
+    source: load('fixture-symbol-icon-textfit.xgis'),
+  },
   fixture_raster_local: {
     name: 'Fixture: raster (local checker)',
     tag: 'fixture',
