@@ -1,0 +1,6 @@
+// @case valid
+// @construct utility-line
+// @desc a pipe-prefixed utility line of hyphen-joined utility items
+xgis 1
+source world { type: geojson, url: "world.geojson" }
+layer roads { source: world | stroke-white stroke-2 opacity-80 }

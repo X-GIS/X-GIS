@@ -1,0 +1,5 @@
+// @case valid
+// @construct keyframes-statement
+// @desc percent selectors plus the from/to aliases
+xgis 1
+keyframes pulse { from: opacity-100  50%: opacity-30  to: opacity-100 }

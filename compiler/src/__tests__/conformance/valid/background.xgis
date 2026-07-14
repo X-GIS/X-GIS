@@ -1,0 +1,5 @@
+// @case valid
+// @construct background-statement
+// @desc a nameless background block sets the canvas clear color
+xgis 1
+background { fill: sky-900 }

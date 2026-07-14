@@ -1,0 +1,6 @@
+// @case valid
+// @construct utility-binding
+// @desc data bindings: -[expr] with a trailing unit, and [expr]
+xgis 1
+source w { type: geojson, url: "w.geojson" }
+layer roads { source: w | size-[.lanes * 2]px opacity-[.alpha] }

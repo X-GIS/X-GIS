@@ -1,0 +1,6 @@
+// @case invalid
+// @construct lexical
+// @desc a character that starts no token is a hard lexer error (message is stable — lexer)
+// @expect-message Unexpected character
+xgis 1
+let x = @

@@ -1,0 +1,6 @@
+// @case valid
+// @construct utility-modifier
+// @desc a modifier prefix on a utility item (state:utility)
+xgis 1
+source w { type: geojson, url: "w.geojson" }
+layer roads { source: w | hover:opacity-100 friendly:fill-green-500 }

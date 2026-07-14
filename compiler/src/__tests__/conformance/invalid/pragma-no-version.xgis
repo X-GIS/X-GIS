@@ -1,0 +1,6 @@
+// @case invalid
+// @construct version-pragma
+// @desc `xgis` with no major-version integer is rejected
+// @expect-code X-GIS0008
+xgis
+let x = 1

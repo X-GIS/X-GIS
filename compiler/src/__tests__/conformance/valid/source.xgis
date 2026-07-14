@@ -1,0 +1,5 @@
+// @case valid
+// @construct source-statement
+// @desc a named geojson source with type and url block properties
+xgis 1
+source world { type: geojson, url: "world.geojson" }

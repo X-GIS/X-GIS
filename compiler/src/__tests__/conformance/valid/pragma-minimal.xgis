@@ -1,0 +1,4 @@
+// @case valid
+// @construct version-pragma
+// @desc the mandatory `xgis 1` pragma alone is a complete (empty) program
+xgis 1

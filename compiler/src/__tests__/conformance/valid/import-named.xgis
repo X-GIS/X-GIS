@@ -1,0 +1,5 @@
+// @case valid
+// @construct import-statement-named
+// @desc cherry-pick import of a named symbol from a sibling file
+xgis 1
+import { lib_track } from "./lib-preset.xgis"

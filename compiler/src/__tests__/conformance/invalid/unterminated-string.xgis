@@ -1,0 +1,6 @@
+// @case invalid
+// @construct string-literal
+// @desc an unterminated string is a hard lexer error (message is stable — lexer)
+// @expect-message Unterminated string
+xgis 1
+let s = "no closing quote

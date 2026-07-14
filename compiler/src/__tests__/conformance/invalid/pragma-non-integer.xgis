@@ -1,0 +1,6 @@
+// @case invalid
+// @construct version-pragma
+// @desc a non-integer major (1.0) is rejected — the pragma is major-only
+// @expect-code X-GIS0008
+xgis 1.0
+let x = 1

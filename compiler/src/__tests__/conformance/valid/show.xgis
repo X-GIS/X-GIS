@@ -1,0 +1,5 @@
+// @case valid
+// @construct show-statement
+// @desc a show block with a multi-value property and a tolerated trailing comma
+xgis 1
+show world { fill: #f2efe9, stroke: #ccc, 1px, }

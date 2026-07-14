@@ -1,0 +1,6 @@
+// @case invalid
+// @construct preset-statement
+// @desc a preset body without a leading pipe is rejected with the generic syntax-error code
+// @expect-code X-GIS0010
+xgis 1
+preset p { fill-red-500 }

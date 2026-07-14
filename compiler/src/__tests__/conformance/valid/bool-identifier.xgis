@@ -1,0 +1,7 @@
+// @case valid
+// @construct bool-and-identifier
+// @desc boolean literals and a bare identifier value
+xgis 1
+let enabled = true
+let disabled = false
+let proj = mercator

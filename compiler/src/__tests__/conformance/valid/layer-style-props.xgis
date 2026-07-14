@@ -1,0 +1,10 @@
+// @case valid
+// @construct style-property
+// @desc CSS-like style properties inside a layer block
+xgis 1
+source world { type: geojson, url: "world.geojson" }
+layer land {
+  source: world
+  fill: stone-800
+  stroke-width: 1
+}

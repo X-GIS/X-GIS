@@ -1,0 +1,7 @@
+// @case invalid
+// @construct layer-statement
+// @desc an unclosed layer block is rejected with the generic syntax-error code
+// @expect-code X-GIS0010
+xgis 1
+source world { type: geojson, url: "world.geojson" }
+layer land { source: world
