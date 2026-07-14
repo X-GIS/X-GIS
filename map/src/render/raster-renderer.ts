@@ -9,7 +9,7 @@ import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { RasterDraper, type RasterTile } from './material/raster-material'
 import { wrapWebGpuPass } from '@xgis/rhi-webgpu'
-import { routeToSphereSelector, enumerateWorldCopies } from '@xgis/geo'
+import { routeToSphereSelector, enumerateWorldCopies, isGlobeProj } from '@xgis/geo'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { globeVisibleTiles } from '@xgis/data'
@@ -96,13 +96,68 @@ export function writeRasterTileUniform(
   mercDiff: number,
   /** #1040 — raster surface grid subdivision N (rasterGridN); shader reads grid.x. */
   gridN: number,
+  /** #1053 — pole-cap sign in the (formerly reserved) grid.y lane: 0 = a normal
+   *  Mercator tile (byte-identical), +1 = north cap, −1 = south cap. vs_tile's
+   *  select() reads this to fan the band edge to the pole. Default 0. */
+  capSign = 0,
 ): void {
   block.write({
     bounds: [west, south, east, north],
     tile_ecef_center: [tileEcef[0], tileEcef[1], tileEcef[2], 0],
     merc_y: [mercSouth, mercDiff],
-    grid: [gridN, 0],
+    grid: [gridN, capSign],
   })
+}
+
+// ── #1053 — raster globe pole caps ──
+// The Web-Mercator raster surface saturates at ±85.0511°, so the topmost (y=0)
+// and bottommost (y=2^z−1) tile rows abut an open polar hole. On the GLOBE only
+// (isGlobeProj → projType 7, the sole ECEF surface arm; every flat/Mercator
+// projection is a plane with no geographic pole), those rows get an extra cap
+// "tile" that fans their band edge to the pole. Cheap pure predicates, zero
+// allocation — the render loop calls them per tile.
+/** North cap needed? Globe + topmost tile row (north edge = +85.0511°). */
+export function needsNorthPoleCap(projType: number, tileY: number): boolean {
+  return isGlobeProj(projType) && tileY === 0
+}
+/** South cap needed? Globe + bottommost tile row (south edge = −85.0511°).
+ *  `tilesPerAxis` = 2^z at the tile's render zoom. */
+export function needsSouthPoleCap(projType: number, tileY: number, tilesPerAxis: number): boolean {
+  return isGlobeProj(projType) && tileY === tilesPerAxis - 1
+}
+
+/** Pack + append one pole-cap "tile" to the raster batch (#1053). Reuses the
+ *  memoised per-tile block (write repacks all lanes; the bytes are COPIED for
+ *  the draw item, since the block is overwritten by the next push). Identical
+ *  to a ground tile except grid.y = capSign (±1), which flips vs_tile to the
+ *  band-edge→pole cap fan. Module-level (no per-frame closure allocation). */
+function pushRasterCap(
+  out: RasterTile[],
+  block: UniformBlockOf<typeof RASTER_TILE_U>,
+  texture: GPUTexture | RhiTexture,
+  west: number,
+  south: number,
+  east: number,
+  north: number,
+  swEcef: readonly [number, number, number] | ECEF,
+  mercSouth: number,
+  mercDiff: number,
+  gridN: number,
+  capSign: number,
+): void {
+  writeRasterTileUniform(
+    block,
+    west,
+    south,
+    east,
+    north,
+    swEcef,
+    mercSouth,
+    mercDiff,
+    gridN,
+    capSign,
+  )
+  out.push({ texture, tileBytes: new Float32Array(block.buffer.slice(0)), gridN })
 }
 
 interface CachedTile {
@@ -656,6 +711,21 @@ export class RasterRenderer {
           tileBytes: new Float32Array(TB.buffer.slice(0)),
           gridN,
         })
+
+        // #1053 — pole cap: the topmost / bottommost GLOBE tile row abuts the
+        // ±85.0511° polar hole. Append a cap "tile" (same texture + bounds + N,
+        // grid.y = ±1) that fans the band edge up to the geographic pole via
+        // vs_tile's cap branch. needs*PoleCap gates to the globe (isGlobeProj);
+        // every flat/Mercator projection stays byte-identical (no cap). Cap
+        // visibility rides the sphere tile selector + the per-fragment hemisphere
+        // cull — a y=0 tile is only selected when the pole is in view, so no
+        // extra camera guard is needed. Reuses the memoised TB, no new allocation.
+        // prettier-ignore
+        if (needsNorthPoleCap(projType, renderCoord.y))
+          pushRasterCap(tilesArr, TB, cached.texture, west + wo * 360, south, east + wo * 360, north, swEcef, mercSouth, mercDiff, gridN, 1)
+        // prettier-ignore
+        if (needsSouthPoleCap(projType, renderCoord.y, rn))
+          pushRasterCap(tilesArr, TB, cached.texture, west + wo * 360, south, east + wo * 360, north, swEcef, mercSouth, mercDiff, gridN, -1)
       }
     }
 
