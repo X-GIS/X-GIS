@@ -1,3 +1,5 @@
+xgis 1
+
 /* Batch 6 demo — `step` (N-stop discrete tiers) + `concat`
  * (composite labels) + `pow` + `round` (math). Uses Natural Earth
  * populated places: 243 cities with pop_max + adm0name per feature.

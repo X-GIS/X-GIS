@@ -1,3 +1,5 @@
+xgis 1
+
 /* Interaction fixture: translucent stroke + opacity keyframe.
  * Tests that bucket 2 (offscreen MAX-blend) interacts correctly
  * with the animation lifecycle metadata. */

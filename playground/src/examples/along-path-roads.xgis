@@ -1,3 +1,5 @@
+xgis 1
+
 /* Along-path road labels (Batch 1d) — names follow the road's
  * geometry, rotated to match the local segment's tangent. Same
  * Florence PMTiles archive used by `pmtiles-labels`, but pulls

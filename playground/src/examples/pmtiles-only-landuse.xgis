@@ -1,3 +1,5 @@
+xgis 1
+
 /* Diagnostic: render ONLY the landuse MVT layer of the v4 archive.
  * Used to isolate whether the horizontal-stripe artefact in the
  * pmtiles_layered demo at low zoom comes from landuse or some other

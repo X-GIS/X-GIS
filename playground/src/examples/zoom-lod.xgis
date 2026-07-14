@@ -1,3 +1,5 @@
+xgis 1
+
 /*
  * Zoom-based level of detail. Coarse 110m land cross-fades into the
  * fine 10m land as you zoom past z5, and major 50m rivers hand off

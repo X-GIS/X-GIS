@@ -1,3 +1,5 @@
+xgis 1
+
 source land {
   type: geojson
   url: "ne_110m_land.geojson"

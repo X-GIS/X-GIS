@@ -1,3 +1,5 @@
+xgis 1
+
 /* Inline GeoJSON embedded directly in the source via `data: { ... }`
    — no url fetch. Demonstrates the object-literal data form. */
 

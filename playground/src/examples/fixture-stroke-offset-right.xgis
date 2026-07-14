@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: stroke-offset-right-8 — signed offset right of travel.
  * Mirrors fixture_line but shifted perpendicular, isolating the
  * offset vertex computation from the baseline cap/join paths. */

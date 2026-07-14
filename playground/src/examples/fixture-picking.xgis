@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: picking — 3 quadrants with distinct fill colors and IDs.
  *
  * Reuses fixture-categorical.geojson (kind=a/b/c at lon -50..-20 / -15..15

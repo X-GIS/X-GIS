@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: 2-vertex line, no join. Validates SDF line shader baseline. */
 source l { type: geojson, url: "fixture-line.geojson" }
 layer the_line {

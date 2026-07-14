@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: Natural Earth (flamstead-like pseudocylindrical) on a single
  * polygon. Covers the polynomial lat→y and cos-scaled lon→x path that
  * lives only in this projection's WGSL branch. */

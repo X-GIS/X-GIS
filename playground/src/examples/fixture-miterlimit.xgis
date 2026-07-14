@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: sharp-angle turn with stroke-miterlimit-2.
  * The default miterlimit is generous enough that every join renders
  * as miter; clamping to 2 forces the renderer to fall back to bevel

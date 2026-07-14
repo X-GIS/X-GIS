@@ -1,3 +1,5 @@
+xgis 1
+
 /* Interaction fixture: direct-layer points + translucent vector.
  * Bug 2 mirror — the bucket scheduler had to drop direct-layer
  * points when there was a translucent vector layer. Verifies

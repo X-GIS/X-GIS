@@ -1,3 +1,5 @@
+xgis 1
+
 /* Reftest B: line with keyframe stroke width that holds at a
  * single value (degenerate keyframe). The animated path must
  * produce the same pixels as the static path because the

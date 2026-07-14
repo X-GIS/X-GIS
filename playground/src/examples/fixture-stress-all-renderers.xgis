@@ -1,3 +1,5 @@
+xgis 1
+
 /* Stress fixture: exercises every renderer in one frame.
  * - polygon fill (MapRenderer or VTR depending on geom type)
  * - SDF line (line-renderer)

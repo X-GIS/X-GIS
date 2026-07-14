@@ -1,3 +1,5 @@
+xgis 1
+
 /* Mapbox `line-pattern` (stroke-image-) fixture: the stroke's ONLY visual is
  * the sprite-atlas sample — fs_line_pattern reads the UV bbox from
  * tile.stroke_color and the repeat metres from layer.color.r/.a (iter-185).

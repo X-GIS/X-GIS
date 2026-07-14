@@ -1,3 +1,5 @@
+xgis 1
+
 /* §4 fill-pattern consumption-side verification: a flat polygon whose ONLY fill is a sprite
  * pattern (fill-pattern-pat), routed through fs_fill_pattern. This selects fillPipelinePatternGround
  * (show.fillPatternUV != null) which the RHI Material seam twins (patternGround). The §4 seam is

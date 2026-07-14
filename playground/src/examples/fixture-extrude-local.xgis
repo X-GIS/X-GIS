@@ -1,3 +1,5 @@
+xgis 1
+
 /* P1.6 extrude verification: a constant-height 3D-extruded polygon through the VTR.
  * geojson source → VTR (recordTileFill, bindZBuffer) → the extruded fill pipeline.
  * fill-extrusion-height-[20] is a constant (no per-feature expr) → the default extrude shader. */

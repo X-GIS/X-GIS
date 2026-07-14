@@ -1,3 +1,5 @@
+xgis 1
+
 /*
  * Dashed lines demo — shows simple and composite dash arrays.
  * Composite dashes (>2 segments) let you build morse-style patterns.

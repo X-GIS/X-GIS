@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: zoom-interpolated opacity. At z=0 the square is faint
  * (opacity-10), at z=6 it's fully opaque (opacity-100). Scroll in to
  * fade it up. Exercises the zoom-opacity-stops path separately from

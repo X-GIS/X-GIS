@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: 2-slot stroke pattern stack. Slot 0 = dot, slot 1 = cross.
  * Exercises the multi-slot pattern dispatch path in the line renderer.
  * Symbol paths can be authored in any coord range — the runtime

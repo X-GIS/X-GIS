@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: 2-vertex line with arrow cap. The arrow taper lives inside
  * the cap SDF so a bare 2-vertex line gets a directional arrowhead at
  * each end without an extra sprite. */

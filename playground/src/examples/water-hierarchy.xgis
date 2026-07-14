@@ -1,3 +1,5 @@
+xgis 1
+
 /*
  * Water hierarchy — 10m ocean, lakes, and rivers rendered as a
  * three-tier blue gradient. Each tier uses a slightly brighter shade

@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: SDF point in FLAT mode (billboard off) with anchor-bottom.
  * Flat quads lie on the ground plane; anchor shifts them along the
  * world +Y axis (north on a north-up map). anchor-bottom places the

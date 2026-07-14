@@ -1,3 +1,5 @@
+xgis 1
+
 /* Minimal world map — one layer, one source.
  *
  * Loads Natural Earth 110m country borders as GeoJSON (~570 KB).

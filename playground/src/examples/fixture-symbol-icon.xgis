@@ -1,3 +1,5 @@
+xgis 1
+
 /* Deterministic symbol-icon fixture (#834 M5 slice 4). The layer references
  * a HOST image (`label-icon-image-e2e-marker`) that the driving test (or a
  * gallery visitor via console) registers with map.addImage() and feeds with

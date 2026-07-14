@@ -1,3 +1,5 @@
+xgis 1
+
 /* Interaction fixture: opacity + fill + stroke + width keyframes
  * simultaneously (Bug 1 multi-property mirror). The lifecycle
  * metadata must propagate to ALL animated properties. */

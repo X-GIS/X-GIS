@@ -1,3 +1,5 @@
+xgis 1
+
 /* Deterministic raster fixture for P1.4 RHI-flip verification. The url has NO
  * {z}/{x}/{y} placeholders, so every visible tile loads the SAME local checker
  * PNG (playground/public/checker-tile.png) — an offline, deterministic raster

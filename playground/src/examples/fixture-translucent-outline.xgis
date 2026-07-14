@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: TRANSLUCENT polygon outline — fill + stroke + opacity < 1 routes
  * the stroke half through the translucent bucket (offscreen MAX-blend +
  * composite; a PURE line layer would stay opaque-bucketed per #415). The

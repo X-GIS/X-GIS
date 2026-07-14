@@ -1,3 +1,5 @@
+xgis 1
+
 /* End-to-end demo for inline GeoJSON inside an imported Mapbox style.
  *
  * Before the importer plumbing landed, a Mapbox style with

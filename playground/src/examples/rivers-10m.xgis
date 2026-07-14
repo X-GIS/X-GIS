@@ -1,3 +1,5 @@
+xgis 1
+
 /*
  * Full 10m river network layered on simplified land. The 10m rivers
  * dataset splits major rivers into named segments and adds hundreds of

@@ -1,3 +1,5 @@
+xgis 1
+
 /* OpenFreeMap "Bright" — live one-line import.
  *
  * The runtime fetches the style.json, sniffs its Mapbox v8 shape

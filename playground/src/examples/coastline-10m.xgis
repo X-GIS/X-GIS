@@ -1,3 +1,5 @@
+xgis 1
+
 /*
  * World coastline rendered as two stacked line layers — dark shadow
  * stroke + bright cyan body. No polygon fill. Stress test for dense

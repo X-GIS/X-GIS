@@ -1,3 +1,5 @@
+xgis 1
+
 /*
  * Multi-layer same source — regression demo for dynamic uniform offsets.
  * Both layers draw from the `coast` source. With the old (broken) renderer

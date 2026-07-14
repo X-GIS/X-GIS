@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: stroke pattern with anchor=end.
  * Pattern instance pinned at the line end — single dot at the
  * terminating vertex, contrast with anchor=start. */

@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: SDF point with a locally-defined custom SVG shape.
  * Exercises the symbol registry + custom-shape SDF bake path. */
 symbol diamond {

@@ -1,3 +1,5 @@
+xgis 1
+
 /*
  * 10m admin-1 (states / provinces) with per-country categorical fill.
  * Finer boundaries than the 50m version — good for zooming into

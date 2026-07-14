@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: animated dash-offset via keyframes ("marching ants").
  * PR3 landed animated dashoffset — this isolates that path. */
 keyframes march {

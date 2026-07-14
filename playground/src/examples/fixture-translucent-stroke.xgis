@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: translucent stroke. Validates bucket 2 (offscreen MAX-blend). */
 source t { type: geojson, url: "fixture-triangle.geojson" }
 layer tri {

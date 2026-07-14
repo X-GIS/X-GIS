@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: inline source populated via the typed-array fast path
  * (setSourcePoints). Identical .xgis to fixture-inline-push; the
  * difference is which API the e2e test calls to inject data. */

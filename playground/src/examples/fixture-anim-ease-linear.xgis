@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: opacity keyframe with linear easing.
  * Contrast with fixture_anim_opacity (ease-in-out) — same keyframe
  * stops should produce different mid-cycle values under a linear

@@ -1,3 +1,5 @@
+xgis 1
+
 /* Reftest A: line with static stroke width. Reference. */
 source l { type: geojson, url: "fixture-line.geojson" }
 layer the_line {

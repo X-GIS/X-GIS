@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: inline source (no url). The host app must call
  * setSourceData() after run() to populate the feature collection.
  * Used by the external data-injection e2e test. */

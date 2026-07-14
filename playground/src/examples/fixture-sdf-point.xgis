@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: SDF billboard point with anchor-bottom (pin marker). */
 source p { type: geojson, url: "fixture-point.geojson" }
 layer pin {

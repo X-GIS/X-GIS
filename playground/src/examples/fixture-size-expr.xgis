@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: data-driven point size via sqrt() expression.
  * 3 points with pop={400, 2500, 10000} → radii proportional to sqrt.
  * Exercises the expression evaluator path for size (distinct from

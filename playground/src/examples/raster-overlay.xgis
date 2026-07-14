@@ -1,3 +1,5 @@
+xgis 1
+
 /*
  * Hybrid raster + vector — OpenStreetMap basemap with 10m states
  * boundaries overlaid in translucent white. Shows how a raster base

@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: 3-vertex sharp turn with round join. */
 source l { type: geojson, url: "fixture-line-join.geojson" }
 layer the_line {

@@ -1,3 +1,5 @@
+xgis 1
+
 /*
  * Countries with dashed border lines — sky fill, dashed slate strokes.
  * Demonstrates mixing polygon fills with dash-array line styling.

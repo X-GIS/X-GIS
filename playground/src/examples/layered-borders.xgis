@@ -1,3 +1,5 @@
+xgis 1
+
 /*
  * Three-tier administrative borders: countries (thick), 50m states
  * (medium), and 10m states (fine). Color cascade from bright to

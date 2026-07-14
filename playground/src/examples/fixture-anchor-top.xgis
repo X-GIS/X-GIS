@@ -1,3 +1,5 @@
+xgis 1
+
 /* Fixture: SDF point with anchor-top (sprite hangs below anchor). */
 source p { type: geojson, url: "fixture-point.geojson" }
 layer dot {

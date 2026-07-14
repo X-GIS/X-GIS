@@ -1,3 +1,5 @@
+xgis 1
+
 /*
  * Continent categorical fill with thick matching outlines.
  * Uses match() on the CONTINENT property to assign a distinct hue

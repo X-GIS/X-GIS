@@ -1,3 +1,5 @@
+xgis 1
+
 /*
  * Line offset showcase — three layers on the same coastline.
  * The center slate line is the original geometry; the red line is

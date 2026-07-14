@@ -1,3 +1,5 @@
+xgis 1
+
 /*
  * Line styles showcase — four stacked coastline layers, each demonstrating
  * a different cap/join/width combination on the same geometry so you can

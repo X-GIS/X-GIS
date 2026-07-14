@@ -1,3 +1,5 @@
+xgis 1
+
 /* PMTiles — protomaps v4 daily world basemap (~6 GB, 176M tile entries,
  * z=0..15). Public CDN, OSM-derived, daily refresh.
  *
