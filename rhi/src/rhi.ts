@@ -464,6 +464,30 @@ export interface RhiDevice {
    *  stay GC-owned with no `destroy` — the documented exception to the create/destroy pairing. */
   destroyPipeline(pipeline: RhiPipeline): void
 
+  // ── Frame shell (required — #1046 F2 / #991 G2+G3, doc §2.4) ──────────────────
+  // The render loop minted its command encoder + acquired the swapchain view RAW
+  // (device.createCommandEncoder / context.getCurrentTexture().createView) and
+  // submitted RAW (queue.submit). F2 sources those touchpoints HERE so the frame
+  // shell no longer names the raw device/context — the seam F1 threaded onto the
+  // frame (FrameContext.rhi). Required (not `?`-optional): a backend that can't
+  // originate a frame doesn't compile (§2.2 verified-by-construction).
+
+  /** Acquire the presentation surface's colour view for THIS frame (G2). WebGPU
+   *  wraps `context.getCurrentTexture().createView()`; WebGL2 returns the FBO-0
+   *  sentinel (inert until the F3 unified chain). Backends REUSE one wrapper across
+   *  frames — the native view is re-minted every frame but the RHI handle is
+   *  frame-invariant, so the allocation-paranoid 60 Hz loop never allocates a
+   *  wrapper per frame (§5.5). */
+  acquireScreenView(): RhiTextureView
+  /** The per-frame command encoder, sourced through the RHI (G3). WebGPU mints a
+   *  fresh native `GPUCommandEncoder` each frame behind a REUSED wrapper
+   *  (frame-invariant, §5.5); `finish()` owns the single per-frame submit. DISTINCT
+   *  from `createCommandEncoder`, which hands out an INDEPENDENT transient encoder
+   *  for utility copies (arena compaction, VTR bake) that must not share the
+   *  frame's reused wrapper. WebGL2 is inert here — the forced-WebGL2 twin renders
+   *  through the screen-pass lifecycle, not this encoder. */
+  acquireFrameEncoder(): RhiCommandEncoder
+
   // ── Screen-pass lifecycle (additive, OPTIONAL) ───────────────────────────────
   // The render loop does device-creation / swapchain-acquire / begin-pass / submit
   // RAW today (render-loop.ts:199-200/484). To originate a frame on WebGL2 the RHI

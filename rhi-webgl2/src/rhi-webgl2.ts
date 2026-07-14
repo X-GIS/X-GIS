@@ -520,6 +520,10 @@ export function wrapWebGl2Pass(device: WebGl2Device): RhiRenderPass {
   return new WebGl2RenderPass(device.gl)
 }
 
+/** FBO-0 sentinel screen view (#1046 F2, §2.4) — inert marker returned by
+ *  `WebGl2Device.acquireScreenView`; F3 binds the default framebuffer through it. */
+const SCREEN_VIEW_SENTINEL: RhiTextureView = wrap<RhiTextureView>(Object.freeze({ screen: true }))
+
 export class WebGl2Device implements RhiDevice {
   readonly backend = 'webgl2' as const
   /** WebGL2 capability truths (§2.2). Frozen once at construction. The only
@@ -554,6 +558,17 @@ export class WebGl2Device implements RhiDevice {
       timestampQuery: false,
       executionModel: 'immediate',
     } as const)
+  }
+
+  // Frame shell (required by RhiDevice, #1046 F2) — INERT on WebGL2: the twin
+  // renders through the screen-pass lifecycle, so the loop early-returns before the
+  // encoder/screen-view shell. Present to satisfy the required surface (§2.2); F3
+  // gives the sentinel + encoder real meaning when the chain runs on WebGL2.
+  acquireScreenView(): RhiTextureView {
+    return SCREEN_VIEW_SENTINEL
+  }
+  acquireFrameEncoder(): RhiCommandEncoder {
+    return new WebGl2CommandEncoder(this.gl)
   }
 
   /** Begin the backbuffer screen pass: target FBO 0 (the default framebuffer the

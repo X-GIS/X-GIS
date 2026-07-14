@@ -29,7 +29,7 @@ import {
   poleLimit,
 } from '@xgis/geo'
 import { effectiveDpr, getSampleCount, isPickEnabled } from '@xgis/engine'
-import { resizeCanvas } from '@xgis/rhi-webgpu'
+import { resizeCanvas, unwrapWebGpuCommandEncoder, unwrapWebGpuTextureView } from '@xgis/rhi-webgpu'
 import { DEBUG_OVERDRAW, DEBUG_RHI_CHECKER } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { invalidateResolvedShowCache } from './render/resolved-show'
@@ -259,8 +259,17 @@ export class RenderLoop {
     }
 
     perfMarkStart('frame.encode')
-    const encoder = device.createCommandEncoder()
-    const screenView = context.getCurrentTexture().createView()
+    // Frame shell (#1046 F2 / #991 G2+G3, doc §3-F2): source the encoder + swapchain
+    // view through the RHI, unwrap native handles for the not-yet-converted passes
+    // (byte-identical). `__xgisRawFrameShell=true` restores the raw arm for one release.
+    const rhiFrame = this.host.ctx.rhi
+    const rawFrameShell =
+      (globalThis as { __xgisRawFrameShell?: boolean }).__xgisRawFrameShell === true
+    const frameEnc = rawFrameShell ? null : rhiFrame.acquireFrameEncoder()
+    const encoder = frameEnc ? unwrapWebGpuCommandEncoder(frameEnc) : device.createCommandEncoder()
+    const screenView = rawFrameShell
+      ? context.getCurrentTexture().createView()
+      : unwrapWebGpuTextureView(rhiFrame.acquireScreenView())
     // Reset per-frame timer state BEFORE compute dispatch so the
     // first compute pass gets timestampWrites attached. `beginFrame()`
     // clears both the sub-pass counter AND the
@@ -338,7 +347,6 @@ export class RenderLoop {
         // render-context.ts: "the SINGLE instance every renderer routes through"),
         // so it is set once here; the reuse branch below leaves it in place (#1046 F1).
         rhi: this.host.ctx.rhi,
-        device,
         encoder,
         screenView,
         colorView: screenView, // set in the MSAA block below
@@ -356,7 +364,6 @@ export class RenderLoop {
       }
     } else {
       const c = this._ctx
-      c.device = device
       c.encoder = encoder
       c.screenView = screenView
       c.camera = this.host.camera
@@ -545,7 +552,9 @@ export class RenderLoop {
     // matching the inner scope opened right after createCommandEncoder().
     perfMarkEnd('frame.encode')
     perfMarkStart('frame.submit')
-    device.queue.submit([encoder.finish()])
+    // F2: the RHI frame encoder owns the single per-frame submit (kill-switch = raw).
+    if (frameEnc) frameEnc.finish()
+    else device.queue.submit([encoder.finish()])
     perfMarkEnd('frame.submit')
     perfMarkEnd('frame.total')
     flushPerFrameMarks()
@@ -1003,7 +1012,6 @@ export class RenderLoop {
         // The WebGl2Device rendering this forced-WebGL2 frame — populates the required
         // FrameContext.rhi on the twin path too (#1046 F1). Inert here: no pass reads caps yet.
         rhi: this.host.ctx.rhi,
-        device: this.host.ctx.device,
         encoder: null as unknown as GPUCommandEncoder,
         screenView: null as unknown as GPUTextureView,
         colorView: null as unknown as GPUTextureView,

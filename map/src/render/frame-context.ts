@@ -32,9 +32,12 @@ export interface FrameContext {
    *  `backend` (#1046 F1, doc §3-F1). F1 is seam-only: the handle is reachable but no
    *  pass reads it yet — byte-identical on both backends. */
   rhi: RhiDevice
-  /** The WebGPU device (from `host.ctx.device`). */
-  device: GPUDevice
-  /** This frame's command encoder (`device.createCommandEncoder()`). */
+  /** This frame's command encoder. F2 (#1046) sources it through the RHI
+   *  (`rhi.acquireFrameEncoder()`) instead of the raw `device.createCommandEncoder()`;
+   *  the native handle is unwrapped for the not-yet-converted passes (still typed
+   *  `GPUCommandEncoder` here — the pass-body retype to `RhiCommandEncoder` is F3/P5).
+   *  The former pass-visible `device: GPUDevice` field is gone (F2 "drops device from
+   *  the pass-visible surface", doc §3-F2): it was write-only — no pass read it. */
   encoder: GPUCommandEncoder
   /** The swapchain texture view for this frame
    *  (`context.getCurrentTexture().createView()`). */

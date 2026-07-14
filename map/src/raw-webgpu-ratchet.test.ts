@@ -113,7 +113,7 @@ const BASELINE: Record<string, number> = {
   'map/src/render/compute-layer-handle.ts': 2,
   'map/src/render/compute-layer-registry.ts': 2,
   'map/src/render/feature-data-binder.ts': 21,
-  'map/src/render/frame-context.ts': 4,
+  'map/src/render/frame-context.ts': 3,
   'map/src/render/frame-renderer.ts': 47,
   'map/src/render/frame-uniform.ts': 5,
   'map/src/render/gpu-tile-store.ts': 7,
