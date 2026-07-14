@@ -188,7 +188,12 @@ export type MatchBlock = {
 }
 
 export type MatchArm = {
-  pattern: string // key name or '_' for default
+  // A single label. `string | number` preserves the literal's JS type so the
+  // evaluator can apply Mapbox `match` type-strict semantics — a numeric label
+  // matches only a numeric input, never its stringified form (`2` ≠ "2"). The
+  // catch-all default arm is the string '_'. Comma-separated pattern lists
+  // (`"a", "b" -> v`) are desugared by the parser into one arm per label.
+  pattern: string | number
   value: Expr
 }
 

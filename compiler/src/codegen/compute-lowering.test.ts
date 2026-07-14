@@ -230,4 +230,67 @@ describe('lowerMatchColorToMatch', () => {
     expect(spec.arms[0]!.pattern).toBe('fire')
     expect(spec.arms[0]!.colorHex).toMatch(/^#[0-9a-fA-F]{6,8}$/)
   })
+
+  it('resolves a hyphenated-palette-token BinaryExpr arm value (mirrors shader-gen, #1068)', () => {
+    // Since #1068 removed the match-arm identifier-minus special case,
+    // a user-authored `"fire" -> rose-500` parses as BinaryExpr
+    // (Identifier("rose") - NumberLiteral(500)) — the same shape
+    // resolveColorFromAST (shader-gen-helpers) has always reconstructed
+    // for colour positions like gradient() args. The compute adapter
+    // must resolve it identically or the kernel's category set drifts
+    // from the inline-shader path (empty categoryOrder, 0 switch cases —
+    // the continent-match-compute-mock regression).
+    const expr: DataExpr = {
+      ast: {
+        kind: 'FnCall',
+        callee: { kind: 'Identifier', name: 'match' },
+        args: [fieldAccess('class')],
+        matchBlock: {
+          kind: 'MatchBlock',
+          arms: [
+            {
+              pattern: 'fire',
+              value: {
+                kind: 'BinaryExpr',
+                op: '-',
+                left: { kind: 'Identifier', name: 'rose' },
+                right: { kind: 'NumberLiteral', value: 500, unit: null },
+              },
+            },
+          ],
+        },
+      },
+    }
+    const spec = lowerMatchColorToMatch(expr)!
+    expect(spec.arms).toHaveLength(1)
+    expect(spec.arms[0]!.pattern).toBe('fire')
+    expect(spec.arms[0]!.colorHex).toBe('#f43f5e') // rose-500
+  })
+
+  it('skips a non-palette subtraction arm value (`foo - 1` stays arithmetic)', () => {
+    const expr: DataExpr = {
+      ast: {
+        kind: 'FnCall',
+        callee: { kind: 'Identifier', name: 'match' },
+        args: [fieldAccess('class')],
+        matchBlock: {
+          kind: 'MatchBlock',
+          arms: [
+            { pattern: 'ok', value: { kind: 'ColorLiteral', value: '#123456' } },
+            {
+              pattern: 'arith',
+              value: {
+                kind: 'BinaryExpr',
+                op: '-',
+                left: { kind: 'Identifier', name: 'foo' },
+                right: { kind: 'NumberLiteral', value: 1, unit: null },
+              },
+            },
+          ],
+        },
+      },
+    }
+    const spec = lowerMatchColorToMatch(expr)!
+    expect(spec.arms.map((a) => a.pattern)).toEqual(['ok'])
+  })
 })
