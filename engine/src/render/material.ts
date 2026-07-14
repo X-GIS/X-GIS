@@ -30,6 +30,13 @@ export interface PipelineVariant {
   depthWrite?: boolean
   depthCompare?: 'always' | 'less' | 'less-equal'
   depthBias?: { constant: number; slopeScale: number; clamp: number }
+  /** Per-variant colour-target override — REPLACES the material-level
+   *  `colorTargets` for this variant only. Same shader + bind layouts; only the
+   *  colour attachment write-mask/blend differs (e.g. a DEPTH-ONLY prepass
+   *  variant that masks every colour write while still running the fragment so
+   *  it writes the SAME `@builtin(frag_depth)` a later depth-equal colour pass
+   *  compares against). Omit to inherit `desc.colorTargets`. */
+  colorTargets?: MaterialDesc['colorTargets']
   /** Override the material's fsEntry / vsEntry for this variant (e.g. a variant that
    *  swaps its fragment or vertex entry). */
   fsEntry?: string
@@ -136,7 +143,7 @@ export class Material {
         vsCode: v.vsCode ?? desc.vsCode,
         fsCode: v.fsCode ?? desc.fsCode,
         bindGroupLayouts: this.layouts,
-        colorTargets: desc.colorTargets,
+        colorTargets: v.colorTargets ?? desc.colorTargets,
         depthStencil:
           v.depthCompare || v.stencil
             ? {

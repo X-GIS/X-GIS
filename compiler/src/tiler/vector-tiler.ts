@@ -1371,20 +1371,20 @@ function processZoomLevelShared(
                 featureIds.add(fid)
                 tilePolygons.push({ rings: repairedRings, featId: fid })
               } else {
-                // Distribute holes via point-in-polygon — each clipper
-                // sub-outer gets only the holes that fall inside it.
+                // #1079: emit ONE RingPolygon PER PIECE (outer + its point-in-
+                // poly bucketed holes), NOT a flattened all-N-outers entry — else
+                // the extrusion consumer punches pieces #2..N out of piece #1's
+                // roof. Byte-dup'd in polygon-tiler.ts (~L94); fix both (§3). Heights featId-keyed.
                 const subHoles: number[][][][] = effectiveOuters.map(() => [])
                 for (const hole of holes) {
                   subHoles[assignHoleBucket(hole, effectiveOuters)]!.push(hole)
                 }
-                const allRingsForFeature: number[][][] = []
                 for (let si = 0; si < effectiveOuters.length; si++) {
                   const subRings = [effectiveOuters[si]!, ...subHoles[si]!]
                   tessellatePolygonToArrays(subRings, fid, scratch.pv, scratch.pi, dedupMap)
-                  for (const r of subRings) allRingsForFeature.push(r)
+                  tilePolygons.push({ rings: subRings, featId: fid })
                 }
                 featureIds.add(fid)
-                tilePolygons.push({ rings: allRingsForFeature, featId: fid })
               }
             }
           }

@@ -206,6 +206,24 @@ export function buildBakeFillMaterial(inp: FillMaterialInputs): Material {
  *  same depth/stencil as the flat fill (NOT ground). The per-tile z-buffer is bound at slot 1. */
 export function buildExtrudeMaterial(inp: FillMaterialInputs): Material {
   const fmt = inp.format as 'bgra8unorm'
+  const colorTargets = inp.pickEnabled
+    ? [
+        { format: fmt, blend: 'alpha' as const },
+        { format: 'rg32uint' as const, writeMask: inp.pickWriteMask ?? 0xf },
+      ]
+    : [{ format: fmt, blend: 'alpha' as const }]
+  // #1080 — DEPTH-PREPASS colour targets: mask EVERY colour + pick write so the
+  // prepass variant contributes DEPTH + STENCIL only. The fragment still runs
+  // (same fs_fill_extrude entry) and writes the SAME @builtin(frag_depth) —
+  // including its per-feat_id z-dither — that the depth-equal colour pass then
+  // matches. A separate depth-only fragment would compute a different dither and
+  // break the equal test, so the mask (not a cheaper shader) is the mechanism.
+  const depthOnlyTargets = inp.pickEnabled
+    ? [
+        { format: fmt, blend: 'alpha' as const, writeMask: 0 },
+        { format: 'rg32uint' as const, writeMask: 0 },
+      ]
+    : [{ format: fmt, blend: 'alpha' as const, writeMask: 0 }]
   return new Material(inp.rhi, {
     shader: inp.shader,
     vsEntry: 'vs_main_ecef_extruded',
@@ -214,13 +232,17 @@ export function buildExtrudeMaterial(inp: FillMaterialInputs): Material {
     sampleCount: inp.sampleCount,
     groups: [wrapWebGpuBindGroupLayout(inp.bindGroupLayout!)],
     vertexBuffers: [toMatVB(inp.vertexLayout)],
-    colorTargets: inp.pickEnabled
-      ? [
-          { format: fmt, blend: 'alpha' },
-          { format: 'rg32uint', writeMask: inp.pickWriteMask ?? 0xf },
-        ]
-      : [{ format: fmt, blend: 'alpha' }],
+    colorTargets,
     cullMode: 'none',
+    // Variants 0/1 = OPAQUE single-draw (STENCIL_WRITE / STENCIL_TEST) — the
+    // byte-identical path opaque extrusions keep. Variants 2..5 = the #1080
+    // translucent FRONT-SHELL two-draw (recordFillDraw runs prepass THEN colour
+    // only when the resolved fill alpha < 1): 4/5 write DEPTH+STENCIL, then 2/3
+    // blend COLOUR at depthCompare 'less-equal' with depth write OFF so only the
+    // front-most surface per pixel composites once. cullMode stays 'none' (two-
+    // sided) so concave interiors keep their NEAREST visible wall — the prepass
+    // resolves it per pixel, unlike MapLibre's back-face cull (which drops every
+    // interior-facing wall). base variant N (0/1) → prepass N+4, colour N+2.
     variants: [
       {
         depthCompare: 'less-equal',
@@ -233,6 +255,38 @@ export function buildExtrudeMaterial(inp: FillMaterialInputs): Material {
         depthWrite: true,
         stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff },
         label: 'fill-extrude-test-rhi',
+      },
+      // 2 — front-shell COLOUR (write-stencil path): depth-equal (less-equal vs
+      // the prepass per-pixel minimum), NO depth write; stencil already stamped
+      // by variant 4, so this pass keeps it.
+      {
+        depthCompare: 'less-equal',
+        depthWrite: false,
+        stencil: { compare: 'always', passOp: 'keep', writeMask: 0x00, readMask: 0xff },
+        label: 'fill-extrude-frontshell-write-rhi',
+      },
+      // 3 — front-shell COLOUR (test-stencil path, fallback ancestors).
+      {
+        depthCompare: 'less-equal',
+        depthWrite: false,
+        stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff },
+        label: 'fill-extrude-frontshell-test-rhi',
+      },
+      // 4 — DEPTH prepass (write-stencil path): colorWriteMask none, depth write ON.
+      {
+        depthCompare: 'less-equal',
+        depthWrite: true,
+        stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff },
+        colorTargets: depthOnlyTargets,
+        label: 'fill-extrude-depthprepass-write-rhi',
+      },
+      // 5 — DEPTH prepass (test-stencil path, fallback ancestors).
+      {
+        depthCompare: 'less-equal',
+        depthWrite: true,
+        stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff },
+        colorTargets: depthOnlyTargets,
+        label: 'fill-extrude-depthprepass-test-rhi',
       },
     ],
   })
@@ -322,6 +376,13 @@ export function recordFillDraw(
   slotOffset: number,
   cached: FillTileBuffers,
   bindZBuffer: boolean,
+  /** #1080 — when true AND this is the solid per-feature EXTRUDE draw, render the
+   *  mesh TWICE: a DEPTH+STENCIL prepass (variant+4, colorWriteMask none) then a
+   *  depth-`less-equal` COLOUR pass with depth write OFF (variant+2), so only the
+   *  front-most surface per pixel is blended once (no back/interior show-through).
+   *  Set by the caller only for a translucent extrusion (resolved fill alpha < 1);
+   *  opaque extrusions and every non-extrude fill pass false → single-draw. */
+  translucentFrontShell = false,
 ): void {
   // #717 — the draw-side VTR instance can have _fillRhi still null (the site's Astro island splits
   // the VTR module: setFillRhi(present) lands on one instance, the draw runs on another). Recover
@@ -331,6 +392,10 @@ export function recordFillDraw(
   if (eff) {
     let mat: Material | null = null
     let variant = -1
+    // #1080 — true only when `mat` is the SOLID extrude twin (e.mat / e.matNoPick),
+    // the one place the front-shell two-draw applies. Pattern-extrude + every flat
+    // fill leave it false so they always take the single-draw path.
+    let extrudeSolid = false
     // Match the draw pipeline to its built Material twin. IDENTITY FIRST (the normal single-instance
     // case — object equality, zero-cost, unchanged behaviour). LABEL FALLBACK second: across the dual
     // instance the recovered `eff` registry holds the OTHER instance's pipeline objects, so identity
@@ -388,15 +453,19 @@ export function recordFillDraw(
         if (eq(e.write)) {
           mat = e.mat
           variant = 0
+          extrudeSolid = true
         } else if (eq(e.test)) {
           mat = e.mat
           variant = 1
+          extrudeSolid = true
         } else if (e.matNoPick && eq(e.writeNoPick)) {
           mat = e.matNoPick
           variant = 0
+          extrudeSolid = true
         } else if (e.matNoPick && eq(e.testNoPick)) {
           mat = e.matNoPick
           variant = 1
+          extrudeSolid = true
         }
       }
       // Fill-pattern extruded twin (fs_fill_pattern) — checked after the solid extrude.
@@ -413,25 +482,36 @@ export function recordFillDraw(
     }
     if (mat && variant >= 0) {
       const g = globalThis as { __xgisVtrFillRhiDraws?: number }
-      g.__xgisVtrFillRhiDraws = (g.__xgisVtrFillRhiDraws ?? 0) + 1
-      executeItems(mat, wrapWebGpuPass(encoder), [
-        {
-          variant,
-          bindGroups: [wrapWebGpuBindGroup(tileBg)],
-          dynamicOffsets: [[slotOffset]],
-          vertex: cached.vertexBuffer,
-          vertexOffset: cached.polyVertexOffset,
-          vertexSize: cached.polyVertexByteLength,
-          index: {
-            buffer: cached.indexBuffer,
-            format: 'uint32',
-            offset: cached.polyIndexOffset,
-            size: cached.polyIndexByteLength,
-          },
-          count: cached.indexCount,
-          indexed: true,
+      const rhiPass = wrapWebGpuPass(encoder)
+      const item = {
+        variant,
+        bindGroups: [wrapWebGpuBindGroup(tileBg)],
+        dynamicOffsets: [[slotOffset]],
+        vertex: cached.vertexBuffer,
+        vertexOffset: cached.polyVertexOffset,
+        vertexSize: cached.polyVertexByteLength,
+        index: {
+          buffer: cached.indexBuffer,
+          format: 'uint32' as const,
+          offset: cached.polyIndexOffset,
+          size: cached.polyIndexByteLength,
         },
-      ])
+        count: cached.indexCount,
+        indexed: true,
+      }
+      let draws: number
+      if (translucentFrontShell && extrudeSolid) {
+        // #1080 — translucent extrusion FRONT-SHELL. Same mesh, twice: variant+4
+        // writes DEPTH + STENCIL only (colorWriteMask none) to fix the per-pixel
+        // front-most depth; variant+2 then blends COLOUR at depthCompare
+        // 'less-equal' with depth write OFF, so exactly the nearest surface per
+        // pixel composites once — no back/interior wall show-through.
+        draws = executeItems(mat, rhiPass, [{ ...item, variant: variant + 4 }])
+        draws += executeItems(mat, rhiPass, [{ ...item, variant: variant + 2 }])
+      } else {
+        draws = executeItems(mat, rhiPass, [item])
+      }
+      g.__xgisVtrFillRhiDraws = (g.__xgisVtrFillRhiDraws ?? 0) + draws
       return
     }
   }

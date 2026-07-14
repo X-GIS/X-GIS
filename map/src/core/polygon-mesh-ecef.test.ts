@@ -294,3 +294,113 @@ describe('generateWallMeshExtrudedECEF', () => {
     }
   })
 })
+
+// ─────────────────────────────────────────────────────────────────
+// #1079 — extrusion roof coverage when a feature clip-splits into N pieces.
+//
+// End-to-end guard for the fixed pipeline: the tiler (#1079) now emits ONE
+// RingPolygon PER disjoint piece rather than flattening all pieces' outers
+// into one entry's `rings`. This is the FIRST test here exercising
+// `polygons.length > 1`. It pins the consumer contract that makes the fix
+// pay off: two SEPARATE RingPolygons produce roof triangles covering BOTH
+// footprints — whereas the OLD flattened shape (all outers in one entry)
+// leaves piece #2 un-roofed because the consumer reads rings[1..] as holes.
+// ─────────────────────────────────────────────────────────────────
+describe('generateWallMeshExtrudedECEF — #1079 multi-piece roof coverage', () => {
+  // Two DISJOINT CCW squares (positive mx/my area), far apart in lon so their
+  // roof vertices separate cleanly by longitude. Both belong to one feature
+  // (featId 7) — the shape a clip-split feature takes after the #1079 fix.
+  const sqA = [
+    lonLatToMerc(1.0, 1.0),
+    lonLatToMerc(1.2, 1.0),
+    lonLatToMerc(1.2, 1.2),
+    lonLatToMerc(1.0, 1.2),
+    lonLatToMerc(1.0, 1.0),
+  ]
+  const sqB = [
+    lonLatToMerc(2.0, 2.0),
+    lonLatToMerc(2.2, 2.0),
+    lonLatToMerc(2.2, 2.2),
+    lonLatToMerc(2.0, 2.2),
+    lonLatToMerc(2.0, 2.0),
+  ]
+  const heights = new Map<number, number>([[7, 100]])
+  const center = tileEcefCenterFromMerc(sqA[0][0], sqA[0][1])
+
+  // 2D point-in-triangle (inclusive of edges), operating on the stored
+  // abs_lon/abs_lat degrees (EARTH.sphereR === 6378137 === the test's A, so
+  // the ring-mx round-trips to the input lon/lat exactly).
+  const pointInTri = (
+    px: number,
+    py: number,
+    ax: number,
+    ay: number,
+    bx: number,
+    by: number,
+    cx: number,
+    cy: number,
+  ): boolean => {
+    const d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by)
+    const d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy)
+    const d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay)
+    const hasNeg = d1 < 0 || d2 < 0 || d3 < 0
+    const hasPos = d1 > 0 || d2 > 0 || d3 > 0
+    return !(hasNeg && hasPos)
+  }
+
+  // Extract ROOF triangles (all three verts radial-up = roof, not wall) as
+  // [lon,lat] triples in the stored abs_lon/abs_lat space.
+  const roofTriangles = (
+    mesh: ReturnType<typeof generateWallMeshExtrudedECEF>,
+  ): Array<[number, number][]> => {
+    const vertCount = mesh.vertices.length / STRIDE
+    const isRoof: boolean[] = []
+    const lonlat: [number, number][] = []
+    for (let i = 0; i < vertCount; i++) {
+      const v = unpack(mesh, i)
+      const [ex, ey, ez] = reconstructECEF(v, center)
+      const pmag = Math.hypot(ex, ey, ez)
+      const radialDot = (v.fn_x * ex + v.fn_y * ey + v.fn_z * ez) / pmag
+      isRoof.push(v.is_top === 1 && radialDot > 0.9)
+      lonlat.push([v.abs_lon, v.abs_lat])
+    }
+    const tris: Array<[number, number][]> = []
+    for (let t = 0; t < mesh.indices.length; t += 3) {
+      const i0 = mesh.indices[t]!,
+        i1 = mesh.indices[t + 1]!,
+        i2 = mesh.indices[t + 2]!
+      if (isRoof[i0] && isRoof[i1] && isRoof[i2])
+        tris.push([lonlat[i0]!, lonlat[i1]!, lonlat[i2]!])
+    }
+    return tris
+  }
+
+  const covered = (tris: Array<[number, number][]>, lon: number, lat: number): boolean =>
+    tris.some((tr) =>
+      pointInTri(lon, lat, tr[0][0], tr[0][1], tr[1][0], tr[1][1], tr[2][0], tr[2][1]),
+    )
+
+  it('two SEPARATE RingPolygons roof BOTH footprints (the #1079-fixed producer output)', () => {
+    const polygons: RingPolygon[] = [
+      { featId: 7, rings: [sqA] },
+      { featId: 7, rings: [sqB] },
+    ]
+    const mesh = generateWallMeshExtrudedECEF(polygons, heights, undefined, 0, 0, center)
+    const tris = roofTriangles(mesh)
+    // Interior, off-diagonal query points inside each square.
+    expect(covered(tris, 1.05, 1.14), 'square A footprint roofed').toBe(true)
+    expect(covered(tris, 2.05, 2.14), 'square B footprint roofed').toBe(true)
+  })
+
+  it('the OLD flattened shape (both outers in ONE entry) leaves piece #2 un-roofed', () => {
+    // Regression contrast: this is what the tiler emitted BEFORE #1079 — a
+    // single RingPolygon whose rings=[outerA, outerB]. The consumer reads
+    // rings[1] (outer B) as a HOLE, so B's footprint is never roofed. Pins
+    // WHY the producer must emit separate entries.
+    const flattened: RingPolygon[] = [{ featId: 7, rings: [sqA, sqB] }]
+    const mesh = generateWallMeshExtrudedECEF(flattened, heights, undefined, 0, 0, center)
+    const tris = roofTriangles(mesh)
+    expect(covered(tris, 1.05, 1.14), 'square A still roofed').toBe(true)
+    expect(covered(tris, 2.05, 2.14), 'square B punched out (bug)').toBe(false)
+  })
+})

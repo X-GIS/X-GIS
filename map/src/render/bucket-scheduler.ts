@@ -317,19 +317,22 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     const isPureLine = !entry.show.fill && !!entry.show.stroke
     const isTranslucentStroke =
       !safeMode && composedOpa < 0.999 && !!entry.show.stroke && !isPureLine
-    // iter-193 — revert iter-192's two-pass offscreen OIT path.
-    // Buildings-only isolated harness (Paris z=18.25 pitch=49.8)
-    // showed iter-192 produced ≤8 cumul = 18.60 % vs iter-191
-    // alpha-blend = 47.95 % — iter-192's compose output was not
-    // populating the framebuffer for the isolated style (likely a
-    // bind-group or accum/revealage attachment mismatch under the
-    // depth-write change). iter-191 alpha-blend wins on the
-    // isolated harness, was marginally better on Liberty z14
-    // survey, and matches MapLibre's standard alpha-blend
-    // depth-test+write behaviour for fill-extrusion-opacity. Stay
-    // with iter-191. The two-pass offscreen FBO + composite remains
-    // a future direction once the bind-group plumbing matches
-    // properly (separate from the OIT accum/revealage MRT).
+    // Extruded fill stays in the main opaque target — NO offscreen OIT MRT.
+    // (iter-193 reverted iter-192's offscreen accum/revealage path: its compose
+    // never populated the framebuffer on the buildings-only harness, a
+    // bind-group / attachment mismatch under the depth-write change.)
+    //
+    // #1080 — the translucent case is NOT a plain single-pass alpha-blend +
+    // depth-test/write. That two-sided (cullMode 'none') draw over-blends back +
+    // interior walls, so overlapping/see-through buildings look too opaque and
+    // show their far faces. MapLibre draws a FRONT SHELL for
+    // fill-extrusion-opacity < 1 (it back-face culls). X-GIS matches that in the
+    // DRAW path, not here: the per-feature extrude draw renders the mesh twice —
+    // a DEPTH prepass then a depth-`less-equal` COLOUR pass with depth write OFF
+    // (VectorTileRenderer → recordFillDraw, gated on resolved fill alpha < 1),
+    // so only the front-most surface per pixel blends, once, while cullMode
+    // stays 'none' to keep concave interiors. `isOitExtrude` therefore stays
+    // false: the fix is the front-shell two-draw, not an offscreen composite.
     const isOitExtrude = false
     void composedOpa
     const noPick = entry.show.pointerEvents === 'none'

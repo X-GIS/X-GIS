@@ -92,18 +92,30 @@ export function tilePolygonPart(
           featureIds.add(fid)
           tilePolygons.push({ rings: repairedRings, featId: fid })
         } else {
+          // #1079: clipping split this feature's outer ring into N DISJOINT
+          // pieces — emit ONE RingPolygon PER PIECE (its own outer + the holes
+          // point-in-poly bucketed into it), NOT one entry flattening all N
+          // outers + holes into a single `rings` array. The extrusion consumer
+          // (generateWallMeshExtrudedECEF, map/src/core/polygon-mesh.ts) reads
+          // rings[0] as THE outer and rings[1..] as holes, so a flattened entry
+          // earcut-punches pieces #2..N out of piece #1's roof (n pieces render
+          // only n-1 roofs). Heights/bases are keyed by featId — a Map, NOT an
+          // index-parallel array (extractFeatureHeights in mvt-worker.ts does
+          // set(featId, h)) — so every emitted piece sharing `fid` resolves the
+          // same height/base; no parallel-array duplication is needed. NOTE:
+          // this branch is byte-duplicated in vector-tiler.ts
+          // processZoomLevelShared (~L1373) — a known single-authority smell;
+          // fix both identically, do NOT refactor them together here (§3).
           const subHoles: number[][][][] = effectiveOuters.map(() => [])
           for (const hole of holes) {
             subHoles[assignHoleBucket(hole, effectiveOuters)]!.push(hole)
           }
-          const allRingsForFeature: number[][][] = []
           for (let si = 0; si < effectiveOuters.length; si++) {
             const subRings = [effectiveOuters[si]!, ...subHoles[si]!]
             tessellatePolygonToArrays(subRings, fid, scratch.pv, scratch.pi, dedupMap)
-            for (const r of subRings) allRingsForFeature.push(r)
+            tilePolygons.push({ rings: subRings, featId: fid })
           }
           featureIds.add(fid)
-          tilePolygons.push({ rings: allRingsForFeature, featId: fid })
         }
       }
     }
