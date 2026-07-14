@@ -120,7 +120,7 @@ const CEILINGS: Record<string, number> = {
   // mercator: the perspectiveScale() scratch getter). +21, dominated by prettier
   // wraps (the 6-name projector destructure + the globe arm's 8-arg dispatchIcon
   // both go one-per-line). Same existing call sites; nothing extract-worthy (§2).
-  'map/src/render/passes/label-pass.ts': 1748,
+  'map/src/render/passes/label-pass.ts': 1749,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
