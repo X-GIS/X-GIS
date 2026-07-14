@@ -50,6 +50,35 @@ if (DEBUG_RHI_CHECKER && typeof window !== 'undefined') {
   )
 }
 
+/** `?rhichain=1` (URL) OR `globalThis.__xgisRhiChain === true` (global mirror — the
+ *  `__xgisRawFrameShell` seam pattern, render-loop.ts) — read at module load like the
+ *  rest. A distinct URL param, not a `?debug=` value, so it reads its own key. */
+function readRhiChainFlag(): boolean {
+  if ((globalThis as { __xgisRhiChain?: boolean }).__xgisRhiChain === true) return true
+  if (typeof window === 'undefined') return false
+  try {
+    return new URL(window.location.href).searchParams.get('rhichain') === '1'
+  } catch {
+    return false
+  }
+}
+
+/** `?rhichain=1` (or `globalThis.__xgisRhiChain = true`) — #1046 F3 (doc §3-F3): route
+ *  the WebGL2 frame through the unified `this._nodes` RenderNode chain instead of the
+ *  forced-WebGL2 twin (`renderFrameViaRhi`). DEFAULT-OFF is the kill-switch: the twin
+ *  stays the WebGL2 frame until the twin-parity ratchet reads zero on every fixture
+ *  (F4 flips the default). No effect on the WebGPU frame — that is already the chain.
+ *  The router (render-loop.ts) holds this OFF at the executor until the pass bodies are
+ *  RHI-typed (F3 remaining); the flag + the frame encoder's `beginRenderPass` (the
+ *  chain's WebGL2 origination seam) land in this phase. */
+export const RHI_CHAIN: boolean = readRhiChainFlag()
+
+if (RHI_CHAIN && typeof window !== 'undefined') {
+  console.info(
+    '[X-GIS] ?rhichain=1 active — WebGL2 unified-chain routing requested (#1046 F3); the twin still renders until the chain executes on WebGL2 (F3 remaining)',
+  )
+}
+
 /** Format of the overdraw accumulator render target. r16float lets
  *  per-pixel fragment counts grow well beyond the [0, 1] range that
  *  the bgra8unorm swapchain would clip; ~65 k max before overflow,

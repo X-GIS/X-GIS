@@ -171,10 +171,10 @@ describe('WebGl2 copyBufferToBuffer — gl.copyBufferSubData byte round-trip', (
     expect(Array.from(dstBuf.bytes.subarray(8, 16))).toEqual([0, 0, 0, 0, 0, 0, 0, 0])
   })
 
-  it('beginRenderPass on the copy encoder still fail-CLOSES (MRT = full-frame phase)', () => {
+  it('beginRenderPass on the copy encoder still fail-CLOSES (frame encoder owns passes, #1046 F3a)', () => {
     const enc = new WebGl2Device(fakeGl()).createCommandEncoder()
     expect(() => enc.beginRenderPass({ colorAttachments: [] })).toThrow(
-      /beginRenderPass.*not yet supported|full-frame phase/,
+      /beginRenderPass not supported on the copy-scoped utility encoder/,
     )
   })
 })
