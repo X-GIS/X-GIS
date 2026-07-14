@@ -78,6 +78,36 @@ export function labelCollisionId(
   return `${invLayer}\u0000${featureIdentity}`
 }
 
+/** #777 I-B — resolve a line-placed icon's rotation (radians) for dispatchIcon,
+ *  applying the Mapbox `icon-keep-upright` half-plane fold. Under
+ *  icon-rotation-alignment=map the icon follows the per-segment `lineTangentDeg`
+ *  (0° for point / viewport placement). `icon-keep-upright: true` keeps the icon
+ *  facing up by flipping a DOWNWARD tangent 180° — the icon twin of the text
+ *  keep-upright flip (text-stage.ts:1500-1530, `midAngle > π/2`). A tangent
+ *  outside (-90°, 90°] screen-space gets +180°, so the resolved angle lands in
+ *  the upright half-plane. The fold activates ONLY on an EXPLICITLY authored
+ *  `keepUpright === true`; absent/false leaves the tangent untouched, so the
+ *  rotation is byte-identical to today's always-follow-tangent render (the
+ *  icon-allow-overlap absent-default convention). Not map-aligned → tangent is 0,
+ *  so the fold is inert (icon-rotate alone).
+ *  Exported for unit coverage — dispatchIcon is an anon closure. */
+export function resolveIconRotateRad(
+  iconRotateDeg: number,
+  lineTangentDeg: number,
+  rotationAlignmentMap: boolean,
+  keepUpright: boolean | undefined,
+): number {
+  let tangent = rotationAlignmentMap ? lineTangentDeg : 0
+  // Upright half-plane fold: on an EXPLICITLY authored keep-upright, a tangent
+  // pointing down (outside (-90°, 90°]) gets +180° so the resolved rotation
+  // lands upright — the icon twin of the text angle fold (label-pass.ts text
+  // arm / text-stage.ts midAngle test).
+  if (rotationAlignmentMap && keepUpright === true && (tangent > 90 || tangent < -90)) {
+    tangent += 180
+  }
+  return ((iconRotateDeg + tangent) * Math.PI) / 180
+}
+
 /** Per-segment sample count for line-label placement, computed from the
  *  segment's SCREEN length (metres × on-screen px-per-metre), not raw metres.
  *  A segment that crosses the viewport but whose endpoints fall outside the
@@ -343,6 +373,7 @@ class LabelPass implements RenderPass {
           iconColor?: [number, number, number, number]
           iconRotationAlignment?: 'map'
           iconPadding?: number
+          iconKeepUpright?: boolean
           text?: import('@xgis/compiler').LabelDef['text']
         },
         ax: number,
@@ -381,7 +412,15 @@ class LabelPass implements RenderPass {
         // arrow sprite's design orientation has the head pointing
         // right at 0°, so 90° clockwise = north). Caller passes 0
         // for point-placement and other "viewport" rotation cases.
-        const tangent = def.iconRotationAlignment === 'map' ? lineTangentDeg : 0
+        // #777 I-B — resolve the icon rotation, folding a downward tangent into
+        // the upright half-plane when def.iconKeepUpright is EXPLICITLY true
+        // (absent/false keeps the raw-tangent rotation byte-identical).
+        const rotateRad = resolveIconRotateRad(
+          def.iconRotate ?? 0,
+          lineTangentDeg,
+          def.iconRotationAlignment === 'map',
+          def.iconKeepUpright,
+        )
         // icon-color → SDF tint (RGBA from resolver; renderer takes
         // rgb, ignores alpha — Mapbox icon-color has no alpha axis,
         // icon-opacity owns alpha). Undefined when unauthored so
@@ -413,7 +452,7 @@ class LabelPass implements RenderPass {
         const doCollide = lineCollide || policyCollide
         iStage.addIcon(ax + offDx, ay + offDy, def.iconImage, {
           sizeScale: def.iconSize ?? 1,
-          rotateRad: (((def.iconRotate ?? 0) + tangent) * Math.PI) / 180,
+          rotateRad,
           anchor: def.iconAnchor ?? 'center',
           opacity: def.iconOpacity ?? 1,
           tint: ic ? [ic[0], ic[1], ic[2]] : undefined,
