@@ -10,6 +10,13 @@ xgis 1
  * sprite-atlas gate (label-pass.ts) so the atlas loads and the UV resolves — no label layer needed.
  *
  * Load with: /demo.html?id=fixture_fill_pattern&e2e=1&sprite=/fixture-sprite
+ *
+ * HISTORY (#777 I-E probe): playground/public/fixture-square.geojson was
+ * REFERENCED here but never committed — the source 404'd, the fixture drew an
+ * empty frame, and the §4 DC=0 gate passed VACUOUSLY (empty-vs-empty). The
+ * asset is now in the repo; a probe of this fixture must first assert the
+ * square actually rasterises (non-background pixels present) before any DC
+ * comparison, so an asset regression can never green the gate again.
  */
 source poly { type: geojson, url: "fixture-square.geojson" }
 
