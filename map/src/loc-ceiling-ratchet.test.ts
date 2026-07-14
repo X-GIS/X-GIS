@@ -174,7 +174,13 @@ const CEILINGS: Record<string, number> = {
   'rhi-webgl2/src/rhi-webgl2.ts': 1285,
   'map/src/render/renderer.ts': 965,
   'map/src/render/gpu-tile-store.ts': 941,
-  'map/src/render/tile-selection-cache.ts': 930,
+  // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
+  // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles
+  // on the globe/sphere route (vs the flat visibleTilesSSE) so cz hold/advance is
+  // decided over the drawn set, not a Mercator-frustum proxy. +18 is the two-arm
+  // selector branch (irreducible: both selector calls wrap one-arg-per-line under
+  // prettier) + its rationale. Lower as #991 decomposes the selection SCC.
+  'map/src/render/tile-selection-cache.ts': 948,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   'map/src/render/upload-coordinator.ts': 876,
