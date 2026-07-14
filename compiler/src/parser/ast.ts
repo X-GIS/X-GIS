@@ -275,12 +275,18 @@ export type PresetStatement = {
   line: number
 }
 
-// import { name1, name2 } from "file.xgs"
+// import { name1, name2 } from "file.xgs"  — cherry-pick
+// import "file.xgs"                          — splice
+// import * as ns from "file.xgs"             — namespaced splice (`namespace` set)
 export type ImportStatement = {
   kind: 'ImportStatement'
   names: string[]
   path: string
   line: number
+  /** Set by `import * as ns from "..."`. When present the imported module's
+   *  block-level definitions (source/layer/preset/keyframes) are spliced under
+   *  the `ns.` prefix and their intra-module references rewritten to match. */
+  namespace?: string
 }
 
 // symbol arrow { path "M 0 -1 L -0.4 0.3 Z", anchor: center }

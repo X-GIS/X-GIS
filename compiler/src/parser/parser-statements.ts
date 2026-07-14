@@ -273,15 +273,32 @@ export class StatementParser extends ExpressionParser {
     const line = this.current().line
     this.expect(TokenType.Import)
 
-    // Two shapes:
+    // Three shapes:
     //   1. import { name1, name2 } from "file.xgis"   ← cherry-pick
     //   2. import "url-or-path"                       ← splice all
+    //   3. import * as ns from "file.xgis"            ← namespaced splice
     //
     // Splice form treats the URL's content as a sub-program and prepends
     // every top-level statement. The async resolver auto-detects Mapbox
     // style.json (starts with `{`) and runs convertMapboxStyle before
     // re-parsing as xgis — letting devs drop a Mapbox base style in
     // with one line and override layers below.
+
+    // Shape 3: `import * as ns from "..."`. `as` is not a reserved keyword, so
+    // it lexes as an Identifier — matched by value, keeping this a parser-only
+    // production with no lexer/token change.
+    if (this.check(TokenType.Star)) {
+      this.advance() // consume '*'
+      const asTok = this.expect(TokenType.Identifier)
+      if (asTok.value !== 'as') {
+        this.error(`Expected 'as' in \`import * as <ns> from "..."\`, got '${asTok.value}'`)
+      }
+      const namespace = this.expect(TokenType.Identifier).value
+      this.expect(TokenType.From)
+      const path = this.expect(TokenType.String).value
+      return { kind: 'ImportStatement', names: [], path, line, namespace }
+    }
+
     if (this.check(TokenType.String)) {
       const path = this.expect(TokenType.String).value
       return { kind: 'ImportStatement', names: [], path, line }
