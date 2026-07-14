@@ -10,6 +10,12 @@
 // Baseline 38 measured at fdcb3a1 (2026-07-14): 34 `===` sites + 4 `!==` sites — the
 // doc's "38 non-test backend === sites" (§1.4) counts both comparison directions, since
 // a `backend !==` is just as much an identity switch as a `backend ===`.
+// 38→39 (#826): RetainedParticleDraper's GLSL-twin-source guard (particle-retained-
+// material.ts) — the SAME #823 dual-source-material pattern every sibling draper in the
+// baseline carries (arrow/circle/icon). A new dual-source primitive structurally needs
+// this one identity read until the twin-source selection gets a real cap (no RhiCaps
+// field expresses "consumes GLSL ES 3.00 sources" today); it retires with the others
+// across F3–F6.
 //
 // Applies the #996 lesson (a source-scan gate whose matcher silently matches nothing is
 // vacuously green): two guards below prove the regex still matches AND the walk still
@@ -21,7 +27,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const MAP_SRC = join(dirname(fileURLToPath(import.meta.url)))
-const BASELINE = 38
+const BASELINE = 39
 
 // `.backend` identity comparison, either direction, against either backend literal.
 const PATTERN = 'backend\\s*(===|!==)\\s*[\'"](webgl2|webgpu)[\'"]'

@@ -16,10 +16,17 @@ import { HostSpriteAtlasRhi } from '../sprite/host-sprite-atlas-rhi'
 import { RetainedIconDraper } from '../render/material/icon-retained-material'
 import { RetainedArrowDraper } from '../render/material/arrow-retained-material'
 import { RetainedCircleDraper } from '../render/material/circle-retained-material'
+import { RetainedParticleDraper } from '../render/material/particle-retained-material'
 import { packRetainedIconFeat, packRetainedIconTint } from './retained-icon-packer'
 import { packRetainedArrowFeat, packRetainedArrowTint } from './retained-arrow-packer'
 import { packRetainedCircleFeat, packRetainedCircleTint } from './retained-circle-packer'
+import {
+  packRetainedParticleFeat,
+  packRetainedParticleTint,
+  resolveParticleInstanceCount,
+} from './retained-particle-packer'
 import type { DrawSpec, DrawHandle, IconUpdateTrigger } from './graphics-types'
+import { animTimePinnedSeconds } from '../debug-flags'
 import {
   writePointFrameUniform,
   pointUniformBytes,
@@ -41,6 +48,15 @@ import type { Camera } from '../camera'
 /** One full Mercator world-width in metres — the per-copy `world_offset` step
  *  the flat-Mercator shader branch adds (worldCopyMercX(0,1) = 1×WORLD_WIDTH). */
 const WORLD_WIDTH = worldCopyMercX(0, 1)
+
+/** The GPU instance (draw) count for a batch. For every primitive this is one instance per data
+ *  row — EXCEPT particle-flow, whose `data` is the per-gu FIELD that the packer EXPANDS into a
+ *  FIXED pool of particles (design §2.3); its instance count is that fixed pool size, decoupled
+ *  from the gu count and stable across a per-hour re-pack (design §5-Q6), so the fixed-size
+ *  update()/DPR re-pack guards still hold. */
+function instanceCountOf(spec: DrawSpec<unknown>): number {
+  return spec.type === 'particle-flow' ? resolveParticleInstanceCount(spec) : spec.data.length
+}
 
 /** A live retained icon batch. The spec is retained so `update()` can re-run its
  *  accessors; the GPU buffers + bind group are null until materialised (a device
@@ -65,6 +81,7 @@ export class GraphicsManager {
   private draper: RetainedIconDraper | null = null
   private arrowDraper: RetainedArrowDraper | null = null
   private circleDraper: RetainedCircleDraper | null = null
+  private particleDraper: RetainedParticleDraper | null = null
   private frameBlock: UniformBlockOf<typeof pointU> | null = null
   private _blockView: Float32Array | null = null
   private readonly batches: RetainedIconBatch[] = []
@@ -191,7 +208,7 @@ export class GraphicsManager {
   private makeBatch(spec: DrawSpec<unknown>): RetainedIconBatch {
     const batch: RetainedIconBatch = {
       spec,
-      count: spec.data.length,
+      count: instanceCountOf(spec),
       featBuf: null,
       tintBuf: null,
       bindGroup: null,
@@ -215,20 +232,32 @@ export class GraphicsManager {
   /** Build (or rebuild) a batch's GPU buffers + cached bind group. No-op until a
    *  device is attached (deferred materialisation for pre-run add()). */
   private materialise(batch: RetainedIconBatch): void {
-    if (!this.rhi || !this.atlas || !this.draper || !this.arrowDraper || !this.circleDraper) return
+    if (
+      !this.rhi ||
+      !this.atlas ||
+      !this.draper ||
+      !this.arrowDraper ||
+      !this.circleDraper ||
+      !this.particleDraper
+    )
+      return
     const spec = batch.spec
     const feat =
       spec.type === 'arrow'
         ? packRetainedArrowFeat(spec, this.dpr)
         : spec.type === 'circle'
           ? packRetainedCircleFeat(spec, this.dpr)
-          : packRetainedIconFeat(spec, this.atlas, this.dpr)
+          : spec.type === 'particle-flow'
+            ? packRetainedParticleFeat(spec, this.dpr)
+            : packRetainedIconFeat(spec, this.atlas, this.dpr)
     const tint =
       spec.type === 'arrow'
         ? packRetainedArrowTint(spec)
         : spec.type === 'circle'
           ? packRetainedCircleTint(spec)
-          : packRetainedIconTint(spec)
+          : spec.type === 'particle-flow'
+            ? packRetainedParticleTint(spec)
+            : packRetainedIconTint(spec)
     if (batch.featBuf) this._retired.push(batch.featBuf)
     if (batch.tintBuf) this._retired.push(batch.tintBuf)
     batch.featBuf = this.rhi.createBuffer({
@@ -240,7 +269,9 @@ export class GraphicsManager {
           ? 'retained-arrow-feat'
           : spec.type === 'circle'
             ? 'retained-circle-feat'
-            : 'retained-icon-feat',
+            : spec.type === 'particle-flow'
+              ? 'retained-particle-feat'
+              : 'retained-icon-feat',
     })
     this.rhi.writeBuffer(batch.featBuf, 0, feat)
     this._featWrites++
@@ -253,7 +284,9 @@ export class GraphicsManager {
           ? 'retained-arrow-tint'
           : spec.type === 'circle'
             ? 'retained-circle-tint'
-            : 'retained-icon-tint',
+            : spec.type === 'particle-flow'
+              ? 'retained-particle-tint'
+              : 'retained-icon-tint',
     })
     this.rhi.writeBuffer(batch.tintBuf, 0, tint)
     this._tintWrites++
@@ -266,13 +299,15 @@ export class GraphicsManager {
         ? this.arrowDraper.makeBatchBindGroup(batch.featBuf, batch.tintBuf)
         : spec.type === 'circle'
           ? this.circleDraper.makeBatchBindGroup(batch.featBuf, batch.tintBuf)
-          : this.draper.makeBatchBindGroup(
-              batch.featBuf,
-              batch.tintBuf,
-              this.atlas.rhiView(),
-              this.atlas.rhiSampler(),
-            )
-    batch.count = batch.spec.data.length
+          : spec.type === 'particle-flow'
+            ? this.particleDraper.makeBatchBindGroup(batch.featBuf, batch.tintBuf)
+            : this.draper.makeBatchBindGroup(
+                batch.featBuf,
+                batch.tintBuf,
+                this.atlas.rhiView(),
+                this.atlas.rhiSampler(),
+              )
+    batch.count = instanceCountOf(spec)
   }
 
   /** Re-run the named accessors and re-upload their attribute(s). `color`
@@ -285,14 +320,26 @@ export class GraphicsManager {
     // `data` would overflow the writeBuffer (and a shorter one would leave a stale
     // draw count). Adding/removing rows is a later phase (append); reject a size
     // change LOUDLY here rather than corrupt the buffer or read past it.
-    if (batch.spec.data.length !== batch.count) {
+    if (instanceCountOf(batch.spec) !== batch.count) {
       xlog.warn(
         `[X-GIS graphics] update() cannot change the batch size (was ${batch.count}, now ` +
-          `${batch.spec.data.length}) — re-add the batch instead`,
+          `${instanceCountOf(batch.spec)}) — re-add the batch instead`,
       )
       return
     }
     const spec = batch.spec
+    if (spec.type === 'particle-flow') {
+      // A particle's colour follows its home-gu ALLOCATION (which lives in the feat pack), so tint
+      // and feat must stay in lockstep — any particle update re-packs BOTH (update() is the ≤1 Hz
+      // per-hour re-pack, off the hot path). No color-only tint fast path here by construction.
+      if (triggers.length === 0) return
+      this.rhi.writeBuffer(batch.tintBuf, 0, packRetainedParticleTint(spec))
+      this._tintWrites++
+      this.rhi.writeBuffer(batch.featBuf, 0, packRetainedParticleFeat(spec, this.dpr))
+      this._featWrites++
+      this.repaintHook?.()
+      return
+    }
     if (triggers.includes('color')) {
       this.rhi.writeBuffer(
         batch.tintBuf,
@@ -383,9 +430,17 @@ export class GraphicsManager {
     // world_offset poked into circle_params.x (dead-for-icons). Copies are 1..~5
     // (only flat Mercator at low zoom fans out), so this is O(1) in icon count.
     const copies = pointWorldCopies(projType, camera, canvasWidth, canvasHeight, dpr)
+    // Animation clock (design §3.0): a scalar `t` (seconds) rides the FREE circle_params.y lane of
+    // the per-copy frame uniform (which the retained path already writes O(1)/frame, and which the
+    // icon/arrow/circle shaders do NOT read). Written nonzero ONLY when a particle batch is
+    // drawable, so a non-particle frame is byte-identical (y = 0 as before — zero pointU bloat, the
+    // §5-Q2 constraint). Pinned by ?animt / __xgisAnimT for the §5 deterministic-probe capture,
+    // else the live performance.now(). O(1) in particle count — the only new per-frame cost.
+    const hasParticles = drawable.some((b) => b.spec.type === 'particle-flow')
+    const animT = hasParticles ? (animTimePinnedSeconds() ?? performance.now() / 1000) : 0
     const perCopy: Float32Array[] = []
     for (let i = 0; i < copies.length; i++) {
-      this.frameBlock.set.circle_params(copies[i]! * WORLD_WIDTH, 0, 0, 0)
+      this.frameBlock.set.circle_params(copies[i]! * WORLD_WIDTH, animT, 0, 0)
       if (i >= this._copyScratch.length) {
         this._copyScratch.push(new Float32Array(this.frameBlock.byteLength / 4))
       }
@@ -405,7 +460,9 @@ export class GraphicsManager {
           ? this.arrowDraper
           : b.spec.type === 'circle'
             ? this.circleDraper
-            : this.draper
+            : b.spec.type === 'particle-flow'
+              ? this.particleDraper
+              : this.draper
       // Sum the drapers' REAL draw-call count (one instanced draw per world copy).
       // This is O(COPIES × batches), never O(N) — the draw-call N-independence gate.
       this._lastFrameDrawCalls += draper?.draw(pass, b.bindGroup!, perCopy, b.count) ?? 0
@@ -424,9 +481,9 @@ export class GraphicsManager {
     if (!this.rhi || !this.atlas) return
     for (const b of this.batches) {
       if (b.featBuf === null) continue
-      // Same fixed-size contract as updateBatch — skip a batch whose data length
+      // Same fixed-size contract as updateBatch — skip a batch whose instance count
       // drifted from its buffer capacity (out-of-contract mutation; updateBatch warns).
-      if (b.spec.data.length !== b.count) continue
+      if (instanceCountOf(b.spec) !== b.count) continue
       const s = b.spec
       this.rhi.writeBuffer(
         b.featBuf,
@@ -435,7 +492,9 @@ export class GraphicsManager {
           ? packRetainedArrowFeat(s, d)
           : s.type === 'circle'
             ? packRetainedCircleFeat(s, d)
-            : packRetainedIconFeat(s, this.atlas, d),
+            : s.type === 'particle-flow'
+              ? packRetainedParticleFeat(s, d)
+              : packRetainedIconFeat(s, this.atlas, d),
       )
       this._featWrites++
     }
@@ -464,6 +523,7 @@ export class GraphicsManager {
     this.draper = new RetainedIconDraper(rhi, format, 1, pointUniformBytes())
     this.arrowDraper = new RetainedArrowDraper(rhi, format, 1, pointUniformBytes())
     this.circleDraper = new RetainedCircleDraper(rhi, format, 1, pointUniformBytes())
+    this.particleDraper = new RetainedParticleDraper(rhi, format, 1, pointUniformBytes())
     this.frameBlock = uniformBlock(pointU)
     this._blockView = new Float32Array(this.frameBlock.buffer)
     for (const b of this.batches) this.materialise(b)
@@ -498,6 +558,7 @@ export class GraphicsManager {
     this.draper = null
     this.arrowDraper = null
     this.circleDraper = null
+    this.particleDraper = null
     this.frameBlock = null
     this._blockView = null
   }
