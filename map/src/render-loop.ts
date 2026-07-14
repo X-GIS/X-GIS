@@ -334,6 +334,10 @@ export class RenderLoop {
     // Lazily allocate the context once on the first frame, then mutate in place.
     if (this._ctx === null) {
       this._ctx = {
+        // The single injected RHI device (immutable across the loop's lifetime —
+        // render-context.ts: "the SINGLE instance every renderer routes through"),
+        // so it is set once here; the reuse branch below leaves it in place (#1046 F1).
+        rhi: this.host.ctx.rhi,
         device,
         encoder,
         screenView,
@@ -996,6 +1000,9 @@ export class RenderLoop {
     // (iStage) are a follow-up slice. `scene` is a null placeholder (`_scene` unused).
     labelPass.execute(
       {
+        // The WebGl2Device rendering this forced-WebGL2 frame — populates the required
+        // FrameContext.rhi on the twin path too (#1046 F1). Inert here: no pass reads caps yet.
+        rhi: this.host.ctx.rhi,
         device: this.host.ctx.device,
         encoder: null as unknown as GPUCommandEncoder,
         screenView: null as unknown as GPUTextureView,

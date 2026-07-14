@@ -133,13 +133,21 @@ const CEILINGS: Record<string, number> = {
   'map/src/shaders/dsl/line.ts': 1373,
   'map/src/shaders/dsl/polygon.ts': 1315,
   'data/src/tile-catalog.ts': 1290,
-  'map/src/render-loop.ts': 1173,
+  // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
+  // both build sites — the main-chain init literal and the twin label stage — so a seam
+  // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
+  // seam-only (no consumer reads caps yet). Lower as the twin frame retires (F6).
+  'map/src/render-loop.ts': 1180,
   'map/src/render/point-renderer.ts': 1140,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's
   // POLYGON_OFFSET_FILL reset. Each is a documented comment + one GL call (net +14).
-  'rhi-webgl2/src/rhi-webgl2.ts': 1120,
+  // 1120→1142 (#1046 F1): the RhiCaps record + its constructor population — 7 capability
+  // truths frozen at build, with `floatBlendTargets` feature-DETECTED via getSupportedExtensions
+  // (EXT_color_buffer_float && EXT_float_blend; a pure query, enables nothing → byte-identical).
+  // +22 = the field + its doc comment + the frozen init. (F3 raises this again for beginRenderPass.)
+  'rhi-webgl2/src/rhi-webgl2.ts': 1142,
   'map/src/render/renderer.ts': 965,
   'map/src/render/gpu-tile-store.ts': 941,
   'map/src/render/tile-selection-cache.ts': 930,
