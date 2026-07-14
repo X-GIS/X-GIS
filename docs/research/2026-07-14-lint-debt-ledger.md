@@ -34,6 +34,73 @@ from the ledger's `0a672199` baseline):
 - Error floor is now genuinely rule-debt: 112 = `no-deprecated` 71 + `no-undef` 17 +
   misc; no parsing errors remain, unblocking the gate-policy ratchet (item 3 below).
 
+## Status update — Wave 5 landed (2026-07-14, branch `claude/1055-lint-wave5`)
+
+Playground was quiescent, so the biggest single mechanical win ran. Fresh repo-root
+`bun run lint` headline after Wave 5 (measured on this branch, based on `origin/main`
+@ `85bbb57`):
+
+| metric                   | post Wave 1+2 | post Wave 5 |
+| ------------------------ | ------------: | ----------: |
+| Problems                 |           720 |     **258** |
+| Errors                   |           112 |      **94** |
+| Warnings                 |           608 |     **164** |
+| — stale `eslint-disable` |           525 |      **82** |
+| Parsing errors           |             0 |           0 |
+
+Playground alone: **24 err / 483 warn → 6 err / 39 warn**.
+
+What landed:
+
+- **`eslint playground --fix`** — removed **443** unused `eslint-disable` directives
+  (stale `no-console` suppressions, mostly in `e2e/_*.spec.ts`) plus 2
+  behaviour-neutral autofixes (1 `prefer-const`, 1 `no-regex-spaces`). The prettier
+  pre-commit hook then reflowed the whitespace-only lines the directive removal left
+  (post-hook: 112 files changed, 323 insertions / 446 deletions). No test semantics
+  were hand-edited; the `__pixel-match*__` / snapshot data dirs and `.snap` files
+  (eslint-ignored, non-code) were untouched.
+- **`no-undef` (17) → 0** via a Node/Bun globals block in `eslint.config.js` scoped
+  to `**/*.{js,mjs,cjs}` (a `nodeScriptGlobals` map: process/console/Buffer/Bun/…).
+  All 17 were in `playground/_dc0-diff.mjs` (the DC=0 relocation differ), **not** the
+  render-verify `.ts` files the ledger estimated — those parse fine and carry no
+  `no-undef` (typescript-eslint disables the rule for typed `.ts`; ESLint keeps it
+  only for plain js/mjs/cjs, which is why the offender is a `.mjs` script).
+
+Corrections to the Wave 5 residue estimate (the ledger listed the pre-Wave-2
+`0a672199` figures; re-measured here on current main):
+
+- **15 parse-gaps → 0 (verified).** Wave 2 already covered every playground file in
+  Appendix A; a fresh lint shows 0 parsing errors repo-wide. The "39 errors" the
+  ledger attributed to Wave 5 was the pre-Wave-2 figure; post-Wave-2 the playground
+  error count was 24, of which Wave 5 clears 18 (17 `no-undef` + 1 autofixed
+  `no-regex-spaces`).
+- **`no-require-imports` (est. 3) → 0 in playground.** The 2 repo-wide sites are in
+  `compiler/src/__tests__/` (`compiler` scope), not playground — nothing to do here.
+- **`react-hooks` (est. 2) → 0 in playground.** Both repo-wide sites are in
+  `site/src/components/react/` (`site` scope), not playground — nothing to do here.
+
+Wave 5 residue (playground: 6 errors + 39 warnings) — all deferred by class:
+
+- 3 `no-useless-escape` in `playground/src/monaco-xgis.ts` (L123/124/242) —
+  regex-escape judgment, not part of the mechanical sweep.
+- 2 `no-deprecated`: `e2e/_absorbed-fn-parity.spec.ts:L188` (`emitFuncsCsed` →
+  `emitFuncs`) and `src/xgis-inspector.ts:L223` (`document.execCommand` → Clipboard
+  API) — the deferred API-migration class.
+- 1 `no-unused-expressions` in `e2e/_artifact-cap.spec.ts:L35` — judgment.
+- 30 `no-unused-vars` warnings (unused spec imports/vars) — manual, not autofixable.
+- 9 stale `eslint-disable` warnings in `src/xgis-inspector.ts` — deliberately **not**
+  cleared: that file also holds the `execCommand` `no-deprecated` error above, so
+  staging it would fail the pre-commit `lint-staged` `eslint --fix` gate (which
+  errors on the pre-existing deprecation). They ride along with the deprecation fix
+  in a later wave. (This is why 443, not 452, disables were cleared.)
+
+Gates: `bun run build` (full monorepo, playground `vite build` included) exits 0 with
+no `TS6133`/`TS` errors; `tsc -p playground/tsconfig.json --noEmit` exits 0. The e2e
+specs' type surface is the typed-lint (eslint project service — the e2e `tsconfig` is
+a noEmit resolution surface only; Playwright transpiles specs at run time), green on
+all 111 touched files via the pre-commit hook. No playground vitest suite exists (only
+`dev` / `build` / `test:e2e`); the browser e2e specs are not run here.
+
 ## Method
 
 - Command: `bun run lint` (= `eslint .`), captured once at the repo root with the
@@ -176,6 +243,10 @@ the near-zero-risk mechanical wins. One PR per package keeps each diff reviewabl
   when it is quiescent. `--fix` alone drops repo warnings 604 → ~84. Residue = 39 errors:
   15 parse-gaps (Wave 2), 17 `no-undef` (add a browser/node globals block for the
   `render-verify` / script files), 3 `no-require-imports`, 2 `react-hooks`, misc.
+  **Done (2026-07-14, `claude/1055-lint-wave5`)** — 443 stale disables cleared, `no-undef`
+  17→0 via the config globals block; the estimate's parse-gaps/`no-require-imports`/
+  `react-hooks` were all already 0 in playground (re-measured). See the Wave 5 status
+  section above for the fresh headline and the deferred residue.
 
 ## Gate-policy recommendation (issue item 4)
 
