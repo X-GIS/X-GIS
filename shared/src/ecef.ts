@@ -237,6 +237,37 @@ export function ecefToENURotation(lon: number, lat: number): Float32Array {
   ])
 }
 
+/** Sphere front-hemisphere (eye-horizon) derivation — the SINGLE authority for
+ *  the `dot(e, eye) > R·|e|` visibility predicate that three surfaces each used
+ *  to reinvent (the label projector, the globe tile selector, and the GPU
+ *  fragment-cull uniform).
+ *
+ *  A sphere of radius `earthR` seen from the ECEF eye `eye` hides its far
+ *  hemisphere behind the horizon cap whose axis is `eyeN = normalize(eye)` and
+ *  whose cosine cutoff is `horizonCos = earthR / |eye|`. A surface point P then
+ *  faces the eye iff `dot(normalize(P), eyeN) > horizonCos` (the boolean test),
+ *  and that same `horizonCos` is the cap constant the GPU uniform packs — so the
+ *  boolean test and the cosine constant fall out of this one derivation.
+ *
+ *  `eyeLen` is returned so each caller applies its OWN degenerate/at-surface
+ *  guard (the surfaces differ: the label limb skips |eye| ≤ R, the uniform
+ *  zero-packs |eye| ≤ 0). The op order (hypot → divide) is byte-identical to the
+ *  three former inlines, so `eyeN` / `horizonCos` reproduce each site's prior
+ *  floats exactly. `earthR` is passed in (not imported) to keep this module
+ *  dependency-free and leave the radius constant's authority with its owner
+ *  (geo's `EARTH_R`). */
+export function eyeHorizon(
+  eye: ECEF,
+  earthR: number,
+): { eyeLen: number; eyeN: ECEF; horizonCos: number } {
+  const eyeLen = Math.hypot(eye[0], eye[1], eye[2])
+  return {
+    eyeLen,
+    eyeN: [eye[0] / eyeLen, eye[1] / eyeLen, eye[2] / eyeLen],
+    horizonCos: earthR / eyeLen,
+  }
+}
+
 /** WGS84 ellipsoid constants exported for callers that need them (DSL WGSL
  *  emission, cross-validation tests, the compiler tiler's per-vertex
  *  ellipsoid forward, etc.). `RAD2DEG` is included so the tiler stops
