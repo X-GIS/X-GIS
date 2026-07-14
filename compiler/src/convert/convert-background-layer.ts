@@ -121,22 +121,45 @@ export function convertBackgroundLayer(
           : null,
       )
     : null
+  // background-pattern (#777 I-E) — the CONSTANT sprite-name form (a plain
+  // string, or a v8 ['literal', name] wrap) lowers to a `pattern:` style
+  // property the runtime tiles over the background clear (background-pass.ts).
+  // A zoom-crossfade / expression form (["step", ["zoom"], …] cross-fade, or
+  // any non-string value) can't be a static sprite name, so it warns once and
+  // drops. The name must lex as an xgis utility-name token (letter-initial,
+  // letters/digits/underscore/hyphen — parseUtilityName hyphen-joins those) to
+  // round-trip through the `pattern:` property; an exotic name (spaces, dots,
+  // slashes) is treated as non-lowerable and warns.
+  let bgPatternRaw: unknown = bgPaint['background-pattern']
+  while (Array.isArray(bgPatternRaw) && bgPatternRaw.length === 2 && bgPatternRaw[0] === 'literal')
+    bgPatternRaw = bgPatternRaw[1]
+  const patternName =
+    typeof bgPatternRaw === 'string' && /^[A-Za-z][A-Za-z0-9_-]*$/.test(bgPatternRaw)
+      ? bgPatternRaw
+      : null
+  const patternDropped = patternName === null && bgPatternRaw !== undefined && bgPatternRaw !== null
+
   // Emit the background block from the resolved fill (constant hex OR
-  // zoom-interp) + the optional zoom-interp opacity. The xgis
-  // `background { … }` directive parses both `fill:` and `opacity:`
-  // style properties (parser.isStylePropertyStart).
+  // zoom-interp) + the optional zoom-interp opacity + the optional constant
+  // pattern name. The xgis `background { … }` directive parses `fill:`,
+  // `opacity:`, and `pattern:` style properties (parser.isStylePropertyStart).
+  // A pattern-only background (no background-color) still emits the block so the
+  // pattern isn't lost.
   const fillStr = colorStr ?? colorInterp
-  if (fillStr) {
-    const body = opacityInterp ? `fill: ${fillStr} opacity: ${opacityInterp}` : `fill: ${fillStr}`
-    lines.push(`background { ${body} }`)
+  if (fillStr || patternName) {
+    const parts: string[] = []
+    if (fillStr) parts.push(`fill: ${fillStr}`)
+    if (opacityInterp) parts.push(`opacity: ${opacityInterp}`)
+    if (patternName) parts.push(`pattern: ${patternName}`)
+    lines.push(`background { ${parts.join(' ')} }`)
     lines.push('')
   }
-  // Surface dropped background paint props. background-pattern is
-  // the bitmap-atlas equivalent (Batch 2 follow-up). Constant
-  // background-opacity folds into the hex; zoom-interp opacity emits
-  // an `opacity:` property above — neither surfaces here. A
-  // data-driven (non-zoom) opacity that interpolateZoomCall declined
-  // (opacityInterp === null) is still a real gap.
+  // Surface dropped background paint props. Constant background-opacity folds
+  // into the hex; zoom-interp opacity emits an `opacity:` property above; the
+  // constant background-pattern emits a `pattern:` property above — none
+  // surface here. A data-driven (non-zoom) opacity that interpolateZoomCall
+  // declined (opacityInterp === null) and a zoom-crossfade / non-lowerable
+  // pattern are still real gaps.
   const bgIgnored: string[] = []
   if (
     bgOpacity !== undefined &&
@@ -146,8 +169,7 @@ export function convertBackgroundLayer(
   ) {
     bgIgnored.push('background-opacity (non-constant)')
   }
-  const bgPattern = bgPaint['background-pattern']
-  if (bgPattern !== undefined && bgPattern !== null) bgIgnored.push('background-pattern (Batch 2)')
+  if (patternDropped) bgIgnored.push('background-pattern (zoom-crossfade)')
   if (bgIgnored.length > 0) {
     warnings.push(`Background layer "${bgLayer.id}" — ignored properties: ${bgIgnored.join(', ')}`)
   }
@@ -156,7 +178,7 @@ export function convertBackgroundLayer(
     coverage.layers.push({
       layerId: bgLayer.id,
       type: 'background',
-      action: fillStr ? (reasons.length > 0 ? 'lossy' : 'converted') : 'skipped',
+      action: fillStr || patternName ? (reasons.length > 0 ? 'lossy' : 'converted') : 'skipped',
       reasons,
     })
   }

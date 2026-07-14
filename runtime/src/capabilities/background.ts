@@ -25,4 +25,11 @@ export const backgroundCapabilities: readonly RuntimeCapability[] = [
     supported: true,
     note: 'WS-1 — opacity: interpolate(zoom, …) resolves per frame and multiplies into the background clear alpha',
   },
+  {
+    property: 'background-pattern',
+    layerType: 'background',
+    variant: 'constant',
+    supported: true,
+    note: '#777 I-E — constant sprite name tiled over the coverage clear by the background pass (fullscreen quad, wrapped UV into the sprite atlas; dual-source DSL pipeline). The zoom-crossfade form warns once at convert time.',
+  },
 ]

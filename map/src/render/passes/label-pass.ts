@@ -246,6 +246,26 @@ class LabelPass implements RenderPass {
           labelShows.push(s)
       }
     }
+    // #777 I-E — a `background-pattern` style needs the sprite atlas loaded so
+    // the background pass (bucket 0) can tile the sprite, even when the style
+    // has NO labels / icons / fill-patterns to otherwise trip the lazy
+    // IconStage below. Build it here (outside the label-shows block) so a
+    // background-only style still fetches its sprite; the background pass reads
+    // the SAME iconStage read-only, and `onLanded` re-arms the loop so the
+    // pattern paints once the async atlas lands.
+    if (host.iconStage === null && host.spriteUrl !== null && host._backgroundPattern !== null) {
+      host.iconStage = new IconStage(
+        host.ctx.device,
+        host.ctx.rhi,
+        host.ctx.format,
+        {
+          spriteUrl: host.spriteUrl,
+          dpr,
+          onLanded: () => host.markLabelDirty(),
+        },
+        sc,
+      )
+    }
     if (!disableLabels && (host.overlays.length > 0 || labelShows.length > 0)) {
       if (host.textStage === null) {
         // Assemble the TextStage's glyph-resource options from

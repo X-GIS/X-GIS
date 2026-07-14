@@ -343,13 +343,14 @@ describe('converter warning coverage', () => {
     expect(w.some((s) => s.includes('"protomaps"') && s.includes('unsupported type'))).toBe(false)
   })
 
-  it('background-pattern → ignored-properties warning (constant background-opacity folded into hex)', () => {
-    // Pins iter 47: background-opacity constant form is folded into
-    // background-color hex alpha and NO longer surfaces via the
-    // ignored-properties bucket. Only background-pattern (real gap)
-    // still warns. Non-constant background-opacity (zoom-interp /
-    // data-driven) would still warn — verified separately below.
-    const w = warningsOf({
+  it('background-pattern constant → lowered to a pattern: property, no ignored-properties warning (#777 I-E)', () => {
+    // #777 I-E: the CONSTANT background-pattern sprite name is now LOWERED to a
+    // `pattern:` style property the runtime tiles over the clear — it no longer
+    // surfaces via the ignored-properties bucket (which pinned iter 47's
+    // constant-opacity fold). Constant background-opacity still folds into the
+    // fill hex alpha. Non-constant opacity / zoom-crossfade pattern still warn —
+    // verified separately (below + background-pattern-convert.test.ts).
+    const style = {
       version: 8,
       sources: {},
       layers: [
@@ -363,13 +364,18 @@ describe('converter warning coverage', () => {
           },
         },
       ],
-    })
-    const note = w.find((s) => s.includes('"bg"') && s.includes('ignored properties'))
-    expect(note, `expected background ignored-properties note: ${JSON.stringify(w)}`).toBeDefined()
-    // Constant background-opacity is now FOLDED, not surfaced.
-    expect(note).not.toContain('background-opacity')
-    // background-pattern (real Batch 2 gap) still surfaces.
-    expect(note).toContain('background-pattern')
+    }
+    const out = convertMapboxStyle(style as never)
+    // The block carries the sprite name; the folded opacity rides the fill hex.
+    expect(out).toMatch(/background \{[^}]*pattern: paper[^}]*\}/)
+    // Neither constant prop surfaces as an ignored-properties gap now.
+    const note = warningsOf(style).find(
+      (s) => s.includes('"bg"') && s.includes('ignored properties'),
+    )
+    expect(
+      note,
+      `expected NO background ignored-properties note, got: ${note ?? '<none>'}`,
+    ).toBeUndefined()
   })
 
   it('background-opacity zoom-interp → emits opacity: interpolate, no warning (WS-1)', () => {

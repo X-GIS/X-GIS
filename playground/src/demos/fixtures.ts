@@ -233,6 +233,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Polygon filled via fill-pattern (fs_fill_pattern) sampling a local sprite atlas — selects fillPipelinePatternGround for the §4 RHI Material twin DC=0 gate. Load with &sprite=/fixture-sprite.',
     source: load('fixture-fill-pattern.xgis'),
   },
+  fixture_bg_pattern: {
+    name: 'Fixture: background pattern (local sprite)',
+    tag: 'fixture',
+    description:
+      'Background whose only paint is a sprite pattern (background { pattern: pat }) tiled over the coverage clear by the background pass first draw (#777 I-E, fs_pattern, wrapped UV). Load with &sprite=/fixture-sprite.',
+    source: load('fixture-bg-pattern.xgis'),
+  },
   fixture_stress_many_layers: {
     name: 'Stress: many layers',
     tag: 'fixture',

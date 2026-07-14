@@ -19,10 +19,17 @@
 
 import type { XGISMap } from '../../map'
 
-/** Background pass: the whole-viewport clear colour. */
+/** Background pass: the whole-viewport clear colour + the optional
+ *  background-pattern draw (#777 I-E — the sprite name, the read-only sprite
+ *  atlas via `iconStage`, and `ctx` for the swapchain colour format). */
 export type BackgroundPassHost = Pick<
   XGISMap,
-  '_backgroundColor' | '_backgroundColorShape' | '_backgroundOpacityShape'
+  | '_backgroundColor'
+  | '_backgroundColorShape'
+  | '_backgroundOpacityShape'
+  | '_backgroundPattern'
+  | 'ctx'
+  | 'iconStage'
 >
 
 /** Opaque bucket: raster + opaque vector sub-passes. */
@@ -51,6 +58,9 @@ export type PointsPassHost = Pick<XGISMap, 'camera' | 'pointRenderer'>
  *  the label-dispatch memo counters, label-dirty bookkeeping). */
 export type LabelPassHost = Pick<
   XGISMap,
+  // #777 I-E — the lazy IconStage also loads the sprite atlas for a
+  // background-pattern-only style (the background pass reads it read-only).
+  | '_backgroundPattern'
   | '_featureExprsCache'
   | '_labelsHaveTimeAnimation'
   | '_labelDispatchHits'

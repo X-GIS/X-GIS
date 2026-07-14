@@ -384,15 +384,18 @@ export class StatementParser extends ExpressionParser {
 
   /**
    * Check if current position starts a CSS-like style property in a layer block.
-   * Detects: fill:, stroke:, stroke-width:, opacity:, size:
+   * Detects: fill:, stroke:, stroke-width:, opacity:, size:, pattern:
    */
   private isStylePropertyStart(): boolean {
     if (this.current().type !== TokenType.Identifier) return false
     const name = this.current().value
     const next = this.tokens[this.pos + 1]
 
+    // `pattern:` — the background directive's sprite-name style property
+    // (#777 I-E background-pattern); parses through the same parseStyleProperty
+    // value path as fill/opacity.
     if (
-      (name === 'fill' || name === 'opacity' || name === 'size') &&
+      (name === 'fill' || name === 'opacity' || name === 'size' || name === 'pattern') &&
       next?.type === TokenType.Colon
     ) {
       return true

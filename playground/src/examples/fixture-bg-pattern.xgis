@@ -1,0 +1,17 @@
+xgis 1
+
+/* §5 background-pattern consumption-side verification (#777 I-E): a background
+ * whose ONLY sprite paint is a tiled pattern (pattern: pat), drawn by the
+ * background pass's FIRST DRAW — a fullscreen quad (fs_pattern) that wraps each
+ * screen pixel into the sprite's atlas sub-rect (analytic tiling). The clear
+ * paints the fill first; the pattern tiles on top across the whole viewport.
+ *
+ * A background-pattern-only style (no labels / icons / fill-patterns) still
+ * loads its sprite atlas: the IconStage sprite-atlas gate (label-pass.ts) fires
+ * on `_backgroundPattern`, so no helper icon / fill-pattern layer is needed.
+ *
+ * Load with: /demo.html?id=fixture_bg_pattern&e2e=1&sprite=/fixture-sprite
+ * §5 probe (orchestrator-run): DC>0 across the full viewport + MapLibre A/B on
+ * the same style; re-run on backend=webgl2 once #1046 F4 flips the pass.
+ */
+background { fill: #1a1a2e pattern: pat }

@@ -595,6 +595,13 @@ export class XGISMap {
    *  constant opacity (already folded into the colour hex alpha at
    *  convert time). Non-private so the render host reads it. */
   _backgroundOpacityShape: import('@xgis/compiler').PropertyShape<number> | null = null
+  /** #777 I-E — `background-pattern` sprite name, from a `background { …
+   *  pattern: <name> }` style property (the converter lowers the CONSTANT
+   *  sprite-name form). The background pass tiles this sprite over the clear
+   *  as its first draw. null = no pattern (clear-only, byte-identical). The
+   *  atlas is reached read-only through `iconStage`. Non-private so the render
+   *  host reads it. */
+  _backgroundPattern: string | null = null
   /** WS-9 — top-level fill-extrusion light (Mapbox `light`). Pushed into
    *  every VTR each frame by the render loop. position = [radius,
    *  azimuth°, polar°]; intensity 0..1; color RGB 0..1. Defaults = the
@@ -2444,6 +2451,9 @@ export class XGISMap {
     // `_backgroundColor` but never touches these).
     this._backgroundColorShape = null
     this._backgroundOpacityShape = null
+    // #777 I-E — reset the background pattern before the parse (mirror of the
+    // shape resets) so a re-run() with a pattern-less style clears a stale name.
+    this._backgroundPattern = null
     let bgColor: string | null = null
     for (const stmt of ast.body) {
       if (stmt.kind !== 'BackgroundStatement') continue
@@ -2491,6 +2501,12 @@ export class XGISMap {
                 ? { kind: 'zoom-interpolated', stops, base: opInterp.base }
                 : { kind: 'zoom-interpolated', stops }
           }
+        } else if (sp.name === 'pattern') {
+          // #777 I-E — `pattern: <sprite>` (the converter's constant
+          // background-pattern lowering). The raw value is the sprite name the
+          // background pass looks up in the sprite atlas; a blank name leaves
+          // the pattern null (clear-only).
+          this._backgroundPattern = raw.length > 0 ? raw : null
         }
       }
       if (color) bgColor = color

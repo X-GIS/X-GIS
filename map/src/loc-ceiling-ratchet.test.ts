@@ -107,7 +107,9 @@ const CEILINGS: Record<string, number> = {
   // the construct/setColor at the synthetic-earth-surface install + the teardown +
   // the two mid-session setColor mirrors. Composition-root renderer wiring (mirrors
   // the rasterRenderer / heatmapTargets owner fields); nothing extract-worthy (§2).
-  'map/src/map.ts': 4245,
+  // 4245→4259 (#777 I-E): the `_backgroundPattern` field + its reset + the
+  // `pattern:` styleProperty parse arm at the existing background-parse site.
+  'map/src/map.ts': 4259,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -156,7 +158,9 @@ const CEILINGS: Record<string, number> = {
   // 1863→1869 (#777 I-G): the setSpriteMetadata injection before stage.prepare +
   // the setInlineImagePlacements handoff after it — both mirror the adjacent
   // setPairFitBoxes line. +6 at the existing stage-prepare site; nothing else (§2).
-  'map/src/render/passes/label-pass.ts': 1869,
+  // 1869→1889 (#777 I-E): the background-pattern sprite-atlas gate (a
+  // label-less style still loads its sprite so the pattern can paint). +20.
+  'map/src/render/passes/label-pass.ts': 1889,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
