@@ -25,7 +25,8 @@ import {
   packRetainedParticleTint,
   resolveParticleInstanceCount,
 } from './retained-particle-packer'
-import type { DrawSpec, DrawHandle, IconUpdateTrigger } from './graphics-types'
+import { packRetainedTextFeat, packRetainedTextTint, type GlyphShaper } from './retained-text-packer'
+import type { DrawSpec, DrawHandle, IconUpdateTrigger, TextDrawSpec } from './graphics-types'
 import { animTimePinnedSeconds } from '../debug-flags'
 import {
   writePointFrameUniform,
@@ -67,6 +68,9 @@ interface RetainedIconBatch {
   featBuf: RhiBuffer | null
   tintBuf: RhiBuffer | null
   bindGroup: RhiBindGroup | null
+  /** TEXT batches only: per-datum glyph-instance counts from the feat pack, cached so a color-only
+   *  update rebuilds the tint buffer WITHOUT re-shaping. Null for icon/circle/arrow. */
+  glyphCounts: Uint32Array | null
 }
 
 export class GraphicsManager {
@@ -97,6 +101,11 @@ export class GraphicsManager {
   /** Map repaint trigger (set by map.ts) so add()/update()/remove() repaint an
    *  idle map — mirrors addImage's markLabelDirty re-arm. */
   private repaintHook: (() => void) | null = null
+  /** The glyph-shaping seam for retained TEXT batches — a READ-ONLY view of the shared SDF glyph
+   *  atlas (adapts `TextStage.host.ensureString` + `TextStage.gpu.pageSizePx`). Injected (not
+   *  constructed here) so the packer never couples to TextStage internals and stays stub-testable;
+   *  null until wired. A text batch cannot shape/pack until this is set (deferred, like a device). */
+  private glyphShaper: GlyphShaper | null = null
 
   // ── Diagnostics (#797 P1 gate instrumentation) ─────────────────────────────
   // GPU-upload counters, incremented ONLY at the feat/tint writeBuffer sites
@@ -119,6 +128,18 @@ export class GraphicsManager {
 
   setRepaintHook(hook: () => void): void {
     this.repaintHook = hook
+  }
+
+  /** Inject (or clear) the retained-text glyph shaper — the read-only glyph-atlas seam. Setting it
+   *  (re)materialises any TEXT batches added before it existed (order-independent, like a deferred
+   *  device); the shaper's atlas re-arm feeds the same async-land repaint path as labels. */
+  setGlyphShaper(shaper: GlyphShaper | null): void {
+    this.glyphShaper = shaper
+    if (shaper) {
+      for (const b of this.batches) {
+        if (b.spec.type === 'text' && b.featBuf === null) this.materialise(b)
+      }
+    }
   }
 
   /** GPU-upload counters — see the diagnostics note. */
@@ -212,6 +233,7 @@ export class GraphicsManager {
       featBuf: null,
       tintBuf: null,
       bindGroup: null,
+      glyphCounts: null,
     }
     this.batches.push(batch)
     this.materialise(batch)
@@ -226,12 +248,21 @@ export class GraphicsManager {
    *  a leak. An empty-data batch (count 0) does NOT flip the gate, so a map with no
    *  visible host icons stays byte-identical. */
   hasRetainedBatches(): boolean {
-    return this.batches.some((b) => b.count > 0) || this._retired.length > 0
+    // A batch counts only once it is DRAWABLE (has a bind group). For icon/circle/arrow a
+    // materialised count>0 batch always has one, so this is unchanged for them; a retained TEXT
+    // batch has no bind group until the (pending) SDF text draper lands, so a text-only map stays
+    // byte-identical / no-pass — it is packed + uploaded but not yet drawn.
+    return this.batches.some((b) => b.count > 0 && b.bindGroup !== null) || this._retired.length > 0
   }
 
   /** Build (or rebuild) a batch's GPU buffers + cached bind group. No-op until a
    *  device is attached (deferred materialisation for pre-run add()). */
   private materialise(batch: RetainedIconBatch): void {
+    const spec = batch.spec
+    if (spec.type === 'text') {
+      this.materialiseText(batch, spec)
+      return
+    }
     if (
       !this.rhi ||
       !this.atlas ||
@@ -241,7 +272,6 @@ export class GraphicsManager {
       !this.particleDraper
     )
       return
-    const spec = batch.spec
     const feat =
       spec.type === 'arrow'
         ? packRetainedArrowFeat(spec, this.dpr)
@@ -310,6 +340,38 @@ export class GraphicsManager {
     batch.count = instanceCountOf(spec)
   }
 
+  /** Materialise a retained TEXT batch: SHAPE + pack the per-glyph feat/tint buffers ONCE and upload
+   *  them (one writeBuffer each). Deferred until BOTH a device and a glyph shaper exist (the shaper
+   *  is the read-only glyph-atlas seam — see setGlyphShaper). NOTE: the GPU render side (the SDF text
+   *  draper + glyph-atlas bind group + instanced draw) is the PENDING Phase-2b GPU step; until it
+   *  lands `bindGroup` stays null, so the batch is packed + uploaded but not drawn (and never flips
+   *  the render gate). `glyphCounts` is cached so a color-only update re-packs tint without shaping. */
+  private materialiseText(batch: RetainedIconBatch, spec: TextDrawSpec<unknown>): void {
+    if (!this.rhi || !this.glyphShaper) return
+    const { feat, glyphCounts } = packRetainedTextFeat(spec, this.glyphShaper, this.dpr)
+    const tint = packRetainedTextTint(spec, glyphCounts)
+    if (batch.featBuf) this._retired.push(batch.featBuf)
+    if (batch.tintBuf) this._retired.push(batch.tintBuf)
+    batch.featBuf = this.rhi.createBuffer({
+      size: Math.max(feat.byteLength, 16),
+      usage: 'storage',
+      writable: true,
+      label: 'retained-text-feat',
+    })
+    this.rhi.writeBuffer(batch.featBuf, 0, feat)
+    this._featWrites++
+    batch.tintBuf = this.rhi.createBuffer({
+      size: Math.max(tint.byteLength, 16),
+      usage: 'storage',
+      writable: true,
+      label: 'retained-text-tint',
+    })
+    this.rhi.writeBuffer(batch.tintBuf, 0, tint)
+    this._tintWrites++
+    batch.glyphCounts = glyphCounts
+    batch.count = spec.data.length
+  }
+
   /** Re-run the named accessors and re-upload their attribute(s). `color`
    *  re-uploads ONLY the tint buffer (one writeBuffer, no bind-group rebuild —
    *  the buffer identity is stable); any other trigger re-packs the feat buffer. */
@@ -337,6 +399,25 @@ export class GraphicsManager {
       this._tintWrites++
       this.rhi.writeBuffer(batch.featBuf, 0, packRetainedParticleFeat(spec, this.dpr))
       this._featWrites++
+      this.repaintHook?.()
+      return
+    }
+    if (spec.type === 'text') {
+      // Text: 'color' re-packs ONLY the tint buffer (reusing the cached glyphCounts — no re-shape);
+      // any other trigger re-shapes + re-packs ONLY the feat buffer. Same dirty-range boundary as
+      // the circle path (one attribute buffer touched per trigger class).
+      if (this.glyphShaper) {
+        if (triggers.includes('color') && batch.glyphCounts) {
+          this.rhi.writeBuffer(batch.tintBuf, 0, packRetainedTextTint(spec, batch.glyphCounts))
+          this._tintWrites++
+        }
+        if (triggers.some((t) => t !== 'color')) {
+          const { feat, glyphCounts } = packRetainedTextFeat(spec, this.glyphShaper, this.dpr)
+          this.rhi.writeBuffer(batch.featBuf, 0, feat)
+          this._featWrites++
+          batch.glyphCounts = glyphCounts
+        }
+      }
       this.repaintHook?.()
       return
     }
@@ -485,6 +566,15 @@ export class GraphicsManager {
       // drifted from its buffer capacity (out-of-contract mutation; updateBatch warns).
       if (instanceCountOf(b.spec) !== b.count) continue
       const s = b.spec
+      if (s.type === 'text') {
+        if (this.glyphShaper) {
+          const { feat, glyphCounts } = packRetainedTextFeat(s, this.glyphShaper, d)
+          this.rhi.writeBuffer(b.featBuf, 0, feat)
+          this._featWrites++
+          b.glyphCounts = glyphCounts
+        }
+        continue
+      }
       this.rhi.writeBuffer(
         b.featBuf,
         0,
