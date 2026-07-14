@@ -361,12 +361,58 @@ export interface RhiCommandEncoder {
   finish(): void
 }
 
+/** Immutable device capability record — the answers a frame asks of its device.
+ *  Populated once at device creation; every field must be phrased as a device
+ *  truth any hypothetical backend (Metal/D3D/GLES) could answer, and every
+ *  field lists its consumer seam — a cap with no consumer is dead weight,
+ *  a cap only one backend can answer honestly is identity in disguise (§5.3). */
+export interface RhiCaps {
+  /** Max MSAA sample count for the frame's colour/depth targets (1 = none).
+   *  WebGPU: 4. WebGL2: 1 today (ES 3.0 renderbuffer MSAA is a future value
+   *  change, not a shape change). Consumer: RenderTargets.ensure + pipeline
+   *  sampleCount + the resolveOwner logic. */
+  readonly maxSampleCount: number
+  /** A render pass presenting to the screen can carry additional MRT colour
+   *  attachments (the live rg32uint pick target). WebGPU: true (the swapchain
+   *  is an ordinary texture). WebGL2: false (default framebuffer cannot MRT).
+   *  Consumer: opaque-pass pick-attachment build; false selects the on-demand
+   *  offscreen pick strategy. */
+  readonly presentablePassMrt: boolean
+  /** How a pick texel comes back: 'async' = copy-to-buffer + map (pool);
+   *  'sync' = immediate readPixels. Consumer: interaction-controller readback
+   *  strategy behind the unchanged async pickAt() public contract. */
+  readonly pickReadback: 'async' | 'sync'
+  /** Render-to-float-and-blend targets (r16float/rgba16float attachments with
+   *  additive/max blend): heatmap accumulation, weighted OIT. WebGPU: true.
+   *  WebGL2: feature-DETECTED (EXT_color_buffer_float && EXT_float_blend) —
+   *  the canonical proof this is a capability, not an alias for backend
+   *  identity: a desktop WebGL2 context commonly answers true. Consumer:
+   *  heatmap/oit shouldRun gates + RenderTargets float-target allocation. */
+  readonly floatBlendTargets: boolean
+  /** Compute execution: native compute passes or the fragment-GPGPU lowering.
+   *  Consumer: the compute dispatcher seam only — passes never read it. */
+  readonly compute: 'native' | 'fragment-emulated'
+  /** GPU timestamp profiling available. Consumer: GPUTimer construction gate
+   *  (replaces GPUContext.timestampQuerySupported plumbed per-backend). */
+  readonly timestampQuery: boolean
+  /** Command execution semantics: 'deferred' (work runs at submit) or
+   *  'immediate' (draws execute at record time). CONFINED consumer: engine
+   *  upload/draw primitives (UniformRing / staging flush policy inside
+   *  executeItems) — never passes, never renderers (§5.3 confinement gate). */
+  readonly executionModel: 'deferred' | 'immediate'
+}
+
 /** The device — creates resources + pipelines. One impl per backend. */
 export interface RhiDevice {
   /** Which backend this device is — a POSITIVE marker so a forced-WebGL2 path can be
    *  asserted to have actually run on WebGL2 (on a WebGPU-equipped box a silently-ignored
    *  toggle would otherwise look like a pass). 'webgpu' (WebGpuDevice) | 'webgl2' (WebGl2Device). */
   readonly backend: 'webgpu' | 'webgl2'
+  /** Immutable capability record, populated + frozen at device construction. A frame
+   *  asks the device "can I…?" through this instead of branching on `backend` (§2.2).
+   *  Required (not `?`-optional) by design: a backend that forgets to answer fails to
+   *  compile, and no consumer ever needs a null-fallback that silently guesses. */
+  readonly caps: RhiCaps
   createBuffer(desc: RhiBufferDesc): RhiBuffer
   writeBuffer(buffer: RhiBuffer, byteOffset: number, data: BufferSource): void
   /** Release a buffer's GPU memory (WebGPU `GPUBuffer.destroy()`; WebGL2

@@ -43,6 +43,7 @@
 
 import type {
   RhiDevice,
+  RhiCaps,
   RhiBuffer,
   RhiTexture,
   RhiTextureView,
@@ -521,6 +522,16 @@ export function wrapWebGl2Pass(device: WebGl2Device): RhiRenderPass {
 
 export class WebGl2Device implements RhiDevice {
   readonly backend = 'webgl2' as const
+  /** WebGL2 capability truths (§2.2). Frozen once at construction. The only
+   *  hardware-detected value is `floatBlendTargets` — render-to-float-and-blend
+   *  needs BOTH EXT_color_buffer_float (float attachment) and EXT_float_blend
+   *  (blending into it); a desktop WebGL2 context commonly answers true, which is
+   *  the canonical proof this is a capability, not backend identity. The rest are
+   *  fixed WebGL2 truths: no MSAA on the presented surface yet, no default-FBO MRT,
+   *  synchronous readPixels, fragment-emulated compute, no timestamps, immediate
+   *  (record-time) execution. Detected via `getSupportedExtensions` (a pure query —
+   *  unlike `getExtension` it enables nothing, so caps read stays byte-identical). */
+  readonly caps: RhiCaps
   /** GL errors drained at endScreenPass (the WebGPU `_validationErrors` analog —
    *  WebGL2 has no async validation queue, so we poll `gl.getError()` per frame). */
   private _glErrors: string[] = []
@@ -532,6 +543,17 @@ export class WebGl2Device implements RhiDevice {
       SAMPLER_TYPES.add(gl.SAMPLER_3D)
       SAMPLER_TYPES.add(gl.SAMPLER_2D_ARRAY)
     }
+    const exts = gl.getSupportedExtensions?.() ?? []
+    this.caps = Object.freeze({
+      maxSampleCount: 1,
+      presentablePassMrt: false,
+      pickReadback: 'sync',
+      floatBlendTargets:
+        exts.includes('EXT_color_buffer_float') && exts.includes('EXT_float_blend'),
+      compute: 'fragment-emulated',
+      timestampQuery: false,
+      executionModel: 'immediate',
+    } as const)
   }
 
   /** Begin the backbuffer screen pass: target FBO 0 (the default framebuffer the

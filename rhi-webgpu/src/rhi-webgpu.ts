@@ -6,6 +6,7 @@
 
 import type {
   RhiDevice,
+  RhiCaps,
   RhiBuffer,
   RhiTexture,
   RhiTextureView,
@@ -272,7 +273,9 @@ class WebGpuCommandEncoder implements RhiCommandEncoder {
       this.enc = labelOrWrap.wrap
       this.ownsSubmit = false
     } else {
-      this.enc = device.createCommandEncoder(labelOrWrap !== undefined ? { label: labelOrWrap } : undefined)
+      this.enc = device.createCommandEncoder(
+        labelOrWrap !== undefined ? { label: labelOrWrap } : undefined,
+      )
       this.ownsSubmit = true
     }
   }
@@ -306,7 +309,23 @@ export function wrapWebGpuCommandEncoder(
 
 export class WebGpuDevice implements RhiDevice {
   readonly backend = 'webgpu' as const
-  constructor(private readonly device: GPUDevice) {}
+  /** Native WebGPU capability truths (§2.2). Frozen once at construction; the only
+   *  hardware-detected value is `timestampQuery` (the adapter feature the device was
+   *  actually created with — `?gpuprof=1` && adapter support). The rest are baseline
+   *  WebGPU truths: 4× MSAA, presentable-surface MRT, async pick readback, float
+   *  render+blend targets, native compute, deferred (submit-time) execution. */
+  readonly caps: RhiCaps
+  constructor(private readonly device: GPUDevice) {
+    this.caps = Object.freeze({
+      maxSampleCount: 4,
+      presentablePassMrt: true,
+      pickReadback: 'async',
+      floatBlendTargets: true,
+      compute: 'native',
+      timestampQuery: device.features?.has('timestamp-query') ?? false,
+      executionModel: 'deferred',
+    } as const)
+  }
 
   createCommandEncoder(label?: string): RhiCommandEncoder {
     return new WebGpuCommandEncoder(this.device, label)

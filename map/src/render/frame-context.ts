@@ -13,6 +13,7 @@
 // `let`-style (mutable) for that reason.
 
 import type { Camera } from '../camera'
+import type { RhiDevice } from '@xgis/rhi'
 import type { RenderTargets } from '@xgis/rhi-webgpu'
 import type { ProjectionToken } from './projection-token'
 
@@ -25,6 +26,12 @@ export interface FrameContext {
    *  instead of encoding a WebGPU render pass — the other FrameContext
    *  fields (`encoder`, `colorView`, …) are proxy no-ops there. */
   rhiPass?: import('@xgis/rhi').RhiRenderPass
+  /** The backend RHI device for this frame (`host.ctx.rhi` — the single injected
+   *  instance, WebGpuDevice or WebGl2Device). Threaded onto the frame so a pass or
+   *  seam can ask the device a capability (`ctx.rhi.caps.*`) instead of branching on
+   *  `backend` (#1046 F1, doc §3-F1). F1 is seam-only: the handle is reachable but no
+   *  pass reads it yet — byte-identical on both backends. */
+  rhi: RhiDevice
   /** The WebGPU device (from `host.ctx.device`). */
   device: GPUDevice
   /** This frame's command encoder (`device.createCommandEncoder()`). */
