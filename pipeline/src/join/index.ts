@@ -105,7 +105,6 @@ export function join(t: Table, o: { code: string; gaz: Gazetteer; as: string }):
       dropped++
       if (!warned.has(code)) {
         warned.add(code)
-        // eslint-disable-next-line no-console
         console.warn(
           `[@xgis/pipeline] join: code "${code}" not in the ${o.gaz.country} ${o.gaz.system} ` +
             `gazetteer (vintage ${o.gaz.vintage}) — row dropped`,
