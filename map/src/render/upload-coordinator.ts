@@ -520,6 +520,11 @@ export class UploadCoordinator {
         const clampLat = Math.max(-85.051129, Math.min(85.051129, data.tileSouth))
         const tileMx = data.tileWest * DEG2RAD * A_
         const tileMy = Math.log(Math.tan(Math.PI / 4 + (clampLat * DEG2RAD) / 2)) * A_
+        // #1083: tile rect NE corner in ABS Mercator (SW = tileMx/tileMy) →
+        // lets the generator drop walls on clip-synthetic tile-seam edges.
+        const clampN = Math.max(-85.051129, Math.min(85.051129, data.tileSouth + data.tileHeight))
+        const tileMxE = (data.tileWest + data.tileWidth) * DEG2RAD * A_
+        const tileMyN = Math.log(Math.tan(Math.PI / 4 + (clampN * DEG2RAD) / 2)) * A_
         const tileLonRad = tileMx / A_
         const tileLatRad = 2 * Math.atan(Math.exp(tileMy / A_)) - Math.PI / 2
         const sinLat = Math.sin(tileLatRad)
@@ -537,6 +542,7 @@ export class UploadCoordinator {
           tileMx,
           tileMy,
           tileEcefCenter,
+          { west: tileMx, south: tileMy, east: tileMxE, north: tileMyN },
         )
         polyVerts = mesh.vertices.buffer.slice(
           mesh.vertices.byteOffset,

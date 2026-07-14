@@ -24,7 +24,11 @@ export const EXTRUDE_FALLBACK_HEIGHT_M = 50
 
 import earcut from 'earcut'
 import type { RingPolygon } from '@xgis/compiler'
-import { POLYGON_EXTRUDED_FORMAT, vertexField } from '@xgis/compiler'
+import {
+  POLYGON_EXTRUDED_FORMAT,
+  vertexField,
+  makeSameBoundarySidePredicateMerc,
+} from '@xgis/compiler'
 import { lonLatToECEF } from '@xgis/shared'
 import { mercatorYToLatRad } from '@xgis/geo'
 import { EARTH } from '@xgis/shared'
@@ -80,6 +84,22 @@ export interface WallMeshExtrudedECEF {
   dequantHalf: number
 }
 
+/** Tile boundary rect in ABSOLUTE Mercator metres (Mercator x/y of the
+ *  tile's west/south/east/north edges). When passed to
+ *  `generateWallMeshExtrudedECEF`, wall quads on clip-synthetic edges —
+ *  edges whose BOTH endpoints lie on the SAME rect side — are suppressed
+ *  (#1083): the tiler's Sutherland-Hodgman clip lands those vertices
+ *  exactly on the rect edge when a building straddles a tile boundary, so
+ *  they are seam artefacts, not real faces (MapLibre skips them the same
+ *  way). Omit for callers with no tile context (unit fixtures) → every ring
+ *  edge emits a wall. */
+export interface TileMercExtent {
+  west: number
+  south: number
+  east: number
+  north: number
+}
+
 // Float-slot indices derived from the single-source POLYGON_EXTRUDED_FORMAT
 // spec (@xgis/compiler), so the bytes this writer produces cannot drift from
 // the renderer's extrudedVertexBufferLayout (also derived from the spec) or
@@ -103,8 +123,9 @@ const EARTH_RADIUS_LOCAL = EARTH.sphereR // WGS84 semi-major axis; used ONLY for
  *  features. Each feature emits:
  *
  *  - One side-wall quad per non-synthetic ring edge (4 verts + 2 tris).
- *    Synthetic tile-rect edges (clipper artefacts) are skipped via the
- *    same predicate as `generateWallMeshExtruded`.
+ *    Synthetic tile-rect edges (clipper artefacts) are skipped when the
+ *    caller supplies `tileMercExtent`, via the tiler's single boundary-
+ *    authority predicate (`makeSameBoundarySidePredicateMerc`) — #1083.
  *  - One roof triangle fan per outer-ring + holes set, tessellated
  *    with earcut at the top height. All roof vertices carry
  *    `is_top = 1` and `face_normal = normalize(ecef_position)` (radial
@@ -142,6 +163,9 @@ const EARTH_RADIUS_LOCAL = EARTH.sphereR // WGS84 semi-major axis; used ONLY for
  *                         ring coords to get absolute Mercator x
  *  @param tileMy          tile origin Mercator y (metres)
  *  @param tileEcefCenter  ECEF RTC anchor (see `tileEcefCenterFromMerc`)
+ *  @param tileMercExtent  optional tile boundary rect (ABSOLUTE Mercator
+ *                         metres) — when present, walls on clip-synthetic
+ *                         tile-boundary edges are suppressed (#1083)
  */
 export function generateWallMeshExtrudedECEF(
   polygons: RingPolygon[],
@@ -150,17 +174,25 @@ export function generateWallMeshExtrudedECEF(
   _tileMx: number,
   _tileMy: number,
   tileEcefCenter: readonly [number, number, number],
+  tileMercExtent?: TileMercExtent,
 ): WallMeshExtrudedECEF {
-  // NOTE: synthetic tile-rect edge detection (cf. `generateWallMeshExtruded`)
-  // is intentionally OMITTED here. The signature locked by Phase 2 plan v4
-  // does not carry `tileExtentM`, and inferring the tile extent from the
-  // polygon-coordinate bbox would misclassify a building's outer ring as
-  // "synthetic" whenever its bbox happens to touch the tile rect (as
-  // observed in the unit test failures). The integration site (`vector-
-  // tile-renderer.ts`) is responsible for handling tile-seam walls when it
-  // swaps to this function in PR 2c.2; until then the function emits a
-  // wall per EVERY ring edge, matching the Mercator path's pre-iter-448
-  // behaviour.
+  // #1083 — clip-synthetic tile-rect edge suppression. When the caller
+  // threads `tileMercExtent` (the tile's ABSOLUTE Mercator rect), an edge
+  // whose BOTH endpoints lie on the SAME rect side is a Sutherland-Hodgman
+  // seam the tiler inserted when a building straddled a tile boundary — not
+  // a real wall. We reuse the compiler's SINGLE boundary-authority predicate
+  // (the SAME one, at the SAME 1 m clip epsilon, the tiler's outline path
+  // uses for #347) so "on this tile's boundary" is defined once. Detection
+  // stays OFF unless the caller hands us the true tile rect (unit fixtures
+  // omit it → a wall per EVERY ring edge).
+  const isBoundaryEdge = tileMercExtent
+    ? makeSameBoundarySidePredicateMerc(
+        tileMercExtent.west,
+        tileMercExtent.south,
+        tileMercExtent.east,
+        tileMercExtent.north,
+      )
+    : null
 
   // ── Pass 1: size buffers ──
   let edgeCount = 0
@@ -328,6 +360,11 @@ export function generateWallMeshExtrudedECEF(
 
       for (let i = 0; i < lastEdgeI; i++) {
         const j = (i + 1) % len
+        // #1083: a clip-synthetic edge (both endpoints on ONE tile-boundary
+        // side) is a seam, not a face — emit no wall. The roof still covers
+        // the clipped footprint (Pass 2b unchanged); hole edges follow the
+        // same rule (the predicate is ring-agnostic).
+        if (isBoundaryEdge && isBoundaryEdge(ring[i], ring[j])) continue
         const aIdx = ccw ? i : j
         const bIdx = ccw ? j : i
         const ax = ring[aIdx][0],
