@@ -28,11 +28,12 @@
 //                               the specific expectation)
 //   X-GIS0011  warn   converter Mapbox-style conversion warning          (convert/* — #1065; message
 //                               (generic; message carries the detail)     carries the detail)
+//   X-GIS0012  error  lower     Unknown function name in a DataExpr       (ir/validate-fncalls.ts — #1066)
 //
-// Lower currently emits only warn/info (no ERROR is invented by #1065 —
-// this PR is plumbing, not policy, §2). The `error` severity exists at
-// the type level so a later pass (e.g. unknown-function = error, L3 in
-// the research doc) can raise one without another type migration.
+// #1065 added only warn/info from lower (plumbing, not policy). #1066 is
+// the first lower ERROR — `X-GIS0012` (unknown-function = error, L3 in the
+// research doc) — raised through this same channel with no type migration,
+// exactly what the `error` severity was reserved for.
 
 /** Generic parser syntax-error code — one code for every recoverable
  *  parse error; the `message` carries the specific expectation. */
@@ -40,6 +41,11 @@ export const PARSER_SYNTAX_ERROR = 'X-GIS0010'
 /** Generic converter warning code — one code for every Mapbox-style
  *  conversion note; the `message` carries the specific detail. */
 export const CONVERTER_WARNING = 'X-GIS0011'
+/** Unknown function name in a DataExpr — a callee that is neither a
+ *  built-in (`BUILTIN_FN_NAMES`), an evaluator special form, nor a
+ *  user-declared `fn` (#1066). The `help` line carries the nearest-name
+ *  suggestion. */
+export const UNKNOWN_FUNCTION = 'X-GIS0012'
 
 /** A 1-based, document-relative source span. `line`/`col` are always
  *  present; `endLine`/`endCol` are optional (a point diagnostic omits

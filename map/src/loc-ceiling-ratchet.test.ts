@@ -203,7 +203,12 @@ const CEILINGS: Record<string, number> = {
   // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
   'compiler/src/tiler/vector-tiler.ts': 1790,
-  'compiler/src/ir/lower.ts': 1409,
+  // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
+  // X-GIS0012) into lower()'s diagnostics — the validation pass itself
+  // lives in the new ir/validate-fncalls.ts; only the import + call +
+  // rationale land here. Still under the runtime arch-invariants
+  // second-authority ceiling (1452).
+  'compiler/src/ir/lower.ts': 1415,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):

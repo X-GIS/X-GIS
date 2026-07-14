@@ -11,6 +11,81 @@ import { collatorCompare, resolvedLocale } from './collator'
 
 // ═══ Built-in functions ═══
 
+/**
+ * The closed set of built-in function names `callBuiltin` dispatches —
+ * every `case` label in the switch below, aliases included. This is the
+ * SINGLE AUTHORITY for "is this a built-in": the lower-time function-name
+ * validator (`ir/validate-fncalls.ts`, #1066) imports it to reject typos,
+ * and a consistency test drives every name here through `callBuiltin` to
+ * prove the set and the switch never drift. Adding a `case` below without
+ * adding its name here (or vice-versa) fails that test.
+ *
+ * Names handled OUTSIDE `callBuiltin` — the `get` / `properties` / `match`
+ * evaluator special forms, the `rgb` / `categorical` / … colour+codegen
+ * forms — are deliberately NOT in this set; the validator tracks those in
+ * its own `NON_BUILTIN_CALLEES` list.
+ */
+export const BUILTIN_FN_NAMES: ReadonlySet<string> = new Set([
+  'clamp',
+  'min',
+  'max',
+  'round',
+  'floor',
+  'ceil',
+  'abs',
+  'sqrt',
+  'log10',
+  'log2',
+  'scale',
+  'step',
+  'concat',
+  'downcase',
+  'upcase',
+  'typeof',
+  'slice',
+  'index-of',
+  'index_of',
+  'number-format',
+  'number_format',
+  'pi',
+  'e',
+  'ln2',
+  'ln',
+  'interpolate',
+  'interpolate_exp',
+  'interpolate_lab',
+  'interpolate_hcl',
+  'sin',
+  'cos',
+  'tan',
+  'asin',
+  'acos',
+  'atan',
+  'atan2',
+  'pow',
+  'exp',
+  'exp2',
+  'log',
+  'PI',
+  'TAU',
+  'length',
+  'circle',
+  'arc',
+  'polygon',
+  'linestring',
+  'to_number',
+  'number',
+  'to_string',
+  'string',
+  'to_boolean',
+  'boolean',
+  'to_color',
+  'within',
+  'distance',
+  'collator_cmp',
+  'resolved_locale',
+])
+
 export function callBuiltin(name: string, args: unknown[]): unknown {
   switch (name) {
     case 'clamp': {
@@ -366,6 +441,18 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       const r = Math.exp(toNumber(args[0]))
       return Number.isFinite(r) ? r : 0
     }
+    case 'exp2': {
+      // 2^x. `exp2` is listed in classify.ts's GPU_SAFE_BUILTINS (WGSL
+      // has a native exp2) but was absent from this CPU dispatch, so a
+      // constant `exp2(k)` const-folded to `args[0]` (silently wrong) and
+      // a per-feature CPU fallback returned the raw input. Added here so
+      // callBuiltin ⊇ GPU_SAFE_BUILTINS — the CPU-fallback invariant the
+      // classifier already assumes — and so #1066's throwing default
+      // isn't reached by a legitimately GPU-safe name. Same non-finite
+      // guard as `exp`.
+      const r = 2 ** toNumber(args[0])
+      return Number.isFinite(r) ? r : 0
+    }
     case 'log':
       return Math.log(Math.max(1e-10, toNumber(args[0])))
     // Constants
@@ -511,7 +598,18 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       return resolvedLocale(String(args[0] ?? ''))
     }
     default:
-      return args[0] ?? null
+      // #1066 defense-in-depth. Lower-time validation
+      // (ir/validate-fncalls.ts) rejects unknown function names with an
+      // X-GIS0012 error before any Scene reaches the evaluator, so this
+      // branch is UNREACHABLE for a validated program. It exists so a name
+      // that slips past validation (a hand-built AST, a future codegen
+      // path) fails LOUDLY instead of silently returning `args[0]` — the
+      // exact bug this issue fixes, where a typo like `sqrrt(.x)` evaluated
+      // to `.x`. Every render-hot-path caller wraps `evaluate()` in
+      // try/catch (map/feature-helpers, data/filter-eval, data/extrude-
+      // eval), so the throw degrades to the authored fallback, never a
+      // crash.
+      throw new Error(`callBuiltin: unknown function '${name}'`)
   }
 }
 
