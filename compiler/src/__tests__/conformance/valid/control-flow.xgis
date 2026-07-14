@@ -1,0 +1,8 @@
+// @case valid
+// @construct control-flow
+// @desc if/else, for-range, and return inside a function body
+xgis 1
+fn classify(z: Number) -> Color {
+  for i in 0..3 { let step = i }
+  if z > 5 { return #ffffff } else { return #000000 }
+}

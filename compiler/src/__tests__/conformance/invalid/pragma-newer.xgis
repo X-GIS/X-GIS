@@ -1,0 +1,6 @@
+// @case invalid
+// @construct version-pragma
+// @desc a newer major (2) is rejected as written for a newer X-GIS
+// @expect-code X-GIS0009
+xgis 2
+let x = 1

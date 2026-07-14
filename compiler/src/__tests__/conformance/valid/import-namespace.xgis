@@ -1,0 +1,5 @@
+// @case valid
+// @construct import-statement-namespace
+// @desc namespaced splice import (#1071): definitions land under the ns. prefix
+xgis 1
+import * as lib from "./lib-preset.xgis"

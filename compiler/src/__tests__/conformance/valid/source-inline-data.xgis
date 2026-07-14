@@ -1,0 +1,8 @@
+// @case valid
+// @construct object-and-array-literal
+// @desc inline GeoJSON via an object literal containing a nested array literal
+xgis 1
+source pts {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [] }
+}

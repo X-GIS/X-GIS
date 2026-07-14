@@ -1,0 +1,6 @@
+// @case invalid
+// @construct version-pragma
+// @desc a pragma placed after a statement is not the first token
+// @expect-code X-GIS0008
+let x = 1
+xgis 1

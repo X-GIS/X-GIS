@@ -1,0 +1,7 @@
+// @case valid
+// @construct comments
+// @desc line and block comments and blank lines may precede the pragma
+/* a block comment
+   spanning two lines */
+xgis 1
+let ok = true

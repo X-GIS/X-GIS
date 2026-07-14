@@ -1,0 +1,5 @@
+// @case valid
+// @construct import-target
+// @desc an importable preset consumed by the import fixtures and the CLI import test
+xgis 1
+preset lib_track { | symbol-arrow stroke-black stroke-1 }

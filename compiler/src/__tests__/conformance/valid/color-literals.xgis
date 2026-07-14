@@ -1,0 +1,7 @@
+// @case valid
+// @construct color-literal
+// @desc #RGB, #RRGGBB, and #RRGGBBAA hex colors
+xgis 1
+let short = #ccc
+let full = #f2efe9
+let alpha = #ff000080

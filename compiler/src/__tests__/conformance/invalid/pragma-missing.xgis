@@ -1,0 +1,5 @@
+// @case invalid
+// @construct version-pragma
+// @desc a source with no version pragma is rejected
+// @expect-code X-GIS0008
+source world { type: geojson, url: "world.geojson" }

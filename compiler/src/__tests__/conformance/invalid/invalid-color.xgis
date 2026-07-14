@@ -1,0 +1,6 @@
+// @case invalid
+// @construct color-literal
+// @desc a hex color of an illegal length is a hard lexer error (message is stable — lexer)
+// @expect-message Invalid color literal
+xgis 1
+let c = #ff

@@ -1,0 +1,6 @@
+// @case invalid
+// @construct fn-statement
+// @desc a function parameter without a `: Type` annotation is rejected with the generic syntax-error code
+// @expect-code X-GIS0010
+xgis 1
+fn f(x) { return x }

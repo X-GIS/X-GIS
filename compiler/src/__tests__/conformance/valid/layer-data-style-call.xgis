@@ -1,0 +1,6 @@
+// @case valid
+// @construct data-style-call
+// @desc a fill match(...) data-driven style with a trailing match block
+xgis 1
+source w { type: geojson, url: "w.geojson" }
+layer nations { source: w | fill match(.iso) { "KOR" -> #ef4444, _ -> #9ca3af } }

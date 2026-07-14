@@ -1,0 +1,9 @@
+// @case valid
+// @construct number-literal
+// @desc integer, decimal, scientific-notation, and unit-tagged numbers
+xgis 1
+let i = 42
+let d = 3.14
+let sci = 1.5e-7
+let dist = 10km
+let dur = 250ms

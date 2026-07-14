@@ -1,0 +1,5 @@
+// @case valid
+// @construct import-statement-splice
+// @desc splice import of every top-level statement from a sibling file
+xgis 1
+import "./lib-preset.xgis"
