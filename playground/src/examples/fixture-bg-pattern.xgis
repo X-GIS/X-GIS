@@ -1,17 +1,21 @@
 xgis 1
 
-/* §5 background-pattern consumption-side verification (#777 I-E): a background
- * whose ONLY sprite paint is a tiled pattern (pattern: pat), drawn by the
- * background pass's FIRST DRAW — a fullscreen quad (fs_pattern) that wraps each
- * screen pixel into the sprite's atlas sub-rect (analytic tiling). The clear
- * paints the fill first; the pattern tiles on top across the whole viewport.
+/* §5 background-pattern consumption-side verification (#777 I-E): the pattern
+ * rides the synthetic earth-surface show through the STANDARD fill-pattern
+ * path — the show carries fillPattern, render-loop _resolveFillPatterns fills
+ * the atlas UV + world repeat, and VTR routes it to fillPipelinePatternGround.
+ * Tiling is WORLD-ANCHORED (Mercator metres — the pattern scrolls with the
+ * map, MapLibre background-pattern semantics) across the whole world band; the
+ * authored fill stays the band colour under/outside the pattern.
  *
  * A background-pattern-only style (no labels / icons / fill-patterns) still
- * loads its sprite atlas: the IconStage sprite-atlas gate (label-pass.ts) fires
- * on `_backgroundPattern`, so no helper icon / fill-pattern layer is needed.
+ * loads its sprite atlas: ensureBackgroundPatternAtlas (label-pass.ts) fires
+ * on `_backgroundPattern`, and its onLanded invalidate() re-arms the idle loop
+ * so the pattern paints when the async atlas lands.
  *
  * Load with: /demo.html?id=fixture_bg_pattern&e2e=1&sprite=/fixture-sprite
- * §5 probe (orchestrator-run): DC>0 across the full viewport + MapLibre A/B on
- * the same style; re-run on backend=webgl2 once #1046 F4 flips the pass.
+ * §5 probe (orchestrator-run): the `pat` sprite is 128 red + 128 blue texels —
+ * verification = red/blue pattern pixels present across the band at the
+ * default camera; MapLibre A/B on the same style.
  */
 background { fill: #1a1a2e pattern: pat }

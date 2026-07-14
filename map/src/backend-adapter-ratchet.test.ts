@@ -110,10 +110,6 @@ const BASELINE: Record<string, number> = {
   // The import moved off map.ts (5→4) — net-neutral, not new coupling. Routing the
   // palette upload through the neutral RHI (0 here) is the future 0.3 phase.
   'map/src/render/palette-textures.ts': 1,
-  // #777 I-E: wrapWebGpuPass bridges the pattern draw into the native clear pass —
-  // the same incremental-bridge class as render-loop.ts's unwrap imports (F2).
-  // Retired (0 here) when #1046 F3b hands passes an RHI-typed encoder/pass.
-  'map/src/render/passes/background-pass.ts': 1,
   'map/src/render/passes/graphics-pass.ts': 1,
   'map/src/render/pipeline-factory.ts': 3,
   'map/src/render/point-renderer.ts': 3,

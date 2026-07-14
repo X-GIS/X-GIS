@@ -33,6 +33,7 @@ import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
   SYNTHETIC_EARTH_SURFACE_SOURCE,
   buildSyntheticEarthSurfaceShow,
+  syntheticEarthSurfaceCarrier,
   updateSyntheticEarthSurfaceShowFill,
 } from './synthetic-earth-surface-show'
 import { type CapPoles } from '@xgis/data'
@@ -826,7 +827,9 @@ export class XGISMap {
     // runBinary() the same as the original install path.
     if (!this._syntheticBackend && this.renderer) {
       this._installSyntheticEarthSurfaceSource(rgba)
-      const syntheticShow = buildSyntheticEarthSurfaceShow(rgba)
+      // #777 I-E — keep the style's background-pattern riding the re-installed
+      // show (the pattern's carrier survives a setBackgroundFill round-trip).
+      const syntheticShow = buildSyntheticEarthSurfaceShow(rgba, null, this._backgroundPattern)
       this.showCommands = [syntheticShow, ...this.showCommands]
     } else {
       this._syntheticBackend?.updateFillColor(rgba)
@@ -2802,13 +2805,20 @@ export class XGISMap {
     // dominates). Mutates `commands.shows` in place to land ahead of
     // every authored layer; rebuildLayers() then sees the synthetic
     // show first and dispatches it through the standard VT path.
-    if (this._backgroundColor) {
-      this._installSyntheticEarthSurfaceSource(this._backgroundColor)
+    // #777 I-E — a PATTERN-ONLY background (background-pattern, no fill) still
+    // injects the show: the synthetic surface is the pattern's carrier
+    // (default opaque black — the Mapbox background-color default).
+    const bgCarrier = syntheticEarthSurfaceCarrier(this._backgroundColor, this._backgroundPattern)
+    if (bgCarrier) {
+      this._installSyntheticEarthSurfaceSource(bgCarrier)
       // WS-1 — pass the zoom-interp colour shape so the sphere/globe
       // earth-surface fill resolves per frame (resolveShow handles it).
+      // #777 I-E — the background-pattern sprite name rides the show through
+      // the STANDARD fill-pattern path (world-anchored tiling over the band).
       const syntheticShow = buildSyntheticEarthSurfaceShow(
-        this._backgroundColor,
+        bgCarrier,
         this._backgroundColorShape,
+        this._backgroundPattern,
       )
       commands.shows = [syntheticShow, ...commands.shows] as typeof commands.shows
     }
@@ -3590,7 +3600,14 @@ export class XGISMap {
     // today, so _backgroundColor only lands here through the public API.
     if (this._backgroundColor) {
       this._installSyntheticEarthSurfaceSource(this._backgroundColor)
-      const syntheticShow = buildSyntheticEarthSurfaceShow(this._backgroundColor)
+      // #777 I-E — mirror run(): a style-parsed background-pattern (set by a
+      // prior run()) stays on the re-injected show. .xgb itself carries no
+      // background block, so this is null on a pure binary boot.
+      const syntheticShow = buildSyntheticEarthSurfaceShow(
+        this._backgroundColor,
+        null,
+        this._backgroundPattern,
+      )
       commands.shows = [syntheticShow, ...commands.shows] as typeof commands.shows
     }
 

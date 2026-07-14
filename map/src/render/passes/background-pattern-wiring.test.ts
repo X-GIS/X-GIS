@@ -1,205 +1,126 @@
-// background-pattern → the background pass's FIRST draw (#777 I-E), GPU-free.
+// background-pattern → synthetic earth-surface show wiring (#777 I-E pivot),
+// GPU-free.
 //
-// Drives the REAL backgroundPass.execute against a fake FrameContext + host +
-// stub RHI, recording the ordered stream of encoder / render-pass calls. It
-// proves the WIRE the stub tests demand:
-//   • with a pattern + a loaded atlas, a fullscreen draw(3) is recorded AFTER
-//     the coverage clear, through the dual-source background-pattern pipeline
-//     (createPipeline received WGSL `code` + GLSL `vsCode`/`fsCode`, entries
-//     vs_full / fs_pattern), bound to the sprite atlas view + sampler;
-//   • absent pattern → clear-only, byte-identical (no wrapWebGpuPass, no draw,
-//     same colour-attachment descriptor);
-//   • a sprite name not in the atlas (missing-sprite policy) → clear-only.
+// The first I-E landing drew the pattern in the background pass (bucket 0) —
+// and the live probe proved that can never work: the synthetic earth-surface
+// show draws AFTER it and repaints the whole world band with the flat
+// background colour, hiding the pattern ("seamless" only holds for a COLOUR).
+// The pivot: the pattern rides the synthetic show itself through the STANDARD
+// fill-pattern path — render-loop `_resolveFillPatterns` fills
+// fillPatternUV/fillPatternRepeatM and VTR routes the show to
+// fillPipelinePatternGround — giving world-anchored (Mercator-metre) tiling,
+// MapLibre background-pattern semantics, on flat AND globe.
 //
-// Fail-before: the pattern name never reaches the pass (background-pass.ts is
-// clear-only), so no draw is ever recorded and the "draw after clear" assertion
-// goes red.
-//
-// wrapWebGpuPass is mocked to hand the recording fake pass straight back as the
-// RhiRenderPass — the real WebGPU unwrap machinery is exercised by
-// rhi-webgpu's own suites; here we only assert the pass RECORDS a draw.
+// Pinned wires (each with its fail-before):
+//   1. buildSyntheticEarthSurfaceShow carries the pattern name as fillPattern
+//      and KEEPS resolvedFillRgba pre-set (the Stage-1 skip that preserves the
+//      authored background colour under the pattern). Fail-before = the
+//      builder ignores its pattern arg (the pre-pivot shape).
+//   2. syntheticEarthSurfaceCarrier injects a default-black carrier for a
+//      PATTERN-ONLY background (`background { pattern: X }` with no fill) —
+//      fail-before = the injection gate is `if (_backgroundColor)` only, so a
+//      pattern-only style never got a synthetic show.
+//   3. ensureBackgroundPatternAtlas (label-pass) builds the REAL IconStage for
+//      a label-less pattern style, and its onLanded GUARANTEES a frame:
+//      markLabelDirty() alone never re-arms a label-less idle loop (the
+//      probe's root cause B — the canvas froze on the pre-atlas frame), so it
+//      must also call invalidate(). Fail-before = onLanded without
+//      invalidate().
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
+import {
+  buildSyntheticEarthSurfaceShow,
+  syntheticEarthSurfaceCarrier,
+} from '../../synthetic-earth-surface-show'
+import { ensureBackgroundPatternAtlas } from './label-pass'
 
-vi.mock('@xgis/rhi-webgpu', () => ({
-  // The pass records its pattern draw against whatever wrapWebGpuPass returns;
-  // returning the fake pass itself routes setPipeline/draw straight to it.
-  wrapWebGpuPass: (enc: unknown) => enc,
-}))
-
-import { backgroundPass } from './background-pass'
-import type { BackgroundPassHost } from './pass'
-import type { FrameContext } from '../frame-context'
-import { makeProjectionToken } from '../projection-token'
-
-type Ev =
-  | { t: 'begin'; loadOp: string; clearValue: { r: number; g: number; b: number; a: number } }
-  | { t: 'setPipeline' }
-  | { t: 'setBindGroup'; index: number; entries: number }
-  | { t: 'draw'; count: number }
-  | { t: 'end' }
-
-interface Captured {
-  events: Ev[]
-  pipelineDescs: Array<Record<string, unknown>>
-  bindGroupEntries: Array<Array<{ binding: number; resource: unknown }>>
-  wrote: boolean
-}
-
-const SPRITE = { name: 'pat', x: 0, y: 0, width: 16, height: 16, pixelRatio: 1, sdf: false }
 const BG: [number, number, number, number] = [0.13, 0.57, 0.42, 1]
 
-/** Build the fake frame + host and run the real backgroundPass.execute. */
-function run(patternName: string | null, atlasStatus: 'loaded' | 'loading' = 'loaded'): Captured {
-  const cap: Captured = { events: [], pipelineDescs: [], bindGroupEntries: [], wrote: false }
+describe('background-pattern rides the synthetic earth-surface show (#777 I-E)', () => {
+  it('the builder carries the pattern as fillPattern (the standard fill-pattern route)', () => {
+    const show = buildSyntheticEarthSurfaceShow(BG, null, 'pat')
+    expect(show.fillPattern).toBe('pat')
+    // Stage-1 skip: the pre-set resolvedFillRgba keeps the authored background
+    // colour under the pattern (sprite centre-pixel never overwrites it).
+    expect(show.resolvedFillRgba).toEqual(BG)
+    // Stage 2 fields start unset — _resolveFillPatterns fills them at runtime.
+    expect(show.fillPatternUV).toBeUndefined()
+    expect(show.fillPatternRepeatM).toBeUndefined()
+  })
 
-  const fakePass = {
-    setPipeline: () => cap.events.push({ t: 'setPipeline' }),
-    setBindGroup: (index: number, _g: unknown) =>
-      cap.events.push({ t: 'setBindGroup', index, entries: 0 }),
-    draw: (count: number) => cap.events.push({ t: 'draw', count }),
-    end: () => cap.events.push({ t: 'end' }),
+  it('no pattern → the show is byte-identical to the pre-I-E shape (no fillPattern key)', () => {
+    const show = buildSyntheticEarthSurfaceShow(BG, null, null)
+    expect('fillPattern' in show).toBe(false)
+    expect(show).toEqual(buildSyntheticEarthSurfaceShow(BG))
+  })
+
+  it('pattern-only background injects a default-black carrier (Mapbox background-color default)', () => {
+    // With a fill: the fill is the carrier.
+    expect(syntheticEarthSurfaceCarrier(BG, 'pat')).toEqual(BG)
+    expect(syntheticEarthSurfaceCarrier(BG, null)).toEqual(BG)
+    // Pattern-only: opaque black carries the pattern.
+    expect(syntheticEarthSurfaceCarrier(null, 'pat')).toEqual([0, 0, 0, 1])
+    // No background at all: no synthetic show.
+    expect(syntheticEarthSurfaceCarrier(null, null)).toBeNull()
+  })
+})
+
+type GateHost = Parameters<typeof ensureBackgroundPatternAtlas>[0]
+
+/** A REAL IconStage is constructed by the gate: the only device surface its
+ *  ctor touches eagerly is `rhi.createBuffer` (IconRenderer's 16-byte uniform;
+ *  everything else is lazy per #834 S6), so a one-method rhi stub suffices —
+ *  no GPU, no mocks. Under vitest/node the relative sprite URL's fetch
+ *  rejects, so the atlas reaches the terminal 'failed' state and fires the
+ *  gate's REAL `onLanded` — awaited via whenReady() (onLanded runs in the same
+ *  synchronous finally block, before the await resumes). */
+function gateHost(over: Partial<GateHost>): GateHost & {
+  dirtied: number
+  invalidated: number
+} {
+  const h = {
+    iconStage: null,
+    spriteUrl: '/fixture-sprite',
+    _backgroundPattern: 'pat',
+    ctx: { device: {}, rhi: { createBuffer: () => ({}) }, format: 'bgra8unorm' },
+    dirtied: 0,
+    invalidated: 0,
+    markLabelDirty() {
+      this.dirtied++
+    },
+    invalidate() {
+      this.invalidated++
+    },
+    ...over,
   }
-
-  const encoder = {
-    beginRenderPass: (desc: {
-      colorAttachments: Array<{
-        loadOp: string
-        clearValue: Ev extends { clearValue: infer C } ? C : never
-      }>
-    }) => {
-      const a = desc.colorAttachments[0]!
-      cap.events.push({ t: 'begin', loadOp: a.loadOp, clearValue: a.clearValue })
-      return fakePass
-    },
-  }
-
-  // Stub RHI device — enough surface for the pattern pipeline + bind group.
-  const rhi = {
-    createBindGroupLayout: () => ({ __rhi: 'bindlayout' }),
-    createBuffer: () => ({ __rhi: 'buffer' }),
-    writeBuffer: () => {
-      cap.wrote = true
-    },
-    createPipeline: (desc: Record<string, unknown>) => {
-      cap.pipelineDescs.push(desc)
-      return { __rhi: 'pipeline' }
-    },
-    createBindGroup: (_layout: unknown, entries: Array<{ binding: number; resource: unknown }>) => {
-      cap.bindGroupEntries.push(entries)
-      return { __rhi: 'bindgroup' }
-    },
-  }
-
-  const iconStage = {
-    host: {
-      getState: () => ({ status: atlasStatus }),
-      get: (n: string) => (n === 'pat' ? SPRITE : undefined),
-    },
-    gpu: {
-      rhiView: () => ({ __rhi: 'view' }),
-      rhiSampler: () => ({ __rhi: 'sampler' }),
-      size: () => ({ width: 64, height: 64 }),
-    },
-  }
-
-  const ctx = {
-    encoder,
-    colorView: {},
-    camera: { zoom: 5 } as unknown as FrameContext['camera'],
-    projection: makeProjectionToken(0, 0, 0), // flat mercator → clear = background
-    elapsedMs: 0,
-    frameCount: 0,
-    w: 800,
-    h: 600,
-    dpr: 2,
-    sampleCount: 4,
-    rhi,
-    passScope: (_label: string, fn: () => void) => fn(),
-  } as unknown as FrameContext
-
-  const host = {
-    _backgroundColor: BG,
-    _backgroundColorShape: null,
-    _backgroundOpacityShape: null,
-    _backgroundPattern: patternName,
-    ctx: { format: 'bgra8unorm' },
-    iconStage,
-  } as unknown as BackgroundPassHost
-
-  backgroundPass.execute(ctx, undefined as never, host as never)
-  return cap
+  return h as unknown as GateHost & { dirtied: number; invalidated: number }
 }
 
-describe('background-pattern → first draw after the clear (GPU-free)', () => {
-  beforeEach(() => {
-    // The singleton pass caches per-device; a fresh stub rhi per run() trips its
-    // device-swap guard, but reset any residual mock call state here.
-    vi.clearAllMocks()
+describe('ensureBackgroundPatternAtlas — the label-less atlas gate (#777 I-E)', () => {
+  it('builds the IconStage for a pattern style; onLanded guarantees a frame (invalidate + markLabelDirty)', async () => {
+    const host = gateHost({})
+    ensureBackgroundPatternAtlas(host, 2, 4)
+    expect(host.iconStage).not.toBeNull()
+    // Wait for the atlas's terminal state (failed here — node fetch rejects the
+    // relative URL): the gate's onLanded fires with it. Root cause B demands it
+    // RE-ARM the loop — a label-less style has no other path back to
+    // _needsRender — so invalidate() must have been called, not just
+    // markLabelDirty().
+    await (host.iconStage as unknown as { whenReady(): Promise<void> }).whenReady()
+    expect(host.invalidated).toBe(1)
+    expect(host.dirtied).toBe(1)
   })
 
-  it('records a fullscreen draw(3) AFTER the coverage clear when a pattern is set', () => {
-    const { events } = run('pat')
-    const beginIdx = events.findIndex((e) => e.t === 'begin')
-    const drawIdx = events.findIndex((e) => e.t === 'draw')
-    expect(beginIdx, 'the clear render pass must open').toBeGreaterThanOrEqual(0)
-    expect(drawIdx, 'a pattern draw must be recorded').toBeGreaterThan(beginIdx)
-    // The clear still fills the whole viewport with the background colour.
-    const begin = events[beginIdx] as Extract<Ev, { t: 'begin' }>
-    expect(begin.loadOp).toBe('clear')
-    expect(begin.clearValue).toEqual({ r: BG[0], g: BG[1], b: BG[2], a: BG[3] })
-    // Fullscreen triangle (3 verts), pipeline + atlas bind group set first.
-    const draw = events[drawIdx] as Extract<Ev, { t: 'draw' }>
-    expect(draw.count).toBe(3)
-    expect(events.some((e) => e.t === 'setPipeline')).toBe(true)
-    expect(events.some((e) => e.t === 'setBindGroup')).toBe(true)
-    // …and the render pass still ends (the draw is INSIDE the clear pass).
-    expect(events.at(-1)?.t).toBe('end')
-  })
-
-  it('builds a DUAL-SOURCE pipeline (WGSL + GLSL twins) matched to the frame target', () => {
-    const { pipelineDescs, bindGroupEntries, wrote } = run('pat')
-    expect(pipelineDescs).toHaveLength(1)
-    const d = pipelineDescs[0]!
-    expect(d.vsEntry).toBe('vs_full')
-    expect(d.fsEntry).toBe('fs_pattern')
-    // WGSL twin + BOTH GLSL twins present (the F3/F4 WebGL2 requirement).
-    expect(String(d.code)).toContain('fs_pattern')
-    expect(String(d.code)).toContain('fract(')
-    expect(String(d.vsCode)).toContain('#version 300 es')
-    expect(String(d.fsCode)).toContain('#version 300 es')
-    // Matched to the frame's swapchain format + MSAA sample count.
-    expect(d.colorTargets).toEqual([{ format: 'bgra8unorm', blend: 'alpha' }])
-    expect(d.sampleCount).toBe(4)
-    // The uniform is written and the atlas view + sampler are bound at 1 / 2.
-    expect(wrote).toBe(true)
-    const entries = bindGroupEntries.at(-1)!
-    expect(entries.map((e) => e.binding)).toEqual([0, 1, 2])
-    expect(entries[1]!.resource).toEqual({ view: { __rhi: 'view' } })
-    expect(entries[2]!.resource).toEqual({ sampler: { __rhi: 'sampler' } })
-  })
-
-  it('absent pattern → clear-only, byte-identical (no draw)', () => {
-    const { events, pipelineDescs } = run(null)
-    expect(events.some((e) => e.t === 'draw')).toBe(false)
-    expect(events.some((e) => e.t === 'setPipeline')).toBe(false)
-    expect(pipelineDescs).toHaveLength(0)
-    // Only the clear + end — the exact pre-#777 shape.
-    expect(events.map((e) => e.t)).toEqual(['begin', 'end'])
-    const begin = events[0] as Extract<Ev, { t: 'begin' }>
-    expect(begin.loadOp).toBe('clear')
-    expect(begin.clearValue).toEqual({ r: BG[0], g: BG[1], b: BG[2], a: BG[3] })
-  })
-
-  it('missing sprite (name not in the atlas) → clear-only (missing-sprite policy)', () => {
-    const { events } = run('not-in-atlas')
-    expect(events.some((e) => e.t === 'draw')).toBe(false)
-    expect(events.map((e) => e.t)).toEqual(['begin', 'end'])
-  })
-
-  it('atlas not loaded yet → clear-only (skip the draw, keep the clear)', () => {
-    const { events } = run('pat', 'loading')
-    expect(events.some((e) => e.t === 'draw')).toBe(false)
-    expect(events.map((e) => e.t)).toEqual(['begin', 'end'])
+  it.each([
+    ['no pattern', { _backgroundPattern: null }],
+    ['no sprite URL', { spriteUrl: null }],
+    ['stage already built', { iconStage: {} as never }],
+  ])('no-op when %s', (_name, over) => {
+    const host = gateHost(over as Partial<GateHost>)
+    const before = host.iconStage
+    ensureBackgroundPatternAtlas(host, 1, 1)
+    expect(host.iconStage).toBe(before)
+    expect(host.invalidated).toBe(0)
+    expect(host.dirtied).toBe(0)
   })
 })

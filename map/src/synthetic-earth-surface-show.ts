@@ -32,10 +32,21 @@ export const SYNTHETIC_EARTH_SURFACE_LAYER = '__synthetic_earth_surface__'
  *  follows the zoom curve with no further wiring. `rgba` stays the
  *  static fallback hex (used before the first per-frame resolve and by
  *  the legacy static-hex consumers). When null the fill is the constant
- *  `rgba` as before. */
+ *  `rgba` as before.
+ *
+ *  #777 I-E — `pattern` carries the style's `background-pattern` sprite
+ *  name. The synthetic show IS the pattern's carrier: it rides the
+ *  STANDARD fill-pattern path (render-loop `_resolveFillPatterns` fills
+ *  fillPatternUV + fillPatternRepeatM; VTR routes the show to
+ *  fillPipelinePatternGround), giving world-anchored (Mercator-metre)
+ *  tiling — MapLibre background-pattern semantics — on flat AND globe.
+ *  `resolvedFillRgba` stays pre-set, so Stage 1 (sprite centre-pixel
+ *  colour) never overwrites the authored background colour under the
+ *  pattern. Omitted/null = no pattern field (byte-identical show). */
 export function buildSyntheticEarthSurfaceShow(
   rgba: [number, number, number, number],
   fillShape?: PropertyShape<readonly [number, number, number, number]> | null,
+  pattern?: string | null,
 ): ShowCommand {
   return {
     targetName: SYNTHETIC_EARTH_SURFACE_SOURCE,
@@ -50,6 +61,7 @@ export function buildSyntheticEarthSurfaceShow(
     extrude: { kind: 'none' },
     extrudeBase: { kind: 'none' },
     resolvedFillRgba: rgba,
+    ...(pattern ? { fillPattern: pattern } : {}),
     paintShapes: {
       fill: { fill: fillShape ?? { kind: 'constant', value: rgba } },
       line: {
@@ -61,6 +73,21 @@ export function buildSyntheticEarthSurfaceShow(
       raster: defaultRasterShapes(),
     },
   }
+}
+
+/** #777 I-E — pick the synthetic earth-surface show's carrier colour.
+ *  A background with a fill uses it; a PATTERN-ONLY background (Mapbox
+ *  `background-pattern` with no `background-color`) still needs the
+ *  synthetic show injected as the pattern's carrier, so it falls back to
+ *  the Mapbox default background colour (opaque black). No background at
+ *  all → null (no synthetic show; the canvas clearValue dominates). */
+export function syntheticEarthSurfaceCarrier(
+  bg: [number, number, number, number] | null,
+  pattern: string | null,
+): [number, number, number, number] | null {
+  if (bg) return bg
+  if (pattern) return [0, 0, 0, 1]
+  return null
 }
 
 /** Mutate the synthetic show in-place to point at a new fill colour.
