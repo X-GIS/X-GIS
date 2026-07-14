@@ -57,21 +57,21 @@ export const PAINT_SYMBOL: readonly CoverageEntry[] = [
   },
   {
     name: 'icon-halo-color',
-    status: 'unsupported',
-    impact: 'low',
-    note: 'SDF icon halo colour. iter-162 probe (playground/scripts/sprite-sdf-buffer-probe.ts) fetched the live OFM bright sprite: 264 entries, ZERO SDF. icon-halo applies ONLY to SDF sprites (Mapbox spec), so for the dominant OFM target styles this property is a NO-OP — implementing the composite produces zero visual change there. impact reclassified medium → low. iter-138 SDF icon foundation (fragment branch + per-vertex tint) STAYS and correctly serves any future style with SDF icons (USA OSM highway-shield-heavy styles, custom sprites). Composite shader work (second smoothstep at edge-haloWidth, mirror fs_text) is straightforward; the spritezero buffer constant remains UNRESOLVED (pin via the probe when a style with SDF icons becomes the target).',
+    status: 'na',
+    // na — SDF-sprite-only; no SDF sprite in scope; revisit if an SDF sprite source lands.
+    note: 'na — SDF-sprite-only; no SDF sprite in scope. icon-halo applies ONLY to SDF sprites (Mapbox spec); the sprite loader DOES read the flag (sprite-atlas-host.ts parseMetadata, `sdf: e.sdf === true`) but no in-scope sprite sets it: the iter-162 probe (playground/scripts/sprite-sdf-buffer-probe.ts) fetched the live OFM bright sprite — 264 entries, ZERO SDF — and the committed fixture-sprite.json declares none either, so this property is a guaranteed NO-OP on every target style. Reclassified unsupported → na (#777 I-H): a real gap only appears once an SDF sprite source becomes a target. Revisit then — the iter-138 SDF icon foundation (icon.ts fragment branch + per-vertex tint) already serves SDF icons; the implementation recipe is a second smoothstep at edge-haloWidth mirroring fs_text, per-vertex halo attrs extending the 9-float format (icon-renderer.ts / icon-vertex-format.ts), and a converter paint emit — the spritezero buffer constant stays UNRESOLVED until the probe pins it against a real SDF sprite.',
   },
   {
     name: 'icon-halo-width',
-    status: 'unsupported',
-    impact: 'low',
-    note: 'SDF icon halo width. Same iter-162 disposition as icon-halo-color: OFM bright has 0 SDF icons → no-op on the target style. impact reclassified medium → low.',
+    status: 'na',
+    // na — SDF-sprite-only; no SDF sprite in scope; revisit if an SDF sprite source lands.
+    note: 'na — SDF-sprite-only; no SDF sprite in scope. Same disposition as icon-halo-color (iter-162 probe: OFM bright 0 SDF icons, fixture-sprite.json 0 SDF → guaranteed no-op). Reclassified unsupported → na (#777 I-H); revisit if an SDF sprite source lands.',
   },
   {
     name: 'icon-halo-blur',
-    status: 'unsupported',
-    impact: 'low',
-    note: 'SDF icon halo feather. Same iter-162 disposition: OFM bright has 0 SDF icons → no-op on the target style.',
+    status: 'na',
+    // na — SDF-sprite-only; no SDF sprite in scope; revisit if an SDF sprite source lands.
+    note: 'na — SDF-sprite-only; no SDF sprite in scope. Same disposition as icon-halo-color (iter-162 probe: OFM bright 0 SDF icons, fixture-sprite.json 0 SDF → guaranteed no-op). Reclassified unsupported → na (#777 I-H); revisit if an SDF sprite source lands.',
   },
   {
     name: 'icon-translate',
