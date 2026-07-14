@@ -350,7 +350,6 @@ class LabelPass implements RenderPass {
         pairKey?: string,
         collide = false,
         props?: import('../../text/text-resolver').FeatureProps,
-        perspScale = 1, // #1081 — distance attenuation (point icons; 1 elsewhere)
       ): void => {
         if (!iStage || def.iconImage === undefined) return
         // icon-offset (layout, em/px nudge baked before rotation) AND
@@ -418,7 +417,6 @@ class LabelPass implements RenderPass {
           tint: ic ? [ic[0], ic[1], ic[2]] : undefined,
           pairKey,
           collide: doCollide,
-          perspScale,
         })
       }
       // Mapbox `text-field` expressions that depend on zoom (e.g.
@@ -846,9 +844,6 @@ class LabelPass implements RenderPass {
                 const pairKey = pairedWithIcon
                   ? pointLabelPairKey(labelLayerName, _pointLabelSeq++)
                   : undefined
-                // #1081 — this copy's perspective distance-attenuation factor
-                // (projectLonLatCopies tuple slot 3); shared by the label + its icon.
-                const ps = projected[2]
                 stage.addLabel(
                   featDef.text,
                   feat.properties ?? {},
@@ -858,10 +853,8 @@ class LabelPass implements RenderPass {
                   undefined,
                   labelLayerName,
                   pairKey,
-                  undefined,
-                  ps,
                 )
-                dispatchIcon(featDef, projected[0], projected[1], 0, pairKey, false, undefined, ps)
+                dispatchIcon(featDef, projected[0], projected[1], 0, pairKey)
               }
             }
           }

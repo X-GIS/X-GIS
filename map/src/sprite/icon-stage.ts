@@ -205,11 +205,6 @@ export class IconStage {
       tint?: [number, number, number]
       pairKey?: string
       collide?: boolean
-      /** #1081 — MapLibre perspective distance attenuation for this anchor.
-       *  Folded into the stored `sizeScale` so a far icon's draw quad AND its
-       *  collision obstacle (both read `sizeScale`) shrink together — the icon
-       *  sibling of the text label attenuation. Undefined → 1 (no attenuation). */
-      perspScale?: number
     } = {},
   ): void {
     if (this._iconDebugHook) {
@@ -219,7 +214,7 @@ export class IconStage {
       anchorX,
       anchorY,
       iconName,
-      sizeScale: (opts.sizeScale ?? 1) * (opts.perspScale ?? 1),
+      sizeScale: opts.sizeScale ?? 1,
       rotateRad: opts.rotateRad ?? 0,
       anchor: opts.anchor ?? 'center',
       opacity: opts.opacity ?? 1,
