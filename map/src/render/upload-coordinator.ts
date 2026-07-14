@@ -368,13 +368,13 @@ export class UploadCoordinator {
 
   // ───────────────────────── Queue surface ─────────────────────────
 
-  /** Whether tiles are queued or actively uploading (scene not converged). */
+  /** Queued, actively uploading, or cap-deferred (held). Held slices replay only at `resetFrameCap` (beginFrame), so hiding them lets the render-on-demand loop stop with them frozen forever — count them. */
   hasPending(): boolean {
-    return this.uploadQueue.running
+    return this.uploadQueue.running || this._heldUploads.length > 0
   }
-  /** Diagnostic: full queue depth (queued + active). */
+  /** Diagnostic: queued + active + cap-deferred held (matches hasPending). */
   pendingCount(): number {
-    return this.uploadQueue.size() + this.uploadQueue.activeCount()
+    return this.uploadQueue.size() + this.uploadQueue.activeCount() + this._heldUploads.length
   }
   /** Diagnostic: queued (not yet dispatched) count. */
   queueSize(): number {
