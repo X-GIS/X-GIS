@@ -17,6 +17,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseExpressionString } from '../parser/parser'
 import { evaluate } from '../eval/evaluator'
+import { lowerMatchColorToMatch } from '../codegen/compute-lowering'
 import type * as AST from '../parser/ast'
 
 describe('#1068 match arm lists', () => {
@@ -91,5 +92,30 @@ describe('#1068 arithmetic in arm value (identifier-minus removal)', () => {
   it('(c) `_ -> .x - 1` (field-access arithmetic) parses and evaluates', () => {
     const ast = parseExpressionString('match(.k) { _ -> .x - 1 }')
     expect(evaluate(ast, { k: 'any', x: 5 })).toBe(4)
+  })
+})
+
+describe('#1068 parsed source through GPU match lowering', () => {
+  // Regression for the continent-match-compute-mock CI failure: with the
+  // identifier-minus special case gone, a palette-token arm value
+  // (`"Africa" -> amber-600`) parses as BinaryExpr, and the compute
+  // adapter's colour resolver must reconstruct the token exactly like
+  // shader-gen's resolveColorFromAST does — otherwise every arm is
+  // silently skipped and the kernel's categoryOrder comes out EMPTY
+  // while the inline-shader path still resolves all arms (cross-path
+  // category-ID drift).
+  it('palette-token arm values from source survive lowerMatchColorToMatch', () => {
+    const ast = parseExpressionString(
+      'match(.CONTINENT) { "Africa" -> amber-600, "Asia", "Oceania" -> #0ea5e9, _ -> #9ca3af }',
+    )
+    const spec = lowerMatchColorToMatch({ ast } as never)!
+    expect(spec).not.toBeNull()
+    expect(spec.fieldName).toBe('CONTINENT')
+    // Arm-list desugaring: "Asia" and "Oceania" become two arms sharing the hex.
+    expect(spec.arms.map((a) => a.pattern)).toEqual(['Africa', 'Asia', 'Oceania'])
+    expect(spec.arms[0]!.colorHex).toBe('#d97706') // amber-600 via token reconstruction
+    expect(spec.arms[1]!.colorHex).toBe('#0ea5e9')
+    expect(spec.arms[2]!.colorHex).toBe('#0ea5e9')
+    expect(spec.defaultColorHex).toBe('#9ca3af')
   })
 })
