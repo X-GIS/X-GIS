@@ -193,13 +193,11 @@ async function main(): Promise<void> {
   }
 
   if (unknownSegmentRows > 0) {
-    // eslint-disable-next-line no-console
     console.warn(
       `[csv-to-odb] ${unknownSegmentRows} rows had an unrecognized segment value → defaulted to 내국인 (0); check for NFD/2-value schema`,
     )
   }
   if (outOfRangePurposeRows > 0) {
-    // eslint-disable-next-line no-console
     console.warn(
       `[csv-to-odb] ${outOfRangePurposeRows} rows had an out-of-range purpose value (expected 1–7) → value kept as-is; check source data`,
     )
@@ -232,7 +230,6 @@ async function main(): Promise<void> {
     writeFileSync(output + '.br', br)
     msg += ` + ${output}.br (${(br.byteLength / 1024).toFixed(1)}KB brotli)`
   }
-  // eslint-disable-next-line no-console
   console.log(msg)
 }
 

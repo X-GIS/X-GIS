@@ -16,7 +16,7 @@
 //   bun scripts/emit-gap-matrix.ts > scripts/gap-matrix.md
 
 import { flattenCoverage } from '../compiler/src/convert/spec-coverage'
-import { RUNTIME_CAPABILITIES, runtimeGaps } from '../runtime/src/capabilities'
+import { runtimeGaps } from '../runtime/src/capabilities'
 
 const lines: string[] = []
 lines.push('# X-GIS Mapbox Support Gap Matrix')

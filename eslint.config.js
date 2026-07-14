@@ -69,10 +69,36 @@ export default tseslint.config(
             // project references (`files: []`) — same discovery gap as the scripts
             // and playwright config above. Lint it via the default project.
             'vitest.config.ts',
+            // The remaining project-service gaps from the #1055 lint-debt ledger
+            // (Appendix A) — the same class as the entries above, closed wholesale:
+            // compiler's package-root micro-bench, a devDep script outside the
+            // package tsconfig's `include` (src/**), same as pipeline/tools.
+            'compiler/bench-geojson-vt-encode.ts',
+            // Runnable research prototypes live under docs/, which no package
+            // tsconfig covers at all.
+            'docs/research/prototypes/*.ts',
+            // playground's package-root capture script, the render-verify harness,
+            // and its probe scripts sit outside playground/tsconfig.json (src/**
+            // only) and e2e/tsconfig.json (e2e/** only) — same gap as the
+            // playwright config above.
+            'playground/capture-shader-thumbnails.mts',
+            'playground/render-verify/*.ts',
+            'playground/render-verify/matrix/*.ts',
+            'playground/scripts/*.ts',
+            // Per-package vite configs sit at the package root, outside their
+            // package tsconfig's `include` — same gap as the root vitest.config.ts.
+            'playground/vite.config.ts',
+            'runtime/vite.config.ts',
+            // runtime's build/inspect scripts — devDep scripts outside the package
+            // tsconfig's `include`, same as the repo scripts above.
+            'runtime/scripts/*.ts',
           ],
           // the default cap is 8 matched files per run; a refactor staging many
-          // test files at once must still lint (70 test files exist today).
-          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 96,
+          // test files at once must still lint. 117 files match today (86 shader-dsl
+          // src tests + the script/config/bench globs above). Keep real headroom: at
+          // a zero-headroom 96 the 97th match (vitest.config.ts) failed to parse the
+          // day one new repo script landed (#1055 Wave 2).
+          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 160,
         },
         tsconfigRootDir: import.meta.dirname,
       },
