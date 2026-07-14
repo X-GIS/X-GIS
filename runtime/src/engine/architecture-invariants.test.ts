@@ -230,10 +230,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1144→1295 (full-repo prettier adopt): formatting-only growth, no new logic.
   // Bumped 1295→1296 (#777 I-D icon-padding): the label-icon-padding-N emit
   // (non-default constants only, clamp ≥0) + the non-constant one-shot warn.
-  // Bumped 1296→1311 (#777 I-F icon value-forms): icon-size + icon-translate
-  // data-driven emit — two exprToXgis paths (mirroring the icon-opacity emit)
-  // replacing the two "not yet supported" warns.
-  'compiler/src/convert/layers-symbol.ts': 1311,
+  // Bumped 1296→1328 (#777 I-B + I-F, merged): I-B icon-keep-upright — the icon
+  // twin of the text keep-upright emit (label-icon-keep-upright / -false for a
+  // constant, the non-constant one-shot warn, rationale comment); I-F icon
+  // value-forms — icon-size + icon-translate data-driven emit, two exprToXgis
+  // paths (mirroring the icon-opacity emit) replacing the two "not yet
+  // supported" warns.
+  'compiler/src/convert/layers-symbol.ts': 1328,
   // Bumped 1534→1574 for the arithmetic-arity fix (expr-arith-coalesce): the
   // variadic +/*, unary/binary -, and exact-2 //% forms each need a distinct
   // branch (was one over-strict shared comparison branch). Irreducible.
@@ -373,10 +376,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1091→1101 (#777 I-D icon-padding): the labelIconPadding accumulator +
   // label-icon-padding-N parse arm + knobs field + fold spread — the same additive
   // label-knob plumbing class as max-angle / symbol-z-order above.
-  // Bumped 1101→1129 (#777 I-F icon value-forms): labelIconSizeExpr +
-  // labelIconTranslateExpr accumulators + their parse arms + knob decls/types +
-  // return + the buildLabelShapes iconSizeExpr wiring — same additive class.
-  'compiler/src/ir/lower-label.ts': 1129,
+  // Bumped 1101→1145 (#777 I-B + I-F, merged): I-B icon-keep-upright — the
+  // labelIconKeepUpright accumulator + label-icon-keep-upright(-false) parse
+  // arms + knobs field + fold spread (icon twin of the text labelKeepUpright
+  // knob); I-F icon value-forms — labelIconSizeExpr + labelIconTranslateExpr
+  // accumulators + their parse arms + knob decls/types + return + the
+  // buildLabelShapes iconSizeExpr wiring. Same additive label-knob class.
+  'compiler/src/ir/lower-label.ts': 1145,
   // Baselined at 835 (Phase S Batch 3 raster +18 + text/icon +6; Batch 4 icon
   // collision +3 + symbol-z-order's LabelDef.symbolZOrder field + JSDoc).
   // Bumped 837→858 (Phase R heatmap + inline-geojson): the RenderNodeHeatmapPaint
@@ -388,9 +394,11 @@ const LOC_CEILINGS: Record<string, number> = {
   // class as crs/inlineData — the custom source-loader seam's compile-time carrier).
   // Bumped 908→913 (#777 I-D icon-padding): LabelDef.iconPadding field + contract
   // JSDoc (+5, same additive label-knob field class as symbolZOrder).
-  // Bumped 913→918 (#777 I-F icon value-forms): LabelDef.iconTranslateExpr field +
-  // contract JSDoc (+5, same additive label-knob field class as iconImageExpr).
-  'compiler/src/ir/render-node.ts': 918,
+  // Bumped 913→928 (#777 I-B + I-F, merged): I-B LabelDef.iconKeepUpright field +
+  // contract JSDoc (+10, records the explicit-authoring-only activation
+  // contract); I-F LabelDef.iconTranslateExpr field + contract JSDoc (+5). Same
+  // additive label-knob field class as iconImageExpr.
+  'compiler/src/ir/render-node.ts': 928,
   // Crossed 800 purely via the full-repo prettier adoption (one-property-per-line /
   // call-arg wrapping) — not a hand-grown god-file; baselined at the formatted size,
   // shrink as it converges.

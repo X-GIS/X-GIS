@@ -1628,6 +1628,7 @@
       ],
       "layout": {
         "icon-image": "oneway",
+        "icon-keep-upright": true,
         "icon-padding": 2,
         "icon-rotate": 90,
         "icon-rotation-alignment": "map",

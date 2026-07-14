@@ -120,12 +120,15 @@ const CEILINGS: Record<string, number> = {
   // mercator: the perspectiveScale() scratch getter). +21, dominated by prettier
   // wraps (the 6-name projector destructure + the globe arm's 8-arg dispatchIcon
   // both go one-per-line). Same existing call sites; nothing extract-worthy (§2).
-  // 1749→1812 (#777 I-F): applyFeatureExprs gains 3 per-feature icon value-forms
-  // (icon-size / icon-opacity data-driven eval + icon-translate expr → [dx,dy]) —
-  // the 3 exprAst sources, the extended null-guard, and 3 evaluate blocks, mirroring
-  // the existing text-size/color/icon-image arms (§2: same closure, nothing extract-
-  // worthy). +prettier wraps.
-  'map/src/render/passes/label-pass.ts': 1812,
+  // 1749→1851 (#777 I-B + I-F, merged): I-B icon-keep-upright adds the exported
+  // resolveIconRotateRad helper (+JSDoc — dispatchIcon is an anon closure, so the
+  // upright half-plane fold math is extracted for unit coverage), the dispatchIcon
+  // fold call, and the inline `def` iconKeepUpright field (+39); I-F icon
+  // value-forms adds 3 per-feature exprAst sources (icon-size / icon-opacity
+  // data-driven, icon-translate expr → [dx,dy]), the extended null-guard, and 3
+  // applyFeatureExprs evaluate blocks mirroring the text-size/color/icon-image
+  // arms (+63). Both additive; nothing extract-worthy (§2).
+  'map/src/render/passes/label-pass.ts': 1851,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -144,7 +147,11 @@ const CEILINGS: Record<string, number> = {
   // seam-only (no consumer reads caps yet). Lower as the twin frame retires (F6).
   // +8 (#1046 F2): the frame-shell RHI-sourcing branch + `__xgisRawFrameShell`
   // kill-switch (doc §3-F2). F6 slashes this file to ~880 (twin deletion).
-  'map/src/render-loop.ts': 1188,
+  // 1188→1205 (#1046 F3): the `?rhichain=1` routing switch — the `_chainRunsOnWebgl2`
+  // held-off field (+ its doc) and the twin early-return's routing comment/guard (doc
+  // §3-F3). +17, all documentation of the held-off switch; the guard is byte-identical
+  // (the twin still renders). F6 slashes this file to ~880 (twin deletion).
+  'map/src/render-loop.ts': 1205,
   'map/src/render/point-renderer.ts': 1140,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
@@ -156,7 +163,15 @@ const CEILINGS: Record<string, number> = {
   // +22 = the field + its doc comment + the frozen init. (F3 raises this again for beginRenderPass.)
   // 1142→1157 (#1046 F2): the required (INERT) acquireScreenView / acquireFrameEncoder
   // frame-shell methods + the FBO-0 SCREEN_VIEW_SENTINEL (twin never calls them; F3 wires them).
-  'rhi-webgl2/src/rhi-webgl2.ts': 1157,
+  // 1157→1285 (#1046 F3): the universal `beginRenderPass` — the #1049 descriptor-parity
+  // umbrella (doc §2.4/§3-F3). The new FRAME encoder (WebGl2FrameEncoder) originates the
+  // chain's passes; the device gains `beginRenderPass` dispatching a colour-sentinel
+  // descriptor to the new FBO-0 screen arm (`beginScreenRenderPass`, GL-call-identical to
+  // beginScreenPass) or the proven offscreen arm, `finishFrame` (the present analog), and
+  // a shared `glCopyBufferSubData`. +128; byte-identical on the default WebGL2 boot (the
+  // twin early-returns before the frame shell, so the frame encoder is never acquired).
+  // Fail-loud on any non-bindable descriptor shape (no silent fallback). Lower in F6.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1285,
   'map/src/render/renderer.ts': 965,
   'map/src/render/gpu-tile-store.ts': 941,
   'map/src/render/tile-selection-cache.ts': 930,
@@ -168,16 +183,20 @@ const CEILINGS: Record<string, number> = {
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
   'compiler/src/tiler/vector-tiler.ts': 1790,
   'compiler/src/ir/lower.ts': 1409,
-  // #777 I-F (icon value-forms) grows three symbol-lowering god-files:
-  //  layers-symbol 1296→1311: icon-size + icon-translate data-driven emit
-  //    (exprToXgis paths mirroring the icon-opacity emit — replaces two warns).
-  //  lower-label 1101→1129: labelIconSizeExpr / labelIconTranslateExpr parse
-  //    arms + knob decls + type + return + buildLabelShapes wiring.
-  //  render-node 913→918: LabelDef.iconTranslateExpr field + doc.
-  'compiler/src/convert/layers-symbol.ts': 1311,
-  'compiler/src/ir/lower-label.ts': 1129,
+  // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
+  // symbol-lowering god-files (per-row justification in
+  // architecture-invariants.test.ts, the second authority):
+  //  layers-symbol 1296→1328: I-B keep-upright emit + I-F icon-size /
+  //    icon-translate data-driven emit (exprToXgis, replaces two warns).
+  //  lower-label 1101→1145: I-B labelIconKeepUpright knob + I-F
+  //    labelIconSizeExpr / labelIconTranslateExpr parse arms + knob decls +
+  //    types + return + buildLabelShapes wiring.
+  //  render-node 913→928: I-B LabelDef.iconKeepUpright + I-F
+  //    LabelDef.iconTranslateExpr fields + docs.
+  'compiler/src/convert/layers-symbol.ts': 1328,
+  'compiler/src/ir/lower-label.ts': 1145,
   'compiler/src/tokens/colors.ts': 937,
-  'compiler/src/ir/render-node.ts': 918,
+  'compiler/src/ir/render-node.ts': 928,
   'compiler/src/convert/paint-helpers.ts': 826,
   'blueprint/src/editor.ts': 1448,
 }

@@ -250,4 +250,18 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
     supported: true,
     note: 'true → LabelDef.iconOptional: colliding icon may hide while paired text shows; default false reverse-arbitration deferred (Phase S Batch 4)',
   },
+  {
+    property: 'icon-padding',
+    layerType: 'symbol',
+    variant: 'constant',
+    supported: true,
+    note: 'px → LabelDef.iconPadding: IconStage collision-box padding replaces the fixed 2*dpr; absent = spec default 2, byte-identical (#777 I-D)',
+  },
+  {
+    property: 'icon-keep-upright',
+    layerType: 'symbol',
+    variant: 'constant',
+    supported: true,
+    note: 'true → LabelDef.iconKeepUpright: line-placed map-aligned tangent folds into the upright half-plane; EXPLICIT authoring only — absent keeps the always-follow-tangent render (#777 I-B)',
+  },
 ]
