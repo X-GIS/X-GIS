@@ -114,6 +114,9 @@ export function lowerLabelProps(
   // shape as labelSizeZoomStops (iter 523).
   const labelIconSizeZoomStops: ZoomStop<number>[] = []
   let labelIconSizeZoomStopsBase: number | undefined
+  // Mapbox `icon-size: case/match/get` — per-feature expr (#777 I-F);
+  // mirrors labelSizeExpr for text-size.
+  let labelIconSizeExpr: { ast: unknown } | undefined
   let labelIconAnchor: import('./render-node').LabelDef['iconAnchor'] | undefined
   let labelIconOffset: [number, number] | undefined
   // Mapbox `paint.icon-translate` — viewport CSS-px screen offset on the
@@ -121,6 +124,9 @@ export function lowerLabelProps(
   // shield + caption style can offset icon vs text independently).
   let labelIconTranslateX: number | undefined
   let labelIconTranslateY: number | undefined
+  // Mapbox `icon-translate: case/match/get` — per-feature expr resolving
+  // to a [dx,dy] pair (#777 I-F); mirrors labelIconImageExpr's plumbing.
+  let labelIconTranslateExpr: { ast: unknown } | undefined
   // Mapbox `icon-translate-anchor: map` — world-space (bearing-rotated)
   // icon-translate. Default (undefined) = viewport/screen-space.
   let labelIconTranslateAnchorMap: boolean | undefined
@@ -209,6 +215,20 @@ export function lowerLabelProps(
         }
         if (!zoomStops && name === 'label-icon-opacity') {
           labelIconOpacityExpr = { ast: item.binding }
+          continue
+        }
+        // Data-driven icon-size (case / match / get) → per-feature expr
+        // (#777 I-F); the zoom-interp form was consumed by the label-icon
+        // -size zoomStops arm above.
+        if (!zoomStops && name === 'label-icon-size') {
+          labelIconSizeExpr = { ast: item.binding }
+          continue
+        }
+        // Non-constant icon-translate expr → per-feature [dx,dy] pair
+        // (#777 I-F). Distinct name from the constant label-icon-translate
+        // -{x,y}-N arms; captured whole for the runtime evaluate.
+        if (name === 'label-icon-translate') {
+          labelIconTranslateExpr = { ast: item.binding }
           continue
         }
         // Non-zoom-interp label-size binding → per-feature evaluation
@@ -824,6 +844,7 @@ export function lowerLabelProps(
     labelIconOffset,
     labelIconTranslateX,
     labelIconTranslateY,
+    labelIconTranslateExpr,
     labelIconTranslateAnchorMap,
     labelIconRotate,
     labelIconOpacity,
@@ -834,6 +855,7 @@ export function lowerLabelProps(
     labelIconPadding,
     labelIconSizeZoomStops: labelIconSizeZoomStops.length > 0 ? labelIconSizeZoomStops : undefined,
     labelIconSizeZoomStopsBase,
+    labelIconSizeExpr,
     labelOpacityZoomStops: labelOpacityZoomStops.length > 0 ? labelOpacityZoomStops : undefined,
     labelOpacityZoomStopsBase,
     labelOpacityExpr,
@@ -909,10 +931,12 @@ function foldLabelKnobs(
     labelIconSize?: number
     labelIconSizeZoomStops?: ZoomStop<number>[]
     labelIconSizeZoomStopsBase?: number
+    labelIconSizeExpr?: { ast: unknown }
     labelIconAnchor?: import('./render-node').LabelDef['iconAnchor']
     labelIconOffset?: [number, number]
     labelIconTranslateX?: number
     labelIconTranslateY?: number
+    labelIconTranslateExpr?: { ast: unknown }
     labelIconTranslateAnchorMap?: boolean
     labelIconRotate?: number
     labelIconOpacity?: number
@@ -1023,6 +1047,9 @@ function foldLabelKnobs(
     ...(knobs.labelIconTranslateY !== undefined
       ? { iconTranslateY: knobs.labelIconTranslateY }
       : {}),
+    ...(knobs.labelIconTranslateExpr !== undefined
+      ? { iconTranslateExpr: knobs.labelIconTranslateExpr }
+      : {}),
     ...(knobs.labelIconTranslateAnchorMap !== undefined
       ? { iconTranslateAnchorMap: knobs.labelIconTranslateAnchorMap }
       : {}),
@@ -1076,6 +1103,7 @@ function foldLabelKnobs(
         ? knobs.labelIconSizeZoomStops
         : undefined,
     iconSizeZoomStopsBase: knobs.labelIconSizeZoomStopsBase,
+    iconSizeExpr: knobs.labelIconSizeExpr as import('./render-node').DataExpr | undefined,
     opacityZoomStops:
       knobs.labelOpacityZoomStops && knobs.labelOpacityZoomStops.length > 0
         ? knobs.labelOpacityZoomStops

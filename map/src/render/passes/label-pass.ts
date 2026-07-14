@@ -717,6 +717,21 @@ class LabelPass implements RenderPass {
           shapes && shapes.textPaint.color !== null && shapes.textPaint.color.kind === 'data-driven'
             ? shapes.textPaint.color.expr.ast
             : null
+        // Per-feature icon-size / icon-opacity (#777 I-F). Data-driven
+        // forms land as `data-driven` PropertyShapes; resolveLabelEffectiveDef
+        // leaves them at the static def fallback, so we evaluate the AST
+        // per feature here and override iconSize / iconOpacity — mirror of
+        // the text-size / text-color paths above.
+        const iconSizeExprAst =
+          shapes && shapes.icon.iconSize !== null && shapes.icon.iconSize.kind === 'data-driven'
+            ? shapes.icon.iconSize.expr.ast
+            : null
+        const iconOpacityExprAst =
+          shapes &&
+          shapes.icon.iconOpacity !== null &&
+          shapes.icon.iconOpacity.kind === 'data-driven'
+            ? shapes.icon.iconOpacity.expr.ast
+            : null
         // Per-feature icon-image expression. Compiler emits this
         // when Mapbox `icon-image: ["match", ["get", "subclass"], …]`
         // is present (OFM POI layers). Runtime evaluates the AST
@@ -724,6 +739,9 @@ class LabelPass implements RenderPass {
         // dispatchIcon's existing const-path (which already gates
         // on def.iconImage !== undefined and calls IconStage.addIcon).
         const iconImageExprAst = def.iconImageExpr?.ast ?? null
+        // Per-feature icon-translate expression (#777 I-F) — evaluates to
+        // a `[dx,dy]` pair overriding iconTranslateX/Y at dispatch.
+        const iconTranslateExprAst = def.iconTranslateExpr?.ast ?? null
         const cameraZoom = host.camera.zoom
         // iter-259 (Plan AAA B.7) — applyFeatureExprs cache. Key
         // on props ref + zoomBucket (0.25 zoom resolution). For
@@ -741,7 +759,14 @@ class LabelPass implements RenderPass {
         // work.
         const zoomBucket = Math.round(cameraZoom * 4)
         const applyFeatureExprs = (props: Record<string, unknown>) => {
-          if (sizeExprAst === null && colorExprAst === null && iconImageExprAst === null)
+          if (
+            sizeExprAst === null &&
+            colorExprAst === null &&
+            iconImageExprAst === null &&
+            iconSizeExprAst === null &&
+            iconOpacityExprAst === null &&
+            iconTranslateExprAst === null
+          )
             return effectiveDef
           const cached = host._featureExprsCache.get(props)
           if (
@@ -789,6 +814,44 @@ class LabelPass implements RenderPass {
               }
             } catch {
               /* fall back to effectiveDef.iconImage */
+            }
+          }
+          if (iconSizeExprAst !== null) {
+            try {
+              const v = evaluate(iconSizeExprAst as import('@xgis/compiler').Expr, bag)
+              // Clamp negatives to 0 (spec >= 0) — mirrors the constant
+              // converter clamp so per-feature matches compile-time.
+              if (typeof v === 'number' && isFinite(v)) out.iconSize = Math.max(0, v)
+            } catch {
+              /* fall back to effectiveDef.iconSize */
+            }
+          }
+          if (iconOpacityExprAst !== null) {
+            try {
+              const v = evaluate(iconOpacityExprAst as import('@xgis/compiler').Expr, bag)
+              if (typeof v === 'number' && isFinite(v))
+                out.iconOpacity = Math.max(0, Math.min(1, v))
+            } catch {
+              /* fall back to effectiveDef.iconOpacity */
+            }
+          }
+          if (iconTranslateExprAst !== null) {
+            try {
+              const v = evaluate(iconTranslateExprAst as import('@xgis/compiler').Expr, bag)
+              // icon-translate resolves to a [dx,dy] pair; both finite.
+              if (
+                Array.isArray(v) &&
+                v.length === 2 &&
+                typeof v[0] === 'number' &&
+                isFinite(v[0]) &&
+                typeof v[1] === 'number' &&
+                isFinite(v[1])
+              ) {
+                out.iconTranslateX = v[0]
+                out.iconTranslateY = v[1]
+              }
+            } catch {
+              /* fall back to effectiveDef.iconTranslateX/Y */
             }
           }
           // iter-259 — cache the result. Stores the resolved

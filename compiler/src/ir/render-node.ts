@@ -616,6 +616,11 @@ export interface LabelDef {
    *  is the only honoured mode. */
   iconTranslateX?: number
   iconTranslateY?: number
+  /** Mapbox `icon-translate` non-constant (expression) form — a
+   *  per-feature/zoom expr resolving to a `[dx,dy]` pair, evaluated at
+   *  dispatch by applyFeatureExprs into `iconTranslateX/Y` (#777 I-F).
+   *  Mirror of `iconImageExpr`'s plumbing. */
+  iconTranslateExpr?: { ast: unknown }
   /** Mapbox `icon-translate-anchor`="map": dispatchIcon rotates the icon translate by the map bearing. Default = screen-space, byte-identical. */
   iconTranslateAnchorMap?: boolean
   /** Mapbox `icon-rotate` in degrees clockwise. Default 0. */

@@ -120,7 +120,12 @@ const CEILINGS: Record<string, number> = {
   // mercator: the perspectiveScale() scratch getter). +21, dominated by prettier
   // wraps (the 6-name projector destructure + the globe arm's 8-arg dispatchIcon
   // both go one-per-line). Same existing call sites; nothing extract-worthy (§2).
-  'map/src/render/passes/label-pass.ts': 1749,
+  // 1749→1812 (#777 I-F): applyFeatureExprs gains 3 per-feature icon value-forms
+  // (icon-size / icon-opacity data-driven eval + icon-translate expr → [dx,dy]) —
+  // the 3 exprAst sources, the extended null-guard, and 3 evaluate blocks, mirroring
+  // the existing text-size/color/icon-image arms (§2: same closure, nothing extract-
+  // worthy). +prettier wraps.
+  'map/src/render/passes/label-pass.ts': 1812,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -163,10 +168,16 @@ const CEILINGS: Record<string, number> = {
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
   'compiler/src/tiler/vector-tiler.ts': 1790,
   'compiler/src/ir/lower.ts': 1409,
-  'compiler/src/convert/layers-symbol.ts': 1296,
-  'compiler/src/ir/lower-label.ts': 1101,
+  // #777 I-F (icon value-forms) grows three symbol-lowering god-files:
+  //  layers-symbol 1296→1311: icon-size + icon-translate data-driven emit
+  //    (exprToXgis paths mirroring the icon-opacity emit — replaces two warns).
+  //  lower-label 1101→1129: labelIconSizeExpr / labelIconTranslateExpr parse
+  //    arms + knob decls + type + return + buildLabelShapes wiring.
+  //  render-node 913→918: LabelDef.iconTranslateExpr field + doc.
+  'compiler/src/convert/layers-symbol.ts': 1311,
+  'compiler/src/ir/lower-label.ts': 1129,
   'compiler/src/tokens/colors.ts': 937,
-  'compiler/src/ir/render-node.ts': 913,
+  'compiler/src/ir/render-node.ts': 918,
   'compiler/src/convert/paint-helpers.ts': 826,
   'blueprint/src/editor.ts': 1448,
 }

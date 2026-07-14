@@ -72,6 +72,9 @@ export function buildLabelShapes(input: {
   iconSize?: number
   iconSizeZoomStops?: import('./render-node').ZoomStop<number>[]
   iconSizeZoomStopsBase?: number
+  /** Mapbox `icon-size: case/match/get` — per-feature form (#777 I-F).
+   *  Supersedes the constant / zoom-interp inputs when present. */
+  iconSizeExpr?: import('./render-node').DataExpr
   /** Mapbox `text-opacity` non-constant forms. Constant is folded
    *  into `color`'s alpha at convert-time (applyAlphaMultiplier).
    *  Iter 113. */
@@ -163,7 +166,11 @@ export function buildLabelShapes(input: {
   // inner values and the runtime fell back to the constant 1, rendering
   // arrows 2× too large at z<=15.
   let iconSize: Shape<number> | null = null
-  if (input.iconSizeZoomStops && input.iconSizeZoomStops.length > 0) {
+  if (input.iconSizeExpr) {
+    // Data-driven icon-size (#777 I-F) — runtime applyFeatureExprs
+    // evaluates it per feature (mirror of `size`'s sizeExpr branch).
+    iconSize = { kind: 'data-driven', expr: input.iconSizeExpr }
+  } else if (input.iconSizeZoomStops && input.iconSizeZoomStops.length > 0) {
     iconSize = {
       kind: 'zoom-interpolated',
       stops: input.iconSizeZoomStops,
