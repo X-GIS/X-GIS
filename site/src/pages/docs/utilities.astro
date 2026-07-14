@@ -60,12 +60,13 @@ const utilFamilies: UtilFamily[] = [
   },
   {
     name: 'Opacity',
-    signature: 'opacity-<N>',
-    body: 'Layer opacity in 0-100 range. `opacity-80` = 0.8.',
+    signature: 'opacity-<N> | opacity-[<fraction>]',
+    body: 'Layer opacity on a 0-100 integer scale — `opacity-80` = 0.8, `opacity-100` = 1. For a sub-integer alpha use the bracket form with a 0-1 fraction: `opacity-[0.33]` = 0.33.',
     examples: [
       'opacity-100',
       'opacity-80',
       'opacity-30',
+      'opacity-[0.33]',
     ],
   },
   {

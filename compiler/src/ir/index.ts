@@ -1,5 +1,19 @@
 export { resolveUtilities, type ResolvedProperties } from './utility-resolver'
 export { lower } from './lower'
+// Single declarative authority for the utility micro-grammar (#1067): the
+// prefix table + longest-match classifier that the lowering dispatch and
+// keyframe validation are generated from, plus the nearest-name suggester.
+export {
+  UTILITY_REGISTRY,
+  classifyUtility,
+  isKnownUtility,
+  suggestUtility,
+  type UtilityDef,
+  type UtilityValueKind,
+  type UtilityUnit,
+  type UtilityAppliesTo,
+  type UtilityMatch,
+} from './utility-registry'
 // Zoom-stop extractors (WS-1 background zoom-interp). The runtime re-parses
 // a `background { fill: interpolate(zoom, …) }` / `opacity: interpolate(…)`
 // styleProperty string into an AST.Expr and pulls its (zoom, value) stops so

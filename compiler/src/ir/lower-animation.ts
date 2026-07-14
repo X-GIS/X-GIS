@@ -14,7 +14,9 @@
 import type * as AST from '../parser/ast'
 import { resolveColor } from '../tokens/colors'
 import type { RGBA } from './property-types'
-import { type TimeStop, hexToRgba } from './render-node'
+import { type TimeStop, type Diagnostic, hexToRgba } from './render-node'
+import { classifyUtility, suggestUtility } from './utility-registry'
+import { UNKNOWN_UTILITY } from '../diagnostics/diagnostic'
 
 /** The six per-property time-stop arrays produced by a keyframe expansion. */
 export interface KeyframeTimeStops {
@@ -38,11 +40,17 @@ export interface KeyframeTimeStops {
  * inputs; nothing is written back. The promotion block destructures the
  * result and runs unchanged.
  *
+ * Unknown or non-animatable utilities inside a frame are no longer silently
+ * ignored (#1067): each frame utility is classified against the single utility
+ * registry (utility-registry.ts) and anything that is not one of the six
+ * animatable axes is surfaced as an X-GIS0013 error on `diagnostics`.
+ *
  * @param animationName       referenced keyframes name (null = no animation)
  * @param animationDurationMs duration in ms; scales each frame's percent
  * @param keyframesMap        the program's keyframes symbol table
  * @param stmtName            layer name (for the unknown-keyframes throw)
- * @param stmtLine            layer statement line (for the throw)
+ * @param stmtLine            layer statement line (for the throw + diagnostics)
+ * @param diagnostics         shared sink for the X-GIS0013 unknown/non-animatable errors
  */
 export function expandKeyframeTimeStops(
   animationName: string | null,
@@ -50,6 +58,7 @@ export function expandKeyframeTimeStops(
   keyframesMap: Map<string, AST.KeyframesStatement>,
   stmtName: string,
   stmtLine: number,
+  diagnostics: Diagnostic[],
 ): KeyframeTimeStops {
   const opacityTimeStops: TimeStop<number>[] = []
   const fillTimeStops: TimeStop<RGBA>[] = []
@@ -69,6 +78,28 @@ export function expandKeyframeTimeStops(
       const timeMs = (frame.percent / 100) * animationDurationMs
       for (const item of frame.utilities) {
         const uname = item.name
+        // ── Registry gate (#1067): reject unknown / non-animatable utilities
+        //    instead of silently dropping them. The animatable subset IS the
+        //    table's `animatable` rows — opacity, fill/stroke colour, stroke
+        //    width, size, stroke-dashoffset — so a `keyframes` block that names
+        //    anything else (a typo, or a real-but-not-animatable paint axis)
+        //    now fails CI through the unified diagnostics channel.
+        const def = classifyUtility(uname)
+        if (!def || !def.animatable) {
+          const help = def ? undefined : suggestUtility(uname)
+          diagnostics.push({
+            severity: 'error',
+            code: UNKNOWN_UTILITY,
+            span: { line: stmtLine, col: 1 },
+            message: def
+              ? `Utility "${uname}" is not animatable — a \`keyframes\` block can only ` +
+                `animate opacity, fill/stroke colour, stroke width, size and ` +
+                `stroke-dashoffset (layer '${stmtName}').`
+              : `Unknown utility "${uname}" in keyframes block (layer '${stmtName}').`,
+            ...(help ? { help: `Did you mean \`${help}\`?` } : {}),
+          })
+          continue
+        }
         // ── opacity ──
         if (uname.startsWith('opacity-')) {
           const num = parseFloat(uname.slice('opacity-'.length))
@@ -118,8 +149,12 @@ export function expandKeyframeTimeStops(
           }
           continue
         }
-        // Unknown keyframe utilities are silently ignored. Future PRs
-        // extend this loop (transforms, filters, etc.).
+        // No trailing silent-ignore: the registry gate above already rejected
+        // every unknown / non-animatable utility. A known-animatable utility
+        // that reaches here without matching an arm is only the degenerate
+        // bracket-binding base name (`fill` from `fill-[expr]`), which carries
+        // no constant frame value — nothing to push. Future PRs add the arms
+        // for new animatable axes (transforms, filters, …) + their table rows.
       }
     }
   }

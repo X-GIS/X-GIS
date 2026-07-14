@@ -76,11 +76,16 @@ function applyUtility(props: ResolvedProperties, name: string): void {
     }
   }
 
-  // opacity-{N} — e.g., opacity-80 → 0.8
+  // opacity-{N} — uniform 0..100 integer scale (opacity-80 → 0.8,
+  // opacity-100 → 1). #1067 removed the `num <= 1 ? num : num/100` cliff
+  // (which made opacity-1 mean 1.0 but opacity-2 mean 0.02) so this inline
+  // resolver agrees with the utility registry and the lower()/keyframe
+  // paths. Fractions use the bracket form `opacity-[0.33]` (lowered by
+  // lower.ts; the bracket form is not consumed by this name-only resolver).
   if (name.startsWith('opacity-')) {
     const num = parseFloat(name.slice(8))
     if (!isNaN(num)) {
-      props.opacity = num <= 1 ? num : num / 100
+      props.opacity = num / 100
       return
     }
   }
