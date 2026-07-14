@@ -444,15 +444,33 @@ export class TileSelectionCache {
           if (cachedStep !== undefined) {
             stepTiles = cachedStep
           } else {
-            stepTiles = visibleTilesSSE(
-              camera,
-              selectorProj,
-              step,
-              canvasWidth,
-              canvasHeight,
-              offsetMarginPx,
-              dpr,
-            )
+            // #1078: probe readiness through the SAME selector the frame draws with.
+            // On the globe/sphere route the visible set is globeVisibleTiles
+            // (hemisphere/pole culling), differing from the flat visibleTilesSSE set
+            // near the horizon/poles — a flat probe would decide cz hold/advance over
+            // tiles the sphere never draws. Mirror the frame's routeToSphereSelector
+            // dispatch (main selection below); flat routes keep the SSE probe verbatim.
+            const gateProjType = (camera as { projType?: number }).projType ?? 0
+            stepTiles = routeToSphereSelector(gateProjType, camera.globeMode)
+              ? globeVisibleTiles(
+                  centerLon,
+                  representsCenterAs(gateProjType) === 'lat-deg' ? camera.centerLatDeg : centerLat,
+                  camera.zoom,
+                  step,
+                  canvasWidth / dpr,
+                  canvasHeight / dpr,
+                  camera.pitch ?? 0,
+                  camera.bearing ?? 0,
+                )
+              : visibleTilesSSE(
+                  camera,
+                  selectorProj,
+                  step,
+                  canvasWidth,
+                  canvasHeight,
+                  offsetMarginPx,
+                  dpr,
+                )
             this._gateSSECache.set(gateKey, stepTiles)
           }
           for (const t of stepTiles) {
