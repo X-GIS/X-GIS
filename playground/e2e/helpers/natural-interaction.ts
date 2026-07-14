@@ -56,11 +56,11 @@ export async function runInteraction(
       const map = (window as unknown as { __xgisMap?: unknown }).__xgisMap
       if (!map)
         throw new Error('runInteraction: window.__xgisMap not set — host page must expose it')
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+
       const ease: (t: number) => number = easeSrc
         ? (new Function(`return (${easeSrc})`) as () => (t: number) => number)()
         : (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+
       const body = new Function('mapId', 't', bodySrc) as (mapId: string, t: number) => void
       const start = performance.now()
       let prev = start

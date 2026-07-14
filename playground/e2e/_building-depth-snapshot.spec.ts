@@ -114,30 +114,27 @@ test.describe('3D building depth-sort: scene snapshot', () => {
         }
       }
 
-      // eslint-disable-next-line no-console
       console.log(`\n[building-snapshot ${scn.slug}]`)
-      // eslint-disable-next-line no-console
+
       console.log(
         `  camera: lon=${snap.camera.lon.toFixed(4)} lat=${snap.camera.lat.toFixed(4)} z=${snap.camera.zoom.toFixed(2)} pitch=${snap.camera.pitch.toFixed(1)}°`,
       )
-      // eslint-disable-next-line no-console
+
       console.log(`  pixelHash: ${snap.pixelHash.slice(0, 16)}... (${snap.pixelHashBy})`)
-      // eslint-disable-next-line no-console
+
       console.log(`  fill events: ${fillEvents.length} total`)
-      // eslint-disable-next-line no-console
+
       console.log(`    by route: ${[...byRoute.entries()].map(([k, v]) => `${k}=${v}`).join(', ')}`)
-      // eslint-disable-next-line no-console
+
       console.log(
         `    by extrude+route: ${[...byExtrude.entries()].map(([k, v]) => `${k}=${v}`).join(', ')}`,
       )
       if (tilesWithoutZBuffer.length > 0) {
-        // eslint-disable-next-line no-console
         console.log(
           `  ⚠ ${tilesWithoutZBuffer.length} feature-extrude tiles WITHOUT zBuffer (fell back to fillPipeline)`,
         )
       }
       for (const [name, src] of Object.entries(snap.sources)) {
-        // eslint-disable-next-line no-console
         console.log(
           `  source[${name}]: gpu=${src.gpuCacheCount}, pendingFetch=${src.pendingFetch}, pendingUpload=${src.pendingUpload}, tiles=${src.tiles.length}`,
         )
@@ -186,11 +183,10 @@ test.describe('3D building depth-sort: scene snapshot', () => {
     await page.waitForTimeout(1500)
     const b = await grab()
 
-    // eslint-disable-next-line no-console
     console.log(
       `[determinism] a.hash=${a.pixelHash.slice(0, 16)} b.hash=${b.pixelHash.slice(0, 16)}`,
     )
-    // eslint-disable-next-line no-console
+
     console.log(`[determinism] a.tiles=${a.tileCount}, b.tiles=${b.tileCount}`)
     // Same tile count is the bare-minimum determinism check (cache
     // shouldn't shift just because we waited). Pixel hash equality

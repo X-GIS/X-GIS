@@ -62,7 +62,7 @@ test('landing-page hero map renders the full world', async ({ page }) => {
     }
     return { nonBgFraction: nonBg / total, width: img.width, height: img.height }
   })
-  // eslint-disable-next-line no-console
+
   console.log(
     `[hero-map] canvas ${(stats as { width: number; height: number }).width}×${(stats as { width: number; height: number }).height}, non-bg fraction = ${((stats as { nonBgFraction: number }).nonBgFraction * 100).toFixed(1)}%`,
   )

@@ -186,7 +186,7 @@ test.describe('pixel-match-seoul-zoom-matrix (mercator only)', () => {
         )
 
         const le32 = buckets.eq0 + buckets.le8 + buckets.le16 + buckets.le32
-        // eslint-disable-next-line no-console
+
         console.log(
           `[matrix z=${zoom} p=${pitch}] eq=${((buckets.eq0 / totalPx) * 100).toFixed(2)}% ` +
             `le32=${((le32 / totalPx) * 100).toFixed(2)}% gt128=${buckets.gt128}px`,
@@ -220,7 +220,7 @@ test.describe('pixel-match-seoul-zoom-matrix (mercator only)', () => {
     lines.push('Globe + non-Merc projection compare is a separate follow-up')
     lines.push('(needs compare-runner projection routing + MapLibre globe init).')
     writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))
-    // eslint-disable-next-line no-console
+
     console.log(`[matrix] REPORT → ${join(OUT, 'REPORT.md')}`)
   })
 })

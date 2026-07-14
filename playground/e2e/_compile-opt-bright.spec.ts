@@ -43,9 +43,9 @@ function runBreakdown(fixtureName: string, label: string): void {
 
   // ─── Stage 0: input ──────────────────────────────────────────
   const rawLayers = styleJson.layers.length
-  // eslint-disable-next-line no-console
+
   console.log(`\n══ ${label} compile pipeline ══`)
-  // eslint-disable-next-line no-console
+
   console.log(`stage 0  raw Mapbox layers:                ${rawLayers}`)
 
   // ─── Stage 1+2: Mapbox→XGIS conversion ───────────────────────
@@ -63,15 +63,14 @@ function runBreakdown(fixtureName: string, label: string): void {
   const defaultLayers = countLayers(xgisDefault)
   const computeLayers = countLayers(xgisCompute)
 
-  // eslint-disable-next-line no-console
   console.log(
     `stage 1  after convertMapboxStyle (default): ${defaultLayers}  (${(t1b - t1a).toFixed(1)} ms)`,
   )
-  // eslint-disable-next-line no-console
+
   console.log(
     `stage 2  after convertMapboxStyle (compute):  ${computeLayers}  (${(t1c - t1b).toFixed(1)} ms)`,
   )
-  // eslint-disable-next-line no-console
+
   console.log(
     `         expandPerFeatureColorMatch fan-out:  ${defaultLayers - computeLayers} extra layers`,
   )
@@ -81,7 +80,6 @@ function runBreakdown(fixtureName: string, label: string): void {
 
   // ─── Stage 3: lex → parse → lower ────────────────────────────
   const compileFullyInstrumented = (src: string, label: string) => {
-    // eslint-disable-next-line no-console
     console.log(`\n── pipeline (${label}) ──`)
     const t0 = performance.now()
     const tokens = new Lexer(src).tokenize()
@@ -90,7 +88,7 @@ function runBreakdown(fixtureName: string, label: string): void {
     const t2 = performance.now()
     const sceneRaw = lower(program)
     const t3 = performance.now()
-    // eslint-disable-next-line no-console
+
     console.log(
       `  lex+parse+lower:                          ${sceneRaw.renderNodes.length} renderNodes  (lex ${(t1 - t0).toFixed(1)} / parse ${(t2 - t1).toFixed(1)} / lower ${(t3 - t2).toFixed(1)} ms)`,
     )
@@ -102,19 +100,19 @@ function runBreakdown(fixtureName: string, label: string): void {
     const afterStops = foldTrivialStopsPass.run(sceneRaw)
     const afterCase = foldTrivialCasePass.run(sceneRaw)
     const afterDead = deadLayerElimPass.run(sceneRaw)
-    // eslint-disable-next-line no-console
+
     console.log(
       `  merge-layers       (alone):              ${afterMerge.renderNodes.length}  Δ ${afterMerge.renderNodes.length - sceneRaw.renderNodes.length}`,
     )
-    // eslint-disable-next-line no-console
+
     console.log(
       `  fold-trivial-stops (alone):              ${afterStops.renderNodes.length}  Δ ${afterStops.renderNodes.length - sceneRaw.renderNodes.length}`,
     )
-    // eslint-disable-next-line no-console
+
     console.log(
       `  fold-trivial-case  (alone):              ${afterCase.renderNodes.length}  Δ ${afterCase.renderNodes.length - sceneRaw.renderNodes.length}`,
     )
-    // eslint-disable-next-line no-console
+
     console.log(
       `  dead-layer-elim    (alone):              ${afterDead.renderNodes.length}  Δ ${afterDead.renderNodes.length - sceneRaw.renderNodes.length}`,
     )
@@ -123,11 +121,11 @@ function runBreakdown(fixtureName: string, label: string): void {
     const t4 = performance.now()
     const opt = optimize(sceneRaw, program)
     const t5 = performance.now()
-    // eslint-disable-next-line no-console
+
     console.log(
       `  optimize() composed:                      ${opt.renderNodes.length}  (${(t5 - t4).toFixed(1)} ms)`,
     )
-    // eslint-disable-next-line no-console
+
     console.log(
       `  ── total reduction: ${sceneRaw.renderNodes.length} → ${opt.renderNodes.length}` +
         `  (${((1 - opt.renderNodes.length / sceneRaw.renderNodes.length) * 100).toFixed(1)}%)`,
@@ -135,9 +133,9 @@ function runBreakdown(fixtureName: string, label: string): void {
 
     // ─── Stage final: StyleProfile (deps / CSE / palette / compute) ───
     const profile = getStyleProfile(opt)
-    // eslint-disable-next-line no-console
+
     console.log(`\n  StyleProfile (formatted):`)
-    // eslint-disable-next-line no-console
+
     console.log(
       formatStyleProfile(profile)
         .split('\n')
@@ -192,12 +190,11 @@ function runBreakdown(fixtureName: string, label: string): void {
       byShape.set(key, (byShape.get(key) ?? 0) + 1)
     }
     const shapes = [...byShape.entries()].sort((a, b) => b[1] - a[1])
-    // eslint-disable-next-line no-console
+
     console.log(
       `\n  ALL paint axes (${allAxes.length} entries, feature/cond=${featureAxes.length}):`,
     )
     for (const [shape, count] of shapes) {
-      // eslint-disable-next-line no-console
       console.log(`    ${String(count).padStart(4)}× ${shape}`)
     }
 
@@ -228,9 +225,8 @@ function runNativeBreakdown(xgisFile: string, label: string): void {
   const filePath = path.resolve(__dirname, `../src/examples/${xgisFile}`)
   const src = fs.readFileSync(filePath, 'utf8')
 
-  // eslint-disable-next-line no-console
   console.log(`\n══ ${label} (xgis-native) compile pipeline ══`)
-  // eslint-disable-next-line no-console
+
   console.log(`stage 0  raw .xgis bytes:                    ${src.length}`)
 
   const t0 = performance.now()
@@ -240,7 +236,7 @@ function runNativeBreakdown(xgisFile: string, label: string): void {
   const t2 = performance.now()
   const sceneRaw = lower(program)
   const t3 = performance.now()
-  // eslint-disable-next-line no-console
+
   console.log(
     `  lex+parse+lower:                          ${sceneRaw.renderNodes.length} renderNodes` +
       `  (lex ${(t1 - t0).toFixed(1)} / parse ${(t2 - t1).toFixed(1)} / lower ${(t3 - t2).toFixed(1)} ms)`,
@@ -250,19 +246,19 @@ function runNativeBreakdown(xgisFile: string, label: string): void {
   const afterStops = foldTrivialStopsPass.run(sceneRaw)
   const afterCase = foldTrivialCasePass.run(sceneRaw)
   const afterDead = deadLayerElimPass.run(sceneRaw)
-  // eslint-disable-next-line no-console
+
   console.log(
     `  merge-layers       (alone):              ${afterMerge.renderNodes.length}  Δ ${afterMerge.renderNodes.length - sceneRaw.renderNodes.length}`,
   )
-  // eslint-disable-next-line no-console
+
   console.log(
     `  fold-trivial-stops (alone):              ${afterStops.renderNodes.length}  Δ ${afterStops.renderNodes.length - sceneRaw.renderNodes.length}`,
   )
-  // eslint-disable-next-line no-console
+
   console.log(
     `  fold-trivial-case  (alone):              ${afterCase.renderNodes.length}  Δ ${afterCase.renderNodes.length - sceneRaw.renderNodes.length}`,
   )
-  // eslint-disable-next-line no-console
+
   console.log(
     `  dead-layer-elim    (alone):              ${afterDead.renderNodes.length}  Δ ${afterDead.renderNodes.length - sceneRaw.renderNodes.length}`,
   )
@@ -270,11 +266,11 @@ function runNativeBreakdown(xgisFile: string, label: string): void {
   const t4 = performance.now()
   const opt = optimize(sceneRaw, program)
   const t5 = performance.now()
-  // eslint-disable-next-line no-console
+
   console.log(
     `  optimize() composed:                      ${opt.renderNodes.length}  (${(t5 - t4).toFixed(1)} ms)`,
   )
-  // eslint-disable-next-line no-console
+
   console.log(
     `  ── total reduction: ${sceneRaw.renderNodes.length} → ${opt.renderNodes.length}` +
       (sceneRaw.renderNodes.length > 0
@@ -283,9 +279,9 @@ function runNativeBreakdown(xgisFile: string, label: string): void {
   )
 
   const profile = getStyleProfile(opt)
-  // eslint-disable-next-line no-console
+
   console.log(`\n  StyleProfile (formatted):`)
-  // eslint-disable-next-line no-console
+
   console.log(
     formatStyleProfile(profile)
       .split('\n')

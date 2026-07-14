@@ -127,7 +127,7 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
         ctx.drawImage(canvas, 0, 0, 64, 64)
         const data = ctx.getImageData(0, 0, 64, 64).data
         let nonBg = 0
-        let uniqueColors = new Set<number>()
+        const uniqueColors = new Set<number>()
         for (let i = 0; i < data.length; i += 4) {
           const r = data[i],
             g = data[i + 1],
@@ -206,11 +206,11 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
     const realPageErrors = pageErrors.filter((s) => !ignorable(s))
 
     // Report everything, even ignorable, in test output for inspection.
-    // eslint-disable-next-line no-console
+
     console.log('\n=== convert e2e summary ===')
-    // eslint-disable-next-line no-console
+
     console.log('layers:', layerCount, 'monaco chars:', monacoText.length, 'title:', title)
-    // eslint-disable-next-line no-console
+
     console.log(
       'console.error (filtered):',
       realConsoleErrors.length,
@@ -218,42 +218,37 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
       consoleErrors.length,
     )
     if (realConsoleErrors.length > 0) {
-      // eslint-disable-next-line no-console
       console.log(realConsoleErrors.slice(0, 5).join('\n---\n'))
     }
     if (consoleErrors.length > 0) {
-      // eslint-disable-next-line no-console
       console.log('--- raw console.error dump ---')
-      // eslint-disable-next-line no-console
+
       console.log(consoleErrors.join('\n---\n'))
     }
     if (process.env.DEBUG_E2E) {
-      // eslint-disable-next-line no-console
       console.log('--- all console (last 15) ---')
-      // eslint-disable-next-line no-console
+
       console.log(allConsole.slice(-15).join('\n'))
     }
-    // eslint-disable-next-line no-console
+
     console.log('TileJSON attaches:', tileJsonLogs.length)
-    // eslint-disable-next-line no-console
+
     console.log('pixel sample:', JSON.stringify(pixelStats))
-    // eslint-disable-next-line no-console
+
     console.log('tile stats:', JSON.stringify(tileStats))
-    // eslint-disable-next-line no-console
+
     console.log('pbf/png fetches:', tileFetches.length)
     for (const f of tileFetches.slice(0, 6)) {
-      // eslint-disable-next-line no-console
       console.log(`  ${f.status} ${f.ok ? 'OK ' : 'BAD'} ${f.url}`)
     }
-    // eslint-disable-next-line no-console
+
     console.log('pageerror (filtered):', realPageErrors.length, '(raw):', pageErrors.length)
     if (realPageErrors.length > 0) {
-      // eslint-disable-next-line no-console
       console.log(realPageErrors.slice(0, 5).join('\n---\n'))
     }
-    // eslint-disable-next-line no-console
+
     console.log('alerts:', alerts.length, alerts.slice(0, 3))
-    // eslint-disable-next-line no-console
+
     console.log('error overlay visible:', errorBox, errorMsg ? `\n  ${errorMsg.slice(0, 200)}` : '')
 
     // The compiler / load step itself must not produce a real error.

@@ -101,7 +101,6 @@ for (const view of VIEWS) {
     test.setTimeout(180_000)
     page.on('console', (msg) => {
       if (msg.type() === 'error' || msg.type() === 'warning') {
-        // eslint-disable-next-line no-console
         console.warn('[page]', msg.text())
       }
     })
@@ -176,7 +175,7 @@ for (const view of VIEWS) {
     )
 
     const pct = (n: number) => ((n / totalPx) * 100).toFixed(2) + '%'
-    // eslint-disable-next-line no-console
+
     console.warn(
       `[buildings-only ${view.id}] eq=${pct(buckets.eq0)} ` +
         `≤8=${pct(buckets.eq0 + buckets.le8)} ` +

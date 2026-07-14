@@ -78,7 +78,6 @@ const FAMILY_TOL: Record<InkFamilyName, number> = {
 async function referenceIsAvailable(page: Page, cell: MatrixCell): Promise<boolean> {
   return await page.evaluate(
     async ({ proj, center, zoom }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const viteImport = (u: string): Promise<any> => import(/* @vite-ignore */ u)
       try {
         const cam = await viteImport('/render-verify/camera-map.ts')
@@ -114,7 +113,6 @@ async function runNumericForward(
   }
   const maxErrPx = await page.evaluate(
     async ({ proj, center, zoom }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const viteImport = (u: string): Promise<any> => import(/* @vite-ignore */ u)
       const dpr = window.devicePixelRatio || 1
       const cam = await viteImport('/render-verify/camera-map.ts')
@@ -246,7 +244,6 @@ async function runPixelRef(
   }
   const ratio = await page.evaluate(
     async ({ b64, proj, center, zoom }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const viteImport = (u: string): Promise<any> => import(/* @vite-ignore */ u)
       // Decode the GPU frame + read its true pixel dims and background colour.
       const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())

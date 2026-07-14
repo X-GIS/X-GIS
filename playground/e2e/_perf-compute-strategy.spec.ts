@@ -204,7 +204,7 @@ test('continent-match GPU strategy A/B — switch vs LUT', async ({ browser }) =
   } else {
     lines.push('Δ: insufficient kernel samples (compute timing 0 — adapter may lack the feature)')
   }
-  // eslint-disable-next-line no-console
+
   console.log(lines.join('\n'))
 
   fs.mkdirSync(path.resolve('test-results'), { recursive: true })

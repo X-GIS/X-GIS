@@ -145,7 +145,7 @@ test('demotiles europe — compute=0 vs MapLibre', async ({ page }) => {
   writeFileSync(join(OUT, 'compute0-ml.png'), PNG.sync.write(ml))
   writeFileSync(join(OUT, 'compute0-xg.png'), PNG.sync.write(xg))
   writeFileSync(join(OUT, 'compute0-buckets.json'), JSON.stringify({ buckets, total }, null, 2))
-  // eslint-disable-next-line no-console
+
   console.log(`[demotiles compute=0] ${fmtBuckets(buckets, total)}`)
 })
 
@@ -158,14 +158,13 @@ test('demotiles europe — compute=1 vs MapLibre (VTR P4 path)', async ({ page }
   page.on('pageerror', (err) => errors.push('pageerror: ' + err.message))
   const { ml, xg } = await loadAndCapture(page, 1)
   if (errors.length > 0) {
-    // eslint-disable-next-line no-console
     console.log('[demotiles compute=1] ERRORS:\n  ' + errors.slice(0, 10).join('\n  '))
   }
   const { buckets, total } = diffBuckets(ml, xg)
   writeFileSync(join(OUT, 'compute1-ml.png'), PNG.sync.write(ml))
   writeFileSync(join(OUT, 'compute1-xg.png'), PNG.sync.write(xg))
   writeFileSync(join(OUT, 'compute1-buckets.json'), JSON.stringify({ buckets, total }, null, 2))
-  // eslint-disable-next-line no-console
+
   console.log(`[demotiles compute=1] ${fmtBuckets(buckets, total)}`)
   // The VTR compute path should improve country-fill accuracy. We
   // don't pin a specific threshold here — the test is a measurement

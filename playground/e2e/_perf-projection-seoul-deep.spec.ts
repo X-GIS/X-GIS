@@ -161,7 +161,6 @@ test.describe('perf-projection-seoul-deep', () => {
         deepDraws: deep.drawCalls,
       })
 
-      // eslint-disable-next-line no-console
       console.log(
         `[seoul-deep ${proj}] z11Rendered=${z11Rendered} z11Selected=${z11Selected} z11Tiles=${z11.tilesVisible} ` +
           `sweep p95=${stats.p95.toFixed(1)} max=${stats.max.toFixed(1)} ` +
@@ -204,7 +203,7 @@ test.describe('perf-projection-seoul-deep', () => {
       )
     }
     writeFileSync(join(OUT_DIR, 'REPORT.md'), lines.join('\n'))
-    // eslint-disable-next-line no-console
+
     console.log(`[seoul-deep] report → ${join(OUT_DIR, 'REPORT.md')}`)
   })
 })

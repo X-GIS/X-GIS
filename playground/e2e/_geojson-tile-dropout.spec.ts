@@ -88,7 +88,7 @@ test.skip('GeoJSON ocean tiles render contiguously at z=7 near Korea (Yellow Sea
   })
 
   if ('error' in stats) throw new Error(stats.error)
-  // eslint-disable-next-line no-console
+
   console.log('[yellow-sea-dropout]', stats)
 
   const darkRatio = stats.darkGap / stats.total

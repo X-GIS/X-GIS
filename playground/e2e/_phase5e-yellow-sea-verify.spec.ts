@@ -93,14 +93,14 @@ test('phase5e — Yellow Sea ocean tile coverage with vs without VirtualPMTilesB
   const legacy = await captureDarkRatio(page, '?legacy=1')
   const legacyPng = await page.locator('canvas').first().screenshot()
   writeFileSync(join(ART, 'legacy.png'), legacyPng)
-  // eslint-disable-next-line no-console
+
   console.log('[phase5f legacy]', legacy)
 
   // Default (VirtualPMTilesBackend).
   const def = await captureDarkRatio(page, '')
   const defPng = await page.locator('canvas').first().screenshot()
   writeFileSync(join(ART, 'default-virt.png'), defPng)
-  // eslint-disable-next-line no-console
+
   console.log('[phase5f default]', def)
 
   // Both runs paint SOMETHING (not entirely empty / white).
@@ -118,7 +118,6 @@ test('phase5e — Yellow Sea ocean tile coverage with vs without VirtualPMTilesB
     'ocean coverage matches legacy within 1 %',
   ).toBeLessThan(0.01)
 
-  // eslint-disable-next-line no-console
   console.log('[phase5f diff]', {
     oceanGain: def.oceanRatio - legacy.oceanRatio,
     darkReduction: legacy.darkRatio - def.darkRatio,

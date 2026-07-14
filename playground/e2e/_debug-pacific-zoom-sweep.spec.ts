@@ -74,7 +74,7 @@ for (const zoom of ZOOMS) {
     writeFileSync(join(dir, 'xgis.png'), PNG.sync.write(xgNorm))
     writeFileSync(join(dir, 'diff.png'), PNG.sync.write(diff))
     metrics.push({ zoom, diffPixels, diffRatio: diffPixels / (w * h), width: w, height: h })
-    // eslint-disable-next-line no-console
+
     console.log(`[pacific-zoom] z=${zoom}  diff=${((diffPixels / (w * h)) * 100).toFixed(2)}%`)
   })
 }

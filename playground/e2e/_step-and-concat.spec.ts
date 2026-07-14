@@ -69,7 +69,6 @@ test('step (N-stop) + concat render city tiers + composite labels', async ({ pag
     return { pureWhite, rosePixels }
   })
 
-  // eslint-disable-next-line no-console
   console.log('[step-and-concat]', stats)
 
   if ('error' in stats) throw new Error(stats.error as string)

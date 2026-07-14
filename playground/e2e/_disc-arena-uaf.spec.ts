@@ -120,7 +120,6 @@ for (const proj of DISC_PROJECTIONS) {
     }
 
     if (uafErrors.length > 0) {
-      // eslint-disable-next-line no-console
       console.log(`[disc-arena-uaf] ${proj}: ${uafErrors.length} poly-arena UAF error(s):`)
       for (const e of uafErrors.slice(0, 5)) console.log(`  ${e}`)
     }

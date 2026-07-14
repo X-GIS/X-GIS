@@ -402,7 +402,7 @@ test('globe(7) EXTRUDED mesh lands at its true screen position (cam_ecef_off rec
   const fixToBuggy = Number.isFinite(buggyCx)
     ? Math.hypot(out.fix.cx - buggyCx, out.fix.cy - buggyCy)
     : Infinity
-  // eslint-disable-next-line no-console
+
   console.log(
     '[globe-ecef-render] oracle FIXED centroid =',
     fixedCx.toFixed(1),
@@ -412,14 +412,14 @@ test('globe(7) EXTRUDED mesh lands at its true screen position (cam_ecef_off rec
       ? `${buggyCx.toFixed(1)},${buggyCy.toFixed(1)}`
       : 'behind-camera (w<=0)',
   )
-  // eslint-disable-next-line no-console
+
   console.log(
     '[globe-ecef-render] GPU FIX painted =',
     JSON.stringify(out.fix),
     '| CURRENT painted =',
     JSON.stringify(out.current),
   )
-  // eslint-disable-next-line no-console
+
   console.log(
     '[globe-ecef-render] FIX→fixedOracle err =',
     fixErr.toFixed(2),

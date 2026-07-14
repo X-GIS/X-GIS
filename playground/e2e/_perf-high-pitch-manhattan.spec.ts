@@ -62,7 +62,6 @@ test('osm_style high-pitch Manhattan — baseline tile + frame stats', async ({ 
 
   // Capture per-VTR draw stats AFTER settle.
   const stats = await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const map = (window as any).__xgisMap
     if (!map?.vtSources) return [] as VTRStats[]
     const out: VTRStats[] = []
@@ -115,7 +114,6 @@ test('osm_style high-pitch Manhattan — baseline tile + frame stats', async ({ 
   const totalTriangles = stats.reduce((a, b) => a + b.triangles, 0)
   const totalLines = stats.reduce((a, b) => a + b.lines, 0)
 
-  // eslint-disable-next-line no-console
   console.log(`\n=== osm_style high-pitch Manhattan ===`)
   console.log(`  steady-state hold (3 s):`)
   console.log(`    median frame:  ${median.toFixed(1)} ms (${(1000 / median).toFixed(0)} fps)`)
@@ -150,7 +148,7 @@ test('osm_style high-pitch Manhattan — baseline tile + frame stats', async ({ 
       2,
     ),
   )
-  // eslint-disable-next-line no-console
+
   console.log(`\n[saved] ${out}`)
 
   // Regression guards. Pre-fix on 2026-05-11 desktop measurement:

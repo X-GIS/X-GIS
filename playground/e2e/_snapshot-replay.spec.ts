@@ -79,16 +79,15 @@ test.describe('snapshot capture → replay roundtrip', () => {
     if (!captured) throw new Error('capture returned null')
     await captureCtx.close()
 
-    // eslint-disable-next-line no-console
     console.log(
       `[capture] camera lon=${captured.camera.lon.toFixed(4)} lat=${captured.camera.lat.toFixed(4)} z=${captured.camera.zoom.toFixed(2)} pitch=${captured.camera.pitch.toFixed(1)}°`,
     )
-    // eslint-disable-next-line no-console
+
     console.log(
       `[capture] viewport ${captured.viewport.cssWidth}×${captured.viewport.cssHeight} (backing ${captured.viewport.width}×${captured.viewport.height}, dpr=${captured.viewport.dpr})`,
     )
     const totalTiles = Object.values(captured.sources).reduce((acc, s) => acc + s.tiles.length, 0)
-    // eslint-disable-next-line no-console
+
     console.log(`[capture] tiles=${totalTiles}, pixelHash=${captured.pixelHash.slice(0, 16)}...`)
 
     // Replay phase — fresh context, replicate the exact PAGE viewport
@@ -147,7 +146,6 @@ test.describe('snapshot capture → replay roundtrip', () => {
       if ('error' in replayResult) throw new Error(`replay retry failed: ${replayResult.error}`)
     }
 
-    // eslint-disable-next-line no-console
     console.log(
       `[replay] matched=${replayResult.matched}, missing=${replayResult.missingTiles}, pendingFetch=${replayResult.pendingFetchTotal}, pendingUpload=${replayResult.pendingUploadTotal}`,
     )
@@ -169,11 +167,10 @@ test.describe('snapshot capture → replay roundtrip', () => {
     })) as Snapshot | null
     if (!replayed) throw new Error('replay snapshot returned null')
 
-    // eslint-disable-next-line no-console
     console.log(
       `[replay] camera lon=${replayed.camera.lon.toFixed(4)} lat=${replayed.camera.lat.toFixed(4)} z=${replayed.camera.zoom.toFixed(2)}`,
     )
-    // eslint-disable-next-line no-console
+
     console.log(`[replay] pixelHash=${replayed.pixelHash.slice(0, 16)}...`)
 
     await replayCtx.close()
@@ -219,7 +216,7 @@ test.describe('snapshot capture → replay roundtrip', () => {
       pipelineRoute?: string
       tileKey?: number
     }>
-    // eslint-disable-next-line no-console
+
     console.log(
       `[render-order] capture=${captureOrder.length} events, replay=${replayOrder.length} events`,
     )
@@ -239,24 +236,22 @@ test.describe('snapshot capture → replay roundtrip', () => {
         }
       }
       if (firstDiff === -1) {
-        // eslint-disable-next-line no-console
         console.log('[render-order] IDENTICAL across capture/replay')
       } else {
         const a = captureOrder[firstDiff],
           b = replayOrder[firstDiff]
-        // eslint-disable-next-line no-console
+
         console.log(`[render-order] DIVERGES at idx ${firstDiff}:`)
-        // eslint-disable-next-line no-console
+
         console.log(
           `  capture[${firstDiff}]: slice=${a.slice} phase=${a.phase} pipe=${a.pipelineRoute} tile=${a.tileKey}`,
         )
-        // eslint-disable-next-line no-console
+
         console.log(
           `  replay[${firstDiff}]:  slice=${b.slice} phase=${b.phase} pipe=${b.pipelineRoute} tile=${b.tileKey}`,
         )
       }
     } else {
-      // eslint-disable-next-line no-console
       console.log('[render-order] LENGTH MISMATCH — capture had different draw count than replay')
     }
 
@@ -297,7 +292,7 @@ test.describe('snapshot capture → replay roundtrip', () => {
     const a = await grab()
     await page.waitForTimeout(1500)
     const b = await grab()
-    // eslint-disable-next-line no-console
+
     console.log(
       `[same-ctx] a.hash=${a.pixelHash.slice(0, 16)}, b.hash=${b.pixelHash.slice(0, 16)}, tiles=${a.tileCount}/${b.tileCount}`,
     )

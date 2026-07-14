@@ -151,7 +151,7 @@ test.describe('Mobile flat-pitch over-draw', () => {
     const expected = await page.evaluate(() => {
       const map = window.__xgisMap!
       const camera = map.camera!
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const cz = ([...map.vtSources!.values()][0].renderer as any)._selection
         ?._hysteresisZ as number
       const canvas = document.querySelector('canvas') as HTMLCanvasElement
@@ -182,7 +182,7 @@ test.describe('Mobile flat-pitch over-draw', () => {
         }
       }
       // Read what visibleTilesFrustum actually returned (cached).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const cache = ([...map.vtSources!.values()][0].renderer as any)._selection?.frameTileCache?.()
       const actualAtZ: { x: number; y: number }[] = []
       if (cache?.tiles) {
@@ -221,7 +221,7 @@ test.describe('Mobile flat-pitch over-draw', () => {
     const direct = await page.evaluate(async () => {
       const map = window.__xgisMap
       if (!map) return null
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const m = map as any
       const ctx = m.ctx
       // The runtime exports we need: visibleTilesFrustum +

@@ -72,7 +72,6 @@ for (const c of CASES) {
       }
     })
 
-    // eslint-disable-next-line no-console
     console.log(
       `[globe-hash #${c.issue}] centerLatDeg=${cam.centerLatDeg.toFixed(4)} (want ${c.lat}) globeMode=${cam.globeMode} backend=${cam.backend}`,
     )
@@ -126,7 +125,7 @@ for (const c of CASES) {
         await page.waitForTimeout(2000)
         r = await readLand()
       }
-      // eslint-disable-next-line no-console
+
       console.log(`[globe-hash #${c.issue}] land=${r.land}/${r.total}`)
       expect(r.ok, 'forced-WebGL2 context present').toBe(true)
       // Mongolia/N-China at z6.73 is land-dense; the desync blank had ~0. A

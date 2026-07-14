@@ -72,7 +72,6 @@ test.describe('OSM-style auto-merge — runtime proof', () => {
       return [...keys]
     })
 
-    // eslint-disable-next-line no-console
     console.log('OSM-style sliceKeys at runtime:', sliceKeys)
     // Pre-merge would have at LEAST 4 (the 4 unique source layers
     // water, landuse, roads, buildings). Post-merge has 5
@@ -129,7 +128,6 @@ test.describe('OSM-style auto-merge — runtime proof', () => {
       return { tilesVisible, drawCalls, uniqueTilePositions }
     })
 
-    // eslint-disable-next-line no-console
     console.log('OSM-style merge runtime stats:', stats)
     // tilesVisible counts (tile × layer) draw instances. Pre-merge
     // multiplier was 13; post-merge is 5. Allow some headroom for

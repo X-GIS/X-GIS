@@ -258,7 +258,7 @@ interface MutationResult {
 
 function evaluate(): MutationResult[] {
   // (i) Baseline on the clean tree.
-  // eslint-disable-next-line no-console
+
   console.log('[evaluator] recording BASELINE (clean tree)…')
   const base = runOracleB()
 
@@ -282,7 +282,6 @@ function evaluate(): MutationResult[] {
     )
   }
 
-  // eslint-disable-next-line no-console
   console.log(
     `[evaluator] baseline GREEN — mismatch=${(base.ratio * 100).toFixed(3)}% numericErr=${base.numericErr}px (gate passed)`,
   )
@@ -311,7 +310,7 @@ function evaluate(): MutationResult[] {
     try {
       // (iii) Apply the reversible edit.
       writeFileSync(path, original.replace(mut.find, mut.replace), 'utf8')
-      // eslint-disable-next-line no-console
+
       console.log(`[evaluator] applied mutation: ${mut.name}`)
       // (iv) Re-run Oracle-B.
       mutated = runOracleB()
@@ -319,7 +318,7 @@ function evaluate(): MutationResult[] {
       // (vi) Revert ALWAYS.
       restore()
       process.removeListener('SIGINT', onSig)
-      // eslint-disable-next-line no-console
+
       console.log(`[evaluator] reverted: ${mut.file}`)
     }
 
@@ -340,7 +339,7 @@ function evaluate(): MutationResult[] {
       caught,
       outOfScope: mut.outOfScope,
     })
-    // eslint-disable-next-line no-console
+
     console.log(
       `[evaluator] ${mut.name}: ` +
         `baseline{mismatch=${(base.ratio * 100).toFixed(3)}%, numericErr=${base.numericErr}px, PASS} → ` +
@@ -365,19 +364,16 @@ function main(): void {
   const outOfScope = results.filter((r) => r.outOfScope)
   const caught = inScope.filter((r) => r.caught).length
   const total = inScope.length
-  // eslint-disable-next-line no-console
+
   console.log(`\n[evaluator] mutation catch-rate: ${caught}/${total} (in-scope)`)
   for (const r of inScope) {
-    // eslint-disable-next-line no-console
     console.log(`  - ${r.caught ? '✓' : '✗'} ${r.name}`)
   }
   if (outOfScope.length > 0) {
-    // eslint-disable-next-line no-console
     console.log(
       `[evaluator] documented out-of-scope (excluded from catch-rate): ${outOfScope.length}`,
     )
     for (const r of outOfScope) {
-      // eslint-disable-next-line no-console
       console.log(
         `  - ⊘ ${r.name}${r.caught ? ' (unexpectedly CAUGHT)' : ''}\n      reason: ${r.outOfScope}`,
       )

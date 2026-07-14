@@ -207,7 +207,7 @@ for (const c of CASES) {
         // Vite serves render-verify/*.ts at these URLs; the runtime specifier
         // is non-literal so tsc treats the module as `any` (it can't resolve a
         // dev-server URL), while Vite resolves it at runtime in-page.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const viteImport = (u: string): Promise<any> => import(/* @vite-ignore */ u)
         const m = (window as unknown as { __xgisMap: MapH }).__xgisMap
         const fx = await viteImport('/render-verify/fixtures.ts')
@@ -318,7 +318,6 @@ for (const c of CASES) {
     // ── b. Build the d3 reference IN-PAGE at the MAP's real space → refPng ──
     const refDataUrl = await page.evaluate(
       async ({ center, zoom, W, H, Wcss, Hcss, bg, proj }) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const viteImport = (u: string): Promise<any> => import(/* @vite-ignore */ u)
         const cam = await viteImport('/render-verify/camera-map.ts')
         const ref = await viteImport('/render-verify/d3-reference.ts')
@@ -394,7 +393,7 @@ for (const c of CASES) {
           else if (near(i, 244, 63, 94)) rosePx++
           else if (near(i, 56, 189, 248)) skyPx++
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const viteImport = (u: string): Promise<any> => import(/* @vite-ignore */ u)
         const pm = (await viteImport('/render-verify/pixelmatch-browser.ts')).pixelmatch as (
           img1: Uint8Array | Uint8ClampedArray,
@@ -430,7 +429,6 @@ for (const c of CASES) {
     // ── d. Numeric oracle: forward-agreement maxErrPx (probe logic) ──────
     const numeric = await page.evaluate(
       async ({ center, zoom, Wcss, Hcss, proj }) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const viteImport = (u: string): Promise<any> => import(/* @vite-ignore */ u)
         const dpr = window.devicePixelRatio || 1
         const cam = await viteImport('/render-verify/camera-map.ts')
@@ -555,7 +553,7 @@ for (const c of CASES) {
     )
 
     // ── e. Report ────────────────────────────────────────────────────────
-    // eslint-disable-next-line no-console
+
     console.log(
       `[oracle-B] ${c.name} (proj=${proj})  drawCalls=${drawCalls}  ` +
         `mismatch=${(diff.ratio * 100).toFixed(3)}% ` +
@@ -609,7 +607,6 @@ for (const c of CASES) {
     // backend tension is tracked separately. (Exactly the class of gap the
     // harness exists to surface; it is reported, not hidden.)
     if (diff.amberPx === 0) {
-      // eslint-disable-next-line no-console
       console.warn(
         `[oracle-B] ${c.name}: OPEN FINDING #1 — points produced 0 amber ink (inline-GeoJSON point-render gap vs VirtualPMTilesBackend)`,
       )
@@ -638,7 +635,6 @@ for (const c of CASES) {
     // mismatch (tracked, not hidden) instead of hard-failing. Every other case
     // hard-gates: a tear/dropped-layer/projection-drift there blows past 6%.
     if (c.seamTearKnown) {
-      // eslint-disable-next-line no-console
       console.warn(
         `[oracle-B] ${c.name}: OPEN FINDING #2 — ${(diff.ratio * 100).toFixed(3)}% mismatch ` +
           `(non-mercator line-render divergence under projType ${proj}: diagonal polylines smear / ` +

@@ -31,10 +31,9 @@ test.describe('수도권 생활이동 .odb hero — real OD renders on real GPU'
     const h = await colorHistogram(page, png, [
       { name: 'orange', rgb: [251, 146, 60] as [number, number, number], tolerance: 55 },
     ])
-    // eslint-disable-next-line no-console
+
     console.log(`[odb hero] orange-bubble coverage: ${(h.orange * 100).toFixed(3)}%`)
     if (notFound.length > 0) {
-      // eslint-disable-next-line no-console
       console.log(`[odb hero] 404s (non-fatal): ${notFound.join(', ')}`)
     }
     expect(errors, `page errors: ${errors.join(' | ')}`).toEqual([])

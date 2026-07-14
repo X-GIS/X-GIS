@@ -128,9 +128,9 @@ function attributeWindow(
   const samples = profile.samples ?? []
   const deltas = profile.timeDeltas ?? []
   const byId = new Map<number, ProfileNode>()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   for (const n of profile.nodes as any[]) byId.set(n.id, { id: n.id, callFrame: n.callFrame })
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   for (const n of profile.nodes as any[]) {
     if (Array.isArray(n.children)) {
       for (const cid of n.children) {
@@ -186,46 +186,45 @@ test('OFM Bright pan-hitch attribution', async ({ page, context }) => {
       : 0
   const worst = sorted[0]!
   const top5 = sorted.slice(0, 5)
-  // eslint-disable-next-line no-console
+
   console.log(
     `\n[pan] frames=${settled.length} median=${median.toFixed(1)}ms worst=${worst.dt.toFixed(0)}ms`,
   )
-  // eslint-disable-next-line no-console
+
   console.log('[pan] top-5 worst frames:')
   for (const f of top5) {
-    // eslint-disable-next-line no-console
     console.log(`  ${f.dt.toFixed(0).padStart(4)} ms @ t+${(f.elapsed / 1000).toFixed(2)} s`)
   }
 
   const msToProfile = (ms: number) => profile.startTime + (ms - perfNowAtProfileStart) * 1000
   const winStart = msToProfile(worst.ts - worst.dt)
   const winEnd = msToProfile(worst.ts)
-  // eslint-disable-next-line no-console
+
   console.log(`\n[hitch] window ${worst.dt.toFixed(1)} ms`)
 
   const top = attributeWindow(profile, winStart, winEnd, 25)
-  // eslint-disable-next-line no-console
+
   console.log(`[hitch] top 25 self-time inside worst frame:`)
   for (const r of top) {
     if (r.selfMs < 0.1) continue
     const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
-    // eslint-disable-next-line no-console
+
     console.log(
       `  ${r.selfMs.toFixed(2).padStart(6)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(40)} ${url}:${r.line}`,
     )
-    // eslint-disable-next-line no-console
+
     console.log(`    via: ${r.callPath}`)
   }
 
   // Also attribute the top-3 worst frames combined — pattern check.
   const winsCombinedStart = msToProfile(top5[0]!.ts - top5[0]!.dt)
   const winsCombinedEnd = msToProfile(top5[2]!.ts)
-  // eslint-disable-next-line no-console
+
   console.log(`\n[hitch top-3 combined] attribution:`)
   const topCombined = attributeWindow(profile, winsCombinedStart, winsCombinedEnd, 20)
   for (const r of topCombined) {
     if (r.selfMs < 0.5) continue
-    // eslint-disable-next-line no-console
+
     console.log(`  ${r.selfMs.toFixed(2).padStart(6)} ms  ${r.name.padEnd(40)} via ${r.callPath}`)
   }
 

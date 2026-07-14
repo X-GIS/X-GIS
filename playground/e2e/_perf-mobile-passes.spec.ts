@@ -121,7 +121,7 @@ async function runAnimation(page: Page, durationMs: number, updateFn: string): P
         }
       ).__xgisMap
       if (!map) throw new Error('__xgisMap not exposed')
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+
       const update = new Function('t', 'cam', 'map', body) as (
         t: number,
         c: unknown,
@@ -186,15 +186,14 @@ test('Mobile per-pass scoreboard — Bright @ 390×844 DPR3', async ({ page }) =
   `,
   )
 
-  // eslint-disable-next-line no-console
   console.log('\n=== Mobile per-pass scoreboard (390×844 DPR3) ===\n')
-  // eslint-disable-next-line no-console
+
   console.log('  scenario                       median (fps)    p95     p99     worst   frames')
-  // eslint-disable-next-line no-console
+
   console.log('  ' + '─'.repeat(95))
-  // eslint-disable-next-line no-console
+
   console.log(reportRow('zoom 10→14→10 + pan', summarise(zoomFrames)))
-  // eslint-disable-next-line no-console
+
   console.log(reportRow('pitch 0→70→0', summarise(pitchFrames)))
 
   // PER-PASS CPU encode time — the `encoder.pass.${label}` phases are the
@@ -214,12 +213,10 @@ test('Mobile per-pass scoreboard — Bright @ 390×844 DPR3', async ({ page }) =
   })
   const passPhases = phaseProfile.filter((p) => p.name.startsWith('encoder.pass.'))
   if (passPhases.length > 0) {
-    // eslint-disable-next-line no-console
     console.log('\n=== Per-pass CPU encode time (sorted by per-frame budget) ===')
-    // eslint-disable-next-line no-console
+
     console.log('  per-frame  per-call   pass')
     for (const p of passPhases) {
-      // eslint-disable-next-line no-console
       console.log(
         `  ${p.perFrameMs.toFixed(3).padStart(8)}   ${p.meanMs.toFixed(3).padStart(7)}   ${p.name.replace('encoder.pass.', '')}`,
       )
@@ -228,10 +225,8 @@ test('Mobile per-pass scoreboard — Bright @ 390×844 DPR3', async ({ page }) =
   // Top-level frame phases (prep / encode / submit) for context.
   const framePhases = phaseProfile.filter((p) => p.name.startsWith('frame.'))
   if (framePhases.length > 0) {
-    // eslint-disable-next-line no-console
     console.log('\n=== Frame phase budget (CPU) ===')
     for (const p of framePhases) {
-      // eslint-disable-next-line no-console
       console.log(`  ${p.perFrameMs.toFixed(3).padStart(8)} ms  ${p.name}`)
     }
   }
@@ -254,16 +249,13 @@ test('Mobile per-pass scoreboard — Bright @ 390×844 DPR3', async ({ page }) =
   })
   const gpuKeys = Object.keys(gpu)
   if (gpuKeys.length > 0) {
-    // eslint-disable-next-line no-console
     console.log('\n=== GPU timestamp breakdown (ms) ===')
     for (const k of gpuKeys) {
-      // eslint-disable-next-line no-console
       console.log(
         `  ${k.padEnd(10)} p50=${gpu[k]!.p50.toFixed(3).padStart(7)}  p95=${gpu[k]!.p95.toFixed(3).padStart(7)}`,
       )
     }
   } else {
-    // eslint-disable-next-line no-console
     console.log(
       '\n[gpu-timer] no samples (timestamp-query unsupported on this adapter, or ?gpuprof not armed)',
     )
@@ -281,7 +273,6 @@ test('Mobile per-pass scoreboard — Bright @ 390×844 DPR3', async ({ page }) =
     return m?.stats ?? null
   })
   if (stats) {
-    // eslint-disable-next-line no-console
     console.log(
       `\n=== Scene draw stats ===\n  drawCalls=${stats.drawCalls} triangles=${stats.triangles} lines=${stats.lines} tilesVisible=${stats.tilesVisible}`,
     )

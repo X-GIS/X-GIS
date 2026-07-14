@@ -36,10 +36,9 @@ test.describe('custom source-loader seam — declarative x-kr-admin renders on r
     const h = await colorHistogram(page, png, [
       { name: 'orange', rgb: [249, 115, 22] as [number, number, number], tolerance: 55 },
     ])
-    // eslint-disable-next-line no-console
+
     console.log(`[source-loader demo] orange-bubble coverage: ${(h.orange * 100).toFixed(3)}%`)
     if (notFound.length > 0) {
-      // eslint-disable-next-line no-console
       console.log(`[source-loader demo] 404s (non-fatal): ${notFound.join(', ')}`)
     }
     expect(errors, `page errors: ${errors.join(' | ')}`).toEqual([])

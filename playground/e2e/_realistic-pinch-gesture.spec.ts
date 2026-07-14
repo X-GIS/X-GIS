@@ -86,7 +86,7 @@ test.describe('Realistic mobile pinch gesture', () => {
             map.camera.zoom = from.zoom + (to.zoom - from.zoom) * t
             map.camera.centerX = from.cx + (to.cx - from.cx) * t
             map.camera.centerY = from.cy + (to.cy - from.cy) * t
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
             if ('pitch' in map.camera)
               (map.camera as any).pitch = from.pitch + (to.pitch - from.pitch) * t
             for (const { renderer } of map.vtSources.values()) {
@@ -110,7 +110,7 @@ test.describe('Realistic mobile pinch gesture', () => {
     // to it without introducing latitude conversion errors.
     const start = await page.evaluate(() => {
       const c = window.__xgisMap!.camera
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const cur = c as any
       return { zoom: c.zoom, cx: c.centerX, cy: c.centerY, pitch: cur.pitch ?? 0 }
     })

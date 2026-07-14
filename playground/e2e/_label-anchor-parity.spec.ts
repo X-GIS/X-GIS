@@ -121,7 +121,7 @@ test('label anchor vertical parity vs MapLibre (point labels)', async ({ page })
       under2pct: rys.length ? (100 * rys.filter((r) => r < 2).length) / rys.length : -1,
     }
   })
-  // eslint-disable-next-line no-console
+
   console.log('ANCHOR_PARITY ' + JSON.stringify(out))
   expect(errs, errs.slice(0, 3).join(' | ')).toHaveLength(0)
   expect(out.matched, 'matched point labels (text -> ML feature)').toBeGreaterThanOrEqual(10)

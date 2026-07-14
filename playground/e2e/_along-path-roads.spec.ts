@@ -65,7 +65,6 @@ test('label-along-path renders road names from VT linestrings', async ({ page })
     return { pureWhite }
   })
 
-  // eslint-disable-next-line no-console
   console.log('[along-path-roads]', stats)
 
   if ('error' in stats) throw new Error(stats.error as string)

@@ -138,11 +138,11 @@ function attributeWindow(
   const samples = profile.samples ?? []
   const deltas = profile.timeDeltas ?? []
   const byId = new Map<number, ProfileNode>()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   for (const n of profile.nodes as any[]) {
     byId.set(n.id, { id: n.id, callFrame: n.callFrame })
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   for (const n of profile.nodes as any[]) {
     if (Array.isArray(n.children)) {
       for (const cid of n.children) {

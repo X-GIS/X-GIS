@@ -108,7 +108,7 @@ for (const proj of PROJECTIONS) {
         worldCopies: Array.from(wcMap.entries()).map(([wc, n]) => ({ wc, n })),
       }
     })
-    // eslint-disable-next-line no-console
+
     console.log(
       `[world-copy ${proj.name}] tiles total=${tileCounts.total} ` +
         `byWC=${JSON.stringify(tileCounts.worldCopies)}`,
@@ -136,7 +136,6 @@ for (const proj of PROJECTIONS) {
     const right = scanColumn(png, Math.floor(w * 0.95), bg)
     const centre = scanColumn(png, Math.floor(w * 0.5), bg)
 
-    // eslint-disable-next-line no-console
     console.log(
       `[world-copy ${proj.name}] bg=(${bg.join(',')}) ` +
         `centre nonBg=${centre.nonBgCount}/${centre.total} ` +
@@ -144,7 +143,6 @@ for (const proj of PROJECTIONS) {
         `right nonBg=${right.nonBgCount}/${right.total}`,
     )
     if (errors.length > 0) {
-      // eslint-disable-next-line no-console
       console.log(`[world-copy ${proj.name}] ERRORS: ` + errors.slice(0, 5).join(' | '))
     }
 

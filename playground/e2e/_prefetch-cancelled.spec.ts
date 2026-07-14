@@ -49,7 +49,6 @@ test.describe('Tier 2 prefetch must survive per-frame cancelStale', () => {
     )
     await page.waitForFunction(
       () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const map = (window as any).__xgisMap
         if (!map?.vtSources) return false
         let totalVisible = 0
@@ -69,7 +68,6 @@ test.describe('Tier 2 prefetch must survive per-frame cancelStale', () => {
     // camera.zoom > currentZ + 0.5 (=3.5) triggers Tier 2 zoom-in
     // prefetch every 6 frames for z=4.
     await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;(window as any).__xgisMap.camera.zoom = 3.6
     })
     // Brief settle so the initial transition aborts (if any) finish

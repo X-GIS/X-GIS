@@ -71,7 +71,6 @@ test('pixel-match liberty Paris z18 pitch=49.8 bearing=47.5', async ({ page }) =
   test.setTimeout(180_000)
   page.on('console', (msg) => {
     if (msg.type() === 'error') {
-      // eslint-disable-next-line no-console
       console.warn('[page]', msg.text())
     }
   })
@@ -174,7 +173,7 @@ test('pixel-match liberty Paris z18 pitch=49.8 bearing=47.5', async ({ page }) =
   lines.push('- `diff-heatmap.png` — max-channel-delta heatmap (red intensity)')
   lines.push('- `buckets.json` — raw counts')
   writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))
-  // eslint-disable-next-line no-console
+
   console.warn(
     `[pixel-match liberty-paris-z18-pitched] eq=${pct(buckets.eq0)} ` +
       `le32=${pct(cle32)} gt128=${buckets.gt128}px`,

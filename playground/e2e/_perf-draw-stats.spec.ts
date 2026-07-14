@@ -53,7 +53,6 @@ async function sampleStats(page: Page, n: number, intervalMs: number): Promise<S
 
 function aggregate(samples: Stats[], label: string): void {
   if (samples.length === 0) {
-    // eslint-disable-next-line no-console
     console.log(`  ${label}: NO SAMPLES`)
     return
   }
@@ -64,7 +63,7 @@ function aggregate(samples: Stats[], label: string): void {
   const lines = samples.map((s) => s.lines).sort((a, b) => a - b)
   const fps = samples.map((s) => s.fps).sort((a, b) => a - b)
   const med = <T>(a: T[]): T => a[Math.floor(a.length / 2)]!
-  // eslint-disable-next-line no-console
+
   console.log(
     `  ${label.padEnd(18)} ${samples.length}× | ` +
       `draws ${med(draws)} (${draws[0]}-${draws[draws.length - 1]}) | ` +
@@ -74,7 +73,6 @@ function aggregate(samples: Stats[], label: string): void {
 }
 
 async function probeView(page: Page, label: string, url: string): Promise<void> {
-  // eslint-disable-next-line no-console
   console.log(`\n══ ${label} ══`)
   await setup(page, url)
 

@@ -52,7 +52,7 @@ test.describe('VTR draw order at high pitch', () => {
     const trace = await page.evaluate(() => window.__xgisDrawOrderResult)
 
     const events = trace ?? []
-    // eslint-disable-next-line no-console
+
     console.log('Captured', events.length, 'draw events. Summary by slice:')
     const bySlice = new Map<string, { extrude: string; tiles: number[] }>()
     for (const e of events) {
@@ -61,7 +61,6 @@ test.describe('VTR draw order at high pitch', () => {
       bySlice.set(e.slice, cur)
     }
     for (const [slice, info] of bySlice) {
-      // eslint-disable-next-line no-console
       console.log(`  slice="${slice}" extrude=${info.extrude} tileFills=${info.tiles.length}`)
     }
     writeFileSync('draw-order-trace.json', JSON.stringify(events, null, 2))
@@ -90,12 +89,11 @@ test.describe('VTR draw order at high pitch', () => {
         if (firstExtrudedFillSeq < 0) firstExtrudedFillSeq = e.seq
       }
     }
-    // eslint-disable-next-line no-console
+
     console.log(
       `lastNoneFillSeq=${lastNoneFillSeq} firstExtrudedFillSeq=${firstExtrudedFillSeq} violations=${violations.length}`,
     )
     if (violations.length > 0) {
-      // eslint-disable-next-line no-console
       console.log('Violations (2D fill AFTER 3D fill started):', violations)
     }
     expect(violations.length).toBe(0)

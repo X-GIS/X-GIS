@@ -31,7 +31,7 @@ test('osm_style buildings render 3D walls at pitch=70 over Tokyo', async ({ page
   await page.waitForTimeout(8_000)
 
   const buf = await page.locator('#map').screenshot()
-  // eslint-disable-next-line no-console
+
   console.log('console.errors:', consoleErrors.slice(0, 5))
 
   // Detect 3D-ness via vertical color bands. A flat-rendered building
@@ -67,7 +67,6 @@ test('osm_style buildings render 3D walls at pitch=70 over Tokyo', async ({ page
     })
   }, buf.toString('base64'))
 
-  // eslint-disable-next-line no-console
   console.log('unique colours in lower half:', stats.uniqueColors, 'sample:', stats.sampleCol)
 
   await page.locator('#map').screenshot({ path: 'test-results/osm-style-pitched.png' })

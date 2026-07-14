@@ -200,7 +200,7 @@ for (const compute of [0, 1] as const) {
         2,
       ),
     )
-    // eslint-disable-next-line no-console
+
     console.log(`[demotiles user compute=${compute}] ${w}×${h}  ${fmt(buckets, total)}`)
   })
 }

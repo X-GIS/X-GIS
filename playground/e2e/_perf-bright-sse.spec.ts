@@ -102,16 +102,15 @@ test('Bright SSE-selector A/B sweep at z=14 Tokyo', async ({ browser }) => {
     }
   }
 
-  // eslint-disable-next-line no-console
   console.log('\n=== Bright pitch sweep — SSE selector A/B ===\n')
-  // eslint-disable-next-line no-console
+
   console.log('pitch  selector    median (fps)        p95     tiles  drawCalls')
-  // eslint-disable-next-line no-console
+
   console.log('-----  ----------  ------------------  ------  -----  ---------')
   for (const r of rows) {
     const label = r.sel.padEnd(10)
     const fps = r.sample.median > 0 ? (1000 / r.sample.median).toFixed(0).padStart(3) : '---'
-    // eslint-disable-next-line no-console
+
     console.log(
       `  ${r.pitch.toString().padStart(2)}°  ${label}  ${r.sample.median.toFixed(1).padStart(6)} ms (${fps} fps)  ${r.sample.p95.toFixed(0).padStart(4)}ms  ${r.sample.tilesVisible.toString().padStart(5)}  ${r.sample.drawCalls.toString().padStart(9)}`,
     )

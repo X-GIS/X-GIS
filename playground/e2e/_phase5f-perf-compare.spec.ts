@@ -87,11 +87,10 @@ test('phase5f — cold-start perf: legacy vs default (VirtualPMTilesBackend)', a
     firstPaintMs: median(defaultRuns.map((r) => r.firstPaintMs)),
   }
 
-  // eslint-disable-next-line no-console
   console.log('[phase5f perf legacy]', legacyMed, legacyRuns)
-  // eslint-disable-next-line no-console
+
   console.log('[phase5f perf default]', defaultMed, defaultRuns)
-  // eslint-disable-next-line no-console
+
   console.log('[phase5f perf delta]', {
     readyDelta: defaultMed.readyMs - legacyMed.readyMs,
     firstPaintDelta: defaultMed.firstPaintMs - legacyMed.firstPaintMs,

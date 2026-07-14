@@ -131,11 +131,11 @@ for (const scene of SCENES) {
     const noise = diffPixels(off, off2, 16, resolve(outDir, `${scene.id}-noise.png`))
     const r = diffPixels(off, on, 16, resolve(outDir, `${scene.id}-diff.png`))
     const limit = Math.max(50, Math.round(noise.aboveThreshold * BUNDLE_NOISE_FACTOR))
-    // eslint-disable-next-line no-console
+
     console.log(
       `[bundle-invariant ${scene.id}] NOISE  off-vs-off2: maxDelta=${noise.maxDelta} aboveThreshold=${noise.aboveThreshold}`,
     )
-    // eslint-disable-next-line no-console
+
     console.log(
       `[bundle-invariant ${scene.id}] BUNDLE off-vs-on:   maxDelta=${r.maxDelta} aboveThreshold=${r.aboveThreshold} (allowed=${limit} = max(50, noise×${BUNDLE_NOISE_FACTOR}))`,
     )

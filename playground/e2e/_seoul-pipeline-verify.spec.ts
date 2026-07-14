@@ -32,13 +32,12 @@ test.describe('@xgis/pipeline — Seoul 생활이동 demo renders on real GPU', 
     ]
     const h = await colorHistogram(page, png, ramp)
     const warm = h.amber + h.orange + h.red
-    // eslint-disable-next-line no-console
+
     console.log(
       `[pipeline demo] warm-bubble coverage: amber=${(h.amber * 100).toFixed(2)}% ` +
         `orange=${(h.orange * 100).toFixed(2)}% red=${(h.red * 100).toFixed(2)}% total=${(warm * 100).toFixed(2)}%`,
     )
     if (notFound.length > 0) {
-      // eslint-disable-next-line no-console
       console.log(`[pipeline demo] 404s (non-fatal): ${notFound.join(', ')}`)
     }
     // The gate is that the pipeline's bubbles RASTERISE + no real JS error fires.

@@ -217,7 +217,7 @@ test.describe('Phase RB.C — pre-bundle baseline harness', () => {
       // Phase A iters will lock against the median observed.
       const heapKb =
         mhd >= 0 ? `heapDeltaAvg.median=${(mhd / 1024).toFixed(1)}KB` : 'heapDeltaAvg=n/a'
-      // eslint-disable-next-line no-console
+
       console.log(
         `[baseline ${fx.name}] drawCalls median=${m} min=${min} max=${max} tilesVisible.median=${mt} bundleReplays.median=${mbr} ratio=${mbr > 0 ? (m / mbr).toFixed(1) : 'n/a'}× frameTime median=${mft.toFixed(2)}ms min=${ftMin.toFixed(2)} max=${ftMax.toFixed(2)} ${heapKb}`,
       )
@@ -228,10 +228,8 @@ test.describe('Phase RB.C — pre-bundle baseline harness', () => {
       const profile = await sampleAllocProfile(page, 30)
       const sorted = Object.entries(profile).sort((a, b) => b[1] - a[1])
       if (sorted.length > 0) {
-        // eslint-disable-next-line no-console
         console.log(`[alloc-profile ${fx.name}] (30 frames, sorted by count)`)
         for (const [key, count] of sorted.slice(0, 20)) {
-          // eslint-disable-next-line no-console
           console.log(`  ${count.toString().padStart(6)}  ${key}`)
         }
       }
@@ -243,7 +241,6 @@ test.describe('Phase RB.C — pre-bundle baseline harness', () => {
       // investigation.
       const variance = max > 0 ? (max - min) / max : 0
       if (variance > 0.2 && m > 5) {
-        // eslint-disable-next-line no-console
         console.warn(
           `[baseline ${fx.name}] drawCall variance ${(variance * 100).toFixed(1)}% — ` +
             `idle frames should be steady. Pre-RB.B baseline likely unstable.`,

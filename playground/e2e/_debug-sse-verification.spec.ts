@@ -61,7 +61,6 @@ async function measureScene(
   await page.waitForTimeout(3500)
 
   const stats = await page.evaluate(async (durationMs: number) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const map = (window as any).__xgisMap
     let tilesVis = 0,
       drawCalls = 0,

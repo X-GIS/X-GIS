@@ -87,7 +87,7 @@ test.describe('Phase RB.B validation — bundle hit rate at idle', () => {
     // counter is LIFETIME, not per-frame). What we check: the
     // CUMULATIVE rate at the end exceeds a threshold.
     const last = samples[samples.length - 1]!
-    // eslint-disable-next-line no-console
+
     console.log(
       `[bundle hit-rate Seoul z=14] hits=${last.bundleHits} misses=${last.bundleMisses} rate=${(last.bundleHitRate * 100).toFixed(1)}%`,
     )
@@ -123,7 +123,7 @@ test.describe('Phase RB.B validation — bundle hit rate at idle', () => {
       totalHitDelta += samples[i]!.bundleHits - samples[i - 1]!.bundleHits
       totalMissDelta += samples[i]!.bundleMisses - samples[i - 1]!.bundleMisses
     }
-    // eslint-disable-next-line no-console
+
     console.log(
       `[bundle delta over ${FRAMES} frames] hits+=${totalHitDelta} misses+=${totalMissDelta}`,
     )

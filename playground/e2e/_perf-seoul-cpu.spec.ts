@@ -116,7 +116,7 @@ for (const cell of CELLS) {
       )
     }
     writeFileSync(join(OUT, `${cell.slug}.hot.txt`), lines.join('\n'))
-    // eslint-disable-next-line no-console
+
     console.log('\n' + lines.join('\n'))
   })
 }

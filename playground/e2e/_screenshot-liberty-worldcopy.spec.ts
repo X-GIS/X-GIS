@@ -23,7 +23,6 @@ mkdirSync(OUT, { recursive: true })
 test('OFM Liberty world-copy probe — #0/0/-54/90/63', async ({ page }) => {
   page.on('console', (msg) => {
     if (msg.type() === 'warning' || msg.type() === 'error') {
-      // eslint-disable-next-line no-console
       console.warn('[page]', msg.text())
     }
   })
@@ -67,7 +66,7 @@ test('OFM Liberty world-copy probe — #0/0/-54/90/63', async ({ page }) => {
       beigeish++ // Liberty bg #f8f4f0 ish
     else otherCount++
   }
-  // eslint-disable-next-line no-console
+
   console.warn(
     `[Liberty z0 p63] ${w}x${h} white=${whiteish} (${((100 * whiteish) / total).toFixed(1)}%) blue=${blueish} (${((100 * blueish) / total).toFixed(1)}%) beige=${beigeish} (${((100 * beigeish) / total).toFixed(1)}%) black=${blackish} other=${otherCount} total=${total}`,
   )

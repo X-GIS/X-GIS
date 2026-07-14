@@ -68,7 +68,6 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
       ;(
         window as unknown as { __cacheStats: () => unknown; __installCacheTelemetry: () => void }
       ).__installCacheTelemetry = () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const map = (window as any).__xgisMap
         if (!map?.vtSources) return
         const stats = {
@@ -84,9 +83,8 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
           gpuCacheMisses: 0,
         }
         for (const { renderer } of map.vtSources.values()) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const r = renderer as any
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
           const catalog = r?.source as any
           if (catalog && !catalog.__telemetryInstalled) {
             catalog.__telemetryInstalled = true
@@ -131,7 +129,6 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
             // doUploadTile (line 632 already short-circuits on hit).
             const origDoUpload = r.doUploadTile.bind(r)
             r.doUploadTile = (key: number, data: unknown, sourceLayer = '') => {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const inner = r.gpuCache?.get?.(sourceLayer) as Map<number, unknown> | undefined
               if (inner?.has?.(key)) stats.gpuCacheHits++
               else stats.gpuCacheMisses++
@@ -157,11 +154,11 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
     const sample = async (cycleMs: number): Promise<BackendDiag> => {
       return await page.evaluate((cms) => {
         const map = window.__xgisMap
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const renderer = [...(map?.vtSources?.values() ?? [])][0]?.renderer as any
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const catalog = renderer?.source as any
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const backend = catalog?.backends?.[0] as any
         const heap = (
           performance as unknown as {
@@ -240,7 +237,6 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
 
     // Cache hit-rate report.
     const cacheStats = (await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (window as any).__cacheStats?.() ?? null
     })) as null | {
       hasTileDataHits: number

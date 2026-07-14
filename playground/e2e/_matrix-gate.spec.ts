@@ -139,7 +139,6 @@ for (const cell of CELLS) {
     //    label hook so anchors are captured during placement. ──
     await page.evaluate(
       async ({ dataset, projection, center, zoom, pitch, bearing }) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const viteImport = (u: string): Promise<any> => import(/* @vite-ignore */ u)
         const m = (window as unknown as { __xgisMap: MapH }).__xgisMap
         // Feed placed-label anchors into the page-side accumulator.
@@ -229,7 +228,7 @@ for (const cell of CELLS) {
       if (verdict === 'FAIL') {
         hardFailures.push(`${cell.id} :: ${result.kind} — ${result.detail}`)
       }
-      // eslint-disable-next-line no-console
+
       console.log(
         `[matrix] ${cell.id} (${cell.knownStatus}/${gate}) ${result.kind}: ${verdict} — ${result.detail}`,
       )
@@ -280,7 +279,7 @@ test.afterAll(() => {
     lines.push('  → either the bug is FIXED (promote knownStatus: expected_red → green in')
     lines.push('    matrix.manifest.ts) or NO oracle catches it (strengthen the oracle).')
   }
-  // eslint-disable-next-line no-console
+
   console.log(lines.join('\n'))
   try {
     writeFileSync(

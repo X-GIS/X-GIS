@@ -171,7 +171,7 @@ test.describe('perf-projection-seoul-pitch-drag', () => {
           finalTris: finalStats.triangles,
         }
         results.push(r)
-        // eslint-disable-next-line no-console
+
         console.log(
           `[pd ${proj} sp=${startPitch}] ` +
             `pitch:p95=${r.pitchPhase.p95}/max=${r.pitchPhase.max} ` +
@@ -233,7 +233,7 @@ test.describe('perf-projection-seoul-pitch-drag', () => {
     lines.push('  the ramp itself costs more (transient tile-set churn) than the pan')
     lines.push('  at the destination pitch.')
     writeFileSync(join(OUT_DIR, 'REPORT.md'), lines.join('\n'))
-    // eslint-disable-next-line no-console
+
     console.log(`[pd] REPORT → ${join(OUT_DIR, 'REPORT.md')}`)
   })
 })

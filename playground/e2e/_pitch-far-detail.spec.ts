@@ -192,17 +192,15 @@ for (const scn of SCENARIOS) {
       }
     })
 
-    // eslint-disable-next-line no-console
     console.log(`\n=== ${scn.label} ===`)
     const r = result as { uniqueTileTotal?: number; uniqueByZoom?: Record<number, number> }
     if (r.uniqueByZoom) {
       const entries = Object.entries(r.uniqueByZoom).sort((a, b) => Number(a[0]) - Number(b[0]))
-      // eslint-disable-next-line no-console
+
       console.log(`unique tiles total: ${r.uniqueTileTotal}`)
-      // eslint-disable-next-line no-console
+
       console.log(`by zoom: ${entries.map(([z, n]) => `z${z}:${n}`).join(' · ')}`)
     } else {
-      // eslint-disable-next-line no-console
       console.log(JSON.stringify(result))
     }
 

@@ -88,11 +88,10 @@ test('minimal water layer over OpenFreeMap TileJSON renders SOMETHING', async ({
     )
   }, buf.toString('base64'))
 
-  // eslint-disable-next-line no-console
   console.log('tile fetches:', tileFetches.length)
-  // eslint-disable-next-line no-console
+
   console.log('pixel stats:', JSON.stringify(stats))
-  // eslint-disable-next-line no-console
+
   console.log('console (last 12):', allConsole.slice(-12).join('\n  '))
 
   await page.locator('#map').screenshot({ path: 'test-results/convert-bright-min-map.png' })

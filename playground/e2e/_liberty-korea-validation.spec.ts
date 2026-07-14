@@ -43,16 +43,13 @@ test('liberty over Korea: no WebGPU pipeline validation errors', async ({ page }
   )
   await page.waitForTimeout(8_000)
 
-  // eslint-disable-next-line no-console
   console.log('=== console.error count:', consoleErrors.length)
   for (const e of consoleErrors.slice(0, 10)) {
-    // eslint-disable-next-line no-console
     console.log('  ', e.slice(0, 300))
   }
-  // eslint-disable-next-line no-console
+
   console.log('=== pipeline / validation / attachment messages:', validationErrors.length)
   for (const e of validationErrors.slice(0, 10)) {
-    // eslint-disable-next-line no-console
     console.log('  ', e.slice(0, 300))
   }
 

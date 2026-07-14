@@ -162,31 +162,29 @@ test('OFM Bright worker receive cost — fast diagonal pan', async ({ page }) =>
   }
   const slow = [...frames].sort((a, b) => b.ms - a.ms).slice(0, 8)
 
-  // eslint-disable-next-line no-console
   console.log('\n════ OFM Bright worker-receive perf — fast diagonal pan ════')
-  // eslint-disable-next-line no-console
+
   console.log(`Frames: ${stats.frames}`)
-  // eslint-disable-next-line no-console
+
   console.log(
     `Worker pool — resolved ${poolStats.totalResolved} tiles across ${poolStats.totalDrains} drains`,
   )
-  // eslint-disable-next-line no-console
+
   console.log(`              max drain size ${poolStats.maxDrainSize} tiles`)
-  // eslint-disable-next-line no-console
+
   console.log(
     `              total drain time ${poolStats.totalDrainMs.toFixed(1)} ms` +
       ` (avg ${(poolStats.totalDrainMs / Math.max(1, poolStats.totalDrains)).toFixed(2)} ms/drain,` +
       ` ${(poolStats.totalDrainMs / Math.max(1, poolStats.totalResolved)).toFixed(2)} ms/tile)`,
   )
-  // eslint-disable-next-line no-console
+
   console.log(
     `Frame ms — median ${stats.median.toFixed(1)}  p90 ${stats.p90.toFixed(1)}  ` +
       `p95 ${stats.p95.toFixed(1)}  p99 ${stats.p99.toFixed(1)}  worst ${stats.worst.toFixed(0)}`,
   )
-  // eslint-disable-next-line no-console
+
   console.log('\nTop 8 slow frames (idx ms tiles-resolved-that-frame):')
   for (const f of slow) {
-    // eslint-disable-next-line no-console
     console.log(
       `  idx=${String(f.idx).padStart(4)}  ${f.ms.toFixed(1).padStart(6)} ms  resolved=${f.resolvedTiles ?? 0}`,
     )
@@ -195,11 +193,11 @@ test('OFM Bright worker receive cost — fast diagonal pan', async ({ page }) =>
   // Correlate: frames with ≥1 resolved tile vs frames with 0.
   const withR = frames.filter((f) => (f.resolvedTiles ?? 0) > 0).map((f) => f.ms)
   const noR = frames.filter((f) => (f.resolvedTiles ?? 0) === 0).map((f) => f.ms)
-  // eslint-disable-next-line no-console
+
   console.log(
     `\nFrames WITH tile resolves: n=${withR.length}  median ${withR.length ? pct(withR, 50).toFixed(1) : '—'}  worst ${withR.length ? withR.reduce((a, b) => Math.max(a, b), 0).toFixed(0) : '—'}`,
   )
-  // eslint-disable-next-line no-console
+
   console.log(
     `Frames WITHOUT resolves:   n=${noR.length}   median ${noR.length ? pct(noR, 50).toFixed(1) : '—'}  worst ${noR.length ? noR.reduce((a, b) => Math.max(a, b), 0).toFixed(0) : '—'}`,
   )
@@ -215,13 +213,13 @@ test('OFM Bright sustained pan smoothness — single-direction', async ({ page }
 
   const { frames, poolStats } = await runPanWithWorkerCounting(page, 6_000, 300_000, 0)
   const ms = frames.map((f) => f.ms)
-  // eslint-disable-next-line no-console
+
   console.log('\n════ Sustained east pan z=12 ════')
-  // eslint-disable-next-line no-console
+
   console.log(
     `Frames ${frames.length}  resolved ${poolStats.totalResolved}  drains ${poolStats.totalDrains}  drainMs ${poolStats.totalDrainMs.toFixed(1)}`,
   )
-  // eslint-disable-next-line no-console
+
   console.log(
     `Frame ms — median ${pct(ms, 50).toFixed(1)}  p99 ${pct(ms, 99).toFixed(1)}  worst ${ms.reduce((a, b) => Math.max(a, b), 0).toFixed(0)}`,
   )

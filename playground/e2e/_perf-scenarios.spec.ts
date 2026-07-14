@@ -120,7 +120,7 @@ test('perf scenarios @zoom pan', async ({ page }) => {
       }
       const map = win.__xgisMap!
       // Rebuild the driver function inside the page scope.
-      // eslint-disable-next-line no-new-func
+
       const fn = new Function('return (' + src + ')')() as (
         w: Window & typeof globalThis,
         t: number,
@@ -385,7 +385,7 @@ test('perf scenarios @hybrid raster+vector max-zoom', async ({ page }) => {
         __perf?: { count: number; bytes: number }
         __perfReset?: () => void
       }
-      // eslint-disable-next-line no-new-func
+
       const fn = new Function('return (' + src + ')')() as (
         w: Window & typeof globalThis,
         t: number,

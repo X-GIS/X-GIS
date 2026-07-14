@@ -81,19 +81,18 @@ test('flat pitch at Tokyo z=14: unique fetches vs draw calls', async ({ page }) 
   // Compute the inferred unique-tile count from the network fetches.
   const uniqueTilesFromNetwork = fetches.size
 
-  // eslint-disable-next-line no-console
   console.log('\n=== flat-pitch tile-count audit (Tokyo z=14, pitch=0) ===')
-  // eslint-disable-next-line no-console
+
   console.log(`network unique .pbf tiles fetched: ${uniqueTilesFromNetwork}`)
-  // eslint-disable-next-line no-console
+
   console.log(`GPU-cached slices (tile × source-layer): ${stats.cachedSlices}`)
-  // eslint-disable-next-line no-console
+
   console.log(
     `per-frame drawCalls: ${stats.drawCalls}  slicesDrawn: ${stats.slicesDrawn}  missed: ${stats.missed}`,
   )
-  // eslint-disable-next-line no-console
+
   console.log(`drawnByZoom: ${JSON.stringify(stats.byZoom)}`)
-  // eslint-disable-next-line no-console
+
   console.log(
     `inferred slices per unique tile: ~${stats.cachedSlices && uniqueTilesFromNetwork ? Math.round(stats.cachedSlices / uniqueTilesFromNetwork) : '?'}`,
   )

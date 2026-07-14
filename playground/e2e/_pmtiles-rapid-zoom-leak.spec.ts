@@ -55,11 +55,11 @@ test.describe('PMTiles live: fast zoom should not leak backend state', () => {
         // Reach into TS-private fields — runtime JS doesn't enforce
         // them. Diagnostics only; this stays in the spec, not in
         // production code.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const renderer = [...(map?.vtSources?.values() ?? [])][0]?.renderer as any
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const catalog = renderer?.source as any
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const backend = catalog?.backends?.[0] as any
         const heap = (
           performance as unknown as {
