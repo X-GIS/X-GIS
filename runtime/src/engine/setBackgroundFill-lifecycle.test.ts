@@ -20,7 +20,7 @@ const MAP_SRC = readFileSync(resolve(__dirname, '..', '..', '..', 'map', 'src', 
 // Extract the setBackgroundFill method body so assertions don't false-
 // positive on unrelated references elsewhere in map.ts.
 function extractSetBackgroundFillBody(): string {
-  const m = MAP_SRC.match(/setBackgroundFill\([^)]+\):\s*void\s*\{([\s\S]*?)\n  \}/)
+  const m = MAP_SRC.match(/setBackgroundFill\([^)]+\):\s*void\s*\{([\s\S]*?)\n {2}\}/)
   if (!m) throw new Error('setBackgroundFill method not found in map.ts')
   return m[1]!
 }
@@ -88,7 +88,12 @@ describe('AC2c.3.C — setBackgroundFill(null) lifecycle teardown', () => {
     expect(SET_BG_BODY).toMatch(
       /if \(!this\._syntheticBackend && this\.renderer\)\s*\{[\s\S]*?this\._installSyntheticEarthSurfaceSource/,
     )
-    expect(SET_BG_BODY).toMatch(/buildSyntheticEarthSurfaceShow\(rgba\)/)
+    // #777 I-E pivot: the re-installed show carries the style's background-
+    // pattern through the round-trip (third arg) — pin the carrier, not the
+    // old two-arg shape.
+    expect(SET_BG_BODY).toMatch(
+      /buildSyntheticEarthSurfaceShow\(rgba, null, this\._backgroundPattern\)/,
+    )
     expect(SET_BG_BODY).toMatch(/this\.showCommands\s*=\s*\[syntheticShow,/)
   })
 })
