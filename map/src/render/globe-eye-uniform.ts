@@ -17,6 +17,7 @@
 // by — so the shader horizon matches the tile horizon by construction.
 
 import { EARTH_R } from '@xgis/geo'
+import { eyeHorizon } from '@xgis/shared'
 
 /** Reusable scratch — callers copy the 4 components into their uniform
  *  immediately (single-threaded frame build, like the camera matrix buffers). */
@@ -39,17 +40,17 @@ export function globeEyeUniform(
     _scratch[3] = 0
     return _scratch
   }
-  const len = Math.hypot(eye[0], eye[1], eye[2])
-  if (len <= 0) {
+  const { eyeLen, eyeN, horizonCos } = eyeHorizon(eye, EARTH_R)
+  if (eyeLen <= 0) {
     _scratch[0] = 0
     _scratch[1] = 0
     _scratch[2] = 0
     _scratch[3] = 0
     return _scratch
   }
-  _scratch[0] = eye[0] / len
-  _scratch[1] = eye[1] / len
-  _scratch[2] = eye[2] / len
-  _scratch[3] = EARTH_R / len // horizonCos = R/|eye| (matches globe.ts tile cull)
+  _scratch[0] = eyeN[0]
+  _scratch[1] = eyeN[1]
+  _scratch[2] = eyeN[2]
+  _scratch[3] = horizonCos // horizonCos = R/|eye| (matches globe.ts tile cull)
   return _scratch
 }

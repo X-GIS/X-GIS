@@ -8,6 +8,7 @@
 // @xgis/engine and are imported here.
 
 import { buildGlobeMatrix, unprojectGlobe, EARTH_R, MERCATOR_LAT_LIMIT } from '@xgis/geo'
+import { eyeHorizon } from '@xgis/shared'
 
 // Redeclared locally (trivial constants; the engine's copies are module-private).
 const DEG2RAD = Math.PI / 180
@@ -75,11 +76,9 @@ export function globeVisibleTiles(
   )
   const mvp = view.matrix
   const eye = view.eye
-  const eyeLen = Math.hypot(eye[0], eye[1], eye[2]) || 1
   // A surface point P is visible only if it faces the eye:
-  // dot(normalize(P), normalize(eye)) > R/|eye|  (horizon cut).
-  const horizonCos = EARTH_R / eyeLen
-  const eyeN: [number, number, number] = [eye[0] / eyeLen, eye[1] / eyeLen, eye[2] / eyeLen]
+  // dot(normalize(P), normalize(eye)) > R/|eye|  (horizon cut). Single authority.
+  const { eyeN, horizonCos } = eyeHorizon(eye, EARTH_R)
 
   const SUBDIVIDE_PX = Math.max(256, Math.min(cssWidthPx, cssHeightPx) * 0.5)
   // Tile-output cap. Mercator visibleTilesSSE typically returns 200-300

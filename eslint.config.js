@@ -64,6 +64,11 @@ export default tseslint.config(
             // live outside the package tsconfig's `include` (src/**) for the same
             // reason — they are devDep scripts, not shipped package code.
             'pipeline/tools/*.ts',
+            // The root vitest.config.ts is a workspace-level config that no
+            // package tsconfig `include`s, and the root tsconfig.json only holds
+            // project references (`files: []`) — same discovery gap as the scripts
+            // and playwright config above. Lint it via the default project.
+            'vitest.config.ts',
           ],
           // the default cap is 8 matched files per run; a refactor staging many
           // test files at once must still lint (70 test files exist today).

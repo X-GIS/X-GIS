@@ -301,12 +301,14 @@ function fakeGl(): WebGL2RenderingContext {
 describe('WebGl2Device — RHI gap #2 fail-close', () => {
   it('createCommandEncoder returns a copy-scoped encoder whose beginRenderPass throws (offscreen/MRT deferred to the full-frame phase)', () => {
     // The encoder now EXISTS (the GPUArena compaction/grow path needs
-    // copyBufferToBuffer = gl.copyBufferSubData), but the offscreen / MRT render
-    // pass is still fail-CLOSED — it can never silently originate on WebGL2.
+    // copyBufferToBuffer = gl.copyBufferSubData), but the render pass stays
+    // fail-CLOSED on this COPY-SCOPED encoder — render passes originate only
+    // through the frame encoder (acquireFrameEncoder, #1046 F3a), so a utility
+    // encoder can never silently open one on WebGL2.
     const enc = new WebGl2Device(fakeGl()).createCommandEncoder()
     expect(enc).toBeDefined()
     expect(() => enc.beginRenderPass({ colorAttachments: [] })).toThrow(
-      /beginRenderPass.*not yet supported|full-frame phase/,
+      /beginRenderPass not supported on the copy-scoped utility encoder/,
     )
   })
 

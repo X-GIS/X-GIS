@@ -30,7 +30,7 @@ import {
 } from '@xgis/geo'
 import { effectiveDpr, getSampleCount, isPickEnabled } from '@xgis/engine'
 import { resizeCanvas, unwrapWebGpuCommandEncoder, unwrapWebGpuTextureView } from '@xgis/rhi-webgpu'
-import { DEBUG_OVERDRAW, DEBUG_RHI_CHECKER } from './debug-flags'
+import { DEBUG_OVERDRAW, DEBUG_RHI_CHECKER, RHI_CHAIN } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
@@ -81,6 +81,16 @@ export class RenderLoop {
    *  the owning map through a `PassHost`. Registered once by content
    *  (map.ts → render/passes/pass-chain.ts) right after construction. */
   private readonly _nodes: RenderNode[] = []
+
+  /** #1046 F3 (doc §3-F3) — whether the unified `_nodes` chain can EXECUTE on the
+   *  WebGL2 backend yet. It cannot until the pass bodies retype from the native
+   *  WebGPU encoder to the RHI encoder (F2 landed the frame-shell seam only, not the
+   *  pass retype), so this is held `false`: it keeps `?rhichain=1` (RHI_CHAIN) from
+   *  bypassing the twin into a native-encoder crash on WebGL2. The frame encoder's
+   *  `beginRenderPass` (the chain's WebGL2 origination seam) + the flag land in F3;
+   *  flip this to a real capability check once the passes execute on WebGL2 (F3
+   *  remaining — the twin-parity ratchet scaffold tracks that port). */
+  private readonly _chainRunsOnWebgl2 = false
 
   /** Content (map.ts) hands the engine its ordered RenderNode chain. */
   registerNodes(nodes: readonly RenderNode[]): void {
@@ -240,7 +250,14 @@ export class RenderLoop {
     // (gpu.ts initGPUForcedWebGL2), so the raw calls at :199-200 must NOT run. The WebGPU
     // path below is UNTOUCHED — this is a pure pre-guard. Rollback = delete this block.
     const rhi = asScreenPassDevice(this.host.ctx.rhi)
-    if (rhi) {
+    // #1046 F3 routing switch (doc §3-F3): `?rhichain=1` (RHI_CHAIN) routes this WebGL2
+    // frame through the unified `this._nodes` chain below instead of this twin. The chain
+    // cannot execute on WebGL2 until the pass bodies are RHI-typed (F2 landed the frame-
+    // shell seam only), so `_chainRunsOnWebgl2` gates the bypass OFF — the twin renders
+    // whether or not the flag is set (byte-identical to before this seam), so `?rhichain=1`
+    // never yields a crash/blank frame. Flip `_chainRunsOnWebgl2` to route the chain once
+    // the passes execute on WebGL2 (F3 remaining; the twin-parity ratchet tracks the port).
+    if (rhi && !(RHI_CHAIN && this._chainRunsOnWebgl2)) {
       const rhiWorkPending = this.renderFrameViaRhi(rhi, w, h, projType, centerLon, centerLat, dpr)
       // Mirror the WebGPU path's end-of-frame idle bookkeeping (#746): snapshot
       // the camera signature + clear _needsRender. Without this the early return
