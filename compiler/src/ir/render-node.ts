@@ -2,6 +2,14 @@
 // Sits between AST (syntax) and runtime (GPU commands).
 // Designed to be extensible for Phase 1 features (zoom interpolation, data-driven, conditionals).
 
+// The `Diagnostic` shape moved to the single authority module in #1065
+// (diagnostics/diagnostic.ts) so lexer/parser/lower/converter share ONE
+// spanned record. Re-exported here so the many `./render-node`
+// Diagnostic consumers (lower.ts, lower-label.ts, lower-bindings*.ts)
+// keep importing it from the same place.
+import type { Diagnostic } from '../diagnostics/diagnostic'
+export type { Diagnostic }
+
 /**
  * A complete IR scene — the output of the lowering pass.
  */
@@ -31,25 +39,6 @@ export interface Scene {
    *  a WeakMap — the fixture-ir-snapshot serializer MUST exclude this
    *  field, mirroring the cseAnnotation gate. */
   exprAnalysis?: import('./passes/expr-analyze').ExprAnalysis
-}
-
-/** Compiler diagnostic — one record per "this is suspicious / wrong /
- *  silently broken" finding. Severity tiers (no errors at this level —
- *  the lower pass never fails the build because of a diagnostic):
- *    - 'warn'   — definitely wrong, will produce wrong output. Show
- *                 prominently. Examples: deprecated `z<N>:` modifier,
- *                 unknown utility name (lower can't apply), etc.
- *    - 'info'   — heads-up that may be intentional. Example: dropped
- *                 properties from converted Mapbox styles. */
-export interface Diagnostic {
-  severity: 'warn' | 'info'
-  /** Human-readable message. Lead with what's wrong, then what to do. */
-  message: string
-  /** Optional code so consumers can filter/categorise.
-   *  Format: 'X-GIS<NNNN>'. */
-  code?: string
-  /** Optional source line (1-based) where the issue was detected. */
-  line?: number
 }
 
 /** A user-defined shape symbol with SVG path data. */

@@ -411,7 +411,7 @@ export function lowerLabelProps(
         diagnostics.push({
           severity: 'warn',
           code: 'X-GIS0005',
-          line: stmtLine,
+          span: { line: stmtLine, col: 1 },
           message:
             `Bracket-binding utility "${name}-[…]" has no handler in lower.ts — ` +
             `the expression is being dropped. Add a name==="${name}" arm in the ` +
@@ -775,7 +775,7 @@ export function lowerLabelProps(
         diagnostics.push({
           severity: 'warn',
           code: 'X-GIS0006',
-          line: stmtLine,
+          span: { line: stmtLine, col: 1 },
           message:
             `Label utility "${name}" has no handler in lower.ts — the ` +
             `value is being dropped. Add a matching arm in the label-` +

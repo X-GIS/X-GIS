@@ -55,6 +55,7 @@ import {
 } from './validate-layers'
 import { convertBackgroundLayer } from './convert-background-layer'
 import { XGIS_LANGUAGE_MAJOR } from '../language-version'
+import { type Diagnostic, warningDiagnostic } from '../diagnostics/diagnostic'
 
 /** Per-source record emitted into the optional `coverage` collector.
  *  `reasons` holds warnings pushed during that source's conversion
@@ -93,6 +94,15 @@ export interface StyleCoverage {
   sources: SourceCoverage[]
   layers: LayerCoverage[]
   warnings: string[]
+  /** The same warnings as unified {@link Diagnostic}s (#1065) — the
+   *  structured channel shared with lexer/parser/lower. Populated
+   *  alongside `warnings` when a coverage collector is supplied; each is
+   *  a `warn` severity with code X-GIS0011 and a document-start span (the
+   *  Mapbox JSON input carries no line/col). `warnings` (string[]) stays
+   *  as the compatibility accessor for the many tests that pin warning
+   *  strings; `diagnosticMessages(diagnostics)` reproduces it. Optional
+   *  so existing `{ sources, layers, warnings }` literals keep compiling. */
+  diagnostics?: Diagnostic[]
 }
 
 export interface ConvertMapboxStyleOptions extends ConvertSourceOptions {
@@ -469,6 +479,9 @@ export function convertMapboxStyle(
 
   if (options?.coverage) {
     options.coverage.warnings.push(...warnings)
+    // The unified structured channel (#1065). Byte-identical messages —
+    // `warnings` stays the string accessor the tests pin.
+    options.coverage.diagnostics = warnings.map((w) => warningDiagnostic(w))
   }
 
   return lines.join('\n').trimEnd() + '\n'

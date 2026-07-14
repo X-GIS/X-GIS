@@ -2382,7 +2382,7 @@ export class XGISMap {
           d.severity === 'warn'
             ? `[X-GIS ${d.code ?? 'diag'} warn]`
             : `[X-GIS ${d.code ?? 'diag'} info]`
-        const lineSuffix = d.line ? ` (line ${d.line})` : ''
+        const lineSuffix = d.span.line ? ` (line ${d.span.line})` : ''
         if (d.severity === 'warn') xlog.warn(`${prefix}${lineSuffix} ${d.message}`)
         else console.log(`${prefix}${lineSuffix} ${d.message}`)
       }
@@ -2825,9 +2825,7 @@ export class XGISMap {
     }
     if (variants.length > 0) {
       try {
-        await this.renderer.prewarmShaderVariantsAsync(
-          variants,
-        )
+        await this.renderer.prewarmShaderVariantsAsync(variants)
       } catch (e) {
         xlog.warn(
           '[X-GIS] shader prewarm failed (falling back to lazy compile on first draw):',

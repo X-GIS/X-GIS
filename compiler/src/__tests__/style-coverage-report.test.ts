@@ -36,7 +36,13 @@ describe('style coverage', () => {
       const coverage: StyleCoverage = { sources: [], layers: [], warnings: [] }
       convertMapboxStyle(style, { coverage })
       collected[name] = coverage
-      expect(coverage).toMatchSnapshot()
+      // Snapshot the human coverage report only. `coverage.diagnostics`
+      // (#1065) is the SAME warnings re-expressed as unified Diagnostics
+      // (1:1, code X-GIS0011) — including it here would duplicate every
+      // warning string as a verbose object for zero drift signal. Its
+      // shape is asserted in diagnostics-channel.test.ts instead.
+      const { sources, layers, warnings } = coverage
+      expect({ sources, layers, warnings }).toMatchSnapshot()
     })
   }
 
