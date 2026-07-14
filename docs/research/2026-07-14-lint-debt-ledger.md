@@ -2,6 +2,38 @@
 
 Tracking issue: #1055.
 
+## Status update — Waves 1+2 landed (2026-07-14, branch `claude/1055-lint-wave1-2`)
+
+Fresh `bun run lint` headline after Wave 1 (dormant-package mechanical cleanup) and
+Wave 2 (project-service parsing gaps closed):
+
+| metric                                | ledger baseline | post Wave 1+2 |
+| ------------------------------------- | --------------: | ------------: |
+| Problems                              |             736 |           720 |
+| Errors                                |             132 |           112 |
+| Warnings                              |             604 |           608 |
+| — stale `eslint-disable`              |             520 |           525 |
+| Parsing errors (project-service gaps) |              20 |         **0** |
+
+Notes on the deltas (all re-measured on `origin/main` @ `56dfad34`, which had drifted
+from the ledger's `0a672199` baseline):
+
+- **Wave 1** — `pipeline` 4→0 warnings (stale `no-console` disables removed);
+  `scripts` 1→0 warnings (unused `RUNTIME_CAPABILITIES` import removed). The two
+  judgment-class singles stay by design: `blueprint` 1 error (`no-unused-expressions`
+  in the ratchet-tracked `editor.ts` — needs an if/else rewrite) and `engine` 1 error
+  (`no-deprecated` `colormap` positional call — Wave 3 API-migration class).
+- **Wave 2** — all 20 Appendix-A files now parse and lint 0 errors, via
+  `allowDefaultProject` globs in `eslint.config.js`. Main's drift had ALSO re-broken
+  the Wave 0 `vitest.config.ts` fix (97 matched files > the 96 cap → "Too many files"
+  parsing error), so the cap was raised 96→160 (117 files match today). `docs`,
+  `vitest.config.ts`, `compiler` −1, `runtime` −3, `playground` −15 parsing errors.
+- Warnings rose 604→608 net: −4 pipeline, −1 scripts, −3 main-drift, **+12 newly
+  visible** stale disables in `playground/render-verify/{evaluator,matrix-oracles}.ts`
+  that only surfaced once those files parse — playground residue for Wave 5.
+- Error floor is now genuinely rule-debt: 112 = `no-deprecated` 71 + `no-undef` 17 +
+  misc; no parsing errors remain, unblocking the gate-policy ratchet (item 3 below).
+
 ## Method
 
 - Command: `bun run lint` (= `eslint .`), captured once at the repo root with the
@@ -108,15 +140,25 @@ Ordered to avoid merge conflicts with packages under active development and to f
 the near-zero-risk mechanical wins. One PR per package keeps each diff reviewable.
 
 - **Wave 0 (this PR):** root `vitest.config.ts` project-service gap. Done.
-- **Wave 1 — quiescent, mostly mechanical (do next):**
-  1. `pipeline` [Q] — `eslint pipeline --fix` → 0 (4 stale disables).
-  2. `scripts` [Q] — 1 `no-unused-vars` (1 line, manual).
-  3. `blueprint` [Q] — 1 `no-unused-expressions` (manual).
-  4. `engine` [Q] — 1 `no-deprecated` (manual).
+  (Re-broken by main drift — the 97th default-project match hit the 96 cap — and
+  re-fixed in Wave 2's cap raise.)
+- **Wave 1 — quiescent, mostly mechanical (do next):** **Done (2026-07-14)** for the
+  mechanical classes; the two judgment singles remain by design.
+  1. `pipeline` [Q] — `eslint pipeline --fix` → 0 (4 stale disables). **Done** (4→0).
+  2. `scripts` [Q] — 1 `no-unused-vars` (1 line, manual). **Done** (1→0; unused
+     `RUNTIME_CAPABILITIES` import removed).
+  3. `blueprint` [Q] — 1 `no-unused-expressions` (manual). **Left**: side-effecting
+     ternary in the LOC-ratchet-tracked `editor.ts`; needs an if/else rewrite, not a
+     mechanical pass.
+  4. `engine` [Q] — 1 `no-deprecated` (manual). **Left**: `colormap` positional-call
+     migration, the Wave 3 class.
 - **Wave 2 — cross-cutting config, do EARLY (unblocks any gate):** cover the remaining 20
   parsing-error files (Appendix A) by extending `allowDefaultProject` globs (or adding
   nested `tsconfig`s), exactly as this PR did for `vitest.config.ts`. Pure config; turns 20
   hard errors into lintable files. This is a prerequisite for a blocking repo-wide gate.
+  **Done (2026-07-14)**: all 20 files covered by globs in `eslint.config.js` and verified
+  0 errors each; the match cap was raised 96→160 (117 files match; the zero-headroom cap
+  had re-broken `vitest.config.ts`). Parsing errors repo-wide: 20→0.
 - **Wave 3 — `shader-dsl` deprecation migration [Q]:** migrate the 38 `no-deprecated`
   call sites (`callFn` → the `FnHandle` object-param call / `externFn`) in the test files;
   re-run shader-dsl vitest + `tsc --build`. Manual, not `--fix`.
@@ -160,6 +202,9 @@ Recommendation only — no CI change is implemented in this PR.
 ## Appendix A — the 20 parsing-error files (project-service gaps)
 
 Same fix as `vitest.config.ts`: add to `allowDefaultProject` (or a nested `tsconfig`).
+
+**Closed by Wave 2 (2026-07-14)** — all 20 files below are covered by
+`allowDefaultProject` globs in `eslint.config.js` and lint with 0 errors.
 
 ```
 compiler/bench-geojson-vt-encode.ts
