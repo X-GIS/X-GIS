@@ -4179,15 +4179,16 @@ export class VectorTileRenderer {
         const vNorthLat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * vy) / vn))) * 180) / Math.PI
         const vSouthLat =
           (Math.atan(Math.sinh(Math.PI * (1 - (2 * (vy + 1)) / vn))) * 180) / Math.PI
+        const clipPad = (2 * Math.PI * R) / (512 * Math.pow(2, this.currentCameraZoom)) // #1087
         this.frameBlock.set.clip_bounds(
-          Math.fround(vWestLon * DEG2RAD * R),
+          Math.fround(vWestLon * DEG2RAD * R) - clipPad,
           Math.fround(
             Math.log(Math.tan(Math.PI / 4 + (clampMercLat(vSouthLat) * DEG2RAD) / 2)) * R,
-          ),
-          Math.fround(vEastLon * DEG2RAD * R),
+          ) - clipPad,
+          Math.fround(vEastLon * DEG2RAD * R) + clipPad,
           Math.fround(
             Math.log(Math.tan(Math.PI / 4 + (clampMercLat(vNorthLat) * DEG2RAD) / 2)) * R,
-          ),
+          ) + clipPad,
         )
       } else {
         // Sentinel: no clip. Fragment shader's `clip_bounds.x > -1e29`
