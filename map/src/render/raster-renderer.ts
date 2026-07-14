@@ -134,7 +134,8 @@ export function needsSouthPoleCap(projType: number, tileY: number, tilesPerAxis:
 function pushRasterCap(
   out: RasterTile[],
   block: UniformBlockOf<typeof RASTER_TILE_U>,
-  texture: GPUTexture | RhiTexture,
+  // Indexed-access type: no NEW raw-WebGPU identifier (raw-webgpu ratchet, #991).
+  texture: RasterTile['texture'],
   west: number,
   south: number,
   east: number,
