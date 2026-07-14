@@ -9,7 +9,7 @@
 import { SpriteAtlasHost, type SpriteInfo } from './sprite-atlas-host'
 import { SpriteAtlasGPU } from './sprite-atlas-gpu'
 import { IconRenderer, type IconDraw, type IconAnchor } from './icon-renderer'
-import type { RhiDevice , RhiSampler, RhiTextureView , RhiRenderPass } from '@xgis/engine'
+import type { RhiDevice, RhiSampler, RhiTextureView, RhiRenderPass } from '@xgis/engine'
 
 /** Minimal sprite-metadata read surface IconStage resolves icons through.
  *  Satisfied structurally by SpriteAtlasHost (URL sprite atlas) and by
@@ -78,6 +78,10 @@ interface PendingIcon {
    *  side-by-side. POINT-placement icons (the allow-overlap city dots)
    *  leave this false → never collision-dropped (preserves #419). */
   collide?: boolean
+  /** Mapbox `icon-padding` (px) — collision-box padding around the icon AABB,
+   *  scaled by dpr at the collision site. Defaulted to the spec value 2 in
+   *  addIcon, so an absent property stays byte-identical to the old constant. */
+  padding: number
 }
 
 export class IconStage {
@@ -205,6 +209,9 @@ export class IconStage {
       tint?: [number, number, number]
       pairKey?: string
       collide?: boolean
+      /** Mapbox `icon-padding` (px) — per-icon collision-box padding; absent
+       *  keeps the spec default 2 (byte-identical to the old fixed constant). */
+      padding?: number
       /** #1081 — MapLibre perspective distance attenuation for this anchor.
        *  Folded into the stored `sizeScale` so a far icon's draw quad AND its
        *  collision obstacle (both read `sizeScale`) shrink together — the icon
@@ -226,6 +233,7 @@ export class IconStage {
       tint: opts.tint,
       pairKey: opts.pairKey,
       collide: opts.collide ?? false,
+      padding: opts.padding ?? 2,
     })
   }
 
@@ -287,7 +295,7 @@ export class IconStage {
       if (p.collide) {
         const cdW = (sprite.width / sprite.pixelRatio) * sizeScale
         const cdH = (sprite.height / sprite.pixelRatio) * sizeScale
-        const pad = 2 * this.dpr // Mapbox icon-padding default
+        const pad = p.padding * this.dpr // Mapbox icon-padding (default 2)
         const minX = p.anchorX - cdW / 2 - pad,
           maxX = p.anchorX + cdW / 2 + pad
         const minY = p.anchorY - cdH / 2 - pad,

@@ -120,7 +120,7 @@ const CEILINGS: Record<string, number> = {
   // mercator: the perspectiveScale() scratch getter). +21, dominated by prettier
   // wraps (the 6-name projector destructure + the globe arm's 8-arg dispatchIcon
   // both go one-per-line). Same existing call sites; nothing extract-worthy (§2).
-  'map/src/render/passes/label-pass.ts': 1747,
+  'map/src/render/passes/label-pass.ts': 1748,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -159,10 +159,10 @@ const CEILINGS: Record<string, number> = {
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
   'compiler/src/tiler/vector-tiler.ts': 1790,
   'compiler/src/ir/lower.ts': 1409,
-  'compiler/src/convert/layers-symbol.ts': 1295,
-  'compiler/src/ir/lower-label.ts': 1091,
+  'compiler/src/convert/layers-symbol.ts': 1296,
+  'compiler/src/ir/lower-label.ts': 1101,
   'compiler/src/tokens/colors.ts': 937,
-  'compiler/src/ir/render-node.ts': 908,
+  'compiler/src/ir/render-node.ts': 913,
   'compiler/src/convert/paint-helpers.ts': 826,
   'blueprint/src/editor.ts': 1448,
 }

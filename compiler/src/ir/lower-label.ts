@@ -153,6 +153,8 @@ export function lowerLabelProps(
   /** Mapbox `icon-optional`:true — a colliding icon may hide while its
    *  paired text still shows (the icon's drop never cascades to text). */
   let labelIconOptional: boolean | undefined
+  /** Mapbox `icon-padding` (px) — per-icon collision-box padding (const only). */
+  let labelIconPadding: number | undefined
 
   for (const line of expandedUtilities) {
     for (const item of line.items) {
@@ -646,6 +648,11 @@ export function lowerLabelProps(
         if (!isNaN(num)) labelIconSize = num
         continue
       }
+      if (name.startsWith('label-icon-padding-')) {
+        const num = parseFloat(name.slice('label-icon-padding-'.length))
+        if (!isNaN(num)) labelIconPadding = num
+        continue
+      }
       if (name.startsWith('label-icon-anchor-')) {
         const a = name.slice('label-icon-anchor-'.length)
         const valid = [
@@ -824,6 +831,7 @@ export function lowerLabelProps(
     labelIconCollide,
     labelIconIgnorePlacement,
     labelIconOptional,
+    labelIconPadding,
     labelIconSizeZoomStops: labelIconSizeZoomStops.length > 0 ? labelIconSizeZoomStops : undefined,
     labelIconSizeZoomStopsBase,
     labelOpacityZoomStops: labelOpacityZoomStops.length > 0 ? labelOpacityZoomStops : undefined,
@@ -912,6 +920,7 @@ function foldLabelKnobs(
     labelIconCollide?: boolean
     labelIconIgnorePlacement?: boolean
     labelIconOptional?: boolean
+    labelIconPadding?: number
     // iter 113 — opacity PropertyShape inputs (zoom-interp + expr).
     labelOpacityZoomStops?: ZoomStop<number>[]
     labelOpacityZoomStopsBase?: number
@@ -1028,6 +1037,7 @@ function foldLabelKnobs(
       ? { iconIgnorePlacement: knobs.labelIconIgnorePlacement }
       : {}),
     ...(knobs.labelIconOptional !== undefined ? { iconOptional: knobs.labelIconOptional } : {}),
+    ...(knobs.labelIconPadding !== undefined ? { iconPadding: knobs.labelIconPadding } : {}),
   }
   // Plan Label L3: build the unified shapes bundle from the knob inputs
   // + the merged label's static fallbacks.

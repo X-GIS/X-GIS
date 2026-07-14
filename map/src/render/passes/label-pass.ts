@@ -406,7 +406,11 @@ class LabelPass implements RenderPass {
         //      historical default (flag absent) leaves icons always-placed.
         //  `icon-ignore-placement: true` overrides BOTH back to always-
         //  place-and-don't-block (the icon never enters the collide queue).
-        const di = def as { iconCollide?: boolean; iconIgnorePlacement?: boolean }
+        const di = def as {
+          iconCollide?: boolean
+          iconIgnorePlacement?: boolean
+          iconPadding?: number
+        }
         const policyCollide = di.iconCollide === true && di.iconIgnorePlacement !== true
         const lineCollide = collide && resolvedText === '' && di.iconIgnorePlacement !== true
         const doCollide = lineCollide || policyCollide
@@ -418,6 +422,7 @@ class LabelPass implements RenderPass {
           tint: ic ? [ic[0], ic[1], ic[2]] : undefined,
           pairKey,
           collide: doCollide,
+          padding: di.iconPadding,
           perspScale,
         })
       }
