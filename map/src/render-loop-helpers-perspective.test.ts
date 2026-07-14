@@ -2,23 +2,28 @@
 //
 // MapLibre shrinks far symbols by a perspective ratio
 //   clamp(0.5 + 0.5·(cameraToCenterDistance / cameraToAnchorDistance), …)
-// so far symbols contract toward 0.5× and near ones grow, and collision on the
-// scaled boxes thins the far field. X-GIS had ZERO such code (grep-confirmed on
-// label-pass / text-stage / icon-stage). makeLabelProjectors now computes, per
-// anchor, `perspectiveScale = clamp(0.5 + 0.5·(wCenter / wAnchor), 0.5, 1.3)`,
+// so far symbols contract toward 0.5× and collision on the scaled boxes thins
+// the far field. X-GIS had ZERO such code (grep-confirmed on label-pass /
+// text-stage / icon-stage). makeLabelProjectors now computes, per anchor,
+// `perspectiveScale = clamp(0.5 + 0.5·(wCenter / wAnchor), 0.5, 1.0)`,
 // where wCenter is the camera-centre anchor's clip-w (= mvp[15]; the label MVP is
 // the RTC/focus-relative matrix, so the centre anchor sits at the RTC origin) and
 // wAnchor the anchor's clip-w (∝ view distance). text-stage folds it into `sizePx`
 // (the single quad authority — collision box AND draw quad), icon-stage into the
 // icon `sizeScale` (draw quad AND obstacle). This suite pins the projector math.
 //
+// SHRINK-ONLY policy (p85 probe review): the cap is 1.0, NOT MapLibre's >1 near-
+// field growth — growing near anchors toward 1.3× evicted their neighbours (the
+// SE-Africa cluster went 7→5 labels; Namibia and Mozambique were pushed out by
+// South Africa/Botswana growing). Near field (wAnchor < wCenter) clamps to
+// EXACTLY 1.0; the far field is unchanged (shrinks below 1, floor 0.5).
+//
 // The issue's illustrative "far → 0.5–0.75×" band is the deep far-field the FLAT
 // pitched map reaches (its far edge recedes far past the centre depth) — pinned in
-// the FLAT suite below (far 0.5–0.75, near clamps to 1.3, centre exactly 1.0). On
+// the FLAT suite below (far 0.5–0.75, near capped at 1.0, centre exactly 1.0). On
 // the pinned z2 GLOBE the sphere BOUNDS the far distance and the horizon cull drops
 // everything past the limb, so the deepest VISIBLE anchor (the north limb, ~5°
-// past centre here) is only ~0.99×, and the attenuation shows mainly as NEAR-side
-// GROWTH toward 1.3 — the geometry-correct globe behaviour, pinned here.
+// past centre here) is only ~0.99×; the whole near side sits at the 1.0 cap.
 import { describe, it, expect } from 'vitest'
 import { Camera } from './camera'
 import { makeLabelProjectors } from './render-loop-helpers'
@@ -60,32 +65,36 @@ describe('makeLabelProjectors — globe perspective distance attenuation (#1081)
     if (s !== null) onScreen.push({ lat, scale: s })
   }
 
-  it('FAIL-BEFORE: a real per-anchor scale SPREAD exists (pre-#1081 every symbol was 1.0)', () => {
+  it('every visible anchor sits in [0.5, 1.0] — the shrink-only clamp (POLICY)', () => {
     expect(onScreen.length).toBeGreaterThan(20)
     const scales = onScreen.map((a) => a.scale)
-    // A genuine near↔far spread — pre-fix this was identically 0 (no attenuation).
-    expect(Math.max(...scales) - Math.min(...scales)).toBeGreaterThan(0.15)
-    // The clamp invariant holds for every VISIBLE anchor.
+    // The clamp invariant holds for every VISIBLE anchor. Under the pre-policy
+    // [0.5, 1.3] clamp the near field reached ~1.19 — the ≤1.0 bound is the flip.
     for (const s of scales) {
       expect(s).toBeGreaterThanOrEqual(0.5)
-      expect(s).toBeLessThanOrEqual(1.3)
+      expect(s).toBeLessThanOrEqual(1.0)
     }
+    // The near field CLAMPS to exactly 1.0 while the far limb still shrinks:
+    // a real shrink-side spread survives the cap (pre-#1081 all were exactly 1).
+    expect(Math.max(...scales)).toBe(1)
+    expect(Math.min(...scales)).toBeLessThan(1)
   })
 
-  it('near anchor GROWS into [0.95,1.3]; far near-horizon anchor SHRINKS below it', () => {
+  it('near anchor clamps to EXACTLY 1.0 (no growth eviction); far anchor SHRINKS below it', () => {
     // near = smallest clip-w (highest scale) = closest to the tilted eye (south,
     // near the sub-eye point); far = largest clip-w (lowest scale) = the north limb.
     const near = onScreen.reduce((a, b) => (b.scale > a.scale ? b : a))
     const far = onScreen.reduce((a, b) => (b.scale < a.scale ? b : a))
-    // Near anchor grows into the task's [0.95, 1.3] band (measured ~1.19).
-    expect(near.scale).toBeGreaterThanOrEqual(0.95)
-    expect(near.scale).toBeLessThanOrEqual(1.3)
+    // POLICY flip: pre-policy this anchor GREW to ~1.19 (band [0.95, 1.3]) — the
+    // growth that evicted near-field neighbours. Now it clamps to exactly 1.0.
+    expect(near.scale).toBe(1)
     // Far near-horizon anchor is attenuated below the near one AND below the
     // centre's 1.0 (measured ~0.99 — the sphere + horizon cull bound the far
     // distance on the z2 globe; the FLAT suite reaches the deep 0.5–0.75 band).
     expect(far.scale).toBeLessThan(1.0)
     expect(far.scale).toBeGreaterThan(0.5)
-    expect(near.scale - far.scale).toBeGreaterThan(0.15)
+    // Shrink-side far/near ordering still holds.
+    expect(near.scale).toBeGreaterThan(far.scale)
     // Geometry sanity: the near anchor sits SOUTH (toward the tilted eye), the far
     // one NORTH (toward the receding limb).
     expect(near.lat).toBeLessThan(far.lat)
@@ -151,7 +160,7 @@ describe('makeLabelProjectors — FLAT-path perspective attenuation reaches the 
     return p ? proj.perspectiveScale() : null
   }
 
-  it('centre = 1.0 exactly; far anchor ∈ [0.5,0.75]; near anchor grows into [0.95,1.3]', () => {
+  it('centre = 1.0 exactly; far anchor ∈ [0.5,0.75]; near anchor CAPS at exactly 1.0', () => {
     // Dead-centre anchor projects to the RTC origin ⇒ wAnchor = wCenter ⇒ ratio 1.
     const centre = scaleAt(0, 0)
     expect(centre).not.toBeNull()
@@ -166,11 +175,12 @@ describe('makeLabelProjectors — FLAT-path perspective attenuation reaches the 
     expect(scales.length).toBeGreaterThan(20)
     const min = Math.min(...scales),
       max = Math.max(...scales)
-    // The far field reaches the issue's illustrative band (measured min ~0.60).
+    // The far field reaches the issue's illustrative band (measured min ~0.60) —
+    // untouched by the policy change (the cap only bites the >1 near side).
     expect(min).toBeGreaterThanOrEqual(0.5) // clamp floor respected
     expect(min).toBeLessThanOrEqual(0.75) // …and genuinely inside the far band
-    // The near field grows into [0.95, 1.3] (measured max = the 1.3 clamp).
-    expect(max).toBeGreaterThanOrEqual(0.95)
-    expect(max).toBeLessThanOrEqual(1.3)
+    // POLICY flip: the near field used to hit the 1.3 growth clamp here; it now
+    // caps at EXACTLY 1.0 (shrink-only — no near-field neighbour eviction).
+    expect(max).toBe(1)
   })
 })

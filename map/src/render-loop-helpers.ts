@@ -515,9 +515,9 @@ export function makeLabelProjectors(
   limbInsetPx: (x: number, y: number) => number
   /** #1081 — perspective distance attenuation of the LAST projection call
    *  (projectMerc / projectLonLat / projectMercAny), a scratch out-value read
-   *  right after: clamp(0.5 + 0.5·wCenter/cw, 0.5, 1.3) where wCenter is the
-   *  camera-centre anchor's clip-w and cw the anchor's. 1 before any call / for a
-   *  culled anchor. projectLonLatCopies also carries it per-copy (tuple slot 3). */
+   *  right after: clamp(0.5 + 0.5·wCenter/cw, 0.5, 1.0), wCenter/cw = centre/this
+   *  anchor's clip-w. 1.0-capped: SHRINK-ONLY (growth evicted near-field
+   *  neighbours — p85 probe). 1 before any call / culled anchor; per-copy in slot 3. */
   perspectiveScale: () => number
 } {
   // ── 3D / globe path: ECEF projector. Works for every projection because
@@ -541,8 +541,7 @@ export function makeLabelProjectors(
     // above applies. Cheap (LIMB_SAMPLES projections) so it is built whenever the
     // label pass is active; at city zoom the silhouette is a large off-screen
     // loop and the inset test then passes for every on-screen anchor.
-    const limbPoly =
-      labelHorizonMargin && eye ? buildGlobeLimbPolygon(mvp, w, h, eye, focus) : null
+    const limbPoly = labelHorizonMargin && eye ? buildGlobeLimbPolygon(mvp, w, h, eye, focus) : null
     // #1042 R3 — the SAME limb polygon, exposed as a per-point query so the label
     // pass can additionally cull a taller (multi-line) quad on its own screen
     // half-height. +Infinity when there is no silhouette so the caller's
@@ -586,7 +585,7 @@ export function makeLabelProjectors(
       const rz = e[2] - (focus ? focus[2] : 0)
       const cw = mvp[3]! * rx + mvp[7]! * ry + mvp[11]! * rz + mvp[15]!
       if (cw <= 0) return null
-      perspScale = Math.max(0.5, Math.min(1.3, 0.5 + 0.5 * (wCenter / cw))) // #1081
+      perspScale = Math.max(0.5, Math.min(1.0, 0.5 + 0.5 * (wCenter / cw))) // #1081 shrink-only
       const ndcX = (mvp[0]! * rx + mvp[4]! * ry + mvp[8]! * rz + mvp[12]!) / cw
       const ndcY = (mvp[1]! * rx + mvp[5]! * ry + mvp[9]! * rz + mvp[13]!) / cw
       if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
@@ -677,7 +676,7 @@ export function makeLabelProjectors(
     const rtcY = my - ccy
     const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
     if (cw <= 0) return null
-    perspScale = Math.max(0.5, Math.min(1.3, 0.5 + 0.5 * (wCenter / cw))) // #1081
+    perspScale = Math.max(0.5, Math.min(1.0, 0.5 + 0.5 * (wCenter / cw))) // #1081 shrink-only
     const ndcX = (mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!) / cw
     const ndcY = (mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!) / cw
     if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
@@ -717,7 +716,7 @@ export function makeLabelProjectors(
     const rtcY = p[1] - lblCenter[1]
     const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
     if (cw <= 0) return null
-    perspScale = Math.max(0.5, Math.min(1.3, 0.5 + 0.5 * (wCenter / cw))) // #1081
+    perspScale = Math.max(0.5, Math.min(1.0, 0.5 + 0.5 * (wCenter / cw))) // #1081 shrink-only
     const ndcX = (mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!) / cw
     const ndcY = (mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!) / cw
     if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null

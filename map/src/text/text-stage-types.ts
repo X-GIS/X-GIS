@@ -119,8 +119,9 @@ export interface PendingLabel {
    *  tie-break (imperative overlays). */
   collisionId?: string
   /** #1081 — MapLibre perspective distance-attenuation factor for this anchor
-   *  (clamp(0.5 + 0.5·wCenter/wAnchor, 0.5, 1.3)). prepare() multiplies the
-   *  label size by it so a far anchor's quad — collision box AND draw — shrinks.
+   *  (clamp(0.5 + 0.5·wCenter/wAnchor, 0.5, 1.0) — shrink-only; the near-field
+   *  growth a higher cap allows evicts neighbouring labels). prepare() multiplies
+   *  the label size by it so a far anchor's quad — collision box AND draw — shrinks.
    *  Undefined → 1 (no attenuation: overlays, flat un-pitched, line labels). */
   perspectiveScale?: number
 }
