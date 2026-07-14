@@ -113,9 +113,14 @@ until batches carry `Rhi*` handles — resource builders must build via `rhi.cre
 **Key insight:** the RHI is _more complete than "only raster routes through it" but DEAD-by-
 default_ — every primitive HAS a Draper, gated behind a `globalThis` flag (OFF in production):
 `point-renderer.ts:534` (`__xgisPointViaRhi`), `line-renderer.ts:638` (`__xgisLineViaRhi`),
-`heatmap-renderer.ts:423` (`__xgisHeatmapViaRhi`); raster ships raw `render()` (`:289`), only
-`renderRhiChecker()` (`:251`, the `?forcegl2=1` slice) is RHI-routed. So "complete the RHI" =
-**flip the defaults + delete the raw else-branches + fill the contract gaps**, not "build it".
+`heatmap-renderer.ts:423` (`__xgisHeatmapViaRhi`); raster ships raw `render()` (`:389`), and
+`renderRhiChecker()` (`:305`) is RHI-routed but no longer an always-on raster path: on the
+forced-WebGL2 frame (`?forcegl2=1`), it fires only when sourceless (`hasSource()` false,
+`:265`) and `?debug=checker` is set (`DEBUG_RHI_CHECKER`, `debug-flags.ts:45`); otherwise a
+sourceless forced-WebGL2 frame draws nothing, mirroring `render()`'s own sourceless
+early-return (`:401`) — WebGPU parity, #1041 (gate at `render-loop.ts:877-888`). So "complete
+the RHI" = **flip the defaults + delete the raw else-branches + fill the contract gaps**, not
+"build it".
 
 **rhi.ts contract extensions required (blast order):**
 

@@ -465,11 +465,41 @@ class WebGl2RenderPass implements RhiRenderPass {
   }
 }
 
-/** A COPY-SCOPED command encoder for WebGL2. `copyBufferToBuffer` is supported
- *  (GL `copyBufferSubData` — the GPUArena compaction/grow ping-pong needs it);
- *  `beginRenderPass` still fail-CLOSES (offscreen / MRT FBOs are the WebGL2 full-
- *  frame phase). WebGL2 is immediate-mode, so the copy executes at call time and
- *  `finish()` is a no-op (there is no command buffer to submit). */
+/** GL buffer→buffer copy (COPY_READ/WRITE bind + `copyBufferSubData`) — the shared
+ *  body of both encoders' `copyBufferToBuffer`. A 'storage' RHI buffer is emulated as
+ *  a data TEXTURE (no GL buffer object), so it cannot be a copy source/target; the
+ *  arena buffers are vertex/index (real GL buffers) — guard so a mis-routed storage
+ *  copy fails loud rather than binding `undefined` (mirrors destroyBuffer's fork). */
+function glCopyBufferSubData(
+  gl: WebGL2RenderingContext,
+  src: RhiBuffer,
+  srcOffset: number,
+  dst: RhiBuffer,
+  dstOffset: number,
+  size: number,
+): void {
+  const s = un<Gl2Buffer | Gl2StorageBuffer>(src)
+  const d = un<Gl2Buffer | Gl2StorageBuffer>(dst)
+  if ('storageTex' in s || 'storageTex' in d) {
+    throw new Error(
+      'webgl2: copyBufferToBuffer requires real GL buffers (a storage buffer is emulated as a data-texture; no buffer copy)',
+    )
+  }
+  gl.bindBuffer(gl.COPY_READ_BUFFER, s.buf)
+  gl.bindBuffer(gl.COPY_WRITE_BUFFER, d.buf)
+  gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, srcOffset, dstOffset, size)
+  // Unbind the COPY_* targets so a later index/UBO bind isn't shadowed.
+  gl.bindBuffer(gl.COPY_READ_BUFFER, null)
+  gl.bindBuffer(gl.COPY_WRITE_BUFFER, null)
+}
+
+/** A COPY-SCOPED command encoder for WebGL2 (`createCommandEncoder`, the out-of-frame
+ *  utility path — arena compaction/grow, VTR bake). `copyBufferToBuffer` is supported
+ *  (GL `copyBufferSubData`); `beginRenderPass` STAYS fail-CLOSED so an out-of-frame
+ *  utility copy can never silently originate a render pass. The FRAME encoder
+ *  (`acquireFrameEncoder` → WebGl2FrameEncoder) is the one that originates passes.
+ *  WebGL2 is immediate-mode, so the copy executes at call time and `finish()` is a
+ *  no-op (no command buffer to submit). */
 class WebGl2CommandEncoder implements RhiCommandEncoder {
   constructor(private readonly gl: WebGL2RenderingContext) {}
   copyBufferToBuffer(
@@ -479,37 +509,48 @@ class WebGl2CommandEncoder implements RhiCommandEncoder {
     dstOffset: number,
     size: number,
   ): void {
-    const gl = this.gl
-    const s = un<Gl2Buffer | Gl2StorageBuffer>(src)
-    const d = un<Gl2Buffer | Gl2StorageBuffer>(dst)
-    // A 'storage' RHI buffer is emulated as a data TEXTURE (no GL buffer object),
-    // so it cannot be a copyBufferSubData source/target. The arena buffers are
-    // vertex/index (real GL buffers) — guard so a mis-routed storage copy fails
-    // loud rather than binding `undefined`. Mirrors destroyBuffer's storage fork.
-    if ('storageTex' in s || 'storageTex' in d) {
-      throw new Error(
-        'webgl2: copyBufferToBuffer requires real GL buffers (a storage buffer is emulated as a data-texture; no buffer copy)',
-      )
-    }
-    gl.bindBuffer(gl.COPY_READ_BUFFER, s.buf)
-    gl.bindBuffer(gl.COPY_WRITE_BUFFER, d.buf)
-    gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, srcOffset, dstOffset, size)
-    // Unbind the COPY_* targets so a later index/UBO bind isn't shadowed.
-    gl.bindBuffer(gl.COPY_READ_BUFFER, null)
-    gl.bindBuffer(gl.COPY_WRITE_BUFFER, null)
+    glCopyBufferSubData(this.gl, src, srcOffset, dst, dstOffset, size)
   }
   beginRenderPass(_desc: RhiRenderPassDesc): RhiRenderPass {
-    // Fail-CLOSED: offscreen / MRT render passes have no WebGL2 path in slice-1
-    // (multi-attachment FBOs are the full-frame phase). copyBufferToBuffer is the
-    // only supported encoder op — a render pass can never silently originate here.
+    // Fail-CLOSED: the copy-scoped utility encoder never originates a render pass
+    // (that would corrupt the frame from outside it). The FRAME encoder
+    // (acquireFrameEncoder) originates the unified chain's passes (#1046 F3).
     throw new Error(
-      'webgl2: beginRenderPass (offscreen/MRT) not yet supported (deferred to the WebGL2 full-frame phase); this command encoder supports copyBufferToBuffer only',
+      'webgl2: beginRenderPass not supported on the copy-scoped utility encoder (createCommandEncoder); the frame encoder (acquireFrameEncoder) originates render passes — this one supports copyBufferToBuffer only',
     )
   }
   finish(): void {
     // Immediate-mode: copyBufferSubData already executed at call time. There is no
-    // command buffer to submit (the per-frame submit analog is the screen pass's
-    // gl.flush() in endScreenPass).
+    // command buffer to submit.
+  }
+}
+
+/** The PER-FRAME command encoder (`acquireFrameEncoder`, #1046 F3 / doc §2.4): the
+ *  seam the unified `this._nodes` chain reaches through `ctx.encoder.beginRenderPass`
+ *  on WebGL2. Unlike the copy-scoped encoder above, `beginRenderPass` is LIVE — it
+ *  dispatches through the device's universal `beginRenderPass` (the FBO-0 sentinel
+ *  screen arm + the offscreen/MRT arm), the #1049 descriptor-parity umbrella.
+ *  `copyBufferToBuffer` supports in-frame arena relocation; `finish()` is the single
+ *  per-frame present (gl.flush() + error drain — the endScreenPass analog). Byte-
+ *  identical on the DEFAULT WebGL2 boot: the forced-WebGL2 twin early-returns before
+ *  the frame shell, so this encoder is never acquired until `?rhichain=1` routes the
+ *  chain here (F3 remaining — the pass bodies retype from the native encoder). */
+class WebGl2FrameEncoder implements RhiCommandEncoder {
+  constructor(private readonly device: WebGl2Device) {}
+  beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
+    return this.device.beginRenderPass(desc)
+  }
+  copyBufferToBuffer(
+    src: RhiBuffer,
+    srcOffset: number,
+    dst: RhiBuffer,
+    dstOffset: number,
+    size: number,
+  ): void {
+    glCopyBufferSubData(this.device.gl, src, srcOffset, dst, dstOffset, size)
+  }
+  finish(): void {
+    this.device.finishFrame()
   }
 }
 
@@ -560,15 +601,102 @@ export class WebGl2Device implements RhiDevice {
     } as const)
   }
 
-  // Frame shell (required by RhiDevice, #1046 F2) — INERT on WebGL2: the twin
-  // renders through the screen-pass lifecycle, so the loop early-returns before the
-  // encoder/screen-view shell. Present to satisfy the required surface (§2.2); F3
-  // gives the sentinel + encoder real meaning when the chain runs on WebGL2.
+  // Frame shell (required by RhiDevice, #1046 F2/F3) — the twin still early-returns
+  // before the frame shell on the DEFAULT WebGL2 boot, so these stay uninvoked (byte-
+  // identical) until `?rhichain=1` routes the unified chain here. `acquireScreenView`
+  // hands out the FBO-0 sentinel `beginRenderPass` binds; `acquireFrameEncoder` hands
+  // out the frame encoder whose `beginRenderPass` is LIVE (below) — the chain's
+  // `ctx.encoder.beginRenderPass` seam.
   acquireScreenView(): RhiTextureView {
     return SCREEN_VIEW_SENTINEL
   }
   acquireFrameEncoder(): RhiCommandEncoder {
-    return new WebGl2CommandEncoder(this.gl)
+    return new WebGl2FrameEncoder(this)
+  }
+
+  /** Universal render-pass origination (#1046 F3, doc §2.4 / §3-F3) — the ONE entry the
+   *  unified chain reaches through `ctx.encoder.beginRenderPass` on WebGL2, and the
+   *  #1049 descriptor-parity umbrella (every pass-emitted descriptor shape binds here or
+   *  fails loud). Dispatches by TARGET: a colour attachment that is the FBO-0 screen
+   *  sentinel (`acquireScreenView`) → the default-framebuffer screen arm; otherwise the
+   *  offscreen/MRT arm (the proven `beginOffscreenPass`, reused unchanged). Reached only
+   *  via the frame encoder — never a raw device call. */
+  beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
+    const hasSentinel = desc.colorAttachments.some((a) => a.view === SCREEN_VIEW_SENTINEL)
+    return hasSentinel ? this.beginScreenRenderPass(desc) : this.beginOffscreenPass(desc)
+  }
+
+  /** FBO-0 screen arm of `beginRenderPass`: the presented default framebuffer the canvas
+   *  shows. It cannot MRT (`caps.presentablePassMrt=false`) and has no MSAA resolve
+   *  (`caps.maxSampleCount=1`), so a sentinel descriptor carrying a second colour
+   *  attachment or a resolveTarget is a caps-gating error → FAIL LOUD (no silent
+   *  fallback, #1049). The clears mirror `beginScreenPass` byte-for-byte — the
+   *  colorMask/stencilMask/depthMask unmasks are the #1043/#746/#780 flicker fixes
+   *  (glClear honours the write masks; a prior pipeline's dark mask would no-op the
+   *  clear). Load semantics (loadOp `'load'`) skip the buffer's clear, same as the
+   *  offscreen arm. GL default clearDepth is 1.0 (what `beginScreenPass` relies on) — a
+   *  depthClearValue of 1 stays GL-call-identical; only a non-default value overrides. */
+  private beginScreenRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
+    const gl = this.gl
+    if (desc.colorAttachments.length !== 1)
+      throw new Error(
+        `webgl2: the screen pass (FBO 0) cannot carry MRT attachments (caps.presentablePassMrt=false); got ${desc.colorAttachments.length} colour attachments`,
+      )
+    const color = desc.colorAttachments[0]
+    if (color.view !== SCREEN_VIEW_SENTINEL)
+      throw new Error('webgl2: beginScreenRenderPass reached without the screen sentinel')
+    if (color.resolveTarget)
+      throw new Error('webgl2: the screen pass has no MSAA resolve target (caps.maxSampleCount=1)')
+    const w = gl.drawingBufferWidth
+    const h = gl.drawingBufferHeight
+    // Remembered so a nested offscreen pass's end() restores the screen viewport
+    // (parity with beginScreenPass, which sets these for the same reason).
+    this._screenW = w
+    this._screenH = h
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, w, h)
+    gl.disable(gl.SCISSOR_TEST)
+    const ds = desc.depthStencilAttachment
+    let bits = 0
+    if (color.loadOp === 'clear') {
+      // clearColor THEN colorMask — the exact order beginScreenPass uses, so the
+      // recorded call sequence is byte-identical (colorMask still precedes gl.clear,
+      // the #1043 unmask-before-clear invariant that keeps a dark writeMask from
+      // no-op'ing the background clear).
+      const [r, g, b, a] = color.clearValue ?? [0, 0, 0, 0]
+      gl.clearColor(r, g, b, a)
+      gl.colorMask(true, true, true, true)
+      bits |= gl.COLOR_BUFFER_BIT
+    }
+    if (ds?.stencilLoadOp === 'clear') {
+      gl.stencilMask(0xff)
+      gl.clearStencil(ds.stencilClearValue ?? 0)
+      bits |= gl.STENCIL_BUFFER_BIT
+    }
+    if (ds?.depthLoadOp === 'clear') {
+      gl.depthMask(true)
+      if ((ds.depthClearValue ?? 1) !== 1) gl.clearDepth(ds.depthClearValue!)
+      bits |= gl.DEPTH_BUFFER_BIT
+    }
+    if (bits) gl.clear(bits)
+    // No onEnd: the screen pass is finished by the frame encoder's finish() → finishFrame()
+    // (flush + error drain). A nested offscreen pass restores FBO 0 + the screen viewport
+    // itself (its own onEnd), so the screen pass stays the active target after it ends.
+    return new WebGl2RenderPass(gl)
+  }
+
+  /** Per-frame present for the chain path (the `endScreenPass` analog reached through
+   *  `WebGl2FrameEncoder.finish`): push the recorded commands and drain `gl.getError`
+   *  into the shared queue the loop surfaces (R4). Distinct from `endScreenPass` only in
+   *  that it takes no pass handle — the frame encoder owns the single per-frame present. */
+  finishFrame(): void {
+    const gl = this.gl
+    gl.flush()
+    let err = gl.getError()
+    while (err !== gl.NO_ERROR) {
+      this._glErrors.push(`gl.getError 0x${err.toString(16)}`)
+      err = gl.getError()
+    }
   }
 
   /** Begin the backbuffer screen pass: target FBO 0 (the default framebuffer the

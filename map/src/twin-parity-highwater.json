@@ -1,0 +1,11 @@
+{
+  "_doc": "Twin-parity pixel ratchet (#1046 F3-F4, doc §6.3). Per-fixture HIGH-WATER DC (differing-pixel count) of the unified WebGL2 chain (?rhichain=1) vs the forced-WebGL2 twin at IDENTICAL cameras. SHRINK-ONLY per fixture: a value may only decrease; zero on EVERY fixture is F4's flip precondition; deleted with the twin in F6. null = NOT YET MEASURED — the orchestrator seeds the real value from the first ?rhichain=1 capture run (playground/e2e/_twin-parity-ratchet.spec.ts), which OWNS the live DC<=high-water assertion; the vitest gate (twin-parity-ratchet.test.ts) validates this file's shape + vacuity and SKIPS null entries. The fixtures set is the doc §3-F3 matrix and must stay in lockstep with the gate's CANONICAL_FIXTURES.",
+  "fixtures": {
+    "minimal": null,
+    "ofm_bright_local_flat": null,
+    "ofm_bright_local_globe": null,
+    "dashed_lines": null,
+    "fixture_line_image_pattern": null,
+    "fixture_translucent_outline": null
+  }
+}

@@ -139,7 +139,11 @@ const CEILINGS: Record<string, number> = {
   // seam-only (no consumer reads caps yet). Lower as the twin frame retires (F6).
   // +8 (#1046 F2): the frame-shell RHI-sourcing branch + `__xgisRawFrameShell`
   // kill-switch (doc §3-F2). F6 slashes this file to ~880 (twin deletion).
-  'map/src/render-loop.ts': 1188,
+  // 1188→1205 (#1046 F3): the `?rhichain=1` routing switch — the `_chainRunsOnWebgl2`
+  // held-off field (+ its doc) and the twin early-return's routing comment/guard (doc
+  // §3-F3). +17, all documentation of the held-off switch; the guard is byte-identical
+  // (the twin still renders). F6 slashes this file to ~880 (twin deletion).
+  'map/src/render-loop.ts': 1205,
   'map/src/render/point-renderer.ts': 1140,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
@@ -151,7 +155,15 @@ const CEILINGS: Record<string, number> = {
   // +22 = the field + its doc comment + the frozen init. (F3 raises this again for beginRenderPass.)
   // 1142→1157 (#1046 F2): the required (INERT) acquireScreenView / acquireFrameEncoder
   // frame-shell methods + the FBO-0 SCREEN_VIEW_SENTINEL (twin never calls them; F3 wires them).
-  'rhi-webgl2/src/rhi-webgl2.ts': 1157,
+  // 1157→1285 (#1046 F3): the universal `beginRenderPass` — the #1049 descriptor-parity
+  // umbrella (doc §2.4/§3-F3). The new FRAME encoder (WebGl2FrameEncoder) originates the
+  // chain's passes; the device gains `beginRenderPass` dispatching a colour-sentinel
+  // descriptor to the new FBO-0 screen arm (`beginScreenRenderPass`, GL-call-identical to
+  // beginScreenPass) or the proven offscreen arm, `finishFrame` (the present analog), and
+  // a shared `glCopyBufferSubData`. +128; byte-identical on the default WebGL2 boot (the
+  // twin early-returns before the frame shell, so the frame encoder is never acquired).
+  // Fail-loud on any non-bindable descriptor shape (no silent fallback). Lower in F6.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1285,
   'map/src/render/renderer.ts': 965,
   'map/src/render/gpu-tile-store.ts': 941,
   'map/src/render/tile-selection-cache.ts': 930,
