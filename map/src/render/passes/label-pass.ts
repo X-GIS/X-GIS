@@ -184,7 +184,7 @@ class LabelPass implements RenderPass {
     // destructured — the projType-conditional label projector branches
     // collapsed to a single ECEF-based projector. Other passes still
     // consume them off FrameContext directly.
-    const { device, dpr, sampleCount: sc, w, h, encoder } = ctx
+    const { dpr, sampleCount: sc, w, h, encoder } = ctx
     const disableLabels =
       typeof window !== 'undefined' &&
       (window as unknown as { __xgisDisableLabels?: boolean }).__xgisDisableLabels === true
@@ -235,7 +235,7 @@ class LabelPass implements RenderPass {
         // frame that needed it drew, re-arm a frame + tag LABEL dirty so
         // the S16 skip re-prepares instead of replaying the stale glyph.
         tsOpts.onResourceLanded = () => host.markLabelDirty()
-        host.textStage = new TextStage(device, host.ctx.rhi, host.ctx.format, tsOpts, sc)
+        host.textStage = new TextStage(host.ctx.device, host.ctx.rhi, host.ctx.format, tsOpts, sc)
         host.textStage.prewarmGISDefaults()
         // Attach any debug hook that was set before the stage existed.
         // The hook is null/undefined-safe on the stage side, so the
@@ -270,7 +270,7 @@ class LabelPass implements RenderPass {
           host.showCommands.some((s) => s.fillPattern || s.linePattern))
       ) {
         host.iconStage = new IconStage(
-          device,
+          host.ctx.device,
           host.ctx.rhi,
           host.ctx.format,
           {
@@ -306,7 +306,7 @@ class LabelPass implements RenderPass {
           // a host-only .xgis with an icon-image layer — no raw .xgis authors one
           // today), compositionally covered by those two gates.
           host.iconStage = IconStage.forHostAtlas(
-            device,
+            host.ctx.device,
             host.ctx.rhi,
             host.ctx.format,
             hostAtlas,

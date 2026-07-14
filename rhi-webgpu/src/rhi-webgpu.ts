@@ -256,28 +256,43 @@ export function wrapWebGpuBindGroup(group: GPUBindGroup): RhiBindGroup {
  *  mapper; finish submits this encoder's single command buffer (one encoder →
  *  one submit, matching the render loop's per-frame submit). */
 class WebGpuCommandEncoder implements RhiCommandEncoder {
-  private readonly enc: GPUCommandEncoder
+  /** Mutable so the REUSED frame encoder (acquireFrameEncoder, #1046 F2) can
+   *  rebind this frame's fresh native encoder without allocating a new wrapper. */
+  private enc: GPUCommandEncoder
   /** false when this RHI encoder WRAPS an externally-owned native encoder
    *  (the render loop's per-frame `ctx.encoder`): `finish()` must NOT submit
    *  — the loop owns the single submit of the underlying encoder. The
    *  incremental #834 M-B4 seam: a pass records its render pass through this
    *  RHI encoder while the surrounding native passes still use `ctx.encoder`
    *  directly; both target the SAME native encoder, so the single command
-   *  stream + submit ordering are preserved. */
+   *  stream + submit ordering are preserved. `{ own }` also owns the submit but
+   *  wraps a caller-minted encoder (the F2 frame shell mints it, rebinds, submits). */
   private readonly ownsSubmit: boolean
   constructor(
     private readonly device: GPUDevice,
-    labelOrWrap?: string | { wrap: GPUCommandEncoder },
+    labelOrWrap?: string | { wrap: GPUCommandEncoder } | { own: GPUCommandEncoder },
   ) {
     if (typeof labelOrWrap === 'object') {
-      this.enc = labelOrWrap.wrap
-      this.ownsSubmit = false
+      // { wrap } wraps an externally-owned encoder (no submit); { own } wraps a
+      // caller-minted encoder the RHI DOES submit (the F2 frame shell path).
+      this.enc = 'wrap' in labelOrWrap ? labelOrWrap.wrap : labelOrWrap.own
+      this.ownsSubmit = !('wrap' in labelOrWrap)
     } else {
       this.enc = device.createCommandEncoder(
         labelOrWrap !== undefined ? { label: labelOrWrap } : undefined,
       )
       this.ownsSubmit = true
     }
+  }
+  /** Rebind the reused frame-encoder wrapper to this frame's fresh native encoder
+   *  (#1046 F2, §5.5 — the wrapper is frame-invariant, the native minted per frame). */
+  rebind(enc: GPUCommandEncoder): void {
+    this.enc = enc
+  }
+  /** The native encoder — the incremental bridge (mirrors unwrapWebGpuBuffer) that
+   *  hands a frame's RHI-sourced encoder to the not-yet-converted raw passes. */
+  get nativeEncoder(): GPUCommandEncoder {
+    return this.enc
   }
   beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
     return new WebGpuRenderPass(this.enc.beginRenderPass(rhiRenderPassToGpu(desc)))
@@ -307,6 +322,23 @@ export function wrapWebGpuCommandEncoder(
   return new WebGpuCommandEncoder(device, { wrap: enc })
 }
 
+/** Recover the native `GPUCommandEncoder` from a frame's RHI-sourced encoder
+ *  (`acquireFrameEncoder`, #1046 F2) — the incremental bridge (mirrors
+ *  `unwrapWebGpuBuffer`) that hands the RHI-created encoder to the not-yet-migrated
+ *  raw passes / compute dispatch. Identity on WebGPU (the same native encoder the
+ *  wrapper holds), so it is byte-identical to the pre-F2 `device.createCommandEncoder`
+ *  handle. The pass-body conversion (F3/P5) retires it. */
+export function unwrapWebGpuCommandEncoder(enc: RhiCommandEncoder): GPUCommandEncoder {
+  return (enc as WebGpuCommandEncoder).nativeEncoder
+}
+
+/** Recover the native `GPUTextureView` from an RHI view — used by the F2 frame
+ *  shell to feed the RHI-acquired swapchain view (`acquireScreenView`) to the
+ *  not-yet-migrated raw passes / RenderTargets. Identity on WebGPU. */
+export function unwrapWebGpuTextureView(view: RhiTextureView): GPUTextureView {
+  return u<GPUTextureView>(view)
+}
+
 export class WebGpuDevice implements RhiDevice {
   readonly backend = 'webgpu' as const
   /** Native WebGPU capability truths (§2.2). Frozen once at construction; the only
@@ -315,7 +347,19 @@ export class WebGpuDevice implements RhiDevice {
    *  WebGPU truths: 4× MSAA, presentable-surface MRT, async pick readback, float
    *  render+blend targets, native compute, deferred (submit-time) execution. */
   readonly caps: RhiCaps
-  constructor(private readonly device: GPUDevice) {
+  /** Reused frame-shell wrappers (#1046 F2, §5.5) — created lazily on the first
+   *  frame, then rebound each frame so the allocation-paranoid 60 Hz loop never
+   *  allocates a wrapper per frame. The NATIVE objects behind them are still minted
+   *  every frame (WebGPU requires a fresh swapchain view + command encoder); only
+   *  the RHI wrapper is frame-invariant. */
+  private _screenView: Native<GPUTextureView> | null = null
+  private _frameEncoder: WebGpuCommandEncoder | null = null
+  constructor(
+    private readonly device: GPUDevice,
+    /** The canvas swapchain context — required by `acquireScreenView`. Optional in
+     *  unit tests that only exercise resource creation (they never acquire a frame). */
+    private readonly context?: GPUCanvasContext,
+  ) {
     this.caps = Object.freeze({
       maxSampleCount: 4,
       presentablePassMrt: true,
@@ -325,6 +369,28 @@ export class WebGpuDevice implements RhiDevice {
       timestampQuery: device.features?.has('timestamp-query') ?? false,
       executionModel: 'deferred',
     } as const)
+  }
+
+  // ── Frame shell (#1046 F2 / #991 G2+G3) ──────────────────────────────────────
+
+  /** Acquire this frame's swapchain colour view (G2). A fresh native view is minted
+   *  each frame (the swapchain texture rotates); the RHI wrapper is REUSED (§5.5). */
+  acquireScreenView(): RhiTextureView {
+    // The frame shell only runs on WebGPU, where the canvas context is always present.
+    const view = this.context!.getCurrentTexture().createView()
+    if (this._screenView) this._screenView.native = view
+    else this._screenView = wrap(view)
+    return this._screenView as unknown as RhiTextureView
+  }
+
+  /** The per-frame command encoder (G3), sourced through the RHI. Mints a fresh
+   *  native encoder each frame and rebinds the REUSED wrapper (§5.5); `finish()`
+   *  owns the single per-frame submit. */
+  acquireFrameEncoder(): RhiCommandEncoder {
+    const enc = this.device.createCommandEncoder()
+    if (this._frameEncoder) this._frameEncoder.rebind(enc)
+    else this._frameEncoder = new WebGpuCommandEncoder(this.device, { own: enc })
+    return this._frameEncoder
   }
 
   createCommandEncoder(label?: string): RhiCommandEncoder {

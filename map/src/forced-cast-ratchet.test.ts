@@ -125,7 +125,10 @@ const BASELINE: Record<string, number> = {
   'map/src/text/text-wrap.ts': 1,
   'rhi-webgpu/src/gpu-timer.ts': 1,
   'rhi-webgpu/src/gpu.ts': 1,
-  'rhi-webgpu/src/rhi-webgpu.ts': 12,
+  // 12→13 (#1046 F2): acquireScreenView's reused screen-view holder returns
+  // `Native<GPUTextureView> as unknown as RhiTextureView` — the SAME opaque-handle
+  // bridge the file's 5 `wrapWebGpu*` helpers use, needed for a zero-alloc reused view.
+  'rhi-webgpu/src/rhi-webgpu.ts': 13,
   'shader-dsl/src/core/fp64/df64-lib.ts': 1,
   'shader-dsl/src/core/ir/builder.ts': 4,
   'shader-dsl/src/core/ir/node.ts': 1,

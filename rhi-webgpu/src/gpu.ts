@@ -192,7 +192,7 @@ export async function createWebGpuContext(
     format,
     canvas,
     sampleCount: boot.sampleCount,
-    rhi: new WebGpuDevice(device),
+    rhi: new WebGpuDevice(device, context),
     timestampQuerySupported,
     timestampInsidePassesSupported,
     float32FilterableSupported,

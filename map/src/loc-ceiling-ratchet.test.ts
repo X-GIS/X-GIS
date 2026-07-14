@@ -137,7 +137,9 @@ const CEILINGS: Record<string, number> = {
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
   // seam-only (no consumer reads caps yet). Lower as the twin frame retires (F6).
-  'map/src/render-loop.ts': 1180,
+  // +8 (#1046 F2): the frame-shell RHI-sourcing branch + `__xgisRawFrameShell`
+  // kill-switch (doc §3-F2). F6 slashes this file to ~880 (twin deletion).
+  'map/src/render-loop.ts': 1188,
   'map/src/render/point-renderer.ts': 1140,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
@@ -147,7 +149,9 @@ const CEILINGS: Record<string, number> = {
   // truths frozen at build, with `floatBlendTargets` feature-DETECTED via getSupportedExtensions
   // (EXT_color_buffer_float && EXT_float_blend; a pure query, enables nothing → byte-identical).
   // +22 = the field + its doc comment + the frozen init. (F3 raises this again for beginRenderPass.)
-  'rhi-webgl2/src/rhi-webgl2.ts': 1142,
+  // 1142→1157 (#1046 F2): the required (INERT) acquireScreenView / acquireFrameEncoder
+  // frame-shell methods + the FBO-0 SCREEN_VIEW_SENTINEL (twin never calls them; F3 wires them).
+  'rhi-webgl2/src/rhi-webgl2.ts': 1157,
   'map/src/render/renderer.ts': 965,
   'map/src/render/gpu-tile-store.ts': 941,
   'map/src/render/tile-selection-cache.ts': 930,
