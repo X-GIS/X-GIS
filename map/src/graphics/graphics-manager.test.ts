@@ -327,3 +327,66 @@ describe('#797 P2a retained CIRCLE — writeBuffer-range witness + append', () =
     expect(handle.count).toBe(50)
   })
 })
+
+// #826 PARTICLE-FLOW primitive — the wind-map batch. Unlike the others, `data` is the per-gu FIELD
+// that the packer EXPANDS into a fixed particle pool (design §2.3): the batch's instance count is
+// that fixed pool (particleCount), decoupled from the gu count. Like the circle it needs NO sprite
+// atlas. Exercises the particle branch of materialise / updateBatch / removeBatch on the stub device.
+function particleSpec(cells: number, particleCount = 256) {
+  const data = Array.from({ length: cells }, (_, i) => ({
+    lon: i,
+    lat: i % 80,
+    bearing: (i * 37) % 360,
+    vol: i + 1,
+  }))
+  type Cell = { lon: number; lat: number; bearing: number; vol: number }
+  return {
+    type: 'particle-flow' as const,
+    data,
+    getPosition: (d: Cell) => [d.lon, d.lat] as [number, number],
+    getBearing: (d: Cell) => d.bearing,
+    getVolume: (d: Cell) => d.vol,
+    getColor: () => [1, 1, 1, 1] as [number, number, number, number],
+    particleCount,
+    minPerCell: 4,
+    updateTriggers: { color: 1 },
+  }
+}
+
+describe('#826 GraphicsManager retained PARTICLE-FLOW batch', () => {
+  it('add() materialises feat + tint with NO sprite image; count = the fixed particle pool', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    const handle = gm.add(particleSpec(5, 256))
+    expect(s.created.length, 'feat + tint created').toBe(2)
+    expect(gm.hasRetainedBatches()).toBe(true)
+    // The draw count is the fixed pool (particleCount), NOT the 5 gu cells (density-expansion).
+    expect(handle.count).toBe(256)
+    handle.remove()
+    render(gm) // drain-only frame destroys the retired buffers
+    expect(s.destroyed.length, 'both retired buffers destroyed').toBe(2)
+  })
+
+  it('update({color}) re-packs feat AND tint together (colour follows the shared allocation)', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    const handle = gm.add(particleSpec(5, 256))
+    const before = gm.getWriteCounts()
+    handle.update({ triggers: ['color'] })
+    const after = gm.getWriteCounts()
+    // Particle colour is keyed to the per-gu allocation baked into the feat pack, so a recolour
+    // re-packs BOTH lanes in lockstep (no color-only tint fast path) — the design's correctness fence.
+    expect(after.tintWrites - before.tintWrites).toBe(1)
+    expect(after.featWrites - before.featWrites).toBe(1)
+  })
+
+  it('an empty-field particle batch does NOT flip the render gate (0 particles)', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    gm.add(particleSpec(0))
+    expect(gm.hasRetainedBatches()).toBe(false)
+  })
+})

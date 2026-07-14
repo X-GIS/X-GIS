@@ -103,8 +103,51 @@ export interface CircleDrawSpec<D> {
   readonly updateTriggers?: Partial<Record<IconUpdateTrigger, unknown>>
 }
 
+/** Declarative spec for a retained geo-anchored PARTICLE-FLOW batch — the wind-map aesthetic
+ *  (`map.graphics.add`, #826). Unlike the other primitives, `data` is the PER-GU FIELD (design
+ *  §2.1), NOT a per-instance list: the packer EXPANDS it into a fixed pool of drifting particles,
+ *  allocating MORE particles to a busier gu so DENSITY ∝ volume (design §2.3). Each particle drifts
+ *  along its home-gu outflow direction and respawns — the closed-form stateless drift (candidate b,
+ *  design §3.2), so it renders on BOTH backends and verifies deterministically at a pinned clock.
+ *  All allocation/animation knobs are optional with the design's recommended defaults (§5). */
+export interface ParticleFlowDrawSpec<D> {
+  readonly type: 'particle-flow'
+  /** The per-gu field cells (e.g. 25 gu) — NOT a per-particle list. */
+  readonly data: readonly D[]
+  /** Gu centroid — the seed origin the particles jitter around (design §5-Q5). Required. */
+  readonly getPosition: Packed<Position, D>
+  /** GEOGRAPHIC outflow bearing the particles drift along, in degrees (0 = north, clockwise).
+   *  Projected on the GPU from two geo points, so it stays correct under camera / pitch / globe.
+   *  Default 0 (north). */
+  readonly getBearing?: Packed<number, D>
+  /** RAW outflow volume for this gu — drives density ∝ volume (design §2.3, §5-Q3: RAW, not the
+   *  √-compressed arrow-length channel). Default 1 (uniform density). */
+  readonly getVolume?: Packed<number, D>
+  /** Per-gu particle colour. Default white. */
+  readonly getColor?: Packed<IconColor, D>
+  /** Target TOTAL particle count across the field (design §2.3 N_cap). Default 4096. */
+  readonly particleCount?: number
+  /** Hard ceiling on the total (design §2.3, power-of-two headroom). Default 16384. */
+  readonly maxParticles?: number
+  /** Floor of particles per gu so the quietest still shows motion (design §5-Q4). Default 8. */
+  readonly minPerCell?: number
+  /** Jitter radius around the centroid, in metres (design §5-Q5). Default 1200. */
+  readonly seedRadiusMeters?: number
+  /** Drift length in px a particle travels over ONE lifetime. Default 40. */
+  readonly driftPx?: number
+  /** Particle lifetime (drift-and-respawn period) in seconds. Default 2.5. */
+  readonly lifetimeSeconds?: number
+  /** Particle disc radius in px. Default 2. */
+  readonly particleRadiusPx?: number
+  /** PRNG seed for the deterministic jitter/phase (the §5 pinned-`t` reproducibility). Default 1. */
+  readonly seed?: number
+  /** Marks which attributes a later `update({ triggers })` will re-pack. */
+  readonly updateTriggers?: Partial<Record<IconUpdateTrigger, unknown>>
+}
+
 /** Any retained batch spec accepted by `map.graphics.add` — discriminated by `type`. */
-export type DrawSpec<D> = IconDrawSpec<D> | ArrowDrawSpec<D> | CircleDrawSpec<D>
+export type DrawSpec<D> =
+  IconDrawSpec<D> | ArrowDrawSpec<D> | CircleDrawSpec<D> | ParticleFlowDrawSpec<D>
 
 /** Handle to a live retained batch. `D` is the datum type the batch was authored
  *  over; it defaults to `unknown` so a bare `DrawHandle` reference stays valid. */

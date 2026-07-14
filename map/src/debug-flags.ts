@@ -79,6 +79,41 @@ if (RHI_CHAIN && typeof window !== 'undefined') {
   )
 }
 
+/** `?animt=<seconds>` (URL, page-load) — PIN the particle-flow animation clock to a fixed value
+ *  instead of the live `performance.now()`. The candidate-(b) particle position is a pure function
+ *  of `(seed, t)` (design §3.2), so a pinned `t` makes the whole frame byte-reproducible — the §5
+ *  deterministic-probe seam (`animt=0.25/0.5/0.75` sweeps the phase for a directional pixel-diff).
+ *  Mirrors the `?rhichain` URL-flag convention. */
+function readAnimTUrl(): number | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const v = new URL(window.location.href).searchParams.get('animt')
+    if (v === null) return null
+    const n = Number(v)
+    return Number.isFinite(n) ? n : null
+  } catch {
+    return null
+  }
+}
+
+const ANIM_T_URL: number | null = readAnimTUrl()
+
+if (ANIM_T_URL !== null && typeof window !== 'undefined') {
+  console.info(
+    `[X-GIS] ?animt=${ANIM_T_URL} active — particle-flow animation clock PINNED (deterministic-probe capture); reload without ?animt for the live clock`,
+  )
+}
+
+/** The pinned particle animation clock, in seconds, or `null` when the clock runs live. Checks the
+ *  live `globalThis.__xgisAnimT` global FIRST (so a probe harness can sweep phases WITHOUT a page
+ *  reload — the `__xgisRhiChain` global-mirror pattern), then the page-load `?animt` URL param.
+ *  The graphics manager falls back to `performance.now()` when this returns null. */
+export function animTimePinnedSeconds(): number | null {
+  const live = (globalThis as { __xgisAnimT?: unknown }).__xgisAnimT
+  if (typeof live === 'number' && Number.isFinite(live)) return live
+  return ANIM_T_URL
+}
+
 /** Format of the overdraw accumulator render target. r16float lets
  *  per-pixel fragment counts grow well beyond the [0, 1] range that
  *  the bgra8unorm swapchain would clip; ~65 k max before overflow,
