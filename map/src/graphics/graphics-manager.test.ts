@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest'
 import { GraphicsManager } from './graphics-manager'
 import type { Camera } from '../camera'
+import {
+  CIRCLE_RETAINED_FEAT,
+  CIRCLE_RETAINED_TINT_STRIDE,
+} from '../shaders/dsl/circle-retained-feat-layout'
 
 // node lacks the WebGPU `GPUTextureUsage` global the host atlas ensure() reads.
 beforeAll(() => {
@@ -26,17 +30,29 @@ interface StubBuf {
   label?: string
 }
 
+interface WriteRec {
+  buf: StubBuf
+  byteOffset: number
+  byteLength: number
+}
+
 function makeStubs() {
   let id = 0
   const created: StubBuf[] = []
   const destroyed: StubBuf[] = []
+  // Records the byte RANGE of every RHI writeBuffer (buffer identity + offset +
+  // length) — the #797 P2a witness that a color-trigger update writes ONLY the
+  // tint lane and an append writes ONLY the new rows into a new buffer.
+  const writes: WriteRec[] = []
   const rhi = {
     createBuffer: (d: { label?: string }) => {
       const b: StubBuf = { __id: id++, label: d.label }
       created.push(b)
       return b
     },
-    writeBuffer: () => {},
+    writeBuffer: (buf: StubBuf, byteOffset: number, data: { byteLength: number }) => {
+      writes.push({ buf, byteOffset, byteLength: data.byteLength })
+    },
     destroyBuffer: (b: StubBuf) => {
       destroyed.push(b)
     },
@@ -49,7 +65,7 @@ function makeStubs() {
     createTexture: () => ({ createView: () => ({}), destroy: () => {} }),
     queue: { writeTexture: () => {}, copyExternalImageToTexture: () => {} },
   }
-  return { rhi, device, created, destroyed }
+  return { rhi, device, created, destroyed, writes }
 }
 
 // A minimal render call — the lifecycle tests all early-return before the draw
@@ -206,5 +222,108 @@ describe('#797 GraphicsManager retained CIRCLE batch', () => {
     attach(gm, s)
     gm.add(circleSpec(0))
     expect(gm.hasRetainedBatches()).toBe(false)
+  })
+})
+
+// #797 P2a — the incremental "O(changed)" witness the Phase-2 gate names: an
+// updateTriggers recolour writes ONLY the tint byte-range (never repacking
+// positions), and append adds rows WITHOUT re-uploading the existing ones. We
+// SPY the writeBuffer(buffer, byteOffset, data) ranges through the RHI seam
+// (makeStubs.writes) — the byte-level proof, stronger than the featWrites/
+// tintWrites counters the landed lifecycle tests use.
+const CIRCLE_FEAT = 'retained-circle-feat'
+const CIRCLE_TINT = 'retained-circle-tint'
+const FEAT_BYTES = (n: number) => n * CIRCLE_RETAINED_FEAT.stride * 4
+const TINT_BYTES = (n: number) => n * CIRCLE_RETAINED_TINT_STRIDE * 4
+
+describe('#797 P2a retained CIRCLE — writeBuffer-range witness + append', () => {
+  it('update({color}) writes ONLY the tint byte-range — the feat/position buffer is never touched', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    const n = 200
+    const handle = gm.add(circleSpec(n))
+    s.writes.length = 0 // ignore the materialise writes; measure ONLY the update
+    handle.update({ triggers: ['color'] })
+    // Exactly ONE writeBuffer — to the TINT buffer, at offset 0, covering the whole
+    // fill-tint lane (n × 4 f32) — and ZERO writes to the feat (position) buffer.
+    expect(s.writes.length).toBe(1)
+    expect(s.writes[0]!.buf.label).toBe(CIRCLE_TINT)
+    expect(s.writes[0]!.byteOffset).toBe(0)
+    expect(s.writes[0]!.byteLength).toBe(TINT_BYTES(n))
+    expect(
+      s.writes.some((w) => w.buf.label === CIRCLE_FEAT),
+      'no feat re-upload',
+    ).toBe(false)
+  })
+
+  it('append() uploads ONLY the new rows into a NEW buffer — the seed batch bytes stay untouched', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    const n0 = 100
+    const handle = gm.add(circleSpec(n0))
+    const seedBufs = new Set(s.created.map((b) => b.__id)) // the seed's feat + tint
+    expect(seedBufs.size, 'seed feat + tint').toBe(2)
+    s.writes.length = 0
+
+    const n1 = 30
+    handle.append(Array.from({ length: n1 }, (_, i) => ({ lon: 500 + i, lat: 10 })))
+
+    // Two NEW buffers (feat + tint of the appended batch); the seed's two buffers
+    // received ZERO writes (its rows are neither re-packed nor re-uploaded).
+    const newIds = new Set(s.created.filter((b) => !seedBufs.has(b.__id)).map((b) => b.__id))
+    expect(newIds.size, 'appended feat + tint (a separate batch)').toBe(2)
+    expect(s.writes.length, 'only the 2 new-batch buffers written').toBe(2)
+    for (const w of s.writes) {
+      expect(seedBufs.has(w.buf.__id), 'no write hits a seed buffer').toBe(false)
+      expect(newIds.has(w.buf.__id)).toBe(true)
+    }
+    // The appended writes cover exactly the new rows (n1), at offset 0 of their
+    // own buffers — the O(changed) upload, not O(n0 + n1).
+    const featW = s.writes.find((w) => w.buf.label === CIRCLE_FEAT)!
+    const tintW = s.writes.find((w) => w.buf.label === CIRCLE_TINT)!
+    expect(featW.byteOffset).toBe(0)
+    expect(featW.byteLength).toBe(FEAT_BYTES(n1))
+    expect(tintW.byteLength).toBe(TINT_BYTES(n1))
+    // The handle now draws the union.
+    expect(handle.count).toBe(n0 + n1)
+  })
+
+  it('append() runs accessors ONLY for the appended rows — the seed rows are not re-packed', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    let posCalls = 0
+    const seed = {
+      type: 'circle' as const,
+      data: Array.from({ length: 100 }, (_, i) => ({ lon: i, lat: 0 })),
+      getPosition: (d: { lon: number; lat: number }) => {
+        posCalls++
+        return [d.lon, d.lat] as [number, number]
+      },
+      getRadius: 5,
+    }
+    const handle = gm.add(seed)
+    const afterAdd = posCalls // the seed pack ran getPosition once per seed row
+    expect(afterAdd).toBe(100)
+    handle.append([
+      { lon: 900, lat: 1 },
+      { lon: 901, lat: 2 },
+    ])
+    // Only the 2 appended rows are packed; the 100 seed rows are NOT re-run.
+    expect(posCalls - afterAdd, 'accessors run for appended rows only').toBe(2)
+    expect(handle.count).toBe(102)
+  })
+
+  it('append([]) is a no-op — no batch, no buffers, no repaint churn', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    const handle = gm.add(circleSpec(50))
+    const createdBefore = s.created.length
+    handle.append([])
+    expect(s.created.length, 'empty append allocates nothing').toBe(createdBefore)
+    expect(handle.count).toBe(50)
   })
 })

@@ -1068,6 +1068,30 @@ async function runSource(source: string, label: string) {
     applyHashToCamera(currentMap)
     startHashSync(currentMap)
 
+    // #797 P2a — retained-circle scale hook for the real-GPU p95 benchmark.
+    // `?hostcircles=N` packs N geo-spread discs through map.graphics.add({ type:
+    // 'circle' }) ONCE, so a headed capture can drive the retained circle path at
+    // scale under pan/zoom (a camera move re-runs zero host JS — the retained
+    // N-independence contract). Absent / 0 → nothing added (byte-identical demo).
+    const hostCircles = Number(new URLSearchParams(location.search).get('hostcircles') ?? '0')
+    if (Number.isFinite(hostCircles) && hostCircles > 0) {
+      const pts: Array<[number, number]> = []
+      for (let i = 0; i < hostCircles; i++) {
+        pts.push([((i * 137.508) % 360) - 180, ((i * 61.803) % 140) - 70])
+      }
+      currentMap.graphics.add({
+        type: 'circle',
+        data: pts,
+        getPosition: (d: [number, number]) => d,
+        getRadius: 4,
+        getColor: '#ff3311',
+        getStrokeColor: '#ffffff',
+        getStrokeWidth: 1,
+        updateTriggers: { color: 1 },
+      })
+      currentMap.invalidate()
+    }
+
     status.textContent = `${label} · scroll to zoom, drag to pan`
     // Identity badge — show the backend that ACTUALLY booted. 'auto' can fall
     // back (WebGPU adapter-null → WebGL2), and a pinned boot should visibly
