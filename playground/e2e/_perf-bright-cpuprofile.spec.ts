@@ -90,16 +90,15 @@ test('Bright pitch=0 z=14 Tokyo — CPU profile + hot functions', async ({ page,
   const outPath = path.resolve('test-results', 'bright-pitch0-z14.cpuprofile')
   fs.mkdirSync(path.dirname(outPath), { recursive: true })
   fs.writeFileSync(outPath, JSON.stringify(profile))
-  // eslint-disable-next-line no-console
+
   console.log(`\n[profile] saved: ${outPath} (drag onto DevTools Performance tab)`)
 
-  // eslint-disable-next-line no-console
   console.log(`\n[hot] top 30 by self time over ${PROFILE_MS}ms (Bright pitch=0 z=14):`)
   const hot = topHotFunctions(profile, 30)
   for (const r of hot) {
     if (r.selfMs < 1) continue
     const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
-    // eslint-disable-next-line no-console
+
     console.log(
       `  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(40)} ${url}:${r.line}`,
     )

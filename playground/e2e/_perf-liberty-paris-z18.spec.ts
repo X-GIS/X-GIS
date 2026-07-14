@@ -20,7 +20,6 @@ mkdirSync(OUT, { recursive: true })
 test('OFM Liberty perf probe — #18.25/48.84778/2.33194/14/70', async ({ page }) => {
   page.on('console', (msg) => {
     if (msg.type() === 'warning' || msg.type() === 'error') {
-      // eslint-disable-next-line no-console
       console.warn('[page]', msg.text())
     }
   })
@@ -113,7 +112,7 @@ test('OFM Liberty perf probe — #18.25/48.84778/2.33194/14/70', async ({ page }
 
   const report = lines.join('\n')
   writeFileSync(join(OUT, 'REPORT.md'), report)
-  // eslint-disable-next-line no-console
+
   console.warn(report)
   expect(idleMetrics).not.toBeNull()
 })

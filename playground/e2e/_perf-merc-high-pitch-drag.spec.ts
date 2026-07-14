@@ -137,7 +137,7 @@ test('merc high-pitch drag — Liberty Seoul z17 pitch68', async ({ page }) => {
     '- missedTiles > 0 → upload backlog (decode/upload bottleneck)',
   ]
   writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))
-  // eslint-disable-next-line no-console
+
   console.log(
     `[merc-high-pitch-drag] static: tiles=${staticStats.tilesVisible} draws=${staticStats.drawCalls} tris=${staticStats.triangles}` +
       ` | pan: p95=${panStats.p95.toFixed(1)} max=${panStats.max.toFixed(1)} post-tiles=${postPanStats.tilesVisible}`,

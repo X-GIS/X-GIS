@@ -34,7 +34,7 @@ mkdirSync(join(OUT, 'per-demo'), { recursive: true })
 // import.meta.glob makes runtime import unworkable from Node; the
 // top-level key pattern is stable enough to regex.
 const DEMOS_SRC = readFileSync(resolve(HERE, '../src/demos.ts'), 'utf8')
-const DEMO_IDS = [...DEMOS_SRC.matchAll(/^  ([a-z_][a-z_0-9]*):\s*\{/gm)].map((m) => m[1]!)
+const DEMO_IDS = [...DEMOS_SRC.matchAll(/^ {2}([a-z_][a-z_0-9]*):\s*\{/gm)].map((m) => m[1]!)
 
 // Console noise that fires on nearly every demo and isn't actionable.
 const CONSOLE_NOISE =

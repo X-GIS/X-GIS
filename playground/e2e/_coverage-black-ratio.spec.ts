@@ -122,7 +122,7 @@ test('coverage: flat CORE/SHOWCASE has no black void; disc/globe render', async 
     const black = await blackRatio(page, png)
     const pass = black <= FLAT_BLACK_MAX
     results.push({ cell: `${proj}/${scene}`, black, gate: FLAT_BLACK_MAX, pass })
-    // eslint-disable-next-line no-console
+
     console.log(
       `[coverage] ${proj}/${scene}  black=${(black * 100).toFixed(2)}%  gate≤${FLAT_BLACK_MAX * 100}%  ${pass ? 'OK' : 'FAIL'}`,
     )
@@ -134,13 +134,12 @@ test('coverage: flat CORE/SHOWCASE has no black void; disc/globe render', async 
     // Space IS black; just prove SOMETHING rendered (not an all-black frame).
     const pass = black < 0.99
     results.push({ cell: `${proj}/${scene}`, black, gate: null, pass })
-    // eslint-disable-next-line no-console
+
     console.log(
       `[coverage] ${proj}/${scene}  black=${(black * 100).toFixed(2)}%  (space-smoke <99%)  ${pass ? 'OK' : 'FAIL'}`,
     )
   }
 
-  // eslint-disable-next-line no-console
   console.log(`\nPNGs -> ${OUT}`)
 
   // Assert flat coverage cells: no accidental black void.

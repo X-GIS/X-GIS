@@ -111,7 +111,7 @@ test('ofm-bright school fill pixel match — labels off', async ({ page }) => {
     map.invalidate?.()
     return { hidden, total }
   })
-  // eslint-disable-next-line no-console
+
   console.log('[pixel-match] hidden symbols:', xgisHidden)
 
   // Wait for both sides to settle after the visibility change.
@@ -207,7 +207,7 @@ test('ofm-bright school fill pixel match — labels off', async ({ page }) => {
       le128: cum('eq0', 'le8', 'le16', 'le32', 'le64', 'le128'),
     },
   }
-  // eslint-disable-next-line no-console
+
   console.log('[pixel-match] report:', JSON.stringify(report, null, 2))
 
   // Pixelmatch diff PNG for visual eyeballing (red where it differs).

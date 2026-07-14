@@ -134,17 +134,15 @@ test('bright style: frame-time profile across pitches at z=14 Tokyo', async ({ p
       uploadsAtEnd: sourceCache?.pendingUploads ?? -1,
       drawCallsAtEnd: sourceFrame?.drawCalls ?? -1,
     })
-    // eslint-disable-next-line no-console
+
     console.log(`pitch=${pitch}: pipeline =`, JSON.stringify(pipeline?.sources?.[0]))
-    // eslint-disable-next-line no-console
+
     console.log(`pitch=${pitch}: drawnByZoom =`, JSON.stringify(sample.byZoom))
     await page.locator('#map').screenshot({ path: `test-results/bright-pitch-${pitch}.png` })
   }
 
-  // eslint-disable-next-line no-console
   console.log('\n=== bright pitch perf ===')
   for (const r of results) {
-    // eslint-disable-next-line no-console
     console.log(
       `  pitch=${r.pitch.toString().padStart(2)}°: ` +
         `median=${r.medianFrameMs.toFixed(1)}ms (${(1000 / r.medianFrameMs).toFixed(0)} fps) ` +

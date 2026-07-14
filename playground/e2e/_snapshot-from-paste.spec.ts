@@ -66,22 +66,21 @@ test.describe('snapshot replay from pasted JSON', () => {
       throw new Error(`unsupported snapshot schema ${snap.schemaVersion}`)
     }
 
-    // eslint-disable-next-line no-console
     console.log('[paste-replay] received snapshot:')
-    // eslint-disable-next-line no-console
+
     console.log(`  pageUrl: ${snap.pageUrl}`)
-    // eslint-disable-next-line no-console
+
     console.log(
       `  camera: lon=${snap.camera.lon.toFixed(4)} lat=${snap.camera.lat.toFixed(4)} z=${snap.camera.zoom.toFixed(2)} bearing=${snap.camera.bearing.toFixed(1)}° pitch=${snap.camera.pitch.toFixed(1)}°`,
     )
-    // eslint-disable-next-line no-console
+
     console.log(`  page viewport: ${snap.pageViewport.width}×${snap.pageViewport.height}`)
-    // eslint-disable-next-line no-console
+
     console.log(
       `  canvas: ${snap.viewport.cssWidth}×${snap.viewport.cssHeight} (backing ${snap.viewport.width}×${snap.viewport.height}, dpr=${snap.viewport.dpr})`,
     )
     const totalTiles = Object.values(snap.sources).reduce((acc, s) => acc + s.tiles.length, 0)
-    // eslint-disable-next-line no-console
+
     console.log(
       `  tiles to reproduce: ${totalTiles} across ${Object.keys(snap.sources).length} source(s)`,
     )
@@ -120,7 +119,6 @@ test.describe('snapshot replay from pasted JSON', () => {
 
     if ('error' in result) throw new Error(`replay error: ${result.error}`)
 
-    // eslint-disable-next-line no-console
     console.log(
       `[paste-replay] replay: matched=${result.matched}, missing=${result.missingTiles}, pendingFetch=${result.pendingFetchTotal}, pendingUpload=${result.pendingUploadTotal}`,
     )
@@ -134,15 +132,14 @@ test.describe('snapshot replay from pasted JSON', () => {
       return fn ? await fn() : null
     })) as Snapshot | null
     if (live) {
-      // eslint-disable-next-line no-console
       console.log(
         `[paste-replay] live: pixelHash=${live.pixelHash.slice(0, 16)}, tiles=${Object.values(live.sources).reduce((a, s) => a + s.tiles.length, 0)}`,
       )
-      // eslint-disable-next-line no-console
+
       console.log(
         `[paste-replay] orig: pixelHash=${snap.pixelHash.slice(0, 16)}, tiles=${totalTiles}`,
       )
-      // eslint-disable-next-line no-console
+
       console.log(
         `[paste-replay] note: pixel hash will differ across browser processes — visual comparison is the source of truth.`,
       )

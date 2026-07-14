@@ -148,7 +148,7 @@ test.describe('perf-projection-seoul-zoom-sweep', () => {
           finalTris: finalStats.triangles,
         }
         results.push(r)
-        // eslint-disable-next-line no-console
+
         console.log(
           `[sweep ${proj} p=${pitch}] frames=${r.framesObserved} ` +
             `median=${r.median} p95=${r.p95} p99=${r.p99} max=${r.max}ms ` +
@@ -189,7 +189,7 @@ test.describe('perf-projection-seoul-zoom-sweep', () => {
     lines.push('- Final-state TilesEnd ≈ TilesEnd at z=19 sustained; high values for')
     lines.push('  globe/oblique are the documented post-iter-149 over-select (renders correctly).')
     writeFileSync(join(OUT_DIR, 'REPORT.md'), lines.join('\n'))
-    // eslint-disable-next-line no-console
+
     console.log(`[sweep] REPORT → ${join(OUT_DIR, 'REPORT.md')}`)
   })
 })

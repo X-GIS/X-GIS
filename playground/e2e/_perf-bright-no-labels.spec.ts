@@ -50,7 +50,7 @@ test('Bright pitch=0 z=14 — text DISABLED', async ({ page }) => {
   const sorted = [...sample.frames].sort((a, b) => a - b)
   const median = sorted[Math.floor(sorted.length / 2)]!
   const p95 = sorted[Math.floor(sorted.length * 0.95)]!
-  // eslint-disable-next-line no-console
+
   console.log(
     `[no-labels] median=${median.toFixed(1)}ms (${(1000 / median).toFixed(0)} fps) p95=${p95.toFixed(1)}ms frames=${sample.frames.length}`,
   )

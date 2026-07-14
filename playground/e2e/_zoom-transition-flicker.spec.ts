@@ -76,7 +76,6 @@ test.describe('Zoom transition flicker — diagnostic', () => {
     // pass otherwise.
     await page.waitForFunction(
       () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const map = (window as any).__xgisMap
         if (!map?.vtSources) return false
         let totalVisible = 0
@@ -106,7 +105,6 @@ test.describe('Zoom transition flicker — diagnostic', () => {
     // a less-clean trace.
     const samples = await page.evaluate(
       async (cfg) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const map = (window as any).__xgisMap
         if (!map?.camera || !map.vtSources) return []
 
@@ -194,7 +192,6 @@ test.describe('Zoom transition flicker — diagnostic', () => {
     })
     await page.waitForFunction(
       () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const map = (window as any).__xgisMap
         if (!map?.vtSources) return false
         let totalVisible = 0,
@@ -213,7 +210,6 @@ test.describe('Zoom transition flicker — diagnostic', () => {
     for (let i = 0; i <= 30; i += SCREENSHOT_INTERVAL) {
       await page.evaluate(
         (zoom) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           ;(window as any).__xgisMap.camera.zoom = zoom
           return new Promise<void>((r) =>
             requestAnimationFrame(() => requestAnimationFrame(() => r())),

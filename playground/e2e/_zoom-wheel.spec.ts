@@ -44,10 +44,8 @@ test.describe('wheel zoom — smooth descent', () => {
       await sample(i)
     }
 
-    // eslint-disable-next-line no-console
     console.log('Zoom samples:')
     for (const s of samples) {
-      // eslint-disable-next-line no-console
       console.log(
         `  event=${s.event}  zoom=${s.zoom.toFixed(3)}  cx=${s.cx.toFixed(0)}  cy=${s.cy.toFixed(0)}`,
       )

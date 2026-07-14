@@ -33,10 +33,8 @@ test.describe('수도권 생활이동 flow-lines — odFlow renders + animates o
     const png1 = await captureCanvas(page)
     const animated = !png0.equals(png1)
 
-    // eslint-disable-next-line no-console
     console.log(`[flow-lines] orange ${(h.orange * 100).toFixed(3)}%  animated=${animated}`)
     if (notFound.length > 0) {
-      // eslint-disable-next-line no-console
       console.log(`[flow-lines] 404s (non-fatal): ${notFound.join(', ')}`)
     }
     expect(errors, `page errors: ${errors.join(' | ')}`).toEqual([])

@@ -169,7 +169,7 @@ test.describe('screenshot-non-merc-seoul-matrix', () => {
 
           const row: CellMetrics = { projection: proj, zoom, pitch, ...m }
           results.push(row)
-          // eslint-disable-next-line no-console
+
           console.log(
             `[shot ${proj} z=${zoom} p=${pitch}] bg=${(row.bgFraction * 100).toFixed(1)}% ` +
               `buckets=${row.uniqueBuckets} lumStd=${row.luminanceStd.toFixed(1)} ` +
@@ -216,7 +216,7 @@ test.describe('screenshot-non-merc-seoul-matrix', () => {
       lines.push('All 6 non-Merc projections render content across the full matrix.')
     }
     writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))
-    // eslint-disable-next-line no-console
+
     console.log(`[shot matrix] REPORT → ${join(OUT, 'REPORT.md')}`)
   })
 })

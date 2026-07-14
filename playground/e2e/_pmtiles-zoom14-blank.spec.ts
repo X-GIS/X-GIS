@@ -70,7 +70,7 @@ test.describe('PMTiles cold-start at high zoom', () => {
       // Also gather VTR diagnostic state for the failure report —
       // helps distinguish "tiles rendered but invisible" from "no
       // tiles rendered" if this ever flakes.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const map = (window as any).__xgisMap
       const vtrs: Array<{ name: string; tilesVisible: number; drawCalls: number; gpu: number }> = []
       if (map?.vtSources) {

@@ -162,7 +162,7 @@ for (const cell of CELLS) {
       errors: errors.length,
     }
     results.push(r)
-    // eslint-disable-next-line no-console
+
     console.log(
       `[perf ${cell.slug}] load=${r.loadMs}ms p50=${r.steadyP50}ms p95=${r.steadyP95}ms max=${r.steadyMax}ms ` +
         `draws=${r.drawCalls} tris=${r.triangles} tiles=${r.tilesVisible}`,
@@ -183,6 +183,6 @@ test.afterAll(() => {
     )
   }
   writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))
-  // eslint-disable-next-line no-console
+
   console.log(`[perf-seoul-liberty] report → ${join(OUT, 'REPORT.md')}`)
 })

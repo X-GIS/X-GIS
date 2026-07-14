@@ -95,7 +95,7 @@ async function runAnimation(page: Page, durationMs: number, updateFn: string): P
         }
       ).__xgisMap
       if (!map) throw new Error('__xgisMap not exposed')
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+
       const update = new Function('t', 'cam', 'map', body) as (
         t: number,
         c: unknown,
@@ -191,18 +191,17 @@ test('continent_match interactive perf — compute=1 vs compute=0', async ({ pag
   }
 
   // ── Report ──
-  // eslint-disable-next-line no-console
+
   console.log('\n══════ continent_match interactive perf ══════\n')
   for (const r of results) {
-    // eslint-disable-next-line no-console
     console.log(`── ${r.label} ──`)
-    // eslint-disable-next-line no-console
+
     console.log(reportRow('zoom triangle 3→8→3', r.s1))
-    // eslint-disable-next-line no-console
+
     console.log(reportRow('pan east 500km z=6', r.s2))
-    // eslint-disable-next-line no-console
+
     console.log(reportRow('zoom + pan combined', r.s3))
-    // eslint-disable-next-line no-console
+
     console.log(
       '  worst frames (idx ms):',
       [...r.s1.worstFrames, ...r.s2.worstFrames, ...r.s3.worstFrames]
@@ -211,14 +210,14 @@ test('continent_match interactive perf — compute=1 vs compute=0', async ({ pag
         .map((f) => `${f.idx}=${f.ms.toFixed(0)}ms`)
         .join('  '),
     )
-    // eslint-disable-next-line no-console
+
     console.log()
   }
 
   // Comparison delta
   const c0 = results.find((r) => r.label === 'compute=0')!
   const c1 = results.find((r) => r.label === 'compute=1')!
-  // eslint-disable-next-line no-console
+
   console.log('── compute=1 delta vs compute=0 ──')
   const deltaRow = (name: string, a: Sample, b: Sample) => {
     const dMedian = b.median - a.median
@@ -226,11 +225,11 @@ test('continent_match interactive perf — compute=1 vs compute=0', async ({ pag
     const dWorst = b.worst - a.worst
     return `  ${name.padEnd(28)}  median Δ=${dMedian.toFixed(1).padStart(6)}  p99 Δ=${dP99.toFixed(1).padStart(6)}  worst Δ=${dWorst.toFixed(0).padStart(5)}`
   }
-  // eslint-disable-next-line no-console
+
   console.log(deltaRow('zoom triangle 3→8→3', c0.s1, c1.s1))
-  // eslint-disable-next-line no-console
+
   console.log(deltaRow('pan east 500km z=6', c0.s2, c1.s2))
-  // eslint-disable-next-line no-console
+
   console.log(deltaRow('zoom + pan combined', c0.s3, c1.s3))
 })
 
@@ -272,13 +271,13 @@ test('OFM Bright interactive perf — compute=1', async ({ page }) => {
   )
   const s1 = summarise(z1)
   const s2 = summarise(z2)
-  // eslint-disable-next-line no-console
+
   console.log('\n══════ OFM Bright + compute=1 ══════\n')
-  // eslint-disable-next-line no-console
+
   console.log(reportRow('zoom triangle 10→15→10', s1))
-  // eslint-disable-next-line no-console
+
   console.log(reportRow('pan east 200km z=12', s2))
-  // eslint-disable-next-line no-console
+
   console.log(
     '  worst frames:',
     [...s1.worstFrames, ...s2.worstFrames]
@@ -287,6 +286,6 @@ test('OFM Bright interactive perf — compute=1', async ({ page }) => {
       .map((f) => `${f.idx}=${f.ms.toFixed(0)}ms`)
       .join('  '),
   )
-  // eslint-disable-next-line no-console
+
   console.log()
 })

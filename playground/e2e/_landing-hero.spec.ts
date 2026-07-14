@@ -72,7 +72,6 @@ test('landing-page hero map renders all 4 quadrants', async ({ page }) => {
     return { w, h, q_tl, q_tr, q_bl, q_br }
   })
 
-  // eslint-disable-next-line no-console
   console.log('[landing-hero]', stats)
 
   if ('error' in stats) throw new Error(stats.error as string)

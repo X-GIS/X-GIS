@@ -143,13 +143,12 @@ test('user URL: z=18.5 pitch=67.5 over-zoom diagnostic', async ({ page }) => {
   const median = sorted[Math.floor(sorted.length / 2)]
   const p95 = sorted[Math.floor(sorted.length * 0.95)]
 
-  // eslint-disable-next-line no-console
   console.log('\n=== z=18.5 pitch=67.5 (Sejong, Korea) over-zoom diagnostic ===')
-  // eslint-disable-next-line no-console
+
   console.log(`network unique .pbf tiles: ${tileSet.size}`)
-  // eslint-disable-next-line no-console
+
   console.log(`fetches by source-zoom: ${JSON.stringify(byZoomFetched)}`)
-  // eslint-disable-next-line no-console
+
   console.log(`drawnByZoom (per frame): ${JSON.stringify(result.byZoom)}`)
   const ip = result.pipeline as {
     sources?: Array<{
@@ -158,26 +157,25 @@ test('user URL: z=18.5 pitch=67.5 over-zoom diagnostic', async ({ page }) => {
     }>
   } | null
   const src = ip?.sources?.[0]
-  // eslint-disable-next-line no-console
+
   console.log(
     `drawCalls=${src?.frame.drawCalls} slicesDrawn=${src?.frame.tilesVisible} missed=${src?.frame.missedTiles}`,
   )
-  // eslint-disable-next-line no-console
+
   console.log(`cache.size=${src?.cache.size} pendingUploads=${src?.cache.pendingUploads}`)
-  // eslint-disable-next-line no-console
+
   console.log(
     `frame: median=${median.toFixed(1)}ms (${(1000 / median).toFixed(0)} fps) p95=${p95.toFixed(1)}ms over ${result.frames.length} samples`,
   )
-  // eslint-disable-next-line no-console
+
   console.log(`catalog: ${JSON.stringify(result.catalogStats)}`)
   // Surface any FLICKER / sub-tile / over-zoom log lines.
   const interesting = consoleLogs.filter((l) =>
     /FLICKER|sub-tile|overzoom|Sub-tile|gpuCache=|missedTiles/i.test(l),
   )
   if (interesting.length > 0) {
-    // eslint-disable-next-line no-console
     console.log('--- runtime log signals ---')
-    // eslint-disable-next-line no-console
+
     console.log(interesting.slice(0, 10).join('\n  '))
   }
 

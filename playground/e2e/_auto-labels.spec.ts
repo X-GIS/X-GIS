@@ -57,7 +57,6 @@ test('auto-labels: label-["{.name}"] resolves per feature', async ({ page }) => 
     return { pureWhite, total }
   })
 
-  // eslint-disable-next-line no-console
   console.log('[auto-labels]', stats)
 
   if ('error' in stats) throw new Error(stats.error as string)

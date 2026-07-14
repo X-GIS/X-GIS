@@ -69,7 +69,6 @@ test('import "mapbox-style-url" loads + renders without compile errors', async (
     return { nonBlack, total }
   })
 
-  // eslint-disable-next-line no-console
   console.log('[import-mapbox-style]', stats)
 
   if ('error' in stats) throw new Error(stats.error as string)

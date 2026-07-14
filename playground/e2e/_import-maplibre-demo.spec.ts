@@ -90,7 +90,7 @@ test('import "maplibre-demo-style" loads + renders without compile errors', asyn
   })
 
   if ('error' in stats) throw new Error(stats.error as string)
-  // eslint-disable-next-line no-console
+
   console.log(
     `[import-maplibre-demo] canvas ${stats.width}×${stats.height}  ` +
       `uniqueColorBuckets=${stats.uniqueColorBuckets}  dominantFraction=${(stats.dominantFraction * 100).toFixed(1)}%`,

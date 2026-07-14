@@ -74,7 +74,6 @@ test('OFM Bright @ zoom=0.5/lon=175 — labels do not cluster at antimeridian', 
   await page.waitForTimeout(15_000)
 
   const trace = await page.evaluate(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const map = (window as any).__xgisMap
     if (!map?.captureNextFrameTrace) return null
     const c = map.getCamera()
@@ -85,7 +84,7 @@ test('OFM Bright @ zoom=0.5/lon=175 — labels do not cluster at antimeridian', 
     return await map.captureNextFrameTrace()
   })
   expect(trace, 'expected trace from __xgisMap.captureNextFrameTrace()').toBeTruthy()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   const tr = trace as any
   const labels = (tr.labels ?? []) as LabelTrace[]
   const viewportW = tr.viewportPx?.[0] ?? 900
@@ -130,12 +129,11 @@ test('OFM Bright @ zoom=0.5/lon=175 — labels do not cluster at antimeridian', 
       worstSamples = [...set].slice(0, 10)
     }
   }
-  // eslint-disable-next-line no-console
+
   console.log(
     `[antimeridian-cluster] worst bucket x≈${worstBucket}px holds ${worstSize} distinct labels`,
   )
   if (worstSize > 3) {
-    // eslint-disable-next-line no-console
     console.log(`[antimeridian-cluster] sample: ${worstSamples.join(' / ')}`)
   }
   // 3 distinct labels in a single 5-px column is the soft ceiling. The

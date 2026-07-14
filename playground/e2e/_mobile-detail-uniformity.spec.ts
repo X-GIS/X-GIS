@@ -61,13 +61,11 @@ test.describe('Mobile detail uniformity', () => {
       // Wait for the runtime to mount, then patch catalog +
       // backend hot-paths. Polls every 100ms for up to 5s.
       const installPatches = (): boolean => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const map = (window as any).__xgisMap
         if (!map?.vtSources) return false
         for (const { renderer } of map.vtSources.values()) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const cat = (renderer as any).source as any
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
           if (cat && !cat.__patched) {
             cat.__patched = true
             const origReq = cat.requestTiles.bind(cat)
@@ -107,7 +105,6 @@ test.describe('Mobile detail uniformity', () => {
         if (!map?.vtSources) return false
         let v = 0
         for (const { renderer } of map.vtSources.values()) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           v += (renderer as any).getDrawStats?.().tilesVisible ?? 0
         }
         return v > 0
@@ -124,7 +121,7 @@ test.describe('Mobile detail uniformity', () => {
     const result = await page.evaluate(() => {
       const map = window.__xgisMap
       if (!map?.vtSources) return null
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const r = [...map.vtSources.values()][0]?.renderer as any
       const cz = r._selection?._hysteresisZ as number
       const cache = r._selection?.frameTileCache?.()
@@ -165,9 +162,9 @@ test.describe('Mobile detail uniformity', () => {
         (t) => !cachedKeys.has(tileKey(t.z, t.x, t.y)),
       )
       // Backend in-flight + queue state
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const backend = (r.source as any)?.backends?.[0] as any
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const cat = r.source as any
       return {
         currentZ: cz,
@@ -206,11 +203,10 @@ test.describe('Mobile detail uniformity', () => {
         activeNow: 0,
       }
       for (const { renderer } of map.vtSources.values()) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const r = renderer as any
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const cat = r.source as any
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const backend = cat?.backends?.[0] as any
         if (backend) {
           // History counters (we never reset them, so they accumulate
@@ -242,9 +238,9 @@ test.describe('Mobile detail uniformity', () => {
     )
     const installState = await page.evaluate(() => {
       const map = window.__xgisMap
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const cat = (map?.vtSources?.values().next().value as any)?.renderer?.source
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const backend = cat?.backends?.[0]
       return {
         catPatched: !!cat?.__patched,

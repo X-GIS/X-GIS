@@ -34,7 +34,6 @@ test.describe('Performance debug — over-zoom + pitch + rotation', () => {
     // The probe wraps every VTR.render() and the outer renderFrame()
     // and records timings to window.__perfFrames.
     await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const map = (window as any).__xgisMap
       if (!map?.vtSources) return
       const samples: Array<{
@@ -46,18 +45,17 @@ test.describe('Performance debug — over-zoom + pitch + rotation', () => {
       ;(window as unknown as { __perfFrames: typeof samples }).__perfFrames = samples
 
       // Track tile counts per render via the wrapped render fn below.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       ;(window as any).__tileCounts = []
       // Wrap each VTR's render + key sub-methods with phase timers.
       for (const [name, entry] of map.vtSources.entries()) {
         const renderer = entry.renderer
         const source = entry.source
         const wrapMethod = (target: object, methodName: string, label: string) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const orig = (target as any)[methodName]
           if (typeof orig !== 'function') return
           const bound = orig.bind(target)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
           ;(target as any)[methodName] = function (...args: any[]) {
             const t0 = performance.now()
             const ret = bound.apply(this, args)
@@ -66,7 +64,7 @@ test.describe('Performance debug — over-zoom + pitch + rotation', () => {
               type: label,
               source: name as string,
               duration: t1 - t0,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
               frameId: (this as any).currentFrameId,
             })
             return ret
@@ -83,7 +81,7 @@ test.describe('Performance debug — over-zoom + pitch + rotation', () => {
         wrapMethod(source, 'resetCompileBudget', 'src.resetCompileBudget')
         wrapMethod(source, 'compileTileOnDemand', 'src.compileTileOnDemand')
         // LineRenderer per-layer slot (uniform pack + writeBuffer).
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const lr = (renderer as any).lineRenderer
         if (lr) wrapMethod(lr, 'writeLayerSlot', 'lr.writeLayerSlot')
       }
@@ -98,7 +96,7 @@ test.describe('Performance debug — over-zoom + pitch + rotation', () => {
           : null)
       if (renderFrameDesc?.value) {
         const orig = renderFrameDesc.value.bind(map)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         ;(map as any).renderFrame = function (...args: any[]) {
           const t0 = performance.now()
           const ret = orig.apply(this, args)
@@ -114,7 +112,6 @@ test.describe('Performance debug — over-zoom + pitch + rotation', () => {
     // bearing both contribute. Use 200ms gap so each tick gets a
     // full RAF to render.
     await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const map = (window as any).__xgisMap
       if (!map?.camera) return
       const cam = map.camera

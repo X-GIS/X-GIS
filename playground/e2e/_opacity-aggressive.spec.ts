@@ -40,10 +40,8 @@ test.describe('opacity error scan', () => {
       )
       await page.waitForTimeout(10_000)
 
-      // eslint-disable-next-line no-console
       console.log(`url=${url} errors=${errors.length} warnings=${warnings.length}`)
       if (errors.length > 0) {
-        // eslint-disable-next-line no-console
         console.log('FIRST_ERROR:', errors[0].substring(0, 500))
         const fname = `opacity-fail-${url.replace(/[/.#]/g, '_')}.log`
         writeFileSync(

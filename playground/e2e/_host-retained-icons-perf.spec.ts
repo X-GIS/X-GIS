@@ -175,7 +175,7 @@ test.describe('#797 P1 retained icon batch — real-GPU N-independence', () => {
 
     const p95_10 = p95(t10.samples)
     const p95_100 = p95(t100.samples)
-    // eslint-disable-next-line no-console
+
     console.log(
       `[#797 P1] renderRetained p95: 10k=${p95_10.toFixed(3)}ms  100k=${p95_100.toFixed(3)}ms  ratio=${(p95_100 / Math.max(p95_10, 1e-4)).toFixed(2)}`,
     )
@@ -265,7 +265,7 @@ test.describe('#797 P1 retained icon batch — real-GPU N-independence', () => {
     ]
     const withIcons = await captureCanvas(page)
     const h1 = await colorHistogram(page, withIcons, magenta)
-    // eslint-disable-next-line no-console
+
     console.log(`[#797 P1] magenta icon coverage: ${(h1.mag * 100).toFixed(3)}%`)
     expect(errors, `page errors: ${errors.join(' | ')}`).toEqual([])
     // The icons must actually paint — a non-trivial magenta coverage.

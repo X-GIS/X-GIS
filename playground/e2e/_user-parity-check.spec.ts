@@ -112,7 +112,7 @@ for (const preset of PRESETS) {
     }
     writeFileSync(join(dir, 'metrics.json'), JSON.stringify(metric, null, 2))
     metrics.push(metric)
-    // eslint-disable-next-line no-console
+
     console.log(
       `[user-parity] ${preset.name}  ${w}×${h}  ` +
         `diffPixels=${diffPixels}  diffRatio=${(diffRatio * 100).toFixed(2)}%`,

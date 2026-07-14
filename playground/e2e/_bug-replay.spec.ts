@@ -36,11 +36,10 @@ test('replay user-reported bug snapshot', async ({ browser }) => {
   }
   const snap = JSON.parse(fs.readFileSync(snapPath, 'utf-8')) as Snapshot
 
-  // eslint-disable-next-line no-console
   console.log(
     `[bug-replay] camera lon=${snap.camera.lon.toFixed(4)} lat=${snap.camera.lat.toFixed(4)} z=${snap.camera.zoom.toFixed(2)} pitch=${snap.camera.pitch.toFixed(1)}° bearing=${snap.camera.bearing.toFixed(0)}°`,
   )
-  // eslint-disable-next-line no-console
+
   console.log(
     `[bug-replay] viewport ${snap.viewport.cssWidth}×${snap.viewport.cssHeight} dpr=${snap.viewport.dpr}`,
   )
@@ -63,12 +62,10 @@ test('replay user-reported bug snapshot', async ({ browser }) => {
       msg.text().includes('WebGPU') ||
       msg.text().includes('validation')
     ) {
-      // eslint-disable-next-line no-console
       console.log(`[browser ${msg.type()}] ${msg.text().slice(0, 500)}`)
     }
   })
   page.on('pageerror', (err) => {
-    // eslint-disable-next-line no-console
     console.log(`[browser pageerror] ${err.message.slice(0, 500)}`)
   })
 
@@ -112,7 +109,7 @@ test('replay user-reported bug snapshot', async ({ browser }) => {
     const uniqueBuildingTiles = new Set(
       buildingDraws.map((e) => e.tileKey).filter((k) => k !== undefined),
     )
-    // eslint-disable-next-line no-console
+
     console.log(
       `[bug-replay settled] gpuCache=${live.sources.pm_world?.gpuCacheCount}, building draws=${buildingDraws.length}, unique tiles=${uniqueBuildingTiles.size}`,
     )
@@ -131,7 +128,7 @@ test('replay user-reported bug snapshot', async ({ browser }) => {
       .sort((a, b) => a[0] - b[0])
       .map(([z, n]) => `z=${z}:${n}`)
       .join(' ')
-    // eslint-disable-next-line no-console
+
     console.log(`[bug-replay settled] building draws by z-level: ${zStr}`)
   }
 

@@ -460,7 +460,7 @@ test('label-zoom South Korea OFM Positron', async ({ page }) => {
   }
   const labelW = box.maxX - box.minX + 1
   const labelH = box.maxY - box.minY + 1
-  // eslint-disable-next-line no-console
+
   console.log(
     `[label-zoom] SOUTH KOREA bbox: ${box.minX},${box.minY}..${box.maxX},${box.maxY} (${labelW}×${labelH})`,
   )
@@ -505,7 +505,7 @@ test('label-zoom South Korea OFM Positron', async ({ page }) => {
       2,
     ),
   )
-  // eslint-disable-next-line no-console
+
   console.log(
     `[label-zoom] eq=${((buckets.eq0 / totalPx) * 100).toFixed(2)}% ` +
       `gt128=${buckets.gt128}/${totalPx} (${((buckets.gt128 / totalPx) * 100).toFixed(2)}%)`,

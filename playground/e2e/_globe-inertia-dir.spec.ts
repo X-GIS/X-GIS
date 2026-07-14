@@ -68,7 +68,7 @@ for (const c of CASES) {
       dragLat = rel.lat - start.lat
     const glideLon = end.lon - rel.lon,
       glideLat = end.lat - rel.lat
-    // eslint-disable-next-line no-console
+
     console.log(
       `DIR[${c.label}] drag=(${dragLon.toFixed(2)},${dragLat.toFixed(2)}) glide=(${glideLon.toFixed(2)},${glideLat.toFixed(2)})`,
     )

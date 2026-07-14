@@ -286,7 +286,6 @@ for (const view of VIEWS) {
       ),
     )
 
-    // eslint-disable-next-line no-console
     console.log(
       `[${view.id}] eq=${((buckets.eq0 / totalPx) * 100).toFixed(2)}% ` +
         `le32=${(((buckets.eq0 + buckets.le8 + buckets.le16 + buckets.le32) / totalPx) * 100).toFixed(2)}% ` +
@@ -317,7 +316,7 @@ test.afterAll(async () => {
     )
   }
   writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))
-  // eslint-disable-next-line no-console
+
   console.log(`\nReport saved to ${join(OUT, 'REPORT.md')}\n`)
   expect(true).toBe(true)
 })

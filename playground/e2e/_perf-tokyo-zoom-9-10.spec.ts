@@ -131,9 +131,9 @@ function attribute(profile: CpuProfile, winStart: number, winEnd: number, topN =
   const samples = profile.samples ?? []
   const deltas = profile.timeDeltas ?? []
   const byId = new Map<number, ProfileNode>()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   for (const n of profile.nodes as any[]) byId.set(n.id, { id: n.id, callFrame: n.callFrame })
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   for (const n of profile.nodes as any[]) {
     if (Array.isArray(n.children))
       for (const cid of n.children) {
@@ -191,16 +191,14 @@ test('Tokyo OFM Bright z=9→10 stutter — CPU attribution', async ({ page, con
   const worst = sorted[0]!
   const top5 = sorted.slice(0, 5)
 
-  // eslint-disable-next-line no-console
   console.log(`\n══ Tokyo OFM Bright z=9 → z=10 (3 s) ══`)
-  // eslint-disable-next-line no-console
+
   console.log(
     `Frames ${settled.length}  median ${med.toFixed(1)} ms  worst ${worst.dt.toFixed(0)} ms (@ z=${(9 + worst.elapsed / 3000).toFixed(2)})`,
   )
-  // eslint-disable-next-line no-console
+
   console.log('Top-5 worst frames:')
   for (const f of top5) {
-    // eslint-disable-next-line no-console
     console.log(
       `  ${f.dt.toFixed(0).padStart(4)} ms  @ z=${(9 + f.elapsed / 3000).toFixed(2)}  t+${(f.elapsed / 1000).toFixed(2)} s`,
     )
@@ -210,35 +208,35 @@ test('Tokyo OFM Bright z=9→10 stutter — CPU attribution', async ({ page, con
   const msToProfile = (ms: number) => profile.startTime + (ms - perfNowAtStart) * 1000
   const winStart = msToProfile(worst.ts - worst.dt)
   const winEnd = msToProfile(worst.ts)
-  // eslint-disable-next-line no-console
+
   console.log(`\n[Worst frame: ${worst.dt.toFixed(1)} ms] top 20 self-time contributors:`)
   for (const r of attribute(profile, winStart, winEnd, 20)) {
     if (r.selfMs < 0.1) continue
-    // eslint-disable-next-line no-console
+
     console.log(
       `  ${r.selfMs.toFixed(2).padStart(6)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(36)} ${r.url}:${r.line}`,
     )
-    // eslint-disable-next-line no-console
+
     console.log(`    via: ${r.callPath}`)
   }
 
   // Top-5 worst frames combined.
   const allStart = msToProfile(top5[0]!.ts - top5[0]!.dt)
   const allEnd = msToProfile(top5[top5.length - 1]!.ts)
-  // eslint-disable-next-line no-console
+
   console.log(`\n[Top-5 worst frames combined] top 15:`)
   for (const r of attribute(profile, allStart, allEnd, 15)) {
     if (r.selfMs < 1) continue
-    // eslint-disable-next-line no-console
+
     console.log(`  ${r.selfMs.toFixed(1).padStart(6)} ms  ${r.name.padEnd(36)} ${r.url}:${r.line}`)
   }
 
   // Aggregate top-30 over the full 3-second zoom.
-  // eslint-disable-next-line no-console
+
   console.log(`\n[Full 3 s aggregate] top 20 self-time:`)
   for (const r of attribute(profile, profile.startTime, profile.endTime, 20)) {
     if (r.selfMs < 5) continue
-    // eslint-disable-next-line no-console
+
     console.log(
       `  ${r.selfMs.toFixed(0).padStart(5)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(36)} ${r.url}:${r.line}`,
     )

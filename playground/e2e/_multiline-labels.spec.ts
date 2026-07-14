@@ -47,7 +47,6 @@ test('multiline labels wrap at max-width', async ({ page }) => {
     return count
   })
 
-  // eslint-disable-next-line no-console
   console.log('[multiline-labels]', { pureWhite })
   expect(pureWhite, 'expected white text pixels').toBeGreaterThan(50)
 })

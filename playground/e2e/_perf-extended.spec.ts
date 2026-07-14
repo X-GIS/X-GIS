@@ -197,7 +197,6 @@ for (const cell of CELLS) {
     results.push(r)
     writeFileSync(join(OUT, `${cell.slug}.json`), JSON.stringify(r, null, 2))
 
-    // eslint-disable-next-line no-console
     console.log(
       `[perf-ext ${cell.slug}] load=${r.loadMs}ms p50=${r.steadyP50}ms p95=${r.steadyP95}ms ` +
         `tris=${r.triangles} tiles=${r.tilesVisible} heapΔ=${r.heapDeltaMb}MB`,
@@ -235,6 +234,6 @@ test.afterAll(() => {
     lines.push(`| ${r.slug} | ${row.join(' | ')} |`)
   }
   writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))
-  // eslint-disable-next-line no-console
+
   console.log(`[perf-ext] report → ${join(OUT, 'REPORT.md')}`)
 })

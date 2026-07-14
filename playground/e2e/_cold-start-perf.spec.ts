@@ -42,7 +42,7 @@ test.describe('cold-start perf budgets', () => {
     const totalMs = t.xgisReady - t.navStart
     const dclMs = t.domContentLoaded - t.navStart
     const xgisOnlyMs = t.xgisReady - t.domContentLoaded
-    // eslint-disable-next-line no-console
+
     console.log(
       `[cold-start minimal] nav→dcl=${dclMs}ms, dcl→xgisReady=${xgisOnlyMs}ms, total=${totalMs}ms`,
     )
@@ -54,7 +54,7 @@ test.describe('cold-start perf budgets', () => {
   test('PMTiles bright demo: ready within 8 seconds', async ({ page }) => {
     const t = await measureColdStart(page, 'openfreemap_bright')
     const totalMs = t.xgisReady - t.navStart
-    // eslint-disable-next-line no-console
+
     console.log(`[cold-start openfreemap_bright] total=${totalMs}ms`)
     // PMTiles archive header + metadata fetch + a few tile range
     // requests + worker MVT decode + GPU upload. The prewarm should

@@ -108,7 +108,6 @@ for (const preset of PRESETS) {
     await page.evaluate(
       () =>
         new Promise<void>((resolve) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const ml = (window as any).__mlMap
           if (!ml) {
             resolve()
@@ -126,10 +125,9 @@ for (const preset of PRESETS) {
     )
     await page.waitForFunction(
       () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const map = (window as any).__xgisMap
         if (!map?.vtSources) return true // no VT sources → nothing to settle
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const w = window as any
         let total = 0
         for (const entry of map.vtSources.values()) {
@@ -215,7 +213,6 @@ for (const preset of PRESETS) {
     // catastrophes (one 74 % → 8.8 %, but the other 69 % → 19 % which
     // is still way above the gate). Two passes catches both.
     for (let attempt = 1; attempt <= 2 && result.diffRatio > catastropheCeiling; attempt++) {
-      // eslint-disable-next-line no-console
       console.log(
         `[parity] ${preset.fixture}__${preset.name} catastrophic ` +
           `(${(result.diffRatio * 100).toFixed(1)} %, attempt ${attempt}/2) — retry after 15 s`,
@@ -249,14 +246,12 @@ for (const preset of PRESETS) {
     writeFileSync(join(dir, 'metrics.json'), JSON.stringify(metric, null, 2))
     metrics.push(metric)
 
-    // eslint-disable-next-line no-console
     console.log(
       `[parity] ${slug}  ${w}×${h}  ` +
         `diffPixels=${diffPixels}  diffRatio=${(diffRatio * 100).toFixed(2)}%  ` +
         `consoleErrors=${consoleErrors.length}`,
     )
     if (consoleErrors.length > 0) {
-      // eslint-disable-next-line no-console
       console.log(`[parity] ${slug} errors:\n` + consoleErrors.map((e) => '  - ' + e).join('\n'))
     }
 

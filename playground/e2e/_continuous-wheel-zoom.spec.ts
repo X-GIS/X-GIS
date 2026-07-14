@@ -54,7 +54,6 @@ test.describe('Continuous wheel-zoom: bounded backend state under sustained gest
       ;(
         window as unknown as { __cacheStats: () => unknown; __installCacheTelemetry: () => void }
       ).__installCacheTelemetry = () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const map = (window as any).__xgisMap
         if (!map?.vtSources) return
         const stats = {
@@ -66,7 +65,6 @@ test.describe('Continuous wheel-zoom: bounded backend state under sustained gest
           hasTileDataMisses: 0,
         }
         for (const { renderer } of map.vtSources.values()) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const r = renderer as any
           if (r.__telemetryInstalled) continue
           r.__telemetryInstalled = true
@@ -82,7 +80,6 @@ test.describe('Continuous wheel-zoom: bounded backend state under sustained gest
           }
           const origDoUpload = r.doUploadTile.bind(r)
           r.doUploadTile = (key: number, data: unknown, sourceLayer = '') => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const inner = r.gpuCache?.get?.(sourceLayer) as Map<number, unknown> | undefined
             if (inner?.has?.(key)) stats.gpuCacheHits++
             else stats.gpuCacheMisses++
@@ -150,11 +147,11 @@ test.describe('Continuous wheel-zoom: bounded backend state under sustained gest
               tilesVisible = Math.max(tilesVisible, ds.tilesVisible)
               drawCalls = Math.max(drawCalls, ds.drawCalls)
             }
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
             const renderer = [...map.vtSources.values()][0]?.renderer as any
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
             const catalog = renderer?.source as any
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
             const backend = catalog?.backends?.[0] as any
             const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory
             samples.push({
@@ -194,11 +191,11 @@ test.describe('Continuous wheel-zoom: bounded backend state under sustained gest
               tilesVisible = Math.max(tilesVisible, ds.tilesVisible)
               drawCalls = Math.max(drawCalls, ds.drawCalls)
             }
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
             const renderer = [...map.vtSources.values()][0]?.renderer as any
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
             const catalog = renderer?.source as any
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
             const backend = catalog?.backends?.[0] as any
             const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory
             samples.push({
@@ -254,7 +251,6 @@ test.describe('Continuous wheel-zoom: bounded backend state under sustained gest
     await drive(13, 16, 3000)
     await drive(16, 13, 3000)
     const cacheStats = (await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (window as any).__cacheStats?.() ?? null
     })) as null | {
       bufferPoolHits: number

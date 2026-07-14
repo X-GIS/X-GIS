@@ -111,7 +111,7 @@ test('label-halo z0 vs z6 — OFM bright', async ({ page }) => {
     '  report is a perceptual/other-projection effect, reclassify.',
   ]
   writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))
-  // eslint-disable-next-line no-console
+
   console.log(
     `[halo-z0] z0 n=${z0.n} medNorm=${z0.medNorm} maxNorm=${z0.maxNorm}` +
       ` | z6 n=${z6.n} medNorm=${z6.medNorm} maxNorm=${z6.maxNorm}`,

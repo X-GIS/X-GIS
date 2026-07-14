@@ -143,7 +143,6 @@ test('Bright high-pitch CPU burst — z14 Tokyo rotate+pitch', async ({ page }) 
   const opaque = phases.filter((p) => /encoder\.pass\.opaque/.test(p.name))
   const opaqueMax = opaque.reduce((a, p) => Math.max(a, p.maxFrameMs), 0)
 
-  /* eslint-disable no-console */
   console.log('\n=== Bright high-pitch CPU burst (z14 Tokyo, rotate+pitch 6s) ===')
   console.log(
     `frame  p50=${fP50.toFixed(1)} p95=${fP95.toFixed(1)} worst=${fMax.toFixed(0)}ms  (${(1000 / fP50).toFixed(0)}fps, ${fr.length}f)`,
@@ -163,5 +162,4 @@ test('Bright high-pitch CPU burst — z14 Tokyo rotate+pitch', async ({ page }) 
       `  ${n.padEnd(20)} worst=${(p?.maxFrameMs ?? 0).toFixed(1).padStart(6)}ms  perFrame=${(p?.perFrameMs ?? 0).toFixed(2)}ms`,
     )
   }
-  /* eslint-enable no-console */
 })

@@ -174,11 +174,11 @@ function attributeWindow(
   // Build parent links from the children-tree V8 emits (each node has
   // an optional `children: number[]`). The flat profile from CDP
   // doesn't expose `parent` directly — we infer it.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   for (const n of profile.nodes as any[]) {
     byId.set(n.id, { id: n.id, callFrame: n.callFrame })
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   for (const n of profile.nodes as any[]) {
     if (Array.isArray(n.children)) {
       for (const cid of n.children) {
@@ -240,14 +240,13 @@ test('S1 hitch-frame attribution', async ({ page, context }) => {
       : 0
   const worst = sorted[0]
   const top5Worst = sorted.slice(0, 5)
-  // eslint-disable-next-line no-console
+
   console.log(
     `\n[S1 frames] count=${settled.length} median=${median.toFixed(1)}ms worst=${worst.dt.toFixed(0)}ms`,
   )
-  // eslint-disable-next-line no-console
+
   console.log('[S1 top-5 worst frames] (dt ms @ elapsed s):')
   for (const f of top5Worst) {
-    // eslint-disable-next-line no-console
     console.log(`  ${f.dt.toFixed(0).padStart(4)} ms @ t+${(f.elapsed / 1000).toFixed(2)} s`)
   }
 
@@ -267,33 +266,33 @@ test('S1 hitch-frame attribution', async ({ page, context }) => {
 
   const winStart = msToProfile(worstWindowStartMs)
   const winEnd = msToProfile(worstWindowEndMs)
-  // eslint-disable-next-line no-console
+
   console.log(
     `\n[hitch window] [${(winStart / 1000).toFixed(0)} μs..${(winEnd / 1000).toFixed(0)} μs] = ${((winEnd - winStart) / 1000).toFixed(1)} ms`,
   )
 
   const top = attributeWindow(profile, winStart, winEnd, 25)
-  // eslint-disable-next-line no-console
+
   console.log(`\n[hitch attribution] top 25 self-time contributors INSIDE the worst frame:`)
   for (const r of top) {
     if (r.selfMs < 0.1) continue
     const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
-    // eslint-disable-next-line no-console
+
     console.log(
       `  ${r.selfMs.toFixed(2).padStart(6)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(40)} ${url}:${r.line}`,
     )
-    // eslint-disable-next-line no-console
+
     console.log(`    via: ${r.callPath}`)
   }
 
   // Also dump aggregate top-30 over the entire animation for
   // comparison — same shape the brief was working from.
   const totalRows = attributeWindow(profile, profile.startTime, profile.endTime, 30)
-  // eslint-disable-next-line no-console
+
   console.log(`\n[aggregate top-30] for comparison (full 6 s window):`)
   for (const r of totalRows) {
     if (r.selfMs < 5) continue
-    // eslint-disable-next-line no-console
+
     console.log(
       `  ${r.selfMs.toFixed(0).padStart(5)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(40)}`,
     )
@@ -326,6 +325,6 @@ test('S1 hitch-frame attribution', async ({ page, context }) => {
       2,
     ),
   )
-  // eslint-disable-next-line no-console
+
   console.log(`\n[saved] ${profileOut}\n[saved] ${attribOut}`)
 })

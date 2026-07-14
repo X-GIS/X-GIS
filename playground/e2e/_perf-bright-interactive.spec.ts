@@ -100,7 +100,7 @@ async function runAnimation(
         }
       ).__xgisMap
       if (!map) throw new Error('__xgisMap not exposed')
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+
       const update = new Function('t', 'cam', 'map', body) as (
         t: number,
         c: unknown,
@@ -162,7 +162,7 @@ async function captureAllocProfile(
       }
       const map = (window as unknown as { __xgisMap?: M }).__xgisMap
       if (!map) return {}
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+
       const update = new Function('t', 'cam', 'map', src) as (
         t: number,
         c: unknown,
@@ -208,7 +208,7 @@ test('Bright interactive perf — 3 scenarios', async ({ page }) => {
     const c = m.getCamera()
     return { x: c.centerX, y: c.centerY, z: c.zoom }
   })
-  // eslint-disable-next-line no-console
+
   console.log(
     `\n[setup] Tokyo z=${baseCam.z} centerX=${baseCam.x.toFixed(0)} centerY=${baseCam.y.toFixed(0)}`,
   )
@@ -256,17 +256,16 @@ test('Bright interactive perf — 3 scenarios', async ({ page }) => {
   )
   const s3 = summarise(z3)
 
-  // eslint-disable-next-line no-console
   console.log('\n=== Bright interactive perf ===\n')
-  // eslint-disable-next-line no-console
+
   console.log('  scenario                       median (fps)    p95     p99     worst   frames')
-  // eslint-disable-next-line no-console
+
   console.log('  ' + '─'.repeat(95))
-  // eslint-disable-next-line no-console
+
   console.log(reportRow('1. zoom 10→16→10', s1))
-  // eslint-disable-next-line no-console
+
   console.log(reportRow('2. zoom 10→14→10 + pan', s2))
-  // eslint-disable-next-line no-console
+
   console.log(reportRow('3. pitch 0→80→0', s3))
 
   // iter-261 (Plan L.1.1) — label-dispatch cache hit-rate. Tells
@@ -279,7 +278,6 @@ test('Bright interactive perf — 3 scenarios', async ({ page }) => {
     return map?.getLabelDispatchStats?.() ?? null
   })
   if (labelStats !== null) {
-    // eslint-disable-next-line no-console
     console.log(
       `\n=== Label-dispatch sig cache (L.1 hit-rate diagnostic) ===\n  hits=${labelStats.hits} misses=${labelStats.misses} rate=${(labelStats.hitRate * 100).toFixed(1)}%`,
     )
@@ -304,7 +302,6 @@ test('Bright interactive perf — 3 scenarios', async ({ page }) => {
     return map?.getLayoutCacheStats?.() ?? null
   })
   if (layoutStats !== null) {
-    // eslint-disable-next-line no-console
     console.log(
       `\n=== TextStage layout cache (iter-266 diagnostic) ===\n  hits=${layoutStats.hits} misses=${layoutStats.misses} rate=${(layoutStats.hitRate * 100).toFixed(1)}% entries=${layoutStats.entries}`,
     )
@@ -326,12 +323,10 @@ test('Bright interactive perf — 3 scenarios', async ({ page }) => {
     return api?.getPhaseAverages() ?? []
   })
   if (phaseProfile.length > 0) {
-    // eslint-disable-next-line no-console
     console.log('\n=== Phase timing (sorted by per-frame budget) ===')
-    // eslint-disable-next-line no-console
+
     console.log('  per-frame  per-call   phase')
     for (const p of phaseProfile) {
-      // eslint-disable-next-line no-console
       console.log(
         `  ${p.perFrameMs.toFixed(2).padStart(7)}    ${p.meanMs.toFixed(2).padStart(6)}    ${p.name}`,
       )
@@ -352,14 +347,11 @@ test('Bright interactive perf — 3 scenarios', async ({ page }) => {
   )
   const sorted = Object.entries(profile).sort((a, b) => b[1] - a[1])
   if (sorted.length > 0) {
-    // eslint-disable-next-line no-console
     console.log('\n=== Alloc profile — zoom+pan 3s ===')
     for (const [key, count] of sorted.slice(0, 20)) {
-      // eslint-disable-next-line no-console
       console.log(`  ${count.toString().padStart(7)}  ${key}`)
     }
   } else {
-    // eslint-disable-next-line no-console
     console.log('\n[alloc-profile] empty (sites cached-out or API missing)')
   }
 })

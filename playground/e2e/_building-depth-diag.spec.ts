@@ -70,7 +70,7 @@ test.describe('3D building depth-sort diag', () => {
         }
         return out
       })
-      // eslint-disable-next-line no-console
+
       console.log(`[building-diag ${scn.slug}]`, JSON.stringify(stats, null, 2))
 
       // Save screenshot for visual inspection.

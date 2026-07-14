@@ -146,18 +146,18 @@ test('#10 Liberty Seoul z17 pitch68 — CPU profile DURING drag-pan', async ({ p
   fs.mkdirSync(outDir, { recursive: true })
   const outPath = path.join(outDir, 'merc-high-pitch-drag.cpuprofile')
   fs.writeFileSync(outPath, JSON.stringify(profile))
-  // eslint-disable-next-line no-console
+
   console.log(`\n[profile] saved: ${outPath} (Chrome DevTools → Performance → load)`)
 
   const hot = topHotFunctions(profile, 30)
-  // eslint-disable-next-line no-console
+
   console.log(
     `\n[hot] top 30 by self time over ${PROFILE_MS}ms DURING drag (#10 Liberty z17 pitch68):`,
   )
   for (const r of hot) {
     if (r.selfMs < 1) continue
     const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
-    // eslint-disable-next-line no-console
+
     console.log(
       `  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(40)} ${url}:${r.line}`,
     )

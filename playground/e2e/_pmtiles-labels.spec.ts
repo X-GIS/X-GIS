@@ -62,7 +62,6 @@ test('PMTiles vector-tile labels render via VTR path', async ({ page }) => {
     return { pureWhite, total }
   })
 
-  // eslint-disable-next-line no-console
   console.log('[pmtiles-labels]', stats)
 
   if ('error' in stats) throw new Error(stats.error as string)

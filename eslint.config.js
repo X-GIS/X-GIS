@@ -8,6 +8,29 @@ import js from '@eslint/js'
 import tseslint from 'typescript-eslint'
 import prettier from 'eslint-config-prettier'
 
+// Node/Bun runtime globals for the repo's plain-JS config & script files (they
+// run under Bun/Node, not the browser). typescript-eslint disables core
+// `no-undef` for typed .ts, but ESLint keeps it ON for js/mjs/cjs — so without
+// this it flags process/console/Buffer/Bun in e.g. playground/_dc0-diff.mjs
+// (the DC=0 relocation differ) and any future node script. (#1055 Wave 5.)
+const nodeScriptGlobals = {
+  process: 'readonly',
+  console: 'readonly',
+  Buffer: 'readonly',
+  Bun: 'readonly',
+  URL: 'readonly',
+  URLSearchParams: 'readonly',
+  TextEncoder: 'readonly',
+  TextDecoder: 'readonly',
+  fetch: 'readonly',
+  setTimeout: 'readonly',
+  clearTimeout: 'readonly',
+  setInterval: 'readonly',
+  clearInterval: 'readonly',
+  __dirname: 'readonly',
+  __filename: 'readonly',
+}
+
 export default tseslint.config(
   {
     ignores: [
@@ -124,6 +147,14 @@ export default tseslint.config(
   {
     files: ['**/*.{js,mjs,cjs}'],
     ...tseslint.configs.disableTypeChecked,
+  },
+  // Those plain-JS files run under Node/Bun — give them the runtime globals so
+  // core `no-undef` doesn't flag process/console/Buffer/Bun. Kept a separate
+  // block so its `languageOptions.globals` MERGES with (rather than clobbers)
+  // disableTypeChecked's `languageOptions.parserOptions` above.
+  {
+    files: ['**/*.{js,mjs,cjs}'],
+    languageOptions: { globals: nodeScriptGlobals },
   },
   prettier,
 )

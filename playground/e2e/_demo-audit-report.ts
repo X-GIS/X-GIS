@@ -108,7 +108,6 @@ export default function globalTeardown(): void {
   writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))
   writeFileSync(join(OUT, 'full.json'), JSON.stringify(results, null, 2))
 
-  // eslint-disable-next-line no-console
   console.log(
     `[demo-audit] REPORT: ${results.length} demos, ${broken.length} broken ` +
       `(${join(OUT, 'REPORT.md')})`,

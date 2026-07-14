@@ -80,7 +80,6 @@ test('phase5f-2 — virt_inline opt-in is dormant for URL sources', async ({ pag
     return lit / (data.length / 4)
   })
 
-  // eslint-disable-next-line no-console
   console.log('[phase5f-2 baseline]', baselineLit, '[flag]', flagLit)
 
   // The two runs should produce within 1 % of each other — the flag

@@ -82,7 +82,6 @@ test('text overlay: SDF labels render at city anchors', async ({ page }) => {
     return { pureWhite, nearBlack, total, w: img.width, h: img.height }
   })
 
-  // eslint-disable-next-line no-console
   console.log('[text-overlay]', stats)
 
   if ('error' in stats) throw new Error(stats.error as string)

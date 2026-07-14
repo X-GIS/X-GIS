@@ -403,7 +403,6 @@ for (const view of VIEWS) {
       ),
     )
 
-    // eslint-disable-next-line no-console
     console.log(
       `[pixel-match ${view.id}] eq=${((buckets.eq0 / totalPx) * 100).toFixed(2)}% ` +
         `le32=${(((buckets.eq0 + buckets.le8 + buckets.le16 + buckets.le32) / totalPx) * 100).toFixed(2)}% ` +
@@ -474,6 +473,6 @@ test.afterAll(async () => {
     lines.push(`- **Buckets**: \`${JSON.stringify(r.buckets)}\``)
   }
   writeFileSync(join(OUT, 'REPORT.md'), lines.join('\n'))
-  // eslint-disable-next-line no-console
+
   console.log(`[pixel-match] consolidated report → ${join(OUT, 'REPORT.md')}`)
 })

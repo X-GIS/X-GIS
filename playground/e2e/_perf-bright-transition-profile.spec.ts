@@ -122,16 +122,15 @@ test('Bright zoom-transition profile (z=10→14 in 4 s)', async ({ page, context
   const outPath = path.resolve('test-results', 'bright-transition.cpuprofile')
   fs.mkdirSync(path.dirname(outPath), { recursive: true })
   fs.writeFileSync(outPath, JSON.stringify(profile))
-  // eslint-disable-next-line no-console
+
   console.log(`\n[profile] saved: ${outPath}`)
 
-  // eslint-disable-next-line no-console
   console.log(`\n[hot] top 30 by self time over ${PROFILE_MS}ms zoom transition:`)
   const hot = topHotFunctions(profile, 30)
   for (const r of hot) {
     if (r.selfMs < 5) continue // floor: noise threshold
     const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
-    // eslint-disable-next-line no-console
+
     console.log(
       `  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(40)} ${url}:${r.line}`,
     )

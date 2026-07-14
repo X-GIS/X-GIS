@@ -146,9 +146,9 @@ function attribute(profile: CpuProfile, winStart: number, winEnd: number, topN =
   const samples = profile.samples ?? []
   const deltas = profile.timeDeltas ?? []
   const byId = new Map<number, ProfileNode>()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   for (const n of profile.nodes as any[]) byId.set(n.id, { id: n.id, callFrame: n.callFrame })
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   for (const n of profile.nodes as any[]) {
     if (Array.isArray(n.children))
       for (const cid of n.children) {
@@ -207,9 +207,9 @@ async function runScenario(
 ): Promise<void> {
   const { profile, frames, perfNowAtStart } = await recordWithProfile(page, cdp, 5000, motion)
   const s = summary(frames)
-  // eslint-disable-next-line no-console
+
   console.log(`\n══ ${label} (${motion}) ══`)
-  // eslint-disable-next-line no-console
+
   console.log(
     `frames=${s.n}  mean=${s.mean.toFixed(1)}  median=${s.median.toFixed(1)}  p99=${s.p99.toFixed(1)}  worst=${s.worst.toFixed(0)} ms`,
   )
@@ -220,11 +220,11 @@ async function runScenario(
   const winStart = profile.startTime
   const winEnd = profile.endTime
   const top = attribute(profile, winStart, winEnd, 15)
-  // eslint-disable-next-line no-console
+
   console.log('top 15 self-time over full 5s:')
   for (const r of top) {
     if (r.selfMs < 5) continue
-    // eslint-disable-next-line no-console
+
     console.log(
       `  ${r.selfMs.toFixed(0).padStart(5)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(42)} via ${r.callPath}`,
     )
@@ -260,7 +260,7 @@ test('Seoul z=17 — full style vs labels-off', async ({ page, context }) => {
 
   // ─── B: labels off ───────────────────────────────
   const hiddenInfo = await hideLabels(page)
-  // eslint-disable-next-line no-console
+
   console.log(`\n[hidden] ${hiddenInfo.hidden}/${hiddenInfo.total} symbol shows`)
   await page.waitForTimeout(500) // let renderer settle after toggle
 

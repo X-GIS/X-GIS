@@ -187,13 +187,12 @@ test.describe('PMTiles over-zoom: gradual disappearance repro', () => {
       // Dump sub-tile internals — count cached entries per slice
       // and probe a sample z=16 sub-tile's vertex/index validity.
       const subTileDiag = await page.evaluate(() => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const map = (window as any).__xgisMap
         if (!map?.vtSources) return null
         // Decode z from the packed tileKey (compiler/tile-format).
         // tileKey packs z, x, y so the high bits give z. The exact
         // bit layout is internal but `tileKeyUnpack` is exposed.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const unpack = (window as any).__xgisInternals?.tileKeyUnpack
         const out: Record<string, unknown> = {}
         for (const [name, entry] of map.vtSources.entries()) {
