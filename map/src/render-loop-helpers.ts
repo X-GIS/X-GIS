@@ -503,12 +503,22 @@ export function makeLabelProjectors(
    *  (copies collapse on ECEF). #727 (C). */
   projectMercAny: (sx: number, sy: number, worldCopy?: number) => [number, number] | null
   projectLonLat: (lon: number, lat: number, worldMercatorOffset?: number) => [number, number] | null
-  projectLonLatCopies: (lon: number, lat: number) => Array<[number, number]>
+  /** Each copy is `[screenX, screenY, perspectiveScale]` — the 3rd slot is that
+   *  copy's #1081 distance-attenuation factor (per-copy, so a pitched flat world
+   *  copy far from centre shrinks correctly). Callers reading only [0]/[1] are
+   *  unaffected by the extra slot. */
+  projectLonLatCopies: (lon: number, lat: number) => Array<[number, number, number]>
   /** #1042 R3 — signed screen-px distance from (x,y) INSIDE the projected globe
    *  silhouette (POSITIVE inside); +Infinity on the flat path / when there is no
    *  limb polygon. Lets the label pass cull a MULTI-LINE quad on its own screen
    *  half-height, beyond the built-in LABEL_LIMB_INSET_PX base cull. */
   limbInsetPx: (x: number, y: number) => number
+  /** #1081 — perspective distance attenuation of the LAST projection call
+   *  (projectMerc / projectLonLat / projectMercAny), a scratch out-value read
+   *  right after: clamp(0.5 + 0.5·wCenter/cw, 0.5, 1.0), wCenter/cw = centre/this
+   *  anchor's clip-w. 1.0-capped: SHRINK-ONLY (growth evicted near-field
+   *  neighbours — p85 probe). 1 before any call / culled anchor; per-copy in slot 3. */
+  perspectiveScale: () => number
 } {
   // ── 3D / globe path: ECEF projector. Works for every projection because
   //    mvp is getECEFFrameView().matrix; lonLatToECEF(lon ± 360°) is the
@@ -531,14 +541,20 @@ export function makeLabelProjectors(
     // above applies. Cheap (LIMB_SAMPLES projections) so it is built whenever the
     // label pass is active; at city zoom the silhouette is a large off-screen
     // loop and the inset test then passes for every on-screen anchor.
-    const limbPoly =
-      labelHorizonMargin && eye ? buildGlobeLimbPolygon(mvp, w, h, eye, focus) : null
+    const limbPoly = labelHorizonMargin && eye ? buildGlobeLimbPolygon(mvp, w, h, eye, focus) : null
     // #1042 R3 — the SAME limb polygon, exposed as a per-point query so the label
     // pass can additionally cull a taller (multi-line) quad on its own screen
     // half-height. +Infinity when there is no silhouette so the caller's
     // `inset < halfHeight` test is a no-op (base cull below still applies).
     const limbInsetPx = (x: number, y: number): number =>
       limbPoly ? signedDistToPolygonPx(limbPoly.xs, limbPoly.ys, limbPoly.n, x, y) : Infinity
+
+    // #1081 — per-anchor perspective distance attenuation (MapLibre parity).
+    // wCenter = clip-w of the camera-centre anchor = mvp[15] (the RTC/focus-
+    // relative label matrix puts that anchor at the origin). perspScale, set per
+    // projection below, is read via perspectiveScale() / the copies tuple slot 3.
+    const wCenter = mvp[15]!
+    let perspScale = 1
 
     const projectLonLat = (lon: number, lat: number): [number, number] | null => {
       const e = lonLatToECEF(lon, lat)
@@ -569,6 +585,7 @@ export function makeLabelProjectors(
       const rz = e[2] - (focus ? focus[2] : 0)
       const cw = mvp[3]! * rx + mvp[7]! * ry + mvp[11]! * rz + mvp[15]!
       if (cw <= 0) return null
+      perspScale = Math.max(0.5, Math.min(1.0, 0.5 + 0.5 * (wCenter / cw))) // #1081 shrink-only
       const ndcX = (mvp[0]! * rx + mvp[4]! * ry + mvp[8]! * rz + mvp[12]!) / cw
       const ndcY = (mvp[1]! * rx + mvp[5]! * ry + mvp[9]! * rz + mvp[13]!) / cw
       if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
@@ -603,16 +620,25 @@ export function makeLabelProjectors(
     // copies collapse to one on the globe (see the branch header above).
     const projectMercAny = (sx: number, sy: number, _worldCopy = 0): [number, number] | null =>
       projectMerc(sx, sy)
-    const _projectScratch: Array<[number, number]> = []
-    const projectLonLatCopies = (lon: number, lat: number): Array<[number, number]> => {
+    const _projectScratch: Array<[number, number, number]> = []
+    const projectLonLatCopies = (lon: number, lat: number): Array<[number, number, number]> => {
       _projectScratch.length = 0
       const proj = projectLonLat(lon, lat)
       // Copy out of the shared scratch (matches the flat arm) — defensive
-      // symmetry so a future >1-copy extension can't alias.
-      if (proj) _projectScratch.push([proj[0], proj[1]])
+      // symmetry so a future >1-copy extension can't alias. Slot 3 = #1081
+      // perspScale, just set by projectLonLat for this (only) copy.
+      if (proj) _projectScratch.push([proj[0], proj[1], perspScale])
       return _projectScratch
     }
-    return { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies, limbInsetPx }
+    const perspectiveScale = (): number => perspScale
+    return {
+      projectMerc,
+      projectLonLat,
+      projectMercAny,
+      projectLonLatCopies,
+      limbInsetPx,
+      perspectiveScale,
+    }
   }
 
   // ── Flat display path (projType 0-6): CPU mirror of the per-vertex shader
@@ -634,6 +660,12 @@ export function makeLabelProjectors(
     ? [0, 0]
     : projectCpu(projType, centerLon, centerLat, centerLon, centerLat)
   const _projScratch: [number, number] = [0, 0]
+  // #1081 — same distance-attenuation as the globe arm (see there). The flat MVP
+  // is camera-relative (projectMerc subtracts ccx/ccy; the non-merc arm subtracts
+  // lblCenter), so the camera-centre anchor sits at the RTC origin ⇒ wCenter =
+  // mvp[15]. perspScale is set below wherever a cw is computed.
+  const wCenter = mvp[15]!
+  let perspScale = 1
 
   const projectMerc = (
     mx: number,
@@ -644,6 +676,7 @@ export function makeLabelProjectors(
     const rtcY = my - ccy
     const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
     if (cw <= 0) return null
+    perspScale = Math.max(0.5, Math.min(1.0, 0.5 + 0.5 * (wCenter / cw))) // #1081 shrink-only
     const ndcX = (mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!) / cw
     const ndcY = (mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!) / cw
     if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
@@ -683,6 +716,7 @@ export function makeLabelProjectors(
     const rtcY = p[1] - lblCenter[1]
     const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
     if (cw <= 0) return null
+    perspScale = Math.max(0.5, Math.min(1.0, 0.5 + 0.5 * (wCenter / cw))) // #1081 shrink-only
     const ndcX = (mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!) / cw
     const ndcY = (mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!) / cw
     if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
@@ -709,13 +743,15 @@ export function makeLabelProjectors(
   // shifts in Mercator metres (wo·WORLD_MERC), non-Mercator in projected-x
   // (wo·WORLD_CIRC == the GPU project_geom `world_off_m`). Each result is copied
   // out (projectLonLat returns the shared scratch, overwritten next iteration).
-  const _projectScratch: Array<[number, number]> = []
+  const _projectScratch: Array<[number, number, number]> = []
   const copyPeriod = isMerc ? WORLD_MERC : WORLD_CIRC
-  const projectLonLatCopies = (lon: number, lat: number): Array<[number, number]> => {
+  const projectLonLatCopies = (lon: number, lat: number): Array<[number, number, number]> => {
     _projectScratch.length = 0
     for (const wo of visibleWorldCopies) {
       const proj = projectLonLat(lon, lat, wo * copyPeriod)
-      if (proj) _projectScratch.push([proj[0], proj[1]])
+      // Slot 3 = this copy's #1081 perspScale, just set by projectLonLat. Per-copy
+      // (a pitched world copy far from centre shrinks by its own distance).
+      if (proj) _projectScratch.push([proj[0], proj[1], perspScale])
     }
     return _projectScratch
   }
@@ -723,8 +759,16 @@ export function makeLabelProjectors(
   // vacuously +Infinity: the label pass's `inset < halfHeight` gate never fires
   // (call sites stay branch-free — see the globe arm's limbInsetPx).
   const limbInsetPx = (): number => Infinity
+  const perspectiveScale = (): number => perspScale
 
-  return { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies, limbInsetPx }
+  return {
+    projectMerc,
+    projectLonLat,
+    projectMercAny,
+    projectLonLatCopies,
+    limbInsetPx,
+    perspectiveScale,
+  }
 }
 
 /** Project `[lon, lat]` → CSS-px screen coords (canvas-local) through the

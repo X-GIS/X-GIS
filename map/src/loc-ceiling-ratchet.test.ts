@@ -103,11 +103,31 @@ const CEILINGS: Record<string, number> = {
   // collision box IS the height authority; the label-pass dispatch site has only
   // the unresolved TextValue). +10 = the `limbInset` prepare() param + the
   // box-height gate at collisionInput. An 8-line predicate isn't extract-worthy (§2).
-  'map/src/text/text-stage.ts': 1930,
+  // 1930→1941 (#1081): the point-loop folds the per-anchor perspectiveScale into
+  // sizePx — the SINGLE quad authority, so the collision box AND the draw quad
+  // scale together (and the #1042 R3 limb gate then compares the SCALED half-
+  // height). +11 = the sizePx fold (quantised 1/64 for layout-cache stability) +
+  // addLabel's perspScale param/push. Inline in the hot loop; not extract-worthy (§2).
+  'map/src/text/text-stage.ts': 1941,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
-  'map/src/render/passes/label-pass.ts': 1719,
+  // 1719→1726 (#1081): thread the projector's per-copy perspScale (projectLonLat
+  // Copies tuple slot 3) into the point-label addLabel + dispatchIcon, plus
+  // dispatchIcon's own perspScale param → addIcon. +7, all at existing call sites.
+  // 1726→1747 (#1081 fix): the reland wired Path 1 (GeoJSON) only — thread the
+  // same perspScale through BOTH VT point-label arms (globe: tuple slot 3;
+  // mercator: the perspectiveScale() scratch getter). +21, dominated by prettier
+  // wraps (the 6-name projector destructure + the globe arm's 8-arg dispatchIcon
+  // both go one-per-line). Same existing call sites; nothing extract-worthy (§2).
+  'map/src/render/passes/label-pass.ts': 1747,
+  // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
+  // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
+  // existing projector closures (it rides the cw already computed per anchor —
+  // not extract-worthy, §2), plus the perspectiveScale() getter, the 3-slot
+  // projectLonLatCopies tuple, and the 6-member return objects prettier now wraps
+  // multi-line — together nudging this helper just over NEW_FILE_CAP (773→818).
+  'map/src/render-loop-helpers.ts': 818,
   'map/src/render/pipeline-factory.ts': 1458,
   'map/src/camera/camera.ts': 1419,
   'map/src/shaders/dsl/line.ts': 1373,
