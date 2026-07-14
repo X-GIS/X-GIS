@@ -28,8 +28,10 @@ import {
   packECEFPointFeatures,
   extractNonSyntheticArcs,
   makeSameBoundarySidePredicateMerc,
+  type RingPolygon,
 } from '@xgis/compiler'
 import { type TileData, DSFUN_LINE_STRIDE } from './tile-types'
+import { clipRingPolygonToWindow } from './clip-ring-polygon'
 
 // ECEF stride-9 layout for polygon vertices (PR 2c.2):
 //   [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon_deg, abs_lat_deg]
@@ -521,6 +523,24 @@ export class SubTileGenerator {
     // archive tiles so the renderer's ECEF VS reads one layout. The
     // per-tile dequant params travel on the sub-tile's TileData.
     const subQuant = packECEFPolygonVertices(outV, subTileEcefCenter, [subMxW, subMyS])
+
+    // Clip the forwarded extrusion rings to THIS sub-tile's window. The
+    // extruded-building upload path (upload-coordinator →
+    // generateWallMeshExtrudedECEF) re-tessellates walls from `polygons`, so a
+    // child forwarding the parent's ENTIRE ring set re-extrudes every building
+    // in every child → duplicate overlapping walls + z-fighting at deep zoom
+    // (#1082). Rings are absolute Mercator metres, so clip against the
+    // absolute-MM sub-window [subMxW, subMyS, subMxE, subMyN] — the same window
+    // the outline path above clips its ring arcs against.
+    let subPolygons: RingPolygon[] | undefined
+    if (parent.polygons && parent.polygons.length > 0) {
+      const kept: RingPolygon[] = []
+      for (const poly of parent.polygons) {
+        const clippedPoly = clipRingPolygonToWindow(poly, subMxW, subMyS, subMxE, subMyN)
+        if (clippedPoly !== null) kept.push(clippedPoly)
+      }
+      subPolygons = kept.length > 0 ? kept : undefined
+    }
     return {
       vertices: subQuant.vertices,
       dequantScale: subQuant.dequantScale,
@@ -537,11 +557,14 @@ export class SubTileGenerator {
       tileWidth: subEast - subWest,
       tileHeight: subNorth - subSouth,
       tileZoom: sz,
-      // Forward parent's ring data so further over-zoom of THIS sub-tile
-      // can also use the global-arc outline path (otherwise grand-child
-      // sub-tiles fall back to the legacy outlineIndices and the dash
-      // bug recurs at very high zoom levels).
-      polygons: parent.polygons,
+      // Forward the parent's ring data CLIPPED to this sub-tile's window
+      // (#1082) so the extrusion path re-extrudes only this child's buildings,
+      // while further over-zoom of THIS sub-tile still has rings for the
+      // global-arc outline path (grand-children clip the already-narrowed set
+      // again — equivalent to clipping straight to the grand-child window;
+      // otherwise they fall back to the legacy outlineIndices and the dash bug
+      // recurs at very high zoom levels).
+      polygons: subPolygons,
       // Per-feature attribute maps are keyed by tile-local featId,
       // which the clipper preserves (every emitted vertex carries its
       // parent's fid). So forwarding the parent's maps is safe — same
