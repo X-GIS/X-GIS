@@ -312,11 +312,14 @@ function evaluateFnCall(expr: AST.FnCall, props: FeatureProps, fnEnv?: FnEnv): u
 
   if (name === 'match' && expr.matchBlock && expr.args.length === 1) {
     const key = evaluate(expr.args[0], props, fnEnv)
-    const keyStr = key === null || key === undefined ? null : String(key)
-    if (keyStr !== null) {
+    if (key !== null && key !== undefined) {
       for (const arm of expr.matchBlock.arms) {
         if (arm.pattern === '_') continue
-        if (arm.pattern === keyStr) return evaluate(arm.value, props, fnEnv)
+        // Type-strict equality (Mapbox `match` semantics): a numeric label
+        // matches only a numeric input and a string label only a string input.
+        // `arm.pattern` carries the literal's JS type (number vs string), so
+        // `===` enforces the type match by construction — `2 === "2"` is false.
+        if (key === arm.pattern) return evaluate(arm.value, props, fnEnv)
       }
     }
     const defaultArm = expr.matchBlock.arms.find((a) => a.pattern === '_')

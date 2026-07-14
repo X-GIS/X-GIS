@@ -101,7 +101,9 @@ export function lowerMatchColorToMatch(expr: DataExpr): MatchEmitSpec | null {
     if (arm.pattern === '_') {
       defaultColorHex = hex
     } else {
-      arms.push({ pattern: arm.pattern, colorHex: hex })
+      // The GPU category map is string-keyed; a numeric label stringifies to
+      // its old form (`2` → "2"), preserving pre-#1068 category assignment.
+      arms.push({ pattern: String(arm.pattern), colorHex: hex })
     }
   }
 

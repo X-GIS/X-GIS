@@ -288,13 +288,13 @@ function processColorValue(
       // (the packer maps string→ID in this same order; the IDs index the cases).
       const sortedPatterns = arms
         .filter((a) => a.pattern !== '_')
-        .map((a) => a.pattern)
+        .map((a) => String(a.pattern))
         .sort()
       const rgbaByPattern = new Map<string, [number, number, number, number]>()
       for (const arm of arms) {
         if (arm.pattern === '_') continue
         const rgba = resolveColorFromAST(arm.value)
-        if (rgba) rgbaByPattern.set(arm.pattern, rgba)
+        if (rgba) rgbaByPattern.set(String(arm.pattern), rgba)
       }
 
       // Scrutinee is the feature field cast to i32 — same shape as the compute

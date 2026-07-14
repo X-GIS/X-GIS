@@ -217,7 +217,9 @@ function canonicalMatchBlock(m: MatchBlock): string {
 function canSortArmsSafely(m: MatchBlock): boolean {
   const seen = new Set<string>()
   for (let i = 0; i < m.arms.length; i++) {
-    const p = m.arms[i]!.pattern
+    // Stringify the label so a numeric pattern (`2`) keys the same as its
+    // pre-#1068 string form; the default sentinel '_' is unaffected.
+    const p = String(m.arms[i]!.pattern)
     if (p === '_') {
       if (i !== m.arms.length - 1) return false
       continue

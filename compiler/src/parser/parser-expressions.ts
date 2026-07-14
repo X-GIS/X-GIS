@@ -28,7 +28,7 @@ export class ExpressionParser extends ParserCursor {
 
   // expr | transform | transform
   protected parsePipe(): AST.Expr {
-    let left = this.parseCoalesce()
+    const left = this.parseCoalesce()
 
     if (this.check(TokenType.Pipe)) {
       const transforms: AST.FnCall[] = []
@@ -309,59 +309,72 @@ export class ExpressionParser extends ParserCursor {
   }
 
   /**
-   * Parse match block: { "KOR" -> red-500, "JPN" -> blue-500, _ -> gray-300 }
+   * Parse match block: { "KOR" -> #dc2626, 1, 2 -> "low", _ -> #9ca3af }
+   *
+   * A single arm is `pattern (',' pattern)* '->' value`. Comma-separated
+   * pattern LISTS desugar into one {@link AST.MatchArm} per label sharing the
+   * arm's value — semantically identical to writing the label out N times, and
+   * every downstream consumer already handles repeated single-label arms (this
+   * is exactly the shape the Mapbox converter emits for `["a","b"]` labels).
+   * The arrow is a hard boundary, so a comma BEFORE it always continues the
+   * pattern list and a comma AFTER the value always separates arms — the two
+   * comma roles never collide (#1068).
    */
   protected parseMatchBlock(): AST.MatchBlock {
     this.expect(TokenType.LBrace)
     const arms: AST.MatchArm[] = []
 
     while (!this.check(TokenType.RBrace) && !this.isEnd()) {
-      // Pattern: string literal, identifier, or '_' for default
-      let pattern: string
-      if (this.check(TokenType.String)) {
-        pattern = this.advance().value
-      } else if (this.check(TokenType.Identifier)) {
-        pattern = this.advance().value
-      } else if (this.check(TokenType.Number)) {
-        pattern = this.advance().value
-      } else if (
-        this.check(TokenType.Minus) &&
-        this.tokens[this.pos + 1]?.type === TokenType.Number
-      ) {
-        // Converter emits bare negative numeric keys (e.g. `-3 -> v`).
-        this.advance()
-        pattern = '-' + this.advance().value
-      } else {
-        break
+      const first = this.parseMatchPattern()
+      if (first === null) break // not on a label token — end of the arm list
+      const patterns: (string | number)[] = [first]
+      while (this.check(TokenType.Comma)) {
+        this.advance() // consume the pattern-list comma
+        const next = this.parseMatchPattern()
+        if (next === null) break // tolerate a stray trailing comma before `->`
+        patterns.push(next)
       }
 
       // Arrow: ->
       this.expect(TokenType.Arrow)
 
-      // Value shapes: #abcdef → ColorLiteral; red-500 → utility-name
-      // Identifier (only when an Identifier is followed by `-`); else a
-      // general expression via parseCoalesce (below the pipe operator).
+      // Value shapes: #abcdef → ColorLiteral; else a general expression via
+      // parseExpr. A bare hyphenated Identifier is NO LONGER special-cased as a
+      // utility colour name — that swallowed `foo - 1` into an `foo-1` colour
+      // token and made arithmetic in an arm value unwritable. Use a colour
+      // literal (`#…`) or a bracketed expression as the escape instead (#1068).
       let value: AST.Expr
       if (this.check(TokenType.Color)) {
         value = { kind: 'ColorLiteral', value: this.advance().value }
-      } else if (
-        this.check(TokenType.Identifier) &&
-        this.tokens[this.pos + 1]?.type === TokenType.Minus
-      ) {
-        const colorName = this.parseUtilityName()
-        value = { kind: 'Identifier', name: colorName }
       } else {
         value = this.parseExpr()
       }
 
-      arms.push({ pattern, value })
+      // Desugar the pattern list: one arm per label, sharing the value AST.
+      for (const pattern of patterns) arms.push({ pattern, value })
 
-      // Optional comma/newline separator
+      // Optional comma/newline separator between arms
       if (this.check(TokenType.Comma)) this.advance()
     }
 
     this.expect(TokenType.RBrace)
     return { kind: 'MatchBlock', arms }
+  }
+
+  /** Parse one match label: a string / identifier (`_` = default), a bare
+   *  number, or a `Minus`-prefixed negative number (the converter emits bare
+   *  numeric keys, e.g. `-3 -> v`). Numbers keep their JS `number` type so the
+   *  evaluator compares them numerically. Returns null when the cursor is not
+   *  on a label token (i.e. the arm list has ended). */
+  protected parseMatchPattern(): string | number | null {
+    if (this.check(TokenType.String)) return this.advance().value
+    if (this.check(TokenType.Identifier)) return this.advance().value
+    if (this.check(TokenType.Number)) return Number(this.advance().value)
+    if (this.check(TokenType.Minus) && this.tokens[this.pos + 1]?.type === TokenType.Number) {
+      this.advance()
+      return -Number(this.advance().value)
+    }
+    return null
   }
 
   /**
