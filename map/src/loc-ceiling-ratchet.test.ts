@@ -143,7 +143,9 @@ const CEILINGS: Record<string, number> = {
   'map/src/render/renderer.ts': 965,
   'map/src/render/gpu-tile-store.ts': 941,
   'map/src/render/tile-selection-cache.ts': 930,
-  'map/src/render/upload-coordinator.ts': 870,
+  // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
+  // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
+  'map/src/render/upload-coordinator.ts': 876,
   'map/src/shaders/dsl/projections.ts': 811,
   // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).

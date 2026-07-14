@@ -369,8 +369,7 @@ describe('generateWallMeshExtrudedECEF — #1079 multi-piece roof coverage', () 
       const i0 = mesh.indices[t]!,
         i1 = mesh.indices[t + 1]!,
         i2 = mesh.indices[t + 2]!
-      if (isRoof[i0] && isRoof[i1] && isRoof[i2])
-        tris.push([lonlat[i0]!, lonlat[i1]!, lonlat[i2]!])
+      if (isRoof[i0] && isRoof[i1] && isRoof[i2]) tris.push([lonlat[i0]!, lonlat[i1]!, lonlat[i2]!])
     }
     return tris
   }
@@ -402,5 +401,120 @@ describe('generateWallMeshExtrudedECEF — #1079 multi-piece roof coverage', () 
     const tris = roofTriangles(mesh)
     expect(covered(tris, 1.05, 1.14), 'square A still roofed').toBe(true)
     expect(covered(tris, 2.05, 2.14), 'square B punched out (bug)').toBe(false)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────
+// #1083 — extrusion walls must NOT be grown on clip-synthetic tile-boundary
+// edges. When the tiler clips a building that straddles a tile boundary,
+// Sutherland-Hodgman inserts an axis-aligned edge lying exactly on the tile
+// rect. That edge is a seam, not a face; extruding a wall on it draws an
+// interior wall along the tile boundary (MapLibre skips it via the same
+// isBoundaryEdge idea). The generator suppresses these ONLY when the caller
+// threads the tile's ABSOLUTE Mercator extent.
+// ─────────────────────────────────────────────────────────────────
+describe('generateWallMeshExtrudedECEF — #1083 tile-boundary seam walls', () => {
+  // Tile rect in ABSOLUTE Mercator metres (mid-latitude, ~10 km square).
+  const west = 100000,
+    east = 110000,
+    south = 4000000,
+    north = 4010000
+  const extent = { west, south, east, north }
+  // RTC anchor at the tile SW corner (matches the production upload caller).
+  // tileMx/tileMy are unused by the generator but passed for parity.
+  const center = tileEcefCenterFromMerc(west, south)
+  const heights = new Map<number, number>([[5, 100]])
+
+  // Base edge of wall `w` as [mxA, mxB] in ABSOLUTE Mercator, recovered from
+  // the stored abs_lon (mx = lon·DEG2RAD·A). Walls are 4 verts in
+  // (a_bot, b_bot, a_top, b_top) order → base endpoints are verts 4w, 4w+1.
+  const wallBaseMx = (mesh: MeshLike, w: number): [number, number] => {
+    const a = unpack(mesh, w * 4)
+    const b = unpack(mesh, w * 4 + 1)
+    return [a.abs_lon * DEG2RAD * A, b.abs_lon * DEG2RAD * A]
+  }
+  const onEast = (mx: number): boolean => Math.abs(mx - east) < 1
+  // Wall quads whose base edge lies on the east boundary. Roof adds 4 verts
+  // (footprint corners) after the walls, so wallCount = (verts − 4) / 4.
+  const wallsOnEast = (mesh: MeshLike): number => {
+    const walls = (mesh.vertices.length / STRIDE - 4) / 4
+    let n = 0
+    for (let w = 0; w < walls; w++) {
+      const [ma, mb] = wallBaseMx(mesh, w)
+      if (onEast(ma) && onEast(mb)) n++
+    }
+    return n
+  }
+
+  it('drops the wall on a tile-boundary clip edge; keeps the other three + roof (#1083)', () => {
+    // CCW square clipped at the EAST tile edge: v1,v2 sit exactly on mx=east.
+    // Ring SW → SE(east) → NE(east) → NW → close. Edge SE→NE (index 1) is the
+    // clip-synthetic seam; the other three edges are real building faces.
+    const v0: [number, number] = [west + 2000, south + 2000] // SW interior
+    const v1: [number, number] = [east, south + 2000] // SE on east boundary
+    const v2: [number, number] = [east, north - 2000] // NE on east boundary
+    const v3: [number, number] = [west + 2000, north - 2000] // NW interior
+    const polygons: RingPolygon[] = [{ featId: 5, rings: [[v0, v1, v2, v3, v0]] }]
+
+    // Control: NO extent → every edge extrudes (legacy behaviour).
+    const control = generateWallMeshExtrudedECEF(polygons, heights, undefined, west, south, center)
+    expect(control.vertices.length / STRIDE).toBe(20) // 4 walls·4 + 4 roof
+    expect(control.indices.length).toBe(30) // 4·6 + 2·3
+    expect(wallsOnEast(control)).toBe(1) // the seam wall exists pre-skip
+
+    // Fixed: extent supplied → the SE→NE seam edge emits no wall.
+    const fixed = generateWallMeshExtrudedECEF(
+      polygons,
+      heights,
+      undefined,
+      west,
+      south,
+      center,
+      extent,
+    )
+    // FAIL-BEFORE: pre-fix ignores `extent` → 20 verts; post-fix → 16.
+    expect(fixed.vertices.length / STRIDE).toBe(16) // 3 walls·4 + 4 roof
+    expect(fixed.indices.length).toBe(24) // 3·6 + 2·3
+    // The seam wall is gone; no surviving wall sits on the east boundary.
+    expect(wallsOnEast(fixed)).toBe(0)
+
+    // The first surviving wall (edge SW→SE, verts 0..3) is unchanged: its
+    // quantization-independent f32 tail matches control byte-for-byte, and
+    // its reconstructed ECEF matches within 1 mm (robust to any dequant-
+    // range shift from the dropped verts).
+    for (let v = 0; v < 4; v++) {
+      for (let s = 3; s < STRIDE; s++)
+        expect(fixed.vertices[v * STRIDE + s]).toBe(control.vertices[v * STRIDE + s])
+      const pf = reconstructECEF(unpack(fixed, v), center)
+      const pc = reconstructECEF(unpack(control, v), center)
+      expect(Math.hypot(pf[0] - pc[0], pf[1] - pc[1], pf[2] - pc[2])).toBeLessThan(1e-3)
+    }
+
+    // Roof unchanged: the 4 footprint-corner verts (indices 12..15) remain,
+    // all is_top = 1 → 2 triangles.
+    for (let i = 12; i < 16; i++) expect(unpack(fixed, i).is_top).toBe(1)
+  })
+
+  it('keeps walls on interior axis-aligned edges that are NOT on the tile boundary', () => {
+    // Square fully INSIDE the tile: every edge is vertical/horizontal but
+    // offset ≥ 2 km from the rect, so none is a boundary seam. All 4 walls
+    // must survive even with the extent supplied — the predicate keys on
+    // boundary POSITION, not axis-alignment.
+    const v0: [number, number] = [west + 2000, south + 2000]
+    const v1: [number, number] = [east - 2000, south + 2000]
+    const v2: [number, number] = [east - 2000, north - 2000]
+    const v3: [number, number] = [west + 2000, north - 2000]
+    const polygons: RingPolygon[] = [{ featId: 5, rings: [[v0, v1, v2, v3, v0]] }]
+    const mesh = generateWallMeshExtrudedECEF(
+      polygons,
+      heights,
+      undefined,
+      west,
+      south,
+      center,
+      extent,
+    )
+    expect(mesh.vertices.length / STRIDE).toBe(20) // all 4 walls + roof kept
+    expect(mesh.indices.length).toBe(30)
   })
 })
