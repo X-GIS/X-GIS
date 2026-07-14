@@ -167,26 +167,41 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
 
   const extrudeExprsBySource = new Map<string, Record<string, unknown>>()
   const extrudeBaseExprsBySource = new Map<string, Record<string, unknown>>()
+  // #1084 — lower BOTH the feature AND the constant extrude form into the
+  // per-feature heights channel. The polygon extrude UNIFORM (u.extrude_
+  // height_m / u.extrude_base_m) is vestigial: polygon.ts declares the fields
+  // but NO shader statement reads them — the sole 3D driver is the per-feature
+  // heights/bases Map that feeds generateWallMeshExtrudedECEF. Pre-fix only the
+  // `feature` form emitted an AST here, so a constant `extrude: 50` synthesised
+  // no heights and rendered FLAT. Synthesising a NumberLiteral for the constant
+  // makes extractFeatureHeights yield that value for every feature, populating
+  // the Map exactly as `extrude: .height` does.
+  const bakeExtrudeAst = (shape: ShowCommand['extrude']): unknown =>
+    shape?.kind === 'feature'
+      ? shape.expr.ast
+      : shape?.kind === 'constant'
+        ? { kind: 'NumberLiteral', value: shape.value }
+        : undefined
   for (const show of shows) {
     const layer = effectiveLayer(show)
     if (!layer) continue
-    const ex = show.extrude
-    if (ex && ex.kind === 'feature') {
+    const exAst = bakeExtrudeAst(show.extrude)
+    if (exAst !== undefined) {
       let layerMap = extrudeExprsBySource.get(show.targetName)
       if (!layerMap) {
         layerMap = {}
         extrudeExprsBySource.set(show.targetName, layerMap)
       }
-      layerMap[layer] = ex.expr.ast
+      layerMap[layer] = exAst
     }
-    const exb = show.extrudeBase
-    if (exb && exb.kind === 'feature') {
+    const exbAst = bakeExtrudeAst(show.extrudeBase)
+    if (exbAst !== undefined) {
       let layerMap = extrudeBaseExprsBySource.get(show.targetName)
       if (!layerMap) {
         layerMap = {}
         extrudeBaseExprsBySource.set(show.targetName, layerMap)
       }
-      layerMap[layer] = exb.expr.ast
+      layerMap[layer] = exbAst
     }
   }
 

@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { buildShowSourceMaps } from './show-source-maps'
-import { computeSliceKey } from '@xgis/data'
+import { computeSliceKey, evalExtrudeExpr } from '@xgis/data'
 
 type MinimalShow = {
   targetName: string
@@ -23,8 +23,8 @@ type MinimalShow = {
   sizeExpr?: { ast: unknown } | null
   label?: unknown
   shaderVariant?: { needsFeatureBuffer?: boolean; featureFields?: string[] }
-  extrude?: { kind: string; expr?: { ast: unknown } } | undefined
-  extrudeBase?: { kind: string; expr?: { ast: unknown } } | undefined
+  extrude?: { kind: string; expr?: { ast: unknown }; value?: number } | undefined
+  extrudeBase?: { kind: string; expr?: { ast: unknown }; value?: number } | undefined
   strokeWidthExpr?: { ast: unknown } | undefined
   strokeColorExpr?: { ast: unknown } | undefined
 }
@@ -98,6 +98,28 @@ describe('buildShowSourceMaps — all 5 maps honour inline GeoJSON shows', () =>
       show({ targetName: 'buildings', extrudeBase: { kind: 'feature', expr: { ast: 'b' } } }),
     ])
     expect(extrudeBaseExprsBySource.get('buildings')?.['buildings']).toBe('b')
+  })
+
+  // #1084 — a CONSTANT `extrude: 50` used to render FLAT: the extrude UNIFORM
+  // (u.extrude_height_m) is read by NO shader (polygon.ts declares it, nothing
+  // consumes it), and the constant form produced no per-feature heights AST, so
+  // data.heights stayed empty → the upload dispatch took the flat vertex path.
+  // The fix lowers the constant into the SAME per-feature channel as the feature
+  // form via a synthesised NumberLiteral, so extractFeatureHeights → wall mesh.
+  it('#1084 constant extrude synthesises a per-feature heights AST (evaluates to the constant)', () => {
+    const { extrudeExprsBySource } = buildShowSourceMaps([
+      show({ targetName: 'buildings', extrude: { kind: 'constant', value: 50 } }),
+    ])
+    const layerMap = extrudeExprsBySource.get('buildings')
+    expect(layerMap, 'constant extrude must feed the per-feature heights channel').toBeTruthy()
+    expect(evalExtrudeExpr(layerMap!['buildings'], {})).toBe(50)
+  })
+
+  it('#1084 constant extrudeBase also synthesises a per-feature AST', () => {
+    const { extrudeBaseExprsBySource } = buildShowSourceMaps([
+      show({ targetName: 'buildings', extrudeBase: { kind: 'constant', value: 12 } }),
+    ])
+    expect(evalExtrudeExpr(extrudeBaseExprsBySource.get('buildings')?.['buildings'], {})).toBe(12)
   })
 
   it('strokeWidthExprsBySource indexes inline-show width-expr by sliceKey', () => {

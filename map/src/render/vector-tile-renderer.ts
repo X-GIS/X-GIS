@@ -359,13 +359,12 @@ export class VectorTileRenderer {
   private _linePatternActiveForShow = false
   /** Extrude routing for the current `render()` call.
    *   - 'none': flat polygon, no z lift
-   *   - 'uniform': all features at currentExtrudeHeight (flat pipeline,
-   *     is_top * u.extrude_height_m in WGSL)
-   *   - 'per-feature': per-vertex z from the slice's heights map
-   *     (extruded pipeline, vertex buffer slot 1)
-   *  Set in render() from the layer's `extrude:` style; consumed by
-   *  renderTileKeys when picking the fill pipeline. */
-  private currentExtrudeMode: 'none' | 'uniform' | 'per-feature' = 'none'
+   *   - 'per-feature': per-vertex z from the slice's wall mesh (extruded
+   *     pipeline). #1084 routes the CONSTANT form here too — its heights are
+   *     synthesised per-feature (show-source-maps); the old 'uniform' state is
+   *     gone (u.extrude_height_m was read by no shader — a dead uniform).
+   *  Consumed by renderTileKeys when picking the fill pipeline. */
+  private currentExtrudeMode: 'none' | 'per-feature' = 'none'
   /** Set per render() from `show.pickId` so renderTileKeys can stamp every
    *  per-tile uniform with the layer's pick ID. 0 = unregistered (sentinel
    *  → pickAt returns null). */
@@ -2338,16 +2337,16 @@ export class VectorTileRenderer {
     // scheduler — ResolvedShow is the SOLE per-frame source.
     this.currentOpacity = resolvedShow.opacity
     this.currentPickId = show.pickId ?? 0
-    // 3D extrusion: driven by the layer's `extrude:` style keyword.
-    //   * `extrude: 50`     → constant uniform path (currentExtrudeHeight)
-    //   * `extrude: .height` → per-feature path (vertex z attribute);
-    //     uniform mirror still set for fallback display when a tile
-    //     slice has no `heights` map (e.g. archive missing the field
-    //     for that zoom). Explicit, layer-local control replaces the
-    //     prior `sourceLayer === 'buildings'` heuristic.
+    // 3D extrusion: driven by the layer's `extrude:` style keyword. Both the
+    //   * `extrude: 50`      constant form AND
+    //   * `extrude: .height` per-feature form
+    // now feed the SAME per-feature heights Map → wall mesh → extruded pipe
+    // (#1084 synthesises a constant NumberLiteral for the `50` form at the
+    // show-source-maps seam). currentExtrudeHeight / u.extrude_height_m is a
+    // dead mirror no shader reads — kept only to avoid a uniform re-layout.
     if (show.extrude && show.extrude.kind === 'constant') {
       this.currentExtrudeHeight = show.extrude.value
-      this.currentExtrudeMode = 'uniform'
+      this.currentExtrudeMode = 'per-feature' // #1084: heights synthesised per-feature → extruded pipe
     } else if (show.extrude && show.extrude.kind === 'feature') {
       this.currentExtrudeHeight = show.extrude.fallback
       this.currentExtrudeMode = 'per-feature'
