@@ -955,21 +955,22 @@ export function convertTextLayoutProperties(
     if (interp !== null) utils.push(`label-padding-[${interp}]`)
   }
 
-  // icon-padding — spec default 2. X-GIS doesn't have an icon-side
-  // collision queue yet (Phase C.9), so the padding is a no-op
-  // regardless of value. Warn ONLY when the author declared a non-
-  // default value — declaring the default is the same as not
-  // declaring it, so the absence of an implementation is invisible
-  // to spec-default users. OFM bright authors `icon-padding: 2` on
-  // road_oneway / road_oneway_opposite (both default values); under
-  // this gate they stay lossless. Mirror of iter 494 icon-rotation-
-  // alignment viewport/auto suppression.
+  // icon-padding — spec default 2, min 0. Emit label-icon-padding-N ONLY
+  // for a non-default constant: authoring the spec default 2 (OFM Bright
+  // road_oneway) stays byte-identical (no knob, no LabelDef field, the
+  // IconStage collision box applies 2). Negative clamps to 0 (spec min) with
+  // a warning, mirroring text-padding. Non-constant forms (zoom-interp /
+  // data-driven) are deferred — data-driven belongs to cluster I-F — and warn.
   const iconPadding = unwrapLiteralScalar(layout['icon-padding'])
-  if (typeof iconPadding === 'number' && Number.isFinite(iconPadding) && iconPadding !== 2) {
-    warnings.push(
-      `Symbol layer "${layer.id}" — icon-padding ${iconPadding} declared but X-GIS has no icon-side collision queue yet (Phase C.9); icons will pack at the spec-default spacing.`,
-    )
-  } else if (iconPadding !== undefined && iconPadding !== null && typeof iconPadding !== 'number') {
+  if (typeof iconPadding === 'number' && Number.isFinite(iconPadding)) {
+    if (iconPadding < 0) {
+      warnings.push(
+        `Symbol layer "${layer.id}" — icon-padding ${iconPadding} is negative; Mapbox spec requires >= 0. Clamped to 0.`,
+      )
+    }
+    const clampedIconPadding = Math.max(0, iconPadding)
+    if (clampedIconPadding !== 2) utils.push(`label-icon-padding-${clampedIconPadding}`)
+  } else if (iconPadding !== undefined && iconPadding !== null) {
     warnings.push(`Symbol layer "${layer.id}" — icon-padding non-constant form not yet supported.`)
   }
 

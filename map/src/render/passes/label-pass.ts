@@ -342,6 +342,7 @@ class LabelPass implements RenderPass {
           iconOpacity?: number
           iconColor?: [number, number, number, number]
           iconRotationAlignment?: 'map'
+          iconPadding?: number
           text?: import('@xgis/compiler').LabelDef['text']
         },
         ax: number,
@@ -418,6 +419,7 @@ class LabelPass implements RenderPass {
           tint: ic ? [ic[0], ic[1], ic[2]] : undefined,
           pairKey,
           collide: doCollide,
+          padding: def.iconPadding,
           perspScale,
         })
       }

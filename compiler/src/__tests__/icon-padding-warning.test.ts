@@ -1,16 +1,11 @@
-// Pin icon-padding warning gate (iter 518). Mapbox spec default for
-// icon-padding is 2. X-GIS has no icon-side collision queue yet
-// (Phase C.9 deferred), so the property is a no-op regardless of
-// value — but declaring NON-DEFAULT values means the author wanted
-// custom spacing that won't materialize. Warn in that case so the
-// lossy report surfaces real intent gaps; stay silent when the
-// declared value matches the spec default (otherwise OFM Bright's
-// road_oneway authoring `icon-padding: 2` would regress two layers
-// from converted → lossy on a property that's authored identically
-// to the spec default).
-//
-// Mirror of iter 494's icon-rotation-alignment viewport/auto
-// suppression pattern.
+// icon-padding warning gate. The CONSTANT form is now lowered end-to-end
+// (#777 I-D — see icon-padding-wiring.test.ts): a constant icon-padding no
+// longer warns, it lowers to label-icon-padding-N and threads to the
+// IconStage collision box. The warning gate now fires only for what stays
+// lossy: NON-CONSTANT forms (zoom-interp / data-driven — data-driven is
+// cluster I-F) and negative values (clamped to the spec min 0). The spec
+// default 2 stays silent AND emits no knob, so OFM Bright's road_oneway
+// `icon-padding: 2` remains byte-identical.
 
 import { describe, it, expect } from 'vitest'
 import { convertMapboxStyle } from '../index'
@@ -47,17 +42,22 @@ describe('icon-padding warning gate — iter 518', () => {
     expect(warnings.filter((w) => w.includes('icon-padding'))).toEqual([])
   })
 
-  it('non-default 8 → warning explaining Phase C.9 gap', () => {
+  it('non-default 8 → no warning (lowered to label-icon-padding-8, #777 I-D)', () => {
     const warnings = compile({ 'icon-padding': 8 })
-    const hits = warnings.filter((w) => w.includes('icon-padding'))
-    expect(hits.length).toBe(1)
-    expect(hits[0]).toContain('icon-padding 8')
-    expect(hits[0]).toContain('Phase C.9')
+    expect(warnings.filter((w) => w.includes('icon-padding'))).toEqual([])
   })
 
-  it('0 → warning (zero is non-default; spec-valid; author meant "no padding")', () => {
+  it('0 → no warning (spec-valid "no padding"; lowered to label-icon-padding-0)', () => {
     const warnings = compile({ 'icon-padding': 0 })
-    expect(warnings.filter((w) => w.includes('icon-padding')).length).toBe(1)
+    expect(warnings.filter((w) => w.includes('icon-padding'))).toEqual([])
+  })
+
+  it('negative → clamp-to-0 warning (Mapbox spec min 0)', () => {
+    const warnings = compile({ 'icon-padding': -3 })
+    const hits = warnings.filter((w) => w.includes('icon-padding'))
+    expect(hits.length).toBe(1)
+    expect(hits[0]).toContain('negative')
+    expect(hits[0]).toContain('Clamped to 0')
   })
 
   it('zoom-interp → non-constant warning', () => {

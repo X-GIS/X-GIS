@@ -205,9 +205,9 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   },
   {
     name: 'icon-padding',
-    status: 'unsupported',
+    status: 'supported',
     impact: 'low',
-    note: 'Per-icon collision-bbox padding. X-GIS uses a fixed 2px default per spec; per-layer override needs to thread through label-collision.',
+    note: 'Per-icon collision-bbox padding (layout, px, default 2). Constant form lowered (#777 I-D): converter emits label-icon-padding-N for non-default values only → LabelDef.iconPadding → dispatchIcon → IconStage collision box replaces the fixed 2*dpr. Non-constant (zoom-interp / data-driven) forms deferred; data-driven → cluster I-F.',
   },
   {
     name: 'icon-text-fit',

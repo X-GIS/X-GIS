@@ -639,6 +639,11 @@ export interface LabelDef {
   iconCollide?: boolean
   iconIgnorePlacement?: boolean
   iconOptional?: boolean
+  /** Mapbox `icon-padding` (layout, px) — per-icon collision-box padding.
+   *  Constant form only; absent = spec default 2, applied at the IconStage
+   *  collision box (icon-stage.ts). Non-constant forms deferred (data-driven
+   *  → cluster I-F). */
+  iconPadding?: number
   /** Unified PropertyShape bundle for the four "shape-able" paint
    *  properties (text-size, text-color, text-halo-width,
    *  text-halo-color). Populated by lower.ts alongside the legacy
