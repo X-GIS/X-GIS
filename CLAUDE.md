@@ -175,3 +175,68 @@ Before merging, run the **full gate: build + vitest + precheck + tsc** — not j
 them. In particular, `bun run build` is the typecheck authority (vitest does not typecheck),
 and watch for **TS6133 orphaned-import** errors that a plain `vite build` silently ignores.
 Merge only when the full local gate AND CI are green.
+
+## 12. Lessons Ledger — consult BEFORE acting (hard-won, session-verified)
+
+Every rule below was paid for with a real incident; the cited post under
+`site/src/content/blog/` is the full autopsy. That directory is the failure-pattern
+archive (65+ postmortems; each post's frontmatter `description` is its abstract).
+**Before debugging in an area, or before an operation matching a trigger below, grep the
+corpus first**: `grep -ril '<keyword>' site/src/content/blog/`. Having written the lesson
+down and still repeating it is a process bug — fix the process, then the code.
+
+**Shell / git mechanics**
+
+- Never pipe a hook-running or state-mutating git command into an early-exiting reader —
+  `git commit | head` SIGPIPE-kills lint-staged mid-transaction (wedged merge + orphaned
+  stash). Redirect to a file, then read the file.
+  → `2026-07-14-a-pipe-into-git-commit-is-a-kill-signal.md`
+- A pipe tail launders a failing exit code to 0 (no pipefail) and `2>/dev/null` erases the
+  one line that names the bug — never suppress stderr on a FIRST run, and sample the input
+  bytes (`head -c 300`) before asserting a schema over a file.
+  → `2026-07-14-a-failure-with-no-witnesses.md`
+- Generators may emit to STDOUT by contract (`bun scripts/emit-gap-matrix.ts >
+scripts/gap-matrix.md`) — read the script header before assuming write-in-place; exit 0
+  ≠ file written.
+- Worktrees share the repository's git state — stash, refs, hooks, config; only
+  HEAD/index/working-files are per-worktree.
+  → `2026-07-11-git-worktrees-share-more-than-you-think.md`
+- Measure LOC ceilings AFTER the prettier pre-commit hook rewrote the files:
+  `git show HEAD:<file> | wc -l`, never the pre-commit working tree.
+
+**Gates / ratchets**
+
+- LOC ceilings have TWO authorities until the #1005 migration retires runtime/:
+  `map/src/loc-ceiling-ratchet.test.ts` AND `runtime/src/engine/architecture-invariants.test.ts`
+  (god-file list, `engine-rest` CI leg). Growing a tracked file means updating BOTH.
+  → `2026-07-14-the-second-ratchet.md`
+- A spec-coverage `supported` flip is a THREE-way sync: the spec-coverage row + the
+  regenerated gap-matrix + a `RUNTIME_CAPABILITIES` row (the drift gate
+  `spec-coverage-runtime-drift.test.ts` allows <3 orphans and WILL breach).
+- Build the pre-merge checklist FROM `.github/workflows/test.yml`'s job matrix — a
+  remembered checklist can always be missing a leg CI has; the written-down one cannot.
+  → `2026-07-14-the-second-ratchet.md`
+
+**Verification**
+
+- Render-gate ladder: directional diff (DC>0, D1<D0) → threshold DC=0 → hash equality.
+  Measure the SAME-CODE noise floor before trusting any rung; a deterministic harness
+  (fixed camera, pumped convergence, software rasterizer) makes rung 3 (`md5sum`) reachable.
+  → `2026-07-14-the-strongest-render-gate-is-hash-equality.md`
+- A metric gradient whose x-axis is "the order I happened to run things" is noise until
+  the same commit is re-run. → `2026-07-14-the-map-fossilized-half-loaded.md`
+
+**Process**
+
+- Issue BODIES go stale; completion often lives in the COMMENTS — read them before
+  dispatching work from an issue (a "stub" named in #797's body had been implemented and
+  merged a day earlier; the completion note sat in its comments).
+- Plan docs drift from landed reality — before building a phase on top of a predecessor,
+  re-verify the predecessor's ACTUAL landed scope against the code, not the doc's
+  description of it.
+
+This section deliberately has NO separate index file: the posts themselves (their
+frontmatter descriptions) are the single authority, and a hand-synced index would be
+exactly the two-authorities drift §12's own second-ratchet entry warns about. Add a rule
+here only when an incident actually recurred or plausibly will; keep each to one
+actionable line plus its citation.
