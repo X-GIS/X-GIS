@@ -37,7 +37,7 @@ import { buildLineSegments } from '@xgis/data'
 import type { LineRenderer } from './line-renderer'
 import { generateWallMeshExtrudedECEF } from '../core/polygon-mesh'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
-import { xlog } from '@xgis/shared'
+import { isMobileClassViewport, xlog } from '@xgis/shared'
 import type { TileData } from '@xgis/data'
 import type { GPUTile } from './vector-tile-renderer-types'
 import type { RhiBindGroup, RhiBuffer, RhiDevice } from '@xgis/engine'
@@ -263,7 +263,7 @@ export class UploadCoordinator {
     // Per-frame SLICE-upload cap. cap=4 desktop is the empirical sweet spot
     // (z=14 Tokyo / OFM Bright): convergence bounded, per-frame stall
     // tolerable. Mobile gets 1 (matches the prior uploadBudgetFor floor).
-    const cap = typeof window !== 'undefined' && window.innerWidth <= 900 ? 1 : 4
+    const cap = typeof window !== 'undefined' && isMobileClassViewport(window.innerWidth) ? 1 : 4
     if (this._uploadsThisFrame >= cap) {
       this._heldUploads.push({ key, data, sourceLayer })
       this._heldUploadIds.add(id)

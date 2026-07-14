@@ -5,6 +5,8 @@
 // only by these functions and travel with them. Behaviour-preserving
 // structural split only; no logic or symbol renames.
 
+import { isMobileClassViewport } from '@xgis/shared'
+
 // Per-VTR GPU tile cache cap on UNIQUE tile keys. With sliced
 // sources (PMTiles N-layer) one tile = N entries × ~7 buffers.
 // Capping at 256 unique keys × 4 typical layers × 7 = ~7K live GPU
@@ -75,8 +77,9 @@ export function uploadBudgetFor(canvasW: number, canvasH: number, dpr: number = 
   if (typeof o === 'number') return o
   // Mobile classification is a perceptual concept — must use CSS
   // pixels. A DPR=3 phone's device-pixel canvas is 1290×2235, which
-  // would (incorrectly) flip the `max > 900` test to "desktop" and
-  // bump the budget from 1 to 4 uploads/frame — exactly the spike
-  // the function exists to prevent.
-  return Math.max(canvasW, canvasH) / dpr <= 900 ? 1 : MAX_UPLOADS_PER_FRAME
+  // would (incorrectly) read as "desktop" and bump the budget from 1
+  // to 4 uploads/frame — exactly the spike the function exists to
+  // prevent. `isMobileClassViewport` (the shared authority) also gates
+  // on a coarse PRIMARY pointer, so a small DESKTOP window keeps 4.
+  return isMobileClassViewport(Math.max(canvasW, canvasH) / dpr) ? 1 : MAX_UPLOADS_PER_FRAME
 }
