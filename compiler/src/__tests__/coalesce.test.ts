@@ -5,9 +5,10 @@ import { describe, it, expect } from 'vitest'
 import { evaluate } from '../eval/evaluator'
 import { Parser } from '../parser/parser'
 import { Lexer } from '../lexer/lexer'
+import { withPragma } from './_pragma'
 
 function parseExpr(src: string): unknown {
-  const tokens = new Lexer(`let __t = ${src}`).tokenize()
+  const tokens = new Lexer(withPragma(`let __t = ${src}`)).tokenize()
   const ast = new Parser(tokens).parse() as { body: Array<{ kind: string; value?: unknown }> }
   const stmt = ast.body.find((s) => s.kind === 'LetStatement') as
     { kind: string; value?: unknown } | undefined

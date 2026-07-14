@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'vitest'
 import { convertMapboxStyle, Lexer, Parser, lower, emitCommands } from '../index'
 import { evaluate } from '../eval/evaluator'
+import { withPragma } from './_pragma'
 
 describe('interpolate-exponential conversion', () => {
   it('exponential line-width emits interpolate_exp(zoom, base, …)', () => {
@@ -120,7 +121,7 @@ describe('interpolate-exponential conversion', () => {
 
 describe('interpolate-exponential lower → IR', () => {
   function lowerOnce(src: string) {
-    const tokens = new Lexer(src).tokenize()
+    const tokens = new Lexer(withPragma(src)).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
     return scene.renderNodes[0]
@@ -176,7 +177,7 @@ layer pts {
   | size-[interpolate_exp(zoom, 2.0, 0, 4, 22, 64)] opacity-[interpolate_exp(zoom, 1.8, 0, 0, 5, 1)]
 }
 `
-    const tokens = new Lexer(src).tokenize()
+    const tokens = new Lexer(withPragma(src)).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
     const cmds = emitCommands(scene)

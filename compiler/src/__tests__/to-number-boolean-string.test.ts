@@ -15,9 +15,10 @@ import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { evaluate } from '../eval/evaluator'
 import { makeEvalProps } from '../eval/reserved-keys'
+import { withPragma } from './_pragma'
 
 function evalExpr(src: string, props: Record<string, unknown> = {}): unknown {
-  const tokens = new Lexer('let __x = ' + src).tokenize()
+  const tokens = new Lexer(withPragma('let __x = ' + src)).tokenize()
   const ast = new Parser(tokens).parse()
   const stmt = ast.body[0]
   if (stmt.kind !== 'LetStatement') throw new Error('expected LetStatement')

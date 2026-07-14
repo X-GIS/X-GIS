@@ -9,6 +9,7 @@ import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
 import type { LabelDef } from '../ir/render-node'
+import { withPragma } from './_pragma'
 
 function compileLabel(utilityLine: string): LabelDef {
   const src = `
@@ -18,7 +19,7 @@ function compileLabel(utilityLine: string): LabelDef {
       | label-[.name] ${utilityLine}
     }
   `
-  const tokens = new Lexer(src).tokenize()
+  const tokens = new Lexer(withPragma(src)).tokenize()
   const program = new Parser(tokens).parse()
   const scene = lower(program)
   const node = scene.renderNodes[0]!

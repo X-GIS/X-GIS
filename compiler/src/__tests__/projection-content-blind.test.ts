@@ -11,9 +11,10 @@
 import { describe, it, expect } from 'vitest'
 import { Lexer, Parser, lower } from '../index'
 import { emitCommands } from '../ir/emit-commands'
+import { withPragma } from './_pragma'
 
 function projectionOf(source: string): string {
-  const scene = lower(new Parser(new Lexer(source).tokenize()).parse())
+  const scene = lower(new Parser(new Lexer(withPragma(source)).tokenize()).parse())
   return emitCommands(scene).shows[0]!.projection
 }
 

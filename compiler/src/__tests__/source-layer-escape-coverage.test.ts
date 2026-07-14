@@ -33,9 +33,10 @@ describe('source-layer + style.name escape', () => {
       layers: [],
     }
     const code = convertMapboxStyle(style as never)
-    // The first line is a comment carrying the name. The `*/` inside
-    // must NOT close the comment block before its intended end.
-    const firstLine = code.split('\n')[0]
+    // The name-carrying comment line (now preceded by the `xgis 1` version
+    // pragma, #1064). The `*/` inside must NOT close the comment block
+    // before its intended end.
+    const firstLine = code.split('\n').find((l) => l.startsWith('/*'))!
     expect(firstLine).toMatch(/^\/\*.*\*\/$/)
     // Validate the comment terminator is at the END only — exactly
     // one `*/` per line.

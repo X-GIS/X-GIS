@@ -14,6 +14,7 @@ import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
 import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
+import { withPragma } from './_pragma'
 
 function convert(layer: Record<string, unknown>): string {
   return convertMapboxStyle({
@@ -43,7 +44,7 @@ function lowerUtilities(utilities: string) {
       | ${utilities}
     }
   `
-  const program = new Parser(new Lexer(src).tokenize()).parse()
+  const program = new Parser(new Lexer(withPragma(src)).tokenize()).parse()
   return lower(program).renderNodes[0]!
 }
 

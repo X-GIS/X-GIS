@@ -17,10 +17,11 @@ import { exprToXgis } from './expressions'
 import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { evaluate } from '../eval/evaluator'
+import { withPragma } from '../__tests__/_pragma'
 
 /** Parse an xgis expression string and return its AST node. */
 function parseExpr(src: string): { kind: string } {
-  const tokens = new Lexer(`let __t = ${src}`).tokenize()
+  const tokens = new Lexer(withPragma(`let __t = ${src}`)).tokenize()
   const ast = new Parser(tokens).parse() as {
     body: Array<{ kind: string; value?: { kind: string } }>
   }

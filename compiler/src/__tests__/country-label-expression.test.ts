@@ -6,6 +6,7 @@ import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
 import { evaluate } from '../eval/evaluator'
+import { withPragma } from './_pragma'
 
 const COUNTRY_LABEL_SRC = `
 source x { type: pmtiles, url: "x.pmtiles" }
@@ -18,7 +19,7 @@ layer label_country_3 {
 
 describe('country label expression — diagnostic', () => {
   it('lowers without dropping the label and produces a kind:expr TextValue', () => {
-    const tokens = new Lexer(COUNTRY_LABEL_SRC).tokenize()
+    const tokens = new Lexer(withPragma(COUNTRY_LABEL_SRC)).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
     const layer = scene.renderNodes.find((l: { name?: string }) => l.name === 'label_country_3') as
@@ -33,7 +34,7 @@ describe('country label expression — diagnostic', () => {
   })
 
   it('evaluates expression for a Latin-only feature (e.g. France)', () => {
-    const tokens = new Lexer(COUNTRY_LABEL_SRC).tokenize()
+    const tokens = new Lexer(withPragma(COUNTRY_LABEL_SRC)).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
     const layer = scene.renderNodes.find(
@@ -52,7 +53,7 @@ describe('country label expression — diagnostic', () => {
   })
 
   it('evaluates expression for a feature with name:nonlatin (e.g. South Korea)', () => {
-    const tokens = new Lexer(COUNTRY_LABEL_SRC).tokenize()
+    const tokens = new Lexer(withPragma(COUNTRY_LABEL_SRC)).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
     const layer = scene.renderNodes.find(
@@ -73,7 +74,7 @@ describe('country label expression — diagnostic', () => {
   })
 
   it('evaluates expression for a feature with name only (no name_en)', () => {
-    const tokens = new Lexer(COUNTRY_LABEL_SRC).tokenize()
+    const tokens = new Lexer(withPragma(COUNTRY_LABEL_SRC)).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
     const layer = scene.renderNodes.find(

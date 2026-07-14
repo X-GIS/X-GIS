@@ -9,15 +9,16 @@ import { generateShaderVariant } from '../codegen/shader-gen'
 import { nodeToWgslString } from '../codegen/node-to-wgsl'
 import { CAT_PALETTE_SIZE } from '../codegen/categorical-encoder'
 import type * as AST from '../parser/ast'
+import { withPragma } from './_pragma'
 
 function parseExpr(source: string): AST.Expr {
-  const tokens = new Lexer(`let x = ${source}`).tokenize()
+  const tokens = new Lexer(withPragma(`let x = ${source}`)).tokenize()
   const ast = new Parser(tokens).parse()
   return (ast.body[0] as AST.LetStatement).value
 }
 
 function compileOptimized(source: string) {
-  const tokens = new Lexer(source).tokenize()
+  const tokens = new Lexer(withPragma(source)).tokenize()
   const ast = new Parser(tokens).parse()
   const scene = lower(ast)
   return optimize(scene, ast)
@@ -87,7 +88,7 @@ describe('WGSL Expression Compiler', () => {
   })
 
   it('compiles user-defined function by inlining', () => {
-    const fnTokens = new Lexer(`fn double(x: f32) -> f32 { x * 2 }`).tokenize()
+    const fnTokens = new Lexer(withPragma(`fn double(x: f32) -> f32 { x * 2 }`)).tokenize()
     const fnAst = new Parser(fnTokens).parse()
     const fnEnv = new Map([['double', fnAst.body[0] as AST.FnStatement]])
 
@@ -211,14 +212,16 @@ describe('Shader Variant Generator', () => {
 
 describe('Full Pipeline: emit with shader variants', () => {
   it('emits ShowCommand with shader variant and preserved fields', () => {
-    const tokens = new Lexer(`
+    const tokens = new Lexer(
+      withPragma(`
       source data { type: geojson, url: "x.geojson" }
       layer tracks {
         source: data
         | fill-green-500 stroke-black stroke-2 opacity-80 size-12
         | opacity-[interpolate(zoom, 8, 40, 16, 100)]
       }
-    `).tokenize()
+    `),
+    ).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
     const optimized = optimize(scene, ast)

@@ -54,6 +54,7 @@ import {
   validateLayerIdCollisions,
 } from './validate-layers'
 import { convertBackgroundLayer } from './convert-background-layer'
+import { XGIS_LANGUAGE_MAJOR } from '../language-version'
 
 /** Per-source record emitted into the optional `coverage` collector.
  *  `reasons` holds warnings pushed during that source's conversion
@@ -150,7 +151,11 @@ export function convertMapboxStyle(
     return `/* Mapbox style conversion failed: expected an object, got ${parsed === null ? 'null' : typeof parsed} */`
   }
   const style: MapboxStyle = parsed as MapboxStyle
-  const lines: string[] = []
+  // Mandatory version pragma (#1064) as the FIRST physical line: the
+  // module resolver re-parses this output (`import "style.json"`), and
+  // the parser now hard-errors on a missing pragma. Comments/blank lines
+  // may precede a pragma, but emitting it first is the unambiguous form.
+  const lines: string[] = [`xgis ${XGIS_LANGUAGE_MAJOR}`, '']
   const warnings: string[] = []
 
   if (style.name) {

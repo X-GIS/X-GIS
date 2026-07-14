@@ -4,9 +4,10 @@ import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
 import { optimize } from '../ir/optimize'
 import { emitCommands } from '../ir/emit-commands'
+import { withPragma } from './_pragma'
 
 function compileScene(source: string) {
-  const tokens = new Lexer(source).tokenize()
+  const tokens = new Lexer(withPragma(source)).tokenize()
   const ast = new Parser(tokens).parse()
   const scene = lower(ast)
   return emitCommands(optimize(scene, ast))

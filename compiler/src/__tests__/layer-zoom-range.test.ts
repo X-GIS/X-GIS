@@ -21,6 +21,7 @@ import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
 import { emitCommands } from '../ir/emit-commands'
 import { optimize } from '../ir/optimize'
+import { withPragma } from './_pragma'
 
 interface ShowLike {
   targetName: string
@@ -29,7 +30,7 @@ interface ShowLike {
 }
 
 function emit(xgis: string): ShowLike[] {
-  const tokens = new Lexer(xgis).tokenize()
+  const tokens = new Lexer(withPragma(xgis)).tokenize()
   const ast = new Parser(tokens).parse()
   const scene = lower(ast)
   const cmds = emitCommands(optimize(scene, ast))

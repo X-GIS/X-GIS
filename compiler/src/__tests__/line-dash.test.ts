@@ -4,9 +4,10 @@ import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
 import { optimize } from '../ir/optimize'
 import { emitCommands } from '../ir/emit-commands'
+import { withPragma } from './_pragma'
 
 function compile(source: string) {
-  const tokens = new Lexer(source).tokenize()
+  const tokens = new Lexer(withPragma(source)).tokenize()
   const ast = new Parser(tokens).parse()
   return lower(ast)
 }
@@ -15,7 +16,7 @@ function compile(source: string) {
 // `map.ts` uses. A bug in `optimizeNode` previously dropped every stroke
 // field other than color/width.
 function compileToCommandsOptimized(source: string) {
-  const tokens = new Lexer(source).tokenize()
+  const tokens = new Lexer(withPragma(source)).tokenize()
   const ast = new Parser(tokens).parse()
   return emitCommands(optimize(lower(ast), ast))
 }
@@ -39,7 +40,7 @@ describe('stroke-dasharray parsing', () => {
 
   it('tokenizes stroke-dasharray-20-10 into a single utility name', () => {
     const src = 'layer foo { source: s | stroke-dasharray-20-10 }'
-    const tokens = new Lexer(src).tokenize()
+    const tokens = new Lexer(withPragma(src)).tokenize()
     // Look for the dasharray sequence
     const names = tokens.map((t) => t.value).join(' ')
     expect(names).toContain('stroke - dasharray - 20 - 10')
@@ -47,16 +48,18 @@ describe('stroke-dasharray parsing', () => {
 
   it('parses stroke-dasharray-20-10 as a single utility item', () => {
     const ast = new Parser(
-      new Lexer(`
+      new Lexer(
+        withPragma(`
       source s { type: geojson url: "x.geojson" }
       layer foo {
         source: s
         | stroke-dasharray-20-10
       }
-    `).tokenize(),
+    `),
+      ).tokenize(),
     ).parse()
     const layerStmt = ast.body.find((s) => s.kind === 'LayerStatement')!
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const util = (layerStmt as any).utilities[0].items[0]
     expect(util.name).toBe('stroke-dasharray-20-10')
   })

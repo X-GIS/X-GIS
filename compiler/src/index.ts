@@ -1,5 +1,7 @@
 export * from './lexer'
 export * from './parser'
+// The language MAJOR version the parser gate + converter emitter agree on (#1064).
+export { XGIS_LANGUAGE_MAJOR } from './language-version'
 export * from './binary'
 export * from './tokens'
 export * from './ir'

@@ -14,9 +14,10 @@
 import { describe, it, expect } from 'vitest'
 import { convertMapboxStyle, Lexer, Parser, lower, emitCommands } from '../index'
 import { optimize } from '../ir/optimize'
+import { withPragma } from './_pragma'
 
 function compileOptimized(xgis: string) {
-  const ir = optimize(lower(new Parser(new Lexer(xgis).tokenize()).parse()))
+  const ir = optimize(lower(new Parser(new Lexer(withPragma(xgis)).tokenize()).parse()))
   return emitCommands(ir)
 }
 

@@ -3,9 +3,10 @@ import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
 import { emitCommands } from '../ir/emit-commands'
+import { withPragma } from './_pragma'
 
 function compile(source: string) {
-  const tokens = new Lexer(source).tokenize()
+  const tokens = new Lexer(withPragma(source)).tokenize()
   const ast = new Parser(tokens).parse()
   return lower(ast)
 }
@@ -21,7 +22,7 @@ describe('Keyframes parser', () => {
       source data { type: geojson, url: "x.geojson" }
       layer solo { source: data | fill-red-500 }
     `
-    const tokens = new Lexer(source).tokenize()
+    const tokens = new Lexer(withPragma(source)).tokenize()
     const ast = new Parser(tokens).parse()
     const kf = ast.body.find((s) => s.kind === 'KeyframesStatement')
     expect(kf).toBeDefined()
@@ -41,7 +42,7 @@ describe('Keyframes parser', () => {
       source data { type: geojson, url: "x.geojson" }
       layer solo { source: data | fill-red-500 }
     `
-    const tokens = new Lexer(source).tokenize()
+    const tokens = new Lexer(withPragma(source)).tokenize()
     const ast = new Parser(tokens).parse()
     const kf = ast.body.find((s) => s.kind === 'KeyframesStatement')
     if (kf?.kind !== 'KeyframesStatement') throw new Error('unreachable')
@@ -58,7 +59,7 @@ describe('Keyframes parser', () => {
       source data { type: geojson, url: "x.geojson" }
       layer solo { source: data | fill-red-500 }
     `
-    const tokens = new Lexer(source).tokenize()
+    const tokens = new Lexer(withPragma(source)).tokenize()
     const ast = new Parser(tokens).parse()
     const kf = ast.body.find((s) => s.kind === 'KeyframesStatement')
     if (kf?.kind !== 'KeyframesStatement') throw new Error('unreachable')

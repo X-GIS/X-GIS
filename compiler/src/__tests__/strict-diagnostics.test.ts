@@ -7,9 +7,10 @@ import { describe, it, expect } from 'vitest'
 import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
+import { withPragma } from './_pragma'
 
 function lowerSrc(src: string) {
-  const tokens = new Lexer(src).tokenize()
+  const tokens = new Lexer(withPragma(src)).tokenize()
   const ast = new Parser(tokens).parse()
   return lower(ast)
 }

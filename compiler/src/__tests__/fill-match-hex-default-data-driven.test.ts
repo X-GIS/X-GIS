@@ -17,6 +17,7 @@
 import { describe, it, expect } from 'vitest'
 import { Lexer, Parser, lower } from '../index'
 import { evaluate } from '../eval/evaluator'
+import { withPragma } from './_pragma'
 
 const src = (defaultArm: string) => `
 source countries {
@@ -35,7 +36,7 @@ layer continents {
 `
 
 function fillOf(source: string) {
-  const scene = lower(new Parser(new Lexer(source).tokenize()).parse())
+  const scene = lower(new Parser(new Lexer(withPragma(source)).tokenize()).parse())
   return scene.renderNodes[0]!.fill
 }
 

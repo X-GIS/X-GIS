@@ -6,15 +6,16 @@ import { optimize } from '../ir/optimize'
 import { classifyExpr, type FnEnv } from '../ir/classify'
 import { constFold } from '../ir/const-fold'
 import type * as AST from '../parser/ast'
+import { withPragma } from './_pragma'
 
 function parseExpr(source: string): AST.Expr {
-  const tokens = new Lexer(`let x = ${source}`).tokenize()
+  const tokens = new Lexer(withPragma(`let x = ${source}`)).tokenize()
   const ast = new Parser(tokens).parse()
   return (ast.body[0] as AST.LetStatement).value
 }
 
 function compile(source: string) {
-  const tokens = new Lexer(source).tokenize()
+  const tokens = new Lexer(withPragma(source)).tokenize()
   const ast = new Parser(tokens).parse()
   return { scene: lower(ast), ast }
 }
@@ -59,7 +60,7 @@ describe('Expression Classifier', () => {
 
   it('classifies user functions with constant args as constant', () => {
     const fnEnv: FnEnv = new Map()
-    const tokens = new Lexer(`fn double(x: f32) -> f32 { x * 2 }`).tokenize()
+    const tokens = new Lexer(withPragma(`fn double(x: f32) -> f32 { x * 2 }`)).tokenize()
     const ast = new Parser(tokens).parse()
     const fn = ast.body[0] as AST.FnStatement
     fnEnv.set('double', fn)
@@ -69,7 +70,7 @@ describe('Expression Classifier', () => {
 
   it('classifies user functions with data args as per-feature', () => {
     const fnEnv: FnEnv = new Map()
-    const tokens = new Lexer(`fn double(x: f32) -> f32 { x * 2 }`).tokenize()
+    const tokens = new Lexer(withPragma(`fn double(x: f32) -> f32 { x * 2 }`)).tokenize()
     const ast = new Parser(tokens).parse()
     fnEnv.set('double', ast.body[0] as AST.FnStatement)
 
@@ -100,7 +101,7 @@ describe('Constant Folder', () => {
 
   it('folds user-defined function with constant args', () => {
     const fnEnv: FnEnv = new Map()
-    const tokens = new Lexer(`fn double(x: f32) -> f32 { x * 2 }`).tokenize()
+    const tokens = new Lexer(withPragma(`fn double(x: f32) -> f32 { x * 2 }`)).tokenize()
     const ast = new Parser(tokens).parse()
     fnEnv.set('double', ast.body[0] as AST.FnStatement)
 
@@ -109,9 +110,11 @@ describe('Constant Folder', () => {
 
   it('folds nested user function calls', () => {
     const fnEnv: FnEnv = new Map()
-    const tokens = new Lexer(`
+    const tokens = new Lexer(
+      withPragma(`
       fn scale(x: f32, factor: f32) -> f32 { x * factor }
-    `).tokenize()
+    `),
+    ).tokenize()
     const ast = new Parser(tokens).parse()
     fnEnv.set('scale', ast.body[0] as AST.FnStatement)
 

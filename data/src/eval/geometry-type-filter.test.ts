@@ -17,7 +17,14 @@
 // into the props bag at filter-eval time.
 
 import { describe, it, expect } from 'vitest'
-import { Lexer, Parser, lower, emitCommands, convertMapboxStyle } from '@xgis/compiler'
+import {
+  Lexer,
+  Parser,
+  lower,
+  emitCommands,
+  convertMapboxStyle,
+  XGIS_LANGUAGE_MAJOR,
+} from '@xgis/compiler'
 import { evalFilterExpr } from './filter-eval'
 
 interface ShowLike {
@@ -127,7 +134,7 @@ layer point_only {
   | label-[.name]
 }
 `
-  const tokens = new Lexer(src).tokenize()
+  const tokens = new Lexer(`xgis ${XGIS_LANGUAGE_MAJOR}\n` + src).tokenize()
   const ast = new Parser(tokens).parse()
   const scene = lower(ast)
   const cmds = emitCommands(scene)

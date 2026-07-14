@@ -7,6 +7,7 @@ import { exprToXgis } from '../convert/expressions'
 import { evaluate } from '../eval/evaluator'
 import { Parser } from '../parser/parser'
 import { Lexer } from '../lexer/lexer'
+import { withPragma } from './_pragma'
 
 function convert(mapbox: unknown): { result: string | null; warnings: string[] } {
   const warnings: string[] = []
@@ -14,7 +15,7 @@ function convert(mapbox: unknown): { result: string | null; warnings: string[] }
 }
 
 function evalSrc(src: string, props: Record<string, unknown> = {}): unknown {
-  const tokens = new Lexer(`let __t = ${src}`).tokenize()
+  const tokens = new Lexer(withPragma(`let __t = ${src}`)).tokenize()
   const ast = new Parser(tokens).parse() as { body: Array<{ kind: string; value?: unknown }> }
   const stmt = ast.body.find((s) => s.kind === 'LetStatement') as { value?: unknown } | undefined
   return evaluate(stmt!.value as never, props)
