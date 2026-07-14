@@ -20,3 +20,7 @@ export * from './dev-assert'
 // Generic 4×4 matrix ops (column-major) — content-blind linear algebra relocated
 // from @xgis/engine (#781) so @xgis/geo / @xgis/map / @xgis/data share one impl.
 export * from './mat4'
+// The single "is this a phone-class viewport?" authority — one definition of
+// "mobile" shared by @xgis/map (GPU-upload budget + per-frame cap) and
+// @xgis/data (MVT worker-fleet ceiling), so width-only heuristics can't diverge.
+export * from './viewport-class'

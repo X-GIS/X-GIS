@@ -6,6 +6,7 @@
 // `sourceLayer`-filtered render passes.
 
 import type { RingPolygon } from '@xgis/compiler'
+import { isMobileClassViewport } from '@xgis/shared'
 import MvtWorker from './mvt-worker.ts?worker'
 
 /** One per-MVT-layer slice in the worker response. Mirrors
@@ -139,10 +140,7 @@ export class MvtWorkerPool {
     // hardwareConcurrency-driven 2-6 range. Re-checked at
     // construction time so the cap works in both real mobile
     // browsers and Playwright mobile-emulation viewports.
-    const isMobile =
-      typeof window !== 'undefined' &&
-      (window.innerWidth || 0) > 0 &&
-      (window.innerWidth || 0) <= 900
+    const isMobile = typeof window !== 'undefined' && isMobileClassViewport(window.innerWidth || 0)
     const ceiling = isMobile ? 2 : 6
     this.size = Math.max(2, Math.min(ceiling, hc - 1))
   }
