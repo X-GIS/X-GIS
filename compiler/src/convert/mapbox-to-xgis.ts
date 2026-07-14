@@ -118,6 +118,18 @@ export interface ConvertMapboxStyleOptions extends ConvertSourceOptions {
    *  at lower.ts → visible regression. Diagnostic / measurement use
    *  only until VTR compute lands. */
   bypassExpandColorMatch?: boolean
+  /** #1112 — out-collector for the style's top-level host-integration URLs
+   *  the emitted DSL deliberately drops (currently `sprite`). The DSL carries
+   *  no top-level `sprite`/`glyphs` directive because those are host concerns:
+   *  a host importing a style OBJECT reads them off the raw JSON and calls
+   *  `setSpriteUrl`. But the live one-line `import "url"` path fetches the raw
+   *  JSON INSIDE the compiler (module resolver → this function), so the host
+   *  never sees `style.sprite` — without this channel the runtime cannot wire
+   *  the sprite atlas and EVERY icon-image layer (POI, shields, road_oneway
+   *  arrows) renders nothing. First non-empty write wins (the primary imported
+   *  style). Mirrors the `inlineGeoJSON` collector; omit for the string-only
+   *  contract. */
+  topLevel?: { sprite?: string }
 }
 
 /** Convert a Mapbox Style JSON (already parsed or raw string) into
@@ -151,6 +163,18 @@ export function convertMapboxStyle(
     return `/* Mapbox style conversion failed: expected an object, got ${parsed === null ? 'null' : typeof parsed} */`
   }
   const style: MapboxStyle = parsed as MapboxStyle
+  // #1112 — surface the top-level `sprite` URL the DSL drops (see the block
+  // below + ConvertMapboxStyleOptions.topLevel). The `import "url"` live path
+  // consumes the raw style JSON inside the resolver, so this collector is the
+  // only way the runtime learns the sprite atlas URL. First write wins.
+  if (
+    options?.topLevel &&
+    options.topLevel.sprite === undefined &&
+    typeof style.sprite === 'string' &&
+    style.sprite.length > 0
+  ) {
+    options.topLevel.sprite = style.sprite
+  }
   // Mandatory version pragma (#1064) as the FIRST physical line: the
   // module resolver re-parses this output (`import "style.json"`), and
   // the parser now hard-errors on a missing pragma. Comments/blank lines

@@ -2355,8 +2355,26 @@ export class XGISMap {
     // this, inline data was silently dropped — host had to know to
     // call setSourceData() manually.
     const inlineGeoJSON = new Map<string, unknown>()
+    // #1112 — out-collector for an imported Mapbox style's top-level `sprite`
+    // URL. On the live one-line `import "url"` path the raw style JSON is
+    // fetched INSIDE resolveImportsAsync (below) and consumed by the converter,
+    // so the host never sees `style.sprite` to call setSpriteUrl itself. The
+    // converter drops it from the DSL; without this the lazy IconStage never
+    // builds (label-pass gate `spriteUrl !== null`) and every icon-image layer
+    // (road_oneway arrows, POI, shields) renders nothing.
+    const importedTopLevel: { sprite?: string } = {}
     if (ast.body.some((s) => s.kind === 'ImportStatement')) {
-      ast = await resolveImportsAsync(ast, absBase, resolver, { inlineGeoJSON })
+      ast = await resolveImportsAsync(ast, absBase, resolver, {
+        inlineGeoJSON,
+        topLevel: importedTopLevel,
+      })
+    }
+    // Wire the imported sprite atlas. An explicit constructor `spriteUrl` /
+    // `setSpriteUrl(...)` already won (host-object import path), so only fill
+    // the still-null slot — the runtime-internal import must not clobber a
+    // host-chosen atlas.
+    if (importedTopLevel.sprite !== undefined && this.spriteUrl === null) {
+      this.spriteUrl = importedTopLevel.sprite
     }
 
     // Use IR pipeline for new syntax, fallback to legacy interpreter
@@ -2825,9 +2843,7 @@ export class XGISMap {
     }
     if (variants.length > 0) {
       try {
-        await this.renderer.prewarmShaderVariantsAsync(
-          variants,
-        )
+        await this.renderer.prewarmShaderVariantsAsync(variants)
       } catch (e) {
         xlog.warn(
           '[X-GIS] shader prewarm failed (falling back to lazy compile on first draw):',

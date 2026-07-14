@@ -97,7 +97,13 @@ const CEILINGS: Record<string, number> = {
   // the `_paletteHandles` / `renderTargets` owner fields). Lower as #991 shrinks map.ts.
   // 4236→4216 (cast audit): the heatmap show build extracted to heatmap-show.ts;
   // the rebuild loop keeps only the loop-top routing + one call.
-  'map/src/map.ts': 4216,
+  // 4216→4232 (#1112): the live one-line `import "url"` path drops the imported
+  // style's top-level `sprite` URL — the raw JSON is fetched INSIDE
+  // resolveImportsAsync so the host never sees it to call setSpriteUrl. +16 =
+  // the `importedTopLevel` collector + its pass-through into the resolve call +
+  // the guarded `this.spriteUrl` wire, all at the existing import-resolution
+  // site (composition-root; nothing extract-worthy, §2). Lower as #991 shrinks map.ts.
+  'map/src/map.ts': 4232,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
