@@ -1257,6 +1257,23 @@ export function convertTextLayoutProperties(
   if (keepUpright === false) utils.push('label-keep-upright-false')
   else if (keepUpright === true) utils.push('label-keep-upright-true')
 
+  // icon-keep-upright (#777 I-B) — the icon twin of text-keep-upright. Mapbox
+  // default is `true` (flip a line-placed icon so it faces up when the segment
+  // tangent points down), but X-GIS activates the runtime fold ONLY on an
+  // EXPLICITLY authored value: an absent property emits no knob and keeps
+  // today's always-follow-tangent render byte-identical (the icon-allow-overlap
+  // absent-default convention; flipping the absent-default needs its own §5
+  // sweep). Constant form only — non-constant (zoom-interp / data-driven) warns
+  // and skips, mirroring the icon-padding precedent.
+  const iconKeepUpright = unwrapLiteralScalar(layout['icon-keep-upright'])
+  if (iconKeepUpright === true) utils.push('label-icon-keep-upright')
+  else if (iconKeepUpright === false) utils.push('label-icon-keep-upright-false')
+  else if (iconKeepUpright !== undefined && iconKeepUpright !== null) {
+    warnings.push(
+      `Symbol layer "${layer.id}" — icon-keep-upright non-constant form not yet supported.`,
+    )
+  }
+
   // text-max-angle — max angle (degrees) between adjacent glyphs on a
   // line-placed label (Mapbox default 45). Emit only when authored: an
   // absent value leaves LabelDef.maxAngle undefined so the runtime

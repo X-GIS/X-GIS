@@ -155,6 +155,9 @@ export function lowerLabelProps(
   let labelIconOptional: boolean | undefined
   /** Mapbox `icon-padding` (px) — per-icon collision-box padding (const only). */
   let labelIconPadding: number | undefined
+  /** Mapbox `icon-keep-upright` (#777 I-B) — flip a line-placed icon into the
+   *  upright half-plane. Explicit-authoring only; undefined = today's default. */
+  let labelIconKeepUpright: boolean | undefined
 
   for (const line of expandedUtilities) {
     for (const item of line.items) {
@@ -429,6 +432,14 @@ export function lowerLabelProps(
       }
       if (name === 'label-icon-optional') {
         labelIconOptional = true
+        continue
+      }
+      if (name === 'label-icon-keep-upright') {
+        labelIconKeepUpright = true
+        continue
+      }
+      if (name === 'label-icon-keep-upright-false') {
+        labelIconKeepUpright = false
         continue
       }
       // Mapbox `symbol-placement: line | line-center` — labels follow
@@ -832,6 +843,7 @@ export function lowerLabelProps(
     labelIconIgnorePlacement,
     labelIconOptional,
     labelIconPadding,
+    labelIconKeepUpright,
     labelIconSizeZoomStops: labelIconSizeZoomStops.length > 0 ? labelIconSizeZoomStops : undefined,
     labelIconSizeZoomStopsBase,
     labelOpacityZoomStops: labelOpacityZoomStops.length > 0 ? labelOpacityZoomStops : undefined,
@@ -921,6 +933,7 @@ function foldLabelKnobs(
     labelIconIgnorePlacement?: boolean
     labelIconOptional?: boolean
     labelIconPadding?: number
+    labelIconKeepUpright?: boolean
     // iter 113 — opacity PropertyShape inputs (zoom-interp + expr).
     labelOpacityZoomStops?: ZoomStop<number>[]
     labelOpacityZoomStopsBase?: number
@@ -1038,6 +1051,9 @@ function foldLabelKnobs(
       : {}),
     ...(knobs.labelIconOptional !== undefined ? { iconOptional: knobs.labelIconOptional } : {}),
     ...(knobs.labelIconPadding !== undefined ? { iconPadding: knobs.labelIconPadding } : {}),
+    ...(knobs.labelIconKeepUpright !== undefined
+      ? { iconKeepUpright: knobs.labelIconKeepUpright }
+      : {}),
   }
   // Plan Label L3: build the unified shapes bundle from the knob inputs
   // + the merged label's static fallbacks.

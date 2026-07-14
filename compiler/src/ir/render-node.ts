@@ -644,6 +644,16 @@ export interface LabelDef {
    *  collision box (icon-stage.ts). Non-constant forms deferred (data-driven
    *  → cluster I-F). */
   iconPadding?: number
+  /** Mapbox `icon-keep-upright` (layout, boolean; #777 I-B) — flip a line-placed
+   *  icon into the upright half-plane when the segment tangent points down, the
+   *  icon twin of `keepUpright` (text). Consumed in label-pass dispatchIcon's
+   *  rotation fold under symbol-placement=line + icon-rotation-alignment=map
+   *  (resolveIconRotateRad). CONTRACT: activated ONLY on an explicitly authored
+   *  value — `true` folds, `false` opts out. ABSENT (undefined) keeps today's
+   *  always-follow-tangent render byte-identical; the spec default `true` is NOT
+   *  applied on absence (the icon-allow-overlap absent-default convention).
+   *  Constant form only. */
+  iconKeepUpright?: boolean
   /** Unified PropertyShape bundle for the four "shape-able" paint
    *  properties (text-size, text-color, text-halo-width,
    *  text-halo-color). Populated by lower.ts alongside the legacy

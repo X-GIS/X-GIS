@@ -223,9 +223,9 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   },
   {
     name: 'icon-keep-upright',
-    status: 'unsupported',
+    status: 'supported',
     impact: 'low',
-    note: 'Flip line-placed icons so they always face up. Currently icons follow the symbol-placement=line tangent without flipping.',
+    note: "Flip line-placed icons so they face up (icon twin of text-keep-upright). Constant form lowered (#777 I-B): converter emits label-icon-keep-upright / label-icon-keep-upright-false → LabelDef.iconKeepUpright → label-pass dispatchIcon folds a downward segment tangent into the upright half-plane (resolveIconRotateRad) under symbol-placement=line + icon-rotation-alignment=map. DEFAULT: Mapbox's spec default is `true`, but X-GIS activates the fold ONLY on an EXPLICITLY authored value — an ABSENT property keeps today's always-follow-tangent render byte-identical (icon-allow-overlap absent-default precedent); flipping the absent-default requires its own §5 before/after sweep. Non-constant (zoom-interp / data-driven) forms warn and skip.",
   },
   {
     name: 'icon-pitch-alignment',
