@@ -60,6 +60,7 @@ import {
   indexOfHandler,
   numberFormatHandler,
   rgbHandler,
+  hslHandler,
 } from './expr-string'
 
 // `match` / `interpolate` already live in their own modules with a
@@ -156,6 +157,8 @@ export const EXPR_HANDLERS: Map<string, ExprHandler> = new Map([
   ['number-format', numberFormatHandler],
   ['rgb', rgbHandler],
   ['rgba', rgbHandler],
+  ['hsl', hslHandler],
+  ['hsla', hslHandler],
   // zero-arg feature accessors
   ['zoom', zoomHandler],
   ['pitch', pitchHandler],

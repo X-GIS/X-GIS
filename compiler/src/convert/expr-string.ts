@@ -8,6 +8,7 @@
 
 import { parenthesizeTernary } from './utils'
 import { substituteVars } from './expressions-helpers'
+import { resolveColor } from '../tokens/colors'
 import type { ExprHandler } from './expr-handler-types'
 
 export const literalHandler: ExprHandler = (v, warnings, recurse) => {
@@ -438,7 +439,7 @@ export const numberFormatHandler: ExprHandler = (v, warnings, recurse) => {
   return `number_format(${input}, ${minFrac}, ${maxFrac}, ${locale}, ${currency})`
 }
 
-export const rgbHandler: ExprHandler = (v, warnings, _recurse, _recurseFilter, op) => {
+export const rgbHandler: ExprHandler = (v, warnings, recurse, _recurseFilter, op) => {
   // Mapbox `["rgb", r, g, b]` / `["rgba", r, g, b, a]` — channel
   // expressions. When all channels are constant numbers we can
   // hex-encode at convert time; otherwise leave as a function
@@ -477,8 +478,49 @@ export const rgbHandler: ExprHandler = (v, warnings, _recurse, _recurseFilter, o
       ? `#${hex(r)}${hex(g)}${hex(b)}`
       : `#${hex(r)}${hex(g)}${hex(b)}${hex(Math.round(a * 255))}`
   }
-  warnings.push(
-    `["${op}"] with non-constant channels not converted: ${JSON.stringify(v).slice(0, 80)}`,
-  )
-  return null
+  // Non-constant (per-feature) channels — emit a runtime colour-
+  // constructor call instead of dropping. The evaluator's rgb/rgba
+  // builtin (eval/evaluator-helpers.ts callBuiltin) evaluates the
+  // channels per feature and returns a hex string, so a data-driven
+  // `["rgb", ["get","r"], …]` renders per feature. Channels recurse
+  // through the same exprToXgis dispatch (get / arithmetic / case / …).
+  const parts = ch.map((c) => recurse(c, warnings))
+  if (parts.some((p) => p === null)) return null
+  return `${op}(${parts.join(', ')})`
+}
+
+export const hslHandler: ExprHandler = (v, warnings, recurse, _recurseFilter, op) => {
+  // Mapbox `["hsl", h, s, l]` / `["hsla", h, s, l, a]` — colour-
+  // constructor channel expressions (twin of rgbHandler). Constant
+  // channels hex-encode at convert time via the CSS colour parser;
+  // non-constant (per-feature) channels emit a runtime hsl()/hsla()
+  // call the evaluator's hsl/hsla builtin resolves per feature. h is
+  // degrees, s / l carry the implicit % unit (0-100), a is 0-1.
+  // Per-channel v8 `["literal", N]` unwrap mirrors rgbHandler.
+  const ch = v.slice(1).map((c) => {
+    while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
+    return c
+  })
+  const requiredCh = op === 'hsl' ? 3 : 4
+  if (ch.length !== requiredCh) {
+    warnings.push(
+      `["${op}"] expected ${requiredCh} channels, got ${ch.length}: ${JSON.stringify(v).slice(0, 80)}`,
+    )
+    return null
+  }
+  const allNumeric = ch.every((c) => typeof c === 'number' && Number.isFinite(c))
+  if (allNumeric) {
+    const [h, s, l, a] = ch as number[]
+    const hex = resolveColor(
+      op === 'hsl' ? `hsl(${h}, ${s}%, ${l}%)` : `hsla(${h}, ${s}%, ${l}%, ${a})`,
+    )
+    if (hex) return hex
+    warnings.push(
+      `["${op}"] channels did not resolve to a colour: ${JSON.stringify(v).slice(0, 80)}`,
+    )
+    return null
+  }
+  const parts = ch.map((c) => recurse(c, warnings))
+  if (parts.some((p) => p === null)) return null
+  return `${op}(${parts.join(', ')})`
 }

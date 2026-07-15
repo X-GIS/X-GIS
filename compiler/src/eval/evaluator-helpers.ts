@@ -4,7 +4,14 @@
 // inputs. callBuiltin dispatches built-in functions on already-
 // evaluated argument arrays; toNumber/toBool are leaf coercions.
 
-import { parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab } from '../tokens/colors'
+import {
+  parseSrgbHex,
+  srgbToLab,
+  labToHex,
+  labToLch,
+  lchToLab,
+  resolveColor,
+} from '../tokens/colors'
 import { evalWithin } from './within'
 import { evalDistance } from './distance'
 import { collatorCompare, resolvedLocale } from './collator'
@@ -22,9 +29,11 @@ import { inlineImageMarker } from './inline-image-marker'
  * adding its name here (or vice-versa) fails that test.
  *
  * Names handled OUTSIDE `callBuiltin` — the `get` / `properties` / `match`
- * evaluator special forms, the `rgb` / `categorical` / … colour+codegen
+ * evaluator special forms, the `categorical` / `gradient` GPU-codegen
  * forms — are deliberately NOT in this set; the validator tracks those in
- * its own `NON_BUILTIN_CALLEES` list.
+ * its own `NON_BUILTIN_CALLEES` list. (The `rgb` / `rgba` / `hsl` / `hsla`
+ * colour constructors ARE builtins here — the per-feature-CPU path a
+ * data-driven `["rgb", ["get","r"], …]` classifies to.)
  */
 export const BUILTIN_FN_NAMES: ReadonlySet<string> = new Set([
   'clamp',
@@ -85,6 +94,10 @@ export const BUILTIN_FN_NAMES: ReadonlySet<string> = new Set([
   'distance',
   'collator_cmp',
   'resolved_locale',
+  'rgb',
+  'rgba',
+  'hsl',
+  'hsla',
 ])
 
 export function callBuiltin(name: string, args: unknown[]): unknown {
@@ -574,6 +587,38 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
         if (typeof a === 'string' && HEX_RE.test(a)) return a
       }
       return null
+    }
+    case 'rgb':
+    case 'rgba': {
+      // Mapbox `["rgb", r, g, b]` / `["rgba", r, g, b, a]` with
+      // per-feature (non-constant) channels. The converter hex-encodes
+      // the all-constant form at compile time (convert/expr-string.ts
+      // rgbHandler); this CPU builtin is the per-feature path
+      // classifyExpr routes a data-driven colour constructor to. r/g/b
+      // are 0-255, a is 0-1. The encoding byte-matches the converter's
+      // constant path so the two never disagree for equal channels.
+      const cl = (n: unknown) => Math.max(0, Math.min(255, Math.round(toNumber(n))))
+      const hx = (n: unknown) => cl(n).toString(16).padStart(2, '0')
+      const base = `#${hx(args[0])}${hx(args[1])}${hx(args[2])}`
+      if (name === 'rgb') return base
+      const alpha = Math.max(0, Math.min(255, Math.round(toNumber(args[3]) * 255)))
+      return `${base}${alpha.toString(16).padStart(2, '0')}`
+    }
+    case 'hsl':
+    case 'hsla': {
+      // Mapbox `["hsl", h, s, l]` / `["hsla", h, s, l, a]` with
+      // per-feature channels. h in degrees, s/l as 0-100 (percent),
+      // a as 0-1. Route through the CSS colour parser (resolveColor) so
+      // the HSL→hex math stays in one authority (tokens/colors.ts) — the
+      // same path the converter's constant hsl form takes.
+      const h = toNumber(args[0])
+      const s = toNumber(args[1])
+      const l = toNumber(args[2])
+      const css =
+        name === 'hsl'
+          ? `hsl(${h}, ${s}%, ${l}%)`
+          : `hsla(${h}, ${s}%, ${l}%, ${toNumber(args[3])})`
+      return resolveColor(css)
     }
     case 'within': {
       // Mapbox `["within", polygon]` — true when the feature geometry is
