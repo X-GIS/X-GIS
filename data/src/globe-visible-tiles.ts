@@ -138,10 +138,28 @@ export function globeVisibleTiles(
       if (la < latMin) latMin = la
       if (la > latMax) latMax = la
     }
-    // Need ≥1 hit AND a non-limb-straddling box; otherwise fall
-    // through to the legacy descent rather than emit nothing / half
-    // the world (a corner ray grazing the limb can blow the span).
-    if (hits > 0 && lonMax - lonMin <= 170 && latMax - latMin <= 170) {
+    // Require the FULL viewport to sample the sphere (every probe hit)
+    // AND a non-limb-straddling box; otherwise fall through to the
+    // legacy descent. The bbox-of-hits approach is only valid when the
+    // globe disc covers the whole viewport (deep zoom-in, the regime
+    // this branch was built for) — there all 9 probes hit and the box
+    // is the true on-screen footprint. When the globe is a SMALL DISC
+    // (low camera zoom, e.g. globe z≈2-4, where maxZ = currentZ =
+    // floor(zoom) makes `zoom > maxZ` fire spuriously), the corner/edge
+    // probes miss the disc and only the ~centre probes hit — all at the
+    // sub-camera longitude. The box then COLLAPSES to a point and the
+    // `≤170` span guard passes even though the real visible region is
+    // the whole front hemisphere. Emitting a single ±1-padded tile
+    // column from that collapsed box drops everything else, and across
+    // the antimeridian the wrap-around half (x≈0) is non-contiguous in
+    // x-space so a contiguous [x0..x1] can never include it → the
+    // "half the globe blank at #2.70/…/179.66" repro. The descent works
+    // in continuous sphere space and wraps the dateline by construction,
+    // so it is the correct selector whenever the disc is smaller than
+    // the viewport. (A grazing-limb high-pitch view is still caught by
+    // the span guard; a deep-zoom view exactly on the antimeridian has
+    // all 9 hits but span→360 so it too routes to the descent.)
+    if (hits === probes.length && lonMax - lonMin <= 170 && latMax - latMin <= 170) {
       const tileN = (1 << maxZ) | 0
       const lonToX = (lo: number): number =>
         Math.min(tileN - 1, Math.max(0, Math.floor(((lo + 180) / 360) * tileN)))
