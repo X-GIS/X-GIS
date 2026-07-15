@@ -18,7 +18,7 @@ describe('type-coercion partial-drop warnings', () => {
           source: 's',
           paint: {
             // ["image", …] is unsupported, falls back to 50.
-            'fill-extrusion-height': ['to-number', ['image', 'h'], 50],
+            'fill-extrusion-height': ['to-number', ['feature-state', 'hover'], 50],
           },
         },
       ],

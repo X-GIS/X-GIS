@@ -1811,12 +1811,18 @@ class LabelPass implements RenderPass {
         // absent from the set and still seed obstacles.
         const activeTextPairKeys = iStage ? stage.getActiveTextPairKeys() : new Set<string>()
         const iconObstacles = iStage ? iStage.computeObstacles(activeTextPairKeys) : []
+        // #777 I-G — give TextStage the read-only sprite atlas so inline-image
+        // markers in label text reserve the sprite advance during shaping.
+        stage.setSpriteMetadata(iStage ? iStage.host : null)
         stage.prepare(iconObstacles, limbInsetPx)
         if (iStage) iStage.setDroppedPairKeys(stage.getDroppedPairKeys())
         // #777 I-A — hand the paired text bboxes (laid out by stage.prepare just
         // now) to IconStage so its prepare() can stretch icon-text-fit quads.
         // Mirrors the droppedPairKeys handoff; order matters (text before icon).
         if (iStage) iStage.setPairFitBoxes(stage.getPairFitBoxes())
+        // #777 I-G — hand the inline-image quads TextStage just placed to
+        // IconStage so its prepare() draws them via the existing icon path.
+        if (iStage) iStage.setInlineImagePlacements(stage.getInlineImagePlacements())
         iStage?.prepare()
       }
       perfMarkEnd('encoder.stage-prepare')

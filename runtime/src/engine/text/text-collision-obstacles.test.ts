@@ -133,6 +133,7 @@ describe('greedyPlaceBboxes — icon obstacles (#609 icon↔text cross-collision
 const SPRITE = { width: 20, height: 20, pixelRatio: 1 }
 function makeIconStub(): IconStage {
   const stage = Object.create(IconStage.prototype) as IconStage
+    ;(stage as unknown as { inlineImages: unknown[] }).inlineImages = [] // #777 I-G — prepare() reads it (ctor bypassed by the Object.create stub)
   ;(stage as unknown as { pending: unknown[] }).pending = []
   ;(stage as unknown as { dpr: number }).dpr = 1
   ;(stage as unknown as { host: unknown }).host = {

@@ -119,7 +119,13 @@ const CEILINGS: Record<string, number> = {
   // stash sites) + the `getPairFitBoxes` getter, so IconStage can fit a shield quad
   // to its paired text. +34, all read-only (no text-layout change); a minimal
   // cross-subsystem hook — the ONLY Phase-I cluster that touches text-stage (§2).
-  'map/src/text/text-stage.ts': 1975,
+  // 1975→2066 (#777 I-G): inline images in label text — addLabel/addCurvedLineLabel
+  // carve the PUA marker out of the resolved text (parseInlineImages), the point loop
+  // resolves sprites + widens totalAdvance + branches the pen fill to the image-aware
+  // helper (both in text-stage-helpers.ts, where the arithmetic lives + is unit-tested),
+  // and the survivor loop emits placements for IconStage. +91; image-bearing labels
+  // bypass the layout cache; the plain-label path is byte-identical (§2).
+  'map/src/text/text-stage.ts': 2066,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -143,7 +149,10 @@ const CEILINGS: Record<string, number> = {
   // iconTextFitPadding, the addIcon call gains the `fit` opt, and the
   // setPairFitBoxes handoff mirrors the existing setDroppedPairKeys line. +12,
   // all at existing call sites; nothing extract-worthy (§2).
-  'map/src/render/passes/label-pass.ts': 1863,
+  // 1863→1869 (#777 I-G): the setSpriteMetadata injection before stage.prepare +
+  // the setInlineImagePlacements handoff after it — both mirror the adjacent
+  // setPairFitBoxes line. +6 at the existing stage-prepare site; nothing else (§2).
+  'map/src/render/passes/label-pass.ts': 1869,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —

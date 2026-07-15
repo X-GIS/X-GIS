@@ -27,7 +27,8 @@ describe('unsupported op warnings — specific not generic', () => {
     ['distance-from-center', [], 'Distance-from-center accessor'],
     // `pitch` was here — now SUPPORTED (lowers to a bare `pitch`
     // identifier, mirror of `zoom`); see expressions-pitch.test.ts.
-    ['image', ['icon'], 'Image accessor'],
+    // `image` was here — now SUPPORTED (#777 I-G: inline format images
+    // lower to a text-run image segment); see format-image tests.
     // `is-supported-script` was here — now SUPPORTED (lowers to the
     // constant `true` identifier, matching X-GIS' all-Unicode-
     // renderable capability); see is-supported-script.test.ts.

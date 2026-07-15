@@ -90,6 +90,20 @@ interface PendingIcon {
   fit?: { mode: 'width' | 'height' | 'both'; pad: [number, number, number, number] }
 }
 
+/** #777 I-G — one inline label image to draw this frame. TextStage computed
+ *  the absolute top-left `(x, y)` (physical px) from the shaped glyph run;
+ *  IconStage resolves the sprite by `name` and draws it at natural CSS size
+ *  (`sizeScale = dpr`) via the existing icon quad path. `wPx/hPx` are the
+ *  intended draw size (informational — the renderer recomputes from the
+ *  sprite + sizeScale, which equals wPx/hPx for the same sprite + dpr). */
+export interface InlineImageDraw {
+  name: string
+  x: number
+  y: number
+  wPx: number
+  hPx: number
+}
+
 export class IconStage {
   readonly host: SpriteMetadataSource
   readonly gpu: IconAtlasGpu
@@ -266,6 +280,16 @@ export class IconStage {
     this.pairFitBox = boxes
   }
 
+  /** #777 I-G — inline images (Mapbox `["image",…]` in label text) that
+   *  TextStage placed this frame, absolute physical px. Set by the map every
+   *  frame after TextStage.prepare and BEFORE IconStage.prepare (mirror of
+   *  setPairFitBoxes). prepare() draws each via the existing icon quad path
+   *  and clears the list, so a stale placement can never redraw. */
+  private inlineImages: readonly InlineImageDraw[] = []
+  setInlineImagePlacements(images: readonly InlineImageDraw[]): void {
+    this.inlineImages = images
+  }
+
   /** Resolve sprite metadata for every pending icon and build the
    *  vertex buffer. Silently drops icons whose sprite isn't in the
    *  atlas (typo or atlas still loading); the user sees nothing
@@ -273,7 +297,10 @@ export class IconStage {
    *  render(). */
   prepare(): void {
     if (this._iconDump) this._iconDump = []
-    if (this.pending.length === 0) {
+    // #777 I-G — inline label images draw even when NO icon-image was
+    // dispatched (a label that is only text + an inline sprite), so the
+    // fast-out must consider them too.
+    if (this.pending.length === 0 && this.inlineImages.length === 0) {
       this.renderer.setDraws([])
       return
     }
@@ -392,8 +419,33 @@ export class IconStage {
         })
       }
     }
+    // #777 I-G — inline label images. TextStage already positioned each quad
+    // (absolute top-left, physical px), so no collision / anchor math here:
+    // resolve the sprite from the SAME atlas the icons use and draw it at
+    // natural CSS size (sizeScale = dpr ⟹ drawW = design px / pixelRatio ·
+    // dpr = the advance TextStage reserved). anchor:'top-left' lands the quad
+    // corner exactly at (x, y). A sprite missing here (present when TextStage
+    // shaped, evicted since) is skipped — the text already drew.
+    for (const im of this.inlineImages) {
+      const sprite = this.host.get(im.name)
+      if (!sprite) {
+        if (atlasLoaded) this.missingIconNames.add(im.name)
+        continue
+      }
+      if (atlasLoaded) this.dispatchedIconNames.add(im.name)
+      draws.push({
+        anchorX: im.x,
+        anchorY: im.y,
+        sprite,
+        sizeScale: this.dpr,
+        rotateRad: 0,
+        anchor: 'top-left',
+        opacity: 1,
+      })
+    }
     this.renderer.setDraws(draws)
     this.pending = []
+    this.inlineImages = []
   }
 
   /** Encode draw commands. No-op when nothing was prepared or the
@@ -477,6 +529,7 @@ export class IconStage {
    *  a skipped frame replays the previous prepare's icons. */
   reset(): void {
     this.pending = []
+    this.inlineImages = []
   }
 
   /** True once the sprite atlas fetch has reached a TERMINAL state (loaded or

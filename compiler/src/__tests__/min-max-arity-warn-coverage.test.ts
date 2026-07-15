@@ -26,7 +26,7 @@ describe('min/max arity + partial-drop warnings', () => {
           type: 'circle',
           source: 's',
           // ["image", …] is unsupported, drops; min still emits with one arg.
-          paint: { 'circle-radius': ['min', 5, ['image', 'icon']] },
+          paint: { 'circle-radius': ['min', 5, ['feature-state', 'hover']] },
         },
       ],
     }

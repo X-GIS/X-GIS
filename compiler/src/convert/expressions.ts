@@ -104,8 +104,11 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       // this fallback table.
       'feature-state':
         'Feature-state accessor — map.setFeatureState() / hover-state is not yet implemented; values resolve to null.',
-      image:
-        'Image accessor in a text/format context — inline images in `["format", …, ["image", …]]` spans are deferred (the format span keeps this partial-drop path). An icon-image `["image", …]` value IS resolved now (the converter strips the wrapper before lowering; #777 I2) and never reaches this table.',
+      // `image` is now SUPPORTED in BOTH contexts — the icon-image PROPERTY
+      // strips the `["image", …]` wrapper (unwrapImageExpr, #777 I2) and a
+      // TEXT/format inline image lowers to the `image(name)` builtin
+      // (imageHandler, #777 I-G) → an inline sprite quad on the baseline.
+      // Neither reaches this fallback table.
       // `within` is now SUPPORTED (Point/MultiPoint vs Polygon/MultiPolygon
       // on GeoJSON sources) — handled by withinHandler in the expr-lookup
       // cluster, so it never reaches this fallback table. (LineString /

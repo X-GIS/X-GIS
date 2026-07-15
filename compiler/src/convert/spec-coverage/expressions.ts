@@ -155,15 +155,15 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
     name: 'format',
     status: 'partial',
     impact: 'low',
-    note: 'Span texts concatenated via xgis concat(); per-span opts (font-scale / text-color / text-font / vertical-align) dropped — X-GIS labels render with one style per layer. Iter 25 added per-section partial-drop semantics: when one section fails to convert (e.g. uses an unsupported accessor), surviving sections still concat — only ALL-sections-fail returns null. Pre-fix any single failure bailed the whole format expression and dropped the label silently.',
+    note: 'Span texts concatenated via xgis concat(); per-span TYPOGRAPHY opts (font-scale / text-color / text-font / vertical-align) dropped — X-GIS labels render with one style per layer. Per-section partial-drop semantics: when one section fails to convert (e.g. uses an unsupported accessor), surviving sections still concat — only ALL-sections-fail returns null. An `["image", …]` section IS carried now (#777 I-G): it lowers to the `image(name)` builtin → an inline sprite quad on the text baseline (imageHandler + evaluator; see the `image` row). Still partial only for the typography opts.',
     source: 'expressions.ts:208',
   },
   {
     name: 'image',
-    status: 'partial',
-    impact: 'high',
-    note: 'Resolved in the icon-image property context (#777 I2): the converter strips the `["image", …]` wrapper (recursively, incl. nested inside the coalesce/match arms of a data-driven icon-image) and lowers the inner sprite-name expression — constant `["image","airport"]` → LabelDef.iconImage "airport"; data-driven `["image", ["get","maki"]]` / `["coalesce", ["image", …], …]` → per-feature LabelDef.iconImageExpr → IconStage.addIcon. Text-inline images inside `["format", …, ["image", …]]` spans stay deferred — the format span keeps its partial-drop warning (inline-icon-in-text needs the label span machinery; #777 I2 follow-up).',
-    source: 'layers-helpers.ts unwrapImageExpr + layer-converters/symbol.ts',
+    status: 'supported',
+    note: 'Resolved in BOTH contexts. icon-image PROPERTY (#777 I2): the converter strips the `["image", …]` wrapper (recursively, incl. nested inside the coalesce/match arms of a data-driven icon-image) and lowers the inner sprite-name — constant `["image","airport"]` → LabelDef.iconImage "airport"; data-driven → per-feature LabelDef.iconImageExpr → IconStage.addIcon. TEXT/format inline image (#777 I-G): the bare `text-field: ["image","pat"]` form AND an `["image", …]` section inside `["format", …]` lower to the `image(name)` builtin (imageHandler) whose evaluator wraps the resolved name in PUA sentinels; the runtime label shaper (TextStage) reserves the sprite CSS-width advance and hands the placement to IconStage → an inline sprite quad on the text baseline. Missing sprite → the image is skipped, surrounding text keeps rendering (MapLibre parity).',
+    source:
+      'expr-string.ts imageHandler + evaluator-helpers.ts case image + layers-helpers.ts unwrapImageExpr',
   },
   {
     name: 'number-format',

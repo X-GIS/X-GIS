@@ -51,7 +51,13 @@ import {
   ONE_EM,
   SHAPING_DEFAULT_OFFSET,
   CJK_FALLBACK_CHAIN,
+  parseInlineImages,
+  resolveInlineImageSprites,
+  fillPointGlyphOffsetsWithImages,
   type LabelAnchor,
+  type ShapedInlineImage,
+  type InlineImageSpriteSource,
+  type InlineImagePlacement,
 } from './text-stage-helpers'
 import type { TextStageOptions, PendingLabel, PendingLineLabel } from './text-stage-types'
 import { wrapWithKnuthPlass, cjkBucketFor } from './text-wrap'
@@ -231,6 +237,22 @@ export class TextStage {
    *  every prepare(), so the box always reflects THIS frame's sizePx (the layout
    *  cache re-keys on sizePx) — a fitted icon can never wrap a stale bbox. */
   private readonly _pairFitBox: Map<string, { w: number; h: number }> = new Map()
+  /** #777 I-G — read-only sprite-dimension source for inline images. Set by
+   *  the map each frame BEFORE prepare() (label-pass, from IconStage.host);
+   *  null when no icon atlas is wired (text-only / tests) — inline images
+   *  then resolve to nothing and their text still renders. */
+  private spriteSource: InlineImageSpriteSource | null = null
+  setSpriteMetadata(source: InlineImageSpriteSource | null): void {
+    this.spriteSource = source
+  }
+  /** #777 I-G — inline-image quads for THIS frame's surviving labels, in
+   *  absolute physical px. Refilled every prepare() (mirrors _pairFitBox);
+   *  read by IconStage (setInlineImagePlacements) after prepare() to draw
+   *  each image via the existing icon path. */
+  private readonly _inlineImagePlacements: InlineImagePlacement[] = []
+  getInlineImagePlacements(): readonly InlineImagePlacement[] {
+    return this._inlineImagePlacements
+  }
   /** iter 167 — across-frame glyph-string cache (#10 Phase A first
    *  slice). `host.ensureString` per-character atlas-slot lookup
    *  dominates drag CPU (iter-161 profile: ensure 21.5% +
@@ -584,7 +606,11 @@ export class TextStage {
     anchorDistancePx?: number,
     collisionId?: string,
   ): void {
-    const text = resolveText(value, props, this.cameraZoom)
+    // #777 I-G — strip inline-image markers before curved shaping. Inline
+    // images along a curved road are not laid out (the along-path sampler
+    // walks glyphs, not sprite quads); dropping the marker keeps the text
+    // readable instead of rendering a PUA sentinel as tofu.
+    const text = parseInlineImages(resolveText(value, props, this.cameraZoom)).stripped
     if (text.length === 0) return
     // stripCurveLineExtraScripts drops everything from the first LF
     // onwards — Mapbox bilingual labels render only the primary
@@ -757,29 +783,36 @@ export class TextStage {
     const text = resolveText(value, props, this.cameraZoom)
     if (text.length === 0) return
     const transformed = applyTextTransform(text, def.transform)
+    // #777 I-G — carve inline-image markers out of the resolved text so the
+    // glyph shaper never sees the sentinels; `stripped` is the visible text,
+    // `images` locate each sprite by codepoint index. A label that is only
+    // an image (`stripped === ''`) is still kept when it carries one.
+    const { stripped, images } = parseInlineImages(transformed)
+    if (stripped.length === 0 && images.length === 0) return
     // Iter 108 dispatch diagnostic — record post-resolve text BEFORE
     // collision. Mirror of IconStage.dispatchedIconNames.
-    this._diag.recordDispatch(transformed)
+    this._diag.recordDispatch(stripped)
     if (this._debugHook) {
-      this._debugHook(transformed, anchorScreenX, anchorScreenY, 'point')
+      this._debugHook(stripped, anchorScreenX, anchorScreenY, 'point')
     }
     this._diag.recordTrace(
       this._traceRecorder,
       'point',
       def,
-      transformed,
+      stripped,
       anchorScreenX,
       anchorScreenY,
       layerName,
     )
     this.pending.push({
-      text: transformed,
+      text: stripped,
       anchorX: anchorScreenX,
       anchorY: anchorScreenY,
       def,
       fontKey: fontKey ?? composeFontKey(def, this.opts.defaultFont),
       pairKey,
       collisionId,
+      ...(images.length > 0 ? { inlineImages: images } : {}),
       perspectiveScale,
     })
   }
@@ -803,6 +836,8 @@ export class TextStage {
     // #777 I-A — reset the per-frame paired-bbox stash before laying out this
     // frame's labels; refilled as each icon-paired label is shaped below.
     this._pairFitBox.clear()
+    // #777 I-G — reset the per-frame inline-image quad stash (mirror above).
+    this._inlineImagePlacements.length = 0
     // iter-285 — snapshot submitted count BEFORE collision pass.
     // pendingLine entries each may yield 1+ placements; counted as 1
     // per submission for a coarse but useful diagnostic.
@@ -823,6 +858,10 @@ export class TextStage {
       layouts: Array<{
         draw: TextDraw
         bbox: { minX: number; minY: number; maxX: number; maxY: number }
+        /** #777 I-G — inline images placed for THIS candidate, offset from
+         *  the candidate's draw anchor. Emitted to _inlineImagePlacements
+         *  only for the winning candidate of a surviving label. */
+        inlineImages?: ShapedInlineImage[]
       }>
       allowOverlap: boolean
       ignorePlacement: boolean
@@ -1058,6 +1097,14 @@ export class TextStage {
       // Total bounding box width = max line width.
       let totalAdvance = 0
       for (const ln of lines) if (ln.width > totalAdvance) totalAdvance = ln.width
+      // #777 I-G — resolve inline-image sprites (read-only atlas lookup) and
+      // widen the block by their total advance, so the centring below already
+      // reserves the sprite CSS-widths (single-line-exact; a multi-line label
+      // with images centres against the summed width). A missing sprite is
+      // dropped — text still lays out (MapLibre "keep the text, drop image").
+      const { sprites: inlineSprites, totalAdvancePx: inlineImageAdvancePx } =
+        resolveInlineImageSprites(p.inlineImages, this.spriteSource, dpr)
+      totalAdvance += inlineImageAdvancePx
       // Variable anchor (Mapbox `text-variable-anchor`): runtime
       // tries each candidate during collision and picks the first
       // non-overlapping one. Single-anchor labels always have one
@@ -1120,7 +1167,14 @@ export class TextStage {
       // pitch=70 idle frame budget was 78ms with no caching (probe
       // 2026-05-20) — label layout dominated. Re-enabling restores
       // the iter-167 / iter-168 perf gains correctly.
-      const _isCacheable = !variableMode && candidates.length === 1 && p.def.rotate === undefined
+      // #777 I-G — inline-image labels bypass the layout cache: the cache
+      // stores only glyph offsets (no image placements), and the image
+      // advance widens the layout, so a cached entry would misplace text.
+      const _isCacheable =
+        !variableMode &&
+        candidates.length === 1 &&
+        p.def.rotate === undefined &&
+        inlineSprites.length === 0
       let _layoutKey: number | undefined
       // Audit ④ B1 — exact source identity to reject `_layoutKey` hash
       // collisions on hit (the NUL separator keeps `font+text` distinct
@@ -1297,6 +1351,9 @@ export class TextStage {
         // THIS frame's prepare→render sequence.
         bumpAlloc('text-stage.prepare.glyphOffsets.point.FrameArena')
         const glyphOffsets = this._frameArena.allocF32(glyphs.length * 2)
+        // #777 I-G — inline-image quads for THIS candidate (empty for the
+        // common plain-text label; filled by the image-aware pen path below).
+        const imgPlacements: ShapedInlineImage[] = []
         {
           // text-justify: auto resolves per anchor — left-anchors →
           // left, right-anchors → right, else center.
@@ -1353,19 +1410,38 @@ export class TextStage {
             }
             centreShift = -shapingBaselineOff + (maxAsc - maxDesc) / 2
           }
-          for (let li = 0; li < lines.length; li++) {
-            const ln = lines[li]!
-            let lineX = 0
-            if (effectiveJustify === 'right') lineX = totalAdvance - ln.width
-            else if (effectiveJustify === 'left') lineX = 0
-            else lineX = (totalAdvance - ln.width) * 0.5
-            const lineY = vlay.baselineY[li]! + centreShift
-            let pen = lineX
-            for (let gi = ln.start; gi < ln.end; gi++) {
-              glyphOffsets[gi * 2] = pen
-              glyphOffsets[gi * 2 + 1] = lineY
-              pen += advances[gi]!
-              if (gi < ln.end - 1) pen += letterSpacingPx
+          if (inlineSprites.length > 0) {
+            // #777 I-G — image-aware pen: splices each sprite's advance into
+            // the glyph run (post-image text shifts right) and records the
+            // quad placements (relative to drawX/drawY) into imgPlacements.
+            fillPointGlyphOffsetsWithImages(
+              glyphOffsets,
+              advances,
+              lines,
+              vlay.baselineY,
+              centreShift,
+              letterSpacingPx,
+              totalAdvance,
+              effectiveJustify,
+              sizePx,
+              inlineSprites,
+              imgPlacements,
+            )
+          } else {
+            for (let li = 0; li < lines.length; li++) {
+              const ln = lines[li]!
+              let lineX = 0
+              if (effectiveJustify === 'right') lineX = totalAdvance - ln.width
+              else if (effectiveJustify === 'left') lineX = 0
+              else lineX = (totalAdvance - ln.width) * 0.5
+              const lineY = vlay.baselineY[li]! + centreShift
+              let pen = lineX
+              for (let gi = ln.start; gi < ln.end; gi++) {
+                glyphOffsets[gi * 2] = pen
+                glyphOffsets[gi * 2 + 1] = lineY
+                pen += advances[gi]!
+                if (gi < ln.end - 1) pen += letterSpacingPx
+              }
             }
           }
         }
@@ -1399,6 +1475,7 @@ export class TextStage {
             sdfRadius: this.opts.sdfRadius,
           },
           bbox,
+          ...(imgPlacements.length > 0 ? { inlineImages: imgPlacements } : {}),
         })
         // iter-168 cache store (cold-path single-iter cacheable case).
         if (_isCacheable && _layoutKey !== undefined) {
@@ -1920,7 +1997,21 @@ export class TextStage {
       // unshapeable labels so pendingLine[] indices don't line up.
       const pairKey = this.pending[i]?.pairKey ?? shaped[i]!.pairKey
       if (placement.placed) {
-        draws.push(shaped[i]!.layouts[placement.chosen]!.draw)
+        const chosen = shaped[i]!.layouts[placement.chosen]!
+        draws.push(chosen.draw)
+        // #777 I-G — the winning candidate's inline images become absolute
+        // quads (anchor + relative offset) for IconStage to draw this frame.
+        if (chosen.inlineImages !== undefined) {
+          for (const im of chosen.inlineImages) {
+            this._inlineImagePlacements.push({
+              name: im.name,
+              x: chosen.draw.anchorX + im.dx,
+              y: chosen.draw.anchorY + im.dy,
+              wPx: im.wPx,
+              hPx: im.hPx,
+            })
+          }
+        }
       } else if (pairKey !== undefined) {
         this.droppedPairKeys.add(pairKey)
       }
