@@ -2,4 +2,6 @@
 // @construct string-literal
 // @desc double-quoted strings with recognised escape sequences
 xgis 1
-let label = "Seoul \"downtown\"\nzone\ttab"
+source lbl {
+  label: "Seoul \"downtown\"\nzone\ttab"
+}

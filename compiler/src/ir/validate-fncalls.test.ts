@@ -89,10 +89,13 @@ layer d {
     expect(diags[0].span).toMatchObject({ line: 5, col: 1 })
   })
 
-  it('a user-declared `fn` resolves without an unknown-function error', () => {
+  it('an imported name resolves without an unknown-function error', () => {
+    // The `fn` declaration form was pruned by #1072; imports are now the
+    // sole non-builtin callable source (collectDeclaredNames), so an
+    // imported `dbl` is the surviving "declared, not unknown" case.
     expect(
       unknownFnDiags(`
-fn dbl(v: f32) -> f32 { v * 2 }
+import { dbl } from "./lib.xgis"
 source p { type: geojson, url: "x.geojson" }
 layer d {
   source: p

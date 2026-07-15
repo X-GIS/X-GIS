@@ -1,5 +1,0 @@
-// @case valid
-// @construct fn-statement
-// @desc a function with a typed parameter, return type, and return statement
-xgis 1
-fn scale(x: Number) -> Number { return x * 2 }

@@ -1,5 +1,0 @@
-// @case valid
-// @construct style-statement
-// @desc a named style set including a captured rgba() function value
-xgis 1
-style dark_land { fill: stone-800, stroke: rgba(30, 41, 59, 0.8), stroke-width: 1 }

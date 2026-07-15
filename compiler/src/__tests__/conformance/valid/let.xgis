@@ -1,5 +1,0 @@
-// @case valid
-// @construct let-statement
-// @desc a let binds a name to an expression value
-xgis 1
-let accent = #38bdf8

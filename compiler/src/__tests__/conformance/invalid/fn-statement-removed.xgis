@@ -1,0 +1,6 @@
+// @case invalid
+// @construct fn-statement
+// @desc the `fn` declaration statement was pruned by #1072 — `fn` at statement position is now a generic syntax error
+// @expect-code X-GIS0010
+xgis 1
+fn scale(x: Number) -> Number { return x * 2 }

@@ -26,7 +26,7 @@ function run(...args: string[]) {
 
 describe('xgis validate CLI — smoke', () => {
   it('exits 0 and prints ok on a valid fixture', () => {
-    const r = run(join(VALID, 'let.xgis'))
+    const r = run(join(VALID, 'source.xgis'))
     expect(r.error, String(r.error)).toBeUndefined()
     expect(r.status, r.stderr).toBe(0)
     expect(r.stdout).toContain('ok')
