@@ -82,6 +82,15 @@ export class VectorDrapeRenderer {
    *  renderer's lastVisibleKeys). Accumulated in renderGlobeFills, consumed +
    *  cleared at the next beginFrame so eviction never drops an on-screen tile. */
   private readonly visibleKeys = new Set<string>()
+  /** Frame-monotonic base into the shared RasterDraper.material pool (#1142). All
+   *  drape-eligible slice-layers of one source share THIS renderer's single
+   *  RasterDraper, and each issues its own draper.draw() into the ONE per-frame
+   *  submit. WebGPU's queue.writeBuffer is deferred to that submit, so if two
+   *  slice draws reuse the same pool slot the earlier draw reads the later slice's
+   *  per-tile uniform (a draped tile lands at another tile's position). Handing
+   *  each draw a distinct base — advanced by its tile count, reset per frame in
+   *  beginFrame() — gives every slice its own pool buffers. */
+  private _framePoolBase = 0
 
   constructor(
     private readonly rhi: RhiDevice,
@@ -198,7 +207,10 @@ export class VectorDrapeRenderer {
         rasterGlobeCamAnchor(projCenterLon, projCenterLat),
         { opacity, hueRotate: 0, brightnessMin: 0, brightnessMax: 1, saturation: 0, contrast: 0 },
       )
-      this.draper.draw(pass, this.global.buffer, tiles, false, isPickEnabled())
+      this.draper.draw(pass, this.global.buffer, tiles, false, isPickEnabled(), this._framePoolBase)
+      // Advance so the NEXT slice-layer's draw() this frame gets fresh pool slots
+      // (its draws share this one per-frame submit; see _framePoolBase). #1142
+      this._framePoolBase += tiles.length
     }
   }
 
@@ -224,6 +236,8 @@ export class VectorDrapeRenderer {
       }
     }
     this.visibleKeys.clear()
+    // Restart the shared-pool base for the new frame (see _framePoolBase). #1142
+    this._framePoolBase = 0
   }
 
   /** Free every baked texture + drop the cache. Called from VTR.destroy when the
