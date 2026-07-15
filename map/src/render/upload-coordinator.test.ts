@@ -266,6 +266,80 @@ describe('UploadCoordinator — render-on-demand starvation (held uploads count 
   })
 })
 
+describe('UploadCoordinator — visible-first cap-deferral (zoom-in starvation)', () => {
+  // Repro for the reported bug: on a heavy-style zoom-in, a large backlog of
+  // cap-deferred upload slices accumulates. Before the fix, `_heldUploads`
+  // replayed strict FIFO, so a newly-visible (nearest) slice enqueued AFTER a
+  // far/ancestor backlog waited behind the ENTIRE backlog — visible tiles
+  // stayed unloaded for many frames (~30 s at a low heavy-style frame rate)
+  // even though the upload queue itself is distance-sorted. The cap-hold gate
+  // defeated that priority. Fix: drain the held backlog NEAREST-first.
+
+  const flush = async () => {
+    await new Promise((r) => setTimeout(r, 0))
+    await Promise.resolve()
+  }
+
+  // Staging store that actually caches the tile (mirrors the async end-to-end
+  // test) so `layerCache.has(key)` reports true once a slice is uploaded.
+  function makeStagingCoord(layerCache: Map<number, unknown>) {
+    const vArena = { rhiBuffer: { id: 'v' } as unknown as RhiBuffer, alloc: () => 0, free: vi.fn() }
+    const iArena = { rhiBuffer: { id: 'i' } as unknown as RhiBuffer, alloc: () => 0, free: vi.fn() }
+    const store = {
+      getLayer: () => undefined,
+      getOrCreateLayer: () => layerCache,
+      polyVertexArenaOrCreate: () => vArena,
+      polyIndexArenaOrCreate: () => iArena,
+      polyVertexArenaOrNull: () => vArena,
+      polyIndexArenaOrNull: () => iArena,
+      acquireBuffer: () => ({}) as GPUBuffer,
+      releaseBuffer: () => {},
+      incrementCount: vi.fn(),
+      nextUploadEpoch: () => 5,
+      forceEvictBytes: () => false,
+    } as unknown as UploadStore
+    const device = {
+      createCommandEncoder: () => ({ copyBufferToBuffer: () => {}, finish: () => ({}) }),
+      queue: { submit: vi.fn(), writeBuffer: () => {} },
+    } as unknown as GPUDevice
+    const stagingPool = {
+      hasMappedAtCreationFallback: true,
+      gpuDevice: device,
+    } as unknown as StagingBufferPool
+    return new UploadCoordinator(makeHost(store, { device, stagingPool }))
+  }
+
+  it('drains the nearest newly-visible slice ahead of a far zoom-in backlog', async () => {
+    const layerCache = new Map<number, unknown>()
+    const coord = makeStagingCoord(layerCache)
+    // distSq proxy: key IS the squared distance. key 1 = nearest visible tile;
+    // keys 100..140 = the far ancestor/backlog accumulated during the zoom-in.
+    coord.installPriority((key) => key)
+
+    // One "zoom-in frame": the far backlog is requested first, then the
+    // current nearest visible slice arrives LAST — exactly the accumulation
+    // order a progressive zoom-in produces (shallow ancestors first).
+    for (let k = 100; k <= 140; k++) coord.enqueue(k, polyOnlyTileData(), '')
+    coord.enqueue(1, polyOnlyTileData(), '') // nearest visible, enqueued last
+    await flush()
+
+    // Drain frame-by-frame (beginFrame → resetFrameCap) and record how many
+    // frames pass before the nearest visible slice actually uploads.
+    let framesUntilVisible = -1
+    for (let f = 0; f < 80 && framesUntilVisible < 0; f++) {
+      coord.resetFrameCap()
+      await flush()
+      if (layerCache.has(1)) framesUntilVisible = f
+    }
+
+    // FIX CONTRACT: the nearest visible slice must upload within the first
+    // couple of replayed frames — NOT after the whole far backlog drains.
+    // Before the fix (FIFO) key 1 sits at the back and lands ~frame 9.
+    expect(framesUntilVisible).toBeGreaterThanOrEqual(0)
+    expect(framesUntilVisible).toBeLessThanOrEqual(1)
+  })
+})
+
 // ── host builder ──
 function makeHost(store: UploadStore, over: Partial<UploadHost> = {}): UploadHost {
   return {

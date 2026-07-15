@@ -207,7 +207,10 @@ const CEILINGS: Record<string, number> = {
   'map/src/render/tile-selection-cache.ts': 948,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
-  'map/src/render/upload-coordinator.ts': 876,
+  // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`
+  // sorts the held backlog NEAREST-first so a zoom-in's visible slices upload
+  // ahead of the accumulated far/ancestor backlog (the ~30 s stall fix).
+  'map/src/render/upload-coordinator.ts': 889,
   'map/src/shaders/dsl/projections.ts': 811,
   // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
