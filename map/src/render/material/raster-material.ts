@@ -160,13 +160,19 @@ export class RasterDraper {
     this.globalBGByTex.delete(texture)
   }
 
-  /** Build draw items from visible tiles + issue them through the generic executor. */
+  /** Build draw items from visible tiles + issue them through the generic executor.
+   *  `poolBase` (#1142) offsets the per-tile pool slots: the raster tile renderer
+   *  draws ALL tiles in one call per frame (base 0), but the vector drape issues
+   *  one draw() PER slice-layer into the same per-frame submit and passes a
+   *  frame-monotonic base so a later slice's per-tile uniforms don't overwrite an
+   *  earlier slice's still-in-flight (deferred-writeBuffer) pool buffers. */
   draw(
     pass: import('@xgis/engine').RhiRenderPass,
     globalBytes: BufferSource,
     tiles: ReadonlyArray<RasterTile>,
     nearest = false,
     pick = false,
+    poolBase = 0,
   ): void {
     const material = pick ? this.pickMat() : this.material
     material.writeGlobal(globalBytes)
@@ -177,6 +183,6 @@ export class RasterDraper {
       count: rasterGridVertexCount(t.gridN),
       indexed: false,
     }))
-    executeItems(material, pass, items)
+    executeItems(material, pass, items, poolBase)
   }
 }

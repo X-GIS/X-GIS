@@ -182,9 +182,12 @@ export class Material {
     if (this.globalUniform) this.rhi.writeBuffer(this.globalUniform, 0, bytes)
   }
 
-  /** Pooled per-item uniform slot, grown on demand. */
+  /** Pooled per-item uniform slot, grown on demand. Grows UP TO `idx` (not just
+   *  by one) so a non-contiguous base (executeItems' `poolBase`, #1142) can index
+   *  a fresh slot without leaving a hole — contiguous 0,1,2… callers are
+   *  unaffected (the loop runs at most once, exactly as the old `if`). */
   poolSlot(idx: number): { write: (b: BufferSource) => void; bg: RhiBindGroup } {
-    if (idx >= this.poolBufs.length) {
+    while (idx >= this.poolBufs.length) {
       const buf = this.rhi.createBuffer({ size: this.poolSlotSize, usage: 'uniform' })
       this.poolBufs.push(buf)
       this.poolBGs.push(
@@ -206,6 +209,17 @@ export function executeItems(
   material: Material,
   pass: RhiRenderPass,
   items: ReadonlyArray<DrawItem>,
+  /** Frame-monotonic base for the pooled per-item uniform slots (#1142). Default
+   *  0 = a self-contained batch (the common single-executeItems-per-submit case).
+   *  A caller that issues MULTIPLE executeItems on ONE material within a SINGLE
+   *  queue.submit — the globe vector drape emits one draw() per slice-layer, all
+   *  into the one per-frame submit — MUST advance this by the running item count
+   *  so each call binds FRESH pool buffers. Otherwise WebGPU's DEFERRED
+   *  queue.writeBuffer overwrites an earlier call's still-in-flight slot
+   *  (last-writer-wins at submit) and that draw samples the wrong per-item uniform
+   *  — a draped tile renders at another tile's position. (WebGL2 writeBuffer is
+   *  immediate, so the bug is WebGPU-only.) */
+  poolBase = 0,
 ): number {
   let poolIdx = 0
   for (const it of items) {
@@ -215,7 +229,7 @@ export function executeItems(
       if (bg) pass.setBindGroup(g, bg, it.dynamicOffsets?.[g])
     }
     if (it.poolBytes !== undefined && material.hasPool) {
-      const slot = material.poolSlot(poolIdx++)
+      const slot = material.poolSlot(poolBase + poolIdx++)
       slot.write(it.poolBytes)
       pass.setBindGroup(material.poolGroup, slot.bg)
     }
