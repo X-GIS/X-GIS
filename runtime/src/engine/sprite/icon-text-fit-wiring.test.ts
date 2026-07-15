@@ -30,6 +30,7 @@ import { vertexField } from '@xgis/compiler'
 type FitPad = [number, number, number, number]
 function makeStage(dpr: number): { stage: IconStage; draws: IconDraw[] } {
   const stage = Object.create(IconStage.prototype) as IconStage
+    ;(stage as unknown as { inlineImages: unknown[] }).inlineImages = [] // #777 I-G — prepare() reads it (ctor bypassed by the Object.create stub)
   const draws: IconDraw[] = []
   const s = stage as unknown as {
     pending: unknown[]
