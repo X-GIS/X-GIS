@@ -3,15 +3,14 @@ import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
 import { optimize } from '../ir/optimize'
-import { classifyExpr, type FnEnv } from '../ir/classify'
+import { classifyExpr } from '../ir/classify'
 import { constFold } from '../ir/const-fold'
 import type * as AST from '../parser/ast'
 import { withPragma } from './_pragma'
+import { parseExpressionString } from '../parser/parser'
 
 function parseExpr(source: string): AST.Expr {
-  const tokens = new Lexer(withPragma(`let x = ${source}`)).tokenize()
-  const ast = new Parser(tokens).parse()
-  return (ast.body[0] as AST.LetStatement).value
+  return parseExpressionString(source)
 }
 
 function compile(source: string) {
@@ -57,25 +56,6 @@ describe('Expression Classifier', () => {
     // per-feature pipe
     expect(classifyExpr(parseExpr('speed | clamp(4, 24)'))).toBe('per-feature-gpu')
   })
-
-  it('classifies user functions with constant args as constant', () => {
-    const fnEnv: FnEnv = new Map()
-    const tokens = new Lexer(withPragma(`fn double(x: f32) -> f32 { x * 2 }`)).tokenize()
-    const ast = new Parser(tokens).parse()
-    const fn = ast.body[0] as AST.FnStatement
-    fnEnv.set('double', fn)
-
-    expect(classifyExpr(parseExpr('double(15)'), fnEnv)).toBe('constant')
-  })
-
-  it('classifies user functions with data args as per-feature', () => {
-    const fnEnv: FnEnv = new Map()
-    const tokens = new Lexer(withPragma(`fn double(x: f32) -> f32 { x * 2 }`)).tokenize()
-    const ast = new Parser(tokens).parse()
-    fnEnv.set('double', ast.body[0] as AST.FnStatement)
-
-    expect(classifyExpr(parseExpr('double(speed)'), fnEnv)).toBe('per-feature-gpu')
-  })
 })
 
 describe('Constant Folder', () => {
@@ -98,65 +78,43 @@ describe('Constant Folder', () => {
     expect(constFold(parseExpr('speed * 2'))).toBeNull()
     expect(constFold(parseExpr('.speed | clamp(4, 24)'))).toBeNull()
   })
-
-  it('folds user-defined function with constant args', () => {
-    const fnEnv: FnEnv = new Map()
-    const tokens = new Lexer(withPragma(`fn double(x: f32) -> f32 { x * 2 }`)).tokenize()
-    const ast = new Parser(tokens).parse()
-    fnEnv.set('double', ast.body[0] as AST.FnStatement)
-
-    expect(constFold(parseExpr('double(15)'), fnEnv)).toEqual({ value: 30 })
-  })
-
-  it('folds nested user function calls', () => {
-    const fnEnv: FnEnv = new Map()
-    const tokens = new Lexer(
-      withPragma(`
-      fn scale(x: f32, factor: f32) -> f32 { x * factor }
-    `),
-    ).tokenize()
-    const ast = new Parser(tokens).parse()
-    fnEnv.set('scale', ast.body[0] as AST.FnStatement)
-
-    expect(constFold(parseExpr('scale(5, 10)'), fnEnv)).toEqual({ value: 50 })
-  })
 })
 
 describe('Optimize Pass', () => {
   it('folds constant data-driven size', () => {
-    const { scene, ast } = compile(`
+    const { scene } = compile(`
       source data { type: geojson, url: "x.geojson" }
       layer tracks {
         source: data
         | fill-white size-[360 / 12]
       }
     `)
-    const optimized = optimize(scene, ast)
+    const optimized = optimize(scene)
     const node = optimized.renderNodes[0]
     expect(node.size).toMatchObject({ kind: 'constant', value: 30 })
   })
 
   it('folds constant data-driven opacity', () => {
-    const { scene, ast } = compile(`
+    const { scene } = compile(`
       source data { type: geojson, url: "x.geojson" }
       layer tracks {
         source: data
         | fill-white opacity-[0.5 * 0.8]
       }
     `)
-    const optimized = optimize(scene, ast)
+    const optimized = optimize(scene)
     expect(optimized.renderNodes[0].opacity).toEqual({ kind: 'constant', value: 0.4 })
   })
 
   it('does not fold per-feature expressions', () => {
-    const { scene, ast } = compile(`
+    const { scene } = compile(`
       source data { type: geojson, url: "x.geojson" }
       layer tracks {
         source: data
         | fill-white size-[speed * 2]
       }
     `)
-    const optimized = optimize(scene, ast)
+    const optimized = optimize(scene)
     expect(optimized.renderNodes[0].size.kind).toBe('data-driven')
     if (optimized.renderNodes[0].size.kind === 'data-driven') {
       expect(optimized.renderNodes[0].size.expr.classification).toBe('per-feature-gpu')
@@ -164,29 +122,15 @@ describe('Optimize Pass', () => {
   })
 
   it('passes through already-constant values unchanged', () => {
-    const { scene, ast } = compile(`
+    const { scene } = compile(`
       source data { type: geojson, url: "x.geojson" }
       layer tracks {
         source: data
         | fill-red-500 opacity-80
       }
     `)
-    const optimized = optimize(scene, ast)
+    const optimized = optimize(scene)
     expect(optimized.renderNodes[0].fill.kind).toBe('constant')
     expect(optimized.renderNodes[0].opacity).toEqual({ kind: 'constant', value: 0.8 })
-  })
-
-  it('folds user-defined function calls', () => {
-    const { scene, ast } = compile(`
-      fn double(x: f32) -> f32 { x * 2 }
-
-      source data { type: geojson, url: "x.geojson" }
-      layer tracks {
-        source: data
-        | fill-white size-[double(15)]
-      }
-    `)
-    const optimized = optimize(scene, ast)
-    expect(optimized.renderNodes[0].size).toMatchObject({ kind: 'constant', value: 30 })
   })
 })

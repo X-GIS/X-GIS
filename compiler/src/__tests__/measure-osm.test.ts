@@ -13,7 +13,7 @@ describe('measure: real osm-style.xgis merge result', () => {
     const tokens = new Lexer(src).tokenize()
     const ast = new Parser(tokens).parse()
     const lowered = lower(ast)
-    const optimized = optimize(lowered, ast)
+    const optimized = optimize(lowered)
     // eslint-disable-next-line no-console
     console.log(`Input: ${lowered.renderNodes.length} layers`)
     for (let i = 0; i < lowered.renderNodes.length; i++) {

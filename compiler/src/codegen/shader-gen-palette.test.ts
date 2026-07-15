@@ -85,7 +85,7 @@ describe('shader-gen — palette-aware emission', () => {
       fill: { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] } as ColorValue,
     })
     const palette = collectPalette(sceneFromNodes(node))
-    const v = generateShaderVariant(node, undefined, palette)
+    const v = generateShaderVariant(node, palette)
     expect(v.preamble.bindings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: 'color_grad_atlas', binding: 2 }),
@@ -106,7 +106,7 @@ describe('shader-gen — palette-aware emission', () => {
       fill: { kind: 'zoom-interpolated', stops: [zs(0, BLUE), zs(15, RED)] } as ColorValue,
     })
     const palette = collectPalette(sceneFromNodes(otherNode))
-    const v = generateShaderVariant(node, undefined, palette)
+    const v = generateShaderVariant(node, palette)
     // Legacy uniform path — no atlas bindings emitted.
     expect((v.preamble.bindings ?? []).some((b) => b.name === 'color_grad_atlas')).toBe(false)
     expect(fillStr(v)).toContain('u.fill_color')
@@ -118,7 +118,7 @@ describe('shader-gen — palette-aware emission', () => {
       fill: { kind: 'constant', rgba: RED } as ColorValue,
     })
     const palette = collectPalette(sceneFromNodes(node))
-    const v = generateShaderVariant(node, undefined, palette)
+    const v = generateShaderVariant(node, palette)
     expect((v.preamble.bindings ?? []).some((b) => b.name === 'color_grad_atlas')).toBe(false)
     expect(fillStr(v)).toContain('FILL_COLOR')
     expect(v.paletteColorGradients).toEqual([])
@@ -133,7 +133,7 @@ describe('shader-gen — palette-aware emission', () => {
       } as StrokeValue,
     })
     const palette = collectPalette(sceneFromNodes(node))
-    const v = generateShaderVariant(node, undefined, palette)
+    const v = generateShaderVariant(node, palette)
     expect(fillStr(v)).toContain('textureSampleLevel(color_grad_atlas')
     expect(strokeStr(v)).toContain('textureSampleLevel(color_grad_atlas')
     // Both gradients collected; deduped by collectPalette so two
@@ -151,8 +151,8 @@ describe('shader-gen — palette-aware emission', () => {
     const nodeB = makeNode({ name: 'b', fill })
     // collectPalette dedups by canonical key.
     const palette = collectPalette(sceneFromNodes(nodeA, nodeB))
-    const varA = generateShaderVariant(nodeA, undefined, palette)
-    const varB = generateShaderVariant(nodeB, undefined, palette)
+    const varA = generateShaderVariant(nodeA, palette)
+    const varB = generateShaderVariant(nodeB, palette)
     expect(varA.paletteColorGradients).toEqual([0])
     expect(varB.paletteColorGradients).toEqual([0])
   })

@@ -13,9 +13,9 @@ import type { ShowCommand } from './render/renderer-types'
 // no-fill. See iter 318 hexToRgba contract fix.
 import { hexToRgba } from './feature-helpers'
 
-/** Synthesize a PaintShapes bundle from a constant-only legacy show.
- *  The legacy `let`/`show` and the simple `source`/`layer` utility
- *  syntax only carry compile-time-constant paint values — no zoom
+/** Synthesize a PaintShapes bundle from a constant-only show command.
+ *  The simple `source`/`layer` utility syntax this interpreter fallback
+ *  handles only carries compile-time-constant paint values — no zoom
  *  stops, no time animation, no per-feature data-driven exprs. So
  *  every PropertyShape comes out as `kind: 'constant'`, and
  *  unauthored slots (no fill / no stroke / no size) become `null`.
@@ -105,7 +105,8 @@ export interface SceneCommands {
 
 /**
  * Interpret a parsed X-GIS program into executable commands.
- * Handles both legacy (let/show) and new (source/layer) syntax.
+ * Constant-only fallback for the source/layer syntax when the IR
+ * pipeline (lower + emitCommands) is not used.
  */
 export function interpret(program: AST.Program): SceneCommands {
   const loads: LoadCommand[] = []
@@ -119,13 +120,7 @@ export function interpret(program: AST.Program): SceneCommands {
       if (c) background = c
       continue
     }
-    if (stmt.kind === 'LetStatement') {
-      const load = extractLoad(stmt)
-      if (load) loads.push(load)
-    } else if (stmt.kind === 'ShowStatement') {
-      const show = extractShow(stmt)
-      if (show) shows.push(show)
-    } else if (stmt.kind === 'SourceStatement') {
+    if (stmt.kind === 'SourceStatement') {
       const src = extractSource(stmt)
       if (src) sources.set(src.name, src)
     } else if (stmt.kind === 'LayerStatement') {
@@ -263,75 +258,3 @@ function extractLayer(
   }
 }
 
-// ═══ Legacy syntax: let/show ═══
-
-function extractLoad(stmt: AST.LetStatement): LoadCommand | null {
-  if (stmt.value.kind === 'FnCall') {
-    const callee = stmt.value.callee
-    if (callee.kind === 'Identifier' && callee.name === 'load') {
-      const arg = stmt.value.args[0]
-      if (arg && arg.kind === 'StringLiteral') {
-        return { name: stmt.name, url: arg.value }
-      }
-    }
-  }
-  return null
-}
-
-function extractShow(stmt: AST.ShowStatement): ShowCommand | null {
-  let targetName = ''
-  if (stmt.target.kind === 'Identifier') {
-    targetName = stmt.target.name
-  }
-
-  let fill: string | null = null
-  let stroke: string | null = null
-  let strokeWidth = 1
-  let projection = 'mercator'
-  let visible = true
-  let opacity = 1.0
-
-  for (const prop of stmt.block.properties) {
-    if (prop.name === 'fill') {
-      const val = prop.values[0]
-      if (val && val.kind === 'ColorLiteral') {
-        fill = val.value
-      }
-    } else if (prop.name === 'projection') {
-      const val = prop.values[0]
-      if (val && val.kind === 'Identifier') {
-        projection = val.name
-      }
-    } else if (prop.name === 'visible') {
-      const val = prop.values[0]
-      if (val && val.kind === 'BoolLiteral') {
-        visible = val.value
-      }
-    } else if (prop.name === 'opacity') {
-      const val = prop.values[0]
-      if (val && val.kind === 'NumberLiteral') {
-        opacity = val.value
-      }
-    } else if (prop.name === 'stroke') {
-      const val = prop.values[0]
-      if (val && val.kind === 'ColorLiteral') {
-        stroke = val.value
-      }
-      const widthVal = prop.values[1]
-      if (widthVal && widthVal.kind === 'NumberLiteral') {
-        strokeWidth = widthVal.value
-      }
-    }
-  }
-
-  return {
-    targetName,
-    fill,
-    stroke,
-    strokeWidth,
-    projection,
-    visible,
-    opacity,
-    paintShapes: synthesizeConstantPaintShapes({ fill, stroke, strokeWidth, opacity }),
-  }
-}

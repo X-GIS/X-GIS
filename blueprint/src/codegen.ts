@@ -1,8 +1,8 @@
 // Graph → `.xgis` source. Walks the blueprint and emits one block per
 // definition node; wires set the textual cross-references (a layer's
 // source:/style:/apply-/symbol-). Emission order matches how the
-// language is normally written: imports, sources, symbols, styles,
-// fns, presets, background, then layers in Map draw order.
+// language is normally written: imports, sources, symbols, presets,
+// background, then layers in Map draw order.
 
 import { XGIS_LANGUAGE_MAJOR } from '@xgis/compiler'
 import type { BPGraph, BPNode } from './types'
@@ -77,33 +77,11 @@ function emitSymbol(n: BPNode): string {
   return lines.join('\n')
 }
 
-function emitStyle(n: BPNode): string {
-  const d = n.data
-  const lines: string[] = [`style ${nameOf(n, 'style')} {`]
-  if (d.fill?.trim()) lines.push(`  fill: ${d.fill.trim()}`)
-  if (d.stroke?.trim()) lines.push(`  stroke: ${d.stroke.trim()}`)
-  if (d.strokeWidth?.trim()) lines.push(`  stroke-width: ${d.strokeWidth.trim()}`)
-  if (d.opacity?.trim()) lines.push(`  opacity: ${d.opacity.trim()}`)
-  lines.push('}')
-  return lines.join('\n')
-}
-
 function emitPreset(n: BPNode): string {
   const lines: string[] = [`preset ${nameOf(n, 'preset')} {`]
   for (const l of pipeLines(n.data.pipe)) lines.push(`  | ${l}`)
   lines.push('}')
   return lines.join('\n')
-}
-
-function emitFn(n: BPNode): string {
-  const d = n.data
-  const ret = d.ret?.trim() ? ` -> ${d.ret.trim()}` : ''
-  const body = (d.body || '').trim()
-  const indented = body
-    .split('\n')
-    .map((l) => (l.trim() ? `  ${l.trim()}` : ''))
-    .join('\n')
-  return `fn ${nameOf(n, 'fn')}(${(d.params || '').trim()})${ret} {\n${indented}\n}`
 }
 
 function emitImport(n: BPNode): string {
@@ -147,7 +125,7 @@ function emitLayer(g: BPGraph, n: BPNode, nodes: Map<string, BPNode>): string {
   if (d.filter?.trim()) lines.push(`  filter: ${d.filter.trim()}`)
 
   const styleIds = incoming(g, n.id, 'style')
-  if (styleIds.length > 0) lines.push(`  style: ${nameOf(nodes.get(styleIds[0]), 'style')}`)
+  if (styleIds.length > 0) lines.push(`  style: ${nameOf(nodes.get(styleIds[0]), 'preset')}`)
   else if (d.style?.trim())
     // No wired style node — fall back to a bare style name (a style
     // brought in by a splice import, which has no node to wire to).
@@ -179,8 +157,6 @@ export function graphToXgis(g: BPGraph): string {
   for (const n of pick('import')) blocks.push(emitImport(n))
   for (const n of pick('source')) blocks.push(emitSource(n))
   for (const n of pick('symbol')) blocks.push(emitSymbol(n))
-  for (const n of pick('style')) blocks.push(emitStyle(n))
-  for (const n of pick('fn')) blocks.push(emitFn(n))
   for (const n of pick('preset')) blocks.push(emitPreset(n))
 
   const bg = pick('background')[0]

@@ -1,10 +1,7 @@
 // ═══ Expression Evaluator: shared types ═══
 // Type declarations extracted from evaluator.ts so the evaluator
 // module stays focused on logic. Behaviour-identical move; the
-// public surface (FeatureProps, FnEnv) is re-exported from
-// evaluator.ts.
-
-import type * as AST from '../parser/ast'
+// public surface (FeatureProps) is re-exported from evaluator.ts.
 
 /** A bag of feature properties (e.g., from GeoJSON properties). The
  *  reserved key {@link CAMERA_ZOOM_KEY} (`$zoom`) carries the current
@@ -13,6 +10,3 @@ import type * as AST from '../parser/ast'
  *  that don't supply that key get null for the `zoom` identifier —
  *  same shape as a missing feature property. */
 export type FeatureProps = Record<string, unknown>
-
-/** Environment of user-defined functions for compile-time evaluation */
-export type FnEnv = Map<string, AST.FnStatement>

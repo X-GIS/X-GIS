@@ -24,7 +24,7 @@ function compileToShows(mapboxStyle: unknown): ReturnType<typeof emitCommands>['
   const tokens = new Lexer(xgisSource).tokenize()
   const ast = new Parser(tokens).parse()
   const scene = lower(ast)
-  return emitCommands(optimize(scene, ast)).shows
+  return emitCommands(optimize(scene)).shows
 }
 
 function symbolWithHalo(

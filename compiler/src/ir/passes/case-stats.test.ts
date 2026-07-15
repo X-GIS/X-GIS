@@ -20,7 +20,7 @@ function probeMatchExprs(fixture: string) {
   const xgis = convertMapboxStyle(json)
   const tokens = new Lexer(xgis).tokenize()
   const program = new Parser(tokens).parse()
-  const scene = optimize(lower(program), program)
+  const scene = optimize(lower(program))
   let anyMatch = 0
   let trivial = 0
   const examples: string[] = []

@@ -12,7 +12,7 @@ function compile(source: string) {
   // Run the same optimize pass production uses, so regressions that strip
   // the field cannot slip through (this has happened before for stroke
   // fields — see line-dash.test.ts regression guard).
-  return emitCommands(optimize(lower(ast), ast))
+  return emitCommands(optimize(lower(ast)))
 }
 
 describe('anchor-* utilities', () => {

@@ -44,11 +44,11 @@
       "name": "constant.other.color.rgb-value.xgis"
     },
     "keyword-block": {
-      "match": "\\b(source|layer|background|preset|keyframes|style|symbol|filter|extrude|geometry|show|let|fn|view|on|place|simulate|analyze|import|struct|enum|export|apply)\\b",
+      "match": "\\b(source|layer|background|preset|keyframes|symbol|filter|extrude|geometry|import|apply)\\b",
       "name": "keyword.other.block.xgis"
     },
     "keyword-control": {
-      "match": "\\b(if|else|for|in|return|to|from|match)\\b",
+      "match": "\\b(to|from|match)\\b",
       "name": "keyword.control.xgis"
     },
     "bool": {

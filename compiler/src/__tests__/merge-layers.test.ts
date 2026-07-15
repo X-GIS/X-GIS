@@ -33,14 +33,14 @@ function compileToScene(source: string) {
   const tokens = new Lexer(withPragma(source)).tokenize()
   const ast = new Parser(tokens).parse()
   const lowered = lower(ast)
-  return optimize(lowered, ast)
+  return optimize(lowered)
 }
 
 function compileToCommands(source: string) {
   const tokens = new Lexer(withPragma(source)).tokenize()
   const ast = new Parser(tokens).parse()
   const lowered = lower(ast)
-  const optimized = optimize(lowered, ast)
+  const optimized = optimize(lowered)
   return emitCommands(optimized)
 }
 

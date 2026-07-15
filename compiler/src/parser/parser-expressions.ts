@@ -390,13 +390,10 @@ export class ExpressionParser extends ParserCursor {
       t === TokenType.Source ||
       t === TokenType.Layer ||
       t === TokenType.Preset ||
-      t === TokenType.View ||
-      t === TokenType.On ||
       // Short keywords that naturally appear inside utility names, e.g.
-      // `ease-in-out`, `ease-in`, `from-red-500`, `to-blue-500`, `fade-in`.
-      // Without these, `in` / `from` / `to` would short-circuit the
-      // hyphen-joined name accumulator and break utility parsing.
-      t === TokenType.In ||
+      // `from-red-500`, `to-blue-500`. Without these, `from` / `to`
+      // would short-circuit the hyphen-joined name accumulator and
+      // break utility parsing. (`in` lexes as a plain identifier.)
       t === TokenType.From ||
       t === TokenType.To
     )
@@ -429,9 +426,8 @@ export class ExpressionParser extends ParserCursor {
         next.type === TokenType.SymbolDef ||
         next.type === TokenType.Source ||
         next.type === TokenType.Layer ||
-        // Short keywords that appear mid-name: ease-in-out, ease-in,
-        // from-red-500, to-blue-500, fade-in, etc.
-        next.type === TokenType.In ||
+        // Short keywords that appear mid-name: from-red-500,
+        // to-blue-500, etc. (`in` lexes as a plain identifier.)
         next.type === TokenType.From ||
         next.type === TokenType.To ||
         // Bool keywords as utility-name suffix: label-keep-upright-true,

@@ -5,18 +5,17 @@
 import type * as AST from '../parser/ast'
 import { CAMERA_ZOOM_KEY, CAMERA_PITCH_KEY } from './reserved-keys'
 import { callBuiltin, toNumber, toBool } from './evaluator-helpers'
-import type { FeatureProps, FnEnv } from './evaluator-types'
+import type { FeatureProps } from './evaluator-types'
 
-// Public surface preserved: FeatureProps / FnEnv re-exported here
-// (FeatureProps is also re-exported from compiler/src/index.ts).
-export type { FeatureProps, FnEnv } from './evaluator-types'
+// Public surface preserved: FeatureProps re-exported here
+// (also re-exported from compiler/src/index.ts).
+export type { FeatureProps } from './evaluator-types'
 
 /**
  * Evaluate an expression against feature properties.
  * Returns a number, string, boolean, or null.
- * @param fnEnv Optional user-defined function environment for compile-time evaluation
  */
-export function evaluate(expr: AST.Expr, props: FeatureProps, fnEnv?: FnEnv): unknown {
+export function evaluate(expr: AST.Expr, props: FeatureProps): unknown {
   switch (expr.kind) {
     case 'NumberLiteral':
       return expr.value
@@ -39,26 +38,26 @@ export function evaluate(expr: AST.Expr, props: FeatureProps, fnEnv?: FnEnv): un
       if (expr.name === 'pitch') return props[CAMERA_PITCH_KEY] ?? null
       return props[expr.name] ?? null
     case 'FieldAccess':
-      return evaluateFieldAccess(expr, props, fnEnv)
+      return evaluateFieldAccess(expr, props)
     case 'BinaryExpr':
-      return evaluateBinary(expr, props, fnEnv)
+      return evaluateBinary(expr, props)
     case 'UnaryExpr':
-      return evaluateUnary(expr, props, fnEnv)
+      return evaluateUnary(expr, props)
     case 'FnCall':
-      return evaluateFnCall(expr, props, fnEnv)
+      return evaluateFnCall(expr, props)
     case 'PipeExpr':
-      return evaluatePipe(expr, props, fnEnv)
+      return evaluatePipe(expr, props)
     case 'MatchBlock':
-      return evaluateMatch(expr, props, fnEnv)
+      return evaluateMatch(expr, props)
     case 'ConditionalExpr':
-      return toBool(evaluate(expr.condition, props, fnEnv))
-        ? evaluate(expr.thenExpr, props, fnEnv)
-        : evaluate(expr.elseExpr, props, fnEnv)
+      return toBool(evaluate(expr.condition, props))
+        ? evaluate(expr.thenExpr, props)
+        : evaluate(expr.elseExpr, props)
     case 'ArrayLiteral':
-      return expr.elements.map((e) => evaluate(e, props, fnEnv))
+      return expr.elements.map((e) => evaluate(e, props))
     case 'ArrayAccess': {
-      const arr = evaluate(expr.array, props, fnEnv)
-      const idx = toNumber(evaluate(expr.index, props, fnEnv))
+      const arr = evaluate(expr.array, props)
+      const idx = toNumber(evaluate(expr.index, props))
       return Array.isArray(arr) ? (arr[Math.floor(idx)] ?? null) : null
     }
     default:
@@ -66,25 +65,21 @@ export function evaluate(expr: AST.Expr, props: FeatureProps, fnEnv?: FnEnv): un
   }
 }
 
-function evaluateFieldAccess(expr: AST.FieldAccess, props: FeatureProps, fnEnv?: FnEnv): unknown {
+function evaluateFieldAccess(expr: AST.FieldAccess, props: FeatureProps): unknown {
   if (expr.object === null) {
     // Implicit field access: .speed → props["speed"]
     return props[expr.field] ?? null
   }
-  // Chained: obj.field — forward fnEnv so a user-defined fn nested
-  // inside the object expression still resolves (e.g. `myFn(.x).b`).
-  // Pre-fix the omitted forward dropped fnEnv at the chain boundary
-  // and the inner FnCall fell back to props-only lookup, returning
-  // null for any user-defined fn.
-  const obj = evaluate(expr.object, props, fnEnv)
+  // Chained: obj.field
+  const obj = evaluate(expr.object, props)
   if (obj && typeof obj === 'object') {
     return (obj as Record<string, unknown>)[expr.field] ?? null
   }
   return null
 }
 
-function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps, fnEnv?: FnEnv): unknown {
-  const left = evaluate(expr.left, props, fnEnv)
+function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps): unknown {
+  const left = evaluate(expr.left, props)
   // `??` short-circuits — only evaluates RHS when LHS is null /
   // undefined / non-finite numeric. Mirrors JS semantics so a
   // style author can write `extrude: .height ?? 50` to get the
@@ -92,9 +87,8 @@ function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps, fnEnv?: FnEnv
   // Evaluated BEFORE coercing to number so `0` and `false` stay
   // as themselves on the left and don't trigger fallback.
   if (expr.op === '??') {
-    if (left === null || left === undefined) return evaluate(expr.right, props, fnEnv)
-    if (typeof left === 'number' && !Number.isFinite(left))
-      return evaluate(expr.right, props, fnEnv)
+    if (left === null || left === undefined) return evaluate(expr.right, props)
+    if (typeof left === 'number' && !Number.isFinite(left)) return evaluate(expr.right, props)
     return left
   }
   // Short-circuit boolean operators BEFORE eagerly evaluating RHS.
@@ -107,13 +101,13 @@ function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps, fnEnv?: FnEnv
   // .area/0 even for non-park features).
   if (expr.op === '&&') {
     if (!toBool(left)) return false
-    return toBool(evaluate(expr.right, props, fnEnv))
+    return toBool(evaluate(expr.right, props))
   }
   if (expr.op === '||') {
     if (toBool(left)) return true
-    return toBool(evaluate(expr.right, props, fnEnv))
+    return toBool(evaluate(expr.right, props))
   }
-  const right = evaluate(expr.right, props, fnEnv)
+  const right = evaluate(expr.right, props)
 
   // Mapbox spec: ordered comparison (< > <= >=) works on numbers AND
   // strings (lex compare). Pre-fix the evaluator coerced both sides
@@ -202,8 +196,8 @@ function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps, fnEnv?: FnEnv
   }
 }
 
-function evaluateUnary(expr: AST.UnaryExpr, props: FeatureProps, fnEnv?: FnEnv): unknown {
-  const val = evaluate(expr.operand, props, fnEnv)
+function evaluateUnary(expr: AST.UnaryExpr, props: FeatureProps): unknown {
+  const val = evaluate(expr.operand, props)
   switch (expr.op) {
     case '-':
       return -toNumber(val)
@@ -214,56 +208,7 @@ function evaluateUnary(expr: AST.UnaryExpr, props: FeatureProps, fnEnv?: FnEnv):
   }
 }
 
-/** Sentinel for early return from function body */
-class ReturnSignal {
-  constructor(public value: unknown) {}
-}
-
-const MAX_LOOP_ITERATIONS = 10000
-
-/** Execute a list of statements, returning the last expression value or ReturnSignal */
-function executeBody(body: AST.Statement[], scope: FeatureProps, fnEnv?: FnEnv): unknown {
-  let result: unknown = null
-  for (const stmt of body) {
-    switch (stmt.kind) {
-      case 'ExprStatement':
-        result = evaluate(stmt.expr, scope, fnEnv)
-        break
-      case 'LetStatement':
-        scope[stmt.name] = evaluate(stmt.value, scope, fnEnv)
-        break
-      case 'ReturnStatement':
-        return new ReturnSignal(stmt.value ? evaluate(stmt.value, scope, fnEnv) : null)
-      case 'IfStatement': {
-        const cond = toBool(evaluate(stmt.condition, scope, fnEnv))
-        const branch = cond ? stmt.thenBranch : stmt.elseBranch
-        if (branch) {
-          const r = executeBody(branch, scope, fnEnv)
-          if (r instanceof ReturnSignal) return r
-          result = r
-        }
-        break
-      }
-      case 'ForStatement': {
-        const startVal = Math.floor(toNumber(evaluate(stmt.start, scope, fnEnv)))
-        const endVal = Math.floor(toNumber(evaluate(stmt.end, scope, fnEnv)))
-        const iterations = Math.min(Math.abs(endVal - startVal), MAX_LOOP_ITERATIONS)
-        for (let i = 0; i < iterations; i++) {
-          scope[stmt.variable] = startVal + i
-          const r = executeBody(stmt.body, scope, fnEnv)
-          if (r instanceof ReturnSignal) return r
-          result = r
-        }
-        break
-      }
-      default:
-        break
-    }
-  }
-  return result
-}
-
-function evaluateFnCall(expr: AST.FnCall, props: FeatureProps, fnEnv?: FnEnv): unknown {
+function evaluateFnCall(expr: AST.FnCall, props: FeatureProps): unknown {
   const name = expr.callee.kind === 'Identifier' ? expr.callee.name : null
   if (!name) return null
 
@@ -289,7 +234,7 @@ function evaluateFnCall(expr: AST.FnCall, props: FeatureProps, fnEnv?: FnEnv): u
     if (keyArg.kind === 'StringLiteral') {
       return props[keyArg.value] ?? null
     }
-    const dynKey = evaluate(keyArg, props, fnEnv)
+    const dynKey = evaluate(keyArg, props)
     if (typeof dynKey === 'string') return props[dynKey] ?? null
     return null
   }
@@ -323,56 +268,39 @@ function evaluateFnCall(expr: AST.FnCall, props: FeatureProps, fnEnv?: FnEnv): u
       }
     }
     const defaultArm = expr.matchBlock.arms.find((a) => a.pattern === '_')
-    return defaultArm ? evaluate(defaultArm.value, props, fnEnv) : null
+    return defaultArm ? evaluate(defaultArm.value, props) : null
   }
 
-  const args = expr.args.map((a) => evaluate(a, props, fnEnv))
-
-  // Try user-defined function first (higher priority than builtins)
-  if (fnEnv) {
-    const fn = fnEnv.get(name)
-    if (fn) {
-      const fnProps: FeatureProps = { ...props }
-      fn.params.forEach((p, i) => {
-        fnProps[p.name] = args[i]
-      })
-      const r = executeBody(fn.body, fnProps, fnEnv)
-      return r instanceof ReturnSignal ? r.value : r
-    }
-  }
-
+  const args = expr.args.map((a) => evaluate(a, props))
   return callBuiltin(name, args)
 }
 
-function evaluatePipe(expr: AST.PipeExpr, props: FeatureProps, fnEnv?: FnEnv): unknown {
-  let value = evaluate(expr.input, props, fnEnv)
+function evaluatePipe(expr: AST.PipeExpr, props: FeatureProps): unknown {
+  let value = evaluate(expr.input, props)
 
   for (const transform of expr.transforms) {
     const name = transform.callee.kind === 'Identifier' ? transform.callee.name : null
     if (!name) continue
 
-    const args = transform.args.map((a) => evaluate(a, props, fnEnv))
+    const args = transform.args.map((a) => evaluate(a, props))
     value = callBuiltin(name, [value, ...args])
   }
 
   return value
 }
 
-function evaluateMatch(expr: AST.MatchBlock, props: FeatureProps, fnEnv?: FnEnv): unknown {
+function evaluateMatch(expr: AST.MatchBlock, props: FeatureProps): unknown {
   // Not yet generated by parser, but ready for future use.
-  // Forward fnEnv so user-defined fns nested inside arm values still
-  // resolve (mirror of the FieldAccess fnEnv-forward fix; same
-  // dropped-fnEnv class).
   for (const arm of expr.arms) {
     if (arm.pattern === '_') continue
     // Simple string match against props
     if (props[arm.pattern] !== undefined) {
-      return evaluate(arm.value, props, fnEnv)
+      return evaluate(arm.value, props)
     }
   }
   // Default arm
   const defaultArm = expr.arms.find((a) => a.pattern === '_')
-  return defaultArm ? evaluate(defaultArm.value, props, fnEnv) : null
+  return defaultArm ? evaluate(defaultArm.value, props) : null
 }
 
 // ═══ Built-in functions + type coercion helpers ═══

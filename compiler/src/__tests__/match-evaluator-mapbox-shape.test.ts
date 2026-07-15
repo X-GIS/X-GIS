@@ -21,19 +21,13 @@
 // icon-allow-overlap=false (default) survive in X-GIS' render.
 
 import { describe, expect, it } from 'vitest'
-import { Lexer } from '../lexer/lexer'
-import { Parser } from '../parser/parser'
 import { evaluate } from '../eval/evaluator'
 import { exprToXgis } from '../convert/expressions'
 import type { Expr } from '../parser/ast'
-import { withPragma } from './_pragma'
+import { parseExpressionString } from '../parser/parser'
 
 function parseExpr(src: string): Expr {
-  const tokens = new Lexer(withPragma('let __x = ' + src)).tokenize()
-  const ast = new Parser(tokens).parse()
-  const stmt = ast.body[0]
-  if (stmt.kind !== 'LetStatement') throw new Error('expected LetStatement')
-  return stmt.value
+  return parseExpressionString(src)
 }
 
 describe('Mapbox match — array-label semantics (OFM POI icon-image shape)', () => {

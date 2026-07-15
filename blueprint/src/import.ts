@@ -132,7 +132,9 @@ export function xgisToGraph(src: string): BPGraph {
   const nodes: BPNode[] = []
   const edges: BPEdge[] = []
   const sourceByName = new Map<string, string>()
-  const styleByName = new Map<string, string>()
+  // `style:` references a preset (the merged style+preset construct,
+  // #1072) — this maps preset names to node ids for that wiring.
+  const presetByName = new Map<string, string>()
   const layers: { node: BPNode; src?: string; style?: string }[] = []
   // GeoJSON sources with no URL are the converter's "inline/missing
   // data" stub — unrepresentable here and unloadable at runtime, so
@@ -167,18 +169,10 @@ export function xgisToGraph(src: string): BPGraph {
       })
       nodes.push(n)
       if (name) sourceByName.set(name, n.id)
-    } else if (kw === 'style') {
-      const n = mk('style', {
-        name,
-        fill: prop(lines, 'fill') || '',
-        stroke: prop(lines, 'stroke') || '',
-        strokeWidth: prop(lines, 'stroke-width') || '',
-        opacity: prop(lines, 'opacity') || '',
-      })
-      nodes.push(n)
-      if (name) styleByName.set(name, n.id)
     } else if (kw === 'preset') {
-      nodes.push(mk('preset', { name, pipe: pipeText(lines) }))
+      const n = mk('preset', { name, pipe: pipeText(lines) })
+      nodes.push(n)
+      if (name) presetByName.set(name, n.id)
     } else if (kw === 'symbol') {
       const pathLine = lines.find((l) => l.startsWith('path '))
       nodes.push(
@@ -211,16 +205,6 @@ export function xgisToGraph(src: string): BPGraph {
           }),
         )
       else if (splice) nodes.push(mk('import', { mode: 'splice', path: splice[1] }))
-    } else if (kw === 'fn') {
-      const sig = block.match(/^fn\s+[A-Za-z_]\w*\s*\(([^)]*)\)\s*(?:->\s*([A-Za-z_]\w*))?/)
-      nodes.push(
-        mk('fn', {
-          name,
-          params: sig?.[1]?.trim() || '',
-          ret: sig?.[2]?.trim() || '',
-          body: lines.join('\n'),
-        }),
-      )
     } else if (kw === 'layer') {
       const srcRef = prop(lines, 'source')
       if (srcRef && skippedSources.has(srcRef)) continue
@@ -255,15 +239,15 @@ export function xgisToGraph(src: string): BPGraph {
       // doesn't silently drop `source:` and orphan the layer. Codegen
       // emits it as a fallback when no source node is wired.
       node.data.source = s
-    if (st && styleByName.has(st))
+    if (st && presetByName.has(st))
       edges.push({
         id: uid('e'),
-        from: { node: styleByName.get(st)!, pin: 'out' },
+        from: { node: presetByName.get(st)!, pin: 'out' },
         to: { node: node.id, pin: 'style' },
       })
     else if (st)
       // Same as the source fallback above: a `style:` ref to a
-      // splice-imported style has no local node to wire to. Keep the
+      // splice-imported preset has no local node to wire to. Keep the
       // bare name so codegen can re-emit `style:` rather than drop it.
       node.data.style = st
     edges.push({
@@ -286,7 +270,7 @@ export function xgisToGraph(src: string): BPGraph {
 /** Columns by role; layers wrap so a 100-layer basemap stays
  *  pannable rather than one impossibly tall stack. */
 function autoLayout(nodes: BPNode[]) {
-  const col = (t: NodeType) => (t === 'source' ? 1 : t === 'layer' ? 2 : t === 'map' ? 3 : 0) // import/fn/symbol/style/preset/background
+  const col = (t: NodeType) => (t === 'source' ? 1 : t === 'layer' ? 2 : t === 'map' ? 3 : 0) // import/symbol/preset/background
   const yByCol = new Map<number, number>()
   const xByCol = [40, 340, 660, 0]
   const layerCount = nodes.filter((n) => n.type === 'layer').length

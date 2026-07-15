@@ -1,9 +1,7 @@
 xgis 1
 
-style dark_base {
-  fill: slate-900
-  stroke: slate-700
-  stroke-width: 0.5
+preset dark_base {
+  | fill-slate-900 stroke-slate-700 stroke-0.5
 }
 
 source countries {

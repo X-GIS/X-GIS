@@ -11,13 +11,12 @@
 
 import { LANGUAGE_SCHEMA, type ConstructDef } from '@xgis/compiler'
 
-export type PinType = 'source' | 'style' | 'preset' | 'symbol' | 'layer' | 'any'
+export type PinType = 'source' | 'preset' | 'symbol' | 'layer' | 'any'
 
 /** Wire colour per data type — kept distinct so a glance at the
  *  canvas reads the dependency graph (Unreal-style typed pins). */
 export const PIN_COLOR: Record<PinType, string> = {
   source: '#f5a623', // amber  — data sources
-  style: '#a78bfa', // violet — named styles
   preset: '#34d399', // emerald— reusable utility combos
   symbol: '#f472b6', // pink   — vector symbols
   layer: '#2997ff', // blue   — rendered layers (site accent)
@@ -51,9 +50,7 @@ export type NodeType =
   | 'import'
   | 'source'
   | 'symbol'
-  | 'style'
   | 'preset'
-  | 'fn'
   | 'layer'
   | 'background'
   | 'map'
@@ -152,24 +149,10 @@ const PRESENTATION: Record<string, Presentation> = {
     },
     defaults: { name: 'arrow', path: 'M 0 -1 L -0.4 0.3 L 0.4 0.3 Z', anchor: 'center' },
   },
-  style: {
-    title: 'Style',
-    accent: PIN_COLOR.style,
-    blurb: 'A named style block consumed via a layer’s style: field.',
-    outLabel: 'style',
-    fields: {
-      name: { label: 'Name', kind: 'text', placeholder: 'dark_land' },
-      fill: { label: 'fill', kind: 'text', placeholder: 'stone-800' },
-      stroke: { label: 'stroke', kind: 'text', placeholder: 'slate-600' },
-      strokeWidth: { label: 'stroke-width', kind: 'text', placeholder: '1' },
-      opacity: { label: 'opacity', kind: 'text', placeholder: '0.8' },
-    },
-    defaults: { name: 'land', fill: 'stone-800', stroke: '', strokeWidth: '', opacity: '' },
-  },
   preset: {
     title: 'Preset',
     accent: PIN_COLOR.preset,
-    blurb: 'A reusable utility combo applied via apply-<name>.',
+    blurb: 'A reusable utility combo applied via style: or apply-<name>.',
     outLabel: 'preset',
     fields: {
       name: { label: 'Name', kind: 'text', placeholder: 'alert_track' },
@@ -180,23 +163,6 @@ const PRESENTATION: Record<string, Presentation> = {
       },
     },
     defaults: { name: 'alert_track', pipe: 'fill-red-500 stroke-white stroke-2' },
-  },
-  fn: {
-    title: 'Function',
-    accent: '#60a5fa',
-    blurb: 'A user function usable inside [bracket] expressions.',
-    fields: {
-      name: { label: 'Name', kind: 'text', placeholder: 'threat_size' },
-      params: { label: 'Params', kind: 'text', placeholder: 'level: f32' },
-      ret: { label: 'Return type', kind: 'text', placeholder: 'f32' },
-      body: { label: 'Body', kind: 'textarea', placeholder: 'clamp(level * 4, 8, 32)' },
-    },
-    defaults: {
-      name: 'threat_size',
-      params: 'level: f32',
-      ret: 'f32',
-      body: 'clamp(level * 4, 8, 32)',
-    },
   },
   layer: {
     title: 'Layer',

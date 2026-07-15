@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Lexer } from '../lexer/lexer'
-import { Parser } from '../parser/parser'
+import { Parser, parseExpressionString } from '../parser/parser'
 import type * as AST from '../parser/ast'
 import { withPragma } from './_pragma'
 
@@ -10,94 +10,91 @@ function parse(source: string): AST.Program {
 }
 
 describe('Parser', () => {
-  describe('let statement', () => {
-    it('parses simple let with function call', () => {
-      const ast = parse('let world = load("countries.geojson")')
-      expect(ast.body).toHaveLength(1)
+  describe('pruned keywords parse as plain identifiers (#1072)', () => {
+    // place/view/on/struct/enum/simulate/analyze/export were tokenized but
+    // never implemented; let/fn/show/style (and if/else/for/in/return, which
+    // only existed for fn bodies) were removed. They all lex as ordinary
+    // identifiers now.
+    const pruned = [
+      'place',
+      'view',
+      'on',
+      'struct',
+      'enum',
+      'simulate',
+      'analyze',
+      'export',
+      'show',
+      'let',
+      'fn',
+      'style',
+      'if',
+      'else',
+      'for',
+      'in',
+      'return',
+    ]
+    for (const kw of pruned) {
+      it(`\`${kw}\` is an ordinary identifier in expression position`, () => {
+        const expr = parseExpressionString(kw) as AST.Identifier
+        expect(expr.kind).toBe('Identifier')
+        expect(expr.name).toBe(kw)
+      })
+    }
 
-      const stmt = ast.body[0] as AST.LetStatement
-      expect(stmt.kind).toBe('LetStatement')
-      expect(stmt.name).toBe('world')
-
-      const call = stmt.value as AST.FnCall
-      expect(call.kind).toBe('FnCall')
-      expect((call.callee as AST.Identifier).name).toBe('load')
-      expect(call.args).toHaveLength(1)
-      expect((call.args[0] as AST.StringLiteral).value).toBe('countries.geojson')
+    it('a pruned keyword is usable as a source name', () => {
+      const ast = parse('source view { type: geojson }')
+      const stmt = ast.body[0] as AST.SourceStatement
+      expect(stmt.kind).toBe('SourceStatement')
+      expect(stmt.name).toBe('view')
     })
 
-    it('parses let with arithmetic', () => {
-      const ast = parse('let x = a + b * 2')
-      const stmt = ast.body[0] as AST.LetStatement
-      const expr = stmt.value as AST.BinaryExpr
-      expect(expr.op).toBe('+')
-      // b * 2 should be grouped first (higher precedence)
-      expect((expr.right as AST.BinaryExpr).op).toBe('*')
+    it('a bare pruned keyword at top level errors like any identifier there', () => {
+      // Top-level expression statements were also pruned (#1072), so a
+      // stray identifier at statement position is a normal parse error.
+      expect(() => parse('show')).toThrow(/\[Parser\] Expected a top-level statement/)
     })
-  })
 
-  describe('show statement', () => {
-    it('parses show with block', () => {
-      const ast = parse(`
+    it('the legacy `show` program errors with a normal parse diagnostic', () => {
+      expect(() =>
+        parse(`
         show world {
           fill: #f2efe9
           stroke: #ccc, 1px
         }
-      `)
-      expect(ast.body).toHaveLength(1)
+      `),
+      ).toThrow(/\[Parser\]/)
+    })
 
-      const stmt = ast.body[0] as AST.ShowStatement
-      expect(stmt.kind).toBe('ShowStatement')
-      expect((stmt.target as AST.Identifier).name).toBe('world')
-      expect(stmt.block.properties).toHaveLength(2)
+    it('the legacy `let` binding errors with a normal parse diagnostic', () => {
+      expect(() => parse('let world = load("countries.geojson")')).toThrow(/\[Parser\]/)
+    })
 
-      // fill: #f2efe9
-      const fill = stmt.block.properties[0]
-      expect(fill.name).toBe('fill')
-      expect(fill.values).toHaveLength(1)
-      expect((fill.values[0] as AST.ColorLiteral).value).toBe('#f2efe9')
-
-      // stroke: #ccc, 1px
-      const stroke = stmt.block.properties[1]
-      expect(stroke.name).toBe('stroke')
-      expect(stroke.values).toHaveLength(2)
-      expect((stroke.values[0] as AST.ColorLiteral).value).toBe('#ccc')
-      expect((stroke.values[1] as AST.NumberLiteral).value).toBe(1)
-      expect((stroke.values[1] as AST.NumberLiteral).unit).toBe('px')
+    it('the legacy `fn` declaration errors with a normal parse diagnostic', () => {
+      expect(() => parse('fn f(x: f32) -> f32 { return x }')).toThrow(/\[Parser\]/)
     })
   })
 
-  describe('hello map program', () => {
-    it('parses the first X-GIS program', () => {
-      const ast = parse(`
-        let world = load("countries.geojson")
-
-        show world {
-          fill: #f2efe9
-          stroke: #ccc, 1px
-        }
-      `)
-
-      expect(ast.body).toHaveLength(2)
-      expect(ast.body[0].kind).toBe('LetStatement')
-      expect(ast.body[1].kind).toBe('ShowStatement')
-    })
+  describe('no top-level expression statements (#1072)', () => {
+    // Bare expressions at file scope were accidental surface — parsed,
+    // then silently ignored by lowering. They are normal parse errors now.
+    for (const src of ['42', '[1, 2]', '.speed', 'zoom >= 10']) {
+      it(`\`${src}\` at top level is a parse error`, () => {
+        expect(() => parse(src)).toThrow(/\[Parser\] Expected a top-level statement/)
+      })
+    }
   })
 
-  describe('expressions', () => {
+  describe('expressions (via parseExpressionString)', () => {
     it('parses field access (.field)', () => {
-      const ast = parse('let x = .speed')
-      const stmt = ast.body[0] as AST.LetStatement
-      const field = stmt.value as AST.FieldAccess
+      const field = parseExpressionString('.speed') as AST.FieldAccess
       expect(field.kind).toBe('FieldAccess')
       expect(field.object).toBeNull() // implicit
       expect(field.field).toBe('speed')
     })
 
     it('parses chained field access (a.b.c)', () => {
-      const ast = parse('let x = ship.position.lat')
-      const stmt = ast.body[0] as AST.LetStatement
-      const outer = stmt.value as AST.FieldAccess
+      const outer = parseExpressionString('ship.position.lat') as AST.FieldAccess
       expect(outer.field).toBe('lat')
       const inner = outer.object as AST.FieldAccess
       expect(inner.field).toBe('position')
@@ -105,9 +102,7 @@ describe('Parser', () => {
     })
 
     it('parses pipe expressions', () => {
-      const ast = parse('let x = .speed | clamp(4, 24)')
-      const stmt = ast.body[0] as AST.LetStatement
-      const pipe = stmt.value as AST.PipeExpr
+      const pipe = parseExpressionString('.speed | clamp(4, 24)') as AST.PipeExpr
       expect(pipe.kind).toBe('PipeExpr')
 
       const input = pipe.input as AST.FieldAccess
@@ -119,17 +114,13 @@ describe('Parser', () => {
     })
 
     it('parses number with unit', () => {
-      const ast = parse('let r = 5km')
-      const stmt = ast.body[0] as AST.LetStatement
-      const num = stmt.value as AST.NumberLiteral
+      const num = parseExpressionString('5km') as AST.NumberLiteral
       expect(num.value).toBe(5)
       expect(num.unit).toBe('km')
     })
 
     it('parses comparison expressions', () => {
-      const ast = parse('let x = zoom >= 10')
-      const stmt = ast.body[0] as AST.LetStatement
-      const cmp = stmt.value as AST.BinaryExpr
+      const cmp = parseExpressionString('zoom >= 10') as AST.BinaryExpr
       expect(cmp.op).toBe('>=')
     })
   })
@@ -308,45 +299,23 @@ describe('Parser', () => {
     })
   })
 
-  describe('style statement', () => {
-    it('parses named style block', () => {
+  describe('preset statement (merged style+preset construct)', () => {
+    it('parses a preset block of utility lines', () => {
       const ast = parse(`
-        style dark_land {
-          fill: stone-800
-          stroke: slate-600
-          stroke-width: 1
-          opacity: 0.8
+        preset dark_land {
+          | fill-stone-800 stroke-slate-600 stroke-1
         }
       `)
       expect(ast.body).toHaveLength(1)
-
-      const stmt = ast.body[0] as AST.StyleStatement
-      expect(stmt.kind).toBe('StyleStatement')
+      const stmt = ast.body[0] as AST.PresetStatement
+      expect(stmt.kind).toBe('PresetStatement')
       expect(stmt.name).toBe('dark_land')
-      expect(stmt.properties).toHaveLength(4)
-
-      expect(stmt.properties[0]).toMatchObject({ name: 'fill', value: 'stone-800' })
-      expect(stmt.properties[1]).toMatchObject({ name: 'stroke', value: 'slate-600' })
-      expect(stmt.properties[2]).toMatchObject({ name: 'stroke-width', value: '1' })
-      expect(stmt.properties[3]).toMatchObject({ name: 'opacity', value: '0.8' })
-    })
-
-    it('parses style with hex colors', () => {
-      const ast = parse(`
-        style custom {
-          fill: #ff0000
-          stroke: #ccc
-        }
-      `)
-      const stmt = ast.body[0] as AST.StyleStatement
-      expect(stmt.properties[0]).toMatchObject({ name: 'fill', value: '#ff0000' })
-      expect(stmt.properties[1]).toMatchObject({ name: 'stroke', value: '#ccc' })
-    })
-
-    it('parses style with comma-separated properties', () => {
-      const ast = parse(`style s { fill: red-500, stroke: white, stroke-width: 2 }`)
-      const stmt = ast.body[0] as AST.StyleStatement
-      expect(stmt.properties).toHaveLength(3)
+      expect(stmt.utilities).toHaveLength(1)
+      expect(stmt.utilities[0].items.map((i) => i.name)).toEqual([
+        'fill-stone-800',
+        'stroke-slate-600',
+        'stroke-1',
+      ])
     })
   })
 
@@ -455,34 +424,9 @@ describe('Parser', () => {
     })
   })
 
-  describe('show with data binding', () => {
-    it('parses show with field access and expressions', () => {
-      const ast = parse(`
-        show ais {
-          shape: arrow
-          color: .type
-          size: .speed / 50 | clamp(4, 24)
-          rotate: .heading
-        }
-      `)
-
-      const stmt = ast.body[0] as AST.ShowStatement
-      expect(stmt.block.properties).toHaveLength(4)
-
-      // shape: arrow
-      expect(stmt.block.properties[0].name).toBe('shape')
-      expect((stmt.block.properties[0].values[0] as AST.Identifier).name).toBe('arrow')
-
-      // size: .speed / 50 | clamp(4, 24) — pipe expression
-      const sizeExpr = stmt.block.properties[2].values[0]
-      expect(sizeExpr.kind).toBe('PipeExpr')
-    })
-  })
-
   describe('ternary conditional', () => {
     it('parses expr ? expr : expr', () => {
-      const ast = parse('let x = a > 5 ? 1 : 0')
-      const expr = (ast.body[0] as AST.LetStatement).value
+      const expr = parseExpressionString('a > 5 ? 1 : 0')
       expect(expr.kind).toBe('ConditionalExpr')
       const cond = expr as AST.ConditionalExpr
       expect(cond.condition.kind).toBe('BinaryExpr')
@@ -491,61 +435,33 @@ describe('Parser', () => {
     })
 
     it('parses nested ternary', () => {
-      const ast = parse('let x = a > 10 ? 2 : a > 5 ? 1 : 0')
-      const expr = (ast.body[0] as AST.LetStatement).value as AST.ConditionalExpr
+      const expr = parseExpressionString('a > 10 ? 2 : a > 5 ? 1 : 0') as AST.ConditionalExpr
       expect(expr.kind).toBe('ConditionalExpr')
       expect(expr.elseExpr.kind).toBe('ConditionalExpr')
     })
   })
 
-  describe('if/else statement', () => {
-    it('parses if/else in function', () => {
-      const ast = parse(`
-        fn classify(x: f32) -> f32 {
-          if x > 10 { return 1.0 }
-          else { return 0.0 }
-        }
-      `)
-      const fn = ast.body[0] as AST.FnStatement
-      expect(fn.body).toHaveLength(1)
-      const ifStmt = fn.body[0] as AST.IfStatement
-      expect(ifStmt.kind).toBe('IfStatement')
-      expect(ifStmt.thenBranch).toHaveLength(1)
-      expect(ifStmt.elseBranch).toHaveLength(1)
-      expect((ifStmt.thenBranch[0] as AST.ReturnStatement).kind).toBe('ReturnStatement')
+  describe('pruned control-flow statements (#1072)', () => {
+    // if/else, for..in, and return only ever made sense inside `fn`
+    // bodies; with `fn` deleted they are top-level parse errors, and
+    // their words are ordinary identifiers.
+    it('a top-level if/else block is a parse error', () => {
+      expect(() =>
+        parse(`
+        if x > 10 { return 1.0 }
+        else { return 0.0 }
+      `),
+      ).toThrow(/\[Parser\]/)
     })
 
-    it('parses else if chain', () => {
-      const ast = parse(`
-        fn grade(x: f32) -> string {
-          if x > 90 { return "A" }
-          else if x > 80 { return "B" }
-          else { return "C" }
+    it('a top-level for loop is a parse error', () => {
+      expect(() =>
+        parse(`
+        for i in 0..10 {
+          i * 2
         }
-      `)
-      const fn = ast.body[0] as AST.FnStatement
-      const ifStmt = fn.body[0] as AST.IfStatement
-      expect(ifStmt.elseBranch).toHaveLength(1)
-      expect((ifStmt.elseBranch![0] as AST.IfStatement).kind).toBe('IfStatement')
-    })
-  })
-
-  describe('for loop', () => {
-    it('parses for..in range', () => {
-      const ast = parse(`
-        fn make(n: f32) -> array {
-          for i in 0..10 {
-            let x = i * 2
-          }
-        }
-      `)
-      const fn = ast.body[0] as AST.FnStatement
-      const forStmt = fn.body[0] as AST.ForStatement
-      expect(forStmt.kind).toBe('ForStatement')
-      expect(forStmt.variable).toBe('i')
-      expect((forStmt.start as AST.NumberLiteral).value).toBe(0)
-      expect((forStmt.end as AST.NumberLiteral).value).toBe(10)
-      expect(forStmt.body).toHaveLength(1)
+      `),
+      ).toThrow(/\[Parser\]/)
     })
   })
 
@@ -583,22 +499,19 @@ describe('Parser', () => {
 
   describe('array literal', () => {
     it('parses empty array', () => {
-      const ast = parse('let x = []')
-      const expr = (ast.body[0] as AST.LetStatement).value as AST.ArrayLiteral
+      const expr = parseExpressionString('[]') as AST.ArrayLiteral
       expect(expr.kind).toBe('ArrayLiteral')
       expect(expr.elements).toHaveLength(0)
     })
 
     it('parses array with elements', () => {
-      const ast = parse('let x = [1, 2, 3]')
-      const expr = (ast.body[0] as AST.LetStatement).value as AST.ArrayLiteral
+      const expr = parseExpressionString('[1, 2, 3]') as AST.ArrayLiteral
       expect(expr.kind).toBe('ArrayLiteral')
       expect(expr.elements).toHaveLength(3)
     })
 
     it('parses nested array', () => {
-      const ast = parse('let x = [[1, 2], [3, 4]]')
-      const expr = (ast.body[0] as AST.LetStatement).value as AST.ArrayLiteral
+      const expr = parseExpressionString('[[1, 2], [3, 4]]') as AST.ArrayLiteral
       expect(expr.elements).toHaveLength(2)
       expect((expr.elements[0] as AST.ArrayLiteral).kind).toBe('ArrayLiteral')
     })

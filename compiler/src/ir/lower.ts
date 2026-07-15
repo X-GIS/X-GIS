@@ -1,6 +1,5 @@
 // ═══ AST → IR Lowering Pass ═══
 // Converts parsed AST into the intermediate representation (Scene).
-// Handles both legacy (let/show) and new (source/layer) syntax.
 
 import type * as AST from '../parser/ast'
 import { resolveColor } from '../tokens/colors'
@@ -48,18 +47,15 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
   validateFnCalls(program, diagnostics)
   const sourceMap = new Map<string, SourceDef>()
   const presetMap = new Map<string, AST.UtilityLine[]>()
-  const styleMap = new Map<string, AST.StyleProperty[]>()
   const keyframesMap = new Map<string, AST.KeyframesStatement>()
 
-  // First pass: collect presets, styles, symbols, and keyframes. Keyframes
+  // First pass: collect presets, symbols, and keyframes. Keyframes
   // must land in the symbol table before any layer is lowered so forward
   // references like `animation-pulse` resolve regardless of declaration
   // order in the source file.
   for (const stmt of program.body) {
     if (stmt.kind === 'PresetStatement') {
       presetMap.set(stmt.name, stmt.utilities)
-    } else if (stmt.kind === 'StyleStatement') {
-      styleMap.set(stmt.name, stmt.properties)
     } else if (stmt.kind === 'SymbolStatement') {
       const paths: string[] = []
       for (const el of stmt.elements) {
@@ -74,7 +70,6 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
   for (const stmt of program.body) {
     switch (stmt.kind) {
       case 'PresetStatement':
-      case 'StyleStatement':
       case 'KeyframesStatement':
         break // already processed in first pass
       case 'SourceStatement': {
@@ -86,15 +81,7 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
         break
       }
       case 'LayerStatement': {
-        const node = lowerLayer(
-          stmt,
-          sourceMap,
-          presetMap,
-          styleMap,
-          keyframesMap,
-          diagnostics,
-          options,
-        )
+        const node = lowerLayer(stmt, sourceMap, presetMap, keyframesMap, diagnostics, options)
         if (node) {
           // If the source was referenced but not yet added, add it
           if (!sources.find((s) => s.name === node.sourceRef)) {
@@ -103,19 +90,6 @@ export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
           }
           renderNodes.push(node)
         }
-        break
-      }
-      case 'LetStatement': {
-        const src = lowerLetAsSource(stmt)
-        if (src) {
-          sources.push(src)
-          sourceMap.set(src.name, src)
-        }
-        break
-      }
-      case 'ShowStatement': {
-        const node = lowerShow(stmt)
-        if (node) renderNodes.push(node)
         break
       }
     }
@@ -297,7 +271,6 @@ function lowerLayer(
   stmt: AST.LayerStatement,
   sourceMap: Map<string, SourceDef>,
   presetMap: Map<string, AST.UtilityLine[]>,
-  styleMap: Map<string, AST.StyleProperty[]>,
   keyframesMap: Map<string, AST.KeyframesStatement>,
   diagnostics: import('./render-node').Diagnostic[],
   options: LowerOptions,
@@ -380,8 +353,11 @@ function lowerLayer(
     return null
   }
 
-  // Expand presets: apply-name → inline preset's utility items
-  const expandedUtilities = expandPresets(stmt.utilities, presetMap)
+  // Expand presets: a leading `style: <name>` reference and any
+  // inline `apply-<name>` items both inline that preset's utility
+  // lines (the merged style/preset construct). `style:` lands first,
+  // so it is the lowest-priority base that layer utilities override.
+  const expandedUtilities = expandPresets(stmt.utilities, presetMap, styleRef)
 
   // Process utility lines
   let fill: ColorValue = colorNone()
@@ -557,41 +533,9 @@ function lowerLayer(
   let anchor: 'center' | 'bottom' | 'top' | undefined
   let shape: ShapeRef = shapeNone()
 
-  // Cascade order: named style → inline CSS → utilities
-  // 1. Apply named style (lowest priority)
-  if (styleRef) {
-    const namedProps = styleMap.get(styleRef)
-    if (namedProps) {
-      const result = applyStyleProperties(
-        namedProps,
-        fill,
-        strokeColor,
-        strokeWidth,
-        opacity,
-        projection,
-        visible,
-      )
-      fill = result.fill
-      strokeColor = result.strokeColor
-      strokeWidth = result.strokeWidth
-      opacity = result.opacity
-      projection = result.projection
-      visible = result.visible
-      if (result.linecap) linecap = result.linecap
-      if (result.linejoin) linejoin = result.linejoin
-      if (result.miterlimit !== undefined) miterlimit = result.miterlimit
-      if (result.dashArray) dashArray = result.dashArray
-      if (result.dashOffset !== undefined) dashOffset = result.dashOffset
-      if (result.strokeOffset !== undefined) strokeOffset = result.strokeOffset
-      if (result.strokeAlign !== undefined) strokeAlign = result.strokeAlign
-      if (result.pattern) {
-        Object.assign(patternSlots[0], result.pattern)
-        patternDirty[0] = true
-      }
-    }
-  }
-
-  // 2. Apply inline CSS-like properties (overrides named style)
+  // Cascade order: style:-referenced preset (already inlined at the
+  // head of the utility list above) → inline CSS → utilities.
+  // Apply inline CSS-like properties (they override the base preset).
   if (stmt.styleProperties.length > 0) {
     const result = applyStyleProperties(
       stmt.styleProperties,
@@ -1320,14 +1264,23 @@ function applyStyleProperties(
 }
 
 /**
- * Expand apply-presetName items by inlining the preset's utility lines.
- * Preset items come first (lower priority), layer items come after (override).
+ * Expand preset references by inlining the preset's utility lines.
+ * A leading `style: <name>` reference (styleRef) is inlined first as
+ * the lowest-priority base, then each `apply-<name>` item inline in
+ * declaration order; the layer's own items come after (override).
  */
 function expandPresets(
   utilities: AST.UtilityLine[],
   presetMap: Map<string, AST.UtilityLine[]>,
+  styleRef?: string,
 ): AST.UtilityLine[] {
   const result: AST.UtilityLine[] = []
+
+  // `style: <name>` — the single-preset base, inlined ahead of everything.
+  if (styleRef) {
+    const base = presetMap.get(styleRef)
+    if (base) result.push(...base)
+  }
 
   for (const line of utilities) {
     const expandedItems: AST.UtilityItem[] = []
@@ -1351,82 +1304,4 @@ function expandPresets(
   }
 
   return result
-}
-
-// ═══ Legacy syntax lowering ═══
-
-function lowerLetAsSource(stmt: AST.LetStatement): SourceDef | null {
-  if (stmt.value.kind !== 'FnCall') return null
-  const callee = stmt.value.callee
-  if (callee.kind !== 'Identifier' || callee.name !== 'load') return null
-  const arg = stmt.value.args[0]
-  if (!arg || arg.kind !== 'StringLiteral') return null
-
-  // Detect type from URL pattern
-  const url = arg.value
-  const type = url.includes('{z}') ? 'raster' : 'geojson'
-
-  return { name: stmt.name, type, url }
-}
-
-function lowerShow(stmt: AST.ShowStatement): RenderNode | null {
-  let targetName = ''
-  if (stmt.target.kind === 'Identifier') {
-    targetName = stmt.target.name
-  }
-  if (!targetName) return null
-
-  let fill: ColorValue = colorNone()
-  let strokeColor: ColorValue = colorNone()
-  let strokeWidth = 1
-  let opacity = 1.0
-  // Content-blind: unset projection = '' (runtime supplies Web Mercator).
-  let projection = ''
-  let visible = true
-
-  for (const prop of stmt.block.properties) {
-    if (prop.name === 'fill') {
-      const val = prop.values[0]
-      if (val?.kind === 'ColorLiteral') {
-        fill = colorConstant(...hexToRgba(val.value))
-      }
-    } else if (prop.name === 'stroke') {
-      const val = prop.values[0]
-      if (val?.kind === 'ColorLiteral') {
-        strokeColor = colorConstant(...hexToRgba(val.value))
-      }
-      const widthVal = prop.values[1]
-      if (widthVal?.kind === 'NumberLiteral') {
-        strokeWidth = widthVal.value
-      }
-    } else if (prop.name === 'opacity') {
-      const val = prop.values[0]
-      if (val?.kind === 'NumberLiteral') opacity = val.value
-    } else if (prop.name === 'projection') {
-      const val = prop.values[0]
-      if (val?.kind === 'Identifier') projection = val.name
-    } else if (prop.name === 'visible') {
-      const val = prop.values[0]
-      if (val?.kind === 'BoolLiteral') visible = val.value
-    }
-  }
-
-  return {
-    name: targetName,
-    sourceRef: targetName,
-    zOrder: 0,
-    fill,
-    stroke: { color: strokeColor, width: { kind: 'constant', value: strokeWidth } },
-    opacity: opacityConstant(opacity),
-    size: sizeNone(),
-    projection,
-    visible,
-    pointerEvents: 'auto',
-    filter: null,
-    geometry: null,
-    billboard: true,
-    shape: shapeNone(),
-    extrude: { kind: 'none' },
-    extrudeBase: { kind: 'none' },
-  }
 }

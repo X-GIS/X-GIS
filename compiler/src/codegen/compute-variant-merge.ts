@@ -4,7 +4,7 @@
 //
 // Plan Phase 4-5 third sub-piece. Composes the products of:
 //
-//   - generateShaderVariant(node, fnEnv?, palette?)  → ShaderVariant
+//   - generateShaderVariant(node, palette?)          → ShaderVariant
 //   - buildComputeVariantAddendum(entries, bg, base) → ComputeVariantAddendum
 //
 // into a single ShaderVariant whose fragment-shader emission uses

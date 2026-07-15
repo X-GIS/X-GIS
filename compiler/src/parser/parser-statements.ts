@@ -7,166 +7,19 @@ import { ExpressionParser } from './parser-expressions'
  *  Extends the expression layer (which extends the shared cursor) so
  *  every statement handler shares `this.tokens` / `this.pos` and can
  *  call the precedence ladder (`parseExpr`, `parseCoalesce`, …) and
- *  `parseMatchBlock` / `parseUtilityName` directly. The 14-arm
- *  `parseStatement` switch is replaced by a Map keyed off the lexer
- *  token (STATEMENT_HANDLERS); the default (expression statement)
- *  fallthrough is preserved. Pure relocation — identical call and
- *  push order. */
+ *  `parseMatchBlock` / `parseUtilityName` directly. Statement dispatch
+ *  is a Map keyed off the lexer token (STATEMENT_HANDLERS); any other
+ *  token at statement position is a syntax error — the language has no
+ *  top-level expression statements (#1072). */
 export class StatementParser extends ExpressionParser {
   protected parseStatement(): AST.Statement {
     const token = this.current()
     const handler = STATEMENT_HANDLERS.get(token.type)
     if (handler) return handler(this)
-    return this.parseExprStatement()
-  }
-
-  // if expr { stmts } else { stmts }
-  parseIfStatement(): AST.IfStatement {
-    const line = this.current().line
-    this.expect(TokenType.If)
-    const condition = this.parseExpr()
-    this.expect(TokenType.LBrace)
-    const thenBranch: AST.Statement[] = []
-    while (!this.check(TokenType.RBrace) && !this.check(TokenType.EOF)) {
-      thenBranch.push(this.parseStatement())
-    }
-    this.expect(TokenType.RBrace)
-
-    let elseBranch: AST.Statement[] | null = null
-    if (this.check(TokenType.Else)) {
-      this.advance()
-      if (this.check(TokenType.If)) {
-        // else if — chain as single statement in else branch
-        elseBranch = [this.parseIfStatement()]
-      } else {
-        this.expect(TokenType.LBrace)
-        elseBranch = []
-        while (!this.check(TokenType.RBrace) && !this.check(TokenType.EOF)) {
-          elseBranch.push(this.parseStatement())
-        }
-        this.expect(TokenType.RBrace)
-      }
-    }
-    return { kind: 'IfStatement', condition, thenBranch, elseBranch, line }
-  }
-
-  // return expr
-  parseReturnStatement(): AST.ReturnStatement {
-    const line = this.current().line
-    this.expect(TokenType.Return)
-    let value: AST.Expr | null = null
-    if (!this.check(TokenType.RBrace) && !this.check(TokenType.EOF)) {
-      value = this.parseExpr()
-    }
-    return { kind: 'ReturnStatement', value, line }
-  }
-
-  // for name in start..end { body }
-  parseForStatement(): AST.ForStatement {
-    const line = this.current().line
-    this.expect(TokenType.For)
-    const variable = this.expect(TokenType.Identifier).value
-    this.expect(TokenType.In)
-    const start = this.parseExpr()
-    this.expect(TokenType.DotDot)
-    const end = this.parseExpr()
-    this.expect(TokenType.LBrace)
-    const body: AST.Statement[] = []
-    while (!this.check(TokenType.RBrace) && !this.check(TokenType.EOF)) {
-      body.push(this.parseStatement())
-    }
-    this.expect(TokenType.RBrace)
-    return { kind: 'ForStatement', variable, start, end, body, line }
-  }
-
-  // let name = expr
-  parseLetStatement(): AST.LetStatement {
-    const line = this.current().line
-    this.expect(TokenType.Let)
-    const name = this.expect(TokenType.Identifier).value
-    this.expect(TokenType.Eq)
-    const value = this.parseExpr()
-
-    return { kind: 'LetStatement', name, value, line }
-  }
-
-  // show target { properties }
-  parseShowStatement(): AST.ShowStatement {
-    const line = this.current().line
-    this.expect(TokenType.Show)
-    const target = this.parseExpr()
-    const block = this.parseShowBlock()
-
-    return { kind: 'ShowStatement', target, block, line }
-  }
-
-  // { property: value, ... }
-  private parseShowBlock(): AST.ShowBlock {
-    this.expect(TokenType.LBrace)
-    const properties: AST.ShowProperty[] = []
-
-    while (!this.check(TokenType.RBrace) && !this.isEnd()) {
-      properties.push(this.parseShowProperty())
-    }
-
-    this.expect(TokenType.RBrace)
-    return { kind: 'ShowBlock', properties }
-  }
-
-  // name: value [, value2]
-  private parseShowProperty(): AST.ShowProperty {
-    const line = this.current().line
-    const name = this.expect(TokenType.Identifier).value
-    this.expect(TokenType.Colon)
-
-    const values: AST.Expr[] = [this.parseExpr()]
-
-    // Additional comma-separated values (e.g., stroke: #ccc, 1px); stop if the next token after comma is "identifier:" (next property)
-    while (this.check(TokenType.Comma)) {
-      // Lookahead: if comma is followed by Identifier + Colon, it's a property separator
-      if (this.isNextPropertyStart()) {
-        this.advance() // skip comma (property separator)
-        break
-      }
-      this.advance() // skip comma (value separator)
-      if (this.check(TokenType.RBrace) || this.isEnd()) break // trailing comma — like arg lists / array literals
-      values.push(this.parseExpr())
-    }
-
-    return { kind: 'ShowProperty', name, values, line }
-  }
-
-  // fn name(params) -> ReturnType { body }
-  parseFnStatement(): AST.FnStatement {
-    const line = this.current().line
-    this.expect(TokenType.Fn)
-    const name = this.expect(TokenType.Identifier).value
-
-    this.expect(TokenType.LParen)
-    const params: AST.Param[] = []
-    while (!this.check(TokenType.RParen) && !this.isEnd()) {
-      const pName = this.expect(TokenType.Identifier).value
-      this.expect(TokenType.Colon)
-      const pType = this.expect(TokenType.Identifier).value
-      params.push({ name: pName, type: pType })
-      if (this.check(TokenType.Comma)) this.advance()
-    }
-    this.expect(TokenType.RParen)
-
-    let returnType: string | null = null
-    if (this.check(TokenType.Arrow)) {
-      this.advance()
-      returnType = this.expect(TokenType.Identifier).value
-    }
-
-    this.expect(TokenType.LBrace)
-    const body: AST.Statement[] = []
-    while (!this.check(TokenType.RBrace) && !this.isEnd()) {
-      body.push(this.parseStatement())
-    }
-    this.expect(TokenType.RBrace)
-
-    return { kind: 'FnStatement', name, params, returnType, body, line }
+    this.error(
+      `Expected a top-level statement (source, layer, background, preset, ` +
+        `import, symbol, or keyframes), got ${TokenType[token.type]} ('${token.value}')`,
+    )
   }
 
   // source name { key: value, ... }
@@ -353,23 +206,6 @@ export class StatementParser extends ExpressionParser {
 
     this.expect(TokenType.RBrace)
     return { kind: 'SymbolStatement', name, elements, line }
-  }
-
-  // style name { fill: stone-800, stroke: slate-600, stroke-width: 1 }
-  parseStyleStatement(): AST.StyleStatement {
-    const line = this.current().line
-    this.expect(TokenType.Style)
-    const name = this.expect(TokenType.Identifier).value
-    this.expect(TokenType.LBrace)
-
-    const properties: AST.StyleProperty[] = []
-    while (!this.check(TokenType.RBrace) && !this.isEnd()) {
-      properties.push(this.parseStyleProperty())
-      if (this.check(TokenType.Comma)) this.advance()
-    }
-    this.expect(TokenType.RBrace)
-
-    return { kind: 'StyleStatement', name, properties, line }
   }
 
   // keyframes pulse { 0%: opacity-100  50%: opacity-30  100%: opacity-100 }
@@ -727,10 +563,7 @@ export class StatementParser extends ExpressionParser {
     if (
       token.type === TokenType.Identifier ||
       token.type === TokenType.Source ||
-      token.type === TokenType.Layer ||
-      token.type === TokenType.Style ||
-      token.type === TokenType.View ||
-      token.type === TokenType.On
+      token.type === TokenType.Layer
     ) {
       this.advance()
       return token.value
@@ -738,38 +571,23 @@ export class StatementParser extends ExpressionParser {
     return this.expect(TokenType.Identifier).value
   }
 
-  private parseExprStatement(): AST.ExprStatement {
-    const line = this.current().line
-    const expr = this.parseExpr()
-    return { kind: 'ExprStatement', expr, line }
-  }
 }
 
-/** keyword (lexer TokenType) → statement handler.
- *
- *  Replaces the former 14-arm `parseStatement` switch. The default
- *  case (any token not in this map) falls through to the expression
- *  statement, matching the original `default:` arm exactly. */
+/** keyword (lexer TokenType) → statement handler. Any token not in
+ *  this map is a syntax error at statement position (#1072). */
 type StatementHandler = (p: StatementParser) => AST.Statement
 
 const STATEMENT_HANDLERS: ReadonlyMap<TokenType, StatementHandler> = new Map<
   TokenType,
   StatementHandler
 >([
-  [TokenType.Let, (p) => p.parseLetStatement()],
-  [TokenType.Show, (p) => p.parseShowStatement()],
-  [TokenType.Fn, (p) => p.parseFnStatement()],
   [TokenType.Source, (p) => p.parseSourceStatement()],
   [TokenType.Layer, (p) => p.parseLayerStatement()],
   [TokenType.Background, (p) => p.parseBackgroundStatement()],
   [TokenType.Preset, (p) => p.parsePresetStatement()],
   [TokenType.Import, (p) => p.parseImportStatement()],
   [TokenType.SymbolDef, (p) => p.parseSymbolStatement()],
-  [TokenType.Style, (p) => p.parseStyleStatement()],
   [TokenType.Keyframes, (p) => p.parseKeyframesStatement()],
-  [TokenType.If, (p) => p.parseIfStatement()],
-  [TokenType.Return, (p) => p.parseReturnStatement()],
-  [TokenType.For, (p) => p.parseForStatement()],
 ])
 
 /** The keyword tokens that begin a top-level statement — the resume

@@ -4,7 +4,7 @@
 
 import type { RenderNode, ColorValue, OpacityValue } from '../ir/render-node'
 import { rgbaToHex } from '../ir/render-node'
-import { astToNode, collectFields, type WGSLFnEnv } from './wgsl-expr'
+import { astToNode, collectFields } from './wgsl-expr'
 import { buildCatPaletteConst, CAT_PALETTE_SIZE } from './categorical-encoder'
 import type { Palette } from './palette'
 import {
@@ -70,7 +70,6 @@ function f32ConstDecl(name: string, value: number): ConstDecl {
  */
 export function generateShaderVariant(
   node: RenderNode,
-  fnEnv?: WGSLFnEnv,
   palette?: Palette,
   scalarPaletteMode: ScalarPaletteMode = 'manual',
 ): ShaderVariant {
@@ -88,7 +87,7 @@ export function generateShaderVariant(
   const paletteScalarGradients: number[] = []
 
   // ── Fill ──
-  const fillResult = processColorValue(node.fill, 'FILL', allFeatureFields, fnEnv, palette)
+  const fillResult = processColorValue(node.fill, 'FILL', allFeatureFields, palette)
   consts.push(...fillResult.preamble)
   if (!fillResult.isConst) uniformFields.push('fill_color')
   if (fillResult.needsFeatures) needsFeatureBuffer = true
@@ -97,13 +96,7 @@ export function generateShaderVariant(
   }
 
   // ── Stroke ──
-  const strokeResult = processColorValue(
-    node.stroke.color,
-    'STROKE',
-    allFeatureFields,
-    fnEnv,
-    palette,
-  )
+  const strokeResult = processColorValue(node.stroke.color, 'STROKE', allFeatureFields, palette)
   consts.push(...strokeResult.preamble)
   if (!strokeResult.isConst) uniformFields.push('stroke_color')
   if (strokeResult.needsFeatures) needsFeatureBuffer = true
@@ -112,7 +105,7 @@ export function generateShaderVariant(
   }
 
   // ── Opacity ──
-  const opacityResult = processOpacity(node.opacity, allFeatureFields, fnEnv, palette)
+  const opacityResult = processOpacity(node.opacity, allFeatureFields, palette)
   consts.push(...opacityResult.preamble)
   if (opacityResult.needsUniform) uniformFields.push('opacity')
   if (opacityResult.needsFeatures) needsFeatureBuffer = true
@@ -198,7 +191,6 @@ function processColorValue(
   value: ColorValue,
   prefix: string,
   featureFields: Set<string>,
-  fnEnv?: WGSLFnEnv,
   palette?: Palette,
 ): ColorResult {
   if (value.kind === 'none') {
@@ -252,7 +244,7 @@ function processColorValue(
       // Node path always carries the colour — no string fallback. The modulo
       // bound is single-sourced from CAT_PALETTE_SIZE (the palette array length)
       // so it can never diverge from buildCatPaletteConst's array (#724).
-      const fieldNode = astToNode(fieldExpr, fieldMap, fnEnv)
+      const fieldNode = astToNode(fieldExpr, fieldMap)
       const nodeExpr = arrayIndex<'vec4<f32>'>(
         constRefVec4('CAT_PALETTE') as NodeLike<string>,
         u32Mod(toU32(fieldNode), u32Lit(CAT_PALETTE_SIZE)),
@@ -305,7 +297,7 @@ function processColorValue(
         .filter((c): c is readonly [number, [number, number, number, number]] => c[1] !== undefined)
         .map(([i, rgba]) => [i, vec4fFromRgba(rgba)] as const)
       const nodeExpr = matchVec4(
-        toI32(astToNode(fieldExpr, fieldMap, fnEnv)),
+        toI32(astToNode(fieldExpr, fieldMap)),
         cases,
         vec4fFromRgba(fallbackRgba),
       )
@@ -349,9 +341,9 @@ function processColorValue(
         // Build mix4(low, high, clamp(...)) Node end-to-end. `astToNode`
         // converts any val/min/max AST shape (compound binops, builtins,
         // pipes, user-fn inlining) to IR.
-        const valNode = astToNode(ast.args[0], fieldMap, fnEnv)
-        const minNode = astToNode(ast.args[1], fieldMap, fnEnv)
-        const maxNode = astToNode(ast.args[2], fieldMap, fnEnv)
+        const valNode = astToNode(ast.args[0], fieldMap)
+        const minNode = astToNode(ast.args[1], fieldMap)
+        const maxNode = astToNode(ast.args[2], fieldMap)
         const nodeExpr = mix4(
           vec4fFromRgba(lowColor),
           vec4fFromRgba(highColor),
@@ -375,7 +367,7 @@ function processColorValue(
       // Same shape as the explicit categorical() path above; `astToNode`
       // converts the field AST (Identifier / FieldAccess here) to IR, so the
       // Node path always carries it.
-      const fieldNode = astToNode(ast, fieldMap, fnEnv)
+      const fieldNode = astToNode(ast, fieldMap)
       const nodeExpr = arrayIndex<'vec4<f32>'>(
         constRefVec4('CAT_PALETTE') as NodeLike<string>,
         u32Mod(toU32(fieldNode), u32Lit(CAT_PALETTE_SIZE)),
@@ -402,9 +394,9 @@ function processColorValue(
         // scale() emits the same shape as gradient() (mix between two literal
         // vec4 endpoints) — same Node composition, `astToNode` for any
         // val/min/max AST shape.
-        const valNode = astToNode(ast.args[0], fieldMap, fnEnv)
-        const minNode = astToNode(ast.args[1], fieldMap, fnEnv)
-        const maxNode = astToNode(ast.args[2], fieldMap, fnEnv)
+        const valNode = astToNode(ast.args[0], fieldMap)
+        const minNode = astToNode(ast.args[1], fieldMap)
+        const maxNode = astToNode(ast.args[2], fieldMap)
         const nodeExpr = mix4(
           vec4fFromRgba(lowColor),
           vec4fFromRgba(highColor),
@@ -428,7 +420,7 @@ function processColorValue(
       preamble: [],
       isConst: false,
       needsFeatures: true,
-      scalarNodeExpr: astToNode(ast, fieldMap, fnEnv),
+      scalarNodeExpr: astToNode(ast, fieldMap),
     }
   }
 
@@ -470,7 +462,6 @@ function processColorValue(
 function processOpacity(
   value: OpacityValue,
   featureFields: Set<string>,
-  fnEnv?: WGSLFnEnv,
   palette?: Palette,
 ): OpacityResult {
   if (value.kind === 'constant') {
@@ -493,7 +484,7 @@ function processOpacity(
       preamble: [],
       needsUniform: false,
       needsFeatures: true,
-      nodeExpr: astToNode(value.expr.ast, fieldMap, fnEnv),
+      nodeExpr: astToNode(value.expr.ast, fieldMap),
     }
   }
 

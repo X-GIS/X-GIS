@@ -58,9 +58,8 @@
 //     `exprAnalysis?: ExprAnalysis` field set on the returned copy).
 //   - Compute value ranges or monotonicity. Those need a separate
 //     interval-domain pass on top of constfold and are out of scope.
-//   - Detect side effects in user-defined functions (FnStatement
-//     bodies). The MVP assumes all X-GIS builtins + user fns are
-//     pure; a future iter wires a side-effect annotation on fn defs.
+//   - Detect side effects in builtin calls. The MVP assumes all
+//     X-GIS builtins are pure.
 
 import type { IRPass } from '../pass-manager'
 import type { Scene, ColorValue, DataExpr, ConditionalBranch } from '../render-node'

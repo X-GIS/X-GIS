@@ -18,7 +18,7 @@ function compile(source: string) {
 function compileToCommandsOptimized(source: string) {
   const tokens = new Lexer(withPragma(source)).tokenize()
   const ast = new Parser(tokens).parse()
-  return emitCommands(optimize(lower(ast), ast))
+  return emitCommands(optimize(lower(ast)))
 }
 
 function compileToCommands(source: string) {

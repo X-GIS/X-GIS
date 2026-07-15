@@ -345,9 +345,6 @@ function definitionName(stmt: AST.Statement): string | null {
     case 'PresetStatement':
     case 'KeyframesStatement':
     case 'SymbolStatement':
-    case 'StyleStatement':
-    case 'LetStatement':
-    case 'FnStatement':
       return stmt.name
     default:
       return null
@@ -368,10 +365,9 @@ function definitionName(stmt: AST.Statement): string | null {
  *
  *   GLOBAL (never prefixed): utility classes (`fill-*`, `stroke-*`, `opacity-*`,
  *     …), data-field access (`.prop`), reserved eval keys (`$zoom`, `$pitch`, …),
- *     colors, and `let` / `fn` / `style` / `symbol` definitions — the last four
- *     are referenced from inside expressions or shape slots (a separate, larger
- *     surface) and carry zero corpus usage, so leaving them global costs nothing
- *     and never silently breaks a namespaced module.
+ *     colors, and `symbol` definitions — the latter are referenced from shape
+ *     slots (a separate, larger surface) and carry zero corpus usage, so leaving
+ *     them global costs nothing and never silently breaks a namespaced module.
  *
  * The purpose is collision-free COMPOSITION: two fragments that each define
  * `layer roads` splice cleanly as `a.roads` and `b.roads`. (Host → imported
@@ -461,15 +457,9 @@ function getStatementName(stmt: AST.Statement): string | null {
   switch (stmt.kind) {
     case 'PresetStatement':
       return stmt.name
-    case 'FnStatement':
-      return stmt.name
     case 'SourceStatement':
       return stmt.name
-    case 'LetStatement':
-      return stmt.name
     case 'SymbolStatement':
-      return stmt.name
-    case 'StyleStatement':
       return stmt.name
     default:
       return null

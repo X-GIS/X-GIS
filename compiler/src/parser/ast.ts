@@ -6,98 +6,13 @@ export type Program = {
 }
 
 export type Statement =
-  | LetStatement
-  | ShowStatement
-  | FnStatement
-  | ExprStatement
   | SourceStatement
   | LayerStatement
   | BackgroundStatement
   | PresetStatement
   | ImportStatement
   | SymbolStatement
-  | StyleStatement
   | KeyframesStatement
-  | IfStatement
-  | ReturnStatement
-  | ForStatement
-
-// let world = load("countries.geojson")
-export type LetStatement = {
-  kind: 'LetStatement'
-  name: string
-  value: Expr
-  line: number
-}
-
-// show world { fill: #f2efe9, stroke: #ccc, 1px }
-export type ShowStatement = {
-  kind: 'ShowStatement'
-  target: Expr
-  block: ShowBlock
-  line: number
-}
-
-export type ShowBlock = {
-  kind: 'ShowBlock'
-  properties: ShowProperty[]
-}
-
-// fill: #f2efe9 or stroke: #ccc, 1px or shape: arrow
-export type ShowProperty = {
-  kind: 'ShowProperty'
-  name: string
-  values: Expr[]
-  line: number
-}
-
-// fn name(params) -> ReturnType { body }
-export type FnStatement = {
-  kind: 'FnStatement'
-  name: string
-  params: Param[]
-  returnType: string | null
-  body: Statement[]
-  line: number
-}
-
-export type Param = {
-  name: string
-  type: string
-}
-
-// Expression as statement (function call, etc.)
-export type ExprStatement = {
-  kind: 'ExprStatement'
-  expr: Expr
-  line: number
-}
-
-// if condition { then } else { else }
-export type IfStatement = {
-  kind: 'IfStatement'
-  condition: Expr
-  thenBranch: Statement[]
-  elseBranch: Statement[] | null
-  line: number
-}
-
-// return expr
-export type ReturnStatement = {
-  kind: 'ReturnStatement'
-  value: Expr | null
-  line: number
-}
-
-// for i in start..end { body }
-export type ForStatement = {
-  kind: 'ForStatement'
-  variable: string
-  start: Expr
-  end: Expr
-  body: Statement[]
-  line: number
-}
 
 // ═══ Expressions ═══
 
@@ -308,15 +223,8 @@ export type SymbolElement =
   | { kind: 'circle'; props: Record<string, number> }
   | { kind: 'anchor'; value: string }
 
-// style dark_land { fill: stone-800, stroke: slate-600, stroke-width: 1 }
-export type StyleStatement = {
-  kind: 'StyleStatement'
-  name: string
-  properties: StyleProperty[]
-  line: number
-}
-
 // CSS-like property: fill: stone-800, stroke-width: 1, opacity: 0.8
+// Used inline inside `layer` / `background` blocks (`fill: stone-800`).
 export type StyleProperty = {
   kind: 'StyleProperty'
   name: string // e.g., 'fill', 'stroke', 'stroke-width', 'opacity'

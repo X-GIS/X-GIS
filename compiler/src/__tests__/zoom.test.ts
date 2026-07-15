@@ -10,7 +10,7 @@ function compileScene(source: string) {
   const tokens = new Lexer(withPragma(source)).tokenize()
   const ast = new Parser(tokens).parse()
   const scene = lower(ast)
-  return emitCommands(optimize(scene, ast))
+  return emitCommands(optimize(scene))
 }
 
 /** Mirrors the interpolateZoom function from renderer.ts */

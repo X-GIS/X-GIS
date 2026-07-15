@@ -10,18 +10,17 @@ import { nodeToWgslString } from '../codegen/node-to-wgsl'
 import { CAT_PALETTE_SIZE } from '../codegen/categorical-encoder'
 import type * as AST from '../parser/ast'
 import { withPragma } from './_pragma'
+import { parseExpressionString } from '../parser/parser'
 
 function parseExpr(source: string): AST.Expr {
-  const tokens = new Lexer(withPragma(`let x = ${source}`)).tokenize()
-  const ast = new Parser(tokens).parse()
-  return (ast.body[0] as AST.LetStatement).value
+  return parseExpressionString(source)
 }
 
 function compileOptimized(source: string) {
   const tokens = new Lexer(withPragma(source)).tokenize()
   const ast = new Parser(tokens).parse()
   const scene = lower(ast)
-  return optimize(scene, ast)
+  return optimize(scene)
 }
 
 describe('WGSL Expression Compiler', () => {
@@ -85,15 +84,6 @@ describe('WGSL Expression Compiler', () => {
   it('compiles scale as multiplication', () => {
     const result = exprToWGSL(parseExpr('scale(speed, 4)'), fieldMap)
     expect(result).toBe('(feat_data[((input.feat_id * 3u) + 0u)] * 4.0)')
-  })
-
-  it('compiles user-defined function by inlining', () => {
-    const fnTokens = new Lexer(withPragma(`fn double(x: f32) -> f32 { x * 2 }`)).tokenize()
-    const fnAst = new Parser(fnTokens).parse()
-    const fnEnv = new Map([['double', fnAst.body[0] as AST.FnStatement]])
-
-    const result = exprToWGSL(parseExpr('double(speed)'), fieldMap, fnEnv)
-    expect(result).toBe('(feat_data[((input.feat_id * 3u) + 0u)] * 2.0)')
   })
 })
 
@@ -224,7 +214,7 @@ describe('Full Pipeline: emit with shader variants', () => {
     ).tokenize()
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
-    const optimized = optimize(scene, ast)
+    const optimized = optimize(scene)
     const commands = emitCommands(optimized)
 
     expect(commands.shows).toHaveLength(1)

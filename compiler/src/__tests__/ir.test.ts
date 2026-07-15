@@ -52,32 +52,6 @@ describe('IR Lower', () => {
       expect(node.opacity).toEqual({ kind: 'constant', value: 0.8 })
     })
   })
-
-  describe('legacy syntax (let/show)', () => {
-    it('lowers let+show to same IR', () => {
-      const scene = compile(`
-        let world = load("countries.geojson")
-        show world {
-          fill: #ff0000
-          stroke: #000000, 2px
-          opacity: 0.5
-        }
-      `)
-      expect(scene.sources).toHaveLength(1)
-      expect(scene.sources[0].url).toBe('countries.geojson')
-
-      expect(scene.renderNodes).toHaveLength(1)
-      const node = scene.renderNodes[0]
-      expect(node.fill.kind).toBe('constant')
-      if (node.fill.kind === 'constant') {
-        expect(node.fill.rgba[0]).toBeCloseTo(1.0)
-        expect(node.fill.rgba[1]).toBeCloseTo(0.0)
-        expect(node.fill.rgba[2]).toBeCloseTo(0.0)
-      }
-      expect(node.stroke.width).toEqual({ kind: 'constant', value: 2 })
-      expect(node.opacity).toEqual({ kind: 'constant', value: 0.5 })
-    })
-  })
 })
 
 describe('IR Modifiers', () => {
@@ -225,12 +199,10 @@ describe('IR Styles (CSS-like)', () => {
     expect(node.opacity).toEqual({ kind: 'constant', value: 0.8 })
   })
 
-  it('lowers named style referenced by layer', () => {
+  it('lowers a preset referenced by `style:` (merged style+preset, #1072)', () => {
     const scene = compile(`
-      style dark_land {
-        fill: stone-800
-        stroke: slate-600
-        stroke-width: 1
+      preset dark_land {
+        | fill-stone-800 stroke-slate-600 stroke-1
       }
 
       source world { type: geojson, url: "countries.geojson" }
@@ -251,54 +223,55 @@ describe('IR Styles (CSS-like)', () => {
     expect(node.stroke.width).toEqual({ kind: 'constant', value: 1 })
   })
 
-  it('inline CSS overrides named style', () => {
-    const scene = compile(`
-      style base {
-        fill: blue-500
-        stroke: white
-        stroke-width: 1
+  it('preset via `style:` and via `apply-` both lower identically to inline utilities', () => {
+    // Fail-before (#1072): the removed `style` block accepted only 4
+    // properties (fill/stroke/stroke-width/opacity). The merged preset
+    // accepts ANY utility line — this one carries 5 distinct properties
+    // including a dash array, impossible in the old style block.
+    const UTILS = 'fill-red-500 stroke-black stroke-2 opacity-80 stroke-dasharray-20-10'
+    const decl = `
+      preset fancy {
+        | ${UTILS}
       }
-
       source world { type: geojson, url: "countries.geojson" }
-      layer land {
-        source: world
-        style: base
-        fill: red-500
-      }
-    `)
-    const node = scene.renderNodes[0]
-    // fill should be red-500 (overrides base blue-500)
-    expect(node.fill.kind).toBe('constant')
-    if (node.fill.kind === 'constant') {
-      expect(node.fill.rgba[0]).toBeCloseTo(0.937, 2) // red-500
-    }
-    // stroke should still be from base style
-    expect(node.stroke.color.kind).toBe('constant')
-    expect(node.stroke.width).toEqual({ kind: 'constant', value: 1 })
+    `
+    const viaStyle = compile(`${decl}
+      layer a { source: world, style: fancy }
+    `).renderNodes[0]
+    const viaApply = compile(`${decl}
+      layer a { source: world, | apply-fancy }
+    `).renderNodes[0]
+    const inline = compile(`
+      source world { type: geojson, url: "countries.geojson" }
+      layer a { source: world, | ${UTILS} }
+    `).renderNodes[0]
+
+    expect(viaStyle).toEqual(inline)
+    expect(viaApply).toEqual(inline)
+    // And the 5th property (dash array) actually landed.
+    expect(inline.stroke.dashArray).toEqual([20, 10])
   })
 
-  it('utilities override both named style and inline CSS', () => {
+  it("layer's own utilities override a `style:`-referenced preset", () => {
     const scene = compile(`
-      style base {
-        fill: blue-500
-        opacity: 0.5
+      preset base {
+        | fill-blue-500 opacity-50
       }
 
       source world { type: geojson, url: "countries.geojson" }
       layer land {
         source: world
         style: base
-        fill: red-500
         | fill-green-500 opacity-80
       }
     `)
     const node = scene.renderNodes[0]
-    // fill should be green-500 (utility overrides inline CSS and named style)
+    // fill should be green-500 (layer utility overrides the preset base)
     expect(node.fill.kind).toBe('constant')
     if (node.fill.kind === 'constant') {
       expect(node.fill.rgba[1]).toBeGreaterThan(0.7) // green dominant
     }
-    // opacity should be from utility (0.8), not base (0.5)
+    // opacity should be from the layer utility (0.8), not base (0.5)
     expect(node.opacity).toEqual({ kind: 'constant', value: 0.8 })
   })
 
