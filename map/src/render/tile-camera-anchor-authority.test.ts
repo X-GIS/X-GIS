@@ -186,16 +186,15 @@ const SOURCE = readFileSync(
 )
 
 describe('source-authority gate: the anchor seam cannot silently drift (#1044)', () => {
-  it('exactly five callers route through computeTileCameraAnchor()', () => {
+  it('exactly four callers route through computeTileCameraAnchor()', () => {
     const n = (SOURCE.match(/computeTileCameraAnchor\(/g) ?? []).length
     expect(
       n,
-      `expected 5 computeTileCameraAnchor() call sites (renderTileKeys, renderFillsRhi, ` +
-        `renderLinesRhi, fill-bake, packFallbackTileUniforms — the #1046 twin fallback pack, ` +
-        `which correctly ROUTES through the authority rather than re-inlining); got ${n}. ` +
-        `HIGHER: a new pack consciously calling the authority — bump this to ${n}. LOWER: ` +
-        `someone re-inlined the anchor math — forbidden (#1044); route it through the helper.`,
-    ).toBe(5)
+      `expected 4 computeTileCameraAnchor() call sites (renderTileKeys, renderFillsRhi, ` +
+        `renderLinesRhi, fill-bake); got ${n}. HIGHER: a new pack consciously calling the ` +
+        `authority — bump this to ${n}. LOWER: someone re-inlined the anchor math — forbidden ` +
+        `(#1044); route it through the helper instead.`,
+    ).toBe(4)
   })
 
   it('only the fill-bake block hard-zeros the ECEF lanes', () => {
@@ -214,14 +213,13 @@ describe('source-authority gate: the anchor seam cannot silently drift (#1044)',
     ).toBe(1)
   })
 
-  it('only the clip_bounds conversions inline the Mercator-Y formula', () => {
+  it('only the two clip_bounds conversions inline the Mercator-Y formula', () => {
     const n = (SOURCE.match(/Math\.log\(Math\.tan\(/g) ?? []).length
     expect(
       n,
-      `expected 4 inline Math.log(Math.tan()) — the clip_bounds vSouth/vNorth conversions in ` +
-        `renderTileKeys (2) and the #1046 twin's packFallbackTileUniforms (2, the same visible-` +
-        `tile clip rect the WebGL2 fallback pass draws through); got ${n}. Every other Mercator-` +
-        `metre conversion must go through computeTileCameraAnchor, not a fresh inline.`,
-    ).toBe(4)
+      `expected 2 inline Math.log(Math.tan()) (the clip_bounds vSouth/vNorth conversions); ` +
+        `got ${n}. Every other Mercator-metre conversion must go through ` +
+        `computeTileCameraAnchor, not a fresh inline.`,
+    ).toBe(2)
   })
 })

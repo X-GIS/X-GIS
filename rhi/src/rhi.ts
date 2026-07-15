@@ -208,15 +208,6 @@ export interface RhiRenderPass {
    *  `GPURenderPassEncoder.setStencilReference`; WebGL2 stencil-state binding is
    *  deferred to the WebGL2 full-frame phase (see rhi-webgl2.ts). */
   setStencilReference(ref: number): void
-  /** Clear the stencil buffer to 0 for the CURRENTLY-BOUND pass target, mid-pass,
-   *  leaving colour + depth untouched. WebGL2 (immediate-mode) maps to a
-   *  `gl.clear(STENCIL_BUFFER_BIT)` on the live FBO — the affordance the single-pass
-   *  forced-WebGL2 twin needs to reset per-show stencil coverage, since it can't
-   *  open a fresh sub-pass with `stencilLoadOp:'clear'` the way the WebGPU opaque
-   *  pass does. WebGPU has no mid-pass clear API (stencil is cleared via the pass
-   *  descriptor's `stencilLoadOp`), so its implementation is a no-op — callers on
-   *  the WebGPU path clear stencil through `RhiRenderPassDesc.stencilLoadOp` instead. */
-  clearStencil(): void
   /** Finish this render pass. WebGPU maps to `GPURenderPassEncoder.end()` (the
    *  raw `subPass.end()` every pass body calls); WebGL2 is immediate-mode so
    *  ending is a no-op (the next pass rebinds its FBO / viewport). A screen pass

@@ -440,19 +440,6 @@ class WebGl2RenderPass implements RhiRenderPass {
     if (this.cur?.stencil) this.applyStencil(this.cur.stencil)
   }
 
-  clearStencil(): void {
-    // #1046 — mid-pass stencil-only clear on the live FBO for the single-pass twin.
-    // glClear honours stencilMask + scissor, so unmask + disable scissor first
-    // (mirrors beginScreenPass :713/:728). Colour + depth bits are NOT cleared. No
-    // restore: setPipeline re-applies stencilMask on the next draw, and the twin
-    // runs scissor-disabled throughout.
-    const gl = this.gl
-    gl.disable(gl.SCISSOR_TEST)
-    gl.stencilMask(0xff)
-    gl.clearStencil(0)
-    gl.clear(gl.STENCIL_BUFFER_BIT)
-  }
-
   drawIndexed(indexCount: number, instanceCount = 1): void {
     this.bindAttributes()
     if (!this.ibuf) throw new Error('webgl2: drawIndexed without an index buffer')

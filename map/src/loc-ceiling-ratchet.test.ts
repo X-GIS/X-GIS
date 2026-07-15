@@ -90,19 +90,7 @@ const CEILINGS: Record<string, number> = {
   // EXTRACTED to render/vector-drape-stroke.ts; VTR keeps only the wiring (the
   // captured stroke style + the drape-seam gate/strokeKey + the drawStrokes
   // suppression + the in-bake bakeTileStrokes call). Lower as #991 decomposes VTR.
-  // 4487→4821 (#1046 twin fallback-flicker): the forced-WebGL2 twin's
-  // renderFillsRhi/renderLinesRhi gain render()'s stencil-masked fallback-ancestor
-  // pass — collectTwinFallbacks (classify → sync-upload → collect) + a shared
-  // packFallbackTileUniforms + the two draw loops + a per-show pass.clearStencil()
-  // (the twin's single screen pass needs it where the WebGPU opaque pass clears
-  // stencil per sub-pass) + stableKeys eviction-guard — so a not-yet-resident tile
-  // is covered by a coarse ancestor instead of flashing the background on a pan/zoom
-  // swap. Kept in VTR (not extracted) because the draw couples to the twin's
-  // frameBlock + uniform-ring + drawStats internals, mirroring render()'s own inline
-  // fallback. Lower as #991 decomposes VTR. (The runtime architecture-invariants
-  // ratchet does NOT gate VTR — map/src is outside its SRC_DIRS walk and VTR is not a
-  // LOC_CEILINGS key there; this is the sole authority.)
-  'map/src/render/vector-tile-renderer.ts': 4821,
+  'map/src/render/vector-tile-renderer.ts': 4487,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -207,10 +195,7 @@ const CEILINGS: Record<string, number> = {
   // a shared `glCopyBufferSubData`. +128; byte-identical on the default WebGL2 boot (the
   // twin early-returns before the frame shell, so the frame encoder is never acquired).
   // Fail-loud on any non-bindable descriptor shape (no silent fallback). Lower in F6.
-  // 1285→1298 (#1046): WebGl2RenderPass.clearStencil() — the mid-pass stencil-only
-  // clear the single-pass forced-WebGL2 twin uses to reset per-show fallback stencil
-  // coverage (the WebGPU opaque pass gets this free via per-sub-pass stencilLoadOp).
-  'rhi-webgl2/src/rhi-webgl2.ts': 1298,
+  'rhi-webgl2/src/rhi-webgl2.ts': 1285,
   'map/src/render/renderer.ts': 965,
   'map/src/render/gpu-tile-store.ts': 941,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
