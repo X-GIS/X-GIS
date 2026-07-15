@@ -444,10 +444,55 @@ function getOrAddVertexMM(
   return idx
 }
 
-/** Recursively split a triangle into 4 at MM midpoints when any edge
- *  exceeds the angular threshold. Adjacent triangles sharing an edge
- *  share the same midpoint via dedupMap, so the densified mesh stays
- *  watertight (no gaps, no T-junctions). */
+// 2° lon → 222 km in MM; lat is denser at high latitudes (lat 85: 1° ≈ 1500 km
+// MM) so 50 km MM is a conservative bound that can NEVER exceed 2° in either
+// direction (below 0.45° lon at any latitude AND below 0.5° lat at lat<85). An
+// edge entirely below this is definitely below the angular gate, so it skips
+// both projection and the subdivision decision — the common case at z>=8 (tile
+// spans <0.7° at z=8).
+const FAST_SKIP_MM = 50_000
+
+/** Per-EDGE refine decision: does this MM edge's angular span exceed
+ *  MAX_TRI_DEGREES_FOR_PROJ? This is a PURE function of the two endpoints —
+ *  symmetric in (a,b) (Math.abs of the deltas) and computed from the SAME
+ *  deduped vertex coordinates on either side — so two triangles sharing an
+ *  edge ALWAYS agree on whether to split it. That agreement is what makes the
+ *  red-green closure in `subdivideTriangleMM` conforming (no hanging nodes).
+ *  Mirrors the FAST_SKIP_MM early-out: an edge clearly below the gate returns
+ *  false without projecting. */
+function edgeExceedsGateMM(ax: number, ay: number, bx: number, by: number): boolean {
+  if (Math.abs(bx - ax) < FAST_SKIP_MM && Math.abs(by - ay) < FAST_SKIP_MM) return false
+  const [lonA, latA] = mmToLonLatDeg(ax, ay)
+  const [lonB, latB] = mmToLonLatDeg(bx, by)
+  return Math.max(Math.abs(lonB - lonA), Math.abs(latB - latA)) > MAX_TRI_DEGREES_FOR_PROJ
+}
+
+/** Recursively refine a triangle into a CONFORMING densified mesh: no vertex
+ *  ever lies strictly interior to a neighbour triangle's edge (no hanging node
+ *  / T-junction). INC-0 of the non-Mercator direct-reprojection design
+ *  (docs/architecture/design/nonmerc-vector-direct-reprojection.md).
+ *
+ *  The refine decision is PER-EDGE (`edgeExceedsGateMM`), not per-triangle, so
+ *  two triangles sharing an edge always agree on subdividing it. Red-green
+ *  closure templates then re-triangulate a triangle whose edges are only
+ *  partially marked, WITHOUT introducing a hanging node:
+ *    - 3 marked edges → red 4-split (midpoints of all three edges),
+ *    - 2 marked edges → 3 triangles (corner at the shared vertex + quad by one
+ *      diagonal),
+ *    - 1 marked edge  → 2 triangles (bisect the marked edge to the opposite
+ *      vertex),
+ *    - 0 marked edges → emit as-is.
+ *  A marked edge is ALWAYS split exactly at its linear MM midpoint and an
+ *  unmarked edge is NEVER split, in every template — so an edge's boundary
+ *  treatment depends only on its endpoints, and both owners treat it
+ *  identically. Split points are the pre-iter-6 LINEAR MM midpoints (NOT
+ *  geodesic slerp — that caused z=0 Mercator banding, reverted iter 56,
+ *  see :414), so the union of output triangles is EXACTLY the input triangle:
+ *  the rasterized Mercator fill is unchanged (only extra collinear/interior
+ *  vertices). Adjacent triangles share midpoints via dedupMap (keyed on
+ *  x,y,featureId), keeping the mesh watertight. A shared edge is always reached
+ *  at the same recursion depth on both sides, so the MAX_TRI_SUBDIVIDE_DEPTH
+ *  cap fires symmetrically and cannot open a crack. */
 function subdivideTriangleMM(
   i0: number,
   i1: number,
@@ -465,70 +510,106 @@ function subdivideTriangleMM(
   const x2 = outVerts[i2 * 3],
     y2 = outVerts[i2 * 3 + 1]
 
-  // Fast MM-space early-out: if all edges are clearly below the
-  // angular threshold, skip the expensive mmToLonLatDeg projection
-  // entirely. 2° lon → 222 km in MM; lat is denser at high latitudes
-  // (lat 85: 1° ≈ 1500 km MM) so we use a conservative MM bound that
-  // can NEVER exceed 2° in either direction. 50 km MM is below 0.45°
-  // lon at any latitude AND below 0.5° lat at lat<85. Any triangle
-  // entirely below this skips both projection and subdivision —
-  // which is the common case at z>=8 (tile spans <0.7° at z=8).
-  const FAST_SKIP_MM = 50_000
-  const dx01 = Math.abs(x1 - x0),
-    dy01 = Math.abs(y1 - y0)
-  const dx12 = Math.abs(x2 - x1),
-    dy12 = Math.abs(y2 - y1)
-  const dx20 = Math.abs(x0 - x2),
-    dy20 = Math.abs(y0 - y2)
+  // Fast MM-space early-out: if all edges are clearly below the angular gate,
+  // no edge is marked → emit as-is without projecting. (Same threshold as
+  // edgeExceedsGateMM's per-edge early-out, so a shared sub-50 km edge is
+  // treated identically whether reached via this whole-triangle skip or the
+  // per-edge test on a neighbour that failed the skip — consistency is what
+  // keeps the mesh conforming.)
   if (
-    dx01 < FAST_SKIP_MM &&
-    dy01 < FAST_SKIP_MM &&
-    dx12 < FAST_SKIP_MM &&
-    dy12 < FAST_SKIP_MM &&
-    dx20 < FAST_SKIP_MM &&
-    dy20 < FAST_SKIP_MM
+    Math.abs(x1 - x0) < FAST_SKIP_MM &&
+    Math.abs(y1 - y0) < FAST_SKIP_MM &&
+    Math.abs(x2 - x1) < FAST_SKIP_MM &&
+    Math.abs(y2 - y1) < FAST_SKIP_MM &&
+    Math.abs(x0 - x2) < FAST_SKIP_MM &&
+    Math.abs(y0 - y2) < FAST_SKIP_MM
   ) {
     outIdx.push(i0, i1, i2)
     return
   }
 
-  const [lon0, lat0] = mmToLonLatDeg(x0, y0)
-  const [lon1, lat1] = mmToLonLatDeg(x1, y1)
-  const [lon2, lat2] = mmToLonLatDeg(x2, y2)
-  const d01 = Math.max(Math.abs(lon1 - lon0), Math.abs(lat1 - lat0))
-  const d12 = Math.max(Math.abs(lon2 - lon1), Math.abs(lat2 - lat1))
-  const d20 = Math.max(Math.abs(lon0 - lon2), Math.abs(lat0 - lat2))
-  const maxEdge = Math.max(d01, d12, d20)
-
-  if (maxEdge <= MAX_TRI_DEGREES_FOR_PROJ || depth >= MAX_TRI_SUBDIVIDE_DEPTH) {
+  if (depth >= MAX_TRI_SUBDIVIDE_DEPTH) {
     outIdx.push(i0, i1, i2)
     return
   }
 
-  // Linear MM midpoint — matches the pre-iter-6 baseline that was
-  // shipped to production without z=0 banding artefacts. Iter 6
-  // added geodesic (slerp) midpoint for sphere projections (globe /
-  // ortho / azimuth / stereo) but introduced regressions at z=0
-  // Mercator (user-reported on x-gis.github.io, iter 56). Iter 41
-  // capped the slerp to (5°, 60°) but the regression persisted in
-  // deploy. Reverting to linear midpoint entirely — the chord-vs-
-  // arc fidelity loss on globe was the documented acceptable
-  // baseline before iter 6 anyway. Plan §6 (geodesic refinement)
-  // deferred until a robust runtime-projection-aware path lands.
-  const m01x = (x0 + x1) * 0.5,
-    m01y = (y0 + y1) * 0.5
-  const m12x = (x1 + x2) * 0.5,
-    m12y = (y1 + y2) * 0.5
-  const m20x = (x2 + x0) * 0.5,
-    m20y = (y2 + y0) * 0.5
-  const i01 = getOrAddVertexMM(m01x, m01y, featureId, outVerts, dedupMap)
-  const i12 = getOrAddVertexMM(m12x, m12y, featureId, outVerts, dedupMap)
-  const i20 = getOrAddVertexMM(m20x, m20y, featureId, outVerts, dedupMap)
+  const marked01 = edgeExceedsGateMM(x0, y0, x1, y1)
+  const marked12 = edgeExceedsGateMM(x1, y1, x2, y2)
+  const marked20 = edgeExceedsGateMM(x2, y2, x0, y0)
+  const nMarked = (marked01 ? 1 : 0) + (marked12 ? 1 : 0) + (marked20 ? 1 : 0)
 
-  subdivideTriangleMM(i0, i01, i20, featureId, outVerts, outIdx, dedupMap, depth + 1)
-  subdivideTriangleMM(i01, i1, i12, featureId, outVerts, outIdx, dedupMap, depth + 1)
-  subdivideTriangleMM(i20, i12, i2, featureId, outVerts, outIdx, dedupMap, depth + 1)
-  subdivideTriangleMM(i01, i12, i20, featureId, outVerts, outIdx, dedupMap, depth + 1)
+  if (nMarked === 0) {
+    outIdx.push(i0, i1, i2)
+    return
+  }
+
+  const mid = (ia: number, ib: number): number => {
+    const ax = outVerts[ia * 3],
+      ay = outVerts[ia * 3 + 1]
+    const bx = outVerts[ib * 3],
+      by = outVerts[ib * 3 + 1]
+    // Commutative (ax+bx===bx+ax in IEEE-754), so mid(ia,ib)===mid(ib,ia) to
+    // the bit — both neighbours dedup to the same midpoint index.
+    return getOrAddVertexMM((ax + bx) * 0.5, (ay + by) * 0.5, featureId, outVerts, dedupMap)
+  }
+  const recurse = (a: number, b: number, c: number): void =>
+    subdivideTriangleMM(a, b, c, featureId, outVerts, outIdx, dedupMap, depth + 1)
+
+  if (nMarked === 3) {
+    // Red 4-split.
+    const a = mid(i0, i1),
+      b = mid(i1, i2),
+      c = mid(i2, i0)
+    recurse(i0, a, c)
+    recurse(a, i1, b)
+    recurse(c, b, i2)
+    recurse(a, b, c)
+    return
+  }
+
+  if (nMarked === 1) {
+    // Green 1-edge: bisect the marked edge to the opposite vertex (2 triangles).
+    if (marked01) {
+      const m = mid(i0, i1)
+      recurse(i0, m, i2)
+      recurse(m, i1, i2)
+    } else if (marked12) {
+      const m = mid(i1, i2)
+      recurse(i1, m, i0)
+      recurse(m, i2, i0)
+    } else {
+      const m = mid(i2, i0)
+      recurse(i2, m, i1)
+      recurse(m, i0, i1)
+    }
+    return
+  }
+
+  // Green 2-edge: corner triangle at the vertex shared by the two marked edges,
+  // plus the remaining quad cut by one diagonal (3 triangles). Winding follows
+  // the parent i0→i1→i2 order.
+  if (!marked20) {
+    // marked e01,e12 share vertex i1; unmarked e20.
+    const a = mid(i0, i1),
+      b = mid(i1, i2)
+    recurse(a, i1, b)
+    recurse(i0, a, b)
+    recurse(i0, b, i2)
+  } else if (!marked01) {
+    // marked e12,e20 share vertex i2; unmarked e01.
+    const b = mid(i1, i2),
+      c = mid(i2, i0)
+    recurse(b, i2, c)
+    recurse(i1, b, c)
+    recurse(i1, c, i0)
+  } else {
+    // marked e20,e01 share vertex i0; unmarked e12.
+    const c = mid(i2, i0),
+      a = mid(i0, i1)
+    recurse(c, i0, a)
+    recurse(i2, c, a)
+    recurse(i2, a, i1)
+  }
 }
 
 /** Densify a polygon-OUTLINE MM chain by inserting linear-MM midpoints on any
@@ -545,9 +626,9 @@ function subdivideTriangleMM(
  *  Returns the densified chain; the original endpoints are always preserved in order. */
 function subdivideChainMM(chain: number[][]): number[][] {
   if (chain.length < 2) return chain
-  // 50 km MM is below 0.45° lon / 0.5° lat at any latitude < 85 — mirrors
-  // subdivideTriangleMM's FAST_SKIP so a short segment skips the projection entirely.
-  const FAST_SKIP_MM = 50_000
+  // Reuses the module-level FAST_SKIP_MM (50 km MM, below 0.45° lon / 0.5° lat
+  // at any latitude < 85) so a short segment skips the projection entirely —
+  // the same early-out the FILL subdivision uses.
   const out: number[][] = [chain[0]]
   const emit = (ax: number, ay: number, bx: number, by: number, depth: number): void => {
     if (
