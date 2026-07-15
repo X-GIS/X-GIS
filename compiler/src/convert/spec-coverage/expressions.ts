@@ -82,17 +82,15 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
   // Colour
   {
     name: 'rgb / rgba',
-    status: 'partial',
-    impact: 'low',
-    note: 'Constant channels only — hex-encoded at convert time. Per-channel v8 literal-wrap (`["literal", N]`) accepted.',
-    source: 'expressions.ts:507',
+    status: 'supported',
+    note: 'Constant channels hex-encode at convert time; per-feature (data-driven) channels — `["rgb", ["get","r"], …]` — now lower to a runtime `rgb(…)` / `rgba(…)` call (expr-string.ts rgbHandler) that the evaluator\'s rgb/rgba builtin resolves per feature into a hex string (encoding byte-matches the constant path). Classified per-feature-CPU (rgb ∉ GPU_SAFE_BUILTINS). Per-channel v8 literal-wrap (`["literal", N]`) accepted.',
+    source: 'expr-string.ts rgbHandler + eval/evaluator-helpers.ts callBuiltin rgb/rgba',
   },
   {
     name: 'hsl / hsla',
-    status: 'partial',
-    impact: 'low',
-    note: 'Constant channels only — converted via CSS hsl()/hsla() and re-hexed at convert time. Per-channel v8 literal-wrap accepted.',
-    source: 'colors.ts:69',
+    status: 'supported',
+    note: "Constant channels convert via CSS hsl()/hsla() and re-hex at convert time; per-feature channels now lower to a runtime `hsl(…)` / `hsla(…)` call (expr-string.ts hslHandler) that the evaluator's hsl/hsla builtin resolves per feature through the CSS colour parser (tokens/colors.ts). Per-channel v8 literal-wrap accepted.",
+    source: 'expr-string.ts hslHandler + eval/evaluator-helpers.ts callBuiltin hsl/hsla',
   },
   { name: 'interpolate (linear)', status: 'supported' },
   {

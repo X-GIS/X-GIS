@@ -39,13 +39,13 @@ export const NON_BUILTIN_CALLEES: ReadonlySet<string> = new Set([
   'get',
   'properties',
   'match',
-  // Colour constructors — resolved by tokens/colors.ts (constant) and
-  // codegen/shader-gen-helpers.ts (per-feature GPU); never routed through
-  // callBuiltin.
-  'rgb',
-  'rgba',
-  'hsl',
-  'hsla',
+  // NB: the rgb / rgba / hsl / hsla colour constructors are NOT here —
+  // they are genuine `callBuiltin` builtins (eval/evaluator-helpers.ts
+  // BUILTIN_FN_NAMES), the per-feature-CPU path a data-driven
+  // `["rgb", ["get","r"], …]` classifies to. Constant forms still
+  // hex-encode at convert time (tokens/colors.ts) and the GPU
+  // reconstruction path (codegen/shader-gen-helpers.ts) handles the
+  // constant CSS form; both are orthogonal to callee validation.
   // Data-driven DSL forms — intercepted by codegen/shader-gen.ts and
   // rendered on the GPU (categorical → auto-palette, gradient → ramp).
   'categorical',
