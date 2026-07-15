@@ -72,8 +72,10 @@ function makeLineVtr(captured: Captured): { vtr: VectorTileRenderer; sentinel: s
     requestTiles: () => {},
   })
   // An empty selection: the body still reaches the mpp derivation + writeLayerSlot
-  // with zero tiles to acquire.
-  set('_selection', { selectForFrame: () => ({ neededKeys: [], worldOffDeg: 0 }) })
+  // with zero tiles to acquire. `tiles: []` satisfies collectTwinFallbacks (#1046),
+  // which iterates sel.tiles for fallback-ancestor coverage before writeLayerSlot;
+  // an empty array makes it a no-op so this test still reaches the mpp capture.
+  set('_selection', { selectForFrame: () => ({ neededKeys: [], worldOffDeg: 0, tiles: [] }) })
   set('_drawStats', {})
   set('currentFrameId', 0)
   set('_dashArrayCache', null)
