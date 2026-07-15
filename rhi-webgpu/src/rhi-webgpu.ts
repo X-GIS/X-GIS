@@ -196,11 +196,6 @@ class WebGpuRenderPass implements RhiRenderPass {
   setStencilReference(ref: number): void {
     if ('setStencilReference' in this.enc) this.enc.setStencilReference(ref)
   }
-  clearStencil(): void {
-    // WebGPU has no mid-pass clear; stencil is cleared via the pass descriptor's
-    // `stencilLoadOp` (the WebGPU opaque pass opens a fresh sub-pass per group).
-    // The single-pass forced-WebGL2 twin is the only caller — no-op here.
-  }
   end(): void {
     if ('end' in this.enc) this.enc.end()
   }
