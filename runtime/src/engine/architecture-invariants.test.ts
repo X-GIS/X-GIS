@@ -189,7 +189,13 @@ const LOC_CEILINGS: Record<string, number> = {
   // Bumped 1570→1790 (full-repo prettier adopt): one-property-per-line / call-arg
   // wrapping grew the file; formatting-only, no new logic. vector-tiler.ts
   // decomposition stays a tracked priority.
-  'compiler/src/tiler/vector-tiler.ts': 1790,
+  // Lowered 1790→1546 (INC-0 extract): the conforming red-green subdivision
+  // cluster (vertexKey + subdivideTriangleMM / subdivideChainMM + gate
+  // constants/helpers) moved verbatim to tiler/subdivide-conforming.ts — pure
+  // code motion, mesh output byte-identical; vector-tiler re-imports the three
+  // consumed symbols. (Second authority for this file per #1005; kept in sync
+  // with map/src/loc-ceiling-ratchet.ts — the two-ratchet rule.)
+  'compiler/src/tiler/vector-tiler.ts': 1546,
   // Bumped 915→917 (#420) for the UNIFORM_SIZE/SLOT 240→256 bump +
   // light_dir_ecef contract comment when the polygon Uniforms struct grew.
   // Bumped 917→931 (Phase R heatmap): ensureHeatmapBlur / ensureHeatmapCompose
