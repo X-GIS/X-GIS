@@ -20,7 +20,11 @@ import { uniformBlock, isPickEnabled, type UniformBlockOf } from '@xgis/engine'
 import { lonLatToECEF } from '@xgis/shared'
 import { RasterDraper, type RasterTile } from './material/raster-material'
 import { planBakeEvictions } from './vector-drape-cache'
-import { rasterU as RASTER_U, rasterTileU as RASTER_TILE_U, rasterGridN } from '../shaders/dsl/raster'
+import {
+  rasterU as RASTER_U,
+  rasterTileU as RASTER_TILE_U,
+  rasterGridN,
+} from '../shaders/dsl/raster'
 import {
   writeRasterFrameUniform,
   writeRasterTileUniform,
@@ -141,7 +145,10 @@ export class VectorDrapeRenderer {
       ) {
         const tex = provider.bakeTileToTexture(sliceLayer, key, fill, BAKE_PX)
         if (!tex) continue
-        if (entry) this.rhi.destroyTexture(entry.tex)
+        if (entry) {
+          this.draper.dropTexture(entry.tex) // invalidate the draper cache before freeing
+          this.rhi.destroyTexture(entry.tex)
+        }
         entry = { tex, uploadEpoch: cached.uploadEpoch, fillKey, strokeKey, lastCall: this.calls }
         this.baked.set(cacheKey, entry)
       }
@@ -210,7 +217,9 @@ export class VectorDrapeRenderer {
   beginFrame(): void {
     if (this.baked.size > MAX_CACHED_BAKES) {
       for (const k of planBakeEvictions(this.baked, this.visibleKeys, MAX_CACHED_BAKES)) {
-        this.rhi.destroyTexture(this.baked.get(k)!.tex)
+        const tex = this.baked.get(k)!.tex
+        this.draper.dropTexture(tex) // invalidate the draper cache before freeing
+        this.rhi.destroyTexture(tex)
         this.baked.delete(k)
       }
     }
@@ -221,7 +230,10 @@ export class VectorDrapeRenderer {
    *  source / map is torn down (the drape's own GPU-resource teardown). After
    *  destroy() the renderer is dead — create a new one if draping resumes. */
   destroy(): void {
-    for (const e of this.baked.values()) this.rhi.destroyTexture(e.tex)
+    for (const e of this.baked.values()) {
+      this.draper.dropTexture(e.tex) // invalidate the draper cache before freeing
+      this.rhi.destroyTexture(e.tex)
+    }
     this.baked.clear()
     this.visibleKeys.clear()
   }

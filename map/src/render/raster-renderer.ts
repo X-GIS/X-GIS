@@ -778,6 +778,7 @@ export class RasterRenderer {
       const [key, tile] = entries[i]
       if (this.rhi.backend === 'webgl2') this.rhi.destroyTexture(tile.texture as RhiTexture)
       else (tile.texture as GPUTexture).destroy()
+      this._rasterDraper?.dropTexture(tile.texture) // invalidate the draper cache before freeing
       this.tileCache.delete(key)
     }
   }
