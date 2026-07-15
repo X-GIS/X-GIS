@@ -34,8 +34,8 @@ describe('format() partial-drop', () => {
         {},
         ' ',
         {},
-        ['image', 'icon'],
-        {}, // unsupported — silently drops pre-fix, now warns + skipped
+        ['feature-state', 'x'],
+        {}, // unsupported accessor — silently drops pre-fix, now warns + skipped
         ' fallback',
         {},
       ],
@@ -53,8 +53,13 @@ describe('format() partial-drop', () => {
   })
 
   it('ALL sections fail → returns null with "all sections failed" warning', () => {
+    // `["image", …]` sections DO convert now (#777 I-G), so use a genuinely
+    // unsupported accessor to exercise the all-sections-fail bail path.
     const warnings: string[] = []
-    const result = exprToXgis(['format', ['image', 'a'], {}, ['image', 'b'], {}], warnings)
+    const result = exprToXgis(
+      ['format', ['feature-state', 'a'], {}, ['feature-state', 'b'], {}],
+      warnings,
+    )
     expect(result).toBeNull()
     expect(warnings.some((w) => w.includes('all') && w.includes('sections failed'))).toBe(true)
   })

@@ -1,0 +1,29 @@
+xgis 1
+
+/* §5 fixture (#777 I-G inline images in label text): a symbol label whose
+ * text-field is a FORMAT of [text, image, text] — concat("A ", image("pat"),
+ * " B") — so the sprite "pat" (16x16 red/blue) renders INLINE between the two
+ * text runs. The image sits on the text baseline (vertically centred on the
+ * x-height band) and the post-image text " B" is advanced right by the image
+ * CSS width (16px). This is exactly the Mapbox ["format", "A ", {},
+ * ["image","pat"], {}, " B", {}] form the converter now carries (imageHandler
+ * → image(name) → PUA marker → TextStage advance + IconStage quad); the bare
+ * text-field: ["image","pat"] form lowers the same way.
+ *
+ * The sprite comes from the local fixture atlas (the demo-runner &sprite=<base>
+ * seam) — load with:
+ *   /demo.html?id=fixture_format_image&sprite=/fixture-sprite
+ * A/B vs MapLibre on the same style: DC>0 confined to the inline image quad and
+ * the shifted post-image glyphs, D1<D0. A MISSING sprite must keep "A  B" and
+ * drop only the quad (MapLibre parity).
+ */
+
+source pt {
+  type: geojson
+  url: "fixture-point.geojson"
+}
+
+layer inline_image_label {
+  source: pt
+  | label-[concat("A ", image("pat"), " B")] label-size-24 label-color-#000
+}

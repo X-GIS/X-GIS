@@ -7,6 +7,7 @@ import type { LabelDef } from '@xgis/compiler'
 import type { GlyphRasterizer } from './sdf/glyph-rasterizer'
 import type { InlineGlyphSource } from './sdf/pbf/inline-glyph-provider'
 import type { GlyphProvider } from './sdf/pbf/glyph-provider'
+import type { InlineImageRun } from './text-stage-helpers'
 
 export interface WrappedLineRange {
   start: number
@@ -124,6 +125,11 @@ export interface PendingLabel {
    *  the label size by it so a far anchor's quad — collision box AND draw — shrinks.
    *  Undefined → 1 (no attenuation: overlays, flat un-pitched, line labels). */
   perspectiveScale?: number
+  /** #777 I-G — inline images carved out of the resolved text-field (the
+   *  Mapbox `["image", …]` marker), keyed by codepoint index into `text`
+   *  (which is the marker-STRIPPED string). Undefined / empty = plain label
+   *  (the overwhelming common case). Resolved to sprite quads in prepare(). */
+  inlineImages?: InlineImageRun[]
 }
 
 export interface PendingLineLabel {

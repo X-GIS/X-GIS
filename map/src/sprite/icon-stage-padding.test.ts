@@ -22,6 +22,7 @@ function makeStage(dpr = 1): { stage: IconStage; draws: { anchorX: number }[] } 
   const draws: { anchorX: number }[] = []
   const s = stage as unknown as {
     pending: unknown[]
+    inlineImages: unknown[]
     _iconDump: null
     _iconDebugHook: null
     dpr: number
@@ -35,6 +36,7 @@ function makeStage(dpr = 1): { stage: IconStage; draws: { anchorX: number }[] } 
     renderer: { setDraws(d: { anchorX: number }[]): void }
   }
   s.pending = []
+  s.inlineImages = [] // #777 I-G — prepare() reads it (constructor bypassed by the stub)
   s._iconDump = null
   s._iconDebugHook = null
   s.dpr = dpr

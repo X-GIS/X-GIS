@@ -33,6 +33,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Shield sprite stretched to its PAIRED text bbox via icon-text-fit: both (#777 I-A). Two symbol layers — a 2-digit ("12") narrow shield and a 5-digit ("12345") wide one — over the local sprite atlas. Load with &sprite=/fixture-sprite. §5 probe: A/B vs MapLibre, DC>0 confined to the shield quads.',
     source: load('fixture-symbol-icon-textfit.xgis'),
   },
+  fixture_format_image: {
+    name: 'Fixture: inline image in label text (local sprite)',
+    tag: 'fixture',
+    description:
+      'Inline sprite inside a formatted label (#777 I-G): text-field concat("A ", image("pat"), " B") renders the "pat" sprite (16x16) INLINE on the text baseline, advancing the post-image text by the image width. Over the local sprite atlas — load with &sprite=/fixture-sprite. §5 probe: /demo.html?id=fixture_format_image&sprite=/fixture-sprite ; A/B vs MapLibre, DC>0 confined to the image quad + shifted post-image glyphs.',
+    source: load('fixture-format-image.xgis'),
+  },
   fixture_raster_local: {
     name: 'Fixture: raster (local checker)',
     tag: 'fixture',

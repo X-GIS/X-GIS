@@ -136,6 +136,31 @@ export const concatHandler: ExprHandler = (v, warnings, recurse) => {
   return parts.length > 0 ? `concat(${parts.join(', ')})` : '""'
 }
 
+export const imageHandler: ExprHandler = (v, warnings, recurse) => {
+  // Mapbox `["image", nameExpr]` in a TEXT / format context (#777 I-G) →
+  // xgis `image(<nameExpr>)`. The evaluator's `image` builtin wraps the
+  // resolved sprite name in the inline-image sentinels so the runtime
+  // label shaper can carve it out of the resolved text and render a sprite
+  // quad on the baseline. Both the bare `text-field: ["image","pat"]` form
+  // and an `["image",…]` section inside `["format",…]` route here (via
+  // exprToXgis). The icon-image PROPERTY context is DIFFERENT — it strips
+  // the wrapper upstream (unwrapImageExpr) and never reaches this handler.
+  if (v.length < 2 || v[1] === undefined) {
+    warnings.push(
+      `Malformed ["image"] — expected a sprite-name argument: ${JSON.stringify(v).slice(0, 80)}`,
+    )
+    return null
+  }
+  const nameExpr = recurse(v[1], warnings)
+  if (nameExpr === null) {
+    warnings.push(
+      `["image"] sprite-name expression could not be converted: ${JSON.stringify(v[1]).slice(0, 80)}`,
+    )
+    return null
+  }
+  return `image(${nameExpr})`
+}
+
 export const formatHandler: ExprHandler = (v, warnings, recurse) => {
   // Mapbox `["format", text1, opts1, text2, opts2, …]`. Each
   // (text, opts) pair is a span — `text` is the value to render,

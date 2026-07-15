@@ -22,7 +22,7 @@ describe('format section failure warning', () => {
               'format',
               ['get', 'name'],
               {},
-              ['image', 'flag-x'],
+              ['feature-state', 'hover'],
               {}, // section 2 — unsupported image accessor
               ['get', 'pop'],
               {},

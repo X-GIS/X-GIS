@@ -3,6 +3,7 @@
 // TextRenderer's WGSL pipeline + GPU types.
 
 import type { LabelDef } from '@xgis/compiler'
+import { INLINE_IMAGE_START, INLINE_IMAGE_END } from '@xgis/compiler'
 import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '@xgis/engine'
@@ -376,4 +377,231 @@ export function composeFontKey(def: LabelDef, defaultFamily: string): string {
   const style = def.fontStyle ?? 'normal'
   const weight = def.fontWeight ?? 400
   return `${FONT_KEY_SENTINEL}${style}${FONT_KEY_SENTINEL}${weight}${FONT_KEY_SENTINEL}${family}`
+}
+
+// ─── Inline images in label text (#777 I-G) ──────────────────────────
+//
+// The converter lowers a Mapbox `["image", name]` in a text/format context
+// to the `image(name)` xgis builtin, whose evaluator wraps the resolved
+// sprite name in the PUA sentinels (INLINE_IMAGE_START/END). A label's
+// resolved text is therefore a plain string with zero or more
+// `⟨START⟩name⟨END⟩` runs embedded between ordinary text. These helpers
+// (1) carve those runs out so the glyph shaper never sees the sentinels,
+// and (2) splice each image's sprite-width advance back into the glyph pen
+// positions so the post-image text shifts right by the image width.
+
+/** One inline image located inside a marker-stripped label string. */
+export interface InlineImageRun {
+  /** Sprite-atlas name to render inline. */
+  name: string
+  /** Codepoint index into the STRIPPED text at which the image sits
+   *  (= number of text codepoints before it). Matches GlyphAtlasHost
+   *  .ensureString's one-GlyphInfo-per-codepoint indexing, so it doubles
+   *  as the glyph index the image is inserted before. */
+  glyphIndex: number
+}
+
+/** Split a resolved label string on the inline-image sentinels. Returns
+ *  the sentinel-free text (for glyph shaping) plus each image keyed by its
+ *  codepoint position in that text. A dangling START with no END is
+ *  treated as literal text (defensive — the evaluator never emits one).
+ *  Pure — exported for unit testing. */
+export function parseInlineImages(text: string): { stripped: string; images: InlineImageRun[] } {
+  // Fast path: no marker at all (the overwhelming common case).
+  if (text.indexOf(INLINE_IMAGE_START) === -1) return { stripped: text, images: [] }
+  let stripped = ''
+  const images: InlineImageRun[] = []
+  let cp = 0 // codepoint count of `stripped` so far
+  let i = 0
+  const n = text.length
+  while (i < n) {
+    if (text[i] === INLINE_IMAGE_START) {
+      const close = text.indexOf(INLINE_IMAGE_END, i + 1)
+      if (close !== -1) {
+        images.push({ name: text.slice(i + 1, close), glyphIndex: cp })
+        i = close + 1
+        continue
+      }
+      // Unterminated marker — keep the sentinel as literal text and stop
+      // scanning for more images (malformed input).
+    }
+    const c = text.codePointAt(i)!
+    const chunk = String.fromCodePoint(c)
+    stripped += chunk
+    cp++
+    i += c > 0xffff ? 2 : 1
+  }
+  return { stripped, images }
+}
+
+/** Read-only sprite-dimension lookup TextStage consults while shaping a label
+ *  with inline images. Satisfied structurally by IconStage.host (the same
+ *  sprite atlas the icons draw from), so no sprite bytes are duplicated —
+ *  only each sprite's design size is needed to reserve its advance. */
+export interface InlineImageSpriteSource {
+  get(name: string): { width: number; height: number; pixelRatio: number } | undefined
+}
+
+/** One inline image placed for a surviving label this frame, absolute screen
+ *  (physical px). `x,y` is the quad top-left, `wPx,hPx` its size (the sprite's
+ *  CSS size × DPR). IconStage draws it via the existing icon quad path. */
+export interface InlineImagePlacement {
+  name: string
+  x: number
+  y: number
+  wPx: number
+  hPx: number
+}
+
+/** A resolved inline image ready to place: its advance (== rendered width,
+ *  physical px) and height (physical px), plus the stripped-glyph index it
+ *  sits before. `advancePx`/`heightPx` are `(sprite.{width,height} /
+ *  sprite.pixelRatio) * dpr` — the CSS size scaled to the atlas's physical
+ *  pixel space (mission: "the image's CSS-size advance (width/pixelRatio)"). */
+export interface InlineImageSprite {
+  name: string
+  glyphIndex: number
+  advancePx: number
+  heightPx: number
+}
+
+/** Resolve a label's inline images against the sprite atlas (read-only) into
+ *  placeable sprites, dropping any whose name is absent (MapLibre "keep the
+ *  text, drop the image"). Returns the sprites plus their summed advance (to
+ *  widen the label block width / centring). Pure; exported for testing. */
+export function resolveInlineImageSprites(
+  images: readonly InlineImageRun[] | undefined,
+  source: InlineImageSpriteSource | null,
+  dpr: number,
+): { sprites: InlineImageSprite[]; totalAdvancePx: number } {
+  const sprites: InlineImageSprite[] = []
+  let totalAdvancePx = 0
+  if (images !== undefined && source !== null) {
+    for (const img of images) {
+      const sprite = source.get(img.name)
+      if (!sprite) continue
+      const advancePx = (sprite.width / sprite.pixelRatio) * dpr
+      sprites.push({
+        name: img.name,
+        glyphIndex: img.glyphIndex,
+        advancePx,
+        heightPx: (sprite.height / sprite.pixelRatio) * dpr,
+      })
+      totalAdvancePx += advancePx
+    }
+  }
+  return { sprites, totalAdvancePx }
+}
+
+/** A placed inline image, positioned relative to the label draw anchor
+ *  (same frame as `glyphOffsets`). `dx,dy` is the quad's top-left corner;
+ *  `wPx,hPx` its size. IconStage draws it via the existing icon path. */
+export interface ShapedInlineImage {
+  name: string
+  dx: number
+  dy: number
+  wPx: number
+  hPx: number
+}
+
+/** Lay out one wrapped line's glyph pen positions WITH inline images
+ *  spliced in, writing `glyphOffsets[gi*2] = penX`, `[gi*2+1] = lineY` for
+ *  `gi ∈ [start, end)` and appending each image's placement to `out`. An
+ *  image at insertion index k is emitted just BEFORE glyph k (or after the
+ *  last glyph when k === end), consuming `advancePx` so every subsequent
+ *  glyph shifts right by that width — the core "post-image text advances by
+ *  the image width" arithmetic. Images take NO letter-spacing (MapLibre:
+ *  spacing is a glyph-to-glyph property). Vertical placement centres the
+ *  image on the text x-height band: box centre at `lineY − 0.25·sizePx`
+ *  (x-height ≈ 0.5 em, so its midpoint is a quarter-em above the baseline),
+ *  i.e. the image sits ON the baseline, vertically centred against the
+ *  x-height — the documented I-G alignment. Returns the line's advance
+ *  width (glyphs + images). Pure; exported for unit testing. */
+export function fillLineWithInlineImages(
+  glyphOffsets: Float32Array,
+  advances: ArrayLike<number>,
+  start: number,
+  end: number,
+  letterSpacingPx: number,
+  startX: number,
+  lineY: number,
+  sizePx: number,
+  lineImages: readonly InlineImageSprite[],
+  out: ShapedInlineImage[],
+): number {
+  const xHeightMid = 0.25 * sizePx
+  let pen = startX
+  const emitImagesAt = (k: number): void => {
+    for (const img of lineImages) {
+      if (img.glyphIndex !== k) continue
+      out.push({
+        name: img.name,
+        dx: pen,
+        dy: lineY - xHeightMid - img.heightPx / 2,
+        wPx: img.advancePx,
+        hPx: img.heightPx,
+      })
+      pen += img.advancePx
+    }
+  }
+  for (let gi = start; gi < end; gi++) {
+    emitImagesAt(gi)
+    glyphOffsets[gi * 2] = pen
+    glyphOffsets[gi * 2 + 1] = lineY
+    pen += advances[gi]!
+    if (gi < end - 1) pen += letterSpacingPx
+  }
+  emitImagesAt(end) // trailing image(s) after the last glyph
+  return pen - startX
+}
+
+/** Fill a whole point label's `glyphOffsets` with inline images spliced in,
+ *  across every wrapped line — the image-bearing counterpart of the plain
+ *  per-line pen loop in TextStage.prepare(). Each image is assigned to the
+ *  line holding its `glyphIndex` (`[start, end)`, or `=== end` on the last
+ *  line), so a boundary image is emitted exactly once. Per-line justify
+ *  matches the plain path but measures line width INCLUDING that line's
+ *  image advances, so a centred/right label with an inline image stays
+ *  centred. Appends every placement to `out`. Pure; exported for testing. */
+export function fillPointGlyphOffsetsWithImages(
+  glyphOffsets: Float32Array,
+  advances: ArrayLike<number>,
+  lines: readonly { start: number; end: number; width: number }[],
+  baselineY: ArrayLike<number>,
+  centreShift: number,
+  letterSpacingPx: number,
+  totalAdvance: number,
+  effectiveJustify: 'left' | 'right' | 'center',
+  sizePx: number,
+  inlineSprites: readonly InlineImageSprite[],
+  out: ShapedInlineImage[],
+): void {
+  for (let li = 0; li < lines.length; li++) {
+    const ln = lines[li]!
+    const lastLine = li === lines.length - 1
+    const lineSprites = inlineSprites.filter(
+      (s) =>
+        s.glyphIndex >= ln.start &&
+        (s.glyphIndex < ln.end || (lastLine && s.glyphIndex === ln.end)),
+    )
+    let lineImgAdv = 0
+    for (const s of lineSprites) lineImgAdv += s.advancePx
+    const lineWidth = ln.width + lineImgAdv
+    let lineX = 0
+    if (effectiveJustify === 'right') lineX = totalAdvance - lineWidth
+    else if (effectiveJustify === 'center') lineX = (totalAdvance - lineWidth) * 0.5
+    const lineY = baselineY[li]! + centreShift
+    fillLineWithInlineImages(
+      glyphOffsets,
+      advances,
+      ln.start,
+      ln.end,
+      letterSpacingPx,
+      lineX,
+      lineY,
+      sizePx,
+      lineSprites,
+      out,
+    )
+  }
 }

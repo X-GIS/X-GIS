@@ -7,3 +7,4 @@ export {
   normalizeGeometryType,
   type ReservedKey,
 } from './reserved-keys'
+export { INLINE_IMAGE_START, INLINE_IMAGE_END, inlineImageMarker } from './inline-image-marker'

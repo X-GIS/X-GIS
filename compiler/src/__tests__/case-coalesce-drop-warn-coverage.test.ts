@@ -17,8 +17,8 @@ describe('case / coalesce partial-drop warnings', () => {
           type: 'fill',
           source: 's',
           paint: {
-            // `["image", …]` is unsupported by the converter — head drops.
-            'fill-color': ['coalesce', ['image', 'icon-x'], '#abc'],
+            // `["feature-state", …]` is unsupported by the converter — head drops.
+            'fill-color': ['coalesce', ['feature-state', 'hover'], '#abc'],
           },
         },
       ],
@@ -59,7 +59,7 @@ describe('case / coalesce partial-drop warnings', () => {
             // Arm 1 cond `["image", …]` fails — should warn.
             'fill-color': [
               'case',
-              ['image', 'flag-x'],
+              ['feature-state', 'hover'],
               '#fff',
               ['==', ['get', 'kind'], 'park'],
               '#0f0',
@@ -87,7 +87,7 @@ describe('case / coalesce partial-drop warnings', () => {
               'match',
               ['get', 'kind'],
               'park',
-              ['image', 'green-leaf'],
+              ['feature-state', 'hover'],
               'lake',
               '#00f',
               '#aaa',
@@ -116,7 +116,7 @@ describe('case / coalesce partial-drop warnings', () => {
               'match',
               ['downcase', ['get', 'kind']],
               'park',
-              ['image', 'green-leaf'],
+              ['feature-state', 'hover'],
               '#aaa',
             ],
           },

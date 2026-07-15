@@ -199,6 +199,19 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
     supported: true,
     note: 'match/case via label-icon-image-[<expr>] (iter 490)',
   },
+  // Inline images in label text (#777 I-G) — the `image` expression op in a
+  // text-field / format context. Runtime path: converter → image(name) →
+  // evaluator PUA marker → TextStage reserves the sprite CSS-width advance →
+  // IconStage draws it via the existing icon quad path. Deliberately NO
+  // { property: 'image' } capability row here: `image` is an EXPRESSION
+  // operator (every expression op is excluded from the drift gate's orphan
+  // check via its NON_RENDERABLE set, and none of the ~60 ops carry a
+  // capability row), AND the name `image` collides with the image SOURCE
+  // type (source-types.ts, status unsupported) which flattenCoverage lists
+  // first — so a same-named row would make the drift gate read the source
+  // row and false-flag a contradiction. The #777 I-G spec-coverage flip is
+  // therefore a 2-leg sync (spec-coverage `image` row + regenerated
+  // gap-matrix); this comment is the capability-table's record of it.
   { property: 'icon-rotate', layerType: 'symbol', variant: 'constant', supported: true },
   {
     property: 'icon-anchor',

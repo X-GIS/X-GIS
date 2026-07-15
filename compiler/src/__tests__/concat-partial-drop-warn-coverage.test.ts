@@ -17,7 +17,7 @@ describe('concat partial-drop warning', () => {
           type: 'symbol',
           source: 's',
           layout: {
-            'text-field': ['concat', ['image', 'icon-x'], ' ', ['get', 'name']],
+            'text-field': ['concat', ['feature-state', 'hover'], ' ', ['get', 'name']],
           },
         },
       ],

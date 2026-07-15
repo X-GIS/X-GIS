@@ -51,6 +51,7 @@ import {
   arrayHandler,
   typeCoercionHandler,
   concatHandler,
+  imageHandler,
   formatHandler,
   stepHandler,
   letHandler,
@@ -139,6 +140,9 @@ export const EXPR_HANDLERS: Map<string, ExprHandler> = new Map([
   ['ln2', mathConstantHandler],
   // string / value-shaping
   ['concat', concatHandler],
+  // inline image in a text/format context (#777 I-G) — icon-image property
+  // context strips the wrapper upstream (unwrapImageExpr) and never dispatches here
+  ['image', imageHandler],
   ['format', formatHandler],
   ['step', stepHandler],
   ['let', letHandler],

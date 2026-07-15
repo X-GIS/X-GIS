@@ -8,6 +8,7 @@ import { parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab } from '../tokens
 import { evalWithin } from './within'
 import { evalDistance } from './distance'
 import { collatorCompare, resolvedLocale } from './collator'
+import { inlineImageMarker } from './inline-image-marker'
 
 // ═══ Built-in functions ═══
 
@@ -175,6 +176,18 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
         s += typeof a === 'string' ? a : String(a)
       }
       return s
+    }
+    // Inline image — Mapbox `["image", name]` in a text/format context
+    // (#777 I-G). The converter lowers it to `image(<name>)` (imageHandler,
+    // expr-string.ts); here the resolved sprite name is wrapped in the
+    // PUA sentinels so the runtime label shaper can carve it out of the
+    // otherwise-plain resolved text and reserve the sprite's advance.
+    // A null/empty name yields the empty string (no marker → no image),
+    // mirroring MapLibre's drop of an unnamed image section.
+    case 'image': {
+      const name = args[0]
+      if (name === null || name === undefined || name === '') return ''
+      return inlineImageMarker(String(name))
     }
     // Case transforms — Mapbox `["downcase", x]` / `["upcase", x]`.
     // Numeric coercion is undefined in spec; we coerce via String().
