@@ -2,5 +2,9 @@
 // @construct pipe-and-ternary
 // @desc the pipe transform chain and the ternary conditional
 xgis 1
-let s = .speed | round | clamp(0, 10)
-let c = .hostile ? #ef4444 : #22c55e
+source w { type: geojson, url: "w.geojson" }
+layer roads {
+  source: w
+  | size-[.speed | round | clamp(0, 10)]
+  | fill-[.hostile ? #ef4444 : #22c55e]
+}

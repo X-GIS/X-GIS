@@ -6,17 +6,14 @@
 // actually selects features whose geometry lies inside the polygon.
 
 import { describe, it, expect } from 'vitest'
-import { Lexer, Parser, XGIS_LANGUAGE_MAJOR } from '@xgis/compiler'
+import { Lexer, Parser } from '@xgis/compiler'
 import { applyFilter } from '@xgis/map'
 
 // Parse a single xgis expression into the AST shape applyFilter expects.
+// Uses the parser's public sub-expression entry (the `let __t = …` host was
+// pruned by #1072); no version pragma is needed for a bare expression.
 function parseAst(src: string): unknown {
-  const tokens = new Lexer(`xgis ${XGIS_LANGUAGE_MAJOR}\nlet __t = ${src}`).tokenize()
-  const program = new Parser(tokens).parse() as { body: Array<{ kind: string; value?: unknown }> }
-  const stmt = program.body.find((s) => s.kind === 'LetStatement') as
-    { value?: unknown } | undefined
-  if (!stmt) throw new Error('let stmt missing')
-  return stmt.value
+  return new Parser(new Lexer(src).tokenize()).parseSingleExpression()
 }
 
 // The exact source the converter emits for a 10×10 square at the origin.

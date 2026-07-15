@@ -178,16 +178,14 @@ function isInterpolateString(raw: string): boolean {
 /** WS-1 — lex+parse a `interpolate(zoom, …)` style-property string back
  *  into the FnCall AST.Expr so the compiler's stop extractors can pull
  *  its (zoom, value) stops. The converter captured the call as a single
- *  string (parser.captureFnCallAsString); re-parsing it as a standalone
- *  program yields one ExprStatement whose `.expr` is the interpolate
- *  call. Returns null on any parse failure so the caller falls through
- *  to the constant path instead of throwing on a malformed value. */
+ *  string (parser.captureFnCallAsString); re-parse it as a single
+ *  expression (`parseSingleExpression` — no version pragma, no
+ *  statement grammar). Returns null on any parse failure so the caller
+ *  falls through to the constant path instead of throwing on a
+ *  malformed value. */
 function parseFillInterpolate(raw: string): AST.Expr | null {
   try {
-    const program = new Parser(new Lexer(raw).tokenize()).parse()
-    const first = program.body[0]
-    if (first && first.kind === 'ExprStatement') return first.expr
-    return null
+    return new Parser(new Lexer(raw).tokenize()).parseSingleExpression()
   } catch {
     return null
   }
@@ -2404,7 +2402,7 @@ export class XGISMap {
         if (d.severity === 'warn') xlog.warn(`${prefix}${lineSuffix} ${d.message}`)
         else console.log(`${prefix}${lineSuffix} ${d.message}`)
       }
-      commands = emitCommands(optimize(scene, ast), {
+      commands = emitCommands(optimize(scene), {
         enablePaletteSampling: true,
         // P4 opt-in: user-supplied via XGISMapOptions.enableComputePath.
         // When false (default) the compiler emits variants without

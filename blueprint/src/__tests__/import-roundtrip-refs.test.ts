@@ -27,8 +27,9 @@ layer districts {
     expect(rt(src)).toContain('style: ocean_blue')
   })
 
-  it('a wired style node still wins over the bare name', () => {
-    const src = `style oceans { fill: blue-400 }
+  it('a wired preset node still wins over the bare name', () => {
+    // `style:` references a preset since the style+preset merge (#1072).
+    const src = `preset oceans { | fill-blue-400 }
 
 source land { type: geojson url: "land.geojson" }
 

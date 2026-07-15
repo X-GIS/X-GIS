@@ -4,4 +4,4 @@
 /* a block comment
    spanning two lines */
 xgis 1
-let ok = true
+background { fill: sky-900 }

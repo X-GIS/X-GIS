@@ -17,7 +17,7 @@ function compileToShows(style: unknown): ReturnType<typeof emitCommands>['shows'
   const tokens = new Lexer(xgis).tokenize()
   const ast = new Parser(tokens).parse()
   const scene = lower(ast)
-  return emitCommands(optimize(scene, ast)).shows
+  return emitCommands(optimize(scene)).shows
 }
 
 function symbol(layout: Record<string, unknown>, paint?: Record<string, unknown>): unknown {

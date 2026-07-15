@@ -14,9 +14,7 @@ const FIELD_KEYS: Record<string, string[]> = {
   import: ['mode', 'names', 'path'],
   source: ['name', 'type', 'url', 'layers'],
   symbol: ['name', 'path', 'anchor'],
-  style: ['name', 'fill', 'stroke', 'strokeWidth', 'opacity'],
   preset: ['name', 'pipe'],
-  fn: ['name', 'params', 'ret', 'body'],
   layer: ['name', 'sourceLayer', 'minzoom', 'maxzoom', 'filter', 'pipe'],
   background: ['fill'],
 }
@@ -24,18 +22,7 @@ const FIELD_KEYS: Record<string, string[]> = {
 describe('@xgis/blueprint codegen contract', () => {
   it('all editor node types are present', () => {
     expect(Object.keys(NODE_SPECS).sort()).toEqual(
-      [
-        'background',
-        'fn',
-        'import',
-        'layer',
-        'map',
-        'preset',
-        'reroute',
-        'source',
-        'style',
-        'symbol',
-      ].sort(),
+      ['background', 'import', 'layer', 'map', 'preset', 'reroute', 'source', 'symbol'].sort(),
     )
   })
 
@@ -46,9 +33,10 @@ describe('@xgis/blueprint codegen contract', () => {
   }
 
   it('layer keeps its 4 typed input pins', () => {
+    // `style:` references a preset since the style+preset merge (#1072).
     expect(NODE_SPECS.layer.inputs.map((p) => `${p.id}:${p.type}`)).toEqual([
       'source:source',
-      'style:style',
+      'style:preset',
       'apply:preset',
       'symbol:symbol',
     ])

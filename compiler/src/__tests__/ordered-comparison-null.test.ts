@@ -11,18 +11,12 @@
 // diagnostic at iter 531 (bright-texas-shields view).
 
 import { describe, it, expect } from 'vitest'
-import { Lexer } from '../lexer/lexer'
-import { Parser } from '../parser/parser'
 import { evaluate } from '../eval/evaluator'
 import { makeEvalProps } from '../eval/reserved-keys'
-import { withPragma } from './_pragma'
+import { parseExpressionString } from '../parser/parser'
 
 function evalExpr(src: string, props: Record<string, unknown>): unknown {
-  const tokens = new Lexer(withPragma('let __x = ' + src)).tokenize()
-  const ast = new Parser(tokens).parse()
-  const stmt = ast.body[0]
-  if (stmt.kind !== 'LetStatement') throw new Error('expected LetStatement')
-  return evaluate(stmt.value as never, makeEvalProps({ props }))
+  return evaluate(parseExpressionString(src) as never, makeEvalProps({ props }))
 }
 
 describe('ordered comparison with null/undefined operand (iter 531)', () => {

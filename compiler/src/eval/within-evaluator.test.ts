@@ -5,17 +5,11 @@
 
 import { describe, it, expect } from 'vitest'
 import { evaluate } from './evaluator'
-import { Parser } from '../parser/parser'
-import { Lexer } from '../lexer/lexer'
 import { GEOMETRY_KEY } from './reserved-keys'
-import { withPragma } from '../__tests__/_pragma'
+import { parseExpressionString } from '../parser/parser'
 
 function evalExpr(src: string, props: Record<string, unknown>): unknown {
-  const tokens = new Lexer(withPragma(`let __t = ${src}`)).tokenize()
-  const ast = new Parser(tokens).parse() as { body: Array<{ kind: string; value?: unknown }> }
-  const stmt = ast.body.find((s) => s.kind === 'LetStatement') as { value?: unknown } | undefined
-  if (!stmt) throw new Error('let stmt missing')
-  return evaluate(stmt.value as never, props)
+  return evaluate(parseExpressionString(src) as never, props)
 }
 
 // The converter emits the polygon as a MultiPolygon-shaped nested array

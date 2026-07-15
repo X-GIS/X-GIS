@@ -47,7 +47,7 @@
 
 import type { ColorValue, DataExpr } from './render-node'
 import type { PropertyShape } from './property-types'
-import { classifyExpr, type FnEnv } from './classify'
+import { classifyExpr } from './classify'
 
 /** Dependency bitset. Pack the four orthogonal axes into one number
  *  so callers can test / combine in O(1). Values are powers of two —
@@ -90,8 +90,8 @@ export const DEPS_ZOOM_FEATURE: DepBits = Dep.ZOOM | Dep.FEATURE
  *  so as a conservative under-approximation we mark FEATURE only.
  *  Downstream passes that need exact ZOOM-bit precision can ride
  *  on the existing `expr.classification` flag plus a one-off ast walk. */
-export function getDataExprDeps(expr: DataExpr, fnEnv?: FnEnv): DepBits {
-  const cls = classifyExpr(expr.ast, fnEnv)
+export function getDataExprDeps(expr: DataExpr): DepBits {
+  const cls = classifyExpr(expr.ast)
   switch (cls) {
     case 'constant':
       return Dep.NONE
@@ -110,7 +110,7 @@ export function getDataExprDeps(expr: DataExpr, fnEnv?: FnEnv): DepBits {
 /** Derive a ColorValue's dependency bitset. Mirrors PropertyShape's
  *  five-kind union plus the legacy ColorValue `none` and `conditional`
  *  variants (lower.ts maintains them for non-shape consumers). */
-export function getColorDeps(value: ColorValue, fnEnv?: FnEnv): DepBits {
+export function getColorDeps(value: ColorValue): DepBits {
   switch (value.kind) {
     case 'none':
     case 'constant':
@@ -120,7 +120,7 @@ export function getColorDeps(value: ColorValue, fnEnv?: FnEnv): DepBits {
     case 'time-interpolated':
       return Dep.TIME
     case 'data-driven':
-      return getDataExprDeps(value.expr, fnEnv)
+      return getDataExprDeps(value.expr)
     case 'conditional': {
       // ConditionalBranch is `{ field: string; value: ColorValue }` —
       // matching on a per-feature property is FEATURE-dependent by
@@ -129,9 +129,9 @@ export function getColorDeps(value: ColorValue, fnEnv?: FnEnv): DepBits {
       // conditional can take.
       let bits: DepBits = Dep.FEATURE
       for (const br of value.branches) {
-        bits = mergeDeps(bits, getColorDeps(br.value, fnEnv))
+        bits = mergeDeps(bits, getColorDeps(br.value))
       }
-      bits = mergeDeps(bits, getColorDeps(value.fallback, fnEnv))
+      bits = mergeDeps(bits, getColorDeps(value.fallback))
       return bits
     }
   }
@@ -140,7 +140,7 @@ export function getColorDeps(value: ColorValue, fnEnv?: FnEnv): DepBits {
 /** Derive any PropertyShape<T>'s dependency bitset. The five kinds
  *  map one-to-one onto axis bits; data-driven recurses through
  *  classifyExpr like ColorValue. */
-export function getPropertyShapeDeps<T>(shape: PropertyShape<T>, fnEnv?: FnEnv): DepBits {
+export function getPropertyShapeDeps<T>(shape: PropertyShape<T>): DepBits {
   switch (shape.kind) {
     case 'constant':
       return Dep.NONE
@@ -151,7 +151,7 @@ export function getPropertyShapeDeps<T>(shape: PropertyShape<T>, fnEnv?: FnEnv):
     case 'zoom-time':
       return DEPS_ZOOM_TIME
     case 'data-driven':
-      return getDataExprDeps(shape.expr, fnEnv)
+      return getDataExprDeps(shape.expr)
   }
 }
 

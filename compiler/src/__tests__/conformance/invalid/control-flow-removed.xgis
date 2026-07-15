@@ -1,0 +1,9 @@
+// @case invalid
+// @construct control-flow
+// @desc imperative control flow (if/else, for-range, return) was pruned by #1072 — a generic syntax error at statement position
+// @expect-code X-GIS0010
+xgis 1
+fn classify(z: Number) -> Color {
+  for i in 0..3 { let step = i }
+  if z > 5 { return #ffffff } else { return #000000 }
+}

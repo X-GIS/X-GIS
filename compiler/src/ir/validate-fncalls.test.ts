@@ -27,17 +27,27 @@ const unknownFnDiags = (src: string): Diagnostic[] =>
 
 /** A synthetic program that calls each name once — bypasses the parser so
  *  the registry-driven test can exercise every set member (including the
- *  hyphenated aliases the identifier grammar can't spell). */
+ *  hyphenated aliases the identifier grammar can't spell). Each call rides a
+ *  synthetic `source` property value (a walked expression host) since the
+ *  bare-expression statement form was pruned by #1072. */
 const callProgram = (names: readonly string[]): AST.Program => ({
   kind: 'Program',
   body: names.map((name, i): AST.Statement => ({
-    kind: 'ExprStatement',
+    kind: 'SourceStatement',
+    name: `s${i}`,
     line: i + 1,
-    expr: {
-      kind: 'FnCall',
-      callee: { kind: 'Identifier', name },
-      args: [{ kind: 'FieldAccess', object: null, field: 'x' }],
-    },
+    properties: [
+      {
+        kind: 'BlockProperty',
+        name: 'url',
+        line: i + 1,
+        value: {
+          kind: 'FnCall',
+          callee: { kind: 'Identifier', name },
+          args: [{ kind: 'FieldAccess', object: null, field: 'x' }],
+        },
+      },
+    ],
   })),
 })
 
@@ -79,10 +89,13 @@ layer d {
     expect(diags[0].span).toMatchObject({ line: 5, col: 1 })
   })
 
-  it('a user-declared `fn` resolves without an unknown-function error', () => {
+  it('an imported name resolves without an unknown-function error', () => {
+    // The `fn` declaration form was pruned by #1072; imports are now the
+    // sole non-builtin callable source (collectDeclaredNames), so an
+    // imported `dbl` is the surviving "declared, not unknown" case.
     expect(
       unknownFnDiags(`
-fn dbl(v: f32) -> f32 { v * 2 }
+import { dbl } from "./lib.xgis"
 source p { type: geojson, url: "x.geojson" }
 layer d {
   source: p

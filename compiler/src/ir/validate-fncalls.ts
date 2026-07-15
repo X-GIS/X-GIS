@@ -76,27 +76,16 @@ export function validateFnCalls(program: AST.Program, diagnostics: Diagnostic[])
 }
 
 /** Every name a call may legally resolve to besides the builtins: the
- *  user's `fn` declarations and `import`ed names (a call could target an
- *  imported fn). Collected recursively so a fn nested in another fn's body
- *  still counts. */
+ *  `import`ed names (a call could target an imported fn). The `fn` keyword
+ *  and the imperative `if`/`for` statement forms were pruned by #1072, so
+ *  imports (top-level only) are now the sole non-builtin callable source. */
 function collectDeclaredNames(program: AST.Program): Set<string> {
   const names = new Set<string>()
-  const visit = (stmts: readonly AST.Statement[]): void => {
-    for (const s of stmts) {
-      if (s.kind === 'FnStatement') {
-        names.add(s.name)
-        visit(s.body)
-      } else if (s.kind === 'ImportStatement') {
-        for (const n of s.names) names.add(n)
-      } else if (s.kind === 'IfStatement') {
-        visit(s.thenBranch)
-        if (s.elseBranch) visit(s.elseBranch)
-      } else if (s.kind === 'ForStatement') {
-        visit(s.body)
-      }
+  for (const s of program.body) {
+    if (s.kind === 'ImportStatement') {
+      for (const n of s.names) names.add(n)
     }
   }
-  visit(program.body)
   return names
 }
 
@@ -107,34 +96,6 @@ function walkStatements(
 ): void {
   for (const s of stmts) {
     switch (s.kind) {
-      case 'LetStatement':
-        walkExpr(s.value, s.line, diagnostics, declared)
-        break
-      case 'ShowStatement':
-        walkExpr(s.target, s.line, diagnostics, declared)
-        for (const p of s.block.properties) {
-          for (const v of p.values) walkExpr(v, p.line, diagnostics, declared)
-        }
-        break
-      case 'FnStatement':
-        walkStatements(s.body, diagnostics, declared)
-        break
-      case 'ExprStatement':
-        walkExpr(s.expr, s.line, diagnostics, declared)
-        break
-      case 'IfStatement':
-        walkExpr(s.condition, s.line, diagnostics, declared)
-        walkStatements(s.thenBranch, diagnostics, declared)
-        if (s.elseBranch) walkStatements(s.elseBranch, diagnostics, declared)
-        break
-      case 'ReturnStatement':
-        if (s.value) walkExpr(s.value, s.line, diagnostics, declared)
-        break
-      case 'ForStatement':
-        walkExpr(s.start, s.line, diagnostics, declared)
-        walkExpr(s.end, s.line, diagnostics, declared)
-        walkStatements(s.body, diagnostics, declared)
-        break
       case 'SourceStatement':
         for (const p of s.properties) walkExpr(p.value, p.line, diagnostics, declared)
         break

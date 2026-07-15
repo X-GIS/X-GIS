@@ -1,20 +1,16 @@
 xgis 1
 
-/* Reusable named styles */
-style ocean_style {
-  fill: sky-950
+/* Reusable named presets (referenced via style:) */
+preset ocean_style {
+  | fill-sky-950
 }
 
-style land_style {
-  fill: stone-800
-  stroke: stone-700
-  stroke-width: 1
+preset land_style {
+  | fill-stone-800 stroke-stone-700 stroke-1
 }
 
-style water_body {
-  fill: sky-800
-  stroke: sky-600
-  stroke-width: 0.5
+preset water_body {
+  | fill-sky-800 stroke-sky-600 stroke-0.5
 }
 
 source ocean {

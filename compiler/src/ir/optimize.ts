@@ -2,10 +2,9 @@
 // Classifies expressions and folds constants at compile time.
 // Sits between lower() and emitCommands() in the pipeline.
 
-import type * as AST from '../parser/ast'
 import type { Scene, RenderNode, ColorValue, OpacityValue, SizeValue } from './render-node'
 import { colorConstant, opacityConstant, sizeConstant, hexToRgba } from './render-node'
-import { classifyExpr, type FnEnv } from './classify'
+import { classifyExpr } from './classify'
 import { constFold } from './const-fold'
 import { PassManager } from './pass-manager'
 import { mergeLayersPass } from './passes/merge-layers'
@@ -19,22 +18,11 @@ import { exprAnalyzePass } from './passes/expr-analyze'
 /**
  * Optimize a Scene by classifying expressions and folding constants.
  * @param scene The IR scene from lower()
- * @param program The original AST program (needed to collect fn definitions)
  */
-export function optimize(scene: Scene, program?: AST.Program): Scene {
-  // Collect user-defined functions
-  const fnEnv: FnEnv = new Map()
-  if (program) {
-    for (const stmt of program.body) {
-      if (stmt.kind === 'FnStatement') {
-        fnEnv.set(stmt.name, stmt)
-      }
-    }
-  }
-
+export function optimize(scene: Scene): Scene {
   const optimized: Scene = {
     sources: scene.sources,
-    renderNodes: scene.renderNodes.map((node) => optimizeNode(node, fnEnv)),
+    renderNodes: scene.renderNodes.map((node) => optimizeNode(node)),
     symbols: scene.symbols,
   }
 
@@ -106,28 +94,28 @@ function runScenePipeline(scene: Scene): Scene {
   return PIPELINE.run(scene).scene
 }
 
-function optimizeNode(node: RenderNode, fnEnv: FnEnv): RenderNode {
+function optimizeNode(node: RenderNode): RenderNode {
   return {
     ...node,
-    fill: optimizeColor(node.fill, fnEnv),
+    fill: optimizeColor(node.fill),
     // Preserve all stroke fields — only the color needs optimization.
     // (Historically this was `{ color, width }` which silently dropped
     // linecap/linejoin/miterlimit/dashArray/dashOffset/patterns added later.)
     stroke: {
       ...node.stroke,
-      color: optimizeColor(node.stroke.color, fnEnv),
+      color: optimizeColor(node.stroke.color),
     },
-    opacity: optimizeOpacity(node.opacity, fnEnv),
-    size: optimizeSize(node.size, fnEnv),
+    opacity: optimizeOpacity(node.opacity),
+    size: optimizeSize(node.size),
   }
 }
 
-function optimizeColor(value: ColorValue, fnEnv: FnEnv): ColorValue {
+function optimizeColor(value: ColorValue): ColorValue {
   if (value.kind !== 'data-driven') return value
 
-  const classification = classifyExpr(value.expr.ast, fnEnv)
+  const classification = classifyExpr(value.expr.ast)
   if (classification === 'constant') {
-    const folded = constFold(value.expr.ast, fnEnv)
+    const folded = constFold(value.expr.ast)
     if (folded !== null) {
       // Folded value could be a hex color string or a number
       if (typeof folded.value === 'string' && folded.value.startsWith('#')) {
@@ -140,12 +128,12 @@ function optimizeColor(value: ColorValue, fnEnv: FnEnv): ColorValue {
   return { ...value, expr: { ...value.expr, classification } }
 }
 
-function optimizeOpacity(value: OpacityValue, fnEnv: FnEnv): OpacityValue {
+function optimizeOpacity(value: OpacityValue): OpacityValue {
   if (value.kind !== 'data-driven') return value
 
-  const classification = classifyExpr(value.expr.ast, fnEnv)
+  const classification = classifyExpr(value.expr.ast)
   if (classification === 'constant') {
-    const folded = constFold(value.expr.ast, fnEnv)
+    const folded = constFold(value.expr.ast)
     // Number.isFinite rejects NaN/Infinity that slip past typeof.
     // Pre-fix a constant-folded NaN opacity bound itself into the IR
     // as opacityConstant(NaN/100) = NaN; the downstream renderer
@@ -158,12 +146,12 @@ function optimizeOpacity(value: OpacityValue, fnEnv: FnEnv): OpacityValue {
   return { ...value, expr: { ...value.expr, classification } }
 }
 
-function optimizeSize(value: SizeValue, fnEnv: FnEnv): SizeValue {
+function optimizeSize(value: SizeValue): SizeValue {
   if (value.kind !== 'data-driven') return value
 
-  const classification = classifyExpr(value.expr.ast, fnEnv)
+  const classification = classifyExpr(value.expr.ast)
   if (classification === 'constant') {
-    const folded = constFold(value.expr.ast, fnEnv)
+    const folded = constFold(value.expr.ast)
     // Mirror of the opacity NaN guard above — sizeConstant(NaN)
     // bound itself into the IR as a NaN size and the vertex shader
     // expanded to a NaN-sized point (typically degenerate / off-

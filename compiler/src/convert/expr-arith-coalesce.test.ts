@@ -14,20 +14,12 @@
 
 import { describe, it, expect } from 'vitest'
 import { exprToXgis } from './expressions'
-import { Lexer } from '../lexer/lexer'
-import { Parser } from '../parser/parser'
 import { evaluate } from '../eval/evaluator'
-import { withPragma } from '../__tests__/_pragma'
+import { parseExpressionString } from '../parser/parser'
 
 /** Parse an xgis expression string and return its AST node. */
 function parseExpr(src: string): { kind: string } {
-  const tokens = new Lexer(withPragma(`let __t = ${src}`)).tokenize()
-  const ast = new Parser(tokens).parse() as {
-    body: Array<{ kind: string; value?: { kind: string } }>
-  }
-  const stmt = ast.body.find((s) => s.kind === 'LetStatement')
-  if (!stmt || !stmt.value) throw new Error('let stmt missing')
-  return stmt.value
+  return parseExpressionString(src)
 }
 
 describe('BUG A — arithmetic operator arity (variadic + / *, unary -)', () => {

@@ -502,7 +502,7 @@ function emitShow(
   // when the caller set `enablePaletteSampling`; otherwise the
   // variant falls back to the legacy `u.fill_color` uniform path
   // (P3 Step 3b's strict back-compat branch).
-  const shaderVariant = generateShaderVariant(node, undefined, palette, scalarMode)
+  const shaderVariant = generateShaderVariant(node, palette, scalarMode)
 
   const op = node.opacity
 

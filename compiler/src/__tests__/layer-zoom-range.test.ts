@@ -33,7 +33,7 @@ function emit(xgis: string): ShowLike[] {
   const tokens = new Lexer(withPragma(xgis)).tokenize()
   const ast = new Parser(tokens).parse()
   const scene = lower(ast)
-  const cmds = emitCommands(optimize(scene, ast))
+  const cmds = emitCommands(optimize(scene))
   return cmds.shows as unknown as ShowLike[]
 }
 

@@ -7,31 +7,14 @@ export enum TokenType {
 
   // Identifiers & Keywords
   Identifier, // foo, bar
-  Let, // let
-  Fn, // fn
-  Show, // show
-  Place, // place
-  View, // view
-  On, // on
-  If, // if
-  Else, // else
-  For, // for
-  In, // in
-  Return, // return
-  Simulate, // simulate
-  Analyze, // analyze
   Import, // import
-  Struct, // struct
-  Enum, // enum
   Source, // source
   Layer, // layer
   Background, // background
   Preset, // preset
   From, // from
   To, // to (keyframes alias for 100%)
-  Export, // export
   SymbolDef, // symbol
-  Style, // style
   Keyframes, // keyframes
 
   // Units
@@ -88,31 +71,14 @@ export interface Token {
 }
 
 const KEYWORDS: Record<string, TokenType> = {
-  let: TokenType.Let,
-  fn: TokenType.Fn,
-  show: TokenType.Show,
-  place: TokenType.Place,
-  view: TokenType.View,
-  on: TokenType.On,
-  if: TokenType.If,
-  else: TokenType.Else,
-  for: TokenType.For,
-  in: TokenType.In,
-  return: TokenType.Return,
-  simulate: TokenType.Simulate,
-  analyze: TokenType.Analyze,
   import: TokenType.Import,
-  struct: TokenType.Struct,
-  enum: TokenType.Enum,
   source: TokenType.Source,
   layer: TokenType.Layer,
   background: TokenType.Background,
   preset: TokenType.Preset,
   from: TokenType.From,
   to: TokenType.To,
-  export: TokenType.Export,
   symbol: TokenType.SymbolDef,
-  style: TokenType.Style,
   keyframes: TokenType.Keyframes,
   true: TokenType.Bool,
   false: TokenType.Bool,

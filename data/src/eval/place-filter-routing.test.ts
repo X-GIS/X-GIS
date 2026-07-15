@@ -73,7 +73,7 @@ function buildShows(): ShowLike[] {
   ).tokenize()
   const ast = new Parser(tokens).parse()
   const scene = lower(ast)
-  const cmds = emitCommands(optimize(scene, ast))
+  const cmds = emitCommands(optimize(scene))
   return cmds.shows as unknown as ShowLike[]
 }
 

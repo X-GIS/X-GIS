@@ -42,19 +42,6 @@ export class ParserCursor {
     return this.advance()
   }
 
-  /** Lookahead: is the token after the comma an "identifier:" pattern? */
-  protected isNextPropertyStart(): boolean {
-    // Current pos is at Comma. Check pos+1 and pos+2.
-    const next1 = this.tokens[this.pos + 1]
-    const next2 = this.tokens[this.pos + 2]
-    return (
-      next1 !== undefined &&
-      next1.type === TokenType.Identifier &&
-      next2 !== undefined &&
-      next2.type === TokenType.Colon
-    )
-  }
-
   protected isEnd(): boolean {
     return this.current().type === TokenType.EOF
   }

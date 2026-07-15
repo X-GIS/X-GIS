@@ -3,7 +3,7 @@
 // visual editor) derives its node catalogue from, instead of keeping a
 // parallel hand-maintained table that silently drifts from the grammar.
 //
-// Scope: the 8 real language constructs only. Presentation (titles,
+// Scope: the real language constructs only. Presentation (titles,
 // colours, which field renders as a textarea) and editor-only nodes
 // (the `map` output sink, `reroute` knots) are NOT language facts and
 // live in the editor, not here.
@@ -21,7 +21,7 @@ export type SchemaValueKind =
   | 'pipe' // one or more `| utility …` lines
 
 /** Cross-block reference data-types — these become typed editor pins. */
-export type SchemaPinType = 'source' | 'style' | 'preset' | 'symbol' | 'layer'
+export type SchemaPinType = 'source' | 'preset' | 'symbol' | 'layer'
 
 export interface SchemaProperty {
   /** Stable key: also the editor data key and the emitted property
@@ -116,22 +116,9 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
     ],
   },
 
-  style: {
-    keyword: 'style',
-    astKind: 'StyleStatement',
-    category: 'Style',
-    produces: 'style',
-    properties: [
-      { key: 'name', valueKind: 'identifier', required: true },
-      { key: 'fill', valueKind: 'string' },
-      { key: 'stroke', valueKind: 'string' },
-      // Editor/data key stays `strokeWidth`; codegen emits the
-      // `stroke-width` token. Do not rename — codegen contract.
-      { key: 'strokeWidth', valueKind: 'number' },
-      { key: 'opacity', valueKind: 'number' },
-    ],
-  },
-
+  // The single full-surface reusable-style construct (the former
+  // `style` block merged in): a named bundle of any utility lines,
+  // referenced by a layer via either `apply-<name>` or `style:`.
   preset: {
     keyword: 'preset',
     astKind: 'PresetStatement',
@@ -140,18 +127,6 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
     properties: [
       { key: 'name', valueKind: 'identifier', required: true },
       { key: 'pipe', valueKind: 'pipe' },
-    ],
-  },
-
-  fn: {
-    keyword: 'fn',
-    astKind: 'FnStatement',
-    category: 'Logic',
-    properties: [
-      { key: 'name', valueKind: 'identifier', required: true },
-      { key: 'params', valueKind: 'string' },
-      { key: 'ret', valueKind: 'string' },
-      { key: 'body', valueKind: 'expr' },
     ],
   },
 
@@ -170,7 +145,10 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
     ],
     refs: [
       { pin: 'source', refType: 'source', required: true },
-      { pin: 'style', refType: 'style' },
+      // `style:` and `apply-` both reference a preset (the merged
+      // full-surface construct); `style:` is the single-preset base,
+      // `apply-` the multi-preset overlay.
+      { pin: 'style', refType: 'preset' },
       { pin: 'apply', refType: 'preset', multi: true },
       { pin: 'symbol', refType: 'symbol' },
     ],

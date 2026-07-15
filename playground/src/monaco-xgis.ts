@@ -46,20 +46,13 @@ export function registerXGISLanguage() {
     keywords: [
       'source',
       'layer',
-      'style',
       'symbol',
       'preset',
+      'keyframes',
+      'background',
       'import',
       'from',
-      'export',
-      'if',
-      'else',
-      'for',
-      'in',
-      'return',
-      'let',
-      'fn',
-      'show',
+      'to',
       'true',
       'false',
     ],
@@ -300,7 +293,7 @@ export function registerXGISLanguage() {
       const full = model.getValue()
       // Find `source <word> {` or `layer <word> {` blocks in the same file
       const defRe = new RegExp(
-        `\\b(?:source|layer|style|symbol|preset)\\s+${escapeRegex(word.word)}\\b`,
+        `\\b(?:source|layer|symbol|preset)\\s+${escapeRegex(word.word)}\\b`,
         'g',
       )
       let m: RegExpExecArray | null
@@ -325,12 +318,11 @@ export function registerXGISLanguage() {
     provideDocumentSymbols(model) {
       const symbols: monaco.languages.DocumentSymbol[] = []
       const text = model.getValue()
-      const re = /\b(source|layer|style|symbol|preset)\s+([A-Za-z_][\w]*)\s*\{/g
+      const re = /\b(source|layer|symbol|preset)\s+([A-Za-z_][\w]*)\s*\{/g
       let m: RegExpExecArray | null
       const kindMap: Record<string, monaco.languages.SymbolKind> = {
         source: monaco.languages.SymbolKind.Class,
         layer: monaco.languages.SymbolKind.Method,
-        style: monaco.languages.SymbolKind.Interface,
         symbol: monaco.languages.SymbolKind.Constructor,
         preset: monaco.languages.SymbolKind.Property,
       }
@@ -448,7 +440,7 @@ function escapeRegex(s: string): string {
 function getBlockContext(
   text: string,
   offset: number,
-): 'source' | 'layer' | 'style' | 'symbol' | null {
+): 'source' | 'layer' | 'symbol' | 'preset' | null {
   let depth = 0
   let lastBlock: string | null = null
 
@@ -458,14 +450,14 @@ function getBlockContext(
       if (depth === 0) {
         // Find the keyword before this brace
         const before = text.substring(Math.max(0, i - 40), i).trim()
-        const match = before.match(/\b(source|layer|style|symbol)\s+\w+\s*$/)
+        const match = before.match(/\b(source|layer|symbol|preset)\s+\w+\s*$/)
         if (match) lastBlock = match[1]
         break
       }
       depth--
     }
   }
-  return lastBlock as 'source' | 'layer' | 'style' | 'symbol' | null
+  return lastBlock as 'source' | 'layer' | 'symbol' | 'preset' | null
 }
 
 // ═══ Completion Data ═══
@@ -490,12 +482,12 @@ const BLOCK_COMPLETIONS = [
     },
   },
   {
-    label: 'style',
-    insertText: 'style ${1:name} {\n  fill: ${2}\n  stroke: ${3}\n  stroke-width: ${4:1}\n}',
-    detail: 'Named style block',
+    label: 'preset',
+    insertText: 'preset ${1:name} {\n  | ${2:fill-slate-900 stroke-slate-700 stroke-1}\n}',
+    detail: 'Reusable preset block',
     documentation: {
       value:
-        'Reusable named style.\n\n```xgis\nstyle dark {\n  fill: slate-900\n  stroke: slate-700\n  stroke-width: 0.5\n}\n```',
+        'Reusable named bundle of utility lines.\n\n```xgis\npreset dark {\n  | fill-slate-900 stroke-slate-700 stroke-0.5\n}\n```\nApply with `style: dark` or `| apply-dark` in a layer.',
     },
   },
   {
@@ -525,7 +517,7 @@ const LAYER_PROPS = [
     insertText: 'filter: .${1} ${2|>,<,==,!=,>=,<=|} ${3}',
     detail: 'Per-feature filter expression',
   },
-  { label: 'style', insertText: 'style: ${1}', detail: 'Reference to a named style' },
+  { label: 'style', insertText: 'style: ${1}', detail: 'Reference to a preset' },
   { label: 'z-order', insertText: 'z-order: ${1:0}', detail: 'Layer draw order (higher = on top)' },
   { label: 'fill', insertText: 'fill: ${1}', detail: 'Fill color (CSS property syntax)' },
   { label: 'stroke', insertText: 'stroke: ${1}', detail: 'Stroke color' },
@@ -957,12 +949,10 @@ const HOVER_DOCS: Record<string, string> = {
     '**source** — Define a data source\n\n```xgis\nsource name {\n  type: geojson\n  url: "file.geojson"\n}\n```',
   layer:
     '**layer** — Define a render layer\n\n```xgis\nlayer name {\n  source: sourceName\n  | fill-sky-500 stroke-white stroke-1\n}\n```',
-  style:
-    '**style** — Named reusable style\n\n```xgis\nstyle dark {\n  fill: slate-900\n  stroke: slate-700\n}\n```\nApply with `style: dark` in a layer.',
   symbol:
     '**symbol** — Custom SDF shape\n\n```xgis\nsymbol arrow {\n  path "M 0 -1 L 0.4 0.4 L 0 0.1 L -0.4 0.4 Z"\n}\n```\nUse with `| shape-arrow`',
   preset:
-    '**preset** — Reusable utility block\n\n```xgis\npreset dark_fill {\n  | fill-slate-800 stroke-slate-700\n}\n```',
+    '**preset** — Reusable utility block\n\n```xgis\npreset dark_fill {\n  | fill-slate-800 stroke-slate-700\n}\n```\nApply with `style: dark_fill` or `| apply-dark_fill` in a layer.',
   filter:
     '**filter** — Per-feature filter expression\n\n```xgis\nfilter: .pop_max > 1000000\nfilter: .name == "Japan"\nfilter: .pop > 1000 && .pop < 5000\n```\nOperators: `>`, `<`, `>=`, `<=`, `==`, `!=`, `&&`, `||`',
   // Functions

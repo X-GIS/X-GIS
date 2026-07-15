@@ -2,8 +2,10 @@
 // @construct number-literal
 // @desc integer, decimal, scientific-notation, and unit-tagged numbers
 xgis 1
-let i = 42
-let d = 3.14
-let sci = 1.5e-7
-let dist = 10km
-let dur = 250ms
+source nums {
+  i: 42
+  d: 3.14
+  sci: 1.5e-7
+  dist: 10km
+  dur: 250ms
+}

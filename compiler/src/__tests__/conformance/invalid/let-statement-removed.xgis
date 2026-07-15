@@ -1,0 +1,6 @@
+// @case invalid
+// @construct let-statement
+// @desc the `let` binding statement was pruned by #1072 — `let` at statement position is now a generic syntax error
+// @expect-code X-GIS0010
+xgis 1
+let accent = #38bdf8

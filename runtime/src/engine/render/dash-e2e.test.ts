@@ -13,7 +13,7 @@ import { packLineLayerUniform, LINE_CAP_BUTT, LINE_JOIN_MITER } from '@xgis/map'
 function compileDemo(source: string) {
   const tokens = new Lexer(`xgis ${XGIS_LANGUAGE_MAJOR}\n` + source).tokenize()
   const ast = new Parser(tokens).parse()
-  const scene = optimize(lower(ast), ast)
+  const scene = optimize(lower(ast))
   return emitCommands(scene)
 }
 

@@ -25,7 +25,7 @@ function convert(mapboxStyle: unknown): string {
 function compileToShows(mapboxStyle: unknown): ReturnType<typeof emitCommands>['shows'] {
   const tokens = new Lexer(convert(mapboxStyle)).tokenize()
   const ast = new Parser(tokens).parse()
-  return emitCommands(optimize(lower(ast), ast)).shows
+  return emitCommands(optimize(lower(ast))).shows
 }
 
 function fillLayer(paint: Record<string, unknown>): unknown {

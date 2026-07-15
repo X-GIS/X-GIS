@@ -4,18 +4,18 @@
 
 import type * as AST from '../parser/ast'
 import { evaluate } from '../eval/evaluator'
-import { classifyExpr, type FnEnv } from './classify'
+import { classifyExpr } from './classify'
 
 /**
  * Attempt to fold a constant expression at compile time.
  * Returns the folded value, or null if the expression is not constant.
  */
-export function constFold(expr: AST.Expr, fnEnv?: FnEnv): { value: unknown } | null {
+export function constFold(expr: AST.Expr): { value: unknown } | null {
   // Only fold expressions classified as constant
-  if (classifyExpr(expr, fnEnv) !== 'constant') return null
+  if (classifyExpr(expr) !== 'constant') return null
 
   try {
-    const result = evaluate(expr, {}, fnEnv)
+    const result = evaluate(expr, {})
     if (result !== null && result !== undefined) {
       return { value: result }
     }

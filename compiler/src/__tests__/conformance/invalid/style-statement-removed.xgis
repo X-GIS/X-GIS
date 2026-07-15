@@ -1,0 +1,6 @@
+// @case invalid
+// @construct style-statement
+// @desc the `style` statement was merged into `preset` by #1072 — `style` at statement position is now a generic syntax error
+// @expect-code X-GIS0010
+xgis 1
+style dark_land { fill: stone-800, stroke: rgba(30, 41, 59, 0.8), stroke-width: 1 }

@@ -9,7 +9,7 @@ import { withPragma } from './_pragma'
 function compile(source: string) {
   const tokens = new Lexer(withPragma(source)).tokenize()
   const ast = new Parser(tokens).parse()
-  return emitCommands(optimize(lower(ast), ast))
+  return emitCommands(optimize(lower(ast)))
 }
 
 const BASE = `

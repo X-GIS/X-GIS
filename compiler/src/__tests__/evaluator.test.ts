@@ -5,12 +5,11 @@ import { evaluate, type FeatureProps } from '../eval/evaluator'
 import { lower } from '../ir/lower'
 import type * as AST from '../parser/ast'
 import { withPragma } from './_pragma'
+import { parseExpressionString } from '../parser/parser'
 
 /** Parse a single expression from "let x = <expr>" */
 function parseExpr(source: string): AST.Expr {
-  const tokens = new Lexer(withPragma(`let x = ${source}`)).tokenize()
-  const ast = new Parser(tokens).parse()
-  return (ast.body[0] as AST.LetStatement).value
+  return parseExpressionString(source)
 }
 
 const SHIP: FeatureProps = {
@@ -216,73 +215,6 @@ describe('Evaluator', () => {
 
     it('length builtin', () => {
       expect(evaluate(parseExpr('length([10, 20, 30])'), {})).toBe(3)
-    })
-  })
-
-  describe('user functions with control flow', () => {
-    function evalWithFn(fnSrc: string, callSrc: string, props: FeatureProps = {}): unknown {
-      const tokens = new Lexer(withPragma(`${fnSrc}\nlet result = ${callSrc}`)).tokenize()
-      const ast = new Parser(tokens).parse()
-      const fnStmt = ast.body[0] as AST.FnStatement
-      const letStmt = ast.body[1] as AST.LetStatement
-      const fnEnv = new Map([[fnStmt.name, fnStmt]])
-      return evaluate(letStmt.value, props, fnEnv)
-    }
-
-    it('if/else with return', () => {
-      expect(
-        evalWithFn(
-          'fn classify(x: f32) -> f32 { if x > 10 { return 1.0 } else { return 0.0 } }',
-          'classify(20)',
-        ),
-      ).toBe(1)
-
-      expect(
-        evalWithFn(
-          'fn classify(x: f32) -> f32 { if x > 10 { return 1.0 } else { return 0.0 } }',
-          'classify(5)',
-        ),
-      ).toBe(0)
-    })
-
-    it('else if chain', () => {
-      expect(
-        evalWithFn(
-          'fn grade(x: f32) -> f32 { if x > 90 { return 4.0 } else if x > 80 { return 3.0 } else { return 2.0 } }',
-          'grade(95)',
-        ),
-      ).toBe(4)
-      expect(
-        evalWithFn(
-          'fn grade(x: f32) -> f32 { if x > 90 { return 4.0 } else if x > 80 { return 3.0 } else { return 2.0 } }',
-          'grade(85)',
-        ),
-      ).toBe(3)
-    })
-
-    it('for loop with last expression', () => {
-      const result = evalWithFn(
-        `fn sum_to(n: f32) -> f32 {
-          let total = 0
-          for i in 0..4 {
-            let total = total + i
-          }
-          return total
-        }`,
-        'sum_to(4)',
-      )
-      // 0+1+2+3 = 6
-      expect(result).toBe(6)
-    })
-
-    it('trig in function body', () => {
-      const result = evalWithFn(
-        `fn circle_point(angle: f32) -> array {
-          return [cos(angle), sin(angle)]
-        }`,
-        'circle_point(0)',
-      )
-      expect(result).toEqual([1, 0])
     })
   })
 

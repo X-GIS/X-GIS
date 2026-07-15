@@ -39,7 +39,7 @@ function compileLabel(layout: Record<string, unknown>): IconLabel {
   const tokens = new Lexer(xgis).tokenize()
   const ast = new Parser(tokens).parse()
   const scene = lower(ast)
-  const shows = emitCommands(optimize(scene, ast)).shows
+  const shows = emitCommands(optimize(scene)).shows
   return (shows[0]!.label ?? {}) as IconLabel
 }
 

@@ -76,20 +76,30 @@ describe('Lexer', () => {
   })
 
   describe('keywords', () => {
-    it('recognizes all keywords', () => {
-      expect(types('let fn show place view on if else for in return')).toEqual([
-        TokenType.Let,
-        TokenType.Fn,
-        TokenType.Show,
-        TokenType.Place,
-        TokenType.View,
-        TokenType.On,
-        TokenType.If,
-        TokenType.Else,
-        TokenType.For,
-        TokenType.In,
-        TokenType.Return,
+    it('recognizes surviving keywords', () => {
+      expect(types('source layer background preset import from to symbol keyframes')).toEqual([
+        TokenType.Source,
+        TokenType.Layer,
+        TokenType.Background,
+        TokenType.Preset,
+        TokenType.Import,
+        TokenType.From,
+        TokenType.To,
+        TokenType.SymbolDef,
+        TokenType.Keyframes,
       ])
+    })
+
+    it('pruned words lex as plain identifiers (#1072)', () => {
+      // let/fn/show/style, the never-implemented place/view/on/struct/enum/
+      // simulate/analyze/export, and the fn-body-only if/else/for/in/return
+      // were all removed as keywords.
+      expect(
+        types(
+          'let fn show style place view on struct enum simulate analyze export ' +
+            'if else for in return',
+        ),
+      ).toEqual(new Array(17).fill(TokenType.Identifier))
     })
 
     it('identifiers are not keywords', () => {
@@ -187,9 +197,9 @@ show world {
 
   describe('line tracking', () => {
     it('tracks line numbers correctly', () => {
-      const tokens = new Lexer('let x\nlet y\nlet z').tokenize()
-      const lets = tokens.filter((t) => t.type === TokenType.Let)
-      expect(lets.map((t) => t.line)).toEqual([1, 2, 3])
+      const tokens = new Lexer('source x\nsource y\nsource z').tokenize()
+      const srcs = tokens.filter((t) => t.type === TokenType.Source)
+      expect(srcs.map((t) => t.line)).toEqual([1, 2, 3])
     })
   })
 })

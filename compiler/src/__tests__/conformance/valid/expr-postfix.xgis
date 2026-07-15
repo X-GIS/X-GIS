@@ -2,5 +2,7 @@
 // @construct postfix-and-match
 // @desc field chains, array access, and a match expression with numeric and default arms
 xgis 1
-let deep = feature.props.items[0].name
-let color = match(.type) { "hostile" -> #ff0000, 1 -> #00ff00, _ -> #808080 }
+source feat {
+  deep: feature.props.items[0].name
+  color: match(.type) { "hostile" -> #ff0000, 1 -> #00ff00, _ -> #808080 }
+}

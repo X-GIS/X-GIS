@@ -27,7 +27,7 @@ function compileFixture(fixture: string): Scene {
   const xgis = convertMapboxStyle(json)
   const tokens = new Lexer(xgis).tokenize()
   const program = new Parser(tokens).parse()
-  return optimize(lower(program), program)
+  return optimize(lower(program))
 }
 
 function findLayer(scene: Scene, namePattern: RegExp) {
