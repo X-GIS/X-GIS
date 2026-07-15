@@ -5,6 +5,11 @@ import {
   CIRCLE_RETAINED_FEAT,
   CIRCLE_RETAINED_TINT_STRIDE,
 } from '../shaders/dsl/circle-retained-feat-layout'
+import {
+  TEXT_RETAINED_FEAT,
+  TEXT_RETAINED_TINT_STRIDE,
+} from '../shaders/dsl/text-retained-feat-layout'
+import type { GlyphShaper } from './retained-text-packer'
 
 // node lacks the WebGPU `GPUTextureUsage` global the host atlas ensure() reads.
 beforeAll(() => {
@@ -387,6 +392,160 @@ describe('#826 GraphicsManager retained PARTICLE-FLOW batch', () => {
     const gm = new GraphicsManager()
     attach(gm, s)
     gm.add(particleSpec(0))
+    expect(gm.hasRetainedBatches()).toBe(false)
+  })
+})
+
+// #797 P2b — retained STATIC TEXT. A text batch SHAPES each string into per-glyph instances through
+// an injected glyph shaper (the read-only glyph-atlas seam). The GPU render side (the SDF text
+// draper + glyph-atlas bind group + draw) is the PENDING Phase-2b GPU step, so here a text batch is
+// packed + UPLOADED but not yet drawn: it creates feat/tint buffers and honours the update/remove
+// dirty-range lifecycle, but has no bind group (so it never flips the render gate — no empty pass).
+// Driven on the same stub device with a stub shaper (2 glyphs per 'ab' datum).
+const TEXT_FEAT = 'retained-text-feat'
+const TEXT_TINT = 'retained-text-tint'
+const TFEAT_BYTES = (glyphs: number) => glyphs * TEXT_RETAINED_FEAT.stride * 4
+const TTINT_BYTES = (glyphs: number) => glyphs * TEXT_RETAINED_TINT_STRIDE * 4
+
+function makeTextShaper(): { shaper: GlyphShaper; shapeCalls: () => number } {
+  let calls = 0
+  return {
+    shapeCalls: () => calls,
+    shaper: {
+      pageSize: 256,
+      shape: (_fk, text) => {
+        calls++
+        return [...text].map((ch) => ({
+          codepoint: ch.codePointAt(0)!,
+          advanceWidth: 10,
+          bearingX: 1,
+          bearingY: 8,
+          width: 8,
+          height: 8,
+          rasterFontSize: 16,
+          slot: { pxX: 0, pxY: 0, size: 16, page: 0 },
+        }))
+      },
+    },
+  }
+}
+
+function textSpec(n: number) {
+  const data = Array.from({ length: n }, (_, i) => ({ lon: i, lat: i % 80, name: 'ab' }))
+  return {
+    type: 'text' as const,
+    data,
+    getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat] as [number, number],
+    getText: (d: { name: string }) => d.name,
+    getColor: () => [1, 0, 0, 1] as [number, number, number, number],
+    updateTriggers: { color: 1, position: 1 },
+  }
+}
+
+describe('#797 P2b GraphicsManager retained TEXT batch', () => {
+  it('add() with a glyph shaper shapes + materialises feat + tint (one upload each)', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    gm.setGlyphShaper(makeTextShaper().shaper)
+    gm.add(textSpec(100)) // 100 labels × 2 glyphs = 200 glyph instances
+    expect(s.created.length, 'feat + tint created').toBe(2)
+    const featW = s.writes.find((w) => w.buf.label === TEXT_FEAT)!
+    const tintW = s.writes.find((w) => w.buf.label === TEXT_TINT)!
+    expect(featW.byteLength, 'feat = 200 glyphs × stride').toBe(TFEAT_BYTES(200))
+    expect(tintW.byteLength, 'tint = 200 glyphs × rgba').toBe(TTINT_BYTES(200))
+  })
+
+  it('defers when no shaper is set — nothing packed, gate not flipped', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    gm.add(textSpec(100)) // no setGlyphShaper → cannot shape yet
+    expect(s.created.length, 'no buffers without a shaper').toBe(0)
+    expect(gm.hasRetainedBatches()).toBe(false)
+  })
+
+  it('is packed + uploaded but NOT drawable until the SDF text draper lands (gate stays false)', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    gm.setGlyphShaper(makeTextShaper().shaper)
+    gm.add(textSpec(50))
+    expect(s.created.length, 'feat + tint packed + uploaded').toBe(2)
+    // No text draper yet → no bind group → the batch does not flip the render gate (no empty pass).
+    expect(gm.hasRetainedBatches()).toBe(false)
+  })
+
+  it('setGlyphShaper AFTER add re-materialises the pending text batch (order-independent)', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    gm.add(textSpec(30)) // added before the shaper → deferred
+    expect(s.created.length).toBe(0)
+    gm.setGlyphShaper(makeTextShaper().shaper)
+    expect(s.created.length, 'materialised once the shaper arrives').toBe(2)
+  })
+
+  it('update({color}) re-uploads ONLY the tint byte-range and does NOT re-shape', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    const { shaper, shapeCalls } = makeTextShaper()
+    gm.setGlyphShaper(shaper)
+    const handle = gm.add(textSpec(100))
+    const shapesAfterAdd = shapeCalls()
+    expect(shapesAfterAdd, 'one shape() per datum at add').toBe(100)
+    s.writes.length = 0
+    handle.update({ triggers: ['color'] })
+    // Exactly ONE write — the whole TINT lane — and ZERO re-shape (color reuses cached glyphCounts).
+    expect(s.writes.length).toBe(1)
+    expect(s.writes[0]!.buf.label).toBe(TEXT_TINT)
+    expect(s.writes[0]!.byteOffset).toBe(0)
+    expect(s.writes[0]!.byteLength).toBe(TTINT_BYTES(200))
+    expect(
+      s.writes.some((w) => w.buf.label === TEXT_FEAT),
+      'no feat re-upload',
+    ).toBe(false)
+    expect(shapeCalls() - shapesAfterAdd, 'color update does not re-shape').toBe(0)
+  })
+
+  it('update({position}) re-packs ONLY the feat buffer', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    gm.setGlyphShaper(makeTextShaper().shaper)
+    const handle = gm.add(textSpec(100))
+    s.writes.length = 0
+    handle.update({ triggers: ['position'] })
+    expect(s.writes.length).toBe(1)
+    expect(s.writes[0]!.buf.label).toBe(TEXT_FEAT)
+    expect(s.writes[0]!.byteLength).toBe(TFEAT_BYTES(200))
+    expect(
+      s.writes.some((w) => w.buf.label === TEXT_TINT),
+      'no tint re-upload',
+    ).toBe(false)
+  })
+
+  it('remove() frees the text buffers via the retired drain', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    gm.setGlyphShaper(makeTextShaper().shaper)
+    const handle = gm.add(textSpec(100))
+    expect(s.created.length).toBe(2)
+    handle.remove()
+    expect(gm.hasRetainedBatches(), 'gate stays true while buffers pend drain').toBe(true)
+    render(gm)
+    expect(s.destroyed.length, 'both text buffers destroyed').toBe(2)
+    expect(gm.hasRetainedBatches()).toBe(false)
+  })
+
+  it('an empty-data text batch does NOT flip the render gate', () => {
+    const s = makeStubs()
+    const gm = new GraphicsManager()
+    attach(gm, s)
+    gm.setGlyphShaper(makeTextShaper().shaper)
+    gm.add(textSpec(0))
     expect(gm.hasRetainedBatches()).toBe(false)
   })
 })

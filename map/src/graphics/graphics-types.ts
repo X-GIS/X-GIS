@@ -145,9 +145,44 @@ export interface ParticleFlowDrawSpec<D> {
   readonly updateTriggers?: Partial<Record<IconUpdateTrigger, unknown>>
 }
 
+/** Declarative spec for a retained geo-anchored STATIC TEXT batch (`map.graphics.add`). Same
+ *  retained/N-independent contract as `IconDrawSpec`: the string is SHAPED EXACTLY ONCE at
+ *  add()/update() through the shared SDF glyph atlas (never per frame), and every glyph becomes
+ *  ONE GPU instance anchored at the label's geo point plus a baked per-glyph screen-space offset,
+ *  so a camera move rewrites only the frame uniform. Glyph shaping is READ-ONLY reuse of the
+ *  existing glyph-atlas machinery (`GlyphAtlasHost.ensureString`) — this API never forks glyph
+ *  layout. `getText` is packed once like any other accessor; a later CONTENT change is a re-add
+ *  (it changes the glyph/instance count), not an in-place `update()`. */
+export interface TextDrawSpec<D> {
+  readonly type: 'text'
+  readonly data: readonly D[]
+  /** Geo anchor per item (the label position) — a required accessor. */
+  readonly getPosition: Packed<Position, D>
+  /** The label string per item — a required accessor. Shaped ONCE at pack time. */
+  readonly getText: Packed<string, D>
+  /** Font size in px (pre-DPR design px, × DPR at pack time). Default 16. */
+  readonly getSize?: Packed<number, D>
+  /** Fill colour. Default white. */
+  readonly getColor?: Packed<IconColor, D>
+  /** Layer-level block anchor — which point of the text block sits on the geo point (MapLibre
+   *  text-anchor semantics). Default 'center'. LAYER level, never per-item (a per-item anchor box
+   *  at 100k allocates 100k objects and defeats the flat pack) — mirrors `IconDrawSpec.anchor`. */
+  readonly anchor?: IconAnchor
+  /** Layer-level font key handed to the glyph shaper. Default = the shaper's default font. LAYER
+   *  level (a per-item font would fork the shaping key per datum against the flat-pack thesis). */
+  readonly font?: string
+  /** Marks which attributes a later `update({ triggers })` will re-pack (text honours
+   *  'position' | 'color' | 'size'; 'color' re-uploads ONLY the tint buffer). */
+  readonly updateTriggers?: Partial<Record<IconUpdateTrigger, unknown>>
+}
+
 /** Any retained batch spec accepted by `map.graphics.add` — discriminated by `type`. */
 export type DrawSpec<D> =
-  IconDrawSpec<D> | ArrowDrawSpec<D> | CircleDrawSpec<D> | ParticleFlowDrawSpec<D>
+  | IconDrawSpec<D>
+  | ArrowDrawSpec<D>
+  | CircleDrawSpec<D>
+  | ParticleFlowDrawSpec<D>
+  | TextDrawSpec<D>
 
 /** Handle to a live retained batch. `D` is the datum type the batch was authored
  *  over; it defaults to `unknown` so a bare `DrawHandle` reference stays valid. */
