@@ -214,7 +214,13 @@ const CEILINGS: Record<string, number> = {
   'map/src/shaders/dsl/projections.ts': 811,
   // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
-  'compiler/src/tiler/vector-tiler.ts': 1790,
+  // 1790→1546 (INC-0 extract): the conforming red-green subdivision cluster
+  // (vertexKey + subdivideTriangleMM / subdivideChainMM + their gate constants
+  // and helpers) moved verbatim to tiler/subdivide-conforming.ts — pure code
+  // motion, mesh output byte-identical; vector-tiler re-imports the three
+  // consumed symbols. The extract answers INC-0's growth over the old ceiling
+  // (extract, don't raise), per this gate's own message.
+  'compiler/src/tiler/vector-tiler.ts': 1546,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +
