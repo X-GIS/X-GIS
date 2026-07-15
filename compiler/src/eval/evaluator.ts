@@ -256,7 +256,7 @@ function evaluateFnCall(expr: AST.FnCall, props: FeatureProps): unknown {
   }
 
   if (name === 'match' && expr.matchBlock && expr.args.length === 1) {
-    const key = evaluate(expr.args[0], props, fnEnv)
+    const key = evaluate(expr.args[0], props)
     if (key !== null && key !== undefined) {
       for (const arm of expr.matchBlock.arms) {
         if (arm.pattern === '_') continue
@@ -264,7 +264,7 @@ function evaluateFnCall(expr: AST.FnCall, props: FeatureProps): unknown {
         // matches only a numeric input and a string label only a string input.
         // `arm.pattern` carries the literal's JS type (number vs string), so
         // `===` enforces the type match by construction — `2 === "2"` is false.
-        if (key === arm.pattern) return evaluate(arm.value, props, fnEnv)
+        if (key === arm.pattern) return evaluate(arm.value, props)
       }
     }
     const defaultArm = expr.matchBlock.arms.find((a) => a.pattern === '_')

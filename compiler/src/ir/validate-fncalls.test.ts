@@ -27,17 +27,27 @@ const unknownFnDiags = (src: string): Diagnostic[] =>
 
 /** A synthetic program that calls each name once — bypasses the parser so
  *  the registry-driven test can exercise every set member (including the
- *  hyphenated aliases the identifier grammar can't spell). */
+ *  hyphenated aliases the identifier grammar can't spell). Each call rides a
+ *  synthetic `source` property value (a walked expression host) since the
+ *  bare-expression statement form was pruned by #1072. */
 const callProgram = (names: readonly string[]): AST.Program => ({
   kind: 'Program',
   body: names.map((name, i): AST.Statement => ({
-    kind: 'ExprStatement',
+    kind: 'SourceStatement',
+    name: `s${i}`,
     line: i + 1,
-    expr: {
-      kind: 'FnCall',
-      callee: { kind: 'Identifier', name },
-      args: [{ kind: 'FieldAccess', object: null, field: 'x' }],
-    },
+    properties: [
+      {
+        kind: 'BlockProperty',
+        name: 'url',
+        line: i + 1,
+        value: {
+          kind: 'FnCall',
+          callee: { kind: 'Identifier', name },
+          args: [{ kind: 'FieldAccess', object: null, field: 'x' }],
+        },
+      },
+    ],
   })),
 })
 
