@@ -143,8 +143,10 @@ describe('#1087 source gate — pack site vs sentinels', () => {
   })
 
   it('every sentinel arm stays the unpadded no-clip constant (byte-identical)', () => {
-    // 3 pre-pass sentinels + the real-window else arm = 4 exact `(-1e30, 0, 0, 0)` packs.
-    expect((src.match(/clip_bounds\(-1e30, 0, 0, 0\)/g) ?? []).length).toBe(4)
+    // 3 pre-pass sentinels (bake + fills-primary + lines-primary) + the renderTileKeys
+    // real-window else arm + the #1046 twin's packFallbackTileUniforms z0 arm = 5 exact
+    // `(-1e30, 0, 0, 0)` packs (the twin's fallback pack reuses the same root-z0 no-clip).
+    expect((src.match(/clip_bounds\(-1e30, 0, 0, 0\)/g) ?? []).length).toBe(5)
     // and no sentinel line carries the pad.
     expect(src).not.toMatch(/clip_bounds\(-1e30, 0, 0, 0\).*clipPad/)
   })

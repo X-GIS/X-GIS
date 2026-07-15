@@ -60,7 +60,11 @@ import {
 import { PrefetchScheduler } from './prefetch-scheduler'
 import { LabelFeatureSource } from './label-feature-source'
 import { FrameDrawStats } from './frame-draw-stats'
-import { TileSelectionCache, sliceOutsideDataZoomRange } from './tile-selection-cache'
+import {
+  TileSelectionCache,
+  sliceOutsideDataZoomRange,
+  type Selection,
+} from './tile-selection-cache'
 import { FeatureDataBinder } from './feature-data-binder'
 import { GpuTileStore } from './gpu-tile-store'
 import { BindGroupRegistry } from './bind-group-registry'
@@ -1008,8 +1012,16 @@ export class VectorTileRenderer {
     B.set.proj_params(projType, projCenterLon, projCenterLat, 0)
     const ge = globeEyeUniform(frame.eye)
     B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
-    // Variant 0 = STENCIL_WRITE (compare 'always') — the ref value is inert,
-    // set once for determinism.
+    // #1046 — clear this show's stencil so the fallback pass below tests against
+    // ONLY this show's own primary coverage. The twin runs every show through a
+    // SINGLE screen pass (unlike the WebGPU opaque pass, which clears stencil per
+    // sub-pass — opaque-pass.ts stencilLoadOp:'clear'), so without this the
+    // full-screen synthetic-background fill (and every prior show's primaries)
+    // leaves stencil=1 across the frame and masks EVERY later show's fallback to
+    // nothing. Stencil-only clear (depth/colour untouched).
+    pass.clearStencil()
+    // Variant 0 = STENCIL_WRITE (compare 'always'): primaries stamp stencil ref 1
+    // where they draw so the fallback pass (variant 1, ref 0) fills only the holes.
     pass.setStencilReference(1)
 
     // Release the per-frame upload cap (the WebGPU frame body does this via
@@ -1045,6 +1057,16 @@ export class VectorTileRenderer {
         missing++
       }
     }
+    // #1046 — collect the fallback-ancestor coverage for every not-yet-resident
+    // needed tile (parent / child / overzoom). The WebGPU render() path draws a
+    // coarse ancestor under each such hole (uploaded SYNCHRONOUSLY, drawable this
+    // frame); the twin drew NOTHING there, flashing the background on a pan/zoom
+    // swap. Runs before requestTiles so the fallback fetch-frontier keys ride the
+    // same batch. The second (stencil-masked) pass below draws these keys.
+    const fbKeys: number[] = []
+    const fbOffsets: number[] = []
+    const fbVisibleKeys: number[] = []
+    this.collectTwinFallbacks(sel, sliceLayer, layerCache, toLoad, fbKeys, fbOffsets, fbVisibleKeys)
     if (toLoad.length > 0) this.source.requestTiles(toLoad)
 
     for (let ki = 0; ki < neededKeys.length; ki++) {
@@ -1127,6 +1149,80 @@ export class VectorTileRenderer {
       ])
       this._drawStats.markDrawn(drawKey, cached.indexCount, 0, cached.indexCount, cached.tileZoom)
     }
+
+    // #1046 — fallback ancestor pass. Mirrors render()'s stencil-masked fallback
+    // (~3413): the primaries above stamped stencil ref 1 (STENCIL_WRITE variant
+    // 0); draw the coarse parents/children at ref 0 through the SAME material's
+    // STENCIL_TEST variant (1, compare == 0) so an ancestor fills ONLY the
+    // un-drawn holes, each clip_bounds-clipped to the visible tile it covers (a
+    // coarse parent never spills into a neighbour that has its own data). Every
+    // fbKey was sync-uploaded in collectTwinFallbacks, so it is drawable now.
+    if (fbKeys.length > 0) {
+      pass.setStencilReference(0)
+      const layerPickId = show.pickId ?? 0
+      const pickSlot = mode === 'pick' && show.pointerEvents !== 'none' ? layerPickId : 0
+      for (let fi = 0; fi < fbKeys.length; fi++) {
+        const fbKey = fbKeys[fi]!
+        const cached = layerCache.get(fbKey)
+        if (!cached || cached.indexCount === 0 || cached.extruded) continue
+        const worldOff = fbOffsets[fi]!
+        const visibleKey = fbVisibleKeys[fi]!
+        // Per (ancestor, visible) dedup — the same parent renders once per hole
+        // it fills, each with its OWN clip rect (render():4006).
+        const drawKey = `fb:${fbKey}:${worldOff}:${visibleKey}`
+        if (this._drawStats.hasDrawn(drawKey)) continue
+        cached.lastUsedFrame = this.frameCount
+        const slotOffset = this.packFallbackTileUniforms(
+          cached,
+          worldOff,
+          visibleKey,
+          projCenterLon,
+          projCenterLat,
+          opacity,
+          pickSlot,
+          layerPickId,
+        )
+        const tileBg = this.fillTileBgRhi()
+        if (!tileBg) continue
+        executeItems(mat, pass, [
+          {
+            variant: 1, // STENCIL_TEST (compare == ref 0) — fills only the un-drawn holes
+            bindGroups: [tileBg],
+            dynamicOffsets: [[slotOffset]],
+            vertex: cached.vertexBuffer,
+            vertexOffset: cached.polyVertexOffset,
+            vertexSize: cached.polyVertexByteLength,
+            index: {
+              buffer: cached.indexBuffer,
+              format: 'uint32',
+              offset: cached.polyIndexOffset,
+              size: cached.polyIndexByteLength,
+            },
+            count: cached.indexCount,
+            indexed: true,
+          },
+        ])
+        this._drawStats.markDrawn(drawKey, cached.indexCount, 0, cached.indexCount, cached.tileZoom)
+      }
+      // Restore the primaries' stencil ref so the following stroke pass sees the
+      // exact state the primary loop left (the twin's line pass sets no ref).
+      pass.setStencilReference(1)
+    }
+
+    // #1046 — protect primaries + fallback ancestors from eviction (render():
+    // 3712). The twin never set stableKeys, so eviction ran UNPROTECTED on
+    // WebGL2, amplifying the swap flash by dropping the very ancestors the next
+    // frame needs as fallback. Last opaque show wins (mirrors render()'s set).
+    if (fbKeys.length > 0) {
+      const merged = this._scratchMergedStableKeys
+      merged.clear()
+      for (const k of neededKeys) merged.add(k)
+      for (const k of fbKeys) merged.add(k)
+      this.stableKeys = [...merged]
+    } else {
+      this.stableKeys = neededKeys
+    }
+
     // Missing tiles (not yet compiled/uploaded) — the caller keeps the frame
     // loop hot until this reaches 0, because upload completion alone never
     // repaints the forced-WebGL2 loop (#832 M2).
@@ -1214,6 +1310,15 @@ export class VectorTileRenderer {
         missing++
       }
     }
+    // #1046 — same fallback-ancestor coverage as the fills pass, for stroke
+    // features under not-yet-resident tiles (collectTwinFallbacks is backend-
+    // and paint-blind; the ancestor's line segments are already GPU-resident
+    // once its fill upload landed). The fallback stroke draw runs after the
+    // primary loop below.
+    const fbKeys: number[] = []
+    const fbOffsets: number[] = []
+    const fbVisibleKeys: number[] = []
+    this.collectTwinFallbacks(sel, sliceLayer, layerCache, toLoad, fbKeys, fbOffsets, fbVisibleKeys)
     if (toLoad.length > 0) this.source.requestTiles(toLoad)
 
     // One LineLayer slot for this show; flush the layer ring NOW — the RHI
@@ -1404,7 +1509,237 @@ export class VectorTileRenderer {
           mode,
         )
     }
+
+    // #1046 — fallback ancestor strokes: coarse parent/child line segments under
+    // each not-yet-resident tile, clip_bounds-clipped to the visible tile it
+    // covers. No stencil — strokes never used the fill mask (render():3440 skips
+    // setStencilReference on the strokes phase); the clip rect alone keeps a
+    // coarse ancestor's lines inside the missing tile, and only missing tiles are
+    // in fbKeys, so this never double-draws over a primary stroke.
+    if (fbKeys.length > 0) {
+      const layerPickId = show.pickId ?? 0
+      for (let fi = 0; fi < fbKeys.length; fi++) {
+        const fbKey = fbKeys[fi]!
+        const cached = layerCache.get(fbKey)
+        if (!cached) continue
+        const outlineN = cached.outlineSegmentCount
+        const lineN = cached.lineSegmentCount
+        if (
+          (outlineN === 0 || !cached.outlineSegmentBindGroup) &&
+          (lineN === 0 || !cached.lineSegmentBindGroup)
+        )
+          continue
+        cached.lastUsedFrame = this.frameCount
+        const slotOffset = this.packFallbackTileUniforms(
+          cached,
+          fbOffsets[fi]!,
+          fbVisibleKeys[fi]!,
+          projCenterLon,
+          projCenterLat,
+          layerOpacity,
+          0,
+          layerPickId,
+        )
+        const tileBg = this.lineTileBgRhi()
+        if (!tileBg) continue
+        if (outlineN > 0 && cached.outlineSegmentBindGroup)
+          this.lineRenderer.drawSegmentsRhi(
+            pass,
+            tileBg,
+            cached.outlineSegmentBindGroup,
+            outlineN,
+            slotOffset,
+            layerOffset,
+            linePatternActive,
+            mode,
+          )
+        if (lineN > 0 && cached.lineSegmentBindGroup)
+          this.lineRenderer.drawSegmentsRhi(
+            pass,
+            tileBg,
+            cached.lineSegmentBindGroup,
+            lineN,
+            slotOffset,
+            layerOffset,
+            linePatternActive,
+            mode,
+          )
+      }
+    }
     return missing
+  }
+
+  /** #1046 — build the fallback-ancestor coverage the WebGPU render() path draws
+   *  under every not-yet-resident tile, for the forced-WebGL2 twin (renderFillsRhi
+   *  / renderLinesRhi). classifyTile is pure + backend-blind, so this reuses it
+   *  EXACTLY as render()'s per-tile loop (~2802) does, keeping only the fallback
+   *  side effects the twin needs: sync-upload the ancestor (doUploadTile → drawable
+   *  THIS frame) and collect the parallel (key, worldOff, visibleKey) triples the
+   *  second draw pass consumes. Fetch-frontier keys append to `toLoad` (the caller
+   *  owns the requestTiles flush). Primary uploads are NOT re-issued — the caller's
+   *  acquisition loop owns them, so the resident-primary fast path just skips
+   *  (mirrors classifyTile's frozen PRIMARY_DECISION). */
+  private collectTwinFallbacks(
+    sel: Selection,
+    sliceLayer: string,
+    layerCache: Map<number, GPUTile>,
+    toLoad: number[],
+    fbKeys: number[],
+    fbOffsets: number[],
+    fbVisibleKeys: number[],
+  ): void {
+    const src = this.source
+    if (!src) return
+    const { tiles, neededKeys, worldOffDeg, parentAtMaxLevel, archiveAncestor, maxLevel } = sel
+    // Predicates hoisted once per call (render() hoists `sliceCached` the same
+    // way) — no per-tile closure alloc in this hot path.
+    const hasSlice = (k: number): boolean => layerCache.has(k) || src.hasTileData(k, sliceLayer)
+    const hasNonEmpty = (k: number): boolean => {
+      if (layerCache.has(k)) return true
+      const d = src.getTileData(k, sliceLayer)
+      return (
+        !!d &&
+        (d.vertices.length > 0 ||
+          d.lineVertices.length > 0 ||
+          (d.pointVertices?.length ?? 0) > 0 ||
+          !!d.fullCover)
+      )
+    }
+    const hasAny = (k: number): boolean => src.hasTileData(k)
+    const hasIndex = (k: number): boolean => src.hasEntryInIndex(k)
+    for (let i = 0; i < tiles.length; i++) {
+      const key = neededKeys[i]!
+      // Resident primary → render() returns the frozen PRIMARY_DECISION; skip the
+      // classify (and its input alloc) for the hot steady-state case.
+      if (layerCache.has(key) && !this._uploads.isHeld(key)) continue
+      const decision = classifyTile({
+        visible: tiles[i]!,
+        visibleKey: key,
+        maxLevel,
+        parentAtMaxLevel: parentAtMaxLevel[i]!,
+        archiveAncestor: archiveAncestor[i]!,
+        layerCache,
+        hasSliceInCatalog: hasSlice,
+        hasNonEmptySliceInCatalog: hasNonEmpty,
+        hasAnySliceInCatalog: hasAny,
+        hasEntryInIndex: hasIndex,
+        sliceLayer,
+        hasOtherSliceHeld: this._uploads.isHeld(key),
+      })
+      if (decision.kind === 'overzoom-parent') {
+        if (decision.parentNeedsFetch) toLoad.push(decision.parentKey)
+        else if (decision.parentNeedsUpload) {
+          const d = src.getTileData(decision.parentKey, sliceLayer)
+          if (d) this.doUploadTile(decision.parentKey, d, sliceLayer)
+        }
+        fbKeys.push(decision.parentKey)
+        fbOffsets.push(worldOffDeg[i]!)
+        fbVisibleKeys.push(key)
+        continue
+      }
+      // queued-with-fallback wraps the visual fallback; its implied primary upload
+      // is already owned by the caller's acquisition loop, so unwrap to the inner
+      // decision and process it uniformly. (drop-* / primary can't reach here:
+      // classifyTile only returns 'primary' when layerCache.has & !held, which the
+      // fast path above already skipped.)
+      const inner: TileDecision =
+        decision.kind === 'queued-with-fallback' ? decision.fallback : decision
+      if (inner.kind === 'parent-fallback') {
+        if (inner.parentNeedsUpload) {
+          const d = src.getTileData(inner.parentKey, sliceLayer)
+          if (d) this.doUploadTile(inner.parentKey, d, sliceLayer)
+        }
+        fbKeys.push(inner.parentKey)
+        fbOffsets.push(worldOffDeg[i]!)
+        fbVisibleKeys.push(key)
+        if (inner.wantsRequestKey !== null) toLoad.push(inner.wantsRequestKey)
+      } else if (inner.kind === 'child-fallback') {
+        for (const ck of inner.childrenNeedingUpload) {
+          const cd = src.getTileData(ck, sliceLayer)
+          if (cd) this.doUploadTile(ck, cd, sliceLayer)
+        }
+        for (const ck of inner.childKeys) {
+          fbKeys.push(ck)
+          fbOffsets.push(worldOffDeg[i]!)
+          fbVisibleKeys.push(key)
+        }
+      } else if (inner.kind === 'pending') {
+        if (inner.requestKey !== null) toLoad.push(inner.requestKey)
+      }
+    }
+  }
+
+  /** #1046 — pack + stage the per-tile DSFUN uniforms for ONE fallback-ancestor
+   *  draw, shared by the fill + stroke fallback loops. Identical to the primary
+   *  per-tile pack (renderFillsRhi ~1065 / renderLinesRhi ~1350) EXCEPT clip_bounds
+   *  is the VISIBLE tile's mercator rect so the coarse ancestor fills only that
+   *  hole (render():4172). Returns the staged + flushed uniform slot offset (GL is
+   *  immediate-mode; the draw must see the slot). `pickSlot` → the pick_id lane
+   *  (0 on the colour / line path); `layerPickId` → the style-order layer index
+   *  feeding layer_depth_offset (both mirror the primary pack). */
+  private packFallbackTileUniforms(
+    cached: GPUTile,
+    worldOff: number,
+    visibleKey: number,
+    projCenterLon: number,
+    projCenterLat: number,
+    opacity: number,
+    pickSlot: number,
+    layerPickId: number,
+  ): number {
+    const B = this.frameBlock
+    const anchor = computeTileCameraAnchor(
+      cached.tileWest,
+      cached.tileSouth,
+      worldOff,
+      projCenterLon,
+      projCenterLat,
+    )
+    B.set.cam_h(anchor.camXH, anchor.camYH)
+    B.set.cam_l(anchor.camXL, anchor.camYL)
+    B.set.cam_ecef_off_h(anchor.ecefXH, anchor.ecefYH, anchor.ecefZH, 1)
+    B.set.cam_ecef_off_l(anchor.ecefXL, anchor.ecefYL, anchor.ecefZL, 1)
+    B.set.tile_origin_merc(anchor.tileMercX, anchor.tileMercY)
+    B.set.opacity(opacity)
+    B.set.log_depth_fc(this.logDepthFc)
+    B.set.pick_id(pickSlot)
+    B.set.layer_depth_offset((layerPickId & 0xffff) * 1e-3)
+    B.set.tile_extent_m(TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom))
+    B.set.extrude_height_m(0)
+    B.set.extrude_base_m(0)
+    // Clip the coarse ancestor to the visible tile's mercator bounds (render():
+    // 4172). Root z=0 covers the world → no clip (a lone visible child would
+    // otherwise clip the whole-world parent to one quadrant).
+    if (cached.tileZoom === 0) {
+      B.set.clip_bounds(-1e30, 0, 0, 0)
+    } else {
+      const DEG2RAD = Math.PI / 180
+      const R = activeBody().sphereR
+      const [vz, vx, vy] = tileKeyUnpack(visibleKey)
+      const vn = Math.pow(2, vz)
+      const vWestLon = (vx / vn) * 360 - 180 + worldOff
+      const vEastLon = ((vx + 1) / vn) * 360 - 180 + worldOff
+      const vNorthLat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * vy) / vn))) * 180) / Math.PI
+      const vSouthLat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (vy + 1)) / vn))) * 180) / Math.PI
+      const clipPad = (2 * Math.PI * R) / (512 * Math.pow(2, this.currentCameraZoom))
+      B.set.clip_bounds(
+        Math.fround(vWestLon * DEG2RAD * R) - clipPad,
+        Math.fround(Math.log(Math.tan(Math.PI / 4 + (clampMercLat(vSouthLat) * DEG2RAD) / 2)) * R) -
+          clipPad,
+        Math.fround(vEastLon * DEG2RAD * R) + clipPad,
+        Math.fround(Math.log(Math.tan(Math.PI / 4 + (clampMercLat(vNorthLat) * DEG2RAD) / 2)) * R) +
+          clipPad,
+      )
+    }
+    B.set.zoom(this.currentCameraZoom)
+    B.set.fill_translate_x(0)
+    B.set.fill_translate_y(0)
+    B.set.tile_dequant_scale(cached.dequantScale)
+    B.set.tile_dequant_half(cached.dequantHalf)
+    const slotOffset = this.allocUniformSlot()
+    this.stageUniformSlot(slotOffset, this.frameBlock.buffer)
+    this.flushUniformStaging()
+    return slotOffset
   }
 
   /** Selection + tile ACQUISITION only, for label-bearing shows on the
