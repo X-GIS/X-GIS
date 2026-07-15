@@ -208,7 +208,13 @@ const CEILINGS: Record<string, number> = {
   // lives in the new ir/validate-fncalls.ts; only the import + call +
   // rationale land here. Still under the runtime arch-invariants
   // second-authority ceiling (1452).
-  'compiler/src/ir/lower.ts': 1415,
+  // 1415→1432 (#1067): the unknown-utility registry gate — 2 import lines +
+  // the X-GIS0013 error push (with nearest-name help) after the utility-form
+  // dispatch, + the diagnostics arg threaded into expandKeyframeTimeStops.
+  // Irreducible: the gate must sit in the driver loop where the dispatch
+  // verdict is known. (Still ≤ the runtime arch-invariants ceiling of 1452,
+  // unchanged there — shrink-only.)
+  'compiler/src/ir/lower.ts': 1432,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):

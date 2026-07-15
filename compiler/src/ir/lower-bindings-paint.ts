@@ -5,7 +5,7 @@
 // faithfulness invariant.
 
 import { resolveColor } from '../tokens/colors'
-import { colorConstant, hexToRgba, sizeConstant } from './render-node'
+import { colorConstant, hexToRgba, sizeConstant, opacityConstant } from './render-node'
 import {
   bindingAsConstantNumber,
   extractInterpolateZoomStops,
@@ -49,9 +49,21 @@ export const opacityZoomBindingHandler: BindingHandler = {
       // step always returns base:1; no base override needed.
       return true
     }
-    // Non-zoom opacity binding — fall through to the named `opacity` arm
-    // (data-driven). Original: the `if (zoomStops && name==='opacity')`
-    // guard failed and control reached `else if (name==='opacity')`.
+    // #1067 — bracket form for FRACTIONS: `opacity-[0.33]` is the escape
+    // hatch the 0..100 integer scale leaves for sub-integer opacity. A
+    // LITERAL-number binding lowers to a constant alpha directly — the
+    // bracket value is the raw 0..1 fraction (NOT divided by 100, unlike the
+    // `opacity-<N>` integer utility). Non-literal bindings (`opacity-[a * b]`,
+    // per-feature match/case) stay data-driven below and are folded (or
+    // evaluated) downstream exactly as before.
+    const constAlpha = bindingAsConstantNumber(ctx.item.binding!)
+    if (constAlpha !== null) {
+      ctx.acc.opacity = opacityConstant(constAlpha)
+      return true
+    }
+    // Non-zoom, non-constant opacity binding — data-driven. Original: the
+    // `if (zoomStops && name==='opacity')` guard failed and control reached
+    // `else if (name==='opacity')`.
     ctx.acc.opacity = { kind: 'data-driven', expr: { ast: ctx.item.binding! } }
     return true
   },

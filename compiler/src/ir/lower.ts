@@ -10,6 +10,8 @@ import { expandKeyframeTimeStops } from './lower-animation'
 import { dispatch, type LayerAccumulator, type BindingCtx } from './lower-bindings'
 import { MODIFIER_HANDLERS, BINDING_HANDLERS, UTILITY_HANDLERS } from './lower-bindings-registry'
 import { validateFnCalls } from './validate-fncalls'
+import { isKnownUtility, suggestUtility } from './utility-registry'
+import { UNKNOWN_UTILITY } from '../diagnostics/diagnostic'
 // Re-export public types so importers of './lower' keep their surface.
 export type { LowerOptions, ZoomStopsWithBase } from './lower-types'
 import {
@@ -801,7 +803,21 @@ function lowerLayer(
       //    label utility here so it never trips a paint arm or the X-GIS0005
       //    net (which only fires on binding-form items anyway).
       if (ctx.name.startsWith('label-')) continue
-      dispatch(UTILITY_HANDLERS, ctx)
+      // Registry gate (#1067): a plain utility-form item that NO handler
+      // consumed AND that matches no known registry prefix is an unknown
+      // utility — surface it as an X-GIS0013 error (with nearest-name help)
+      // instead of the historical silent no-op. Binding-form unknowns are
+      // still caught by X-GIS0005; label-* utilities by lower-label's X-GIS0006.
+      if (dispatch(UTILITY_HANDLERS, ctx) === 'none' && !isKnownUtility(ctx.name)) {
+        const help = suggestUtility(ctx.name)
+        diagnostics.push({
+          severity: 'error',
+          code: UNKNOWN_UTILITY,
+          span: { line: stmt.line, col: 1 },
+          message: `Unknown utility "${ctx.name}" — no matching prefix in the utility registry.`,
+          ...(help ? { help: `Did you mean \`${help}\`?` } : {}),
+        })
+      }
     }
   }
 
@@ -895,6 +911,7 @@ function lowerLayer(
     keyframesMap,
     stmt.name,
     stmt.line,
+    diagnostics,
   )
 
   // Build conditional fill if branches exist

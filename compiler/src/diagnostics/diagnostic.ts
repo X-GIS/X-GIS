@@ -28,12 +28,15 @@
 //                               the specific expectation)
 //   X-GIS0011  warn   converter Mapbox-style conversion warning          (convert/* — #1065; message
 //                               (generic; message carries the detail)     carries the detail)
-//   X-GIS0012  error  lower     Unknown function name in a DataExpr       (ir/validate-fncalls.ts — #1066)
+//   X-GIS0012  error  lower     Unknown function name in a DataExpr      (ir/validate-fncalls.ts — #1066)
+//   X-GIS0013  error  lower     Unknown utility (no registry prefix)     (ir/lower.ts, ir/lower-animation.ts —
+//                               — nearest-name help                       #1067; utility-registry.ts is the authority)
 //
 // #1065 added only warn/info from lower (plumbing, not policy). #1066 is
 // the first lower ERROR — `X-GIS0012` (unknown-function = error, L3 in the
 // research doc) — raised through this same channel with no type migration,
-// exactly what the `error` severity was reserved for.
+// exactly what the `error` severity was reserved for. #1067's unknown-utility
+// gate (`X-GIS0013`) follows the same shape for utility names.
 
 /** Generic parser syntax-error code — one code for every recoverable
  *  parse error; the `message` carries the specific expectation. */
@@ -46,6 +49,10 @@ export const CONVERTER_WARNING = 'X-GIS0011'
  *  user-declared `fn` (#1066). The `help` line carries the nearest-name
  *  suggestion. */
 export const UNKNOWN_FUNCTION = 'X-GIS0012'
+/** Unknown-utility error (#1067) — a utility name matching no prefix in the
+ *  single utility registry (utility-registry.ts), in normal lowering AND in
+ *  `keyframes` blocks. The `help` carries the nearest-name suggestion. */
+export const UNKNOWN_UTILITY = 'X-GIS0013'
 
 /** A 1-based, document-relative source span. `line`/`col` are always
  *  present; `endLine`/`endCol` are optional (a point diagnostic omits
