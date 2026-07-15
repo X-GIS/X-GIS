@@ -39,6 +39,7 @@ describe('module() transitive fn collection', () => {
 
   it('leaves extern / raw string calls alone (no declRef → no collection)', () => {
     const ext = externFn('injected', { x: f32T }, f32T)
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- this test verifies a raw-string call (no declRef) is left alone by module assembly; it must use the callFn raw-string form
     const user = fn('user', { x: f32T }, ({ x }) => ext(x).add(callFn('raw_name', f32T, f32(1))))
     const m = module({ funcs: [user] })
     expect(m.funcs.map((f) => f.name)).toEqual(['user'])

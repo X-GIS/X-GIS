@@ -31,9 +31,11 @@ describe('#763 D — dual-instance hardening', () => {
     // The call factory's single-arg dispatch: a foreign node must be treated as
     // a POSITIONAL value — the pre-D1 instanceof check misparsed it as a
     // named-args bag ("undefined is not an object" / silent mis-swizzle class).
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- the test verifies the POSITIONAL single-arg dispatch of a foreign-brand node; it must use the positional call form
     const call = probe(alien)
     expect(call.expr.op).toBe('call')
     const emitted = emitModule(
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- the test verifies the POSITIONAL single-arg dispatch of a foreign-brand node; it must use the positional call form
       module({ funcs: { d1: fn('d1', {}, () => probe(foreignNode(f32(1)))) } }),
     )
     expect(emitted).toContain('d1_probe(1')

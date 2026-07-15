@@ -36,6 +36,7 @@ describe('fn() struct-handle params', () => {
     // trap (`'$' in proxy`) since the proxy target is an empty object.
     const IO2 = ioStruct('IoF', { uv: location(0, vec2fT) })
     const inner = fn('fwd_inner', { input: IO2 }, ({ input }) => input.uv.x)
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- the test verifies the POSITIONAL single struct-field-proxy forward (the `has`-trap recognition); it must use the positional form
     const outer = fn('fwd_outer', { input: IO2 }, ({ input }) => inner(input).add(input.uv.y))
     const wgsl = emitModule(module({ structs: [IO2.decl], funcs: [inner, outer] }))
     expect(wgsl).toContain('fwd_inner(input)') // forwarded as the raw struct value

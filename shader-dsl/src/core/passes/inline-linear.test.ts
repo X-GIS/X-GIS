@@ -11,7 +11,6 @@ import { describe, it, expect } from 'vitest'
 import {
   module,
   fn,
-  callFn,
   f32,
   f32T,
   boolT,
@@ -35,7 +34,7 @@ const vnoise = fn('vnoise', { p: f32T }, f32T, ({ p }, b) => {
   b.ret(a.add(c).mul(2))
 })
 // A fragment entry that calls the linear helper (for the GLSL `__` check).
-const vnoiseFrag = fn('vnoiseFrag', {}, f32T, (_a, b) => b.ret(callFn('vnoise', f32T, f32(0.5))), {
+const vnoiseFrag = fn('vnoiseFrag', {}, f32T, (_a, b) => b.ret(vnoise({ p: f32(0.5) })), {
   stage: 'fragment',
   retAttr: '@location(0)',
 })
@@ -46,7 +45,7 @@ describe('inlineLinearAll — linear multi-statement inlining', () => {
       funcs: [
         vnoise,
         fn('caller', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(callFn('vnoise', f32T, x).mul(3))
+          b.ret(vnoise({ p: x }).mul(3))
         }),
       ],
     })
@@ -65,7 +64,7 @@ describe('inlineLinearAll — linear multi-statement inlining', () => {
       funcs: [
         vnoise,
         fn('caller', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(callFn('vnoise', f32T, x).add(callFn('vnoise', f32T, x.mul(2))))
+          b.ret(vnoise({ p: x }).add(vnoise({ p: x.mul(2) })))
         }),
       ],
     })
@@ -93,13 +92,14 @@ describe('inlineLinearAll — linear multi-statement inlining', () => {
   })
 
   it('still inlines single-return helpers by plain substitution (no temps)', () => {
+    const sq = fn('sq', { x: f32T }, f32T, ({ x }, b) => {
+      b.ret(x.mul(x))
+    })
     const m = module({
       funcs: [
-        fn('sq', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(x.mul(x))
-        }),
+        sq,
         fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-          b.ret(callFn('sq', f32T, y).add(callFn('sq', f32T, y)))
+          b.ret(sq({ x: y }).add(sq({ x: y })))
         }),
       ],
     })
@@ -113,7 +113,7 @@ describe('inlineLinearAll — linear multi-statement inlining', () => {
       funcs: [
         vnoise,
         fn('caller', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(callFn('vnoise', f32T, x).add(callFn('vnoise', f32T, x.add(1))))
+          b.ret(vnoise({ p: x }).add(vnoise({ p: x.add(1) })))
         }),
       ],
     })
@@ -123,19 +123,20 @@ describe('inlineLinearAll — linear multi-statement inlining', () => {
 
 describe('inlineLinearAll — conservative exclusions', () => {
   it('leaves a control-flow (if) helper intact', () => {
+    const branchy = fn('branchy', { x: f32T }, f32T, ({ x }, b) => {
+      const r = b.var('r', f32T, f32(0))
+      If(x.gt(0), () => {
+        r.assign(x)
+      }).else(() => {
+        r.assign(x.neg())
+      })
+      b.ret(r)
+    })
     const m = module({
       funcs: [
-        fn('branchy', { x: f32T }, f32T, ({ x }, b) => {
-          const r = b.var('r', f32T, f32(0))
-          If(x.gt(0), () => {
-            r.assign(x)
-          }).else(() => {
-            r.assign(x.neg())
-          })
-          b.ret(r)
-        }),
+        branchy,
         fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-          b.ret(callFn('branchy', f32T, y))
+          b.ret(branchy({ x: y }))
         }),
       ],
     })

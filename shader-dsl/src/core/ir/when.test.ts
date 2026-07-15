@@ -23,6 +23,7 @@ describe('when — unified condition dispatch', () => {
       module({
         funcs: [
           fn('f', { x: f32T }, vec2fT, ({ x }) =>
+            // eslint-disable-next-line @typescript-eslint/no-deprecated -- this test's purpose is to prove `when` is byte-identical to the deprecated `ifExpr`; it must call `ifExpr` directly
             ifExpr(
               x.lt(1),
               () => vec2(1, 0),
@@ -55,6 +56,7 @@ describe('when — unified condition dispatch', () => {
       module({
         funcs: [
           fn('f', { x: f32T }, f32T, ({ x }) =>
+            // eslint-disable-next-line @typescript-eslint/no-deprecated -- this test's purpose is to prove `when` is byte-identical to the deprecated `condExpr`; it must call `condExpr` directly
             condExpr(
               [
                 [x.lt(0), () => f32(1)],

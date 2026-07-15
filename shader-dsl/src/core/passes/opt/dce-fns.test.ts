@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { deadFnElim } from './index'
-import { module, fn, callFn, f32, f32T, type Expr, type FuncDecl, type ModuleDecl } from '../../ir'
+import { module, fn, f32, f32T, type Expr, type FuncDecl, type ModuleDecl } from '../../ir'
 import { emitModule } from '../../backends/wgsl'
 
 // Whole-FUNCTION tree-shaking: drop functions unreachable from the entry
@@ -77,11 +77,12 @@ describe('optimize — dead-function elimination (tree-shaking)', () => {
     // pass (NOT in emitModule's default pipeline — see DEFAULT_PASSES), so apply
     // it explicitly. `unused` is declared but never called -> dropped; `used`
     // (called by the `main` entry point) and `main` survive + still emit.
+    const used = fn('used', { x: f32T }, f32T, ({ x }, b) => {
+      b.ret(x.mul(2))
+    })
     const m = module({
       funcs: [
-        fn('used', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(x.mul(2))
-        }),
+        used,
         fn('unused', { x: f32T }, f32T, ({ x }, b) => {
           b.ret(x.add(f32(99)))
         }),
@@ -90,7 +91,7 @@ describe('optimize — dead-function elimination (tree-shaking)', () => {
           { x: f32T },
           f32T,
           ({ x }, b) => {
-            b.ret(callFn('used', f32T, x))
+            b.ret(used({ x }))
           },
           { stage: 'fragment', retAttr: '@location(0)' },
         ),

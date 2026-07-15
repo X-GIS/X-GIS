@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fn, condExpr, ifExpr, f32, f32T } from './index'
+import { fn, when, f32, f32T } from './index'
 import { emitFunc } from '../backends/wgsl'
 
 // Regression gate for the condExpr/ifExpr arm-routing bug (introduced by 6017f125,
@@ -24,7 +24,7 @@ import { emitFunc } from '../backends/wgsl'
 describe('condExpr / ifExpr — arm assignments land INSIDE the branches', () => {
   it('condExpr emits the assignment inside each if/elif/else arm (not empty arms)', () => {
     const pick = fn('pick3', { sel: f32T }, f32T, ({ sel }) => {
-      return condExpr(
+      return when(
         [
           [sel.lt(f32(0.5)), () => f32(10)],
           [sel.lt(f32(6.5)), () => f32(20)],
@@ -46,7 +46,7 @@ describe('condExpr / ifExpr — arm assignments land INSIDE the branches', () =>
 
   it('ifExpr emits then/else assignments inside the branches (not empty arms)', () => {
     const pick = fn('pick2', { sel: f32T }, f32T, ({ sel }) => {
-      return ifExpr(
+      return when(
         sel.lt(f32(0.5)),
         () => f32(11),
         () => f32(22),

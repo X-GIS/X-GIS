@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { autoInline } from './auto-inline'
-import { module, fn, f32T, callFn, type ModuleDecl } from '../ir'
+import { module, fn, f32T, externFn, type ModuleDecl } from '../ir'
 import { emitModule } from '../backends/wgsl'
 import { compileModule } from '../oracle'
 
@@ -9,13 +9,14 @@ import { compileModule } from '../oracle'
 // return is a leaf (param/lit/const — never bloats). Pinned by oracle equality.
 describe('autoInline — cost-driven function inlining (#627)', () => {
   it('inlines a single-call helper and drops it', () => {
+    const dbl = fn('dbl', { x: f32T }, f32T, ({ x }, b) => {
+      b.ret(x.mul(2))
+    })
     const m = module({
       funcs: [
-        fn('dbl', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(x.mul(2))
-        }),
+        dbl,
         fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-          b.ret(callFn('dbl', f32T, y.add(1)))
+          b.ret(dbl({ x: y.add(1) }))
         }),
       ],
     })
@@ -27,13 +28,14 @@ describe('autoInline — cost-driven function inlining (#627)', () => {
   })
 
   it('inlines a leaf (identity) helper even at multiple call sites', () => {
+    const id = fn('id', { x: f32T }, f32T, ({ x }, b) => {
+      b.ret(x)
+    })
     const m = module({
       funcs: [
-        fn('id', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(x)
-        }),
+        id,
         fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-          b.ret(callFn('id', f32T, y).add(callFn('id', f32T, y.mul(3))))
+          b.ret(id({ x: y }).add(id({ x: y.mul(3) })))
         }),
       ],
     })
@@ -43,13 +45,14 @@ describe('autoInline — cost-driven function inlining (#627)', () => {
   })
 
   it('does NOT inline a multi-call non-leaf helper (the bloat guard)', () => {
+    const poly = fn('poly', { x: f32T }, f32T, ({ x }, b) => {
+      b.ret(x.mul(x).add(x))
+    }) // cost > 1
     const m = module({
       funcs: [
-        fn('poly', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(x.mul(x).add(x))
-        }), // cost > 1
+        poly,
         fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-          b.ret(callFn('poly', f32T, y).add(callFn('poly', f32T, y.add(1))))
+          b.ret(poly({ x: y }).add(poly({ x: y.add(1) })))
         }),
       ],
     })
@@ -57,17 +60,18 @@ describe('autoInline — cost-driven function inlining (#627)', () => {
   })
 
   it('inlines a single-call helper INTO an entry point (entry is a caller, not a candidate)', () => {
+    const dbl = fn('dbl', { x: f32T }, f32T, ({ x }, b) => {
+      b.ret(x.mul(2))
+    })
     const m = module({
       funcs: [
-        fn('dbl', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(x.mul(2))
-        }),
+        dbl,
         fn(
           'main',
           { x: f32T },
           f32T,
           ({ x }, b) => {
-            b.ret(callFn('dbl', f32T, x))
+            b.ret(dbl({ x }))
           },
           { stage: 'fragment', retAttr: '@location(0)' },
         ),
@@ -114,13 +118,14 @@ describe('autoInline — cost-driven function inlining (#627)', () => {
   })
 
   it('leaves a recursive single-return fn alone', () => {
+    const recRef = externFn('rec', { x: f32T }, f32T)
     const m = module({
       funcs: [
-        fn('rec', { x: f32T }, f32T, ({ x }, _b) => callFn('rec', f32T, x), {
+        fn('rec', { x: f32T }, f32T, ({ x }, _b) => recRef({ x }), {
           lintDisable: ['no-recursion'],
         }),
         fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-          b.ret(callFn('rec', f32T, y))
+          b.ret(recRef({ x: y }))
         }),
       ],
     })

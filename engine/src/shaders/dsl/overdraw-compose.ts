@@ -102,7 +102,7 @@ const fsCompose = fn(
     })
     // Exposure: 16 overdraws → fully saturated.
     const t = count.div(16)
-    Return(vec4(colormap(t), 1))
+    Return(vec4(colormap({ t }), 1))
   },
   { stage: 'fragment', retAttr: '@location(0)' },
 )

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { inlineFn } from './inline'
-import { module, fn, f32T, callFn, type ModuleDecl } from '../ir'
+import { module, fn, f32T, type ModuleDecl } from '../ir'
 import { emitModule } from '../backends/wgsl'
 import { compileModule } from '../oracle'
 
@@ -9,17 +9,19 @@ import { compileModule } from '../oracle'
 // composition that retires the polygon string-splice composer (placeholder/raw).
 // v1 scope: single-return fns (the variant-injection shape). Pinned by oracle
 // value-equality; additive (existing shaders are untouched, so byte-identity holds).
-const mk = (): ModuleDecl =>
-  module({
+const mk = (): ModuleDecl => {
+  const dbl = fn('dbl', { x: f32T }, f32T, ({ x }, b) => {
+    b.ret(x.mul(2))
+  })
+  return module({
     funcs: [
-      fn('dbl', { x: f32T }, f32T, ({ x }, b) => {
-        b.ret(x.mul(2))
-      }),
+      dbl,
       fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-        b.ret(callFn('dbl', f32T, y.add(1)))
+        b.ret(dbl({ x: y.add(1) }))
       }),
     ],
   })
+}
 
 describe('inline — Fn composition (#8)', () => {
   it('inlines the call, substituting the arg (dbl(y+1) -> (y+1)*2)', () => {
@@ -38,14 +40,15 @@ describe('inline — Fn composition (#8)', () => {
   })
 
   it('leaves a multi-statement fn alone (v1: single-return only)', () => {
+    const complex = fn('complex', { x: f32T }, f32T, ({ x }, b) => {
+      const t = b.let('t', x.mul(2))
+      b.ret(t.add(1))
+    })
     const m = module({
       funcs: [
-        fn('complex', { x: f32T }, f32T, ({ x }, b) => {
-          const t = b.let('t', x.mul(2))
-          b.ret(t.add(1))
-        }),
+        complex,
         fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-          b.ret(callFn('complex', f32T, y))
+          b.ret(complex({ x: y }))
         }),
       ],
     })
