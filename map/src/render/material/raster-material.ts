@@ -146,6 +146,20 @@ export class RasterDraper {
     return bg
   }
 
+  /** Invalidate a texture's cached view + global bind group(s). EVERY owner that
+   *  destroys a tile / bake texture (raster evict, drape re-bake / evict / destroy)
+   *  MUST call this: `viewByTex` / `globalBGByTex` are keyed by the texture OBJECT,
+   *  so without invalidation they are append-only and retain a dead view + bind
+   *  group per destroyed texture — an unbounded per-texture leak, and a latent
+   *  aliasing hazard the instant a texture source ever hands back a recycled
+   *  object (the cache would then bind that object's STALE view). Making the caches
+   *  track texture lifetime keeps them correct by construction. No-op when the
+   *  texture was never cached (e.g. evicted before it drew). */
+  dropTexture(texture: RasterTile['texture']): void {
+    this.viewByTex.delete(texture)
+    this.globalBGByTex.delete(texture)
+  }
+
   /** Build draw items from visible tiles + issue them through the generic executor. */
   draw(
     pass: import('@xgis/engine').RhiRenderPass,
