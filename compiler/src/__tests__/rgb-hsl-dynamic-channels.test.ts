@@ -24,14 +24,12 @@ import { evaluate } from '../eval/evaluator'
 import { makeEvalProps } from '../eval/reserved-keys'
 import { callBuiltin, BUILTIN_FN_NAMES } from '../eval/evaluator-helpers'
 import { exprToXgis } from '../convert/expressions'
-import { withPragma } from './_pragma'
 
 function evalExpr(src: string, props: Record<string, unknown> = {}): unknown {
-  const tokens = new Lexer(withPragma('let __x = ' + src)).tokenize()
-  const ast = new Parser(tokens).parse()
-  const stmt = ast.body[0]
-  if (stmt.kind !== 'LetStatement') throw new Error('expected LetStatement')
-  return evaluate(stmt.value as never, makeEvalProps({ props }))
+  // #1072 pruned `let`; parse the bare test expression via the parser's public
+  // single-expression entry (the same rehost #1138 used for within-filter.test.ts).
+  const ast = new Parser(new Lexer(src).tokenize()).parseSingleExpression()
+  return evaluate(ast as never, makeEvalProps({ props }))
 }
 
 describe('rgb / rgba dynamic channels — converter emit', () => {
