@@ -77,6 +77,7 @@ import {
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '@xgis/data'
 import { RasterRenderer } from './render/raster-renderer'
+import { UnderOccluderRenderer } from './render/under-occluder-renderer'
 import { PointRenderer } from './render/point-renderer'
 import { HeatmapRenderer } from './render/heatmap-renderer'
 import { ShapeRegistry } from './text/sdf-shape'
@@ -250,6 +251,9 @@ export class XGISMap {
   private interactionController!: InteractionController
   renderer!: MapRendererContent
   rasterRenderer!: RasterRenderer
+  /** INC-1 opaque depth-writing globe sphere just under EARTH_R (opaque-pass.ts);
+   *  non-null only while a `background { fill }` is installed; globe-only. */
+  underOccluder: UnderOccluderRenderer | null = null
   /** Show whose source backs the active raster URL — single-tracked
    *  for now (one raster basemap per scene is the realistic case).
    *  Per-frame `render()` resolves `paintShapes.opacity` here and
@@ -774,6 +778,10 @@ export class XGISMap {
         this.rawDatasets.delete(SYNTHETIC_EARTH_SURFACE_SOURCE)
         this._syntheticBackend = null
       }
+      if (this.underOccluder) {
+        this.underOccluder.destroy()
+        this.underOccluder = null
+      }
       // Filter the synthetic ShowCommand out of the live frame's command
       // list — rebuildLayers prepends it on each style reload, but a
       // mid-session null-teardown must drop it now so the next frame
@@ -815,6 +823,7 @@ export class XGISMap {
       this.showCommands = [syntheticShow, ...this.showCommands]
     } else {
       this._syntheticBackend?.updateFillColor(rgba)
+      this.underOccluder?.setColor(rgba)
       const synthShow = this.showCommands.find(
         (s) => s.targetName === SYNTHETIC_EARTH_SURFACE_SOURCE,
       )
@@ -835,6 +844,7 @@ export class XGISMap {
   private _installSyntheticEarthSurfaceSource(rgba: [number, number, number, number]): void {
     if (this._syntheticBackend) {
       this._syntheticBackend.updateFillColor(rgba)
+      this.underOccluder?.setColor(rgba)
       return
     }
     const catalog = new TileCatalog()
@@ -874,6 +884,9 @@ export class XGISMap {
     this.rawDatasets.set(SYNTHETIC_EARTH_SURFACE_SOURCE, {
       _vectorTile: true,
     })
+    // INC-1 under-occluder — lives/dies with the synthetic background; globe-only draw.
+    this.underOccluder = new UnderOccluderRenderer(this.ctx.rhi, this.ctx.format, getSampleCount())
+    this.underOccluder.setColor(rgba)
   }
 
   /** Issue #360 F1 — XGISMap-side host adapter for the per-source polar-cap

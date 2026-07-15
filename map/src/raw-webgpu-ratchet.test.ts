@@ -134,6 +134,11 @@ const BASELINE: Record<string, number> = {
   'map/src/render/renderer-types.ts': 20,
   'map/src/render/renderer.ts': 60,
   'map/src/render/tile-compute-resources.ts': 7,
+  // INC-1 under-occluder sphere: a Material/executeItems draw in the opaque pass,
+  // which hands a NATIVE GPURenderPassEncoder — the param type is the ONE raw token,
+  // bridged via wrapWebGpuPass exactly like raster-renderer/vector-drape/line-renderer.
+  // Gap-blocked until #991 P6 makes the pass chain hand a neutral RhiRenderPass.
+  'map/src/render/under-occluder-renderer.ts': 1,
   'map/src/render/upload-coordinator.ts': 22,
   'map/src/render/vector-tile-renderer-types.ts': 5,
   'map/src/render/vector-tile-renderer.ts': 20,
