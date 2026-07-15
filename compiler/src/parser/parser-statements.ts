@@ -448,7 +448,13 @@ export class StatementParser extends ExpressionParser {
   // line or a from/to alias). Used to terminate the utility list inside a
   // keyframe without a separator token.
   private isKeyframeBoundary(): boolean {
-    if (this.check(TokenType.From) || this.check(TokenType.To)) return true
+    // `from` / `to` open a new row ONLY in the selector form `from:` / `to:`
+    // (grammar: `frame-selector ":"`). A bare `from` / `to` that is NOT
+    // followed by a colon is a utility-name segment (`from-red-500`,
+    // `to-blue-500`) and must stay inside the current row's utility list.
+    if (this.check(TokenType.From) || this.check(TokenType.To)) {
+      return this.tokens[this.pos + 1]?.type === TokenType.Colon
+    }
     if (this.check(TokenType.Number)) {
       const next = this.tokens[this.pos + 1]
       if (next?.type === TokenType.Percent) return true

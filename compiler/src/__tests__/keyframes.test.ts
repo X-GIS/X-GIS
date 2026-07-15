@@ -49,6 +49,32 @@ describe('Keyframes parser', () => {
     expect(kf.frames.map((f) => f.percent)).toEqual([0, 100])
   })
 
+  it('does not treat from-/to- utility names inside a keyframe as row selectors (#1131)', () => {
+    // A bare `from` / `to` opens a new row only in the selector form
+    // `from:` / `to:`. A utility NAME that begins with `from`/`to`
+    // (gradient stops like `to-blue-500`, `from-red-500`) is a name
+    // segment, not a selector — it must stay inside the current row.
+    // Before the fix, `isKeyframeBoundary` broke the utility list on the
+    // bare `From`/`To` token, so the next `parseKeyframe` hit the `-` and
+    // threw "Expected Colon, got Minus" (spec §2.11 known divergence).
+    const source = `
+      keyframes shift {
+        0%:   fill-red-500  to-blue-500
+        100%: from-blue-500 fill-red-500
+      }
+      source data { type: geojson, url: "x.geojson" }
+      layer solo { source: data | fill-red-500 }
+    `
+    const tokens = new Lexer(withPragma(source)).tokenize()
+    const ast = new Parser(tokens).parse()
+    const kf = ast.body.find((s) => s.kind === 'KeyframesStatement')
+    if (kf?.kind !== 'KeyframesStatement') throw new Error('unreachable')
+    // Two rows, not four — the `to-`/`from-` utilities did not split rows.
+    expect(kf.frames.map((f) => f.percent)).toEqual([0, 100])
+    expect(kf.frames[0].utilities.map((u) => u.name)).toEqual(['fill-red-500', 'to-blue-500'])
+    expect(kf.frames[1].utilities.map((u) => u.name)).toEqual(['from-blue-500', 'fill-red-500'])
+  })
+
   it('sorts frames by percent after parsing', () => {
     const source = `
       keyframes out_of_order {

@@ -415,13 +415,12 @@ sorted by percent after parsing. Utility items here must carry **no modifier**
 (a modifier inside a keyframe is a hard error). A percent outside `0..100` is a hard
 error.
 
-> **(known divergence)** Because `isKeyframeBoundary` reserves a leading bare `from`
-> / `to` as the next-frame selector, a keyframe utility _name_ that begins with
-> `from`/`to` (e.g. `to-blue-500`) is unreachable and fails to parse
-> (**"Expected Colon, got Minus"**), even though `parseUtilityName` otherwise admits
-> `from`/`to` as leading name segments (§3.10) so `fade-in` and `ease-in-out` work.
-> Verified on `keyframes k { 0%: to-blue-500 }`. Reported, not fixed (this slice is
-> additive).
+> A `from` / `to` selector must be followed by `:` (grammar: `frame-selector ":"`),
+> and `isKeyframeBoundary` requires that `:` lookahead. A bare leading `from`/`to`
+> followed by `-` is therefore a utility _name_, not a selector, so keyframe utility
+> names may begin with `from`/`to` (e.g. `to-blue-500`, `from-red-500`) — matching
+> `parseUtilityName`'s leading-segment handling (§3.10) that also makes `fade-in` /
+> `ease-in-out` work.
 
 ```xgis
 xgis 1
