@@ -103,7 +103,11 @@ const CEILINGS: Record<string, number> = {
   // the `importedTopLevel` collector + its pass-through into the resolve call +
   // the guarded `this.spriteUrl` wire, all at the existing import-resolution
   // site (composition-root; nothing extract-worthy, §2). Lower as #991 shrinks map.ts.
-  'map/src/map.ts': 4232,
+  // 4232→4245 (INC-1 under-occluder): the `underOccluder` owner field + its import +
+  // the construct/setColor at the synthetic-earth-surface install + the teardown +
+  // the two mid-session setColor mirrors. Composition-root renderer wiring (mirrors
+  // the rasterRenderer / heatmapTargets owner fields); nothing extract-worthy (§2).
+  'map/src/map.ts': 4245,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

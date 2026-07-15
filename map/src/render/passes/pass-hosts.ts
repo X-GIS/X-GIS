@@ -35,6 +35,7 @@ export type OpaquePassHost = Pick<
   | 'pointRenderer'
   | 'rasterRenderer'
   | 'renderer'
+  | 'underOccluder'
 >
 
 /** Order-independent-transparency composite pass. */

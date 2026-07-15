@@ -178,6 +178,21 @@ class OpaquePass implements RenderPass {
             host._elapsedMs,
           )
           host.gpuTimer?.mark(subPass, 'after_legacy')
+          // INC-1 under-occluder sphere: an opaque depth-writing globe sphere
+          // seated just under EARTH_R, drawn AFTER raster and BEFORE the vector
+          // shows so a residual fill crack bleeds to the sphere colour (not the
+          // void) and far-hemisphere depth-testing geometry is occluded at the
+          // limb. Self-gated to globe (projType 7); null when no background fill.
+          host.underOccluder?.render(
+            subPass,
+            host.camera,
+            projType,
+            centerLon,
+            centerLat,
+            ctx.w,
+            ctx.h,
+            ctx.dpr,
+          )
         }
 
         // Render the group's vector tile shows (if any). Two-phase
