@@ -239,6 +239,10 @@ export class UploadCoordinator {
    *  `classifyTile`'s `hasOtherSliceHeld` predicate so every slice of one
    *  tile stays on the same fallback level until the slowest catches up. */
   private _heldUploadKeys = new Set<number>()
+  /** Squared-distance-to-camera metric (nearest = smallest) from
+   *  `installPriority`; lets `resetFrameCap` replay the cap-deferred backlog
+   *  NEAREST-first instead of strict-FIFO. */
+  private _distSq: ((key: number) => number) | null = null
 
   constructor(
     private readonly host: UploadHost,
@@ -311,6 +315,14 @@ export class UploadCoordinator {
     this._heldUploads = []
     this._heldUploadIds.clear()
     this._heldUploadKeys.clear()
+    // Visible-first admission: drain the cap-deferred backlog NEAREST-first
+    // (same metric the queue's priority comparator uses) so a newly-visible
+    // slice jumps ahead of the far/ancestor slices a zoom-in accumulated.
+    // Strict FIFO left the visible tiles at the BACK, uploading only after the
+    // whole backlog drained — the "visible tiles don't load for ~30 s" stall.
+    // The per-frame cap (JS-thread guard) is unchanged; only the order is.
+    const distSq = this._distSq
+    if (distSq) held.sort((a, b) => distSq(a.key) - distSq(b.key))
     for (const item of held) {
       // Re-deferrals (cap exceeded again) repopulate the held sets via the
       // push branch in `enqueue`; successful uploads leave the key out.
@@ -392,6 +404,7 @@ export class UploadCoordinator {
   /** Install the distance-priority comparator (closer tiles dispatch first).
    *  Idempotent at the call site (VTR gates it once). */
   installPriority(distSq: (key: number) => number): void {
+    this._distSq = distSq
     const itemData = this.uploadItemData
     this.uploadQueue.priorityCallback = (a, b) => {
       const ia = itemData.get(a),
