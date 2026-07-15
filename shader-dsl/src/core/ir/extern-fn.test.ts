@@ -10,7 +10,7 @@ describe('externFn — typed call-only handle', () => {
   it('an extern call emits the identical node to the real fn handle call', () => {
     const real = fn('foo', { a: f32T, b: f32T }, vec2fT, ({ a, b }) => vec2(a, b))
     const ext = externFn('foo', { a: f32T, b: f32T }, vec2fT)
-    const viaReal = fn('w', { x: f32T, y: f32T }, vec2fT, ({ x, y }) => real(x, y))
+    const viaReal = fn('w', { x: f32T, y: f32T }, vec2fT, ({ x, y }) => real({ a: x, b: y }))
     const viaExt = fn('w', { x: f32T, y: f32T }, vec2fT, ({ x, y }) => ext(x, y))
     expect(emitFunc(viaExt)).toBe(emitFunc(viaReal))
   })

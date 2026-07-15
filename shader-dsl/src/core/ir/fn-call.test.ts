@@ -10,11 +10,13 @@ const add = fn('add', { a: f32T, b: f32T }, f32T, ({ a, b }) => a.add(b))
 
 describe('fn — typed object-param call', () => {
   it('object-param maps to the same call node as positional', () => {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- the positional call is the reference the object-param form is asserted byte-equal to
     expect(emitExpr(add({ a: f32(1), b: f32(2) }).expr)).toBe(emitExpr(add(f32(1), f32(2)).expr))
   })
 
   it('object-param uses declaration order, not key order', () => {
     // keys given b-then-a still map to positional (a, b) via the param list.
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- the positional call is the reference the object-param form is asserted byte-equal to
     expect(emitExpr(add({ b: f32(2), a: f32(1) }).expr)).toBe(emitExpr(add(f32(1), f32(2)).expr))
   })
 

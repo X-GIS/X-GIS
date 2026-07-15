@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { lint, formatDiagnostics, summarize, unusedDeviations, type LintRule } from './engine'
 import { RULES } from './rules'
 import { STRICT, LENIENT } from './presets'
-import { module, fn, callFn, f32T, f32 } from '../../ir'
+import { module, fn, externFn, f32T, f32 } from '../../ir'
 
 const wide7 = () =>
   module({
@@ -98,9 +98,10 @@ describe('lint engine — scalable rule framework', () => {
   })
 
   it('unusedDeviations flags a lintDisable that never fires (and not one that does)', () => {
+    const recRef = externFn('rec', { x: f32T }, f32T)
     const used = module({
       funcs: [
-        fn('rec', { x: f32T }, f32T, ({ x }, _b) => callFn('rec', f32T, x), {
+        fn('rec', { x: f32T }, f32T, ({ x }, _b) => recRef({ x }), {
           lintDisable: ['no-recursion'],
         }),
       ],

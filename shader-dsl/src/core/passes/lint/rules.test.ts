@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { lint } from './engine'
 import { RULES } from './rules'
-import { module, fn, callFn, f32T, f32, boolT } from '../../ir'
+import { module, fn, externFn, f32T, f32, boolT } from '../../ir'
 import type { LintConfig } from './engine'
 
 const ruleIds = (m: ReturnType<typeof module>, cfg?: LintConfig) =>
@@ -9,8 +9,9 @@ const ruleIds = (m: ReturnType<typeof module>, cfg?: LintConfig) =>
 
 describe('lint rules — correctness checks + deviations', () => {
   it('no-recursion flags a direct self-call (WGSL has no recursion)', () => {
+    const recRef = externFn('rec', { x: f32T }, f32T)
     const m = module({
-      funcs: [fn('rec', { x: f32T }, f32T, ({ x }, _b) => callFn('rec', f32T, x))],
+      funcs: [fn('rec', { x: f32T }, f32T, ({ x }, _b) => recRef({ x }))],
     })
     expect(ruleIds(m)).toContain('no-recursion')
   })
@@ -37,9 +38,10 @@ describe('lint rules — correctness checks + deviations', () => {
   })
 
   it('lintDisable suppresses a rule for that fn (documented deviation)', () => {
+    const recRef = externFn('rec', { x: f32T }, f32T)
     const m = module({
       funcs: [
-        fn('rec', { x: f32T }, f32T, ({ x }, _b) => callFn('rec', f32T, x), {
+        fn('rec', { x: f32T }, f32T, ({ x }, _b) => recRef({ x }), {
           lintDisable: ['no-recursion'],
         }),
       ],

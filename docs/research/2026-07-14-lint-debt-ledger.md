@@ -101,6 +101,27 @@ a noEmit resolution surface only; Playwright transpiles specs at run time), gree
 all 111 touched files via the pre-commit hook. No playground vitest suite exists (only
 `dev` / `build` / `test:e2e`); the browser e2e specs are not run here.
 
+## Status update — Wave 3 landed (2026-07-14, branch `claude/1055-lint-wave3`)
+
+The `shader-dsl` deprecation migration (the last `no-deprecated` error class outside
+`data`/`site`). Fresh repo-root `bun run lint`, rebased on `origin/main` post-Wave-5:
+
+| metric                   | post Wave 5 | post Wave 3 |
+| ------------------------ | ----------: | ----------: |
+| Problems                 |         258 |     **218** |
+| Errors                   |          94 |      **55** |
+| Warnings                 |         164 |     **163** |
+| Parsing errors           |           0 |           0 |
+
+Errors 94 → 55 (**−39**): the 38 `@typescript-eslint/no-deprecated` `callFn` sites in
+the shader-dsl test corpus migrated to the `FnHandle` object-param call form /
+`externFn`, plus the 1 `engine` `colormap` positional-call migration. Behaviour-neutral
+by construction — the migration only changes the CALL FORM, never assertions; the full
+shader-dsl suite (86 files / 548 tests) and `tsc --build shader-dsl` stay green, so
+emit parity is preserved (a moved snapshot would have meant a semantics change — none
+did). `bun run build` exits 0. Remaining 55 errors are the `data` (`no-deprecated` ×22
++ `prefer-const`) and `site` (`react-hooks` / `no-deprecated`) classes = Wave 4.
+
 ## Method
 
 - Command: `bun run lint` (= `eslint .`), captured once at the repo root with the
