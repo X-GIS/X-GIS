@@ -91,6 +91,13 @@ export class VectorDrapeRenderer {
    *  each draw a distinct base — advanced by its tile count, reset per frame in
    *  beginFrame() — gives every slice its own pool buffers. */
   private _framePoolBase = 0
+  /** Bake textures retired by eviction / re-bake, destroyed on the NEXT beginFrame
+   *  — the post-submit safe window (mirrors gpu-tile-store's _retiredArenaBuffers).
+   *  queue.submit() returning ≠ the GPU having drained the command buffer, so a
+   *  same-frame (or one-frame-early) destroy can free a texture the prior in-flight
+   *  submit still references ("Destroyed texture used in a submit"). One more frame
+   *  guarantees the referencing submit has completed. */
+  private readonly _retiredBakes: RhiTexture[] = []
 
   constructor(
     private readonly rhi: RhiDevice,
@@ -156,7 +163,7 @@ export class VectorDrapeRenderer {
         if (!tex) continue
         if (entry) {
           this.draper.dropTexture(entry.tex) // invalidate the draper cache before freeing
-          this.rhi.destroyTexture(entry.tex)
+          this._retiredBakes.push(entry.tex) // destroy next frame — the prior submit may still reference it
         }
         entry = { tex, uploadEpoch: cached.uploadEpoch, fillKey, strokeKey, lastCall: this.calls }
         this.baked.set(cacheKey, entry)
@@ -224,14 +231,22 @@ export class VectorDrapeRenderer {
    *  and the VTR tile-buffer eviction defer to the next frame: the drape encodes
    *  every sphere-route fill layer into ONE render pass, so destroying a texture
    *  mid-frame can free one still referenced by an encoded-but-not-yet-submitted
-   *  draw ("Destroyed texture used in submit"). By the next frame the previous
-   *  queue.submit() has returned, so these off-screen textures are safe to free. */
+   *  draw ("Destroyed texture used in submit"). Deferring to beginFrame alone was
+   *  NOT enough on WebGPU — queue.submit() returning ≠ the GPU having drained it —
+   *  so evicted textures are RETIRED and destroyed on the NEXT beginFrame, one frame
+   *  later, once the referencing submit has completed (see _retiredBakes). */
   beginFrame(): void {
+    // Drain last frame's retired bakes FIRST — retired a frame ago, so the submit
+    // that referenced them has now drained (the post-submit safe window).
+    if (this._retiredBakes.length > 0) {
+      for (const t of this._retiredBakes) this.rhi.destroyTexture(t)
+      this._retiredBakes.length = 0
+    }
     if (this.baked.size > MAX_CACHED_BAKES) {
       for (const k of planBakeEvictions(this.baked, this.visibleKeys, MAX_CACHED_BAKES)) {
         const tex = this.baked.get(k)!.tex
         this.draper.dropTexture(tex) // invalidate the draper cache before freeing
-        this.rhi.destroyTexture(tex)
+        this._retiredBakes.push(tex) // destroy next frame — the prior submit may still reference it
         this.baked.delete(k)
       }
     }
@@ -244,6 +259,8 @@ export class VectorDrapeRenderer {
    *  source / map is torn down (the drape's own GPU-resource teardown). After
    *  destroy() the renderer is dead — create a new one if draping resumes. */
   destroy(): void {
+    for (const t of this._retiredBakes) this.rhi.destroyTexture(t)
+    this._retiredBakes.length = 0
     for (const e of this.baked.values()) {
       this.draper.dropTexture(e.tex) // invalidate the draper cache before freeing
       this.rhi.destroyTexture(e.tex)
