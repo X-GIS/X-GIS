@@ -14,6 +14,26 @@ describe('globe — dateline-wrapping tile selection', () => {
     expect(hasEast).toBe(true)
   })
 
+  it('OVERZOOM antimeridian view keeps both sides — half-globe-blank repro #2.70/…/179.66', () => {
+    // User bug (globe + OFM planet, hash #2.70/29.61151/179.66439/0.0/21.4):
+    // at camera zoom 2.70 the globe is a SMALL DISC and maxZ = currentZ =
+    // floor(zoom) = 2, so `zoom > maxZ` fires the overzoom bbox branch. Its
+    // corner probes miss the disc; only the ~centre probes hit, all at the
+    // sub-camera lon (≈179.66), so the lon bbox collapsed to a point and the
+    // branch emitted only the single tile column under the camera — dropping
+    // the entire trans-antimeridian half → "지도 반만 그려져" (half blank).
+    // The overzoom branch now requires ALL probes to hit (full disc), so a
+    // small-disc view routes to the descent, which wraps the dateline by
+    // construction. Distinct from the descent-path test above (zoom < maxZ).
+    const tiles = globeVisibleTiles(179.66, 29.61, 2.7, 2, 860, 720, 21.4, 0)
+    expect(tiles.length).toBeGreaterThan(0)
+    const n = (z: number) => Math.pow(2, z)
+    const hasWest = tiles.some((t) => t.x / n(t.z) < 0.25) // lon −180..−90 (across the dateline)
+    const hasEast = tiles.some((t) => (t.x + 1) / n(t.z) > 0.75) // lon 90..180
+    expect(hasWest).toBe(true)
+    expect(hasEast).toBe(true)
+  })
+
   it('only the camera-facing hemisphere is selected (centre lon 0 → no lon≈180 tiles)', () => {
     const tiles = globeVisibleTiles(0, 0, 2, 4, 512, 512)
     expect(tiles.length).toBeGreaterThan(0)
