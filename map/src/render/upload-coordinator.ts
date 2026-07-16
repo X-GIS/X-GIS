@@ -39,6 +39,7 @@ import { generateWallMeshExtrudedECEF } from '../core/polygon-mesh'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
 import { isMobileClassViewport, xlog } from '@xgis/shared'
 import type { TileData } from '@xgis/data'
+import { burstUploadBudget } from './vector-tile-renderer-helpers'
 import type { GPUTile } from './vector-tile-renderer-types'
 import type { RhiBindGroup, RhiBuffer, RhiDevice } from '@xgis/engine'
 import type { WebGpuDevice } from '@xgis/rhi-webgpu'
@@ -275,9 +276,12 @@ export class UploadCoordinator {
     // tolerable. Mobile gets 1 (matches the prior uploadBudgetFor floor).
     // #1155 F3 — cold-start burst raises it to 8 desktop / 4 mobile so the
     // first-viewport cascade drains in a few frames; steady state stays 4/1.
+    // The burst pair comes from `burstUploadBudget` (the single authority shared
+    // with uploadBudgetFor's concurrent maxJobs) so the cap and maxJobs can't
+    // drift out of lockstep.
     const mobile = typeof window !== 'undefined' && isMobileClassViewport(window.innerWidth)
     let cap: number
-    if (this._coldStartBurst) cap = mobile ? 4 : 8
+    if (this._coldStartBurst) cap = burstUploadBudget(mobile)
     else cap = mobile ? 1 : 4
     if (this._uploadsThisFrame >= cap) {
       this._heldUploads.push({ key, data, sourceLayer })

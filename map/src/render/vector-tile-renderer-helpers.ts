@@ -52,20 +52,39 @@ export const ARENA_LOW_WATER = 0.6
 /** Per-frame tile upload cap (steady state) — 4 desktop / 1 mobile via
  *  uploadBudgetFor.
  *
- *  #1155 F3 burst-safety math (the burst path below raises this to 8 desktop /
- *  4 mobile): the historic ~1700/sec GPU-buffer-creation ceiling (Chrome's
- *  STATUS_BREAKPOINT — the 552-creates-in-one-frame → ~250 ms stall) is NOT
- *  breached at 8/frame, because per-slice buffer creation is now almost all
- *  reuse: polygon vertex/index geometry writes into the shared GPUArenas
- *  (upload-coordinator writeRhi) → ZERO creates; the thin line/outline
- *  vertex+index buffers come from GpuTileStore.acquireBuffer, a bucketed
- *  recycler that createBuffers only on a pool miss (gpu-tile-store.ts:307-313);
- *  staging is a tiered reuse pool. The ONLY unconditional fresh createBuffer
- *  per slice are the SDF segment buffers (line-renderer.ts:448,:467), ≤2/slice.
- *  So 8 slices/frame × ~3 creates × 60 fps ≈ 1440/sec < 1700/sec — and burst
- *  frames run >16 ms (self-throttling below 60 fps), with the window bounded by
- *  the map's burst exit predicate + the 10 s hard cap. */
+ *  #1155 F3 burst-safety (the burst path raises this to 8 desktop / 4 mobile via
+ *  the single-authority `burstUploadBudget` below). The failure mode this cap
+ *  guards is a PER-FRAME spike, not a sustained per-second rate: the historic
+ *  incident was 552 buffer writes / 8.4 MB in ONE frame → a ~250 ms stall
+ *  (perf-scenarios wb_peak). At COLD START — the exact window burst runs in —
+ *  the reuse pools are still cold, so per-slice buffer creation is HIGHER than
+ *  steady state, not "almost all reuse": polygon vertex/index write into the
+ *  shared GPUArenas (ZERO creates), but the thin line/outline vertex+index
+ *  buffers (GpuTileStore.acquireBuffer, gpu-tile-store.ts:307-313) all MISS
+ *  until the first tile evictions feed the pool, the per-slice feat_data buffer
+ *  is an unconditional create (feature-data-binder.ts), the SDF segments add ≤2,
+ *  and the staging pool creates one buffer per tier until warm (7 tiers, then
+ *  reuse) — realistically ~5-6 creates/slice during the first cascade. 8 slices/
+ *  frame ⇒ ~40-48 creates/frame, ~11× UNDER the 552-in-one-frame spike. Crucially
+ *  burst does NOT raise the cold-start TOTAL (bounded by viewport tiles × layers);
+ *  it compresses that fixed one-time cascade into ~half the frames, at most
+ *  doubling the per-frame density vs the steady 4/frame cascade that already runs
+ *  cold today — so a burst frame self-throttles to ~20-25 ms (below 60 fps, not a
+ *  stall), the cascade drains in ~15 frames, and the window is bounded by the
+ *  map's exit predicate + the 10 s hard cap. If a future cold-start profile shows
+ *  the per-frame spike climbing toward 552, drop the desktop burst to 6 in
+ *  `burstUploadBudget` — the enqueue cap follows it through the shared authority. */
 const MAX_UPLOADS_PER_FRAME = 4
+
+/** #1155 F3 — cold-start burst upload budget: 8 desktop / 4 mobile. SINGLE
+ *  AUTHORITY for the burst pair, read by BOTH `uploadBudgetFor` (concurrent
+ *  upload maxJobs) and UploadCoordinator's per-frame slice-enqueue cap — the two
+ *  MUST stay in lockstep or over-cap slices churn through `_heldUploads` (a
+ *  maxJobs < cap split re-defers work every frame). See the burst-safety note on
+ *  MAX_UPLOADS_PER_FRAME above for why 8 is safe and how to retune it. */
+export function burstUploadBudget(mobile: boolean): number {
+  return mobile ? 4 : 8
+}
 /** Mobile-specific upload budget — main-thread `buildLineSegments`
  *  runs synchronously on every doUploadTile for the XGVT-binary path
  *  (PMTiles' worker decode bypasses it). Capping mobile uploads to
@@ -99,6 +118,6 @@ export function uploadBudgetFor(
   // prevent. `isMobileClassViewport` (the shared authority) also gates
   // on a coarse PRIMARY pointer, so a small DESKTOP window keeps 4.
   const mobile = isMobileClassViewport(Math.max(canvasW, canvasH) / dpr)
-  if (burst) return mobile ? 4 : 8
+  if (burst) return burstUploadBudget(mobile)
   return mobile ? 1 : MAX_UPLOADS_PER_FRAME
 }

@@ -926,6 +926,7 @@ export class XGISMap {
       lineRenderer: this.lineRenderer,
       projectionName: this.projectionName,
       vtSources: this.vtSources,
+      registerVtSource: (key, source, renderer) => this._registerVtSource(key, source, renderer),
       rawDatasets: this.rawDatasets,
       geojsonCapPoles: this.geojsonCapPoles,
       getShowCommands: () => this.showCommands as ShowCommand[],
@@ -1005,7 +1006,7 @@ export class XGISMap {
     this.sourceManager = new SourceManager({
       rawDatasets: this.rawDatasets,
       sourceLoaders: options.sources,
-      vtSources: this.vtSources,
+      registerVtSource: (key, source, renderer) => this._registerVtSource(key, source, renderer),
       sourceCRS: this.sourceCRS,
       geojsonCapPoles: this.geojsonCapPoles,
       heatmapPointData: this.heatmapPointData,
@@ -3782,7 +3783,14 @@ export class XGISMap {
         // or it leaks for the page lifetime. Otherwise count the rendered frame
         // — the exit hysteresis trusts the idle signal only after ≥1 render.
         if (this.ctx.deviceLost) this._burst.exit()
-        else this._burst.noteRenderedFrame()
+        // A 0×0 canvas makes RenderLoop.render() early-return before requestTiles
+        // (render-loop.ts) — nothing rendered, no cascade started. Counting it
+        // would let a map booted in a hidden/zero-size container satisfy the
+        // ≥1-render gate and exit burst (idle hysteresis) before the real first
+        // viewport ever paints; skip the note so burst survives to the real
+        // cascade (or the 10 s cap if the container never shows).
+        else if ((this.ctx.canvas?.width ?? 0) > 0 && (this.ctx.canvas?.height ?? 0) > 0)
+          this._burst.noteRenderedFrame()
       }
     } catch (err) {
       // Surface the real message to the console / log overlay (a rAF throw
@@ -4360,6 +4368,11 @@ export class XGISMap {
   stop(): void {
     this.controller?.detach()
     this.running = false
+    // #1155 F3 — stop() halts the render loop, so renderLoop early-returns on
+    // `!running` before tickExit can fire again: the 10 s cap can never run and
+    // the shared-pool burst refcount would leak for the page lifetime (every
+    // sibling map stuck at 32-per-drain). Release it here; exit() is idempotent.
+    this._burst.exit()
   }
 
   /** Add a text overlay anchored at a geographic point. The overlay

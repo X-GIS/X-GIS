@@ -93,10 +93,11 @@ const CEILINGS: Record<string, number> = {
   // 4487→4494 (#1154): pattern_active flag written per fill draw (both the
   // pattern/else branch at the fill_translate site + the three sentinel paths)
   // so the VS knows to gate off fill-translate when a pattern owns those slots.
-  // 4494→4513 (#1155 F3): cold-start burst forwarder — the `_coldStartBurst`
+  // 4494→4511 (#1155 F3): cold-start burst forwarder — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst flag on the per-render
-  // uploadBudgetFor/setMaxJobs call.
-  'map/src/render/vector-tile-renderer.ts': 4513,
+  // uploadBudgetFor/setMaxJobs call. (Ceiling corrected from a padded 4513 to the
+  // measured post-prettier 4511 — #1155 F3 adjudication, shrink-only high-water.)
+  'map/src/render/vector-tile-renderer.ts': 4511,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -129,12 +130,18 @@ const CEILINGS: Record<string, number> = {
   // all at the run() flow with block comments documenting the reorder. Pure
   // latency overlap, no behaviour change (§2 — composition-root reorder,
   // nothing extract-worthy). Lower as #991 decomposes map.ts.
-  // 4336→4402 (#1155 F3): cold-start burst lifecycle hooks — the state machine
+  // 4336→4398 (#1155 F3): cold-start burst lifecycle hooks — the state machine
   // itself was EXTRACTED to map-cold-start-burst.ts (ColdStartBurstController,
   // mirrors device-lost-recovery.ts); map keeps only the irreducible wiring: the
   // `_burst` field + deps closure, `_registerVtSource`, and the enter/tick/note/
   // exit calls at run/runBinary/renderLoop/_releaseGpuResources.
-  'map/src/map.ts': 4402,
+  // 4398→4411 (#1155 F3 adjudication): stop() now releases the burst refcount
+  // (it was leaking the shared MVT pool for the page lifetime + disabling the
+  // 10 s cap); the rendered-frame note skips 0×0 early-return frames so a map
+  // booted hidden keeps burst for its real first cascade; and the polar-cap +
+  // source-manager registrations route through `_registerVtSource` (single
+  // write authority) so a source attached mid-burst inherits the flags.
+  'map/src/map.ts': 4411,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -274,7 +281,10 @@ const CEILINGS: Record<string, number> = {
   // ahead of the accumulated far/ancestor backlog (the ~30 s stall fix).
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
-  'map/src/render/upload-coordinator.ts': 906,
+  // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
+  // shared `burstUploadBudget` authority (import + call + note) so the enqueue
+  // cap and uploadBudgetFor's maxJobs can't drift out of lockstep.
+  'map/src/render/upload-coordinator.ts': 910,
   'map/src/shaders/dsl/projections.ts': 811,
   // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).

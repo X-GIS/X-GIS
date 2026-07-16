@@ -45,7 +45,7 @@ interface BurstSeam {
   renderFrame: () => void
   _processCameraEvents: () => void
   running: boolean
-  ctx?: { deviceLost: boolean }
+  ctx?: { deviceLost: boolean; canvas?: { width: number; height: number } }
   vtSources: Map<string, { source: unknown; renderer: unknown }>
 }
 function seam(map: XGISMap): BurstSeam {
@@ -81,6 +81,21 @@ describe('XGISMap cold-start burst — enter wiring + destroy (#1155 F3)', () =>
     expect(s._burst.isOn).toBe(false)
     expect(pool.coldStartBurstRefcount).toBe(base)
     expect(a.sourceFlags.at(-1)).toBe(false) // cleared BEFORE teardown
+  })
+})
+
+describe('XGISMap cold-start burst — public stop() (#1155 F3)', () => {
+  it('stop() releases the burst refcount (renderLoop early-returns on !running before tickExit, so the 10 s cap can never fire and the shared pool would otherwise leak)', () => {
+    const base = pool.coldStartBurstRefcount
+    const map = new XGISMap(mockCanvas())
+    const s = seam(map)
+    s._burst.enter()
+    expect(pool.coldStartBurstRefcount).toBe(base + 1)
+
+    map.stop()
+    expect(s.running).toBe(false)
+    expect(s._burst.isOn).toBe(false)
+    expect(pool.coldStartBurstRefcount).toBe(base)
   })
 })
 
@@ -130,6 +145,34 @@ describe('XGISMap cold-start burst — device-loss exit (#1155 F3)', () => {
 
     s.renderLoop() // renderFrame "succeeds" but ctx.deviceLost is set
     expect(s._burst.isOn).toBe(false)
+    expect(pool.coldStartBurstRefcount).toBe(base)
+  })
+})
+
+describe('XGISMap cold-start burst — 0×0-canvas frames are not "rendered" (#1155 F3)', () => {
+  it('a map booted in a hidden/zero-size container keeps burst — a 0×0 early-return frame does not satisfy the ≥1-render exit gate', () => {
+    const base = pool.coldStartBurstRefcount
+    const map = new XGISMap(mockCanvas())
+    const s = seam(map)
+    // RenderLoop.render() 0×0 early-returns before requestTiles; stub the
+    // "success" and expose a 0×0 canvas so the burst block sees no real render.
+    s.renderFrame = () => {}
+    s._processCameraEvents = () => {}
+    s.ctx = { deviceLost: false, canvas: { width: 0, height: 0 } }
+    vi.stubGlobal('requestAnimationFrame', () => 1)
+
+    s.running = true
+    s._burst.enter()
+    // No sources ⇒ hasPendingSourceWork() is false. Pre-fix these ticks would
+    // each count a "rendered" frame and the 3-frame idle hysteresis would drop
+    // burst; post-fix _renderedFrames stays 0 so tickExit never advances.
+    s.renderLoop()
+    s.renderLoop()
+    s.renderLoop()
+    s.renderLoop()
+    expect(s._burst.isOn).toBe(true) // still armed for the real first cascade
+
+    s._burst.exit() // balance the singleton refcount
     expect(pool.coldStartBurstRefcount).toBe(base)
   })
 })
