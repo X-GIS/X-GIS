@@ -1,17 +1,24 @@
-// Camera ECEF-MVP tests (Phase 2 PR 2c.1 — AC2c.1.4).
+// Camera ECEF-MVP tests (Phase 2 PR 2c.1 — AC2c.1.4; ellipsoid-vertex since
+// #1152 INC-1).
 //
-// Verifies the new `getECEFFrameView` matrix builder. At lat=0 the dual
-// paths (legacy Mercator-DSFUN MVP × Mercator-relative vertex vs new
-// ENU-MVP × ECEF-RTC vertex) converge mathematically — cos(0)=1, so
-// altitude_true == altitude_mercator and the only residual difference
-// is the curvature term (ECEF point lies on the curved ellipsoid, not
-// the tangent plane at the camera anchor). This file is the precision
-// floor; the 24-cell latitude-parity test in
-// `polygon-ecef-mvp-latitude-parity.test.ts` is the correctness gate.
+// Verifies the `getECEFFrameView` matrix builder at lat=0 against the legacy
+// Mercator MVP, using the PRODUCTION pair: WGS84 ellipsoid vertex
+// (`mercatorToECEF`) ↔ ellipsoid anchor (`getECEFCenter`, #1152 INC-1).
+//
+// NOTE the equator is NOT a zero-residual baseline for the ellipsoid pair. The
+// camera ANCHOR converges exactly there (sinLat=0 → N=A, z=0 → ellipsoid ==
+// sphere centre), but the per-VERTEX north response carries the ellipsoid's
+// full (1−E2) ≈ 0.669% north-axis compression — the isotropic cos(lat)
+// correction cancels the spherical-Mercator inflation but not the ellipsoid's
+// differing meridional radius. Over a z14 tile that is 0.00669 × 256 ≈ 1.7 px:
+// the honest ellipsoid↔spherical-Mercator datum difference, not drift. Before
+// INC-1 this file used sphere vertices (`mercatorToECEFSphere`), where the
+// residual WAS ~0.02 px (a non-production pair). The 24-cell latitude sweep in
+// `polygon-ecef-mvp-latitude-parity.test.ts` is the full correctness gate.
 
 import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/map'
-import { mercatorToECEFSphere } from '@xgis/shared'
+import { mercatorToECEF } from '@xgis/shared'
 import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 
 // Apply column-major 4x4 to a vec4 → vec4.
@@ -28,15 +35,17 @@ function mulMat4Vec4(
   return out
 }
 
-describe('Camera.getECEFFrameView — equator-baseline parity (lat=0)', () => {
-  it('1000 random z=14 tile-extent vertices: clip-space delta ≤ 0.05 px between legacy and ECEF paths', () => {
-    // Camera at lon=0, lat=0, zoom=14. At lat=0 cos(0)=1, so the dual paths
-    // converge mathematically — the only residual is the curvature term
-    // (the ECEF point of a Mercator-plane vertex has a small Up component,
-    // ~(dx²+dy²)/(2R) at z=14 ≈ 0.23 m worst case at the tile-extent corner).
-    // That Up offset projects to ~0.016 px at altitude ~5141 m (z=14, 720 h).
-    // Threshold 0.05 px = 3× margin over the mathematical floor; tighter
-    // values would assert against geometry, not implementation.
+describe('Camera.getECEFFrameView — equator-latitude parity (lat=0)', () => {
+  it('1000 random z=14 tile-extent vertices: clip-space delta ≤ 2.0 px between legacy and ECEF paths', () => {
+    // Camera at lon=0, lat=0, zoom=14. The ellipsoid pair residual at the
+    // equator is the (1−E2) ≈ 0.669% north-axis compression: fN(0) = 1−E2, so a
+    // Mercator-north offset dy projects 0.669% short in the ellipsoid ENU frame
+    // vs the spherical-Mercator legacy. Over the z14 tile span (256 px) that is
+    // 0.00669 × 256 ≈ 1.71 px. MEASURED deterministic ceiling (corner sampling)
+    // = 1.725 px; the residual tangent-plane curvature at z14 is negligible
+    // (< 0.02 px). Threshold 2.0 px = 1.725 ceiling + ~0.28 px f32/platform
+    // margin. This is the honest production datum residual (ellipsoid ECEF vs
+    // legacy spherical Mercator), DERIVED — not loosened until green.
     const cam = new Camera(0, 0, 14)
     cam.bearing = 0
     cam.pitch = 0
@@ -64,12 +73,13 @@ describe('Camera.getECEFFrameView — equator-baseline parity (lat=0)', () => {
       // Legacy: vertex is (mx - cx, my - cy, 0) in Mercator metres.
       const clipLegacy = mulMat4Vec4(legacy, [dx, dy, 0, 1])
 
-      // ECEF: compute ECEF of the absolute Mercator point, subtract camera
-      // ECEF anchor → ecef_rtc. ECEF anchor lives in f64; subtraction here
-      // mirrors the per-tile DSFUN-split that the VS will do in production.
+      // ECEF: compute WGS84 ellipsoid ECEF of the absolute Mercator point (the
+      // production tiler's frame), subtract camera ECEF anchor → ecef_rtc. ECEF
+      // anchor lives in f64; subtraction here mirrors the per-tile DSFUN-split
+      // that the VS will do in production.
       const mx = cam.centerX + dx
       const my = cam.centerY + dy
-      const ecefVertex = mercatorToECEFSphere(mx, my, 0)
+      const ecefVertex = mercatorToECEF(mx, my, 0)
       const ex = ecefVertex[0] - ecefCenter[0]
       const ey = ecefVertex[1] - ecefCenter[1]
       const ez = ecefVertex[2] - ecefCenter[2]
@@ -85,7 +95,7 @@ describe('Camera.getECEFFrameView — equator-baseline parity (lat=0)', () => {
       const delta = Math.hypot(dpx, dpy)
       if (delta > maxDeltaPx) maxDeltaPx = delta
     }
-    expect(maxDeltaPx).toBeLessThanOrEqual(0.05)
+    expect(maxDeltaPx).toBeLessThanOrEqual(2.0)
   })
 })
 

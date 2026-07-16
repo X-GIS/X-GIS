@@ -17,9 +17,12 @@
 //   – Camera.getECEFFrameView (globeMode) → the production ECEF-MVP
 //
 // The cam_ecef_off math mirrors vector-tile-renderer.ts:4879-4893 EXACTLY:
-// tileEcefCenter is the WGS84 ELLIPSOID corner (lonLatToECEF), cameraCenter is
-// the SPHERE anchor (getECEFCenter = mercatorToECEFSphere). That sphere/ellipsoid
-// pairing is the intended #189-guarded frame, preserved verbatim here.
+// tileEcefCenter is the WGS84 ELLIPSOID corner (lonLatToECEF) and cameraCenter
+// is the WGS84 ELLIPSOID anchor (getECEFCenter = lonLatToECEF since #1152 INC-1).
+// Both terms on ONE ellipsoid datum → off is a pure ellipsoid-frame delta. (The
+// recentre assertions below cancel cameraCenter identically on both sides, so
+// they held under the pre-INC-1 sphere anchor too — but the datum is ellipsoid
+// now, matching the tile vertices.)
 //
 // Three assertions:
 //   1. FIXED path (ecef_rtc + cam_ecef_off) clip ≈ independent

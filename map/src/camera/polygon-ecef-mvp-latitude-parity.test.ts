@@ -1,25 +1,37 @@
-// Polygon ECEF-MVP latitude-parity test (Phase 2 PR 2c.1 — AC2c.1.5).
+// Polygon ECEF-MVP latitude-parity test (Phase 2 PR 2c.1 — AC2c.1.5;
+// ellipsoid-vertex since #1152 INC-1).
 //
 // 24-cell matrix: lat ∈ {0, 30, 45, 60, 75, 85} × zoom ∈ {0, 4, 10, 18}.
 // Per cell, 1000 random Mercator vertices within the visible z-tile extent
 // around the camera. For each vertex:
-//   – Legacy clip = legacy_MVP × (mx - cx, my - cy, 0, 1)
-//   – ECEF clip   = ecef_MVP   × (ECEF_vertex - ECEF_center, 1)
-// Assert clip-space (x/w, y/w) delta in pixels ≤ 0.5 px per cell.
+//   – Legacy clip = legacy_MVP × (mx - cx, my - cy, 0, 1)      (spherical Mercator)
+//   – ECEF clip   = ecef_MVP   × (ECEF_vertex - ECEF_center, 1) (WGS84 ellipsoid)
+// Assert clip-space (x/w, y/w) delta in pixels ≤ THRESHOLD_PX per cell.
+//
+// This gate tests the PRODUCTION pair: the tiler packs ellipsoid ECEF
+// (`mercatorToECEF`, N=A/√(1−E2·sin²)) and `getECEFCenter` anchors on the
+// ellipsoid (#1152 INC-1). Before INC-1 it built sphere vertices
+// (`mercatorToECEFSphere`) against the sphere anchor — a non-production pair.
 //
 // Why the cos(lat) altitude/mpp correction in `getECEFFrameView` makes this
 // converge: Mercator inflates the east-west scale by 1/cos(lat) at latitude
 // φ (it is conformal — same factor in both directions locally). One metre
 // of Mercator-plane horizontal extent therefore corresponds to cos(φ) metres
 // of true ENU horizontal extent. The ECEF MVP cancels the inflation by
-// scaling altitude (and implicitly the projection) by cos(φ) so the clip-
-// space response to a Mercator-anchored vertex matches the legacy MVP that
-// already operates in Mercator metres. Convergence is therefore exact up to
-// the tangent-plane curvature term — sub-pixel at all 24 cells.
+// scaling altitude (and implicitly the projection) by cos(φ). That correction
+// is ISOTROPIC, so it cancels the SPHERICAL-Mercator inflation exactly but
+// leaves the WGS84 ellipsoid's E/N anisotropy — the meridional (N-S) and
+// prime-vertical (E-W) radii differ. The uncancelled per-axis scale error vs
+// the spherical-Mercator legacy is fE(φ) = 1/√(1−E2·sin²φ) (east) and
+// fN(φ) = (1−E2)/(1−E2·sin²φ)^1.5 (north); max |f−1| = E2 ≈ 0.669% at the
+// EQUATOR (north, fN(0)=1−E2≈0.99331). Over a 256 px tile that is
+// 0.00669·256 ≈ 1.71 px — the ellipsoid north-axis residual, NOT drift. This
+// is the honest datum difference between the ellipsoid ECEF render and the
+// legacy spherical Mercator 2D MVP; see THRESHOLD_PX for the full derivation.
 
 import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/map'
-import { mercatorToECEFSphere } from '@xgis/shared'
+import { mercatorToECEF } from '@xgis/shared'
 import { WORLD_MERC } from '@xgis/geo'
 
 const EARTH_R = 6378137
@@ -50,16 +62,29 @@ const CANVAS_W = 1080
 const CANVAS_H = 720
 const DPR = 1
 const VERTICES_PER_CELL = 1000
-// Threshold: 1.5 px is the realistic geometric ceiling across all 24 cells.
-// The plan's docstring claim "≤ 0.5% pixel-delta at world scale" (~5.4 px
-// on a 1080 canvas) is the architectural floor; the 1.5 px gate is 3.5×
-// tighter and catches genuine implementation drift while accepting the
-// legitimate second-order curvature term `~(extent² / (R × altitude_true))`
-// that the cos(lat) altitude correction cannot fully cancel. At z=10
-// mid-latitudes this term peaks near 0.8 px; threshold sits comfortably
-// above that floor. Tighter values (e.g. 0.5 px) would assert against
-// geometry, not implementation — see commit log for the math derivation.
-const THRESHOLD_PX = 1.5
+// Threshold derivation (#1152 INC-1 — ellipsoid pair). The residual has two
+// independent, DERIVED components that peak in DIFFERENT cells:
+//
+//   1. Tangent-plane curvature (shared with the old sphere pair): a vertex at
+//      true-metre extent s from the anchor has an Up component ≈ −s²/(2R). This
+//      dominates the low-zoom cells where the 50 km sampling cap gives the
+//      largest true extent (z0/z4). Ceiling ≈ 1.35 px (z0, lat 0).
+//   2. Ellipsoid E/N anisotropy (NEW — the honest ellipsoid↔spherical-Mercator
+//      datum difference): the isotropic cos(lat) correction cannot cancel the
+//      ellipsoid's differing meridional/prime-vertical radii. Max per-axis
+//      scale error = |1−E2| = 0.669% (equator, north). Over a full 256 px tile
+//      span: 0.00669 × 256 = 1.71 px. This dominates the tile-extent-bound
+//      cells (z10/z18), where the offset is a fixed 256 px per tile.
+//
+// The two peaks combine worst at z10/lat0 (anisotropy 1.71 ⊕ residual
+// curvature). MEASURED deterministic geometric ceiling across the 24 cells =
+// 1.91 px (corner + edge-midpoint sampling, RNG-free). THRESHOLD_PX = 2.5 sits
+// 0.6 px above that ceiling — margin for the 1000-sample RNG (bounded above by
+// the geometric ceiling), f32, and cross-platform variance. A real datum
+// regression (e.g. a MIXED basis) is thousands of px, so this gate still
+// rejects every meaningful drift while never flaking. NOT loosened until green
+// — the 2.5 is the derived ceiling + margin. See the design doc + ADR-0002.
+const THRESHOLD_PX = 2.5
 
 // Cap the sampling extent at a tangent-plane-defensible radius. The ECEF
 // VS in production consumes vertices that are DSFUN-split relative to a
@@ -115,8 +140,9 @@ function runCell(lat: number, zoom: number): CellResult {
 
     // Legacy: vertex in Mercator-relative metres.
     const clipLegacy = mulMat4Vec4(legacyMatrix, [dx, dy, 0, 1])
-    // ECEF: absolute Mercator → sphere ECEF → subtract camera ECEF anchor.
-    const ecefVertex = mercatorToECEFSphere(cam.centerX + dx, cam.centerY + dy, 0)
+    // ECEF: absolute Mercator → WGS84 ellipsoid ECEF (the production tiler's
+    // frame) → subtract camera ECEF anchor (ellipsoid, getECEFCenter).
+    const ecefVertex = mercatorToECEF(cam.centerX + dx, cam.centerY + dy, 0)
     const ex = ecefVertex[0] - ecefCenter[0]
     const ey = ecefVertex[1] - ecefCenter[1]
     const ez = ecefVertex[2] - ecefCenter[2]

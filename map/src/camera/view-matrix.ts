@@ -16,7 +16,7 @@
 //
 // This module must NOT import camera.ts (no cycle); camera.ts imports it.
 
-import { lonLatToECEFSphere, ecefToENURotation, type ECEF } from '@xgis/shared'
+import { lonLatToECEF, ecefToENURotation, type ECEF } from '@xgis/shared'
 import { WORLD_MERC, TILE_PX, buildGlobeMatrix, EARTH_R, mercatorYToLatRad } from '@xgis/geo'
 import { mul4, perspectiveMatrix } from '@xgis/shared'
 
@@ -328,11 +328,17 @@ export function buildECEFFrameView(
 }
 
 /** Camera ECEF anchor in Cartesian metres. Pure mirror of `Camera.getECEFCenter`
- *  (sphere variant, true centre latitude). Kept here so the ECEF-derivation
- *  scalars live alongside the matrix builders; the camera method is a wrapper. */
+ *  (WGS84 ellipsoid, true centre latitude). Kept here so the ECEF-derivation
+ *  scalars live alongside the matrix builders; the camera method is a wrapper.
+ *
+ *  Ellipsoid (`lonLatToECEF`, E2≠0) — the SINGLE 3D-position datum. INC-1 of the
+ *  ellipsoid-datum-unification epic (#1152) moved this off the sphere so the
+ *  point/heatmap/label anchor shares the tiles' ellipsoid frame
+ *  (`computeTileCameraAnchor`, `rasterGlobeCamAnchor` — both already ellipsoid).
+ *  See `docs/architecture/design/ellipsoid-datum-unification.md` + ADR-0002. */
 export function ecefCenterOf(view: { centerX: number; centerLatDeg: number }): ECEF {
   const RAD2DEG = 180 / Math.PI
-  return lonLatToECEFSphere((view.centerX / EARTH_R) * RAD2DEG, view.centerLatDeg)
+  return lonLatToECEF((view.centerX / EARTH_R) * RAD2DEG, view.centerLatDeg)
 }
 
 /** ECEF→ENU rotation at the camera anchor. Pure mirror of
