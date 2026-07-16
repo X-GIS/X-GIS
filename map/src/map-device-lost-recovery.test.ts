@@ -70,6 +70,29 @@ describe('wireDeviceLostRecovery policy (#1153 B)', () => {
     expect(fireError).toHaveBeenCalledTimes(1)
     expect(recover).not.toHaveBeenCalled()
   })
+
+  it('hidden losses do NOT burn the budget — a later visible loss still recovers', async () => {
+    // iOS reclaims the device while backgrounded (routine). If those losses
+    // consumed the budget, two background reclaims would exhaust it before the
+    // user ever returned — the visible loss after must still get its re-init.
+    const budget = { recoveries: 0, max: 2 }
+    const fireError = vi.fn()
+    const recover = vi.fn()
+    let visible = false
+    const ctx: { onDeviceLostInternal?: (i: typeof LOST) => void } = {}
+    wireDeviceLostRecovery(ctx, budget, { fireError, recover, isVisible: () => visible })
+    ctx.onDeviceLostInternal!(LOST) // hidden loss 1
+    ctx.onDeviceLostInternal!(LOST) // hidden loss 2 — would exhaust max=2 if burned
+    await flushMicrotasks()
+    expect(recover).not.toHaveBeenCalled()
+    expect(budget.recoveries).toBe(0) // budget untouched while hidden
+
+    visible = true
+    ctx.onDeviceLostInternal!(LOST) // visible loss — must still recover
+    await flushMicrotasks()
+    expect(recover).toHaveBeenCalledTimes(1)
+    expect(budget.recoveries).toBe(1)
+  })
 })
 
 describe('XGISMap wires device-lost recovery onto its ctx (#1153 B)', () => {

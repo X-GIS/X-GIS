@@ -58,7 +58,11 @@ export function wireDeviceLostRecovery(
   const isVisible = deps.isVisible ?? documentIsVisible
   ctx.onDeviceLostInternal = (info) => {
     deps.fireError({ phase: 'devicelost', fatal: false, error: info })
-    if (budget.recoveries++ < budget.max && isVisible()) {
+    // Visibility FIRST: a loss on a hidden tab (routine iOS reclaim while
+    // backgrounded) skips the attempt WITHOUT burning budget — otherwise two
+    // background reclaims exhaust the budget before the user ever returns.
+    // (Deferred re-init on visibilitychange is the Phase 3 companion.)
+    if (isVisible() && budget.recoveries++ < budget.max) {
       queueMicrotask(deps.recover)
     }
   }
