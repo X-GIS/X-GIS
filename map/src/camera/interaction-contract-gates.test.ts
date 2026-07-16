@@ -949,11 +949,22 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
     )
   }
 
-  /** Project a geographic point to a screen pixel via the sphere forward +
-   *  the live globe MVP (absolute-coords matrix). */
+  /** Project a geographic point to a screen pixel via the ELLIPSOID forward
+   *  (`lonLatToECEF`) + the live globe MVP (absolute-coords matrix).
+   *
+   *  INC-2 (ellipsoid-datum-unification.md): the G5c/G5d anchor helpers below
+   *  capture and re-anchor the grabbed point through `unprojectGlobe`, which
+   *  now intersects the WGS84 ELLIPSOID and returns the geodetic datum. This
+   *  drift oracle must forward-project through the SAME ellipsoid datum — it
+   *  was `globeForward` (the sphere), which after the unproject change would
+   *  report the sphere-vs-ellipsoid gap (~0.03–0.19° geodetic/geocentric,
+   *  INC-3's raster/vector lockstep item) as anchor drift. With both sides on
+   *  the ellipsoid these gates measure the anchor's own self-consistency,
+   *  which is exact (sub-px). The globe camera focus + raster grid stay
+   *  spherical until INC-3. */
   function globeScreenForGeo(cam: Camera, lon: number, lat: number): [number, number] | null {
     const v = gzGlobeView(cam)
-    const p = globeForward(lon, lat)
+    const p = lonLatToECEF(lon, lat, 0)
     const clip = mat4Vec4(v.matrix, [p[0], p[1], p[2], 1])
     if (clip[3] <= 1e-6) return null
     return [(clip[0] / clip[3] + 1) * 0.5 * GZ_W, (1 - clip[1] / clip[3]) * 0.5 * GZ_H]

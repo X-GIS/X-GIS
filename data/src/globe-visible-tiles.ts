@@ -128,7 +128,14 @@ export function globeVisibleTiles(
       latMax = -Infinity
     let hits = 0
     for (const [sx, sy] of probes) {
-      const ll = unprojectGlobe(sx, sy, W, H, view)
+      // ellipsoid=false: the tile selector stays SPHERE-based (geocentric
+      // inverse) in lockstep with the still-spherical globe render + eyeHorizon
+      // cull. INC-2 moved only the cursor/pick/measure READBACK to the WGS84
+      // ellipsoid; the tile bbox must keep matching the sphere-rendered surface
+      // (a ~0.19° geodetic/geocentric shift here would offset deep-overzoom
+      // high-latitude tile selection from what is drawn). Flips with the render
+      // in INC-3 (ellipsoid-datum-unification.md).
+      const ll = unprojectGlobe(sx, sy, W, H, view, false)
       if (!ll) continue
       hits++
       const lo = ll[0],

@@ -22,7 +22,7 @@
 import { WORLD_MERC, TILE_PX } from './world-scale'
 import { flatViewHeightCapM } from './projections-table'
 import { mul4, perspectiveMatrix } from '@xgis/shared'
-import { EARTH } from '@xgis/shared'
+import { EARTH, ecefToLonLat } from '@xgis/shared'
 
 // Matches projection.ts EARTH_RADIUS exactly — the same sphere the 2D
 // projections scale by, so globe zoom lines up with the 2D pyramid.
@@ -375,19 +375,41 @@ function mulVec4(
   ]
 }
 
-/** Screen pixel → (lon,lat)° by intersecting the eye ray with the
- *  sphere. Returns null if the ray misses the globe (points at empty
- *  space past the limb). This REPLACES the z=0-plane unproject for
- *  globe mode — pan/zoom/tile-selection all need a real sphere hit,
- *  not an intersection with a flat ground plane that doesn't exist
- *  here. `screenX/Y` and `w/h` are in the same pixel basis (device or
- *  CSS — consistent with the matrix's aspect). */
+/** Screen pixel → (lon,lat)° by intersecting the eye ray with the WGS84
+ *  ELLIPSOID (scale-to-sphere trick). Returns null if the ray misses the
+ *  globe (points at empty space past the limb). This REPLACES the z=0-plane
+ *  unproject for globe mode — pan/zoom/tile-selection and cursor/pick/measure
+ *  all need a real ellipsoid hit, not an intersection with a flat ground
+ *  plane that doesn't exist here. `screenX/Y` and `w/h` are in the same pixel
+ *  basis (device or CSS — consistent with the matrix's aspect).
+ *
+ *  INC-2 boundary (docs/architecture/design/ellipsoid-datum-unification.md):
+ *  the READBACK path (this function) intersects the WGS84 ellipsoid and
+ *  inverts via the ellipsoidal `ecefToLonLat` (Bowring geodetic), so
+ *  cursor/pick/measure return the same geodetic datum the vector tiles /
+ *  point anchors already use (unified in INC-1). Everything on the RENDER /
+ *  camera side deliberately stays SPHERE-based here — the surface geometry
+ *  (`globeForward`, `buildGlobeMatrix` focus, the raster grid) and the sphere
+ *  horizon stack (`eyeHorizon`, `globeVisibleTiles`, the GPU under-occluder
+ *  cull) move to the ellipsoid together in INC-3 (which also unifies the
+ *  deliberate CPU/GPU `e2` divergence and re-runs the df64 battery). Until
+ *  then a bounded sub-degree geodetic/geocentric readback offset between the
+ *  ellipsoid unproject and the still-spherical surface is the known,
+ *  documented cost of splitting the increment.
+ *
+ *  `ellipsoid` — pass `false` to keep the pre-INC-2 SPHERE behaviour (k = 1
+ *  intersection + spherical `globeInverse`). The globe TILE selector
+ *  (`globeVisibleTiles`, data package) sets this so its Web-Mercator tile
+ *  bbox stays on the sphere IN LOCKSTEP with the still-spherical render +
+ *  `eyeHorizon` cull; it flips to the ellipsoid together with them in INC-3.
+ *  The cursor/pick/measure + pan/zoom anchor readback path uses the default. */
 export function unprojectGlobe(
   screenX: number,
   screenY: number,
   w: number,
   h: number,
   view: GlobeView,
+  ellipsoid = true,
 ): [number, number] | null {
   const inv = invert4x4(view.matrix)
   if (!inv) return null
@@ -407,10 +429,21 @@ export function unprojectGlobe(
   const dx = fx - nx,
     dy = fy - ny,
     dz = fz - nz
-  // Solve |o + t·d|² = R²
-  const a = dx * dx + dy * dy + dz * dz
-  const b = 2 * (ox * dx + oy * dy + oz * dz)
-  const c = ox * ox + oy * oy + oz * oz - EARTH_R * EARTH_R
+  // Intersect the WGS84 ellipsoid x²/a² + y²/a² + z²/b² = 1 via the
+  // scale-to-sphere trick: scaling z by k = a/b maps the ellipsoid onto the
+  // sphere of radius a (= EARTH_R). Scaling is linear, so the ray PARAMETER t
+  // is invariant under it — we solve the quadratic in the scaled frame, then
+  // evaluate the hit on the ORIGINAL (unscaled) ray, so the direction never
+  // needs re-normalising. k = 1 for a perfect sphere (f = 0) OR when the caller
+  // opts out via `ellipsoid = false`, so both reduce byte-for-byte to the
+  // previous sphere intersection.
+  const k = ellipsoid ? EARTH.a / EARTH.b : 1
+  const ozk = oz * k,
+    dzk = dz * k
+  // Solve |(ox,oy,ozk) + t·(dx,dy,dzk)|² = a²
+  const a = dx * dx + dy * dy + dzk * dzk
+  const b = 2 * (ox * dx + oy * dy + ozk * dzk)
+  const c = ox * ox + oy * oy + ozk * ozk - EARTH_R * EARTH_R
   const disc = b * b - 4 * a * c
   if (disc < 0 || a < 1e-12) return null // ray misses the globe
   const sq = Math.sqrt(disc)
@@ -421,5 +454,14 @@ export function unprojectGlobe(
   if (t0 >= 0) t = t0
   else if (t1 >= 0) t = t1
   if (t < 0) return null
-  return globeInverse(ox + t * dx, oy + t * dy, oz + t * dz)
+  const hx = ox + t * dx,
+    hy = oy + t * dy,
+    hz = oz + t * dz
+  // Readback (default): invert via the ELLIPSOIDAL Bowring solution (geodetic
+  // lat), NOT the spherical asin used by globeInverse — this is the INC-2 datum
+  // fix. `ellipsoid = false` keeps the spherical inverse for the INC-3-deferred
+  // sphere callers (tile selector).
+  if (!ellipsoid) return globeInverse(hx, hy, hz)
+  const [lon, lat] = ecefToLonLat(hx, hy, hz, EARTH)
+  return [lon, lat]
 }
