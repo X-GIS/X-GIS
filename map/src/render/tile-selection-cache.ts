@@ -2,7 +2,7 @@
 //
 // Extracted from VectorTileRenderer (Cluster E-selection per
 // .omc/plans/vtr-decomposition-2026-06-09.md Unit 1). This owner holds
-// the per-frame visible-tile memo (`_frameTileCache`), the cross-frame
+// the per-frame visible-tile memo (`_frameTileCacheLru`), the cross-frame
 // zoom-transition hysteresis + readiness-gate state, the camera-idle
 // snapshot, and the selection-only hot-path scratch collections. It
 // touches ZERO GPU state — its only outputs are tile-set membership +
@@ -13,8 +13,8 @@
 // VTR injects it as `private readonly _selection = new TileSelectionCache()`
 // and calls `selectForFrame(...)` once per render() (per ShowCommand). The
 // returned Selection is consumed by the draw portion of render(); the
-// memoized `_frameTileCache` is also read by `pumpPrefetch` + the label
-// forwarders via `frameTileCache()`.
+// memoized selection (a per-margin LRU, #1153 #12) is also read by
+// `pumpPrefetch` + the label forwarders via `frameTileCache()` (MRU entry).
 //
 // The hysteresis (`_hysteresisZ` / `_czPendingAdvance`) + readiness-gate
 // (`_gateSSECache` / `_gateSSECacheFrameId`) logic and the scratch
@@ -153,18 +153,25 @@ export class TileSelectionCache {
   private _lastCamSnap: { zoom: number; cx: number; cy: number; t: number } | null = null
   private _lastCamMoveAt = 0
 
-  /** iter-254 (Plan AAA A.2) — per-frame scratch arrays for
-   *  parentAtMaxLevel + archiveAncestor + ancestorMemo. These were
-   *  allocated fresh on every render() call (`new Array(tiles.length)`
-   *  + `new Map()`). At 60 fps with multiple shows per source =
-   *  30+ allocations per second per VTR. Hoisted to scratch + reset
-   *  via `.length = N` (Array) or `.clear()` (Map). V8 retains
-   *  backing storage across resets. */
-  private readonly _scratchParentAtMaxLevel: number[] = []
-  private readonly _scratchArchiveAncestor: number[] = []
+  /** iter-254 (Plan AAA A.2) — per-frame scratch for the ancestor-hasEntry memo,
+   *  `.clear()`-reused each recompute. COMPUTE-ONLY (never stored in an entry), so
+   *  it stays shared under the per-margin LRU. Its former parentAtMaxLevel /
+   *  archiveAncestor scratch siblings are gone: each LRU entry owns those (a shared
+   *  scratch would be clobbered by the next margin's recompute). */
   private readonly _scratchAncestorMemo = new Map<number, boolean>()
 
-  private _frameTileCache: FrameTileCache | null = null
+  /** Per-margin LRU of the visible-tile selection + derived arrays (#1153 #12).
+   *  Was a SINGLE slot that N shows with divergent per-stroke cull margins
+   *  ping-ponged within a frame, re-running the 7-16 ms quadtree walk (`:603-608`)
+   *  several times per frame. Keyed by marginPx; the camera-state invalidation is
+   *  UNCHANGED (a hit still requires frameId + currentZ + maxLevel — same fields,
+   *  same equality). Bounded to FRAME_TILE_CACHE_SLOTS (evict LRU); cleared each
+   *  frame by invalidateFrame(). */
+  private readonly _frameTileCacheLru = new Map<number, FrameTileCache>()
+  private static readonly FRAME_TILE_CACHE_SLOTS = 8
+
+  /** #1153 #12 gate hook — quadtree-walk (cache-MISS) count. Monotonic, cheap. */
+  private _selectionComputeCount = 0
 
   /** Frame-scoped memo for the zoom-transition readiness gate's SSE
    *  pass. When a transition is "wanted", the gate runs
@@ -191,7 +198,16 @@ export class TileSelectionCache {
    *  pumpPrefetch (visible-tile signal source) + the label forwarders
    *  (`?.neededKeys`). */
   frameTileCache(): FrameTileCache | null {
-    return this._frameTileCache
+    // The most-recently-used entry — the single-slot semantics pumpPrefetch /
+    // labels / diagnostics expect. Null before the first render() of the frame.
+    let mru: FrameTileCache | null = null
+    for (const v of this._frameTileCacheLru.values()) mru = v
+    return mru
+  }
+
+  /** #1153 #12 gate hook — the running quadtree-walk (cache-miss) count. */
+  selectionComputeCount(): number {
+    return this._selectionComputeCount
   }
 
   /** Drop the per-frame memo. Called by VTR.beginFrame — the cache
@@ -201,7 +217,7 @@ export class TileSelectionCache {
    *  array drop sooner if the ShowCommand list shrinks (e.g. layer
    *  toggle). */
   invalidateFrame(): void {
-    this._frameTileCache = null
+    this._frameTileCacheLru.clear()
   }
 
   /** Given camera + canvas + frameId, return the protected/needed/
@@ -599,21 +615,29 @@ export class TileSelectionCache {
     let worldOffDeg: number[]
     let parentAtMaxLevel: number[]
     let archiveAncestor: number[]
-    const cache = this._frameTileCache
+    // Per-margin LRU lookup (#1153 #12): keyed by offsetMarginPx (the field that
+    // ping-ponged the single slot). Invalidation is UNCHANGED — a hit still needs
+    // frameId + currentZ + maxLevel to match (marginPx is now the key), so a
+    // camera move (frameId bump) / intra-frame cz step re-selects as before.
+    const cached = this._frameTileCacheLru.get(offsetMarginPx)
     if (
-      cache &&
-      cache.frameId === frameId &&
-      cache.marginPx === offsetMarginPx &&
-      cache.currentZ === currentZ &&
-      cache.maxLevel === maxLevel
+      cached &&
+      cached.frameId === frameId &&
+      cached.currentZ === currentZ &&
+      cached.maxLevel === maxLevel
     ) {
-      tiles = cache.tiles
-      neededKeys = cache.neededKeys
-      protectedAncestors = cache.protectedAncestors
-      worldOffDeg = cache.worldOffDeg
-      parentAtMaxLevel = cache.parentAtMaxLevel
-      archiveAncestor = cache.archiveAncestor
+      // Refresh LRU recency (re-insert as most-recently-used).
+      this._frameTileCacheLru.delete(offsetMarginPx)
+      this._frameTileCacheLru.set(offsetMarginPx, cached)
+      tiles = cached.tiles
+      neededKeys = cached.neededKeys
+      protectedAncestors = cached.protectedAncestors
+      worldOffDeg = cached.worldOffDeg
+      parentAtMaxLevel = cached.parentAtMaxLevel
+      archiveAncestor = cached.archiveAncestor
     } else {
+      // Cache MISS — the full quadtree walk + derived-array build runs below.
+      this._selectionComputeCount++
       // Phase 3 selector: Cesium-style screen-space-error DFS at every
       // pitch — supersedes the prior split (sampled-grid for low pitch,
       // quadtree-DFS for high pitch). SSE is projection-invariant by
@@ -870,12 +894,11 @@ export class TileSelectionCache {
         }
       }
       tiles = renderTiles
-      // iter-254 — scratch reuse. `.length = N` truncates the JS
-      // array; backing storage stays + future index writes reuse it.
-      parentAtMaxLevel = this._scratchParentAtMaxLevel
-      parentAtMaxLevel.length = tiles.length
-      archiveAncestor = this._scratchArchiveAncestor
-      archiveAncestor.length = tiles.length
+      // Each LRU entry OWNS these arrays (a shared scratch would be clobbered by
+      // the next margin's recompute). Allocated only on a MISS — bounded by the
+      // distinct margins per frame, far fewer than the pre-iter-254 per-render alloc.
+      parentAtMaxLevel = new Array<number>(tiles.length)
+      archiveAncestor = new Array<number>(tiles.length)
       // Per-frame-populate hasEntry memo. Adjacent tiles share
       // ancestors so memoization keeps the index lookup count
       // sub-linear in tiles.length.
@@ -919,7 +942,7 @@ export class TileSelectionCache {
           archiveAncestor[i] = found
         }
       }
-      this._frameTileCache = {
+      const entry: FrameTileCache = {
         frameId,
         marginPx: offsetMarginPx,
         currentZ,
@@ -930,6 +953,12 @@ export class TileSelectionCache {
         maxLevel,
         parentAtMaxLevel,
         archiveAncestor,
+      }
+      this._frameTileCacheLru.set(offsetMarginPx, entry)
+      // Evict the least-recently-used entry beyond the slot cap.
+      if (this._frameTileCacheLru.size > TileSelectionCache.FRAME_TILE_CACHE_SLOTS) {
+        const lru = this._frameTileCacheLru.keys().next().value
+        if (lru !== undefined) this._frameTileCacheLru.delete(lru)
       }
     }
 

@@ -44,6 +44,11 @@ export { type EmitPlugin, type EmitOptions } from './core/emit'
 // CPU f64 oracle (compileModule + CpuModule types).
 export * from './core/oracle'
 
+// CPU f64 js-source backend (compileModuleJs) — the perf-critical `new Function`
+// twin of compileModule, bit-identical over the same IR (#1162). Same CpuModule
+// shape; the interpreter stays the reference / CSP fallback.
+export { compileModuleJs } from './core/cpu-codegen'
+
 // Pipeline reflection (additive, read-only over the IR — never on the emit path):
 // reflect(module) → target-neutral bind-group / std140-std430 layout / entry metadata,
 // plus the standalone wgslLayout(struct, kind) offset engine.
