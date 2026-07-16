@@ -51,4 +51,9 @@ export interface RenderContext {
   deviceLost: boolean
   /** Host hook fired once on device loss. */
   onDeviceLost?: (info: RhiDeviceLostInfo) => void
+  /** Library-internal device-loss hook — the composition root (map) registers its
+   *  bounded auto-recovery here (a fresh run() through initGPU). Fired AFTER the
+   *  public `onDeviceLost` hook and isolated from it (a throwing host hook must not
+   *  kill recovery). Skipped on intentional teardown ('destroyed'). Not public. */
+  onDeviceLostInternal?: (info: RhiDeviceLostInfo) => void
 }

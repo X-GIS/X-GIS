@@ -16,6 +16,7 @@ import {
   type XGISFeatureEvent,
   type XGISFeatureEventType,
   type XGISFeatureListener,
+  type XGISMapErrorInfo,
   type XGISMapEventType,
   type XGISMapListener,
 } from './layer'
@@ -163,6 +164,27 @@ export class MapEventBus {
     if (this._loadFired) return
     this._loadFired = true
     this._fireMapEvent('load')
+  }
+
+  /** Fire a map-level `'error'` event carrying the lifecycle-fault payload
+   *  (phase/fatal/error) plus the current camera snapshot for uniformity with
+   *  the other map events. No-op without listeners so the fault path stays cheap. */
+  fireErrorEvent(info: XGISMapErrorInfo): void {
+    if (!this.mapEventListeners.has('error')) return
+    const cam = this.host.getCameraState()
+    this.mapEventListeners.dispatch(
+      new XGISMapEvent({
+        type: 'error',
+        target: this.host.target,
+        center: cam.center,
+        zoom: cam.zoom,
+        bearing: cam.bearing,
+        pitch: cam.pitch,
+        phase: info.phase,
+        fatal: info.fatal,
+        error: info.error,
+      }),
+    )
   }
 
   /** Internal: EventDispatcher calls this after a layer-level dispatch so

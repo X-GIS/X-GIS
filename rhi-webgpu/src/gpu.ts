@@ -207,12 +207,20 @@ export async function createWebGpuContext(
   device.lost
     .then((info) => {
       ctx.deviceLost = true
-      // 'destroyed' is our own map.destroy()/device.destroy() teardown — a
-      // normal unmount, not a fault. Stay silent so every SPA unmount doesn't
-      // print a red console.error that looks like a GPU crash.
+      // 'destroyed' is our own map.destroy()/rhi.destroy() teardown — a normal
+      // unmount, not a fault. Stay silent AND skip recovery: an intentional
+      // teardown must NOT auto-re-init (that would resurrect a destroyed map).
       if (info.reason !== 'destroyed') {
         console.error('[X-GIS] WebGPU device lost:', info.reason, info.message)
-        ctx.onDeviceLost?.(info)
+        // Isolate the public host hook: a throwing onDeviceLost must not stop the
+        // library's internal recovery from running (#1153 B).
+        try {
+          ctx.onDeviceLost?.(info)
+        } catch (e) {
+          console.error('[X-GIS] onDeviceLost hook threw', e)
+        }
+        // Library-internal bounded auto-recovery (map registers this at run()).
+        ctx.onDeviceLostInternal?.(info)
       }
     })
     .catch(() => {

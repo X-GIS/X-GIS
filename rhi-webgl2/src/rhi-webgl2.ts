@@ -1220,6 +1220,13 @@ export class WebGl2Device implements RhiDevice {
     this.gl.deleteProgram(un<Gl2Pipeline>(pipeline).program)
   }
 
+  // Whole-device teardown (RhiDevice.destroy, #1153 A) — the WebGL2 twin of GPUDevice.destroy().
+  // WebGL2 has no device object; WEBGL_lose_context drops every GL resource this device created
+  // (buffers, textures, programs, VAOs, pick FBOs) AND returns the per-page context to the pool.
+  destroy(): void {
+    this.gl.getExtension('WEBGL_lose_context')?.loseContext()
+  }
+
   /** Run a compute-as-draw (the M2 compute→fragment-GPGPU lowering) into an offscreen
    *  R32UI target and read it back. `pipeline`'s fragment shader is the lowered kernel
    *  (`emitGlslModule {emulateCompute}`); `bindGroup` carries the storage input(s)
