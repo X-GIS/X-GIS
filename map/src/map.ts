@@ -155,6 +155,7 @@ import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
 import type { GeoJSONFeature } from '@xgis/data'
 import { FeatureUpdateQueue } from './feature-update-queue'
 import { MapEventBus } from './map-event-bus'
+import { wireDeviceLostRecovery } from './device-lost-recovery'
 import { safeFetch, assertIngestBudget, readBodyCapped } from '@xgis/shared'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /
@@ -1263,6 +1264,18 @@ export class XGISMap {
     if (this.ctx) this.ctx.onDeviceLost = cb
   }
   private _onDeviceLost?: (info: RhiDeviceLostInfo) => void
+  /** Bounded device-lost recovery budget (#1153 B) — persists across re-runs. */
+  private readonly _deviceLostBudget = { recoveries: 0, max: 2 }
+
+  /** Register bounded device-lost auto-recovery on the freshly-resolved ctx: on loss,
+   *  fire the 'error' event and (budget + visibility permitting) re-run in a microtask. */
+  private _armDeviceLostRecovery(recover: () => void): void {
+    if (!this.ctx) return
+    wireDeviceLostRecovery(this.ctx, this._deviceLostBudget, {
+      fireError: (info) => this._eventBus.fireErrorEvent(info),
+      recover,
+    })
+  }
 
   /** Host hook fired once if WebGPU is unavailable when the map tries to
    *  mount — no `navigator.gpu` (unsupported browser) or no GPU adapter.
@@ -2595,9 +2608,10 @@ export class XGISMap {
     // could only render a tiny subset of the pipeline correctly).
     const result = await gpuInit
     if (result instanceof WebGPUUnavailableError) {
-      // Graceful: no WebGPU / no adapter. Fire the host hook, or show a default
-      // in-container message if the host registered none, then abort the mount
-      // instead of throwing an uncaught error to window.onerror.
+      // Graceful: no WebGPU / no adapter. Fire the observability 'error' event
+      // (#1153 C) + the host hook, or show a default in-container message if the
+      // host registered none, then abort the mount instead of throwing to window.onerror.
+      this._eventBus.fireErrorEvent({ phase: 'boot', fatal: true, error: result })
       if (this._onWebGPUUnavailable) this._onWebGPUUnavailable()
       else this._showWebGPUUnavailableDefault()
       return
@@ -2607,11 +2621,12 @@ export class XGISMap {
     // Re-arming state now would resurrect the map AND leak this freshly-
     // minted device for the page lifetime — destroy it and bail instead.
     if (this._destroyed) {
-      ;(result as GPUContext)?.device?.destroy?.()
+      ;(result as GPUContext)?.rhi?.destroy()
       return
     }
     this.ctx = result
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
+    this._armDeviceLostRecovery(() => void this.run(source, baseUrl))
     // #797 P0/P1 — (re)attach the host DRAWING API GPU atlas + retained-icon
     // draper to this run's device (rematerialises any batches added pre-run).
     this.graphics.attachDevice(this.ctx.device, this.ctx.rhi, this.ctx.format)
@@ -2868,7 +2883,7 @@ export class XGISMap {
     // the destroyed map resurrects and its device leaks for the page
     // lifetime. Tear down the device we created earlier in this run().
     if (this._destroyed) {
-      this.ctx?.device?.destroy?.()
+      this.ctx?.rhi?.destroy()
       return
     }
 
@@ -3508,9 +3523,10 @@ export class XGISMap {
       )
     } catch (e) {
       if (e instanceof WebGPUUnavailableError) {
-        // Graceful: no WebGPU / no adapter. Fire the host hook, or show a
-        // default in-container message if none, then abort the binary mount
-        // instead of throwing to window.onerror.
+        // Graceful: no WebGPU / no adapter. Fire the observability 'error' event
+        // (#1153 C) + the host hook, or show a default in-container message if
+        // none, then abort the binary mount instead of throwing to window.onerror.
+        this._eventBus.fireErrorEvent({ phase: 'boot', fatal: true, error: e })
         if (this._onWebGPUUnavailable) this._onWebGPUUnavailable()
         else this._showWebGPUUnavailableDefault()
         return
@@ -3521,11 +3537,12 @@ export class XGISMap {
     // re-arming now would resurrect the map and leak this device. Destroy
     // it and bail before assigning ctx / building renderers.
     if (this._destroyed) {
-      ctx?.device?.destroy?.()
+      ctx?.rhi?.destroy()
       return
     }
     this.ctx = ctx
     if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
+    this._armDeviceLostRecovery(() => void this.runBinary(buffer, baseUrl))
     // #797 P0/P1 — (re)attach the host DRAWING API GPU atlas + retained-icon
     // draper to this run's device (rematerialises any batches added pre-run).
     this.graphics.attachDevice(this.ctx.device, this.ctx.rhi, this.ctx.format)
@@ -3582,7 +3599,7 @@ export class XGISMap {
     // Stop before rebuildLayers + re-arming the loop, destroying the
     // device created above so it doesn't outlive the map.
     if (this._destroyed) {
-      this.ctx?.device?.destroy?.()
+      this.ctx?.rhi?.destroy()
       return
     }
 
@@ -3650,6 +3667,8 @@ export class XGISMap {
           `[X-GIS] render loop halted after ${this._frameFailures} consecutive frame failures`,
         )
         this.running = false
+        // Surface the halt (previously silent — an iOS 'Script error.' blinding).
+        this._eventBus.fireErrorEvent({ phase: 'halt', fatal: true, error: err })
         return
       }
       requestAnimationFrame(this.renderLoop)
@@ -4017,7 +4036,18 @@ export class XGISMap {
    *  No-op when nothing was ever loaded (`?.` covers a null ctx). */
   private _teardownForReinit(): void {
     this.running = false
+    // Reset loaded() — set only on a successful run; a torn-down-then-failed swap
+    // must not report loaded() === true on a blank corpse. (#1153 C)
+    this._loaded = false
+    this._releaseGpuResources()
+  }
 
+  /** Release every GPU resource this map allocated (per-source renderers + tile
+   *  catalogs, overlay stages, heatmap, palette/gradient atlases) and tear down the
+   *  backend device — the shared teardown body of destroy() and _teardownForReinit().
+   *  The whole-device teardown routes through the RHI (`ctx.rhi.destroy()`, #1153 A)
+   *  so a forced-WebGL2 fail-loud `ctx.device` proxy is never touched. */
+  private _releaseGpuResources(): void {
     // Per-source GPU renderers + tile catalogs.
     for (const key of [...this.vtSources.keys()]) this.teardownSource(key)
 
@@ -4031,8 +4061,7 @@ export class XGISMap {
     this.graphics.destroyGpu()
 
     // Heatmap density targets + per-layer buffers (Phase R). The trailing
-    // device.destroy() frees the GPU memory; null the refs so a re-run
-    // reallocates cleanly.
+    // rhi.destroy() frees the GPU memory; null the refs so a re-run reallocates cleanly.
     this.heatmapRenderer?.clearLayers()
     this.heatmapRenderer = null
     this.heatmapTargets.destroy()
@@ -4046,10 +4075,10 @@ export class XGISMap {
       this._paletteHandles = null
     }
 
-    // Keystone: frees EVERY remaining GPU resource on the prior per-map
-    // device (buffers, textures, pipelines across all renderers + render
-    // targets) in one call, so the orphaned device can't outlive the map.
-    this.ctx?.device?.destroy()
+    // Keystone (backend-aware, #1153 A): route the whole-device teardown through the
+    // RHI so the forced-WebGL2 fail-loud ctx.device proxy is never accessed — frees
+    // every remaining GPU resource on the prior per-map device in one call.
+    this.ctx?.rhi?.destroy()
 
     this.vtSources.clear()
   }
@@ -4103,44 +4132,16 @@ export class XGISMap {
     this._detachAutoResize?.()
     this._detachAutoResize = null
 
-    // Per-source GPU renderers + tile catalogs (renderer.destroy each).
-    for (const key of [...this.vtSources.keys()]) this.teardownSource(key)
-
-    // Overlay stages own GPU buffers + glyph/icon atlases.
-    this.textStage?.destroy()
-    this.textStage = null
-    this.iconStage?.destroy()
-    this.iconStage = null
-    // #797 P0 — drop the per-run host-atlas GPU mirror; KEEP the registry so
-    // host images survive a re-load.
-    this.graphics.destroyGpu()
-
-    // Heatmap density targets + per-layer buffers (Phase R).
-    this.heatmapRenderer?.clearLayers()
-    this.heatmapRenderer = null
-    this.heatmapTargets.destroy()
-
     // DOM stats overlay element.
     this._statsPanel?.destroy()
     this._statsPanel = null
 
-    // Colour / scalar palette + gradient-atlas textures.
-    if (this._paletteHandles) {
-      this._paletteHandles.colorPalette.destroy()
-      this._paletteHandles.scalarPalette.destroy()
-      this._paletteHandles.colorGradientAtlas.destroy()
-      this._paletteHandles.scalarGradientAtlas.destroy()
-      this._paletteHandles = null
-    }
+    // Release every GPU resource + tear down the backend device — the shared
+    // teardown body (also called by _teardownForReinit). Routes the whole-device
+    // teardown through the RHI (#1153 A) and clears vtSources.
+    this._releaseGpuResources()
 
-    // Keystone: one call frees EVERY remaining GPU resource allocated on
-    // this map's (per-map) device — buffers, textures, pipelines across
-    // all renderers + render targets. `?.` covers a destroy() before
-    // run() ever populated ctx.
-    this.ctx?.device?.destroy()
-
-    // Drop retained CPU data so it can be GC'd.
-    this.vtSources.clear()
+    // Drop retained CPU data so it can be GC'd (vtSources already cleared above).
     this.rawDatasets.clear()
 
     // Window globals run() installed: snapshot/replay/trace closures capture

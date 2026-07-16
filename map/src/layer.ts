@@ -426,6 +426,7 @@ const MAP_EVENT_TYPES: ReadonlySet<string> = new Set([
   'zoomstart',
   'zoom',
   'zoomend',
+  'error',
 ])
 export function isMapEventType(type: string): type is XGISMapEventType {
   return MAP_EVENT_TYPES.has(type)
@@ -547,8 +548,24 @@ export class ListenerRegistry {
 //   - zoom        — every frame the zoom changed.
 //   - zoomend     — zoom came to rest.
 //   - idle        — no pending tile/label work AND camera at rest.
+//   - error       — a lifecycle fault surfaced for observability: 'boot' (init
+//                   failure), 'devicelost' (GPU device lost — engine auto-recovers),
+//                   'halt' (render loop stopped after 3 consecutive frame faults).
 export type XGISMapEventType =
-  'load' | 'idle' | 'movestart' | 'move' | 'moveend' | 'zoomstart' | 'zoom' | 'zoomend'
+  'load' | 'idle' | 'movestart' | 'move' | 'moveend' | 'zoomstart' | 'zoom' | 'zoomend' | 'error'
+
+/** Phase of a fired map-level `'error'` event. */
+export type XGISMapErrorPhase = 'boot' | 'devicelost' | 'halt'
+
+/** Payload carried by a map-level `'error'` event (on the XGISMapEvent). `fatal`
+ *  separates an unrecoverable stop (boot failure, 3-strike halt) from a
+ *  recoverable fault the engine auto-recovers from (device loss); `error` is the
+ *  underlying cause (an Error, a RhiDeviceLostInfo, …). */
+export interface XGISMapErrorInfo {
+  phase: XGISMapErrorPhase
+  fatal: boolean
+  error: unknown
+}
 
 /** Payload delivered to map-level lifecycle / camera listeners. Carries
  *  the current camera state (center [lon, lat], zoom, bearing, pitch) so
@@ -565,6 +582,10 @@ export class XGISMapEvent {
   readonly bearing: number
   readonly pitch: number
   readonly timeStamp: number
+  /** Error metadata — present only on `'error'` events (undefined otherwise). */
+  readonly phase?: XGISMapErrorPhase
+  readonly fatal?: boolean
+  readonly error?: unknown
 
   constructor(init: {
     type: XGISMapEventType
@@ -573,6 +594,9 @@ export class XGISMapEvent {
     zoom: number
     bearing: number
     pitch: number
+    phase?: XGISMapErrorPhase
+    fatal?: boolean
+    error?: unknown
   }) {
     this.type = init.type
     this.target = init.target
@@ -580,6 +604,9 @@ export class XGISMapEvent {
     this.zoom = init.zoom
     this.bearing = init.bearing
     this.pitch = init.pitch
+    this.phase = init.phase
+    this.fatal = init.fatal
+    this.error = init.error
     this.timeStamp = typeof performance !== 'undefined' ? performance.now() : Date.now()
   }
 }
