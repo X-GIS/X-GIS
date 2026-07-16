@@ -1,0 +1,21 @@
+xgis 1
+
+/* §5 background-pattern consumption-side verification (#777 I-E): the pattern
+ * rides the synthetic earth-surface show through the STANDARD fill-pattern
+ * path — the show carries fillPattern, render-loop _resolveFillPatterns fills
+ * the atlas UV + world repeat, and VTR routes it to fillPipelinePatternGround.
+ * Tiling is WORLD-ANCHORED (Mercator metres — the pattern scrolls with the
+ * map, MapLibre background-pattern semantics) across the whole world band; the
+ * authored fill stays the band colour under/outside the pattern.
+ *
+ * A background-pattern-only style (no labels / icons / fill-patterns) still
+ * loads its sprite atlas: ensureBackgroundPatternAtlas (label-pass.ts) fires
+ * on `_backgroundPattern`, and its onLanded invalidate() re-arms the idle loop
+ * so the pattern paints when the async atlas lands.
+ *
+ * Load with: /demo.html?id=fixture_bg_pattern&e2e=1&sprite=/fixture-sprite
+ * §5 probe (orchestrator-run): the `pat` sprite is 128 red + 128 blue texels —
+ * verification = red/blue pattern pixels present across the band at the
+ * default camera; MapLibre A/B on the same style.
+ */
+background { fill: #1a1a2e pattern: pat }

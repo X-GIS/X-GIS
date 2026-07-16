@@ -105,11 +105,27 @@ export class SpriteAtlasGPU {
     if (this.host.getState().status !== 'loaded') return null
     const image = this.host.getImage()
     if (!image) return null
+    // 'render' is REQUIRED alongside 'copy-dst' here: the upload below routes
+    // through rhi.copyExternalImage, whose WebGPU mapping is
+    // queue.copyExternalImageToTexture — the WebGPU spec requires that copy's
+    // DESTINATION to carry RENDER_ATTACHMENT | COPY_DST (the browser may blit
+    // via an internal render pass for colourspace/premultiply conversion). The
+    // native ensure() twin above already carries RENDER_ATTACHMENT for exactly
+    // this reason; WebGL2 ignores usage bits (rhi-webgl2 createTexture
+    // allocates identically). Missing 'render' surfaced as a Dawn
+    // APIInjectError ("Destination texture needs to have CopyDst and
+    // RenderAttachment usage") the FIRST time this twin was built on a WebGPU
+    // device — the #777 I-E background-pattern pass reads the backend-blind
+    // rhiView()/rhiSampler() handles, unlike the icon path's native-vs-rhi
+    // caller fork (render-loop.ts _resolveFillPatterns), so it exercised this
+    // path on WebGPU where the M5 forced-WebGL2 icon slice never validated it.
+    // (HostSpriteAtlasRhi keeps ['sample','copy-dst'] — its upload is
+    // writeTexture, a BufferSource copy that needs no RENDER_ATTACHMENT.)
     this.rhiTexture = this.rhi.createTexture({
       width: image.width,
       height: image.height,
       format: 'rgba8unorm',
-      usage: ['sample', 'copy-dst'],
+      usage: ['sample', 'copy-dst', 'render'],
       label: 'sprite-atlas',
     })
     this.rhi.copyExternalImage(this.rhiTexture, image as ImageBitmap, image.width, image.height)

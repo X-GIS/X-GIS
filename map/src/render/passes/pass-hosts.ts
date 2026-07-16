@@ -51,6 +51,12 @@ export type PointsPassHost = Pick<XGISMap, 'camera' | 'pointRenderer'>
  *  the label-dispatch memo counters, label-dirty bookkeeping). */
 export type LabelPassHost = Pick<
   XGISMap,
+  // #777 I-E — the lazy IconStage also loads the sprite atlas for a
+  // background-pattern-only style (the pattern rides the synthetic
+  // earth-surface show's fill-pattern path); `invalidate` re-arms the loop
+  // when the async atlas lands on a label-less style.
+  | '_backgroundPattern'
+  | 'invalidate'
   | '_featureExprsCache'
   | '_labelsHaveTimeAnimation'
   | '_labelDispatchHits'

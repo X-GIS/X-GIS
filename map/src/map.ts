@@ -33,6 +33,7 @@ import { projectLonLatToScreenCss } from './render-loop-helpers'
 import {
   SYNTHETIC_EARTH_SURFACE_SOURCE,
   buildSyntheticEarthSurfaceShow,
+  syntheticEarthSurfaceCarrier,
   updateSyntheticEarthSurfaceShowFill,
 } from './synthetic-earth-surface-show'
 import { type CapPoles } from '@xgis/data'
@@ -596,6 +597,13 @@ export class XGISMap {
    *  constant opacity (already folded into the colour hex alpha at
    *  convert time). Non-private so the render host reads it. */
   _backgroundOpacityShape: import('@xgis/compiler').PropertyShape<number> | null = null
+  /** #777 I-E — `background-pattern` sprite name, from a `background { …
+   *  pattern: <name> }` style property (the converter lowers the CONSTANT
+   *  sprite-name form). The background pass tiles this sprite over the clear
+   *  as its first draw. null = no pattern (clear-only, byte-identical). The
+   *  atlas is reached read-only through `iconStage`. Non-private so the render
+   *  host reads it. */
+  _backgroundPattern: string | null = null
   /** WS-9 — top-level fill-extrusion light (Mapbox `light`). Pushed into
    *  every VTR each frame by the render loop. position = [radius,
    *  azimuth°, polar°]; intensity 0..1; color RGB 0..1. Defaults = the
@@ -820,7 +828,9 @@ export class XGISMap {
     // runBinary() the same as the original install path.
     if (!this._syntheticBackend && this.renderer) {
       this._installSyntheticEarthSurfaceSource(rgba)
-      const syntheticShow = buildSyntheticEarthSurfaceShow(rgba)
+      // #777 I-E — keep the style's background-pattern riding the re-installed
+      // show (the pattern's carrier survives a setBackgroundFill round-trip).
+      const syntheticShow = buildSyntheticEarthSurfaceShow(rgba, null, this._backgroundPattern)
       this.showCommands = [syntheticShow, ...this.showCommands]
     } else {
       this._syntheticBackend?.updateFillColor(rgba)
@@ -949,8 +959,9 @@ export class XGISMap {
         if (prevBand === nextBand) return
         // Synthetic background — its mesh latitude band is fixed per instance,
         // so a band change must re-install the backend with the new band.
-        if (this._syntheticBackend && this._backgroundColor) {
-          const rgba = this._backgroundColor
+        const bgReinstalled = !!(this._syntheticBackend && this._backgroundColor)
+        if (bgReinstalled) {
+          const rgba = this._backgroundColor!
           this.setBackgroundFill(null)
           this.setBackgroundFill(rgba)
         }
@@ -962,7 +973,13 @@ export class XGISMap {
         const hadCaps = this.geojsonCapPoles.size > 0
         if (nextBand === 'mercator-clamped') detachGeoJSONPolarCaps(this._polarCapHost())
         else installGeoJSONPolarCaps(this._polarCapHost())
-        if (hadCaps && this.renderer) this.rebuildLayers()
+        // #1154 — the bg re-install above prepended a FRESH synthetic show to
+        // showCommands, but the dispatch list (vectorTileShows) is built only at
+        // rebuildLayers time. Without a rebuild the draw keeps the stale pre-switch
+        // show whose fillPatternUV never resolves, so the globe drape (which needs
+        // fillPatternUV == null) bakes a SOLID fill and the background-pattern is
+        // lost. Rebuild whenever caps changed OR the synthetic bg was re-installed.
+        if ((hadCaps || bgReinstalled) && this.renderer) this.rebuildLayers()
       },
     })
     // Source-ingest cluster — receives the SAME source-state Map
@@ -2457,6 +2474,9 @@ export class XGISMap {
     // `_backgroundColor` but never touches these).
     this._backgroundColorShape = null
     this._backgroundOpacityShape = null
+    // #777 I-E — reset the background pattern before the parse (mirror of the
+    // shape resets) so a re-run() with a pattern-less style clears a stale name.
+    this._backgroundPattern = null
     let bgColor: string | null = null
     for (const stmt of ast.body) {
       if (stmt.kind !== 'BackgroundStatement') continue
@@ -2504,6 +2524,12 @@ export class XGISMap {
                 ? { kind: 'zoom-interpolated', stops, base: opInterp.base }
                 : { kind: 'zoom-interpolated', stops }
           }
+        } else if (sp.name === 'pattern') {
+          // #777 I-E — `pattern: <sprite>` (the converter's constant
+          // background-pattern lowering). The raw value is the sprite name the
+          // background pass looks up in the sprite atlas; a blank name leaves
+          // the pattern null (clear-only).
+          this._backgroundPattern = raw.length > 0 ? raw : null
         }
       }
       if (color) bgColor = color
@@ -2801,13 +2827,20 @@ export class XGISMap {
     // dominates). Mutates `commands.shows` in place to land ahead of
     // every authored layer; rebuildLayers() then sees the synthetic
     // show first and dispatches it through the standard VT path.
-    if (this._backgroundColor) {
-      this._installSyntheticEarthSurfaceSource(this._backgroundColor)
+    // #777 I-E — a PATTERN-ONLY background (background-pattern, no fill) still
+    // injects the show: the synthetic surface is the pattern's carrier
+    // (default opaque black — the Mapbox background-color default).
+    const bgCarrier = syntheticEarthSurfaceCarrier(this._backgroundColor, this._backgroundPattern)
+    if (bgCarrier) {
+      this._installSyntheticEarthSurfaceSource(bgCarrier)
       // WS-1 — pass the zoom-interp colour shape so the sphere/globe
       // earth-surface fill resolves per frame (resolveShow handles it).
+      // #777 I-E — the background-pattern sprite name rides the show through
+      // the STANDARD fill-pattern path (world-anchored tiling over the band).
       const syntheticShow = buildSyntheticEarthSurfaceShow(
-        this._backgroundColor,
+        bgCarrier,
         this._backgroundColorShape,
+        this._backgroundPattern,
       )
       commands.shows = [syntheticShow, ...commands.shows] as typeof commands.shows
     }
@@ -3591,7 +3624,14 @@ export class XGISMap {
     // today, so _backgroundColor only lands here through the public API.
     if (this._backgroundColor) {
       this._installSyntheticEarthSurfaceSource(this._backgroundColor)
-      const syntheticShow = buildSyntheticEarthSurfaceShow(this._backgroundColor)
+      // #777 I-E — mirror run(): a style-parsed background-pattern (set by a
+      // prior run()) stays on the re-injected show. .xgb itself carries no
+      // background block, so this is null on a pure binary boot.
+      const syntheticShow = buildSyntheticEarthSurfaceShow(
+        this._backgroundColor,
+        null,
+        this._backgroundPattern,
+      )
       commands.shows = [syntheticShow, ...commands.shows] as typeof commands.shows
     }
 

@@ -40,11 +40,10 @@ const stripComments = (s: string): string =>
 // reads, kept 0 by ArrayBuffer init. A real (shader-read) field must be written,
 // never parked here. Adding a field to polygonU forces a choice: write it in VTR,
 // or justify it here — the same "no silent omission" discipline write() enforces.
-const OMITTED: Record<string, string> = {
-  _pad_light_align:
-    'std140 alignment padding (u32) — fills the 8-byte pad before cam_ecef_off_h; ' +
-    'never read by any polygon shader, kept 0 by ArrayBuffer init (polygon.ts:137)',
-}
+// Currently empty: the former `_pad_light_align` u32 pad became the real
+// `pattern_active` field (#1154), now written per fill draw by VTR. Add an entry
+// here ONLY for a lane the shader never reads (std140 padding).
+const OMITTED: Record<string, string> = {}
 
 describe('VTR frameBlock writes every polygonU field (#999, #600 completeness class)', () => {
   const allFields = Object.keys(uniformBlock(polygonU).set)

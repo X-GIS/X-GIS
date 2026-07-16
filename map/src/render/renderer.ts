@@ -866,7 +866,7 @@ export class MapRendererContent {
         tile_dequant_scale: 0,
         tile_dequant_half: 0,
         light_color_packed: 0,
-        _pad_light_align: 0,
+        pattern_active: 0,
         cam_ecef_off_h: [0, 0, 0, 0],
         cam_ecef_off_l: [0, 0, 0, 0],
         light_dir_ecef: [0, 0, 0, 0],

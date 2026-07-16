@@ -90,7 +90,10 @@ const CEILINGS: Record<string, number> = {
   // EXTRACTED to render/vector-drape-stroke.ts; VTR keeps only the wiring (the
   // captured stroke style + the drape-seam gate/strokeKey + the drawStrokes
   // suppression + the in-bake bakeTileStrokes call). Lower as #991 decomposes VTR.
-  'map/src/render/vector-tile-renderer.ts': 4487,
+  // 4487→4494 (#1154): pattern_active flag written per fill draw (both the
+  // pattern/else branch at the fill_translate site + the three sentinel paths)
+  // so the VS knows to gate off fill-translate when a pattern owns those slots.
+  'map/src/render/vector-tile-renderer.ts': 4494,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -107,7 +110,15 @@ const CEILINGS: Record<string, number> = {
   // the construct/setColor at the synthetic-earth-surface install + the teardown +
   // the two mid-session setColor mirrors. Composition-root renderer wiring (mirrors
   // the rasterRenderer / heatmapTargets owner fields); nothing extract-worthy (§2).
-  'map/src/map.ts': 4245,
+  // 4245→4276 (#777 I-E): the `_backgroundPattern` field + its reset + the
+  // `pattern:` styleProperty parse arm, plus the synthetic-show carrier gate
+  // (pattern-only backgrounds inject a default-black carrier) and the pattern
+  // pass-through at the three synthetic-show injection sites. All at existing
+  // sites; the carrier decision itself lives in synthetic-earth-surface-show.ts.
+  // 4276→4283 (#1154): the world-band reinstall now rebuilds the dispatch list
+  // when the synthetic background was re-installed (not only when polar caps
+  // changed), so the globe background-pattern's fresh show reaches vectorTileShows.
+  'map/src/map.ts': 4284,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -156,7 +167,11 @@ const CEILINGS: Record<string, number> = {
   // 1863→1869 (#777 I-G): the setSpriteMetadata injection before stage.prepare +
   // the setInlineImagePlacements handoff after it — both mirror the adjacent
   // setPairFitBoxes line. +6 at the existing stage-prepare site; nothing else (§2).
-  'map/src/render/passes/label-pass.ts': 1869,
+  // 1869→1906 (#777 I-E): ensureBackgroundPatternAtlas — the background-pattern
+  // sprite-atlas gate (a label-less style still loads its sprite; onLanded
+  // invalidate() re-arms the idle loop). A free exported function so the gate +
+  // hook are behaviour-gated GPU-free (mirrors backgroundClearValue). +37.
+  'map/src/render/passes/label-pass.ts': 1906,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -167,7 +182,10 @@ const CEILINGS: Record<string, number> = {
   'map/src/render/pipeline-factory.ts': 1458,
   'map/src/camera/camera.ts': 1419,
   'map/src/shaders/dsl/line.ts': 1373,
-  'map/src/shaders/dsl/polygon.ts': 1315,
+  // 1315→1339 (#1154): the pattern_active struct field (+ its rationale comment)
+  // and the fill-translate `if (pattern_active == 0)` gate in the three VS entries
+  // (vs_main / vs_main_ecef / vs_main_ecef_extruded) — fixes blank fill-patterns.
+  'map/src/shaders/dsl/polygon.ts': 1339,
   'data/src/tile-catalog.ts': 1290,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam

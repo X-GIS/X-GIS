@@ -1,4 +1,4 @@
-// baseline: e251b66e29419789deebcc42b0d740ec4090942f
+// baseline: 87f5db84eaeb46d6ff02427a5aaba0f11a76a9bb
 // fixture: syn-featdata
 // variant.key: syn-featdata
 // pick: false
@@ -30,7 +30,7 @@ struct Uniforms {
   tile_dequant_scale: f32,
   tile_dequant_half: f32,
   light_color_packed: u32,
-  _pad_light_align: u32,
+  pattern_active: u32,
   cam_ecef_off_h: vec4<f32>,
   cam_ecef_off_l: vec4<f32>,
   light_dir_ecef: vec4<f32>,
@@ -330,8 +330,10 @@ fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @locati
   } else {
     _av0 = (u.mvp * vec4<f32>((((pos_h + pos_l) + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z)), 1.0));
   }
-  _av0.x = (_av0.x + (u.fill_translate_x * _av0.w));
-  _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
+  if ((u.pattern_active == 0u)) {
+    _av0.x = (_av0.x + (u.fill_translate_x * _av0.w));
+    _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
+  }
   let _v0 = apply_log_depth(_av0, u.log_depth_fc);
   return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), _cse3, _av0.w, 1.0, (radians(abs_lon) * EARTH_R), (log(tan(((PI / 4.0) + (radians(_cse3) / 2.0)))) * EARTH_R), 0.0, _cse0);
 }
@@ -352,8 +354,10 @@ fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @loca
   } else {
     _av0 = (u.mvp * vec4<f32>(((dequant_ecef(q_xy, q_z, u.tile_dequant_scale, u.tile_dequant_half) + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z)), 1.0));
   }
-  _av0.x = (_av0.x + (u.fill_translate_x * _av0.w));
-  _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
+  if ((u.pattern_active == 0u)) {
+    _av0.x = (_av0.x + (u.fill_translate_x * _av0.w));
+    _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
+  }
   let _v0 = apply_log_depth(_av0, u.log_depth_fc);
   return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), clamp(degrees(inv_merc_lat_rad(_cse3)), (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT), _av0.w, 1.0, (abs_lon + u.tile_origin_merc.x), _cse3, 0.0, _cse0);
 }
@@ -374,8 +378,10 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
   } else {
     _av0 = (u.mvp * vec4<f32>(((dequant_ecef(q_xy, q_z, u.tile_dequant_scale, u.tile_dequant_half) + vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z)) + vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z)), 1.0));
   }
-  _av0.x = (_av0.x + (u.fill_translate_x * _av0.w));
-  _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
+  if ((u.pattern_active == 0u)) {
+    _av0.x = (_av0.x + (u.fill_translate_x * _av0.w));
+    _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
+  }
   let _v0 = apply_log_depth(_av0, u.log_depth_fc);
   var _av1: f32 = clamp(dot(face_normal, u.light_dir_ecef.xyz), 0.0, 1.0);
   _av1 = mix(_cse3, max(((1.0 - (((u.fill_color.rgb.x * 0.2126) + (u.fill_color.rgb.y * 0.7152)) + (u.fill_color.rgb.z * 0.0722))) + u.light_dir_ecef.w), 1.0), _av1);

@@ -71,7 +71,7 @@ describe('polygon Uniforms — block ≡ slot writer', () => {
       tile_dequant_scale: 0.00012,
       tile_dequant_half: 8192,
       light_color_packed: 0xffeeddcc,
-      _pad_light_align: 0,
+      pattern_active: 0,
       cam_ecef_off_h: [111.5, -222.25, 333.125, 0],
       cam_ecef_off_l: [0.015, -0.025, 0.035, 0],
       light_dir_ecef: [0.288, -0.498, 0.996, 1.5],

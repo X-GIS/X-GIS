@@ -16,8 +16,8 @@ export const PAINT_BACKGROUND: readonly CoverageEntry[] = [
   },
   {
     name: 'background-pattern',
-    status: 'unsupported',
+    status: 'supported',
     impact: 'low',
-    note: 'Needs sprite atlas + tiled fragment. Batch 2 dependency.',
+    note: 'Constant sprite-name form lowers to a `pattern:` style property (#777 I-E); the background pass tiles the sprite over the coverage clear as its first draw — a fullscreen quad with analytic wrapped UV into the sprite atlas sub-rect, from a self-contained dual-source (WGSL+GLSL) DSL module. The zoom-crossfade form warns once and drops.',
   },
 ]
