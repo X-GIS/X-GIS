@@ -157,6 +157,7 @@ import type { GeoJSONFeature } from '@xgis/data'
 import { FeatureUpdateQueue } from './feature-update-queue'
 import { MapEventBus } from './map-event-bus'
 import { wireDeviceLostRecovery } from './device-lost-recovery'
+import { ColdStartBurstController } from './map-cold-start-burst'
 import { safeFetch, assertIngestBudget, readBodyCapped } from '@xgis/shared'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /
@@ -275,6 +276,20 @@ export class XGISMap {
   private running = false
   /** Consecutive renderFrame faults (P0-2); reset by a successful frame. */
   private _frameFailures = 0
+
+  /** #1155 F3 — cold-start tile-pipeline burst state machine (enter / exit /
+   *  hysteresis / 10 s cap). Logic in map-cold-start-burst.ts so map.ts stays
+   *  under its LOC ceiling; the map wires it to its vtSources + pending-work
+   *  scan and delegates its lifecycle hooks (run/renderLoop/destroy) to it. */
+  private readonly _burst = new ColdStartBurstController({
+    applyToAllSources: (on) => {
+      for (const { source, renderer } of this.vtSources.values()) {
+        source.setColdStartBurst(on)
+        renderer.setColdStartBurst(on)
+      }
+    },
+    hasPendingSourceWork: () => this.hasPendingSourceWork(),
+  })
   /** Set by `destroy()`. Gates invalidate / flush so a torn-down map is
    *  inert and post-destroy calls no-op instead of touching a destroyed
    *  GPU device. */
@@ -891,7 +906,7 @@ export class XGISMap {
     backend.updateFillColor(rgba)
     catalog.attachBackend(backend)
     this._syntheticBackend = backend
-    this.vtSources.set(SYNTHETIC_EARTH_SURFACE_SOURCE, { source: catalog, renderer: vtRenderer })
+    this._registerVtSource(SYNTHETIC_EARTH_SURFACE_SOURCE, catalog, vtRenderer)
     this.rawDatasets.set(SYNTHETIC_EARTH_SURFACE_SOURCE, {
       _vectorTile: true,
     })
@@ -2980,6 +2995,13 @@ export class XGISMap {
 
     // 6. Start render loop
     this.running = true
+    // #1155 F3 — enter cold-start burst just before the loop starts. Sources
+    // are already registered (rebuildLayers above), so the per-source flags land
+    // on every current vtSources entry; a later rebuildLayers (setProjection)
+    // re-applies via `_registerVtSource`. Placed AFTER the run() destroy-guard
+    // awaits, so a destroy() landing mid-await returns before this and never
+    // leaks the pool refcount.
+    this._burst.enter()
     this.renderLoop()
 
     console.log('[X-GIS] Map running')
@@ -3387,7 +3409,7 @@ export class XGISMap {
       if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
       vtRenderer.setFillRhi?.(this.renderer.fillRhiState?.() ?? null)
       vtRenderer.setSource(source)
-      this.vtSources.set(vtKey, { source, renderer: vtRenderer })
+      this._registerVtSource(vtKey, source, vtRenderer)
 
       // Phase 5f-2 opt-in path: route inline GeoJSON sources through
       // VirtualPMTilesBackend (the same pipeline URL-loaded GeoJSON
@@ -3704,6 +3726,7 @@ export class XGISMap {
 
     this.switchController()
     this.running = true
+    this._burst.enter() // #1155 F3 — see run(); binary path mirrors it
     this.renderLoop()
     this._fireLoadEvent()
     console.log('[X-GIS] Map running (from binary)')
@@ -3740,6 +3763,11 @@ export class XGISMap {
     // Emit move/zoom/idle lifecycle events every rAF tick (before the skip
     // gate): catches camera changes from BOTH the gesture + programmatic lanes.
     this._processCameraEvents()
+    // #1155 F3 — evaluate the cold-start burst exit at the START of every tick,
+    // BEFORE the render gate: once the scene settles shouldRenderThisFrame()
+    // goes false and renderFrame is skipped, but the rAF tick keeps firing, so
+    // the idle hysteresis still advances to its 3 consecutive idle frames.
+    this._burst.tickExit()
     if (!this.shouldRenderThisFrame()) {
       requestAnimationFrame(this.renderLoop)
       return
@@ -3747,6 +3775,15 @@ export class XGISMap {
     try {
       this.renderFrame()
       this._frameFailures = 0
+      if (this._burst.isOn) {
+        // #1155 F3 — device loss makes RenderLoop.render() early-return WITHOUT
+        // re-arming rAF (render-loop.ts): the loop dies with running still true,
+        // so this is the last tick. Release the shared-pool burst refcount here
+        // or it leaks for the page lifetime. Otherwise count the rendered frame
+        // — the exit hysteresis trusts the idle signal only after ≥1 render.
+        if (this.ctx.deviceLost) this._burst.exit()
+        else this._burst.noteRenderedFrame()
+      }
     } catch (err) {
       // Surface the real message to the console / log overlay (a rAF throw
       // reaches window.onerror as "Script error. @ :0:0" under iOS WebKit).
@@ -3759,6 +3796,10 @@ export class XGISMap {
           `[X-GIS] render loop halted after ${this._frameFailures} consecutive frame failures`,
         )
         this.running = false
+        // #1155 F3 — a permanent halt must release the shared-pool burst
+        // refcount, or the module singleton stays capped at 32 forever and every
+        // other map inherits it.
+        this._burst.exit()
         // Surface the halt (previously silent — an iOS 'Script error.' blinding).
         this._eventBus.fireErrorEvent({ phase: 'halt', fatal: true, error: err })
         return
@@ -3827,6 +3868,20 @@ export class XGISMap {
         return true
     }
     return false
+  }
+
+  /** #1155 F3 — register a (catalog, renderer) pair into vtSources. Single
+   *  authority for the source registry so the cold-start burst flag is applied
+   *  to EVERY source, including one registered mid-burst: a post-run
+   *  rebuildLayers (e.g. from setProjection) re-registers sources while burst is
+   *  still converging, and the controller's enter-time applyToAllSources only
+   *  covered the sources that existed at burst entry. */
+  private _registerVtSource(key: string, source: TileCatalog, renderer: VectorTileRenderer): void {
+    this.vtSources.set(key, { source, renderer })
+    if (this._burst.isOn) {
+      source.setColdStartBurst(true)
+      renderer.setColdStartBurst(true)
+    }
   }
 
   /** Classify all visible vector-tile shows into opaque and translucent
@@ -4140,6 +4195,13 @@ export class XGISMap {
    *  The whole-device teardown routes through the RHI (`ctx.rhi.destroy()`, #1153 A)
    *  so a forced-WebGL2 fail-loud `ctx.device` proxy is never touched. */
   private _releaseGpuResources(): void {
+    // #1155 F3 — end cold-start burst BEFORE the per-source renderers/catalogs
+    // are torn down below, so the controller's applyToAllSources still iterates
+    // live vtSources entries and the shared-pool refcount is released exactly
+    // once. Shared body of destroy() + _teardownForReinit(), so BOTH the
+    // SPA-unmount and the re-run / device-loss-recovery paths reclaim the
+    // refcount here; idempotent if the exit predicate already ended burst.
+    this._burst.exit()
     // Per-source GPU renderers + tile catalogs.
     for (const key of [...this.vtSources.keys()]) this.teardownSource(key)
 

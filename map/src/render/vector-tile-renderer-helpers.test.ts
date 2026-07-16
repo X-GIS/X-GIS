@@ -38,3 +38,29 @@ describe('uploadBudgetFor — mobile gate routes through isMobileClassViewport (
     expect(uploadBudgetFor(1170, 2532, 3)).toBe(1)
   })
 })
+
+describe('uploadBudgetFor — #1155 F3 cold-start burst budget', () => {
+  it('desktop burst raises the budget from 4 to 8; steady stays 4', () => {
+    stubPointer('fine')
+    expect(uploadBudgetFor(1600, 900, 1)).toBe(4) // steady desktop
+    expect(uploadBudgetFor(1600, 900, 1, true)).toBe(8) // burst desktop
+  })
+
+  it('mobile burst raises the budget from 1 to 4; steady stays 1', () => {
+    stubPointer('coarse')
+    expect(uploadBudgetFor(1170, 2532, 3)).toBe(1) // steady mobile
+    expect(uploadBudgetFor(1170, 2532, 3, true)).toBe(4) // burst mobile
+  })
+
+  it('the __XGIS_UPLOAD_BUDGET test hook still wins over burst (first-return precedence)', () => {
+    stubPointer('fine')
+    ;(globalThis as { __XGIS_UPLOAD_BUDGET?: number }).__XGIS_UPLOAD_BUDGET = 2
+    try {
+      // Burst is requested, but the forced hook must take precedence so the
+      // queue-deferred fallback path stays deterministically exercisable.
+      expect(uploadBudgetFor(1600, 900, 1, true)).toBe(2)
+    } finally {
+      delete (globalThis as { __XGIS_UPLOAD_BUDGET?: number }).__XGIS_UPLOAD_BUDGET
+    }
+  })
+})

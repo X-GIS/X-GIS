@@ -244,6 +244,12 @@ export class UploadCoordinator {
    *  NEAREST-first instead of strict-FIFO. */
   private _distSq: ((key: number) => number) | null = null
 
+  /** #1155 F3 — cold-start burst flag. While on, the per-frame slice-enqueue
+   *  cap rises to 8 desktop / 4 mobile (from 4/1) so the first-viewport cascade
+   *  isn't paced out. Forwarded from VectorTileRenderer.setColdStartBurst; off
+   *  by default so steady-state behaviour is byte-identical. */
+  private _coldStartBurst = false
+
   constructor(
     private readonly host: UploadHost,
     /** Injectable for unit tests; production passes nothing → a real queue. */
@@ -267,7 +273,12 @@ export class UploadCoordinator {
     // Per-frame SLICE-upload cap. cap=4 desktop is the empirical sweet spot
     // (z=14 Tokyo / OFM Bright): convergence bounded, per-frame stall
     // tolerable. Mobile gets 1 (matches the prior uploadBudgetFor floor).
-    const cap = typeof window !== 'undefined' && isMobileClassViewport(window.innerWidth) ? 1 : 4
+    // #1155 F3 — cold-start burst raises it to 8 desktop / 4 mobile so the
+    // first-viewport cascade drains in a few frames; steady state stays 4/1.
+    const mobile = typeof window !== 'undefined' && isMobileClassViewport(window.innerWidth)
+    let cap: number
+    if (this._coldStartBurst) cap = mobile ? 4 : 8
+    else cap = mobile ? 1 : 4
     if (this._uploadsThisFrame >= cap) {
       this._heldUploads.push({ key, data, sourceLayer })
       this._heldUploadIds.add(id)
@@ -416,6 +427,12 @@ export class UploadCoordinator {
   /** Per-frame concurrent-upload cap (from `uploadBudgetFor`). */
   setMaxJobs(n: number): void {
     this.uploadQueue.maxJobs = n
+  }
+  /** #1155 F3 — flip the cold-start burst enqueue cap (8/4 vs 4/1). Forwarded
+   *  from VectorTileRenderer.setColdStartBurst, driven by XGISMap's burst
+   *  lifecycle. */
+  setColdStartBurst(on: boolean): void {
+    this._coldStartBurst = on
   }
   /** Force the next sort to re-run (camera moved → distances changed). */
   markQueueDirty(): void {

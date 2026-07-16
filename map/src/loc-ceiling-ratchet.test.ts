@@ -93,7 +93,10 @@ const CEILINGS: Record<string, number> = {
   // 4487→4494 (#1154): pattern_active flag written per fill draw (both the
   // pattern/else branch at the fill_translate site + the three sentinel paths)
   // so the VS knows to gate off fill-translate when a pattern owns those slots.
-  'map/src/render/vector-tile-renderer.ts': 4494,
+  // 4494→4513 (#1155 F3): cold-start burst forwarder — the `_coldStartBurst`
+  // field + `setColdStartBurst` + the burst flag on the per-render
+  // uploadBudgetFor/setMaxJobs call.
+  'map/src/render/vector-tile-renderer.ts': 4513,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -126,7 +129,12 @@ const CEILINGS: Record<string, number> = {
   // all at the run() flow with block comments documenting the reorder. Pure
   // latency overlap, no behaviour change (§2 — composition-root reorder,
   // nothing extract-worthy). Lower as #991 decomposes map.ts.
-  'map/src/map.ts': 4336,
+  // 4336→4402 (#1155 F3): cold-start burst lifecycle hooks — the state machine
+  // itself was EXTRACTED to map-cold-start-burst.ts (ColdStartBurstController,
+  // mirrors device-lost-recovery.ts); map keeps only the irreducible wiring: the
+  // `_burst` field + deps closure, `_registerVtSource`, and the enter/tick/note/
+  // exit calls at run/runBinary/renderLoop/_releaseGpuResources.
+  'map/src/map.ts': 4402,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -203,7 +211,10 @@ const CEILINGS: Record<string, number> = {
   // and the fill-translate `if (pattern_active == 0)` gate in the three VS entries
   // (vs_main / vs_main_ecef / vs_main_ecef_extruded) — fixes blank fill-patterns.
   'map/src/shaders/dsl/polygon.ts': 1339,
-  'data/src/tile-catalog.ts': 1290,
+  // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
+  // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
+  // budget in resetCompileBudget's backend tick loop.
+  'data/src/tile-catalog.ts': 1314,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -261,7 +272,9 @@ const CEILINGS: Record<string, number> = {
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`
   // sorts the held backlog NEAREST-first so a zoom-in's visible slices upload
   // ahead of the accumulated far/ancestor backlog (the ~30 s stall fix).
-  'map/src/render/upload-coordinator.ts': 889,
+  // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
+  // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
+  'map/src/render/upload-coordinator.ts': 906,
   'map/src/shaders/dsl/projections.ts': 811,
   // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).

@@ -49,15 +49,22 @@ export const ARENA_LOW_WATER = 0.6
  *  work across ~5–6 frames → worst spike drops to <50 ms with the cache
  *  reaching full visibility in ~100 ms. Raise if you see noticeable
  *  "filling in" during pans on fast connections. */
-/** Per-frame tile upload cap. Bumped to 4 after the over-zoom
- *  per-layer sub-tile fix made all 4 layers actually generate
- *  sub-tiles (previously only the first one did due to the
- *  hasTileData(key) skip bug). At 4 layers × ~30 visible sub-tiles
- *  = 120 slices to upload at over-zoom; 2/frame took ~1 s to fill
- *  ≈ visible flicker as fallback gets progressively replaced.
- *  4/frame halves convergence time to ~0.5 s while keeping GPU
- *  buffer creation rate (~1700/sec) below Chrome's STATUS_BREAKPOINT
- *  threshold even under 4-layer load. */
+/** Per-frame tile upload cap (steady state) — 4 desktop / 1 mobile via
+ *  uploadBudgetFor.
+ *
+ *  #1155 F3 burst-safety math (the burst path below raises this to 8 desktop /
+ *  4 mobile): the historic ~1700/sec GPU-buffer-creation ceiling (Chrome's
+ *  STATUS_BREAKPOINT — the 552-creates-in-one-frame → ~250 ms stall) is NOT
+ *  breached at 8/frame, because per-slice buffer creation is now almost all
+ *  reuse: polygon vertex/index geometry writes into the shared GPUArenas
+ *  (upload-coordinator writeRhi) → ZERO creates; the thin line/outline
+ *  vertex+index buffers come from GpuTileStore.acquireBuffer, a bucketed
+ *  recycler that createBuffers only on a pool miss (gpu-tile-store.ts:307-313);
+ *  staging is a tiered reuse pool. The ONLY unconditional fresh createBuffer
+ *  per slice are the SDF segment buffers (line-renderer.ts:448,:467), ≤2/slice.
+ *  So 8 slices/frame × ~3 creates × 60 fps ≈ 1440/sec < 1700/sec — and burst
+ *  frames run >16 ms (self-throttling below 60 fps), with the window bounded by
+ *  the map's burst exit predicate + the 10 s hard cap. */
 const MAX_UPLOADS_PER_FRAME = 4
 /** Mobile-specific upload budget — main-thread `buildLineSegments`
  *  runs synchronously on every doUploadTile for the XGVT-binary path
@@ -68,11 +75,21 @@ const MAX_UPLOADS_PER_FRAME = 4
  *  is identical). User-reported heat + forced refresh on mobile
  *  during fast pinch zoom motivated this; addresses the synchronous
  *  CPU spike that the GPU buffer pool change alone could not. */
-export function uploadBudgetFor(canvasW: number, canvasH: number, dpr: number = 1): number {
+export function uploadBudgetFor(
+  canvasW: number,
+  canvasH: number,
+  dpr: number = 1,
+  /** #1155 F3 — cold-start burst: raise the concurrent-upload cap to 8 desktop
+   *  / 4 mobile so the first-viewport cascade drains fast. Off by default so
+   *  the steady-state budget (and every existing caller) is unchanged. */
+  burst: boolean = false,
+): number {
   // Test hook: spec sets `globalThis.__XGIS_UPLOAD_BUDGET` to force
   // queue-deferred uploads on every render call so the parent-walk
   // fallback path is exercised deterministically. Production paths
   // never set this, so the constant lookup is a single property read.
+  // Kept FIRST — the forced value must win even under burst so the fallback
+  // path stays deterministically exercisable (#1155 F3).
   const o = (globalThis as { __XGIS_UPLOAD_BUDGET?: number }).__XGIS_UPLOAD_BUDGET
   if (typeof o === 'number') return o
   // Mobile classification is a perceptual concept — must use CSS
@@ -81,5 +98,7 @@ export function uploadBudgetFor(canvasW: number, canvasH: number, dpr: number = 
   // to 4 uploads/frame — exactly the spike the function exists to
   // prevent. `isMobileClassViewport` (the shared authority) also gates
   // on a coarse PRIMARY pointer, so a small DESKTOP window keeps 4.
-  return isMobileClassViewport(Math.max(canvasW, canvasH) / dpr) ? 1 : MAX_UPLOADS_PER_FRAME
+  const mobile = isMobileClassViewport(Math.max(canvasW, canvasH) / dpr)
+  if (burst) return mobile ? 4 : 8
+  return mobile ? 1 : MAX_UPLOADS_PER_FRAME
 }

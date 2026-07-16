@@ -122,6 +122,13 @@ export class TileCatalog {
    *  backends) and the budget owns the counting + gate. */
   private budget = new CompileBudget()
 
+  /** #1155 F3 — cold-start burst flag. While on, resetCompileBudget ticks
+   *  backends with _BURST_TICK_BUDGET (16) instead of _TICK_BUDGET (2) so the
+   *  first-viewport cascade dispatches to the worker pool in a couple of frames
+   *  rather than being paced out. Flipped by XGISMap on burst enter/exit; off by
+   *  default so steady-state pacing is unchanged. */
+  private _coldStartBurst = false
+
   /** Pending timer handle for the prewarmSkeleton retry pump + a
    *  hard-stop latch. The pump lives in tile-skeleton-prewarm.ts
    *  (level-staged + byte-budgeted + backoff, #1045); this handle lets
@@ -475,9 +482,21 @@ export class TileCatalog {
     // implement tick. _PMTILES_TICK_BUDGET picks how many tiles are
     // compiled per frame — 4 keeps the worst case under ~16 ms on a
     // dense world basemap tile, fitting one 60 fps frame.
+    // #1155 F3 — cold-start burst raises the per-frame dispatch budget to 16
+    // (from 2) so the first-viewport cascade isn't paced out; steady state
+    // (flag off) passes _TICK_BUDGET exactly as before.
+    const tickBudget = this._coldStartBurst
+      ? TileCatalog._BURST_TICK_BUDGET
+      : TileCatalog._TICK_BUDGET
     for (const b of this.backends) {
-      b.tick?.(TileCatalog._TICK_BUDGET)
+      b.tick?.(tickBudget)
     }
+  }
+
+  /** #1155 F3 — flip the cold-start burst tick budget. Called by XGISMap on
+   *  burst enter/exit (and at source registration while burst is on). */
+  setColdStartBurst(on: boolean): void {
+    this._coldStartBurst = on
   }
   // 2 paces compileSingleTile (5-50 ms each on dense MVT tiles) at
   // most ~100 ms/frame so VTR's MAX_UPLOADS_PER_FRAME (also 2) can
@@ -486,6 +505,11 @@ export class TileCatalog {
   // matching the visible-tile pipeline as a single producer→consumer
   // chain. Real fix for sub-frame work is a compile worker pool.
   private static readonly _TICK_BUDGET = 2
+  // #1155 F3 — cold-start burst dispatch budget. 8x the steady 2. tick() on the
+  // worker path (pmtiles-backend.ts) only postMessages the dispatch (cheap), so
+  // 16 fresh dispatches/frame is safe; the downstream drain + upload caps
+  // (raised in lockstep for burst) bound the actual per-frame work.
+  private static readonly _BURST_TICK_BUDGET = 16
 
   /** Synchronous on-demand compile path. Walks attached backends and
    *  uses the first one that supports compileSync (GeoJSON-runtime
