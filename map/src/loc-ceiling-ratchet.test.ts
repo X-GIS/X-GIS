@@ -199,7 +199,12 @@ const CEILINGS: Record<string, number> = {
   // a shared `glCopyBufferSubData`. +128; byte-identical on the default WebGL2 boot (the
   // twin early-returns before the frame shell, so the frame encoder is never acquired).
   // Fail-loud on any non-bindable descriptor shape (no silent fallback). Lower in F6.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1285,
+  // 1285→1292 (#1153 A): WebGl2Device.destroy() — the required RhiDevice whole-device
+  // teardown (the WebGL2 twin of GPUDevice.destroy(), releasing the GL context via
+  // WEBGL_lose_context). An interface method cannot be extracted out of its class, so this
+  // is irreducible growth (+7); the map's teardown routes through it instead of the raw
+  // fail-loud ctx.device proxy, killing the deterministic webgl2 teardown crash.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1292,
   'map/src/render/renderer.ts': 965,
   'map/src/render/gpu-tile-store.ts': 941,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME

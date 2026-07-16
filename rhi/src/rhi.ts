@@ -464,6 +464,16 @@ export interface RhiDevice {
    *  stay GC-owned with no `destroy` — the documented exception to the create/destroy pairing. */
   destroyPipeline(pipeline: RhiPipeline): void
 
+  /** Release the ENTIRE device — the whole-device teardown keystone (distinct from
+   *  the per-resource `destroy*` above, which free one handle). The map's lifecycle
+   *  teardown (`destroy()` / re-init) routes through HERE instead of reaching for a
+   *  native `GPUDevice.destroy()`, so a backend whose native device object is a
+   *  fail-loud stub (the forced-WebGL2 `ctx.device` proxy) is never touched. WebGPU
+   *  calls `GPUDevice.destroy()`; WebGL2 drops the GL context via WEBGL_lose_context
+   *  (releasing every GL resource + returning the per-page context to the browser's
+   *  pool). Required (not `?`-optional): a backend that can't tear down doesn't compile. */
+  destroy(): void
+
   // ── Frame shell (required — #1046 F2 / #991 G2+G3, doc §2.4) ──────────────────
   // The render loop minted its command encoder + acquired the swapchain view RAW
   // (device.createCommandEncoder / context.getCurrentTexture().createView) and

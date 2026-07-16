@@ -588,4 +588,12 @@ export class WebGpuDevice implements RhiDevice {
   // GPURenderPipeline is GC-owned — WebGPU exposes no native destroy — so this is a no-op
   // (documented on RhiDevice.destroyPipeline, #782); the WebGL2 twin deletes the GL program.
   destroyPipeline(_pipeline: RhiPipeline): void {}
+
+  // Whole-device teardown (RhiDevice.destroy) — frees EVERY GPU resource on this device
+  // (buffers, textures, pipelines, render targets) in one call. This is the SAME native
+  // GPUDevice.destroy() the map teardown used to call directly; routing it through the RHI
+  // keeps the fail-loud forced-WebGL2 `ctx.device` proxy out of the teardown path (#1153 A).
+  destroy(): void {
+    this.device.destroy()
+  }
 }
