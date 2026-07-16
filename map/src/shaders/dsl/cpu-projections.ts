@@ -10,13 +10,29 @@
 // has no 2D forward, so a stray caller must fail loudly rather than silently
 // take the oblique-mercator else-arm.
 
-import { compileModule } from '@xgis/shader-dsl'
+import { compileModule, compileModuleJs, type CpuModule } from '@xgis/shader-dsl'
 import { getPROJECTION_MODULE } from './projections'
 
 // Lazy: the projection module is built from the host-injected ProjectionSpec
 // list (configureProjections), so compile on first use, not at import.
-let _M: ReturnType<typeof compileModule> | null = null
-const M = (): ReturnType<typeof compileModule> => (_M ??= compileModule(getPROJECTION_MODULE()))
+//
+// Prefer the js-source backend (compileModuleJs, #1162): the tile-selection
+// 9-point probes + label anchors call these projection forwards thousands of
+// times per frame at high pitch, and the tree-walk interpreter's per-node
+// dispatch + per-call arg-array allocation was ~40 % of the frame there. The
+// js twin is BIT-IDENTICAL (same f64 op tree) — differential-gated in
+// cpu-projections-codegen.test.ts. One try/catch at first compile falls back to
+// the interpreter on a CSP `unsafe-eval` host (where `new Function` is blocked).
+let _M: CpuModule | null = null
+const compileProjection = (): CpuModule => {
+  const mod = getPROJECTION_MODULE()
+  try {
+    return compileModuleJs(mod)
+  } catch {
+    return compileModule(mod)
+  }
+}
+const M = (): CpuModule => (_M ??= compileProjection())
 const pp = (projType: number, clon: number, clat: number): number[] => [projType, clon, clat, 0]
 const vec2 = (v: unknown): [number, number] => v as [number, number]
 
