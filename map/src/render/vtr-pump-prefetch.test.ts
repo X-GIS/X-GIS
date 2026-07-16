@@ -54,8 +54,9 @@ function makeMockCatalog(
 // don't run with Object.create, so the dependency-injected fields
 // pumpPrefetch reads (prefetchScheduler, source, _selection) are wired
 // in manually. The per-frame tile cache now lives on the selection
-// collaborator, so we seed a real TileSelectionCache's internal
-// `_frameTileCache` (read back via its `frameTileCache()` accessor).
+// collaborator as a per-margin LRU (#1153 #12), so we seed a real
+// TileSelectionCache's internal `_frameTileCacheLru` (read back via its
+// `frameTileCache()` MRU accessor).
 function makeVtr(catalog: unknown, neededKeys: number[], frameId: number): VectorTileRenderer {
   const vtr = Object.create(VectorTileRenderer.prototype) as VectorTileRenderer
   ;(vtr as unknown as { source: unknown }).source = catalog
@@ -75,7 +76,9 @@ function makeVtr(catalog: unknown, neededKeys: number[], frameId: number): Vecto
     marginPx: 0,
     currentZ: 14,
   }
-  ;(selection as unknown as { _frameTileCache: FrameTileCache })._frameTileCache = frameTileCache
+  ;(
+    selection as unknown as { _frameTileCacheLru: Map<number, FrameTileCache> }
+  )._frameTileCacheLru.set(frameTileCache.marginPx, frameTileCache)
   ;(vtr as unknown as { _selection: TileSelectionCache })._selection = selection
   return vtr
 }

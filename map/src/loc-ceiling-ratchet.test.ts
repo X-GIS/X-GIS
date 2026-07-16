@@ -248,7 +248,14 @@ const CEILINGS: Record<string, number> = {
   // decided over the drawn set, not a Mercator-frustum proxy. +18 is the two-arm
   // selector branch (irreducible: both selector calls wrap one-arg-per-line under
   // prettier) + its rationale. Lower as #991 decomposes the selection SCC.
-  'map/src/render/tile-selection-cache.ts': 948,
+  // 948→977 (#1153 #12): SINGLE-slot frame-tile memo → per-margin LRU. N shows
+  // with divergent stroke-derived cull margins ping-ponged the one slot within a
+  // frame, re-running the 7-16 ms quadtree walk several times per frame; the LRU
+  // (keyed by marginPx, SAME frameId/currentZ/maxLevel invalidation) walks once
+  // per distinct margin. +29 = LRU map + per-entry array ownership (a shared
+  // scratch would clobber across margins) + the walk-count gate hook. The file's
+  // own doc mandates keeping selection cohesive (no split); lower as #991 decomposes.
+  'map/src/render/tile-selection-cache.ts': 977,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`
