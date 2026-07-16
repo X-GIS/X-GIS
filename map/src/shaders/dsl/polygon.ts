@@ -132,9 +132,18 @@ const U = uniformStruct(
     // here to 16-align the cam_ecef_off_h vec4 below, so adding them kept the
     // struct at 256 at the time (#600 globe_eye later grew it to today's 272).
     // The extrude VS unpacks light_color_packed + reads intensity from
-    // light_dir_ecef.w; every other polygon variant ignores both fields.
+    // light_dir_ecef.w; every other polygon variant ignores light_color_packed.
     light_color_packed: u32T,
-    _pad_light_align: u32T,
+    // #1154 — fill-PATTERN gate (1 = this fill draw is a sprite pattern, 0 = a
+    // normal fill). fs_fill_pattern reuses the fill_translate_x/y slots for the
+    // world-anchored pattern repeat in Mercator metres; the VS otherwise reads
+    // those SAME slots as the Mapbox fill-translate NDC offset and shifts the
+    // vertex by clip += fill_translate·clip.w. With a pattern active that repeat
+    // (hundreds of thousands of metres) flings every vertex off-screen, so the
+    // fill drew NOTHING (blank pattern). This flag gates the VS fill-translate
+    // off when a pattern owns the slots. Was the `_pad_light_align` std140 pad
+    // (same u32 lane), now a real written field. Written per fill draw by the VTR.
+    pattern_active: u32T,
     // Camera-relative RTC re-centering (ECEF), DSFUN hi/lo. dequant yields
     // ecef_rtc = vertex − tileEcefCenter, but getECEFFrameView's MVP is
     // camera-at-ENU-origin (no cameraCenter translate), so the VS must feed
@@ -482,9 +491,14 @@ const vsMain = fn(
       extruded: false,
     })
     // Mapbox fill-translate viewport-anchor — runtime pre-bakes
-    // (px*2/canvasDim) so the shader just multiplies by clip.w.
-    clip.x.assign(clip.x.add(fillTx.mul(clip.w)))
-    clip.y.assign(clip.y.sub(fillTy.mul(clip.w)))
+    // (px*2/canvasDim) so the shader just multiplies by clip.w. GATED OFF for
+    // fill-PATTERN draws (#1154): fs_fill_pattern reuses the fill_translate_x/y
+    // slots for the world-anchored pattern repeat in Mercator metres, so applying
+    // them here as an NDC offset would fling every vertex off-screen (blank fill).
+    If(U.field.pattern_active.eq(0), () => {
+      clip.x.assign(clip.x.add(fillTx.mul(clip.w)))
+      clip.y.assign(clip.y.sub(fillTy.mul(clip.w)))
+    })
     // Log-depth rewrite + per-layer NDC-z bias (z = z − offset·w, computed inline).
     const pos0 = Let(apply_log_depth({ pos: clip, fc: logDepthFc })) // materialise once: `clip` is a mutated var so CSE can't hoist; without Let the 4 pos0.* reads below re-emit apply_log_depth (log2) 4× per vertex
     return VertexOutputIO.construct({
@@ -601,9 +615,14 @@ const vsMainEcef = fn(
       extruded: false,
     })
     // Mapbox fill-translate viewport-anchor — runtime pre-bakes
-    // (px*2/canvasDim) so the shader just multiplies by clip.w.
-    clip.x.assign(clip.x.add(fillTx.mul(clip.w)))
-    clip.y.assign(clip.y.sub(fillTy.mul(clip.w)))
+    // (px*2/canvasDim) so the shader just multiplies by clip.w. GATED OFF for
+    // fill-PATTERN draws (#1154): fs_fill_pattern reuses the fill_translate_x/y
+    // slots for the world-anchored pattern repeat in Mercator metres, so applying
+    // them here as an NDC offset would fling every vertex off-screen (blank fill).
+    If(U.field.pattern_active.eq(0), () => {
+      clip.x.assign(clip.x.add(fillTx.mul(clip.w)))
+      clip.y.assign(clip.y.sub(fillTy.mul(clip.w)))
+    })
     // Log-depth rewrite + per-layer NDC-z bias (z = z − offset·w, computed inline).
     const pos0 = Let(apply_log_depth({ pos: clip, fc: logDepthFc })) // materialise once: `clip` is a mutated var so CSE can't hoist; without Let the 4 pos0.* reads below re-emit apply_log_depth (log2) 4× per vertex
     return VertexOutputIO.construct({
@@ -699,8 +718,13 @@ const vsMainEcefExtruded = fn(
       isTop: p.is_top,
       wallHeight: p.wall_height,
     })
-    clip.x.assign(clip.x.add(fillTx.mul(clip.w)))
-    clip.y.assign(clip.y.sub(fillTy.mul(clip.w)))
+    // fill-translate viewport-anchor — GATED OFF for fill-PATTERN draws (#1154):
+    // fs_fill_pattern reuses the fill_translate slots for the pattern repeat, so
+    // applying them as an NDC offset would fling the extruded fill off-screen.
+    If(U.field.pattern_active.eq(0), () => {
+      clip.x.assign(clip.x.add(fillTx.mul(clip.w)))
+      clip.y.assign(clip.y.sub(fillTy.mul(clip.w)))
+    })
     // Log-depth rewrite + per-layer NDC-z bias (z = z − offset·w, computed inline).
     const pos0 = Let(apply_log_depth({ pos: clip, fc: logDepthFc })) // materialise once: `clip` is a mutated var so CSE can't hoist; without Let the 4 pos0.* reads below re-emit apply_log_depth (log2) 4× per vertex
 

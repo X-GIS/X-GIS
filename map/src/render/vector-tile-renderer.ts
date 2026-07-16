@@ -838,6 +838,7 @@ export class VectorTileRenderer {
     B.set.zoom(cached.tileZoom)
     B.set.fill_translate_x(0)
     B.set.fill_translate_y(0)
+    B.set.pattern_active(0) // #1154 — no pattern on this path
     B.set.tile_dequant_scale(cached.dequantScale)
     B.set.tile_dequant_half(cached.dequantHalf)
 
@@ -1095,6 +1096,7 @@ export class VectorTileRenderer {
       B.set.zoom(this.currentCameraZoom)
       B.set.fill_translate_x(0)
       B.set.fill_translate_y(0)
+      B.set.pattern_active(0) // #1154 — no pattern on this path
       B.set.tile_dequant_scale(cached.dequantScale)
       B.set.tile_dequant_half(cached.dequantHalf)
 
@@ -1373,6 +1375,7 @@ export class VectorTileRenderer {
       B.set.zoom(this.currentCameraZoom)
       B.set.fill_translate_x(0)
       B.set.fill_translate_y(0)
+      B.set.pattern_active(0) // #1154 — no pattern on this path
       B.set.tile_dequant_scale(cached.dequantScale)
       B.set.tile_dequant_half(cached.dequantHalf)
 
@@ -4214,12 +4217,17 @@ export class VectorTileRenderer {
       // same slots with the pattern repeat in Mercator metres
       // (fs_fill_pattern reads u.fill_translate as repeat_m for the
       // world-anchored UV). Pattern shows cannot also use fill-translate.
+      // #1154 — pattern_active gates the VS fill-translate: a pattern fill packs
+      // the world repeat (Mercator metres) into fill_translate_x/y, which the VS
+      // must NOT apply as an NDC offset (it would fling the fill off-screen).
       if (this._patternUniformActive) {
         this.frameBlock.set.fill_translate_x(this._patternRepeatMX)
         this.frameBlock.set.fill_translate_y(this._patternRepeatMY)
+        this.frameBlock.set.pattern_active(1)
       } else {
         this.frameBlock.set.fill_translate_x(this.currentFillTranslateNdcX)
         this.frameBlock.set.fill_translate_y(this.currentFillTranslateNdcY)
+        this.frameBlock.set.pattern_active(0)
       }
 
       // tile_dequant_scale (48) + tile_dequant_half (49) — per-tile

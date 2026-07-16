@@ -90,7 +90,10 @@ const CEILINGS: Record<string, number> = {
   // EXTRACTED to render/vector-drape-stroke.ts; VTR keeps only the wiring (the
   // captured stroke style + the drape-seam gate/strokeKey + the drawStrokes
   // suppression + the in-bake bakeTileStrokes call). Lower as #991 decomposes VTR.
-  'map/src/render/vector-tile-renderer.ts': 4487,
+  // 4487→4494 (#1154): pattern_active flag written per fill draw (both the
+  // pattern/else branch at the fill_translate site + the three sentinel paths)
+  // so the VS knows to gate off fill-translate when a pattern owns those slots.
+  'map/src/render/vector-tile-renderer.ts': 4494,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -112,7 +115,10 @@ const CEILINGS: Record<string, number> = {
   // (pattern-only backgrounds inject a default-black carrier) and the pattern
   // pass-through at the three synthetic-show injection sites. All at existing
   // sites; the carrier decision itself lives in synthetic-earth-surface-show.ts.
-  'map/src/map.ts': 4276,
+  // 4276→4283 (#1154): the world-band reinstall now rebuilds the dispatch list
+  // when the synthetic background was re-installed (not only when polar caps
+  // changed), so the globe background-pattern's fresh show reaches vectorTileShows.
+  'map/src/map.ts': 4283,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -176,7 +182,10 @@ const CEILINGS: Record<string, number> = {
   'map/src/render/pipeline-factory.ts': 1458,
   'map/src/camera/camera.ts': 1419,
   'map/src/shaders/dsl/line.ts': 1373,
-  'map/src/shaders/dsl/polygon.ts': 1315,
+  // 1315→1339 (#1154): the pattern_active struct field (+ its rationale comment)
+  // and the fill-translate `if (pattern_active == 0)` gate in the three VS entries
+  // (vs_main / vs_main_ecef / vs_main_ecef_extruded) — fixes blank fill-patterns.
+  'map/src/shaders/dsl/polygon.ts': 1339,
   'data/src/tile-catalog.ts': 1290,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam

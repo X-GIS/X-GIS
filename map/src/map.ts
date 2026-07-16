@@ -958,8 +958,9 @@ export class XGISMap {
         if (prevBand === nextBand) return
         // Synthetic background — its mesh latitude band is fixed per instance,
         // so a band change must re-install the backend with the new band.
-        if (this._syntheticBackend && this._backgroundColor) {
-          const rgba = this._backgroundColor
+        const bgReinstalled = !!(this._syntheticBackend && this._backgroundColor)
+        if (bgReinstalled) {
+          const rgba = this._backgroundColor!
           this.setBackgroundFill(null)
           this.setBackgroundFill(rgba)
         }
@@ -971,7 +972,13 @@ export class XGISMap {
         const hadCaps = this.geojsonCapPoles.size > 0
         if (nextBand === 'mercator-clamped') detachGeoJSONPolarCaps(this._polarCapHost())
         else installGeoJSONPolarCaps(this._polarCapHost())
-        if (hadCaps && this.renderer) this.rebuildLayers()
+        // #1154 — the bg re-install above prepended a FRESH synthetic show to
+        // showCommands, but the dispatch list (vectorTileShows) is built only at
+        // rebuildLayers time. Without a rebuild the draw keeps the stale pre-switch
+        // show whose fillPatternUV never resolves, so the globe drape (which needs
+        // fillPatternUV == null) bakes a SOLID fill and the background-pattern is
+        // lost. Rebuild whenever caps changed OR the synthetic bg was re-installed.
+        if ((hadCaps || bgReinstalled) && this.renderer) this.rebuildLayers()
       },
     })
     // Source-ingest cluster — receives the SAME source-state Map
