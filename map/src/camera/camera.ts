@@ -497,24 +497,23 @@ export class Camera {
    *  line / point / raster / text VSes from Mercator-vertex + per-vertex
    *  `project_geom` to ECEF-vertex + linear `mvp * vec4(ecef_rtc, 1)`.
    *
-   *  Uses the **sphere** variant (radius A, E2=0) so the ECEF basis matches
-   *  the legacy spherical-Mercator MVP basis used by `_buildRTCMatrix`
-   *  (`WORLD_MERC = 2π × A`). Building on the WGS84 ellipsoid would introduce a
-   *  0.67 % north-axis compression that breaks the ECEF-MVP↔legacy-Mercator
-   *  convergence (`polygon-ecef-mvp-latitude-parity`, AC2c.1.5) at every
-   *  non-equatorial latitude — verified: switching this to the ellipsoid blows
-   *  19/24 cells past the 1.5 px gate. The vertex/camera frame "mismatch" the
-   *  #189 guard pins is by design: the tiler's ellipsoid vertices stay within
-   *  ≤1.5 px of this sphere anchor over an RTC tile extent, while keeping the
-   *  Mercator pixel-parity (AC1) the sphere basis guarantees. See
-   *  `lonLatToECEFSphere` for the full rationale. */
+   *  Uses the WGS84 **ellipsoid** (`lonLatToECEF`, E2≠0) — the SINGLE
+   *  3D-position datum, the tiles' own frame (`computeTileCameraAnchor`,
+   *  `rasterGlobeCamAnchor` are already ellipsoid). #1152 INC-1 moved this off
+   *  the sphere so point/label features share the tiles' datum instead of the
+   *  ~21–24 km split that mis-placed them at pitch>0 / high latitude. ADR-0002
+   *  had kept the sphere because an ellipsoid anchor "blew 19/24 cells" of the
+   *  flat parity gate — but that gate used SPHERE test vertices (a non-production
+   *  pair); it now tests the production ellipsoid pair, which converges within
+   *  the derived ~1.7 px north-axis residual (the 0.67% `(1−E2)` factor, not the
+   *  21 km MIXED-basis catastrophe). See the ellipsoid-datum-unification design
+   *  doc + ADR-0002. */
   getECEFCenter(): ECEF {
     // Derive lon from the Mercator centerX, but use the maintained true centre
     // latitude (centerLatDeg) instead of inverting the Mercator-bounded centerY.
-    // For |lat|<=85.05 this is byte-identical to mercatorToECEFSphere(centerX,
-    // centerY) (mercatorToECEFSphere(mx,my) === lonLatToECEFSphere(mx/A·RAD2DEG,
-    // mercatorYToLat(my))); past 85.05 on the sphere it places the ECEF anchor
-    // at the true pole-ward latitude so the globe orbit can reach the pole.
+    // For |lat|<=85.05 this equals mercatorToECEF(centerX, centerY); past 85.05
+    // it places the ECEF anchor at the true pole-ward latitude so the globe
+    // orbit can reach the pole.
     return ecefCenterOf(this)
   }
 

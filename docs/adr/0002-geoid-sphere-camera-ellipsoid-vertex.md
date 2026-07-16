@@ -181,3 +181,41 @@ case in the regression gate.
   anchor that the camera offset must match.
 - `docs/COORDINATES.md` — the LL/MM/DLM/SP convention this ADR sits beside.
 - Commit `5125c182` (#208) — the globe-RTC ellipsoid-camera fix.
+
+## Addendum — 2026-07-16: superseded by #1152 INC-1 (camera anchor → ellipsoid)
+
+**The "keep the split" decision above is superseded.** `getECEFCenter` /
+`ecefCenterOf` now derive the camera anchor on the WGS84 **ellipsoid**
+(`lonLatToECEF`), unifying it with the tile vertices, `computeTileCameraAnchor`,
+and `rasterGlobeCamAnchor` — all of which were already ellipsoid. This is INC-1
+of the ellipsoid-datum-unification epic (#1152); see
+`docs/architecture/design/ellipsoid-datum-unification.md`. History above is left
+intact — this addendum records why the D4 measurement did not actually forbid
+the unification.
+
+**Why the D4 "blows 19/24 cells" measurement did not forbid the ellipsoid
+camera.** The `polygon-ecef-mvp-latitude-parity` gate built its test vertices
+with the SPHERE forward (`mercatorToECEFSphere`) while the production tiler packs
+the ELLIPSOID (`packECEFPolygonVertices`, `N = A/√(1−E2·sin²)`). The D4
+experiment kept those sphere vertices and moved only the camera anchor to the
+ellipsoid — a **MIXED basis** (sphere vertex ↔ ellipsoid anchor). That injects
+the full ~21 km absolute sphere−ellipsoid gap of the focus point as a constant
+clip shift → thousands of px → the 19/24 blow-up. It was the mixed basis that
+failed, not the ellipsoid.
+
+**The gate now tests the PRODUCTION pair** (ellipsoid vertex ↔ ellipsoid anchor,
+`mercatorToECEF` both). The ~21 km constant cancels in the RTC subtraction,
+leaving only the ellipsoid E/N anisotropy the isotropic cos(lat) correction
+cannot cancel: `fN(φ) = (1−E2)/(1−E2·sin²φ)^1.5`, `fE(φ) = 1/√(1−E2·sin²φ)`,
+max `|f−1| = E2 ≈ 0.669%` at the equator (north). Over a 256 px tile that is
+`0.00669 × 256 ≈ 1.71 px` — the honest ellipsoid↔spherical-Mercator datum
+difference (~1.7 px @ z14), NOT drift. Re-derived thresholds: **2.5 px** across
+the 24-cell matrix (measured deterministic ceiling 1.91 px), **2.0 px** at the
+lat=0 z14 precision cell (measured 1.725 px). The flat spherical Mercator
+projection (projType 0) is unchanged — Web Mercator is spherical by EPSG:3857
+and stays that way; only the 3D-position datum moved to the ellipsoid.
+
+- `map/src/camera/view-matrix.ts` (`ecefCenterOf`), `map/src/camera/camera.ts`
+  (`getECEFCenter`) — the ellipsoid anchor.
+- `map/src/render/camera-anchor-split-brain.test.ts` — the fail-first witness
+  (point↔polygon 5697 px @ lat 60/z14/pitch 45 before → <0.5 px after).

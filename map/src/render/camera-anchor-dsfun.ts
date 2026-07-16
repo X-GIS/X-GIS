@@ -23,7 +23,7 @@ export interface CameraAnchorDsfun {
  *  (camera.centerX/Y) with the z lane forced to 0 — the flat VS reads only the
  *  .xy lanes (`rel = project(abs) − (cam_ecef_h.xy + cam_ecef_l.xy)`, ignoring
  *  .z). Every other projection (3D / globe) anchors on the ECEF centre
- *  (camera.getECEFCenter, sphere).
+ *  (camera.getECEFCenter, WGS84 ellipsoid — the tiles' datum, #1152 INC-1).
  *
  *  BYTE-IDENTICAL extraction: the emitted hi/lo values and their lane order match
  *  the split both renderers packed inline (a wrong split = wrong positions, so the
