@@ -2277,6 +2277,29 @@ export class XGISMap {
   }
 
   /** Load and run an X-GIS program */
+  /** F1 — collect the unique shader variants a show list needs prewarmed
+   *  (preamble / feature-buffer variants carrying a cache key), deduped by
+   *  key. Pure over `shows`. Called twice in `run()`: once with
+   *  `commands.shows` to KICK the driver pipeline compile before the
+   *  data-load settle (so it overlaps the tile-source network RTTs instead
+   *  of serializing after them), and once with the FINAL `showCommands`
+   *  (post synthetic-earth-surface / polar-cap) at the await site to pick up
+   *  any variant the early list missed. */
+  private _collectShaderVariants(
+    shows: SceneCommands['shows'],
+  ): import('@xgis/compiler').ShaderVariant[] {
+    const variants: import('@xgis/compiler').ShaderVariant[] = []
+    const seen = new Set<string>()
+    for (const show of shows) {
+      const v = show.shaderVariant
+      if (v && (v.preamble || v.needsFeatureBuffer) && v.key && !seen.has(v.key)) {
+        seen.add(v.key)
+        variants.push(v)
+      }
+    }
+    return variants
+  }
+
   async run(source: string, baseUrl = ''): Promise<void> {
     // Re-entry guard. A destroyed map is inert — re-running would
     // resurrect it (re-arm the render loop + hold a fresh GPUDevice for
@@ -2727,6 +2750,33 @@ export class XGISMap {
     } catch (e) {
       xlog.warn('[X-GIS] LineRenderer init failed:', e)
     }
+
+    // F1 — KICK the shader-variant pipeline prewarm HERE, before the
+    // data-load `Promise.allSettled` below, so the GPU driver compiles the
+    // variant pipeline sets in PARALLEL with the tile-source network settle
+    // instead of serialized after it (audit #1/#2 — the prewarm used to
+    // start only at the await site far below, adding min(driver-compile,
+    // attach-RTT) 1:1 to time-to-first-map). The variant list derives from
+    // `commands.shows` now: the synthetic earth-surface show prepended
+    // post-attach carries NO shaderVariant and the polar-cap installs reuse
+    // existing shows, so this early list is complete; the await site
+    // re-collects the FINAL list (post synthetic-surface / polar-cap) and
+    // prewarms only the DELTA (keys not in the early list), which avoids a
+    // double-compile race if the network settles before the driver does.
+    // `.catch` swallows here so an early rejection cannot surface as an
+    // unhandled rejection across the data-load await; the gate is `await`ed
+    // below before rebuildLayers.
+    const earlyVariants = this._collectShaderVariants(commands.shows)
+    const earlyVariantKeys = new Set(earlyVariants.map((v) => v.key))
+    const shaderPrewarm = this.renderer
+      .prewarmShaderVariantsAsync(earlyVariants)
+      .catch((e) =>
+        xlog.warn(
+          '[X-GIS] shader prewarm failed (falling back to lazy compile on first draw):',
+          (e as Error).message,
+        ),
+      )
+
     // VT sources/renderers created per .xgvt file in the load loop
 
     // 3. Load data — all sources in parallel. Sequential awaits used to
@@ -2882,34 +2932,36 @@ export class XGISMap {
       (commands as { computePlan?: import('@xgis/compiler').ComputePlanEntry[] }).computePlan,
     )
 
-    // Prewarm shader-variant pipelines BEFORE rebuildLayers so the
-    // GPU driver compiles them in parallel with the rest of init.
-    // Without this, `rebuildLayers` calls the synchronous
-    // `getOrCreateVariantPipelines` (createRenderPipeline) which
-    // returns a handle but defers driver compile to first draw —
-    // showing up as a >1 s `(idle)` block on the first post-ready
-    // frame for variant-heavy demos (filter_gdp at z=8 Europe).
-    // `createRenderPipelineAsync` lets the driver work in the
-    // background so the frame budget recovers.
-    const variants: import('@xgis/compiler').ShaderVariant[] = []
-    const seen = new Set<string>()
-    for (const show of this.showCommands) {
-      const v = show.shaderVariant
-      if (v && (v.preamble || v.needsFeatureBuffer) && v.key && !seen.has(v.key)) {
-        seen.add(v.key)
-        variants.push(v)
-      }
-    }
-    if (variants.length > 0) {
-      try {
-        await this.renderer.prewarmShaderVariantsAsync(variants)
-      } catch (e) {
-        xlog.warn(
-          '[X-GIS] shader prewarm failed (falling back to lazy compile on first draw):',
-          (e as Error).message,
-        )
-      }
-    }
+    // F1 — GATE ready on the shader-variant prewarm kicked before the
+    // data-load settle (above). Compiling the variant pipeline sets BEFORE
+    // rebuildLayers keeps the synchronous `getOrCreateVariantPipelines`
+    // (createRenderPipeline) in rebuildLayers from deferring driver compile
+    // to first draw — otherwise a >1 s `(idle)` block hits the first
+    // post-ready frame for variant-heavy demos (filter_gdp at z=8 Europe).
+    // Belt-and-braces: re-collect the FINAL show list (post
+    // synthetic-earth-surface / polar-cap) and prewarm only the DELTA —
+    // variant keys NOT already requested by the early kick. The early list
+    // is expected complete (the synthetic/cap shows carry no shaderVariant),
+    // so the delta is normally empty; filtering by the early keys (rather
+    // than relying on the completed-cache skip in prewarmShaderVariantsAsync)
+    // avoids re-requesting a key whose driver compile is still in flight,
+    // which would otherwise double-compile it when the network settles first.
+    const deltaVariants = this._collectShaderVariants(this.showCommands).filter(
+      (v) => !earlyVariantKeys.has(v.key),
+    )
+    await Promise.all([
+      shaderPrewarm,
+      deltaVariants.length > 0
+        ? this.renderer
+            .prewarmShaderVariantsAsync(deltaVariants)
+            .catch((e) =>
+              xlog.warn(
+                '[X-GIS] shader prewarm failed (falling back to lazy compile on first draw):',
+                (e as Error).message,
+              ),
+            )
+        : Promise.resolve(),
+    ])
 
     // A destroy() may have landed across the data-load / prewarm awaits.
     // Stop before rebuildLayers + re-arming the render loop — otherwise

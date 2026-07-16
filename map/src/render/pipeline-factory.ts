@@ -147,8 +147,26 @@ function toComposerVariant(
   }
 }
 
+/** F4 — WGSL emit memo, keyed by the pipeline cache key (ShaderVariantInfo.key,
+ *  or `__base__` for the null-variant base shader) + pickEnabled. `buildShader`
+ *  is the single ShaderVariantInfo→WGSL choke point; `emitPolygonWgsl` runs the
+ *  full shader-dsl emit + O2 fixpoint over the merged 8-projection polygon
+ *  module and has no memoization of its own, so without this every buildShader
+ *  call across the sync + async pipeline builders re-runs the optimizer for a
+ *  variant already emitted. The emit is a pure function of (variant, pick) and
+ *  variant.key already uniquely identifies the pipeline (it keys shaderCache),
+ *  so this is a byte-exact cache — same key ⇒ same WGSL. (emitPolygonWgsl stays
+ *  untouched, so the polygon-variant snapshot drift gate is unaffected.) */
+const _buildShaderWgslCache = new Map<string, string>()
+
 function buildShader(variant?: ShaderVariantInfo | null): string {
-  return emitPolygonWgsl(toComposerVariant(variant), isPickEnabled())
+  const pick = isPickEnabled()
+  const cacheKey = `${variant?.key ?? '__base__'}::${pick ? 1 : 0}`
+  const hit = _buildShaderWgslCache.get(cacheKey)
+  if (hit !== undefined) return hit
+  const wgsl = emitPolygonWgsl(toComposerVariant(variant), pick)
+  _buildShaderWgslCache.set(cacheKey, wgsl)
+  return wgsl
 }
 
 // ═══ PipelineFactory ═══
@@ -214,20 +232,29 @@ export class PipelineFactory {
   }
   /** Build + register the per-style fill Material twins for a variant pipeline set (behind the flag).
    *  Keyed by each native per-style pipeline so recordFillDraw routes them via the Material seam. */
-  private registerFillMaterials(variant: ShaderVariantInfo, pipelines: CachedPipeline): void {
+  private registerFillMaterials(
+    variant: ShaderVariantInfo,
+    pipelines: CachedPipeline,
+    wgsl: string,
+  ): void {
     // #746 — same boot guard as build(): the twins couple to WebGPU-native objects
     // that are Proxy stubs on the forced-WebGL2 slice (see build()).
     if (this.ctx.rhi.backend === 'webgl2') return
     const { format } = this.ctx
-    const cv = toComposerVariant(variant)
     // #778 P6 — NO GLSL twin emit here. The webgl2 early-return above means this body
     // runs ONLY on WebGPU, which never consumes vsCode/fsCode; the emitPolygonGlsl pair
     // #775 added was therefore pure boot waste (two shader emits + optimize per per-style
     // variant, discarded). The WebGL2 full-frame phase that re-bases these twins onto
     // RHI-native objects will re-add the GLSL emit past its own live guard.
+    // F4 — reuse the WGSL already emitted by buildShader for this variant's
+    // pipeline module (plumbed in as `wgsl`), byte-identical to the removed
+    // `emitPolygonWgsl(toComposerVariant(variant), isPickEnabled())` call. The
+    // Material twin's shader IS the pipeline's shader, so re-emitting it here
+    // (a second full emit + O2 fixpoint per variant, ~13× on OFM Bright) was
+    // pure boot waste on the WebGPU main thread.
     const { flat, ground } = buildFlatFillMaterials({
       rhi: this.ctx.rhi,
-      shader: emitPolygonWgsl(cv, isPickEnabled()),
+      shader: wgsl,
       format,
       sampleCount: getSampleCount(),
       bindGroupLayout: this.getOrBuildVariantLayout(variant),
@@ -545,7 +572,10 @@ export class PipelineFactory {
     // the polygon DSL composer. The composer's `pickEnabled` flag drives
     // the pick-attachment field + write directly (replaces the old
     // __PICK_FIELD__ / __PICK_WRITE__ regex markers in POLYGON_SHADER_SOURCE).
-    const pickShader = emitPolygonWgsl(null, isPickEnabled())
+    // F4 — via the memoized `buildShader(null)` (byte-identical to
+    // `emitPolygonWgsl(null, isPickEnabled())`) so the base-shader emit is
+    // shared with any other null-variant build instead of re-optimized.
+    const pickShader = buildShader(null)
     const shaderModule = device.createShaderModule({
       code: pickShader,
       label: 'xgis-shader',
@@ -1089,9 +1119,9 @@ export class PipelineFactory {
   getOrCreateVariantPipelines(variant: ShaderVariantInfo): CachedPipeline {
     const cached = this.shaderCache.get(variant.key)
     if (cached) return cached
-    const pipelines = this.createVariantPipelines(variant)
+    const { pipelines, wgsl } = this.createVariantPipelines(variant)
     this.shaderCache.set(variant.key, pipelines)
-    this.registerFillMaterials(variant, pipelines)
+    this.registerFillMaterials(variant, pipelines, wgsl)
     return pipelines
   }
 
@@ -1105,9 +1135,9 @@ export class PipelineFactory {
 
   /** Build + cache a variant pipeline set (addLayer MISS path). */
   cacheVariantPipelines(variant: ShaderVariantInfo): CachedPipeline {
-    const pipelines = this.createVariantPipelines(variant)
+    const { pipelines, wgsl } = this.createVariantPipelines(variant)
     this.shaderCache.set(variant.key, pipelines)
-    this.registerFillMaterials(variant, pipelines)
+    this.registerFillMaterials(variant, pipelines, wgsl)
     return pipelines
   }
 
@@ -1131,9 +1161,9 @@ export class PipelineFactory {
     for (const v of variants) {
       if (this.shaderCache.has(v.key)) continue
       tasks.push(
-        this.createVariantPipelinesAsync(v).then((pipelines) => {
+        this.createVariantPipelinesAsync(v).then(({ pipelines, wgsl }) => {
           this.shaderCache.set(v.key, pipelines)
-          this.registerFillMaterials(v, pipelines)
+          this.registerFillMaterials(v, pipelines, wgsl)
         }),
       )
     }
@@ -1164,6 +1194,7 @@ export class PipelineFactory {
       lineFallback: GPURenderPipelineDescriptor
     }[]
     pickEnabled: boolean
+    wgsl: string
   } {
     const { device, format } = this.ctx
     const wgsl = buildShader(variant)
@@ -1265,14 +1296,20 @@ export class PipelineFactory {
 
     const descriptors = [buildSetDesc(colorTargets, '')]
     if (pickEnabled) descriptors.push(buildSetDesc(colorTargetsNoPick, '-nopick'))
-    return { descriptors, pickEnabled }
+    return { descriptors, pickEnabled, wgsl }
   }
 
-  async createVariantPipelinesAsync(variant: ShaderVariantInfo): Promise<CachedPipeline> {
+  async createVariantPipelinesAsync(
+    variant: ShaderVariantInfo,
+  ): Promise<{ pipelines: CachedPipeline; wgsl: string }> {
     // #834 S4 — same inert sentinel as the sync builder (see GL2_VARIANT_SENTINEL).
-    if (this.ctx.rhi.backend === 'webgl2') return PipelineFactory.GL2_VARIANT_SENTINEL
+    if (this.ctx.rhi.backend === 'webgl2')
+      return { pipelines: PipelineFactory.GL2_VARIANT_SENTINEL, wgsl: '' }
     const { device } = this.ctx
-    const { descriptors, pickEnabled } = this.buildVariantDescriptors(variant, this._layoutFor)
+    const { descriptors, pickEnabled, wgsl } = this.buildVariantDescriptors(
+      variant,
+      this._layoutFor,
+    )
     const built = await Promise.all(
       descriptors.map(async (set) => ({
         fill: await device.createRenderPipelineAsync(set.fill),
@@ -1286,18 +1323,21 @@ export class PipelineFactory {
     const p = built[0]
     const np = pickEnabled ? built[1] : p
     return {
-      fillPipeline: p.fill,
-      fillPipelineGround: p.fillGround,
-      linePipeline: p.line,
-      fillPipelineFallback: p.fillFallback,
-      fillPipelineGroundFallback: p.fillGroundFallback,
-      linePipelineFallback: p.lineFallback,
-      fillPipelineNoPick: np.fill,
-      fillPipelineGroundNoPick: np.fillGround,
-      linePipelineNoPick: np.line,
-      fillPipelineFallbackNoPick: np.fillFallback,
-      fillPipelineGroundFallbackNoPick: np.fillGroundFallback,
-      linePipelineFallbackNoPick: np.lineFallback,
+      pipelines: {
+        fillPipeline: p.fill,
+        fillPipelineGround: p.fillGround,
+        linePipeline: p.line,
+        fillPipelineFallback: p.fillFallback,
+        fillPipelineGroundFallback: p.fillGroundFallback,
+        linePipelineFallback: p.lineFallback,
+        fillPipelineNoPick: np.fill,
+        fillPipelineGroundNoPick: np.fillGround,
+        linePipelineNoPick: np.line,
+        fillPipelineFallbackNoPick: np.fillFallback,
+        fillPipelineGroundFallbackNoPick: np.fillGroundFallback,
+        linePipelineFallbackNoPick: np.lineFallback,
+      },
+      wgsl,
     }
   }
 
@@ -1311,8 +1351,12 @@ export class PipelineFactory {
    *  behaviourally identical and lets S6 null the device. */
   private static readonly GL2_VARIANT_SENTINEL = Object.freeze({}) as unknown as CachedPipeline
 
-  createVariantPipelines(variant: ShaderVariantInfo): CachedPipeline {
-    if (this.ctx.rhi.backend === 'webgl2') return PipelineFactory.GL2_VARIANT_SENTINEL
+  createVariantPipelines(variant: ShaderVariantInfo): {
+    pipelines: CachedPipeline
+    wgsl: string
+  } {
+    if (this.ctx.rhi.backend === 'webgl2')
+      return { pipelines: PipelineFactory.GL2_VARIANT_SENTINEL, wgsl: '' }
     const { device, format } = this.ctx
     const wgsl = buildShader(variant)
     const msaaState: GPUMultisampleState = { count: getSampleCount() }
@@ -1426,18 +1470,21 @@ export class PipelineFactory {
     const np = pickEnabled ? buildSet(colorTargetsNoPick, '-nopick') : p
 
     return {
-      fillPipeline: p.fill,
-      fillPipelineGround: p.fillGround,
-      linePipeline: p.line,
-      fillPipelineFallback: p.fillFallback,
-      fillPipelineGroundFallback: p.fillGroundFallback,
-      linePipelineFallback: p.lineFallback,
-      fillPipelineNoPick: np.fill,
-      fillPipelineGroundNoPick: np.fillGround,
-      linePipelineNoPick: np.line,
-      fillPipelineFallbackNoPick: np.fillFallback,
-      fillPipelineGroundFallbackNoPick: np.fillGroundFallback,
-      linePipelineFallbackNoPick: np.lineFallback,
+      pipelines: {
+        fillPipeline: p.fill,
+        fillPipelineGround: p.fillGround,
+        linePipeline: p.line,
+        fillPipelineFallback: p.fillFallback,
+        fillPipelineGroundFallback: p.fillGroundFallback,
+        linePipelineFallback: p.lineFallback,
+        fillPipelineNoPick: np.fill,
+        fillPipelineGroundNoPick: np.fillGround,
+        linePipelineNoPick: np.line,
+        fillPipelineFallbackNoPick: np.fillFallback,
+        fillPipelineGroundFallbackNoPick: np.fillGroundFallback,
+        linePipelineFallbackNoPick: np.lineFallback,
+      },
+      wgsl,
     }
   }
 

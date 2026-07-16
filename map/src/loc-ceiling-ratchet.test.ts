@@ -118,7 +118,15 @@ const CEILINGS: Record<string, number> = {
   // 4276→4283 (#1154): the world-band reinstall now rebuilds the dispatch list
   // when the synthetic background was re-installed (not only when polar caps
   // changed), so the globe background-pattern's fresh show reaches vectorTileShows.
-  'map/src/map.ts': 4284,
+  // 4284→4336 (#1155 F1 mount-hang): the shader-variant prewarm now KICKS before
+  // the data-load settle (so driver pipeline compile overlaps the tile-source
+  // network RTTs instead of serializing after them) and GATEs ready on a
+  // delta belt-and-braces re-collect at the old await site — the
+  // `_collectShaderVariants` helper + the early-kick + the await-site delta,
+  // all at the run() flow with block comments documenting the reorder. Pure
+  // latency overlap, no behaviour change (§2 — composition-root reorder,
+  // nothing extract-worthy). Lower as #991 decomposes map.ts.
+  'map/src/map.ts': 4336,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -179,7 +187,16 @@ const CEILINGS: Record<string, number> = {
   // projectLonLatCopies tuple, and the 6-member return objects prettier now wraps
   // multi-line — together nudging this helper just over NEW_FILE_CAP (773→818).
   'map/src/render-loop-helpers.ts': 818,
-  'map/src/render/pipeline-factory.ts': 1458,
+  // 1458→1505 (#1155 F4 mount-hang): the per-variant WGSL emit is deduped —
+  // buildShader now memoizes emitPolygonWgsl by (variant.key, pickEnabled), and
+  // the already-emitted wgsl is plumbed through create{Variant}Pipelines[Async]
+  // + buildVariantDescriptors into registerFillMaterials, killing the SECOND
+  // full shader-dsl emit + O2 fixpoint per variant (~13× on OFM Bright, the
+  // main-thread mount-hang). +47 is the memo + the `{ pipelines, wgsl }` return
+  // threading + rationale comments; the emit is byte-identical (§2 — no
+  // extract-worthy unit, the dedup lives at the existing build sites). Lower as
+  // #991 decomposes the render SCC.
+  'map/src/render/pipeline-factory.ts': 1505,
   'map/src/camera/camera.ts': 1419,
   'map/src/shaders/dsl/line.ts': 1373,
   // 1315→1339 (#1154): the pattern_active struct field (+ its rationale comment)
