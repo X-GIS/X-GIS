@@ -965,7 +965,44 @@ function pushImportedInlineGeoJSON(inline: Record<string, unknown> | null | unde
 const b64ToUtf8 = (b64: string): string =>
   new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)))
 
+// Legacy-source migration shim (#1064/#1115 aftermath): sources converted or
+// stored BEFORE the mandatory `xgis 1` version pragma (2026-07-14) hard-fail
+// the parser with X-GIS0008 when re-run from sessionStorage/#src= hand-offs,
+// bookmarks, or a surviving editor buffer. The LIBRARY parser stays strict —
+// the pragma is the deliberate language-versioning gate — but the playground
+// is a dev harness: auto-prepend the v1 pragma for pragma-less sources so
+// pre-#1115 converter outputs keep running, with a console breadcrumb.
+// (Pre-#1138 sources using PRUNED constructs still fail with their own
+// specific errors — that break is intentional, #1072.)
+function ensureVersionPragma(source: string): string {
+  // Strip leading blank lines, // line comments and /* */ block comments to
+  // find the first significant token (comments may legally precede a pragma).
+  let rest = source
+  for (;;) {
+    const trimmed = rest.replace(/^\s+/, '')
+    if (trimmed.startsWith('//')) {
+      const nl = trimmed.indexOf('\n')
+      if (nl === -1) return source // comment-only source — let the parser speak
+      rest = trimmed.slice(nl + 1)
+    } else if (trimmed.startsWith('/*')) {
+      const end = trimmed.indexOf('*/')
+      if (end === -1) return source // unterminated — let the parser speak
+      rest = trimmed.slice(end + 2)
+    } else {
+      rest = trimmed
+      break
+    }
+  }
+  if (/^xgis\s+\d/.test(rest)) return source
+  console.warn(
+    '[X-GIS playground] legacy source without a version pragma — prepending "xgis 1" ' +
+      '(pre-2026-07-14 conversion; re-convert on /convert for a clean copy)',
+  )
+  return 'xgis 1\n\n' + source
+}
+
 async function runSource(source: string, label: string) {
+  source = ensureVersionPragma(source)
   errorDiv.style.display = 'none'
   currentMap?.stop()
 
