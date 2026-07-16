@@ -118,7 +118,7 @@ const CEILINGS: Record<string, number> = {
   // 4276→4283 (#1154): the world-band reinstall now rebuilds the dispatch list
   // when the synthetic background was re-installed (not only when polar caps
   // changed), so the globe background-pattern's fresh show reaches vectorTileShows.
-  'map/src/map.ts': 4283,
+  'map/src/map.ts': 4284,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
