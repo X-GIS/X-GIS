@@ -7,6 +7,7 @@
 // inverse of the camera, and the dateline-wrapping tile selection.
 
 import { describe, expect, it } from 'vitest'
+import { lonLatToECEF } from '@xgis/shared'
 import {
   EARTH_R,
   GLOBE_PROJ_TYPE,
@@ -18,6 +19,7 @@ import {
 
 const W = 1280,
   H = 720
+const DEG2RAD = Math.PI / 180
 
 function mulVec4(
   m: Float32Array,
@@ -141,35 +143,77 @@ describe('globe — orbit camera', () => {
   })
 })
 
-describe('globe — unproject (ray ↔ sphere)', () => {
-  it('screen centre unprojects back to the camera centre', () => {
-    for (const [lon, lat, pitch] of [
-      [0, 0, 0],
-      [127, 37, 0],
-      [127, 37, 45],
-      [-150, -20, 30],
+// INC-2 (ellipsoid-datum-unification.md): unprojectGlobe now intersects the
+// WGS84 ELLIPSOID (was: sphere of radius EARTH_R) and inverts via the
+// ellipsoidal ecefToLonLat, so cursor/pick/measure return the same geodetic
+// datum the vector tiles / point anchors use (unified in INC-1).
+//
+// Witness = round-trip: project a KNOWN ellipsoid surface point
+// (lonLatToECEF) through the globe camera to a screen pixel, unproject it, and
+// require the input geodetic lon/lat back. BEFORE the fix (sphere
+// intersection) the readback diverges by the sphere-vs-ellipsoid surface
+// offset |lonLatToECEF − globeForward|: 0 m @ lat0, ~21.3 km @ lat35,
+// ~24.5 km @ lat60, ~21.6 km @ lat85, ~21.4 km (= a − b) @ the pole — a
+// geodetic point read back spherically lands at its geocentric latitude
+// (≈0.03–0.19° off). AFTER, the round-trip closes to the f32-view-matrix floor
+// (the ~6.4 Mm absolute ECEF magnitude through a Float32Array MVP is the
+// limiter, NOT the ellipsoid math, which is exact to <1 mm). Equator and the
+// poles are the fixed points (geodetic == geocentric there), so they close
+// before AND after — the poles case guards the ecefToLonLat polar singularity.
+const METRE_PER_DEG = (Math.PI / 180) * EARTH_R
+/** Project the ellipsoid surface point at (ptLon,ptLat) through `view`,
+ *  unproject it, and return the ground-metre miss of the round-trip. */
+function unprojectRoundTripMetres(
+  view: ReturnType<typeof buildGlobeMatrix>,
+  ptLon: number,
+  ptLat: number,
+): number {
+  const e = lonLatToECEF(ptLon, ptLat, 0)
+  const clip = mulVec4(view.matrix, [e[0], e[1], e[2], 1])
+  const sx = (clip[0] / clip[3] + 1) * 0.5 * W
+  const sy = (1 - clip[1] / clip[3]) * 0.5 * H
+  const hit = unprojectGlobe(sx, sy, W, H, view)
+  if (!hit) return Infinity
+  const dLatM = (hit[1] - ptLat) * METRE_PER_DEG
+  // cos(lat) collapses the lon term to 0 at the poles, where lon is undefined.
+  const dLonM = (hit[0] - ptLon) * METRE_PER_DEG * Math.cos(ptLat * DEG2RAD)
+  return Math.hypot(dLatM, dLonM)
+}
+
+describe('globe — unproject (ray ↔ ellipsoid, INC-2)', () => {
+  // Metre floor (measured): AFTER the fix every centred round-trip closes to
+  // the f32 MVP limit — 16.7 m at the equator (pure Float32Array-matrix noise,
+  // zero datum offset there), 3–10 m at lat 35/60/85. BEFORE the fix those
+  // same latitudes miss by 20064 / 18486 / 3702 m (the sphere-vs-ellipsoid
+  // readback), so EPS_M = 50 sits ~3× over the f32 floor and ~75–400× under
+  // the divergence — only the genuinely sphere-vs-ellipsoid latitudes flip.
+  // The datum MATH itself is exact: ecefToLonLat∘lonLatToECEF round-trips to
+  // ~7e-15° (<1 mm); the residual here is the f32 MVP, not the ellipsoid.
+  const EPS_M = 50
+  it('a centred ellipsoid point round-trips to the geodetic datum (< EPS_M)', () => {
+    for (const [lon, lat] of [
+      [20, 0],
+      [20, 35],
+      [45, -35],
+      [70, 60],
+      [-110, -60],
+      [10, 85],
+      [-30, -85],
+      [0, 90],
+      [0, -90],
     ] as const) {
-      const v = buildGlobeMatrix(lon, lat, 4, pitch, 0, W, H)
-      const hit = unprojectGlobe(W / 2, H / 2, W, H, v)
-      expect(hit).not.toBeNull()
-      expect(hit![0]).toBeCloseTo(lon, 2)
-      expect(hit![1]).toBeCloseTo(lat, 2)
+      const v = buildGlobeMatrix(lon, lat, 4, 0, 0, W, H)
+      expect(unprojectRoundTripMetres(v, lon, lat)).toBeLessThan(EPS_M)
     }
   })
 
-  it('round-trips an off-centre screen pixel', () => {
+  it('round-trips an off-centre, pitched ellipsoid point', () => {
+    // Camera centred at (20,10) pitched/bearing'd; the probe point sits on the
+    // visible front hemisphere. Off-axis + pitch inflates the f32 MVP error,
+    // so the floor is looser than the on-axis EPS_M — still 100× under the
+    // ~24 km sphere divergence.
     const v = buildGlobeMatrix(20, 10, 4, 20, 45, W, H)
-    // A point we know is on the visible front hemisphere.
-    const truthLon = 24,
-      truthLat = 13
-    const p = globeForward(truthLon, truthLat)
-    const clip = mulVec4(v.matrix, [p[0], p[1], p[2], 1])
-    const sx = (clip[0] / clip[3] + 1) * 0.5 * W
-    const sy = (1 - clip[1] / clip[3]) * 0.5 * H
-    const hit = unprojectGlobe(sx, sy, W, H, v)
-    expect(hit).not.toBeNull()
-    expect(hit![0]).toBeCloseTo(truthLon, 1)
-    expect(hit![1]).toBeCloseTo(truthLat, 1)
+    expect(unprojectRoundTripMetres(v, 24, 13)).toBeLessThan(60)
   })
 
   it('a pixel pointing past the limb misses the globe (null)', () => {
