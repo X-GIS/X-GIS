@@ -127,14 +127,13 @@ export class RenderLoop {
     // and consumers of arena views don't outlive the prepare →
     // render → end sequence.
     this.host.textStage?.beginFrame()
-    // ONE interaction-aware dpr per frame (#929 B): derived here from the
-    // quality policy and passed BOTH to resizeCanvas (the swapchain size) and
-    // to the camera/MVP math below — a single computation makes the
-    // swapchain-vs-frame-math divergence structurally impossible. An opted-in
-    // host renders at the reduced QUALITY.interactionDpr during pan/zoom and
-    // full DPR at rest.
-    const dpr = effectiveDpr(this.host._interacting)
-    resizeCanvas(this.host.ctx, dpr)
+    // ONE interaction-aware dpr per frame (#929 B): effectiveDpr() derives it
+    // from the quality policy; resizeCanvas sizes the swapchain AND may reduce it
+    // uniformly to fit maxTextureDimension2D (#1153 M3), RETURNING the value that
+    // actually sized the buffer — adopt THAT for the camera/MVP math below so the
+    // swapchain-vs-frame-math divergence stays structurally impossible. An opted-in
+    // host renders at reduced QUALITY.interactionDpr during pan/zoom, full at rest.
+    const dpr = resizeCanvas(this.host.ctx, effectiveDpr(this.host._interacting))
     this._resolveFillPatterns()
 
     // Seed the animation clock on first rendered frame, then compute the
@@ -169,7 +168,7 @@ export class RenderLoop {
     const w = canvas.width,
       h = canvas.height
     if (w === 0 || h === 0) {
-      requestAnimationFrame(this.host.renderLoop)
+      this.host._scheduleFrame()
       return
     }
 
@@ -276,7 +275,7 @@ export class RenderLoop {
       this.host._lastSigW = this.host.ctx.canvas.width
       this.host._lastSigH = this.host.ctx.canvas.height
       this.host._needsRender = rhiWorkPending
-      requestAnimationFrame(this.host.renderLoop)
+      this.host._scheduleFrame()
       return
     }
 
@@ -730,7 +729,7 @@ export class RenderLoop {
       }
     }
 
-    requestAnimationFrame(this.host.renderLoop)
+    this.host._scheduleFrame()
   }
 
   /** Forced-WebGL2 slice frame (?forcegl2=1): an isolated single-sample WebGL2 screen

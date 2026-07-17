@@ -44,7 +44,7 @@ import {
 } from './geojson-polar-cap-show'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { getSharedGeoJSONCompilePool } from '@xgis/data'
-import { getMaxDpr, effectiveDpr, getSampleCount } from '@xgis/engine'
+import { canvasEffectiveDpr, getSampleCount } from '@xgis/engine'
 // #834 M-B2 — the neutral surface (BackendChoice = public XGISMapOptions.backend
 // type; RhiDeviceLostInfo = onDeviceLost payload) comes from @xgis/engine, not
 // the concrete backend. GPUContext + boot providers stay on rhi-webgpu (Layer 2).
@@ -103,6 +103,7 @@ import {
   type XGISMapListener,
 } from './layer'
 import { attachAutoResize } from './auto-resize'
+import { attachVisibilityPause } from './visibility-pause'
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '@xgis/data'
 import { isTileTemplate } from '@xgis/data'
@@ -157,7 +158,7 @@ import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
 import type { GeoJSONFeature } from '@xgis/data'
 import { FeatureUpdateQueue } from './feature-update-queue'
 import { MapEventBus } from './map-event-bus'
-import { wireDeviceLostRecovery } from './device-lost-recovery'
+import { wireDeviceLostRecovery, resumeDeviceLostRecovery } from './device-lost-recovery'
 import { ColdStartBurstController } from './map-cold-start-burst'
 import { buildSceneRenderers } from './scene-renderers'
 import { safeFetch, assertIngestBudget, readBodyCapped, isMobileClassViewport } from '@xgis/shared'
@@ -449,6 +450,31 @@ export class XGISMap {
   private _keyDownHandler: ((e: KeyboardEvent) => void) | null = null
   /** Detach hook for the auto resize/DPR observers (P0-3); destroy() mirror. */
   private _detachAutoResize: (() => void) | null = null
+  /** Detach hook for the visibility pause/resume listeners (#1153 M5); destroy() mirror. */
+  private _detachVisibilityPause: (() => void) | null = null
+  /** #1153 M5 render-loop scheduling state. `_rafId` is the single in-flight rAF
+   *  handle (null = parked) — storing it is what lets the hidden handler CANCEL the
+   *  pending tick and structurally prevents a resume from building a second rAF
+   *  chain; `_docHidden` gates `_scheduleFrame` so a backgrounded tab burns no rAF. */
+  private _rafId: number | null = null
+  private _docHidden = false
+  /** The verified device-lost recovery re-run (a fresh run()/runBinary()), stashed
+   *  by `_armDeviceLostRecovery` so the visibilitychange→visible handler can arm the
+   *  re-init a loss deferred while hidden (#1153 M5c). `null` until the first run(). */
+  private _deviceLostRecover: (() => void) | null = null
+  /** In-flight latch for the deferred device-lost resume (#1153 M5c). `ctx.deviceLost`
+   *  stays true across the whole async re-init (fresh ctx lands only after the initGPU
+   *  await), so without this a duplicate 'visible' signal (bfcache fires pageshow AND
+   *  visibilitychange; or hide/show/hide/show mid-await) would each burn a budget unit
+   *  AND queue a SECOND concurrent run() racing on one canvas → map dead after one
+   *  reclaim. Set when a resume schedules recovery; cleared by `_armDeviceLostRecovery`
+   *  when the fresh ctx lands. */
+  private _deviceLostResumePending = false
+  /** #1153 M1 canvas touch-action bookkeeping. `_appliedTouchAction` is the value the
+   *  library set (null = it left the style untouched — host intent or opt-out);
+   *  `_priorInlineTouchAction` is the inline value restored on destroy(). */
+  private _appliedTouchAction: string | null = null
+  private _priorInlineTouchAction = ''
 
   // `_cameraExplicitlyPositioned` is owned by CameraController and
   // exposed on XGISMap via a get/set accessor (see below near
@@ -1099,6 +1125,7 @@ export class XGISMap {
     // simple flag the run() method reads when invoking emitCommands.
     if (options.enableComputePath) this._enableComputePath = true
     this._backend = options.backend ?? 'auto'
+    this._preserveDrawingBuffer = options.preserveDrawingBuffer ?? false
     // Surface converter "Conversion notes" to the console at load —
     // default-on so a silently-widened filter / dropped paint from
     // convertMapboxStyle isn't invisible. Opt out with `false`.
@@ -1143,9 +1170,56 @@ export class XGISMap {
     // keyboard-drivable. Runs at ctor time (canvas is available pre-GPU);
     // no-ops when the canvas is not a real DOM element (unit-test mock).
     this._setupAccessibility(options.ariaLabel)
+    // #1153 M1: claim canvas touch-action so iOS/Android don't hijack pan/pinch
+    // as page scroll (repeated pointercancel → broken gestures). Host-respecting
+    // (leaves any authored value) — same canvas-mutation precedent as a11y above.
+    this._setupTouchAction(options.touchAction)
     // P0-3: container-resize + monitor-swap DPR tracking while idle; both
     // funnel into the existing public resize() path. No-op in test envs.
     this._detachAutoResize = attachAutoResize(this.canvas, () => this.resize())
+    // #1153 M5: park the render loop while the tab is hidden (iOS reclaims GPU +
+    // a hidden tab burns rAF) and resume — with deferred device-lost re-init —
+    // when it returns. No-op in non-DOM/test envs; detached in destroy().
+    this._detachVisibilityPause = attachVisibilityPause({
+      onHidden: () => this._onDocHidden(),
+      onVisible: () => this._onDocVisible(),
+    })
+  }
+
+  /** #1153 M5 — park the render loop when the tab goes hidden. Stops scheduling
+   *  AND cancels the pending tick, so a backgrounded iOS tab burns no rAF/GPU.
+   *  Cancelling the STORED handle is what structurally prevents the resume below
+   *  from building a SECOND rAF chain (the pre-M5 loop stored no handle at all). */
+  private _onDocHidden(): void {
+    this._docHidden = true
+    this._cancelScheduledFrame()
+  }
+
+  /** #1153 M5 — resume on return to a visible tab. An iOS hidden-tab GPU reclaim
+   *  surfaces as device-lost; the loss hook deferred recovery while hidden
+   *  (device-lost-recovery.ts), so re-arm the re-init here — the fresh run()
+   *  restarts the loop, so do NOT also re-arm the dead one. Otherwise: one full
+   *  re-render, then resume scheduling. */
+  private _onDocVisible(): void {
+    this._docHidden = false
+    if (this._destroyed) return
+    if (this.ctx?.deviceLost) {
+      // Arm the deferred re-init ONCE per loss. The latch stops a duplicate 'visible'
+      // signal (bfcache restore fires pageshow AND visibilitychange) — or a
+      // hide/show/hide/show while the re-init is still awaiting initGPU — from
+      // burning a second budget unit and racing a second concurrent run() (#1153 M5c).
+      if (this._deviceLostRecover && !this._deviceLostResumePending) {
+        if (
+          resumeDeviceLostRecovery(this.ctx, this._deviceLostBudget, {
+            recover: this._deviceLostRecover,
+          })
+        )
+          this._deviceLostResumePending = true
+      }
+      return
+    }
+    this.invalidate()
+    this._scheduleFrame()
   }
 
   /** P0-7 accessibility baseline. The renderer is canvas-only with no
@@ -1172,6 +1246,43 @@ export class XGISMap {
       this._keyDownHandler = handler
       injectFocusStyle()
     }
+  }
+
+  /** #1153 M1 — claim the canvas's `touch-action` so mobile browsers don't hijack
+   *  pan/pinch as page scroll (which fires repeated `pointercancel` and breaks the
+   *  map's own gestures on third-party embeds; 1st-party hosts mask it in their own
+   *  CSS). Matches MapLibre/Mapbox, which set `touch-action: none` on the canvas.
+   *
+   *  Host-respecting (mirrors `_setupAccessibility`'s "only if the host hasn't"):
+   *   - `touchAction === false` → never touch the style (opt-out).
+   *   - a string → set that inline value UNCONDITIONALLY (recording the prior inline).
+   *   - default → set inline `'none'` UNLESS the host already expressed intent via an
+   *     inline value OR a non-`auto` computed `touch-action`; that authorial value is
+   *     preserved. (An explicit stylesheet `touch-action: auto` is indistinguishable
+   *     from the CSS default and WILL be overridden; opt out with `touchAction:false`.)
+   *
+   *  Skipped when the canvas has no `.style` (the bare unit-test mock). */
+  private _setupTouchAction(touchAction?: false | string): void {
+    if (touchAction === false) return
+    const style = (this.canvas as Partial<HTMLCanvasElement>)?.style
+    if (!style) return
+    if (typeof touchAction === 'string') {
+      this._priorInlineTouchAction = style.touchAction
+      style.touchAction = touchAction
+      this._appliedTouchAction = touchAction
+      return
+    }
+    // Auto rule: respect host intent (an inline value OR a non-'auto' computed one).
+    const inlineIntent = style.touchAction !== ''
+    let computedIntent = false
+    if (typeof getComputedStyle === 'function') {
+      const c = getComputedStyle(this.canvas).touchAction
+      computedIntent = c !== '' && c !== 'auto'
+    }
+    if (inlineIntent || computedIntent) return
+    this._priorInlineTouchAction = style.touchAction // === ''
+    style.touchAction = 'none'
+    this._appliedTouchAction = 'none'
   }
 
   /** Keyboard pan/zoom (P0-7) — thin delegate to handleMapKeyDown
@@ -1264,6 +1375,14 @@ export class XGISMap {
    *  fire the 'error' event and (budget + visibility permitting) re-run in a microtask. */
   private _armDeviceLostRecovery(recover: () => void): void {
     if (!this.ctx) return
+    // Stash the recovery re-run so the visibilitychange→visible handler can arm the
+    // re-init a loss deferred WHILE HIDDEN (the loss hook skips + never re-fires;
+    // #1153 M5c). Re-stashed on every re-run — a stale closure is a safe no-op.
+    this._deviceLostRecover = recover
+    // A fresh ctx is now installed (deviceLost=false) — the deferred-resume latch
+    // that guarded the just-completed re-init is spent; clear it so the NEXT
+    // hidden-tab loss can re-arm (#1153 M5c).
+    this._deviceLostResumePending = false
     wireDeviceLostRecovery(this.ctx, this._deviceLostBudget, {
       fireError: (info) => this._eventBus.fireErrorEvent(info),
       recover,
@@ -1470,7 +1589,7 @@ export class XGISMap {
    *  `[lon, lat]` → canvas-local CSS-px (×dpr for device px). Impl +
    *  full contract in `projectLonLatToScreenCss`. */
   project(lonLat: readonly [number, number]): [number, number] | null {
-    const dpr = effectiveDpr(this._interacting) // SAME interaction-cap dpr the frame sizes the canvas with (render-loop.ts:219)
+    const dpr = canvasEffectiveDpr(this.canvas) // the effDpr the swapchain is ACTUALLY sized at (survives the M3 clamp — #929 B)
     const [centerLon, centerLat] = this.getCenter()
     return projectLonLatToScreenCss(
       this.camera,
@@ -1488,7 +1607,7 @@ export class XGISMap {
    *  validated screen→lon/lat inverse (the gesture-anchor inverse,
    *  camera-helpers.ts) at the same interaction-cap dpr `project` uses. */
   unproject(screen: readonly [number, number]): [number, number] | null {
-    const dpr = effectiveDpr(this._interacting)
+    const dpr = canvasEffectiveDpr(this.canvas)
     return this.camera.unprojectToLonLat(
       screen[0] * dpr,
       screen[1] * dpr,
@@ -1535,6 +1654,10 @@ export class XGISMap {
    *  forwarded to `initGPU` at every boot. Stored (not re-read) because the
    *  canvas context type is sticky, so backend is construction-immutable. */
   private _backend: BackendChoice = 'auto'
+  /** #1153 M2 — WebGL2 preserved-drawing-buffer opt-in
+   *  (`XGISMapOptions.preserveDrawingBuffer`), threaded to the WebGL2 provider at
+   *  every boot. Off by default (mobile-cheap); WebGL2-backend-only. */
+  private _preserveDrawingBuffer = false
   /** WebGL2 device factory injected into the backend chain (#834 M5). The map
    *  is the composition root — it legitimately depends on BOTH backend adapters,
    *  so it (not @xgis/rhi-webgpu) owns the concrete `WebGl2Device` construction,
@@ -2353,6 +2476,7 @@ export class XGISMap {
         this._backend,
         { sampleCount: getSampleCount() },
         this._makeWebGl2Device,
+        { preserveDrawingBuffer: this._preserveDrawingBuffer },
       ),
     ).catch((err) => {
       // Hold the rejection here so the await below converts it to a
@@ -2996,6 +3120,10 @@ export class XGISMap {
     // the render loop. Gated on `typeof window` so SSR / Node tests
     // don't trip over the global.
     this._loaded = true
+    // #1153 M4: surface the RESOLVED backend once per successful boot (before load)
+    // so a host can react to a silent WebGPU→WebGL2 auto-fallback. Stateless — a
+    // device-lost recovery re-run re-fires it (possibly with a flipped backend).
+    this._eventBus.fireBackendResolvedEvent(this.ctx.rhi.backend)
     this._fireLoadEvent()
     if (typeof window !== 'undefined') {
       ;(window as unknown as { __xgisReady?: boolean }).__xgisReady = true
@@ -3554,10 +3682,7 @@ export class XGISMap {
               this.camera.centerY = cy
               // Keep centerLatDeg consistent with the fitted centerY (≤85, byte-safe).
               this.camera.syncCenterLat()
-              const dpr =
-                typeof window !== 'undefined'
-                  ? Math.min(window.devicePixelRatio || 1, getMaxDpr())
-                  : 1
+              const dpr = canvasEffectiveDpr(this.canvas)
               const cssW = this.canvas.width / dpr
               this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
             }
@@ -3633,6 +3758,7 @@ export class XGISMap {
           this._backend,
           { sampleCount: getSampleCount() },
           this._makeWebGl2Device,
+          { preserveDrawingBuffer: this._preserveDrawingBuffer },
         ),
       )
     } catch (e) {
@@ -3744,6 +3870,8 @@ export class XGISMap {
     this.running = true
     this._enterColdStartBurst() // #1155 F3 — see run(); binary path mirrors it
     this.renderLoop()
+    // #1153 M4 — resolved-backend observability, mirror of run() (see there).
+    this._eventBus.fireBackendResolvedEvent(this.ctx.rhi.backend)
     this._fireLoadEvent()
     console.log('[X-GIS] Map running (from binary)')
   }
@@ -3774,6 +3902,44 @@ export class XGISMap {
     }
   }
 
+  /** Single rAF scheduling authority (#1153 M5). Parks the loop while the tab is
+   *  hidden (a backgrounded iOS tab burns no rAF) and DEDUPES so at most one frame
+   *  is ever queued — storing the handle is what lets the hidden handler cancel the
+   *  pending tick and structurally prevents a resume from building a second rAF
+   *  chain. Package-internal (no modifier) so RenderLoop reschedules through it. */
+  _scheduleFrame(): void {
+    if (this._docHidden) return
+    if (this._rafId !== null) return
+    this._rafId = requestAnimationFrame(this._rafTick)
+  }
+
+  /** The single rAF callback, allocated ONCE (not per schedule) so the always-on
+   *  rAF chain — including idle-skip ticks — stays 0-alloc in the hot loop (#1153 M5).
+   *  Nulls the stored handle first so `_scheduleFrame` can re-arm, then runs the frame. */
+  private readonly _rafTick = (): void => {
+    this._rafId = null
+    this.renderLoop()
+  }
+
+  /** Cancel the pending scheduled frame, if any (#1153 M5). Guards
+   *  `cancelAnimationFrame` presence: a browser always pairs it with
+   *  requestAnimationFrame, but a node test may stub only the latter. */
+  private _cancelScheduledFrame(): void {
+    if (this._rafId === null) return
+    if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this._rafId)
+    this._rafId = null
+  }
+
+  /** The resolved GPU backend, or `null` before the first successful boot and after
+   *  `destroy()`. Under `'auto'` the value can CHANGE across a device-lost recovery
+   *  re-boot (WebGPU→WebGL2). Thin read over `ctx.rhi.backend` (#1153 M4). NOTE: a
+   *  boot whose GPU init succeeded but whose source load then failed reports a backend
+   *  here while `'backendresolved'` (fired at the run tail) never fired. */
+  getBackend(): 'webgpu' | 'webgl2' | null {
+    if (this._destroyed) return null
+    return this.ctx?.rhi.backend ?? null
+  }
+
   renderLoop = (): void => {
     if (!this.running) return
     // Emit move/zoom/idle lifecycle events every rAF tick (before the skip
@@ -3785,7 +3951,7 @@ export class XGISMap {
     // the idle hysteresis still advances to its 3 consecutive idle frames.
     this._burst.tickExit()
     if (!this.shouldRenderThisFrame()) {
-      requestAnimationFrame(this.renderLoop)
+      this._scheduleFrame()
       return
     }
     try {
@@ -3827,7 +3993,7 @@ export class XGISMap {
         this._eventBus.fireErrorEvent({ phase: 'halt', fatal: true, error: err })
         return
       }
-      requestAnimationFrame(this.renderLoop)
+      this._scheduleFrame()
     }
   }
 
@@ -4344,6 +4510,22 @@ export class XGISMap {
     // Auto resize/DPR observers (P0-3) — teardown mirror of the ctor attach.
     this._detachAutoResize?.()
     this._detachAutoResize = null
+
+    // Visibility pause/resume listeners (#1153 M5) — teardown mirror of the ctor
+    // attach; also cancel any in-flight scheduled frame so its handle isn't leaked.
+    this._detachVisibilityPause?.()
+    this._detachVisibilityPause = null
+    this._cancelScheduledFrame()
+
+    // Restore the canvas touch-action the library applied (#1153 M1), but ONLY if
+    // the host hasn't mutated it mid-session — no-clobber: a host value stays put.
+    if (this._appliedTouchAction !== null) {
+      const style = (this.canvas as Partial<HTMLCanvasElement>)?.style
+      if (style && style.touchAction === this._appliedTouchAction) {
+        style.touchAction = this._priorInlineTouchAction
+      }
+      this._appliedTouchAction = null
+    }
 
     // DOM stats overlay element.
     this._statsPanel?.destroy()

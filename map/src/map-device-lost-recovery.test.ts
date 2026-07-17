@@ -12,7 +12,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { XGISMap } from './map'
-import { wireDeviceLostRecovery } from './device-lost-recovery'
+import { wireDeviceLostRecovery, resumeDeviceLostRecovery } from './device-lost-recovery'
 
 function stubCanvas(): HTMLCanvasElement {
   return {
@@ -117,5 +117,36 @@ describe('XGISMap wires device-lost recovery onto its ctx (#1153 B)', () => {
     await flushMicrotasks()
     expect(recover).toHaveBeenCalledTimes(1)
     map.destroy()
+  })
+})
+
+describe('resumeDeviceLostRecovery — deferred re-init companion (#1153 M5c)', () => {
+  it('lost device within budget: schedules recover (microtask), burns one unit, returns true', async () => {
+    const budget = { recoveries: 0, max: 2 }
+    const recover = vi.fn()
+    const ret = resumeDeviceLostRecovery({ deviceLost: true }, budget, { recover })
+    expect(ret).toBe(true)
+    expect(budget.recoveries).toBe(1)
+    await flushMicrotasks()
+    expect(recover).toHaveBeenCalledTimes(1)
+  })
+
+  it('budget exhausted: no recover, returns false (bounded — the map stays dead by design)', async () => {
+    const budget = { recoveries: 2, max: 2 }
+    const recover = vi.fn()
+    const ret = resumeDeviceLostRecovery({ deviceLost: true }, budget, { recover })
+    expect(ret).toBe(false)
+    await flushMicrotasks()
+    expect(recover).not.toHaveBeenCalled()
+  })
+
+  it('device not lost: no recover, budget untouched, returns false (normal resume runs instead)', async () => {
+    const budget = { recoveries: 0, max: 2 }
+    const recover = vi.fn()
+    const ret = resumeDeviceLostRecovery({ deviceLost: false }, budget, { recover })
+    expect(ret).toBe(false)
+    expect(budget.recoveries).toBe(0)
+    await flushMicrotasks()
+    expect(recover).not.toHaveBeenCalled()
   })
 })

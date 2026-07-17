@@ -306,3 +306,20 @@ export function effectiveDpr(interacting = false): number {
   if (typeof window === 'undefined') return 1
   return Math.min(window.devicePixelRatio || 1, cap)
 }
+
+/** The device-pixel-ratio a canvas is CURRENTLY sized at, read back FROM the
+ *  canvas — the single geometric authority for every device-px↔CSS-px conversion
+ *  that happens OUTSIDE the render loop (project/unproject/getBounds/fitBounds/the
+ *  post-compile bounds-fit). `resizeCanvas` sets `canvas.width = floor(clientWidth ·
+ *  effDpr)` and may reduce `effDpr` below `effectiveDpr()` to fit the backend's
+ *  `maxTextureDimension2D` (#1153 M3); dividing the device width back by the CSS
+ *  width recovers EXACTLY that effDpr. So these consumers never re-derive a
+ *  `min(devicePixelRatio, maxDpr)` that disagrees with the swapchain the instant the
+ *  clamp engages — the swapchain's own size is the one authority (#929 B). Falls back
+ *  to the quality-policy dpr only when the canvas has no CSS layout yet (clientWidth
+ *  0/absent — pre-first-frame / detached / SSR / a bare test mock). */
+export function canvasEffectiveDpr(canvas: { width: number; clientWidth: number }): number {
+  const cssW = canvas.clientWidth
+  if (cssW > 0 && canvas.width > 0) return canvas.width / cssW
+  return effectiveDpr()
+}
