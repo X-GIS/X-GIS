@@ -101,6 +101,30 @@ describe('TileSelectionCache — per-margin LRU (#1153 #12)', () => {
     expect(cache.selectionComputeCount()).toBe(6)
   })
 
+  it('more distinct margins than slots — a margin already walked THIS frame is never re-walked', () => {
+    // The slot cap must clear the frame's real distinct-margin count, or the LRU
+    // evicts an entry the SAME frame still needs and re-walks it — the exact
+    // ping-pong the LRU exists to kill, one N up. Measured (RTX 2080, OFM Bright
+    // z14 Tokyo, wheel zoom) via selectionComputeCount(): D = 10 distinct walks per
+    // frame median, 14 max. At 8 slots a sweep of 12 margins evicts each one before
+    // the second pass reaches it, so EVERY access misses: 24 walks, not 12.
+    const cache = new TileSelectionCache()
+    const source = fakeCatalog(15)
+    const camera = new Camera(139.767, 35.681, 14)
+
+    // 12 distinct stroke-derived margins — inside the measured D = 10..14 band.
+    const margins = [1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 20]
+
+    // Pass 1 — first touch of each margin walks once, by definition.
+    for (const mgn of margins) expect(select(cache, source, 1, mgn, camera)).not.toBeNull()
+    expect(cache.selectionComputeCount()).toBe(margins.length)
+
+    // Pass 2 — SAME frame, same margins. Every one was computed in this frame, so
+    // every one must still be resident and the walk count must not move.
+    for (const mgn of margins) expect(select(cache, source, 1, mgn, camera)).not.toBeNull()
+    expect(cache.selectionComputeCount()).toBe(margins.length)
+  })
+
   it('a camera move (new frameId) invalidates every slot — both margins re-walk', () => {
     const cache = new TileSelectionCache()
     const source = fakeCatalog(15)
