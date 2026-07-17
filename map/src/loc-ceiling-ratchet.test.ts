@@ -141,7 +141,14 @@ const CEILINGS: Record<string, number> = {
   // booted hidden keeps burst for its real first cascade; and the polar-cap +
   // source-manager registrations route through `_registerVtSource` (single
   // write authority) so a source attached mid-burst inherits the flags.
-  'map/src/map.ts': 4411,
+  // 4411→4446 (#1167 F3 real-GPU adjudication): desktop-only burst gate
+  // (`viewportEligible` deps closure — mobile keeps steady 4/1, +262 ms TTFM
+  // regression fix) + the visibilitychange backstop (`_burstVisibilityHandler`
+  // field + `_enterColdStartBurst` helper that arms it, destroy() removes it) so
+  // a hidden tab reclaims the shared pool's raised drain cap at once. The
+  // non-rAF wall-clock timer that makes the 10 s cap real lives in the extracted
+  // controller (map-cold-start-burst.ts), not here.
+  'map/src/map.ts': 4446,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

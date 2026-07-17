@@ -17,10 +17,15 @@
 
 import { getSharedMvtPool } from '@xgis/data'
 
-/** Hard wall-clock cap from burst enter. Guarantees the raised caps can never
- *  stay elevated forever if the convergence signal never reports idle — e.g. an
- *  endless animated source keeps every frame busy and hasPendingSourceWork()
- *  never goes false. */
+/** Hard wall-clock cap from burst enter, enforced by a NON-rAF timer
+ *  (deps.setTimer, default setTimeout) armed on enter() and cleared on exit().
+ *  This is what makes the cap real: the idle-hysteresis exit only advances on
+ *  render-loop (rAF) ticks, and a hidden/occluded tab throttles rAF to ~0 Hz —
+ *  the same reason the shared MVT pool already backstops its drain with a non-rAF
+ *  timer (mvt-worker-pool.ts). Without this timer the raised caps stay elevated
+ *  until the next rendering opportunity, i.e. indefinitely while hidden (#1167).
+ *  An endless animated source (hasPendingSourceWork() never false) is capped here
+ *  too. */
 const COLD_START_BURST_MAX_MS = 10_000
 /** Consecutive idle frame-starts required to end burst (hysteresis). A single
  *  all-false frame exists mid-cascade — releaseLoading fires when the worker
@@ -43,8 +48,19 @@ export interface ColdStartBurstDeps {
    *  budgets (XGISMap.hasPendingSourceWork — HTTP fetches, deferred uploads,
    *  last-frame missed tiles). The idle hysteresis reads this each tick. */
   hasPendingSourceWork: () => boolean
-  /** Clock injection for the 10 s cap; defaults to performance.now. */
-  now?: () => number
+  /** #1167 — viewport-class gate. Burst engages ONLY when this returns true.
+   *  Returns false on mobile-class viewports: the raised caps overload a phone's
+   *  narrow per-frame budget and push the FIRST frame (= TTFM) out (+262 ms
+   *  measured on RTX 2080 mobile emulation, #1167), so mobile keeps the steady
+   *  4/1 pacing and never enters burst. Defaults to always-eligible (the
+   *  device-free unit tests have no viewport). */
+  viewportEligible?: () => boolean
+  /** Non-rAF wall-clock timer for the hard cap (defaults to setTimeout /
+   *  clearTimeout). The cap must NOT ride rAF — a hidden/occluded tab throttles
+   *  rAF to ~0 Hz and would leave burst elevated indefinitely. Injected so the
+   *  unit test drives it deterministically. */
+  setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>
+  clearTimer?: (handle: ReturnType<typeof setTimeout>) => void
 }
 
 /** Cold-start burst state machine. Single owner of THIS map's burst state:
@@ -54,7 +70,6 @@ export interface ColdStartBurstDeps {
  *  refcount nor a double-exit underflow it. */
 export class ColdStartBurstController {
   private _on = false
-  private _enterTime = 0
   /** Rendered frames since enter. The exit hysteresis trusts the idle signal
    *  only after ≥1 render, because requestTiles (which makes
    *  hasPendingSourceWork true) runs INSIDE renderFrame — burst is entered
@@ -64,9 +79,15 @@ export class ColdStartBurstController {
   /** Consecutive idle frame-starts counted toward COLD_START_BURST_IDLE_FRAMES;
    *  reset to 0 the moment work reappears. */
   private _consecutiveIdle = 0
-  private readonly _now: () => number
+  /** Handle for the non-rAF wall-clock backstop; null when burst is off. */
+  private _capTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly _viewportEligible: () => boolean
+  private readonly _setTimer: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>
+  private readonly _clearTimer: (handle: ReturnType<typeof setTimeout>) => void
   constructor(private readonly deps: ColdStartBurstDeps) {
-    this._now = deps.now ?? (() => performance.now())
+    this._viewportEligible = deps.viewportEligible ?? (() => true)
+    this._setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms))
+    this._clearTimer = deps.clearTimer ?? ((handle) => clearTimeout(handle))
   }
 
   get isOn(): boolean {
@@ -78,12 +99,16 @@ export class ColdStartBurstController {
    *  on-transition (guarded by `_on`); the timers/counters ALWAYS reset so the
    *  10 s cap + hysteresis re-converge for the new scene. */
   enter(): void {
+    // #1167 — desktop-only. A mobile-class viewport never enters burst; enter()
+    // is fully inert (no refcount, no source flags, no backstop) so the caps stay
+    // at the steady 4/1 pacing a phone's frame budget can absorb.
+    if (!this._viewportEligible()) return
+    this._armCapTimer()
     if (!this._on) {
       this._on = true
       getSharedMvtPool().beginColdStartBurst()
       this.deps.applyToAllSources(true)
     }
-    this._enterTime = this._now()
     this._renderedFrames = 0
     this._consecutiveIdle = 0
   }
@@ -93,6 +118,7 @@ export class ColdStartBurstController {
    *  exactly once. Callers run this BEFORE source teardown so applyToAllSources
    *  iterates live entries. */
   exit(): void {
+    this._clearCapTimer()
     if (!this._on) return
     this._on = false
     getSharedMvtPool().endColdStartBurst()
@@ -105,18 +131,29 @@ export class ColdStartBurstController {
     if (this._on) this._renderedFrames++
   }
 
-  /** Evaluate the exit at a frame-start: the hard 10 s cap first, then the idle
-   *  hysteresis (only trusted after ≥1 rendered frame). Called from the map's
-   *  render loop BEFORE its render gate so it keeps advancing on skipped frames
-   *  once the scene settles. */
+  /** Evaluate the idle-hysteresis exit at a frame-start (only trusted after ≥1
+   *  rendered frame). Called from the map's render loop BEFORE its render gate so
+   *  it keeps advancing on skipped frames once the scene settles. The hard
+   *  wall-clock cap is NOT here — it rides a non-rAF timer (see `_armCapTimer`) so
+   *  a hidden tab whose rAF is throttled to ~0 Hz still ends burst on time. */
   tickExit(): void {
     if (!this._on) return
-    if (this._now() - this._enterTime >= COLD_START_BURST_MAX_MS) {
-      this.exit()
-      return
-    }
     if (this._renderedFrames < 1) return
     if (this.deps.hasPendingSourceWork()) this._consecutiveIdle = 0
     else if (++this._consecutiveIdle >= COLD_START_BURST_IDLE_FRAMES) this.exit()
+  }
+
+  /** Arm (or re-arm) the non-rAF wall-clock backstop. Clears any prior timer so a
+   *  re-entry resets the cap window for the new scene, matching the counter reset. */
+  private _armCapTimer(): void {
+    this._clearCapTimer()
+    this._capTimer = this._setTimer(() => this.exit(), COLD_START_BURST_MAX_MS)
+  }
+
+  private _clearCapTimer(): void {
+    if (this._capTimer !== null) {
+      this._clearTimer(this._capTimer)
+      this._capTimer = null
+    }
   }
 }

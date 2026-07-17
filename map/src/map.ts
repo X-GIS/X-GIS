@@ -158,7 +158,7 @@ import { FeatureUpdateQueue } from './feature-update-queue'
 import { MapEventBus } from './map-event-bus'
 import { wireDeviceLostRecovery } from './device-lost-recovery'
 import { ColdStartBurstController } from './map-cold-start-burst'
-import { safeFetch, assertIngestBudget, readBodyCapped } from '@xgis/shared'
+import { safeFetch, assertIngestBudget, readBodyCapped, isMobileClassViewport } from '@xgis/shared'
 
 // DoS ceilings for the top-level loader entry points (.xgis style /
 // import-resolver text and .xgb binary scene). Defensive — far above any
@@ -289,7 +289,19 @@ export class XGISMap {
       }
     },
     hasPendingSourceWork: () => this.hasPendingSourceWork(),
+    // #1167 — desktop-only burst. Mobile-class viewports keep the steady 4/1
+    // pacing (the burst's raised caps push a phone's first frame / TTFM out).
+    // Same `isMobileClassViewport(window.innerWidth)` signal the burst upload cap
+    // reads (upload-coordinator.ts), so the enter-gate and the cap agree.
+    viewportEligible: () =>
+      !(typeof window !== 'undefined' && isMobileClassViewport(window.innerWidth)),
   })
+  /** #1167 — visibilitychange listener that ends cold-start burst the instant the
+   *  tab is hidden (its rAF throttles to ~0 Hz, so the render-loop exit stalls;
+   *  the controller's non-rAF timer still caps at 10 s, this just reclaims the
+   *  shared MVT pool's raised drain cap immediately so sibling maps aren't held).
+   *  Armed on burst enter, removed in destroy(). Null until first armed. */
+  private _burstVisibilityHandler: (() => void) | null = null
   /** Set by `destroy()`. Gates invalidate / flush so a torn-down map is
    *  inert and post-destroy calls no-op instead of touching a destroyed
    *  GPU device. */
@@ -3002,7 +3014,7 @@ export class XGISMap {
     // re-applies via `_registerVtSource`. Placed AFTER the run() destroy-guard
     // awaits, so a destroy() landing mid-await returns before this and never
     // leaks the pool refcount.
-    this._burst.enter()
+    this._enterColdStartBurst()
     this.renderLoop()
 
     console.log('[X-GIS] Map running')
@@ -3727,7 +3739,7 @@ export class XGISMap {
 
     this.switchController()
     this.running = true
-    this._burst.enter() // #1155 F3 — see run(); binary path mirrors it
+    this._enterColdStartBurst() // #1155 F3 — see run(); binary path mirrors it
     this.renderLoop()
     this._fireLoadEvent()
     console.log('[X-GIS] Map running (from binary)')
@@ -3890,6 +3902,21 @@ export class XGISMap {
       source.setColdStartBurst(true)
       renderer.setColdStartBurst(true)
     }
+  }
+
+  /** #1155 F3 / #1167 — enter cold-start burst and arm the visibilitychange
+   *  backstop. Called from run()/runBinary() in place of a bare `_burst.enter()`.
+   *  If the viewport is mobile-class, `enter()` no-ops (desktop-only) and no
+   *  listener is armed on a burst that never engaged. The listener is idempotent
+   *  across re-runs (one document listener, removed only in destroy()). */
+  private _enterColdStartBurst(): void {
+    this._burst.enter()
+    if (typeof document === 'undefined' || this._burstVisibilityHandler || !this._burst.isOn) return
+    const handler = (): void => {
+      if (document.visibilityState === 'hidden') this._burst.exit()
+    }
+    this._burstVisibilityHandler = handler
+    document.addEventListener('visibilitychange', handler)
   }
 
   /** Classify all visible vector-tile shows into opaque and translucent
@@ -4290,6 +4317,12 @@ export class XGISMap {
       this._keyDownHandler = null
     }
 
+    // #1167 — cold-start burst visibilitychange backstop (armed in run()).
+    if (this._burstVisibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this._burstVisibilityHandler)
+      this._burstVisibilityHandler = null
+    }
+
     // Auto resize/DPR observers (P0-3) — teardown mirror of the ctor attach.
     this._detachAutoResize?.()
     this._detachAutoResize = null
@@ -4369,9 +4402,11 @@ export class XGISMap {
     this.controller?.detach()
     this.running = false
     // #1155 F3 — stop() halts the render loop, so renderLoop early-returns on
-    // `!running` before tickExit can fire again: the 10 s cap can never run and
-    // the shared-pool burst refcount would leak for the page lifetime (every
-    // sibling map stuck at 32-per-drain). Release it here; exit() is idempotent.
+    // `!running` before tickExit (idle hysteresis) can fire again. The non-rAF cap
+    // timer would still end burst at 10 s, but that would leave the shared-pool
+    // refcount raised (every sibling map stuck at 32-per-drain) for up to 10 s
+    // after stop(). Release it immediately here; exit() clears the timer and is
+    // idempotent.
     this._burst.exit()
   }
 

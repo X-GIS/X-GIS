@@ -39,6 +39,7 @@ function stubEntry() {
 
 interface BurstSeam {
   _burst: { readonly isOn: boolean; enter(): void; exit(): void }
+  _enterColdStartBurst(): void
   _registerVtSource(key: string, source: unknown, renderer: unknown): void
   hasPendingSourceWork(): boolean
   renderLoop: () => void
@@ -204,5 +205,60 @@ describe('XGISMap cold-start burst — registration while burst is on (#1155 F3)
     expect(s.vtSources.has('x')).toBe(true)
     expect(entry.sourceFlags.length).toBe(0)
     expect(entry.rendererFlags.length).toBe(0)
+  })
+})
+
+describe('XGISMap cold-start burst — visibilitychange backstop (#1167)', () => {
+  /** Minimal document stub: records visibilitychange (un)subscriptions and lets a
+   *  test flip visibilityState + fire the handler. The map is CONSTRUCTED before
+   *  the stub is installed, so the ctor still runs the clean node (no-DOM) path;
+   *  only the burst-enter + destroy paths see the fake document. */
+  function stubDocument() {
+    const listeners: Record<string, Array<() => void>> = {}
+    const doc = {
+      visibilityState: 'visible' as string,
+      addEventListener: (t: string, fn: () => void) => void (listeners[t] ??= []).push(fn),
+      removeEventListener: (t: string, fn: () => void) => {
+        listeners[t] = (listeners[t] ?? []).filter((f) => f !== fn)
+      },
+    }
+    return { doc, listeners }
+  }
+
+  it('a hidden tab ends burst immediately via the document listener; destroy() removes it', () => {
+    const base = pool.coldStartBurstRefcount
+    const map = new XGISMap(mockCanvas())
+    const s = seam(map)
+    const { doc, listeners } = stubDocument()
+    vi.stubGlobal('document', doc)
+
+    s._enterColdStartBurst()
+    expect(s._burst.isOn).toBe(true)
+    expect(listeners['visibilitychange']?.length).toBe(1)
+
+    // Tab hidden → rAF stalls, but the visibility listener ends burst at once.
+    doc.visibilityState = 'hidden'
+    listeners['visibilitychange']![0]()
+    expect(s._burst.isOn).toBe(false)
+    expect(pool.coldStartBurstRefcount).toBe(base)
+
+    // destroy() removes the listener (no leak / post-teardown fire).
+    map.destroy()
+    expect(listeners['visibilitychange']?.length ?? 0).toBe(0)
+  })
+
+  it('a visible-state visibilitychange (tab re-shown) does NOT end burst', () => {
+    const base = pool.coldStartBurstRefcount
+    const map = new XGISMap(mockCanvas())
+    const s = seam(map)
+    const { doc, listeners } = stubDocument()
+    vi.stubGlobal('document', doc)
+
+    s._enterColdStartBurst()
+    listeners['visibilitychange']![0]() // fires while still 'visible'
+    expect(s._burst.isOn).toBe(true)
+
+    s._burst.exit() // balance the singleton refcount
+    expect(pool.coldStartBurstRefcount).toBe(base)
   })
 })
