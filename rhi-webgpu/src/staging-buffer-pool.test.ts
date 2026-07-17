@@ -241,3 +241,137 @@ describe('StagingBufferPool', () => {
     expect(dst.length).toBe(1)
   })
 })
+
+// ═══ R2 — per-tier free-list cap/trim (#1153 P2) ═══
+//
+// Fail-before: the pre-cap `release` unconditionally `push`ed every returned slot,
+// so the free-list high-water mark persisted for the session (the iOS staircase).
+describe('StagingBufferPool — R2 per-tier free-list cap (#1153 P2)', () => {
+  const TIER0_CAP = 8 // TIER_CAPS[0]
+
+  it('pools up to cap on release, destroys the excess, and reuse stays byte-identical', async () => {
+    const device = makeMockDevice()
+    const pool = new StagingBufferPool(device)
+    // Borrow cap+1 distinct tier-0 slots (empty free-list → each allocates fresh).
+    const slots = []
+    for (let i = 0; i < TIER0_CAP + 1; i++) slots.push(await pool.borrow(100))
+    expect(pool.getCreatedCount()).toBe(TIER0_CAP + 1)
+
+    // Release exactly `cap` → all pooled, ZERO destroys.
+    for (let i = 0; i < TIER0_CAP; i++) pool.release(slots[i]!)
+    expect(pool.getFreeCounts()[0]).toBe(TIER0_CAP)
+    for (let i = 0; i < TIER0_CAP; i++) {
+      expect((slots[i]!.buffer as unknown as MockBuffer).destroyCalled).toBe(0)
+    }
+
+    // Release one MORE (cap already reached) → destroyed, free count unchanged.
+    pool.release(slots[TIER0_CAP]!)
+    expect(pool.getFreeCounts()[0]).toBe(TIER0_CAP)
+    expect((slots[TIER0_CAP]!.buffer as unknown as MockBuffer).destroyCalled).toBe(1)
+
+    // A subsequent borrow reuses a pooled buffer (no new allocation).
+    const reused = await pool.borrow(100)
+    expect(pool.getFreeCounts()[0]).toBe(TIER0_CAP - 1)
+    expect(pool.getCreatedCount()).toBe(TIER0_CAP + 1) // no fresh create — reused
+    expect(slots.slice(0, TIER0_CAP).some((s) => s!.buffer === reused.buffer)).toBe(true)
+  })
+
+  it('oversize (tier -1) release still destroys immediately (unchanged)', async () => {
+    const device = makeMockDevice()
+    const pool = new StagingBufferPool(device)
+    const slot = await pool.borrow(32 * 1024 * 1024) // > 16 MB largest tier
+    expect(slot.tier).toBe(-1)
+    pool.release(slot)
+    expect((slot.buffer as unknown as MockBuffer).destroyCalled).toBe(1)
+  })
+
+  it('borrow-catch re-push (mapAsync reject) is length-neutral — never exceeds cap', async () => {
+    const device = makeMockDevice()
+    const pool = new StagingBufferPool(device)
+    const slots = []
+    for (let i = 0; i < TIER0_CAP; i++) slots.push(await pool.borrow(100))
+    for (const s of slots) pool.release(s) // free[0] === cap
+    expect(pool.getFreeCounts()[0]).toBe(TIER0_CAP)
+
+    // The slot borrow() will pop (LIFO — last released) rejects on re-map. The
+    // borrow-catch (#782) pushes it BACK: pop (cap→cap-1) then push (cap-1→cap)
+    // is net-neutral, so the free-list never exceeds the cap even though the
+    // re-push path is deliberately left un-capped.
+    const popBuf = slots[TIER0_CAP - 1]!.buffer as unknown as MockBuffer
+    popBuf.mapAsync = () => Promise.reject(new Error('device lost'))
+    await expect(pool.borrow(100)).rejects.toThrow('device lost')
+    expect(pool.getFreeCounts()[0]).toBe(TIER0_CAP)
+  })
+
+  it('borrow-catch after dispose destroys the slot — never pools into the dead free-list', async () => {
+    const device = makeMockDevice()
+    const pool = new StagingBufferPool(device)
+    // Warm one tier-0 slot and release it so the next borrow POPS it (the in-flight
+    // reuse path), then arrange dispose() to run DURING that borrow's mapAsync
+    // round-trip (VectorTileRenderer.destroy while an async upload is suspended)
+    // followed by a device-loss reject.
+    const warm = await pool.borrow(100)
+    pool.release(warm)
+    expect(pool.getFreeCounts()[0]).toBe(1)
+    const popBuf = warm.buffer as unknown as MockBuffer
+    popBuf.mapAsync = async () => {
+      pool.dispose()
+      throw new Error('device lost')
+    }
+    await expect(pool.borrow(100)).rejects.toThrow('device lost')
+    // The slot must be DESTROYED, not re-pushed into the disposed pool's dead
+    // free-list (which nothing drains) — the R1 dispose-terminal invariant, which
+    // the pre-fix raw `list.push` in the borrow-catch violated. Fail-before:
+    // destroyCalled === 0 and free[0] === 1.
+    expect(popBuf.destroyCalled).toBe(1)
+    expect(pool.getFreeCounts().every((n) => n === 0)).toBe(true)
+  })
+})
+
+// ═══ R1 — dispose is terminal (in-flight upload safety) (#1153 P2) ═══
+//
+// Fail-before: the pre-fix `release` had no `disposed` guard, so a slot handed back
+// AFTER `dispose()` (an async upload that resumed post-VTR.destroy()) was pooled into
+// a dead free-list that is never drained — a real GPU leak (the staircase partially
+// survives). The dispose-terminal guard destroys it instead.
+describe('StagingBufferPool — R1 dispose is terminal (#1153 P2)', () => {
+  it('release after dispose destroys the returned slot instead of pooling it', async () => {
+    const device = makeMockDevice()
+    const pool = new StagingBufferPool(device)
+    const slot = await pool.borrow(100) // out on loan (free-lists empty)
+    pool.dispose()
+    const buf = slot.buffer as unknown as MockBuffer
+    expect(buf.destroyCalled).toBe(0) // still on loan at dispose time
+    pool.release(slot) // in-flight upload resumes post-dispose
+    expect(buf.destroyCalled).toBe(1) // destroyed, NOT pooled
+    expect(pool.getFreeCounts().every((n) => n === 0)).toBe(true) // dead free-list stays empty
+  })
+
+  it('borrow after dispose is legal — fresh buffer, destroyed on its own release', async () => {
+    const device = makeMockDevice()
+    const pool = new StagingBufferPool(device)
+    pool.dispose()
+    const slot = await pool.borrow(100) // fresh buffer, free-list empty
+    const buf = slot.buffer as unknown as MockBuffer
+    expect(buf.destroyCalled).toBe(0)
+    pool.release(slot)
+    expect(buf.destroyCalled).toBe(1) // disposed → release destroys
+    expect(pool.getFreeCounts().every((n) => n === 0)).toBe(true)
+  })
+
+  it('dispose() with empty free-lists never touches the device (webgl2 fail-loud-proxy safe)', () => {
+    // On the WebGL2 backend ctx.device is a fail-loud proxy that throws on ANY
+    // property access; VTR.destroy() calls stagingPool.dispose(), which must not
+    // detonate. dispose() touches only the (empty) free-lists, never this.device.
+    const proxyDevice = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error('device property accessed on the webgl2 fail-loud proxy')
+        },
+      },
+    ) as unknown as GPUDevice
+    const pool = new StagingBufferPool(proxyDevice)
+    expect(() => pool.dispose()).not.toThrow()
+  })
+})

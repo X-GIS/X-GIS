@@ -26,6 +26,31 @@ const TIER_SIZES = [
   16 * 1024 * 1024, // 16 MB  — extreme tile (very dense roads)
 ]
 
+/** Per-tier free-list caps (#1153 P2 R2). Without a cap the free-list
+ *  high-water mark persists for the whole session: one fast LOD jump warms
+ *  every tier and those bytes never come back (GPU bytes exert no JS GC
+ *  pressure). `release` pools a returned slot only while its tier is under
+ *  cap and destroys the excess — the GpuTileStore._bufferPool cap precedent
+ *  (gpu-tile-store.ts).
+ *
+ *  Sizing (aligned index-for-index with TIER_SIZES): a desktop upload burst
+ *  runs up to the map's per-frame upload budget (`MAX_UPLOADS_PER_FRAME` /
+ *  `uploadBudgetFor` in vector-tile-renderer-helpers.ts; historically the
+ *  "maxJobs (4-8)" range) tile uploads concurrently, each borrowing several
+ *  same-tier staging slots, so 8 (a generous multiple of that budget) retains
+ *  the small tiers' steady-state working set BYTE-IDENTICALLY — under-cap traffic
+ *  never destroys-then-reallocates — while bounding growth. The budget's exact
+ *  value is map-layer policy and is deliberately NOT copied here (that number has
+ *  drifted before); this cap is a self-contained conservative constant.
+ *  The two largest tiers (4 MB / 16 MB "extreme tile") are capped tighter
+ *  (2 / 1): they dominate retained bytes and a dense-roads spike is rare, so a
+ *  permanent 8× high-water there is not worth holding. Worst-case retained per
+ *  pool ≈ 34.7 MB. Caps are PER-POOL and pools are per-VectorTileRenderer (per
+ *  source), so a multi-source map multiplies the retained bytes by source
+ *  count — acceptable, but the coupling to the upload budget lives here so a
+ *  future budget retune stays discoverable. */
+const TIER_CAPS = [8, 8, 8, 8, 8, 2, 1]
+
 export interface StagingSlot {
   /** GPU buffer with MAP_WRITE | COPY_SRC usage. */
   readonly buffer: GPUBuffer
@@ -52,6 +77,14 @@ export class StagingBufferPool {
    *  works on the software adapter. Set lazily on first failure;
    *  exposed for tests. */
   private mappedAtCreationFails = false
+  /** Terminal once `dispose()` runs (#1153 P2 R1). A pool is disposed on
+   *  VectorTileRenderer.destroy(); an async upload suspended on the staging
+   *  `mapAsync` round-trip can still resume AFTER that and hand its slot back
+   *  via `release`. When disposed, `release` DESTROYS the returned buffer
+   *  instead of pooling it into a dead free-list (which would never be
+   *  drained — a real GPU leak). `borrow` after dispose stays legal: it
+   *  allocates a fresh buffer that its own `release` then destroys. */
+  private disposed = false
 
   /** Read-only view of the SwiftShader-style fallback flag. */
   get hasMappedAtCreationFallback(): boolean {
@@ -100,11 +133,17 @@ export class StagingBufferPool {
       try {
         await slot.buffer.mapAsync(GPUMapMode.WRITE)
       } catch (e) {
-        // mapAsync rejected (e.g. device loss). Return the slot to the
-        // free-list before rethrowing so the buffer is not stranded
-        // off-list (#782). The pool's dispose() will clean it up on
-        // context recovery.
-        list.push(slot)
+        // mapAsync rejected (e.g. device loss). Route the slot back through
+        // release() before rethrowing so it is not stranded off-list (#782).
+        // release() DESTROYS it if the pool was disposed mid-borrow — an async
+        // upload suspended here while VectorTileRenderer.destroy() ran dispose()
+        // (#1153 P2 R1: never pool into a dead free-list nothing will drain) — or
+        // if the tier is at cap (R2); otherwise it returns to the free-list.
+        // A raw `list.push` here bypassed both guards (the pre-fix dispose-terminal
+        // hole, symmetric with the guard release() already carries). Since borrow
+        // just popped this slot, the tier is under cap on the normal path, so the
+        // re-pool stays byte-identical to the old push.
+        this.release(slot)
         throw e
       }
       return slot
@@ -146,11 +185,19 @@ export class StagingBufferPool {
    *  One-off (tier === -1) slots are destroyed; pooled slots wait for
    *  the next borrow to re-map. */
   release(slot: StagingSlot): void {
-    if (slot.tier === -1) {
+    // Oversize one-offs always destroy; a disposed pool destroys everything
+    // returned to it (#1153 P2 R1 — never pool into a dead free-list).
+    if (slot.tier === -1 || this.disposed) {
       slot.buffer.destroy()
       return
     }
-    this.free[slot.tier].push(slot)
+    // Per-tier cap (#1153 P2 R2): pool while under cap, else destroy the
+    // excess so the free-list high-water mark can't persist for the session.
+    // Mirrors GpuTileStore.releaseBuffer (gpu-tile-store.ts). Under-cap
+    // traffic is byte-identical to the pre-cap push.
+    const list = this.free[slot.tier]
+    if (list.length < TIER_CAPS[slot.tier]!) list.push(slot)
+    else slot.buffer.destroy()
   }
 
   /** Diagnostic — how many buffers we've allocated total since boot. */
@@ -163,8 +210,13 @@ export class StagingBufferPool {
     return this.free.map((list) => list.length)
   }
 
-  /** Destroy every pooled buffer. Call on context loss / dispose. */
+  /** Destroy every pooled buffer + mark the pool terminal. Call on context
+   *  loss / VectorTileRenderer.destroy(). After this, any slot still out on
+   *  loan (an in-flight async upload that resumes post-destroy) is destroyed
+   *  on `release` rather than pooled (#1153 P2 R1). Idempotent; touches
+   *  `device` NOWHERE, so it is safe on the forced-WebGL2 fail-loud proxy. */
   dispose(): void {
+    this.disposed = true
     for (const list of this.free) {
       for (const slot of list) slot.buffer.destroy()
       list.length = 0

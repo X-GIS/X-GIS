@@ -781,6 +781,11 @@ export async function loadImageTexture(
     bitmap.close()
     return texture
   } catch {
+    // #1153 P2 R4 — the catch used to return null while LEAKING the decoded
+    // bitmap; close it. The half-created texture is not freed here: createTexture
+    // throws only on device-loss/OOM, where device teardown reclaims it — and a
+    // raw texture.destroy() would grow @xgis/data's GPU footprint (#997 ratchet).
+    bitmap.close()
     return null
   }
 }
