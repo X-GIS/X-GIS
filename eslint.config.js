@@ -108,6 +108,7 @@ export default tseslint.config(
             'playground/render-verify/*.ts',
             'playground/render-verify/matrix/*.ts',
             'playground/scripts/*.ts',
+            'playground/scripts/*.mts',
             // Per-package vite configs sit at the package root, outside their
             // package tsconfig's `include` — same gap as the root vitest.config.ts.
             'playground/vite.config.ts',

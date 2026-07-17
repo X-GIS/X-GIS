@@ -126,7 +126,13 @@ const CEILINGS: Record<string, number> = {
   // all at the run() flow with block comments documenting the reorder. Pure
   // latency overlap, no behaviour change (§2 — composition-root reorder,
   // nothing extract-worthy). Lower as #991 decomposes map.ts.
-  'map/src/map.ts': 4336,
+  // 4336→4356 (#1158 GAP-1 INC-A): the `coverage` source public API + marker narrow —
+  // `getCoverage(sourceId)` (the CoverageHandle value-readout accessor, doc §6) + the
+  // `{ _coverage }` rebuildLayers narrowing (keeps the rebuild feature-path-safe). +20,
+  // both at existing composition-root sites; nothing extract-worthy (§2). REBASE HAZARD:
+  // P1's uncommitted lifecycle hardening raises this SAME ceiling to 4490 in main — at
+  // merge, reconcile to P1's baseline + these 20 lines (re-measure post-prettier).
+  'map/src/map.ts': 4356,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

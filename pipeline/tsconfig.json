@@ -4,7 +4,16 @@
     "composite": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": []
+    "types": [],
+    // The offline CLI (tools/) + its src/ test consume the .xgcov codec via the barrel-free
+    // '@xgis/data/coverage' subpath, whose canonical home is @xgis/data (A8). A devDependency
+    // + this reference make that dev-time edge explicit and build-ordered; the shipped reader
+    // (src, non-test) stays zero-dep. Point at data's emitted .d.ts (built first via the
+    // reference), NOT its source — a source .ts would land outside pipeline's rootDir (TS6059).
+    "paths": {
+      "@xgis/data/coverage": ["../data/dist/coverage/format.d.ts"]
+    }
   },
+  "references": [{ "path": "../data" }],
   "include": ["src/**/*.ts"]
 }

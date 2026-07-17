@@ -50,6 +50,7 @@ import { detectCapPoles, type CapPoles } from '@xgis/data'
 import * as tilingPool from '@xgis/data'
 import { reprojectFeatureCollection } from '@xgis/data'
 import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
+import { decodeCoverage } from '@xgis/data'
 import { SOURCE_TYPES } from '@xgis/compiler'
 import type { SourceLoader } from './source-loader'
 
@@ -274,6 +275,37 @@ export class SourceManager {
       await this._attachGeoJSONViaVirtualPMTiles(load.name, fc, maps, cameraFitState)
       return
     }
+    // S-100 gridded coverage (#1158 GAP-1). A built-in `type: coverage` source:
+    // fetch the `.xgcov` (same SSRF guard + body cap as the geojson branch),
+    // decode to a CPU-resident CoverageHandle, and store a `{ _coverage }` marker
+    // in rawDatasets (the marker union, map-types.ts). The handle is the value-
+    // readout authority (map.getCoverage(...).valueAt); the renderer owns the GPU
+    // texture separately.
+    // REBASE HAZARD (#1153 P1): this worktree is at clean HEAD, whose _attachOneSource
+    // has no `isStale` staleness probe yet. When P1's isStale threading lands, this
+    // branch MUST thread it and guard the rawDatasets.set below (the marker write
+    // lands after the fetch await), per P1's contract "any NEW attach call site …
+    // MUST thread isStale" — otherwise a superseded run reopens the stale-write hole.
+    if (declaredType === 'coverage') {
+      const response = await safeFetch(url, undefined, `coverage source "${load.name}"`)
+      if (!response.ok)
+        throw new Error(
+          `[X-GIS] Failed to load coverage "${load.name}" from ${url} — HTTP ${response.status}.`,
+        )
+      const rawBytes = await readBodyCapped(
+        response,
+        256 * 1024 * 1024,
+        `coverage source "${load.name}"`,
+      )
+      const buf = rawBytes.buffer.slice(
+        rawBytes.byteOffset,
+        rawBytes.byteOffset + rawBytes.byteLength,
+      )
+      const handle = await decodeCoverage(buf)
+      this.rawDatasets.set(load.name, { _coverage: handle })
+      return
+    }
+
     // Mapbox styles declare `type: vector` / converted to `type: tilejson`
     // for MVT XYZ endpoints whose URL contains the `{z}/{x}/{y}` template.
     // Don't let the template-shape heuristic re-route those into the
