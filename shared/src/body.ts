@@ -24,8 +24,11 @@
 //      40075016.686). EARTH pins the literal; non-Earth bodies derive `2·π·sphereR`
 //      (no golden to protect).
 //   2. `e2` = `f·(2 − f)` — the SAME expression the retired `ecef.ts` E2 used
-//      (= 0.0066943799901413165). This deliberately does NOT equal the GPU-side
-//      WGSL `e2` literal; the CPU/GPU divergence is pre-existing and preserved.
+//      (= 0.0066943799901413165). #1152 INC-3 SINGLE-SOURCED the GPU-side WGSL
+//      `e2` from this value (un-pinned #798 PIN #2): the retired divergent GPU
+//      literal (0.0066943799901975955) folds to the identical f32, so the
+//      compiled shader constant — and the byte-identical Earth golden — is
+//      unchanged (see map/src/body-consts.ts).
 
 /** A celestial body's geodesy constants. Frozen; construct via {@link makeBody}
  *  (non-Earth bodies derive everything) or read the pinned {@link EARTH}. */

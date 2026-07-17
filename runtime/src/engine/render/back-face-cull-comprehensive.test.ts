@@ -21,8 +21,11 @@ import { describe, expect, it, beforeAll } from 'vitest'
 import { cosC, needsBackfaceCullWgsl } from '@xgis/map'
 import { globeEyeUniform } from '@xgis/map'
 import { buildGlobeMatrix } from '@xgis/geo'
+import { EARTH, eyeHorizon } from '@xgis/shared'
 
 const EARTH_R = 6378137
+const EARTH_B = EARTH.b
+const EARTH_E2 = EARTH.e2
 const DEG2RAD = Math.PI / 180
 const MERCATOR_LAT_LIMIT = 85.0511287798066
 
@@ -34,12 +37,24 @@ function lonLatToMerc(lon: number, lat: number): [number, number] {
   return [x, y]
 }
 
-// Sphere ECEF for the eye-horizon ground-truth (matches proj_globe in the shader).
+// Geocentric ray for the nadir test camera (NOT the surface ground truth — a nadir
+// eye just needs a direction from the origin through the centre).
 function lonLatToSphere(lon: number, lat: number): [number, number, number] {
   const lam = lon * DEG2RAD,
     phi = lat * DEG2RAD,
     c = Math.cos(phi)
   return [EARTH_R * c * Math.cos(lam), EARTH_R * c * Math.sin(lam), EARTH_R * Math.sin(phi)]
+}
+
+// #1152 INC-3 — ELLIPSOID ECEF, the eye-horizon ground truth that now matches
+// proj_globe in the shader (N = a/√(1−e2·sin²φ); z = N·(1−e2)·sinφ).
+function lonLatToEllipsoid(lon: number, lat: number): [number, number, number] {
+  const lam = lon * DEG2RAD,
+    phi = lat * DEG2RAD,
+    s = Math.sin(phi),
+    c = Math.cos(phi)
+  const n = EARTH_R / Math.sqrt(1 - EARTH_E2 * s * s)
+  return [n * c * Math.cos(lam), n * c * Math.sin(lam), n * (1 - EARTH_E2) * s]
 }
 
 // A NADIR eye over (clon, clat) at altitude `altR` × EARTH_R. With altR large
@@ -297,15 +312,18 @@ describe('Back-face culling — comprehensive sweep (user request)', () => {
     beforeAll(() => {
       const v = buildGlobeMatrix(clon, clat, 1.1, 85.0, 345.0, 1280, 720)
       eye = v.eye as readonly [number, number, number]
-      const eyeLen = Math.hypot(eye[0], eye[1], eye[2])
-      eyeN = [eye[0] / eyeLen, eye[1] / eyeLen, eye[2] / eyeLen]
-      horizonCos = EARTH_R / eyeLen
+      // #1152 INC-3 — scaled-space ellipsoid horizon (matches proj_globe / the GPU
+      // cull): eyeN / horizonCos from the (a,b) authority; P scaled by (1/a,1/a,1/b).
+      const hz = eyeHorizon(eye, EARTH_R, EARTH_B)
+      eyeN = [hz.eyeN[0], hz.eyeN[1], hz.eyeN[2]]
+      horizonCos = hz.horizonCos
       farCapVisibleBack = (() => {
         for (let lat = -89; lat <= 89; lat += 1) {
           for (let lon = -180; lon < 180; lon += 1) {
-            const p = lonLatToSphere(lon, lat)
-            const pn: [number, number, number] = [p[0] / EARTH_R, p[1] / EARTH_R, p[2] / EARTH_R]
-            const eyeCos = pn[0] * eyeN[0] + pn[1] * eyeN[1] + pn[2] * eyeN[2]
+            const p = lonLatToEllipsoid(lon, lat)
+            const q: [number, number, number] = [p[0] / EARTH_R, p[1] / EARTH_R, p[2] / EARTH_B]
+            const ql = Math.hypot(q[0], q[1], q[2])
+            const eyeCos = (q[0] * eyeN[0] + q[1] * eyeN[1] + q[2] * eyeN[2]) / ql
             const cc = cosC(lon, lat, clon, clat)
             if (eyeCos > horizonCos + 0.02 && cc < -0.02) return { lon, lat }
           }
