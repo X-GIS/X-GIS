@@ -165,7 +165,19 @@ const CEILINGS: Record<string, number> = {
   // Merge (#1174): main's F3/#1167/#1176/extraction chain (→4371) UNION the #1158
   // GAP-1 INC-A coverage API above; ceiling re-measured to the merged file's actual
   // size (wc -l = 4391).
-  'map/src/map.ts': 4391,
+  // 4391→4469 (#1153 P1 lifecycle hardening): the run-epoch token (`_runEpoch` +
+  // `_ctxOwned` + the `_epochStale` single-authority predicate) and its eight
+  // post-await guards across run()/runBinary() (dispose-local pre-publication,
+  // plain-return post-publication), parse-first (the tokenize/parse moved to the
+  // top under a try/catch that fires the typed boot error before any teardown or
+  // gpuInit kickoff), the epoch-guarded device-lost recovery closures (A6), and
+  // the A7 `isStale` thread into the load loop. NET of the D4 extraction: the
+  // shared renderer set moved to scene-renderers.ts (buildSceneRenderers), but the
+  // seven-field assignment at BOTH run() and runBinary() call sites plus the
+  // per-guard constraint comments outweigh the ~30 lines removed. The extraction
+  // itself is the right cut (single authority, also fixes runBinary's missing
+  // shapeRegistry/lineRenderer, #7); the remainder is irreducible in-flow wiring.
+  'map/src/map.ts': 4469,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

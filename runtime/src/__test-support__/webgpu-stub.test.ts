@@ -90,3 +90,72 @@ describe('webgpu-stub', () => {
     expect(bgl.__descriptor.entries).toHaveLength(2)
   })
 })
+
+// ═══ #1153 P1 — freshDevices / deferrable / getContext-null extension (T13) ═══
+describe('webgpu-stub #1153 P1 extension (T13)', () => {
+  it('freshDevices returns a distinct device per requestDevice with counted destroy + per-device flags', async () => {
+    const inst = installWebGPUStub({ freshDevices: true })
+    const adapter = (await navigator.gpu!.requestAdapter())!
+    const d0 = (await adapter.requestDevice()) as unknown as { destroy: () => void }
+    const d1 = (await adapter.requestDevice()) as unknown as { destroy: () => void }
+    expect(d0).not.toBe(d1) // distinct objects
+    expect(inst.createdDevices).toHaveLength(2)
+    expect(inst.createdDevices.every((d) => !d.destroyed)).toBe(true)
+    d0.destroy()
+    expect(inst.createdDevices[0]!.destroyed).toBe(true)
+    expect(inst.createdDevices[1]!.destroyed).toBe(false)
+    expect(inst.callCounts['device.destroy']).toBe(1)
+    d0.destroy() // idempotent — no double count
+    expect(inst.callCounts['device.destroy']).toBe(1)
+    inst.uninstall()
+  })
+
+  it('deferrable requestDevice resolves under caller control', async () => {
+    let release!: () => void
+    const gate = (i: number): Promise<void> =>
+      new Promise<void>((r) => {
+        if (i === 0) release = r
+      })
+    const inst = installWebGPUStub({ freshDevices: true, requestDeviceGate: gate })
+    const adapter = (await navigator.gpu!.requestAdapter())!
+    let resolved = false
+    const p = adapter.requestDevice().then((d) => {
+      resolved = true
+      return d
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(resolved).toBe(false) // parked at the gate
+    release()
+    await p
+    expect(resolved).toBe(true)
+    inst.uninstall()
+  })
+
+  it('DEFAULT install is unchanged — shared singleton, uncounted no-op destroy, empty createdDevices', async () => {
+    const inst = installWebGPUStub()
+    const adapter = (await navigator.gpu!.requestAdapter())!
+    const d0 = (await adapter.requestDevice()) as unknown as { destroy: () => void }
+    const d1 = (await adapter.requestDevice()) as unknown as { destroy: () => void }
+    expect(d0).toBe(d1) // one shared singleton
+    expect(inst.createdDevices).toHaveLength(0) // not tracked in default mode
+    d0.destroy()
+    expect(inst.callCounts['device.destroy']).toBeUndefined() // uncounted no-op
+    inst.uninstall()
+  })
+
+  it('webgpuContextNull makes canvas.getContext("webgpu") return null', () => {
+    const inst = installWebGPUStub({ webgpuContextNull: true })
+    if (typeof HTMLCanvasElement === 'undefined') {
+      ;(globalThis as { HTMLCanvasElement?: unknown }).HTMLCanvasElement = class {
+        getContext(): unknown {
+          return null
+        }
+      } as never
+    }
+    const canvas = {} as HTMLCanvasElement
+    Object.setPrototypeOf(canvas, HTMLCanvasElement.prototype)
+    expect(canvas.getContext('webgpu')).toBeNull()
+    inst.uninstall()
+  })
+})

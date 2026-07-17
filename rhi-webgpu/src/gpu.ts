@@ -157,47 +157,58 @@ export async function createWebGpuContext(
     requiredFeatures.length > 0 ? { requiredFeatures } : undefined,
   )
 
-  const context = canvas.getContext('webgpu')
-  if (!context) throw new Error('Failed to get WebGPU context')
+  // #1153 P1 (#5) — the device is minted but unowned until the GPUContext
+  // bundle below wraps it. Every failure exit in between (getContext null,
+  // context.configure throw, the rhi-webgpu chunk-load reject, the WebGpuDevice
+  // ctor) must reclaim it or it leaks for the page lifetime. Destroy then
+  // rethrow the ORIGINAL error; the success path is unchanged.
+  let ctx: GPUContext
+  try {
+    const context = canvas.getContext('webgpu')
+    if (!context) throw new Error('Failed to get WebGPU context')
 
-  // getPreferredCanvasFormat() is typed GPUTextureFormat but only ever returns
-  // 'bgra8unorm' | 'rgba8unorm' — both members of RhiTextureFormat, which is
-  // GPUContext.format's type (extends RenderContext). Cast is safe.
-  const format = navigator.gpu.getPreferredCanvasFormat() as RhiTextureFormat
-  // Colour pipeline (DELIBERATE — verified by the 2026-06 rendering audit, not a
-  // gap): the canvas uses the preferred NON-srgb unorm format with NO `-srgb`
-  // view. Shaders emit sRGB-encoded colours directly (hexToRgba → 0..1 sRGB, no
-  // linearisation), so solid fills display 1:1. The trade-off is that ALPHA
-  // BLENDING runs in sRGB (perceptual) space rather than linear — technically
-  // "gamma-incorrect" per WebGPU best practice, but it is exactly what MapLibre
-  // GL JS and the wider web-map ecosystem do, and X-GIS is pixel-matched against
-  // MapLibre. Switching to gamma-correct linear blending (render through an
-  // `-srgb` view + linear colours) would DIVERGE from that baseline and require
-  // re-tuning every halo/translucency — so it is intentionally NOT done here.
-  context.configure({ device, format, alphaMode: 'premultiplied' })
+    // getPreferredCanvasFormat() is typed GPUTextureFormat but only ever returns
+    // 'bgra8unorm' | 'rgba8unorm' — both members of RhiTextureFormat, which is
+    // GPUContext.format's type (extends RenderContext). Cast is safe.
+    const format = navigator.gpu.getPreferredCanvasFormat() as RhiTextureFormat
+    // Colour pipeline (DELIBERATE — verified by the 2026-06 rendering audit, not a
+    // gap): the canvas uses the preferred NON-srgb unorm format with NO `-srgb`
+    // view. Shaders emit sRGB-encoded colours directly (hexToRgba → 0..1 sRGB, no
+    // linearisation), so solid fills display 1:1. The trade-off is that ALPHA
+    // BLENDING runs in sRGB (perceptual) space rather than linear — technically
+    // "gamma-incorrect" per WebGPU best practice, but it is exactly what MapLibre
+    // GL JS and the wider web-map ecosystem do, and X-GIS is pixel-matched against
+    // MapLibre. Switching to gamma-correct linear blending (render through an
+    // `-srgb` view + linear colours) would DIVERGE from that baseline and require
+    // re-tuning every halo/translucency — so it is intentionally NOT done here.
+    context.configure({ device, format, alphaMode: 'premultiplied' })
 
-  // The chosen backend's RHI device (this is the WebGPU path → WebGpuDevice over `device`).
-  // Lazy-imported like the WebGl2Device factory above so gpu.ts (layer 1) stays off a STATIC
-  // upward import edge to the render layer (rhi-webgpu is L3); `initGPU` is async, so the
-  // one-time dynamic import is free. This is the SINGLE backend device every renderer routes
-  // through (ctx.rhi) — no renderer self-instantiates `new WebGpuDevice`.
-  const { WebGpuDevice } = await import('./rhi-webgpu')
+    // The chosen backend's RHI device (this is the WebGPU path → WebGpuDevice over `device`).
+    // Lazy-imported like the WebGl2Device factory above so gpu.ts (layer 1) stays off a STATIC
+    // upward import edge to the render layer (rhi-webgpu is L3); `initGPU` is async, so the
+    // one-time dynamic import is free. This is the SINGLE backend device every renderer routes
+    // through (ctx.rhi) — no renderer self-instantiates `new WebGpuDevice`.
+    const { WebGpuDevice } = await import('./rhi-webgpu')
 
-  // Build the GPUContext bundle BEFORE wiring the validation
-  // handler so the handler can push into the per-context queue
-  // (tests read `ctx._validationErrors` to assert no errors fired).
-  const ctx: GPUContext = {
-    device,
-    context,
-    format,
-    canvas,
-    sampleCount: boot.sampleCount,
-    rhi: new WebGpuDevice(device, context),
-    timestampQuerySupported,
-    timestampInsidePassesSupported,
-    float32FilterableSupported,
-    _validationErrors: [],
-    deviceLost: false,
+    // Build the GPUContext bundle BEFORE wiring the validation
+    // handler so the handler can push into the per-context queue
+    // (tests read `ctx._validationErrors` to assert no errors fired).
+    ctx = {
+      device,
+      context,
+      format,
+      canvas,
+      sampleCount: boot.sampleCount,
+      rhi: new WebGpuDevice(device, context),
+      timestampQuerySupported,
+      timestampInsidePassesSupported,
+      float32FilterableSupported,
+      _validationErrors: [],
+      deviceLost: false,
+    }
+  } catch (e) {
+    device.destroy()
+    throw e
   }
 
   // Device-loss guard: flip the flag (the render loop reads it and stops
