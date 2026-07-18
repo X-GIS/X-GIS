@@ -257,7 +257,7 @@ export class PipelineFactory {
       shader: wgsl,
       format,
       sampleCount: getSampleCount(),
-      bindGroupLayout: this.getOrBuildVariantLayout(variant),
+      bindGroupLayout: this._layoutFor(variant), // compute-aware, not base (#1189)
       vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT),
       pickEnabled: isPickEnabled(),
     })
