@@ -151,7 +151,12 @@ const CEILINGS: Record<string, number> = {
   // 4446→4447 (#1176 pick pre-gate, merged): the anyLayerListens dep wired at
   // the composition root so fireOnce skips the GPU pick readback when nobody
   // listens (§2 wiring, nothing extract-worthy).
-  'map/src/map.ts': 4447,
+  // 4447→4371 (a11y + webgpu-unavailable extraction): the P0-7 accessibility
+  // trio (_setupAccessibility / _injectFocusStyle / _onKeyDown) moved to
+  // map-accessibility.ts and the WebGPU-unavailable DOM builder moved to
+  // map-webgpu-unavailable.ts (both free-function modules); map keeps only thin
+  // wrappers. Pure mechanical extraction, identical runtime behaviour.
+  'map/src/map.ts': 4371,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

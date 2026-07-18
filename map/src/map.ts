@@ -60,6 +60,8 @@ import { QUALITY, updateQuality, type QualityConfig } from '@xgis/engine'
 import { GPUTimer } from '@xgis/rhi-webgpu'
 import { Camera } from './camera'
 import { CameraController } from './camera-controller'
+import { injectFocusStyle, setupCanvasA11y, handleMapKeyDown } from './map-accessibility'
+import { showWebGPUUnavailableDefault } from './map-webgpu-unavailable'
 import { ViewportModeController } from './render/viewport-mode-controller'
 import { SourceManager } from './source-manager'
 import { InteractionController } from './interaction-controller'
@@ -1150,93 +1152,29 @@ export class XGISMap {
    *  `typeof document === 'undefined'` guard in
    *  `_showWebGPUUnavailableDefault`. */
   private _setupAccessibility(ariaLabel?: string): void {
-    const canvas = this.canvas
-    if (typeof document === 'undefined') return
-    if (
-      !canvas ||
-      typeof canvas.setAttribute !== 'function' ||
-      typeof canvas.addEventListener !== 'function'
-    )
-      return
-    // Focusable + named for assistive tech. Only set tabIndex if the host
-    // hasn't already made it focusable, so an embedder's explicit choice
-    // (e.g. tabindex=-1 to drive focus programmatically) is preserved.
-    if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0
-    if (!canvas.hasAttribute('role')) canvas.setAttribute('role', 'region')
-    if (!canvas.hasAttribute('aria-label')) canvas.setAttribute('aria-label', ariaLabel ?? 'Map')
-    // Marker the shared focus-ring stylesheet targets (independent of the
-    // role/aria-label values, which a host may override).
-    canvas.setAttribute('data-xgis-map', '')
-    XGISMap._injectFocusStyle()
+    // Free-function logic lives in map-accessibility.ts (§2 god-file split);
+    // map keeps only the handler ref so destroy() can detach the listener.
     const handler = (e: KeyboardEvent) => this._onKeyDown(e)
-    this._keyDownHandler = handler
-    canvas.addEventListener('keydown', handler)
-  }
-
-  /** Inject a single shared stylesheet that draws a focus ring on any
-   *  X-GIS canvas — only when keyboard-driven (`:focus-visible`), so a
-   *  pointer click doesn't show the ring. Module-once via a guard flag;
-   *  targets the `data-xgis-map` marker `_setupAccessibility` sets, which
-   *  is stable even if the host overrides role / aria-label. */
-  private static _focusStyleInjected = false
-  private static _injectFocusStyle(): void {
-    if (XGISMap._focusStyleInjected) return
-    if (typeof document === 'undefined' || !document.head) return
-    XGISMap._focusStyleInjected = true
-    const style = document.createElement('style')
-    style.setAttribute('data-xgis-a11y', '')
-    style.textContent =
-      'canvas[data-xgis-map]:focus-visible{' + 'outline:3px solid #4d90fe;outline-offset:2px;}'
-    document.head.appendChild(style)
-  }
-
-  /** Keyboard pan/zoom (P0-7). Arrow keys pan, `+`/`=` zoom in, `-`/`_`
-   *  zoom out, Shift accelerates the pan. Routes through the shared
-   *  `cameraController` (same path as drag/wheel) so the render-loop
-   *  camera-diff fires `move`/`moveend`/`zoom*` for free. `preventDefault`
-   *  is called ONLY for keys we act on, and we bail when an unhandled
-   *  modifier (Ctrl/Alt/Meta) is held so we don't steal browser shortcuts. */
-  private _onKeyDown(e: KeyboardEvent): void {
-    if (this._destroyed) return
-    // Leave browser / OS chords (Ctrl+, Alt+, Cmd+) alone. Shift is the
-    // only modifier we consume (fast pan).
-    if (e.ctrlKey || e.altKey || e.metaKey) return
-    // prefers-reduced-motion: keyboard pan/zoom are already instant jumps
-    // (no transition infra), so there is nothing to suppress; honored here
-    // as a forward-looking guard for when easeTo/flyTo gain animation.
-    const PAN_PX = 80
-    const FAST_PX = 320
-    const step = e.shiftKey ? FAST_PX : PAN_PX
-    switch (e.key) {
-      case 'ArrowUp':
-        this.cameraController.panBy([0, -step])
-        break
-      case 'ArrowDown':
-        this.cameraController.panBy([0, step])
-        break
-      case 'ArrowLeft':
-        this.cameraController.panBy([-step, 0])
-        break
-      case 'ArrowRight':
-        this.cameraController.panBy([step, 0])
-        break
-      case '+':
-      case '=':
-        this.cameraController.zoomIn()
-        break
-      case '-':
-      case '_':
-        this.cameraController.zoomOut()
-        break
-      default:
-        return // not a key we handle — leave default behaviour intact
+    // Latch the handler ref + inject the focus style ONLY when the listener
+    // actually attached (real DOM canvas) — a bare unit-test mock returns
+    // false, so `_keyDownHandler` stays null and destroy() skips removeEventListener.
+    if (setupCanvasA11y(this.canvas, ariaLabel, handler)) {
+      this._keyDownHandler = handler
+      injectFocusStyle()
     }
-    e.preventDefault()
-    // Mirror the pointer-gesture bookkeeping (onPointerDown): the user has
-    // taken control of the camera, so the post-compile bounds auto-fit must
-    // not clobber it, and the interaction-DPR path can kick in.
-    this._cameraExplicitlyPositioned = true
-    this.markInteracting()
+  }
+
+  /** Keyboard pan/zoom (P0-7) — thin delegate to handleMapKeyDown
+   *  (map-accessibility.ts). */
+  private _onKeyDown(e: KeyboardEvent): void {
+    handleMapKeyDown(e, {
+      destroyed: this._destroyed,
+      camera: this.cameraController,
+      onInteract: () => {
+        this._cameraExplicitlyPositioned = true
+        this.markInteracting()
+      },
+    })
   }
 
   /** Toggle the lat/lon grid overlay. Default off. Forwards to the viewport
@@ -1339,22 +1277,8 @@ export class XGISMap {
    *  there is no Canvas 2D / WebGL fallback). The host can override this by
    *  registering onWebGPUUnavailable(). */
   private _showWebGPUUnavailableDefault(): void {
-    const msg = 'This map requires a WebGPU-capable browser (latest Chrome/Edge, or Safari 18+).'
-
-    console.warn('[X-GIS] ' + msg + ' Register onWebGPUUnavailable() to customize this.')
-    if (typeof document === 'undefined') return
-    const parent = this.canvas?.parentElement
-    if (!parent || parent.querySelector('[data-xgis-webgpu-unavailable]')) return
-    const el = document.createElement('div')
-    el.setAttribute('data-xgis-webgpu-unavailable', '')
-    el.setAttribute('role', 'alert')
-    el.textContent = msg
-    el.style.cssText =
-      'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;' +
-      'text-align:center;padding:1rem;box-sizing:border-box;' +
-      'font:14px/1.5 system-ui,-apple-system,sans-serif;color:#e5e7eb;background:#111827;'
-    if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative'
-    parent.appendChild(el)
+    // DOM-building body lives in map-webgpu-unavailable.ts (§2 god-file split).
+    showWebGPUUnavailableDefault(this.canvas)
   }
 
   /** Mapbox-API parity: return the underlying canvas element.
