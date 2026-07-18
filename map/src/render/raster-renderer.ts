@@ -240,7 +240,7 @@ export class RasterRenderer {
     return (this._rasterDraper ??= new RasterDraper(
       this.rhi,
       this.format,
-      this.rhi.backend === 'webgl2' ? 1 : getSampleCount(),
+      Math.min(getSampleCount(), this.rhi.caps.maxSampleCount),
     ))
   }
 
