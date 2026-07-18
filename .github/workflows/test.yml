@@ -586,4 +586,16 @@ jobs:
         # _globe-hash-camera-gate: a globe hash camera must render from the requested
         # latitude — asserts camera.centerLatDeg == hash lat (the #799/#800/#803 desync,
         # a non-raster invariant) + #803 land coverage under ?forcegl2=1 (blank→covered).
-        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-mouse-interaction.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _globe-hash-camera-gate.spec.ts
+        # _polygon-fill-flat-pixel-gate: the RASTER counterpart of _polygon-fill-flat-parity
+        # (which is compute-only) — boots fixture_square / fixture_stroke_fill /
+        # fixture_fill_pattern and asserts the flat-Mercator fill INTERIOR actually paints
+        # under SwiftShader-WebGPU, with a same-frame amber-stroke positive control so a red
+        # gate means "fill missing", not "boot failure" (#1127 / #1168). This is a WebGPU
+        # RASTER gate (default backend, not ?forcegl2=1) — the _fills-gl2-gate precedent
+        # shows raster+readback runs under SwiftShader; verified green locally on
+        # chromium-1194 with wide margins (interior 9600/9600 px). NOTE: it fires on the
+        # render filter (map / runtime / shaders / playground / …) but NOT on an
+        # rhi-webgpu-only PR — rhi-webgpu is excluded from the render filter (see the
+        # `changes` job), so a WebGpuDevice-only change won't trip it. Add rhi-webgpu to the
+        # render filter if that gap matters.
+        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-mouse-interaction.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _globe-hash-camera-gate.spec.ts
