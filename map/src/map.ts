@@ -291,10 +291,10 @@ export class XGISMap {
       }
     },
     hasPendingSourceWork: () => this.hasPendingSourceWork(),
-    // #1167 — desktop-only burst. Mobile-class viewports keep the steady 4/1
-    // pacing (the burst's raised caps push a phone's first frame / TTFM out).
-    // Same `isMobileClassViewport(window.innerWidth)` signal the burst upload cap
-    // reads (upload-coordinator.ts), so the enter-gate and the cap agree.
+    // #1167 — desktop-only burst: a CONSERVATIVE default, not a measured mobile
+    // regression (the +262 ms it once cited did not survive a permutation test;
+    // the desktop convergence win did). Same `isMobileClassViewport(window.
+    // innerWidth)` signal the burst upload cap reads, so gate and cap agree.
     viewportEligible: () =>
       !(typeof window !== 'undefined' && isMobileClassViewport(window.innerWidth)),
   })

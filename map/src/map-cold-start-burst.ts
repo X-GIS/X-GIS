@@ -49,11 +49,14 @@ export interface ColdStartBurstDeps {
    *  last-frame missed tiles). The idle hysteresis reads this each tick. */
   hasPendingSourceWork: () => boolean
   /** #1167 — viewport-class gate. Burst engages ONLY when this returns true.
-   *  Returns false on mobile-class viewports: the raised caps overload a phone's
-   *  narrow per-frame budget and push the FIRST frame (= TTFM) out (+262 ms
-   *  measured on RTX 2080 mobile emulation, #1167), so mobile keeps the steady
-   *  4/1 pacing and never enters burst. Defaults to always-eligible (the
-   *  device-free unit tests have no viewport). */
+   *  Returns false on mobile-class viewports, so mobile keeps the steady 4/1
+   *  pacing and never enters burst. This is a CONSERVATIVE default, not a measured
+   *  regression: burst's convergence win is desktop-only and significant (exact
+   *  permutation p≈0.004), while the mobile TTFM "regression" it originally guarded
+   *  did NOT survive a proper permutation test (p≈0.57 — the ~1 s per-arm scatter
+   *  dwarfed the gap), so a phone simply keeps the pacing that cannot cost it a
+   *  frame. Revisit on a real device (the guard is precautionary, not proven).
+   *  Defaults to always-eligible (device-free unit tests have no viewport). #1167. */
   viewportEligible?: () => boolean
   /** Non-rAF wall-clock timer for the hard cap (defaults to setTimeout /
    *  clearTimeout). The cap must NOT ride rAF — a hidden/occluded tab throttles

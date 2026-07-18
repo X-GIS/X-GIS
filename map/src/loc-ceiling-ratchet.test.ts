@@ -142,11 +142,13 @@ const CEILINGS: Record<string, number> = {
   // source-manager registrations route through `_registerVtSource` (single
   // write authority) so a source attached mid-burst inherits the flags.
   // 4411→4446 (#1167 F3 real-GPU adjudication): desktop-only burst gate
-  // (`viewportEligible` deps closure — mobile keeps steady 4/1, +262 ms TTFM
-  // regression fix) + the visibilitychange backstop (`_burstVisibilityHandler`
-  // field + `_enterColdStartBurst` helper that arms it, destroy() removes it) so
-  // a hidden tab reclaims the shared pool's raised drain cap at once. The
-  // non-rAF wall-clock timer that makes the 10 s cap real lives in the extracted
+  // (`viewportEligible` deps closure — mobile keeps steady 4/1 as a CONSERVATIVE
+  // default; the mobile regression it originally guarded was not statistically
+  // established under a permutation test, but the desktop convergence win was)
+  // + the visibilitychange backstop (`_burstVisibilityHandler` field +
+  // `_enterColdStartBurst` helper that arms it, destroy() removes it) so a hidden
+  // tab reclaims the shared pool's raised drain cap at once. The non-rAF
+  // wall-clock timer that makes the 10 s cap real lives in the extracted
   // controller (map-cold-start-burst.ts), not here.
   // 4446→4447 (#1176 pick pre-gate, merged): the anyLayerListens dep wired at
   // the composition root so fireOnce skips the GPU pick readback when nobody
